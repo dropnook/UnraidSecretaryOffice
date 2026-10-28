@@ -12,6 +12,8 @@ declare(strict_types=1);
  *   - Gone: an app none of whose containers is there (stopped is there) and none of whose images either (an image alone
  *     may be an app about to be made again); a VM without a definition in libvirt. Docker or libvirt not answering:
  *     nothing of that kind is gone (unknown is never gone).
+ *   - Nor in the engine's current plan (2026-10-28): an app setup-plan.json still names (an [app] section not gone, a
+ *     proposed app|<name>| key) or a VM it lists is never gone — the engine means to back it up.
  *   - Moved (owner 2026-10-17): a stale package whose app is now backed up under another name - a Compose stack removed
  *     and made again as another stack, a reinstall with renamed containers. Another app's package written by the last
  *     run holds all its containers (by name: «same containers») or all its own folders (manifest `dirs` inside a share,
@@ -62,10 +64,12 @@ function backupGoneImageRef(string $ref): string
  * libvirt list now (null: not answering - nothing of that kind is gone). An app is gone when its manifest names
  * containers, none of them is there and none of their images (by id or name); a VM when libvirt has no VM of its name.
  * Moved (the manifests alone, Docker not asked): a stale package whose app another app's current package now backs up.
+ * $planned: the apps and VMs the engine's current plan names (backupGonePlanned(); null: no plan) — never gone.
  *
+ * @param ?array{apps: list<string>, vms: list<string>} $planned
  * @return list<array{kind: string, folder: string, name: string, path: string, time: ?int, moved_to?: string, signal?: string}>
  */
-function backupGonePackages(array $pk, ?array $containers, ?array $images, ?array $vms): array
+function backupGonePackages(array $pk, ?array $containers, ?array $images, ?array $vms, ?array $planned = null): array
 {
     if (!empty($pk['asleep']) || empty($pk['found'])) {
         return [];
@@ -120,7 +124,42 @@ function backupGonePackages(array $pk, ?array $containers, ?array $images, ?arra
             }
         }
     }
+    if ($planned !== null) {
+        $in = ['app' => array_flip($planned['apps'] ?? []), 'vm' => array_flip($planned['vms'] ?? [])];
+        $out = array_values(array_filter($out, fn ($g) => !isset($in[$g['kind']][$g['name']]) && !isset($in[$g['kind']][$g['folder']])));
+    }
     return $out;
+}
+
+/**
+ * The apps and VMs the engine's current plan names (state/setup-plan.json — only entries in exactly its shape): an [app]
+ * section it doesn't call gone, an app of a proposed app|<name>|<key>, a VM it lists. No plan: null.
+ *
+ * @return ?array{apps: list<string>, vms: list<string>}
+ */
+function backupGonePlanned(?string $file = null): ?array
+{
+    $plan = readJson($file ?? BACKUP_DATA_DIR . '/state/setup-plan.json');
+    if (!is_array($plan)) {
+        return null;
+    }
+    $apps = $vms = [];
+    foreach (is_array($plan['apps'] ?? null) ? $plan['apps'] : [] as $a) {
+        if (is_array($a) && is_string($a['name'] ?? null) && $a['name'] !== '' && ($a['gone'] ?? false) !== true) {
+            $apps[] = $a['name'];
+        }
+    }
+    foreach (is_array($plan['P'] ?? null) ? array_keys($plan['P']) : [] as $k) {
+        if (preg_match('/^app\|(.+)\|[a-z_]+$/D', (string) $k, $m)) {
+            $apps[] = $m[1];
+        }
+    }
+    foreach (is_array($plan['vms'] ?? null) ? $plan['vms'] : [] as $v) {
+        if (is_array($v) && is_string($v['name'] ?? null) && $v['name'] !== '') {
+            $vms[] = $v['name'];
+        }
+    }
+    return ['apps' => array_values(array_unique($apps)), 'vms' => array_values(array_unique($vms))];
 }
 
 /** The gone packages of the backup place as it is now (backupPackages(), cheap: Docker's lists only when an app may be gone) */
@@ -135,7 +174,7 @@ function backupGoneList(array $pk): array
     $maybe = $cts !== null && array_filter((array) $pk['apps'], fn ($a) => !array_intersect(array_column((array) ($a['containers'] ?? []), 'name'), $cts));
     $imgs = $maybe ? ($host['images'])() : ($cts !== null ? [] : null);
     $vms = ($pk['vms'] ?? []) ? ($host['vms'])() : null;
-    return backupGonePackages($pk, $cts, $imgs, $vms);
+    return backupGonePackages($pk, $cts, $imgs, $vms, array_key_exists('gonePlanned', $GLOBALS) ? $GLOBALS['gonePlanned'] : backupGonePlanned());
 }
 
 /**

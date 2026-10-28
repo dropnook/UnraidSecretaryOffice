@@ -53905,6 +53905,16 @@ function testBackupGonePackage(): void
         [array_map(fn ($g) => [$g['kind'], $g['folder']], backupGonePackages($pk, null, null, ['win11'])),
          array_map(fn ($g) => [$g['kind'], $g['folder']], backupGonePackages($pk, $containers, $images, null)),
          backupGonePackages(['asleep' => true] + $pk, $containers, $images, [])]);
+    // 2026-10-28: nor in the engine's current plan — an app or VM setup-plan.json still names is never gone
+    same('gone package: an app or VM the engine\'s current plan names is never gone (by name or folder)', [[], [['vm', 'oldvm']]],
+        [array_map(fn ($g) => [$g['kind'], $g['folder']], backupGonePackages($pk, $containers, $images, ['win11'], ['apps' => ['zz-uso-test-db'], 'vms' => ['oldvm']])),
+         array_map(fn ($g) => [$g['kind'], $g['folder']], backupGonePackages($pk, $containers, $images, ['win11'], ['apps' => ['zz-uso-test-db'], 'vms' => []]))]);
+    file_put_contents("$tmp/plan.json", json_encode(['P' => ['app|newapp|folder' => 'appdata/newapp', 'share|Docs|mode' => 'local', 'app|bad' => 'x'],
+        'apps' => [['name' => 'kept', 'gone' => false, 'keys' => []], ['name' => 'zz-uso-test-db', 'gone' => true, 'keys' => []], 'junk', ['name' => 7]],
+        'vms' => [['name' => 'win11'], ['name' => ''], 'oldvm']]));
+    same('gone package: the plan\'s apps (not gone), proposed app keys, its VMs — only entries in exactly its shape; no plan: null',
+        [['apps' => ['kept', 'newapp'], 'vms' => ['win11']], null], [backupGonePlanned("$tmp/plan.json"), backupGonePlanned("$tmp/none.json")]);
+    $GLOBALS['gonePlanned'] = null;
     $asked = [];
     $GLOBALS['goneHost'] = ['containers' => function () use (&$asked, $containers) { $asked[] = 'containers'; return $containers; },
                             'images' => function () use (&$asked, $images) { $asked[] = 'images'; return $images; },
@@ -53999,7 +54009,7 @@ function testBackupGonePackage(): void
     check('gone package: the page shows each with «Into the storeroom» on a fresh look, the action asked with kind and folder',
         str_contains($desk, "Office.api.post(`\${ID}.package_aside`, { kind: g.kind, folder: g.folder })") && str_contains($desk, "if (!(await Office.freshState(ID))) return;\n  const g = goneOf(g0.kind, g0.folder);")
         && str_contains($agent, "'package_aside' => fn (array \$r) => backupPackageAside(\$r),") && str_contains($agent, "'packages_gone' => backupGoneList(\$pk),"));
-    unset($GLOBALS['goneHost'], $GLOBALS['goneplace'], $GLOBALS['gonePackages'], $GLOBALS['goneRoots'], $GLOBALS['disksIni'], $GLOBALS['letgoUbData'], $GLOBALS['letgoDir'],
+    unset($GLOBALS['goneHost'], $GLOBALS['gonePlanned'], $GLOBALS['goneplace'], $GLOBALS['gonePackages'], $GLOBALS['goneRoots'], $GLOBALS['disksIni'], $GLOBALS['letgoUbData'], $GLOBALS['letgoDir'],
         $GLOBALS['letgoHost'], $GLOBALS['drill']['job_file']);
     hardeningRm($tmp);
 }
