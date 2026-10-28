@@ -132,7 +132,7 @@ _st_agent_pid() { jq -r '.started // empty' "$RUN/agent.json" 2>/dev/null; }
 state_rn_agent_restart_midrequest() { local dir pid f=$P/agent/agent.php
     dir=$(_st_dir RN-AGENT-RESTART-MIDREQUEST)
     [[ -f $f ]] || { say "RN-AGENT-RESTART-MIDREQUEST: no $f"; return 1; }
-    stat -c %Y "$f" > "$dir/agent.mtime"; _st_agent_pid > "$dir/agent.pid"; rm -f "$dir/fired"
+    stat -c %Y "$f" > "$dir/agent.mtime"; _st_agent_pid > "$dir/agent.pid"; rm -f "$dir/fired" "$dir/watch.err"
     # the agent takes a request within milliseconds (its doorbell): inotify sees the request land (the page writes
     # .<id>.tmp and renames it to <id>.request), polling would miss it
     command -v inotifywait >/dev/null || { say "needs inotifywait"; return 2; }
@@ -141,9 +141,16 @@ state_rn_agent_restart_midrequest() { local dir pid f=$P/agent/agent.php
         while read -r n; do
             [[ $n == *.request ]] || continue
             touch "$f"; date +%s > "$dir/fired"; logger -t uso-scenarios "agent restart while a request waits"; break
-        done < <(timeout 1800 inotifywait -q -m -e moved_to -e create --format %f "$box")
-        pkill -f "inotifywait -q -m -e moved_to -e create --format %f $box"' uso-midreq-watch "$D/mailbox" "$f" "$dir")
+        done < <(timeout 1800 inotifywait -m -e moved_to -e create --format %f "$box" 2>"$dir/watch.err")
+        pkill -f "inotifywait -m -e moved_to -e create --format %f $box"' uso-midreq-watch "$D/mailbox" "$f" "$dir")
     printf '%s\n' "$pid" > "$dir/watch.pid"
+    # armed only once its watch is set: the flow's request follows within the same second, and a watch set after it
+    # waits for the next request — the touch 2 min late, the agent «not back» (Tower 2026-10-27/28, twice in a row)
+    local n=0
+    until grep -q 'Watches established' "$dir/watch.err" 2>/dev/null; do
+        ((++n > 100)) && { say "RN-AGENT-RESTART-MIDREQUEST: inotifywait set no watch in 10 s"; return 2; }
+        sleep 0.1
+    done
     say "RN-AGENT-RESTART-MIDREQUEST: armed (watcher pid $pid) — agent.php is touched when the next request arrives"; }
 undo_rn_agent_restart_midrequest() { local dir pid; dir=$(_st_dir RN-AGENT-RESTART-MIDREQUEST)
     [[ -f $dir/watch.pid ]] && { pid=$(cat "$dir/watch.pid"); kill "$pid" 2>/dev/null; rm -f "$dir/watch.pid"; }
@@ -156,7 +163,7 @@ undo_rn_agent_restart_midrequest() { local dir pid; dir=$(_st_dir RN-AGENT-RESTA
     elif [[ -f $dir/agent.mtime ]]; then
         touch -d "@$(cat "$dir/agent.mtime")" "$P/agent/agent.php"
     fi
-    rm -f "$dir/fired" "$dir/agent.mtime" "$dir/agent.pid"; }
+    rm -f "$dir/fired" "$dir/agent.mtime" "$dir/agent.pid" "$dir/watch.err"; }
 
 _st_resync() { /usr/local/sbin/mdcmd status | awk -F= '$1 == "mdResyncPos" { print $2 }'; }
 parity_start() {
