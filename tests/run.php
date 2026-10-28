@@ -5984,6 +5984,21 @@ function testMenuName(): void
         check('menu name refused: ' . json_encode($bad), !officeMenuNameValid($bad));
     }
     check('menu name: 15 characters (umlauts count once)', officeMenuNameValid('Büroküche Ölmü'));
+    // without a choice the office's word in Unraid's language (1.74.5: «Sekretariat» on English servers before)
+    same('menu default by Unraid\'s language', ['Office', 'Sekretariat', 'Segreteria', 'Secrétariat', 'Secretaría', 'Office'],
+        array_map('officeMenuDefault', ['en', 'de', 'it', 'fr', 'es', 'nl']));
+    check('menu default: every one fit for the menu bar', array_filter(OFFICE_MENU_DEFAULTS, 'officeMenuNameValid') === OFFICE_MENU_DEFAULTS);
+    $langs = array_map(fn ($f) => basename($f, '.json'), glob(dirname(__DIR__) . '/public/lang/*.json') ?: []);
+    $words = array_keys(OFFICE_MENU_DEFAULTS);
+    sort($langs);
+    sort($words);
+    same('menu default: one per office language', $langs, $words);
+    $cfg = sys_get_temp_dir() . '/office-tests-menu-dyn-' . getmypid() . '.cfg';
+    file_put_contents($cfg, "[display]\nlocale=\"fr_FR\"\n");
+    same('menu default: from dynamix.cfg\'s locale', 'Secrétariat', officeMenuDefault(officeUnraidLang($cfg)));
+    @unlink($cfg);
+    $ct = (string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php');
+    check('menu name kept only when it isn\'t the language\'s default', str_contains($ct, 'if ($name !== officeMenuDefault()) {'));
 
     $tmp = sys_get_temp_dir() . '/office-tests-menu-' . getmypid();
     @mkdir($tmp, 0700, true);

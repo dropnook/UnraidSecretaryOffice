@@ -151,11 +151,15 @@ function officeRunDir(): string
  * Unraid reads .page files on every request, so a change shows after a
  * reload. The user's choice is MENU_NAME and MENU_PLACE in the plugin's .cfg
  * on the flash; the pages in RAM get it again at every install and boot (the
- * .plg) and when it changes (the caretaker's action menu_name).
+ * .plg) and when it changes (the caretaker's action menu_name). Without a
+ * choice the label is the office's word in the language Unraid runs in
+ * (1.74.5: «Sekretariat» on every server before).
  */
-const OFFICE_MENU_PAGE    = 'SecretaryOffice.page';
-const OFFICE_BUTTON_PAGE  = 'SecretaryOfficeButton.page';
-const OFFICE_MENU_DEFAULT = 'Sekretariat';
+require_once __DIR__ . '/words.php';
+const OFFICE_MENU_PAGE     = 'SecretaryOffice.page';
+const OFFICE_BUTTON_PAGE   = 'SecretaryOfficeButton.page';
+const OFFICE_MENU_DEFAULT  = 'Sekretariat';     // the label in the repository's page
+const OFFICE_MENU_DEFAULTS = ['en' => 'Office', 'de' => 'Sekretariat', 'it' => 'Segreteria', 'fr' => 'Secrétariat', 'es' => 'Secretaría'];
 const OFFICE_MENU_MAX     = 15;
 const OFFICE_MENU_PLACES  = ['menu' => 'Tasks:85', 'settings' => 'Utilities', 'button' => null];
 
@@ -165,12 +169,18 @@ function officeMenuNameValid(string $name): bool
     return mb_strlen($name) <= OFFICE_MENU_MAX && preg_match('/^[\p{L}\p{N}](?:[\p{L}\p{N} .&+_-]*[\p{L}\p{N}.])?$/uD', $name) === 1;
 }
 
+/** The label without a choice: the office's word in Unraid's language, English for any other */
+function officeMenuDefault(?string $lang = null): string
+{
+    return OFFICE_MENU_DEFAULTS[$lang ?? officeUnraidLang()] ?? OFFICE_MENU_DEFAULTS['en'];
+}
+
 /** The label the user chose, else the default */
 function officeMenuName(): string
 {
     $cfg = @parse_ini_file(OFFICE_PLUGIN_CFG) ?: [];
     $name = trim((string) ($cfg['MENU_NAME'] ?? ''));
-    return officeMenuNameValid($name) ? $name : OFFICE_MENU_DEFAULT;
+    return officeMenuNameValid($name) ? $name : officeMenuDefault();
 }
 
 /** Where the office shows in Unraid: 'menu' (its own entry in the menu bar, the default) or 'settings' */

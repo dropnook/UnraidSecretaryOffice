@@ -60,7 +60,7 @@ function officePageConfig(): array
     $config['csrf'] = (string) ($var['csrf_token'] ?? '');
     $config['array'] = (string) ($var['fsState'] ?? '');     // Started, Stopped, Starting …
     $config['menu_name'] = officeMenuName();
-    $config['menu_default'] = OFFICE_MENU_DEFAULT;
+    $config['menu_default'] = officeMenuDefault();
     $config['menu_max'] = OFFICE_MENU_MAX;
     $config['menu_page'] = basename(OFFICE_MENU_PAGE, '.page');
     $config['menu_place'] = officeMenuPlace();

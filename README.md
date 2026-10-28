@@ -64,8 +64,8 @@ from *Apps*). In Unraid, go to *Plugins → Install Plugin* and paste:
 https://github.com/dropnook/UnraidSecretaryOffice/releases/latest/download/unraid-secretary-office.plg
 ```
 
-Then open **Sekretariat** in Unraid's menu bar; the Team Lead welcomes you. Coming soon to Community Applications;
-updates come through Unraid's plugin manager either way.
+Then open **Office** in Unraid's menu bar (*Sekretariat*, *Segreteria* … when Unraid speaks another language); the Team
+Lead welcomes you. Coming soon to Community Applications; updates come through Unraid's plugin manager either way.
 
 ## Support
 

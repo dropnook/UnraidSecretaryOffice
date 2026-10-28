@@ -174,12 +174,13 @@ newer than the one the office was tested on.
    ```
    https://github.com/dropnook/UnraidSecretaryOffice/releases/latest/download/unraid-secretary-office.plg
    ```
-2. Open **Sekretariat** in Unraid's menu bar. The Team Lead welcomes you and suggests whom to hire. The office keeps
-   its data in the share *appdata*; Docker (and so Kopia) needs the share *system*. Unraid creates both only once
-   Docker is turned on: on a server without them the office first lists what is missing and why, and offers to create
-   them — the messenger then adds them the way Unraid's *Shares* page does (only on the pool *cache* when there is one,
-   else on the array) and moves in within seconds. *domains* and *isos* (VMs) are only mentioned. A share that was
-   there and is gone is never created anew. Nothing happens without that click; you can also create the shares
+2. Open **Office** in Unraid's menu bar — in the language Unraid runs in: *Sekretariat*, *Segreteria*, *Secrétariat*,
+   *Secretaría*; *⋯ → Entry in Unraid* names it as you like. The Team Lead welcomes you and suggests whom to hire. The
+   office keeps its data in the share *appdata*; Docker (and so Kopia) needs the share *system*. Unraid creates both
+   only once Docker is turned on: on a server without them the office first lists what is missing and why, and offers to
+   create them — the messenger then adds them the way Unraid's *Shares* page does (only on the pool *cache* when there
+   is one, else on the array) and moves in within seconds. *domains* and *isos* (VMs) are only mentioned. A share that
+   was there and is gone is never created anew. Nothing happens without that click; you can also create the shares
    yourself. Is only *system* missing later, the Team Lead offers the same.
 3. For backups: Mr. Backupsy → *Set up…* — first the backup place, a share of its own for his packages: one click has
    Unraid create `UnraidSecretaryOffice` where he proposes (you see exactly what before), or create one yourself, or
