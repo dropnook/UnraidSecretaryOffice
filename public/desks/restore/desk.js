@@ -2168,7 +2168,8 @@ function ticketBlock(box, p) {
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name text', unitLabel(u.unit)));
     const meta = el('div', 'row-meta');
-    if (u.unit === 'place') meta.appendChild(chip(T('move.t_first'), 'accent', T('move.t_first_hint')));
+    // the place pulled already (its packages are what the page shows): no «first» any more
+    if (u.unit === 'place') meta.appendChild(state.place.partner ? chip(T('move.t_done'), 'ok', T('move.t_done_hint')) : chip(T('move.t_first'), 'accent', T('move.t_first_hint')));
     if (u.snaps[0]) meta.append(el('span', '', date(u.snaps[0].creation)), el('span', '', fmt.size(u.snaps[0].referenced || 0)));
     else meta.appendChild(chip(u.known ? T('pt.none') : T('pt.unknown'), 'quiet'));
     main.appendChild(meta);
@@ -2248,7 +2249,8 @@ function moveSection() {
   step(T('move.s2'), T('move.s2_text', { n: f.shares.length }), f.shares.length ? holder('rs-rules', ...f.shares.flatMap((n) => [el('code', '', n), ' '])) : null,
     state.server && state.server.shares ? role('move.s2_cfg', { path: state.server.shares }) : null);
   step(T('move.s3'), T('move.s3_text'),
-    role(placeAt.length ? 'move.s3_partner' : 'move.s3_partner_none', { names: andList(placeAt) }),
+    state.place.partner ? role('move.s3_partner_done', { name: state.place.partner.name, when: date(state.place.partner.time) })
+      : role(placeAt.length ? 'move.s3_partner' : 'move.s3_partner_none', { names: andList(placeAt) }),
     role(f.kopia ? 'move.s3_kopia' : 'move.s3_nokopia', { root: kopiaRoot(), place: (state.server && state.server.set && state.server.set.place) || state.place.share || 'UnraidSecretaryOffice' }),
     f.kopia ? kopiaRootNote() : null, f.kopia ? adviserLink() : null);
   partners().filter((p) => p.kind === 'ticket').forEach((p) => ticketBlock(box, p));
