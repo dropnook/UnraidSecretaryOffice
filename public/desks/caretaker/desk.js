@@ -1230,7 +1230,9 @@ Office.placesFrom(ID, (s) => {
   const way = (x) => [x.sends ? T('partner.i_send', { host: Office.config.host, name: x.name }) : '', x.receive ? T('partner.i_keep', { host: Office.config.host, name: x.name }) : '']
     .filter(Boolean).map((w) => w.replace(/[\s:：]+$/, '')).join(' · ');
   const route = '#/caretaker/partner';
-  (p.pairs || []).forEach((x) => out.push({ text: x.name, sub: [T('partner.title'), way(x)].filter(Boolean).join(' · '), route, anchor: `partner:${x.id}` }));
+  // several of the same name (2026-10-28): told apart by the pair's id and address
+  const twin = (x) => (p.pairs || []).filter((y) => String(y.name).toLowerCase() === String(x.name).toLowerCase()).length > 1;
+  (p.pairs || []).forEach((x) => out.push({ text: twin(x) ? `${x.name} · ${x.id}` : x.name, sub: [T('partner.title'), way(x), twin(x) ? x.address : ''].filter(Boolean).join(' · '), route, anchor: `partner:${x.id}` }));
   (p.ticket_pairs || []).forEach((t) => out.push({ text: T('partner.t_card', { name: t.name, of: t.of }), sub: T('partner.title'), route, anchor: `ticket:${t.id}` }));
   (p.ticket_requests || []).forEach((q) => out.push({ text: T('partner.t_request', { id: q.id }), sub: T('partner.title'), route, anchor: `ticket:${q.id}` }));
   return out;

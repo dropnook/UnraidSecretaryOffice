@@ -1892,6 +1892,7 @@
   "warn_code.partner_snap_prefix": "Partner {partner}: ein Partner nimmt nur Snapshots namens {prefix}… — nichts gesendet. Stell das Snapshot-Präfix in meiner Einrichtung zurück.",
   "warn_code.partner_no_ssh": "Partner {partner}: auf diesem Server fehlt ssh — nichts gesendet.",
   "warn_code.partner_quota": "Partner {partner} hat abgelehnt: sein Kontingent für diesen Server ist voll — er behält die Kopien, die er hat. Erhöhe das Kontingent beim Partner oder schaffe dort Platz.",
+  "warn_code.partner_quota_aside": "Partner {partner} hat abgelehnt: sein Kontingent für diesen Server ist voll — er behält die Kopien, die er hat, davon {aside_gb} GB frühere Kopien, die dort beiseitegelegt sind. Entferne sie beim Partner (sein Teamchef, die Karte dieses Servers, «Entfernen…»), erhöhe das Kontingent oder schaffe dort Platz.",
   "warn_code.partner_missed": "Die Kopie für {partner} ist nicht angekommen — {why}.",
   "warn_code.btrfs_brake": {"one": "Auf {base} waren nur noch {free_gb} GB frei (Notbremse bei {floor_gb} GB) — ich habe den Snapshot vom {date} vorzeitig gelöscht.", "other": "Auf {base} waren nur noch {free_gb} GB frei (Notbremse bei {floor_gb} GB) — ich habe {n} Snapshots vorzeitig gelöscht, den ältesten vom {date}."},
   "setup.level_hint.partner_vm": "Wie lokal, und nach jedem Backup geht ihr ZFS-Snapshot verschlüsselt zum Partner-Sekretariat ({partners}), nur mit den geänderten Blöcken. Er trägt die Konfiguration der VM mit, so kann der Partner sie dort starten.",

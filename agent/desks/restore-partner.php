@@ -97,9 +97,11 @@ function rspSources(): array
             $out[] = ['id' => $p['id'], 'name' => $p['name'], 'kind' => 'pair', 'of' => null, 'units' => $units, 'expires' => null, 'pair' => $p];
         }
     }
+    // a ticket: the units it was given for and what its door listed at the last look (a unit sent after it was written)
     foreach (partnerTicketPairs() as $t) {
         if ($t['expires'] > time()) {
-            $out[] = ['id' => $t['id'], 'name' => $t['name'], 'kind' => 'ticket', 'of' => $t['of'], 'units' => $t['units'], 'expires' => $t['expires'], 'pair' => $t];
+            $out[] = ['id' => $t['id'], 'name' => $t['name'], 'kind' => 'ticket', 'of' => $t['of'], 'units' => rspPairUnits($t['units'], null, rspHeld($t['id'])),
+                      'expires' => $t['expires'], 'pair' => $t];
         }
     }
     return $out;
@@ -231,7 +233,11 @@ function rspLookJob(array $args = []): int
     return 0;
 }
 
-/** One source asked; its held.json written */
+/**
+ * One source asked; its held.json written. A ticket's door is asked first which units there are now (`list` alone, a
+ * door since 2026-10-28: what its pair holds, a unit sent after the ticket was written too); an older door refuses
+ * that (malformed) — then the ticket's own units, as before.
+ */
 function rspLookOne(array $src): array
 {
     $old = rspHeld($src['id']) ?? ['looked' => null, 'units' => [], 'unit_why' => []];
@@ -240,7 +246,14 @@ function rspLookOne(array $src): array
     $why = [];
     $reachable = true;
     $fail = null;
-    foreach ($src['units'] as $u) {
+    $ask = $src['units'];
+    if ($src['kind'] === 'ticket') {
+        [$exit, $out] = rspSsh($src, 'list', [], 60);
+        $j = partnerJsonLine($out);
+        $listed = is_array($j) && ($j['ok'] ?? null) === true ? partnerUnitList($j['units'] ?? null) : null;
+        $ask = $listed !== null ? array_slice(array_values(array_unique(array_merge($src['pair']['units'], $listed))), 0, PARTNER_UNITS_MAX) : $ask;
+    }
+    foreach ($ask as $u) {
         [$exit, $out, $err] = rspSsh($src, 'list', [$u], 60);
         $j = partnerJsonLine($out);
         if ($exit === 255 || $exit === 124 || $exit === 2 || !is_array($j)) {
@@ -472,7 +485,11 @@ function rspUserPath(?string $mountpoint): ?string
  *   a pair (my own copies come back): <the unit's dataset here>.restored-<time> beside it — the dataset from the
  *     engine's record of what it sent (state/partner-sent.json), else from its plan (partnerUnits())
  *   a ticket (a new server): a share that exists here with a dataset <pool>/<share> → <pool>/<share>.restored-<time>
- *     (swapped in by hand, said how); else <pool>/UnraidSecretaryOffice-restored/<unit> (Unraid makes shares — never he)
+ *     (swapped in by hand, said how); a share made here on this pool that has no dataset yet (Unraid makes
+ *     /mnt/<pool>/<share> only at the first write — «create the shares first» never gave one, the drill 2026-10-28)
+ *     with nothing at its place (no folder, or an empty plain one: rspShareFresh()) → the same, «Swap it in…» then
+ *     makes it the share without a dataset going aside; else <pool>/UnraidSecretaryOffice-restored/<unit> (Unraid makes
+ *     shares — never he), said why
  *
  * @return array{dataset:?string, pool:?string, parent:?string, make_parent:bool, path:?string, how:string, blockers:list<array>, notes:list<array>}
  */
@@ -500,26 +517,41 @@ function rspTarget(array $src, string $unit, ?string $pool, string $stamp, array
         $out['orig'] = $orig;
         return $out;
     }
-    // a ticket: the pool chosen (awake ZFS pools only), the share as it is here
+    // a ticket: the pool chosen (awake ZFS pools only; not chosen: the share's own pool when it is one of them), the share as it is here
     $pools = array_values(array_filter(partnerPools(), fn ($p) => !$p['asleep']));
-    $pool ??= $pools[0]['name'] ?? null;
+    $shares = $ctx['shares_ini'] ?? readCfg(RS_SHARES_INI, true);
+    $share = str_starts_with($unit, 'share:') ? substr($unit, 6) : null;
+    $its = $share !== null && is_array($shares[$share] ?? null) ? rspSharePool($shares[$share]) : null;
+    $pool ??= $its !== null && in_array($its, array_column($pools, 'name'), true) ? $its : ($pools[0]['name'] ?? null);
     if ($pool === null || !in_array($pool, array_column($pools, 'name'), true)) {
         $out['blockers'][] = ['key' => $pools ? 'restore_partner_pool' : 'restore_partner_no_pool', 'params' => ['pool' => (string) $pool]];
         return $out;
     }
     $out['pool'] = $pool;
-    $shares = $ctx['shares_ini'] ?? readCfg(RS_SHARES_INI, true);
-    if (str_starts_with($unit, 'share:')) {
-        $share = substr($unit, 6);
+    if ($share !== null) {
         $out['path'] = "/mnt/user/$share";
-        if (is_array($shares) && isset($shares[$share]) && rspDsExists("$pool/$share")) {
+        $here = is_array($shares) && isset($shares[$share]);
+        if ($here && rspDsExists("$pool/$share")) {
             $out['dataset'] = "$pool/$share.restored-$stamp";
             $out['parent'] = $pool;
             $out['how'] = 'share_exists';
             $out['notes'][] = ['key' => 'note.partner_share_exists', 'params' => ['share' => $share, 'dataset' => $out['dataset']]];
             return $out;
         }
-        $out['notes'][] = ['key' => is_array($shares) && isset($shares[$share]) ? 'note.partner_share_elsewhere' : 'note.partner_share_missing', 'params' => ['share' => $share]];
+        $fresh = $here ? rspShareFresh($share, $pool, (array) $shares[$share]) : 'missing';
+        if ($fresh === null) {
+            $out['dataset'] = "$pool/$share.restored-$stamp";
+            $out['parent'] = $pool;
+            $out['how'] = 'share_fresh';
+            $out['notes'][] = ['key' => 'note.partner_share_fresh', 'params' => ['share' => $share, 'pool' => $pool, 'dataset' => $out['dataset']]];
+            return $out;
+        }
+        // why not beside its place, said before the pull: the share lives elsewhere, or its folder there holds something
+        $out['notes'][] = match ($fresh) {
+            'missing' => ['key' => 'note.partner_share_missing', 'params' => ['share' => $share]],
+            'folder'  => ['key' => 'note.partner_share_folder', 'params' => ['share' => $share, 'pool' => $pool]],
+            default   => ['key' => 'note.partner_share_elsewhere', 'params' => ['share' => $share]],
+        };
     } elseif (str_starts_with($unit, 'vm:')) {
         $name = substr($unit, 3);
         foreach ((array) ($GLOBALS['rs']['state']['vms'] ?? []) as $v) {
@@ -538,6 +570,57 @@ function rspTarget(array $src, string $unit, ?string $pool, string $stamp, array
     $out['make_parent'] = !rspDsExists($parent);
     $out['how'] = 'restored_parent';
     return $out;
+}
+
+/** The pool a share's data lives on first (shares.ini: useCache only/yes/prefer with its cachePool), null: the array */
+function rspSharePool(array $ini): ?string
+{
+    $pool = (string) ($ini['cachePool'] ?? '');
+    return in_array($ini['useCache'] ?? 'no', ['only', 'yes', 'prefer'], true) && preg_match(PARTNER_POOL_RE, $pool) ? $pool : null;
+}
+
+/** The pools' top folder (/mnt; the tests' stand-in) */
+function rspPoolRoot(): string
+{
+    return $GLOBALS['rs']['pool_root'] ?? '/mnt';
+}
+
+/**
+ * Can a pull become this share at its place on this pool although it has no dataset there (a share just made by Unraid:
+ * /mnt/<pool>/<share> comes only at the first write)? Null: yes — the share's data lives on this pool first, no dataset
+ * <pool>/<share>, nothing at its place (no folder, or an empty plain folder — never over data). Else why not: `elsewhere`
+ * (the array or another pool), `folder` (something there: a plain folder with entries, a link, a file).
+ */
+function rspShareFresh(string $share, string $pool, array $ini): ?string
+{
+    if (rspSharePool($ini) !== $pool || rspDsExists("$pool/$share")) {
+        return 'elsewhere';
+    }
+    return rspPlaceEmpty(rspPoolRoot() . "/$pool/$share") ? null : 'folder';
+}
+
+/** Nothing at a path, or an empty plain folder there (never a link) */
+function rspPlaceEmpty(string $path): bool
+{
+    $st = @lstat($path);
+    if ($st === false) {
+        return true;
+    }
+    if (is_link($path) || !is_dir($path)) {
+        return false;
+    }
+    $d = @opendir($path);
+    if ($d === false) {
+        return false;
+    }
+    while (($e = readdir($d)) !== false) {
+        if ($e !== '.' && $e !== '..') {
+            closedir($d);
+            return false;
+        }
+    }
+    closedir($d);
+    return true;
 }
 
 /** An interrupted pull of the same unit and moment whose dataset still holds its resume token: its dataset (it goes on) */
@@ -671,6 +754,8 @@ function rsPlanPartner(array $r, string $stamp): array
         }
         if ($t['how'] === 'share_exists') {
             $plan['after'][] = ['key' => 'after.partner_swap', 'params' => ['dataset' => $t['dataset'], 'share' => $label, 'pool' => $t['pool']]];
+        } elseif ($t['how'] === 'share_fresh') {
+            $plan['after'][] = ['key' => 'after.partner_swap_fresh', 'params' => ['dataset' => $t['dataset'], 'share' => $label, 'pool' => $t['pool']]];
         } elseif ($t['how'] === 'restored_parent' && str_starts_with($u, 'share:')) {
             $plan['after'][] = ['key' => 'after.partner_restored_parent', 'params' => ['dataset' => $t['dataset'], 'share' => $label]];
         }
@@ -2477,6 +2562,9 @@ function rspDsInside(string $ds): array
  * file of it open, a VM with disks in it runs, Docker or an image runs from it (rsLoopHolders), for the office's own folders
  * (rsGuardPaths), a share that is no dataset of its own at a pool's top, or datasets inside either. «Put back» swaps them
  * back: the pull read-only beside again, the share its old dataset.
+ * A share made here that has no dataset yet on the pull's pool (a new server: Unraid makes /mnt/<pool>/<share> only at
+ * the first write) and nothing at its place (rspShareFresh(): no folder, or an empty plain one): the pull simply takes
+ * that place — nothing goes aside, the share's settings untouched; «Put back» makes it the read-only pull again.
  */
 function rsPlanPartnerSwap(array $r, string $stamp): array
 {
@@ -2530,9 +2618,21 @@ function rsPlanPartnerSwap(array $r, string $stamp): array
         $plan['blockers'][] = ['key' => 'restore_asleep', 'params' => ['base' => $pool]];
         return $plan;
     }
+    // no dataset at the share's place: a share made here, nothing there yet (2026-10-28) — else no swap
+    $fresh = false;
     if (!rspDsExists($do)) {
-        $plan['blockers'][] = ['key' => 'restore_swap_no_dataset', 'params' => ['share' => $share]];
-        return $plan;
+        $ini = rspSharesHere()[$share] ?? null;
+        $fresh = is_array($ini) && rspShareFresh($share, $pool, $ini) === null;
+        if (!$fresh) {
+            $plan['blockers'][] = ['key' => 'restore_swap_no_dataset', 'params' => ['share' => $share]];
+            return $plan;
+        }
+        // its folder comes where the pool puts its datasets: /mnt/<pool>/<share>
+        $pmp = rspDsProp($pool, 'mountpoint');
+        if ($pmp === null || $pmp['value'] !== "/mnt/$pool") {
+            $plan['blockers'][] = ['key' => 'restore_swap_mountpoint', 'params' => ['dataset' => $pool]];
+            return $plan;
+        }
     }
     $other = rspSwapStanding($do, $id);
     if ($other !== null) {
@@ -2551,11 +2651,11 @@ function rsPlanPartnerSwap(array $r, string $stamp): array
         $plan['notes'][] = ['key' => 'note.swap_partner_goes_on', 'params' => ['name' => $partner, 'snap' => $snap]];
     }
     // the share's dataset: its mountpoint where Unraid has it, taken from the pool (a rename moves it along)
-    $mp = rspDsProp($do, 'mountpoint');
-    if ($mp === null || $mp['value'] !== $live || !($mp['source'] === 'default' || str_starts_with($mp['source'], 'inherited'))) {
+    $mp = $fresh ? null : rspDsProp($do, 'mountpoint');
+    if (!$fresh && ($mp === null || $mp['value'] !== $live || !($mp['source'] === 'default' || str_starts_with($mp['source'], 'inherited')))) {
         $plan['blockers'][] = ['key' => 'restore_swap_mountpoint', 'params' => ['dataset' => $do]];
     }
-    $inner = array_merge(rspDsInside($do), rspDsInside($dn));
+    $inner = array_merge($fresh ? [] : rspDsInside($do), rspDsInside($dn));
     if ($inner) {
         $plan['blockers'][] = ['key' => 'restore_swap_inner', 'params' => ['list' => implode(', ', $inner)]];
     }
@@ -2569,7 +2669,7 @@ function rsPlanPartnerSwap(array $r, string $stamp): array
     }
     $da = "$pool/" . OFFICE_ASIDE . "-$stamp-$share";
     $asideP = "/mnt/$pool/" . OFFICE_ASIDE . "-$stamp-$share";
-    if (rspDsExists($da) || file_exists($asideP)) {
+    if (!$fresh && (rspDsExists($da) || file_exists($asideP))) {
         $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $asideP]];
     }
     // the share's other parts (another pool, the array) stay as they are: the pull is this pool's dataset alone
@@ -2582,7 +2682,7 @@ function rsPlanPartnerSwap(array $r, string $stamp): array
     if ($others) {
         $plan['notes'][] = ['key' => 'note.swap_other_parts', 'warn' => true, 'params' => ['pool' => $pool, 'bases' => implode(', ', $others)]];
     }
-    [$exit, $out] = run([rspZfs(), 'list', '-H', '-o', 'name', '-t', 'snapshot', '-d', '1', $do], 30);
+    [$exit, $out] = $fresh ? [1, ''] : run([rspZfs(), 'list', '-H', '-o', 'name', '-t', 'snapshot', '-d', '1', $do], 30);
     $snaps = $exit === 0 ? count(array_filter(explode("\n", trim($out)))) : 0;
     if ($snaps) {
         $plan['notes'][] = ['key' => 'note.swap_snaps', 'params' => ['n' => $snaps, 'dataset' => $do, 'aside' => $da]];
@@ -2615,7 +2715,9 @@ function rsPlanPartnerSwap(array $r, string $stamp): array
     if ($mount !== '') {
         $steps[] = ['do' => 'pull_umount', 'dataset' => $dn, 'path' => $mount];
     }
-    $steps[] = ['do' => 'swap_out', 'dataset' => $do, 'to' => $da, 'path' => $live, 'aside' => $asideP, 'pulled' => $dn, 'pulled_guid' => $guid, 'mount' => $mount];
+    if (!$fresh) {
+        $steps[] = ['do' => 'swap_out', 'dataset' => $do, 'to' => $da, 'path' => $live, 'aside' => $asideP, 'pulled' => $dn, 'pulled_guid' => $guid, 'mount' => $mount];
+    }
     $steps[] = ['do' => 'swap_in', 'dataset' => $dn, 'to' => $do, 'guid' => $guid, 'mountpoint' => $live, 'mount' => $mount];
     if ($users) {
         $steps[] = ['do' => 'start', 'containers' => $users, 'only_stopped' => true];
@@ -2624,9 +2726,12 @@ function rsPlanPartnerSwap(array $r, string $stamp): array
     }
     $plan['steps'] = $steps;
     $plan['source'] = ['path' => "$partner: $unit@" . (string) ($pull['snap'] ?? ''), 'time' => $pull['time'] ?? null, 'bytes' => $pull['bytes'] ?? null];
-    $plan['aside'][] = ['what' => 'share', 'from' => $live, 'to' => $asideP];
-    array_unshift($plan['notes'], ['key' => 'note.swap', 'params' => ['share' => $share, 'pool' => $pool, 'partner' => $partner, 'when' => $pull['time'] ?? null]]);   // what happens first
-    $plan['after'][] = ['key' => 'after.swap_done', 'params' => ['share' => $share, 'aside' => $asideP, 'dataset' => $da]];
+    if (!$fresh) {
+        $plan['aside'][] = ['what' => 'share', 'from' => $live, 'to' => $asideP];
+    }
+    array_unshift($plan['notes'], ['key' => $fresh ? 'note.swap_fresh' : 'note.swap', 'params' => ['share' => $share, 'pool' => $pool, 'partner' => $partner, 'when' => $pull['time'] ?? null]]);   // what happens first
+    $plan['after'][] = $fresh ? ['key' => 'after.swap_fresh_done', 'params' => ['share' => $share, 'pool' => $pool]]
+        : ['key' => 'after.swap_done', 'params' => ['share' => $share, 'aside' => $asideP, 'dataset' => $da]];
     $plan['stops'] = $users;
     $plan['downtime'] = $users ? 20 : 0;
     return $plan;
@@ -2708,6 +2813,11 @@ function rsDoSwapIn(array &$j, int $i): array
     }
     if (rspDsExists($do)) {
         return rsFail('exists', ['path' => $do]);
+    }
+    // never mounted over something: the share's place holds nothing (the old dataset's folder went with it; a share
+    // without a dataset yet has none, or an empty one — looked at again right before)
+    if (str_starts_with($mp, '/mnt/') && !rspPlaceEmpty(rspPoolRoot() . substr($mp, 4))) {
+        return rsFail('exists', ['path' => $mp]);
     }
     if (rspMounts()[$dn] ?? []) {
         return rsFail('drop_busy', ['path' => implode(', ', rspMounts()[$dn])]);

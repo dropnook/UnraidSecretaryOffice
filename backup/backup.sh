@@ -1,6 +1,6 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.77 - 2026-10-25
+# unraid-backup - backup.sh                       Version 2.78 - 2026-10-28
 #   2.77 How many at once (2.73) measured in milliseconds: the settling and the window's time no longer whole seconds
 #        read at any fraction of one (the total rate up to a second's worth off; a short window far more)
 #   2.76 Code review 1.72.0: a VM's or app's own dataset in a share sent to a partner whose unit doesn't go there stays
@@ -3679,7 +3679,10 @@ ps_end() {
         why="$(partner_why_ok "$(jq -r '.why // ""' <<<"$d1" 2>/dev/null)")"; PS_WHY="$why"
         case "$why" in
             need_full) log "    $name has no base for it (need_full) - sending it whole"; return 2 ;;
-            refused_window|refused_quota|refused_asleep) log "    $name: not now ($why)"; return 3 ;;
+            # 2.78: a full quota - what of it the door's earlier copies hold (a door since 2026-10-28 says aside_bytes)
+            refused_quota) b="$(jq -r '.aside_bytes // empty' <<<"$d1" 2>/dev/null)"; is_uint "$b" && PARTNER_ASIDE[$id]="$b"
+                log "    $name: not now ($why)"; return 3 ;;
+            refused_window|refused_asleep) log "    $name: not now ($why)"; return 3 ;;
             # a door up to 1.59 keeps only what its Team Lead agreed to (2.42: skipped, not failed - the mutual watch
             # asks it to keep this unit too; an update there takes any unit)
             unit_not_agreed) PS_WHY="not_agreed"; log "    $name runs an older office and hasn't agreed to keep $u - its Team Lead decides (update it: then every unit goes)"; return 3 ;;
@@ -3969,9 +3972,18 @@ partner_refused() { # partner_refused <id> <why>
         return 0
     fi
     # 2.45: a full quota warns every run (once per partner) - nothing goes there until someone acts
+    # 2.78: with how much of it the door's earlier copies hold (<unit>.old-<time>, kept aside after a full send - only
+    # the partner's Team Lead lets them go): a code of its own, the size in whole GB (at least 1)
+    local aside="${PARTNER_ASIDE[$1]:-0}" gb
+    if is_uint "$aside" && (( aside > 0 )); then
+        gb=$(( (aside + 536870912) / 1073741824 )); (( gb < 1 )) && gb=1
+        warn_code partner_quota_aside "Partner $(partner_name "$1") refused: its quota for this server is full - it keeps the copies it has, $gb GB of it earlier copies kept aside there; let them go at the partner (its Team Lead, this server's card), raise the quota or free space there" partner="$(partner_name "$1")" aside_gb="$gb"
+        return 0
+    fi
     warn_code partner_quota "Partner $(partner_name "$1") refused: its quota for this server is full - it keeps the copies it has; raise the quota at the partner or free space there" partner="$(partner_name "$1")"
 }
 declare -A PARTNER_TOLD=()
+declare -A PARTNER_ASIDE=()    # 2.78: id -> bytes the partner's door says its earlier copies hold (its refused_quota)
 declare -A PARTNER_WARNED=()   # 2.46: id -> 1 once a coded warning of this run names that partner (partner_missed adds none)
 
 # partner_missed_hint <why>: what to do about it, after the reason in words (the mail's and the log's warning)
