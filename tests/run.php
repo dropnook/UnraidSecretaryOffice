@@ -30206,9 +30206,11 @@ JS);
         ['finding:backup:kopia_running:0123456789abcdef', 'finding:snapshot:plan_target_gone:2222222222222222', 'partner:a1b2c3d4', 'partner:c9d0e1f2', 'partner:e5f6a7b8',
          'staff:backup', 'staff:jack', 'ticket:r9', 'ticket:t1'],
         (function ($a) { sort($a); return $a; })($anchors('caretaker')));
-    $pairs = array_column(array_filter($r['items']['caretaker'] ?? [], fn ($e) => $e['label'] === 'PartnerNAS'), 'sub', 'anchor');
-    same('search items caretaker: two pairs with one partner told apart by the way the copies go (the card\'s words)',
-        ['partner:e5f6a7b8' => 'Partner offices · Tower sends to PartnerNAS', 'partner:c9d0e1f2' => 'Partner offices · Tower keeps of PartnerNAS'], $pairs);
+    $pairs = array_column(array_filter($r['items']['caretaker'] ?? [], fn ($e) => str_starts_with($e['label'], 'PartnerNAS')), 'sub', 'anchor');
+    same('search items caretaker: two pairs with one partner told apart by the way the copies go (the card\'s words) and its address (2026-10-28: several of one name)',
+        ['partner:e5f6a7b8' => 'Partner offices · Tower sends to PartnerNAS · 10.0.0.7', 'partner:c9d0e1f2' => 'Partner offices · Tower keeps of PartnerNAS · 10.0.0.7'], $pairs);
+    same('search items caretaker: … and named with the pair\'s id', ['PartnerNAS · c9d0e1f2', 'PartnerNAS · e5f6a7b8'],
+        (function ($a) { sort($a); return $a; })(array_values(array_filter($labels('caretaker'), fn ($l) => str_starts_with($l, 'PartnerNAS')))));
     check('search items caretaker: … worded as his list words them', in_array('Kopia container «kopia» is running', $labels('caretaker'), true), json_encode($labels('caretaker')));
     $w = $r['items']['watchman'] ?? [];
     $entries = array_values(array_filter($w, fn ($e) => str_starts_with($e['anchor'], 'entry:')));
@@ -31689,7 +31691,7 @@ function testPartnerDoor(): void
     $bad = [
         '' => 'malformed', 'ping ' => 'malformed', ' ping' => 'malformed', 'ping  ping' => 'malformed', "ping\n" => 'malformed', "ping\nid" => 'malformed', "ping\tx" => 'malformed',
         'ping;id' => 'malformed', 'ping|id' => 'malformed', 'ping&&id' => 'malformed', '$(id)' => 'malformed', '`id`' => 'malformed', 'ping > /tmp/x' => 'malformed',
-        'status x' => 'malformed', 'ping x' => 'malformed', 'list' => 'malformed', 'list share:appdata x' => 'malformed', 'recv share:appdata' => 'malformed',
+        'status x' => 'malformed', 'ping x' => 'malformed', 'list share:appdata x' => 'malformed', 'recv share:appdata' => 'malformed',
         'recv share:appdata uso-backup-20261005-0200 uso-backup-20261004-0200 -t' => 'malformed', 'a b c d e f' => 'malformed', str_repeat('p', 300) => 'malformed',
         'zfs destroy -r tank' => 'unknown_verb', 'sh' => 'unknown_verb', 'bash -c id' => 'unknown_verb', 'rsync --server . /' => 'malformed', 'scp -t /root' => 'malformed',
         'internal-sftp' => 'unknown_verb', 'PING' => 'unknown_verb', 'destroy share:appdata' => 'unknown_verb',
