@@ -47574,18 +47574,18 @@ function testMoverelliPageTruth(): void
     $h = moverelliHost();
     // the tick: the first stamp remembered, a changed cfg looked at once calm (2 s), never twice for the same stamp
     $memo = [];
-    $stamp = moverelliSharesStamp($h['shares_dir'], $h['shares_ini']);
-    same('page truth: the stamp stays while nothing changes', $stamp, moverelliSharesStamp($h['shares_dir'], $h['shares_ini']));
-    $due = [moverelliSharesDue($memo, $stamp, 100.0), moverelliSharesDue($memo, $stamp, 110.0)];
+    $stamp = officeSharesStamp($h['shares_dir'], $h['shares_ini']);
+    same('page truth: the stamp stays while nothing changes', $stamp, officeSharesStamp($h['shares_dir'], $h['shares_ini']));
+    $due = [officeSharesDue($memo, $stamp, 100.0), officeSharesDue($memo, $stamp, 110.0)];
     touch("$tmp/shares/Docs.cfg", time() + 5);
     clearstatcache();
-    $new = moverelliSharesStamp($h['shares_dir'], $h['shares_ini']);
-    $due = [...$due, $new !== $stamp, moverelliSharesDue($memo, $new, 111.0), moverelliSharesDue($memo, $new, 112.5), moverelliSharesDue($memo, $new, 113.1),
-        moverelliSharesDue($memo, $new, 120.0)];
+    $new = officeSharesStamp($h['shares_dir'], $h['shares_ini']);
+    $due = [...$due, $new !== $stamp, officeSharesDue($memo, $new, 111.0), officeSharesDue($memo, $new, 112.5), officeSharesDue($memo, $new, 113.1),
+        officeSharesDue($memo, $new, 120.0)];
     same('page truth: the first stamp only remembered; a cfg changed — a new stamp, looked at once 2 s calm, then not again', [false, false, true, false, false, true, false], $due);
     file_put_contents("$tmp/shares.ini", "[Docs]\nname=\"Docs\"\n");
     clearstatcache();
-    same('page truth: shares.ini changed — a new stamp too', true, moverelliSharesStamp($h['shares_dir'], $h['shares_ini']) !== $new);
+    same('page truth: shares.ini changed — a new stamp too', true, officeSharesStamp($h['shares_dir'], $h['shares_ini']) !== $new);
     // the tick itself: Docs set pool only in Unraid — her state says so within the tick's calm, not after 5 min
     $GLOBALS['moverelliSharesMemo'] = [];
     $hh = ['hired' => fn (): bool => true] + $h;
@@ -56012,12 +56012,55 @@ function testUsoNetJoin(): void
 }
 
 
+/**
+ * Mr. Restori looks again when a share changes in Unraid (2026-10-28, the parkplatz): his tick compares the share files'
+ * stamp (officeSharesStamp(), shared with Ms. Moverelli's), a changed one looked at once calm (2 s) — not after
+ * refresh_after's 5 min; never when not hired or never looked at yet; registered in his tick.
+ */
+function testRestoreSharesTick(): void
+{
+    $tmp = hardeningTmp('restore-shares-tick');
+    @mkdir("$tmp/shares", 0700, true);
+    file_put_contents("$tmp/shares/Docs.cfg", "shareUseCache=\"yes\"\n");
+    file_put_contents("$tmp/shares.ini", "[Docs]\nname=\"Docs\"\n");
+    file_put_contents("$tmp/restore.json", '{}');
+    $scans = 0;
+    $hired = true;
+    $h = ['shares_dir' => "$tmp/shares", 'shares_ini' => "$tmp/shares.ini", 'state_file' => "$tmp/restore.json",
+          'hired' => function () use (&$hired): bool { return $hired; }, 'scan' => function () use (&$scans): array { $scans++; return ['time' => $scans]; }];
+    $keep = $GLOBALS['rs']['shares_memo'] ?? null;
+    $GLOBALS['rs']['shares_memo'] = [];
+    $t = [rsSharesTick(1000.0, $h), rsSharesTick(1001.0, $h)];
+    file_put_contents("$tmp/shares/Docs.cfg", "shareUseCache=\"only\"\nshareCachePool=\"cache\"\n");
+    touch("$tmp/shares/Docs.cfg", time() + 10);
+    clearstatcache();
+    $t = [...$t, rsSharesTick(1002.0, $h), rsSharesTick(1003.0, $h), rsSharesTick(1004.5, $h), rsSharesTick(1010.0, $h)];
+    same('restore shares tick: nothing at first, the cfg changed — looked at once 2 s calm, then not again',
+        [null, null, null, null, ['time' => 1], null], $t);
+    file_put_contents("$tmp/shares.ini", "[Media]\nname=\"Media\"\n");
+    unlink("$tmp/shares/Docs.cfg");
+    clearstatcache();
+    $hired = false;
+    $t = [rsSharesTick(1020.0, $h), rsSharesTick(1023.0, $h)];
+    $hired = true;
+    file_put_contents("$tmp/shares.ini", "[Media]\nname=\"Media\"\n[Docs]\nname=\"Docs\"\n");
+    clearstatcache();
+    unlink("$tmp/restore.json");
+    $t = [...$t, rsSharesTick(1030.0, $h), rsSharesTick(1033.0, $h)];
+    same('restore shares tick: a share removed while not hired, one added before his first look — no look of his', [null, null, null, null, 1], [...$t, $scans]);
+    $GLOBALS['rs']['shares_memo'] = $keep ?? [];
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    check('restore shares tick: in his tick, before the sizes', (bool) preg_match("/'tick'\s*=> function \(\): void \{\s*rsSharesTick\(\);/", $src));
+    same('restore shares tick: Ms. Moverelli\'s tick uses the same stamp', 1, substr_count((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), 'officeSharesDue($GLOBALS[\'moverelliSharesMemo\'], officeSharesStamp('));
+    hardeningRm($tmp);
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
-                      'testRestoreReviewPaths', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
+                      'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];

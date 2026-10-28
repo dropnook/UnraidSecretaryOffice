@@ -365,6 +365,53 @@ function houseGuiUrl(): ?string
     return ($ssl ? 'https://' : 'http://') . $ip . ($port !== $default ? ":$port" : '');
 }
 
+// ===================================================================== Unraid's shares changed
+
+const OFFICE_SHARES_CFG_DIR = '/boot/config/shares';     // a share's cfg each (a cfg alone is no share — shares.ini says which exist)
+const OFFICE_SHARES_CALM    = 2.0;     // s: a changed stamp the same this long (Unraid's «Apply» writes cfg, then shares.ini)
+
+/**
+ * The stamp of Unraid's share facts, cheap (no file read, no disk woken — the flash and RAM only): the folder of the share
+ * cfgs and each cfg's mtime and size, shares.ini's. Changes with every ⟦Apply⟧ on a share, a share added or removed.
+ * Ms. Moverelli's and Mr. Restori's ticks look at it once a second (2026-10-18, 2026-10-28: a page told for up to
+ * refresh_after's 5 min what was no longer so).
+ */
+function officeSharesStamp(string $sharesDir = OFFICE_SHARES_CFG_DIR, string $sharesIni = OFFICE_SHARES_INI): string
+{
+    $parts = [];
+    foreach ([$sharesDir, ...(glob("$sharesDir/*.cfg", GLOB_NOSORT) ?: []), $sharesIni] as $f) {
+        $st = @stat($f);
+        $parts[] = $st ? basename($f) . ':' . $st['mtime'] . ':' . $st['size'] : basename($f) . ':-';
+    }
+    sort($parts, SORT_STRING);
+    return md5(implode('|', $parts));
+}
+
+/**
+ * Look again now? Pure but for $memo (the last stamp seen, since when, the last look's — one per desk): the first stamp is
+ * only remembered (the desk's start looked already); a new one is looked at once it stayed the same OFFICE_SHARES_CALM
+ * seconds — never twice for the same stamp.
+ *
+ * @param array{stamp?: string, since?: float, looked?: string} $memo
+ */
+function officeSharesDue(array &$memo, string $stamp, float $now): bool
+{
+    if (!isset($memo['stamp'])) {
+        $memo = ['stamp' => $stamp, 'since' => $now, 'looked' => $stamp];
+        return false;
+    }
+    if ($memo['stamp'] !== $stamp) {
+        $memo['stamp'] = $stamp;
+        $memo['since'] = $now;
+        return false;
+    }
+    if ($memo['looked'] === $stamp || $now - $memo['since'] < OFFICE_SHARES_CALM) {
+        return false;
+    }
+    $memo['looked'] = $stamp;
+    return true;
+}
+
 const HOST_LAUNCH_MARK = '# written by the Unraid Secretary Office agent';     // in every job it hands to atd (the night watchman knows them by it)
 // `at now` reads the wall clock in the host's zone: in the autumn's repeated hour (02:00-03:00 twice in Europe) at 3.2 takes
 // the minute as its second, standard-time instance - an hour ahead (nostromo 2026-10-25, Europe/Zurich: hostAtRequeue()
