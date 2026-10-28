@@ -54139,6 +54139,13 @@ function testSetupViaShare(): void
         [], $apps($out['via']));
     check('via share: … and leaves the apps\' folders in appdata\'s source (no kopia_ignore, kopia_known as saved)',
         !preg_grep('/^share\|appdata\|kopia_(ignore|known)$/', array_column($out['via'] ?? [], 'key')), json_encode($out['via']));
+    // 2026-10-28 (the parkplatz: after an update from 1.60 «15 changes» nobody made): the old settings untouched - none of
+    // the Apply list's rows is the user's (the bar says only proposals of mine), no app key among them
+    $items = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tools/scenarios/plan-changes.mjs') . ' '
+        . escapeshellarg("$tmp/via.json") . ' --items 2>&1'), true);
+    same('via share: the old settings untouched - 0 of the Apply list\'s rows the user\'s, none an app\'s source of its own',
+        [true, [], []], [is_array($items), array_values(array_filter((array) $items, fn ($x) => !empty($x['yours']))),
+            array_values(array_filter(array_column((array) $items, 'id'), fn ($id) => preg_match('/^app\|(?!zz-old-stack\|).+\|(?:kopia|folder)$/', (string) $id)))]);
     same('via share: an app with a source of its own saved keeps it - nothing to change', [], $apps($out['own']));
     same('via share: … its folder saved as another one than the server has: the difference is listed',
         ['app|EmbyServer|folder: ["appdata/emby-old"] → ["appdata/emby"]'], $apps($out['moved']));
