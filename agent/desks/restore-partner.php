@@ -617,8 +617,18 @@ function rsPlanPartner(array $r, string $stamp): array
                 $pick = $s['name'] === $snap ? $s : $pick;
             }
             $pick ??= end($places);
-            $pulls[] = ['place', $pick['name'], $pick];
-            $plan['notes'][] = ['key' => 'note.partner_place_too', 'params' => ['name' => $src['name'], 'snap' => $pick['name']]];
+            // that moment of the place pulled already and still mounted (a new server pulls it first): its packages are
+            // at hand — never a second copy of it (the restore-ticket drill 2026-10-28 pulled the same 4 GB twice)
+            $have = null;
+            foreach (rspPulled() as $pp) {
+                $have = $pp['unit'] === 'place' && $pp['mounted'] && $pp['pair'] === $id && $pp['snap'] === $pick['name'] ? $pp : $have;
+            }
+            if ($have !== null) {
+                $plan['notes'][] = ['key' => 'note.partner_place_have', 'params' => ['name' => $src['name'], 'snap' => $pick['name'], 'path' => (string) $have['mount']]];
+            } else {
+                $pulls[] = ['place', $pick['name'], $pick];
+                $plan['notes'][] = ['key' => 'note.partner_place_too', 'params' => ['name' => $src['name'], 'snap' => $pick['name']]];
+            }
         } else {
             $plan['notes'][] = ['key' => 'note.partner_no_package', 'params' => ['name' => $src['name']], 'warn' => true];
         }
@@ -903,7 +913,7 @@ function rsDoDrop(array &$j, array $s): array
  * The pulls that landed and are still here: from his journals (kind partner, done, not put back), each pulled
  * dataset with its mount — only while it exists (the kernel's mount table names it, or zfs).
  *
- * @return list<array{journal:string, dataset:string, partner:string, unit:string, snap:string, time:?int, path:?string, mount:?string, mounted:bool}>
+ * @return list<array{journal:string, dataset:string, pair:string, partner:string, unit:string, snap:string, time:?int, path:?string, mount:?string, mounted:bool}>
  */
 function rspPulled(): array
 {
@@ -923,7 +933,7 @@ function rspPulled(): array
                 continue;
             }
             $mnt = is_string($p['mount'] ?? null) && dirname($p['mount']) === rspMountRoot() ? $p['mount'] : null;
-            $out[] = ['journal' => $row['id'], 'dataset' => $p['dataset'], 'partner' => (string) ($p['partner'] ?? ''), 'unit' => $p['unit'], 'snap' => (string) ($p['snap'] ?? ''),
+            $out[] = ['journal' => $row['id'], 'dataset' => $p['dataset'], 'pair' => (string) ($p['pair'] ?? ''), 'partner' => (string) ($p['partner'] ?? ''), 'unit' => $p['unit'], 'snap' => (string) ($p['snap'] ?? ''),
                       'time' => is_int($p['time'] ?? null) ? $p['time'] : null, 'path' => is_string($p['path'] ?? null) && rsCleanPath($p['path']) ? $p['path'] : null,
                       'mount' => $mnt, 'mounted' => $mnt !== null && in_array($mnt, $mounts[$p['dataset']] ?? [], true)];
         }

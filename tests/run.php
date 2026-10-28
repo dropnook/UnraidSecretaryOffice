@@ -32895,6 +32895,24 @@ function testRestorePartner(): void
     same('restore partner: the same moment again into the same name — blocked, never over', 'restore_exists',
         $as('return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $stamp . '"]);')['blockers'][0]['key'] ?? null);
 
+    // a new server pulls the backup place first: a VM's plan afterwards never pulls the same moment of it a second time
+    // (the restore-ticket drill 2026-10-28 pulled the same 4 GB twice) — the place pulled, mounted, and named in the plan
+    $sp = $at(7100);
+    $sv = $at(7000);
+    $pl = $as('$p = rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "place", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $sp . '"]);'
+        . ' $jid = rsLaunch($p, false); rsJob([$jid]); return ["id" => $jid, "result" => rsJournal($jid)["result"] ?? null];');
+    $vmHave = $as('return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "vm:Debian_VM", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $sv . '"]);');
+    $haveNote = array_values(array_filter($vmHave['notes'] ?? [], fn ($n) => $n['key'] === 'note.partner_place_have'))[0] ?? null;
+    same('restore partner: the place of that moment pulled already — the VM\'s plan pulls only its disks and says where its package lies',
+        ['ok', ['pull', 'mount'], ['vm:Debian_VM'], false, "$tmp/A/restored/homeserver-place-$sp", 'uso-backup-20261007-0200', []],
+        [$pl['result'], array_column($vmHave['steps'] ?? [], 'do'), array_values(array_filter(array_column($vmHave['steps'] ?? [], 'unit'))),
+         in_array('note.partner_place_too', array_column($vmHave['notes'] ?? [], 'key'), true), $haveNote['params']['path'] ?? null, $haveNote['params']['snap'] ?? null,
+         $vmHave['blockers'] ?? null]);
+    $as('$p = rsPlan(["kind" => "putback", "id" => "' . $pl['id'] . '"]); rsJob([rsLaunch($p, false)]); return true;');
+    $vmAgain = $as('return rsPlan(["kind" => "partner", "pair" => "' . $id . '", "unit" => "vm:Debian_VM", "snap" => "uso-backup-20261007-0200", "stamp" => "' . $sv . '"]);');
+    same('restore partner: … that pull removed — the VM\'s plan pulls the place along again', [['pull', 'mount', 'pull', 'mount'], true],
+        [array_column($vmAgain['steps'] ?? [], 'do'), in_array('note.partner_place_too', array_column($vmAgain['notes'] ?? [], 'key'), true)]);
+
     // ---- «Remove what was pulled…»: exactly that dataset (name, guid, no children), unmounted first
     same('restore partner: the drop refuses anything not his', 'drop_refused', $as('$j = ["id" => "x"]; return rsDoDrop($j, ["dataset" => "tank/appdata"])["note"];'));
     same('restore partner: … another guid — refused', 'drop_other', $as('$j = ["id" => "x"]; return rsDoDrop($j, ["dataset" => "' . $ds . '", "guid" => "1"])["note"];'));
