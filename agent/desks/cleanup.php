@@ -47,7 +47,8 @@ declare(strict_types=1);
  *              gone from data/partner/pairs.json (agent/lib/partnerlook.php) — awake pools only, the size from zfs
  *              list; put away with zfs rename next to the storeroom (the run's manifest on the flash), never while
  *              the partner door receives for that pair. Also a pair's unit datasets (<pair>/<unit>) whose unit the
- *              pair's door received nothing of for 30 days (the unit stopped coming): renamed into the partners'
+ *              pair's door received nothing of for 30 days (the unit stopped coming; never the door's earlier copies
+ *              <unit>.old-<time> — the Team Lead's card lets those go): renamed into the partners'
  *              place on the same pool (<…-partners>/.UnraidSecretaryOffice-trash-<run>-<unit>-<pair>), never while a
  *              transfer of the door names that unit
  *   icons      containers without a picture on Unraid's Docker page and
@@ -3398,10 +3399,11 @@ function clPartners(?array $host = null): array
     // takes any unit — one that stopped coming keeps its snapshots for good, so she offers to put it away); without a
     // record of the pair nothing is known: nothing of it is dust
     $now = $host['now'] ?? time();
-    $keeps = [];
+    $keeps = $received = [];
     foreach (partnerPairs($host['pairs'] ?? null) as $p) {
         $got = partnerReceived($p['id']);
         $keeps[$p['id']] = $got === null ? null : array_column(array_filter(partnerReceivedUnits($got, $now), fn ($u) => !$u['stale']), 'unit');
+        $received[$p['id']] = array_keys((array) ($got['units'] ?? []));
     }
     $doors = partnerLookDoors($host['run'] ?? partnerRunDir(), $host['alive'] ?? null);
     $busy = array_flip(array_column($doors, 'pair'));
@@ -3419,6 +3421,11 @@ function clPartners(?array $host = null): array
                     $uds = (string) $uds;
                     $unit = clPartnerUnitOf($uds);
                     if ($unit === null || !isset($keeps[$id]) || in_array($unit, $keeps[$id], true)) {
+                        continue;
+                    }
+                    // the door's earlier copy of a unit (<unit>.old-<time>, 2026-10-28) is no unit that stopped coming: the
+                    // Team Lead's card shows it with its size and lets it go — never listed here as «no longer kept»
+                    if (partnerAsideOf($uds, $received[$id] ?? []) !== null) {
                         continue;
                     }
                     $ds = $x['dataset'] . "/$uds";

@@ -30784,6 +30784,15 @@ switch ($cmd) {
             foreach ($rest as $p) { echo "$p\t" . ($st['avail'][$p] ?? 1000000000000) . "\n"; }
             exit(0);
         }
+        if (($f['-o'] ?? '') === 'name,used') {
+            // partnerAside(): the pair's dataset and what lies one level (-d) below it, with what each holds
+            $p = $rest[0];
+            if (!isset($st['ds'][$p])) { $no($p); }
+            foreach (array_keys($st['ds']) as $n) {
+                if ($n === $p || (str_starts_with($n, "$p/") && substr_count($n, '/') - substr_count($p, '/') <= (int) ($f['-d'] ?? 0))) { echo "$n\t" . $used($n) . "\n"; }
+            }
+            exit(0);
+        }
         foreach ($rest as $p) { if (!isset($st['ds'][$p])) { $no($p); } }
         foreach (array_keys($st['ds']) as $n) {
             foreach ($rest as $p) { if ($n === $p || (isset($f['-r']) && str_starts_with($n, "$p/"))) { echo "$n\n"; } }
@@ -31750,6 +31759,231 @@ function testPartnerDoor(): void
     } catch (Problem $e) {
         same('authorized_keys: a linked folder refused', 'partner_authkeys_link', $e->key);
     }
+    hardeningRm($tmp);
+}
+
+/**
+ * «Change the quota…» on the receiver's card (2026-10-28, the drill «Onto a new server»: a full pair refused every unit,
+ * the quota could only be changed by editing pairs.json): the bounds of the pairing, pairs.json (tolerant), the pair's
+ * dataset set at once when it can (else at the next receive — the door's own doorParents()), what the sender sees
+ */
+function testPartnerQuota(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('partner quota: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-quota');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $B = partnerTestOffice("$tmp/B");
+    $id = 'a1b2c3d4';
+    partnerTestBin($B['bin'], ['pools' => ['tank'], 'ds' => ['tank' => ['used' => 0]], 'avail' => ['tank' => 500 * 1024 ** 3]]);
+    $pairsFile = "$B[data]/partner/pairs.json";
+    $pairA = partnerTestPair($id);
+    $pairB = partnerTestPair('b2c3d4e5', ['their_key' => null, 'receive' => null]);
+    @mkdir("$B[data]/partner", 0700, true);
+    partnerWritePrivate($pairsFile, ['v' => 1, 'pairs' => [$pairA, ['id' => 'ffffffff', 'from_a_newer_office' => true], $pairB]]);
+    $pairDs = 'tank/' . PARTNER_PARENT . "/$id";
+    $q = fn (array $r, ?array $office = null) => partnerTestAs($office ?? $B, 'return partner_quota(' . var_export($r, true) . ');');
+    $quotaNow = fn () => partnerPair($id, partnerPairs($pairsFile))['receive']['quota_gb'] ?? null;
+    $sets = fn () => array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => $c[0] === 'zfs' && ($c[1] ?? '') === 'set'));
+    $zfs = fn () => json_decode((string) file_get_contents("$B[bin]/zfs.json"), true);
+    $Bs = $B;
+    file_put_contents("$tmp/asleep.ini", "[\"tank\"]\nname=\"tank\"\nspundown=\"1\"\n");
+    $Bs['env']['OFFICE_DISKS_INI'] = "$tmp/asleep.ini";
+
+    // ---- nothing received yet: the look, then a change kept for the first receive
+    $has = fn (mixed $a, string $k) => is_array($a) && array_key_exists($k, $a) ? $a[$k] : 'missing';
+    $look = $q(['id' => $id]);
+    same('quota: the look — the quota, the pool\'s free space, nothing kept yet', [true, 'tank', false, 10, PARTNER_QUOTA_MAX_GB, 500 * 1024 ** 3, null, null],
+        [$look['ok'] ?? null, $look['pool'] ?? null, $look['asleep'] ?? null, $look['quota_gb'] ?? null, $look['max_gb'] ?? null, $look['free_bytes'] ?? null, $has($look, 'used_bytes'), $has($look, 'aside_bytes')]);
+    partnerTestCalls($B['bin']);
+    $r = $q(['id' => $id, 'step' => 'do', 'confirm' => true, 'quota_gb' => 20]);
+    same('quota: changed before anything came — pairs.json now, the pool at the first receive', [true, 20, 'later', false, 20, []],
+        [$r['ok'] ?? null, $r['quota_gb'] ?? null, $r['set'] ?? null, $r['below'] ?? null, $quotaNow(), $sets()]);
+    same('quota: … the first receive makes the pair\'s dataset with it', 0, partnerTestDoor($B, 'recv share:appdata uso-backup-20261001-0200', 'stream-1')['exit']);
+    check('quota: … quota=20G at its making', in_array(['zfs', 'create', '-o', 'mountpoint=none', '-o', 'canmount=off', '-o', 'quota=20G', $pairDs], partnerTestCalls($B['bin']), true));
+
+    // ---- a pair with copies: set on the pool at once, the sender sees it at its next look
+    $r = $q(['id' => $id, 'step' => 'do', 'confirm' => true, 'quota_gb' => 30]);
+    same('quota: raised — pairs.json and the pair\'s dataset at once (zfs set)', ['now', 30, [['zfs', 'set', 'quota=30G', $pairDs]]], [$r['set'] ?? null, $quotaNow(), $sets()]);
+    check('quota: … the card in the answer has it', ($r['partners']['pairs'][0]['receive']['quota_gb'] ?? null) === 30);
+    $status = partnerTestDoor($B, 'status', '', $id)['out'][0] ?? [];
+    same('quota: … what the sender reads — the door\'s quota and status, and the sender\'s reading of it', [30 * 1024 ** 3, 30 * 1024 ** 3, 30 * 1024 ** 3],
+        [partnerTestDoor($B, 'quota', '', $id)['out'][0]['bytes'] ?? null, $status['quota']['bytes'] ?? null, partnerStatusClean($status)['quota']['bytes'] ?? null]);
+    check('quota: … in the door\'s log (Ms. Protocolli reads it)', str_contains((string) @file_get_contents("$B[data]/partner/door.log"), 'quota: 30 GB (the Team Lead)'));
+    $r = $q(['id' => $id, 'step' => 'do', 'confirm' => true, 'quota_gb' => 0]);
+    same('quota: 0 — no limit (quota=none), the sender reads none', ['now', 0, [['zfs', 'set', 'quota=none', $pairDs]], null],
+        [$r['set'] ?? null, $quotaNow(), $sets(), $has(partnerStatusClean(partnerTestDoor($B, 'status', '', $id)['out'][0] ?? [])['quota'] ?? null, 'bytes')]);
+    $r = $q(['id' => $id, 'step' => 'do', 'confirm' => true, 'quota_gb' => 0]);
+    same('quota: the same again — nothing set', ['now', []], [$r['set'] ?? null, $sets()]);
+
+    // ---- below what is kept: allowed, said; the door then refuses
+    $st = $zfs();
+    $st['ds'][$pairDs]['used'] = 2 * 1024 ** 3;
+    file_put_contents("$B[bin]/zfs.json", json_encode($st));
+    $r = $q(['id' => $id, 'step' => 'do', 'confirm' => true, 'quota_gb' => 1]);
+    same('quota: lower than what is kept — allowed, said (below)', [true, 'now', 1], [$r['below'] ?? null, $r['set'] ?? null, $quotaNow()]);
+    same('quota: … the door refuses new copies then', 'refused_quota',
+        partnerTestDoor($B, 'recv share:appdata uso-backup-20261002-0200 uso-backup-20261001-0200', 'x')['err'][0]['why'] ?? null);
+    $st['ds'][$pairDs]['used'] = 0;
+    file_put_contents("$B[bin]/zfs.json", json_encode($st));
+    $q(['id' => $id, 'step' => 'do', 'confirm' => true, 'quota_gb' => 10]);
+    partnerTestCalls($B['bin']);
+
+    // ---- the bounds of the pairing, read never cast
+    foreach ([-1, PARTNER_QUOTA_MAX_GB + 1, '5', 5.5, null, true, [5]] as $bad) {
+        same('quota: refused — ' . json_encode($bad), ['problem' => 'partner_receive', 'params' => ['field' => 'quota_gb']],
+            $q(['id' => $id, 'step' => 'do', 'confirm' => true, 'quota_gb' => $bad]));
+    }
+    same('quota: … the largest allowed goes', 'now', $q(['id' => $id, 'step' => 'do', 'confirm' => true, 'quota_gb' => PARTNER_QUOTA_MAX_GB])['set'] ?? null);
+    $q(['id' => $id, 'step' => 'do', 'confirm' => true, 'quota_gb' => 10]);
+    same('quota: without the confirmation, another step — bad_request', ['bad_request', 'bad_request', 'bad_request'],
+        [$q(['id' => $id, 'step' => 'do', 'quota_gb' => 5])['problem'] ?? null, $q(['id' => $id, 'step' => 'do', 'confirm' => 'yes', 'quota_gb' => 5])['problem'] ?? null,
+         $q(['id' => $id, 'step' => 'go', 'confirm' => true, 'quota_gb' => 5])['problem'] ?? null]);
+    same('quota: a pair that keeps nothing here, an unknown one, no id', ['partner_not_keeping', 'partner_unknown', 'bad_request'],
+        [$q(['id' => 'b2c3d4e5', 'step' => 'do', 'confirm' => true, 'quota_gb' => 5])['problem'] ?? null,
+         $q(['id' => '0badc0de', 'step' => 'do', 'confirm' => true, 'quota_gb' => 5])['problem'] ?? null, $q(['id' => ['x']])['problem'] ?? null]);
+    same('quota: … pairs.json as it was', 10, $quotaNow());
+
+    // ---- the pool asleep: never woken — kept, set by the door's next receive
+    partnerTestCalls($B['bin']);
+    $look = $q(['id' => $id], $Bs);
+    same('quota asleep: the look — asleep, nothing looked at', [true, null, null], [$look['asleep'] ?? null, $has($look, 'free_bytes'), $has($look, 'used_bytes')]);
+    $r = $q(['id' => $id, 'step' => 'do', 'confirm' => true, 'quota_gb' => 7], $Bs);
+    same('quota asleep: kept in pairs.json, set later — no zfs or zpool call at all', ['later', 7, []], [$r['set'] ?? null, $quotaNow(),
+        array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => in_array($c[0], ['zfs', 'zpool'], true)))]);
+    partnerTestDoor($B, 'recv share:appdata uso-backup-20261002-0200 uso-backup-20261001-0200', 'stream-2');
+    check('quota asleep: … the door\'s next receive sets it (doorParents())', in_array(['zfs', 'set', 'quota=7G', $pairDs], partnerTestCalls($B['bin']), true));
+
+    // ---- tolerant: the other pair and the entry of a newer office as they were
+    $raw = partnerReadPrivate($pairsFile);
+    same('quota: pairs.json — the newer office\'s entry kept where it stood, the other pair untouched', [['id' => 'ffffffff', 'from_a_newer_office' => true], $pairB['receive'], 'b2c3d4e5'],
+        [$raw['pairs'][1] ?? null, $has($raw['pairs'][2] ?? null, 'receive'), $raw['pairs'][2]['id'] ?? null]);
+    hardeningRm($tmp);
+}
+
+/**
+ * The door's earlier copies (<unit>.old-<time>, 2026-10-28): the names read back, listed per pair with their size in one
+ * zfs call, said with a refused_quota and in the status, never trimmed by the door, let go only on the Team Lead's
+ * click — only that pair's, never a unit, never while its unit is being received, never on a sleeping pool
+ */
+function testPartnerAside(): void
+{
+    $t = fn (string $when) => (new DateTime($when))->getTimestamp();
+    same('aside: the door\'s names read back — unit, stamp', [['share:appdata', '20261008-0100'], ['place', '20261008-0100-2'], ['vm:Debian_VM', '20261009-2359'], ['app:Plex', '20261008-0100']],
+        array_map(fn ($n) => [partnerAsideOf($n)['unit'] ?? null, partnerAsideOf($n)['stamp'] ?? null],
+            ['share-appdata.old-20261008-0100', 'place.old-20261008-0100-2', 'vm-Debian_VM.old-20261009-2359', 'app-Plex.old-20261008-0100']));
+    check('aside: … when, in the server\'s time', is_int(partnerAsideOf('share-appdata.old-20261008-0100')['time'] ?? null));
+    foreach (['share-appdata', 'share-appdata.old-2026100-0100', 'share-appdata.old-20261008-0100-0', 'share-appdata.older-20261008-0100', '.old-20261008-0100',
+              'share-.old-20261008-0100', 'share-a/b.old-20261008-0100', 'tank/x.old-20261008-0100', 'share-appdata.old-20261008-0100x', 'odd.old-20261008-0100',
+              '_UnraidSecretaryOffice-trash-20261008-101010-share-x.old-20261008-0100-a1b2c3d4'] as $n) {
+        same('aside: not one — ' . $n, null, partnerAsideOf($n));
+    }
+    same('aside: a unit really named so (received as one) is none', null, partnerAsideOf('share-keep.old-20260101-0000', ['share:keep.old-20260101-0000']));
+    if (posix_geteuid() !== 0) {
+        check('partner aside: the rest root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('partner-aside');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $B = partnerTestOffice("$tmp/B");
+    $id = 'a1b2c3d4';
+    $other = 'b2c3d4e5';
+    partnerTestBin($B['bin'], ['pools' => ['tank'], 'ds' => ['tank' => ['used' => 0]]]);
+    $pairsFile = "$B[data]/partner/pairs.json";
+    $keep = ['pool' => 'tank', 'quota_gb' => 10, 'retention' => '7 0 0', 'wake' => true];
+    partnerPairsWrite([partnerTestPair($id, ['receive' => $keep]), partnerTestPair($other, ['name' => 'otherserver', 'receive' => $keep]),
+        partnerTestPair('c3d4e5f6', ['name' => 'sendonly', 'their_key' => null, 'receive' => null])], $pairsFile);
+    $zfs = fn () => json_decode((string) file_get_contents("$B[bin]/zfs.json"), true);
+    $P = 'tank/' . PARTNER_PARENT;
+    $ds = "$P/$id/share-appdata";
+    $old1 = "$ds.old-20261008-0100";
+    $old2 = "$ds.old-20261009-0100";
+    $at = fn (string $when) => ['OFFICE_PARTNER_NOW' => (string) strtotime($when)];
+    // three full streams of one unit (a sender set up anew twice): two earlier copies put aside
+    foreach (['2026-10-07 01:00' => 'uso-backup-20261007-0100', '2026-10-08 01:00' => 'uso-backup-20261008-0100', '2026-10-09 01:00' => 'uso-backup-20261009-0100'] as $when => $snap) {
+        same("aside: a full stream of share:appdata ($snap)", 0, partnerTestDoor($B, "recv share:appdata $snap", str_repeat('a', 1000), $id, $at($when))['exit']);
+    }
+    same('aside: the door never lets one go by itself — both earlier copies there after the third full stream, with their history', [true, true, true, true],
+        [isset($zfs()['ds'][$old1]), isset($zfs()['ds'][$old2]), isset($zfs()['snaps']["$old1@uso-backup-20261007-0100"]), isset($zfs()['snaps']["$old2@uso-backup-20261008-0100"])]);
+    // another pair's earlier copy, a unit really named like one
+    partnerTestDoor($B, 'recv share:appdata uso-backup-20261008-0100', str_repeat('o', 50), $other, $at('2026-10-08 01:00'));
+    partnerTestDoor($B, 'recv share:appdata uso-backup-20261009-0100', str_repeat('o', 50), $other, $at('2026-10-09 01:00'));
+    same('aside: a unit named like an earlier copy is received as a unit', 0, partnerTestDoor($B, 'recv share:keep.old-20260101-0000 uso-backup-20261009-0100', 'kkk', $id)['exit']);
+    $otherOld = "$P/$other/share-appdata.old-20261009-0100";
+    $real = "$P/$id/share-keep.old-20260101-0000";
+    check('aside: … the other pair has its own', isset($zfs()['ds'][$otherOld], $zfs()['ds'][$real]));
+
+    // ---- the listing: one zfs call, per pair
+    partnerTestCalls($B['bin']);
+    $a = partnerTestAs($B, 'return partnerAside("tank", "a1b2c3d4", array_keys(partnerReceived("a1b2c3d4")["units"] ?? []));');
+    same('aside: the pair\'s earlier copies — which unit, from when, how big; a unit named like one and another pair\'s not', [
+        [$old1, $old2], ['share:appdata', 'share:appdata'], ['20261008-0100', '20261009-0100'], [1000, 1000], 2000],
+        [array_column($a['list'] ?? [], 'dataset'), array_column($a['list'] ?? [], 'unit'), array_column($a['list'] ?? [], 'stamp'), array_column($a['list'] ?? [], 'bytes'), $a['bytes'] ?? null]);
+    same('aside: … one zfs call for all of it', [['zfs', 'list', '-H', '-p', '-o', 'name,used', '-t', 'filesystem', '-d', '1', "$P/$id"]], partnerTestCalls($B['bin']));
+    same('aside: … what the pair holds now (the door\'s quota says the same)', partnerTestDoor($B, 'quota', '', $id)['out'][0]['used_bytes'] ?? -1, $a['used_bytes'] ?? null);
+    same('aside: a pair with nothing here yet — null', null, partnerTestAs($B, 'return partnerAside("tank", "c3d4e5f6");'));
+    $card = fn (array $office) => partnerTestAs($office, 'foreach (partnerPublic()["pairs"] as $p) { if ($p["id"] === "a1b2c3d4") { return $p["aside"]; } } return "none";');
+    same('aside: the card has them', [$old1, $old2], array_column($card($B)['list'] ?? [], 'dataset'));
+    $Bs = $B;
+    file_put_contents("$tmp/asleep.ini", "[\"tank\"]\nname=\"tank\"\nspundown=\"1\"\n");
+    $Bs['env']['OFFICE_DISKS_INI'] = "$tmp/asleep.ini";
+    partnerTestCalls($B['bin']);
+    same('aside: the pool asleep — the card doesn\'t look (null), no zfs list for it', [null, []],
+        [$card($Bs), array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => $c[0] === 'zfs' && ($c[1] ?? '') === 'list'))]);
+
+    // ---- said where the space is short: the status, a refused_quota, the sender's reading
+    same('aside: status — the quota with what the earlier copies hold of it', 2000, partnerTestDoor($B, 'status', '', $id)['out'][0]['quota']['aside_bytes'] ?? null);
+    $st = $zfs();
+    $st['ds']["$P/$id"]['used'] = 10 * 1024 ** 3;
+    file_put_contents("$B[bin]/zfs.json", json_encode($st));
+    $ref = partnerTestDoor($B, 'recv share:appdata uso-backup-20261010-0100 uso-backup-20261009-0100', 'x', $id)['err'][0] ?? [];
+    same('aside: a refused_quota says it too', ['refused_quota', 2000], [$ref['why'] ?? null, $ref['aside_bytes'] ?? null]);
+    $st['ds']["$P/$id"]['used'] = 0;
+    file_put_contents("$B[bin]/zfs.json", json_encode($st));
+    same('aside: the sender reads it — and null from an older door', [3, null],
+        [partnerStatusClean(['ok' => true, 'quota' => ['bytes' => 5, 'used_bytes' => 5, 'aside_bytes' => 3]])['quota']['aside_bytes'] ?? 'x',
+         partnerStatusClean(['ok' => true, 'quota' => ['bytes' => 5, 'used_bytes' => 5]])['quota']['aside_bytes'] ?? null]);
+
+    // ---- «Let go…»: only the pair's own earlier copies, each looked up again
+    $go = fn (array $r, ?array $office = null) => partnerTestAs($office ?? $B, 'return partner_aside_letgo(' . var_export($r, true) . ');');
+    $look = $go(['id' => $id]);
+    same('let go: the look — them and their size', [[$old1, $old2], 2000], [array_column($look['list'] ?? [], 'dataset'), $look['bytes'] ?? null]);
+    partnerTestCalls($B['bin']);
+    $r = $go(['id' => $id, 'step' => 'do', 'confirm' => true, 'datasets' => [$old1, $real, $otherOld, $ds, "$P/$id", 'tank', '../x', "$old1@uso-backup-20261007-0100"]]);
+    $calls = partnerTestCalls($B['bin']);
+    same('let go: only the pair\'s own earlier copy named — a unit, another pair\'s, the pair, the pool, a snapshot never', [true, 1, [], 1000],
+        [$r['ok'] ?? null, $r['gone'] ?? null, $r['kept'] ?? null, $r['bytes'] ?? null]);
+    same('let go: … zfs destroy -r of exactly it (never -R)', [['zfs', 'destroy', '-r', $old1]], array_values(array_filter($calls, fn ($c) => ($c[1] ?? '') === 'destroy')));
+    same('let go: … gone; its twin, the unit, the unit named like one, the other pair\'s stay', [false, true, true, true, true],
+        [isset($zfs()['ds'][$old1]), isset($zfs()['ds'][$old2]), isset($zfs()['ds'][$ds]), isset($zfs()['ds'][$real]), isset($zfs()['ds'][$otherOld])]);
+    $rec = array_map(fn ($l) => json_decode($l, true), file("$B[data]/partner/deletes.jsonl") ?: []);
+    $last = end($rec) ?: [];
+    same('let go: … its snapshots in deletes.jsonl first (the night watchman\'s record)', [$id, $old1, ['uso-backup-20261007-0100']], [$last['pair'] ?? null, $last['dataset'] ?? null, $last['snaps'] ?? null]);
+    $seen = watchmanPartnerDeletes("$B[data]/partner/deletes.jsonl", null, false);
+    check('let go: … which the night watchman takes as the door\'s (no snap_gone)', isset($seen[0]["$old1@uso-backup-20261007-0100"]));
+    check('let go: … in the door\'s log', str_contains((string) @file_get_contents("$B[data]/partner/door.log"), "let go (the Team Lead): $old1"));
+    // a receive of that unit under way (the door's lock of it): kept — a full receive that fails puts its copy back
+    @mkdir("$B[run]/partner", 0700, true);
+    $hold = fopen("$B[run]/partner/$id.unit-share-appdata.lock", 'c');
+    flock($hold, LOCK_EX);
+    $r = $go(['id' => $id, 'step' => 'do', 'confirm' => true, 'datasets' => [$old2]]);
+    same('let go: while its unit is received — kept, said', [0, [['dataset' => $old2, 'unit' => 'share:appdata', 'why' => 'transfer']], true],
+        [$r['gone'] ?? null, $r['kept'] ?? null, isset($zfs()['ds'][$old2])]);
+    flock($hold, LOCK_UN);
+    fclose($hold);
+    same('let go: one gone meanwhile — said', 'partner_aside_gone', $go(['id' => $id, 'step' => 'do', 'confirm' => true, 'datasets' => [$old1]])['problem'] ?? null);
+    partnerTestCalls($B['bin']);
+    same('let go: the pool asleep — refused, nothing destroyed', ['partner_aside_asleep', []],
+        [$go(['id' => $id, 'step' => 'do', 'confirm' => true, 'datasets' => [$old2]], $Bs)['problem'] ?? null,
+         array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => ($c[1] ?? '') === 'destroy'))]);
+    same('let go: without the confirmation, nothing chosen, a pair that keeps nothing here, an unknown one', ['bad_request', 'no_selection', 'partner_not_keeping', 'partner_unknown'],
+        [$go(['id' => $id, 'step' => 'do', 'datasets' => [$old2]])['problem'] ?? null, $go(['id' => $id, 'step' => 'do', 'confirm' => true, 'datasets' => []])['problem'] ?? null,
+         $go(['id' => 'c3d4e5f6'])['problem'] ?? null, $go(['id' => '0badc0de'])['problem'] ?? null]);
+    $r = $go(['id' => $id, 'step' => 'do', 'confirm' => true, 'datasets' => [$old2]]);
+    same('let go: the last one — gone, the card says none', [1, []], [$r['gone'] ?? null, array_column($card($B)['list'] ?? [], 'dataset')]);
+    check('let go: the door destroys nothing of it by itself (only the Team Lead\'s action does)', !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/partner-door.php'), "'destroy', '-r'"));
     hardeningRm($tmp);
 }
 
@@ -35712,15 +35946,19 @@ function testCleanupPartner(): void
     $recFile = partnerDir() . '/received/a1b2c3d4.json';
     $recWas = @file_get_contents($recFile);
     partnerWritePrivate($recFile, ['pair' => 'a1b2c3d4', 'units' => ['share:appdata' => ['snap' => 'uso-backup-20261008-0200', 'bytes' => 1, 'seconds' => 1, 'time' => time() - 86400, 'snaps' => 3],
-        'share:old' => ['snap' => 'uso-backup-20260901-0200', 'bytes' => 1, 'seconds' => 1, 'time' => time() - 40 * 86400, 'snaps' => 6]], 'used_bytes' => 1705, 'time' => time() - 86400]);
+        'share:old' => ['snap' => 'uso-backup-20260901-0200', 'bytes' => 1, 'seconds' => 1, 'time' => time() - 40 * 86400, 'snaps' => 6],
+        'share:keep.old-20260101-0000' => ['snap' => 'uso-backup-20260901-0200', 'bytes' => 1, 'seconds' => 1, 'time' => time() - 40 * 86400, 'snaps' => 1]], 'used_bytes' => 1705, 'time' => time() - 86400]);
+    // 2026-10-28: the door's earlier copies of a unit (<unit>.old-<time>) are no unit that stopped coming — the Team Lead's
+    // card lets them go; a unit really named so (received as one) still is one
     $zfs2 = fn (array $args) => [0, "tank/$P\t3000\t0\ntank/$P/a1b2c3d4\t1705\t0\ntank/$P/a1b2c3d4/share-appdata\t1000\t300\n"
-        . "tank/$P/a1b2c3d4/share-old\t600\t60\ntank/$P/a1b2c3d4/vm-Gone\t100\t10\ntank/$P/a1b2c3d4/odd_name\t5\t0\n"];
+        . "tank/$P/a1b2c3d4/share-old\t600\t60\ntank/$P/a1b2c3d4/vm-Gone\t100\t10\ntank/$P/a1b2c3d4/odd_name\t5\t0\n"
+        . "tank/$P/a1b2c3d4/share-appdata.old-20261008-0100\t400\t40\ntank/$P/a1b2c3d4/share-keep.old-20260101-0000\t3\t0\n"];
     file_put_contents("$tmp/run/door-4242.json", json_encode(['pid' => 4242, 'pair' => 'a1b2c3d4', 'unit' => 'vm:Gone', 'dataset' => "tank/$P/a1b2c3d4/vm-Gone", 'since' => time()]));
     $r2 = clPartners(['pools' => [['tank'], []], 'zfs' => $zfs2, 'pairs' => $pairs, 'run' => "$tmp/run", 'alive' => fn (int $pid) => in_array($pid, [getmypid(), 4242], true)]);
     $drop = array_column($r2['list'], null, 'id');
     ksort($drop);
-    same('cleanup partner: a dropped unit of a pair of today listed (its used, its snapshots, «<unit> of <name>»), the kept one and an odd name not, the transfer guard per unit',
-        [["partner:tank/a1b2c3d4/share-old", "partner:tank/a1b2c3d4/vm-Gone"],
+    same('cleanup partner: a dropped unit of a pair of today listed (its used, its snapshots, «<unit> of <name>»), the kept one, an odd name and the door\'s earlier copy not, the transfer guard per unit',
+        [["partner:tank/a1b2c3d4/share-keep.old-20260101-0000", "partner:tank/a1b2c3d4/share-old", "partner:tank/a1b2c3d4/vm-Gone"],
          ['dropped', 'share:old', 'vault', "tank/$P/a1b2c3d4/share-old", 600, 60, null, 'share:old · vault'], ['vm:Gone', 'transfer']],
         [array_keys($drop), [$drop["partner:tank/a1b2c3d4/share-old"]['category'] ?? null, $drop["partner:tank/a1b2c3d4/share-old"]['unit'] ?? null,
           $drop["partner:tank/a1b2c3d4/share-old"]['pair_name'] ?? null, $drop["partner:tank/a1b2c3d4/share-old"]['dataset'] ?? null,
@@ -39487,11 +39725,11 @@ function testRequestTypes(): void
         $answers[] = $ask(['action' => "caretaker.$a", 'step' => ['x']]);
         $answers[] = $ask(['action' => "caretaker.$a", 'step' => 'do', 'address' => ['x']]);
     }
-    foreach (['partner_ping', 'partner_end', 'partner_ticket_end', 'partner_address'] as $a) {
+    foreach (['partner_ping', 'partner_end', 'partner_ticket_end', 'partner_address', 'partner_quota', 'partner_aside_letgo'] as $a) {
         $answers[] = $ask(['action' => "caretaker.$a", 'id' => ['x'], 'step' => 'look']);
     }
     $answers[] = $ask(['action' => 'caretaker.partner_ticket_make', 'pair' => ['x']]);
-    same('types: partner_* with arrays where strings belong — bad_request', array_fill(0, 9, 'bad_request'), $answers);
+    same('types: partner_* with arrays where strings belong — bad_request', array_fill(0, 11, 'bad_request'), $answers);
     same('types: jack.output / jack.log of a tool he hasn\'t — refused, never read as EmbyCache', ['unknown_target', 'unknown_target'],
         [$ask(['action' => 'jack.output', 'tool' => '../x']), $ask(['action' => 'jack.log', 'tool' => '../x'])]);
     same('types: restore.drill_set with nothing it knows — refused, not an ok that changed nothing', 'bad_request', $ask(['action' => 'restore.drill_set', 'x' => 1]));
@@ -55762,7 +56000,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
