@@ -33379,7 +33379,8 @@ function testRestoreMoveGuide(): void
     check('move guide: Unraid 7.3.2 (the .plg\'s min), never only «7.3»', str_contains($en['move.s1_text'], '7.3.2')
         && str_contains((string) file_get_contents(OFFICE_DIR . '/plugin/unraid-secretary-office.plg'), 'min="7.3.2"'));
     check('move guide: the Kopia password from the password manager, not the server', str_contains($en['move.s3_kopia'], 'password manager'));
-    check('move guide: «comes back empty» by name', str_contains($en['move.s5_text'], 'come back empty'));
+    check('move guide: «comes back empty» by name — the server named (2026-10-28: a raw {name} on the page)', str_contains($en['move.s5_text'], 'come back empty')
+        && str_contains($sec, "T(lost ? 'move.s5_text' : 'move.s5_none', { name: "));
     check('move guide: the short version in docs/GUIDE.md', str_contains((string) file_get_contents(OFFICE_DIR . '/docs/GUIDE.md'), "### Onto a new server\n"));
 
     // what comes back empty, under node: on the server itself from what its backups made; on a new server from the

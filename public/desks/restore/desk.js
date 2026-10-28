@@ -2254,7 +2254,7 @@ function moveSection() {
   partners().filter((p) => p.kind === 'ticket').forEach((p) => ticketBlock(box, p));
   step(T('move.s4'), T('move.s4_text'));
   const lost = f.lostShares.length || f.lostVms.length;
-  step(T('move.s5'), T(lost ? 'move.s5_text' : 'move.s5_none'),
+  step(T('move.s5'), T(lost ? 'move.s5_text' : 'move.s5_none', { name: f.asSet ? f.asSet.name : state.host || '?' }),
     f.asSet ? role('move.s5_as_set', { name: f.asSet.name, when: date(f.asSet.when) }) : null,
     f.lostShares.length ? holder('rs-rules', el('span', '', T('move.s5_shares', { n: f.lostShares.length })), ' ', ...f.lostShares.flatMap((n) => [el('code', '', n), ' '])) : null,
     f.lostVms.length ? holder('rs-rules', el('span', '', T('move.s5_vms', { n: f.lostVms.length })), ' ', ...f.lostVms.flatMap((n) => [el('code', '', n), ' '])) : null);
