@@ -62,6 +62,7 @@ const RS_STOREROOM    = OFFICE_STOREROOM;   // Ms. Dustdevil's: never a share's 
 const RS_OWN_LEFTOVER = '/\.(restored|aside|putback)-\d{8}-\d{6}$/D';   // what he left next to a folder himself
 const RS_NAME_MAX     = 255;         // bytes a file's name may have (NAME_MAX): what he leaves beside is cut to it (rsBeside())
 const RS_WAKE_TIMEOUT = 90;          // seconds a sleeping disk gets to spin up when «wake» is ticked
+const RS_SHARES_EVERY = 1.0;         // s: how often his tick compares the share files' stamp (officeSharesStamp(), lib/house.php)
 
 define('RS_DATA', DATA_DIR . '/restore');
 define('RS_JOB_FILE', DATA_DIR . '/restore-job.json');       // the running (or last) restore, polled by the page (api part "job")
@@ -127,6 +128,7 @@ desk('restore', [
         }
     },
     'tick'    => function (): void {
+        rsSharesTick();         // a share changed in Unraid (its cfg on the flash, shares.ini): his state looked at again at once
         rsDuTick();
         drillTick();
         rspTick();
@@ -1641,6 +1643,33 @@ function rsWrite(array $state): array
     $GLOBALS['rs']['state'] = $state;
     writeAtomic(deskFile('restore'), jsonEncode($state));
     return $state;
+}
+
+/**
+ * A share changed in Unraid (2026-10-28, the parkplatz: his page told up to refresh_after's 5 min what was no longer so —
+ * a share made exclusive, one removed): once a second the share files' stamp, as Ms. Moverelli's tick does
+ * (officeSharesStamp(): a glob and a stat each on the flash); changed and calm → his state looked at again (rsScan(), which
+ * never looks into a sleeping disk) — the page's next look gets it. Not hired, or never looked at yet (a new data
+ * folder): his page's first look will do. $now, $h (shares_dir, shares_ini, hired, scan) for the tests; the new state or null.
+ */
+function rsSharesTick(?float $now = null, ?array $h = null): ?array
+{
+    static $last = 0.0;
+    $now ??= microtime(true);
+    if ($h === null && $now - $last < RS_SHARES_EVERY) {
+        return null;
+    }
+    $last = $now;
+    $GLOBALS['rs']['shares_memo'] ??= [];
+    $stamp = officeSharesStamp($h['shares_dir'] ?? OFFICE_SHARES_CFG_DIR, $h['shares_ini'] ?? RS_SHARES_INI);
+    if (!officeSharesDue($GLOBALS['rs']['shares_memo'], $stamp, $now)) {
+        return null;
+    }
+    $hired = $h['hired'] ?? fn (): bool => in_array('restore', staffHired($GLOBALS['agentStaffFile'] ?? null), true);
+    if (!$hired() || !is_file($h['state_file'] ?? deskFile('restore'))) {
+        return null;
+    }
+    return ($h['scan'] ?? 'rsScan')();
 }
 
 // ===================================================================== older packages

@@ -168,52 +168,11 @@ function moverelliHost(): array
 
 // ===================================================================== Unraid's shares changed
 
-const MOVERELLI_SHARES_EVERY = 1.0;     // s: how often the tick compares the share files' stamp
-const MOVERELLI_SHARES_CALM  = 2.0;     // s: a changed stamp the same this long (Unraid's «Apply» writes cfg, then shares.ini)
-
-/**
- * The stamp of Unraid's share facts, cheap (no file read, no disk woken — the flash and RAM only): the folder of the share
- * cfgs and each cfg's mtime and size, shares.ini's. Changes with every ⟦Apply⟧ on a share, a share added or removed.
- */
-function moverelliSharesStamp(string $sharesDir, string $sharesIni): string
-{
-    $parts = [];
-    foreach ([$sharesDir, ...(glob("$sharesDir/*.cfg", GLOB_NOSORT) ?: []), $sharesIni] as $f) {
-        $st = @stat($f);
-        $parts[] = $st ? basename($f) . ':' . $st['mtime'] . ':' . $st['size'] : basename($f) . ':-';
-    }
-    sort($parts, SORT_STRING);
-    return md5(implode('|', $parts));
-}
-
-/**
- * Should she look again now? Pure but for $memo (the last stamp seen, since when, the last look's): the first stamp is only
- * remembered (her start looked already); a new one is looked at once it stayed the same MOVERELLI_SHARES_CALM seconds —
- * never twice for the same stamp.
- *
- * @param array{stamp?: string, since?: float, looked?: string} $memo
- */
-function moverelliSharesDue(array &$memo, string $stamp, float $now): bool
-{
-    if (!isset($memo['stamp'])) {
-        $memo = ['stamp' => $stamp, 'since' => $now, 'looked' => $stamp];
-        return false;
-    }
-    if ($memo['stamp'] !== $stamp) {
-        $memo['stamp'] = $stamp;
-        $memo['since'] = $now;
-        return false;
-    }
-    if ($memo['looked'] === $stamp || $now - $memo['since'] < MOVERELLI_SHARES_CALM) {
-        return false;
-    }
-    $memo['looked'] = $stamp;
-    return true;
-}
+const MOVERELLI_SHARES_EVERY = 1.0;     // s: how often the tick compares the share files' stamp (officeSharesStamp(), lib/house.php)
 
 /**
  * Her tick (the owner, 2026-10-18: nextcloud_data set to pool only in Unraid, her page still said «1 back into the pool»
- * for up to 5 min — desk.json refresh_after): once a second the share files' stamp (moverelliSharesStamp(), a glob and a
+ * for up to 5 min — desk.json refresh_after): once a second the share files' stamp (officeSharesStamp(), a glob and a
  * stat each on the flash); changed and calm → her state looked at again (moverelliScan()) — the page's next look gets it.
  * The new state, or null (nothing to look at).
  */
@@ -227,7 +186,7 @@ function moverelliTick(?array $h = null, ?float $now = null): ?array
     $last = $now;
     $h ??= moverelliHost();
     $GLOBALS['moverelliSharesMemo'] ??= [];
-    if (!moverelliSharesDue($GLOBALS['moverelliSharesMemo'], moverelliSharesStamp($h['shares_dir'], $h['shares_ini']), $now)) {
+    if (!officeSharesDue($GLOBALS['moverelliSharesMemo'], officeSharesStamp($h['shares_dir'], $h['shares_ini']), $now)) {
         return null;
     }
     // not hired, or never looked at yet (a new data folder): her page's first look will do

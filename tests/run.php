@@ -34135,6 +34135,40 @@ function testDrillShareFile(): void
     unlink("$pf/app/log/app.log");
     same('drill share file: nothing ordinary left — none (the step says so, «not checked», the drill doesn\'t fail on it)', null,
         drillShareFilePickFile($pf, 1793500000));
+    // 2026-10-28: why the guards didn't hold — the share itself was never looked at (the owner's server: a share kopia_tmp),
+    // folders saying Kopia, a repository, a database or a cache were walked into, and any fitting name counted the same
+    exec('rm -rf ' . escapeshellarg($pf));
+    foreach (['kopia_tmp_x/upload.txt', 'repository/blob.txt', 'nextcloud-db/notes.txt', 'databases/notes.txt', 'db/notes.txt',
+              'Cache/poster.jpg', '.git/description.txt', 'mongo_data/readme.txt', 'leveldb/000123.log', 'store/0a1b2c3d4e5f6.bin', 'store/CURRENT',
+              'store/1259', 'pg/global/pg_control', 'redis/dump.rdb', 'lmdb/data.mdb', 'Familie/2019/settings.dat'] as $rel) {
+        $put($rel);
+    }
+    $seen = [];
+    for ($n = 0; $n < 60; $n++) {
+        $seen[] = drillShareFilePickFile($pf, 1793500000)[0] ?? null;
+    }
+    same('drill share file: never inside a folder saying Kopia, repository, db, database, cache, .git; never a blob, a numbered log, a name without extension — only a plain name left',
+        ['Familie/2019/settings.dat'], array_values(array_unique($seen)));
+    $put('Familie/2019/Sommer/20190704.jpg');
+    $put('Familie/index.dat');
+    $seen = [];
+    for ($n = 0; $n < 60; $n++) {
+        $seen[] = drillShareFilePickFile($pf, 1793500000)[0] ?? null;
+    }
+    same('drill share file: a plainly ordinary file (a photo named by its date) first — the plain names only when the walk found none',
+        ['Familie/2019/Sommer/20190704.jpg'], array_values(array_unique($seen)));
+    same('drill share file: plain names', [true, true, true, false, false, false, false, false],
+        array_map('drillFilePlain', ['strand.jpg', '20190704.jpg', 'face.txt', '000123.log', 'p0a1b2c3d4.bin', '3f2a9c0e11ab.f', 'CURRENT', '1259']));
+    $kc = $ctx;
+    $kc['cfg'] += ['kopia_tmp' => ['shareUseCache' => 'only', 'shareCachePool' => 'maple'], 'Dokumente' => ['shareUseCache' => 'only', 'shareCachePool' => 'maple']];
+    $kc['zfs'] += ["$tmp/mnt/maple/kopia_tmp" => 'maple/kopia_tmp', "$tmp/mnt/maple/Dokumente" => 'maple/Dokumente'];
+    $kc['snaps'] += ['maple/kopia_tmp' => [['name' => 'uso-backup-20261101-0300', 'time' => 1793500000]], 'maple/Dokumente' => [['name' => 'uso-backup-20261101-0300', 'time' => 1793500000]]];
+    foreach (['kopia_tmp', 'Dokumente'] as $sh) {
+        @mkdir("$tmp/mnt/maple/$sh/.zfs/snapshot/uso-backup-20261101-0300", 0700, true);
+    }
+    same('drill share file: a share whose name says Kopia is never the drill\'s share — not even when it is the only one (no step, nothing said)', [null, null],
+        array_values(drillShareFilePick(['share|kopia_tmp' => ['mode' => ['local']]], $kc)));
+    same('drill share file: … the others still are', 'Dokumente', drillShareFilePick(['share|kopia_tmp' => ['mode' => ['local']], 'share|Dokumente' => ['mode' => ['local']]], $kc)['step']['id'] ?? null);
     $words = [];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
         $words[] = str_contains((string) (json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$code.json"), true)['drill.code.sharefile_none'] ?? ''), 'Kopia');
@@ -47659,18 +47693,18 @@ function testMoverelliPageTruth(): void
     $h = moverelliHost();
     // the tick: the first stamp remembered, a changed cfg looked at once calm (2 s), never twice for the same stamp
     $memo = [];
-    $stamp = moverelliSharesStamp($h['shares_dir'], $h['shares_ini']);
-    same('page truth: the stamp stays while nothing changes', $stamp, moverelliSharesStamp($h['shares_dir'], $h['shares_ini']));
-    $due = [moverelliSharesDue($memo, $stamp, 100.0), moverelliSharesDue($memo, $stamp, 110.0)];
+    $stamp = officeSharesStamp($h['shares_dir'], $h['shares_ini']);
+    same('page truth: the stamp stays while nothing changes', $stamp, officeSharesStamp($h['shares_dir'], $h['shares_ini']));
+    $due = [officeSharesDue($memo, $stamp, 100.0), officeSharesDue($memo, $stamp, 110.0)];
     touch("$tmp/shares/Docs.cfg", time() + 5);
     clearstatcache();
-    $new = moverelliSharesStamp($h['shares_dir'], $h['shares_ini']);
-    $due = [...$due, $new !== $stamp, moverelliSharesDue($memo, $new, 111.0), moverelliSharesDue($memo, $new, 112.5), moverelliSharesDue($memo, $new, 113.1),
-        moverelliSharesDue($memo, $new, 120.0)];
+    $new = officeSharesStamp($h['shares_dir'], $h['shares_ini']);
+    $due = [...$due, $new !== $stamp, officeSharesDue($memo, $new, 111.0), officeSharesDue($memo, $new, 112.5), officeSharesDue($memo, $new, 113.1),
+        officeSharesDue($memo, $new, 120.0)];
     same('page truth: the first stamp only remembered; a cfg changed — a new stamp, looked at once 2 s calm, then not again', [false, false, true, false, false, true, false], $due);
     file_put_contents("$tmp/shares.ini", "[Docs]\nname=\"Docs\"\n");
     clearstatcache();
-    same('page truth: shares.ini changed — a new stamp too', true, moverelliSharesStamp($h['shares_dir'], $h['shares_ini']) !== $new);
+    same('page truth: shares.ini changed — a new stamp too', true, officeSharesStamp($h['shares_dir'], $h['shares_ini']) !== $new);
     // the tick itself: Docs set pool only in Unraid — her state says so within the tick's calm, not after 5 min
     $GLOBALS['moverelliSharesMemo'] = [];
     $hh = ['hired' => fn (): bool => true] + $h;
@@ -53956,6 +53990,16 @@ function testBackupGonePackage(): void
         [array_map(fn ($g) => [$g['kind'], $g['folder']], backupGonePackages($pk, null, null, ['win11'])),
          array_map(fn ($g) => [$g['kind'], $g['folder']], backupGonePackages($pk, $containers, $images, null)),
          backupGonePackages(['asleep' => true] + $pk, $containers, $images, [])]);
+    // 2026-10-28: nor in the engine's current plan — an app or VM setup-plan.json still names is never gone
+    same('gone package: an app or VM the engine\'s current plan names is never gone (by name or folder)', [[], [['vm', 'oldvm']]],
+        [array_map(fn ($g) => [$g['kind'], $g['folder']], backupGonePackages($pk, $containers, $images, ['win11'], ['apps' => ['zz-uso-test-db'], 'vms' => ['oldvm']])),
+         array_map(fn ($g) => [$g['kind'], $g['folder']], backupGonePackages($pk, $containers, $images, ['win11'], ['apps' => ['zz-uso-test-db'], 'vms' => []]))]);
+    file_put_contents("$tmp/plan.json", json_encode(['P' => ['app|newapp|folder' => 'appdata/newapp', 'share|Docs|mode' => 'local', 'app|bad' => 'x'],
+        'apps' => [['name' => 'kept', 'gone' => false, 'keys' => []], ['name' => 'zz-uso-test-db', 'gone' => true, 'keys' => []], 'junk', ['name' => 7]],
+        'vms' => [['name' => 'win11'], ['name' => ''], 'oldvm']]));
+    same('gone package: the plan\'s apps (not gone), proposed app keys, its VMs — only entries in exactly its shape; no plan: null',
+        [['apps' => ['kept', 'newapp'], 'vms' => ['win11']], null], [backupGonePlanned("$tmp/plan.json"), backupGonePlanned("$tmp/none.json")]);
+    $GLOBALS['gonePlanned'] = null;
     $asked = [];
     $GLOBALS['goneHost'] = ['containers' => function () use (&$asked, $containers) { $asked[] = 'containers'; return $containers; },
                             'images' => function () use (&$asked, $images) { $asked[] = 'images'; return $images; },
@@ -54050,7 +54094,7 @@ function testBackupGonePackage(): void
     check('gone package: the page shows each with «Into the storeroom» on a fresh look, the action asked with kind and folder',
         str_contains($desk, "Office.api.post(`\${ID}.package_aside`, { kind: g.kind, folder: g.folder })") && str_contains($desk, "if (!(await Office.freshState(ID))) return;\n  const g = goneOf(g0.kind, g0.folder);")
         && str_contains($agent, "'package_aside' => fn (array \$r) => backupPackageAside(\$r),") && str_contains($agent, "'packages_gone' => backupGoneList(\$pk),"));
-    unset($GLOBALS['goneHost'], $GLOBALS['goneplace'], $GLOBALS['gonePackages'], $GLOBALS['goneRoots'], $GLOBALS['disksIni'], $GLOBALS['letgoUbData'], $GLOBALS['letgoDir'],
+    unset($GLOBALS['goneHost'], $GLOBALS['gonePlanned'], $GLOBALS['goneplace'], $GLOBALS['gonePackages'], $GLOBALS['goneRoots'], $GLOBALS['disksIni'], $GLOBALS['letgoUbData'], $GLOBALS['letgoDir'],
         $GLOBALS['letgoHost'], $GLOBALS['drill']['job_file']);
     hardeningRm($tmp);
 }
@@ -54180,6 +54224,13 @@ function testSetupViaShare(): void
         [], $apps($out['via']));
     check('via share: … and leaves the apps\' folders in appdata\'s source (no kopia_ignore, kopia_known as saved)',
         !preg_grep('/^share\|appdata\|kopia_(ignore|known)$/', array_column($out['via'] ?? [], 'key')), json_encode($out['via']));
+    // 2026-10-28 (the parkplatz: after an update from 1.60 «15 changes» nobody made): the old settings untouched - none of
+    // the Apply list's rows is the user's (the bar says only proposals of mine), no app key among them
+    $items = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tools/scenarios/plan-changes.mjs') . ' '
+        . escapeshellarg("$tmp/via.json") . ' --items 2>&1'), true);
+    same('via share: the old settings untouched - 0 of the Apply list\'s rows the user\'s, none an app\'s source of its own',
+        [true, [], []], [is_array($items), array_values(array_filter((array) $items, fn ($x) => !empty($x['yours']))),
+            array_values(array_filter(array_column((array) $items, 'id'), fn ($id) => preg_match('/^app\|(?!zz-old-stack\|).+\|(?:kopia|folder)$/', (string) $id)))]);
     same('via share: an app with a source of its own saved keeps it - nothing to change', [], $apps($out['own']));
     same('via share: … its folder saved as another one than the server has: the difference is listed',
         ['app|EmbyServer|folder: ["appdata/emby-old"] → ["appdata/emby"]'], $apps($out['moved']));
@@ -56151,12 +56202,55 @@ function testUsoNetJoin(): void
 }
 
 
+/**
+ * Mr. Restori looks again when a share changes in Unraid (2026-10-28, the parkplatz): his tick compares the share files'
+ * stamp (officeSharesStamp(), shared with Ms. Moverelli's), a changed one looked at once calm (2 s) — not after
+ * refresh_after's 5 min; never when not hired or never looked at yet; registered in his tick.
+ */
+function testRestoreSharesTick(): void
+{
+    $tmp = hardeningTmp('restore-shares-tick');
+    @mkdir("$tmp/shares", 0700, true);
+    file_put_contents("$tmp/shares/Docs.cfg", "shareUseCache=\"yes\"\n");
+    file_put_contents("$tmp/shares.ini", "[Docs]\nname=\"Docs\"\n");
+    file_put_contents("$tmp/restore.json", '{}');
+    $scans = 0;
+    $hired = true;
+    $h = ['shares_dir' => "$tmp/shares", 'shares_ini' => "$tmp/shares.ini", 'state_file' => "$tmp/restore.json",
+          'hired' => function () use (&$hired): bool { return $hired; }, 'scan' => function () use (&$scans): array { $scans++; return ['time' => $scans]; }];
+    $keep = $GLOBALS['rs']['shares_memo'] ?? null;
+    $GLOBALS['rs']['shares_memo'] = [];
+    $t = [rsSharesTick(1000.0, $h), rsSharesTick(1001.0, $h)];
+    file_put_contents("$tmp/shares/Docs.cfg", "shareUseCache=\"only\"\nshareCachePool=\"cache\"\n");
+    touch("$tmp/shares/Docs.cfg", time() + 10);
+    clearstatcache();
+    $t = [...$t, rsSharesTick(1002.0, $h), rsSharesTick(1003.0, $h), rsSharesTick(1004.5, $h), rsSharesTick(1010.0, $h)];
+    same('restore shares tick: nothing at first, the cfg changed — looked at once 2 s calm, then not again',
+        [null, null, null, null, ['time' => 1], null], $t);
+    file_put_contents("$tmp/shares.ini", "[Media]\nname=\"Media\"\n");
+    unlink("$tmp/shares/Docs.cfg");
+    clearstatcache();
+    $hired = false;
+    $t = [rsSharesTick(1020.0, $h), rsSharesTick(1023.0, $h)];
+    $hired = true;
+    file_put_contents("$tmp/shares.ini", "[Media]\nname=\"Media\"\n[Docs]\nname=\"Docs\"\n");
+    clearstatcache();
+    unlink("$tmp/restore.json");
+    $t = [...$t, rsSharesTick(1030.0, $h), rsSharesTick(1033.0, $h)];
+    same('restore shares tick: a share removed while not hired, one added before his first look — no look of his', [null, null, null, null, 1], [...$t, $scans]);
+    $GLOBALS['rs']['shares_memo'] = $keep ?? [];
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    check('restore shares tick: in his tick, before the sizes', (bool) preg_match("/'tick'\s*=> function \(\): void \{\s*rsSharesTick\(\);/", $src));
+    same('restore shares tick: Ms. Moverelli\'s tick uses the same stamp', 1, substr_count((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), 'officeSharesDue($GLOBALS[\'moverelliSharesMemo\'], officeSharesStamp('));
+    hardeningRm($tmp);
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
-                      'testRestoreReviewPaths', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
+                      'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];

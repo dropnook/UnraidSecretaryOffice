@@ -116,9 +116,19 @@ const DRILL_FILE_LOOKS     = 40;              // folders looked into for it
 const DRILL_FILE_SETTLED   = 3600;            // … and not changed in the hour before the snapshot (it may have been written then)
 // never the sample: Kopia's repository, cache and temp files; a database's files; locks, pids, sockets, temp files
 const DRILL_FILE_SKIP      = '/kopia|^_log_|^[a-z]?[0-9a-f]{4,}\\.f$|^ib(?:data\\d*|_logfile\\d*|_buffer_pool|tmp\\d*)$|\\.(?:ibd|myd|myi|mad|mai|frm|wt)$'
-    . '|^aria_log|^wiredtiger|^mongod\\.lock$|\\.(?:db|sqlite\\d?)$|-(?:wal|shm|journal)$|\\.(?:lock|lck|pid|sock|socket|tmp|temp|part|partial|swp)$|^\\.?lock$/i';
+    . '|^aria_log|^wiredtiger|^mongod\\.lock$|\\.(?:db|sqlite\\d?)$|-(?:wal|shm|journal)$|\\.(?:lock|lck|pid|sock|socket|tmp|temp|part|partial|swp)$|^\\.?lock$'
+    . '|\\.(?:db3|sqlitedb|mdb|ldb|sst|realm|rdb|aof|tsm|wal)$/i';
 // a folder holding one of these is a Kopia repository or a database's own (the engine's marks): nothing in it is taken
-const DRILL_FILE_MARKS     = ['kopia.repository.f', 'ibdata1', 'aria_log_control', 'mysql.ibd', 'PG_VERSION', 'WiredTiger'];
+const DRILL_FILE_MARKS     = ['kopia.repository.f', 'kopia.blobcfg.f', 'kopia.maintenance.f', '.shards', 'ibdata1', 'aria_log_control', 'mysql.ibd',
+                              'PG_VERSION', 'WiredTiger'];
+// 2026-10-28 (the owner: a repository or database file is never a drill's test file — the copy lands in its share): a
+// share or folder whose name says Kopia, a repository, a database or a cache is never walked into, nor taken as the share
+const DRILL_DIR_SKIP       = '/kopia|repositor|^repos?$|(?:^|[^a-z])dbs?(?:[^a-z]|$)|database|mysql|mariadb|postgres|^pg_?data$|mongo|redis|influx'
+    . '|elasticsearch|prometheus|sqlite|leveldb|rocksdb|tsdb|^\\.?cache$|^\\.git$/i';
+// … and of the fitting files a plainly ordinary one first (documents, pictures, media, text); only where the whole walk
+// found none, another with a plain name and extension (never a hex or numbered blob, never one without an extension)
+const DRILL_FILE_ORDINARY  = '/\\.(?:jpe?g|png|gif|webp|heic|heif|tiff?|bmp|svg|dng|cr2|nef|arw|mp4|m4v|mkv|avi|mov|wmv|mpe?g|webm|mp3|flac|m4a|aac|ogg'
+    . '|opus|wav|pdf|docx?|odt|ods|odp|xlsx?|pptx?|rtf|txt|md|csv|epub|srt|ass|nfo|html?|xml|json|ya?ml|ini|conf|cfg|log)$/i';
 
 define('DRILL_DATA', DATA_DIR . '/restore-drill');
 define('DRILL_CERT', DATA_DIR . '/restore-drill.json');           // the certificate (api part "drill")
@@ -2621,7 +2631,9 @@ function drillShareFilePick(array $settings, array &$ctx): array
     foreach ($settings as $key => $_) {
         if (str_starts_with((string) $key, 'share|') && backupSetting($settings, (string) $key, 'mode', 'off') !== 'off') {
             $share = substr((string) $key, 6);
-            if (preg_match('/^[\w .-]+$/D', $share) && $share !== BACKUP_OFFICE_SHARE) {
+            // never the office's own share, nor one whose name says Kopia, a repository or a database (2026-10-28: on the
+            // owner's server a share kopia_tmp — the walk checked the names inside a share, never the share's own)
+            if (preg_match('/^[\w .-]+$/D', $share) && $share !== BACKUP_OFFICE_SHARE && !preg_match(DRILL_DIR_SKIP, $share)) {
                 $shares[] = $share;
             }
         }
@@ -2739,8 +2751,11 @@ function drillDoShareFile(array &$j, int $i, array &$env): array
 /**
  * A small, ordinary file in a snapshot folder: walk down from the top, a random folder at each level, a random fitting
  * file where there is one (never a link, never the office's storeroom, set-aside or scratch folders; never one of
- * DRILL_FILE_SKIP, nothing inside a folder with one of DRILL_FILE_MARKS, never a file changed in the DRILL_FILE_SETTLED
- * before $time — the snapshot's). A folder that led nowhere isn't taken again. [rel, path] or null.
+ * DRILL_FILE_SKIP, never a folder of DRILL_DIR_SKIP, nothing inside a folder with one of DRILL_FILE_MARKS — the walk goes
+ * top down, so every folder above a file was looked at; never a file changed in the DRILL_FILE_SETTLED before $time — the
+ * snapshot's); only a file with a plain name (drillFilePlain()). A plainly ordinary one (DRILL_FILE_ORDINARY) first: one
+ * found ends the walk; another is kept only for when the whole walk found none. A folder that led nowhere isn't taken again.
+ * [rel, path] or null.
  */
 function drillShareFilePickFile(string $root, ?int $time = null): ?array
 {
@@ -2748,6 +2763,7 @@ function drillShareFilePickFile(string $root, ?int $time = null): ?array
         || preg_match(DRILL_FILE_SKIP, $n);
     $before = ($time > 0 ? $time : drillNow()) - DRILL_FILE_SETTLED;
     $dead = [];
+    $other = null;
     for ($try = 0, $looks = 0; $try < 20 && $looks < DRILL_FILE_LOOKS; $try++) {
         $dir = $root;
         $rel = '';
@@ -2755,7 +2771,7 @@ function drillShareFilePickFile(string $root, ?int $time = null): ?array
             $looks++;
             $all = @scandir($dir) ?: [];
             $names = array_intersect($all, DRILL_FILE_MARKS) ? [] : array_values(array_filter($all, fn ($n) => !$skip($n)));
-            $files = $dirs = [];
+            $files = $plain = $dirs = [];
             foreach (array_slice($names, 0, 2000) as $n) {
                 $path = "$dir/$n";
                 if (is_link($path) || isset($dead[$path])) {
@@ -2764,15 +2780,26 @@ function drillShareFilePickFile(string $root, ?int $time = null): ?array
                 if (is_file($path)) {
                     $size = (int) @filesize($path);
                     if ($size >= DRILL_FILE_MIN && $size <= DRILL_FILE_MAX && (int) @filemtime($path) < $before && is_readable($path)) {
-                        $files[] = $n;
+                        if (!drillFilePlain($n)) {
+                            continue;
+                        }
+                        if (preg_match(DRILL_FILE_ORDINARY, $n)) {
+                            $files[] = $n;
+                        } else {
+                            $plain[] = $n;
+                        }
                     }
-                } elseif (is_dir($path)) {
+                } elseif (is_dir($path) && !preg_match(DRILL_DIR_SKIP, $n)) {
                     $dirs[] = $n;
                 }
             }
             if ($files) {
                 $f = $files[random_int(0, count($files) - 1)];
                 return [ltrim("$rel/$f", '/'), "$dir/$f"];
+            }
+            if ($plain && $other === null) {
+                $f = $plain[random_int(0, count($plain) - 1)];
+                $other = [ltrim("$rel/$f", '/'), "$dir/$f"];
             }
             if (!$dirs) {
                 $dead[$dir] = true;
@@ -2786,7 +2813,19 @@ function drillShareFilePickFile(string $root, ?int $time = null): ?array
             break;
         }
     }
-    return null;
+    return $other;
+}
+
+/**
+ * A file name that is plainly a person's or an app's, not a store's block: an extension of letters (1–8, may end in
+ * digits), a stem that is no hex blob (`p0a1b2c3d4.bin`, `3f2a9c0e11.f`) and no numbered log (`000123.log`, LevelDB's) —
+ * never one without an extension (`1259`, `CURRENT`). A photo named by its date (`20190704.jpg`) is plain.
+ */
+function drillFilePlain(string $n): bool
+{
+    return preg_match('/^(.+)\.([a-z][a-z0-9]{0,7})$/iD', $n, $m) === 1
+        && !preg_match('/^[a-z]?(?=[0-9a-f]*[a-f])[0-9a-f]{8,}$/iD', $m[1])
+        && !(ctype_digit($m[1]) && strcasecmp($m[2], 'log') === 0);
 }
 
 /**
