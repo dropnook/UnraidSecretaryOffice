@@ -947,6 +947,53 @@ function rsKopia(array $engine, array $settings): array
 // ===================================================================== the packages
 
 /**
+ * The server a backup place belongs to, as its last backup run left it (server/shares/*.cfg, server/settings.ini — read
+ * only, every name in the shape of a share): its shares, each with how the engine kept it (mode off|snapshot|kopia,
+ * partner: a partner office set), its VMs set to go to a partner, the host. For «Onto a new server» where this office has
+ * no settings of its own — a new server that pulled the gone one's backup place. Settings, not results: said so there.
+ *
+ * @return array{host: ?string, place: ?string, kopia: bool, shares: list<array{name: string, mode: string, partner: bool}>, vm_partner: list<string>}|null
+ */
+function rsPackageSettings(string $dir): ?array
+{
+    $names = [];
+    foreach (glob("$dir/shares/*.cfg") ?: [] as $f) {
+        $names[basename($f, '.cfg')] = true;
+    }
+    $set = is_file("$dir/settings.ini") && !is_link("$dir/settings.ini") ? backupReadSettings("$dir/settings.ini") : [];
+    if (!$names && !$set) {
+        return null;
+    }
+    foreach (array_keys($set) as $key) {
+        if (str_starts_with((string) $key, 'share|')) {
+            $names[substr((string) $key, 6)] = true;
+        }
+    }
+    $shares = [];
+    foreach (array_keys($names) as $n) {
+        $n = (string) $n;
+        if (!preg_match(RS_SHARE_NAME, $n) || $n[0] === '.') {
+            continue;
+        }
+        $mode = (string) backupSetting($set, "share|$n", 'mode', 'off');
+        $shares[] = ['name' => $n, 'mode' => in_array($mode, ['off', 'snapshot', 'kopia'], true) ? $mode : 'off',
+                     'partner' => trim((string) backupSetting($set, "share|$n", 'partner', '')) !== ''];
+    }
+    usort($shares, fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
+    $vms = [];
+    foreach (array_keys($set) as $key) {
+        if (str_starts_with((string) $key, 'vm|') && trim((string) backupSetting($set, (string) $key, 'partner', '')) !== ''
+            && preg_match('/^[^\x00-\x1f\/]{1,128}$/uD', substr((string) $key, 3))) {
+            $vms[] = substr((string) $key, 3);
+        }
+    }
+    $host = readJson("$dir/run.json")['host'] ?? null;
+    $place = (string) backupSetting($set, 'general', 'dumps_share', '');
+    return ['host' => is_string($host) && preg_match(RS_NAME_PATTERN, $host) ? $host : null, 'place' => preg_match(RS_SHARE_NAME, $place) ? $place : null,
+            'kopia' => in_array(strtolower((string) backupSetting($set, 'kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true), 'shares' => $shares, 'vm_partner' => $vms];
+}
+
+/**
  * The packages of a backup place (engine 2.18+), the way Mr. Restori needs them: per app its
  * containers with the folders they bind, files, dumps with the credentials' variable names,
  * templates, compose files; per VM its XML, NVRAM, TPM state and disks. Cached by mtimes.
@@ -989,6 +1036,8 @@ function rsPackages(string $base): array
             'compose'   => array_values(array_unique(array_filter(array_map(fn ($f) => explode('/', $f['path'])[1] ?? '',
                                array_filter($files, fn ($f) => str_starts_with($f['path'], 'compose/')))))),
             'shares'    => is_dir("$base/server/shares") ? "$base/server/shares" : null,
+            // «Onto a new server» on a server without settings of its own (a pulled place): the shares as that server had them
+            'set'       => rsPackageSettings("$base/server"),
         ];
     }
     $flash = readJson("$base/flash/manifest.json");

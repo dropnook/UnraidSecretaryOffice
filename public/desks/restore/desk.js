@@ -2192,58 +2192,72 @@ function ticketBlock(box, p) {
 
 // ------------------------------------------------------------------ onto a new server
 /**
- * Everything onto another Unraid server (the old one burnt, was stolen or retired):
- * what may come back, what must not, and the stumbling blocks - from what is really here.
+ * What this server's shares and VMs leave on a new one. Here (settings of its own): what its backups made — a share or
+ * VM comes back when a copy lives outside (offsite after a Kopia copy, a partner's newest copy, or what a partner keeps
+ * of it); else it «comes back empty». On a new server that pulled the gone one's backup place (no settings here): its
+ * shares as that server had them set (state.server.set — settings, said so), a restore ticket's units counting as kept.
+ * The backup place and the office's own share are step 3, never in the list.
+ */
+function moveFacts() {
+  const here = (state.shares || []).filter((x) => !x.flash);
+  const set = (state.server && state.server.set) || null;
+  if (here.length || !set || !(set.shares || []).length) {
+    const back = sharesBack();
+    const outside = (f) => !!f && (f.protection === 'offsite' || ((f.protection_note || {}).partners || []).length > 0 || (f.at_partner || []).length > 0);
+    const shares = here.map((x) => x.name);
+    return {
+      shares, kopia: !!engine().kopia, asSet: null,
+      lostShares: shares.filter((n) => { const b = back.find((x) => x.name === n); return !!b && !outside(b); }),
+      lostVms: vms().filter((v) => !(v.at_partner || []).length && !(v.folders || []).some(outside)).map((v) => v.name),
+    };
+  }
+  const ticket = new Set(partners().filter((p) => p.kind === 'ticket').flatMap((p) => (p.units || []).map((u) => u.unit)));
+  const kept = (x) => !!x && ((x.mode === 'kopia' && set.kopia) || x.partner || ticket.has(`share:${x.name}`));
+  const byName = new Map(set.shares.map((x) => [x.name, x]));
+  return {
+    shares: set.shares.map((x) => x.name), kopia: !!set.kopia, asSet: { name: set.host || '?', when: state.run_time },
+    lostShares: set.shares.filter((x) => x.name !== set.place && x.name !== 'UnraidSecretaryOffice' && !kept(x)).map((x) => x.name),
+    lostVms: vms().filter((v) => !(set.vm_partner || []).includes(v.name) && !ticket.has(`vm:${v.name}`)
+      && !(v.folders || []).some((f) => kept(byName.get(f.share)))).map((v) => v.name),
+  };
+}
+
+/**
+ * Onto a new server (this one burnt, was stolen or retired): only what Mr. Restori can't do himself — Unraid and the
+ * licence, the shares first, the backup place back (a partner's restore ticket or Kopia); then everything the normal
+ * way through his rows; and by name what comes back empty. The same short guide is in docs/GUIDE.md «Onto a new server».
  */
 function moveSection() {
   const s = sectionBox(T('move.title'), T('move.sub'), { place: 'move.title' });
   const e = engine();
+  const f = moveFacts();
   const box = el('div', 'box rs-guide');
   const holder = (cls, ...kids) => { const d = el('div', cls); kids.forEach((k) => d.append(k)); return d; };
+  const role = (key, params) => el('div', 'role', T(key, params));
   const step = (title, text, ...extra) => {
     const st = rstep(title, text);
     extra.filter(Boolean).forEach((x) => st.appendChild(x));
     box.appendChild(st);
   };
   const base = state.place.base || `<${T('move.place')}>`;
-  const CM = state.compose_root || '/boot/config/plugins/compose.manager/projects';
-  const lines = [];
-  apps().forEach((a) => a.templates.forEach((t) => lines.push(`cp -n ${q(`${a.path}/${t.file}`)} ${TPL}/`)));
-  if (state.server && state.server.templates) lines.push(`cp -n '${state.server.path}/docker-templates/'my-*.xml ${TPL}/`);
-  apps().filter((a) => a.compose && a.compose.dir && a.compose.files.length).forEach((a) => {
-    lines.push(`mkdir -p ${q(`${CM}/${a.compose.dir}`)} && cp -rn ${q(`${a.path}/compose/.`)} ${q(`${CM}/${a.compose.dir}/`)}`);
-  });
-  ((state.server && state.server.compose) || []).forEach((d) => lines.push(`mkdir -p ${q(`${CM}/${d}`)} && cp -rn ${q(`${state.server.path}/compose/${d}/.`)} ${q(`${CM}/${d}/`)}`));
-  const shares = (state.shares || []).filter((x) => !x.flash).map((x) => x.name);
-  const gpu = vms().filter((v) => v.hostdev).map((v) => v.name);
-  const tpm = vms().filter((v) => v.tpm).map((v) => v.name);
-  const vmShares = [...new Set(vms().flatMap((v) => v.disks.map((d) => d.share)).filter(Boolean))];
-  const vmOffsite = e.kopia && vmShares.length && vmShares.every((sh) => (state.shares || []).some((x) => x.name === sh && x.mode === 'kopia'));
   const flash = state.flash ? state.flash.path : `${base}/flash/flash.tar.gz`;
+  // the partner offices that keep the backup place (a pair's or a ticket's unit with a moment)
+  const placeAt = [...new Set(partners().filter((p) => (p.units || []).some((u) => u.unit === 'place' && (u.snaps || []).length)).map((p) => p.name))];
+
+  step(T('move.s1'), T('move.s1_text'), role(e.flash === 'snapshot' ? 'move.s1_flash_snapshot' : 'move.s1_flash_tar', { path: flash }));
+  step(T('move.s2'), T('move.s2_text', { n: f.shares.length }), f.shares.length ? holder('rs-rules', ...f.shares.flatMap((n) => [el('code', '', n), ' '])) : null,
+    state.server && state.server.shares ? role('move.s2_cfg', { path: state.server.shares }) : null);
+  step(T('move.s3'), T('move.s3_text'),
+    role(placeAt.length ? 'move.s3_partner' : 'move.s3_partner_none', { names: andList(placeAt) }),
+    role(f.kopia ? 'move.s3_kopia' : 'move.s3_nokopia', { root: kopiaRoot(), place: (state.server && state.server.set && state.server.set.place) || state.place.share || 'UnraidSecretaryOffice' }),
+    f.kopia ? kopiaRootNote() : null, f.kopia ? adviserLink() : null);
   partners().filter((p) => p.kind === 'ticket').forEach((p) => ticketBlock(box, p));
-
-  // the shares the apps and VMs keep their data in, as they are here: a missing one the user creates himself
-  const needs = new Map();
-  [...apps(), ...vms()].forEach((x) => (x.needs || []).forEach((n) => { if (!needs.has(n.share)) needs.set(n.share, n); }));
-  const needList = needs.size ? holder('rs-needs', el('div', 'role', T('move.s2_needs')), ...[...needs.values()].map(needLine)) : null;
-
-  step(T('move.s1'), T('move.s1_text'));
-  step(T('move.s2'), T('move.s2_text', { n: shares.length }), shares.length ? holder('rs-rules', ...shares.flatMap((n) => [el('code', '', n), ' '])) : null,
-    el('div', 'role', T('move.s2_cfg', { path: (state.server && state.server.shares) || `${base}/server/shares/` })), needList);
-  step(T('move.s3'), e.kopia ? T('move.s3_text', { root: kopiaRoot() }) : T('move.s3_nokopia'), e.kopia ? kopiaRootNote() : null, adviserLink());
-  step(T('move.s4'), T('move.s4_text'), lines.length ? codeBlock(lines.join('\n')) : null,
-    apps().some((a) => a.compose && a.compose.indirect) ? el('div', 'role', T('move.s4_indirect')) : null, el('div', 'role', T('move.s4_after')));
-  step(T('move.s5'), T('move.s5_text'), apps().some((a) => a.nextcloud.length) ? el('div', 'role', T('move.s5_nextcloud')) : null);
-  if (vms().length) {
-    step(T('move.s6'), vmOffsite ? T('move.s6_offsite') : T('move.s6_local', { shares: vmShares.join(', ') || 'domains' }),
-      el('div', 'role', T('move.s6_xml')),
-      gpu.length ? el('div', 'role', T('move.s6_gpu', { names: gpu.join(', ') })) : null,
-      tpm.length ? el('div', 'role', T('move.s6_tpm', { names: tpm.join(', ') })) : null,
-      el('div', 'role', T('move.s6_overlay')));
-  }
-  step(T('move.s7'), e.flash === 'snapshot' ? T('move.s7_snapshot') : T('move.s7_tar', { path: flash }), el('div', 'role', T('move.s7_never')),
-    el('div', 'role', T('move.s7_official')));
-  step(T('move.s8'), T('move.s8_text'));
+  step(T('move.s4'), T('move.s4_text'));
+  const lost = f.lostShares.length || f.lostVms.length;
+  step(T('move.s5'), T(lost ? 'move.s5_text' : 'move.s5_none'),
+    f.asSet ? role('move.s5_as_set', { name: f.asSet.name, when: date(f.asSet.when) }) : null,
+    f.lostShares.length ? holder('rs-rules', el('span', '', T('move.s5_shares', { n: f.lostShares.length })), ' ', ...f.lostShares.flatMap((n) => [el('code', '', n), ' '])) : null,
+    f.lostVms.length ? holder('rs-rules', el('span', '', T('move.s5_vms', { n: f.lostVms.length })), ' ', ...f.lostVms.flatMap((n) => [el('code', '', n), ' '])) : null);
   s.appendChild(box);
   return s;
 }
@@ -3462,6 +3476,6 @@ Office.placesFrom(ID, (s, part) => {
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, shareFromKopia, kopiaFetched, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
-    noPackagesText, noPackages, bootSnapsPart, placesBack, placesPart, swapPart, swappable, vmAllFold, putbackHint, kopiaBlock, partnerPart, fetchLead, atPartnerChip, ownerPlaces, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip };
+    noPackagesText, noPackages, bootSnapsPart, placesBack, placesPart, swapPart, swappable, vmAllFold, putbackHint, kopiaBlock, partnerPart, fetchLead, atPartnerChip, ownerPlaces, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip, moveFacts };
 }
 })();
