@@ -136,6 +136,9 @@ array_started() { grep -q '^mdState="STARTED"' /var/local/emhttp/var.ini; }
 
 refuse=''
 array_started || refuse="${refuse}the array is not started; "
+# a fresh agent (an install, a dev-sync) starts its own setup look via at right away: a short job, waited for (release
+# 1.74.4, 2026-10-28: the base refused 5 s after the update, the look still running) — a long one still refuses
+for _ in $(seq 120); do pgrep -f "$JOBS" >/dev/null 2>&1 || break; sleep 1; done
 pgrep -f "$JOBS" >/dev/null 2>&1 && refuse="${refuse}a job of the office runs ($(pgrep -af "$JOBS" | head -1 | cut -c1-120)); "
 # the engine's lock and hers: held = flock -n fails (on the pool path too - shfs answers for the backing file)
 held() {
