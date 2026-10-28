@@ -17,7 +17,7 @@ declare(strict_types=1);
  *                                     what the door's earlier copies <unit>.old-<time> hold of it); `takes_all` true (a door since 1.60 takes
  *                                     any unit of the pair up to its quota), `agreed` = every unit received so far and
  *                                     every unit the partner named with `offer` (for a sender up to 1.59), `wish` = []
- *   quota                             {"ok":true,"bytes","used_bytes"} of the pair's dataset here
+ *   quota                             {"ok":true,"bytes","used_bytes"} of the pair's dataset here (bytes: the rule in pairs.json, doorQuotaBytes())
  *   list <unit>                       the snapshots kept here of that unit
  *   resume <unit>                     {"ok":true,"token":<receive_resume_token>|null}
  *   recv <unit> <snap> [<from>|-t]    stdin → mbuffer → zfs recv -s -u into <pool>/UnraidSecretaryOffice-partners/<id>/<unit>;
@@ -250,6 +250,17 @@ function doorParents(string $pool, string $id, int $quotaGb): bool
     return true;
 }
 
+/**
+ * The quota a partner is told (status, quota): the one the door holds it to — the receiver's rule in pairs.json. The
+ * dataset's own ZFS quota follows it (doorParents()), but ZFS takes none below what is used: a quota lowered below what
+ * is kept stays the rule here at once (refused_quota) while ZFS keeps the old one until enough is freed (2026-10-28,
+ * test4: the sender read the old 100 GB from ZFS after the receiver had set 50). Null: no limit.
+ */
+function doorQuotaBytes(array $receive): ?int
+{
+    return $receive['quota_gb'] > 0 ? $receive['quota_gb'] * 1024 ** 3 : null;
+}
+
 // ===================================================================== the verbs
 
 function doorMain(array $argv): int
@@ -359,8 +370,8 @@ function doorMain(array $argv): int
     $pairDs = "{$r['pool']}/" . PARTNER_PARENT . "/{$pair['id']}";       // a ticket reads the copies of the pair it was given for
     switch ($verb) {
         case 'quota':
-            $q = doorZfsGet($pairDs, 'quota,used');
-            doorSay(['ok' => true, 'bytes' => $q !== null && num($q['quota'] ?? '') > 0 ? num($q['quota']) : null, 'used_bytes' => $q !== null ? num($q['used'] ?? '') : 0]);
+            $q = doorZfsGet($pairDs, 'used');
+            doorSay(['ok' => true, 'bytes' => doorQuotaBytes($r), 'used_bytes' => $q !== null ? num($q['used'] ?? '') : 0]);
             return 0;
         case 'list':
             $ds = partnerUnitDataset($r['pool'], $pair['id'], $w[1]);
@@ -417,10 +428,10 @@ function doorStatus(array $pair): int
         if (!$asleep && doorPoolThere($r['pool'])) {
             $out['pool']['free_bytes'] = num(doorZfsGet($r['pool'], 'available')['available'] ?? '');
             $pairDs = "{$r['pool']}/" . PARTNER_PARENT . "/{$pair['id']}";
-            $q = doorZfsGet($pairDs, 'quota,used');
+            $q = doorZfsGet($pairDs, 'used');
             // 2026-10-28: and how much of it the door's earlier copies hold (<unit>.old-<time>, only the receiver lets them go)
             $aside = partnerAside($r['pool'], $pair['id'], array_keys((array) (partnerReceived($pair['id'])['units'] ?? [])));
-            $out['quota'] = ['bytes' => $q !== null && num($q['quota'] ?? '') > 0 ? num($q['quota']) : null, 'used_bytes' => $q !== null ? num($q['used'] ?? '') : 0,
+            $out['quota'] = ['bytes' => doorQuotaBytes($r), 'used_bytes' => $q !== null ? num($q['used'] ?? '') : 0,
                              'aside_bytes' => $aside['bytes'] ?? 0];
             $units = [];
             foreach (array_keys((array) (partnerReceived($pair['id'])['units'] ?? [])) as $u) {

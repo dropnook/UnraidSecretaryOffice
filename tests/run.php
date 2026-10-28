@@ -30830,6 +30830,8 @@ switch ($cmd) {
         [$kv, $ds] = $rest;
         if (!isset($st['ds'][$ds])) { $no($ds); }
         if (str_starts_with($kv, 'quota=')) {
+            // ZFS takes no quota below what the dataset uses
+            if (substr($kv, 6) !== 'none' && $bytes(substr($kv, 6)) < $used($ds)) { fwrite(STDERR, "cannot set property for '$ds': size is less than current used or reserved space\n"); exit(1); }
             $st['ds'][$ds]['quota'] = substr($kv, 6) === 'none' ? 0 : $bytes(substr($kv, 6));
         } else {
             $st['ds'][$ds]['props'][] = $kv;
@@ -31823,11 +31825,19 @@ function testPartnerQuota(): void
     $st['ds'][$pairDs]['used'] = 2 * 1024 ** 3;
     file_put_contents("$B[bin]/zfs.json", json_encode($st));
     $r = $q(['id' => $id, 'step' => 'do', 'confirm' => true, 'quota_gb' => 1]);
-    same('quota: lower than what is kept — allowed, said (below)', [true, 'now', 1], [$r['below'] ?? null, $r['set'] ?? null, $quotaNow()]);
-    same('quota: … the door refuses new copies then', 'refused_quota',
+    same('quota: lower than what is kept — allowed, said (below), counts at once', [true, 'now', 1], [$r['below'] ?? null, $r['set'] ?? null, $quotaNow()]);
+    same('quota: … ZFS takes none below what is used (tried, refused) — it keeps its own', [[['zfs', 'set', 'quota=1G', $pairDs]], 0], [$sets(), $zfs()['ds'][$pairDs]['quota'] ?? null]);
+    check('quota: … said in the door\'s log', str_contains((string) @file_get_contents("$B[data]/partner/door.log"), 'quota: 1 GB (the Team Lead) - ZFS keeps its own until enough is freed'));
+    same('quota: … the door refuses new copies then (its rule is pairs.json)', 'refused_quota',
         partnerTestDoor($B, 'recv share:appdata uso-backup-20261002-0200 uso-backup-20261001-0200', 'x')['err'][0]['why'] ?? null);
+    $status = partnerTestDoor($B, 'status', '', $id)['out'][0] ?? [];
+    same('quota: … and tells the partner the new one — not ZFS\'s old one (test4, 2026-10-28)', [1024 ** 3, 1024 ** 3, true],
+        [$status['quota']['bytes'] ?? null, partnerTestDoor($B, 'quota', '', $id)['out'][0]['bytes'] ?? null, ($status['quota']['used_bytes'] ?? 0) >= ($status['quota']['bytes'] ?? 1)]);
     $st['ds'][$pairDs]['used'] = 0;
     file_put_contents("$B[bin]/zfs.json", json_encode($st));
+    partnerTestCalls($B['bin']);
+    partnerTestDoor($B, 'recv share:appdata uso-backup-20261002-0200 uso-backup-20261001-0200', 'x');
+    check('quota: … space freed — the next receive gives ZFS the quota too', in_array(['zfs', 'set', 'quota=1G', $pairDs], partnerTestCalls($B['bin']), true));
     $q(['id' => $id, 'step' => 'do', 'confirm' => true, 'quota_gb' => 10]);
     partnerTestCalls($B['bin']);
 
@@ -31853,7 +31863,7 @@ function testPartnerQuota(): void
     $r = $q(['id' => $id, 'step' => 'do', 'confirm' => true, 'quota_gb' => 7], $Bs);
     same('quota asleep: kept in pairs.json, set later — no zfs or zpool call at all', ['later', 7, []], [$r['set'] ?? null, $quotaNow(),
         array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => in_array($c[0], ['zfs', 'zpool'], true)))]);
-    partnerTestDoor($B, 'recv share:appdata uso-backup-20261002-0200 uso-backup-20261001-0200', 'stream-2');
+    partnerTestDoor($B, 'recv share:appdata uso-backup-20261003-0200 uso-backup-20261002-0200', 'stream-3');
     check('quota asleep: … the door\'s next receive sets it (doorParents())', in_array(['zfs', 'set', 'quota=7G', $pairDs], partnerTestCalls($B['bin']), true));
 
     // ---- tolerant: the other pair and the entry of a newer office as they were
@@ -31981,8 +31991,17 @@ function testPartnerAside(): void
     same('let go: without the confirmation, nothing chosen, a pair that keeps nothing here, an unknown one', ['bad_request', 'no_selection', 'partner_not_keeping', 'partner_unknown'],
         [$go(['id' => $id, 'step' => 'do', 'datasets' => [$old2]])['problem'] ?? null, $go(['id' => $id, 'step' => 'do', 'confirm' => true, 'datasets' => []])['problem'] ?? null,
          $go(['id' => 'c3d4e5f6'])['problem'] ?? null, $go(['id' => '0badc0de'])['problem'] ?? null]);
+    // a quota lowered below what was kept: ZFS keeps its own — the let-go that frees the room sets it
+    $st = $zfs();
+    $st['ds'][$old2]['used'] = 2 * 1024 ** 3;
+    file_put_contents("$B[bin]/zfs.json", json_encode($st));
+    same('let go: a quota lowered below what is kept — ZFS refused it', 'now',
+        partnerTestAs($B, 'return partner_quota(["id" => "a1b2c3d4", "step" => "do", "confirm" => true, "quota_gb" => 1]);')['set'] ?? null);
+    partnerTestCalls($B['bin']);
     $r = $go(['id' => $id, 'step' => 'do', 'confirm' => true, 'datasets' => [$old2]]);
     same('let go: the last one — gone, the card says none', [1, []], [$r['gone'] ?? null, array_column($card($B)['list'] ?? [], 'dataset')]);
+    same('let go: … the room freed — ZFS takes the quota now', [true, 1024 ** 3],
+        [in_array(['zfs', 'set', 'quota=1G', "$P/$id"], partnerTestCalls($B['bin']), true), $zfs()['ds']["$P/$id"]['quota'] ?? null]);
     check('let go: the door destroys nothing of it by itself (only the Team Lead\'s action does)', !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/partner-door.php'), "'destroy', '-r'"));
     hardeningRm($tmp);
 }

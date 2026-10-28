@@ -2701,8 +2701,9 @@ function partnerKeepingPair(array $r): array
  * partner…»: 0 = no limit, at most PARTNER_QUOTA_MAX_GB. pairs.json first (the door reads it at every receive and holds
  * the pair's dataset to it), then the dataset's quota at once while its pool is awake — asleep or nothing received yet:
  * the next receive sets it (doorParents()), never a wake for it. The partner sees it at its next look (the door's
- * `status` reads the dataset's quota; BLOCK-B said it once, at pairing, and nothing keeps it). Lower than what is kept
- * is allowed and said: new copies are refused until space is freed.
+ * `status` says the quota of pairs.json — doorQuotaBytes(); BLOCK-B said it once, at pairing, and nothing keeps it).
+ * Lower than what is kept is allowed and said: new copies are refused at once (the door's rule is pairs.json) until
+ * space is freed; ZFS takes no quota below what is used — it keeps its old one until then (a let-go sets it again).
  * look {id}: the quota, what is kept now, the earlier copies, the pool's free space (null while it sleeps);
  * do {id, quota_gb (a whole number), confirm: true}: {ok, quota_gb, set: now|later, below}.
  */
@@ -2739,12 +2740,17 @@ function partner_quota(array $r): array
     if ($new === null || $new['receive'] === null) {
         throw new Problem($new === null ? 'partner_unknown' : 'partner_not_keeping', ['name' => $pair['name']]);
     }
-    $set = $awake && $aside !== null && partnerQuotaSync("$pool/" . PARTNER_PARENT . "/{$pair['id']}", $gb);
+    // the door holds the pair to pairs.json at once (its refusal and what it tells the partner); the dataset's ZFS quota
+    // follows while the pool is awake — ZFS takes none below what is used (2026-10-28, test4): then it keeps the old one
+    // until enough is freed («Let go…» sets it again, so does every receive)
+    $there = $awake && $aside !== null;
     $below = $gb > 0 && $aside !== null && $aside['used_bytes'] >= $gb * 1024 ** 3;
+    $synced = $there && partnerQuotaSync("$pool/" . PARTNER_PARENT . "/{$pair['id']}", $gb);
+    $zfsSays = $synced ? '' : ($there ? ' - ZFS keeps its own until enough is freed' : ' - set on the pool at the next receive');
     partnerLog("the space kept for {$pair['name']} ({$pair['id']}) changed: " . ($before ?: 'no limit') . ($before ? ' GB' : '') . ' -> ' . ($gb ?: 'no limit') . ($gb ? ' GB' : '')
-        . ($set ? '' : ' (set on the pool at the next receive)') . ($below ? ' - below what is kept now' : ''));
-    partnerDoorLogLine($pair['id'], 'quota: ' . ($gb ? "{$gb} GB" : 'no limit') . ' (the Team Lead)' . ($set ? '' : ' - set at the next receive'));
-    return ['ok' => true, 'quota_gb' => $gb, 'set' => $set ? 'now' : 'later', 'below' => $below, 'partners' => partnerPublic()];
+        . $zfsSays . ($below ? ' - below what is kept now' : ''));
+    partnerDoorLogLine($pair['id'], 'quota: ' . ($gb ? "{$gb} GB" : 'no limit') . ' (the Team Lead)' . $zfsSays);
+    return ['ok' => true, 'quota_gb' => $gb, 'set' => $there ? 'now' : 'later', 'below' => $below, 'partners' => partnerPublic()];
 }
 
 /**
@@ -2813,6 +2819,8 @@ function partner_aside_letgo(array $r): array
     }
     if ($gone) {
         partnerLog("the earlier copies of {$pair['name']} ($id) let go: " . implode(', ', $gone));
+        // a quota lowered below what was kept: ZFS takes it now that there is room (the door held the pair to it already)
+        partnerQuotaSync("$pool/" . PARTNER_PARENT . "/$id", $pair['receive']['quota_gb']);
     }
     return ['ok' => true, 'gone' => count($gone), 'kept' => $kept, 'bytes' => $bytes, 'partners' => partnerPublic()];
 }
