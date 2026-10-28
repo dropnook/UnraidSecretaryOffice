@@ -1898,6 +1898,7 @@
   "warn_code.partner_snap_prefix": "Partner {partner}: un partner accetta solo snapshot chiamati {prefix}… — niente inviato. Rimetti il prefisso degli snapshot nella mia configurazione.",
   "warn_code.partner_no_ssh": "Partner {partner}: su questo server manca ssh — niente inviato.",
   "warn_code.partner_quota": "Il partner {partner} ha rifiutato: la sua quota per questo server è piena — tiene le copie che ha. Aumenta la quota presso il partner o libera spazio lì.",
+  "warn_code.partner_quota_aside": "Il partner {partner} ha rifiutato: la sua quota per questo server è piena — tiene le copie che ha, di cui {aside_gb} GB di copie precedenti messe da parte lì. Eliminale presso il partner (il suo capoufficio, la scheda di questo server, «Elimina…»), aumenta la quota o libera spazio lì.",
   "warn_code.partner_missed": "La copia per {partner} non è arrivata — {why}.",
   "warn_code.btrfs_brake": {"one": "Su {base} c'erano solo {free_gb} GB liberi (freno d'emergenza a {floor_gb} GB) — ho eliminato in anticipo lo snapshot del {date}.", "other": "Su {base} c'erano solo {free_gb} GB liberi (freno d'emergenza a {floor_gb} GB) — ho eliminato in anticipo {n} snapshot, il più vecchio del {date}."},
   "setup.level_hint.partner_vm": "Come locale, e dopo ogni backup il suo snapshot ZFS va cifrato alla segreteria partner ({partners}), solo i blocchi cambiati. Porta con sé la configurazione della VM, così il partner può avviarla lì.",

@@ -1913,6 +1913,7 @@
   "warn_code.partner_snap_prefix": "Socio {partner}: un socio solo acepta instantáneas llamadas {prefix}… — nada enviado. Vuelve a poner el prefijo de instantáneas en mi configuración.",
   "warn_code.partner_no_ssh": "Socio {partner}: falta ssh en este servidor — nada enviado.",
   "warn_code.partner_quota": "El socio {partner} lo rechazó: su cuota para este servidor está llena — conserva las copias que tiene. Sube la cuota en el socio o libera espacio allí.",
+  "warn_code.partner_quota_aside": "El socio {partner} lo rechazó: su cuota para este servidor está llena — conserva las copias que tiene, de ellas {aside_gb} GB de copias anteriores apartadas allí. Quítalas en el socio (su jefe de equipo, la tarjeta de este servidor, «Quitar…»), sube la cuota o libera espacio allí.",
   "warn_code.partner_missed": "La copia para {partner} no ha llegado — {why}.",
   "warn_code.btrfs_brake": {"one": "En {base} solo quedaban {free_gb} GB libres (freno de emergencia en {floor_gb} GB) — he borrado antes de tiempo la instantánea del {date}.", "other": "En {base} solo quedaban {free_gb} GB libres (freno de emergencia en {floor_gb} GB) — he borrado antes de tiempo {n} instantáneas, la más antigua del {date}."},
   "setup.level_hint.partner_vm": "Como local, y tras cada copia su instantánea ZFS va cifrada a la secretaría socia ({partners}), solo los bloques cambiados. Lleva la configuración de la VM, así que el socio puede arrancarla allí.",

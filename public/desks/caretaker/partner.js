@@ -108,7 +108,10 @@ function section(state) {
     e.append(el('strong', '', T('partner.none_title')), T('partner.none_text'));
     box.appendChild(e);
   }
-  p.pairs.forEach((x) => box.appendChild(card(x)));
+  // several pairs of the same name (an earlier pairing, a server set up anew — the drill 2026-10-28: five called «Tower»):
+  // each card says so and what tells it apart, never one of them picked by its name
+  const named = namesakes(p.pairs);
+  p.pairs.forEach((x) => box.appendChild(card(x, named(x))));
   p.pending.forEach((o) => box.appendChild(pendingRow(o)));
   held.forEach((t) => box.appendChild(ticketCard(t)));
   asked.forEach((q) => box.appendChild(ticketRequestRow(q)));
@@ -416,12 +419,32 @@ function needLine(side) {
   return line;
 }
 
-function card(x) {
+/** How many pairs share a pair's name (case aside) — `(x) => n` */
+function namesakes(pairs) {
+  const n = new Map();
+  (pairs || []).forEach((x) => n.set(String(x.name).toLowerCase(), (n.get(String(x.name).toLowerCase()) || 0) + 1));
+  return (x) => n.get(String(x.name).toLowerCase()) || 1;
+}
+
+/** When a pair last sent here (its units' newest arrival), or null */
+const lastSent = (x) => Math.max(0, ...(x.i_keep_units || []).map((u) => u.time || 0)) || null;
+
+/** What tells a pair apart from others of its name: its id, where it is, when it last sent */
+function twinLine(x, n) {
+  const d = el('div', 'row-detail ct-twin');
+  const when = lastSent(x);
+  d.append(T('partner.twin_line', { n, name: x.name, id: x.id, address: `${x.address}:${x.port}` }), ' ',
+    x.receive ? (when ? T('partner.twin_sent', { when: fmt.relative(when) }) : T('partner.twin_sent_never')) : '');
+  return d;
+}
+
+function card(x, twins = 1) {
   const r = Office.place(`partner:${x.id}`, el('div', 'row nocheck ct-partner'));
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', '🏢 ' + x.name));
   const meta = el('div', 'row-meta');
   meta.appendChild(stateChip(x));
+  if (twins > 1) meta.appendChild(chip('warn', T('partner.twin', { n: twins, name: x.name }), T('partner.twin_tip', { name: x.name })));
   if (x.asking) { const a = el('span', 'ct-asking'); a.append(el('span', 'spin'), ' ', T('partner.asking', { name: x.name })); meta.appendChild(a); }
   if (x.array === 'stopped') meta.appendChild(chip('warn', x.night ? T('partner.night') : T('partner.array_stopped'), T('partner.array_stopped_tip')));
   // the trust a pair was made with (up to 1.71.0 a question; since then every new pair is «mine»): shown only when it says something
@@ -432,6 +455,7 @@ function card(x) {
   if (x.last_heard) meta.appendChild(el('span', '', T('partner.last_heard', { when: fmt.relative(x.last_heard) })));
   if (x.version) meta.appendChild(el('span', '', T('partner.version', { version: x.version })));
   main.appendChild(meta);
+  if (twins > 1) main.appendChild(twinLine(x, twins));
   const swap = switchHint(x);
   if (swap) main.appendChild(swap);
 
@@ -530,7 +554,7 @@ function card(x) {
   more.disabled = busyOff();
   more.onclick = (e) => Office.menu(e, [
     ...(x.sends ? [{ text: T('partner.levels', { host: Office.config.host }), act: () => Office.go('#/backup/setup') }] : []),
-    ...(x.receive ? [{ text: T('partner.t_make', { name: x.name }), act: () => ticketMakeDialog(x) }] : []),
+    ...(x.receive ? [{ text: T('partner.t_make', { name: x.name }), act: () => ticketMakeDialog(x, twins) }] : []),
     ...(x.receive ? [{ text: T('partner.space_change'), act: () => spaceDialog(x) }] : []),
     { text: T('partner.address_change'), act: () => addressDialog(x) },
     { text: T('partner.renew'), act: () => renewDialog(x) },
@@ -1439,7 +1463,7 @@ function ticketCard(t) {
   if (t.last_heard) meta.appendChild(chip('ok', T('partner.answers'), T('partner.answers_tip', { when: fmt.date(t.last_heard) })));
   meta.appendChild(el('span', '', `${t.address}:${t.port}`));
   main.appendChild(meta);
-  main.appendChild(el('div', 'row-detail', T('partner.t_units', { name: t.name, list: unitsText(t.units) })));
+  main.appendChild(el('div', 'row-detail', T('partner.t_units', { name: t.name, of: t.of, list: unitsText(t.units) })));
   const to = el('div', 'row-detail');
   const a = el('a', '', T('partner.t_to_restori'));
   a.href = '#/restore';
@@ -1512,23 +1536,30 @@ async function ticketStartDialog() {
 }
 
 /** «Hand <name>'s copies to a new server…» (the holder, on the gone server's card): paste BLOCK-N, then the line */
-function ticketMakeDialog(x) {
+function ticketMakeDialog(x, twins = 1) {
   pasteDialog(T('partner.t_make', { name: x.name }), T('partner.t_make_text', { name: x.name }), async (block) => {
     const j = await Office.api.post(`${ID}.partner_ticket_make`, { step: 'look', pair: x.id, block });
     if (!took(j)) return false;
-    ticketMakeConfirm(x, block, j);
+    ticketMakeConfirm(x, block, j, twins);
     return true;
   });
 }
 
-function ticketMakeConfirm(x, block, j) {
+function ticketMakeConfirm(x, block, j, twins = 1) {
   const n = j.new;
   const box = el('div');
-  box.appendChild(el('p', '', T('partner.t_make_look', { name: n.name, of: j.of, until: fmt.date(j.expires) })));
+  // a new server named like the gone one (a replacement often keeps the name): «Tower asks for Tower's copies» — true,
+  // but odd (the drill 2026-10-28); said by its address then, and the copies by the pair they belong to
+  const same = String(n.name).toLowerCase() === String(j.of).toLowerCase();
+  const who = same ? `${n.name} (${n.address})` : n.name;
+  box.appendChild(el('p', '', same ? T('partner.t_make_look_same', { name: n.name, address: n.address, of: j.of, until: fmt.date(j.expires) })
+    : T('partner.t_make_look', { name: n.name, of: j.of, until: fmt.date(j.expires) })));
+  if (twins > 1) box.appendChild(el('p', 'callout warn', T('partner.t_make_twins', { n: twins, of: j.of, id: x.id, address: `${x.address}:${x.port}` })));
   box.appendChild(props([
     [T('partner.f_name'), n.name],
     [T('partner.f_address'), n.address],
     [T('partner.t_f_key'), n.key],
+    [T('partner.t_f_of'), T('partner.t_f_of_pair', { of: j.of, id: x.id, address: `${x.address}:${x.port}` })],
     [T('partner.t_f_units'), unitsText(j.units)],
     [T('partner.t_f_until'), fmt.date(j.expires)],
   ]));
@@ -1538,11 +1569,11 @@ function ticketMakeConfirm(x, block, j) {
   if (outside) box.appendChild(outside.node);
   const lineNow = () => (outside && outside.value() ? j.line_match : j.line);
   if (!lineNow()) { Office.toast(Office.errorText({ key: 'partner_unresolved', params: { address: n.address } }, ID), true); return; }
-  box.appendChild(el('p', '', T('partner.t_line_text', { name: n.name, of: j.of })));
+  box.appendChild(el('p', '', T('partner.t_line_text', { name: who, of: j.of })));
   const code = codeBox(lineNow());
   box.appendChild(code);
   if (outside && outside.cb) outside.cb.addEventListener('change', () => { code.textContent = lineNow() || j.line; });      // the line lets it in from the address taken
-  box.appendChild(el('p', 'callout', T('partner.t_least_privilege', { name: n.name, of: j.of })));
+  box.appendChild(el('p', 'callout', T('partner.t_least_privilege', { name: who, of: j.of })));
   const read = tick(T('partner.line_read'), false);
   box.appendChild(read.node);
   // in the USO network: this server's USO address and door, nothing to choose; the old picker folded (2026-10-24)
@@ -1563,7 +1594,7 @@ function ticketMakeConfirm(x, block, j) {
       if (theirs) req.their_address = theirs;
       const r = await Office.api.post(`${ID}.partner_ticket_make`, req);
       if (!took(r)) return false;
-      blockDialog(T('partner.t_block_t_title'), r.block, T('partner.t_block_t_text', { name: n.name, until: fmt.date(r.expires) }), r.public, r.code);
+      blockDialog(T('partner.t_block_t_title'), r.block, T('partner.t_block_t_text', { name: who, until: fmt.date(r.expires) }), r.public, r.code);
       return true;
     } }],
   });

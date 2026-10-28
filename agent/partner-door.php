@@ -19,6 +19,10 @@ declare(strict_types=1);
  *                                     every unit the partner named with `offer` (for a sender up to 1.59), `wish` = []
  *   quota                             {"ok":true,"bytes","used_bytes"} of the pair's dataset here (bytes: the rule in pairs.json, doorQuotaBytes())
  *   list <unit>                       the snapshots kept here of that unit
+ *   list                              (2026-10-28) {"ok":true,"units":[…]} — the units this door lists for the caller now:
+ *                                     a pair's, every unit received of it (received/<id>.json); a ticket's, those AND the
+ *                                     ones it was given for (doorTicketUnits()). An older door refuses it (malformed):
+ *                                     the caller keeps to what it knew
  *   resume <unit>                     {"ok":true,"token":<receive_resume_token>|null}
  *   recv <unit> <snap> [<from>|-t]    stdin → mbuffer → zfs recv -s -u into <pool>/UnraidSecretaryOffice-partners/<id>/<unit>;
  *                                     a full stream onto an existing unit puts the old dataset aside (<ds>.old-<time>),
@@ -41,10 +45,13 @@ declare(strict_types=1);
  * A restore ticket (stage 3, partner.php «restore tickets») has a line of its own — command="…/partner-door.sh
  * ticket-<id>", comment uso-ticket:<id>: a new server pulls a gone server's copies with it. Its verbs are ping, list,
  * send-back and quota on the copies of the pair it was given for (tickets.json `of`), until `expires` (then
- * {"ok":false,"why":"ticket_expired","time":<now>}; sshd's expiry-time ends the key too).
+ * {"ok":false,"why":"ticket_expired","time":<now>}; sshd's expiry-time ends the key too). The units it reads are what
+ * that pair holds NOW (as recv recorded them, the same source as `status`) besides those it was given for — a unit
+ * that arrived for the gone server after the ticket was written comes along too (the drill 2026-10-28: the backup
+ * place sent later); the ticket's own `units` stay as written (older offices read them).
  *
  * Never a path from the client, never -F, never a destroy but this office's own retention on the pair's datasets,
- * never a shell. Every unit name is checked against exactly its shape (a ticket's against the units it was given for),
+ * never a shell. Every unit name is checked against exactly its shape (a ticket's against doorTicketUnits()),
  * every snapshot name against exactly uso-backup-YYYYMMDD-HHMM; a pair gets at most PARTNER_UNITS_MAX unit datasets
  * here (refused_units) and what its quota allows (refused_quota) — since 1.60 any unit of a paired partner is taken, at
  * any time (no receiving window: the sender's schedule is the schedule). Refusals: one line in data/partner/door.log (RAM when the data folder is
@@ -278,7 +285,7 @@ function doorMain(array $argv): int
     }
     $verb = $w[0];
     $n = count($w);
-    $arity = ['ping' => [1, 1], 'status' => [1, 1], 'quota' => [1, 1], 'list' => [2, 2], 'resume' => [2, 2], 'recv' => [3, 4], 'send-back' => [3, 4],
+    $arity = ['ping' => [1, 1], 'status' => [1, 1], 'quota' => [1, 1], 'list' => [1, 2], 'resume' => [2, 2], 'recv' => [3, 4], 'send-back' => [3, 4],
               'offer' => [2, 1 + PARTNER_UNITS_MAX]];
     if (!isset($arity[$verb])) {
         return doorRefuse($id, 'unknown_verb');
@@ -339,7 +346,7 @@ function doorMain(array $argv): int
         if ($pair === null) {
             return doorRefuse($id, 'no_pair', $err);
         }
-        $units = $pair['receive'] !== null ? $ticket['units'] : [];
+        $units = $pair['receive'] !== null ? doorTicketUnits($ticket, $pair) : [];
     } else {
         $pair = partnerPair($id);
         if ($pair === null) {
@@ -357,9 +364,14 @@ function doorMain(array $argv): int
     if ($r === null) {
         return doorRefuse($id, 'not_receiving', $err);
     }
-    // a ticket reads only the units it was given for; a pair's own knock may name any unit (the consent is the pairing)
+    // a ticket reads only the units of its pair (doorTicketUnits()); a pair's own knock may name any unit (the consent is the pairing)
     if ($units !== null && $n >= 2 && !in_array($w[1], $units, true)) {
         return doorRefuse($id, 'unit_not_agreed', $err);
+    }
+    // `list` alone: which units there are to list — from the door's own record, no zfs call (2026-10-28)
+    if ($verb === 'list' && $n === 1) {
+        doorSay(['ok' => true, 'units' => $units ?? doorHeldUnits($pair)]);
+        return 0;
     }
     if (!doorPoolThere($r['pool'])) {
         return doorRefuse($id, 'no_pool', $err);
@@ -386,6 +398,28 @@ function doorMain(array $argv): int
             return doorSendBack($pair, $id, $w[1], $resumeBack ? null : $w[2], $resumeBack ? null : ($w[3] ?? null), $resumeBack ? $w[3] : null);
     }
     return doorRecv($pair, $w[1], $w[2], $w[3] ?? null);
+}
+
+/** The units the door holds of a pair (received/<id>.json, as recv recorded them), each in exactly its shape, sorted */
+function doorHeldUnits(array $pair): array
+{
+    $out = [];
+    foreach (array_keys((array) (partnerReceived($pair['id'])['units'] ?? [])) as $u) {
+        if (is_string($u) && preg_match(PARTNER_UNIT_RE, $u)) {
+            $out[] = $u;
+        }
+    }
+    sort($out, SORT_STRING);
+    return array_slice($out, 0, PARTNER_UNITS_MAX);
+}
+
+/**
+ * The units a ticket reads: those it was given for and what its pair holds now (doorHeldUnits()) — a unit sent after
+ * the ticket was written comes along, a unit given for stays (its list then says what is left of it)
+ */
+function doorTicketUnits(array $ticket, array $pair): array
+{
+    return array_slice(array_values(array_unique(array_merge($ticket['units'], doorHeldUnits($pair)))), 0, PARTNER_UNITS_MAX);
 }
 
 /** Why a ticket can't be used (null: it can): gone from tickets.json, or expired */

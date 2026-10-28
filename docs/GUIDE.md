@@ -127,7 +127,10 @@ can bring everything back — read it while the server is still there, or here:
    the go file, User Scripts.
 2. **Create the shares under the same names first** (*Shares → Add Share*). The office never makes a share; a pull or a
    restore into a share that isn't there yet waits aside. The section lists them; their old settings are in the backup
-   place (`server/shares/`).
+   place (`server/shares/`). A share just made on a ZFS pool is still empty there (Unraid makes its folder at the first
+   write): a partner's copy of it lands beside its place, and *Swap it in…* then makes it the share — nothing copied,
+   nothing aside, its settings kept. Has something been written into it meanwhile, the copy waits aside and *Restore…*
+   copies from there; the preview says which before the pull.
 3. **Get the backup place back** — its packages carry the templates, dumps, VM configurations and the flash archive.
    From a partner office: install the office, the Team Lead's *Start from a partner's copy…*, the partner answers with a
    restore ticket, and Mr. Restori pulls the backup place first. From offsite (Kopia): install Kopia with the same
@@ -297,8 +300,10 @@ allowed — new copies are then refused until space is freed). When the partner 
 snapshot in common), the door keeps the copy before aside instead of deleting it; the card lists those earlier copies
 with their size, and *Let go…* removes them — the door never does on its own, and a full quota says how much of it they hold.
 When a server is gone, the new one asks at its Team Lead (*Start from a partner's copy…*) and the partner answers with
-a **restore ticket** — a door for seven days that only hands over those copies; Mr. Restori's *Onto a new server*
-pulls the backup place first, then the shares and VMs. ZFS only, and the partner can read the copies — for a friend,
+a **restore ticket** — a door for seven days that only hands over those copies (also what arrives for the gone server
+after the ticket was written); Mr. Restori's *Onto a new server* pulls the backup place first, then the shares and VMs.
+Several partners of the same name (an earlier pairing, a server set up anew) say so on their cards, each with its id,
+address and when it last sent — the ticket is written on the card of the pair that holds the copies. ZFS only, and the partner can read the copies — for a friend,
 Kopia is the encrypted way.
 
 **The USO network (Tailscale), optional.** Two servers behind different routers (or behind CGNAT) need a network that

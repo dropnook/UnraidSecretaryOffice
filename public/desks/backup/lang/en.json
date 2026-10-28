@@ -1892,6 +1892,7 @@
   "warn_code.partner_snap_prefix": "Partner {partner}: a partner takes only snapshots called {prefix}… — nothing sent. Set the snapshot prefix back in my setup.",
   "warn_code.partner_no_ssh": "Partner {partner}: ssh is missing on this server — nothing sent.",
   "warn_code.partner_quota": "Partner {partner} refused: its quota for this server is full — it keeps the copies it has. Raise the quota at the partner or free space there.",
+  "warn_code.partner_quota_aside": "Partner {partner} refused: its quota for this server is full — it keeps the copies it has, {aside_gb} GB of it earlier copies kept aside there. Let them go at the partner (its Team Lead, this server's card, «Let go…»), raise the quota or free space there.",
   "warn_code.partner_missed": "The copy to {partner} did not arrive — {why}.",
   "warn_code.btrfs_brake": {"one": "On {base} only {free_gb} GB were free (emergency brake at {floor_gb} GB) — I deleted the snapshot from {date} early.", "other": "On {base} only {free_gb} GB were free (emergency brake at {floor_gb} GB) — I deleted {n} snapshots early, the oldest from {date}."},
   "setup.level_hint.partner_vm": "Like local, and after every backup its ZFS snapshot goes encrypted to the partner office ({partners}), only the changed blocks. It carries the VM's configuration, so the partner can start it there.",
