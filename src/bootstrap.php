@@ -21,9 +21,10 @@ const OFFICE_TIP_URL = 'https://paypal.me/dropnook';
 // GitHub Sponsors in the tip jar ('' = no button; set once the maintainer's Sponsors profile is active)
 const OFFICE_SPONSOR_URL = '';
 // «Report a problem or a wish…»: the dialog's head names the other ways — the plugin's GitHub issues (for those with an
-// account) and, once it exists, the forum thread ('' = not shown). The inbox itself is OFFICE_FEEDBACK_URL (src/place.php)
+// account) and the forum thread (Plugin Support, since 2026-10-28; '' = not shown). The inbox itself is
+// OFFICE_FEEDBACK_URL (src/place.php)
 const OFFICE_ISSUES_URL = 'https://github.com/dropnook/UnraidSecretaryOffice/issues';
-const OFFICE_FORUM_URL = '';
+const OFFICE_FORUM_URL = 'https://forums.unraid.net/topic/201085-plugin-unraid-secretary-office-uso-backups-restore-snapshots-media-cache-for-embyjellyfinplex-smart-mover-security-watch-and-more/';
 // the theme switch at the reception — Automatic (Unraid's theme) · Dark · Light, per browser (an experiment,
 // 2026-10-07): false = nothing of it shows or loads (public/assets/theme-switch.css and .js, the lines in page.php
 // and core.js marked «theme-switch»); CLAUDE.md «Theme switch» says how to remove it for good

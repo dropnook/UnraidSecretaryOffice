@@ -69,9 +69,10 @@ Lead welcomes you. Coming soon to Community Applications; updates come through U
 
 ## Support
 
-Problems and wishes: right in the office, no GitHub account needed (*⋯ → Report a problem or a wish…* — you see every
-part before it is sent), or [GitHub issues](https://github.com/dropnook/UnraidSecretaryOffice/issues). A
-[tip](https://tip.uso.dropnook.app/) is welcome.
+Questions, problems and wishes: in the [Unraid forum thread](https://forums.unraid.net/topic/201085-plugin-unraid-secretary-office-uso-backups-restore-snapshots-media-cache-for-embyjellyfinplex-smart-mover-security-watch-and-more/), right in the
+office, no GitHub account needed (*⋯ → Report a problem or a wish…* — you see every part before it is sent), or
+[GitHub issues](https://github.com/dropnook/UnraidSecretaryOffice/issues). A [tip](https://tip.uso.dropnook.app/) is
+welcome.
 
 ## Special thanks
 

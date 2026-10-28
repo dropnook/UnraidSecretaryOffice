@@ -24,7 +24,7 @@ office=${1:?office version, e.g. 1.14.0}
 office=${office#v}
 version=${2:-$(date -u +%Y.%m.%d)}
 changes_file=${3:-}
-support=${SUPPORT_URL:-https://github.com/dropnook/UnraidSecretaryOffice/issues}
+support=${SUPPORT_URL:-https://forums.unraid.net/topic/201085-plugin-unraid-secretary-office-uso-backups-restore-snapshots-media-cache-for-embyjellyfinplex-smart-mover-security-watch-and-more/}
 
 [[ "$version" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}[a-z]?$ ]] || { echo "plugin version must look like 2026.10.05 (or 2026.10.05a)"; exit 1; }
 for f in src/bootstrap.php:OFFICE_VERSION agent/agent.php:AGENT_VERSION; do
