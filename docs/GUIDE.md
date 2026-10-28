@@ -115,6 +115,30 @@ interrupted one left, Ms. Dustdevil clears away). What it left unchecked comes f
 
 <a name="restore-drill"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill-light.png" alt="Mr. Restori: the drill passed — the level per app, the databases played back"></picture></a>
 
+<a name="new-server"></a>
+### Onto a new server
+
+When a server is gone (fire, theft, broken) or replaced, Mr. Restori's *Onto a new server* lists the few steps before he
+can bring everything back — read it while the server is still there, or here:
+
+1. **Unraid and the licence.** Unraid 7.3.2 or newer on the new server, with your licence — Unraid's own job (its
+   documentation). The office never copies the disk assignment (super.dat), the licence key or the network settings
+   (network.cfg); don't copy them blindly either. From the flash archive take only single pieces: a plugin's settings,
+   the go file, User Scripts.
+2. **Create the shares under the same names first** (*Shares → Add Share*). The office never makes a share; a pull or a
+   restore into a share that isn't there yet waits aside. The section lists them; their old settings are in the backup
+   place (`server/shares/`).
+3. **Get the backup place back** — its packages carry the templates, dumps, VM configurations and the flash archive.
+   From a partner office: install the office, the Team Lead's *Start from a partner's copy…*, the partner answers with a
+   restore ticket, and Mr. Restori pulls the backup place first. From offsite (Kopia): install Kopia with the same
+   *Container Path*, connect it to the same repository — its password from your password manager (it is not on the
+   server), the storage's keys too — restore the backup place's share first, then install the office.
+4. **Then the normal way.** Everything else comes back through Mr. Restori's rows, from Kopia or the partner's copy:
+   an app's template, compose project and dumps, a VM's definition (XML, UEFI variables, TPM), a share's data.
+5. **What does not come back:** every share and VM without a copy outside the server — only local snapshots (or not
+   backed up at all) — comes back empty. The section names them from what the backups really made; on a new server
+   that pulled the backup place, from the gone server's settings at its last backup.
+
 ### The Night Watchman's round
 
 When you hire him he learns what is normal (his *On watch since* tile says until when). From then on he walks his
