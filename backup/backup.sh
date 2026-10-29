@@ -8,6 +8,9 @@
 #        Kopia snapshots say how their source was put together (review M4, lib/common.sh kopia_share_tags): a share's
 #        «uso-layout:<single|overlay|split|live>» (as mounted this run), split also «uso-parts:<base>|…»; an app's or
 #        VM's own source with parts in a share mounted split «uso-split:<share>|…» - only from Kopia 0.13.
+#        state/results.json: per source and unit (local snapshot, package, Kopia, partner) its newest result {result,
+#        code, time, run, good} - written by status_finish (lib/common.sh results_write) at the end of every real run,
+#        this run's shares from results_local_json; the first time history.jsonl folded in. Past 200 runs nothing lost.
 #   2.79 The offsite repository emptied while Kopia's cache still opens it (B17): listing the snapshots fails with
 #        «BLOB not found» - the storage itself is asked (kopia blob list) whether the repository's description is still
 #        there; gone is kopia_gone (once, an alert, the hold) and the Kopia step holds - up to 2.78 the run just ended
@@ -585,6 +588,8 @@ declare -A NC_SAME=()       # container -> first container of the same Nextcloud
 declare -A NC_DBDOWN=()     # (2.64) Nextclouds whose database couldn't be reached: no maintenance mode, no occ lists
 declare -A NC_DIR=()        # (2.65) container -> "<folder>\t<uid>\t<gid>\t<mode>": its data folder's root before the mode went on
 declare -A BTRFS_OK=()     # btrfs base -> snapshot path
+declare -A BTRFS_TRIED=()  # 2.80: btrfs base -> 1 once its snapshot was tried
+SNAPS_TAKEN="no"            # 2.80: the run took its ZFS snapshots (results_local_json: a share's local result)
 declare -A LAYER_MNT=()     # ZFS dataset -> mount point under .layers
 declare -A SHARE_MOUNTED=() # share -> single|overlay|split
 declare -A ZFS_FAILED=()    # pool -> 1
@@ -876,6 +881,7 @@ vm_release() { # vm_release [btrfs]  - without an argument the VMs on ZFS only
 # --- btrfs snapshots ------------------------------------------------------
 btrfs_snap() { # btrfs_snap <disk path> [note]
     local base="$1"
+    BTRFS_TRIED[$base]=1
     mkdir -p "$base/$BTRFS_SNAP_DIR"
     if btrfs subvolume snapshot -r "$base" "$base/$BTRFS_SNAP_DIR/$TS" >/dev/null 2>>"$LOG_FILE"; then
         BTRFS_OK[$base]="$base/$BTRFS_SNAP_DIR/$TS"
@@ -883,6 +889,34 @@ btrfs_snap() { # btrfs_snap <disk path> [note]
     else
         err "btrfs snapshot of $base failed"
     fi
+}
+
+# results_local_json - state/results.json's local part of this run (2.80, results_write in lib/common.sh): per share
+# with a snapshot method in the plan [{key: "share:<s>", result, code}] - ok when every part got this run's snapshot
+# (ZFS: its pool's snapshot went, btrfs: its base's), failed (snapshot) when one didn't, skipped asleep (left out, its
+# pool slept), skipped run_ended (the run ended before its snapshots: ZFS's all at once, btrfs one base after the other).
+# The VMs come from status.json (vms[].snapshot).
+results_local_json() {
+    local s b m layer sub res code
+    for s in "${PLAN_SNAP[@]}"; do
+        [[ -n "$s" ]] || continue
+        res=ok; code=""
+        if in_list "$s" "${ST_ASLEEP_SHARES[@]}"; then res=skipped; code=asleep
+        elif [[ "$SNAPS_TAKEN" != "yes" ]]; then res=skipped; code=run_ended
+        else
+            while IFS='|' read -r b m layer sub; do
+                [[ -n "$b" ]] || continue
+                case "$m" in
+                    zfs)   in_list "$layer" "${PLAN_ZFS[@]}" && [[ -z "${ZFS_FAILED[${layer%%/*}]:-}" ]] || { res=failed; code=snapshot; } ;;
+                    btrfs) if [[ -z "${BTRFS_OK[$layer]:-}" ]]; then
+                               if [[ -n "${BTRFS_TRIED[$layer]:-}" ]]; then res=failed; code=snapshot
+                               elif [[ "$res" == ok ]]; then res=skipped; code=run_ended; fi
+                           fi ;;
+                esac
+            done <<<"${INV_LOCS[$s]:-}"
+        fi
+        printf '%s\x1f%s\x1f%s\n' "share:$s" "$res" "$code"
+    done | jq -Rn '[inputs | select(length > 0) | split("\u001f") | {key: .[0], result: .[1], code: .[2]}]'
 }
 
 # The share a bind source lies in (/mnt/user/<share>/…, /mnt/<disk or pool>/<share>/…)
@@ -4542,6 +4576,7 @@ for pool in "${!BY_POOL[@]}"; do
         err "ZFS snapshot on pool '$pool' failed"; ZFS_FAILED[$pool]=1
     fi
 done
+SNAPS_TAKEN="yes"                                  # 2.80: ZFS's are taken (btrfs: BTRFS_TRIED, one base after the other)
 if [[ "$PLAN_FLASH" == "snapshot" ]]; then
     zfs snapshot "$FLASH_DATASET@$SNAP_NAME" 2>>"$LOG_FILE" \
         || { err "Flash snapshot failed"; PLAN_FLASH="failed"; }

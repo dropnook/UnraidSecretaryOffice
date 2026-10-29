@@ -10635,6 +10635,24 @@ SH);
         [[$vms['vmh']['prepare'] ?? null, $vms['vmh']['done'] ?? null, $vms['vmh']['snapshot'] ?? null], [$vms['vmm']['prepare'] ?? null, $vms['vmm']['done'] ?? null]]);
     same('asleep skip: the partner - media skipped (asleep), appdata skipped (unreachable)', [['id' => $pid, 'unit' => 'share:media', 'why' => 'asleep'], ['id' => $pid, 'unit' => 'share:appdata', 'why' => 'unreachable']],
         $s['partner']['skipped'] ?? null);
+    // engine 2.80: the run's results per source and unit in state/results.json (folded from the history and this run)
+    $res = json_decode((string) @file_get_contents("$data/state/results.json"), true) ?: [];
+    $rr = fn (array $sec) => array_map(fn ($r) => ($r['result'] ?? '?') . ':' . ($r['code'] ?? '?'), $sec);
+    $loc = $rr($res['local'] ?? []);
+    ksort($loc);
+    same('asleep skip 2.80: results.json local - the shares snapshotted ok, the ones of the sleeping pool skipped asleep, the VMs as the run did them',
+        ['share:UnraidSecretaryOffice' => 'ok:', 'share:appdata' => 'ok:', 'share:domains' => 'ok:', 'share:films' => 'skipped:asleep', 'share:media' => 'skipped:asleep',
+         'share:tm' => 'skipped:asleep', 'share:vmh' => 'skipped:asleep', 'vm:vmh' => 'skipped:asleep', 'vm:vmm' => ($vms['vmm']['snapshot'] ?? false) ? 'ok:' : 'skipped:paused'], $loc, json_encode($res));
+    $kr = $rr($res['kopia'] ?? []);
+    ksort($kr);
+    $pr = $rr($res['partner'][$pid] ?? []);
+    ksort($pr);
+    same('asleep skip 2.80: results.json kopia - uploaded ok, the asleep sources skipped asleep; partner - each unit\'s why',
+        [['UnraidSecretaryOffice' => 'ok:', 'app:c2' => 'skipped:asleep', 'appdata' => 'ok:', 'media' => 'skipped:asleep'], ['share:appdata' => 'skipped:unreachable', 'share:media' => 'skipped:asleep']],
+        [$kr, $pr], json_encode($res));
+    same('asleep skip 2.80: results.json - v 1, the engine, this run; a good upload\'s good is its time, a skipped one has none yet',
+        [1, '2.80', $s['run'] ?? null, $res['kopia']['appdata']['time'] ?? -1, 0],
+        [$res['v'] ?? null, $res['engine'] ?? null, $res['run'] ?? null, $res['kopia']['appdata']['good'] ?? null, $res['kopia']['media']['good'] ?? null]);
     check('asleep skip: the log - one line for the pool', str_contains($l, 'ZFS hazel: asleep - left out this run (asleep_pools = skip)') && substr_count($l, 'ZFS hazel: asleep - left out') === 1, $l);
     check('asleep skip: last-run asleep=4, history asleep.units 4', str_contains((string) @file_get_contents("$data/state/last-run"), "asleep=4\n") && ($lastHistory()['asleep']['units'] ?? null) === 4);
     $nt = array_values(preg_grep('/Backup (successful|with warnings)/', $notes()));      // 2.46: the unreachable partner warns at once
@@ -54704,6 +54722,118 @@ JS);
  * unit it really received (T05) — and a folder in a dataset of its own only in its app's unit, never in its share's (T06).
  * The reasons (`why`, `missed`) are what the pages put beside the level; a state file carries them as a note.
  */
+/**
+ * Engine 2.80: state/results.json - per source and unit its newest result (local snapshot, package, Kopia, partner),
+ * written at a run's end (results_write: the history folded in when there is none yet, then this run), kept past the
+ * history's 200 runs; the office's tolerant reader backupResults() and backupTruth() filling what the history no
+ * longer holds. The fixtures' times are their own (the tests' clock), nothing reads time() but «updated».
+ */
+function testBackupResults(): void
+{
+    $tmp = hardeningTmp('results');
+    $data = "$tmp/unraid-backup";
+    @mkdir("$data/state", 0700, true);
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $pid = 'a1b2c3d4';
+    $run = function (array $status, string $local = '[]', string $ts = '') use ($data, $lib): array {
+        file_put_contents("$data/state/status.json", json_encode($status));
+        $out = shell_exec('bash -c ' . escapeshellarg("UB_DATA=$data; source $lib >/dev/null 2>&1; TS=" . escapeshellarg($ts ?: (string) ($status['run'] ?? ''))
+            . '; results_local_json() { printf %s ' . escapeshellarg($local) . '; }; ST_ACTIVE=yes; results_write; echo rc=$?') . ' 2>&1');
+        return [trim((string) $out), json_decode((string) @file_get_contents("$data/state/results.json"), true)];
+    };
+    $hist = fn (array $lines) => file_put_contents("$data/state/history.jsonl", implode('', array_map(fn ($l) => json_encode($l) . "\n", $lines)));
+    $line = fn (string $run, int $fin, array $more = []) => ['interface' => 1, 'mode' => 'backup', 'run' => $run, 'started' => $fin - 600, 'finished' => $fin, 'result' => 'ok', 'message' => ''] + $more;
+    // the history: run A copies appdata and sends it, run B fails both, a skipped run, and this run C
+    $hist([
+        $line('20261001-0100', 1000, ['kopia' => ['done' => [['name' => 'appdata', 'ok' => true, 'seconds' => 5, 'finished' => 990], ['name' => 'app:Emby', 'ok' => true, 'seconds' => 1, 'finished' => 995]]],
+            'partner' => ['done' => [['id' => $pid, 'unit' => 'share:appdata', 'snap' => 'uso-backup-20261001-0100', 'bytes' => 1, 'seconds' => 1]], 'skipped' => [], 'failed' => []],
+            'vms' => [['name' => 'Win', 'prepare' => 'shutdown', 'done' => 'shutdown', 'seconds' => 9, 'snapshot' => true]]]),
+        $line('20261002-0100', 2000, ['result' => 'errors', 'kopia' => ['done' => [['name' => 'appdata', 'ok' => false, 'seconds' => 5, 'finished' => 1990]]],
+            'partner' => ['done' => [], 'skipped' => [['id' => $pid, 'unit' => 'share:appdata', 'why' => 'unreachable']], 'failed' => []]]),
+        ['run' => '20261002-1300', 'result' => 'skipped', 'message' => 'busy', 'finished' => 2500],
+        $line('20261003-0100', 3000),
+    ]);
+    $c = $line('20261003-0100', 3000, ['kopia' => ['done' => [['name' => 'docs', 'ok' => true, 'seconds' => 3, 'finished' => 2900]], 'skipped' => ['media', 'films'],
+            'skipped_why' => ['media' => 'asleep'], 'interrupted' => null],
+        'packages' => ['list' => [['kind' => 'app', 'name' => 'Emby', 'result' => 'ok', 'stale' => false], ['kind' => 'vm', 'name' => 'Win', 'result' => 'warnings', 'stale' => false],
+            ['kind' => 'app', 'name' => 'Old', 'result' => 'stale', 'stale' => true], ['kind' => 'flash', 'name' => 'flash', 'result' => 'errors', 'stale' => false]]],
+        'partner' => ['done' => [], 'skipped' => [], 'failed' => [['id' => $pid, 'unit' => 'share:appdata', 'why' => 'recv_failed']], 'interrupted_all' => [['id' => $pid, 'unit' => 'place']]],
+        'vms' => [['name' => 'Win', 'prepare' => 'shutdown', 'done' => 'failed', 'seconds' => 0, 'snapshot' => false]]]);
+    $local = json_encode([['key' => 'share:appdata', 'result' => 'ok', 'code' => ''], ['key' => 'share:media', 'result' => 'skipped', 'code' => 'asleep']]);
+    [$out, $r] = $run($c, $local);
+    $pick = fn (?array $e) => $e === null ? null : [$e['result'], $e['code'], $e['time'], $e['good']];
+    same('results 2.80: written - v 1, the engine, the run that wrote it', ['rc=0', 1, '2.80', '20261003-0100', true], [$out, $r['v'] ?? null, $r['engine'] ?? null, $r['run'] ?? null, is_int($r['updated'] ?? null)]);
+    same('results 2.80: none yet - the history folded in first: appdata\'s Kopia failed in B, its newest good copy A\'s; the skipped run nothing',
+        [['failed', '', 1990, 990], ['ok', '', 995, 995]], [$pick($r['kopia']['appdata'] ?? null), $pick($r['kopia']['app:Emby'] ?? null)]);
+    same('results 2.80: this run - docs uploaded, media skipped asleep, films skipped by the array stop (no why)',
+        [['ok', '', 2900, 2900], ['skipped', 'asleep', 3000, 0], ['skipped', 'array_stopping', 3000, 0]],
+        [$pick($r['kopia']['docs'] ?? null), $pick($r['kopia']['media'] ?? null), $pick($r['kopia']['films'] ?? null)]);
+    same('results 2.80: the partner - appdata failed now, its newest arrival A\'s (with its snapshot gone from the entry), the place interrupted',
+        [['failed', 'recv_failed', 3000, 1000], ['skipped', 'array_stopping', 3000, 0]], [$pick($r['partner'][$pid]['share:appdata'] ?? null), $pick($r['partner'][$pid]['place'] ?? null)]);
+    same('results 2.80: local - the run\'s shares as backup.sh says them, the VM failed now (its good snapshot A\'s)',
+        [['ok', '', 3000, 3000], ['skipped', 'asleep', 3000, 0], ['failed', 'failed', 3000, 1000]],
+        [$pick($r['local']['share:appdata'] ?? null), $pick($r['local']['share:media'] ?? null), $pick($r['local']['vm:Win'] ?? null)]);
+    same('results 2.80: packages - ok, warnings (ok with a code), errors failed, a stale one not', [['ok', ''], ['ok', 'warnings'], ['failed', 'errors'], false],
+        [array_slice($pick($r['package']['app:Emby'] ?? null) ?? [], 0, 2), array_slice($pick($r['package']['vm:Win'] ?? null) ?? [], 0, 2),
+         array_slice($pick($r['package']['flash'] ?? null) ?? [], 0, 2), isset($r['package']['app:Old'])]);
+    // the next run: a file there - the history isn't read again; what it doesn't touch keeps its entry; a newer engine's section stays
+    $r['later'] = ['x' => 1];
+    file_put_contents("$data/state/results.json", json_encode($r));
+    $hist([]);
+    [, $r2] = $run($line('20261004-0100', 4000, ['kopia' => ['done' => [['name' => 'appdata', 'ok' => true, 'seconds' => 5, 'finished' => 3990]]]]));
+    same('results 2.80: the next run - appdata good again, docs kept as it was (untouched), the unknown section kept, the run named',
+        [['ok', '', 3990, 3990], ['ok', '', 2900, 2900], ['x' => 1], '20261004-0100'], [$pick($r2['kopia']['appdata'] ?? null), $pick($r2['kopia']['docs'] ?? null), $r2['later'] ?? null, $r2['run'] ?? null]);
+    // a newer engine's file (another v) is left alone; one that isn't JSON is made anew from the history
+    file_put_contents("$data/state/results.json", '{"v":2,"kopia":{}}');
+    $run($line('20261005-0100', 5000));
+    same('results 2.80: another version\'s file - left as it is', '{"v":2,"kopia":{}}', (string) file_get_contents("$data/state/results.json"));
+    file_put_contents("$data/state/results.json", 'garbage');
+    $hist([$line('20261001-0100', 1000, ['kopia' => ['done' => [['name' => 'appdata', 'ok' => true, 'seconds' => 5, 'finished' => 990]]]])]);
+    [, $r3] = $run($line('20261005-0100', 5000));
+    same('results 2.80: a file that isn\'t JSON - made anew from the history', [['ok', '', 990, 990], 1], [$pick($r3['kopia']['appdata'] ?? null), $r3['v'] ?? null]);
+    // a dry run or a check never writes it; nor a link
+    @unlink("$data/state/results.json");
+    $run(['mode' => 'dry', 'run' => 'x', 'finished' => 6000]);
+    $dry = json_decode((string) @file_get_contents("$data/state/results.json"), true);
+    same('results 2.80: a run of another mode adds nothing of its own (the history alone)', [false, '20261001-0100'], [isset($dry['run']) && $dry['run'] === 'x', array_key_exists('appdata', $dry['kopia'] ?? []) ? '20261001-0100' : null]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    check('results 2.80: written by status_finish of a real backup run only, a new file + mv', (bool) preg_match('/\[\[ "\$ST_MODE" == "backup" \]\] \|\| return 0.*history_append.*results_write/s', $src)
+        && str_contains($src, 'mv -f "$tmp" "$f"'));
+
+    // ---- the office's reader: tolerant, only entries in exactly their shape; none = null (history.jsonl as before)
+    file_put_contents("$data/state/results.json", json_encode(['v' => 1, 'engine' => '2.81', 'updated' => 7000, 'run' => 'r', 'future' => ['k' => 1],
+        'kopia' => ['appdata' => ['result' => 'ok', 'code' => '', 'time' => 10, 'run' => 'r', 'good' => 10, 'extra' => 'kept'], 'bad' => ['result' => 'maybe', 'code' => '', 'time' => 1, 'run' => '', 'good' => 0],
+            'neg' => ['result' => 'ok', 'code' => '', 'time' => 1, 'run' => '', 'good' => -1]],
+        'partner' => [$pid => ['share:docs' => ['result' => 'skipped', 'code' => 'asleep', 'time' => 20, 'run' => 'r', 'good' => 5], 'odd' => ['result' => 'ok', 'code' => '', 'time' => 1, 'run' => '', 'good' => 1]],
+            'NOTANID' => ['share:x' => ['result' => 'ok', 'code' => '', 'time' => 1, 'run' => '', 'good' => 1]]],
+        'local' => 'nonsense']));
+    $b = backupResults($data);
+    same('results reader: entries in exactly their shape (their unknown keys kept), the rest left out; unknown sections kept; a section of another shape empty',
+        [['appdata'], 'kept', ['share:docs'], [$pid], [], ['k' => 1], '2.81'],
+        [array_keys($b['kopia'] ?? []), $b['kopia']['appdata']['extra'] ?? null, array_keys($b['partner'][$pid] ?? []), array_keys($b['partner'] ?? []), $b['local'] ?? null, $b['future'] ?? null, $b['engine'] ?? null]);
+    file_put_contents("$data/state/results.json", '{"v":2}');
+    $none = backupResults($data);
+    @unlink("$data/state/results.json");
+    same('results reader: another version, or none - null (as before)', [null, null], [$none, backupResults($data)]);
+
+    // ---- backupTruth(): the history decides where it says something; the file fills what it no longer holds
+    $hist([$line('20261010-0100', 10000, ['kopia' => ['done' => [['name' => 'appdata', 'ok' => false, 'seconds' => 5, 'finished' => 9990]]],
+        'partner' => ['partners' => [['id' => $pid, 'name' => 'Vault']], 'done' => [['id' => $pid, 'unit' => 'share:appdata', 'snap' => 's', 'bytes' => 1, 'seconds' => 1]],
+                      'skipped' => [], 'failed' => []]])]);
+    $before = backupTruth($data);
+    file_put_contents("$data/state/results.json", json_encode(['v' => 1, 'engine' => '2.80', 'updated' => 1, 'run' => 'r',
+        'kopia' => ['appdata' => ['result' => 'failed', 'code' => '', 'time' => 9990, 'run' => 'r', 'good' => 500], 'docs' => ['result' => 'ok', 'code' => '', 'time' => 300, 'run' => 'q', 'good' => 300]],
+        'partner' => [$pid => ['share:appdata' => ['result' => 'failed', 'code' => 'x', 'time' => 1, 'run' => 'q', 'good' => 0], 'share:docs' => ['result' => 'skipped', 'code' => 'asleep', 'time' => 300, 'run' => 'q', 'good' => 200]]],
+        'local' => [], 'package' => []]));
+    $after = backupTruth($data);
+    same('results truth: without the file - the history alone (appdata never good, docs unknown)', [null, null, false], [$before['kopia']['good']['appdata'] ?? null, $before['kopia']['good']['docs'] ?? null, $before['kopia']['last']['appdata'] ?? null]);
+    same('results truth: with it - appdata\'s good copy from before the history, docs\' newest copy and last; the history\'s word stays (appdata failed last, its partner ok)',
+        [500, 300, false, true, true, ['ok' => false, 'why' => 'skipped', 'code' => 'asleep', 'time' => 300]],
+        [$after['kopia']['good']['appdata'] ?? null, $after['kopia']['good']['docs'] ?? null, $after['kopia']['last']['appdata'] ?? null, $after['kopia']['last']['docs'] ?? null,
+         $after['partner'][$pid]['share:appdata']['ok'] ?? null, $after['partner'][$pid]['share:docs'] ?? null]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testBackupTruthProtection(): void
 {
     $tmp = hardeningTmp('truth-protection');
@@ -56876,7 +57006,7 @@ function testBackupAnewChoice(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
