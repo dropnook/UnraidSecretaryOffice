@@ -47749,7 +47749,7 @@ let greet = '';
 globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '', note: () => ({ tile: '' }), pick() {}, clear() {} }),
   scope: () => T, t: T, el: mk, greet: () => greet,
   fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
-  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  desk: (d) => { globalThis.deskDef = d; }, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
   dialog: () => ({ buttons: [] }), toast: () => {}, selbar: () => null, api: { post: async () => ({ ok: true }) } };
 (0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
@@ -47771,6 +47771,12 @@ out.looking = m.bubbleText();
 m.setProgress(prog('nextcloud_data'), null);
 m.setState({ ...running, job: { running: true, mode: 'dry' } });
 out.dry = m.bubbleText();
+// the reception's card: at work her run's way, idle her hello (2026-10-29)
+// (with a state its words are made at the call — the promise only carries them)
+m.setState(running);
+const reception = [deskDef.reception()];
+m.setState({ ...base, shares, job: {} });
+reception.push(deskDef.reception());
 // the greetings: none while she works; «off to the array» only with a share going there by age or fill
 greet = 'greet.1';
 m.setState(running);
@@ -47805,7 +47811,7 @@ out.noBytes = [noBytes.percent, noBytes.filesPct, noBytes.bytesPct, m.percentTex
 // an idle share unfolded / its chip: where it lies, without ⟦Secondary storage⟧
 out.idle = [m.idleText({ share: 'nextcloud_data', use: 'only', primary: 'ripley' }), m.idleText({ share: 'isos', use: 'no', primary: '' }), m.idleText({ share: 'x', use: 'only', primary: '' }),
   m.idleText({ share: 'old' })];
-console.log(JSON.stringify(out));
+Promise.all(reception).then((r) => { out.reception = r.map((x) => x.bubble); console.log(JSON.stringify(out)); });
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
     $o = json_decode($raw, true);
@@ -47820,6 +47826,8 @@ JS);
         'bubble.run_back_from_array {"what":"bubble.what_all_but","share":"Mails","from":"array","to":"cache"}',
         'bubble.run_back_from_array {"what":"bubble.what_old {\"n\":1}","share":"Spiele","from":"array","to":"cache"}',
         'bubble.running'], $o['bubble'] ?? null);
+    same('page truth: the reception\'s card while she moves nextcloud_data back from the array — «at work» (its way only on her page, never her «to the array» hello); idle — the hello',
+        ['bubble.running', 'bubble.hello_short'], $o['reception'] ?? null);
     same('page truth: looking around, a dry run — «at work», no way named', ['bubble.running', 'bubble.running'], [$o['looking'] ?? null, $o['dry'] ?? null]);
     same('page truth: no greeting while she works; «off to the array» (greet.1, greet.2) not with prefer shares only — the others stay; with an aged share into the array yes, with age 0 and no fill rule not',
         ['', ['', '', 'greet.3'], 'greet.1', ''], [$o['greetRunning'] ?? null, $o['greetPreferOnly'] ?? null, $o['greetAged'] ?? null, $o['greetAgeZero'] ?? null]);
