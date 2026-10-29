@@ -392,6 +392,8 @@ function notices() {
   else if (!state.place.base) callout(T(partners().some((p) => p.kind === 'ticket') ? 'notice.no_place_ticket' : 'notice.no_place'), !partners().some((p) => p.kind === 'ticket'));
   else if (state.place.asleep) callout(T('notice.asleep', { path: state.place.base }), false);
   else if (!state.place.found) callout(T('notice.no_packages', { path: state.place.base }), false);
+  // B42: Mr. Backupsy's settings are gone — the place as his last runs had it (agent: rsPlaceShare())
+  if (e.found && state.place.base && state.place.from && state.place.from !== 'settings') callout(T('notice.settings_gone', { path: state.place.base }), true);
   if (state.place.partner) callout(T('notice.place_partner', { name: state.place.partner.name, when: date(state.place.partner.time), path: state.place.base }), false);
   // a restore going on: no banner — its run card stands in the row's place (placeRunCard())
   if (!runningJob() && otherHolder()) callout(T('notice.busy_' + otherHolder()), true);

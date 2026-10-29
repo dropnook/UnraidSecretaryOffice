@@ -15781,6 +15781,9 @@ function testRestorePaths(): void
     $pl = rsPlace([], $c);
     same('restore paths: … rsPlace says where and that the settings didn\'t name it', ['UnraidSecretaryOffice', '/mnt/user/UnraidSecretaryOffice/backup', 'last_run'],
         [$pl['share'], $pl['base'], $pl['from']]);
+    check('restore paths (page): … and says the settings are gone, with the place it looks in',
+        str_contains((string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js'), "state.place.from !== 'settings') callout(T('notice.settings_gone', { path: state.place.base }), true)")
+        && str_contains((string) langFile(OFFICE_WEB . '/desks/restore/lang/en.json')['notice.settings_gone'], '{path}'));
     foreach (['status.json', 'last-run.json', 'history.jsonl'] as $f) {
         @unlink("$st/$f");
     }

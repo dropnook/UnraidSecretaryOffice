@@ -30,6 +30,7 @@
   "notice.no_place": "Mr. Backupsy has no backup place yet (Set up… → Basics). The packages of the apps and VMs will lie there.",
   "notice.asleep": "The backup place ({path}) lies on a disk that is asleep. I show what I read before and don't wake it.",
   "notice.no_packages": "No packages in {path} yet — Mr. Backupsy writes them with every backup run.",
+  "notice.settings_gone": "Mr. Backupsy's settings are gone — I look for packages where his last backups put them: {path}. Set him up again at his desk («Set up…»); the backups made so far stay.",
   "help.tiles": "Tiles",
   "help.tiles_text": "Apps, VMs, shares, databases, offsite, «Restored» and «onto a new server»: a click opens that part, a second click closes it again.",
   "help.row": "A row",
