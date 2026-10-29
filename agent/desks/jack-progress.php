@@ -41,6 +41,10 @@ declare(strict_types=1);
  * paused and since when it saw it play (its first look that saw it) in a third RAM file (`RUN_DIR/jack-watching.json`).
  * Never a session touched. The panel lists it per person; nobody watching (or no answer): nothing.
  *
+ * theme.mp3 stays on the pool (2026-10-29, his setup's switch): after the fill MediaCache's phase `themes` — first the
+ * titles looked at (`themes` {titles, looked}), then the theme.mp3 found on the array fetched (files, bytes, done, like the
+ * fill; the one in work a file in flight of phase `themes`). Its own bar under the others, never in the bracket's count.
+ *
  * His page asks the part `progress` (desk.json; the agent's action `progress`, three RAM reads, nothing written) every
  * 10 s while a real EmbyCache run goes, never otherwise. The RAM files go when the run ends.
  */
@@ -105,7 +109,7 @@ function jackProgressTime(mixed $v): ?int
 /** A file in flight as MediaCache writes it (`current`, each of `active`), only in its shape: else null */
 function jackProgressFile(mixed $cur): ?array
 {
-    if (!is_array($cur) || !in_array($cur['phase'] ?? null, ['back', 'fill'], true) || !is_string($cur['rel'] ?? null) || !is_string($cur['target'] ?? null)) {
+    if (!is_array($cur) || !in_array($cur['phase'] ?? null, ['back', 'fill', 'themes'], true) || !is_string($cur['rel'] ?? null) || !is_string($cur['target'] ?? null)) {
         return null;
     }
     return ['phase' => $cur['phase'], 'rel' => jackProgressText($cur['rel'], 500) ?? '', 'size' => jackProgressInt($cur['size'] ?? 0),
@@ -130,7 +134,7 @@ function jackProgressRead(string $file): ?array
         return null;
     }
     $j = json_decode((string) @file_get_contents($file), true);
-    if (!is_array($j) || ($j['v'] ?? null) !== 1 || !in_array($j['phase'] ?? null, ['plan', 'back', 'fill', 'done'], true)) {
+    if (!is_array($j) || ($j['v'] ?? null) !== 1 || !in_array($j['phase'] ?? null, ['plan', 'back', 'fill', 'themes', 'done'], true)) {
         return null;
     }
     $count = fn (mixed $c): ?array => is_array($c) ? ['files' => jackProgressInt($c['files'] ?? 0), 'bytes' => jackProgressInt($c['bytes'] ?? 0),
@@ -178,6 +182,9 @@ function jackProgressRead(string $file): ?array
     return ['mode' => in_array($j['mode'] ?? null, ['run', 'release'], true) ? $j['mode'] : 'run', 'phase' => $j['phase'],
             'started' => jackProgressInt($j['started'] ?? 0), 'updated' => jackProgressInt($j['updated'] ?? 0),
             'back' => $count($j['back'] ?? null), 'fill' => $count($j['fill'] ?? null), 'users' => $users, 'current' => $active[0] ?? null,
+            // theme.mp3 (his switch): the titles looked at, then the files fetched — null without that phase
+            'themes' => is_array($j['themes'] ?? null) ? $count($j['themes']) + ['titles' => jackProgressInt($j['themes']['titles'] ?? 0),
+                'looked' => jackProgressInt($j['themes']['looked'] ?? 0)] : null,
             'active' => $active, 'queue' => $queue, 'shared' => $shared, 'pos' => $queue !== null ? $j['pos'] : 0];
 }
 
@@ -356,7 +363,10 @@ function jackProgressView(array $p, array $samples, int $now, bool $stopping = f
                 'in_flight' => $show($fs)];
     };
     $backFiles = $mine(fn (array $f): bool => $f['phase'] === 'back');
-    $back = $p['back'] !== null ? $bar($p['back'], $backFiles) + ['ended' => in_array($p['phase'], ['fill', 'done'], true)] : null;
+    $back = $p['back'] !== null ? $bar($p['back'], $backFiles) + ['ended' => in_array($p['phase'], ['fill', 'themes', 'done'], true)] : null;
+    // theme.mp3: the titles looked at, the fetched ones as a bar of their own (tiny files: no time left of their own)
+    $themes = ($p['themes'] ?? null) !== null ? ['titles' => $p['themes']['titles'], 'looked' => min($p['themes']['looked'], $p['themes']['titles'])]
+        + $bar($p['themes'], $mine(fn (array $f): bool => $f['phase'] === 'themes')) + ['ended' => $p['themes']['ended'] !== null || $p['phase'] === 'done'] : null;
     // the fill's queue: the bytes from now until each user's last remaining file is done (and their next file's place)
     $backLeft = $back !== null && !$back['ended'] ? max(0, $back['bytes'] - $back['done_bytes']) : 0;
     $fillFiles = $mine(fn (array $f): bool => $f['phase'] === 'fill');
@@ -415,7 +425,7 @@ function jackProgressView(array $p, array $samples, int $now, bool $stopping = f
         $total['eta'] = $curEta;
     }
     $shown = $show($files);
-    return ['mode' => $p['mode'], 'phase' => $p['phase'], 'started' => $p['started'], 'back' => $back, 'users' => $users, 'total' => $total,
+    return ['mode' => $p['mode'], 'phase' => $p['phase'], 'started' => $p['started'], 'back' => $back, 'users' => $users, 'total' => $total, 'themes' => $themes,
             'speed' => $speed !== null ? (int) round($speed) : null, 'current' => $shown[0] ?? null, 'files' => $shown];
 }
 

@@ -1706,7 +1706,7 @@ function testJackImport(): void
     // keys 7.2.1 didn't have: Jack's current value stays; without one, Jack's own default (max_resume_*: the old max_resume_items)
     same('import preview: keys the old install lacks — Jack\'s value stays, else his default',
         [['key' => 'max_resume_movies', 'kept' => true, 'value' => 1], ['key' => 'max_resume_series', 'kept' => false, 'value' => 8],
-        ], $e['defaults']);
+         ['key' => 'themes', 'kept' => false, 'value' => false]], $e['defaults']);
     $jackSet = array_column($e['jack'], 'new', 'key');
     same('import preview: Jack\'s values for what runs or isn\'t valid', ['mover_bin' => '', 'rsync_args' => ['-aAX', '--numeric-ids']],
         array_intersect_key($jackSet, ['mover_bin' => 1, 'rsync_args' => 1]));
@@ -1889,7 +1889,7 @@ function testJackLetGo(): void
     // the look: his two schedules, what lies on the pool (only what is there, under the pool); nothing of Mover Tuning
     $l = jackLetGoLook();
     same('let Jack go: the look — his schedules, 2 files on the pool (8000 bytes), the release may go, no Mover Tuning',
-        [['embycache' => '15 * * * *', 'gather' => '0 3 * * 0'], null, ['files' => 2, 'bytes' => 8000, 'pool' => $pool], ['ok' => true, 'why' => null, 'params' => []], false],
+        [['embycache' => '15 * * * *', 'gather' => '0 3 * * 0'], null, ['files' => 2, 'bytes' => 8000, 'pool' => $pool, 'themes' => 0], ['ok' => true, 'why' => null, 'params' => []], false],
         [$l['schedules'], $l['running'], $l['pool'], $l['release'], array_key_exists('mover_tuning', $l)]);
     $moverOff = false;
     same('let Jack go: the look says whether Unraid\'s mover schedule is off (it stays so — the dialog says where to switch it on)', [true, false],
@@ -2852,7 +2852,7 @@ function testJackRsync(): void
     // 2026-10-15 (the owner): MediaCache's own ways — filling with rsync, giving back with Unraid's move binary; written
     // into the settings by Jack, never forced through the environment
     $tmp = hardeningTmp('jackrsync');
-    $one = ['parallel_disks' => true, 'parallel_per_disk' => 1, 'parallel_total' => 1];
+    $one = ['parallel_disks' => true, 'parallel_per_disk' => 1, 'parallel_total' => 1, 'themes' => false];
     same('tools: whatever an old file says — filling rsync, the way back the move binary, the rest kept (share root, one copy per disk)',
         ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/maple'] + JACK_FIXED + $one,
         jackTools(['fill_tool' => 'mover', 'cleanup_tool' => 'rsync', 'cache_path' => '/mnt/maple']));
@@ -53334,6 +53334,234 @@ JS);
 }
 
 /**
+ * theme.mp3 stays on the pool (2026-10-29, the owner — Jack Streamer's setup switch `themes`, off by default; MediaCache's
+ * collector: mediacache/tests/test_themes.py). The setting (only a real true; the page may send only true or false), his
+ * list's two sections (read, written, kept by the rebuild from the pool, the import, counted apart on his page and in the
+ * let-go), the state read with a default (a 1.78.0 data folder has none), the live panel's phase `themes`, the let-go's
+ * MEDIACACHE_RELEASE_THEMES; on the page under node: the tile's line, the run summary, the panel's row, the setup's
+ * switch; the texts ×5.
+ */
+function testJackThemes(): void
+{
+    $t = hardeningTmp('jack-themes');
+    exec('rm -rf ' . escapeshellarg($t) . '/*');
+    $dir = "$t/jack";
+    $cache = "$t/mnt/cache";
+    $list = "$dir/mediacache_exclude.txt";
+    $mk = function (string $rel, int $n = 10) use ($t): string {
+        @mkdir(dirname("$t/$rel"), 0700, true);
+        file_put_contents("$t/$rel", str_repeat('x', $n));
+        return "$t/$rel";
+    };
+    @mkdir($dir, 0700, true);
+
+    // the setting: only a real true; off by default, an older file (1.78.0: no key) off
+    same('themes setting: only a real true is on — false, a string, a number, none: off', [true, false, false, false, false],
+        array_map(fn ($s) => jackThemesOn($s), [['themes' => true], ['themes' => false], ['themes' => 'true'], ['themes' => 1], []]));
+    same('themes setting: jackTools writes it as a boolean (an older file: false)', [true, false, false],
+        [jackTools(['themes' => true])['themes'], jackTools([])['themes'], jackTools(['themes' => 'yes'])['themes']]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('themes setting: a setting of his the page sends, checked to be a boolean before it is taken (never a value turned into one)',
+        in_array('themes', JACK_SETTINGS, true) && str_contains($src, "if (array_key_exists('themes', \$in) && !is_bool(\$in['themes'])) {\n        throw new Problem('bad_request');"));
+    file_put_contents("$dir/mediacache_settings.json", json_encode(['cache_path' => $cache, 'instances' => [['url' => 'http://x', 'api_key' => 'k']]]));
+    same('themes setting: a 1.78.0 settings file reads as off', false, jackReadSettings($dir)['themes'] ?? null);
+
+    // his list's two sections — MediaCache's write_exclude(): the files sorted, then the mark and the themes
+    $a = $mk('mnt/cache/Filme/A (2001)/a.mkv', 3000);
+    $ta = $mk('mnt/cache/Filme/A (2001)/theme.mp3', 300);
+    $tb = $mk('mnt/cache/Filme/B (2002)/theme.mp3', 200);
+    $ts = $mk('mnt/cache/Serien/S/theme.mp3', 100);
+    file_put_contents($list, "$a\n");
+    same('themes list: a 1.78.0 list (no section) — its files, no themes', [[$a], []], jackListRead($list));
+    jackListWrite($list, [$a, $ta, $tb, $ts], [$ts, $tb, $ta]);
+    same('themes list: written as MediaCache writes it — the files, the mark, the themes sorted', "$a\n" . JACK_THEMES_LINE . "\n$ta\n$tb\n$ts\n", file_get_contents($list));
+    same('themes list: read back in its two sections (comments and blank lines no entries)', [[$a], [$ta, $tb, $ts]], jackListRead($list));
+    file_put_contents($list, "# a comment\n$a\n\n" . JACK_THEMES_LINE . "\n$ta\n");
+    same('themes list: … a comment of anyone\'s is no entry, the mark starts the section', [[$a], [$ta]], jackListRead($list));
+    jackListWrite($list, [$a], []);
+    same('themes list: no themes — no section, the list as before', "$a\n", file_get_contents($list));
+    jackListWrite($list, [], []);
+    same('themes list: nothing — an empty file', '', file_get_contents($list));
+    same('themes list: MediaCache\'s mark is the one Jack reads', true, str_contains((string) file_get_contents(JACK_APP . '/mediacache_lib.py'),
+        'THEMES_MARK = "' . JACK_THEMES_LINE . '"') && str_starts_with(JACK_THEMES_LINE, JACK_THEMES_MARK));
+
+    // his page's numbers: the themes counted apart — never a film group, never in the films' count
+    jackListWrite($list, [$a], [$ta, $tb, $ts]);
+    $c = jackCacheStats(['cache_path' => $cache], $dir);
+    same('themes on his page: the films 1 file / 3000 B in one group, the themes apart (3, 600 B)', [1, 3000, ['A (2001)'], ['files' => 3, 'bytes' => 600]],
+        [$c['files'], $c['bytes'], array_column($c['groups'], 'title'), $c['themes']]);
+    file_put_contents($list, "$a\n");
+    same('themes on his page: a 1.78.0 list — no themes', ['files' => 0, 'bytes' => 0], jackCacheStats(['cache_path' => $cache], $dir)['themes']);
+    jackListWrite($list, [$a], [$ta, $tb, $ts]);
+    jackListNote($dir);
+    same('themes list: his list\'s note counts entries, never the mark', 4, readJson("$dir/" . JACK_LIST_NOTE)['lines'] ?? null);
+
+    // the state read with a default: a 1.78.0 data folder has none
+    $set = ['cache_path' => $cache, 'themes' => true, 'instances' => [['url' => 'http://x']], 'cache_budget' => '100G'];
+    same('themes state: none (a 1.78.0 data folder) — nothing there, the first collection ahead', ['on' => true, 'files' => 0, 'bytes' => 0, 'first' => true, 'collected' => null],
+        jackThemesState($set, $dir));
+    foreach (['no v' => ['items' => []], 'another v' => ['v' => 2, 'items' => []], 'no items' => ['v' => 1], 'not json' => 'x'] as $what => $bad) {
+        file_put_contents("$dir/" . JACK_THEMES_STATE, is_string($bad) ? $bad : json_encode($bad));
+        same("themes state: $what — read as none", ['on' => false, 'files' => 0, 'bytes' => 0, 'first' => true, 'collected' => null], jackThemesState([], $dir));
+    }
+    file_put_contents("$dir/" . JACK_THEMES_STATE, json_encode(['v' => 1, 'done' => true, 'collected' => 1790000000, 'items' => ['Emby|a' => ['Filme/A/a.mkv', 'Filme/A', 'pool', 1, 300]],
+        'on_pool' => ['files' => 12, 'bytes' => 38000000], 'future' => 'kept']));
+    same('themes state: what the run wrote — 12 on the pool, 38 MB, the first collection done, when', ['on' => true, 'files' => 12, 'bytes' => 38000000, 'first' => false, 'collected' => 1790000000],
+        jackThemesState($set, $dir));
+    file_put_contents("$dir/" . JACK_THEMES_STATE, json_encode(['v' => 1, 'items' => [], 'on_pool' => ['files' => -3, 'bytes' => 'x']]));
+    same('themes state: counts not in their shape — 0', [0, 0], array_values(array_intersect_key(jackThemesState($set, $dir), ['files' => 1, 'bytes' => 1])));
+
+    // the rebuild from the pool (his list lost after his runs): the themes back in their section — on; off: ordinary files
+    jackRemember(['tool' => 'embycache', 'mode' => 'run', 'by' => 'night', 'started' => 1000, 'finished' => 1100, 'exit' => 0, 'result' => 'ok'], $dir);
+    $o = ['shares' => ['Filme', 'Serien'], 'asleep' => [], 'running' => fn (): bool => false];
+    unlink($list);
+    same('themes rebuild: on — written anew with the themes in their section', ['rebuilt', [[$a], [$ta, $tb, $ts]]], [jackListEnsure($set, $dir, $o), jackListRead($list)]);
+    unlink($list);
+    same('themes rebuild: off — every file an ordinary entry, no section', ['rebuilt', [[$a, $ta, $tb, $ts], []]],
+        [jackListEnsure(['themes' => false] + $set, $dir, $o), jackListRead($list)]);
+    // the import (an older EmbyCache's list taken over) keeps his own themes' section
+    check('themes import: his own list read in its sections, its themes written back as their section',
+        str_contains($src, "[\$mine, \$themesMine] = jackListRead(\$ctx['jack_dir'] . '/mediacache_exclude.txt');")
+        && str_contains($src, "jackListWrite(\$ctx['jack_dir'] . '/mediacache_exclude.txt', \$e['exclude'], (array) (\$e['themes'] ?? []));"));
+
+    // the let-go: the themes counted (only its release brings them back) — MEDIACACHE_RELEASE_THEMES for that run alone
+    jackListWrite($list, [$a, "$cache/Filme/gone.mkv"], [$ta, $tb, $ts]);
+    same('themes let-go: what lies on the pool — 4 files (the themes among them: 3)', ['files' => 4, 'bytes' => 3600, 'pool' => $cache, 'themes' => 3],
+        jackLetGoOnPool(['cache_path' => $cache], $dir));
+    check('themes let-go: only the let-go\'s release gets MEDIACACHE_RELEASE_THEMES', str_contains($src,
+        "+ (\$mode === 'release' && \$by === 'letgo' ? ['MEDIACACHE_RELEASE_THEMES' => '1'] : []);") && substr_count($src, 'MEDIACACHE_RELEASE_THEMES') === 2);
+    // «Set up from scratch»: the state goes with the rest (what lies on the pool becomes ordinary cache)
+    file_put_contents("$dir/" . JACK_THEMES_STATE, json_encode(['v' => 1, 'items' => []]));
+    jackReset(['dir' => $dir, 'gather' => "$t/gather", 'running' => fn (): bool => false, 'schedule' => fn (string $job) => null]);
+    same('themes reset: the state gone, the list emptied', [false, ''], [is_file("$dir/" . JACK_THEMES_STATE), file_get_contents($list)]);
+
+    // the live panel: MediaCache's phase `themes` — titles looked at, then the themes fetched, the one in work
+    $paths = jackProgressPaths("$t/run");
+    @mkdir("$t/run", 0700, true);
+    $prog = ['v' => 1, 'mode' => 'run', 'phase' => 'themes', 'started' => 1000, 'updated' => 1005, 'back' => null,
+             'fill' => ['files' => 0, 'bytes' => 0, 'done_files' => 0, 'done_bytes' => 0, 'started' => null, 'ended' => null], 'users' => [],
+             'themes' => ['titles' => 840, 'looked' => 840, 'files' => 12, 'bytes' => 3600, 'done_files' => 4, 'done_bytes' => 1200, 'started' => 1001, 'ended' => null],
+             'active' => [['phase' => 'themes', 'rel' => 'Serien/S/theme.mp3', 'size' => 300, 'target' => "$cache/Serien/S/theme.mp3", 'user' => null, 'source' => null, 'title' => null, 'since' => 1004]],
+             'queue' => [], 'pos' => 0];
+    file_put_contents($paths['file'], json_encode($prog));
+    $p = jackProgressRead($paths['file']);
+    same('themes panel: the phase read, its counts, the theme in work', ['themes', 840, 840, 12, 4, 'themes', 'Serien/S/theme.mp3'],
+        [$p['phase'] ?? null, $p['themes']['titles'] ?? null, $p['themes']['looked'] ?? null, $p['themes']['files'] ?? null, $p['themes']['done_files'] ?? null,
+         $p['current']['phase'] ?? null, $p['current']['rel'] ?? null]);
+    $v = jackProgressView($p, [], 1010);
+    same('themes panel: its own bar — titles, looked, files, the theme in flight under it; the bracket without them', [840, 840, 12, 1200, ['Serien/S/theme.mp3'], false, 0],
+        [$v['themes']['titles'], $v['themes']['looked'], $v['themes']['files'], $v['themes']['done_bytes'], array_column($v['themes']['in_flight'], 'rel'), $v['themes']['ended'], $v['total']['files']]);
+    check('themes panel: no target path for the page', !str_contains(json_encode($v), $cache));
+    file_put_contents($paths['file'], json_encode(array_diff_key($prog, ['themes' => 1]) + ['phase' => 'fill']));
+    same('themes panel: a run without the phase (switch off, an older MediaCache) — none', null, jackProgressView(jackProgressRead($paths['file']), [], 1010)['themes']);
+
+    // MediaCache on a 1.78.0 settings file: off; a save of his writes it (MediaCache's own save_config)
+    if (needsPython(__FUNCTION__, 'MediaCache')) {
+        @mkdir("$t/run2", 0700, true);
+        $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(require_paths=False); print(json.dumps(c["themes"]))';
+        file_put_contents("$dir/mediacache_settings.json", json_encode(['cache_path' => $cache, 'array_path' => $t,
+            'instances' => [['servername' => 'Emby', 'url' => 'http://x', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media' => '/mnt/user/Filme']]]], JSON_UNESCAPED_SLASHES));
+        [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $dir] + jackPyEnv(), 30);
+        same('themes setting: MediaCache on a 1.78.0 settings file — off', [0, 'false'], [$exit, trim($out) ?: trim($err)]);
+        jackWriteSettings(['themes' => true] + jackReadSettings($dir), $dir, "$t/run2");
+        [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $dir] + jackPyEnv(), 30);
+        same('themes setting: saved on — MediaCache reads it on', [0, 'true', true], [$exit, trim($out) ?: trim($err), readJson("$dir/mediacache_settings.json")['themes'] ?? null]);
+    }
+
+    // the page under node
+    $node = testsNode();
+    if ($node === '') {
+        check('themes page: node is missing here - skipped', true);
+        hardeningRm($t);
+        return;
+    }
+    file_put_contents("$t/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {}, title: '',
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, setAttribute() {}, addEventListener() {}, scrollIntoView() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: (o) => ({ spec: o, el: {}, active: () => '', note: () => ({ tile: '' }), places: () => [], mount: () => false, pick() {}, render() {}, clear() {} }),
+  scope: () => T, t: T, el: mk, stat: (o) => o, errorText: (e) => 'error ' + e.key,
+  fmt: { size: (b) => b + ' B', number: (n) => String(n), relative: (t) => 'R' + t, duration: (s) => 'dur' + s, time: (t) => 'T' + t, date: (t) => 'D' + t, cron: (c) => c },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {} };
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const e = OFFICE_DESK_TESTS.jack;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.textContent, ...n.children.flatMap(texts)].filter(Boolean));
+const out = {};
+const pool = { path: '/mnt/cache', free: 9, free_percent: 50, min_free: 20 };
+e.setState({ configured: true, settings: { cache_budget: '2G' }, cache: { files: 3, bytes: 900, themes: { files: 12, bytes: 38000000 } }, pool });
+out.line = e.themesLine();
+out.tile = e.poolTile({}).sub;
+e.setState({ configured: true, settings: {}, cache: { files: 3, bytes: 900 }, pool });
+out.none = [e.themesLine(), e.poolTile({}).sub];
+const run = (themes) => e.runSummary({ tool: 'embycache', mode: 'run', result: 'ok', status: { mode: 'run', result: 'ok', cleanup: { done: 0, planned: 0 }, fill: { done: 1, planned: 1, bytes_planned: 9 }, themes } });
+out.run = [run({ on: true, looked: 840, fetched: 12, disks: ['disk1', 'disk2', 'disk3'], waiting: 0, failed: 0 }),
+  run({ on: true, looked: 2, fetched: 1, disks: [], waiting: 2, failed: 1 }), run({ on: true, looked: 0, fetched: 0 }), run({ on: false }), run(undefined)];
+const plan = (mode, themes) => e.runSummary({ tool: 'embycache', mode, result: 'ok', status: { mode, result: 'ok', on_deck: { files: 2, bytes: 5 }, cleanup: {}, fill: { planned: 0 }, themes } });
+out.plan = [plan('report', { on: true, first: true, to_look: 840, shares: ['Filme', 'Serien'] }), plan('dry', { on: true, first: false, to_look: 3, shares: ['Filme'] }),
+  plan('report', { on: true, first: false, to_look: 0, shares: [] })];
+e.setProgress({ phase: 'themes', speed: null, current: null, back: null, users: [], total: { files: 0, bytes: 0, done_files: 0, done_bytes: 0, eta: 0, running: 30 },
+  themes: { titles: 840, looked: 120, files: 2, bytes: 600, done_files: 0, done_bytes: 0, ended: false, in_flight: [{ phase: 'themes', rel: 'Serien/S/theme.mp3', size: 300, done: 0 }] } });
+const p = e.progressPanel();
+const rows = p.children.find((c) => c.cls === 'jo-prog-rows');
+out.panel = [texts(p).includes('progress.nothing'), rows ? rows.children.map((r) => texts(r)) : null];
+const look = { ok: true, schedules: {}, running: null, waiting: false, pool: { files: 15, bytes: 900, pool: '/mnt/cache', themes: 12 }, release: { ok: true, why: null, params: {} }, mover_off: false };
+out.letgo = [e.letGoView(look).hint, e.letGoView({ ...look, pool: { files: 3, bytes: 900, pool: '/mnt/cache' } }).hint];
+e.setState({ configured: true, settings: {}, cache: { themes: { files: 7, bytes: 9 } }, themes: { on: false, files: 7 }, pool });
+const f = e.themesField({ themes: false });
+const f2 = e.themesField({ themes: true });
+out.field = [texts(f.children[0]), f.children[1].hidden, f.children[1].textContent, f2.children[1].hidden];
+console.log(JSON.stringify(out));
+JS);
+    [, $out, $err] = run([$node, "$t/t.js", OFFICE_WEB . '/desks/jack/desk.js'], 30);
+    $j = json_decode(trim((string) $out), true) ?? [];
+    same('themes page: his tile\'s line — «12 themes on the pool · 38 MB» (no break inside the size)', "pool_tile.themes {\"n\":12,\"size\":\"38000000\u{a0}B\"}", $j['line'] ?? $err);
+    same('themes page: … under the pool tile\'s line', ['pool_tile.free {"pct":"50","min":20}', "pool_tile.themes {\"n\":12,\"size\":\"38000000\u{a0}B\"}"], $j['tile'] ?? $err);
+    same('themes page: none on the pool (or an older agent) — no line, the tile as before', ['', 'pool_tile.free {"pct":"50","min":20}'], $j['none'] ?? $err);
+    $base = 'run_summary {"back":0,"back_planned":0,"fill":1,"fill_planned":1,"fill_size":"9 B"}';
+    same('themes page: the run summary — «12 themes fetched, 3 disks read»; what waits and failed; nothing fetched, off, an older status: nothing', [
+        $base . ' · themes.run {"fetched":"count.themes_fetched {\"n\":12}","disks":"count.disks_read {\"n\":3}"}',
+        $base . ' · count.themes_fetched {"n":1} · themes.waiting {"n":2} · themes.failed {"n":1}', $base, $base, $base], $j['run'] ?? $err);
+    same('themes page: «What\'s next» / a dry run say beforehand what the next real run reads — the first time every folder, then the new ones; none: nothing', [
+        'report_summary {"n":2,"size":"5 B"} · themes.first {"folders":"count.folders {\"n\":840}","shares":"Filme, Serien"}',
+        'dry_summary {"back":0,"back_planned":"count.files {\"n\":0}","fill":0,"fill_planned":"count.files {\"n\":0}","fill_size":"0 B"} · themes.new {"folders":"count.folders {\"n\":3}","shares":"Filme"}',
+        'report_summary {"n":2,"size":"5 B"}'], $j['plan'] ?? $err);
+    same('themes page: the panel while it collects — no «nothing to do», its own row: titles looked at, the theme in work under it', [false, [[
+        'progress.themes', 'progress.themes_looked {"looked":120,"n":840} · progress.files {"done":0,"n":2} · progress.bytes {"done":"0 B","size":"600 B"}',
+        'Serien/S/theme.mp3', 'progress.bytes {"done":"0 B","size":"300 B"}']]], $j['panel'] ?? $err);
+    same('themes page: the let-go\'s tick says the themes go back with it (an older agent: not said)', [
+        'letgo.tick_hint {"files":"count.files {\"n\":15}","size":"900 B"} letgo.themes {"n":12}', 'letgo.tick_hint {"files":"count.files {\"n\":3}","size":"900 B"}'], $j['letgo'] ?? $err);
+    same('themes page: the setup\'s switch and its hint; switched off with themes on the pool — they stay until the next run', [
+        ['setup.themes', 'setup.themes_hint'], false, 'setup.themes_off {"n":7}', true], $j['field'] ?? $err);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
+    check('themes page: the form reads it only as a real true, sends only true or false, «More» counts it as changed off its default',
+        str_contains($js, 'themes: set.themes === true,') && str_contains($js, 'themes: v.themes === true,') && str_contains($js, "const MORE_DEFAULTS = { array_source: 'user0', parallel_disks: true, themes: false };"));
+
+    // the texts ×5: every key, the counted ones plurals with {n}
+    $keys = ['setup.themes' => [], 'setup.themes_hint' => [], 'setup.themes_off' => ['{n}'], 'pool_tile.themes' => ['{n}', '{size}'], 'count.folders' => ['{n}'],
+             'count.themes_fetched' => ['{n}'], 'count.disks_read' => ['{n}'], 'themes.first' => ['{folders}', '{shares}'], 'themes.new' => ['{folders}', '{shares}'],
+             'themes.run' => ['{fetched}', '{disks}'], 'themes.waiting' => ['{n}'], 'themes.failed' => ['{n}'], 'progress.themes' => [], 'progress.themes_looked' => ['{looked}', '{n}'],
+             'letgo.themes' => ['{n}']];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/jack/lang/$l.json") ?? [];
+        $bad = [];
+        foreach ($keys as $k => $ph) {
+            $v = $lang[$k] ?? null;
+            $forms = is_array($v) ? [$v['one'] ?? null, $v['other'] ?? null] : [$v];
+            $plural = in_array('{n}', $ph, true);
+            if ($plural !== is_array($v) || in_array(null, $forms, true) || array_filter($forms, fn ($f) => array_filter($ph, fn ($p) => !str_contains((string) $f, $p)))) {
+                $bad[] = $k;
+            }
+        }
+        same("themes lang $l: every key, the counted ones plurals, every placeholder in every form", [], $bad);
+        check("themes lang $l: the hint names theme.mp3, the first collection and the space", str_contains($lang['setup.themes_hint'] ?? '', 'theme.mp3') && str_contains($lang['setup.themes'] ?? '', 'theme.mp3'));
+    }
+    hardeningRm($t);
+}
+
+/**
  * Truth review, the rest (Mr. Restori, Ms. Snapshotini, the Consultant), on the pages under node: a drill that proved
  * nothing is «nothing proven», never «passed» (T18 — tile, history, toast; an app whose items were all not checked never
  * «proven», one partly checked «partly proven»); the drill tile names the age of a drill older than 35 days (R7); a split
@@ -58110,7 +58338,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
