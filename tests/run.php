@@ -11175,8 +11175,8 @@ function testBackupFutureFiles(): void
     same('future files: every date call one the tests\' clock knows', '', testsClockUnsupported($clock));
     $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
     same('future files: looked for only right after Kopia read the source well (a share; an app\'s or VM\'s own source) - never before, never the flash', [1, 1, 2, 1],
-        [substr_count($bk, "    kopia_one \"\$s\" \"\$cp\"\n    if (( KOPIA_LAST_OK )); then future_look \"\$s\" \"\$hp\"; fi"),
-         substr_count($bk, "    kopia_one \"\$key\" \"\$cp\"\n    if (( KOPIA_LAST_OK )); then future_look \"\$n\" \"\$(item_hostpath \"\$t\" \"\$f\")\"; fi"),
+        [substr_count($bk, "    kopia_one \"\$s\" \"\$cp\" \"\${KT_ARGS[@]}\"\n    if (( KOPIA_LAST_OK )); then future_look \"\$s\" \"\$hp\"; fi"),
+         substr_count($bk, "    kopia_one \"\$key\" \"\$cp\" \"\${KT_ARGS[@]}\"\n    if (( KOPIA_LAST_OK )); then future_look \"\$n\" \"\$(item_hostpath \"\$t\" \"\$f\")\"; fi"),
          substr_count($bk, 'then future_look '), substr_count($bk, 'KOPIA_DONE=$((KOPIA_DONE+1)); KOPIA_LAST_OK=1;')]);
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $t = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json")['warn_code.future_files'] ?? null;
