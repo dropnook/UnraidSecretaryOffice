@@ -99,6 +99,23 @@ const LOGS_WARN  = '/\b(?:warn(?:ing)?|wrn|timeout|timed out|retry|retrying|warn
  * The rule file's names => the office's ids (lang cat.<id>); a rule of another category is left out.
  */
 const LOGS_RULES_FILE = __DIR__ . '/logs-rules/syslog_match.conf';
+
+// Unraid's syslog of the last start, kept on the flash (read like the syslog, by her rules)
+const LOGS_SYSLOG_PREVIOUS = '/boot/logs/syslog-previous';
+/**
+ * The plugins' own logs: what a plugin names for Enhanced Log (by dlandon and Derek Kaser) —
+ * /usr/local/emhttp/plugins/<plugin>/enhanced-log.json, {"files": [globs]}, as its plugin logs page reads them — and the
+ * ones she knows herself (the same globs from those plugins' files, for a version without one). Only plain files under
+ * /var/log, never a link or a compressed one; at most LOGS_PLUGIN_MAX.
+ */
+const LOGS_PLUGIN_JSON     = 'enhanced-log.json';
+const LOGS_PLUGIN_MAX      = 100;
+const LOGS_PLUGIN_KNOWN    = [
+    'tailscale'          => ['/var/log/tailscale.log', '/var/log/tailscale.log.*', '/var/log/tailscale-utils.log', '/var/log/tailscale-utils.log.*'],
+    'plugin-diagnostics' => ['/var/log/plugin-diagnostics.log', '/var/log/plugin-diagnostics.log.*'],
+    'file.activity'      => ['/var/log/fileactivity-watcher.log', '/var/log/fileactivity-watcher.log.*', '/var/log/fileactivity.log', '/var/log/fileactivity-error.log'],
+    'labelman'           => ['/var/log/labelman*'],
+];
 const LOGS_RULE_CATS  = ['skip' => 'skip', 'error' => 'error', 'warning' => 'warning', 'minor issue' => 'minor',
                          'drive related' => 'drive', 'file system' => 'fs', 'array' => 'array', 'network' => 'network',
                          'login' => 'login', 'system' => 'system', 'lime tech' => 'limetech', 'emhttp' => 'emhttp'];
@@ -242,6 +259,7 @@ function logsSources(): array
     // Unraid
     $file('syslog', 'unraid', 'syslog', '/var/log/syslog');
     $file('syslog.1', 'unraid', 'syslog_old', '/var/log/syslog.1');
+    $file('syslog-previous', 'unraid', 'syslog_previous', LOGS_SYSLOG_PREVIOUS);      // the last start's syslog, kept on the flash
     $s['dmesg'] = ['group' => 'unraid', 'label' => 'dmesg', 'kind' => 'dmesg', 'target' => '', 'param' => ''];
     $file('docker', 'unraid', 'docker', '/var/log/docker.log');
     $file('libvirt', 'unraid', 'libvirt', '/var/log/libvirt/libvirtd.log');
@@ -258,6 +276,11 @@ function logsSources(): array
     $file('compose', 'unraid', 'compose', '/var/log/compose.manager.log');
     $file('parity', 'unraid', 'parity', '/boot/config/parity-checks.log');
 
+    // the plugins' own logs: what each plugin names in its enhanced-log.json (Enhanced Log's way), and the ones she knows
+    foreach (logsPluginLogs() as $id => $f) {
+        $s[$id] = ['group' => 'plugins', 'label' => 'plugin_log', 'kind' => 'file', 'target' => $f['path'], 'param' => $f['name']];
+    }
+
     // User Scripts: what each script printed last
     foreach (glob('/tmp/user.scripts/tmpScripts/*/log.txt') ?: [] as $f) {
         $name = basename(dirname($f));
@@ -269,6 +292,50 @@ function logsSources(): array
         $s['container:' . $c['name']] ??= ['group' => 'containers', 'label' => 'container', 'kind' => 'docker', 'target' => $c['name'], 'param' => $c['name']];
     }
     return $s;
+}
+
+/**
+ * The plugins' logs (LOGS_PLUGIN_JSON, LOGS_PLUGIN_KNOWN): id plugin:<path below /var/log> => path, «<plugin>: <file>»;
+ * a glob is taken only as /var/log/…, a file only plain (lstat) and still below /var/log by its real path, never .gz
+ */
+function logsPluginLogs(string $plugins = '/usr/local/emhttp/plugins', string $varlog = LOGS_VARLOG): array
+{
+    $globs = [];
+    foreach (glob("$plugins/*/" . LOGS_PLUGIN_JSON) ?: [] as $json) {
+        $st = @lstat($json);
+        $data = $st && ($st['mode'] & 0170000) === 0100000 && $st['size'] <= 65536 ? json_decode((string) @file_get_contents($json), true) : null;
+        foreach (is_array($data) && is_array($data['files'] ?? null) ? $data['files'] : [] as $g) {
+            if (is_string($g)) {
+                $globs[basename(dirname($json))][] = $g;
+            }
+        }
+    }
+    foreach (LOGS_PLUGIN_KNOWN as $plugin => $list) {
+        if (is_dir("$plugins/$plugin")) {
+            $globs[$plugin] = array_merge($globs[$plugin] ?? [], array_map(fn ($g) => preg_replace('#^/var/log(?=/)#', $varlog, $g), $list));
+        }
+    }
+    $out = [];
+    $root = rtrim((string) realpath($varlog), '/') . '/';
+    foreach ($globs as $plugin => $list) {
+        foreach (array_unique($list) as $g) {
+            $g = preg_replace('#^/var/log(?=/)#', $varlog, $g);
+            if (!str_starts_with($g, "$varlog/") || str_contains($g, '..') || preg_match('/[\x00-\x1F\x7F]/', $g) || strlen($g) > 300) {
+                continue;
+            }
+            foreach (glob($g) ?: [] as $f) {
+                $st = @lstat($f);
+                $real = (string) realpath($f);
+                if (!$st || ($st['mode'] & 0170000) !== 0100000 || !str_starts_with($real, $root) || str_ends_with($f, '.gz') || count($out) >= LOGS_PLUGIN_MAX) {
+                    continue;
+                }
+                $rel = substr($real, strlen($root));
+                $out['plugin:' . $rel] ??= ['path' => $real, 'name' => mb_substr("$plugin: $rel", 0, 120)];
+            }
+        }
+    }
+    ksort($out);
+    return $out;
 }
 
 /** The list for the page (no paths of anything but files), a word for the reception, /var/log's fill level */
@@ -394,7 +461,7 @@ function logsSyslogLevel(string $line, ?string $level = null): array
 /** Which sources her syslog rules are for: Unraid's own syslog and its older part */
 function logsRulesFor(string $id): bool
 {
-    return $id === 'syslog' || $id === 'syslog.1';
+    return in_array($id, ['syslog', 'syslog.1', 'syslog-previous'], true);
 }
 
 // ===================================================================== her own rules and hide words
@@ -964,7 +1031,8 @@ function logsTourContainers(array $sources, int $since, ?array $known): array
  */
 function logsTourWanted(string $id): bool
 {
-    return !in_array($id, ['agent.1', 'syslog.1', 'parity'], true) && !preg_match('/^backup:(?!latest$)|^router\.1:/', $id);
+    return !in_array($id, ['agent.1', 'syslog.1', 'syslog-previous', 'parity'], true)
+        && !preg_match('/^backup:(?!latest$)|^router\.1:|^plugin:.*\.\d+$/', $id);
 }
 
 /** An empty tally: counts, the kinds of lines (normalised => group) and what didn't fit */

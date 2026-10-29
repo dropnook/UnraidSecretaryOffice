@@ -27,7 +27,7 @@ const FOLLOW_MS = 2000;
 const TOUR_POLL_MS = 1500;
 const LINE_CHOICES = [100, 500, 2000, 10000];
 const SRC_CHIPS = 12;           // a chip per log in «Errors & warnings» at most (the last one then says how many more)
-const GROUPS = ['office', 'unraid', 'userscripts', 'containers'];
+const GROUPS = ['office', 'unraid', 'plugins', 'userscripts', 'containers'];
 // favourites until someone stars or unstars one: Unraid's main logs and a few of the office's (missing ones drop out)
 const DEFAULT_FAVS = ['syslog', 'dmesg', 'docker', 'agent', 'backup:latest', 'container:kopia', 'embycache'];
 
@@ -97,7 +97,7 @@ function level(line) {
    the first that fits decides; skip is neither, error makes an error, minor/warning at least a warning
    (logsSyslogLevel(), tests/run.php checks both). The categories: the tour's (cat.<id>). */
 const RULE_LEVEL = { error: 'error', warning: 'warn', minor: 'warn' };
-const RULE_SOURCES = ['syslog', 'syslog.1'];
+const RULE_SOURCES = ['syslog', 'syslog.1', 'syslog-previous'];
 // a syslog line's message (rsyslog's msg: after its time, the server and the tag) — her hide words look there (agent: LOGS_SYSLOG_MSG)
 const SYSLOG_MSG = /^[A-Z][a-z]{2}\s+\d{1,2}\s+\d\d:\d\d:\d\d\s+\S+\s+[^:]*:(.*)$/s;
 // the most important first (her tile «Syslog» names the first ones); then what no rule knows and the noise
