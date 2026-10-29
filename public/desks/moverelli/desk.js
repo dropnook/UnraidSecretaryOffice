@@ -2934,7 +2934,9 @@ Office.desk({
     } else {
       facts.push(T('fact.setup'));
     }
-    return { bubble: T('bubble.hello_short'), facts };
+    // at work: «I'm at work», never her «to the array» hello beside a run back into a pool (2026-10-29); the run's way only
+    // on her page — the reception never asks for the run's progress, and what her page last saw may be another share's
+    return { bubble: running() || nightGoing() ? T('bubble.running') : T('bubble.hello_short'), facts };
   },
 });
 

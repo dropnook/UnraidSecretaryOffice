@@ -43980,6 +43980,12 @@ SH);
     foreach (['move', 'zfs', 'notify'] as $b) {
         chmod("$tmp/bin/$b", 0755);
     }
+    // her real runs tell this stand-in, never Unraid's own notifications, unless the test names one of its own (2026-10-29:
+    // testMoverelliStop, …ArrayStop and …PowerCut sent «run with problems» and «run failed» to test4's notifications on
+    // every suite run — the runner below puts OFFICE_NOTIFY_BIN back after each test)
+    if (getenv('OFFICE_NOTIFY_BIN') === false) {
+        putenv("OFFICE_NOTIFY_BIN=$tmp/bin/notify");
+    }
     $v += ['version' => '7.3.2', 'own' => ['set' => '', 'cron' => null], 'mover' => false, 'mover_self' => false, 'busy' => false, 'jack_desk' => null,
            'tuning' => false, 'env' => [], 'hired' => true, 'jack_lists' => [], 'jack_ran' => true];
     $GLOBALS['moverelliHost'] = [
@@ -46187,6 +46193,8 @@ JS);
             [array_slice($o['stopping'][0] ?? [], 0, 2), $o['stopping'][1] ?? null]);
         same('run card: «Stop after this file» asks moverelli.stop', ['moverelli.stop'], $o['posts'] ?? null);
     }
+    $told = file_exists("$tmp/notified") ? file("$tmp/notified", FILE_IGNORE_NEW_LINES) : [];
+    check('moverelli stop: told — three runs whose move binary fails (the leftover .partial, by the office and inside the night with a target) — each told once, as a warning', count($told) === 3 && count(array_filter($told, fn ($l) => str_contains($l, '-i warning') && str_contains($l, 'with problems'))) === 3, implode("\n", $told));
     unset($GLOBALS['moverelliHost']);
     hardeningRm($tmp);
 }
@@ -46293,6 +46301,8 @@ JS);
     }
     $sh = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
     check('smart mover: TERM, INT and HUP end it with their own code (the EXIT trap writes it), never 0', str_contains($sh, "trap 'exit 143' TERM") && str_contains($sh, "trap 'exit 130' INT") && str_contains($sh, "trap 'exit 129' HUP"));
+    $told = file_exists("$tmp/notified") ? file("$tmp/notified", FILE_IGNORE_NEW_LINES) : [];
+    check('array stop: told — only Smart Mover killed while the array still runs (failed), never the array\'s stops', count($told) === 1 && count(array_filter($told, fn ($l) => str_contains($l, '-i warning') && str_contains($l, 'run failed'))) === 1, implode("\n", $told));
     unset($GLOBALS['moverelliHost']);
     hardeningRm($tmp);
 }
@@ -46399,6 +46409,8 @@ JS);
         $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
         check("power cut: the words in $l", ($lang['result.interrupted'] ?? '') !== '' && ($lang['interrupted_restart'] ?? '') !== '' && ($lang['interrupted_ended'] ?? '') !== '');
     }
+    $told = file_exists("$tmp/notified") ? file("$tmp/notified", FILE_IGNORE_NEW_LINES) : [];
+    check('power cut: told — her job whose move binary fails — told once', count($told) === 1 && count(array_filter($told, fn ($l) => str_contains($l, '-i warning') && str_contains($l, 'with problems'))) === 1, implode("\n", $told));
     unset($GLOBALS['moverelliHost']);
     hardeningRm($tmp);
 }
@@ -47983,7 +47995,7 @@ let greet = '';
 globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '', note: () => ({ tile: '' }), pick() {}, clear() {} }),
   scope: () => T, t: T, el: mk, greet: () => greet,
   fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
-  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  desk: (d) => { globalThis.deskDef = d; }, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
   dialog: () => ({ buttons: [] }), toast: () => {}, selbar: () => null, api: { post: async () => ({ ok: true }) } };
 (0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
@@ -48005,6 +48017,12 @@ out.looking = m.bubbleText();
 m.setProgress(prog('nextcloud_data'), null);
 m.setState({ ...running, job: { running: true, mode: 'dry' } });
 out.dry = m.bubbleText();
+// the reception's card: at work her run's way, idle her hello (2026-10-29)
+// (with a state its words are made at the call — the promise only carries them)
+m.setState(running);
+const reception = [deskDef.reception()];
+m.setState({ ...base, shares, job: {} });
+reception.push(deskDef.reception());
 // the greetings: none while she works; «off to the array» only with a share going there by age or fill
 greet = 'greet.1';
 m.setState(running);
@@ -48039,7 +48057,7 @@ out.noBytes = [noBytes.percent, noBytes.filesPct, noBytes.bytesPct, m.percentTex
 // an idle share unfolded / its chip: where it lies, without ⟦Secondary storage⟧
 out.idle = [m.idleText({ share: 'nextcloud_data', use: 'only', primary: 'ripley' }), m.idleText({ share: 'isos', use: 'no', primary: '' }), m.idleText({ share: 'x', use: 'only', primary: '' }),
   m.idleText({ share: 'old' })];
-console.log(JSON.stringify(out));
+Promise.all(reception).then((r) => { out.reception = r.map((x) => x.bubble); console.log(JSON.stringify(out)); });
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
     $o = json_decode($raw, true);
@@ -48054,6 +48072,8 @@ JS);
         'bubble.run_back_from_array {"what":"bubble.what_all_but","share":"Mails","from":"array","to":"cache"}',
         'bubble.run_back_from_array {"what":"bubble.what_old {\"n\":1}","share":"Spiele","from":"array","to":"cache"}',
         'bubble.running'], $o['bubble'] ?? null);
+    same('page truth: the reception\'s card while she moves nextcloud_data back from the array — «at work» (its way only on her page, never her «to the array» hello); idle — the hello',
+        ['bubble.running', 'bubble.hello_short'], $o['reception'] ?? null);
     same('page truth: looking around, a dry run — «at work», no way named', ['bubble.running', 'bubble.running'], [$o['looking'] ?? null, $o['dry'] ?? null]);
     same('page truth: no greeting while she works; «off to the array» (greet.1, greet.2) not with prefer shares only — the others stay; with an aged share into the array yes, with age 0 and no fill rule not',
         ['', ['', '', 'greet.3'], 'greet.1', ''], [$o['greetRunning'] ?? null, $o['greetPreferOnly'] ?? null, $o['greetAged'] ?? null, $o['greetAgeZero'] ?? null]);
@@ -56823,11 +56843,13 @@ foreach ($parts as $name => $fns) {
     foreach ($fns as $t) {
         if (!$only || in_array($name, $only, true) || in_array($t, $only, true)) {      // everything, its part, or the test by its name
             $GLOBALS['testsNow'] = $t;
+            $notifyBin = getenv('OFFICE_NOTIFY_BIN');       // a test's stand-in notify (Ms. Moverelli's fixture's) ends with it
             try {
                 $t();
             } catch (Throwable $e) {
                 check("$t: ended by an uncaught " . get_class($e) . ': ' . $e->getMessage() . ' (' . $e->getFile() . ':' . $e->getLine() . ')', false);
             }
+            putenv($notifyBin === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$notifyBin");
         }
     }
 }
