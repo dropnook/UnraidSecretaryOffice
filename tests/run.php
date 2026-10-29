@@ -21546,6 +21546,8 @@ function testNotifyCenter(): void
     same('centre send: right away — sent and in the guard', [1, 'sent'], [count($calls()), officeNotifyGuardRead($h)[0][1] ?? null]);
     officeNotify('Ms. Snapshotini: plan failed', 'y', 'warning', '', null, 'snapshot', 'plan_failed');
     same('centre send: the same again — counted, not sent', [1, 'counted'], [count($calls()), array_values(officeNotifyDropsRead($h))[2]['fate'] ?? null]);
+    same('centre send 2.80: a PHP sender\'s drop carries its count — the counted one times 2 (and the history keeps it), the others 0', [0, 0, 2, 2],
+        [...array_map(fn ($i) => $i['times'] ?? null, array_values(officeNotifyDropsRead($h))), officeNotifyLogEntry(array_values(officeNotifyDropsRead($h))[2])['times'] ?? null]);
     for ($i = 1; $i <= 6; $i++) {
         officeNotify("Night watchman: thing $i", 'z', 'warning', '', null, 'watchman', 'chain');
     }
