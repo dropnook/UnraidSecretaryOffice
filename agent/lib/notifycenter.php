@@ -19,12 +19,16 @@ declare(strict_types=1);
  * Alerts always go right away (never held, never off), each one: an alert is never folded into «the same» (the truth
  * review T01 — a second «Backup failed» within a day was swallowed); only the very same alert (its key also covers its
  * description) again within NOTIFY_ALERT_SAME is counted, and past NOTIFY_ALERT_CAP an hour the rest go as one alert
- * every NOTIFY_ALERT_BUNDLE.
+ * every NOTIFY_ALERT_BUNDLE. Engine 2.80 (the rest of T01): a run's failure (OFFICE_NOTIFY_FAIL_SAME — «Backup failed»,
+ * «Backup not started») is folded when the very same one (the same cause: its key covers the description) comes again
+ * within NOTIFY_FAILED_SAME, until a success resolves it — counted, with how many times («times»); another cause always
+ * goes. Every counted one leaves a «counted» line in the guard (the next one's count).
  * The numbers are the same as in backup/lib/notifygate.sh (tests/run.php compares them).
  */
 
-const NOTIFY_SAME_FORGET  = 86400;    // an unresolved repeat may go out again after a day (a daily failure still reminds daily)
+const NOTIFY_SAME_FORGET  = 72000;    // an unresolved repeat may go out again after 20 h (2.80, a day up to 2.79: a daily failure still reminds daily)
 const NOTIFY_ALERT_SAME   = 60;       // an alert: only the very same one again within a minute is counted (never a day)
+const NOTIFY_FAILED_SAME  = 72000;    // 2.80: a run's very same failure again within 20 h is counted (a daily schedule still reminds daily)
 const NOTIFY_CAP_WINDOW   = 3600;     // the caps count the last hour
 const NOTIFY_DESK_CAP     = 5;        // more than this from one character in an hour is a flood
 const NOTIFY_OFFICE_CAP   = 20;       // more than this from the whole office in an hour is a flood
@@ -50,6 +54,8 @@ const OFFICE_NOTIFY_SENDS = [
 const OFFICE_NOTIFY_SUCCESS  = ['backup' => ['ok'], 'jack' => ['release_ok']];
 // what resolves the desk's «the same» (ung_resolves): a success, the agent back
 const OFFICE_NOTIFY_RESOLVES = ['backup' => ['ok'], 'jack' => ['release_ok'], 'office' => ['agent_back']];
+// a run's failure: the very same one again within NOTIFY_FAILED_SAME is counted (ung_fail_same)
+const OFFICE_NOTIFY_FAIL_SAME = ['backup' => ['failed', 'refused']];
 const OFFICE_NOTIFY_LEVELS   = ['all', 'warning', 'alert'];
 const OFFICE_NOTIFY_FATES    = ['sent', 'held', 'counted', 'collected', 'dropped', 'failed'];
 const OFFICE_NOTIFY_CFG_FLASH = '/boot/config/plugins/' . OFFICE_PLUGIN . '/notify.cfg';
@@ -192,6 +198,11 @@ function officeNotifyResolves(string $desk, string $event): bool
     return in_array($event, OFFICE_NOTIFY_RESOLVES[$desk] ?? [], true);
 }
 
+function officeNotifyFailSame(string $desk, string $event): bool
+{
+    return in_array($event, OFFICE_NOTIFY_FAIL_SAME[$desk] ?? [], true);
+}
+
 /** «The same notification»: 16 hex over desk|event|subject; an alert's over desk|event|subject|description (ung_key) */
 function officeNotifyKey(string $desk, string $event, string $subject, string $level = '', string $description = ''): string
 {
@@ -221,11 +232,12 @@ function officeNotifySilentNow(?array $cfg, int $now): bool
  * The decision — the same as ung_decide() in notifygate.sh. $cfg the senders' file (null: none, everything as before),
  * $lines the guard's, $hold: someone will send the summary and there is room to keep it, $room: room to keep it.
  *
- * @return array{fate: string, why: string, due: int, notice: string}
+ * @return array{fate: string, why: string, due: int, notice: string, times: int} — times: a counted one's how-many-th
+ *         time since it went (ung_decide's UNG_TIMES), else 0
  */
 function officeNotifyDecide(?array $cfg, array $lines, string $desk, string $event, string $level, string $key, int $now, bool $hold, bool $room): array
 {
-    $d = ['fate' => 'sent', 'why' => '', 'due' => 0, 'notice' => ''];
+    $d = ['fate' => 'sent', 'why' => '', 'due' => 0, 'notice' => '', 'times' => 0];
     if ($level !== 'alert' && $cfg !== null) {
         $need = ['warning' => 1, 'alert' => 2][$cfg["$desk.level"] ?? 'all'] ?? 0;
         if (officeNotifyRank($level) < $need) {
@@ -243,23 +255,27 @@ function officeNotifyDecide(?array $cfg, array $lines, string $desk, string $eve
             $d['why'] = 'no_sender';         // nobody would send the summary: it goes now
         }
     }
-    return officeNotifyGuardDecide($lines, $desk, $level, $key, $now, $hold, $room, $d);
+    return officeNotifyGuardDecide($lines, $desk, $level, $key, $now, $hold, $room, $d, $event);
 }
 
 /** The flood guard for what would go now (ung_guard) */
-function officeNotifyGuardDecide(array $lines, string $desk, string $level, string $key, int $now, bool $hold, bool $room, array $d): array
+function officeNotifyGuardDecide(array $lines, string $desk, string $level, string $key, int $now, bool $hold, bool $room, array $d, string $event = ''): array
 {
     if (!$lines) {
         return $d;
     }
-    $same = $dk = $off = $al = $fd = $fo = 0;
-    $forget = $level === 'alert' ? NOTIFY_ALERT_SAME : NOTIFY_SAME_FORGET;      // an alert: only the very same one within a minute
+    $same = $times = $dk = $off = $al = $fd = $fo = 0;
+    // 2.80: a run's very same failure within 20 h; any other alert only the very same one within a minute
+    $forget = officeNotifyFailSame($desk, $event) ? NOTIFY_FAILED_SAME : ($level === 'alert' ? NOTIFY_ALERT_SAME : NOTIFY_SAME_FORGET);
     foreach ($lines as [$t, $fate, $who, $lvl, $k]) {      // in the order they were written: a resolve after it resolves it
-        if ($fate === 'sent' && $k === $key && $now - $t < $forget) {
-            $same = $t;
+        if ($fate === 'sent' && $k === $key) {
+            [$same, $times] = $now - $t < $forget ? [$t, 1] : [0, 0];
+        }
+        if ($fate === 'counted' && $k === $key && $same > 0) {
+            $times++;
         }
         if ($fate === 'resolved' && $who === $desk) {
-            $same = 0;
+            $same = $times = 0;
         }
         if ($fate === 'sent' && $now - $t < NOTIFY_CAP_WINDOW) {
             if ($lvl === 'alert') {
@@ -275,7 +291,7 @@ function officeNotifyGuardDecide(array $lines, string $desk, string $level, stri
         }
     }
     if ($same > 0) {
-        return ['fate' => 'counted', 'why' => 'same'] + $d;
+        return array_replace($d, ['fate' => 'counted', 'why' => 'same', 'times' => $times + 1]);
     }
     if ($level === 'alert') {
         return $al >= NOTIFY_ALERT_CAP && $hold ? ['fate' => 'collected', 'why' => 'alert_cap'] + $d : $d;
@@ -376,8 +392,12 @@ function officeNotifyGate(string $desk, string $event, string $level, string $su
         officeNotifyGuardLine($home, 'resolved', $desk, '-', '-', $now);
     }
     $room = officeNotifyDropsRoom($home);
-    return ['home' => $home, 'key' => $key, 'now' => $now]
+    $g = ['home' => $home, 'key' => $key, 'now' => $now]
         + officeNotifyDecide(officeNotifyCfg($home), officeNotifyGuardRead($home), $desk, $event, $level, $key, $now, $room && officeNotifyCanHold($home), $room);
+    if ($g['fate'] === 'counted') {
+        officeNotifyGuardLine($home, 'counted', $desk, $level, $key, $now);      // 2.80: the next one's count (as ung_drop)
+    }
+    return $g;
 }
 
 /** The «reporting a lot» notice past a cap — its words (the desk's name, or the whole office's) */
@@ -528,7 +548,7 @@ function officeNotifyLogRead(string $file = OFFICE_NOTIFY_LOG): array
 
 function officeNotifyLogEntry(array $i): array
 {
-    return array_intersect_key($i, array_flip(['id', 'time', 'desk', 'event', 'level', 'fate', 'why', 'subject', 'description', 'n', 'covers']));
+    return array_intersect_key($i, array_flip(['id', 'time', 'desk', 'event', 'level', 'fate', 'why', 'subject', 'description', 'n', 'covers', 'times']));
 }
 
 /**

@@ -698,13 +698,16 @@ function backupZfsChildren(): array
  *   partner   id => unit => {ok, why: skipped|failed, code: the engine's why, time} — its newest try
  *   cleared   when his let-go cleared the engine's snapshots away (backupLetGoCleared()), as long as no backup run came
  *             after — no local snapshot holds anything then, whatever the runs before made (else null)
+ * Engine 2.80: state/results.json (backupResults()) fills in what the history no longer holds (it keeps 200 runs): a
+ * source's newest good Kopia copy, a unit's newest partner try — the history decides wherever it says something.
  */
 function backupTruth(?string $data = null): array
 {
     static $cache = [];
     $data ??= BACKUP_DATA_DIR;
     $f = ['history' => "$data/state/history.jsonl", 'drift' => "$data/state/drift.json", 'plan' => "$data/state/setup-plan.json",
-          'held' => "$data/state/kopia-held.json", 'watch' => "$data/state/kopia-watch.json", 'reach' => "$data/state/kopia-reach.json"];
+          'held' => "$data/state/kopia-held.json", 'watch' => "$data/state/kopia-watch.json", 'reach' => "$data/state/kopia-reach.json",
+          'results' => "$data/state/results.json"];
     clearstatcache();
     $letgo = backupLetGoJournalDir($data);
     $journals = backupLetGoJournals($letgo);
@@ -753,6 +756,23 @@ function backupTruth(?string $data = null): array
             }
         }
     }
+    // engine 2.80: what the 200 runs of the history no longer hold, from the result file (none: as before)
+    $res = backupResults($data);
+    foreach ($res['kopia'] ?? [] as $name => $r) {
+        if (!array_key_exists($name, $t['kopia']['last'])) {
+            $t['kopia']['last'][$name] = $r['result'] === 'ok';
+        }
+        if ($r['good'] > ($t['kopia']['good'][$name] ?? 0)) {
+            $t['kopia']['good'][$name] = $r['good'];
+        }
+    }
+    foreach ($res['partner'] ?? [] as $id => $units) {
+        foreach ($units as $u => $r) {
+            if (!isset($t['partner'][$id][$u])) {
+                $t['partner'][$id][$u] = ['ok' => $r['result'] === 'ok', 'why' => $r['result'] === 'ok' ? '' : $r['result'], 'code' => $r['code'], 'time' => $r['time']];
+            }
+        }
+    }
     $drift = readJson($f['drift']) ?? [];
     foreach (is_array($drift['items'] ?? null) ? $drift['items'] : [] as $d) {
         $code = is_array($d) && is_string($d['code'] ?? null) ? $d['code'] : '';
@@ -791,6 +811,47 @@ function backupTruth(?string $data = null): array
     $t['cleared'] = $t['runs'] && $cleared !== null && $cleared >= $lastRun ? $cleared : null;
     $cache = ['stamp' => $stamp, 'truth' => $t];
     return $t;
+}
+
+/**
+ * The engine's result file (2.80, state/results.json, backup/README.md): per source and unit its newest result —
+ * {local, package, kopia, partner} — each entry {result: ok|failed|skipped, code, time, run, good} (a partner's ok also
+ * snap). Tolerant: a file of another version or shape is none (null — read history.jsonl as before); an entry not in
+ * exactly that shape is left out, keys it doesn't know are kept in the entry; sections it doesn't know are kept too.
+ *
+ * @return array{v: int, engine: string, updated: int, run: string, local: array, package: array, kopia: array, partner: array}|null
+ */
+function backupResults(?string $data = null): ?array
+{
+    $file = ($data ?? BACKUP_DATA_DIR) . '/state/results.json';
+    if (!is_file($file) || is_link($file) || (int) @filesize($file) > (8 << 20)) {
+        return null;
+    }
+    $j = readJson($file);
+    if (!is_array($j) || ($j['v'] ?? null) !== 1) {
+        return null;
+    }
+    $ok = fn (mixed $r): bool => is_array($r) && in_array($r['result'] ?? null, ['ok', 'failed', 'skipped'], true) && is_string($r['code'] ?? null)
+        && is_int($r['time'] ?? null) && is_string($r['run'] ?? null) && is_int($r['good'] ?? null) && $r['good'] >= 0;
+    $out = ['v' => 1, 'engine' => is_string($j['engine'] ?? null) ? $j['engine'] : '', 'updated' => is_int($j['updated'] ?? null) ? $j['updated'] : 0,
+            'run' => is_string($j['run'] ?? null) ? $j['run'] : ''] + $j;
+    foreach (['local', 'package', 'kopia'] as $sec) {
+        $out[$sec] = [];
+        foreach (is_array($j[$sec] ?? null) ? $j[$sec] : [] as $k => $r) {
+            if (is_string($k) && $k !== '' && $ok($r)) {
+                $out[$sec][$k] = $r;
+            }
+        }
+    }
+    $out['partner'] = [];
+    foreach (is_array($j['partner'] ?? null) ? $j['partner'] : [] as $id => $units) {
+        foreach (is_string($id) && preg_match('/^[0-9a-f]{8}$/D', $id) && is_array($units) ? $units : [] as $u => $r) {
+            if (is_string($u) && preg_match('/^(share:.+|vm:.+|app:.+|place)$/D', $u) && $ok($r)) {
+                $out['partner'][$id][$u] = $r;
+            }
+        }
+    }
+    return $out;
 }
 
 /**

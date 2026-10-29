@@ -1,6 +1,16 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.79 - 2026-10-29
+# unraid-backup - backup.sh                       Version 2.80 - 2026-10-29
+#   2.80 The rest of T01 (lib/notifygate.sh, the same as the office's gate): «Backup failed» / «Backup not started» with
+#        the very same cause again within 20 h (NOTIFY_FAILED_SAME), no success between, is counted - with how many
+#        times (the decision's «times», a «counted» line in the guard) - instead of an alert every run; another cause
+#        always goes, a daily schedule still reminds daily. Other alerts keep the minute (NOTIFY_ALERT_SAME).
+#        Kopia snapshots say how their source was put together (review M4, lib/common.sh kopia_share_tags): a share's
+#        «uso-layout:<single|overlay|split|live>» (as mounted this run), split also «uso-parts:<base>|…»; an app's or
+#        VM's own source with parts in a share mounted split «uso-split:<share>|…» - only from Kopia 0.13.
+#        state/results.json: per source and unit (local snapshot, package, Kopia, partner) its newest result {result,
+#        code, time, run, good} - written by status_finish (lib/common.sh results_write) at the end of every real run,
+#        this run's shares from results_local_json; the first time history.jsonl folded in. Past 200 runs nothing lost.
 #   2.79 The offsite repository emptied while Kopia's cache still opens it (B17): listing the snapshots fails with
 #        «BLOB not found» - the storage itself is asked (kopia blob list) whether the repository's description is still
 #        there; gone is kopia_gone (once, an alert, the hold) and the Kopia step holds - up to 2.78 the run just ended
@@ -578,6 +588,8 @@ declare -A NC_SAME=()       # container -> first container of the same Nextcloud
 declare -A NC_DBDOWN=()     # (2.64) Nextclouds whose database couldn't be reached: no maintenance mode, no occ lists
 declare -A NC_DIR=()        # (2.65) container -> "<folder>\t<uid>\t<gid>\t<mode>": its data folder's root before the mode went on
 declare -A BTRFS_OK=()     # btrfs base -> snapshot path
+declare -A BTRFS_TRIED=()  # 2.80: btrfs base -> 1 once its snapshot was tried
+SNAPS_TAKEN="no"            # 2.80: the run took its ZFS snapshots (results_local_json: a share's local result)
 declare -A LAYER_MNT=()     # ZFS dataset -> mount point under .layers
 declare -A SHARE_MOUNTED=() # share -> single|overlay|split
 declare -A ZFS_FAILED=()    # pool -> 1
@@ -869,6 +881,7 @@ vm_release() { # vm_release [btrfs]  - without an argument the VMs on ZFS only
 # --- btrfs snapshots ------------------------------------------------------
 btrfs_snap() { # btrfs_snap <disk path> [note]
     local base="$1"
+    BTRFS_TRIED[$base]=1
     mkdir -p "$base/$BTRFS_SNAP_DIR"
     if btrfs subvolume snapshot -r "$base" "$base/$BTRFS_SNAP_DIR/$TS" >/dev/null 2>>"$LOG_FILE"; then
         BTRFS_OK[$base]="$base/$BTRFS_SNAP_DIR/$TS"
@@ -876,6 +889,34 @@ btrfs_snap() { # btrfs_snap <disk path> [note]
     else
         err "btrfs snapshot of $base failed"
     fi
+}
+
+# results_local_json - state/results.json's local part of this run (2.80, results_write in lib/common.sh): per share
+# with a snapshot method in the plan [{key: "share:<s>", result, code}] - ok when every part got this run's snapshot
+# (ZFS: its pool's snapshot went, btrfs: its base's), failed (snapshot) when one didn't, skipped asleep (left out, its
+# pool slept), skipped run_ended (the run ended before its snapshots: ZFS's all at once, btrfs one base after the other).
+# The VMs come from status.json (vms[].snapshot).
+results_local_json() {
+    local s b m layer sub res code
+    for s in "${PLAN_SNAP[@]}"; do
+        [[ -n "$s" ]] || continue
+        res=ok; code=""
+        if in_list "$s" "${ST_ASLEEP_SHARES[@]}"; then res=skipped; code=asleep
+        elif [[ "$SNAPS_TAKEN" != "yes" ]]; then res=skipped; code=run_ended
+        else
+            while IFS='|' read -r b m layer sub; do
+                [[ -n "$b" ]] || continue
+                case "$m" in
+                    zfs)   in_list "$layer" "${PLAN_ZFS[@]}" && [[ -z "${ZFS_FAILED[${layer%%/*}]:-}" ]] || { res=failed; code=snapshot; } ;;
+                    btrfs) if [[ -z "${BTRFS_OK[$layer]:-}" ]]; then
+                               if [[ -n "${BTRFS_TRIED[$layer]:-}" ]]; then res=failed; code=snapshot
+                               elif [[ "$res" == ok ]]; then res=skipped; code=run_ended; fi
+                           fi ;;
+                esac
+            done <<<"${INV_LOCS[$s]:-}"
+        fi
+        printf '%s\x1f%s\x1f%s\n' "share:$s" "$res" "$code"
+    done | jq -Rn '[inputs | select(length > 0) | split("\u001f") | {key: .[0], result: .[1], code: .[2]}]'
 }
 
 # The share a bind source lies in (/mnt/user/<share>/…, /mnt/<disk or pool>/<share>/…)
@@ -4535,6 +4576,7 @@ for pool in "${!BY_POOL[@]}"; do
         err "ZFS snapshot on pool '$pool' failed"; ZFS_FAILED[$pool]=1
     fi
 done
+SNAPS_TAKEN="yes"                                  # 2.80: ZFS's are taken (btrfs: BTRFS_TRIED, one base after the other)
 if [[ "$PLAN_FLASH" == "snapshot" ]]; then
     zfs snapshot "$FLASH_DATASET@$SNAP_NAME" 2>>"$LOG_FILE" \
         || { err "Flash snapshot failed"; PLAN_FLASH="failed"; }
@@ -4595,8 +4637,9 @@ KOPIA_DONE=0; KOPIA_FAILED=0
 KOPIA_STALLED=""            # 2.68: the source whose upload took nothing for UB_KOPIA_STALL seconds (ended) - Kopia not asked again
 KOPIA_STALL_AT=0            #   the last moment it moved
 KOPIA_LAST_OK=0             # 2.79: the last kopia_one's upload ended well (future_look then looks over what Kopia read)
-kopia_one() { # kopia_one <name> <container path>
+kopia_one() { # kopia_one <name> <container path> [<snapshot create's tags: --tags k:v ...>]
     local name="$1" cp="$2" t0 rc secs stalled=0
+    local -a tags=( "${@:3}" )
     KOPIA_LAST_OK=0
     t0="$(date +%s)"
     if [[ -n "$KOPIA_STALLED" ]]; then           # 2.68: the storage takes nothing - each upload would only wait as long
@@ -4611,7 +4654,8 @@ kopia_one() { # kopia_one <name> <container path>
     # 2.24: waited for in steps of UB_ARRAY_LOOK seconds (a sleep beside it, wait -n for whichever ends
     # first), looking at var.ini each time - an array stop interrupts the upload at once (kopia_stop)
     KOPIA_CP="$cp"
-    UB_DOCKER_LONG=1 kopia_x snapshot create "$cp" --description "$UB_KOPIA_DESC $TS" >>"$LOG_FILE" 2>&1 &     # hours: no docker limit (2.66)
+    (( ${#tags[@]} )) && log_file "  tags: ${tags[*]}"
+    UB_DOCKER_LONG=1 kopia_x snapshot create "$cp" --description "$UB_KOPIA_DESC $TS" "${tags[@]}" >>"$LOG_FILE" 2>&1 &     # hours: no docker limit (2.66)
     KOPIA_PID=$!
     # 2.68: no time limit, but a stall watchdog - the kopia process neither reading nor writing for UB_KOPIA_STALL seconds
     # (a storage that takes no writes: Kopia waits for ever) ends it (lib/common.sh kopia_stall_look/_end)
@@ -4660,7 +4704,7 @@ kopia_skip() { # source not backed up, without Kopia having run
 
 # kopia_item_one <kind> <name> <folder>  - an app's or a VM's own source
 kopia_item_one() {
-    local t="$1" n="$2" f="$3" key="$1:$2" cp mp c_mp missing
+    local t="$1" n="$2" f="$3" key="$1:$2" cp mp c_mp missing sh split=""
     array_stop_check "before Kopia: $key"
     if [[ -n "${SKIP_KOPIA[$key]:-}" ]]; then err "Kopia: $t '$n' skipped - ${SKIP_KOPIA[$key]}"; kopia_skip "$key"; return 0; fi
     cp="$(k_path "$(item_hostpath "$t" "$f")")" || { err "Kopia: $t '$n' is not mapped into the container"; kopia_skip "$key"; return 0; }
@@ -4676,7 +4720,11 @@ kopia_item_one() {
         err "Kopia does not see the mount: $missing- check that the mapping is 'Read Only - Slave'"
         kopia_skip "$key"; return 0
     fi
-    kopia_one "$key" "$cp"
+    # 2.80: the shares its parts lie in that are mounted split (<share>/<base>/<path> in its source) - said as a tag
+    while IFS='|' read -r sh _; do [[ -n "$sh" && "${SHARE_MOUNTED[$sh]:-}" == split ]] && split+="$sh"$'\n'; done \
+        < <(kopia_item_parts "$t" "$n" "$(item_pkg "$t" "$n")")
+    kopia_item_tags "$split"
+    kopia_one "$key" "$cp" "${KT_ARGS[@]}"
     if (( KOPIA_LAST_OK )); then future_look "$n" "$(item_hostpath "$t" "$f")"; fi     # 2.79: files dated in the future
 }
 
@@ -4700,7 +4748,8 @@ kopia_share_one() {
         kopia_skip "$s"; return 0
     fi
     [[ "${SHARE_MOUNTED[$s]}" == "live" ]] && log "  (live: '$s' is read without a snapshot)"
-    kopia_one "$s" "$cp"
+    kopia_share_tags "$s" "${SHARE_MOUNTED[$s]}"           # 2.80: how it was put together (Mr. Restori needn't guess)
+    kopia_one "$s" "$cp" "${KT_ARGS[@]}"
     if (( KOPIA_LAST_OK )); then future_look "$s" "$hp"; fi                               # 2.79: files dated in the future
 }
 

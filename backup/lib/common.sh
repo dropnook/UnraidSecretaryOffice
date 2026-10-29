@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.79"
+UB_VERSION="2.80"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -3242,6 +3242,8 @@ drift_count() { local lvl="$1" n=0 l; for l in "${DRIFT[@]}"; do [[ "${l%%|*}" =
 #                    VMs to shut down (backup.sh does that before anything stops; new phase vm_shutdown)
 #   last-run.json   last real backup run (no dry run, no check)
 #   history.jsonl    one line per real backup run, the last 200
+#   results.json     since 2.80: the newest result of every source and unit (results_write, below) - nothing gets
+#                    lost past the history's 200 runs
 #   drift.json       drift found by the last check (level + text, since 2.18 a code + value for
 #                    the messages the office translates), and since 2.14 per Kopia target
 #                    whether its policy matches settings.ini ("policies"); since 2.41 every item has a code
@@ -3401,8 +3403,92 @@ status_finish() { # status_finish <result> [message]
     history_append "$(jq -c 'if (.packages | type) == "object" then .packages |= del(.list) else . end
         | if (.partner | type) == "object" then .partner |= del(.planned, .current, .streams) else . end' "$UB_STATE/status.json" 2>/dev/null \
         || tr -d '\n' <"$UB_STATE/status.json")"
+    results_write
     return 0
 }
+
+# --- state/results.json (2.80): the newest result of every source and unit -----------------------------------------
+# The office looked for the newest copy of a source in history.jsonl - 200 runs: a source last copied before them read
+# «no copy yet». results.json keeps, per source and unit, its newest result for as long as it is there:
+#   {"v": 1, "engine": "2.80", "updated": <unix>, "run": "<the run that wrote it>",
+#    "local":   {"share:<s>": R, "vm:<n>": R}     the run's local snapshot of a share (its every part), of a VM's disks
+#    "package": {"app:<n>": R, "vm:<n>": R, "flash": R}   its package in the backup place (warnings: ok, code warnings)
+#    "kopia":   {"<source>": R}                  as kopia.done names them: <share>, app:<n>, vm:<n>, flash
+#    "partner": {"<id>": {"<unit>": R}}          share:<s>, vm:<n>, app:<n>, place
+#   R = {"result": "ok" | "failed" | "skipped", "code": why ('' when ok), "time": <unix>, "run": "<run id>",
+#        "good": <unix, the newest ok - 0: none known>}; a partner's ok also "snap"
+# codes - local: asleep (its pool slept, left out), run_ended (the run ended before the snapshots), snapshot (taken but
+# a part failed); a VM: what the run did (status.json vms[].done, failed); kopia: skipped_why's (asleep), array_stopping,
+# signal; partner: the engine's why (status.json partner.skipped/failed). Only what the run did is written - a source it
+# didn't touch keeps its entry (a share set to «off» keeps its last one; the office reads settings.ini for what is set).
+# Written at the end of every real backup run (status_finish, a new file + mv), the old entries kept (also sections of a
+# newer engine); none there yet (or not JSON): history.jsonl folded in first, oldest first (status.json minus the package
+# list). A file of another "v" (a newer engine's) is left alone.
+results_write() {
+    local f="$UB_STATE/results.json" tmp old="null" hist="[]" loc
+    loc="$(declare -F results_local_json >/dev/null && results_local_json)" || loc='[]'
+    [[ -n "$loc" ]] || loc='[]'
+    [[ -L "$f" ]] && return 0
+    if [[ -f "$f" ]]; then
+        old="$(jq -c 'if type == "object" and .v == 1 then . elif type == "object" and (.v | type) == "number" then "newer" else null end' "$f" 2>/dev/null)" || old="null"
+        [[ "$old" == '"newer"' ]] && return 0          # another version's (a newer engine's): left as it is, never rewritten
+    fi
+    [[ -n "$old" ]] || old="null"
+    if [[ "$old" == "null" && -f "$UB_STATE/history.jsonl" ]]; then
+        # none yet: the history first (without the line of this run, which status.json brings whole)
+        hist="$(jq -c --arg r "${TS:-}" 'select(type == "object" and .result != "skipped" and .run != $r)' "$UB_STATE/history.jsonl" 2>/dev/null | jq -sc .)" || hist="[]"
+        [[ -n "$hist" ]] || hist="[]"
+    fi
+    tmp="$UB_STATE/.results.json.$$"
+    if jq -c --argjson old "$old" --argjson hist "$hist" --argjson local "$loc" --arg ver "$UB_VERSION" --argjson now "$(date +%s)" "$RESULTS_JQ" \
+            "$UB_STATE/status.json" >"$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
+        mv -f "$tmp" "$f" 2>/dev/null
+    fi
+    rm -f "$tmp"
+    return 0
+}
+# the fold: one run (a status.json, or a history line) into the results; $local only for the run of status.json
+# shellcheck disable=SC2016
+RESULTS_JQ='
+def keep($old; $new): $new + {good: (if $new.result == "ok" then $new.time
+  else ($old | if type == "object" then .good else null end) // 0 | if type == "number" then . else 0 end end)};
+def at($s): ($s.finished // 0 | if type == "number" and . > 0 then . else ($s.started // 0 | if type == "number" then . else 0 end) end);
+def obj: if type == "object" then . else {} end;
+def put($sec; $k; $new): .[$sec] |= obj | .[$sec][$k] = keep(.[$sec][$k]; $new);
+def pu($u; $new): if ($u | type) == "object" and ($u.id | type) == "string" and ($u.unit | type) == "string"
+  then .partner |= obj | .partner[$u.id] |= obj | .partner[$u.id][$u.unit] = keep(.partner[$u.id][$u.unit]; $new) else . end;
+def each($x): $x | if type == "array" then .[] else empty end;
+def stopped($msg): if $msg == "signal" then "signal" else "array_stopping" end;
+def fold($s; $loc):
+  at($s) as $t | ($s.run // "" | tostring) as $run | ($s.message // "" | tostring) as $msg
+  | (($s.partner // null) | if type == "object" then . else {} end) as $p
+  | reduce (each($loc) | select(type == "object" and (.key | type) == "string" and (.result | type) == "string")) as $l (.;
+      put("local"; $l.key; {result: $l.result, code: ($l.code // "" | tostring), time: $t, run: $run}))
+  | reduce (each($s.vms // []) | select(type == "object" and (.name | type) == "string")) as $v (.;
+      put("local"; "vm:" + $v.name; (if $v.snapshot == true then {result: "ok", code: ""} elif $v.done == "failed" then {result: "failed", code: "failed"}
+        else {result: "skipped", code: ($v.done // "" | tostring)} end) + {time: $t, run: $run}))
+  | reduce (($s.packages // null) | if type == "object" then each(.list) else empty end
+           | select(type == "object" and .stale != true and (.result | type) == "string" and .result != "planned" and (.name | type) == "string")) as $k (.;
+      put("package"; (if $k.kind == "flash" then "flash" else ($k.kind // "" | tostring) + ":" + $k.name end);
+        (if $k.result == "errors" then {result: "failed", code: "errors"} elif $k.result == "warnings" then {result: "ok", code: "warnings"}
+         else {result: "ok", code: ""} end) + {time: $t, run: $run}))
+  | reduce (each($s.kopia.done // []) | select(type == "object" and (.name | type) == "string")) as $k (.;
+      put("kopia"; $k.name; {result: (if $k.ok == true then "ok" else "failed" end), code: "",
+        time: ($k.finished // 0 | if type == "number" and . > 0 then . else $t end), run: $run}))
+  | reduce (each($s.kopia.skipped // []) | strings) as $n (.;
+      put("kopia"; $n; {result: "skipped", code: ((($s.kopia.skipped_why // {}) | if type == "object" then .[$n] else null end) // stopped($msg) | tostring),
+        time: $t, run: $run}))
+  | reduce ($s.kopia.interrupted // empty | strings) as $n (.; put("kopia"; $n; {result: "skipped", code: stopped($msg), time: $t, run: $run}))
+  | reduce each($p.done // []) as $u (.; pu($u; {result: "ok", code: "", time: $t, run: $run, snap: ($u.snap // "" | tostring)}))
+  | reduce each($p.skipped // []) as $u (.; pu($u; {result: "skipped", code: ($u.why // "" | tostring), time: $t, run: $run}))
+  | reduce each($p.failed // []) as $u (.; pu($u; {result: "failed", code: ($u.why // "" | tostring), time: $t, run: $run}))
+  | reduce each($p.interrupted_all // []) as $u (.; pu($u; {result: "skipped", code: stopped($msg), time: $t, run: $run}));
+. as $st
+| ($old | obj) | .local |= obj | .package |= obj | .kopia |= obj | .partner |= obj
+| reduce ($hist[] | select(type == "object")) as $h (.; fold($h; []))
+| if ($st | type) == "object" and $st.mode == "backup" then fold($st; $local) | .run = ($st.run // "" | tostring) else . end
+| .v = 1 | .engine = $ver | .updated = $now
+'
 
 # history_append <json line>: history.jsonl keeps the last UB_HISTORY_MAX lines. A skipped run (below) writes
 # while the run holding state/lock may finish - so both take a lock of their own first: an flock on the
@@ -3690,6 +3776,39 @@ kopia_item_parts() {
 # share_layout <share>  -> how its snapshot is mounted: single | overlay | split | live | none
 share_layout() {
     if [[ "$(share_method "$1")" == "live" ]]; then echo live; else echo "${INV_LAYOUT[$1]:-none}"; fi
+}
+
+# --- 2.80: the Kopia snapshots say how their source was put together (review M4: Mr. Restori needn't guess) -----------
+# A share's snapshot carries «uso-layout:<single|overlay|split|live>» (how it was mounted this run, SHARE_MOUNTED - an
+# overlay that fell back to one subfolder per part is split) and, split, «uso-parts:<base>|<base>…» - its pools and
+# disks in the order its source holds them as <share>/<base>/…; an app's or VM's own source whose parts lie in a share
+# mounted split (<share>/<base>/<path> inside it) carries «uso-split:<share>|<share>…». "|" - never in a share's name
+# (share_name_ok) nor a pool's. Kopia's snapshot list --json shows them as tags {"tag:uso-layout": "split", …}. Only
+# from Kopia 0.13 (kopia_tags_ok: --tags is older, but an unknown flag would fail the upload); without: no tags, as
+# up to 2.79. KT_ARGS: the arguments for snapshot create (--tags k:v …), empty when none.
+kopia_tags_ok() {
+    [[ "${KOPIA_VERSION:-}" =~ ^v?([0-9]+)\.([0-9]+) ]] || return 1
+    (( 10#${BASH_REMATCH[1]} > 0 || 10#${BASH_REMATCH[2]} >= 13 ))
+}
+kopia_share_tags() { # kopia_share_tags <share> <how it is mounted: single|overlay|split|live>
+    local s="$1" how="$2" parts="" b
+    KT_ARGS=()
+    kopia_tags_ok && [[ "$how" =~ ^(single|overlay|split|live)$ ]] || return 0
+    KT_ARGS=( --tags "uso-layout:$how" )
+    [[ "$how" == split ]] || return 0
+    while IFS='|' read -r b _; do [[ -n "$b" ]] && parts+="${parts:+|}$b"; done <<<"${INV_LOCS[$s]:-}"
+    [[ -n "$parts" ]] && KT_ARGS+=( --tags "uso-parts:$parts" )
+    return 0
+}
+kopia_item_tags() { # kopia_item_tags <the shares its parts lie in, mounted split (one per line)>
+    local sh list=""
+    KT_ARGS=()
+    kopia_tags_ok || return 0
+    while IFS= read -r sh; do
+        [[ -n "$sh" ]] && share_name_ok "$sh" && [[ "|$list|" != *"|$sh|"* ]] && list+="${list:+|}$sh"
+    done <<<"$1"
+    [[ -n "$list" ]] && KT_ARGS=( --tags "uso-split:$list" )
+    return 0
 }
 
 # kopia_derived_ignores <share>  -> the rules the share's own source gets for the parts of apps and VMs
