@@ -21363,6 +21363,16 @@ function testNotifyCenter(): void
     // the chip's tip says «the very same alert twice within a minute goes once» - true only while it is a minute
     check('centre: the tip «within a minute» is NOTIFY_ALERT_SAME', NOTIFY_ALERT_SAME === 60
         && str_contains((string) json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/lang/en.json'), true)['nc.tip.alerts'], 'within a minute'));
+    // 2.80: the Team Lead's tip for a run's counted failure says the 20 h and its count; the history row shows the count
+    $ctLang = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/lang/en.json'), true);
+    $ctJs = (string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/desk.js');
+    $hours = intdiv(NOTIFY_FAILED_SAME, 3600) . ' hours';
+    check('centre 2.80: the tips «within 20 hours» are NOTIFY_FAILED_SAME (the failure\'s own, the alerts\' too), with the count', NOTIFY_FAILED_SAME === 72000
+        && str_contains((string) ($ctLang['nc.tip.failed_same']['other'] ?? ''), $hours) && str_contains((string) ($ctLang['nc.tip.failed_same']['other'] ?? ''), '{n}')
+        && str_contains((string) $ctLang['nc.tip.alerts'], $hours));
+    check('centre 2.80: the chip of a counted backup failed/refused takes that tip with its times, the history row the count',
+        str_contains($ctJs, "e.desk === 'backup' && ['failed', 'refused'].includes(e.event) && e.times > 1") && str_contains($ctJs, "T('nc.tip.failed_same', { n: e.times })")
+        && str_contains($ctJs, "e.times > 1 ? el('span', '', Office.t('notifycenter.times', { n: e.times })) : null"));
 
     // ---- the settings: none = today's behaviour; tolerant; the senders' file
     $s = officeNotifySettings([]);

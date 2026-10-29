@@ -838,6 +838,11 @@ async function ncSave(btn) {
 /** Why something waits or was not sent — a chip with its tip (the guard's numbers in it) */
 function ncWhyChip(e) {
   const chip = el('span', `chip ${e.fate === 'sent' ? 'ok' : e.fate === 'failed' ? 'danger' : e.fate === 'dropped' ? '' : 'warn'}`, T('nc.fate.' + e.fate));
+  // a backup run's very same failure (engine 2.80): counted for 20 hours, with how many times — another cause always goes
+  if (e.why === 'same' && e.desk === 'backup' && ['failed', 'refused'].includes(e.event) && e.times > 1) {
+    chip.title = T('nc.tip.failed_same', { n: e.times });
+    return chip;
+  }
   // an alert counted as «the same» was the very same alert within a minute (the alerts' tip says so), never the flood rule
   if (e.why === 'alert_cap' || (e.why === 'same' && e.level === 'alert')) return ncTip(chip, 'nc.tip.alerts');
   if (e.why === 'flood' || e.why === 'same') return ncTip(chip, 'nc.tip.flood');
@@ -898,7 +903,8 @@ function notifyLogSection() {
     const when = el('span', '', fmt.relative(e.time));
     when.title = ncDay(e.time);
     box.appendChild(ncEl('div', 'row nocheck ct-nc-log', ncEl('div', 'row-main', el('div', 'row-name text', e.subject),
-      ncEl('div', 'row-meta', when, el('span', '', ncName(e.desk)), ncWhyChip(e)), e.description ? el('div', 'row-detail', e.description) : null)));
+      ncEl('div', 'row-meta', when, el('span', '', ncName(e.desk)), ncWhyChip(e), e.times > 1 ? el('span', '', Office.t('notifycenter.times', { n: e.times })) : null),
+      e.description ? el('div', 'row-detail', e.description) : null)));
   }
   ncDone(bar, fits.length, all.length, ['fate', 'time']);
   s.appendChild(box);
