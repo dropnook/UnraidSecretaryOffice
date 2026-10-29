@@ -42,6 +42,12 @@ __version__ = "7.4.0 (2026-10-15)"
 BASE_DIR = Path(os.environ.get("MEDIACACHE_DIR") or Path(__file__).resolve().parent)
 CONFIG_FILE = Path(os.environ.get("MEDIACACHE_CONFIG") or (BASE_DIR / "mediacache_settings.json"))
 EXCLUDE_FILE = BASE_DIR / "mediacache_exclude.txt"
+# USO (2026-10-29, themes): theme.mp3 – Emby und Jellyfin spielen ihn, sobald jemand in der Bibliothek auf einem Titel
+# verweilt (ohne Play); er liegt im Ordner des Films bzw. der SERIE. Was der Sammler auf den Cache holt, steht in einem
+# eigenen, markierten Abschnitt der Exclude-Liste (nach THEMES_MARK) und in THEMES_FILE (was angeschaut wurde, wann)
+THEME_NAME = "theme.mp3"
+THEMES_MARK = "# USO themes: theme.mp3 kept on the pool for good (Unraid Secretary Office, Jack Streamer)"
+THEMES_FILE = BASE_DIR / "mediacache_themes.json"
 LOCK_FILE = BASE_DIR / "mediacache.lock"
 # USO: MEDIACACHE_LIVE_STATUS puts the live status elsewhere (the office: RAM, not the pool every 2 s)
 STATUS_FILE = Path(os.environ.get("MEDIACACHE_LIVE_STATUS") or (BASE_DIR / "mediacache_status.json"))
@@ -89,6 +95,8 @@ DEFAULTS = {
     "status_log_interval": 60,           # Sekunden zwischen Fortschrittszeilen im Log während des Kopierens (0 = aus)
     "api_timeout": 10,                   # Sekunden pro API-Aufruf
     "shares_cfg_dir": "/boot/config/shares",  # Unraid Share-Konfigurationen (für die Mover-Richtungs-Prüfung)
+    "themes": False,                     # USO: theme.mp3 jedes Films und jeder Serie bleibt auf dem Cache (nur im scharfen
+                                         #   Lauf geholt, für immer in der Exclude-Liste; nie zurück nach Budget) – nur true schaltet ein
 }
 
 
@@ -276,6 +284,7 @@ def load_config(require_paths=True):
             raise ConfigError(f"{key} muss mindestens {minimum} sein")
     cfg["copy_progress"] = bool(cfg["copy_progress"])
     cfg["create_share_root"] = bool(cfg["create_share_root"])
+    cfg["themes"] = cfg["themes"] is True          # USO: nur ein echtes true – nie ein Wert, der zu true wird
     if not cfg["rsync_args"]:
         raise ConfigError("rsync_args darf nicht leer sein (Original: [\"-aAX\", \"--numeric-ids\"])")
     return cfg
@@ -390,6 +399,26 @@ class MediaServerApi:
     def libraries(self):
         """[{"Name", "Locations": [Docker-Pfade]}]"""
         return self.get("/Library/VirtualFolders") or []
+
+    THEME_PAGE = 2000
+
+    def library_items(self):
+        """USO (themes): jeder Film und jede Serie des Servers (Id, Type, Path, DateCreated) – nur die Datenbank des
+        Servers, keine Disk; in Seiten zu THEME_PAGE. Eine Antwort ohne Liste ist ein Fehler (RuntimeError)."""
+        out, start = [], 0
+        while True:
+            page = self.items("/Items", Recursive="true", IncludeItemTypes="Movie,Series", Fields="Path,DateCreated",
+                              EnableImages="false", EnableUserData="false", StartIndex=start, Limit=self.THEME_PAGE)
+            out += [{"Id": str(i.get("Id") or ""), "Type": i.get("Type"), "Path": i.get("Path") or "",
+                     "DateCreated": i.get("DateCreated"), "LocationType": i.get("LocationType")}
+                    for i in page if isinstance(i, dict) and i.get("Type") in ("Movie", "Series")]
+            if len(page) < self.THEME_PAGE:
+                return out
+            start += len(page)
+
+    def theme_folder(self, item):
+        """USO (themes): der Ordner (Docker-Pfad), in dem der theme.mp3 eines Items läge – Emby/Jellyfin kennen ihn aus Path."""
+        return item.get("Path") or ""
 
 
 class PlexApi:
@@ -535,6 +564,29 @@ class PlexApi:
     def libraries(self):
         return [{"Name": d.get("title", "?"), "Locations": [l.get("path") for l in d.get("Location") or [] if l.get("path")]}
                 for d in self.get("/library/sections").get("Directory") or [] if d.get("type") in ("movie", "show")]
+
+    def library_items(self):
+        """USO (themes): jeder Film und jede Serie (Id, Type, Path, DateCreated = Plex' addedAt) der Film- und
+        Serienbibliotheken. Eine Serie ohne Location in der Liste bekommt ihren Ordner erst, wenn er gebraucht wird
+        (theme_folder: /library/metadata/<id>)."""
+        out = []
+        for d in self.get("/library/sections").get("Directory") or []:
+            kind = {"movie": "Movie", "show": "Series"}.get(d.get("type"))
+            if kind is None or not d.get("key"):
+                continue
+            for m in self.get(f"/library/sections/{d['key']}/all").get("Metadata") or []:
+                if not isinstance(m, dict) or not m.get("ratingKey"):
+                    continue
+                path = self._path(m) if kind == "Movie" else next((l.get("path") for l in m.get("Location") or [] if l.get("path")), "")
+                out.append({"Id": str(m["ratingKey"]), "Type": kind, "Path": path or "", "DateCreated": m.get("addedAt")})
+        return out
+
+    def theme_folder(self, item):
+        """USO (themes): der Ordner einer Serie, die die Liste ohne Location gab – einmal nachgefragt, wenn er gebraucht wird."""
+        if item.get("Path") or item.get("Type") != "Series":
+            return item.get("Path") or ""
+        meta = (self.get(f"/library/metadata/{item['Id']}").get("Metadata") or [{}])[0]
+        return next((l.get("path") for l in meta.get("Location") or [] if l.get("path")), "")
 
 
 # --------------------------------------------------------------------------- Pfade
@@ -1210,10 +1262,32 @@ def acquire_lock(log):
     return fh
 
 
-def read_exclude():
+def _exclude_sections():
+    """USO (themes): die Liste in ihren zwei Abschnitten – (Einträge, theme.mp3 nach THEMES_MARK); Kommentare (#) und
+    Leerzeilen zählen nicht (wie Smart Mover und die Zusammenführung sie lesen)."""
     if not EXCLUDE_FILE.exists():
-        return set()
-    return {line.strip() for line in EXCLUDE_FILE.read_text(encoding="utf-8").splitlines() if line.strip()}
+        return set(), set()
+    files, themes = set(), set()
+    into = files
+    for line in EXCLUDE_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("#"):
+            into = themes if line.startswith(THEMES_MARK.split(":")[0]) else into
+            continue
+        if line:
+            into.add(line)
+    return files, themes
+
+
+def read_exclude():
+    """Alle Einträge der Liste (beide Abschnitte), ohne Kommentare."""
+    files, themes = _exclude_sections()
+    return files | themes
+
+
+def read_exclude_themes():
+    """USO (themes): nur die Einträge im Abschnitt der theme.mp3."""
+    return _exclude_sections()[1]
 
 
 def exclude_there():
@@ -1221,11 +1295,39 @@ def exclude_there():
     return EXCLUDE_FILE.exists()
 
 
-def write_exclude(paths):
-    """Atomar schreiben (temp + rename), damit Mover Tuning nie eine halbe Liste liest."""
+def write_exclude(paths, themes=()):
+    """Atomar schreiben (temp + rename), damit Mover Tuning nie eine halbe Liste liest. USO (themes): die theme.mp3 in
+    ihrem eigenen Abschnitt am Ende, nach THEMES_MARK (ohne sie: kein Abschnitt, die Liste wie bisher)."""
+    themes = set(themes)
+    lines = sorted(set(paths) - themes)
+    if themes:
+        lines += [THEMES_MARK] + sorted(themes)
     tmp = EXCLUDE_FILE.with_suffix(".tmp")
-    tmp.write_text("\n".join(sorted(set(paths))) + ("\n" if paths else ""), encoding="utf-8")
+    tmp.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
     os.replace(tmp, EXCLUDE_FILE)
+
+
+def read_themes_state():
+    """USO (themes): THEMES_FILE nur in seiner Form ({"v": 1, …}), sonst ein leerer Stand (der erste Sammellauf)."""
+    try:
+        j = json.loads(THEMES_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return j if isinstance(j, dict) and j.get("v") == 1 and isinstance(j.get("items"), dict) else None
+
+
+def themes_state_there():
+    """USO (themes): gibt es THEMES_FILE?"""
+    return THEMES_FILE.exists()
+
+
+def write_themes_state(data):
+    """USO (themes): THEMES_FILE atomar (neue Datei, dann umbenennen; nie durch einen Link)."""
+    tmp = f"{THEMES_FILE}.{os.getpid()}.tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n")
+    os.replace(tmp, THEMES_FILE)
 
 
 def collect_sessions(cfg, log):

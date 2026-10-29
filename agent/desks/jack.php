@@ -40,7 +40,7 @@ const JACK_LIST_REBUILD_MAX = 200000;          // files of his shares on the poo
 const JACK_SETTINGS = ['cache_path', 'cache_budget', 'number_episodes', 'movie_share_percent', 'max_episodes_per_series',
                        'max_resume_items', 'max_resume_movies', 'max_resume_series', 'max_favorite_series', 'use_next_up', 'min_free_percent', 'movie_mode',
                        'array_source', 'array_path', 'user_path',
-                       'array_disks_glob', 'mover_debug_level', 'parallel_disks'];
+                       'array_disks_glob', 'mover_debug_level', 'parallel_disks', 'themes'];
 // (2026-10-14, his setup back on tiles: create_share_root has no field — it stays as his settings have it, EmbyCache's
 // default false; the wizard's give_back_unwatched_days, read by nothing, goes at the next save and with the update)
 // budget mode always (2026-10-14, the owner): the budget in total is the hard cap, every person at least this much
@@ -55,6 +55,14 @@ const JACK_FIXED       = ['create_share_root' => true];
 // once» (`parallel_disks`, on by default) — MediaCache's parallel_per_disk 1, its parallel_total the array's data disks (at
 // most JACK_PARALLEL_TOTAL_MAX); off: one copy at a time. The give-back to the array stays one at a time (parity).
 const JACK_PARALLEL_TOTAL_MAX = 8;
+// theme.mp3 stays on the pool (2026-10-29, the owner — his setup's switch `themes`, off by default): MediaCache's collector
+// moves every film's and series' theme.mp3 to the pool in a real run; they stand in their own section of his list (after
+// the comment JACK_THEMES_LINE — every reader skips comments), never given back but by his let-go with «bring the films
+// back» (MEDIACACHE_RELEASE_THEMES); its state (what was looked at, when, what lies on the pool) in JACK_THEMES_STATE
+const JACK_THEME        = 'theme.mp3';
+const JACK_THEMES_MARK  = '# USO themes';
+const JACK_THEMES_LINE  = '# USO themes: theme.mp3 kept on the pool for good (Unraid Secretary Office, Jack Streamer)';
+const JACK_THEMES_STATE = 'mediacache_themes.json';
 // rsync's options are the office's too (EmbyCache's defaults): never what a settings file names - rsync runs as root, and
 // an option like --log-file writes wherever it says (review 2026-10-15)
 const JACK_RSYNC_ARGS  = '-aAX --numeric-ids';
@@ -237,7 +245,9 @@ function jackListEnsure(?array $settings, string $dir = JACK_DATA, array $o = []
         jackListNote($dir);
         return null;
     }
-    writeAtomic($f, implode("\n", $paths) . "\n", 0600, 0, 0);
+    // the theme.mp3 back in their own section (themes on: every one of his on the pool is one — MediaCache's rule)
+    $themes = jackThemesOn($settings) ? array_values(array_filter($paths, fn ($p) => basename($p) === JACK_THEME)) : [];
+    jackListWrite($f, $paths, $themes);
     jackListNote($dir, ['rebuilt' => ['at' => time(), 'was' => $was, 'files' => count($paths)]]);
     logLine("Jack Streamer: his list was $was after his runs — written anew from what of his shares lies on the pool (" . count($paths)
         . ' files); his next complete run sets it right');
@@ -306,7 +316,7 @@ function jackListNote(string $dir = JACK_DATA, array $extra = [], bool $complete
     if ($complete) {
         unset($note['rebuilt']);
     }
-    $lines = count(array_filter(array_map('trim', (array) @file($f, FILE_IGNORE_NEW_LINES)), fn ($l) => $l !== ''));
+    $lines = count(array_merge(...jackListRead($f)));
     writeAtomic("$dir/" . JACK_LIST_NOTE, jsonEncode(['v' => 1, 'lines' => $lines, 'mtime' => (int) filemtime($f), 'size' => (int) filesize($f),
         'had' => $lines > 0 || ($note['had'] ?? null) === true] + $extra + $note), 0600, 0, 0);
 }
@@ -361,6 +371,8 @@ function jackScan(): array
         // the joint run with Ms. Moverelli waiting on its schedule (Unraid's mover, Mr. Backupsy's local part — M17)
         'waiting'    => ['embycache' => jackRunWaiting('embycache'), 'gather' => jackRunWaiting('gather'), 'night' => jackRunWaiting('moverelli')],
         'letgo'      => jackLetGoNote(),       // hired again: what he switched off when he was let go (said once)
+        // theme.mp3 stays on the pool (2026-10-29): the switch and what his runs left there
+        'themes'     => jackThemesState($settings),
         // his list not there (2026-10-29): pending (his first real run writes it — Ms. Moverelli leaves his shares alone
         // meanwhile), lost (it can't be written anew now: the pool asleep or unreadable); null: there
         'list'       => in_array($list, ['pending', 'lost'], true) ? $list : null,
@@ -527,7 +539,64 @@ function jackTools(array $s): array
 {
     // «back to the disk they came from» is gone (the owner, 2026-10-16): Unraid's share rules and its move binary decide
     unset($s['return_to_origin']);
-    return array_replace($s, JACK_TOOLS, JACK_FIXED, ['parallel_disks' => jackParallelDisks($s), 'parallel_per_disk' => 1, 'parallel_total' => 1]);
+    return array_replace($s, JACK_TOOLS, JACK_FIXED, ['parallel_disks' => jackParallelDisks($s), 'parallel_per_disk' => 1, 'parallel_total' => 1,
+        'themes' => jackThemesOn($s)]);
+}
+
+/** His setup's «theme.mp3 stays on the pool»: only a real true — else (missing, an older file, any other value) off */
+function jackThemesOn(?array $s): bool
+{
+    return ($s['themes'] ?? null) === true;
+}
+
+/**
+ * His list in its two sections (MediaCache's write_exclude()): [files, themes] — the lines after JACK_THEMES_MARK are
+ * the theme.mp3 kept for good; comments and blank lines are no entries (Smart Mover and the gather skip them too).
+ * A list that isn't there or can't be read: [[], []].
+ */
+function jackListRead(string $f): array
+{
+    $files = $themes = [];
+    $into = &$files;
+    foreach (is_file($f) && !is_link($f) ? (@file($f, FILE_IGNORE_NEW_LINES) ?: []) : [] as $line) {
+        $line = trim($line);
+        if (str_starts_with($line, '#')) {
+            if (str_starts_with($line, JACK_THEMES_MARK)) {
+                $into = &$themes;
+            }
+            continue;
+        }
+        if ($line !== '') {
+            $into[] = $line;
+        }
+    }
+    return [$files, $themes];
+}
+
+/** His list written as MediaCache writes it: the files sorted, then — when there are any — the themes' section */
+function jackListWrite(string $f, array $files, array $themes): void
+{
+    $themes = array_values(array_unique($themes));
+    $files = array_values(array_diff(array_unique($files), $themes));
+    sort($files, SORT_STRING);
+    sort($themes, SORT_STRING);
+    $lines = array_merge($files, $themes ? array_merge([JACK_THEMES_LINE], $themes) : []);
+    writeAtomic($f, $lines ? implode("\n", $lines) . "\n" : '', 0600, 0, 0);
+}
+
+/**
+ * «theme.mp3 stays on the pool» for his page — results, not the setting: `on` (the switch), what his runs left on the
+ * pool (`files`, `bytes` from MediaCache's state, written by the run), `first` (the first collection — every title's
+ * folder read once — still ahead), `collected` (when the last one ended). Read with a default: no state (never ran
+ * with it, or a 1.78 data folder) — nothing there yet.
+ */
+function jackThemesState(?array $settings, string $dir = JACK_DATA): array
+{
+    $st = readJson("$dir/" . JACK_THEMES_STATE);
+    $st = is_array($st) && ($st['v'] ?? null) === 1 && is_array($st['items'] ?? null) ? $st : [];
+    $pool = is_array($st['on_pool'] ?? null) ? $st['on_pool'] : [];
+    return ['on' => jackThemesOn($settings), 'files' => jackProgressInt($pool['files'] ?? 0), 'bytes' => jackProgressInt($pool['bytes'] ?? 0),
+            'first' => ($st['done'] ?? null) !== true, 'collected' => jackProgressTime($st['collected'] ?? null)];
 }
 
 /** His setup's «Copy from every disk at once»: the boolean, else on (the default; a number of the field before, ≥ 1: on) */
@@ -906,7 +975,12 @@ function jackWriteMeasureIni(array $shares, array $emby, string $gatherDir = GAT
  */
 function jackCacheStats(?array $settings, string $dir = JACK_DATA): array
 {
-    $list = @file("$dir/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    // the theme.mp3 kept for good (their own section) are no films: counted apart (the tile's line), never a group
+    [$list, $themes] = jackListRead("$dir/mediacache_exclude.txt");
+    $themeBytes = 0;
+    foreach ($themes as $path) {
+        $themeBytes += (int) @filesize($path);
+    }
     $bytes = 0;
     $groups = [];
     $shares = [];             // per share, over the whole list (the groups are cut at JACK_POOL_GROUPS): his page's share rows
@@ -932,7 +1006,7 @@ function jackCacheStats(?array $settings, string $dir = JACK_DATA): array
     usort($groups, fn ($a, $b) => [(int) $b['since'], $a['title']] <=> [(int) $a['since'], $b['title']]);
     ksort($shares);
     return ['files' => count($list), 'bytes' => $bytes, 'groups' => array_slice(array_values($groups), 0, JACK_POOL_GROUPS), 'shares' => (object) $shares,
-            'listed_at' => @filemtime("$dir/mediacache_exclude.txt") ?: null];
+            'listed_at' => @filemtime("$dir/mediacache_exclude.txt") ?: null, 'themes' => ['files' => count($themes), 'bytes' => $themeBytes]];
 }
 
 /**
@@ -1378,6 +1452,10 @@ function jackSave(mixed $in): array
     if (array_key_exists('parallel_disks', $in) && !is_bool($in['parallel_disks'])) {
         throw new Problem('bad_request');
     }
+    // «theme.mp3 stays on the pool»: the same — only true or false
+    if (array_key_exists('themes', $in) && !is_bool($in['themes'])) {
+        throw new Problem('bad_request');
+    }
     foreach (JACK_SETTINGS as $k) {
         if (array_key_exists($k, $in)) {
             $cfg[$k] = $in[$k];
@@ -1487,7 +1565,8 @@ function jackNotConfigured(?array $settings = null): Problem
  * embycache.log and consolidate.log) and the lock files. Never while a run of his (EmbyCache or the gather) goes.
  */
 const JACK_RESET_GONE   = ['mediacache_settings.json', '.mediacache_settings.trial.json', 'mediacache_origin.json', 'office-history.json', JACK_LIST_NOTE,
-                           'office-run.json', 'office-output.txt', 'office-stop.json', 'jack-progress.json', 'jack-progress-speed.json', 'status.json'];
+                           'office-run.json', 'office-output.txt', 'office-stop.json', 'jack-progress.json', 'jack-progress-speed.json', 'status.json',
+                           JACK_THEMES_STATE];
 const GATHER_RESET_GONE = ['gather.json', 'consolidate.ini', 'measure.ini', 'last-real.json', 'sizes.json', 'status.json', 'office-history.json',
                            'office-run.json', 'office-output.txt', 'office-stop.json'];
 
@@ -1979,7 +2058,8 @@ function jackImportEmbyCache(string $dir, array $ctx, ?array $current, array &$s
         if ($target === null || $cache === '') {
             $pv['blockers'][] = ['key' => 'no_settings'];
         } else {
-            $mine = array_values(array_filter(array_map('trim', explode("\n", (string) @file_get_contents($ctx['jack_dir'] . '/mediacache_exclude.txt')))));
+            // his own list: its films, its theme.mp3 kept apart (their section stays as it is)
+            [$mine, $themesMine] = jackListRead($ctx['jack_dir'] . '/mediacache_exclude.txt');
             $exclude = $mine;
             if ($files['exclude'] !== null) {
                 $lines = array_values(array_filter(array_map('trim', explode("\n", $files['exclude'])), fn ($l) => $l !== ''));
@@ -2007,7 +2087,7 @@ function jackImportEmbyCache(string $dir, array $ctx, ?array $current, array &$s
         }
     }
     $pv['ok'] = !$pv['blockers'] && in_array(true, $pv['found'], true);
-    $do = $pv['ok'] ? ['settings' => $cfg, 'exclude' => $files['exclude'] !== null ? $exclude : null] : null;
+    $do = $pv['ok'] ? ['settings' => $cfg, 'exclude' => $files['exclude'] !== null ? $exclude : null, 'themes' => $themesMine ?? []] : null;
     return [$pv, $do];
 }
 
@@ -2473,7 +2553,7 @@ function jackImportApply(array $do, array $ctx): array
             jackWriteSettings($e['settings'], $ctx['jack_dir'], (string) ($ctx['tmp'] ?? RUN_DIR));
         }
         if ($e['exclude'] !== null) {
-            writeAtomic($ctx['jack_dir'] . '/mediacache_exclude.txt', $e['exclude'] ? implode("\n", $e['exclude']) . "\n" : '', 0600, 0, 0);
+            jackListWrite($ctx['jack_dir'] . '/mediacache_exclude.txt', $e['exclude'], (array) ($e['themes'] ?? []));
             jackListNote($ctx['jack_dir']);             // the list as taken over: an emptied one later is told apart
         }
     }
@@ -3198,7 +3278,9 @@ function jackJob(string $tool, array $args): int
         $env = jackPyEnv() + ['MEDIACACHE_RESULT' => "$dir/status.json"] + ($real ? ['MEDIACACHE_STOP' => "$dir/office-stop.json"] : [])
              // Ms. Moverelli's limit and his half (a dry run sees what the real one would)
              + (in_array($mode, ['dry', 'run'], true) ? jackPoolEnv(jackReadSettings()) : [])
-             + ($noFill ? ['MEDIACACHE_NO_FILL' => '1'] : []);
+             + ($noFill ? ['MEDIACACHE_NO_FILL' => '1'] : [])
+             // his let-go with «bring the films back»: the theme.mp3 kept for good go back too (jack-letgo.php)
+             + ($mode === 'release' && $by === 'letgo' ? ['MEDIACACHE_RELEASE_THEMES' => '1'] : []);
         $cwd = JACK_APP;
         if ($real) {                     // the live panel on his page (jack-progress.php): EmbyCache's progress in RAM
             $progress = jackProgressPaths();

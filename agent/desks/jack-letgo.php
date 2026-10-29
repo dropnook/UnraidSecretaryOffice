@@ -13,7 +13,8 @@ declare(strict_types=1);
  *     nothing starts it again. A scheduled gather that waits for Emby to be free (jackGatherGate()) gives up at its
  *     next look once its schedule is off.
  *   - One tick, off by default: «Also bring the prepared films back to the array» — a last EmbyCache run in mode
- *     `release` (mediacache_run.py --release: its cleanup over the whole exclude list, the same way its cleanup takes
+ *     `release` (with MEDIACACHE_RELEASE_THEMES: the theme.mp3 kept for good go back too — the only way they do;
+ *     mediacache_run.py --release: its cleanup over the whole exclude list, the same way its cleanup takes
  *     them — origin disk, then rsync or the move binary per his settings; nothing filled), a job of the host's atd
  *     (`php agent.php job embycache release --letgo`, jackJob()) under the usual locks (the gather's lock held by the
  *     job, EmbyCache's own by EmbyCache), refused while someone watches Emby (asked here and again in the job), its
@@ -79,23 +80,26 @@ function jackLetGoRunning(): ?string
 
 /**
  * What EmbyCache keeps on the pool, as far as it is still there: its exclude list's entries that exist under the pool
- * (EmbyCache's cleanup skips the rest too) — files and bytes.
+ * (EmbyCache's cleanup skips the rest too) — files and bytes; `themes`: of them the theme.mp3 in their own section
+ * (2026-10-29: kept for good — only this release, with MEDIACACHE_RELEASE_THEMES, takes them back too).
  */
 function jackLetGoOnPool(?array $settings, string $dir): array
 {
     $cache = rtrim((string) ($settings['cache_path'] ?? ''), '/');
     $files = 0;
     $bytes = 0;
+    $themes = 0;
     if ($cache !== '') {
-        foreach (@file("$dir/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $path) {
-            $path = trim($path);
+        [$list, $kept] = jackListRead("$dir/mediacache_exclude.txt");
+        foreach ([...array_map(fn ($p) => [$p, false], $list), ...array_map(fn ($p) => [$p, true], $kept)] as [$path, $theme]) {
             if (str_starts_with($path, "$cache/") && is_file($path)) {
                 $files++;
+                $themes += (int) $theme;
                 $bytes += (int) @filesize($path);
             }
         }
     }
-    return ['files' => $files, 'bytes' => $bytes, 'pool' => $cache];
+    return ['files' => $files, 'bytes' => $bytes, 'pool' => $cache, 'themes' => $themes];
 }
 
 /**

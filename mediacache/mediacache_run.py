@@ -67,6 +67,8 @@ Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang
                               Ziel und Grund (USO: active = jede Datei in Arbeit, parallele Kopien), die Warteschlange
                               des Befüllens (queue, pos: wer wann dran ist)
   MEDIACACHE_ZFS, MEDIACACHE_MOUNTS  USO: zfs und /proc/mounts für die Tests (Freiplatz auf ZFS: der ganze Pool)
+  MEDIACACHE_RELEASE_THEMES    USO: "1" (das Office: Jacks Entlassung mit «Filme zurückbringen») – --release bringt auch die
+                              theme.mp3 zurück, die `themes` für immer auf dem Cache hält (sonst bleiben sie)
   MEDIACACHE_STOP              Datei: sobald es sie gibt, hört der Lauf nach der aktuellen Datei auf (nie mitten in einer
                               Kopie; parallel: nach den Dateien in Arbeit, keine neue beginnt); was noch auf dem Cache liegt, bleibt in der Exclude-Liste geschützt; Ergebnis
                               «stopped», Exit-Code 3 (das Office: der Unraid-Mover startete, oder auf Wunsch)
@@ -89,6 +91,8 @@ from pathlib import Path
 
 STOP_FILE = os.environ.get("MEDIACACHE_STOP") or ""
 NO_FILL = os.environ.get("MEDIACACHE_NO_FILL") == "1"     # USO: nur freigeben, nichts holen (das Office)
+# USO (themes): --release bringt auch die theme.mp3 zurück (das Office: nur Jacks Entlassung mit «Filme zurückbringen»)
+RELEASE_THEMES = os.environ.get("MEDIACACHE_RELEASE_THEMES") == "1"
 WATCHED_ONLY = os.environ.get("MEDIACACHE_WATCHED_ONLY") == "1"   # USO: zurück nur, was geschaut ist (das Office, nur X)
 
 
@@ -115,8 +119,9 @@ from mediacache_lib import (
     collect_sessions, detect_mover_bin, ensure_share_root, free_percent_after, human, is_playing, load_config, mkdir_like,
     read_exclude, remove_empty_on_disk, remove_empty_parents, run_mover, run_rsync, setup_logging, share_mode_ok, share_mover_mode,
     summarize_mover_output, unraid_mover_running, write_exclude, write_progress, write_result, exclude_there, EXCLUDE_FILE,
-    PROGRESS_FILE, __version__,
+    PROGRESS_FILE, __version__, THEME_NAME, read_themes_state, themes_state_there, write_themes_state,
 )
+import datetime
 
 
 def group_key(rel):
@@ -184,7 +189,8 @@ class Progress:
         now = int(time.time())
         self.data = {"v": 1, "mode": mode, "phase": "plan", "started": now, "updated": now,
                      "back": None, "fill": None, "users": [], "current": None, "active": [], "queue": None, "shared": [], "pos": 0,
-                     "recent": []}
+                     "recent": [], "themes": None}
+        self._themes_written = 0.0
         self.users = {}   # UserPlan.key -> Eintrag in data["users"]
         self.qidx = {}    # id(OnDeckFile) -> ihre Stelle in der queue
         self.passed = set()   # USO: Stellen der queue, die erledigt sind
@@ -320,6 +326,58 @@ class Progress:
             if write:
                 self.write()
 
+    # USO (themes): die Phase «themes» – erst angeschaut (titles/looked), dann geholt (files/bytes wie back und fill)
+    def plan_themes(self, titles):
+        with self.lock:
+            self.data["themes"] = {"titles": int(titles), "looked": 0, "files": 0, "bytes": 0, "done_files": 0, "done_bytes": 0,
+                                   "started": int(time.time()), "ended": None}
+            self.write()
+
+    def theme_looked(self, found_size=None, force=False):
+        """Ein Titel ist angeschaut; found_size: sein theme.mp3 liegt auf dem Array und wird geholt. Geschrieben höchstens
+        jede Sekunde (der erste Sammellauf schaut Tausende an), force: jetzt."""
+        with self.lock:
+            t = self.data["themes"]
+            if t is None:
+                return
+            t["looked"] += 1
+            if found_size is not None:
+                t["files"] += 1
+                t["bytes"] += int(found_size)
+            if force or time.time() - self._themes_written >= 1:
+                self._themes_written = time.time()
+                self.write()
+
+    def theme_start(self, rel, size, target):
+        with self.lock:
+            now = int(time.time())
+            self.active[("themes", str(rel))] = {"phase": "themes", "rel": str(rel), "size": int(size), "target": str(target),
+                                                  "user": None, "source": None, "title": None, "since": now}
+            self.write()
+
+    def theme_done(self, rel, size, ok):
+        """Ein theme.mp3 ist auf dem Cache (ok) oder bleibt auf dem Array (nicht mehr geplant)."""
+        with self.lock:
+            t = self.data["themes"]
+            cur = self.active.pop(("themes", str(rel)), None)
+            if t is not None:
+                if ok:
+                    t["done_files"] += 1
+                    t["done_bytes"] += int(size)
+                else:
+                    t["files"] = max(t["done_files"], t["files"] - 1)
+                    t["bytes"] = max(t["done_bytes"], t["bytes"] - int(size))
+            if ok and cur is not None:
+                self.data["recent"] = (self.data["recent"] + [{"name": cur["rel"], "bytes": int(size), "from": "array", "to": "cache"}])[-self.RECENT_MAX:]
+            self.write()
+
+    def themes_end(self):
+        with self.lock:
+            t = self.data["themes"]
+            if t is not None and not t.get("ended"):
+                t["ended"] = int(time.time())
+            self.write()
+
     def drop_back(self, size, rel=None):
         """Eine Datei des Rückwegs bleibt auf dem Cache (Duplikat, Fehler, Anhalten): nicht mehr geplant."""
         with self.lock:
@@ -422,12 +480,16 @@ class Planner:
         if not exists_dir and not exists_file:
             log.warning(f"Datei nicht gefunden: {rel} (Mapping oder array_path/cache_path prüfen)")
             return []
+        # USO (themes): mit `themes` geht der theme.mp3 im Ordner des Items nicht mit dem Item – er gehört dem Sammler
+        # (bleibt auf dem Cache, zählt in keinem Budget, geht nie mit dem Item zurück)
+        def without_theme(files, folder):
+            return [f for f in files if not (self.cfg.get("themes") is True and f.name == THEME_NAME and f.parent == folder)]
         if exists_dir:
             # Ordner-Item (DVD/BluRay-Struktur): den Ordner selbst mitnehmen, nie den Elternordner
-            return loc.list_files(rel, recursive=True)
+            return without_theme(loc.list_files(rel, recursive=True), rel)
         parent = rel.parent
         if item.get("Type") == "Movie" and self.cfg["movie_mode"] == "folder" and not loc.is_library_root(parent):
-            return loc.list_files(parent, recursive=True)
+            return without_theme(loc.list_files(parent, recursive=True), parent)
         # Episoden, Filme in flacher Ablage, movie_mode=file: nur Dateien mit gleichem Basisnamen (mkv, srt, nfo …)
         stem = rel.stem
         files = [f for f in loc.list_files(parent, recursive=False) if f.name.startswith(stem)]
@@ -860,6 +922,294 @@ def give_back_order(kept, prepared_of=None):
     return out
 
 
+# --------------------------------------------------------------------------- USO: theme.mp3 bleibt auf dem Cache
+# Endungen, an denen ein Film-Path als Datei gilt (sein Ordner ist der Elternordner) – ohne sie entscheidet ein Blick, ob der
+# Path ein Ordner-Item ist (DVD/BluRay-Struktur: sein theme.mp3 liegt darin)
+VIDEO_EXT = {".mkv", ".mp4", ".m4v", ".avi", ".ts", ".m2ts", ".mts", ".iso", ".wmv", ".mov", ".mpg", ".mpeg", ".webm", ".flv",
+             ".vob", ".divx", ".ogm", ".3gp", ".rmvb", ".strm", ".img"}
+
+
+def theme_time(v):
+    """DateCreated (Emby/Jellyfin: ISO 8601 in UTC) oder addedAt (Plex: Sekunden) als Unix-Zeit; None, wenn nicht lesbar."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return int(v) if v > 0 else None
+    if isinstance(v, str) and len(v) >= 19:
+        try:
+            return int(datetime.datetime.strptime(v[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc).timestamp())
+        except ValueError:
+            return None
+    return None
+
+
+def theme_disk(loc, rel):
+    """Die Disk, auf der ein theme.mp3 liegt: Unraids system.LOCATION über /mnt/user (keine andere Disk wird gefragt),
+    sonst (kein shfs, die Tests) die echten Disk-Pfade."""
+    try:
+        name = os.getxattr(str(loc.user / rel), "system.LOCATION").decode("utf-8", "replace").strip("\x00 \n")
+        if re.fullmatch(r"disk\d+", name):
+            return name
+    except (OSError, AttributeError):
+        pass
+    disks = loc.on_disk(rel)
+    return Runner._disk_name(disks[0], loc) if disks else "?"
+
+
+class Themes:
+    """USO (2026-10-29, Jack Streamer «theme.mp3 stays on the pool»): Emby und Jellyfin spielen den theme.mp3 eines Titels,
+    sobald jemand in der Bibliothek auf ihm verweilt – er liegt im Ordner des Films bzw. der Serie auf dem Array und weckt
+    dessen Disk. Mit `themes` (true) holt NUR der scharfe Lauf (nie Dry-Run, Report, --release) jeden theme.mp3 jedes
+    Films und jeder Serie jedes Servers auf den Cache – wie das Befüllen (rsync, Quelle erst nach Grössenvergleich weg,
+    derselbe Freiplatz, MEDIACACHE_STOP zwischen zwei Dateien) –, als eigene Phase «themes» im Fortschritt.
+    Er steht dann für immer im eigenen Abschnitt der Exclude-Liste (THEMES_MARK): nie zurück nach Budget oder Rang, nie
+    durch --release (ausser MEDIACACHE_RELEASE_THEMES=1, Jacks Entlassung), nie in einem Budget.
+    Der Stand (THEMES_FILE): pro Item des Servers («Server|Id») [Path relativ, Ordner relativ, t, wann angeschaut, Bytes]
+    mit t = pool (auf dem Cache), none (kein theme.mp3 im Ordner), flat (Film flach im Bibliotheksordner: keiner von ihm),
+    wait (auf dem Array gefunden, noch nicht geholt). Der nächste Lauf schaut nur an, was neu ist (nicht im Stand, ein
+    anderer Path, DateCreated nach dem letzten Blick), was wartet und was nicht mehr auf dem Cache liegt – der erste liest
+    jeden Ordner einmal. Ein Item, das der Server nicht mehr nennt, fällt aus dem Stand (ein gelöschter Titel ist an beiden
+    Orten weg); ein Server, der nicht antwortet, behält seinen Stand. Nichts wird je gelöscht ausser der Quelle einer
+    geprüften Kopie; liegt ein theme.mp3 schon auf dem Cache, wird das Array gar nicht angeschaut."""
+
+    def __init__(self, runner):
+        self.r = runner
+        self.cfg = runner.cfg
+        self.on = self.cfg.get("themes") is True
+        self.state = (read_themes_state() or {}) if self.on else {}
+        self.items = dict(self.state.get("items") or {})
+        self.first = not self.state.get("done")
+        self.paths = set()          # Cache-Pfade der theme.mp3, die jetzt auf dem Cache liegen (der Abschnitt der Liste)
+        self.result = {"on": self.on}
+
+    @staticmethod
+    def _entry(v):
+        """Ein Eintrag des Stands nur in seiner Form, sonst None (ein älterer, ein kaputter: neu angeschaut)."""
+        if (isinstance(v, list) and len(v) == 5 and all(isinstance(x, str) for x in v[:3]) and v[2] in ("pool", "none", "flat", "wait")
+                and isinstance(v[3], int) and isinstance(v[4], int)):
+            return v
+        return None
+
+    def _folder(self, loc, item, look):
+        """(Path relativ, Ordner relativ, flach?) eines Items – None: nicht gemappt (oder absichtlich nicht gecacht).
+        look=False (Dry-Run, Report): ohne Blick auf eine Disk; ein Film-Path ohne Video-Endung gilt dann als Datei."""
+        raw = item.get("Path") or ""
+        rel = loc.rel_from_docker(raw) if raw else None
+        if rel is None or not rel.parts:
+            return None
+        if item.get("Type") == "Series":
+            return rel, rel, False
+        if rel.suffix.lower() in VIDEO_EXT:
+            return rel, rel.parent, loc.is_library_root(rel.parent)
+        if not look:
+            return rel, rel.parent, False        # ohne Blick nie «flach»: es kann ein Ordner-Item sein
+        folder = rel if (loc.on_cache(rel).is_dir() or loc.on_array(rel).is_dir()) else rel.parent
+        return rel, folder, folder != rel and loc.is_library_root(folder)
+
+    @staticmethod
+    def _due(key, rel, dc, loc, prev):
+        """Muss dieses Item angeschaut werden?"""
+        if prev is None or prev[0] != str(rel) or prev[2] == "wait":
+            return True
+        if dc is not None and dc > prev[3]:
+            return True
+        return prev[2] == "pool" and not loc.on_cache(Path(prev[1]) / THEME_NAME).is_file()
+
+    def scan(self):
+        """Die Items aller Server (nur ihre Datenbank) -> [(key, loc, api, item, rel, prev, dc)], was angeschaut werden muss;
+        was bleibt, wie es ist, gleich in den Stand. Gibt (fällig, Server ohne Antwort) zurück."""
+        due, failed, seen = [], [], set()
+        keep = {}
+        for inst in self.cfg["instances"]:
+            name = inst["servername"]
+            api = MediaServerApi.for_instance(inst, self.cfg["api_timeout"])
+            loc = Locations(self.cfg, inst["_mappings"], inst["_skip"])
+            try:
+                items = api.library_items()
+            except RuntimeError as e:
+                log.error(f"[{name}] Filme und Serien nicht abrufbar (theme.mp3): {e} – ihr Stand bleibt")
+                failed.append(name)
+                keep.update({k: v for k, v in self.items.items() if k.startswith(name + "|")})
+                continue
+            for item in items:
+                key = f"{name}|{item.get('Id')}"
+                if not item.get("Id") or key in seen or item.get("LocationType") == "Virtual":
+                    continue
+                seen.add(key)
+                prev = self._entry(self.items.get(key))
+                dc = theme_time(item.get("DateCreated"))
+                if not item.get("Path") and item.get("Type") == "Series":
+                    # Plex: der Ordner einer Serie nur, wenn er gebraucht wird (eine Abfrage je Serie)
+                    if prev is not None and prev[2] != "wait" and not (dc is not None and dc > prev[3]) \
+                            and (prev[2] != "pool" or loc.on_cache(Path(prev[1]) / THEME_NAME).is_file()):
+                        keep[key] = prev
+                        continue
+                    try:
+                        item = dict(item, Path=api.theme_folder(item))
+                    except RuntimeError as e:
+                        log.warning(f"[{name}] Ordner der Serie {item.get('Id')} nicht abrufbar: {e}")
+                        continue
+                got = self._folder(loc, item, False)
+                if got is None:
+                    continue
+                rel = got[0]
+                if got[2]:                      # flach im Bibliotheksordner (an der Endung erkannt): ohne Blick
+                    keep[key] = prev if prev is not None and prev[0] == str(rel) else [str(rel), str(got[1]), "flat", int(time.time()), 0]
+                    continue
+                if self._due(key, rel, dc, loc, prev):
+                    due.append((key, loc, item, rel, prev, dc))
+                else:
+                    keep[key] = prev
+        self.items = keep
+        return due, failed
+
+    def plan(self, due):
+        """Dry-Run und Report: was der nächste scharfe Lauf anschauen würde – keine Disk, kein Stand geschrieben."""
+        shares = sorted({str(rel.parts[0]) for _, _, _, rel, _, _ in due})
+        self.result.update(first=self.first, to_look=len(due), shares=shares,
+                           on_pool=self.state.get("on_pool") or {"files": 0, "bytes": 0})
+        if due:
+            log.info(f"theme.mp3: der nächste scharfe Lauf schaut {len(due)} Titel an"
+                     + (" – zum ersten Mal: jeder Ordner wird einmal gelesen (weckt jede Disk dieser Shares einmal)" if self.first else "")
+                     + f" ({', '.join(shares)})")
+
+    def collect(self, due, failed):
+        """Der scharfe Lauf: anschauen, dann holen; der Stand und self.paths danach."""
+        r = self.r
+        now = int(time.time())
+        looks = {}                 # Ordner-Pfad des theme.mp3 (str) -> (t, Bytes) – ein Ordner zweier Server einmal angeschaut
+        fetch = {}                 # theme rel (str) -> (loc, Bytes)
+        keys = {}                  # theme rel (str) -> [key, …]
+        looked = stopped = 0
+        r.progress.plan_themes(len(due))
+        r.status.phase("theme.mp3 (Array -> Cache)", len(due), 0)
+        for key, loc, item, _, prev, dc in sorted(due, key=lambda d: str(d[3])):
+            if r.halt():
+                stopped = len(due) - looked
+                break
+            rel, folder, flat = self._folder(loc, item, True)
+            looked += 1
+            if flat:
+                self.items[key] = [str(rel), str(folder), "flat", now, 0]
+                r.progress.theme_looked()
+                continue
+            trel = folder / THEME_NAME
+            k = str(trel)
+            if k not in looks:
+                cache_p = loc.on_cache(trel)
+                if cache_p.is_file():                  # schon auf dem Cache: das Array wird nicht angeschaut
+                    looks[k] = ("pool", cache_p.stat().st_size)
+                    self.paths.add(str(cache_p))
+                else:
+                    src = loc.on_array(trel)
+                    try:
+                        looks[k] = ("wait", src.stat().st_size) if src.is_file() else ("none", 0)
+                    except OSError:
+                        looks[k] = ("none", 0)
+                    if looks[k][0] == "wait":
+                        fetch[k] = (loc, looks[k][1])
+                r.progress.theme_looked(looks[k][1] if looks[k][0] == "wait" else None)
+            else:
+                r.progress.theme_looked()
+            t, size = looks[k]
+            self.items[key] = [str(rel), str(folder), t, now, size]
+            keys.setdefault(k, []).append(key)
+        r.progress.write()
+        fetched, fetched_bytes, disks, failed_n, waiting = 0, 0, set(), 0, 0
+        share_roots = {}
+        min_free = float(self.cfg["min_free_percent"])
+        for k, (loc, size) in sorted(fetch.items()):
+            trel = Path(k)
+            if r.halt():
+                r.progress.theme_done(trel, size, False)
+                waiting += 1
+                continue
+            ok, disk = self.fetch_one(loc, trel, size, share_roots, min_free)
+            if ok:
+                fetched += 1
+                fetched_bytes += size
+                if disk and disk != "?":
+                    disks.add(disk)
+                for key in keys.get(k, []):
+                    self.items[key][2] = "pool"
+            elif ok is None:
+                waiting += 1
+            else:
+                failed_n += 1
+        r.progress.themes_end()
+        done = not stopped and not r.stopped
+        on_pool = self._on_pool()
+        state = {"v": 1, "first": self.state.get("first") or now, "done": bool(self.state.get("done")) or (done and not failed),
+                 "collected": now if done else self.state.get("collected"), "items": self.items, "on_pool": on_pool}
+        write_themes_state(state)
+        self.result.update(first=self.first, to_look=len(due), looked=looked, fetched=fetched, fetched_bytes=fetched_bytes,
+                           disks=sorted(disks), waiting=waiting,
+                           failed=failed_n, servers_failed=failed, on_pool=on_pool, stopped=bool(stopped or r.stopped))
+        log.info(f"theme.mp3: {looked} von {len(due)} Titeln angeschaut, {fetched} geholt ({human(fetched_bytes)})"
+                 + (f" von {len(disks)} Disk(s): {', '.join(sorted(disks))}" if disks else "")
+                 + f" – auf dem Cache: {on_pool['files']} ({human(on_pool['bytes'])})")
+
+    def fetch_one(self, loc, trel, size, share_roots, min_free):
+        """Ein theme.mp3 Array -> Cache wie das Befüllen: True geholt, None wartet (Freiplatz, Share-Wurzel), False Fehler."""
+        r = self.r
+        src, dst = loc.on_array(trel), loc.on_cache(trel)
+        share = trel.parts[0]
+        if not ensure_share_root(self.cfg, loc.cache, loc.array, share, True, log, share_roots):
+            log.warning(f"[theme.mp3 WARTET: Share-Wurzel] {trel}")
+            r.progress.theme_done(trel, size, False)
+            return None, None
+        free_after = free_percent_after(loc.cache, size)
+        if (loc.cache / share).is_dir():
+            free_after = min(free_after, free_percent_after(loc.cache / share, size))
+        if free_after < min_free:
+            log.warning(f"[theme.mp3 WARTET: Freiplatz] {trel} – danach nur {free_after:.1f} % frei, Minimum {min_free:g} %")
+            r.progress.theme_done(trel, size, False)
+            return None, None
+        disk = theme_disk(loc, trel)
+        mkdir_like(dst.parent, src.parent)
+        r.progress.theme_start(trel, size, dst)
+        log.info(f"[theme.mp3 -> CACHE] {disk:<7} {human(size):>10}  {trel}")
+        rc, out = r.rsync_copy(r.rsync_cmd(src, dst), dst, trel, lambda *a: None)
+        if rc != 0:
+            log.error(VANISHED_SAID.format(rel=trel) if vanished(rc, out) else f"rsync-Fehler (Code {rc}) bei {trel}: {out.strip()}")
+            r.progress.theme_done(trel, size, False)
+            return False, None
+        try:
+            if dst.stat().st_size != src.stat().st_size:
+                log.error(f"Grösse stimmt nicht überein nach rsync, Quelle bleibt: {trel}")
+                r.progress.theme_done(trel, size, False)
+                return False, None
+            src.unlink()
+        except OSError as e:
+            log.error(f"Quelle konnte nicht gelöscht werden (Datei liegt jetzt doppelt!): {src} ({e})")
+            r.progress.theme_done(trel, size, False)
+            return False, None
+        self.paths.add(str(dst))           # in der Liste, auch wenn danach etwas schiefgeht
+        remove_empty_on_disk(loc, trel, disk, log)
+        remove_empty_parents(src.parent, loc.array, log)
+        r.progress.theme_done(trel, size, True)
+        return True, disk
+
+    def _on_pool(self):
+        """Was jetzt auf dem Cache liegt (jedes theme.mp3 einmal, auch wenn zwei Server es nennen): self.paths dazu."""
+        cache = Path(self.cfg["cache_path"])
+        sizes = {}
+        for v in self.items.values():
+            if v[2] == "pool":
+                sizes[str(cache / v[1] / THEME_NAME)] = v[4]
+        self.paths |= set(sizes)
+        return {"files": len(sizes), "bytes": sum(sizes.values())}
+
+    def off(self):
+        """Ausgeschaltet: der Stand fällt weg (eingeschaltet beginnt wieder der erste Sammellauf); was im Abschnitt stand,
+        bringt der Cleanup dieses Laufs zurück."""
+        try:
+            if themes_state_there():
+                write_themes_state({"v": 1, "items": {}, "off": int(time.time())})
+        except OSError as e:
+            log.warning(f"theme.mp3: Stand nicht zurückgesetzt ({e})")
+
+
 # --------------------------------------------------------------------------- Ausführung
 class Runner:
     def __init__(self, cfg, mode, user_filter=None, show_files=True):
@@ -898,6 +1248,10 @@ class Runner:
         self._lock = threading.Lock()  # Zähler und Löschen/Ordner-Aufräumen bei parallelen Kopien
         self._halt_lock = threading.Lock()   # USO: halt() aus mehreren Kopien zugleich
         self.status = Status(mode, log, enabled=self.run_mode, log_interval=cfg["status_log_interval"])
+        # USO (themes): der Sammler; was im Abschnitt der theme.mp3 steht, gibt kein Cleanup zurück – ausser
+        # ausgeschaltet oder --release mit MEDIACACHE_RELEASE_THEMES=1 (Jacks Entlassung mit «Filme zurückbringen»)
+        self.themes = Themes(self)
+        self.keep_themes = self.themes.on and not (mode == "release" and RELEASE_THEMES)
 
     def halt(self):
         """True, sobald ein Anhalten verlangt wurde (nur im scharfen Lauf; einmal ins Log). USO: thread-sicher – parallele
@@ -988,6 +1342,9 @@ class Runner:
                 continue
             path = Path(p)
             if not path.exists():
+                continue
+            if self.keep_themes and path.name == THEME_NAME:
+                protected.add(p)          # USO (themes): bleibt auf dem Cache, für immer
                 continue
             try:
                 rel = path.relative_to(loc.cache)
@@ -1107,6 +1464,8 @@ class Runner:
             if p in current:
                 continue
             path = Path(p)
+            if self.keep_themes and path.name == THEME_NAME:
+                continue                     # USO (themes): geht nie zurück
             try:
                 rel = path.relative_to(loc.cache)
                 if is_playing(rel, sessions):
@@ -1596,6 +1955,8 @@ class Runner:
                  f"(davon {sum(1 for f in files if f.on_cache)} bereits auf dem Cache)")
         if self.mode == "report":
             self.report(planner, self.user_filter, self.show_files)
+            self.collect_themes(True)
+            self.result["themes"] = self.themes.result
             return 0
         if not NO_FILL:
             # USO: ein Lauf, der nur freigibt (MEDIACACHE_NO_FILL), plant nichts zum Holen ein – sonst zählte sein Fortschritt
@@ -1625,6 +1986,9 @@ class Runner:
             else:
                 self.progress.phase("fill")
                 self.fill(loc, files, sessions)
+            # USO (themes): nach dem Befüllen – nur, wenn die Liste danach geschrieben wird (sonst stünde ein geholter
+            # theme.mp3 in keiner Liste)
+            self.collect_themes(not ((planner.errors or not sessions_ok) and not exclude_there()))
         finally:
             self.progress.phase("done")
             if self.run_mode:
@@ -1635,7 +1999,7 @@ class Runner:
                     log.warning("Planung unvollständig und noch keine Exclude-Liste – sie wird nicht angelegt; "
                                 "der nächste vollständige Lauf schreibt sie")
                 else:
-                    write_exclude(on_cache | protected)
+                    self.write_list(on_cache | protected)
         if self.run_mode:
             excl = read_exclude()
             log.info(f"Ergebnis Cleanup:  {self.moved_back} von {self.cleanup_planned} Dateien aufs Array verschoben "
@@ -1654,6 +2018,7 @@ class Runner:
         self.result["protected"] = len(protected)
         self.result["incomplete"] = bool(planner.errors or not sessions_ok)
         self.result["failed"] = dict(self.failed_files, files=self.failed_list, retried=self.retried)   # USO
+        self.result["themes"] = self.themes.result      # USO (themes)
         if self.office_pool:              # USO: was er hält, sein Boden, was zurückging (in Worten fürs Office), was wartet
             self.result["pool"] = {"keep": self.keep, "held": self.held, "waiting": self.waiting, "waiting_bytes": self.waiting_bytes}
             self.result["give_back"] = {"files": self.given_back, "bytes": self.given_back_bytes, "items": self.given_back_list}
@@ -1679,7 +2044,9 @@ class Runner:
             self.progress.phase("done")
             left = {p for p in previous if Path(p).exists()}
             if left or exclude_there():      # USO (2026-10-29): no list before — none made, not even an empty one
-                write_exclude(left)
+                self.write_list(left)
+            if not self.keep_themes:         # USO (themes): alles zurück (Jacks Entlassung) oder ausgeschaltet – der Stand weg
+                self.themes.off()
         log.info(f"Ergebnis Zurückbringen: {self.moved_back} von {self.cleanup_planned} Dateien aufs Array verschoben "
                  f"({human(self.moved_back_bytes)} von {human(self.to_array)})")
         log.info(f"Exclude-Liste: {len(left)} Einträge" + (" (liegen weiter auf dem Cache)" if left else ""))
@@ -1689,7 +2056,38 @@ class Runner:
         self.result["protected"] = len(left)
         self.result["incomplete"] = not sessions_ok
         self.result["failed"] = dict(self.failed_files, files=self.failed_list, retried=self.retried)   # USO
+        self.result["themes"] = dict(self.themes.result, kept=self.keep_themes)     # USO (themes)
         return 3 if self.stopped else 0
+
+    def write_list(self, paths):
+        """USO (themes): die Exclude-Liste – mit `themes` jeder theme.mp3 auf dem Cache in seinem eigenen Abschnitt (auch
+        einer, den ein Film früher mitbrachte), dazu, was der Sammler holte oder fand; ausgeschaltet: kein Abschnitt (was
+        dort stand und nicht zurückging, steht als gewöhnlicher Eintrag da, der nächste Lauf bringt es zurück)."""
+        listed = set(paths)
+        if not self.keep_themes:
+            write_exclude(listed)
+            return
+        listed |= {p for p in self.themes.paths if Path(p).is_file()}
+        write_exclude(listed, {p for p in listed if Path(p).name == THEME_NAME})
+
+    def collect_themes(self, list_written):
+        """USO (themes): Dry-Run und Report sagen, was der nächste scharfe Lauf anschauen würde (nur die Datenbank der
+        Server); der scharfe Lauf (nie --release, nie MEDIACACHE_NO_FILL, nie nach einem Anhalten) schaut an und holt.
+        Ausgeschaltet setzt ein scharfer Lauf den Stand zurück. Ein Fehler hier hält den Lauf nie auf."""
+        if not self.themes.on:
+            if self.mode == "run":
+                self.themes.off()
+            return
+        try:
+            if self.mode in ("dry", "report"):
+                self.themes.plan(self.themes.scan()[0])
+            elif self.mode == "run" and not NO_FILL and list_written and not self.halt():
+                due, failed = self.themes.scan()
+                self.progress.phase("themes")
+                self.themes.collect(due, failed)
+        except Exception as e:     # noqa: BLE001 – der Sammler ist ein Zusatz: der Lauf und seine Liste gehen vor
+            log.exception(f"theme.mp3: Sammeln abgebrochen ({e}) – der nächste Lauf versucht es wieder")
+            self.themes.result["error"] = True
 
 
 def main():

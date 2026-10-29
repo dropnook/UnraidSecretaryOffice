@@ -658,6 +658,22 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   is written anew from what of his shares lies on his pool (his look; his run and release before MediaCache reads it — an
   incomplete plan keeps «the list as it was»); can't be read → nothing written, his runs refuse `jack_list_lost`, Smart
   Mover leaves the shares naming it; the Team Lead's `list_lost` / `list_rebuilt`.
+  **«theme.mp3 stays on the pool»** (setup `themes`, a real boolean, off by default; 2026-10-29): MediaCache's collector
+  (`Themes` in mediacache_run.py) works only in a real run's fetch step (never a dry run, «What's next», `--release` or
+  the joint run's `--nofill` step, never after a stop, never when the list won't be written). It reads the media servers'
+  databases (Emby/Jellyfin `/Items` Movie,Series in pages; Plex's sections, a series' folder only when needed) and, for
+  every item due, the item's folder: the pool first (there: the array is never looked at), else the array (`/mnt/user0`);
+  a theme on the array is moved the fill's way (rsync, size check, source gone, free space, share root, `MEDIACACHE_STOP`),
+  its disk from `system.LOCATION`. Due: not in `mediacache_themes.json` (per server item `[path, folder, pool|none|flat|
+  wait, looked at, bytes]`), another path, `DateCreated` after its look, waiting, or no longer on the pool — the first
+  collection reads every folder once (said beforehand by «What's next»), later ones only what is new; a flat film (in the
+  library's root) has no theme of its own; a server that doesn't answer keeps its state, an item it no longer names
+  drops out. The themes stand in their own section of his list (after `# USO themes…`; comments are no entries for Smart
+  Mover, the gather, `jackListRead()`), never given back by the cleanup, the budget or `--release`, never in a person's
+  budget (theme.mp3 no longer travels with its film); the rebuild from the pool and the import keep the section; only
+  his let-go's release (`MEDIACACHE_RELEASE_THEMES=1`) or the switch off (the next run gives them back, the state reset)
+  brings them back. His page: the pool tile's «n themes on the pool · x MB» (the list's section), the run summary, a row
+  in the live panel (phase `themes`).
 * **`moverelli` — Ms. Moverelli.** Smart Mover beside Unraid's mover (7.3.2+; her ini, every value checked). **Unraid's own
   mover goes off with her setup:** refused unless the page's consent `mover_off: true` comes along; the old schedule noted once,
   **her let-go puts it back** through the same form (only `MOVERELLI_UNRAID_CRON` shapes). **Never a hand-written cron line.**

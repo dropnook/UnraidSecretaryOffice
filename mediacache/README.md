@@ -53,7 +53,19 @@
 >   that can't be asked) makes no exclude list where there was none — an empty one gave everything on the cache free to
 >   the office's mover; a release without a list makes none either (`exclude_there()`). Report and dry runs never write
 >   it; the first real run after them does.
-> * **With a progress or a stop file, Unraid's move binary gets one file per call** (the cleanup): so the progress names
+> * **theme.mp3 stays on the pool** (`themes`, only a real `true`; 2026-10-29, `Themes`): Emby and Jellyfin play a title's
+  theme.mp3 when someone lingers on it in the library — from the array that wakes its disk. A real run (never a dry run,
+  report, `--release`, `MEDIACACHE_NO_FILL`) asks every server for its films and series (`library_items()`: Emby/Jellyfin
+  `/Items` in pages, Plex's sections; `theme_folder()` a Plex series' folder when needed), looks at each due item's folder
+  (the cache first — there the array is not looked at) and moves a theme on the array to the cache the fill's way, as its
+  own progress phase `themes` (`titles`, `looked`, then files/bytes). The state `mediacache_themes.json` (per «server|Id»:
+  path, folder, pool/none/flat/wait, when, bytes) makes the next run look only at what is new (not known, another path,
+  `DateCreated` after its look), waits or left the cache. The themes stand in their own section of the exclude list (after
+  `THEMES_MARK`, a `#` comment — every reader skips comments), never given back by the cleanup or `--release` and not in
+  any budget (with `themes` the item's theme.mp3 no longer travels with its files); `MEDIACACHE_RELEASE_THEMES=1` (the
+  office: Jack's let-go) or the switch off brings them back (the state reset). Dry run and report say in the result's
+  `themes` how many folders the next real run reads (`first`: every one). Tests: `tests/test_themes.py`.
+* **With a progress or a stop file, Unraid's move binary gets one file per call** (the cleanup): so the progress names
 >   the file in work and «stop after this file» holds exactly. Standalone: one call for all, as before. (The target of a
 >   file the binary moves is unknown until it is done — the progress gives it empty, the panel shows no part inside it.)
 >
@@ -71,7 +83,9 @@
 > * `MEDIACACHE_RSYNC_ARGS` = `-aAX --numeric-ids` (its default): rsync runs as root — no option from a settings file.
 > * `MEDIACACHE_GIVE_BACK_FREE=1`: `min_free_percent` is a limit the run gives back to, not only one it stops filling at;
 >   with Ms. Moverelli the office sets `min_free_percent` = 100 − her limit X and `MEDIACACHE_WATCHED_ONLY=1`.
-> * `MEDIACACHE_LIVE_STATUS` = a file in RAM: MediaCache's live `mediacache_status.json` would be rewritten every 2 s on
+> * `themes` from Jack's setup switch «theme.mp3 stays on the pool» (off by default); `MEDIACACHE_RELEASE_THEMES=1` only for
+  the release of his let-go with «bring the films back».
+* `MEDIACACHE_LIVE_STATUS` = a file in RAM: MediaCache's live `mediacache_status.json` would be rewritten every 2 s on
 >   the pool (the data folder lies there); the office never reads it.
 > * Budget mode always (`cache_budget` set by Jack's setup) — a choice of the setup, not a change of the code.
 
