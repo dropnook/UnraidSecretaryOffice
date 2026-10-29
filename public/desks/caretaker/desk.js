@@ -40,6 +40,7 @@ Office.ctPartnerLoaded = () => {
     tookNet(usonet) { if (state) state.usonet = usonet; if (view) Office.keepInPlace(null, render); },     // the USO network's card
     reload: () => load(true),
     peek: () => load(false),          // his state as kept (the cards anew after a partner job: partnerRescanAsk())
+    state: () => state,               // his state as the page has it (a dialog looks its card up again after a fresh look)
   });
   if (view) Office.keepInPlace(null, render);
 };

@@ -16,7 +16,7 @@ const { el, fmt } = Office;
 const TRUST = ['mine', 'family', 'friend'];
 const DEFAULT_RETENTION = '7 4 6';
 
-let ctx = null;         // from desk.js: { took(j), reload(), peek() }
+let ctx = null;         // from desk.js: { took(j), reload(), peek(), state() }
 let ready = null;       // what each side of a pairing needs here (the agent's `ready`: Mr. Backupsy hired and set up, Mr. Restori hired)
 
 const unitText = (u) => (u === 'place' ? T('partner.unit_place')
@@ -438,6 +438,65 @@ function twinLine(x, n) {
   return d;
 }
 
+/**
+ * A pair left over from an earlier pairing (2026-10-29): not heard since a newer pair of the same address or server key
+ * was made (partnerSupersededBy()) — said, its silence no longer told, «Replace it by …» (the newer one stays as it is)
+ */
+function supersededLine(x) {
+  const n = x.superseded;
+  const d = el('div', 'row-detail ct-superseded');
+  d.append(T('partner.superseded_line', { newer: n.id, name: n.name, address: n.address, when: fmt.date(n.paired) }), ' ');
+  const b = el('button', 'btn small plain', T('partner.replace_by', { newer: n.id }));
+  b.type = 'button';
+  b.disabled = busyOff();
+  b.onclick = () => replaceDialog(x);
+  d.appendChild(b);
+  return d;
+}
+
+async function replaceDialog(x) {
+  if (!(await Office.freshState(ID))) return;
+  // looked up again by its id: still left over, by the same newer pair
+  const st = ctx ? ctx.state() : null;
+  const now = (((st || {}).partners || {}).pairs || []).find((y) => y.id === x.id);
+  const n = now && now.superseded;
+  if (!n) return;
+  Office.dialog({
+    title: T('partner.replace_title', { id: x.id, newer: n.id }),
+    body: el('p', '', T('partner.replace_text', { id: x.id, newer: n.id, name: x.name })),
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('partner.replace_go'), kind: 'danger', act: async () => {
+      const j = await Office.api.post(`${ID}.partner_replace`, { id: x.id, by: n.id, confirm: true });
+      if (!took(j)) return false;
+      Office.toast(T('partner.replaced', { id: x.id, newer: n.id }));
+      return true;
+    } }],
+  });
+}
+
+/**
+ * The pairs here of the same server (the same address or server key, partnerKnownAs()) when pairing anew (2026-10-29,
+ * the parkplatz: both stayed, the old one silent for ever): each said, «replace» ticked — unticked while a restore ticket
+ * given for it is open (replacing ends it). {node, value(): the ids ticked} or null
+ */
+function knownPart(known) {
+  if (!(known || []).length) return null;
+  const node = el('div', 'ct-known');
+  const ticks = known.map((k) => {
+    node.appendChild(el('p', 'callout warn', T('partner.known', { id: k.id, name: k.name, address: `${k.address}:${k.port}`, when: fmt.date(k.paired),
+      heard: k.last_heard ? T('partner.known_heard', { when: fmt.relative(k.last_heard) }) : T('partner.known_never'), how: T('partner.known_why.' + k.why) })));
+    (k.tickets || []).forEach((t) => node.appendChild(el('p', 'callout warn', T('partner.known_ticket', { id: k.id, until: fmt.date(t.expires) }))));
+    const tk = tick(T('partner.known_replace', { id: k.id }), !(k.tickets || []).length);
+    node.appendChild(tk.node);
+    return [k, tk];
+  });
+  node.appendChild(el('p', 'role', T('partner.known_keep')));
+  return { node, value: () => ticks.filter(([, tk]) => tk.cb.checked).map(([k]) => k.id) };
+}
+
+/** What the confirm says of the pairs this pairing replaces */
+const replacesLines = (ids, known) => (ids || []).map((id) => (known || []).find((k) => k.id === id)).filter(Boolean)
+  .map((k) => el('p', 'callout', T('partner.replaces', { id: k.id, name: k.name, address: `${k.address}:${k.port}` })));
+
 function card(x, twins = 1) {
   const r = Office.place(`partner:${x.id}`, el('div', 'row nocheck ct-partner'));
   const main = el('div', 'row-main');
@@ -445,6 +504,7 @@ function card(x, twins = 1) {
   const meta = el('div', 'row-meta');
   meta.appendChild(stateChip(x));
   if (twins > 1) meta.appendChild(chip('warn', T('partner.twin', { n: twins, name: x.name }), T('partner.twin_tip', { name: x.name })));
+  if (x.superseded) meta.appendChild(chip('warn', T('partner.superseded'), T('partner.superseded_tip')));
   if (x.asking) { const a = el('span', 'ct-asking'); a.append(el('span', 'spin'), ' ', T('partner.asking', { name: x.name })); meta.appendChild(a); }
   if (x.array === 'stopped') meta.appendChild(chip('warn', x.night ? T('partner.night') : T('partner.array_stopped'), T('partner.array_stopped_tip')));
   // the trust a pair was made with (up to 1.71.0 a question; since then every new pair is «mine»): shown only when it says something
@@ -456,6 +516,7 @@ function card(x, twins = 1) {
   if (x.version) meta.appendChild(el('span', '', T('partner.version', { version: x.version })));
   main.appendChild(meta);
   if (twins > 1) main.appendChild(twinLine(x, twins));
+  if (x.superseded) main.appendChild(supersededLine(x));
   const swap = switchHint(x);
   if (swap) main.appendChild(swap);
 
@@ -1225,6 +1286,8 @@ function acceptSettings(block, j) {
   const box = el('div');
   box.appendChild(el('p', '', T('partner.accept_look', { name: p.name })));
   box.appendChild(partnerFacts(p));
+  const known = knownPart(j.known);
+  if (known) box.appendChild(known.node);
   if (p.public) box.appendChild(el('p', 'callout warn', T('partner.public_tip')));
   // in the USO network (or joining it) this server always answers with its own USO address and the office's door there,
   // nothing to choose (2026-10-23: until 1.71.1 only when the block's address was of a tailnet — else the LAN, and the
@@ -1262,6 +1325,7 @@ function acceptSettings(block, j) {
       if (addr.other()) req.other = true;
       const theirs = outside ? outside.value() : '';
       if (theirs) req.their_address = theirs;
+      if (known && known.value().length) req.replace = known.value();
       if (!req.receive && !req.send_too) { Office.toast(T('errors.partner_nothing'), true); return false; }
       acceptConfirm(req, j);
       return true;
@@ -1283,6 +1347,7 @@ function acceptConfirm(req, j) {
     box.appendChild(el('p', '', T('partner.no_line', { name: p.name })));
   }
   if (req.send_too) box.appendChild(el('p', '', T('partner.my_key_made', { name: p.name })));
+  replacesLines(req.replace, j.known).forEach((n) => box.appendChild(n));
   Office.dialog({
     title: T('partner.confirm_title', { name: p.name }),
     body: box,
@@ -1347,6 +1412,8 @@ function finishCompare(block, j) {
       : T('partner.they_keep_nothing')],
     [T('partner.f_sends'), p.key ? (p.units && p.units.length ? T('partner.f_sends_units', { list: unitsText(p.units) }) : T('partner.f_sends_levels')) : T('partner.nothing')],
   ]));
+  const known = knownPart(j.known);
+  if (known) box.appendChild(known.node);
   if (p.public) box.appendChild(el('p', 'callout warn', T('partner.public_tip')));
   // its answer brought an address outside the USO network while this server is in it: said, its USO address offered (2026-10-23)
   const outside = outsideNote(p, j.usonet);
@@ -1382,6 +1449,7 @@ function finishCompare(block, j) {
         const req = { step: 'do', block, confirm: true, code: j.code, receive: keep ? recv.value() : null };
         const theirs = outside ? outside.value() : '';
         if (theirs) req.their_address = theirs;
+        if (known && known.value().length) req.replace = known.value();
         const r = await Office.api.post(`${ID}.partner_finish`, req);
         if (!took(r)) return false;
         const a = r.ask;

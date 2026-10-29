@@ -442,7 +442,13 @@ code** — the same code on both pages means nobody changed a block on its way; 
 then writes one line into `authorized_keys`: a key that can only reach the office's **door** (`restrict`, `from=` the
 partner's address, a forced command — `agent/partner-door.php`): it may receive into its own datasets, list and send
 back its own copies and say how the office is; it can't browse the server, run a command or delete the history kept of
-its copies. The way is always SSH; the copies at the partner are plain (for a friend, Kopia is the encrypted way).
+its copies. The door's verbs (the head of `agent/partner-door.php`): `ping`, `status`, `quota`, `list <unit>` (the snapshots
+kept of that unit), `list` alone, `resume`, `recv`, `offer` (an older sender's), `send-back`. Since 1.75 the bare `list`
+answers `{"ok":true,"units":[…]}`, the units the caller may read now: a pair's are every unit received of it
+(`received/<id>.json`); a restore ticket's are what its pair holds now plus the units it was given for, so a unit that
+arrived after the ticket was written comes along (the ticket's own `units` stay as written). An older door refuses the
+bare form as malformed; the caller keeps to what it knew (Mr. Restori's look: the ticket's units).
+The way is always SSH; the copies at the partner are plain (for a friend, Kopia is the encrypted way).
 Units are datasets only: a share that is a dataset of its own, a VM with one, the backup place. **The Team Lead only
 pairs**: the receiver's consent is the pairing — its rules (pool, quota, retention, wake) at *Accept a
 partner…*, its door takes any unit of the pair up to the quota, at any time; what a server sends is the level
@@ -465,6 +471,18 @@ gone server's copies — and Mr. Restori's *Onto a new server* pulls the backup 
 The Night Watchman knows the door's line and its refusals, Ms. Snapshotini keeps her hands off a partner's copies, Ms.
 Dustdevil puts away what an ended partnership left, Ms. Protocolli reads the door's log. The security of the door:
 [HARDENING.md](../HARDENING.md).
+
+**Pairing anew:** the accept and finish looks name the pairs of the same address or server key
+(`partnerKnownAs()`); `replace` in the do step ends those after the new pair is stored (`partnerReplace()`: their
+`uso-partner:` line and the `uso-ticket:` lines of tickets given for them out, key and known_hosts off the flash, the
+record whole into `data/partner/replaced.json` and into `ended.json`; `received/<id>.json`, the datasets and the copies
+there never touched). A pair not heard since a newer one of the same partner was made (`partnerSupersededBy()`) is not
+told as silent; the Team Lead's check says `partner_superseded`, its card `partner_replace`. **A gone partner of
+namesakes:** the engine names partners by id and hands a gone pair's units to the first pair of its address or key, or
+to the only pair of its name (`partner_anew_match`); when several pairs this office sends to carry the name,
+`partnerAnewChoice()` lists them, the setup's plan carries `partner_choose` (`backupPlanPartnerChoice()`), the page
+asks which (or none), puts that id into the units' partner lists and holds Apply until each is chosen — the decisions
+carry the id, which the engine keeps as it is paired.
 
 ## The USO network (the office's own Tailscale node)
 

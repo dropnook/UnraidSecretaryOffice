@@ -3258,6 +3258,7 @@ function journalRow(r) {
   if (r.finished && r.started) meta.appendChild(el('span', '', fmt.duration(Math.max(60, r.finished - r.started))));
   if (r.putback) meta.appendChild(chip(T('j.put_back', { result: T('jr.' + r.putback.result) }), 'quiet', T('j.put_back_hint')));
   if (r.failed) meta.appendChild(el('span', 'role', T('j.failed_at', { n: r.failed.n })));
+  if (r.unlisted) meta.appendChild(chip(T('j.unlisted_chip'), 'warn', T('j.unlisted_chip_tip', { share: r.unlisted.share })));
   return unfoldingRow('j:' + r.id, journalTitle(r), meta, () => journalDetail(r));
 }
 
@@ -3296,6 +3297,7 @@ function journalDetail(r) {
     if (aside.length) box.appendChild(listBlock(T('rd.aside'), aside.map((a) => { const x = el('span'); x.append(copyCode(a.to), ' ← ', a.from.replace(/^(db|vm):/, '')); return x; })));
     const pb = r.putback && ['ok', 'warnings'].includes(r.putback.result) ? r.putback : null;
     if (pb) box.appendChild(putBackView(pb));     // undone: what «Afterwards» said is over — where the restored state went instead
+    if (pb && r.unlisted) box.appendChild(unlistedPart(r.unlisted, r.id));
     else if ((j.after || r.after || []).length && ['ok', 'warnings'].includes(j.result || r.result)) box.appendChild(listBlock(T('rd.after'), (j.after || r.after).map((a) => T(a.key, nice(a.params)))));
     // staged in Kopia's restore folder, or pulled beside: each folder it holds to its place, from here (gaps 9 and 8)
     const places = !live && !pb ? placesPart(r) : null;
@@ -3339,11 +3341,55 @@ function journalDetail(r) {
   return box;
 }
 
+/**
+ * A swap put back that left its share no folder (2026-10-29): Unraid lists a share only while a folder of it exists —
+ * said plainly, and where it is safe the share's empty folder in one click (an empty dataset on its ZFS pool, as
+ * Unraid makes one; never a share made by me — its settings are the user's and stay); else why not
+ */
+function unlistedPart(u, id) {
+  const part = el('div', 'rs-pv-part');
+  part.appendChild(el('p', 'callout warn', T('j.unlisted', { share: u.share })));
+  if (!u.can) {
+    part.appendChild(el('p', 'role', T('j.unlisted_why.' + (u.why || 'there'), { share: u.share, pool: u.pool || '', folder: u.folder || '' })));
+    return part;
+  }
+  const p = el('div', 'rs-act');
+  const b = button(T('j.unlisted_make'), 'small', () => unlistedDialog(u.share, id));
+  b.dataset.own = '1';
+  b.disabled = !canRestore();
+  p.appendChild(b);
+  part.appendChild(p);
+  return part;
+}
+
+async function unlistedDialog(share, id) {
+  if (!(await Office.freshState(ID))) return;
+  // looked up again by the entry's id: still off the list, still offered
+  const r = ((state && state.restores) || []).find((x) => x.id === id);
+  const u = r && r.unlisted && r.unlisted.share === share ? r.unlisted : null;
+  if (!u || !u.can) { await load(true); return; }          // listed again, or no longer safe: the entry says so now
+  Office.dialog({
+    title: T('j.unlisted_make_title', { share }),
+    body: el('p', '', T('j.unlisted_make_text', { share, folder: u.folder })),
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('j.unlisted_make_go'), kind: '', act: async () => {
+        const j = await Office.api.post(`${ID}.share_folder`, { share });
+        if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); await load(true); return true; }
+        Office.toast(T('j.unlisted_made', { share, folder: j.folder }));
+        journals.delete(id);
+        await load(true);
+        return true;
+      } },
+    ],
+  });
+}
+
 /** What «Put back» does, said beside it — a libvirt restore whose build failed swapped nothing: only its leftover copy goes aside (review M4) */
 function putbackHint(r) {
   if (r.kind === 'partner') return 'j.drop_hint';
   if (r.kind === 'partner_start') return 'j.start_putback_hint';
-  if (r.kind === 'partner_swap') return 'j.swap_putback_hint';
+  if (r.kind === 'partner_swap') return r.target && r.target.fresh ? 'j.swap_putback_hint_fresh' : 'j.swap_putback_hint';
   if (r.kind === 'libvirt') return (r.aside || []).length ? 'j.libvirt_putback_hint' : 'j.libvirt_leftover_hint';
   return 'j.putback_hint';
 }

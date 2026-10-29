@@ -364,6 +364,7 @@ function backupPartners(array $settings, array $history, ?array $status = null, 
         $p['current'] = $cur && ($cur['id'] ?? '') === $p['id'] ? backupPartnerCurrent($status, $p['id']) : null;
         $p['ended'] = false;
         $p['anew'] = null;
+        $p['choose'] = [];
         $p['apply'] = false;
         $out[] = $p;
     }
@@ -375,6 +376,7 @@ function backupPartners(array $settings, array $history, ?array $status = null, 
         if (isset($ended[$p['id']])) {
             $p['ended'] = true;
             $p['anew'] = $ended[$p['id']]['anew'];
+            $p['choose'] = $ended[$p['id']]['choose'] ?? [];       // several pairs of its name: the setup asks which (2026-10-29)
             $p['apply'] = true;
         }
     }
@@ -386,7 +388,7 @@ function backupPartners(array $settings, array $history, ?array $status = null, 
             $out[$i]['from'] = $e['from'];
         } else {
             $out[] = ['id' => $e['id'], 'name' => $e['name'], 'address' => '', 'port' => 22, 'rate_mbit' => 0, 'units' => [], 'last' => null, 'unit_last' => (object) [],
-                      'current' => null, 'ended' => false, 'anew' => null, 'apply' => true, 'from' => $e['from']];
+                      'current' => null, 'ended' => false, 'anew' => null, 'choose' => [], 'apply' => true, 'from' => $e['from']];
         }
     }
     return $out;
@@ -3275,6 +3277,7 @@ function backupSetupGet(): array
         // the units the pairs sent up to 1.59 (the step partner-simple): proposed at «local + partner» until applied
         $plan['migrated'] = function_exists('partnerMigratedPending') ? (object) partnerMigratedPending() : (object) [];
         $plan['declined'] = (object) backupDeclined();     // 1.60.1: the proposals the user declined, with the value proposed
+        $plan = backupPlanPartnerChoice($plan);
     }
     if (is_array($run)) {
         $run['notes'] = backupSetupNotes($run['messages'] ?? null);
@@ -3285,6 +3288,37 @@ function backupSetupGet(): array
         'run'    => $run,
         'plan'   => $plan,
     ];
+}
+
+/**
+ * 2026-10-29 (test4: five pairs called «Tower»): a gone partner's units and the pairs of its name. The engine names a
+ * partner by its id (settings.ini [share|vm|app] partner = <id>, [general] partner_place) and hands a gone pair's units
+ * to the one of the same address or key, or to the only pair of its name (setup.sh step_partners, partner_anew_match) —
+ * with two of the name it may take the first of the same address, or none, and says only «paired anew as Tower». So the
+ * office asks: `partner_choose` lists per gone pair whose name several pairs carry (partnerApplyPending()'s `choose`)
+ * its id, name, address, units and the candidates (id, name, address, port, paired, last_heard, pick: the engine's
+ * guess); the page holds the Apply until the user chose and puts the chosen id into the units' partner lists, which
+ * Apply sends as decisions (the engine keeps an id that is paired). The plan's partners get `paired` and `last_heard`
+ * too (what tells namesakes apart on the page). Pure but for the Team Lead's files.
+ */
+function backupPlanPartnerChoice(array $plan, ?array $wait = null, ?array $pairs = null): array
+{
+    if (!function_exists('partnerApplyPending') || !is_array($plan['partners'] ?? null)) {
+        return $plan;
+    }
+    $pairs ??= @lstat(partnerDir() . '/pairs.json') !== false ? partnerPairs() : [];
+    $byId = array_column($pairs, null, 'id');
+    foreach ($plan['partners'] as &$p) {
+        if (is_array($p) && is_string($p['id'] ?? null) && isset($byId[$p['id']])) {
+            $p['paired'] = $byId[$p['id']]['paired'];
+            $p['last_heard'] = $byId[$p['id']]['last_heard'];
+        }
+    }
+    unset($p);
+    $wait ??= partnerApplyPending(null, $pairs ?: null);
+    $plan['partner_choose'] = array_values(array_map(fn ($e) => ['id' => $e['id'], 'name' => $e['name'], 'address' => $e['address'] ?? '', 'units' => $e['units'],
+        'candidates' => $e['choose']], array_filter($wait['ended'] ?? [], fn ($e) => !empty($e['choose']) && !empty($e['units']))));
+    return $plan;
 }
 
 /**

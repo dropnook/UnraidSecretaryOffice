@@ -548,7 +548,8 @@ function rspTarget(array $src, string $unit, ?string $pool, string $stamp, array
         }
         // why not beside its place, said before the pull: the share lives elsewhere, or its folder there holds something
         $out['notes'][] = match ($fresh) {
-            'missing' => ['key' => 'note.partner_share_missing', 'params' => ['share' => $share]],
+            'missing' => is_array($shares) && rspShareUnlisted($share, $shares) !== null ? ['key' => 'note.partner_share_unlisted', 'params' => ['share' => $share]]
+                : ['key' => 'note.partner_share_missing', 'params' => ['share' => $share]],
             'folder'  => ['key' => 'note.partner_share_folder', 'params' => ['share' => $share, 'pool' => $pool]],
             default   => ['key' => 'note.partner_share_elsewhere', 'params' => ['share' => $share]],
         };
@@ -597,6 +598,90 @@ function rspShareFresh(string $share, string $pool, array $ini): ?string
         return 'elsewhere';
     }
     return rspPlaceEmpty(rspPoolRoot() . "/$pool/$share") ? null : 'folder';
+}
+
+/** Unraid's share settings on the flash (tests: their stand-in) */
+function rspSharesCfgDir(): string
+{
+    return $GLOBALS['rs']['shares_cfg'] ?? '/boot/config/shares';
+}
+
+/**
+ * A share Unraid took off its list (2026-10-29, the drill's «Put back» of a share swapped in fresh): Unraid lists a
+ * share only while a folder of it exists on a disk or pool. A put back that leaves none (the pull was its only folder)
+ * drops it from shares.ini within seconds; its settings (/boot/config/shares/<share>.cfg) stay, and it is listed again
+ * as soon as a folder exists — seen on test3 (7.4.0-rc.1) for a plain folder and a dataset alike. Null while it is
+ * listed, when shares.ini can't be read ($ini: as read already), or when the flash has no settings of it (then it is no
+ * share at all).
+ * Else {share, pool (its first pool; null: the array), folder, can, why}: `can` — the one-click «Make its empty folder»
+ * (rspShareFolder()): the first pool is a ZFS pool, awake, putting its datasets under /mnt/<pool>, and nothing of the
+ * share is there (no dataset, no folder); `why` says what stands against it (array, not_zfs, asleep, mountpoint, there).
+ */
+function rspShareUnlisted(string $share, ?array $ini = null): ?array
+{
+    $ini ??= rspSharesHere();
+    $cfgFile = rspSharesCfgDir() . "/$share.cfg";
+    if (!preg_match('/^[\w .-]{1,200}$/D', $share) || $ini === null || isset($ini[$share]) || is_link($cfgFile) || !is_file($cfgFile)) {
+        return null;
+    }
+    $cfg = readCfg($cfgFile);
+    $pool = rspSharePool(['useCache' => (string) ($cfg['shareUseCache'] ?? 'no'), 'cachePool' => (string) ($cfg['shareCachePool'] ?? '')]);
+    $out = ['share' => $share, 'pool' => $pool, 'folder' => $pool !== null ? "/mnt/$pool/$share" : null, 'can' => false, 'why' => null];
+    if ($pool === null) {
+        return array_replace($out, ['why' => 'array']);
+    }
+    if (!rspDsExists($pool)) {
+        return array_replace($out, ['why' => 'not_zfs']);
+    }
+    if (baseAsleep($pool, rspAsleepDisks())) {
+        return array_replace($out, ['why' => 'asleep']);            // never woken for it: said, the click waits
+    }
+    if ((rspDsProp($pool, 'mountpoint')['value'] ?? null) !== "/mnt/$pool") {
+        return array_replace($out, ['why' => 'mountpoint']);
+    }
+    $place = rspPoolRoot() . "/$pool/$share";
+    if (rspDsExists("$pool/$share") || @lstat($place) !== false) {
+        return array_replace($out, ['why' => 'there']);
+    }
+    return array_replace($out, ['can' => true]);
+}
+
+/** A swap's row (rsJournals()): its share off Unraid's list once the swap is put back (rspShareUnlisted()), else null */
+function rspSwapUnlisted(array $row): ?array
+{
+    $share = (string) ($row['target']['share'] ?? '');
+    return $share !== '' && in_array($row['putback']['result'] ?? '', ['ok', 'warnings'], true) ? rspShareUnlisted($share) : null;
+}
+
+/**
+ * «Make its empty folder» of a share Unraid took off its list (rspShareUnlisted()): the share's dataset on its first
+ * pool, empty, made as Unraid makes one (`zfs create <pool>/<share>`, its mountpoint from the pool), its root
+ * nobody:users 0777 as Unraid's own share roots are — Unraid lists the share again at once, with its settings. Not a
+ * share made by the office: the share is the user's (its .cfg, never written here); only its folder comes back.
+ * Looked at again right before; refused when anything is there or the pool sleeps.
+ */
+function rspShareFolder(array $r): array
+{
+    $share = textField($r, 'share');
+    $u = rspShareUnlisted($share);
+    if ($u === null) {
+        throw new Problem('restore_share_listed', ['share' => $share]);
+    }
+    if (!$u['can']) {
+        throw new Problem('restore_share_folder_not', ['share' => $share, 'pool' => (string) $u['pool']]);
+    }
+    $ds = "{$u['pool']}/$share";
+    [$exit, , $err] = run([rspZfs(), 'create', $ds], 60);
+    if ($exit !== 0 || rspDsGet($ds, 'mounted') !== 'yes' || rspDsGet($ds, 'mountpoint') !== $u['folder']) {
+        logLine("Mr. Restori: the empty folder of the share $share ($ds) could not be made: " . trim((string) $err));
+        throw new Problem('restore_share_folder_failed', ['share' => $share, 'path' => (string) $u['folder']]);
+    }
+    $place = rspPoolRoot() . "/{$u['pool']}/$share";
+    @chown($place, 99);
+    @chgrp($place, 100);
+    @chmod($place, 0777);
+    logLine("Mr. Restori: the share $share had no folder (off Unraid's list) — its empty dataset $ds made, nobody:users 0777; its settings untouched");
+    return ['ok' => true, 'share' => $share, 'folder' => $u['folder']];
 }
 
 /** Nothing at a path, or an empty plain folder there (never a link) */
@@ -2634,6 +2719,7 @@ function rsPlanPartnerSwap(array $r, string $stamp): array
             return $plan;
         }
     }
+    $plan['target']['fresh'] = $fresh;         // its put back leaves the share no folder here (rspSwapUnlisted())
     $other = rspSwapStanding($do, $id);
     if ($other !== null) {
         $plan['blockers'][] = ['key' => 'restore_swap_other', 'params' => ['share' => $share, 'entry' => $other]];
