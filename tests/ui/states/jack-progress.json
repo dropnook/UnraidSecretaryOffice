@@ -15,7 +15,8 @@
    "eta": 0,
    "ended": true,
    "here": false,
-   "took": 80
+   "took": 80,
+   "in_flight": []
   },
   "users": [
    {
@@ -27,7 +28,17 @@
     "done_bytes": 5100000000,
     "eta": 3480,
     "here": true,
-    "took": null
+    "took": null,
+    "in_flight": [
+     {
+      "phase": "fill",
+      "rel": "Serien/Velotour Bodensee 2019/Season 01/Velotour Bodensee 2019 - S01E05 - Etappe Konstanz.mkv",
+      "size": 2600000000,
+      "done": 1150000000,
+      "source": "next_episode",
+      "title": "Velotour Bodensee 2019 – S01E05 Etappe Konstanz"
+     }
+    ]
    },
    {
     "name": "Kids",
@@ -37,8 +48,18 @@
     "done_files": 0,
     "done_bytes": 0,
     "eta": 1560,
-    "here": false,
-    "took": null
+    "here": true,
+    "took": null,
+    "in_flight": [
+     {
+      "phase": "fill",
+      "rel": "Filme/Zeltlager Pfingsten 2004/Zeltlager Pfingsten 2004.mkv",
+      "size": 1700000000,
+      "done": 420000000,
+      "source": "resume",
+      "title": "Zeltlager Pfingsten 2004"
+     }
+    ]
    },
    {
     "name": "Grandma",
@@ -49,14 +70,15 @@
     "done_bytes": 4100000000,
     "eta": 0,
     "took": 1950,
-    "here": false
+    "here": false,
+    "in_flight": []
    }
   ],
   "total": {
    "files": 17,
    "bytes": 29600000000,
    "done_files": 8,
-   "done_bytes": 19000000000,
+   "done_bytes": 19420000000,
    "eta": 5040,
    "running": 420
   },
@@ -68,7 +90,25 @@
    "done": 1150000000,
    "source": "next_episode",
    "title": "Velotour Bodensee 2019 – S01E05 Etappe Konstanz"
-  }
+  },
+  "files": [
+   {
+    "phase": "fill",
+    "rel": "Serien/Velotour Bodensee 2019/Season 01/Velotour Bodensee 2019 - S01E05 - Etappe Konstanz.mkv",
+    "size": 2600000000,
+    "done": 1150000000,
+    "source": "next_episode",
+    "title": "Velotour Bodensee 2019 – S01E05 Etappe Konstanz"
+   },
+   {
+    "phase": "fill",
+    "rel": "Filme/Zeltlager Pfingsten 2004/Zeltlager Pfingsten 2004.mkv",
+    "size": 1700000000,
+    "done": 420000000,
+    "source": "resume",
+    "title": "Zeltlager Pfingsten 2004"
+   }
+  ]
  },
  "stopping": null,
  "night": {

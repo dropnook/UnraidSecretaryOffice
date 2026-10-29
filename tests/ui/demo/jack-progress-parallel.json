@@ -1,0 +1,130 @@
+{
+ "time": 1791900000,
+ "running": true,
+ "mode": "run",
+ "real": true,
+ "progress": {
+  "mode": "run",
+  "phase": "fill",
+  "started": 1791899640,
+  "back": {
+   "files": 4,
+   "bytes": 8160437862,
+   "done_files": 4,
+   "done_bytes": 8160437862,
+   "eta": 0,
+   "ended": true,
+   "here": false,
+   "took": 80,
+   "in_flight": []
+  },
+  "users": [
+   {
+    "name": "Mutter",
+    "server": "FamilienServer",
+    "files": 5,
+    "bytes": 13314398618,
+    "done_files": 5,
+    "done_bytes": 13314398618,
+    "eta": 0,
+    "here": false,
+    "took": 75,
+    "in_flight": []
+   },
+   {
+    "name": "Vater",
+    "server": "FamilienServer",
+    "files": 3,
+    "bytes": 31460635443,
+    "done_files": 1,
+    "done_bytes": 5948529705,
+    "eta": 132,
+    "here": true,
+    "took": null,
+    "in_flight": [
+     {
+      "phase": "fill",
+      "rel": "Familienfilme/Film Tauchgang Ägypten 1993/Film Tauchgang Ägypten 1993.mkv",
+      "size": 4724464026,
+      "done": 2834678415,
+      "source": "resume",
+      "title": "Film Tauchgang Ägypten 1993"
+     },
+     {
+      "phase": "fill",
+      "rel": "Familienserien/Velotour Bodensee 2019/Staffel 01/Velotour Bodensee 2019 - S01E03 - Etappe Lindau.mkv",
+      "size": 2147483648,
+      "done": 1395864371,
+      "source": "next_episode",
+      "title": "Velotour Bodensee 2019 – S01E03 Etappe Lindau"
+     }
+    ]
+   },
+   {
+    "name": "Tochter",
+    "server": "FamilienServer",
+    "files": 4,
+    "bytes": 20830591386,
+    "done_files": 0,
+    "done_bytes": 644245094,
+    "eta": 180,
+    "here": true,
+    "took": null,
+    "in_flight": [
+     {
+      "phase": "fill",
+      "rel": "Familienfilme/Film Zeltlager Pfingsten 2004/Film Zeltlager Pfingsten 2004.mkv",
+      "size": 3865470566,
+      "done": 644245094,
+      "source": "resume",
+      "title": "Film Zeltlager Pfingsten 2004"
+     }
+    ]
+   }
+  ],
+  "total": {
+   "files": 16,
+   "bytes": 73766063309,
+   "done_files": 10,
+   "done_bytes": 29463475650,
+   "eta": 170,
+   "running": 360
+  },
+  "speed": 283115520,
+  "current": {
+   "phase": "fill",
+   "rel": "Familienfilme/Film Tauchgang Ägypten 1993/Film Tauchgang Ägypten 1993.mkv",
+   "size": 4724464026,
+   "done": 2834678415,
+   "source": "resume",
+   "title": "Film Tauchgang Ägypten 1993"
+  },
+  "files": [
+   {
+    "phase": "fill",
+    "rel": "Familienfilme/Film Tauchgang Ägypten 1993/Film Tauchgang Ägypten 1993.mkv",
+    "size": 4724464026,
+    "done": 2834678415,
+    "source": "resume",
+    "title": "Film Tauchgang Ägypten 1993"
+   },
+   {
+    "phase": "fill",
+    "rel": "Familienserien/Velotour Bodensee 2019/Staffel 01/Velotour Bodensee 2019 - S01E03 - Etappe Lindau.mkv",
+    "size": 2147483648,
+    "done": 1395864371,
+    "source": "next_episode",
+    "title": "Velotour Bodensee 2019 – S01E03 Etappe Lindau"
+   },
+   {
+    "phase": "fill",
+    "rel": "Familienfilme/Film Zeltlager Pfingsten 2004/Film Zeltlager Pfingsten 2004.mkv",
+    "size": 3865470566,
+    "done": 644245094,
+    "source": "resume",
+    "title": "Film Zeltlager Pfingsten 2004"
+   }
+  ]
+ },
+ "stopping": null
+}

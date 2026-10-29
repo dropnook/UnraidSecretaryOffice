@@ -818,12 +818,14 @@ function progressPanel() {
 }
 
 /**
- * The panel's bars into $box: the bracket, «back to the array», one per person, the file being copied — from $p (his live
+ * The panel's bars into $box: the bracket, «back to the array», one per person, the files being copied — from $p (his live
  * view, jack-progress.php; default: the one on his page). Lent to Ms. Moverelli's page (core.js Office.jackRows): her
- * night card shows the same while his step runs (o.noFile: without the file in flight — her card has one line for it).
+ * night card shows the same while his step runs (o.noFile: without the files in flight — her card has one line for it).
+ * Several copies at once (2026-10-29): each bar has its files in flight under it (`in_flight`), each with the wave; an
+ * older agent's view has the one `current` under the bar marked `here`.
  */
 function progressRows(box, p = progress, o = {}) {
-  if (o.noFile && p && p.current) p = { ...p, current: null };     // her card says the file in flight in one line of its own
+  if (o.noFile && p) p = { ...p, current: null, files: [], back: p.back && { ...p.back, in_flight: [] }, users: (p.users || []).map((u) => ({ ...u, in_flight: [] })) };
   if (!p || p.phase === 'plan') {
     box.appendChild(el('div', 'jo-prog-line', T('progress.plan')));
   } else if (!p.total || !p.total.files) {
@@ -835,8 +837,12 @@ function progressRows(box, p = progress, o = {}) {
     const servers = new Set((p.users || []).map((u) => u.server));
     (p.users || []).forEach((u) => rows.appendChild(progRow(servers.size > 1 ? T('progress.server', { name: u.name, server: u.server }) : u.name, u, p, false)));
     box.appendChild(rows);
-    const placed = (p.back && p.back.here) || (p.users || []).some((u) => u.here);
-    if (p.current && !placed) box.appendChild(progFile(p.current));
+    // a file in flight no bar holds (an older agent: the one `current` no bar is marked for)
+    const held = [p.back, ...(p.users || [])].filter(Boolean);
+    const placed = new Set(held.flatMap((c) => inFlight(c, p)));
+    const loose = Array.isArray(p.files) ? p.files.filter((f) => !held.some((c) => (c.in_flight || []).some((g) => g.rel === f.rel && g.phase === f.phase)))
+      : p.current && !placed.size ? [p.current] : [];
+    loose.forEach((f) => box.appendChild(progFile(f)));
   }
 }
 
@@ -912,8 +918,14 @@ function progRow(label, c, p, total) {
   fill.style.width = `${Math.max(0, Math.min(100, share * 100))}%`;
   bar.appendChild(fill);
   row.appendChild(bar);
-  if (c.here && p.current) row.appendChild(progFile(p.current));
+  inFlight(c, p).forEach((f) => row.appendChild(progFile(f)));
   return row;
+}
+
+/** The files in flight under a bar: its own list (2026-10-29), or an older agent's one `current` under the bar marked `here` */
+function inFlight(c, p) {
+  if (Array.isArray(c.in_flight)) return c.in_flight;
+  return c.here && p.current ? [p.current] : [];
 }
 
 /** How long a finished bar took: «45 s», «1 min 20 s», from an hour on «1 h 5 min» */
@@ -931,10 +943,10 @@ function etaText(eta, total) {
   return T('progress.eta', { time: fmt.duration(Math.ceil(eta / 60) * 60) });
 }
 
-/** The file being copied: its path, how much of it is there, why it comes («Continue watching «X – S01E02»») */
+/** A file being copied (the wave on each): its path, how much of it is there, why it comes («Continue watching «X – S01E02»») */
 function progFile(cur) {
-  const line = el('div', 'jo-prog-file');
-  line.append(el('span', 'jo-prog-rel', cur.rel || ''), el('span', '', T('progress.bytes', { done: fmt.size(cur.done || 0), size: fmt.size(cur.size || 0) })));
+  const line = el('div', 'jo-prog-file running');
+  line.append(el('span', 'spin'), el('span', 'jo-prog-rel', cur.rel || ''), el('span', '', T('progress.bytes', { done: fmt.size(cur.done || 0), size: fmt.size(cur.size || 0) })));
   if (cur.why) {
     line.appendChild(el('span', 'jo-prog-why', T('progress.giveback', { what: rankItem(cur.why) })));
   } else if (cur.source) {
@@ -1563,6 +1575,7 @@ function initForm() {
       max_favorite_series: set.max_favorite_series ?? 10,
       use_next_up: set.use_next_up ?? true,
       array_source: set.array_source || 'user0',
+      parallel_per_disk: Number.isInteger(set.parallel_per_disk) ? set.parallel_per_disk : 1,
     },
   };
   formStart = formKey();
@@ -1772,8 +1785,8 @@ function setPersonBudget(p, value) {
   p.ids.forEach((id) => delete form.budgets[id]);
   if (value) form.budgets[p.ids[0]] = value;
 }
-/** Reading from the array as it comes (MediaCache's default); the way back is always Unraid's move binary (1.65.0) */
-const MORE_DEFAULTS = { array_source: 'user0' };
+/** Reading from the array as it comes (MediaCache's default), one copy per disk; the way back is always Unraid's move binary (1.65.0) */
+const MORE_DEFAULTS = { array_source: 'user0', parallel_per_disk: 1 };
 
 /**
  * His setup's tiles, pure (no DOM): [{id, key, value, sub: [text], alert}] in the parts' order — the servers (how many,
@@ -2496,6 +2509,7 @@ function setupMore() {
   const s5 = el('div', 'jo-part-body');
   const f5 = el('div', 'jo-form');
   f5.appendChild(field(T('setup.array_source'), select(v, 'array_source', [['user0', T('setup.source_user0')], ['disk', T('setup.source_disk')]]), T('setup.array_source_hint')));
+  f5.appendChild(parallelField(v));
   f5.appendChild(el('p', 'role', T('setup.fixed_paths')));
   s5.appendChild(f5);
   // quiet, at the bottom: from scratch (his settings deleted, no copy; his list emptied — ordinary cache afterwards)
@@ -2508,6 +2522,27 @@ function setupMore() {
     s5.appendChild(foot);
   }
   return s5;
+}
+/**
+ * «Copies at once per disk» (2026-10-29, MediaCache's parallel_per_disk): 1 to the agent's most; under it what that makes
+ * in all — the array's data disks × it, at most the cap (the disks are the limit) — and why more per disk rarely helps
+ */
+function parallelField(v) {
+  const p = state.parallel || {};
+  const max = Number(p.max) || 4;
+  const sel = select(v, 'parallel_per_disk', Array.from({ length: max }, (_, i) => [String(i + 1), String(i + 1)]));
+  sel.value = String(v.parallel_per_disk);
+  const f = field(T('setup.parallel'), sel, '');
+  const hint = el('small', '', '');
+  const say = () => {
+    const disks = Math.max(1, Number(p.disks) || 1);
+    const total = Math.max(1, Math.min(Number(p.total_max) || 8, v.parallel_per_disk * disks));
+    hint.textContent = T('setup.parallel_hint', { disks: nOf('array_disks', disks), total: nOf('copies', total) });
+  };
+  sel.onchange = () => { v.parallel_per_disk = Number(sel.value) || 1; say(); };
+  say();
+  f.appendChild(hint);
+  return f;
 }
 /**
  * «Set up from scratch …» (the owner: really zero, no copy): what goes and what becomes of the files he placed on the pool
@@ -2834,6 +2869,7 @@ async function saveSetup(e) {
     use_next_up: v.use_next_up,
     movie_mode: 'folder',          // always the whole folder: subtitles, preview images, nfo, extras
     array_source: v.array_source,
+    parallel_per_disk: v.parallel_per_disk,
   };
   const j = await act('save', { settings });
   if (!j) return;

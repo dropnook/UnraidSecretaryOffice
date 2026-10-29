@@ -64,10 +64,11 @@ Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang
   MEDIACACHE_PROGRESS          JSON-Datei mit dem Fortschritt des scharfen Laufs (--run, --release), an jeder Dateigrenze
                               neu geschrieben: Phase (plan | back | fill | done), «Zurück aufs Array» geplant/erledigt,
                               pro Benutzer geplant/erledigt (Dateien, Bytes) mit Beginn/Ende, die Datei in Arbeit mit
-                              Ziel und Grund, die Warteschlange des Befüllens (queue, pos: wer wann dran ist)
+                              Ziel und Grund (USO: active = jede Datei in Arbeit, parallele Kopien), die Warteschlange
+                              des Befüllens (queue, pos: wer wann dran ist)
   MEDIACACHE_ZFS, MEDIACACHE_MOUNTS  USO: zfs und /proc/mounts für die Tests (Freiplatz auf ZFS: der ganze Pool)
   MEDIACACHE_STOP              Datei: sobald es sie gibt, hört der Lauf nach der aktuellen Datei auf (nie mitten in einer
-                              Kopie); was noch auf dem Cache liegt, bleibt in der Exclude-Liste geschützt; Ergebnis
+                              Kopie; parallel: nach den Dateien in Arbeit, keine neue beginnt); was noch auf dem Cache liegt, bleibt in der Exclude-Liste geschützt; Ergebnis
                               «stopped», Exit-Code 3 (das Office: der Unraid-Mover startete, oder auf Wunsch)
   MEDIACACHE_PARALLEL_PER_DISK gleichzeitige rsync-Kopien pro Quell-Disk (überschreibt parallel_per_disk)
   MEDIACACHE_PARALLEL_TOTAL    gleichzeitige rsync-Kopien insgesamt, 0 = ohne Limit (überschreibt parallel_total)
@@ -166,7 +167,11 @@ class Progress:
     «Zurück aufs Array» und jeder Benutzer: started (Beginn der ersten Datei) und ended (Ende der letzten).
     Das Befüllen kopiert eine Datei nach der anderen, alle Benutzer gemischt, reihum nach Rang (USO, Planner.fill_order): queue = [[Index in users, Bytes],
     …] in genau dieser Reihenfolge (nur, was nicht schon auf dem Cache liegt), pos = wie viele davon erledigt sind
-    (kopiert oder ausgelassen) – so weiss ein Programm, wann jeder Benutzer fertig ist. Mehr als QUEUE_MAX: keine queue."""
+    (kopiert oder ausgelassen) – so weiss ein Programm, wann jeder Benutzer fertig ist. Mehr als QUEUE_MAX: keine queue.
+    USO (2026-10-29, parallele Kopien): `active` = jede Datei in Arbeit (dieselben Felder wie `current`, dazu `q`, ihre
+    Stelle in der queue), in der Reihenfolge ihres Beginns; `current` bleibt die erste davon (ältere Leser). Eine Datei
+    der queue, die erledigt ist, während eine frühere noch kopiert, wird [-1, 0] (niemandes, nichts mehr) – pos zählt nur
+    die erledigten von vorn. Thread-sicher: die Kopien laufen parallel."""
 
     QUEUE_MAX = 5000
     RECENT_MAX = 50
@@ -175,23 +180,30 @@ class Progress:
         self.on = on
         now = int(time.time())
         self.data = {"v": 1, "mode": mode, "phase": "plan", "started": now, "updated": now,
-                     "back": None, "users": [], "current": None, "queue": None, "pos": 0, "recent": []}
+                     "back": None, "users": [], "current": None, "active": [], "queue": None, "pos": 0, "recent": []}
         self.users = {}   # UserPlan.key -> Eintrag in data["users"]
         self.qidx = {}    # id(OnDeckFile) -> ihre Stelle in der queue
+        self.passed = set()   # USO: Stellen der queue, die erledigt sind
+        self.active = {}  # USO: Schlüssel (id(OnDeckFile), Rückweg: ("back", rel)) -> Eintrag in data["active"]
+        self.lock = threading.RLock()
         self.write()
 
     def write(self):
         if self.on:
-            self.data["updated"] = int(time.time())
-            write_progress(self.data)
+            with self.lock:
+                self.data["active"] = list(self.active.values())
+                self.data["current"] = self.data["active"][0] if self.data["active"] else None
+                self.data["updated"] = int(time.time())
+                write_progress(self.data)
 
     def phase(self, phase):
-        b = self.data["back"]
-        if self.data["phase"] == "back" and phase != "back" and b is not None and b.get("started") and not b.get("ended"):
-            b["ended"] = int(time.time())
-        self.data["phase"] = phase
-        self.data["current"] = None
-        self.write()
+        with self.lock:
+            b = self.data["back"]
+            if self.data["phase"] == "back" and phase != "back" and b is not None and b.get("started") and not b.get("ended"):
+                b["ended"] = int(time.time())
+            self.data["phase"] = phase
+            self.active.clear()
+            self.write()
 
     def plan_back(self, files, nbytes):
         self.data["back"] = {"files": files, "bytes": nbytes, "done_files": 0, "done_bytes": 0, "started": None, "ended": None}
@@ -202,9 +214,10 @@ class Progress:
         todo = {}
         for f in files:
             if not f.on_cache:
-                t = todo.setdefault(f.user, [0, 0])
-                t[0] += 1
-                t[1] += f.size
+                for k in owners(f):
+                    t = todo.setdefault(k, [0, 0])
+                    t[0] += 1
+                    t[1] += f.size
         for u in planner.users.values():
             if u.key in todo:
                 entry = {"key": u.key, "name": u.name, "server": u.server, "files": todo[u.key][0], "bytes": todo[u.key][1],
@@ -217,61 +230,96 @@ class Progress:
             self.data["queue"] = [[index.get(f.user, -1), int(f.size)] for f in order]
             self.qidx = {id(f): i for i, f in enumerate(order)}
 
-    def _passed(self, f, entry):
-        """Eine Datei der queue ist erledigt (kopiert oder ausgelassen); ihr Benutzer ohne Rest: ended."""
+    def _entries(self, f):
+        """USO: die Einträge der Benutzer, die die Datei vormerken (der Erste zuerst)."""
+        return [self.users[k] for k in owners(f) if k in self.users]
+
+    def _passed(self, f, entries):
+        """Eine Datei der queue ist erledigt (kopiert oder ausgelassen); ihre Benutzer ohne Rest: ended."""
         i = self.qidx.get(id(f))
-        if i is not None:
-            self.data["pos"] = max(self.data["pos"], i + 1)
-        if entry is not None and entry["done_files"] >= entry["files"] and entry.get("started") and not entry.get("ended"):
-            entry["ended"] = int(time.time())
+        q = self.data["queue"]
+        if i is not None and q is not None and i not in self.passed:
+            self.passed.add(i)
+            q[i] = [-1, 0]
+            while self.data["pos"] in self.passed:
+                self.data["pos"] += 1
+        now = int(time.time())
+        for entry in entries:
+            if entry["done_files"] >= entry["files"] and entry.get("started") and not entry.get("ended"):
+                entry["ended"] = now
 
     def start(self, phase, rel, size, target, f=None, why=None):
         """Eine Datei beginnt (vor dem rsync): wer, was, wohin; why (USO, Rückgabe übers Stück): {"title", "ahead", "who"}."""
-        now = int(time.time())
-        entry = self.users.get(f.user) if f is not None else self.data["back"] if phase == "back" else None
-        if entry is not None and not entry.get("started"):
-            entry["started"] = now
-        self.data["current"] = {"phase": phase, "rel": str(rel), "size": int(size), "target": str(target),
-                                "user": f.user if f is not None else None, "source": f.source if f is not None else None,
-                                "title": f.title if f is not None else None, "since": now}
-        if why is not None:
-            self.data["current"]["why"] = why
-        self.write()
+        with self.lock:
+            now = int(time.time())
+            entries = self._entries(f) if f is not None else [self.data["back"]] if phase == "back" and self.data["back"] is not None else []
+            for entry in entries:
+                if not entry.get("started"):
+                    entry["started"] = now
+            cur = {"phase": phase, "rel": str(rel), "size": int(size), "target": str(target),
+                   "user": f.user if f is not None else None, "source": f.source if f is not None else None,
+                   "title": f.title if f is not None else None, "since": now}
+            if f is not None and id(f) in self.qidx:
+                cur["q"] = self.qidx[id(f)]
+            if why is not None:
+                cur["why"] = why
+            self.active[self._key(f, rel)] = cur
+            self.write()
 
-    def done(self, size, f=None):
+    @staticmethod
+    def _key(f, rel):
+        return id(f) if f is not None else ("back", str(rel))
+
+    def _take(self, f, rel):
+        """USO: der Eintrag der Datei in Arbeit – ohne rel auf dem Rückweg der erste dort (eine Datei nach der anderen)."""
+        if f is not None or rel is not None:
+            return self.active.pop(self._key(f, rel), None)
+        for k, cur in list(self.active.items()):
+            if cur.get("phase") == "back":
+                return self.active.pop(k)
+        return None
+
+    def done(self, size, f=None, rel=None):
         """Eine Datei ist angekommen (aufs Array zurück, oder f: auf den Cache)."""
-        entry = self.users.get(f.user) if f is not None else self.data["back"]
-        if entry is not None:
-            entry["done_files"] += 1
-            entry["done_bytes"] += int(size)
-        cur = self.data["current"]
-        if cur is not None:       # USO: die letzten RECENT_MAX erledigten Dateien (das Office: das Bild der Nacht)
-            back = cur.get("phase") == "back"
-            self.data["recent"] = (self.data["recent"] + [{"name": cur["rel"], "bytes": int(size),
-                                   "from": "cache" if back else "array", "to": "array" if back else "cache"}])[-self.RECENT_MAX:]
-        if f is not None:
-            self._passed(f, entry)
-        self.data["current"] = None
-        self.write()
+        with self.lock:
+            entries = self._entries(f) if f is not None else [self.data["back"]] if self.data["back"] is not None else []
+            for entry in entries:
+                entry["done_files"] += 1
+                entry["done_bytes"] += int(size)
+            cur = self._take(f, rel)
+            if cur is not None:   # USO: die letzten RECENT_MAX erledigten Dateien (das Office: das Bild der Nacht)
+                back = cur.get("phase") == "back"
+                self.data["recent"] = (self.data["recent"] + [{"name": cur["rel"], "bytes": int(size),
+                                       "from": "cache" if back else "array", "to": "array" if back else "cache"}])[-self.RECENT_MAX:]
+            if f is not None:
+                self._passed(f, entries)
+            self.write()
 
     def drop(self, f, write=True):
         """Eine geplante Datei fällt weg (übersprungen oder fehlgeschlagen): nicht mehr geplant."""
-        entry = self.users.get(f.user)
-        if entry is not None:
-            entry["files"] = max(entry["done_files"], entry["files"] - 1)
-            entry["bytes"] = max(entry["done_bytes"], entry["bytes"] - f.size)
-        self._passed(f, entry)
-        if write:
-            self.data["current"] = None
-            self.write()
+        with self.lock:
+            entries = self._entries(f)
+            for entry in entries:
+                entry["files"] = max(entry["done_files"], entry["files"] - 1)
+                entry["bytes"] = max(entry["done_bytes"], entry["bytes"] - f.size)
+            self._passed(f, entries)
+            self.active.pop(self._key(f, None), None)
+            if write:
+                self.write()
 
-    def drop_back(self, size):
+    def drop_back(self, size, rel=None):
         """Eine Datei des Rückwegs bleibt auf dem Cache (Duplikat, Fehler, Anhalten): nicht mehr geplant."""
-        b = self.data["back"]
-        if b is not None:
-            b["files"] = max(b["done_files"], b["files"] - 1)
-            b["bytes"] = max(b["done_bytes"], b["bytes"] - int(size))
-        self.data["current"] = None
+        with self.lock:
+            b = self.data["back"]
+            if b is not None:
+                b["files"] = max(b["done_files"], b["files"] - 1)
+                b["bytes"] = max(b["done_bytes"], b["bytes"] - int(size))
+            self._take(None, rel)
+
+
+def owners(f):
+    """USO: wer eine Datei vormerkt (der Erste)."""
+    return [f.user] if f.user is not None else []
 
 
 # --------------------------------------------------------------------------- Planung
@@ -822,10 +870,16 @@ class Runner:
         self.failed_list = []
         self.retried = 0
         self._lock = threading.Lock()  # Zähler und Löschen/Ordner-Aufräumen bei parallelen Kopien
+        self._halt_lock = threading.Lock()   # USO: halt() aus mehreren Kopien zugleich
         self.status = Status(mode, log, enabled=self.run_mode, log_interval=cfg["status_log_interval"])
 
     def halt(self):
-        """True, sobald ein Anhalten verlangt wurde (nur im scharfen Lauf; einmal ins Log)."""
+        """True, sobald ein Anhalten verlangt wurde (nur im scharfen Lauf; einmal ins Log). USO: thread-sicher – parallele
+        Kopien fragen, bevor sie eine neue beginnen; die laufenden werden fertig."""
+        with self._halt_lock:
+            return self._halt()
+
+    def _halt(self):
         if not self.stopped and self.run_mode and stop_requested():
             self.stopped = True
             log.warning("Anhalten verlangt (MEDIACACHE_STOP – das Office: der Unraid-Mover startete, oder auf Wunsch): "

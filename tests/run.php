@@ -2852,11 +2852,27 @@ function testJackRsync(): void
     // 2026-10-15 (the owner): MediaCache's own ways — filling with rsync, giving back with Unraid's move binary; written
     // into the settings by Jack, never forced through the environment
     $tmp = hardeningTmp('jackrsync');
-    same('tools: whatever an old file says — filling rsync, the way back the move binary, the rest kept (share root, one copy at a time)',
-        ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/maple'] + JACK_FIXED,
+    $one = ['parallel_per_disk' => 1, 'parallel_total' => 1];
+    same('tools: whatever an old file says — filling rsync, the way back the move binary, the rest kept (share root, one copy per disk)',
+        ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/maple'] + JACK_FIXED + $one,
         jackTools(['fill_tool' => 'mover', 'cleanup_tool' => 'rsync', 'cache_path' => '/mnt/maple']));
-    same('tools: none set — MediaCache\'s defaults', ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover'] + JACK_FIXED, jackTools([]));
-    same('tools: one copy at a time, MediaCache makes the share\'s dataset', ['create_share_root' => true, 'parallel_per_disk' => 1, 'parallel_total' => 1], JACK_FIXED);
+    same('tools: none set — MediaCache\'s defaults', ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover'] + JACK_FIXED + $one, jackTools([]));
+    same('tools: MediaCache makes the share\'s dataset', ['create_share_root' => true], JACK_FIXED);
+    // copies at once (2026-10-29): per disk as his setup chose (1 … 4, else 1), in all the array's disks × that, at most 8
+    same('tools: copies at once per disk — 1 … 4 kept, anything else 1 (in his file the total the same)',
+        [[2, 2], [4, 4], [1, 1], [1, 1], [1, 1], [1, 1]],
+        array_map(fn ($v) => [jackTools(['parallel_per_disk' => $v])['parallel_per_disk'], jackTools(['parallel_per_disk' => $v])['parallel_total']], [2, 4, 5, 0, '2', 2.0]));
+    $ini = ['parity' => ['type' => 'Parity'], 'disk1' => ['type' => 'Data', 'status' => 'DISK_OK'], 'disk2' => ['type' => 'Data', 'status' => 'DISK_OK'],
+            'disk3' => ['type' => 'Data', 'status' => 'DISK_NP'], 'cache' => ['type' => 'Cache'], 'disk9' => ['name' => 'disk9', 'type' => 'Cache']];
+    same('tools: the array\'s data disks — parity, an empty slot and a pool (whatever its name) left out; none known: 1', [2, 1], [jackArrayDisks($ini), jackArrayDisks([])]);
+    same('tools: copies in all — the disks × per disk, at most 8', [1, 2, 4, 8, 8], [jackParallelTotal(1, 1), jackParallelTotal(1, 2), jackParallelTotal(2, 2), jackParallelTotal(4, 2), jackParallelTotal(4, 6)]);
+    $env = jackPyEnv(['parallel_per_disk' => 2], 3);
+    same('tools: his runs get both — per disk 2, three disks: 6 at once', ['2', '6'], [$env['MEDIACACHE_PARALLEL_PER_DISK'], $env['MEDIACACHE_PARALLEL_TOTAL']]);
+    $env = jackPyEnv(['parallel_per_disk' => 'x'], 1);
+    same('tools: an older file, one disk — one copy at a time as before', ['1', '1'], [$env['MEDIACACHE_PARALLEL_PER_DISK'], $env['MEDIACACHE_PARALLEL_TOTAL']]);
+    check('tools: the setup\'s field is a setting of his (the page sends it), checked before it is taken',
+        in_array('parallel_per_disk', JACK_SETTINGS, true) && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'),
+        "jackParallelPerDisk(['parallel_per_disk' => \$in['parallel_per_disk']]) !== \$in['parallel_per_disk']) {\n        throw new Problem('bad_request');"));
     @mkdir("$tmp/emby", 0700, true);
     @mkdir("$tmp/pool", 0700, true);
     $inst = [['servername' => 'Emby', 'url' => 'http://192.168.20.10:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]];
@@ -3315,6 +3331,61 @@ function testJackProgress(): void
     file_put_contents($paths['file'], json_encode(array_replace($prog, ['started' => 2000])));
     same('progress samples: another run\'s samples are not this run\'s', [], jackProgressSamples($paths['samples'], 2000));
     same('progress samples: kept per run', 1000, $old['run']);
+
+    // several copies at once (2026-10-29): MediaCache's `active` — every file in flight, each its part, each under its bar
+    $tgtB = "$tmp/mnt/pool/Filme/B/b.mkv";
+    @mkdir(dirname($tgtB), 0700, true);
+    $a1 = ['phase' => 'fill', 'rel' => 'Filme/A/a.mkv', 'size' => 400 * $mb, 'target' => $target, 'user' => 'Emby:u1', 'source' => 'resume', 'title' => 'A', 'since' => 2005, 'q' => 0];
+    $a2 = ['phase' => 'fill', 'rel' => 'Filme/B/b.mkv', 'size' => 100 * $mb, 'target' => $tgtB, 'user' => 'Emby:u2', 'source' => 'next_up', 'title' => 'B', 'since' => 2006, 'q' => 1];
+    $par = array_replace($prog, ['started' => 2000, 'updated' => 2008, 'current' => $a1, 'active' => [$a1, $a2],
+        'users' => [array_replace($prog['users'][0], ['done_files' => 0, 'done_bytes' => 0, 'files' => 2, 'bytes' => 600 * $mb]), $prog['users'][1]],
+        'queue' => [[0, 400 * $mb], [1, 100 * $mb], [0, 200 * $mb]], 'pos' => 0]);
+    file_put_contents($paths['file'], json_encode($par));
+    $pp = jackProgressRead($paths['file']);
+    same('progress, parallel: every file in flight read, the first as `current`, each its place in the queue',
+        [2, 'Filme/A/a.mkv', ['Filme/A/a.mkv', 'Filme/B/b.mkv'], [0, 1]], [count($pp['active']), $pp['current']['rel'], array_column($pp['active'], 'rel'), array_column($pp['active'], 'q')]);
+    $parts = ['Filme/A/a.mkv' => 0, 'Filme/B/b.mkv' => 0];
+    $standP = function (array $f) use (&$parts) { return $parts[$f['rel']] ?? 0; };
+    jackProgressSample($paths, 2010, $standP);
+    $parts = ['Filme/A/a.mkv' => 100 * $mb, 'Filme/B/b.mkv' => 50 * $mb];
+    jackProgressSample($paths, 2020, $standP);
+    $smpP = jackProgressSamples($paths['samples'], 2000);
+    same('progress, parallel: a sample keeps every part, the bytes moved all of them', [150 * $mb, [['Filme/A/a.mkv', 100 * $mb], ['Filme/B/b.mkv', 50 * $mb]]],
+        [$smpP[1][1] - 300 * $mb, $smpP[1][4]]);
+    $v = jackProgressView($pp, $smpP, 2020);
+    $byName = array_column($v['users'], null, 'name');
+    same('progress, parallel: 15 MB/s for both; each bar its file in flight with its part; the total both parts; `files` both (no target path)',
+        [15 * $mb, [['Filme/A/a.mkv', 100 * $mb]], [['Filme/B/b.mkv', 50 * $mb]], 450 * $mb, 2, true, true],
+        [$v['speed'], array_map(fn ($f) => [$f['rel'], $f['done']], $byName['Benj']['in_flight']), array_map(fn ($f) => [$f['rel'], $f['done']], $byName['Ki ds']['in_flight']),
+         $v['total']['done_bytes'], count($v['files']), $byName['Benj']['here'], $byName['Ki ds']['here']]);
+    check('progress, parallel: the view names no target path, no queue place', !str_contains(json_encode($v), $tmp) && !str_contains(json_encode($v), '"q"'));
+    same('progress, parallel: Kids is done when B is (50 MB left of B after what of A before it: 300 MB of A is ahead of it — 350 MB / 15 MB/s); Benj after all (550 MB)',
+        [24, 37], [$byName['Ki ds']['eta'], $byName['Benj']['eta']]);
+    $vs = jackProgressView($pp, $smpP, 2020, true);
+    same('progress, parallel: asked to stop — both files in flight still count (350 MB left of them), both bars end with them',
+        [24, 24, 24, null], [$vs['total']['eta'], $vs['users'][0]['eta'], $vs['users'][1]['eta'], $vs['users'][0]['halted'] ?? null]);
+    // a file younger than the newest sample: its part 0 until the next (B started again after the sample)
+    file_put_contents($paths['file'], json_encode(array_replace($par, ['active' => [$a1, ['since' => 2021] + $a2]])));
+    $v = jackProgressView(jackProgressRead($paths['file']), $smpP, 2022);
+    same('progress, parallel: a file started after the newest sample — its part 0, the other kept', [100 * $mb, 0], array_column($v['files'], 'done'));
+    // B done before A: its queue entry nobody's, pos still 0 — A alone in flight
+    file_put_contents($paths['file'], json_encode(array_replace($par, ['active' => [$a1], 'queue' => [[0, 400 * $mb], [-1, 0], [0, 200 * $mb]],
+        'users' => [$par['users'][0], array_replace($par['users'][1], ['done_files' => 1, 'done_bytes' => 100 * $mb])]])));
+    $v = jackProgressView(jackProgressRead($paths['file']), $smpP, 2022);
+    same('progress, parallel: B done before A — Kids done, Benj alone in flight; Benj\'s time from his own queue', [['Benj', true, 34], ['Ki ds', false, 0]],
+        array_map(fn ($u) => [$u['name'], $u['here'], $u['eta']], $v['users']));
+    // an older MediaCache (no `active`) and an older job's samples (four each) still read
+    file_put_contents($paths['file'], json_encode(array_diff_key($par, ['active' => 1])));
+    same('progress, parallel: no `active` — the one `current`', [1, 'Filme/A/a.mkv'], [count(jackProgressRead($paths['file'])['active']), jackProgressRead($paths['file'])['active'][0]['rel']]);
+    file_put_contents($paths['samples'], json_encode(['run' => 2000, 'samples' => [[2010, 300 * $mb, 'Filme/A/a.mkv', 0], [2020, 400 * $mb, 'Filme/A/a.mkv', 100 * $mb]]]));
+    $v = jackProgressView(jackProgressRead($paths['file']), jackProgressSamples($paths['samples'], 2000), 2020);
+    same('progress, parallel: an older job\'s samples — the one file\'s part', [10 * $mb, 100 * $mb], [$v['speed'], $v['current']['done']]);
+    file_put_contents($paths['file'], json_encode(array_replace($par, ['active' => array_fill(0, 40, $a2)])));
+    same('progress, parallel: at most 16 files in flight taken', 16, count(jackProgressRead($paths['file'])['active']));
+    file_put_contents($paths['file'], json_encode(array_replace($par, ['active' => [['rel' => 5] + $a1, $a2, 'x']])));
+    same('progress, parallel: a file in flight not in its shape left out', ['Filme/B/b.mkv'], array_column(jackProgressRead($paths['file'])['active'], 'rel'));
+    jackProgressClear($paths);
+    file_put_contents($paths['file'], json_encode($prog));
 
     // the ticker: a sample at once when copying starts, then every 10 s; while planning it looks again after 2 s
     $clock = 3000;

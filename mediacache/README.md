@@ -27,10 +27,14 @@
 >   (`give_back_order`). `MEDIACACHE_KEEP_BYTES`, `MEDIACACHE_NO_FILL`, `MEDIACACHE_WATCHED_ONLY` serve the night run.
 > * `not_in_budget` in the result (2026-10-16): what the persons' budgets leave out — {items, films, episodes, bytes}, each
 >   entry once; Jack's run summary says «budget full» with it.
-> * `MEDIACACHE_STOP` (a file): a real run stops after the file it is on — never inside a copy; result `stopped`, exit 3.
+> * `MEDIACACHE_STOP` (a file): a real run stops after the file it is on — never inside a copy (copying in parallel:
+>   after the files in flight, no new one begins); result `stopped`, exit 3.
 > * `MEDIACACHE_PROGRESS` (a file): rewritten at every file boundary — phase, per person planned/done, the file in work
 >   with its target, person and reason, the fill's queue, the last 50 files done. Jack's live panel reads it. A run with
 >   `MEDIACACHE_NO_FILL` (only giving back) plans no fill into it (2026-10-25): its counts are the give-back's alone.
+>   Parallel copies (2026-10-29): `active` lists every file in flight (`current` stays the first, `q` its place in the
+>   queue); a file done before an earlier one is `[-1, 0]` in the queue, `pos` counts the done ones from the front;
+>   `Progress` and `halt()` are thread-safe.
 > * **Tidied per disk** (`remove_empty_on_disk`, 2026-10-20): a file filled from `/mnt/user0` leaves its folder empty on its
 >   disk while another disk still has something in it (Season 01: E01/E02 on disk2) — the folder on the disk it lay on
 >   goes as with Unraid's move; no other disk is read, the share's folder on the disk stays.
@@ -51,8 +55,9 @@
 > * Its own tools: filling `rsync`, giving back Unraid's `move` binary (through shfs: the share's «Minimum free space»,
 >   allocation and split level, a ZFS array disk's dataset made by Unraid). Jack writes them into the settings; no
 >   environment forces them. Jack's shares are «Cache: yes» on his pool, so the binary moves them Cache → Array.
-> * `parallel_per_disk` = `parallel_total` = 1 (also MediaCache's default — written fixed): the progress, the panel's
->   queue and «stop after this file» count on one file at a time.
+> * `parallel_per_disk` from Jack's setup («copies at once per disk», 1–4, default 1 — MediaCache's default and meaning:
+>   per source disk); `parallel_total` = the array's data disks × that, at most 8 (`MEDIACACHE_PARALLEL_TOTAL` at each run;
+>   in the settings file the same as per disk). Before 2026-10-29 both were written fixed to 1.
 > * `create_share_root` on (its default — written fixed): the share's ZFS dataset is MediaCache's, Jack makes none.
 > * `MEDIACACHE_RSYNC_ARGS` = `-aAX --numeric-ids` (its default): rsync runs as root — no option from a settings file.
 > * `MEDIACACHE_GIVE_BACK_FREE=1`: `min_free_percent` is a limit the run gives back to, not only one it stops filling at;
