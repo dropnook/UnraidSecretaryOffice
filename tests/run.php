@@ -10989,6 +10989,7 @@ function testKopiaEmptiedCache(): void
     exec('rm -rf ' . escapeshellarg($tmp));
     @mkdir("$tmp/bin", 0700, true);
     @mkdir("$tmp/data/state", 0700, true);
+    @mkdir("$tmp/tmp", 0700, true);     // the engine's own temp dir here (TMPDIR), so a stale file in /tmp is no verdict
     $repo = str_repeat('c7', 32);
     file_put_contents("$tmp/repo.json", json_encode(['uniqueIDHex' => $repo, 'configFile' => '/config/repository.config',
         'clientOptions' => ['username' => 'root', 'hostname' => 'kopia'], 'storage' => ['type' => 'filesystem']]));
@@ -11006,7 +11007,7 @@ function testKopiaEmptiedCache(): void
     chmod("$tmp/notify", 0755);
     $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
     $sh = function (string $script) use ($lib, $tmp, $repo): string {
-        $pre = "PATH=$tmp/bin:\$PATH UB_DATA=$tmp/data UB_NOTIFY_BIN=$tmp/notify UB_NOTIFY_STAMP= UB_NOTIFY_LANG_FILE= UB_LANG_DIR=" . OFFICE_DIR . "/public/desks/backup/lang;"
+        $pre = "PATH=$tmp/bin:\$PATH TMPDIR=$tmp/tmp UB_DATA=$tmp/data UB_NOTIFY_BIN=$tmp/notify UB_NOTIFY_STAMP= UB_NOTIFY_LANG_FILE= UB_LANG_DIR=" . OFFICE_DIR . "/public/desks/backup/lang;"
              . " source $lib >/dev/null 2>&1; LOG_FILE=''; DRY=0; UB_MODE=backup; KOPIA_CONNECTED=yes KOPIA_USER=root KOPIA_HOST=kopia KOPIA_ID=root@kopia"
              . " KOPIA_RUN_UID=0 KOPIA_CONTAINER=kopia KOPIA_STORAGE=filesystem KOPIA_REPO_ID=$repo KOPIA_FORMAT_GONE=no;";
         return trim((string) shell_exec('bash -c ' . escapeshellarg("$pre $script") . ' 2>&1'));
@@ -11019,7 +11020,7 @@ function testKopiaEmptiedCache(): void
     $check = 'kopia_emptied_check >/dev/null; echo "held=$KOPIA_HELD gone=$KOPIA_FORMAT_GONE e=$ERRORS w=$WARNINGS"; printf "%s\n" "${WARN_ITEMS[@]}" | tr "\037" "|"';
 
     same('kopia cache: the list failing with «BLOB not found» is told apart (KC_BLOB_GONE), the error file never left behind', ['1 yes', []],
-        [$sh('kopia_count_load; echo "$? $KC_BLOB_GONE"'), glob(sys_get_temp_dir() . '/.uso-kopia-list.*') ?: []]);
+        [$sh('kopia_count_load; echo "$? $KC_BLOB_GONE"'), glob("$tmp/tmp/.uso-kopia-list.*") ?: []]);
     $kept(5);
     $out = $sh($check);
     $when = date('Y-m-d H:i', 1792000000);
