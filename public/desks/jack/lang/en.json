@@ -233,6 +233,8 @@
   "notice.gathering": "Folders are being consolidated.",
   "notice.foreign": "Laying out or consolidating is also started elsewhere: {where}. That runs beside my schedule and outside my locks — better switch it off there.",
   "notice.old_clone": "The old download in data/embycache/app isn't needed any more (MediaCache now ships with the office). It can be deleted.",
+  "notice.list_pending": "My list of what stays on the pool isn't there yet — my first real run writes it (in the next joint run I go first). Until then Ms. Moverelli leaves my shares alone.",
+  "trial_no_list": "That changed nothing — not my list of what stays on the pool either: it comes only from a real run.",
   "help.what": "What I do",
   "help.what_text": "I ask your media servers what you'll watch next and move those files from the array to the fast pool. So the array disks sleep, and playback starts right away. Watched things go back.",
   "help.tools": "My tools",

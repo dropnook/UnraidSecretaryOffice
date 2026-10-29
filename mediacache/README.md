@@ -49,6 +49,10 @@
 >   words («Ein anderes Programm hat die halb kopierte Datei gelöscht … die Quelle ist unversehrt»), not rsync's. The
 >   result's `failed` counts the files not copied / not brought back (`fill`, `back`, of them `vanished`, the first 20
 >   `files` with `why`, `retried`) — per file, where the log has two ERROR lines for one.
+> * **No list from an incomplete plan** (2026-10-29, wave 1's H4): a real run whose plan is incomplete (a media server
+>   that can't be asked) makes no exclude list where there was none — an empty one gave everything on the cache free to
+>   the office's mover; a release without a list makes none either (`exclude_there()`). Report and dry runs never write
+>   it; the first real run after them does.
 > * **With a progress or a stop file, Unraid's move binary gets one file per call** (the cleanup): so the progress names
 >   the file in work and «stop after this file» holds exactly. Standalone: one call for all, as before. (The target of a
 >   file the binary moves is unknown until it is done — the progress gives it empty, the panel shows no part inside it.)

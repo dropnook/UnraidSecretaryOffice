@@ -233,6 +233,8 @@
   "notice.gathering": "Ordner werden gerade zusammengeführt.",
   "notice.foreign": "Das Bereitlegen oder das Zusammenführen wird auch anderswo gestartet: {where}. Das läuft neben meinem Zeitplan und ohne meine Sperren — besser dort ausschalten.",
   "notice.old_clone": "Der alte Download in data/embycache/app wird nicht mehr gebraucht (MediaCache kommt jetzt mit dem Sekretariat). Er kann weg.",
+  "notice.list_pending": "Meine Liste dessen, was auf dem Pool bleibt, gibt es noch nicht — mein erster echter Lauf schreibt sie (im nächsten gemeinsamen Lauf gehe ich zuerst). Bis dahin lässt Frau Moverelli meine Shares in Ruhe.",
+  "trial_no_list": "Das hat nichts verändert — auch nicht meine Liste dessen, was auf dem Pool bleibt: Die kommt nur aus einem echten Lauf.",
   "help.what": "Was ich mache",
   "help.what_text": "Ich frage deine Medienserver, was ihr als Nächstes schaut, und verschiebe diese Dateien vom Array auf den schnellen Pool. So schlafen die Array-Disks, und die Wiedergabe startet sofort. Gesehenes kommt zurück.",
   "help.tools": "Meine Werkzeuge",

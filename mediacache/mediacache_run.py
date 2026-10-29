@@ -114,7 +114,7 @@ from mediacache_lib import (
     ConfigError, MediaServerApi, Locations, Status, acquire_lock, keep_bytes, pool_usage, format_status,
     collect_sessions, detect_mover_bin, ensure_share_root, free_percent_after, human, is_playing, load_config, mkdir_like,
     read_exclude, remove_empty_on_disk, remove_empty_parents, run_mover, run_rsync, setup_logging, share_mode_ok, share_mover_mode,
-    summarize_mover_output, unraid_mover_running, write_exclude, write_progress, write_result, EXCLUDE_FILE,
+    summarize_mover_output, unraid_mover_running, write_exclude, write_progress, write_result, exclude_there, EXCLUDE_FILE,
     PROGRESS_FILE, __version__,
 )
 
@@ -1629,7 +1629,13 @@ class Runner:
             self.progress.phase("done")
             if self.run_mode:
                 on_cache = {str(loc.on_cache(f.rel)) for f in files if loc.on_cache(f.rel).exists()}
-                write_exclude(on_cache | protected)
+                if (planner.errors or not sessions_ok) and not exclude_there():
+                    # USO (2026-10-29): no list yet and the plan incomplete — what lies on the cache is unknown, an empty
+                    # (or partial) list would give it all free (the office's mover moves what no list names): none written
+                    log.warning("Planung unvollständig und noch keine Exclude-Liste – sie wird nicht angelegt; "
+                                "der nächste vollständige Lauf schreibt sie")
+                else:
+                    write_exclude(on_cache | protected)
         if self.run_mode:
             excl = read_exclude()
             log.info(f"Ergebnis Cleanup:  {self.moved_back} von {self.cleanup_planned} Dateien aufs Array verschoben "
@@ -1672,7 +1678,8 @@ class Runner:
         finally:
             self.progress.phase("done")
             left = {p for p in previous if Path(p).exists()}
-            write_exclude(left)
+            if left or exclude_there():      # USO (2026-10-29): no list before — none made, not even an empty one
+                write_exclude(left)
         log.info(f"Ergebnis Zurückbringen: {self.moved_back} von {self.cleanup_planned} Dateien aufs Array verschoben "
                  f"({human(self.moved_back_bytes)} von {human(self.to_array)})")
         log.info(f"Exclude-Liste: {len(left)} Einträge" + (" (liegen weiter auf dem Cache)" if left else ""))

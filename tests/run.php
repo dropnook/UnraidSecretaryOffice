@@ -44903,18 +44903,21 @@ function testMoverelliUnraid(): void
     same('jack list: named, not there, EmbyCache never ran — a real run refused with the file; a dry run not (it only warns)',
         [['moverelli_jack_list_pending', ['file' => $list]], 'ok', $list], [$why('run'), $why('dry'), moverelliJackListPending($h)]);
     // the lab, 2026-10-16: the deadlock — his real run with her is the joint night run, which waited for a list only that run
-    // makes. Jack writes his empty list once he is set up (his look, his save) — whichever was hired first, her real runs go
+    // makes. 2026-10-29 (wave 1's H4): no look writes it empty any more (her next run gave his films back) — it stays
+    // pending, the joint run lets him go first (nightrun.php, testNightRun) and his run writes it
     $set = ['instances' => [['url' => 'http://x']], 'cache_budget' => '100G'];
     same('jack list: not set up — no list written', [null, false], [jackListEnsure(null, "$tmp/emby"), is_file($list)]);
-    same('jack list: set up — his empty list written (root\'s, 0600), her real run goes; once', ['written', '', '600', 'ok', null, null],
-        [jackListEnsure($set, "$tmp/emby"), (string) @file_get_contents($list), substr(sprintf('%o', fileperms($list)), -3), $why('run'), moverelliJackListPending($h),
-         jackListEnsure($set, "$tmp/emby")]);
+    same('jack list: set up, never ran — pending, nothing written by his look; her own real run still waits',
+        ['pending', false, ['moverelli_jack_list_pending', ['file' => $list]], $list], [jackListEnsure($set, "$tmp/emby"), is_file($list), $why('run'), moverelliJackListPending($h)]);
+    file_put_contents($list, '');
+    same('jack list: his run wrote it (empty: nothing on deck yet) — her real run goes', ['ok', null, null], [$why('run'), moverelliJackListPending($h), jackListEnsure($set, "$tmp/emby")]);
     file_put_contents($list, "/mnt/cache/Filme/A/a.mkv\n");
     same('jack list: a list there is never touched', [null, "/mnt/cache/Filme/A/a.mkv\n"], [jackListEnsure($set, "$tmp/emby"), file_get_contents($list)]);
     unlink($list);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
-    check('jack list: his look and his save write it (Jack hired before or after Ms. Moverelli)',
-        str_contains($src, "    \$settings = jackReadSettings();\n    jackListEnsure(\$settings);") && str_contains($src, "jackWriteSettings(\$cfg);\n    jackListEnsure(jackReadSettings());"));
+    check('jack list: his look looks (and says pending on his page), his save no more',
+        str_contains($src, "    \$settings = jackReadSettings();\n    \$list = jackListEnsure(\$settings);") && !str_contains($src, "jackWriteSettings(\$cfg);\n    jackListEnsure(")
+        && str_contains($src, "'list'       => in_array(\$list, ['pending', 'lost'], true) ? \$list : null,"));
     $f = array_column(moverelliChecks($h), null, 'id')['jack_list_pending'] ?? null;
     same('jack list: … the Team Lead\'s hint (to know, nothing to do)', ['hint', false, ['file' => $list], '#/jack'], [$f['level'] ?? null, $f['ok'] ?? null, $f['params'] ?? null, $f['link'] ?? null]);
     $v['jack_ran'] = true;
@@ -50499,6 +50502,38 @@ function testNightRun(): void
     $n = $night();
     same('night dry run: Jack Emby dry, then she dry with his room — no recheck, no fill; the plan: 70 watched back, 20 fetched (from his dry answer)',
         [['jack dry --night --office', 'her dry --night --office --fill-until=780G --fill-pool=cache'], 70 * $G, 0, 20 * $G], [$calls, $n['plan']['back'] ?? null, $n['plan']['goes'] ?? null, $n['plan']['fill'] ?? null]);
+    // 2026-10-29 (wave 1's H4): his list named in her rules, not there, he never ran — the joint run is not refused: he goes
+    // first, his run writes it; her own «Run now» still waits (moverelliRunCheck() without the night); a look never writes it
+    $jlist = "$tmp/jack-list/mediacache_exclude.txt";
+    @mkdir(dirname($jlist), 0700, true);
+    $v['jack_lists'] = [$jlist];
+    $v['jack_ran'] = false;
+    moverelliSave(moverelliTestSettings(['move_when_used_above' => 80, 'files' => [$jlist]]), $h);
+    $GLOBALS['nightHost']['level'] = fn () => null;
+    $calls = [];
+    $p = $fresh([]);
+    $jackJob = $GLOBALS['nightHost']['jack_job'];
+    $GLOBALS['nightHost']['jack_job'] = function (array $args) use ($jackJob, $jlist) { file_put_contents($jlist, ''); return $jackJob($args); };
+    $pendWhy = function () use ($h) { try { moverelliRunCheck('run', $h); return 'ok'; } catch (Problem $e) { return $e->key; } };
+    same('night run, his list pending: her own real run waits (said), the joint run is let through', ['moverelli_jack_list_pending', 'ok'],
+        [$pendWhy(), (function () use ($h) { try { moverelliRunCheck('run', $h, true); return 'ok'; } catch (Problem $e) { return $e->key; } })()]);
+    $exit = nightRun(['run']);
+    same('night run without a limit, his list pending: he first (his run writes his list), then her part — not refused', [0, ['jack run --night', 'her run --night'], true, 'ok'],
+        [$exit, $calls, is_file($jlist), $pendWhy()]);
+    unlink($jlist);
+    $GLOBALS['nightHost']['level'] = fn (array $g, array $hh, bool $wake) => $level();
+    $calls = [];
+    $p = $fresh(['j' => 0, 'd' => 150, 'wait' => 60]);
+    nightRun(['run']);
+    same('night run with X, his list pending: his give-back first as always, her part, his fetch', ['jack run --night --nofill', 'her run --night --fill-until=740G --fill-pool=cache', 'jack run --night'], $calls);
+    $GLOBALS['nightHost']['jack_job'] = $jackJob;
+    $msrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
+    check('night run, his list pending: her part inside the joint run asks the check without the night (refused while still missing)',
+        substr_count($msrc, 'moverelliRunCheck($mode, $h);') >= 2 && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php'), 'moverelliRunCheck($mode, $h, true);'));
+    @unlink($jlist);
+    $v['jack_lists'] = [];
+    $v['jack_ran'] = true;
+    moverelliSave(moverelliTestSettings(['move_when_used_above' => 80]), $h);
     // not hired, a run of hers going: refused
     $v['hired'] = false;
     same('night run: she isn\'t hired — nothing', 1, nightRun(['run']));
@@ -52793,8 +52828,10 @@ function testJackListLost(): void
     $docs = $mk('mnt/cache/Docs/old.txt');
     @symlink('/etc/passwd', "$cache/Filme/A (2001)/link.mkv");
 
-    // before his first real run: written empty, as before (nothing of his lies there)
-    same('lost list: before his first real run — written empty, noted', ['written', '', 0], [jackListEnsure($set, $dir, $o), file_get_contents($list), readJson("$dir/" . JACK_LIST_NOTE)['lines'] ?? null]);
+    // before his first real run: never written by a look (2026-10-29, H4 — an empty one let Ms. Moverelli give his films
+    // back): pending until his run writes it, even with files of his shares on the pool (a reset, an old install)
+    same('lost list: before his first real run — pending, nothing written, no note', ['pending', false, false],
+        [jackListEnsure($set, $dir, $o), is_file($list), is_file("$dir/" . JACK_LIST_NOTE)]);
     // seen with films by his look, no real run of his in his list of runs (an older office's run, a trimmed list): noted
     file_put_contents($list, implode("\n", $films) . "\n");
     same('lost list: seen with entries by his look — noted, it held films', [null, 3, true, true],
@@ -52863,6 +52900,13 @@ SH);
     unlink($list);
     symlink("$t/elsewhere", $list);
     same('lost list: a link in its place — nothing written', [null, false], [jackListEnsure($set, $dir, $o), file_exists("$t/elsewhere")]);
+    unlink($list);
+    // he ran, the list gone, nothing of his shares on the pool: nothing to keep — it stays missing (pending), no empty one
+    $empty = ['shares' => ['Leer']] + $o;
+    same('lost list: gone, nothing of his on the pool — pending, nothing written', ['pending', false], [jackListEnsure($set, $dir, $empty), is_file($list)]);
+    file_put_contents($list, '');
+    touch($list, time() + 20);
+    same('lost list: emptied, nothing of his on the pool — left as it is, seen (once)', [null, '', null], [jackListEnsure($set, $dir, $empty), file_get_contents($list), jackListEnsure($set, $dir, $empty)]);
     unlink($list);
     // «Set up from scratch» forgets his runs: a fresh start, an empty list again
     jackReset(['dir' => $dir, 'gather' => "$t/gather", 'running' => fn (): bool => false, 'schedule' => fn (string $job) => null]);

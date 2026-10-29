@@ -183,16 +183,18 @@ function jackMigratePending(): void
 }
 
 /**
- * Set up, his list there — and never «keep nothing» by accident (H1, 2026-10-21). Before his first real run nothing of his
- * lies on the pool: written empty (the lab, 2026-10-16: with Ms. Moverelli hired his real run is the joint night run, which
- * waited for a list only that run makes — a fresh install never started; MediaCache rewrites it at its first real run).
- * After one (or a list taken over from an old EmbyCache), a list that went missing — or was emptied by anyone but his runs
- * and the office (its note, JACK_LIST_NOTE) — is written anew from what of his shares lies on his pool: an incomplete plan
- * (a media server that can't be asked) «keeps the list as it was», and an empty one let Ms. Moverelli move his films back
+ * Set up, his list there — and never «keep nothing» by accident (H1, 2026-10-21). A missing list is never made empty by a
+ * look (2026-10-29, wave 1's H4: the look wrote it empty before his first real run, and Ms. Moverelli's next run gave his
+ * films back to the array): before his first real run it stays missing — `pending`: her own real runs wait, the joint run
+ * lets him go first and his run writes it (nightrun.php; MediaCache never makes it from an incomplete plan). After one (or
+ * a list taken over from an old EmbyCache), a list that went missing — or was emptied by anyone but his runs and the
+ * office (its note, JACK_LIST_NOTE) — is written anew from what of his shares lies on his pool: an incomplete plan (a
+ * media server that can't be asked) «keeps the list as it was», and an empty one let Ms. Moverelli move his films back
  * to the array. More than his films may stand on it (a download not yet moved): his next complete run sets it right.
- * Where the pool can't be looked at (asleep and not $o['wake'], unreadable, too many files) nothing is written: a missing
- * list makes Smart Mover leave the shares that name it (its ERROR) and his real runs refuse (jack_list_lost). Never over a
- * link. $o (the tests): wake, ran, running, shares, asleep. Answer: 'written' (empty, the first), 'rebuilt', 'lost', null.
+ * Nothing of his on the pool: a missing list stays missing (`pending` — nothing there to keep, his next real run writes
+ * it). Where the pool can't be looked at (asleep and not $o['wake'], unreadable, too many files) nothing is written: a
+ * missing list makes Smart Mover leave the shares that name it (its ERROR) and his real runs refuse (jack_list_lost).
+ * Never over a link. $o (the tests): wake, ran, running, shares, asleep. Answer: 'pending', 'rebuilt', 'lost', null.
  */
 function jackListEnsure(?array $settings, string $dir = JACK_DATA, array $o = []): ?string
 {
@@ -217,10 +219,7 @@ function jackListEnsure(?array $settings, string $dir = JACK_DATA, array $o = []
             return null;
         }
     } elseif (!($o['ran'] ?? jackListRan($dir))) {
-        writeAtomic($f, '', 0600, 0, 0);
-        jackListNote($dir);
-        logLine('Jack Streamer: his list written, empty until his first real run (Ms. Moverelli\'s joint night run waits for it)');
-        return 'written';
+        return 'pending';               // his first real run writes it — never an empty one by a look
     }
     $was = is_file($f) ? 'emptied' : 'missing';
     $cache = rtrim((string) $settings['cache_path'], '/');
@@ -231,7 +230,15 @@ function jackListEnsure(?array $settings, string $dir = JACK_DATA, array $o = []
             . '): Ms. Moverelli leaves the shares that name it, his real runs wait');
         return 'lost';
     }
-    writeAtomic($f, $paths ? implode("\n", $paths) . "\n" : '', 0600, 0, 0);
+    if (!$paths) {
+        // nothing of his shares on the pool: nothing to keep — a missing list stays missing, an emptied one as it is (seen)
+        if ($was === 'missing') {
+            return 'pending';
+        }
+        jackListNote($dir);
+        return null;
+    }
+    writeAtomic($f, implode("\n", $paths) . "\n", 0600, 0, 0);
     jackListNote($dir, ['rebuilt' => ['at' => time(), 'was' => $was, 'files' => count($paths)]]);
     logLine("Jack Streamer: his list was $was after his runs — written anew from what of his shares lies on the pool (" . count($paths)
         . ' files); his next complete run sets it right');
@@ -309,7 +316,7 @@ function jackScan(): array
 {
     jackMigratePending();
     $settings = jackReadSettings();
-    jackListEnsure($settings);
+    $list = jackListEnsure($settings);
     $gather = jackGatherSettings();
     $jobs = ['embycache' => jackJobInfo('embycache'), 'gather' => jackJobInfo('gather')];
     $state = [
@@ -355,6 +362,9 @@ function jackScan(): array
         // the joint run with Ms. Moverelli waiting on its schedule (Unraid's mover, Mr. Backupsy's local part — M17)
         'waiting'    => ['embycache' => jackRunWaiting('embycache'), 'gather' => jackRunWaiting('gather'), 'night' => jackRunWaiting('moverelli')],
         'letgo'      => jackLetGoNote(),       // hired again: what he switched off when he was let go (said once)
+        // his list not there (2026-10-29): pending (his first real run writes it — Ms. Moverelli leaves his shares alone
+        // meanwhile), lost (it can't be written anew now: the pool asleep or unreadable); null: there
+        'list'       => in_array($list, ['pending', 'lost'], true) ? $list : null,
     ];
     writeAtomic(deskFile('jack'), jsonEncode($state));
     return $state;
@@ -1388,7 +1398,6 @@ function jackSave(mixed $in): array
         throw new Problem('jack_config', ['detail' => 'array_path / user_path / array_disks_glob']);
     }
     jackWriteSettings($cfg);
-    jackListEnsure(jackReadSettings());               // the night run with Ms. Moverelli can start at once
     if ($gather = jackGatherSettings()) {
         jackWriteGatherIni($gather, $cfg);             // follows the pool
     }

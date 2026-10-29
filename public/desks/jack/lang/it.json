@@ -233,6 +233,8 @@
   "notice.gathering": "Si stanno consolidando le cartelle.",
   "notice.foreign": "La preparazione o il consolidamento vengono avviati anche altrove: {where}. Questo gira accanto alla mia pianificazione e senza i miei blocchi — meglio disattivarlo lì.",
   "notice.old_clone": "Il vecchio download in data/embycache/app non serve più (MediaCache ora arriva con la segreteria). Si può eliminare.",
+  "notice.list_pending": "La mia lista di ciò che resta sul pool non c'è ancora — la scrive la mia prima esecuzione vera (nella prossima esecuzione congiunta vado per primo). Fino ad allora la Signora Moverelli lascia stare le mie condivisioni.",
+  "trial_no_list": "Questo non ha cambiato nulla — nemmeno la mia lista di ciò che resta sul pool: arriva solo da un'esecuzione vera.",
   "help.what": "Cosa faccio",
   "help.what_text": "Chiedo ai tuoi media server cosa guarderete dopo e sposto quei file dall'array al pool veloce. Così i dischi dell'array dormono e la riproduzione parte subito. Ciò che è stato visto torna indietro.",
   "help.tools": "I miei strumenti",

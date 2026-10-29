@@ -233,6 +233,8 @@
   "notice.gathering": "Des dossiers sont en train d'être regroupés.",
   "notice.foreign": "La préparation ou le regroupement est aussi lancé ailleurs : {where}. Ça tourne à côté de ma planification et en dehors de mes verrous — mieux vaut le désactiver là-bas.",
   "notice.old_clone": "L'ancien téléchargement dans data/embycache/app n'est plus nécessaire (MediaCache est maintenant livré avec le secrétariat). Il peut être supprimé.",
+  "notice.list_pending": "Ma liste de ce qui reste sur le pool n'existe pas encore — ma première exécution réelle l'écrit (dans la prochaine exécution commune, je passe en premier). D'ici là, Madame Moverelli laisse mes partages tranquilles.",
+  "trial_no_list": "Cela n'a rien changé — pas même ma liste de ce qui reste sur le pool : elle ne vient que d'une exécution réelle.",
   "help.what": "Ce que je fais",
   "help.what_text": "Je demande à tes serveurs multimédia ce que vous regarderez ensuite et je déplace ces fichiers de l'array vers le pool rapide. Ainsi les disques de l'array dorment et la lecture démarre tout de suite. Ce qui a été vu repart.",
   "help.tools": "Mes outils",

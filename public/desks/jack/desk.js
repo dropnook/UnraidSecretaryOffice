@@ -514,6 +514,8 @@ function render() {
   const nw = night() ? (state.waiting || {}).night : null;
   if (nw) hints.push(nightWaitLine(nw));
   if (state.old_clone) hints.push(el('p', 'callout', T('notice.old_clone')));
+  // his list not written yet (2026-10-29): never made empty by a look — his first real run writes it, she waits meanwhile
+  if (state.configured && state.list === 'pending') hints.push(el('p', 'callout', T('notice.list_pending')));
   if (running()) {
     const look = state.jobs.gather.running ? null : lookRun();
     const p = el('p', 'callout', T(state.jobs.gather.running ? 'notice.gathering' : look ? `notice.running_${look}` : 'notice.running') + ' ');
@@ -619,6 +621,8 @@ function resultBox() {
   const h = (state.history || []).find((r) => r.tool === 'embycache' && !['refused', 'skipped'].includes(r.result));
   box.appendChild(el('div', '', runSummary({ tool: 'embycache', mode: st.mode, status: st, result: st.result, why: h && h.result === st.result ? h.why : null })));
   if (st.incomplete) box.appendChild(el('div', 'warn-text', T('incomplete')));
+  // a trial (What's next, a dry run) writes nothing, his list neither — it comes from a real run (2026-10-29)
+  if (['report', 'dry'].includes(st.mode)) box.appendChild(el('div', 'role', T('trial_no_list')));
   return box;
 }
 

@@ -233,6 +233,8 @@
   "notice.gathering": "Se están agrupando carpetas.",
   "notice.foreign": "La preparación o la agrupación también se inicia en otro sitio: {where}. Eso se ejecuta al margen de mi programación y fuera de mis bloqueos — mejor desactívalo allí.",
   "notice.old_clone": "La descarga antigua en data/embycache/app ya no hace falta (MediaCache viene ahora con la secretaría). Se puede borrar.",
+  "notice.list_pending": "Mi lista de lo que se queda en el pool aún no existe — la escribe mi primera ejecución real (en la próxima ejecución conjunta voy primero). Hasta entonces, la Señora Moverelli deja en paz mis recursos compartidos.",
+  "trial_no_list": "Esto no cambió nada — tampoco mi lista de lo que se queda en el pool: solo sale de una ejecución real.",
   "help.what": "Lo que hago",
   "help.what_text": "Pregunto a tus servidores multimedia qué veréis a continuación y muevo esos archivos del array al pool rápido. Así los discos del array duermen y la reproducción empieza al instante. Lo ya visto vuelve.",
   "help.tools": "Mis herramientas",

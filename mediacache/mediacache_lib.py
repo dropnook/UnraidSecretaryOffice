@@ -1216,6 +1216,11 @@ def read_exclude():
     return {line.strip() for line in EXCLUDE_FILE.read_text(encoding="utf-8").splitlines() if line.strip()}
 
 
+def exclude_there():
+    """USO (2026-10-29): is there an exclude list at all (also an empty one)?"""
+    return EXCLUDE_FILE.exists()
+
+
 def write_exclude(paths):
     """Atomar schreiben (temp + rename), damit Mover Tuning nie eine halbe Liste liest."""
     tmp = EXCLUDE_FILE.with_suffix(".tmp")
