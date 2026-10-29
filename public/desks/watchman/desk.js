@@ -979,8 +979,9 @@ function entryName(e) {
   return T('entry.' + (e.v || atVariant(e) || e.kind), entryParams(e));     // e.v: the shape a network entry has now (agent: watchnetEntryVariant())
 }
 
-/** An at job he doesn't know: running (=…) says since when, one still waiting days past its time says so (agent: watchmanAtSet()) */
+/** An at job he doesn't know: running (=…) says since when, one still waiting days past its time says so (agent: watchmanAtSet()); a plugin's running */
 function atVariant(e) {
+  if (e.kind === 'at_plugin' && e.p && String(e.p.job || '').startsWith('=')) return 'at_plugin_run';      // atd runs it (=…)
   if (e.kind !== 'at_job' || !e.p) return null;
   return e.p.run ? 'at_job_run' : e.tell ? 'at_job_late' : null;
 }
@@ -1083,6 +1084,7 @@ function entryParams(e) {
   if (e.kind === 'door_changed') t.what = doorWhat(p.what);
   if (e.kind === 'net_firewall_change') t.area = T('net_area.' + (['firewall', 'nat', 'port_forward', 'policy'].includes(p.area) ? p.area : 'firewall'));
   if (e.kind === 'parity_check') t.why = parityWhy(p);
+  if (e.kind.startsWith('at_') && p.when) Object.assign(t, { when: fmt.date(p.when), since: fmt.date(p.since || p.when) });     // the browser's own way, like its details
   if (e.group !== 'flow') return t;
   if (p.bytes !== undefined) t.size = fmt.size(p.bytes);
   else if (p.files !== undefined) t.size = T('gone.files_n', { n: Number(p.files) || 0 });     // files deleted: counted

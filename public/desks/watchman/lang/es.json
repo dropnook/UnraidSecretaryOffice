@@ -460,6 +460,7 @@
   "check.at_userscript_how": "Nada que hacer — el plugin User Scripts inicia «Run in background» a través de atd. Los anota por sí mismo.",
   "notify.at_userscript": {"one": "Sereno: un User Script iniciado en segundo plano", "other": "Sereno: {n} User Scripts iniciados en segundo plano"},
   "entry.at_plugin": "Programado por {name}: una de sus propias tareas a través de atd ({file}), prevista el {when}",
+  "entry.at_plugin_run": "Programado por {name}: una de sus propias tareas a través de atd ({file}), en marcha — estaba prevista el {when}",
   "adopt.at_plugin": "Nada que hacer: un plugin programa una de sus propias tareas a través de atd.",
   "check.at_plugin": {"one": "Programado por {name}: una de sus propias tareas a través de atd", "other": "{n} tareas propias de plugins a través de atd, la más reciente de {name}"},
   "check.at_plugin_how": "Nada que hacer — un plugin instalado (p. ej. Fix Common Problems) ejecuta una vez uno de sus propios archivos a través de atd, como root. Las anota por sí mismo.",

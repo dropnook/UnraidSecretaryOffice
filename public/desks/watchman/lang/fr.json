@@ -460,6 +460,7 @@
   "check.at_userscript_how": "Rien à faire — le plugin User Scripts lance « Run in background » via atd. Il les note de lui-même.",
   "notify.at_userscript": {"one": "Veilleur de nuit : un User Script lancé en arrière-plan", "other": "Veilleur de nuit : {n} User Scripts lancés en arrière-plan"},
   "entry.at_plugin": "Planifié par {name} : une de ses propres tâches via atd ({file}), prévue le {when}",
+  "entry.at_plugin_run": "Planifié par {name} : une de ses propres tâches via atd ({file}), en cours — elle était prévue le {when}",
   "adopt.at_plugin": "Rien à faire : un plugin planifie une de ses propres tâches via atd.",
   "check.at_plugin": {"one": "Planifié par {name} : une de ses propres tâches via atd", "other": "{n} tâches propres de plugins via atd, la plus récente par {name}"},
   "check.at_plugin_how": "Rien à faire — un plugin installé (p. ex. Fix Common Problems) exécute une fois un de ses propres fichiers via atd, en root. Il les note de lui-même.",

@@ -460,6 +460,7 @@
   "check.at_userscript_how": "Niente da fare — il plugin User Scripts avvia «Run in background» tramite atd. Di questi prende atto da sé.",
   "notify.at_userscript": {"one": "Guardiano notturno: uno User Script avviato in background", "other": "Guardiano notturno: {n} User Script avviati in background"},
   "entry.at_plugin": "Pianificato da {name}: un suo job tramite atd ({file}), previsto per {when}",
+  "entry.at_plugin_run": "Pianificato da {name}: un suo job tramite atd ({file}), in esecuzione — era previsto per {when}",
   "adopt.at_plugin": "Niente da fare: un plugin pianifica un suo job tramite atd.",
   "check.at_plugin": {"one": "Pianificato da {name}: un suo job tramite atd", "other": "{n} job dei plugin stessi tramite atd, il più recente di {name}"},
   "check.at_plugin_how": "Niente da fare — un plugin installato (ad es. Fix Common Problems) esegue una volta uno dei suoi file tramite atd, come root. Di questi prende atto da sé.",

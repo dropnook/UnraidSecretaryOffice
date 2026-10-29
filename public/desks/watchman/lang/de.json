@@ -460,6 +460,7 @@
   "check.at_userscript_how": "Nichts zu tun — das Plugin User Scripts startet «Run in background» über atd. Diese nimmt er selbst zur Kenntnis.",
   "notify.at_userscript": {"one": "Nachtwächter: ein User Script im Hintergrund gestartet", "other": "Nachtwächter: {n} User Scripts im Hintergrund gestartet"},
   "entry.at_plugin": "Von {name} geplant: ein eigener Job über atd ({file}), fällig {when}",
+  "entry.at_plugin_run": "Von {name} geplant: ein eigener Job über atd ({file}), läuft — fällig war er {when}",
   "adopt.at_plugin": "Nichts zu tun: Ein Plugin plant einen eigenen Job über atd.",
   "check.at_plugin": {"one": "Von {name} geplant: ein eigener Job über atd", "other": "{n} eigene Jobs von Plugins über atd, der neuste von {name}"},
   "check.at_plugin_how": "Nichts zu tun — ein installiertes Plugin (z. B. Fix Common Problems) führt eine seiner eigenen Dateien einmal über atd aus, als root. Diese nimmt er selbst zur Kenntnis.",

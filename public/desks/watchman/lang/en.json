@@ -460,6 +460,7 @@
   "check.at_userscript_how": "Nothing to do — the User Scripts plugin starts «Run in background» through atd. He notes these himself.",
   "notify.at_userscript": {"one": "Night watchman: a User Script started in the background", "other": "Night watchman: {n} User Scripts started in the background"},
   "entry.at_plugin": "Scheduled by {name}: one of its own jobs through atd ({file}), due {when}",
+  "entry.at_plugin_run": "Scheduled by {name}: one of its own jobs through atd ({file}), running — it was due {when}",
   "adopt.at_plugin": "Nothing to do: a plugin schedules one of its own jobs through atd.",
   "check.at_plugin": {"one": "Scheduled by {name}: one of its own jobs through atd", "other": "{n} plugins' own jobs through atd, the newest by {name}"},
   "check.at_plugin_how": "Nothing to do — an installed plugin (Fix Common Problems, say) runs one of its own files once through atd, as root. He notes these himself.",
