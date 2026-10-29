@@ -22,7 +22,8 @@
 # Hold only while someone will send the summary: the agent's heartbeat (<home>/agent.json) at most 70 s old.
 #
 # The numbers - the same names and values as in agent/lib/notifycenter.php (tests/run.php compares them):
-NOTIFY_SAME_FORGET=86400    # an unresolved repeat may go out again after a day (a daily failure still reminds daily)
+NOTIFY_SAME_FORGET=72000    # an unresolved repeat may go out again after 20 h (2.80, a day up to 2.79: a daily failure a few
+                            # seconds earlier than the day before was counted - it reminded every other day; now daily)
 NOTIFY_ALERT_SAME=60        # an alert: only the very same one again within a minute is counted (never a day)
 NOTIFY_FAILED_SAME=72000    # 2.80: a run's very same failure again within 20 h is counted (a daily schedule still reminds daily)
 NOTIFY_CAP_WINDOW=3600      # the caps count the last hour

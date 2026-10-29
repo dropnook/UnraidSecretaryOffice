@@ -20890,7 +20890,7 @@ function testNotifyCenter(): void
         [array_values(array_filter($pairs, fn ($p) => officeNotifyFailSame(...explode(':', $p)))),
          array_values(array_filter($pairs, fn ($p) => trim((string) shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg($gate) . '; ung_fail_same "$1" "$2" && echo y')
             . ' _ ' . implode(' ', array_map('escapeshellarg', explode(':', $p))))) === 'y'))]);
-    same('centre: the owner\'s numbers', [86400, 60, 3600, 5, 20, 10, 900], [NOTIFY_SAME_FORGET, NOTIFY_ALERT_SAME, NOTIFY_CAP_WINDOW, NOTIFY_DESK_CAP, NOTIFY_OFFICE_CAP, NOTIFY_ALERT_CAP, NOTIFY_ALERT_BUNDLE]);
+    same('centre: the owner\'s numbers', [72000, 60, 3600, 5, 20, 10, 900], [NOTIFY_SAME_FORGET, NOTIFY_ALERT_SAME, NOTIFY_CAP_WINDOW, NOTIFY_DESK_CAP, NOTIFY_OFFICE_CAP, NOTIFY_ALERT_CAP, NOTIFY_ALERT_BUNDLE]);
     // the chip's tip says «the very same alert twice within a minute goes once» - true only while it is a minute
     check('centre: the tip «within a minute» is NOTIFY_ALERT_SAME', NOTIFY_ALERT_SAME === 60
         && str_contains((string) json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/lang/en.json'), true)['nc.tip.alerts'], 'within a minute'));
@@ -20970,6 +20970,10 @@ function testNotifyCenter(): void
         ['the same, unresolved: counted', null, true, [[$now - 600, 'sent', 'backup', 'warning', $k]], 'backup', 'warnings', 'warning', 'counted', 'same'],
         ['the same, resolved since: goes', null, true, [[$now - 600, 'sent', 'backup', 'warning', $k], [$now - 60, 'resolved', 'backup', '-', '-']], 'backup', 'warnings', 'warning', 'sent', ''],
         ['the same, a day ago: goes', null, true, [[$now - 86401, 'sent', 'backup', 'warning', $k]], 'backup', 'warnings', 'warning', 'sent', ''],
+        // 2.80: 20 h, no longer a day - a daily failure a few seconds earlier than the day before still reminds that day
+        ['2.80: the same, a day minus a minute ago (a daily schedule): goes', null, true, [[$now - 86340, 'sent', 'backup', 'warning', $k]], 'backup', 'warnings', 'warning', 'sent', ''],
+        ['2.80: the same, 20 h ago: goes', null, true, [[$now - 72000, 'sent', 'backup', 'warning', $k]], 'backup', 'warnings', 'warning', 'sent', ''],
+        ['2.80: the same, 19 h 59 min ago, unresolved: counted', null, true, [[$now - 71940, 'sent', 'backup', 'warning', $k]], 'backup', 'warnings', 'warning', 'counted', 'same'],
         ['another desk\'s resolve: still counted', null, true, [[$now - 600, 'sent', 'backup', 'warning', $k], [$now - 60, 'resolved', 'jack', '-', '-']], 'backup', 'warnings', 'warning', 'counted', 'same'],
         // T01: an alert is never folded into «the same» - only the very same one again within a minute is counted
         ['T01: the same alert 23 h 55 min later, unresolved: goes', null, true, [[$now - 86100, 'sent', 'backup', 'alert', $k]], 'backup', 'vm_not_started', 'alert', 'sent', ''],

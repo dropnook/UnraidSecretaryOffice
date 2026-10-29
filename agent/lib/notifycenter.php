@@ -26,7 +26,7 @@ declare(strict_types=1);
  * The numbers are the same as in backup/lib/notifygate.sh (tests/run.php compares them).
  */
 
-const NOTIFY_SAME_FORGET  = 86400;    // an unresolved repeat may go out again after a day (a daily failure still reminds daily)
+const NOTIFY_SAME_FORGET  = 72000;    // an unresolved repeat may go out again after 20 h (2.80, a day up to 2.79: a daily failure still reminds daily)
 const NOTIFY_ALERT_SAME   = 60;       // an alert: only the very same one again within a minute is counted (never a day)
 const NOTIFY_FAILED_SAME  = 72000;    // 2.80: a run's very same failure again within 20 h is counted (a daily schedule still reminds daily)
 const NOTIFY_CAP_WINDOW   = 3600;     // the caps count the last hour
