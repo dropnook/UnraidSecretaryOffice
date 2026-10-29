@@ -262,7 +262,7 @@ function build(root) {
   ]));
 
   // a click outside the open list of logs closes it
-  root.addEventListener('click', (e) => { if (v.pop && !v.pop.hidden && !v.picker.contains(e.target)) closePicker(); });
+  root.addEventListener('click', (e) => { if (view === v && v.pop && !v.pop.hidden && !v.picker.contains(e.target)) closePicker(); });
   root.appendChild(sw.el);          // the row of tiles, under it the chosen section — or, nothing chosen, all of them
   root.appendChild(credit());       // under all (no section)
   return v;
@@ -1927,6 +1927,7 @@ function openPicker() {
   view.find.focus();
 }
 function closePicker() {
+  if (!view) return;              // the desk is gone (a click on another desk reached an old listener)
   view.pop.hidden = true;
   view.source.setAttribute('aria-expanded', 'false');
 }
