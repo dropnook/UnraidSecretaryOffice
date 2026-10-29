@@ -33840,8 +33840,13 @@ function testPartnerTicket(): void
     file_put_contents("$N[root]/shares.ini", "[appdata]\nname=\"appdata\"\nexclusive=\"yes\"\n");
     same('ticket: a share that exists as a dataset — beside it, swap said', ["pool9/appdata.restored-$ts", 'share_exists', true],
         array_values(array_intersect_key($asN('$t = rspTarget(rspSource("' . $tid . '"), "share:appdata", "pool9", "' . $ts . '", ["shares_ini" => ["appdata" => ["name" => "appdata"]]]); return ["d" => $t["dataset"], "h" => $t["how"], "n" => $t["notes"][0]["key"] === "note.partner_share_exists"];'), ['d' => 1, 'h' => 1, 'n' => 1])));
+    @mkdir("$tmp/N/cfg", 0700, true);             // Unraid's share settings: a stand-in (never the test server's flash)
     same('ticket: a share that doesn\'t exist — under UnraidSecretaryOffice-restored, said', ['pool9/' . RSP_PARENT . '/share-media', 'note.partner_share_missing'],
-        array_values($asN('$t = rspTarget(["kind" => "ticket", "id" => "x", "units" => ["share:media"], "pair" => []], "share:media", "pool9", "' . $ts . '", ["shares_ini" => []]); return [$t["dataset"], $t["notes"][0]["key"]];')));
+        array_values($asN('$GLOBALS["rs"]["shares_cfg"] = ' . var_export("$tmp/N/cfg", true) . '; $t = rspTarget(["kind" => "ticket", "id" => "x", "units" => ["share:media"], "pair" => []], "share:media", "pool9", "' . $ts . '", ["shares_ini" => []]); return [$t["dataset"], $t["notes"][0]["key"]];')));
+    file_put_contents("$tmp/N/cfg/media.cfg", "shareUseCache=\"only\"\nshareCachePool=\"pool9\"\n");
+    same('ticket: a share Unraid took off its list (its settings on the flash, no folder: a put back) — said so, never «no share here»', 'note.partner_share_unlisted',
+        $asN('$GLOBALS["rs"]["shares_cfg"] = ' . var_export("$tmp/N/cfg", true) . '; $t = rspTarget(["kind" => "ticket", "id" => "x", "units" => ["share:media"], "pair" => []], "share:media", "pool9", "' . $ts . '", ["shares_ini" => []]); unset($GLOBALS["rs"]["shares_cfg"]); return $t["notes"][0]["key"];'));
+    unlink("$tmp/N/cfg/media.cfg");
     // 2026-10-28 (the drill): a share made here on this pool that has no dataset yet (Unraid makes its folder at the
     // first write) — beside its place like a share with one, «Swap it in…» makes it the share; never over a folder with data
     @mkdir("$tmp/N/mnt", 0755, true);
@@ -54801,6 +54806,7 @@ function testRestoreGapsSwap(): void
     same('fresh share: the swap — nothing blocks; no dataset goes aside, the pull takes the share\'s place; said so',
         [[], ['not_open', 'stop', 'pull_umount', 'swap_in', 'start'], [], 'note.swap_fresh', 'after.swap_fresh_done'],
         [$plan['blockers'], array_column($plan['steps'], 'do'), $plan['aside'], $plan['notes'][0]['key'] ?? null, $plan['after'][0]['key'] ?? null]);
+    same('fresh share: … its entry knows it was fresh (its put back leaves the share no folder: said, testRestoreShareUnlisted)', true, $plan['target']['fresh'] ?? null);
     $j = restoreGapsRun($plan, '20261025-110000-cd34');
     $s = $z();
     same('fresh share: swapped — the share\'s dataset is the pull, mounted at /mnt/tank/appdata from the pool, no copy beside, nothing aside',
@@ -56265,12 +56271,104 @@ function testPartnerDoorDocs(): void
     check('door docs: an older door refuses the bare form', str_contains($sec, 'An older door refuses the') && str_contains($sec, 'malformed'));
 }
 
+/**
+ * Partner rest (2026-10-29), item 4: a «Put back» that leaves a share no folder — Unraid lists a share only while a
+ * folder of it exists (seen on test3: gone from shares.ini within seconds, back as soon as a folder or dataset is
+ * there; its .cfg stays). Mr. Restori says so on the put back's entry and, on a ZFS pool awake, makes its empty folder
+ * in one click (an empty dataset as Unraid makes one, nobody:users 0777) — never a .cfg, never over anything
+ */
+function testRestoreShareUnlisted(): void
+{
+    $tmp = hardeningTmp('rsunlisted');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $keep = $GLOBALS['rs'] ?? [];
+    $cfg = "$tmp/cfg";
+    $mnt = "$tmp/mnt";
+    $set = function (array $zfs, array $ini = ['media' => ['name' => 'media']], string $useCache = 'only', array $asleep = []) use ($tmp, $cfg, $mnt, $keep): void {
+        $GLOBALS['rs'] = $keep;
+        restoreGapsBin($tmp, $zfs);
+        file_put_contents("$tmp/bin/root", $mnt);
+        exec('rm -rf ' . escapeshellarg($cfg) . ' ' . escapeshellarg($mnt));
+        @mkdir($cfg, 0700, true);
+        @mkdir("$mnt/tank", 0755, true);
+        file_put_contents("$cfg/appdata.cfg", "shareUseCache=\"$useCache\"\nshareCachePool=\"tank\"\n");
+        $GLOBALS['rs'] = array_merge($GLOBALS['rs'], ['shares_cfg' => $cfg, 'pool_root' => $mnt, 'shares_ini' => $ini, 'asleep_disks' => $asleep]);
+    };
+    $pool = ['tank' => ['guid' => '1', 'mounted' => true]];
+    $key = function (callable $f): ?string {
+        try {
+            $f();
+            return null;
+        } catch (Problem $p) {
+            return $p->key;
+        }
+    };
+
+    $set($pool);
+    same('unlisted: settings on the flash, not in shares.ini, nothing on its ZFS pool — off the list, its empty folder offered',
+        ['share' => 'appdata', 'pool' => 'tank', 'folder' => '/mnt/tank/appdata', 'can' => true, 'why' => null], rspShareUnlisted('appdata'));
+    same('unlisted: a share Unraid lists, one without settings on the flash, a name that is none, shares.ini unread — nothing said',
+        [null, null, null, null], [rspShareUnlisted('appdata', ['appdata' => ['name' => 'appdata']]), rspShareUnlisted('media2'), rspShareUnlisted('../etc'),
+         (function () { $GLOBALS['rs']['shares_ini'] = null; return rspShareUnlisted('appdata', null); })()]);
+    $set($pool, useCache: 'no');
+    same('unlisted: its data on the array first — said, no click (no disk picked for the user)', [null, false, 'array'], array_values(array_intersect_key(rspShareUnlisted('appdata'), ['can' => 1, 'why' => 1, 'pool' => 1])));
+    $set(['fast' => ['guid' => '2', 'mounted' => true]]);
+    same('unlisted: its pool no ZFS pool — said, no click', [false, 'not_zfs'], array_values(array_intersect_key(rspShareUnlisted('appdata'), ['can' => 1, 'why' => 1])));
+    $set($pool, asleep: ['tank' => true]);
+    same('unlisted: its pool asleep — never woken for it: said, no click', [false, 'asleep'], array_values(array_intersect_key(rspShareUnlisted('appdata'), ['can' => 1, 'why' => 1])));
+    $set(['tank' => ['guid' => '1', 'mounted' => true, 'mountpoint' => '/srv/tank']]);
+    same('unlisted: its pool mounted elsewhere than /mnt/<pool> — no click', [false, 'mountpoint'], array_values(array_intersect_key(rspShareUnlisted('appdata'), ['can' => 1, 'why' => 1])));
+    $set($pool);
+    @mkdir("$mnt/tank/appdata", 0755, true);
+    same('unlisted: something at its place already — no click (never over anything)', [false, 'there'], array_values(array_intersect_key(rspShareUnlisted('appdata'), ['can' => 1, 'why' => 1])));
+    $set($pool + ['tank/appdata' => ['guid' => '3', 'mounted' => false]]);
+    same('unlisted: its dataset there (unmounted) — no click', [false, 'there'], array_values(array_intersect_key(rspShareUnlisted('appdata'), ['can' => 1, 'why' => 1])));
+
+    // the click: an empty dataset where the pool puts it, Unraid's owner and mode on its root; the .cfg untouched
+    $set($pool);
+    $before = (string) file_get_contents("$cfg/appdata.cfg");
+    $r = rspShareFolder(['share' => 'appdata']);
+    $z = json_decode((string) file_get_contents("$tmp/bin/zfs.json"), true);
+    clearstatcache();
+    same('unlisted: «Make its empty folder» — the dataset tank/appdata, mounted at /mnt/tank/appdata, its root nobody:users 0777, the settings as they were',
+        [true, '/mnt/tank/appdata', true, true, '0777', 99, 100, $before],
+        [$r['ok'], $r['folder'], isset($z['tank/appdata']), $z['tank/appdata']['mounted'] ?? null, sprintf('%04o', fileperms("$mnt/tank/appdata") & 0777),
+         fileowner("$mnt/tank/appdata"), filegroup("$mnt/tank/appdata"), (string) file_get_contents("$cfg/appdata.cfg")]);
+    $calls = array_map(fn ($l) => json_decode($l, true), array_filter(explode("\n", (string) file_get_contents("$tmp/bin/calls.log"))));
+    same('unlisted: … exactly one zfs create, nothing destroyed or renamed', [1, 0], [count(array_filter($calls, fn ($c) => ($c[1] ?? '') === 'create')),
+        count(array_filter($calls, fn ($c) => in_array($c[1] ?? '', ['destroy', 'rename'], true)))]);
+    same('unlisted: a second click (its folder there now) — refused, nothing made', 'restore_share_folder_not', $key(fn () => rspShareFolder(['share' => 'appdata'])));
+    $GLOBALS['rs']['shares_ini'] = ['appdata' => ['name' => 'appdata']];
+    same('unlisted: listed again meanwhile — refused, said', 'restore_share_listed', $key(fn () => rspShareFolder(['share' => 'appdata'])));
+    $set($pool, asleep: ['tank' => true]);
+    same('unlisted: its pool asleep at the click — refused, nothing made', ['restore_share_folder_not', false],
+        [$key(fn () => rspShareFolder(['share' => 'appdata'])), isset(json_decode((string) file_get_contents("$tmp/bin/zfs.json"), true)['tank/appdata'])]);
+    same('unlisted: no share named — refused as a missing field', 'missing_field', $key(fn () => rspShareFolder([])));
+
+    // the swap's row: only once it is put back
+    $set($pool);
+    $row = ['kind' => 'partner_swap', 'target' => ['share' => 'appdata', 'fresh' => true], 'putback' => ['id' => 'x', 'result' => 'ok']];
+    same('unlisted: a swap put back says it on its row; one not put back (or put back failed) says nothing',
+        [true, null, null], [rspSwapUnlisted($row)['can'] ?? null, rspSwapUnlisted(['putback' => null] + $row), rspSwapUnlisted(['putback' => ['id' => 'x', 'result' => 'failed']] + $row)]);
+
+    // the wiring: his action, his rows, the page
+    $rs = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    check('unlisted: the action share_folder and the rows\' unlisted', str_contains($rs, "'share_folder' => fn (array \$r) => rspShareFolder(\$r)") && str_contains($rs, "\$row['unlisted'] = rspSwapUnlisted(\$row)"));
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/restore/desk.js');
+    check('unlisted: the page — the chip, the callout and the click after a fresh look (looked up again by id)', str_contains($js, "T('j.unlisted_chip')") && str_contains($js, 'unlistedPart(r.unlisted, r.id)')
+        && (bool) preg_match('/async function unlistedDialog[\s\S]{0,120}Office\.freshState\(ID\)[\s\S]{0,200}restores[\s\S]{0,80}x\.id === id/', $js) && str_contains($js, '`${ID}.share_folder`'));
+    check('unlisted: a fresh swap\'s put back says what it leaves', str_contains($js, "'j.swap_putback_hint_fresh'"));
+    $GLOBALS['rs'] = $keep;
+    putenv('OFFICE_PARTNER_BIN');
+    hardeningRm($tmp);
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
-                      'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
+                      'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];

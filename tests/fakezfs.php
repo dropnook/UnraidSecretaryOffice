@@ -88,6 +88,15 @@ switch ($cmd) {
         $st[$ds]['mounted'] = true;
         $save();
         exit(0);
+    case 'create':                               // zfs create <ds>: mounted where its parent puts it; made under root (a file naming it) too
+        $ds = end($a);
+        $parent = str_contains($ds, '/') ? substr($ds, 0, (int) strrpos($ds, '/')) : '';
+        if (isset($st[$ds])) { fwrite(STDERR, "cannot create '$ds': dataset already exists\n"); exit(1); }
+        if (!isset($st[$parent])) { fwrite(STDERR, "cannot create '$ds': parent does not exist\n"); exit(1); }
+        $st[$ds] = ['guid' => (string) random_int(100, 999999), 'mounted' => true];
+        if (is_file("$dir/root")) { @mkdir(trim((string) file_get_contents("$dir/root")) . '/' . $ds, 0755, true); }
+        $save();
+        exit(0);
     case 'umount':
         $ds = $rest[0];
         if (in_array($ds, $busy, true)) { fwrite(STDERR, "cannot unmount '$ds': pool or dataset is busy\n"); exit(1); }

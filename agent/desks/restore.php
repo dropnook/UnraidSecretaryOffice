@@ -151,6 +151,7 @@ desk('restore', [
         'drill_set'   => fn (array $r) => drillSet($r),
         'partner_look' => fn (array $r) => rspWantLook(),
         'stack_create' => fn (array $r) => rspStackLater(textField($r, 'id'), textField($r, 'name')),   // 1.60.1: «Create the stack now»
+        'share_folder' => fn (array $r) => rspShareFolder($r) + ['state' => rsScan()],   // a share off Unraid's list after a put back: its empty folder
     ],
     'jobs'    => ['restore' => fn (array $args) => rsJob($args), 'restore-drill' => fn (array $args) => drillJob($args),
                   'restore-partner-look' => fn (array $args) => rspLookJob($args)],
@@ -1843,6 +1844,10 @@ function rsJournals(): array
     foreach ($out as &$row) {
         if ($row['kind'] === 'partner') {
             $row['swapped_by'] = rspSwappedBy($row['id'], $out);
+        }
+        // a swap put back that left its share no folder: Unraid lists it again only once one is there (2026-10-29)
+        if ($row['kind'] === 'partner_swap') {
+            $row['unlisted'] = rspSwapUnlisted($row);
         }
     }
     unset($row);

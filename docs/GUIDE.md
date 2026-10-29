@@ -130,7 +130,10 @@ can bring everything back — read it while the server is still there, or here:
    place (`server/shares/`). A share just made on a ZFS pool is still empty there (Unraid makes its folder at the first
    write): a partner's copy of it lands beside its place, and *Swap it in…* then makes it the share — nothing copied,
    nothing aside, its settings kept. Has something been written into it meanwhile, the copy waits aside and *Restore…*
-   copies from there; the preview says which before the pull.
+   copies from there; the preview says which before the pull. *Put back* of such a swap leaves the share no folder,
+   and Unraid lists a share only while a folder of it exists: it drops off *Shares* (its settings stay) until one is
+   there again. The put back's entry says so and offers *Make its empty folder…* — an empty dataset on its ZFS pool,
+   as Unraid makes one; the share is back in the list at once.
 3. **Get the backup place back** — its packages carry the templates, dumps, VM configurations and the flash archive.
    From a partner office: install the office, the Team Lead's *Start from a partner's copy…*, the partner answers with a
    restore ticket, and Mr. Restori pulls the backup place first. From offsite (Kopia): install Kopia with the same
