@@ -976,7 +976,14 @@ function entryName(e) {
   if (e.kind === 'watch' && e.p && e.p.too_much) {
     return T(e.p.ros ? 'entry.net_too_much_mikrotik' : 'entry.net_too_much', { sender: e.p.sender || '', size: fmt.size(e.p.skipped || 0) });
   }
-  return T('entry.' + (e.v || e.kind), entryParams(e));     // e.v: the shape a network entry has now (agent: watchnetEntryVariant())
+  return T('entry.' + (e.v || atVariant(e) || e.kind), entryParams(e));     // e.v: the shape a network entry has now (agent: watchnetEntryVariant())
+}
+
+/** An at job he doesn't know: running (=…) says since when, one still waiting days past its time says so (agent: watchmanAtSet()); a plugin's running */
+function atVariant(e) {
+  if (e.kind === 'at_plugin' && e.p && String(e.p.job || '').startsWith('=')) return 'at_plugin_run';      // atd runs it (=…)
+  if (e.kind !== 'at_job' || !e.p) return null;
+  return e.p.run ? 'at_job_run' : e.tell ? 'at_job_late' : null;
 }
 
 /** Kinds whose words say how many already (failed logins, a port's link losses, outages, restarts a day) */
@@ -1077,6 +1084,7 @@ function entryParams(e) {
   if (e.kind === 'door_changed') t.what = doorWhat(p.what);
   if (e.kind === 'net_firewall_change') t.area = T('net_area.' + (['firewall', 'nat', 'port_forward', 'policy'].includes(p.area) ? p.area : 'firewall'));
   if (e.kind === 'parity_check') t.why = parityWhy(p);
+  if (e.kind.startsWith('at_') && p.when) Object.assign(t, { when: fmt.date(p.when), since: fmt.date(p.since || p.when) });     // the browser's own way, like its details
   if (e.group !== 'flow') return t;
   if (p.bytes !== undefined) t.size = fmt.size(p.bytes);
   else if (p.files !== undefined) t.size = T('gone.files_n', { n: Number(p.files) || 0 });     // files deleted: counted
@@ -1122,16 +1130,39 @@ function srcNone(x, share, short) {
     const rest = guess.length + (Number(x.more) || 0) - Math.min(guess.length, 2);
     return T('src.guess_short', { list: rest > 0 ? T('src.guess_more', { list: names, n: rest }) : names });
   }
+  return T('src.guess', { list: guessList(x, share) });
+}
+
+/**
+ * The likely writers in full words (agent: watchmanFlowGuessText()): a container, VM or stack mapping the path, a User
+ * Script naming it, a container's template while Docker didn't answer — at most three, «and {n} more»
+ */
+function guessList(x, share) {
+  const guess = (Array.isArray(x.guess) ? x.guess : []).filter((g) => g && typeof g === 'object');
   const name = String(share || '').split('/').slice(1).join('/') || String(share || '');
   const one = (g) => {
-    const how = [g.disk ? T('src.guess_disk', { share: name }) : T('src.guess_maps', { path: String(g.path || '') })];
+    const how = [g.disk ? T('src.guess_disk', { share: name }) : T(g.t === 'us' ? 'src.guess_names' : 'src.guess_maps', { path: String(g.path || '') })];
+    if (g.t === 'tpl') how.push(T('src.guess_tpl'));
     if (g.ro) how.push(T('src.guess_ro'));
-    if (g.off) how.push(T('src.guess_off'));
-    return T(g.t === 'vm' ? 'src.guess_vm' : g.t === 'stack' ? 'src.guess_stack' : 'src.guess_ct', { name: String(g.name || ''), how: how.join(', ') });
+    if (g.off && g.t !== 'tpl') how.push(T('src.guess_off'));
+    const key = { vm: 'src.guess_vm', stack: 'src.guess_stack', us: 'src.guess_us' }[g.t] || 'src.guess_ct';
+    return T(key, { name: String(g.name || ''), how: how.join(', ') });
   };
   const list = guess.slice(0, 3).map(one).join(', ');
   const more = Number(x.more) || 0;
-  return T('src.guess', { list: more > 0 ? T('src.guess_more', { list, n: more }) : list });
+  return more > 0 ? T('src.guess_more', { list, n: more }) : list;
+}
+
+/** Whose a router's line about this server likely is (agent: watchmanNetGuess()) — a guess, never a fact */
+function netGuess(p) {
+  if (!Array.isArray(p.guess)) return '';
+  const one = (g) => {
+    const t = g.t === 'vm' ? T('net_guess.vm', { name: String(g.name || '') })
+      : g.port ? T('net_guess.port', { name: String(g.name || ''), port: String(g.port) }) : T('net_guess.addr', { name: String(g.name || '') });
+    return g.off ? `${t}, ${T('src.guess_off')}` : t;
+  };
+  const list = p.guess.filter((g) => g && typeof g === 'object').map(one).join(', ');
+  return list ? T('net_guess.text', { list }) : T('net_guess.none');
 }
 
 /** The biggest source behind an entry's line, or that none can be seen ('' without sources: an entry of an older office) */
@@ -1172,7 +1203,7 @@ function goneMore(p) {
   const out = [];
   if (p.kept > 0) out.push(T('gone.kept', { size: fmt.size(p.kept) }));
   if (p.from === 'clients') out.push(T('gone.who_clients', { list: (p.clients || []).join(', ') }));
-  else if (p.from === 'server') out.push(T('gone.who_server'));
+  else if (p.from === 'server') out.push(Array.isArray(p.guess) && p.guess.length ? T('gone.who_server_guess', { list: guessList(p, 'user/' + (p.share || '')) }) : T('gone.who_server'));
   if ((p.users || []).length) out.push(T('gone.who_smb', { users: p.users.join(', ') }));
   if (p.files !== undefined && p.bytes !== undefined) out.push(T('gone.files', { n: Number(p.files) || 0 }));
   if (p.files !== undefined && p.renames) out.push(T('gone.renames'));
@@ -1432,7 +1463,9 @@ function details(e) {
   } else if (e.group === 'sched') {
     if (p.file) add(T('detail.cron_file'), '/boot/config/plugins/' + p.file + (p.new ? ` (${T('detail.file_new')})` : ''), true);
     if (p.plugin) add(T('detail.plugin'), p.plugin);
-    if (p.job) add(T('detail.job'), p.job, true);
+    const atNum = e.kind.startsWith('at_') && /^[a-zA-Z=][0-9a-f]{13}$/.test(p.job || '') ? parseInt(p.job.slice(1, 6), 16) : null;     // as atq shows it
+    if (atNum !== null) add(T('detail.at_number'), String(atNum), true);
+    else if (p.job) add(T('detail.job'), p.job, true);
     if (p.jobs && p.jobs.length) add(T('detail.jobs'), lines(p.jobs, p.lines));
     if (e.kind === 'script_new' || e.kind === 'script_changed') {
       add(T('detail.script'), p.name);
@@ -1441,9 +1474,12 @@ function details(e) {
       if (e.kind === 'script_changed') add(T('detail.content'), T(p.content ? 'detail.content_changed' : 'detail.content_same'));
     }
     if (e.kind === 'at_job') {
+      if (p.queued) add(T('detail.queued'), fmt.date(p.queued));
       add(T('detail.when'), fmt.date(p.when));
+      if (p.run && p.since) add(T('detail.running_since'), fmt.date(p.since));
       add(T('detail.command'), p.cmd || '?', true);
-      if (p.uid !== null && p.uid !== undefined) add(T('detail.uid'), String(p.uid));
+      if (p.user || (p.uid !== null && p.uid !== undefined)) add(T('detail.uid'), p.user || String(p.uid));
+      if (p.prog) add(T('detail.file_owner'), `${p.prog}: ${p.owner || '–'}`, true);
     }
     if (e.kind === 'at_userscript') {
       add(T('detail.script'), p.name);
@@ -1519,6 +1555,7 @@ function netDetails(e, p, add) {
       add(T('detail.direction'), T(p.dir === 'out' ? 'detail.dir_out' : 'detail.dir_in'));
       add(T('detail.remote'), [p.remote, p.dpt ? `${(p.proto || '').toLowerCase()}/${p.dpt}` : ''].filter(Boolean).join(' '), true);
       if (p.risk) add(T('detail.risk'), p.risk);
+      if (Array.isArray(p.guess)) add(T('detail.net_guess'), netGuess(p));
       break;
     case 'net_blocked_from_server':
       add(T('detail.destination'), `${p.dst} ${(p.proto || '').toLowerCase()}${p.dpt ? '/' + p.dpt : ''}`, true);

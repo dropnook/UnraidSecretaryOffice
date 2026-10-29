@@ -185,7 +185,7 @@ const WATCH_KINDS = [
     'cron_file_foreign'    => ['sched', true],
     'script_new'           => ['sched', false],
     'script_changed'       => ['sched', false],
-    'at_job'               => ['sched', true],
+    'at_job'               => ['sched', false],     // a job he doesn't know: a card; told only when it waits days past its time (watchmanAtSet())
     'at_userscript'        => ['sched', false],     // a User Script run in the background: noted by himself (watchmanAtUserScript())
     'at_plugin'            => ['sched', false],     // a plugin's own job (a file of an installed plugin, as root): noted by himself (watchmanAtPlugin())
     'notify_agent'         => ['sched', true],
@@ -436,6 +436,7 @@ function watchmanPaths(): array
         'docker_autostart' => HOUSE_AUTOSTART,
         'compose_cfg'      => HOUSE_COMPOSE_CFG,
         'compose_projects' => HOUSE_COMPOSE_PROJECTS,
+        'docker_templates' => '/boot/config/plugins/dockerMan/templates-user',     // the guess while Docker doesn't answer (watchmanFlowGuessTemplates())
         'port_range' => '/proc/sys/net/ipv4/ip_local_port_range',
         'ss'         => 'ss',
         'connect'    => '/boot/config/plugins/dynamix.my.servers/configs/connect.json',
@@ -1427,6 +1428,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $pos['boot'] = $boot;
     }
     $containers = $docker ? $docker() : watchmanContainers();
+    $netContainers = $containers;          // with their addresses and ports: whose a router's line likely is (watchmanNetGuess())
     $look = $flow ? $flow($containers) : null;
     $prevSeen = readJson("$dir/seen.json") ?? [];      // the last round's look: a file the same as then isn't read again
     // with the containers' main processes (whose programs run where)
@@ -1441,7 +1443,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         if (isset($paths['docker_autostart'])) {
             $containers = watchmanContainerStarts($containers, $paths);      // a privileged one: runs, starts by itself, or neither
         }
-        $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true, 'addrs' => true, 'macs' => true, 'ds' => true, 'restart' => true, 'compose' => true, 'binds' => true]),
+        $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true, 'addrs' => true, 'macs' => true, 'ds' => true, 'restart' => true, 'compose' => true, 'binds' => true, 'ports' => true]),
             $containers);     // the data flow's and the network's only (restart, compose: watchmanContainerStarts()'s; binds: the guess's)
     }
     $seen = [
@@ -1466,7 +1468,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     $parity = paritywhyLook($paths, is_array($snap['state']['parity'] ?? null) ? $snap['state']['parity'] : null, $boot, $btime, $now);
 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
-                                               $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook): array {
+                                               $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook, $netContainers): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -1541,6 +1543,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $old['net'] = $net;
             $b['net'] = $fresh ? null : ($b['net'] ?? null);
             $added = array_merge($added, watchnetCompare($b['net'], $netLook, $book, $net, $netServer, $now, $fresh, !empty($st['net_lan'])));
+            watchmanNetGuess($book, $netContainers, fn (): ?array => watchmanFlowGuessSetup($paths)['vms'], $paths);
             $observed['net'] = ['clock' => watchnetClock($net)];
         }
         if ($snapRes !== null) {
@@ -2164,8 +2167,16 @@ function watchmanContainers(): ?array
             }
         }
         $binds = watchmanFlowBinds(is_array($mounts) ? $mounts : []);
+        $ports = [];            // what it publishes on the server: tcp/5001 (whose a router's line to that port likely is)
+        foreach ((array) ($hc['PortBindings'] ?? []) as $inside => $to) {
+            foreach ((array) $to as $x) {
+                if (preg_match('#^\d{1,5}/(tcp|udp|sctp)$#D', (string) $inside, $pm) && preg_match('/^\d{1,5}$/D', (string) ($x['HostPort'] ?? '')) && count($ports) < 40) {
+                    $ports[] = $pm[1] . '/' . (int) $x['HostPort'];
+                }
+            }
+        }
         $out[$name] = ['image' => (string) json_decode($f[1]), 'tokens' => watchmanContainerTokens($hc, is_array($mounts) ? $mounts : []),
-                       'pid' => (int) ($f[4] ?? 0), 'addrs' => array_slice($addrs, 0, 8), 'macs' => array_slice($macs, 0, 8)]
+                       'pid' => (int) ($f[4] ?? 0), 'addrs' => array_slice($addrs, 0, 8), 'macs' => array_slice($macs, 0, 8), 'ports' => array_values(array_unique($ports))]
                     + (is_string($by) && preg_match('/^[a-z]{1,20}$/D', $by) ? ['by' => $by] : [])
                     + (is_string($drill) && preg_match('/^\d{8}-\d{6}-[0-9a-f]{4}$/D', $drill) ? ['drill' => $drill] : [])
                     + ($created !== false ? ['created' => $created] : [])
@@ -4293,6 +4304,10 @@ const WATCH_US_TMP        = '/tmp/user.scripts/tmpScripts/';
 const WATCH_AT_ENV_BAD    = '/^(?:LD_\w*|BASH_ENV|ENV|BASH_FUNC_.*|PHPRC|PHP_INI_SCAN_DIR|PHP_\w*|PERL5OPT|PERL5LIB|PERLLIB|PYTHON\w*|RUBYOPT|RUBYLIB|NODE_OPTIONS|GCONV_PATH|GLIBC_TUNABLES|IFS|PS4|SHELLOPTS|BASHOPTS|PROMPT_COMMAND|CDPATH|GLOBIGNORE)$/D';
 const WATCH_AT_PATH       = ['/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin'];
 const WATCH_AT_SHELLS     = ['/bin/sh', '/bin/bash', '/usr/bin/sh', '/usr/bin/bash'];
+// Unraid's PHP (webGui/include/local_prepend.php, every php incl. the plugin installer) puts «.» first in PATH and works in
+// /usr/local/emhttp: a job queued from there (a plugin's install script, at boot too) carries both — «.» only with that folder
+const WATCH_AT_PHP_CWD    = '/usr/local/emhttp';
+const WATCH_AT_LATE       = 2 * 86400;      // a job still waiting this long past its time is worth telling (not before)
 const WATCH_EVIDENCE_SPAN = 120;            // syslog lines this many seconds around the crontab's time …
 const WATCH_EVIDENCE_MAX  = 12;             // … at most so many, the closest
 const WATCH_EVIDENCE_LINE = '#/plugins/|\bplugins?\b|crontab|update_cron|crond|\batd\b|\batq\b|\.(?:sh|php|py|plg|cron)\b|user\.scripts|unraid-secretary-office#i';
@@ -4634,14 +4649,15 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
     }
     $pst = isset($paths['plugins']) ? @stat($paths['plugins']) : false;
     $pm = $pst ? (int) $pst['mtime'] : null;
-    if (is_array($prev) && ($prev['m'] ?? null) === (int) $st['mtime'] && ($prev['pm'] ?? null) === $pm && ($prev['v'] ?? null) === 3
+    if (is_array($prev) && ($prev['m'] ?? null) === (int) $st['mtime'] && ($prev['pm'] ?? null) === $pm && ($prev['v'] ?? null) === 4
         && is_array($prev['jobs'] ?? null)) {
         return $prev;
     }
     $helper = watchmanUpdateHelper($paths);
+    $users = null;
     $jobs = [];
     foreach (@scandir($paths['atjobs']) ?: [] as $f) {
-        if (!preg_match('/^[a-zA-Z=][0-9a-f]{5}([0-9a-f]{8})$/D', $f, $m) || count($jobs) >= 200 || !watchmanPlain($paths['atjobs'] . "/$f")) {
+        if (!preg_match('/^[a-zA-Z=][0-9a-f]{5}([0-9a-f]{8})$/D', $f, $m) || count($jobs) >= 200 || !($jst = watchmanPlain($paths['atjobs'] . "/$f"))) {
             continue;
         }
         $text = (string) @file_get_contents($paths['atjobs'] . "/$f", false, null, 0, 65536);
@@ -4649,6 +4665,15 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
         $jobs[$f] = ['ours' => $ours, 'when' => hexdec($m[1]) * 60, 'uid' => preg_match('/^# atrun uid=(\d+)/m', $text, $u) ? (int) $u[1] : null,
                      'cmd' => $ours ? '' : watchmanAtCommand($text), 'us' => $ours ? null : watchmanAtUserScript($text, $paths['userscripts'] ?? null)]
                    + (!$ours && watchmanAtUnraid($text) ? ['unraid' => true] : []);
+        if (!$ours) {
+            // what it is, in the book's words: queued when (the file's time), running since (atd renames it to =…: its change
+            // time), whose (the user), and the program it starts with and its file's owner (null: no such file)
+            $users ??= watchmanUidNames($paths['etc_passwd'] ?? null);
+            $prog = preg_match('#^(/[A-Za-z0-9._+/-]{1,200})(?:\s|$)#', $jobs[$f]['cmd'], $pg) ? $pg[1] : null;
+            $progSt = $prog !== null ? @stat($prog) : false;
+            $jobs[$f] += ['q' => (int) $jst['mtime'], 'c' => (int) $jst['ctime'], 'user' => $users[$jobs[$f]['uid'] ?? -1] ?? null, 'prog' => $prog,
+                          'owner' => $progSt ? ($users[(int) $progSt['uid']] ?? (string) $progSt['uid']) : null];
+        }
         if (!$ours && ($plugin = watchmanAtPlugin($text, $paths['plugins'] ?? null)) !== null) {
             $jobs[$f]['plugin'] = $plugin;
             $jobs[$f]['pname'] = watchmanAtPluginName($plugin, $paths['emhttp_plugins'] ?? null);
@@ -4661,7 +4686,20 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
     }
     ksort($jobs);
     // helper: the installed plugin whose copy the Plugin-Update-Helper is (an old entry of its job is closed: watchmanAtPluginClose())
-    return ['v' => 3, 'm' => (int) $st['mtime'], 'pm' => $pm, 'jobs' => $jobs, 'helper' => $helper];
+    return ['v' => 4, 'm' => (int) $st['mtime'], 'pm' => $pm, 'jobs' => $jobs, 'helper' => $helper];
+}
+
+/** uid => user name from a passwd file (names in the shape Unraid allows only) */
+function watchmanUidNames(?string $file): array
+{
+    $out = [];
+    foreach ($file === null ? [] : (@file($file, FILE_IGNORE_NEW_LINES) ?: []) as $line) {
+        $f = explode(':', $line);
+        if (count($f) >= 3 && preg_match('/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$/D', $f[0]) && preg_match('/^\d{1,10}$/D', $f[2]) && !isset($out[(int) $f[2]])) {
+            $out[(int) $f[2]] = $f[0];
+        }
+    }
+    return $out;
 }
 
 /**
@@ -4796,6 +4834,7 @@ function watchmanAtOnlyCommand(string $text): ?string
 {
     $lines = explode("\n", rtrim($text, "\n"));
     $n = count($lines);
+    $dot = false;
     // the head at writes: #!/bin/sh, # atrun …, # mail …, umask, the environment as NAME=value; export NAME
     for ($i = 0; $i < $n && !preg_match('/^cd\s.*\|\|\s*\{\s*$/', $lines[$i]); $i++) {
         $l = $lines[$i];
@@ -4806,9 +4845,15 @@ function watchmanAtOnlyCommand(string $text): ?string
             return null;            // anything else (a value over several lines too)
         }
         $value = stripslashes($m[2]);
-        if (($m[1] === 'PATH' && array_diff(explode(':', $value), WATCH_AT_PATH)) || ($m[1] === 'SHELL' && !in_array($value, WATCH_AT_SHELLS, true))) {
+        $odd = $m[1] === 'PATH' ? array_values(array_diff(explode(':', $value), WATCH_AT_PATH)) : [];
+        if ($odd === ['.'] && str_starts_with($value, '.:')) {
+            $dot = true;            // Unraid's PHP's PATH (WATCH_AT_PHP_CWD): only with its folder, below
+        } elseif ($odd || ($m[1] === 'SHELL' && !in_array($value, WATCH_AT_SHELLS, true))) {
             return null;
         }
+    }
+    if ($dot && !(preg_match('/^cd (\S+) \|\| \{$/D', $lines[$i] ?? '', $m) && stripslashes($m[1]) === WATCH_AT_PHP_CWD)) {
+        return null;
     }
     for ($i++; $i < $n && trim($lines[$i]) !== '}'; $i++) {
         // the "cd … || { echo …; exit 1; }" at puts in front
@@ -5002,6 +5047,7 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
     if (is_array($at)) {
         // the office's own (hostLaunch()) and Unraid's own (reload_services after an array start) are never news
         $foreign = array_filter((array) $at['jobs'], fn ($j) => empty($j['ours']) && empty($j['unraid']));
+        watchmanAtOnce($book);
         watchmanAtUnraidClose($book, $now);
         watchmanAtPluginClose($book, $installed, $now, is_string($at['helper'] ?? null) ? $at['helper'] : null);
         foreach ($foreign as $f => $j) {
@@ -5016,12 +5062,15 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
         if (!is_array($known['at'] ?? null)) {
             $known['at'] = array_fill_keys(array_keys($foreign), true);
         } else {
+            // one entry per job for its lifetime (2026-10-29: one closed by himself was made anew every round, 431 in the
+            // book): known by its number (a… waiting, =… running), and a job he has a line about is known from then on
+            $nums = array_flip(array_map(fn ($f) => watchmanAtNum((string) $f), array_keys($known['at'])));
             foreach ($foreign as $f => $j) {
-                if (!isset($known['at'][$f])) {
-                    $added[] = watchmanSet($book, 'at_job', "at_job:$f", $now, ['job' => (string) $f, 'when' => (int) $j['when'], 'cmd' => (string) $j['cmd'], 'uid' => $j['uid']]);
+                if (!isset($nums[watchmanAtNum((string) $f)]) || watchmanAtBooked($book, (string) $f)) {
+                    $added[] = watchmanAtSet($book, (string) $f, $j, $now);     // new — or its open line brought up to date
                 }
             }
-            $known['at'] = array_intersect_key($known['at'], $foreign);
+            $known['at'] = array_fill_keys(array_keys($foreign), true);
         }
     }
 
@@ -5081,6 +5130,104 @@ function watchmanCronFileClose(array &$book, array $known, array $files, int $no
  * told, nothing for the team lead) — once per job, which keeps its number while atd runs it
  * (a<number> waiting, =<number> running).
  */
+/** An at job's number (its file name without the queue letter: a… waiting, =… running — the same job) */
+function watchmanAtNum(string $job): string
+{
+    return substr($job, 1);
+}
+
+/** The at job a line in the book is about (its number), or null */
+function watchmanAtOf(array $e): ?string
+{
+    $job = $e['p']['job'] ?? null;
+    return in_array($e['kind'] ?? '', ['at_job', 'at_plugin', 'at_userscript'], true) && is_string($job) && preg_match('/^[a-zA-Z=][0-9a-f]{13}$/D', $job)
+        ? watchmanAtNum($job) : null;
+}
+
+/** Has the book a line about this job (open or closed, of any of the at kinds)? */
+function watchmanAtBooked(array $book, string $job): bool
+{
+    $num = watchmanAtNum($job);
+    foreach ($book as $e) {
+        if (watchmanAtOf($e) === $num) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * An at job he doesn't know: ONE line for its lifetime — new, or its open line brought up to date (running now, still
+ * waiting days past its time: `important`, then it is told); a closed line stays as it is. The kind when the line is new.
+ */
+function watchmanAtSet(array &$book, string $f, array $j, int $now): ?string
+{
+    $run = $f[0] === '=';
+    $p = ['job' => $f, 'when' => (int) $j['when'], 'cmd' => (string) $j['cmd'], 'uid' => $j['uid'] ?? null, 'user' => $j['user'] ?? null,
+          'queued' => is_int($j['q'] ?? null) ? $j['q'] : null, 'run' => $run, 'since' => $run && is_int($j['c'] ?? null) ? $j['c'] : null,
+          'prog' => $j['prog'] ?? null, 'owner' => $j['owner'] ?? null];
+    $late = !$run && $now - (int) $j['when'] >= WATCH_AT_LATE;
+    $num = watchmanAtNum($f);
+    foreach ($book as $i => $e) {
+        if (watchmanAtOf($e) !== $num) {
+            continue;
+        }
+        if (($e['kind'] ?? '') === 'at_job' && watchmanOpen($e)) {
+            if (($e['p'] ?? []) !== $p) {
+                $book[$i]['p'] = $p;
+                $book[$i]['last'] = $now;
+            }
+            if ($late) {
+                $book[$i]['important'] = true;
+            }
+        }
+        return null;
+    }
+    $e = watchmanEntry('at_job', "at_job:$f", $now, $p);
+    if ($late) {
+        $e['important'] = true;
+    }
+    $book[] = $e;
+    return 'at_job';
+}
+
+/**
+ * Lines about the same at job joined into one (up to 1.76.0 a job closed by himself came back every round — 431 of 500
+ * lines for ich777's Plugin-Update-Helper on the owner's server): the first stays, with the latest look, the first
+ * notification and its state — open while any of them was
+ */
+function watchmanAtOnce(array &$book): void
+{
+    $first = [];
+    $drop = [];
+    foreach ($book as $i => $e) {
+        $num = ($e['kind'] ?? '') === 'at_job' ? watchmanAtOf($e) : null;
+        if ($num === null) {
+            continue;
+        }
+        if (!isset($first[$num])) {
+            $first[$num] = $i;
+            continue;
+        }
+        $k = $first[$num];
+        $open = watchmanOpen($book[$k]) || watchmanOpen($e);
+        $told = array_filter([$book[$k]['told'] ?? null, $e['told'] ?? null], 'is_int');
+        $book[$k]['time'] = min((int) $book[$k]['time'], (int) $e['time']);
+        $book[$k]['last'] = max((int) $book[$k]['last'], (int) $e['last']);
+        $book[$k]['p'] = (array) ($e['p'] ?? []);
+        $book[$k]['told'] = $told ? min($told) : null;
+        $book[$k]['noted'] = $open ? null : ($e['noted'] ?? null);
+        $book[$k]['by'] = $open ? null : ($e['by'] ?? null);
+        if (!empty($e['important'])) {
+            $book[$k]['important'] = true;
+        }
+        $drop[] = $i;
+    }
+    if ($drop) {
+        $book = array_values(array_diff_key($book, array_flip($drop)));
+    }
+}
+
 /** Entries up to 1.30 that were only Unraid's own reload_services job: closed, noted by himself (`by` unraid) */
 function watchmanAtUnraidClose(array &$book, int $now): void
 {
@@ -5113,33 +5260,45 @@ function watchmanAtPluginClose(array &$book, array $plugins, int $now, ?string $
 /** A plugin's own at job: a line in the book naming the plugin, noted by himself (`by` plugin) — once per job */
 function watchmanAtPluginNote(array &$book, string $job, array $j, int $now): void
 {
-    $key = 'at_plugin:' . substr($job, 1);
-    foreach ($book as $e) {
-        if (($e['key'] ?? '') === $key) {
-            return;
-        }
-    }
-    $e = watchmanEntry('at_plugin', $key, $now, ['job' => $job, 'plugin' => watchmanClean((string) $j['plugin'], 100),
-                                                 'name' => watchmanClean((string) ($j['pname'] ?? $j['plugin']), 60),
-                                                 'file' => watchmanClean((string) ($j['file'] ?? ''), 200), 'when' => (int) ($j['when'] ?? 0),
-                                                 'uid' => $j['uid'] ?? null]);
-    $e['noted'] = $now;
-    $e['by'] = 'plugin';
-    $book[] = $e;
+    watchmanAtNote($book, 'at_plugin', $job, ['job' => $job, 'plugin' => watchmanClean((string) $j['plugin'], 100),
+                                              'name' => watchmanClean((string) ($j['pname'] ?? $j['plugin']), 60),
+                                              'file' => watchmanClean((string) ($j['file'] ?? ''), 200), 'when' => (int) ($j['when'] ?? 0),
+                                              'uid' => $j['uid'] ?? null], 'plugin', $now);
 }
 
 function watchmanAtUserScriptNote(array &$book, string $job, array $j, int $now): void
 {
-    $key = 'at_userscript:' . substr($job, 1);
-    foreach ($book as $e) {
-        if (($e['key'] ?? '') === $key) {
-            return;
+    watchmanAtNote($book, 'at_userscript', $job, ['job' => $job, 'name' => watchmanClean((string) $j['us'], 100), 'when' => (int) ($j['when'] ?? 0),
+                                                  'uid' => $j['uid'] ?? null], 'auto', $now);
+}
+
+/**
+ * A known job's line, noted by himself ($by) — once per job (watchmanAtOf()): an older alarm about it (an at_job line from
+ * before he knew it as such: the plugin not installed yet, an environment he didn't know) becomes this line, its first time
+ * and what was told kept; noted by himself unless someone noted it already
+ */
+function watchmanAtNote(array &$book, string $kind, string $job, array $p, string $by, int $now): void
+{
+    $num = watchmanAtNum($job);
+    foreach ($book as $i => $e) {
+        if (watchmanAtOf($e) !== $num) {
+            continue;
         }
+        if (($e['kind'] ?? '') === 'at_job') {
+            $book[$i]['kind'] = $kind;
+            $book[$i]['key'] = "$kind:$num";
+            $book[$i]['p'] = $p;
+            unset($book[$i]['important']);
+            if (watchmanOpen($e)) {
+                $book[$i]['noted'] = $now;
+                $book[$i]['by'] = $by;
+            }
+        }
+        return;
     }
-    $e = watchmanEntry('at_userscript', $key, $now, ['job' => $job, 'name' => watchmanClean((string) $j['us'], 100), 'when' => (int) ($j['when'] ?? 0),
-                                                     'uid' => $j['uid'] ?? null]);
+    $e = watchmanEntry($kind, "$kind:$num", $now, $p);
     $e['noted'] = $now;
-    $e['by'] = 'auto';
+    $e['by'] = $by;
     $book[] = $e;
 }
 
@@ -5383,7 +5542,8 @@ function watchmanFlowLook(array $paths, ?array $containers): array
             'docker_ds' => $dockerDs, 'layers' => fn (array $ids): array => watchmanFlowLayers($ids),
             'guess' => function (string $share) use ($paths, $containers): array {
                 $setup = watchmanFlowGuessSetup($paths);
-                return watchmanFlowGuess($share, $containers, $setup['vms'], $setup['stacks']);
+                return watchmanFlowGuess($share, $containers, $setup['vms'], $setup['stacks'], $setup['scripts'],
+                    $containers === null ? $setup['templates'] : null);
             },
             'libvirt' => isset($paths['domain_cfg']) ? watchmanFlowLibvirt(readCfg((string) $paths['domain_cfg'])) : null,
             'holder' => $holder['holder'] ?? null, 'kopia' => $kopia !== '' ? $kopia : null,
@@ -6410,9 +6570,11 @@ function watchmanFlowInShare(string $path, string $share): bool
  * @param array|null $containers watchmanContainers() (pid, binds, compose)
  * @param list<array>|null $vms    watchmanFlowGuessVms(): [{name, run, disks: [[path, writes]], dirs: [[path, writes]]}]
  * @param list<array>|null $stacks watchmanFlowGuessStacks(): [{name, paths: [[path, writes]]}]
+ * @param list<array>|null $scripts watchmanFlowGuessScripts(): User Scripts naming a path, [{name, paths: [[path, true]]}]
+ * @param list<array>|null $templates watchmanFlowGuessTemplates(): Docker's templates, only while Docker doesn't answer
  * @return list<array{t: string, name: string, path: string, ro?: true, off?: true, disk?: true}>
  */
-function watchmanFlowGuess(string $share, ?array $containers, ?array $vms, ?array $stacks): array
+function watchmanFlowGuess(string $share, ?array $containers, ?array $vms, ?array $stacks, ?array $scripts = null, ?array $templates = null): array
 {
     $pick = function (array $pairs) use ($share): ?array {
         $in = array_values(array_filter($pairs, fn ($x) => is_array($x) && is_string($x[0] ?? null) && watchmanFlowInShare($x[0], $share)));
@@ -6451,9 +6613,69 @@ function watchmanFlowGuess(string $share, ?array $containers, ?array $vms, ?arra
             $out[] = ['t' => 'stack', 'name' => $name($st['name']), 'path' => $p[0], 'ro' => empty($p[1]), 'off' => true];
         }
     }
-    $kind = ['ct' => 0, 'vm' => 1, 'stack' => 2];
+    foreach ([['tpl', $templates], ['us', $scripts]] as [$t, $list]) {
+        foreach ((array) $list as $x) {
+            if (is_array($x) && is_string($x['name'] ?? null) && ($p = $pick((array) ($x['paths'] ?? [])))) {
+                $out[] = ['t' => $t, 'name' => $name($x['name']), 'path' => $p[0], 'ro' => empty($p[1]), 'off' => $t === 'tpl'];
+            }
+        }
+    }
+    $kind = ['ct' => 0, 'vm' => 1, 'stack' => 2, 'tpl' => 3, 'us' => 4];
     usort($out, fn ($a, $b) => [$a['off'], $a['ro'], $kind[$a['t']], strtolower($a['name'])] <=> [$b['off'], $b['ro'], $kind[$b['t']], strtolower($b['name'])]);
     return array_map(fn ($x) => array_filter($x, fn ($v) => $v !== false), $out);
+}
+
+/**
+ * Whose a router's line about this server likely is (an intrusion detection «at this server», net_ips_server): the container
+ * whose own address it names, the one publishing its port on the server's own address (towards the server), the VM whose
+ * network card had that address (the server's ARP table, its libvirt XML) — `guess` once on the open entry, said as a guess,
+ * never as a fact ([] = looked, none). $vms: asked only when an entry needs it.
+ */
+function watchmanNetGuess(array &$book, ?array $containers, callable $vms, array $paths): void
+{
+    $need = array_keys(array_filter($book, fn ($e) => ($e['kind'] ?? '') === 'net_ips_server' && watchmanOpen($e) && !isset($e['p']['guess'])
+        && is_string($e['p']['server'] ?? null)));
+    if (!$need) {
+        return;
+    }
+    $arp = [];
+    foreach (array_slice(@file((string) ($paths['arp'] ?? '/proc/net/arp'), FILE_IGNORE_NEW_LINES) ?: [], 1, 2000) as $line) {
+        $f = preg_split('/\s+/', trim($line));
+        if (count($f) >= 4 && preg_match('/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/D', strtolower($f[3])) && $f[3] !== '00:00:00:00:00:00') {
+            $arp[$f[0]] = strtolower($f[3]);
+        }
+    }
+    $vmList = null;
+    $name = fn ($n) => mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/', '', (string) $n), 0, 100);
+    foreach ($need as $i) {
+        $p = (array) $book[$i]['p'];
+        $ip = (string) $p['server'];
+        $port = ($p['dir'] ?? 'in') === 'in' && isset($p['dpt']) ? strtolower((string) ($p['proto'] ?? 'tcp')) . '/' . (int) $p['dpt'] : null;
+        $guess = $own = [];
+        foreach ((array) $containers as $ct => $c) {
+            if (in_array($ip, array_map('strval', (array) ($c['addrs'] ?? [])), true)) {
+                $own[] = ['t' => 'ct', 'name' => $name($ct), 'addr' => $ip] + ((int) ($c['pid'] ?? 0) <= 0 ? ['off' => true] : []);
+            }
+        }
+        if (!$own && $port !== null) {
+            foreach ((array) $containers as $ct => $c) {
+                if (in_array($port, (array) ($c['ports'] ?? []), true)) {
+                    $guess[] = ['t' => 'ct', 'name' => $name($ct), 'port' => $port] + ((int) ($c['pid'] ?? 0) <= 0 ? ['off' => true] : []);
+                }
+            }
+        }
+        if (!$own && isset($arp[$ip])) {
+            $vmList ??= (array) ($vms() ?? []);
+            foreach ($vmList as $vm) {
+                if (is_array($vm) && in_array($arp[$ip], (array) ($vm['macs'] ?? []), true)) {
+                    $own[] = ['t' => 'vm', 'name' => $name($vm['name'] ?? '')] + (empty($vm['run']) ? ['off' => true] : []);
+                }
+            }
+        }
+        $all = array_merge($own, $guess);
+        usort($all, fn ($a, $b) => [!empty($a['off']), $a['name']] <=> [!empty($b['off']), $b['name']]);
+        $book[$i]['p']['guess'] = array_slice($all, 0, WATCH_FLOW_GUESS);
+    }
 }
 
 /**
@@ -6501,10 +6723,16 @@ function watchmanFlowGuessVms(array $paths): ?array
  */
 function watchmanFlowVmPaths(string $xml): array
 {
-    $out = ['disks' => [], 'dirs' => []];
+    $out = ['disks' => [], 'dirs' => [], 'macs' => []];
     $dom = $xml !== '' ? @simplexml_load_string($xml, 'SimpleXMLElement', LIBXML_NONET) : false;
     if (!$dom || !isset($dom->devices)) {
         return $out;
+    }
+    foreach ($dom->devices->interface as $i) {
+        $mac = strtolower((string) ($i->mac['address'] ?? ''));
+        if (preg_match('/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/D', $mac) && count($out['macs']) < 8) {
+            $out['macs'][] = $mac;          // whose an address on the LAN likely is (watchmanNetGuess(), by the server's ARP table)
+        }
     }
     $add = function (string $to, $node, string $src) use (&$out): void {
         $src = rtrim($src, '/');
@@ -6560,12 +6788,82 @@ function watchmanFlowGuessStacks(array $paths): ?array
     return $out;
 }
 
+/** The paths under /mnt a text names (a script, a compose file): [path, writes] — «:ro» after one only reads */
+function watchmanFlowGuessNamed(string $text, array &$found): void
+{
+    preg_match_all('#(?<![\w$}])(/mnt/[^\s:"\'\#,\]\)\(;|&<>`]+)(?::[^\s:"\'\#,\]]+)?(:ro\b)?#', $text, $m, PREG_SET_ORDER);
+    foreach ($m as $x) {
+        $p = rtrim($x[1], '/');
+        if (watchmanFlowGuessPath($p) && (isset($found[$p]) || count($found) < WATCH_FLOW_GUESS_PATHS)) {
+            $found[$p] = !empty($found[$p]) || empty($x[2]);
+        }
+    }
+}
+
+/**
+ * The User Scripts for the guess (watchmanFlowGuess()): each script on the flash that names a path under /mnt (an rsync, a
+ * cp into a share) — what it names, never what it does. Null without User Scripts.
+ */
+function watchmanFlowGuessScripts(array $paths): ?array
+{
+    $dir = (string) ($paths['userscripts'] ?? '');
+    if ($dir === '' || !is_dir("$dir/scripts")) {
+        return null;
+    }
+    $out = [];
+    foreach (array_slice(glob("$dir/scripts/*/script") ?: [], 0, WATCH_FLOW_GUESS_VMS) as $file) {
+        $found = [];
+        if (watchmanPlain($file)) {
+            watchmanFlowGuessNamed((string) @file_get_contents($file, false, null, 0, 262144), $found);
+        }
+        if ($found) {
+            $out[] = ['name' => basename(dirname($file)), 'paths' => array_map(fn ($p) => [(string) $p, true], array_keys($found))];
+        }
+    }
+    return $out;
+}
+
+/**
+ * Docker's templates on the flash (my-<name>.xml) for the guess while Docker doesn't answer: each container's paths under
+ * /mnt (<Config Type="Path">, the old <Volume><HostDir>), [path, writes] — Mode «ro…» only reads. Null without the folder.
+ */
+function watchmanFlowGuessTemplates(array $paths): ?array
+{
+    $dir = (string) ($paths['docker_templates'] ?? '');
+    if ($dir === '' || !is_dir($dir)) {
+        return null;
+    }
+    $out = [];
+    foreach (array_slice(glob("$dir/my-*.xml") ?: [], 0, WATCH_FLOW_GUESS_VMS) as $file) {
+        $xml = watchmanPlain($file) ? @simplexml_load_string((string) @file_get_contents($file, false, null, 0, 262144), 'SimpleXMLElement', LIBXML_NONET) : false;
+        if (!$xml) {
+            continue;
+        }
+        $found = [];
+        foreach ($xml->Config ?? [] as $c) {
+            if ((string) ($c['Type'] ?? '') === 'Path') {
+                $found[] = [rtrim(trim((string) $c), '/'), !str_starts_with(strtolower((string) ($c['Mode'] ?? 'rw')), 'ro')];
+            }
+        }
+        foreach ($xml->Data->Volume ?? [] as $v) {
+            $found[] = [rtrim(trim((string) ($v->HostDir ?? '')), '/'), !str_starts_with(strtolower((string) ($v->Mode ?? 'rw')), 'ro')];
+        }
+        $found = array_values(array_filter($found, fn ($x) => watchmanFlowGuessPath($x[0])));
+        $name = trim((string) ($xml->Name ?? '')) ?: (string) preg_replace('/^my-|\.xml$/', '', basename($file));
+        if ($found) {
+            $out[] = ['name' => $name, 'paths' => array_slice($found, 0, WATCH_FLOW_GUESS_PATHS)];
+        }
+    }
+    return $out;
+}
+
 /** The VMs and stacks for the guess, looked at once in WATCH_FLOW_GUESS_AGAIN (a pull going on asks every round) */
 function watchmanFlowGuessSetup(array $paths): array
 {
     static $at = 0, $kept = null;
     if ($kept === null || time() < $at || time() - $at >= WATCH_FLOW_GUESS_AGAIN) {
-        $kept = ['vms' => watchmanFlowGuessVms($paths), 'stacks' => watchmanFlowGuessStacks($paths)];
+        $kept = ['vms' => watchmanFlowGuessVms($paths), 'stacks' => watchmanFlowGuessStacks($paths), 'scripts' => watchmanFlowGuessScripts($paths),
+                 'templates' => watchmanFlowGuessTemplates($paths)];
         $at = time();
     }
     return $kept;
@@ -6577,7 +6875,7 @@ function watchmanFlowGuessSetup(array $paths): array
  * entry's line and the notification (src.guess_short) — «Likely: EmbyServer, Win11 and 2 more (a guess).», names only.
  * The page has the same (desk.js srcNone()); the full words only in its detail row.
  */
-function watchmanFlowGuessText(array $x, string $share, string $lang, bool $short = false): ?string
+function watchmanFlowGuessText(array $x, string $share, string $lang, bool $short = false, bool $bare = false): ?string
 {
     $guess = array_values(array_filter((array) ($x['guess'] ?? []), 'is_array'));
     if (!$guess) {
@@ -6591,19 +6889,25 @@ function watchmanFlowGuessText(array $x, string $share, string $lang, bool $shor
     }
     $name = (string) (explode('/', $share, 2)[1] ?? $share);
     $one = function (array $g) use ($t, $name): string {
-        $how = [!empty($g['disk']) ? $t('src.guess_disk', ['share' => $name]) : $t('src.guess_maps', ['path' => (string) ($g['path'] ?? '')])];
+        $tp = (string) ($g['t'] ?? '');
+        $how = [!empty($g['disk']) ? $t('src.guess_disk', ['share' => $name])
+            : $t($tp === 'us' ? 'src.guess_names' : 'src.guess_maps', ['path' => (string) ($g['path'] ?? '')])];
+        if ($tp === 'tpl') {
+            $how[] = $t('src.guess_tpl');       // Docker didn't answer: from its template
+        }
         if (!empty($g['ro'])) {
             $how[] = $t('src.guess_ro');
         }
-        if (!empty($g['off'])) {
+        if (!empty($g['off']) && $tp !== 'tpl') {
             $how[] = $t('src.guess_off');
         }
-        $key = ['vm' => 'src.guess_vm', 'stack' => 'src.guess_stack'][(string) ($g['t'] ?? '')] ?? 'src.guess_ct';
+        $key = ['vm' => 'src.guess_vm', 'stack' => 'src.guess_stack', 'us' => 'src.guess_us'][(string) ($g['t'] ?? '')] ?? 'src.guess_ct';
         return $t($key, ['name' => (string) ($g['name'] ?? ''), 'how' => implode(', ', $how)]);
     };
     $list = implode(', ', array_map($one, array_slice($guess, 0, WATCH_FLOW_GUESS)));
     $more = (int) ($x['more'] ?? 0);
-    return $t('src.guess', ['list' => $more > 0 ? $t('src.guess_more', ['list' => $list, 'n' => $more]) : $list]);
+    $list = $more > 0 ? $t('src.guess_more', ['list' => $list, 'n' => $more]) : $list;
+    return $bare ? $list : $t('src.guess', ['list' => $list]);
 }
 
 /** A source of written bytes (watchmanFlowSources()) in words — the page has the same (desk.js srcWhat()) */
@@ -7033,7 +7337,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
     $whoNow = ['clients' => $active ?? [], 'users' => array_slice(array_keys($users), 0, WATCH_LIST_MAX),
                'from' => $active === null ? null : ($active ? 'clients' : 'server')];
     // $limit: a disk with a folder of a moved share — at most this much of its loss is the movers' (null: all of it)
-    $gone = function (string $key, int $loss, int $size, array $who, ?int $limit = null) use (&$flow, &$added, &$book, $now, $prevTime, $expected, $whoNow, $ack, $door, $moved): int {
+    $gone = function (string $key, int $loss, int $size, array $who, ?int $limit = null) use (&$flow, &$added, &$book, $now, $prevTime, $expected, $whoNow, $ack, $door, $moved, $look): int {
         if (!isset($flow['gone'][$key]) && count($flow['gone']) >= WATCH_FLOW_SHARES) {
             return 0;
         }
@@ -7056,8 +7360,15 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
             $j = watchmanFlowJudge($s, $loss, $now, $ack("flow_gone:$key"), WATCH_FLOW_MIN, $clear);
             $run = (array) $s['run'];
             $pct = $size > 0 ? (int) min(999, round(100 * (int) $run['bytes'] / $size)) : 0;
+            $p = $who + ['pct' => $pct, 'part' => $j !== null && $j['learning'] && $loss >= (int) ($size * WATCH_GONE_PART)] + $whoNow;
+            // from the server itself (no client moved data): who likely did it, from the setup — a share's, asked only when written
             $added[] = watchmanFlowNote($book, 'flow_gone', "flow_gone:$key", $now, $run, (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
-                $who + ['pct' => $pct, 'part' => $j !== null && $j['learning'] && $loss >= (int) ($size * WATCH_GONE_PART)] + $whoNow);
+                function () use ($p, $look): array {
+                    $guess = $p['from'] === 'server' && is_string($p['share'] ?? null) && is_callable($look['guess'] ?? null)
+                        ? array_values((array) ($look['guess'])('user/' . $p['share'])) : [];
+                    return $p + ($guess ? ['guess' => array_slice($guess, 0, WATCH_FLOW_GUESS)]
+                                          + (count($guess) > WATCH_FLOW_GUESS ? ['more' => count($guess) - WATCH_FLOW_GUESS] : []) : []);
+                });
         }
         $flow['gone'][$key] = $s;
         return $byFolder ? $excused : 0;        // what of the movers' bytes this disk took
@@ -8840,7 +9151,12 @@ function watchmanText(array $e, ?string $lang = null): array
         'cron_file', 'cron_file_foreign'
                          => ['file' => (string) ($p['file'] ?? ''), 'plugin' => (string) ($p['plugin'] ?? ''), 'lines' => (int) ($p['lines'] ?? 0), 'jobs' => $jobs],
         'script_new', 'script_changed' => ['name' => (string) ($p['name'] ?? ''), 'cron' => (string) ($p['cron'] ?? '')],
-        'at_job'         => ['cmd' => (string) ($p['cmd'] ?? '') ?: '?', 'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0))],
+        'at_job'         => ['cmd' => (string) ($p['cmd'] ?? '') ?: '?', 'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0)),
+                             'queued' => is_int($p['queued'] ?? null) ? date('Y-m-d H:i', $p['queued']) : '?',
+                             'since' => date('Y-m-d H:i', is_int($p['since'] ?? null) ? $p['since'] : (int) ($p['when'] ?? 0)),
+                             'user' => (string) ($p['user'] ?? '') ?: (isset($p['uid']) ? (string) $p['uid'] : '?'),
+                             'prog' => (string) ($p['prog'] ?? '') ?: '?', 'owner' => (string) ($p['owner'] ?? '') ?: '–',
+                             'num' => preg_match('/^[a-zA-Z=]([0-9a-f]{5})/', (string) ($p['job'] ?? ''), $jm) ? (int) hexdec($jm[1]) : '?'],     // as atq shows it
         'at_userscript'  => ['name' => (string) ($p['name'] ?? ''), 'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0))],
         'at_plugin'      => ['name' => (string) ($p['name'] ?? '') ?: (string) ($p['plugin'] ?? ''), 'file' => (string) ($p['file'] ?? '') ?: '?',
                              'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0))],
@@ -8949,7 +9265,8 @@ function watchmanGoneMore(array $p, ?string $lang): string
     if (($p['from'] ?? null) === 'clients') {
         $out[] = $t('gone.who_clients', ['list' => implode(', ', array_map('strval', (array) ($p['clients'] ?? [])))]);
     } elseif (($p['from'] ?? null) === 'server') {
-        $out[] = $t('gone.who_server');
+        $guess = watchmanFlowGuessText($p, 'user/' . (string) ($p['share'] ?? ''), $lang, false, true);
+        $out[] = $guess !== null ? $t('gone.who_server_guess', ['list' => $guess]) : $t('gone.who_server');
     }
     if ((array) ($p['users'] ?? [])) {
         $out[] = $t('gone.who_smb', ['users' => implode(', ', array_map('strval', (array) $p['users']))]);

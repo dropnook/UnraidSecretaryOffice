@@ -1,0 +1,26 @@
+{
+ "sched": {
+  "at": {
+   "v": 3,
+   "m": 1793283268,
+   "pm": 1793281810,
+   "jobs": {
+    "=0000201c7eac9": {
+     "ours": false,
+     "when": 1792739100,
+     "uid": 0,
+     "cmd": "/usr/bin/plugin_update_helper",
+     "us": null
+    },
+    "=01f0f01c80e36": {
+     "ours": true,
+     "when": 1793283240,
+     "uid": 0,
+     "cmd": "",
+     "us": null
+    }
+   },
+   "helper": "it87-driver"
+  }
+ }
+}

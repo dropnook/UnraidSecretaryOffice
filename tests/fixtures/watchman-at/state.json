@@ -1,0 +1,21 @@
+{
+ "notified": {
+  "at_job": 1793283321
+ },
+ "open": {
+  "at_job": 1
+ },
+ "round": {
+  "time": 1793283321
+ },
+ "last_notify": {
+  "time": 1793283321,
+  "items": [
+   {
+    "kind": "at_job",
+    "n": 1,
+    "sent": true
+   }
+  ]
+ }
+}
