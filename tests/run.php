@@ -15672,6 +15672,65 @@ function testRestorePaths(): void
     same('restore paths: … and found again by its id for the restore', "$tmp/restore/apps_nc-$stamp/nc",
         rsPlanVersion(['version' => "kopia:$id"], ['places' => [], 'share' => 'UnraidSecretaryOffice'], 'app', ['id' => 'nc', 'run' => ''])[1]['path'] ?? null);
 
+    // ---- engine 2.80/2.81: the backup place's share split over its parts — the package's path from the snapshot's tags
+    same('restore paths: a package under a part of a split share — <part>/<folder>/…, an own source <share>/<part>/<folder>/…',
+        ['disk1/backup/apps/nc', 'UnraidSecretaryOffice/rowan/backup/apps/nc'],
+        [rsKopiaPackageRel('UnraidSecretaryOffice', '/mnt/user/UnraidSecretaryOffice/backup', 'app', 'nc', 'disk1'),
+         rsKopiaPackageRel('.apps/nc', '/mnt/user/UnraidSecretaryOffice/backup', 'app', 'nc', 'rowan')]);
+    $sp = fn (string $src, array $tags) => [rsKopiaPackageSplit($src, '/mnt/user/UnraidSecretaryOffice/backup', $tags, $pp), $pp];
+    same('restore paths: split or not from the tags — the share\'s own source (its parts), an own source naming the share, another share named, single, untagged',
+        [[true, ['hazel', 'disk1']], [true, null], [false, null], [false, []], [false, null], [false, null]],
+        [$sp('UnraidSecretaryOffice', ['tag:uso-layout' => 'split', 'tag:uso-parts' => 'hazel|disk1']), $sp('.apps/nc', ['tag:uso-split' => 'appdata|UnraidSecretaryOffice']),
+         $sp('.apps/nc', ['tag:uso-split' => 'appdata']), $sp('UnraidSecretaryOffice', ['tag:uso-layout' => 'single']), $sp('UnraidSecretaryOffice', []), $sp('.apps/nc', [])]);
+    $pk = fn (int $n) => $o("pk$n");
+    $snapAt = fn (string $c, string $time, string $root, array $tags) => ['id' => str_repeat($c, 32), 'startTime' => $time, 'description' => 'uso-backup ' . substr(str_replace(['-', 'T', ':'], '', $time), 0, 8) . '-0100',
+        'incompleteReason' => '', 'rootEntry' => ['obj' => $root, 'summ' => ['size' => 8]]] + ($tags ? ['tags' => $tags] : []);
+    $split = ['tag:uso-layout' => 'split', 'tag:uso-parts' => 'hazel|disk1'];
+    // 1: on disk1 (with its manifest); 2: on hazel; 3: untagged (the path as before, no look); 4: split, on no part; 5: single
+    file_put_contents("$K/{$pk(1)}_disk1_backup_apps_nc", $dir([$fent('manifest.json', 5)]));
+    file_put_contents("$K/{$pk(2)}_hazel_backup_apps_nc", $dir([$fent('manifest.json', 5)]));
+    file_put_contents("$K/{$pk(2)}_disk1_backup_apps_nc", $dir([$fent('half.sql', 5)]));      // the mover in the middle: only a folder there
+    file_put_contents("$K/list.json", json_encode([$snapAt('1', '2026-10-24T00:10:00Z', $pk(1), $split), $snapAt('2', '2026-10-23T00:10:00Z', $pk(2), $split),
+        $snapAt('3', '2026-10-22T00:10:00Z', $pk(3), []), $snapAt('4', '2026-10-21T00:10:00Z', $pk(4), $split),
+        $snapAt('5', '2026-10-20T00:10:00Z', $pk(5), ['tag:uso-layout' => 'single'])]));
+    $GLOBALS['rs']['state']['apps'][0]['kopia'] = [['source' => 'UnraidSecretaryOffice', 'own' => false, 'covers' => 'package', 'last' => $T1]];
+    @unlink("$tmp/docker.log");
+    $v = rsVersionsKopia('app', 'nc');
+    same('restore paths: Kopia\'s packages in the backup place\'s share mounted split — each from the part its snapshot holds it on (the manifest\'s part before a bare folder); untagged and single as before; a split one without it not offered',
+        [['1', 'disk1/backup/apps/nc'], ['2', 'hazel/backup/apps/nc'], ['3', 'backup/apps/nc'], ['5', 'backup/apps/nc']],
+        array_map(fn ($x) => [$x['snapshot'][0], $x['path']], $v['versions']));
+    $shows = array_values(array_map(fn ($l) => preg_match('#show (\S+?)/(hazel|disk1)/#', $l, $sm) ? array_search($sm[1], array_map($pk, range(1, 5))) + 1 . ":$sm[2]" : trim($l),
+        preg_grep('/ show /', file("$tmp/docker.log") ?: [])));
+    same('restore paths: … looked up in Kopia only for the split ones, the part found for the one before first',
+        ['1:hazel', '1:disk1', '2:disk1', '2:hazel', '4:hazel', '4:disk1'], $shows);
+    // an own source whose part of the place's share sits split (uso-split): the parts are the folders under the share
+    file_put_contents("$K/{$pk(6)}_UnraidSecretaryOffice", $dir([$dent('rowan', 5, 1)]));
+    file_put_contents("$K/{$pk(6)}_UnraidSecretaryOffice_rowan_backup_apps_nc", $dir([$fent('manifest.json', 5)]));
+    file_put_contents("$K/list.json", json_encode([$snapAt('6', '2026-10-25T00:10:00Z', $pk(6), ['tag:uso-split' => 'UnraidSecretaryOffice', 'tag:uso-layout' => 'own']),
+        $snapAt('7', '2026-10-19T00:10:00Z', $pk(7), ['tag:uso-layout' => 'own'])]));
+    $GLOBALS['rs']['state']['apps'][0]['kopia'] = [['source' => '.apps/nc', 'own' => true, 'covers' => 'all', 'last' => $T1]];
+    same('restore paths: … an own source naming the share in uso-split — under the part found there; one not naming it as before',
+        [['6', 'UnraidSecretaryOffice/rowan/backup/apps/nc'], ['7', 'UnraidSecretaryOffice/backup/apps/nc']],
+        array_map(fn ($x) => [$x['snapshot'][0], $x['path']], rsVersionsKopia('app', 'nc')['versions']));
+    // what Kopia brought back of a split one is an earlier version too: the part named in its path
+    $put("$K/data/{$pk(1)}_disk1_backup_apps_nc/manifest.json", $man);
+    file_put_contents("$K/{$pk(1)}_disk1_backup_apps", $dir([$dent('nc', 5, 1)]));
+    file_put_contents("$K/list.json", json_encode([$snapAt('1', '2026-10-24T00:10:00Z', $pk(1), $split)]));
+    $stamp = '20261025-150000';
+    $p = rsPlanKopiaPath(['mode' => 'stage'], $stamp, $kstate, 'UnraidSecretaryOffice', str_repeat('1', 32), 'disk1/backup/apps/nc');
+    $id = "$stamp-ff66";
+    rsPrivateDir(rsDir($id));
+    $p['stamp'] = $stamp;
+    $j = rsJournalNew($id, $p);
+    $j['steps'][0] = array_merge($j['steps'][0], rsStep($j, 0));
+    $j['result'] = 'ok';
+    $j['finished'] = time();
+    writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
+    rsJournalWrite($j);
+    same('restore paths: … what Kopia brought back from the split share\'s part is an earlier version of the package', [[], "$tmp/restore/UnraidSecretaryOffice-$stamp/nc"],
+        [array_column($p['blockers'], 'key'), array_column(array_filter(rsKopiaPackages('app', 'nc', '/mnt/user/UnraidSecretaryOffice/backup'), fn ($x) => $x['id'] === "kopia:$id"), 'path')[0] ?? null]);
+    $GLOBALS['rs']['state'] = $kstate;
+
     // ---- the page: the tile and section, Kopia's browse, the versions
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
     check('restore paths (page): a «Shares» tile and section with its bar, places and rows; the whole share or folders of it; Kopia from the row; a partner\'s pull from the row',

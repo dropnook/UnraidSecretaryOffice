@@ -540,14 +540,72 @@ function rsPlanKopiaPath(array $r, string $stamp, array $state, string $source, 
 
 /**
  * Where a package lies inside a Kopia source: an app's or VM's own source holds the backup place as <share>/<folder>/…,
- * the backup place's share as <folder>/… — then apps|vms/<id>. Null when the backup place isn't in a share.
+ * the backup place's share as <folder>/… — then apps|vms/<id>; where the engine mounted that share split over its pools
+ * and disks, $part (one of them) comes first: <part>/<folder>/… or <share>/<part>/<folder>/…. Null when the backup place
+ * isn't in a share.
  */
-function rsKopiaPackageRel(string $source, string $placeBase, string $kind, string $id): ?string
+function rsKopiaPackageRel(string $source, string $placeBase, string $kind, string $id, string $part = ''): ?string
 {
     if (!preg_match('#^/mnt/user/([^/]+)/(.+)$#D', rtrim($placeBase, '/'), $m)) {
         return null;
     }
-    return ($source[0] === '.' ? "$m[1]/" : '') . "$m[2]/{$kind}s/$id";
+    $part = $part === '' ? '' : "$part/";
+    return ($source[0] === '.' ? "$m[1]/$part" : $part) . "$m[2]/{$kind}s/$id";
+}
+
+/**
+ * Whether a snapshot of $source holds the backup place's share split over its parts — its tags say so (engine 2.80,
+ * rsKopiaLayout(): the share's own source `uso-layout` split, an own source the share in `uso-split`); the parts then
+ * as the share's tag names them ($parts; an own source's: null — they are the folders under <share> in the snapshot).
+ * Untagged: not split, as up to 2.79 — a guess.
+ */
+function rsKopiaPackageSplit(string $source, string $placeBase, array $tags, ?array &$parts = null): bool
+{
+    $parts = null;
+    $layout = rsKopiaLayout($tags, $source);
+    if (!$layout || !preg_match('#^/mnt/user/([^/]+)/#', rtrim($placeBase, '/') . '/', $m)) {
+        return false;
+    }
+    if ($source[0] === '.') {
+        return in_array($m[1], $layout['shares'], true);
+    }
+    $parts = $layout['parts'];
+    return $source === $m[1] && $layout['split'];
+}
+
+/**
+ * A package's path in one Kopia snapshot ($snap: rsKopiaParse()'s, with its root object): not split or untagged — the
+ * one path (rsKopiaPackageRel()); split — the part that holds it, looked up in Kopia: the part found for the snapshot
+ * before first ($hint), one with the package's manifest.json before one with only its folder (a package the mover was
+ * moving). Null: the place isn't in a share, or no part of that snapshot holds it.
+ */
+function rsKopiaPackageIn(array $k, int $uid, array $snap, string $source, string $placeBase, string $kind, string $id, string &$hint = ''): ?string
+{
+    if (!rsKopiaPackageSplit($source, $placeBase, is_array($snap['tags'] ?? null) ? $snap['tags'] : [], $parts)) {
+        return rsKopiaPackageRel($source, $placeBase, $kind, $id);
+    }
+    if ($parts === null) {
+        $share = (string) strtok(substr(rtrim($placeBase, '/'), strlen('/mnt/user/')), '/');
+        $parts = array_column(array_filter(rsKopiaDir($k, $uid, (string) $snap['obj'], $share) ?? [], fn ($e) => $e['type'] === 'd'), 'name');
+    }
+    usort($parts, fn ($a, $b) => ($b === $hint) <=> ($a === $hint));
+    $found = null;
+    foreach ($parts as $part) {
+        $rel = rsKopiaPackageRel($source, $placeBase, $kind, $id, (string) $part);
+        $entries = $rel !== null ? rsKopiaDir($k, $uid, (string) $snap['obj'], $rel) : null;
+        if ($entries === null) {
+            continue;
+        }
+        if (in_array('manifest.json', array_column(array_filter($entries, fn ($e) => $e['type'] === 'f'), 'name'), true)) {
+            $hint = (string) $part;
+            return $rel;
+        }
+        $found ??= [$rel, (string) $part];
+    }
+    if ($found) {
+        $hint = $found[1];
+    }
+    return $found[0] ?? null;
 }
 
 /**
@@ -576,8 +634,7 @@ function rsVersionsKopia(string $kind, string $id): array
     $uid = rsKopiaUid($k['container']);
     $out = [];
     foreach ($sources as $s) {
-        $rel = rsKopiaPackageRel((string) $s['source'], $place, $kind, $id);
-        if ($rel === null) {
+        if (rsKopiaPackageRel((string) $s['source'], $place, $kind, $id) === null) {
             continue;
         }
         [$exit, $json, $err] = rsKopiaRun($k, $uid, ['--no-progress', 'snapshot', 'list', "{$k['root']}/{$s['source']}", '--json'], 180);
@@ -585,11 +642,17 @@ function rsVersionsKopia(string $kind, string $id): array
             throw new Problem('restore_kopia_list', ['detail' => mb_substr(trim($err), 0, 300)]);
         }
         $seen = [];
+        $hint = '';
         foreach (drillKopiaParse($json) as $x) {
             if ($x['obj'] === null || isset($seen[$x['obj']]) || $x['incomplete'] !== '') {
                 continue;                                   // the same root twice (nothing changed): once
             }
             $seen[$x['obj']] = true;
+            // where the package lies in it: the snapshot's tags say whether the place's share was split (engine 2.80)
+            $rel = rsKopiaPackageIn($k, $uid, $x, (string) $s['source'], $place, $kind, $id, $hint);
+            if ($rel === null) {
+                continue;                                   // split, and no part of it holds the package
+            }
             $out[] = ['source' => (string) $s['source'], 'snapshot' => $x['id'], 'path' => $rel, 'time' => $x['time'], 'run' => $x['run'],
                       'run_time' => $x['run'] !== null ? rsRunTime($x['run']) : null, 'own' => !empty($s['own'])];
             if (count($seen) >= RS_KOPIA_VERSIONS_MAX) {
@@ -625,11 +688,26 @@ function rsKopiaPackages(string $kind, string $id, string $placeBase): array
         if ($want === null) {
             continue;
         }
-        // a whole source: the package inside it; one path: that path is the package (or holds it)
-        $dir = $rel === '' ? "$host/$want" : ($rel === $want ? $host : (under($want, $rel) ? $host . substr($want, strlen($rel)) : null));
-        if ($dir !== null && is_file("$dir/manifest.json")) {
-            $time = (int) (readJson(rsDir($r['id']) . '/plan.json')['source']['time'] ?? 0) ?: (int) $r['finished'];
-            $out[] = ['id' => 'kopia:' . $r['id'], 'name' => 'Kopia', 'time' => $time, 'path' => $dir, 'kopia' => true];
+        // the package as up to 2.79, or under one of the share's parts where the engine mounted it split (engine 2.80 — the
+        // journal keeps no tags: the part the path names, or for a whole source the folders where the parts would be)
+        $at = $source[0] === '.' ? 1 : 0;
+        $parts = $rel !== '' ? [explode('/', $rel)[$at] ?? '']
+            : array_values(array_filter(@scandir($at ? "$host/" . strtok($want, '/') : $host) ?: [], fn ($n) => !in_array($n, ['.', '..'], true)));
+        $wants = [$want];
+        foreach ($parts as $p) {
+            $w = $p !== '' ? rsKopiaPackageRel($source, $placeBase, $kind, $id, $p) : null;
+            if ($w !== null) {
+                $wants[] = $w;
+            }
+        }
+        foreach ($wants as $w) {
+            // a whole source: the package inside it; one path: that path is the package (or holds it)
+            $dir = $rel === '' ? "$host/$w" : ($rel === $w ? $host : (under($w, $rel) ? $host . substr($w, strlen($rel)) : null));
+            if ($dir !== null && is_file("$dir/manifest.json")) {
+                $time = (int) (readJson(rsDir($r['id']) . '/plan.json')['source']['time'] ?? 0) ?: (int) $r['finished'];
+                $out[] = ['id' => 'kopia:' . $r['id'], 'name' => 'Kopia', 'time' => $time, 'path' => $dir, 'kopia' => true];
+                break;
+            }
         }
     }
     return $out;
