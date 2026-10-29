@@ -24,8 +24,25 @@ declare(strict_types=1);
  * «Stop after this file» (jack.stop, jack.php): the same stop request as the mover guard's (`office-stop.json` in his
  * data folder, EMBYCACHE_STOP) with why `user`; the part says it was asked (`stopping`).
  *
- * His page asks the part `progress` (desk.json; the agent's action `progress`, two RAM reads, nothing written) every
- * 10 s while a real EmbyCache run goes, never otherwise. Both RAM files go when the run ends.
+ * Several copies at once (2026-10-29, «copies at once per disk» in his setup — MediaCache's parallel_per_disk, the total
+ * the array's disks × that): MediaCache's `active` lists every file in flight (`current` stays the first of them, for
+ * older readers and Ms. Moverelli's card). Each has its part (its own temporary file), each sample keeps them all
+ * ([rel, part] pairs), each bar shows its files in flight under it; stopped, the run ends after the files in flight. The
+ * queue: a file done while an earlier one still copies is nobody's there ([-1, 0]), `pos` counts the done ones from the
+ * front; a file in flight knows its place in the queue (`q`).
+ *
+ * A file several persons have on deck (2026-10-29): it counts at each of them (their bars' planned and done, their time
+ * left) and is copied once — `fill` counts the fill as a whole (each file once) for the bracket, the queue names it at
+ * the first, `shared` [[queue index, [user index, …]], …] at the others, a file in flight its `users` (all of them).
+ *
+ * Who is watching what (2026-10-29): while a real run goes, the job asks the media servers' sessions once a minute — the
+ * same read-only GET as before a gather (jackWatching(): /Sessions, Plex's /status/sessions; a session with something
+ * playing, paused too — what MediaCache keeps where it is) — and keeps per session the person, the title, the server,
+ * paused and since when it saw it play (its first look that saw it) in a third RAM file (`RUN_DIR/jack-watching.json`).
+ * Never a session touched. The panel lists it per person; nobody watching (or no answer): nothing.
+ *
+ * His page asks the part `progress` (desk.json; the agent's action `progress`, three RAM reads, nothing written) every
+ * 10 s while a real EmbyCache run goes, never otherwise. The RAM files go when the run ends.
  */
 
 const JACK_PROGRESS_EVERY  = 10;      // a sample of the bytes moved every 10 s while EmbyCache copies
@@ -33,11 +50,14 @@ const JACK_PROGRESS_WINDOW = 600;     // the speed: the median rate of the last 
 const JACK_PROGRESS_USERS  = 50;      // at most this many users' bars
 const JACK_PROGRESS_SOURCES = ['resume', 'next_up', 'next_episode', 'favorite', 'other'];
 const JACK_PROGRESS_QUEUE  = 5000;    // EmbyCache's fill queue: at most this many entries (more: none, each user's own estimate)
+const JACK_PROGRESS_ACTIVE = 16;      // files in flight at once taken (the setup allows at most JACK_PARALLEL_TOTAL_MAX)
+const JACK_WATCH_LIVE      = 60;      // who is watching: asked once a minute while a real run goes
+const JACK_WATCH_LIVE_MAX  = 20;      // … at most this many sessions kept
 
-/** The two RAM files of a real run: EmbyCache's progress and the job's speed samples */
+/** The RAM files of a real run: EmbyCache's progress, the job's speed samples and who is watching what */
 function jackProgressPaths(string $dir = RUN_DIR): array
 {
-    return ['file' => "$dir/jack-progress.json", 'samples' => "$dir/jack-progress-speed.json"];
+    return ['file' => "$dir/jack-progress.json", 'samples' => "$dir/jack-progress-speed.json", 'watching' => "$dir/jack-watching.json"];
 }
 
 /** A run starts or ends: neither file of a run before stays */
@@ -82,11 +102,27 @@ function jackProgressTime(mixed $v): ?int
     return is_int($v) && $v > 0 ? $v : null;
 }
 
+/** A file in flight as MediaCache writes it (`current`, each of `active`), only in its shape: else null */
+function jackProgressFile(mixed $cur): ?array
+{
+    if (!is_array($cur) || !in_array($cur['phase'] ?? null, ['back', 'fill'], true) || !is_string($cur['rel'] ?? null) || !is_string($cur['target'] ?? null)) {
+        return null;
+    }
+    return ['phase' => $cur['phase'], 'rel' => jackProgressText($cur['rel'], 500) ?? '', 'size' => jackProgressInt($cur['size'] ?? 0),
+            'target' => $cur['target'], 'user' => is_string($cur['user'] ?? null) ? $cur['user'] : null,
+            'source' => in_array($cur['source'] ?? null, JACK_PROGRESS_SOURCES, true) ? $cur['source'] : null,
+            'title' => jackProgressText($cur['title'] ?? null, 200), 'since' => jackProgressInt($cur['since'] ?? 0),
+            'why' => $cur['phase'] === 'back' ? jackGiveBackWhy($cur['why'] ?? null) : null,
+            'q' => is_int($cur['q'] ?? null) && $cur['q'] >= 0 ? $cur['q'] : null,
+            'users' => array_values(array_filter(is_array($cur['users'] ?? null) ? array_slice($cur['users'], 0, JACK_PROGRESS_USERS) : [], 'is_string'))];
+}
+
 /**
  * EmbyCache's progress file, taken only in its shape (v 1): phase, started/updated, back {files, bytes, done_files,
  * done_bytes, started, ended}, users [{key, name, server, …}], current {phase, rel, size, target, user, source, title,
- * since}, queue [[user index, bytes], …] (indexes into the users taken here; -1 or one left out: nobody's) and pos
- * (0…its length) — a queue not in that shape is none. Null when there is none or it isn't that.
+ * since}, active [the same, + q] (every file in flight; none there: `current` alone), queue [[user index, bytes], …]
+ * (indexes into the users taken here; -1 or one left out: nobody's) and pos (0…its length) — a queue not in that shape
+ * is none. Null when there is none or it isn't that. `current`: the first in flight.
  */
 function jackProgressRead(string $file): ?array
 {
@@ -121,19 +157,28 @@ function jackProgressRead(string $file): ?array
             $queue[] = [$index[$q[0]] ?? -1, $q[1]];
         }
     }
-    $cur = is_array($j['current'] ?? null) ? $j['current'] : null;
-    $current = null;
-    if ($cur !== null && in_array($cur['phase'] ?? null, ['back', 'fill'], true) && is_string($cur['rel'] ?? null) && is_string($cur['target'] ?? null)) {
-        $current = ['phase' => $cur['phase'], 'rel' => jackProgressText($cur['rel'], 500) ?? '', 'size' => jackProgressInt($cur['size'] ?? 0),
-                    'target' => $cur['target'], 'user' => is_string($cur['user'] ?? null) ? $cur['user'] : null,
-                    'source' => in_array($cur['source'] ?? null, JACK_PROGRESS_SOURCES, true) ? $cur['source'] : null,
-                    'title' => jackProgressText($cur['title'] ?? null, 200), 'since' => jackProgressInt($cur['since'] ?? 0),
-                    'why' => $cur['phase'] === 'back' ? jackGiveBackWhy($cur['why'] ?? null) : null];
+    // a file of several persons: the others at its place in the queue (indexes into the users taken here)
+    $shared = [];
+    foreach ($queue !== null && is_array($j['shared'] ?? null) ? $j['shared'] : [] as $x) {
+        if (is_array($x) && count($x) === 2 && is_int($x[0] ?? null) && isset($queue[$x[0]]) && is_array($x[1] ?? null)) {
+            $others = array_values(array_filter(array_map(fn ($i) => is_int($i) ? ($index[$i] ?? null) : null, $x[1]), 'is_int'));
+            if ($others) {
+                $shared[$x[0]] = $others;
+            }
+        }
+    }
+    // every file in flight (an older MediaCache: its one `current`)
+    $active = [];
+    $list = is_array($j['active'] ?? null) && array_is_list($j['active']) ? $j['active'] : [$j['current'] ?? null];
+    foreach (array_slice($list, 0, JACK_PROGRESS_ACTIVE) as $a) {
+        if (($f = jackProgressFile($a)) !== null) {
+            $active[] = $f;
+        }
     }
     return ['mode' => in_array($j['mode'] ?? null, ['run', 'release'], true) ? $j['mode'] : 'run', 'phase' => $j['phase'],
             'started' => jackProgressInt($j['started'] ?? 0), 'updated' => jackProgressInt($j['updated'] ?? 0),
-            'back' => $count($j['back'] ?? null), 'users' => $users, 'current' => $current,
-            'queue' => $queue, 'pos' => $queue !== null ? $j['pos'] : 0];
+            'back' => $count($j['back'] ?? null), 'fill' => $count($j['fill'] ?? null), 'users' => $users, 'current' => $active[0] ?? null,
+            'active' => $active, 'queue' => $queue, 'shared' => $shared, 'pos' => $queue !== null ? $j['pos'] : 0];
 }
 
 /**
@@ -178,7 +223,10 @@ function jackProgressMoved(array $p, int $partial): int
     return $n;
 }
 
-/** The job's samples, only in their shape: [[time, bytes moved, the current file's rel, its part], …] of this run */
+/**
+ * The job's samples, only in their shape: [[time, bytes moved, the first file's rel, the parts together, [[rel, part], …]
+ * of every file in flight], …] of this run (an older job's four: the one file's part alone)
+ */
 function jackProgressSamples(string $file, int $started): array
 {
     $j = is_file($file) && !is_link($file) ? json_decode((string) @file_get_contents($file), true) : null;
@@ -187,9 +235,16 @@ function jackProgressSamples(string $file, int $started): array
     }
     $out = [];
     foreach ($j['samples'] as $s) {
-        if (is_array($s) && count($s) === 4 && is_int($s[0]) && is_int($s[1]) && (is_string($s[2]) || $s[2] === null) && is_int($s[3])) {
-            $out[] = $s;
+        if (!is_array($s) || !in_array(count($s), [4, 5], true) || !is_int($s[0]) || !is_int($s[1]) || !(is_string($s[2]) || $s[2] === null) || !is_int($s[3])) {
+            continue;
         }
+        $parts = [];
+        foreach (count($s) === 5 && is_array($s[4]) ? $s[4] : ($s[2] !== null ? [[$s[2], $s[3]]] : []) as $pp) {
+            if (is_array($pp) && count($pp) === 2 && is_string($pp[0] ?? null) && is_int($pp[1] ?? null) && $pp[1] >= 0) {
+                $parts[] = [$pp[0], $pp[1]];
+            }
+        }
+        $out[] = [$s[0], $s[1], $s[2], $s[3], $parts];
     }
     return $out;
 }
@@ -205,9 +260,13 @@ function jackProgressSample(array $paths, ?int $now = null, ?callable $partial =
     if ($p === null || !in_array($p['phase'], ['back', 'fill'], true)) {
         return false;
     }
-    $part = ($partial ?? 'jackProgressPartial')($p['current']);
+    $parts = [];
+    foreach ($p['active'] as $f) {
+        $parts[] = [$f['rel'], (int) ($partial ?? 'jackProgressPartial')($f)];
+    }
+    $part = array_sum(array_column($parts, 1));
     $samples = jackProgressSamples($paths['samples'], $p['started']);
-    $samples[] = [$now, jackProgressMoved($p, $part), $p['current']['rel'] ?? null, $part];
+    $samples[] = [$now, jackProgressMoved($p, $part), $p['current']['rel'] ?? null, $part, $parts];
     $keep = [];
     foreach ($samples as $i => $s) {
         // the window, and the newest sample before it (the first rate inside it starts there)
@@ -261,68 +320,85 @@ function jackProgressSpeed(array $samples, int $now): ?float
 
 /**
  * What the page draws: the bars (back, per user), the bracket over all of them (total, speed, ETA, how long the run has
- * been going) and the file being copied under its bar with its reason. The current file's part from the newest sample,
- * while that sample is of this file and newer than EmbyCache's last word (else 0 — the next sample brings it). Seconds
- * left: null without a speed. A user's: until their last remaining file in EmbyCache's queue is done (see the top).
- * The users: the one being copied, then by their next file's place in the queue, finished ones at the end.
+ * been going) and the files in flight, each under its bar with its reason (`files` on the bar; `current` and `files` at
+ * the top: the first and all, for Ms. Moverelli's card). A file's part from the newest sample, while that sample has it
+ * and is not older than the file's start (else 0 — the next sample brings it). Seconds left: null without a speed. A
+ * user's: until their last remaining file in EmbyCache's queue is done (see the top), the parts in flight up to it
+ * already there. The users: the ones being copied, then by their next file's place in the queue, finished ones at the end.
  */
 function jackProgressView(array $p, array $samples, int $now, bool $stopping = false): array
 {
     $speed = jackProgressSpeed($samples, $now);
     $last = $samples ? $samples[count($samples) - 1] : null;
-    $cur = $p['current'];
-    $part = $cur !== null && $last !== null && $last[2] === $cur['rel'] && $last[0] >= $p['updated'] ? min($last[3], $cur['size']) : 0;
+    $active = $p['active'] ?? ($p['current'] !== null ? [$p['current']] : []);
+    $have = [];
+    foreach ($last !== null ? ($last[4] ?? [[$last[2], $last[3]]]) : [] as [$rel, $n]) {
+        $have[$rel] = $n;
+    }
+    // each file in flight as the page shows it (no target path), with its part
+    $files = [];
+    foreach ($active as $f) {
+        $part = $last !== null && isset($have[$f['rel']]) && $last[0] >= $f['since']
+            ? min((int) $have[$f['rel']], $f['size']) : 0;
+        $files[] = ['phase' => $f['phase'], 'rel' => $f['rel'], 'size' => $f['size'], 'done' => $part, 'source' => $f['source'],
+                    'title' => $f['title'], 'why' => $f['why'] ?? null, 'user' => $f['user'], 'users' => $f['users'] ?? [], 'q' => $f['q'] ?? null];
+    }
+    $mine = fn (callable $is): array => array_values(array_filter($files, $is));
+    $show = fn (array $fs): array => array_map(fn (array $f): array => array_diff_key($f, ['user' => 1, 'users' => 1, 'q' => 1]), $fs);
+    $sum = fn (array $fs, string $k): int => array_sum(array_column($fs, $k));
     $eta = fn (int $left): ?int => $speed !== null && $speed > 0 ? (int) ceil($left / $speed) : null;
     $took = fn (array $c): ?int => $c['started'] !== null && $c['ended'] !== null ? max(0, $c['ended'] - $c['started']) : null;
-    $bar = function (array $c, bool $mine) use ($part, $eta, $took): array {
-        $done = min($c['bytes'], $c['done_bytes'] + ($mine ? $part : 0));
+    $bar = function (array $c, array $fs) use ($eta, $took, $sum, $show): array {
+        $done = min($c['bytes'], $c['done_bytes'] + $sum($fs, 'done'));
         $left = $c['files'] > $c['done_files'];
         return ['files' => $c['files'], 'bytes' => $c['bytes'], 'done_files' => $c['done_files'], 'done_bytes' => $done,
-                'eta' => $left ? $eta(max(0, $c['bytes'] - $done)) : 0, 'took' => $left ? null : $took($c)];
+                'eta' => $left ? $eta(max(0, $c['bytes'] - $done)) : 0, 'took' => $left ? null : $took($c), 'here' => (bool) $fs,
+                'in_flight' => $show($fs)];
     };
-    // the file being copied: under the bar it belongs to (`here`) — «back to the array», or its user's
-    $shown = $cur === null ? null : ['phase' => $cur['phase'], 'rel' => $cur['rel'], 'size' => $cur['size'], 'done' => $part,
-                                     'source' => $cur['source'], 'title' => $cur['title'], 'why' => $cur['why'] ?? null];
-    $inBack = ($cur['phase'] ?? '') === 'back';
-    $back = $p['back'] !== null ? $bar($p['back'], $inBack) + ['ended' => in_array($p['phase'], ['fill', 'done'], true), 'here' => $inBack] : null;
+    $backFiles = $mine(fn (array $f): bool => $f['phase'] === 'back');
+    $back = $p['back'] !== null ? $bar($p['back'], $backFiles) + ['ended' => in_array($p['phase'], ['fill', 'done'], true)] : null;
     // the fill's queue: the bytes from now until each user's last remaining file is done (and their next file's place)
     $backLeft = $back !== null && !$back['ended'] ? max(0, $back['bytes'] - $back['done_bytes']) : 0;
-    $fillPart = ($cur['phase'] ?? '') === 'fill' ? $part : 0;
-    $until = $next = [];
+    $fillFiles = $mine(fn (array $f): bool => $f['phase'] === 'fill');
+    $until = $next = $lastAt = [];
     if ($p['queue'] !== null) {
-        $sum = 0;
+        $sumQ = 0;
         for ($i = $p['pos'], $n = count($p['queue']); $i < $n; $i++) {
             [$ui, $b] = $p['queue'][$i];
-            $sum += $b;
-            if ($ui >= 0) {
-                $until[$ui] = $sum;
-                $next[$ui] ??= $i;
+            $sumQ += $b;
+            foreach (array_merge($ui >= 0 ? [$ui] : [], $p['shared'][$i] ?? []) as $who) {
+                $until[$who] = $sumQ;
+                $lastAt[$who] = $i;
+                $next[$who] ??= $i;
             }
         }
     }
     $users = [];
     foreach ($p['users'] as $k => $u) {
-        $mine = ($cur['phase'] ?? '') === 'fill' && ($cur['user'] ?? null) === $u['key'];
-        $row = ['name' => $u['name'], 'server' => $u['server']] + $bar($u, $mine) + ['here' => $mine];
+        $fs = $mine(fn (array $f): bool => $f['phase'] === 'fill' && ($f['user'] === $u['key'] || in_array($u['key'], $f['users'], true)));
+        $row = ['name' => $u['name'], 'server' => $u['server']] + $bar($u, $fs);
         if ($u['files'] > $u['done_files'] && isset($until[$k])) {
-            $row['eta'] = $eta($backLeft + max(0, $until[$k] - $fillPart));
+            // what of the files in flight up to their last one is there already (one without a place: counted, as before)
+            $there = $sum(array_filter($fillFiles, fn (array $f): bool => $f['q'] === null || $f['q'] <= $lastAt[$k]), 'done');
+            $row['eta'] = $eta($backLeft + max(0, $until[$k] - $there));
         }
         $users[] = ['row' => $row, 'k' => $k, 'left' => $u['files'] > $u['done_files'], 'next' => $next[$k] ?? PHP_INT_MAX];
     }
     usort($users, fn (array $a, array $b): int => [!$a['left'], !$a['row']['here'], $a['next'], $a['k']] <=> [!$b['left'], !$b['row']['here'], $b['next'], $b['k']]);
     $users = array_column($users, 'row');
+    // the bracket: back and the fill as a whole (a file of several persons once); an older MediaCache without `fill`: the bars
     $total = ['files' => 0, 'bytes' => 0, 'done_files' => 0, 'done_bytes' => 0];
-    foreach (array_merge($back !== null ? [$back] : [], $users) as $c) {
+    foreach (array_merge($back !== null ? [$back] : [], ($p['fill'] ?? null) !== null ? [$bar($p['fill'], $fillFiles)] : $users) as $c) {
         foreach ($total as $k => $_) {
             $total[$k] += $c[$k];
         }
     }
     $total['eta'] = $total['files'] > $total['done_files'] ? $eta(max(0, $total['bytes'] - $total['done_bytes'])) : 0;
     $total['running'] = $p['started'] > 0 ? max(0, $now - $p['started']) : null;
-    // asked to stop (the button, the mover): only the file it is on still counts (2026-10-10) — the bar it belongs to
-    // and the total end with it, the others are `halted` (not in this run any more)
+    // asked to stop (the button, the mover): only the files in flight still count (2026-10-10) — the bars they belong to
+    // and the total end with them, the others are `halted` (not in this run any more)
     if ($stopping) {
-        $curEta = $cur !== null ? $eta(max(0, $cur['size'] - $part)) : 0;
+        $curEta = $files ? $eta(max(0, $sum($files, 'size') - $sum($files, 'done'))) : 0;
         $halt = function (array $c) use ($curEta): array {
             if ($c['here']) {
                 $c['eta'] = $curEta;
@@ -338,8 +414,95 @@ function jackProgressView(array $p, array $samples, int $now, bool $stopping = f
         $users = array_map($halt, $users);
         $total['eta'] = $curEta;
     }
+    $shown = $show($files);
     return ['mode' => $p['mode'], 'phase' => $p['phase'], 'started' => $p['started'], 'back' => $back, 'users' => $users, 'total' => $total,
-            'speed' => $speed !== null ? (int) round($speed) : null, 'current' => $shown];
+            'speed' => $speed !== null ? (int) round($speed) : null, 'current' => $shown[0] ?? null, 'files' => $shown];
+}
+
+/**
+ * One look at who is watching (the job, once a minute while a real run goes): the media servers' sessions (jackWatching(),
+ * read-only) written to RAM — per session person, title, server, paused, `since` (kept from the look before for the same
+ * person, server and title; else now). Not answered or nobody: the state alone. True when written.
+ */
+function jackWatchLook(array $paths, ?callable $look = null, ?int $now = null): bool
+{
+    $now ??= time();
+    $w = ($look ?? fn (): array => jackWatching(null, fn (string $url, string $key, int $t = 0, string $type = 'emby') => jackWatchFetch($url, $key, JACK_WATCH_PAGE, $type)))();
+    $before = [];
+    foreach ((array) (jackWatchRead($paths['watching'])['who'] ?? []) as $x) {
+        $before[jackWatchId($x)] = $x['since'];
+    }
+    $who = [];
+    foreach (array_slice(($w['state'] ?? '') === 'watching' && is_array($w['who'] ?? null) ? $w['who'] : [], 0, JACK_WATCH_LIVE_MAX) as $x) {
+        if (!is_array($x)) {
+            continue;
+        }
+        $e = ['user' => jackWatchText((string) ($x['user'] ?? ''), 100), 'title' => jackWatchText((string) ($x['title'] ?? ''), 200),
+              'server' => jackWatchText((string) ($x['server'] ?? ''), 100), 'paused' => !empty($x['paused'])];
+        $who[] = $e + ['since' => min($now, $before[jackWatchId($e)] ?? $now)];
+    }
+    $state = in_array($w['state'] ?? null, ['watching', 'free', 'down', 'error', 'unknown'], true) ? $w['state'] : 'error';
+    writeAtomic($paths['watching'], jsonEncode(['v' => 1, 'time' => $now, 'state' => $who ? 'watching' : ($state === 'watching' ? 'free' : $state), 'who' => $who]), 0600, 0, 0);
+    return true;
+}
+
+/** A session's identity across looks: person, server, title */
+function jackWatchId(array $x): string
+{
+    return implode("\x1f", [mb_strtolower((string) ($x['user'] ?? '')), (string) ($x['server'] ?? ''), (string) ($x['title'] ?? '')]);
+}
+
+/** The job's look in RAM, only in its shape: {time, state, who: [{user, title, server, paused, since}]}; else null */
+function jackWatchRead(string $file): ?array
+{
+    if (!is_file($file) || is_link($file) || (int) @filesize($file) > 262144) {
+        return null;
+    }
+    $j = json_decode((string) @file_get_contents($file), true);
+    if (!is_array($j) || ($j['v'] ?? null) !== 1 || !is_int($j['time'] ?? null) || !is_array($j['who'] ?? null)) {
+        return null;
+    }
+    $who = [];
+    foreach (array_slice($j['who'], 0, JACK_WATCH_LIVE_MAX) as $x) {
+        if (is_array($x) && is_string($x['user'] ?? null) && is_string($x['title'] ?? null) && is_string($x['server'] ?? null) && is_int($x['since'] ?? null)) {
+            $who[] = ['user' => jackWatchText($x['user'], 100), 'title' => jackWatchText($x['title'], 200), 'server' => jackWatchText($x['server'], 100),
+                      'paused' => ($x['paused'] ?? false) === true, 'since' => $x['since']];
+        }
+    }
+    return ['time' => $j['time'], 'state' => is_string($j['state'] ?? null) ? $j['state'] : 'error', 'who' => $who];
+}
+
+/**
+ * What the panel lists: per person (one name over several servers — case and spaces aside, as MediaCache counts a
+ * person) what plays, on which server, since when, paused; the persons in the order first seen. Nobody: [].
+ */
+function jackWatchView(?array $look): array
+{
+    $out = [];
+    foreach ($look['who'] ?? [] as $x) {
+        $k = mb_strtolower((string) preg_replace('/\s+/u', '', $x['user']));
+        $out[$k] ??= ['name' => $x['user'] !== '' ? $x['user'] : null, 'items' => []];
+        $out[$k]['items'][] = array_intersect_key($x, ['title' => 1, 'server' => 1, 'paused' => 1, 'since' => 1]);
+    }
+    return array_values($out);
+}
+
+/** The job's ticker for who is watching: at once, then every JACK_WATCH_LIVE s (a look that fails: again next time) */
+function jackWatchTicker(array $paths, ?callable $look = null, ?callable $now = null): callable
+{
+    $now ??= fn (): int => time();
+    $next = 0;
+    return function () use ($paths, $look, $now, &$next): void {
+        $t = $now();
+        if ($t < $next) {
+            return;
+        }
+        $next = $t + JACK_WATCH_LIVE;
+        try {
+            jackWatchLook($paths, $look, $t);
+        } catch (Throwable) {
+        }
+    };
 }
 
 /** «Stop after this file» asked — the stop request in his data folder (EMBYCACHE_STOP): its why (user, mover, watching), else null */
@@ -367,7 +530,9 @@ function jackProgressState(?array $job = null, ?array $paths = null, ?int $now =
     $p = $real ? jackProgressRead($paths['file']) : null;
     return ['time' => $now, 'running' => !empty($job['running']), 'mode' => (string) ($job['mode'] ?? ''), 'real' => $real,
             'stopping' => $stopping = ($real ? jackProgressStopping($stopFile ?? JACK_DATA . '/office-stop.json') : null),
-            'progress' => $p !== null ? jackProgressView($p, jackProgressSamples($paths['samples'], $p['started']), $now, $stopping !== null) : null];
+            'progress' => $p !== null ? jackProgressView($p, jackProgressSamples($paths['samples'], $p['started']), $now, $stopping !== null) : null,
+            // who is watching what (the job's look once a minute): per person, nobody — []
+            'watching' => $real && isset($paths['watching']) ? jackWatchView(jackWatchRead($paths['watching'])) : []];
 }
 
 /**

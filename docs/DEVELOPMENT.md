@@ -634,7 +634,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   **her let-go puts it back** through the same form (only `MOVERELLI_UNRAID_CRON` shapes). **Never a hand-written cron line.**
   Real runs only while no other mover has a schedule of its own (other scripts' mover calls named, never changed); never beside
   Unraid's mover or Jack Streamer's runs. While he is hired her ini keeps MediaCache's list out for his shares; a named list not
-  yet created refuses a real run (scheduled refusals: one counted line, never notified); her setup proposes his list for all
+  yet created refuses her own real run (scheduled refusals: one counted line, never notified) — the joint run lets him go
+  first and his run writes it (a look never makes it empty, 2026-10-29); her setup proposes his list for all
   shares in the form only. Import: an unreadable protecting list blocks it, never silently disappears. **The night run**
   (agent/lib/nightrun.php): he and she = ONE run on ONE schedule (her cron line → `nightRun()`): check → reckon (`nightPlan()`)
   → free (his watched, then her oldest) → recheck (≤ 3 rounds) → fill (him last, only up to X) → tell; one lock `night.lock`;

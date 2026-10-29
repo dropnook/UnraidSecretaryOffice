@@ -1183,8 +1183,12 @@ function moverelliScan(?array $h = null): array
 
 // ===================================================================== runs
 
-/** May this run start now? (asked again by the job itself) */
-function moverelliRunCheck(string $mode, array $h): void
+/**
+ * May this run start now? (asked again by the job itself) $night: the joint run as a whole (nightrun.php) — EmbyCache's list
+ * still pending doesn't hold it back: Jack Streamer goes first and his run writes it; her own part inside it asks again
+ * (2026-10-29: before, his look wrote it empty so the joint run could start, and her run gave his films back)
+ */
+function moverelliRunCheck(string $mode, array $h, bool $night = false): void
 {
     if (!isset(MOVERELLI_MODES[$mode])) {
         throw new Problem('unknown_target', ['target' => mb_substr($mode, 0, 40)]);
@@ -1198,7 +1202,7 @@ function moverelliRunCheck(string $mode, array $h): void
     }
     // EmbyCache's list in her ini, but EmbyCache never ran here: it can't exist yet — no real run until his first one
     // (said once: a scheduled refusal is counted, never notified); a list that existed and is gone stays Smart Mover's ERROR
-    if ($mode === 'run' && ($file = moverelliJackListPending($h)) !== null) {
+    if ($mode === 'run' && !$night && ($file = moverelliJackListPending($h)) !== null) {
         throw new Problem('moverelli_jack_list_pending', ['file' => $file]);
     }
     if (!is_file("$h[app]/custommover_run.sh")) {
