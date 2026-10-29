@@ -67,6 +67,7 @@ desk('caretaker', [
         'partner_accept' => fn (array $r) => caretakerPartnerDone(partner_accept($r)),
         'partner_finish' => fn (array $r) => caretakerPartnerDone(partner_finish($r)),
         'partner_end'    => fn (array $r) => caretakerPartnerDone(partner_end($r)),
+        'partner_replace' => fn (array $r) => caretakerPartnerDone(partner_replace($r)),    // a pair left over from an earlier pairing
         'partner_state'  => fn (array $r) => partner_state($r),
         'partner_ping'   => fn (array $r) => caretakerPartnerDone(partner_ping($r)),
         // «Change the address…» (2026-10-23): try (a job looks), save; the page's looks at the try only read RAM — no rescan
@@ -1118,8 +1119,16 @@ function caretakerPartnerFindings(): array
     $out = [];
     $state = partnerStateRead();
     $now = time();
-    foreach (partnerPairs() as $p) {
+    $pairs = partnerPairs();
+    foreach ($pairs as $p) {
         $e = is_array($state['pairs'][$p['id']] ?? null) ? $state['pairs'][$p['id']] : [];
+        // left over from an earlier pairing (2026-10-29): not «silent» — not heard since a newer pair of the same partner was made
+        $newer = partnerSupersededBy($p, $pairs, $state, $now);
+        if ($newer !== null) {
+            $out[] = finding('partner_superseded', 'recommended', false, ['name' => $p['name'], 'pair' => $p['id'], 'newer' => $newer['id'],
+                'paired' => date('Y-m-d H:i', $newer['paired'])], '#/caretaker/partner');
+            continue;
+        }
         $silent = partnerSilent($p, $e, $now);
         $out[] = finding('partner_silent', 'recommended', !$silent, $silent ? partnerSilentParams($p, $e) : ['name' => $p['name'], 'pair' => $p['id']], '#/caretaker/partner');
         if ($p['my_key'] !== null && ($e['reachable'] ?? null) === true && ($e['why'] ?? null) === 'no_pair') {

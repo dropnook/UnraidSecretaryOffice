@@ -1426,7 +1426,10 @@ function partnerWatch(callable $muted, callable $tell, ?int $now = null): array
         [$p, $entry] = partnerUnitsFollow($p, $ask, $entry);
         $p = partnerNameFollow($p, $ask);
         $entry['tailnet'] = null;
-        if (partnerSilent($p, $entry, $now)) {
+        // a pair left over from an earlier pairing (not heard since a newer one of the same partner was made): no news
+        if (partnerSupersededBy($p, $pairs, $state, $now) !== null) {
+            $entry['told'] = null;
+        } elseif (partnerSilent($p, $entry, $now)) {
             if ($tailnet === false) {
                 $tailnet = partnerTailnet();
             }
@@ -1891,6 +1894,9 @@ function partnerPublic(): array
             'night'      => is_array($answer) ? (bool) ($answer['night'] ?? false) : null,
             'version'    => is_array($answer) ? ($answer['v'] ?? null) : null,
             'silent'     => partnerSilent($p, $e, $now),
+            // left over from an earlier pairing: not heard since a newer pair of the same address or key was made — its card
+            // offers «Replace it by …» (partner_replace), its silence is told no more ({id, name, address, paired} | null)
+            'superseded' => partnerSupersededBy($p, $pairs, $state, $now),
             // it answers but doesn't know this pair any more: what it said before (they_keep) is from then, not now
             'no_pair'    => $p['my_key'] !== null && ($e['reachable'] ?? null) === true && ($e['why'] ?? null) === 'no_pair',
             'tailnet'    => $e['tailnet'] ?? null,
@@ -2141,7 +2147,9 @@ function partner_accept(array $r): array
                 'name' => partnerMyName(), 'addresses' => partnerMyAddresses(), 'port' => partnerMyPort(), 'units' => partnerUnits(),
                 'host_key' => partnerHostKeys() !== [], 'usonet' => $net = partnerUsonet($a['address'], $a['name']),
                 // the line for the partner's USO address instead (its block brought one outside the network: partnerTheirAddress())
-                'line_match' => $net['match'] !== null ? partnerDoorLine($a['id'], $net['match']['address'], $a['pub_key']) : null];
+                'line_match' => $net['match'] !== null ? partnerDoorLine($a['id'], $net['match']['address'], $a['pub_key']) : null,
+                // pairs of the same address or server key (2026-10-29): said, «replace» offered
+                'known' => partnerKnownAs([$a['address'], $net['match']['address'] ?? ''], array_map('partnerFingerprint', $a['host_keys']))];
     }
     if ($step !== 'do' || ($r['confirm'] ?? null) !== true) {
         throw new Problem('bad_request');
@@ -2167,8 +2175,9 @@ function partner_accept(array $r): array
     partnerAddressChosen($r, $address);
     $trust = partnerTrustFrom($r);
     $myUnits = $sendToo ? partnerUnitsOk() : [];          // for an older partner's dialog only (see partner_add)
-    $myPub = $sendToo ? partnerKeyMake($a['id']) : null;
     $pairs = partnerPairs();
+    $replace = partnerReplaceFrom($r, partnerKnownAs([$a['address'], $theirAddress], array_map('partnerFingerprint', $a['host_keys']), $pairs));
+    $myPub = $sendToo ? partnerKeyMake($a['id']) : null;
     $pair = ['id' => $a['id'], 'name' => $a['name'], 'address' => $theirAddress, 'port' => $theirPort,
              'host_keys' => array_values(array_map('partnerFingerprint', $a['host_keys'])), 'my_key' => $myPub !== null ? partnerFingerprint($myPub) : null,
              'their_key' => $receive !== null ? partnerFingerprint($a['pub_key']) : null, 'send' => partnerSendNew(),
@@ -2188,6 +2197,9 @@ function partner_accept(array $r): array
     }
     if ($receive !== null) {
         partnerOrphansQuiet((string) $from);
+    }
+    foreach ($replace as $old) {
+        partnerReplace($old, $pair);
     }
     partnerLog("paired with {$a['name']} ({$a['id']}, $theirAddress:$theirPort) — accepted their offer"
         . ($theirAddress !== $a['address'] ? " (their block said {$a['address']}: their USO address taken instead)" : '')
@@ -2265,7 +2277,8 @@ function partner_finish(array $r): array
         $net = partnerUsonet($b['address'], $b['name']);
         return ['ok' => true, 'partner' => partnerBlockFacts($b), 'code' => $code, 'pools' => $b['pub_key'] !== null ? partnerPools() : [],
                 'defaults' => PARTNER_DEFAULTS, 'line' => $b['pub_key'] !== null && $from !== null ? partnerDoorLine($b['id'], $from, (string) $b['pub_key']) : null,
-                'usonet' => $net, 'line_match' => $b['pub_key'] !== null && $net['match'] !== null ? partnerDoorLine($b['id'], $net['match']['address'], (string) $b['pub_key']) : null];
+                'usonet' => $net, 'line_match' => $b['pub_key'] !== null && $net['match'] !== null ? partnerDoorLine($b['id'], $net['match']['address'], (string) $b['pub_key']) : null,
+                'known' => partnerKnownAs([$b['address'], $net['match']['address'] ?? ''], array_map('partnerFingerprint', $b['host_keys']))];
     }
     if ($step !== 'do' || ($r['confirm'] ?? null) !== true || ($r['code'] ?? null) !== $code) {
         throw new Problem('bad_request');
@@ -2284,6 +2297,7 @@ function partner_finish(array $r): array
         throw new Problem('partner_nothing');
     }
     $pairs = partnerPairs();
+    $replace = partnerReplaceFrom($r, partnerKnownAs([$b['address'], $theirAddress], array_map('partnerFingerprint', $b['host_keys']), $pairs));
     $pair = ['id' => $b['id'], 'name' => $b['name'], 'address' => $theirAddress, 'port' => $theirPort,
              'host_keys' => array_values(array_map('partnerFingerprint', $b['host_keys'])), 'my_key' => $sends ? partnerFingerprint($offer['pub_key']) : null,
              'their_key' => $receive !== null ? partnerFingerprint((string) $b['pub_key']) : null, 'send' => partnerSendNew(),
@@ -2309,6 +2323,9 @@ function partner_finish(array $r): array
         @unlink(partnerKeyFile($b['id']) . '.pub');
     }
     partnerWritePrivate(partnerDir() . '/pending.json', ['offers' => array_values(array_filter(partnerPending(), fn ($o) => $o['id'] !== $b['id']))]);
+    foreach ($replace as $old) {
+        partnerReplace($old, $pair);
+    }
     partnerLog("paired with {$b['name']} ({$b['id']}, $theirAddress:$theirPort) — their answer taken, the codes matched"
         . ($theirAddress !== $b['address'] ? " (their block said {$b['address']}: their USO address taken instead)" : '')
         . ($receive !== null ? ', their line in authorized_keys' : ''));
@@ -2658,15 +2675,7 @@ function partner_end(array $r): array
     partnerAuthKeysEdit($id, null);
     partnerKeyDrop($id);
     if ($pair !== null) {
-        partnerEndedRecord($pair);
-        partnerPairsWrite(array_values(array_filter($pairs, fn ($p) => $p['id'] !== $id)));
-        $state = partnerStateRead();
-        if (isset($state['pairs'][$id])) {
-            unset($state['pairs'][$id]);
-            partnerWritePrivate(partnerDir() . '/state.json', $state);
-        }
-        @unlink(partnerRunDir() . "/heard-$id");
-        partnerWishWrite($id, [], 0);
+        partnerPairGo($pair, $pairs);
         partnerLog("partnership with {$pair['name']} ($id) ended — line, key and known_hosts removed; their copies here stay");
     }
     if ($offer) {
@@ -2675,6 +2684,196 @@ function partner_end(array $r): array
             partnerLog("offer $id withdrawn");
         }
     }
+    return ['ok' => true, 'partners' => partnerPublic()];
+}
+
+/**
+ * A pair out of pairs.json (partner_end, partnerReplace(); its line and key already gone): its address and host keys
+ * kept (ended.json — the engine's partner_anew hands its units to a pair made anew there), its watch state, its knock
+ * and an older sender's wish gone. Its copies here, received/<id>.json and its dataset, stay (Ms. Dustdevil, the user).
+ */
+function partnerPairGo(array $pair, array $pairs): void
+{
+    $id = $pair['id'];
+    partnerEndedRecord($pair);
+    partnerPairsWrite(array_values(array_filter($pairs, fn ($p) => $p['id'] !== $id)));
+    $state = partnerStateRead();
+    if (isset($state['pairs'][$id])) {
+        unset($state['pairs'][$id]);
+        partnerWritePrivate(partnerDir() . '/state.json', $state);
+    }
+    @unlink(partnerRunDir() . "/heard-$id");
+    partnerWishWrite($id, [], 0);
+}
+
+// ===================================================================== pairing anew at a known address (2026-10-29)
+
+/*
+ * «Add a partner…»/«Accept a partner…» with a server this office already has a pair with (Parkplatz 2026-10-27: test3 and
+ * test4 paired anew at the same address — pairs.json carried both, the old one stayed silent and notified for ever).
+ * The pairing dialogs name the pairs of the same address or the same server key (partnerKnownAs()) and offer «replace»:
+ * after the new pair is stored, the old one goes (partnerReplace()) — its uso-partner: line and the uso-ticket: lines of
+ * tickets given for it out of authorized_keys, its key and known_hosts off the flash, its record aside (replaced.json,
+ * whole, as it was; ended.json for the engine), never its copies: received/<id>.json, its dataset here and what it
+ * keeps there stay for Ms. Dustdevil and the user. A leftover from before this (an old pair not heard since a newer one of
+ * the same address or key was made: partnerSupersededBy()) is no longer told as silent — its card offers the same replace.
+ */
+const PARTNER_REPLACED_FILE = 'replaced.json';  // {v:1, pairs:[{...the pair as it was, replaced_by, replaced}]} — the newest PARTNER_ENDED_KEEP
+
+/**
+ * The pairs that are the same partner as a block's (or a pair's): the same address (case aside) or a server key in common.
+ * $addresses: the block's and the one taken instead (their USO address); $hostKeys: fingerprints. For the dialogs: id,
+ * name, address, port, paired, last_heard, why (address | host_key | both), receive (I keep its copies), sends (I send to
+ * it), tickets (the restore tickets given for it, open) — newest first.
+ */
+function partnerKnownAs(array $addresses, array $hostKeys, ?array $pairs = null, string $except = ''): array
+{
+    $addr = array_values(array_unique(array_filter(array_map(fn ($a) => strtolower((string) $a), $addresses))));
+    $keys = array_values(array_filter($hostKeys, 'is_string'));
+    $state = partnerStateRead();
+    $tickets = partnerTickets();
+    $out = [];
+    foreach ($pairs ?? partnerPairs() as $p) {
+        if ($p['id'] === $except) {
+            continue;
+        }
+        $a = in_array(strtolower($p['address']), $addr, true);
+        $k = $keys && array_intersect($p['host_keys'], $keys);
+        if (!$a && !$k) {
+            continue;
+        }
+        $e = is_array($state['pairs'][$p['id']] ?? null) ? $state['pairs'][$p['id']] : [];
+        $out[] = ['id' => $p['id'], 'name' => $p['name'], 'address' => $p['address'], 'port' => $p['port'], 'paired' => $p['paired'],
+                  'last_heard' => partnerLastHeard($p, $e), 'why' => $a && $k ? 'both' : ($a ? 'address' : 'host_key'),
+                  'receive' => $p['receive'] !== null, 'sends' => $p['my_key'] !== null,
+                  'tickets' => array_values(array_map(fn ($t) => ['id' => $t['id'], 'expires' => $t['expires']], array_filter($tickets, fn ($t) => $t['of'] === $p['id'])))];
+    }
+    usort($out, fn ($x, $y) => $y['paired'] <=> $x['paired']);
+    return $out;
+}
+
+/** The request's `replace` (the pairs to replace with this pairing): absent or null → none; else ids, each one of $known */
+function partnerReplaceFrom(array $r, array $known): array
+{
+    $v = $r['replace'] ?? null;
+    if ($v === null) {
+        return [];
+    }
+    if (!is_array($v) || !array_is_list($v) || count($v) > 16) {
+        throw new Problem('bad_request');
+    }
+    $ids = array_column($known, 'id');
+    foreach ($v as $id) {
+        if (!is_string($id) || !in_array($id, $ids, true)) {
+            throw new Problem('partner_replace_gone');        // not (or no longer) the same partner: the page looks again
+        }
+    }
+    return array_values(array_unique($v));
+}
+
+/** The pairs replaced here, as they were (replaced.json, exact shape of a pair plus two keys; others kept as they are) */
+function partnerReplacedValid(mixed $e): bool
+{
+    return is_array($e) && is_string($e['replaced_by'] ?? null) && preg_match(PARTNER_ID_RE, $e['replaced_by']) && is_int($e['replaced'] ?? null)
+        && partnerPairValid(array_diff_key($e, ['replaced_by' => 1, 'replaced' => 1]));
+}
+
+/**
+ * A pair replaced by a newer one of the same partner ($new: the pair stored just now, or the newer one on the card):
+ * its door line and the lines of tickets given for it go, its key goes, it leaves pairs.json (partnerPairGo()), its
+ * record goes aside whole (replaced.json). Its copies here and there are never touched. Never the new pair itself.
+ */
+function partnerReplace(string $oldId, array $new): void
+{
+    $pairs = partnerPairs();
+    $old = partnerPair($oldId, $pairs);
+    if ($old === null || $oldId === $new['id']) {
+        return;
+    }
+    partnerAuthKeysEdit($oldId, null);
+    $tickets = partnerTickets();
+    $mine = array_values(array_filter($tickets, fn ($t) => $t['of'] === $oldId));
+    foreach ($mine as $t) {
+        partnerAuthKeysEdit($t['id'], null, null, true);
+    }
+    if ($mine) {
+        partnerTicketsWrite(array_values(array_filter($tickets, fn ($t) => $t['of'] !== $oldId)));
+    }
+    partnerKeyDrop($oldId);
+    try {
+        partnerReplacedRecord($old, $new['id']);
+    } catch (Throwable $e) {
+        partnerLog("pair $oldId: its record could not be put aside ({$e->getMessage()}) — ended.json keeps its address and keys");
+    }
+    partnerPairGo($old, $pairs);
+    partnerLog("pair $oldId with {$old['name']} ({$old['address']}:{$old['port']}) replaced by $new[id] — the same partner paired anew: its line"
+        . ($mine ? ' and ' . count($mine) . ' ticket line(s)' : '') . ', key and known_hosts removed, its record aside; its copies here stay');
+}
+
+/**
+ * The pair as it was into replaced.json — a tolerant writer: entries not in this shape (a newer office's) and keys beside
+ * v and pairs kept as they are; of its own the newest PARTNER_ENDED_KEEP. A file of another `v` is left alone.
+ */
+function partnerReplacedRecord(array $old, string $by, ?int $now = null): void
+{
+    $file = partnerDir() . '/' . PARTNER_REPLACED_FILE;
+    $raw = partnerReadPrivate($file);
+    if ($raw !== null && array_key_exists('v', $raw) && $raw['v'] !== 1) {
+        throw new Problem('partner_shape');
+    }
+    $doc = $raw !== null && !array_is_list($raw) ? $raw : [];
+    $list = is_array($doc['pairs'] ?? null) && array_is_list($doc['pairs']) ? $doc['pairs'] : [];
+    $foreign = array_values(array_filter($list, fn ($e) => !partnerReplacedValid($e)));
+    $mine = array_values(array_filter($list, 'partnerReplacedValid'));
+    $mine = array_slice(array_merge($mine, [$old + ['replaced_by' => $by, 'replaced' => $now ?? time()]]), -PARTNER_ENDED_KEEP);
+    unset($doc['v'], $doc['pairs']);
+    partnerWritePrivate($file, ['v' => 1, 'pairs' => array_merge($foreign, $mine)] + $doc);
+}
+
+/**
+ * A pair left over from an earlier pairing: silent, and a newer pair (paired later) of the same address or a server key
+ * in common was made after it was last heard (or, never heard, after it was paired) — the newest such, or null. Its
+ * silence is no longer told: the partner is the newer pair's now (whose own silence still is). test4, 2026-10-29: four
+ * receive-only pairs of one server, each one told as silent every day.
+ */
+function partnerSupersededBy(array $p, array $pairs, array $state, int $now): ?array
+{
+    $e = is_array($state['pairs'][$p['id']] ?? null) ? $state['pairs'][$p['id']] : [];
+    if (!partnerSilent($p, $e, $now)) {
+        return null;
+    }
+    $heard = partnerLastHeard($p, $e) ?? $p['paired'];
+    $best = null;
+    foreach ($pairs as $q) {
+        if ($q['id'] === $p['id'] || $q['paired'] <= $p['paired'] || $q['paired'] < $heard
+            || (strtolower($q['address']) !== strtolower($p['address']) && !array_intersect($q['host_keys'], $p['host_keys']))) {
+            continue;
+        }
+        if ($best === null || $q['paired'] > $best['paired']) {
+            $best = $q;
+        }
+    }
+    return $best === null ? null : ['id' => $best['id'], 'name' => $best['name'], 'address' => $best['address'], 'paired' => $best['paired']];
+}
+
+/** «Replace it by …» on the card of a pair left over (partnerSupersededBy()): {id, by} — looked at again before */
+function partner_replace(array $r): array
+{
+    $id = optText($r, 'id');
+    $by = optText($r, 'by');
+    if (!preg_match(PARTNER_ID_RE, $id) || !preg_match(PARTNER_ID_RE, $by) || ($r['confirm'] ?? null) !== true) {
+        throw new Problem('bad_request');
+    }
+    $pairs = partnerPairs();
+    $old = partnerPair($id, $pairs);
+    $new = partnerPair($by, $pairs);
+    if ($old === null || $new === null) {
+        throw new Problem('partner_unknown');
+    }
+    if (!in_array($id, array_column(partnerKnownAs([$new['address']], $new['host_keys'], $pairs, $by), 'id'), true) || $new['paired'] <= $old['paired']) {
+        throw new Problem('partner_replace_gone');
+    }
+    partnerReplace($id, $new);
     return ['ok' => true, 'partners' => partnerPublic()];
 }
 

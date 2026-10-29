@@ -56363,10 +56363,136 @@ function testRestoreShareUnlisted(): void
     hardeningRm($tmp);
 }
 
+/**
+ * Partner rest (2026-10-29), item 2: pairing anew with a server already paired here (the parkplatz 2026-10-27: test3 and
+ * test4 — pairs.json carried both, the old one silent for ever). Both dialogs name the pairs of the same address or
+ * server key and offer «replace»: the old pair's line, ticket lines and key go, its record aside (replaced.json, ended.json),
+ * its copies never; a leftover from before (silent while a newer one of the same partner answers) is no longer told and
+ * its card offers the same replace
+ */
+function testPartnerRepair(): void
+{
+    $tmp = hardeningTmp('partner-repair');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $A = partnerTestOffice("$tmp/A");
+    $B = partnerTestOffice("$tmp/B", 'vault');
+    $target = fn (array $o) => ['php' => PHP_BINARY, 'door' => OFFICE_DIR . '/agent/partner-door.php', 'host_key' => $o['host'], 'auth_keys' => $o['keys'],
+                                'env' => array_diff_key($o['env'], ['PATH' => 1]) + ['PATH' => '/usr/bin:/bin']];
+    partnerTestBin($A['bin'], ['pools' => ['tank'], 'ds' => ['tank' => ['used' => 0]]], ['root@192.168.77.2' => $target($B)]);
+    partnerTestBin($B['bin'], ['pools' => ['vault'], 'ds' => ['vault' => ['used' => 0]]], ['root@192.168.77.1' => $target($A)]);
+    $user = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBenjBenjBenjBenjBenjBenjBenjBenjBenjBenj someone@laptop\n";
+    file_put_contents($B['keys'], $user);
+    $recv = ['pool' => 'vault', 'quota_gb' => 10, 'retention' => '7 4 6'];
+    // one pairing, A offers, B accepts and keeps, A finishes
+    $pair = function (array $replaceB = [], array $replaceA = []) use ($A, $B, $recv): array {
+        $made = partnerTestAs($A, 'return partner_add(["step" => "do", "address" => "192.168.77.1", "port" => 22]);');
+        $block = (string) ($made['block'] ?? '');
+        $lookB = partnerTestAs($B, 'return partner_accept(["step" => "look", "block" => ' . var_export($block, true) . ']);');
+        $do = ['step' => 'do', 'block' => $block, 'confirm' => true, 'address' => '192.168.77.2', 'port' => 22, 'send_too' => true, 'receive' => $recv]
+            + ($replaceB ? ['replace' => $replaceB] : []);
+        $acc = partnerTestAs($B, 'return partner_accept(' . var_export($do, true) . ');');
+        $lookA = partnerTestAs($A, 'return partner_finish(["step" => "look", "block" => ' . var_export((string) ($acc['block'] ?? ''), true) . ']);');
+        $fin = ['step' => 'do', 'confirm' => true, 'code' => (string) ($acc['code'] ?? ''), 'block' => (string) ($acc['block'] ?? ''), 'receive' => null]
+            + ($replaceA ? ['replace' => $replaceA] : []);
+        $done = partnerTestAs($A, 'return partner_finish(' . var_export($fin, true) . ');');
+        return ['id' => (string) ($made['id'] ?? ''), 'lookB' => $lookB, 'acc' => $acc, 'lookA' => $lookA, 'done' => $done];
+    };
+    $first = $pair();
+    $old = $first['id'];
+    same('re-pair: the first pairing — nothing known before it', [[], [], true], [$first['lookB']['known'] ?? null, $first['lookA']['known'] ?? null, isset($first['done']['ask'])]);
+    // what B keeps of the old pair: its copies' record and a ticket given for it (a line of its own)
+    mkdir("$B[data]/partner/received", 0700, true);
+    file_put_contents("$B[data]/partner/received/$old.json", json_encode(['units' => ['share:appdata' => ['snap' => 'uso-backup-20261028-0300', 'time' => 1]]]));
+    $tk = partnerTestKey('ticket');
+    $tid = 'feedf00d';
+    partnerTestAs($B, 'partnerTicketsWrite([["id" => "' . $tid . '", "of" => "' . $old . '", "name" => "newbox", "address" => "192.168.77.9", "from" => "192.168.77.9", "key" => '
+        . var_export(partnerFingerprint($tk), true) . ', "created" => time(), "expires" => time() + 86400, "units" => ["share:appdata"]]]);'
+        . ' partnerAuthKeysEdit("' . $tid . '", partnerTicketLine("' . $tid . '", "192.168.77.9", ' . var_export($tk, true) . ', time() + 86400), null, true); return true;');
+    check('re-pair: B has the old pair\'s line and its ticket\'s', str_contains((string) file_get_contents($B['keys']), "uso-partner:$old") && str_contains((string) file_get_contents($B['keys']), "uso-ticket:$tid"));
+
+    // pairing anew at the same address: said on both sides; a replace only of what is known
+    $made = partnerTestAs($A, 'return partner_add(["step" => "do", "address" => "192.168.77.1", "port" => 22]);');
+    $block = (string) ($made['block'] ?? '');
+    $new = (string) ($made['id'] ?? '');
+    $lookB = partnerTestAs($B, 'return partner_accept(["step" => "look", "block" => ' . var_export($block, true) . ']);');
+    $k = $lookB['known'][0] ?? [];
+    same('re-pair: B\'s accept names the old pair — the same address and server key, it keeps of it, the ticket open',
+        [1, $old, 'both', true, true, $tid], [count($lookB['known'] ?? []), $k['id'] ?? null, $k['why'] ?? null, $k['receive'] ?? null, $k['sends'] ?? null, $k['tickets'][0]['id'] ?? null]);
+    $do = ['step' => 'do', 'block' => $block, 'confirm' => true, 'address' => '192.168.77.2', 'port' => 22, 'send_too' => true, 'receive' => $recv];
+    same('re-pair: a replace of a pair that isn\'t this partner — refused before anything is written', ['partner_replace_gone', 1],
+        [partnerTestAs($B, 'return partner_accept(' . var_export($do + ['replace' => ['00000000']], true) . ');')['problem'] ?? null, count(partnerTestAs($B, 'return partnerPairs();'))]);
+    same('re-pair: a replace that is no list — refused', 'bad_request', partnerTestAs($B, 'return partner_accept(' . var_export($do + ['replace' => $old], true) . ');')['problem'] ?? null);
+    $acc = partnerTestAs($B, 'return partner_accept(' . var_export($do + ['replace' => [$old]], true) . ');');
+    $keysB = (string) file_get_contents($B['keys']);
+    same('re-pair: B replaced it — only the new pair; the old line and its ticket\'s gone, the new line there, the user\'s line byte for byte',
+        [[$new], false, false, true, true, []],
+        [array_column(partnerTestAs($B, 'return partnerPairs();'), 'id'), str_contains($keysB, "uso-partner:$old"), str_contains($keysB, "uso-ticket:$tid"),
+         str_contains($keysB, "uso-partner:$new"), str_starts_with($keysB, $user), partnerTestAs($B, 'return partnerTickets();')]);
+    $rep = json_decode((string) file_get_contents("$B[data]/partner/replaced.json"), true);
+    same('re-pair: … its record aside whole (replaced.json: by the new pair), ended.json for the engine, its copies\' record untouched, its key gone',
+        [1, $old, $new, $recv + ['wake' => true], true, true, false],
+        [$rep['v'] ?? null, $rep['pairs'][0]['id'] ?? null, $rep['pairs'][0]['replaced_by'] ?? null, $rep['pairs'][0]['receive'] ?? null,
+         isset(partnerTestAs($B, 'return partnerEnded();')[$old]), is_file("$B[data]/partner/received/$old.json"), is_file("$B[flash]/$old.key")]);
+    check('re-pair: … nothing destroyed (no zfs destroy)', !array_filter(partnerTestCalls($B['bin']), fn ($c) => $c[0] === 'zfs' && in_array('destroy', $c, true)));
+    $lookA = partnerTestAs($A, 'return partner_finish(["step" => "look", "block" => ' . var_export((string) ($acc['block'] ?? ''), true) . ']);');
+    same('re-pair: A\'s finish names its old pair too', [$old], array_column($lookA['known'] ?? [], 'id'));
+    $done = partnerTestAs($A, 'return partner_finish(' . var_export(['step' => 'do', 'confirm' => true, 'code' => (string) ($acc['code'] ?? ''), 'block' => (string) ($acc['block'] ?? ''),
+        'receive' => null, 'replace' => [$old]], true) . ');');
+    same('re-pair: A replaced it too — one pair, it answers; A\'s replaced.json says so', [[$new], true, $old],
+        [array_column(partnerTestAs($A, 'return partnerPairs();'), 'id'), $done['ask']['reachable'] ?? null, json_decode((string) @file_get_contents("$A[data]/partner/replaced.json"), true)['pairs'][0]['id'] ?? null]);
+
+    // tolerant: replaced.json keeps an entry it doesn't know; the newest 16 of its own
+    file_put_contents("$B[data]/partner/replaced.json", json_encode(['v' => 1, 'pairs' => [['future' => true]], 'note' => 'x']));
+    partnerTestAs($B, 'for ($i = 0; $i < 18; $i++) { partnerReplacedRecord(["id" => sprintf("%08x", $i)] + partnerPair("' . $new . '"), "' . $new . '", 1000 + $i); } return true;');
+    $rep = json_decode((string) file_get_contents("$B[data]/partner/replaced.json"), true);
+    same('re-pair: replaced.json — a foreign entry and key kept, of its own the newest 16', [['future' => true], 'x', 17, sprintf('%08x', 2)],
+        [$rep['pairs'][0] ?? null, $rep['note'] ?? null, count($rep['pairs'] ?? []), $rep['pairs'][1]['id'] ?? null]);
+
+    // a leftover from before: an old pair silent while a newer one of the same address answers — not told, said, replaced on its card
+    $C = partnerTestOffice("$tmp/C");
+    partnerTestBin($C['bin'], ['pools' => ['tank'], 'ds' => ['tank' => ['used' => 0]]]);
+    $now = time();
+    $oldP = partnerTestPair('0dd00dd0', ['paired' => $now - 30 * 86400, 'address' => '192.168.77.5']);
+    $newP = partnerTestPair('feed0001', ['paired' => $now - 86400, 'address' => '192.168.77.5', 'last_heard' => $now - 60, 'my_key' => null]);
+    $far = partnerTestPair('0abc0001', ['paired' => $now - 30 * 86400, 'address' => '192.168.77.6']);
+    // the rule alone: left over once a newer pair of it was made after it was last heard — whether the newer one answers or not
+    $st = ['pairs' => []];
+    same('re-pair: left over — not heard since the newer was made (it answering or silent alike); heard after it was made: not; the newer one: never; it answering: never',
+        ['feed0001', 'feed0001', null, null, null],
+        [partnerSupersededBy($oldP, [$oldP, $newP], $st, $now)['id'] ?? null, partnerSupersededBy($oldP, [$oldP, ['last_heard' => null] + $newP], $st, $now)['id'] ?? null,
+         partnerSupersededBy(['last_heard' => $now - 7 * 3600] + $oldP, [['paired' => $now - 2 * 86400] + $newP], $st, $now),
+         partnerSupersededBy($newP, [$oldP, $newP], $st, $now), partnerSupersededBy(['last_heard' => $now - 60] + $oldP, [$newP], $st, $now)]);
+    partnerTestAs($C, 'partnerPairsWrite(' . var_export([$oldP, $newP, $far], true) . '); return true;');
+    $told = partnerTestAs($C, '$t = []; partnerWatch(fn ($p, $e) => false, function ($p, $e) use (&$t) { $t[] = $p["id"]; return true; }); return $t;');
+    same('re-pair: the watch — the leftover\'s silence not told, another silent pair still is', ['0abc0001'], $told);
+    $cards = array_column(partnerTestAs($C, 'return partnerPublic();')['pairs'] ?? [], null, 'id');
+    same('re-pair: its card says what replaces it; the newer one and another pair say nothing', ['feed0001', null, null],
+        [$cards['0dd00dd0']['superseded']['id'] ?? null, $cards['feed0001']['superseded'] ?? null, $cards['0abc0001']['superseded'] ?? null]);
+    $f = partnerTestAs($C, 'return array_map(fn ($f) => [$f["id"], $f["params"]["pair"] ?? null, $f["ok"]], caretakerPartnerFindings());');
+    same('re-pair: the Team Lead\'s checks — partner_superseded for the leftover (never «silent»), partner_silent for the other',
+        [['partner_superseded', '0dd00dd0', false], ['partner_silent', 'feed0001', true], ['partner_silent', '0abc0001', false]], $f);
+    same('re-pair: «Replace it by …» — refused without confirm, by a pair that isn\'t the same partner, the other way round', ['bad_request', 'partner_replace_gone', 'partner_replace_gone'],
+        [partnerTestAs($C, 'return partner_replace(["id" => "0dd00dd0", "by" => "feed0001"]);')['problem'] ?? null,
+         partnerTestAs($C, 'return partner_replace(["id" => "0dd00dd0", "by" => "0abc0001", "confirm" => true]);')['problem'] ?? null,
+         partnerTestAs($C, 'return partner_replace(["id" => "feed0001", "by" => "0dd00dd0", "confirm" => true]);')['problem'] ?? null]);
+    $r = partnerTestAs($C, 'return partner_replace(["id" => "0dd00dd0", "by" => "feed0001", "confirm" => true]);');
+    same('re-pair: … done — the leftover gone, the other two as they were', [true, ['feed0001', '0abc0001']], [$r['ok'] ?? null, array_column(partnerTestAs($C, 'return partnerPairs();'), 'id')]);
+
+    // the page: both dialogs send `replace` only when ticked; the card's replace looks its card up again after a fresh look
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/partner.js');
+    check('re-pair: the page — knownPart in both dialogs, req.replace, the card\'s replaceDialog after a fresh look by id',
+        substr_count($js, 'const known = knownPart(j.known);') === 2 && substr_count($js, 'if (known && known.value().length) req.replace = known.value();') === 2
+        && (bool) preg_match('/async function replaceDialog\(x\) \{\s*if \(!\(await Office\.freshState\(ID\)\)\) return;[\s\S]{0,200}y\.id === x\.id/', $js)
+        && str_contains($js, '`${ID}.partner_replace`'));
+    check('re-pair: a ticket open for the old pair — its replace starts unticked', str_contains($js, "tick(T('partner.known_replace', { id: k.id }), !(k.tickets || []).length)"));
+    hardeningRm($tmp);
+}
+
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
