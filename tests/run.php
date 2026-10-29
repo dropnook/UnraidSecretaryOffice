@@ -14863,6 +14863,20 @@ function testRestoreReviewPaths(): void
         ['/mnt/user/appdata/nc/config.php', null, '/mnt/user/appdata/hazel/nc/config.php', '/mnt/user/system/x'],
         [rsKopiaLive('.apps/nc', 'appdata/hazel/nc/config.php', false, $settings, null, ['appdata']), rsKopiaLive('.apps/nc', 'appdata/hazel', false, $settings, null, ['appdata']),
          rsKopiaLive('.apps/nc', 'appdata/hazel/nc/config.php', false, $settings), rsKopiaLive('.apps/nc', 'system/x', false, $settings, null, ['appdata'])]);
+    // engine 2.80: «when a Kopia source last went well» from the result file first, the history only where it has none
+    $st = "$tmp/data/unraid-backup/state";
+    file_put_contents("$st/history.jsonl", json_encode(['started' => 1000, 'kopia' => ['done' => [['name' => 'zzdocs', 'ok' => true, 'finished' => 1100],
+        ['name' => 'app:nc', 'ok' => true, 'finished' => 1200], ['name' => 'media', 'ok' => true, 'finished' => 1300]]]]) . "\n");
+    same('engine 2.80: Kopia\'s last good one — no result file: the history as before', ['zzdocs' => 1100, 'app:nc' => 1200, 'media' => 1300], rsKopiaLast());
+    $res = fn (string $result, int $good) => ['result' => $result, 'code' => '', 'time' => 5000, 'run' => '20261029-0200', 'good' => $good];
+    file_put_contents("$st/results.json", json_encode(['v' => 1, 'engine' => '2.80', 'updated' => 5000, 'run' => '20261029-0200',
+        'kopia' => ['zzdocs' => $res('ok', 5000), 'app:nc' => $res('failed', 900), 'old' => $res('ok', 700), 'media' => $res('failed', 0), 'bad' => ['result' => 'ok']]]));
+    same('engine 2.80: … with the result file — its good one first (newer, or older than the history\'s runs), the history where it has none, an entry out of shape skipped',
+        ['zzdocs' => 5000, 'app:nc' => 900, 'media' => 1300, 'old' => 700], rsKopiaLast());
+    file_put_contents("$st/results.json", json_encode(['v' => 2, 'kopia' => ['zzdocs' => $res('ok', 5000)]]));
+    same('engine 2.80: … a result file of another version — the history only', 1100, rsKopiaLast()['zzdocs'] ?? null);
+    @unlink("$st/results.json");
+    @unlink("$st/history.jsonl");
     same('engine 2.80: Kopia\'s list keeps only the engine\'s tags, in their shape', [['tag:uso-layout' => 'split', 'tag:uso-parts' => 'cache|disk1']],
         array_column(rsKopiaParse(json_encode([['id' => str_repeat('e', 32), 'startTime' => '2026-10-18T00:10:00Z',
             'tags' => ['tag:uso-layout' => 'split', 'tag:uso-parts' => 'cache|disk1', 'tag:other' => 'x', 'tag:uso-bad' => "a\nb", 'tag:uso-num' => 5]]])), 'tags'));
