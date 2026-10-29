@@ -40,6 +40,7 @@
     "tile.hold",
     "tile.incidents",
     "tile.posture",
+    "tile.schedule",
     "tile.watch",
     "watch.title"
   ],

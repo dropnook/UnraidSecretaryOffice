@@ -977,7 +977,7 @@ function cronValid(string $cron): bool
  * scripts/job.sh runs them only while the array is started.
  */
 const OFFICE_CRON = '/boot/config/plugins/' . OFFICE_PLUGIN . '/' . OFFICE_PLUGIN . '.cron';
-const OFFICE_JOBS = ['backup', 'snapshots', 'embycache', 'gather', 'moverelli'];     // in this order in the cron file
+const OFFICE_JOBS = ['backup', 'snapshots', 'embycache', 'gather', 'moverelli', 'cleanup', 'logs'];     // in this order in the cron file
 
 function officeJobCommand(string $job): string
 {

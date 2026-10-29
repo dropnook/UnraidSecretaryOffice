@@ -1847,5 +1847,11 @@
   "zp.list": {"one": "Mostra lo snapshot", "other": "Mostra i {n} snapshot"},
   "zp.more": {"one": "… e ancora {n}", "other": "… e altri {n}"},
   "zp.retention": "Gli snapshot della Signora Snapshotini e del Signor Backupsi vanno con lui e restano finché svuoti il ripostiglio — la loro pulizia lascia stare il ripostiglio.",
-  "zp.time": "L'ora nel nuovo nome è il momento del tuo clic. «Rimetti a posto» lo rinomina di nuovo."
+  "zp.time": "L'ora nel nuovo nome è il momento del tuo clic. «Rimetti a posto» lo rinomina di nuovo.",
+  "tile.schedule": "Pianificazione",
+  "schedule.sub": "Il mio giro pianificato: dove si trova tutto e cosa è in giro — come quando clicchi «Giro».",
+  "schedule.intro": "Quando faccio il giro da sola — una volta al giorno basta. Per questo non sveglio mai un disco in standby: ciò che dorme lo salto.",
+  "schedule.off_note": "Faccio il giro quando clicchi «Giro».",
+  "schedule.asleep": "In standby, saltati: {disks}",
+  "schedule.never_wake": "Con la pianificazione non sveglio mai un disco: ciò che dorme lo salto e lo dico, come in un giro senza «Sveglia i dischi in standby»."
 }

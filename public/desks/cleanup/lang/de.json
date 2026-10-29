@@ -1847,5 +1847,11 @@
   "zp.list": {"one": "Den Snapshot zeigen", "other": "Die {n} Snapshots zeigen"},
   "zp.more": {"one": "… und {n} weiterer", "other": "… und {n} weitere"},
   "zp.retention": "Die Snapshots von Frau Snapshotini und Herrn Backupsi gehen mit und bleiben, bis du die Abstellkammer leerst — ihr Aufräumen lässt die Abstellkammer in Ruhe.",
-  "zp.time": "Die Zeit im neuen Namen ist der Moment deines Klicks. «Zurücklegen» benennt es zurück."
+  "zp.time": "Die Zeit im neuen Namen ist der Moment deines Klicks. «Zurücklegen» benennt es zurück.",
+  "tile.schedule": "Zeitplan",
+  "schedule.sub": "Mein Rundgang nach Zeitplan: wo alles ist und was herumliegt — wie wenn du «Rundgang» klickst.",
+  "schedule.intro": "Wann ich von selbst meinen Rundgang mache — einmal am Tag reicht. Eine schlafende Disk wecke ich dafür nie: Was schläft, lasse ich aus.",
+  "schedule.off_note": "Ich mache meinen Rundgang, wenn du «Rundgang» klickst.",
+  "schedule.asleep": "Schlief, ausgelassen: {disks}",
+  "schedule.never_wake": "Nach Zeitplan wecke ich nie eine Disk: Was schläft, lasse ich aus und sage es — wie bei einem Rundgang ohne «Schlafende Disks wecken»."
 }

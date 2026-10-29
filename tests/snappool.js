@@ -26,6 +26,7 @@ globalThis.Office = {
   placesTook: () => {}, agent: { running: true }, lang: 'en', fits: () => true,
   store(k, v) { if (arguments.length > 1) stored[k] = v; return k in stored ? stored[k] : null; },
   tile: (o) => ({ o }),
+  scheduleTile: (d, o) => ({ id: 'schedule', key: o.key, place: 'tile.schedule', section: o.section, tile: (a) => ({ o: { ...o, ...a } }) }),
   sections: (o) => { spec = o; return { el: {}, grid: { contains: () => false }, active: () => active, places: () => [], mount: () => false, render() {}, clear() { active = ''; },
     pick(id) { active = id; }, note: () => ({ tile: '' }) }; },
   fmt: { size: (b) => `${b}B`, number: (n) => String(n), date: (t) => `D${t}`, relative: (t) => `R${t}`, time: (t) => `H${t}` },
@@ -109,10 +110,10 @@ const tiles = () => spec.tiles();
 same('row: her tiles from her state — a card per ZFS pool, «Array» and a row per disk, the VMs, «Schedules», «Snapshots» last; no start tile',
   [spec.default, tiles().map((x) => [x.id, typeof x.section === 'string' ? x.section : 'own', x.filters || '', x.place || ''])],
   ['', [['pool:daten', 'list', 'daten', 'pool:daten'], ['pool:cache', 'list', 'cache', 'pool:cache'], ['card:array', 'list', '', ''], ['pool:disk1', 'list', 'disk1', 'pool:disk1'],
-    ['pool:VMs', 'list', 'VMs', 'pool:VMs'], ['plans', 'own', '', 'tile.plans'], ['snapshots', 'list', '', 'tile.snapshots']]]);
+    ['pool:VMs', 'list', 'VMs', 'pool:VMs'], ['schedule', 'own', '', 'tile.schedule'], ['snapshots', 'list', '', 'tile.snapshots']]]);
 spec.onPick('pool:daten', 'click');
 const a1 = stored['snapshot.pool'];
-spec.onPick('plans', 'click');
+spec.onPick('schedule', 'click');
 const a2 = stored['snapshot.pool'];
 spec.onPick('pool:disk1', 'route');
 spec.onPick('', 'store');
@@ -138,7 +139,7 @@ S.setView(null);              // her state anew without drawing (no page here)
 S.setState(st2);
 S.setView(view);
 same('row: «Array» holds every array disk — btrfs and the ZFS disk2, in Unraid\'s order (disk10 after disk2) —; disk9 (no array disk) and the btrfs pool «fast» cards of their own',
-  tiles().map((x) => x.id), ['pool:daten', 'pool:cache', 'pool:disk9', 'card:array', 'pool:disk1', 'pool:disk2', 'pool:disk10', 'card:btrfs:fast', 'pool:fast', 'pool:VMs', 'plans', 'snapshots']);
+  tiles().map((x) => x.id), ['pool:daten', 'pool:cache', 'pool:disk9', 'card:array', 'pool:disk1', 'pool:disk2', 'pool:disk10', 'card:btrfs:fast', 'pool:fast', 'pool:VMs', 'schedule', 'snapshots']);
 same('row: the cards\' disks — kinds and titles', S.diskCards().map((g) => [g.id, g.title, g.disks.map((x) => x.kind + ':' + x.name)]),
   [['card:array', 'array', ['btrfs:disk1', 'zfs:disk2', 'btrfs:disk10']], ['card:btrfs:fast', 'fast', ['btrfs:fast']]]);
 same('row: the ZFS disk\'s row filters her list by its pool, as its card did', tiles().find((x) => x.id === 'pool:disk2').filters, 'disk2');

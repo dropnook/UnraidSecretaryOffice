@@ -8,10 +8,13 @@
  *             clicked tile, places(); Office.stat / Office.tile with mark
  *   pages     Office.pages() / Office.pageFrom() / Office.deskHead({pages}) — two tabs, aria-selected, href = the route, a
  *             third refused, the click, the kept page
+ *   schedule  Office.scheduleTile() — off, the next run (today, tomorrow, due), the last run and how it ended, work that
+ *             goes by itself (never «Off»), a card with its own words, its place and route in the switcher
  *
- *   node tests/sections.js public/assets/core.js [sections|pages]     → one JSON line {pass, fail: [[name, got, want], …]}
+ *   node tests/sections.js public/assets/core.js [sections|pages|schedule]   → one JSON line {pass, fail: [[name, got, want], …]}
  *
- * tests/run.php testSections (sections) and testDeskPages (pages) run it on the server; on the Mac it runs as it is.
+ * tests/run.php testSections (sections), testDeskPages (pages) and testScheduleTile (schedule) run it on the server; on
+ * the Mac it runs as it is.
  */
 'use strict';
 const fs = require('fs');
@@ -385,9 +388,55 @@ function pages() {
   same('deskHead: pages beat page: (no crumb, the tabs say where one is)', [sub.head.classList.contains('subpage'), !!sub.head.find('deskhead-crumb'), !!sub.pages], [false, false, true]);
 }
 
+// ------------------------------------------------------------------ the schedule tile
+function schedule() {
+  const now = Math.round(Date.now() / 1000);
+  const at = (h, m, days = 0) => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(h, m, 0, 0); return Math.round(d.getTime() / 1000); };
+  const later = at(23, 59) > now + 120 ? at(23, 59) : at(23, 59, 1);
+  const parts = (n) => [n.find('stat-label') && n.find('stat-label').textContent, n.find('stat-value') && n.find('stat-value').textContent,
+    n.all().filter((c) => c.classList.contains('stat-sub')).map((c) => c.textContent), n.classList.contains('alert'), n.classList.contains('sched-off')];
+  const x = O.scheduleTile('shelf', { section: () => O.el('section', 'section') });
+  same('schedule: an entry of the switcher — id schedule, its key and place tile.schedule, its section the desk\'s', [x.id, x.key, x.place, typeof x.section, typeof x.tile],
+    ['schedule', 'tile.schedule', 'tile.schedule', 'function', 'function']);
+  same('schedule: no line — «Off», when it runs instead, not run yet, quiet (no alert)', parts(x.tile({})),
+    ['Schedule', 'Off', ['Only when you start it here', 'Not run yet'], false, true]);
+  O.strings['shelf.tile.schedule'] = 'Plan';
+  const on = O.scheduleTile('shelf', { schedule: { enabled: true, custom: '59 23 * * *', next: later }, last: { at: now - 7200, how: 'ok' }, sub: ['mine'] }).tile({});
+  same('schedule: on — the desk\'s own name, the next run, the cron line in words, the last run and how it ended, the desk\'s line',
+    parts(on), ['Plan', O.scheduleWhen(later), [O.fmt.cron('59 23 * * *'), `Last: ${O.fmt.relative(now - 7200)} · done`, 'mine'], false, false]);
+  same('schedule: the tip names the next run in full and the cron line', [on.title.includes(O.fmt.date(later, true)), on.title.includes('cron: 59 23 * * *')], [true, true]);
+  delete O.strings['shelf.tile.schedule'];
+  same('schedule: when — today a time, tomorrow «Tomorrow, …», within the week its day, else the date',
+    [O.scheduleWhen(at(23, 0), at(1, 0)), O.scheduleWhen(at(3, 30, 1), at(23, 0)), O.scheduleWhen(at(3, 30, 3), at(23, 0)).endsWith(O.fmt.time(at(3, 30, 3))), O.scheduleWhen(at(3, 30, 20), at(23, 0))],
+    [O.fmt.time(at(23, 0)), `Tomorrow, ${O.fmt.time(at(3, 30, 1))}`, true, O.fmt.date(at(3, 30, 20))]);
+  const failed = O.scheduleTile('shelf', { schedule: { enabled: true, custom: '30 3 * * *', next: now - 3600 }, last: { at: now - 90000, how: 'failed' } }).tile({});
+  same('schedule: a next time gone by is «due now», never a time past; the last run failed — alert', [parts(failed)[1], parts(failed)[2][1], parts(failed)[3]],
+    ['due now', `Last: ${O.fmt.relative(now - 90000)} · failed`, true]);
+  same('schedule: running now; an unknown ending reads as done, never as failed', [O.scheduleLast({ at: now, how: 'running' }), O.scheduleLast({ at: now - 60, how: 'weird' }).endsWith('· done'), O.scheduleLast(null)],
+    ['Running now', true, 'Not run yet']);
+  const every = O.scheduleTile('shelf', { every: 'a round every five minutes', next: now + 180, last: { at: now - 120, how: 'stopped' } }).tile({});
+  same('schedule: work that goes by itself — never «Off», how often, the last one stopped (no alert)', [parts(every)[1], parts(every)[2][0], parts(every)[2][1].endsWith('· stopped'), parts(every)[3], parts(every)[4]],
+    [O.scheduleWhen(now + 180), 'a round every five minutes', true, false, false]);
+  const card = O.scheduleTile('shelf', { card: true, key: 'plans', schedule: { enabled: true, custom: '', next: later }, sub: ['2 active'], chip: 'failed' }).tile({});
+  const lines = card.all().filter((c) => c.classList.contains('card-line')).map((c) => c.textContent);
+  same('schedule: a card — «Next time: …» first, its own lines, its warn label', [card.className.split(' ')[0], lines[0], lines.includes('2 active'), card.find('chip') && card.find('chip').textContent],
+    ['card', `Next time: ${O.scheduleWhen(later)}`, true, 'failed']);
+  const own = O.scheduleTile('shelf', { card: true, key: 'plans', schedule: { enabled: false }, value: 'none yet' }).tile({});
+  same('schedule: the desk\'s own words instead of the next run (none set up) — no «only when you start it» beside them',
+    own.all().filter((c) => c.classList.contains('card-line')).map((c) => c.textContent), ['none yet', 'Not run yet']);
+  const sw = O.sections({ id: 'shelf', grid: 'stats', tiles: () => [O.scheduleTile('shelf', { section: () => { const s = O.el('section', 'section'); s.appendChild(O.sectionHead('SCHED', 'sub')); return s; } })] });
+  desk.replaceChildren(sw.el);
+  same('schedule: in the switcher a place #/shelf/schedule, the route picks it', [sw.places(), sw.mount('schedule'), sw.active()],
+    [[{ kind: 'tile', key: 'tile.schedule', anchor: 'tile.schedule', route: '#/shelf/schedule' }], true, 'schedule']);
+  sw.render();
+  same('schedule: drawn as the tile of its section — data-tile, its place marked, the section alone under it', [sw.grid.children[0].dataset.tile, sw.grid.children[0].dataset.place, sw.body.dataset.sections],
+    ['schedule', 'tile.schedule', 'schedule']);
+}
+
 try {
   if (part === 'all' || part === 'sections') sections();
   if (part === 'all' || part === 'pages') pages();
+  if (part === 'all' || part === 'schedule') schedule();
 } catch (e) {
   out.fail.push(['ran through', String(e && e.stack || e), 'no error']);
 }

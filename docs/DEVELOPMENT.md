@@ -44,7 +44,8 @@ The detailed build notes up to 1.60.0 (every helper and test by name) are in tha
   as children of the agent (`agent.sh stop` ends the agent's whole session). The restore drill plays dumps — also ones
   read back from Kopia into RAM — in throwaway containers without network and writes a certificate
   (`agent/desks/restore-drill.php`; what an interrupted one left, Ms. Dustdevil removes through the drill's sweeper).
-* **Schedules** (the nightly backup, Ms. Snapshotini's plans, MediaCache, the gather, the Smart Mover) are lines in the plugin's cron file
+* **Schedules** (the nightly backup, Ms. Snapshotini's plans, MediaCache, the gather, the Smart Mover, Ms. Dustdevil's and Ms.
+  Protocolli's tours) are lines in the plugin's cron file
   `/boot/config/plugins/unraid-secretary-office/unraid-secretary-office.cron`, calling `scripts/job.sh <job>`, which runs
   only while the array is started. `agent-watch.cron` next to it looks at the heartbeat every 5 minutes.
 * **The backup engine** (`backup/`: `backup.sh`, `setup.sh`, `lib/common.sh`, bash) runs on its own from the cron file.
@@ -285,6 +286,34 @@ A new tile or list, checked off:
   `SECTIONS_DESKS` in tests/run.php).
 - A switch inside a section that changes a tile's line (hide, sort): call `sw.row()` after the section's redraw — the
   row alone, at once; `sw.render()` would draw the section a second time.
+
+**The schedule tile** (1.78): a desk whose work runs on a schedule says so with ONE tile, the same everywhere —
+`Office.scheduleTile(ID, {…})` gives a whole entry of the switcher's `tiles` (id `schedule`, place `tile.schedule`, route
+`#/<desk>/schedule`; its section the desk's schedule settings). The value is when it runs next («03:30», «Tomorrow, 03:30»,
+a weekday, a date; «due now» once past; «Off» without a line), under it the cron line in words, the last run and how it
+ended («Last: 3 hours ago · done» — `last.how` ok | failed | stopped | partly | refused | skipped | running), then the
+desk's own lines; alert by default when the last run failed or went partly. Options: `schedule` (officeJobSchedule() as
+the state carries it: `enabled`, `custom`, `next`), `every` + `next` for work that goes by itself (the Night Watchman's
+rounds — never «Off»), `last`, `sub`, `value` (the desk's words instead of the next run: none set up, paused, nothing
+runs them), `alert`, `card` (a `.card` for a row of cards, `chip` its warn label), `key` (the desk's lang key of the
+name, default `tile.schedule`, in `places.json`), `section`. `Office.scheduleDialog(ID, {schedule, intro, time, after})`
+is the dialog that goes with it for a desk without one of its own (every day at a time / a cron line / not on its own →
+`<desk>.schedule {cron}`, read with `cronField()`, set with `officeJobSetSchedule()`). Texts `office.schedule.*`. On it:
+Ms. Dustdevil, Ms. Protocolli, Ms. Snapshotini (her plans as a whole, `key: 'plans'`, a card; `#/snapshot/plans` still
+lands there), the Night Watchman, Ms. Moverelli (`key: 'schedule'`). **Still their own tile** (other chats' files on
+2026-10-29), to move over the same way:
+- **Mr. Backupsy** — `public/desks/backup/desk.js` `overviewTiles()` lines 1031–1036 (`const sc = …` … `add({ key:
+  'schedule', … })`) go; `tileList()` (line ~928) hands for `schedule` `Office.scheduleTile(ID, { key: 'stat.schedule',
+  schedule: sc, value: sc.script ? '' : T('stat.not_scheduled'), last: last && { at: last.finished || last.started, how:
+  { ok: 'ok', warnings: 'partly', errors: 'partly', failed: 'failed', aborted: 'stopped', skipped: 'skipped', running:
+  'running' }[last.result] }, sub: [took ? T('schedule.duration', {…}) : ''], alert: !sc.enabled, section: () =>
+  scheduleSection() })` (`last` = `lastRun()`, `took` = `typicalDuration()`); his «Last backup» tile stays.
+- **Jack Streamer** — `public/desks/jack/desk.js` line 449 (`{ id: 'plans', key: 'schedules', … plansTile(a) }`) and
+  `plansTile()` (668–677) become `Office.scheduleTile(ID, { key: 'schedules', schedule: { enabled: on.length > 0, custom:
+  on.length === 1 ? sc[on[0]].custom : '', next: Math.min(...nexts) }, value: on.length ? '' : T('plans.off'), last:
+  <his last run (state.last_run): {at, how}>, sub: [jobs.map(… 'plans.one' …).join(' · ')], alert: !on.length, section:
+  () => plansSection() })`; `#/jack/plans` mapped to `schedule` in `mount()` (Ms. Moverelli's links already say
+  `#/moverelli/schedule`).
 
 
 ## Adding a language
@@ -655,7 +684,13 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   the binary's words, a stop, else «in use or already there» — her share lines and run summary); files whose time lies more
   than a day ahead (a clock put right) are counted (`future`) and said once under her last run — never notified.
 * **`logs` — Ms. Protocolli.** Reads logs from a fixed source list (ids only, never paths); lines into the page as text only;
-  nothing read until chosen; routers' files only while their disks are awake. **Read only.** Unraid's syslog (and
+  nothing read until chosen; routers' files only while their disks are awake. **Read only.** **Her tour on schedule**
+  (1.78, off by default): job `logs` in the plugin's cron file (`<desk>.schedule` {cron} → `officeJobSetSchedule()`);
+  `job.sh logs` → `job logs-tour-due` leaves a mark in RAM, her tick starts the tour as «Tour» does (`logs-tour scheduled`;
+  one going: none more; a mark older than 6 h: dropped); on schedule `logsTourAsleep()` leaves out her files on a sleeping
+  disk or pool (`watchnetBases()` by the share's storage) and Docker's logs while the disk under its image sleeps — their
+  places in the tour's memory kept; the last one in `logs-schedule.json` (`schedule.last`: at, how, asleep). No notification
+  of its own (her /var/log watch sends the one she has). Unraid's syslog (and
   `syslog.1`) also by her syslog rules (`agent/desks/logs-rules/syslog_match.conf`, Enhanced Log's by dlandon and Derek Kaser,
   GPL-3.0-or-later, kept unchanged with its origin in the header): case-insensitive, the first rule that fits decides (as
   upstream); `skip` = neither error nor warning, `error` makes an error, `minor`/`warning` at least a warning, never lower
@@ -704,7 +739,11 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   night mirror without passwords or key values. **Privacy rule:** another client's address/MAC/name only in
   `net_new_device`/`net_spoof`. Every kind has a MITRE technique.
 * **`cleanup` — Ms. Dustdevil.** «Where is what» (operational advice, **never security**; read only) and «Tidying up» (what a
-  drill or restore left: only what his journals name). No advice on ZFS's ARC or VM RAM (owner 2026-10-25). «Where is what» never
+  drill or restore left: only what his journals name). **Her tour on schedule** (1.78, off by default): job `cleanup`
+  (`job.sh cleanup` → `job cleanup-tour-due`, a mark in RAM); her tick (`clScheduledTick()`) tours as «Tour» does —
+  `whereTour(false)`, then `clScan(false, true, true)`, never with wake: what sleeps is left out and named
+  (`clTourAsleep()`); the last one in `cleanup/schedule.json`; her tile «Schedule» at the end of her rooms
+  (`#/cleanup/schedule` → `tidy/schedule`). No notification (she sends none). No advice on ZFS's ARC or VM RAM (owner 2026-10-25). «Where is what» never
   paints red what comes back at every start: /etc/cron.d, Docker's own data without volumes carry their source's protection
   (`waCronPlace()`, `waDockerImage()`); «not backed up» only for what a restart loses (lines added to root's crontab, a
   cron.d file no plugin writes); the cron place counts job lines in its head and RAM rows, files on the flash row. **Never deletes right

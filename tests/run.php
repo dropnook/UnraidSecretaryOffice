@@ -28114,7 +28114,7 @@ function testWhereBuilding(): void
 function testCleanupTick(): void
 {
     same('cleanup tick: her parts, in order', ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick', 'drill' => 'clDrillCopiesTick',
-        'docker' => 'clDockerBackTick'], clTickParts());
+        'docker' => 'clDockerBackTick', 'scheduled' => 'clScheduledTick'], clTickParts());
     same('cleanup tick: each a function', [], array_keys(array_filter(clTickParts(), fn ($f) => !is_callable($f))));
     $ran = [];
     $boom = true;
@@ -30888,6 +30888,9 @@ JS);
         same("search $where: every section it heads with T('…') is a place", [], array_values(array_diff(array_unique($m[1]), $keys, $notPlaces[$d] ?? [])));
         preg_match_all("/(?:Office\\.place\\(\\s*|\\bplace:\\s*)'([^']+)'/", $js, $m);
         $marked = $m[1];
+        if (str_contains($js, 'Office.scheduleTile(')) {
+            $marked[] = 'tile.schedule';            // the office's schedule tile marks its own place (core.js Office.scheduleTile)
+        }
         preg_match_all("/(?:Office\\.place\\(\\s*|\\bplace:\\s*)`([^`\$]+)\\$\\{/", $js, $m);
         $prefixes = $m[1];
         $unmarked = [];
@@ -31291,8 +31294,8 @@ JS);
         [['app:nextcloud', '#/restore/apps'], ['vm:win11', '#/restore/vms'], ['db:nextcloud:apps/nextcloud/db/mariadb-nextcloud.sql.gz', '#/restore/dbs'],
          ['tile.partner:a1b2c3d4', '#/restore/partner:a1b2c3d4'], ['dr:app:nextcloud', '#/restore/drill'], ['dr:share', '#/restore/drill']],
         array_map(fn ($e) => [$e['anchor'], $e['route']], $r['items']['restore'] ?? []));
-    same('search items snapshot: pools and disks, schedules (their section opens: #/snapshot/plans), datasets with snapshots (not Docker\'s)',
-        [['pool:cache', '#/snapshot'], ['pool:disk1', '#/snapshot'], ['plan:hourly', '#/snapshot/plans'], ['ds:zfs:cache/appdata', '#/snapshot/datasets']],
+    same('search items snapshot: pools and disks, schedules (their section opens: #/snapshot/schedule), datasets with snapshots (not Docker\'s)',
+        [['pool:cache', '#/snapshot'], ['pool:disk1', '#/snapshot'], ['plan:hourly', '#/snapshot/schedule'], ['ds:zfs:cache/appdata', '#/snapshot/datasets']],
         array_map(fn ($e) => [$e['anchor'], $e['route']], $r['items']['snapshot'] ?? []));
     $c = $r['items']['cleanup'] ?? [];
     check('search items cleanup: what she would clear away (capped at 120), not what is in use; «Where is what»: shares, containers, disks, appdata folders',
@@ -37413,7 +37416,7 @@ function testLogsFilters(): void
             [abs((logsBootTime("$tmp/uptime") ?? 0) - (time() - 3600)) <= 1, logsBootTime("$tmp/none")]);
         $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/logs.php');
         check('logs filters: her state brings them, the last start and the offset',
-            str_contains($src, "'filters' => logsFiltersForPage(), 'boot' => logsBootTime(), 'tz' => (int) date('Z')]"));
+            str_contains($src, "'filters' => logsFiltersForPage(), 'boot' => logsBootTime(), 'tz' => (int) date('Z'),"));
         check('logs filters: a container\'s log with its last write (newest of its parts)', str_contains($src, "'time'     => \$time,")
             && str_contains($src, '$time = max($time ?? 0, (int) @filemtime($p)) ?: null;'));
         $en = langFile(OFFICE_WEB . '/desks/logs/lang/en.json');
@@ -43737,6 +43740,157 @@ function testDeskPages(): void
         same("desk pages: «Overview» in $code", $word, langFile(OFFICE_WEB . "/lang/$code.json")['common.page_overview'] ?? null);
     }
     testsSectionsJs('pages', 'desk pages', 12);
+}
+
+/**
+ * One schedule tile for every desk (core.js Office.scheduleTile, 2026-10-29): the API next to the switcher, its texts in
+ * five languages, the desks on it (each with the tile's name in its lang file and places.json) and none of them with a
+ * schedule tile of its own any more; under node (tests/sections.js schedule): off, the next run, due, the last run and how
+ * it ended, work that goes by itself, a card, its place and route.
+ */
+function testScheduleTile(): void
+{
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $at = (int) strpos($core, 'Office.sections = function');
+    $end = (int) strpos($core, '// ------------------------------------------------------------------ staff', $at);
+    check('schedule tile: core.js has Office.scheduleTile and Office.scheduleDialog beside the switcher',
+        ($a = strpos($core, 'Office.scheduleTile = function scheduleTile(desk, opts)')) > $at && $a < $end
+        && ($b = strpos($core, 'Office.scheduleDialog = function scheduleDialog(desk, opts)')) > $at && $b < $end);
+    check('schedule tile: its place and route the tiles convention\'s (tile.schedule, #/<desk>/schedule by the switcher)',
+        str_contains($core, "id: 'schedule', key, place: 'tile.schedule', section: o.section,"));
+    check('schedule tile: the dialog posts <desk>.schedule {cron} (off = \'\')', str_contains($core, "Office.api.post(`\${desk}.\${o.action || 'schedule'}`, { cron: expr })"));
+    $want = ['en' => ['Schedule', 'Off', 'due now'], 'de' => ['Zeitplan', 'Aus', 'jetzt fällig'], 'it' => ['Pianificazione', 'Spenta', 'in scadenza ora'],
+        'fr' => ['Planification', 'Désactivée', 'à faire maintenant'], 'es' => ['Programación', 'Apagada', 'pendiente ahora']];
+    foreach ($want as $code => $words) {
+        $lang = langFile(OFFICE_WEB . "/lang/$code.json");
+        same("schedule tile: its words in $code", $words, [$lang['office.schedule.title'] ?? null, $lang['office.schedule.off'] ?? null, $lang['office.schedule.due'] ?? null]);
+        check("schedule tile: every way a run ends has its word in $code", !array_diff(array_map(fn ($h) => "office.schedule.how.$h",
+            ['ok', 'failed', 'stopped', 'partly', 'refused', 'skipped', 'running']), array_keys($lang)));
+    }
+    foreach (['cleanup' => 'tile.schedule', 'logs' => 'tile.schedule', 'snapshot' => 'plans', 'watchman' => 'tile.schedule', 'moverelli' => 'schedule'] as $d => $key) {
+        $js = (string) file_get_contents(OFFICE_WEB . "/desks/$d/desk.js");
+        check("schedule tile: $d is on it", str_contains($js, 'Office.scheduleTile(ID, '));
+        $pj = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/$d/places.json"), true);
+        check("schedule tile: $d — its name ($key) a place, in all five languages", in_array($key, $pj['keys'] ?? [], true)
+            && !array_filter(['en', 'de', 'it', 'fr', 'es'], fn ($l) => !isset(langFile(OFFICE_WEB . "/desks/$d/lang/$l.json")[$key])));
+    }
+    $snap = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.js');
+    check('schedule tile: Ms. Snapshotini\'s old address #/snapshot/plans still lands on it (the dashboard\'s links)',
+        str_contains($snap, "sub === 'plans' ? 'schedule' : sub") && !str_contains($snap, "function plansCard("));
+    testsSectionsJs('schedule', 'schedule tile', 12);
+}
+
+/**
+ * Ms. Dustdevil's and Ms. Protocolli's tours on schedule (2026-10-29): their jobs in the plugin's cron file (job.sh
+ * cleanup|logs → `job <desk>-tour-due`, off by default, set and switched off), the mark in RAM their ticks take (once, not
+ * when not hired, not when from long ago; a tour going already: no second one), the record on the page (how it ended,
+ * what slept), what Ms. Protocolli leaves out while it sleeps (her files by their share's disks, Docker's logs by its
+ * image's) — on the tests' RAM folder and cron file.
+ */
+function testTourSchedules(): void
+{
+    $tmp = hardeningTmp('tourschedules');
+    $file = "$tmp/office.cron";
+    check('tour schedules: both jobs are the office\'s (after the others in its cron file)', array_slice(OFFICE_JOBS, -2) === ['cleanup', 'logs']);
+    same('tour schedules: off by default — no line, no next run', [false, null, null], [officeJobSchedule('cleanup', $file)['enabled'], officeJobSchedule('logs', $file)['next'], clSchedule($file)['last']]);
+    officeJobSetSchedule('backup', '0 2 * * *', $file, false);
+    officeJobSetSchedule('cleanup', '30 3 * * *', $file, false);
+    officeJobSetSchedule('logs', '40 3 * * *', $file, false);
+    same('tour schedules: their lines in the plugin\'s cron file, beside the backup\'s', ['backup' => '0 2 * * *', 'cleanup' => '30 3 * * *', 'logs' => '40 3 * * *'], officeCronLines($file));
+    $text = (string) file_get_contents($file);
+    check('tour schedules: each line calls scripts/job.sh <job> (never a User Script, never root\'s crontab)',
+        str_contains($text, "30 3 * * * bash " . OFFICE_DIR . "/scripts/job.sh cleanup > /dev/null 2>&1\n")
+        && str_contains($text, "40 3 * * * bash " . OFFICE_DIR . "/scripts/job.sh logs > /dev/null 2>&1\n"));
+    $sc = clSchedule($file);
+    same('tour schedules: Ms. Dustdevil\'s schedule for her tile — on, its line, the next run ahead', [true, '30 3 * * *', true], [$sc['enabled'], $sc['custom'], ($sc['next'] ?? 0) > time()]);
+    same('tour schedules: … and Ms. Protocolli\'s', [true, '40 3 * * *'], [logsSchedule($file)['enabled'], logsSchedule($file)['custom']]);
+    $GLOBALS['clRaw'] = null;
+    $keepState = $GLOBALS['clState'] ?? null;
+    $GLOBALS['clState'] = ['schedule' => null];
+    $off = clSetSchedule(null, $file, false);
+    $GLOBALS['clState'] = $keepState;
+    same('tour schedules: switched off — her line gone, the backup\'s kept', [true, ['backup' => '0 2 * * *', 'logs' => '40 3 * * *']], [$off['live'], officeCronLines($file)]);
+    $job = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh');
+    check('tour schedules: job.sh takes cleanup and logs and hands them to the agent as <desk>-tour-due',
+        str_contains($job, 'backup|snapshots|embycache|gather|moverelli|cleanup|logs|watch) ;;') && str_contains($job, 'cleanup|logs) exec php "$DIR/agent/agent.php" job "$1-tour-due" ;;'));
+    $d = desks();
+    check('tour schedules: the desks register the jobs and their «schedule» action',
+        isset($d['cleanup']['jobs']['cleanup-tour-due'], $d['logs']['jobs']['logs-tour-due'], $d['cleanup']['actions']['schedule'], $d['logs']['actions']['schedule']));
+    try {
+        $d['cleanup']['actions']['schedule']([]);
+        check('tour schedules: «schedule» without a cron field is refused, never «off»', false);
+    } catch (Problem $p) {
+        same('tour schedules: «schedule» without a cron field is refused, never «off»', 'bad_request', $p->key);
+    }
+
+    // Ms. Dustdevil: the mark, her tick, her record
+    $GLOBALS['clScheduleFile'] = "$tmp/cleanup-schedule.json";
+    $mark = RUN_DIR . '/' . CL_TOUR_DUE;
+    @unlink($mark);
+    $n = 0;
+    $look = function () use (&$n): array {
+        $n++;
+        return ['appdata' => ['asleep' => ['disk2']], 'vms' => ['domains' => ['asleep' => []], 'isos' => ['asleep' => []]], 'trash' => ['asleep' => ['disk2', 'cache']]];
+    };
+    clScheduledTick($look, true);
+    same('tour schedules: no mark — no tour (one stat in RAM)', 0, $n);
+    same('tour schedules: the job leaves its mark in RAM', [0, true], [clTourDue(), is_file($mark)]);
+    clScheduledTick($look, false);
+    same('tour schedules: not hired — the mark taken away, no tour', [0, false], [$n, is_file($mark)]);
+    clTourDue();
+    clScheduledTick($look, true);
+    clScheduledTick($look, true);
+    $rec = readJson("$tmp/cleanup-schedule.json") ?? [];
+    same('tour schedules: her tour as a click\'s (her look), once; the record says how it ended and what slept', [1, false, 'ok', ['cache', 'disk2']],
+        [$n, is_file($mark), $rec['last']['how'] ?? null, $rec['last']['asleep'] ?? null]);
+    unset($GLOBALS['clSched']);
+    same('tour schedules: … on her page (her state\'s schedule)', ['ok', ['cache', 'disk2']], [clSchedule($file)['last']['how'] ?? null, clSchedule($file)['last']['asleep'] ?? null]);
+    file_put_contents($mark, (string) (time() - CL_TOUR_DUE_MAX - 60));
+    clScheduledTick($look, true);
+    same('tour schedules: a mark from long ago (the agent away) — taken away, no tour', [1, false], [$n, is_file($mark)]);
+    clTourDue();
+    clScheduledTick(function (): array { throw new RuntimeException('docker hangs'); }, true);
+    same('tour schedules: a tour that failed — said so, never done', 'failed', (readJson("$tmp/cleanup-schedule.json") ?? [])['last']['how'] ?? null);
+    unset($GLOBALS['clScheduleFile'], $GLOBALS['clSched']);
+
+    // Ms. Protocolli: the mark, her tick (a tour going: none more), her record
+    $GLOBALS['logsScheduleFile'] = "$tmp/logs-schedule.json";
+    $mark = RUN_DIR . '/' . LOGS_TOUR_DUE;
+    @unlink($mark);
+    $started = 0;
+    $start = function () use (&$started): array { $started++; return ['ok' => true]; };
+    same('tour schedules: her job leaves its mark', [0, true], [logsTourDue(), is_file($mark)]);
+    $keep = $GLOBALS['logsTour'] ?? null;
+    $GLOBALS['logsTour'] = ['process' => null, 'since' => time()];
+    logsScheduledTick($start, true);
+    same('tour schedules: a tour going already (a click\'s) — that one is the tour', [0, false], [$started, is_file($mark)]);
+    $GLOBALS['logsTour'] = $keep;
+    logsTourDue();
+    logsScheduledTick($start, true);
+    logsScheduledTick($start, true);
+    same('tour schedules: her tour started once, as «Tour» starts it', [1, false], [$started, is_file($mark)]);
+    logsScheduleRecord(['at' => time(), 'how' => 'ok', 'asleep' => ['disk1']]);
+    same('tour schedules: her record on her page', ['ok', ['disk1']], [logsSchedule($file)['last']['how'] ?? null, logsSchedule($file)['last']['asleep'] ?? null]);
+    $logs = (string) file_get_contents(OFFICE_DIR . '/agent/desks/logs.php');
+    check('tour schedules: her tour on schedule runs as the clicked one, marked scheduled',
+        str_contains($logs, "'job', 'logs-tour', ...(\$scheduled ? ['scheduled'] : [])]") && str_contains($logs, "'logs-tour' => fn (array \$args) => logsTourRun(in_array('scheduled', \$args, true))"));
+    unset($GLOBALS['logsScheduleFile']);
+
+    // what she leaves out while it sleeps — never a look at the disk
+    $disks = ['disk1' => ['name' => 'disk1', 'type' => 'Data', 'spundown' => '1', 'rotational' => '1'],
+              'disk2' => ['name' => 'disk2', 'type' => 'Data', 'spundown' => '0', 'rotational' => '1'],
+              'cache' => ['name' => 'cache', 'type' => 'Cache', 'spundown' => '1', 'rotational' => '0']];
+    $shares = ['appdata' => ['name' => 'appdata', 'useCache' => 'only', 'cachePool' => 'cache'], 'logs' => ['name' => 'logs', 'useCache' => 'no', 'include' => 'disk1']];
+    $sources = ['agent' => ['kind' => 'file', 'target' => '/mnt/user/appdata/UnraidSecretaryOffice/agent.log'], 'syslog' => ['kind' => 'file', 'target' => '/var/log/syslog'],
+                'mine' => ['kind' => 'file', 'target' => '/mnt/user/logs/app.log'], 'd1' => ['kind' => 'file', 'target' => '/mnt/disk1/x/y.log'],
+                'odd' => ['kind' => 'file', 'target' => '/mnt/user/gone/z.log'], 'dmesg' => ['kind' => 'dmesg', 'target' => '']];
+    same('tour schedules: a log on a sleeping disk left out (its share\'s disks; a share emhttp doesn\'t list not looked at), RAM and an SSD pool read; Docker by its image',
+        ['ids' => ['mine', 'd1', 'odd'], 'docker' => true, 'bases' => ['disk1']],
+        logsTourAsleep($sources, $disks, $shares, ['DOCKER_IMAGE_FILE' => '/mnt/user/logs/docker.img']));
+    $disks['disk1']['spundown'] = '0';
+    same('tour schedules: nothing asleep — nothing left out', ['ids' => [], 'docker' => false, 'bases' => []],
+        logsTourAsleep($sources, $disks, $shares, ['DOCKER_IMAGE_FILE' => '/mnt/user/logs/docker.img']));
+    exec('rm -rf ' . escapeshellarg($tmp));
 }
 
 /**
@@ -52393,6 +52547,10 @@ globalThis.Office = { scope: () => T, t: T, el: mk, fmt: { cron: (c) => 'C' + c,
   deskHead: (d, o) => ({ head: mk('div', 'deskhead', o.pages ? 'tabs:' + o.pages.list.map((p) => p.id).join(',') + ':' + o.pages.current : 'notabs') }),
   pageFrom: (list, sub) => (String(sub || '').split('/')[0] === 'setup' ? 'setup' : ''),
   stat: (o) => ({ tag: o.on ? 'button' : 'div', o, children: [] }),
+  // the office's schedule tile (core.js, tests/sections.js schedule): here what she hands it, as a number tile's options
+  scheduleTile: (d, o) => ({ id: 'schedule', key: o.key, place: 'tile.schedule', section: o.section, tile: (a) => ({ tag: 'button', children: [],
+    o: { label: T(o.key), value: o.schedule && o.schedule.enabled ? 'C' + o.schedule.custom : 'office.schedule.off', sub: o.sub.filter(Boolean), alert: !!o.alert,
+      last: o.last, ...a } }) }),
   sections: (o) => { specs.push(o); const box = mk('div', 'sections'); const grid = mk('div', 'grid'); const body = mk('div', 'sections-body'); box.append(grid, body);
     return { el: box, grid, body, render() {}, mount: () => false, pick() {}, active: () => '' }; },
   filterBar: (o) => ({ o, el: mk('div', 'filterbar'), words: [], read() { return { words: this.words }; }, done(n, t) { this.doneArgs = [n, t]; }, reset() { this.words = []; } }),
@@ -52474,7 +52632,7 @@ JS);
     $o = is_array($o) ? $o : [];
     same('moverelli tiles: her switcher — kept as moverelli.tile, no start tile (the whole page)', ['moverelli', '', '', 'stats mo-tiles'], $o['spec'] ?? null);
     same('moverelli tiles: «Schedule» (hers, Unraid\'s mover as its line), «Shares» (moving of all, the rules for all), «Last run» — each a button with its summary', [
-        ['schedule', 'schedule', 'tile.schedule', 'schedule', 'C15 5 * * *', ['by_office', 'unraid_schedule: unraid_off'], false, 'function'],
+        ['schedule', 'schedule', 'tile.schedule', 'schedule', 'C15 5 * * *', ['unraid_schedule: unraid_off'], false, 'function'],
         ['shares', 'shares', 'tile.shares', 'shares', '1 / 3', ['shares_moving {"n":1}', 'rule_age {"n":30} · rule_fill {"pct":80}'], false, 'function'],
         ['runs', 'last_run', 'tile.runs', 'last_run', 'R900', ['mode.run · result.ok'], false, 'function']], $o['tiles'] ?? null);
     same('moverelli tiles: not set up — no «Schedule» tile', ['shares', 'runs'], $o['unset'] ?? null);
@@ -52483,7 +52641,7 @@ JS);
     check('moverelli ran lately (the Team Lead\'s «ran»): only a real or a dry run counts, never a look at the list',
         str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "in_array(\$r['mode'] ?? '', ['run', 'dry'], true) && !in_array(\$r['result'] ?? '', ['refused', 'skipped'], true)"));
     same('moverelli tiles: Unraid\'s schedule on, Jack Emby\'s list missing, a run going — the tiles say so (alert, «running»)',
-        [['schedule', 'not_scheduled', true], ['shares', '1 / 3', true], ['runs', 'output_running', false]], $o['alerts'] ?? null);
+        [['schedule', 'office.schedule.off', true], ['shares', '1 / 3', true], ['runs', 'output_running', false]], $o['alerts'] ?? null);
     same('moverelli tiles: her page — the head with tabs, the help, the row (tiles first, owner 2026-10-15), the footer under all', ['deskhead', 'help', 'sections', 'mo-foot'],
         $o['page'] ?? null);
     same('moverelli: the one line of the file in flight — «On its way: S01E23.mkv (16 of 25) — Pool cache → Array»; no size, no bytes', [
@@ -53243,12 +53401,14 @@ const st = (plans, runner) => ({ time: now, zfs: { snapshots: [], pools: [{ snap
 const on = { script: true, enabled: true };
 const rowText = (p) => JSON.stringify(s.planRow(p)).includes('plan.next');
 s.setState(st([plan({})], on));
-out.snap = { ok: s.bubbleText(), okTile: s.plansCard({}).lines[0], okNext: rowText(plan({})) };
+const schedOf = () => { const o = s.plansSchedule(); return [o.schedule.enabled, o.schedule.next, o.value, o.last && o.last.how, o.key, o.card]; };
+out.snap = { ok: s.bubbleText(), okTile: schedOf(), okNext: rowText(plan({})) };
 s.setState(st([plan({ result: 'failed' }), plan({ id: 'q', label: 'Daily media', result: 'partly' })], on));
 out.snap.failed = s.bubbleText();
+out.snap.failedTile = [s.plansSchedule().alert, s.plansSchedule().chip];
 s.setState(st([plan({})], { script: false, enabled: true }));
 out.snap.off = s.bubbleText();
-out.snap.offTile = s.plansCard({}).lines[0];
+out.snap.offTile = schedOf();
 out.snap.offNext = rowText(plan({}));
 console.log(JSON.stringify(out));
 JS);
@@ -53273,11 +53433,12 @@ JS);
         ['chip.snaps_part {"n":7,"when":"R50","bases":"disk1"}', 'chip warn'], ['chip.snaps {"n":7,"when":"R50"}', 'chip ok'], ['chip.snaps {"n":7,"when":"R50"}', 'chip ok'], ['chip.no_snaps', 'chip warn']],
         array_map(fn ($c) => [$c[0], $c[1]], $o['snaps']));
     $snap = $o['snap'];
-    same('T20: all well — «Tutto a posto» after the count, the next run on the tile and the row', [true, true, true],
-        [str_ends_with((string) end($snap['ok']), 'bubble.all_well'), str_starts_with((string) $snap['okTile'], 'plans_tile.active'), $snap['okNext']]);
+    same('T20: all well — «Tutto a posto» after the count, the next run on the (office\'s schedule) tile and the row', [true, [true, $o['now'] + 1800, '', 'ok', 'plans', true], true],
+        [str_ends_with((string) end($snap['ok']), 'bubble.all_well'), $snap['okTile'], $snap['okNext']]);
+    same('T20: a schedule failed or partly — the tile warns with how the first one ended', [true, 'office.schedule.how.failed'], $snap['failedTile']);
     same('T20: a schedule failed or partly — said with their names, no «Tutto a posto»', [true, false],
         [in_array('bubble.plans_trouble {"n":2,"names":"Hourly appdata, Daily media"}', $snap['failed'], true), str_contains(json_encode($snap['failed']), 'all_well')]);
-    same('T20: the runner (cron line) gone — said, no «Tutto a posto», no «next run» on the tile or the row', [true, false, 'plans_tile.on {"n":1}', false],
+    same('T20: the runner (cron line) gone — said, no «Tutto a posto», no «next run» on the tile or the row', [true, false, [false, null, 'plans_tile.runner_off', 'ok', 'plans', true], false],
         [in_array('bubble.runner_off', $snap['off'], true), str_contains(json_encode($snap['off']), 'all_well'), $snap['offTile'], $snap['offNext']]);
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $sl = readJson(OFFICE_WEB . "/desks/snapshot/lang/$l.json") ?? [];
@@ -53435,7 +53596,7 @@ function testTilesMediaPages(): void
         && str_contains($snap, "({ id: POOL + x.name, place: `pool:\${x.name}`, section: 'list', filters: x.name, tile: (a) => diskRow(x, a) })")
         && str_contains($snap, "function ownPools() { return (state?.zfs?.pools || []).filter((p) => p.array !== true); }")
         && str_contains($snap, "{ id: POOL + 'VMs', place: 'pool:VMs', section: 'list', filters: 'VMs',")
-        && str_contains($snap, "{ id: 'plans', key: 'plans', place: 'tile.plans', section: () => plansSection(),")
+        && str_contains($snap, "Office.scheduleTile(ID, plansSchedule()),") && str_contains($snap, "key: 'plans', card: true, section: () => plansSection(),")
         && str_contains($snap, "{ id: 'snapshots', key: 'snapshots', place: 'tile.snapshots', section: 'list',")
         && str_contains($snap, "sections: { list: () => listSection() },"));
     check('snapshot page: the pool kept as snapshot.pool (the one filter kept), back once her state has its tile; the old «Storage» head and the tile wrapper gone',
@@ -53452,7 +53613,7 @@ function testTilesMediaPages(): void
         str_contains($snap, "Office.filterBar({ key: 'snapshot.list'") && str_contains($snap, 'Office.fits(f.words, snapHay(s))')
         && str_contains($snap, "extra: [v.foldBtn, v.backupShow.label, v.partnerShow.label, v.dockerSwitch]")
         && str_contains($snap, "for (const id of [...selection]) if (!ids.has(id)) selection.delete(id);"));
-    check('snapshot page: #/snapshot/datasets shows her list alone, grouped by dataset, no pool, no source', str_contains($snap, "sw.mount(sub === 'datasets' ? 'snapshots' : sub);")
+    check('snapshot page: #/snapshot/datasets shows her list alone, grouped by dataset, no pool, no source', str_contains($snap, "sw.mount(sub === 'datasets' ? 'snapshots' : sub === 'plans' ? 'schedule' : sub);")
         && str_contains($snap, "if (sub === 'datasets') view.bar.set({ pick: '' });"));
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.css');
     check('snapshot page: a disk row\'s mark on a line of its own', str_contains($css, '.minirow .tile-mark{position:static; grid-column:1 / -1; justify-self:start}'));
@@ -54129,7 +54290,7 @@ JS);
     same('cleanup tiles: an old number tile\'s address (stat:temp) opens its corner (disks)', ['disks', 'disks'], $r['temp']);
     same('cleanup tiles: «Tidying up» — no tile chosen, every room shown, the page kept', 'tidy', $r['tidy'][0] ?? null);
     check('cleanup tiles: … every room in the row\'s order', ($r['tidy'][1] ?? null) === 'tidy' && ($r['tidy'][2] ?? null) === '' && str_starts_with((string) ($r['tidy'][3] ?? ''), 'templates ')
-        && str_ends_with((string) ($r['tidy'][3] ?? ''), ' trash'), json_encode($r['tidy']));
+        && str_ends_with((string) ($r['tidy'][3] ?? ''), ' trash schedule'), json_encode($r['tidy']));
     same('cleanup tiles: #/cleanup/tidy/docker — Docker\'s leftovers alone; #/cleanup then opens the page seen last',
         [['tidy', 'docker', 'docker', '#/cleanup/tidy'], ['tidy']], [$r['room'], $r['again']]);
     check('cleanup tiles: her first finding is the share whose pool is missing', str_contains((string) $r['finding'], 'where.find.missing_pool'), (string) $r['finding']);
@@ -57949,7 +58110,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

@@ -472,8 +472,40 @@ const sw = Office.sections({
     { id: 'syslog', key: 'syslog.title', place: 'tile.syslog', tile: (a) => syslogTile(a), section: () => syslogView() },
     { id: 'wakes', key: 'wakes.title', place: 'tile.wakes', tile: (a) => wakesTile(a), section: () => wakesView() },
     { id: 'read', key: 'tile.read', place: 'tile.read', tile: (a) => readTile(a), section: () => readerSection() },
+    scheduleTile(),
   ],
 });
+
+/**
+ * «Schedule» (Office.scheduleTile): her tour on schedule — the next one, the last and how it ended, the disks that slept
+ * (their logs left out); its section: the schedule and «Change…»
+ */
+const schedState = () => (state && state.schedule) || { enabled: false, last: null };
+function scheduleTile() {
+  const sc = schedState();
+  const asleep = (sc.last && sc.last.asleep) || [];
+  return Office.scheduleTile(ID, { card: true, schedule: sc, last: sc.last, sub: asleep.length ? [T('schedule.asleep', { disks: asleep.join(', ') })] : [],
+    section: () => scheduleSection() });
+}
+function scheduleSection() {
+  const sc = schedState();
+  const s = el('section', 'section');
+  const change = el('button', 'btn small', Office.t('office.schedule.change'));
+  change.type = 'button';
+  change.disabled = !Office.agent.running || !state;
+  change.onclick = () => scheduleDialog();
+  s.appendChild(Office.sectionHead(T('tile.schedule'), T('schedule.sub'), change));
+  s.appendChild(Office.scheduleBox({ schedule: sc, last: sc.last, offWords: T('schedule.off_note'),
+    notes: [sc.last && (sc.last.asleep || []).length ? T('schedule.asleep', { disks: sc.last.asleep.join(', ') }) : '', T('schedule.never_wake')] }));
+  return s;
+}
+async function scheduleDialog() {
+  if (!(await Office.freshState(ID))) return;
+  Office.scheduleDialog(ID, { schedule: schedState(), intro: T('schedule.intro'), time: '03:40', after: (j) => {
+    if (j.state) state = j.state;
+    if (view) { renderHead(); redraw(); }
+  } });
+}
 
 /** Row and sections anew (a new state, a new tour, another log chosen) — the choice stays, so does the reader */
 function redraw() {
@@ -874,6 +906,9 @@ function foundView() {
     if (unreadable.length) box.appendChild(el('p', 'role lg-note', T('found.unreadable', { list: unreadable.map(sourceLabel).join(', ') })));
     // Docker didn't answer: no container's log was read — said, never counted as «nothing like that» (T28)
     if (tour.containers_read === false) box.appendChild(el('p', 'role lg-note', T('found.no_containers')));
+    // a tour on schedule left out what slept (her logs on those disks, maybe Docker's): said, never «nothing like that»
+    const slept = (tour.asleep && Array.isArray(tour.asleep.bases)) ? tour.asleep.bases : [];
+    if (tour.scheduled && slept.length) box.appendChild(el('p', 'role lg-note', T('found.asleep', { disks: slept.join(', ') })));
   }
   label();
   unfold.hidden = shownKinds.length < 2;
@@ -2357,7 +2392,7 @@ Office.desk({
 // her places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys)
 Office.places(ID, [
   { kind: 'section', key: 'reading', route: '#/logs/read' },
-  ...sw.places(),             // her tiles: /var/log, the containers' logs, errors & warnings, the syslog, «Read out»
+  ...sw.places(),             // her tiles: /var/log, the containers' logs, errors & warnings, the syslog, «Read out», «Schedule»
   { kind: 'help', key: 'tour', text: 'help.tour_text' },
   { kind: 'help', key: 'live', text: 'help.live' },
   { kind: 'help', key: 'only_problems', text: 'help.only' },

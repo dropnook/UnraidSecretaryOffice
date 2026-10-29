@@ -1847,5 +1847,11 @@
   "zp.list": {"one": "Montrer {n} snapshot", "other": "Montrer les {n} snapshots"},
   "zp.more": {"one": "… et {n} de plus", "other": "… et {n} de plus"},
   "zp.retention": "Les snapshots de Madame Snapshotini et de Monsieur Backupsi suivent et restent jusqu'à ce que tu vides le débarras — leur rétention laisse le débarras tranquille.",
-  "zp.time": "L'heure dans le nouveau nom est le moment de ton clic. « Remettre en place » le renomme comme avant."
+  "zp.time": "L'heure dans le nouveau nom est le moment de ton clic. « Remettre en place » le renomme comme avant.",
+  "tile.schedule": "Planification",
+  "schedule.sub": "Ma tournée planifiée : où tout se trouve et ce qui traîne — comme quand tu cliques sur «Tournée».",
+  "schedule.intro": "Quand je fais ma tournée toute seule — une fois par jour suffit. Je ne réveille jamais un disque endormi pour ça : ce qui dort, je le laisse de côté.",
+  "schedule.off_note": "Je fais ma tournée quand tu cliques sur «Tournée».",
+  "schedule.asleep": "Endormis, laissés de côté : {disks}",
+  "schedule.never_wake": "En planification, je ne réveille jamais un disque : ce qui dort, je le laisse de côté et je le dis, comme lors d'une tournée sans «Réveiller les disques endormis»."
 }

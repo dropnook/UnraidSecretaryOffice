@@ -483,5 +483,12 @@
   "wakes.sure.wrote": "ci ha scritto",
   "wakes.sure.wrote_title": "Poco prima aveva scritto in un file su questo disco. Il server scrive questi dati sul disco un po' più tardi: questo può svegliarlo senza che nessuno lo aspetti.",
   "wakes.unraid": "Subito dopo il risveglio Unraid lo ha guardato (i suoi valori SMART, se gira): è la risposta di Unraid al risveglio, non la causa.",
-  "wakes.how.asked": "L'ora è quando ho visto che il disco veniva richiesto (guardo ogni {s} s)."
+  "wakes.how.asked": "L'ora è quando ho visto che il disco veniva richiesto (guardo ogni {s} s).",
+  "tile.schedule": "Pianificazione",
+  "schedule.sub": "Il mio giro pianificato: ogni log, come quando clicchi «Giro». Il risultato è qui come quello di un giro cliccato.",
+  "schedule.intro": "Quando faccio il giro da sola — una volta al giorno basta. Un log su un disco in standby lo salto: per questo non sveglio mai un disco.",
+  "schedule.off_note": "Faccio il giro quando clicchi «Giro».",
+  "schedule.asleep": "In standby, i loro log saltati: {disks}",
+  "schedule.never_wake": "Con la pianificazione non sveglio mai un disco: i log su un disco in standby li salto e li leggo al prossimo giro.",
+  "found.asleep": "Questo giro era pianificato: i log su {disks} erano in standby e li ho saltati — letti al prossimo giro."
 }

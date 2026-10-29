@@ -483,5 +483,12 @@
   "wakes.sure.wrote": "hat darauf geschrieben",
   "wakes.sure.wrote_title": "Es hatte kurz vorher in eine Datei auf dieser Disk geschrieben. Der Server schreibt solche Daten etwas später auf die Disk — das kann sie wecken, ohne dass jemand darauf wartet.",
   "wakes.unraid": "Gleich nach dem Aufwachen hat Unraid nach ihr geschaut (ihre SMART-Werte, ob sie läuft) — das ist Unraids Antwort auf das Aufwachen, nicht der Grund.",
-  "wakes.how.asked": "Die Zeit ist, als ich sah, dass die Disk gebraucht wird (ich schaue alle {s} s)."
+  "wakes.how.asked": "Die Zeit ist, als ich sah, dass die Disk gebraucht wird (ich schaue alle {s} s).",
+  "tile.schedule": "Zeitplan",
+  "schedule.sub": "Mein Rundgang nach Zeitplan: jedes Protokoll, wie wenn du «Rundgang» klickst. Sein Ergebnis steht hier wie das eines geklickten.",
+  "schedule.intro": "Wann ich von selbst meinen Rundgang mache — einmal am Tag reicht. Ein Protokoll auf einer schlafenden Disk lasse ich aus: Dafür wecke ich nie eine Disk.",
+  "schedule.off_note": "Ich mache meinen Rundgang, wenn du «Rundgang» klickst.",
+  "schedule.asleep": "Schlief, ihre Protokolle ausgelassen: {disks}",
+  "schedule.never_wake": "Nach Zeitplan wecke ich nie eine Disk: Die Protokolle auf einer schlafenden lasse ich aus und lese sie beim nächsten Rundgang.",
+  "found.asleep": "Dieser Rundgang lief nach Zeitplan: Die Protokolle auf {disks} schliefen und blieben aus — gelesen beim nächsten Rundgang."
 }

@@ -361,9 +361,28 @@ const sw = Office.sections({
     { id: 'incidents', key: 'tile.incidents', place: 'tile.incidents', tile: (a) => incidentsTile(a), section: () => incidentsSection() },
     { id: 'watch', key: 'tile.watch', place: 'tile.watch', tile: (a) => watchTile(a), section: () => watchSection() },
     { id: 'hold', key: 'tile.hold', place: 'tile.hold', tile: (a) => holdTile(a), section: () => holdSection() },
+    roundSchedule(),
   ],
   sections: { book: () => bookSection() },
 });
+
+/**
+ * «Schedule» on the office's schedule tile (Office.scheduleTile): his rounds go by themselves every five minutes — never
+ * «Off» —, the next one, the last and how it ended (went wrong, stopped after too long, on it now). Its section says there
+ * is nothing to set
+ */
+function roundSchedule() {
+  const r = (state && state.round) || {};
+  const broken = r.broken ? (r.broken.why === 'stopped' ? 'stopped' : 'failed') : '';
+  const last = running() ? { at: r.last || Date.now() / 1000, how: 'running' } : r.last ? { at: r.last, how: r.failed ? 'failed' : broken || 'ok' } : null;
+  return Office.scheduleTile(ID, { every: T('schedule.every'), next: running() ? 0 : r.next || 0, last, section: () => roundScheduleSection() });
+}
+function roundScheduleSection() {
+  const s = el('section', 'section');
+  s.appendChild(Office.sectionHead(T('tile.schedule'), T('round.sub')));
+  s.appendChild(el('p', 'role', T('schedule.fixed')));
+  return s;
+}
 
 /** Anything open in the book? (what «only open» could show) */
 const bookHasOpen = () => ((state && state.book) || []).some((e) => e && e.open);

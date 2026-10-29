@@ -1847,5 +1847,11 @@
   "zp.list": {"one": "Mostrar la instantánea", "other": "Mostrar las {n} instantáneas"},
   "zp.more": {"one": "… y {n} más", "other": "… y {n} más"},
   "zp.retention": "Las instantáneas de la Señora Snapshotini y del Señor Backupsi van con él y se quedan hasta que vacíes el trastero — su retención deja el trastero en paz.",
-  "zp.time": "La hora del nuevo nombre es el momento de tu clic. «Devolver a su sitio» lo renombra de vuelta."
+  "zp.time": "La hora del nuevo nombre es el momento de tu clic. «Devolver a su sitio» lo renombra de vuelta.",
+  "tile.schedule": "Programación",
+  "schedule.sub": "Mi ronda programada: dónde está todo y qué anda por ahí — como cuando haces clic en «Ronda».",
+  "schedule.intro": "Cuándo hago la ronda por mi cuenta — una vez al día basta. Nunca despierto un disco en reposo para ello: lo que duerme lo dejo fuera.",
+  "schedule.off_note": "Hago la ronda cuando haces clic en «Ronda».",
+  "schedule.asleep": "En reposo, dejados fuera: {disks}",
+  "schedule.never_wake": "Con la programación nunca despierto un disco: lo que duerme lo dejo fuera y lo digo, como en una ronda sin «Despertar discos en reposo»."
 }
