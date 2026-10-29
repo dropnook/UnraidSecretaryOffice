@@ -12,14 +12,19 @@
 #     one, ONE notice and the rest collected for a summary. An alert is never folded into «the same» (2.74, the truth
 #     review T01: a second «Backup failed» within a day was swallowed): only the very same alert - its key also covers
 #     its description - again within NOTIFY_ALERT_SAME is counted; past NOTIFY_ALERT_CAP alerts an hour the rest go
-#     as one alert every NOTIFY_ALERT_BUNDLE. Its lines in <home>/notify-guard, read and written only under the flock of
-#     <home>/notify.second the sender holds around its call (so the decision and the call are one turn).
+#     as one alert every NOTIFY_ALERT_BUNDLE. 2.80 (the rest of T01): a run's failure (ung_fail_same: «Backup failed»,
+#     «Backup not started») is the very same again - the same cause, its key covering the description - within
+#     NOTIFY_FAILED_SAME: counted, with how many times (UNG_TIMES, the decision's «times»), until a success resolves
+#     it; another cause always goes. Every counted one leaves a «counted» line (ung_drop) - the next one's count.
+#     Its lines in <home>/notify-guard, read and written only under the flock of <home>/notify.second the sender holds
+#     around its call (so the decision and the call are one turn).
 #   * each decision one small JSON in <home>/notify-in/ (the agent folds them into the Team Lead's queue and history).
 # Hold only while someone will send the summary: the agent's heartbeat (<home>/agent.json) at most 70 s old.
 #
 # The numbers - the same names and values as in agent/lib/notifycenter.php (tests/run.php compares them):
 NOTIFY_SAME_FORGET=86400    # an unresolved repeat may go out again after a day (a daily failure still reminds daily)
 NOTIFY_ALERT_SAME=60        # an alert: only the very same one again within a minute is counted (never a day)
+NOTIFY_FAILED_SAME=72000    # 2.80: a run's very same failure again within 20 h is counted (a daily schedule still reminds daily)
 NOTIFY_CAP_WINDOW=3600      # the caps count the last hour
 NOTIFY_DESK_CAP=5           # more than this from one character in an hour is a flood
 NOTIFY_OFFICE_CAP=20        # more than this from the whole office in an hour is a flood
@@ -51,6 +56,9 @@ ung_is_success() { case "$1:$2" in backup:ok|jack:release_ok) return 0 ;; esac; 
 # ung_resolves <desk> <event> - it resolves what that desk said went wrong (OFFICE_NOTIFY_RESOLVES): a success, the agent back
 ung_resolves() { case "$1:$2" in backup:ok|jack:release_ok|office:agent_back) return 0 ;; esac; return 1; }
 
+# ung_fail_same <desk> <event> - a run's failure, folded when the very same one comes again (OFFICE_NOTIFY_FAIL_SAME)
+ung_fail_same() { case "$1:$2" in backup:failed|backup:refused) return 0 ;; esac; return 1; }
+
 # ung_quiet_now <epoch> - inside the quiet hours (quiet=HHMM-HHMM; across midnight when from > to)
 ung_quiet_now() {
     local q="${UNG_CFG[quiet]:-off}" now from to
@@ -79,10 +87,11 @@ ung_drops_room() {
 
 # ung_decide <home> <desk> <event> <level> <key> <now>
 # -> UNG_FATE sent|held|counted|collected|dropped, UNG_WHY, UNG_DUE (a collected one's summary), UNG_NOTICE ('' or the
-#    desk - or * for the whole office - whose «reporting a lot» notice goes now)
+#    desk - or * for the whole office - whose «reporting a lot» notice goes now), UNG_TIMES (a counted one: the how-many-th
+#    time it came since it went, else 0)
 ung_decide() {
     local home="$1" desk="$2" event="$3" level="$4" key="$5" now="$6" need hold=0 why="" su lv
-    UNG_FATE=sent; UNG_WHY=""; UNG_DUE=0; UNG_NOTICE=""
+    UNG_FATE=sent; UNG_WHY=""; UNG_DUE=0; UNG_NOTICE=""; UNG_TIMES=0
     if ung_can_hold "$home"; then hold=1; fi
     # the settings (none: as before the centre)
     if [[ "$level" != alert ]] && ung_cfg_read "$home/notify.cfg"; then
@@ -99,27 +108,30 @@ ung_decide() {
             UNG_WHY=no_sender       # nobody would send the summary: it goes now
         fi
     fi
-    ung_guard "$home/notify-guard" "$desk" "$level" "$key" "$now" "$hold"
+    ung_guard "$home/notify-guard" "$desk" "$level" "$key" "$now" "$hold" "$event"
     return 0
 }
 
-# ung_guard <file> <desk> <level> <key> <now> <hold> - the flood guard for what would go now
+# ung_guard <file> <desk> <level> <key> <now> <hold> [<event>] - the flood guard for what would go now
 ung_guard() {
-    local g="$1" desk="$2" level="$3" key="$4" now="$5" hold="$6" out same dk off al fd fo room=0 fw="$NOTIFY_SAME_FORGET"
+    local g="$1" desk="$2" level="$3" key="$4" now="$5" hold="$6" event="${7:-}" out same times dk off al fd fo room=0 fw="$NOTIFY_SAME_FORGET"
     [[ -n "$g" && ! -L "$g" && -d "${g%/*}" ]] || return 0
     [[ -f "$g" ]] || return 0
     if ung_drops_room "${g%/*}"; then room=1; fi
-    if [[ "$level" == alert ]]; then fw="$NOTIFY_ALERT_SAME"; fi      # an alert: only the very same one within a minute
+    if ung_fail_same "$desk" "$event"; then fw="$NOTIFY_FAILED_SAME"      # 2.80: a run's very same failure within 20 h
+    elif [[ "$level" == alert ]]; then fw="$NOTIFY_ALERT_SAME"; fi      # an alert: only the very same one within a minute
+    # same: when the very same one last went (0: not within fw, or resolved since); times: it and the counted ones after it
     out="$(awk -v d="$desk" -v k="$key" -v now="$now" -v fw="$fw" -v w="$NOTIFY_CAP_WINDOW" '
         $1 !~ /^[0-9]+$/ { next }
-        $2 == "sent" && $5 == k && now - $1 < fw { same = $1 }
-        $2 == "resolved" && $3 == d { same = 0 }
+        $2 == "sent" && $5 == k { if (now - $1 < fw) { same = $1; times = 1 } else { same = 0; times = 0 } }
+        $2 == "counted" && $5 == k && same > 0 { times++ }
+        $2 == "resolved" && $3 == d { same = 0; times = 0 }
         $2 == "sent" && $4 != "alert" && now - $1 < w { off++; if ($3 == d) dk++ }
         $2 == "sent" && $4 == "alert" && now - $1 < w { al++ }
         $2 == "flood" && now - $1 < w { if ($3 == d) fd = $1; if ($3 == "*") fo = $1 }
-        END { printf "%d %d %d %d %d %d\n", same, dk, off, al, fd, fo }' "$g" 2>/dev/null)"
-    read -r same dk off al fd fo <<<"${out:-0 0 0 0 0 0}"
-    if (( same > 0 )); then UNG_FATE=counted; UNG_WHY=same; return 0; fi
+        END { printf "%d %d %d %d %d %d %d\n", same, times, dk, off, al, fd, fo }' "$g" 2>/dev/null)"
+    read -r same times dk off al fd fo <<<"${out:-0 0 0 0 0 0 0}"
+    if (( same > 0 )); then UNG_FATE=counted; UNG_WHY=same; UNG_TIMES=$(( times + 1 )); return 0; fi
     if [[ "$level" == alert ]]; then
         # an alert is never lost: bundled only while someone sends the bundle
         if (( al >= NOTIFY_ALERT_CAP && hold )); then UNG_FATE=collected; UNG_WHY=alert_cap; fi
@@ -136,7 +148,7 @@ ung_guard() {
     return 0
 }
 
-# ung_line <home> <fate> <desk> <level> <key> - one line of the guard (sent, flood, resolved); the old ones go past the max
+# ung_line <home> <fate> <desk> <level> <key> - one line of the guard (sent, flood, resolved, counted); the old ones go past the max
 ung_line() {
     local g="$1/notify-guard" n tmp
     [[ -d "$1" && ! -L "$g" ]] || return 0
@@ -157,11 +169,14 @@ ung_key() {
     else printf '%s|%s|%s' "$1" "$2" "$3" | md5sum | cut -c1-16; fi
 }
 
-# ung_drop <home> <fate> <why> <due> <desk> <event> <level> <key> <subject> <description> <message> <link> - the
-# decision for the Team Lead's queue and history (a JSON of its own; written beside, then moved in)
+# ung_drop <home> <fate> <why> <due> <desk> <event> <level> <key> <subject> <description> <message> <link> [<times>] - the
+# decision for the Team Lead's queue and history (a JSON of its own; written beside, then moved in). 2.80: a counted one
+# carries «times» (default UNG_TIMES) and leaves its «counted» line in the guard - the next one's count
 ung_drop() {
-    local dir="$1/notify-in" id now us tmp
+    local dir="$1/notify-in" id now us tmp times="${13:-${UNG_TIMES:-0}}"
     [[ -d "$1" ]] || return 0
+    [[ "$times" =~ ^[0-9]{1,6}$ ]] || times=0
+    [[ "$2" == counted ]] && ung_line "$1" counted "$5" "$7" "$8"
     [[ -L "$dir" ]] && return 0
     [[ -d "$dir" ]] || ( umask 077; mkdir -p -- "$dir" ) 2>/dev/null || return 0
     command -v jq >/dev/null 2>&1 || return 0
@@ -173,8 +188,9 @@ ung_drop() {
     tmp="$dir/.$us-$id.tmp"
     if ( umask 077; jq -n --arg id "$id" --argjson time "$now" --arg fate "$2" --arg why "$3" --argjson due "${4:-0}" --arg desk "$5" \
             --arg event "$6" --arg level "$7" --arg key "$8" --arg subject "$9" --arg description "${10}" --arg message "${11:0:4096}" \
-            --arg link "${12}" '{v: 1, id: $id, time: $time, desk: $desk, event: $event, level: $level, fate: $fate, why: $why,
-            due: $due, key: $key, subject: $subject, description: $description, message: $message, link: $link}' >"$tmp" ) 2>/dev/null; then
+            --arg link "${12}" --argjson times "$times" '{v: 1, id: $id, time: $time, desk: $desk, event: $event, level: $level, fate: $fate, why: $why,
+            due: $due, key: $key, subject: $subject, description: $description, message: $message, link: $link}
+            + (if $times > 0 then {times: $times} else {} end)' >"$tmp" ) 2>/dev/null; then
         mv -f -- "$tmp" "$dir/$us-$id.json"
     fi
     rm -f -- "$tmp"

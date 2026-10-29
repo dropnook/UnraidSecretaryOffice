@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.79 - 2026-10-29
+# unraid-backup - backup.sh                       Version 2.80 - 2026-10-29
+#   2.80 The rest of T01 (lib/notifygate.sh, the same as the office's gate): «Backup failed» / «Backup not started» with
+#        the very same cause again within 20 h (NOTIFY_FAILED_SAME), no success between, is counted - with how many
+#        times (the decision's «times», a «counted» line in the guard) - instead of an alert every run; another cause
+#        always goes, a daily schedule still reminds daily. Other alerts keep the minute (NOTIFY_ALERT_SAME).
 #   2.79 The offsite repository emptied while Kopia's cache still opens it (B17): listing the snapshots fails with
 #        «BLOB not found» - the storage itself is asked (kopia blob list) whether the repository's description is still
 #        there; gone is kopia_gone (once, an alert, the hold) and the Kopia step holds - up to 2.78 the run just ended

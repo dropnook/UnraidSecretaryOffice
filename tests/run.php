@@ -6564,7 +6564,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.79'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.80'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -8551,9 +8551,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.79 everywhere it is named', ['2.79', '2.79', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.79"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.79** –')]);
+    same('data trust: the engine\'s version 2.80 everywhere it is named', ['2.80', '2.80', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.80"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.80** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -9902,7 +9902,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.79', [1, '2.79'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.80', [1, '2.80'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -10674,7 +10674,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.79', [1, '2.79'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.80', [1, '2.80'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -20827,10 +20827,15 @@ function testNotifyCenter(): void
     };
 
     // ---- the numbers: the same in PHP and bash
-    foreach (['NOTIFY_SAME_FORGET', 'NOTIFY_ALERT_SAME', 'NOTIFY_CAP_WINDOW', 'NOTIFY_DESK_CAP', 'NOTIFY_OFFICE_CAP', 'NOTIFY_ALERT_CAP', 'NOTIFY_ALERT_BUNDLE', 'NOTIFY_HEART_FRESH',
+    foreach (['NOTIFY_SAME_FORGET', 'NOTIFY_ALERT_SAME', 'NOTIFY_FAILED_SAME', 'NOTIFY_CAP_WINDOW', 'NOTIFY_DESK_CAP', 'NOTIFY_OFFICE_CAP', 'NOTIFY_ALERT_CAP', 'NOTIFY_ALERT_BUNDLE', 'NOTIFY_HEART_FRESH',
               'NOTIFY_DROPS_MAX', 'NOTIFY_GUARD_MAX'] as $c) {
         same("centre: $c the same in notifygate.sh", (string) constant($c), trim((string) shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg($gate) . "; printf %s \"\$$c\""))));
     }
+    $pairs = ['backup:failed', 'backup:refused', 'backup:errors', 'backup:ok', 'watchman:failed', 'office:agent_away'];
+    same('centre 2.80: the run\'s failures folded for 20 h - the same in bash (ung_fail_same) as in PHP', [['backup:failed', 'backup:refused'], ['backup:failed', 'backup:refused']],
+        [array_values(array_filter($pairs, fn ($p) => officeNotifyFailSame(...explode(':', $p)))),
+         array_values(array_filter($pairs, fn ($p) => trim((string) shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg($gate) . '; ung_fail_same "$1" "$2" && echo y')
+            . ' _ ' . implode(' ', array_map('escapeshellarg', explode(':', $p))))) === 'y'))]);
     same('centre: the owner\'s numbers', [86400, 60, 3600, 5, 20, 10, 900], [NOTIFY_SAME_FORGET, NOTIFY_ALERT_SAME, NOTIFY_CAP_WINDOW, NOTIFY_DESK_CAP, NOTIFY_OFFICE_CAP, NOTIFY_ALERT_CAP, NOTIFY_ALERT_BUNDLE]);
     // the chip's tip says «the very same alert twice within a minute goes once» - true only while it is a minute
     check('centre: the tip «within a minute» is NOTIFY_ALERT_SAME', NOTIFY_ALERT_SAME === 60
@@ -20874,11 +20879,11 @@ function testNotifyCenter(): void
 
     // ---- the decision: PHP and bash over the same cases
     $bashDecide = function (string $home, string $desk, string $event, string $level, string $key, int $now) use ($gate): array {
-        $cmd = 'source ' . escapeshellarg($gate) . '; ung_decide "$1" "$2" "$3" "$4" "$5" "$6"; printf "%s %s %s %s" "$UNG_FATE" "${UNG_WHY:--}" "$UNG_DUE" "${UNG_NOTICE:--}"';
+        $cmd = 'source ' . escapeshellarg($gate) . '; ung_decide "$1" "$2" "$3" "$4" "$5" "$6"; printf "%s %s %s %s %s" "$UNG_FATE" "${UNG_WHY:--}" "$UNG_DUE" "${UNG_NOTICE:--}" "$UNG_TIMES"';
         $out = trim((string) shell_exec('TZ=' . escapeshellarg(date_default_timezone_get()) . ' bash -c ' . escapeshellarg($cmd) . ' _ '
             . implode(' ', array_map('escapeshellarg', [$home, $desk, $event, $level, $key, (string) $now]))));
-        $p = explode(' ', $out) + ['?', '-', '0', '-'];
-        return ['fate' => $p[0], 'why' => $p[1] === '-' ? '' : $p[1], 'due' => (int) $p[2], 'notice' => $p[3] === '-' ? '' : $p[3]];
+        $p = explode(' ', $out) + ['?', '-', '0', '-', '0'];
+        return ['fate' => $p[0], 'why' => $p[1] === '-' ? '' : $p[1], 'due' => (int) $p[2], 'notice' => $p[3] === '-' ? '' : $p[3], 'times' => (int) $p[4]];
     };
     $phpDecide = function (string $home, string $desk, string $event, string $level, string $key, int $now): array {
         $room = officeNotifyDropsRoom($home);
@@ -20913,11 +20918,18 @@ function testNotifyCenter(): void
         ['the same, a day ago: goes', null, true, [[$now - 86401, 'sent', 'backup', 'warning', $k]], 'backup', 'warnings', 'warning', 'sent', ''],
         ['another desk\'s resolve: still counted', null, true, [[$now - 600, 'sent', 'backup', 'warning', $k], [$now - 60, 'resolved', 'jack', '-', '-']], 'backup', 'warnings', 'warning', 'counted', 'same'],
         // T01: an alert is never folded into «the same» - only the very same one again within a minute is counted
-        ['T01: the same alert 23 h 55 min later, unresolved: goes', null, true, [[$now - 86100, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'sent', ''],
-        ['T01: the same alert ten minutes later, unresolved: goes', null, true, [[$now - 600, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'sent', ''],
-        ['T01: the very same alert within a minute: counted', null, true, [[$now - 30, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'counted', 'same'],
-        ['T01: the very same alert a minute later: goes', null, true, [[$now - 60, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'sent', ''],
+        ['T01: the same alert 23 h 55 min later, unresolved: goes', null, true, [[$now - 86100, 'sent', 'backup', 'alert', $k]], 'backup', 'vm_not_started', 'alert', 'sent', ''],
+        ['T01: the same alert ten minutes later, unresolved: goes', null, true, [[$now - 600, 'sent', 'backup', 'alert', $k]], 'backup', 'vm_not_started', 'alert', 'sent', ''],
+        ['T01: the very same alert within a minute: counted', null, true, [[$now - 30, 'sent', 'backup', 'alert', $k]], 'backup', 'vm_not_started', 'alert', 'counted', 'same'],
+        ['T01: the very same alert a minute later: goes', null, true, [[$now - 60, 'sent', 'backup', 'alert', $k]], 'backup', 'vm_not_started', 'alert', 'sent', ''],
         ['T01: another alert (its own key) within a minute: goes', null, true, [[$now - 30, 'sent', 'backup', 'alert', 'ffffffffffffffff']], 'backup', 'failed', 'alert', 'sent', ''],
+        // 2.80, the rest of T01: a run's failure - the very same one (the same cause: its key) within 20 h is counted
+        ['2.80: the very same «Backup failed» ten minutes later, unresolved: counted', null, true, [[$now - 600, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'counted', 'same'],
+        ['2.80: the very same «Backup failed» 19 h 59 min later: counted', null, true, [[$now - 71940, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'counted', 'same'],
+        ['2.80: the very same «Backup failed» 20 h later (a daily schedule): goes', null, true, [[$now - 72000, 'sent', 'backup', 'alert', $k]], 'backup', 'failed', 'alert', 'sent', ''],
+        ['2.80: the very same «Backup failed», a success between: goes', null, true, [[$now - 600, 'sent', 'backup', 'alert', $k], [$now - 300, 'resolved', 'backup', '-', '-']], 'backup', 'failed', 'alert', 'sent', ''],
+        ['2.80: «Backup not started» (refused) again within 20 h: counted', null, true, [[$now - 3600, 'sent', 'backup', 'alert', $k]], 'backup', 'refused', 'alert', 'counted', 'same'],
+        ['2.80: another desk\'s «failed» alert keeps the minute', null, true, [[$now - 600, 'sent', 'watchman', 'alert', $k]], 'watchman', 'failed', 'alert', 'sent', ''],
     ];
     $five = array_map(fn ($i) => [$now - 100 * $i, 'sent', 'watchman', 'warning', "b$i" . str_repeat('0', 14)], range(1, 5));
     $twenty = array_map(fn ($i) => [$now - 100 * $i, 'sent', ['backup', 'jack', 'snapshot', 'moverelli'][$i % 4], 'warning', 'c' . str_pad((string) $i, 15, '0')], range(1, 20));
@@ -20975,11 +20987,22 @@ function testNotifyCenter(): void
         $lines($h, [[$t0, 'sent', 'backup', 'alert', $k1]]);
         $second = $decide($h, 'backup', 'failed', 'alert', $k2, $now);
         same("centre T01 ($who gate): two «Backup failed», another reason, 23 h 55 min apart, no success between - both sent", ['sent', 'sent'], [$first['fate'], $second['fate']]);
-        same("centre T01 ($who gate): … also with the same reason - an alert is never «the same» for a day", 'sent', $decide($h, 'backup', 'failed', 'alert', $k1, $now)['fate']);
+        same("centre T01 ($who gate): … also with the same reason after 23 h 55 min (past 20 h: a daily schedule reminds daily)", 'sent', $decide($h, 'backup', 'failed', 'alert', $k1, $now)['fate']);
         $lines($h, [[$t0, 'sent', 'backup', 'alert', $k1], [$now - 20, 'sent', 'backup', 'alert', $k2]]);
-        same("centre T01 ($who gate): the very same alert again within a minute - counted, one left", ['counted', 'same'],
-            array_values(array_intersect_key($decide($h, 'backup', 'failed', 'alert', $k2, $now), ['fate' => 1, 'why' => 1])));
+        same("centre T01 ($who gate): the very same alert again within a minute - counted, the second time", ['counted', 'same', 2],
+            array_values(array_intersect_key($decide($h, 'backup', 'failed', 'alert', $k2, $now), ['fate' => 1, 'why' => 1, 'times' => 1])));
         same("centre T01 ($who gate): … another one within that minute still goes", 'sent', $decide($h, 'backup', 'failed', 'alert', $k1, $now)['fate']);
+        // 2.80: the very same failure, run after run within the day - counted with how many times; another cause goes
+        $lines($h, [[$now - 7200, 'sent', 'backup', 'alert', $k2], [$now - 3600, 'counted', 'backup', 'alert', $k2], [$now - 1800, 'counted', 'backup', 'alert', $k2],
+                    [$now - 1700, 'counted', 'backup', 'alert', 'eeeeeeeeeeeeeeee']]);
+        same("centre 2.80 ($who gate): the very same «Backup failed» a fourth time within 20 h - counted, times 4 (another key's count not)", ['counted', 'same', 4],
+            array_values(array_intersect_key($decide($h, 'backup', 'failed', 'alert', $k2, $now), ['fate' => 1, 'why' => 1, 'times' => 1])));
+        same("centre 2.80 ($who gate): … another cause the same hour - it goes, times 0", ['sent', 0],
+            array_values(array_intersect_key($decide($h, 'backup', 'failed', 'alert', $k1, $now), ['fate' => 1, 'times' => 1])));
+        $lines($h, [[$now - 7200, 'sent', 'backup', 'alert', $k2], [$now - 3600, 'counted', 'backup', 'alert', $k2], [$now - 1800, 'resolved', 'backup', '-', '-'],
+                    [$now - 900, 'sent', 'backup', 'alert', $k2]]);
+        same("centre 2.80 ($who gate): after a success it went again, and the count starts anew", ['counted', 2],
+            array_values(array_intersect_key($decide($h, 'backup', 'failed', 'alert', $k2, $now), ['fate' => 1, 'times' => 1])));
     }
 
     // ---- officeNotify() through the gate: held, collected with its notice, the drops for the history
@@ -21084,6 +21107,8 @@ function testNotifyCenter(): void
     }
     same('centre T01 send: the very same alert twice at once goes once, another reason goes - sent, counted, sent', [2, ['sent', 'counted', 'sent']],
         [count($calls()), array_column(array_values(officeNotifyDropsRead($h)), 'fate')]);
+    same('centre 2.80 send: the counted one left its «counted» line in the guard', [['sent', 'alert'], ['counted', 'alert'], ['sent', 'alert']],
+        array_map(fn ($l) => [$l[1], $l[3]], officeNotifyGuardRead($h)));
     putenv('OFFICE_NOTIFY_HOME');
 
     // ---- the engine obeys (ub_notify through notifygate.sh), agent.sh too
@@ -21104,6 +21129,13 @@ function testNotifyCenter(): void
         [trim((string) $ub('ub_centre_decides && echo 0 || echo 1')), trim((string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/ub UB_NOTIFY_HOME=$tmp/none; source $lib >/dev/null 2>&1; ub_centre_decides && echo 0 || echo 1")))]);
     $ub('ub_tell failed alert "" "Backup failed" "why"');
     same('centre engine: the very same alert again within the minute, unresolved — counted', 2, count($calls()));
+    $ub('ub_tell failed alert "" "Backup failed" "why"');
+    $last = array_values(officeNotifyDropsRead($h));
+    $last = $last[count($last) - 1] ?? [];
+    same('centre engine 2.80: the very same «Backup failed» a third time — counted, its drop says times 3 (the PHP reader takes it, the history keeps it)',
+        [2, 'counted', 3, 3], [count($calls()), $last['fate'] ?? null, $last['times'] ?? null, officeNotifyLogEntry($last)['times'] ?? null]);
+    same('centre engine 2.80: … each counted one a «counted» line in the guard', 2,
+        count(array_filter(officeNotifyGuardRead($h), fn ($l) => $l[1] === 'counted' && $l[2] === 'backup')));
     $ub('ub_tell failed alert "" "Backup failed" "x" "why=Pool maple is full"');
     same('centre engine T01: «Backup failed» with another reason, unresolved — it goes (an alert is never folded into «the same»)', 3, count($calls()));
     $ub('ub_tell ok normal "" "Backup successful" "fine"; ub_tell failed alert "" "Backup failed" "why"');
