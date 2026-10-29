@@ -997,7 +997,7 @@ async function partnerStreams(browser) {
 //   - deep in the page, nothing free: the pill in the bottom right corner, in the window, never at the middle;
 //   - a button that waves itself (the disk card's «Tour, reading them too»): no other wave - until it leaves the window;
 //   - the wait over: the mark gone.
-const BUSY_ROUTES = ['snapshot', 'backup', 'restore', 'caretaker', 'cleanup/tidy', 'logs'];
+const BUSY_ROUTES = ['snapshot', 'backup', 'restore', 'caretaker', 'cleanup/tidy', 'logs', 'advisor', 'jack', 'moverelli', 'watchman'];   // every desk
 async function busyMark(browser) {
   const res = { route: 'busy mark', theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
   const t0 = Date.now();
