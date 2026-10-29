@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.78 - 2026-10-28
+# unraid-backup - setup.sh                        Version 2.79 - 2026-10-29
+#   2.79 Nothing new in the setup (backup.sh: an emptied repository behind Kopia's cache)
 #   2.77 Nothing new in the setup (backup.sh: the partner's total rate measured in milliseconds)
 #   2.76 What goes to a partner is asked per partner: a VM's or app's own dataset in a share stays here when its unit
 #        doesn't take it there (the VM or app not ticked for that partner, or the app's second dataset) - partner_left

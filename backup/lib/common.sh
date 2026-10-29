@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.78"
+UB_VERSION="2.79"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -1889,15 +1889,22 @@ kopia_sizes_load() {
 # a Kopia that errors (unreachable, forbidden) counts nothing. The office's Night Watchman looks once a day the same way
 # (backup.sh --kopia-count, read only).
 KC_FILE="$UB_STATE/kopia-count.json"
-KC_SNAPS=""; KC_SOURCES=""
-# kopia_count_load -> KC_SNAPS, KC_SOURCES (this identity's); 1 when Kopia didn't answer with a list
+KC_SNAPS=""; KC_SOURCES=""; KC_BLOB_GONE="no"
+# kopia_count_load -> KC_SNAPS, KC_SOURCES (this identity's); 1 when Kopia didn't answer with a list - KC_BLOB_GONE=yes
+# when the list failed because a blob Kopia's cache names is gone from the storage (2.79: «BLOB not found»)
 kopia_count_load() {
-    KC_SNAPS=""; KC_SOURCES=""
+    KC_SNAPS=""; KC_SOURCES=""; KC_BLOB_GONE="no"
     [[ "$KOPIA_CONNECTED" == "yes" && -n "$KOPIA_REPO_ID" ]] || return 1
-    local e=() js c
+    local e=() js c err
     [[ "$KOPIA_RUN_UID" != "0" ]] && e=( -e HOME=/tmp )
-    js="$(timeout "${UB_KOPIA_LIST_TIMEOUT:-60}" docker exec -u "$KOPIA_RUN_UID" "${e[@]}" "$KOPIA_CONTAINER" \
-              kopia --no-progress snapshot list --all --json 2>/dev/null)" || return 1
+    err="$(mktemp "${TMPDIR:-/tmp}/.uso-kopia-list.XXXXXX" 2>/dev/null)" || err=/dev/null
+    if ! js="$(timeout "${UB_KOPIA_LIST_TIMEOUT:-60}" docker exec -u "$KOPIA_RUN_UID" "${e[@]}" "$KOPIA_CONTAINER" \
+              kopia --no-progress snapshot list --all --json 2>"$err")"; then
+        [[ "$err" != /dev/null ]] && grep -q 'BLOB not found' "$err" 2>/dev/null && KC_BLOB_GONE="yes"
+        [[ "$err" != /dev/null ]] && rm -f "$err"
+        return 1
+    fi
+    [[ "$err" != /dev/null ]] && rm -f "$err"
     c="$(jq -r --arg u "$KOPIA_USER" --arg h "$KOPIA_HOST" 'if type == "array" then
             [.[] | select(.source.userName == $u and .source.host == $h)] | "\(length) \(map(.source.path) | unique | length)"
          else error("no list") end' 2>/dev/null <<<"$js")" || return 1
@@ -2009,8 +2016,21 @@ kopia_gone_check() {
     fi
     return 0
 }
+# kopia_format_gone_look - (2.79, B17) the storage itself asked whether the repository's own description (its format
+# blob kopia.repository) is still there: `blob list` lists the storage, past Kopia's cache. 0 = gone; 1 = there, or Kopia
+# didn't answer (never «gone» for an error of the way there). Read only.
+kopia_format_gone_look() {
+    local out
+    out="$(kopia_x blob list --prefix=kopia.repository 2>/dev/null)" || return 1
+    ! grep -q '^kopia\.repository' <<<"$out"
+}
 # kopia_emptied_check - before the upload: the count now against the last record of the same repository and identity,
-# and against the hold (2.56) - far fewer (none left, or less than half) holds the Kopia step: KOPIA_HELD=yes
+# and against the hold (2.56) - far fewer (none left, or less than half) holds the Kopia step: KOPIA_HELD=yes.
+# 2.79 (B17): the repository emptied while Kopia's cache still holds its description and indexes - Kopia opens it (its
+# status from the cache) but listing the snapshots fails, «BLOB not found»: the storage is asked (kopia_format_gone_look);
+# its format blob gone too is kopia_gone (kopia_gone_check: said once, an alert, the hold) - never an upload over it.
+# Kopia's cache is never cleared for this: the Kopia server in the container shares it, and a large repository would
+# fetch every index again
 kopia_emptied_check() {
     KOPIA_HELD="no"
     local was="" wt="" ws="" when hrepo="" hid="" hb="" hw="" hs="" before="" since="" sb=""
@@ -2019,6 +2039,23 @@ kopia_emptied_check() {
         [[ "$hrepo" == "$KOPIA_REPO_ID" && "$hid" == "$KOPIA_ID" ]] || kopia_held_end "connected to another repository or identity than the one held (a new one)"
     fi
     if ! kopia_count_load; then
+        if [[ -z "$KH_JSON" && "$KC_BLOB_GONE" == "yes" ]]; then
+            local said="${#WARN_ITEMS[@]}"
+            if kopia_format_gone_look; then
+                log "  Kopia's snapshots not counted: blobs its cache names are gone from the storage, and so is the repository's own description (kopia.repository) - emptied"
+                KOPIA_FORMAT_GONE="yes"
+                kopia_gone_check
+                if (( ${#WARN_ITEMS[@]} > said )); then
+                    KOPIA_HELD="yes"
+                    err "Kopia's step held - the offsite repository was emptied, Kopia only still has its cache of it (see the warning above): nothing goes offsite in this run"
+                else
+                    log "  (no count kept of this repository to compare with - not held)"
+                fi
+                return 0
+            fi
+            log "  Kopia's snapshots not counted: blobs its cache names are gone from the storage (the repository's description is still there) - not compared"
+            return 0
+        fi
         log "  Kopia's snapshots not counted (it didn't answer) - not compared"
         [[ -n "$KH_JSON" ]] || return 0
         before="$hb"; since="$hw"; sb="$hs"; KC_SNAPS="?"      # held before: nothing says the snapshots are back

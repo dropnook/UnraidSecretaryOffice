@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.78 - 2026-10-28
+# unraid-backup - backup.sh                       Version 2.79 - 2026-10-29
+#   2.79 The offsite repository emptied while Kopia's cache still opens it (B17): listing the snapshots fails with
+#        «BLOB not found» - the storage itself is asked (kopia blob list) whether the repository's description is still
+#        there; gone is kopia_gone (once, an alert, the hold) and the Kopia step holds - up to 2.78 the run just ended
+#        with Kopia's errors. --kopia-count says repository_gone then. Kopia's cache is never cleared for it
 #   2.77 How many at once (2.73) measured in milliseconds: the settling and the window's time no longer whole seconds
 #        read at any fraction of one (the total rate up to a second's worth off; a short window far more)
 #   2.76 Code review 1.72.0: a VM's or app's own dataset in a share sent to a partner whose unit doesn't go there stays
@@ -497,7 +501,11 @@ if [[ "$UB_MODE" == "kopia_count" ]]; then
         [[ "$KOPIA_FORMAT_GONE" == "yes" ]] && kc_not repository_gone      # the storage answers, the repository's format blob is gone
         [[ "$KOPIA_RUNNING" == "yes" ]] && kc_not not_connected; kc_not not_running
     fi
-    kopia_count_load || kc_not no_answer
+    if ! kopia_count_load; then
+        # 2.79: the repository's files gone while Kopia's cache still opens it - asked of the storage itself
+        [[ "$KC_BLOB_GONE" == "yes" ]] && kopia_format_gone_look && kc_not repository_gone
+        kc_not no_answer
+    fi
     kopia_count_json watch | jq -c '{ok: true} + .'
     exit 0
 fi
