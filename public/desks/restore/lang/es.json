@@ -30,6 +30,7 @@
   "notice.no_place": "El señor Backupsi todavía no tiene lugar de las copias (Configurar… → Básico). Allí estarán los paquetes de las apps y las VMs.",
   "notice.asleep": "El lugar de las copias ({path}) está en un disco que duerme. Muestro lo que leí antes y no lo despierto.",
   "notice.no_packages": "Todavía no hay paquetes en {path} — el señor Backupsi los escribe en cada copia de seguridad.",
+  "notice.settings_gone": "Los ajustes del señor Backupsi ya no están — busco los paquetes donde los dejaron sus últimas copias: {path}. Configúralo de nuevo en su mesa («Configurar…»); las copias hechas hasta ahora se quedan.",
   "help.tiles": "Mosaicos",
   "help.tiles_text": "Apps, VMs, recursos compartidos, bases de datos, fuera de casa, «Restaurados» y «A un servidor nuevo»: un clic abre esa parte, un segundo clic la vuelve a cerrar.",
   "help.row": "Una fila",

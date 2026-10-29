@@ -1688,7 +1688,8 @@ function drillKopiaDir(array &$j, array &$env, string $obj): ?array
  * A package's folder in a Kopia snapshot: an app's or VM's own source holds it as <share>/<folder>/apps|vms/<id>, the
  * backup place's share as <folder>/apps|vms/<id> (or <part>/<folder>/… where the engine mounted the share split over
  * its pools and disks; an own source <share>/<part>/<folder>/… for a share it names in `uso-split`). The snapshot's
- * tags say how (engine 2.80, rsKopiaLayout()); an older snapshot's: tried as before. Its object, its path as the local
+ * tags say how (engine 2.80, rsKopiaLayout(); an own source with no share in `uso-split` not split for sure since 2.81,
+ * which tags every own source); an older snapshot's: tried as before. Its object, its path as the local
  * compare reads it (<share>/…) and whether that path names a part (null: not known — guessed), or null; $failed: Kopia
  * didn't answer on the way.
  *

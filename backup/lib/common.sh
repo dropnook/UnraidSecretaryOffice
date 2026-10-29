@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.80"
+UB_VERSION="2.81"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -140,6 +140,18 @@ err_code() {
     shift 2
     for kv in "$@"; do p+=$'\x1f'"$kv"; done
     WARN_ITEMS+=( "$c$p" ); err "$t"
+}
+# err_as <code> <text> [<key> <value>]...  (2.81) - an error the office says in its own words, the params as pairs of
+#   strings like the setup's ok_as/bad_as: counted and logged like err; a caller that records coded messages (setup.sh's
+#   ub_msg_as: --plan, --apply, --forget) gets it as one too - an Apply that brings back what an aborted run left says
+#   what didn't come back (up to 2.80 counted as an error, but in setup-status.json without a word). A run (backup.sh)
+#   logs it like err.
+err_as() {
+    local c="$1" t="$2"
+    shift 2
+    err "$t"
+    if declare -F ub_msg_as >/dev/null; then ub_msg_as error "$c" "$t" "$@"; fi
+    return 0
 }
 
 # ub_notify <subject> <short text> [normal|warning|alert] [long text]
@@ -2752,7 +2764,7 @@ recover_containers() {
             case "$(docker inspect -f '{{.State.Running}}' "$n" 2>/dev/null)" in
                 true)  ;;
                 false) if docker start "$n" >/dev/null 2>>"${LOG_FILE:-/dev/null}"; then started+=( "$n" ); list+="$n "; back_ct+=( "$n" )
-                       else err "Container '$n' (from the aborted run) does not start - it stays noted (state/stopped)"; keep+=( "$n" ); fi ;;
+                       else err_as recover_ct_start "Container '$n' (from the aborted run) does not start - it stays noted (state/stopped)" name "$n"; keep+=( "$n" ); fi ;;
                 *)     log "  Container '$n' (from the aborted run) is gone - nothing to start" ;;
             esac
         done
@@ -2787,7 +2799,7 @@ nc_reclose() {
             log "  Nextcloud '$n': its data folder $p was open ($nm $nu:$ng - Unraid resets a share root that isn't of the group users so at the array start) - closed again as the run found it ($m $u:$g), only the folder itself. Lasting fix (Unraid then leaves it alone): chown $u:users '$p' && chmod 0770 '$p'"
             return 0
         fi
-        err "Nextcloud '$n': its data folder $p could not be closed again ($m $u:$g)"
+        err_as recover_nc_dir "Nextcloud '$n': its data folder $p could not be closed again ($m $u:$g)" name "$n" path "$p"
         return 1
     done <"$UB_STATE/nc-datadir"
     return 1
@@ -2852,7 +2864,7 @@ recover_maintenance() {
             list+="maintenance mode $n off (its data folder closed again) "; back_nc+=( "$n (its data folder closed again)" )
         else
             while IFS= read -r f; do [[ -n "${f//[[:space:]]/}" ]] && log "    occ: ${f%$'\r'}"; done < <(head -20 <<<"$out")
-            err "Maintenance mode of '$n' could not be switched off - it stays noted (state/maintenance)"
+            err_as recover_nc_maintenance "Maintenance mode of '$n' could not be switched off - it stays noted (state/maintenance)" name "$n"
             keep+=( "$n" )
         fi
     done
@@ -2875,13 +2887,13 @@ recover_vms() {
         case "$how" in
             frozen)   [[ "$st" == "running" ]] || continue
                       if timeout 30 virsh domfsthaw "$n" >/dev/null 2>&1; then list+="VM $n thawed "; back_vm+=( "VM $n thawed" )
-                      else err "VM '$n' (from the aborted run) could not be thawed - it stays noted (state/vms)"; keep+=( "$n|$how" ); fi ;;
+                      else err_as recover_vm_thaw "VM '$n' (from the aborted run) could not be thawed - it stays noted (state/vms)" name "$n"; keep+=( "$n|$how" ); fi ;;
             paused)   [[ "$st" == "paused" ]] || continue
                       if timeout 30 virsh resume "$n" >/dev/null 2>&1; then list+="VM $n resumed "; back_vm+=( "VM $n resumed" )
-                      else err "VM '$n' (from the aborted run) does not resume - it stays noted (state/vms)"; keep+=( "$n|$how" ); fi ;;
+                      else err_as recover_vm_resume "VM '$n' (from the aborted run) does not resume - it stays noted (state/vms)" name "$n"; keep+=( "$n|$how" ); fi ;;
             shutdown) [[ "$st" == "shut off" ]] || continue
                       if timeout 60 virsh start "$n" >/dev/null 2>&1; then list+="VM $n started "; back_vm+=( "VM $n started" )
-                      else err "VM '$n' (from the aborted run) does not start - it stays noted (state/vms)"; keep+=( "$n|$how" ); fi ;;
+                      else err_as recover_vm_start "VM '$n' (from the aborted run) does not start - it stays noted (state/vms)" name "$n"; keep+=( "$n|$how" ); fi ;;
         esac
     done <"$UB_STATE/vms"
     (( ${#keep[@]} )) && stay+="${stay:+; }VMs not back (still noted): $(printf '%s\n' "${keep[@]}" | cut -d'|' -f1 | paste -sd' ' -)"
@@ -3782,7 +3794,9 @@ share_layout() {
 # A share's snapshot carries «uso-layout:<single|overlay|split|live>» (how it was mounted this run, SHARE_MOUNTED - an
 # overlay that fell back to one subfolder per part is split) and, split, «uso-parts:<base>|<base>…» - its pools and
 # disks in the order its source holds them as <share>/<base>/…; an app's or VM's own source whose parts lie in a share
-# mounted split (<share>/<base>/<path> inside it) carries «uso-split:<share>|<share>…». "|" - never in a share's name
+# mounted split (<share>/<base>/<path> inside it) carries «uso-split:<share>|<share>…»; since 2.81 every own source also
+# «uso-layout:own», so an own source without uso-split is not split for sure (a 2.80 one without it: no tag at all, read
+# as before - a guess). "|" - never in a share's name
 # (share_name_ok) nor a pool's. Kopia's snapshot list --json shows them as tags {"tag:uso-layout": "split", …}. Only
 # from Kopia 0.13 (kopia_tags_ok: --tags is older, but an unknown flag would fail the upload); without: no tags, as
 # up to 2.79. KT_ARGS: the arguments for snapshot create (--tags k:v …), empty when none.
@@ -3804,10 +3818,11 @@ kopia_item_tags() { # kopia_item_tags <the shares its parts lie in, mounted spli
     local sh list=""
     KT_ARGS=()
     kopia_tags_ok || return 0
+    KT_ARGS=( --tags "uso-layout:own" )
     while IFS= read -r sh; do
         [[ -n "$sh" ]] && share_name_ok "$sh" && [[ "|$list|" != *"|$sh|"* ]] && list+="${list:+|}$sh"
     done <<<"$1"
-    [[ -n "$list" ]] && KT_ARGS=( --tags "uso-split:$list" )
+    [[ -n "$list" ]] && KT_ARGS+=( --tags "uso-split:$list" )
     return 0
 }
 

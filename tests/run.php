@@ -6414,8 +6414,9 @@ function testBackupKopiaSplitTags(): void
     same('split tags: an old Kopia, or a layout of no known shape - no tags (as up to 2.79)', ['', ''],
         [$sh("KOPIA_VERSION=0.12.0; kopia_share_tags films split; $args"), $sh("kopia_share_tags films 'x y'; $args")]);
     same('split tags: an app with parts in shares mounted split - each share once, a name that can\'t be one left out',
-        "--tags\nuso-split:films|Fotos Ärger", $sh('kopia_item_tags "films"$\'\\n\'"Fotos Ärger"$\'\\n\'"films"$\'\\n\'"a|b"$\'\\n\'; ' . $args));
-    same('split tags: none split - no tags', '', $sh("kopia_item_tags ''; $args"));
+        "--tags\nuso-layout:own\n--tags\nuso-split:films|Fotos Ärger", $sh('kopia_item_tags "films"$\'\\n\'"Fotos Ärger"$\'\\n\'"films"$\'\\n\'"a|b"$\'\\n\'; ' . $args));
+    same('split tags: none split - 2.81: the own source says so (uso-layout own); an old Kopia - no tags', ["--tags\nuso-layout:own", ''],
+        [$sh("kopia_item_tags ''; $args"), $sh("KOPIA_VERSION=0.12.0; kopia_item_tags films; $args")]);
     // backup.sh hands them to the upload: the share's, the app's or VM's - never the flash's
     $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
     check('split tags: backup.sh - the share\'s upload carries its tags', str_contains($bk, 'kopia_share_tags "$s" "${SHARE_MOUNTED[$s]}"') && str_contains($bk, 'kopia_one "$s" "$cp" "${KT_ARGS[@]}"'));
@@ -6747,7 +6748,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.80'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.81'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -8734,9 +8735,31 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.80 everywhere it is named', ['2.80', '2.80', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.80"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.80** –')]);
+    same('data trust: the engine\'s version 2.81 everywhere it is named', ['2.81', '2.81', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.81"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.81** –')]);
+    // 2.81 (B42): a run with settings.ini gone ends with a code the office says in its own words - never the script's name
+    $gone = $mk('nosettings', 0700);
+    @unlink("$tmp/notified");
+    [$e3] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh'], ['UB_DATA' => $gone] + $env, 60);
+    $st = json_decode((string) @file_get_contents("$gone/state/status.json"), true) ?: [];
+    $said = (string) @file_get_contents("$tmp/notified");
+    same('data trust: 2.81 - no settings.ini: the run fails with the code settings_missing, the alert in the office\'s words (no script named), the log keeps the English',
+        [1, 'failed', 'settings_missing', true, false, true],
+        [$e3, $st['result'] ?? null, $st['message'] ?? null, str_contains($said, 'the settings are gone'), str_contains($said, 'setup.sh'),
+         str_contains(implode('', array_map('file_get_contents', glob("$gone/logs/run-*.log") ?: [])), 'settings.ini is missing')], $said);
+    preg_match_all('/\bdie_code ([a-z_]+) "/', (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), $dc);
+    $noWords = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $words = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
+        foreach (array_unique($dc[1]) as $c) {
+            if (!isset($words["message.$c"]) || str_contains(json_encode($words["message.$c"]), '.sh')) {
+                $noWords[] = "$l:$c";
+            }
+        }
+    }
+    same('data trust: every code a run ends with (die_code) has the office\'s words in all five languages, none naming a script',
+        [[], true], [$noWords, in_array('settings_missing', $dc[1], true)]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -10085,7 +10108,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.80', [1, '2.80'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.81', [1, '2.81'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -10798,7 +10821,7 @@ SH);
         [['UnraidSecretaryOffice' => 'ok:', 'app:c2' => 'skipped:asleep', 'appdata' => 'ok:', 'media' => 'skipped:asleep'], ['share:appdata' => 'skipped:unreachable', 'share:media' => 'skipped:asleep']],
         [$kr, $pr], json_encode($res));
     same('asleep skip 2.80: results.json - v 1, the engine, this run; a good upload\'s good is its time, a skipped one has none yet',
-        [1, '2.80', $s['run'] ?? null, $res['kopia']['appdata']['time'] ?? -1, 0],
+        [1, '2.81', $s['run'] ?? null, $res['kopia']['appdata']['time'] ?? -1, 0],
         [$res['v'] ?? null, $res['engine'] ?? null, $res['run'] ?? null, $res['kopia']['appdata']['good'] ?? null, $res['kopia']['media']['good'] ?? null]);
     check('asleep skip: the log - one line for the pool', str_contains($l, 'ZFS hazel: asleep - left out this run (asleep_pools = skip)') && substr_count($l, 'ZFS hazel: asleep - left out') === 1, $l);
     check('asleep skip: last-run asleep=4, history asleep.units 4', str_contains((string) @file_get_contents("$data/state/last-run"), "asleep=4\n") && ($lastHistory()['asleep']['units'] ?? null) === 4);
@@ -10875,7 +10898,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.80', [1, '2.80'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.81', [1, '2.81'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -15000,12 +15023,16 @@ function testRestoreReviewPaths(): void
     $GLOBALS['rs']['ctx'] = $ctx;
     same('engine 2.80: the layout from the tags — a share split (its parts), single/overlay/live, none or unknown (null: guessed), an own source\'s split shares',
         [['split' => true, 'parts' => ['cache', 'disk1'], 'shares' => []], false, false, false, null, null,
-         ['split' => false, 'parts' => [], 'shares' => ['appdata', 'media 2']], null, ['split' => true, 'parts' => ['cache'], 'shares' => []]],
+         ['split' => false, 'parts' => [], 'shares' => ['appdata', 'media 2']], ['split' => false, 'parts' => [], 'shares' => []], ['split' => true, 'parts' => ['cache'], 'shares' => []]],
         [rsKopiaLayout(['tag:uso-layout' => 'split', 'tag:uso-parts' => 'cache|disk1'], 'media'), rsKopiaLayout(['tag:uso-layout' => 'single'], 'media')['split'],
          rsKopiaLayout(['tag:uso-layout' => 'overlay'], 'media')['split'], rsKopiaLayout(['tag:uso-layout' => 'live'], 'media')['split'],
          rsKopiaLayout([], 'media'), rsKopiaLayout(['tag:uso-layout' => 'odd'], 'media'),
          rsKopiaLayout(['tag:uso-split' => 'appdata|media 2|../x'], '.apps/nc'), rsKopiaLayout(['tag:uso-layout' => 'split'], '.apps/nc'),
          rsKopiaLayout(['tag:uso-layout' => 'split', 'tag:uso-parts' => 'cache|..|a/b|'], 'media')]);
+    same('engine 2.81: an own source tagged at all (uso-layout own) - not split for sure, its split shares when named; a 2.80 one with no tag - null (guessed)',
+        [['split' => false, 'parts' => [], 'shares' => []], ['split' => false, 'parts' => [], 'shares' => ['appdata']], null, null],
+        [rsKopiaLayout(['tag:uso-layout' => 'own'], '.apps/nc'), rsKopiaLayout(['tag:uso-layout' => 'own', 'tag:uso-split' => 'appdata'], '.vms/win'),
+         rsKopiaLayout([], '.apps/nc'), rsKopiaLayout(['tag:uso-layout' => 5], '.apps/nc')]);
     same('engine 2.80: an own source with appdata in uso-split — <share>/<part>/<path>: the part dropped; the part alone only staged; untagged as before',
         ['/mnt/user/appdata/nc/config.php', null, '/mnt/user/appdata/hazel/nc/config.php', '/mnt/user/system/x'],
         [rsKopiaLive('.apps/nc', 'appdata/hazel/nc/config.php', false, $settings, null, ['appdata']), rsKopiaLive('.apps/nc', 'appdata/hazel', false, $settings, null, ['appdata']),
@@ -15818,6 +15845,95 @@ function testRestorePaths(): void
         array_map(fn ($x) => [$x['snap'], $x['kopia'], $x['path'], $x['run'], $x['files']], $list));
     same('restore paths: … and found again by its id for the restore', "$tmp/restore/apps_nc-$stamp/nc",
         rsPlanVersion(['version' => "kopia:$id"], ['places' => [], 'share' => 'UnraidSecretaryOffice'], 'app', ['id' => 'nc', 'run' => ''])[1]['path'] ?? null);
+
+    // ---- engine 2.80/2.81: the backup place's share split over its parts — the package's path from the snapshot's tags
+    same('restore paths: a package under a part of a split share — <part>/<folder>/…, an own source <share>/<part>/<folder>/…',
+        ['disk1/backup/apps/nc', 'UnraidSecretaryOffice/rowan/backup/apps/nc'],
+        [rsKopiaPackageRel('UnraidSecretaryOffice', '/mnt/user/UnraidSecretaryOffice/backup', 'app', 'nc', 'disk1'),
+         rsKopiaPackageRel('.apps/nc', '/mnt/user/UnraidSecretaryOffice/backup', 'app', 'nc', 'rowan')]);
+    $sp = fn (string $src, array $tags) => [rsKopiaPackageSplit($src, '/mnt/user/UnraidSecretaryOffice/backup', $tags, $pp), $pp];
+    same('restore paths: split or not from the tags — the share\'s own source (its parts), an own source naming the share, another share named, single, untagged',
+        [[true, ['hazel', 'disk1']], [true, null], [false, null], [false, []], [false, null], [false, null]],
+        [$sp('UnraidSecretaryOffice', ['tag:uso-layout' => 'split', 'tag:uso-parts' => 'hazel|disk1']), $sp('.apps/nc', ['tag:uso-split' => 'appdata|UnraidSecretaryOffice']),
+         $sp('.apps/nc', ['tag:uso-split' => 'appdata']), $sp('UnraidSecretaryOffice', ['tag:uso-layout' => 'single']), $sp('UnraidSecretaryOffice', []), $sp('.apps/nc', [])]);
+    $pk = fn (int $n) => $o("pk$n");
+    $snapAt = fn (string $c, string $time, string $root, array $tags) => ['id' => str_repeat($c, 32), 'startTime' => $time, 'description' => 'uso-backup ' . substr(str_replace(['-', 'T', ':'], '', $time), 0, 8) . '-0100',
+        'incompleteReason' => '', 'rootEntry' => ['obj' => $root, 'summ' => ['size' => 8]]] + ($tags ? ['tags' => $tags] : []);
+    $split = ['tag:uso-layout' => 'split', 'tag:uso-parts' => 'hazel|disk1'];
+    // 1: on disk1 (with its manifest); 2: on hazel; 3: untagged (the path as before, no look); 4: split, on no part; 5: single
+    file_put_contents("$K/{$pk(1)}_disk1_backup_apps_nc", $dir([$fent('manifest.json', 5)]));
+    file_put_contents("$K/{$pk(2)}_hazel_backup_apps_nc", $dir([$fent('manifest.json', 5)]));
+    file_put_contents("$K/{$pk(2)}_disk1_backup_apps_nc", $dir([$fent('half.sql', 5)]));      // the mover in the middle: only a folder there
+    file_put_contents("$K/list.json", json_encode([$snapAt('1', '2026-10-24T00:10:00Z', $pk(1), $split), $snapAt('2', '2026-10-23T00:10:00Z', $pk(2), $split),
+        $snapAt('3', '2026-10-22T00:10:00Z', $pk(3), []), $snapAt('4', '2026-10-21T00:10:00Z', $pk(4), $split),
+        $snapAt('5', '2026-10-20T00:10:00Z', $pk(5), ['tag:uso-layout' => 'single'])]));
+    $GLOBALS['rs']['state']['apps'][0]['kopia'] = [['source' => 'UnraidSecretaryOffice', 'own' => false, 'covers' => 'package', 'last' => $T1]];
+    @unlink("$tmp/docker.log");
+    $v = rsVersionsKopia('app', 'nc');
+    same('restore paths: Kopia\'s packages in the backup place\'s share mounted split — each from the part its snapshot holds it on (the manifest\'s part before a bare folder); untagged and single as before; a split one without it not offered',
+        [['1', 'disk1/backup/apps/nc'], ['2', 'hazel/backup/apps/nc'], ['3', 'backup/apps/nc'], ['5', 'backup/apps/nc']],
+        array_map(fn ($x) => [$x['snapshot'][0], $x['path']], $v['versions']));
+    $shows = array_values(array_map(fn ($l) => preg_match('#show (\S+?)/(hazel|disk1)/#', $l, $sm) ? array_search($sm[1], array_map($pk, range(1, 5))) + 1 . ":$sm[2]" : trim($l),
+        preg_grep('/ show /', file("$tmp/docker.log") ?: [])));
+    same('restore paths: … looked up in Kopia only for the split ones, the part found for the one before first',
+        ['1:hazel', '1:disk1', '2:disk1', '2:hazel', '4:hazel', '4:disk1'], $shows);
+    // an own source whose part of the place's share sits split (uso-split): the parts are the folders under the share
+    file_put_contents("$K/{$pk(6)}_UnraidSecretaryOffice", $dir([$dent('rowan', 5, 1)]));
+    file_put_contents("$K/{$pk(6)}_UnraidSecretaryOffice_rowan_backup_apps_nc", $dir([$fent('manifest.json', 5)]));
+    file_put_contents("$K/list.json", json_encode([$snapAt('6', '2026-10-25T00:10:00Z', $pk(6), ['tag:uso-split' => 'UnraidSecretaryOffice', 'tag:uso-layout' => 'own']),
+        $snapAt('7', '2026-10-19T00:10:00Z', $pk(7), ['tag:uso-layout' => 'own'])]));
+    $GLOBALS['rs']['state']['apps'][0]['kopia'] = [['source' => '.apps/nc', 'own' => true, 'covers' => 'all', 'last' => $T1]];
+    same('restore paths: … an own source naming the share in uso-split — under the part found there; one not naming it as before',
+        [['6', 'UnraidSecretaryOffice/rowan/backup/apps/nc'], ['7', 'UnraidSecretaryOffice/backup/apps/nc']],
+        array_map(fn ($x) => [$x['snapshot'][0], $x['path']], rsVersionsKopia('app', 'nc')['versions']));
+    // what Kopia brought back of a split one is an earlier version too: the part named in its path
+    $put("$K/data/{$pk(1)}_disk1_backup_apps_nc/manifest.json", $man);
+    file_put_contents("$K/{$pk(1)}_disk1_backup_apps", $dir([$dent('nc', 5, 1)]));
+    file_put_contents("$K/list.json", json_encode([$snapAt('1', '2026-10-24T00:10:00Z', $pk(1), $split)]));
+    $stamp = '20261025-150000';
+    $p = rsPlanKopiaPath(['mode' => 'stage'], $stamp, $kstate, 'UnraidSecretaryOffice', str_repeat('1', 32), 'disk1/backup/apps/nc');
+    $id = "$stamp-ff66";
+    rsPrivateDir(rsDir($id));
+    $p['stamp'] = $stamp;
+    $j = rsJournalNew($id, $p);
+    $j['steps'][0] = array_merge($j['steps'][0], rsStep($j, 0));
+    $j['result'] = 'ok';
+    $j['finished'] = time();
+    writeAtomic(rsDir($id) . '/plan.json', jsonEncode($p), 0600, 0, 0);
+    rsJournalWrite($j);
+    same('restore paths: … what Kopia brought back from the split share\'s part is an earlier version of the package', [[], "$tmp/restore/UnraidSecretaryOffice-$stamp/nc"],
+        [array_column($p['blockers'], 'key'), array_column(array_filter(rsKopiaPackages('app', 'nc', '/mnt/user/UnraidSecretaryOffice/backup'), fn ($x) => $x['id'] === "kopia:$id"), 'path')[0] ?? null]);
+    $GLOBALS['rs']['state'] = $kstate;
+
+    // ---- B42: settings.ini gone — the backup place as the engine's last runs had it, never «no packages»
+    $st = "$tmp/data/unraid-backup/state";
+    $where = fn (array $s = []) => array_values(rsPlaceShare($s));
+    same('restore paths: the place from the settings; none set up and no run here — none, as before',
+        [['Ablage', 'settings'], ['', 'settings']], [$where(['general' => ['dumps_share' => ['Ablage']]]), $where()]);
+    file_put_contents("$st/history.jsonl", json_encode(['started' => 1, 'packages' => ['base' => '/mnt/user/Ablage/unraid-backup']]) . "\n"
+        . json_encode(['started' => 2, 'packages' => ['base' => '/mnt/user/UnraidSecretaryOffice/backup']]) . "\n" . json_encode(['started' => 3, 'result' => 'failed', 'packages' => null]) . "\n");
+    file_put_contents("$st/last-run.json", json_encode(['result' => 'failed', 'message' => 'settings_missing', 'packages' => null]));
+    same('restore paths: settings gone — the place the last run with packages wrote (history), the run that failed for it has none', ['UnraidSecretaryOffice', 'last_run'], $where());
+    file_put_contents("$st/status.json", json_encode(['packages' => ['base' => '/mnt/user/Ablage/unraid-backup']]));
+    same('restore paths: … status.json first', ['Ablage', 'last_run'], $where());
+    $odd = [];
+    foreach (['/mnt/user/../etc/backup', '/mnt/user/Ablage/elsewhere', '/mnt/user/.x/unraid-backup', ['x']] as $bad) {
+        file_put_contents("$st/status.json", json_encode(['packages' => ['base' => $bad]]));
+        file_put_contents("$st/history.jsonl", json_encode(['packages' => ['base' => $bad]]) . "\n");
+        $odd[] = $where();
+    }
+    same('restore paths: … a base not in exactly the engine\'s shape never taken — the office\'s own share then', array_fill(0, 4, ['UnraidSecretaryOffice', 'office_share']), $odd);
+    $c = $ctx;
+    file_put_contents("$st/status.json", json_encode(['packages' => ['base' => '/mnt/user/UnraidSecretaryOffice/backup']]));
+    $pl = rsPlace([], $c);
+    same('restore paths: … rsPlace says where and that the settings didn\'t name it', ['UnraidSecretaryOffice', '/mnt/user/UnraidSecretaryOffice/backup', 'last_run'],
+        [$pl['share'], $pl['base'], $pl['from']]);
+    check('restore paths (page): … and says the settings are gone, with the place it looks in',
+        str_contains((string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js'), "state.place.from !== 'settings') callout(T('notice.settings_gone', { path: state.place.base }), true)")
+        && str_contains((string) langFile(OFFICE_WEB . '/desks/restore/lang/en.json')['notice.settings_gone'], '{path}'));
+    foreach (['status.json', 'last-run.json', 'history.jsonl'] as $f) {
+        @unlink("$st/$f");
+    }
 
     // ---- the page: the tile and section, Kopia's browse, the versions
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
@@ -36075,6 +36191,15 @@ function testRestoreDrill(): void
         [['UnraidSecretaryOffice/rowan/backup/apps/immich', true], null],
         [(fn ($r) => $r ? [$r['rel'], $r['split']] : null)(drillKopiaPackageDir($kj, $kenv, $o('dU3'), 'UnraidSecretaryOffice', 'app', 'immich', ['tag:uso-layout' => 'split', 'tag:uso-parts' => 'rowan'])),
          drillKopiaPackageDir($kj, $kenv, $o('dU3'), 'UnraidSecretaryOffice', 'app', 'immich', ['tag:uso-layout' => 'single'])]);
+    $pkgAt = fn (array $tags) => (fn ($r) => $r ? [$r['rel'], $r['split']] : null)(drillKopiaPackageDir($kj, $kenv, $o('dROOT'), '.apps/immich', 'app', 'immich', $tags));
+    same('engine 2.81: an own source tagged (uso-layout own) without uso-split - its package not split for sure (never a part tried in the local snapshot); untagged - not known (guessed)',
+        [['UnraidSecretaryOffice/backup/apps/immich', false], ['UnraidSecretaryOffice/backup/apps/immich', null]],
+        [$pkgAt(['tag:uso-layout' => 'own']), $pkgAt([])]);
+    $kenv['kopia_left'] = 1 << 20;
+    file_put_contents("$local/db/pg.sql.gz", $dump);
+    $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dROOT'), 'run' => '20261101-0200', 'tags' => ['tag:uso-layout' => 'own']], $kenv);
+    same('engine 2.81: drill Kopia sample - an own source tagged without uso-split: its package compared with the share\'s local snapshot', [2, 2, null],
+        [$sample['files'], $sample['compared'], $sample['differs']]);
     // the whole step: list (newest complete), structure, sample
     file_put_contents("$tmp/kopia/list.json", json_encode([['id' => str_repeat('c', 20), 'startTime' => date('c', time() - 3600), 'description' => 'uso-backup 20261101-0200',
         'incompleteReason' => '', 'rootEntry' => ['obj' => $o('dROOT'), 'summ' => ['size' => 99, 'files' => 3, 'numFailed' => 0]]]]));
@@ -44516,8 +44641,12 @@ function testSetupMessages(): void
 
     // --- the strings: every code the engine sends has the office's words
     $sh = (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh');
-    // 2.58: the OK and error lines too (ok_as, bad_as)
+    // 2.58: the OK and error lines too (ok_as, bad_as); 2.81: the engine's own errors a setup records (lib/common.sh err_as)
     preg_match_all('/\b(?:hint_as|wrn_as|wrn_code|hint_code|ok_as|bad_as) "?([a-z][a-z0-9_]*)/', $sh, $m);
+    preg_match_all('/\berr_as ([a-z][a-z0-9_]*) "/', (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh'), $lm);
+    same('setup messages: 2.81 - what an aborted run left and didn\'t come back is coded (lib/common.sh err_as)',
+        ['recover_ct_start', 'recover_nc_dir', 'recover_nc_maintenance', 'recover_vm_thaw', 'recover_vm_resume', 'recover_vm_start'], $lm[1]);
+    $m[1] = array_merge($m[1], $lm[1]);
     $codes = array_values(array_unique(array_filter($m[1], fn ($c) => !str_ends_with($c, '_'))));
     preg_match_all('/\b(?:hint_as|wrn_as|hint_code|bad_as) "([a-z_]+)_\$/', $sh, $dyn);
     $more = [];
@@ -44567,6 +44696,74 @@ function testSetupMessages(): void
     check('setup messages: the page renders the grouped notes (setup_get\'s notes) and falls back to the engine\'s text',
         str_contains($js, 'function setupNoteItems(g, withStep)') && str_contains($js, "setupMessages(placeNotes(setupNotes(plan)))") && str_contains($js, '[it.text, ...(it.more || [])]'));
     check('setup messages: setup_get answers the notes beside plan and run', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php'), "\$plan['notes'] = backupSetupNotes("));
+    check('setup messages: an error the page knows in its own words, else the engine\'s text (the plan that failed)',
+        str_contains($js, "m.code && Office.has(`\${ID}.setup.msg.\${m.code}`) ? T('setup.msg.' + m.code, setupMsgParams(m.params)) : m.text"));
+
+    // --- 2.81: a status file of 2.80 (an error of the engine's own still plain text) and of 2.81 (coded) - both read
+    $st280 = ['interface' => 1, 'version' => '2.80', 'mode' => 'apply', 'result' => 'errors', 'errors' => 1, 'messages' => [
+        ['level' => 'ok', 'step' => 'environment', 'text' => 'Unraid 7.2.0', 'code' => 'unraid_version', 'params' => ['version' => '7.2.0']],
+        ['level' => 'error', 'step' => 'write', 'text' => 'Kopia policy for appdata could not be set', 'code' => 'policy_failed', 'params' => ['source' => 'appdata']],
+        ['level' => 'ok', 'step' => 'environment', 'text' => 'an older engine\'s plain line']]];
+    same('setup messages: a 2.80 status file - its coded lines grouped, a plain line its text (the page falls back to it)',
+        [['ok', 'unraid_version', null], ['error', 'policy_failed', null], ['ok', null, 'an older engine\'s plain line']],
+        array_map(fn ($g) => [$g['level'], $g['code'] ?? null, isset($g['code']) ? null : $g['items'][0]['text']], backupSetupNotes($st280['messages'])));
+    $st281 = $st280['messages'];
+    $st281[2] = ['level' => 'error', 'step' => 'environment', 'text' => "VM 'Win 11' (from the aborted run) does not start - it stays noted (state/vms)",
+                 'code' => 'recover_vm_start', 'params' => ['name' => 'Win 11']];
+    $g = backupSetupNotes($st281)[2] ?? [];
+    same('setup messages: a 2.81 status file - the aborted run\'s error coded, in the office\'s words', ['error', 'recover_vm_start', ['name' => 'Win 11'], true],
+        [$g['level'] ?? null, $g['code'] ?? null, $g['items'][0]['params'] ?? null, str_contains((string) $en['setup.msg.recover_vm_start'], '{name}')]);
+
+    // --- 2.81: the engine's own error recorded through setup.sh's functions (msg, msg_as, ub_msg_as, msgs_json)
+    $fn = function (string $src, string $name): string {
+        $i = strpos($src, "\n$name() ");
+        if ($i === false) {
+            return '';
+        }
+        $out = '';
+        foreach (explode("\n", substr($src, $i + 1)) as $line) {
+            $out .= "$line\n";
+            if ($line === '}' || str_ends_with(rtrim($line), '; }')) {
+                return $out;
+            }
+        }
+        return '';
+    };
+    $defs = implode('', array_map(fn ($n) => $fn($sh, $n), ['msg', 'msg_as', 'ub_msg_as', 'us_json', 'msgs_json']));
+    $tmp = sys_get_temp_dir() . '/office-tests-setupmsg-rec-' . getmypid();
+    @mkdir("$tmp/bin", 0700, true);
+    @mkdir("$tmp/state", 0700, true);
+    file_put_contents("$tmp/bin/virsh", "#!/bin/bash\n[[ \"\$1\" == domstate ]] && { echo 'shut off'; exit 0; }\nexit 1\n");
+    chmod("$tmp/bin/virsh", 0755);
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $rec = fn (string $hook) => (string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/data; source $lib >/dev/null 2>&1; export PATH=$tmp/bin:\$PATH;"
+        . " UB_STATE=$tmp/state UB_VAR_INI=$tmp/none LOG_FILE=''; MODE=apply; STEP_ID=environment; declare -a MSGS=(); $hook\n"
+        . "printf 'Win 11|shutdown\\n' >\"\$UB_STATE/vms\"; recover_vms >/dev/null; echo \"ERRORS=\$ERRORS\"; msgs_json") . ' 2>&1');
+    $out = $rec($defs);
+    $j = json_decode((string) substr($out, (int) strpos($out, "\n") + 1), true);
+    same('setup messages (engine): 2.81 - a VM the aborted run left that doesn\'t start: counted, recorded at level error with its code, step and name; still noted',
+        ['ERRORS=1', [['level' => 'error', 'step' => 'environment', 'text' => "VM 'Win 11' (from the aborted run) does not start - it stays noted (state/vms)",
+                       'code' => 'recover_vm_start', 'params' => ['name' => 'Win 11']]], "Win 11|shutdown\n"],
+        [strtok($out, "\n"), $j, @file_get_contents("$tmp/state/vms")], $out);
+    check('setup messages (engine): … a run (no ub_msg_as) counts and logs it as before - nothing recorded',
+        str_starts_with($rec('msgs_json() { echo "[]"; }'), "ERRORS=1\n[]"));
+    check('setup messages (engine): … setup.sh records the engine\'s coded lines like its own, bringing back what an aborted run left under the step environment',
+        str_contains($sh, 'ub_msg_as() { msg_as "$@"; }') && str_contains($sh, '{ STEP_ID=environment; recover_interrupted_run; }'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+    // the plain ok/bad lines left are those of --check and the orphans' modes, which record no messages (msg)
+    $plain = [];
+    $func = '';
+    foreach (explode("\n", $sh) as $line) {
+        if (preg_match('/^([a-z_0-9]+)\(\) *\{/', $line, $fm)) {
+            $func = $fm[1];
+            continue;                   // a helper's own line (ok() { … msg ok "$*"; }) says nothing
+        }
+        if (preg_match('/(^|[\s;&|{(])(ok|bad|hint|wrn) "/', $line) && !str_starts_with(ltrim($line), '#')
+            && !in_array($func, ['run_check', 'orphans_scan', 'orphans_delete'], true) && !str_contains($line, '--orphans-delete needs')) {
+            $plain[] = trim($line);
+        }
+    }
+    same('setup messages: no plain ok, hint, warning or error line where a plan, an apply or a forget records it', [], $plain);
 
     // --- setup.sh --plan on a fixture server
     $tmp = sys_get_temp_dir() . '/office-tests-setupmsg-' . getmypid();
@@ -55495,7 +55692,7 @@ function testBackupResults(): void
     $local = json_encode([['key' => 'share:appdata', 'result' => 'ok', 'code' => ''], ['key' => 'share:media', 'result' => 'skipped', 'code' => 'asleep']]);
     [$out, $r] = $run($c, $local);
     $pick = fn (?array $e) => $e === null ? null : [$e['result'], $e['code'], $e['time'], $e['good']];
-    same('results 2.80: written - v 1, the engine, the run that wrote it', ['rc=0', 1, '2.80', '20261003-0100', true], [$out, $r['v'] ?? null, $r['engine'] ?? null, $r['run'] ?? null, is_int($r['updated'] ?? null)]);
+    same('results 2.80: written - v 1, the engine, the run that wrote it', ['rc=0', 1, '2.81', '20261003-0100', true], [$out, $r['v'] ?? null, $r['engine'] ?? null, $r['run'] ?? null, is_int($r['updated'] ?? null)]);
     same('results 2.80: none yet - the history folded in first: appdata\'s Kopia failed in B, its newest good copy A\'s; the skipped run nothing',
         [['failed', '', 1990, 990], ['ok', '', 995, 995]], [$pick($r['kopia']['appdata'] ?? null), $pick($r['kopia']['app:Emby'] ?? null)]);
     same('results 2.80: this run - docs uploaded, media skipped asleep, films skipped by the array stop (no why)',

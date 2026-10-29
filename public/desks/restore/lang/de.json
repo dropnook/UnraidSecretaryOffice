@@ -30,6 +30,7 @@
   "notice.no_place": "Herr Backupsi hat noch keine Backup-Ablage (Einrichten… → Grundlagen). Dort werden die Pakete der Apps und VMs liegen.",
   "notice.asleep": "Die Backup-Ablage ({path}) liegt auf einer Disk, die schläft. Ich zeige, was ich vorher gelesen habe, und wecke sie nicht.",
   "notice.no_packages": "Noch keine Pakete in {path} — Herr Backupsi schreibt sie bei jedem Backup.",
+  "notice.settings_gone": "Die Einstellungen von Herrn Backupsi sind weg — ich suche die Pakete dort, wo seine letzten Backups sie abgelegt haben: {path}. Richte ihn an seinem Tisch neu ein («Einrichten…»); die bisherigen Backups bleiben.",
   "help.tiles": "Kacheln",
   "help.tiles_text": "Apps, VMs, Shares, Datenbanken, Ausser Haus, «Zurückgeholt» und «Auf einen neuen Server»: Ein Klick öffnet den Teil, ein zweiter schliesst ihn wieder.",
   "help.row": "Eine Zeile",

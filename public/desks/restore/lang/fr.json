@@ -30,6 +30,7 @@
   "notice.no_place": "Monsieur Backupsi n'a pas encore d'emplacement des sauvegardes (Configurer… → Bases). Les paquets des applis et des VM s'y trouveront.",
   "notice.asleep": "L'emplacement des sauvegardes ({path}) est sur un disque qui dort. Je montre ce que j'ai lu avant et je ne le réveille pas.",
   "notice.no_packages": "Pas encore de paquets dans {path} — Monsieur Backupsi les écrit à chaque sauvegarde.",
+  "notice.settings_gone": "Les réglages de Monsieur Backupsi ont disparu — je cherche les paquets là où ses dernières sauvegardes les ont mis : {path}. Configure-le à nouveau à son bureau (« Configurer… ») ; les sauvegardes déjà faites restent.",
   "help.tiles": "Tuiles",
   "help.tiles_text": "Applis, VM, partages, bases de données, hors site, « Restaurés » et « Sur un nouveau serveur » : un clic ouvre cette partie, un deuxième clic la referme.",
   "help.row": "Une ligne",
