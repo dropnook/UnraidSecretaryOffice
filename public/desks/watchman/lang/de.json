@@ -453,7 +453,7 @@
   "notify.cron_file_foreign": {"one": "Nachtwächter: ein Zeitplan keines installierten Plugins", "other": "Nachtwächter: {n} Zeitpläne keines installierten Plugins"},
   "notify.script_new": {"one": "Nachtwächter: neues User Script {name}", "other": "Nachtwächter: {n} neue User Scripts"},
   "notify.script_changed": {"one": "Nachtwächter: User Script {name} geändert", "other": "Nachtwächter: {n} User Scripts geändert"},
-  "notify.at_job": {"one": "Nachtwächter: ein Job in der Warteschlange von atd ist seit Tagen über seine Zeit", "other": "Nachtwächter: {n} Jobs in der Warteschlange von atd sind seit Tagen über ihre Zeit"},
+  "notify.at_job": {"one": "Nachtwächter: eine Aufgabe für später ist seit Tagen über ihre Zeit", "other": "Nachtwächter: {n} Aufgaben für später sind seit Tagen über ihre Zeit"},
   "entry.at_userscript": "User Script {name} im Hintergrund gestartet (über atd)",
   "adopt.at_userscript": "Nichts zu tun: User Scripts startet Scripts «im Hintergrund» über atd.",
   "check.at_userscript": {"one": "User Script {name} im Hintergrund gestartet", "other": "{n} User Scripts im Hintergrund gestartet, das neuste: {name}"},

@@ -453,7 +453,7 @@
   "notify.cron_file_foreign": {"one": "Veilleur de nuit : un planning d'aucun plugin installé", "other": "Veilleur de nuit : {n} plannings d'aucun plugin installé"},
   "notify.script_new": {"one": "Veilleur de nuit : nouveau user script {name}", "other": "Veilleur de nuit : {n} nouveaux user scripts"},
   "notify.script_changed": {"one": "Veilleur de nuit : user script {name} modifié", "other": "Veilleur de nuit : {n} user scripts modifiés"},
-  "notify.at_job": {"one": "Veilleur de nuit : {n} tâche de la file d'atd a dépassé son heure de plusieurs jours", "other": "Veilleur de nuit : {n} tâches de la file d'atd ont dépassé leur heure de plusieurs jours"},
+  "notify.at_job": {"one": "Veilleur de nuit : {n} tâche programmée pour plus tard a dépassé son heure de plusieurs jours", "other": "Veilleur de nuit : {n} tâches programmées pour plus tard ont dépassé leur heure de plusieurs jours"},
   "entry.at_userscript": "User Script {name} lancé en arrière-plan (via atd)",
   "adopt.at_userscript": "Rien à faire : User Scripts lance les scripts « en arrière-plan » via atd.",
   "check.at_userscript": {"one": "User Script {name} lancé en arrière-plan", "other": "{n} User Scripts lancés en arrière-plan, le plus récent : {name}"},

@@ -453,7 +453,7 @@
   "notify.cron_file_foreign": {"one": "Guardiano notturno: una pianificazione di nessun plugin installato", "other": "Guardiano notturno: {n} pianificazioni di nessun plugin installato"},
   "notify.script_new": {"one": "Guardiano notturno: nuovo user script {name}", "other": "Guardiano notturno: {n} nuovi user script"},
   "notify.script_changed": {"one": "Guardiano notturno: user script {name} modificato", "other": "Guardiano notturno: {n} user script modificati"},
-  "notify.at_job": {"one": "Guardiano notturno: un job nella coda di atd è da giorni oltre la sua ora", "other": "Guardiano notturno: {n} job nella coda di atd sono da giorni oltre la loro ora"},
+  "notify.at_job": {"one": "Guardiano notturno: un'attività pianificata per più tardi è da giorni oltre la sua ora", "other": "Guardiano notturno: {n} attività pianificate per più tardi sono da giorni oltre la loro ora"},
   "entry.at_userscript": "User Script {name} avviato in background (tramite atd)",
   "adopt.at_userscript": "Niente da fare: User Scripts avvia gli script «in background» tramite atd.",
   "check.at_userscript": {"one": "User Script {name} avviato in background", "other": "{n} User Script avviati in background, il più recente: {name}"},

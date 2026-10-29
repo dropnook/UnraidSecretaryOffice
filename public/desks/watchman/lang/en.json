@@ -453,7 +453,7 @@
   "notify.cron_file_foreign": {"one": "Night watchman: a schedule of no installed plugin", "other": "Night watchman: {n} schedules of no installed plugin"},
   "notify.script_new": {"one": "Night watchman: new user script {name}", "other": "Night watchman: {n} new user scripts"},
   "notify.script_changed": {"one": "Night watchman: user script {name} changed", "other": "Night watchman: {n} user scripts changed"},
-  "notify.at_job": {"one": "Night watchman: a job in atd's queue is days past its time", "other": "Night watchman: {n} jobs in atd's queue are days past their time"},
+  "notify.at_job": {"one": "Night watchman: a task set for later is days past its time", "other": "Night watchman: {n} tasks set for later are days past their time"},
   "entry.at_userscript": "User Script {name} started in the background (through atd)",
   "adopt.at_userscript": "Nothing to do: User Scripts runs scripts «in the background» through atd.",
   "check.at_userscript": {"one": "User Script {name} started in the background", "other": "{n} User Scripts started in the background, the newest: {name}"},
