@@ -5220,7 +5220,10 @@ function rsKopiaParse(string $json): array
                   'files' => $int($summ['files'] ?? null) ?? $read ?? $int($st['fileCount'] ?? null) ?? 0,
                   'dirs' => $int($summ['dirs'] ?? null) ?? $int($st['dirCount'] ?? null),
                   'failed' => $int($summ['numFailed'] ?? null) ?? $int($st['errorCount'] ?? null) ?? 0,
-                  'description' => $text($s['description'] ?? ''), 'incomplete' => $text($s['incompleteReason'] ?? '')];
+                  'description' => $text($s['description'] ?? ''), 'incomplete' => $text($s['incompleteReason'] ?? ''),
+                  // the engine's own tags (2.80: how the source was put together — rsKopiaLayout()), only in their shape
+                  'tags' => array_filter(is_array($s['tags'] ?? null) ? $s['tags'] : [], fn ($v, $k) => is_string($k) && preg_match('/^tag:uso-[a-z-]{1,32}$/D', $k)
+                      && is_string($v) && strlen($v) <= 4096 && !preg_match('/[\x00-\x1f\x7f]/', $v), ARRAY_FILTER_USE_BOTH)];
     }
     usort($out, fn ($a, $b) => $b['time'] <=> $a['time']);
     return $out;

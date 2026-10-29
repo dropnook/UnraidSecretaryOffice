@@ -1581,7 +1581,7 @@ function drillDoKopiaDump(array &$j, int $i, array &$env): array
     $out['run'] = (string) $snap['run'];
     $out['params']['time'] = $snap['time'];
     // the package's folder in the snapshot, the dump's entry in it (and the manifest Kopia keeps: which run wrote the dump)
-    $pkg = drillKopiaPackageDir($j, $env, $snap['obj'], (string) $s['source'], 'app', (string) $s['id']);
+    $pkg = drillKopiaPackageDir($j, $env, $snap['obj'], (string) $s['source'], 'app', (string) $s['id'], $snap['tags'] ?? []);
     $entry = null;
     if ($pkg) {
         $obj = $pkg['obj'];
@@ -1648,7 +1648,7 @@ function drillDoKopiaDump(array &$j, int $i, array &$env): array
             return ['state' => !empty($GLOBALS['rsStop']) ? 'skipped' : 'failed', 'code' => 'kopia_read_failed', 'params' => $out['params'] + ['file' => $s['file']]] + $out;
         }
         // what went up against the same file in the local snapshot of the run Kopia read it from (asleep: not compared, never woken)
-        $local = $snap['run'] !== null ? drillKopiaLocal("{$pkg['rel']}/{$s['file']}", (string) $snap['run'], $env['ctx']) : null;
+        $local = $snap['run'] !== null ? drillKopiaLocal("{$pkg['rel']}/{$s['file']}", (string) $snap['run'], $env['ctx'], $pkg['split']) : null;
         $out['params']['compared'] = $local && $local['state'] === 'found' ? 1 : 0;
         $out['params']['local_asleep'] = $local && $local['state'] === 'asleep' ? 1 : 0;
         if ($local && $local['state'] === 'found' && !hash_equals(hash_final($hash), (string) hash_file('sha256', $local['path']))) {
@@ -1687,37 +1687,55 @@ function drillKopiaDir(array &$j, array &$env, string $obj): ?array
 /**
  * A package's folder in a Kopia snapshot: an app's or VM's own source holds it as <share>/<folder>/apps|vms/<id>, the
  * backup place's share as <folder>/apps|vms/<id> (or <part>/<folder>/… where the engine mounted the share split over
- * its pools and disks). Its object and its path as the local compare reads it (<share>/…), or null.
+ * its pools and disks; an own source <share>/<part>/<folder>/… for a share it names in `uso-split`). The snapshot's
+ * tags say how (engine 2.80, rsKopiaLayout()); an older snapshot's: tried as before. Its object, its path as the local
+ * compare reads it (<share>/…) and whether that path names a part (null: not known — guessed), or null; $failed: Kopia
+ * didn't answer on the way.
  *
- * @return array{obj: string, rel: string}|null
+ * @return array{obj: string, rel: string, split: ?bool}|null
  */
-function drillKopiaPackageDir(array &$j, array &$env, string $root, string $source, string $kind, string $id): ?array
+function drillKopiaPackageDir(array &$j, array &$env, string $root, string $source, string $kind, string $id, array $tags = [], ?bool &$failed = null): ?array
 {
+    $failed = false;
     if (!preg_match('#^/mnt/user/([^/]+)/(.+)$#', (string) ($env['base_user'] ?? $env['base']), $m)) {
         return null;
     }
     $tail = [...explode('/', $m[2]), "{$kind}s", $id];
+    $layout = rsKopiaLayout($tags, $source);
     $tries = [];
-    if ($source !== $m[1]) {
-        $tries[] = [[$m[1], ...$tail], $m[1] . '/' . implode('/', $tail)];
+    if ($source !== $m[1] && in_array($m[1], $layout['shares'] ?? [], true)) {
+        $share = array_values(array_filter(drillKopiaDir($j, $env, $root) ?? [], fn ($e) => $e['name'] === $m[1] && $e['type'] === 'd'))[0]['obj'] ?? null;
+        foreach ($share !== null ? drillKopiaDir($j, $env, $share) ?? [] : [] as $e) {
+            if ($e['type'] === 'd') {
+                $tries[] = [[$m[1], $e['name'], ...$tail], "{$m[1]}/{$e['name']}/" . implode('/', $tail), true];
+            }
+        }
+    } elseif ($source !== $m[1]) {
+        $tries[] = [[$m[1], ...$tail], $m[1] . '/' . implode('/', $tail), $layout !== null ? false : null];
+    } elseif ($layout !== null) {
+        foreach ($layout['split'] ? $layout['parts'] : [''] as $part) {
+            $tries[] = [$part === '' ? $tail : [$part, ...$tail], $m[1] . ($part === '' ? '' : "/$part") . '/' . implode('/', $tail), $layout['split']];
+        }
     } else {
-        $tries[] = [$tail, $m[1] . '/' . implode('/', $tail)];
+        $tries[] = [$tail, $m[1] . '/' . implode('/', $tail), null];
         foreach (drillKopiaDir($j, $env, $root) ?? [] as $e) {
             if ($e['type'] === 'd' && isset($env['ctx']['fs'][$e['name']])) {
-                $tries[] = [[$e['name'], ...$tail], "{$m[1]}/{$e['name']}/" . implode('/', $tail)];
+                $tries[] = [[$e['name'], ...$tail], "{$m[1]}/{$e['name']}/" . implode('/', $tail), null];
             }
         }
     }
-    foreach ($tries as [$walk, $rel]) {
+    foreach ($tries as [$walk, $rel, $split]) {
         $obj = $root;
         foreach ($walk as $name) {
-            $obj = array_values(array_filter(drillKopiaDir($j, $env, $obj) ?? [], fn ($e) => $e['name'] === $name && $e['type'] === 'd'))[0]['obj'] ?? null;
+            $entries = drillKopiaDir($j, $env, $obj);
+            $failed = $failed || $entries === null;
+            $obj = array_values(array_filter($entries ?? [], fn ($e) => $e['name'] === $name && $e['type'] === 'd'))[0]['obj'] ?? null;
             if ($obj === null) {
                 break;
             }
         }
         if ($obj !== null) {
-            return ['obj' => $obj, 'rel' => $rel];
+            return ['obj' => $obj, 'rel' => $rel, 'split' => $split];
         }
     }
     return null;
@@ -2514,23 +2532,16 @@ function drillKopiaSample(array &$j, array $s, array $snap, array &$env): array
         return $exit === 0 ? drillKopiaEntries($json) : null;
     };
     $files = [];                    // [rel path, obj, size]
+    // whether a path names the part of a share split over its parts (the snapshot's tags; null: not known — guessed)
+    $split = rsKopiaLayout($snap['tags'] ?? [], (string) $s['source'])['split'] ?? null;
     if ($s['kind'] !== 'share') {
-        $base = (string) $env['base'];
-        if (!preg_match('#^/mnt/user/([^/]+)/(.+)$#', $base, $m)) {
+        $pkg = drillKopiaPackageDir($j, $env, (string) $snap['obj'], (string) $s['source'], (string) $s['kind'], (string) $s['id'], $snap['tags'] ?? [], $failed);
+        if (!$pkg) {
+            $res['error'] = $failed;
             return $res;
         }
-        $walk = [$m[1], ...explode('/', $m[2]), "{$s['kind']}s", $s['id']];
-        $obj = $snap['obj'];
-        foreach ($walk as $name) {
-            $entries = $dirOf($obj);
-            $hit = array_values(array_filter($entries ?? [], fn ($e) => $e['name'] === $name && $e['type'] === 'd'))[0] ?? null;
-            if (!$hit) {
-                $res['error'] = $entries === null;
-                return $res;
-            }
-            $obj = $hit['obj'];
-        }
-        $stack = [[implode('/', $walk), $obj, 0]];
+        $split = $pkg['split'];
+        $stack = [[$pkg['rel'], $pkg['obj'], 0]];
         while ($stack && count($files) < 200) {
             [$rel, $o, $depth] = array_shift($stack);
             foreach ($dirOf($o) ?? [] as $e) {
@@ -2543,7 +2554,7 @@ function drillKopiaSample(array &$j, array $s, array $snap, array &$env): array
         }
         usort($files, fn ($a, $b) => [!str_contains($a[0], '/db/'), $a[0]] <=> [!str_contains($b[0], '/db/'), $b[0]]);
         // a dump this drill plays from Kopia is read back there (and compared), not twice
-        $skip = array_map(fn ($f) => implode('/', $walk) . "/$f", (array) ($env['kopia_dumps'][$s['source']] ?? []));
+        $skip = array_map(fn ($f) => "{$pkg['rel']}/$f", (array) ($env['kopia_dumps'][$s['source']] ?? []));
         $files = array_values(array_filter($files, fn ($f) => !in_array($f[0], $skip, true)));
     } else {
         // a few random files of at least 1 KB: walk down from the top, a random entry at each level
@@ -2606,7 +2617,7 @@ function drillKopiaSample(array &$j, array $s, array $snap, array &$env): array
         $res['files']++;
         $sum = hash_final($ctx);
         // the same file in the local snapshot it was read from (<share>/<path> — a share split over its parts: <share>/<base>/<path>)
-        $local = $snap['run'] !== null ? drillKopiaLocal($rel, (string) $snap['run'], $env['ctx']) : null;
+        $local = $snap['run'] !== null ? drillKopiaLocal($rel, (string) $snap['run'], $env['ctx'], $split) : null;
         if (!$local || $local['state'] === 'missing') {
             $res['missing']++;
             continue;
@@ -2627,17 +2638,30 @@ function drillKopiaSample(array &$j, array $s, array $snap, array &$env): array
 
 /**
  * A file of a Kopia source in the local snapshot of a run: <share>/<path> — a share the engine mounted split over its
- * parts is <share>/<base>/<path> in Kopia (tried first when the second part names a pool or disk; never a look
- * through /mnt/user: it could wake a disk)
+ * parts is <share>/<base>/<path> in Kopia ($split: the snapshot's tags say so, or not; null — an older snapshot: tried
+ * first when the second part names a pool or disk; never a look through /mnt/user: it could wake a disk)
  */
-function drillKopiaLocal(string $rel, string $run, array &$ctx): ?array
+function drillKopiaLocal(string $rel, string $run, array &$ctx, ?bool $split = null): ?array
 {
     $parts = explode('/', $rel);
     $share = array_shift($parts);
     if ($share === null || $share === '' || !$parts) {
         return null;
     }
-    if (count($parts) > 1 && isset($ctx['fs'][$parts[0]])) {
+    if ($split === true) {
+        if (count($parts) < 2) {
+            return null;
+        }
+        $base = array_shift($parts);
+        if (isset($ctx['fs'][$base])) {
+            $l = drillLocal("/mnt/$base/$share/" . implode('/', $parts), $run, $ctx);
+            if ($l['state'] !== 'missing') {
+                return $l;
+            }
+        }
+        return drillLocal("/mnt/user/$share/" . implode('/', $parts), $run, $ctx);
+    }
+    if ($split === null && count($parts) > 1 && isset($ctx['fs'][$parts[0]])) {
         $l = drillLocal("/mnt/{$parts[0]}/$share/" . implode('/', array_slice($parts, 1)), $run, $ctx);
         if ($l['state'] !== 'missing') {
             return $l;
