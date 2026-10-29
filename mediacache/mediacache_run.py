@@ -171,7 +171,10 @@ class Progress:
     USO (2026-10-29, parallele Kopien): `active` = jede Datei in Arbeit (dieselben Felder wie `current`, dazu `q`, ihre
     Stelle in der queue), in der Reihenfolge ihres Beginns; `current` bleibt die erste davon (ältere Leser). Eine Datei
     der queue, die erledigt ist, während eine frühere noch kopiert, wird [-1, 0] (niemandes, nichts mehr) – pos zählt nur
-    die erledigten von vorn. Thread-sicher: die Kopien laufen parallel."""
+    die erledigten von vorn. Thread-sicher: die Kopien laufen parallel.
+    USO (2026-10-29, eine Datei mehrerer Benutzer): sie zählt bei jedem, der sie vormerkt (geplant, erledigt; owners()),
+    kopiert wird sie einmal – `fill` zählt das Befüllen als Ganzes (jede Datei einmal, wie `back`); die queue nennt sie
+    beim Ersten, `shared` = [[Stelle in der queue, [Index der anderen Benutzer, …]], …]; in `active` `users` = alle."""
 
     QUEUE_MAX = 5000
     RECENT_MAX = 50
@@ -180,7 +183,8 @@ class Progress:
         self.on = on
         now = int(time.time())
         self.data = {"v": 1, "mode": mode, "phase": "plan", "started": now, "updated": now,
-                     "back": None, "users": [], "current": None, "active": [], "queue": None, "pos": 0, "recent": []}
+                     "back": None, "fill": None, "users": [], "current": None, "active": [], "queue": None, "shared": [], "pos": 0,
+                     "recent": []}
         self.users = {}   # UserPlan.key -> Eintrag in data["users"]
         self.qidx = {}    # id(OnDeckFile) -> ihre Stelle in der queue
         self.passed = set()   # USO: Stellen der queue, die erledigt sind
@@ -212,12 +216,16 @@ class Progress:
         """Pro Benutzer, was noch vom Array auf den Cache kommt – in der Reihenfolge der Planung; dazu die queue in der
         Reihenfolge, in der fill() kopiert."""
         todo = {}
+        once = [0, 0]
         for f in files:
             if not f.on_cache:
+                once[0] += 1
+                once[1] += f.size
                 for k in owners(f):
                     t = todo.setdefault(k, [0, 0])
                     t[0] += 1
                     t[1] += f.size
+        self.data["fill"] = {"files": once[0], "bytes": once[1], "done_files": 0, "done_bytes": 0, "started": None, "ended": None}
         for u in planner.users.values():
             if u.key in todo:
                 entry = {"key": u.key, "name": u.name, "server": u.server, "files": todo[u.key][0], "bytes": todo[u.key][1],
@@ -229,10 +237,11 @@ class Progress:
         if len(order) <= self.QUEUE_MAX:
             self.data["queue"] = [[index.get(f.user, -1), int(f.size)] for f in order]
             self.qidx = {id(f): i for i, f in enumerate(order)}
+            self.data["shared"] = [[i, [index[k] for k in owners(f)[1:] if k in index]] for i, f in enumerate(order) if len(owners(f)) > 1]
 
     def _entries(self, f):
-        """USO: die Einträge der Benutzer, die die Datei vormerken (der Erste zuerst)."""
-        return [self.users[k] for k in owners(f) if k in self.users]
+        """USO: die Einträge der Benutzer, die die Datei vormerken (der Erste zuerst), und das Befüllen als Ganzes."""
+        return [self.users[k] for k in owners(f) if k in self.users] + ([self.data["fill"]] if self.data["fill"] is not None else [])
 
     def _passed(self, f, entries):
         """Eine Datei der queue ist erledigt (kopiert oder ausgelassen); ihre Benutzer ohne Rest: ended."""
@@ -241,6 +250,8 @@ class Progress:
         if i is not None and q is not None and i not in self.passed:
             self.passed.add(i)
             q[i] = [-1, 0]
+            if self.data["shared"]:
+                self.data["shared"] = [x for x in self.data["shared"] if x[0] != i]
             while self.data["pos"] in self.passed:
                 self.data["pos"] += 1
         now = int(time.time())
@@ -259,6 +270,8 @@ class Progress:
             cur = {"phase": phase, "rel": str(rel), "size": int(size), "target": str(target),
                    "user": f.user if f is not None else None, "source": f.source if f is not None else None,
                    "title": f.title if f is not None else None, "since": now}
+            if f is not None:
+                cur["users"] = owners(f)
             if f is not None and id(f) in self.qidx:
                 cur["q"] = self.qidx[id(f)]
             if why is not None:
@@ -318,8 +331,10 @@ class Progress:
 
 
 def owners(f):
-    """USO: wer eine Datei vormerkt (der Erste)."""
-    return [f.user] if f.user is not None else []
+    """USO (2026-10-29): wer eine Datei vormerkt – der Erste (f.user) zuerst, dann die anderen nach ihrem Rang (eine Datei,
+    die mehrere vormerken, zählt bei jedem; Planner.run() gibt ihr alle Ränge)."""
+    rest = sorted((k for k in f.ranks if k != f.user), key=lambda k: (f.ranks[k], str(k)))
+    return ([f.user] if f.user is not None else []) + rest
 
 
 # --------------------------------------------------------------------------- Planung
@@ -751,19 +766,30 @@ class Planner:
 
     def not_in_budget(self):
         """USO (2026-10-16): what waits beyond the budget — each entry once (several persons may want it), none another
-        person's budget takes along; films and episodes apart. None outside the budget mode."""
+        person's budget takes along; films and episodes apart. None outside the budget mode. USO (2026-10-29): `persons`
+        the same per person — an entry two persons want counts at each of them."""
         if not self.budget_mode:
             return None
-        seen, out = set(), {"items": 0, "films": 0, "episodes": 0, "bytes": 0}
+        seen, out, persons = set(), {"items": 0, "films": 0, "episodes": 0, "bytes": 0}, {}
         for u in self.users.values():
+            mine = set()
             for g in u.skipped:
                 key = tuple(sorted(str(f.rel) for f in g.files))
-                if not key or key in seen or any(k in self.files for k in key):
+                if not key or key in mine or any(k in self.files for k in key):
+                    continue
+                mine.add(key)
+                kind = "films" if g.category == "movie" else "episodes"
+                pe = persons.setdefault(u.key, {"name": u.name, "items": 0, "films": 0, "episodes": 0, "bytes": 0})
+                pe["items"] += 1
+                pe[kind] += 1
+                pe["bytes"] += g.size
+                if key in seen:
                     continue
                 seen.add(key)
                 out["items"] += 1
-                out["films" if g.category == "movie" else "episodes"] += 1
+                out[kind] += 1
                 out["bytes"] += g.size
+        out["persons"] = list(persons.values())
         return out
 
     def fill_order(self):

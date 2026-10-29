@@ -31,6 +31,10 @@ declare(strict_types=1);
  * queue: a file done while an earlier one still copies is nobody's there ([-1, 0]), `pos` counts the done ones from the
  * front; a file in flight knows its place in the queue (`q`).
  *
+ * A file several persons have on deck (2026-10-29): it counts at each of them (their bars' planned and done, their time
+ * left) and is copied once — `fill` counts the fill as a whole (each file once) for the bracket, the queue names it at
+ * the first, `shared` [[queue index, [user index, …]], …] at the others, a file in flight its `users` (all of them).
+ *
  * His page asks the part `progress` (desk.json; the agent's action `progress`, two RAM reads, nothing written) every
  * 10 s while a real EmbyCache run goes, never otherwise. Both RAM files go when the run ends.
  */
@@ -101,7 +105,8 @@ function jackProgressFile(mixed $cur): ?array
             'source' => in_array($cur['source'] ?? null, JACK_PROGRESS_SOURCES, true) ? $cur['source'] : null,
             'title' => jackProgressText($cur['title'] ?? null, 200), 'since' => jackProgressInt($cur['since'] ?? 0),
             'why' => $cur['phase'] === 'back' ? jackGiveBackWhy($cur['why'] ?? null) : null,
-            'q' => is_int($cur['q'] ?? null) && $cur['q'] >= 0 ? $cur['q'] : null];
+            'q' => is_int($cur['q'] ?? null) && $cur['q'] >= 0 ? $cur['q'] : null,
+            'users' => array_values(array_filter(is_array($cur['users'] ?? null) ? array_slice($cur['users'], 0, JACK_PROGRESS_USERS) : [], 'is_string'))];
 }
 
 /**
@@ -144,6 +149,16 @@ function jackProgressRead(string $file): ?array
             $queue[] = [$index[$q[0]] ?? -1, $q[1]];
         }
     }
+    // a file of several persons: the others at its place in the queue (indexes into the users taken here)
+    $shared = [];
+    foreach ($queue !== null && is_array($j['shared'] ?? null) ? $j['shared'] : [] as $x) {
+        if (is_array($x) && count($x) === 2 && is_int($x[0] ?? null) && isset($queue[$x[0]]) && is_array($x[1] ?? null)) {
+            $others = array_values(array_filter(array_map(fn ($i) => is_int($i) ? ($index[$i] ?? null) : null, $x[1]), 'is_int'));
+            if ($others) {
+                $shared[$x[0]] = $others;
+            }
+        }
+    }
     // every file in flight (an older MediaCache: its one `current`)
     $active = [];
     $list = is_array($j['active'] ?? null) && array_is_list($j['active']) ? $j['active'] : [$j['current'] ?? null];
@@ -154,8 +169,8 @@ function jackProgressRead(string $file): ?array
     }
     return ['mode' => in_array($j['mode'] ?? null, ['run', 'release'], true) ? $j['mode'] : 'run', 'phase' => $j['phase'],
             'started' => jackProgressInt($j['started'] ?? 0), 'updated' => jackProgressInt($j['updated'] ?? 0),
-            'back' => $count($j['back'] ?? null), 'users' => $users, 'current' => $active[0] ?? null, 'active' => $active,
-            'queue' => $queue, 'pos' => $queue !== null ? $j['pos'] : 0];
+            'back' => $count($j['back'] ?? null), 'fill' => $count($j['fill'] ?? null), 'users' => $users, 'current' => $active[0] ?? null,
+            'active' => $active, 'queue' => $queue, 'shared' => $shared, 'pos' => $queue !== null ? $j['pos'] : 0];
 }
 
 /**
@@ -318,10 +333,10 @@ function jackProgressView(array $p, array $samples, int $now, bool $stopping = f
         $part = $last !== null && isset($have[$f['rel']]) && $last[0] >= $f['since']
             ? min((int) $have[$f['rel']], $f['size']) : 0;
         $files[] = ['phase' => $f['phase'], 'rel' => $f['rel'], 'size' => $f['size'], 'done' => $part, 'source' => $f['source'],
-                    'title' => $f['title'], 'why' => $f['why'] ?? null, 'user' => $f['user'], 'q' => $f['q'] ?? null];
+                    'title' => $f['title'], 'why' => $f['why'] ?? null, 'user' => $f['user'], 'users' => $f['users'] ?? [], 'q' => $f['q'] ?? null];
     }
     $mine = fn (callable $is): array => array_values(array_filter($files, $is));
-    $show = fn (array $fs): array => array_map(fn (array $f): array => array_diff_key($f, ['user' => 1, 'q' => 1]), $fs);
+    $show = fn (array $fs): array => array_map(fn (array $f): array => array_diff_key($f, ['user' => 1, 'users' => 1, 'q' => 1]), $fs);
     $sum = fn (array $fs, string $k): int => array_sum(array_column($fs, $k));
     $eta = fn (int $left): ?int => $speed !== null && $speed > 0 ? (int) ceil($left / $speed) : null;
     $took = fn (array $c): ?int => $c['started'] !== null && $c['ended'] !== null ? max(0, $c['ended'] - $c['started']) : null;
@@ -343,16 +358,16 @@ function jackProgressView(array $p, array $samples, int $now, bool $stopping = f
         for ($i = $p['pos'], $n = count($p['queue']); $i < $n; $i++) {
             [$ui, $b] = $p['queue'][$i];
             $sumQ += $b;
-            if ($ui >= 0) {
-                $until[$ui] = $sumQ;
-                $lastAt[$ui] = $i;
-                $next[$ui] ??= $i;
+            foreach (array_merge($ui >= 0 ? [$ui] : [], $p['shared'][$i] ?? []) as $who) {
+                $until[$who] = $sumQ;
+                $lastAt[$who] = $i;
+                $next[$who] ??= $i;
             }
         }
     }
     $users = [];
     foreach ($p['users'] as $k => $u) {
-        $fs = $mine(fn (array $f): bool => $f['phase'] === 'fill' && $f['user'] === $u['key']);
+        $fs = $mine(fn (array $f): bool => $f['phase'] === 'fill' && ($f['user'] === $u['key'] || in_array($u['key'], $f['users'], true)));
         $row = ['name' => $u['name'], 'server' => $u['server']] + $bar($u, $fs);
         if ($u['files'] > $u['done_files'] && isset($until[$k])) {
             // what of the files in flight up to their last one is there already (one without a place: counted, as before)
@@ -363,8 +378,9 @@ function jackProgressView(array $p, array $samples, int $now, bool $stopping = f
     }
     usort($users, fn (array $a, array $b): int => [!$a['left'], !$a['row']['here'], $a['next'], $a['k']] <=> [!$b['left'], !$b['row']['here'], $b['next'], $b['k']]);
     $users = array_column($users, 'row');
+    // the bracket: back and the fill as a whole (a file of several persons once); an older MediaCache without `fill`: the bars
     $total = ['files' => 0, 'bytes' => 0, 'done_files' => 0, 'done_bytes' => 0];
-    foreach (array_merge($back !== null ? [$back] : [], $users) as $c) {
+    foreach (array_merge($back !== null ? [$back] : [], ($p['fill'] ?? null) !== null ? [$bar($p['fill'], $fillFiles)] : $users) as $c) {
         foreach ($total as $k => $_) {
             $total[$k] += $c[$k];
         }

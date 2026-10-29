@@ -26,7 +26,11 @@
 >   round-robin across the persons by rank (`Planner.fill_order`), giving back over the limit the farthest ahead first
 >   (`give_back_order`). `MEDIACACHE_KEEP_BYTES`, `MEDIACACHE_NO_FILL`, `MEDIACACHE_WATCHED_ONLY` serve the night run.
 > * `not_in_budget` in the result (2026-10-16): what the persons' budgets leave out — {items, films, episodes, bytes}, each
->   entry once; Jack's run summary says «budget full» with it.
+>   entry once; Jack's run summary says «budget full» with it. `persons` (2026-10-29): the same per person — an entry two
+>   persons want counts at each.
+> * **A file several persons have on deck counts at each** (2026-10-29): their rank (`ranks`), their planned and done in
+>   the progress (`owners()`; `fill` counts the fill once, `shared` names the others at its place in the queue, a file
+>   in flight its `users`) — copied once.
 > * `MEDIACACHE_STOP` (a file): a real run stops after the file it is on — never inside a copy (copying in parallel:
 >   after the files in flight, no new one begins); result `stopped`, exit 3.
 > * `MEDIACACHE_PROGRESS` (a file): rewritten at every file boundary — phase, per person planned/done, the file in work

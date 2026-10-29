@@ -3036,14 +3036,22 @@ G = 2**30
 def g(cat, size, *rels): return N(category=cat, size=size * G, files=[N(rel=x) for x in rels])
 p = r.Planner({"cache_budget_bytes": 100 * G, "movie_share_percent": 50, "user_budgets": {}})
 big = g("movie", 25, "Filme/Big/big.mkv", "Filme/Big/big.srt")
-p.users = {"a": N(skipped=[big, g("series", 2, "S/e5.mkv"), g("series", 2, "S/e6.mkv"), g("movie", 4, "Filme/Taken/t.mkv")]),
-           "b": N(skipped=[g("movie", 25, "Filme/Big/big.srt", "Filme/Big/big.mkv")])}
+p.users = {"a": N(key="a", name="Anna", skipped=[big, g("series", 2, "S/e5.mkv"), g("series", 2, "S/e6.mkv"), g("movie", 4, "Filme/Taken/t.mkv")]),
+           "b": N(key="b", name="Ben", skipped=[g("movie", 25, "Filme/Big/big.srt", "Filme/Big/big.mkv")])}
 p.files = {"Filme/Taken/t.mkv": object()}
 q = r.Planner({"cache_budget_bytes": 0, "movie_share_percent": 50, "user_budgets": {}})
 print(json.dumps([p.not_in_budget(), q.not_in_budget()]))';
     [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $tmp, 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+    $nib = json_decode((string) preg_replace('/^.*\n/s', '', trim($out)), true) ?? trim($err);
+    $persons = is_array($nib) ? ($nib[0]['persons'] ?? null) : null;
+    if (is_array($nib) && is_array($nib[0] ?? null)) {
+        unset($nib[0]['persons']);
+    }
     same('not in budget (engine): the big film both want once, two episodes; the film another\'s budget takes not counted; no budget mode — none',
-        [0, [['items' => 3, 'films' => 1, 'episodes' => 2, 'bytes' => 29 * 2 ** 30], null]], [$exit, json_decode((string) preg_replace('/^.*\n/s', '', trim($out)), true) ?? trim($err)]);
+        [0, [['items' => 3, 'films' => 1, 'episodes' => 2, 'bytes' => 29 * 2 ** 30], null]], [$exit, $nib]);
+    // 2026-10-29: per person — the big film both want at each of them
+    same('not in budget (engine): per person — the big film at Anna and at Ben, Anna\'s episodes hers alone',
+        [['name' => 'Anna', 'items' => 3, 'films' => 1, 'episodes' => 2, 'bytes' => 29 * 2 ** 30], ['name' => 'Ben', 'items' => 1, 'films' => 1, 'episodes' => 0, 'bytes' => 25 * 2 ** 30]], $persons);
     $src = (string) file_get_contents(JACK_APP . '/mediacache_run.py');
     check('not in budget (engine): written into the result file after the plan, marked USO, in the README\'s list',
         str_contains($src, 'self.result["not_in_budget"] = nib') && str_contains((string) file_get_contents(JACK_APP . '/README.md'), '`not_in_budget`'));
@@ -3374,6 +3382,20 @@ function testJackProgress(): void
     $v = jackProgressView(jackProgressRead($paths['file']), $smpP, 2022);
     same('progress, parallel: B done before A — Kids done, Benj alone in flight; Benj\'s time from his own queue', [['Benj', true, 34], ['Ki ds', false, 0]],
         array_map(fn ($u) => [$u['name'], $u['here'], $u['eta']], $v['users']));
+    // a file two persons have on deck (2026-10-29): at each of them — planned, done, in flight, time left; the bracket once
+    $sh = array_replace($par, ['active' => [['users' => ['Emby:u1', 'Emby:u2']] + $a1],
+        'users' => [array_replace($par['users'][0], ['files' => 1, 'bytes' => 400 * $mb]), array_replace($par['users'][1], ['files' => 1, 'bytes' => 400 * $mb])],
+        'fill' => ['files' => 1, 'bytes' => 400 * $mb, 'done_files' => 0, 'done_bytes' => 0], 'queue' => [[0, 400 * $mb]], 'shared' => [[0, [1]], [7, [1]], 'x'], 'pos' => 0]);
+    file_put_contents($paths['file'], json_encode($sh));
+    $ps = jackProgressRead($paths['file']);
+    same('progress, shared: read — the other at its place in the queue (one beyond the queue, one not in its shape left out), the file\'s persons', [[0 => [1]], ['Emby:u1', 'Emby:u2'], 400 * $mb],
+        [$ps['shared'], $ps['active'][0]['users'], $ps['fill']['bytes']]);
+    $v = jackProgressView($ps, $smpP, 2020);
+    same('progress, shared: the file under both bars, its part at each; the bracket counts it once; both wait for it (300 MB / 15 MB/s)',
+        [[true, 100 * $mb, 20], [true, 100 * $mb, 20], 400 * $mb + 300 * $mb, 300 * $mb + 100 * $mb, 1],
+        [...array_map(fn ($u) => [$u['here'], $u['done_bytes'], $u['eta']], $v['users']), $v['total']['bytes'], $v['total']['done_bytes'], count($v['files'])]);
+    check('progress, shared: the persons of a file never on the page', !str_contains(json_encode($v), 'Emby:u2'));
+
     // an older MediaCache (no `active`) and an older job's samples (four each) still read
     file_put_contents($paths['file'], json_encode(array_diff_key($par, ['active' => 1])));
     same('progress, parallel: no `active` — the one `current`', [1, 'Filme/A/a.mkv'], [count(jackProgressRead($paths['file'])['active']), jackProgressRead($paths['file'])['active'][0]['rel']]);
