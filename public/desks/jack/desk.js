@@ -267,7 +267,7 @@ function runSummary(r) {
   }
   if (s.result === 'busy') return T('result.busy');
   if (s.result === 'config') return s.message || T('result.config');
-  if (s.mode === 'report' || r.mode === 'report') return s.on_deck ? T('report_summary', { n: s.on_deck.files, size: fmt.size(s.on_deck.bytes) }) : '';
+  if (s.mode === 'report' || r.mode === 'report') return (s.on_deck ? T('report_summary', { n: s.on_deck.files, size: fmt.size(s.on_deck.bytes) }) : '') + themesNote(s);
   const c = s.cleanup || {}; const f = s.fill || {};
   // stopped after the file it was on: Unraid's mover started (jack-mover.php), or asked on his panel («Stop after this file»)
   const stopped = s.result === 'stopped' ? T(r.why === 'user' ? 'stopped_user_summary' : 'stopped_mover_summary') + ' · ' : '';
@@ -277,7 +277,28 @@ function runSummary(r) {
   const files = (n) => (key === 'dry_summary' ? nOf('files', n) : n || 0);     // «would bring 1 file back»; the run's «1 of 3» stays a number
   const lost = failedText(s);
   return stopped + T(key, { back: c.done || 0, back_planned: files(c.planned),
-    fill: f.done || 0, fill_planned: files(f.planned), fill_size: fmt.size(f.bytes_planned || 0) }) + (lost ? ' · ' + lost : '') + budgetNote(s);
+    fill: f.done || 0, fill_planned: files(f.planned), fill_size: fmt.size(f.bytes_planned || 0) }) + (lost ? ' · ' + lost : '') + budgetNote(s) + themesNote(s);
+}
+/**
+ * theme.mp3 (MediaCache's `themes`, USO 2026-10-29; an older status or the switch off: nothing said), pure. A real run:
+ * «12 themes fetched, 3 disks read», what waits for room, what couldn't be fetched. «What's next» and a dry run say before
+ * it happens what the next real run reads: the first time every title's folder once («… wakes every disk of Filme, Serien
+ * once; how many hold a theme.mp3 I can't know without reading them»), later only the new ones. '' when nothing to say.
+ */
+function themesNote(s) {
+  const t = s && s.themes;
+  if (!t || typeof t !== 'object' || t.on !== true) return '';
+  const n = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
+  if (!('looked' in t)) {
+    if (!n(t.to_look)) return '';
+    const shares = (Array.isArray(t.shares) ? t.shares : []).filter((x) => typeof x === 'string').join(', ');
+    return ' · ' + T(t.first ? 'themes.first' : 'themes.new', { folders: nOf('folders', n(t.to_look)), shares });
+  }
+  const disks = Array.isArray(t.disks) ? t.disks.length : 0;
+  const parts = [n(t.fetched) ? (disks ? T('themes.run', { fetched: nOf('themes_fetched', n(t.fetched)), disks: nOf('disks_read', disks) })
+    : nOf('themes_fetched', n(t.fetched))) : '',
+  n(t.waiting) ? T('themes.waiting', { n: n(t.waiting) }) : '', n(t.failed) ? T('themes.failed', { n: n(t.failed) }) : ''].filter(Boolean);
+  return parts.length ? ' · ' + parts.join(' · ') : '';
 }
 /**
  * The files a run could not lay out or bring back (MediaCache's `failed`, per file — its log has two error lines for one;
@@ -743,7 +764,17 @@ function poolTile(a) {
   // never a break between a number and its unit («671 GB» stays on one line)
   const nb = (t) => String(t).replace(/(\d) /g, '$1\u00a0');
   return Office.stat({ label: T('tile.pool'), value: c.files ? T('pool_tile.value', { files: nb(nOf('files', c.files)), size: nb(fmt.size(c.bytes)) }) : T('pool_tile.none'),
-    sub, tip, alert: !!(pool && pool.min_free != null && pool.free_percent < pool.min_free), ...a });
+    sub: themesLine() ? [sub, themesLine()].filter(Boolean) : sub, tip, alert: !!(pool && pool.min_free != null && pool.free_percent < pool.min_free), ...a });
+}
+
+/**
+ * «12 themes on the pool · 38 MB» (2026-10-29): the theme.mp3 his list keeps for good (its own section, as of his look) —
+ * what lies there, whatever the switch says now; none: ''
+ */
+function themesLine() {
+  const t = (state.cache || {}).themes || {};
+  const n = Number.isInteger(t.files) && t.files > 0 ? t.files : 0;
+  return n ? T('pool_tile.themes', { n, size: fmt.size(Number(t.bytes) || 0).replace(/(\d) /g, '$1\u00a0') }) : '';
 }
 
 /** His rule as saved (ruleTexts() on his settings' budget; her «not set up» is roomWords()') — the pool tile's tip and the pool's section */
@@ -837,14 +868,15 @@ function progressRows(box, p = progress, o = {}) {
   if (o.noFile && p) p = { ...p, current: null, files: [], back: p.back && { ...p.back, in_flight: [] }, users: (p.users || []).map((u) => ({ ...u, in_flight: [] })) };
   if (!p || p.phase === 'plan') {
     box.appendChild(el('div', 'jo-prog-line', T('progress.plan')));
-  } else if (!p.total || !p.total.files) {
+  } else if ((!p.total || !p.total.files) && !p.themes) {
     box.appendChild(el('div', 'jo-prog-line', T('progress.nothing')));
   } else {
-    box.appendChild(progRow(T('progress.total'), p.total, p, true));
+    if (p.total && p.total.files) box.appendChild(progRow(T('progress.total'), p.total, p, true));
     const rows = el('div', 'jo-prog-rows');
     if (p.back) rows.appendChild(progRow(T('progress.back'), p.back, p, false));
     const servers = new Set((p.users || []).map((u) => u.server));
     (p.users || []).forEach((u) => rows.appendChild(progRow(servers.size > 1 ? T('progress.server', { name: u.name, server: u.server }) : u.name, u, p, false)));
+    if (p.themes) rows.appendChild(themesRow(p.themes, p));
     box.appendChild(rows);
     // a file in flight no bar holds (an older agent: the one `current` no bar is marked for)
     const held = [p.back, ...(p.users || [])].filter(Boolean);
@@ -957,6 +989,32 @@ function progRow(label, c, p, total) {
   bar.appendChild(fill);
   row.appendChild(bar);
   inFlight(c, p).forEach((f) => row.appendChild(progFile(f)));
+  return row;
+}
+
+/**
+ * theme.mp3 (2026-10-29): its bar under the others — first the titles looked at («120 of 840 titles looked at»), then the
+ * themes found on the array fetched (files, bytes), the one in work under it like the fill's
+ */
+function themesRow(t, p) {
+  const titles = Number(t.titles) || 0;
+  const looked = Math.min(titles, Number(t.looked) || 0);
+  const done = !!t.ended;
+  const row = el('div', 'jo-prog-row' + (done ? ' done' : ''));
+  const top = el('div', 'jo-prog-top');
+  const facts = [T('progress.themes_looked', { looked, n: titles })];
+  if (Number(t.files) > 0) facts.push(T('progress.files', { done: Number(t.done_files) || 0, n: Number(t.files) }),
+    T('progress.bytes', { done: fmt.size(t.done_bytes || 0), size: fmt.size(t.bytes || 0) }));
+  if (done) facts.push(typeof t.took === 'number' ? T('progress.took', { time: tookText(t.took) }) : T('progress.done'));
+  top.append(el('span', 'jo-prog-name', T('progress.themes')), el('span', 'jo-prog-facts', facts.join(' · ')));
+  row.appendChild(top);
+  const bar = el('div', 'bar thin');
+  const fill = el('i', 'snaps');
+  const share = looked < titles ? looked / titles / 2 : Number(t.files) > 0 ? 0.5 + (Number(t.done_files) || 0) / Number(t.files) / 2 : 1;
+  fill.style.width = `${Math.max(0, Math.min(100, (done ? 1 : share) * 100))}%`;
+  bar.appendChild(fill);
+  row.appendChild(bar);
+  inFlight(t, p).forEach((f) => row.appendChild(progFile(f)));
   return row;
 }
 
@@ -1614,6 +1672,7 @@ function initForm() {
       use_next_up: set.use_next_up ?? true,
       array_source: set.array_source || 'user0',
       parallel_disks: typeof set.parallel_disks === 'boolean' ? set.parallel_disks : true,     // an older agent: on, as it reads it
+      themes: set.themes === true,        // theme.mp3 stays on the pool: off unless switched on (an older agent: off)
     },
   };
   formStart = formKey();
@@ -1824,7 +1883,7 @@ function setPersonBudget(p, value) {
   if (value) form.budgets[p.ids[0]] = value;
 }
 /** Reading from the array as it comes (MediaCache's default), from every disk at once; the way back is always Unraid's move binary (1.65.0) */
-const MORE_DEFAULTS = { array_source: 'user0', parallel_disks: true };
+const MORE_DEFAULTS = { array_source: 'user0', parallel_disks: true, themes: false };
 
 /**
  * His setup's tiles, pure (no DOM): [{id, key, value, sub: [text], alert}] in the parts' order — the servers (how many,
@@ -2548,6 +2607,7 @@ function setupMore() {
   const f5 = el('div', 'jo-form');
   f5.appendChild(field(T('setup.array_source'), select(v, 'array_source', [['user0', T('setup.source_user0')], ['disk', T('setup.source_disk')]]), T('setup.array_source_hint')));
   f5.appendChild(parallelField(v));
+  f5.appendChild(themesField(v));
   f5.appendChild(el('p', 'role', T('setup.fixed_paths')));
   s5.appendChild(f5);
   // quiet, at the bottom: from scratch (his settings deleted, no copy; his list emptied — ordinary cache afterwards)
@@ -2572,6 +2632,20 @@ function parallelField(v) {
   const total = Math.max(1, Math.min(Number(p.total_max) || 8, disks));
   return check(T('setup.parallel_disks'), v.parallel_disks, (on) => { v.parallel_disks = on; },
     T('setup.parallel_disks_hint', { disks: nOf('array_disks', disks), total: nOf('copies', total) }));
+}
+/**
+ * «theme.mp3 stays on the pool» (2026-10-29, the owner; off by default): what it does, what the first collection costs
+ * (every title's folder read once), the space; switched off while themes lie on the pool: they stay until the next run
+ * brings them back
+ */
+function themesField(v) {
+  const box = el('div', 'jo-themes-field');
+  const on = (state.themes && state.themes.files) || ((state.cache || {}).themes || {}).files || 0;
+  const note = el('p', 'role jo-themes-off', on ? T('setup.themes_off', { n: on }) : '');
+  note.hidden = !!v.themes || !on;
+  box.appendChild(check(T('setup.themes'), v.themes, (yes) => { v.themes = yes; note.hidden = yes || !on; }, T('setup.themes_hint')));
+  box.appendChild(note);
+  return box;
 }
 /**
  * «Set up from scratch …» (the owner: really zero, no copy): what goes and what becomes of the files he placed on the pool
@@ -2899,6 +2973,7 @@ async function saveSetup(e) {
     movie_mode: 'folder',          // always the whole folder: subtitles, preview images, nfo, extras
     array_source: v.array_source,
     parallel_disks: v.parallel_disks,
+    themes: v.themes === true,
   };
   const j = await act('save', { settings });
   if (!j) return;
@@ -3006,7 +3081,9 @@ function letGoView(j) {
   }
   more.push(['role', T('letgo.stays')]);
   if (j.mover_off) more.push(['role', T('letgo.mover_stays')]);       // Unraid's mover schedule stays off — Ms. Moverelli moves
-  return { lines, tick, tickable: tick && rel.ok === true, hint: tick ? T('letgo.tick_hint', { files: nOf('files', pool.files), size: fmt.size(pool.bytes || 0) }) : '', more };
+  // the theme.mp3 kept for good go back with them (2026-10-29: only this tick takes them) — an older agent: not counted
+  const themes = Number.isInteger(pool.themes) && pool.themes > 0 ? ' ' + T('letgo.themes', { n: pool.themes }) : '';
+  return { lines, tick, tickable: tick && rel.ok === true, hint: tick ? T('letgo.tick_hint', { files: nOf('files', pool.files), size: fmt.size(pool.bytes || 0) }) + themes : '', more };
 }
 
 /** After he was let go: what he did — the schedules switched off (or not), the release started (or why not) */
@@ -3201,6 +3278,6 @@ if (globalThis.OFFICE_DESK_TESTS) {
     setupServers, mediaPick, newInstance, removeServerDialog, removeServer, noServer, persons, libraryList, setView: (v, p) => { view = v; page = p; }, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, formChangeCount, changedParts, setupBar, derivedPool, poolsOfChoice, cacheable,
     letGoPart, letGoView, letGoDoneLines, letGoNotice, runSummary, moverNotice, moverOk, moverOffDialog, gatherSettingsDialog, gatherRunDialog, gatherCacheWords,
     nightWaitLine, noLimitText, progressPanel, setProgress: (p, why) => { progress = p; stopping = why || null; }, etaText, tookText, nightPanel, livePanel, chooseRun, headActions,
-    setNight: (n) => { nightNow = n; }, nightGoing };
+    setNight: (n) => { nightNow = n; }, nightGoing, themesNote, themesLine, themesRow, themesField };
 }
 })();
