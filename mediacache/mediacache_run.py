@@ -67,6 +67,8 @@ Umgebungsvariablen (überschreiben Config bzw. Defaults; CLI-Flags haben Vorrang
                               Ziel und Grund (USO: active = jede Datei in Arbeit, parallele Kopien), die Warteschlange
                               des Befüllens (queue, pos: wer wann dran ist)
   MEDIACACHE_ZFS, MEDIACACHE_MOUNTS  USO: zfs und /proc/mounts für die Tests (Freiplatz auf ZFS: der ganze Pool)
+  MEDIACACHE_RELEASE_THEMES    USO: "1" (das Office: Jacks Entlassung mit «Filme zurückbringen») – --release bringt auch die
+                              theme.mp3 zurück, die `themes` für immer auf dem Cache hält (sonst bleiben sie)
   MEDIACACHE_STOP              Datei: sobald es sie gibt, hört der Lauf nach der aktuellen Datei auf (nie mitten in einer
                               Kopie; parallel: nach den Dateien in Arbeit, keine neue beginnt); was noch auf dem Cache liegt, bleibt in der Exclude-Liste geschützt; Ergebnis
                               «stopped», Exit-Code 3 (das Office: der Unraid-Mover startete, oder auf Wunsch)
