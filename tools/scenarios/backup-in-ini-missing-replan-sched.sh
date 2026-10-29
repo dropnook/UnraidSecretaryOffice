@@ -10,6 +10,8 @@
 #               (INV-PAGE: no script name)
 # The settings come back with the undo. Partner sections (partners-kept.ini) are n/a here: Tower's base has no
 # partner. Pre-release candidate (~3 min).
+# run-late: 2 the scheduled run without settings.ini stays in his history with its raw text until the base reset (INV-PAGE
+# of every later scenario would see it)
 . "$(dirname "$0")/lib.sh"
 scenario_begin backup-in-ini-missing-replan-sched
 needs tower

@@ -18,11 +18,11 @@ nc_data_closed
 state IN-UPDATE-PREV previous
 say "on the release before: $(_of_versions)"
 [[ $(_st_office_version) != "$cur" ]] || _row state IN-UPDATE-PREV red "the release before is the same version ($cur)"
-f=$(find /mnt/cache/uso-yes -maxdepth 1 -type f -name 'f1d-*.bin' | sort | head -1)
-[[ -n $f ]] || { _row state uso-yes red "no f1d-*.bin in uso-yes on the pool (the base's files)"; scenario_end; }
-path=/mnt/user/uso-yes/$(basename "$f")
-track_share uso-yes
-flow BK-RUN-MANUAL mode=backup                       # a moment of uso-yes, by the old release
+f=$(find /mnt/cache/uso-only -maxdepth 1 -type f -name 'f1d-*.bin' | sort | head -1)
+[[ -n $f ]] || { _row state uso-only red "no f1d-*.bin in uso-only on the pool (the base's files)"; scenario_end; }
+path=/mnt/user/uso-only/$(basename "$f")      # uso-only: «local» (snapshot) in the base, so it has moments
+track_share uso-only
+flow BK-RUN-MANUAL mode=backup                       # a moment of uso-only, by the old release
 flow RS-FILES mode=beside path="$path"
 rid=$(fl_last_restore)
 say "the old release's restore: $rid ($(jq -c '{kind, result}' "$D/restore/$rid/journal.json" 2>/dev/null))"

@@ -54,5 +54,6 @@ if agent_wait 180; then
 else
     cell shift-ends 0 "no agent at work 3 min after ⟦Start⟧"
 fi
+allow INV-TICK "the agent is away on purpose while the array is stopped (the night shift instead) — the cell judges the hand-over"
 check standard
 scenario_end

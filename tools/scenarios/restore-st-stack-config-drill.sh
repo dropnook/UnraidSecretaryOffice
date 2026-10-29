@@ -73,7 +73,6 @@ up=$(for c in $(stack_members "$NEW"); do printf '%s=%s ' "$c" "$(ct_status "$c"
 [[ -n $up && $up != *=exited* && $up != *=paused* && $up != *=created* ]] && cell stack-runs 1 "after the previews: $up" \
     || cell stack-runs 0 "after the previews: ${up:-no members of $NEW}"
 flow RS-DRILL
-expect_changes 'docker|known' 'docker|no_stop'    # the renamed project is a real change: immich gone, immich-new new
 check standard
 check final
 scenario_end

@@ -33,6 +33,10 @@ h_jack_hire_standin J1; rc=$?; undo_push jack_unhire J1
 l=$(_st_jack_list) o=$D/mediacache/mediacache_origin.json
 # never ran: no trace of a real run of his (his origin file aside if the hire left one), his list taken away
 if [[ -f $o ]]; then mkdir -p "$KEEP_STASH/J1-ORIGIN" && mv -- "$o" "$KEEP_STASH/J1-ORIGIN/" && undo_push bash -c '[[ -f $1 ]] && mv -f -- "$1" "$2"; exit 0' _ "$KEEP_STASH/J1-ORIGIN/mediacache_origin.json" "$o"; fi
+# …and the office never saw a list of his with entries (office-list.json, jackListRan()): else his look writes the list anew
+# from the pool (the 1.70 rebuild for a list that held films) — that is moverelli-jk-list-empty-h-run's cell, not this one
+n=$(dirname "$l")/office-list.json
+if [[ -f $n ]]; then mkdir -p "$KEEP_STASH/J1-NOTE" && mv -- "$n" "$KEEP_STASH/J1-NOTE/" && undo_push bash -c '[[ -f $1 ]] && mv -f -- "$1" "$2"; exit 0' _ "$KEEP_STASH/J1-NOTE/office-list.json" "$n"; fi
 jack_list_remove J1 && undo_push jack_list_back J1 || { _row state list red "his list could not be taken away"; scenario_end; }
 track_share media
 snap_before
@@ -49,7 +53,9 @@ agent_log_mark run
 flow MV-RUN refuse=ok
 said=$( { ask_last '.error.key // empty'; jq -r '[.shares[]? | select(.share == "media") | (.state // ""), (.reason // "")] | join(" ")' "$D/moverelli/status.json" 2>/dev/null; agent_log_since run | grep -o 'moverelli_jack_list_pending\|list.*pending\|pending.*list' | head -1; } | paste -sd' ' -)
 say "her run and media: $said"
-[[ $said == *pending* ]] && cell pending 1 "media pending while he has no list: $said" || cell pending 0 "nothing says media waits for his list: ${said:-no word}"
+if [[ -s $l ]] && grep -q . "$l"; then cell pending 1 "not asked: he has a list ($(grep -c . "$l") lines) — media isn't waiting"
+elif [[ $said == *pending* ]]; then cell pending 1 "media pending while he has no list: $said"
+else cell pending 0 "nothing says media waits for his list: ${said:-no word}"; fi
 stay=0; while IFS= read -r f; do [[ -f $f ]] && stay=$((stay + 1)); done <<<"$files"
 ((stay == 3)) && cell files-stay 1 "all 3 files still on the pool" || cell files-stay 0 "$((3 - stay)) of 3 files moved to the array by her run"
 allow INV-COUNTS "a refused or partial run for media is the cell's end — her count is judged by the cells"

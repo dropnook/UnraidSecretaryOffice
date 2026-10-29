@@ -46,5 +46,6 @@ agent_mark_restart
 undo_sh_appdata_missing || _row undo SH-APPDATA-MISSING red "appdata not put back"
 undo_sv_docker_off || _row undo SV-DOCKER-OFF red "Docker not back"
 agent_wait 180
+allow INV-TICK "the agent waits for its data folder without a heartbeat on purpose (agent.sh watch: «no data folder (yet): the page says why») and the state stops it around the move"
 check standard
 scenario_end
