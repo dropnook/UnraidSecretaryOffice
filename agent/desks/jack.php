@@ -335,6 +335,7 @@ function jackScan(): array
         'jobs'       => $jobs,
         'progress'   => ($prog = jackProgressState($jobs['embycache']))['progress'],     // a real EmbyCache run: the live panel (jack-progress.php)
         'stopping'   => $prog['stopping'],         // … asked to stop after the file it is on (why: user, mover)
+        'watching'   => $prog['watching'] ?? [],   // … who is watching what meanwhile (per person, the job's look once a minute)
         'last'       => jackLastRun($history = jackHistory()),    // the newest real run from his list (never «never» while one goes)
         'last_status' => readJson(JACK_DATA . '/status.json'),       // what the last run of any mode did: the result box under the tiles
         'history'    => array_slice($history, 0, 20),
@@ -2663,7 +2664,11 @@ function jackWatching(?array $settings = null, ?callable $fetch = null): array
             continue;
         }
         $type = jackType($i['type'] ?? null);
-        $seen[] = jackWatchJudge($fetch($url, $key, JACK_WATCH_TIMEOUT, $type), $type) + ['url' => $url];
+        $s = jackWatchJudge($fetch($url, $key, JACK_WATCH_TIMEOUT, $type), $type) + ['url' => $url];
+        // each session with its server's name (his panel's «who is watching what»)
+        $server = jackWatchText((string) ($i['servername'] ?? ''), 100);
+        $s['who'] = array_map(fn (array $w): array => $w + ['server' => $server], $s['who'] ?? []);
+        $seen[] = $s;
     }
     $time = time();
     $who = array_merge(...array_map(fn ($s) => $s['who'] ?? [], $seen ?: [[]]));
@@ -2903,6 +2908,16 @@ function jackRunWatch($proc, string $stopFile, bool $watchers, ?callable $look =
         }
         usleep(500000);
     }
+}
+
+/** Several tickers for jackRunWatch() as one: EmbyCache's speed samples, who is watching (jack-progress.php) */
+function jackRunTicks(callable ...$ticks): callable
+{
+    return function () use ($ticks): void {
+        foreach ($ticks as $t) {
+            $t();
+        }
+    };
 }
 
 /** While a real gather runs (jackRunWatch() with Emby's watchers) — kept by its name */
@@ -3196,7 +3211,7 @@ function jackJob(string $tool, array $args): int
     } elseif ($real) {
         // stops after a folder (the gather) or a file (EmbyCache) when the mover starts — or someone starts watching (the gather)
         ['exit' => $exit, 'stopped_for' => $stoppedFor, 'stopped_why' => $stoppedWhy] = jackRunWatch($proc, "$dir/office-stop.json", $tool === 'gather',
-            tick: $progress !== null ? jackProgressTicker($progress) : null);
+            tick: $progress !== null ? jackRunTicks(jackProgressTicker($progress), jackWatchTicker($progress)) : null);
     } else {
         $exit = proc_close($proc);
     }

@@ -3432,6 +3432,51 @@ function testJackProgress(): void
     $r = jackProgressState(['running' => true, 'mode' => 'run'], $paths, 3020, "$tmp/stop.json");
     same('progress part: a real run — the panel, not asked to stop', [true, true, 'fill', 2, null], [$r['running'], $r['real'], $r['progress']['phase'] ?? null, count($r['progress']['users'] ?? []), $r['stopping']]);
 
+    // who is watching what (2026-10-29): the job's look once a minute — per session person, title, server, paused, since
+    // (kept across looks for the same session); per person on the panel; nobody: nothing
+    $looks = [['state' => 'watching', 'who' => [['user' => 'Mutter', 'title' => 'Film Ferien 1998', 'device' => 'TV', 'server' => 'FamilienServer', 'paused' => false],
+                                                ['user' => 'Tochter', 'title' => "Velotour\x01 – S01E03", 'server' => 'Jelly', 'paused' => true],
+                                                ['user' => 'mutter ', 'title' => 'Taufe', 'server' => 'Jelly', 'paused' => false]]],
+              ['state' => 'watching', 'who' => [['user' => 'Mutter', 'title' => 'Film Ferien 1998', 'server' => 'FamilienServer', 'paused' => true],
+                                                ['user' => 'Tochter', 'title' => 'Velotour – S01E04', 'server' => 'Jelly']]],
+              ['state' => 'free', 'who' => []], ['state' => 'down', 'who' => []]];
+    $li = 0;
+    $wtick = jackWatchTicker($paths, function () use (&$looks, &$li) { return $looks[$li]; }, function () use (&$clock) { return $clock; });
+    $clock = 5000;
+    $wtick();
+    $rw = jackProgressState(['running' => true, 'mode' => 'run'], $paths, 5000)['watching'];
+    same('watching: per person — Mutter on two servers one person (case and spaces aside), each title with its server, since the look; Tochter paused',
+        [['Mutter', [['Film Ferien 1998', 'FamilienServer', false, 5000], ['Taufe', 'Jelly', false, 5000]]], ['Tochter', [['Velotour  – S01E03', 'Jelly', true, 5000]]]],
+        array_map(fn ($p) => [$p['name'], array_map(fn ($x) => [$x['title'], $x['server'], $x['paused'], $x['since']], $p['items'])], $rw));
+    check('watching: the device and the key never kept', !str_contains((string) file_get_contents($paths['watching']), 'TV'));
+    $li = 1;
+    $clock = 5030;
+    $wtick();
+    same('watching: the next look only after a minute', 5000, jackWatchRead($paths['watching'])['time']);
+    $clock = 5060;
+    $wtick();
+    $rw = jackProgressState(['running' => true, 'mode' => 'run'], $paths, 5060)['watching'];
+    same('watching: a minute later — the same film still since its first look (paused now), the next episode since now',
+        [['Mutter', 'Film Ferien 1998', 5000, true], ['Tochter', 'Velotour – S01E04', 5060, false]], array_map(fn ($p) => [$p['name'], $p['items'][0]['title'], $p['items'][0]['since'], $p['items'][0]['paused']], $rw));
+    foreach ([2 => 'nobody watches', 3 => 'no server answered'] as $i => $what) {
+        $li = $i;
+        $clock += 60;
+        $wtick();
+        same("watching: $what — nothing on the panel", [[], $looks[$i]['state']], [jackProgressState(['running' => true, 'mode' => 'run'], $paths, $clock)['watching'], jackWatchRead($paths['watching'])['state']]);
+    }
+    same('watching: a dry run — no look shown', [], jackProgressState(['running' => true, 'mode' => 'dry'], $paths, $clock)['watching']);
+    file_put_contents($paths['watching'], json_encode(['v' => 1, 'time' => 1, 'who' => [['user' => 'x', 'title' => 'y', 'server' => 'z', 'since' => 'soon'], 'q']]));
+    same('watching: a session not in its shape left out', [], jackWatchView(jackWatchRead($paths['watching'])));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('watching: only a GET of the sessions (never a session touched); each session with its server\'s name',
+        !preg_match('/CURLOPT_(POST|CUSTOMREQUEST|PUT)/', $src) && str_contains($src, "\$s['who'] = array_map(fn (array \$w): array => \$w + ['server' => \$server], \$s['who'] ?? []);"));
+    $w = jackWatching(['instances' => [['servername' => 'Familien', 'url' => 'http://192.168.20.10:8096', 'api_key' => 'k', 'type' => 'emby']]],
+        fn () => ['status' => 200, 'body' => json_encode([['UserName' => 'Mutter', 'NowPlayingItem' => ['Name' => 'Ferien']]]), 'errno' => 0, 'error' => '']);
+    same('watching: the servers\' look names each session\'s server', ['Mutter', 'Ferien', 'Familien'], [$w['who'][0]['user'], $w['who'][0]['title'], $w['who'][0]['server'] ?? null]);
+    jackProgressClear($paths);
+    check('watching: gone with the run', !is_file($paths['watching']));
+    file_put_contents($paths['file'], json_encode($prog));
+
     // «Stop after this file» (jack.stop): only while a real EmbyCache run goes; the mover guard's stop request with why user, once
     foreach (['nothing runs' => ['running' => false, 'mode' => 'run'], 'a dry run' => ['running' => true, 'mode' => 'dry']] as $what => $job) {
         $e = null;
@@ -3477,7 +3522,7 @@ function testJackProgress(): void
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('progress: Jack\'s job sets MEDIACACHE_PROGRESS for real EmbyCache runs only, samples while it watches, clears it after',
         (bool) preg_match('/if \(\$real\) \{[^}]*jackProgressClear\(\$progress\);\s*\$env\[\'MEDIACACHE_PROGRESS\'\] = \$progress\[\'file\'\];/s', $src)
-        && str_contains($src, 'tick: $progress !== null ? jackProgressTicker($progress) : null')
+        && str_contains($src, 'tick: $progress !== null ? jackRunTicks(jackProgressTicker($progress), jackWatchTicker($progress)) : null')
         && str_contains($src, "'progress'       => fn (array \$r) => ['ok' => true, 'state' => jackProgressNow(jackNightNow())]")
         && str_contains($src, "return (\$jack ? jackNightProgress(\$night) : jackProgressState()) + ['night' => \$night];"));
     require_once OFFICE_DIR . '/src/desks.php';

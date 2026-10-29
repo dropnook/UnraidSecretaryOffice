@@ -661,5 +661,29 @@
   "disks": 3,
   "max": 4,
   "total_max": 8
- }
+ },
+ "watching": [
+  {
+   "name": "Mutter",
+   "items": [
+    {
+     "title": "Film Geburtstag Oma 2011",
+     "server": "FamilienServer",
+     "paused": false,
+     "since": 1791898380
+    }
+   ]
+  },
+  {
+   "name": "Vater",
+   "items": [
+    {
+     "title": "Velotour Bodensee 2019 – S01E02 Etappe Bregenz",
+     "server": "FamilienServer",
+     "paused": true,
+     "since": 1791897900
+    }
+   ]
+  }
+ ]
 }

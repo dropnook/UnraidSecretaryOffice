@@ -35,8 +35,14 @@ declare(strict_types=1);
  * left) and is copied once — `fill` counts the fill as a whole (each file once) for the bracket, the queue names it at
  * the first, `shared` [[queue index, [user index, …]], …] at the others, a file in flight its `users` (all of them).
  *
- * His page asks the part `progress` (desk.json; the agent's action `progress`, two RAM reads, nothing written) every
- * 10 s while a real EmbyCache run goes, never otherwise. Both RAM files go when the run ends.
+ * Who is watching what (2026-10-29): while a real run goes, the job asks the media servers' sessions once a minute — the
+ * same read-only GET as before a gather (jackWatching(): /Sessions, Plex's /status/sessions; a session with something
+ * playing, paused too — what MediaCache keeps where it is) — and keeps per session the person, the title, the server,
+ * paused and since when it saw it play (its first look that saw it) in a third RAM file (`RUN_DIR/jack-watching.json`).
+ * Never a session touched. The panel lists it per person; nobody watching (or no answer): nothing.
+ *
+ * His page asks the part `progress` (desk.json; the agent's action `progress`, three RAM reads, nothing written) every
+ * 10 s while a real EmbyCache run goes, never otherwise. The RAM files go when the run ends.
  */
 
 const JACK_PROGRESS_EVERY  = 10;      // a sample of the bytes moved every 10 s while EmbyCache copies
@@ -45,11 +51,13 @@ const JACK_PROGRESS_USERS  = 50;      // at most this many users' bars
 const JACK_PROGRESS_SOURCES = ['resume', 'next_up', 'next_episode', 'favorite', 'other'];
 const JACK_PROGRESS_QUEUE  = 5000;    // EmbyCache's fill queue: at most this many entries (more: none, each user's own estimate)
 const JACK_PROGRESS_ACTIVE = 16;      // files in flight at once taken (the setup allows at most JACK_PARALLEL_TOTAL_MAX)
+const JACK_WATCH_LIVE      = 60;      // who is watching: asked once a minute while a real run goes
+const JACK_WATCH_LIVE_MAX  = 20;      // … at most this many sessions kept
 
-/** The two RAM files of a real run: EmbyCache's progress and the job's speed samples */
+/** The RAM files of a real run: EmbyCache's progress, the job's speed samples and who is watching what */
 function jackProgressPaths(string $dir = RUN_DIR): array
 {
-    return ['file' => "$dir/jack-progress.json", 'samples' => "$dir/jack-progress-speed.json"];
+    return ['file' => "$dir/jack-progress.json", 'samples' => "$dir/jack-progress-speed.json", 'watching' => "$dir/jack-watching.json"];
 }
 
 /** A run starts or ends: neither file of a run before stays */
@@ -411,6 +419,92 @@ function jackProgressView(array $p, array $samples, int $now, bool $stopping = f
             'speed' => $speed !== null ? (int) round($speed) : null, 'current' => $shown[0] ?? null, 'files' => $shown];
 }
 
+/**
+ * One look at who is watching (the job, once a minute while a real run goes): the media servers' sessions (jackWatching(),
+ * read-only) written to RAM — per session person, title, server, paused, `since` (kept from the look before for the same
+ * person, server and title; else now). Not answered or nobody: the state alone. True when written.
+ */
+function jackWatchLook(array $paths, ?callable $look = null, ?int $now = null): bool
+{
+    $now ??= time();
+    $w = ($look ?? fn (): array => jackWatching(null, fn (string $url, string $key, int $t = 0, string $type = 'emby') => jackWatchFetch($url, $key, JACK_WATCH_PAGE, $type)))();
+    $before = [];
+    foreach ((array) (jackWatchRead($paths['watching'])['who'] ?? []) as $x) {
+        $before[jackWatchId($x)] = $x['since'];
+    }
+    $who = [];
+    foreach (array_slice(($w['state'] ?? '') === 'watching' && is_array($w['who'] ?? null) ? $w['who'] : [], 0, JACK_WATCH_LIVE_MAX) as $x) {
+        if (!is_array($x)) {
+            continue;
+        }
+        $e = ['user' => jackWatchText((string) ($x['user'] ?? ''), 100), 'title' => jackWatchText((string) ($x['title'] ?? ''), 200),
+              'server' => jackWatchText((string) ($x['server'] ?? ''), 100), 'paused' => !empty($x['paused'])];
+        $who[] = $e + ['since' => min($now, $before[jackWatchId($e)] ?? $now)];
+    }
+    $state = in_array($w['state'] ?? null, ['watching', 'free', 'down', 'error', 'unknown'], true) ? $w['state'] : 'error';
+    writeAtomic($paths['watching'], jsonEncode(['v' => 1, 'time' => $now, 'state' => $who ? 'watching' : ($state === 'watching' ? 'free' : $state), 'who' => $who]), 0600, 0, 0);
+    return true;
+}
+
+/** A session's identity across looks: person, server, title */
+function jackWatchId(array $x): string
+{
+    return implode("\x1f", [mb_strtolower((string) ($x['user'] ?? '')), (string) ($x['server'] ?? ''), (string) ($x['title'] ?? '')]);
+}
+
+/** The job's look in RAM, only in its shape: {time, state, who: [{user, title, server, paused, since}]}; else null */
+function jackWatchRead(string $file): ?array
+{
+    if (!is_file($file) || is_link($file) || (int) @filesize($file) > 262144) {
+        return null;
+    }
+    $j = json_decode((string) @file_get_contents($file), true);
+    if (!is_array($j) || ($j['v'] ?? null) !== 1 || !is_int($j['time'] ?? null) || !is_array($j['who'] ?? null)) {
+        return null;
+    }
+    $who = [];
+    foreach (array_slice($j['who'], 0, JACK_WATCH_LIVE_MAX) as $x) {
+        if (is_array($x) && is_string($x['user'] ?? null) && is_string($x['title'] ?? null) && is_string($x['server'] ?? null) && is_int($x['since'] ?? null)) {
+            $who[] = ['user' => jackWatchText($x['user'], 100), 'title' => jackWatchText($x['title'], 200), 'server' => jackWatchText($x['server'], 100),
+                      'paused' => ($x['paused'] ?? false) === true, 'since' => $x['since']];
+        }
+    }
+    return ['time' => $j['time'], 'state' => is_string($j['state'] ?? null) ? $j['state'] : 'error', 'who' => $who];
+}
+
+/**
+ * What the panel lists: per person (one name over several servers — case and spaces aside, as MediaCache counts a
+ * person) what plays, on which server, since when, paused; the persons in the order first seen. Nobody: [].
+ */
+function jackWatchView(?array $look): array
+{
+    $out = [];
+    foreach ($look['who'] ?? [] as $x) {
+        $k = mb_strtolower((string) preg_replace('/\s+/u', '', $x['user']));
+        $out[$k] ??= ['name' => $x['user'] !== '' ? $x['user'] : null, 'items' => []];
+        $out[$k]['items'][] = array_intersect_key($x, ['title' => 1, 'server' => 1, 'paused' => 1, 'since' => 1]);
+    }
+    return array_values($out);
+}
+
+/** The job's ticker for who is watching: at once, then every JACK_WATCH_LIVE s (a look that fails: again next time) */
+function jackWatchTicker(array $paths, ?callable $look = null, ?callable $now = null): callable
+{
+    $now ??= fn (): int => time();
+    $next = 0;
+    return function () use ($paths, $look, $now, &$next): void {
+        $t = $now();
+        if ($t < $next) {
+            return;
+        }
+        $next = $t + JACK_WATCH_LIVE;
+        try {
+            jackWatchLook($paths, $look, $t);
+        } catch (Throwable) {
+        }
+    };
+}
+
 /** «Stop after this file» asked — the stop request in his data folder (EMBYCACHE_STOP): its why (user, mover, watching), else null */
 function jackProgressStopping(string $file): ?string
 {
@@ -436,7 +530,9 @@ function jackProgressState(?array $job = null, ?array $paths = null, ?int $now =
     $p = $real ? jackProgressRead($paths['file']) : null;
     return ['time' => $now, 'running' => !empty($job['running']), 'mode' => (string) ($job['mode'] ?? ''), 'real' => $real,
             'stopping' => $stopping = ($real ? jackProgressStopping($stopFile ?? JACK_DATA . '/office-stop.json') : null),
-            'progress' => $p !== null ? jackProgressView($p, jackProgressSamples($paths['samples'], $p['started']), $now, $stopping !== null) : null];
+            'progress' => $p !== null ? jackProgressView($p, jackProgressSamples($paths['samples'], $p['started']), $now, $stopping !== null) : null,
+            // who is watching what (the job's look once a minute): per person, nobody — []
+            'watching' => $real && isset($paths['watching']) ? jackWatchView(jackWatchRead($paths['watching'])) : []];
 }
 
 /**

@@ -43,6 +43,7 @@ let progTimer = null;
 let progAsked = 0;            // when the part was last asked for (this browser's clock — never compared with the server's)
 let progBox = null;           // the panel on the page, redrawn in place
 let nightNow = null;          // the night run with Ms. Moverelli going for real (agent: jackNightNow()) — her card's phases on his page
+let watching = [];            // who is watching what while a real run goes (the job's look once a minute): [{name, items}] per person
 let startKicks = 0;           // a real run just started from here: look again until it shows as running
 
 // ------------------------------------------------------------------ loading
@@ -62,6 +63,7 @@ function stateIn(s) {
   if (typeof s.time === 'number' && s.time >= progressAt) {
     progress = s.progress || null;
     stopping = s.stopping || null;
+    watching = Array.isArray(s.watching) ? s.watching : [];
     nightNow = (s.night && s.night.now) || null;
     progressAt = s.time;
   }
@@ -131,6 +133,7 @@ function tookProgress(j) {
   const was = nightNow ? `${nightNow.who}|${nightNow.phase}` : '';
   progress = p.progress || null;
   stopping = p.stopping || null;
+  watching = Array.isArray(p.watching) ? p.watching : [];
   nightNow = p.night || null;
   if (nightNow && (`${nightNow.who}|${nightNow.phase}` !== was)) { progressAt = p.time; load(true); return; }
   progressAt = p.time;
@@ -807,6 +810,8 @@ function progressPanel() {
   head.append(el('span', 'spin'), el('span', '', T('progress.title')));
   box.appendChild(head);
   progressRows(box);
+  const who = watchingBox();
+  if (who) box.appendChild(who);
   const foot = el('div', 'jo-prog-foot');
   if (stopping) foot.appendChild(el('span', 'jo-prog-stopping', T('progress.stopping')));
   foot.appendChild(link(T('progress.raw'), () => showOutput('embycache', true)));
@@ -871,6 +876,8 @@ function nightPanel(now) {
   if (jack) {
     const rows = el('div', 'jo-prog jo-night-prog');
     progressRows(rows);
+    const who = watchingBox();
+    if (who) rows.appendChild(who);
     card.appendChild(rows);
   } else {
     const her = n.who === 'her' ? n.her : null;
@@ -888,6 +895,33 @@ function nightPanel(now) {
   foot.appendChild(stop);
   card.appendChild(foot);
   return card;
+}
+
+/**
+ * Who is watching what (2026-10-29): per person what plays now on which server, since when (as the job's look once a
+ * minute saw it — what plays stays where it is); read only. Nobody watching: nothing (null).
+ */
+function watchingBox(list = watching) {
+  const people = (Array.isArray(list) ? list : []).filter((p) => p && Array.isArray(p.items) && p.items.length);
+  if (!people.length) return null;
+  const box = el('div', 'jo-watch');
+  box.appendChild(el('div', 'jo-watch-head', T('watching.title')));
+  const ul = el('ul', 'jo-watch-list');
+  people.forEach((p) => {
+    const li = el('li', 'jo-watch-person');
+    li.appendChild(el('span', 'jo-watch-name', p.name || T('watch.someone')));
+    p.items.forEach((x) => {
+      const what = [T('watching.on', { server: x.server || '?' })];
+      if (typeof x.since === 'number') what.push(T('watching.since', { time: fmt.time(x.since) }));
+      if (x.paused) what.push(T('watching.paused'));
+      const item = el('span', 'jo-watch-item');
+      item.append(el('span', 'jo-watch-title', x.title || '?'), el('span', 'jo-watch-facts', what.join(' · ')));
+      li.appendChild(item);
+    });
+    ul.appendChild(li);
+  });
+  box.appendChild(ul);
+  return box;
 }
 
 /** «Stop after this file»: EmbyCache ends after the file it is on (jack.stop — the mover guard's stop request, why user) */

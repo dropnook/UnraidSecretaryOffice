@@ -152,5 +152,18 @@
   "running": true,
   "stopping": null,
   "her": null
- }
+ },
+ "watching": [
+  {
+   "name": "Felix",
+   "items": [
+    {
+     "title": "Zeltlager Pfingsten 2004",
+     "server": "HomeServer",
+     "paused": true,
+     "since": 1791550000
+    }
+   ]
+  }
+ ]
 }
