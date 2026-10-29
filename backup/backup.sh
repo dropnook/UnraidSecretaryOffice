@@ -1,6 +1,13 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.78 - 2026-10-28
+# unraid-backup - backup.sh                       Version 2.79 - 2026-10-29
+#   2.79 The offsite repository emptied while Kopia's cache still opens it (B17): listing the snapshots fails with
+#        «BLOB not found» - the storage itself is asked (kopia blob list) whether the repository's description is still
+#        there; gone is kopia_gone (once, an alert, the hold) and the Kopia step holds - up to 2.78 the run just ended
+#        with Kopia's errors. --kopia-count says repository_gone then. Kopia's cache is never cleared for it.
+#        Files dated in the future (more than UB_FUTURE_SLACK, a day, ahead: a clock that ran ahead, a camera with the
+#        wrong date) are said: right after Kopia read a share or an app's or VM's source, one find over the same mount
+#        (lib/common.sh future_look) - warning future_files with the source, how many, one example and its date
 #   2.77 How many at once (2.73) measured in milliseconds: the settling and the window's time no longer whole seconds
 #        read at any fraction of one (the total rate up to a second's worth off; a short window far more)
 #   2.76 Code review 1.72.0: a VM's or app's own dataset in a share sent to a partner whose unit doesn't go there stays
@@ -497,7 +504,11 @@ if [[ "$UB_MODE" == "kopia_count" ]]; then
         [[ "$KOPIA_FORMAT_GONE" == "yes" ]] && kc_not repository_gone      # the storage answers, the repository's format blob is gone
         [[ "$KOPIA_RUNNING" == "yes" ]] && kc_not not_connected; kc_not not_running
     fi
-    kopia_count_load || kc_not no_answer
+    if ! kopia_count_load; then
+        # 2.79: the repository's files gone while Kopia's cache still opens it - asked of the storage itself
+        [[ "$KC_BLOB_GONE" == "yes" ]] && kopia_format_gone_look && kc_not repository_gone
+        kc_not no_answer
+    fi
     kopia_count_json watch | jq -c '{ok: true} + .'
     exit 0
 fi
@@ -4583,8 +4594,10 @@ refresh_view
 KOPIA_DONE=0; KOPIA_FAILED=0
 KOPIA_STALLED=""            # 2.68: the source whose upload took nothing for UB_KOPIA_STALL seconds (ended) - Kopia not asked again
 KOPIA_STALL_AT=0            #   the last moment it moved
+KOPIA_LAST_OK=0             # 2.79: the last kopia_one's upload ended well (future_look then looks over what Kopia read)
 kopia_one() { # kopia_one <name> <container path>
     local name="$1" cp="$2" t0 rc secs stalled=0
+    KOPIA_LAST_OK=0
     t0="$(date +%s)"
     if [[ -n "$KOPIA_STALLED" ]]; then           # 2.68: the storage takes nothing - each upload would only wait as long
         log "Kopia: $name skipped - the offsite storage took nothing since $(date -d "@$KOPIA_STALL_AT" '+%H:%M')"
@@ -4634,7 +4647,7 @@ kopia_one() { # kopia_one <name> <container path>
         kopia_watch_run stuck "$KS_AT"
         warn_code kopia_stalled "Kopia took nothing for $(( UB_KOPIA_STALL / 60 )) min - the upload of '$name' was ended; nothing more goes offsite in this run (the offsite storage takes no writes since $(date -d "@$KS_AT" '+%Y-%m-%d %H:%M'))" \
             name="$name" minutes="$(( UB_KOPIA_STALL / 60 ))" since="$(date -d "@$KS_AT" '+%Y-%m-%d %H:%M')"
-    elif [[ $rc -eq 0 ]]; then KOPIA_DONE=$((KOPIA_DONE+1)); log "  ok ($secs s)"; kopia_watch_run ok
+    elif [[ $rc -eq 0 ]]; then KOPIA_DONE=$((KOPIA_DONE+1)); KOPIA_LAST_OK=1; log "  ok ($secs s)"; kopia_watch_run ok
     else KOPIA_FAILED=$((KOPIA_FAILED+1)); err "Kopia snapshot of '$name' failed (exit code $rc)"; fi
     ST_KOPIA_DONE+=( "$name|$([[ $rc -eq 0 ]] && echo 1 || echo 0)|$secs|$(date +%s)" )
     ST_KOPIA_CUR=""; status_write
@@ -4664,6 +4677,7 @@ kopia_item_one() {
         kopia_skip "$key"; return 0
     fi
     kopia_one "$key" "$cp"
+    if (( KOPIA_LAST_OK )); then future_look "$n" "$(item_hostpath "$t" "$f")"; fi     # 2.79: files dated in the future
 }
 
 # kopia_share_one <share>
@@ -4687,6 +4701,7 @@ kopia_share_one() {
     fi
     [[ "${SHARE_MOUNTED[$s]}" == "live" ]] && log "  (live: '$s' is read without a snapshot)"
     kopia_one "$s" "$cp"
+    if (( KOPIA_LAST_OK )); then future_look "$s" "$hp"; fi                               # 2.79: files dated in the future
 }
 
 # kopia_flash_one  - the flash's ZFS snapshot (only when /boot is on ZFS); its snapshot or mount failed: not backed up

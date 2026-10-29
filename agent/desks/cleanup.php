@@ -270,7 +270,31 @@ desk('cleanup', [
  */
 function clTickParts(): array
 {
-    return ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick', 'drill' => 'clDrillCopiesTick'];
+    return ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick', 'drill' => 'clDrillCopiesTick',
+            'docker' => 'clDockerBackTick'];
+}
+
+/**
+ * Docker answers again after a look of hers found it silent (B15): the page shows her saved looks, and the web side asks
+ * again only once they are older than refresh_after (5 min, «where is what» 10) — after the fix her page went on saying
+ * «Docker isn't answering» that long (parking lot 10-22). Each tick: two flags read; only when one of her looks said silent
+ * the house is asked (houseDockerBackLook(): never inside the quiet time, one short look at most once per quiet time) and,
+ * Docker answering, the look that said so is taken anew — her tidying and «where is what». $scan, $where, $back: the tests' stand-ins.
+ */
+function clDockerBackTick(?callable $scan = null, ?callable $where = null, ?callable $back = null): void
+{
+    $mine = !empty($GLOBALS['clState']['docker']['silent']);
+    $there = !empty($GLOBALS['where']['system']['docker']['silent']);
+    if ((!$mine && !$there) || !($back ?? 'houseDockerBackLook')()) {
+        return;
+    }
+    logLine('Dustdevil: Docker answers again - ' . ($mine && $there ? 'both her looks' : ($mine ? 'her look' : '«where is what»')) . ' taken anew');
+    if ($there) {
+        ($where ?? 'whereScan')();
+    }
+    if ($mine) {
+        ($scan ?? 'clScan')();
+    }
 }
 
 /**
@@ -561,13 +585,13 @@ function clWake(array $names): array
 function clDocker(): array
 {
     $out = ['ok' => false, 'enabled' => (readCfg('/boot/config/docker.cfg')['DOCKER_ENABLED'] ?? 'no') === 'yes', 'compose' => false,
-            'containers' => [], 'images' => [], 'repos' => [], 'volumes' => [], 'by_id' => [], 'volume_info' => []];
+            'silent' => false, 'containers' => [], 'images' => [], 'repos' => [], 'volumes' => [], 'by_id' => [], 'volume_info' => []];
     if (!bin('docker') || !file_exists('/var/run/docker.sock')) {
         return $out;
     }
     [$exit, $ids] = houseDocker(['ps', '-aq', '--no-trunc']);
     if ($exit !== 0) {
-        return $out;
+        return ['silent' => houseDockerSilent()] + $out;         // her tick looks again once it answers (clDockerBackTick())
     }
     $ids = array_values(array_filter(array_map('trim', explode("\n", $ids))));
     $data = [];
@@ -575,7 +599,7 @@ function clDocker(): array
         [$exit, $json] = houseDocker(array_merge(['inspect'], $ids));
         $data = $exit === 0 ? json_decode($json, true) : null;
         if (!is_array($data)) {
-            return $out;
+            return ['silent' => houseDockerSilent()] + $out;
         }
     }
     foreach ($data as $c) {
@@ -670,6 +694,7 @@ function clDocker(): array
     }
     $out['compose'] = houseDocker(['compose', 'version'])[0] === 0;
     $out['ok'] = !houseDockerSilent();          // one of the lists got no answer: not a look to judge by (B15)
+    $out['silent'] = !$out['ok'];
     return $out;
 }
 
@@ -2820,6 +2845,7 @@ function clBuild(): array
         'docker'    => [
             'ok'         => $docker['ok'],
             'enabled'    => $docker['enabled'],
+            'silent'     => $docker['silent'] ?? false,      // switched on, no answer in time (B15): her tick looks again once it answers
             'compose'    => $docker['compose'],
             'containers' => count($docker['containers']),
             'cache_at'   => $cache['build']['at'] ?? null,

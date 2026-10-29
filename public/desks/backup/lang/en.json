@@ -1971,6 +1971,7 @@
   "warn_code.kopia_held": "The offsite copy was suddenly empty ({before} snapshots on {when}, now {now}) – an attack or the wrong repository? Nothing went offsite this time. If that wasn't you: delete nothing, Object Lock may still hold the data. If the repository is new, tell Mr. Backupsy.",
   "warn_code.kopia_stalled": "The offsite storage has taken nothing since {since}. Kopia's upload of {name} was ended after {minutes} min without progress. The local snapshots and packages are done.",
   "warn_code.docker_off_offsite": "Docker is switched off — nothing went offsite this time, because Kopia runs in a container. The local snapshots and packages are done. You can switch Docker on under ⟦Settings⟧ → ⟦Docker⟧.",
+  "warn_code.future_files": "Files dated in the future in {name}: {n}, for example {path} ({when}). Anything that goes by a file's age takes them for brand new until that day. They usually come from a clock that ran ahead or a camera or phone with the wrong date — set their date right (in a terminal: touch -m -d with the right date).",
   "notify.kopia_held.subject": "The offsite copy is suddenly empty",
   "notify.kopia_held": "On {when} there were {before} snapshots, now {now}: an attack or the wrong repository? Nothing goes offsite until you decide. If that wasn't you: delete nothing, Object Lock may still hold the data; the Consultant shows how to get it back. If the repository is new, tell Mr. Backupsy.",
   "notify.kopia_writes.subject": "The offsite storage takes nothing",

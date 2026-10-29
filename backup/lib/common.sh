@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.78"
+UB_VERSION="2.79"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -1889,15 +1889,22 @@ kopia_sizes_load() {
 # a Kopia that errors (unreachable, forbidden) counts nothing. The office's Night Watchman looks once a day the same way
 # (backup.sh --kopia-count, read only).
 KC_FILE="$UB_STATE/kopia-count.json"
-KC_SNAPS=""; KC_SOURCES=""
-# kopia_count_load -> KC_SNAPS, KC_SOURCES (this identity's); 1 when Kopia didn't answer with a list
+KC_SNAPS=""; KC_SOURCES=""; KC_BLOB_GONE="no"
+# kopia_count_load -> KC_SNAPS, KC_SOURCES (this identity's); 1 when Kopia didn't answer with a list - KC_BLOB_GONE=yes
+# when the list failed because a blob Kopia's cache names is gone from the storage (2.79: «BLOB not found»)
 kopia_count_load() {
-    KC_SNAPS=""; KC_SOURCES=""
+    KC_SNAPS=""; KC_SOURCES=""; KC_BLOB_GONE="no"
     [[ "$KOPIA_CONNECTED" == "yes" && -n "$KOPIA_REPO_ID" ]] || return 1
-    local e=() js c
+    local e=() js c err
     [[ "$KOPIA_RUN_UID" != "0" ]] && e=( -e HOME=/tmp )
-    js="$(timeout "${UB_KOPIA_LIST_TIMEOUT:-60}" docker exec -u "$KOPIA_RUN_UID" "${e[@]}" "$KOPIA_CONTAINER" \
-              kopia --no-progress snapshot list --all --json 2>/dev/null)" || return 1
+    err="$(mktemp "${TMPDIR:-/tmp}/.uso-kopia-list.XXXXXX" 2>/dev/null)" || err=/dev/null
+    if ! js="$(timeout "${UB_KOPIA_LIST_TIMEOUT:-60}" docker exec -u "$KOPIA_RUN_UID" "${e[@]}" "$KOPIA_CONTAINER" \
+              kopia --no-progress snapshot list --all --json 2>"$err")"; then
+        [[ "$err" != /dev/null ]] && grep -q 'BLOB not found' "$err" 2>/dev/null && KC_BLOB_GONE="yes"
+        [[ "$err" != /dev/null ]] && rm -f "$err"
+        return 1
+    fi
+    [[ "$err" != /dev/null ]] && rm -f "$err"
     c="$(jq -r --arg u "$KOPIA_USER" --arg h "$KOPIA_HOST" 'if type == "array" then
             [.[] | select(.source.userName == $u and .source.host == $h)] | "\(length) \(map(.source.path) | unique | length)"
          else error("no list") end' 2>/dev/null <<<"$js")" || return 1
@@ -1943,6 +1950,44 @@ kopia_reach_save() { # kopia_reach_save unreachable|ok
     log "  Offsite unreachable since $(date -d "@$since" '+%Y-%m-%d %H:%M' 2>/dev/null || echo "$since") (run $run)"
     return 0
 }
+# --- Files dated in the future (2.79, batch H #7): a clock that ran ahead and was put right, a camera or phone with the
+# wrong date - files modified more than UB_FUTURE_SLACK s after now. Nothing else says so: whatever goes by a file's age
+# (the mover's age rules, «newest first», cleaning up old files) takes them for brand new until that day. Looked for right
+# after Kopia read a source (backup.sh kopia_share_one, kopia_item_one: its folders are in the kernel's cache then, its
+# disks awake; a source Kopia didn't read - asleep, skipped, failed - is not looked at): one find over the same mount,
+# metadata only, at most UB_FUTURE_TIMEOUT s, in the background - the array being stopped ends it at once (and the run:
+# array_stop_check). Said as warning future_files: the source, how many, one example (its path inside the source) and
+# that file's date.
+UB_FUTURE_SLACK="${UB_FUTURE_SLACK:-86400}"
+future_look() { # future_look <name> <host path>
+    local name="$1" hp="$2" lim out n ex t when tmp pid
+    [[ -d "$hp" ]] || return 0
+    tmp="$(mktemp "${TMPDIR:-/tmp}/.uso-future.XXXXXX" 2>/dev/null)" || return 0
+    lim=$(( $(date +%s) + UB_FUTURE_SLACK ))
+    timeout "${UB_FUTURE_TIMEOUT:-300}" find "$hp" -type f -newermt "@$lim" -printf '%T@\t%P\n' >"$tmp" 2>/dev/null 9>&- &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if array_stopping; then
+            kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; rm -f "$tmp"
+            declare -F array_stop_check >/dev/null && array_stop_check "while looking for files dated in the future in $name"
+            return 0
+        fi
+        sleep 0.2
+    done
+    wait "$pid" 2>/dev/null
+    out="$(awk -F'\t' 'NR == 1 { print } END { print NR }' "$tmp" 2>/dev/null)"
+    rm -f "$tmp"
+    n="${out##*$'\n'}"
+    is_uint "$n" && (( n > 0 )) || return 0
+    IFS=$'\t' read -r t ex <<<"${out%%$'\n'*}"
+    t="${t%%.*}"
+    is_uint "$t" || return 0
+    ex="$(printf '%s' "$ex" | tr -d '\000-\037' | cut -c1-200)"
+    when="$(date -d "@$t" '+%Y-%m-%d')"
+    warn_code future_files "$name: $n file(s) dated in the future (more than $(( UB_FUTURE_SLACK / 3600 )) h ahead), e.g. '$ex' ($when) - a clock that ran ahead or a camera with the wrong date; set their date right (touch -m)" \
+        name="$name" n="$n" path="$ex" when="$when"
+}
+
 # kopia_emptied <before> <now> - far fewer: none left, or less than half
 kopia_emptied() { is_uint "$1" && is_uint "$2" && (( $1 > 0 && ( $2 == 0 || $2 * 2 < $1 ) )); }
 # --- The Kopia step held (2.56): a repository suddenly (nearly) empty is no reason to upload everything anew over what
@@ -2009,8 +2054,21 @@ kopia_gone_check() {
     fi
     return 0
 }
+# kopia_format_gone_look - (2.79, B17) the storage itself asked whether the repository's own description (its format
+# blob kopia.repository) is still there: `blob list` lists the storage, past Kopia's cache. 0 = gone; 1 = there, or Kopia
+# didn't answer (never «gone» for an error of the way there). Read only.
+kopia_format_gone_look() {
+    local out
+    out="$(kopia_x blob list --prefix=kopia.repository 2>/dev/null)" || return 1
+    ! grep -q '^kopia\.repository' <<<"$out"
+}
 # kopia_emptied_check - before the upload: the count now against the last record of the same repository and identity,
-# and against the hold (2.56) - far fewer (none left, or less than half) holds the Kopia step: KOPIA_HELD=yes
+# and against the hold (2.56) - far fewer (none left, or less than half) holds the Kopia step: KOPIA_HELD=yes.
+# 2.79 (B17): the repository emptied while Kopia's cache still holds its description and indexes - Kopia opens it (its
+# status from the cache) but listing the snapshots fails, «BLOB not found»: the storage is asked (kopia_format_gone_look);
+# its format blob gone too is kopia_gone (kopia_gone_check: said once, an alert, the hold) - never an upload over it.
+# Kopia's cache is never cleared for this: the Kopia server in the container shares it, and a large repository would
+# fetch every index again
 kopia_emptied_check() {
     KOPIA_HELD="no"
     local was="" wt="" ws="" when hrepo="" hid="" hb="" hw="" hs="" before="" since="" sb=""
@@ -2019,6 +2077,23 @@ kopia_emptied_check() {
         [[ "$hrepo" == "$KOPIA_REPO_ID" && "$hid" == "$KOPIA_ID" ]] || kopia_held_end "connected to another repository or identity than the one held (a new one)"
     fi
     if ! kopia_count_load; then
+        if [[ -z "$KH_JSON" && "$KC_BLOB_GONE" == "yes" ]]; then
+            local said="${#WARN_ITEMS[@]}"
+            if kopia_format_gone_look; then
+                log "  Kopia's snapshots not counted: blobs its cache names are gone from the storage, and so is the repository's own description (kopia.repository) - emptied"
+                KOPIA_FORMAT_GONE="yes"
+                kopia_gone_check
+                if (( ${#WARN_ITEMS[@]} > said )); then
+                    KOPIA_HELD="yes"
+                    err "Kopia's step held - the offsite repository was emptied, Kopia only still has its cache of it (see the warning above): nothing goes offsite in this run"
+                else
+                    log "  (no count kept of this repository to compare with - not held)"
+                fi
+                return 0
+            fi
+            log "  Kopia's snapshots not counted: blobs its cache names are gone from the storage (the repository's description is still there) - not compared"
+            return 0
+        fi
         log "  Kopia's snapshots not counted (it didn't answer) - not compared"
         [[ -n "$KH_JSON" ]] || return 0
         before="$hb"; since="$hw"; sb="$hs"; KC_SNAPS="?"      # held before: nothing says the snapshots are back
