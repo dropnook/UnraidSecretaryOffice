@@ -43746,6 +43746,12 @@ SH);
     foreach (['move', 'zfs', 'notify'] as $b) {
         chmod("$tmp/bin/$b", 0755);
     }
+    // her real runs tell this stand-in, never Unraid's own notifications, unless the test names one of its own (2026-10-29:
+    // testMoverelliStop, …ArrayStop and …PowerCut sent «run with problems» and «run failed» to test4's notifications on
+    // every suite run — the runner below puts OFFICE_NOTIFY_BIN back after each test)
+    if (getenv('OFFICE_NOTIFY_BIN') === false) {
+        putenv("OFFICE_NOTIFY_BIN=$tmp/bin/notify");
+    }
     $v += ['version' => '7.3.2', 'own' => ['set' => '', 'cron' => null], 'mover' => false, 'mover_self' => false, 'busy' => false, 'jack_desk' => null,
            'tuning' => false, 'env' => [], 'hired' => true, 'jack_lists' => [], 'jack_ran' => true];
     $GLOBALS['moverelliHost'] = [
@@ -45953,6 +45959,8 @@ JS);
             [array_slice($o['stopping'][0] ?? [], 0, 2), $o['stopping'][1] ?? null]);
         same('run card: «Stop after this file» asks moverelli.stop', ['moverelli.stop'], $o['posts'] ?? null);
     }
+    $told = file_exists("$tmp/notified") ? file("$tmp/notified", FILE_IGNORE_NEW_LINES) : [];
+    check('moverelli stop: told — three runs whose move binary fails (the leftover .partial, by the office and inside the night with a target) — each told once, as a warning', count($told) === 3 && count(array_filter($told, fn ($l) => str_contains($l, '-i warning') && str_contains($l, 'with problems'))) === 3, implode("\n", $told));
     unset($GLOBALS['moverelliHost']);
     hardeningRm($tmp);
 }
@@ -46059,6 +46067,8 @@ JS);
     }
     $sh = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
     check('smart mover: TERM, INT and HUP end it with their own code (the EXIT trap writes it), never 0', str_contains($sh, "trap 'exit 143' TERM") && str_contains($sh, "trap 'exit 130' INT") && str_contains($sh, "trap 'exit 129' HUP"));
+    $told = file_exists("$tmp/notified") ? file("$tmp/notified", FILE_IGNORE_NEW_LINES) : [];
+    check('array stop: told — only Smart Mover killed while the array still runs (failed), never the array\'s stops', count($told) === 1 && count(array_filter($told, fn ($l) => str_contains($l, '-i warning') && str_contains($l, 'run failed'))) === 1, implode("\n", $told));
     unset($GLOBALS['moverelliHost']);
     hardeningRm($tmp);
 }
@@ -46165,6 +46175,8 @@ JS);
         $lang = readJson(OFFICE_WEB . "/desks/moverelli/lang/$l.json") ?? [];
         check("power cut: the words in $l", ($lang['result.interrupted'] ?? '') !== '' && ($lang['interrupted_restart'] ?? '') !== '' && ($lang['interrupted_ended'] ?? '') !== '');
     }
+    $told = file_exists("$tmp/notified") ? file("$tmp/notified", FILE_IGNORE_NEW_LINES) : [];
+    check('power cut: told — her job whose move binary fails — told once', count($told) === 1 && count(array_filter($told, fn ($l) => str_contains($l, '-i warning') && str_contains($l, 'with problems'))) === 1, implode("\n", $told));
     unset($GLOBALS['moverelliHost']);
     hardeningRm($tmp);
 }
@@ -56292,11 +56304,13 @@ foreach ($parts as $name => $fns) {
     foreach ($fns as $t) {
         if (!$only || in_array($name, $only, true) || in_array($t, $only, true)) {      // everything, its part, or the test by its name
             $GLOBALS['testsNow'] = $t;
+            $notifyBin = getenv('OFFICE_NOTIFY_BIN');       // a test's stand-in notify (Ms. Moverelli's fixture's) ends with it
             try {
                 $t();
             } catch (Throwable $e) {
                 check("$t: ended by an uncaught " . get_class($e) . ': ' . $e->getMessage() . ' (' . $e->getFile() . ':' . $e->getLine() . ')', false);
             }
+            putenv($notifyBin === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$notifyBin");
         }
     }
 }
