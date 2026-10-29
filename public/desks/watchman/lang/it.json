@@ -1227,7 +1227,7 @@
   "tile.hold": "Cosa trattiene l'array?",
   "tile.schedule": "Pianificazione",
   "schedule.every": "un giro ogni cinque minuti",
-  "schedule.fixed": "Qui non c'è niente da impostare: fa il suo giro da solo ogni cinque minuti, anche a segreteria chiusa. «Un giro adesso» in alto lo manda subito.",
+  "schedule.fixed": "Qui non c'è niente da impostare. «Un giro adesso» in alto lo manda subito.",
   "tile.hold_n": {"one": "{n} cosa", "other": "{n} cose"},
   "tile.hold_none": "niente",
   "tile.hold_stopped": "array fermo",

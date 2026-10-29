@@ -483,5 +483,12 @@
   "wakes.sure.wrote": "wrote to it",
   "wakes.sure.wrote_title": "It had written to a file on this disk shortly before. The server writes such data out a little later — that can wake the disk without anybody waiting for it.",
   "wakes.unraid": "Right after it woke, Unraid looked at it (its SMART values, whether it spins) — that is Unraid's answer to the wake, not its cause.",
-  "wakes.how.asked": "The time is when I saw the disk being asked for (I look every {s} s)."
+  "wakes.how.asked": "The time is when I saw the disk being asked for (I look every {s} s).",
+  "tile.schedule": "Schedule",
+  "schedule.sub": "My tour on schedule: every log, as when you click «Tour». Its result is here as a clicked one's.",
+  "schedule.intro": "When I tour on my own — once a day is plenty. A log on a sleeping disk is left out: I never wake a disk for it.",
+  "schedule.off_note": "I tour when you click «Tour».",
+  "schedule.asleep": "Asleep, their logs left out: {disks}",
+  "schedule.never_wake": "On schedule I never wake a disk: the logs on a sleeping one are left out and read at the next tour.",
+  "found.asleep": "This tour ran on schedule: the logs on {disks} were asleep and left out — read at the next tour."
 }

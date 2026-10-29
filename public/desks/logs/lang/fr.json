@@ -483,5 +483,12 @@
   "wakes.sure.wrote": "y a écrit",
   "wakes.sure.wrote_title": "Il avait écrit dans un fichier de ce disque peu avant. Le serveur écrit ces données sur le disque un peu plus tard — cela peut le réveiller sans que personne ne l'attende.",
   "wakes.unraid": "Juste après le réveil, Unraid l'a regardé (ses valeurs SMART, s'il tourne) : c'est la réponse d'Unraid au réveil, pas sa cause.",
-  "wakes.how.asked": "L'heure est celle où j'ai vu que le disque était sollicité (je regarde toutes les {s} s)."
+  "wakes.how.asked": "L'heure est celle où j'ai vu que le disque était sollicité (je regarde toutes les {s} s).",
+  "tile.schedule": "Planification",
+  "schedule.sub": "Ma tournée planifiée : chaque journal, comme quand tu cliques sur «Tournée». Son résultat est ici comme celui d'une tournée cliquée.",
+  "schedule.intro": "Quand je fais ma tournée toute seule — une fois par jour suffit. Un journal sur un disque endormi, je le laisse de côté : je ne réveille jamais un disque pour ça.",
+  "schedule.off_note": "Je fais ma tournée quand tu cliques sur «Tournée».",
+  "schedule.asleep": "Endormis, leurs journaux laissés de côté : {disks}",
+  "schedule.never_wake": "En planification, je ne réveille jamais un disque : les journaux sur un disque endormi, je les laisse de côté et les lis à la prochaine tournée.",
+  "found.asleep": "Cette tournée était planifiée : les journaux sur {disks} dormaient et ont été laissés de côté — lus à la prochaine tournée."
 }

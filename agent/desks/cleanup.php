@@ -219,6 +219,10 @@ require_once __DIR__ . '/../lib/partnerlook.php';
 require_once __DIR__ . '/../lib/where.php';
 
 const CL_WHERE_DEBOUNCE = 60;      // «where_refresh»: a look younger than this is fresh enough (several tabs ask at once)
+// her tour on schedule (2026-10-29): the plugin's cron file calls `job.sh cleanup` → `php agent.php job cleanup-tour-due`,
+// which leaves this mark in RAM; her tick takes it and tours as a click on «Tour» would — never with «wake»
+const CL_TOUR_DUE     = 'cleanup-tour.due';
+const CL_TOUR_DUE_MAX = 6 * 3600;   // a mark older than this (the agent away all that time) goes unread: the next one comes
 
 $GLOBALS['clState'] = null;
 $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
@@ -239,11 +243,13 @@ desk('cleanup', [
         clScan();
     },
     'tick'    => fn () => clTickEach(clTickParts()),
+    'jobs'    => ['cleanup-tour-due' => fn (array $args) => clTourDue()],
     'checks'  => fn (): array => clChecks(),
     'metrics' => fn (): array => clMetrics(),
     'actions' => [
         'refresh' => fn (array $r) => ['ok' => true, 'state' => clScan()],
         'scan'    => fn (array $r) => ['ok' => true, 'state' => clScan(!empty($r['wake']), true, true)],
+        'schedule' => fn (array $r) => clSetSchedule(cronField($r)),
         'install' => fn (array $r) => clInstall(textField($r, 'id')),
         'measure' => fn (array $r) => clMeasure(idList($r, 'ids')),
         'detail'  => fn (array $r) => clDetail(textField($r, 'id')),
@@ -271,7 +277,129 @@ desk('cleanup', [
 function clTickParts(): array
 {
     return ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick', 'drill' => 'clDrillCopiesTick',
-            'docker' => 'clDockerBackTick'];
+            'docker' => 'clDockerBackTick', 'scheduled' => 'clScheduledTick'];
+}
+
+/** Her schedule's record (DATA_DIR/cleanup/schedule.json, tests: `$GLOBALS['clScheduleFile']`): {v, last: {at, how, asleep}} */
+function clScheduleFile(): string
+{
+    return $GLOBALS['clScheduleFile'] ?? DATA_DIR . '/cleanup/schedule.json';
+}
+
+/** php agent.php job cleanup-tour-due — her line in the plugin's cron file: a mark in RAM for her tick (nothing else here) */
+function clTourDue(): int
+{
+    @mkdir(RUN_DIR, 0700, true);
+    writeAtomic(RUN_DIR . '/' . CL_TOUR_DUE, (string) time(), 0600, 0, 0);
+    return 0;
+}
+
+/**
+ * Every tick: her tour on schedule, when the cron line left its mark — one stat in RAM otherwise. The tour is the one a
+ * click on «Tour» makes — «Where is what» (whereTour) and her rooms (clScan), both without wake: what sleeps is left out
+ * and named, as on her page; the time and what slept go into her schedule's record. Not hired, or a mark from long ago:
+ * taken away, no tour. $scan, $hired: the tests' stand-ins (her look given, whether she works here).
+ */
+function clScheduledTick(?callable $scan = null, ?bool $hired = null): void
+{
+    $mark = RUN_DIR . '/' . CL_TOUR_DUE;
+    if (!is_file($mark)) {
+        return;
+    }
+    $at = (int) trim((string) @file_get_contents($mark));
+    @unlink($mark);
+    if (!($hired ?? in_array('cleanup', staffHired(), true))) {
+        return;
+    }
+    if ($at <= 0 || time() - $at > CL_TOUR_DUE_MAX) {
+        logLine('Dustdevil: her tour on schedule from ' . ($at > 0 ? date('Y-m-d H:i', $at) : '?') . ' came too late - skipped, the next one comes');
+        return;
+    }
+    $how = 'ok';
+    $state = [];
+    try {
+        // as «Tour» on her page: «Where is what» first, then her rooms — both without wake
+        if ($scan === null) {
+            whereTour(false);
+        }
+        $state = ($scan ?? fn () => clScan(false, true, true))();
+    } catch (Throwable $e) {
+        $how = 'failed';
+        logLine('Dustdevil: her tour on schedule failed - ' . $e->getMessage());
+    }
+    $asleep = clTourAsleep($state);
+    clScheduleRecord(['at' => time(), 'how' => $how, 'asleep' => $asleep]);
+    logLine('Dustdevil: her tour on schedule' . ($how === 'ok' ? ' done' : ' failed') . ($asleep ? ' - asleep, left out: ' . implode(', ', $asleep) : ''));
+    if ($how === 'ok' && $state && $scan === null) {
+        clWrite(clBuild());            // the record in her state at once (the page shows it with the tour's result)
+    }
+}
+
+/** What her tour left out because it slept (the places' and rooms' `asleep` of her state): the disks and pools, once each */
+function clTourAsleep(array $state): array
+{
+    $names = [];
+    foreach ([$state['appdata']['asleep'] ?? [], $state['vms']['domains']['asleep'] ?? [], $state['vms']['isos']['asleep'] ?? [],
+              $state['leftovers']['asleep'] ?? [], $state['partners']['asleep'] ?? [], $state['trash']['asleep'] ?? []] as $list) {
+        foreach ((array) $list as $n) {
+            if (is_string($n) && $n !== '') {
+                $names[$n] = true;
+            }
+        }
+    }
+    $names = array_keys($names);
+    sort($names, SORT_NATURAL);
+    return $names;
+}
+
+/** Writes her schedule's record: the last tour on schedule (unknown keys kept) */
+function clScheduleRecord(array $last): void
+{
+    $file = clScheduleFile();
+    $rec = readJson($file) ?? [];
+    $rec = ['v' => 1, 'last' => $last] + $rec;
+    try {
+        if (!is_dir(dirname($file))) {
+            @mkdir(dirname($file), 0700, true);
+        }
+        writeAtomic($file, jsonEncode($rec), 0600, 0, 0);
+    } catch (Throwable $e) {
+        logLine('Dustdevil: ' . $e->getMessage());
+    }
+    unset($GLOBALS['clSched']);
+}
+
+/**
+ * Her schedule for the page: her line in the plugin's cron file (officeJobSchedule('cleanup'), read at most once a
+ * minute — the state is built after every measurement) and her last tour on schedule. $cron: the tests' cron file.
+ */
+function clSchedule(?string $cron = null): array
+{
+    $c = $GLOBALS['clSched'] ?? null;
+    if ($cron === null && is_array($c) && time() - $c['t'] < 60) {
+        return $c['v'];
+    }
+    $last = readJson(clScheduleFile())['last'] ?? null;
+    $ok = is_array($last) && is_int($last['at'] ?? null) && in_array($last['how'] ?? null, ['ok', 'failed'], true);
+    $v = officeJobSchedule('cleanup', $cron ?? OFFICE_CRON)
+        + ['last' => $ok ? ['at' => $last['at'], 'how' => $last['how'], 'asleep' => array_values(array_filter((array) ($last['asleep'] ?? []), 'is_string'))] : null];
+    if ($cron === null) {
+        $GLOBALS['clSched'] = ['t' => time(), 'v' => $v];
+    }
+    return $v;
+}
+
+/** Her tour on schedule set (cron) or off (null): her line in the plugin's cron file; the answer brings her state */
+function clSetSchedule(?string $cron, ?string $file = null, bool $apply = true): array
+{
+    $live = officeJobSetSchedule('cleanup', $cron, $file ?? OFFICE_CRON, $apply);
+    unset($GLOBALS['clSched']);
+    logLine('Dustdevil: her tour on schedule ' . ($cron !== null ? "set to $cron" : 'switched off') . ($live ? '' : ' (not in the crontab yet)'));
+    $state = clBuild();
+    if ($state) {
+        clWrite($state);
+    }
+    return ['ok' => true, 'live' => $live, 'state' => $state ?: clScan()];
 }
 
 /**
@@ -2852,6 +2980,7 @@ function clBuild(): array
             'list'       => array_merge(clDrillEntries($raw['drill'] ?? []), clDockerEntries($raw, $cache, $pending)),
         ],
         'backup_running' => clBackupBusy(),
+        'schedule'  => clSchedule(),                           // her tour on schedule: the cron line, the last one (Office.scheduleTile)
         'restore_running' => (backupLockHolder()['holder'] ?? '') === 'restore',   // Mr. Restori is bringing something back
         'looked'    => $raw['at'] ?? null,                   // her last look at the server (time: this state's, also after a measurement)
         'restore_newer' => clRestoreNewer($raw['at'] ?? null, clBackupBusy()),     // a restore finished since: the page looks again

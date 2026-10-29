@@ -1847,5 +1847,11 @@
   "zp.list": {"one": "Show the snapshot", "other": "Show the {n} snapshots"},
   "zp.more": {"one": "… and {n} more", "other": "… and {n} more"},
   "zp.retention": "Ms. Snapshotini's and Mr. Backupsy's snapshots go along and stay until you empty the storeroom — their retention leaves the storeroom alone.",
-  "zp.time": "The time in the new name is the moment you click. «Put back» renames it back."
+  "zp.time": "The time in the new name is the moment you click. «Put back» renames it back.",
+  "tile.schedule": "Schedule",
+  "schedule.sub": "My tour on schedule: where everything is and what lies around — as when you click «Tour».",
+  "schedule.intro": "When I tour on my own — once a day is plenty. I never wake a sleeping disk for it: what sleeps is left out.",
+  "schedule.off_note": "I tour when you click «Tour».",
+  "schedule.asleep": "Asleep, left out: {disks}",
+  "schedule.never_wake": "On schedule I never wake a disk: what sleeps is left out and named, as on a tour without «Wake sleeping disks»."
 }

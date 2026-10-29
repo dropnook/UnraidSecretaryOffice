@@ -506,6 +506,7 @@
 /* the schedule tile (Office.scheduleTile): off reads quiet; its dialog's fields under their choice */
 .sched-off .stat-value{color:var(--muted)}
 .sched-field{margin:0 0 8px 25px}
+.sched-note{margin:6px 12px}
 & button.stat{font:inherit; text-align:left; cursor:pointer; color:inherit}
 & button.stat{display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch}   /* a button centres its content: lined up like a div tile */
 & button.stat:hover{border-color:var(--line2)}

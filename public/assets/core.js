@@ -2242,6 +2242,33 @@ Office.scheduleTile = function scheduleTile(desk, opts) {
 };
 
 /**
+ * The schedule tile's section, its usual body: a .box with one row — the schedule in words (or «Off» and the desk's
+ * offWords), the next run, the last and how it ended — and the desk's notes under it (what slept, what it never does).
+ *   section.appendChild(Office.scheduleBox({ schedule: state.schedule, last, offWords: T('…'), notes: [T('…')] }))
+ */
+Office.scheduleBox = function scheduleBox(o) {
+  const sc = o.schedule || {};
+  const box = el('div', 'box');
+  const row = el('div', 'row nocheck');
+  const main = el('div', 'row-main');
+  main.appendChild(el('div', 'row-name text', sc.enabled ? Office.fmt.cron(sc.custom) : t('office.schedule.off')));
+  const meta = el('div', 'row-meta');
+  if (sc.enabled && sc.next) {
+    const next = el('span', '', t('office.schedule.next', { when: Office.scheduleWhen(sc.next) }));
+    next.title = Office.fmt.date(sc.next, true);
+    meta.appendChild(next);
+  } else if (!sc.enabled && o.offWords) meta.appendChild(el('span', '', o.offWords));
+  const last = el('span', '', Office.scheduleLast(o.last));
+  if (o.last && o.last.at) last.title = Office.fmt.date(o.last.at, true);
+  meta.appendChild(last);
+  main.appendChild(meta);
+  row.appendChild(main);
+  box.appendChild(row);
+  (o.notes || []).filter(Boolean).forEach((n) => box.appendChild(el('p', 'role sched-note', n)));
+  return box;
+};
+
+/**
  * The schedule dialog every desk without one of its own offers (the same choices as Ms. Moverelli's): every day at a
  * time, a cron line of its own, or not on its own. Posts `<desk>.<action>` {cron} ('' = off — the agent reads it with
  * cronField() and sets it with officeJobSetSchedule()); after(j) gets the answer (its state) once saved.

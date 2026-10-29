@@ -1227,7 +1227,7 @@
   "tile.hold": "¿Qué retiene el array?",
   "tile.schedule": "Programación",
   "schedule.every": "una ronda cada cinco minutos",
-  "schedule.fixed": "Aquí no hay nada que ajustar: hace su ronda solo cada cinco minutos, también con la secretaría cerrada. «Una ronda ahora» arriba lo envía enseguida.",
+  "schedule.fixed": "Aquí no hay nada que ajustar. «Una ronda ahora» arriba lo envía enseguida.",
   "tile.hold_n": {"one": "{n} cosa", "other": "{n} cosas"},
   "tile.hold_none": "nada",
   "tile.hold_stopped": "array detenido",

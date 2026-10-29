@@ -1,4 +1,5 @@
 {
+ "schedule": {"script": true, "frequency": "custom", "custom": "40 3 * * *", "enabled": true, "next": 1791551297, "last": {"at": 1791464297, "how": "ok", "asleep": []}},
  "time": 1791505997,
  "sources": [
   {

@@ -483,5 +483,12 @@
   "wakes.sure.wrote": "escribió en él",
   "wakes.sure.wrote_title": "Poco antes había escrito en un archivo de este disco. El servidor escribe esos datos en el disco un poco más tarde: eso puede despertarlo sin que nadie lo espere.",
   "wakes.unraid": "Justo después de despertar, Unraid lo miró (sus valores SMART, si gira): es la respuesta de Unraid al despertar, no la causa.",
-  "wakes.how.asked": "La hora es cuando vi que se pedía el disco (miro cada {s} s)."
+  "wakes.how.asked": "La hora es cuando vi que se pedía el disco (miro cada {s} s).",
+  "tile.schedule": "Programación",
+  "schedule.sub": "Mi ronda programada: cada registro, como cuando haces clic en «Ronda». Su resultado está aquí como el de una ronda con clic.",
+  "schedule.intro": "Cuándo hago la ronda por mi cuenta — una vez al día basta. Un registro en un disco en reposo lo dejo fuera: nunca despierto un disco para ello.",
+  "schedule.off_note": "Hago la ronda cuando haces clic en «Ronda».",
+  "schedule.asleep": "En reposo, sus registros dejados fuera: {disks}",
+  "schedule.never_wake": "Con la programación nunca despierto un disco: los registros en un disco en reposo los dejo fuera y los leo en la próxima ronda.",
+  "found.asleep": "Esta ronda era programada: los registros en {disks} estaban en reposo y quedaron fuera — se leen en la próxima ronda."
 }

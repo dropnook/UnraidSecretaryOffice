@@ -241,7 +241,6 @@ Office.desk({
       Office.store('snapshot.grouping', grouping);
     }
     view = build(root);
-    if (Office.store('snapshot.tile') === 'plans') Office.store('snapshot.tile', 'schedule');     // kept before 1.78
     sw.mount(sub === 'datasets' ? 'snapshots' : sub === 'plans' ? 'schedule' : sub);
     pendingPool = kept || null;
     if (sub === 'datasets') view.bar.set({ pick: '' });

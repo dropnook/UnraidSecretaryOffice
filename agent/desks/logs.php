@@ -54,6 +54,10 @@ const LOGS_TOUR_FILES    = 12;              // biggest files of /var/log shown
 const LOGS_TOUR_WALK     = 5000;            // files looked at in /var/log at most
 const LOGS_TOUR_MAX_RUN  = 300;             // seconds: a tour that takes longer is stopped
 const LOGS_TOUR_PARALLEL = 4;               // docker logs at once
+// her tour on schedule (2026-10-29): the plugin's cron file calls `job.sh logs` → `php agent.php job logs-tour-due`, which
+// leaves this mark in RAM; her tick starts the tour as «Tour» does, marked `scheduled`: a log on a sleeping disk is left out
+const LOGS_TOUR_DUE     = 'logs-tour.due';
+const LOGS_TOUR_DUE_MAX = 6 * 3600;         // a mark older than this (the agent away all that time) goes unread
 
 /*
  * What looks like an error or a warning — she only recognises words (the
@@ -164,6 +168,7 @@ desk('logs', [
     'fit'     => fn (): array => fit(true, 'yes'),
     'start'   => fn () => logsTourRecover(),
     'tick'    => function (): void {
+        logsScheduledTick();
         logsTourTick();
         logsWakeTick();
         logsFloodTick();
@@ -173,6 +178,7 @@ desk('logs', [
         'read'        => fn (array $r) => logsRead(textField($r, 'source'), (int) ($r['lines'] ?? 500),
                                                    isset($r['offset']) ? (int) $r['offset'] : null),
         'tour'        => fn (array $r) => logsTourStart(),
+        'schedule'    => fn (array $r) => logsSetSchedule(cronField($r)),
         'sort'        => fn (array $r) => logsSortNow(),
         // her «Set up»: each answers with her new state (the page draws it, her rules count from now on)
         'rule_add'    => fn (array $r) => logsMineRuleAdd(textField($r, 're'), textField($r, 'cat')) + ['state' => logsScan()],
@@ -186,7 +192,8 @@ desk('logs', [
         // «Who woke my disks?»: her switch (on unless switched off), kept on the server
         'wakes_watch'   => fn (array $r) => logsWakeWatchSet(boolField($r, 'on')) + ['state' => logsScan()],
     ],
-    'jobs'    => ['logs-tour' => fn (array $args) => logsTourRun(), 'logs-wake-name' => fn (array $args) => logsWakeNameRun(),
+    'jobs'    => ['logs-tour' => fn (array $args) => logsTourRun(in_array('scheduled', $args, true)), 'logs-tour-due' => fn (array $args) => logsTourDue(),
+                  'logs-wake-name' => fn (array $args) => logsWakeNameRun(),
                   'logs-flood-catch' => fn (array $args) => logsFloodCatchRun()],
     'checks'  => fn (): array => array_merge(logsChecks(), logsFloodChecks()),
     'metrics' => fn (): array => array_merge(logsMetrics(), logsWakeMetrics()),
@@ -373,7 +380,9 @@ function logsScan(): array
               'flood' => logsFloodForPage(),
               // her saved filters (never applied by themselves); for the time filter: the server's last start and its
               // offset from UTC (the reader's lines carry the server's local time)
-              'filters' => logsFiltersForPage(), 'boot' => logsBootTime(), 'tz' => (int) date('Z')];
+              'filters' => logsFiltersForPage(), 'boot' => logsBootTime(), 'tz' => (int) date('Z'),
+              // her tour on schedule: the cron line and the last one (Office.scheduleTile)
+              'schedule' => logsSchedule()];
     writeAtomic(deskFile('logs'), jsonEncode($state));
     return $state;
 }
@@ -850,26 +859,132 @@ function logsTourErr(): string
     return RUN_DIR . '/logs-tour.err';
 }
 
+/** Her schedule's record (DATA_DIR/logs-schedule.json; tests: `$GLOBALS['logsScheduleFile']`): {v, last: {at, how, asleep}} */
+function logsScheduleFile(): string
+{
+    return $GLOBALS['logsScheduleFile'] ?? DATA_DIR . '/logs-schedule.json';
+}
+
+/** php agent.php job logs-tour-due — her line in the plugin's cron file: a mark in RAM for her tick (nothing else here) */
+function logsTourDue(): int
+{
+    @mkdir(RUN_DIR, 0700, true);
+    writeAtomic(RUN_DIR . '/' . LOGS_TOUR_DUE, (string) time(), 0600, 0, 0);
+    return 0;
+}
+
+/**
+ * Every tick: her tour on schedule, when the cron line left its mark — one stat in RAM otherwise. Started as «Tour»
+ * starts it (a process of its own, polled by logsTourTick()), marked `scheduled`; one running already (a click's): that one
+ * is the tour, nothing more. Not hired, or a mark from long ago: taken away, no tour. $start, $hired: the tests' stand-ins.
+ */
+function logsScheduledTick(?callable $start = null, ?bool $hired = null): void
+{
+    $mark = RUN_DIR . '/' . LOGS_TOUR_DUE;
+    if (!is_file($mark)) {
+        return;
+    }
+    $at = (int) trim((string) @file_get_contents($mark));
+    @unlink($mark);
+    if (!($hired ?? in_array('logs', staffHired(), true))) {
+        return;
+    }
+    if ($at <= 0 || time() - $at > LOGS_TOUR_DUE_MAX) {
+        logLine('Ms. Protocolli: her tour on schedule from ' . ($at > 0 ? date('Y-m-d H:i', $at) : '?') . ' came too late - skipped, the next one comes');
+        return;
+    }
+    if (!empty($GLOBALS['logsTour']) || !empty($GLOBALS['logsTourOrphan'])) {
+        logLine('Ms. Protocolli: her tour on schedule - one is going already');
+        return;
+    }
+    try {
+        ($start ?? fn () => logsTourStart(true))();
+    } catch (Throwable $e) {
+        logsScheduleRecord(['at' => time(), 'how' => 'failed', 'asleep' => []]);
+        logLine('Ms. Protocolli: her tour on schedule could not start - ' . $e->getMessage());
+    }
+}
+
+/** Writes her schedule's record: the last tour on schedule (unknown keys kept) */
+function logsScheduleRecord(array $last): void
+{
+    $file = logsScheduleFile();
+    $rec = ['v' => 1, 'last' => $last] + (readJson($file) ?? []);
+    writeAtomic($file, jsonEncode($rec), 0600, 0, 0);
+}
+
+/** Her schedule for the page: her line in the plugin's cron file (officeJobSchedule('logs')) and her last tour on schedule */
+function logsSchedule(?string $cron = null): array
+{
+    $last = readJson(logsScheduleFile())['last'] ?? null;
+    $ok = is_array($last) && is_int($last['at'] ?? null) && in_array($last['how'] ?? null, ['ok', 'failed', 'stopped'], true);
+    return officeJobSchedule('logs', $cron ?? OFFICE_CRON)
+        + ['last' => $ok ? ['at' => $last['at'], 'how' => $last['how'], 'asleep' => array_values(array_filter((array) ($last['asleep'] ?? []), 'is_string'))] : null];
+}
+
+/** Her tour on schedule set (cron) or off (null): her line in the plugin's cron file; the answer brings her state */
+function logsSetSchedule(?string $cron, ?string $file = null, bool $apply = true): array
+{
+    $live = officeJobSetSchedule('logs', $cron, $file ?? OFFICE_CRON, $apply);
+    logLine('Ms. Protocolli: her tour on schedule ' . ($cron !== null ? "set to $cron" : 'switched off') . ($live ? '' : ' (not in the crontab yet)'));
+    return ['ok' => true, 'live' => $live, 'state' => logsScan()];
+}
+
+/**
+ * What a tour on schedule leaves out because it sleeps (sleepingDisks(), never a look at the disk): her files on a disk or
+ * pool that sleeps (watchnetBases(): /mnt/user/<share> by the share's storage, /mnt/<disk or pool>/… itself; RAM and
+ * the flash never sleep) and Docker's logs while the disk under Docker's image or folder sleeps. $disks, $shares,
+ * $dockerCfg: disks.ini, shares.ini, docker.cfg as read (the tests' own).
+ *
+ * @return array{ids: list<string>, docker: bool, bases: list<string>}
+ */
+function logsTourAsleep(array $sources, ?array $disks = null, ?array $shares = null, ?array $dockerCfg = null): array
+{
+    $disks ??= readCfg(disksIniFile(), true);
+    $sleeping = watchnetSleeping($disks);
+    $out = ['ids' => [], 'docker' => false, 'bases' => []];
+    if (!in_array(true, $sleeping, true)) {
+        return $out;                                    // nothing sleeps: nothing to leave out
+    }
+    $shares ??= readCfg('/var/local/emhttp/shares.ini', true);
+    $asleep = function (string $path) use ($shares, $disks, $sleeping, &$out): bool {
+        $b = watchnetBases($path, $shares, $disks);
+        $hit = array_values(array_filter($b['bases'], fn ($base) => baseAsleep((string) $base, $sleeping)));
+        $out['bases'] = array_values(array_unique(array_merge($out['bases'], $hit)));
+        return (bool) $hit || !$b['known'];             // a share emhttp doesn't list: not looked at
+    };
+    foreach ($sources as $id => $src) {
+        if ($src['kind'] === 'file' && str_starts_with((string) $src['target'], '/mnt/') && $asleep(dirname((string) $src['target']))) {
+            $out['ids'][] = (string) $id;
+        }
+    }
+    $cfg = $dockerCfg ?? readCfg(LOGS_DOCKER_CFG);
+    $image = (string) ($cfg['DOCKER_IMAGE_FILE'] ?? '');
+    $out['docker'] = str_starts_with($image, '/mnt/') && $asleep(rtrim($image, '/'));
+    sort($out['bases'], SORT_NATURAL);
+    return $out;
+}
+
 /** "tour": start one in the background (unless one runs); the page polls the part "tour" until job.running is false */
-function logsTourStart(): array
+function logsTourStart(bool $scheduled = false): array
 {
     $tour = readJson(logsTourFile()) ?? [];
     if (!empty($GLOBALS['logsTour']) || !empty($GLOBALS['logsTourOrphan'])) {
         return ['ok' => true, 'tour' => $tour];
     }
-    $tour['job'] = ['running' => true, 'since' => time(), 'pid' => null];
+    $tour['job'] = ['running' => true, 'since' => time(), 'pid' => null] + ($scheduled ? ['scheduled' => true] : []);
     writeAtomic(logsTourFile(), jsonEncode($tour));
     @mkdir(RUN_DIR, 0700, true);
     $pipes = [];
     // a process of its own (niced), without the agent's open files (its lock among them)
     $process = @proc_open(['/bin/sh', '-c', 'exec "$@"' . closeInheritedFds(), 'sh',
-                           bin('nice') ?? 'nice', '-n', '10', PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'logs-tour'],
+                           bin('nice') ?? 'nice', '-n', '10', PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', 'logs-tour', ...($scheduled ? ['scheduled'] : [])],
         [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', logsTourErr(), 'w']], $pipes, '/');
     if (!is_resource($process)) {
         logsTourFailed($tour['job']);
         throw new Problem('logs_tour_failed');
     }
-    $GLOBALS['logsTour'] = ['process' => $process, 'since' => time()];
+    $GLOBALS['logsTour'] = ['process' => $process, 'since' => time(), 'scheduled' => $scheduled];
     $tour['job']['pid'] = proc_get_status($process)['pid'];
     writeAtomic(logsTourFile(), jsonEncode($tour));
     return ['ok' => true, 'tour' => $tour];
@@ -906,6 +1021,9 @@ function logsTourTick(): void
         $err = trim((string) @file_get_contents(logsTourErr(), false, null, 0, 4096));
         logLine('Ms. Protocolli: tour failed (exit ' . $status['exitcode'] . ')' . ($err !== '' ? ': ' . strtok($err, "\n") : ''));
         logsTourFailed($tour['job']);
+        if (!empty($job['scheduled'])) {
+            logsScheduleRecord(['at' => time(), 'how' => empty($job['stopped']) ? 'failed' : 'stopped', 'asleep' => []]);
+        }
         return;
     }
     logLine(sprintf('Ms. Protocolli: tour done in %d ms (%d errors, %d warnings)',
@@ -942,8 +1060,11 @@ function logsTourFailed(array $job): void
 
 // ===================================================================== the tour: what she does
 
-/** php agent.php job logs-tour — the tour itself, in a process of its own (started by "tour") */
-function logsTourRun(): int
+/**
+ * php agent.php job logs-tour [scheduled] — the tour itself, in a process of its own (started by "tour", or by her
+ * schedule: `scheduled` — then what lies on a sleeping disk is left out, its place in the memory kept for the next tour)
+ */
+function logsTourRun(bool $scheduled = false): int
 {
     $t0 = microtime(true);
     $prev = readJson(logsTourFile()) ?? [];
@@ -953,12 +1074,24 @@ function logsTourRun(): int
     $since = $first ? $now - LOGS_TOUR_FIRST : (int) $prev['time'];
     $sources = logsSources();
     $next = ['files' => [], 'sizes' => [], 'containers' => []];
+    $skip = $scheduled ? logsTourAsleep($sources) : ['ids' => [], 'docker' => false, 'bases' => []];
 
     $varlog = logsTourVarlog($mem['sizes'] ?? [], $next['sizes'], $sources);
-    $docker = logsTourDocker($mem['containers'] ?? [], $next['containers']);
+    if ($skip['docker']) {
+        $docker = is_array($prev['docker'] ?? null) ? $prev['docker'] : ['ok' => false, 'containers' => [], 'total' => 0];
+        $next['containers'] = (array) ($mem['containers'] ?? []);       // the next awake tour counts their growth from here
+    } else {
+        $docker = logsTourDocker($mem['containers'] ?? [], $next['containers']);
+    }
 
     $found = [];
     foreach ($sources as $id => $src) {
+        if (in_array((string) $id, $skip['ids'], true)) {
+            if (isset($mem['files'][$id])) {
+                $next['files'][$id] = $mem['files'][$id];               // read from there once it is awake
+            }
+            continue;
+        }
         if ($src['kind'] === 'file' && logsTourWanted($id)) {
             // a file she knows from the last tour: from where it ended; one she doesn't (first tour, new file): by its lines' times
             $last = $mem['files'][$id] ?? null;
@@ -967,7 +1100,8 @@ function logsTourRun(): int
             $found[] = logsTourDmesg($since);
         }
     }
-    [$read, $entries] = logsTourContainers($sources, $since, houseContainersKnown());
+    // Docker's logs left out while their disk sleeps: not read — never «Docker didn't answer» (null, the page says why)
+    [$read, $entries] = $skip['docker'] ? [null, []] : logsTourContainers($sources, $since, houseContainersKnown());
     $found = array_merge($found, $entries);
     usort($found, fn ($a, $b) => [$b['errors'], $b['warnings'], $a['id']] <=> [$a['errors'], $a['warnings'], $b['id']]);
 
@@ -985,7 +1119,15 @@ function logsTourRun(): int
         'job'         => ['running' => false, 'since' => $prev['job']['since'] ?? $now, 'ended' => time(), 'failed' => false],
         'memory'      => $next,
     ];
+    if ($scheduled) {
+        // on schedule: what slept and was left out (said on her page), never read for it
+        $tour['scheduled'] = true;
+        $tour['asleep'] = ['sources' => $skip['ids'], 'docker' => $skip['docker'], 'bases' => $skip['bases']];
+    }
     writeAtomic(logsTourFile(), jsonEncode($tour));
+    if ($scheduled) {
+        logsScheduleRecord(['at' => time(), 'how' => 'ok', 'asleep' => $skip['bases']]);
+    }
     return 0;
 }
 

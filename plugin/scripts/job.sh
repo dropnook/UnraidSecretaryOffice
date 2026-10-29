@@ -7,6 +7,8 @@
 #   job.sh embycache   Jack Streamer: MediaCache (what's watched next onto the pool; the job keeps EmbyCache's old name)
 #   job.sh gather      Jack Emby: the media gather (folders together on one disk)
 #   job.sh moverelli   Ms. Moverelli: a real Smart Mover run (the bundled smartmover/)
+#   job.sh cleanup     Ms. Dustdevil's tour on schedule (a mark in RAM: her agent part tours as a click would)
+#   job.sh logs        Ms. Protocolli's tour on schedule (likewise; a log on a sleeping disk is left out)
 #   job.sh watch       is the agent at work? (agent-watch.cron, written by scripts/agent.sh)
 #
 # Only while the array is started (agent.sh's array_started): the office's data
@@ -23,8 +25,8 @@ RUN=/var/run/unraid-secretary-office
 
 cd / || exit 1
 case "$1" in
-    backup|snapshots|embycache|gather|moverelli|watch) ;;
-    *) echo "Usage: bash $0 backup|snapshots|embycache|gather|moverelli|watch"; exit 2 ;;
+    backup|snapshots|embycache|gather|moverelli|cleanup|logs|watch) ;;
+    *) echo "Usage: bash $0 backup|snapshots|embycache|gather|moverelli|cleanup|logs|watch"; exit 2 ;;
 esac
 
 # the minute this job last started, in a stamp of its own, read and written under its lock;
@@ -54,4 +56,5 @@ case "$1" in
         exec bash "$DIR/backup/backup.sh" ;;
     snapshots) exec php "$DIR/agent/agent.php" job snapshot-plans ;;
     embycache|gather|moverelli) exec php "$DIR/agent/agent.php" job "$1" ;;
+    cleanup|logs) exec php "$DIR/agent/agent.php" job "$1-tour-due" ;;
 esac

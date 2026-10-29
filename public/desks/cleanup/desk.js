@@ -244,7 +244,7 @@ Office.desk({
       last; «tidy/<room>», «where/<corner>» (the search's places, her findings' links; «where/stat:<tile>» from before
       tiles v2 is that tile's corner): that tile open, as a click opens it */
   mount(root, sub) {
-    const s = String(sub || '');
+    const s = String(sub || '') === 'schedule' ? 'tidy/schedule' : String(sub || '');      // #/cleanup/schedule: her schedule tile
     const page = Office.pageFrom(PAGES(), s, PAGE_KEY);
     const tile = s.split('/')[0] === page ? s.split('/').slice(1).join('/') : '';
     // A tile's sub-route is the search's way in (her tiles, her rooms' items, «Where is what»'s — every hit on her page
@@ -507,15 +507,43 @@ const tidySw = Office.sections({
   bodyId: 'cl-rooms-body',
   grid: 'cards cl-rooms',
   default: '',
-  tiles: () => (state ? SECTIONS.filter((sec) => visible(sec)) : []).map((sec) => ({
+  tiles: () => (state ? [...SECTIONS.filter((sec) => visible(sec)).map((sec) => ({
     id: sec, key: `section.${sec}`, place: `room.${sec}`,
     tile: (a) => Office.tile({ name: T('section.' + sec), icon: ICONS[sec], chip: roomCount(sec), lines: [tileLine(sec)], ...a }),
     section: () => roomSection(sec),
-  })),
-  wants: (sub) => SECTIONS.includes(sub),
+  })), scheduleTile()] : []),
+  wants: (sub) => SECTIONS.includes(sub) || sub === 'schedule',
   // another room chosen: what was ticked in the room before is no longer chosen (she puts away one room's things at a time)
   onPick: (sec) => { if (sec && sec !== selRoom && selection.size) selection.clear(); },
 });
+
+/**
+ * «Schedule» at the end of her rooms (Office.scheduleTile): her tour on schedule — the next one, the last and how it
+ * ended, what slept and was left out; its section: the schedule and «Change…»
+ */
+const schedState = () => (state && state.schedule) || { enabled: false, last: null };
+function scheduleTile() {
+  const sc = schedState();
+  const asleep = (sc.last && sc.last.asleep) || [];
+  return Office.scheduleTile(ID, { card: true, schedule: sc, last: sc.last, sub: asleep.length ? [T('schedule.asleep', { disks: asleep.join(', ') })] : [],
+    section: () => scheduleSection() });
+}
+function scheduleSection() {
+  const sc = schedState();
+  const s = el('section', 'section');
+  const change = el('button', 'btn small', Office.t('office.schedule.change'));
+  change.type = 'button';
+  change.disabled = !Office.agent.running;
+  change.onclick = () => scheduleDialog();
+  s.appendChild(Office.sectionHead(T('tile.schedule'), T('schedule.sub'), change));
+  s.appendChild(Office.scheduleBox({ schedule: sc, last: sc.last, offWords: T('schedule.off_note'),
+    notes: [sc.last && (sc.last.asleep || []).length ? T('schedule.asleep', { disks: sc.last.asleep.join(', ') }) : '', T('schedule.never_wake')] }));
+  return s;
+}
+async function scheduleDialog() {
+  if (!(await Office.freshState(ID))) return;
+  Office.scheduleDialog(ID, { schedule: schedState(), intro: T('schedule.intro'), time: '03:30', after: (j) => { if (j.state) setState(j.state); } });
+}
 
 /** The number on a room's tile: what she would clear away there (the storeroom: its runs) */
 function roomCount(sec) {
@@ -3917,6 +3945,7 @@ Office.places(ID, [
   // left and what restores left only when there is some); her state not known yet: listed
   ...SECTIONS.map((sec) => ({ kind: 'tile', key: `section.${sec}`, route: `#/cleanup/tidy/${sec}`, anchor: `room.${sec}`, text: `section.${sec}_sub`,
     shown: () => !state || visible(sec), part: 'part.tidy' })),
+  { kind: 'tile', key: 'tile.schedule', route: '#/cleanup/tidy/schedule', anchor: 'tile.schedule', text: 'schedule.sub', part: 'part.tidy' },
   { kind: 'help', key: 'part.where', text: 'part.where_sub' },
   { kind: 'help', key: 'part.tidy', text: 'part.tidy_sub' },
   ...['labels', 'tiles', 'copy', 'rows', 'tour', 'asleep'].map((x) => ({ kind: 'help', key: `where.help.${x}`, text: `where.help.${x}_text` })),
