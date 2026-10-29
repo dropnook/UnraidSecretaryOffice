@@ -14179,6 +14179,172 @@ function testSetupMakeDataset(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * 2026-10-29: «Back into a plain folder…» beside «Make it a dataset of its own…» - an app's folder that is a dataset of its
+ * own becomes a plain folder again: the look's refusals (datasets below it named, a mountpoint of its own, no room,
+ * Ms. Moverelli's run), the job's steps with a stand-in zfs (the dataset renamed aside, copied into a plain folder,
+ * compared, the dataset into Ms. Dustdevil's storeroom where she can put it back), the rollback after a failure (the copy
+ * into the storeroom, the dataset back), something hidden under the mountpoint, the dialog and its words.
+ */
+function testSetupMakeFolder(): void
+{
+    if (posix_geteuid() !== 0) {
+        check('make folder: root only — not run here', true);
+        return;
+    }
+    $tmp = hardeningTmp('make-folder');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $mnt = "$tmp/mnt";
+    foreach (["$mnt/tank/appdata/drop/sub", "$mnt/tank/appdata/web", "$mnt/tank/appdata/has/kids", "$mnt/tank/appdata/own", "$mnt/tank/appdata/off",
+              "$mnt/tank/appdata/big", "$mnt/tank/appdata/er", "$mnt/arr/media/x", "$tmp/bin", "$tmp/rs", "$tmp/ub"] as $d) {
+        @mkdir($d, 0755, true);
+    }
+    file_put_contents("$mnt/tank/appdata/drop/a.txt", str_repeat('a', 5000));
+    file_put_contents("$mnt/tank/appdata/drop/sub/b.txt", 'b');
+    chmod("$mnt/tank/appdata/drop", 0750);
+    // a zfs stand-in: rename moves <mnt>/<dataset> (refused onto something there, a flag leaves a file under the old mountpoint)
+    file_put_contents("$tmp/bin/zfs", "#!/bin/bash\necho \"zfs \$*\" >>\"$tmp/zfs.log\"\ncase \"\$1\" in\n"
+        . "  rename) [[ -e \"$tmp/zfs.fail\" ]] && exit 1; [[ -e \"$mnt/\$3\" ]] && exit 0; mv \"$mnt/\$2\" \"$mnt/\$3\" || exit 1\n"
+        . "    if [[ -e \"$tmp/zfs.hidden\" ]]; then mkdir -p \"$mnt/\$2\"; echo h >\"$mnt/\$2/under.txt\"; rm -f \"$tmp/zfs.hidden\"; fi ;;\nesac\nexit 0\n");
+    chmod("$tmp/bin/zfs", 0755);
+    $ds = fn (string $d) => ["tank/appdata/$d" => "$mnt/tank/appdata/$d"];
+    $zfsMap = ['tank' => "$mnt/tank", 'tank/appdata' => "$mnt/tank/appdata"] + $ds('drop') + $ds('has') + ['tank/appdata/has/kids' => "$mnt/tank/appdata/has/kids"]
+        + $ds('own') + $ds('off') + $ds('big') + ['other/er' => "$mnt/tank/appdata/er"];
+    $prop = fn (string $src = 'inherited from tank', string $mounted = 'yes', int $ref = 5001) => ['mountpoint' => ['value' => '/x', 'source' => $src],
+        'mounted' => ['value' => $mounted, 'source' => '-'], 'referenced' => ['value' => (string) $ref, 'source' => '-'], 'logicalreferenced' => ['value' => (string) $ref, 'source' => '-']];
+    $props = ['tank/appdata' => ['available' => ['value' => (string) (5 << 30), 'source' => '-']], 'tank/appdata/drop' => $prop(), 'tank/appdata/own' => $prop('local'),
+              'tank/appdata/off' => $prop('default', 'no'), 'tank/appdata/big' => $prop('default', 'yes', 6 << 30)];
+    $oldRs = $GLOBALS['rs'] ?? null;
+    $oldMd = $GLOBALS['md'] ?? null;
+    $oldPath = getenv('PATH');
+    $GLOBALS['md'] = ['mnt' => $mnt, 'zfs' => $zfsMap, 'props' => $props, 'moverelli' => false, 'last' => ['finished' => time() - 3600, 'result' => 'ok'],
+                      'snaps' => ['tank/appdata/drop' => ['uso-backup-20261028-0300', 'uso-backup-20261029-0300', 'mine']]];
+    $GLOBALS['rs'] = ['data' => "$tmp/rs", 'job_file' => "$tmp/rs-job.json", 'ub_data' => "$tmp/ub", 'users' => fn () => [['drop'], []], 'vm_states' => []];
+    putenv("PATH=$tmp/bin:$oldPath");
+    try {
+        $look = fn (string $dir, string $share = 'appdata') => mfLook(['kind' => 'app', 'name' => 'x', 'share' => $share, 'dir' => $dir]);
+        $key = fn (string $dir, string $share = 'appdata') => $look($dir, $share)['blockers'][0]['key'] ?? null;
+        same('make folder: the refusals - a plain folder already, datasets below it, a mountpoint of its own, not mounted, no room, not in its share\'s dataset, not on ZFS, not there',
+            ['mf_plain', 'mf_children', 'mf_mountpoint', 'mf_unmounted', 'mf_room', 'mf_parent', 'md_not_zfs', 'md_missing'],
+            [$key('web'), $key('has'), $key('own'), $key('off'), $key('big'), $key('er'), $key('x', 'media'), $key('gone')]);
+        same('make folder: … datasets below it named, the room in numbers', [['names' => 'kids', 'n' => 1], (string) (6 << 30), (string) (5 << 30)],
+            [array_diff_key($look('has')['blockers'][0]['params'] ?? [], ['path' => 1]), $look('big')['blockers'][0]['params']['need'] ?? null, $look('big')['blockers'][0]['params']['free'] ?? null]);
+        $err = null;
+        try { mfLook(['kind' => 'vm', 'name' => 'Win', 'share' => 'domains', 'dir' => 'Win']); } catch (Problem $e) { $err = $e->key; }
+        same('make folder: never a VM\'s folder (Unraid\'s own dataset, its snapshots the VM manager\'s)', 'unknown_target', $err);
+        $GLOBALS['md']['moverelli'] = true;
+        same('make folder: Ms. Moverelli\'s run going on - refused', 'mf_moverelli', $key('drop'));
+        $GLOBALS['md']['moverelli'] = false;
+        $l = $look('drop');
+        same('make folder: the look - its dataset and mountpoint, its share\'s dataset, what stops, its snapshots (the engine\'s counted), the last backup fresh',
+            [[], 'tank/appdata/drop', "$mnt/tank/appdata/drop", 'tank/appdata', ['drop'], 5001, ['n' => 3, 'engine' => 2, 'newest' => 'mine'], true],
+            [$l['blockers'], $l['target']['dataset'] ?? null, $l['target']['path'] ?? null, $l['target']['parent'] ?? null, $l['stops']['containers'] ?? null, $l['bytes'],
+             $l['snapshots'], $l['last']['fresh'] ?? null]);
+        $p = mfPlan(['kind' => 'app', 'name' => 'drop', 'share' => 'appdata', 'dir' => 'drop']);
+        same('make folder: the job\'s steps - stop, the dataset aside, copy, compare, start what was stopped, the dataset into the storeroom',
+            ['make_folder', ['stop', 'mf_aside', 'md_copy', 'md_compare', 'start', 'mf_store']], [$p['kind'], array_column($p['steps'], 'do')]);
+        $GLOBALS['md']['last'] = ['finished' => time() - 3 * 86400, 'result' => 'ok'];
+        same('make folder: no fresh backup - refused unless the user said he knows', ['md_no_fresh_backup', []],
+            [mfPlan(['kind' => 'app', 'name' => 'drop', 'share' => 'appdata', 'dir' => 'drop'])['blockers'][0]['key'] ?? null,
+             mfPlan(['kind' => 'app', 'name' => 'drop', 'share' => 'appdata', 'dir' => 'drop'], true)['blockers']]);
+
+        // the steps one by one with the stand-in zfs
+        $j = rsJournalNew('20261029-150000-abcd', $p);
+        $j['id'] = '20261029-150000-abcd';
+        @mkdir(rsDir($j['id']), 0700, true);
+        $at = function (string $do) use (&$j): int|false {
+            return array_search($do, array_column($j['steps'], 'do'), true);
+        };
+        $run = function (string $do) use (&$j, $at): array {
+            $i = $at($do);
+            $r = rsStep($j, $i);
+            $j['steps'][$i] = array_merge($j['steps'][$i], $r);
+            return $r;
+        };
+        $st = $j['steps'][$at('mf_aside')];
+        same('make folder: the dataset aside, copied, compared - each ok', ['ok', 'ok', 'ok'], [$run('mf_aside')['state'], $run('md_copy')['state'], $run('md_compare')['state']]);
+        $path = "$mnt/tank/appdata/drop";
+        same('make folder: … a plain folder in its place with the files, the top folder\'s mode as before, the dataset beside as <name>.aside-<time>',
+            [str_repeat('a', 5000), 'b', '750', false, true, $st['aside']],
+            [(string) @file_get_contents("$path/a.txt"), (string) @file_get_contents("$path/sub/b.txt"), decoct(fileperms($path) & 0777),
+             in_array($path, $GLOBALS['md']['zfs'], true), str_contains((string) file_get_contents("$tmp/zfs.log"), "zfs rename tank/appdata/drop {$st['to']}"),
+             $GLOBALS['md']['zfs'][$st['to']] ?? null]);
+        $r = $run('mf_store');
+        $man = glob("$mnt/tank/appdata/" . CL_TRASH . '/*/manifest.json');
+        $item = $man ? (json_decode((string) file_get_contents($man[0]), true)['items'][0] ?? []) : [];
+        same('make folder: the dataset into Ms. Dustdevil\'s storeroom next to it (zfs rename), a «leftover» she can put back beside the folder',
+            ['ok', 'leftover', 'drop', $st['aside'], $st['to'], true, true, 'tank/appdata/' . CL_TRASH . '-'],
+            [$r['state'], $item['kind'] ?? null, $item['name'] ?? null, $item['from'] ?? null, $item['dataset'] ?? null, str_starts_with((string) ($item['as'] ?? ''), '@tank/appdata/' . CL_TRASH . '-'),
+             clLeftoverHome((string) ($item['from'] ?? ''), "$mnt/tank/appdata/" . CL_TRASH) === "$mnt/tank/appdata" || str_starts_with($mnt, '/mnt/') === false,
+             substr((string) ($item['as'] ?? ''), 1, strlen('tank/appdata/' . CL_TRASH . '-'))]);
+        mfRollback($j);
+        same('make folder: done - no rollback after the storeroom', [str_repeat('a', 5000), null], [(string) @file_get_contents("$path/a.txt"), $j['rollback'] ?? null]);
+
+        // a failure after the dataset went aside: the job's copy into the storeroom, the dataset back, said
+        foreach (["$mnt/tank/appdata/web2"] as $d) { @mkdir($d, 0755, true); }
+        file_put_contents("$mnt/tank/appdata/web2/i.html", 'hi');
+        $GLOBALS['md']['zfs'] += $ds('web2');
+        $GLOBALS['md']['props']['tank/appdata/web2'] = $prop();
+        $p2 = mfPlan(['kind' => 'app', 'name' => 'web2', 'share' => 'appdata', 'dir' => 'web2'], true);
+        $j = rsJournalNew('20261029-150100-abcd', $p2);
+        $j['id'] = '20261029-150100-abcd';
+        @mkdir(rsDir($j['id']), 0700, true);
+        $run('mf_aside');
+        file_put_contents("$mnt/tank/appdata/web2/half", 'x');      // a copy that went wrong half-way
+        $j['steps'][$at('md_copy')]['state'] = 'failed';
+        mfRollback($j);
+        $copies = glob("$mnt/tank/appdata/" . CL_TRASH . '/*/restore/*/web2.copy-*');
+        same('make folder: rollback - the half copy into the storeroom (never deleted), the dataset back in its place with its files, said',
+            ['hi', false, 1, 'mf_rolled_back', ['copy', 'back'], 'tank/appdata/web2'],
+            [(string) @file_get_contents("$mnt/tank/appdata/web2/i.html"), file_exists("$mnt/tank/appdata/web2/half"), count($copies), $j['reason'] ?? null,
+             array_column($j['rollback'] ?? [], 'what'), array_search("$mnt/tank/appdata/web2", $GLOBALS['md']['zfs'], true)]);
+        // something lay under the mountpoint: the dataset back at once, said
+        touch("$tmp/zfs.hidden");
+        $p3 = mfPlan(['kind' => 'app', 'name' => 'web2', 'share' => 'appdata', 'dir' => 'web2'], true);
+        $j = rsJournalNew('20261029-150200-abcd', $p3);
+        $j['id'] = '20261029-150200-abcd';
+        @mkdir(rsDir($j['id']), 0700, true);
+        $r = $run('mf_aside');
+        same('make folder: files under the old mountpoint - failed (mf_hidden), the dataset renamed back at once, nothing for the rollback',
+            ['failed', 'mf_hidden', true, null, null], [$r['state'], $r['note'] ?? null,
+             str_contains((string) file_get_contents("$tmp/zfs.log"), 'zfs rename ' . $j['steps'][$at('mf_aside')]['to'] . ' tank/appdata/web2'), $j['mf_aside'] ?? null,
+             (function () use (&$j) { $j['steps'][1]['state'] = 'failed'; mfRollback($j); return $j['reason'] ?? null; })()]);
+        // zfs rename refused: nothing changed
+        @unlink("$mnt/tank/appdata/web2/under.txt");
+        touch("$tmp/zfs.fail");
+        $p4 = mfPlan(['kind' => 'app', 'name' => 'web2', 'share' => 'appdata', 'dir' => 'web2'], true);
+        $j = rsJournalNew('20261029-150300-abcd', $p4);
+        $j['id'] = '20261029-150300-abcd';
+        @mkdir(rsDir($j['id']), 0700, true);
+        same('make folder: zfs rename refused - failed, nothing changed (the dataset where it was)', ['failed', 'mf_aside_failed', "$mnt/tank/appdata/web2", null],
+            [($x = $run('mf_aside'))['state'], $x['note'] ?? null, $GLOBALS['md']['zfs']['tank/appdata/web2'] ?? null, $j['mf_aside'] ?? null]);
+    } finally {
+        putenv("PATH=$oldPath");
+        $GLOBALS['rs'] = $oldRs;
+        $GLOBALS['md'] = $oldMd;
+    }
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    check('make folder: one of Mr. Restori\'s jobs - its steps, the rollback after a failure or a stop', str_contains($src, "'mf_aside'   => mfDoAside(\$j, \$s),")
+        && str_contains($src, "'mf_store'   => mfDoStore(\$j, \$s),") && str_contains($src, "if ((\$failed || \$GLOBALS['rsStop']) && (\$j['kind'] ?? '') === 'make_folder') {"));
+    $bjs = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('make folder: the setup - beside the app\'s folders that are datasets of their own; the dialog says what changes, greys «Make it» without a fresh backup, follows the job',
+        str_contains($bjs, "main.appendChild(ownFold(`app:\${a.id}:\${f.share}/\${f.dir}`") && str_contains($bjs, "T('dfw.snaps', { n: sn.n, share: target.share })")
+        && str_contains($bjs, "T('dfw.partner', {") && str_contains($bjs, "T('dfw.kopia')") && str_contains($bjs, "datasetProgress(target, r.id, st.stack || null, 'dfw')")
+        && str_contains($bjs, "`\${ID}.folder_make`"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $bk = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$l.json"), true) ?: [];
+        $rs = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$l.json"), true) ?: [];
+        same("make folder: $l - its words", [], array_values(array_merge(
+            array_filter(['dfw.why', 'dfw.app', 'dfw.make', 'dfw.title', 'dfw.delicate', 'dfw.snaps', 'dfw.snaps_none', 'dfw.share_off', 'dfw.partner', 'dfw.kopia', 'dfw.how',
+                'dfw.go', 'dfw.done', 'dfw.rolled_back', 'dfw.failed', 'dsw.step.mf_aside', 'dsw.step.mf_store',
+                ...array_map(fn ($k) => "dfw.no.$k", ['mf_plain', 'md_missing', 'md_not_zfs', 'md_split', 'mf_parent', 'mf_children', 'mf_mountpoint', 'mf_unmounted', 'mf_room', 'md_busy', 'mf_moverelli']),
+                ...array_map(fn ($k) => "errors.$k", ['mf_plain', 'mf_parent', 'mf_children', 'mf_mountpoint', 'mf_unmounted', 'mf_room', 'mf_moverelli'])], fn ($k) => !isset($bk[$k])),
+            array_filter(['jk.make_folder', 'step.mf_aside', 'step.mf_store', 'ss.mf_aside', 'ss.mf_store', 'sn.mf_aside_failed', 'sn.mf_hidden', 'sn.mf_moverelli',
+                'sn.mf_compare_failed', 'sn.mf_store_failed', 'sn.mf_back_failed', 'errors.mf_rolled_back', 'errors.mf_rollback_incomplete'], fn ($k) => !isset($rs[$k])))));
+    }
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testRestoreJobs(): void
 {
     $tmp = sys_get_temp_dir() . '/office-tests-rsjob-' . getmypid();
@@ -56850,7 +57016,7 @@ function testBackupAnewChoice(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],

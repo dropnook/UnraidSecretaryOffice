@@ -316,6 +316,13 @@ open). An earlier pair left over from before, not heard since a newer one was ma
 card offers *Replace it by …*. When a partnership ends and several pairs carry its name, Mr. Backupsy's setup asks which
 one gets its units — Apply waits for the choice. ZFS only, and the partner can read the copies — for a friend,
 Kopia is the encrypted way.
+Only a ZFS dataset of its own goes on its own: an app's folder that is just a folder in its share's dataset offers
+*Make it a dataset of its own…* in the setup, and one that is a dataset of its own offers the way back, *Back into a
+plain folder…* — its containers stopped, the dataset set aside, its files copied into a plain folder in its place and
+compared, started again; the dataset with its own snapshots goes into Ms. Dustdevil's storeroom (put back there, destroyed
+only when you empty it). The dialog says what changes first: its own snapshots end (its files are then in its share's),
+it goes to a partner only inside its share, Kopia goes on as before. Not while a backup, a restore or Ms. Moverelli's
+run goes on, nor for a dataset with datasets below it (named).
 
 **The USO network (Tailscale), optional.** Two servers behind different routers (or behind CGNAT) need a network that
 reaches both. Any you already have works — your LAN, your VPN, your own Tailscale. Or the Team Lead joins this server to

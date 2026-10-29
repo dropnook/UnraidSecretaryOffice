@@ -3927,6 +3927,10 @@ function rsJob(array $args): int
         if (($failed || $GLOBALS['rsStop']) && ($j['kind'] ?? '') === 'make_dataset') {
             mdRollback($j);
         }
+        // «Back into a plain folder» (2026-10-29): the dataset back in its place, the job's copy into the storeroom
+        if (($failed || $GLOBALS['rsStop']) && ($j['kind'] ?? '') === 'make_folder') {
+            mfRollback($j);
+        }
     } finally {
         rsPeekRelease($j);                // a partner's kept moment mounted for the copies: never left mounted
         $stopped = $GLOBALS['rsStop'];
@@ -4017,6 +4021,8 @@ function rsStep(array &$j, int $i): array
         'md_vm_stop' => mdDoVm($j, $s, false),
         'md_vm_start' => mdDoVm($j, $s, true),
         'md_store'   => mdDoStore($j, $s),
+        'mf_aside'   => mfDoAside($j, $s),
+        'mf_store'   => mfDoStore($j, $s),
         default     => ['state' => 'failed', 'detail' => "unknown step {$s['do']}"],
     };
 }

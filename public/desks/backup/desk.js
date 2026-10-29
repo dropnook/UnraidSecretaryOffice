@@ -5480,6 +5480,22 @@ function whyFold(key, text, target) {
   }
   return det;
 }
+/**
+ * The way back (2026-10-29), beside «Make it a dataset of its own…»: an app's folder that is a dataset of its own says so,
+ * folded like «Why?», with «Back into a plain folder…» (setupMakeFolder(): one of Mr. Restori's jobs too)
+ */
+function ownFold(key, text, target) {
+  const det = keepFold(el('details', 'bk-why'), 'own:' + key, false);
+  det.addEventListener('click', (e) => e.stopPropagation());     // inside a row, which unfolds on a click itself
+  det.appendChild(el('summary', '', T('dfw.why')));
+  det.appendChild(el('p', 'role', text));
+  const b = el('button', 'btn small', T('dfw.make'));
+  b.type = 'button';
+  b.disabled = !Office.agent.running || live();
+  b.onclick = () => setupMakeFolder(target);
+  det.appendChild(b);
+  return det;
+}
 /** A unit's folder in a share from a path (/mnt/<user|pool>/<share>/<dir>/…) */
 function folderOf(path) {
   const m = /^\/mnt\/[^/]+\/([^/]+)\/([^/]+)\//.exec(String(path || ''));
@@ -5495,7 +5511,7 @@ const ownDataset = (plan, share, dir) => (((plan.shares || []).find((x) => x.nam
  * restore/job); at the end the result (done / rolled back / failed) and what to do next - and the setup planned anew so
  * the unit shows its partner levels (as «Look at the server again» does)
  */
-function datasetProgress(target, id, stack) {
+function datasetProgress(target, id, stack, w = 'dsw') {      // w: the words - dsw (a dataset of its own), dfw (back into a plain folder)
   const box = el('div', 'bk-dsp');
   const line = el('p', 'running');
   const bar = el('div', 'bar thin');
@@ -5505,7 +5521,7 @@ function datasetProgress(target, id, stack) {
   const after = el('p', 'role');
   box.append(line, bar, after);
   line.append(el('span', 'spin'), ' ', T('dsw.queued'));
-  Office.dialog({ title: T('dsw.title', { name: target.dir }), body: box, buttons: [{ text: Office.t('common.close') }] });
+  Office.dialog({ title: T(w + '.title', { name: target.dir }), body: box, buttons: [{ text: Office.t('common.close') }] });
   let fails = 0;
   const look = async () => {
     const j = await Office.api.get({ a: 'part', desk: 'restore', part: 'job' });
@@ -5524,9 +5540,9 @@ function datasetProgress(target, id, stack) {
     line.classList.remove('running');
     bar.hidden = true;
     const ok = job.result === 'ok' || job.result === 'warnings';
-    line.textContent = T(ok ? 'dsw.done' : job.reason === 'md_rolled_back' ? 'dsw.rolled_back' : 'dsw.failed', { path: `${target.share}/${target.dir}` });
+    line.textContent = T(ok ? w + '.done' : ['md_rolled_back', 'mf_rolled_back'].includes(job.reason) ? w + '.rolled_back' : w + '.failed', { path: `${target.share}/${target.dir}` });
     after.textContent = stack ? T('dsw.done_stack', { stack }) : '';
-    if (ok) Office.toast(T('dsw.done', { path: `${target.share}/${target.dir}` }));
+    if (ok) Office.toast(T(w + '.done', { path: `${target.share}/${target.dir}` }));
     await setupPlan(false);           // the unit a dataset of its own now: its partner levels show
   };
   look();
@@ -5598,6 +5614,87 @@ async function setupMakeDataset(target) {
     ],
   });
   // without a fresh backup «Make it» stays grey until the user says he knows
+  const go = d && d.buttons ? d.buttons[d.buttons.length - 1] : null;
+  if (go) go.disabled = !ok;
+  cb.onchange = () => { ok = cb.checked && !stackRunning; if (go) go.disabled = !ok; };
+}
+
+/**
+ * «Back into a plain folder…» (2026-10-29): the dialog says plainly that this step is delicate, what changes in the plan
+ * (its own snapshots go with the dataset into the storeroom, its files travel in its share's from then on; a partner gets
+ * it only inside the share; Kopia goes on), when the last backup ran (none fresh — «Make it» grey until the user says he
+ * knows), what stops and for about how long; refusals named (datasets below it: which). Then Mr. Restori's job
+ * (backup.folder_make) — its journal and run card on his page, followed here like the way there (datasetProgress())
+ */
+async function setupMakeFolder(target) {
+  const { members, key, ...req } = target;
+  const j = await Office.api.post(`${ID}.folder_look`, req);
+  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
+  const path = (j.target && j.target.path) || `${target.share}/${target.dir}`;
+  const box = el('div');
+  box.appendChild(el('p', 'callout warn', T('dfw.delicate', { path })));
+  const stackRunning = (j.blockers || []).find((b) => b.key === 'md_stack_running');
+  const blockers = (j.blockers || []).filter((b) => b.key !== 'md_stack_running');
+  if (blockers.length) {
+    blockers.forEach((b) => {
+      const p = { ...(b.params || {}) };
+      if (b.key === 'mf_room') { p.need = fmt.size(Number(p.need) || 0); p.free = fmt.size(Number(p.free) || 0); }
+      box.appendChild(el('p', 'callout', T('dfw.no.' + b.key, p)));
+    });
+    Office.dialog({ title: T('dfw.title', { name: target.dir }), body: box, buttons: [{ text: Office.t('common.close') }] });
+    return;
+  }
+  // what changes in the plan: its own snapshots end (into the storeroom with it), its share's carry it; partner; Kopia
+  const sn = j.snapshots || { n: 0 };
+  box.appendChild(el('p', '', sn.n ? T('dfw.snaps', { n: sn.n, share: target.share }) : T('dfw.snaps_none', { share: target.share })));
+  if (dget(`share|${target.share}|mode`, 'off') === 'off') box.appendChild(el('p', 'callout warn', T('dfw.share_off', { share: target.share })));
+  const pk = key ? unitPartnerKey(key) : null;
+  const partners = pk ? setupPartners().filter((p) => partnerListOf(pk).includes(p.id)) : [];
+  if (partners.length) box.appendChild(el('p', '', T('dfw.partner', { partners: partners.map((p) => p.name).join(', '), share: target.share })));
+  if (key && levelOf(key) === 2) box.appendChild(el('p', '', T('dfw.kopia')));
+  const last = j.last;
+  const fresh = !!(last && last.fresh);
+  box.appendChild(el('p', '', !last || !last.time ? T('dsw.last_none')
+    : last.unit === false ? T('dsw.last_without', { when: fmt.relative(last.time), name: target.name })
+      : T(fresh ? (last.unit ? 'dsw.last_fresh_in' : 'dsw.last_fresh') : last.result === 'failed' ? 'dsw.last_failed' : 'dsw.last_old',
+        { when: fmt.relative(last.time), name: target.name })));
+  const st = j.stops || {};
+  if (st.stack) {
+    box.appendChild(el('p', '', T('dsw.stack', { stack: st.stack })));
+    const runs = new Set(String((stackRunning && stackRunning.params && stackRunning.params.names) || '').split(', ').filter(Boolean));
+    const all = [...new Set([...(members || []), ...runs])];
+    if (all.length) box.appendChild(el('p', '', T('dsw.stack_members', { list: all.map((n) => (runs.has(n) ? T('dsw.runs', { name: n }) : n)).join(', ') })));
+    if (stackRunning) box.appendChild(el('p', 'callout warn', T('dsw.stack_running', { stack: st.stack, names: (stackRunning.params || {}).names || '' })));
+  } else {
+    const what = st.containers || [];
+    box.appendChild(el('p', '', what.length ? T('dsw.stops', { list: what.join(', '), n: what.length }) : T('dsw.stops_none')));
+  }
+  if (j.downtime) box.appendChild(el('p', '', T('dsw.downtime', { duration: fmt.duration(j.downtime), size: fmt.size(j.bytes || 0) })));
+  box.appendChild(el('p', 'role', T('dfw.how', { dataset: (j.target && j.target.dataset) || '' })));
+  let ok = fresh && !stackRunning;
+  const tick = el('label', 'check');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  if (!fresh) {
+    tick.append(cb, ' ', T('dsw.no_fresh_ok'));
+    box.appendChild(tick);
+  }
+  const d = Office.dialog({
+    title: T('dfw.title', { name: target.dir }),
+    body: box,
+    wide: true,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      ...(fresh ? [] : [{ text: T('dsw.backup_first'), kind: 'plain', act: async () => { await startRun('backup'); } }]),
+      ...(stackRunning ? [{ text: T('dsw.look_again'), kind: 'plain', act: () => { setTimeout(() => setupMakeFolder(target), 0); } }] : []),
+      { text: T('dfw.go'), kind: '', act: async () => {
+        const r = await Office.api.post(`${ID}.folder_make`, { ...req, no_fresh_ok: !fresh && cb.checked });
+        if (!r.ok) { Office.toast(Office.errorText(r.error, ID), true); return false; }
+        setTimeout(() => datasetProgress(target, r.id, st.stack || null, 'dfw'), 0);
+        return true;
+      } },
+    ],
+  });
   const go = d && d.buttons ? d.buttons[d.buttons.length - 1] : null;
   if (go) go.disabled = !ok;
   cb.onchange = () => { ok = cb.checked && !stackRunning; if (go) go.disabled = !ok; };
@@ -5917,6 +6014,12 @@ function setupApps(plan) {
         (a.ownFolders || a.folders).filter((f) => !ownDataset(plan, f.share, f.dir)).slice(0, 3)
           .forEach((f) => main.appendChild(whyFold(`app:${a.id}:${f.share}/${f.dir}`, T('dsw.app', { share: f.share, dir: f.dir }),
             { kind: 'app', name: a.name, share: f.share, dir: f.dir, stack: a.stack ? a.name : '', members: a.members })));
+      }
+      // 2026-10-29: the way back - its folders that are datasets of their own («Back into a plain folder…»)
+      if (ap.own) {
+        (a.ownFolders || a.folders).filter((f) => ownDataset(plan, f.share, f.dir)).slice(0, 3)
+          .forEach((f) => main.appendChild(ownFold(`app:${a.id}:${f.share}/${f.dir}`, T('dfw.app', { share: f.share, dir: f.dir }),
+            { kind: 'app', name: a.name, share: f.share, dir: f.dir, stack: a.stack ? a.name : '', members: a.members, key: 'app:' + a.id })));
       }
       // no folder of its own (2026-10-23): its template travels only in its package in the backup place
       if (!ap.f && l > 0) {
@@ -7143,7 +7246,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     placeLines, placeVerdict, placeOffsite, placeNotes, placeFitting, placeOfferLines, setupPlaceMade, setupDraftKeep, setupDerive, dset, setupEdits,
     PRESETS, presetChoose, presetForget, presetKeep, presetChanged, presetKopiaState, firstUpload, presetKeptList, presetStartText,
     presetCardsOf, presetCardOf, presetApply, presetPartners, levelPick, modeSelect, placeLevelPick, partnerListOf, partnerListSet, setupMigrated, LEVEL_FIELDS,
-    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, appPartner, vmPartner, shareGoesTo, placeGoesTo, unitVia, levelWord, viaChip, offChip, partnerShareLines, appDepGaps, depCovered, depTicked, depClick, depGain, depPartners, setupInitLevels, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
+    partnerNowText, partnerRateOf, runModeOf, progress, partnerUnits, partnerSectionRows, partnerApplyLines, setupChangeItems, listChangeText, knownText, diffMark, whyFold, folderOf, ownDataset, setupMakeDataset, setupMakeFolder, ownFold, appPartner, vmPartner, shareGoesTo, placeGoesTo, unitVia, levelWord, viaChip, offChip, partnerShareLines, appDepGaps, depCovered, depTicked, depClick, depGain, depPartners, setupInitLevels, setupDeclinedApply, declinedList, ownFoldersOf, setupModel, partnerApplyText, setupDecline, setupApplyChanges, minuteTaken, bubbleText, deskActions,
     presetKopiaMode, presetKopiaVm, draftMode, draftVm, setupNewItems, presetApplyNew, presetNow, presetChosen, presetNewMode, presetNewVm,
     letGoPart, letGoLines, letGoDoneLines, letGoResult, setLetGoClock: (c) => { letGoClock = c; }, setupUnfold, UNFOLD_OWN, setupDecisions, setupApplyChanges, changeLabel, valueText, valueChange, setupSplit, setupDecline,
     warnLines, bubbleText, setupBarSpec, setupNoPlace, setupPlaceStart, bubblePlace, placeFirst, placeFirstNeeded, setupSearchItems, brakeLine, brakeGaps, snapSeconds,
