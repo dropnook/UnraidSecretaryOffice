@@ -6600,7 +6600,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.80'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.81'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -8587,9 +8587,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.80 everywhere it is named', ['2.80', '2.80', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.80"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.80** –')]);
+    same('data trust: the engine\'s version 2.81 everywhere it is named', ['2.81', '2.81', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.81"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.81** –')]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -9938,7 +9938,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.80', [1, '2.80'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.81', [1, '2.81'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -44369,8 +44369,12 @@ function testSetupMessages(): void
 
     // --- the strings: every code the engine sends has the office's words
     $sh = (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh');
-    // 2.58: the OK and error lines too (ok_as, bad_as)
+    // 2.58: the OK and error lines too (ok_as, bad_as); 2.81: the engine's own errors a setup records (lib/common.sh err_as)
     preg_match_all('/\b(?:hint_as|wrn_as|wrn_code|hint_code|ok_as|bad_as) "?([a-z][a-z0-9_]*)/', $sh, $m);
+    preg_match_all('/\berr_as ([a-z][a-z0-9_]*) "/', (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh'), $lm);
+    same('setup messages: 2.81 - what an aborted run left and didn\'t come back is coded (lib/common.sh err_as)',
+        ['recover_ct_start', 'recover_nc_dir', 'recover_nc_maintenance', 'recover_vm_thaw', 'recover_vm_resume', 'recover_vm_start'], $lm[1]);
+    $m[1] = array_merge($m[1], $lm[1]);
     $codes = array_values(array_unique(array_filter($m[1], fn ($c) => !str_ends_with($c, '_'))));
     preg_match_all('/\b(?:hint_as|wrn_as|hint_code|bad_as) "([a-z_]+)_\$/', $sh, $dyn);
     $more = [];
@@ -44420,6 +44424,74 @@ function testSetupMessages(): void
     check('setup messages: the page renders the grouped notes (setup_get\'s notes) and falls back to the engine\'s text',
         str_contains($js, 'function setupNoteItems(g, withStep)') && str_contains($js, "setupMessages(placeNotes(setupNotes(plan)))") && str_contains($js, '[it.text, ...(it.more || [])]'));
     check('setup messages: setup_get answers the notes beside plan and run', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php'), "\$plan['notes'] = backupSetupNotes("));
+    check('setup messages: an error the page knows in its own words, else the engine\'s text (the plan that failed)',
+        str_contains($js, "m.code && Office.has(`\${ID}.setup.msg.\${m.code}`) ? T('setup.msg.' + m.code, setupMsgParams(m.params)) : m.text"));
+
+    // --- 2.81: a status file of 2.80 (an error of the engine's own still plain text) and of 2.81 (coded) - both read
+    $st280 = ['interface' => 1, 'version' => '2.80', 'mode' => 'apply', 'result' => 'errors', 'errors' => 1, 'messages' => [
+        ['level' => 'ok', 'step' => 'environment', 'text' => 'Unraid 7.2.0', 'code' => 'unraid_version', 'params' => ['version' => '7.2.0']],
+        ['level' => 'error', 'step' => 'write', 'text' => 'Kopia policy for appdata could not be set', 'code' => 'policy_failed', 'params' => ['source' => 'appdata']],
+        ['level' => 'ok', 'step' => 'environment', 'text' => 'an older engine\'s plain line']]];
+    same('setup messages: a 2.80 status file - its coded lines grouped, a plain line its text (the page falls back to it)',
+        [['ok', 'unraid_version', null], ['error', 'policy_failed', null], ['ok', null, 'an older engine\'s plain line']],
+        array_map(fn ($g) => [$g['level'], $g['code'] ?? null, isset($g['code']) ? null : $g['items'][0]['text']], backupSetupNotes($st280['messages'])));
+    $st281 = $st280['messages'];
+    $st281[2] = ['level' => 'error', 'step' => 'environment', 'text' => "VM 'Win 11' (from the aborted run) does not start - it stays noted (state/vms)",
+                 'code' => 'recover_vm_start', 'params' => ['name' => 'Win 11']];
+    $g = backupSetupNotes($st281)[2] ?? [];
+    same('setup messages: a 2.81 status file - the aborted run\'s error coded, in the office\'s words', ['error', 'recover_vm_start', ['name' => 'Win 11'], true],
+        [$g['level'] ?? null, $g['code'] ?? null, $g['items'][0]['params'] ?? null, str_contains((string) $en['setup.msg.recover_vm_start'], '{name}')]);
+
+    // --- 2.81: the engine's own error recorded through setup.sh's functions (msg, msg_as, ub_msg_as, msgs_json)
+    $fn = function (string $src, string $name): string {
+        $i = strpos($src, "\n$name() ");
+        if ($i === false) {
+            return '';
+        }
+        $out = '';
+        foreach (explode("\n", substr($src, $i + 1)) as $line) {
+            $out .= "$line\n";
+            if ($line === '}' || str_ends_with(rtrim($line), '; }')) {
+                return $out;
+            }
+        }
+        return '';
+    };
+    $defs = implode('', array_map(fn ($n) => $fn($sh, $n), ['msg', 'msg_as', 'ub_msg_as', 'us_json', 'msgs_json']));
+    $tmp = sys_get_temp_dir() . '/office-tests-setupmsg-rec-' . getmypid();
+    @mkdir("$tmp/bin", 0700, true);
+    @mkdir("$tmp/state", 0700, true);
+    file_put_contents("$tmp/bin/virsh", "#!/bin/bash\n[[ \"\$1\" == domstate ]] && { echo 'shut off'; exit 0; }\nexit 1\n");
+    chmod("$tmp/bin/virsh", 0755);
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $rec = fn (string $hook) => (string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/data; source $lib >/dev/null 2>&1; export PATH=$tmp/bin:\$PATH;"
+        . " UB_STATE=$tmp/state UB_VAR_INI=$tmp/none LOG_FILE=''; MODE=apply; STEP_ID=environment; declare -a MSGS=(); $hook\n"
+        . "printf 'Win 11|shutdown\\n' >\"\$UB_STATE/vms\"; recover_vms >/dev/null; echo \"ERRORS=\$ERRORS\"; msgs_json") . ' 2>&1');
+    $out = $rec($defs);
+    $j = json_decode((string) substr($out, (int) strpos($out, "\n") + 1), true);
+    same('setup messages (engine): 2.81 - a VM the aborted run left that doesn\'t start: counted, recorded at level error with its code, step and name; still noted',
+        ['ERRORS=1', [['level' => 'error', 'step' => 'environment', 'text' => "VM 'Win 11' (from the aborted run) does not start - it stays noted (state/vms)",
+                       'code' => 'recover_vm_start', 'params' => ['name' => 'Win 11']]], "Win 11|shutdown\n"],
+        [strtok($out, "\n"), $j, @file_get_contents("$tmp/state/vms")], $out);
+    check('setup messages (engine): … a run (no ub_msg_as) counts and logs it as before - nothing recorded',
+        str_starts_with($rec('msgs_json() { echo "[]"; }'), "ERRORS=1\n[]"));
+    check('setup messages (engine): … setup.sh records the engine\'s coded lines like its own, bringing back what an aborted run left under the step environment',
+        str_contains($sh, 'ub_msg_as() { msg_as "$@"; }') && str_contains($sh, '{ STEP_ID=environment; recover_interrupted_run; }'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+    // the plain ok/bad lines left are those of --check and the orphans' modes, which record no messages (msg)
+    $plain = [];
+    $func = '';
+    foreach (explode("\n", $sh) as $line) {
+        if (preg_match('/^([a-z_0-9]+)\(\) *\{/', $line, $fm)) {
+            $func = $fm[1];
+            continue;                   // a helper's own line (ok() { … msg ok "$*"; }) says nothing
+        }
+        if (preg_match('/(^|[\s;&|{(])(ok|bad|hint|wrn) "/', $line) && !str_starts_with(ltrim($line), '#')
+            && !in_array($func, ['run_check', 'orphans_scan', 'orphans_delete'], true) && !str_contains($line, '--orphans-delete needs')) {
+            $plain[] = trim($line);
+        }
+    }
+    same('setup messages: no plain ok, hint, warning or error line where a plan, an apply or a forget records it', [], $plain);
 
     // --- setup.sh --plan on a fixture server
     $tmp = sys_get_temp_dir() . '/office-tests-setupmsg-' . getmypid();

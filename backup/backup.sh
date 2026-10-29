@@ -1,6 +1,8 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.80 - 2026-10-29
+# unraid-backup - backup.sh                       Version 2.81 - 2026-10-29
+#   2.81 What an aborted run left and doesn't come back is an error with a code (lib/common.sh err_as) - a run logs it as
+#        before; a setup's Apply records it for the office (setup.sh ub_msg_as)
 #   2.80 The rest of T01 (lib/notifygate.sh, the same as the office's gate): «Backup failed» / «Backup not started» with
 #        the very same cause again within 20 h (NOTIFY_FAILED_SAME), no success between, is counted - with how many
 #        times (the decision's «times», a «counted» line in the guard) - instead of an alert every run; another cause

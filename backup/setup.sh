@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.80 - 2026-10-29
+# unraid-backup - setup.sh                        Version 2.81 - 2026-10-29
+#   2.81 An Apply that brings back what an aborted run left says what didn't come back in the office's words (lib/common.sh
+#        err_as -> ub_msg_as: setup-status.json messages at level error with a code, step environment) - up to 2.80
+#        counted as an error without a word
 #   2.80 Nothing new in the setup (lib/notifygate.sh: a run's very same failure within 20 h counted)
 #   2.79 Nothing new in the setup (backup.sh: an emptied repository behind Kopia's cache)
 #   2.77 Nothing new in the setup (backup.sh: the partner's total rate measured in milliseconds)
@@ -395,6 +398,11 @@ bad()  { ERRORS=$((ERRORS+1));     say "  ${C_R}ERROR${C_0}   $*"; msg error "$*
 # (setup.msg.<code>, 2.61: every one a plan, an apply or a forget records) - the terminal and the log get the English text
 ok_as()  { local c="$1" t="$2"; shift 2; say "  ${C_G}OK${C_0}      $t"; msg_as ok "$c" "$t" "$@"; }
 bad_as() { local c="$1" t="$2"; shift 2; ERRORS=$((ERRORS+1)); say "  ${C_R}ERROR${C_0}   $t"; msg_as error "$c" "$t" "$@"; }
+# ub_msg_as <level> <code> <text> [<key> <value>]...: the engine's own coded lines (lib/common.sh err_as, 2.81) recorded
+# like the setup's - counted and printed there already
+ub_msg_as() { msg_as "$@"; }
+# --check and the orphans' modes record no messages (msg): their plain ok/bad lines stay text - the orphans' result
+# travels as kopia-orphans.json's code
 # Collect messages for --plan/--apply: "level<US>step<US>text<US>code<US>params" (without colours; code and params - a
 # JSON object on one line - for messages the office translates: every hint and warning since 2.39)
 declare -a MSGS=()
@@ -3557,7 +3565,7 @@ elif [[ "$MODE" == orphans* ]]; then
 fi
 
 say "${C_B}$UB_NAME $UB_VERSION - setup ($MODE) on $(hostname -s)${C_0}"
-[[ "$MODE" != "check" && "$MODE" != "plan" && "$MODE" != "forget" && "$MODE" != orphans* ]] && recover_interrupted_run
+[[ "$MODE" != "check" && "$MODE" != "plan" && "$MODE" != "forget" && "$MODE" != orphans* ]] && { STEP_ID=environment; recover_interrupted_run; }
 case "$MODE" in
     check)
         STEPS=1; run_check ;;
