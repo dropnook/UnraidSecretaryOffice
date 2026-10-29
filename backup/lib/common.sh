@@ -1950,6 +1950,44 @@ kopia_reach_save() { # kopia_reach_save unreachable|ok
     log "  Offsite unreachable since $(date -d "@$since" '+%Y-%m-%d %H:%M' 2>/dev/null || echo "$since") (run $run)"
     return 0
 }
+# --- Files dated in the future (2.79, batch H #7): a clock that ran ahead and was put right, a camera or phone with the
+# wrong date - files modified more than UB_FUTURE_SLACK s after now. Nothing else says so: whatever goes by a file's age
+# (the mover's age rules, «newest first», cleaning up old files) takes them for brand new until that day. Looked for right
+# after Kopia read a source (backup.sh kopia_share_one, kopia_item_one: its folders are in the kernel's cache then, its
+# disks awake; a source Kopia didn't read - asleep, skipped, failed - is not looked at): one find over the same mount,
+# metadata only, at most UB_FUTURE_TIMEOUT s, in the background - the array being stopped ends it at once (and the run:
+# array_stop_check). Said as warning future_files: the source, how many, one example (its path inside the source) and
+# that file's date.
+UB_FUTURE_SLACK="${UB_FUTURE_SLACK:-86400}"
+future_look() { # future_look <name> <host path>
+    local name="$1" hp="$2" lim out n ex t when tmp pid
+    [[ -d "$hp" ]] || return 0
+    tmp="$(mktemp "${TMPDIR:-/tmp}/.uso-future.XXXXXX" 2>/dev/null)" || return 0
+    lim=$(( $(date +%s) + UB_FUTURE_SLACK ))
+    timeout "${UB_FUTURE_TIMEOUT:-300}" find "$hp" -type f -newermt "@$lim" -printf '%T@\t%P\n' >"$tmp" 2>/dev/null 9>&- &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if array_stopping; then
+            kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; rm -f "$tmp"
+            declare -F array_stop_check >/dev/null && array_stop_check "while looking for files dated in the future in $name"
+            return 0
+        fi
+        sleep 0.2
+    done
+    wait "$pid" 2>/dev/null
+    out="$(awk -F'\t' 'NR == 1 { print } END { print NR }' "$tmp" 2>/dev/null)"
+    rm -f "$tmp"
+    n="${out##*$'\n'}"
+    is_uint "$n" && (( n > 0 )) || return 0
+    IFS=$'\t' read -r t ex <<<"${out%%$'\n'*}"
+    t="${t%%.*}"
+    is_uint "$t" || return 0
+    ex="$(printf '%s' "$ex" | tr -d '\000-\037' | cut -c1-200)"
+    when="$(date -d "@$t" '+%Y-%m-%d')"
+    warn_code future_files "$name: $n file(s) dated in the future (more than $(( UB_FUTURE_SLACK / 3600 )) h ahead), e.g. '$ex' ($when) - a clock that ran ahead or a camera with the wrong date; set their date right (touch -m)" \
+        name="$name" n="$n" path="$ex" when="$when"
+}
+
 # kopia_emptied <before> <now> - far fewer: none left, or less than half
 kopia_emptied() { is_uint "$1" && is_uint "$2" && (( $1 > 0 && ( $2 == 0 || $2 * 2 < $1 ) )); }
 # --- The Kopia step held (2.56): a repository suddenly (nearly) empty is no reason to upload everything anew over what
