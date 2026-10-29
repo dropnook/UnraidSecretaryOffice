@@ -481,7 +481,7 @@ class Planner:
         # USO (themes): mit `themes` geht der theme.mp3 im Ordner des Items nicht mit dem Item – er gehört dem Sammler
         # (bleibt auf dem Cache, zählt in keinem Budget, geht nie mit dem Item zurück)
         def without_theme(files, folder):
-            return [f for f in files if not (self.cfg["themes"] and f.name == THEME_NAME and f.parent == folder)]
+            return [f for f in files if not (self.cfg.get("themes") is True and f.name == THEME_NAME and f.parent == folder)]
         if exists_dir:
             # Ordner-Item (DVD/BluRay-Struktur): den Ordner selbst mitnehmen, nie den Elternordner
             return without_theme(loc.list_files(rel, recursive=True), rel)
@@ -973,7 +973,7 @@ class Themes:
     def __init__(self, runner):
         self.r = runner
         self.cfg = runner.cfg
-        self.on = bool(self.cfg["themes"])
+        self.on = self.cfg.get("themes") is True
         self.state = (read_themes_state() or {}) if self.on else {}
         self.items = dict(self.state.get("items") or {})
         self.first = not self.state.get("done")
