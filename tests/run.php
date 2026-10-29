@@ -34847,6 +34847,38 @@ function testRestoreDrill(): void
     same('drill follow-up: nothing left last time, or no drill yet — the plan as it is', [[$fsteps, 0], [$fsteps, 0]],
         [drillFollowUp($fsteps, ['items' => [['kind' => 'dump', 'of' => 'app', 'id' => 'nc', 'what' => 'nc-db', 'result' => 'ok']]]), drillFollowUp($fsteps, null)]);
 
+    // ---- a dump whose image isn't here: «image missing» — its app gone altogether (Mr. Backupsy's packages_gone), «app gone»
+    //      (2026-10-29: a gone app's package said «a new server would have to pull it» drill after drill), and never first again
+    $ig = "$tmp/imggone";
+    @mkdir("$ig/apps/oldapp", 0700, true);
+    file_put_contents("$ig/apps/oldapp/manifest.json", jsonEncode(['interface' => 1, 'kind' => 'app', 'folder' => 'oldapp', 'engine' => '2.79', 'run' => '20261020-0300',
+        'name' => 'oldapp', 'containers' => [['name' => 'oldapp-db', 'image' => 'postgres:16', 'image_id' => 'sha256:' . str_repeat('a', 64)]]]));
+    file_put_contents("$tmp/docker-imggone", "#!/bin/sh\n[ \"\$1\" = image ] && exit 1\necho 27.0.3\nexit 0\n");
+    chmod("$tmp/docker-imggone", 0755);
+    $GLOBALS['drill']['docker'] = "$tmp/docker-imggone";
+    $igStep = ['id' => 'oldapp', 'container' => 'oldapp-db', 'type' => 'postgres'];
+    $ig1 = function (?array $gone) use ($ig, $igStep): array {
+        if ($gone === null) {
+            unset($GLOBALS['drill']['gone']);
+        } else {
+            $GLOBALS['drill']['gone'] = $gone;
+        }
+        $env = ['base' => $ig, 'ram' => 4 << 30];
+        $r = drillDumpCheck($igStep, $env, 1000, 1000, []);
+        unset($GLOBALS['drill']['gone']);
+        return [$r['state'] ?? null, $r['code'] ?? null, $r['params']['image'] ?? null];
+    };
+    $GLOBALS['goneHost'] = ['containers' => fn (): array => ['other'], 'images' => fn (): array => [], 'vms' => fn (): array => []];
+    $GLOBALS['gonePlanned'] = null;
+    same('drill: an image not here — «image missing»; its app gone (none of its containers, none of their images: Mr. Backupsy\'s own look) — «app gone»',
+        [['not_checked', 'image_missing', 'postgres:16'], ['not_checked', 'app_gone', 'postgres:16'], ['not_checked', 'app_gone', 'postgres:16']],
+        [$ig1([]), $ig1(['oldapp']), $ig1(null)]);
+    $GLOBALS['goneHost']['containers'] = fn (): array => ['oldapp-db'];
+    same('drill: its container still there (only the image gone) — «image missing» as before', 'image_missing', $ig1(null)[1]);
+    unset($GLOBALS['goneHost'], $GLOBALS['gonePlanned']);
+    $gcert = ['items' => [['kind' => 'dump', 'of' => 'app', 'id' => 'nc', 'what' => 'nc-db', 'copy' => 'snapshot', 'result' => 'not_checked', 'code' => 'app_gone']]];
+    same('drill follow-up: an app that is gone is not tried first again (its package waits for the storeroom)', [$fsteps, 0], drillFollowUp($fsteps, $gcert));
+
     // ---- the settings: each field only when sent, only in its shape
     drillSet(['schedule' => 'weekly', 'kopia_mb' => 0]);
     same('drill settings: kept (root only), defaults for the rest (the night: Saturday to Sunday)', ['weekly', 0, 0, true, true, '0600'],

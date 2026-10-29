@@ -869,6 +869,7 @@
   "drill.code.flash_incomplete": "the flash archive lacks config/ident.cfg",
   "drill.code.image_unknown": "the manifest doesn't name its image",
   "drill.code.image_missing": "its image ({image}) isn't on this server any more — a new server would have to pull it",
+  "drill.code.app_gone": "its app isn't on this server any more — «Into the storeroom» on Mr. Backupsy's page puts its package into Ms. Dustdevil's storeroom",
   "drill.code.docker_off": "Docker isn't running — no throwaway container could be made",
   "drill.code.too_big_for_ram": "too big for the RAM I may use ({need} needed, {budget} allowed)",
   "drill.code.dump_no_room": "the copy couldn't be played: the throwaway database needed more room than the drill may take in RAM ({ram_mb} MB) — the dump itself is fine (read through)",

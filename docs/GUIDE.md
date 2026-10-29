@@ -111,7 +111,9 @@ VMs' disks, and streams a sample back from the offsite copy (as many GB as you a
 snapshot — where an app's package goes offsite, one of its dumps is read back from there and played too. Each app and
 VM gets a **certificate**: which level is proven, from which copy, when; a step that failed shows its error. The drill
 wakes no disk, never runs during a parity check, ends well before the next backup and cleans up after itself (what an
-interrupted one left, Ms. Dustdevil clears away). What it left unchecked comes first the next time.
+interrupted one left, Ms. Dustdevil clears away). What it left unchecked comes first the next time — except the package
+of an app that no longer exists: the drill says so, and Mr. Backupsy's *Into the storeroom* puts it into Ms. Dustdevil's
+storeroom (put back there if you need it again), after which the drill leaves it out.
 
 <a name="restore-drill"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill-light.png" alt="Mr. Restori: the drill passed — the level per app, the databases played back"></picture></a>
 

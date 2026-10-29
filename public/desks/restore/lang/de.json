@@ -869,6 +869,7 @@
   "drill.code.flash_incomplete": "dem Flash-Archiv fehlt config/ident.cfg",
   "drill.code.image_unknown": "das Manifest nennt sein Image nicht",
   "drill.code.image_missing": "sein Image ({image}) ist nicht mehr auf diesem Server — ein neuer Server müsste es herunterladen",
+  "drill.code.app_gone": "seine App gibt es auf diesem Server nicht mehr — «In die Abstellkammer» bei Herrn Backupsi legt ihr Paket in Frau Putzteufels Abstellkammer",
   "drill.code.docker_off": "Docker läuft nicht — es ließ sich kein Wegwerf-Container anlegen",
   "drill.code.too_big_for_ram": "zu gross für das RAM, das ich nehmen darf ({need} nötig, {budget} erlaubt)",
   "drill.code.dump_no_room": "die Kopie liess sich nicht zurückspielen: die Wegwerf-Datenbank brauchte mehr Platz, als die Übung im RAM nehmen darf ({ram_mb} MB) — der Dump selbst ist heil (gelesen)",
