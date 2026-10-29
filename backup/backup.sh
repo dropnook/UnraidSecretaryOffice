@@ -5,6 +5,9 @@
 #        the very same cause again within 20 h (NOTIFY_FAILED_SAME), no success between, is counted - with how many
 #        times (the decision's «times», a «counted» line in the guard) - instead of an alert every run; another cause
 #        always goes, a daily schedule still reminds daily. Other alerts keep the minute (NOTIFY_ALERT_SAME).
+#        Kopia snapshots say how their source was put together (review M4, lib/common.sh kopia_share_tags): a share's
+#        «uso-layout:<single|overlay|split|live>» (as mounted this run), split also «uso-parts:<base>|…»; an app's or
+#        VM's own source with parts in a share mounted split «uso-split:<share>|…» - only from Kopia 0.13.
 #   2.79 The offsite repository emptied while Kopia's cache still opens it (B17): listing the snapshots fails with
 #        «BLOB not found» - the storage itself is asked (kopia blob list) whether the repository's description is still
 #        there; gone is kopia_gone (once, an alert, the hold) and the Kopia step holds - up to 2.78 the run just ended
@@ -4599,8 +4602,9 @@ KOPIA_DONE=0; KOPIA_FAILED=0
 KOPIA_STALLED=""            # 2.68: the source whose upload took nothing for UB_KOPIA_STALL seconds (ended) - Kopia not asked again
 KOPIA_STALL_AT=0            #   the last moment it moved
 KOPIA_LAST_OK=0             # 2.79: the last kopia_one's upload ended well (future_look then looks over what Kopia read)
-kopia_one() { # kopia_one <name> <container path>
+kopia_one() { # kopia_one <name> <container path> [<snapshot create's tags: --tags k:v ...>]
     local name="$1" cp="$2" t0 rc secs stalled=0
+    local -a tags=( "${@:3}" )
     KOPIA_LAST_OK=0
     t0="$(date +%s)"
     if [[ -n "$KOPIA_STALLED" ]]; then           # 2.68: the storage takes nothing - each upload would only wait as long
@@ -4615,7 +4619,8 @@ kopia_one() { # kopia_one <name> <container path>
     # 2.24: waited for in steps of UB_ARRAY_LOOK seconds (a sleep beside it, wait -n for whichever ends
     # first), looking at var.ini each time - an array stop interrupts the upload at once (kopia_stop)
     KOPIA_CP="$cp"
-    UB_DOCKER_LONG=1 kopia_x snapshot create "$cp" --description "$UB_KOPIA_DESC $TS" >>"$LOG_FILE" 2>&1 &     # hours: no docker limit (2.66)
+    (( ${#tags[@]} )) && log_file "  tags: ${tags[*]}"
+    UB_DOCKER_LONG=1 kopia_x snapshot create "$cp" --description "$UB_KOPIA_DESC $TS" "${tags[@]}" >>"$LOG_FILE" 2>&1 &     # hours: no docker limit (2.66)
     KOPIA_PID=$!
     # 2.68: no time limit, but a stall watchdog - the kopia process neither reading nor writing for UB_KOPIA_STALL seconds
     # (a storage that takes no writes: Kopia waits for ever) ends it (lib/common.sh kopia_stall_look/_end)
@@ -4664,7 +4669,7 @@ kopia_skip() { # source not backed up, without Kopia having run
 
 # kopia_item_one <kind> <name> <folder>  - an app's or a VM's own source
 kopia_item_one() {
-    local t="$1" n="$2" f="$3" key="$1:$2" cp mp c_mp missing
+    local t="$1" n="$2" f="$3" key="$1:$2" cp mp c_mp missing sh split=""
     array_stop_check "before Kopia: $key"
     if [[ -n "${SKIP_KOPIA[$key]:-}" ]]; then err "Kopia: $t '$n' skipped - ${SKIP_KOPIA[$key]}"; kopia_skip "$key"; return 0; fi
     cp="$(k_path "$(item_hostpath "$t" "$f")")" || { err "Kopia: $t '$n' is not mapped into the container"; kopia_skip "$key"; return 0; }
@@ -4680,7 +4685,11 @@ kopia_item_one() {
         err "Kopia does not see the mount: $missing- check that the mapping is 'Read Only - Slave'"
         kopia_skip "$key"; return 0
     fi
-    kopia_one "$key" "$cp"
+    # 2.80: the shares its parts lie in that are mounted split (<share>/<base>/<path> in its source) - said as a tag
+    while IFS='|' read -r sh _; do [[ -n "$sh" && "${SHARE_MOUNTED[$sh]:-}" == split ]] && split+="$sh"$'\n'; done \
+        < <(kopia_item_parts "$t" "$n" "$(item_pkg "$t" "$n")")
+    kopia_item_tags "$split"
+    kopia_one "$key" "$cp" "${KT_ARGS[@]}"
     if (( KOPIA_LAST_OK )); then future_look "$n" "$(item_hostpath "$t" "$f")"; fi     # 2.79: files dated in the future
 }
 
@@ -4704,7 +4713,8 @@ kopia_share_one() {
         kopia_skip "$s"; return 0
     fi
     [[ "${SHARE_MOUNTED[$s]}" == "live" ]] && log "  (live: '$s' is read without a snapshot)"
-    kopia_one "$s" "$cp"
+    kopia_share_tags "$s" "${SHARE_MOUNTED[$s]}"           # 2.80: how it was put together (Mr. Restori needn't guess)
+    kopia_one "$s" "$cp" "${KT_ARGS[@]}"
     if (( KOPIA_LAST_OK )); then future_look "$s" "$hp"; fi                               # 2.79: files dated in the future
 }
 

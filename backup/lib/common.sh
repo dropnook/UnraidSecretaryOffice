@@ -3692,6 +3692,39 @@ share_layout() {
     if [[ "$(share_method "$1")" == "live" ]]; then echo live; else echo "${INV_LAYOUT[$1]:-none}"; fi
 }
 
+# --- 2.80: the Kopia snapshots say how their source was put together (review M4: Mr. Restori needn't guess) -----------
+# A share's snapshot carries «uso-layout:<single|overlay|split|live>» (how it was mounted this run, SHARE_MOUNTED - an
+# overlay that fell back to one subfolder per part is split) and, split, «uso-parts:<base>|<base>…» - its pools and
+# disks in the order its source holds them as <share>/<base>/…; an app's or VM's own source whose parts lie in a share
+# mounted split (<share>/<base>/<path> inside it) carries «uso-split:<share>|<share>…». "|" - never in a share's name
+# (share_name_ok) nor a pool's. Kopia's snapshot list --json shows them as tags {"tag:uso-layout": "split", …}. Only
+# from Kopia 0.13 (kopia_tags_ok: --tags is older, but an unknown flag would fail the upload); without: no tags, as
+# up to 2.79. KT_ARGS: the arguments for snapshot create (--tags k:v …), empty when none.
+kopia_tags_ok() {
+    [[ "${KOPIA_VERSION:-}" =~ ^v?([0-9]+)\.([0-9]+) ]] || return 1
+    (( 10#${BASH_REMATCH[1]} > 0 || 10#${BASH_REMATCH[2]} >= 13 ))
+}
+kopia_share_tags() { # kopia_share_tags <share> <how it is mounted: single|overlay|split|live>
+    local s="$1" how="$2" parts="" b
+    KT_ARGS=()
+    kopia_tags_ok && [[ "$how" =~ ^(single|overlay|split|live)$ ]] || return 0
+    KT_ARGS=( --tags "uso-layout:$how" )
+    [[ "$how" == split ]] || return 0
+    while IFS='|' read -r b _; do [[ -n "$b" ]] && parts+="${parts:+|}$b"; done <<<"${INV_LOCS[$s]:-}"
+    [[ -n "$parts" ]] && KT_ARGS+=( --tags "uso-parts:$parts" )
+    return 0
+}
+kopia_item_tags() { # kopia_item_tags <the shares its parts lie in, mounted split (one per line)>
+    local sh list=""
+    KT_ARGS=()
+    kopia_tags_ok || return 0
+    while IFS= read -r sh; do
+        [[ -n "$sh" ]] && share_name_ok "$sh" && [[ "|$list|" != *"|$sh|"* ]] && list+="${list:+|}$sh"
+    done <<<"$1"
+    [[ -n "$list" ]] && KT_ARGS=( --tags "uso-split:$list" )
+    return 0
+}
+
 # kopia_derived_ignores <share>  -> the rules the share's own source gets for the parts of apps and VMs
 # with a source of their own (one per base when the share appears as one subfolder per base)
 kopia_derived_ignores() {
