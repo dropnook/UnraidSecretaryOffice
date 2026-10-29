@@ -120,7 +120,8 @@ const LOGS_RULE_CATS  = ['skip' => 'skip', 'error' => 'error', 'warning' => 'war
                          'drive related' => 'drive', 'file system' => 'fs', 'array' => 'array', 'network' => 'network',
                          'login' => 'login', 'system' => 'system', 'lime tech' => 'limetech', 'emhttp' => 'emhttp'];
 const LOGS_RULE_LEVEL = ['error' => 'error', 'warning' => 'warn', 'minor' => 'warn'];
-const LOGS_RULE_KINDS = 15;             // kinds of the syslog kept per category for her «Syslog» (the newest first)
+const LOGS_RULE_KINDS = 15;             // kinds of the syslog kept per category for her «Syslog» (the newest, and the most frequent)
+const LOGS_NO_RULE_KINDS = 1000;        // kinds of what no rule knows told apart while counting (they never crowd out the rest)
 
 /*
  * Her own rules and hide words (her page «Set up», data/logs-mine.json): a rule is a regex (as Enhanced Log's, without
@@ -1040,7 +1041,7 @@ function logsTally(): array
 {
     return ['errors' => 0, 'warnings' => 0, 'groups' => [], 'other' => 0, 'lines' => 0, 'partial' => false,
             'skipped' => 0, 'rotated' => false, 'unreadable' => false, 'grew' => null, 'cats' => null, 'sorted' => [], 'sorted_other' => 0,
-            'sorted_seq' => 0, 'span_cut' => false];
+            'sorted_seq' => 0, 'sorted_no_rule' => 0, 'span_cut' => false];
 }
 
 /**
@@ -1075,8 +1076,8 @@ function logsTallyLines(array &$acc, array $lines, string $src, ?int $after, arr
             }
             [$level, $cat] = logsSyslogLevel($line, $level);
             $acc['cats'][$cat ?: 'other'] = ($acc['cats'][$cat ?: 'other'] ?? 0) + 1;
-            if ($cat !== '' && $cat !== 'skip') {
-                logsTallySorted($acc, $line, $cat, $level, $time, $prefix, $src, $n - 1 - $i);
+            if ($cat !== 'skip') {
+                logsTallySorted($acc, $line, $cat ?: 'other', $level, $time, $prefix, $src, $n - 1 - $i);      // no rule: «other», its own list
             }
             if ($level === '') {
                 continue;
@@ -1121,10 +1122,14 @@ function logsTallySorted(array &$acc, string $line, string $cat, string $level, 
 {
     $key = $cat . ':' . md5(logsNormalize($line, $prefix));
     if (!isset($acc['sorted'][$key])) {
+        if ($cat === 'other' && ($acc['sorted_no_rule'] ?? 0) >= LOGS_NO_RULE_KINDS) {
+            return;                 // what no rule knows: counted in «cats», its kinds only so many
+        }
         if (count($acc['sorted']) >= LOGS_TOUR_KINDS) {
             $acc['sorted_other']++;
             return;
         }
+        $acc['sorted_no_rule'] = ($acc['sorted_no_rule'] ?? 0) + ($cat === 'other' ? 1 : 0);
         $acc['sorted'][$key] = ['cat' => $cat, 'level' => '', 'count' => 0, 'first' => null, 'last' => null, 'n' => 0];
     }
     $g = &$acc['sorted'][$key];
@@ -1146,7 +1151,8 @@ function logsTallySorted(array &$acc, string $line, string $cat, string $level, 
 /**
  * What the page gets of a source: its counts and the most frequent kinds of lines, each with its newest line.
  * With her syslog rules on top (Unraid's syslog): per category the lines read ("cats") and the kinds ("sorted_kinds"),
- * and per category its newest LOGS_RULE_KINDS kinds ("sorted", newest first — her «Syslog»).
+ * and per category its newest LOGS_RULE_KINDS kinds and its most frequent as many ("sorted", newest first — her «Syslog»;
+ * «other»: what no rule knows, its own list there).
  */
 function logsTourEntry(string $id, array $src, array $acc): array
 {
@@ -1167,12 +1173,22 @@ function logsTourEntry(string $id, array $src, array $acc): array
         return $out;
     }
     $sorted = array_values($acc['sorted']);
+    // per category its newest LOGS_RULE_KINDS kinds and its most frequent as many (her «most frequent first»)
+    $often = [];
+    $byCount = $sorted;
+    usort($byCount, fn ($a, $b) => [$b['count'], $b['n']] <=> [$a['count'], $a['n']]);
+    foreach ($byCount as $g) {
+        $c = $g['cat'];
+        if (count($often[$c] ?? []) < LOGS_RULE_KINDS) {
+            $often[$c][$g['n']] = true;
+        }
+    }
     usort($sorted, fn ($a, $b) => $b['n'] <=> $a['n']);
     $kinds = [];
     $kept = [];
     foreach ($sorted as $g) {
         $kinds[$g['cat']] = ($kinds[$g['cat']] ?? 0) + 1;
-        if ($kinds[$g['cat']] > LOGS_RULE_KINDS) {
+        if ($kinds[$g['cat']] > LOGS_RULE_KINDS && !isset($often[$g['cat']][$g['n']])) {
             continue;
         }
         [$g['sample'], $g['cut']] = logsCut($g['line'], LOGS_TOUR_SAMPLE);

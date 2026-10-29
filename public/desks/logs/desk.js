@@ -1178,25 +1178,27 @@ function syslogView() {
     box.appendChild(inner);
     return box;
   }
-  const sorted = (Array.isArray(s.sorted) ? s.sorted : []).filter((g) => g && CAT_RANK.includes(g.cat) && typeof g.sample === 'string');
-  if (cat && !((s.cats || {})[cat] > 0)) cat = '';                      // its lines went
+  const sorted = (Array.isArray(s.sorted) ? s.sorted : []).filter((g) => g && (CAT_RANK.includes(g.cat) || g.cat === 'other') && typeof g.sample === 'string');
+  const others = sorted.filter((g) => g.cat === 'other');     // what no rule knows: its own list, only by its chip
+  if (cat && !(cat === 'other' ? others.length : (s.cats || {})[cat] > 0)) cat = '';                      // its lines went
   const bar = sysBarGet();
-  fillSysCats(s.cats);
+  fillSysCats(s.cats, others.length > 0);
   box.append(bar.el, savedRow('syslog'));
   box.appendChild(catsRead(s.cats));
   const f = bar.read();
   const span = timeSpan(bar.time.read());
   bar.time.avail(sorted.some((g) => Number(g.last) > 0));
   // a kind by its newest line (a «×n» in the time filter when its last one is)
-  const rows = sortKinds(sorted.filter((g) => (!cat || g.cat === cat) && (!bar.svc || serviceOf(g.sample) === bar.svc)
+  const rows = sortKinds(sorted.filter((g) => (cat ? g.cat === cat : g.cat !== 'other') && (!bar.svc || serviceOf(g.sample) === bar.svc)
     && Office.fits(f.words, [g.sample, catName(g)]) && inSpan(span, g.last)), bar.sort.value());
   const kinds = [];
   rows.forEach((g) => inner.appendChild(kindRow(g, { list: kinds, cats: true, of: 'syslog' })));
   if (!rows.length) inner.appendChild(el('p', 'empty', sorted.length ? T('found.none_fit') : T('syslog.none')));
+  if (cat === 'other' && rows.length) inner.insertBefore(el('p', 'role lg-note', T('cats.other_list')), inner.firstChild);
   const more = cat && !f.words.length && !span && !bar.svc ? ((s.sorted_kinds || {})[cat] || 0) - rows.length : 0;
   if (more > 0) inner.appendChild(el('div', 'lg-more', T('more_kinds', { n: more })));
   box.appendChild(inner);
-  barDone('syslog', rows.length, sorted.length, { tile: cat ? T('cat.' + cat) : '', clear: () => { cat = ''; } });
+  barDone('syslog', rows.length, cat === 'other' ? others.length : sorted.length - others.length, { tile: cat ? T('cat.' + cat) : '', clear: () => { cat = ''; } });
   return box;
 }
 
@@ -1206,16 +1208,19 @@ function sysBarGet() {
   const cats = el('div', 'lg-chips lg-cats');
   cats.setAttribute('role', 'group');
   cats.setAttribute('aria-label', T('cats.label'));
-  sysBar = listBar('syslog', { label: T('syslog.filter_label'), extra: [cats], sort: 'newest' });
+  sysBar = listBar('syslog', { label: T('syslog.filter_label'), extra: [cats], sort: 'newest', sorts: KIND_SORTS });
   sysBar.cats = cats;
   return sysBar;
 }
 
-/** A chip per category with lines (never the noise or what no rule knows), how many lines beside — pressed while the list shows only it */
-function fillSysCats(counts) {
+/**
+ * A chip per category with lines (never the noise), how many lines beside — pressed while the list shows only it; last
+ * «No rule» (what no rule knows: its own list, only while the tour kept such kinds)
+ */
+function fillSysCats(counts, others) {
   const box = sysBarGet().cats;
   box.replaceChildren();
-  const ids = CAT_RANK.filter((c) => (counts[c] || 0) > 0);
+  const ids = CAT_RANK.filter((c) => (counts[c] || 0) > 0).concat(others && (counts.other || 0) > 0 ? ['other'] : []);
   box.hidden = !ids.length;
   for (const id of ids) {
     const c = el('button', 'chip lg-cat-chip lg-cat-' + id);
@@ -1224,7 +1229,7 @@ function fillSysCats(counts) {
     c.dataset.own = '1';          // its click filters (core.js: a chip with a title would only show its tip)
     c.setAttribute('aria-pressed', cat === id ? 'true' : 'false');
     c.append(el('span', 'lg-cat-dot'), el('span', 'lg-src-name', T('cat.' + id)), el('span', 'lg-counts', fmt.number(counts[id])));
-    c.title = T('cats.chip_title', { n: counts[id], name: T('cat.' + id) }) + catNote(id);
+    c.title = id === 'other' ? T('cats.other_title', { n: counts[id] }) : T('cats.chip_title', { n: counts[id], name: T('cat.' + id) }) + catNote(id);
     c.addEventListener('click', () => Office.keepInPlace(sysBarGet().el, () => {
       cat = cat === id ? '' : id;
       redraw();
@@ -1247,7 +1252,7 @@ function foundBarGet() {
   const box = el('div', 'lg-chips');
   box.setAttribute('role', 'group');
   box.setAttribute('aria-label', T('found.chips_label'));
-  foundBar = listBar('found', { label: T('found.filter_label'), extra: [box], sort: 'newest' });
+  foundBar = listBar('found', { label: T('found.filter_label'), extra: [box], sort: 'newest', sorts: KIND_SORTS });
   foundBar.chips = box;
   return foundBar;
 }
@@ -1303,7 +1308,7 @@ function listBar(list, o = {}) {
   if (bars[list]) return bars[list];
   const draw = () => (list === 'read' ? renderLines(false) : redraw());
   const time = timeCtl(list, draw);
-  const sort = o.sort ? sortCtl(list, o.sort, draw) : null;
+  const sort = o.sort ? sortCtl(list, o.sort, draw, o.sorts) : null;
   const bar = Office.filterBar({ key: 'logs.' + list, label: o.label, only: o.only,
     extra: [...(o.extra || []), ...(sort ? [sort.el] : []), time.el], onChange: o.onChange || (() => redraw()) });
   bar.time = time;
@@ -1360,11 +1365,14 @@ function pickService(list, name, anchor) {
 
 /*
  * The order of a list («Syslog», «Errors & warnings», the reader): newest first, oldest first (a «×n» by its newest
- * line), or by service (A–Z, the newest first in each). A choice — kept per browser — said in the note line only when it
- * isn't the list's own (the reader reads like the file: the oldest first, the newest at the bottom).
+ * line), or by service (A–Z, the newest first in each); the lists of kinds also the most frequent first (like Enhanced
+ * Log's counts: the «×n» biggest first, the newest first among the same). A choice — kept per browser — said in the note
+ * line only when it isn't the list's own (the reader reads like the file: the oldest first, the newest at the bottom).
  */
 const SORTS = ['newest', 'oldest', 'service'];
-function sortCtl(list, start, onChange) {
+const KIND_SORTS = [...SORTS, 'count'];
+function sortCtl(list, start, onChange, sorts = SORTS) {
+  const SORTS = sorts;            // what this list offers
   const box = el('select', 'picker lg-sort');
   box.setAttribute('aria-label', T('sort.label'));
   box.title = T('sort.label');
@@ -1381,11 +1389,12 @@ function sortCtl(list, start, onChange) {
   box.addEventListener('change', () => { ctl.set(box.value); Office.keepInPlace(box, () => onChange()); });
   return ctl;
 }
-/** Kinds of lines in a list's order: by their newest line, or by service (none last), the newest first in each */
+/** Kinds of lines in a list's order: by their newest line, by service (none last) or by how often, the newest first in each */
 function sortKinds(rows, how) {
   const t = (g) => Number(g.last) || 0;
   const out = rows.slice();
   if (how === 'oldest') out.sort((a, b) => t(a) - t(b));
+  else if (how === 'count') out.sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0) || t(b) - t(a));
   else if (how === 'service') {
     out.sort((a, b) => { const x = serviceOf(a.sample), y = serviceOf(b.sample);
       return x === y ? t(b) - t(a) : !x ? 1 : !y ? -1 : x.localeCompare(y, undefined, { sensitivity: 'base' }); });

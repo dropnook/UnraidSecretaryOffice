@@ -17528,15 +17528,25 @@ function testLogsRules(): void
     $e = logsTourEntry('syslog', ['group' => 'unraid', 'label' => 'syslog', 'param' => '', 'kind' => 'file'], $acc);
     same('logs rules: «Errors & warnings» as before — the most frequent kinds, each with its category', [LOGS_TOUR_TOP, ''], [count($e['groups']), $e['groups'][0]['cat'] ?? null]);
     $cats = array_column($e['sorted'], 'cat');
-    same('logs rules: «Syslog» — per category its newest kinds (never skip or no rule), at most LOGS_RULE_KINDS',
-        ['network' => LOGS_RULE_KINDS, 'minor' => 1, 'error' => 1], array_count_values($cats));
+    same('logs rules: «Syslog» — per category its newest kinds (never skip; no rule: «other», its own list), at most LOGS_RULE_KINDS',
+        ['network' => LOGS_RULE_KINDS, 'minor' => 1, 'other' => 11, 'error' => 1], array_count_values($cats));
+    $ruled = array_values(array_filter($e['sorted'], fn ($g) => $g['cat'] !== 'other'));
     same('logs rules: … the newest first (read order), found or not', [['network', ''], ['minor', 'warn'], ['error', 'error']],
-        [[$e['sorted'][0]['cat'], $e['sorted'][0]['level']], [$e['sorted'][LOGS_RULE_KINDS]['cat'], $e['sorted'][LOGS_RULE_KINDS]['level']],
-         [$e['sorted'][LOGS_RULE_KINDS + 1]['cat'], $e['sorted'][LOGS_RULE_KINDS + 1]['level']]]);
+        [[$ruled[0]['cat'], $ruled[0]['level']], [$ruled[LOGS_RULE_KINDS]['cat'], $ruled[LOGS_RULE_KINDS]['level']],
+         [$ruled[LOGS_RULE_KINDS + 1]['cat'], $ruled[LOGS_RULE_KINDS + 1]['level']]]);
     same('logs rules: … a kind is similar lines (count, its newest line, where in the reader)', [2, 'Oct 18 10:00:01 Tower kernel: ata11.00: disabled', 'syslog'],
-        [$e['sorted'][LOGS_RULE_KINDS + 1]['count'], $e['sorted'][LOGS_RULE_KINDS + 1]['sample'], $e['sorted'][LOGS_RULE_KINDS + 1]['src']]);
-    same('logs rules: … and how many kinds each category had', ['network' => LOGS_RULE_KINDS + 4, 'minor' => 1, 'error' => 1, 'other' => null],
+        [$ruled[LOGS_RULE_KINDS + 1]['count'], $ruled[LOGS_RULE_KINDS + 1]['sample'], $ruled[LOGS_RULE_KINDS + 1]['src']]);
+    same('logs rules: … and how many kinds each category had', ['network' => LOGS_RULE_KINDS + 4, 'minor' => 1, 'error' => 1, 'other' => 11],
         ['network' => $e['sorted_kinds']['network'] ?? null, 'minor' => $e['sorted_kinds']['minor'] ?? null, 'error' => $e['sorted_kinds']['error'] ?? null, 'other' => $e['sorted_kinds']['other'] ?? null]);
+    $acc = logsTally();
+    $often = array_fill(0, 6, 'Oct 18 09:00:00 Tower kernel: br0: port 1(eth0) entered disabled state');       // old, but often
+    for ($k = 1; $k <= LOGS_RULE_KINDS + 2; $k++) {
+        $often[] = 'Oct 18 10:03:00 Tower kernel: br' . str_repeat('y', $k) . ': entered promiscuous mode';
+    }
+    logsTallyLines($acc, $often, 'syslog', null, [], true);
+    $e = logsTourEntry('syslog', ['group' => 'unraid', 'label' => 'syslog', 'param' => '', 'kind' => 'file'], $acc);
+    same('logs rules: … and its most frequent kinds too, however old (her «most frequent first»)', [LOGS_RULE_KINDS + 1, 6],
+        [count($e['sorted']), max(array_column($e['sorted'], 'count'))]);
     $acc = logsTally();
     logsTallyLines($acc, ['Oct 18 10:00:00 Tower kernel: ata11.00: disabled'], 'dmesg', null);
     same('logs rules: another log has no categories', [0, null, false, false], [$acc['errors'], $acc['cats'],
@@ -17677,7 +17687,7 @@ function testLogsMine(): void
         $tourKeys = array_keys(logsTourEntry('syslog', ['group' => 'unraid', 'label' => 'syslog', 'param' => '', 'kind' => 'file'], array_merge($acc, ['cats' => []])));
         same('logs sort: the tour\'s syslog part, at once', [true, [], ['network' => 30, 'error' => 30, 'other' => 30], 90],
             [$r['ok'] ?? null, array_values(array_diff($tourKeys, array_keys($s))), $s['cats'] ?? null, $s['lines'] ?? null]);
-        same('logs sort: … per category its kinds, newest first, with since and when', [['error', 'network'], true, true],
+        same('logs sort: … per category its kinds, newest first (what no rule knows too), with since and when', [['other', 'error', 'network'], true, true],
             [array_values(array_unique(array_column($s['sorted'] ?? [], 'cat'))), ($s['since'] ?? 0) > 0 && $s['since'] < $now, ($s['time'] ?? 0) >= $now]);
         same('logs sort: at most LOGS_SORT_LINES lines', true, LOGS_SORT_LINES <= 10000 && count(logsTail("$tmp/syslog", LOGS_SORT_LINES)) === 90);
     } finally {

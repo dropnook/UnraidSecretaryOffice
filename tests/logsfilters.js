@@ -346,14 +346,15 @@ async function run() {
 
   // ---- the order: newest first (the list's own), oldest first, by service — a choice, named only when not the list's own
   const svcOf = (g) => (/^\S+\s+\d+\s+[\d:]+\s+\S+\s+([^\s:[\]]+)/.exec(g.sample) || [])[1] || '';
-  const sysKinds = (tour.sources.find((x) => x.id === 'syslog').sorted || []);
-  const lastOf = new Map(sysKinds.map((g) => [g.sample.slice(g.skip).replace(/^[\s:|\]-]+/, ''), g]));
+  const allKinds = (tour.sources.find((x) => x.id === 'syslog').sorted || []);
+  const sysKinds = allKinds.filter((g) => g.cat !== 'other');        // what no rule knows: only by its chip
+  const lastOf = new Map(allKinds.map((g) => [g.sample.slice(g.skip).replace(/^[\s:|\]-]+/, ''), g]));
   const shownKinds = () => sectionOf(root, 'syslog.title').querySelectorAll('.lg-kind-line').map((n) => lastOf.get(tx(n).replace(/ …$/, '')));
   const lasts = () => shownKinds().map((g) => g.last);
   same('order: «Syslog» newest first by default, nothing said', [lasts(), note(barIn(sectionOf(root, 'syslog.title'))).hidden],
     [sysKinds.map((g) => g.last).sort((x, y) => y - x), true]);
   let sortSel = barIn(sectionOf(root, 'syslog.title')).querySelector('.lg-sort');
-  same('order: a choice of three in the bar', sortSel.options.map((o) => o.val), ['newest', 'oldest', 'service']);
+  same('order: a choice of four in the bar (the most frequent first too)', sortSel.options.map((o) => o.val), ['newest', 'oldest', 'service', 'count']);
   sortSel.value = 'oldest';
   sortSel.dispatch('change');
   s = sectionOf(root, 'syslog.title');
@@ -370,6 +371,25 @@ async function run() {
   const bySvc = shownKinds().map(svcOf);
   same('order: by service — A to Z', bySvc, bySvc.slice().sort((x, y) => x.localeCompare(y, undefined, { sensitivity: 'base' })));
   same('order: … more than one service in the demo', new Set(bySvc).size > 2, true);
+  sortSel = barIn(sectionOf(root, 'syslog.title')).querySelector('.lg-sort');
+  sortSel.value = 'count';
+  sortSel.dispatch('change');
+  s = sectionOf(root, 'syslog.title');
+  const counts = shownKinds().map((g) => g.count);
+  same('order: the most frequent first — by «×n», said in the note line', [counts, tx(barIn(s).querySelector('.filter-order'))],
+    [counts.slice().sort((x, y) => y - x), T('sort.count_note') + '×']);
+  same('order: … what no rule knows stays out of the list', shownKinds().some((g) => g.cat === 'other'), false);
+  const other = barIn(s).querySelector('[data-cat="other"]');
+  same('no rule: its own chip, last', [!!other, [...barIn(s).querySelectorAll('.lg-cat-chip')].pop() === other], [true, true]);
+  other.click();
+  s = sectionOf(root, 'syslog.title');
+  same('no rule: … a click shows only what no rule knows, the most frequent first, a word above', [shownKinds().map((g) => [g.cat, g.count]),
+    s.querySelectorAll('.lg-note').some((n) => tx(n) === T('cats.other_list'))],
+    [allKinds.filter((g) => g.cat === 'other').map((g) => [g.cat, g.count]).sort((x, y) => y[1] - x[1]), true]);
+  barIn(s).querySelector('[data-cat="other"]').click();
+  sortSel = barIn(sectionOf(root, 'syslog.title')).querySelector('.lg-sort');
+  sortSel.value = 'service';
+  sortSel.dispatch('change');
 
   // ---- a click on a line's service: only that one, said in the note line, again: all
   s = sectionOf(root, 'syslog.title');

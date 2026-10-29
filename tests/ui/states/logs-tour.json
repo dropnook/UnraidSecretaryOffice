@@ -585,6 +585,45 @@
      "sample": "Oct  8 13:01:00 Tower kernel: Linux version 6.12.54-Unraid (root@Develop) (gcc 14.2.0)",
      "cut": false,
      "key": "31425dbf96cc"
+    },
+    {
+     "cat": "other",
+     "level": "",
+     "count": 1840,
+     "first": 1791377707,
+     "last": 1791457587,
+     "skip": 16,
+     "src": "syslog",
+     "back": 3,
+     "sample": "Oct  8 13:06:27 Tower rsyslogd: imjournal: journal reloaded",
+     "cut": false,
+     "key": "0a1b2c3d4e01"
+    },
+    {
+     "cat": "other",
+     "level": "",
+     "count": 612,
+     "first": 1791387707,
+     "last": 1791457107,
+     "skip": 16,
+     "src": "syslog",
+     "back": 9,
+     "sample": "Oct  8 12:58:07 Tower avahi-daemon[2211]: Registering new address record for 192.168.1.20 on br0.IPv4.",
+     "cut": false,
+     "key": "0a1b2c3d4e02"
+    },
+    {
+     "cat": "other",
+     "level": "",
+     "count": 3,
+     "first": 1791452707,
+     "last": 1791456807,
+     "skip": 16,
+     "src": "syslog",
+     "back": 12,
+     "sample": "Oct  8 12:53:07 Tower ntpd[1820]: kernel reports TIME_ERROR: 0x41: Clock Unsynchronized",
+     "cut": false,
+     "key": "0a1b2c3d4e03"
     }
    ],
    "sorted_kinds": {
@@ -597,7 +636,8 @@
     "emhttp": 1,
     "fs": 1,
     "drive": 2,
-    "system": 2
+    "system": 2,
+    "other": 3
    },
    "sorted_other": 0
   },
