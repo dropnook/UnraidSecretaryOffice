@@ -976,7 +976,13 @@ function entryName(e) {
   if (e.kind === 'watch' && e.p && e.p.too_much) {
     return T(e.p.ros ? 'entry.net_too_much_mikrotik' : 'entry.net_too_much', { sender: e.p.sender || '', size: fmt.size(e.p.skipped || 0) });
   }
-  return T('entry.' + (e.v || e.kind), entryParams(e));     // e.v: the shape a network entry has now (agent: watchnetEntryVariant())
+  return T('entry.' + (e.v || atVariant(e) || e.kind), entryParams(e));     // e.v: the shape a network entry has now (agent: watchnetEntryVariant())
+}
+
+/** An at job he doesn't know: running (=…) says since when, one still waiting days past its time says so (agent: watchmanAtSet()) */
+function atVariant(e) {
+  if (e.kind !== 'at_job' || !e.p) return null;
+  return e.p.run ? 'at_job_run' : e.tell ? 'at_job_late' : null;
 }
 
 /** Kinds whose words say how many already (failed logins, a port's link losses, outages, restarts a day) */
@@ -1432,7 +1438,9 @@ function details(e) {
   } else if (e.group === 'sched') {
     if (p.file) add(T('detail.cron_file'), '/boot/config/plugins/' + p.file + (p.new ? ` (${T('detail.file_new')})` : ''), true);
     if (p.plugin) add(T('detail.plugin'), p.plugin);
-    if (p.job) add(T('detail.job'), p.job, true);
+    const atNum = e.kind.startsWith('at_') && /^[a-zA-Z=][0-9a-f]{13}$/.test(p.job || '') ? parseInt(p.job.slice(1, 6), 16) : null;     // as atq shows it
+    if (atNum !== null) add(T('detail.at_number'), String(atNum), true);
+    else if (p.job) add(T('detail.job'), p.job, true);
     if (p.jobs && p.jobs.length) add(T('detail.jobs'), lines(p.jobs, p.lines));
     if (e.kind === 'script_new' || e.kind === 'script_changed') {
       add(T('detail.script'), p.name);
@@ -1441,9 +1449,12 @@ function details(e) {
       if (e.kind === 'script_changed') add(T('detail.content'), T(p.content ? 'detail.content_changed' : 'detail.content_same'));
     }
     if (e.kind === 'at_job') {
+      if (p.queued) add(T('detail.queued'), fmt.date(p.queued));
       add(T('detail.when'), fmt.date(p.when));
+      if (p.run && p.since) add(T('detail.running_since'), fmt.date(p.since));
       add(T('detail.command'), p.cmd || '?', true);
-      if (p.uid !== null && p.uid !== undefined) add(T('detail.uid'), String(p.uid));
+      if (p.user || (p.uid !== null && p.uid !== undefined)) add(T('detail.uid'), p.user || String(p.uid));
+      if (p.prog) add(T('detail.file_owner'), `${p.prog}: ${p.owner || '–'}`, true);
     }
     if (e.kind === 'at_userscript') {
       add(T('detail.script'), p.name);

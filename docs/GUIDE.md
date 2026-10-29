@@ -153,6 +153,10 @@ hasn't seen, a burst of failed logins, a container that got special rights, a ne
 cron line, a share newly open to guests, a client or container sending far more than usual, far more written to a
 share or disk than usual or many files deleted at once (ZFS per share, XFS and btrfs per disk — btrfs keeps no count of
 deleted files, only the space they free), snapshots gone that nobody in the office removed. Each entry names its MITRE ATT&CK technique; the important ones go to Unraid's notifications.
+Jobs queued for atd that are Unraid's, the office's or an installed plugin's own (Fix Common Problems' scan, ich777's
+Plugin-Update-Helper, a User Script run in the background) are lines he notes himself; a job he doesn't know gets one
+line for its lifetime — what it starts and whose file that is, who queued it when, «running since» once atd runs it —
+and goes to the notifications only while it still waits days past its time.
 *I know, thanks* makes it the new normal. While the array is stopped — also while an encrypted array waits for its key
 — his night shift keeps watch from RAM and the flash.
 

@@ -185,7 +185,7 @@ const WATCH_KINDS = [
     'cron_file_foreign'    => ['sched', true],
     'script_new'           => ['sched', false],
     'script_changed'       => ['sched', false],
-    'at_job'               => ['sched', true],
+    'at_job'               => ['sched', false],     // a job he doesn't know: a card; told only when it waits days past its time (watchmanAtSet())
     'at_userscript'        => ['sched', false],     // a User Script run in the background: noted by himself (watchmanAtUserScript())
     'at_plugin'            => ['sched', false],     // a plugin's own job (a file of an installed plugin, as root): noted by himself (watchmanAtPlugin())
     'notify_agent'         => ['sched', true],
@@ -4293,6 +4293,10 @@ const WATCH_US_TMP        = '/tmp/user.scripts/tmpScripts/';
 const WATCH_AT_ENV_BAD    = '/^(?:LD_\w*|BASH_ENV|ENV|BASH_FUNC_.*|PHPRC|PHP_INI_SCAN_DIR|PHP_\w*|PERL5OPT|PERL5LIB|PERLLIB|PYTHON\w*|RUBYOPT|RUBYLIB|NODE_OPTIONS|GCONV_PATH|GLIBC_TUNABLES|IFS|PS4|SHELLOPTS|BASHOPTS|PROMPT_COMMAND|CDPATH|GLOBIGNORE)$/D';
 const WATCH_AT_PATH       = ['/usr/local/sbin', '/usr/local/bin', '/usr/sbin', '/usr/bin', '/sbin', '/bin'];
 const WATCH_AT_SHELLS     = ['/bin/sh', '/bin/bash', '/usr/bin/sh', '/usr/bin/bash'];
+// Unraid's PHP (webGui/include/local_prepend.php, every php incl. the plugin installer) puts «.» first in PATH and works in
+// /usr/local/emhttp: a job queued from there (a plugin's install script, at boot too) carries both — «.» only with that folder
+const WATCH_AT_PHP_CWD    = '/usr/local/emhttp';
+const WATCH_AT_LATE       = 2 * 86400;      // a job still waiting this long past its time is worth telling (not before)
 const WATCH_EVIDENCE_SPAN = 120;            // syslog lines this many seconds around the crontab's time …
 const WATCH_EVIDENCE_MAX  = 12;             // … at most so many, the closest
 const WATCH_EVIDENCE_LINE = '#/plugins/|\bplugins?\b|crontab|update_cron|crond|\batd\b|\batq\b|\.(?:sh|php|py|plg|cron)\b|user\.scripts|unraid-secretary-office#i';
@@ -4634,14 +4638,15 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
     }
     $pst = isset($paths['plugins']) ? @stat($paths['plugins']) : false;
     $pm = $pst ? (int) $pst['mtime'] : null;
-    if (is_array($prev) && ($prev['m'] ?? null) === (int) $st['mtime'] && ($prev['pm'] ?? null) === $pm && ($prev['v'] ?? null) === 3
+    if (is_array($prev) && ($prev['m'] ?? null) === (int) $st['mtime'] && ($prev['pm'] ?? null) === $pm && ($prev['v'] ?? null) === 4
         && is_array($prev['jobs'] ?? null)) {
         return $prev;
     }
     $helper = watchmanUpdateHelper($paths);
+    $users = null;
     $jobs = [];
     foreach (@scandir($paths['atjobs']) ?: [] as $f) {
-        if (!preg_match('/^[a-zA-Z=][0-9a-f]{5}([0-9a-f]{8})$/D', $f, $m) || count($jobs) >= 200 || !watchmanPlain($paths['atjobs'] . "/$f")) {
+        if (!preg_match('/^[a-zA-Z=][0-9a-f]{5}([0-9a-f]{8})$/D', $f, $m) || count($jobs) >= 200 || !($jst = watchmanPlain($paths['atjobs'] . "/$f"))) {
             continue;
         }
         $text = (string) @file_get_contents($paths['atjobs'] . "/$f", false, null, 0, 65536);
@@ -4649,6 +4654,15 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
         $jobs[$f] = ['ours' => $ours, 'when' => hexdec($m[1]) * 60, 'uid' => preg_match('/^# atrun uid=(\d+)/m', $text, $u) ? (int) $u[1] : null,
                      'cmd' => $ours ? '' : watchmanAtCommand($text), 'us' => $ours ? null : watchmanAtUserScript($text, $paths['userscripts'] ?? null)]
                    + (!$ours && watchmanAtUnraid($text) ? ['unraid' => true] : []);
+        if (!$ours) {
+            // what it is, in the book's words: queued when (the file's time), running since (atd renames it to =…: its change
+            // time), whose (the user), and the program it starts with and its file's owner (null: no such file)
+            $users ??= watchmanUidNames($paths['etc_passwd'] ?? null);
+            $prog = preg_match('#^(/[A-Za-z0-9._+/-]{1,200})(?:\s|$)#', $jobs[$f]['cmd'], $pg) ? $pg[1] : null;
+            $progSt = $prog !== null ? @stat($prog) : false;
+            $jobs[$f] += ['q' => (int) $jst['mtime'], 'c' => (int) $jst['ctime'], 'user' => $users[$jobs[$f]['uid'] ?? -1] ?? null, 'prog' => $prog,
+                          'owner' => $progSt ? ($users[(int) $progSt['uid']] ?? (string) $progSt['uid']) : null];
+        }
         if (!$ours && ($plugin = watchmanAtPlugin($text, $paths['plugins'] ?? null)) !== null) {
             $jobs[$f]['plugin'] = $plugin;
             $jobs[$f]['pname'] = watchmanAtPluginName($plugin, $paths['emhttp_plugins'] ?? null);
@@ -4661,7 +4675,20 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
     }
     ksort($jobs);
     // helper: the installed plugin whose copy the Plugin-Update-Helper is (an old entry of its job is closed: watchmanAtPluginClose())
-    return ['v' => 3, 'm' => (int) $st['mtime'], 'pm' => $pm, 'jobs' => $jobs, 'helper' => $helper];
+    return ['v' => 4, 'm' => (int) $st['mtime'], 'pm' => $pm, 'jobs' => $jobs, 'helper' => $helper];
+}
+
+/** uid => user name from a passwd file (names in the shape Unraid allows only) */
+function watchmanUidNames(?string $file): array
+{
+    $out = [];
+    foreach ($file === null ? [] : (@file($file, FILE_IGNORE_NEW_LINES) ?: []) as $line) {
+        $f = explode(':', $line);
+        if (count($f) >= 3 && preg_match('/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$/D', $f[0]) && preg_match('/^\d{1,10}$/D', $f[2]) && !isset($out[(int) $f[2]])) {
+            $out[(int) $f[2]] = $f[0];
+        }
+    }
+    return $out;
 }
 
 /**
@@ -4796,6 +4823,7 @@ function watchmanAtOnlyCommand(string $text): ?string
 {
     $lines = explode("\n", rtrim($text, "\n"));
     $n = count($lines);
+    $dot = false;
     // the head at writes: #!/bin/sh, # atrun …, # mail …, umask, the environment as NAME=value; export NAME
     for ($i = 0; $i < $n && !preg_match('/^cd\s.*\|\|\s*\{\s*$/', $lines[$i]); $i++) {
         $l = $lines[$i];
@@ -4806,9 +4834,15 @@ function watchmanAtOnlyCommand(string $text): ?string
             return null;            // anything else (a value over several lines too)
         }
         $value = stripslashes($m[2]);
-        if (($m[1] === 'PATH' && array_diff(explode(':', $value), WATCH_AT_PATH)) || ($m[1] === 'SHELL' && !in_array($value, WATCH_AT_SHELLS, true))) {
+        $odd = $m[1] === 'PATH' ? array_values(array_diff(explode(':', $value), WATCH_AT_PATH)) : [];
+        if ($odd === ['.'] && str_starts_with($value, '.:')) {
+            $dot = true;            // Unraid's PHP's PATH (WATCH_AT_PHP_CWD): only with its folder, below
+        } elseif ($odd || ($m[1] === 'SHELL' && !in_array($value, WATCH_AT_SHELLS, true))) {
             return null;
         }
+    }
+    if ($dot && !(preg_match('/^cd (\S+) \|\| \{$/D', $lines[$i] ?? '', $m) && stripslashes($m[1]) === WATCH_AT_PHP_CWD)) {
+        return null;
     }
     for ($i++; $i < $n && trim($lines[$i]) !== '}'; $i++) {
         // the "cd … || { echo …; exit 1; }" at puts in front
@@ -5002,6 +5036,7 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
     if (is_array($at)) {
         // the office's own (hostLaunch()) and Unraid's own (reload_services after an array start) are never news
         $foreign = array_filter((array) $at['jobs'], fn ($j) => empty($j['ours']) && empty($j['unraid']));
+        watchmanAtOnce($book);
         watchmanAtUnraidClose($book, $now);
         watchmanAtPluginClose($book, $installed, $now, is_string($at['helper'] ?? null) ? $at['helper'] : null);
         foreach ($foreign as $f => $j) {
@@ -5016,12 +5051,15 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
         if (!is_array($known['at'] ?? null)) {
             $known['at'] = array_fill_keys(array_keys($foreign), true);
         } else {
+            // one entry per job for its lifetime (2026-10-29: one closed by himself was made anew every round, 431 in the
+            // book): known by its number (a… waiting, =… running), and a job he has a line about is known from then on
+            $nums = array_flip(array_map(fn ($f) => watchmanAtNum((string) $f), array_keys($known['at'])));
             foreach ($foreign as $f => $j) {
-                if (!isset($known['at'][$f])) {
-                    $added[] = watchmanSet($book, 'at_job', "at_job:$f", $now, ['job' => (string) $f, 'when' => (int) $j['when'], 'cmd' => (string) $j['cmd'], 'uid' => $j['uid']]);
+                if (!isset($nums[watchmanAtNum((string) $f)]) || watchmanAtBooked($book, (string) $f)) {
+                    $added[] = watchmanAtSet($book, (string) $f, $j, $now);     // new — or its open line brought up to date
                 }
             }
-            $known['at'] = array_intersect_key($known['at'], $foreign);
+            $known['at'] = array_fill_keys(array_keys($foreign), true);
         }
     }
 
@@ -5081,6 +5119,104 @@ function watchmanCronFileClose(array &$book, array $known, array $files, int $no
  * told, nothing for the team lead) — once per job, which keeps its number while atd runs it
  * (a<number> waiting, =<number> running).
  */
+/** An at job's number (its file name without the queue letter: a… waiting, =… running — the same job) */
+function watchmanAtNum(string $job): string
+{
+    return substr($job, 1);
+}
+
+/** The at job a line in the book is about (its number), or null */
+function watchmanAtOf(array $e): ?string
+{
+    $job = $e['p']['job'] ?? null;
+    return in_array($e['kind'] ?? '', ['at_job', 'at_plugin', 'at_userscript'], true) && is_string($job) && preg_match('/^[a-zA-Z=][0-9a-f]{13}$/D', $job)
+        ? watchmanAtNum($job) : null;
+}
+
+/** Has the book a line about this job (open or closed, of any of the at kinds)? */
+function watchmanAtBooked(array $book, string $job): bool
+{
+    $num = watchmanAtNum($job);
+    foreach ($book as $e) {
+        if (watchmanAtOf($e) === $num) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * An at job he doesn't know: ONE line for its lifetime — new, or its open line brought up to date (running now, still
+ * waiting days past its time: `important`, then it is told); a closed line stays as it is. The kind when the line is new.
+ */
+function watchmanAtSet(array &$book, string $f, array $j, int $now): ?string
+{
+    $run = $f[0] === '=';
+    $p = ['job' => $f, 'when' => (int) $j['when'], 'cmd' => (string) $j['cmd'], 'uid' => $j['uid'] ?? null, 'user' => $j['user'] ?? null,
+          'queued' => is_int($j['q'] ?? null) ? $j['q'] : null, 'run' => $run, 'since' => $run && is_int($j['c'] ?? null) ? $j['c'] : null,
+          'prog' => $j['prog'] ?? null, 'owner' => $j['owner'] ?? null];
+    $late = !$run && $now - (int) $j['when'] >= WATCH_AT_LATE;
+    $num = watchmanAtNum($f);
+    foreach ($book as $i => $e) {
+        if (watchmanAtOf($e) !== $num) {
+            continue;
+        }
+        if (($e['kind'] ?? '') === 'at_job' && watchmanOpen($e)) {
+            if (($e['p'] ?? []) !== $p) {
+                $book[$i]['p'] = $p;
+                $book[$i]['last'] = $now;
+            }
+            if ($late) {
+                $book[$i]['important'] = true;
+            }
+        }
+        return null;
+    }
+    $e = watchmanEntry('at_job', "at_job:$f", $now, $p);
+    if ($late) {
+        $e['important'] = true;
+    }
+    $book[] = $e;
+    return 'at_job';
+}
+
+/**
+ * Lines about the same at job joined into one (up to 1.76.0 a job closed by himself came back every round — 431 of 500
+ * lines for ich777's Plugin-Update-Helper on the owner's server): the first stays, with the latest look, the first
+ * notification and its state — open while any of them was
+ */
+function watchmanAtOnce(array &$book): void
+{
+    $first = [];
+    $drop = [];
+    foreach ($book as $i => $e) {
+        $num = ($e['kind'] ?? '') === 'at_job' ? watchmanAtOf($e) : null;
+        if ($num === null) {
+            continue;
+        }
+        if (!isset($first[$num])) {
+            $first[$num] = $i;
+            continue;
+        }
+        $k = $first[$num];
+        $open = watchmanOpen($book[$k]) || watchmanOpen($e);
+        $told = array_filter([$book[$k]['told'] ?? null, $e['told'] ?? null], 'is_int');
+        $book[$k]['time'] = min((int) $book[$k]['time'], (int) $e['time']);
+        $book[$k]['last'] = max((int) $book[$k]['last'], (int) $e['last']);
+        $book[$k]['p'] = (array) ($e['p'] ?? []);
+        $book[$k]['told'] = $told ? min($told) : null;
+        $book[$k]['noted'] = $open ? null : ($e['noted'] ?? null);
+        $book[$k]['by'] = $open ? null : ($e['by'] ?? null);
+        if (!empty($e['important'])) {
+            $book[$k]['important'] = true;
+        }
+        $drop[] = $i;
+    }
+    if ($drop) {
+        $book = array_values(array_diff_key($book, array_flip($drop)));
+    }
+}
+
 /** Entries up to 1.30 that were only Unraid's own reload_services job: closed, noted by himself (`by` unraid) */
 function watchmanAtUnraidClose(array &$book, int $now): void
 {
@@ -5113,33 +5249,45 @@ function watchmanAtPluginClose(array &$book, array $plugins, int $now, ?string $
 /** A plugin's own at job: a line in the book naming the plugin, noted by himself (`by` plugin) — once per job */
 function watchmanAtPluginNote(array &$book, string $job, array $j, int $now): void
 {
-    $key = 'at_plugin:' . substr($job, 1);
-    foreach ($book as $e) {
-        if (($e['key'] ?? '') === $key) {
-            return;
-        }
-    }
-    $e = watchmanEntry('at_plugin', $key, $now, ['job' => $job, 'plugin' => watchmanClean((string) $j['plugin'], 100),
-                                                 'name' => watchmanClean((string) ($j['pname'] ?? $j['plugin']), 60),
-                                                 'file' => watchmanClean((string) ($j['file'] ?? ''), 200), 'when' => (int) ($j['when'] ?? 0),
-                                                 'uid' => $j['uid'] ?? null]);
-    $e['noted'] = $now;
-    $e['by'] = 'plugin';
-    $book[] = $e;
+    watchmanAtNote($book, 'at_plugin', $job, ['job' => $job, 'plugin' => watchmanClean((string) $j['plugin'], 100),
+                                              'name' => watchmanClean((string) ($j['pname'] ?? $j['plugin']), 60),
+                                              'file' => watchmanClean((string) ($j['file'] ?? ''), 200), 'when' => (int) ($j['when'] ?? 0),
+                                              'uid' => $j['uid'] ?? null], 'plugin', $now);
 }
 
 function watchmanAtUserScriptNote(array &$book, string $job, array $j, int $now): void
 {
-    $key = 'at_userscript:' . substr($job, 1);
-    foreach ($book as $e) {
-        if (($e['key'] ?? '') === $key) {
-            return;
+    watchmanAtNote($book, 'at_userscript', $job, ['job' => $job, 'name' => watchmanClean((string) $j['us'], 100), 'when' => (int) ($j['when'] ?? 0),
+                                                  'uid' => $j['uid'] ?? null], 'auto', $now);
+}
+
+/**
+ * A known job's line, noted by himself ($by) — once per job (watchmanAtOf()): an older alarm about it (an at_job line from
+ * before he knew it as such: the plugin not installed yet, an environment he didn't know) becomes this line, its first time
+ * and what was told kept; noted by himself unless someone noted it already
+ */
+function watchmanAtNote(array &$book, string $kind, string $job, array $p, string $by, int $now): void
+{
+    $num = watchmanAtNum($job);
+    foreach ($book as $i => $e) {
+        if (watchmanAtOf($e) !== $num) {
+            continue;
         }
+        if (($e['kind'] ?? '') === 'at_job') {
+            $book[$i]['kind'] = $kind;
+            $book[$i]['key'] = "$kind:$num";
+            $book[$i]['p'] = $p;
+            unset($book[$i]['important']);
+            if (watchmanOpen($e)) {
+                $book[$i]['noted'] = $now;
+                $book[$i]['by'] = $by;
+            }
+        }
+        return;
     }
-    $e = watchmanEntry('at_userscript', $key, $now, ['job' => $job, 'name' => watchmanClean((string) $j['us'], 100), 'when' => (int) ($j['when'] ?? 0),
-                                                     'uid' => $j['uid'] ?? null]);
+    $e = watchmanEntry($kind, "$kind:$num", $now, $p);
     $e['noted'] = $now;
-    $e['by'] = 'auto';
+    $e['by'] = $by;
     $book[] = $e;
 }
 
@@ -8840,7 +8988,12 @@ function watchmanText(array $e, ?string $lang = null): array
         'cron_file', 'cron_file_foreign'
                          => ['file' => (string) ($p['file'] ?? ''), 'plugin' => (string) ($p['plugin'] ?? ''), 'lines' => (int) ($p['lines'] ?? 0), 'jobs' => $jobs],
         'script_new', 'script_changed' => ['name' => (string) ($p['name'] ?? ''), 'cron' => (string) ($p['cron'] ?? '')],
-        'at_job'         => ['cmd' => (string) ($p['cmd'] ?? '') ?: '?', 'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0))],
+        'at_job'         => ['cmd' => (string) ($p['cmd'] ?? '') ?: '?', 'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0)),
+                             'queued' => is_int($p['queued'] ?? null) ? date('Y-m-d H:i', $p['queued']) : '?',
+                             'since' => date('Y-m-d H:i', is_int($p['since'] ?? null) ? $p['since'] : (int) ($p['when'] ?? 0)),
+                             'user' => (string) ($p['user'] ?? '') ?: (isset($p['uid']) ? (string) $p['uid'] : '?'),
+                             'prog' => (string) ($p['prog'] ?? '') ?: '?', 'owner' => (string) ($p['owner'] ?? '') ?: '–',
+                             'num' => preg_match('/^[a-zA-Z=]([0-9a-f]{5})/', (string) ($p['job'] ?? ''), $jm) ? (int) hexdec($jm[1]) : '?'],     // as atq shows it
         'at_userscript'  => ['name' => (string) ($p['name'] ?? ''), 'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0))],
         'at_plugin'      => ['name' => (string) ($p['name'] ?? '') ?: (string) ($p['plugin'] ?? ''), 'file' => (string) ($p['file'] ?? '') ?: '?',
                              'when' => date('Y-m-d H:i', (int) ($p['when'] ?? 0))],
