@@ -6267,8 +6267,9 @@ function testBackupKopiaSplitTags(): void
     same('split tags: an old Kopia, or a layout of no known shape - no tags (as up to 2.79)', ['', ''],
         [$sh("KOPIA_VERSION=0.12.0; kopia_share_tags films split; $args"), $sh("kopia_share_tags films 'x y'; $args")]);
     same('split tags: an app with parts in shares mounted split - each share once, a name that can\'t be one left out',
-        "--tags\nuso-split:films|Fotos Ärger", $sh('kopia_item_tags "films"$\'\\n\'"Fotos Ärger"$\'\\n\'"films"$\'\\n\'"a|b"$\'\\n\'; ' . $args));
-    same('split tags: none split - no tags', '', $sh("kopia_item_tags ''; $args"));
+        "--tags\nuso-layout:own\n--tags\nuso-split:films|Fotos Ärger", $sh('kopia_item_tags "films"$\'\\n\'"Fotos Ärger"$\'\\n\'"films"$\'\\n\'"a|b"$\'\\n\'; ' . $args));
+    same('split tags: none split - 2.81: the own source says so (uso-layout own); an old Kopia - no tags', ["--tags\nuso-layout:own", ''],
+        [$sh("kopia_item_tags ''; $args"), $sh("KOPIA_VERSION=0.12.0; kopia_item_tags films; $args")]);
     // backup.sh hands them to the upload: the share's, the app's or VM's - never the flash's
     $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
     check('split tags: backup.sh - the share\'s upload carries its tags', str_contains($bk, 'kopia_share_tags "$s" "${SHARE_MOUNTED[$s]}"') && str_contains($bk, 'kopia_one "$s" "$cp" "${KT_ARGS[@]}"'));
@@ -14853,12 +14854,16 @@ function testRestoreReviewPaths(): void
     $GLOBALS['rs']['ctx'] = $ctx;
     same('engine 2.80: the layout from the tags — a share split (its parts), single/overlay/live, none or unknown (null: guessed), an own source\'s split shares',
         [['split' => true, 'parts' => ['cache', 'disk1'], 'shares' => []], false, false, false, null, null,
-         ['split' => false, 'parts' => [], 'shares' => ['appdata', 'media 2']], null, ['split' => true, 'parts' => ['cache'], 'shares' => []]],
+         ['split' => false, 'parts' => [], 'shares' => ['appdata', 'media 2']], ['split' => false, 'parts' => [], 'shares' => []], ['split' => true, 'parts' => ['cache'], 'shares' => []]],
         [rsKopiaLayout(['tag:uso-layout' => 'split', 'tag:uso-parts' => 'cache|disk1'], 'media'), rsKopiaLayout(['tag:uso-layout' => 'single'], 'media')['split'],
          rsKopiaLayout(['tag:uso-layout' => 'overlay'], 'media')['split'], rsKopiaLayout(['tag:uso-layout' => 'live'], 'media')['split'],
          rsKopiaLayout([], 'media'), rsKopiaLayout(['tag:uso-layout' => 'odd'], 'media'),
          rsKopiaLayout(['tag:uso-split' => 'appdata|media 2|../x'], '.apps/nc'), rsKopiaLayout(['tag:uso-layout' => 'split'], '.apps/nc'),
          rsKopiaLayout(['tag:uso-layout' => 'split', 'tag:uso-parts' => 'cache|..|a/b|'], 'media')]);
+    same('engine 2.81: an own source tagged at all (uso-layout own) - not split for sure, its split shares when named; a 2.80 one with no tag - null (guessed)',
+        [['split' => false, 'parts' => [], 'shares' => []], ['split' => false, 'parts' => [], 'shares' => ['appdata']], null, null],
+        [rsKopiaLayout(['tag:uso-layout' => 'own'], '.apps/nc'), rsKopiaLayout(['tag:uso-layout' => 'own', 'tag:uso-split' => 'appdata'], '.vms/win'),
+         rsKopiaLayout([], '.apps/nc'), rsKopiaLayout(['tag:uso-layout' => 5], '.apps/nc')]);
     same('engine 2.80: an own source with appdata in uso-split — <share>/<part>/<path>: the part dropped; the part alone only staged; untagged as before',
         ['/mnt/user/appdata/nc/config.php', null, '/mnt/user/appdata/hazel/nc/config.php', '/mnt/user/system/x'],
         [rsKopiaLive('.apps/nc', 'appdata/hazel/nc/config.php', false, $settings, null, ['appdata']), rsKopiaLive('.apps/nc', 'appdata/hazel', false, $settings, null, ['appdata']),
@@ -35987,6 +35992,15 @@ function testRestoreDrill(): void
         [['UnraidSecretaryOffice/rowan/backup/apps/immich', true], null],
         [(fn ($r) => $r ? [$r['rel'], $r['split']] : null)(drillKopiaPackageDir($kj, $kenv, $o('dU3'), 'UnraidSecretaryOffice', 'app', 'immich', ['tag:uso-layout' => 'split', 'tag:uso-parts' => 'rowan'])),
          drillKopiaPackageDir($kj, $kenv, $o('dU3'), 'UnraidSecretaryOffice', 'app', 'immich', ['tag:uso-layout' => 'single'])]);
+    $pkgAt = fn (array $tags) => (fn ($r) => $r ? [$r['rel'], $r['split']] : null)(drillKopiaPackageDir($kj, $kenv, $o('dROOT'), '.apps/immich', 'app', 'immich', $tags));
+    same('engine 2.81: an own source tagged (uso-layout own) without uso-split - its package not split for sure (never a part tried in the local snapshot); untagged - not known (guessed)',
+        [['UnraidSecretaryOffice/backup/apps/immich', false], ['UnraidSecretaryOffice/backup/apps/immich', null]],
+        [$pkgAt(['tag:uso-layout' => 'own']), $pkgAt([])]);
+    $kenv['kopia_left'] = 1 << 20;
+    file_put_contents("$local/db/pg.sql.gz", $dump);
+    $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dROOT'), 'run' => '20261101-0200', 'tags' => ['tag:uso-layout' => 'own']], $kenv);
+    same('engine 2.81: drill Kopia sample - an own source tagged without uso-split: its package compared with the share\'s local snapshot', [2, 2, null],
+        [$sample['files'], $sample['compared'], $sample['differs']]);
     // the whole step: list (newest complete), structure, sample
     file_put_contents("$tmp/kopia/list.json", json_encode([['id' => str_repeat('c', 20), 'startTime' => date('c', time() - 3600), 'description' => 'uso-backup 20261101-0200',
         'incompleteReason' => '', 'rootEntry' => ['obj' => $o('dROOT'), 'summ' => ['size' => 99, 'files' => 3, 'numFailed' => 0]]]]));

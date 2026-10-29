@@ -3794,7 +3794,9 @@ share_layout() {
 # A share's snapshot carries «uso-layout:<single|overlay|split|live>» (how it was mounted this run, SHARE_MOUNTED - an
 # overlay that fell back to one subfolder per part is split) and, split, «uso-parts:<base>|<base>…» - its pools and
 # disks in the order its source holds them as <share>/<base>/…; an app's or VM's own source whose parts lie in a share
-# mounted split (<share>/<base>/<path> inside it) carries «uso-split:<share>|<share>…». "|" - never in a share's name
+# mounted split (<share>/<base>/<path> inside it) carries «uso-split:<share>|<share>…»; since 2.81 every own source also
+# «uso-layout:own», so an own source without uso-split is not split for sure (a 2.80 one without it: no tag at all, read
+# as before - a guess). "|" - never in a share's name
 # (share_name_ok) nor a pool's. Kopia's snapshot list --json shows them as tags {"tag:uso-layout": "split", …}. Only
 # from Kopia 0.13 (kopia_tags_ok: --tags is older, but an unknown flag would fail the upload); without: no tags, as
 # up to 2.79. KT_ARGS: the arguments for snapshot create (--tags k:v …), empty when none.
@@ -3816,10 +3818,11 @@ kopia_item_tags() { # kopia_item_tags <the shares its parts lie in, mounted spli
     local sh list=""
     KT_ARGS=()
     kopia_tags_ok || return 0
+    KT_ARGS=( --tags "uso-layout:own" )
     while IFS= read -r sh; do
         [[ -n "$sh" ]] && share_name_ok "$sh" && [[ "|$list|" != *"|$sh|"* ]] && list+="${list:+|}$sh"
     done <<<"$1"
-    [[ -n "$list" ]] && KT_ARGS=( --tags "uso-split:$list" )
+    [[ -n "$list" ]] && KT_ARGS+=( --tags "uso-split:$list" )
     return 0
 }
 

@@ -2,7 +2,8 @@
 ###############################################################################
 # unraid-backup - backup.sh                       Version 2.81 - 2026-10-29
 #   2.81 What an aborted run left and doesn't come back is an error with a code (lib/common.sh err_as) - a run logs it as
-#        before; a setup's Apply records it for the office (setup.sh ub_msg_as)
+#        before; a setup's Apply records it for the office (setup.sh ub_msg_as). An app's or VM's own Kopia source carries
+#        «uso-layout:own» (kopia_item_tags): without «uso-split» it is not split for sure (2.80: no tag at all - a guess)
 #   2.80 The rest of T01 (lib/notifygate.sh, the same as the office's gate): «Backup failed» / «Backup not started» with
 #        the very same cause again within 20 h (NOTIFY_FAILED_SAME), no success between, is counted - with how many
 #        times (the decision's «times», a «counted» line in the guard) - instead of an alert every run; another cause

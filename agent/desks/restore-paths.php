@@ -227,9 +227,10 @@ function rsKopiaSplit(?array $top, string $share, array &$ctx): bool
 /**
  * How the engine put a Kopia source together, from its snapshot's tags (engine 2.80, review M4): a share's `uso-layout`
  * single | overlay | live — not split — or split, its parts then in `uso-parts` (<share>/<base>/… in the source); an
- * app's or VM's own source names in `uso-split` the shares whose part sits there as <share>/<base>/…. Null without
- * them (an older engine's or Kopia's snapshot, or an own source with no share split): read as before — a share's split
- * guessed from the folder names at its top (rsKopiaSplit, rsKopiaSplitLike).
+ * app's or VM's own source names in `uso-split` the shares whose part sits there as <share>/<base>/…, and since 2.81
+ * carries `uso-layout` (own) in any case — with it and no `uso-split` none is split, for sure. Null without them (an
+ * older engine's or Kopia's snapshot, a 2.80 own source with no share split): read as before — a share's split guessed
+ * from the folder names at its top (rsKopiaSplit, rsKopiaSplitLike), an own source's by the drill.
  *
  * @return ?array{split: bool, parts: list<string>, shares: list<string>}
  */
@@ -239,7 +240,7 @@ function rsKopiaLayout(array $tags, string $source): ?array
         fn ($x) => preg_match($re, $x) && !in_array($x, ['.', '..'], true)));
     if ($source !== '' && $source[0] === '.') {
         $shares = $list('tag:uso-split', RS_SHARE_NAME);
-        return $shares ? ['split' => false, 'parts' => [], 'shares' => $shares] : null;
+        return $shares || is_string($tags['tag:uso-layout'] ?? null) ? ['split' => false, 'parts' => [], 'shares' => $shares] : null;
     }
     $how = $tags['tag:uso-layout'] ?? null;
     if (!in_array($how, ['single', 'overlay', 'split', 'live'], true)) {
