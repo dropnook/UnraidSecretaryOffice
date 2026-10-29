@@ -26,11 +26,19 @@
 >   round-robin across the persons by rank (`Planner.fill_order`), giving back over the limit the farthest ahead first
 >   (`give_back_order`). `MEDIACACHE_KEEP_BYTES`, `MEDIACACHE_NO_FILL`, `MEDIACACHE_WATCHED_ONLY` serve the night run.
 > * `not_in_budget` in the result (2026-10-16): what the persons' budgets leave out — {items, films, episodes, bytes}, each
->   entry once; Jack's run summary says «budget full» with it.
-> * `MEDIACACHE_STOP` (a file): a real run stops after the file it is on — never inside a copy; result `stopped`, exit 3.
+>   entry once; Jack's run summary says «budget full» with it. `persons` (2026-10-29): the same per person — an entry two
+>   persons want counts at each.
+> * **A file several persons have on deck counts at each** (2026-10-29): their rank (`ranks`), their planned and done in
+>   the progress (`owners()`; `fill` counts the fill once, `shared` names the others at its place in the queue, a file
+>   in flight its `users`) — copied once.
+> * `MEDIACACHE_STOP` (a file): a real run stops after the file it is on — never inside a copy (copying in parallel:
+>   after the files in flight, no new one begins); result `stopped`, exit 3.
 > * `MEDIACACHE_PROGRESS` (a file): rewritten at every file boundary — phase, per person planned/done, the file in work
 >   with its target, person and reason, the fill's queue, the last 50 files done. Jack's live panel reads it. A run with
 >   `MEDIACACHE_NO_FILL` (only giving back) plans no fill into it (2026-10-25): its counts are the give-back's alone.
+>   Parallel copies (2026-10-29): `active` lists every file in flight (`current` stays the first, `q` its place in the
+>   queue); a file done before an earlier one is `[-1, 0]` in the queue, `pos` counts the done ones from the front;
+>   `Progress` and `halt()` are thread-safe.
 > * **Tidied per disk** (`remove_empty_on_disk`, 2026-10-20): a file filled from `/mnt/user0` leaves its folder empty on its
 >   disk while another disk still has something in it (Season 01: E01/E02 on disk2) — the folder on the disk it lay on
 >   goes as with Unraid's move; no other disk is read, the share's folder on the disk stays.
@@ -41,6 +49,10 @@
 >   words («Ein anderes Programm hat die halb kopierte Datei gelöscht … die Quelle ist unversehrt»), not rsync's. The
 >   result's `failed` counts the files not copied / not brought back (`fill`, `back`, of them `vanished`, the first 20
 >   `files` with `why`, `retried`) — per file, where the log has two ERROR lines for one.
+> * **No list from an incomplete plan** (2026-10-29, wave 1's H4): a real run whose plan is incomplete (a media server
+>   that can't be asked) makes no exclude list where there was none — an empty one gave everything on the cache free to
+>   the office's mover; a release without a list makes none either (`exclude_there()`). Report and dry runs never write
+>   it; the first real run after them does.
 > * **With a progress or a stop file, Unraid's move binary gets one file per call** (the cleanup): so the progress names
 >   the file in work and «stop after this file» holds exactly. Standalone: one call for all, as before. (The target of a
 >   file the binary moves is unknown until it is done — the progress gives it empty, the panel shows no part inside it.)
@@ -51,8 +63,9 @@
 > * Its own tools: filling `rsync`, giving back Unraid's `move` binary (through shfs: the share's «Minimum free space»,
 >   allocation and split level, a ZFS array disk's dataset made by Unraid). Jack writes them into the settings; no
 >   environment forces them. Jack's shares are «Cache: yes» on his pool, so the binary moves them Cache → Array.
-> * `parallel_per_disk` = `parallel_total` = 1 (also MediaCache's default — written fixed): the progress, the panel's
->   queue and «stop after this file» count on one file at a time.
+> * `parallel_per_disk` from Jack's setup («copies at once per disk», 1–4, default 1 — MediaCache's default and meaning:
+>   per source disk); `parallel_total` = the array's data disks × that, at most 8 (`MEDIACACHE_PARALLEL_TOTAL` at each run;
+>   in the settings file the same as per disk). Before 2026-10-29 both were written fixed to 1.
 > * `create_share_root` on (its default — written fixed): the share's ZFS dataset is MediaCache's, Jack makes none.
 > * `MEDIACACHE_RSYNC_ARGS` = `-aAX --numeric-ids` (its default): rsync runs as root — no option from a settings file.
 > * `MEDIACACHE_GIVE_BACK_FREE=1`: `min_free_percent` is a limit the run gives back to, not only one it stops filling at;

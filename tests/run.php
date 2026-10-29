@@ -2852,11 +2852,27 @@ function testJackRsync(): void
     // 2026-10-15 (the owner): MediaCache's own ways — filling with rsync, giving back with Unraid's move binary; written
     // into the settings by Jack, never forced through the environment
     $tmp = hardeningTmp('jackrsync');
-    same('tools: whatever an old file says — filling rsync, the way back the move binary, the rest kept (share root, one copy at a time)',
-        ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/maple'] + JACK_FIXED,
+    $one = ['parallel_per_disk' => 1, 'parallel_total' => 1];
+    same('tools: whatever an old file says — filling rsync, the way back the move binary, the rest kept (share root, one copy per disk)',
+        ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/maple'] + JACK_FIXED + $one,
         jackTools(['fill_tool' => 'mover', 'cleanup_tool' => 'rsync', 'cache_path' => '/mnt/maple']));
-    same('tools: none set — MediaCache\'s defaults', ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover'] + JACK_FIXED, jackTools([]));
-    same('tools: one copy at a time, MediaCache makes the share\'s dataset', ['create_share_root' => true, 'parallel_per_disk' => 1, 'parallel_total' => 1], JACK_FIXED);
+    same('tools: none set — MediaCache\'s defaults', ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover'] + JACK_FIXED + $one, jackTools([]));
+    same('tools: MediaCache makes the share\'s dataset', ['create_share_root' => true], JACK_FIXED);
+    // copies at once (2026-10-29): per disk as his setup chose (1 … 4, else 1), in all the array's disks × that, at most 8
+    same('tools: copies at once per disk — 1 … 4 kept, anything else 1 (in his file the total the same)',
+        [[2, 2], [4, 4], [1, 1], [1, 1], [1, 1], [1, 1]],
+        array_map(fn ($v) => [jackTools(['parallel_per_disk' => $v])['parallel_per_disk'], jackTools(['parallel_per_disk' => $v])['parallel_total']], [2, 4, 5, 0, '2', 2.0]));
+    $ini = ['parity' => ['type' => 'Parity'], 'disk1' => ['type' => 'Data', 'status' => 'DISK_OK'], 'disk2' => ['type' => 'Data', 'status' => 'DISK_OK'],
+            'disk3' => ['type' => 'Data', 'status' => 'DISK_NP'], 'cache' => ['type' => 'Cache'], 'disk9' => ['name' => 'disk9', 'type' => 'Cache']];
+    same('tools: the array\'s data disks — parity, an empty slot and a pool (whatever its name) left out; none known: 1', [2, 1], [jackArrayDisks($ini), jackArrayDisks([])]);
+    same('tools: copies in all — the disks × per disk, at most 8', [1, 2, 4, 8, 8], [jackParallelTotal(1, 1), jackParallelTotal(1, 2), jackParallelTotal(2, 2), jackParallelTotal(4, 2), jackParallelTotal(4, 6)]);
+    $env = jackPyEnv(['parallel_per_disk' => 2], 3);
+    same('tools: his runs get both — per disk 2, three disks: 6 at once', ['2', '6'], [$env['MEDIACACHE_PARALLEL_PER_DISK'], $env['MEDIACACHE_PARALLEL_TOTAL']]);
+    $env = jackPyEnv(['parallel_per_disk' => 'x'], 1);
+    same('tools: an older file, one disk — one copy at a time as before', ['1', '1'], [$env['MEDIACACHE_PARALLEL_PER_DISK'], $env['MEDIACACHE_PARALLEL_TOTAL']]);
+    check('tools: the setup\'s field is a setting of his (the page sends it), checked before it is taken',
+        in_array('parallel_per_disk', JACK_SETTINGS, true) && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'),
+        "jackParallelPerDisk(['parallel_per_disk' => \$in['parallel_per_disk']]) !== \$in['parallel_per_disk']) {\n        throw new Problem('bad_request');"));
     @mkdir("$tmp/emby", 0700, true);
     @mkdir("$tmp/pool", 0700, true);
     $inst = [['servername' => 'Emby', 'url' => 'http://192.168.20.10:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]];
@@ -3020,14 +3036,22 @@ G = 2**30
 def g(cat, size, *rels): return N(category=cat, size=size * G, files=[N(rel=x) for x in rels])
 p = r.Planner({"cache_budget_bytes": 100 * G, "movie_share_percent": 50, "user_budgets": {}})
 big = g("movie", 25, "Filme/Big/big.mkv", "Filme/Big/big.srt")
-p.users = {"a": N(skipped=[big, g("series", 2, "S/e5.mkv"), g("series", 2, "S/e6.mkv"), g("movie", 4, "Filme/Taken/t.mkv")]),
-           "b": N(skipped=[g("movie", 25, "Filme/Big/big.srt", "Filme/Big/big.mkv")])}
+p.users = {"a": N(key="a", name="Anna", skipped=[big, g("series", 2, "S/e5.mkv"), g("series", 2, "S/e6.mkv"), g("movie", 4, "Filme/Taken/t.mkv")]),
+           "b": N(key="b", name="Ben", skipped=[g("movie", 25, "Filme/Big/big.srt", "Filme/Big/big.mkv")])}
 p.files = {"Filme/Taken/t.mkv": object()}
 q = r.Planner({"cache_budget_bytes": 0, "movie_share_percent": 50, "user_budgets": {}})
 print(json.dumps([p.not_in_budget(), q.not_in_budget()]))';
     [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $tmp, 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+    $nib = json_decode((string) preg_replace('/^.*\n/s', '', trim($out)), true) ?? trim($err);
+    $persons = is_array($nib) ? ($nib[0]['persons'] ?? null) : null;
+    if (is_array($nib) && is_array($nib[0] ?? null)) {
+        unset($nib[0]['persons']);
+    }
     same('not in budget (engine): the big film both want once, two episodes; the film another\'s budget takes not counted; no budget mode — none',
-        [0, [['items' => 3, 'films' => 1, 'episodes' => 2, 'bytes' => 29 * 2 ** 30], null]], [$exit, json_decode((string) preg_replace('/^.*\n/s', '', trim($out)), true) ?? trim($err)]);
+        [0, [['items' => 3, 'films' => 1, 'episodes' => 2, 'bytes' => 29 * 2 ** 30], null]], [$exit, $nib]);
+    // 2026-10-29: per person — the big film both want at each of them
+    same('not in budget (engine): per person — the big film at Anna and at Ben, Anna\'s episodes hers alone',
+        [['name' => 'Anna', 'items' => 3, 'films' => 1, 'episodes' => 2, 'bytes' => 29 * 2 ** 30], ['name' => 'Ben', 'items' => 1, 'films' => 1, 'episodes' => 0, 'bytes' => 25 * 2 ** 30]], $persons);
     $src = (string) file_get_contents(JACK_APP . '/mediacache_run.py');
     check('not in budget (engine): written into the result file after the plan, marked USO, in the README\'s list',
         str_contains($src, 'self.result["not_in_budget"] = nib') && str_contains((string) file_get_contents(JACK_APP . '/README.md'), '`not_in_budget`'));
@@ -3316,6 +3340,75 @@ function testJackProgress(): void
     same('progress samples: another run\'s samples are not this run\'s', [], jackProgressSamples($paths['samples'], 2000));
     same('progress samples: kept per run', 1000, $old['run']);
 
+    // several copies at once (2026-10-29): MediaCache's `active` — every file in flight, each its part, each under its bar
+    $tgtB = "$tmp/mnt/pool/Filme/B/b.mkv";
+    @mkdir(dirname($tgtB), 0700, true);
+    $a1 = ['phase' => 'fill', 'rel' => 'Filme/A/a.mkv', 'size' => 400 * $mb, 'target' => $target, 'user' => 'Emby:u1', 'source' => 'resume', 'title' => 'A', 'since' => 2005, 'q' => 0];
+    $a2 = ['phase' => 'fill', 'rel' => 'Filme/B/b.mkv', 'size' => 100 * $mb, 'target' => $tgtB, 'user' => 'Emby:u2', 'source' => 'next_up', 'title' => 'B', 'since' => 2006, 'q' => 1];
+    $par = array_replace($prog, ['started' => 2000, 'updated' => 2008, 'current' => $a1, 'active' => [$a1, $a2],
+        'users' => [array_replace($prog['users'][0], ['done_files' => 0, 'done_bytes' => 0, 'files' => 2, 'bytes' => 600 * $mb]), $prog['users'][1]],
+        'queue' => [[0, 400 * $mb], [1, 100 * $mb], [0, 200 * $mb]], 'pos' => 0]);
+    file_put_contents($paths['file'], json_encode($par));
+    $pp = jackProgressRead($paths['file']);
+    same('progress, parallel: every file in flight read, the first as `current`, each its place in the queue',
+        [2, 'Filme/A/a.mkv', ['Filme/A/a.mkv', 'Filme/B/b.mkv'], [0, 1]], [count($pp['active']), $pp['current']['rel'], array_column($pp['active'], 'rel'), array_column($pp['active'], 'q')]);
+    $parts = ['Filme/A/a.mkv' => 0, 'Filme/B/b.mkv' => 0];
+    $standP = function (array $f) use (&$parts) { return $parts[$f['rel']] ?? 0; };
+    jackProgressSample($paths, 2010, $standP);
+    $parts = ['Filme/A/a.mkv' => 100 * $mb, 'Filme/B/b.mkv' => 50 * $mb];
+    jackProgressSample($paths, 2020, $standP);
+    $smpP = jackProgressSamples($paths['samples'], 2000);
+    same('progress, parallel: a sample keeps every part, the bytes moved all of them', [150 * $mb, [['Filme/A/a.mkv', 100 * $mb], ['Filme/B/b.mkv', 50 * $mb]]],
+        [$smpP[1][1] - 300 * $mb, $smpP[1][4]]);
+    $v = jackProgressView($pp, $smpP, 2020);
+    $byName = array_column($v['users'], null, 'name');
+    same('progress, parallel: 15 MB/s for both; each bar its file in flight with its part; the total both parts; `files` both (no target path)',
+        [15 * $mb, [['Filme/A/a.mkv', 100 * $mb]], [['Filme/B/b.mkv', 50 * $mb]], 450 * $mb, 2, true, true],
+        [$v['speed'], array_map(fn ($f) => [$f['rel'], $f['done']], $byName['Benj']['in_flight']), array_map(fn ($f) => [$f['rel'], $f['done']], $byName['Ki ds']['in_flight']),
+         $v['total']['done_bytes'], count($v['files']), $byName['Benj']['here'], $byName['Ki ds']['here']]);
+    check('progress, parallel: the view names no target path, no queue place', !str_contains(json_encode($v), $tmp) && !str_contains(json_encode($v), '"q"'));
+    same('progress, parallel: Kids is done when B is (50 MB left of B after what of A before it: 300 MB of A is ahead of it — 350 MB / 15 MB/s); Benj after all (550 MB)',
+        [24, 37], [$byName['Ki ds']['eta'], $byName['Benj']['eta']]);
+    $vs = jackProgressView($pp, $smpP, 2020, true);
+    same('progress, parallel: asked to stop — both files in flight still count (350 MB left of them), both bars end with them',
+        [24, 24, 24, null], [$vs['total']['eta'], $vs['users'][0]['eta'], $vs['users'][1]['eta'], $vs['users'][0]['halted'] ?? null]);
+    // a file younger than the newest sample: its part 0 until the next (B started again after the sample)
+    file_put_contents($paths['file'], json_encode(array_replace($par, ['active' => [$a1, ['since' => 2021] + $a2]])));
+    $v = jackProgressView(jackProgressRead($paths['file']), $smpP, 2022);
+    same('progress, parallel: a file started after the newest sample — its part 0, the other kept', [100 * $mb, 0], array_column($v['files'], 'done'));
+    // B done before A: its queue entry nobody's, pos still 0 — A alone in flight
+    file_put_contents($paths['file'], json_encode(array_replace($par, ['active' => [$a1], 'queue' => [[0, 400 * $mb], [-1, 0], [0, 200 * $mb]],
+        'users' => [$par['users'][0], array_replace($par['users'][1], ['done_files' => 1, 'done_bytes' => 100 * $mb])]])));
+    $v = jackProgressView(jackProgressRead($paths['file']), $smpP, 2022);
+    same('progress, parallel: B done before A — Kids done, Benj alone in flight; Benj\'s time from his own queue', [['Benj', true, 34], ['Ki ds', false, 0]],
+        array_map(fn ($u) => [$u['name'], $u['here'], $u['eta']], $v['users']));
+    // a file two persons have on deck (2026-10-29): at each of them — planned, done, in flight, time left; the bracket once
+    $sh = array_replace($par, ['active' => [['users' => ['Emby:u1', 'Emby:u2']] + $a1],
+        'users' => [array_replace($par['users'][0], ['files' => 1, 'bytes' => 400 * $mb]), array_replace($par['users'][1], ['files' => 1, 'bytes' => 400 * $mb])],
+        'fill' => ['files' => 1, 'bytes' => 400 * $mb, 'done_files' => 0, 'done_bytes' => 0], 'queue' => [[0, 400 * $mb]], 'shared' => [[0, [1]], [7, [1]], 'x'], 'pos' => 0]);
+    file_put_contents($paths['file'], json_encode($sh));
+    $ps = jackProgressRead($paths['file']);
+    same('progress, shared: read — the other at its place in the queue (one beyond the queue, one not in its shape left out), the file\'s persons', [[0 => [1]], ['Emby:u1', 'Emby:u2'], 400 * $mb],
+        [$ps['shared'], $ps['active'][0]['users'], $ps['fill']['bytes']]);
+    $v = jackProgressView($ps, $smpP, 2020);
+    same('progress, shared: the file under both bars, its part at each; the bracket counts it once; both wait for it (300 MB / 15 MB/s)',
+        [[true, 100 * $mb, 20], [true, 100 * $mb, 20], 400 * $mb + 300 * $mb, 300 * $mb + 100 * $mb, 1],
+        [...array_map(fn ($u) => [$u['here'], $u['done_bytes'], $u['eta']], $v['users']), $v['total']['bytes'], $v['total']['done_bytes'], count($v['files'])]);
+    check('progress, shared: the persons of a file never on the page', !str_contains(json_encode($v), 'Emby:u2'));
+
+    // an older MediaCache (no `active`) and an older job's samples (four each) still read
+    file_put_contents($paths['file'], json_encode(array_diff_key($par, ['active' => 1])));
+    same('progress, parallel: no `active` — the one `current`', [1, 'Filme/A/a.mkv'], [count(jackProgressRead($paths['file'])['active']), jackProgressRead($paths['file'])['active'][0]['rel']]);
+    file_put_contents($paths['samples'], json_encode(['run' => 2000, 'samples' => [[2010, 300 * $mb, 'Filme/A/a.mkv', 0], [2020, 400 * $mb, 'Filme/A/a.mkv', 100 * $mb]]]));
+    $v = jackProgressView(jackProgressRead($paths['file']), jackProgressSamples($paths['samples'], 2000), 2020);
+    same('progress, parallel: an older job\'s samples — the one file\'s part', [10 * $mb, 100 * $mb], [$v['speed'], $v['current']['done']]);
+    file_put_contents($paths['file'], json_encode(array_replace($par, ['active' => array_fill(0, 40, $a2)])));
+    same('progress, parallel: at most 16 files in flight taken', 16, count(jackProgressRead($paths['file'])['active']));
+    file_put_contents($paths['file'], json_encode(array_replace($par, ['active' => [['rel' => 5] + $a1, $a2, 'x']])));
+    same('progress, parallel: a file in flight not in its shape left out', ['Filme/B/b.mkv'], array_column(jackProgressRead($paths['file'])['active'], 'rel'));
+    jackProgressClear($paths);
+    file_put_contents($paths['file'], json_encode($prog));
+
     // the ticker: a sample at once when copying starts, then every 10 s; while planning it looks again after 2 s
     $clock = 3000;
     $tick = jackProgressTicker($paths, function () use (&$clock) { return $clock; });
@@ -3338,6 +3431,51 @@ function testJackProgress(): void
     same('progress part: a dry run — no panel', [true, false, null], array_values(array_intersect_key($state(['running' => true, 'mode' => 'dry']), ['running' => 1, 'real' => 1, 'progress' => 1])));
     $r = jackProgressState(['running' => true, 'mode' => 'run'], $paths, 3020, "$tmp/stop.json");
     same('progress part: a real run — the panel, not asked to stop', [true, true, 'fill', 2, null], [$r['running'], $r['real'], $r['progress']['phase'] ?? null, count($r['progress']['users'] ?? []), $r['stopping']]);
+
+    // who is watching what (2026-10-29): the job's look once a minute — per session person, title, server, paused, since
+    // (kept across looks for the same session); per person on the panel; nobody: nothing
+    $looks = [['state' => 'watching', 'who' => [['user' => 'Mutter', 'title' => 'Film Ferien 1998', 'device' => 'TV', 'server' => 'FamilienServer', 'paused' => false],
+                                                ['user' => 'Tochter', 'title' => "Velotour\x01 – S01E03", 'server' => 'Jelly', 'paused' => true],
+                                                ['user' => 'mutter ', 'title' => 'Taufe', 'server' => 'Jelly', 'paused' => false]]],
+              ['state' => 'watching', 'who' => [['user' => 'Mutter', 'title' => 'Film Ferien 1998', 'server' => 'FamilienServer', 'paused' => true],
+                                                ['user' => 'Tochter', 'title' => 'Velotour – S01E04', 'server' => 'Jelly']]],
+              ['state' => 'free', 'who' => []], ['state' => 'down', 'who' => []]];
+    $li = 0;
+    $wtick = jackWatchTicker($paths, function () use (&$looks, &$li) { return $looks[$li]; }, function () use (&$clock) { return $clock; });
+    $clock = 5000;
+    $wtick();
+    $rw = jackProgressState(['running' => true, 'mode' => 'run'], $paths, 5000)['watching'];
+    same('watching: per person — Mutter on two servers one person (case and spaces aside), each title with its server, since the look; Tochter paused',
+        [['Mutter', [['Film Ferien 1998', 'FamilienServer', false, 5000], ['Taufe', 'Jelly', false, 5000]]], ['Tochter', [['Velotour  – S01E03', 'Jelly', true, 5000]]]],
+        array_map(fn ($p) => [$p['name'], array_map(fn ($x) => [$x['title'], $x['server'], $x['paused'], $x['since']], $p['items'])], $rw));
+    check('watching: the device and the key never kept', !str_contains((string) file_get_contents($paths['watching']), 'TV'));
+    $li = 1;
+    $clock = 5030;
+    $wtick();
+    same('watching: the next look only after a minute', 5000, jackWatchRead($paths['watching'])['time']);
+    $clock = 5060;
+    $wtick();
+    $rw = jackProgressState(['running' => true, 'mode' => 'run'], $paths, 5060)['watching'];
+    same('watching: a minute later — the same film still since its first look (paused now), the next episode since now',
+        [['Mutter', 'Film Ferien 1998', 5000, true], ['Tochter', 'Velotour – S01E04', 5060, false]], array_map(fn ($p) => [$p['name'], $p['items'][0]['title'], $p['items'][0]['since'], $p['items'][0]['paused']], $rw));
+    foreach ([2 => 'nobody watches', 3 => 'no server answered'] as $i => $what) {
+        $li = $i;
+        $clock += 60;
+        $wtick();
+        same("watching: $what — nothing on the panel", [[], $looks[$i]['state']], [jackProgressState(['running' => true, 'mode' => 'run'], $paths, $clock)['watching'], jackWatchRead($paths['watching'])['state']]);
+    }
+    same('watching: a dry run — no look shown', [], jackProgressState(['running' => true, 'mode' => 'dry'], $paths, $clock)['watching']);
+    file_put_contents($paths['watching'], json_encode(['v' => 1, 'time' => 1, 'who' => [['user' => 'x', 'title' => 'y', 'server' => 'z', 'since' => 'soon'], 'q']]));
+    same('watching: a session not in its shape left out', [], jackWatchView(jackWatchRead($paths['watching'])));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('watching: only a GET of the sessions (never a session touched); each session with its server\'s name',
+        !preg_match('/CURLOPT_(POST|CUSTOMREQUEST|PUT)/', $src) && str_contains($src, "\$s['who'] = array_map(fn (array \$w): array => \$w + ['server' => \$server], \$s['who'] ?? []);"));
+    $w = jackWatching(['instances' => [['servername' => 'Familien', 'url' => 'http://192.168.20.10:8096', 'api_key' => 'k', 'type' => 'emby']]],
+        fn () => ['status' => 200, 'body' => json_encode([['UserName' => 'Mutter', 'NowPlayingItem' => ['Name' => 'Ferien']]]), 'errno' => 0, 'error' => '']);
+    same('watching: the servers\' look names each session\'s server', ['Mutter', 'Ferien', 'Familien'], [$w['who'][0]['user'], $w['who'][0]['title'], $w['who'][0]['server'] ?? null]);
+    jackProgressClear($paths);
+    check('watching: gone with the run', !is_file($paths['watching']));
+    file_put_contents($paths['file'], json_encode($prog));
 
     // «Stop after this file» (jack.stop): only while a real EmbyCache run goes; the mover guard's stop request with why user, once
     foreach (['nothing runs' => ['running' => false, 'mode' => 'run'], 'a dry run' => ['running' => true, 'mode' => 'dry']] as $what => $job) {
@@ -3384,7 +3522,7 @@ function testJackProgress(): void
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('progress: Jack\'s job sets MEDIACACHE_PROGRESS for real EmbyCache runs only, samples while it watches, clears it after',
         (bool) preg_match('/if \(\$real\) \{[^}]*jackProgressClear\(\$progress\);\s*\$env\[\'MEDIACACHE_PROGRESS\'\] = \$progress\[\'file\'\];/s', $src)
-        && str_contains($src, 'tick: $progress !== null ? jackProgressTicker($progress) : null')
+        && str_contains($src, 'tick: $progress !== null ? jackRunTicks(jackProgressTicker($progress), jackWatchTicker($progress)) : null')
         && str_contains($src, "'progress'       => fn (array \$r) => ['ok' => true, 'state' => jackProgressNow(jackNightNow())]")
         && str_contains($src, "return (\$jack ? jackNightProgress(\$night) : jackProgressState()) + ['night' => \$night];"));
     require_once OFFICE_DIR . '/src/desks.php';
@@ -44765,18 +44903,21 @@ function testMoverelliUnraid(): void
     same('jack list: named, not there, EmbyCache never ran — a real run refused with the file; a dry run not (it only warns)',
         [['moverelli_jack_list_pending', ['file' => $list]], 'ok', $list], [$why('run'), $why('dry'), moverelliJackListPending($h)]);
     // the lab, 2026-10-16: the deadlock — his real run with her is the joint night run, which waited for a list only that run
-    // makes. Jack writes his empty list once he is set up (his look, his save) — whichever was hired first, her real runs go
+    // makes. 2026-10-29 (wave 1's H4): no look writes it empty any more (her next run gave his films back) — it stays
+    // pending, the joint run lets him go first (nightrun.php, testNightRun) and his run writes it
     $set = ['instances' => [['url' => 'http://x']], 'cache_budget' => '100G'];
     same('jack list: not set up — no list written', [null, false], [jackListEnsure(null, "$tmp/emby"), is_file($list)]);
-    same('jack list: set up — his empty list written (root\'s, 0600), her real run goes; once', ['written', '', '600', 'ok', null, null],
-        [jackListEnsure($set, "$tmp/emby"), (string) @file_get_contents($list), substr(sprintf('%o', fileperms($list)), -3), $why('run'), moverelliJackListPending($h),
-         jackListEnsure($set, "$tmp/emby")]);
+    same('jack list: set up, never ran — pending, nothing written by his look; her own real run still waits',
+        ['pending', false, ['moverelli_jack_list_pending', ['file' => $list]], $list], [jackListEnsure($set, "$tmp/emby"), is_file($list), $why('run'), moverelliJackListPending($h)]);
+    file_put_contents($list, '');
+    same('jack list: his run wrote it (empty: nothing on deck yet) — her real run goes', ['ok', null, null], [$why('run'), moverelliJackListPending($h), jackListEnsure($set, "$tmp/emby")]);
     file_put_contents($list, "/mnt/cache/Filme/A/a.mkv\n");
     same('jack list: a list there is never touched', [null, "/mnt/cache/Filme/A/a.mkv\n"], [jackListEnsure($set, "$tmp/emby"), file_get_contents($list)]);
     unlink($list);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
-    check('jack list: his look and his save write it (Jack hired before or after Ms. Moverelli)',
-        str_contains($src, "    \$settings = jackReadSettings();\n    jackListEnsure(\$settings);") && str_contains($src, "jackWriteSettings(\$cfg);\n    jackListEnsure(jackReadSettings());"));
+    check('jack list: his look looks (and says pending on his page), his save no more',
+        str_contains($src, "    \$settings = jackReadSettings();\n    \$list = jackListEnsure(\$settings);") && !str_contains($src, "jackWriteSettings(\$cfg);\n    jackListEnsure(")
+        && str_contains($src, "'list'       => in_array(\$list, ['pending', 'lost'], true) ? \$list : null,"));
     $f = array_column(moverelliChecks($h), null, 'id')['jack_list_pending'] ?? null;
     same('jack list: … the Team Lead\'s hint (to know, nothing to do)', ['hint', false, ['file' => $list], '#/jack'], [$f['level'] ?? null, $f['ok'] ?? null, $f['params'] ?? null, $f['link'] ?? null]);
     $v['jack_ran'] = true;
@@ -50361,6 +50502,38 @@ function testNightRun(): void
     $n = $night();
     same('night dry run: Jack Emby dry, then she dry with his room — no recheck, no fill; the plan: 70 watched back, 20 fetched (from his dry answer)',
         [['jack dry --night --office', 'her dry --night --office --fill-until=780G --fill-pool=cache'], 70 * $G, 0, 20 * $G], [$calls, $n['plan']['back'] ?? null, $n['plan']['goes'] ?? null, $n['plan']['fill'] ?? null]);
+    // 2026-10-29 (wave 1's H4): his list named in her rules, not there, he never ran — the joint run is not refused: he goes
+    // first, his run writes it; her own «Run now» still waits (moverelliRunCheck() without the night); a look never writes it
+    $jlist = "$tmp/jack-list/mediacache_exclude.txt";
+    @mkdir(dirname($jlist), 0700, true);
+    $v['jack_lists'] = [$jlist];
+    $v['jack_ran'] = false;
+    moverelliSave(moverelliTestSettings(['move_when_used_above' => 80, 'files' => [$jlist]]), $h);
+    $GLOBALS['nightHost']['level'] = fn () => null;
+    $calls = [];
+    $p = $fresh([]);
+    $jackJob = $GLOBALS['nightHost']['jack_job'];
+    $GLOBALS['nightHost']['jack_job'] = function (array $args) use ($jackJob, $jlist) { file_put_contents($jlist, ''); return $jackJob($args); };
+    $pendWhy = function () use ($h) { try { moverelliRunCheck('run', $h); return 'ok'; } catch (Problem $e) { return $e->key; } };
+    same('night run, his list pending: her own real run waits (said), the joint run is let through', ['moverelli_jack_list_pending', 'ok'],
+        [$pendWhy(), (function () use ($h) { try { moverelliRunCheck('run', $h, true); return 'ok'; } catch (Problem $e) { return $e->key; } })()]);
+    $exit = nightRun(['run']);
+    same('night run without a limit, his list pending: he first (his run writes his list), then her part — not refused', [0, ['jack run --night', 'her run --night'], true, 'ok'],
+        [$exit, $calls, is_file($jlist), $pendWhy()]);
+    unlink($jlist);
+    $GLOBALS['nightHost']['level'] = fn (array $g, array $hh, bool $wake) => $level();
+    $calls = [];
+    $p = $fresh(['j' => 0, 'd' => 150, 'wait' => 60]);
+    nightRun(['run']);
+    same('night run with X, his list pending: his give-back first as always, her part, his fetch', ['jack run --night --nofill', 'her run --night --fill-until=740G --fill-pool=cache', 'jack run --night'], $calls);
+    $GLOBALS['nightHost']['jack_job'] = $jackJob;
+    $msrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
+    check('night run, his list pending: her part inside the joint run asks the check without the night (refused while still missing)',
+        substr_count($msrc, 'moverelliRunCheck($mode, $h);') >= 2 && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php'), 'moverelliRunCheck($mode, $h, true);'));
+    @unlink($jlist);
+    $v['jack_lists'] = [];
+    $v['jack_ran'] = true;
+    moverelliSave(moverelliTestSettings(['move_when_used_above' => 80]), $h);
     // not hired, a run of hers going: refused
     $v['hired'] = false;
     same('night run: she isn\'t hired — nothing', 1, nightRun(['run']));
@@ -52655,8 +52828,10 @@ function testJackListLost(): void
     $docs = $mk('mnt/cache/Docs/old.txt');
     @symlink('/etc/passwd', "$cache/Filme/A (2001)/link.mkv");
 
-    // before his first real run: written empty, as before (nothing of his lies there)
-    same('lost list: before his first real run — written empty, noted', ['written', '', 0], [jackListEnsure($set, $dir, $o), file_get_contents($list), readJson("$dir/" . JACK_LIST_NOTE)['lines'] ?? null]);
+    // before his first real run: never written by a look (2026-10-29, H4 — an empty one let Ms. Moverelli give his films
+    // back): pending until his run writes it, even with files of his shares on the pool (a reset, an old install)
+    same('lost list: before his first real run — pending, nothing written, no note', ['pending', false, false],
+        [jackListEnsure($set, $dir, $o), is_file($list), is_file("$dir/" . JACK_LIST_NOTE)]);
     // seen with films by his look, no real run of his in his list of runs (an older office's run, a trimmed list): noted
     file_put_contents($list, implode("\n", $films) . "\n");
     same('lost list: seen with entries by his look — noted, it held films', [null, 3, true, true],
@@ -52725,6 +52900,13 @@ SH);
     unlink($list);
     symlink("$t/elsewhere", $list);
     same('lost list: a link in its place — nothing written', [null, false], [jackListEnsure($set, $dir, $o), file_exists("$t/elsewhere")]);
+    unlink($list);
+    // he ran, the list gone, nothing of his shares on the pool: nothing to keep — it stays missing (pending), no empty one
+    $empty = ['shares' => ['Leer']] + $o;
+    same('lost list: gone, nothing of his on the pool — pending, nothing written', ['pending', false], [jackListEnsure($set, $dir, $empty), is_file($list)]);
+    file_put_contents($list, '');
+    touch($list, time() + 20);
+    same('lost list: emptied, nothing of his on the pool — left as it is, seen (once)', [null, '', null], [jackListEnsure($set, $dir, $empty), file_get_contents($list), jackListEnsure($set, $dir, $empty)]);
     unlink($list);
     // «Set up from scratch» forgets his runs: a fresh start, an empty list again
     jackReset(['dir' => $dir, 'gather' => "$t/gather", 'running' => fn (): bool => false, 'schedule' => fn (string $job) => null]);

@@ -453,7 +453,7 @@ function nightRun(array $args, ?array $h = null): int
         return 1;
     };
     try {
-        moverelliRunCheck($mode, $h);
+        moverelliRunCheck($mode, $h, true);      // his list pending: the night goes, he first (nightSteps())
     } catch (Problem $p) {
         if ($p->key === 'moverelli_not_configured') {
             fwrite(STDERR, "night: not started ($p->key)\n");
@@ -661,12 +661,20 @@ function nightSteps(string $mode, string $by, int $waited, array $h, ?array $ord
     $room = fn (array $p): array => $p['measured'] && $p['until'] !== null && $pool !== null ? ['--fill-until=' . $p['until'], '--fill-pool=' . $pool] : [];
     $go = true;
     $roomWhy = null;
+    // his list not there yet (moverelliJackListPending(), 2026-10-29): his run writes it — he goes first; her part, while
+    // it is still missing, is refused as her own runs are (moverelli_jack_list_pending: his shares left alone)
+    $pending = $jack && $real && moverelliJackListPending($h) !== null;
+    if ($pending) {
+        logLine('Night run: Jack Streamer\'s list not written yet — he goes first, his run writes it');
+    }
     if (!$jack) {
         // only she: her part (the age rule, from X the oldest until below X)
         $go = $step('her', 'free');
     } elseif (!$plan['measured']) {
         // no limit (or the pool not measured): her part, then Jack Emby's whole run with his own minimum free space
-        $go = $step('her', 'free') && ($real ? $step('jack', 'fill') : $step('jack', 'free'));
+        // (his list pending: his run first)
+        $go = $pending ? $step('jack', 'fill') && $step('her', 'free')
+            : $step('her', 'free') && ($real ? $step('jack', 'fill') : $step('jack', 'free'));
     } else {
         // free: Jack Emby gives back what was watched, then she moves the others' oldest down so his fetch ends at X
         $go = $step('jack', 'free');
