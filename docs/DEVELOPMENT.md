@@ -403,7 +403,10 @@ code, `TELL_EVENT`). Files: the settings `data/office/notify.json` (tolerant; th
 `RUN_DIR/notify-in/`, folded once a minute by the agent into `data/office/notify-held.json` (its RAM copy for the night
 shift) and `data/office/notify-log.json` (30 days). Alerts are never held and never folded into «the same» (the truth
 review T01): an alert's key also covers its description, and only the very same alert within `NOTIFY_ALERT_SAME` (60 s)
-is counted; held only while the agent's heartbeat is fresh (else it goes now). The summary goes from the agent's minute or the night shift's loop (RAM only; its summary is a
+is counted — except a backup run's failure (`OFFICE_NOTIFY_FAIL_SAME`: backup `failed`/`refused`, engine 2.80): the very
+same one again within `NOTIFY_FAILED_SAME` (20 h), no success between, is counted with how many times (`times`, in every
+sender's drop — `officeNotifyDrop()`, `ung_drop` — and the history entry; the Team Lead's chip says the 20 h and the
+count, `nc.tip.failed_same`); another cause always goes. Held only while the agent's heartbeat is fresh (else it goes now). The summary goes from the agent's minute or the night shift's loop (RAM only; its summary is a
 decision that covers what it sent). A new sender passes its desk and event; a new success or resolving event goes into
 `OFFICE_NOTIFY_SUCCESS` / `OFFICE_NOTIFY_RESOLVES` and `ung_is_success` / `ung_resolves` alike. The Team Lead's and the
 Night Watchman's old switches and the engine's `notify_success` no longer decide (kept for an older version; migration
@@ -735,7 +738,13 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   the office's share or the backup place), step 4 with the share as owner; one path out of Kopia goes into a folder of its own
   in the restore folder first (`kopia show <root>/<path>` to browse, one directory per request, never in the tick; only
   `snapshot list`, `show`, `snapshot restore` — never `maintenance` or a policy), then beside or swapped like step 4; what lies
-  in the office's share is only staged; a package Kopia brought back is an earlier version (`kopia:<journal>`). **The file
+  in the office's share is only staged; a package Kopia brought back is an earlier version (`kopia:<journal>`). **Split or
+not** he reads from the snapshot's tags (engine 2.80, `rsKopiaLayout()`): `tag:uso-layout` split (its parts in
+`tag:uso-parts`, the part's name first in the path) or single | overlay | live (not split), an own source's
+`tag:uso-split` (those shares as `<share>/<part>/…`); only an untagged, older snapshot is guessed from the folder names at
+its top — then never swapped in (`restore_kopia_split_guess`); the drill finds a package and its local file the same way.
+«When a Kopia source last went well» (`rsKopiaLast()`) comes from the engine's result file (`backupResults()`, its `good`),
+the last 60 history lines only for a source the file has none for. **The file
   browser** (agent/desks/restore-browse.php, the restore matrix's gap 4): one folder of a moment per request (never in the tick),
   paged, searched; a link shown, never followed (no folder of the path may be one); a sleeping disk said, with «wake»; picks
   next to it, swapped in or into `UnraidSecretaryOffice/restore/files/<…>-<time>` (the share never made here); a partner's kept
@@ -763,7 +772,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   the verified copy's name, size and sha256 (journal `made[].files`, manifest `drill`) — so it empties itself after 7 days.
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
-  **never musts**; params that grow on their own must be named `days`/`size`. **He only pairs partners**; what is sent is Mr.
+  **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same
+  failure, the 20 h fold (the gate above); params that grow on their own must be named `days`/`size`. **He only pairs partners**; what is sent is Mr.
   Backupsy's level.
 * **Partner offices** (agent/lib/partner.php; docs/DEVELOPMENT.md «Partner offices inside»): two offices keep each other's
   engine snapshots (ZFS datasets only) — never a master, never automatic failover. `pairs.json` read only in exactly its shape;

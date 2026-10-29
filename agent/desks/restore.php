@@ -881,17 +881,26 @@ function rsPlacePulled(array $out): array
             'partner' => ['name' => $pulled['partner'], 'time' => $pulled['time']], 'safety' => rsData() . '/safety'];
 }
 
-/** The engine's history: per Kopia source when it last went well (history.jsonl, newest last) */
+/**
+ * Per Kopia source when it last went well: the engine's result file first (2.80, backupResults(): each source's newest
+ * good one, also one older than the history's runs) — the history (history.jsonl, its last 60 runs) only for a source
+ * the file has no good one for (an older engine's, or before its first run with the file)
+ */
 function rsKopiaLast(): array
 {
     $last = [];
-    $lines = @file(BACKUP_DATA_DIR . '/state/history.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    $lines = @file(rsUbData() . '/state/history.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
     foreach (array_slice($lines, -60) as $line) {
         $j = json_decode($line, true);
         foreach (is_array($j) ? (array) ($j['kopia']['done'] ?? []) : [] as $k) {
             if (is_array($k) && !empty($k['ok']) && is_string($k['name'] ?? null)) {
                 $last[$k['name']] = max($last[$k['name']] ?? 0, (int) ($k['finished'] ?? 0) ?: (int) ($j['started'] ?? 0));
             }
+        }
+    }
+    foreach (backupResults(rsUbData())['kopia'] ?? [] as $name => $r) {
+        if ($r['good'] > 0) {
+            $last[$name] = $r['good'];
         }
     }
     return $last;
@@ -5220,7 +5229,10 @@ function rsKopiaParse(string $json): array
                   'files' => $int($summ['files'] ?? null) ?? $read ?? $int($st['fileCount'] ?? null) ?? 0,
                   'dirs' => $int($summ['dirs'] ?? null) ?? $int($st['dirCount'] ?? null),
                   'failed' => $int($summ['numFailed'] ?? null) ?? $int($st['errorCount'] ?? null) ?? 0,
-                  'description' => $text($s['description'] ?? ''), 'incomplete' => $text($s['incompleteReason'] ?? '')];
+                  'description' => $text($s['description'] ?? ''), 'incomplete' => $text($s['incompleteReason'] ?? ''),
+                  // the engine's own tags (2.80: how the source was put together — rsKopiaLayout()), only in their shape
+                  'tags' => array_filter(is_array($s['tags'] ?? null) ? $s['tags'] : [], fn ($v, $k) => is_string($k) && preg_match('/^tag:uso-[a-z-]{1,32}$/D', $k)
+                      && is_string($v) && strlen($v) <= 4096 && !preg_match('/[\x00-\x1f\x7f]/', $v), ARRAY_FILTER_USE_BOTH)];
     }
     usort($out, fn ($a, $b) => $b['time'] <=> $a['time']);
     return $out;

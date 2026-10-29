@@ -14823,6 +14823,63 @@ function testRestoreReviewPaths(): void
         [$p['options']['split'], in_array('restore_kopia_split_guess', array_column($p['blockers'], 'key'), true), $p['target']['live']]);
     $GLOBALS['rs']['ctx'] = $ctx;
     same('review M4: a plain snapshot — swapped as before', [], array_column(rsPlanKopiaPath(['mode' => 'swap'], '20261025-150500', $kstate, 'zzdocs', $snapId, 'keep.txt')['blockers'], 'key'));
+    // engine 2.80: the snapshot says how its source was put together (tags) — no guess; untagged ones guessed as above
+    $snap3 = str_repeat('c', 32);
+    $snap4 = str_repeat('d', 32);
+    $list = json_decode((string) file_get_contents("$K/list.json"), true);
+    $tagged = fn (string $id, array $tags) => ['id' => $id, 'startTime' => '2026-10-18T00:10:00Z', 'description' => 'uso-backup 20261018-0100', 'incompleteReason' => '',
+        'rootEntry' => ['obj' => $root2, 'summ' => ['size' => 6, 'files' => 1, 'dirs' => 2, 'numFailed' => 0]], 'tags' => $tags];
+    file_put_contents("$K/list.json", json_encode([...$list, $tagged($snap3, ['tag:uso-layout' => 'split', 'tag:uso-parts' => 'hazel|disk1']),
+        $tagged($snap4, ['tag:uso-layout' => 'single'])]));
+    $c = $ctx;
+    $c['fs']['disk1'] = 'xfs';
+    $GLOBALS['rs']['ctx'] = $c;
+    $p = rsPlanKopiaPath(['mode' => 'swap'], '20261025-150510', $kstate, 'zzdocs', $snap3, 'hazel/doc.txt');
+    same('engine 2.80: a snapshot tagged split (uso-parts hazel|disk1) — split for sure: the part dropped, no guess, swap offered and planned',
+        [true, false, false, ['copy', 'swap', 'stage'], '/mnt/user/zzdocs/doc.txt', 'swap'],
+        [$p['options']['split'], $p['options']['split_guess'], in_array('restore_kopia_split_guess', array_column($p['blockers'], 'key'), true), $p['options']['way'],
+         $p['target']['live'], $p['target']['mode']]);
+    $p = rsPlanKopiaPath(['mode' => 'swap'], '20261025-150520', $kstate, 'zzdocs', $snap4, 'hazel/doc.txt');
+    same('engine 2.80: … the same folders tagged single — not split, no guess: hazel is a folder of the share',
+        [false, false, false, ['copy', 'swap', 'stage'], '/mnt/user/zzdocs/hazel/doc.txt'],
+        [$p['options']['split'], $p['options']['split_guess'], in_array('restore_kopia_split_guess', array_column($p['blockers'], 'key'), true), $p['options']['way'],
+         $p['target']['live']]);
+    same('engine 2.80: … the untagged one with the same folders — still the guess', true,
+        rsPlanKopiaPath(['mode' => 'swap'], '20261025-150530', $kstate, 'zzdocs', $snap2, 'hazel/doc.txt')['options']['split_guess']);
+    same('engine 2.80: «Browse…» says split from the tags: split (the part itself only staged), single, untagged (guessed from today\'s parts: not the share\'s)',
+        [[true, null, true], [false, '/mnt/user/zzdocs/hazel', true], [false, '/mnt/user/zzdocs/hazel', true]],
+        array_map(fn ($ls) => [$ls['split'], $ls['live'], $ls['entries'][0]['live'] ?? null],
+            array_map(fn ($id) => rsKopiaLs(['source' => 'zzdocs', 'snapshot' => $id, 'path' => 'hazel']), [$snap3, $snap4, $snap2])));
+    $GLOBALS['rs']['ctx'] = $ctx;
+    same('engine 2.80: the layout from the tags — a share split (its parts), single/overlay/live, none or unknown (null: guessed), an own source\'s split shares',
+        [['split' => true, 'parts' => ['cache', 'disk1'], 'shares' => []], false, false, false, null, null,
+         ['split' => false, 'parts' => [], 'shares' => ['appdata', 'media 2']], null, ['split' => true, 'parts' => ['cache'], 'shares' => []]],
+        [rsKopiaLayout(['tag:uso-layout' => 'split', 'tag:uso-parts' => 'cache|disk1'], 'media'), rsKopiaLayout(['tag:uso-layout' => 'single'], 'media')['split'],
+         rsKopiaLayout(['tag:uso-layout' => 'overlay'], 'media')['split'], rsKopiaLayout(['tag:uso-layout' => 'live'], 'media')['split'],
+         rsKopiaLayout([], 'media'), rsKopiaLayout(['tag:uso-layout' => 'odd'], 'media'),
+         rsKopiaLayout(['tag:uso-split' => 'appdata|media 2|../x'], '.apps/nc'), rsKopiaLayout(['tag:uso-layout' => 'split'], '.apps/nc'),
+         rsKopiaLayout(['tag:uso-layout' => 'split', 'tag:uso-parts' => 'cache|..|a/b|'], 'media')]);
+    same('engine 2.80: an own source with appdata in uso-split — <share>/<part>/<path>: the part dropped; the part alone only staged; untagged as before',
+        ['/mnt/user/appdata/nc/config.php', null, '/mnt/user/appdata/hazel/nc/config.php', '/mnt/user/system/x'],
+        [rsKopiaLive('.apps/nc', 'appdata/hazel/nc/config.php', false, $settings, null, ['appdata']), rsKopiaLive('.apps/nc', 'appdata/hazel', false, $settings, null, ['appdata']),
+         rsKopiaLive('.apps/nc', 'appdata/hazel/nc/config.php', false, $settings), rsKopiaLive('.apps/nc', 'system/x', false, $settings, null, ['appdata'])]);
+    // engine 2.80: «when a Kopia source last went well» from the result file first, the history only where it has none
+    $st = "$tmp/data/unraid-backup/state";
+    file_put_contents("$st/history.jsonl", json_encode(['started' => 1000, 'kopia' => ['done' => [['name' => 'zzdocs', 'ok' => true, 'finished' => 1100],
+        ['name' => 'app:nc', 'ok' => true, 'finished' => 1200], ['name' => 'media', 'ok' => true, 'finished' => 1300]]]]) . "\n");
+    same('engine 2.80: Kopia\'s last good one — no result file: the history as before', ['zzdocs' => 1100, 'app:nc' => 1200, 'media' => 1300], rsKopiaLast());
+    $res = fn (string $result, int $good) => ['result' => $result, 'code' => '', 'time' => 5000, 'run' => '20261029-0200', 'good' => $good];
+    file_put_contents("$st/results.json", json_encode(['v' => 1, 'engine' => '2.80', 'updated' => 5000, 'run' => '20261029-0200',
+        'kopia' => ['zzdocs' => $res('ok', 5000), 'app:nc' => $res('failed', 900), 'old' => $res('ok', 700), 'media' => $res('failed', 0), 'bad' => ['result' => 'ok']]]));
+    same('engine 2.80: … with the result file — its good one first (newer, or older than the history\'s runs), the history where it has none, an entry out of shape skipped',
+        ['zzdocs' => 5000, 'app:nc' => 900, 'media' => 1300, 'old' => 700], rsKopiaLast());
+    file_put_contents("$st/results.json", json_encode(['v' => 2, 'kopia' => ['zzdocs' => $res('ok', 5000)]]));
+    same('engine 2.80: … a result file of another version — the history only', 1100, rsKopiaLast()['zzdocs'] ?? null);
+    @unlink("$st/results.json");
+    @unlink("$st/history.jsonl");
+    same('engine 2.80: Kopia\'s list keeps only the engine\'s tags, in their shape', [['tag:uso-layout' => 'split', 'tag:uso-parts' => 'cache|disk1']],
+        array_column(rsKopiaParse(json_encode([['id' => str_repeat('e', 32), 'startTime' => '2026-10-18T00:10:00Z',
+            'tags' => ['tag:uso-layout' => 'split', 'tag:uso-parts' => 'cache|disk1', 'tag:other' => 'x', 'tag:uso-bad' => "a\nb", 'tag:uso-num' => 5]]])), 'tags'));
 
     // ---- H4: the office's own folders never a target
     $GLOBALS['rs']['data'] = '/mnt/user/appdata/UnraidSecretaryOffice/data/restore';
@@ -21306,6 +21363,16 @@ function testNotifyCenter(): void
     // the chip's tip says «the very same alert twice within a minute goes once» - true only while it is a minute
     check('centre: the tip «within a minute» is NOTIFY_ALERT_SAME', NOTIFY_ALERT_SAME === 60
         && str_contains((string) json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/lang/en.json'), true)['nc.tip.alerts'], 'within a minute'));
+    // 2.80: the Team Lead's tip for a run's counted failure says the 20 h and its count; the history row shows the count
+    $ctLang = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/lang/en.json'), true);
+    $ctJs = (string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/desk.js');
+    $hours = intdiv(NOTIFY_FAILED_SAME, 3600) . ' hours';
+    check('centre 2.80: the tips «within 20 hours» are NOTIFY_FAILED_SAME (the failure\'s own, the alerts\' too), with the count', NOTIFY_FAILED_SAME === 72000
+        && str_contains((string) ($ctLang['nc.tip.failed_same']['other'] ?? ''), $hours) && str_contains((string) ($ctLang['nc.tip.failed_same']['other'] ?? ''), '{n}')
+        && str_contains((string) $ctLang['nc.tip.alerts'], $hours));
+    check('centre 2.80: the chip of a counted backup failed/refused takes that tip with its times, the history row the count',
+        str_contains($ctJs, "e.desk === 'backup' && ['failed', 'refused'].includes(e.event) && e.times > 1") && str_contains($ctJs, "T('nc.tip.failed_same', { n: e.times })")
+        && str_contains($ctJs, "e.times > 1 ? el('span', '', Office.t('notifycenter.times', { n: e.times })) : null"));
 
     // ---- the settings: none = today's behaviour; tolerant; the senders' file
     $s = officeNotifySettings([]);
@@ -21489,6 +21556,8 @@ function testNotifyCenter(): void
     same('centre send: right away — sent and in the guard', [1, 'sent'], [count($calls()), officeNotifyGuardRead($h)[0][1] ?? null]);
     officeNotify('Ms. Snapshotini: plan failed', 'y', 'warning', '', null, 'snapshot', 'plan_failed');
     same('centre send: the same again — counted, not sent', [1, 'counted'], [count($calls()), array_values(officeNotifyDropsRead($h))[2]['fate'] ?? null]);
+    same('centre send 2.80: a PHP sender\'s drop carries its count — the counted one times 2 (and the history keeps it), the others 0', [0, 0, 2, 2],
+        [...array_map(fn ($i) => $i['times'] ?? null, array_values(officeNotifyDropsRead($h))), officeNotifyLogEntry(array_values(officeNotifyDropsRead($h))[2])['times'] ?? null]);
     for ($i = 1; $i <= 6; $i++) {
         officeNotify("Night watchman: thing $i", 'z', 'warning', '', null, 'watchman', 'chain');
     }
@@ -35834,6 +35903,31 @@ function testRestoreDrill(): void
     $kenv['ctx']['asleep'] = ['rowan' => true];
     $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dROOT'), 'run' => '20261101-0200'], $kenv);
     same('drill Kopia sample: the local snapshot asleep — read back from Kopia, not compared, never woken', [2, 0, 2], [$sample['files'], $sample['compared'], $sample['asleep']]);
+    $kenv['ctx']['asleep'] = [];
+    // engine 2.80: an own source whose part of the backup place's share sits split (<share>/<part>/…, tag uso-split)
+    $tree3 = ['dR3' => [['name' => 'UnraidSecretaryOffice', 'type' => 'd', 'obj' => $o('dU3')]], 'dU3' => [['name' => 'rowan', 'type' => 'd', 'obj' => $o('dW3')]],
+              'dW3' => [['name' => 'backup', 'type' => 'd', 'obj' => $o('dB3')]], 'dB3' => [['name' => 'apps', 'type' => 'd', 'obj' => $o('dA3')]],
+              'dA3' => [['name' => 'immich', 'type' => 'd', 'obj' => $o('dI3')]], 'dI3' => [$kfile('compose.yaml', 'services: {}')]];
+    foreach ($tree3 as $n => $entries) {
+        file_put_contents("$tmp/kopia/" . $o($n), $dir($entries));
+    }
+    $kenv['kopia_left'] = 1 << 20;
+    $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dR3'), 'run' => '20261101-0200', 'tags' => ['tag:uso-split' => 'UnraidSecretaryOffice']], $kenv);
+    same('engine 2.80: drill Kopia sample — an own source tagged uso-split: the package found under its part, compared with that part\'s local snapshot', [1, 1, null],
+        [$sample['files'], $sample['compared'], $sample['differs']]);
+    $sample = drillKopiaSample($kj, $kj['steps'][0], ['obj' => $o('dR3'), 'run' => '20261101-0200'], $kenv);
+    same('engine 2.80: … the same snapshot untagged — looked for as before (not found there, no Kopia error)', [0, false], [$sample['files'], $sample['error']]);
+    $kc = $kctx;
+    same('engine 2.80: a Kopia path in the local snapshot — split for sure (the part, then the share), not split (never the part), untagged (guessed: the part)',
+        ['found', 'missing', 'found', 'missing'],
+        [drillKopiaLocal('UnraidSecretaryOffice/rowan/backup/apps/immich/compose.yaml', '20261101-0200', $kc, true)['state'],
+         drillKopiaLocal('UnraidSecretaryOffice/rowan/backup/apps/immich/compose.yaml', '20261101-0200', $kc, false)['state'],
+         drillKopiaLocal('UnraidSecretaryOffice/rowan/backup/apps/immich/compose.yaml', '20261101-0200', $kc)['state'],
+         drillKopiaLocal('UnraidSecretaryOffice/backup/apps/immich/compose.yaml', '20261101-0200', $kc, true)['state']]);
+    same('engine 2.80: … the share\'s own source tagged split — its part in the path, the package under it; single — never a part tried',
+        [['UnraidSecretaryOffice/rowan/backup/apps/immich', true], null],
+        [(fn ($r) => $r ? [$r['rel'], $r['split']] : null)(drillKopiaPackageDir($kj, $kenv, $o('dU3'), 'UnraidSecretaryOffice', 'app', 'immich', ['tag:uso-layout' => 'split', 'tag:uso-parts' => 'rowan'])),
+         drillKopiaPackageDir($kj, $kenv, $o('dU3'), 'UnraidSecretaryOffice', 'app', 'immich', ['tag:uso-layout' => 'single'])]);
     // the whole step: list (newest complete), structure, sample
     file_put_contents("$tmp/kopia/list.json", json_encode([['id' => str_repeat('c', 20), 'startTime' => date('c', time() - 3600), 'description' => 'uso-backup 20261101-0200',
         'incompleteReason' => '', 'rootEntry' => ['obj' => $o('dROOT'), 'summ' => ['size' => 99, 'files' => 3, 'numFailed' => 0]]]]));

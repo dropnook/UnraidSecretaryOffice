@@ -205,6 +205,18 @@
    "description": "One after another within 2 minutes."
   },
   {
+   "id": "l9",
+   "time": 1791559874,
+   "desk": "backup",
+   "event": "failed",
+   "level": "alert",
+   "fate": "counted",
+   "why": "same",
+   "times": 3,
+   "subject": "Mr. Backupsy: Backup failed",
+   "description": "The backup place is full."
+  },
+  {
    "id": "l4",
    "time": 1791558874,
    "desk": "caretaker",

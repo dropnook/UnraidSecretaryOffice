@@ -752,7 +752,8 @@ function officeNotify(string $subject, string $description, string $level = 'nor
     }
     if ($g) {
         officeNotifyDrop($g['home'], ['desk' => $desk, 'event' => $event, 'level' => $level, 'fate' => $fate, 'why' => $g['why'], 'due' => $g['due'],
-            'key' => $g['key'], 'subject' => $flat($subject), 'description' => $flat($description), 'message' => trim($message), 'link' => (string) $link]);
+            'key' => $g['key'], 'subject' => $flat($subject), 'description' => $flat($description), 'message' => trim($message), 'link' => (string) $link,
+            'times' => $g['times'] ?? 0]);
         if (function_exists('logLine') && $fate !== 'sent') {
             logLine("Notifications: «{$args[4]}» ($desk, $level) — $fate" . ($g['why'] !== '' ? " ({$g['why']})" : ''));
         }

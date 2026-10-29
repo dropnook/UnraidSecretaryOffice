@@ -225,11 +225,36 @@ function rsKopiaSplit(?array $top, string $share, array &$ctx): bool
 }
 
 /**
- * Where a path of a Kopia source lies on the server: a share's source holds the share (<share>/<path>; split: the part's
- * name first), an app's or VM's own source <share>/<path>. Null for what is only staged — the office's own share and
- * the backup place (packages: they come back as earlier versions), a path at the top of an own source, a share's part.
+ * How the engine put a Kopia source together, from its snapshot's tags (engine 2.80, review M4): a share's `uso-layout`
+ * single | overlay | live — not split — or split, its parts then in `uso-parts` (<share>/<base>/… in the source); an
+ * app's or VM's own source names in `uso-split` the shares whose part sits there as <share>/<base>/…. Null without
+ * them (an older engine's or Kopia's snapshot, or an own source with no share split): read as before — a share's split
+ * guessed from the folder names at its top (rsKopiaSplit, rsKopiaSplitLike).
+ *
+ * @return ?array{split: bool, parts: list<string>, shares: list<string>}
  */
-function rsKopiaLive(string $source, string $rel, bool $split, array $settings, ?array $k = null): ?string
+function rsKopiaLayout(array $tags, string $source): ?array
+{
+    $list = fn (string $key, string $re) => array_values(array_filter(explode('|', is_string($tags[$key] ?? null) ? $tags[$key] : ''),
+        fn ($x) => preg_match($re, $x) && !in_array($x, ['.', '..'], true)));
+    if ($source !== '' && $source[0] === '.') {
+        $shares = $list('tag:uso-split', RS_SHARE_NAME);
+        return $shares ? ['split' => false, 'parts' => [], 'shares' => $shares] : null;
+    }
+    $how = $tags['tag:uso-layout'] ?? null;
+    if (!in_array($how, ['single', 'overlay', 'split', 'live'], true)) {
+        return null;
+    }
+    return ['split' => $how === 'split', 'parts' => $how === 'split' ? $list('tag:uso-parts', '/^[A-Za-z0-9_.-]{1,64}$/D') : [], 'shares' => []];
+}
+
+/**
+ * Where a path of a Kopia source lies on the server: a share's source holds the share (<share>/<path>; split: the part's
+ * name first), an app's or VM's own source <share>/<path> (a share in $splitShares, its `uso-split` tag:
+ * <share>/<base>/<path>). Null for what is only staged — the office's own share and the backup place (packages: they
+ * come back as earlier versions), a path at the top of an own source, a share's part.
+ */
+function rsKopiaLive(string $source, string $rel, bool $split, array $settings, ?array $k = null, array $splitShares = []): ?string
 {
     $parts = $rel === '' ? [] : explode('/', $rel);
     if (array_intersect($parts, ['', '.', '..'])) {
@@ -240,6 +265,12 @@ function rsKopiaLive(string $source, string $rel, bool $split, array $settings, 
             return null;
         }
         $share = array_shift($parts);
+        if (in_array($share, $splitShares, true)) {
+            array_shift($parts);
+            if (!$parts) {
+                return null;
+            }
+        }
     } else {
         $share = $source;
         if ($split) {
@@ -280,15 +311,17 @@ function rsKopiaLs(array $r): array
         throw new Problem('restore_kopia_not_in', ['path' => $rel]);
     }
     $settings = $GLOBALS['rs']['settings'] ?? backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
-    $split = false;
-    if ($source[0] !== '.') {
+    $layout = rsKopiaLayout($snap['tags'] ?? [], $source);
+    $split = $layout['split'] ?? false;
+    if ($source[0] !== '.' && $layout === null) {
         $ctx = $GLOBALS['rs']['ctx'] ?? rsContext($settings);
         $split = rsKopiaSplit($rel === '' ? $entries : rsKopiaDir($k, $uid, (string) $snap['obj'], ''), $source, $ctx);
     }
+    $shares = $layout['shares'] ?? [];
     $more = max(0, count($entries) - RS_KOPIA_LS_MAX);
     return ['ok' => true, 'source' => $source, 'snapshot' => $snapshot, 'path' => $rel, 'time' => $snap['time'], 'split' => $split,
-            'live' => $rel === '' ? null : rsKopiaLive($source, $rel, $split, $settings, $k),
-            'entries' => array_map(fn ($e) => $e + ['live' => rsKopiaLive($source, $rel === '' ? $e['name'] : "$rel/{$e['name']}", $split, $settings, $k) !== null],
+            'live' => $rel === '' ? null : rsKopiaLive($source, $rel, $split, $settings, $k, $shares),
+            'entries' => array_map(fn ($e) => $e + ['live' => rsKopiaLive($source, $rel === '' ? $e['name'] : "$rel/{$e['name']}", $split, $settings, $k, $shares) !== null],
                 array_slice($entries, 0, RS_KOPIA_LS_MAX)), 'more' => $more];
 }
 
@@ -325,12 +358,13 @@ function rsPlanKopiaPath(array $r, string $stamp, array $state, string $source, 
     }
     $settings = $GLOBALS['rs']['settings'] ?? backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');     // tests: their own
     $ctx = $GLOBALS['rs']['ctx'] ?? rsContext($settings);
-    $top = $source[0] !== '.' ? rsKopiaDir($k, $uid, (string) $snap['obj'], '') : null;
-    $split = $top !== null && rsKopiaSplit($top, $source, $ctx);
-    // split or not is read from the folder names at the snapshot's top, compared with today's pools and disks — a guess
-    // (review 1.72.0, M4): then never swapped in, only copied next to it
-    $guess = $split || ($top !== null && rsKopiaSplitLike($top, $ctx));
-    $live = rsKopiaLive($source, $rel, $split, $settings, $k);
+    // split or not: the snapshot says so (engine 2.80, its tags). An older one's is read from the folder names at its
+    // top, compared with today's pools and disks — a guess (review 1.72.0, M4): then never swapped in, only copied beside
+    $layout = rsKopiaLayout($snap['tags'] ?? [], $source);
+    $top = $source[0] !== '.' && $layout === null ? rsKopiaDir($k, $uid, (string) $snap['obj'], '') : null;
+    $split = $layout !== null ? $layout['split'] : $top !== null && rsKopiaSplit($top, $source, $ctx);
+    $guess = $layout === null && ($split || ($top !== null && rsKopiaSplitLike($top, $ctx)));
+    $live = rsKopiaLive($source, $rel, $split, $settings, $k, $layout['shares'] ?? []);
     $file = $entry['type'] === 'f';
     if ($live === null) {
         $mode = 'stage';
