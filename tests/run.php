@@ -23163,6 +23163,78 @@ function testHouseDockerSilent(): void
 }
 
 /**
+ * After Docker was silent (B15) and is fixed: a desk's saved look said «Docker isn't answering» until the web side found it
+ * older than the desk's refresh_after (5 to 10 min; parking lot 10-22). houseDockerBackLook(): never inside the quiet time,
+ * nothing asked with Docker switched off (no socket), one short look at most once per quiet time (none when a call came back
+ * lately); Ms. Dustdevil's tick (clDockerBackTick()) asks it only when one of her looks said silent, and takes that look anew.
+ */
+function testDockerBackLook(): void
+{
+    $tmp = hardeningTmp('dockerback');
+    file_put_contents("$tmp/docker", "#!/bin/sh\necho x >> " . escapeshellarg("$tmp/calls") . "\n[ -f " . escapeshellarg("$tmp/hung") . " ] && sleep 30\n"
+        . "[ -f " . escapeshellarg("$tmp/broken") . " ] && exit 1\necho 27.5.1\n");
+    chmod("$tmp/docker", 0755);
+    touch("$tmp/sock");
+    $keep = array_intersect_key($GLOBALS, array_flip(['houseDockerSilent', 'houseDockerAnswered', 'houseDockerLooked', 'houseDockerBackLooked']));
+    $reset = function (): void {
+        unset($GLOBALS['houseDockerSilent'], $GLOBALS['houseDockerAnswered'], $GLOBALS['houseDockerLooked'], $GLOBALS['houseDockerBackLooked']);
+    };
+    $calls = fn (): int => count(file("$tmp/calls", FILE_SKIP_EMPTY_LINES) ?: []);
+    $ok = function_exists('houseDockerBackLook');
+    $look = fn (string $sock = '') => $ok ? houseDockerBackLook("$tmp/docker", $sock ?: "$tmp/sock") : 'no houseDockerBackLook()';
+    $mono = fn (): float => hrtime(true) / 1e9;
+    $reset();
+    $GLOBALS['houseDockerSilent'] = $mono();
+    same('docker back: inside the quiet time - no, nothing asked (the round keeps its quiet)', [false, 0], [$look(), $calls()]);
+    $reset();
+    same('docker back: Docker switched off (no socket) - no, nothing asked', [false, 0], [$look("$tmp/none"), $calls()]);
+    $GLOBALS['houseDockerSilent'] = $mono() - HOUSE_DOCKER_QUIET - 1;
+    same('docker back: the quiet time over, Docker answers - yes, after one short look', [true, 1, false], [$look(), $calls(), houseDockerSilent()]);
+    same('docker back: a call came back lately - yes, nothing asked again', [true, 1], [$look(), $calls()]);
+    unset($GLOBALS['houseDockerAnswered']);
+    touch("$tmp/broken");
+    same('docker back: at most one look per quiet time, however many ask', [false, 1], [$look(), $calls()]);
+    $GLOBALS['houseDockerBackLooked'] = $mono() - HOUSE_DOCKER_QUIET - 1;
+    same('docker back: Docker erring (no answer of its own) - no', [false, 2], [$look(), $calls()]);
+    unlink("$tmp/broken");
+    touch("$tmp/hung");
+    unset($GLOBALS['houseDockerAnswered']);
+    $GLOBALS['houseDockerBackLooked'] = $mono() - HOUSE_DOCKER_QUIET - 1;
+    $t = microtime(true);
+    $r = $look();
+    same('docker back: still hung - no after the short look, the quiet time starts anew', [false, true, true],
+        [$r, microtime(true) - $t < HOUSE_DOCKER_LOOK + 3, houseDockerSilent()]);
+    unlink("$tmp/hung");
+    // her tick: only a look of hers that said silent asks the house, and only that look is taken anew
+    $ran = [];
+    $tick = function (bool $answers) use (&$ran): array {
+        $ran = [];
+        clDockerBackTick(function () use (&$ran) { $ran[] = 'tidy'; }, function () use (&$ran) { $ran[] = 'where'; },
+            function () use (&$ran, $answers) { $ran[] = 'asked'; return $answers; });
+        return $ran;
+    };
+    $was = [$GLOBALS['clState'] ?? null, $GLOBALS['where'] ?? null];
+    $GLOBALS['clState'] = ['docker' => ['ok' => true, 'silent' => false]];
+    $GLOBALS['where'] = ['system' => ['docker' => ['up' => true, 'silent' => false]]];
+    same('docker back (her tick): her looks said nothing of silence - the house not asked', [], $tick(true));
+    $GLOBALS['clState']['docker']['silent'] = true;
+    same('docker back (her tick): her tidying said silent, Docker still silent - asked, nothing taken anew', ['asked'], $tick(false));
+    same('docker back (her tick): … Docker answers - her tidying taken anew, «where is what» left', ['asked', 'tidy'], $tick(true));
+    $GLOBALS['where']['system']['docker']['silent'] = true;
+    same('docker back (her tick): both said silent - both taken anew', ['asked', 'where', 'tidy'], $tick(true));
+    [$GLOBALS['clState'], $GLOBALS['where']] = $was;
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
+    check('docker back: her look says silent where Docker gave no answer (every early return of clDocker() and its end)',
+        substr_count($src, "return ['silent' => houseDockerSilent()] + \$out;") === 2 && str_contains($src, "    \$out['silent'] = !\$out['ok'];\n")
+        && str_contains($src, "'silent'     => \$docker['silent'] ?? false,"));
+    $reset();
+    foreach ($keep as $k => $v) {
+        $GLOBALS[$k] = $v;
+    }
+    hardeningRm($tmp);
+}
+
+/**
  * Truth review P6: a page left open never shows the old as now. A desk's «One moment …» while no state can come (the array
  * not started, the messenger away) says why (B13, core.js stillLoading()); Ms. Moverelli's run card says its numbers are
  * old when no word of the run comes back (T40); her page and Jack Streamer's peek once a minute for a run started meanwhile
@@ -27206,7 +27278,8 @@ function testWhereBuilding(): void
  */
 function testCleanupTick(): void
 {
-    same('cleanup tick: her parts, in order', ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick', 'drill' => 'clDrillCopiesTick'], clTickParts());
+    same('cleanup tick: her parts, in order', ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick', 'drill' => 'clDrillCopiesTick',
+        'docker' => 'clDockerBackTick'], clTickParts());
     same('cleanup tick: each a function', [], array_keys(array_filter(clTickParts(), fn ($f) => !is_callable($f))));
     $ran = [];
     $boom = true;
@@ -56408,7 +56481,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

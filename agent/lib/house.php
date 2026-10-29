@@ -291,6 +291,31 @@ function houseDockerForPage(callable $f): mixed
     }
 }
 
+/**
+ * A desk's saved look said Docker was silent — does it answer again (for the desk's tick)? A page shows what the desk
+ * saved, and the web side asks the agent again only when that is older than the desk's refresh_after (5 to 10 min): after
+ * Docker was fixed, Ms. Dustdevil's page went on saying «Docker isn't answering» that long (parking lot 10-22, after B15).
+ * Never inside the quiet time (the round keeps its quiet); then one short look (`docker version`, HOUSE_DOCKER_LOOK s) at
+ * most once per HOUSE_DOCKER_QUIET s however many ask — no look when a docker call of the house came back within
+ * HOUSE_DOCKER_FRESH s. Docker switched off (no socket): false, nothing asked. True: it answers — the desk looks again.
+ * $docker, $sock: the tests' stand-ins.
+ */
+function houseDockerBackLook(string $docker = 'docker', string $sock = '/var/run/docker.sock'): bool
+{
+    if (!file_exists($sock) || houseDockerSilent($docker)) {
+        return false;
+    }
+    if (houseDockerAnsweredLately()) {
+        return true;
+    }
+    $at = $GLOBALS['houseDockerBackLooked'] ?? null;
+    if (is_float($at) && hrtime(true) / 1e9 - $at < HOUSE_DOCKER_QUIET) {
+        return false;
+    }
+    $GLOBALS['houseDockerBackLooked'] = hrtime(true) / 1e9;
+    return houseDockerCall($docker, HOUSE_DOCKER_VERSION, HOUSE_DOCKER_LOOK)[0] === 0;
+}
+
 const HOUSE_AUTOSTART        = '/var/lib/docker/unraid-autostart';                  // Unraid's Docker autostart list (RAM, in docker.img's folder)
 const HOUSE_COMPOSE_CFG      = '/boot/config/plugins/compose.manager/compose.manager.cfg';
 const HOUSE_COMPOSE_PROJECTS = '/boot/config/plugins/compose.manager/projects';     // Compose Manager's PROJECTS_FOLDER by default
