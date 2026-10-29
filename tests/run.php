@@ -8591,6 +8591,28 @@ function testDataTrust(): void
     same('data trust: the engine\'s version 2.81 everywhere it is named', ['2.81', '2.81', true, true],
         [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.81"'),
          str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.81** –')]);
+    // 2.81 (B42): a run with settings.ini gone ends with a code the office says in its own words - never the script's name
+    $gone = $mk('nosettings', 0700);
+    @unlink("$tmp/notified");
+    [$e3] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh'], ['UB_DATA' => $gone] + $env, 60);
+    $st = json_decode((string) @file_get_contents("$gone/state/status.json"), true) ?: [];
+    $said = (string) @file_get_contents("$tmp/notified");
+    same('data trust: 2.81 - no settings.ini: the run fails with the code settings_missing, the alert in the office\'s words (no script named), the log keeps the English',
+        [1, 'failed', 'settings_missing', true, false, true],
+        [$e3, $st['result'] ?? null, $st['message'] ?? null, str_contains($said, 'the settings are gone'), str_contains($said, 'setup.sh'),
+         str_contains(implode('', array_map('file_get_contents', glob("$gone/logs/run-*.log") ?: [])), 'settings.ini is missing')], $said);
+    preg_match_all('/\bdie_code ([a-z_]+) "/', (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), $dc);
+    $noWords = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $words = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
+        foreach (array_unique($dc[1]) as $c) {
+            if (!isset($words["message.$c"]) || str_contains(json_encode($words["message.$c"]), '.sh')) {
+                $noWords[] = "$l:$c";
+            }
+        }
+    }
+    same('data trust: every code a run ends with (die_code) has the office\'s words in all five languages, none naming a script',
+        [[], true], [$noWords, in_array('settings_missing', $dc[1], true)]);
     // the office's own look at the same rule (Mr. Backupsy's required finding) and at the data folder (the Team Lead's)
     same('data trust: Mr. Backupsy sees it as the engine does, the command shown', [[true, ''], [false, "$tmp/nobody"], [false, "$tmp/iniNobody/settings.ini"], [null, '']],
         array_map(fn ($d) => [backupEngineTrust($d)['ok'], backupEngineTrust($d)['path']], ["$tmp/real", "$tmp/nobody", "$tmp/iniNobody", "$tmp/none"]));
@@ -15735,6 +15757,33 @@ function testRestorePaths(): void
     same('restore paths: … what Kopia brought back from the split share\'s part is an earlier version of the package', [[], "$tmp/restore/UnraidSecretaryOffice-$stamp/nc"],
         [array_column($p['blockers'], 'key'), array_column(array_filter(rsKopiaPackages('app', 'nc', '/mnt/user/UnraidSecretaryOffice/backup'), fn ($x) => $x['id'] === "kopia:$id"), 'path')[0] ?? null]);
     $GLOBALS['rs']['state'] = $kstate;
+
+    // ---- B42: settings.ini gone — the backup place as the engine's last runs had it, never «no packages»
+    $st = "$tmp/data/unraid-backup/state";
+    $where = fn (array $s = []) => array_values(rsPlaceShare($s));
+    same('restore paths: the place from the settings; none set up and no run here — none, as before',
+        [['Ablage', 'settings'], ['', 'settings']], [$where(['general' => ['dumps_share' => ['Ablage']]]), $where()]);
+    file_put_contents("$st/history.jsonl", json_encode(['started' => 1, 'packages' => ['base' => '/mnt/user/Ablage/unraid-backup']]) . "\n"
+        . json_encode(['started' => 2, 'packages' => ['base' => '/mnt/user/UnraidSecretaryOffice/backup']]) . "\n" . json_encode(['started' => 3, 'result' => 'failed', 'packages' => null]) . "\n");
+    file_put_contents("$st/last-run.json", json_encode(['result' => 'failed', 'message' => 'settings_missing', 'packages' => null]));
+    same('restore paths: settings gone — the place the last run with packages wrote (history), the run that failed for it has none', ['UnraidSecretaryOffice', 'last_run'], $where());
+    file_put_contents("$st/status.json", json_encode(['packages' => ['base' => '/mnt/user/Ablage/unraid-backup']]));
+    same('restore paths: … status.json first', ['Ablage', 'last_run'], $where());
+    $odd = [];
+    foreach (['/mnt/user/../etc/backup', '/mnt/user/Ablage/elsewhere', '/mnt/user/.x/unraid-backup', ['x']] as $bad) {
+        file_put_contents("$st/status.json", json_encode(['packages' => ['base' => $bad]]));
+        file_put_contents("$st/history.jsonl", json_encode(['packages' => ['base' => $bad]]) . "\n");
+        $odd[] = $where();
+    }
+    same('restore paths: … a base not in exactly the engine\'s shape never taken — the office\'s own share then', array_fill(0, 4, ['UnraidSecretaryOffice', 'office_share']), $odd);
+    $c = $ctx;
+    file_put_contents("$st/status.json", json_encode(['packages' => ['base' => '/mnt/user/UnraidSecretaryOffice/backup']]));
+    $pl = rsPlace([], $c);
+    same('restore paths: … rsPlace says where and that the settings didn\'t name it', ['UnraidSecretaryOffice', '/mnt/user/UnraidSecretaryOffice/backup', 'last_run'],
+        [$pl['share'], $pl['base'], $pl['from']]);
+    foreach (['status.json', 'last-run.json', 'history.jsonl'] as $f) {
+        @unlink("$st/$f");
+    }
 
     // ---- the page: the tile and section, Kopia's browse, the versions
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');

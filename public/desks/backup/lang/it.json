@@ -1585,6 +1585,7 @@
   "help.partners_text": "Allora c'è una quarta impostazione predefinita: «Tutto in locale + partner». Manda anche al partner, dopo ogni backup, ogni condivisione e VM che è un dataset ZFS proprio. Sulla scheda «Tutto in locale + fuori sede» la spunta «anche a …» fa lo stesso, accanto alla copia fuori sede.",
   "setup.known_all": "ogni cartella, anche quelle nuove — una raccolta (moltissime cartelle in cima)",
   "message.array_stopping": "fermato per l'arresto dell'array — niente perso, il prossimo backup continua",
+  "message.settings_missing": "le impostazioni non ci sono più — niente è stato salvato. Configurami di nuovo: «Configura…» → Applica; i backup fatti finora restano come sono.",
   "dash_array_stop": "Fermato per l'arresto dell'array",
   "bubble.last_array_stop": "L'ultimo backup, {when}, si è fermato quando l'array è stato arrestato — apposta: ho controllato tre volte, non si è perso niente. Il prossimo backup riprende da dove era il caricamento fuori sede.",
   "notice.array_stop": "L'ultimo backup ({when}) si è fermato perché l'array veniva arrestato – apposta, non si è perso niente. Il prossimo gira come sempre e riprende il caricamento fuori sede.",

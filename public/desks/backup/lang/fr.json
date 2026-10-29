@@ -1600,6 +1600,7 @@
   "help.partners_text": "Il y a alors un quatrième réglage par défaut : « Tout en local + partenaire ». Il envoie aussi au partenaire, après chaque sauvegarde, chaque partage et VM qui est un dataset ZFS à part. Sur la carte « Tout en local + hors site », la case « aussi vers … » fait de même, à côté de la copie hors site.",
   "setup.known_all": "chaque dossier, les nouveaux aussi — une collection (de très nombreux dossiers à la racine)",
   "message.array_stopping": "arrêtée pour l'arrêt de l'array — rien de perdu, la prochaine sauvegarde continue",
+  "message.settings_missing": "les réglages ont disparu — rien n'a été sauvegardé. Configure-moi à nouveau : « Configurer… » → Appliquer ; les sauvegardes déjà faites restent telles quelles.",
   "dash_array_stop": "Arrêtée pour l'arrêt de l'array",
   "bubble.last_array_stop": "La dernière sauvegarde {when} s'est arrêtée quand l'array a été arrêté — exprès : j'ai vérifié trois fois, rien n'est perdu. La prochaine sauvegarde reprend là où en était l'envoi hors site.",
   "notice.array_stop": "La dernière sauvegarde ({when}) s'est arrêtée parce que l'array était arrêté – exprès, rien n'est perdu. La prochaine se fait comme d'habitude et reprend l'envoi hors site.",

@@ -1579,6 +1579,7 @@
   "help.partners_text": "Then there is a fourth default: «Everything local + partner». It also sends every share and VM that is a ZFS dataset of its own to the partner, after every run. On the card «Everything local + offsite» the tick «also to …» does the same, next to the offsite copy.",
   "setup.known_all": "every folder, new ones too — a collection (very many folders at its top)",
   "message.array_stopping": "stopped for the array stop — nothing lost, the next run continues",
+  "message.settings_missing": "the settings are gone — nothing was backed up. Set me up again: «Set up…» → Apply; the backups made so far stay as they are.",
   "dash_array_stop": "Stopped for the array stop",
   "bubble.last_array_stop": "The last backup {when} stopped when the array was stopped — on purpose: I checked three times, nothing is lost. The next run carries on where the offsite upload was.",
   "notice.array_stop": "The last run ({when}) ended because the array was being stopped – on purpose, nothing is lost. The next run backs up as usual and continues the offsite upload.",

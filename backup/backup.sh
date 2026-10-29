@@ -3,7 +3,8 @@
 # unraid-backup - backup.sh                       Version 2.81 - 2026-10-29
 #   2.81 What an aborted run left and doesn't come back is an error with a code (lib/common.sh err_as) - a run logs it as
 #        before; a setup's Apply records it for the office (setup.sh ub_msg_as). An app's or VM's own Kopia source carries
-#        «uso-layout:own» (kopia_item_tags): without «uso-split» it is not split for sure (2.80: no tag at all - a guess)
+#        «uso-layout:own» (kopia_item_tags): without «uso-split» it is not split for sure (2.80: no tag at all - a guess).
+#        A run without settings.ini ends with the code settings_missing (die_code; up to 2.80 the English text)
 #   2.80 The rest of T01 (lib/notifygate.sh, the same as the office's gate): «Backup failed» / «Backup not started» with
 #        the very same cause again within 20 h (NOTIFY_FAILED_SAME), no success between, is counted - with how many
 #        times (the decision's «times», a «counted» line in the guard) - instead of an alert every run; another cause
@@ -4272,7 +4273,8 @@ if [[ "$UB_MODE" == "unmount" ]]; then
     exit 0
 fi
 
-[[ "$SETTINGS_OK" == "yes" ]] || die "settings.ini is missing ($UB_SETTINGS) - run setup.sh first"
+# 2.81 (B42): a code - the office says it in its own words (the settings gone, set up again), never the script's name
+[[ "$SETTINGS_OK" == "yes" ]] || die_code settings_missing "settings.ini is missing ($UB_SETTINGS) - run setup.sh first"
 if [[ ${#CFG_ERRORS[@]} -gt 0 ]]; then
     for e in "${CFG_ERRORS[@]}"; do err "settings.ini: $e"; done
     die "settings.ini has errors (${#CFG_ERRORS[@]}) - run aborted"

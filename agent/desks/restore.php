@@ -849,12 +849,15 @@ function rsEngine(array $settings): array
     ];
 }
 
-/** The backup place: where, whether its disk sleeps, and the local snapshots of its share (older packages) */
+/**
+ * The backup place: where, whether its disk sleeps, and the local snapshots of its share (older packages); `from` says
+ * whether the settings named it or — they are gone — the engine's last runs or the office's share (rsPlaceShare())
+ */
 function rsPlace(array $settings, array &$ctx): array
 {
-    $share = (string) backupSetting($settings, 'general', 'dumps_share', '');
+    ['share' => $share, 'from' => $from] = rsPlaceShare($settings);
     $base = backupDumpsPath($share);
-    $out = ['share' => $share, 'base' => $base, 'asleep' => false, 'found' => false, 'places' => []];
+    $out = ['share' => $share, 'base' => $base, 'asleep' => false, 'found' => false, 'places' => [], 'from' => $from];
     if ($base === null) {
         return rsPlacePulled($out);
     }
@@ -878,7 +881,7 @@ function rsPlacePulled(array $out): array
         return $out;
     }
     return ['share' => $out['share'], 'base' => $pulled['path'], 'asleep' => false, 'found' => true, 'places' => [],
-            'partner' => ['name' => $pulled['partner'], 'time' => $pulled['time']], 'safety' => rsData() . '/safety'];
+            'partner' => ['name' => $pulled['partner'], 'time' => $pulled['time']], 'safety' => rsData() . '/safety', 'from' => $out['from'] ?? 'settings'];
 }
 
 /**
@@ -1465,6 +1468,7 @@ function rsScan(): array
         'host'     => hostname(),
         'engine'   => $engine,
         'place'    => ['share' => $place['share'], 'base' => $place['base'], 'asleep' => $place['asleep'], 'found' => $place['found'], 'partner' => $place['partner'] ?? null,
+                       'from' => $place['from'] ?? 'settings',      // B42: not «settings» — the settings are gone, the place as the last runs had it
                        'snaps' => array_sum(array_map(fn ($p) => count($p['snaps']), $place['places']))],
         'kopia'    => rsKopia($engine, $settings),
         'compose_root' => rsComposeRoot(),
