@@ -24,8 +24,8 @@ declare(strict_types=1);
  * «Stop after this file» (jack.stop, jack.php): the same stop request as the mover guard's (`office-stop.json` in his
  * data folder, EMBYCACHE_STOP) with why `user`; the part says it was asked (`stopping`).
  *
- * Several copies at once (2026-10-29, «copies at once per disk» in his setup — MediaCache's parallel_per_disk, the total
- * the array's disks × that): MediaCache's `active` lists every file in flight (`current` stays the first of them, for
+ * Several copies at once (2026-10-29, «Copy from every disk at once» in his setup — one copy per array disk at the same
+ * time): MediaCache's `active` lists every file in flight (`current` stays the first of them, for
  * older readers and Ms. Moverelli's card). Each has its part (its own temporary file), each sample keeps them all
  * ([rel, part] pairs), each bar shows its files in flight under it; stopped, the run ends after the files in flight. The
  * queue: a file done while an earlier one still copies is nobody's there ([-1, 0]), `pos` counts the done ones from the

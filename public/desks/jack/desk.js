@@ -1613,7 +1613,7 @@ function initForm() {
       max_favorite_series: set.max_favorite_series ?? 10,
       use_next_up: set.use_next_up ?? true,
       array_source: set.array_source || 'user0',
-      parallel_per_disk: Number.isInteger(set.parallel_per_disk) ? set.parallel_per_disk : 1,
+      parallel_disks: typeof set.parallel_disks === 'boolean' ? set.parallel_disks : true,     // an older agent: on, as it reads it
     },
   };
   formStart = formKey();
@@ -1823,8 +1823,8 @@ function setPersonBudget(p, value) {
   p.ids.forEach((id) => delete form.budgets[id]);
   if (value) form.budgets[p.ids[0]] = value;
 }
-/** Reading from the array as it comes (MediaCache's default), one copy per disk; the way back is always Unraid's move binary (1.65.0) */
-const MORE_DEFAULTS = { array_source: 'user0', parallel_per_disk: 1 };
+/** Reading from the array as it comes (MediaCache's default), from every disk at once; the way back is always Unraid's move binary (1.65.0) */
+const MORE_DEFAULTS = { array_source: 'user0', parallel_disks: true };
 
 /**
  * His setup's tiles, pure (no DOM): [{id, key, value, sub: [text], alert}] in the parts' order — the servers (how many,
@@ -2562,25 +2562,16 @@ function setupMore() {
   return s5;
 }
 /**
- * «Copies at once per disk» (2026-10-29, MediaCache's parallel_per_disk): 1 to the agent's most; under it what that makes
- * in all — the array's data disks × it, at most the cap (the disks are the limit) — and why more per disk rarely helps
+ * «Copy from every disk at once» (2026-10-29, the owner: two copies from the same disk make no sense): on — one copy per
+ * array disk at the same time (the total the disks, at most the agent's cap), off — one after another; the hint says what
+ * that makes here and that the way back stays one at a time
  */
 function parallelField(v) {
   const p = state.parallel || {};
-  const max = Number(p.max) || 4;
-  const sel = select(v, 'parallel_per_disk', Array.from({ length: max }, (_, i) => [String(i + 1), String(i + 1)]));
-  sel.value = String(v.parallel_per_disk);
-  const f = field(T('setup.parallel'), sel, '');
-  const hint = el('small', '', '');
-  const say = () => {
-    const disks = Math.max(1, Number(p.disks) || 1);
-    const total = Math.max(1, Math.min(Number(p.total_max) || 8, v.parallel_per_disk * disks));
-    hint.textContent = T('setup.parallel_hint', { disks: nOf('array_disks', disks), total: nOf('copies', total) });
-  };
-  sel.onchange = () => { v.parallel_per_disk = Number(sel.value) || 1; say(); };
-  say();
-  f.appendChild(hint);
-  return f;
+  const disks = Math.max(1, Number(p.disks) || 1);
+  const total = Math.max(1, Math.min(Number(p.total_max) || 8, disks));
+  return check(T('setup.parallel_disks'), v.parallel_disks, (on) => { v.parallel_disks = on; },
+    T('setup.parallel_disks_hint', { disks: nOf('array_disks', disks), total: nOf('copies', total) }));
 }
 /**
  * «Set up from scratch …» (the owner: really zero, no copy): what goes and what becomes of the files he placed on the pool
@@ -2907,7 +2898,7 @@ async function saveSetup(e) {
     use_next_up: v.use_next_up,
     movie_mode: 'folder',          // always the whole folder: subtitles, preview images, nfo, extras
     array_source: v.array_source,
-    parallel_per_disk: v.parallel_per_disk,
+    parallel_disks: v.parallel_disks,
   };
   const j = await act('save', { settings });
   if (!j) return;

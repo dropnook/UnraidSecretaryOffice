@@ -2852,27 +2852,36 @@ function testJackRsync(): void
     // 2026-10-15 (the owner): MediaCache's own ways — filling with rsync, giving back with Unraid's move binary; written
     // into the settings by Jack, never forced through the environment
     $tmp = hardeningTmp('jackrsync');
-    $one = ['parallel_per_disk' => 1, 'parallel_total' => 1];
+    $one = ['parallel_disks' => true, 'parallel_per_disk' => 1, 'parallel_total' => 1];
     same('tools: whatever an old file says — filling rsync, the way back the move binary, the rest kept (share root, one copy per disk)',
         ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover', 'cache_path' => '/mnt/maple'] + JACK_FIXED + $one,
         jackTools(['fill_tool' => 'mover', 'cleanup_tool' => 'rsync', 'cache_path' => '/mnt/maple']));
     same('tools: none set — MediaCache\'s defaults', ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover'] + JACK_FIXED + $one, jackTools([]));
     same('tools: MediaCache makes the share\'s dataset', ['create_share_root' => true], JACK_FIXED);
-    // copies at once (2026-10-29): per disk as his setup chose (1 … 4, else 1), in all the array's disks × that, at most 8
-    same('tools: copies at once per disk — 1 … 4 kept, anything else 1 (in his file the total the same)',
-        [[2, 2], [4, 4], [1, 1], [1, 1], [1, 1], [1, 1]],
-        array_map(fn ($v) => [jackTools(['parallel_per_disk' => $v])['parallel_per_disk'], jackTools(['parallel_per_disk' => $v])['parallel_total']], [2, 4, 5, 0, '2', 2.0]));
+    // copies at once (2026-10-29, the owner): «Copy from every disk at once» — one per array disk at once (at most 8), off: one
+    same('tools: the switch read as a boolean — on, off; none, the old 1–4 field\'s number or anything else: on (the default); in his file one copy at a time',
+        [[true, 1, 1], [false, 1, 1], [true, 1, 1], [true, 1, 1], [true, 1, 1]],
+        array_map(fn ($s) => [jackTools($s)['parallel_disks'], jackTools($s)['parallel_per_disk'], jackTools($s)['parallel_total']],
+            [['parallel_disks' => true], ['parallel_disks' => false], [], ['parallel_per_disk' => 2], ['parallel_disks' => 'no']]));
     $ini = ['parity' => ['type' => 'Parity'], 'disk1' => ['type' => 'Data', 'status' => 'DISK_OK'], 'disk2' => ['type' => 'Data', 'status' => 'DISK_OK'],
             'disk3' => ['type' => 'Data', 'status' => 'DISK_NP'], 'cache' => ['type' => 'Cache'], 'disk9' => ['name' => 'disk9', 'type' => 'Cache']];
     same('tools: the array\'s data disks — parity, an empty slot and a pool (whatever its name) left out; none known: 1', [2, 1], [jackArrayDisks($ini), jackArrayDisks([])]);
-    same('tools: copies in all — the disks × per disk, at most 8', [1, 2, 4, 8, 8], [jackParallelTotal(1, 1), jackParallelTotal(1, 2), jackParallelTotal(2, 2), jackParallelTotal(4, 2), jackParallelTotal(4, 6)]);
-    $env = jackPyEnv(['parallel_per_disk' => 2], 3);
-    same('tools: his runs get both — per disk 2, three disks: 6 at once', ['2', '6'], [$env['MEDIACACHE_PARALLEL_PER_DISK'], $env['MEDIACACHE_PARALLEL_TOTAL']]);
-    $env = jackPyEnv(['parallel_per_disk' => 'x'], 1);
-    same('tools: an older file, one disk — one copy at a time as before', ['1', '1'], [$env['MEDIACACHE_PARALLEL_PER_DISK'], $env['MEDIACACHE_PARALLEL_TOTAL']]);
-    check('tools: the setup\'s field is a setting of his (the page sends it), checked before it is taken',
-        in_array('parallel_per_disk', JACK_SETTINGS, true) && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'),
-        "jackParallelPerDisk(['parallel_per_disk' => \$in['parallel_per_disk']]) !== \$in['parallel_per_disk']) {\n        throw new Problem('bad_request');"));
+    same('tools: copies in all — on: one per disk, at most 8; off: one', [1, 2, 8, 1, 1], [jackParallelTotal(true, 1), jackParallelTotal(true, 2), jackParallelTotal(true, 12), jackParallelTotal(false, 3), jackParallelTotal(false, 1)]);
+    $env = jackPyEnv(['parallel_disks' => true], 3);
+    same('tools: his runs — on, three disks: one per disk, three at once', ['1', '3'], [$env['MEDIACACHE_PARALLEL_PER_DISK'], $env['MEDIACACHE_PARALLEL_TOTAL']]);
+    $env = jackPyEnv(['parallel_disks' => false], 3);
+    same('tools: his runs — off: one at a time', ['1', '1'], [$env['MEDIACACHE_PARALLEL_PER_DISK'], $env['MEDIACACHE_PARALLEL_TOTAL']]);
+    $env = jackPyEnv(['parallel_per_disk' => 3], 2);
+    same('tools: an older file with the field\'s number — on, never more than one per disk', ['1', '2'], [$env['MEDIACACHE_PARALLEL_PER_DISK'], $env['MEDIACACHE_PARALLEL_TOTAL']]);
+    check('tools: the setup\'s switch is a setting of his (the page sends it), a boolean checked before it is taken; the old field gone',
+        in_array('parallel_disks', JACK_SETTINGS, true) && !in_array('parallel_per_disk', JACK_SETTINGS, true) && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'),
+        "if (array_key_exists('parallel_disks', \$in) && !is_bool(\$in['parallel_disks'])) {\n        throw new Problem('bad_request');"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/jack/lang/$l.json") ?? [];
+        check("tools lang $l: the switch and its hint (disks, copies; the way back one at a time), no 1–4 field's keys left",
+            is_string($lang['setup.parallel_disks'] ?? null) && str_contains((string) ($lang['setup.parallel_disks_hint'] ?? ''), '{disks}')
+            && str_contains((string) ($lang['setup.parallel_disks_hint'] ?? ''), '{total}') && !isset($lang['setup.parallel']) && !isset($lang['setup.parallel_hint']));
+    }
     @mkdir("$tmp/emby", 0700, true);
     @mkdir("$tmp/pool", 0700, true);
     $inst = [['servername' => 'Emby', 'url' => 'http://192.168.20.10:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]];

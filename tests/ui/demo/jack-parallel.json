@@ -57,7 +57,7 @@
   "user_path": "/mnt/user",
   "array_disks_glob": "/mnt/disk[0-9]*",
   "mover_debug_level": 0,
-  "parallel_per_disk": 1
+  "parallel_disks": true
  },
  "shares": [
   {
@@ -659,7 +659,6 @@
  },
  "parallel": {
   "disks": 3,
-  "max": 4,
   "total_max": 8
  },
  "watching": [

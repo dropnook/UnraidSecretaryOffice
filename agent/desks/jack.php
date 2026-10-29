@@ -40,7 +40,7 @@ const JACK_LIST_REBUILD_MAX = 200000;          // files of his shares on the poo
 const JACK_SETTINGS = ['cache_path', 'cache_budget', 'number_episodes', 'movie_share_percent', 'max_episodes_per_series',
                        'max_resume_items', 'max_resume_movies', 'max_resume_series', 'max_favorite_series', 'use_next_up', 'min_free_percent', 'movie_mode',
                        'array_source', 'array_path', 'user_path',
-                       'array_disks_glob', 'mover_debug_level', 'parallel_per_disk'];
+                       'array_disks_glob', 'mover_debug_level', 'parallel_disks'];
 // (2026-10-14, his setup back on tiles: create_share_root has no field — it stays as his settings have it, EmbyCache's
 // default false; the wizard's give_back_unwatched_days, read by nothing, goes at the next save and with the update)
 // budget mode always (2026-10-14, the owner): the budget in total is the hard cap, every person at least this much
@@ -51,10 +51,9 @@ const JACK_MIN_PERSON_BYTES = 20 << 30;
 // pool (jackShareFit() ok), so the binary moves them Cache → Array. Written into the settings, never forced by environment.
 const JACK_TOOLS = ['fill_tool' => 'rsync', 'cleanup_tool' => 'mover'];
 const JACK_FIXED       = ['create_share_root' => true];
-// copies at once (2026-10-29, MediaCache's parallel_per_disk — helmi's: per source disk): his setup's «copies at once per
-// disk» 1 … JACK_PARALLEL_MAX (1 as MediaCache's default); the total is the array's data disks × that, at most
-// JACK_PARALLEL_TOTAL_MAX — the disks are the limit (more than one per HDD rarely gets faster: its head jumps)
-const JACK_PARALLEL_MAX       = 4;
+// copies at once (2026-10-29, the owner: two copies from the same disk make no sense): his setup's «Copy from every disk at
+// once» (`parallel_disks`, on by default) — MediaCache's parallel_per_disk 1, its parallel_total the array's data disks (at
+// most JACK_PARALLEL_TOTAL_MAX); off: one copy at a time. The give-back to the array stays one at a time (parity).
 const JACK_PARALLEL_TOTAL_MAX = 8;
 // rsync's options are the office's too (EmbyCache's defaults): never what a settings file names - rsync runs as root, and
 // an option like --log-file writes wherever it says (review 2026-10-15)
@@ -354,8 +353,8 @@ function jackScan(): array
         'share_info' => jackShareInfo(),
         'pool_dirs'  => jackPoolDirs(),
         'pool_sizes' => jackPoolSizes(),        // each pool's size in bytes (on ZFS the whole pool): the budget never above it
-        // copies at once (2026-10-29): the array's data disks — his setup's «copies at once per disk» × these, at most the cap
-        'parallel'   => ['disks' => jackArrayDisks(), 'max' => JACK_PARALLEL_MAX, 'total_max' => JACK_PARALLEL_TOTAL_MAX],
+        // copies at once (2026-10-29): the array's data disks — his setup's «Copy from every disk at once»: one from each, at most the cap
+        'parallel'   => ['disks' => jackArrayDisks(), 'total_max' => JACK_PARALLEL_TOTAL_MAX],
         'old_clone'  => is_dir(JACK_DATA . '/app/.git'),
         // Unraid's mover: may real runs go (its schedule «Disabled», Ms. Moverelli supervising with his list kept out), is it at work
         'mover'      => jackMoverState(),
@@ -521,22 +520,21 @@ function jackReadSettings(string $dir = JACK_DATA): ?array
 /**
  * MediaCache's settings as Jack uses them: its own tools (JACK_TOOLS — an old forced rsync for the give-back reads as the
  * move binary; the next save writes it so). The share's ZFS dataset is MediaCache's (create_share_root, 1.65.0 — before, Jack made it himself before a real run),
- * copies at once per disk as his setup chose (1 … JACK_PARALLEL_MAX, else 1; the total in his file the same — his runs
- * get the array's disks × that, jackPyEnv()).
+ * one copy at a time in his file (MediaCache's own default, for a run outside the office) — his runs get one per disk
+ * from every disk at once while his setup's switch is on (jackPyEnv()); the switch as a boolean.
  */
 function jackTools(array $s): array
 {
     // «back to the disk they came from» is gone (the owner, 2026-10-16): Unraid's share rules and its move binary decide
     unset($s['return_to_origin']);
-    $per = jackParallelPerDisk($s);
-    return array_replace($s, JACK_TOOLS, JACK_FIXED, ['parallel_per_disk' => $per, 'parallel_total' => $per]);
+    return array_replace($s, JACK_TOOLS, JACK_FIXED, ['parallel_disks' => jackParallelDisks($s), 'parallel_per_disk' => 1, 'parallel_total' => 1]);
 }
 
-/** His setup's «copies at once per disk»: an int 1 … JACK_PARALLEL_MAX, anything else (none, an older file) 1 */
-function jackParallelPerDisk(?array $s): int
+/** His setup's «Copy from every disk at once»: the boolean, else on (the default; a number of the field before, ≥ 1: on) */
+function jackParallelDisks(?array $s): bool
 {
-    $v = $s['parallel_per_disk'] ?? 1;
-    return is_int($v) && $v >= 1 && $v <= JACK_PARALLEL_MAX ? $v : 1;
+    $v = $s['parallel_disks'] ?? null;
+    return is_bool($v) ? $v : true;
 }
 
 /** The array's data disks (disks.ini `type="Data"`, an empty slot left out) — none known: 1. $ini: the tests */
@@ -551,10 +549,10 @@ function jackArrayDisks(?array $ini = null): int
     return max(1, $n);
 }
 
-/** Copies at once in all: the array's disks × per disk, at most JACK_PARALLEL_TOTAL_MAX */
-function jackParallelTotal(int $perDisk, int $disks): int
+/** Copies at once in all: on — one per array disk, at most JACK_PARALLEL_TOTAL_MAX; off — one */
+function jackParallelTotal(bool $on, int $disks): int
 {
-    return max(1, min(JACK_PARALLEL_TOTAL_MAX, $perDisk * max(1, $disks)));
+    return $on ? max(1, min(JACK_PARALLEL_TOTAL_MAX, $disks)) : 1;
 }
 
 /** The settings as the page may see them — without the API keys */
@@ -1376,8 +1374,8 @@ function jackSave(mixed $in): array
             $persons[] = $u;
         }
     }
-    // copies at once per disk: 1 … JACK_PARALLEL_MAX, never another value turned into one
-    if (array_key_exists('parallel_per_disk', $in) && jackParallelPerDisk(['parallel_per_disk' => $in['parallel_per_disk']]) !== $in['parallel_per_disk']) {
+    // «Copy from every disk at once»: a boolean, never another value turned into one
+    if (array_key_exists('parallel_disks', $in) && !is_bool($in['parallel_disks'])) {
         throw new Problem('bad_request');
     }
     foreach (JACK_SETTINGS as $k) {
@@ -1623,18 +1621,18 @@ function runEnv(array $command, array $env, int $timeout = 60): array
 /**
  * What EmbyCache's Python always gets: its data folder, no bytecode next to the code, UTF-8 output — and rsync both ways (over
  * any settings file); in the office its minimum free space is a limit he gives back to, not only one he stops filling at
- * (EMBYCACHE_GIVE_BACK_FREE, jack-phase2 — standalone EmbyCache keeps the old behaviour); copies at once: per disk as his
- * setup chose, in all the array's disks × that (2026-10-29 — his panel shows every file in flight, «stop» ends after
- * them). $settings / $disks: the tests (read when null).
+ * (EMBYCACHE_GIVE_BACK_FREE, jack-phase2 — standalone EmbyCache keeps the old behaviour); copies at once: one per disk,
+ * from every array disk at once while his setup's switch is on, else one (2026-10-29 — his panel shows every file in
+ * flight, «stop» ends after them; the give-back stays one at a time). $settings / $disks: the tests (read when null).
  */
 function jackPyEnv(?array $settings = null, ?int $disks = null): array
 {
-    $per = jackParallelPerDisk($settings ?? jackReadSettings());
+    $on = jackParallelDisks($settings ?? jackReadSettings());
     return ['MEDIACACHE_DIR' => JACK_DATA, 'PYTHONDONTWRITEBYTECODE' => '1', 'PYTHONIOENCODING' => 'utf-8', 'PYTHONUNBUFFERED' => '1',
             'MEDIACACHE_GIVE_BACK_FREE' => '1',
             'MEDIACACHE_RSYNC_ARGS' => JACK_RSYNC_ARGS,
             // MediaCache's own live status in RAM
-            'MEDIACACHE_PARALLEL_PER_DISK' => (string) $per, 'MEDIACACHE_PARALLEL_TOTAL' => (string) jackParallelTotal($per, $disks ?? jackArrayDisks()),
+            'MEDIACACHE_PARALLEL_PER_DISK' => '1', 'MEDIACACHE_PARALLEL_TOTAL' => (string) jackParallelTotal($on, $disks ?? jackArrayDisks()),
             'MEDIACACHE_LIVE_STATUS' => RUN_DIR . '/jack-live-status.json'];
 }
 
@@ -1805,8 +1803,8 @@ const JACK_DEFAULTS = JACK_TOOLS + ['array_source' => 'user0',
                             'movie_mode' => 'folder', 'create_share_root' => true, 'mover_debug_level' => 0, 'number_episodes' => 3,
                             'movie_share_percent' => 50, 'max_episodes_per_series' => 0, 'max_favorite_series' => 10, 'use_next_up' => true,
                             'min_free_percent' => 20];
-// MediaCache's keys Jack sets himself without a word: the share root, one copy per disk (his setup changes it), its rsync
-// progress and log lines
+// MediaCache's keys Jack sets himself without a word: the share root, one copy per disk (his setup's switch: every disk at
+// once or one at a time), its rsync progress and log lines
 const JACK_IMPORT_QUIET = JACK_FIXED + ['parallel_per_disk' => 1, 'parallel_total' => 1, 'copy_progress' => true, 'status_log_interval' => 60];
 const GATHER_IMPORT_KEYS = ['BASE_DIRS', 'MIN_FREE_GB', 'DUP_CHECK', 'MOVE_CACHE', 'CACHE_ONLY_TARGET'];  // what Jack's gather settings take over
 const GATHER_IMPORT_JACK = ['LOGFILE', 'ARRAY_PATTERN', 'CACHE_PATTERN', 'EXCLUDE_FILE', 'DRYRUN'];      // Jack's own

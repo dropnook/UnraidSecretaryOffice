@@ -63,9 +63,10 @@
 > * Its own tools: filling `rsync`, giving back Unraid's `move` binary (through shfs: the share's «Minimum free space»,
 >   allocation and split level, a ZFS array disk's dataset made by Unraid). Jack writes them into the settings; no
 >   environment forces them. Jack's shares are «Cache: yes» on his pool, so the binary moves them Cache → Array.
-> * `parallel_per_disk` from Jack's setup («copies at once per disk», 1–4, default 1 — MediaCache's default and meaning:
->   per source disk); `parallel_total` = the array's data disks × that, at most 8 (`MEDIACACHE_PARALLEL_TOTAL` at each run;
->   in the settings file the same as per disk). Before 2026-10-29 both were written fixed to 1.
+> * `parallel_per_disk` = 1 (two copies from the same disk make no sense); `parallel_total` from Jack's setup switch «Copy
+>   from every disk at once» (on by default): the array's data disks, at most 8 — off: 1 (`MEDIACACHE_PARALLEL_TOTAL` at
+>   each run; 1 in the settings file). The give-back stays one at a time (the parity is written). Before 2026-10-29 both
+>   were written fixed to 1.
 > * `create_share_root` on (its default — written fixed): the share's ZFS dataset is MediaCache's, Jack makes none.
 > * `MEDIACACHE_RSYNC_ARGS` = `-aAX --numeric-ids` (its default): rsync runs as root — no option from a settings file.
 > * `MEDIACACHE_GIVE_BACK_FREE=1`: `min_free_percent` is a limit the run gives back to, not only one it stops filling at;
