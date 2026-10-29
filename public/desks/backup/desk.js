@@ -7085,17 +7085,22 @@ Office.places(ID, [
  * The setup's rows for the office's search (2026-10-17: «immich», «Mediathek» should find the row to change): every share,
  * VM and app of the plan the page loaded (setupLoad() hands it in, Office.placesTook(ID, plan, 'setup')) - never a request
  * of its own, never per keystroke. Each leads to its step's tile and its row (setup:share|vm|app:…), which the search
- * scrolls to and marks; an app is found by its containers' names too
+ * scrolls to and marks; an app is found by its containers' names too. Each with its level (2026-10-29) as the setup holds it
+ * when the plan came - the saved settings or the plan's proposals (setupInitLevels()); a plan the page doesn't hold: none
  */
 function setupSearchItems(plan) {
   if (!plan || !Array.isArray(plan.shares)) return [];
-  const m = setup.plan === plan && setup.model ? setup.model : setupModel(plan);
-  const sub = (step) => `${T('setup.page')} · ${T(step).replace(/^\d+\s*·\s*/, '')}`;     // the step's name without its number («2 · »)
+  const held = setup.plan === plan && setup.model;
+  const m = held ? setup.model : setupModel(plan);
+  const sub = (step, level) => [T('setup.page'), T(step).replace(/^\d+\s*·\s*/, ''), ...(level ? [level] : [])].join(' · ');     // the step's name without its number («2 · »)
   const route = (step) => setupRoute(STEP_TILE[step]);
+  const unit = (key, pKey) => (held && setup.draft && setup.levels && key in setup.levels ? (levelOf(key) ? levelWord(key, pKey) : T('setup.level.0')) : '');
+  const share = (x) => (held && setup.draft ? T('setup.mode.' + dget(`share|${x.name}|mode`, 'off')) : '');
   return [
-    ...plan.shares.filter((x) => x.exists).map((x) => ({ text: x.name, sub: sub('setup.shares'), anchor: `setup:share:${x.name}`, route: route('setup.shares') })),
-    ...m.vms.map((v) => ({ text: v.name, sub: sub('setup.vms'), anchor: `setup:vm:${v.name}`, route: route('setup.vms') })),
-    ...m.apps.map((a) => ({ text: a.name, sub: sub('setup.apps'), anchor: `setup:app:${a.id}`, route: route('setup.apps'), words: a.members.join(' ') })),
+    ...plan.shares.filter((x) => x.exists).map((x) => ({ text: x.name, sub: sub('setup.shares', share(x)), anchor: `setup:share:${x.name}`, route: route('setup.shares') })),
+    ...m.vms.map((v) => ({ text: v.name, sub: sub('setup.vms', unit('vm:' + v.name, `vm|${v.name}|partner`)), anchor: `setup:vm:${v.name}`, route: route('setup.vms') })),
+    ...m.apps.map((a) => ({ text: a.name, sub: sub('setup.apps', unit('app:' + a.id, `app|${a.name}|partner`)), anchor: `setup:app:${a.id}`, route: route('setup.apps'),
+      words: a.members.join(' ') })),
   ];
 }
 

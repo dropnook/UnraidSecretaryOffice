@@ -190,7 +190,8 @@ when his page opens and on *Check now* — read only, no disk wakes up, nothing 
 The magnifier at the top right, or ⌘K / Ctrl+K inside the office, finds a desk, a section, a tile, a setting, a step
 of a setup or one of the Consultant's guides — in all five languages at once, forgiving a typo. It also finds what the
 desks know right now: a share, an app, a VM, a database, an open point, an entry of the watch book, a partner office,
-what Ms. Dustdevil would clear away and where it lies. Choose one and the office takes you there, opens it and marks
+what Ms. Dustdevil would clear away and where it lies — and, once Mr. Backupsy's setup was open, its lines: every
+share, app and VM with its level, straight to its row in the setup. Choose one and the office takes you there, opens it and marks
 the place. It all runs in your browser.
 
 ## Install and first steps

@@ -55883,7 +55883,11 @@ globalThis.Office = { scope: () => T, t: T, el: () => ({}), fmt: { size: (b) => 
   placesFrom: (d, f) => { provider = f; }, placesTook: () => {}, selbar: () => {}, has: () => true };
 (0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
 const plan = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
-console.log(JSON.stringify({ setup: provider(plan, 'setup'), main: provider({ found: false }, null).length }));
+const out = { setup: provider(plan, 'setup'), main: provider({ found: false }, null).length };
+// the plan the page holds (its draft and levels): each line with its level
+const b = OFFICE_DESK_TESTS.backup;
+try { b.setup.plan = plan; b.setupDraftFromPlan(); b.setup.model = b.setupModel(plan); b.setupInitLevels(); out.held = provider(plan, 'setup'); } catch (e) { out.held = String(e.stack); }
+console.log(JSON.stringify(out));
 JS;
     file_put_contents("$tmp/t.js", $js);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' ' . escapeshellarg("$tmp/plan.json") . ' 2>&1');
@@ -55902,6 +55906,12 @@ JS;
          array_values(array_intersect_key($by['immich'] ?? [], ['sub' => 1, 'anchor' => 1, 'route' => 1, 'words' => 1]))]);
     same('setup search: every share that exists, every app; the main state\'s items unchanged (the provider\'s other part)',
         [10, true, 0], [count(array_filter($r['setup'], fn ($x) => str_starts_with($x['anchor'], 'setup:share:'))), isset($by['Grafana']), $r['main']]);
+    // 2026-10-29: the plan the page holds - each line with its level as the setup holds it (a share's mode, a unit's level word)
+    $held = is_array($r['held'] ?? null) ? array_column($r['held'], 'sub', 'text') : [];
+    same('setup search: the plan the page holds - each line says its level (the share\'s mode, the app\'s and VM\'s level)', [
+        'setup.page · setup.shares · setup.mode.' . ($plan['P']['share|media|mode'] ?? 'off'), true, true],
+        [$held['media'] ?? $r['held'] ?? null, (bool) preg_match('/^setup\.page · setup\.apps · setup\.level\.[a-z0-9_]+$/', (string) ($held['immich'] ?? '')),
+         (bool) preg_match('/^setup\.page · setup\.vms · setup\.level\.[a-z0-9_]+$/', (string) ($held['Windows 11'] ?? ''))]);
     // the rows carry those places
     check('setup search: the rows are marked with the places the items name',
         str_contains($desk, "Office.place('setup:share:' + sh.name, el('tr'))") && str_contains($desk, "Office.place('setup:vm:' + v.name,") && str_contains($desk, "Office.place('setup:app:' + a.id,"));
