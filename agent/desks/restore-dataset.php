@@ -291,7 +291,7 @@ function mdDoCompare(array &$j, array $s): array
     }
     // the new dataset's top folder counts once more on its side only when ZFS adds nothing: equal is equal
     if ($f1 < 0 || $f1 !== $f2 || abs($b1 - $b2) > 4096 * max(1, $f1 / 1000)) {
-        return rsFail('md_compare_failed', ['files' => "$f1 / $f2", 'bytes' => "$b1 / $b2"]);
+        return rsFail((string) ($s['fail'] ?? 'md_compare_failed'), ['files' => "$f1 / $f2", 'bytes' => "$b1 / $b2"]);
     }
     return ['state' => 'ok', 'params' => ['files' => (string) $f1, 'bytes' => (string) $b1]];
 }
@@ -370,5 +370,315 @@ function mdRollback(array &$j): void
     }
     $j['rollback'] = $said;
     $j['reason'] = array_filter($said, fn ($x) => !$x['ok']) ? 'md_rollback_incomplete' : 'md_rolled_back';
+    rsJournalWrite($j);
+}
+
+// ============================================================================ the way back (2026-10-29)
+
+/*
+ * «Back into a plain folder…» (asked from Mr. Backupsy's setup beside «Make it a dataset of its own…», run as one of Mr.
+ * Restori's jobs like it): an app's folder that is a ZFS dataset of its own becomes a plain folder in its share's dataset
+ * again — the data kept all the way:
+ *
+ *   stop what uses it (its containers; a stack: the user stops it) → zfs rename the dataset aside (<name>.aside-<stamp>,
+ *   mounted beside) → rsync -aHAX it into a plain folder in its place → compare (files and bytes; the top folder's owner
+ *   and mode) → start again what ran → the dataset aside into Ms. Dustdevil's storeroom (a «leftover» of this job, next to
+ *   it with zfs rename — put back there beside the folder, or destroyed only when she empties it).
+ *
+ * A failure up to the comparison rolls back by itself (mfRollback()): the job's copy into her storeroom (never deleted),
+ * the dataset renamed back into its place, what was stopped started. Only an app's folder: a VM's folder in `domains` is a
+ * dataset by Unraid's own making and holds the VM manager's snapshots. The look (mfLook()) refuses: not a dataset of its
+ * own (a plain folder already), datasets below it (named), a mountpoint of its own, not mounted, not directly in its
+ * share's dataset, no room for the copy, a backup, the setup, a restore or Ms. Moverelli's run going on; it names the
+ * dataset's snapshots (they go into the storeroom with it — its own snapshots end, the share's carry its files on).
+ */
+
+const MF_MARGIN = 1 << 30;              // free room the copy leaves on the pool at least (bytes)
+
+/** The dataset's properties (parsable) — $GLOBALS['md']['props'][$ds] for the tests */
+function mfProps(string $ds): array
+{
+    if (isset($GLOBALS['md']['props'])) {
+        return $GLOBALS['md']['props'][$ds] ?? [];
+    }
+    [$exit, $out] = run(['zfs', 'get', '-Hp', '-o', 'property,value,source', 'mountpoint,mounted,referenced,logicalreferenced,available', $ds], 30);
+    $props = [];
+    foreach ($exit === 0 ? explode("\n", trim($out)) : [] as $l) {
+        $p = explode("\t", $l);
+        if (count($p) === 3) {
+            $props[$p[0]] = ['value' => $p[1], 'source' => $p[2]];
+        }
+    }
+    return $props;
+}
+
+/** The dataset's own snapshots (names after the @) — $GLOBALS['md']['snaps'][$ds] for the tests */
+function mfSnapshots(string $ds): array
+{
+    if (isset($GLOBALS['md']['snaps'])) {
+        return $GLOBALS['md']['snaps'][$ds] ?? [];
+    }
+    [$exit, $out] = run(['zfs', 'list', '-H', '-t', 'snapshot', '-o', 'name', '-d', '1', $ds], 30);
+    $out2 = [];
+    foreach ($exit === 0 ? explode("\n", trim($out)) : [] as $l) {
+        if (str_starts_with($l, "$ds@")) {
+            $out2[] = substr($l, strlen($ds) + 1);
+        }
+    }
+    return $out2;
+}
+
+/** Is a run of Ms. Moverelli's going on (she moves the share's files)? $GLOBALS['md']['moverelli'] for the tests */
+function mfMoverelliBusy(): bool
+{
+    return (bool) ($GLOBALS['md']['moverelli'] ?? (function_exists('moverelliBusy') && moverelliBusy()));
+}
+
+/**
+ * Where the app's folder lies and what stands in the way: {kind, name, share, dir, path (its mountpoint), user, parent
+ * (its share's dataset), dataset (the folder's), bytes (what the copy writes), need (room it takes), snapshots, blockers}
+ */
+function mfTarget(array $r): array
+{
+    $name = rsStr($r['name'] ?? '');
+    $share = rsStr($r['share'] ?? '');
+    $dir = rsStr($r['dir'] ?? '');
+    if (($r['kind'] ?? '') !== 'app' || !preg_match(MD_PART, $share) || !preg_match(MD_PART, $dir) || !preg_match(MD_PART, $name)) {
+        throw new Problem('unknown_target', ['target' => "$share/$dir"]);
+    }
+    $stack = rsStr($r['stack'] ?? '');
+    $t = ['kind' => 'app', 'name' => $name, 'share' => $share, 'dir' => $dir, 'path' => null, 'user' => "/mnt/user/$share/$dir", 'parent' => null,
+          'dataset' => null, 'stack' => preg_match(MD_PART, $stack) ? $stack : null, 'bytes' => null, 'need' => null, 'snapshots' => [], 'blockers' => []];
+    $block = function (string $key, array $params = []) use (&$t): array {
+        $t['blockers'][] = ['key' => $key, 'params' => $params + ['path' => $t['path'] ?? $t['user']]];
+        return $t;
+    };
+    $zfs = mdZfs();
+    $mnt = preg_quote((string) ($GLOBALS['md']['mnt'] ?? '/mnt'), '#');
+    $q = preg_quote($share, '#');
+    $mine = array_filter($zfs, fn ($mp) => (bool) preg_match("#^$mnt/[^/]+/$q/" . preg_quote($dir, '#') . '$#D', $mp));
+    if (!$mine) {
+        $tops = array_filter($zfs, fn ($mp) => (bool) preg_match("#^$mnt/[^/]+/$q$#D", $mp));
+        $plain = array_filter($tops, fn ($mp) => is_dir("$mp/$dir") && !is_link("$mp/$dir"));
+        return $block($plain ? 'mf_plain' : ($tops ? 'md_missing' : 'md_not_zfs'));
+    }
+    if (count($mine) > 1) {
+        return $block('md_split');
+    }
+    $t['dataset'] = (string) array_key_first($mine);
+    $t['path'] = $mine[$t['dataset']];
+    $t['parent'] = dirname($t['dataset']);
+    if (($zfs[$t['parent']] ?? null) !== dirname($t['path'])) {
+        return $block('mf_parent', ['dataset' => $t['dataset']]);
+    }
+    $kids = array_values(array_filter(array_keys($zfs), fn ($d) => str_starts_with((string) $d, $t['dataset'] . '/')));
+    if ($kids) {
+        $names = array_map(fn ($d) => substr((string) $d, strlen($t['dataset']) + 1), $kids);
+        return $block('mf_children', ['names' => implode(', ', array_slice($names, 0, 8)), 'n' => count($names)]);
+    }
+    $props = mfProps($t['dataset']);
+    if (!preg_match('/^(inherited|default)/', (string) ($props['mountpoint']['source'] ?? 'local'))) {
+        return $block('mf_mountpoint', ['dataset' => $t['dataset']]);
+    }
+    if (($props['mounted']['value'] ?? '') !== 'yes') {
+        return $block('mf_unmounted', ['dataset' => $t['dataset']]);
+    }
+    $t['snapshots'] = mfSnapshots($t['dataset']);
+    $ref = (int) ($props['referenced']['value'] ?? 0);
+    $t['bytes'] = max($ref, (int) ($props['logicalreferenced']['value'] ?? 0));
+    $t['need'] = $ref + MF_MARGIN;
+    $free = (int) (mfProps($t['parent'])['available']['value'] ?? 0);
+    if ($t['need'] > $free) {
+        return $block('mf_room', ['need' => (string) $ref, 'free' => (string) $free]);
+    }
+    if ($busy = (function_exists('rsBusy') ? rsBusy() : null)) {
+        return $block('md_busy', $busy['params'] ?? []);
+    }
+    if (mfMoverelliBusy()) {
+        return $block('mf_moverelli');
+    }
+    return $t;
+}
+
+/** The dialog's facts (backup.folder_look): the target, its snapshots, what stops and for about how long, the last backup */
+function mfLook(array $r): array
+{
+    $t = mfTarget($r);
+    $stops = $t['blockers'] ? ['containers' => [], 'vm' => null] : mdStops($t);
+    if (!empty($stops['running'])) {
+        $t['blockers'][] = ['key' => 'md_stack_running', 'params' => ['stack' => (string) $stops['stack'], 'names' => implode(', ', $stops['running'])]];
+    }
+    $snaps = $t['snapshots'];
+    return ['ok' => true, 'target' => array_diff_key($t, ['blockers' => 1, 'snapshots' => 1]), 'blockers' => $t['blockers'], 'stops' => $stops,
+            'bytes' => $t['bytes'], 'downtime' => $t['bytes'] !== null ? 30 + (int) ceil($t['bytes'] / MD_RATE) : null, 'last' => mdLastBackup($t),
+            'snapshots' => ['n' => count($snaps), 'engine' => count(array_filter($snaps, fn ($n) => str_starts_with((string) $n, 'uso-backup-'))),
+                            'newest' => $snaps ? (string) end($snaps) : null]];
+}
+
+/** The job's plan (rsLaunch()): the steps in their order; what stops is started again */
+function mfPlan(array $r, bool $noFreshOk = false): array
+{
+    $look = mfLook($r);
+    $t = $look['target'];
+    $blockers = $look['blockers'];
+    if (!$blockers && !($look['last']['fresh'] ?? false) && !$noFreshOk) {
+        $blockers[] = ['key' => 'md_no_fresh_backup', 'params' => []];
+    }
+    $stamp = date('Ymd-His');
+    $steps = [];
+    $stops = $look['stops'];
+    if (!empty($stops['stack'])) {
+        $steps[] = ['do' => 'md_stopped', 'stack' => $stops['stack'], 'paths' => array_values(array_unique([$t['user'], $t['path']]))];
+    }
+    if ($stops['containers']) {
+        $steps[] = ['do' => 'stop', 'containers' => $stops['containers']];
+    }
+    $aside = $t['path'] !== null ? $t['path'] . ".aside-$stamp" : null;
+    $asideDs = $t['dataset'] !== null ? $t['dataset'] . ".aside-$stamp" : null;
+    $steps[] = ['do' => 'mf_aside', 'dataset' => $t['dataset'], 'to' => $asideDs, 'path' => $t['path'], 'aside' => $aside];
+    $steps[] = ['do' => 'md_copy', 'from' => $aside, 'to' => $t['path'], 'bytes' => $look['bytes']];
+    $steps[] = ['do' => 'md_compare', 'from' => $aside, 'to' => $t['path'], 'fail' => 'mf_compare_failed'];
+    if ($stops['containers']) {
+        $steps[] = ['do' => 'start', 'containers' => $stops['containers'], 'only_stopped' => true];
+    }
+    $steps[] = ['do' => 'mf_store', 'dataset' => $asideDs, 'path' => $aside, 'root' => $t['path'] !== null ? dirname($t['path']) : null];
+    return ['kind' => 'make_folder', 'what' => "{$t['share']}/{$t['dir']}", 'target' => $t, 'method' => 'make_folder', 'stamp' => $stamp,
+            'steps' => $steps, 'blockers' => $blockers, 'sizes' => ['need' => $look['bytes']], 'downtime' => $look['downtime'],
+            'after' => !empty($stops['stack']) ? [['key' => 'after.md_stack_start', 'params' => ['stack' => $stops['stack']]]] : [],
+            'putback_of' => null, 'notes' => [], 'options' => []];
+}
+
+/** backup.folder_make: the plan handed to atd as one of Mr. Restori's jobs */
+function mfStart(array $r): array
+{
+    return ['ok' => true, 'id' => rsLaunch(mfPlan($r, !empty($r['no_fresh_ok'])))];
+}
+
+/** Is a folder empty (or not there)? */
+function mfEmpty(string $path): bool
+{
+    clearstatcache();
+    return !file_exists($path) || (is_dir($path) && !is_link($path) && count(array_diff(@scandir($path) ?: ['x'], ['.', '..'])) === 0);
+}
+
+/**
+ * The dataset renamed aside (mounted beside as <name>.aside-<stamp>), a plain folder made in its place — looked at again
+ * right before: still that dataset there, nothing below it, nothing of that name aside, Ms. Moverelli not moving
+ */
+function mfDoAside(array &$j, array $s): array
+{
+    if (mfMoverelliBusy()) {
+        return rsFail('mf_moverelli', ['path' => $s['path']]);
+    }
+    $zfs = mdZfs();
+    $kids = array_filter(array_keys($zfs), fn ($d) => str_starts_with((string) $d, $s['dataset'] . '/'));
+    if (($zfs[$s['dataset']] ?? null) !== $s['path'] || $kids || isset($zfs[$s['to']]) || file_exists((string) $s['aside'])) {
+        return rsFail('mf_aside_failed', ['path' => $s['path']]);
+    }
+    [$exit, , $err] = rsRun($j, ['zfs', 'rename', (string) $s['dataset'], (string) $s['to']], 120);
+    if ($exit !== 0) {
+        return rsFail('mf_aside_failed', ['path' => $s['path']], trim($err));
+    }
+    // back into its place at once (a failure here leaves nothing for mfRollback() to do) - when that fails too, said where it is
+    $back = function (string $note) use (&$j, $s): array {
+        [$exit, , $err] = rsRun($j, ['zfs', 'rename', (string) $s['to'], (string) $s['dataset']], 120);
+        if ($exit === 0 && isset($GLOBALS['md']['zfs'])) {
+            $GLOBALS['md']['zfs'][$s['dataset']] = (string) $s['path'];
+            unset($GLOBALS['md']['zfs'][$s['to']]);
+        }
+        return $exit === 0 ? rsFail($note, ['path' => $s['path'], 'dataset' => $s['dataset']])
+            : rsFail('mf_back_failed', ['path' => $s['path'], 'to' => $s['to']], trim($err));
+    };
+    if (isset($GLOBALS['md']['zfs'])) {          // the tests: the stand-in renames the folder, the map follows
+        $GLOBALS['md']['zfs'][$s['to']] = (string) $s['aside'];
+        unset($GLOBALS['md']['zfs'][$s['dataset']]);
+    }
+    $now = mdZfs();
+    clearstatcache();
+    if (($now[$s['to']] ?? null) !== $s['aside'] || !is_dir((string) $s['aside']) || in_array($s['path'], $now, true)) {
+        return $back('mf_aside_failed');
+    }
+    // the folder ZFS left at the old mountpoint: empty - else something lay hidden under the dataset (said, rolled back)
+    if (!mfEmpty((string) $s['path'])) {
+        return $back('mf_hidden');
+    }
+    $st = @stat((string) $s['aside']);
+    if (!is_dir((string) $s['path']) && !@mkdir((string) $s['path'], $st ? $st['mode'] & 07777 : 0755)) {
+        return $back('mf_aside_failed');
+    }
+    $j['mf_aside'] = ['dataset' => $s['dataset'], 'to' => $s['to'], 'path' => $s['path'], 'aside' => $s['aside']];
+    rsJournalWrite($j);
+    return ['state' => 'ok', 'params' => ['to' => $s['to']]];
+}
+
+/** The dataset aside into Ms. Dustdevil's storeroom of its share, next to it (zfs rename, its snapshots along) */
+function mfDoStore(array &$j, array $s): array
+{
+    try {
+        $run = clRunCreate(rtrim((string) $s['root'], '/') . '/' . CL_TRASH);
+        $to = dirname((string) $s['dataset']) . '/' . CL_TRASH . '-' . $run['stamp'] . '-' . basename((string) $s['dataset']);
+        clZfsRename((string) $s['dataset'], $to, (string) $s['path']);
+        $run['items'][] = ['kind' => 'leftover', 'name' => (string) preg_replace('/\.aside-\d{8}-\d{6}$/D', '', basename((string) $s['path'])), 'label' => $j['id'], 'from' => $s['path'], 'as' => "@$to",
+                           'dataset' => $s['dataset'], 'bytes' => (int) ($j['sizes']['need'] ?? 0)];
+        clManifestWrite($run);
+    } catch (Throwable $e) {
+        if (isset($run) && !$run['items']) {
+            clRunTidy($run['path'], $run['root']);
+        }
+        return ['state' => 'warning', 'note' => 'mf_store_failed', 'params' => ['path' => $s['path']], 'detail' => $e->getMessage()];
+    }
+    return ['state' => 'ok', 'params' => ['path' => $to]];
+}
+
+/**
+ * After a failure up to the comparison: the job's copy into Ms. Dustdevil's storeroom (an empty folder simply gone),
+ * the dataset renamed back into its place, what was stopped started — each said in $j['rollback'] (the journal).
+ */
+function mfRollback(array &$j): void
+{
+    $done = fn (string $do) => array_values(array_filter($j['steps'], fn ($s) => $s['do'] === $do && ($s['state'] ?? '') === 'ok'))[0] ?? null;
+    if ($done('mf_store')) {
+        return;              // the plain folder holds it all: nothing to roll back
+    }
+    $said = [];
+    $a = $j['mf_aside'] ?? null;
+    if (is_array($a)) {
+        $path = (string) $a['path'];
+        clearstatcache();
+        if (is_dir($path) && !is_link($path) && mfEmpty($path)) {
+            @rmdir($path);
+        } elseif (file_exists($path)) {
+            try {
+                $run = clRunCreate(dirname($path) . '/' . CL_TRASH);
+                $as = 'restore/' . substr(md5(dirname($path)), 0, 8) . '/' . basename($path) . '.copy-' . $j['id'];
+                clMove($path, $run['path'] . "/$as");
+                $run['items'][] = ['kind' => 'leftover', 'name' => basename($path), 'label' => $j['id'], 'from' => $path, 'as' => $as, 'dataset' => null, 'bytes' => null];
+                clManifestWrite($run);
+                $said[] = ['what' => 'copy', 'ok' => true, 'path' => $run['path'] . "/$as"];
+            } catch (Throwable $e) {
+                $said[] = ['what' => 'copy', 'ok' => false, 'path' => $path, 'detail' => $e->getMessage()];
+            }
+        }
+        clearstatcache();
+        $ok = false;
+        if (!file_exists($path)) {
+            [$exit, , $err] = rsRun($j, ['zfs', 'rename', (string) $a['to'], (string) $a['dataset']], 120);
+            if ($exit === 0 && isset($GLOBALS['md']['zfs'])) {
+                $GLOBALS['md']['zfs'][$a['dataset']] = $path;
+                unset($GLOBALS['md']['zfs'][$a['to']]);
+            }
+            $ok = $exit === 0 && (mdZfs()[$a['dataset']] ?? null) === $path;
+        }
+        $said[] = ['what' => 'back', 'ok' => $ok, 'path' => $path];
+    }
+    if ($j['stopped']) {
+        $r = rsDoStart($j, ['containers' => $j['stopped']]);
+        $said[] = ['what' => 'start', 'ok' => $r['state'] === 'ok'];
+    }
+    if (!$said) {
+        return;              // nothing changed before the failure (its step put the dataset back itself): the step says it
+    }
+    $j['rollback'] = $said;
+    $j['reason'] = array_filter($said, fn ($x) => !$x['ok']) ? 'mf_rollback_incomplete' : 'mf_rolled_back';
     rsJournalWrite($j);
 }

@@ -103,6 +103,10 @@ desk('backup', [
         'dataset_look' => fn (array $r) => mdLook(['kind' => optText($r, 'kind'), 'name' => optText($r, 'name'), 'share' => optText($r, 'share'), 'dir' => optText($r, 'dir'), 'stack' => optText($r, 'stack')]),
         'dataset_make' => fn (array $r) => mdStart(['kind' => optText($r, 'kind'), 'name' => optText($r, 'name'), 'share' => optText($r, 'share'), 'dir' => optText($r, 'dir'), 'stack' => optText($r, 'stack'),
                                                     'no_fresh_ok' => boolField($r, 'no_fresh_ok')]),
+        // «Back into a plain folder…» (2026-10-29): the way back, an app's folder that is a dataset of its own (restore-dataset.php)
+        'folder_look' => fn (array $r) => mfLook(['kind' => optText($r, 'kind'), 'name' => optText($r, 'name'), 'share' => optText($r, 'share'), 'dir' => optText($r, 'dir'), 'stack' => optText($r, 'stack')]),
+        'folder_make' => fn (array $r) => mfStart(['kind' => optText($r, 'kind'), 'name' => optText($r, 'name'), 'share' => optText($r, 'share'), 'dir' => optText($r, 'dir'), 'stack' => optText($r, 'stack'),
+                                                   'no_fresh_ok' => boolField($r, 'no_fresh_ok')]),
     ],
     'jobs'    => ['backup-letgo' => fn (array $args) => backupLetGoJob($args),
                   // the scheduled backup (job.sh, before the engine): waits while Ms. Moverelli's run goes (agent/lib/nightorder.php)

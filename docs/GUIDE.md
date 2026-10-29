@@ -111,7 +111,9 @@ VMs' disks, and streams a sample back from the offsite copy (as many GB as you a
 snapshot — where an app's package goes offsite, one of its dumps is read back from there and played too. Each app and
 VM gets a **certificate**: which level is proven, from which copy, when; a step that failed shows its error. The drill
 wakes no disk, never runs during a parity check, ends well before the next backup and cleans up after itself (what an
-interrupted one left, Ms. Dustdevil clears away). What it left unchecked comes first the next time.
+interrupted one left, Ms. Dustdevil clears away). What it left unchecked comes first the next time — except the package
+of an app that no longer exists: the drill says so, and Mr. Backupsy's *Into the storeroom* puts it into Ms. Dustdevil's
+storeroom (put back there if you need it again), after which the drill leaves it out.
 
 <a name="restore-drill"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-drill-light.png" alt="Mr. Restori: the drill passed — the level per app, the databases played back"></picture></a>
 
@@ -195,7 +197,8 @@ when his page opens and on *Check now* — read only, no disk wakes up, nothing 
 The magnifier at the top right, or ⌘K / Ctrl+K inside the office, finds a desk, a section, a tile, a setting, a step
 of a setup or one of the Consultant's guides — in all five languages at once, forgiving a typo. It also finds what the
 desks know right now: a share, an app, a VM, a database, an open point, an entry of the watch book, a partner office,
-what Ms. Dustdevil would clear away and where it lies. Choose one and the office takes you there, opens it and marks
+what Ms. Dustdevil would clear away and where it lies — and, once Mr. Backupsy's setup was open, its lines: every
+share, app and VM with its level, straight to its row in the setup. Choose one and the office takes you there, opens it and marks
 the place. It all runs in your browser.
 
 ## Install and first steps
@@ -320,6 +323,13 @@ open). An earlier pair left over from before, not heard since a newer one was ma
 card offers *Replace it by …*. When a partnership ends and several pairs carry its name, Mr. Backupsy's setup asks which
 one gets its units — Apply waits for the choice. ZFS only, and the partner can read the copies — for a friend,
 Kopia is the encrypted way.
+Only a ZFS dataset of its own goes on its own: an app's folder that is just a folder in its share's dataset offers
+*Make it a dataset of its own…* in the setup, and one that is a dataset of its own offers the way back, *Back into a
+plain folder…* — its containers stopped, the dataset set aside, its files copied into a plain folder in its place and
+compared, started again; the dataset with its own snapshots goes into Ms. Dustdevil's storeroom (put back there, destroyed
+only when you empty it). The dialog says what changes first: its own snapshots end (its files are then in its share's),
+it goes to a partner only inside its share, Kopia goes on as before. Not while a backup, a restore or Ms. Moverelli's
+run goes on, nor for a dataset with datasets below it (named).
 
 **The USO network (Tailscale), optional.** Two servers behind different routers (or behind CGNAT) need a network that
 reaches both. Any you already have works — your LAN, your VPN, your own Tailscale. Or the Team Lead joins this server to

@@ -724,7 +724,8 @@ function drillFollowUp(array $steps, ?array $cert): array
 {
     $want = [];
     foreach ((array) ($cert['items'] ?? []) as $it) {
-        if (is_array($it) && ($it['result'] ?? '') === 'not_checked') {
+        // an app that is gone (app_gone): another try changes nothing - its package waits for the storeroom, not for a drill
+        if (is_array($it) && ($it['result'] ?? '') === 'not_checked' && ($it['code'] ?? '') !== 'app_gone') {
             $want[drillStepKey((string) ($it['kind'] ?? ''), (string) ($it['of'] ?? ''), (string) ($it['id'] ?? ''), (string) ($it['what'] ?? ''),
                 ($it['kind'] ?? '') === 'dump' && ($it['copy'] ?? '') === 'kopia')] = true;
         }
@@ -1460,7 +1461,10 @@ function drillDumpCheck(array $s, array &$env, int $isize, int $bytes, array $ou
         return ['state' => 'not_checked', 'code' => 'docker_off', 'params' => ['container' => $s['container']]] + $out;
     }
     if ($exit !== 0) {
-        return ['state' => 'not_checked', 'code' => 'image_missing', 'params' => ['container' => $s['container'], 'image' => $c['image']]] + $out;
+        // its app is gone altogether (Mr. Backupsy names the package and offers «Into the storeroom»): said as such, never
+        // «a new server would have to pull it» drill after drill (2026-10-29)
+        $gone = in_array((string) $s['id'], drillGoneApps($env), true);
+        return ['state' => 'not_checked', 'code' => $gone ? 'app_gone' : 'image_missing', 'params' => ['container' => $s['container'], 'image' => $c['image']]] + $out;
     }
     $need = drillDumpNeed(['isize' => $isize, 'bytes' => $bytes]);
     $ram = min($env['ram'], drillRamBudget());
@@ -1468,6 +1472,32 @@ function drillDumpCheck(array $s, array &$env, int $isize, int $bytes, array $ou
         return ['state' => 'not_checked', 'code' => 'too_big_for_ram', 'params' => ['container' => $s['container'], 'need' => $need + $more, 'budget' => $ram]] + $out;
     }
     return ['c' => $c, 'need' => $need, 'ram' => max(1 << 28, $ram - $more)];
+}
+
+/**
+ * The apps whose package Mr. Backupsy calls gone (agent/desks/backup-gone.php: none of its containers and none of their
+ * images left, nor in the engine's plan) — package folders, read once per drill; his desk not there or the place not
+ * readable: none. The tests' own in $GLOBALS['drill']['gone'].
+ */
+function drillGoneApps(array &$env): array
+{
+    if (!array_key_exists('gone', $env)) {
+        $env['gone'] = [];
+        if (isset($GLOBALS['drill']['gone'])) {
+            $env['gone'] = (array) $GLOBALS['drill']['gone'];
+        } elseif (($env['base'] ?? null) !== null && function_exists('backupGoneList') && function_exists('backupPackagesRead')) {
+            try {
+                foreach (backupGoneList(backupPackagesRead((string) $env['base'])) as $g) {
+                    if ($g['kind'] === 'app' && empty($g['moved_to'])) {
+                        $env['gone'][] = $g['folder'];
+                    }
+                }
+            } catch (Throwable) {
+                $env['gone'] = [];
+            }
+        }
+    }
+    return $env['gone'];
 }
 
 /** The throwaway of the dump's image made, the dump played and checked in it — and the throwaway gone again */
