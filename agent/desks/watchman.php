@@ -436,6 +436,7 @@ function watchmanPaths(): array
         'docker_autostart' => HOUSE_AUTOSTART,
         'compose_cfg'      => HOUSE_COMPOSE_CFG,
         'compose_projects' => HOUSE_COMPOSE_PROJECTS,
+        'docker_templates' => '/boot/config/plugins/dockerMan/templates-user',     // the guess while Docker doesn't answer (watchmanFlowGuessTemplates())
         'port_range' => '/proc/sys/net/ipv4/ip_local_port_range',
         'ss'         => 'ss',
         'connect'    => '/boot/config/plugins/dynamix.my.servers/configs/connect.json',
@@ -1427,6 +1428,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $pos['boot'] = $boot;
     }
     $containers = $docker ? $docker() : watchmanContainers();
+    $netContainers = $containers;          // with their addresses and ports: whose a router's line likely is (watchmanNetGuess())
     $look = $flow ? $flow($containers) : null;
     $prevSeen = readJson("$dir/seen.json") ?? [];      // the last round's look: a file the same as then isn't read again
     // with the containers' main processes (whose programs run where)
@@ -1441,7 +1443,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         if (isset($paths['docker_autostart'])) {
             $containers = watchmanContainerStarts($containers, $paths);      // a privileged one: runs, starts by itself, or neither
         }
-        $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true, 'addrs' => true, 'macs' => true, 'ds' => true, 'restart' => true, 'compose' => true, 'binds' => true]),
+        $containers = array_map(fn ($c) => array_diff_key((array) $c, ['pid' => true, 'addrs' => true, 'macs' => true, 'ds' => true, 'restart' => true, 'compose' => true, 'binds' => true, 'ports' => true]),
             $containers);     // the data flow's and the network's only (restart, compose: watchmanContainerStarts()'s; binds: the guess's)
     }
     $seen = [
@@ -1466,7 +1468,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     $parity = paritywhyLook($paths, is_array($snap['state']['parity'] ?? null) ? $snap['state']['parity'] : null, $boot, $btime, $now);
 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
-                                               $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook): array {
+                                               $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook, $netContainers): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -1541,6 +1543,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $old['net'] = $net;
             $b['net'] = $fresh ? null : ($b['net'] ?? null);
             $added = array_merge($added, watchnetCompare($b['net'], $netLook, $book, $net, $netServer, $now, $fresh, !empty($st['net_lan'])));
+            watchmanNetGuess($book, $netContainers, fn (): ?array => watchmanFlowGuessSetup($paths)['vms'], $paths);
             $observed['net'] = ['clock' => watchnetClock($net)];
         }
         if ($snapRes !== null) {
@@ -2164,8 +2167,16 @@ function watchmanContainers(): ?array
             }
         }
         $binds = watchmanFlowBinds(is_array($mounts) ? $mounts : []);
+        $ports = [];            // what it publishes on the server: tcp/5001 (whose a router's line to that port likely is)
+        foreach ((array) ($hc['PortBindings'] ?? []) as $inside => $to) {
+            foreach ((array) $to as $x) {
+                if (preg_match('#^\d{1,5}/(tcp|udp|sctp)$#D', (string) $inside, $pm) && preg_match('/^\d{1,5}$/D', (string) ($x['HostPort'] ?? '')) && count($ports) < 40) {
+                    $ports[] = $pm[1] . '/' . (int) $x['HostPort'];
+                }
+            }
+        }
         $out[$name] = ['image' => (string) json_decode($f[1]), 'tokens' => watchmanContainerTokens($hc, is_array($mounts) ? $mounts : []),
-                       'pid' => (int) ($f[4] ?? 0), 'addrs' => array_slice($addrs, 0, 8), 'macs' => array_slice($macs, 0, 8)]
+                       'pid' => (int) ($f[4] ?? 0), 'addrs' => array_slice($addrs, 0, 8), 'macs' => array_slice($macs, 0, 8), 'ports' => array_values(array_unique($ports))]
                     + (is_string($by) && preg_match('/^[a-z]{1,20}$/D', $by) ? ['by' => $by] : [])
                     + (is_string($drill) && preg_match('/^\d{8}-\d{6}-[0-9a-f]{4}$/D', $drill) ? ['drill' => $drill] : [])
                     + ($created !== false ? ['created' => $created] : [])
@@ -5531,7 +5542,8 @@ function watchmanFlowLook(array $paths, ?array $containers): array
             'docker_ds' => $dockerDs, 'layers' => fn (array $ids): array => watchmanFlowLayers($ids),
             'guess' => function (string $share) use ($paths, $containers): array {
                 $setup = watchmanFlowGuessSetup($paths);
-                return watchmanFlowGuess($share, $containers, $setup['vms'], $setup['stacks']);
+                return watchmanFlowGuess($share, $containers, $setup['vms'], $setup['stacks'], $setup['scripts'],
+                    $containers === null ? $setup['templates'] : null);
             },
             'libvirt' => isset($paths['domain_cfg']) ? watchmanFlowLibvirt(readCfg((string) $paths['domain_cfg'])) : null,
             'holder' => $holder['holder'] ?? null, 'kopia' => $kopia !== '' ? $kopia : null,
@@ -6558,9 +6570,11 @@ function watchmanFlowInShare(string $path, string $share): bool
  * @param array|null $containers watchmanContainers() (pid, binds, compose)
  * @param list<array>|null $vms    watchmanFlowGuessVms(): [{name, run, disks: [[path, writes]], dirs: [[path, writes]]}]
  * @param list<array>|null $stacks watchmanFlowGuessStacks(): [{name, paths: [[path, writes]]}]
+ * @param list<array>|null $scripts watchmanFlowGuessScripts(): User Scripts naming a path, [{name, paths: [[path, true]]}]
+ * @param list<array>|null $templates watchmanFlowGuessTemplates(): Docker's templates, only while Docker doesn't answer
  * @return list<array{t: string, name: string, path: string, ro?: true, off?: true, disk?: true}>
  */
-function watchmanFlowGuess(string $share, ?array $containers, ?array $vms, ?array $stacks): array
+function watchmanFlowGuess(string $share, ?array $containers, ?array $vms, ?array $stacks, ?array $scripts = null, ?array $templates = null): array
 {
     $pick = function (array $pairs) use ($share): ?array {
         $in = array_values(array_filter($pairs, fn ($x) => is_array($x) && is_string($x[0] ?? null) && watchmanFlowInShare($x[0], $share)));
@@ -6599,9 +6613,69 @@ function watchmanFlowGuess(string $share, ?array $containers, ?array $vms, ?arra
             $out[] = ['t' => 'stack', 'name' => $name($st['name']), 'path' => $p[0], 'ro' => empty($p[1]), 'off' => true];
         }
     }
-    $kind = ['ct' => 0, 'vm' => 1, 'stack' => 2];
+    foreach ([['tpl', $templates], ['us', $scripts]] as [$t, $list]) {
+        foreach ((array) $list as $x) {
+            if (is_array($x) && is_string($x['name'] ?? null) && ($p = $pick((array) ($x['paths'] ?? [])))) {
+                $out[] = ['t' => $t, 'name' => $name($x['name']), 'path' => $p[0], 'ro' => empty($p[1]), 'off' => $t === 'tpl'];
+            }
+        }
+    }
+    $kind = ['ct' => 0, 'vm' => 1, 'stack' => 2, 'tpl' => 3, 'us' => 4];
     usort($out, fn ($a, $b) => [$a['off'], $a['ro'], $kind[$a['t']], strtolower($a['name'])] <=> [$b['off'], $b['ro'], $kind[$b['t']], strtolower($b['name'])]);
     return array_map(fn ($x) => array_filter($x, fn ($v) => $v !== false), $out);
+}
+
+/**
+ * Whose a router's line about this server likely is (an intrusion detection «at this server», net_ips_server): the container
+ * whose own address it names, the one publishing its port on the server's own address (towards the server), the VM whose
+ * network card had that address (the server's ARP table, its libvirt XML) — `guess` once on the open entry, said as a guess,
+ * never as a fact ([] = looked, none). $vms: asked only when an entry needs it.
+ */
+function watchmanNetGuess(array &$book, ?array $containers, callable $vms, array $paths): void
+{
+    $need = array_keys(array_filter($book, fn ($e) => ($e['kind'] ?? '') === 'net_ips_server' && watchmanOpen($e) && !isset($e['p']['guess'])
+        && is_string($e['p']['server'] ?? null)));
+    if (!$need) {
+        return;
+    }
+    $arp = [];
+    foreach (array_slice(@file((string) ($paths['arp'] ?? '/proc/net/arp'), FILE_IGNORE_NEW_LINES) ?: [], 1, 2000) as $line) {
+        $f = preg_split('/\s+/', trim($line));
+        if (count($f) >= 4 && preg_match('/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/D', strtolower($f[3])) && $f[3] !== '00:00:00:00:00:00') {
+            $arp[$f[0]] = strtolower($f[3]);
+        }
+    }
+    $vmList = null;
+    $name = fn ($n) => mb_substr((string) preg_replace('/[\x00-\x1F\x7F]/', '', (string) $n), 0, 100);
+    foreach ($need as $i) {
+        $p = (array) $book[$i]['p'];
+        $ip = (string) $p['server'];
+        $port = ($p['dir'] ?? 'in') === 'in' && isset($p['dpt']) ? strtolower((string) ($p['proto'] ?? 'tcp')) . '/' . (int) $p['dpt'] : null;
+        $guess = $own = [];
+        foreach ((array) $containers as $ct => $c) {
+            if (in_array($ip, array_map('strval', (array) ($c['addrs'] ?? [])), true)) {
+                $own[] = ['t' => 'ct', 'name' => $name($ct), 'addr' => $ip] + ((int) ($c['pid'] ?? 0) <= 0 ? ['off' => true] : []);
+            }
+        }
+        if (!$own && $port !== null) {
+            foreach ((array) $containers as $ct => $c) {
+                if (in_array($port, (array) ($c['ports'] ?? []), true)) {
+                    $guess[] = ['t' => 'ct', 'name' => $name($ct), 'port' => $port] + ((int) ($c['pid'] ?? 0) <= 0 ? ['off' => true] : []);
+                }
+            }
+        }
+        if (!$own && isset($arp[$ip])) {
+            $vmList ??= (array) ($vms() ?? []);
+            foreach ($vmList as $vm) {
+                if (is_array($vm) && in_array($arp[$ip], (array) ($vm['macs'] ?? []), true)) {
+                    $own[] = ['t' => 'vm', 'name' => $name($vm['name'] ?? '')] + (empty($vm['run']) ? ['off' => true] : []);
+                }
+            }
+        }
+        $all = array_merge($own, $guess);
+        usort($all, fn ($a, $b) => [!empty($a['off']), $a['name']] <=> [!empty($b['off']), $b['name']]);
+        $book[$i]['p']['guess'] = array_slice($all, 0, WATCH_FLOW_GUESS);
+    }
 }
 
 /**
@@ -6649,10 +6723,16 @@ function watchmanFlowGuessVms(array $paths): ?array
  */
 function watchmanFlowVmPaths(string $xml): array
 {
-    $out = ['disks' => [], 'dirs' => []];
+    $out = ['disks' => [], 'dirs' => [], 'macs' => []];
     $dom = $xml !== '' ? @simplexml_load_string($xml, 'SimpleXMLElement', LIBXML_NONET) : false;
     if (!$dom || !isset($dom->devices)) {
         return $out;
+    }
+    foreach ($dom->devices->interface as $i) {
+        $mac = strtolower((string) ($i->mac['address'] ?? ''));
+        if (preg_match('/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/D', $mac) && count($out['macs']) < 8) {
+            $out['macs'][] = $mac;          // whose an address on the LAN likely is (watchmanNetGuess(), by the server's ARP table)
+        }
     }
     $add = function (string $to, $node, string $src) use (&$out): void {
         $src = rtrim($src, '/');
@@ -6708,12 +6788,82 @@ function watchmanFlowGuessStacks(array $paths): ?array
     return $out;
 }
 
+/** The paths under /mnt a text names (a script, a compose file): [path, writes] — «:ro» after one only reads */
+function watchmanFlowGuessNamed(string $text, array &$found): void
+{
+    preg_match_all('#(?<![\w$}])(/mnt/[^\s:"\'\#,\]\)\(;|&<>`]+)(?::[^\s:"\'\#,\]]+)?(:ro\b)?#', $text, $m, PREG_SET_ORDER);
+    foreach ($m as $x) {
+        $p = rtrim($x[1], '/');
+        if (watchmanFlowGuessPath($p) && (isset($found[$p]) || count($found) < WATCH_FLOW_GUESS_PATHS)) {
+            $found[$p] = !empty($found[$p]) || empty($x[2]);
+        }
+    }
+}
+
+/**
+ * The User Scripts for the guess (watchmanFlowGuess()): each script on the flash that names a path under /mnt (an rsync, a
+ * cp into a share) — what it names, never what it does. Null without User Scripts.
+ */
+function watchmanFlowGuessScripts(array $paths): ?array
+{
+    $dir = (string) ($paths['userscripts'] ?? '');
+    if ($dir === '' || !is_dir("$dir/scripts")) {
+        return null;
+    }
+    $out = [];
+    foreach (array_slice(glob("$dir/scripts/*/script") ?: [], 0, WATCH_FLOW_GUESS_VMS) as $file) {
+        $found = [];
+        if (watchmanPlain($file)) {
+            watchmanFlowGuessNamed((string) @file_get_contents($file, false, null, 0, 262144), $found);
+        }
+        if ($found) {
+            $out[] = ['name' => basename(dirname($file)), 'paths' => array_map(fn ($p) => [(string) $p, true], array_keys($found))];
+        }
+    }
+    return $out;
+}
+
+/**
+ * Docker's templates on the flash (my-<name>.xml) for the guess while Docker doesn't answer: each container's paths under
+ * /mnt (<Config Type="Path">, the old <Volume><HostDir>), [path, writes] — Mode «ro…» only reads. Null without the folder.
+ */
+function watchmanFlowGuessTemplates(array $paths): ?array
+{
+    $dir = (string) ($paths['docker_templates'] ?? '');
+    if ($dir === '' || !is_dir($dir)) {
+        return null;
+    }
+    $out = [];
+    foreach (array_slice(glob("$dir/my-*.xml") ?: [], 0, WATCH_FLOW_GUESS_VMS) as $file) {
+        $xml = watchmanPlain($file) ? @simplexml_load_string((string) @file_get_contents($file, false, null, 0, 262144), 'SimpleXMLElement', LIBXML_NONET) : false;
+        if (!$xml) {
+            continue;
+        }
+        $found = [];
+        foreach ($xml->Config ?? [] as $c) {
+            if ((string) ($c['Type'] ?? '') === 'Path') {
+                $found[] = [rtrim(trim((string) $c), '/'), !str_starts_with(strtolower((string) ($c['Mode'] ?? 'rw')), 'ro')];
+            }
+        }
+        foreach ($xml->Data->Volume ?? [] as $v) {
+            $found[] = [rtrim(trim((string) ($v->HostDir ?? '')), '/'), !str_starts_with(strtolower((string) ($v->Mode ?? 'rw')), 'ro')];
+        }
+        $found = array_values(array_filter($found, fn ($x) => watchmanFlowGuessPath($x[0])));
+        $name = trim((string) ($xml->Name ?? '')) ?: (string) preg_replace('/^my-|\.xml$/', '', basename($file));
+        if ($found) {
+            $out[] = ['name' => $name, 'paths' => array_slice($found, 0, WATCH_FLOW_GUESS_PATHS)];
+        }
+    }
+    return $out;
+}
+
 /** The VMs and stacks for the guess, looked at once in WATCH_FLOW_GUESS_AGAIN (a pull going on asks every round) */
 function watchmanFlowGuessSetup(array $paths): array
 {
     static $at = 0, $kept = null;
     if ($kept === null || time() < $at || time() - $at >= WATCH_FLOW_GUESS_AGAIN) {
-        $kept = ['vms' => watchmanFlowGuessVms($paths), 'stacks' => watchmanFlowGuessStacks($paths)];
+        $kept = ['vms' => watchmanFlowGuessVms($paths), 'stacks' => watchmanFlowGuessStacks($paths), 'scripts' => watchmanFlowGuessScripts($paths),
+                 'templates' => watchmanFlowGuessTemplates($paths)];
         $at = time();
     }
     return $kept;
@@ -6725,7 +6875,7 @@ function watchmanFlowGuessSetup(array $paths): array
  * entry's line and the notification (src.guess_short) — «Likely: EmbyServer, Win11 and 2 more (a guess).», names only.
  * The page has the same (desk.js srcNone()); the full words only in its detail row.
  */
-function watchmanFlowGuessText(array $x, string $share, string $lang, bool $short = false): ?string
+function watchmanFlowGuessText(array $x, string $share, string $lang, bool $short = false, bool $bare = false): ?string
 {
     $guess = array_values(array_filter((array) ($x['guess'] ?? []), 'is_array'));
     if (!$guess) {
@@ -6739,19 +6889,25 @@ function watchmanFlowGuessText(array $x, string $share, string $lang, bool $shor
     }
     $name = (string) (explode('/', $share, 2)[1] ?? $share);
     $one = function (array $g) use ($t, $name): string {
-        $how = [!empty($g['disk']) ? $t('src.guess_disk', ['share' => $name]) : $t('src.guess_maps', ['path' => (string) ($g['path'] ?? '')])];
+        $tp = (string) ($g['t'] ?? '');
+        $how = [!empty($g['disk']) ? $t('src.guess_disk', ['share' => $name])
+            : $t($tp === 'us' ? 'src.guess_names' : 'src.guess_maps', ['path' => (string) ($g['path'] ?? '')])];
+        if ($tp === 'tpl') {
+            $how[] = $t('src.guess_tpl');       // Docker didn't answer: from its template
+        }
         if (!empty($g['ro'])) {
             $how[] = $t('src.guess_ro');
         }
-        if (!empty($g['off'])) {
+        if (!empty($g['off']) && $tp !== 'tpl') {
             $how[] = $t('src.guess_off');
         }
-        $key = ['vm' => 'src.guess_vm', 'stack' => 'src.guess_stack'][(string) ($g['t'] ?? '')] ?? 'src.guess_ct';
+        $key = ['vm' => 'src.guess_vm', 'stack' => 'src.guess_stack', 'us' => 'src.guess_us'][(string) ($g['t'] ?? '')] ?? 'src.guess_ct';
         return $t($key, ['name' => (string) ($g['name'] ?? ''), 'how' => implode(', ', $how)]);
     };
     $list = implode(', ', array_map($one, array_slice($guess, 0, WATCH_FLOW_GUESS)));
     $more = (int) ($x['more'] ?? 0);
-    return $t('src.guess', ['list' => $more > 0 ? $t('src.guess_more', ['list' => $list, 'n' => $more]) : $list]);
+    $list = $more > 0 ? $t('src.guess_more', ['list' => $list, 'n' => $more]) : $list;
+    return $bare ? $list : $t('src.guess', ['list' => $list]);
 }
 
 /** A source of written bytes (watchmanFlowSources()) in words — the page has the same (desk.js srcWhat()) */
@@ -7181,7 +7337,7 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
     $whoNow = ['clients' => $active ?? [], 'users' => array_slice(array_keys($users), 0, WATCH_LIST_MAX),
                'from' => $active === null ? null : ($active ? 'clients' : 'server')];
     // $limit: a disk with a folder of a moved share — at most this much of its loss is the movers' (null: all of it)
-    $gone = function (string $key, int $loss, int $size, array $who, ?int $limit = null) use (&$flow, &$added, &$book, $now, $prevTime, $expected, $whoNow, $ack, $door, $moved): int {
+    $gone = function (string $key, int $loss, int $size, array $who, ?int $limit = null) use (&$flow, &$added, &$book, $now, $prevTime, $expected, $whoNow, $ack, $door, $moved, $look): int {
         if (!isset($flow['gone'][$key]) && count($flow['gone']) >= WATCH_FLOW_SHARES) {
             return 0;
         }
@@ -7204,8 +7360,15 @@ function watchmanFlowCompare(?array &$bf, array $flow, ?array $prev, array $look
             $j = watchmanFlowJudge($s, $loss, $now, $ack("flow_gone:$key"), WATCH_FLOW_MIN, $clear);
             $run = (array) $s['run'];
             $pct = $size > 0 ? (int) min(999, round(100 * (int) $run['bytes'] / $size)) : 0;
+            $p = $who + ['pct' => $pct, 'part' => $j !== null && $j['learning'] && $loss >= (int) ($size * WATCH_GONE_PART)] + $whoNow;
+            // from the server itself (no client moved data): who likely did it, from the setup — a share's, asked only when written
             $added[] = watchmanFlowNote($book, 'flow_gone', "flow_gone:$key", $now, $run, (int) ($s['h'][intdiv($now, 3600)] ?? 0), $j,
-                $who + ['pct' => $pct, 'part' => $j !== null && $j['learning'] && $loss >= (int) ($size * WATCH_GONE_PART)] + $whoNow);
+                function () use ($p, $look): array {
+                    $guess = $p['from'] === 'server' && is_string($p['share'] ?? null) && is_callable($look['guess'] ?? null)
+                        ? array_values((array) ($look['guess'])('user/' . $p['share'])) : [];
+                    return $p + ($guess ? ['guess' => array_slice($guess, 0, WATCH_FLOW_GUESS)]
+                                          + (count($guess) > WATCH_FLOW_GUESS ? ['more' => count($guess) - WATCH_FLOW_GUESS] : []) : []);
+                });
         }
         $flow['gone'][$key] = $s;
         return $byFolder ? $excused : 0;        // what of the movers' bytes this disk took
@@ -9102,7 +9265,8 @@ function watchmanGoneMore(array $p, ?string $lang): string
     if (($p['from'] ?? null) === 'clients') {
         $out[] = $t('gone.who_clients', ['list' => implode(', ', array_map('strval', (array) ($p['clients'] ?? [])))]);
     } elseif (($p['from'] ?? null) === 'server') {
-        $out[] = $t('gone.who_server');
+        $guess = watchmanFlowGuessText($p, 'user/' . (string) ($p['share'] ?? ''), $lang, false, true);
+        $out[] = $guess !== null ? $t('gone.who_server_guess', ['list' => $guess]) : $t('gone.who_server');
     }
     if ((array) ($p['users'] ?? [])) {
         $out[] = $t('gone.who_smb', ['users' => implode(', ', array_map('strval', (array) $p['users']))]);

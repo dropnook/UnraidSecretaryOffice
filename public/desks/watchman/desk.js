@@ -1128,16 +1128,39 @@ function srcNone(x, share, short) {
     const rest = guess.length + (Number(x.more) || 0) - Math.min(guess.length, 2);
     return T('src.guess_short', { list: rest > 0 ? T('src.guess_more', { list: names, n: rest }) : names });
   }
+  return T('src.guess', { list: guessList(x, share) });
+}
+
+/**
+ * The likely writers in full words (agent: watchmanFlowGuessText()): a container, VM or stack mapping the path, a User
+ * Script naming it, a container's template while Docker didn't answer — at most three, «and {n} more»
+ */
+function guessList(x, share) {
+  const guess = (Array.isArray(x.guess) ? x.guess : []).filter((g) => g && typeof g === 'object');
   const name = String(share || '').split('/').slice(1).join('/') || String(share || '');
   const one = (g) => {
-    const how = [g.disk ? T('src.guess_disk', { share: name }) : T('src.guess_maps', { path: String(g.path || '') })];
+    const how = [g.disk ? T('src.guess_disk', { share: name }) : T(g.t === 'us' ? 'src.guess_names' : 'src.guess_maps', { path: String(g.path || '') })];
+    if (g.t === 'tpl') how.push(T('src.guess_tpl'));
     if (g.ro) how.push(T('src.guess_ro'));
-    if (g.off) how.push(T('src.guess_off'));
-    return T(g.t === 'vm' ? 'src.guess_vm' : g.t === 'stack' ? 'src.guess_stack' : 'src.guess_ct', { name: String(g.name || ''), how: how.join(', ') });
+    if (g.off && g.t !== 'tpl') how.push(T('src.guess_off'));
+    const key = { vm: 'src.guess_vm', stack: 'src.guess_stack', us: 'src.guess_us' }[g.t] || 'src.guess_ct';
+    return T(key, { name: String(g.name || ''), how: how.join(', ') });
   };
   const list = guess.slice(0, 3).map(one).join(', ');
   const more = Number(x.more) || 0;
-  return T('src.guess', { list: more > 0 ? T('src.guess_more', { list, n: more }) : list });
+  return more > 0 ? T('src.guess_more', { list, n: more }) : list;
+}
+
+/** Whose a router's line about this server likely is (agent: watchmanNetGuess()) — a guess, never a fact */
+function netGuess(p) {
+  if (!Array.isArray(p.guess)) return '';
+  const one = (g) => {
+    const t = g.t === 'vm' ? T('net_guess.vm', { name: String(g.name || '') })
+      : g.port ? T('net_guess.port', { name: String(g.name || ''), port: String(g.port) }) : T('net_guess.addr', { name: String(g.name || '') });
+    return g.off ? `${t}, ${T('src.guess_off')}` : t;
+  };
+  const list = p.guess.filter((g) => g && typeof g === 'object').map(one).join(', ');
+  return list ? T('net_guess.text', { list }) : T('net_guess.none');
 }
 
 /** The biggest source behind an entry's line, or that none can be seen ('' without sources: an entry of an older office) */
@@ -1178,7 +1201,7 @@ function goneMore(p) {
   const out = [];
   if (p.kept > 0) out.push(T('gone.kept', { size: fmt.size(p.kept) }));
   if (p.from === 'clients') out.push(T('gone.who_clients', { list: (p.clients || []).join(', ') }));
-  else if (p.from === 'server') out.push(T('gone.who_server'));
+  else if (p.from === 'server') out.push(Array.isArray(p.guess) && p.guess.length ? T('gone.who_server_guess', { list: guessList(p, 'user/' + (p.share || '')) }) : T('gone.who_server'));
   if ((p.users || []).length) out.push(T('gone.who_smb', { users: p.users.join(', ') }));
   if (p.files !== undefined && p.bytes !== undefined) out.push(T('gone.files', { n: Number(p.files) || 0 }));
   if (p.files !== undefined && p.renames) out.push(T('gone.renames'));
@@ -1530,6 +1553,7 @@ function netDetails(e, p, add) {
       add(T('detail.direction'), T(p.dir === 'out' ? 'detail.dir_out' : 'detail.dir_in'));
       add(T('detail.remote'), [p.remote, p.dpt ? `${(p.proto || '').toLowerCase()}/${p.dpt}` : ''].filter(Boolean).join(' '), true);
       if (p.risk) add(T('detail.risk'), p.risk);
+      if (Array.isArray(p.guess)) add(T('detail.net_guess'), netGuess(p));
       break;
     case 'net_blocked_from_server':
       add(T('detail.destination'), `${p.dst} ${(p.proto || '').toLowerCase()}${p.dpt ? '/' + p.dpt : ''}`, true);
