@@ -229,7 +229,8 @@ Office.desk({
   id: ID,
 
   /**
-   * sub: a tile's (#/snapshot/plans, #/snapshot/snapshots — the switcher picks it like a click); «datasets» (the
+   * sub: a tile's (#/snapshot/schedule, #/snapshot/snapshots — the switcher picks it like a click; #/snapshot/plans, the
+   * tile's address before 1.78, picks «Schedules» too: the dashboard's links); «datasets» (the
    * search's): her list alone, grouped by dataset, no pool and no source picked — the dataset sought among the groups.
    * Else the kept choice: a pool (snapshot.pool, once her state has its tile) or a section (snapshot.tile).
    */
@@ -240,7 +241,8 @@ Office.desk({
       Office.store('snapshot.grouping', grouping);
     }
     view = build(root);
-    sw.mount(sub === 'datasets' ? 'snapshots' : sub);
+    if (Office.store('snapshot.tile') === 'plans') Office.store('snapshot.tile', 'schedule');     // kept before 1.78
+    sw.mount(sub === 'datasets' ? 'snapshots' : sub === 'plans' ? 'schedule' : sub);
     pendingPool = kept || null;
     if (sub === 'datasets') view.bar.set({ pick: '' });
     pickPending();                    // her state known already (an earlier visit): at once
@@ -449,7 +451,7 @@ const sw = Office.sections({
     ...diskCards().flatMap((g) => [{ id: g.id, section: 'list', tile: () => diskCard(g) },
       ...g.disks.map((x) => ({ id: POOL + x.name, place: `pool:${x.name}`, section: 'list', filters: x.name, tile: (a) => diskRow(x, a) }))]),
     ...(state?.vm?.available ? [{ id: POOL + 'VMs', place: 'pool:VMs', section: 'list', filters: 'VMs', tile: (a) => vmCard(state.vm, a) }] : []),
-    { id: 'plans', key: 'plans', place: 'tile.plans', section: () => plansSection(), tile: (a) => plansCard(a) },
+    Office.scheduleTile(ID, plansSchedule()),             // «Schedules»: the office's schedule tile, her plans as a whole
     { id: 'snapshots', key: 'snapshots', place: 'tile.snapshots', section: 'list', tile: (a) => snapsCard(a) },
   ],
   sections: { list: () => listSection() },
@@ -722,19 +724,29 @@ function runnerOff() {
   return (state?.plans?.plans || []).some((p) => p.enabled) && !(r.script && r.enabled);
 }
 
-/** «Schedules»: how many run, the next one — or none, with her suggestion in the section; its section: «Schedules» */
-function plansCard(a) {
+/**
+ * «Schedules» on the office's schedule tile (Office.scheduleTile): her plans as a whole — the next one due, the newest
+ * run and how it ended, how many are active; none yet, all paused or their runner (the cron line) gone: said instead of
+ * a next run (nothing runs them — T20). A plan whose last run failed or went partly: the warn label. Its section: «Schedules»
+ */
+function plansSchedule() {
   const plans = state?.plans?.plans || [];
   const on = plans.filter((p) => p.enabled);
   const off = runnerOff();
   const nexts = off ? [] : on.map((p) => p.next).filter((n) => typeof n === 'number' && n > 0);
-  const value = !plans.length ? T('plans_tile.none') : !on.length ? T('plans_tile.paused', { n: plans.length })
-    : nexts.length ? T('plans_tile.active', { n: on.length, when: nextText(Math.min(...nexts)) }) : T('plans_tile.on', { n: on.length });
-  return Office.tile({ name: T('plans'), icon: '⏱', lines: [value], chip: off ? el('span', 'chip warn', T('plans_tile.runner_off')) : null,
-    cls: plans.length ? '' : 'empty-card', ...a });
+  const ran = plans.filter((p) => Number(p.last_run) > 0).sort((x, y) => y.last_run - x.last_run)[0] || null;
+  const bad = on.find((p) => p.result === 'failed' || p.result === 'partly');
+  const how = (r) => (r === 'failed' || r === 'partly' || r === 'skipped' ? r : r === 'gone' ? 'skipped' : 'ok');
+  return {
+    key: 'plans', card: true, section: () => plansSection(),
+    schedule: { enabled: on.length > 0 && !off, custom: on.length === 1 ? on[0].cron : '', next: nexts.length ? Math.min(...nexts) : null },
+    value: !plans.length ? T('plans_tile.none') : !on.length ? T('plans_tile.paused', { n: plans.length }) : off ? T('plans_tile.runner_off') : '',
+    last: ran ? { at: ran.last_run, how: how(ran.result) } : null,
+    sub: on.length && !off ? [T('plans_tile.on', { n: on.length })] : [],
+    alert: off || !!bad,
+    chip: bad ? Office.t(`office.schedule.how.${bad.result}`) : null,
+  };
 }
-/** «14:00» within a day, else the date with it */
-const nextText = (t) => (t - Date.now() / 1000 < 86400 ? fmt.time(t) : fmt.date(t));
 
 /** What her snapshots take: the ZFS pools' usedbysnapshots and the btrfs snapshots' own sizes (the bubble says it too) */
 function snapSpace() {
@@ -2133,7 +2145,7 @@ function properties(s) {
 // her places for the search (core.js «places and the search»; places.json beside desk.json lists the same keys)
 // (each section by the route of its tile: a section stands under the row only while its tile is chosen)
 Office.places(ID, [
-  { kind: 'section', key: 'plans', route: '#/snapshot/plans' },
+  { kind: 'section', key: 'plans', route: '#/snapshot/schedule' },
   { kind: 'section', key: 'snapshots', route: '#/snapshot/snapshots' },
   ...sw.places(),                     // «Schedules», «Snapshots» (the pools' tiles are found as her items: pool:<name>)
   ...[['held', 'help.held'], ['mounted', 'help.mounted'], ['used_by_backup', 'help.backup'], ['disk_asleep', 'help.asleep'],
@@ -2149,7 +2161,7 @@ Office.placesFrom(ID, (s) => {
   const out = [];
   (s.zfs?.pools || []).forEach((p) => out.push({ text: p.name, sub: `${T('storage')} · ZFS`, anchor: `pool:${p.name}` }));
   (s.btrfs?.devices || []).forEach((d) => out.push({ text: d.name, sub: `${T('storage')} · btrfs`, anchor: `pool:${d.name}` }));
-  (s.plans?.plans || []).forEach((p) => out.push({ text: p.label, sub: T('plans'), route: `#/${ID}/plans`, anchor: `plan:${p.id}` }));      // their section opens
+  (s.plans?.plans || []).forEach((p) => out.push({ text: p.label, sub: T('plans'), route: `#/${ID}/schedule`, anchor: `plan:${p.id}` }));      // their section opens
   const sets = new Map();
   for (const x of [...(s.zfs?.snapshots || []), ...(s.btrfs?.snapshots || []), ...(s.vm?.snapshots || [])]) {
     if (!x || x.docker || !x.vol || typeof x.ds !== 'string') continue;
@@ -2163,7 +2175,7 @@ Office.placesFrom(ID, (s) => {
 });
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.snapshot = { setState, poolSplit, splitLines, source, sw, build, render, hiddenCounts, filtered, listed, snapsCard, plansCard, bubbleText, planRow,
+  globalThis.OFFICE_DESK_TESTS.snapshot = { setState, poolSplit, splitLines, source, sw, build, render, hiddenCounts, filtered, listed, snapsCard, plansSchedule, bubbleText, planRow,
     setView: (v) => { view = v; }, view: () => view, pickPending, poolFilter, diskCards };
 }
 })();

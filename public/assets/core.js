@@ -2162,6 +2162,149 @@ Office.sections = function sections(opts) {
   return sw;
 };
 
+// ------------------------------------------------------------------ the schedule tile
+/*
+ * One schedule tile, the same on every desk (2026-10-29): «Schedule» in the row of Office.sections() — when the desk's
+ * job runs next (its line in the plugin's cron file, officeJobSchedule() as the state carries it), when it last ran and
+ * how that ended, «Off» without a line. A section tile like any other: its section is the desk's schedule settings, the
+ * tile a place #/<desk>/schedule. The desk hands it among its tiles:
+ *
+ *   tiles: () => [ …, Office.scheduleTile(ID, {
+ *     schedule: state.schedule,     // officeJobSchedule(): {enabled, custom (the cron line), next (unix|null)}; null: off
+ *     every: T('…'),                // instead of a cron line: how often it goes by itself (the Night Watchman's rounds);
+ *     next: 1761708600,             //   with `next` of its own (unix) — never «Off»
+ *     last: { at, how },            // the last run: unix, and how it ended — ok | failed | stopped | partly | refused |
+ *                                   //   skipped | running (null/absent: not run yet)
+ *     sub: [ … ],                   // the desk's own lines under these (text or nodes)
+ *     value: T('…'),                // the desk's own words instead of the next run (none set up, paused, nothing runs them)
+ *     alert: bool,                  // default: the last run failed or went only partly
+ *     card: true,                   // a .card (Office.tile) for a row of cards; default a number tile (Office.stat)
+ *     chip: T('…'),                 // a card's warn label (default: how the last run ended while alert; null: none)
+ *     key: 'tile.schedule',         // the tile's name in the desk's lang file (its place for the search); its words
+ *     name: T('…'),                 //   default T(key) when the desk has it, else the office's «Schedule»
+ *     section: () => node,          // the desk's schedule settings (a node holding one .section-head)
+ *   }) ]
+ * What backup and jack will pass: docs/DEVELOPMENT.md «Tiles and lists».
+ */
+const SCHED_HOW = ['ok', 'failed', 'stopped', 'partly', 'refused', 'skipped', 'running'];
+/** When a run comes next, short: «03:30» today, «Tomorrow, 03:30», a weekday within the week, else the date */
+Office.scheduleWhen = function scheduleWhen(at, now = Date.now() / 1000) {
+  if (!at) return '–';
+  const day = (s) => { const d = new Date(s * 1000); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); };
+  const days = Math.round((day(at) - day(now)) / 86400000);
+  const time = Office.fmt.time(at);
+  if (days === 0) return time;
+  if (days === 1) return t('office.schedule.tomorrow', { time });
+  if (days > 1 && days < 7) {
+    const wd = intl((l) => new Intl.DateTimeFormat(l, { weekday: 'long' })).format(new Date(at * 1000));
+    return t('office.schedule.on_day', { day: wd, time });
+  }
+  return Office.fmt.date(at);
+};
+/** The last run in words: «Last: 3 hours ago · done», «Running now», «Not run yet» */
+Office.scheduleLast = function scheduleLast(last) {
+  if (!last || !last.at) return t('office.schedule.never');
+  const how = SCHED_HOW.includes(last.how) ? last.how : 'ok';
+  if (how === 'running') return t('office.schedule.running');
+  return t('office.schedule.last', { when: Office.fmt.relative(last.at), how: t(`office.schedule.how.${how}`) });
+};
+Office.scheduleTile = function scheduleTile(desk, opts) {
+  const o = opts || {};
+  const key = o.key || 'tile.schedule';
+  return {
+    id: 'schedule', key, place: 'tile.schedule', section: o.section,
+    tile: (a) => {
+      const sc = o.schedule || null;
+      const fixed = !!o.every;
+      const on = fixed || !!(sc && sc.enabled);
+      const cron = !fixed && on ? String(sc.custom || '') : '';
+      const next = fixed ? Number(o.next) || 0 : on ? Number(sc.next) || 0 : 0;
+      // a next time already past (a page left open, a state kept while a disk slept): due, never a time gone by (B14)
+      const when = next ? (next < Date.now() / 1000 - 60 ? t('office.schedule.due') : Office.scheduleWhen(next)) : '';
+      const value = o.value || (!on ? t('office.schedule.off') : when || (cron ? Office.fmt.cron(cron) : '–'));
+      const how = o.last && o.last.at && SCHED_HOW.includes(o.last.how) ? o.last.how : '';
+      const lines = [o.value ? '' : on ? (fixed ? o.every : next ? Office.fmt.cron(cron) : '') : t('office.schedule.off_sub'),
+        Office.scheduleLast(o.last), ...[].concat(o.sub ?? [])].filter((x) => x !== '' && x !== null && x !== undefined && x !== false);
+      const name = o.name || (Office.has(`${desk}.${key}`) ? t(`${desk}.${key}`) : t('office.schedule.title'));
+      const tip = [next ? t('office.schedule.next', { when: Office.fmt.date(next, true) }) : '', ...lines.filter((x) => typeof x === 'string'),
+        cron ? `cron: ${cron}` : ''].filter(Boolean).join('\n');
+      const alert = o.alert !== undefined ? !!o.alert : how === 'failed' || how === 'partly';
+      const cls = 'sched-tile' + (on ? '' : ' sched-off');
+      if (o.card) {
+        // a card says its first line in words: «Next time: 03:30» (a number tile's value stands under its label)
+        const chip = o.chip !== undefined ? o.chip : alert && how ? t(`office.schedule.how.${how}`) : null;
+        return Office.tile({ name, icon: '⏱', lines: [!o.value && when ? t('office.schedule.next', { when }) : value, ...lines],
+          chip: chip ? (chip.nodeType ? chip : el('span', 'chip warn', chip)) : null, tip, cls: cls + (on ? '' : ' empty-card'), ...a });
+      }
+      return Office.stat({ label: name, value, sub: lines, tip, alert, cls, ...a });
+    },
+  };
+};
+
+/**
+ * The schedule dialog every desk without one of its own offers (the same choices as Ms. Moverelli's): every day at a
+ * time, a cron line of its own, or not on its own. Posts `<desk>.<action>` {cron} ('' = off — the agent reads it with
+ * cronField() and sets it with officeJobSetSchedule()); after(j) gets the answer (its state) once saved.
+ *   Office.scheduleDialog(ID, { schedule: state.schedule, intro: T('…'), time: '03:30', action: 'schedule', after })
+ */
+Office.scheduleDialog = function scheduleDialog(desk, opts) {
+  const o = opts || {};
+  const sc = o.schedule || {};
+  const cur = (sc.enabled && sc.custom) || '';
+  const pad = (n) => String(n).padStart(2, '0');
+  const m2 = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec(cur);
+  let mode = sc.enabled ? (m2 ? 'daily' : 'custom') : 'daily';
+  const time = el('input', 'input');
+  time.type = 'time';
+  time.value = m2 ? `${pad(m2[2])}:${pad(m2[1])}` : o.time || '03:30';
+  const [dh, dm] = (o.time || '03:30').split(':').map(Number);
+  const cron = el('input', 'input mono');
+  cron.value = cur || `${dm} ${dh} * * *`;
+  cron.spellcheck = false;
+  const box = el('div', 'sched-dialog');
+  if (o.intro) box.appendChild(el('p', '', o.intro));
+  const name = `sched-${desk}`;
+  const option = (id, text, hint, extra) => {
+    const label = el('label', 'check');
+    const input = el('input');
+    input.type = 'radio';
+    input.name = name;
+    input.checked = mode === id;
+    input.onchange = () => { mode = id; update(); };
+    const span = el('span', '', text);
+    if (hint) span.appendChild(el('small', '', hint));
+    label.append(input, span);
+    box.appendChild(label);
+    if (extra) box.appendChild(el('div', 'sched-field')).appendChild(extra);
+  };
+  option('daily', t('office.schedule.daily'), t('office.schedule.daily_hint'), time);
+  option('custom', t('office.schedule.custom'), t('office.schedule.custom_hint'), cron);
+  option('off', t('office.schedule.off_choice'), t('office.schedule.off_hint'));
+  const update = () => { time.disabled = mode !== 'daily'; cron.disabled = mode !== 'custom'; };
+  update();
+  return Office.dialog({
+    title: o.title || t('office.schedule.title'),
+    body: box,
+    buttons: [
+      { text: t('common.cancel') },
+      { text: t('office.schedule.save'), kind: '', act: async () => {
+        let expr = '';
+        if (mode === 'daily') {
+          if (!/^\d\d:\d\d$/.test(time.value)) { Office.toast(t('office.schedule.need_time'), true); return false; }
+          const [h, m] = time.value.split(':').map(Number);
+          expr = `${m} ${h} * * *`;
+        } else if (mode === 'custom') expr = cron.value.trim();
+        const j = await Office.api.post(`${desk}.${o.action || 'schedule'}`, { cron: expr });
+        if (!j.ok) { Office.toast(Office.errorText(j.error, desk), true); return false; }
+        if (!j.live) Office.toast(t('office.schedule.not_live'), true);
+        else Office.toast(expr ? t('office.schedule.saved_on', { when: Office.fmt.cron(expr) }) : t('office.schedule.saved_off'));
+        if (o.after) o.after(j);
+        return true;
+      } },
+    ],
+  });
+};
+
 // ------------------------------------------------------------------ staff
 /** Hire one or more desks (the caretaker suggests whom); afterwards the tip jar says hello */
 Office.hire = async function hire(ids) {

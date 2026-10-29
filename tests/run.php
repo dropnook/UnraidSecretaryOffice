@@ -30625,6 +30625,9 @@ JS);
         same("search $where: every section it heads with T('…') is a place", [], array_values(array_diff(array_unique($m[1]), $keys, $notPlaces[$d] ?? [])));
         preg_match_all("/(?:Office\\.place\\(\\s*|\\bplace:\\s*)'([^']+)'/", $js, $m);
         $marked = $m[1];
+        if (str_contains($js, 'Office.scheduleTile(')) {
+            $marked[] = 'tile.schedule';            // the office's schedule tile marks its own place (core.js Office.scheduleTile)
+        }
         preg_match_all("/(?:Office\\.place\\(\\s*|\\bplace:\\s*)`([^`\$]+)\\$\\{/", $js, $m);
         $prefixes = $m[1];
         $unmarked = [];
@@ -43468,6 +43471,44 @@ function testDeskPages(): void
 }
 
 /**
+ * One schedule tile for every desk (core.js Office.scheduleTile, 2026-10-29): the API next to the switcher, its texts in
+ * five languages, the desks on it (each with the tile's name in its lang file and places.json) and none of them with a
+ * schedule tile of its own any more; under node (tests/sections.js schedule): off, the next run, due, the last run and how
+ * it ended, work that goes by itself, a card, its place and route.
+ */
+function testScheduleTile(): void
+{
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $at = (int) strpos($core, 'Office.sections = function');
+    $end = (int) strpos($core, '// ------------------------------------------------------------------ staff', $at);
+    check('schedule tile: core.js has Office.scheduleTile and Office.scheduleDialog beside the switcher',
+        ($a = strpos($core, 'Office.scheduleTile = function scheduleTile(desk, opts)')) > $at && $a < $end
+        && ($b = strpos($core, 'Office.scheduleDialog = function scheduleDialog(desk, opts)')) > $at && $b < $end);
+    check('schedule tile: its place and route the tiles convention\'s (tile.schedule, #/<desk>/schedule by the switcher)',
+        str_contains($core, "id: 'schedule', key, place: 'tile.schedule', section: o.section,"));
+    check('schedule tile: the dialog posts <desk>.schedule {cron} (off = \'\')', str_contains($core, "Office.api.post(`\${desk}.\${o.action || 'schedule'}`, { cron: expr })"));
+    $want = ['en' => ['Schedule', 'Off', 'due now'], 'de' => ['Zeitplan', 'Aus', 'jetzt fällig'], 'it' => ['Pianificazione', 'Spenta', 'in scadenza ora'],
+        'fr' => ['Planification', 'Désactivée', 'à faire maintenant'], 'es' => ['Programación', 'Apagada', 'pendiente ahora']];
+    foreach ($want as $code => $words) {
+        $lang = langFile(OFFICE_WEB . "/lang/$code.json");
+        same("schedule tile: its words in $code", $words, [$lang['office.schedule.title'] ?? null, $lang['office.schedule.off'] ?? null, $lang['office.schedule.due'] ?? null]);
+        check("schedule tile: every way a run ends has its word in $code", !array_diff(array_map(fn ($h) => "office.schedule.how.$h",
+            ['ok', 'failed', 'stopped', 'partly', 'refused', 'skipped', 'running']), array_keys($lang)));
+    }
+    foreach (['snapshot' => 'plans', 'watchman' => 'tile.schedule', 'moverelli' => 'schedule'] as $d => $key) {
+        $js = (string) file_get_contents(OFFICE_WEB . "/desks/$d/desk.js");
+        check("schedule tile: $d is on it", str_contains($js, 'Office.scheduleTile(ID, '));
+        $pj = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/$d/places.json"), true);
+        check("schedule tile: $d — its name ($key) a place, in all five languages", in_array($key, $pj['keys'] ?? [], true)
+            && !array_filter(['en', 'de', 'it', 'fr', 'es'], fn ($l) => !isset(langFile(OFFICE_WEB . "/desks/$d/lang/$l.json")[$key])));
+    }
+    $snap = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.js');
+    check('schedule tile: Ms. Snapshotini\'s old address #/snapshot/plans still lands on it (the dashboard\'s links)',
+        str_contains($snap, "sub === 'plans' ? 'schedule' : sub") && !str_contains($snap, "function plansCard("));
+    testsSectionsJs('schedule', 'schedule tile', 12);
+}
+
+/**
  * A job's schedule says when it runs next (officeJobSchedule() `next`, for the desks' schedule tiles): on a cron file of
  * the test's own — an enabled line's next run is in the future, matches its expression and is the first that does; a
  * job without a line: next null; a line cron can't read (written by hand): next null and no warning.
@@ -52855,12 +52896,14 @@ const st = (plans, runner) => ({ time: now, zfs: { snapshots: [], pools: [{ snap
 const on = { script: true, enabled: true };
 const rowText = (p) => JSON.stringify(s.planRow(p)).includes('plan.next');
 s.setState(st([plan({})], on));
-out.snap = { ok: s.bubbleText(), okTile: s.plansCard({}).lines[0], okNext: rowText(plan({})) };
+const schedOf = () => { const o = s.plansSchedule(); return [o.schedule.enabled, o.schedule.next, o.value, o.last && o.last.how, o.key, o.card]; };
+out.snap = { ok: s.bubbleText(), okTile: schedOf(), okNext: rowText(plan({})) };
 s.setState(st([plan({ result: 'failed' }), plan({ id: 'q', label: 'Daily media', result: 'partly' })], on));
 out.snap.failed = s.bubbleText();
+out.snap.failedTile = [s.plansSchedule().alert, s.plansSchedule().chip];
 s.setState(st([plan({})], { script: false, enabled: true }));
 out.snap.off = s.bubbleText();
-out.snap.offTile = s.plansCard({}).lines[0];
+out.snap.offTile = schedOf();
 out.snap.offNext = rowText(plan({}));
 console.log(JSON.stringify(out));
 JS);
@@ -52885,11 +52928,12 @@ JS);
         ['chip.snaps_part {"n":7,"when":"R50","bases":"disk1"}', 'chip warn'], ['chip.snaps {"n":7,"when":"R50"}', 'chip ok'], ['chip.snaps {"n":7,"when":"R50"}', 'chip ok'], ['chip.no_snaps', 'chip warn']],
         array_map(fn ($c) => [$c[0], $c[1]], $o['snaps']));
     $snap = $o['snap'];
-    same('T20: all well — «Tutto a posto» after the count, the next run on the tile and the row', [true, true, true],
-        [str_ends_with((string) end($snap['ok']), 'bubble.all_well'), str_starts_with((string) $snap['okTile'], 'plans_tile.active'), $snap['okNext']]);
+    same('T20: all well — «Tutto a posto» after the count, the next run on the (office\'s schedule) tile and the row', [true, [true, $o['now'] + 1800, '', 'ok', 'plans', true], true],
+        [str_ends_with((string) end($snap['ok']), 'bubble.all_well'), $snap['okTile'], $snap['okNext']]);
+    same('T20: a schedule failed or partly — the tile warns with how the first one ended', [true, 'office.schedule.how.failed'], $snap['failedTile']);
     same('T20: a schedule failed or partly — said with their names, no «Tutto a posto»', [true, false],
         [in_array('bubble.plans_trouble {"n":2,"names":"Hourly appdata, Daily media"}', $snap['failed'], true), str_contains(json_encode($snap['failed']), 'all_well')]);
-    same('T20: the runner (cron line) gone — said, no «Tutto a posto», no «next run» on the tile or the row', [true, false, 'plans_tile.on {"n":1}', false],
+    same('T20: the runner (cron line) gone — said, no «Tutto a posto», no «next run» on the tile or the row', [true, false, [false, null, 'plans_tile.runner_off', 'ok', 'plans', true], false],
         [in_array('bubble.runner_off', $snap['off'], true), str_contains(json_encode($snap['off']), 'all_well'), $snap['offTile'], $snap['offNext']]);
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $sl = readJson(OFFICE_WEB . "/desks/snapshot/lang/$l.json") ?? [];
@@ -57561,7 +57605,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

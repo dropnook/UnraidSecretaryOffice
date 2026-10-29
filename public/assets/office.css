@@ -503,6 +503,9 @@
 .stat-value{font-size:19px; font-weight:650; color:var(--ink); font-variant-numeric:tabular-nums; margin-top:1px}
 .stat-sub{font-size:12px; color:var(--ink2); overflow-wrap:anywhere}
 .stat.alert .stat-value{color:var(--warn)}
+/* the schedule tile (Office.scheduleTile): off reads quiet; its dialog's fields under their choice */
+.sched-off .stat-value{color:var(--muted)}
+.sched-field{margin:0 0 8px 25px}
 & button.stat{font:inherit; text-align:left; cursor:pointer; color:inherit}
 & button.stat{display:flex; flex-direction:column; justify-content:flex-start; align-items:stretch}   /* a button centres its content: lined up like a div tile */
 & button.stat:hover{border-color:var(--line2)}

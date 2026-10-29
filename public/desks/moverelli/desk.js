@@ -1299,11 +1299,12 @@ function switcher() {
 }
 /** The tiles for the switcher, each with its section (the schedule only once she is set up) */
 function tileList() {
-  const make = { schedule: scheduleTile, shares: sharesTile, runs: lastRunTile };
+  const make = { shares: sharesTile, runs: lastRunTile };
   const section = { schedule: scheduleSection, shares: shareSection, runs: historySection };
   return TILES.filter(([id]) => id !== 'schedule' || configured())
-    .map(([id, key]) => ({ id, key, place: `tile.${id}`, tile: (a) => (state ? make[id](a) : Office.stat({ label: T(key), value: '–', ...a })),
-      section: () => (state ? section[id]() : null) }));
+    .map(([id, key]) => (id === 'schedule' && state ? scheduleTile()
+      : { id, key, place: `tile.${id}`, tile: (a) => (state ? make[id](a) : Office.stat({ label: T(key), value: '–', ...a })),
+        section: () => (state ? section[id]() : null) }));
 }
 
 /** The desk's own actions — on both tabs (the other page is the tab, no head button for it) */
@@ -1415,16 +1416,31 @@ function hints() {
 }
 
 // ---- the tiles: each the summary of its section
-/** «Schedule»: the night run's (a time, none), tonight's plan, Unraid's mover's as its line — alert while nothing starts it or Unraid's is on */
-function scheduleTile(a) {
+/**
+ * «Schedule» on the office's schedule tile (Office.scheduleTile): the joint run's next time and how the last one ended,
+ * with Jack Streamer when he takes part, the next run's plan short, Unraid's mover's schedule as its line — alert while
+ * nothing starts it or Unraid's is on. Its section: her schedule
+ */
+function scheduleTile() {
   const sc = state.schedule || {};
   const m = mover();
   const n = night();
-  const sub = [sc.enabled ? T(n.jack ? 'night.with_jack' : 'by_office') : T('tile.no_schedule')];
+  const sub = [sc.enabled && n.jack ? T('night.with_jack') : ''];
   const short = state.configured ? tonightShort(n.plan, ageRule()) : null;
   if (short) sub.push(short);
   sub.push(`${T('unraid_schedule')}: ${m.off ? T('unraid_off') : T('unraid_on')}`);
-  return Office.stat({ label: T('schedule'), value: schedText(sc), sub, tip: sub.join('\n'), alert: !m.off || !sc.enabled, ...a });
+  return Office.scheduleTile(ID, { key: 'schedule', schedule: sc, last: lastNightHow(n.last), sub, alert: !m.off || !sc.enabled,
+    section: () => scheduleSection() });
+}
+/** The last joint run for the schedule tile: when, and how it ended in the office's words (lastNightText()'s reading) */
+function lastNightHow(l) {
+  if (!l || !l.started) return null;
+  const at = l.finished || l.started;
+  if (l.running) return { at, how: 'running' };
+  if (!l.finished && !l.result) return { at, how: 'failed' };
+  const bad = (Array.isArray(l.steps) ? l.steps : []).some((x) => x && !['ok', 'stopped', 'refused', 'skipped'].includes(String(x.result || 'ok')));
+  const how = l.result === 'missed' ? 'partly' : l.result === 'stopped' ? 'stopped' : l.result === 'refused' ? 'refused' : bad || jackFailed(l) ? 'partly' : 'ok';
+  return { at, how };
 }
 
 /**

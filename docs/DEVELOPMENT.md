@@ -286,6 +286,34 @@ A new tile or list, checked off:
 - A switch inside a section that changes a tile's line (hide, sort): call `sw.row()` after the section's redraw — the
   row alone, at once; `sw.render()` would draw the section a second time.
 
+**The schedule tile** (1.78): a desk whose work runs on a schedule says so with ONE tile, the same everywhere —
+`Office.scheduleTile(ID, {…})` gives a whole entry of the switcher's `tiles` (id `schedule`, place `tile.schedule`, route
+`#/<desk>/schedule`; its section the desk's schedule settings). The value is when it runs next («03:30», «Tomorrow, 03:30»,
+a weekday, a date; «due now» once past; «Off» without a line), under it the cron line in words, the last run and how it
+ended («Last: 3 hours ago · done» — `last.how` ok | failed | stopped | partly | refused | skipped | running), then the
+desk's own lines; alert by default when the last run failed or went partly. Options: `schedule` (officeJobSchedule() as
+the state carries it: `enabled`, `custom`, `next`), `every` + `next` for work that goes by itself (the Night Watchman's
+rounds — never «Off»), `last`, `sub`, `value` (the desk's words instead of the next run: none set up, paused, nothing
+runs them), `alert`, `card` (a `.card` for a row of cards, `chip` its warn label), `key` (the desk's lang key of the
+name, default `tile.schedule`, in `places.json`), `section`. `Office.scheduleDialog(ID, {schedule, intro, time, after})`
+is the dialog that goes with it for a desk without one of its own (every day at a time / a cron line / not on its own →
+`<desk>.schedule {cron}`, read with `cronField()`, set with `officeJobSetSchedule()`). Texts `office.schedule.*`. On it:
+Ms. Dustdevil, Ms. Protocolli, Ms. Snapshotini (her plans as a whole, `key: 'plans'`, a card; `#/snapshot/plans` still
+lands there), the Night Watchman, Ms. Moverelli (`key: 'schedule'`). **Still their own tile** (other chats' files on
+2026-10-29), to move over the same way:
+- **Mr. Backupsy** — `public/desks/backup/desk.js` `overviewTiles()` lines 1031–1036 (`const sc = …` … `add({ key:
+  'schedule', … })`) go; `tileList()` (line ~928) hands for `schedule` `Office.scheduleTile(ID, { key: 'stat.schedule',
+  schedule: sc, value: sc.script ? '' : T('stat.not_scheduled'), last: last && { at: last.finished || last.started, how:
+  { ok: 'ok', warnings: 'partly', errors: 'partly', failed: 'failed', aborted: 'stopped', skipped: 'skipped', running:
+  'running' }[last.result] }, sub: [took ? T('schedule.duration', {…}) : ''], alert: !sc.enabled, section: () =>
+  scheduleSection() })` (`last` = `lastRun()`, `took` = `typicalDuration()`); his «Last backup» tile stays.
+- **Jack Streamer** — `public/desks/jack/desk.js` line 449 (`{ id: 'plans', key: 'schedules', … plansTile(a) }`) and
+  `plansTile()` (668–677) become `Office.scheduleTile(ID, { key: 'schedules', schedule: { enabled: on.length > 0, custom:
+  on.length === 1 ? sc[on[0]].custom : '', next: Math.min(...nexts) }, value: on.length ? '' : T('plans.off'), last:
+  <his last run (state.last_run): {at, how}>, sub: [jobs.map(… 'plans.one' …).join(' · ')], alert: !on.length, section:
+  () => plansSection() })`; `#/jack/plans` mapped to `schedule` in `mount()` (Ms. Moverelli's links already say
+  `#/moverelli/schedule`).
+
 
 ## Adding a language
 
