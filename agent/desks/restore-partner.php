@@ -673,14 +673,14 @@ function rspShareFolder(array $r): array
     $ds = "{$u['pool']}/$share";
     [$exit, , $err] = run([rspZfs(), 'create', $ds], 60);
     if ($exit !== 0 || rspDsGet($ds, 'mounted') !== 'yes' || rspDsGet($ds, 'mountpoint') !== $u['folder']) {
-        logLine("Restore: the empty folder of the share $share ($ds) could not be made: " . trim((string) $err));
+        logLine("Mr. Restori: the empty folder of the share $share ($ds) could not be made: " . trim((string) $err));
         throw new Problem('restore_share_folder_failed', ['share' => $share, 'path' => (string) $u['folder']]);
     }
     $place = rspPoolRoot() . "/{$u['pool']}/$share";
     @chown($place, 99);
     @chgrp($place, 100);
     @chmod($place, 0777);
-    logLine("Restore: the share $share had no folder (off Unraid's list) — its empty dataset $ds made, nobody:users 0777; its settings untouched");
+    logLine("Mr. Restori: the share $share had no folder (off Unraid's list) — its empty dataset $ds made, nobody:users 0777; its settings untouched");
     return ['ok' => true, 'share' => $share, 'folder' => $u['folder']];
 }
 
