@@ -987,6 +987,7 @@ const partnerTrouble = (p) => !!(p.ended || (p.from || []).length
  * `anew` (its units go there at the next Apply) or not (they go) — or a pair that settings.ini gives nothing yet
  */
 function partnerApplyText(p) {
+  if (p.ended && (p.choose || []).length && (p.units || []).length) return T('partner.short_choose', { name: p.name, m: p.choose.length, n: p.units.length });
   if (p.ended && p.anew) return T('partner.short_anew', { name: p.name, new: p.anew.name, n: (p.units || []).length });
   if (p.ended) return T('partner.short_ended', { name: p.name });
   if ((p.from || []).length) return T('partner.short_from', { name: p.name, from: p.from.map((f) => f.name).join(', '), n: p.from.reduce((a, f) => a + f.n, 0) });
@@ -2950,6 +2951,8 @@ function setupApply() {
   if (dget(`share|${ds}|mode`, 'off') === 'off') { Office.toast(T('setup.ds_off', { share: ds }), true); return; }
   const zero = setupZeroPartner();
   if (zero !== null) { Office.toast(T('errors.setup_zero_partner', { name: zero }), true); return; }
+  const open = anewOpen();
+  if (open.length) { Office.toast(T('partner.choose_first', { name: open[0].name, id: open[0].id }), true); return; }
   const box = el('div');
   if (!setup.plan.have_settings) {
     // nothing saved yet: no list of differences, but what will be backed up how
@@ -3052,8 +3055,15 @@ function setupApply() {
   if (pl.length) {
     box.appendChild(el('p', '', T('partner.apply_group')));
     // engine 2.45: a partner ended at the Team Lead and paired anew - its units go to the new partnership with this Apply
-    (setup.plan.messages || []).filter((m) => m && m.code === 'partner_anew')
+    const choices = anewChoices();
+    (setup.plan.messages || []).filter((m) => m && m.code === 'partner_anew' && !choices.some((c) => m.params && m.params.partner === c.name))
       .forEach((m) => box.appendChild(el('p', 'callout', T('setup.msg.partner_anew', setupMsgParams(m.params)))));
+    // 2026-10-29: a gone partner of several namesakes — the pair the user chose, said by what tells it apart
+    choices.forEach((c) => {
+      const to = c.candidates.find((x) => x.id === (setup.anewPick || {})[c.id]);
+      box.appendChild(el('p', 'callout', to ? T('partner.choose_applied', { name: c.name, n: c.units.length, to: `${to.name} · ${to.id} (${to.address})` })
+        : T('partner.choose_applied_none', { name: c.name, n: c.units.length })));
+    });
     const ul = el('ul', 'shortlist');
     pl.forEach(([name, how]) => {
       const li = el('li', '', name);
@@ -4339,6 +4349,63 @@ function appliedCard(run) {
   return box;
 }
 
+/** A partner as the setup names it: several of one name (2026-10-29, test4's five «Tower») told apart by their id */
+function partnerLabel(p) {
+  const n = setupPartners().filter((q) => String(q.name).toLowerCase() === String(p.name).toLowerCase()).length;
+  return n > 1 ? `${p.name} · ${p.id}` : p.name;
+}
+
+/**
+ * A gone partner whose name several pairs this office sends to carry (2026-10-29, test4; the plan's partner_choose,
+ * backupPlanPartnerChoice()): the engine would hand its units to the first of the same address or to none, saying only
+ * «paired anew as Tower» — which pair gets them is the user's, asked here. setup.anewPick: gone id → the chosen pair's
+ * id ('' none: they stay here); the units' partner lists in the draft follow (anewPickSet()), Apply sends them as
+ * decisions and waits until each is chosen (setupApply()).
+ */
+const anewChoices = () => ((setup.plan && setup.plan.partner_choose) || []).filter((c) => c && Array.isArray(c.candidates) && c.candidates.length > 1 && (c.units || []).length);
+const anewOpen = () => anewChoices().filter((c) => !Object.prototype.hasOwnProperty.call(setup.anewPick || {}, c.id));
+/** A partner unit's list in the draft (settings.ini's unit words): the place's, a share's, a VM's, an app's */
+const anewUnitKey = (u) => (u === 'place' ? 'general|partner_place' : (/^(share|vm|app):(.+)$/.exec(u) || []).slice(1, 3).join('|') + '|partner');
+function anewPickSet(c, id) {
+  setup.anewPick = { ...(setup.anewPick || {}), [c.id]: id };
+  const saved = setup.plan.have_settings ? setupSaved() : {};
+  const ids = c.candidates.map((x) => x.id);
+  c.units.forEach((u) => {
+    const key = anewUnitKey(u);
+    if (!/^(general|share|vm|app)\|/.test(key)) return;
+    const was = saved[key] || [];
+    // the engine's guess goes, a namesake the unit already went to before stays
+    const list = (dget(key, []) || []).filter((x) => !ids.includes(x) || was.includes(x));
+    if (id && !list.includes(id)) list.push(id);
+    dset(key, list);
+  });
+}
+function anewChoiceBox() {
+  const list = anewChoices();
+  if (!list.length) return null;
+  const box = el('div', 'bk-anew');
+  list.forEach((c) => {
+    const pick = (setup.anewPick || {})[c.id];
+    const part = Office.place(`partner.choose:${c.id}`, el('div', 'callout' + (pick === undefined ? ' warn' : '')));
+    part.appendChild(el('p', '', T('partner.choose_text', { name: c.name, id: c.id, address: c.address || '–', n: c.units.length, units: c.units.map(unitLabel).join(', ') })));
+    const opts = [...c.candidates.map((x) => ({ id: x.id, text: [T('partner.choose_one', { name: x.name, id: x.id, address: `${x.address}:${x.port}`, when: fmt.date(x.paired) }),
+      x.last_heard ? T('partner.choose_heard', { when: fmt.relative(x.last_heard) }) : T('partner.choose_never'), x.pick ? T('partner.choose_guess') : ''].filter(Boolean).join(' · ') })),
+    { id: '', text: T('partner.choose_none', { n: c.units.length }) }];
+    opts.forEach((o) => {
+      const l = el('label', 'check bk-anew-pick');
+      const r = el('input');
+      r.type = 'radio';
+      r.name = `bk-anew-${c.id}`;
+      r.checked = pick === o.id;
+      r.onchange = () => { anewPickSet(c, o.id); setupDerive(); Office.keepInPlace(part, () => renderSetup()); };
+      l.append(r, el('span', '', o.text));
+      part.appendChild(l);
+    });
+    box.appendChild(part);
+  });
+  return box;
+}
+
 /**
  * «also to <partner>» (engine 2.27): a toggle per partner this office sends to (the plan's partners[], from the Team
  * Lead's pairs) for a share's, a VM's or the backup place's partner list `key` - several allowed. Only a ZFS dataset of
@@ -4351,12 +4418,12 @@ function partnerChips(key, ok, why, off) {
   const on = dget(key, []) || [];
   partners.forEach((p) => {
     const sel = on.includes(p.id) && ok && !off;
-    const b = el('button', 'chip bk-pchip' + (sel ? ' accent' : ''), (sel ? '✓ ' : '+ ') + T('partner.also', { name: p.name }));
+    const b = el('button', 'chip bk-pchip' + (sel ? ' accent' : ''), (sel ? '✓ ' : '+ ') + T('partner.also', { name: partnerLabel(p) }));
     b.type = 'button';
     b.setAttribute('aria-pressed', String(sel));
     if (!ok) { b.disabled = true; b.title = T('partner.why.' + (why || 'no_dataset')); }
     else if (off) { b.disabled = true; b.title = T('partner.off_hint'); }
-    else b.title = T(sel ? 'partner.also_on_hint' : 'partner.also_hint', { name: p.name });
+    else b.title = T(sel ? 'partner.also_on_hint' : 'partner.also_hint', { name: partnerLabel(p) });
     b.onclick = () => {
       const now = dget(key, []) || [];
       dset(key, now.includes(p.id) ? now.filter((x) => x !== p.id) : [...now, p.id]);
@@ -4460,9 +4527,12 @@ function partnerApplyLines() {
   const anew = (setup.plan.messages || []).filter((m) => m && m.code === 'partner_anew' && m.params);
   return partners.map((p) => {
     const now = partnerUnits(setup.draft, p.id);
-    if (!saved) return [T('partner.apply_to', { name: p.name }), now.length ? now.map(unitLabel).join(', ') : T('partner.apply_none')];
+    if (!saved) return [T('partner.apply_to', { name: partnerLabel(p) }), now.length ? now.map(unitLabel).join(', ') : T('partner.apply_none')];
     const before = partnerUnits(saved, p.id);
-    const from = goneIds.filter((id) => anew.some((m) => m.params.partner === saved[`partner|${id}|name`] && m.params.new === p.name));
+    // a gone partner of several namesakes: taken over by the pair chosen (anewChoiceBox()), never by its name
+    const chosen = (id) => anewChoices().some((c) => c.id === id);
+    const from = goneIds.filter((id) => (chosen(id) ? (setup.anewPick || {})[id] === p.id
+      : anew.some((m) => m.params.partner === saved[`partner|${id}|name`] && m.params.new === p.name)));
     const fromOf = (u) => from.find((id) => partnerUnits(saved, id).includes(u));
     const label = (u) => {
       if (before.includes(u)) return unitLabel(u);
@@ -4472,7 +4542,7 @@ function partnerApplyLines() {
     const minus = before.filter((u) => !now.includes(u));
     let text = now.length ? now.map(label).join(', ') : T('partner.apply_none');
     if (minus.length) text += ` (${T('partner.apply_removed', { list: minus.map(unitLabel).join(', ') })})`;
-    return [T('partner.apply_to', { name: p.name }), text];
+    return [T('partner.apply_to', { name: partnerLabel(p) }), text];
   });
 }
 
@@ -4491,8 +4561,10 @@ function setupKopia(plan) {
   if (pl) s.appendChild(pl);
   // engine 2.27/2.42: the partner offices this office sends to (paired at the Team Lead) - and the backup place to them as a level
   if ((plan.partners || []).length) {
-    const line = el('p', 'role bk-partners-line', T('partner.setup_line', { names: plan.partners.map((p) => p.name + (p.key ? '' : ` (${T('partner.no_key')})`)).join(', ') }));
+    const line = el('p', 'role bk-partners-line', T('partner.setup_line', { names: plan.partners.map((p) => partnerLabel(p) + (p.key ? '' : ` (${T('partner.no_key')})`)).join(', ') }));
     s.appendChild(line);
+    const choose = anewChoiceBox();          // a gone partner whose name several pairs carry: which one gets its units (2026-10-29)
+    if (choose) s.appendChild(choose);
     const pl = placeLevelPick(plan);
     if (pl) s.appendChild(Office.place('partner.place', pl));
   }

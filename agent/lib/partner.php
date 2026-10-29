@@ -3197,13 +3197,43 @@ function partnerAnew(string $oldId, string $address, array $hostKeys, array $pai
 }
 
 /**
+ * Whom the units of a gone partner go to when its name is carried by several pairs this office sends to (2026-10-29,
+ * test4: «Tower» five times — the engine's partner_anew takes the first of the same address or key, or none of two of
+ * a name, and nothing said which): the pairs of that name (and the engine's pick, partnerAnew()), each with what tells
+ * them apart — for the page to let the user choose; the chosen id reaches settings.ini through the setup's decisions
+ * (the engine keeps a unit's partner = <id> that exists). Empty while one pair (or none) carries the name: as before.
+ *
+ * @return list<array{id:string, name:string, address:string, port:int, paired:int, last_heard:?int, pick:bool}>
+ */
+function partnerAnewChoice(string $oldId, string $address, array $hostKeys, array $pairs, string $name = ''): array
+{
+    $mine = array_values(array_filter($pairs, fn ($p) => $p['my_key'] !== null && $p['id'] !== $oldId));
+    $pick = partnerAnew($oldId, $address, $hostKeys, $pairs, $name);
+    $named = $name === '' ? [] : array_values(array_filter($mine, fn ($p) => strtolower($p['name']) === strtolower($name)
+        || ($pick !== null && strtolower($p['name']) === strtolower($pick['name']))));
+    if (count($named) < 2) {
+        return [];
+    }
+    if ($pick !== null && !in_array($pick['id'], array_column($named, 'id'), true)) {
+        $named[] = $pick;
+    }
+    $state = partnerStateRead();
+    return array_map(fn ($p) => ['id' => $p['id'], 'name' => $p['name'], 'address' => $p['address'], 'port' => $p['port'], 'paired' => $p['paired'],
+        'last_heard' => partnerLastHeard($p, is_array($state['pairs'][$p['id']] ?? null) ? $state['pairs'][$p['id']] : []),
+        'pick' => $pick !== null && $pick['id'] === $p['id']], $named);
+}
+
+/**
  * What waits for Mr. Backupsy's «Apply» (1.60.1, a user: a partnership ended and paired anew died silently): `ended` —
  * the partners settings.ini still names that the Team Lead no longer pairs (the run skips them as `ended`), each with
  * its units and `anew` (the pair made anew that gets them at the next Apply, or null: they go); `empty` — the pairs
  * this office sends to that settings.ini gives no unit yet (with `from`: the ended partners whose units come to it).
  * Without pairs.json (the Team Lead never paired) nothing waits.
  *
- * @return array{ended: list<array{id:string, name:string, units:list<string>, anew:?array{id:string, name:string}}>,
+ * `choose` (2026-10-29): the pairs of its name when several carry it (partnerAnewChoice()) — the setup asks which gets
+ * the units, the Team Lead's card names none of them as getting them (no `from`) until the user chose and applied.
+ *
+ * @return array{ended: list<array{id:string, name:string, address:string, units:list<string>, anew:?array{id:string, name:string}, choose:list<array>}>,
  *               empty: list<array{id:string, name:string, from:list<array{name:string, n:int}>}>,
  *               from: array<string, list<array{name:string, n:int}>>}
  */
@@ -3227,10 +3257,14 @@ function partnerApplyPending(?array $settings = null, ?array $pairs = null, ?arr
             continue;
         }
         $e = $ended[$n['id']] ?? null;
-        $new = partnerAnew($n['id'], $n['address'] !== '' ? $n['address'] : (string) ($e['address'] ?? ''), $e['host_keys'] ?? [], $pairs,
-            $n['name'] !== $n['id'] ? $n['name'] : (string) ($e['name'] ?? ''));
-        $out['ended'][] = ['id' => $n['id'], 'name' => $n['name'], 'units' => $n['units'], 'anew' => $new ? ['id' => $new['id'], 'name' => $new['name']] : null];
-        if ($new && $n['units']) {
+        $args = [$n['id'], $n['address'] !== '' ? $n['address'] : (string) ($e['address'] ?? ''), $e['host_keys'] ?? [], $pairs,
+            $n['name'] !== $n['id'] ? $n['name'] : (string) ($e['name'] ?? '')];
+        $new = partnerAnew(...$args);
+        // several pairs of its name (2026-10-29): never one picked without a word — the setup asks which
+        $choose = partnerAnewChoice(...$args);
+        $out['ended'][] = ['id' => $n['id'], 'name' => $n['name'], 'address' => $n['address'], 'units' => $n['units'],
+                           'anew' => $new ? ['id' => $new['id'], 'name' => $new['name']] : null, 'choose' => $choose];
+        if ($new && $n['units'] && !$choose) {
             $out['from'][$new['id']][] = ['name' => $n['name'], 'n' => count($n['units'])];
         }
     }

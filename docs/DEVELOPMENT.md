@@ -472,6 +472,18 @@ The Night Watchman knows the door's line and its refusals, Ms. Snapshotini keeps
 Dustdevil puts away what an ended partnership left, Ms. Protocolli reads the door's log. The security of the door:
 [HARDENING.md](../HARDENING.md).
 
+**Pairing anew:** the accept and finish looks name the pairs of the same address or server key
+(`partnerKnownAs()`); `replace` in the do step ends those after the new pair is stored (`partnerReplace()`: their
+`uso-partner:` line and the `uso-ticket:` lines of tickets given for them out, key and known_hosts off the flash, the
+record whole into `data/partner/replaced.json` and into `ended.json`; `received/<id>.json`, the datasets and the copies
+there never touched). A pair not heard since a newer one of the same partner was made (`partnerSupersededBy()`) is not
+told as silent; the Team Lead's check says `partner_superseded`, its card `partner_replace`. **A gone partner of
+namesakes:** the engine names partners by id and hands a gone pair's units to the first pair of its address or key, or
+to the only pair of its name (`partner_anew_match`); when several pairs this office sends to carry the name,
+`partnerAnewChoice()` lists them, the setup's plan carries `partner_choose` (`backupPlanPartnerChoice()`), the page
+asks which (or none), puts that id into the units' partner lists and holds Apply until each is chosen — the decisions
+carry the id, which the engine keeps as it is paired.
+
 ## The USO network (the office's own Tailscale node)
 
 Underneath the partner offices only (concept `uso-partner-tunnel`, owner's decisions D1–D10). The pairing

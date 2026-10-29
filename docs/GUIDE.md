@@ -306,7 +306,12 @@ When a server is gone, the new one asks at its Team Lead (*Start from a partner'
 a **restore ticket** — a door for seven days that only hands over those copies (also what arrives for the gone server
 after the ticket was written); Mr. Restori's *Onto a new server* pulls the backup place first, then the shares and VMs.
 Several partners of the same name (an earlier pairing, a server set up anew) say so on their cards, each with its id,
-address and when it last sent — the ticket is written on the card of the pair that holds the copies. ZFS only, and the partner can read the copies — for a friend,
+address and when it last sent — the ticket is written on the card of the pair that holds the copies. Pairing anew with
+a server already paired here (the same address or server key), both dialogs name the earlier pair and offer to
+*replace* it: its door line and key go, its copies stay for Ms. Dustdevil (unticked while a restore ticket for it is
+open). An earlier pair left over from before, not heard since a newer one was made, isn't told as silent any more; its
+card offers *Replace it by …*. When a partnership ends and several pairs carry its name, Mr. Backupsy's setup asks which
+one gets its units — Apply waits for the choice. ZFS only, and the partner can read the copies — for a friend,
 Kopia is the encrypted way.
 
 **The USO network (Tailscale), optional.** Two servers behind different routers (or behind CGNAT) need a network that
