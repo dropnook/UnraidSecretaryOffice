@@ -4466,16 +4466,20 @@ function partnerUnits(draft, id) {
 function partnerSectionRows(keys, saved, view) {
   const ids = [...new Set(keys.filter((k) => k.startsWith('partner|')).map((k) => k.split('|')[1]))].sort();
   const has = (o, id) => Object.keys(o).some((k) => k.startsWith(`partner|${id}|`) && !empty(o[k]));
+  // several of one name among them (2026-10-29, test4: «Tower comes», «Tower comes», «Tower goes»): each with its id
+  const nameOf = (id) => String(view[`partner|${id}|name`] || saved[`partner|${id}|name`] || id);
+  const twins = (id) => ids.filter((x) => nameOf(x).toLowerCase() === nameOf(id).toLowerCase()).length > 1;
+  const label = (o, id) => (o[`partner|${id}|name`] || id) + (twins(id) ? ` · ${id}` : '');
   return ids.map((id) => {
     const was = has(saved, id);
     const is = has(view, id);
     const li = el('li', 'bk-marked');
     if (was && !is) {
-      li.append(diffMark('gone'), T('partner.ch_gone', { name: saved[`partner|${id}|name`] || id, address: saved[`partner|${id}|address`] || '–' }));
+      li.append(diffMark('gone'), T('partner.ch_gone', { name: label(saved, id), address: saved[`partner|${id}|address`] || '–' }));
     } else if (!was && is) {
-      li.append(diffMark('add'), T('partner.ch_new', { name: view[`partner|${id}|name`] || id, address: view[`partner|${id}|address`] || '–' }));
+      li.append(diffMark('add'), T('partner.ch_new', { name: label(view, id), address: view[`partner|${id}|address`] || '–' }));
     } else {
-      li.append(T('partner.ch_changed', { name: view[`partner|${id}|name`] || saved[`partner|${id}|name`] || id }));
+      li.append(T('partner.ch_changed', { name: label(view[`partner|${id}|name`] ? view : saved, id) }));
       li.appendChild(el('span', '', keys.filter((k) => k.startsWith(`partner|${id}|`))
         .map((k) => `${k.split('|')[2]}: ${valueText(saved[k], k)} → ${valueText(view[k], k)}`).join(' · ')));
     }

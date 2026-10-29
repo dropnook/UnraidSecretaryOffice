@@ -56546,6 +56546,8 @@ function testBackupAnewChoice(): void
     check('anew choice: the chosen id replaces the engine\'s guess in each unit\'s list (a namesake it went to before stays)',
         (bool) preg_match('/function anewPickSet\(c, id\) \{[\s\S]{0,500}filter\(\(x\) => !ids\.includes\(x\) \|\| was\.includes\(x\)\)[\s\S]{0,80}list\.push\(id\)/', $js));
     check('anew choice: namesakes told apart by id in the chips, the partners line and «To <partner>»', substr_count($js, 'partnerLabel(p)') >= 5);
+    check('anew choice: … and in the Apply list\'s «Partnership X comes / goes» rows (test4: three «Tower»)',
+        str_contains($js, 'const label = (o, id) => (o[`partner|${id}|name`] || id) + (twins(id) ? ` · ${id}` : \'\');') && substr_count($js, 'name: label(') === 3);
     check('anew choice: the overview says it plainly', str_contains($js, "T('partner.short_choose', { name: p.name, m: p.choose.length, n: p.units.length })"));
     // the engine takes a decision's partner id when that pair exists (keep_ids: OLD first, ANEW only for a gone id)
     $setup = (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh');

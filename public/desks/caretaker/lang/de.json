@@ -299,7 +299,7 @@
   "partner.known_why.address": "Adresse",
   "partner.known_why.host_key": "Server-Schlüssel",
   "partner.known_why.both": "Adresse und Server-Schlüssel",
-  "partner.known_replace": "Kopplung {id} durch diese ersetzen: Ihre Türzeile und der Schlüssel dieses Sekretariats dafür fallen weg, ihre Kopien hier bleiben (Frau Putzteufel bietet an, sie wegzuräumen)",
+  "partner.known_replace": "Kopplung {id} durch diese ersetzen: ihre Türzeile und der Schlüssel dieses Sekretariats dafür fallen weg, ihre Kopien hier bleiben (Frau Putzteufel bietet an, sie wegzuräumen)",
   "partner.known_ticket": "Achtung: Für Kopplung {id} ist ein Rückhol-Ticket bis {until} offen. Ersetzen beendet auch dieses Ticket — ein neuer Server, der diese Kopien zieht, kann das dann nicht mehr.",
   "partner.known_keep": "Ohne Häkchen bleiben beide Kopplungen: Die frühere schweigt weiter, bis du sie beendest.",
   "partner.replaces": "Diese Kopplung ersetzt {id} ({name}, {address}) — ihre Zeile und ihr Schlüssel fallen weg, ihre Kopien hier bleiben.",
