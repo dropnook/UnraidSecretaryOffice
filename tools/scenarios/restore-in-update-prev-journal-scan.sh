@@ -1,12 +1,14 @@
 #!/bin/bash
 # Cell R24 of matrix.md (wave 3): Mr. Restori's journals written by the release before (IN-UPDATE-PREV), read by the code
 # under test after the plugin manager's update (OF-UPDATE plg=tree). The 1.60 fixture holds no restore journals, so the
-# old release writes them here: a backup run, a file restored beside its original, a drill — all under the old release.
+# old release writes them here: a backup run, the user changes a file, the file restored in place out of the moment
+# («replace»: the changed one aside — the kind of restore that can be put back; a copy beside has nothing to put back by
+# design), a drill — all under the old release.
 # Then the update, and his look:
 #   restore-row   the old restore is in his list with its result (ok) — not «interrupted», not missing
 #   drill-row     the old drill is in his drill list with its result (passed)
-#   putback       «Put back» on the old restore works with the new code (the old journal's own undo): the copy beside
-#                 the original goes, the original stays as it was
+#   putback       «Put back» on the old restore works with the new code (the old journal's own undo): the user's
+#                 changed file is in place again
 # Nothing saved changes (INV-SETTINGS), the second update changes nothing (INV-MIGRATE-IDEMPOTENT); the undo puts the
 # office back as it was. Nightly (~12 min: two installs, a run, a drill).
 . "$(dirname "$0")/lib.sh"
@@ -23,7 +25,11 @@ f=$(find /mnt/cache/uso-only -maxdepth 1 -type f -name 'f1d-*.bin' | sort | head
 path=/mnt/user/uso-only/$(basename "$f")      # uso-only: «local» (snapshot) in the base, so it has moments
 track_share uso-only
 flow BK-RUN-MANUAL mode=backup                       # a moment of uso-only, by the old release
-flow RS-FILES mode=beside path="$path"
+cp -p "$f" "$KEEP/original.bin"
+undo_push bash -c 'cp -p "$1" "$2"; rm -f -- "$2".aside-* "$2".putback-* "$2".restored-*; exit 0' _ "$KEEP/original.bin" "$f"
+printf 'changed by the user\n' >>"$f"
+changed=$(md5sum <"$f")
+flow RS-FILES mode=replace path="$path"
 rid=$(fl_last_restore)
 say "the old release's restore: $rid ($(jq -c '{kind, result}' "$D/restore/$rid/journal.json" 2>/dev/null))"
 flow RS-DRILL
@@ -31,25 +37,20 @@ did=$(ls -t "$D/restore-drill" 2>/dev/null | grep -E '^[0-9]{8}-' | head -1)
 say "the old release's drill: $did ($(jq -c '{result}' "$D/restore-drill/$did/journal.json" 2>/dev/null))"
 evidence "$D/restore/$rid/journal.json" restore-journal-old.json >/dev/null
 evidence "$D/restore-drill/$did/journal.json" drill-journal-old.json >/dev/null
-beside=$(jq -r '[.steps[]? | select(.do == "copy") | .to][0] // empty' "$D/restore/$rid/plan.json" 2>/dev/null)
-say "the copy beside the original: ${beside:-unknown}"
 snap_before
 flow OF-UPDATE plg=tree
 [[ $(_st_office_version) == "$cur" ]] && say "office $cur after the update" || _row flow OF-UPDATE red "office $(_st_office_version) after the update, not $cur"
 flow RS-SCAN
-row=$(jq -c --arg i "$rid" '[.restores[]? | select(.id == $i) | {kind, result}][0] // empty' "$D/restore.json" 2>/dev/null)
-[[ $(jq -r '.result // empty' <<<"${row:-null}" 2>/dev/null) == ok ]] && cell restore-row 1 "his list after the update: $rid $row" \
+row=$(jq -c --arg i "$rid" '[.restores[]? | select(.id == $i) | {kind, result, can_putback}][0] // empty' "$D/restore.json" 2>/dev/null)
+[[ $(jq -r '"\(.result) \(.can_putback)"' <<<"${row:-null}" 2>/dev/null) == "ok true" ]] && cell restore-row 1 "his list after the update: $rid $row" \
     || cell restore-row 0 "his list after the update: $rid → ${row:-not listed}"
 ask restore.drill_state '{}' 300 >/dev/null
 drow=$(ask_last "[.drills[]? | select(.id == \"$did\") | {result}][0] // empty" | jq -c . 2>/dev/null)
 [[ $(jq -r '.result // empty' <<<"${drow:-null}" 2>/dev/null) == passed ]] && cell drill-row 1 "his drills after the update: $did $drow" \
     || cell drill-row 0 "his drills after the update: $did → ${drow:-not listed}"
 if flow RS-PUTBACK of="$rid"; then
-    if [[ -n $beside && ! -e $beside && -f $path ]] && cmp -s "$f" "$path"; then
-        cell putback 1 "put back with the new code: the copy $beside gone, the original unchanged"
-    else
-        cell putback 0 "put back ended, but: copy ${beside:-?} $( [[ -e $beside ]] && echo 'still there' || echo gone), original $( [[ -f $path ]] && echo there || echo MISSING)"
-    fi
+    [[ $(md5sum <"$f") == "$changed" ]] && cell putback 1 "put back with the new code: the user's changed file in place again" \
+        || cell putback 0 "put back ended, but the file in place is not the user's changed one"
 else
     cell putback 0 "«Put back» on the old release's restore: $(ask_last '.error.key // empty') $(jq -c '[.blockers[]?.key]' "$KEEP/rs-preview.json" 2>/dev/null)"
 fi
