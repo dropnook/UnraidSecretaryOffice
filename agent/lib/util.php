@@ -187,7 +187,9 @@ function runAll(array $commands, int $timeout = 120): array
         $running[$key] = ['process' => $process, 'pipes' => $pipes, 1 => '', 2 => ''];
     }
 
-    $deadline = microtime(true) + $timeout;
+    // the monotonic clock: a clock step (NTP at boot, a scenario's clock put back) never ends a command early or late —
+    // the wall clock once killed the Night Watchman's Kopia count mid-list when the clock came back 40 days (1.81.0)
+    $deadline = hrtime(true) + $timeout * 1e9;
     while ($running) {
         $read = [];
         foreach ($running as $r) {
@@ -211,7 +213,7 @@ function runAll(array $commands, int $timeout = 120): array
                 }
             }
             $done = feof($running[$key]['pipes'][1]) && feof($running[$key]['pipes'][2]);
-            $killed = !$done && microtime(true) > $deadline;
+            $killed = !$done && hrtime(true) > $deadline;
             if (!$done && !$killed) {
                 continue;
             }
