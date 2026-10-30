@@ -1,6 +1,7 @@
 # The pre-release set: what tools/release.sh step 6b runs (through tools/scenarios/prerelease.sh) for the desks a release
 # touches. Short scenarios that were green on their last runs on Tower - no reboot half, no clock change, no let-go, nothing
-# marked nightly - all of them together ≈ 27 min on Tower (2026-10-21), the base reset and the Mac-side checks on top.
+# marked nightly - all of them together ≈ 37 min on Tower (2026-10-30: six of wave 3 added, each run green on main that day),
+# the base reset and the Mac-side checks on top.
 #
 # One a line, in the order they run:   <name>   <desk>[,<desk>…]   <seconds on Tower>
 # The desks are the ones whose changes call the scenario (prerelease.sh maps the release's changed files to desks); the
@@ -10,6 +11,7 @@
 
 office-smoke-refresh                            office                          15
 office-sv-docker-off-bubbles                    office                          35
+office-sv-array-stopped-nightshift              office,watchman                 100
 
 backup-sh-office-share-exists-first-setup       backup                          15
 backup-sh-office-share-missing-first-setup-gate backup                          30
@@ -21,6 +23,8 @@ backup-in-takeover-first-setup                  backup                          
 backup-ct-stopped-nc-replan-apply               backup                          45
 backup-kp-container-stopped-replan-apply-run    backup                          50
 backup-sv-docker-off-first-setup-run            backup                          60
+backup-sv-notify-off-run                        backup                          75
+backup-sv-log-full-run                          backup                          85
 backup-ct-app-is-dataset-run                    backup                          75
 backup-st-renamed-run                           backup                          110
 backup-vm-ct-paused-shutoff-run                 backup                          110
@@ -30,6 +34,7 @@ restore-rn-changes-between-putback              restore,backup                  
 restore-ct-image-gone-drill                     restore                         65
 restore-ct-stopped-db-db                        restore                         110
 restore-sh-renamed-files                        restore                         135
+restore-st-stack-config-drill                   restore                         155
 
 moverelli-in-moverelli-ini-handedit-resave      moverelli                       10
 moverelli-sh-prefer-array-files-run             moverelli                       15
@@ -44,8 +49,10 @@ moverelli-mo-x-zero-run-sched                   moverelli                       
 moverelli-rn-two-runs-run                       moverelli                       30
 moverelli-mo-two-files-progress-run             moverelli                       35
 moverelli-sh-yes-run-picture                    moverelli                       65
+moverelli-jk-list-missing-norun-run             jack,moverelli                  20
 moverelli-jk-list-pending-run                   jack,moverelli                  25
 moverelli-jk-hired-list-run                     jack,moverelli                  150
+jack-jk-trial-then-real-list                    jack                            45
 
 office-in-downgrade-replan                      office,backup                   35
 office-in-update-prev-replan                    office,backup                   110

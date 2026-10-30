@@ -31,7 +31,7 @@
 #                 playwright-core or a Chrome it is skipped with a note (≈ 2 min)
 #   6b scenarios  the desks this release touches (the files changed since the last tag, the bump left out) and their
 #                 scenarios of the pre-release set on Tower with the code under test: tools/scenarios/prerelease.sh
-#                 (its head: which file calls which desk, tools/scenarios/quick.list: the set, ≈ 30 min at most). Red
+#                 (its head: which file calls which desk, tools/scenarios/quick.list: the set, ≈ 40 min at most). Red
 #                 stops the release like the suite; it waits at most 30 min for Tower held by another run (the nightly,
 #                 a worker), then stops. No desk touched: nothing runs. Its time stands in the last lines
 #    7 suite      rsync to <suite_host>:/tmp/uso-main/, php tests/run.php there ends «… passed, 0 failed»

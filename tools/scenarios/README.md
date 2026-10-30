@@ -97,8 +97,9 @@ toy scenario: the three desks' fresh looks, standard checks.
   the files changed since the last tag to desks (the table in its head: a desk's files → it, `backup/` → backup and
   restore, `mediacache/`/`gather/` → jack, `smartmover/` → moverelli, shared code, the web side, the plugin, office
   strings and the scenario helpers → all; docs and tests → none) and runs their scenarios of **`quick.list`** — the
-  pre-release set: short, green lately, no reboot, clock or let-go, ≈ 27 min all together — through
-  `USO_RUN_TAG=prerelease run.sh tower --only … --dev-sync`. Red stops the release (the version lines put back);
+  pre-release set: short, green lately, no reboot, clock or let-go, ≈ 37 min all together (43 scenarios, 2026-10-30;
+  the self-test's cap 40 min) — through `USO_RUN_TAG=prerelease run.sh tower --only … --dev-sync`. Red stops the
+  release (the version lines put back);
   `--dry` lists the desks, the scenarios and the estimate without Tower (`USO_RELEASE_DIFF=<file>`: an invented diff);
   `--no-scenarios` skips it with a loud line; the step's time stands in the release's last lines.
   By hand: `bash tools/scenarios/prerelease.sh --dry` (or `--only <name>` for a real run of the step).
