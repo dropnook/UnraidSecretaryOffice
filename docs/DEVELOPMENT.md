@@ -759,8 +759,9 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   `net_new_device`/`net_spoof`. Every kind has a MITRE technique. **Data flow** (`watchmanFlowAdd()`): a round's bytes
   go into the hours they came in — spread from when those counters were taken (a part not looked at meanwhile keeps its
   counters and their time, `at` in the RAM counters; a container counted anew from Docker's StartedAt) — and a pull ends
-  at a pause (`WATCH_FLOW_GOING`) or a trickle (under 1/16 of the floor per hour); the hours a long-spread pull fills never
-  count as normal. An entry says what tripped (`watchmanFlowShape()`, `entry.<kind>`, `_hour`, `_span`): the pull in its
+  at a pause (`WATCH_FLOW_GOING`) or a trickle (under 1/16 of the floor per hour); the hours of the pull going on never
+  count as normal for judging it (its last `WATCH_FLOW_OWN` hours and all a long-spread pull fills — a pull that starts
+  slowly is told too; one going on for days is the normal), a pull that has ended does. An entry says what tripped (`watchmanFlowShape()`, `entry.<kind>`, `_hour`, `_span`): the pull in its
   minutes (up to 3 h, holding the hour), else the hour (`hour`), or so much in so long (`gap`); «I know, thanks» makes an
   hour normal (`peak`), never a pull's sum.
 * **`cleanup` — Ms. Dustdevil.** «Where is what» (operational advice, **never security**; read only) and «Tidying up» (what a
