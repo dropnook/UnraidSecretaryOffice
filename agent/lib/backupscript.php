@@ -167,9 +167,11 @@ function backupHolderNote(?array $note): array
 
 /**
  * A run that found the lock busy (engine 2.20: state/skipped.json, and the history.jsonl lines with
- * "result": "skipped"), in the shape the office shows — null for anything else
+ * "result": "skipped"), in the shape the office shows — null for anything else. Engine 2.82: a scheduled start
+ * without settings.ini (reason settings_missing) — one line that counts on: `count` starts, the first `first`, the
+ * newest `time`; no holder (kind other). Any other line: reason skipped_busy_<kind>, count 1, first = time.
  *
- * @return array{run:string, mode:string, time:int, reason:string, holder:array}|null
+ * @return array{run:string, mode:string, time:int, reason:string, count:int, first:int, holder:array}|null
  */
 function backupSkipRow(mixed $j): ?array
 {
@@ -180,11 +182,15 @@ function backupSkipRow(mixed $j): ?array
     $h = is_array($j['holder'] ?? null) ? $j['holder'] : [];
     $kind = in_array($h['kind'] ?? null, BACKUP_HOLDERS, true) ? $h['kind'] : 'other';
     $run = fn (mixed $v): string => is_string($v) && preg_match('/^\d{8}-\d{4}$/D', $v) ? $v : '';
+    $time = (int) ($j['time'] ?? $j['started'] ?? 0);
+    $unset = ($j['reason'] ?? null) === 'settings_missing';
     return [
         'run'    => $run($j['run'] ?? null),
         'mode'   => in_array($j['mode'] ?? null, ['backup', 'check', 'dryrun'], true) ? $j['mode'] : 'backup',
-        'time'   => (int) ($j['time'] ?? $j['started'] ?? 0),
-        'reason' => "skipped_busy_$kind",
+        'time'   => $time,
+        'reason' => $unset ? 'settings_missing' : "skipped_busy_$kind",
+        'count'  => $unset && is_int($j['count'] ?? null) && $j['count'] >= 1 ? $j['count'] : 1,
+        'first'  => $unset && is_int($j['first'] ?? null) && $j['first'] > 0 && $j['first'] <= $time ? $j['first'] : $time,
         'holder' => [
             'kind'    => $kind,
             'mode'    => $text($h['mode'] ?? ''),

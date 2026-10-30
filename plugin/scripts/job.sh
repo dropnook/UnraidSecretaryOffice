@@ -56,7 +56,8 @@ case "$1" in
         order=$(php "$DIR/agent/agent.php" job backup-order 2>/dev/null); rc=$?
         (( rc == 3 )) && exit 0
         [[ "$order" =~ ^[a-z_]+:[0-9]+$ ]] && export UB_ORDER="$order"
-        exec bash "$DIR/backup/backup.sh" ;;
+        # --scheduled (engine 2.82): without settings.ini no run starts - one counted «skipped» line in his history, no alert
+        exec bash "$DIR/backup/backup.sh" --scheduled ;;
     snapshots) exec php "$DIR/agent/agent.php" job snapshot-plans ;;
     embycache|gather|moverelli) exec php "$DIR/agent/agent.php" job "$1" ;;
     cleanup|logs) exec php "$DIR/agent/agent.php" job "$1-tour-due" ;;

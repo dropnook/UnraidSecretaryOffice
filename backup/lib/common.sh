@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.81"
+UB_VERSION="2.82"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -3514,6 +3514,32 @@ history_append() {
             printf '%s\n' "$1"
         } >"$UB_STATE/.history.jsonl.$$" 2>/dev/null \
             && mv -f "$UB_STATE/.history.jsonl.$$" "$UB_STATE/history.jsonl" 2>/dev/null
+        rm -f "$UB_STATE/.history.jsonl.$$"
+    ) 8<"$UB_STATE"
+    return 0
+}
+# history_count <line> <jq filter> (2.82): like history_append - but while the newest line matches the filter, that line
+# counts on instead of a new one (a watch-book entry): count + 1 (a line without one counted 1), first kept (the first
+# time), time/started/finished, run, pid and version the new line's
+history_count() {
+    [[ -n "$1" ]] || return 0
+    (
+        flock -w 10 8 || true
+        local last new
+        last="$(tail -n 1 "$UB_STATE/history.jsonl" 2>/dev/null)"
+        if [[ -n "$last" ]] && new="$(jq -ec --argjson n "$1" "$2"' | .count = ((if (.count | type) == "number" and .count >= 1 then .count else 1 end) + 1)
+                | .first = (if (.first | type) == "number" then .first else .time end)
+                | .time = $n.time | .started = $n.started | .finished = $n.finished | .run = $n.run | .pid = $n.pid | .version = $n.version' \
+                <<<"$last" 2>/dev/null)"; then
+            { head -n -1 "$UB_STATE/history.jsonl" 2>/dev/null; printf '%s\n' "$new"; } >"$UB_STATE/.history.jsonl.$$" 2>/dev/null \
+                && mv -f "$UB_STATE/.history.jsonl.$$" "$UB_STATE/history.jsonl" 2>/dev/null
+        else
+            {
+                tail -n $((UB_HISTORY_MAX - 1)) "$UB_STATE/history.jsonl" 2>/dev/null
+                printf '%s\n' "$1"
+            } >"$UB_STATE/.history.jsonl.$$" 2>/dev/null \
+                && mv -f "$UB_STATE/.history.jsonl.$$" "$UB_STATE/history.jsonl" 2>/dev/null
+        fi
         rm -f "$UB_STATE/.history.jsonl.$$"
     ) 8<"$UB_STATE"
     return 0

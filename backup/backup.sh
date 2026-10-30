@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.81 - 2026-10-29
+# unraid-backup - backup.sh                       Version 2.82 - 2026-10-30
+#   2.82 A scheduled start (--scheduled: the plugin's cron through job.sh) without settings.ini starts no run: no lock, no
+#        log, no status.json, no notification - one history line «skipped», reason settings_missing, that counts on
+#        (count, first) while it is the newest (lib/common.sh history_count) instead of a failed run with an alert a night.
+#        What an aborted run left that an Apply couldn't bring back yet, or brought back, is a warning with a code
+#        (lib/common.sh warn_as: recover_docker_silent, recover_libvirt_silent, recover_ct_not_ready, recover_nc_gone,
+#        recover_nc_not_running, recover_nc_no_occ, recover_back)
 #   2.81 What an aborted run left and doesn't come back is an error with a code (lib/common.sh err_as) - a run logs it as
 #        before; a setup's Apply records it for the office (setup.sh ub_msg_as). An app's or VM's own Kopia source carries
 #        «uso-layout:own» (kopia_item_tags): without «uso-split» it is not split for sure (2.80: no tag at all - a guess).
@@ -425,6 +431,7 @@
 #
 # USAGE
 #   Scheduled:    the plugin's cron file (Mr. Backupsy -> Schedule...) calls scripts/job.sh backup
+#                 (-> backup.sh --scheduled: without settings.ini no run starts - one counted «skipped» line, 2.82)
 #   Terminal:     bash /usr/local/emhttp/plugins/unraid-secretary-office/backup/backup.sh [option]
 #
 # VARIANTS (environment variable - the option after it is a shortcut)
@@ -437,6 +444,8 @@
 #                                  stopped (the plugin, at the array start)
 #   UB_DRY_RUN=1      --dry-run    show the plan, change nothing
 #   UB_SKIP_KOPIA=1   --no-kopia   dumps and snapshots yes, Kopia no
+#   UB_SCHEDULED=1    --scheduled  started by the plugin's cron (job.sh): without settings.ini no run
+#                                  starts - a counted «skipped» history line, no notification (2.82)
 #   UB_NC_PREEXISTING=abort|continue
 #                     Nextcloud was already in maintenance mode:
 #                     abort = abort the run, continue = back up anyway and
@@ -490,6 +499,7 @@ for a in "$@"; do
         --kopia-accept=*) UB_MODE="kopia_accept"; KA_REPO="${a#--kopia-accept=}" ;;
         --dry-run)  UB_DRY_RUN=1 ;;
         --no-kopia) UB_SKIP_KOPIA=1 ;;
+        --scheduled) UB_SCHEDULED=1 ;;
         --about)    jq -nc --arg n "$UB_NAME" --arg v "$UB_VERSION" --argjson i "$UB_INTERFACE" --arg c "$UB_DIR" --arg d "$UB_DATA" \
                         '{name: $n, version: $v, interface: $i, code: $c, data: $d}'; exit 0 ;;
         -h|--help)  usage; exit 0 ;;
@@ -498,6 +508,7 @@ for a in "$@"; do
 done
 UB_MODE="${UB_MODE:-backup}"
 DRY="${UB_DRY_RUN:-0}"
+UB_SCHEDULED="${UB_SCHEDULED:-0}"      # 2.82: started by the plugin's cron (job.sh) - skip_unset
 SKIPK="${UB_SKIP_KOPIA:-0}"
 case "$UB_MODE" in backup|check|unmount|recover|kopia_count|kopia_lock|kopia_watch|kopia_accept) ;; *) echo "UB_MODE=$UB_MODE is unknown"; exit 2 ;; esac
 
@@ -3295,6 +3306,24 @@ on_signal() {
     ST_ABORTED="yes"; exit 143
 }
 
+# 2.82 (B42): a scheduled start (--scheduled: the plugin's cron, job.sh) finds no settings.ini - gone (appdata lost, or
+# restored without it) or never made: no run starts. Not the lock, no log, no status.json (it keeps the last run), no
+# notification (the office's Team Lead lists «set up» as a must while it lasts) - one history.jsonl line, "result":
+# "skipped", reason settings_missing, which counts on (count, first) while it is the newest instead of a line a night
+# (history_count). By hand (a terminal) the run still fails with settings_missing, seen at once. Exit 0.
+skip_unset() {
+    local now
+    now="$(date +%s)"
+    history_count "$(jq -nc --argjson interface "$UB_INTERFACE" --arg name "$UB_NAME" --arg version "$UB_VERSION" \
+        --arg run "$TS" --argjson pid "$$" --argjson time "$now" \
+        '{interface: $interface, name: $name, version: $version, mode: "backup", run: $run, pid: $pid, time: $time,
+          started: $time, finished: $time, first: $time, count: 1, result: "skipped", reason: "settings_missing",
+          message: "settings_missing", errors: 0, warnings: 0, downtime_s: 0}' 2>/dev/null)" \
+        'select(type == "object" and .result == "skipped" and .reason == "settings_missing")'
+    echo "The scheduled backup run of $(date '+%Y-%m-%d %H:%M') was not started: settings.ini is missing ($UB_SETTINGS) - nothing was backed up."
+    exit 0
+}
+
 # The lock is busy: this run does not happen, and nobody may miss that. It touches nothing the run
 # going on uses - not status.json (that describes the run going on), not latest.log, no settings, no
 # mounts - and says so: state/skipped.json (every mode), a line in history.jsonl and a notification
@@ -4188,6 +4217,7 @@ run_name_taken() {
 # The lock (flock on state/lock) is held by one run at a time - see lib/common.sh, "Who holds the
 # lock". Opened without truncating it: a run turned away must not touch it (the office reads the
 # start of the run holding it from its time); the one that gets it touches it.
+[[ "$UB_MODE" == "backup" && "$DRY" != "1" && "$UB_SCHEDULED" == "1" && ! -f "$UB_SETTINGS" ]] && skip_unset
 exec 9>>"$UB_STATE/lock"
 if [[ "$UB_MODE" == "unmount" ]]; then
     # by hand (the office's «Unmount», a terminal) its log is the newest; from the plugin's array-stop hook
