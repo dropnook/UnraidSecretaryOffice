@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.82"
+UB_VERSION="2.83"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -134,11 +134,14 @@ warn_code() {
 err()  { ERRORS=$((ERRORS+1));     _log_line "$(_ts)  ERROR: $*"; }
 # err_code <code> <text> [key=value]...  (2.56) - an error the office says in its own words: counted and logged like err,
 #   noted in WARN_ITEMS like warn_code (status.json "warning_items" carries the run's coded words, warnings and errors) -
-#   so far Kopia's step held because the repository is suddenly empty (kopia_held)
+#   so far Kopia's step held because the repository is suddenly empty (kopia_held). 2.83: WARN_ITEM_ERR marks its index -
+#   the run's notification names errors first (ub_run_items); status.json stays as it was
+declare -ga WARN_ITEM_ERR=()
 err_code() {
     local c="$1" t="$2" p="" kv
     shift 2
     for kv in "$@"; do p+=$'\x1f'"$kv"; done
+    WARN_ITEM_ERR[${#WARN_ITEMS[@]}]=1
     WARN_ITEMS+=( "$c$p" ); err "$t"
 }
 # err_as <code> <text> [<key> <value>]...  (2.81) - an error the office says in its own words, the params as pairs of
@@ -333,7 +336,7 @@ ub_say() {
 }
 # ub_tell <code> <level> <long text> <English subject> <English description> [name=value ...] - ub_notify with the
 # subject "<his name>: <notify.<code>.subject>" and the description notify.<code> in the office's language; the
-# English pair is what a copy without the language files says
+# English pair is what a copy without the language files says. UB_TELL_TEXT=<key> (2.83): the description from that key
 ub_tell() {
     local code="$1" level="$2" long="$3" subj="$4" desc="$5" name s t
     shift 5
@@ -341,8 +344,88 @@ ub_tell() {
     UB_SAY_LANG="$(ub_notify_lang)"
     name="$(ub_say name)" || name="Mr. Backupsy"
     s="$(ub_say "notify.$code.subject" "$@")" || s="$subj"
-    t="$(ub_say "notify.$code" "$@")" || t="$desc"
+    t="$(ub_say "${UB_TELL_TEXT:-notify.$code}" "$@")" || t="$desc"    # 2.83: another description's key, same event
     UB_NOTIFY_EVENT="$code" ub_notify "$name: $s" "$t" "$level" "$long"
+}
+# ub_run_items (2.83) - the run's coded warnings and errors (WARN_ITEMS, status.json warning_items) for its notification,
+# in the office's language, errors first, in the order they came: UB_ITEMS_DESC the description's part - the first three
+# in short words (notify_item.<code>; a code without one: the first sentence of the page's warn_code.<code>), each at
+# most 80 bytes, « · » between them, «and n more» for the rest and for any it can't say (a code unknown here, a parameter
+# missing - never the bare code), at most ~170 bytes (Unraid passes -d on whole, push agents cut long ones), empty when
+# none can be said (the description is then the counts alone); UB_ITEMS_LINES the long text's lines, one per item in
+# the page's words (warn_code.<code>, else the short words; one it can't say is left out like on the page - the log has
+# the engine's English). btrfs_brake: one item per disk, as the page says it (how many went early, the date of the
+# first). Without the language files: both empty
+ub_items_fill() { # <text> - 0 when no {name} is left unfilled
+    [[ -n "$1" && ! "$1" =~ \{[a-z_]+\} ]]
+}
+ub_items_cut() { # <text> <max> - at most <max> bytes, «…» at the cut (a character the cut broke dropped: iconv -c)
+    local LC_ALL=C s="$1" t
+    (( ${#s} > $2 )) || { printf '%s' "$s"; return 0; }
+    s="${s:0:$2-3}"
+    t="$(printf '%s' "$s" | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null)"
+    [[ -n "$t" ]] || t="$s"
+    t="${t%"${t##*[! ]}"}"
+    printf '%s…' "$t"
+}
+ub_run_items() {
+    UB_ITEMS_DESC=""; UB_ITEMS_LINES=""
+    (( ${#WARN_ITEMS[@]} )) || return 0
+    ub_lang_dir >/dev/null || return 0
+    local UB_SAY_LANG
+    UB_SAY_LANG="$(ub_notify_lang)"
+    local i j c kv t s base snap more=0 shown=0 len=0
+    local -a order=() f=() args=() short=() lines=()
+    local -A bn=() bseen=()
+    for i in "${!WARN_ITEMS[@]}"; do [[ -n "${WARN_ITEM_ERR[$i]:-}" ]] && order+=( "$i" ); done
+    for i in "${!WARN_ITEMS[@]}"; do [[ -z "${WARN_ITEM_ERR[$i]:-}" ]] && order+=( "$i" ); done
+    for i in "${order[@]}"; do      # btrfs_brake: how many per disk
+        IFS=$'\x1f' read -r -a f <<<"${WARN_ITEMS[$i]}"
+        [[ "${f[0]}" == btrfs_brake ]] || continue
+        base=""
+        for kv in "${f[@]:1}"; do [[ "$kv" == base=* ]] && base="${kv#base=}"; done
+        bn[${base:-?}]=$(( ${bn[${base:-?}]:-0} + 1 ))
+    done
+    for i in "${order[@]}"; do
+        IFS=$'\x1f' read -r -a f <<<"${WARN_ITEMS[$i]}"
+        c="${f[0]}"; args=()
+        [[ "$c" =~ ^[a-z0-9_]+$ ]] || { more=$(( more + 1 )); continue; }
+        for kv in "${f[@]:1}"; do
+            [[ "$kv" == *=* ]] || continue
+            if [[ "$kv" == why=* ]]; then          # a partner's reason in the office's short words (partner.why_short)
+                t="${kv#why=}"
+                if [[ "$t" =~ ^[a-z_]+$ ]] && s="$(ub_say "partner.why_short.$t")"; then kv="why=$s"
+                elif declare -F partner_why_text >/dev/null; then kv="why=$(partner_why_text "$t")"; fi
+            fi
+            args+=( "$kv" )
+        done
+        if [[ "$c" == btrfs_brake ]]; then
+            base=""; snap=""
+            for kv in "${f[@]:1}"; do [[ "$kv" == base=* ]] && base="${kv#base=}"; [[ "$kv" == snap=* ]] && snap="${kv#snap=}"; done
+            [[ -n "${bseen[${base:-?}]:-}" ]] && continue
+            bseen[${base:-?}]=1
+            [[ "$snap" =~ ^([0-9]{4})([0-9]{2})([0-9]{2})-[0-9]{4}$ ]] && args+=( "date=${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}" )
+            args+=( "n=${bn[${base:-?}]}" )
+        fi
+        t="$(ub_say "warn_code.$c" "${args[@]}")" && ub_items_fill "$t" || t=""
+        s="$(ub_say "notify_item.$c" "${args[@]}")" && ub_items_fill "$s" || s=""
+        if [[ -z "$s" && -n "$t" ]]; then s="${t%%. *}"; s="${s%.}"; fi
+        [[ -n "$t" ]] || t="$s"
+        [[ -n "$t" ]] && lines+=( "  $t" )
+        if [[ -z "$s" ]]; then more=$(( more + 1 )); continue; fi
+        s="$(ub_items_cut "$s" 80)"
+        if (( shown < 3 )) && (( shown == 0 || len + 3 + ${#s} <= 170 )); then
+            short+=( "$s" ); shown=$(( shown + 1 )); len=$(( len + ${#s} + 3 ))
+        else
+            more=$(( more + 1 ))
+        fi
+    done
+    (( ${#lines[@]} )) && UB_ITEMS_LINES="$(printf '%s\n' "${lines[@]}")"
+    (( shown )) || return 0
+    UB_ITEMS_DESC="${short[0]}"
+    for (( j = 1; j < shown; j++ )); do UB_ITEMS_DESC+=" · ${short[$j]}"; done
+    if (( more )) && s="$(ub_say notify.items_more "n=$more")"; then UB_ITEMS_DESC+=" · $s"; fi
+    return 0
 }
 # ub_counts <errors> <warnings> - «2 errors, 1 warning» in the office's language (errors left out when empty)
 ub_counts() {

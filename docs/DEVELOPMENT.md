@@ -452,6 +452,11 @@ and the plugin's look at the agent write English.
   per folder); a run the array stop ended (normal) and what it left stopped brought back after the array start
   (normal); a partner office that got nothing or not all of a run — unreachable, its array stopped, a refusal, a
   failed transfer — said in that same run, no nights of grace (part of the run's warning, and in his bubble); a share left out 7 nights in a row because its pool slept (warning, once).
+  A run's warning or error names its coded items (engine 2.83, `ub_run_items`): the description «{counts}: {items}.
+  {summary}» (`notify.warnings_items`/`errors_items`) — errors first, three in short words (`notify_item.<code>` ×5, one
+  for every code `warn_code`/`err_code` can say; none: the first sentence of `warn_code.<code>`), «and n more»
+  (`notify.items_more`), never a bare code —, the long text each item in the page's words (`warn_code.<code>`). A new
+  coded warning needs both texts (`testBackupNotifyItems`).
 * **Ms. Snapshotini:** a schedule had problems (warning); a schedule's target is gone — once per target (warning).
 * **Jack Streamer:** a real MediaCache or gather run failed or had problems (warning) — reports and dry runs stay quiet.
 * **Ms. Moverelli:** a real Smart Mover run failed or had problems (warning); one stopped because Unraid's mover started

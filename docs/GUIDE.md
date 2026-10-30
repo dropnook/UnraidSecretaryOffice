@@ -366,7 +366,10 @@ under *Settings → Notifications*), as *Unraid Secretary Office*: a backup run 
 that couldn't prove a restore, a schedule's problem, a new point on the Team Lead's list after half an hour, the
 Night Watchman's new entries (each kind at most once an hour) and a parity check after an unclean stop, the messenger silent
 for ten minutes. The desks write
-in the language you last used the office in; the backup engine writes English.
+in the language you last used the office in; the backup engine writes English. A backup run with warnings or errors
+names them right in its first line — «2 warnings: nextcloud_data: 1 file dated in the future · Backups: 7 files dated in
+the future. 11 min 5 s, …», errors first, the first three and «and n more» — and its full text lists each one in Mr.
+Backupsy's words, as his page says it.
 
 **The Team Lead's notification centre** is the one place for all of it — for the office's own notifications only: Unraid's
 (array, SMART, updates, parity) and other plugins' stay exactly as they are, and Unraid's notification settings are only read. Alerts — something at risk right now — always go out at
