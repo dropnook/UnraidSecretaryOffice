@@ -260,7 +260,11 @@ function runningJob() {
     const at = (job.steps || []).filter((x) => ['running', 'ok', 'warning', 'failed'].includes(x.state)).length;
     return { id: job.id, kind: job.kind, what: job.what, step: at, steps: (job.steps || []).length };
   }
-  return state && state.running ? state.running : null;
+  // the agent's last word — stale while it is away (an array stop, a restart): a restore outlives it (atd), so its own
+  // file decides. The file naming the same job and saying it is over: nothing runs (W4-2, 2026-10-30)
+  const running = state && state.running ? state.running : null;
+  if (running && job && job.id === running.id) return null;
+  return running;
 }
 
 /** Who holds the engine's lock, unless it is a restore of his own */
