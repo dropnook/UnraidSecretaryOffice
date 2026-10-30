@@ -8,9 +8,10 @@
 //
 // Per unit:
 //   * local: the engine's snapshots (<snap_prefix>YYYYMMDD-HHMM, settings.ini [general] snap_prefix) on the very dataset
-//     that holds it (zfs list -t snapshot; btrfs: <disk>/<btrfs_snap_dir>), each place of a share on its own (a place on
-//     XFS or a disk without snapshots holds none); `all` beside: snapshots of any name there (the user's, base.sh's
-//     asides — what Mr. Restori's «n local snapshots» counts); a place on a sleeping disk is never looked at (`asleep`).
+//     that holds it (zfs list -t snapshot; btrfs: <disk>/<btrfs_snap_dir>/YYYYMMDD-HHMM, no prefix), each place of a
+//     share on its own (a place on XFS or a disk without snapshots holds none); `all` beside: snapshots of any name
+//     there (the user's, base.sh's asides — what Mr. Restori's «n local snapshots» counts); a place on a sleeping disk
+//     is never looked at (`asleep`).
 //   * offsite: Kopia's own snapshot list (docker exec <container> kopia snapshot list --all --json): the source the engine
 //     names for it (/uso/<share>, /uso/.apps/<f>, /uso/.vms/<f>) has a complete snapshot; for a VM's or an app's folder
 //     inside a share source, `kopia ls` of the share's newest snapshot holds that folder. The engine's kopia-held.json
@@ -93,6 +94,7 @@ $prefix = one($ini, 'general', '', 'snap_prefix', 'uso-backup-');
 $btrfsDir = one($ini, 'general', '', 'btrfs_snap_dir', '.btrfs-snap');
 $dumps = one($ini, 'general', '', 'dumps_share');
 $snapRe = '/^' . preg_quote($prefix, '/') . '\d{8}-\d{4}$/';
+$btrfsRe = '/^\d{8}-\d{4}$/';    // the engine's btrfs moments carry the run's stamp alone (backup.sh: <base>/<btrfs_snap_dir>/$TS)
 $now = time();
 
 // ---------------------------------------------------------------------------------------------- disks, pools, asleep
@@ -147,7 +149,7 @@ function placeOf(string $path): array
 /** the engine's snapshots holding a folder that lies on <base>: {fs, ds, snaps, newest} */
 function snapsOf(string $base, string $path): array
 {
-    global $bases, $zsnaps, $zall, $btrfsDir, $snapRe, $zfsOk;
+    global $bases, $zsnaps, $zall, $btrfsDir, $snapRe, $btrfsRe, $zfsOk;
     $fs = $bases[$base]['fs'] ?? '';
     $r = ['base' => $base, 'fs' => $fs, 'ds' => null, 'snaps' => null, 'all' => null, 'newest' => null, 'asleep' => !empty($bases[$base]['asleep'])];
     if ($r['asleep']) {
@@ -163,8 +165,8 @@ function snapsOf(string $base, string $path): array
             $r['newest'] = $l ? max(array_column($l, 0)) : null;
         }
     } elseif ($fs === 'btrfs') {
-        // the engine's btrfs snapshots: <disk>/<btrfs_snap_dir>/<prefix>… subvolumes of the whole disk or pool
-        $l = array_values(array_filter(array_map('basename', glob("/mnt/$base/$btrfsDir/*") ?: []), fn ($n) => preg_match($snapRe, $n)));
+        // the engine's btrfs snapshots: <disk>/<btrfs_snap_dir>/YYYYMMDD-HHMM subvolumes of the whole disk or pool
+        $l = array_values(array_filter(array_map('basename', glob("/mnt/$base/$btrfsDir/*") ?: []), fn ($n) => preg_match($btrfsRe, $n)));
         $r['snaps'] = count($l);
         $r['all'] = count(glob("/mnt/$base/$btrfsDir/*") ?: []);
         $r['newest'] = $l ? max($l) : null;
@@ -207,7 +209,7 @@ function folderPlaces(string $path): array
  */
 function missingHeld(array $p, string $path): array
 {
-    global $zsnaps, $btrfsDir, $snapRe;
+    global $zsnaps, $btrfsDir, $btrfsRe;
     if ($p['snaps'] === null || !preg_match('#^/mnt/(?:user|user0|[^/]+)/(.+)$#', $path, $m)) {
         return $p;
     }
@@ -226,7 +228,7 @@ function missingHeld(array $p, string $path): array
         }
     } elseif ($p['fs'] === 'btrfs') {
         foreach (glob("/mnt/{$p['base']}/$btrfsDir/*") ?: [] as $d) {
-            $held += (int) (preg_match($snapRe, basename($d)) && file_exists("$d/$m[1]"));
+            $held += (int) (preg_match($btrfsRe, basename($d)) && file_exists("$d/$m[1]"));
         }
     }
     $p['snaps'] = $held;
