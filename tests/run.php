@@ -23689,12 +23689,32 @@ function testMetrics(): void
 
 // ===================================================================== hardening
 
-/** A temporary folder for a test, removed again by hardeningRm() */
+/**
+ * A temporary folder for a test (uso-tmp-<name>-<pid>), removed again by hardeningRm() — and in any case when the test
+ * ends, also when it fails, returns early or throws: the runner calls testsTmpGone() after each test and at a run that
+ * ends early. Only this run's folders, never another suite's.
+ */
 function hardeningTmp(string $name): string
 {
     $dir = sys_get_temp_dir() . "/uso-tmp-$name-" . getmypid();
     @mkdir($dir, 0700, true);
+    $GLOBALS['testsTmp'][$dir] = true;
     return $dir;
+}
+
+/** The temp folders made since the last call (hardeningTmp()) removed */
+function testsTmpGone(): void
+{
+    foreach (array_keys($GLOBALS['testsTmp'] ?? []) as $dir) {
+        hardeningRm($dir);
+    }
+    $GLOBALS['testsTmp'] = [];
+}
+
+/** This run's temp folders still there (uso-tmp-*-<this pid>) */
+function testsTmpLeft(): array
+{
+    return glob(sys_get_temp_dir() . '/uso-tmp-*-' . getmypid()) ?: [];
 }
 
 function hardeningRm(string $dir): void
@@ -58701,6 +58721,7 @@ register_shutdown_function(function (): void {
     $e = $e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR], true) ? $e : null;
     fwrite(STDERR, 'The run ended early, in ' . ($GLOBALS['testsNow'] ?? '(no test yet)')
         . ($e ? ": {$e['message']} ({$e['file']}:{$e['line']})" : ' (an exit() or a signal)') . "\n");
+    testsTmpGone();
     foreach ($GLOBALS['results']['fail'] as $f) {
         fwrite(STDERR, "FAIL  $f\n");
     }
@@ -58715,6 +58736,11 @@ foreach ($parts as $name => $fns) {
                 $t();
             } catch (Throwable $e) {
                 check("$t: ended by an uncaught " . get_class($e) . ': ' . $e->getMessage() . ' (' . $e->getFile() . ':' . $e->getLine() . ')', false);
+            } finally {
+                testsTmpGone();         // its temp folders, whatever happened
+            }
+            foreach (array_diff(testsTmpLeft(), array_keys($GLOBALS['testsTmpLeft'] ?? [])) as $dir) {
+                $GLOBALS['testsTmpLeft'][$dir] = $t;         // made around hardeningTmp(), or not removable: said at the end
             }
             putenv($notifyBin === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$notifyBin");
         }
@@ -58722,6 +58748,7 @@ foreach ($parts as $name => $fns) {
 }
 $GLOBALS['testsNow'] = 'testLiveRunUntouched';
 testLiveRunUntouched();         // last: nothing of all the above reached the live agent's RAM folder
+testsTmpGone();
 $GLOBALS['testsDone'] = true;
 exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR));
 $fail = $GLOBALS['results']['fail'];
@@ -58731,6 +58758,10 @@ foreach ($fail as $f) {
 $skip = $GLOBALS['results']['skip'];
 foreach ($skip as $t => $why) {
     echo "SKIP  $t ($why)\n";
+}
+$left = testsTmpLeft();         // only this run's (its pid): another suite running beside it keeps its own
+if ($left) {
+    echo 'WARN  temp folders of this run left: ' . implode(', ', array_map(fn ($d) => basename($d) . (isset($GLOBALS['testsTmpLeft'][$d]) ? " ({$GLOBALS['testsTmpLeft'][$d]})" : ''), $left)) . "\n";
 }
 // skipped tests only on a host without python3 — tools/release.sh takes «N passed, 0 failed» alone, so never a release from one
 printf("%d passed, %d failed%s\n", $GLOBALS['results']['pass'], count($fail),
