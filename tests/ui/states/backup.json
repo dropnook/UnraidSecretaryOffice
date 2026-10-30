@@ -2382,5 +2382,273 @@
   "proven": 6,
   "total": 6,
   "failed": []
+ },
+ "retention": {
+  "local": {
+   "d": 7,
+   "w": 4,
+   "m": 6,
+   "set": true
+  },
+  "btrfs_days": 7,
+  "kopia": {
+   "on": true,
+   "keep": [
+    7,
+    0,
+    7,
+    4,
+    12,
+    3
+   ],
+   "set": false
+  },
+  "units": [
+   {
+    "kind": "share",
+    "name": "appdata",
+    "local": {
+     "d": 14,
+     "w": 8,
+     "m": 12
+    },
+    "local_how": "own",
+    "local_from": null,
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [
+     {
+      "id": "2ec7accd",
+      "name": "PartnerNAS",
+      "holds": 11,
+      "at": 1791549000
+     }
+    ],
+    "partner_from": null,
+    "differs": true
+   },
+   {
+    "kind": "share",
+    "name": "domains",
+    "local": {
+     "d": 7,
+     "w": 4,
+     "m": 6
+    },
+    "local_how": "inherited",
+    "local_from": "global",
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [
+     {
+      "id": "2ec7accd",
+      "name": "PartnerNAS",
+      "holds": null,
+      "at": 1791549000
+     }
+    ],
+    "partner_from": null,
+    "differs": false
+   },
+   {
+    "kind": "share",
+    "name": "isos",
+    "local": {
+     "days": 7
+    },
+    "local_how": "btrfs",
+    "local_from": "global",
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [],
+    "partner_from": null,
+    "differs": false
+   },
+   {
+    "kind": "share",
+    "name": "media",
+    "local": {
+     "d": 2,
+     "w": 1,
+     "m": 0
+    },
+    "local_how": "own",
+    "local_from": null,
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [],
+    "partner_from": null,
+    "differs": true
+   },
+   {
+    "kind": "share",
+    "name": "nextcloud",
+    "local": {
+     "d": 7,
+     "w": 4,
+     "m": 6
+    },
+    "local_how": "inherited",
+    "local_from": "global",
+    "kopia": [
+     10,
+     0,
+     14,
+     8,
+     24,
+     5
+    ],
+    "kopia_how": "own",
+    "kopia_from": null,
+    "partners": [],
+    "partner_from": null,
+    "differs": true
+   },
+   {
+    "kind": "share",
+    "name": "photos",
+    "local": {
+     "d": 7,
+     "w": 4,
+     "m": 6
+    },
+    "local_how": "inherited",
+    "local_from": "global",
+    "kopia": [
+     7,
+     0,
+     7,
+     4,
+     12,
+     3
+    ],
+    "kopia_how": "inherited",
+    "kopia_from": "global",
+    "partners": [],
+    "partner_from": null,
+    "differs": false
+   },
+   {
+    "kind": "share",
+    "name": "speedtest",
+    "local": {
+     "d": 7,
+     "w": 4,
+     "m": 6
+    },
+    "local_how": "inherited",
+    "local_from": "global",
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [],
+    "partner_from": null,
+    "differs": false
+   },
+   {
+    "kind": "share",
+    "name": "system",
+    "local": null,
+    "local_how": "off",
+    "local_from": null,
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [],
+    "partner_from": null,
+    "differs": false
+   },
+   {
+    "kind": "share",
+    "name": "UnraidSecretaryOffice",
+    "local": {
+     "d": 7,
+     "w": 4,
+     "m": 6
+    },
+    "local_how": "inherited",
+    "local_from": "global",
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [
+     {
+      "id": "2ec7accd",
+      "name": "PartnerNAS",
+      "holds": 8,
+      "at": 1791549000
+     }
+    ],
+    "partner_from": null,
+    "differs": false
+   },
+   {
+    "kind": "vm",
+    "name": "uso-lab-chr",
+    "local": {
+     "d": 3,
+     "w": 0,
+     "m": 0
+    },
+    "local_how": "own",
+    "local_from": null,
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [],
+    "partner_from": null,
+    "differs": true
+   },
+   {
+    "kind": "vm",
+    "name": "Windows-Druckserver",
+    "local": {
+     "d": 7,
+     "w": 4,
+     "m": 6
+    },
+    "local_how": "inherited",
+    "local_from": "share:domains",
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [
+     {
+      "id": "2ec7accd",
+      "name": "PartnerNAS",
+      "holds": null,
+      "at": 1791549000
+     }
+    ],
+    "partner_from": "share:domains",
+    "differs": false
+   },
+   {
+    "kind": "flash",
+    "name": "flash",
+    "local": null,
+    "local_how": "none",
+    "local_from": null,
+    "kopia": [
+     7,
+     0,
+     7,
+     4,
+     12,
+     3
+    ],
+    "kopia_how": "inherited",
+    "kopia_from": "global",
+    "partners": [],
+    "partner_from": null,
+    "differs": false
+   }
+  ],
+  "differ": 4,
+  "keep_theirs": []
  }
 }

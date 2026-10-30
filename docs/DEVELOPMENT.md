@@ -650,6 +650,19 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   aside from there), Mr. Restori's place, the shares that aren't the place, Ms. Dustdevil's kept names, the Night Watchman's
   office shares; what writes there, and what describes the setup (`backupProtectionSet()`, the partner units), go by the
   settings alone.
+  **Retention at a glance** (2026-10-30): his state's `retention` (`backupRetention()`: settings.ini, the partners' last
+  answers in partner/state.json and pairs.json only — never a disk, a command or Kopia; the scan's `shares` and `vms`) =
+  `{local: {d, w, m, set}, btrfs_days, kopia: {on, keep: [six; null = Kopia's own], set}, units: [{kind share|vm|app|flash,
+  name, local ({d,w,m} | {days} | null), local_how own|inherited|btrfs|none|off, local_from global|share:<s>|place:<s>|null,
+  kopia (six | null), kopia_how own|inherited|not_offsite|off, kopia_from, partners: [{id, name, holds (copies at its last
+  answer | null), at}], partner_from, differs}], differ, keep_theirs: [{id, name, retention}]}` — the engine's rules (a
+  share's own else [zfs] retention, «7 4 6» unset; btrfs [btrfs] keep_days; a VM its own else its share's; an app its first
+  folder's share; the flash a package of the backup place or a Kopia source; Kopia per field own else [kopia] keep_*). A
+  partner's rule for our copies is its door's and never said to this office: the row names the partner and its copies;
+  `keep_theirs` is what this office keeps of a partner's (the pairs' receive). The tile `retention` beside the schedule
+  (`retentionTile()`, pure: the rule for all, Kopia's keeps, a label while units differ), its section `retentionSection()`
+  read only (a filter bar with «only those with their own»; «Where set» → the unit's setup row by `setup.focus`, an app by
+  `app:name:<n>`); an older agent's state without it: no tile.
 * **`jack` — Jack Streamer (the intern).** MediaCache (Emby, Jellyfin, Plex — several servers at once; 1.65.0, before EmbyCache:
   step `mediacache` moved data/embycache, the job id stays `embycache`) + «Consolidate folders». Settings via MediaCache's own `save_config()`;
   **the API key never leaves the server. Rsync both ways, always** (`JACK_RSYNC_ARGS`). **He works only under Ms. Moverelli**

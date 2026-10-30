@@ -894,7 +894,7 @@ function runningCard() {
 const PROT_ID = 'bk-protection';                  // the section holding the table and its bar: aria-controls, data-filters
 const PROT_TILES = ['kopia', 'dumps', 'apps', 'vms', 'flash'];
 // every tile in the row's order with its lang key (its place and route #/backup/<id>) and the section it shows
-const TILES = [['last', 'stat.last', 'history'], ['schedule', 'stat.schedule', 'schedule'], ['kopia', 'tile.kopia', 'prot'],
+const TILES = [['last', 'stat.last', 'history'], ['schedule', 'stat.schedule', 'schedule'], ['retention', 'tile.retention', 'retention'], ['kopia', 'tile.kopia', 'prot'],
   ['dumps', 'tile.dumps', 'prot'], ['apps', 'tile.apps', 'prot'], ['vms', 'tile.vms', 'prot'], ['flash', 'tile.flash', 'prot'],
   ['prot', 'tile.prot', 'prot'], ['partners', 'partner.tile', 'partners'], ['drift', 'tile.drift', 'drift'], ['restore', 'tile.restore', 'restore']];
 const TILE_KEY = Object.fromEntries(TILES.map(([id, key]) => [id, key]));
@@ -902,6 +902,7 @@ const TILE_SECTION = Object.fromEntries(TILES.map(([id, , s]) => [id, s]));
 const tileRoute = (id) => `#/${ID}/${id}`;
 let protBar = null;                            // the table's filter bar, built once per visit (mount() drops it)
 let histBar = null;                            // the history's
+let retBar = null;                             // «Retention at a glance»'s
 let protShown = [];                            // the rows drawn now that unfold: {open(), set(open)} — «Unfold all»
 let sw = null;                                 // the switcher, made at the first draw (switcher())
 
@@ -926,7 +927,7 @@ function switcher() {
  * search can name any of them), each with the section it shows — the table shared by the filter tiles and «Protection»
  */
 function tileList() {
-  const own = { history: () => historySection(), schedule: () => scheduleSection(), partners: () => partnersSection(),
+  const own = { history: () => historySection(), schedule: () => scheduleSection(), retention: () => retentionSection(), partners: () => partnersSection(),
     drift: () => driftSection(), restore: () => restoreSection() };
   const shows = (id) => (TILE_SECTION[id] === 'prot' ? 'prot' : own[TILE_SECTION[id]]);
   const filters = (id) => (PROT_TILES.includes(id) ? T('tile.' + id) : undefined);      // a filter tile: its name in the note line
@@ -936,9 +937,9 @@ function tileList() {
 }
 
 /** One tile of overviewTiles() as Office.stat — the switcher's attributes (a: the click, aria-pressed, the mark …) spread in;
- *  its place for the search is tile.<id> (the switcher's own, named here too) */
+ *  its place for the search is tile.<id> (the switcher's own, named here too); a label under the lines (`chip`: «Retention») */
 function tileNode(d, a) {
-  return Office.stat({ label: d.running ? waveLabel(d.label) : d.label, value: d.value, sub: d.sub, alert: d.alert, tip: d.tip, cls: d.cls, ...a, place: `tile.${d.key}` });
+  return Office.stat({ label: d.running ? waveLabel(d.label) : d.label, value: d.value, sub: d.chip ? [...d.sub, chip(d.chip, 'accent', d.chipTip)] : d.sub, alert: d.alert, tip: d.tip, cls: d.cls, ...a, place: `tile.${d.key}` });
 }
 /** A label with the wave left of it (a run going on: the last backup's tile; CLAUDE.md: the wave) */
 function waveLabel(text) {
@@ -1059,6 +1060,9 @@ function overviewTiles() {
   // the office's schedule tile (Office.scheduleTile): here its options, pure — tileList() hands them to core.js
   const sched = scheduleOpts();
   add({ key: 'schedule', label: T('stat.schedule'), sched, alert: sched.alert });
+  // what is kept how long (the agent's retention summary — an older agent's state has none: no tile)
+  const rt = state.retention;
+  if (rt && rt.local) add({ key: 'retention', label: T('tile.retention'), ...retentionTile(rt) });
   const c = state.containers;
   // Kopia: the last run's sources, the container, the repository and whether its policies match
   if (set.kopia_enabled) {
@@ -2173,6 +2177,142 @@ function scheduleSection() {
   row.appendChild(main);
   list.appendChild(row);
   box.appendChild(list);
+  return box;
+}
+
+// ---- «Retention at a glance» (2026-10-30, Benj: «does he know only one retention?» — three, never seen together): the
+// agent's state.retention (backupRetention(): settings.ini, the pairs and the partners' last answers only). The tile beside
+// the schedule says the rule for everything and Kopia's keeps, a label when units keep their own; its section a row per
+// unit, read only — the setup's rows stay the place to change it («Where set»).
+const RET_KEEPS = ['latest', 'hourly', 'daily', 'weekly', 'monthly', 'annual'];
+/** Local snapshots in words: «7 d · 4 w · 6 m», a btrfs share's whole days «7 days (btrfs)»; nothing: '' */
+function retLocalText(l) {
+  if (!l) return '';
+  if (l.days !== undefined) return T('ret.btrfs', { days: nOf('days', l.days) });
+  return retFigure([['d', l.d], ['w', l.w], ['m', l.m]]);
+}
+/** Kopia's six keeps «7 · 0 · 7 · 4 · 12 · 3» (one Kopia keeps by its own: «–») */
+const retKeeps = (k) => (k || []).map((x) => (x === null || x === undefined ? '–' : String(x))).join(' · ');
+/** The tile's words, pure: the rule for everything as its value, Kopia's keeps (or «no offsite») under it, a label while units differ */
+function retentionTile(rt) {
+  const kopia = rt.kopia && rt.kopia.on ? T('ret.kopia', { keeps: retKeeps(rt.kopia.keep) }) : T('ret.no_offsite');
+  return { value: retLocalText(rt.local), sub: [kopia], tip: rt.kopia && rt.kopia.on ? T('ret.keeps_tip', { list: RET_KEEPS.map((k) => T('setup.p_' + k)).join(' · ') }) : '',
+    chip: rt.differ ? T('ret.differ', { n: rt.differ }) : '', chipTip: T('ret.differ_tip') };
+}
+/** A unit's name as the other sections say it */
+function retUnitName(u) {
+  return u.kind === 'vm' ? T('src.vm', { name: u.name }) : u.kind === 'app' ? T('partner.unit_app', { name: u.name }) : u.kind === 'flash' ? T('tile.flash') : u.name;
+}
+/** Where an inherited rule comes from, in words */
+function retFrom(from) {
+  const m = /^(share|place):(.*)$/.exec(from || '');
+  return m ? T(m[1] === 'place' ? 'ret.from_place' : 'ret.from_share', { name: m[2] }) : T('ret.from_global');
+}
+/**
+ * One unit's cells, pure: {local, kopia, partner} each {text, own (a rule of its own), muted (inherited or nothing),
+ * tip}; partner a list of {text, tip}, with `via` when it goes with its share or the backup place
+ */
+function retentionCells(u) {
+  let local;
+  if (u.local_how === 'own') local = { text: retLocalText(u.local), own: true, muted: false, tip: T('ret.own_tip') };
+  else if (u.local_how === 'btrfs') local = { text: retLocalText(u.local), own: false, muted: true, tip: T('ret.btrfs_tip') };
+  else if (u.local_how === 'inherited') local = { text: retLocalText(u.local), own: false, muted: true, tip: retFrom(u.local_from) };
+  else if (u.local_how === 'none') local = { text: T('ret.no_snaps'), own: false, muted: true, tip: T('ret.no_snaps_tip') };
+  else local = { text: T('ret.off'), own: false, muted: true, tip: '' };
+  let kopia;
+  if (u.kopia_how === 'own') kopia = { text: retKeeps(u.kopia), own: true, muted: false, tip: T('ret.own_tip') };
+  else if (u.kopia_how === 'inherited' && u.kopia) kopia = { text: retKeeps(u.kopia), own: false, muted: true, tip: retFrom(u.kopia_from) };
+  else kopia = { text: '—', own: false, muted: true, tip: T('ret.no_offsite') };
+  const via = u.partner_from ? retFrom(u.partner_from) : '';
+  const partner = (u.partners || []).map((p) => ({
+    text: Number.isInteger(p.holds) ? T('ret.partner_holds', { name: p.name, n: p.holds }) : T('ret.partner_unheard', { name: p.name }),
+    tip: [via, p.at ? T('ret.partner_tip', { name: p.name, when: fmt.relative(p.at) }) : T('ret.partner_tip_never', { name: p.name })].filter(Boolean).join(' · '),
+  }));
+  return { local, kopia, partner };
+}
+/** The section's link to the unit's row in the setup: the row unfolded and in view (setupFocus()); the flash: «Basics» */
+function retWhere(u) {
+  const a = el('a', '', T('ret.where_link'));
+  a.href = u.kind === 'flash' ? `#/${ID}/setup/basics` : `#/${ID}/setup`;
+  a.title = T(u.kind === 'vm' ? 'setup.vms' : u.kind === 'app' ? 'setup.apps' : u.kind === 'flash' ? 'setup.kopia' : 'setup.shares');
+  a.addEventListener('click', () => {
+    if (u.kind === 'share') { setup.open.add(u.name); setup.focus = u.name; }
+    else if (u.kind === 'vm') setup.focus = 'vm:' + u.name;
+    else if (u.kind === 'app') setup.focus = 'app:name:' + u.name;
+  });
+  return a;
+}
+function retFilterBar() {
+  retBar = retBar || Office.filterBar({ key: 'backup.retention', label: T('ret.filter_label'),
+    only: { text: T('ret.only_own'), hint: T('ret.only_own_hint') }, onChange: () => switcher().render() });
+  return retBar;
+}
+/** The rows the bar leaves, pure: the words over the unit's name and its cells, «only those with their own» */
+function retentionView(units, f) {
+  return units.filter((u) => {
+    if (f.only && !u.differs) return false;
+    const c = retentionCells(u);
+    return Office.fits(f.words, [retUnitName(u), c.local.text, c.kopia.text, ...c.partner.map((p) => p.text)]);
+  });
+}
+
+function retentionSection() {
+  const rt = state.retention;
+  const box = section(T('ret.title'), T('ret.sub'), { place: 'ret.title' });
+  if (!rt || !rt.units) { box.appendChild(el('p', 'empty', T('ret.none_yet'))); return box; }
+  box.appendChild(el('p', 'role bk-ret-note', T('ret.readonly')));
+  const bar = retFilterBar();
+  box.appendChild(bar.el);
+  const all = rt.units;
+  const fits = retentionView(all, bar.read());
+  const wrap = el('div', 'box table-wrap');
+  const table = el('table', 'grid bk-ret');
+  const hr = el('tr');
+  ['unit', 'local', 'kopia', 'partner', 'where'].forEach((k) => hr.appendChild(el('th', '', T('ret.col_' + k))));
+  const thead = el('thead');
+  thead.appendChild(hr);
+  const body = el('tbody');
+  const cell = (c) => {
+    const td = el('td', c.muted ? 'bk-ret-inh' : c.own ? 'bk-ret-own' : '');
+    td.append(c.text);
+    if (c.own) td.append(' ', chip(T('ret.own'), 'accent', c.tip));
+    else if (c.tip) td.title = c.tip;
+    return td;
+  };
+  fits.forEach((u) => {
+    const c = retentionCells(u);
+    const tr = Office.place(`ret:${u.kind}:${u.name}`, el('tr'));
+    tr.appendChild(el('th', '', retUnitName(u)));
+    tr.append(cell(c.local), cell(c.kopia));
+    const pt = el('td', c.partner.length ? 'bk-ret-partner' : 'bk-ret-inh');
+    if (!c.partner.length) pt.append('—');
+    c.partner.forEach((p) => { const d = el('div', '', p.text); d.title = p.tip; pt.appendChild(d); });
+    const wt = el('td');
+    wt.appendChild(retWhere(u));
+    tr.append(pt, wt);
+    body.appendChild(tr);
+  });
+  if (!fits.length) {
+    const tr = el('tr');
+    const td = el('td', 'bk-filter-none', T('filter_none'));
+    td.colSpan = 5;
+    tr.appendChild(td);
+    body.appendChild(tr);
+  }
+  table.append(thead, body);
+  wrap.appendChild(table);
+  box.appendChild(wrap);
+  bar.done(fits.length, all.length, { onlyAvail: all.some((u) => u.differs) });
+  // a partner's rule is its own (never said to this office); what this office keeps of its partners: the pairs'
+  if (all.some((u) => (u.partners || []).length)) box.appendChild(el('p', 'role bk-ret-note', T('ret.partner_rule')));
+  const theirs = rt.keep_theirs || [];
+  if (theirs.length) {
+    const p = el('p', 'role bk-ret-note', T('ret.theirs', { list: theirs.map((x) => `${x.name} ${retLocalText(x.retention)}`).join(', ') }) + ' ');
+    const a = el('a', '', T('ret.theirs_where'));
+    a.href = '#/caretaker/partner';
+    p.appendChild(a);
+    box.appendChild(p);
+  }
   return box;
 }
 
@@ -4049,6 +4189,10 @@ function setupFocus() {
   if (!f) return null;
   if (f !== 'waiting') {
     if (f.startsWith('vm:')) return { anchor: 'setup:' + f, part: 'setup.vms', name: f.slice(3) };
+    if (f.startsWith('app:name:')) {      // «Retention at a glance»: settings.ini knows an app by its name, the setup's row by its id
+      const a = ((setup.model && setup.model.apps) || []).find((x) => x.name === f.slice(9));
+      return { anchor: a ? 'setup:app:' + a.id : 'setup:' + f, part: 'setup.apps', name: f.slice(9) };
+    }
     if (f.startsWith('app:')) return { anchor: 'setup:' + f, part: 'setup.apps', name: f.replace(/^app:(stack|ct):/, '') };
     return { anchor: 'setup:share:' + f, part: 'setup.shares', name: f };    // its row unfolded by the one who asked (protectionDetail())
   }
@@ -7114,6 +7258,7 @@ Office.desk({
       // a new visit: the table and the history unfiltered (words, «only …» and a filter tile are never kept), the bars
       // built anew in the language of now; #/backup/<tile> (the search, its rows, the team lead's «Open» of the schedule)
       // picks that tile exactly like a click and the address goes back to #/backup — else the last section chosen
+      retBar = null;
       protBar = null;
       histBar = null;
       switcher().mount(sub);
@@ -7180,7 +7325,7 @@ const kopiaOn = () => dget('kopia|enabled') === 'yes';
 const SHOWN = {
   now: mainShown(() => live()), overview: mainShown(() => !live()), protection: mainShown(() => true), history: mainShown(() => true),
   drift: mainShown(() => ((state.drift && state.drift.items) || []).length > 0), restore: mainShown(() => true),
-  'schedule.title': mainShown(() => true), 'partner.section': mainShown(() => (state.partners || []).length > 0),
+  'schedule.title': mainShown(() => true), 'ret.title': mainShown(() => !!state.retention), 'partner.section': mainShown(() => (state.partners || []).length > 0),
   'setup.preset.title': planShown((p) => !p.have_settings),
   'setup.sources': planShown((p) => ((p.kopia && p.kopia.sources) || []).some((x) => x.state === 'orphan' || x.state === 'gone')),
   'setup.g_prefix': planShown(hasFs('zfs')), 'setup.g_zfs': planShown(hasFs('zfs')),
@@ -7193,9 +7338,9 @@ const when = (key) => ({ ...(key.startsWith('setup.') ? { shown: () => placeStan
   ...(PART[key] || key.startsWith('setup.g_') || key.startsWith('setup.p_')
   ? { part: PART[key] || 'setup.general' } : {}) });
 // a section's route is its tile's: the switcher shows it alone, whatever was chosen before (the row and «now» are always there)
-const SECTION_TILE = { protection: 'prot', history: 'last', 'schedule.title': 'schedule', 'partner.section': 'partners', drift: 'drift', restore: 'restore' };
+const SECTION_TILE = { protection: 'prot', history: 'last', 'schedule.title': 'schedule', 'ret.title': 'retention', 'partner.section': 'partners', drift: 'drift', restore: 'restore' };
 Office.places(ID, [
-  ...['now', 'overview', 'protection', 'history', 'schedule.title', 'partner.section', 'drift', 'restore']
+  ...['now', 'overview', 'protection', 'history', 'schedule.title', 'ret.title', 'partner.section', 'drift', 'restore']
     .map((key) => ({ kind: 'section', key, ...(SECTION_TILE[key] ? { route: tileRoute(SECTION_TILE[key]) } : {}), ...when(key) })),
   // every tile of the row (the switcher gives each its place tile.<id>, #/backup/<tile> picks it like a click — mount()), listed
   // while the row has it (a run going on: no row; partners, drift: only when there are)
@@ -7275,7 +7420,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     get sf() { const f = setupFilter().read(); return { text: f.words.join(' '), onlyNew: f.only }; },
     setupFilter,
     setupFits, setupFirstNew, setupFocus, setupTileData, setupTileList, setupNewCounts, setupSwitcher, SETUP_TILES, STEP_TILE,
-    driftText, driftParams, messageText, orderText, scheduleSection,
+    driftText, driftParams, messageText, orderText, scheduleSection, retentionTile, retentionCells, retentionView, retLocalText, retUnitName, retentionSection,
     overviewTiles, retireOn, foreignSource, oldSourceWords, asleepChip, runHint, missedRun, waitingUnsure, vmUnset, tileNode, tileList, protRows, protView, protTileCounts, protPartners, protChip, protSum, vmLevel, viaText, historyRows, PROT_TILES, PROT_ID, TILES,
     truth, levelTruth, kopiaTruth, protPartnerTruth, unitTry, shareLeftOut, setupDeriveItems, appNoSnap,
     setState: (s) => { state = s; },

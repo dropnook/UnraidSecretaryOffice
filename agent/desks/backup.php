@@ -292,7 +292,7 @@ function backupScan(): array
         'rough'      => $running && backupEstimates($history)['total'] === null ? backupRough($status, $settings) : null,
         'drift'      => backupDrift(),
         'settings'   => backupSettingsSummary($settings),
-        'shares'     => backupShares($settings, $history),
+        'shares'     => $shares = backupShares($settings, $history),
         'items'      => backupKopiaItems($settings, $history),
         'vms'        => $vms = backupVms($settings),
         // new folders, apps and VMs waiting for a decision (engine 2.21); Docker silent (B15) or stopped: no apps asked, said
@@ -313,6 +313,7 @@ function backupScan(): array
         'offsite'    => backupOffsiteReach($settings),    // engine 2.66: «offsite unreachable since …» (B16)
         'kopia_writes' => backupKopiaWrites($settings),   // engine 2.68: does the offsite storage still take writes?
         'truth'      => backupTruthSummary(backupTruth(), $settings),   // what the results say beside settings.ini (the truth review P2)
+        'retention'  => backupRetention($settings, $shares, $vms),       // 2026-10-30: what is kept how long, per unit (settings and pairs only)
     ];
     $state['found'] = true;
     $GLOBALS['backup'] = $state;
@@ -756,6 +757,185 @@ function backupKopiaItems(array $s, array $history): array
         }
     }
     return $items;
+}
+
+const BACKUP_KOPIA_KEEPS   = ['latest' => 7, 'hourly' => 0, 'daily' => 7, 'weekly' => 4, 'monthly' => 12, 'annual' => 3];   // the engine's defaults (lib/common.sh)
+
+/**
+ * «Retention at a glance» (2026-10-30): what is kept how long, per unit — settings.ini, the partners' last answers and the
+ * pairs only (never a disk, never Kopia; $shares and $vms as backupShares()/backupVms() made them for the same state).
+ * The rules are the engine's: a share's own «d w m» else [zfs] retention («7 4 6» unset), a share on btrfs [btrfs]
+ * keep_days, a VM its own else its share's, an app its first folder's share, the flash as a package the backup place's;
+ * Kopia per field its own else [kopia] keep_* (the engine's defaults unset), an app or VM without a source of its own
+ * goes with its share. A partner's copies are kept by the partner's own rule (its door; never said to this office): here
+ * which partner the unit goes to and how many copies it held at its last answer. `keep_theirs`: the pairs' «d w m» for
+ * what this office keeps of a partner's. Off units are rows too.
+ *
+ * @param list<array> $shares
+ * @param list<array> $vms
+ * @param ?array $pstate partner/state.json, $pairs pairs.json (null: read them here — tests pass their own)
+ */
+function backupRetention(array $s, array $shares, array $vms, ?array $pstate = null, ?array $pairs = null): array
+{
+    $dwm = function (?string $r): ?array {
+        return is_string($r) && preg_match('/^(\d+) (\d+) (\d+)$/D', trim($r), $m) ? ['d' => (int) $m[1], 'w' => (int) $m[2], 'm' => (int) $m[3]] : null;
+    };
+    $zfsSet = $dwm(backupSetting($s, 'zfs', 'retention'));
+    $global = $zfsSet ?? ['d' => 7, 'w' => 4, 'm' => 6];
+    $days = preg_match('/^\d+$/D', (string) backupSetting($s, 'btrfs', 'keep_days', '')) ? (int) backupSetting($s, 'btrfs', 'keep_days') : 7;
+    $kopiaOn = in_array(strtolower((string) backupSetting($s, 'kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true);
+    $keep = [];
+    $keepSet = false;
+    foreach (BACKUP_KOPIA_KEEPS as $k => $def) {
+        $v = backupSetting($s, 'kopia', "keep_$k");
+        $keepSet = $keepSet || $v !== null;
+        $keep[] = $v === null || trim($v) === '' ? $def : (preg_match('/^\d+$/D', trim($v)) ? (int) $v : null);    // null: «inherit» — Kopia's own
+    }
+    // a unit's own six (per field own or the global's); null: none of its own
+    $kopiaOwn = function (?string $r) use ($keep): ?array {
+        if (!is_string($r) || !preg_match('/^(\d+|inherit)( (\d+|inherit)){5}$/D', trim($r))) {
+            return null;
+        }
+        $f = explode(' ', trim($r));
+        return in_array(true, array_map(fn ($x) => $x !== 'inherit', $f), true)
+            ? array_map(fn ($x, $i) => $x === 'inherit' ? $keep[$i] : (int) $x, $f, array_keys($f)) : null;
+    };
+
+    // the partners each unit goes to (settings.ini) and how many copies each held at its last answer (state.json)
+    $pstate ??= function_exists('partnerStateRead') ? partnerStateRead() : ['pairs' => []];
+    $byUnit = [];
+    foreach (backupPartnersFromSettings($s) as $p) {
+        $e = is_array($pstate['pairs'][$p['id']] ?? null) ? $pstate['pairs'][$p['id']] : [];
+        $units = is_array($e['status']['units'] ?? null) ? $e['status']['units'] : null;
+        foreach ($p['units'] as $u) {
+            $snaps = $units !== null && is_array($units[$u] ?? null) ? ($units[$u]['snaps'] ?? null) : null;
+            $byUnit[$u][] = ['id' => $p['id'], 'name' => $p['name'],
+                             'holds' => is_array($snaps) ? count($snaps) : (is_int($snaps) ? $snaps : null),
+                             'at' => is_int($e['status_time'] ?? null) ? $e['status_time'] : null];
+        }
+    }
+    $place = (string) backupSetting($s, 'general', 'dumps_share', '');
+
+    $units = [];
+    $shareRow = [];
+    foreach ($shares as $sh) {
+        if (!empty($sh['flash'])) {
+            continue;
+        }
+        $n = (string) $sh['name'];
+        $mode = (string) ($sh['mode'] ?? 'off');
+        $fs = array_values(array_filter((array) ($sh['fs'] ?? [])));
+        $own = $dwm($sh['retention'] ?? null);
+        if ($mode === 'off') {
+            [$local, $how, $from] = [null, 'off', null];
+        } elseif (($sh['method'] ?? '') === 'live' || ($fs && !array_intersect($fs, ['zfs', 'btrfs']))) {
+            [$local, $how, $from] = [null, 'none', null];          // no snapshot: [share] method = live, or no file system that takes one
+        } elseif ($fs && !in_array('zfs', $fs, true)) {
+            [$local, $how, $from] = [['days' => $days], 'btrfs', 'global'];
+        } else {
+            [$local, $how, $from] = $own !== null ? [$own, 'own', null] : [$global, 'inherited', 'global'];
+        }
+        $k = $mode === 'kopia' && $kopiaOn ? ($kopiaOwn($sh['kopia_retention'] ?? null) ?? $keep) : null;
+        $kHow = !$kopiaOn ? 'off' : ($mode !== 'kopia' ? 'not_offsite' : ($kopiaOwn($sh['kopia_retention'] ?? null) !== null ? 'own' : 'inherited'));
+        $partners = array_merge($byUnit["share:$n"] ?? [], $n === $place ? ($byUnit['place'] ?? []) : []);
+        $row = ['kind' => 'share', 'name' => $n, 'local' => $local, 'local_how' => $how, 'local_from' => $from,
+                'kopia' => $k, 'kopia_how' => $kHow, 'kopia_from' => $kHow === 'inherited' ? 'global' : null,
+                'partners' => $partners, 'partner_from' => null];
+        $shareRow[$n] = $row;
+        $units[] = $row;
+    }
+    // an app or a VM without a rule of its own goes with its share
+    $via = function (array $row, ?string $share, bool $ownKopia, ?array $k, string $u) use ($shareRow, $byUnit, $kopiaOn): array {
+        $sh = $share !== null ? ($shareRow[$share] ?? null) : null;
+        if (!$ownKopia) {
+            [$row['kopia'], $row['kopia_how'], $row['kopia_from']] = $sh && $sh['kopia'] !== null ? [$sh['kopia'], 'inherited', "share:$share"]
+                : [null, $kopiaOn ? 'not_offsite' : 'off', null];
+        } else {
+            $row['kopia'] = $k;
+        }
+        $row['partners'] = $byUnit[$u] ?? [];
+        if (!$row['partners'] && $sh && $sh['partners']) {
+            [$row['partners'], $row['partner_from']] = [$sh['partners'], "share:$share"];
+        }
+        return $row;
+    };
+    $vmShare = array_column(array_map(fn ($v) => ['n' => (string) $v['name'], 's' => (string) ($v['share'] ?? '')], $vms), 's', 'n');
+    $sections = fn (string $type) => array_values(array_map(fn ($k) => substr($k, strlen($type) + 1),
+        array_filter(array_keys($s), fn ($k) => str_starts_with((string) $k, "$type|"))));
+    $vmNames = $sections('vm');
+    natcasesort($vmNames);
+    foreach ($vmNames as $n) {
+        $share = ($vmShare[$n] ?? '') !== '' ? $vmShare[$n] : null;
+        $sh = $share !== null ? ($shareRow[$share] ?? null) : null;
+        $own = $dwm(backupSetting($s, "vm|$n", 'retention'));
+        if (backupSetting($s, "vm|$n", 'mode', 'snapshot') === 'off') {
+            [$local, $how, $from] = [null, 'off', null];
+        } elseif ($own !== null) {
+            [$local, $how, $from] = [$own, 'own', null];
+        } elseif ($sh !== null) {
+            [$local, $how, $from] = [$sh['local'], $sh['local'] === null ? 'none' : 'inherited', $sh['local'] === null ? null : "share:$share"];
+        } else {
+            [$local, $how, $from] = [$global, 'inherited', 'global'];
+        }
+        $src = $kopiaOn && backupSetting($s, "vm|$n", 'kopia', 'no') === 'yes';
+        $ko = $kopiaOwn(backupSetting($s, "vm|$n", 'kopia_retention'));
+        $row = ['kind' => 'vm', 'name' => $n, 'local' => $local, 'local_how' => $how, 'local_from' => $from,
+                'kopia' => null, 'kopia_how' => $src ? ($ko !== null ? 'own' : 'inherited') : 'not_offsite', 'kopia_from' => $src && $ko === null ? 'global' : null,
+                'partners' => [], 'partner_from' => null];
+        $units[] = $via($row, $share, $src, $src ? ($ko ?? $keep) : null, "vm:$n");
+    }
+    $appNames = $sections('app');
+    natcasesort($appNames);
+    foreach ($appNames as $n) {
+        $first = (string) (array_values($s["app|$n"]['folder'] ?? [])[0] ?? '');
+        $share = $first !== '' ? explode('/', ltrim($first, '/'))[0] : null;
+        $sh = $share !== null ? ($shareRow[$share] ?? null) : null;
+        [$local, $how, $from] = $sh !== null ? [$sh['local'], $sh['local'] === null ? 'none' : 'inherited', $sh['local'] === null ? null : "share:$share"]
+            : [$global, 'inherited', 'global'];
+        $src = $kopiaOn && backupSetting($s, "app|$n", 'kopia', 'no') === 'yes';
+        $ko = $kopiaOwn(backupSetting($s, "app|$n", 'kopia_retention'));
+        $row = ['kind' => 'app', 'name' => $n, 'local' => $local, 'local_how' => $how, 'local_from' => $from,
+                'kopia' => null, 'kopia_how' => $src ? ($ko !== null ? 'own' : 'inherited') : 'not_offsite', 'kopia_from' => $src && $ko === null ? 'global' : null,
+                'partners' => [], 'partner_from' => null];
+        $units[] = $via($row, $share, $src, $src ? ($ko ?? $keep) : null, "app:$n");
+    }
+    // the flash: a package in the backup place (its history the place's snapshots, offsite and to a partner with it) or
+    // a Kopia source of its own (the global keeps)
+    $flash = (string) backupSetting($s, 'flash', 'mode', 'off');
+    $pl = $shareRow[$place] ?? null;
+    $row = ['kind' => 'flash', 'name' => 'flash', 'local' => null, 'local_how' => 'off', 'local_from' => null,
+            'kopia' => null, 'kopia_how' => $kopiaOn ? 'not_offsite' : 'off', 'kopia_from' => null, 'partners' => [], 'partner_from' => null];
+    if ($flash === 'tar') {
+        $row = ['local' => $pl['local'] ?? null, 'local_how' => $pl === null ? 'none' : ($pl['local'] === null ? 'none' : 'inherited'),
+                'local_from' => $pl !== null && $pl['local'] !== null ? "place:$place" : null,
+                'kopia' => $pl['kopia'] ?? null, 'kopia_how' => $pl !== null && $pl['kopia'] !== null ? 'inherited' : $row['kopia_how'],
+                'kopia_from' => $pl !== null && $pl['kopia'] !== null ? "place:$place" : null,
+                'partners' => $byUnit['place'] ?? [], 'partner_from' => !empty($byUnit['place']) ? "place:$place" : null] + $row;
+    } elseif ($flash === 'snapshot') {
+        $row['local_how'] = 'none';
+        if ($kopiaOn) {
+            [$row['kopia'], $row['kopia_how'], $row['kopia_from']] = [$keep, 'inherited', 'global'];
+        }
+    }
+    $units[] = $row;
+
+    // differs: a rule of its own that isn't the global one
+    $differ = 0;
+    foreach ($units as &$u) {
+        $u['differs'] = ($u['local_how'] === 'own' && $u['local'] !== $global) || ($u['kopia_how'] === 'own' && $u['kopia'] !== $keep);
+        $differ += $u['differs'] ? 1 : 0;
+    }
+    unset($u);
+
+    $theirs = [];
+    foreach ($pairs ?? (function_exists('partnerPairs') ? partnerPairs() : []) as $p) {
+        if (is_array($p['receive'] ?? null) && ($r = $dwm($p['receive']['retention'] ?? null)) !== null) {
+            $theirs[] = ['id' => (string) $p['id'], 'name' => (string) $p['name'], 'retention' => $r];
+        }
+    }
+    return ['local' => $global + ['set' => $zfsSet !== null], 'btrfs_days' => $days,
+            'kopia' => ['on' => $kopiaOn, 'keep' => $keep, 'set' => $keepSet],
+            'units' => $units, 'differ' => $differ, 'keep_theirs' => $theirs];
 }
 
 const BACKUP_DOCKER_LOOK   = 5;      // seconds Docker may take to say its version (B15)

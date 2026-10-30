@@ -57,6 +57,14 @@ app or VM or of a new one — stays local and keeps running until you decide in 
 cleanly, and its card says what it still waits for (apps stopping, a VM, the offsite upload); stopping the array ends
 it cleanly too, and what it had stopped comes back right after the array starts.
 
+**Retention at a glance.** Three things keep your backups for a while: the local snapshots («days weeks months» for
+all, a share or VM may have its own; btrfs keeps whole days), Kopia offsite (six numbers: latest, hourly, daily, weekly,
+monthly, yearly — for all, or per share, app and VM) and a partner office (by its own rule, set on its side when you
+paired). Mr. Backupsy's tile *Retention* beside the schedule shows the rule for all and Kopia's, with a label when some
+units keep their own; a click shows a row per share, VM, app and the flash — what is kept locally (grey when it is the
+rule for all or its share's), offsite and at which partner (how many copies it held at its last answer), and *Setup*
+leads to the row where you change it. Only to look at: nothing is changed there, and nothing on the disks is read.
+
 The whole run at a glance ([BPMN source](diagrams/backup-run.bpmn), [German](diagrams/backup-run.de.svg)):
 
 <a name="diagram-backup-run"><img src="diagrams/backup-run.svg" alt="A backup run: Mr. Backupsy, apps and VMs, the partner office and the offsite upload as lanes"></a>
