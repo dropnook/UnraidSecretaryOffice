@@ -470,7 +470,8 @@ const sw = Office.sections({
   default: 'pool',
   tiles: () => [
     { id: 'runs', key: 'last_run', place: 'tile.runs', section: 'runs', filters: T('tool.embycache'), tile: (a) => lastRunTile(a) },
-    { id: 'plans', key: 'schedules', place: 'tile.plans', section: () => plansSection(), tile: (a) => plansTile(a) },
+    // «Schedules»: the office's schedule tile (before his first look only its name — the search's places, a route)
+    Office.scheduleTile(ID, { ...(state ? plansSchedule() : { key: 'schedules' }), section: () => plansSection() }),
     ...(configured() ? [
       { id: 'pool', key: 'tile.pool', place: 'tile.pool', section: () => poolSection(), tile: (a) => poolTile(a) },
       { id: 'shares', key: 'shares', place: 'tile.shares', section: () => shareSection(), tile: (a) => sharesTile(a) },
@@ -659,9 +660,6 @@ function lastRuns(history) {
   return { main, newer: main && ran[0] !== main ? ran[0] : null };
 }
 
-/** «04:30» within a day, else the date with it */
-const nextText = (t) => (t - Date.now() / 1000 < 86400 ? fmt.time(t) : fmt.date(t));
-
 /**
  * «Last run»: when the newest real run ended — «Real run · took 12 min · 0 errors · 0 warnings», a newer report or dry
  * run named under it; while a run goes «running since 14:05» (his job). Its section: «Recent runs» with only EmbyCache's.
@@ -693,15 +691,34 @@ function lastRunTile(a) {
   return Office.stat({ label: T('last_run'), value, sub, alert, tip: sub.join('\n'), ...a });
 }
 
-/** The two schedules in one tile: «2 active · next 04:30» / «off»; its section: their list */
-function plansTile(a) {
+/** How a run of his ended (history[].result) in the schedule tile's words (core.js Office.scheduleLast) */
+const SCHED_HOW = { ok: 'ok', errors: 'partly', failed: 'failed', config: 'failed', aborted: 'stopped', stopped: 'stopped', stopped_mover: 'stopped',
+  stopped_user: 'stopped', busy: 'skipped', skipped: 'skipped', refused: 'refused' };
+/**
+ * «Schedules» on the office's schedule tile (Office.scheduleTile), its options, pure: his two schedules as a whole — the
+ * next run of either, laying out «in the joint run» with Ms. Moverelli at her time and consolidating on its own, a line
+ * each («Lay out: in the joint run, daily at 03:00 · Consolidate: none»); the newest run a schedule started (on his own or
+ * in the joint run) and how it ended, a run of his going on: «Running now»; neither on: «Off», alert. Its section: «Schedules»
+ */
+function plansSchedule() {
   const sc = { ...(state.schedules || {}), embycache: jackSched() };
   const jobs = ['embycache', 'gather'];
   const on = jobs.filter((j) => sc[j] && sc[j].enabled);
   const nexts = on.map((j) => sc[j].next).filter((n) => typeof n === 'number' && n > 0);
-  const value = !on.length ? T('plans.off') : nexts.length ? T('plans.active', { n: on.length, when: nextText(Math.min(...nexts)) }) : T('plans.on', { n: on.length });
-  const sub = jobs.map((j) => T('plans.one', { tool: T('tool.' + j), when: schedText(sc[j]) })).join(' · ');
-  return Office.stat({ label: T('schedules'), value, sub, tip: sub, alert: !on.length, ...a });
+  const when = (j) => (j === 'embycache' && night() && sc[j].enabled ? T('plans.night', { when: schedText(sc[j]) }) : schedText(sc[j]));
+  const jobsOf = state.jobs || {};
+  const going = jobs.find((j) => jobsOf[j] && jobsOf[j].running && !(j === 'embycache' && lookRun()));
+  const ran = (Array.isArray(state.history) ? state.history : []).find((r) => r && ['schedule', 'night'].includes(r.by) && r.started) || null;
+  return {
+    key: 'schedules',
+    // the lines say each schedule in words: no cron line of its own under the next run
+    schedule: { enabled: on.length > 0, custom: '', next: nexts.length ? Math.min(...nexts) : null },
+    value: on.length && !nexts.length ? T('plans.on', { n: on.length }) : '',
+    last: going ? { at: jobsOf[going].started || Date.now() / 1000, how: 'running' }
+      : ran ? { at: ran.finished || ran.started, how: SCHED_HOW[ran.result] || 'failed' } : null,
+    sub: [jobs.map((j) => T('plans.one', { tool: T('tool.' + j), when: when(j) })).join(' · ')],
+    alert: !on.length,
+  };
 }
 
 /** «Schedules»: EmbyCache and consolidating — how often, the next run, «Change…» (the dialogs) */
@@ -3188,7 +3205,7 @@ Office.desk({
     // nothing to draw from (2026-10-16: a click on a run in the search broke his page)
     const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];
     const whole = sub === 'history';
-    if (plan) sw.mount('plans');
+    if (plan || sub === 'plans') sw.mount('schedule');           // #/jack/plans: the tile's old id (bookmarks, old links)
     else sw.mount(whole ? '' : sub);
     if (whole) Office.subroute('');
     render();
@@ -3272,7 +3289,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.jack = { setState: (s) => { state = s; }, greetOk, bubbleText, lookRun, failedText, roomWords, tonightText, rankItem, progFile, sizesLine, readyOf, poolTile, shareSection, poolView, poolHay, poolSection, bars, lastRuns, sw,
-    historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansTile, poolTile, sharesTile, gatherTile, render,
+    historySection, plansSection, plansList, gatherSection, footer, scopeLine, lastRunTile, plansSchedule, poolTile, sharesTile, gatherTile, render,
     renderSetup, page: () => page, SETUP_TILES, setupTileData, setupTileList, setupStep, importSection, setupSwitcher, tileOf, setForm: (f) => { form = f; }, initForm, form: () => form,
     herRules, sharePart, ruleTexts, needsConnect, connectInst, resetDialog, budgetGb, budgetSplit, budgetState, budgetLine, setupBlocked, MIN_PERSON_GB, shareCase,
     setupServers, mediaPick, newInstance, removeServerDialog, removeServer, noServer, persons, libraryList, setView: (v, p) => { view = v; page = p; }, setupLibraries, setupUsers, setupScope, setupMore, saveSetup, saveBar, formKey, formChanged, formChangeCount, changedParts, setupBar, derivedPool, poolsOfChoice, cacheable,

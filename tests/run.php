@@ -44049,7 +44049,8 @@ function testScheduleTile(): void
         check("schedule tile: every way a run ends has its word in $code", !array_diff(array_map(fn ($h) => "office.schedule.how.$h",
             ['ok', 'failed', 'stopped', 'partly', 'refused', 'skipped', 'running']), array_keys($lang)));
     }
-    foreach (['cleanup' => 'tile.schedule', 'logs' => 'tile.schedule', 'snapshot' => 'plans', 'watchman' => 'tile.schedule', 'moverelli' => 'schedule'] as $d => $key) {
+    foreach (['cleanup' => 'tile.schedule', 'logs' => 'tile.schedule', 'snapshot' => 'plans', 'watchman' => 'tile.schedule', 'moverelli' => 'schedule',
+        'backup' => 'stat.schedule', 'jack' => 'schedules'] as $d => $key) {
         $js = (string) file_get_contents(OFFICE_WEB . "/desks/$d/desk.js");
         check("schedule tile: $d is on it", str_contains($js, 'Office.scheduleTile(ID, '));
         $pj = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/$d/places.json"), true);
@@ -44059,6 +44060,27 @@ function testScheduleTile(): void
     $snap = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.js');
     check('schedule tile: Ms. Snapshotini\'s old address #/snapshot/plans still lands on it (the dashboard\'s links)',
         str_contains($snap, "sub === 'plans' ? 'schedule' : sub") && !str_contains($snap, "function plansCard("));
+    // wave 4 (2026-10-30): Mr. Backupsy and Jack Streamer on it — no tile of their own left, their words ×5, the old ids landing
+    $bk = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    $jk = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
+    check('schedule tile: Mr. Backupsy hands his options (pure, scheduleOpts()) to it from tileList() — no number tile of his own for it, #/backup/schedule its id',
+        str_contains($bk, "d.sched ? Office.scheduleTile(ID, { ...d.sched, section: shows(d.key) })") && str_contains($bk, "add({ key: 'schedule', label: T('stat.schedule'), sched, alert: sched.alert });")
+        && str_contains($bk, "key: 'stat.schedule', schedule: sc, value: sc.script ? '' : T('stat.not_scheduled'),") && !str_contains($bk, "T('freq.' + sc.frequency)) : T('stat.not_scheduled');")
+        && str_contains($bk, "['schedule', 'stat.schedule', 'schedule']"));
+    check('schedule tile: Jack Streamer\'s «Schedules» on it — plansTile() gone, #/jack/plans (the old id) and the Team Lead\'s #/jack/schedule land on it',
+        str_contains($jk, "Office.scheduleTile(ID, { ...(state ? plansSchedule() : { key: 'schedules' }), section: () => plansSection() }),") && !str_contains($jk, 'function plansTile(')
+        && str_contains($jk, "if (plan || sub === 'plans') sw.mount('schedule');") && str_contains($jk, "const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];")
+        && str_contains($jk, "T('plans.night', { when: schedText(sc[j]) })"));
+    $joint = ['en' => 'in the joint run', 'de' => 'im gemeinsamen Lauf', 'it' => "nell'esecuzione comune", 'fr' => "dans l'exécution commune", 'es' => 'en la ejecución conjunta'];
+    foreach ($joint as $code => $words) {
+        $b = langFile(OFFICE_WEB . "/desks/backup/lang/$code.json");
+        $j = langFile(OFFICE_WEB . "/desks/jack/lang/$code.json");
+        same("schedule tile: Mr. Backupsy's lines in $code (not set up, click to set it, how long a run takes)", [],
+            array_values(array_filter(['stat.not_scheduled', 'stat.schedule_hint', 'schedule.duration'], fn ($k) => !is_string($b[$k] ?? null) || $b[$k] === '')));
+        check("schedule tile: Jack Streamer's lines in $code — a line per schedule, laying out «$words» (the joint run's word), how many are on",
+            str_contains((string) ($j['plans.night'] ?? ''), $words) && str_contains((string) ($j['by.night'] ?? ''), $words) && is_string($j['plans.one'] ?? null)
+            && is_array($j['plans.on'] ?? null) && !isset($j['plans.active']) && !isset($j['plans.off']));
+    }
     testsSectionsJs('schedule', 'schedule tile', 12);
 }
 
@@ -51336,7 +51358,7 @@ const base = { configured: true, unraid: { ok: true, version: '7.3.2', needed: '
   out.cardSteps = (card.children.find((c) => c.steps) || {}).steps;
   e.setState({ schedules: { embycache: { enabled: false }, gather: { enabled: false } }, night: { schedule: { enabled: true, frequency: 'custom', custom: '15 1 * * *', next: 0 }, jack: true, plan } });
   out.plans = texts(e.plansSection());
-  out.tile = e.plansTile({}).value;
+  out.tile = e.plansSchedule();
   out.jtonight = e.tonightText(plan);
   // Jack Emby refused tonight (night.json jack_out): her last night «mine» with his reason, her way to his page; his callout
   const lout = { mode: 'run', started: 100, finished: 200, result: 'ok', round: 1, jack: true, jack_out: 'jack_gather_first' };
@@ -51401,9 +51423,11 @@ JS);
     check('night page: the card while Jack Emby works in it — «Night run», his line with the way to his page, no «looking around»',
         in_array('rc.night_title', $j['card'] ?? [], true) && in_array('rc.night_jack ', $j['card'] ?? [], true) && !in_array('rc.waiting', $j['card'] ?? [], true)
         && count($j['cardSteps'] ?? []) === 5, json_encode($j['card'] ?? null));
-    check('night page: Jack Emby\'s schedules — EmbyCache with Ms. Moverelli at her time, her page to change it, tonight\'s line; the tile counts it',
+    check('night page: Jack Emby\'s schedules — EmbyCache with Ms. Moverelli at her time, her page to change it, tonight\'s line; the (office\'s schedule) tile counts it «in the joint run»',
         in_array('plans.night_name', $j['plans'] ?? [], true) && in_array('plans.night {"when":"C15 1 * * *"}', $j['plans'] ?? [], true)
-        && in_array('plans.night_open', $j['plans'] ?? [], true) && in_array($j['jtonight'] ?? '-', $j['plans'] ?? [], true) && str_starts_with((string) ($j['tile'] ?? ''), 'plans.on'),
+        && in_array('plans.night_open', $j['plans'] ?? [], true) && in_array($j['jtonight'] ?? '-', $j['plans'] ?? [], true)
+        && str_starts_with((string) ($j['tile']['value'] ?? ''), 'plans.on') && ($j['tile']['schedule']['enabled'] ?? null) === true
+        && str_starts_with((string) ($j['tile']['sub'][0] ?? ''), 'plans.one {"tool":"tool.embycache","when":"plans.night {\\"when\\":\\"C15 1 * * *\\"}"}'),
         json_encode([$j['plans'] ?? null, $j['tile'] ?? null]));
     same('her head buttons: «Show shares» → the shares shown, the list done said; a refused dry run → her runs, why as a warning toast; still going → nothing yet',
         [[true, ['shares', 'run'], ['list_done {"mode":"mode.list","tile":"shares"}', false]],
@@ -53295,7 +53319,7 @@ function testBackupTiles(): void
  * his list of runs: the newest real run (run, release) is it, else the newest of any mode; refused and skipped starts
  * didn't run; status.json only for the result box (last_status). Under node (stand-ins for the office): the tiles of
  * «How I work» — «Last run» with how long it took and a newer report under it, «running since» while one goes, a div
- * when nothing ran; «Schedules» (2 active · next, off), «Ready on the pool»; the «Emby» tile gone; a click on «Last run»
+ * when nothing ran; «Schedules» (the office's schedule tile: next, the last scheduled run, Off), «Ready on the pool»; the «Emby» tile gone; a click on «Last run»
  * filters «Recent runs» to EmbyCache's (the bar's note line names it), a second shows all.
  */
 function testJackLastRunDuringRun(): void
@@ -53356,6 +53380,10 @@ globalThis.Office = { scope: () => T, t: T, el, fmt: { size: (b) => `${b}B`, dat
   agent: { running: true }, keepInPlace: (a, f) => f(), place: (k, n) => { n.dataset.place = k; return n; },
   sectionHead: (title) => el('div', 'section-head', title), fits: (w) => !w.length, errorText: (x) => x.key,
   stat: (o) => ({ tag: o.on ? 'button' : 'div', o, children: [] }),
+  // the office's schedule tile (core.js, tests/sections.js schedule): here what he hands it, as a number tile's options
+  scheduleTile: (d, o) => ({ id: 'schedule', key: o.key, place: 'tile.schedule', section: o.section, tile: (a) => ({ tag: 'button', children: [],
+    o: { label: T(o.key), value: o.value || (o.schedule.enabled ? 'next ' + o.schedule.next : 'office.schedule.off'), sub: o.sub.filter(Boolean), alert: !!o.alert,
+      last: o.last, custom: o.schedule.custom, ...a } }) }),
   sections: (o) => { spec = o; return { el: el('div', 'sections'), active: () => active, places: () => [], mount: () => false, pick() {}, render() {},
     note: (name) => { const x = list().find((t) => t.id === active); return { tile: x && x.filters && x.section === name ? String(x.filters) : '', clear: () => { active = ''; } }; },
     clear() { active = ''; } }; },
@@ -53375,7 +53403,7 @@ const lr = e.lastRuns(state.history);
 out.pick = [lr.main && lr.main.started, lr.newer && lr.newer.mode];
 let t = tile('runs');
 out.last = [t.value, t.sub, t.alert, t.pressed, t.clicks, t.place];
-out.plans = (() => { const p = tile('plans'); return [p.value, p.sub, p.alert, p.clicks]; })();
+out.plans = (() => { const p = tile('schedule'); return [p.value, p.sub, p.alert, p.clicks, p.last, p.custom]; })();
 out.pool = (() => { const p = tile('pool'); return [p.label, p.value, p.sub, p.alert, p.tip]; })();
 out.shares = (() => { const p = tile('shares'); return [p.value, p.sub, p.alert]; })();
 out.gather = (() => { const p = tile('gather'); return [p.value, p.sub, p.alert]; })();
@@ -53404,7 +53432,7 @@ state.jobs.embycache = { running: true, started: 3000, mode: 'run' };
 e.setState(state);
 t = tile('runs');
 out.running = [t.value, t.sub];
-out.off = [tile('plans').value, tile('plans').alert];
+out.off = [tile('schedule').value, tile('schedule').alert, tile('schedule').last];
 state.jobs.embycache = { running: false };
 state.history = [{ tool: 'embycache', mode: 'run', started: 5, finished: 5, result: 'refused' }];
 e.setState(state);
@@ -53419,14 +53447,15 @@ JS);
     $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/desks/jack/desk.js', "$tmp/state.json"])) . ' 2>&1');
     $r = json_decode($raw, true);
     same('his page: the switcher — kept as jack.tile, start «Pool»; the row Last run (a filter tile: «Recent runs» with EmbyCache\'s), Schedules, Pool, Shares, Consolidate folders; «Recent runs» shared',
-        ['jack', 'pool', [['runs', 'last_run', 'tile.runs', 'runs', 'tool.embycache'], ['plans', 'schedules', 'tile.plans', 'own', ''], ['pool', 'tile.pool', 'tile.pool', 'own', ''],
+        ['jack', 'pool', [['runs', 'last_run', 'tile.runs', 'runs', 'tool.embycache'], ['schedule', 'schedules', 'tile.schedule', 'own', ''], ['pool', 'tile.pool', 'tile.pool', 'own', ''],
             ['shares', 'shares', 'tile.shares', 'own', ''], ['gather', 'gather', 'tile.gather', 'own', '']], ['runs']], $r['spec'] ?? null, $raw);
     same('last run on his page: the same pick as the agent — the real run, the newer report beside it', [1000, 'report'], $r['pick'] ?? null, $raw);
     same('last run on his page: when it ended, «Real run · took 12 min · 0 errors · 1 warning», the newer report under it; the switcher\'s click and place spread in', [
         'R1720', ['mode.run · last.took {"time":"progress.min_secs {\"m\":12,\"s\":0}"} · counts {"errors":"count.errors {\"n\":0}","warnings":"count.warnings {\"n\":1}"}',
                   'last.newer {"mode":"mode.report","when":"R2010"}'], false, false, 'clicked runs', 'tile.runs'], $r['last'] ?? null, $raw);
-    same('his tiles: «Schedules» — 2 active, the next of both, the frequencies under it', ['plans.active {"n":2,"when":"H4000"}',
-        'plans.one {"tool":"tool.embycache","when":"C(30 4 * * *)"} · plans.one {"tool":"tool.gather","when":"C(0 3 * * 0)"}', false, 'clicked plans'], $r['plans'] ?? null, $raw);
+    same('his tiles: «Schedules» on the office\'s schedule tile — the next of both, the frequencies under it, no cron line of its own, the newest run a schedule started and how it ended',
+        ['next 4000', ['plans.one {"tool":"tool.embycache","when":"C(30 4 * * *)"} · plans.one {"tool":"tool.gather","when":"C(0 3 * * 0)"}'], false, 'clicked schedule',
+        ['at' => 2100, 'how' => 'refused'], ''], $r['plans'] ?? null, $raw);
     same('his tiles: «Pool» — «Pool free» and «Ready on the pool» in one: files and size, how free and what EmbyCache keeps; the path and «as of» in the tip', ['tile.pool',
         'pool_tile.value {"files":"count.files {\"n\":12}","size":"4000B"}', 'pool_tile.free {"pct":"41.3","min":20}', false,
         "pool_sub {\"pool\":\"/mnt/cache\",\"free\":\"700B\",\"min\":20}\nroom.none\npool_tile.as_of {\"when\":\"R1700\"}"], $r['pool'] ?? null, $raw);   // 1.62: Ms. Moverelli not set up yet — said in the tip
@@ -53439,9 +53468,9 @@ JS);
     same('«Schedules» is a section: its head, both schedules as rows', ['jo-plans', 'schedules', 2], $r['plansSection'] ?? null, $raw);
     same('the pool under EmbyCache\'s minimum: «Pool» alerts', true, $r['poolLow'] ?? null, $raw);
     same('while EmbyCache runs: «running since 14:05 · Real run» — never «never»', ['last.running {"time":"H3000"}', ['mode.run']], $r['running'] ?? null, $raw);
-    same('no schedule on: «off», as a warning', ['plans.off', true], $r['off'] ?? null, $raw);
+    same('no schedule on: «Off», as a warning; a run of his going on: «Running now»', ['office.schedule.off', true, ['at' => 3000, 'how' => 'running']], $r['off'] ?? null, $raw);
     same('nothing ran (a refused start only): «never» — still the tile of «Recent runs»', ['never', [], 'clicked runs'], $r['never'] ?? null, $raw);
-    same('not set up: no «Pool», no «Shares»', ['runs', 'plans', 'gather'], $r['unset'] ?? null, $raw);
+    same('not set up: no «Pool», no «Shares»', ['runs', 'schedule', 'gather'], $r['unset'] ?? null, $raw);
     hardeningRm($tmp);
 }
 
@@ -54066,7 +54095,7 @@ function testTilesMediaPages(): void
     check('jack page: the switcher — start «Pool»; Last run (a filter tile on «Recent runs»), Schedules, Pool, Shares, Consolidate folders',
         str_contains($jackSrc, "const sw = Office.sections({") && str_contains($jackSrc, "default: 'pool',")
         && str_contains($jackSrc, "{ id: 'runs', key: 'last_run', place: 'tile.runs', section: 'runs', filters: T('tool.embycache'),")
-        && str_contains($jackSrc, "{ id: 'plans', key: 'schedules', place: 'tile.plans', section: () => plansSection(),")
+        && str_contains($jackSrc, "Office.scheduleTile(ID, { ...(state ? plansSchedule() : { key: 'schedules' }), section: () => plansSection() }),")
         && str_contains($jackSrc, "{ id: 'pool', key: 'tile.pool', place: 'tile.pool', section: () => poolSection(),")
         && str_contains($jackSrc, "{ id: 'shares', key: 'shares', place: 'tile.shares', section: () => shareSection(),")
         && str_contains($jackSrc, "{ id: 'gather', key: 'gather', place: 'tile.gather', section: () => gatherSection(),")
@@ -54095,7 +54124,7 @@ function testTilesMediaPages(): void
         && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/moverelli/desk.js'), "Office.go(`#/\${ID}`);\n      if (typeof window !== 'undefined') window.scrollTo(0, 0);")
         && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js'), "setupLoad();\n        if (typeof window !== 'undefined') window.scrollTo(0, 0);"));
     check('jack page: the routes of his tiles (the switcher\'s), the Team Lead\'s links to his schedules land in «Schedules» (the row revealed), #/jack/history the whole page — picked once his state is there (a pick before it broke his page, 2026-10-16), MediaCache\'s runs in the search by «Last run»',
-        str_contains($jackSrc, "if (plan) sw.mount('plans');") && str_contains($jackSrc, "else sw.mount(whole ? '' : sub);") && str_contains($jackSrc, "Office.reveal(`plan:\${plan}`)")
+        str_contains($jackSrc, "if (plan || sub === 'plans') sw.mount('schedule');") && str_contains($jackSrc, "else sw.mount(whole ? '' : sub);") && str_contains($jackSrc, "Office.reveal(`plan:\${plan}`)")
         && str_contains($jackSrc, "const plan = { schedule: 'embycache', 'gather-schedule': 'gather' }[sub];") && str_contains($jackSrc, "Office.place(`plan:\${job}`")
         && str_contains($jackSrc, "...sw.places().map(") && str_contains($jackSrc, "route: r.tool === 'embycache' ? `#/\${ID}/runs` : `#/\${ID}/history`")
         && str_contains($jackSrc, "if (whole && view === root && state && sw.active()) sw.pick('', 'route');") && !str_contains($jackSrc, "sw.mount('');\n      sw.pick('', 'route');"));
