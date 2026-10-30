@@ -58173,7 +58173,7 @@ function testUsoNetScript(): void
     same('night watchman: a line added there is not', 1, count($f['own'] ?? []));
     $agent = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
     check('agent.sh start: the USO network comes up whatever the array does (in the background); release leaves it be', preg_match('/^start\(\) \{\n    watch_cron\n    usonet_check\n/m', $agent) === 1
-        && str_contains($agent, 'setsid bash "$DIR/scripts/usonet.sh" check </dev/null >/dev/null 2>&1 &') && !preg_match('/^release\(\) \{[^}]*usonet/ms', $agent));
+        && str_contains($agent, 'setsid "${CLEAN_ENV[@]}" bash "$DIR/scripts/usonet.sh" check </dev/null >/dev/null 2>&1 &') && !preg_match('/^release\(\) \{[^}]*usonet/ms', $agent));
     hardeningRm($tmp);
 }
 
