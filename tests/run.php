@@ -8914,7 +8914,8 @@ function testBackupScheduledUnset(): void
     check('scheduled without settings (page): the skip said as such (never «another program held the lock», no «nothing is lost» callout or bubble), its count since its first',
         str_contains($js, "if (!k || k.reason === 'settings_missing') return null;")
         && str_contains($js, "if (k.reason === 'settings_missing') return T('skipped.frame_unset', { when: fmt.date(k.time, true) });")
-        && str_contains($js, "if (k.count > 1) meta.appendChild(el('span', '', T('skipped.times', { n: k.count, since: fmt.date(k.first || k.time) })));"));
+        && str_contains($js, "if (k.count > 1) meta.appendChild(el('span', '', T('skipped.times', { n: k.count, since: fmt.date(k.first || k.time) })));")
+        && str_contains($js, "x.skip.count > 1 ? T('skipped.times', { n: x.skip.count, since: fmt.date(x.skip.first || x.skip.time) }) : ''"));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $w = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
         check("scheduled without settings: its words ($l)", str_contains((string) ($w['skipped.frame_unset'] ?? ''), '{when}')

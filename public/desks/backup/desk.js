@@ -1924,7 +1924,8 @@ function historyRows() {
   const skips = state.skips || [];
   return [...runs.slice(0, 20).map((r) => ({ t: r.started, r })), ...skips.map((skip) => ({ t: skip.time, skip }))]
     .sort((a, b) => b.t - a.t).slice(0, 20).map((x) => ({ ...x, hay: x.skip
-      ? [fmt.date(x.skip.time, true), T('result.skipped'), messageText(x.skip.reason)]
+      ? [fmt.date(x.skip.time, true), T('result.skipped'), messageText(x.skip.reason),
+        x.skip.count > 1 ? T('skipped.times', { n: x.skip.count, since: fmt.date(x.skip.first || x.skip.time) }) : '']
       : [fmt.date(x.r.started, true), T('result.' + x.r.result), x.r.message && x.r.result !== 'ok' ? messageText(x.r.message, x.r.message_params) : '',
         asleepUnits(x.r) ? T('asleep.left_out', { n: asleepUnits(x.r) }) : ''] }));
 }
