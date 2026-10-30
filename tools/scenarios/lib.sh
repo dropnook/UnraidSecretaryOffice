@@ -1129,8 +1129,6 @@ check_inv_leftover() {
     grep -q ' /mnt/addons/UnraidSecretaryOffice/btrfs-snap/' /proc/mounts && bad+=("mounts under /mnt/addons/UnraidSecretaryOffice/btrfs-snap")
     x=$(find "$D/mailbox" -maxdepth 1 -type f -mmin +10 2>/dev/null | head -3)
     [[ -n $x ]] && bad+=("old mailbox files: ${x//$'\n'/ }")
-    x=$(atq 2>/dev/null | head -3)
-    [[ -n $x ]] && bad+=("atq: ${x//$'\n'/; }")
     if [[ -s $KEEP/.shares && -d $KEEP/before/inventory ]]; then
         local s
         while IFS= read -r s; do
@@ -1142,11 +1140,16 @@ check_inv_leftover() {
     fi
     # the office's jobs: a job the agent started just now (the clock put forward again by an undo makes its due ones start
     # at once — a watchman round, the Kopia count: B43 clock-back, 2026-10-22) ends by itself — 2 min for it, then judged
+    # — and a job the agent just handed to atd that atd hasn't picked up yet (an update's agent plans once via at: the
+    # queue held it for a second after office_back, no process yet — release 1.81.0's 6b, 2026-10-30): the same 2 min
     _office_procs() { pgrep -af "$P/backup/(backup|setup)\.sh|$P/agent/agent\.php job |[c]ustommover_run|/run/unraid-secretary-office/[a-z0-9_-]+\.sh" | head -3; }
-    _no_office_procs() { [[ -z $(_office_procs) ]]; }
+    _office_atq() { local id; for id in $(atq 2>/dev/null | awk '{print $1}'); do at -c "$id" 2>/dev/null | grep -q 'unraid-secretary-office' && echo "$id"; done; }
+    _no_office_procs() { [[ -z $(_office_procs) && -z $(_office_atq) ]]; }
     _no_office_procs || WAIT_SOFT=1 wait_for 120 "the office's jobs to end" _no_office_procs >/dev/null 2>&1
     x=$(_office_procs)
     [[ -n $x ]] && bad+=("processes: ${x//$'\n'/; }")
+    x=$(atq 2>/dev/null | head -3)
+    [[ -n $x ]] && bad+=("atq: ${x//$'\n'/; }")
     # /tmp: the scenarios' own folders and the suite's (tests/run.php: uso-tmp-<name>-<pid>, a worker's copy uso-<task>) apart
     x=$(find /tmp -maxdepth 1 -name '*uso*' -newer "$KEEP/.start" -not -name 'uso-keep' -not -name 'uso-scenarios*' \
         -not -name 'uso-wip-*' -not -name 'uso-tmp-*' -not -name 'uso-main' 2>/dev/null | head -3)
