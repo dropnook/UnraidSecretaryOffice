@@ -753,7 +753,7 @@ function rsPlanPartner(array $r, string $stamp): array
         throw new Problem('unknown_target', ['target' => "$id $unit"]);
     }
     $settings = backupReadSettings(rsUbData() . '/settings.ini');
-    $placeShare = (string) backupSetting($settings, 'general', 'dumps_share', '');
+    $placeShare = rsPlaceShare($settings)['share'];
     $plan = rsPlanBase('partner', rspUnitName($unit, $placeShare) . ' ← ' . $src['name'],
         ['pair' => $id, 'unit' => $unit, 'snap' => $snap, 'pool' => $pool, 'kind' => $src['kind'], 'partner' => $src['name']]);
     $held = rspHeld($id);
@@ -863,7 +863,7 @@ function rsPlanPartner(array $r, string $stamp): array
 /** Does this server have a backup place of its own (with packages)? */
 function rsPlaceHere(): bool
 {
-    $base = backupDumpsPath((string) backupSetting(backupReadSettings(rsUbData() . '/settings.ini'), 'general', 'dumps_share', ''));
+    $base = backupDumpsPath(rsPlaceShare(backupReadSettings(rsUbData() . '/settings.ini'))['share']);
     return $base !== null && (is_dir("$base/apps") || is_dir("$base/vms") || is_file("$base/server/run.json"));
 }
 

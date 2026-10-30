@@ -1278,6 +1278,8 @@
   "drift_code.place_not_kopia": "El lugar de las copias «{share}» no sale fuera de casa — los paquetes (plantillas, volcados, configuraciones de VMs) se quedan solo en este servidor.",
   "pk.group": "Apps — sus paquetes",
   "pk.group_hint": "Las plantillas o archivos compose y los volcados de cada app, en {path}, protegidos como el lugar de las copias. Los datos de las apps están en sus recursos compartidos.",
+  "stat.pk_unset": "encontrados sin ajustes",
+  "pk.found_unset": "Mis ajustes ya no están — encontré estos paquetes sin ellos, en {path}. Solo los muestro hasta que me configures de nuevo («Configurar…»); el señor Restori ya puede traerlos de vuelta.",
   "pk.kept": "volcado anterior conservado",
   "pk.kept_hint": "Esta copia de seguridad no pudo volcarla (falló, o el contenedor no estaba en marcha) — el último volcado bueno se queda en el paquete, de la copia indicada.",
   "pk.kept_from": "del {when}",

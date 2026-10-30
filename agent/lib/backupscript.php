@@ -210,6 +210,42 @@ function backupDumpsPath(string $share): ?string
     return $share === BACKUP_OFFICE_SHARE ? "/mnt/user/$share/" . BACKUP_DESK_DIR : "/mnt/user/$share/unraid-backup";
 }
 
+/**
+ * Which share holds the backup place: settings.ini's dumps_share — or, when the settings are gone (B42: settings.ini
+ * deleted; a scheduled start then starts no run, engine 2.82) but the engine has run here, where its last runs wrote their
+ * packages (status.json, last-run.json, then the newest of history.jsonl's last lines: packages.base, only in exactly the
+ * shape backupDumpsPath() makes), else the office's own share. Never set up (no run either): none, as before. The one
+ * rule for every reader of the place (Mr. Backupsy's packages, Mr. Restori's place, the shares the place isn't); what
+ * writes there (setting a package aside, a let-go) still goes by the settings alone. $data: the engine's data folder.
+ *
+ * @return array{share: string, from: string}  from: settings | last_run | office_share
+ */
+function backupPlaceShare(array $settings, string $data = BACKUP_DATA_DIR): array
+{
+    $share = (string) backupSetting($settings, 'general', 'dumps_share', '');
+    $st = "$data/state";
+    if ($share !== '' || (!is_file("$st/history.jsonl") && !is_file("$st/last-run.json"))) {
+        return ['share' => $share, 'from' => 'settings'];
+    }
+    $bases = [readJson("$st/status.json")['packages']['base'] ?? null, readJson("$st/last-run.json")['packages']['base'] ?? null];
+    $size = (int) @filesize("$st/history.jsonl");
+    $tail = (string) @file_get_contents("$st/history.jsonl", false, null, max(0, $size - (256 << 10)));
+    foreach (array_reverse(explode("\n", $tail)) as $line) {
+        $b = json_decode($line, true)['packages']['base'] ?? null;
+        if (is_string($b)) {
+            $bases[] = $b;
+            break;
+        }
+    }
+    foreach ($bases as $b) {
+        if (is_string($b) && preg_match('#^/mnt/user/([^/]+)/#', $b, $m) && preg_match('/^[\w .-]{1,64}$/uD', $m[1]) && $m[1][0] !== '.'
+            && backupDumpsPath($m[1]) === $b) {
+            return ['share' => $m[1], 'from' => 'last_run'];
+        }
+    }
+    return ['share' => BACKUP_OFFICE_SHARE, 'from' => 'office_share'];
+}
+
 /** Where the backup script mounts things */
 function backupScriptRoots(array $state): array
 {

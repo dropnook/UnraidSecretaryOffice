@@ -1263,6 +1263,8 @@
   "drift_code.place_not_kopia": "Die Backup-Ablage «{share}» geht nicht ausser Haus — die Pakete (Templates, Dumps, VM-Konfigurationen) bleiben nur auf diesem Server.",
   "pk.group": "Apps — ihre Pakete",
   "pk.group_hint": "Templates oder Compose-Dateien und Dumps jeder App, in {path}, geschützt wie die Backup-Ablage. Die Daten der Apps liegen in ihren Shares.",
+  "stat.pk_unset": "ohne Einstellungen gefunden",
+  "pk.found_unset": "Meine Einstellungen sind weg — diese Pakete habe ich ohne sie gefunden, in {path}. Ich zeige sie nur, bis ich neu eingerichtet bin («Einrichten…»); Herr Restori kann sie schon jetzt zurückholen.",
   "pk.kept": "älterer Dump behalten",
   "pk.kept_hint": "Dieses Backup konnte ihn nicht dumpen (fehlgeschlagen oder Container lief nicht) — der letzte gute Dump bleibt im Paket, vom angezeigten Backup.",
   "pk.kept_from": "vom {when}",

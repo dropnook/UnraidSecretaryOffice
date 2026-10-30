@@ -301,7 +301,8 @@ function backupScan(): array
         'partners'   => backupPartners($settings, $history, $running ? $status : null),   // engine 2.27: the last transfer per partner
         'dumps'      => backupDumps(),           // run folders of engines before 2.18, until the first 2.18 run cleared them
         'packages'   => $pk = backupPackages($settings),
-        'packages_gone' => backupGoneList($pk),     // 2026-10-17: packages whose app or VM is gone (agent/desks/backup-gone.php)
+        // 2026-10-17: packages whose app or VM is gone (agent/desks/backup-gone.php) — set aside only by the settings' place
+        'packages_gone' => $pk['from'] === 'settings' ? backupGoneList($pk) : [],
         'nc_open'    => backupNcOpen($history, $settings),    // 2026-10-19: Nextcloud data folders the last run found open, still open (backup-ncopen.php)
         'schedule'   => backupSchedule(),
         'logs'       => array_values(array_map(fn ($l) => ['name' => $l['name'], 'kind' => $l['kind'], 'time' => $l['time'], 'size' => $l['size']], $logs)),
@@ -1784,7 +1785,7 @@ function backupPolicies(mixed $list): ?array
 function backupDumpsDir(): string
 {
     $settings = backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
-    $new = backupDumpsPath((string) (backupSettingsSummary($settings)['dumps_share'] ?? ''));
+    $new = backupDumpsPath(backupPlaceShare($settings)['share']);
     $previous = trim((string) @file_get_contents(BACKUP_DATA_DIR . '/state/dumps-previous'));
     foreach ([$new, $previous, BACKUP_DATA_DIR . '/dumps'] as $dir) {
         if ($dir && is_dir($dir) && glob("$dir/[0-9]*-[0-9]*", GLOB_ONLYDIR)) {
@@ -1838,10 +1839,10 @@ function backupDumps(): array
     return $dumps;
 }
 
-/** Does the backup place's share lie on a disk that sleeps right now? */
-function backupPlaceAsleep(array $settings): bool
+/** Does the backup place's share lie on a disk that sleeps right now? ($share: the place's share, else the settings') */
+function backupPlaceAsleep(array $settings, ?string $share = null): bool
 {
-    $share = (string) backupSetting($settings, 'general', 'dumps_share', '');
+    $share ??= (string) backupSetting($settings, 'general', 'dumps_share', '');
     return $share !== '' && backupShareAsleep($share, $settings, sleepingDisks());
 }
 
@@ -1890,25 +1891,28 @@ function backupPathAsleep(string $path, array $settings, array $asleep): bool
  * The packages in the backup place (engine 2.18+): per app and VM what is in it and from which run,
  * which are stale (written by an earlier run than the last one, e.g. an app that is gone or no
  * longer backed up — the engine never deletes them), the server's and the flash's package, and how
- * many run folders of older engines still lie there. Not read while the share's disk sleeps.
+ * many run folders of older engines still lie there. Not read while the share's disk sleeps. The place by the shared rule
+ * (backupPlaceShare(): the settings — gone, where the last runs wrote, else the office's share); `from` says which, the
+ * page says «found without settings» for any but `settings` (read only: nothing is set aside from there).
  */
-function backupPackages(array $settings): array
+function backupPackages(array $settings, ?string $data = null): array
 {
     static $cache = [];
-    $base = backupDumpsPath((string) backupSetting($settings, 'general', 'dumps_share', ''));
+    ['share' => $share, 'from' => $from] = backupPlaceShare($settings, $data ?? BACKUP_DATA_DIR);
+    $base = backupDumpsPath($share);
     $empty = ['base' => $base, 'asleep' => false, 'found' => false, 'run' => null, 'time' => null, 'result' => null,
               'apps' => [], 'vms' => [], 'flash' => null, 'server' => null, 'old_runs' => 0];
     if ($base === null) {
-        return $empty;
+        return $empty + ['from' => $from];
     }
-    if (backupPlaceAsleep($settings)) {
-        return ['asleep' => true] + ($GLOBALS['backup']['packages'] ?? $empty);
+    if (backupPlaceAsleep($settings, $share)) {
+        return ['asleep' => true, 'from' => $from] + ($GLOBALS['backup']['packages'] ?? $empty);
     }
     $stamp = implode(':', array_map(fn ($p) => (int) @filemtime("$base/$p"), ['', 'apps', 'vms', 'flash', 'server', 'server/run.json']));
     if (($cache[$base][0] ?? null) !== $stamp) {
         $cache = [$base => [$stamp, backupPackagesRead($base)]];
     }
-    return $cache[$base][1];
+    return ['from' => $from] + $cache[$base][1];
 }
 
 /** Reads the packages of a backup place (see backupPackages) */
@@ -2535,7 +2539,7 @@ function backupAppShareGaps(array $settings, array $plan, ?array $exists = null)
     $mode = fn (string $s): string => (string) backupSetting($settings, "share|$s", 'mode', 'off');
     $kopiaOn = backupSetting($settings, 'kopia', 'enabled') === 'yes';
     $skip = $list('docker', 'skip');
-    $place = (string) backupSetting($settings, 'general', 'dumps_share', '');
+    $place = backupPlaceShare($settings)['share'];       // settings gone: where the last runs wrote is never offered either
     $never = array_map('strtolower', ['appdata', 'system', 'domains', 'isos', BACKUP_OFFICE_SHARE, $place]);
     // an app's home: Unraid names it for app configs or VMs, or three or more containers keep folders in it
     $home = [];

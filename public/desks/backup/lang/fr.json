@@ -1278,6 +1278,8 @@
   "drift_code.place_not_kopia": "L'emplacement des sauvegardes « {share} » ne part pas hors site — les paquets (modèles, dumps, configurations des VM) restent uniquement sur ce serveur.",
   "pk.group": "Applis — leurs paquets",
   "pk.group_hint": "Les modèles ou fichiers compose et les dumps de chaque appli, dans {path}, protégés comme l'emplacement des sauvegardes. Les données des applis sont dans leurs partages.",
+  "stat.pk_unset": "trouvés sans réglages",
+  "pk.found_unset": "Mes réglages ont disparu — j'ai trouvé ces paquets sans eux, dans {path}. Je les montre seulement jusqu'à ce que je sois configuré à nouveau (« Configurer… ») ; Monsieur Restori peut déjà les ramener.",
   "pk.kept": "ancien dump gardé",
   "pk.kept_hint": "Cette sauvegarde n'a pas pu le dumper (échec, ou le conteneur ne tournait pas) — le dernier bon dump reste dans le paquet, de la sauvegarde indiquée.",
   "pk.kept_from": "du {when}",

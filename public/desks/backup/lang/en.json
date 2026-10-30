@@ -1263,6 +1263,8 @@
   "drift_code.place_not_kopia": "The backup place «{share}» doesn't go offsite — the packages (templates, dumps, VM configurations) stay on this server only.",
   "pk.group": "Apps — their packages",
   "pk.group_hint": "Each app's templates or compose files and dumps, in {path}, protected like the backup place. The apps' data lies in their shares.",
+  "stat.pk_unset": "found without settings",
+  "pk.found_unset": "My settings are gone — I found these packages without them, in {path}. I only show them until I'm set up again («Set up…»); Mr. Restori can bring them back already.",
   "pk.kept": "older dump kept",
   "pk.kept_hint": "This run couldn't dump it (failed, or the container wasn't running) — the last good dump stays in the package, from the run shown.",
   "pk.kept_from": "from {when}",

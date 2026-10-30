@@ -215,6 +215,9 @@ const packages = () => {
   const pk = state && state.packages;
   return pk && pk.found && (pk.apps.length || pk.vms.length || pk.server) ? pk : null;
 };
+/** The packages found without settings (B42: settings.ini gone; the agent looked where the last runs wrote, else in the
+ *  office's share — `from`): shown read only until he is set up again. An older agent says no `from`: settings */
+const pkUnset = () => { const pk = packages(); return !!(pk && pk.from && pk.from !== 'settings'); };
 const status = () => (state && state.status) || null;
 const live = () => !!(state && state.running);
 const canAct = () => !!(state && state.found && state.compatible && Office.agent.running);
@@ -1094,6 +1097,7 @@ function overviewTiles() {
     const warned = cur.filter((x) => x.result === 'warnings').length;       // B12: a warning is said, not only errors
     const stale = pk.apps.length + pk.vms.length - cur.length;
     const sub = [pk.time ? T('stat.pk_when', { when: fmt.relative(pk.time) }) : T('never')];
+    if (pkUnset()) sub.unshift(T('stat.pk_unset'));
     if (bad) sub.push(T('stat.pk_errors', { n: bad }));
     if (warned) sub.push(T('stat.pk_warnings', { n: warned }));
     if (stale) sub.push(T('stat.pk_stale', { n: stale }));
@@ -1163,7 +1167,8 @@ function overviewTiles() {
   add({ key: 'restore', label: T('tile.restore'), value: dr ? T({ failed: 'stat.drill_failed', unproven: 'stat.drill_unproven' }[dr.result] || 'stat.drill_passed') : Office.t('restore.name'),
     sub: [dr ? fmt.date(dr.ended) : T('stat.restore_where')], alert: !!dr && ['failed', 'unproven'].includes(dr.result) });
   // no backup place yet (2026-10-21): the setup starts with it - the tiles of what a backup makes say so first
-  if (placeFirstNeeded()) out.forEach((d) => { if (!['partners', 'drift', 'restore'].includes(d.key)) { d.sub = [T('tile.place_first')]; d.tip = ''; d.alert = d.key === 'last'; } });
+  // (the packages found without settings keep their tile: they are there, read only)
+  if (placeFirstNeeded()) out.forEach((d) => { if (!['partners', 'drift', 'restore'].includes(d.key) && !(d.key === 'apps' && pkUnset())) { d.sub = [T('tile.place_first')]; d.tip = ''; d.alert = d.key === 'last'; } });
   return out;
 }
 /** The table in all, in words: offsite · (local + partner, only when one is) · only local · not backed up */
@@ -1551,6 +1556,13 @@ function protection() {
     const placePt = placeTruth.level === 'none' ? { reached: [], missed: [] } : protPartnerTruth('share', { name: placeName });
     const placeRow = { ...placeTruth, partners: placePt.reached, missed: placePt.missed };
     head('bk-apps', T('pk.group') + ' ', protChip(placeRow), T('pk.group_hint', { path: pk.base + '/apps' }));
+    if (pkUnset()) {
+      const tr = el('tr', 'bk-pk-unset');
+      const td = el('td', 'role', T('pk.found_unset', { path: pk.base }));
+      td.colSpan = 5;
+      tr.appendChild(td);
+      body.appendChild(tr);
+    }
     if (!v.groups.app.length) none();
     v.groups.app.forEach((r) => {
       const a = r.x;

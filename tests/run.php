@@ -12836,6 +12836,11 @@ b.setState({ ...demoState, settings_found: false });
 out.overview = [b.placeFirstNeeded(), b.overviewTiles().map((d) => [d.key, d.sub[0] || '', d.alert])];
 b.setState(demoState);
 out.overviewPlaced = [b.placeFirstNeeded(), b.overviewTiles().some((d) => (d.sub || []).includes('tile.place_first'))];
+// engine 2.82 / B42: the settings gone, the packages found where the last runs wrote - their tile stays, says so
+b.setState({ ...demoState, settings_found: false, packages: { ...demoState.packages, from: 'last_run' } });
+out.overviewUnset = b.overviewTiles().filter((d) => ['apps', 'schedule'].includes(d.key)).map((d) => [d.key, (d.sub[0] || '').split(' · ')[0]]);
+b.setState({ ...demoState, settings_found: false, packages: { ...demoState.packages, from: 'settings' } });
+out.overviewUnsetOld = b.overviewTiles().filter((d) => d.key === 'apps').map((d) => (d.sub[0] || '').split(' · ')[0]);
 console.log(JSON.stringify(out));
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
@@ -12880,6 +12885,8 @@ JS);
         [true, ['tile.place_first', true], ['tile.place_first', false], 'stat.restore_where'],
         [$need, $byKey['last'] ?? null, $byKey['schedule'] ?? null, $byKey['restore'][0] ?? null]);
     same('first step: … set up with a place — the tiles as they were', [false, false], $r['overviewPlaced']);
+    same('first step: … settings gone, packages found where the last runs wrote — their tile stays and says «found without settings»; an agent saying from settings: as before',
+        [[['schedule', 'tile.place_first'], ['apps', 'stat.pk_unset']], ['tile.place_first']], [$r['overviewUnset'], $r['overviewUnsetOld']]);
     foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
         $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
         check("first step: the five points say ZFS, appdata, the array, no secondary storage ($code)",
@@ -56035,7 +56042,7 @@ function testBackupGonePackage(): void
     $agent = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
     check('gone package: the page shows each with «Into the storeroom» on a fresh look, the action asked with kind and folder',
         str_contains($desk, "Office.api.post(`\${ID}.package_aside`, { kind: g.kind, folder: g.folder })") && str_contains($desk, "if (!(await Office.freshState(ID))) return;\n  const g = goneOf(g0.kind, g0.folder);")
-        && str_contains($agent, "'package_aside' => fn (array \$r) => backupPackageAside(\$r),") && str_contains($agent, "'packages_gone' => backupGoneList(\$pk),"));
+        && str_contains($agent, "'package_aside' => fn (array \$r) => backupPackageAside(\$r),") && str_contains($agent, "'packages_gone' => \$pk['from'] === 'settings' ? backupGoneList(\$pk) : [],"));
     unset($GLOBALS['goneHost'], $GLOBALS['gonePlanned'], $GLOBALS['goneplace'], $GLOBALS['gonePackages'], $GLOBALS['goneRoots'], $GLOBALS['disksIni'], $GLOBALS['letgoUbData'], $GLOBALS['letgoDir'],
         $GLOBALS['letgoHost'], $GLOBALS['drill']['job_file']);
     hardeningRm($tmp);

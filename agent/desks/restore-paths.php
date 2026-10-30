@@ -54,7 +54,7 @@ function rsSharesBack(array $state, array &$ctx, array $settings, array $engine,
             }
         }
     }
-    $place = (string) backupSetting($settings, 'general', 'dumps_share', '');
+    $place = rsPlaceShare($settings)['share'];
     unset($names[BACKUP_OFFICE_SHARE], $names[$place]);
     // who uses it: apps binding it whole or folders in it, VMs keeping their disks in it
     $users = [];
@@ -281,7 +281,7 @@ function rsKopiaLive(string $source, string $rel, bool $split, array $settings, 
             return null;
         }
     }
-    if (in_array($share, [BACKUP_OFFICE_SHARE, (string) backupSetting($settings, 'general', 'dumps_share', '')], true) || !preg_match(RS_SHARE_NAME, $share) || $share[0] === '.') {
+    if (in_array($share, [BACKUP_OFFICE_SHARE, rsPlaceShare($settings)['share']], true) || !preg_match(RS_SHARE_NAME, $share) || $share[0] === '.') {
         return null;
     }
     $live = "/mnt/user/$share/" . implode('/', $parts);
@@ -540,36 +540,14 @@ function rsPlanKopiaPath(array $r, string $stamp, array $state, string $source, 
 // ===================================================================== the backup place
 
 /**
- * Which share holds the backup place: settings.ini's dumps_share — or, when the settings are gone (B42: settings.ini
- * deleted; a scheduled run then fails with settings_missing) but the engine has run here, where its last runs wrote their
- * packages (status.json, last-run.json, then the newest of history.jsonl's last lines: packages.base, only in exactly the
- * shape backupDumpsPath() makes), else the office's own share. Never set up (no run either): none, as before.
+ * Which share holds the backup place, from his engine's data folder: the shared rule (lib/backupscript.php
+ * backupPlaceShare() — the settings, else where the last runs wrote their packages, else the office's share)
  *
  * @return array{share: string, from: string}  from: settings | last_run | office_share
  */
 function rsPlaceShare(array $settings): array
 {
-    $share = (string) backupSetting($settings, 'general', 'dumps_share', '');
-    $st = rsUbData() . '/state';
-    if ($share !== '' || (!is_file("$st/history.jsonl") && !is_file("$st/last-run.json"))) {
-        return ['share' => $share, 'from' => 'settings'];
-    }
-    $bases = [readJson("$st/status.json")['packages']['base'] ?? null, readJson("$st/last-run.json")['packages']['base'] ?? null];
-    $size = (int) @filesize("$st/history.jsonl");
-    $tail = (string) @file_get_contents("$st/history.jsonl", false, null, max(0, $size - (256 << 10)));
-    foreach (array_reverse(explode("\n", $tail)) as $line) {
-        $b = json_decode($line, true)['packages']['base'] ?? null;
-        if (is_string($b)) {
-            $bases[] = $b;
-            break;
-        }
-    }
-    foreach ($bases as $b) {
-        if (is_string($b) && preg_match('#^/mnt/user/([^/]+)/#', $b, $m) && preg_match(RS_SHARE_NAME, $m[1]) && $m[1][0] !== '.' && backupDumpsPath($m[1]) === $b) {
-            return ['share' => $m[1], 'from' => 'last_run'];
-        }
-    }
-    return ['share' => BACKUP_OFFICE_SHARE, 'from' => 'office_share'];
+    return backupPlaceShare($settings, rsUbData());
 }
 
 // ===================================================================== packages from Kopia
