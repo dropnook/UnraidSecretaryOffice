@@ -21121,6 +21121,63 @@ function testWatchmanFlowPull(): void
     watchmanFlowAdopt($b2, $e, $t);
     same('flow long pull: «I know, thanks» — the hour, not the pull (10 GB)', 11 * 250 * $mb, $b2['flow']['ack']["flow_container:$name"]['bytes']);
 
+    // ---- a pull that starts slowly: 300 MB, 900 MB, 2.5 GB in three hours — its own hours are no normal for it
+    $ramp = function (array $before = []) use ($learned, $ct, $look, $at, $mb, $name): array {
+        [$bf, $flow] = $learned();
+        foreach ($before as $x => $b) {
+            $flow['containers'][$name]['h'][intdiv($x, 3600)] = $b;
+        }
+        $book = [];
+        $cnt = ['time' => $at('06:00'), 'cts' => [$name => [100, 0]]];
+        $tx = 0;
+        $told = [];
+        foreach ([25, 75, 213] as $i => $per) {          // MB a round, 12 rounds an hour
+            for ($r = 1; $r <= 12; $r++) {
+                $x = $at('06:00') + $i * 3600 + $r * 300;
+                $tx += $per * $mb;
+                [$more, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look($ct(100, $tx)), $book, $x);
+                $told = array_merge($told, array_map(fn ($k) => date('H:i', $x), $more));
+            }
+        }
+        return [$told, $flow, $book];
+    };
+    $hourOf = fn (array $flow, string $hm) => (int) ($flow['containers'][$name]['h'][intdiv($at($hm), 3600)] ?? 0);
+    [$told, $flow, $book] = $ramp();
+    $e = (array) $entry($book) + ['p' => []];
+    same('flow slow pull: 300 MB, 900 MB, 2.5 GB in three hours (normal 68 MB an hour) — told once, in its third hour; one pull from 06:00, said in its minutes',
+        [['08:50'], 300 * $mb, 900 * $mb, null, 68 * $mb, $at('06:00')],
+        [$told, $hourOf($flow, '06:30'), $hourOf($flow, '07:30'), watchmanEntryVariant($e), $e['p']['usual'] ?? null, $flow['containers'][$name]['run']['from']]);
+    same('flow slow pull: in words', 'Container CloudflaredTunnel sent 3.7 GB in 180 min — usually at most 68 MB per hour at this time', $words($e, 'en'));
+    [$told] = $ramp([$at('06:30') - 7 * 86400 => 300 * $mb, $at('07:30') - 7 * 86400 => 900 * $mb, $at('08:30') - 7 * 86400 => 2560 * $mb]);
+    same('flow slow pull: the same pull a week ago at this time — learned, nothing told', [], $told);
+    [$told] = $ramp([$at('06:30') - 86400 => 300 * $mb, $at('07:30') - 86400 => 900 * $mb, $at('08:30') - 86400 => 2700 * $mb]);
+    same('flow slow pull: yesterday\'s pull (ended) counts as normal today — nothing told', [], $told);
+
+    // ---- the judge on its own: a pull going on for days is the normal, a long-spread one's hours never are
+    $s = watchmanFlowSeries($t - 10 * 86400, ['last' => $t - 300]);
+    for ($idx = intdiv($t - 10 * 86400, 3600); $idx < intdiv($t, 3600); $idx++) {
+        $s['h'][$idx] = 3 * $gb;            // 3 GB every hour for ten days, never a pause: a camera recorder
+    }
+    $s['run'] = ['from' => $t - 10 * 86400, 'bytes' => 720 * $gb, 'last' => $t - 300];
+    $r = watchmanFlowAdd($s, 250 * $mb, $t, $t - 300, false);
+    same('flow judge: one pull going on for ten days (3 GB an hour) — the same again is no news; its last day left out, the days before normal',
+        [$t - 10 * 86400, null, 3 * $gb], [$s['run']['from'], watchmanFlowJudge($s, $r, $t, 0, WATCH_FLOW_MIN, WATCH_FLOW_NEW),
+         watchmanFlowUsual(array_filter($s['h'], fn ($i) => $i <= intdiv($t, 3600) - WATCH_FLOW_OWN, ARRAY_FILTER_USE_KEY), $t)]);
+    $s['h'][intdiv($t, 3600)] = 13 * $gb;
+    same('flow judge: … but 13 GB in this hour is', [13 * $gb, 3 * $gb], array_values(array_intersect_key((array) watchmanFlowJudge($s, $r, $t, 0, WATCH_FLOW_MIN, WATCH_FLOW_NEW), ['hour' => 1, 'usual' => 1])));
+    $end = $at('09:55');
+    $s = watchmanFlowSeries($end - 10 * 86400);
+    for ($idx = intdiv($end - 10 * 86400, 3600); $idx < intdiv($end - 3 * 86400, 3600); $idx++) {
+        $s['h'][$idx] = 70 * $mb;
+    }
+    $r = watchmanFlowAdd($s, 216 * $gb, $end, $end - 300, false, from: $end - 3 * 86400);        // counters three days old: 3 GB an hour
+    $j = watchmanFlowJudge($s, $r, $end, 0, WATCH_FLOW_MIN, WATCH_FLOW_NEW);
+    same('flow judge: counters three days old — the hours they were spread over stay out of normal (older than a day too); told by the hour\'s share',
+        [true, 70 * $mb, true], [$s['run']['seen'] === $end, $j['usual'] ?? null, ($j['hour'] ?? 0) > 2 * $gb]);
+    unset($s['run']['seen']);
+    same('flow judge: a long-spread pull of an older agent (no `seen`): spread up to its last round, as before', 70 * $mb,
+        watchmanFlowJudge($s, $r, $end, 0, WATCH_FLOW_MIN, WATCH_FLOW_NEW)['usual'] ?? null);
+
     // ---- the words: every kind's three sentences in five languages, the notification's line, the team lead's
     $base = ['usual' => 68 * $mb, 'limit' => 2 * $gb, 'learning' => false];
     $shapes = ['' => ['bytes' => 3 * $gb, 'minutes' => 12, 'hour' => 3 * $gb, 'gap' => false],
@@ -23632,12 +23689,32 @@ function testMetrics(): void
 
 // ===================================================================== hardening
 
-/** A temporary folder for a test, removed again by hardeningRm() */
+/**
+ * A temporary folder for a test (uso-tmp-<name>-<pid>), removed again by hardeningRm() — and in any case when the test
+ * ends, also when it fails, returns early or throws: the runner calls testsTmpGone() after each test and at a run that
+ * ends early. Only this run's folders, never another suite's.
+ */
 function hardeningTmp(string $name): string
 {
     $dir = sys_get_temp_dir() . "/uso-tmp-$name-" . getmypid();
     @mkdir($dir, 0700, true);
+    $GLOBALS['testsTmp'][$dir] = true;
     return $dir;
+}
+
+/** The temp folders made since the last call (hardeningTmp()) removed */
+function testsTmpGone(): void
+{
+    foreach (array_keys($GLOBALS['testsTmp'] ?? []) as $dir) {
+        hardeningRm($dir);
+    }
+    $GLOBALS['testsTmp'] = [];
+}
+
+/** This run's temp folders still there (uso-tmp-*-<this pid>) */
+function testsTmpLeft(): array
+{
+    return glob(sys_get_temp_dir() . '/uso-tmp-*-' . getmypid()) ?: [];
 }
 
 function hardeningRm(string $dir): void
@@ -58644,6 +58721,7 @@ register_shutdown_function(function (): void {
     $e = $e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR], true) ? $e : null;
     fwrite(STDERR, 'The run ended early, in ' . ($GLOBALS['testsNow'] ?? '(no test yet)')
         . ($e ? ": {$e['message']} ({$e['file']}:{$e['line']})" : ' (an exit() or a signal)') . "\n");
+    testsTmpGone();
     foreach ($GLOBALS['results']['fail'] as $f) {
         fwrite(STDERR, "FAIL  $f\n");
     }
@@ -58658,6 +58736,11 @@ foreach ($parts as $name => $fns) {
                 $t();
             } catch (Throwable $e) {
                 check("$t: ended by an uncaught " . get_class($e) . ': ' . $e->getMessage() . ' (' . $e->getFile() . ':' . $e->getLine() . ')', false);
+            } finally {
+                testsTmpGone();         // its temp folders, whatever happened
+            }
+            foreach (array_diff(testsTmpLeft(), array_keys($GLOBALS['testsTmpLeft'] ?? [])) as $dir) {
+                $GLOBALS['testsTmpLeft'][$dir] = $t;         // made around hardeningTmp(), or not removable: said at the end
             }
             putenv($notifyBin === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$notifyBin");
         }
@@ -58665,6 +58748,7 @@ foreach ($parts as $name => $fns) {
 }
 $GLOBALS['testsNow'] = 'testLiveRunUntouched';
 testLiveRunUntouched();         // last: nothing of all the above reached the live agent's RAM folder
+testsTmpGone();
 $GLOBALS['testsDone'] = true;
 exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR));
 $fail = $GLOBALS['results']['fail'];
@@ -58674,6 +58758,10 @@ foreach ($fail as $f) {
 $skip = $GLOBALS['results']['skip'];
 foreach ($skip as $t => $why) {
     echo "SKIP  $t ($why)\n";
+}
+$left = testsTmpLeft();         // only this run's (its pid): another suite running beside it keeps its own
+if ($left) {
+    echo 'WARN  temp folders of this run left: ' . implode(', ', array_map(fn ($d) => basename($d) . (isset($GLOBALS['testsTmpLeft'][$d]) ? " ({$GLOBALS['testsTmpLeft'][$d]})" : ''), $left)) . "\n";
 }
 // skipped tests only on a host without python3 — tools/release.sh takes «N passed, 0 failed» alone, so never a release from one
 printf("%d passed, %d failed%s\n", $GLOBALS['results']['pass'], count($fail),

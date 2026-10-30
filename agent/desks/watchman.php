@@ -5425,6 +5425,7 @@ const WATCH_FLOW_GOING    = 2 * WATCH_EVERY + 120;   // rounds this close: the s
 const WATCH_FLOW_TRICKLE  = 16;                 // … unless a round brings under 1/16 of the floor per hour (128 MB, 125 files): a trickle ends it
 const WATCH_FLOW_LONG     = 3600;               // counters older than this (a part not looked at meanwhile): its bytes came over that long
 const WATCH_FLOW_SAID     = 3 * 3600;           // a pull longer than this is told by its busiest hour, not as one pull
+const WATCH_FLOW_OWN      = 24;                 // a pull going on: its hours of the last this many are no normal for it (one going on longer is the normal)
 const WATCH_FLOW_STALE    = 1800;               // counters older than this: start counting anew
 const WATCH_FLOW_CLIENTS  = 64;                 // client/service pairs followed
 const WATCH_FLOW_CTS      = 100;                // containers followed
@@ -6232,8 +6233,9 @@ function watchmanFlowUsual(array $hours, int $now): int
 
 /**
  * Is it unusual? Learned (WATCH_FLOW_LEARN since first seen): this hour so far over FACTOR × its
- * normal (and over $floor) — the hours a long pull was spread over left out of it. Still learning: only one round over $clear (and over FACTOR × what «I
- * know, thanks» made normal).
+ * normal (and over $floor) — the hours of the pull going on left out of it (a pull that starts slowly would else make its
+ * own normal): those of the last WATCH_FLOW_OWN hours, and all a long pull was spread over. A pull that has ended counts
+ * as normal. Still learning: only one round over $clear (and over FACTOR × what «I know, thanks» made normal).
  * @return array{hour:int, usual:int, limit:int, learning:bool}|null
  */
 function watchmanFlowJudge(array $s, int $round, int $now, int $ack, int $floor, int $clear): ?array
@@ -6241,9 +6243,12 @@ function watchmanFlowJudge(array $s, int $round, int $now, int $ack, int $floor,
     $hour = (int) ($s['h'][intdiv($now, 3600)] ?? 0);
     if ($now - (int) ($s['first'] ?? $now) >= WATCH_FLOW_LEARN) {
         $hours = (array) ($s['h'] ?? []);
-        if (!empty($s['run']['gap'])) {             // a pull of a long time spread over its hours (watchmanFlowAdd()): they are no normal
-            $first = intdiv((int) $s['run']['from'], 3600);
-            $hours = array_filter($hours, fn ($idx) => (int) $idx < $first, ARRAY_FILTER_USE_KEY);
+        $run = is_array($s['run'] ?? null) ? $s['run'] : null;
+        if ($run !== null && is_int($run['from'] ?? null)) {         // the pull going on (watchmanFlowAdd()): its hours are no normal for it
+            $first = intdiv($run['from'], 3600);
+            $recent = intdiv($now, 3600) - WATCH_FLOW_OWN;
+            $spread = !empty($run['gap']) ? intdiv((int) ($run['seen'] ?? $run['last'] ?? $now), 3600) : $first - 1;     // up to its first round
+            $hours = array_filter($hours, fn ($idx) => (int) $idx < $first || ((int) $idx <= $recent && (int) $idx > $spread), ARRAY_FILTER_USE_KEY);
         }
         $normal = max(watchmanFlowUsual($hours, $now), $ack);
         $limit = max($floor, WATCH_FLOW_FACTOR * $normal);
@@ -6264,7 +6269,8 @@ function watchmanFlowSeries(int $now, array $more = []): array
  * between $from (the round before, or when those counters were taken — a part not looked at meanwhile, a container
  * started since) and now: spread evenly over the hours in between, so an hour holds only its share. The pull goes on
  * while rounds come close (WATCH_FLOW_GOING) and each brings more than a trickle (WATCH_FLOW_TRICKLE of $floor per
- * hour) — else this round begins a new one; one that began with counters older than WATCH_FLOW_LONG is marked `gap`.
+ * hour) — else this round begins a new one; one that began with counters older than WATCH_FLOW_LONG is marked `gap` (and
+ * `seen`: the round that spread them).
  * Returns what of it a judge takes as «one round»: all of it, or the hour's share when it came over a long time.
  */
 function watchmanFlowAdd(array &$s, int $bytes, int $now, ?int $prevTime, bool $office, array $by = [], ?int $from = null, int $floor = WATCH_FLOW_MIN): int
@@ -6295,7 +6301,7 @@ function watchmanFlowAdd(array &$s, int $bytes, int $now, ?int $prevTime, bool $
         $run['bytes'] = (int) $run['bytes'] + $bytes;
         $run['last'] = $now;
     } else {
-        $run = ['from' => $from, 'bytes' => $bytes, 'last' => $now] + ($span > WATCH_FLOW_LONG ? ['gap' => true] : []);
+        $run = ['from' => $from, 'bytes' => $bytes, 'last' => $now] + ($span > WATCH_FLOW_LONG ? ['gap' => true, 'seen' => $now] : []);
     }
     if ($by) {
         $run['by'] = watchmanFlowByMerge((array) ($run['by'] ?? []), $by);      // a share's: where the pull's bytes were written
