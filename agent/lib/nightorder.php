@@ -44,6 +44,7 @@ function nightOrderHost(?array $h = null): array
         'backup_data'   => $data,
         'waitdir'       => RUN_DIR,
         'night_running' => fn (): bool => nightRunning($dir),
+        'settings'      => fn (): bool => is_file("$data/settings.ini"),
         'backup_holds'  => fn (): bool => nightOrderBackupHolds($data, $shares),
         'backup_cron'   => fn (): ?string => officeJobSchedule('backup', $cron)['custom'],
         'backup_locked' => fn (): bool => (backupLockHolder($data)['holder'] ?? '') === 'backup',
@@ -94,12 +95,13 @@ function nightOrderTie(array $h): int
 /**
  * The job before the scheduled backup (`php agent.php job backup-order`, job.sh): waits while her run goes, then prints the
  * engine's word («waited_night:1260»; nothing when it didn't wait). Exit 0: start the backup; 3: not now (the array
- * stopped, or another scheduled start waits already — its wait lock RUN_DIR/backup-wait.lock).
+ * stopped, or another scheduled start waits already — its wait lock RUN_DIR/backup-wait.lock). Without the engine's
+ * settings.ini nothing waits: the engine (2.82, --scheduled) starts no run then and only counts its «skipped» line.
  */
 function nightOrderBackupJob(?array $h = null): int
 {
     $h = nightOrderHost($h);
-    if (!($h['night_running'])()) {
+    if (!($h['settings'])() || !($h['night_running'])()) {
         return 0;
     }
     @mkdir($h['waitdir'], 0700, true);

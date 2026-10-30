@@ -1323,7 +1323,7 @@ function rsAppFolders(array $app, array &$ctx): array
 {
     $units = [];
     $shares = [];
-    $placeShare = (string) backupSetting($ctx['settings'], 'general', 'dumps_share', '');
+    $placeShare = rsPlaceShare($ctx['settings'])['share'];
     foreach ($app['containers'] as $c) {
         foreach ($c['binds'] as $b) {
             $sp = rsSharePath($b['source'], $ctx);
@@ -5438,7 +5438,7 @@ function rsFit(?array $state = null, ?array $lastRun = null, ?array $settings = 
     $settings ??= backupReadSettings(rsUbData() . '/settings.ini');
     $state ??= $GLOBALS['rs']['state'] ?? null;
     $lastRun ??= readJson(rsUbData() . '/state/last-run.json');
-    $base = backupDumpsPath((string) backupSetting($settings, 'general', 'dumps_share', ''));
+    $base = backupDumpsPath(rsPlaceShare($settings)['share']);
     $n = count($state['apps'] ?? []) + count($state['vms'] ?? []);
     // he looks at the agent's start and when asked: a real run that wrote packages since then counts too
     $pk = is_array($lastRun['packages'] ?? null) ? $lastRun['packages'] : [];

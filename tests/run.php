@@ -6748,7 +6748,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.81'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.82'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -8735,9 +8735,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.81 everywhere it is named', ['2.81', '2.81', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.81"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.81** –')]);
+    same('data trust: the engine\'s version 2.82 everywhere it is named', ['2.82', '2.82', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.82"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.82** –')]);
     // 2.81 (B42): a run with settings.ini gone ends with a code the office says in its own words - never the script's name
     $gone = $mk('nosettings', 0700);
     @unlink("$tmp/notified");
@@ -8812,6 +8812,123 @@ function testDataTrust(): void
     }
     check('data trust: the .plg says «Jack Streamer», never «Jack Emby»', !str_contains($src('plugin/unraid-secretary-office.plg'), 'Jack Emby'));
     check('data trust: the guide says a partner\'s copy is trusted like your own backup', str_contains($src('docs/GUIDE.md'), "trusts that partner like your own backup"));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Engine 2.82 (B42, wave 3's W3-1/W3-2): a scheduled start without settings.ini (gone with appdata, or never made) starts no
+ * run — one «skipped» history line, reason settings_missing, that counts on night after night, no lock, log, status.json or
+ * notification; the night order doesn't wait for Ms. Moverelli then; the Team Lead's must «set up» says it. The backup
+ * place found without settings (backupPlaceShare(): where the last runs wrote, else the office's share) for Mr. Backupsy's
+ * packages as for Mr. Restori.
+ */
+function testBackupScheduledUnset(): void
+{
+    $tmp = hardeningTmp('sched-unset');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $d = "$tmp/data";
+    @mkdir("$d/state", 0700, true);
+    @mkdir("$d/logs", 0700, true);
+    chmod($d, 0700);
+    file_put_contents("$tmp/notify", "#!/bin/bash\necho \"\$*\" >> $tmp/notified\n");
+    chmod("$tmp/notify", 0755);
+    $ok = json_encode(['run' => '20261027-0430', 'started' => 1793071800, 'finished' => 1793072400, 'result' => 'ok', 'mode' => 'backup',
+                       'packages' => ['base' => '/mnt/user/Ablage/unraid-backup', 'apps' => 9, 'vms' => 2]]);
+    file_put_contents("$d/state/history.jsonl", "$ok\n");
+    file_put_contents("$d/state/last-run.json", $ok);
+    $env = ['UB_DATA' => $d, 'UB_NOTIFY_BIN' => "$tmp/notify", 'UB_NOTIFY_STAMP' => "$tmp/stamp"];
+    $lines = fn () => array_map(fn ($l) => json_decode($l, true), file("$d/state/history.jsonl", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []);
+    [$e1, $o1] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--scheduled'], $env, 60);
+    $h1 = $lines();
+    $s1 = end($h1) ?: [];
+    same('scheduled without settings: no run starts - exit 0, one «skipped» line settings_missing counted 1, no status.json, no log, no lock, no notification',
+        [0, 2, 'skipped', 'settings_missing', 'settings_missing', 1, true, false, [], false, false],
+        [$e1, count($h1), $s1['result'] ?? null, $s1['reason'] ?? null, $s1['message'] ?? null, $s1['count'] ?? null, ($s1['first'] ?? 0) === ($s1['time'] ?? -1),
+         is_file("$d/state/status.json"), glob("$d/logs/*") ?: [], is_file("$d/state/lock"), is_file("$tmp/notified")], $o1);
+    check('scheduled without settings: … says so in its output (no script named)', str_contains($o1, 'was not started: settings.ini is missing') && !str_contains($o1, 'setup.sh'), $o1);
+    // the second night: the same line counts on, the first time kept
+    $s1['time'] = $s1['first'] = $s1['started'] = 1793244600;
+    file_put_contents("$d/state/history.jsonl", "$ok\n" . json_encode($s1) . "\n");
+    [$e2] = runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--scheduled'], $env, 60);
+    $h2 = $lines();
+    $s2 = end($h2) ?: [];
+    same('scheduled without settings: the second night adds no line - count 2, the first time kept, the newest time now; still no notification',
+        [0, 2, 2, 1793244600, true, false], [$e2, count($h2), $s2['count'] ?? null, $s2['first'] ?? null, ($s2['time'] ?? 0) > 1793244600, is_file("$tmp/notified")]);
+    // a line of something else after it (a run by hand that failed): the next skip is a line of its own again
+    file_put_contents("$d/state/history.jsonl", json_encode(['run' => '20261030-1200', 'started' => 1793358000, 'finished' => 1793358001, 'result' => 'failed',
+        'message' => 'settings_missing']) . "\n", FILE_APPEND);
+    runEnv(['bash', OFFICE_DIR . '/backup/backup.sh', '--scheduled'], $env, 60);
+    $h3 = $lines();
+    same('scheduled without settings: … after another line a new one, counted 1 (the old one keeps its 2)', [4, 2, 1], [count($h3), $h3[1]['count'] ?? null, end($h3)['count'] ?? null]);
+    // the office: a skip, never a run - with its count and first time
+    $runs = backupHistory([], null, $skips, "$d/state/history.jsonl");
+    usort($skips, fn ($a, $b) => $a['count'] <=> $b['count']);        // the two the same second here: by their count
+    same('scheduled without settings: his history - the runs (ok, the failed one by hand), the skips apart with reason, count, first',
+        [['20261030-1200', '20261027-0430'], [['settings_missing', 1], ['settings_missing', 2, 1793244600]]],
+        [array_column($runs, 'run'), [[$skips[0]['reason'], $skips[0]['count']], [$skips[1]['reason'], $skips[1]['count'], $skips[1]['first']]]]);
+    same('scheduled without settings: a busy skip as before (count 1, first = time); a count of the wrong type is 1',
+        [['skipped_busy_restore', 1, 5], ['settings_missing', 1, 7]],
+        [array_values(array_intersect_key(backupSkipRow(['result' => 'skipped', 'time' => 5, 'reason' => 'x', 'count' => 3, 'holder' => ['kind' => 'restore']]), array_flip(['reason', 'count', 'first']))),
+         array_values(array_intersect_key(backupSkipRow(['result' => 'skipped', 'time' => 7, 'reason' => 'settings_missing', 'count' => '9', 'first' => 99]), array_flip(['reason', 'count', 'first'])))]);
+    // by hand (no --scheduled) and a dry run: as before (the run fails with the code - testDataTrust)
+    $src = fn (string $f) => (string) file_get_contents(OFFICE_DIR . "/$f");
+    check('scheduled without settings: only the plugin\'s cron says --scheduled (job.sh), a real backup only; the skip comes before the lock',
+        str_contains($src('plugin/scripts/job.sh'), 'exec bash "$DIR/backup/backup.sh" --scheduled ;;')
+        && str_contains($src('backup/backup.sh'), "[[ \"\$UB_MODE\" == \"backup\" && \"\$DRY\" != \"1\" && \"\$UB_SCHEDULED\" == \"1\" && ! -f \"\$UB_SETTINGS\" ]] && skip_unset\nexec 9>>\"\$UB_STATE/lock\""));
+    // the night order: without settings nothing waits for her run (the engine only counts its line)
+    $GLOBALS['nightOrderHost'] = ['waitdir' => "$tmp/run", 'backup_data' => $d, 'night_dir' => "$tmp/mov", 'night_running' => fn () => true,
+        'array' => fn () => true, 'now' => fn () => 0, 'sleep' => function (int $s) { throw new RuntimeException('waited'); }];
+    ob_start();
+    $rc = nightOrderBackupJob();
+    $said = (string) ob_get_clean();
+    unset($GLOBALS['nightOrderHost']);
+    same('scheduled without settings: the night order starts the engine at once, no wait, no word (her run going)', [0, ''], [$rc, $said]);
+    // the Team Lead: Mr. Backupsy not set up is a must while the settings are gone
+    check('scheduled without settings: the Team Lead\'s must «set up» - Mr. Backupsy\'s finding goes by settings.ini, its words there',
+        str_contains($src('agent/desks/backup.php'), "finding('setup', 'required', is_file(\"\$data/settings.ini\")")
+        && str_contains((string) langFile(OFFICE_WEB . '/desks/backup/lang/en.json')['check.setup'], 'set up'));
+    $how = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $how[] = (string) (langFile(OFFICE_WEB . "/desks/backup/lang/$l.json")['check.setup_how'] ?? '.sh');
+    }
+    check('scheduled without settings: … its way is his «Set up…», no script named on the Team Lead\'s page (B42 INV-PAGE: «setup.sh»)',
+        !preg_grep('/\.sh|\{path\}/', $how) && str_contains($src('agent/desks/backup.php'), "finding('setup', 'required', is_file(\"\$data/settings.ini\"), [], '#/backup/setup');"));
+    // the backup place without settings: where the last runs wrote - his packages tile, Mr. Restori, the other readers
+    same('place without settings: the settings\' share; gone - the last run\'s place; never set up and never run - none',
+        [['Box', 'settings'], ['Ablage', 'last_run'], ['', 'settings']],
+        array_map('array_values', [backupPlaceShare(['general' => ['dumps_share' => ['Box']]], $d), backupPlaceShare([], $d), backupPlaceShare([], "$tmp/none")]));
+    // (his packages read there - never looked up here: a share path under /mnt/user may touch every disk of the array)
+    $bp = $src('agent/desks/backup.php');
+    check('place without settings: his packages tile looks there and says from where',
+        str_contains($bp, '[\'share\' => $share, \'from\' => $from] = backupPlaceShare($settings, $data ?? BACKUP_DATA_DIR);')
+        && str_contains($bp, 'return [\'from\' => $from] + $cache[$base][1];') && str_contains($bp, 'backupPlaceAsleep($settings, $share)'));
+    same('place without settings: … never set up: no place, from the settings (as before)', [null, 'settings'],
+        [backupPackages([], "$tmp/none")['base'], backupPackages([], "$tmp/none")['from']]);
+    $all = '';
+    foreach (['agent/desks/backup.php', 'agent/desks/restore.php', 'agent/desks/restore-paths.php', 'agent/desks/restore-partner.php'] as $f) {
+        $all .= $src($f);
+    }
+    check('place without settings: one rule (backupPlaceShare) - Mr. Restori\'s rsPlaceShare is it; his app folders, his fit, the partner\'s unit and «a place here» use it',
+        str_contains($src('agent/desks/restore-paths.php'), 'return backupPlaceShare($settings, rsUbData());') && substr_count($all, 'rsPlaceShare(') >= 7
+        && !str_contains($src('agent/desks/restore-paths.php'), "\$st = rsUbData() . '/state';"));
+    check('place without settings: setting a package aside and a let-go still go by the settings alone; found without settings: none offered',
+        str_contains($src('agent/desks/backup-gone.php'), "backupDumpsPath((string) backupSetting(\$settings, 'general', 'dumps_share', ''))")
+        && str_contains($src('agent/desks/backup.php'), "'packages_gone' => \$pk['from'] === 'settings' ? backupGoneList(\$pk) : [],"));
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
+    check('place without settings (page): the packages section says it, with the place',
+        str_contains($js, "T('pk.found_unset', { path: pk.base })") && str_contains($js, "if (pkUnset()) sub.unshift(T('stat.pk_unset'));"));
+    check('scheduled without settings (page): the skip said as such (never «another program held the lock», no «nothing is lost» callout or bubble), its count since its first',
+        str_contains($js, "if (!k || k.reason === 'settings_missing') return null;")
+        && str_contains($js, "if (k.reason === 'settings_missing') return T('skipped.frame_unset', { when: fmt.date(k.time, true) });")
+        && str_contains($js, "if (k.count > 1) meta.appendChild(el('span', '', T('skipped.times', { n: k.count, since: fmt.date(k.first || k.time) })));")
+        && str_contains($js, "x.skip.count > 1 ? T('skipped.times', { n: x.skip.count, since: fmt.date(x.skip.first || x.skip.time) }) : ''"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $w = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
+        check("scheduled without settings: its words ($l)", str_contains((string) ($w['skipped.frame_unset'] ?? ''), '{when}')
+            && str_contains((string) ($w['skipped.times']['other'] ?? ''), '{since}') && str_contains((string) ($w['message.settings_missing'] ?? ''), '—'));
+        check("place without settings: its words ($l) - the place named, no script", str_contains((string) ($w['pk.found_unset'] ?? ''), '{path}')
+            && ($w['stat.pk_unset'] ?? '') !== '' && !str_contains((string) $w['pk.found_unset'], '.sh'));
+    }
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -10108,7 +10225,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.81', [1, '2.81'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.82', [1, '2.82'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -10821,7 +10938,7 @@ SH);
         [['UnraidSecretaryOffice' => 'ok:', 'app:c2' => 'skipped:asleep', 'appdata' => 'ok:', 'media' => 'skipped:asleep'], ['share:appdata' => 'skipped:unreachable', 'share:media' => 'skipped:asleep']],
         [$kr, $pr], json_encode($res));
     same('asleep skip 2.80: results.json - v 1, the engine, this run; a good upload\'s good is its time, a skipped one has none yet',
-        [1, '2.81', $s['run'] ?? null, $res['kopia']['appdata']['time'] ?? -1, 0],
+        [1, '2.82', $s['run'] ?? null, $res['kopia']['appdata']['time'] ?? -1, 0],
         [$res['v'] ?? null, $res['engine'] ?? null, $res['run'] ?? null, $res['kopia']['appdata']['good'] ?? null, $res['kopia']['media']['good'] ?? null]);
     check('asleep skip: the log - one line for the pool', str_contains($l, 'ZFS hazel: asleep - left out this run (asleep_pools = skip)') && substr_count($l, 'ZFS hazel: asleep - left out') === 1, $l);
     check('asleep skip: last-run asleep=4, history asleep.units 4', str_contains((string) @file_get_contents("$data/state/last-run"), "asleep=4\n") && ($lastHistory()['asleep']['units'] ?? null) === 4);
@@ -10898,7 +11015,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.81', [1, '2.81'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.82', [1, '2.82'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -12836,6 +12953,11 @@ b.setState({ ...demoState, settings_found: false });
 out.overview = [b.placeFirstNeeded(), b.overviewTiles().map((d) => [d.key, d.sub[0] || '', d.alert])];
 b.setState(demoState);
 out.overviewPlaced = [b.placeFirstNeeded(), b.overviewTiles().some((d) => (d.sub || []).includes('tile.place_first'))];
+// engine 2.82 / B42: the settings gone, the packages found where the last runs wrote - their tile stays, says so
+b.setState({ ...demoState, settings_found: false, packages: { ...demoState.packages, from: 'last_run' } });
+out.overviewUnset = b.overviewTiles().filter((d) => ['apps', 'schedule'].includes(d.key)).map((d) => [d.key, (d.sub[0] || '').split(' · ')[0]]);
+b.setState({ ...demoState, settings_found: false, packages: { ...demoState.packages, from: 'settings' } });
+out.overviewUnsetOld = b.overviewTiles().filter((d) => d.key === 'apps').map((d) => (d.sub[0] || '').split(' · ')[0]);
 console.log(JSON.stringify(out));
 JS);
     $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' '
@@ -12880,6 +13002,8 @@ JS);
         [true, ['tile.place_first', true], ['tile.place_first', false], 'stat.restore_where'],
         [$need, $byKey['last'] ?? null, $byKey['schedule'] ?? null, $byKey['restore'][0] ?? null]);
     same('first step: … set up with a place — the tiles as they were', [false, false], $r['overviewPlaced']);
+    same('first step: … settings gone, packages found where the last runs wrote — their tile stays and says «found without settings»; an agent saying from settings: as before',
+        [[['schedule', 'tile.place_first'], ['apps', 'stat.pk_unset']], ['tile.place_first']], [$r['overviewUnset'], $r['overviewUnsetOld']]);
     foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
         $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/backup/lang/$code.json"), true);
         check("first step: the five points say ZFS, appdata, the array, no secondary storage ($code)",
@@ -45178,10 +45302,19 @@ function testSetupMessages(): void
     $sh = (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh');
     // 2.58: the OK and error lines too (ok_as, bad_as); 2.81: the engine's own errors a setup records (lib/common.sh err_as)
     preg_match_all('/\b(?:hint_as|wrn_as|wrn_code|hint_code|ok_as|bad_as) "?([a-z][a-z0-9_]*)/', $sh, $m);
-    preg_match_all('/\berr_as ([a-z][a-z0-9_]*) "/', (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh'), $lm);
+    $libSrc = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    preg_match_all('/\berr_as ([a-z][a-z0-9_]*) "/', $libSrc, $lm);
     same('setup messages: 2.81 - what an aborted run left and didn\'t come back is coded (lib/common.sh err_as)',
         ['recover_ct_start', 'recover_nc_dir', 'recover_nc_maintenance', 'recover_vm_thaw', 'recover_vm_resume', 'recover_vm_start'], $lm[1]);
-    $m[1] = array_merge($m[1], $lm[1]);
+    preg_match_all('/\bwarn_as ([a-z][a-z0-9_]*) "/', $libSrc, $wm);
+    same('setup messages: 2.82 - the recover path\'s warnings coded too (lib/common.sh warn_as)',
+        ['recover_docker_silent', 'recover_libvirt_silent', 'recover_back', 'recover_ct_not_ready', 'recover_nc_gone', 'recover_nc_not_running', 'recover_nc_no_occ'], $wm[1]);
+    $from = (int) strpos($libSrc, "\nrecover_interrupted_run() {");
+    $to = (int) strpos($libSrc, "\n}\n", (int) strpos($libSrc, "\nrecover_vms() {"));
+    $rf = $from && $to > $from ? substr($libSrc, $from, $to - $from) : 'warn "not found"';
+    same('setup messages: 2.82 - no plain warning left where an Apply brings back what an aborted run left', [],
+        array_values(preg_grep('/(^|[\s;&|{(])warn "/', explode("\n", $rf))));
+    $m[1] = array_merge($m[1], $lm[1], $wm[1]);
     $codes = array_values(array_unique(array_filter($m[1], fn ($c) => !str_ends_with($c, '_'))));
     preg_match_all('/\b(?:hint_as|wrn_as|hint_code|bad_as) "([a-z_]+)_\$/', $sh, $dyn);
     $more = [];
@@ -45282,6 +45415,16 @@ function testSetupMessages(): void
         [strtok($out, "\n"), $j, @file_get_contents("$tmp/state/vms")], $out);
     check('setup messages (engine): … a run (no ub_msg_as) counts and logs it as before - nothing recorded',
         str_starts_with($rec('msgs_json() { echo "[]"; }'), "ERRORS=1\n[]"));
+    // 2.82: a warning of the same path - a Nextcloud the aborted run put into maintenance mode is gone (docker knows it not)
+    file_put_contents("$tmp/bin/docker", "#!/bin/bash\nexit 1\n");
+    chmod("$tmp/bin/docker", 0755);
+    $wout = (string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/data; source $lib >/dev/null 2>&1; export PATH=$tmp/bin:\$PATH;"
+        . " UB_STATE=$tmp/state UB_VAR_INI=$tmp/none LOG_FILE=''; MODE=apply; STEP_ID=environment; declare -a MSGS=(); $defs\n"
+        . "printf 'cloud\\n' >\"\$UB_STATE/maintenance\"; recover_maintenance >/dev/null; echo \"WARNINGS=\$WARNINGS\"; msgs_json") . ' 2>&1');
+    $wj = json_decode((string) substr($wout, (int) strpos($wout, "\n") + 1), true);
+    same('setup messages (engine): 2.82 - a Nextcloud the aborted run left that is gone: counted, recorded at level warn with its code, step and name; its note goes',
+        ['WARNINGS=1', 'warn', 'environment', 'recover_nc_gone', ['name' => 'cloud'], false],
+        [strtok($wout, "\n"), $wj[0]['level'] ?? null, $wj[0]['step'] ?? null, $wj[0]['code'] ?? null, $wj[0]['params'] ?? null, is_file("$tmp/state/maintenance")], $wout);
     check('setup messages (engine): … setup.sh records the engine\'s coded lines like its own, bringing back what an aborted run left under the step environment',
         str_contains($sh, 'ub_msg_as() { msg_as "$@"; }') && str_contains($sh, '{ STEP_ID=environment; recover_interrupted_run; }'));
     exec('rm -rf ' . escapeshellarg($tmp));
@@ -50727,6 +50870,7 @@ function testNightOrder(): void
         @mkdir("$tmp/$d", 0700, true);
     }
     $t0 = mktime(2, 0, 3, 10, 22, 2026);
+    file_put_contents("$tmp/engine/settings.ini", "[general]\n");      // set up: without settings nothing waits (engine 2.82)
     // (1) the job before the scheduled backup, on a clock of its own: $busy(s) = her run goes s seconds after its start
     $job = function (callable $busy, callable $array = null) use ($tmp, $t0): array {
         $t = $t0;
@@ -50749,6 +50893,10 @@ function testNightOrder(): void
     flock($held, LOCK_UN);
     fclose($held);
     same('night order: … a second scheduled start while one waits ends at once', [3, '', 0], $twice);
+    rename("$tmp/engine/settings.ini", "$tmp/engine/settings.gone");
+    same('night order: … the engine not set up (settings.ini gone): starts at once, no wait - the engine only counts its «skipped» line (2.82)',
+        [0, '', 0], $job(fn ($s) => $s < 10800));
+    rename("$tmp/engine/settings.gone", "$tmp/engine/settings.ini");
 
     // (2) «must she wait?»: the engine's lock held by a real backup — by its phase, a live share she moves, its kind
     $eng = "$tmp/engine";
@@ -56141,7 +56289,7 @@ function testBackupGonePackage(): void
     $agent = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
     check('gone package: the page shows each with «Into the storeroom» on a fresh look, the action asked with kind and folder',
         str_contains($desk, "Office.api.post(`\${ID}.package_aside`, { kind: g.kind, folder: g.folder })") && str_contains($desk, "if (!(await Office.freshState(ID))) return;\n  const g = goneOf(g0.kind, g0.folder);")
-        && str_contains($agent, "'package_aside' => fn (array \$r) => backupPackageAside(\$r),") && str_contains($agent, "'packages_gone' => backupGoneList(\$pk),"));
+        && str_contains($agent, "'package_aside' => fn (array \$r) => backupPackageAside(\$r),") && str_contains($agent, "'packages_gone' => \$pk['from'] === 'settings' ? backupGoneList(\$pk) : [],"));
     unset($GLOBALS['goneHost'], $GLOBALS['gonePlanned'], $GLOBALS['goneplace'], $GLOBALS['gonePackages'], $GLOBALS['goneRoots'], $GLOBALS['disksIni'], $GLOBALS['letgoUbData'], $GLOBALS['letgoDir'],
         $GLOBALS['letgoHost'], $GLOBALS['drill']['job_file']);
     hardeningRm($tmp);
@@ -56469,7 +56617,7 @@ function testBackupResults(): void
     $local = json_encode([['key' => 'share:appdata', 'result' => 'ok', 'code' => ''], ['key' => 'share:media', 'result' => 'skipped', 'code' => 'asleep']]);
     [$out, $r] = $run($c, $local);
     $pick = fn (?array $e) => $e === null ? null : [$e['result'], $e['code'], $e['time'], $e['good']];
-    same('results 2.80: written - v 1, the engine, the run that wrote it', ['rc=0', 1, '2.81', '20261003-0100', true], [$out, $r['v'] ?? null, $r['engine'] ?? null, $r['run'] ?? null, is_int($r['updated'] ?? null)]);
+    same('results 2.80: written - v 1, the engine, the run that wrote it', ['rc=0', 1, '2.82', '20261003-0100', true], [$out, $r['v'] ?? null, $r['engine'] ?? null, $r['run'] ?? null, is_int($r['updated'] ?? null)]);
     same('results 2.80: none yet - the history folded in first: appdata\'s Kopia failed in B, its newest good copy A\'s; the skipped run nothing',
         [['failed', '', 1990, 990], ['ok', '', 995, 995]], [$pick($r['kopia']['appdata'] ?? null), $pick($r['kopia']['app:Emby'] ?? null)]);
     same('results 2.80: this run - docs uploaded, media skipped asleep, films skipped by the array stop (no why)',
@@ -58723,7 +58871,7 @@ function testBackupAnewChoice(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],

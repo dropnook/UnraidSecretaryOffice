@@ -194,7 +194,8 @@ const asleepUnits = (r) => (r && r.asleep && r.asleep.units) || 0;
  */
 function newSkip() {
   const k = ((state && state.skips) || [])[0];
-  if (!k) return null;
+  // engine 2.82: a scheduled start without settings is no run kept from its work - the page's «not set up» says it
+  if (!k || k.reason === 'settings_missing') return null;
   const last = lastRun();
   if (last && (last.finished || last.started) >= k.time) return null;
   const s = status();
@@ -203,6 +204,7 @@ function newSkip() {
 }
 /** Why a run was skipped, in words: which run, and who had the lock (holder from lock-holder.json, its phase from status.json) */
 function skipText(k) {
+  if (k.reason === 'settings_missing') return T('skipped.frame_unset', { when: fmt.date(k.time, true) });   // engine 2.82
   const h = k.holder || {};
   let why = 'skipped.why_' + (['backup', 'check', 'dryrun', 'setup', 'restore'].includes(h.kind) ? h.kind : 'other');
   if (h.kind === 'backup' && h.phase === 'kopia' && h.current) why = 'skipped.why_backup_kopia';
@@ -215,6 +217,9 @@ const packages = () => {
   const pk = state && state.packages;
   return pk && pk.found && (pk.apps.length || pk.vms.length || pk.server) ? pk : null;
 };
+/** The packages found without settings (B42: settings.ini gone; the agent looked where the last runs wrote, else in the
+ *  office's share — `from`): shown read only until he is set up again. An older agent says no `from`: settings */
+const pkUnset = () => { const pk = packages(); return !!(pk && pk.from && pk.from !== 'settings'); };
 const status = () => (state && state.status) || null;
 const live = () => !!(state && state.running);
 const canAct = () => !!(state && state.found && state.compatible && Office.agent.running);
@@ -1114,6 +1119,7 @@ function overviewTiles() {
     const warned = cur.filter((x) => x.result === 'warnings').length;       // B12: a warning is said, not only errors
     const stale = pk.apps.length + pk.vms.length - cur.length;
     const sub = [pk.time ? T('stat.pk_when', { when: fmt.relative(pk.time) }) : T('never')];
+    if (pkUnset()) sub.unshift(T('stat.pk_unset'));
     if (bad) sub.push(T('stat.pk_errors', { n: bad }));
     if (warned) sub.push(T('stat.pk_warnings', { n: warned }));
     if (stale) sub.push(T('stat.pk_stale', { n: stale }));
@@ -1183,7 +1189,8 @@ function overviewTiles() {
   add({ key: 'restore', label: T('tile.restore'), value: dr ? T({ failed: 'stat.drill_failed', unproven: 'stat.drill_unproven' }[dr.result] || 'stat.drill_passed') : Office.t('restore.name'),
     sub: [dr ? fmt.date(dr.ended) : T('stat.restore_where')], alert: !!dr && ['failed', 'unproven'].includes(dr.result) });
   // no backup place yet (2026-10-21): the setup starts with it - the tiles of what a backup makes say so first
-  if (placeFirstNeeded()) out.forEach((d) => { if (!['partners', 'drift', 'restore'].includes(d.key)) { d.sub = [T('tile.place_first')]; d.tip = ''; d.alert = d.key === 'last'; } });
+  // (the packages found without settings keep their tile: they are there, read only)
+  if (placeFirstNeeded()) out.forEach((d) => { if (!['partners', 'drift', 'restore'].includes(d.key) && !(d.key === 'apps' && pkUnset())) { d.sub = [T('tile.place_first')]; d.tip = ''; d.alert = d.key === 'last'; } });
   return out;
 }
 /** The table in all, in words: offsite · (local + partner, only when one is) · only local · not backed up */
@@ -1571,6 +1578,13 @@ function protection() {
     const placePt = placeTruth.level === 'none' ? { reached: [], missed: [] } : protPartnerTruth('share', { name: placeName });
     const placeRow = { ...placeTruth, partners: placePt.reached, missed: placePt.missed };
     head('bk-apps', T('pk.group') + ' ', protChip(placeRow), T('pk.group_hint', { path: pk.base + '/apps' }));
+    if (pkUnset()) {
+      const tr = el('tr', 'bk-pk-unset');
+      const td = el('td', 'role', T('pk.found_unset', { path: pk.base }));
+      td.colSpan = 5;
+      tr.appendChild(td);
+      body.appendChild(tr);
+    }
     if (!v.groups.app.length) none();
     v.groups.app.forEach((r) => {
       const a = r.x;
@@ -1910,6 +1924,8 @@ function skipRow(k) {
   main.appendChild(el('div', 'row-name text', fmt.date(k.time, true)));
   const meta = el('div', 'row-meta');
   meta.appendChild(chip(T('result.skipped'), RESULT_CHIP.skipped, skipText(k)));
+  // engine 2.82: one line for every scheduled start without settings - how many since when
+  if (k.count > 1) meta.appendChild(el('span', '', T('skipped.times', { n: k.count, since: fmt.date(k.first || k.time) })));
   meta.appendChild(el('span', 'note', messageText(k.reason)));
   main.appendChild(meta);
   row.appendChild(main);
@@ -1928,7 +1944,8 @@ function historyRows() {
   const skips = state.skips || [];
   return [...runs.slice(0, 20).map((r) => ({ t: r.started, r })), ...skips.map((skip) => ({ t: skip.time, skip }))]
     .sort((a, b) => b.t - a.t).slice(0, 20).map((x) => ({ ...x, hay: x.skip
-      ? [fmt.date(x.skip.time, true), T('result.skipped'), messageText(x.skip.reason)]
+      ? [fmt.date(x.skip.time, true), T('result.skipped'), messageText(x.skip.reason),
+        x.skip.count > 1 ? T('skipped.times', { n: x.skip.count, since: fmt.date(x.skip.first || x.skip.time) }) : '']
       : [fmt.date(x.r.started, true), T('result.' + x.r.result), x.r.message && x.r.result !== 'ok' ? messageText(x.r.message, x.r.message_params) : '',
         asleepUnits(x.r) ? T('asleep.left_out', { n: asleepUnits(x.r) }) : ''] }));
 }

@@ -167,9 +167,11 @@ function backupHolderNote(?array $note): array
 
 /**
  * A run that found the lock busy (engine 2.20: state/skipped.json, and the history.jsonl lines with
- * "result": "skipped"), in the shape the office shows — null for anything else
+ * "result": "skipped"), in the shape the office shows — null for anything else. Engine 2.82: a scheduled start
+ * without settings.ini (reason settings_missing) — one line that counts on: `count` starts, the first `first`, the
+ * newest `time`; no holder (kind other). Any other line: reason skipped_busy_<kind>, count 1, first = time.
  *
- * @return array{run:string, mode:string, time:int, reason:string, holder:array}|null
+ * @return array{run:string, mode:string, time:int, reason:string, count:int, first:int, holder:array}|null
  */
 function backupSkipRow(mixed $j): ?array
 {
@@ -180,11 +182,15 @@ function backupSkipRow(mixed $j): ?array
     $h = is_array($j['holder'] ?? null) ? $j['holder'] : [];
     $kind = in_array($h['kind'] ?? null, BACKUP_HOLDERS, true) ? $h['kind'] : 'other';
     $run = fn (mixed $v): string => is_string($v) && preg_match('/^\d{8}-\d{4}$/D', $v) ? $v : '';
+    $time = (int) ($j['time'] ?? $j['started'] ?? 0);
+    $unset = ($j['reason'] ?? null) === 'settings_missing';
     return [
         'run'    => $run($j['run'] ?? null),
         'mode'   => in_array($j['mode'] ?? null, ['backup', 'check', 'dryrun'], true) ? $j['mode'] : 'backup',
-        'time'   => (int) ($j['time'] ?? $j['started'] ?? 0),
-        'reason' => "skipped_busy_$kind",
+        'time'   => $time,
+        'reason' => $unset ? 'settings_missing' : "skipped_busy_$kind",
+        'count'  => $unset && is_int($j['count'] ?? null) && $j['count'] >= 1 ? $j['count'] : 1,
+        'first'  => $unset && is_int($j['first'] ?? null) && $j['first'] > 0 && $j['first'] <= $time ? $j['first'] : $time,
         'holder' => [
             'kind'    => $kind,
             'mode'    => $text($h['mode'] ?? ''),
@@ -208,6 +214,42 @@ function backupDumpsPath(string $share): ?string
         return null;
     }
     return $share === BACKUP_OFFICE_SHARE ? "/mnt/user/$share/" . BACKUP_DESK_DIR : "/mnt/user/$share/unraid-backup";
+}
+
+/**
+ * Which share holds the backup place: settings.ini's dumps_share — or, when the settings are gone (B42: settings.ini
+ * deleted; a scheduled start then starts no run, engine 2.82) but the engine has run here, where its last runs wrote their
+ * packages (status.json, last-run.json, then the newest of history.jsonl's last lines: packages.base, only in exactly the
+ * shape backupDumpsPath() makes), else the office's own share. Never set up (no run either): none, as before. The one
+ * rule for every reader of the place (Mr. Backupsy's packages, Mr. Restori's place, the shares the place isn't); what
+ * writes there (setting a package aside, a let-go) still goes by the settings alone. $data: the engine's data folder.
+ *
+ * @return array{share: string, from: string}  from: settings | last_run | office_share
+ */
+function backupPlaceShare(array $settings, string $data = BACKUP_DATA_DIR): array
+{
+    $share = (string) backupSetting($settings, 'general', 'dumps_share', '');
+    $st = "$data/state";
+    if ($share !== '' || (!is_file("$st/history.jsonl") && !is_file("$st/last-run.json"))) {
+        return ['share' => $share, 'from' => 'settings'];
+    }
+    $bases = [readJson("$st/status.json")['packages']['base'] ?? null, readJson("$st/last-run.json")['packages']['base'] ?? null];
+    $size = (int) @filesize("$st/history.jsonl");
+    $tail = (string) @file_get_contents("$st/history.jsonl", false, null, max(0, $size - (256 << 10)));
+    foreach (array_reverse(explode("\n", $tail)) as $line) {
+        $b = json_decode($line, true)['packages']['base'] ?? null;
+        if (is_string($b)) {
+            $bases[] = $b;
+            break;
+        }
+    }
+    foreach ($bases as $b) {
+        if (is_string($b) && preg_match('#^/mnt/user/([^/]+)/#', $b, $m) && preg_match('/^[\w .-]{1,64}$/uD', $m[1]) && $m[1][0] !== '.'
+            && backupDumpsPath($m[1]) === $b) {
+            return ['share' => $m[1], 'from' => 'last_run'];
+        }
+    }
+    return ['share' => BACKUP_OFFICE_SHARE, 'from' => 'office_share'];
 }
 
 /** Where the backup script mounts things */

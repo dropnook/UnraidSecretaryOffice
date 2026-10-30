@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.81"
+UB_VERSION="2.82"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -151,6 +151,16 @@ err_as() {
     shift 2
     err "$t"
     if declare -F ub_msg_as >/dev/null; then ub_msg_as error "$c" "$t" "$@"; fi
+    return 0
+}
+# warn_as <code> <text> [<key> <value>]...  (2.82) - the same for a warning: counted and logged like warn; setup.sh's
+#   ub_msg_as records it at level warn - what an aborted run left that an Apply couldn't bring back yet (Docker or
+#   libvirt silent, a Nextcloud gone, not running or without occ, containers not ready) or brought back
+warn_as() {
+    local c="$1" t="$2"
+    shift 2
+    warn "$t"
+    if declare -F ub_msg_as >/dev/null; then ub_msg_as warn "$c" "$t" "$@"; fi
     return 0
 }
 
@@ -2665,6 +2675,7 @@ note_write() {
 recover_interrupted_run() {
     local list="" stay="" level="warning" why="An earlier run was aborted" whyk=why_aborted wt fin f
     local -a back_ct=() back_nc=() back_vm=()     # what came back, for the notification (the helpers add to them)
+    local -a back_names=()                        # 2.82: the same by name only (warn_as recover_back)
     if array_stopping && recover_notes; then
         log "The array is being stopped - what an earlier run left stopped stays so (state/stopped, maintenance, vms) until a run after the array start"
         return 0
@@ -2686,7 +2697,7 @@ recover_interrupted_run() {
             [[ -s "$UB_STATE/stopped" ]] && recover_containers
             [[ -s "$UB_STATE/maintenance" ]] && recover_maintenance
         else
-            warn "Docker does not answer - what an earlier run left stopped (state/stopped, maintenance) stays noted for the next start"
+            warn_as recover_docker_silent "Docker does not answer - what an earlier run left stopped (state/stopped, maintenance) stays noted for the next start"
             stay+="${stay:+; }Docker did not answer - still noted: $(cat "$UB_STATE/stopped" "$UB_STATE/maintenance" 2>/dev/null | sed '/^$/d' | awk '!s[$0]++' | paste -sd' ' -)"
         fi
     fi
@@ -2695,7 +2706,7 @@ recover_interrupted_run() {
         if ub_libvirt_answers; then
             recover_vms
         else
-            warn "libvirt does not answer - the VMs an earlier run held (state/vms) stay noted for the next start"
+            warn_as recover_libvirt_silent "libvirt does not answer - the VMs an earlier run held (state/vms) stay noted for the next start"
             stay+="${stay:+; }libvirt did not answer - still noted: VMs $(cut -d'|' -f1 "$UB_STATE/vms" | paste -sd' ' -)"
         fi
     fi
@@ -2706,7 +2717,8 @@ recover_interrupted_run() {
         ub_tell recovered_part warning "$(recover_report "$why" "$stay")" "Aborted run not fully repaired" \
             "$why - not all of it is back; what is still noted, the next run tries again." "why=$wt"
     elif [[ -n "$list" ]]; then
-        if [[ "$level" == "warning" ]]; then warn "$why - restored: $list"; else log "$why - restored: $list"; fi
+        if [[ "$level" == "warning" ]]; then warn_as recover_back "$why - restored: $list" names "$(printf '%s\n' "${back_names[@]}" | awk 'NF && !s[$0]++' | paste -sd',' - | sed 's/,/, /g')"
+        else log "$why - restored: $list"; fi
         wt="$(ub_say "notify.$whyk")" || wt="$why"
         ub_tell recovered "$level" "$(recover_report "$why" "")" "Aborted run repaired" "$why - all of it is back." "why=$wt"
     fi
@@ -2763,13 +2775,14 @@ recover_containers() {
             if array_stopping; then keep+=( "$n" ); continue; fi
             case "$(docker inspect -f '{{.State.Running}}' "$n" 2>/dev/null)" in
                 true)  ;;
-                false) if docker start "$n" >/dev/null 2>>"${LOG_FILE:-/dev/null}"; then started+=( "$n" ); list+="$n "; back_ct+=( "$n" )
+                false) if docker start "$n" >/dev/null 2>>"${LOG_FILE:-/dev/null}"; then started+=( "$n" ); list+="$n "; back_ct+=( "$n" ); back_names+=( "$n" )
                        else err_as recover_ct_start "Container '$n' (from the aborted run) does not start - it stays noted (state/stopped)" name "$n"; keep+=( "$n" ); fi ;;
                 *)     log "  Container '$n' (from the aborted run) is gone - nothing to start" ;;
             esac
         done
         if [[ "$t" != app && ${#started[@]} -gt 0 ]] && ! wait_ready "$UB_RECOVER_READY" "${started[@]}" && ! array_stopping; then
-            warn "Not all $t containers started again are ready after ${UB_RECOVER_READY} s (${started[*]}) - starting the next ones anyway"
+            warn_as recover_ct_not_ready "Not all $t containers started again are ready after ${UB_RECOVER_READY} s (${started[*]}) - starting the next ones anyway" \
+                names "$(printf '%s, ' "${started[@]}" | sed 's/, $//')" seconds "$UB_RECOVER_READY"
         fi
     done
     (( ${#keep[@]} )) && stay+="${stay:+; }containers not started (still noted): ${keep[*]}"
@@ -2826,7 +2839,7 @@ recover_maintenance() {
         if array_stopping; then keep+=( "$n" ); continue; fi
         st="$(docker inspect -f '{{.State.Running}}' "$n" 2>/dev/null)"
         if [[ -z "$st" ]]; then
-            warn "Nextcloud '$n' (put into maintenance mode by the aborted run) is gone - if its data serves another container now, switch its maintenance mode off by hand (occ maintenance:mode --off)"
+            warn_as recover_nc_gone "Nextcloud '$n' (put into maintenance mode by the aborted run) is gone - if its data serves another container now, switch its maintenance mode off by hand (occ maintenance:mode --off)" name "$n"
             stay+="${stay:+; }Nextcloud $n is gone (check its maintenance mode by hand)"
             continue
         fi
@@ -2837,7 +2850,7 @@ recover_maintenance() {
             st="$(docker inspect -f '{{.State.Running}}' "$n" 2>/dev/null)"
         done
         if [[ "$st" != "true" ]]; then
-            array_stopping || warn "Nextcloud '$n' is not running - its maintenance mode stays on, noted (state/maintenance) for the next start"
+            array_stopping || warn_as recover_nc_not_running "Nextcloud '$n' is not running - its maintenance mode stays on, noted (state/maintenance) for the next start" name "$n"
             keep+=( "$n" ); continue
         fi
         occ=""
@@ -2845,7 +2858,7 @@ recover_maintenance() {
             docker exec "$n" test -f "$f" 2>/dev/null && { occ="$f"; break; }
         done
         if [[ -z "$occ" ]]; then
-            warn "Nextcloud '$n': occ not found - its maintenance mode stays on, noted (state/maintenance)"
+            warn_as recover_nc_no_occ "Nextcloud '$n': occ not found - its maintenance mode stays on, noted (state/maintenance)" name "$n"
             keep+=( "$n" ); continue
         fi
         u="$(docker exec "$n" stat -c %U "$occ" 2>/dev/null)"; [[ -z "$u" || "$u" == root || "$u" == UNKNOWN ]] && u="www-data"
@@ -2856,12 +2869,12 @@ recover_maintenance() {
             sleep 2
         done
         if out="$(docker exec -u "$u" "$n" php "$occ" maintenance:mode --off 2>&1)"; then
-            list+="maintenance mode $n off "; back_nc+=( "$n" )
+            list+="maintenance mode $n off "; back_nc+=( "$n" ); back_names+=( "$n" )
         # 2.65: the array start opened its data folder (Unraid: a share root not of the group users) - closed again as the
         # run found it, then switched off; up to 2.64 Nextcloud stayed in maintenance mode, its note kept for ever
         elif grep -q "readable by other people" <<<"$out" && nc_reclose "$n" \
              && out="$(docker exec -u "$u" "$n" php "$occ" maintenance:mode --off 2>&1)"; then
-            list+="maintenance mode $n off (its data folder closed again) "; back_nc+=( "$n (its data folder closed again)" )
+            list+="maintenance mode $n off (its data folder closed again) "; back_nc+=( "$n (its data folder closed again)" ); back_names+=( "$n" )
         else
             while IFS= read -r f; do [[ -n "${f//[[:space:]]/}" ]] && log "    occ: ${f%$'\r'}"; done < <(head -20 <<<"$out")
             err_as recover_nc_maintenance "Maintenance mode of '$n' could not be switched off - it stays noted (state/maintenance)" name "$n"
@@ -2886,13 +2899,13 @@ recover_vms() {
         if [[ -z "$st" ]]; then log "  VM '$n' (from the aborted run) is gone - nothing to do"; continue; fi
         case "$how" in
             frozen)   [[ "$st" == "running" ]] || continue
-                      if timeout 30 virsh domfsthaw "$n" >/dev/null 2>&1; then list+="VM $n thawed "; back_vm+=( "VM $n thawed" )
+                      if timeout 30 virsh domfsthaw "$n" >/dev/null 2>&1; then list+="VM $n thawed "; back_vm+=( "VM $n thawed" ); back_names+=( "$n" )
                       else err_as recover_vm_thaw "VM '$n' (from the aborted run) could not be thawed - it stays noted (state/vms)" name "$n"; keep+=( "$n|$how" ); fi ;;
             paused)   [[ "$st" == "paused" ]] || continue
-                      if timeout 30 virsh resume "$n" >/dev/null 2>&1; then list+="VM $n resumed "; back_vm+=( "VM $n resumed" )
+                      if timeout 30 virsh resume "$n" >/dev/null 2>&1; then list+="VM $n resumed "; back_vm+=( "VM $n resumed" ); back_names+=( "$n" )
                       else err_as recover_vm_resume "VM '$n' (from the aborted run) does not resume - it stays noted (state/vms)" name "$n"; keep+=( "$n|$how" ); fi ;;
             shutdown) [[ "$st" == "shut off" ]] || continue
-                      if timeout 60 virsh start "$n" >/dev/null 2>&1; then list+="VM $n started "; back_vm+=( "VM $n started" )
+                      if timeout 60 virsh start "$n" >/dev/null 2>&1; then list+="VM $n started "; back_vm+=( "VM $n started" ); back_names+=( "$n" )
                       else err_as recover_vm_start "VM '$n' (from the aborted run) does not start - it stays noted (state/vms)" name "$n"; keep+=( "$n|$how" ); fi ;;
         esac
     done <"$UB_STATE/vms"
@@ -3514,6 +3527,32 @@ history_append() {
             printf '%s\n' "$1"
         } >"$UB_STATE/.history.jsonl.$$" 2>/dev/null \
             && mv -f "$UB_STATE/.history.jsonl.$$" "$UB_STATE/history.jsonl" 2>/dev/null
+        rm -f "$UB_STATE/.history.jsonl.$$"
+    ) 8<"$UB_STATE"
+    return 0
+}
+# history_count <line> <jq filter> (2.82): like history_append - but while the newest line matches the filter, that line
+# counts on instead of a new one (a watch-book entry): count + 1 (a line without one counted 1), first kept (the first
+# time), time/started/finished, run, pid and version the new line's
+history_count() {
+    [[ -n "$1" ]] || return 0
+    (
+        flock -w 10 8 || true
+        local last new
+        last="$(tail -n 1 "$UB_STATE/history.jsonl" 2>/dev/null)"
+        if [[ -n "$last" ]] && new="$(jq -ec --argjson n "$1" "$2"' | .count = ((if (.count | type) == "number" and .count >= 1 then .count else 1 end) + 1)
+                | .first = (if (.first | type) == "number" then .first else .time end)
+                | .time = $n.time | .started = $n.started | .finished = $n.finished | .run = $n.run | .pid = $n.pid | .version = $n.version' \
+                <<<"$last" 2>/dev/null)"; then
+            { head -n -1 "$UB_STATE/history.jsonl" 2>/dev/null; printf '%s\n' "$new"; } >"$UB_STATE/.history.jsonl.$$" 2>/dev/null \
+                && mv -f "$UB_STATE/.history.jsonl.$$" "$UB_STATE/history.jsonl" 2>/dev/null
+        else
+            {
+                tail -n $((UB_HISTORY_MAX - 1)) "$UB_STATE/history.jsonl" 2>/dev/null
+                printf '%s\n' "$1"
+            } >"$UB_STATE/.history.jsonl.$$" 2>/dev/null \
+                && mv -f "$UB_STATE/.history.jsonl.$$" "$UB_STATE/history.jsonl" 2>/dev/null
+        fi
         rm -f "$UB_STATE/.history.jsonl.$$"
     ) 8<"$UB_STATE"
     return 0

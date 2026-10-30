@@ -642,7 +642,12 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   said beside it), local only where a run took a snapshot (drift `share_snapshot_no_fs` / the plan's method live: not
   backed up), «+ partner» only for units the partner received (`unit_last`; skipped, failed, never: said); a new share is a
   row «not backed up» until the setup takes it. An app whose folder is a dataset of its own keeps `[app] folder` while its
-  share goes to a partner (else the engine sends the share nowhere, `children`).
+  share goes to a partner (else the engine sends the share nowhere, `children`). **Settings gone (B42, engine 2.82):** a
+  scheduled start runs nothing (`backup.sh --scheduled` from job.sh; the night order doesn't wait for her run then) — one
+  «skipped» history line `settings_missing` that counts on (`count`, `first`), no alert; the Team Lead's must «set up» says
+  it. **The backup place has ONE rule for its readers** (`backupPlaceShare()`, lib/backupscript.php: settings.ini, else where
+  the last runs wrote, else the office's share — `from`): his packages tile («found without settings», read only: nothing set
+  aside from there), Mr. Restori's place, the shares that aren't the place; what writes there goes by the settings alone.
 * **`jack` — Jack Streamer (the intern).** MediaCache (Emby, Jellyfin, Plex — several servers at once; 1.65.0, before EmbyCache:
   step `mediacache` moved data/embycache, the job id stays `embycache`) + «Consolidate folders». Settings via MediaCache's own `save_config()`;
   **the API key never leaves the server. Rsync both ways, always** (`JACK_RSYNC_ARGS`). **He works only under Ms. Moverelli**
