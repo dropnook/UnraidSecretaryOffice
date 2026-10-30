@@ -37,6 +37,7 @@ const RS_COMPOSE_CFG  = '/boot/config/plugins/compose.manager/compose.manager.cf
 const RS_COMPOSE_DEF  = '/boot/config/plugins/compose.manager/projects';
 const RS_LIBVIRT      = '/etc/libvirt';
 const RS_SNAPS_MAX    = 60;          // snapshots kept per place (newest first)
+const RS_SNAPS_LOOK   = 120;         // a place's snapshots looked into for one folder (does it hold it? — each look mounts a ZFS snapshot)
 const RS_NOT_BASES    = ['user', 'user0', 'disks', 'remotes', 'addons', 'rootshare'];
 const RS_DB_TYPES     = ['mariadb', 'postgres', 'mongodb'];
 const RS_UUID         = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
@@ -221,7 +222,7 @@ function rsContextZfs(array &$ctx, ?array $pools = null): void
         $now = time();
         $fresh = [];
         foreach ($split['awake'] as $p) {
-            $fresh[$p] = ['looked' => $now, 'mounts' => [], 'snaps' => []];
+            $fresh[$p] = ['looked' => $now, 'mounts' => [], 'snaps' => [], 'held' => []];
             unset($ctx['pools_asleep'][$p]);
         }
         foreach (rows($r['ds'][1]) as $f) {
@@ -252,7 +253,7 @@ function rsContextZfs(array &$ctx, ?array $pools = null): void
     $kept = (array) ((readJson(rsKeptFile()) ?? [])['pools'] ?? []);
     foreach ($split['asleep'] as $p) {
         $k = is_array($kept[$p] ?? null) ? $kept[$p] : [];
-        $v = ['looked' => is_int($k['looked'] ?? null) && $k['looked'] > 0 ? $k['looked'] : null, 'mounts' => [], 'snaps' => []];
+        $v = ['looked' => is_int($k['looked'] ?? null) && $k['looked'] > 0 ? $k['looked'] : null, 'mounts' => [], 'snaps' => [], 'held' => []];
         foreach ((array) ($k['mounts'] ?? []) as $mp => $ds) {
             if (is_string($mp) && is_string($ds) && str_starts_with($mp, '/mnt/') && (str_starts_with($ds, "$p/") || $ds === $p)) {
                 $v['mounts'][$mp] = $ds;
@@ -267,6 +268,12 @@ function rsContextZfs(array &$ctx, ?array $pools = null): void
                 }
             }
         }
+        // per folder he located then: how many of its snapshots held it, the newest's time (W4-1; an older file has none)
+        foreach ((array) ($k['held'] ?? []) as $live => $x) {
+            if (is_string($live) && str_starts_with($live, '/') && is_array($x) && count($x) === 2 && is_int($x[0] ?? null) && (is_int($x[1]) || $x[1] === null)) {
+                $v['held'][$live] = [$x[0], $x[1]];
+            }
+        }
         $ctx['zfs_kept'][$p] = $v;
         $ctx['pools_asleep'][$p] = $v['looked'];
     }
@@ -274,8 +281,10 @@ function rsContextZfs(array &$ctx, ?array $pools = null): void
 
 /**
  * What he last saw of a path on a sleeping ZFS pool (rsContextZfs: his state, never a look now): the dataset
- * holding it then, how many snapshots that dataset had and the newest one's time, and when that was. Null when
- * he never looked at the pool since the agent started.
+ * holding it then, how many of its snapshots held the path and the newest one's time, and when that was — the count
+ * his look then wrote for the path (`held`), or the dataset's when the path is the dataset's own top (every snapshot
+ * of it holds that). Null when he never looked at the pool since the agent started, or never at this path inside a
+ * dataset (W4-1: a dataset's snapshots are not the folder's — then the page says «asleep» alone, not looked).
  *
  * @return array{dataset: ?string, count: int, newest: ?int, looked: int}|null
  */
@@ -292,6 +301,12 @@ function rsKeptLook(string $live, string $base, array $ctx): ?array
         }
     }
     $ds = $best !== null ? (string) $k['mounts'][$best] : null;
+    if (isset($k['held'][$live])) {
+        return ['dataset' => $ds, 'count' => $k['held'][$live][0], 'newest' => $k['held'][$live][1], 'looked' => $k['looked']];
+    }
+    if ($ds !== null && $best !== $live) {
+        return null;
+    }
     $times = $ds !== null ? array_map(fn ($s) => $s[1], (array) ($k['snaps'][$ds] ?? [])) : [];
     return ['dataset' => $ds, 'count' => count($times), 'newest' => $times ? max($times) : null, 'looked' => $k['looked']];
 }
@@ -585,10 +600,17 @@ function rsLocate(string $path, array &$ctx): array
                         $p['inner'][] = $child;
                     }
                 }
+                // a snapshot counts for the folder only when it holds it (W4-1: a share on two pools, the folder on one —
+                // the other pool's snapshots were counted for it): the dataset's own top always, a folder inside it looked
+                // into (the pool is awake: a sleeping one never comes here), the newest RS_SNAPS_LOOK at most
                 $inside = substr($live, strlen($best));
-                foreach (array_reverse($ctx['snaps'][$ds] ?? []) as $s) {
+                foreach (array_slice(array_reverse($ctx['snaps'][$ds] ?? []), 0, $inside === '' ? null : RS_SNAPS_LOOK) as $s) {
+                    $in = "$best/.zfs/snapshot/{$s['name']}$inside";
+                    if ($inside !== '' && !rsHolds($in)) {
+                        continue;
+                    }
                     $p['snaps'][] = ['id' => "$ds@{$s['name']}", 'name' => $s['name'], 'time' => $s['time'],
-                                     'path' => "$best/.zfs/snapshot/{$s['name']}$inside", 'ours' => backupIsEngineSnap($s['name'], $ctx['prefixes'])];
+                                     'path' => $in, 'ours' => backupIsEngineSnap($s['name'], $ctx['prefixes'])];
                     if (count($p['snaps']) >= RS_SNAPS_MAX) {
                         break;
                     }
@@ -617,12 +639,13 @@ function rsLocate(string $path, array &$ctx): array
                 $p['snaps'] = array_slice($p['snaps'], 0, RS_SNAPS_MAX);
             }
         } elseif ($p['fs'] === 'btrfs') {
-            // a snapshot of the whole disk: it covers the share when the share's folder is in it (the folder itself may not be)
+            // a snapshot of the whole disk: it counts for the folder when the folder is in it (W4-1; the share's folder alone
+            // is not enough — a folder of the share made after the moment, or lying on another disk then, isn't in it)
             $dir = "$mnt/$base/" . $ctx['btrfs_dir'];
             $names = array_filter(@scandir($dir, SCANDIR_SORT_DESCENDING) ?: [], fn ($n) => $n[0] !== '.');
-            foreach ($names as $n) {
+            foreach (array_slice(array_values($names), 0, RS_SNAPS_LOOK) as $n) {
                 $in = "$dir/$n/$share" . ($rel !== '' ? "/$rel" : '');
-                if (!is_dir("$dir/$n/$share")) {
+                if (!is_dir("$dir/$n/$share") || ($rel !== '' && !rsHolds($in))) {
                     continue;
                 }
                 $t = preg_match('/(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)/', $n, $z)
@@ -634,9 +657,20 @@ function rsLocate(string $path, array &$ctx): array
             }
             usort($p['snaps'], fn ($a, $b) => $b['time'] <=> $a['time']);
         }
+        if ($p['fs'] === 'zfs' && $p['dataset'] !== null && isset($ctx['zfs_kept'][$base])) {
+            // what held it, for the look while the pool sleeps (rsKeptLook; written with his scan's file)
+            $ctx['zfs_kept'][$base]['held'][$live] = [count($p['snaps']), $p['snaps'] ? max(array_column($p['snaps'], 'time')) : null];
+        }
         $places[] = $p;
     }
     return $places;
+}
+
+/** Is a path in a snapshot there (a file, a folder, a link)? — a ZFS snapshot is mounted by the look, read-only */
+function rsHolds(string $path): bool
+{
+    clearstatcache(true, $path);
+    return file_exists($path) || is_link($path);
 }
 
 /**
@@ -1604,6 +1638,7 @@ function rsScan(): array
     }
     usort($state['shares'], fn ($a, $b) => strnatcasecmp($a['name'], $b['name']));
     $state['shares_back'] = rsSharesBack($state, $ctx, $settings, $engine, $kopiaLast);
+    rsKeptWrite($ctx['zfs_kept']);          // again, with what held each folder he located (rsLocate: `held`)
     return rsWrite($state);
 }
 
@@ -2623,7 +2658,14 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
     }
     if (!$moment) {
         if ($momentId !== '' && !$asleep) {
-            throw new Problem('unknown_target', ['target' => $momentId]);
+            // a moment of the share that doesn't hold this folder (a snapshot counts for a folder only when it holds it,
+            // W4-1 — so it isn't among the folder's moments): said so, as before; a moment nobody has is unknown
+            $ofShare = !$whole && in_array($momentId, array_column(rsMoments(rsLocate("/mnt/user/$share", $ctx)), 'id'), true);
+            if (!$ofShare) {
+                throw new Problem('unknown_target', ['target' => $momentId]);
+            }
+            $plan['blockers'][] = ['key' => 'restore_not_in_snapshot', 'params' => ['path' => $path]];
+            return $plan;
         }
         // a part that sleeps may hold it: say so (with «wake»), never "nothing there"
         $plan['blockers'][] = $asleep ? $sleepy()
