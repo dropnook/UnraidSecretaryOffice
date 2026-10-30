@@ -1108,7 +1108,7 @@ function entryParams(e) {
   const n = flowShape(e) === 'hour' ? p.hour : p.bytes !== undefined ? p.bytes : p.files;      // what its sentence says (agent: watchmanFlowSaid())
   if (p.bytes !== undefined) t.size = fmt.size(n);
   else if (p.files !== undefined) t.size = T('gone.files_n', { n: Number(n) || 0 });     // files deleted: counted
-  t.span = fmt.duration(60 * (p.minutes || 0));
+  if (flowShape(e) === 'span') t.span = fmt.duration(60 * (p.minutes || 0));
   if (e.kind.startsWith('flow_')) t.usual = usualText(e.kind, p);
   if (e.kind === 'flow_gone') t.more = goneMore(p);
   if (e.kind === 'flow_written') t.from = srcFrom(p);
