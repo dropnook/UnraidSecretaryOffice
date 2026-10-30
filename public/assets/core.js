@@ -2184,7 +2184,7 @@ Office.sections = function sections(opts) {
  *     name: T('…'),                 //   default T(key) when the desk has it, else the office's «Schedule»
  *     section: () => node,          // the desk's schedule settings (a node holding one .section-head)
  *   }) ]
- * What backup and jack will pass: docs/DEVELOPMENT.md «Tiles and lists».
+ * Every desk with a schedule passes this (backup and jack since 2026-10-30): docs/DEVELOPMENT.md «Tiles and lists».
  */
 const SCHED_HOW = ['ok', 'failed', 'stopped', 'partly', 'refused', 'skipped', 'running'];
 /** When a run comes next, short: «03:30» today, «Tomorrow, 03:30», a weekday within the week, else the date */

@@ -1332,7 +1332,7 @@
    "name": "appdata",
    "mode": "kopia",
    "method": "auto",
-   "retention": null,
+   "retention": "14 8 12",
    "kopia_retention": null,
    "ignores": [],
    "excluded": [],
@@ -1384,7 +1384,7 @@
    "name": "Familienvideos",
    "mode": "snapshot",
    "method": "auto",
-   "retention": null,
+   "retention": "3 2 0",
    "kopia_retention": null,
    "ignores": [],
    "excluded": [],
@@ -1422,7 +1422,7 @@
    "mode": "kopia",
    "method": "auto",
    "retention": null,
-   "kopia_retention": null,
+   "kopia_retention": "10 inherit 14 8 24 10",
    "ignores": [],
    "excluded": [],
    "locations": [
@@ -1498,7 +1498,7 @@
    "configured": true,
    "mode": "snapshot",
    "prepare": "freeze",
-   "retention": null,
+   "retention": "14 0 0",
    "share": "",
    "share_mode": null,
    "snap": null,
@@ -2684,5 +2684,284 @@
   "proven": 6,
   "total": 6,
   "failed": []
+ },
+ "retention": {
+  "local": {
+   "d": 7,
+   "w": 4,
+   "m": 6,
+   "set": true
+  },
+  "btrfs_days": 7,
+  "kopia": {
+   "on": true,
+   "keep": [
+    7,
+    0,
+    7,
+    4,
+    12,
+    3
+   ],
+   "set": true
+  },
+  "units": [
+   {
+    "kind": "share",
+    "name": "appdata",
+    "local": {
+     "d": 14,
+     "w": 8,
+     "m": 12
+    },
+    "local_how": "own",
+    "local_from": null,
+    "kopia": [
+     7,
+     0,
+     7,
+     4,
+     12,
+     3
+    ],
+    "kopia_how": "inherited",
+    "kopia_from": "global",
+    "partners": [],
+    "partner_from": null,
+    "differs": true
+   },
+   {
+    "kind": "share",
+    "name": "domains",
+    "local": {
+     "d": 7,
+     "w": 4,
+     "m": 6
+    },
+    "local_how": "inherited",
+    "local_from": "global",
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [],
+    "partner_from": null,
+    "differs": false
+   },
+   {
+    "kind": "share",
+    "name": "isos",
+    "local": {
+     "days": 7
+    },
+    "local_how": "btrfs",
+    "local_from": "global",
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [],
+    "partner_from": null,
+    "differs": false
+   },
+   {
+    "kind": "share",
+    "name": "Familienvideos",
+    "local": {
+     "d": 3,
+     "w": 2,
+     "m": 0
+    },
+    "local_how": "own",
+    "local_from": null,
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [],
+    "partner_from": null,
+    "differs": true
+   },
+   {
+    "kind": "share",
+    "name": "Dokumente",
+    "local": {
+     "d": 7,
+     "w": 4,
+     "m": 6
+    },
+    "local_how": "inherited",
+    "local_from": "global",
+    "kopia": [
+     7,
+     0,
+     7,
+     4,
+     12,
+     3
+    ],
+    "kopia_how": "inherited",
+    "kopia_from": "global",
+    "partners": [
+     {
+      "id": "2ec7accd",
+      "name": "Grosseltern",
+      "holds": 13,
+      "at": 1791549000
+     }
+    ],
+    "partner_from": null,
+    "differs": false
+   },
+   {
+    "kind": "share",
+    "name": "Familienfotos",
+    "local": {
+     "d": 7,
+     "w": 4,
+     "m": 6
+    },
+    "local_how": "inherited",
+    "local_from": "global",
+    "kopia": [
+     10,
+     0,
+     14,
+     8,
+     24,
+     10
+    ],
+    "kopia_how": "own",
+    "kopia_from": null,
+    "partners": [
+     {
+      "id": "2ec7accd",
+      "name": "Grosseltern",
+      "holds": 13,
+      "at": 1791549000
+     }
+    ],
+    "partner_from": null,
+    "differs": true
+   },
+   {
+    "kind": "share",
+    "name": "paperless",
+    "local": {
+     "d": 7,
+     "w": 4,
+     "m": 6
+    },
+    "local_how": "inherited",
+    "local_from": "global",
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [],
+    "partner_from": null,
+    "differs": false
+   },
+   {
+    "kind": "share",
+    "name": "system",
+    "local": null,
+    "local_how": "off",
+    "local_from": null,
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [],
+    "partner_from": null,
+    "differs": false
+   },
+   {
+    "kind": "share",
+    "name": "UnraidSecretaryOffice",
+    "local": {
+     "d": 7,
+     "w": 4,
+     "m": 6
+    },
+    "local_how": "inherited",
+    "local_from": "global",
+    "kopia": [
+     7,
+     0,
+     7,
+     4,
+     12,
+     3
+    ],
+    "kopia_how": "inherited",
+    "kopia_from": "global",
+    "partners": [
+     {
+      "id": "2ec7accd",
+      "name": "Grosseltern",
+      "holds": 9,
+      "at": 1791549000
+     }
+    ],
+    "partner_from": null,
+    "differs": false
+   },
+   {
+    "kind": "vm",
+    "name": "Home-Assistant",
+    "local": {
+     "d": 14,
+     "w": 0,
+     "m": 0
+    },
+    "local_how": "own",
+    "local_from": null,
+    "kopia": null,
+    "kopia_how": "not_offsite",
+    "kopia_from": null,
+    "partners": [],
+    "partner_from": null,
+    "differs": true
+   },
+   {
+    "local": {
+     "d": 7,
+     "w": 4,
+     "m": 6
+    },
+    "local_how": "inherited",
+    "local_from": "place:UnraidSecretaryOffice",
+    "kopia": [
+     7,
+     0,
+     7,
+     4,
+     12,
+     3
+    ],
+    "kopia_how": "inherited",
+    "kopia_from": "place:UnraidSecretaryOffice",
+    "partners": [
+     {
+      "id": "2ec7accd",
+      "name": "Grosseltern",
+      "holds": 9,
+      "at": 1791549000
+     }
+    ],
+    "partner_from": "place:UnraidSecretaryOffice",
+    "kind": "flash",
+    "name": "flash",
+    "differs": false
+   }
+  ],
+  "differ": 4,
+  "keep_theirs": [
+   {
+    "id": "2ec7accd",
+    "name": "Grosseltern",
+    "retention": {
+     "d": 7,
+     "w": 4,
+     "m": 6
+    }
+   }
+  ]
  }
 }

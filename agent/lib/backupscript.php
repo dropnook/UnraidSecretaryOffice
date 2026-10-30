@@ -221,8 +221,10 @@ function backupDumpsPath(string $share): ?string
  * deleted; a scheduled start then starts no run, engine 2.82) but the engine has run here, where its last runs wrote their
  * packages (status.json, last-run.json, then the newest of history.jsonl's last lines: packages.base, only in exactly the
  * shape backupDumpsPath() makes), else the office's own share. Never set up (no run either): none, as before. The one
- * rule for every reader of the place (Mr. Backupsy's packages, Mr. Restori's place, the shares the place isn't); what
- * writes there (setting a package aside, a let-go) still goes by the settings alone. $data: the engine's data folder.
+ * rule for every reader of the place (Mr. Backupsy's packages, Mr. Restori's place, the shares the place isn't, Ms.
+ * Dustdevil's kept names, the Night Watchman's office shares); what writes there (setting a package aside, a let-go) and
+ * what describes the setup (backupProtectionSet(): what the engine does as set; the partner units it sends) still go by
+ * the settings alone. $data: the engine's data folder.
  *
  * @return array{share: string, from: string}  from: settings | last_run | office_share
  */
@@ -572,7 +574,8 @@ function backupProtectionSet(string $path, int $depth, array $s, ?array $appShar
     $kopia = in_array(strtolower((string) backupSetting($s, 'kopia', 'enabled', 'no')), ['yes', 'ja', '1', 'true'], true);
     $path = rtrim($path, '/');
 
-    // archives and packages lie in the backup place: protected like its share
+    // archives and packages lie in the backup place: protected like its share — as set (the engine's next run goes by
+    // the settings; without them nothing is judged here, null above), never backupPlaceShare()'s guess
     $place = backupDumpsPath((string) backupSetting($s, 'general', 'dumps_share', ''));
     if ($path === '/boot' || str_starts_with($path, '/boot/')) {
         $at['source'] = 'flash';

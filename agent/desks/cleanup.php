@@ -3205,12 +3205,14 @@ function clFolderEntries(array $list, array $tops, array $named, string $kind, b
  * office's own (its data folder, anything named UnraidSecretaryOffice / unraid-secretary-office), Mr. Backupsy's backup
  * place in that share, and what a partner holds — a dataset under the partners' place, or the folder of an app or VM
  * Mr. Backupsy sends to a partner office (its copies there go on from this dataset's snapshots: renamed, the chain
- * breaks). name => office | backup_place | partner_held. $settings: the engine's settings.ini (tests pass their own).
+ * breaks). name => office | backup_place | partner_held. $settings: the engine's settings.ini (tests pass their own);
+ * the backup place where it is (backupPlaceShare(): settings.ini gone, where the last runs wrote — never a leftover then),
+ * $ubData the engine's data folder for that (tests).
  *
  * @param list<array{name:string, parts:list<array>}> $folders
  * @return array<string, string>
  */
-function clKeepNames(string $share, array $folders, ?array $settings = null, ?string $dataDir = null): array
+function clKeepNames(string $share, array $folders, ?array $settings = null, ?string $dataDir = null, ?string $ubData = null): array
 {
     $settings ??= backupReadSettings(BACKUP_DATA_DIR . '/settings.ini');
     $dataDir ??= DATA_DIR_USER;
@@ -3219,7 +3221,7 @@ function clKeepNames(string $share, array $folders, ?array $settings = null, ?st
     if (preg_match("#^/mnt/[^/]+/$q/([^/]+)#", $dataDir, $m)) {
         $keep[$m[1]] = 'office';
     }
-    if ($share !== '' && (string) backupSetting($settings, 'general', 'dumps_share', '') === $share) {
+    if ($share !== '' && backupPlaceShare($settings, $ubData ?? BACKUP_DATA_DIR)['share'] === $share) {
         $keep[$share === BACKUP_OFFICE_SHARE ? BACKUP_DESK_DIR : 'unraid-backup'] = 'backup_place';
     }
     $sent = [];

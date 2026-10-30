@@ -647,7 +647,22 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   «skipped» history line `settings_missing` that counts on (`count`, `first`), no alert; the Team Lead's must «set up» says
   it. **The backup place has ONE rule for its readers** (`backupPlaceShare()`, lib/backupscript.php: settings.ini, else where
   the last runs wrote, else the office's share — `from`): his packages tile («found without settings», read only: nothing set
-  aside from there), Mr. Restori's place, the shares that aren't the place; what writes there goes by the settings alone.
+  aside from there), Mr. Restori's place, the shares that aren't the place, Ms. Dustdevil's kept names, the Night Watchman's
+  office shares; what writes there, and what describes the setup (`backupProtectionSet()`, the partner units), go by the
+  settings alone.
+  **Retention at a glance** (2026-10-30): his state's `retention` (`backupRetention()`: settings.ini, the partners' last
+  answers in partner/state.json and pairs.json only — never a disk, a command or Kopia; the scan's `shares` and `vms`) =
+  `{local: {d, w, m, set}, btrfs_days, kopia: {on, keep: [six; null = Kopia's own], set}, units: [{kind share|vm|app|flash,
+  name, local ({d,w,m} | {days} | null), local_how own|inherited|btrfs|none|off, local_from global|share:<s>|place:<s>|null,
+  kopia (six | null), kopia_how own|inherited|not_offsite|off, kopia_from, partners: [{id, name, holds (copies at its last
+  answer | null), at}], partner_from, differs}], differ, keep_theirs: [{id, name, retention}]}` — the engine's rules (a
+  share's own else [zfs] retention, «7 4 6» unset; btrfs [btrfs] keep_days; a VM its own else its share's; an app its first
+  folder's share; the flash a package of the backup place or a Kopia source; Kopia per field own else [kopia] keep_*). A
+  partner's rule for our copies is its door's and never said to this office: the row names the partner and its copies;
+  `keep_theirs` is what this office keeps of a partner's (the pairs' receive). The tile `retention` beside the schedule
+  (`retentionTile()`, pure: the rule for all, Kopia's keeps, a label while units differ), its section `retentionSection()`
+  read only (a filter bar with «only those with their own»; «Where set» → the unit's setup row by `setup.focus`, an app by
+  `app:name:<n>`); an older agent's state without it: no tile.
 * **`jack` — Jack Streamer (the intern).** MediaCache (Emby, Jellyfin, Plex — several servers at once; 1.65.0, before EmbyCache:
   step `mediacache` moved data/embycache, the job id stays `embycache`) + «Consolidate folders». Settings via MediaCache's own `save_config()`;
   **the API key never leaves the server. Rsync both ways, always** (`JACK_RSYNC_ARGS`). **He works only under Ms. Moverelli**
@@ -802,7 +817,11 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   deleted.** Planned against a fresh look, confirmed with the plan's token, run by atd under the engine's lock, journaled, stops
   at the first failed step; «Put back» = the recorded undo only — a copy he started and never finished (an array stop, a
   power cut) is noted, and «Put back» then removes it into Ms. Dustdevil's storeroom through her helpers (never deleted); a
-  program holding a file open blocks a replace (he never ends one). Lists only awake ZFS pools. A missing share blocks; never a
+  program holding a file open blocks a replace (he never ends one). Lists only awake ZFS pools. **A snapshot counts for a folder
+  only when it holds it** (`rsLocate()`, W4-1: a share on two pools, the folder on one): ZFS's `.zfs/snapshot/<name>/<rel>`
+  (a dataset's own top always), the btrfs moment's folder, looked into on awake places only — his count, «newest», each
+  place's latest and the dialog's moments come from that one list; a sleeping ZFS pool shows what held the folder at his
+  last look (`held` in his file), never a look now. A missing share blocks; never a
   folder holding a running VM's disks; never starts containers; credentials only as variable names; partner pulls into a NEW
   dataset beside, never a `zfs clone`. **Shares and Kopia paths** (agent/desks/restore-paths.php): every share is a row (never
   the office's share or the backup place), step 4 with the share as owner; one path out of Kopia goes into a folder of its own

@@ -5486,6 +5486,17 @@ function watchmanFlowPorts(array $var): array
 }
 
 /**
+ * The shares the office itself writes into: its own and the backup place's — where the place is (backupPlaceShare():
+ * settings.ini gone, where the last runs wrote), so the engine's writes there are never a stranger's. $data for the tests.
+ *
+ * @return list<string>
+ */
+function watchmanOfficeShares(array $settings, string $data = BACKUP_DATA_DIR): array
+{
+    return array_values(array_unique(array_filter([BACKUP_OFFICE_SHARE, backupPlaceShare($settings, $data)['share']])));
+}
+
+/**
  * What the data flow sees now (outside the book's lock): the connections, SMB's sessions, every
  * running container's sent bytes, the awake ZFS shares' written bytes, who holds the engine's lock.
  * A part that can't be looked at is null; the page says so.
@@ -5533,7 +5544,6 @@ function watchmanFlowLook(array $paths, ?array $containers): array
     $holder = function_exists('backupLockHolder') ? backupLockHolder() : null;
     $settings = function_exists('backupReadSettings') ? backupReadSettings(BACKUP_DATA_DIR . '/settings.ini') : [];
     $kopia = (string) backupSetting($settings, 'kopia', 'container', '');
-    $place = (string) backupSetting($settings, 'general', 'dumps_share', '');
     $snapDirs = array_values(array_unique(['.btrfs-snap', basename((string) backupSetting($settings, 'general', 'btrfs_snap_dir', '.btrfs-snap'))]));
     // who wrote into a share (watchmanFlowSources()): every container's writable layer by its dataset (Docker on ZFS), the
     // image layers named only when an entry asks for them (watchmanFlowLayers()), the folder libvirt's image lies in; a share
@@ -5556,7 +5566,7 @@ function watchmanFlowLook(array $paths, ?array $containers): array
             },
             'libvirt' => isset($paths['domain_cfg']) ? watchmanFlowLibvirt(readCfg((string) $paths['domain_cfg'])) : null,
             'holder' => $holder['holder'] ?? null, 'kopia' => $kopia !== '' ? $kopia : null,
-            'office_shares' => array_values(array_unique(array_filter([BACKUP_OFFICE_SHARE, $place]))),
+            'office_shares' => watchmanOfficeShares($settings),
             'disks' => watchmanFlowDisks($paths, $snapDirs), 'fs' => watchmanFlowFs($paths),
             'where' => fn (string $disk, int $gen): ?array => watchmanBtrfsWhere(rtrim($paths['mnt'] ?? '/mnt', '/') . "/$disk", $gen), 'moving' => watchmanFlowMovers($paths['proc'] ?? '/proc'),
             'runs' => watchmanFlowOfficeRuns($paths), 'move_shares' => watchmanFlowMoveShares($paths), 'moved_off' => watchmanFlowMovedOff($paths),
