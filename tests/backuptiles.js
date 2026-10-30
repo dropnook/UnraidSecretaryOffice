@@ -543,4 +543,58 @@ same('history: a word fits its rows only', h.filter((x) => Office.fits(W('warnin
   Date.now = () => (NOW + 60) * 1000;
 }
 
+// ---------------------------------------------------------------- «Retention at a glance» (2026-10-30): the agent's summary
+{
+  const keep = [7, 0, 7, 4, 12, 3];
+  const unit = (kind, name, more) => ({ kind, name, local: { d: 7, w: 4, m: 6 }, local_how: 'inherited', local_from: 'global', kopia: keep, kopia_how: 'inherited',
+    kopia_from: 'global', partners: [], partner_from: null, differs: false, ...more });
+  const rt = { local: { d: 7, w: 4, m: 6, set: true }, btrfs_days: 7, kopia: { on: true, keep, set: true }, differ: 2, keep_theirs: [{ id: 'p2', name: 'Lodge', retention: { d: 3, w: 2, m: 1 } }],
+    units: [unit('share', 'appdata', { local: { d: 14, w: 8, m: 12 }, local_how: 'own', local_from: null, differs: true,
+      partners: [{ id: 'p1', name: 'Vault', holds: 9, at: NOW - 900 }] }),
+    unit('share', 'Familienfilme', { kopia: [3, 0, 3, 2, 1, 0], kopia_how: 'own', kopia_from: null, differs: true }),
+    unit('share', 'scratch', { local: { days: 7 }, local_how: 'btrfs', kopia: null, kopia_how: 'not_offsite', kopia_from: null }),
+    unit('share', 'system', { local: null, local_how: 'off', local_from: null, kopia: null, kopia_how: 'not_offsite', kopia_from: null }),
+    unit('vm', 'win', { local_from: 'share:domains', kopia: null, kopia_how: 'not_offsite', kopia_from: null, partners: [{ id: 'p1', name: 'Vault', holds: null, at: null }], partner_from: 'share:domains' }),
+    unit('app', 'immich', { local_from: 'share:appdata', kopia_from: 'share:appdata' }),
+    unit('flash', 'flash', { local_from: 'place:media', kopia_from: 'place:media' })] };
+  const st = base();
+  st.retention = rt;
+  B.setState(st);
+  const ts = B.overviewTiles();
+  const r = ts.find((t) => t.key === 'retention');
+  same('retention: its tile right after the schedule, its own section (no filter)', [ts.map((t) => t.key).slice(0, 3), r.section, r.filters], [['last', 'schedule', 'retention'], 'retention', null]);
+  same('retention: the rule for everything as the value, Kopia\'s six keeps under it, the label «2 units differ», the six named in the tip',
+    [r.value, r.sub, r.chip, r.tip],
+    ['setup.tile.u_d {"n":7} · setup.tile.u_w {"n":4} · setup.tile.u_m {"n":6}', ['ret.kopia {"keeps":"7 · 0 · 7 · 4 · 12 · 3"}'], 'ret.differ {"n":2}',
+      'ret.keeps_tip {"list":"setup.p_latest · setup.p_hourly · setup.p_daily · setup.p_weekly · setup.p_monthly · setup.p_annual"}']);
+  same('retention: TILES knows it (route #/backup/retention, place tile.retention)', B.TILES.find(([id]) => id === 'retention'), ['retention', 'tile.retention', 'retention']);
+  const tl = B.tileList().find((t) => t.id === 'retention');
+  same('retention: the switcher gets its key and a section of its own', [tl.key, typeof tl.section], ['tile.retention', 'function']);
+  st.retention = { ...rt, kopia: { on: false, keep, set: false }, differ: 0 };
+  B.setState(st);
+  const r2 = B.overviewTiles().find((t) => t.key === 'retention');
+  same('retention: Kopia off — «no offsite», no label while nothing differs', [r2.sub, r2.chip, r2.tip], [['ret.no_offsite'], '', '']);
+  st.retention = undefined;
+  B.setState(st);
+  same('retention: an older agent\'s state without the summary — no tile', B.overviewTiles().some((t) => t.key === 'retention'), false);
+  const c = (i) => B.retentionCells(rt.units[i]);
+  same('retention cells: a share\'s own local rule (label «own»), Kopia inherited quiet with where it comes from, the partner with its copies',
+    [c(0).local, c(0).kopia.muted, c(0).kopia.tip, c(0).partner],
+    [{ text: 'setup.tile.u_d {"n":14} · setup.tile.u_w {"n":8} · setup.tile.u_m {"n":12}', own: true, muted: false, tip: 'ret.own_tip' }, true, 'ret.from_global',
+      [{ text: 'ret.partner_holds {"name":"Vault","n":9}', tip: `ret.partner_tip {"name":"Vault","when":"rel(${NOW - 900})"}` }]]);
+  same('retention cells: Kopia\'s own six', [c(1).kopia.text, c(1).kopia.own], ['3 · 0 · 3 · 2 · 1 · 0', true]);
+  same('retention cells: a btrfs share — whole days, not offsite «—»', [c(2).local.text, c(2).local.tip, c(2).kopia.text, c(2).kopia.tip],
+    ['ret.btrfs {"days":"count.days {\\"n\\":7}"}', 'ret.btrfs_tip', '—', 'ret.no_offsite']);
+  same('retention cells: a share not backed up', [c(3).local.text, c(3).local.muted, c(3).partner], ['ret.off', true, []]);
+  same('retention cells: a VM like its share, the partner not heard yet and through its share',
+    [c(4).local.tip, c(4).partner], ['ret.from_share {"name":"domains"}', [{ text: 'ret.partner_unheard {"name":"Vault"}', tip: 'ret.from_share {"name":"domains"} · ret.partner_tip_never {"name":"Vault"}' }]]);
+  same('retention cells: the flash like the backup place', [c(6).local.tip, c(6).kopia.tip], ['ret.from_place {"name":"media"}', 'ret.from_place {"name":"media"}']);
+  same('retention: names as the other sections say them', rt.units.map(B.retUnitName),
+    ['appdata', 'Familienfilme', 'scratch', 'system', 'src.vm {"name":"win"}', 'partner.unit_app {"name":"immich"}', 'tile.flash']);
+  same('retention view: «only those with their own», the words over names and cells', [B.retentionView(rt.units, { words: [], only: true }).map((u) => u.name),
+    B.retentionView(rt.units, { words: ['vault'], only: false }).map((u) => u.name), B.retentionView(rt.units, { words: [], only: false }).length],
+    [['appdata', 'Familienfilme'], ['appdata', 'win'], 7]);
+  B.setState(base());
+}
+
 console.log(JSON.stringify(out));

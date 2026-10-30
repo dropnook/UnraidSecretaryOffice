@@ -100,6 +100,12 @@
 .bk-pfoot{margin:6px 0 0}
 /* on a phone the table scrolls sideways in its box: the details stay at screen width, on the left */
 @media (max-width:640px){.bk-pdetail{padding-left:4px; position:sticky; left:0; box-sizing:border-box; max-width:calc(100vw - 48px)} .bk-pdetail .kv{grid-template-columns:1fr} .bk-pdetail .kv dt{margin-top:4px}}
+/* «Retention at a glance»: an inherited rule (or none) quieter than a unit's own; the numbers in columns */
+.bk-ret td{font-variant-numeric:tabular-nums}
+.bk-ret td.bk-ret-inh{color:var(--muted)}
+.bk-ret td.bk-ret-own{color:var(--ink); font-weight:600}
+.bk-ret-note{margin:4px 2px 10px}
+.bk-ret td.bk-ret-partner div + div{margin-top:2px}
 
 /* setup assistant */
 .bk-shares td.num{text-align:right; font-variant-numeric:tabular-nums}

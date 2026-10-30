@@ -24,6 +24,7 @@
     "partner.tile",
     "protection",
     "restore",
+    "ret.title",
     "schedule.title",
     "setup.apply",
     "setup.apps",
@@ -61,6 +62,7 @@
     "tile.kopia",
     "tile.prot",
     "tile.restore",
+    "tile.retention",
     "tile.vms"
   ],
   "texts": [
