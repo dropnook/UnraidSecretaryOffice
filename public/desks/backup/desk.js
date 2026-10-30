@@ -926,8 +926,8 @@ function tileList() {
   const shows = (id) => (TILE_SECTION[id] === 'prot' ? 'prot' : own[TILE_SECTION[id]]);
   const filters = (id) => (PROT_TILES.includes(id) ? T('tile.' + id) : undefined);      // a filter tile: its name in the note line
   if (!state || !state.found) return TILES.map(([id, key]) => ({ id, key, section: shows(id), filters: filters(id), tile: () => null }));
-  return overviewTiles().map((d) => ({ id: d.key, key: TILE_KEY[d.key], section: shows(d.key), filters: filters(d.filters),
-    tile: (a) => tileNode(d, a) }));
+  return overviewTiles().map((d) => (d.sched ? Office.scheduleTile(ID, { ...d.sched, section: shows(d.key) })
+    : { id: d.key, key: TILE_KEY[d.key], section: shows(d.key), filters: filters(d.filters), tile: (a) => tileNode(d, a) }));
 }
 
 /** One tile of overviewTiles() as Office.stat — the switcher's attributes (a: the click, aria-pressed, the mark …) spread in;
@@ -940,6 +940,29 @@ function waveLabel(text) {
   const w = el('span', 'running');
   w.append(el('span', 'spin'), ' ', text);
   return w;
+}
+
+/** How a backup run ended (history[].result) in the schedule tile's words (core.js Office.scheduleLast) */
+const SCHED_HOW = { ok: 'ok', warnings: 'partly', errors: 'partly', failed: 'failed', aborted: 'stopped', skipped: 'skipped', running: 'running' };
+/**
+ * «Schedule» on the office's schedule tile (Office.scheduleTile), its options, pure: the next backup (its cron line in
+ * words under it, «due now» once past — B14), the last backup and how it ended (a backup going on: «Running now»), about
+ * how long a run takes and when it should be done; off: «Off» and «click to set it»; not set up yet: «not scheduled» —
+ * alert while no line runs it. His «Last backup» tile keeps the rest of that run. Its section: scheduleSection()
+ */
+function scheduleOpts() {
+  const sc = state.schedule || {};
+  const last = lastRun();
+  const s = status();
+  const took = typicalDuration();
+  const ahead = sc.enabled && sc.next && sc.next >= Date.now() / 1000 - 60;
+  return {
+    key: 'stat.schedule', schedule: sc, value: sc.script ? '' : T('stat.not_scheduled'),
+    last: live() && s && s.mode === 'backup' ? { at: s.started || Date.now() / 1000, how: 'running' }
+      : last ? { at: last.finished || last.started, how: SCHED_HOW[last.result] || 'ok' } : null,
+    sub: [ahead && took ? T('schedule.duration', { duration: fmt.duration(took), end: fmt.time(sc.next + took) }) : '', sc.enabled ? '' : T('stat.schedule_hint')],
+    alert: !sc.enabled,
+  };
 }
 
 /** «2 hours ago» etc.: durations with seconds when quick (dur), the containers' part of the last backup in one line */
@@ -1028,12 +1051,9 @@ function overviewTiles() {
   } else {
     add({ key: 'last', label: T('stat.last'), running: live(), value: '–', sub: [T('bubble.no_runs'), tour, missedLine()].filter(Boolean), alert: tourBad || !!missedRun() });
   }
-  const sc = state.schedule || {};
-  const value = sc.enabled ? (sc.frequency === 'custom' ? fmt.cron(sc.custom) : T('freq.' + sc.frequency)) : T('stat.not_scheduled');
-  // a next time already past (a page left open, a state kept while the engine's folder slept): never «next backup … ago» (B14)
-  const next = sc.enabled && sc.next ? T(sc.next < Date.now() / 1000 ? 'stat.next_due' : 'stat.next', { when: fmt.relative(sc.next) }) : '';
-  add({ key: 'schedule', label: T('stat.schedule'), value, sub: [sc.enabled ? next : T('stat.schedule_hint')],
-    alert: !sc.enabled });
+  // the office's schedule tile (Office.scheduleTile): here its options, pure — tileList() hands them to core.js
+  const sched = scheduleOpts();
+  add({ key: 'schedule', label: T('stat.schedule'), sched, alert: sched.alert });
   const c = state.containers;
   // Kopia: the last run's sources, the container, the repository and whether its policies match
   if (set.kopia_enabled) {

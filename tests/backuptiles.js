@@ -2,7 +2,7 @@
  * Mr. Backupsy's overview tiles and the table they filter (public/desks/backup/desk.js, under node; tiles v2, 2026-10-11 —
  * a tile is a section): overviewTiles() — which tiles in the row's order, what each says, the section each shows and
  * which filters the table, the last backup carrying how long it took, the containers' part and a newer tour, the
- * schedule a section (no dialog opener), «Protection», «Changed» and «Restore» —, tileList() (what the switcher gets: ids,
+ * schedule the office's schedule tile (its options: next, last and how it ended, how long a run takes), «Protection», «Changed» and «Restore» —, tileList() (what the switcher gets: ids,
  * keys, sections, the filter's words; every tile before a state), tileNode() (Office.stat with the switcher's attributes
  * spread in), protRows() + protView() — the rows each tile leaves (the flash's own row as an archive or not backed up),
  * the bar's words and «only what isn't protected», a group with no fit keeping its head — and historyRows() (the
@@ -26,6 +26,8 @@ globalThis.Office = {
   el: (tag, cls, text) => ({ tag, cls, text, dataset: {}, appendChild() {}, append() {} }),
   place: (anchor, node) => { node.place = anchor; return node; },
   stat: (o) => ({ o, dataset: {} }),
+  // the office's schedule tile (core.js, tests/sections.js schedule): here what he hands it
+  scheduleTile: (desk, o) => ({ id: 'schedule', key: o.key, place: 'tile.schedule', section: o.section, desk, o }),
   // core.js's label: the level's word, «local + partner (+ offsite)» for partners that received it; the note kept to look at
   backupChip: (level, note) => (level ? { tag: 'span', cls: 'chip', dataset: {}, note: note || null,
     text: note && (note.partners || []).length && level !== 'none' ? (level === 'offsite' ? 'protect.partner_offsite' : 'protect.partner') : 'protect.' + level } : null),
@@ -97,8 +99,12 @@ same('last backup: the result, its date and how long it took in the first sub li
 same('last backup: the containers\' part in the second (downtime, stopped, kept running)', last.sub[1],
   'stat.downtime {"duration":"1 min"} · stat.ct_stopped {"n":2} · stat.ct_kept {"n":6}');
 same('last backup: no third line while no tour came after it', last.sub.length, 2);
-same('schedule: the time and the next backup (no «set here» — the list shows what is set, 2026-10-12)', [byKey('schedule').value, byKey('schedule').sub],
-  ['cron(30 4 * * *)', [`stat.next {"when":"rel(${NOW + 18000})"}`]]);
+// the office's schedule tile (Office.scheduleTile, 2026-10-30): his schedule as it is, the last backup and how it ended
+// («warnings» = partly done), how long a run takes and when it should be done; no own value while the engine is set up
+const sched = () => byKey('schedule').sched;
+same('schedule: the office\'s schedule tile — his schedule, no own value, the last backup partly done, the run\'s length and end',
+  [sched().key, sched().schedule.custom, sched().value, sched().last, sched().sub, sched().alert, byKey('schedule').alert],
+  ['stat.schedule', '30 4 * * *', '', { at: NOW - 3586, how: 'partly' }, [`schedule.duration {"duration":"0 min","end":"time(${NOW + 18014})"}`, ''], false, false]);
 same('partners: one short line per partner, the whole text in the tip (the section has a row each, the search\'s anchor)',
   [byKey('partners').sub, byKey('partners').tip.startsWith('partner.tile_sent'), byKey('partners').alert],
   [[`partner.short_sent {"name":"Vault","when":"rel(${NOW - 600})"} · partner.short_skipped {"n":1}`], true, true]);
@@ -133,9 +139,26 @@ s.schedule = { script: true, frequency: 'disabled', custom: null, enabled: false
 s.containers = { up: false };
 B.setState(s);
 tiles = B.overviewTiles();
-same('schedule off: «not scheduled», alert, «click to set it», its section', [byKey('schedule').value, byKey('schedule').alert, byKey('schedule').sub, byKey('schedule').section],
-  ['stat.not_scheduled', true, ['stat.schedule_hint'], 'schedule']);
+same('schedule off: the tile\'s «Off» (no own value), alert, «click to set it», no run\'s length, its section',
+  [sched().value, sched().alert, sched().sub.filter(Boolean), byKey('schedule').section], ['', true, ['stat.schedule_hint'], 'schedule']);
 same('Docker off: said in the last backup\'s sub line', byKey('last').sub[1], 'common.docker_off');
+s.schedule = { script: false, enabled: false };
+s.history = [];
+B.setState(s);
+tiles = B.overviewTiles();
+same('schedule not set up yet: «not scheduled» as its value, alert, «click to set it», not run yet',
+  [sched().value, sched().alert, sched().sub.filter(Boolean), sched().last], ['stat.not_scheduled', true, ['stat.schedule_hint'], null]);
+s = base();
+s.running = true;
+s.status = { mode: 'backup', started: NOW - 120, result: 'running' };
+B.setState(s);
+tiles = B.overviewTiles();
+same('schedule: a backup going on — «Running now» on the tile', sched().last, { at: NOW - 120, how: 'running' });
+s.status = { mode: 'check', started: NOW - 120, result: 'running' };
+s.history[0] = run(NOW - 3600, { result: 'aborted', message: 'array_stopping' });
+B.setState(s);
+tiles = B.overviewTiles();
+same('schedule: a tour going on is no backup — the last backup (an array stop: stopped)', sched().last, { at: NOW - 3586, how: 'stopped' });
 // drift and the drill
 s = base();
 s.drift = { time: NOW - 300, items: [{ level: 'warn', code: '', value: '', text: 'x' }, { level: 'info', code: '', value: '', text: 'y' }] };
@@ -430,7 +453,8 @@ same('history: a word fits its rows only', h.filter((x) => Office.fits(W('warnin
   s = base();
   s.schedule = { ...s.schedule, next: NOW - 3 * 3600 };
   B.setState(s);
-  same('truth B14: the next time past — «was due», never «next backup … ago»', tileOf('schedule').sub, [`stat.next_due {"when":"rel(${NOW - 3 * 3600})"}`]);
+  same('truth B14: the next time past — handed as it is (the tile says «due now»), no «done around» a time gone by',
+    [tileOf('schedule').sched.schedule.next, tileOf('schedule').sched.sub.filter(Boolean)], [NOW - 3 * 3600, []]);
   // T24: one dump the last run couldn't make (the engine kept the earlier one) — the databases tile alerts and says it
   s = base();
   s.packages.apps[0].files[0] = { ...s.packages.apps[0].files[0], run: 'r0', time: NOW - 21 * 86400 };
