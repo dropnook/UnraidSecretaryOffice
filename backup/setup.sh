@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.81 - 2026-10-29
+# unraid-backup - setup.sh                        Version 2.82 - 2026-10-30
+#   2.82 An Apply that brings back what an aborted run left says its warnings in the office's words too (lib/common.sh
+#        warn_as -> ub_msg_as: level warn with a code, step environment) - Docker or libvirt silent, a Nextcloud gone, not
+#        running or without occ, containers not ready in time, all of it back after an aborted run
 #   2.81 An Apply that brings back what an aborted run left says what didn't come back in the office's words (lib/common.sh
 #        err_as -> ub_msg_as: setup-status.json messages at level error with a code, step environment) - up to 2.80
 #        counted as an error without a word

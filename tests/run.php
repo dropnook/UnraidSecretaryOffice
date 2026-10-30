@@ -45190,10 +45190,19 @@ function testSetupMessages(): void
     $sh = (string) file_get_contents(OFFICE_DIR . '/backup/setup.sh');
     // 2.58: the OK and error lines too (ok_as, bad_as); 2.81: the engine's own errors a setup records (lib/common.sh err_as)
     preg_match_all('/\b(?:hint_as|wrn_as|wrn_code|hint_code|ok_as|bad_as) "?([a-z][a-z0-9_]*)/', $sh, $m);
-    preg_match_all('/\berr_as ([a-z][a-z0-9_]*) "/', (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh'), $lm);
+    $libSrc = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    preg_match_all('/\berr_as ([a-z][a-z0-9_]*) "/', $libSrc, $lm);
     same('setup messages: 2.81 - what an aborted run left and didn\'t come back is coded (lib/common.sh err_as)',
         ['recover_ct_start', 'recover_nc_dir', 'recover_nc_maintenance', 'recover_vm_thaw', 'recover_vm_resume', 'recover_vm_start'], $lm[1]);
-    $m[1] = array_merge($m[1], $lm[1]);
+    preg_match_all('/\bwarn_as ([a-z][a-z0-9_]*) "/', $libSrc, $wm);
+    same('setup messages: 2.82 - the recover path\'s warnings coded too (lib/common.sh warn_as)',
+        ['recover_docker_silent', 'recover_libvirt_silent', 'recover_back', 'recover_ct_not_ready', 'recover_nc_gone', 'recover_nc_not_running', 'recover_nc_no_occ'], $wm[1]);
+    $from = (int) strpos($libSrc, "\nrecover_interrupted_run() {");
+    $to = (int) strpos($libSrc, "\n}\n", (int) strpos($libSrc, "\nrecover_vms() {"));
+    $rf = $from && $to > $from ? substr($libSrc, $from, $to - $from) : 'warn "not found"';
+    same('setup messages: 2.82 - no plain warning left where an Apply brings back what an aborted run left', [],
+        array_values(preg_grep('/(^|[\s;&|{(])warn "/', explode("\n", $rf))));
+    $m[1] = array_merge($m[1], $lm[1], $wm[1]);
     $codes = array_values(array_unique(array_filter($m[1], fn ($c) => !str_ends_with($c, '_'))));
     preg_match_all('/\b(?:hint_as|wrn_as|hint_code|bad_as) "([a-z_]+)_\$/', $sh, $dyn);
     $more = [];
@@ -45294,6 +45303,16 @@ function testSetupMessages(): void
         [strtok($out, "\n"), $j, @file_get_contents("$tmp/state/vms")], $out);
     check('setup messages (engine): … a run (no ub_msg_as) counts and logs it as before - nothing recorded',
         str_starts_with($rec('msgs_json() { echo "[]"; }'), "ERRORS=1\n[]"));
+    // 2.82: a warning of the same path - a Nextcloud the aborted run put into maintenance mode is gone (docker knows it not)
+    file_put_contents("$tmp/bin/docker", "#!/bin/bash\nexit 1\n");
+    chmod("$tmp/bin/docker", 0755);
+    $wout = (string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/data; source $lib >/dev/null 2>&1; export PATH=$tmp/bin:\$PATH;"
+        . " UB_STATE=$tmp/state UB_VAR_INI=$tmp/none LOG_FILE=''; MODE=apply; STEP_ID=environment; declare -a MSGS=(); $defs\n"
+        . "printf 'cloud\\n' >\"\$UB_STATE/maintenance\"; recover_maintenance >/dev/null; echo \"WARNINGS=\$WARNINGS\"; msgs_json") . ' 2>&1');
+    $wj = json_decode((string) substr($wout, (int) strpos($wout, "\n") + 1), true);
+    same('setup messages (engine): 2.82 - a Nextcloud the aborted run left that is gone: counted, recorded at level warn with its code, step and name; its note goes',
+        ['WARNINGS=1', 'warn', 'environment', 'recover_nc_gone', ['name' => 'cloud'], false],
+        [strtok($wout, "\n"), $wj[0]['level'] ?? null, $wj[0]['step'] ?? null, $wj[0]['code'] ?? null, $wj[0]['params'] ?? null, is_file("$tmp/state/maintenance")], $wout);
     check('setup messages (engine): … setup.sh records the engine\'s coded lines like its own, bringing back what an aborted run left under the step environment',
         str_contains($sh, 'ub_msg_as() { msg_as "$@"; }') && str_contains($sh, '{ STEP_ID=environment; recover_interrupted_run; }'));
     exec('rm -rf ' . escapeshellarg($tmp));
