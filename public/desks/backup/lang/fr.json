@@ -1444,6 +1444,8 @@
   "skipped.why_restore": "Monsieur Restori ramenait quelque chose.",
   "skipped.why_restore_what": "Monsieur Restori ramenait {what}.",
   "skipped.why_other": "un autre programme tenait le verrou du moteur de sauvegarde.",
+  "skipped.frame_unset": "La sauvegarde planifiée du {when} n'a pas démarré : mes réglages ont disparu.",
+  "skipped.times": {"one": "{n} fois depuis le {since}", "other": "{n} fois depuis le {since}"},
   "skipped.next": "Rien n'est perdu : la prochaine sauvegarde se fait comme d'habitude. Si cela arrive à chaque fois, une sauvegarde dure plus d'un jour – par exemple pendant le premier envoi hors site.",
   "bubble.skipped": "Oh là là — une sauvegarde a dû sauter ({when}) : quelqu'un avait encore le moteur. J'ai vérifié le verrou trois fois, vraiment !",
   "errors.restore_running": "Monsieur Restori ramène quelque chose en ce moment — la sauvegarde attend qu'il ait fini.",

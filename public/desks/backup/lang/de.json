@@ -1423,6 +1423,8 @@
   "skipped.why_restore": "Herr Restori holte gerade etwas zurück.",
   "skipped.why_restore_what": "Herr Restori holte gerade {what} zurück.",
   "skipped.why_other": "Ein anderes Programm hielt die Sperre des Backups.",
+  "skipped.frame_unset": "Das geplante Backup vom {when} startete nicht: meine Einstellungen sind weg.",
+  "skipped.times": {"one": "{n}-mal seit {since}", "other": "{n}-mal seit {since}"},
   "skipped.next": "Verloren ist nichts: Das nächste Backup läuft wie immer. Passiert das jedes Mal, dauert ein Backup über einen Tag – etwa beim ersten Upload ausser Haus.",
   "bubble.skipped": "Ach du meine Güte — ein Backup musste ausfallen ({when}): Jemand hatte die Engine noch. Ich habe die Sperre dreimal geprüft, wirklich!",
   "errors.restore_running": "Herr Restori holt gerade etwas zurück — das Backup wartet, bis er fertig ist.",

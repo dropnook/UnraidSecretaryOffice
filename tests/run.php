@@ -8911,8 +8911,14 @@ function testBackupScheduledUnset(): void
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/backup/desk.js');
     check('place without settings (page): the packages section says it, with the place',
         str_contains($js, "T('pk.found_unset', { path: pk.base })") && str_contains($js, "if (pkUnset()) sub.unshift(T('stat.pk_unset'));"));
+    check('scheduled without settings (page): the skip said as such (never «another program held the lock», no «nothing is lost» callout or bubble), its count since its first',
+        str_contains($js, "if (!k || k.reason === 'settings_missing') return null;")
+        && str_contains($js, "if (k.reason === 'settings_missing') return T('skipped.frame_unset', { when: fmt.date(k.time, true) });")
+        && str_contains($js, "if (k.count > 1) meta.appendChild(el('span', '', T('skipped.times', { n: k.count, since: fmt.date(k.first || k.time) })));"));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $w = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
+        check("scheduled without settings: its words ($l)", str_contains((string) ($w['skipped.frame_unset'] ?? ''), '{when}')
+            && str_contains((string) ($w['skipped.times']['other'] ?? ''), '{since}') && str_contains((string) ($w['message.settings_missing'] ?? ''), '—'));
         check("place without settings: its words ($l) - the place named, no script", str_contains((string) ($w['pk.found_unset'] ?? ''), '{path}')
             && ($w['stat.pk_unset'] ?? '') !== '' && !str_contains((string) $w['pk.found_unset'], '.sh'));
     }

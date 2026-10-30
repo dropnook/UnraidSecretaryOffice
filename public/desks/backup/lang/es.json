@@ -1444,6 +1444,8 @@
   "skipped.why_restore": "el señor Restori estaba recuperando algo.",
   "skipped.why_restore_what": "el señor Restori estaba recuperando {what}.",
   "skipped.why_other": "otro programa tenía el bloqueo del motor de copias.",
+  "skipped.frame_unset": "La copia programada del {when} no arrancó: mis ajustes ya no están.",
+  "skipped.times": {"one": "{n} vez desde el {since}", "other": "{n} veces desde el {since}"},
   "skipped.next": "No se ha perdido nada: la próxima copia se hace como siempre. Si pasa cada vez, una copia tarda más de un día – por ejemplo durante la primera subida fuera de casa.",
   "bubble.skipped": "Ay, ay, ay — una copia tuvo que saltarse ({when}): alguien tenía todavía el motor. ¡He comprobado el bloqueo tres veces, de verdad!",
   "errors.restore_running": "El señor Restori está recuperando algo ahora mismo — la copia espera hasta que termine.",

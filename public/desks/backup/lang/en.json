@@ -1423,6 +1423,8 @@
   "skipped.why_restore": "Mr. Restori was bringing something back.",
   "skipped.why_restore_what": "Mr. Restori was bringing back {what}.",
   "skipped.why_other": "another program held the backup engine's lock.",
+  "skipped.frame_unset": "The scheduled backup of {when} didn't start: my settings are gone.",
+  "skipped.times": {"one": "{n} time since {since}", "other": "{n} times since {since}"},
   "skipped.next": "Nothing is lost: the next run backs up as usual. If this happens every time, a run takes over a day – for example during the first upload offsite.",
   "bubble.skipped": "Oh dear — a run had to stay home ({when}): somebody still had the engine. I checked the lock three times, really!",
   "errors.restore_running": "Mr. Restori is bringing something back right now — the backup waits until he is done.",

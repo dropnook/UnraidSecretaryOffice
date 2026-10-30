@@ -1429,6 +1429,8 @@
   "skipped.why_restore": "il signor Restori stava riportando indietro qualcosa.",
   "skipped.why_restore_what": "il signor Restori stava riportando indietro {what}.",
   "skipped.why_other": "un altro programma teneva il blocco del motore di backup.",
+  "skipped.frame_unset": "Il backup pianificato del {when} non è partito: le mie impostazioni non ci sono più.",
+  "skipped.times": {"one": "{n} volta dal {since}", "other": "{n} volte dal {since}"},
   "skipped.next": "Non si è perso niente: il prossimo backup gira come sempre. Se succede ogni volta, un backup dura più di un giorno – per esempio durante il primo caricamento fuori sede.",
   "bubble.skipped": "Oh povero me — un backup è dovuto saltare ({when}): qualcuno aveva ancora il motore. Ho controllato il blocco tre volte, davvero!",
   "errors.restore_running": "Il signor Restori sta riportando indietro qualcosa proprio ora — il backup aspetta che abbia finito.",

@@ -194,7 +194,8 @@ const asleepUnits = (r) => (r && r.asleep && r.asleep.units) || 0;
  */
 function newSkip() {
   const k = ((state && state.skips) || [])[0];
-  if (!k) return null;
+  // engine 2.82: a scheduled start without settings is no run kept from its work - the page's «not set up» says it
+  if (!k || k.reason === 'settings_missing') return null;
   const last = lastRun();
   if (last && (last.finished || last.started) >= k.time) return null;
   const s = status();
@@ -203,6 +204,7 @@ function newSkip() {
 }
 /** Why a run was skipped, in words: which run, and who had the lock (holder from lock-holder.json, its phase from status.json) */
 function skipText(k) {
+  if (k.reason === 'settings_missing') return T('skipped.frame_unset', { when: fmt.date(k.time, true) });   // engine 2.82
   const h = k.holder || {};
   let why = 'skipped.why_' + (['backup', 'check', 'dryrun', 'setup', 'restore'].includes(h.kind) ? h.kind : 'other');
   if (h.kind === 'backup' && h.phase === 'kopia' && h.current) why = 'skipped.why_backup_kopia';
@@ -1902,6 +1904,8 @@ function skipRow(k) {
   main.appendChild(el('div', 'row-name text', fmt.date(k.time, true)));
   const meta = el('div', 'row-meta');
   meta.appendChild(chip(T('result.skipped'), RESULT_CHIP.skipped, skipText(k)));
+  // engine 2.82: one line for every scheduled start without settings - how many since when
+  if (k.count > 1) meta.appendChild(el('span', '', T('skipped.times', { n: k.count, since: fmt.date(k.first || k.time) })));
   meta.appendChild(el('span', 'note', messageText(k.reason)));
   main.appendChild(meta);
   row.appendChild(main);
