@@ -1,10 +1,10 @@
 #!/bin/bash
-# Jack Streamer's «theme.mp3 stays on the pool» (2026-10-29, the owner: «muss wirklich gut durchgetestet sein»), for real
-# on USOTest3VM: a throwaway share uso-wip-jt-media («Cache: yes» on cache) with three home films and one home series,
-# each with its theme.mp3, all on the array disks; one film on deck. His media server is a stand-in on 127.0.0.1 (its
-# users, the film on deck, its library — Emby's answers, no real Emby asked), his settings saved as his page saves them
-# with the switch on; Ms. Moverelli set up for the share with age 0 (she would move everything of it) and his list in her
-# ini. Cells:
+# Jack Streamer's «theme.mp3 stays on the pool» (nightly; 2026-10-29, the owner: «muss wirklich gut durchgetestet
+# sein»), for real on USOTest3VM: a throwaway share uso-wip-jt-media («Cache: yes» on cache) with three home films and
+# one home series, each with its theme.mp3, all on the array disks; one film on deck. His media server is a stand-in on
+# 127.0.0.1 (its users, the film on deck, its library — Emby's answers, no real Emby asked), his settings saved as his
+# page saves them with the switch on; Ms. Moverelli set up for the share with age 0 (she would move everything of it)
+# and his list in her ini. Cells:
 #   whats-next-says     «What's next» (report) says beforehand how many folders the first collection reads; nothing moves
 #   first-collect       his real run (the joint run): the four themes on the pool, none left on the array; status: the
 #                       first collection, 4 looked at, 4 fetched, from the disks they lay on
@@ -18,7 +18,7 @@
 #   letgo-back          his let-go with «bring the films back»: every theme and the film back on the array, the section gone
 # Everything made here goes at the end (the share, its files, the stand-in, his hire — the let-go's «Let go» itself, the
 # Team Lead's fire, is the undo's —, her settings as they were).
-# Not Tower (the release runs there): needs test3. ~10 min.
+# Not Tower (the release runs there): needs test3. ~1 min (52 s on test3, 2026-10-30).
 . "$(dirname "$0")/lib.sh"
 scenario_begin jack-jk-themes-collect-run
 needs test3 docker

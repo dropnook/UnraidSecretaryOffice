@@ -97,8 +97,9 @@ toy scenario: the three desks' fresh looks, standard checks.
   the files changed since the last tag to desks (the table in its head: a desk's files → it, `backup/` → backup and
   restore, `mediacache/`/`gather/` → jack, `smartmover/` → moverelli, shared code, the web side, the plugin, office
   strings and the scenario helpers → all; docs and tests → none) and runs their scenarios of **`quick.list`** — the
-  pre-release set: short, green lately, no reboot, clock or let-go, ≈ 27 min all together — through
-  `USO_RUN_TAG=prerelease run.sh tower --only … --dev-sync`. Red stops the release (the version lines put back);
+  pre-release set: short, green lately, no reboot, clock or let-go, ≈ 37 min all together (43 scenarios, 2026-10-30;
+  the self-test's cap 40 min) — through `USO_RUN_TAG=prerelease run.sh tower --only … --dev-sync`. Red stops the
+  release (the version lines put back);
   `--dry` lists the desks, the scenarios and the estimate without Tower (`USO_RELEASE_DIFF=<file>`: an invented diff);
   `--no-scenarios` skips it with a loud line; the step's time stands in the release's last lines.
   By hand: `bash tools/scenarios/prerelease.sh --dry` (or `--only <name>` for a real run of the step).
@@ -885,3 +886,56 @@ partner not yet made). Red, not INV-TRUTH: backup-sv-docker-off-first-setup-run 
 offsite, a run with Docker switched off ends «errors» (Kopia's container unreachable; the engine's log says it «does not
 exist»), the cell expects ok/warnings from the default base, where nothing goes offsite. Profile switch in one call
 (mixed → default): the objects taken away, the default base's checks and plan list green.
+
+## Wave 3 and the test3 round (2026-10-29/30)
+
+Wave 3's cells (task/resilienz, findings `resilienz/wave3/findings.md`) and Jack Streamer's theme cell
+(task/jack-themes), then their latest run. Tower runs on main f3fc8b5b (office 1.79.0, engine 2.81):
+`scenarios/2026-10-30/tower-scenarios-4-prerel`. test3 runs on the same tree, dev-synced, with its repaired base (no
+VMs, `VMS=no`): `…/test3-scenarios-4-test3*`. «quick.list» = in the pre-release set since 2026-10-30. Red = a product
+finding (`resilienz/wave4/findings.md` for test3's).
+
+| Cell | Scenario | Verdict (latest) | Time | Run |
+|---|---|---|---|---|
+| B28 | `backup-sh-appdata-missing-firsthome` | green (T 29.10.) | 97 s | pre-release (wave 3 proposes nightly) |
+| B42 | `backup-in-ini-missing-replan-sched` | **red** W3-1, W3-2 (T 29.10.) | 42 s | run late (2) |
+| B44 | `backup-os-73-replan-run` | skipped: needs OS-73 (USOTest4 7.3.3) | — | pre-release |
+| B47 | `backup-sv-notify-off-run` | green (T 30.10.) | 74 s | quick.list |
+| B47 | `backup-sv-log-full-run` | green (T 30.10.) | 78 s | quick.list |
+| R10 | `restore-dk-asleep-disk2-scan-files` | skipped: needs hdd | — | pre-release |
+| R14 | `restore-st-stack-config-drill` | green (T 30.10.) | 156 s (112 s 29.10.) | quick.list |
+| R17 | `restore-sh-btrfs-scan-files-drill` | **red** W4-1 only (INV-TRUTH TR-SNAPS); its cells green (3 30.10.) | 162 s | needs test3 |
+| R24 | `restore-in-update-prev-journal-scan` | green (T 29.10.) | 134 s | pre-release (wave 3 proposes nightly) |
+| O4 | `office-sv-array-stopped-nightshift` | green (T 30.10.) | 99 s | quick.list |
+| O5 | `office-os-73-install-noicon` | skipped: needs OS-73 (USOTest4 7.3.3) | — | pre-release |
+| F3b | `moverelli-jk-list-missing-norun-run` | green (T 30.10.) | 16 s | quick.list |
+| F4b | `jack-jk-trial-then-real-list` | green (T 30.10.) | 46 s | quick.list |
+| J-themes | `jack-jk-themes-collect-run` (theme.mp3 collected for real, kept by Ms. Moverelli, back with the let-go) | green (3 30.10.) | 52 s | nightly, needs test3 |
+
+**The `needs test3` scenarios on the repaired base (2026-10-30):**
+
+| Cell | Scenario | Verdict | Time |
+|---|---|---|---|
+| J-themes | `jack-jk-themes-collect-run` | green | 52 s |
+| B43 | `backup-tm-utc-broken-schedule-run` | green (red only on INV-TRUTH before the btrfs fix below) | 54 s |
+| M24 | `moverelli-tm-utc-broken-schedule-run-sched` | green (likewise) | 32 s |
+| R17 | `restore-sh-btrfs-scan-files-drill` | **red** W4-1: his app cards count `fast/appdata`'s snapshots, which don't hold the app folders | 162 s |
+| UN | `caretaker-un-join-leave` | green, with the lab up after the reset (below) | 44 s |
+| M17 | `moverelli-mo-btrfs-levels-sched` | skipped: DK-NO-ZFS needs a server without ZFS, and test3 has the pool «fast» | — |
+| UN | `caretaker-un-pair-run-down` | not run: its peer is USOTest4 | — |
+
+The base holds: every reset of the round green (`office-base-verify`), except the one taken with the lab's container up.
+**The USO network's lab and the base:** `usonet-lab.sh up` adds a container that Mr. Backupsy's plan lists as new, so a
+base reset with the lab up is INV-REPLAN-red (`test3-scenarios-4-test3b`). The order that works: the reset, then
+`usonet-lab.sh up`, then `run.sh test3 --only caretaker-un-join-leave --no-reset`, then `usonet-lab.sh down`.
+
+Tool fixes of the round, each its own commit:
+- **INV-COMPARE never compared** (since 22440a8a, 2026-10-18). `_rs_compare`'s jq had a bracket in the wrong place, so
+  every restore said «no copy out of a moment» and the check read n/a. Now it compares. A file written after the restore
+  began is said, not judged: it is newer than the job's start, or its inode changed after the copy while the restore
+  started an app again (Emby's db, its log renamed at start). The restore's own copy keeps the moment's times
+  (`rsync -a`). Green with the real comparison: `restore-sh-renamed-files`, `restore-rn-changes-between-putback` (Tower
+  30.10., `…/tower-scenarios-4-compare3`), R17's beside and replace. The other RS-FILES scenarios compare from now on; the
+  nightly shows them.
+- **INV-TRUTH on btrfs:** the engine names its btrfs moments by the stamp alone (`.btrfs-snap/YYYYMMDD-HHMM`), and
+  truth-facts.php looked for the ZFS prefix.

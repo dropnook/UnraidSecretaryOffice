@@ -105,7 +105,7 @@ self_test() {
     check 'unknown desk file' 'all'                agent/desks/newdesk.php
     # quick_names: the desks' and all
     got=$(quick_names jack | cut -f1 | tr '\n' ' ')
-    [[ $got == 'moverelli-jk-list-pending-run moverelli-jk-hired-list-run ' ]] && echo "ok   jack's set: $got" \
+    [[ $got == 'moverelli-jk-list-missing-norun-run moverelli-jk-list-pending-run moverelli-jk-hired-list-run jack-jk-trial-then-real-list ' ]] && echo "ok   jack's set: $got" \
         || { echo "FAIL jack's set: «$got»"; fails=$((fails + 1)); }
     got=$(quick_names snapshot logs | wc -l | tr -d ' ')
     [[ $got == 0 ]] && echo "ok   desks without scenarios: none" || { echo "FAIL desks without scenarios: $got"; fails=$((fails + 1)); }
@@ -124,8 +124,8 @@ self_test() {
     got=$(grep -v '^#' "$QUICK" | awk 'NF {print $1}' | tail -2 | tr '\n' ' ')
     [[ $got == office-in-*' 'office-in-*' ' ]] && echo "ok   the release installers last: $got" \
         || { echo "FAIL quick.list: the office-in-* scenarios are not last ($got)"; fails=$((fails + 1)); }
-    if ((total <= 1800)); then echo "ok   quick.list all together ≈ $((total / 60)) min"
-    else echo "FAIL quick.list ≈ $((total / 60)) min - more than 30"; fails=$((fails + 1)); fi
+    if ((total <= 2400)); then echo "ok   quick.list all together ≈ $((total / 60)) min"
+    else echo "FAIL quick.list ≈ $((total / 60)) min - more than 40"; fails=$((fails + 1)); fi
     # the dry run on an invented diff: what release.sh --dry shows
     local fake
     fake=$(mktemp "${TMPDIR:-/tmp}/uso-prerelease.XXXXXX")
