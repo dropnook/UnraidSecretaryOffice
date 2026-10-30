@@ -69,6 +69,12 @@ VAR_INI=/var/local/emhttp/var.ini
 # same, the backup engine counts them as started too (lib/common.sh array_stopping(): only Stopping and Stopped
 # end a run) - tests/run.php compares all three; job.sh uses array_started from here.
 ARRAY_RUNNING='Started|Formatting|Clearing'
+# What the office starts never carries a login's session: an agent restarted over SSH (the plugin's update, a restart by
+# hand) would hand XDG_RUNTIME_DIR=/run/user/0 to everything it starts - pam removes that folder at the last logout, and
+# from then on every docker exec of the agent, a backup run or a restore fails («runc-process: no such file»). Every
+# start below (the supervisors, the USO network's check, atd's --recover) goes through it; PATH, HOME, LANG, TZ and the
+# office's own variables stay. job.sh unsets the same for what crond (or a hand on SSH) starts.
+CLEAN_ENV=(env -u XDG_RUNTIME_DIR -u SSH_CLIENT -u SSH_CONNECTION -u SSH_TTY -u SSH_AUTH_SOCK)
 
 supervisor_pid() {
     local pid
@@ -128,7 +134,7 @@ night_start() {
     fi
     mkdir -p "$RUN" && chmod 700 "$RUN"
     rm -f "$NIGHT_STOPPING"
-    setsid bash "$DIR/scripts/agent.sh" night-supervise </dev/null >/dev/null 2>&1 &
+    setsid "${CLEAN_ENV[@]}" bash "$DIR/scripts/agent.sh" night-supervise </dev/null >/dev/null 2>&1 &
     echo "Night shift started."
 }
 
@@ -172,7 +178,7 @@ agent_start() {
     rm -f "$STOPPING"
     # tail -c keeps the RAM log small across restarts
     [[ -f "$LOG" ]] && tail -c 65536 "$LOG" >"$LOG.tmp" && mv "$LOG.tmp" "$LOG"
-    setsid bash "$DIR/scripts/agent.sh" supervise </dev/null >/dev/null 2>&1 &
+    setsid "${CLEAN_ENV[@]}" bash "$DIR/scripts/agent.sh" supervise </dev/null >/dev/null 2>&1 &
     echo "Agent started."
 }
 
@@ -224,7 +230,7 @@ agent_stop() {
 # looks every minute after that) - in the background, never holding up a start (emhttp may be waiting)
 usonet_check() {
     [[ -f "$DIR/scripts/usonet.sh" ]] || return 0
-    setsid bash "$DIR/scripts/usonet.sh" check </dev/null >/dev/null 2>&1 &
+    setsid "${CLEAN_ENV[@]}" bash "$DIR/scripts/usonet.sh" check </dev/null >/dev/null 2>&1 &
 }
 
 # The watch's line in a cron file of its own (the office rewrites its schedules' file), in root's
@@ -378,7 +384,7 @@ backup_recover() {
         "UB_DATA=$(shq "$ub")" 'export UB_DATA' "cd '/'" "exec /bin/bash $(shq "$DIR/backup/backup.sh") --recover </dev/null >/dev/null 2>&1" >"$job" || return 0
     # TZ=UTC: in the autumn's repeated hour `at now` lands an hour ahead (HOST_AT_ENV in agent/lib/house.php); the job's
     # `unset TZ` puts the host's zone back (at writes TZ=UTC into it)
-    if timeout 10 env TZ=UTC at -M -f "$job" now >/dev/null 2>&1; then
+    if timeout 10 "${CLEAN_ENV[@]}" TZ=UTC at -M -f "$job" now >/dev/null 2>&1; then
         echo "$(date '+%F %T') array started: a backup run left things stopped - backup.sh --recover handed to atd" >>"$LOG"
     else
         echo "$(date '+%F %T') array started: backup.sh --recover could not be handed to atd - the next backup run brings them back" >>"$LOG"

@@ -39,7 +39,10 @@ The detailed build notes up to 1.60.0 (every helper and test by name) are in tha
 * **Array start and stop.** The agent starts with the array (`event/started`) and stops within seconds when it stops
   (`event/stopping`) — it never holds the array up. While the array isn't started (after a stop; from boot until the
   first start) `scripts/agent.sh` runs the Night Watchman's **night shift** instead: RAM and the flash only, never
-  anything under `/mnt`. The page and the Dashboard tile say so.
+  anything under `/mnt`. The page and the Dashboard tile say so. Whatever `agent.sh` starts (both supervisors, the USO
+  network's check, atd's `--recover`) goes through `CLEAN_ENV`, and `job.sh` and the `.plg`'s install unset the same list:
+  an agent restarted over SSH never hands on the login's `XDG_RUNTIME_DIR` (pam removes `/run/user/0` at the logout and
+  every `docker exec` fails from then on) or `SSH_*` (`testCleanEnv`).
 * **Long jobs outlive the agent.** Backup runs, restores, the drill, Jack Streamer's and Ms. Moverelli's runs go to the host's `atd`, never
   as children of the agent (`agent.sh stop` ends the agent's whole session). The restore drill plays dumps — also ones
   read back from Kopia into RAM — in throwaway containers without network and writes a certificate

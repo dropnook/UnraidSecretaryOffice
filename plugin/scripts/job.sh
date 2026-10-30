@@ -23,6 +23,9 @@
 DIR=/usr/local/emhttp/plugins/unraid-secretary-office
 RUN=/var/run/unraid-secretary-office
 
+# Nothing of a login's session into the jobs (crond's is clean; a job.sh started by hand over SSH is not): pam removes
+# XDG_RUNTIME_DIR=/run/user/0 at the last logout, and from then on docker can't reach a container for the run (agent.sh's CLEAN_ENV)
+unset XDG_RUNTIME_DIR SSH_CLIENT SSH_CONNECTION SSH_TTY SSH_AUTH_SOCK
 cd / || exit 1
 case "$1" in
     backup|snapshots|embycache|gather|moverelli|cleanup|logs|watch) ;;
