@@ -7225,6 +7225,10 @@ SH);
     check('vm order: the notification is a warning, not an alert, and says why the VMs were paused',
         str_contains($note, '-s Unraid Secretary Office: Mr. Backupsy: Backup with warnings') && str_contains($note, '-i warning') && !str_contains($note, '-i alert')
         && str_contains($note, 'did not shut down - paused for') && str_contains($note, 'not frozen - paused for'), $note);
+    // engine 2.83: the description names both in short words, the long text says each in the page's words
+    check('vm order: … the description names them («2 warnings: vmdeaf couldn\'t be shut down … · vmslow not frozen …»), the long text in the page\'s words',
+        str_contains($note, "-d 2 warnings: vmdeaf couldn't be shut down, paused instead · vmslow not frozen by its guest agent, paused instead. ")
+        && str_contains($note, '\\nErrors 0, warnings 2\\n  vmdeaf could not be shut down — paused instead; the run didn\'t quite follow the setup.\\n  vmslow: its guest agent'), $note);
     check('vm order: nothing left in state/vms', !file_exists("$data/state/vms"));
 
     // --- a night without a VM to shut down: no wait, no line, the same order as before
@@ -8641,6 +8645,169 @@ function testBackupNotifyLang(): void
         !array_diff(['ok', 'warnings', 'errors', 'skipped', 'failed', 'refused', 'drift', 'kopia_incomplete', 'new_folders', 'recovered'], $codes), json_encode($codes));
     same('notify lang: every notify.* the engine uses is in all five of his language files', [], $missing);
     check('notify lang: no ub_notify left in the engine but ub_tell\'s own', preg_match_all('/\bub_notify "/', $src) === 1, '');
+}
+
+/*
+ * Engine 2.83 (Benj 2026-10-30, nostromo's mail «Backup mit Warnungen: 2 Warnungen. 11 min 5 s, …» - which ones?): the
+ * run's notification names its coded warnings and errors (ub_run_items). The description «{counts}: {items}. {summary}»:
+ * errors first, the first three in short words (notify_item.<code>), «and n more» for the rest and for what it can't say,
+ * one line within ~300 characters; a code without short words - the first sentence of the page's warn_code.<code>; one it
+ * can't say at all (unknown, a parameter missing) is never shown as its code. The long text one line per item in the
+ * page's words under its headline. Through ub_tell and a stand-in notify, as backup.sh's end calls them.
+ */
+function testBackupNotifyItems(): void
+{
+    $tmp = hardeningTmp('notifyitems');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $lib = OFFICE_DIR . '/backup/lib/common.sh';
+    file_put_contents("$tmp/notify", "#!/bin/bash\n{ printf '%s\\n' \"\$@\"; echo ---; } >> $tmp/notified\n");
+    chmod("$tmp/notify", 0755);
+    // the run's end as backup.sh says it: items, then ub_tell with notify.<result>_items when any could be said
+    $tell = function (string $l, string $items, bool $err = false, array $env = []) use ($tmp, $lib): array {
+        file_put_contents("$tmp/notify.lang", json_encode(['lang' => $l]));
+        @unlink("$tmp/notified");
+        $res = $err ? 'errors' : 'warnings';
+        $level = $err ? 'alert' : 'warning';
+        $counts = $err ? '"$ERRORS" "$WARNINGS"' : '"" "$WARNINGS"';
+        $code = "LOG_FILE=''; $items >/dev/null 2>&1; UB_ITEMS_DESC=''; UB_ITEMS_LINES=''; ub_run_items; NTEXT=''; [[ -n \"\$UB_ITEMS_DESC\" ]] && NTEXT=_items\n"
+            . "UB_TELL_TEXT=\"notify.$res\$NTEXT\" ub_tell $res $level \"\$(printf 'HEAD\\n%s' \"\$UB_ITEMS_LINES\")\" \"Backup with $res\" \"English \$WARNINGS\" "
+            . "\"counts=\$(ub_counts $counts)\" \"items=\$UB_ITEMS_DESC\" \"summary=S\"";
+        runEnv(['bash', '-c', 'source "$1" >/dev/null 2>&1; ' . $code, 'sh', $lib], $env + ['UB_DATA' => "$tmp/ub", 'UB_NOTIFY_BIN' => "$tmp/notify",
+            'UB_NOTIFY_STAMP' => '', 'UB_NOTIFY_LANG_FILE' => "$tmp/notify.lang"], 30);
+        $a = explode("\n", rtrim(explode("---\n", (string) @file_get_contents("$tmp/notified"))[0] ?? '', "\n"));
+        $arg = fn (string $f) => ($i = array_search($f, $a, true)) === false ? null : ($a[$i + 1] ?? null);
+        return ['d' => $arg('-d'), 'm' => explode('\n', (string) $arg('-m')), 's' => $arg('-s')];
+    };
+    $ff = 'warn_code future_files x name=nextcloud_data n=1 path=Fotos/2027/Ausflug.jpg when=2027-01-01; '
+        . 'warn_code future_files x name=Backups n=7 path=alt/Familienfilme.mkv when=2027-03-02';
+
+    // nostromo's case: two future_files warnings
+    $de = $tell('de', $ff);
+    same('notify items: two future_files, German - «{counts}: {items}. {summary}», both named in short words',
+        '2 Warnungen: nextcloud_data: 1 Datei mit Datum in der Zukunft · Backups: 7 Dateien mit Datum in der Zukunft. S', $de['d']);
+    same('notify items: … the long text - the headline, then one line per item in the page\'s words', [
+        'HEAD',
+        '  Dateien mit einem Datum in der Zukunft in nextcloud_data: 1, zum Beispiel Fotos/2027/Ausflug.jpg (2027-01-01). Alles, was nach dem Alter einer Datei geht, hält sie bis zu diesem Tag für brandneu. Meist stammen sie von einer Uhr, die vorging, oder von einer Kamera oder einem Handy mit falschem Datum — stell ihr Datum richtig (im Terminal: touch -m -d mit dem richtigen Datum).',
+        '  Dateien mit einem Datum in der Zukunft in Backups: 7, zum Beispiel alt/Familienfilme.mkv (2027-03-02). Alles, was nach dem Alter einer Datei geht, hält sie bis zu diesem Tag für brandneu. Meist stammen sie von einer Uhr, die vorging, oder von einer Kamera oder einem Handy mit falschem Datum — stell ihr Datum richtig (im Terminal: touch -m -d mit dem richtigen Datum).'],
+        $de['m']);
+    $en = $tell('en', $ff);
+    same('notify items: … English', ['Unraid Secretary Office: Mr. Backupsy: Backup with warnings',
+        '2 warnings: nextcloud_data: 1 file dated in the future · Backups: 7 files dated in the future. S', 3,
+        '  Files dated in the future in Backups: 7, for example alt/Familienfilme.mkv (2027-03-02). Anything that goes by a file\'s age takes them for brand new until that day. They usually come from a clock that ran ahead or a camera or phone with the wrong date — set their date right (in a terminal: touch -m -d with the right date).'],
+        [$en['s'], $en['d'], count($en['m']), $en['m'][2] ?? null]);
+    same('notify items: … French, Italian, Spanish', [
+        '2 avertissements : nextcloud_data : 1 fichier daté dans le futur · Backups : 7 fichiers datés dans le futur. S',
+        '2 avvisi: nextcloud_data: 1 file con data nel futuro · Backups: 7 file con data nel futuro. S',
+        '2 avisos: nextcloud_data: 1 archivo con fecha en el futuro · Backups: 7 archivos con fecha en el futuro. S'],
+        [$tell('fr', $ff)['d'], $tell('it', $ff)['d'], $tell('es', $ff)['d']]);
+
+    // an error and a warning: the error first, though it came second; the partner's reason in words
+    $ew = 'warn_code dump_stopped x container=mariadb; err_code kopia_held x before=40 now=0 "when=2026-10-29 03:00"';
+    $en = $tell('en', $ew, true);
+    same('notify items: an error after a warning - the error named first, the alert\'s description',
+        ['Unraid Secretary Office: Mr. Backupsy: Backup with errors', '1 error, 1 warning: the offsite copy is suddenly empty, nothing went offsite · mariadb isn\'t running, no dump. S'],
+        [$en['s'], $en['d']]);
+    same('notify items: … the long text in the same order', ['HEAD',
+        '  The offsite copy was suddenly empty (40 snapshots on 2026-10-29 03:00, now 0) – an attack or the wrong repository? Nothing went offsite this time. If that wasn\'t you: delete nothing, Object Lock may still hold the data. If the repository is new, tell Mr. Backupsy.',
+        '  mariadb isn\'t running — no dump of it this time; the package keeps the last one.'], $en['m']);
+    same('notify items: … German', '1 Fehler, 1 Warnung: Kopie ausser Haus plötzlich leer, nichts ging ausser Haus · mariadb läuft nicht, kein Dump. S', $tell('de', $ew, true)['d']);
+    same('notify items: a partner\'s reason in the office\'s short words, never its code', '1 Warnung: Kopie für vault nicht angekommen (nicht erreichbar). S',
+        $tell('de', 'warn_code partner_missed x partner=vault why=unreachable')['d']);
+
+    // five warnings: three named, «and 2 more»; the long text has all five
+    $five = implode('; ', array_map(fn ($i) => "warn_code dump_stopped x container=db$i", range(1, 5)));
+    $en = $tell('en', $five);
+    same('notify items: five warnings - three named, «and 2 more», the long text all five',
+        ['5 warnings: db1 isn\'t running, no dump · db2 isn\'t running, no dump · db3 isn\'t running, no dump · and 2 more. S', 6, '  db5 isn\'t running — no dump of it this time; the package keeps the last one.'],
+        [$en['d'], count($en['m']), $en['m'][5] ?? null]);
+    same('notify items: … German, French', ['5 Warnungen: db1 läuft nicht, kein Dump · db2 läuft nicht, kein Dump · db3 läuft nicht, kein Dump · und 2 weitere. S',
+        '5 avertissements : db1 ne tourne pas, pas de dump · db2 ne tourne pas, pas de dump · db3 ne tourne pas, pas de dump · et 2 autres. S'],
+        [$tell('de', $five)['d'], $tell('fr', $five)['d']]);
+    // long names: an item cut at 80 characters, the description stays one line under 300
+    $long = implode('; ', array_map(fn ($i) => "warn_code future_files x name=" . str_repeat("Fotos-Grüße$i", 7) . " n=12 path=a when=2027-01-01", range(1, 5)));
+    $d = (string) $tell('de', $long)['d'];
+    check('notify items: long names - each item at most 80 bytes (cut with «…»), fewer named when they don\'t fit, one line under 300',
+        strlen($d) < 300 && mb_check_encoding($d, 'UTF-8') && !str_contains($d, "\n") && str_contains($d, '…') && str_contains($d, 'und 3 weitere') && substr_count($d, ' · ') === 2, $d);
+
+    // the btrfs brake: one item per disk, how many went
+    $en = $tell('en', 'warn_code btrfs_brake x base=disk3 free_gb=4 floor_gb=10 snap=20261020-0300; warn_code btrfs_brake x base=disk3 free_gb=4 floor_gb=10 snap=20261021-0300');
+    same('notify items: two early deletes on one disk - one item, as the page says it', ['2 warnings: disk3: 2 snapshots deleted early, little space. S',
+        '  On disk3 only 4 GB were free (emergency brake at 10 GB) — I deleted 2 snapshots early, the oldest from 2026-10-20.'], [$en['d'], $en['m'][1] ?? null]);
+
+    // what it can't say: an unknown code, a parameter missing - never the bare code; none sayable - the counts alone
+    $en = $tell('en', 'warn_code brand_new x a=b; warn_code dump_stopped x container=db1; warn_code vm_not_paused x');
+    same('notify items: an unknown code and one without its parameter - counted in «and n more», never named, not in the long text',
+        ['3 warnings: db1 isn\'t running, no dump · and 2 more. S', ['HEAD', '  db1 isn\'t running — no dump of it this time; the package keeps the last one.']], [$en['d'], $en['m']]);
+    $en = $tell('en', 'warn_code brand_new x a=b');
+    same('notify items: only an unknown code - the description as before, «{counts}. {summary}»', ['1 warning. S', ['HEAD']], [$en['d'], $en['m']]);
+    // a code without short words: the first sentence of the page's text
+    @mkdir("$tmp/lang", 0700);
+    foreach (glob(OFFICE_WEB . '/desks/backup/lang/*.json') as $f) {
+        $j = json_decode((string) file_get_contents($f), true);
+        unset($j['notify_item.dump_stopped']);
+        file_put_contents("$tmp/lang/" . basename($f), json_encode($j, JSON_UNESCAPED_UNICODE));
+    }
+    same('notify items: a code without short words - the first sentence of warn_code.<code>', '1 warning: db1 isn\'t running — no dump of it this time; the package keeps the last one. S',
+        $tell('en', 'warn_code dump_stopped x container=db1', false, ['UB_LANG_DIR' => "$tmp/lang"])['d']);
+    same('notify items: … German future_files: up to its first full stop, cut at 80 bytes where a character begins',
+        '1 Warnung: ' . rtrim(mb_strcut('Dateien mit einem Datum in der Zukunft in nextcloud_data: 1, zum Beispiel Fotos/2027/Ausflug.jpg (2027-01-01)', 0, 77, 'UTF-8')) . '…. S',
+        (function () use ($tmp, $tell) {
+            foreach (glob("$tmp/lang/*.json") as $f) {
+                $j = json_decode((string) file_get_contents($f), true);
+                unset($j['notify_item.future_files']);
+                file_put_contents($f, json_encode($j, JSON_UNESCAPED_UNICODE));
+            }
+            return $tell('de', 'warn_code future_files x name=nextcloud_data n=1 path=Fotos/2027/Ausflug.jpg when=2027-01-01', false, ['UB_LANG_DIR' => "$tmp/lang"])['d'];
+        })());
+    // without the language files (a copy of the engine alone): nothing named, the English the call carries
+    same('notify items: no language files - the call\'s English, no items', ['English 2', ['HEAD']],
+        array_values(array_intersect_key($tell('de', "ub_lang_dir() { return 1; }; $ff"), ['d' => 1, 'm' => 1])));
+
+    // backup.sh's end calls it so: the run's end with the items, the long text under its headline
+    $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    same('notify items: backup.sh - ub_run_items before the end, notify.<result>_items when named, items= passed, run_report lists the lines', [1, 1, 1, 2, 1],
+        [substr_count($bk, "(( ERRORS > 0 || WARNINGS > 0 )) && ub_run_items\n"), substr_count($bk, 'UB_TELL_TEXT="notify.errors$NTEXT" ub_tell errors alert'),
+         substr_count($bk, 'UB_TELL_TEXT="notify.warnings$NTEXT" ub_tell warnings warning'), substr_count($bk, '"items=$UB_ITEMS_DESC" "summary=$(ub_summary)"'),
+         substr_count($bk, "    echo \"Errors \$ERRORS, warnings \$WARNINGS\"\n    [[ -n \"\${UB_ITEMS_LINES:-}\" ]] && printf '%s\\n' \"\$UB_ITEMS_LINES\"")]);
+
+    // texts x5: every code the engine says as an item has short words, their placeholders the page's (n: the plural)
+    $src = implode("\n", array_map('file_get_contents', [OFFICE_DIR . '/backup/backup.sh', OFFICE_DIR . '/backup/setup.sh', $lib]));
+    preg_match_all('/^[^#\n]*\b(?:warn_code|err_code) ([a-z_]+) /m', $src, $m);
+    preg_match_all('/WARN_ITEMS\+=\( "([a-z_]+)"/', $src, $m2);
+    $codes = array_values(array_unique([...$m[1], ...$m2[1]]));
+    sort($codes);
+    $bad = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $t = langFile(OFFICE_WEB . "/desks/backup/lang/$l.json");
+        foreach (['notify.warnings_items' => ['counts', 'items', 'summary'], 'notify.errors_items' => ['counts', 'items', 'summary'], 'notify.items_more' => ['n']] as $k => $need) {
+            $v = is_array($t[$k] ?? null) ? implode(' ', $t[$k]) : (string) ($t[$k] ?? '');
+            foreach ($need as $p) {
+                if (!str_contains($v, '{' . $p . '}')) {
+                    $bad[] = "$l $k {{$p}}";
+                }
+            }
+        }
+        foreach ($codes as $c) {
+            $s = $t["notify_item.$c"] ?? null;
+            $page = $t["warn_code.$c"] ?? null;
+            if ($s === null || $page === null) {
+                $bad[] = "$l $c missing";
+                continue;
+            }
+            preg_match_all('/\{(\w+)\}/', is_array($s) ? implode(' ', $s) : $s, $ps);
+            preg_match_all('/\{(\w+)\}/', is_array($page) ? implode(' ', $page) : $page, $pp);
+            if (array_diff($ps[1], [...$pp[1], 'n'])) {
+                $bad[] = "$l $c placeholders " . implode(',', array_diff($ps[1], $pp[1]));
+            }
+            if (preg_match('/[.]$/', is_array($s) ? $s['other'] : $s)) {
+                $bad[] = "$l $c ends with a full stop";
+            }
+        }
+    }
+    check('notify items: the engine says at least the VMs, dumps, partners, Kopia and future files as items (' . count($codes) . ' codes)',
+        !array_diff(['future_files', 'vm_not_paused', 'dump_stopped', 'partner_missed', 'kopia_held', 'kopia_stalled', 'btrfs_brake', 'pool_low_space'], $codes), json_encode($codes));
+    same('notify items: every one has short words x5 (notify_item.<code>, beside the page\'s warn_code), placeholders the page\'s, no full stop at the end', [], $bad);
+    exec('rm -rf ' . escapeshellarg($tmp));
 }
 
 /**
@@ -59109,7 +59276,7 @@ function testBackupAnewChoice(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
