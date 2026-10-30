@@ -30,7 +30,8 @@
 # 3 engine leftovers aside: @uso-backup-* and @uso-plan-* snapshots, .btrfs-snap (a share's, and a pool's or disk's
 # own), the backup place's apps/ vms/ server/ flash/, .uso-backup* in app and VM folders, the storeroom, *.aside-<n>,
 # *.restored-<n>, *.partial, .uso-drill-*. 4 apps (Tower): apps.sh all - when there.
-# 5 VMs: vm_make - when there. 6 Unraid: the mover's schedule, Mover Tuning, User Scripts, parity check, disks spun up,
+# 5 VMs, only on a base with VMs (base.env VMS=yes): vm_make - when there; on one without, VMs of the base found there
+# are said and left. 6 Unraid: the mover's schedule, Mover Tuning, User Scripts, parity check, disks spun up,
 # NTP, the time zone, Docker's host access off (said), unread notifications archived (Unraid's notify archive). 7 the
 # agent started, its heartbeat, then `check standard` against the base (lib.sh, once it is there) and the plan's change
 # list against base/<host>/plan-changes.known.
@@ -96,7 +97,7 @@ elif grep -qxF 192.168.7.193 <<<"$addrs"; then HOST=test4
 else echo "base: not a test VM (Tower 192.168.7.111, USOTest3VM 192.168.7.197, USOTest4 192.168.7.193) - refused" >&2; exit 2; fi
 BASE=$SC/base/$HOST
 [[ -f $BASE/base.env ]] || { echo "base: no $BASE/base.env" >&2; exit 2; }
-HIRE='' BACKUP_PRESET=auto BACKUP_CRON='' MOVERELLI_X='' MOVERELLI_CRON='' MOVERELLI_RULES='' DRILL='' MOVER_SCHEDULE='' LOCALTIME='' CARRY='' DOCKER=no
+HIRE='' BACKUP_PRESET=auto BACKUP_CRON='' MOVERELLI_X='' MOVERELLI_CRON='' MOVERELLI_RULES='' DRILL='' MOVER_SCHEDULE='' LOCALTIME='' CARRY='' DOCKER=no VMS=no
 # shellcheck disable=SC1090
 . "$BASE/base.env"
 D=$(sed -n 's/^DATA_DIR="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$CFG" 2>/dev/null | head -1)
@@ -117,6 +118,7 @@ fi
 [[ -f $SC/base-$profile.sh ]] && . "$SC/base-$profile.sh"
 # the default reset takes a profile's objects away (base-mixed.sh notes them on the flash)
 [[ -f $SC/base-mixed.sh ]] && ! declare -F mixed_objects_remove >/dev/null && . "$SC/base-mixed.sh"
+[[ $VMS == yes || $VMS == no ]] || { echo "base: VMS=$VMS in $BASE/base.env - yes or no" >&2; exit 2; }
 # the Tower lock for the whole reset, taken first (another worker's experiment holds it while its job runs; not for a
 # dry run: it changes nothing): base.sh runs again under `flock -o` - the lock's fd never reaches a child (the agent it
 # starts would hold the lock for its whole life). A caller holding the lock says USO_SC_LOCKED=1.
@@ -325,9 +327,20 @@ apps_step() {
         if [[ $(docker inspect -f '{{.State.Running}}' uso-minio 2>/dev/null) == true ]]; then log "MinIO (uso-minio) runs"
         else act "MinIO (uso-minio, bucket uso with Object Lock)" minio_make; fi
     fi
-    # 5 (H4): the two VMs of the base, shut off - when the VM service runs and they are missing
-    if real_fn vm_make && virsh version >/dev/null 2>&1; then
-        local v
+    # 5 (H4): the two VMs of the base, shut off - when the VM service runs and they are missing; only on a base with VMs
+    # (base.env VMS=yes: Tower). On one without (VMS=no, the default: test3, test4) the VM service decides nothing: VMs
+    # of the base found there are said and left - base.sh never deletes (test3 2026-10-28: the VM service on for a day's
+    # work, every reset made them and the domains share, and the same reset's verify counted 7 changes)
+    local v
+    if [[ $VMS != yes ]]; then
+        local there=0
+        if virsh version >/dev/null 2>&1; then
+            for v in plain agent; do
+                virsh domstate "uso-vm-$v" >/dev/null 2>&1 && { warn "VM uso-vm-$v there but the base has no VMs - left"; there=1; }
+            done
+        fi
+        ((there)) || log "skipped: VMs - the base has none (base.env VMS=no)"
+    elif real_fn vm_make && virsh version >/dev/null 2>&1; then
         for v in plain agent; do
             if virsh domstate "uso-vm-$v" >/dev/null 2>&1; then
                 [[ $(virsh domstate "uso-vm-$v" | head -1) == "shut off" ]] && log "VM uso-vm-$v there, shut off" \
