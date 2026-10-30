@@ -2169,7 +2169,8 @@
   "script": true,
   "frequency": "custom",
   "custom": "30 4 * * *",
-  "enabled": true
+  "enabled": true,
+  "next": 1791601473
  },
  "logs": [
   {

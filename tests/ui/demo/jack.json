@@ -449,7 +449,8 @@
    "script": true,
    "frequency": "custom",
    "custom": "0 3 * * 0",
-   "enabled": true
+   "enabled": true,
+   "next": 1792177200
   }
  },
  "foreign": [],
@@ -585,7 +586,8 @@
    "script": true,
    "frequency": "custom",
    "custom": "15 5 * * *",
-   "enabled": true
+   "enabled": true,
+   "next": 1791957600
   },
   "jack": true,
   "plan": {

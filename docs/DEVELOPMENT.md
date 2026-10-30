@@ -303,20 +303,19 @@ name, default `tile.schedule`, in `places.json`), `section`. `Office.scheduleDia
 is the dialog that goes with it for a desk without one of its own (every day at a time / a cron line / not on its own →
 `<desk>.schedule {cron}`, read with `cronField()`, set with `officeJobSetSchedule()`). Texts `office.schedule.*`. On it:
 Ms. Dustdevil, Ms. Protocolli, Ms. Snapshotini (her plans as a whole, `key: 'plans'`, a card; `#/snapshot/plans` still
-lands there), the Night Watchman, Ms. Moverelli (`key: 'schedule'`). **Still their own tile** (other chats' files on
-2026-10-29), to move over the same way:
-- **Mr. Backupsy** — `public/desks/backup/desk.js` `overviewTiles()` lines 1031–1036 (`const sc = …` … `add({ key:
-  'schedule', … })`) go; `tileList()` (line ~928) hands for `schedule` `Office.scheduleTile(ID, { key: 'stat.schedule',
-  schedule: sc, value: sc.script ? '' : T('stat.not_scheduled'), last: last && { at: last.finished || last.started, how:
-  { ok: 'ok', warnings: 'partly', errors: 'partly', failed: 'failed', aborted: 'stopped', skipped: 'skipped', running:
-  'running' }[last.result] }, sub: [took ? T('schedule.duration', {…}) : ''], alert: !sc.enabled, section: () =>
-  scheduleSection() })` (`last` = `lastRun()`, `took` = `typicalDuration()`); his «Last backup» tile stays.
-- **Jack Streamer** — `public/desks/jack/desk.js` line 449 (`{ id: 'plans', key: 'schedules', … plansTile(a) }`) and
-  `plansTile()` (668–677) become `Office.scheduleTile(ID, { key: 'schedules', schedule: { enabled: on.length > 0, custom:
-  on.length === 1 ? sc[on[0]].custom : '', next: Math.min(...nexts) }, value: on.length ? '' : T('plans.off'), last:
-  <his last run (state.last_run): {at, how}>, sub: [jobs.map(… 'plans.one' …).join(' · ')], alert: !on.length, section:
-  () => plansSection() })`; `#/jack/plans` mapped to `schedule` in `mount()` (Ms. Moverelli's links already say
-  `#/moverelli/schedule`).
+lands there), the Night Watchman, Ms. Moverelli (`key: 'schedule'`), and since wave 4 (2026-10-30):
+- **Mr. Backupsy** (`key: 'stat.schedule'`) — `overviewTiles()` stays pure: its `schedule` entry carries the tile's options
+  (`scheduleOpts()`: his schedule, the last backup and how it ended — `warnings`/`errors` partly, an array stop stopped, a
+  backup going on «Running now», a tour none of it —, «A run took about … — done around …» while the next time lies ahead,
+  «click to set it» while off, «not scheduled» as the value before the setup; alert while no line runs it), `tileList()`
+  hands them to `Office.scheduleTile()`; tests/backuptiles.js reads the options. His «Last backup» tile keeps the rest of
+  that run (the missed scheduled backup T25 among it); the section is his own `scheduleSection()` with «Change…».
+- **Jack Streamer** (`key: 'schedules'`) — `plansSchedule()`: his two schedules as a whole (the next of either; no cron
+  line of its own — a line each: «Lay out: in the joint run, daily at 05:15 · Consolidate: every Sunday at 03:00», laying
+  out in Ms. Moverelli's words for the joint run), the newest run a schedule started (`by` schedule or night) and how it
+  ended, a run of his going on «Running now»; neither on: «Off», alert. Before his first look only the tile's name (the
+  search, a route). `#/jack/plans` (the tile's old id) and the Team Lead's `#/jack/schedule`, `#/jack/gather-schedule`
+  land on it; the section «Schedules» stays.
 
 
 ## Adding a language
