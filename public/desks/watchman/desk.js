@@ -1105,13 +1105,30 @@ function entryParams(e) {
   if (e.kind === 'parity_check') t.why = parityWhy(p);
   if (e.kind.startsWith('at_') && p.when) Object.assign(t, { when: fmt.date(p.when), since: fmt.date(p.since || p.when) });     // the browser's own way, like its details
   if (e.group !== 'flow') return t;
-  if (p.bytes !== undefined) t.size = fmt.size(p.bytes);
-  else if (p.files !== undefined) t.size = T('gone.files_n', { n: Number(p.files) || 0 });     // files deleted: counted
+  const n = flowShape(e) === 'hour' ? p.hour : p.bytes !== undefined ? p.bytes : p.files;      // what its sentence says (agent: watchmanFlowSaid())
+  if (p.bytes !== undefined) t.size = fmt.size(n);
+  else if (p.files !== undefined) t.size = T('gone.files_n', { n: Number(n) || 0 });     // files deleted: counted
+  if (flowShape(e) === 'span') t.span = fmt.duration(60 * (p.minutes || 0));
   if (e.kind.startsWith('flow_')) t.usual = usualText(e.kind, p);
   if (e.kind === 'flow_gone') t.more = goneMore(p);
   if (e.kind === 'flow_written') t.from = srcFrom(p);
   if (Array.isArray(p.hours)) t.hours = p.hours.map(hourName).join(', ');
   return t;
+}
+
+/** A data-flow entry's sentence (agent: watchmanFlowShape(), sent as e.v): 'hour' — the hour that tripped, 'span' — so
+ * much over a long time, '' — the pull in its minutes */
+function flowShape(e) {
+  const m = /_(hour|span)$/.exec(e.group === 'flow' && e.v ? e.v : '');
+  return m ? m[1] : '';
+}
+
+/** "3.1 GB in 12 min", "… in one hour", "… in 5 h 40 min" — as its sentence says it */
+function flowSaid(e, size) {
+  const p = e.p || {};
+  const shape = flowShape(e);
+  return shape === 'hour' ? T('detail.in_hour', { size }) : shape === 'span' ? T('detail.in_span', { size, span: fmt.duration(60 * (p.minutes || 0)) })
+    : T('detail.in_minutes', { size, minutes: p.minutes || 1 });
 }
 
 /**
@@ -1396,7 +1413,7 @@ function details(e) {
     if (p.disk && (p.shares || []).length) add(T('detail.shares_on'), p.shares.join(', '));
     if (p.bytes !== undefined) {
       add(T(e.kind === 'flow_written' ? 'detail.written' : e.kind === 'flow_gone' ? 'detail.gone' : e.kind === 'flow_container' ? 'detail.sent' : 'detail.pulled'),
-        T('detail.in_minutes', { size: fmt.size(p.bytes), minutes: p.minutes || 1 }));
+        flowSaid(e, fmt.size(flowShape(e) === 'hour' ? p.hour : p.bytes)));
       if ((e.kind === 'flow_written' || e.kind === 'flow_gone') && p.pct) add(T('detail.part'), `${fmt.number(p.pct)} %`);
       if (e.kind === 'flow_written' && Array.isArray(p.src) && p.src.length) {
         const box = el('div', '');
@@ -1410,7 +1427,7 @@ function details(e) {
       if (!p.learning) add(T('detail.usual'), usualText(e.kind, p));
       if (p.peak) add(T('detail.peak'), fmt.size(p.peak));
     } else if (p.files !== undefined) {           // files deleted (ZFS per share, XFS per disk): a count
-      add(T('detail.files'), T('detail.in_minutes', { size: T('gone.files_n', { n: Number(p.files) || 0 }), minutes: p.minutes || 1 }));
+      add(T('detail.files'), flowSaid(e, T('gone.files_n', { n: Number(flowShape(e) === 'hour' ? p.hour : p.files) || 0 })));
       if (p.from) add(T('detail.who'), p.from === 'clients' ? (p.clients || []).join(', ') : T('detail.who_server'));
       if (!p.learning) add(T('detail.usual'), usualText(e.kind, p));
       if (p.peak) add(T('detail.peak'), T('gone.files_n', { n: Number(p.peak) }));

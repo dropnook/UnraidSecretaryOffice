@@ -20966,6 +20966,227 @@ function testWatchmanFlow(): void
 }
 
 /**
+ * The data flow's pull and its hours (a real server's mail, 2026-10-30: «sent 4.8 GB in 8306 min — usually at most 68 MB
+ * per hour»): a trickle ends a pull, so does a pause; a round's bytes are spread over the hours they came in (counters not
+ * read meanwhile, a container started since — Docker's StartedAt); the sentence says what tripped — the pull, the hour, or
+ * so much over a long time — in five languages; a 1.79.0 flow.json/book.json (an endless run, minutes 8326) goes on
+ */
+function testWatchmanFlowPull(): void
+{
+    $mb = 1024 ** 2;
+    $gb = 1024 ** 3;
+    $name = 'CloudflaredTunnel';
+    $at = fn (string $hm) => strtotime("2026-10-29 $hm:00");         // a Thursday
+    $t = $at('09:25');
+    $ct = fn (int $pid, int $tx, ?int $started = null) => [$name => ['pid' => $pid, 'ns' => "net:$pid", 'tx' => $tx, 'host' => false, 'image' => 'cloudflare/cloudflared']
+                                                                     + ($started !== null ? ['started' => $started] : [])];
+    $look = fn (?array $cts) => ['conns' => null, 'smb' => null, 'containers' => $cts, 'nfs' => false, 'holder' => null, 'kopia' => null, 'zfs' => null, 'office_shares' => []];
+    // learned for 9 days: 68 MB every hour up to yesterday — usually at most 68 MB per hour, unusual from 2 GB in an hour
+    $learned = function () use ($t, $mb, $name): array {
+        $h = [];
+        for ($idx = intdiv($t - 9 * 86400, 3600); $idx < intdiv($t - 86400, 3600); $idx++) {
+            $h[$idx] = 68 * $mb;
+        }
+        return [['since' => $t - 9 * 86400, 'smb_users' => [], 'smb_clients' => [], 'ack' => []],
+                ['since' => $t - 9 * 86400, 'clients' => [], 'containers' => [$name => watchmanFlowSeries($t - 9 * 86400, ['last' => $t - 86400, 'h' => $h])],
+                 'shares' => [], 'totals' => ['sent' => [], 'written' => []]]];
+    };
+    $today = fn (array $flow) => array_filter((array) $flow['containers'][$name]['h'], fn ($i) => $i >= intdiv($t - 86400, 3600), ARRAY_FILTER_USE_KEY);
+    $entry = fn (array $book) => array_values(array_filter($book, fn ($e) => ($e['key'] ?? '') === "flow_container:$name" && watchmanOpen($e)))[0] ?? null;
+    $words = fn (?array $e, string $lang) => $e === null ? null : officeNotifyText('watchman', watchmanEntryKey($e), ['n' => 1] + watchmanText($e, $lang), $lang);
+
+    // ---- spread: a round's bytes over the hours between the counters and now; a judge takes the hour's share of a long one
+    $s = watchmanFlowSeries($at('08:00'));
+    $r = watchmanFlowAdd($s, 3000, $at('09:20'), $at('08:50'), false);
+    same('flow spread: 08:50–09:20 — a third into 08, two thirds into 09; a round of half an hour is judged whole',
+        [[intdiv($at('08:50'), 3600) => 1000, intdiv($at('09:20'), 3600) => 2000], 3000, false], [$s['h'], $r, isset($s['run']['gap'])]);
+    $s = watchmanFlowSeries($at('03:00'));
+    $r = watchmanFlowAdd($s, 340 * $mb, $t, $at('09:20'), false, from: $at('03:45'));
+    same('flow spread: 03:45–09:25 (counters of 5 h 40 min) — 7 hours, each its share, nothing lost; judged: the hour\'s share; the pull marked',
+        [7, 340 * $mb, 15 * $mb, 60 * $mb, 25 * $mb, 25 * $mb, true, $at('03:45')],
+        [count($s['h']), array_sum($s['h']), $s['h'][intdiv($at('03:45'), 3600)], $s['h'][intdiv($at('05:00'), 3600)], $s['h'][intdiv($t, 3600)], $r,
+         $s['run']['gap'] ?? false, $s['run']['from']]);
+    $s = watchmanFlowSeries($t - 30 * 86400);
+    watchmanFlowAdd($s, 1000, $t, $t - 300, false, from: $t - 30 * 86400);
+    same('flow spread: never further back than the hours kept', intdiv($t - WATCH_FLOW_KEEP, 3600), min(array_keys($s['h'])));
+    $s = watchmanFlowSeries($t);
+    watchmanFlowAdd($s, 5 * $gb, $t, $t - 300, true, from: $at('08:55'));
+    same('flow spread: the office\'s own work too (o), never a pull', [[intdiv($at('08:55'), 3600) => intdiv(5 * $gb, 6), intdiv($t, 3600) => 5 * $gb - intdiv(5 * $gb, 6)], null],
+        [$s['o'], $s['run']]);
+
+    // ---- a pull ends at a trickle or a pause
+    $s = watchmanFlowSeries($t - 2 * 86400);
+    for ($x = $t - 2 * 86400; $x <= $t; $x += 300) {
+        watchmanFlowAdd($s, 2 * $mb, $x, $x - 300, false);          // 24 MB an hour: a tunnel's keep-alive
+    }
+    same('flow pull: two days of a trickle (2 MB a round) — never one pull, each round its own', [$t - 300, 2 * $mb], [$s['run']['from'], $s['run']['bytes']]);
+    $s = watchmanFlowSeries($t - 86400);
+    for ($x = $at('07:00'); $x <= $at('09:00'); $x += 300) {
+        watchmanFlowAdd($s, 200 * $mb, $x, $x - 300, false);        // 2.4 GB an hour
+    }
+    same('flow pull: a steady pull goes on (2 h)', [$at('06:55'), 25 * 200 * $mb], [$s['run']['from'], $s['run']['bytes']]);
+    watchmanFlowAdd($s, 200 * $mb, $at('09:20'), $at('09:00'), false);
+    same('flow pull: a round 20 min after the last one begins a new pull', [$at('09:00'), 200 * $mb], [$s['run']['from'], $s['run']['bytes']]);
+    watchmanFlowAdd($s, 200 * $mb, $t, $at('09:20'), false);
+    watchmanFlowAdd($s, 5 * $mb, $at('09:30'), $t, false);
+    same('flow pull: a round of a trickle ends it', [$t, 5 * $mb], [$s['run']['from'], $s['run']['bytes']]);
+    $s = watchmanFlowSeries($t);
+    watchmanFlowAdd($s, 100, $t, $t - 300, false, floor: WATCH_FILES_MIN);
+    watchmanFlowAdd($s, 100, $t + 300, $t, false, floor: WATCH_FILES_MIN);
+    same('flow pull: files deleted measured against their own floor (100 a round goes on)', [$t - 300, 200], [$s['run']['from'], $s['run']['bytes']]);
+
+    // through the rounds: a trickling container for a day — no pull longer than a round, nothing told
+    [$bf, $flow] = $learned();
+    $book = [];
+    $cnt = ['time' => $t - 86400, 'cts' => [$name => [100, 0]]];
+    $tx = 0;
+    $added = [];
+    for ($x = $t - 86400 + 300; $x <= $t; $x += 300) {
+        $tx += 3 * $mb;
+        [$more, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look($ct(100, $tx)), $book, $x);
+        $added = array_merge($added, $more);
+    }
+    same('flow rounds: a day of a trickle — nothing told, the pull one round long, every byte in its hour', [[], $t - 300, 288 * 3 * $mb],
+        [$added, $flow['containers'][$name]['run']['from'], array_sum($today($flow))]);
+
+    // ---- the counters not read for 5 h 40 min (Docker didn't answer): spread over that time, judged by the hour's share
+    $gap = function (int $sent, bool $answers = false) use ($learned, $ct, $look, $at, $t, $name): array {
+        [$bf, $flow] = $learned();
+        $book = [];
+        $cnt = ['time' => $at('03:45'), 'cts' => [$name => [100, 1000]]];
+        for ($x = $at('03:50'); $x < $t; $x += 300) {
+            [, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look(null), $book, $x);       // the rounds go on, Docker doesn't answer
+        }
+        $before = $cnt;
+        [$added, $flow] = watchmanFlowCompare($bf, $flow, $cnt, $look($ct(100, 1000 + $sent)), $book, $t);
+        return [$added, $flow, $before, $book];
+    };
+    [$added, $flow, $cnt, $book] = $gap(3200 * $mb);
+    same('flow gap: 3.2 GB over 5 h 40 min — about 560 MB an hour, under the limit (2 GB): nothing told; every hour its share; when the counters were taken carried',
+        [[], 7, 3200 * $mb, $at('03:45'), $t - 300], [$added, count($today($flow)), array_sum($today($flow)), $cnt['at']['cts'] ?? null, $cnt['time']]);
+    check('flow gap: the hour going on holds only its share (25 of 340 minutes)', abs($today($flow)[intdiv($t, 3600)] - 3200 * $mb * 25 / 340) < 8);
+    [$added, $flow, , $book] = $gap(40 * $gb);
+    $e = $entry($book);
+    same('flow gap: 40 GB over 5 h 40 min — about 7 GB an hour, over the limit: told, as so much in so long (not «in one hour»)',
+        [['flow_container'], 'flow_container_span', 40 * $gb, 340, true],
+        [$added, $e === null ? null : watchmanEntryVariant($e), $e['p']['bytes'] ?? null, $e['p']['minutes'] ?? null, $e['p']['gap'] ?? null]);
+    $e = (array) $e + ['p' => []];
+    same('flow gap: in words', ['Container CloudflaredTunnel sent 40 GB in 5 h 40 min — usually at most 68 MB per hour at this time',
+                                'Container CloudflaredTunnel sendete 40 GB in 5 Std. 40 Min. — sonst höchstens 68 MB pro Stunde um diese Zeit'],
+        [$words($e, 'en'), $words($e, 'de')]);
+    same('flow gap: «I know, thanks» makes the hour normal, not the 40 GB', $e['p']['hour'], $e['p']['peak']);
+    check('flow gap: the hour is a share of the 40 GB', $e['p']['hour'] > 2 * $gb && $e['p']['hour'] < 4 * $gb);
+
+    // ---- a container not counted at the last round, running since 03:45: its counter since its start (Docker's StartedAt)
+    $missed = function (int $sent, ?int $started, int $pid = 100) use ($learned, $ct, $look, $t, $name): array {
+        [$bf, $flow] = $learned();
+        $book = [];
+        $cnt = ['time' => $t - 300, 'cts' => $pid === 100 ? [] : [$name => [100, 50 * 1024 ** 3]]];
+        [$added, $flow] = watchmanFlowCompare($bf, $flow, $cnt, $look($ct($pid, $sent, $started)), $book, $t);
+        return [$added, $flow, $book];
+    };
+    [$added, $flow] = $missed(3200 * $mb, $at('03:45'));
+    same('flow start: not counted last round, up since 03:45 — 3.2 GB since then, spread, nothing told', [[], 7, 3200 * $mb],
+        [$added, count($today($flow)), array_sum($today($flow))]);
+    [$added, $flow] = $missed(3200 * $mb, null);
+    same('flow start: without Docker\'s start the counter falls into the round (as before)', [['flow_container'], [intdiv($t, 3600) => 3200 * $mb]],
+        [$added, $today($flow)]);
+    [$added, $flow, $book] = $missed(3200 * $mb, $t - 120, 200);
+    $e = $entry($book);
+    same('flow start: restarted 2 min ago and 3.2 GB since — told, as the pull it is',
+        [['flow_container'], null, 'Container CloudflaredTunnel sent 3.1 GB in 2 min — usually at most 68 MB per hour at this time'],
+        [$added, watchmanEntryVariant((array) $e), $e === null ? null : $words($e, 'en')]);
+    [$added] = $missed(100 * $mb, $at('09:23'), 200);
+    same('flow start: restarted, 100 MB since — nothing', [], $added);
+    $inspect = "\"/$name\"\t\"cloudflare/cloudflared\"\t{}\t[]\t4242\tnull\t\"2026-10-01T10:00:00.5Z\"\tnull\tnull\tnull\tnull\t\"2026-10-29T03:45:00.123456789Z\"";
+    check('flow start: Docker\'s StartedAt asked with the rest (one inspect)', str_ends_with(WATCH_INSPECT, "\t{{json .State.StartedAt}}"));
+
+    // ---- a long pull: told by its hour, «I know, thanks» makes that hour normal (never the pull's sum)
+    [$bf, $flow] = $learned();
+    $book = [];
+    $cnt = ['time' => $at('06:00'), 'cts' => [$name => [100, 0]]];
+    $tx = 0;
+    $told = [];
+    for ($x = $at('06:05'); $x <= $t; $x += 300) {
+        $tx += 250 * $mb;               // 3 GB an hour for 3 h 25 min
+        [$more, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look($ct(100, $tx)), $book, $x);
+        $told = array_merge($told, $more);
+    }
+    $e = (array) $entry($book) + ['p' => []];
+    same('flow long pull: told once, the pull 3 h 25 min long — said by its hour (the most an hour held when looked at: 55 min of it)',
+        [['flow_container'], 205, 'flow_container_hour', 11 * 250 * $mb],
+        [$told, $e['p']['minutes'], watchmanEntryVariant($e), $e['p']['hour']]);
+    same('flow long pull: in words', 'Container CloudflaredTunnel sendete 2,7 GB in einer Stunde — sonst höchstens 68 MB pro Stunde um diese Zeit', $words($e, 'de'));
+    $b2 = ['flow' => $bf];
+    watchmanFlowAdopt($b2, $e, $t);
+    same('flow long pull: «I know, thanks» — the hour, not the pull (10 GB)', 11 * 250 * $mb, $b2['flow']['ack']["flow_container:$name"]['bytes']);
+
+    // ---- the words: every kind's three sentences in five languages, the notification's line, the team lead's
+    $base = ['usual' => 68 * $mb, 'limit' => 2 * $gb, 'learning' => false];
+    $shapes = ['' => ['bytes' => 3 * $gb, 'minutes' => 12, 'hour' => 3 * $gb, 'gap' => false],
+               '_hour' => ['bytes' => 5 * $gb, 'minutes' => 8326, 'hour' => 3189 * $mb, 'gap' => false],
+               '_span' => ['bytes' => 40 * $gb, 'minutes' => 340, 'hour' => 2900 * $mb, 'gap' => true]];
+    $whos = ['flow_client' => ['ip' => '192.0.2.9', 'service' => 'smb'], 'flow_container' => ['name' => $name, 'image' => 'x'],
+             'flow_written' => ['share' => 'tank/data', 'pct' => 4], 'flow_gone' => ['share' => 'tank/data', 'disk' => null, 'pct' => 4]];
+    $gaps = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        foreach ($whos as $kind => $who) {
+            foreach ($shapes as $shape => $p) {
+                $e = watchmanEntry($kind, "$kind:x", $t, $who + $p + $base);
+                $text = $words($e, $lang);
+                $size = watchmanSize($shape === '_hour' ? 3189 * $mb : $p['bytes'], $lang);
+                $when = $shape === '_span' ? watchmanFlowSpan(340 * 60, $lang) : ($shape === '' ? '12' : '');
+                if (watchmanEntryKey($e) !== "entry.$kind$shape" || str_contains($text, '{') || !str_contains($text, $size) || !str_contains($text, $when)) {
+                    $gaps[] = "$lang $kind$shape: $text";
+                }
+            }
+        }
+        foreach (['detail.in_hour', 'detail.in_span'] as $k) {
+            $gaps = array_merge($gaps, isset(langFile(OFFICE_WEB . "/desks/watchman/lang/$lang.json")[$k]) ? [] : ["$lang $k"]);
+        }
+    }
+    same('flow words: the pull, the hour, so much in so long — every kind, five languages, the right size and time', [], $gaps);
+    $e = watchmanEntry('flow_container', "flow_container:$name", $t, $whos['flow_container'] + $shapes['_hour'] + $base);
+    same('flow words: the notification\'s line and the team lead\'s say the hour too; a span of days',
+        ['Nachtwächter: Container CloudflaredTunnel sendete 3,1 GB', '3,1 GB', false, '5 j 18 h', '2 Std. 0 Min.'],
+        [officeNotifyText('watchman', 'notify.flow_container', ['n' => 1] + watchmanText($e, 'de'), 'de'),
+         watchmanText($e, 'de')['size'], array_key_exists('span', watchmanFindings([$e])[0]['params'] ?? ['span' => 1]),
+         watchmanFlowSpan(8326 * 60, 'fr'), watchmanFlowSpan(7200, 'de')]);
+    same('flow words: the page gets the shape (e.v), an older entry without its hour none', ['flow_container_hour', null, 'net_outage_open'],
+        [watchmanEntryVariant($e), watchmanEntryVariant(watchmanEntry('flow_container', 'k', $t, ['name' => $name, 'bytes' => 5 * $gb, 'minutes' => 8326] + $base)),
+         watchmanEntryVariant(['kind' => 'net_outage', 'p' => ['down' => $t]])]);
+
+    // ---- a 1.79.0 server: flow.json with an endless run, book.json's entry of 8326 minutes, counters without `at`
+    [$bf, $flow] = $learned();
+    $s = &$flow['containers'][$name];
+    foreach ([$at('09:00') => 3189 * $mb, $t - 2 * 86400 => 270 * $mb, $t - 3 * 86400 => 265 * $mb] as $x => $b) {
+        $s['h'][intdiv($x, 3600)] = $b;
+    }
+    $s['run'] = ['from' => $t - 8326 * 60, 'bytes' => intdiv(48 * $gb, 10), 'last' => $t];
+    unset($s);
+    $flow = json_decode(json_encode($flow), true);          // as read back from flow.json (hour keys as strings, like the file)
+    $book = [watchmanEntry('flow_container', "flow_container:$name", $t, ['name' => $name, 'image' => 'cloudflare/cloudflared', 'bytes' => intdiv(48 * $gb, 10),
+        'minutes' => 8326, 'usual' => 68 * $mb, 'limit' => 2 * $gb, 'learning' => false, 'peak' => intdiv(48 * $gb, 10)])];
+    same('flow 1.79.0: its entry said the pull\'s sum', 'Container CloudflaredTunnel sendete 4,8 GB in 8326 Min. — sonst höchstens 68 MB pro Stunde um diese Zeit',
+        $words($book[0], 'de'));
+    $cnt = ['time' => $t, 'conns' => null, 'cts' => [$name => [100, 9 * $gb]], 'ds' => null, 'smb' => null];
+    [$added, $flow, $cnt] = watchmanFlowCompare($bf, $flow, $cnt, $look($ct(100, 9 * $gb + 2 * $mb)), $book, $t + 300);
+    $e = (array) $entry($book) + ['p' => []];
+    same('flow 1.79.0: read on — the endless pull ends (a trickle), the entry keeps its hour (09:00, 3.1 GB) as what tripped and as «I know, thanks»',
+        [[], $t, 2 * $mb, 3189 * $mb + 2 * $mb, 3189 * $mb + 2 * $mb, 'flow_container_hour'],
+        [$added, $flow['containers'][$name]['run']['from'], $flow['containers'][$name]['run']['bytes'], $e['p']['hour'], $e['p']['peak'], watchmanEntryVariant($e)]);
+    same('flow 1.79.0: in words — the hour, not 8306 minutes', 'Container CloudflaredTunnel sendete 3,1 GB in einer Stunde — sonst höchstens 68 MB pro Stunde um diese Zeit',
+        $words($e, 'de'));
+    $book2 = [watchmanEntry('flow_container', "flow_container:$name", $t - 3600, ['name' => $name, 'bytes' => intdiv(48 * $gb, 10), 'minutes' => 8326,
+        'usual' => 68 * $mb, 'limit' => 2 * $gb, 'learning' => false, 'peak' => intdiv(48 * $gb, 10)])];
+    [$bf2, $flow2] = $learned();
+    $flow2['containers'][$name]['h'][intdiv($at('08:00'), 3600)] = 3189 * $mb;
+    watchmanFlowCompare($bf2, $flow2, null, $look(null), $book2, $t + 1200);
+    same('flow 1.79.0: an older entry no longer going gets its hour from the hours learned (once)', [3189 * $mb, 3189 * $mb],
+        [$book2[0]['p']['hour'] ?? null, $book2[0]['p']['peak'] ?? null]);
+}
+
+/**
  * go's added lines (#5): their text in the flash_go entry (the first WATCH_GO_SHOW, each cut at WATCH_GO_WIDTH), of removed
  * lines only their number; never in the entry's words (notification, team lead, SIEM) or the flash mirror
  */
@@ -58335,7 +58556,7 @@ function testBackupAnewChoice(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],

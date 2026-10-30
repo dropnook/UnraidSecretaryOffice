@@ -753,7 +753,13 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   never a command that changes anything.** Posture tips (never in the book or notified) and the watch book (what differs from
   normal; the office's own installs/drills adopted, never told). API keys: id, name, roles, a fingerprint — **never the key**;
   night mirror without passwords or key values. **Privacy rule:** another client's address/MAC/name only in
-  `net_new_device`/`net_spoof`. Every kind has a MITRE technique.
+  `net_new_device`/`net_spoof`. Every kind has a MITRE technique. **Data flow** (`watchmanFlowAdd()`): a round's bytes
+  go into the hours they came in — spread from when those counters were taken (a part not looked at meanwhile keeps its
+  counters and their time, `at` in the RAM counters; a container counted anew from Docker's StartedAt) — and a pull ends
+  at a pause (`WATCH_FLOW_GOING`) or a trickle (under 1/16 of the floor per hour); the hours a long-spread pull fills never
+  count as normal. An entry says what tripped (`watchmanFlowShape()`, `entry.<kind>`, `_hour`, `_span`): the pull in its
+  minutes (up to 3 h, holding the hour), else the hour (`hour`), or so much in so long (`gap`); «I know, thanks» makes an
+  hour normal (`peak`), never a pull's sum.
 * **`cleanup` — Ms. Dustdevil.** «Where is what» (operational advice, **never security**; read only) and «Tidying up» (what a
   drill or restore left: only what his journals name). **Her tour on schedule** (1.78, off by default): job `cleanup`
   (`job.sh cleanup` → `job cleanup-tour-due`, a mark in RAM); her tick (`clScheduledTick()`) tours as «Tour» does —
