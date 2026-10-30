@@ -18,8 +18,14 @@ S=uso-wip-r17-btrfs
 mkdir -p "$KEEP_STASH/R17-INI" && cp -p "$UB/settings.ini" "$KEEP_STASH/R17-INI/settings.ini"
 undo_push bash -c 'mv -f "$1/settings.ini" "$2" && rmdir "$1"' _ "$KEEP_STASH/R17-INI" "$UB/settings.ini"
 state SH-BTRFS "$S"
-d=$(share_roots "$S" | head -1)
-say "the share $S lies on $d ($(findmnt -no FSTYPE "/mnt/$d" 2>/dev/null))"
+nc_data_closed                  # Unraid's «Add Share» opened Nextcloud's data folder: the runs would warn nc_datadir_readable
+# the root that holds the files (put_files: disk1) — an empty folder of the share may appear on cache beside it (test3
+# 2026-10-30: `share_roots | head -1` picked that one)
+for d in $(share_roots "$S"); do [[ -n $(find "/mnt/$d/$S" -maxdepth 1 -type f -print -quit) ]] && break; done
+say "the share $S lies on $d ($(findmnt -no FSTYPE "/mnt/$d" 2>/dev/null); roots: $(share_roots "$S" | paste -sd' ' -))"
+# what the restores leave beside our files (the copy beside, the changed one set aside) goes before the share's undo:
+# files_unput leaves a folder that holds anything else
+undo_push bash -c 'rm -f -- "$1"/*.restored-* "$1"/*.aside-*' _ "/mnt/$d/$S"
 f=$(find "/mnt/$d/$S" -maxdepth 1 -type f | sort | head -1)
 [[ -n $f ]] || { _row state SH-BTRFS red "no file in $S on $d"; scenario_end; }
 path=/mnt/user/$S/$(basename "$f")
@@ -30,9 +36,12 @@ flow BK-APPLY "share|$S|mode=snapshot" || _row state prepare red "Apply of $S as
 flow BK-RUN-MANUAL mode=backup
 snap_before
 flow RS-SCAN
-mom=$(jq -c --arg s "$S" '[.shares[]? | select(.name == $s or .share == $s) | {snaps: ((.snaps // .moments // []) | length), fs: (.fs // .kind // null)}][0] // empty' "$D/restore.json" 2>/dev/null)
-[[ -n $mom ]] && jq -e '.snaps > 0' <<<"$mom" >/dev/null 2>&1 && cell moments 1 "his look: $S $mom" \
-    || cell moments 0 "his look of $S: ${mom:-not listed} ($(ls "/mnt/$d/.btrfs-snap" 2>/dev/null | head -3 | paste -sd' ' -))"
+# the moments his «Restore files…» dialog offers for the share (restore.preview's options.moments, as desk.js lists them)
+ask restore.preview "$(jq -cn --arg p "/mnt/user/$S" '{kind: "files", path: $p, mode: "copy"}')" 300 >/dev/null
+mom=$(ask_last "[.preview.options.moments[]? | select(.ours == true) | {name, holds}] | tostring" 2>/dev/null)
+jq -e --arg d "$d" 'any(.[]; (.holds // []) | index($d))' <<<"${mom:-[]}" >/dev/null 2>&1 \
+    && cell moments 1 "his look of $S: the run's moment(s) on $d $mom" \
+    || cell moments 0 "his look of $S: ${mom:-no moment} (on $d: $(ls "/mnt/$d/.btrfs-snap" 2>/dev/null | head -3 | paste -sd' ' -))"
 if flow RS-FILES mode=beside path="$path"; then
     r=$(tail -1 "$KEEP/compare.tsv" 2>/dev/null | cut -f4)
     [[ $r == ok ]] && cell beside 1 "back beside the original, the same bytes" || cell beside 0 "back beside: ${r:-no comparison}"
