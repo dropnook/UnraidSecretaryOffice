@@ -314,7 +314,14 @@ else
         4) scen_note="6b scenarios: not run - ${note4:-Tower not reachable}"
            unbump; red "Tower was not free or not reachable (above) - later again, or --no-scenarios with a reason" ;;
         *) scen_note="6b scenarios: RED after $(( took / 60 )) min (${sum:-no summary})"
-           unbump; red "the scenarios of the touched desks were not green (${sum:-no summary line}; the reports: the folder in run.sh's last line above)" ;;
+           unbump
+           # the verdict is run.sh's exit code: exit 1 with no red cell means not every scenario ran (the line to
+           # Tower dropped, a base reset failed) - say that, not «not green»
+           if [[ -z $sum || $sum == *" 0 red,"* ]]; then
+               red "run.sh ended $rc without a red cell (${sum:-no summary line}) - not every scenario ran (the line to Tower dropped? run.sh's last lines above say where it stopped): later again"
+           else
+               red "the scenarios of the touched desks were not green ($sum; the reports: the folder in run.sh's last line above)"
+           fi ;;
     esac
 fi
 
