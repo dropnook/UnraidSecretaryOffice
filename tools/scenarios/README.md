@@ -837,6 +837,8 @@ lies, every one a note, nothing red.
 
 ## Base profiles — Tower's «mixed» (2026-10-25)
 
+`base/<host>/base.env` `VMS=yes|no` (missing = no): base.sh makes the two VMs (uso-vm-plain, uso-vm-agent) only on a base with them (Tower); on test3 and test4 VMs found there are said and left, whatever the VM service does.
+
 A base profile is the default base plus objects of its own: `base/<host>/profile-<name>.env` over base.env, its kept
 data folder `<data>.base-<name>/`, its objects made by `base-<name>.sh`. `base.sh --profile mixed` resets to it
 (`USO_BASE_PROFILE=mixed` the same); **the default reset takes the profile's objects away first** (noted on the flash,

@@ -21568,6 +21568,67 @@ function testWatchmanGuessMore(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * What the office starts carries nothing of a login's session (test3, 2026-10-28: an agent restarted over SSH handed
+ * XDG_RUNTIME_DIR=/run/user/0 on; pam removed the folder at the logout and every docker exec of the backup run failed):
+ * agent.sh starts its supervisors, the USO network's check and atd's --recover through CLEAN_ENV, job.sh and the .plg's
+ * install unset the same list before they start anything - PATH, HOME, LANG and the office's own variables stay.
+ */
+function testCleanEnv(): void
+{
+    $vars = ['XDG_RUNTIME_DIR', 'SSH_CLIENT', 'SSH_CONNECTION', 'SSH_TTY', 'SSH_AUTH_SOCK'];
+    $agent = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    same('clean env: CLEAN_ENV unsets the session\'s five', ['env -u ' . implode(' -u ', $vars)],
+        preg_match('/^CLEAN_ENV=\((env[^)\n]*)\)$/m', $agent, $m) ? [$m[1]] : []);
+    preg_match_all('/^[^#\n]*\b(setsid|at -M)\b[^\n]*$/m', $agent, $starts);
+    check('clean env: agent.sh starts four things (both supervisors, the USO network\'s check, atd\'s --recover)', count($starts[0]) === 4,
+        implode("\n", $starts[0]));
+    same('clean env: every one of them through CLEAN_ENV', [], array_values(array_filter($starts[0], fn ($l) => !str_contains($l, '"${CLEAN_ENV[@]}"'))));
+    $job = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh');
+    $unset = 'unset ' . implode(' ', $vars);
+    $at = strpos($job, "\n$unset\n");
+    check('clean env: job.sh unsets them before it starts anything', $at !== false && $at < strpos($job, 'exec ') && $at < strpos($job, 'source '));
+    $install = plgScript('install', '/x');
+    $at = strpos($install, "\n$unset\n");
+    check('clean env: the .plg\'s install unsets them before any agent.sh is called', $at !== false && $at < strpos($install, 'scripts/agent.sh"'));
+
+    // for real: a session's variables set, the starts' children look at what they got
+    $tmp = sys_get_temp_dir() . '/office-tests-cleanenv-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    foreach (['plugin/scripts', 'plugin/backup', 'run', 'bin', 'data/unraid-backup/state'] as $d) {
+        @mkdir("$tmp/$d", 0700, true);
+    }
+    $dump = fn (string $name) => "#!/bin/bash\nenv > $tmp/env-$name-\$1.tmp && mv $tmp/env-$name-\$1.tmp $tmp/env-$name-\$1\n";
+    file_put_contents("$tmp/plugin/scripts/agent.sh", $dump('agent'));
+    file_put_contents("$tmp/plugin/scripts/usonet.sh", $dump('usonet'));
+    file_put_contents("$tmp/plugin/backup/backup.sh", "exit 0\n");
+    file_put_contents("$tmp/bin/at", $dump('at'));
+    chmod("$tmp/bin/at", 0755);
+    file_put_contents("$tmp/data/unraid-backup/state/stopped", "app\n");
+    $session = 'export XDG_RUNTIME_DIR=/nonexistent SSH_CLIENT="10.0.0.9 50000 22" SSH_CONNECTION="10.0.0.9 50000 10.0.0.2 22" SSH_TTY=/dev/pts/9'
+        . ' SSH_AUTH_SOCK=/tmp/ssh-x/agent.1 LANG=de_DE.UTF-8 HOME=/root USO_TEST_KEEP=1 PATH=' . escapeshellarg("$tmp/bin:" . getenv('PATH')) . '; ';
+    $sh = $session . 'source ' . escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh') . '; DIR=' . escapeshellarg("$tmp/plugin") . '; RUN=' . escapeshellarg("$tmp/run")
+        . '; SUPERVISOR=$RUN/s.pid; NIGHT_SUPERVISOR=$RUN/n.pid; STOPPING=$RUN/s.stop; NIGHT_STOPPING=$RUN/n.stop; LOG=' . escapeshellarg("$tmp/agent.log")
+        . '; data_dir() { echo ' . escapeshellarg("$tmp/data") . '; }; agent_start; night_start; usonet_check; backup_recover';
+    exec('bash -c ' . escapeshellarg($sh) . ' >/dev/null 2>&1');
+    $job = str_replace(['DIR=/usr/local/emhttp/plugins/unraid-secretary-office', 'RUN=/var/run/unraid-secretary-office'], ["DIR=$tmp/plugin", "RUN=$tmp/run"], $job);
+    file_put_contents("$tmp/job.sh", $job);
+    exec('bash -c ' . escapeshellarg($session . 'bash ' . escapeshellarg("$tmp/job.sh") . ' watch') . ' >/dev/null 2>&1');
+    $want = ['agent-supervise', 'agent-night-supervise', 'usonet-check', 'at--M', 'agent-watch'];
+    for ($i = 0; $i < 50 && count(array_filter($want, fn ($w) => is_file("$tmp/env-$w"))) < count($want); $i++) {
+        usleep(100000);
+    }
+    $got = [];
+    foreach ($want as $w) {
+        $env = (string) @file_get_contents("$tmp/env-$w");
+        $names = preg_match_all('/^([A-Z_][A-Z0-9_]*)=/m', $env, $mm) ? $mm[1] : [];
+        $got[$w] = [array_values(array_intersect($vars, $names)), count(array_intersect(['PATH', 'HOME', 'LANG', 'USO_TEST_KEEP'], $names))];
+    }
+    same('clean env: started with a session\'s variables, none reaches the supervisors, the USO network\'s check, atd or a job - PATH, HOME, LANG and ours do',
+        array_fill_keys($want, [[], 4]), $got);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 /** job.sh: a second start of the same job in the same minute ends quietly, with one line for the syslog */
 function testJobGuard(): void
 {
@@ -58112,7 +58173,7 @@ function testUsoNetScript(): void
     same('night watchman: a line added there is not', 1, count($f['own'] ?? []));
     $agent = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
     check('agent.sh start: the USO network comes up whatever the array does (in the background); release leaves it be', preg_match('/^start\(\) \{\n    watch_cron\n    usonet_check\n/m', $agent) === 1
-        && str_contains($agent, 'setsid bash "$DIR/scripts/usonet.sh" check </dev/null >/dev/null 2>&1 &') && !preg_match('/^release\(\) \{[^}]*usonet/ms', $agent));
+        && str_contains($agent, 'setsid "${CLEAN_ENV[@]}" bash "$DIR/scripts/usonet.sh" check </dev/null >/dev/null 2>&1 &') && !preg_match('/^release\(\) \{[^}]*usonet/ms', $agent));
     hardeningRm($tmp);
 }
 
@@ -58557,7 +58618,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
