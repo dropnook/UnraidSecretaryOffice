@@ -2650,7 +2650,8 @@ function backupChecks(): array
     $summary = backupSettingsSummary($settings);
     $kopiaOn = $summary['kopia_enabled'];
 
-    $out[] = finding('setup', 'required', is_file("$data/settings.ini"), ['path' => BACKUP_SCRIPT_DIR . '/setup.sh'], '#/backup/setup');
+    // its way is his «Set up…» (B42: the setup's script named on the Team Lead's page was a script name there)
+    $out[] = finding('setup', 'required', is_file("$data/settings.ini"), [], '#/backup/setup');
     // the engine (2.49) refuses a folder or settings.ini that isn't root's alone (ub_data_trusted) - said here, the command shown
     // no folder yet (nothing set up): nothing to trust or distrust, no «couldn't check» with an empty path (7.4 test 2026-10-16)
     $trust = backupEngineTrust($data);

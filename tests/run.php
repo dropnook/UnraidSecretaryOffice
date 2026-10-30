@@ -8887,6 +8887,12 @@ function testBackupScheduledUnset(): void
     check('scheduled without settings: the Team Lead\'s must «set up» - Mr. Backupsy\'s finding goes by settings.ini, its words there',
         str_contains($src('agent/desks/backup.php'), "finding('setup', 'required', is_file(\"\$data/settings.ini\")")
         && str_contains((string) langFile(OFFICE_WEB . '/desks/backup/lang/en.json')['check.setup'], 'set up'));
+    $how = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $how[] = (string) (langFile(OFFICE_WEB . "/desks/backup/lang/$l.json")['check.setup_how'] ?? '.sh');
+    }
+    check('scheduled without settings: … its way is his «Set up…», no script named on the Team Lead\'s page (B42 INV-PAGE: «setup.sh»)',
+        !preg_grep('/\.sh|\{path\}/', $how) && str_contains($src('agent/desks/backup.php'), "finding('setup', 'required', is_file(\"\$data/settings.ini\"), [], '#/backup/setup');"));
     // the backup place without settings: where the last runs wrote - his packages tile, Mr. Restori, the other readers
     same('place without settings: the settings\' share; gone - the last run\'s place; never set up and never run - none',
         [['Box', 'settings'], ['Ablage', 'last_run'], ['', 'settings']],

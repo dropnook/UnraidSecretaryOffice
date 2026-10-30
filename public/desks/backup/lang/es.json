@@ -256,7 +256,7 @@
     "other": "Quedan {n} montajes, p. ej. {path}."
   },
   "check.setup": "La copia de seguridad está configurada (settings.ini)",
-  "check.setup_how": "Señor Backupsi → «Configurar…»: lee el servidor y lo propone todo. (En una terminal: {path})",
+  "check.setup_how": "Señor Backupsi → «Configurar…»: lee el servidor y lo propone todo.",
   "check.engine_trust": "La carpeta de las copias y sus ajustes pertenecen solo a root",
   "check.engine_trust_how": "No es así para {path}: el motor de copias no se ejecuta hasta que lo sea — trabaja como root y no lee nada que otros pudieran haber escrito. En un terminal del servidor: {cmd}",
   "check.schedule": "Hay una copia de seguridad programada",
