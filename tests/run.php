@@ -730,11 +730,23 @@ function testSleepingPools(): void
         [$asked(), array_keys((readJson("$tmp/restore-zfs.json") ?? [])['pools'] ?? []), $ctx['pools_asleep']]);
     $ini(true);
     $ctx = rsContext([]);
-    $kept = rsKeptLook('/mnt/hazel/media/films', 'hazel', $ctx);
-    same('Restori: hazel asleep again — only maple live; hazel as last seen from his file: the dataset holding the path, its snapshots then, as of when',
-        [['list -r maple', 'list -r maple'], ['maple/appdata'], true, ['hazel/media', 2, 1700007200], true, ['hazel', 0], 'maple'],
+    $kept = rsKeptLook('/mnt/hazel/media', 'hazel', $ctx);
+    // a folder inside a dataset: the dataset's snapshots are not the folder's (W4-1) — only what his look found held it
+    same('Restori: hazel asleep again — only maple live; hazel as last seen from his file: a dataset\'s top with its snapshots then, as of when; a folder inside one he never located: not said',
+        [['list -r maple', 'list -r maple'], ['maple/appdata'], true, ['hazel/media', 2, 1700007200], true, null, null, 'maple'],
         [$asked(), array_keys($ctx['snaps']), is_int($ctx['pools_asleep']['hazel'] ?? null), [$kept['dataset'], $kept['count'], $kept['newest']], $kept['looked'] === $ctx['pools_asleep']['hazel'],
-         [rsKeptLook('/mnt/hazel/other', 'hazel', $ctx)['dataset'], rsKeptLook('/mnt/hazel/other', 'hazel', $ctx)['count']], rsKeptLook('/mnt/maple/x', 'maple', $ctx)['dataset'] ?? null]);
+         rsKeptLook('/mnt/hazel/media/films', 'hazel', $ctx), rsKeptLook('/mnt/hazel/other', 'hazel', $ctx), rsKeptLook('/mnt/maple', 'maple', $ctx)['dataset'] ?? null]);
+    // what held a folder he located while the pool was awake: his file keeps it per folder, in his shape only
+    $k = (readJson("$tmp/restore-zfs.json") ?? [])['pools'];
+    $k['hazel']['held'] = ['/mnt/hazel/media/films' => [1, 1700000000], '/mnt/hazel/media/bad' => [1, 'x'], 'rel/path' => [1, 1], '/mnt/hazel/media/none' => [0, null]];
+    file_put_contents("$tmp/restore-zfs.json", json_encode(['pools' => $k]));
+    $ctx = rsContext([]);
+    $asked();
+    same('Restori: a folder inside a dataset, asleep — how many of its snapshots held it when he last looked (none: 0), junk left out',
+        [['hazel/media', 1, 1700000000], [0, null], null, ['/mnt/hazel/media/films', '/mnt/hazel/media/none']],
+        [[rsKeptLook('/mnt/hazel/media/films', 'hazel', $ctx)['dataset'] ?? null, rsKeptLook('/mnt/hazel/media/films', 'hazel', $ctx)['count'] ?? null, rsKeptLook('/mnt/hazel/media/films', 'hazel', $ctx)['newest'] ?? null],
+         array_values(array_intersect_key((array) rsKeptLook('/mnt/hazel/media/none', 'hazel', $ctx), ['count' => 1, 'newest' => 1])),
+         rsKeptLook('/mnt/hazel/media/bad', 'hazel', $ctx), array_keys($ctx['zfs_kept']['hazel']['held'])]);
     // «wake» ticked and the pool answered (rsWake marks its disks awake): listed fresh into the live lists
     foreach (array_keys($ctx['asleep']) as $n) {
         $ctx['asleep'][$n] = false;
@@ -752,7 +764,7 @@ function testSleepingPools(): void
     $ctx = rsContext([]);
     $asked();
     same('Restori: only mounts under /mnt of that pool and well-formed snapshots are taken', [['/mnt/hazel/ok' => 'hazel/ok'], ['hazel/ok' => [['a', 1]]], ['dataset' => 'hazel/ok', 'count' => 1, 'newest' => 1, 'looked' => 1700000500]],
-        [$ctx['zfs_kept']['hazel']['mounts'], $ctx['zfs_kept']['hazel']['snaps'], rsKeptLook('/mnt/hazel/ok/sub', 'hazel', $ctx)]);
+        [$ctx['zfs_kept']['hazel']['mounts'], $ctx['zfs_kept']['hazel']['snaps'], rsKeptLook('/mnt/hazel/ok', 'hazel', $ctx)]);
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true) ?: [];
     check('Restori: the page can say it', isset($en['snaps.kept'], $en['snaps.kept_hint']));
 
@@ -15671,6 +15683,118 @@ function testRestoreShares(): void
 
     unset($GLOBALS['rs']['data'], $GLOBALS['rs']['job_file'], $GLOBALS['rs']['ub_data'], $GLOBALS['rs']['sizes_file'], $GLOBALS['rs']['users']);
     $GLOBALS['rs']['du'] = ['queue' => [], 'running' => []];
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * W4-1 (wave 4, R17 on test3): a share on two places — a btrfs pool with the app's folder, a ZFS pool whose dataset of
+ * the share holds only another folder. A place's snapshot counts for a folder only when it holds that folder (the btrfs
+ * moment's folder, ZFS's .zfs/snapshot/<name>/<rel>), looked into only on an awake place: his count, its «newest», each
+ * place's latest, the moments of the restore dialog (options.moments) agree; a folder gone live but kept in a snapshot
+ * still counts there; a sleeping place is never looked into — what held the folder when he last looked stays his note.
+ */
+function testRestoreSnapsHold(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-rssnaps-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    $mnt = "$tmp/mnt";
+    @mkdir("$tmp/data/unraid-backup/state", 0700, true);
+    $saved = $GLOBALS['rs'] ?? [];
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['rs']['ub_data'] = "$tmp/data/unraid-backup";
+    $GLOBALS['rs']['sizes_file'] = "$tmp/data/restore-sizes.json";
+    $GLOBALS['rs']['users'] = fn (array $paths, array $roots): array => [[], []];
+    $put = function (string $file, ?string $text = null): void {
+        @mkdir($text === null ? $file : dirname($file), 0755, true);
+        if ($text !== null) {
+            file_put_contents($file, $text);
+        }
+    };
+    $zsnap = fn (string $name): string => "$mnt/fastz/zzapp/.zfs/snapshot/$name";
+    $T = fn (string $hm): int => (int) strtotime("2026-10-30 $hm");
+    // live: emby on the btrfs pool, the office's folder on the ZFS pool
+    $put("$mnt/cachy/zzapp/emby/library.db", 'live db');
+    $put("$mnt/fastz/zzapp/office/state.json", '{}');
+    $put("$mnt/user");
+    // the run's btrfs moment holds emby; an older one holds the share's folder but not emby (made later)
+    $put("$mnt/cachy/.btrfs-snap/20261030-1245/zzapp/emby/library.db", 'db 12:45');
+    $put("$mnt/cachy/.btrfs-snap/20261030-1100/zzapp/other");
+    // the ZFS dataset's snapshots: none holds emby; one holds a folder gone live (old)
+    foreach (['uso-backup-20261030-1245', 'uso-backup-20261030-1200', 'uso-backup-20261030-1100', 'uso-plan-x-20261030-1000'] as $n) {
+        $put($zsnap($n) . '/office');
+    }
+    $put($zsnap('uso-backup-20261030-1100') . '/old/kept.txt', 'kept');
+    $ctx = [
+        'fs' => ['cachy' => 'btrfs', 'fastz' => 'zfs'],
+        'zfs' => ["$mnt/fastz/zzapp" => 'fastz/zzapp'],
+        'snaps' => ['fastz/zzapp' => [['name' => 'uso-plan-x-20261030-1000', 'time' => $T('10:00')], ['name' => 'uso-backup-20261030-1100', 'time' => $T('11:00')],
+                                      ['name' => 'uso-backup-20261030-1200', 'time' => $T('12:00')], ['name' => 'uso-backup-20261030-1245', 'time' => $T('12:45')]]],
+        'zfs_kept' => ['fastz' => ['looked' => 1700000000, 'mounts' => ["$mnt/fastz/zzapp" => 'fastz/zzapp'], 'snaps' => [], 'held' => []]],
+        'asleep' => [], 'prefixes' => ['uso-backup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => [],
+        'cfg' => ['zzapp' => ['shareUseCache' => 'prefer', 'shareCachePool' => 'cachy', 'shareCachePool2' => 'fastz']],
+        'mnt' => $mnt, 'user' => "$mnt/user",
+        'disks' => ['cachy' => ['name' => 'cachy', 'fsFree' => '1000000'], 'fastz' => ['name' => 'fastz', 'fsFree' => '1000000']],
+        'shares_ini' => ['zzapp' => ['exclusive' => 'no']], 'old_shares' => null, 'now' => [],
+    ];
+    $owner = ['kind' => 'app', 'name' => 'zz', 'id' => 'zz', 'vm_state' => null];
+    $placeOf = fn (array $f) => array_map(fn ($p) => [$p['base'], $p['exists'], $p['count'], $p['latest']['path'] ?? null], $f['places']);
+
+    // the app's folder: only the btrfs moment holds it — never the ZFS pool's five (W4-1: «6 local snapshots, newest» into fastz)
+    $c = $ctx;
+    $f = rsFolder('/mnt/user/zzapp/emby', [], $c);
+    same('restore snaps: a folder on two places — only the snapshot that holds it counts, its newest, each place\'s latest',
+        [1, $T('12:45'), $T('12:45'), true, [['cachy', true, 1, "$mnt/cachy/.btrfs-snap/20261030-1245/zzapp/emby"], ['fastz', false, 0, null]]],
+        [$f['snaps'], $f['newest'], $f['oldest'], $f['exists'], $placeOf($f)]);
+    $m = rsMoments(rsLocate('/mnt/user/zzapp/emby', $c));
+    same('restore snaps: its moments — the run, from the part that holds it alone', [['run:20261030-1245', ['cachy']]],
+        array_map(fn ($x) => [$x['id'], array_keys($x['parts'])], $m));
+    $p = rsPlanFilesFor('/mnt/user/zzapp/emby', '', 'copy', false, $owner, '20261030-130000', $c);
+    same('restore snaps: the dialog\'s moments are the same, the default one holds it', [[['run:20261030-1245', ['cachy'], ['cachy']]], 'run:20261030-1245', []],
+        [array_map(fn ($x) => [$x['id'], $x['bases'], $x['holds']], $p['options']['moments']), $p['target']['snap'], array_column($p['blockers'], 'key')]);
+    // a moment of the share that doesn't hold the folder, asked for by its id (a browse of the share): said, not unknown
+    $c = $ctx;
+    same('restore snaps: a moment of the share without the folder — «holds nothing of it»', ['restore_not_in_snapshot'],
+        array_column(rsPlanFilesFor('/mnt/user/zzapp/emby', 'name:uso-plan-x-20261030-1000', 'copy', false, $owner, '20261030-130000', $c)['blockers'], 'key'));
+    $c = $ctx;
+    try {
+        rsPlanFilesFor('/mnt/user/zzapp/emby', 'name:nobody-has-it', 'copy', false, $owner, '20261030-130000', $c);
+        check('restore snaps: a moment nobody has is refused', false);
+    } catch (Problem $e) {
+        same('restore snaps: a moment nobody has is refused', 'unknown_target', $e->key);
+    }
+
+    // a folder gone live but kept in a snapshot: exactly the restore case — counted where a snapshot holds it
+    $c = $ctx;
+    $f = rsFolder('/mnt/user/zzapp/old', [], $c);
+    same('restore snaps: a folder gone live, held by one ZFS snapshot — counted there, gone said', [1, $T('11:00'), false, [['cachy', false, 0, null], ['fastz', false, 1, $zsnap('uso-backup-20261030-1100') . '/old']]],
+        [$f['snaps'], $f['newest'], $f['exists'], $placeOf($f)]);
+    $p = rsPlanFilesFor('/mnt/user/zzapp/old', '', '', false, $owner, '20261030-130000', $c);
+    same('restore snaps: … and its moment comes back from there (nothing live: swapped in)', [['run:20261030-1100'], [$zsnap('uso-backup-20261030-1100') . '/old'], 'swap'],
+        [array_column($p['options']['moments'], 'id'), $p['steps'][0]['sources'] ?? null, $p['target']['mode']]);
+    // what held each folder on the ZFS pool, kept for the look while it sleeps (his file: `held`)
+    rsLocate('/mnt/user/zzapp/emby', $c);
+    same('restore snaps: what held each folder on the ZFS pool, noted for his file', ["$mnt/fastz/zzapp/old" => [1, $T('11:00')], "$mnt/fastz/zzapp/emby" => [0, null]],
+        array_intersect_key($c['zfs_kept']['fastz']['held'], ["$mnt/fastz/zzapp/emby" => 1, "$mnt/fastz/zzapp/old" => 1]));
+
+    // the ZFS pool asleep: never looked into (its snapshots not stat'ed: renamed away, nothing changes) — «asleep», what he last saw beside
+    $kept = $c['zfs_kept'];
+    rename("$mnt/fastz/zzapp/.zfs", "$mnt/fastz/zzapp/.zfs-away");
+    $c = $ctx;
+    $c['asleep'] = ['fastz' => true];
+    $c['zfs_kept'] = $kept;
+    $f = rsFolder('/mnt/user/zzapp/old', [], $c);
+    $fz = array_values(array_filter($f['places'], fn ($x) => $x['base'] === 'fastz'))[0] ?? [];
+    same('restore snaps: the ZFS pool asleep — not looked into, said asleep, none counted; what held it then as his note',
+        [0, true, true, 0, ['count' => 1, 'newest' => $T('11:00')]],
+        [$f['snaps'], $f['asleep'], $fz['asleep'] ?? null, $fz['count'] ?? null, array_intersect_key((array) ($fz['kept'] ?? []), ['count' => 1, 'newest' => 1])]);
+    $c = $ctx;
+    $c['asleep'] = ['fastz' => true];
+    $f = rsFolder('/mnt/user/zzapp/emby', [], $c);
+    same('restore snaps: … the folder on the awake part still counted there; a part never looked at carries no note', [1, true, null],
+        [$f['snaps'], $f['asleep'], array_values(array_filter($f['places'], fn ($x) => $x['base'] === 'fastz'))[0]['kept'] ?? null]);
+
+    $GLOBALS['rs'] = $saved;
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -54385,6 +54509,37 @@ function testTilesMediaPages(): void
 
 
 /**
+ * The backup place without settings (engine-4's one rule, backupPlaceShare(): settings → where the last runs wrote → the
+ * office's share) for the last two desks that took it from the settings alone: Ms. Dustdevil never treats the place as
+ * a leftover in its share, the Night Watchman counts the engine's writes there as the office's — settings.ini gone.
+ */
+function testPlaceReadersNoSettings(): void
+{
+    $tmp = hardeningTmp('placereaders');
+    $d = "$tmp/unraid-backup";
+    @mkdir("$d/state", 0700, true);
+    file_put_contents("$d/state/history.jsonl", json_encode(['run' => '20261030-0300', 'result' => 'ok', 'packages' => ['base' => '/mnt/user/backups/unraid-backup']]) . "\n");
+    $f = fn (string $n, ?string $ds = null): array => ['name' => $n, 'parts' => [['dataset' => $ds]]];
+    same('place without settings: Ms. Dustdevil keeps the backup place where the last runs wrote, not a leftover — and as set when set',
+        [['unraid-backup' => 'backup_place'], [], ['unraid-backup' => 'backup_place']],
+        [clKeepNames('backups', [$f('unraid-backup'), $f('old')], [], '/mnt/user/system/uso', $d),
+         clKeepNames('appdata', [$f('unraid-backup')], [], '/mnt/user/system/uso', $d),
+         clKeepNames('appdata', [$f('unraid-backup')], ['general' => ['dumps_share' => ['appdata']]], '/mnt/user/system/uso', $d)]);
+    same('place without settings: … never run either — nothing kept for the place', [],
+        clKeepNames('backups', [$f('unraid-backup')], [], '/mnt/user/system/uso', "$tmp/none"));
+    same('place without settings: the watchman\'s office shares — the office\'s own and where the last runs wrote; as set; never set up: its own alone',
+        [[BACKUP_OFFICE_SHARE, 'backups'], [BACKUP_OFFICE_SHARE, 'Box'], [BACKUP_OFFICE_SHARE]],
+        [watchmanOfficeShares([], $d), watchmanOfficeShares(['general' => ['dumps_share' => ['Box']]], $d), watchmanOfficeShares([], "$tmp/none")]);
+    // no history but the settings gone after a run without packages: the office's share (B42) — once, not twice
+    @unlink("$d/state/history.jsonl");
+    file_put_contents("$d/state/last-run.json", json_encode(['run' => '20261030-0300', 'result' => 'failed']));
+    same('place without settings: no run told where — the office\'s share, named once', [BACKUP_OFFICE_SHARE], watchmanOfficeShares([], $d));
+    check('place without settings: both desks ask the one rule', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php'), "backupPlaceShare(\$settings, \$ubData ?? BACKUP_DATA_DIR)['share'] === \$share")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php'), "'office_shares' => watchmanOfficeShares(\$settings),"));
+    hardeningRm($tmp);
+}
+
+/**
  * Ms. Dustdevil clears away what nobody uses — what something still needs can't be chosen at all (2026-10-12, Benj's
  * finding: a VM's disk in use could be ticked, «In die Abstellkammer…» offered the red «Trotzdem…»). A template whose
  * container exists, an appdata folder, a VM's folder or disk image in use: no checkbox to tick, a title saying what to do,
@@ -58871,10 +59026,10 @@ function testBackupAnewChoice(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
