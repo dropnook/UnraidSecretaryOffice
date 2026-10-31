@@ -815,7 +815,7 @@ function officeNotifyToldLately(string $subject, ?string $dir, int $now): ?int
  *
  * @return resource|null
  */
-function officeNotifyStampOpen(string $stamp): mixed
+function officeNotifyStampOpen(string $stamp, ?callable $clock = null): mixed
 {
     if ($stamp === '' || !is_dir(dirname($stamp)) || is_link($stamp)) {
         return null;
@@ -826,9 +826,11 @@ function officeNotifyStampOpen(string $stamp): mixed
     if (!$h) {
         return null;
     }
-    $until = microtime(true) + OFFICE_NOTIFY_LOCK_WAIT;
+    // on the monotonic clock (the tests' own): a step of the wall clock never ends the wait early or stretches it
+    $clock ??= fn (): float => hrtime(true) / 1e9;
+    $until = $clock() + OFFICE_NOTIFY_LOCK_WAIT;
     while (!flock($h, LOCK_EX | LOCK_NB)) {
-        if (microtime(true) >= $until) {
+        if ($clock() >= $until) {
             fclose($h);
             return null;
         }

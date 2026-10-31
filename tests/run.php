@@ -22721,6 +22721,18 @@ function testNotify(): void
     check('notify: the stamp holds the second the last call ended in', (int) trim((string) @file_get_contents($stamp)) >= max(array_map('intval', $got ?: [0])));
     check('notify: taking turns stays bounded (six calls in well under the time of six waits for the lock)', microtime(true) - $t0 < 20, (string) (microtime(true) - $t0));
     // the RAM folder missing: never blocks - sent at once, the guard of this process only
+    // review 1.81.0: the wait for the stamp's lock on the monotonic clock (the tests' own here) — held by another, the wait
+    // ends by the clock's count, never the wall clock's; house.php keeps no microtime() wait
+    $holder = fopen($stamp, 'c+');
+    flock($holder, LOCK_EX);
+    $ticks = 0;
+    $t0 = microtime(true);
+    $got = officeNotifyStampOpen($stamp, function () use (&$ticks): float { return 1000.0 + 6.0 * $ticks++; });
+    flock($holder, LOCK_UN);
+    fclose($holder);
+    same('notify: the stamp held by another — given up after the clock said 10 s (three looks of 6 s), in a blink of real time', [null, 3, true],
+        [$got, $ticks, microtime(true) - $t0 < 2]);
+    check('notify: no wait on the wall clock left in house.php', !preg_match('/microtime\(true\) [+<>]/', (string) file_get_contents(OFFICE_DIR . '/agent/lib/house.php')));
     putenv("OFFICE_NOTIFY_STAMP=$tmp/no-such-folder/notify.second");
     $t0 = microtime(true);
     check('notify: without the RAM folder - sent, without waiting', officeNotify('q', 'x') && microtime(true) - $t0 < 3 && !is_dir("$tmp/no-such-folder"));
@@ -56645,6 +56657,17 @@ function testFirstHome(): void
     same('home: Unraid said yes but no share came — said', 'home_not_there', homeMake('appdata', 'cache', $h)['error']['key'] ?? null);
     unlink("$tmp/lazy");
     $sent();
+    // review 1.81.0: the wait for the share on the monotonic clock (the tests' own here) — a clock that leaps ends the wait
+    // by its own count, never by the wall clock; the file has no microtime() wait left
+    touch("$tmp/lazy");
+    $ticks = 0;
+    $t0 = microtime(true);
+    $r = homeMake('appdata', 'cache', ['clock' => function () use (&$ticks): float { return 1000.0 + 4.0 * $ticks++; }, 'wait' => 10] + $h);
+    unlink("$tmp/lazy");
+    $sent();
+    same('home: the wait paced on the clock handed in — three looks of 4 s each, over in well under the 10 s a wall clock would take',
+        ['home_not_there', 4, true], [$r['error']['key'] ?? null, $ticks, microtime(true) - $t0 < 3]);
+    check('home: no wait on the wall clock left in firsthome.php', !preg_match('/microtime\(true\) [+<>]/', (string) file_get_contents(OFFICE_DIR . '/agent/lib/firsthome.php')));
     same('home: several at once — each checked again first: one already there, nothing made', [false, 'home_stale', []],
         (function () use ($h, $tmp, $sent) { mkdir("$tmp/user/system"); $r = homeMakeAll(['system', 'appdata'], $h); rmdir("$tmp/user/system"); return [$r['ok'], $r['error']['key'] ?? null, $sent()]; })());
 
