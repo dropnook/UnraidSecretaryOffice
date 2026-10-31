@@ -1352,9 +1352,9 @@ function caretakerMenuName(string $name, string $place): array
     }
     $lines = is_file(OFFICE_PLUGIN_CFG) ? (file(OFFICE_PLUGIN_CFG, FILE_IGNORE_NEW_LINES) ?: []) : [];
     $lines = array_values(array_filter($lines, fn ($l) => !preg_match('/^\s*MENU_(NAME|PLACE)\s*=/', $l)));
-    if ($name !== officeMenuDefault()) {          // the default follows Unraid's language: only a choice is kept
-        $lines[] = 'MENU_NAME="' . $name . '"';
-    }
+    // kept as typed, the language's default too (review 1.81.0, N13): a label equal to today's default would otherwise
+    // change with Unraid's language, and the .page in RAM keep the old one until the next boot or install
+    $lines[] = 'MENU_NAME="' . $name . '"';
     if ($place !== 'menu') {
         $lines[] = 'MENU_PLACE="' . $place . '"';
     }

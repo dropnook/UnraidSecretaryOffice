@@ -6159,7 +6159,8 @@ function testMenuName(): void
     same('menu default: from dynamix.cfg\'s locale', 'Secrétariat', officeMenuDefault(officeUnraidLang($cfg)));
     @unlink($cfg);
     $ct = (string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php');
-    check('menu name kept only when it isn\'t the language\'s default', str_contains($ct, 'if ($name !== officeMenuDefault()) {'));
+    check('menu name kept as typed, the language\'s default too (review 1.81.0 N13: it would change with Unraid\'s language otherwise)',
+        !str_contains($ct, 'if ($name !== officeMenuDefault()) {') && str_contains($ct, "    \$lines[] = 'MENU_NAME=\"' . \$name . '\"';\n    if (\$place !== 'menu') {"));
 
     $tmp = sys_get_temp_dir() . '/office-tests-menu-' . getmypid();
     @mkdir($tmp, 0700, true);
