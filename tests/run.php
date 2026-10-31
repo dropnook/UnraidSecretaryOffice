@@ -11792,7 +11792,39 @@ function testBackupFutureFiles(): void
     $t = microtime(true);
     $out = $sh("UB_VAR_INI=$tmp/var.ini; future_look a $tmp/src >/dev/null; echo \"w=\$WARNINGS\"; ls -A \${TMPDIR:-/tmp} | grep -c '^\\.uso-future\\.' || true");
     same('future files: the array being stopped — find ended at once, nothing said, no file left', ['w=0', '0', true], [...explode("\n", $out), microtime(true) - $t < 5]);
+    // review 1.81.0 N6 (2.85): a stop by signal — backup.sh's cleanup calls tmp_files_stop: the find ended, the run's files in
+    // /tmp gone (here: the same trap as the run's on a harness of its own; the find stub sleeps 20 s)
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+    $t = microtime(true);
+    // (the trap runs inside future_look's `>/dev/null`: its word goes to stderr, which the wrapper joins)
+    $out = $sh("UB_VAR_INI=$tmp/var.ini; trap 'tmp_files_stop; echo \"stopped pid=\$FUTURE_PID tmp=\$FUTURE_TMP\" >&2; exit 143' TERM;"
+        . " ( sleep 1; kill -TERM \$\$ ) & future_look a $tmp/src >/dev/null; echo not-stopped");
+    usleep(500000);
+    $left = trim((string) shell_exec("ls -A \${TMPDIR:-/tmp} | grep -c '^\\.uso-future\\.' || true"));
+    $finds = trim((string) shell_exec("pgrep -f " . escapeshellarg("^/bin/bash $tmp/bin/find") . " | wc -l"));
+    same('future files 2.85: a SIGTERM while find runs — the find killed, no file left, the pid and name forgotten, within seconds',
+        ['stopped pid= tmp=', '0', '0', true], [$out, $left, $finds, microtime(true) - $t < 10]);
     unlink("$tmp/bin/find");
+    $out = $sh("FUTURE_TMP=\$(mktemp \${TMPDIR:-/tmp}/.uso-future.XXXXXX); KOPIA_LIST_TMP=\$(mktemp \${TMPDIR:-/tmp}/.uso-kopia-list.XXXXXX); sleep 30 & FUTURE_PID=\$!;"
+        . " f1=\$FUTURE_TMP; f2=\$KOPIA_LIST_TMP; p=\$FUTURE_PID; tmp_files_stop; sleep 0.2; [[ -e \$f1 || -e \$f2 ]] && echo left || echo gone; kill -0 \$p 2>/dev/null && echo alive || echo dead;"
+        . " echo \"pid=\$FUTURE_PID tmp=\$FUTURE_TMP k=\$KOPIA_LIST_TMP\";"
+        . " FUTURE_TMP=$tmp/src/Familienfilme/eben.mp4; KOPIA_LIST_TMP=/dev/null; tmp_files_stop; [[ -e $tmp/src/Familienfilme/eben.mp4 ]] && echo kept || echo removed");
+    same('future files 2.85: tmp_files_stop removes exactly its own two names and ends the find; another name is never touched',
+        "gone\ndead\npid= tmp= k=\nkept", $out);
+    $old = "$tmp/t/.uso-future.abc123";
+    @mkdir("$tmp/t", 0700, true);
+    foreach ([$old, "$tmp/t/.uso-kopia-list.ABCdef", "$tmp/t/.uso-future.new456", "$tmp/t/.uso-future.toolong1", "$tmp/t/other.txt"] as $f) {
+        touch($f, str_contains($f, 'new456') ? time() : time() - 3 * 3600);
+    }
+    $sh("TMPDIR=$tmp/t; tmp_files_sweep");
+    same('future files 2.85: tmp_files_sweep at a run\'s start — only its own names older than two hours go; a fresh one, another name, a longer suffix stay',
+        [false, false, true, true, true], [file_exists($old), file_exists("$tmp/t/.uso-kopia-list.ABCdef"), file_exists("$tmp/t/.uso-future.new456"), file_exists("$tmp/t/.uso-future.toolong1"), file_exists("$tmp/t/other.txt")]);
+    $bk0 = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    $cm0 = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    check('future files 2.85: the run\'s cleanup ends them after Kopia and the partners, the sweep runs right after the traps are set; the find and the list file are the run\'s globals',
+        str_contains($bk0, "    partner_stop\n    tmp_files_stop") && str_contains($bk0, "trap on_signal INT TERM\ntmp_files_sweep")
+        && str_contains($cm0, '>"$FUTURE_TMP" 2>/dev/null 9>&- &' . "\n    FUTURE_PID=\$!") && str_contains($cm0, 'KOPIA_LIST_TMP="$(mktemp "${TMPDIR:-/tmp}/.uso-kopia-list.XXXXXX"')
+        && !preg_match('/^\s+(tmp|pid|err)="\$\(mktemp "\$\{TMPDIR:-\/tmp\}\/\.uso-(future|kopia-list)/m', $cm0));
     same('future files: every date call one the tests\' clock knows', '', testsClockUnsupported($clock));
     $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
     same('future files: looked for only right after Kopia read the source well (a share; an app\'s or VM\'s own source) - never before, never the flash', [1, 1, 2, 1],

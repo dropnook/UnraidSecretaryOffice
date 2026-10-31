@@ -214,6 +214,9 @@ ub_untrusted_refuse() {
 # process's own guard (UB_NOTIFY_LAST). The notify script never inherits the lock.
 UB_NOTIFY_STAMP="${UB_NOTIFY_STAMP-$(ub_is_plugin && echo /var/run/unraid-secretary-office/notify.second)}"
 UB_NOTIFY_LAST=0
+# 2.85: the run's own files in /tmp while they live - the future-files find (future_look) and Kopia's list stderr
+# (kopia_count_load); tmp_files_stop in backup.sh's cleanup ends and removes them on a stop (review 1.81.0 N6)
+FUTURE_PID=""; FUTURE_TMP=""; KOPIA_LIST_TMP=""
 # 2.66: the office's RAM folder - the Team Lead's settings (notify.cfg), the flood guard and his queue (lib/notifygate.sh)
 UB_NOTIFY_HOME="${UB_NOTIFY_HOME-$(ub_is_plugin && echo /var/run/unraid-secretary-office)}"
 # shellcheck source=lib/notifygate.sh
@@ -2002,14 +2005,15 @@ kopia_count_load() {
     [[ "$KOPIA_CONNECTED" == "yes" && -n "$KOPIA_REPO_ID" ]] || return 1
     local e=() js c err
     [[ "$KOPIA_RUN_UID" != "0" ]] && e=( -e HOME=/tmp )
-    err="$(mktemp "${TMPDIR:-/tmp}/.uso-kopia-list.XXXXXX" 2>/dev/null)" || err=/dev/null
+    KOPIA_LIST_TMP="$(mktemp "${TMPDIR:-/tmp}/.uso-kopia-list.XXXXXX" 2>/dev/null)" || KOPIA_LIST_TMP=""
+    err="${KOPIA_LIST_TMP:-/dev/null}"
     if ! js="$(timeout "${UB_KOPIA_LIST_TIMEOUT:-60}" docker exec -u "$KOPIA_RUN_UID" "${e[@]}" "$KOPIA_CONTAINER" \
               kopia --no-progress snapshot list --all --json 2>"$err")"; then
         [[ "$err" != /dev/null ]] && grep -q 'BLOB not found' "$err" 2>/dev/null && KC_BLOB_GONE="yes"
-        [[ "$err" != /dev/null ]] && rm -f "$err"
+        [[ "$err" != /dev/null ]] && rm -f "$err"; KOPIA_LIST_TMP=""
         return 1
     fi
-    [[ "$err" != /dev/null ]] && rm -f "$err"
+    [[ "$err" != /dev/null ]] && rm -f "$err"; KOPIA_LIST_TMP=""
     c="$(jq -r --arg u "$KOPIA_USER" --arg h "$KOPIA_HOST" 'if type == "array" then
             [.[] | select(.source.userName == $u and .source.host == $h)] | "\(length) \(map(.source.path) | unique | length)"
          else error("no list") end' 2>/dev/null <<<"$js")" || return 1
@@ -2065,23 +2069,24 @@ kopia_reach_save() { # kopia_reach_save unreachable|ok
 # that file's date.
 UB_FUTURE_SLACK="${UB_FUTURE_SLACK:-86400}"
 future_look() { # future_look <name> <host path>
-    local name="$1" hp="$2" lim out n ex t when tmp pid
+    local name="$1" hp="$2" lim out n ex t when
     [[ -d "$hp" ]] || return 0
-    tmp="$(mktemp "${TMPDIR:-/tmp}/.uso-future.XXXXXX" 2>/dev/null)" || return 0
+    FUTURE_TMP="$(mktemp "${TMPDIR:-/tmp}/.uso-future.XXXXXX" 2>/dev/null)" || { FUTURE_TMP=""; return 0; }
     lim=$(( $(date +%s) + UB_FUTURE_SLACK ))
-    timeout "${UB_FUTURE_TIMEOUT:-300}" find "$hp" -type f -newermt "@$lim" -printf '%T@\t%P\n' >"$tmp" 2>/dev/null 9>&- &
-    pid=$!
-    while kill -0 "$pid" 2>/dev/null; do
+    # the find's pid and file are the run's (FUTURE_PID, FUTURE_TMP): a stop by signal ends and removes them (tmp_files_stop)
+    timeout "${UB_FUTURE_TIMEOUT:-300}" find "$hp" -type f -newermt "@$lim" -printf '%T@\t%P\n' >"$FUTURE_TMP" 2>/dev/null 9>&- &
+    FUTURE_PID=$!
+    while kill -0 "$FUTURE_PID" 2>/dev/null; do
         if array_stopping; then
-            kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; rm -f "$tmp"
+            tmp_files_stop
             declare -F array_stop_check >/dev/null && array_stop_check "while looking for files dated in the future in $name"
             return 0
         fi
         sleep 0.2
     done
-    wait "$pid" 2>/dev/null
-    out="$(awk -F'\t' 'NR == 1 { print } END { print NR }' "$tmp" 2>/dev/null)"
-    rm -f "$tmp"
+    wait "$FUTURE_PID" 2>/dev/null; FUTURE_PID=""
+    out="$(awk -F'\t' 'NR == 1 { print } END { print NR }' "$FUTURE_TMP" 2>/dev/null)"
+    rm -f "$FUTURE_TMP"; FUTURE_TMP=""
     n="${out##*$'\n'}"
     is_uint "$n" && (( n > 0 )) || return 0
     IFS=$'\t' read -r t ex <<<"${out%%$'\n'*}"
@@ -2091,6 +2096,27 @@ future_look() { # future_look <name> <host path>
     when="$(date -d "@$t" '+%Y-%m-%d')"
     warn_code future_files "$name: $n file(s) dated in the future (more than $(( UB_FUTURE_SLACK / 3600 )) h ahead), e.g. '$ex' ($when) - a clock that ran ahead or a camera with the wrong date; set their date right (touch -m)" \
         name="$name" n="$n" path="$ex" when="$when"
+}
+
+# tmp_files_stop (2.85) - the run's own files in /tmp and the find behind them ended: on a stop by signal (backup.sh
+# cleanup), the array stop inside future_look. Only its own names (mktemp's .uso-future.XXXXXX / .uso-kopia-list.XXXXXX)
+tmp_files_stop() {
+    local f
+    if [[ -n "$FUTURE_PID" ]]; then
+        kill "$FUTURE_PID" 2>/dev/null; wait "$FUTURE_PID" 2>/dev/null
+        FUTURE_PID=""
+    fi
+    for f in "$FUTURE_TMP" "$KOPIA_LIST_TMP"; do
+        [[ -n "$f" && "$f" != /dev/null && "${f##*/}" =~ ^\.uso-(future|kopia-list)\.[A-Za-z0-9]{6}$ && -f "$f" && ! -L "$f" ]] && rm -f -- "$f"
+    done
+    FUTURE_TMP=""; KOPIA_LIST_TMP=""
+    return 0
+}
+# tmp_files_sweep (2.85) - what a run killed outright (SIGKILL, a power cut: no cleanup) left of those names in /tmp,
+# older than two hours (no run keeps them longer than UB_FUTURE_TIMEOUT / UB_KOPIA_LIST_TIMEOUT): removed at the next start
+tmp_files_sweep() {
+    find "${TMPDIR:-/tmp}" -maxdepth 1 -type f \( -name '.uso-future.??????' -o -name '.uso-kopia-list.??????' \) -mmin +120 -delete 2>/dev/null
+    return 0
 }
 
 # kopia_emptied <before> <now> - far fewer: none left, or less than half
