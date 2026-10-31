@@ -343,9 +343,11 @@ function rsPeekUnmount(string $dir): bool
     // the kernel names it by its real path (/var/run is Unraid's link to /run)
     $names = array_unique([$dir, realpath($dir) ?: $dir]);
     $ok = true;
+    $umount = partnerBin('umount') ?? 'umount';
     foreach (rspMounts() as $mounts) {
-        if (array_intersect($names, $mounts)) {
-            $ok = run([partnerBin('umount') ?? 'umount', $dir], 60)[0] === 0 && $ok;
+        // busy (something of the job still reading): lazily, as rspPeek() does (review 1.81.0, N2) — never left holding the pool
+        if (array_intersect($names, $mounts) && run([$umount, $dir], 60)[0] !== 0 && run([$umount, '-l', $dir], 60)[0] !== 0) {
+            $ok = false;
         }
     }
     if ($ok) {
@@ -818,7 +820,7 @@ function rsPlanPickKept(array $r, array $items, bool $wake, string $stamp, array
                 $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $to]];
             }
             $steps[] = ['do' => 'copy', 'from' => "$dir/$rel", 'sources' => ["$dir/$rel"], 'to' => $to, 'dataset' => null, 'tops' => [$dir],
-                        'like' => dirname("$dir/$rel"), 'like_depth' => $depth - 1, 'within' => $within] + ($file ? ['file' => true] : []);
+                        'like' => dirname("$dir/$rel"), 'like_depth' => $depth - 1, 'within' => $within, 'foreign' => true] + ($file ? ['file' => true] : []);
         }
         $need = rsPickWalk($there);
     } finally {

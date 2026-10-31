@@ -16840,6 +16840,41 @@ function testRestoreBrowse(): void
     [$states, $j] = $run($p, "$stamp-aa04");
     same('restore browse: the partner\'s file in the restore folder, his copy untouched, nothing left mounted', [['ok', 'ok', 'ok'], 'zeugnis', 'zeugnis', [], null],
         [$states, @file_get_contents("$F/Schule/Zeugnis.pdf"), @file_get_contents("$K/Schule/Zeugnis.pdf"), $mounts, $j['peek'] ?? null]);
+    // review 1.81.0 N1: the partner's content is foreign — copied without the s bits and without specials or device nodes
+    // (its mount is nosuid,nodev; rsync as root would make them again in the share)
+    $put("$K/Bin/tool", 'tool');
+    chmod("$K/Bin/tool", 04755);
+    posix_mkfifo("$K/Bin/pipe", 0600);
+    $stamp2 = '20261025-120100';
+    $p2 = rsPlanPick(['kind' => 'pick', 'kept' => 'p1', 'unit' => 'share:theirs', 'ksnap' => 'uso-backup-20261019-0100', 'items' => ['Bin'], 'mode' => 'folder', 'stamp' => $stamp2], $stamp2);
+    $F2 = "$mnt/user/UnraidSecretaryOffice/restore/files/Helmi-theirs-$stamp2";
+    [$states2] = $run($p2, "$stamp2-aa06");
+    clearstatcache();
+    same('review N1: a kept moment\'s pick is foreign: the file there, its set-uid bit gone, the FIFO left out, nothing left mounted',
+        [true, ['ok', 'ok', 'ok'], 'tool', 0, false, []],
+        [$p2['steps'][1]['foreign'] ?? null, $states2, @file_get_contents("$F2/Bin/tool"), (@fileperms("$F2/Bin/tool") ?: 0) & 06000, file_exists("$F2/Bin/pipe"), $mounts]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    check('review N1: rsDoCopy() treats a pull\'s mount as foreign too (--no-D --chmod=ug-s)', str_contains($src, "str_starts_with(\$x, rspMountRoot() . '/')") && str_contains($src, "['--no-D', '--chmod=ug-s']"));
+    // review 1.81.0 N2: his unmount of a peek falls back to a lazy one when the mount is busy (as rspPeek() does)
+    $saveUm = $GLOBALS['rs']['peek_umount'];
+    unset($GLOBALS['rs']['peek_umount']);
+    $ubin = "$tmp/ubin";
+    @mkdir($ubin, 0700, true);
+    file_put_contents("$ubin/umount", "#!/bin/bash\necho \"\$*\" >> " . escapeshellarg("$ubin/calls") . "\n[[ \"\$1\" == -l ]] && exit 0\nexit 32\n");
+    chmod("$ubin/umount", 0755);
+    $peek = "$tmp/run/restore-peek-n2";
+    @mkdir($peek, 0700, true);
+    file_put_contents("$ubin/mounts", "hazel/x@s $peek zfs ro 0 0\n");
+    $oldBin = getenv('OFFICE_PARTNER_BIN');
+    putenv("OFFICE_PARTNER_BIN=$ubin");
+    $oldMf = array_key_exists('mounts_file', $GLOBALS['rs']) ? $GLOBALS['rs']['mounts_file'] : false;
+    $GLOBALS['rs']['mounts_file'] = "$ubin/mounts";
+    $okUm = rsPeekUnmount($peek);
+    putenv($oldBin === false ? 'OFFICE_PARTNER_BIN' : "OFFICE_PARTNER_BIN=$oldBin");
+    if ($oldMf === false) { unset($GLOBALS['rs']['mounts_file']); } else { $GLOBALS['rs']['mounts_file'] = $oldMf; }
+    $GLOBALS['rs']['peek_umount'] = $saveUm;
+    same('review N2: a busy peek mount — umount, then umount -l; the folder removed', [true, [$peek, "-l $peek"], false],
+        [$okUm, file("$ubin/calls", FILE_IGNORE_NEW_LINES), is_dir($peek)]);
     // a copy that fails: the job's end unmounts it all the same
     $p['steps'][1]['sources'] = ["$tmp/run/restore-peek-j$stamp/gone.pdf"];
     $p['steps'][1]['to'] = "$F/again.pdf";
