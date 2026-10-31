@@ -1188,6 +1188,26 @@ function testJackWatch(): void
     same('gate on schedule: the array stopped while waiting — the wait ends', [false, 'array', [900]], [$r['go'], $r['result'], $r['slept']]);
     check('gate on schedule: … nothing left behind', !flockHeld("$dir/run/jack-gather-wait.lock") && !file_exists("$dir/run/jack-gather-wait.json"));
     @unlink("$dir/array-stopped");
+    // review 1.81.0 wave 5: his run marker carries the boot's id — a marker of another boot is no run going, whatever has its
+    // pid now (after a power cut the agent itself is an agent.php with a low pid); an old marker without one as before
+    $jd = jackToolDir('embycache');
+    @mkdir($jd, 0700, true);
+    $bootFile = "$dir/boot_id";
+    file_put_contents($bootFile, "11111111-2222-3333-4444-555555555555\n");
+    $GLOBALS['jackBootIdFile'] = $bootFile;
+    $agentLike = proc_open([PHP_BINARY, '-r', 'sleep(20);', 'agent.php'], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pp);
+    $apid = proc_get_status($agentLike)['pid'];
+    usleep(200000);
+    $marker = fn (array $m) => (writeAtomic("$jd/office-run.json", jsonEncode(['tool' => 'embycache', 'mode' => 'run', 'started' => 1] + $m), 0600, 0, 0) || true) && jackJobInfo('embycache')['running'];
+    same('run marker: this boot\'s id and a live agent.php — running; another boot\'s — not, whatever the pid; no id (an older marker) — as before; the pid gone — not',
+        [true, false, true, false, '11111111-2222-3333-4444-555555555555'],
+        [$marker(['pid' => $apid, 'boot' => '11111111-2222-3333-4444-555555555555']), $marker(['pid' => $apid, 'boot' => 'ffffffff-0000-0000-0000-000000000000']), $marker(['pid' => $apid]),
+         $marker(['pid' => 999999, 'boot' => '11111111-2222-3333-4444-555555555555']), jackBootId()]);
+    proc_terminate($agentLike);
+    proc_close($agentLike);
+    unset($GLOBALS['jackBootIdFile']);
+    @unlink("$jd/office-run.json");
+    check('run marker: the marker his job writes carries the boot\'s id', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), "'pid' => getmypid(), 'boot' => jackBootId()]"));
     // Jack let go while a scheduled gather waits: its schedule is off — it gives up at its next look (never starts later)
     $r = $gate('schedule', [$W, $F], function (int $t, string $dir) { touch("$dir/schedule-off"); });
     same('gate on schedule: its schedule switched off while waiting (Jack let go) — the wait ends, no gather', [false, 'off', [900], 1, null],
