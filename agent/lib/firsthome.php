@@ -229,7 +229,9 @@ function homeMake(string $share, ?string $pool, ?array $h = null): array
         $said = mb_substr(trim($out . ' ' . $err), 0, 200);
         return ['ok' => false, 'error' => ['key' => 'home_failed', 'params' => ['share' => $share, 'detail' => $said !== '' ? $said : "exit $exit"]]];
     }
-    $until = microtime(true) + $h['wait'];
+    // on the monotonic clock (the tests' own in $h['clock']): a step of the wall clock never ends the wait early or stretches it
+    $clock = is_callable($h['clock'] ?? null) ? $h['clock'] : fn (): float => hrtime(true) / 1e9;
+    $until = $clock() + $h['wait'];
     $at = rtrim($h['mnt_user'], '/') . "/$share";
     do {
         clearstatcache(true, $at);
@@ -237,7 +239,7 @@ function homeMake(string $share, ?string $pool, ?array $h = null): array
             return ['ok' => true];
         }
         usleep(250000);
-    } while (microtime(true) < $until);
+    } while ($clock() < $until);
     return ['ok' => false, 'error' => ['key' => 'home_not_there', 'params' => ['share' => $share]]];
 }
 

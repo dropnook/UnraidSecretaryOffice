@@ -434,6 +434,15 @@ function mfMoverelliBusy(): bool
     return (bool) ($GLOBALS['md']['moverelli'] ?? (function_exists('moverelliBusy') && moverelliBusy()));
 }
 
+/** Which app or VM binds the folder, from a fresh look (rsUnitOwner()) — or the tests' own answer */
+function mfOwner(string $path): ?array
+{
+    if (array_key_exists('owner', $GLOBALS['md'] ?? [])) {
+        return $GLOBALS['md']['owner'];
+    }
+    return rsUnitOwner(rsScan(), $path);
+}
+
 /**
  * Where the app's folder lies and what stands in the way: {kind, name, share, dir, path (its mountpoint), user, parent
  * (its share's dataset), dataset (the folder's), bytes (what the copy writes), need (room it takes), snapshots, blockers}
@@ -444,6 +453,12 @@ function mfTarget(array $r): array
     $share = rsStr($r['share'] ?? '');
     $dir = rsStr($r['dir'] ?? '');
     if (($r['kind'] ?? '') !== 'app' || !preg_match(MD_PART, $share) || !preg_match(MD_PART, $dir) || !preg_match(MD_PART, $name)) {
+        throw new Problem('unknown_target', ['target' => "$share/$dir"]);
+    }
+    // the way back is for an app's folder (review 1.81.0, N4): the one a fresh look lists as its — never a VM's folder in
+    // domains (its disk open while the VM runs), never a folder no app binds, whatever the request names
+    $owner = $share === 'domains' ? null : mfOwner("/mnt/user/$share/$dir");
+    if ($owner === null || $owner['kind'] !== 'app') {
         throw new Problem('unknown_target', ['target' => "$share/$dir"]);
     }
     $stack = rsStr($r['stack'] ?? '');

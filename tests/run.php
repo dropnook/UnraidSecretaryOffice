@@ -1188,6 +1188,26 @@ function testJackWatch(): void
     same('gate on schedule: the array stopped while waiting — the wait ends', [false, 'array', [900]], [$r['go'], $r['result'], $r['slept']]);
     check('gate on schedule: … nothing left behind', !flockHeld("$dir/run/jack-gather-wait.lock") && !file_exists("$dir/run/jack-gather-wait.json"));
     @unlink("$dir/array-stopped");
+    // review 1.81.0 wave 5: his run marker carries the boot's id — a marker of another boot is no run going, whatever has its
+    // pid now (after a power cut the agent itself is an agent.php with a low pid); an old marker without one as before
+    $jd = jackToolDir('embycache');
+    @mkdir($jd, 0700, true);
+    $bootFile = "$dir/boot_id";
+    file_put_contents($bootFile, "11111111-2222-3333-4444-555555555555\n");
+    $GLOBALS['jackBootIdFile'] = $bootFile;
+    $agentLike = proc_open([PHP_BINARY, '-r', 'sleep(20);', 'agent.php'], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pp);
+    $apid = proc_get_status($agentLike)['pid'];
+    usleep(200000);
+    $marker = fn (array $m) => (writeAtomic("$jd/office-run.json", jsonEncode(['tool' => 'embycache', 'mode' => 'run', 'started' => 1] + $m), 0600, 0, 0) || true) && jackJobInfo('embycache')['running'];
+    same('run marker: this boot\'s id and a live agent.php — running; another boot\'s — not, whatever the pid; no id (an older marker) — as before; the pid gone — not',
+        [true, false, true, false, '11111111-2222-3333-4444-555555555555'],
+        [$marker(['pid' => $apid, 'boot' => '11111111-2222-3333-4444-555555555555']), $marker(['pid' => $apid, 'boot' => 'ffffffff-0000-0000-0000-000000000000']), $marker(['pid' => $apid]),
+         $marker(['pid' => 999999, 'boot' => '11111111-2222-3333-4444-555555555555']), jackBootId()]);
+    proc_terminate($agentLike);
+    proc_close($agentLike);
+    unset($GLOBALS['jackBootIdFile']);
+    @unlink("$jd/office-run.json");
+    check('run marker: the marker his job writes carries the boot\'s id', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), "'pid' => getmypid(), 'boot' => jackBootId()]"));
     // Jack let go while a scheduled gather waits: its schedule is off — it gives up at its next look (never starts later)
     $r = $gate('schedule', [$W, $F], function (int $t, string $dir) { touch("$dir/schedule-off"); });
     same('gate on schedule: its schedule switched off while waiting (Jack let go) — the wait ends, no gather', [false, 'off', [900], 1, null],
@@ -3485,6 +3505,8 @@ function testJackProgress(): void
         $wtick();
         same("watching: $what — nothing on the panel", [[], $looks[$i]['state']], [jackProgressState(['running' => true, 'mode' => 'run'], $paths, $clock)['watching'], jackWatchRead($paths['watching'])['state']]);
     }
+    check('watching: the tickers\' own clock is the monotonic one (review 1.81.0, N10)', substr_count((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-progress.php'),
+        '$now ??= fn (): int => (int) (hrtime(true) / 1e9);') === 2 && !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-progress.php'), 'fn (): int => time()'));
     same('watching: a dry run — no look shown', [], jackProgressState(['running' => true, 'mode' => 'dry'], $paths, $clock)['watching']);
     file_put_contents($paths['watching'], json_encode(['v' => 1, 'time' => 1, 'who' => [['user' => 'x', 'title' => 'y', 'server' => 'z', 'since' => 'soon'], 'q']]));
     same('watching: a session not in its shape left out', [], jackWatchView(jackWatchRead($paths['watching'])));
@@ -6157,7 +6179,8 @@ function testMenuName(): void
     same('menu default: from dynamix.cfg\'s locale', 'Secrétariat', officeMenuDefault(officeUnraidLang($cfg)));
     @unlink($cfg);
     $ct = (string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php');
-    check('menu name kept only when it isn\'t the language\'s default', str_contains($ct, 'if ($name !== officeMenuDefault()) {'));
+    check('menu name kept as typed, the language\'s default too (review 1.81.0 N13: it would change with Unraid\'s language otherwise)',
+        !str_contains($ct, 'if ($name !== officeMenuDefault()) {') && str_contains($ct, "    \$lines[] = 'MENU_NAME=\"' . \$name . '\"';\n    if (\$place !== 'menu') {"));
 
     $tmp = sys_get_temp_dir() . '/office-tests-menu-' . getmypid();
     @mkdir($tmp, 0700, true);
@@ -6760,7 +6783,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.84'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.85'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -8766,8 +8789,8 @@ function testBackupNotifyItems(): void
     // backup.sh's end calls it so: the run's end with the items, the long text under its headline
     $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
     same('notify items: backup.sh - ub_run_items before the end, notify.<result>_items when named, items= passed, run_report lists the lines', [1, 1, 1, 2, 1],
-        [substr_count($bk, "(( ERRORS > 0 || WARNINGS > 0 )) && ub_run_items\n"), substr_count($bk, 'UB_TELL_TEXT="notify.errors$NTEXT" ub_tell errors alert'),
-         substr_count($bk, 'UB_TELL_TEXT="notify.warnings$NTEXT" ub_tell warnings warning'), substr_count($bk, '"items=$UB_ITEMS_DESC" "summary=$(ub_summary)"'),
+        [substr_count($bk, "(( ERRORS > 0 || WARNINGS > 0 )) && ub_run_items\n"), substr_count($bk, 'UB_TELL_TEXT="notify.errors$NTEXT" UB_NOTIFY_CODES="$(ub_items_codes)" ub_tell errors alert'),
+         substr_count($bk, 'UB_TELL_TEXT="notify.warnings$NTEXT" UB_NOTIFY_CODES="$(ub_items_codes)" ub_tell warnings warning'), substr_count($bk, '"items=$UB_ITEMS_DESC" "summary=$(ub_summary)"'),
          substr_count($bk, "    echo \"Errors \$ERRORS, warnings \$WARNINGS\"\n    [[ -n \"\${UB_ITEMS_LINES:-}\" ]] && printf '%s\\n' \"\$UB_ITEMS_LINES\"")]);
 
     // texts x5: every code the engine says as an item has short words, their placeholders the page's (n: the plural)
@@ -8914,9 +8937,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.84 everywhere it is named', ['2.84', '2.84', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.84"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.84** –')]);
+    same('data trust: the engine\'s version 2.85 everywhere it is named', ['2.85', '2.85', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.85"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.85** –')]);
     // 2.81 (B42): a run with settings.ini gone ends with a code the office says in its own words - never the script's name
     $gone = $mk('nosettings', 0700);
     @unlink("$tmp/notified");
@@ -10404,7 +10427,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.84', [1, '2.84'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.85', [1, '2.85'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -11272,7 +11295,7 @@ SH);
         [['UnraidSecretaryOffice' => 'ok:', 'app:c2' => 'skipped:asleep', 'appdata' => 'ok:', 'media' => 'skipped:asleep'], ['share:appdata' => 'skipped:unreachable', 'share:media' => 'skipped:asleep']],
         [$kr, $pr], json_encode($res));
     same('asleep skip 2.80: results.json - v 1, the engine, this run; a good upload\'s good is its time, a skipped one has none yet',
-        [1, '2.84', $s['run'] ?? null, $res['kopia']['appdata']['time'] ?? -1, 0],
+        [1, '2.85', $s['run'] ?? null, $res['kopia']['appdata']['time'] ?? -1, 0],
         [$res['v'] ?? null, $res['engine'] ?? null, $res['run'] ?? null, $res['kopia']['appdata']['good'] ?? null, $res['kopia']['media']['good'] ?? null]);
     check('asleep skip: the log - one line for the pool', str_contains($l, 'ZFS hazel: asleep - left out this run (asleep_pools = skip)') && substr_count($l, 'ZFS hazel: asleep - left out') === 1, $l);
     check('asleep skip: last-run asleep=4, history asleep.units 4', str_contains((string) @file_get_contents("$data/state/last-run"), "asleep=4\n") && ($lastHistory()['asleep']['units'] ?? null) === 4);
@@ -11349,7 +11372,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.84', [1, '2.84'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.85', [1, '2.85'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -11792,7 +11815,39 @@ function testBackupFutureFiles(): void
     $t = microtime(true);
     $out = $sh("UB_VAR_INI=$tmp/var.ini; future_look a $tmp/src >/dev/null; echo \"w=\$WARNINGS\"; ls -A \${TMPDIR:-/tmp} | grep -c '^\\.uso-future\\.' || true");
     same('future files: the array being stopped — find ended at once, nothing said, no file left', ['w=0', '0', true], [...explode("\n", $out), microtime(true) - $t < 5]);
+    // review 1.81.0 N6 (2.85): a stop by signal — backup.sh's cleanup calls tmp_files_stop: the find ended, the run's files in
+    // /tmp gone (here: the same trap as the run's on a harness of its own; the find stub sleeps 20 s)
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+    $t = microtime(true);
+    // (the trap runs inside future_look's `>/dev/null`: its word goes to stderr, which the wrapper joins)
+    $out = $sh("UB_VAR_INI=$tmp/var.ini; trap 'tmp_files_stop; echo \"stopped pid=\$FUTURE_PID tmp=\$FUTURE_TMP\" >&2; exit 143' TERM;"
+        . " ( sleep 1; kill -TERM \$\$ ) & future_look a $tmp/src >/dev/null; echo not-stopped");
+    usleep(500000);
+    $left = trim((string) shell_exec("ls -A \${TMPDIR:-/tmp} | grep -c '^\\.uso-future\\.' || true"));
+    $finds = trim((string) shell_exec("pgrep -f " . escapeshellarg("^/bin/bash $tmp/bin/find") . " | wc -l"));
+    same('future files 2.85: a SIGTERM while find runs — the find killed, no file left, the pid and name forgotten, within seconds',
+        ['stopped pid= tmp=', '0', '0', true], [$out, $left, $finds, microtime(true) - $t < 10]);
     unlink("$tmp/bin/find");
+    $out = $sh("FUTURE_TMP=\$(mktemp \${TMPDIR:-/tmp}/.uso-future.XXXXXX); KOPIA_LIST_TMP=\$(mktemp \${TMPDIR:-/tmp}/.uso-kopia-list.XXXXXX); sleep 30 & FUTURE_PID=\$!;"
+        . " f1=\$FUTURE_TMP; f2=\$KOPIA_LIST_TMP; p=\$FUTURE_PID; tmp_files_stop; sleep 0.2; [[ -e \$f1 || -e \$f2 ]] && echo left || echo gone; kill -0 \$p 2>/dev/null && echo alive || echo dead;"
+        . " echo \"pid=\$FUTURE_PID tmp=\$FUTURE_TMP k=\$KOPIA_LIST_TMP\";"
+        . " FUTURE_TMP=$tmp/src/Familienfilme/eben.mp4; KOPIA_LIST_TMP=/dev/null; tmp_files_stop; [[ -e $tmp/src/Familienfilme/eben.mp4 ]] && echo kept || echo removed");
+    same('future files 2.85: tmp_files_stop removes exactly its own two names and ends the find; another name is never touched',
+        "gone\ndead\npid= tmp= k=\nkept", $out);
+    $old = "$tmp/t/.uso-future.abc123";
+    @mkdir("$tmp/t", 0700, true);
+    foreach ([$old, "$tmp/t/.uso-kopia-list.ABCdef", "$tmp/t/.uso-future.new456", "$tmp/t/.uso-future.toolong1", "$tmp/t/other.txt"] as $f) {
+        touch($f, str_contains($f, 'new456') ? time() : time() - 3 * 3600);
+    }
+    $sh("TMPDIR=$tmp/t; tmp_files_sweep");
+    same('future files 2.85: tmp_files_sweep at a run\'s start — only its own names older than two hours go; a fresh one, another name, a longer suffix stay',
+        [false, false, true, true, true], [file_exists($old), file_exists("$tmp/t/.uso-kopia-list.ABCdef"), file_exists("$tmp/t/.uso-future.new456"), file_exists("$tmp/t/.uso-future.toolong1"), file_exists("$tmp/t/other.txt")]);
+    $bk0 = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    $cm0 = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    check('future files 2.85: the run\'s cleanup ends them after Kopia and the partners, the sweep runs right after the traps are set; the find and the list file are the run\'s globals',
+        str_contains($bk0, "    partner_stop\n    tmp_files_stop") && str_contains($bk0, "trap on_signal INT TERM\ntmp_files_sweep")
+        && str_contains($cm0, '>"$FUTURE_TMP" 2>/dev/null 9>&- &' . "\n    FUTURE_PID=\$!") && str_contains($cm0, 'KOPIA_LIST_TMP="$(mktemp "${TMPDIR:-/tmp}/.uso-kopia-list.XXXXXX"')
+        && !preg_match('/^\s+(tmp|pid|err)="\$\(mktemp "\$\{TMPDIR:-\/tmp\}\/\.uso-(future|kopia-list)/m', $cm0));
     same('future files: every date call one the tests\' clock knows', '', testsClockUnsupported($clock));
     $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
     same('future files: looked for only right after Kopia read the source well (a share; an app\'s or VM\'s own source) - never before, never the flash', [1, 1, 2, 1],
@@ -12385,6 +12440,17 @@ function testAgentBackupHooks(): void
     same('hooks: the job runs backup.sh --recover with the engine\'s data folder (quoted)', [0, "$ub   --recover\n"], [$rc, $read('backup.calls')]);
     file_put_contents("$tmp/atjobs/a0000101c2b3a4", "#!/bin/sh\n# atrun uid=0 gid=0\n# mail root 0\numask 22\ncd / || {\n\t exit 1\n}\n" . $read('at.job'));
     same('hooks: the night watchman takes the at job for the office\'s', true, watchmanAtJobs(['atjobs' => "$tmp/atjobs"], null)['jobs']['a0000101c2b3a4']['ours'] ?? null);
+    // review 1.81.0 N11: a foreign job's program under /mnt is stat'ed only while no rotating disk sleeps (a stat may wake one)
+    file_put_contents("$tmp/atjobs/a0000201c2b3a4", "#!/bin/sh\n# atrun uid=1000 gid=100\n# mail nobody 0\numask 22\ncd / || {\n\t exit 1\n}\n/mnt/user once\n");
+    file_put_contents("$tmp/disks-asleep.ini", "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"xfs\"\nrotational=\"1\"\nspundown=\"1\"\n[\"cache\"]\nname=\"cache\"\ntype=\"Cache\"\nfsType=\"zfs\"\nrotational=\"0\"\nspundown=\"0\"\n");
+    file_put_contents("$tmp/disks-awake.ini", "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"xfs\"\nrotational=\"1\"\nspundown=\"0\"\n[\"cache\"]\nname=\"cache\"\ntype=\"Cache\"\nfsType=\"zfs\"\nrotational=\"0\"\nspundown=\"0\"\n");
+    $owner = function (array $paths): mixed { $j = watchmanAtJobs($paths, null)['jobs']['a0000201c2b3a4'] ?? []; return array_key_exists('owner', $j) ? $j['owner'] : 'none'; };
+    $awake = is_dir('/mnt/user') ? $owner(['atjobs' => "$tmp/atjobs", 'disks_ini' => "$tmp/disks-awake.ini"]) : 'root';
+    same('hooks N11: /mnt/user as the program — its owner looked up only with every rotating disk awake; a sleeping one or no disks.ini: never (the program still named)',
+        [null, null, true, '/mnt/user'],
+        [$owner(['atjobs' => "$tmp/atjobs", 'disks_ini' => "$tmp/disks-asleep.ini"]), $owner(['atjobs' => "$tmp/atjobs"]), $awake !== null,
+         watchmanAtJobs(['atjobs' => "$tmp/atjobs", 'disks_ini' => "$tmp/disks-asleep.ini"], null)['jobs']['a0000201c2b3a4']['prog'] ?? null]);
+    unlink("$tmp/atjobs/a0000201c2b3a4");
     @unlink("$tmp/backup.calls");
 
     // array stopping
@@ -14900,7 +14966,8 @@ function testSetupMakeFolder(): void
     $oldMd = $GLOBALS['md'] ?? null;
     $oldPath = getenv('PATH');
     $GLOBALS['md'] = ['mnt' => $mnt, 'zfs' => $zfsMap, 'props' => $props, 'moverelli' => false, 'last' => ['finished' => time() - 3600, 'result' => 'ok'],
-                      'snaps' => ['tank/appdata/drop' => ['uso-backup-20261028-0300', 'uso-backup-20261029-0300', 'mine']]];
+                      'snaps' => ['tank/appdata/drop' => ['uso-backup-20261028-0300', 'uso-backup-20261029-0300', 'mine']],
+                      'owner' => ['kind' => 'app', 'name' => 'drop', 'id' => 'drop', 'vm_state' => null, 'nextcloud' => []]];
     $GLOBALS['rs'] = ['data' => "$tmp/rs", 'job_file' => "$tmp/rs-job.json", 'ub_data' => "$tmp/ub", 'users' => fn () => [['drop'], []], 'vm_states' => []];
     putenv("PATH=$tmp/bin:$oldPath");
     try {
@@ -14914,6 +14981,17 @@ function testSetupMakeFolder(): void
         $err = null;
         try { mfLook(['kind' => 'vm', 'name' => 'Win', 'share' => 'domains', 'dir' => 'Win']); } catch (Problem $e) { $err = $e->key; }
         same('make folder: never a VM\'s folder (Unraid\'s own dataset, its snapshots the VM manager\'s)', 'unknown_target', $err);
+        // review 1.81.0 N4: only a folder a fresh look lists as an app's — not one nobody binds, not a VM's, nothing in domains
+        $own = $GLOBALS['md']['owner'];
+        $refused = [];
+        foreach ([[null, 'appdata'], [['kind' => 'vm', 'name' => 'Win', 'id' => 'Win', 'vm_state' => null], 'appdata'], [$own, 'domains']] as [$o, $sh]) {
+            $GLOBALS['md']['owner'] = $o;
+            try { mfLook(['kind' => 'app', 'name' => 'drop', 'share' => $sh, 'dir' => 'drop']); $refused[] = 'ok'; } catch (Problem $e) { $refused[] = $e->key; }
+        }
+        $GLOBALS['md']['owner'] = $own;
+        same('review N4: a folder no app binds, a VM\'s, or one in domains - unknown_target, whatever the request calls it', ['unknown_target', 'unknown_target', 'unknown_target'], $refused);
+        $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-dataset.php');
+        check('review N4: the owner comes from a fresh look (rsUnitOwner over rsScan())', str_contains($src, 'return rsUnitOwner(rsScan(), $path);'));
         $GLOBALS['md']['moverelli'] = true;
         same('make folder: Ms. Moverelli\'s run going on - refused', 'mf_moverelli', $key('drop'));
         $GLOBALS['md']['moverelli'] = false;
@@ -15719,7 +15797,7 @@ function testRestoreReviewPeek(): void
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-partner.php');
     $peek = substr($src, (int) strpos($src, 'function rspPeek('), 1400);
     check('review H5: the look\'s mount goes again whatever happens (finally), lazily when it must',
-        str_contains($peek, '} finally {') && str_contains($peek, "run(['umount', '-l', \$dir], 60);"));
+        str_contains($peek, '} finally {') && str_contains($peek, "run([partnerBin('umount') ?? 'umount', '-l', \$dir], 60);"));
     hardeningRm($tmp);
 }
 
@@ -16840,6 +16918,41 @@ function testRestoreBrowse(): void
     [$states, $j] = $run($p, "$stamp-aa04");
     same('restore browse: the partner\'s file in the restore folder, his copy untouched, nothing left mounted', [['ok', 'ok', 'ok'], 'zeugnis', 'zeugnis', [], null],
         [$states, @file_get_contents("$F/Schule/Zeugnis.pdf"), @file_get_contents("$K/Schule/Zeugnis.pdf"), $mounts, $j['peek'] ?? null]);
+    // review 1.81.0 N1: the partner's content is foreign — copied without the s bits and without specials or device nodes
+    // (its mount is nosuid,nodev; rsync as root would make them again in the share)
+    $put("$K/Bin/tool", 'tool');
+    chmod("$K/Bin/tool", 04755);
+    posix_mkfifo("$K/Bin/pipe", 0600);
+    $stamp2 = '20261025-120100';
+    $p2 = rsPlanPick(['kind' => 'pick', 'kept' => 'p1', 'unit' => 'share:theirs', 'ksnap' => 'uso-backup-20261019-0100', 'items' => ['Bin'], 'mode' => 'folder', 'stamp' => $stamp2], $stamp2);
+    $F2 = "$mnt/user/UnraidSecretaryOffice/restore/files/Helmi-theirs-$stamp2";
+    [$states2] = $run($p2, "$stamp2-aa06");
+    clearstatcache();
+    same('review N1: a kept moment\'s pick is foreign: the file there, its set-uid bit gone, the FIFO left out, nothing left mounted',
+        [true, ['ok', 'ok', 'ok'], 'tool', 0, false, []],
+        [$p2['steps'][1]['foreign'] ?? null, $states2, @file_get_contents("$F2/Bin/tool"), (@fileperms("$F2/Bin/tool") ?: 0) & 06000, file_exists("$F2/Bin/pipe"), $mounts]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    check('review N1: rsDoCopy() treats a pull\'s mount as foreign too (--no-D --chmod=ug-s)', str_contains($src, "str_starts_with(\$x, rspMountRoot() . '/')") && str_contains($src, "['--no-D', '--chmod=ug-s']"));
+    // review 1.81.0 N2: his unmount of a peek falls back to a lazy one when the mount is busy (as rspPeek() does)
+    $saveUm = $GLOBALS['rs']['peek_umount'];
+    unset($GLOBALS['rs']['peek_umount']);
+    $ubin = "$tmp/ubin";
+    @mkdir($ubin, 0700, true);
+    file_put_contents("$ubin/umount", "#!/bin/bash\necho \"\$*\" >> " . escapeshellarg("$ubin/calls") . "\n[[ \"\$1\" == -l ]] && exit 0\nexit 32\n");
+    chmod("$ubin/umount", 0755);
+    $peek = "$tmp/run/restore-peek-n2";
+    @mkdir($peek, 0700, true);
+    file_put_contents("$ubin/mounts", "hazel/x@s $peek zfs ro 0 0\n");
+    $oldBin = getenv('OFFICE_PARTNER_BIN');
+    putenv("OFFICE_PARTNER_BIN=$ubin");
+    $oldMf = array_key_exists('mounts_file', $GLOBALS['rs']) ? $GLOBALS['rs']['mounts_file'] : false;
+    $GLOBALS['rs']['mounts_file'] = "$ubin/mounts";
+    $okUm = rsPeekUnmount($peek);
+    putenv($oldBin === false ? 'OFFICE_PARTNER_BIN' : "OFFICE_PARTNER_BIN=$oldBin");
+    if ($oldMf === false) { unset($GLOBALS['rs']['mounts_file']); } else { $GLOBALS['rs']['mounts_file'] = $oldMf; }
+    $GLOBALS['rs']['peek_umount'] = $saveUm;
+    same('review N2: a busy peek mount — umount, then umount -l; the folder removed', [true, [$peek, "-l $peek"], false],
+        [$okUm, file("$ubin/calls", FILE_IGNORE_NEW_LINES), is_dir($peek)]);
     // a copy that fails: the job's end unmounts it all the same
     $p['steps'][1]['sources'] = ["$tmp/run/restore-peek-j$stamp/gone.pdf"];
     $p['steps'][1]['to'] = "$F/again.pdf";
@@ -16860,6 +16973,9 @@ function testRestoreBrowse(): void
         str_contains($js, "Office.api.post(`\${ID}.browse`,") && str_contains($js, "kind: 'pick'") && str_contains($js, "if (plan.options && req.kind === 'pick') pickOptions(")
         && str_contains($js, 'browseButton({ path: x.path }') && str_contains($js, 'browseButton({ path: f.path }') && str_contains($js, 'browseButton({ kept: p.id')
         && str_contains($js, "new URLSearchParams(sub.slice(7)).get('zsnap')"));
+    check('restore browse (page) N12: a link from outside (#/restore/browse?zsnap=…) opens the browser with a question — the agent asked (an automount) only after a click',
+        str_contains($js, "browseDialog({ zsnap: browse, ask: true }") && str_contains($js, "if (from.ask) {") && str_contains($js, "body.appendChild(button(T('fb.ask_go'), '', () => look()));")
+        && ($b = strpos($js, "if (from.ask) {")) !== false && strpos($js, "    delete at.ask;", $b) < strpos($js, "  } else {\n    look();\n  }\n}", $b));
     $snap = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.js');
     check('restore browse (page): Ms. Snapshotini\'s moment menu leads to his browser', str_contains($snap, "Office.go('#/restore/browse?zsnap=' + encodeURIComponent("));
 
@@ -22640,6 +22756,18 @@ function testNotify(): void
     check('notify: the stamp holds the second the last call ended in', (int) trim((string) @file_get_contents($stamp)) >= max(array_map('intval', $got ?: [0])));
     check('notify: taking turns stays bounded (six calls in well under the time of six waits for the lock)', microtime(true) - $t0 < 20, (string) (microtime(true) - $t0));
     // the RAM folder missing: never blocks - sent at once, the guard of this process only
+    // review 1.81.0: the wait for the stamp's lock on the monotonic clock (the tests' own here) — held by another, the wait
+    // ends by the clock's count, never the wall clock's; house.php keeps no microtime() wait
+    $holder = fopen($stamp, 'c+');
+    flock($holder, LOCK_EX);
+    $ticks = 0;
+    $t0 = microtime(true);
+    $got = officeNotifyStampOpen($stamp, function () use (&$ticks): float { return 1000.0 + 6.0 * $ticks++; });
+    flock($holder, LOCK_UN);
+    fclose($holder);
+    same('notify: the stamp held by another — given up after the clock said 10 s (three looks of 6 s), in a blink of real time', [null, 3, true],
+        [$got, $ticks, microtime(true) - $t0 < 2]);
+    check('notify: no wait on the wall clock left in house.php', !preg_match('/microtime\(true\) [+<>]/', (string) file_get_contents(OFFICE_DIR . '/agent/lib/house.php')));
     putenv("OFFICE_NOTIFY_STAMP=$tmp/no-such-folder/notify.second");
     $t0 = microtime(true);
     check('notify: without the RAM folder - sent, without waiting', officeNotify('q', 'x') && microtime(true) - $t0 < 3 && !is_dir("$tmp/no-such-folder"));
@@ -22966,6 +23094,22 @@ function testNotifyCenter(): void
         [officeNotifyKey('backup', 'warnings', 'W', 'warning', 'a') === officeNotifyKey('backup', 'warnings', 'W', 'warning', 'b'),
          $bashKey('backup', 'warnings', 'W', 'warning', 'a') === $bashKey('backup', 'warnings', 'W'), officeNotifyKey('backup', 'warnings', 'W') === officeNotifyKey('backup', 'warnings', 'W', 'normal', 'x'),
          officeNotifyKey('backup', 'failed', 'Backup failed', 'alert', 'a') === officeNotifyKey('backup', 'failed', 'Backup failed', 'alert', 'b')]);
+    // review 1.81.0 N5 (engine 2.85): a warning that names its causes (the run's item codes) is keyed on them — in both gates
+    $codes = fn (string ...$a) => trim((string) shell_exec('bash -c ' . escapeshellarg("source " . escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh') . ' >/dev/null 2>&1; '
+        . 'for c in "$@"; do WARN_ITEMS+=( "$c" ); done; ub_items_codes') . ' _ ' . implode(' ', array_map('escapeshellarg', $a))));
+    same('centre N5: the run\'s codes - sorted, unique, «,» between, a code it can\'t name left out, none: nothing',
+        ['future_files,vm_held', 'future_files', ''], [$codes("vm_held\x1fname=Win", "future_files\x1fname=a", "future_files\x1fname=b", "Bad Code\x1fx=1"), $codes('future_files'), $codes()]);
+    same('centre N5: a warning with codes - its key names them, the same in bash; another set is another warning; an alert and a normal one unchanged by codes',
+        [true, false, true, true, true],
+        [officeNotifyKey('backup', 'warnings', 'W', 'warning', 'a', 'future_files,vm_held') === $bashKey('backup', 'warnings', 'W', 'warning', 'b', 'future_files,vm_held'),
+         officeNotifyKey('backup', 'warnings', 'W', 'warning', 'a', 'future_files') === officeNotifyKey('backup', 'warnings', 'W', 'warning', 'a', 'future_files,vm_held'),
+         officeNotifyKey('backup', 'warnings', 'W', 'warning', 'a', '') === officeNotifyKey('backup', 'warnings', 'W', 'warning', 'b') && $bashKey('backup', 'warnings', 'W', 'warning', 'a', '') === $bashKey('backup', 'warnings', 'W'),
+         officeNotifyKey('backup', 'failed', 'F', 'alert', 'a', 'x') === officeNotifyKey('backup', 'failed', 'F', 'alert', 'a') && $bashKey('backup', 'failed', 'F', 'alert', 'a', 'x') === $bashKey('backup', 'failed', 'F', 'alert', 'a'),
+         officeNotifyKey('backup', 'ok', 'O', 'normal', 'a', 'x') === officeNotifyKey('backup', 'ok', 'O') && $bashKey('backup', 'ok', 'O', 'normal', 'a', 'x') === $bashKey('backup', 'ok', 'O')]);
+    $bk5 = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    check('centre N5: the run\'s warning and error notifications carry their codes to the gate',
+        str_contains($bk5, 'UB_NOTIFY_CODES="$(ub_items_codes)" ub_tell warnings warning') && str_contains($bk5, 'UB_NOTIFY_CODES="$(ub_items_codes)" ub_tell errors alert')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh'), 'key="$(ung_key backup "$ev" "$1" "$level" "${d//$\'\\r\'/}" "${UB_NOTIFY_CODES:-}")"'));
     $k1 = officeNotifyKey('backup', 'failed', 'Backup failed', 'alert', 'The backup place is missing');
     $k2 = officeNotifyKey('backup', 'failed', 'Backup failed', 'alert', 'Pool maple is full');
     $t0 = $now - (23 * 3600 + 55 * 60);
@@ -33657,6 +33801,8 @@ function testPartnerPairing(): void
     // the strings partner.js asks for (desk.js's are checked by testStrings)
     $en = langFile(OFFICE_DIR . '/public/desks/caretaker/lang/en.json');
     $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/partner.js');
+    check('caretaker/partner.js: every dialog returns when the fresh look fails (review 1.81.0 N15: «Let go…», «Change the space…» went on)',
+        !preg_match('/^\s*await Office\.freshState\(ID\);\s*$/m', $js) && substr_count($js, 'if (!(await Office.freshState(ID))) return;') >= 3);
     preg_match_all("/(?<![.\\w])T\\(\\s*'([a-z0-9_.]+)'\\s*[,)]/", $js, $m);
     preg_match_all("/'(partner\\.[a-z0-9_.]+)'/", $js, $m2);
     $keys = array_unique(array_merge($m[1], $m2[1]));
@@ -35911,7 +36057,7 @@ function testPartnerStart(): void
 
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true);
     foreach (['tile.kept', 'kept.title', 'kept.way', 'kept.start', 'rd.title.partner_start', 'rd.start_cancel', 'rd.start_beside', 'rd.start_copy_only', 'step.pull_local', 'step.start_from_vm', 'step.start_from_share', 'step.start_from_look',
-              'note.partner_start_copy', 'note.partner_start_package', 'note.partner_start_vm_exists', 'note.partner_start_vm_service_off', 'note.partner_start_empty', 'note.partner_start_beside', 'note.partner_start_copy_only',
+              'note.partner_start_copy', 'note.partner_start_package', 'note.partner_start_foreign', 'note.partner_start_vm_exists', 'note.partner_start_vm_service_off', 'note.partner_start_empty', 'note.partner_start_beside', 'note.partner_start_copy_only',
               'after.partner_start_vm', 'after.partner_start_vm_by_hand', 'after.partner_start_share', 'after.partner_start_copy_only', 'after.partner_start_keep',
               'errors.restore_partner_share_needed', 'errors.restore_partner_start_exists', 'sn.start_no_package', 'sn.start_vm', 'sn.start_vm_exists', 'sn.start_vm_service_off', 'sn.start_vm_in_copy', 'sn.start_app', 'sn.start_app_none',
               'jk.partner_start', 'j.start_putback_hint', 'aside.started'] as $k) {
@@ -42230,7 +42376,7 @@ function testRequestTypes(): void
     $level = error_reporting(E_ALL);
     $ask = fn (array $r): string => (string) (handle(json_encode($r))['error']['key'] ?? 'ok');
     $staff = TESTS_RUN_DIR . '/types-staff.json';          // the desks asked here work here (testAgentHired: when they don't)
-    file_put_contents($staff, json_encode(['hired' => ['jack' => 1, 'restore' => 1]]));
+    file_put_contents($staff, json_encode(['hired' => ['jack' => 1, 'restore' => 1, 'cleanup' => 1, 'snapshot' => 1, 'backup' => 1, 'logs' => 1]]));
     $GLOBALS['agentStaffFile'] = $staff;
     $answers = [];
     foreach (['partner_add', 'partner_ticket_start'] as $a) {
@@ -42245,6 +42391,46 @@ function testRequestTypes(): void
     same('types: jack.output / jack.log of a tool he hasn\'t — refused, never read as EmbyCache', ['unknown_target', 'unknown_target'],
         [$ask(['action' => 'jack.output', 'tool' => '../x']), $ask(['action' => 'jack.log', 'tool' => '../x'])]);
     same('types: restore.drill_set with nothing it knows — refused, not an ok that changed nothing', 'bad_request', $ask(['action' => 'restore.drill_set', 'x' => 1]));
+
+    // review 1.81.0 N9/N14: the switches of Ms. Dustdevil's, Ms. Snapshotini's, Mr. Backupsy's and Ms. Protokolli's actions
+    // are read with boolField()/optBool(), the numbers with optInt(), the Team Lead's `step` with optText() — the string
+    // "false", 1 or an array never wakes a disk, purges volumes or forces a park: refused before the handler looks at anything
+    $switches = [['cleanup.scan', 'wake', []], ['cleanup.where_scan', 'wake', []], ['cleanup.park', 'force', ['ids' => ['x']]],
+                 ['cleanup.park', 'zfs_ok', ['ids' => ['x']]], ['cleanup.purge', 'volumes', ['ids' => ['x']]], ['cleanup.purge', 'images', ['ids' => ['x']]],
+                 ['backup.setup_plan', 'measure', []],
+                 ['snapshot.create', 'recursive', ['name' => 'n1', 'targets' => ['zfs:cache/a'], 'hold' => false, 'wake' => false]],
+                 ['snapshot.create', 'hold', ['name' => 'n1', 'targets' => ['zfs:cache/a'], 'recursive' => false, 'wake' => false]]];
+    $got = [];
+    foreach ($switches as [$action, $field, $rest]) {
+        foreach (['false', 'true', 1, 0, ['x']] as $v) {
+            $got["$action $field " . json_encode($v)] = $ask(['action' => $action, $field => $v] + $rest);
+        }
+    }
+    same('types: a switch of cleanup/backup/snapshot actions as "false", "true", 1, 0 or an array — bad_request, nothing runs',
+        array_fill_keys(array_keys($got), 'bad_request'), $got);
+    $got = [];
+    foreach ([['lines', ['source' => 'syslog']], ['offset', ['source' => 'syslog', 'lines' => 100]]] as [$field, $rest]) {
+        foreach (['500', 1.5, -1, ['x'], true] as $v) {
+            $got["logs.read $field " . json_encode($v)] = $ask(['action' => 'logs.read', $field => $v] + $rest);
+        }
+    }
+    same('types: logs.read lines / offset as a string, a float, negative, an array or a bool — bad_request', array_fill_keys(array_keys($got), 'bad_request'), $got);
+    same('types: caretaker partner_quota / partner_aside_letgo / partner_address with step an array — bad_request at the router',
+        ['bad_request', 'bad_request', 'bad_request'], [$ask(['action' => 'caretaker.partner_quota', 'id' => 'x', 'step' => ['do']]),
+            $ask(['action' => 'caretaker.partner_aside_letgo', 'id' => 'x', 'step' => ['do']]), $ask(['action' => 'caretaker.partner_address', 'id' => 'x', 'step' => ['save']])]);
+    $k = function (callable $f) { try { return $f(); } catch (Problem $p) { return $p->key; } };
+    same('types: optBool() — absent or null is the default, true/false as said, anything else refused', [false, true, true, false, false, 'bad_request', 'bad_request'],
+        [optBool([], 'wake'), optBool([], 'wake', true), optBool(['wake' => true], 'wake'), optBool(['wake' => false], 'wake', true),
+         optBool(['wake' => null], 'wake'), $k(fn () => optBool(['wake' => 'false'], 'wake')), $k(fn () => optBool(['wake' => 1], 'wake'))]);
+    same('types: optInt() — absent is the default (null allowed), an int ≥ min as it is, the rest refused', [500, null, 7, 0, 'bad_request', 'bad_request', 'bad_request', 'bad_request'],
+        [optInt([], 'lines', 500, 1), optInt([], 'offset', null), optInt(['lines' => 7], 'lines', 500, 1), optInt(['offset' => 0], 'offset', null),
+         $k(fn () => optInt(['lines' => 0], 'lines', 500, 1)), $k(fn () => optInt(['lines' => '7'], 'lines', 500, 1)), $k(fn () => optInt(['lines' => 7.0], 'lines', 500, 1)),
+         $k(fn () => optInt(['lines' => [7]], 'lines', 500, 1))]);
+    foreach (['cleanup' => "/!empty\\(\\\$r\\['/", 'snapshot' => "/!empty\\(\\\$r\\['/", 'backup' => "/!empty\\(\\\$r\\['/",
+              'logs' => "/\\(int\\) \\(?\\\$r\\['(lines|offset)'/", 'caretaker' => "/\\\$r\\['step'\\] \\?\\?/"] as $desk => $re) {
+        $src = (string) file_get_contents(OFFICE_DIR . "/agent/desks/$desk.php");
+        check("types: $desk.php reads no request switch with !empty(), no number with a cast, no step raw", !preg_match($re, $src));
+    }
     unset($GLOBALS['agentStaffFile']);
     @unlink($staff);
     same('types: a text of the wrong type', ['bad_request', 'x', 'd'], [(function () { try { return optText(['a' => [1]], 'a'); } catch (Problem $p) { return $p->key; } })(),
@@ -43884,6 +44070,10 @@ function testReportImages(): void
     }
     $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
     check('report images: api.php takes 3 MB only for a picture, 1 MB for anything else', str_contains($api, "strlen(\$raw) > (\$action === 'office.report_image' ? API_IMAGE_BODY_MAX : API_BODY_MAX)"));
+    check('report images: … and refuses a body past 1 MB that doesn\'t name the picture action first — before json_decode (review 1.81.0)',
+        ($c = strpos($api, 'if (strlen($raw) > API_BODY_MAX && !preg_match(\'/^\s*\{\s*"a"\s*:\s*"office\.report_image"/\', $raw)) {')) !== false
+        && $c < strpos($api, '$data = json_decode($raw, true, 16);') && strpos($api, '$raw = (string) file_get_contents(\'php://input\'') < $c);
+    same('report images: the pre-check\'s shape is the page\'s body (core.js sends the action first)', 1, preg_match('/^\s*\{\s*"a"\s*:\s*"office\.report_image"/', json_encode(['a' => 'office.report_image', 'png' => 'x'])));
 
     // the preview takes them out of the inbox and has each drawn anew in a process of its own
     $put = function (string $bytes) use ($tmp): string {
@@ -55244,7 +55434,7 @@ function testCleanupOrphanDatasets(): void
     unset($GLOBALS['clScanStub'], $GLOBALS['clZfsStub']);
     same('orphan datasets: the page sends zfs_ok as a real boolean (never cast)', 'bad_request', $key(fn () => (function () { boolField(['zfs_ok' => 'yes'], 'zfs_ok'); })()));
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
-    check('orphan datasets: the park action reads zfs_ok with boolField()', str_contains($src, "array_key_exists('zfs_ok', \$r) && boolField(\$r, 'zfs_ok')"));
+    check('orphan datasets: the park action reads zfs_ok with optBool() (review 1.81.0 N9: said or absent, never "false")', str_contains($src, "optBool(\$r, 'force'), optBool(\$r, 'zfs_ok')"));
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
     check('orphan datasets: the page asks for the preview and sends the tick', str_contains($js, '.zfs_preview`') && str_contains($js, 'zfs_ok: !!(zfsOk && zfsOk.checked)'));
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/cleanup/lang/en.json'), true);
@@ -56508,6 +56698,17 @@ function testFirstHome(): void
     same('home: Unraid said yes but no share came — said', 'home_not_there', homeMake('appdata', 'cache', $h)['error']['key'] ?? null);
     unlink("$tmp/lazy");
     $sent();
+    // review 1.81.0: the wait for the share on the monotonic clock (the tests' own here) — a clock that leaps ends the wait
+    // by its own count, never by the wall clock; the file has no microtime() wait left
+    touch("$tmp/lazy");
+    $ticks = 0;
+    $t0 = microtime(true);
+    $r = homeMake('appdata', 'cache', ['clock' => function () use (&$ticks): float { return 1000.0 + 4.0 * $ticks++; }, 'wait' => 10] + $h);
+    unlink("$tmp/lazy");
+    $sent();
+    same('home: the wait paced on the clock handed in — three looks of 4 s each, over in well under the 10 s a wall clock would take',
+        ['home_not_there', 4, true], [$r['error']['key'] ?? null, $ticks, microtime(true) - $t0 < 3]);
+    check('home: no wait on the wall clock left in firsthome.php', !preg_match('/microtime\(true\) [+<>]/', (string) file_get_contents(OFFICE_DIR . '/agent/lib/firsthome.php')));
     same('home: several at once — each checked again first: one already there, nothing made', [false, 'home_stale', []],
         (function () use ($h, $tmp, $sent) { mkdir("$tmp/user/system"); $r = homeMakeAll(['system', 'appdata'], $h); rmdir("$tmp/user/system"); return [$r['ok'], $r['error']['key'] ?? null, $sent()]; })());
 
@@ -57401,7 +57602,7 @@ function testBackupResults(): void
     $local = json_encode([['key' => 'share:appdata', 'result' => 'ok', 'code' => ''], ['key' => 'share:media', 'result' => 'skipped', 'code' => 'asleep']]);
     [$out, $r] = $run($c, $local);
     $pick = fn (?array $e) => $e === null ? null : [$e['result'], $e['code'], $e['time'], $e['good']];
-    same('results 2.80: written - v 1, the engine, the run that wrote it', ['rc=0', 1, '2.84', '20261003-0100', true], [$out, $r['v'] ?? null, $r['engine'] ?? null, $r['run'] ?? null, is_int($r['updated'] ?? null)]);
+    same('results 2.80: written - v 1, the engine, the run that wrote it', ['rc=0', 1, '2.85', '20261003-0100', true], [$out, $r['v'] ?? null, $r['engine'] ?? null, $r['run'] ?? null, is_int($r['updated'] ?? null)]);
     same('results 2.80: none yet - the history folded in first: appdata\'s Kopia failed in B, its newest good copy A\'s; the skipped run nothing',
         [['failed', '', 1990, 990], ['ok', '', 995, 995]], [$pick($r['kopia']['appdata'] ?? null), $pick($r['kopia']['app:Emby'] ?? null)]);
     same('results 2.80: this run - docs uploaded, media skipped asleep, films skipped by the array stop (no why)',
@@ -57817,7 +58018,7 @@ function testRestoreGapsSwap(): void
     $mnt = "$tmp/restored/PartnerNAS-share-appdata-20261025-100000";
     @mkdir($mnt, 0755, true);
     $zfs = ['tank' => ['guid' => '1', 'mounted' => true], 'tank/appdata' => ['guid' => '11', 'mounted' => true, 'snaps' => ['uso-backup-20261024-0300', 'uso-backup-20261025-0300']],
-            $dn => ['guid' => '22', 'mountpoint' => 'legacy', 'canmount' => 'noauto', 'mounted' => false, 'snaps' => ['uso-backup-20261024-0300']]];
+            $dn => ['guid' => '22', 'mountpoint' => 'legacy', 'canmount' => 'noauto', 'readonly' => 'on', 'mounted' => false, 'snaps' => ['uso-backup-20261024-0300']]];
     $fresh = function (array $over = [], array $zfsOver = []) use ($tmp, $zfs, $dn, $mnt, $pullId, $keep): void {
         $GLOBALS['rs'] = $keep;
         restoreGapsBin($tmp, array_replace($zfs, $zfsOver), ["$dn $mnt zfs ro 0 0"]);
@@ -57841,6 +58042,17 @@ function testRestoreGapsSwap(): void
     $aside = 'tank/.UnraidSecretaryOffice-restore-20261025-110000-appdata';
 
     $fresh();
+    // review 1.81.0 (HARDENING «Recommended»): the look job's peek mounts in RAM (RUN_DIR, rsPeekDir) like the file browser's — one place
+    $GLOBALS['rs']['peek_root'] = "$tmp/run";
+    @mkdir("$tmp/run", 0700, true);
+    unset($GLOBALS['rs']['peek']);
+    $peeked = rspPeek("$dn@uso-backup-20261024-0300", $read);
+    $calls = array_values(array_filter(array_map(fn ($l) => json_decode($l, true), file("$tmp/bin/calls.log", FILE_IGNORE_NEW_LINES) ?: []), fn ($c) => in_array($c[0] ?? '', ['mount', 'umount'], true)));
+    same('peek: mounted read-only under RUN_DIR/restore-peek-k…, read, unmounted, the folder gone; never under /tmp',
+        [[], true, 'mount', 'umount', true, true, true],
+        [$peeked, $read, $calls[0][0] ?? null, $calls[1][0] ?? null, (bool) preg_match('#^' . preg_quote("$tmp/run/restore-peek-k", '#') . '[0-9a-f]{8}$#', $calls[0][6] ?? ''),
+         ($calls[0][6] ?? '') === ($calls[1][1] ?? null), !glob("$tmp/run/restore-peek-*") && !glob(sys_get_temp_dir() . '/uso-peek-*')]);
+    unset($GLOBALS['rs']['peek_root']);
     $plan = rsPlanPartnerSwap(['kind' => 'partner_swap', 'id' => $pullId], '20261025-110000');
     same('gap 6: the swap — nothing blocks; what uses the share stops; the pull unmounted, the share\'s dataset aside whole, the pull in its place, then started again',
         [[], ['not_open', 'stop', 'pull_umount', 'swap_out', 'swap_in', 'start'], $aside, ['nextcloud']],
@@ -57851,6 +58063,8 @@ function testRestoreGapsSwap(): void
     $j = restoreGapsRun($plan, '20261025-110000-cd34');
     $s = $z();
 
+    same('review N3: the pull\'s own readonly=on (its receive\'s; a stream carries no properties) is gone with the swap — the share is writable',
+        false, array_key_exists('readonly', $s['tank/appdata'] ?? []));
     same('gap 6: swapped — the share\'s dataset is the pull (its guid), mounted where the share was; the old one aside with its snapshots, mounted; no copy left beside',
         ['ok', '22', null, 'on', true, '11', true, ['uso-backup-20261024-0300', 'uso-backup-20261025-0300'], false, ''],
         [$j['result'], $s['tank/appdata']['guid'] ?? null, array_key_exists('mountpoint', $s['tank/appdata'] ?? []) ? $s['tank/appdata']['mountpoint'] : 'x', $s['tank/appdata']['canmount'] ?? null, $s['tank/appdata']['mounted'] ?? null,
@@ -57867,6 +58081,7 @@ function testRestoreGapsSwap(): void
         [[], ['stop', 'not_open', 'swap_unsettle', 'swap_back', 'mount', 'start']], [$back['blockers'], array_column($back['steps'], 'do')]);
     $jb = restoreGapsRun($back, '20261025-120000-ef56');
     $s = $z();
+    same('review N3: put back — the pull is read-only again', 'on', $s[$dn]['readonly'] ?? null);
     same('gap 6: put back — the share\'s own dataset again (mounted), the pull beside it as before (legacy, read-only mount), nothing destroyed',
         ['ok', '11', true, '22', 'legacy', 'noauto', false, "$dn $mnt zfs ro 0 0"],
         [$jb['result'], $s['tank/appdata']['guid'] ?? null, $s['tank/appdata']['mounted'] ?? null, $s[$dn]['guid'] ?? null, $s[$dn]['mountpoint'] ?? null, $s[$dn]['canmount'] ?? null,
@@ -59375,6 +59590,14 @@ function testUsoNetJoin(): void
         check('USO network: no key in the card', !str_contains(json_encode(usonetPublic()), 'kSecret99'));
         same('USO network: a report never carries a tailnet\'s key', false, str_contains(reportScrub("joined with tskey-auth-kSecret99-ZyXwVuTsRqPoNmLk and hskey-auth-abc_DEF-12", reportKnow(['var_ini' => '/nonexistent'])), 'Secret99')
             || str_contains(reportScrub('hskey-auth-abc_DEF-12', reportKnow(['var_ini' => '/nonexistent'])), 'abc_DEF'));
+        // review 1.81.0 (HARDENING «Recommended», checked 2026-10-31): a Headscale key is bare hex — reportScrub() masks it all
+        // the same: watchmanScrub()'s rule takes every token of 28+ characters (a sha256 in a report goes the same way, by
+        // design); USONET_KEY_RE admits nothing shorter than 32 hex
+        $know = reportKnow(['var_ini' => '/nonexistent']);
+        same('USO network: a bare-hex key (32 to 128 hex) never survives a report — the 28+ token rule; a sha256 is masked the same way',
+            ['joined with …', 'joined with …', 'sha256 … of a file', 1],
+            [reportScrub('joined with ' . str_repeat('7a3f', 8), $know), reportScrub('joined with ' . str_repeat('7a3f', 32), $know),
+             reportScrub('sha256 ' . str_repeat('c0de', 16) . ' of a file', $know), preg_match(USONET_KEY_RE, str_repeat('7a3f', 8))]);
         unlink("$flash/authkey");
 
         // fetching: a download that isn't the pinned helper is refused and removed

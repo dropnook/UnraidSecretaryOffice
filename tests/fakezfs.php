@@ -46,6 +46,7 @@ switch ($cmd) {
             'receive_resume_token' => $st[$ds]['token'] ?? '-',
             'canmount' => $st[$ds]['canmount'] ?? 'on',
             'written' => (string) ($st[$ds]['written'] ?? '0'),
+            'readonly' => $st[$ds]['readonly'] ?? 'off',
             default => '-',
         };
         $src = $prop === 'mountpoint' ? (($st[$ds]['mountpoint'] ?? null) !== null ? 'local' : (str_contains($ds, '/') ? 'inherited from ' . explode('/', $ds)[0] : 'default')) : '-';
@@ -66,7 +67,7 @@ switch ($cmd) {
     case 'inherit':
         [$prop, $ds] = $rest;
         if (!isset($st[$ds])) { $no($ds); }
-        if ($prop === 'mountpoint') { $st[$ds]['mountpoint'] = null; }
+        if ($prop === 'mountpoint') { $st[$ds]['mountpoint'] = null; } else { unset($st[$ds][$prop]); }
         $save();
         exit(0);
     case 'set':

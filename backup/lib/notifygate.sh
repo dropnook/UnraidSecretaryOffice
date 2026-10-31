@@ -163,10 +163,13 @@ ung_line() {
     return 0
 }
 
-# ung_key <desk> <event> <subject> [<level> <description>] - «the same notification»: 16 hex of md5 over
-# desk|event|subject (as in PHP); an alert's over desk|event|subject|description (2.74: only the very same alert is «the same»)
+# ung_key <desk> <event> <subject> [<level> <description> [<codes>]] - «the same notification»: 16 hex of md5 over
+# desk|event|subject (as in PHP); an alert's over desk|event|subject|description (2.74: only the very same alert is «the
+# same»); a warning that names its causes (2.85: the run's item codes, sorted, «,» between) over desk|event|subject|codes -
+# another set of causes within 20 h is a new warning, not a counted one
 ung_key() {
     if [[ "${4:-}" == alert ]]; then printf '%s|%s|%s|%s' "$1" "$2" "$3" "${5:-}" | md5sum | cut -c1-16
+    elif [[ "${4:-}" == warning && -n "${6:-}" ]]; then printf '%s|%s|%s|%s' "$1" "$2" "$3" "$6" | md5sum | cut -c1-16
     else printf '%s|%s|%s' "$1" "$2" "$3" | md5sum | cut -c1-16; fi
 }
 

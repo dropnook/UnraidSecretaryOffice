@@ -1,6 +1,9 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.84 - 2026-10-31
+# unraid-backup - backup.sh                       Version 2.85 - 2026-10-31
+#   2.85 A stop by signal ends the future-files find and removes the run's files in /tmp (lib/common.sh tmp_files_stop in
+#        cleanup; what a hard kill left is swept at the next start, tmp_files_sweep). A run's warning is keyed on its item
+#        codes (lib/common.sh ub_items_codes, notifygate.sh ung_key): another set of causes within 20 h is mailed, not counted.
 #   2.84 state/results.json is written again on a real server (lib/common.sh results_write): the history went to jq as ONE
 #        argument and hit the kernel's 128 KiB limit per argument once history.jsonl passed it (~70 runs) - now fed from
 #        files. What never leaves the flash (lib/common.sh FLASH_NEVER: the USO network's auth key) is one list for both
@@ -3262,6 +3265,7 @@ cleanup() {
     fi
     kopia_stop
     partner_stop
+    tmp_files_stop                     # 2.85: the future-files find and the run's files in /tmp
     [[ -n "$PARTNER_TMP" ]] && rm -rf "$PARTNER_TMP"
     # a package half swapped in goes back, the stage goes (the packages of the last run stay)
     [[ -n "$PKG_STAGE" && "$PKG_COMMITTED" != "yes" ]] && pkg_recover "$UB_DUMPS" >/dev/null
@@ -4323,6 +4327,7 @@ fi
 
 trap cleanup EXIT
 trap on_signal INT TERM
+tmp_files_sweep                        # 2.85: what a run killed outright left in /tmp
 CLEANUP_ARMED="yes"
 
 log "===================== $UB_NAME $UB_VERSION - $UB_MODE $TS ====================="
@@ -5048,12 +5053,12 @@ UB_ITEMS_DESC=""; UB_ITEMS_LINES=""
 NTEXT=""; [[ -n "$UB_ITEMS_DESC" ]] && NTEXT="_items"
 if (( ERRORS > 0 )); then
     log "Backup finished with ${ERRORS} error(s) and ${WARNINGS} warning(s). $SUMMARY"
-    UB_TELL_TEXT="notify.errors$NTEXT" ub_tell errors alert "$(run_report "Backup finished with errors")" "Backup with errors" "${ERRORS} errors, ${WARNINGS} warnings. $NSUMMARY" \
+    UB_TELL_TEXT="notify.errors$NTEXT" UB_NOTIFY_CODES="$(ub_items_codes)" ub_tell errors alert "$(run_report "Backup finished with errors")" "Backup with errors" "${ERRORS} errors, ${WARNINGS} warnings. $NSUMMARY" \
         "counts=$(ub_counts "$ERRORS" "$WARNINGS")" "items=$UB_ITEMS_DESC" "summary=$(ub_summary)"
     exit 1
 elif (( WARNINGS > 0 )); then
     log "Backup finished with ${WARNINGS} warning(s). $SUMMARY"
-    UB_TELL_TEXT="notify.warnings$NTEXT" ub_tell warnings warning "$(run_report "Backup finished with warnings")" "Backup with warnings" "${WARNINGS} warnings. $NSUMMARY" \
+    UB_TELL_TEXT="notify.warnings$NTEXT" UB_NOTIFY_CODES="$(ub_items_codes)" ub_tell warnings warning "$(run_report "Backup finished with warnings")" "Backup with warnings" "${WARNINGS} warnings. $NSUMMARY" \
         "counts=$(ub_counts "" "$WARNINGS")" "items=$UB_ITEMS_DESC" "summary=$(ub_summary)"
 else
     log "Backup successful. $SUMMARY"

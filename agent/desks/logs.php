@@ -175,8 +175,7 @@ desk('logs', [
     },
     'actions' => [
         'refresh'     => fn (array $r) => ['ok' => true, 'state' => logsScan()],
-        'read'        => fn (array $r) => logsRead(textField($r, 'source'), (int) ($r['lines'] ?? 500),
-                                                   isset($r['offset']) ? (int) $r['offset'] : null),
+        'read'        => fn (array $r) => logsRead(textField($r, 'source'), optInt($r, 'lines', 500, 1) ?? 500, optInt($r, 'offset', null)),
         'tour'        => fn (array $r) => logsTourStart(),
         'schedule'    => fn (array $r) => logsSetSchedule(cronField($r)),
         'sort'        => fn (array $r) => logsSortNow(),

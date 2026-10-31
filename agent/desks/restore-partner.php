@@ -1378,7 +1378,7 @@ function rspPeek(string $snapshot, ?bool &$read = null): array
         $read = true;
         return ($GLOBALS['rs']['peek'])($snapshot);
     }
-    $dir = rtrim(sys_get_temp_dir(), '/') . '/uso-peek-' . bin2hex(random_bytes(4));
+    $dir = rsPeekDir('k' . bin2hex(random_bytes(4)));      // in RAM (RUN_DIR), as the file browser's peek (review 1.81.0)
     if (!@mkdir($dir, 0700)) {
         return [];
     }
@@ -1391,8 +1391,8 @@ function rspPeek(string $snapshot, ?bool &$read = null): array
         return [];
     } finally {
         // never left mounted (it would hold the pool at the array stop): whatever happened while reading
-        if ($mounted && run(['umount', $dir], 60)[0] !== 0) {
-            run(['umount', '-l', $dir], 60);
+        if ($mounted && run([partnerBin('umount') ?? 'umount', $dir], 60)[0] !== 0) {
+            run([partnerBin('umount') ?? 'umount', '-l', $dir], 60);
         }
         @rmdir($dir);
     }
@@ -1800,6 +1800,11 @@ function rsPlanPartnerStart(array $r, string $stamp): array
     }
     $plan['steps'] = $steps;
     $plan['notes'][] = ['key' => 'note.partner_start_package', 'params' => ['name' => $name]];
+    // review 2026-10-15 F5: a partner's templates and Compose files go in place as they are — what they ask of this server
+    // (--privileged, host paths, the Docker socket) Unraid's form and the Compose tool show before anything starts; said here
+    if (array_filter($steps, fn ($s) => ($s['do'] ?? '') === 'start_from' && in_array($s['kind'] ?? '', ['app', 'share', 'look'], true))) {
+        $plan['notes'][] = ['key' => 'note.partner_start_foreign', 'params' => ['name' => $name], 'warn' => true];
+    }
     $plan['after'][] = ['key' => 'after.partner_start_keep', 'params' => ['name' => $name]];
     $free = rspPoolFree($pool);
     $plan['sizes'] = ['need' => $need, 'free' => $free, 'measuring' => false, 'compresses' => true];
@@ -2975,7 +2980,10 @@ function rsDoSwapIn(array &$j, int $i): array
     if ($exit !== 0) {
         return rsFail('rename_failed', ['path' => $dn], trim($err));
     }
-    foreach ([['inherit', 'mountpoint', $do], ['set', 'canmount=on', $do]] as $args) {
+    // the pull's own properties go: `readonly=on` the pull set at its receive (rspPull); the stream carried none — a
+    // `zfs send -L -c` without -p/-R sends no properties (checked 2026-10-31: `zfs get -s received` lists nothing after
+    // such a receive), so mountpoint, canmount and readonly are all a pull has of its own (review 1.81.0, N3)
+    foreach ([['inherit', 'mountpoint', $do], ['inherit', 'readonly', $do], ['set', 'canmount=on', $do]] as $args) {
         [$exit, , $err] = rsRun($j, array_merge([rspZfs()], $args), 60);
         if ($exit !== 0) {
             return rsFail('swap_mount_failed', ['dataset' => $do, 'path' => $mp], trim($err)) + ['undo' => $undo];
@@ -3001,7 +3009,7 @@ function rsDoSwapUnsettle(array &$j, array $s): array
     $guid = is_string($s['guid'] ?? null) ? $s['guid'] : null;
     // done before (an earlier put back that stopped later on, or the rename it undoes never happened): nothing to do
     if (rspDsExists($dn) && ($guid === null || rspDsGet($dn, 'guid') === $guid)) {
-        foreach (['canmount=noauto', 'mountpoint=legacy'] as $kv) {
+        foreach (['canmount=noauto', 'mountpoint=legacy', 'readonly=on'] as $kv) {
             rsRun($j, [rspZfs(), 'set', $kv, $dn], 60);
         }
         return ['state' => 'ok', 'note' => 'already'];
@@ -3018,7 +3026,8 @@ function rsDoSwapUnsettle(array &$j, array $s): array
     if (rspDsGet($do, 'mounted') === 'yes' && rsRun($j, [rspZfs(), 'umount', $do], 120)[0] !== 0) {
         return rsFail('drop_busy', ['path' => (string) ($s['mountpoint'] ?? $do)]);
     }
-    foreach ([['set', 'canmount=noauto', $do], ['set', 'mountpoint=legacy', $do], ['rename', $do, $dn]] as $args) {
+    // a pull again: read-only as its receive made it (review 1.81.0, N3)
+    foreach ([['set', 'canmount=noauto', $do], ['set', 'mountpoint=legacy', $do], ['set', 'readonly=on', $do], ['rename', $do, $dn]] as $args) {
         [$exit, , $err] = rsRun($j, array_merge([rspZfs()], $args), 300);
         if ($exit !== 0) {
             // never a share left unmounted (H2): back as it was, mounted where the share is
@@ -3032,7 +3041,7 @@ function rsDoSwapUnsettle(array &$j, array $s): array
 /** A dataset made the share's again: its mountpoint from the pool, canmount on, mounted — true when it is mounted */
 function rspResettle(array &$j, string $ds, string $mountpoint): bool
 {
-    foreach ([['inherit', 'mountpoint', $ds], ['set', 'canmount=on', $ds]] as $args) {
+    foreach ([['inherit', 'mountpoint', $ds], ['inherit', 'readonly', $ds], ['set', 'canmount=on', $ds]] as $args) {
         rsRun($j, array_merge([rspZfs()], $args), 60);
     }
     if (rspDsGet($ds, 'mounted') !== 'yes') {

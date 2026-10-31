@@ -3107,12 +3107,21 @@ function jackToolDir(string $tool): string
     return $tool === 'gather' ? GATHER_DATA : JACK_DATA;
 }
 
+/** This boot's id (the kernel's, one per boot) — '' unknown */
+function jackBootId(): string
+{
+    return trim((string) @file_get_contents($GLOBALS['jackBootIdFile'] ?? '/proc/sys/kernel/random/boot_id', false, null, 0, 64));
+}
+
 /** The run started last (by the office or a schedule): mode, who, when, still at work? */
 function jackJobInfo(string $tool): array
 {
     $info = readJson(jackToolDir($tool) . '/office-run.json') ?? [];
     $pid = (int) ($info['pid'] ?? 0);
-    $info['running'] = empty($info['finished']) && $pid > 1 && str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'agent.php');
+    // a marker of another boot is no run going, whatever has its pid now (a power cut mid-run; as Ms. Moverelli's D-F8 —
+    // review 1.81.0 wave 5: the agent itself is an agent.php with a low pid after a boot)
+    $info['running'] = empty($info['finished']) && $pid > 1 && (($info['boot'] ?? '') === '' || $info['boot'] === jackBootId())
+        && str_contains((string) @file_get_contents("/proc/$pid/cmdline"), 'agent.php');
     $out = jackToolDir($tool) . '/office-output.txt';
     $info['size'] = (int) @filesize($out);
     $info['updated'] = @filemtime($out) ?: null;
@@ -3251,7 +3260,7 @@ function jackJob(string $tool, array $args): int
         return 1;
     }
     $started = time();
-    $run = ['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $started, 'pid' => getmypid()] + ($from !== null ? ['from' => $from] : []);
+    $run = ['tool' => $tool, 'mode' => $mode, 'by' => $by, 'started' => $started, 'pid' => getmypid(), 'boot' => jackBootId()] + ($from !== null ? ['from' => $from] : []);
     writeAtomic("$dir/office-run.json", jsonEncode($run), 0600, 0, 0);
     jackMoversUnlock($movers);
     jackWaitEnd($wait, RUN_DIR, $tool);          // the run shows as running now: a second start is refused by that

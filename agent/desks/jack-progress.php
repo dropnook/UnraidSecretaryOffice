@@ -288,7 +288,7 @@ function jackProgressSample(array $paths, ?int $now = null, ?callable $partial =
 /** The job's ticker for jackRunWatch(): a sample every JACK_PROGRESS_EVERY s once EmbyCache copies (asked every half second) */
 function jackProgressTicker(array $paths, ?callable $now = null): callable
 {
-    $now ??= fn (): int => time();
+    $now ??= fn (): int => (int) (hrtime(true) / 1e9);     // the monotonic clock: a wall-clock step never freezes the panel (review 1.81.0, N10)
     $next = 0;
     return function () use ($paths, $now, &$next): void {
         $t = $now();
@@ -500,7 +500,7 @@ function jackWatchView(?array $look): array
 /** The job's ticker for who is watching: at once, then every JACK_WATCH_LIVE s (a look that fails: again next time) */
 function jackWatchTicker(array $paths, ?callable $look = null, ?callable $now = null): callable
 {
-    $now ??= fn (): int => time();
+    $now ??= fn (): int => (int) (hrtime(true) / 1e9);     // the monotonic clock: a wall-clock step never freezes the panel (review 1.81.0, N10)
     $next = 0;
     return function () use ($paths, $look, $now, &$next): void {
         $t = $now();
