@@ -952,7 +952,7 @@ Every restore scenario on Tower again, now that INV-COMPARE compares (task/resto
 | R1 | `restore-sh-names-files` | green (T 30.10.), INV-COMPARE on each of its 23 restores | 180 s | -1508 |
 | R2 | `restore-sh-open-file-replace` | green (T 30.10.) | 156 s | -1432 |
 | R3 | `restore-rn-changes-between-putback` | green (T 30.10.) | 56 s | -1508 |
-| R5 | `restore-rn-array-stop-midrun-rs-files` | **red** W4-2 (INV-BUBBLE: «I'm restoring» after the job's own file says failed); its cells green (T 30.10.) | 172 s | -1432 |
+| R5 | `restore-rn-array-stop-midrun-rs-files` | **red** W4-2 (INV-BUBBLE: «I'm restoring» after the job's own file says failed); its cells green (T 30.10.); W4-2 fixed on main that evening (1.80.0: `runningJob()` on a stale `state.running`), the rerun of this cell open | 172 s | -1432 |
 | R5 | `restore-rn-array-stop-midrun-drill-drill` | green (T 30.10.) | 158 s | -1508 |
 | R6 | `restore-ct-image-gone-drill` | green (T 31.10.) | 72 s | -0847 |
 | R7 | `restore-vm-gone-vm-drill` | green (T 31.10.) | 96 s | -0847 |
