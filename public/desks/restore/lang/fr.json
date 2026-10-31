@@ -1449,6 +1449,7 @@
   "step.lv_build": "Copier {image} → {to}, décompresser {from} dans la copie (vidée d'abord — l'image elle-même reste telle quelle)",
   "aside.libvirt": "libvirt.img tel qu'il est maintenant (chaque définition de VM d'aujourd'hui) : {from} → {to}",
   "note.libvirt_replaces": "Chaque définition de VM et chaque réseau est remplacé par ceux du {when}. Une VM définie depuis n'y est pas — elle reste dans l'ancienne image ({aside}).",
+  "note.libvirt_foreign": "L'archive vient de la copie rapatriée depuis {name} : j'adapte d'abord chaque définition de VM qu'elle contient à ce serveur (le QEMU d'un autre serveur, les ajouts en ligne de commande, les dossiers partagés, les scripts réseau et les périphériques passés sont retirés) et je n'installe rien de son dossier hooks. Une définition qui nomme un emplacement de ce serveur hors du dossier de la VM est laissée de côté et nommée ensuite.",
   "note.libvirt_disks": "Les disques des VM ne sont pas touchés : ils doivent être là où les XML le disent.",
   "after.libvirt_on": "Démarre le service VM : ⟦Settings⟧ → ⟦VM Manager⟧ → ⟦Enable VMs⟧ : ⟦Yes⟧. L'ancienne image reste de côté comme {aside} jusqu'à ce que tu la supprimes toi-même.",
   "sn.lv_service_on": "Le service VM tourne ({path} utilisé) — je me suis arrêté avant de remplacer quoi que ce soit. Arrête-le, puis recommence.",
@@ -1467,6 +1468,8 @@
   "after.swap_putback": "Ce qui a été écrit dans le partage {share} pendant que la copie était échangée reste dans cette copie ({dataset}, en lecture seule à côté) — copie ce qu'il te faut avant «Supprimer ce qui a été rapatrié…».",
   "errors.restore_putback_asleep": "Le pool {base} dort — je ne le réveille pas pour ça. Dès qu'il est réveillé, regarde à nouveau.",
   "sn.lv_umount_failed": "Impossible de démonter ma copie sur {path} : le périphérique loop {loop} y reste attaché jusqu'à un redémarrage. libvirt.img lui-même est intact.",
+  "sn.lv_foreign": "L'archive est la copie de {name} : chaque définition de VM a été adaptée à ce serveur, rien de son dossier hooks n'a été installé.",
+  "sn.lv_foreign_left": "L'archive est la copie de {name} : les définitions de VM ont été adaptées à ce serveur, rien de son dossier hooks n'a été installé — laissées de côté parce qu'elles nomment un emplacement de ce serveur hors du dossier de la VM ou une autre VM : {left}. Ces VM restent dans l'ancienne image mise de côté.",
   "sn.swap_back_busy": "Le dossier du dataset mis de côté est utilisé ({path}) — la copie est de nouveau le partage, rien de perdu. Ferme ce qui utilise ce dossier, puis encore «Remettre en place».",
   "j.libvirt_leftover_hint": "La construction a échoué avant tout échange : ceci met seulement de côté la copie laissée (libvirt.img.restored-…). libvirt.img lui-même n'a jamais été modifié."
 }

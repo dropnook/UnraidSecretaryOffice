@@ -57904,6 +57904,48 @@ function testRestoreGapsLibvirt(): void
          rsPlanLibvirtFor($server, "$tmp/system/libvirt/none.img", '20261025-150000', $ctx)['blockers'][0]['key'] ?? null,
          (function () use ($tmp, $img, $server, $ctx) { symlink($img, "$tmp/system/libvirt/link.img");
              return rsPlanLibvirtFor($server, "$tmp/system/libvirt/link.img", '20261025-150000', $ctx)['blockers'][0]['key'] ?? null; })()]);
+    // ---- review 1.81.0, M2: the archive of a place pulled from a partner is the partner's word — nothing of its hooks
+    // installed, every VM definition fitted as a partner's XML is (rspXmlForeign), one naming another server's place or
+    // another VM left out of the image with its autostart link; the user's own archive as before (hooks and all)
+    @unlink("$tmp/system/libvirt/link.img");
+    $F = "$tmp/foreign/libvirt";
+    @mkdir("$F/qemu/autostart", 0755, true);
+    @mkdir("$F/hooks", 0755, true);
+    file_put_contents("$F/hooks/qemu", "#!/bin/sh\necho theirs\n");
+    chmod("$F/hooks/qemu", 0755);
+    $dom = fn (string $name, string $devices, string $extra = '') => '<domain type="kvm" xmlns:qemu="http://libvirt.org/schemas/domain/qemu/1.0"><name>' . $name . '</name>'
+        . '<os><loader readonly="yes" type="pflash">/usr/share/qemu/ovmf-x64/OVMF_CODE-pure-efi.fd</loader><nvram>/etc/libvirt/qemu/nvram/x_VARS-pure-efi.fd</nvram></os>'
+        . '<devices>' . $devices . '</devices>' . $extra . '</domain>';
+    file_put_contents("$F/qemu/Schule.xml", $dom('Schule', '<emulator>/usr/bin/qemu-system-theirs</emulator><interface type="bridge"><script path="/etc/qemu-ifup-theirs"/></interface>',
+        '<qemu:commandline><qemu:arg value="-theirs"/></qemu:commandline>'));
+    file_put_contents("$F/qemu/Else.xml", $dom('Other', '<emulator>/usr/local/sbin/qemu</emulator>'));
+    file_put_contents("$F/qemu/Evil.xml", $dom('Evil', '<disk type="file" device="disk"><source file="/boot/config/super.img"/></disk>'));
+    symlink('../Else.xml', "$F/qemu/autostart/Else.xml");
+    exec('tar -C ' . escapeshellarg("$tmp/foreign") . ' -czf ' . escapeshellarg("$tmp/foreign.tar.gz") . ' libvirt');
+    same('review M2: the archive\'s members are known by name before anything is unpacked', true, in_array('libvirt/hooks/qemu', rsLvArchiveNames("$tmp/foreign.tar.gz") ?? [], true));
+    $pf = rsPlanLibvirtFor(['libvirt' => "$tmp/foreign.tar.gz"] + $server, $img, '20261025-170000', $ctx, 'PartnerNAS');
+    same('review M2: from a pulled place — the plan says the archive is the partner\'s (fitted first, no hooks), the build step knows it; the own archive\'s plan says nothing of it',
+        [[], 'PartnerNAS', true, true, false, false],
+        [$pf['blockers'], $pf['target']['partner'] ?? null, in_array('note.libvirt_foreign', array_column($pf['notes'], 'key'), true), $pf['steps'][1]['foreign'] ?? null,
+         isset($plan['steps'][1]['foreign']), in_array('note.libvirt_foreign', array_column($plan['notes'], 'key'), true)]);
+    $jf = restoreGapsRun($pf, '20261025-170000-dd44');
+    $bf = $jf['steps'][1] ?? [];
+    same('review M2: built — one definition fitted, two left out and named (another VM\'s name, a place outside the VM\'s folder), the hook not installed; said as a warning',
+        ['warning', 'lv_foreign_left', 1, ['Else', 'Evil'], 1, 'PartnerNAS'],
+        [$bf['state'] ?? null, $bf['note'] ?? null, $bf['params']['fitted'] ?? null, $bf['params']['left'] ?? null, $bf['params']['hooks'] ?? null, $bf['params']['name'] ?? null]);
+    if ($real) {
+        @mkdir("$tmp/look2", 0700);
+        exec('mount -o loop,ro ' . escapeshellarg($img) . ' ' . escapeshellarg("$tmp/look2"));
+        $schule = (string) @file_get_contents("$tmp/look2/qemu/Schule.xml");
+        $inside = [str_contains($schule, '<emulator>/usr/local/sbin/qemu</emulator>'), str_contains($schule, 'qemu:commandline'), str_contains($schule, '<script'),
+                   is_file("$tmp/look2/qemu/Else.xml"), is_file("$tmp/look2/qemu/Evil.xml"), is_link("$tmp/look2/qemu/autostart/Else.xml"),
+                   array_values(array_diff(@scandir("$tmp/look2/hooks") ?: [], ['.', '..']))];
+        exec('umount ' . escapeshellarg("$tmp/look2"));
+        same('review M2: … inside the new image: Unraid\'s emulator, no command-line addition, no network script; the two left out gone with the autostart link; hooks empty',
+            [true, false, false, false, false, false, []], $inside);
+    } else {
+        check('review M2: … the image\'s inside: no loop device here (root and mkfs.ext4 needed) - not looked at', true);
+    }
     $GLOBALS['rs'] = $keep;
     hardeningRm($tmp);
 }

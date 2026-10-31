@@ -1449,6 +1449,7 @@
   "step.lv_build": "Copy {image} → {to}, unpack {from} into the copy (emptied first — the image itself stays as it is)",
   "aside.libvirt": "libvirt.img as it is now (every VM definition of today): {from} → {to}",
   "note.libvirt_replaces": "Every VM definition and network is replaced by those of {when}. A VM defined since isn't in it — it stays in the old image ({aside}).",
+  "note.libvirt_foreign": "The archive comes from the copy pulled from {name}: I first fit every VM definition in it to this server (another server's QEMU, command-line additions, shared folders, network scripts and passed-through devices removed) and install nothing of its hooks folder. A definition naming a place of this server outside the VM's own folder is left out and named afterwards.",
   "note.libvirt_disks": "The VMs' disks aren't touched: they must be where the XMLs say.",
   "after.libvirt_on": "Start the VM service: ⟦Settings⟧ → ⟦VM Manager⟧ → ⟦Enable VMs⟧: ⟦Yes⟧. The old image stays aside as {aside} until you remove it yourself.",
   "sn.lv_service_on": "The VM service is on ({path} in use) — I stopped before replacing anything. Turn it off, then start again.",
@@ -1467,6 +1468,8 @@
   "after.swap_putback": "What was written into the share {share} while the copy was swapped in stays in that copy ({dataset}, read-only beside it) — copy out what you need before «Remove what was pulled…».",
   "errors.restore_putback_asleep": "The pool {base} is asleep — I don't wake it for this. Once it is awake, look again.",
   "sn.lv_umount_failed": "Couldn't unmount my copy at {path}: the loop device {loop} stays attached to it until a reboot. libvirt.img itself is untouched.",
+  "sn.lv_foreign": "The archive is {name}'s copy: every VM definition in it was fitted to this server, nothing of its hooks folder installed.",
+  "sn.lv_foreign_left": "The archive is {name}'s copy: the VM definitions were fitted to this server, nothing of its hooks folder installed — left out, because they name a place of this server outside the VM's own folder or another VM: {left}. Those VMs stay in the old image set aside.",
   "sn.swap_back_busy": "The set-aside dataset's folder is in use ({path}) — the copy is the share again, nothing lost. Close what uses that folder, then «Put back» once more.",
   "j.libvirt_leftover_hint": "The build failed before anything was swapped: this only sets aside the copy it left (libvirt.img.restored-…). libvirt.img itself was never changed."
 }

@@ -1449,6 +1449,7 @@
   "step.lv_build": "Copiar {image} → {to}, desempaquetar {from} en la copia (vaciada antes — la imagen misma se queda como está)",
   "aside.libvirt": "libvirt.img como está ahora (cada definición de VM de hoy): {from} → {to}",
   "note.libvirt_replaces": "Cada definición de VM y cada red se reemplaza por las del {when}. Una VM definida después no está — se queda en la imagen antigua ({aside}).",
+  "note.libvirt_foreign": "El archivo viene de la copia traída de {name}: primero adapto a este servidor cada definición de VM que contiene (se quitan el QEMU de otro servidor, los añadidos de línea de comandos, las carpetas compartidas, los scripts de red y los dispositivos pasados) y no instalo nada de su carpeta hooks. Una definición que nombra un lugar de este servidor fuera de la carpeta de la VM se deja fuera y se nombra después.",
   "note.libvirt_disks": "Los discos de las VMs no se tocan: deben estar donde dicen los XML.",
   "after.libvirt_on": "Inicia el servicio de VMs: ⟦Settings⟧ → ⟦VM Manager⟧ → ⟦Enable VMs⟧: ⟦Yes⟧. La imagen antigua se queda apartada como {aside} hasta que la quites tú.",
   "sn.lv_service_on": "El servicio de VMs está en marcha ({path} en uso) — paré antes de reemplazar nada. Apágalo y vuelve a empezar.",
@@ -1467,6 +1468,8 @@
   "after.swap_putback": "Lo que se escribió en el recurso {share} mientras la copia estaba intercambiada se queda en esa copia ({dataset}, solo lectura al lado) — copia lo que necesites antes de «Quitar lo traído…».",
   "errors.restore_putback_asleep": "El pool {base} duerme — no lo despierto para esto. Cuando esté despierto, vuelve a mirar.",
   "sn.lv_umount_failed": "No se pudo desmontar mi copia en {path}: el dispositivo loop {loop} sigue conectado hasta un reinicio. libvirt.img mismo está intacto.",
+  "sn.lv_foreign": "El archivo es la copia de {name}: cada definición de VM se adaptó a este servidor, nada de su carpeta hooks se instaló.",
+  "sn.lv_foreign_left": "El archivo es la copia de {name}: las definiciones de VM se adaptaron a este servidor, nada de su carpeta hooks se instaló — dejadas fuera porque nombran un lugar de este servidor fuera de la carpeta de la VM u otra VM: {left}. Esas VM se quedan en la imagen antigua apartada.",
   "sn.swap_back_busy": "La carpeta del dataset apartado está en uso ({path}) — la copia vuelve a ser el recurso, nada perdido. Cierra lo que usa esa carpeta y otra vez «Devolver a su sitio».",
   "j.libvirt_leftover_hint": "La construcción falló antes de intercambiar nada: esto solo aparta la copia que quedó (libvirt.img.restored-…). libvirt.img mismo nunca se cambió."
 }

@@ -1449,6 +1449,7 @@
   "step.lv_build": "{image} → {to} kopieren, {from} in die Kopie auspacken (zuerst geleert — das Image selbst bleibt, wie es ist)",
   "aside.libvirt": "libvirt.img, wie es jetzt ist (jede VM-Definition von heute): {from} → {to}",
   "note.libvirt_replaces": "Jede VM-Definition und jedes Netzwerk wird durch die vom {when} ersetzt. Eine VM, die seither definiert wurde, ist nicht darin — sie bleibt im alten Image ({aside}).",
+  "note.libvirt_foreign": "Das Archiv stammt aus der von {name} zurückgeholten Kopie: Jede VM-Definition darin passe ich zuerst an diesen Server an (das QEMU eines anderen Servers, Kommandozeilen-Zusätze, freigegebene Ordner, Netzwerk-Skripte und durchgereichte Geräte entfernt) und aus ihrem hooks-Ordner installiere ich nichts. Eine Definition, die einen Ort dieses Servers ausserhalb des eigenen Ordners der VM nennt, lasse ich weg und nenne sie danach.",
   "note.libvirt_disks": "Die Disks der VMs werden nicht angefasst: Sie müssen dort liegen, wo die XMLs sagen.",
   "after.libvirt_on": "VM-Dienst starten: ⟦Settings⟧ → ⟦VM Manager⟧ → ⟦Enable VMs⟧: ⟦Yes⟧. Das alte Image bleibt als {aside} beiseite, bis du es selbst entfernst.",
   "sn.lv_service_on": "Der VM-Dienst läuft ({path} in Gebrauch) — ich habe aufgehört, bevor etwas ersetzt wurde. Schalte ihn aus und starte dann neu.",
@@ -1467,6 +1468,8 @@
   "after.swap_putback": "Was in den Share {share} geschrieben wurde, während die Kopie eingetauscht war, bleibt in dieser Kopie ({dataset}, nur lesbar daneben) — kopiere heraus, was du brauchst, bevor du «Zurückgeholtes entfernen…» wählst.",
   "errors.restore_putback_asleep": "Der Pool {base} schläft — dafür wecke ich ihn nicht. Sobald er wach ist, nochmals schauen.",
   "sn.lv_umount_failed": "Meine Kopie unter {path} liess sich nicht aushängen: Das Loop-Gerät {loop} bleibt bis zu einem Neustart an ihr. libvirt.img selbst ist unberührt.",
+  "sn.lv_foreign": "Das Archiv ist die Kopie von {name}: Jede VM-Definition darin wurde an diesen Server angepasst, aus ihrem hooks-Ordner nichts installiert.",
+  "sn.lv_foreign_left": "Das Archiv ist die Kopie von {name}: Die VM-Definitionen wurden an diesen Server angepasst, aus ihrem hooks-Ordner nichts installiert — weggelassen, weil sie einen Ort dieses Servers ausserhalb des eigenen Ordners der VM oder eine andere VM nennen: {left}. Diese VMs bleiben im alten, beiseitegelegten Image.",
   "sn.swap_back_busy": "Der Ordner des beiseitegelegten Datasets ist in Gebrauch ({path}) — die Kopie ist wieder der Share, nichts verloren. Schliesse, was diesen Ordner benutzt, dann nochmals «Zurücklegen».",
   "j.libvirt_leftover_hint": "Der Bau ist gescheitert, bevor etwas getauscht wurde: Das legt nur die zurückgelassene Kopie (libvirt.img.restored-…) beiseite. libvirt.img selbst wurde nie verändert."
 }
