@@ -36037,7 +36037,7 @@ function testPartnerStart(): void
 
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/restore/lang/en.json'), true);
     foreach (['tile.kept', 'kept.title', 'kept.way', 'kept.start', 'rd.title.partner_start', 'rd.start_cancel', 'rd.start_beside', 'rd.start_copy_only', 'step.pull_local', 'step.start_from_vm', 'step.start_from_share', 'step.start_from_look',
-              'note.partner_start_copy', 'note.partner_start_package', 'note.partner_start_vm_exists', 'note.partner_start_vm_service_off', 'note.partner_start_empty', 'note.partner_start_beside', 'note.partner_start_copy_only',
+              'note.partner_start_copy', 'note.partner_start_package', 'note.partner_start_foreign', 'note.partner_start_vm_exists', 'note.partner_start_vm_service_off', 'note.partner_start_empty', 'note.partner_start_beside', 'note.partner_start_copy_only',
               'after.partner_start_vm', 'after.partner_start_vm_by_hand', 'after.partner_start_share', 'after.partner_start_copy_only', 'after.partner_start_keep',
               'errors.restore_partner_share_needed', 'errors.restore_partner_start_exists', 'sn.start_no_package', 'sn.start_vm', 'sn.start_vm_exists', 'sn.start_vm_service_off', 'sn.start_vm_in_copy', 'sn.start_app', 'sn.start_app_none',
               'jk.partner_start', 'j.start_putback_hint', 'aside.started'] as $k) {

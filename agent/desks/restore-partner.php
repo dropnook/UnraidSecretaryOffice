@@ -1800,6 +1800,11 @@ function rsPlanPartnerStart(array $r, string $stamp): array
     }
     $plan['steps'] = $steps;
     $plan['notes'][] = ['key' => 'note.partner_start_package', 'params' => ['name' => $name]];
+    // review 2026-10-15 F5: a partner's templates and Compose files go in place as they are — what they ask of this server
+    // (--privileged, host paths, the Docker socket) Unraid's form and the Compose tool show before anything starts; said here
+    if (array_filter($steps, fn ($s) => ($s['do'] ?? '') === 'start_from' && in_array($s['kind'] ?? '', ['app', 'share', 'look'], true))) {
+        $plan['notes'][] = ['key' => 'note.partner_start_foreign', 'params' => ['name' => $name], 'warn' => true];
+    }
     $plan['after'][] = ['key' => 'after.partner_start_keep', 'params' => ['name' => $name]];
     $free = rspPoolFree($pool);
     $plan['sizes'] = ['need' => $need, 'free' => $free, 'measuring' => false, 'compresses' => true];

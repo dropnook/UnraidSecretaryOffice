@@ -1134,6 +1134,7 @@
   "step.start_from_look": "Guarda cosa porta la copia in {mount}/.uso-backup (nulla va nella condivisione: ha già contenuto)",
   "note.partner_start_copy": "Prima una copia indipendente di quel momento sul pool {pool}: {dataset}, montata in sola lettura — la copia di {name} e i suoi snapshot restano esattamente com'erano. Ci vuole un momento ({bytes}).",
   "note.partner_start_package": "Una copia fatta con engine 2.43 o più recente porta con sé la configurazione della VM o dell'app. Con una più vecchia arrivano solo i file, e la VM o l'app la crei tu.",
+  "note.partner_start_foreign": "I template e i file Compose arrivano dalla copia di {name} così come sono: ciò che chiedono a questo server – --privileged, percorsi dell'host, il socket Docker – lo mostra il modulo ⟦Add Container⟧ di Unraid o lo strumento Compose prima che qualcosa parta. Riportare qualcosa da {name} significa fidarsi di {name} come del proprio backup.",
   "note.partner_start_vm_exists": "Una VM {name} è già definita qui ({state}) — non ne definisco un'altra sopra: prima rinominala o rimuovila. I suoi dischi arrivano comunque (accanto, se la cartella è occupata).",
   "note.partner_start_vm_service_off": "Il servizio VM è spento — la definizione non si può fare ora. I dischi arrivano; la configurazione resta nel .uso-backup della cartella per dopo.",
   "note.partner_start_empty": "{path} esiste qui ed è vuota — viene riempita.",

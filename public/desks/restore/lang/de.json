@@ -1134,6 +1134,7 @@
   "step.start_from_look": "Nachsehen, was die Kopie unter {mount}/.uso-backup trägt (nichts geht in den Share: er hat schon Inhalt)",
   "note.partner_start_copy": "Zuerst eine unabhängige Kopie dieses Stands auf dem Pool {pool}: {dataset}, nur lesbar eingehängt — die Kopie von {name} und ihre Snapshots bleiben genau, wie sie waren. Das dauert einen Moment ({bytes}).",
   "note.partner_start_package": "Eine Kopie mit Engine 2.43 oder neuer bringt die Konfiguration der VM oder App mit. Bei einer älteren kommen nur die Dateien, und du legst VM oder App selbst an.",
+  "note.partner_start_foreign": "Die Vorlagen und Compose-Dateien kommen so aus der Kopie von {name}, wie sie dort sind: Was sie von diesem Server verlangen – --privileged, Host-Pfade, den Docker-Socket – zeigt Unraids Formular ⟦Add Container⟧ bzw. das Compose-Werkzeug, bevor etwas startet. Etwas von {name} zurückzuholen heisst, {name} wie dem eigenen Backup zu vertrauen.",
   "note.partner_start_vm_exists": "Eine VM {name} ist hier schon definiert ({state}) — ich definiere keine zweite darüber: erst umbenennen oder entfernen. Ihre Disks kommen trotzdem (daneben, wenn der Ordner belegt ist).",
   "note.partner_start_vm_service_off": "Der VM-Dienst ist aus — die Definition kann jetzt nicht gemacht werden. Die Disks kommen; die Konfiguration liegt für später im .uso-backup des Ordners.",
   "note.partner_start_empty": "{path} gibt es hier, leer — er wird gefüllt.",
