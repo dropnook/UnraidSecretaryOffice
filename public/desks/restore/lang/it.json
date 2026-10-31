@@ -1314,6 +1314,8 @@
   "fb.go": "Ripristina…",
   "fb.loading": "Guardo in {path} …",
   "fb.waking": "Sveglio il disco che dorme, poi guardo in {path} …",
+  "fb.ask": "Guardare nello snapshot {what}? Per questo viene montato per un momento.",
+  "fb.ask_go": "Guarda",
   "fb.kept_note": "Una copia che conservo per {name}: ciò che scegli va in una cartella di ripristino — la copia resta esattamente com'è, qui non si sostituisce niente.",
   "fb.kept_from": "Copia di {name} · {unit} · {when}",
   "fb.asleep": "{base} dorme — non sveglio mai un disco da solo, quindi non leggo ciò che contiene.",

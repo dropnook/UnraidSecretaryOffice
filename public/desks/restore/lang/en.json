@@ -1314,6 +1314,8 @@
   "fb.go": "Restore…",
   "fb.loading": "Looking into {path} …",
   "fb.waking": "Waking the sleeping disk, then looking into {path} …",
+  "fb.ask": "Look into the snapshot {what}? It is mounted for a moment for that.",
+  "fb.ask_go": "Look",
   "fb.kept_note": "A copy I keep for {name}: what you pick goes into a restore folder — the copy stays exactly as it is, nothing here is replaced.",
   "fb.kept_from": "Copy of {name} · {unit} · {when}",
   "fb.asleep": "{base} is asleep — I never wake a disk on my own, so what lies on it isn't read.",

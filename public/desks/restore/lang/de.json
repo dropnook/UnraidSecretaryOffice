@@ -1314,6 +1314,8 @@
   "fb.go": "Zurückholen…",
   "fb.loading": "Ich schaue in {path} …",
   "fb.waking": "Ich wecke die schlafende Disk und schaue dann in {path} …",
+  "fb.ask": "In den Snapshot {what} schauen? Er wird dafür kurz eingehängt.",
+  "fb.ask_go": "Nachsehen",
   "fb.kept_note": "Eine Kopie, die ich für {name} aufbewahre: Was du wählst, kommt in einen Rückhol-Ordner — die Kopie bleibt genau, wie sie ist, hier wird nichts ersetzt.",
   "fb.kept_from": "Kopie von {name} · {unit} · {when}",
   "fb.asleep": "{base} schläft — ich wecke nie von selbst eine Disk, darum lese ich nicht, was darauf liegt.",

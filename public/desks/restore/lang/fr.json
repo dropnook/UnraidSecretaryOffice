@@ -1314,6 +1314,8 @@
   "fb.go": "Restaurer…",
   "fb.loading": "Je regarde dans {path} …",
   "fb.waking": "Je réveille le disque endormi, puis je regarde dans {path} …",
+  "fb.ask": "Regarder dans l'instantané {what} ? Il est monté un instant pour cela.",
+  "fb.ask_go": "Regarder",
   "fb.kept_note": "Une copie que je garde pour {name} : ce que tu choisis va dans un dossier de restauration — la copie reste exactement comme elle est, rien n'est remplacé ici.",
   "fb.kept_from": "Copie de {name} · {unit} · {when}",
   "fb.asleep": "{base} dort — je ne réveille jamais un disque de moi-même, donc je ne lis pas ce qu'il contient.",

@@ -16952,6 +16952,9 @@ function testRestoreBrowse(): void
         str_contains($js, "Office.api.post(`\${ID}.browse`,") && str_contains($js, "kind: 'pick'") && str_contains($js, "if (plan.options && req.kind === 'pick') pickOptions(")
         && str_contains($js, 'browseButton({ path: x.path }') && str_contains($js, 'browseButton({ path: f.path }') && str_contains($js, 'browseButton({ kept: p.id')
         && str_contains($js, "new URLSearchParams(sub.slice(7)).get('zsnap')"));
+    check('restore browse (page) N12: a link from outside (#/restore/browse?zsnap=…) opens the browser with a question — the agent asked (an automount) only after a click',
+        str_contains($js, "browseDialog({ zsnap: browse, ask: true }") && str_contains($js, "if (from.ask) {") && str_contains($js, "body.appendChild(button(T('fb.ask_go'), '', () => look()));")
+        && ($b = strpos($js, "if (from.ask) {")) !== false && strpos($js, "    delete at.ask;", $b) < strpos($js, "  } else {\n    look();\n  }\n}", $b));
     $snap = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.js');
     check('restore browse (page): Ms. Snapshotini\'s moment menu leads to his browser', str_contains($snap, "Office.go('#/restore/browse?zsnap=' + encodeURIComponent("));
 

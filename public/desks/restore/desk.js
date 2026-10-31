@@ -3074,7 +3074,16 @@ async function browseDialog(from, title) {
     return true;
   }
 
-  look();
+  if (from.ask) {
+    // a link from outside the office's page (#/restore/browse?zsnap=…): the look — an automount of that snapshot — only
+    // after a click here (review 1.81.0, N12)
+    delete at.ask;
+    body.innerHTML = '';
+    body.appendChild(el('p', '', T('fb.ask', { what: from.zsnap || '' })));
+    body.appendChild(button(T('fb.ask_go'), '', () => look()));
+  } else {
+    look();
+  }
 }
 
 /**
@@ -3465,7 +3474,7 @@ Office.desk({
     else if (Office.restoreDrill) Office.restoreDrill.settings();       // the drill tile's frequency
     await load(false);
     pollJob();             // a restore started elsewhere shows at once
-    if (browse && view === root) browseDialog({ zsnap: browse }, T('fb.title', { what: browse }));
+    if (browse && view === root) browseDialog({ zsnap: browse, ask: true }, T('fb.title', { what: browse }));
   },
   unmount() { view = null; clearTimeout(jobTimer); jobTimer = null; if (Office.restoreDrill) Office.restoreDrill.stop(); },
   poll() { load(false); },

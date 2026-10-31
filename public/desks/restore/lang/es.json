@@ -1314,6 +1314,8 @@
   "fb.go": "Restaurar…",
   "fb.loading": "Miro en {path} …",
   "fb.waking": "Despierto el disco dormido y luego miro en {path} …",
+  "fb.ask": "¿Mirar en la instantánea {what}? Para ello se monta un momento.",
+  "fb.ask_go": "Mirar",
   "fb.kept_note": "Una copia que guardo para {name}: lo que elijas va a una carpeta de restauración — la copia se queda exactamente como está, aquí no se reemplaza nada.",
   "fb.kept_from": "Copia de {name} · {unit} · {when}",
   "fb.asleep": "{base} está dormido — nunca despierto un disco por mi cuenta, así que no leo lo que contiene.",
