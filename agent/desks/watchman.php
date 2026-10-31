@@ -4643,6 +4643,21 @@ function watchmanUserScripts(array $paths, array $prev): ?array
  * hold secrets), the installed plugin whose own file it runs (watchmanAtPlugin()). Read again only when
  * the folder or the installed plugins changed.
  */
+/** A rotating disk of the array or a pool spun down (disks.ini through diskAsleep()) — or no disks.ini known: nothing under /mnt is touched then */
+function watchmanDisksSleep(array $paths): bool
+{
+    $ini = isset($paths['disks_ini']) ? readCfg($paths['disks_ini'], true) : null;
+    if (!$ini) {
+        return true;
+    }
+    foreach ($ini as $v) {
+        if (is_array($v) && diskAsleep($v)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function watchmanAtJobs(array $paths, ?array $prev): ?array
 {
     if (!isset($paths['atjobs'])) {
@@ -4675,7 +4690,8 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
             // time), whose (the user), and the program it starts with and its file's owner (null: no such file)
             $users ??= watchmanUidNames($paths['etc_passwd'] ?? null);
             $prog = preg_match('#^(/[A-Za-z0-9._+/-]{1,200})(?:\s|$)#', $jobs[$f]['cmd'], $pg) ? $pg[1] : null;
-            $progSt = $prog !== null ? @stat($prog) : false;
+            // a program under /mnt is looked at only while no rotating disk sleeps (a stat may wake one — review 1.81.0, N11)
+            $progSt = $prog !== null && (!str_starts_with($prog, '/mnt/') || !watchmanDisksSleep($paths)) ? @stat($prog) : false;
             $jobs[$f] += ['q' => (int) $jst['mtime'], 'c' => (int) $jst['ctime'], 'user' => $users[$jobs[$f]['uid'] ?? -1] ?? null, 'prog' => $prog,
                           'owner' => $progSt ? ($users[(int) $progSt['uid']] ?? (string) $progSt['uid']) : null];
         }

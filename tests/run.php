@@ -12419,6 +12419,17 @@ function testAgentBackupHooks(): void
     same('hooks: the job runs backup.sh --recover with the engine\'s data folder (quoted)', [0, "$ub   --recover\n"], [$rc, $read('backup.calls')]);
     file_put_contents("$tmp/atjobs/a0000101c2b3a4", "#!/bin/sh\n# atrun uid=0 gid=0\n# mail root 0\numask 22\ncd / || {\n\t exit 1\n}\n" . $read('at.job'));
     same('hooks: the night watchman takes the at job for the office\'s', true, watchmanAtJobs(['atjobs' => "$tmp/atjobs"], null)['jobs']['a0000101c2b3a4']['ours'] ?? null);
+    // review 1.81.0 N11: a foreign job's program under /mnt is stat'ed only while no rotating disk sleeps (a stat may wake one)
+    file_put_contents("$tmp/atjobs/a0000201c2b3a4", "#!/bin/sh\n# atrun uid=1000 gid=100\n# mail nobody 0\numask 22\ncd / || {\n\t exit 1\n}\n/mnt/user once\n");
+    file_put_contents("$tmp/disks-asleep.ini", "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"xfs\"\nrotational=\"1\"\nspundown=\"1\"\n[\"cache\"]\nname=\"cache\"\ntype=\"Cache\"\nfsType=\"zfs\"\nrotational=\"0\"\nspundown=\"0\"\n");
+    file_put_contents("$tmp/disks-awake.ini", "[\"disk1\"]\nname=\"disk1\"\ntype=\"Data\"\nfsType=\"xfs\"\nrotational=\"1\"\nspundown=\"0\"\n[\"cache\"]\nname=\"cache\"\ntype=\"Cache\"\nfsType=\"zfs\"\nrotational=\"0\"\nspundown=\"0\"\n");
+    $owner = function (array $paths): mixed { $j = watchmanAtJobs($paths, null)['jobs']['a0000201c2b3a4'] ?? []; return array_key_exists('owner', $j) ? $j['owner'] : 'none'; };
+    $awake = is_dir('/mnt/user') ? $owner(['atjobs' => "$tmp/atjobs", 'disks_ini' => "$tmp/disks-awake.ini"]) : 'root';
+    same('hooks N11: /mnt/user as the program — its owner looked up only with every rotating disk awake; a sleeping one or no disks.ini: never (the program still named)',
+        [null, null, true, '/mnt/user'],
+        [$owner(['atjobs' => "$tmp/atjobs", 'disks_ini' => "$tmp/disks-asleep.ini"]), $owner(['atjobs' => "$tmp/atjobs"]), $awake !== null,
+         watchmanAtJobs(['atjobs' => "$tmp/atjobs", 'disks_ini' => "$tmp/disks-asleep.ini"], null)['jobs']['a0000201c2b3a4']['prog'] ?? null]);
+    unlink("$tmp/atjobs/a0000201c2b3a4");
     @unlink("$tmp/backup.calls");
 
     // array stopping
