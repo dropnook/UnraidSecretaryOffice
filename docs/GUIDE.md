@@ -174,7 +174,7 @@ deleted files, only the space they free), snapshots gone that nobody in the offi
 Jobs queued for atd that are Unraid's, the office's or an installed plugin's own (Fix Common Problems' scan, ich777's
 Plugin-Update-Helper, a User Script run in the background) are lines he notes himself; a job he doesn't know gets one
 line for its lifetime — what it starts and whose file that is, who queued it when, «running since» once atd runs it —
-and goes to the notifications only while it still waits days past its time. Where he can't see a single source — a
+and goes to the notifications once, when it appears; one still waiting days past its time is marked as stuck. Where he can't see a single source — a
 share of one dataset, files deleted from the server itself, a router's intrusion line at this server — he names who
 likely did it from the setup (a container, VM or Compose stack mapping the path, a User Script naming it, the container
 with that address or port, the VM whose network card had it), always as a guess, never as a fact.

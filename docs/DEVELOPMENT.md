@@ -874,7 +874,8 @@ the last 60 history lines only for a source the file has none for. **The file
   its door always wakes the pool (`wake` written true, never asked); other desks read partner files read-only.
   **authorized_keys:** only lines commented `uso-partner:<id>` / `uso-ticket:<id>` are written or removed, every other byte
   stays, never through a link; missing/changed → «door closed/changed», never rewritten unasked. The door (`env -i`, verbs word
-  by word) receives with `zfs recv -s -u`, never `-F`, never mounted; an existing unit is put aside, never destroyed; several
+  by word) receives with `zfs recv -s -u`, never `-F`, never mounted; an existing unit is put aside, never destroyed by the door (only the
+  Team Lead's confirmed «Let go…» destroys such a copy, after its name and ZFS shape are checked — HARDENING.md); several
   units of a pair at once (each its own ordered stream, at most `DOOR_RECV_STREAMS`), never one unit twice. `ping`
   reads RAM and flash only. Tickets never send or receive and are never in pairs.json. The .plg remove takes the lines and
   `partners/` out; copies stay.

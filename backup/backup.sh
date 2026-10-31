@@ -1,6 +1,12 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.83 - 2026-10-30
+# unraid-backup - backup.sh                       Version 2.84 - 2026-10-31
+#   2.84 state/results.json is written again on a real server (lib/common.sh results_write): the history went to jq as ONE
+#        argument and hit the kernel's 128 KiB limit per argument once history.jsonl passed it (~70 runs) - now fed from
+#        files. What never leaves the flash (lib/common.sh FLASH_NEVER: the USO network's auth key) is one list for both
+#        ways: the archive's tar excludes (flash_tar) and the Kopia source _flash's ignore rules, which the run itself
+#        sets on the flash's policy before its upload (kopia_flash_one, flash_policy_align) - no rule, no upload while
+#        such a file lies in the snapshot (err_code flash_never_policy)
 #   2.83 The run's notification names its coded warnings and errors (lib/common.sh ub_run_items): the description «2
 #        warnings: nextcloud_data: 1 file dated in the future · Backups: 7 files dated in the future. 11 min 5 s, …» -
 #        errors first, the first three in short words (notify_item.<code>), «and n more» -, the long text one line per
@@ -2537,8 +2543,9 @@ flash_tar() {
     local out="$PKG_STAGE/flash/flash.tar.gz" ex=() e
     for e in "${FLASH_TAR_EXCLUDE[@]}"; do ex+=( "--exclude=$e" ); done
     # 2.76: the office's USO-network auth key never goes into an archive, whatever tar_exclude says (it lies on the flash
-    # only until its node is in; a join that died could leave it there - a secret that never leaves the server)
-    ex+=( "--exclude=./config/plugins/unraid-secretary-office/usonet/authkey" )
+    # only until its node is in; a join that died could leave it there - a secret that never leaves the server).
+    # 2.84: the one list for the archive and the Kopia source (lib/common.sh FLASH_NEVER)
+    while IFS= read -r e; do [[ -n "$e" ]] && ex+=( "$e" ); done < <(flash_never_tar)
     mkdir -p "$PKG_STAGE/flash"
     PKG_RESULT[flash]="ok"
     log "Backing up $UB_BOOT as an archive ..."
@@ -4798,8 +4805,18 @@ kopia_flash_one() {
     array_stop_check "before Kopia: flash"
     [[ "$PLAN_FLASH" == "snapshot" ]] || { kopia_skip "flash"; return 0; }
     cp="$(k_path "$MOUNT_ROOT/$FLASH_SOURCE_NAME")"
-    if [[ -n "${KMI[$cp]+x}" ]]; then kopia_one "flash" "$cp"
-    else err "Kopia does not see the flash snapshot ($cp)"; kopia_skip "flash"; fi
+    [[ -n "${KMI[$cp]+x}" ]] || { err "Kopia does not see the flash snapshot ($cp)"; kopia_skip "flash"; return 0; }
+    # 2.84: what never leaves the flash (lib/common.sh FLASH_NEVER) onto the source's policy first - a rule Kopia won't take
+    # while such a file lies in the snapshot: no upload tonight (the archive leaves it out the same way, flash_tar)
+    if [[ "$FLASH_NEVER_OK" != "yes" ]] && ! flash_policy_align "$cp"; then
+        if flash_never_present "$MOUNT_ROOT/$FLASH_SOURCE_NAME"; then
+            err_code flash_never_policy "Kopia: flash not uploaded - its policy would not take the rule that keeps ${FLASH_NEVER[0]} out, and the file lies in the snapshot (see $LOG_FILE)" \
+                file="${FLASH_NEVER[0]}"
+            kopia_skip "flash"; return 0
+        fi
+        warn "Kopia: the flash's policy would not take the rules for what never leaves the flash (nothing of it in the snapshot tonight - uploaded; 'setup.sh --kopia' sets them)"
+    fi
+    kopia_one "flash" "$cp"
 }
 
 if [[ "$SKIPK" == "1" ]]; then

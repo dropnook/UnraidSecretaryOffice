@@ -370,6 +370,7 @@
   "partner.aside_none": "Di {name} non ci sono più copie precedenti messe da parte.",
   "partner.aside_kept_transfer": "{unit}: ne sta arrivando una copia proprio ora — resta; riprova dopo.",
   "partner.aside_kept_zfs": "{unit}: ZFS non l'ha eliminata — il log della porta dice perché.",
+  "partner.aside_kept_shape": "{unit}: questa copia non sembra una tenuta dalla porta (un clone, o nessuno snapshot di backup dentro) — resta; il log della porta dice di più.",
   "partner.their_full": "{name} rifiuta nuove copie: lo spazio lì per {host} è pieno. Le copie già lì restano — presso {name} si può alzare il limite o liberare spazio.",
   "partner.their_full_aside": "Di questo, {size} sono copie precedenti messe da parte lì — il capoufficio di {name} può eliminarle («Elimina…» sulla scheda di {host}).",
   "partner.nothing": "niente",
