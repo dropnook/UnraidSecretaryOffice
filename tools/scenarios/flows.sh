@@ -506,9 +506,12 @@ _rs_compare() {
         # the server's time) was written after it — the app the restore started again at work (Emby's library.db and
         # its -shm within the second, Tower 2026-10-30): said, not red; a file missing or older and different is red.
         # When the restore started an app again (a `start` step), a file whose inode changed after the copy's second
-        # is the app's too (Emby renames its old log at start: the moment's time, a new name)
+        # is the app's too (Emby renames its old log at start: the moment's time, a new name). A file only in the
+        # target the copy never made — the app's rename, even in the copy's last second (the copy ended and Emby
+        # renamed within one second: Tower, release 1.81.0's third try, 2026-10-31); a file that differs in that
+        # second is still judged (the copy wrote it then).
         t0=$(date -d "${id:0:8} ${id:9:2}:${id:11:2}:${id:13:2}" +%s 2>/dev/null) || t0=0
-        local jr=$D/restore/$id/journal.json tc=0
+        local jr=$D/restore/$id/journal.json tc=0 only c
         jq -e 'any(.steps[]?; .do == "start")' "$jr" >/dev/null 2>&1 \
             && tc=$(jq -r '[.steps[]? | select(.do == "copy") | .finished // 0][0] // 0' "$jr" 2>/dev/null)
         [[ $tc =~ ^[0-9]+$ ]] || tc=0
@@ -516,11 +519,12 @@ _rs_compare() {
         d=''
         while IFS= read -r line; do
             [[ -n $line ]] || continue
-            f=''
+            f='' only=0
             if [[ $line =~ ^Files\ .+\ and\ (.+)\ differ$ ]]; then f=${BASH_REMATCH[1]}
-            elif [[ $line =~ ^Only\ in\ (.+):\ (.+)$ && ${BASH_REMATCH[1]} == "$dst"* ]]; then f=${BASH_REMATCH[1]}/${BASH_REMATCH[2]}; fi
+            elif [[ $line =~ ^Only\ in\ (.+):\ (.+)$ && ${BASH_REMATCH[1]} == "$dst"* ]]; then f=${BASH_REMATCH[1]}/${BASH_REMATCH[2]}; only=1; fi
+            c=0; [[ -n $f ]] && c=$(stat -c %Z "$f" 2>/dev/null || echo 0)
             if [[ -n $f ]] && { { ((t0 > 0)) && (($(stat -c %Y "$f" 2>/dev/null || echo 0) >= t0)); } \
-                || { ((tc > 0)) && (($(stat -c %Z "$f" 2>/dev/null || echo 0) > tc)); }; }; then late=$((late + 1)); continue; fi
+                || { ((tc > 0)) && { ((c > tc)) || { ((only)) && ((c == tc)); }; }; }; }; then late=$((late + 1)); continue; fi
             d+=${d:+$'\n'}$line
         done <<<"$out"
         d=$(head -2 <<<"$d")
