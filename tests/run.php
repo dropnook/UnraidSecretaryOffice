@@ -15777,7 +15777,7 @@ function testRestoreReviewPeek(): void
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-partner.php');
     $peek = substr($src, (int) strpos($src, 'function rspPeek('), 1400);
     check('review H5: the look\'s mount goes again whatever happens (finally), lazily when it must',
-        str_contains($peek, '} finally {') && str_contains($peek, "run(['umount', '-l', \$dir], 60);"));
+        str_contains($peek, '} finally {') && str_contains($peek, "run([partnerBin('umount') ?? 'umount', '-l', \$dir], 60);"));
     hardeningRm($tmp);
 }
 
@@ -58018,6 +58018,17 @@ function testRestoreGapsSwap(): void
     $aside = 'tank/.UnraidSecretaryOffice-restore-20261025-110000-appdata';
 
     $fresh();
+    // review 1.81.0 (HARDENING «Recommended»): the look job's peek mounts in RAM (RUN_DIR, rsPeekDir) like the file browser's — one place
+    $GLOBALS['rs']['peek_root'] = "$tmp/run";
+    @mkdir("$tmp/run", 0700, true);
+    unset($GLOBALS['rs']['peek']);
+    $peeked = rspPeek("$dn@uso-backup-20261024-0300", $read);
+    $calls = array_values(array_filter(array_map(fn ($l) => json_decode($l, true), file("$tmp/bin/calls.log", FILE_IGNORE_NEW_LINES) ?: []), fn ($c) => in_array($c[0] ?? '', ['mount', 'umount'], true)));
+    same('peek: mounted read-only under RUN_DIR/restore-peek-k…, read, unmounted, the folder gone; never under /tmp',
+        [[], true, 'mount', 'umount', true, true, true],
+        [$peeked, $read, $calls[0][0] ?? null, $calls[1][0] ?? null, (bool) preg_match('#^' . preg_quote("$tmp/run/restore-peek-k", '#') . '[0-9a-f]{8}$#', $calls[0][6] ?? ''),
+         ($calls[0][6] ?? '') === ($calls[1][1] ?? null), !glob("$tmp/run/restore-peek-*") && !glob(sys_get_temp_dir() . '/uso-peek-*')]);
+    unset($GLOBALS['rs']['peek_root']);
     $plan = rsPlanPartnerSwap(['kind' => 'partner_swap', 'id' => $pullId], '20261025-110000');
     same('gap 6: the swap — nothing blocks; what uses the share stops; the pull unmounted, the share\'s dataset aside whole, the pull in its place, then started again',
         [[], ['not_open', 'stop', 'pull_umount', 'swap_out', 'swap_in', 'start'], $aside, ['nextcloud']],

@@ -1378,7 +1378,7 @@ function rspPeek(string $snapshot, ?bool &$read = null): array
         $read = true;
         return ($GLOBALS['rs']['peek'])($snapshot);
     }
-    $dir = rtrim(sys_get_temp_dir(), '/') . '/uso-peek-' . bin2hex(random_bytes(4));
+    $dir = rsPeekDir('k' . bin2hex(random_bytes(4)));      // in RAM (RUN_DIR), as the file browser's peek (review 1.81.0)
     if (!@mkdir($dir, 0700)) {
         return [];
     }
@@ -1391,8 +1391,8 @@ function rspPeek(string $snapshot, ?bool &$read = null): array
         return [];
     } finally {
         // never left mounted (it would hold the pool at the array stop): whatever happened while reading
-        if ($mounted && run(['umount', $dir], 60)[0] !== 0) {
-            run(['umount', '-l', $dir], 60);
+        if ($mounted && run([partnerBin('umount') ?? 'umount', $dir], 60)[0] !== 0) {
+            run([partnerBin('umount') ?? 'umount', '-l', $dir], 60);
         }
         @rmdir($dir);
     }
