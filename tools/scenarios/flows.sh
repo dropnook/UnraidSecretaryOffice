@@ -503,7 +503,10 @@ _rs_compare() {
     # the server's time) was written after it — the app the restore started again at work (Emby's library.db and
     # its -shm within the second, Tower 2026-10-30): said, not red; a file missing or older and different is red.
     # When the restore started an app again (a `start` step), a file whose inode changed after the copy's second
-    # is the app's too (Emby renames its old log at start: the moment's time, a new name)
+    # is the app's too (Emby renames its old log at start: the moment's time, a new name). A file only in the
+    # target the copy never made — the app's rename, even in the copy's last second (the copy ended and Emby
+    # renamed within one second: Tower, release 1.81.0's third try, 2026-10-31); a file that differs in that
+    # second is still judged (the copy wrote it then).
     t0=$(date -d "${id:0:8} ${id:9:2}:${id:11:2}:${id:13:2}" +%s 2>/dev/null) || t0=0
     jq -e 'any(.steps[]?; .do == "start")' "$jr" >/dev/null 2>&1 \
         && tc=$(jq -r '[.steps[]? | select(.do == "copy") | .finished // 0][0] // 0' "$jr" 2>/dev/null)
@@ -514,7 +517,7 @@ _rs_compare() {
 }
 # _rs_compare_one <id> <t0> <tc> <{srcs, dst}>: one target against its moment's folder(s)
 _rs_compare_one() {
-    local id=$1 t0=$2 tc=$3 srcs dst src o res=ok out line f rel d='' late=0 elsewhere
+    local id=$1 t0=$2 tc=$3 srcs dst src o res=ok out line f rel d='' late=0 elsewhere only c
     mapfile -t srcs < <(jq -r '.srcs[]' <<<"$4")
     dst=$(jq -r '.dst' <<<"$4")
     for src in "${srcs[@]}"; do [[ -e $src ]] || res="the moment's $src is gone"; done
@@ -524,17 +527,18 @@ _rs_compare_one() {
             out=$(diff -rq --no-dereference "$src" "$dst" 2>&1)
             while IFS= read -r line; do
                 [[ -n $line ]] || continue
-                f=''
+                f='' only=0
                 if [[ $line =~ ^Files\ .+\ and\ (.+)\ differ$ ]]; then f=${BASH_REMATCH[1]}
                 elif [[ $line =~ ^Only\ in\ (.+):\ (.+)$ && ${BASH_REMATCH[1]} == "$dst"* ]]; then
-                    f=${BASH_REMATCH[1]}/${BASH_REMATCH[2]}
+                    f=${BASH_REMATCH[1]}/${BASH_REMATCH[2]} only=1
                     # only in the target: another part's moment holds it (the union)
                     rel=${f#"$dst"} elsewhere=0
                     for o in "${srcs[@]}"; do [[ $o != "$src" && -e $o$rel ]] && elsewhere=1; done
                     ((elsewhere)) && continue
                 fi
+                c=0; [[ -n $f ]] && c=$(stat -c %Z "$f" 2>/dev/null || echo 0)
                 if [[ -n $f ]] && { { ((t0 > 0)) && (($(stat -c %Y "$f" 2>/dev/null || echo 0) >= t0)); } \
-                    || { ((tc > 0)) && (($(stat -c %Z "$f" 2>/dev/null || echo 0) > tc)); }; }; then late=$((late + 1)); continue; fi
+                    || { ((tc > 0)) && { ((c > tc)) || { ((only)) && ((c == tc)); }; }; }; }; then late=$((late + 1)); continue; fi
                 d+=${d:+$'\n'}$line
             done <<<"$out"
         done
@@ -680,7 +684,16 @@ _mv_start() {
     local mode=$1 rc
     touch "$KEEP/.mv-touched"
     _fl_ask moverelli.start_run "$(jq -cn --arg m "$mode" '{mode: $m}')" >/dev/null
-    rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
+    rc=$?
+    if ((rc == 1)) && [[ $(ask_last '.error.key // ""') == moverelli_backup_running ]]; then
+        # the base's scheduled backup at work (Tower's 04:30 met the storeroom scenario — release 1.81.0's fourth try,
+        # 2026-10-31): her «Run now» is rightly refused then; once more when the engine is free
+        say "moverelli.start_run $mode refused while a backup runs — asking again once the engine is free"
+        WAIT_SOFT=1 wait_for 300 "the engine's lock free" _backup_done >/dev/null 2>&1
+        _fl_ask moverelli.start_run "$(jq -cn --arg m "$mode" '{mode: $m}')" >/dev/null
+        rc=$?
+    fi
+    ((rc == 0)) || { _fl_end $rc; return; }
     _fl_note "moverelli.start_run $mode" null
     if WAIT_SOFT=1 wait_for 90 "Ms. Moverelli's run to be at work (or done)" _mv_begun; then
         sleep "${FL[look]:-1}"

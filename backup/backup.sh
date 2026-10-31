@@ -1,6 +1,10 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - backup.sh                       Version 2.82 - 2026-10-30
+# unraid-backup - backup.sh                       Version 2.83 - 2026-10-30
+#   2.83 The run's notification names its coded warnings and errors (lib/common.sh ub_run_items): the description «2
+#        warnings: nextcloud_data: 1 file dated in the future · Backups: 7 files dated in the future. 11 min 5 s, …» -
+#        errors first, the first three in short words (notify_item.<code>), «and n more» -, the long text one line per
+#        item in the page's words (warn_code.<code>) under its headline. The log stays English
 #   2.82 A scheduled start (--scheduled: the plugin's cron through job.sh) without settings.ini starts no run: no lock, no
 #        log, no status.json, no notification - one history line «skipped», reason settings_missing, that counts on
 #        (count, first) while it is the newest (lib/common.sh history_count) instead of a failed run with an alert a night.
@@ -4892,6 +4896,7 @@ run_report() {
     local l n p d secs f i sz lines=() items=()
     echo "$1 in $(dur_n "$TOTAL"), apps stopped $(dur_n "$DOWNTIME")"
     echo "Errors $ERRORS, warnings $WARNINGS"
+    [[ -n "${UB_ITEMS_LINES:-}" ]] && printf '%s\n' "$UB_ITEMS_LINES"     # 2.83: each in the page's words (ub_run_items)
     # SNAPSHOTS
     items=()
     (( ${#PLAN_ZFS[@]} )) && items+=( "${#PLAN_ZFS[@]} ZFS dataset$( (( ${#PLAN_ZFS[@]} == 1 )) || echo s)" )
@@ -5020,15 +5025,19 @@ ub_summary() {
 if (( ERRORS > 0 )); then status_finish errors
 elif (( WARNINGS > 0 )); then status_finish warnings
 else status_finish ok; fi
+# 2.83: the coded warnings and errors named - in the description «{counts}: {items}. {summary}», in the long text in full
+UB_ITEMS_DESC=""; UB_ITEMS_LINES=""
+(( ERRORS > 0 || WARNINGS > 0 )) && ub_run_items
+NTEXT=""; [[ -n "$UB_ITEMS_DESC" ]] && NTEXT="_items"
 if (( ERRORS > 0 )); then
     log "Backup finished with ${ERRORS} error(s) and ${WARNINGS} warning(s). $SUMMARY"
-    ub_tell errors alert "$(run_report "Backup finished with errors")" "Backup with errors" "${ERRORS} errors, ${WARNINGS} warnings. $NSUMMARY" \
-        "counts=$(ub_counts "$ERRORS" "$WARNINGS")" "summary=$(ub_summary)"
+    UB_TELL_TEXT="notify.errors$NTEXT" ub_tell errors alert "$(run_report "Backup finished with errors")" "Backup with errors" "${ERRORS} errors, ${WARNINGS} warnings. $NSUMMARY" \
+        "counts=$(ub_counts "$ERRORS" "$WARNINGS")" "items=$UB_ITEMS_DESC" "summary=$(ub_summary)"
     exit 1
 elif (( WARNINGS > 0 )); then
     log "Backup finished with ${WARNINGS} warning(s). $SUMMARY"
-    ub_tell warnings warning "$(run_report "Backup finished with warnings")" "Backup with warnings" "${WARNINGS} warnings. $NSUMMARY" \
-        "counts=$(ub_counts "" "$WARNINGS")" "summary=$(ub_summary)"
+    UB_TELL_TEXT="notify.warnings$NTEXT" ub_tell warnings warning "$(run_report "Backup finished with warnings")" "Backup with warnings" "${WARNINGS} warnings. $NSUMMARY" \
+        "counts=$(ub_counts "" "$WARNINGS")" "items=$UB_ITEMS_DESC" "summary=$(ub_summary)"
 else
     log "Backup successful. $SUMMARY"
     # 2.66: with the Team Lead's notification centre (its notify.cfg in RAM) his «auch Erfolge» decides, not notify_success
