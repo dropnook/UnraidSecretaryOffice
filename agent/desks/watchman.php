@@ -185,7 +185,8 @@ const WATCH_KINDS = [
     'cron_file_foreign'    => ['sched', true],
     'script_new'           => ['sched', false],
     'script_changed'       => ['sched', false],
-    'at_job'               => ['sched', false],     // a job he doesn't know: a card; told only when it waits days past its time (watchmanAtSet())
+    'at_job'               => ['sched', true],      // a job he doesn't know: told once, the round it appears (1.82.0 — 1.72.0–1.81.0 only when it waited
+                                                    // days past its time: a job queued for now was never told); still waiting days past its time: important too
     'at_userscript'        => ['sched', false],     // a User Script run in the background: noted by himself (watchmanAtUserScript())
     'at_plugin'            => ['sched', false],     // a plugin's own job (a file of an installed plugin, as root): noted by himself (watchmanAtPlugin())
     'notify_agent'         => ['sched', true],
@@ -4311,7 +4312,7 @@ const WATCH_AT_SHELLS     = ['/bin/sh', '/bin/bash', '/usr/bin/sh', '/usr/bin/ba
 // Unraid's PHP (webGui/include/local_prepend.php, every php incl. the plugin installer) puts «.» first in PATH and works in
 // /usr/local/emhttp: a job queued from there (a plugin's install script, at boot too) carries both — «.» only with that folder
 const WATCH_AT_PHP_CWD    = '/usr/local/emhttp';
-const WATCH_AT_LATE       = 2 * 86400;      // a job still waiting this long past its time is worth telling (not before)
+const WATCH_AT_LATE       = 2 * 86400;      // a job still waiting this long past its time is stuck: important (told once when it appeared)
 const WATCH_EVIDENCE_SPAN = 120;            // syslog lines this many seconds around the crontab's time …
 const WATCH_EVIDENCE_MAX  = 12;             // … at most so many, the closest
 const WATCH_EVIDENCE_LINE = '#/plugins/|\bplugins?\b|crontab|update_cron|crond|\batd\b|\batq\b|\.(?:sh|php|py|plg|cron)\b|user\.scripts|unraid-secretary-office#i';
@@ -5161,8 +5162,10 @@ function watchmanAtBooked(array $book, string $job): bool
 }
 
 /**
- * An at job he doesn't know: ONE line for its lifetime — new, or its open line brought up to date (running now, still
- * waiting days past its time: `important`, then it is told); a closed line stays as it is. The kind when the line is new.
+ * An at job he doesn't know: ONE line for its lifetime — new (told once, that round: WATCH_KINDS at_job), or its open line
+ * brought up to date (running now; still waiting WATCH_AT_LATE past its time: `important`, the card says so — code review
+ * 1.81.0 S6: from 1.72.0 to 1.81.0 that was the only time it was told, so a job queued for now or minutes ahead, the usual
+ * way to run something once as root, ran and left the queue untold); a closed line stays as it is. The kind when new.
  */
 function watchmanAtSet(array &$book, string $f, array $j, int $now): ?string
 {
