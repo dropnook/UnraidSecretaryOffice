@@ -57892,7 +57892,7 @@ function testRestoreGapsSwap(): void
     $mnt = "$tmp/restored/PartnerNAS-share-appdata-20261025-100000";
     @mkdir($mnt, 0755, true);
     $zfs = ['tank' => ['guid' => '1', 'mounted' => true], 'tank/appdata' => ['guid' => '11', 'mounted' => true, 'snaps' => ['uso-backup-20261024-0300', 'uso-backup-20261025-0300']],
-            $dn => ['guid' => '22', 'mountpoint' => 'legacy', 'canmount' => 'noauto', 'mounted' => false, 'snaps' => ['uso-backup-20261024-0300']]];
+            $dn => ['guid' => '22', 'mountpoint' => 'legacy', 'canmount' => 'noauto', 'readonly' => 'on', 'mounted' => false, 'snaps' => ['uso-backup-20261024-0300']]];
     $fresh = function (array $over = [], array $zfsOver = []) use ($tmp, $zfs, $dn, $mnt, $pullId, $keep): void {
         $GLOBALS['rs'] = $keep;
         restoreGapsBin($tmp, array_replace($zfs, $zfsOver), ["$dn $mnt zfs ro 0 0"]);
@@ -57926,6 +57926,8 @@ function testRestoreGapsSwap(): void
     $j = restoreGapsRun($plan, '20261025-110000-cd34');
     $s = $z();
 
+    same('review N3: the pull\'s own readonly=on (its receive\'s; a stream carries no properties) is gone with the swap — the share is writable',
+        false, array_key_exists('readonly', $s['tank/appdata'] ?? []));
     same('gap 6: swapped — the share\'s dataset is the pull (its guid), mounted where the share was; the old one aside with its snapshots, mounted; no copy left beside',
         ['ok', '22', null, 'on', true, '11', true, ['uso-backup-20261024-0300', 'uso-backup-20261025-0300'], false, ''],
         [$j['result'], $s['tank/appdata']['guid'] ?? null, array_key_exists('mountpoint', $s['tank/appdata'] ?? []) ? $s['tank/appdata']['mountpoint'] : 'x', $s['tank/appdata']['canmount'] ?? null, $s['tank/appdata']['mounted'] ?? null,
@@ -57942,6 +57944,7 @@ function testRestoreGapsSwap(): void
         [[], ['stop', 'not_open', 'swap_unsettle', 'swap_back', 'mount', 'start']], [$back['blockers'], array_column($back['steps'], 'do')]);
     $jb = restoreGapsRun($back, '20261025-120000-ef56');
     $s = $z();
+    same('review N3: put back — the pull is read-only again', 'on', $s[$dn]['readonly'] ?? null);
     same('gap 6: put back — the share\'s own dataset again (mounted), the pull beside it as before (legacy, read-only mount), nothing destroyed',
         ['ok', '11', true, '22', 'legacy', 'noauto', false, "$dn $mnt zfs ro 0 0"],
         [$jb['result'], $s['tank/appdata']['guid'] ?? null, $s['tank/appdata']['mounted'] ?? null, $s[$dn]['guid'] ?? null, $s[$dn]['mountpoint'] ?? null, $s[$dn]['canmount'] ?? null,
