@@ -57623,6 +57623,35 @@ function testRestoreGapsSwap(): void
         [$jb['result'], $s['tank/appdata']['guid'] ?? null, $s['tank/appdata']['mounted'] ?? null, $s[$dn]['guid'] ?? null, $s[$dn]['mountpoint'] ?? null, $s[$dn]['canmount'] ?? null,
          isset($s[$aside]), $mounted()]);
 
+    // ---- review 1.81.0, M3: the pull was the share for a while — «Remove what was pulled…» must never destroy it now (it
+    // carries what was written to the share then and the snapshots taken of it): the pull's entry knows, the preview
+    // refuses, the step right before refuses too; snapshots or bytes not of the pull refuse as well; only a pull that
+    // holds exactly what it brought is removed
+    same('review M3: the pull\'s entry noted the swap before the rename, and keeps it through the put back', '20261025-110000-cd34', rsJournal($pullId)['swapped']['by'] ?? null);
+    rsMarkPutback('20261025-110000-cd34', '20261025-120000-ef56', 'ok');        // as the job notes it on the swap's entry
+    $pb = rsPlanPutback(['id' => $pullId], '20261025-130000');
+    same('review M3: removing the pull after the swap\'s put back — refused, saying it was the share (which entry, which dataset)',
+        ['restore_putback_was_share', 'appdata', '20261025-110000-cd34', $dn],
+        [$pb['blockers'][0]['key'] ?? null, $pb['blockers'][0]['params']['share'] ?? null, $pb['blockers'][0]['params']['entry'] ?? null, $pb['blockers'][0]['params']['dataset'] ?? null]);
+    $jd = ['id' => '20261025-130000-dd01', 'putback_of' => $pullId];
+    $res = rsDoDrop($jd, ['dataset' => $dn, 'path' => $mnt, 'guid' => '22']);
+    same('review M3: … and the step itself, asked anyway, leaves it alone — nothing destroyed', ['failed', 'drop_holds', true, false],
+        [$res['state'], $res['note'] ?? null, isset($z()[$dn]), is_file("$tmp/bin/destroyed.log")]);
+    $fresh([], [$dn => ['guid' => '22', 'mountpoint' => 'legacy', 'canmount' => 'noauto', 'mounted' => false, 'snaps' => ['uso-backup-20261024-0300', 'uso-plan-daily-20261026-0100']]]);
+    $pb = rsPlanPutback(['id' => $pullId], '20261025-130000');
+    same('review M3: no swap noted, but a snapshot the pull didn\'t bring — refused, the snapshot named', ['restore_putback_holds_snaps', 'uso-plan-daily-20261026-0100'],
+        [$pb['blockers'][0]['key'] ?? null, $pb['blockers'][0]['params']['snaps'] ?? null]);
+    $fresh([], [$dn => ['guid' => '22', 'mountpoint' => 'legacy', 'canmount' => 'noauto', 'mounted' => false, 'snaps' => ['uso-backup-20261024-0300'], 'written' => '4096']]);
+    $pb = rsPlanPutback(['id' => $pullId], '20261025-130000');
+    same('review M3: bytes written since the pull — refused, how many said', ['restore_putback_holds_written', 4096],
+        [$pb['blockers'][0]['key'] ?? null, $pb['blockers'][0]['params']['bytes'] ?? null]);
+    $fresh();
+    $pb = rsPlanPutback(['id' => $pullId], '20261025-130000');
+    $jr = restoreGapsRun($pb, '20261025-130000-dd02');
+    same('review M3: a pull holding exactly what it brought — removed as before, nothing else', [[], ['drop'], 'ok', false, "$dn\n"],
+        [$pb['blockers'], array_column($pb['steps'], 'do'), $jr['result'], isset($z()[$dn]), (string) @file_get_contents("$tmp/bin/destroyed.log")]);
+    @unlink("$tmp/bin/destroyed.log");
+
     // refused: a program holds a file open; the share no dataset at a pool's top; its mountpoint its own; datasets inside
     $fresh(['open' => fn (array $p) => ['smbd']]);
     same('gap 6: a program holds a file of the share open — refused (he never ends one)', 'restore_in_use',

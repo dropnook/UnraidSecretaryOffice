@@ -3538,6 +3538,22 @@ function rsPlanPutback(array $r, string $stamp): array
         $plan['blockers'][] = ['key' => 'restore_putback_swapped', 'params' => ['share' => substr((string) ($j['target']['unit'] ?? ''), 6)]];
         return $plan;
     }
+    // a pull that holds more than it brought (review 1.81.0, M3: it was the share for a while — the user's writes and the
+    // snapshots taken of it meanwhile; or snapshots or bytes not of the pull): never removed, said what it holds
+    foreach (rsUndoSteps($j) as $s) {
+        if (($s['do'] ?? '') !== 'drop' || !is_string($s['dataset'] ?? null) || !rspDsExists($s['dataset'])) {
+            continue;
+        }
+        $holds = rspDropHolds($j, $s['dataset']);
+        if ($holds === null) {
+            continue;
+        }
+        $plan['blockers'][] = $holds['swapped'] !== null
+            ? ['key' => 'restore_putback_was_share', 'params' => ['dataset' => $s['dataset'], 'share' => substr((string) ($j['target']['unit'] ?? ''), 6), 'entry' => $holds['swapped']]]
+            : ($holds['snaps'] ? ['key' => 'restore_putback_holds_snaps', 'params' => ['dataset' => $s['dataset'], 'snaps' => implode(', ', array_map(fn ($x) => substr((string) $x, strpos((string) $x, '@') + 1), $holds['snaps']))]]
+                : ['key' => 'restore_putback_holds_written', 'params' => ['dataset' => $s['dataset'], 'bytes' => $holds['written']]]);
+        return $plan;
+    }
     $fill = function (mixed $v) use (&$fill, $stamp): mixed {
         return is_array($v) ? array_map($fill, $v) : (is_string($v) ? str_replace('{T}', $stamp, $v) : $v);
     };
