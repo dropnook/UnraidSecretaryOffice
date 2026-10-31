@@ -14900,7 +14900,8 @@ function testSetupMakeFolder(): void
     $oldMd = $GLOBALS['md'] ?? null;
     $oldPath = getenv('PATH');
     $GLOBALS['md'] = ['mnt' => $mnt, 'zfs' => $zfsMap, 'props' => $props, 'moverelli' => false, 'last' => ['finished' => time() - 3600, 'result' => 'ok'],
-                      'snaps' => ['tank/appdata/drop' => ['uso-backup-20261028-0300', 'uso-backup-20261029-0300', 'mine']]];
+                      'snaps' => ['tank/appdata/drop' => ['uso-backup-20261028-0300', 'uso-backup-20261029-0300', 'mine']],
+                      'owner' => ['kind' => 'app', 'name' => 'drop', 'id' => 'drop', 'vm_state' => null, 'nextcloud' => []]];
     $GLOBALS['rs'] = ['data' => "$tmp/rs", 'job_file' => "$tmp/rs-job.json", 'ub_data' => "$tmp/ub", 'users' => fn () => [['drop'], []], 'vm_states' => []];
     putenv("PATH=$tmp/bin:$oldPath");
     try {
@@ -14914,6 +14915,17 @@ function testSetupMakeFolder(): void
         $err = null;
         try { mfLook(['kind' => 'vm', 'name' => 'Win', 'share' => 'domains', 'dir' => 'Win']); } catch (Problem $e) { $err = $e->key; }
         same('make folder: never a VM\'s folder (Unraid\'s own dataset, its snapshots the VM manager\'s)', 'unknown_target', $err);
+        // review 1.81.0 N4: only a folder a fresh look lists as an app's — not one nobody binds, not a VM's, nothing in domains
+        $own = $GLOBALS['md']['owner'];
+        $refused = [];
+        foreach ([[null, 'appdata'], [['kind' => 'vm', 'name' => 'Win', 'id' => 'Win', 'vm_state' => null], 'appdata'], [$own, 'domains']] as [$o, $sh]) {
+            $GLOBALS['md']['owner'] = $o;
+            try { mfLook(['kind' => 'app', 'name' => 'drop', 'share' => $sh, 'dir' => 'drop']); $refused[] = 'ok'; } catch (Problem $e) { $refused[] = $e->key; }
+        }
+        $GLOBALS['md']['owner'] = $own;
+        same('review N4: a folder no app binds, a VM\'s, or one in domains - unknown_target, whatever the request calls it', ['unknown_target', 'unknown_target', 'unknown_target'], $refused);
+        $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-dataset.php');
+        check('review N4: the owner comes from a fresh look (rsUnitOwner over rsScan())', str_contains($src, 'return rsUnitOwner(rsScan(), $path);'));
         $GLOBALS['md']['moverelli'] = true;
         same('make folder: Ms. Moverelli\'s run going on - refused', 'mf_moverelli', $key('drop'));
         $GLOBALS['md']['moverelli'] = false;
