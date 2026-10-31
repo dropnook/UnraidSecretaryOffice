@@ -770,6 +770,13 @@ check_inv_drill_green() {
     if [[ $(jq '(.preview.blockers // []) | length' <<<"$out") != 0 ]]; then
         # nothing to practise on (no package, no Kopia snapshot yet): not applicable, not a failed drill
         [[ $(jq -r '.preview.blockers[0].key' <<<"$out") == drill_nothing ]] && { echo "nothing to practise on yet (drill_nothing)"; return 3; }
+        # the base's scheduled backup within the next 45 min: his refusal is right (15 min before it), not a failed
+        # drill (Tower's 04:30 met this check at 04:09 — release 1.81.0's fourth try, 2026-10-31)
+        if [[ $(jq -r '.preview.blockers[0].key' <<<"$out") == drill_deadline ]]; then
+            local nb; nb=$(jq -r '.preview.blockers[0].params.time // 0' <<<"$out")
+            [[ $nb =~ ^[0-9]+$ ]] && ((nb - $(_sc_now) <= 2700)) \
+                && { echo "the scheduled backup ($(date -d "@$nb" +%H:%M)) comes too soon for a drill (drill_deadline): not a failed drill"; return 3; }
+        fi
         echo "the drill is blocked: $(jq -c '[.preview.blockers[].key]' <<<"$out")"
         return 1
     fi

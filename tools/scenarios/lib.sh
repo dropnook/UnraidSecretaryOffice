@@ -329,6 +329,44 @@ scenario_begin() {
     if ! WAIT_SOFT=1 wait_for 120 "a settled agent" _agent_settled; then
         _row scenario agent red "the agent isn't at work at the begin (heartbeat $(_agent_age) s old)"
     fi
+    _schedule_guard
+}
+
+# The base's own schedule (Tower: the backup 04:30, the joint run 03:00) met mid-scenario: a backup at work refuses
+# Ms. Moverelli's «Run now» (moverelli_backup_running), a drill is refused 15 min before the backup (drill_deadline) —
+# release 1.81.0's fourth try, 2026-10-31, two scenarios red at 04:09 and 04:30. A job of the office's cron file due
+# within 4 min: wait for it to start and end, then begin (softly: a job that doesn't come costs the wait only)
+_schedule_guard() {
+    local m h rest job due now
+    now=$(_sc_now)
+    while read -r m h rest; do
+        [[ $m =~ ^[0-9]+$ && $h =~ ^[0-9]+$ ]] || continue
+        job=$(grep -o 'job\.sh [a-z0-9_-]*' <<<"$rest" | awk '{print $2}')
+        [[ -n $job ]] || continue
+        due=$(date -d "today $h:$m" +%s 2>/dev/null) || continue
+        ((due < now - 60)) && due=$((due + 86400))
+        ((due - now <= 240)) || continue
+        say "schedule guard: the office's $job job is due at $(date -d "@$due" +%H:%M) (in $((due - now)) s) — waiting for it to run first"
+        WAIT_SOFT=1 wait_for $((due - now + 90)) "the scheduled $job job to start" _sched_started "$job" "$due"
+        WAIT_SOFT=1 wait_for 900 "the scheduled $job job to end" _sched_ended "$job"
+    done < <(grep -h 'job\.sh \(backup\|moverelli\)' "$OFFICE_FLASH"/*.cron 2>/dev/null | grep -v '^#')
+}
+_sched_started() {   # <job> <due>
+    local t
+    case $1 in
+        backup) lock_held "$UB/state/lock" || [[ $(jq -r '.result // empty' "$UB/state/status.json" 2>/dev/null) == running ]] ;;
+        moverelli)
+            t=$(jq -r '.started // 0' "$D/moverelli/night.json" 2>/dev/null); [[ $t =~ ^[0-9]+$ ]] && ((t >= $2 - 1)) && return 0
+            t=$(jq -r '.started // 0' "$D/moverelli/office-run.json" 2>/dev/null); [[ $t =~ ^[0-9]+$ ]] && ((t >= $2 - 1)) ;;
+        *) return 0 ;;
+    esac
+}
+_sched_ended() {   # <job>
+    case $1 in
+        backup) _backup_done ;;
+        moverelli) [[ $(jq -r '.phase // "done"' "$D/moverelli/night.json" 2>/dev/null) == done && $(jq -r '.finished // 1' "$D/moverelli/office-run.json" 2>/dev/null) != 0 ]] ;;
+        *) return 0 ;;
+    esac
 }
 
 _sc_on_signal() {

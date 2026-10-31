@@ -667,7 +667,16 @@ _mv_start() {
     local mode=$1 rc
     touch "$KEEP/.mv-touched"
     _fl_ask moverelli.start_run "$(jq -cn --arg m "$mode" '{mode: $m}')" >/dev/null
-    rc=$?; ((rc == 0)) || { _fl_end $rc; return; }
+    rc=$?
+    if ((rc == 1)) && [[ $(ask_last '.error.key // ""') == moverelli_backup_running ]]; then
+        # the base's scheduled backup at work (Tower's 04:30 met the storeroom scenario — release 1.81.0's fourth try,
+        # 2026-10-31): her «Run now» is rightly refused then; once more when the engine is free
+        say "moverelli.start_run $mode refused while a backup runs — asking again once the engine is free"
+        WAIT_SOFT=1 wait_for 300 "the engine's lock free" _backup_done >/dev/null 2>&1
+        _fl_ask moverelli.start_run "$(jq -cn --arg m "$mode" '{mode: $m}')" >/dev/null
+        rc=$?
+    fi
+    ((rc == 0)) || { _fl_end $rc; return; }
     _fl_note "moverelli.start_run $mode" null
     if WAIT_SOFT=1 wait_for 90 "Ms. Moverelli's run to be at work (or done)" _mv_begun; then
         sleep "${FL[look]:-1}"
