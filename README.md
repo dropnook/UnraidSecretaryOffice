@@ -5,8 +5,8 @@
   </picture>
 </h1>
 
-A whole team helps you run your Unraid server, right in Unraid's web UI: backups that come back, snapshots, a media
-cache for Emby, Jellyfin and Plex, a tidy pool, a night watchman and every log in one place.
+A whole team supports you in running your Unraid server, right in Unraid's web UI: backups and restore, snapshots, a
+media cache for Emby, Jellyfin and Plex, a smart mover, a night watchman and every log in one place.
 
 [Product page](https://uso.dropnook.app) · [Full guide](docs/GUIDE.md)
 
@@ -16,9 +16,10 @@ Start with the Team Lead. He looks at your server and suggests whom to hire.
 
 ## Backups that come back
 
-- **Mr. Backupsy** backs up on your schedule: snapshots, database dumps and, encrypted with Kopia, offsite.
-- **Mr. Restori** brings back apps, VMs, whole shares or single files, hands you the flash archive — and rehearses it
-  on throwaway copies.
+- **Mr. Backupsy** backs up on your schedule: snapshots, database dumps and, encrypted with Kopia, offsite — and shows
+  how each share, app and VM is really protected and how long each copy is kept.
+- **Mr. Restori** brings back apps, VMs, whole shares or single files from any copy, hands you the flash archive — and
+  rehearses it on throwaway copies.
 - **A partner:** with a second Unraid server running the office, you keep each other's backups — over your own network
   or the office's own Tailscale node.
 
@@ -26,7 +27,8 @@ Start with the Team Lead. He looks at your server and suggests whom to hire.
 
 ## A fast, tidy pool
 
-Jack Streamer puts what you watch next in Emby, Jellyfin or Plex on the fast pool, so the array disks can sleep.
+Jack Streamer puts what you watch next in Emby, Jellyfin or Plex on the fast pool, within a budget in GB, so the array
+disks can sleep.
 Ms. Moverelli, with helmi1987's Smart Mover, takes the oldest files to the array only when the pool is above your limit.
 Both work in one joint run on your schedule, live to watch.
 
@@ -35,7 +37,7 @@ Both work in one joint run on your schedule, live to watch.
 ## The Night Watchman
 
 A round every five minutes; he only reads. What is unusual goes into his watch book: a sign-in from a new address, a
-new plugin, a new device on the LAN — and your router's log, if you like.
+new plugin, far more data pulled than usual, a new device on the LAN — and your router's log, if you like.
 
 <a name="watchman-book"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-light.png" alt="The watch book"></picture></a>
 

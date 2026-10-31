@@ -10,15 +10,15 @@ What each desk does, what happens end to end, and where the office keeps what. T
 | | Desk | What they do for you |
 |---|---|---|
 | 👥 | **The Team Lead** | Suggests whom to hire for your server and tells you what is left to do — *still to do*, *recommended*, *good to know* — each with a link into Unraid. Pairs partner offices — over a network you have or the office's own USO network (Tailscale) — and hands a gone server's copies to a new one. |
-| 💾 | **Mr. Backupsy** | Sets up and runs the backup on your schedule: snapshots, database dumps, a package per app and VM, optional encrypted offsite copies with Kopia and copies at a partner office — per share, app and VM: off, local, local + partner, local + offsite, local + partner + offsite. Shows what a run is doing, how the last runs went and how each share, app and VM is really protected — by what the runs made, not by the settings. |
+| 💾 | **Mr. Backupsy** | Sets up and runs the backup on your schedule: snapshots, database dumps, a package per app and VM, optional encrypted offsite copies with Kopia and copies at a partner office — per share, app and VM: off, local, local + partner, local + offsite, local + partner + offsite. Shows what a run is doing, how the last runs went and how each share, app and VM is really protected — by what the runs made, not by the settings. Says which apps keep data in Docker volumes — outside every backup, Kopia's own too — and how to give that path a folder in appdata. |
 | 📦 | **Mr. Restori** | Brings back databases, folders, whole shares, single files, templates and VM configurations — from the packages, the local snapshots, the offsite copy (Kopia) or a partner office. Shows where the flash's archive is kept and downloads it. Puts aside what he replaces, never deletes it, and can undo every restore. Practises restores on his own: the restore drill. |
-| 📸 | **Ms. Snapshotini** | Every ZFS, btrfs and VM snapshot on the server: create, delete with an estimate of the space freed, rename, hold. Schedules with a simple retention that only ever clears away her own. The entries a deleted VM leaves in Unraid's snapshot list — Unraid's VM page can't remove them — she takes out once nothing of them is left on disk (into the storeroom; put back any time). |
+| 📸 | **Ms. Snapshotini** | Every ZFS, btrfs and VM snapshot on the server: create, delete with an estimate of the space freed, rename, hold. Schedules with a simple retention that only ever clears away her own. The entries a deleted VM leaves in Unraid's snapshot list — Unraid's VM page can't remove them — she takes out once nothing of them is left on disk (into the storeroom; put back any time). Her tour never wakes a disk: what lies on a sleeping one she knows from its mount; *Tour, reading them too* reads those as well — that can wake them — and says whether they woke. |
 | 🏮 | **The Night Watchman** | Says how securely the server stands, and keeps a watch book of what is different from normal — logins, containers, plugins, the flash, schedules, data flow, vanished snapshots, and what your router reports. Changes nothing himself. |
 | 🧹 | **Ms. Dustdevil** | Knows where everything lies and gives advice on keeping it in order. Clears away what nobody uses — templates, stacks, appdata folders, Docker's leftovers — into a storeroom first, never deleting at once (Docker's volumes are copied in before Docker removes them; only images and the build cache, which can be downloaded again, and volumes mounted from elsewhere go for good). Gives containers without a picture a logo. Her tile *Schedule* lets her tour on her own (off until you set it — every day at a time, or a cron line): the same tour as a click on *Tour*, never waking a sleeping disk — what sleeps is left out and named. |
 | 📝 | **Ms. Protocolli** | Reads every log out loud — Unraid's (also the syslog from before the last start, kept on the flash), the office's, the plugins' (what each plugin names for Enhanced Log, as Tailscale does), every User Script's and container's, the router's. Her tour counts and groups the errors and warnings and watches how full `/var/log` is. Unraid's syslog she also sorts by the rules from Enhanced Log (disks, network, file systems, array, logins …): her tile *Syslog* counts the lines per kind and lists the newest of each, a chip per kind shows only those; harmless noise counts neither as an error nor as a warning, and the reader colours the syslog the same way (each line with its kind's edge). Without a recent tour she sorts the syslog's newest lines at once. Every list has its filter bar with a time filter (the last hour, today, since the server started, or from … to …); lists sort by time or by service (emhttpd, sshd, kernel …) — *Syslog* and *Errors & warnings* also the most frequent first —, and a click on a line's service shows only that one; the chip *No rule* lists the lines none of the rules knows, on their own; what a bar has set can be saved under a name — kept on the server, applied only when you click it. On *Set up* you add rules of your own (they come first) and texts to hide in her view. Her tile *Who woke my disks?* notices every wake of an array or pool HDD — Unraid logs only the spin-down — and who was caught waiting for it while it spun up: a container, a VM, a computer over SMB or NFS, the mover, a scheduled task, the office or a program, with its open files; per disk how often today and in 7 days. She only watches and never wakes a disk; on a server with only SSDs and NVMe the tile says there is no spinning disk to watch. Her tile */var/log* watches Unraid's small RAM disk for logs every minute: from 80 % she says which file fills it, which lines it writes most and — when the server knocks on its own web UI, as Netdata's nginx collector does — which program or container is behind it; at 90 % she sends one notification. Her tile *Schedule* lets her tour on her own (off until you set it); its result is on her page as a clicked tour's, and a log on a sleeping disk is left out until it is awake — she never wakes one. |
 | 🍿 | **Jack Streamer** | The intern. Looks after helmi1987's MediaCache for Emby, Jellyfin and Plex — several servers at once (what you watch next waits on the fast pool, the array disks sleep; watched files go back the way Unraid's mover moves them — by the share's settings) and, optionally, the media gather (one disk per film folder, so fewer disks wake when files go back and forth; on request it also fetches the folders' files from the cache — never what MediaCache keeps there). Never gathers while someone watches. While MediaCache runs for real, a bar per person shows what is coming for them, how far it is and when their last file will be there (MediaCache copies everyone's files in one queue; a film two people have on deck counts for both and is copied once), finished parts how long they took, every file in flight under its bar (his setup's *Copy from every disk at once*, on by default: one copy from each array disk at the same time — with three disks up to three at once; off: one file after another; back to the array always one at a time); under them who is watching what right now, per person, on which server and since when (he asks the media servers once a minute and only looks — what plays stays where it is); *Stop after this file* lets the files in flight finish and ends the run gently — the next run goes on. Shows how much of each library lies on which disk or pool, with the date it was measured. His *Set up* tab takes a budget in GB — the hard cap for everything he lays out, at least 20 GB per person; the counts per person are defaults inside it. Being an intern, he works only under Ms. Moverelli's supervision: he can be hired only together with her or after her (and she leaves only after him). Runs for real only once she is set up and keeps MediaCache's list out of her moves, with Unraid's own mover schedule *Disabled* — until then dry runs only. His list of what stays on the pool comes only from a real run — never from a dry run or *What's next*, never written empty by a look: until his first real run writes it his page says so, and Ms. Moverelli leaves his shares alone. *Move now* by hand stays possible: the mover starting during a run stops it after the current file. While Mover Tuning moves on a schedule of its own, his real runs wait. *theme.mp3 stays on the pool* (his setup's *More*, off by default): Emby and Jellyfin play a title's theme.mp3 as soon as someone lingers on it in the library — from the array that wakes its disk. Switched on, his real runs (never a dry run or *What's next*) fetch every film's and every series' theme.mp3 onto the pool, where it stays for good: outside every budget, never given back, Ms. Moverelli leaves it. The first such run reads every title's folder once (that wakes every disk of his libraries once — *What's next* says how many folders before it happens); later runs look only at new titles. One small file per title; his pool tile says how many lie there. Switched off, they stay until his next run brings them back; letting him go with *bring the films back* brings them back too. |
 | 🚚 | **Ms. Moverelli** | Completes Unraid's mover with helmi1987's Smart Mover: one limit X for the pool (on ZFS the whole pool counts): above X she moves the oldest files of the other cache shares (the younger of added and changed counts) to the array or a secondary pool until the pool sits at X — Jack Streamer's GB come first, appdata & co. never move, episodes not yet watched never go back and forth, and she warns when the room is short. Leaves out what exclude lists name and hands the files to Unraid's own move program; she copies nothing herself. The joint run (on her schedule or started by hand): measure, make room, measure again, then Jack Streamer fetches up to X — her page draws it live (the pool before, the forecast after, the array, files on their slow way) and keeps the last run's picture. Shows Unraid's mover schedule, what moves where share by share and what the last run moved and left. List, dry run and real run from her page or on her own schedule. When you save her setup she switches Unraid's own mover schedule off (she asks first: «Unraid's own mover will be switched off — I move from now on»), through Unraid's own form; letting her go puts it back as it was. Mover Tuning must have no schedule of its own; User Scripts and cron lines that call a mover are named, never changed. Never runs beside Unraid's mover, one of Jack Streamer's runs or a backup run's local part. A missing exclude list on a real run skips that share; MediaCache's list before its first run holds her own real runs back until then (said once); the joint run lets Jack Streamer go first, and his run writes it. Her log names the sleeping array disks a run wakes. Takes over the settings of an existing Smart Mover install. Supervises Jack Streamer. Unraid 7.3.2 and newer. |
-| 💼 | **The Consultant** | Knows the tools the office relies on — Kopia, Fix Common Problems, Files Viewer, Stream Viewer, unbalanced, Node Exporter, Prometheus, Grafana — and installs them with you, a preview first. Sets up the Kopia repository if you like and prints a recovery sheet; shows how the router's log reaches Unraid (UniFi, MikroTik). |
+| 💼 | **The Consultant** | Knows the tools the office relies on — Kopia, Fix Common Problems, Files Viewer, Stream Viewer, unbalanced, Node Exporter, Prometheus, Grafana — and installs them with you, a preview first. Sets up the Kopia repository if you like and prints a recovery sheet; guides for ransomware protection with Object Lock and for encrypted Kopia to a partner's server; shows how the router's log reaches Unraid (UniFi, MikroTik) and where else it can go. |
 
 A fresh office has only the Team Lead. He looks at your server and suggests whom to hire (no Emby, Jellyfin or Plex, no Jack Streamer; no
 ZFS or btrfs, no Ms. Snapshotini). Jack Streamer comes only with Ms. Moverelli — *Hire together with Ms. Moverelli*. Hire whom you need, let them go later — their data and settings stay; Mr. Restori
@@ -30,6 +30,11 @@ laid out on the pool back, the way its cleanup does (never while someone watches
 Ms. Moverelli still moves, and letting her go (after him) switches it back on as it was. Hired
 again, his settings are as they were and the schedules stay off until you switch them on. *Change the order* at the
 reception puts the desks in the order you like.
+
+Every desk whose work runs on its own has the same tile for it — *Schedule* (Ms. Snapshotini's and Jack Streamer's
+*Schedules*): when it runs next («Tomorrow, 03:30», *due now*, or *Off* — then only when you start it), the schedule in
+words, the last run and how it ended (done, partly done, failed, stopped, skipped); a click opens the desk's schedule.
+The Night Watchman's says when his next round is — he never stops walking.
 
 
 
@@ -53,7 +58,9 @@ from the snapshots, encrypted, to your storage (S3, Backblaze B2, SFTP, WebDAV, 
 apps, then the shares and VMs, the smallest first. Old snapshots go by your retention. A new folder simply goes with its share — offsite when
 the share goes offsite; only in appdata and domains (the shares Unraid keeps apps and VMs in) it follows the app or VM it
 belongs to (offsite with an offsite app, local with a local one). Something new — an app, a VM, a folder there of no
-app or VM or of a new one — stays local and keeps running until you decide in the setup; a new share waits for the setup too. A failed run, or one with warnings, lands in Unraid's notifications. *Stop the run* ends a run
+app or VM or of a new one — stays local and keeps running until you decide in the setup; a new share waits for the setup too. A failed run, or one with warnings, lands in Unraid's notifications. Are his settings gone (the data folder lost or
+replaced), a scheduled run doesn't start: his history counts it as skipped, without an alert, until you set him up
+again — the backups made so far stay, and Mr. Restori still finds their packages. *Stop the run* ends a run
 cleanly, and its card says what it still waits for (apps stopping, a VM, the offsite upload); stopping the array ends
 it cleanly too, and what it had stopped comes back right after the array starts.
 
@@ -82,7 +89,7 @@ A partner office, from the pairing to the copies — and the receiver starting f
 ### Getting something back
 
 Mr. Restori lists every app, VM and share with what can come back from where, with dates: its package, the local
-snapshots of its folders, the offsite copy (Kopia), a partner office. A share no app uses comes back whole (what is there
+snapshots that really hold its folders, the offsite copy (Kopia), a partner office. A share no app uses comes back whole (what is there
 goes aside first) or folder by folder; *Files in it…* browses any moment — a local snapshot, what came back from Kopia
 or a partner, a copy kept for a partner — and brings back single files and folders at any depth, next to what is there,
 swapped in or into a restore folder; from Kopia you browse a snapshot and bring back a single file or folder instead of
@@ -160,7 +167,8 @@ can bring everything back — read it while the server is still there, or here:
 When you hire him he learns what is normal (his *On watch since* tile says until when). From then on he walks his
 round every five minutes, office open or not, and writes down only what is different: a login from an address he
 hasn't seen, a burst of failed logins, a container that got special rights, a new plugin, a change on the flash, a new
-cron line, a share newly open to guests, a client or container sending far more than usual, far more written to a
+cron line, a share newly open to guests, a client or container pulling far more than usual (the entry says what tripped: one pull — from its start to a pause
+or a trickle, also one that starts slowly —, one hour, or so much in so long), far more written to a
 share or disk than usual or many files deleted at once (ZFS per share, XFS and btrfs per disk — btrfs keeps no count of
 deleted files, only the space they free), snapshots gone that nobody in the office removed. Each entry names its MITRE ATT&CK technique; the important ones go to Unraid's notifications.
 Jobs queued for atd that are Unraid's, the office's or an installed plugin's own (Fix Common Problems' scan, ich777's
@@ -170,7 +178,8 @@ and goes to the notifications only while it still waits days past its time. Wher
 share of one dataset, files deleted from the server itself, a router's intrusion line at this server — he names who
 likely did it from the setup (a container, VM or Compose stack mapping the path, a User Script naming it, the container
 with that address or port, the VM whose network card had it), always as a guess, never as a fact.
-*I know, thanks* makes it the new normal. While the array is stopped — also while an encrypted array waits for its key
+*I know, thanks* makes it the new normal; *This was a real incident…* instead keeps it, with your note, in his list of
+serious incidents — nothing of it becomes normal, and for 30 days the same from the same source is told at once. While the array is stopped — also while an encrypted array waits for its key
 — his night shift keeps watch from RAM and the flash.
 
 **The router** (UniFi gateways and MikroTik routers with RouterOS 7): it sends its log to Unraid's own syslog
@@ -322,7 +331,7 @@ snapshot in common), the door keeps the copy before aside instead of deleting it
 with their size, and *Let go…* removes them — the door never does on its own, and a full quota says how much of it they hold.
 When a server is gone, the new one asks at its Team Lead (*Start from a partner's copy…*) and the partner answers with
 a **restore ticket** — a door for seven days that only hands over those copies (also what arrives for the gone server
-after the ticket was written); Mr. Restori's *Onto a new server* pulls the backup place first, then the shares and VMs.
+after the ticket was written) and lists what the pair holds now; Mr. Restori's *Onto a new server* pulls the backup place first, then the shares and VMs.
 Several partners of the same name (an earlier pairing, a server set up anew) say so on their cards, each with its id,
 address and when it last sent — the ticket is written on the card of the pair that holds the copies. Pairing anew with
 a server already paired here (the same address or server key), both dialogs name the earlier pair and offer to
@@ -378,7 +387,7 @@ once; nothing there stops them. Per colleague you choose how much goes out (*Eve
 of day — colleagues on the same time share one summary; an empty one is never sent. *Quiet hours* and *Silent until…*
 hold everything but alerts and send it as one summary when they end; an optional daily sign of life says «All quiet»
 when nothing went out for a day. A flood guard always holds: the same notification goes out once until it is resolved
-(a run that ends well, the messenger back) or a day later — never an alert: each alert goes, also the same one again,
+(a run that ends well, the messenger back) or 20 hours later, so a daily failure still reminds daily — never an alert: each alert goes, also the same one again,
 and only the very same alert (the same words) twice within a minute goes once; more than 5 from one colleague or 20 from the whole office
 in an hour are collected for a summary, with one notice; past 10 alerts an hour the rest go as one alert every 15
 minutes. *Send a test notification…* shows where Unraid sends each level. Two more tiles beside it: what waits for the
@@ -400,7 +409,8 @@ under *Enter key…*). A share goes to helmi1987 (see below). The key unlocks no
 thank-you on the Team Lead's plate, which only you see, a little office story: ☕ one coffee for the team (any amount),
 ☕☕ a round for everyone (from 20), 🍰 a cake for the whole office (from 50), 🥂 the whole team toasting a pay rise and
 the donations (from 100; USD, EUR or CHF). Every key is kept; each picture shows once — never a count. If the tips ever exceed what our work costs, we give the
-rest to animal shelters that urgently need financial support. Questions and bugs:
+rest to animal shelters that urgently need financial support. Questions and bugs: the
+[Unraid forum thread](https://forums.unraid.net/topic/201085-plugin-unraid-secretary-office-uso-backups-restore-snapshots-media-cache-for-embyjellyfinplex-smart-mover-security-watch-and-more/),
 [GitHub issues](https://github.com/dropnook/UnraidSecretaryOffice/issues), or without an account from inside the office
 (below).
 
@@ -412,7 +422,8 @@ sent…* then lists everything that would go, part by part: your words as you ty
 versions, the languages, which desks you hired, the desk's last error, and its last lines from the messenger's log —
 cleaned of share, pool, server, partner and user names, paths, addresses, MAC addresses, e-mail addresses and keys
 (you see what was hidden). Untick what you'd rather keep. Up to three pictures can go along — the office redraws them,
-without location or other metadata. Nothing leaves the server before you click *Send*.
+without location or other metadata. Nothing leaves the server before you click *Send*; while it can't be clicked
+yet, the dialog says why beside it. Rather talk it over? The dialog links the forum thread.
 
 It goes to the office's makers, into a private inbox on GitHub — not public; the makers, GitHub and Cloudflare (who
 carries it) can read it. Each office can send 25 reports a day, and *Your reports* keeps the list: where each one
