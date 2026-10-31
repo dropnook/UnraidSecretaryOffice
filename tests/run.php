@@ -16642,6 +16642,29 @@ function testRestoreBrowse(): void
     $c['shares_ini'] = array_diff_key($ctx['shares_ini'], ['UnraidSecretaryOffice' => 1]);
     $p = rsPlanPickFor('/mnt/user/zzdocs', $own, 'name:manual-1', ['Fotos'], 'folder', false, '20261025-115000', $c);
     same('restore browse: the restore folder needs the office\'s share — never made here', ['restore_pick_no_folder'], array_column($p['blockers'], 'key'));
+    // ---- review 1.81.0, M1: a link on the way into the restore folder (restore/files made a link by whoever writes the office's
+    // share): refused in the plan, by the copy right before it writes (`within`), and by the folder maker itself
+    $O = "$mnt/hazel/UnraidSecretaryOffice";
+    @mkdir("$O/restore", 0755, true);
+    @rename("$O/restore/files", "$O/restore/files.was");       // the picks above made it: out of the way
+    symlink("$tmp/outside", "$O/restore/files");
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/zzdocs', $own, 'name:manual-1', ['Fotos'], 'folder', false, '20261025-117000', $c);
+    same('review M1: a link on the way into the restore folder — the pick is refused, the link named; the copy knows the share it writes into',
+        [['restore_path_link'], '/mnt/user/UnraidSecretaryOffice/restore/files', "$mnt/user/UnraidSecretaryOffice"],
+        [array_column($p['blockers'], 'key'), $p['blockers'][0]['params']['link'] ?? null, $p['steps'][0]['within'] ?? null]);
+    unlink("$O/restore/files");
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/zzdocs', $own, 'name:manual-1', ['Fotos'], 'folder', false, '20261025-117100', $c);
+    symlink("$tmp/outside", "$O/restore/files");                 // became a link since the preview
+    [$states, $j] = $run($p, '20261025-117100-aa06');
+    same('review M1: … become a link since the preview — the copy stops before writing, nothing lands outside', [[], ['failed'], 'path_link', false],
+        [$p['blockers'], $states, $j['steps'][0]['note'] ?? null, file_exists("$tmp/outside/zzdocs-20261025-117100")]);
+    same('review M1: the folder maker never makes a folder through a link — an exclusive share\'s own link at the top is the one allowed',
+        [false, false, true, true],
+        [rsMkdirsLike("$O/restore/files/x/y", '', 0), is_dir("$tmp/outside/x"), rsMkdirsLike("$mnt/user/zzdocs/m1new/deeper", '', 0), is_dir("$mnt/hazel/zzdocs/m1new/deeper")]);
+    unlink("$O/restore/files");
+    @rename("$O/restore/files.was", "$O/restore/files");
     $c = $ctx;
     $p = rsPlanPickFor('/mnt/user/zzarr', rsShareOwner($state, '/mnt/user/zzarr'), '', ['x.txt'], 'copy', false, '20261025-116000', $c);
     same('restore browse: a sleeping disk — the pick waits for «wake», nothing read', [['restore_asleep'], ['disk1']], [array_column($p['blockers'], 'key'), $p['options']['asleep']]);
@@ -16688,6 +16711,7 @@ function testRestoreBrowse(): void
     $GLOBALS['rs']['ctx'] = $ctx;
     $p = rsPlanPick(['kind' => 'pick', 'kept' => 'p1', 'unit' => 'share:theirs', 'ksnap' => 'uso-backup-20261019-0100', 'items' => ['Schule/Zeugnis.pdf'], 'mode' => 'swap', 'stamp' => $stamp], $stamp);
     $F = "$mnt/user/UnraidSecretaryOffice/restore/files/Helmi-theirs-$stamp";
+    same('review M1: a kept moment\'s copy carries the office\'s share as the share it writes into', "$mnt/user/UnraidSecretaryOffice", $p['steps'][1]['within'] ?? null);
     same('restore browse: from a kept moment only into the restore folder (swap asked: never), mounted for the copy and unmounted after',
         [[], 'folder', ['peek_mount', 'copy', 'peek_umount'], "$F/Schule/Zeugnis.pdf", 7, []],
         [array_column($p['blockers'], 'key'), $p['target']['mode'], array_column($p['steps'], 'do'), $p['steps'][1]['to'] ?? null, $p['sizes']['need'], $mounts]);

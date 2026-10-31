@@ -435,15 +435,22 @@ function rsPickFolder(string $label, string $stamp, array $ctx): string
 
 /**
  * The restore folder's share: there (the office never makes it — only on the user's click elsewhere), its parts awake
- * (or woken) — blockers into $plan; the room there
+ * (or woken), no link on the way to $folder inside it (review 1.81.0, M1: whoever writes the office's share could make
+ * `restore` or `restore/files` a link and have root fill a folder elsewhere; the one link allowed is an exclusive
+ * share's own, rsLinkOnWay()) — blockers into $plan; the room there
  */
-function rsPickFolderCheck(array &$plan, array &$ctx, bool $wake): ?int
+function rsPickFolderCheck(array &$plan, array &$ctx, bool $wake, string $folder = ''): ?int
 {
     $share = BACKUP_OFFICE_SHARE;
     $now = rsShareNow($share, $ctx);
     if ($now['state'] === 'missing') {
         $plan['blockers'][] = ['key' => 'restore_pick_no_folder', 'params' => ['share' => $share]];
         return null;
+    }
+    $user = rtrim((string) ($ctx['user'] ?? '/mnt/user'), '/');
+    $link = $folder !== '' ? rsLinkOnWay($folder, "$user/$share") : null;
+    if ($link !== null) {
+        $plan['blockers'][] = ['key' => 'restore_path_link', 'params' => ['path' => '/mnt/user' . substr($folder, strlen($user)), 'link' => '/mnt/user' . substr($link, strlen($user))]];
     }
     $sleeping = array_values(array_filter(array_map('strval', rsShareBases($share, $ctx)), fn ($b) => baseAsleep($b, $ctx['asleep'] ?? [])));
     if ($sleeping && $wake) {
@@ -583,7 +590,7 @@ function rsPlanPickFor(string $root, array $owner, string $snap, array $items, s
     // where it goes and the room there: the share (Unraid places it; never a sleeping part unasked), or the restore folder
     $free = null;
     if ($mode === 'folder') {
-        $free = rsPickFolderCheck($plan, $ctx, $wake);
+        $free = rsPickFolderCheck($plan, $ctx, $wake, $folder);
         $plan['options']['folder'] = $folder;
     } else {
         if ($now['state'] === 'missing') {
@@ -629,9 +636,10 @@ function rsPlanPickFor(string $root, array $owner, string $snap, array $items, s
             $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $to]];
         }
         $src = $it['file'] ? [$it['src'][0]['path']] : array_column($it['src'], 'path');
+        // `within` = the share written into: the restore folder lies in the office's share (review 1.81.0, M1)
         $steps[] = ['do' => 'copy', 'from' => implode(' + ', $src), 'sources' => $src, 'to' => $to, 'dataset' => null,
                     'like' => dirname($src[0]), 'like_depth' => count(explode('/', $rel)) - 1] + ($it['file'] ? ['file' => true] : [])
-                    + ($mode === 'folder' ? [] : ['within' => "$user/$share"]);
+                    + ['within' => $mode === 'folder' ? $user . '/' . BACKUP_OFFICE_SHARE : "$user/$share"];
         array_push($paths, ...$src);
         $restored[] = $to;
         $targets[] = $it['T'];
@@ -763,7 +771,8 @@ function rsPlanPickKept(array $r, array $items, bool $wake, string $stamp, array
                        'partner' => null, 'kept' => $k['name'], 'parts' => []];
     $folder = rsPickFolder($label, $stamp, $ctx);
     $plan['options']['folder'] = $folder;
-    $free = rsPickFolderCheck($plan, $ctx, $wake);
+    $free = rsPickFolderCheck($plan, $ctx, $wake, $folder);
+    $within = rtrim((string) ($ctx['user'] ?? '/mnt/user'), '/') . '/' . BACKUP_OFFICE_SHARE;
     // looked at once now (mounted for a moment); the job mounts it again at the same place
     $dir = rsPeekDir("j$stamp");
     $look = rsPeekDir('p' . bin2hex(random_bytes(4)));
@@ -799,7 +808,7 @@ function rsPlanPickKept(array $r, array $items, bool $wake, string $stamp, array
                 $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $to]];
             }
             $steps[] = ['do' => 'copy', 'from' => "$dir/$rel", 'sources' => ["$dir/$rel"], 'to' => $to, 'dataset' => null,
-                        'like' => dirname("$dir/$rel"), 'like_depth' => $depth - 1] + ($file ? ['file' => true] : []);
+                        'like' => dirname("$dir/$rel"), 'like_depth' => $depth - 1, 'within' => $within] + ($file ? ['file' => true] : []);
         }
         $need = rsPickWalk($there);
     } finally {

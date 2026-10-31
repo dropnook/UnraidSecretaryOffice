@@ -4160,13 +4160,28 @@ function rsMkdirs(string $dir): bool
 /**
  * The folders of $dir that aren't there, made top down: the lowest $depth of them like their counterparts above $like
  * (the moment's folders: mode and owner — a deleted folder comes back as it was), any above those like the nearest folder
- * that is there (the share's own, or the restore folder's) — never root-only where the user reaches them over the network
+ * that is there (the share's own, or the restore folder's) — never root-only where the user reaches them over the network.
+ * Never through a link: every folder of the way is lstat'ed (review 1.81.0, M1: is_dir() followed one), the one link
+ * allowed is an exclusive share's own link to its pool (officeUnraidPath()), and only as the end of the way.
  */
 function rsMkdirsLike(string $dir, string $like, int $depth): bool
 {
     $missing = [];
-    for ($d = $dir; !is_dir($d); $d = dirname($d)) {
-        if ($d === '/' || $d === '.' || is_link($d) || file_exists($d)) {
+    for ($d = $dir; ; $d = dirname($d)) {
+        if ($d === '/' || $d === '.') {
+            return false;
+        }
+        clearstatcache(true, $d);
+        if (is_link($d)) {
+            if (officeUnraidPath($d, dirname($d, 2)) === $d) {
+                return false;
+            }
+            break;
+        }
+        if (is_dir($d)) {
+            break;
+        }
+        if (file_exists($d)) {
             return false;
         }
         $missing[] = $d;
