@@ -2475,6 +2475,39 @@ kopia_stall_end() {
 share_kopia_hostpath() { printf '%s' "$MOUNT_ROOT/$1"; }
 FLASH_SOURCE_NAME="_flash"
 
+# --- What never leaves the flash (2.84) --------------------------------------------------------------------------
+# ONE list for both ways the flash leaves the server: flash_tar's archive (flash.tar.gz in the backup place) and the
+# Kopia source _flash (the flash as a ZFS snapshot, [flash] mode = snapshot) - whatever the user's tar_exclude and
+# kopia_ignore say. Paths below the flash's root, no leading slash. Up to 2.83 only the archive left it out (2.76).
+#   config/plugins/unraid-secretary-office/usonet/authkey   the USO network's auth key: lies on the flash only until its
+#       node is in (a join that died leaves it there) - a secret that never leaves the server (CLAUDE.md «USO network»)
+FLASH_NEVER=( "config/plugins/unraid-secretary-office/usonet/authkey" )
+flash_never_tar()   { local x; for x in "${FLASH_NEVER[@]}"; do printf -- '--exclude=./%s\n' "$x"; done; }   # tar's, from .
+flash_never_kopia() { local x; for x in "${FLASH_NEVER[@]}"; do printf '/%s\n' "$x"; done; }                # Kopia's, anchored
+flash_never_present() { local x; for x in "${FLASH_NEVER[@]}"; do [[ -e "$1/$x" ]] && return 0; done; return 1; }   # <flash root>
+# The never-rules missing from the flash's Kopia policy are no drift (drift_check_kopia): the run sets them itself right
+# before the upload (flash_policy_align) - 0 when every difference the eval found (KP_CODES) is one of them
+flash_never_only_missing() {
+    local c rule
+    (( ${#KP_CODES[@]} )) || return 1
+    for c in "${KP_CODES[@]}"; do
+        [[ "$c" == "ignore_missing"$'\x1f'* ]] || return 1
+        rule="${c#*$'\x1f'}"; rule="${rule%%$'\x1f'*}"
+        grep -Fxq -- "$rule" <<<"$(flash_never_kopia)" || return 1
+    done
+    return 0
+}
+FLASH_NEVER_OK=""           # the flash's policy carries the never-rules (flash_policy_align said so in this process)
+# flash_policy_align <container path>  - the never-rules onto the flash's policy (kopia policy set --add-ignore: a rule
+# already there stays one). 0 when they are there now; 1 when Kopia said no (the caller decides: flash_never_present)
+flash_policy_align() {
+    local args=() x
+    while IFS= read -r x; do [[ -n "$x" ]] && args+=( --add-ignore "$x" ); done < <(flash_never_kopia)
+    (( ${#args[@]} )) || { FLASH_NEVER_OK="yes"; return 0; }
+    if kopia_x policy set "$KOPIA_ID:$1" "${args[@]}" >>"${LOG_FILE:-/dev/null}" 2>&1; then FLASH_NEVER_OK="yes"; return 0; fi
+    return 1
+}
+
 # Wanted ignore list of a target
 #   root    -> the global list from [kopia] (inherited by all shares)
 #   share   -> only the share's own rules, and the parts of apps and VMs with a source of their own, and
@@ -2487,7 +2520,7 @@ kopia_want_ignores() {
         root)   printf '%s\n' "${KOPIA_IGNORE[@]}" ;;
         share)  cfg_list "share|$s|kopia_ignore"; kopia_derived_ignores "$s"; printf '%s\n' "${NEW_RULES[$s]:-}" "${KEPT_RULES[$s]:-}" ;;
         app|vm) cfg_list "$kind|$s|kopia_ignore" ;;
-        flash)  printf '%s\n' "${FLASH_KOPIA_IGNORE[@]}" ;;
+        flash)  printf '%s\n' "${FLASH_KOPIA_IGNORE[@]}"; flash_never_kopia ;;     # 2.84: and what never leaves the flash
     esac | sed '/^$/d' | LC_ALL=C sort -u
 }
 
@@ -3272,6 +3305,10 @@ drift_check_kopia() {
                     kopia_ignores_missing "" path="$cpath" kind="$kind" name="$share" rules="$(printf '%s' "${miss_own% }" | sed 's/ /, /g')"
                 SKIP_KOPIA[$key]="policy incomplete"
                 kp_status_add "$kind" "$share" "$cpath" 0 1
+            elif [[ "$kind" == "flash" ]] && flash_never_only_missing; then
+                # 2.84: only what never leaves the flash is missing - the run sets it right before the upload (flash_policy_align)
+                log_file "  Kopia policy $cpath: the rules for what never leaves the flash are set before its upload"
+                kp_status_add "$kind" "$share" "$cpath" 1 0
             else
                 drift_add warn "The Kopia policy for $cpath differs from settings.ini ('setup.sh --kopia' aligns it):"$'\n'"${KP_DIFF%$'\n'}" \
                     kopia_policy_differs "" path="$cpath" kind="$kind" name="$share"

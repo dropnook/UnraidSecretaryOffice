@@ -3,7 +3,10 @@
 # unraid-backup - backup.sh                       Version 2.84 - 2026-10-31
 #   2.84 state/results.json is written again on a real server (lib/common.sh results_write): the history went to jq as ONE
 #        argument and hit the kernel's 128 KiB limit per argument once history.jsonl passed it (~70 runs) - now fed from
-#        files
+#        files. What never leaves the flash (lib/common.sh FLASH_NEVER: the USO network's auth key) is one list for both
+#        ways: the archive's tar excludes (flash_tar) and the Kopia source _flash's ignore rules, which the run itself
+#        sets on the flash's policy before its upload (kopia_flash_one, flash_policy_align) - no rule, no upload while
+#        such a file lies in the snapshot (err_code flash_never_policy)
 #   2.83 The run's notification names its coded warnings and errors (lib/common.sh ub_run_items): the description «2
 #        warnings: nextcloud_data: 1 file dated in the future · Backups: 7 files dated in the future. 11 min 5 s, …» -
 #        errors first, the first three in short words (notify_item.<code>), «and n more» -, the long text one line per

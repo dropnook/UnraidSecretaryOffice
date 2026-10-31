@@ -1,7 +1,7 @@
 #!/bin/bash
 ###############################################################################
 # unraid-backup - setup.sh                        Version 2.84 - 2026-10-31
-#   2.84 No change here (lib/common.sh results_write: results.json written from files, never from one argument)
+#   2.84 The flash's Kopia policy carries what never leaves the flash (lib/common.sh FLASH_NEVER, kopia_want_ignores flash)
 #   2.83 No change here (backup.sh: the run's notification names its coded warnings and errors)
 #   2.82 An Apply that brings back what an aborted run left says its warnings in the office's words too (lib/common.sh
 #        warn_as -> ub_msg_as: level warn with a code, step environment) - Docker or libvirt silent, a Nextcloud gone, not
