@@ -119,6 +119,15 @@ fi
 # the default reset takes a profile's objects away (base-mixed.sh notes them on the flash)
 [[ -f $SC/base-mixed.sh ]] && ! declare -F mixed_objects_remove >/dev/null && . "$SC/base-mixed.sh"
 [[ $VMS == yes || $VMS == no ]] || { echo "base: VMS=$VMS in $BASE/base.env - yes or no" >&2; exit 2; }
+# a kernel panicked in ZFS (a process stuck in D at spl_panic: Tower's OpenZFS on Unraid 7.4.0-rc.2, a drill re-mounting a
+# .zfs/snapshot whose expiry unmount had hung — 2026-10-30 and 2026-10-31): it holds its locks for ever, nothing of the
+# base can run until a reboot — said at once instead of a refused step 0 and a timed-out run
+_panicked=$(ps -eo pid,stat,wchan:20,comm --no-headers 2>/dev/null | awk '$2 ~ /^D/ && $3 == "spl_panic" {printf "%s%s (%s)", (c++ ? ", " : ""), $1, $4}')
+[[ -z $_panicked ]] || { echo "base: the kernel has panicked in ZFS - pid $_panicked stuck at spl_panic: reboot $(hostname) first" >&2; exit 2; }
+# its forerunner, said only: the snapshot expiry unmount threads stuck in D (they did all night without harm — the panic
+# needs a re-mount of a stuck snapshot)
+_stuck=$(ps -eo stat,wchan:20,comm --no-headers 2>/dev/null | awk '$1 ~ /^D/ && $3 ~ /zfsctl_snapshot_unmo/' | wc -l)
+((_stuck == 0)) || echo "base: note - $_stuck zfsctl_snapshot_unmount thread(s) stuck in D, $(mount 2>/dev/null | grep -c '/\.zfs/snapshot/') .zfs/snapshot automounts: a drill that re-mounts a stuck snapshot may panic the kernel (OpenZFS on 7.4.0-rc.2) - a reboot clears it" >&2
 # the Tower lock for the whole reset, taken first (another worker's experiment holds it while its job runs; not for a
 # dry run: it changes nothing): base.sh runs again under `flock -o` - the lock's fd never reaches a child (the agent it
 # starts would hold the lock for its whole life). A caller holding the lock says USO_SC_LOCKED=1.
