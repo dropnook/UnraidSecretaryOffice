@@ -26,7 +26,7 @@
 
 # shellcheck disable=SC2034   # many variables are only used in the scripts
 
-UB_VERSION="2.83"
+UB_VERSION="2.84"
 UB_NAME="unraid-backup"
 UB_USER_SCRIPT="unraid-secretary-office_backup"   # the User Scripts entry setup.sh offers outside the plugin (was unraid-backup)
 # What the office creates in numbers is named uso-... (Unraid Secretary Office); places keep the long
@@ -3533,7 +3533,7 @@ status_finish() { # status_finish <result> [message]
 # newer engine); none there yet (or not JSON): history.jsonl folded in first, oldest first (status.json minus the package
 # list). A file of another "v" (a newer engine's) is left alone.
 results_write() {
-    local f="$UB_STATE/results.json" tmp old="null" hist="[]" loc
+    local f="$UB_STATE/results.json" tmp old="null" loc
     loc="$(declare -F results_local_json >/dev/null && results_local_json)" || loc='[]'
     [[ -n "$loc" ]] || loc='[]'
     [[ -L "$f" ]] && return 0
@@ -3542,20 +3542,29 @@ results_write() {
         [[ "$old" == '"newer"' ]] && return 0          # another version's (a newer engine's): left as it is, never rewritten
     fi
     [[ -n "$old" ]] || old="null"
-    if [[ "$old" == "null" && -f "$UB_STATE/history.jsonl" ]]; then
-        # none yet: the history first (without the line of this run, which status.json brings whole)
-        hist="$(jq -c --arg r "${TS:-}" 'select(type == "object" and .result != "skipped" and .run != $r)' "$UB_STATE/history.jsonl" 2>/dev/null | jq -sc .)" || hist="[]"
-        [[ -n "$hist" ]] || hist="[]"
-    fi
+    # 2.84: jq is fed from files (--slurpfile), never from arguments - the history (200 runs, 300 KB on a real server) as
+    # ONE argument hit the kernel's limit per argument (MAX_ARG_STRLEN, 128 KiB): «Argument list too long», hidden by
+    # 2>/dev/null, and results.json was never written past ~70 runs. Each file holds one JSON value per line; jq reads
+    # them as arrays ($old[0], $local[0], $hist = the history's lines).
     tmp="$UB_STATE/.results.json.$$"
-    if jq -c --argjson old "$old" --argjson hist "$hist" --argjson local "$loc" --arg ver "$UB_VERSION" --argjson now "$(date +%s)" "$RESULTS_JQ" \
+    printf '%s\n' "$old" >"$tmp.old" 2>/dev/null || { rm -f "$tmp.old"; return 0; }
+    printf '%s\n' "$loc" >"$tmp.loc"
+    if [[ "$old" == "null" && -f "$UB_STATE/history.jsonl" ]]; then
+        # none yet: the history first (without the line of this run, which status.json brings whole), oldest first
+        jq -c --arg r "${TS:-}" 'select(type == "object" and .result != "skipped" and .run != $r)' "$UB_STATE/history.jsonl" >"$tmp.hist" 2>/dev/null \
+            || : >"$tmp.hist"
+    else
+        : >"$tmp.hist"
+    fi
+    if jq -c --slurpfile old "$tmp.old" --slurpfile hist "$tmp.hist" --slurpfile local "$tmp.loc" --arg ver "$UB_VERSION" --argjson now "$(date +%s)" "$RESULTS_JQ" \
             "$UB_STATE/status.json" >"$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
         mv -f "$tmp" "$f" 2>/dev/null
     fi
-    rm -f "$tmp"
+    rm -f "$tmp" "$tmp.old" "$tmp.hist" "$tmp.loc"
     return 0
 }
-# the fold: one run (a status.json, or a history line) into the results; $local only for the run of status.json
+# the fold: one run (a status.json, or a history line) into the results; $local[0] only for the run of status.json
+# ($old, $local: one value each, read with --slurpfile; $hist: the history's lines)
 # shellcheck disable=SC2016
 RESULTS_JQ='
 def keep($old; $new): $new + {good: (if $new.result == "ok" then $new.time
@@ -3592,9 +3601,9 @@ def fold($s; $loc):
   | reduce each($p.failed // []) as $u (.; pu($u; {result: "failed", code: ($u.why // "" | tostring), time: $t, run: $run}))
   | reduce each($p.interrupted_all // []) as $u (.; pu($u; {result: "skipped", code: stopped($msg), time: $t, run: $run}));
 . as $st
-| ($old | obj) | .local |= obj | .package |= obj | .kopia |= obj | .partner |= obj
+| ($old[0] | obj) | .local |= obj | .package |= obj | .kopia |= obj | .partner |= obj
 | reduce ($hist[] | select(type == "object")) as $h (.; fold($h; []))
-| if ($st | type) == "object" and $st.mode == "backup" then fold($st; $local) | .run = ($st.run // "" | tostring) else . end
+| if ($st | type) == "object" and $st.mode == "backup" then fold($st; $local[0]) | .run = ($st.run // "" | tostring) else . end
 | .v = 1 | .engine = $ver | .updated = $now
 '
 

@@ -6760,7 +6760,7 @@ SH);
     $st = json_decode((string) @file_get_contents("$st0/new-local.json"), true);
     $ks = json_decode((string) @file_get_contents("$st0/kept-local.json"), true);
     same('kept (2.38): state - new-local.json only the new app\'s folder; kept-local.json the local app\'s two with their rules',
-        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.83'],
+        [[['appdata', 'newappdir']], [['appdata', 'locnew', ['/locnew/']], ['appdata', 'locold', ['/locold/']]], '2.84'],
         [array_map(fn ($f) => [$f['share'], $f['folder']], $st['folders'] ?? []), array_map(fn ($f) => [$f['share'], $f['folder'], $f['rules']], $ks['folders'] ?? []), $ks['version'] ?? null]);
     $notes = (string) @file_get_contents("$tmp/fake/notify.log");
     check('kept (2.38): one notification - only the new app\'s folder', substr_count($notes, "\n") === 1 && str_contains($notes, 'appdata/newappdir') && !str_contains($notes, 'locnew') && !str_contains($notes, 'locold'), $notes);
@@ -8914,9 +8914,9 @@ function testDataTrust(): void
         [$e1, $e2, str_contains($err1, "REFUSED: $tmp/nobody is not root's own"), str_contains($err2, 'REFUSED'),
          array_values(array_diff(scandir("$tmp/nobody"), ['.', '..'])), str_contains((string) @file_get_contents("$tmp/notified"), 'alert')]);
     $ver = fn (string $f) => preg_match('/Version (\d+\.\d+)/', (string) file_get_contents(OFFICE_DIR . "/backup/$f"), $m) ? $m[1] : null;
-    same('data trust: the engine\'s version 2.83 everywhere it is named', ['2.83', '2.83', true, true],
-        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.83"'),
-         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.83** –')]);
+    same('data trust: the engine\'s version 2.84 everywhere it is named', ['2.84', '2.84', true, true],
+        [$ver('backup.sh'), $ver('setup.sh'), str_contains((string) file_get_contents($lib), 'UB_VERSION="2.84"'),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/backup/README.md'), '- **2.84** –')]);
     // 2.81 (B42): a run with settings.ini gone ends with a code the office says in its own words - never the script's name
     $gone = $mk('nosettings', 0700);
     @unlink("$tmp/notified");
@@ -10404,7 +10404,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('partner phase: --about - interface 1, version 2.83', [1, '2.83'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('partner phase: --about - interface 1, version 2.84', [1, '2.84'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan lists the partners (from the Team Lead's pairs; never connects) and per unit whether it can travel
     $settings(0);
@@ -11200,7 +11200,7 @@ SH);
         [['UnraidSecretaryOffice' => 'ok:', 'app:c2' => 'skipped:asleep', 'appdata' => 'ok:', 'media' => 'skipped:asleep'], ['share:appdata' => 'skipped:unreachable', 'share:media' => 'skipped:asleep']],
         [$kr, $pr], json_encode($res));
     same('asleep skip 2.80: results.json - v 1, the engine, this run; a good upload\'s good is its time, a skipped one has none yet',
-        [1, '2.83', $s['run'] ?? null, $res['kopia']['appdata']['time'] ?? -1, 0],
+        [1, '2.84', $s['run'] ?? null, $res['kopia']['appdata']['time'] ?? -1, 0],
         [$res['v'] ?? null, $res['engine'] ?? null, $res['run'] ?? null, $res['kopia']['appdata']['good'] ?? null, $res['kopia']['media']['good'] ?? null]);
     check('asleep skip: the log - one line for the pool', str_contains($l, 'ZFS hazel: asleep - left out this run (asleep_pools = skip)') && substr_count($l, 'ZFS hazel: asleep - left out') === 1, $l);
     check('asleep skip: last-run asleep=4, history asleep.units 4', str_contains((string) @file_get_contents("$data/state/last-run"), "asleep=4\n") && ($lastHistory()['asleep']['units'] ?? null) === 4);
@@ -11277,7 +11277,7 @@ SH);
 
     // --- --about keeps interface 1
     $about = json_decode((string) shell_exec('bash -c ' . escapeshellarg("$env; bash " . escapeshellarg(OFFICE_DIR . '/backup/backup.sh') . ' --about')), true) ?: [];
-    same('asleep: --about - interface 1, version 2.83', [1, '2.83'], [$about['interface'] ?? null, $about['version'] ?? null]);
+    same('asleep: --about - interface 1, version 2.84', [1, '2.84'], [$about['interface'] ?? null, $about['version'] ?? null]);
 
     // --- setup.sh: the plan carries the key and what sleeps right now; Apply writes the key
     $setup = fn (string $args) => (string) shell_exec('bash -c ' . escapeshellarg("$env UB_SIZE_TIMEOUT=0 UB_EXPLAIN=0; bash " . escapeshellarg(OFFICE_DIR . '/backup/setup.sh') . " $args </dev/null") . ' 2>&1');
@@ -57153,7 +57153,7 @@ function testBackupResults(): void
     $local = json_encode([['key' => 'share:appdata', 'result' => 'ok', 'code' => ''], ['key' => 'share:media', 'result' => 'skipped', 'code' => 'asleep']]);
     [$out, $r] = $run($c, $local);
     $pick = fn (?array $e) => $e === null ? null : [$e['result'], $e['code'], $e['time'], $e['good']];
-    same('results 2.80: written - v 1, the engine, the run that wrote it', ['rc=0', 1, '2.83', '20261003-0100', true], [$out, $r['v'] ?? null, $r['engine'] ?? null, $r['run'] ?? null, is_int($r['updated'] ?? null)]);
+    same('results 2.80: written - v 1, the engine, the run that wrote it', ['rc=0', 1, '2.84', '20261003-0100', true], [$out, $r['v'] ?? null, $r['engine'] ?? null, $r['run'] ?? null, is_int($r['updated'] ?? null)]);
     same('results 2.80: none yet - the history folded in first: appdata\'s Kopia failed in B, its newest good copy A\'s; the skipped run nothing',
         [['failed', '', 1990, 990], ['ok', '', 995, 995]], [$pick($r['kopia']['appdata'] ?? null), $pick($r['kopia']['app:Emby'] ?? null)]);
     same('results 2.80: this run - docs uploaded, media skipped asleep, films skipped by the array stop (no why)',
@@ -57182,6 +57182,31 @@ function testBackupResults(): void
     $hist([$line('20261001-0100', 1000, ['kopia' => ['done' => [['name' => 'appdata', 'ok' => true, 'seconds' => 5, 'finished' => 990]]]])]);
     [, $r3] = $run($line('20261005-0100', 5000));
     same('results 2.80: a file that isn\'t JSON - made anew from the history', [['ok', '', 990, 990], 1], [$pick($r3['kopia']['appdata'] ?? null), $r3['v'] ?? null]);
+    // 2.84 (code review 1.81.0, S3): a real server's history - 200 runs of ~1.8 KB, 360 KB in all, far past the kernel's 128 KiB
+    // per argument (MAX_ARG_STRLEN) that made jq say «Argument list too long» up to 2.83 (nostromo: 301 KB, no results.json
+    // ever) - folded in whole: the oldest run's copy known, the newest run's too, the file written
+    @unlink("$data/state/results.json");
+    $big = [];
+    for ($i = 1; $i <= 200; $i++) {
+        $done = [];
+        for ($k = 0; $k < 12; $k++) {
+            $done[] = ['name' => "share-with-a-long-name-$k", 'ok' => true, 'seconds' => 100 + $k, 'finished' => 10000 * $i + $k];
+        }
+        $big[] = $line(sprintf('2026%02d%02d-0100', 1 + intdiv($i - 1, 28), 1 + ($i - 1) % 28), 10000 * $i,
+            ['kopia' => ['done' => $done, 'skipped' => [], 'skipped_why' => (object) [], 'interrupted' => null], 'warning_items' => array_fill(0, 6, ['code' => 'future_files', 'params' => ['name' => str_repeat('n', 60), 'count' => 3]]),
+             'packages' => ['count' => 5, 'warnings' => 0, 'errors' => 0], 'vms' => [['name' => "vm-of-run-$i", 'prepare' => 'shutdown', 'done' => 'shutdown', 'seconds' => 9, 'snapshot' => true]],
+             'partner' => ['done' => [['id' => $pid, 'unit' => 'share:appdata', 'snap' => "uso-backup-run$i", 'bytes' => $i, 'seconds' => 1]], 'skipped' => [], 'failed' => []]]);
+    }
+    $hist($big);
+    [$out, $rb] = $run($line('20261231-0100', 9999000, ['kopia' => ['done' => [['name' => 'docs', 'ok' => true, 'seconds' => 3, 'finished' => 9998900]]]]));
+    same('results 2.84: a history past 128 KiB (a real server\'s) - results.json written, the oldest run\'s copies known, the newest run\'s too, this run\'s',
+        [true, 'rc=0', ['ok', '', 2000011, 2000011], ['ok', '', 10000, 10000], ['ok', '', 2000000, 2000000], ['ok', '', 9998900, 9998900], 200],
+        [filesize("$data/state/history.jsonl") > 131072 * 2, $out, $pick($rb['kopia']['share-with-a-long-name-11'] ?? null), $pick($rb['local']['vm:vm-of-run-1'] ?? null),
+         $pick($rb['local']['vm:vm-of-run-200'] ?? null), $pick($rb['kopia']['docs'] ?? null), count(array_filter(array_keys($rb['local'] ?? []), fn ($k) => str_starts_with($k, 'vm:')))]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh');
+    check('results 2.84: jq is fed from files, never from an argument (--slurpfile old, hist, local; no --argjson of them)',
+        preg_match('/results_write\(\) \{.*?--slurpfile old .*?--slurpfile hist .*?--slurpfile local .*?\n\}/s', $src, $m) === 1 && !str_contains($m[0], '--argjson old') && !str_contains($m[0], '--argjson hist'));
+    $hist([$line('20261001-0100', 1000, ['kopia' => ['done' => [['name' => 'appdata', 'ok' => true, 'seconds' => 5, 'finished' => 990]]]])]);
     // a dry run or a check never writes it; nor a link
     @unlink("$data/state/results.json");
     $run(['mode' => 'dry', 'run' => 'x', 'finished' => 6000]);
