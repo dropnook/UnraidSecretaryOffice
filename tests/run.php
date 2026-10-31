@@ -16525,6 +16525,12 @@ function testRestoreBrowse(): void
     $put("$mnt/hazel/appdata/nc/config.php", 'live cfg');
     $put("$mnt/hazel/appdata/.zfs/snapshot/manual-1/nc");                       // the parent's snapshot: nc's stub, empty
     $put("$mnt/hazel/appdata/nc/.zfs/snapshot/manual-1/config.php", 'old cfg');
+    $put("$mnt/hazel/appdata/zz2/x.txt", 'live x');                                   // an app's plain folder inside the dataset (S2)
+    $put("$mnt/hazel/appdata/.zfs/snapshot/manual-1/zz2/x.txt", 'old x');
+    $put("$mnt/hazel/appdata/.zfs/snapshot/manual-1/zz2/sub/y.txt", 'y');
+    $put("$mnt/hazel/appdata/.zfs/snapshot/manual-0/nc");                            // an older moment of the dataset without zz2
+    $put("$mnt/hazel/appdata/zz3/x.txt", 'live x3');
+    symlink("$tmp/outside", "$mnt/hazel/appdata/.zfs/snapshot/manual-1/zz3");        // the app's folder a link in the moment (S1)
     $put("$mnt/hazel/UnraidSecretaryOffice/backup");
     $put("$mnt/disk1/zzarr");
     $put("$mnt/user");
@@ -16539,7 +16545,7 @@ function testRestoreBrowse(): void
         'fs' => ['hazel' => 'zfs', 'disk1' => 'xfs'],
         'zfs' => ["$mnt/hazel/zzdocs" => 'hazel/zzdocs', "$mnt/hazel/appdata" => 'hazel/appdata', "$mnt/hazel/appdata/nc" => 'hazel/appdata/nc',
                   "$mnt/hazel/UnraidSecretaryOffice" => 'hazel/UnraidSecretaryOffice'],
-        'snaps' => ['hazel/zzdocs' => [['name' => 'manual-1', 'time' => $T1]], 'hazel/appdata' => [['name' => 'manual-1', 'time' => $T1]],
+        'snaps' => ['hazel/zzdocs' => [['name' => 'manual-1', 'time' => $T1]], 'hazel/appdata' => [['name' => 'manual-0', 'time' => $T1 - 3600], ['name' => 'manual-1', 'time' => $T1]],
                     'hazel/appdata/nc' => [['name' => 'manual-1', 'time' => $T1]]],
         'zfs_kept' => [], 'pools_asleep' => [], 'asleep' => ['disk1' => true], 'prefixes' => ['uso-backup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => $settings,
         'cfg' => ['zzdocs' => $only, 'appdata' => $only, 'UnraidSecretaryOffice' => $only, 'zzarr' => ['shareUseCache' => 'no', 'shareInclude' => 'disk1']],
@@ -16547,7 +16553,9 @@ function testRestoreBrowse(): void
         'shares_ini' => ['zzdocs' => ['exclusive' => 'yes'], 'appdata' => ['exclusive' => 'yes'], 'UnraidSecretaryOffice' => ['exclusive' => 'yes'], 'zzarr' => []],
         'old_shares' => null, 'now' => [],
     ];
-    $state = ['apps' => [['id' => 'nc', 'name' => 'nc', 'folders' => [['path' => '/mnt/user/appdata/nc', 'share' => 'appdata', 'whole' => false]], 'shares' => []]],
+    $state = ['apps' => [['id' => 'nc', 'name' => 'nc', 'folders' => [['path' => '/mnt/user/appdata/nc', 'share' => 'appdata', 'whole' => false]], 'shares' => []],
+                         ['id' => 'zz2', 'name' => 'zz2', 'folders' => [['path' => '/mnt/user/appdata/zz2', 'share' => 'appdata', 'whole' => false]], 'shares' => []],
+                         ['id' => 'zz3', 'name' => 'zz3', 'folders' => [['path' => '/mnt/user/appdata/zz3', 'share' => 'appdata', 'whole' => false]], 'shares' => []]],
               'vms' => [], 'partners' => [['id' => 'a1b2c3d4', 'name' => 'PartnerNAS', 'units' => [['unit' => 'share:zzdocs', 'snaps' => [['name' => 'uso-backup-20261019-0100']], 'newest' => $T1]]]],
               'shares_back' => [['name' => 'zzdocs'], ['name' => 'appdata'], ['name' => 'zzarr']]];
     $GLOBALS['rs']['ctx'] = $ctx;
@@ -16590,6 +16598,48 @@ function testRestoreBrowse(): void
         [$key(fn () => rsBrowse(['zsnap' => 'hazel@x'])), $key(fn () => rsBrowse(['zsnap' => 'hazel/nothere@manual-1']))]);
     $b = rsBrowse(['path' => '/mnt/user/zzarr', 'rel' => '']);
     same('restore browse: a sleeping disk is named, never read — nothing listed, no moment', [['disk1'], null, []], [$b['asleep'], $b['snap'], $b['entries']]);
+
+    // ---- review 1.81.0, S2: a snapshot is touched once — whether it holds a folder inside its dataset is remembered
+    // (holds.json); every later browse (a folder below, a search, the pick's plan) builds the item from the chosen moment's
+    // parts and touches no other snapshot
+    $looks = [];
+    $GLOBALS['rs']['holds_look'] = function (string $path) use (&$looks): bool {
+        $looks[] = $path;
+        clearstatcache(true, $path);
+        return file_exists($path) || is_link($path);
+    };
+    $b = rsBrowse(['path' => '/mnt/user/appdata/zz2', 'rel' => '']);
+    $first = count($looks);
+    $b2 = rsBrowse(['path' => '/mnt/user/appdata/zz2', 'snap' => 'name:manual-1', 'rel' => 'sub']);
+    $b3 = rsBrowse(['path' => '/mnt/user/appdata/zz2', 'snap' => 'name:manual-1', 'rel' => '', 'q' => 'x']);
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/appdata/zz2', rsUnitOwner($state, '/mnt/user/appdata/zz2'), 'name:manual-1', ['sub/y.txt'], 'copy', false, '20261025-100000', $c);
+    $holds = readJson("$tmp/data/restore/holds.json")['holds'] ?? [];
+    $hk = "$mnt/hazel/appdata/.zfs/snapshot";
+    same('review S2: the first look asks each snapshot of the dataset once whether it holds the folder; a folder below, a search and the pick\'s plan touch no snapshot; remembered in holds.json',
+        [2, ['name:manual-1'], ['sub', 'x.txt'], ['y.txt'], ['x.txt'], 2, [], [true, false]],
+        [$first, array_column($b['moments'], 'id'), array_column($b['entries'], 'name'), array_column($b2['entries'], 'name'), array_column($b3['entries'], 'name'), count($looks), $p['blockers'],
+         [$holds["hazel/appdata@manual-1|$hk/manual-1/zz2"] ?? null, $holds["hazel/appdata@manual-0|$hk/manual-0/zz2"] ?? null]]);
+    unset($GLOBALS['rs']['holds_look']);
+
+    // ---- review 1.81.0, S1: the moment's own top — the app's folder inside the share's snapshot — is a link there: never
+    // followed (the browse says so and lists nothing, a pick below it is refused); the copy looks once more right before
+    $b = rsBrowse(['path' => '/mnt/user/appdata/zz3', 'rel' => '']);
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/appdata/zz3', rsUnitOwner($state, '/mnt/user/appdata/zz3'), 'name:manual-1', ['secret.txt'], 'copy', false, '20261025-100100', $c);
+    same('review S1: the app\'s folder a link in the moment — the browse follows nothing, a pick below it is refused',
+        [true, false, [], ['restore_browse_link']], [$b['link'], $b['here'], $b['entries'], array_column($p['blockers'], 'key')]);
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/zzdocs', rsShareOwner($state, '/mnt/user/zzdocs'), 'name:manual-1', ['Verträge/2024/a.pdf'], 'copy', false, '20261025-100200', $c);
+    rename("$S/Verträge", "$S/Verträge.real");
+    symlink("$S/Verträge.real", "$S/Verträge");                    // a folder of the way inside the moment became a link since the preview
+    [$states, $j] = $run($p, '20261025-100200-aa07');
+    unlink("$S/Verträge");
+    rename("$S/Verträge.real", "$S/Verträge");
+    same('review S1: … a folder on the way inside the moment a link at the copy — stopped before writing', [[$S], ['failed'], 'path_link', false],
+        [$p['steps'][0]['tops'] ?? null, $states, $j['steps'][0]['note'] ?? null, file_exists("$mnt/hazel/zzdocs/Verträge/2024/a.pdf.restored-20261025-100200")]);
+    same('review S1: a link on the way down from a moment\'s top — the top itself never, outside it always', [false, true, true, false],
+        [rsLinkBelow($S, $S), rsLinkBelow($S, "$tmp/outside"), rsLinkBelow($S, "$S/evil/secret.txt"), rsLinkBelow($S, "$S/Fotos/a.jpg")]);
 
     // ---- picks: next to it, swapped in, into the restore folder
     $own = rsShareOwner($state, '/mnt/user/zzdocs');
@@ -16642,6 +16692,29 @@ function testRestoreBrowse(): void
     $c['shares_ini'] = array_diff_key($ctx['shares_ini'], ['UnraidSecretaryOffice' => 1]);
     $p = rsPlanPickFor('/mnt/user/zzdocs', $own, 'name:manual-1', ['Fotos'], 'folder', false, '20261025-115000', $c);
     same('restore browse: the restore folder needs the office\'s share — never made here', ['restore_pick_no_folder'], array_column($p['blockers'], 'key'));
+    // ---- review 1.81.0, M1: a link on the way into the restore folder (restore/files made a link by whoever writes the office's
+    // share): refused in the plan, by the copy right before it writes (`within`), and by the folder maker itself
+    $O = "$mnt/hazel/UnraidSecretaryOffice";
+    @mkdir("$O/restore", 0755, true);
+    @rename("$O/restore/files", "$O/restore/files.was");       // the picks above made it: out of the way
+    symlink("$tmp/outside", "$O/restore/files");
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/zzdocs', $own, 'name:manual-1', ['Fotos'], 'folder', false, '20261025-117000', $c);
+    same('review M1: a link on the way into the restore folder — the pick is refused, the link named; the copy knows the share it writes into',
+        [['restore_path_link'], '/mnt/user/UnraidSecretaryOffice/restore/files', "$mnt/user/UnraidSecretaryOffice"],
+        [array_column($p['blockers'], 'key'), $p['blockers'][0]['params']['link'] ?? null, $p['steps'][0]['within'] ?? null]);
+    unlink("$O/restore/files");
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/zzdocs', $own, 'name:manual-1', ['Fotos'], 'folder', false, '20261025-117100', $c);
+    symlink("$tmp/outside", "$O/restore/files");                 // became a link since the preview
+    [$states, $j] = $run($p, '20261025-117100-aa06');
+    same('review M1: … become a link since the preview — the copy stops before writing, nothing lands outside', [[], ['failed'], 'path_link', false],
+        [$p['blockers'], $states, $j['steps'][0]['note'] ?? null, file_exists("$tmp/outside/zzdocs-20261025-117100")]);
+    same('review M1: the folder maker never makes a folder through a link — an exclusive share\'s own link at the top is the one allowed',
+        [false, false, true, true],
+        [rsMkdirsLike("$O/restore/files/x/y", '', 0), is_dir("$tmp/outside/x"), rsMkdirsLike("$mnt/user/zzdocs/m1new/deeper", '', 0), is_dir("$mnt/hazel/zzdocs/m1new/deeper")]);
+    unlink("$O/restore/files");
+    @rename("$O/restore/files.was", "$O/restore/files");
     $c = $ctx;
     $p = rsPlanPickFor('/mnt/user/zzarr', rsShareOwner($state, '/mnt/user/zzarr'), '', ['x.txt'], 'copy', false, '20261025-116000', $c);
     same('restore browse: a sleeping disk — the pick waits for «wake», nothing read', [['restore_asleep'], ['disk1']], [array_column($p['blockers'], 'key'), $p['options']['asleep']]);
@@ -16688,6 +16761,7 @@ function testRestoreBrowse(): void
     $GLOBALS['rs']['ctx'] = $ctx;
     $p = rsPlanPick(['kind' => 'pick', 'kept' => 'p1', 'unit' => 'share:theirs', 'ksnap' => 'uso-backup-20261019-0100', 'items' => ['Schule/Zeugnis.pdf'], 'mode' => 'swap', 'stamp' => $stamp], $stamp);
     $F = "$mnt/user/UnraidSecretaryOffice/restore/files/Helmi-theirs-$stamp";
+    same('review M1: a kept moment\'s copy carries the office\'s share as the share it writes into', "$mnt/user/UnraidSecretaryOffice", $p['steps'][1]['within'] ?? null);
     same('restore browse: from a kept moment only into the restore folder (swap asked: never), mounted for the copy and unmounted after',
         [[], 'folder', ['peek_mount', 'copy', 'peek_umount'], "$F/Schule/Zeugnis.pdf", 7, []],
         [array_column($p['blockers'], 'key'), $p['target']['mode'], array_column($p['steps'], 'do'), $p['steps'][1]['to'] ?? null, $p['sizes']['need'], $mounts]);
@@ -57599,6 +57673,35 @@ function testRestoreGapsSwap(): void
         [$jb['result'], $s['tank/appdata']['guid'] ?? null, $s['tank/appdata']['mounted'] ?? null, $s[$dn]['guid'] ?? null, $s[$dn]['mountpoint'] ?? null, $s[$dn]['canmount'] ?? null,
          isset($s[$aside]), $mounted()]);
 
+    // ---- review 1.81.0, M3: the pull was the share for a while — «Remove what was pulled…» must never destroy it now (it
+    // carries what was written to the share then and the snapshots taken of it): the pull's entry knows, the preview
+    // refuses, the step right before refuses too; snapshots or bytes not of the pull refuse as well; only a pull that
+    // holds exactly what it brought is removed
+    same('review M3: the pull\'s entry noted the swap before the rename, and keeps it through the put back', '20261025-110000-cd34', rsJournal($pullId)['swapped']['by'] ?? null);
+    rsMarkPutback('20261025-110000-cd34', '20261025-120000-ef56', 'ok');        // as the job notes it on the swap's entry
+    $pb = rsPlanPutback(['id' => $pullId], '20261025-130000');
+    same('review M3: removing the pull after the swap\'s put back — refused, saying it was the share (which entry, which dataset)',
+        ['restore_putback_was_share', 'appdata', '20261025-110000-cd34', $dn],
+        [$pb['blockers'][0]['key'] ?? null, $pb['blockers'][0]['params']['share'] ?? null, $pb['blockers'][0]['params']['entry'] ?? null, $pb['blockers'][0]['params']['dataset'] ?? null]);
+    $jd = ['id' => '20261025-130000-dd01', 'putback_of' => $pullId];
+    $res = rsDoDrop($jd, ['dataset' => $dn, 'path' => $mnt, 'guid' => '22']);
+    same('review M3: … and the step itself, asked anyway, leaves it alone — nothing destroyed', ['failed', 'drop_holds', true, false],
+        [$res['state'], $res['note'] ?? null, isset($z()[$dn]), is_file("$tmp/bin/destroyed.log")]);
+    $fresh([], [$dn => ['guid' => '22', 'mountpoint' => 'legacy', 'canmount' => 'noauto', 'mounted' => false, 'snaps' => ['uso-backup-20261024-0300', 'uso-plan-daily-20261026-0100']]]);
+    $pb = rsPlanPutback(['id' => $pullId], '20261025-130000');
+    same('review M3: no swap noted, but a snapshot the pull didn\'t bring — refused, the snapshot named', ['restore_putback_holds_snaps', 'uso-plan-daily-20261026-0100'],
+        [$pb['blockers'][0]['key'] ?? null, $pb['blockers'][0]['params']['snaps'] ?? null]);
+    $fresh([], [$dn => ['guid' => '22', 'mountpoint' => 'legacy', 'canmount' => 'noauto', 'mounted' => false, 'snaps' => ['uso-backup-20261024-0300'], 'written' => '4096']]);
+    $pb = rsPlanPutback(['id' => $pullId], '20261025-130000');
+    same('review M3: bytes written since the pull — refused, how many said', ['restore_putback_holds_written', 4096],
+        [$pb['blockers'][0]['key'] ?? null, $pb['blockers'][0]['params']['bytes'] ?? null]);
+    $fresh();
+    $pb = rsPlanPutback(['id' => $pullId], '20261025-130000');
+    $jr = restoreGapsRun($pb, '20261025-130000-dd02');
+    same('review M3: a pull holding exactly what it brought — removed as before, nothing else', [[], ['drop'], 'ok', false, "$dn\n"],
+        [$pb['blockers'], array_column($pb['steps'], 'do'), $jr['result'], isset($z()[$dn]), (string) @file_get_contents("$tmp/bin/destroyed.log")]);
+    @unlink("$tmp/bin/destroyed.log");
+
     // refused: a program holds a file open; the share no dataset at a pool's top; its mountpoint its own; datasets inside
     $fresh(['open' => fn (array $p) => ['smbd']]);
     same('gap 6: a program holds a file of the share open — refused (he never ends one)', 'restore_in_use',
@@ -57880,6 +57983,48 @@ function testRestoreGapsLibvirt(): void
          rsPlanLibvirtFor($server, "$tmp/system/libvirt/none.img", '20261025-150000', $ctx)['blockers'][0]['key'] ?? null,
          (function () use ($tmp, $img, $server, $ctx) { symlink($img, "$tmp/system/libvirt/link.img");
              return rsPlanLibvirtFor($server, "$tmp/system/libvirt/link.img", '20261025-150000', $ctx)['blockers'][0]['key'] ?? null; })()]);
+    // ---- review 1.81.0, M2: the archive of a place pulled from a partner is the partner's word — nothing of its hooks
+    // installed, every VM definition fitted as a partner's XML is (rspXmlForeign), one naming another server's place or
+    // another VM left out of the image with its autostart link; the user's own archive as before (hooks and all)
+    @unlink("$tmp/system/libvirt/link.img");
+    $F = "$tmp/foreign/libvirt";
+    @mkdir("$F/qemu/autostart", 0755, true);
+    @mkdir("$F/hooks", 0755, true);
+    file_put_contents("$F/hooks/qemu", "#!/bin/sh\necho theirs\n");
+    chmod("$F/hooks/qemu", 0755);
+    $dom = fn (string $name, string $devices, string $extra = '') => '<domain type="kvm" xmlns:qemu="http://libvirt.org/schemas/domain/qemu/1.0"><name>' . $name . '</name>'
+        . '<os><loader readonly="yes" type="pflash">/usr/share/qemu/ovmf-x64/OVMF_CODE-pure-efi.fd</loader><nvram>/etc/libvirt/qemu/nvram/x_VARS-pure-efi.fd</nvram></os>'
+        . '<devices>' . $devices . '</devices>' . $extra . '</domain>';
+    file_put_contents("$F/qemu/Schule.xml", $dom('Schule', '<emulator>/usr/bin/qemu-system-theirs</emulator><interface type="bridge"><script path="/etc/qemu-ifup-theirs"/></interface>',
+        '<qemu:commandline><qemu:arg value="-theirs"/></qemu:commandline>'));
+    file_put_contents("$F/qemu/Else.xml", $dom('Other', '<emulator>/usr/local/sbin/qemu</emulator>'));
+    file_put_contents("$F/qemu/Evil.xml", $dom('Evil', '<disk type="file" device="disk"><source file="/boot/config/super.img"/></disk>'));
+    symlink('../Else.xml', "$F/qemu/autostart/Else.xml");
+    exec('tar -C ' . escapeshellarg("$tmp/foreign") . ' -czf ' . escapeshellarg("$tmp/foreign.tar.gz") . ' libvirt');
+    same('review M2: the archive\'s members are known by name before anything is unpacked', true, in_array('libvirt/hooks/qemu', rsLvArchiveNames("$tmp/foreign.tar.gz") ?? [], true));
+    $pf = rsPlanLibvirtFor(['libvirt' => "$tmp/foreign.tar.gz"] + $server, $img, '20261025-170000', $ctx, 'PartnerNAS');
+    same('review M2: from a pulled place — the plan says the archive is the partner\'s (fitted first, no hooks), the build step knows it; the own archive\'s plan says nothing of it',
+        [[], 'PartnerNAS', true, true, false, false],
+        [$pf['blockers'], $pf['target']['partner'] ?? null, in_array('note.libvirt_foreign', array_column($pf['notes'], 'key'), true), $pf['steps'][1]['foreign'] ?? null,
+         isset($plan['steps'][1]['foreign']), in_array('note.libvirt_foreign', array_column($plan['notes'], 'key'), true)]);
+    $jf = restoreGapsRun($pf, '20261025-170000-dd44');
+    $bf = $jf['steps'][1] ?? [];
+    same('review M2: built — one definition fitted, two left out and named (another VM\'s name, a place outside the VM\'s folder), the hook not installed; said as a warning',
+        ['warning', 'lv_foreign_left', 1, ['Else', 'Evil'], 1, 'PartnerNAS'],
+        [$bf['state'] ?? null, $bf['note'] ?? null, $bf['params']['fitted'] ?? null, $bf['params']['left'] ?? null, $bf['params']['hooks'] ?? null, $bf['params']['name'] ?? null]);
+    if ($real) {
+        @mkdir("$tmp/look2", 0700);
+        exec('mount -o loop,ro ' . escapeshellarg($img) . ' ' . escapeshellarg("$tmp/look2"));
+        $schule = (string) @file_get_contents("$tmp/look2/qemu/Schule.xml");
+        $inside = [str_contains($schule, '<emulator>/usr/local/sbin/qemu</emulator>'), str_contains($schule, 'qemu:commandline'), str_contains($schule, '<script'),
+                   is_file("$tmp/look2/qemu/Else.xml"), is_file("$tmp/look2/qemu/Evil.xml"), is_link("$tmp/look2/qemu/autostart/Else.xml"),
+                   array_values(array_diff(@scandir("$tmp/look2/hooks") ?: [], ['.', '..']))];
+        exec('umount ' . escapeshellarg("$tmp/look2"));
+        same('review M2: … inside the new image: Unraid\'s emulator, no command-line addition, no network script; the two left out gone with the autostart link; hooks empty',
+            [true, false, false, false, false, false, []], $inside);
+    } else {
+        check('review M2: … the image\'s inside: no loop device here (root and mkfs.ext4 needed) - not looked at', true);
+    }
     $GLOBALS['rs'] = $keep;
     hardeningRm($tmp);
 }

@@ -53,6 +53,18 @@ function rsLvServiceOn(string $img): ?string
  */
 function rsLvArchiveOk(string $archive): ?int
 {
+    $names = rsLvArchiveNames($archive);
+    return $names === null ? null : count($names);
+}
+
+/**
+ * The archive's members by name (rsLvArchiveOk()'s checks; review 1.81.0, M2: a pulled place's archive is looked at by
+ * name too — its hooks and every qemu/*.xml are known before anything is unpacked), or null when any member is refused
+ *
+ * @return ?list<string>
+ */
+function rsLvArchiveNames(string $archive): ?array
+{
     [$exit, $out] = run(['tar', '-tzf', $archive], 120);
     [$vexit, $long] = run(['tar', '-tvzf', $archive], 120);
     $names = array_values(array_filter(explode("\n", trim($out)), fn ($n) => $n !== ''));
@@ -94,7 +106,7 @@ function rsLvArchiveOk(string $archive): ?int
             }
         }
     }
-    return count($names);
+    return $names;
 }
 
 /**
@@ -106,14 +118,19 @@ function rsPlanLibvirt(array $r, string $stamp): array
 {
     [, $ctx, $place] = rsPlanPlace();
     $server = $place['found'] ? (rsPackages($place['base'])['server'] ?? null) : null;
-    return rsPlanLibvirtFor(is_array($server) ? $server : [], rsLvImage(), $stamp, $ctx);
+    // a backup place pulled from a partner (rsPlacePulled()): its archive is the partner's word — foreign (review 1.81.0, M2)
+    $partner = $place['found'] && is_string($place['partner']['name'] ?? null) ? (string) $place['partner']['name'] : null;
+    return rsPlanLibvirtFor(is_array($server) ? $server : [], rsLvImage(), $stamp, $ctx, $partner);
 }
 
-/** The plan for this package's server part (its archive) and this image */
-function rsPlanLibvirtFor(array $server, string $img, string $stamp, array $ctx): array
+/**
+ * The plan for this package's server part (its archive) and this image; $partner: the archive comes from a place pulled
+ * from that partner — its VM definitions are fitted to this server, its hooks never installed (rsLvForeign())
+ */
+function rsPlanLibvirtFor(array $server, string $img, string $stamp, array $ctx, ?string $partner = null): array
 {
     $archive = is_string($server['libvirt'] ?? null) ? $server['libvirt'] : null;
-    $plan = rsPlanBase('libvirt', 'libvirt.img', ['image' => $img, 'archive' => $archive]);
+    $plan = rsPlanBase('libvirt', 'libvirt.img', ['image' => $img, 'archive' => $archive, 'partner' => $partner]);
     $plan['downtime'] = 0;
     if ($archive === null || !is_file($archive) || is_link($archive)) {
         $plan['blockers'][] = ['key' => 'restore_libvirt_no_archive', 'params' => []];
@@ -169,13 +186,16 @@ function rsPlanLibvirtFor(array $server, string $img, string $stamp, array $ctx)
     // move look at the way again too (`within`, rsStepLink())
     $plan['steps'] = [
         ['do' => 'lv_off', 'image' => $img],
-        ['do' => 'lv_build', 'image' => $img, 'to' => $to, 'from' => $archive, 'mnt' => $mnt],
+        ['do' => 'lv_build', 'image' => $img, 'to' => $to, 'from' => $archive, 'mnt' => $mnt] + ($partner !== null ? ['foreign' => true, 'partner' => $partner] : []),
         ['do' => 'lv_off', 'image' => $img],
         ['do' => 'aside', 'path' => $img, 'to' => $aside, 'within' => $within],
         ['do' => 'move', 'from' => $to, 'to' => $img, 'within' => $within],
     ];
     $plan['aside'][] = ['what' => 'libvirt', 'from' => $img, 'to' => $aside];
     $plan['notes'][] = ['key' => 'note.libvirt_replaces', 'warn' => true, 'params' => ['when' => $server['libvirt_time'] ?? null, 'aside' => $aside]];
+    if ($partner !== null) {
+        $plan['notes'][] = ['key' => 'note.libvirt_foreign', 'warn' => true, 'params' => ['name' => $partner]];
+    }
     $plan['notes'][] = ['key' => 'note.libvirt_disks', 'params' => []];
     $plan['after'][] = ['key' => 'after.libvirt_on', 'params' => ['aside' => $aside]];
     $plan['putback_pre'] = [['do' => 'lv_off', 'image' => $img]];
@@ -225,7 +245,8 @@ function rsDoLvBuild(array &$j, int $i): array
     if (file_exists($to) || is_link($to)) {
         return rsFail('exists', ['path' => $to]);
     }
-    if (!is_file($img) || is_link($img) || !is_file($from) || is_link($from) || rsLvArchiveOk($from) === null) {
+    $names = !is_file($from) || is_link($from) ? null : rsLvArchiveNames($from);
+    if (!is_file($img) || is_link($img) || $names === null) {
         return rsFail('lv_failed', ['path' => $from]);
     }
     $undo = [['do' => 'aside', 'path' => $to, 'to' => "$to.putback-{T}", 'optional' => true]];
@@ -253,6 +274,13 @@ function rsDoLvBuild(array &$j, int $i): array
             $fail = rsFail('lv_failed', ['path' => $from], trim($err));
         }
     }
+    $foreign = null;
+    if ($fail === null && !empty($s['foreign'])) {
+        $foreign = rsLvForeign($j, $mnt, $names);
+        if (isset($foreign['state'])) {
+            $fail = $foreign;
+        }
+    }
     rsRun($j, ['sync'], 120);
     [$exit, , $err] = rsLvRun($j, ['umount', $mnt]);
     if ($exit !== 0) {
@@ -268,5 +296,72 @@ function rsDoLvBuild(array &$j, int $i): array
     } else {
         @rmdir($mnt);
     }
-    return $fail !== null ? $fail + ['undo' => $undo] : ['state' => 'ok', 'undo' => $undo];
+    if ($fail !== null) {
+        return $fail + ['undo' => $undo];
+    }
+    if ($foreign !== null) {
+        $params = ['name' => (string) ($s['partner'] ?? ''), 'fitted' => count($foreign['fitted']), 'left' => $foreign['left'], 'hooks' => $foreign['hooks']];
+        return ['state' => $foreign['left'] ? 'warning' : 'ok', 'note' => $foreign['left'] ? 'lv_foreign_left' : 'lv_foreign', 'params' => $params, 'undo' => $undo];
+    }
+    return ['state' => 'ok', 'undo' => $undo];
+}
+
+/**
+ * The archive of a place pulled from a partner, unpacked into his copy (review 1.81.0, M2: libvirtd runs what the image
+ * holds as root once the VM service is on): nothing of its hooks folder is installed (hooks/qemu, daemon, network —
+ * removed from the copy), and every VM definition in qemu/*.xml is fitted to this server as a partner's XML is before
+ * `virsh define` (rspXmlForeign(): QEMU command-line additions, shared host folders, network scripts and passed-through
+ * devices removed, another emulator Unraid's); one naming a place of this server outside the VM's own folder, or another
+ * VM's name, is left out of the image with its autostart link and named. Networks aren't domains: left as they are.
+ * What was fitted and left out, the hooks' count — or a failure (rsFail()).
+ *
+ * @param list<string> $names the archive's members
+ */
+function rsLvForeign(array &$j, string $mnt, array $names): array
+{
+    $out = ['fitted' => [], 'left' => [], 'hooks' => count(preg_grep('#^libvirt/hooks/.#', $names))];
+    clearstatcache();
+    if (is_dir("$mnt/hooks") && !is_link("$mnt/hooks")) {
+        [$exit, , $err] = rsRun($j, ['find', "$mnt/hooks", '-mindepth', '1', '-xdev', '-delete'], 120);      // his own copy in RAM
+        if ($exit !== 0 || array_diff(@scandir("$mnt/hooks") ?: [], ['.', '..'])) {
+            return rsFail('lv_failed', ['path' => "$mnt/hooks"], trim($err));
+        }
+    }
+    $share = basename(rtrim((string) (readCfg($GLOBALS['rs']['domain_cfg'] ?? '/boot/config/domain.cfg')['DOMAINDIR'] ?? '/mnt/user/domains'), '/')) ?: 'domains';
+    $mnts = array_values(array_diff(@scandir('/mnt') ?: [], ['.', '..']));
+    foreach (glob("$mnt/qemu/*.xml") ?: [] as $xml) {
+        if (is_link($xml) || !is_file($xml)) {
+            continue;
+        }
+        $name = substr(basename($xml), 0, -4);
+        $text = (string) @file_get_contents($xml, false, null, 0, 1 << 22);
+        $roots = array_map(fn ($m) => "/mnt/$m/$share/$name", $mnts);
+        [$fitted, $changes, $refuse] = rspXmlForeign($text, $name, $roots);
+        if ($refuse !== null) {
+            if (!@unlink($xml) || is_file($xml)) {
+                return rsFail('lv_failed', ['path' => $xml]);
+            }
+            @unlink("$mnt/qemu/autostart/" . basename($xml));
+            $out['left'][] = $name;
+            rsLog($j['id'], "  $name.xml left out of the image ({$refuse['note']}: " . json_encode($refuse['params']) . ')');
+            continue;
+        }
+        if ($changes) {
+            $st = @stat($xml);
+            $tmp = "$mnt/qemu/." . basename($xml) . '.uso';
+            if (@file_put_contents($tmp, $fitted) === false || !@rename($tmp, $xml)) {
+                @unlink($tmp);
+                return rsFail('lv_failed', ['path' => $xml]);
+            }
+            if ($st) {
+                @chown($xml, (int) $st['uid']);
+                @chgrp($xml, (int) $st['gid']);
+                @chmod($xml, (int) $st['mode'] & 07777);
+            }
+            $out['fitted'][] = $name;
+            rsLog($j['id'], "  $name.xml fitted to this server: " . implode(', ', array_column($changes, 'code')));
+        }
+    }
+    sort($out['left'], SORT_STRING);
+    return $out;
 }

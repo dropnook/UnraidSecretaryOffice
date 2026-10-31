@@ -45,6 +45,7 @@ switch ($cmd) {
             'mounted' => !empty($st[$ds]['mounted']) ? 'yes' : 'no',
             'receive_resume_token' => $st[$ds]['token'] ?? '-',
             'canmount' => $st[$ds]['canmount'] ?? 'on',
+            'written' => (string) ($st[$ds]['written'] ?? '0'),
             default => '-',
         };
         $src = $prop === 'mountpoint' ? (($st[$ds]['mountpoint'] ?? null) !== null ? 'local' : (str_contains($ds, '/') ? 'inherited from ' . explode('/', $ds)[0] : 'default')) : '-';
@@ -95,6 +96,13 @@ switch ($cmd) {
         if (!isset($st[$parent])) { fwrite(STDERR, "cannot create '$ds': parent does not exist\n"); exit(1); }
         $st[$ds] = ['guid' => (string) random_int(100, 999999), 'mounted' => true];
         if (is_file("$dir/root")) { @mkdir(trim((string) file_get_contents("$dir/root")) . '/' . $ds, 0755, true); }
+        $save();
+        exit(0);
+    case 'destroy':                              // zfs destroy -r <ds>: it and what lies in it go (noted, so a test can see what was destroyed)
+        $ds = $rest[0];
+        if (!isset($st[$ds])) { $no($ds); }
+        foreach (array_keys($st) as $n) { if ($n === $ds || str_starts_with($n, "$ds/")) { unset($st[$n]); } }
+        file_put_contents("$dir/destroyed.log", "$ds\n", FILE_APPEND);
         $save();
         exit(0);
     case 'umount':

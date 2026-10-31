@@ -1044,7 +1044,9 @@ function rspMount(?array $j, string $ds, string $path): bool
 /**
  * «Put back» of a pull: exactly the dataset it made goes — its name his own (.restored-<time> or under
  * UnraidSecretaryOffice-restored), its guid the one the pull recorded, no dataset inside it; unmounted first. Never
- * the original; nothing else is destroyed.
+ * the original; nothing else is destroyed. Never one that holds more than the pull brought (rspDropHolds(), review
+ * 1.81.0, M3): one that was the share for a while carries what was written then and the snapshots taken of it — it
+ * stays as it is, said (the preview refuses first; this is the look right before).
  */
 function rsDoDrop(array &$j, array $s): array
 {
@@ -1062,6 +1064,12 @@ function rsDoDrop(array &$j, array $s): array
     if ($exit !== 0 || array_values(array_filter(explode("\n", trim($out)))) !== [$ds]) {
         return rsFail('drop_children', ['dataset' => $ds]);
     }
+    $pull = is_string($j['putback_of'] ?? null) && preg_match(RS_ID_PATTERN, $j['putback_of']) ? rsJournal($j['putback_of']) : null;
+    $holds = rspDropHolds($pull, $ds);
+    if ($holds !== null) {
+        rsLog($j['id'], "  $ds holds more than the pull brought (" . json_encode($holds) . ') — left as it is');
+        return rsFail('drop_holds', ['dataset' => $ds]);
+    }
     foreach (rspMounts()[$ds] ?? [] as $mnt) {
         if (rsRun($j, [partnerBin('umount') ?? 'umount', $mnt], 60)[0] !== 0) {
             return rsFail('drop_busy', ['path' => $mnt]);
@@ -1075,6 +1083,57 @@ function rsDoDrop(array &$j, array $s): array
         return rsFail('drop_failed', ['dataset' => $ds], trim($err));
     }
     return ['state' => 'ok'];
+}
+
+/**
+ * Does a pulled dataset hold more than the pull brought (review 1.81.0, M3)? It was swapped in as its share once (the
+ * pull's journal says so: `swapped`, written before the swap's rename and kept through its put back), it carries
+ * snapshots other than the one pulled (the engine's or Ms. Snapshotini's of the share meanwhile), or bytes were written
+ * since that snapshot (`written`). Null when it holds exactly the pull — else what: {swapped: the swap's entry|null,
+ * snaps: the other snapshots, written: bytes}. Only the pull's own record is trusted for which snapshot is the pull's.
+ */
+function rspDropHolds(?array $pull, string $ds): ?array
+{
+    $swapped = is_array($pull['swapped'] ?? null) && is_string($pull['swapped']['by'] ?? null) ? (string) $pull['swapped']['by'] : null;
+    $own = null;
+    foreach ((array) ($pull['pulled'] ?? []) as $p) {
+        if (is_array($p) && ($p['dataset'] ?? null) === $ds && is_string($p['snap'] ?? null) && preg_match(PARTNER_SNAP_RE, $p['snap'])) {
+            $own = "$ds@{$p['snap']}";
+        }
+    }
+    $snaps = [];
+    if ($own !== null) {
+        [$exit, $out] = run([rspZfs(), 'list', '-H', '-o', 'name', '-t', 'snapshot', '-d', '1', $ds], 30);
+        $snaps = $exit === 0 ? array_values(array_filter(array_map(fn ($l) => explode("\t", $l)[0], explode("\n", trim($out))), fn ($n) => $n !== '' && $n !== $own)) : [];
+    }
+    $written = rspDsGet($ds, 'written');
+    $written = $written !== null && ctype_digit($written) ? (int) $written : 0;
+    if ($swapped === null && !$snaps && $written === 0) {
+        return null;
+    }
+    return ['swapped' => $swapped, 'snaps' => $snaps, 'written' => $written];
+}
+
+/**
+ * The pull's journal notes that its dataset is swapped in as the share (review 1.81.0, M3) — written before the swap's
+ * rename and never taken back: «Remove what was pulled…» must never destroy what was the share for a while
+ */
+function rspPullSwapped(array $swap): void
+{
+    $id = (string) ($swap['target']['id'] ?? '');
+    $pull = preg_match(RS_ID_PATTERN, $id) ? rsJournal($id) : null;
+    if (!$pull) {
+        rsLog($swap['id'], "  the pull's entry $id not found: its swap not noted there");
+        return;
+    }
+    if (!is_array($pull['swapped'] ?? null)) {
+        $pull['swapped'] = ['by' => (string) $swap['id'], 'time' => time()];
+        try {
+            rsJournalWrite($pull, false);
+        } catch (Throwable $e) {
+            rsLog($swap['id'], "  the pull's entry $id: its swap could not be noted (" . $e->getMessage() . ')');
+        }
+    }
 }
 
 // ===================================================================== what landed, for his other restores
@@ -1136,9 +1195,10 @@ function rspRestored(string $path): array
         }
         $cand = $p['mount'] . substr($path, strlen($p['path']));
         clearstatcache(true, $cand);
-        if (file_exists($cand)) {
+        // there, and no link on the way to it from the pull's mount (review 1.81.0, S1: the partner's stream is its word)
+        if (file_exists($cand) && !rsLinkBelow((string) $p['mount'], $cand)) {
             $out[] = ['id' => 'partner:' . $p['journal'] . ':' . $p['unit'], 'name' => $p['partner'] . ' ' . $p['snap'], 'time' => (int) ($p['time'] ?? 0),
-                      'path' => $cand, 'ours' => false, 'kopia' => true, 'partner' => $p['partner']];
+                      'path' => $cand, 'ours' => false, 'kopia' => true, 'partner' => $p['partner'], 'top' => (string) $p['mount']];
         }
     }
     return $out;
@@ -2910,6 +2970,7 @@ function rsDoSwapIn(array &$j, int $i): array
     }
     $undo = [['do' => 'swap_unsettle', 'dataset' => $do, 'to' => $dn, 'guid' => $s['guid'] ?? null, 'mountpoint' => $mp]];
     rspUndoFirst($j, $i, $undo);
+    rspPullSwapped($j);                     // the pull's own entry knows for good (M3)
     [$exit, , $err] = rsRun($j, [rspZfs(), 'rename', $dn, $do], 300);
     if ($exit !== 0) {
         return rsFail('rename_failed', ['path' => $dn], trim($err));
