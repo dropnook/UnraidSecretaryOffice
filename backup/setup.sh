@@ -1,6 +1,7 @@
 #!/bin/bash
 ###############################################################################
-# unraid-backup - setup.sh                        Version 2.84 - 2026-10-31
+# unraid-backup - setup.sh                        Version 2.85 - 2026-10-31
+#   2.85 No change here (backup.sh: a stop ends the future-files find and removes the run's files in /tmp; a run's warning keyed on its item codes)
 #   2.84 The flash's Kopia policy carries what never leaves the flash (lib/common.sh FLASH_NEVER, kopia_want_ignores flash)
 #   2.83 No change here (backup.sh: the run's notification names its coded warnings and errors)
 #   2.82 An Apply that brings back what an aborted run left says its warnings in the office's words too (lib/common.sh
