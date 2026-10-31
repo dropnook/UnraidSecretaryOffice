@@ -71,11 +71,11 @@ desk('caretaker', [
         'partner_state'  => fn (array $r) => partner_state($r),
         'partner_ping'   => fn (array $r) => caretakerPartnerDone(partner_ping($r)),
         // «Change the address…» (2026-10-23): try (a job looks), save; the page's looks at the try only read RAM — no rescan
-        'partner_address' => fn (array $r) => ($r['step'] ?? null) === 'look' ? partner_address($r) : caretakerPartnerDone(partner_address($r)),
+        'partner_address' => fn (array $r) => optText($r, 'step', 'look') === 'look' ? partner_address($r) : caretakerPartnerDone(partner_address($r)),
         'partner_line_remove' => fn (array $r) => caretakerPartnerLineRemove($r),
         // what I keep of a partner's (2026-10-28): the space changed after pairing, the door's earlier copies let go — looks only read
-        'partner_quota'        => fn (array $r) => ($r['step'] ?? 'look') === 'look' ? partner_quota($r) : caretakerPartnerDone(partner_quota($r)),
-        'partner_aside_letgo'  => fn (array $r) => ($r['step'] ?? 'look') === 'look' ? partner_aside_letgo($r) : caretakerPartnerDone(partner_aside_letgo($r)),
+        'partner_quota'        => fn (array $r) => optText($r, 'step', 'look') === 'look' ? partner_quota($r) : caretakerPartnerDone(partner_quota($r)),
+        'partner_aside_letgo'  => fn (array $r) => optText($r, 'step', 'look') === 'look' ? partner_aside_letgo($r) : caretakerPartnerDone(partner_aside_letgo($r)),
         // restore tickets (stage 3): a gone server's copies handed to a new server
         'partner_ticket_start'  => fn (array $r) => partner_ticket_start($r),
         'partner_ticket_make'   => fn (array $r) => partner_ticket_make($r),

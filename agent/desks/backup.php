@@ -78,7 +78,7 @@ desk('backup', [
         'abort'   => fn (array $r) => backupAbort(),
         'unmount' => fn (array $r) => backupUnmount(),
         'log'     => fn (array $r) => backupLog(textField($r, 'log')),
-        'setup_plan'  => fn (array $r) => backupSetupPlan(!empty($r['measure'])),
+        'setup_plan'  => fn (array $r) => backupSetupPlan(optBool($r, 'measure')),
         'setup_get'   => fn (array $r) => backupSetupGet(),
         'setup_apply' => fn (array $r) => backupSetupApply($r['decisions'] ?? null, $r['plan_time'] ?? null),
         'setup_forget' => fn (array $r) => backupSetupForget(),

@@ -42230,7 +42230,7 @@ function testRequestTypes(): void
     $level = error_reporting(E_ALL);
     $ask = fn (array $r): string => (string) (handle(json_encode($r))['error']['key'] ?? 'ok');
     $staff = TESTS_RUN_DIR . '/types-staff.json';          // the desks asked here work here (testAgentHired: when they don't)
-    file_put_contents($staff, json_encode(['hired' => ['jack' => 1, 'restore' => 1]]));
+    file_put_contents($staff, json_encode(['hired' => ['jack' => 1, 'restore' => 1, 'cleanup' => 1, 'snapshot' => 1, 'backup' => 1, 'logs' => 1]]));
     $GLOBALS['agentStaffFile'] = $staff;
     $answers = [];
     foreach (['partner_add', 'partner_ticket_start'] as $a) {
@@ -42245,6 +42245,46 @@ function testRequestTypes(): void
     same('types: jack.output / jack.log of a tool he hasn\'t — refused, never read as EmbyCache', ['unknown_target', 'unknown_target'],
         [$ask(['action' => 'jack.output', 'tool' => '../x']), $ask(['action' => 'jack.log', 'tool' => '../x'])]);
     same('types: restore.drill_set with nothing it knows — refused, not an ok that changed nothing', 'bad_request', $ask(['action' => 'restore.drill_set', 'x' => 1]));
+
+    // review 1.81.0 N9/N14: the switches of Ms. Dustdevil's, Ms. Snapshotini's, Mr. Backupsy's and Ms. Protokolli's actions
+    // are read with boolField()/optBool(), the numbers with optInt(), the Team Lead's `step` with optText() — the string
+    // "false", 1 or an array never wakes a disk, purges volumes or forces a park: refused before the handler looks at anything
+    $switches = [['cleanup.scan', 'wake', []], ['cleanup.where_scan', 'wake', []], ['cleanup.park', 'force', ['ids' => ['x']]],
+                 ['cleanup.park', 'zfs_ok', ['ids' => ['x']]], ['cleanup.purge', 'volumes', ['ids' => ['x']]], ['cleanup.purge', 'images', ['ids' => ['x']]],
+                 ['backup.setup_plan', 'measure', []],
+                 ['snapshot.create', 'recursive', ['name' => 'n1', 'targets' => ['zfs:cache/a'], 'hold' => false, 'wake' => false]],
+                 ['snapshot.create', 'hold', ['name' => 'n1', 'targets' => ['zfs:cache/a'], 'recursive' => false, 'wake' => false]]];
+    $got = [];
+    foreach ($switches as [$action, $field, $rest]) {
+        foreach (['false', 'true', 1, 0, ['x']] as $v) {
+            $got["$action $field " . json_encode($v)] = $ask(['action' => $action, $field => $v] + $rest);
+        }
+    }
+    same('types: a switch of cleanup/backup/snapshot actions as "false", "true", 1, 0 or an array — bad_request, nothing runs',
+        array_fill_keys(array_keys($got), 'bad_request'), $got);
+    $got = [];
+    foreach ([['lines', ['source' => 'syslog']], ['offset', ['source' => 'syslog', 'lines' => 100]]] as [$field, $rest]) {
+        foreach (['500', 1.5, -1, ['x'], true] as $v) {
+            $got["logs.read $field " . json_encode($v)] = $ask(['action' => 'logs.read', $field => $v] + $rest);
+        }
+    }
+    same('types: logs.read lines / offset as a string, a float, negative, an array or a bool — bad_request', array_fill_keys(array_keys($got), 'bad_request'), $got);
+    same('types: caretaker partner_quota / partner_aside_letgo / partner_address with step an array — bad_request at the router',
+        ['bad_request', 'bad_request', 'bad_request'], [$ask(['action' => 'caretaker.partner_quota', 'id' => 'x', 'step' => ['do']]),
+            $ask(['action' => 'caretaker.partner_aside_letgo', 'id' => 'x', 'step' => ['do']]), $ask(['action' => 'caretaker.partner_address', 'id' => 'x', 'step' => ['save']])]);
+    $k = function (callable $f) { try { return $f(); } catch (Problem $p) { return $p->key; } };
+    same('types: optBool() — absent or null is the default, true/false as said, anything else refused', [false, true, true, false, false, 'bad_request', 'bad_request'],
+        [optBool([], 'wake'), optBool([], 'wake', true), optBool(['wake' => true], 'wake'), optBool(['wake' => false], 'wake', true),
+         optBool(['wake' => null], 'wake'), $k(fn () => optBool(['wake' => 'false'], 'wake')), $k(fn () => optBool(['wake' => 1], 'wake'))]);
+    same('types: optInt() — absent is the default (null allowed), an int ≥ min as it is, the rest refused', [500, null, 7, 0, 'bad_request', 'bad_request', 'bad_request', 'bad_request'],
+        [optInt([], 'lines', 500, 1), optInt([], 'offset', null), optInt(['lines' => 7], 'lines', 500, 1), optInt(['offset' => 0], 'offset', null),
+         $k(fn () => optInt(['lines' => 0], 'lines', 500, 1)), $k(fn () => optInt(['lines' => '7'], 'lines', 500, 1)), $k(fn () => optInt(['lines' => 7.0], 'lines', 500, 1)),
+         $k(fn () => optInt(['lines' => [7]], 'lines', 500, 1))]);
+    foreach (['cleanup' => "/!empty\\(\\\$r\\['/", 'snapshot' => "/!empty\\(\\\$r\\['/", 'backup' => "/!empty\\(\\\$r\\['/",
+              'logs' => "/\\(int\\) \\(?\\\$r\\['(lines|offset)'/", 'caretaker' => "/\\\$r\\['step'\\] \\?\\?/"] as $desk => $re) {
+        $src = (string) file_get_contents(OFFICE_DIR . "/agent/desks/$desk.php");
+        check("types: $desk.php reads no request switch with !empty(), no number with a cast, no step raw", !preg_match($re, $src));
+    }
     unset($GLOBALS['agentStaffFile']);
     @unlink($staff);
     same('types: a text of the wrong type', ['bad_request', 'x', 'd'], [(function () { try { return optText(['a' => [1]], 'a'); } catch (Problem $p) { return $p->key; } })(),
@@ -55244,7 +55284,7 @@ function testCleanupOrphanDatasets(): void
     unset($GLOBALS['clScanStub'], $GLOBALS['clZfsStub']);
     same('orphan datasets: the page sends zfs_ok as a real boolean (never cast)', 'bad_request', $key(fn () => (function () { boolField(['zfs_ok' => 'yes'], 'zfs_ok'); })()));
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
-    check('orphan datasets: the park action reads zfs_ok with boolField()', str_contains($src, "array_key_exists('zfs_ok', \$r) && boolField(\$r, 'zfs_ok')"));
+    check('orphan datasets: the park action reads zfs_ok with optBool() (review 1.81.0 N9: said or absent, never "false")', str_contains($src, "optBool(\$r, 'force'), optBool(\$r, 'zfs_ok')"));
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
     check('orphan datasets: the page asks for the preview and sends the tick', str_contains($js, '.zfs_preview`') && str_contains($js, 'zfs_ok: !!(zfsOk && zfsOk.checked)'));
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/cleanup/lang/en.json'), true);

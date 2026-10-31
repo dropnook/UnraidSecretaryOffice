@@ -1612,8 +1612,8 @@ function snapshotCreate(array $r): array
     $name = textField($r, 'name');
     snapshotCheckName($name);
     $targets = idList($r, 'targets');
-    $recursive = !empty($r['recursive']);
-    $hold = !empty($r['hold']);
+    $recursive = optBool($r, 'recursive');       // absent: no (the dialog says both); the string "false" refused (review 1.81.0 N9)
+    $hold = optBool($r, 'hold');
     $wake = boolField($r, 'wake');                // a target on a sleeping pool: listed fresh first (the page and the plans say so)
 
     $state = snapshotScan(false, $wake);

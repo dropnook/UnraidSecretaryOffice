@@ -111,6 +111,39 @@ function boolField(array $request, string $field): bool
 }
 
 /**
+ * An optional switch of a request (`wake`, `force`, `volumes` …): absent or null → $default, true or false as said —
+ * anything else (the string "false", 1, an array) is refused (bad_request), never read as on or off (review 1.81.0 N9:
+ * `!empty($r['wake'])` would wake disks on "false", `!empty($r['volumes'])` purge volumes).
+ */
+function optBool(array $request, string $field, bool $default = false): bool
+{
+    $value = $request[$field] ?? null;
+    if ($value === null) {
+        return $default;
+    }
+    if (!is_bool($value)) {
+        throw new Problem('bad_request');
+    }
+    return $value;
+}
+
+/**
+ * An optional whole number of a request (`lines`, `offset`): absent or null → $default, an int ≥ $min as it is — a
+ * string, a float or an array is refused (bad_request), never cast (review 1.81.0 N9: `(int) ($r['lines'] ?? 500)`).
+ */
+function optInt(array $request, string $field, ?int $default, int $min = 0): ?int
+{
+    $value = $request[$field] ?? null;
+    if ($value === null) {
+        return $default;
+    }
+    if (!is_int($value) || $value < $min) {
+        throw new Problem('bad_request');
+    }
+    return $value;
+}
+
+/**
  * A schedule from a request (`cron`): a cron line, or «off» said explicitly — null, false or "" (QA 2026-10-08,
  * finding 5: `{}` or `{"cron":[1]}` switched the nightly backup off). A missing key or anything else: bad_request.
  * The line itself is checked where it is set (officeJobSetSchedule(): bad_cron).
