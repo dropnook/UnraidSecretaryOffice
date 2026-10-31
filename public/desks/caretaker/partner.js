@@ -650,7 +650,7 @@ function asideLine(x, now) {
 
 /** «Let go…»: the copies looked up anew (one zfs list), named with their size; only those go */
 async function asideDialog(card) {
-  await Office.freshState(ID);
+  if (!(await Office.freshState(ID))) return;
   const j = await Office.api.post(`${ID}.partner_aside_letgo`, { id: card.id, step: 'look' });
   if (!took(j)) return;
   if (!(j.list || []).length) { Office.toast(T('partner.aside_none', { name: card.name })); if (ctx) ctx.reload(); return; }
@@ -675,7 +675,7 @@ async function asideDialog(card) {
 
 /** «Change the space…»: the quota after pairing — the same bounds as at «Accept a partner…»; lower than what is kept is said */
 async function spaceDialog(card) {
-  await Office.freshState(ID);
+  if (!(await Office.freshState(ID))) return;
   const j = await Office.api.post(`${ID}.partner_quota`, { id: card.id, step: 'look' });
   if (!took(j)) return;
   const box = el('div');
@@ -748,7 +748,7 @@ function switchHint(x) {
 
 async function addressDialog(card) {
   // as things are now: his state looked at again, the pair taken anew by its id (gone meanwhile: said)
-  await Office.freshState(ID);
+  if (!(await Office.freshState(ID))) return;
   const fresh = await Office.api.post(`${ID}.partner_address`, { id: card.id, step: 'look' });
   if (!took(fresh)) return;
   const x = ((fresh.partners || {}).pairs || []).find((p) => p.id === card.id);

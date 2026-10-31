@@ -33781,6 +33781,8 @@ function testPartnerPairing(): void
     // the strings partner.js asks for (desk.js's are checked by testStrings)
     $en = langFile(OFFICE_DIR . '/public/desks/caretaker/lang/en.json');
     $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/partner.js');
+    check('caretaker/partner.js: every dialog returns when the fresh look fails (review 1.81.0 N15: «Let go…», «Change the space…» went on)',
+        !preg_match('/^\s*await Office\.freshState\(ID\);\s*$/m', $js) && substr_count($js, 'if (!(await Office.freshState(ID))) return;') >= 3);
     preg_match_all("/(?<![.\\w])T\\(\\s*'([a-z0-9_.]+)'\\s*[,)]/", $js, $m);
     preg_match_all("/'(partner\\.[a-z0-9_.]+)'/", $js, $m2);
     $keys = array_unique(array_merge($m[1], $m2[1]));
