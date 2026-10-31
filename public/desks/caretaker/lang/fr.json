@@ -370,6 +370,7 @@
   "partner.aside_none": "Plus aucune copie précédente de {name} n'est mise de côté.",
   "partner.aside_kept_transfer": "{unit} : une copie en arrive en ce moment — gardée ; réessaie ensuite.",
   "partner.aside_kept_zfs": "{unit} : ZFS ne l'a pas supprimée — le journal de la porte dit pourquoi.",
+  "partner.aside_kept_shape": "{unit} : cette copie ne ressemble pas à une copie gardée par la porte (un clone, ou aucun snapshot de sauvegarde dedans) — conservée ; le journal de la porte en dit plus.",
   "partner.their_full": "{name} refuse les nouvelles copies : la place là-bas pour {host} est pleine. Les copies déjà là-bas restent — chez {name}, le quota peut être relevé ou de la place libérée.",
   "partner.their_full_aside": "Dont {size} de copies précédentes mises de côté là-bas — le chef d'équipe de {name} peut les supprimer (« Supprimer… » sur la carte de {host}).",
   "partner.nothing": "rien",

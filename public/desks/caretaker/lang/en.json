@@ -370,6 +370,7 @@
   "partner.aside_none": "No earlier copies of {name} are kept aside any more.",
   "partner.aside_kept_transfer": "{unit}: a copy of it is arriving right now — kept; try again afterwards.",
   "partner.aside_kept_zfs": "{unit}: ZFS didn't let it go — the door's log says why.",
+  "partner.aside_kept_shape": "{unit}: this copy doesn't look like one the door kept (a clone, or no backup snapshot inside) — kept; the door's log says more.",
   "partner.their_full": "{name} refuses new copies: the space there for {host} is full. The copies already there stay — at {name} the quota can be raised or space freed.",
   "partner.their_full_aside": "{size} of it are earlier copies kept aside there — the Team Lead of {name} can let them go («Let go…» on the card of {host}).",
   "partner.nothing": "nothing",

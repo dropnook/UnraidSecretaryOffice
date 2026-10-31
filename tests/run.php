@@ -32956,6 +32956,7 @@ switch ($cmd) {
                 'referenced' => $snap ? $st['snaps'][$target]['used'] : $used($target),
                 'mountpoint' => $st['ds'][$target]['mountpoint'] ?? '-',
                 'guid' => $st['ds'][$target]['guid'] ?? (string) abs(crc32($target)),
+                'origin' => $st['ds'][$target]['origin'] ?? '-',
                 default => '-',
             };
             echo ($f['-o'] ?? '') === 'value' ? "$v\n" : "$p\t$v\n";
@@ -34126,6 +34127,32 @@ function testPartnerAside(): void
         [$r['gone'] ?? null, $r['kept'] ?? null, isset($zfs()['ds'][$old2])]);
     flock($hold, LOCK_UN);
     fclose($hold);
+    // code review 1.81.0 S5 - the one real delete: besides its name the dataset must look like a door copy to ZFS - no clone
+    // (origin -), a snapshot of the engine's shape inside; a clone named like one and an emptied one are kept and said
+    $st = $zfs();
+    $clone = "$ds.old-20261001-0100";
+    $bare = "$ds.old-20261002-0100";
+    $st['ds'][$clone] = ['used' => 300, 'props' => [], 'origin' => "$P/$other/share-appdata@uso-backup-20261009-0100"];
+    $st['snaps']["$clone@uso-backup-20261001-0100"] = ['userrefs' => 0, 'used' => 300, 'written' => 300, 'creation' => 1];
+    $st['ds'][$bare] = ['used' => 0, 'props' => []];
+    file_put_contents("$B[bin]/zfs.json", json_encode($st));
+    partnerTestCalls($B['bin']);
+    $r = $go(['id' => $id, 'step' => 'do', 'confirm' => true, 'datasets' => [$clone, $bare]]);
+    same('let go S5: a clone named like a door copy, and one without a snapshot of the engine\'s shape - kept, said (shape), nothing destroyed, both still there',
+        [0, [['dataset' => $clone, 'unit' => 'share:appdata', 'why' => 'shape'], ['dataset' => $bare, 'unit' => 'share:appdata', 'why' => 'shape']], [], true, true],
+        [$r['gone'] ?? null, $r['kept'] ?? null, array_values(array_filter(partnerTestCalls($B['bin']), fn ($c) => ($c[1] ?? '') === 'destroy')), isset($zfs()['ds'][$clone]), isset($zfs()['ds'][$bare])]);
+    $door = (string) @file_get_contents("$B[data]/partner/door.log");
+    same('let go S5: … why, in the door\'s log; the dialog\'s words for it in all five languages', [true, true, [true, true, true, true, true]],
+        [str_contains($door, "let go: $clone kept - a clone of $P/$other/share-appdata@uso-backup-20261009-0100"), str_contains($door, "let go: $bare kept - no snapshot of the engine's shape inside"),
+         array_map(fn ($l) => str_contains((string) (langFile(OFFICE_WEB . "/desks/caretaker/lang/$l.json")['partner.aside_kept_shape'] ?? ''), '{unit}'), ['en', 'de', 'fr', 'it', 'es'])]);
+    same('let go S5: the look lists them like the door\'s (the name decides there) - the let-go decides on ZFS\'s word', [$clone, $bare, $old2], array_column($go(['id' => $id])['list'] ?? [], 'dataset'));
+    check('let go S5: the one real delete is named as such where the rules say «nothing destroyed»',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/CLAUDE.md'), 'nothing destroyed — the one exception is the')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/HARDENING.md'), 'This is the one real delete among the partner offices')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/docs/DEVELOPMENT.md'), 'never destroyed by the door (only the')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/public/desks/caretaker/partner.js'), "['transfer', 'shape'].includes(k.why)"));
+    unset($st['ds'][$clone], $st['ds'][$bare], $st['snaps']["$clone@uso-backup-20261001-0100"]);
+    file_put_contents("$B[bin]/zfs.json", json_encode($st));
     same('let go: one gone meanwhile — said', 'partner_aside_gone', $go(['id' => $id, 'step' => 'do', 'confirm' => true, 'datasets' => [$old1]])['problem'] ?? null);
     partnerTestCalls($B['bin']);
     same('let go: the pool asleep — refused, nothing destroyed', ['partner_aside_asleep', []],

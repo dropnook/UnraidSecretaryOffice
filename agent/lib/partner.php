@@ -2956,10 +2956,13 @@ function partner_quota(array $r): array
  * «Let go…» of the door's earlier copies of a pair (partnerAside(): <pair>/<unit>.old-<time>, kept aside by a full
  * stream — never destroyed by the door, they fill the pair's quota). look {id}: them and their size. do {id, datasets,
  * confirm: true}: each one named that is still exactly one of them (looked up again; a unit, another pair's, anything
- * else: never) and whose unit no receive holds right now (the door's lock of that unit — a full receive that fails puts
+ * else: never), that ZFS shows as a door copy too (no clone — origin «-» —, a snapshot of the engine's shape inside; else
+ * kept, why shape) and whose unit no receive holds right now (the door's lock of that unit — a full receive that fails puts
  * its copy back) is destroyed with what lies in it: its snapshots into deletes.jsonl first (the night watchman's record
  * of what the door's side destroyed), then `zfs destroy -r` of exactly that dataset (never -R: a clone of it elsewhere
- * makes zfs say no, and it stays). Never while its pool sleeps. {ok, gone, kept: [{dataset, unit, why}], bytes}.
+ * makes zfs say no, and it stays). Never while its pool sleeps. {ok, gone, kept: [{dataset, unit, why}], bytes}. The one real
+ * delete among the partner offices (CLAUDE.md «nothing destroyed», HARDENING.md): confirmed, said as for good, no storeroom
+ * - the copies lie inside the pair's quota and letting them go is what frees it.
  */
 function partner_aside_letgo(array $r): array
 {
@@ -3000,6 +3003,17 @@ function partner_aside_letgo(array $r): array
             if (str_starts_with($row[0], "$ds@") && preg_match(PARTNER_SNAP_RE, substr($row[0], strlen($ds) + 1))) {
                 $snaps[] = substr($row[0], strlen($ds) + 1);
             }
+        }
+        // code review 1.81.0 (S5): the one real delete among the partner offices - so ZFS must say «a door copy» too, not
+        // only the name: no clone of anything (origin -) and at least one snapshot of the engine's shape inside, which
+        // every received stream brings; a dataset without one didn't come through the door (or was emptied by hand): kept
+        [$ex, $origin] = run([$zfs, 'get', '-H', '-p', '-o', 'value', 'origin', $ds], 60);
+        if ($ex !== 0 || trim((string) $origin) !== '-' || !$snaps) {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+            $kept[] = ['dataset' => $ds, 'unit' => $a['unit'], 'why' => 'shape'];
+            partnerDoorLogLine($id, "let go: $ds kept - " . ($ex !== 0 ? 'zfs get origin failed' : (trim((string) $origin) !== '-' ? 'a clone of ' . trim((string) $origin) : 'no snapshot of the engine\'s shape inside')));
+            continue;
         }
         if ($snaps) {
             partnerAppend(partnerDir() . '/deletes.jsonl', jsonEncode(['t' => time(), 'pair' => $id, 'dataset' => $ds, 'snaps' => $snaps]) . "\n");

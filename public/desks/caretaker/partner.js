@@ -667,7 +667,7 @@ async function asideDialog(card) {
       const r = await Office.api.post(`${ID}.partner_aside_letgo`, { id: card.id, step: 'do', confirm: true, datasets: j.list.map((a) => a.dataset) });
       if (!took(r)) return false;
       if (r.gone) Office.toast(T('partner.aside_done', { n: r.gone, size: fmt.size(r.bytes) }));
-      (r.kept || []).forEach((k) => Office.toast(T('partner.aside_kept_' + (k.why === 'transfer' ? 'transfer' : 'zfs'), { unit: unitText(k.unit) }), true));
+      (r.kept || []).forEach((k) => Office.toast(T('partner.aside_kept_' + (['transfer', 'shape'].includes(k.why) ? k.why : 'zfs'), { unit: unitText(k.unit) }), true));
       return true;
     } }],
   });

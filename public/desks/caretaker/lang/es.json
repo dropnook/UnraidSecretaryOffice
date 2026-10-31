@@ -370,6 +370,7 @@
   "partner.aside_none": "Ya no hay copias anteriores de {name} apartadas.",
   "partner.aside_kept_transfer": "{unit}: está llegando una copia ahora mismo — se queda; inténtalo después.",
   "partner.aside_kept_zfs": "{unit}: ZFS no la quitó — el registro de la puerta dice por qué.",
+  "partner.aside_kept_shape": "{unit}: esta copia no parece una guardada por la puerta (un clon, o ninguna instantánea de copia dentro) — se queda; el registro de la puerta dice más.",
   "partner.their_full": "{name} rechaza copias nuevas: el espacio allí para {host} está lleno. Las copias que ya están allí se quedan — en {name} se puede subir el límite o liberar espacio.",
   "partner.their_full_aside": "De ello, {size} son copias anteriores apartadas allí — el jefe de equipo de {name} puede quitarlas («Quitar…» en la tarjeta de {host}).",
   "partner.nothing": "nada",

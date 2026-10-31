@@ -185,7 +185,8 @@ only through shared libraries (`backupProtection()`, `finding()`, `partnerlook.p
   `drillContainerArgs()` + `drillArgsSafe()`.
 * **`caretaker` the Team Lead:** hires/fires, collects checks; «I know, thanks» never for musts; he only pairs partners.
 * **Partner offices:** only `uso-partner:`/`uso-ticket:` lines in authorized_keys are touched; the door receives with
-  `zfs recv -s -u`, never `-F`; several units of a pair at once, never one unit twice; nothing destroyed.
+  `zfs recv -s -u`, never `-F`; several units of a pair at once, never one unit twice; nothing destroyed — the one exception is the
+  Team Lead's confirmed «Let go…» of the door's own earlier copies (`<unit>.old-<stamp>`, name and ZFS shape checked; HARDENING.md).
 * **USO network** (the office's own Tailscale node, agent/lib/usonet.php, scripts/usonet.sh): only the network underneath —
   the pairing unchanged, the partner code asks only `usonetWrap()`/`usonet_peer`; nothing of the host's network, the user's
   Tailscale or Unraid's sshd touched; the helper pinned by SHA-256; the auth key a secret; leave/remove leaves nothing.

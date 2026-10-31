@@ -370,6 +370,7 @@
   "partner.aside_none": "Von {name} liegen keine früheren Kopien mehr beiseite.",
   "partner.aside_kept_transfer": "{unit}: Gerade kommt eine Kopie davon an — sie bleibt; versuch es danach noch einmal.",
   "partner.aside_kept_zfs": "{unit}: ZFS hat sie nicht entfernt — das Protokoll der Tür sagt, warum.",
+  "partner.aside_kept_shape": "{unit}: Diese Kopie sieht nicht aus wie eine, die die Tür aufbewahrt hat (ein Klon, oder kein Backup-Snapshot darin) — bleibt; das Protokoll der Tür sagt mehr.",
   "partner.their_full": "{name} lehnt neue Kopien ab: Der Platz dort für {host} ist voll. Die Kopien, die schon dort sind, bleiben — bei {name} lässt sich die Obergrenze erhöhen oder Platz schaffen.",
   "partner.their_full_aside": "Davon sind {size} frühere, beiseitegelegte Kopien — der Teamchef von {name} kann sie entfernen («Entfernen…» auf der Karte von {host}).",
   "partner.nothing": "nichts",
