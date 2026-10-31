@@ -490,48 +490,65 @@ flow_rs_files() {
     _rs_compare "$(fl_last_restore)"
     return 0
 }
-# _rs_compare <journal id>: one line of $KEEP/compare.tsv — id, the moment's folder, the target, ok | the difference
+# _rs_compare <journal id>: one line of $KEEP/compare.tsv per copy out of a moment in its plan — id, the moment's
+# folder(s), the target, ok | the difference. A share on several parts copies from each part's moment at once (the step's
+# `sources`, from «a + b»): the target is their union — an entry only in the target is fine when another part holds it.
+# diff quotes a name with a control character ('t'$'\t''ab'): such a line is never matched, so it stays red, never let by
 _rs_compare() {
-    local id=$1 plan_f=$D/restore/$1/plan.json pair src dst d res=ok
-    pair=$(jq -r '([.steps[]? | select(.do == "copy" and ((.from // "") | test("/[.]zfs/snapshot(/|$)|[.]btrfs-snap|/snapshots/")))])[0] as $c
-        | if $c == null then empty else
-            ([.steps[]? | select(.do == "move" and .from == $c.to) | .to][0] // $c.to) as $to | "\($c.from)\t\($to)" end' "$plan_f" 2>/dev/null)
-    [[ -n $pair ]] || { say "INV-COMPARE: no copy out of a moment in $id's plan"; return 0; }
-    IFS=$'\t' read -r src dst <<<"$pair"
-    local t0 out line f late=0
-    if [[ ! -e $src ]]; then res="the moment's $src is gone"
-    elif [[ ! -e $dst ]]; then res="$dst isn't there"
-    else
-        # the restore's copy keeps the moment's file times (rsync -a): a file newer than the job's start (its id's stamp,
-        # the server's time) was written after it — the app the restore started again at work (Emby's library.db and
-        # its -shm within the second, Tower 2026-10-30): said, not red; a file missing or older and different is red.
-        # When the restore started an app again (a `start` step), a file whose inode changed after the copy's second
-        # is the app's too (Emby renames its old log at start: the moment's time, a new name). A file only in the
-        # target the copy never made — the app's rename, even in the copy's last second (the copy ended and Emby
-        # renamed within one second: Tower, release 1.81.0's third try, 2026-10-31); a file that differs in that
-        # second is still judged (the copy wrote it then).
-        t0=$(date -d "${id:0:8} ${id:9:2}:${id:11:2}:${id:13:2}" +%s 2>/dev/null) || t0=0
-        local jr=$D/restore/$id/journal.json tc=0 only c
-        jq -e 'any(.steps[]?; .do == "start")' "$jr" >/dev/null 2>&1 \
-            && tc=$(jq -r '[.steps[]? | select(.do == "copy") | .finished // 0][0] // 0' "$jr" 2>/dev/null)
-        [[ $tc =~ ^[0-9]+$ ]] || tc=0
-        out=$(diff -rq --no-dereference "$src" "$dst" 2>&1)
-        d=''
-        while IFS= read -r line; do
-            [[ -n $line ]] || continue
-            f='' only=0
-            if [[ $line =~ ^Files\ .+\ and\ (.+)\ differ$ ]]; then f=${BASH_REMATCH[1]}
-            elif [[ $line =~ ^Only\ in\ (.+):\ (.+)$ && ${BASH_REMATCH[1]} == "$dst"* ]]; then f=${BASH_REMATCH[1]}/${BASH_REMATCH[2]}; only=1; fi
-            c=0; [[ -n $f ]] && c=$(stat -c %Z "$f" 2>/dev/null || echo 0)
-            if [[ -n $f ]] && { { ((t0 > 0)) && (($(stat -c %Y "$f" 2>/dev/null || echo 0) >= t0)); } \
-                || { ((tc > 0)) && { ((c > tc)) || { ((only)) && ((c == tc)); }; }; }; }; then late=$((late + 1)); continue; fi
-            d+=${d:+$'\n'}$line
-        done <<<"$out"
+    local id=$1 plan_f=$D/restore/$1/plan.json pairs line t0 tc=0 jr=$D/restore/$1/journal.json
+    pairs=$(jq -c '[.steps[]?] as $s | $s[] | select(.do == "copy" and ((.from // "") | test("/[.]zfs/snapshot(/|$)|[.]btrfs-snap|/snapshots/"))) as $c
+        | {srcs: ($c.sources // [$c.from]), dst: ([$s[] | select(.do == "move" and .from == $c.to) | .to][0] // $c.to)}' "$plan_f" 2>/dev/null)
+    [[ -n $pairs ]] || { say "INV-COMPARE: no copy out of a moment in $id's plan"; return 0; }
+    # the restore's copy keeps the moment's file times (rsync -a): a file newer than the job's start (its id's stamp,
+    # the server's time) was written after it — the app the restore started again at work (Emby's library.db and
+    # its -shm within the second, Tower 2026-10-30): said, not red; a file missing or older and different is red.
+    # When the restore started an app again (a `start` step), a file whose inode changed after the copy's second
+    # is the app's too (Emby renames its old log at start: the moment's time, a new name). A file only in the
+    # target the copy never made — the app's rename, even in the copy's last second (the copy ended and Emby
+    # renamed within one second: Tower, release 1.81.0's third try, 2026-10-31); a file that differs in that
+    # second is still judged (the copy wrote it then).
+    t0=$(date -d "${id:0:8} ${id:9:2}:${id:11:2}:${id:13:2}" +%s 2>/dev/null) || t0=0
+    jq -e 'any(.steps[]?; .do == "start")' "$jr" >/dev/null 2>&1 \
+        && tc=$(jq -r '[.steps[]? | select(.do == "copy") | .finished // 0][0] // 0' "$jr" 2>/dev/null)
+    [[ $tc =~ ^[0-9]+$ ]] || tc=0
+    while IFS= read -r line; do
+        [[ -n $line ]] && _rs_compare_one "$id" "$t0" "$tc" "$line"
+    done <<<"$pairs"
+}
+# _rs_compare_one <id> <t0> <tc> <{srcs, dst}>: one target against its moment's folder(s)
+_rs_compare_one() {
+    local id=$1 t0=$2 tc=$3 srcs dst src o res=ok out line f rel d='' late=0 elsewhere only c
+    mapfile -t srcs < <(jq -r '.srcs[]' <<<"$4")
+    dst=$(jq -r '.dst' <<<"$4")
+    for src in "${srcs[@]}"; do [[ -e $src ]] || res="the moment's $src is gone"; done
+    [[ $res == ok && ! -e $dst ]] && res="$dst isn't there"
+    if [[ $res == ok ]]; then
+        for src in "${srcs[@]}"; do
+            out=$(diff -rq --no-dereference "$src" "$dst" 2>&1)
+            while IFS= read -r line; do
+                [[ -n $line ]] || continue
+                f='' only=0
+                if [[ $line =~ ^Files\ .+\ and\ (.+)\ differ$ ]]; then f=${BASH_REMATCH[1]}
+                elif [[ $line =~ ^Only\ in\ (.+):\ (.+)$ && ${BASH_REMATCH[1]} == "$dst"* ]]; then
+                    f=${BASH_REMATCH[1]}/${BASH_REMATCH[2]} only=1
+                    # only in the target: another part's moment holds it (the union)
+                    rel=${f#"$dst"} elsewhere=0
+                    for o in "${srcs[@]}"; do [[ $o != "$src" && -e $o$rel ]] && elsewhere=1; done
+                    ((elsewhere)) && continue
+                fi
+                c=0; [[ -n $f ]] && c=$(stat -c %Z "$f" 2>/dev/null || echo 0)
+                if [[ -n $f ]] && { { ((t0 > 0)) && (($(stat -c %Y "$f" 2>/dev/null || echo 0) >= t0)); } \
+                    || { ((tc > 0)) && { ((c > tc)) || { ((only)) && ((c == tc)); }; }; }; }; then late=$((late + 1)); continue; fi
+                d+=${d:+$'\n'}$line
+            done <<<"$out"
+        done
         d=$(head -2 <<<"$d")
         [[ -n $d ]] && res=${d//$'\n'/; }
-        [[ $(stat -c '%U:%G %a' "$src") == "$(stat -c '%U:%G %a' "$dst")" ]] || res+="; owner/mode $(stat -c '%U:%G %a' "$dst") ≠ $(stat -c '%U:%G %a' "$src")"
+        [[ $(stat -c '%U:%G %a' "${srcs[0]}") == "$(stat -c '%U:%G %a' "$dst")" ]] || res+="; owner/mode $(stat -c '%U:%G %a' "$dst") ≠ $(stat -c '%U:%G %a' "${srcs[0]}")"
     fi
-    printf '%s\t%s\t%s\t%s\n' "$id" "$src" "$dst" "$res" >>"$KEEP/compare.tsv"
+    src=$(printf '%s + ' "${srcs[@]}"); src=${src% + }
+    # one line per target: a tab in a name would split compare.tsv's fields
+    printf '%s\t%s\t%s\t%s\n' "$id" "${src//$'\t'/\\t}" "${dst//$'\t'/\\t}" "${res//$'\t'/\\t}" >>"$KEEP/compare.tsv"
     say "INV-COMPARE $id: $dst vs $src — $res$( ((late)) && echo " ($late file(s) written after the restore began — the app at work again, not judged)")"
 }
 flow_rs_files_beside() { flow_rs_files mode=beside "$@"; }

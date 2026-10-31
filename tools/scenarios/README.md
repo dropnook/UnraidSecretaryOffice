@@ -939,3 +939,62 @@ Tool fixes of the round, each its own commit:
   nightly shows them.
 - **INV-TRUTH on btrfs:** the engine names its btrfs moments by the stamp alone (`.btrfs-snap/YYYYMMDD-HHMM`), and
   truth-facts.php looked for the ZFS prefix.
+
+## Wave 4b — the restore desk under INV-COMPARE (restore-rerun, 2026-10-30/31)
+
+Every restore scenario on Tower again, now that INV-COMPARE compares (task/restore-rerun; findings: W4-2 in
+`resilienz/wave4/findings.md`). The tree is dev-synced each time: 30.10. office 1.79.0 (`…/2026-10-30/tower-restore-rerun-1432`,
+`-1508`) and 1.80.0 (`…/2026-10-30/tower-restore-rerun`); 31.10. office 1.81.0 (`…/2026-10-31/tower-restore-rerun-0810`, `-0847`,
+`-0912`, and the last run in `…/tower-restore-rerun`).
+
+| Cell | Scenario | Verdict (latest) | Time | Run |
+|---|---|---|---|---|
+| R1 | `restore-sh-names-files` | green (T 30.10.), INV-COMPARE on each of its 23 restores | 180 s | -1508 |
+| R2 | `restore-sh-open-file-replace` | green (T 30.10.) | 156 s | -1432 |
+| R3 | `restore-rn-changes-between-putback` | green (T 30.10.) | 56 s | -1508 |
+| R5 | `restore-rn-array-stop-midrun-rs-files` | **red** W4-2 (INV-BUBBLE: «I'm restoring» after the job's own file says failed); its cells green (T 30.10.) | 172 s | -1432 |
+| R5 | `restore-rn-array-stop-midrun-drill-drill` | green (T 30.10.) | 158 s | -1508 |
+| R6 | `restore-ct-image-gone-drill` | green (T 31.10.) | 72 s | -0847 |
+| R7 | `restore-vm-gone-vm-drill` | green (T 31.10.) | 96 s | -0847 |
+| R8 | `restore-sh-renamed-files` | green (T 30.10.) | 146 s | -1508 |
+| R9 | `restore-dk-pool-full-files-drill` | green (T 30.10.) | 88 s | -1432 |
+| R10 | `restore-dk-asleep-disk2-scan-files` | skipped: needs hdd (T 31.10.) | 2 s | last |
+| R11 | `restore-ct-stopped-db-db` | green (T 31.10.) | 82 s | -0847 |
+| R12 | `restore-ct-stopped-nc-db-files` | green (T 30.10.), 7 compared | 88 s | -1508 |
+| R13 | `restore-ct-recreated-config-drill` | green (T 31.10.); before that a timeout (kernel hang) and drill_parity (below) | 96 s | -0912 |
+| R13 | `restore-ct-renamed-config-drill` | green (T 31.10.); 30.10. a timeout (kernel hang) | 142 s | -0912 |
+| R14 | `restore-st-stack-config-drill` | green (T 31.10.) | 122 s | -0912 |
+| R15 | `restore-sh-exclusive-replace` | green (T 30.10.) | 168 s | -1432 |
+| R16 | `restore-sh-multi-disk-files` | green (T 30.10.), red before the sources fix below | 160 s | -1508 |
+| R18 | `restore-kp-disconnected-kopia-drill` | green (T 31.10.) | 74 s | -0847 |
+| R18 | `restore-kp-s3-unreachable-kopia-drill` | green (T 31.10.) | 90 s | -0847 |
+| R20 | `restore-rn-two-runs-files-drill` | green (T 30.10.) | 204 s | -1432 |
+| R20 | `restore-rn-parity-check-drill` | green (T 30.10.) | 52 s | -1508 |
+| R21 | `restore-sh-100k-scan-files` | green (T 30.10.) | 291 s | -1508 |
+| R23 | `restore-sv-docker-off-scan-drill` | green (T 31.10.) | 70 s | -0912 |
+| R24 | `restore-in-update-prev-journal-scan` | green (T 31.10.) | 140 s | -0912 |
+| H-8 | `restore-vm-overlay-nolist-h-vm` | green (T 31.10.) | 42 s | last |
+| H5 | `office-flows-selftest` (the bonus: RS-FILES beside, INV-COMPARE ok) | timeout (kernel hang) in its closing INV-DRILL-GREEN drill (T 31.10.); every check before it green | 1623 s | last |
+
+Not run: R4's power-cut halves (no `--powercut`), R17 (needs test3, W4-1 there), R19 `restore-pt-pulled-partner-restart`
+(it sends to USOPartner, the canary), R22 `restore-tm-drill-sched` (it sets the clock to 2026-11-08, past Tower's limit).
+
+**Tower's kernel hang (environment, not the office):** Unraid 7.4.0-rc.2 (kernel 6.18.58) panicked three times in a
+drill's `access()` on a `.zfs/snapshot` path (`VERIFY(avl_find(...) == NULL)`, `avl_add` ← `zfsctl_snapshot_mount`):
+R13 renamed (30.10. 19:33), R13 recreated (31.10. 08:11), and the selftest's INV-DRILL-GREEN drill (31.10. 09:42).
+The mechanism: every look into `.zfs/snapshot/<name>/…` automounts that snapshot, and ZFS unmounts it again after
+300 s through its taskq. Under an hour of scenarios that expiry unmount falls behind (`zfsctl_snapshot_unmount` threads
+in D; 257–941 automounts mounted, mostly cache/UnraidSecretaryOffice and cache/uso-only). A drill that re-mounts a
+snapshot whose expiry is still pending adds it to ZFS's tree a second time, and the kernel panics (OpenZFS on Unraid
+7.4.0-rc.2). After a fresh boot nothing is pending. The job's php then stays in D holding the engine's lock, so the scenario times out and the base reset refuses
+until a reboot. After a fresh boot every drill passed. One R13 recreated run read `drill_parity` (red RS-DRILL): Unraid's
+parity check after the VM reset was still running, and his refusal was right. Since f359f90e, base.sh refuses at once when
+a process is stuck at spl_panic.
+
+Tool fixes of the round, each its own commit:
+- **INV-COMPARE on a share on several parts:** a copy step out of a moment carries `sources` (one per part, «a + b»).
+  `_rs_compare` read the step's `from` as one path, so it found no moment («the moment's a + b is gone»). It now compares
+  every such step, with the target against the union of its sources: an entry only in the target is fine when another
+  part's moment holds it. Owner and mode are judged against the first source.
+- **INV-COMPARE in `restore-sh-names-files`:** it called `_rs_go` directly, so nothing was compared (n/a). Now each of its
+  restores is compared.
