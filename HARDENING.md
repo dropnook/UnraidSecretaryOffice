@@ -101,6 +101,8 @@ is no longer read (the agent says so once in its log).
   disks, migrations `pool-x`/`jack-id` idempotent; the engine's retention names, partner send, containers/VMs back after
   a stop, packages never half, one run at a time, no `--safety=none`.
 
+- **A path in a notification** (1.81.0 N7, checked 2026-10-31 on Unraid 7.3.4): `warn_code.future_files` puts a file's relative path (any SMB writer's choice; control characters stripped) into the run's notification. Unraid shows a description as text in its critical pop-up (Vue), through `marked` + DOMPurify in the notification sidebar (a file name can make bold text or a link there — Markdown, never a script), and as plain text in the mail (`<br>` → `. `); its push agents get it as an argument. Not changed: stripping `<>&"` would not close the Markdown link either and would show a wrong path in the mail.
+
 ## The checks
 
 Every surface above and the test that proves it (`php tests/run.php <test>`; `hardening` runs the core ones). A surface

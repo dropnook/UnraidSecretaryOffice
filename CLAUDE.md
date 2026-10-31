@@ -62,7 +62,7 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   `<place>/flash/flash.tar.gz`, no link — HARDENING.md).
 * **Agent safety:** commands via `run()`/`runAll()` (array form, no shell). Every action re-reads current state and validates
   ids against it. Errors: `throw new Problem('key', [...])` → UI `errors.<key>`. **Request fields are read, never cast:**
-  `textField()`, `optText()`, `idList()`, `boolField()`, `cronField()` (web: `apiText()`) — never `(string) ($r['x'] ?? '')`; a
+  `textField()`, `optText()`, `idList()`, `boolField()`, `optBool()`, `optInt()`, `cronField()` (web: `apiText()`) — never `(string) ($r['x'] ?? '')`; a
   missing key or wrong type never turns a setting «off». Agent runs `E_ALL`. `testRequestTypes`, `testStrictSettings`.
   **Deadlines and waits on the monotonic clock** (`hrtime(true)`), never `microtime()`/`time()`: a step of the wall clock
   (NTP after a boot, a clock set back) must never end a wait early or stretch it (1.81.0: `runAll()` killed a Kopia count).
