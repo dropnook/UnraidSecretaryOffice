@@ -3485,6 +3485,8 @@ function testJackProgress(): void
         $wtick();
         same("watching: $what — nothing on the panel", [[], $looks[$i]['state']], [jackProgressState(['running' => true, 'mode' => 'run'], $paths, $clock)['watching'], jackWatchRead($paths['watching'])['state']]);
     }
+    check('watching: the tickers\' own clock is the monotonic one (review 1.81.0, N10)', substr_count((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-progress.php'),
+        '$now ??= fn (): int => (int) (hrtime(true) / 1e9);') === 2 && !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-progress.php'), 'fn (): int => time()'));
     same('watching: a dry run — no look shown', [], jackProgressState(['running' => true, 'mode' => 'dry'], $paths, $clock)['watching']);
     file_put_contents($paths['watching'], json_encode(['v' => 1, 'time' => 1, 'who' => [['user' => 'x', 'title' => 'y', 'server' => 'z', 'since' => 'soon'], 'q']]));
     same('watching: a session not in its shape left out', [], jackWatchView(jackWatchRead($paths['watching'])));
