@@ -5053,12 +5053,12 @@ UB_ITEMS_DESC=""; UB_ITEMS_LINES=""
 NTEXT=""; [[ -n "$UB_ITEMS_DESC" ]] && NTEXT="_items"
 if (( ERRORS > 0 )); then
     log "Backup finished with ${ERRORS} error(s) and ${WARNINGS} warning(s). $SUMMARY"
-    UB_TELL_TEXT="notify.errors$NTEXT" ub_tell errors alert "$(run_report "Backup finished with errors")" "Backup with errors" "${ERRORS} errors, ${WARNINGS} warnings. $NSUMMARY" \
+    UB_TELL_TEXT="notify.errors$NTEXT" UB_NOTIFY_CODES="$(ub_items_codes)" ub_tell errors alert "$(run_report "Backup finished with errors")" "Backup with errors" "${ERRORS} errors, ${WARNINGS} warnings. $NSUMMARY" \
         "counts=$(ub_counts "$ERRORS" "$WARNINGS")" "items=$UB_ITEMS_DESC" "summary=$(ub_summary)"
     exit 1
 elif (( WARNINGS > 0 )); then
     log "Backup finished with ${WARNINGS} warning(s). $SUMMARY"
-    UB_TELL_TEXT="notify.warnings$NTEXT" ub_tell warnings warning "$(run_report "Backup finished with warnings")" "Backup with warnings" "${WARNINGS} warnings. $NSUMMARY" \
+    UB_TELL_TEXT="notify.warnings$NTEXT" UB_NOTIFY_CODES="$(ub_items_codes)" ub_tell warnings warning "$(run_report "Backup finished with warnings")" "Backup with warnings" "${WARNINGS} warnings. $NSUMMARY" \
         "counts=$(ub_counts "" "$WARNINGS")" "items=$UB_ITEMS_DESC" "summary=$(ub_summary)"
 else
     log "Backup successful. $SUMMARY"

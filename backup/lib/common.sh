@@ -257,7 +257,7 @@ ub_notify() {
     # only; without the office's RAM folder (a copy outside the plugin, the tests) everything goes, as before
     UNG_FATE=sent; UNG_WHY=""; UNG_DUE=0; UNG_NOTICE=""
     if [[ -n "$home" && -d "$home" && ! -L "$home" ]] && declare -F ung_decide >/dev/null; then
-        key="$(ung_key backup "$ev" "$1" "$level" "${d//$'\r'/}")"
+        key="$(ung_key backup "$ev" "$1" "$level" "${d//$'\r'/}" "${UB_NOTIFY_CODES:-}")"     # 2.85: a warning's key names its codes
         ung_resolves backup "$ev" && ung_line "$home" resolved backup - -      # a success resolves what went wrong
         ung_decide "$home" backup "$ev" "$level" "$key" "$(date +%s)"
     else
@@ -370,6 +370,14 @@ ub_items_cut() { # <text> <max> - at most <max> bytes, «…» at the cut (a cha
     [[ -n "$t" ]] || t="$s"
     t="${t%"${t##*[! ]}"}"
     printf '%s…' "$t"
+}
+# ub_items_codes (2.85) - the run's item codes, sorted and unique, «,» between (UB_NOTIFY_CODES for ub_notify's key: a
+# warning with another set of causes within 20 h is a new one, not «the same» counted - review 1.81.0 N5)
+ub_items_codes() {
+    local i c out=""
+    for i in "${WARN_ITEMS[@]}"; do c="${i%%$'\x1f'*}"; [[ "$c" =~ ^[a-z0-9_]+$ ]] && out+="$c"$'\n'; done
+    [[ -n "$out" ]] || return 0
+    printf '%s' "$out" | sort -u | paste -sd, -
 }
 ub_run_items() {
     UB_ITEMS_DESC=""; UB_ITEMS_LINES=""

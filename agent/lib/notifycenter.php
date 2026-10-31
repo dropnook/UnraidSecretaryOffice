@@ -204,9 +204,14 @@ function officeNotifyFailSame(string $desk, string $event): bool
 }
 
 /** «The same notification»: 16 hex over desk|event|subject; an alert's over desk|event|subject|description (ung_key) */
-function officeNotifyKey(string $desk, string $event, string $subject, string $level = '', string $description = ''): string
+/**
+ * «The same notification» (= notifygate.sh ung_key): desk|event|subject; an alert's with its description; a warning
+ * that names its causes (engine 2.85: the run's item codes, sorted, «,» between — the office's own senders name none)
+ * with those, so another set of causes within 20 h is a new warning, not a counted one (review 1.81.0, N5)
+ */
+function officeNotifyKey(string $desk, string $event, string $subject, string $level = '', string $description = '', string $codes = ''): string
 {
-    return substr(md5($level === 'alert' ? "$desk|$event|$subject|$description" : "$desk|$event|$subject"), 0, 16);
+    return substr(md5($level === 'alert' ? "$desk|$event|$subject|$description" : ($level === 'warning' && $codes !== '' ? "$desk|$event|$subject|$codes" : "$desk|$event|$subject")), 0, 16);
 }
 
 /** Inside the quiet hours (quiet=HHMM-HHMM from the senders' file; across midnight when from > to) */

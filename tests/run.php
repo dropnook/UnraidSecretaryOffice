@@ -8766,8 +8766,8 @@ function testBackupNotifyItems(): void
     // backup.sh's end calls it so: the run's end with the items, the long text under its headline
     $bk = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
     same('notify items: backup.sh - ub_run_items before the end, notify.<result>_items when named, items= passed, run_report lists the lines', [1, 1, 1, 2, 1],
-        [substr_count($bk, "(( ERRORS > 0 || WARNINGS > 0 )) && ub_run_items\n"), substr_count($bk, 'UB_TELL_TEXT="notify.errors$NTEXT" ub_tell errors alert'),
-         substr_count($bk, 'UB_TELL_TEXT="notify.warnings$NTEXT" ub_tell warnings warning'), substr_count($bk, '"items=$UB_ITEMS_DESC" "summary=$(ub_summary)"'),
+        [substr_count($bk, "(( ERRORS > 0 || WARNINGS > 0 )) && ub_run_items\n"), substr_count($bk, 'UB_TELL_TEXT="notify.errors$NTEXT" UB_NOTIFY_CODES="$(ub_items_codes)" ub_tell errors alert'),
+         substr_count($bk, 'UB_TELL_TEXT="notify.warnings$NTEXT" UB_NOTIFY_CODES="$(ub_items_codes)" ub_tell warnings warning'), substr_count($bk, '"items=$UB_ITEMS_DESC" "summary=$(ub_summary)"'),
          substr_count($bk, "    echo \"Errors \$ERRORS, warnings \$WARNINGS\"\n    [[ -n \"\${UB_ITEMS_LINES:-}\" ]] && printf '%s\\n' \"\$UB_ITEMS_LINES\"")]);
 
     // texts x5: every code the engine says as an item has short words, their placeholders the page's (n: the plural)
@@ -23045,6 +23045,22 @@ function testNotifyCenter(): void
         [officeNotifyKey('backup', 'warnings', 'W', 'warning', 'a') === officeNotifyKey('backup', 'warnings', 'W', 'warning', 'b'),
          $bashKey('backup', 'warnings', 'W', 'warning', 'a') === $bashKey('backup', 'warnings', 'W'), officeNotifyKey('backup', 'warnings', 'W') === officeNotifyKey('backup', 'warnings', 'W', 'normal', 'x'),
          officeNotifyKey('backup', 'failed', 'Backup failed', 'alert', 'a') === officeNotifyKey('backup', 'failed', 'Backup failed', 'alert', 'b')]);
+    // review 1.81.0 N5 (engine 2.85): a warning that names its causes (the run's item codes) is keyed on them — in both gates
+    $codes = fn (string ...$a) => trim((string) shell_exec('bash -c ' . escapeshellarg("source " . escapeshellarg(OFFICE_DIR . '/backup/lib/common.sh') . ' >/dev/null 2>&1; '
+        . 'for c in "$@"; do WARN_ITEMS+=( "$c" ); done; ub_items_codes') . ' _ ' . implode(' ', array_map('escapeshellarg', $a))));
+    same('centre N5: the run\'s codes - sorted, unique, «,» between, a code it can\'t name left out, none: nothing',
+        ['future_files,vm_held', 'future_files', ''], [$codes("vm_held\x1fname=Win", "future_files\x1fname=a", "future_files\x1fname=b", "Bad Code\x1fx=1"), $codes('future_files'), $codes()]);
+    same('centre N5: a warning with codes - its key names them, the same in bash; another set is another warning; an alert and a normal one unchanged by codes',
+        [true, false, true, true, true],
+        [officeNotifyKey('backup', 'warnings', 'W', 'warning', 'a', 'future_files,vm_held') === $bashKey('backup', 'warnings', 'W', 'warning', 'b', 'future_files,vm_held'),
+         officeNotifyKey('backup', 'warnings', 'W', 'warning', 'a', 'future_files') === officeNotifyKey('backup', 'warnings', 'W', 'warning', 'a', 'future_files,vm_held'),
+         officeNotifyKey('backup', 'warnings', 'W', 'warning', 'a', '') === officeNotifyKey('backup', 'warnings', 'W', 'warning', 'b') && $bashKey('backup', 'warnings', 'W', 'warning', 'a', '') === $bashKey('backup', 'warnings', 'W'),
+         officeNotifyKey('backup', 'failed', 'F', 'alert', 'a', 'x') === officeNotifyKey('backup', 'failed', 'F', 'alert', 'a') && $bashKey('backup', 'failed', 'F', 'alert', 'a', 'x') === $bashKey('backup', 'failed', 'F', 'alert', 'a'),
+         officeNotifyKey('backup', 'ok', 'O', 'normal', 'a', 'x') === officeNotifyKey('backup', 'ok', 'O') && $bashKey('backup', 'ok', 'O', 'normal', 'a', 'x') === $bashKey('backup', 'ok', 'O')]);
+    $bk5 = (string) file_get_contents(OFFICE_DIR . '/backup/backup.sh');
+    check('centre N5: the run\'s warning and error notifications carry their codes to the gate',
+        str_contains($bk5, 'UB_NOTIFY_CODES="$(ub_items_codes)" ub_tell warnings warning') && str_contains($bk5, 'UB_NOTIFY_CODES="$(ub_items_codes)" ub_tell errors alert')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/backup/lib/common.sh'), 'key="$(ung_key backup "$ev" "$1" "$level" "${d//$\'\\r\'/}" "${UB_NOTIFY_CODES:-}")"'));
     $k1 = officeNotifyKey('backup', 'failed', 'Backup failed', 'alert', 'The backup place is missing');
     $k2 = officeNotifyKey('backup', 'failed', 'Backup failed', 'alert', 'Pool maple is full');
     $t0 = $now - (23 * 3600 + 55 * 60);
