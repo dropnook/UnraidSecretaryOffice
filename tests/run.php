@@ -59555,6 +59555,14 @@ function testUsoNetJoin(): void
         check('USO network: no key in the card', !str_contains(json_encode(usonetPublic()), 'kSecret99'));
         same('USO network: a report never carries a tailnet\'s key', false, str_contains(reportScrub("joined with tskey-auth-kSecret99-ZyXwVuTsRqPoNmLk and hskey-auth-abc_DEF-12", reportKnow(['var_ini' => '/nonexistent'])), 'Secret99')
             || str_contains(reportScrub('hskey-auth-abc_DEF-12', reportKnow(['var_ini' => '/nonexistent'])), 'abc_DEF'));
+        // review 1.81.0 (HARDENING «Recommended», checked 2026-10-31): a Headscale key is bare hex — reportScrub() masks it all
+        // the same: watchmanScrub()'s rule takes every token of 28+ characters (a sha256 in a report goes the same way, by
+        // design); USONET_KEY_RE admits nothing shorter than 32 hex
+        $know = reportKnow(['var_ini' => '/nonexistent']);
+        same('USO network: a bare-hex key (32 to 128 hex) never survives a report — the 28+ token rule; a sha256 is masked the same way',
+            ['joined with …', 'joined with …', 'sha256 … of a file', 1],
+            [reportScrub('joined with ' . str_repeat('7a3f', 8), $know), reportScrub('joined with ' . str_repeat('7a3f', 32), $know),
+             reportScrub('sha256 ' . str_repeat('c0de', 16) . ' of a file', $know), preg_match(USONET_KEY_RE, str_repeat('7a3f', 8))]);
         unlink("$flash/authkey");
 
         // fetching: a download that isn't the pinned helper is refused and removed
