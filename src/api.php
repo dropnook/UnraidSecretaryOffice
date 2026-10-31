@@ -73,6 +73,11 @@ function api_main(): void
 
         checkOrigin();
         $raw = (string) file_get_contents('php://input', false, null, 0, API_IMAGE_BODY_MAX + 1);
+        // capped before it is decoded (review 1.81.0): the page sends the action first (`{"a":…`), so a body past 1 MB that
+        // isn't a picture's is refused undecoded; the exact cap by the decoded action follows
+        if (strlen($raw) > API_BODY_MAX && !preg_match('/^\s*\{\s*"a"\s*:\s*"office\.report_image"/', $raw)) {
+            answer(['ok' => false, 'error' => ['key' => 'bad_request']], 413);
+        }
         $data = json_decode($raw, true, 16);
         $action = is_array($data) ? apiText($data, 'a') : '';
         if (strlen($raw) > ($action === 'office.report_image' ? API_IMAGE_BODY_MAX : API_BODY_MAX)) {

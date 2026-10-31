@@ -44050,6 +44050,10 @@ function testReportImages(): void
     }
     $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
     check('report images: api.php takes 3 MB only for a picture, 1 MB for anything else', str_contains($api, "strlen(\$raw) > (\$action === 'office.report_image' ? API_IMAGE_BODY_MAX : API_BODY_MAX)"));
+    check('report images: … and refuses a body past 1 MB that doesn\'t name the picture action first — before json_decode (review 1.81.0)',
+        ($c = strpos($api, 'if (strlen($raw) > API_BODY_MAX && !preg_match(\'/^\s*\{\s*"a"\s*:\s*"office\.report_image"/\', $raw)) {')) !== false
+        && $c < strpos($api, '$data = json_decode($raw, true, 16);') && strpos($api, '$raw = (string) file_get_contents(\'php://input\'') < $c);
+    same('report images: the pre-check\'s shape is the page\'s body (core.js sends the action first)', 1, preg_match('/^\s*\{\s*"a"\s*:\s*"office\.report_image"/', json_encode(['a' => 'office.report_image', 'png' => 'x'])));
 
     // the preview takes them out of the inbox and has each drawn anew in a process of its own
     $put = function (string $bytes) use ($tmp): string {
