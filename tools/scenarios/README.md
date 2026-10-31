@@ -982,8 +982,11 @@ Not run: R4's power-cut halves (no `--powercut`), R17 (needs test3, W4-1 there),
 **Tower's kernel hang (environment, not the office):** Unraid 7.4.0-rc.2 (kernel 6.18.58) panicked three times in a
 drill's `access()` on a `.zfs/snapshot` path (`VERIFY(avl_find(...) == NULL)`, `avl_add` ← `zfsctl_snapshot_mount`):
 R13 renamed (30.10. 19:33), R13 recreated (31.10. 08:11), and the selftest's INV-DRILL-GREEN drill (31.10. 09:42).
-Each time the snapshot expiry unmount had fallen behind (`zfsctl_snapshot_unmount` threads in D; 257–941 automounts
-mounted). The job's php then stays in D holding the engine's lock, so the scenario times out and the base reset refuses
+The mechanism: every look into `.zfs/snapshot/<name>/…` automounts that snapshot, and ZFS unmounts it again after
+300 s through its taskq. Under an hour of scenarios that expiry unmount falls behind (`zfsctl_snapshot_unmount` threads
+in D; 257–941 automounts mounted, mostly cache/UnraidSecretaryOffice and cache/uso-only). A drill that re-mounts a
+snapshot whose expiry is still pending adds it to ZFS's tree a second time, and the kernel panics (OpenZFS on Unraid
+7.4.0-rc.2). After a fresh boot nothing is pending. The job's php then stays in D holding the engine's lock, so the scenario times out and the base reset refuses
 until a reboot. After a fresh boot every drill passed. One R13 recreated run read `drill_parity` (red RS-DRILL): Unraid's
 parity check after the VM reset was still running, and his refusal was right. Since f359f90e, base.sh refuses at once when
 a process is stuck at spl_panic.
