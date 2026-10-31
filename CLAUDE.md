@@ -64,6 +64,8 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   ids against it. Errors: `throw new Problem('key', [...])` → UI `errors.<key>`. **Request fields are read, never cast:**
   `textField()`, `optText()`, `idList()`, `boolField()`, `cronField()` (web: `apiText()`) — never `(string) ($r['x'] ?? '')`; a
   missing key or wrong type never turns a setting «off». Agent runs `E_ALL`. `testRequestTypes`, `testStrictSettings`.
+  **Deadlines and waits on the monotonic clock** (`hrtime(true)`), never `microtime()`/`time()`: a step of the wall clock
+  (NTP after a boot, a clock set back) must never end a wait early or stretch it (1.81.0: `runAll()` killed a Kopia count).
 * **Hardening:** files only via `writeAtomic()`/`writeNewFile()` (never through a symlink); mailbox read only while a real
   folder of the web user (`privateDirOk()`); validators feeding names/files/commands end with `$/D`; links from state files only
   via `Office.safeHref()`; manifests read back from shares trusted only in exactly the office's shape. HARDENING.md.
@@ -225,7 +227,10 @@ Full text: docs/DEVELOPMENT.md «UI conventions in full» and «Tiles and lists�
 More (cron, VMs, Docker, Kopia, containers, data flow, logins, Add Container form): docs/DEVELOPMENT.md «Server facts in full».
 * **Which disk a file is on:** `getfattr -n system.LOCATION` on a /mnt/user path — no look at other disks.
 * **ZFS:** a pool's top folder sees only its own dataset (fullness via `zfs list -Hp -o used,avail <pool>`); every share and VM
-  folder in `domains` is a dataset — `rename()` can't move them, use `zfs rename`.
+  folder in `domains` is a dataset — `rename()` can't move them, use `zfs rename`. **Every look into
+  `<mountpoint>/.zfs/snapshot/<name>/…` automounts that snapshot** (ZFS unmounts it ~300 s later): touch snapshots as rarely
+  as possible — on Unraid 7.4.0-rc.2 (OpenZFS 2.4.4) a re-mount of an expiring one panicked the kernel three times (Tower,
+  2026-10-30/31; docs/DEVELOPMENT.md «Server facts in full»).
 * **Shares:** `shareUseCache` no = array, only = pool, yes/prefer = primary + secondary; `/var/local/emhttp/shares.ini` lists
   every share, `disks.ini` has `fsFree` without touching a disk. **Exclusive shares:** `/mnt/user/<share>` is a symlink to the
   pool — code that refuses links allows exactly this one via `officeUnraidPath()`; /mnt/user costs ~50× the pool path.
