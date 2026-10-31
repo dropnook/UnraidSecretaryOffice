@@ -16525,6 +16525,12 @@ function testRestoreBrowse(): void
     $put("$mnt/hazel/appdata/nc/config.php", 'live cfg');
     $put("$mnt/hazel/appdata/.zfs/snapshot/manual-1/nc");                       // the parent's snapshot: nc's stub, empty
     $put("$mnt/hazel/appdata/nc/.zfs/snapshot/manual-1/config.php", 'old cfg');
+    $put("$mnt/hazel/appdata/zz2/x.txt", 'live x');                                   // an app's plain folder inside the dataset (S2)
+    $put("$mnt/hazel/appdata/.zfs/snapshot/manual-1/zz2/x.txt", 'old x');
+    $put("$mnt/hazel/appdata/.zfs/snapshot/manual-1/zz2/sub/y.txt", 'y');
+    $put("$mnt/hazel/appdata/.zfs/snapshot/manual-0/nc");                            // an older moment of the dataset without zz2
+    $put("$mnt/hazel/appdata/zz3/x.txt", 'live x3');
+    symlink("$tmp/outside", "$mnt/hazel/appdata/.zfs/snapshot/manual-1/zz3");        // the app's folder a link in the moment (S1)
     $put("$mnt/hazel/UnraidSecretaryOffice/backup");
     $put("$mnt/disk1/zzarr");
     $put("$mnt/user");
@@ -16539,7 +16545,7 @@ function testRestoreBrowse(): void
         'fs' => ['hazel' => 'zfs', 'disk1' => 'xfs'],
         'zfs' => ["$mnt/hazel/zzdocs" => 'hazel/zzdocs', "$mnt/hazel/appdata" => 'hazel/appdata', "$mnt/hazel/appdata/nc" => 'hazel/appdata/nc',
                   "$mnt/hazel/UnraidSecretaryOffice" => 'hazel/UnraidSecretaryOffice'],
-        'snaps' => ['hazel/zzdocs' => [['name' => 'manual-1', 'time' => $T1]], 'hazel/appdata' => [['name' => 'manual-1', 'time' => $T1]],
+        'snaps' => ['hazel/zzdocs' => [['name' => 'manual-1', 'time' => $T1]], 'hazel/appdata' => [['name' => 'manual-0', 'time' => $T1 - 3600], ['name' => 'manual-1', 'time' => $T1]],
                     'hazel/appdata/nc' => [['name' => 'manual-1', 'time' => $T1]]],
         'zfs_kept' => [], 'pools_asleep' => [], 'asleep' => ['disk1' => true], 'prefixes' => ['uso-backup-'], 'btrfs_dir' => '.btrfs-snap', 'settings' => $settings,
         'cfg' => ['zzdocs' => $only, 'appdata' => $only, 'UnraidSecretaryOffice' => $only, 'zzarr' => ['shareUseCache' => 'no', 'shareInclude' => 'disk1']],
@@ -16547,7 +16553,9 @@ function testRestoreBrowse(): void
         'shares_ini' => ['zzdocs' => ['exclusive' => 'yes'], 'appdata' => ['exclusive' => 'yes'], 'UnraidSecretaryOffice' => ['exclusive' => 'yes'], 'zzarr' => []],
         'old_shares' => null, 'now' => [],
     ];
-    $state = ['apps' => [['id' => 'nc', 'name' => 'nc', 'folders' => [['path' => '/mnt/user/appdata/nc', 'share' => 'appdata', 'whole' => false]], 'shares' => []]],
+    $state = ['apps' => [['id' => 'nc', 'name' => 'nc', 'folders' => [['path' => '/mnt/user/appdata/nc', 'share' => 'appdata', 'whole' => false]], 'shares' => []],
+                         ['id' => 'zz2', 'name' => 'zz2', 'folders' => [['path' => '/mnt/user/appdata/zz2', 'share' => 'appdata', 'whole' => false]], 'shares' => []],
+                         ['id' => 'zz3', 'name' => 'zz3', 'folders' => [['path' => '/mnt/user/appdata/zz3', 'share' => 'appdata', 'whole' => false]], 'shares' => []]],
               'vms' => [], 'partners' => [['id' => 'a1b2c3d4', 'name' => 'PartnerNAS', 'units' => [['unit' => 'share:zzdocs', 'snaps' => [['name' => 'uso-backup-20261019-0100']], 'newest' => $T1]]]],
               'shares_back' => [['name' => 'zzdocs'], ['name' => 'appdata'], ['name' => 'zzarr']]];
     $GLOBALS['rs']['ctx'] = $ctx;
@@ -16590,6 +16598,48 @@ function testRestoreBrowse(): void
         [$key(fn () => rsBrowse(['zsnap' => 'hazel@x'])), $key(fn () => rsBrowse(['zsnap' => 'hazel/nothere@manual-1']))]);
     $b = rsBrowse(['path' => '/mnt/user/zzarr', 'rel' => '']);
     same('restore browse: a sleeping disk is named, never read — nothing listed, no moment', [['disk1'], null, []], [$b['asleep'], $b['snap'], $b['entries']]);
+
+    // ---- review 1.81.0, S2: a snapshot is touched once — whether it holds a folder inside its dataset is remembered
+    // (holds.json); every later browse (a folder below, a search, the pick's plan) builds the item from the chosen moment's
+    // parts and touches no other snapshot
+    $looks = [];
+    $GLOBALS['rs']['holds_look'] = function (string $path) use (&$looks): bool {
+        $looks[] = $path;
+        clearstatcache(true, $path);
+        return file_exists($path) || is_link($path);
+    };
+    $b = rsBrowse(['path' => '/mnt/user/appdata/zz2', 'rel' => '']);
+    $first = count($looks);
+    $b2 = rsBrowse(['path' => '/mnt/user/appdata/zz2', 'snap' => 'name:manual-1', 'rel' => 'sub']);
+    $b3 = rsBrowse(['path' => '/mnt/user/appdata/zz2', 'snap' => 'name:manual-1', 'rel' => '', 'q' => 'x']);
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/appdata/zz2', rsUnitOwner($state, '/mnt/user/appdata/zz2'), 'name:manual-1', ['sub/y.txt'], 'copy', false, '20261025-100000', $c);
+    $holds = readJson("$tmp/data/restore/holds.json")['holds'] ?? [];
+    $hk = "$mnt/hazel/appdata/.zfs/snapshot";
+    same('review S2: the first look asks each snapshot of the dataset once whether it holds the folder; a folder below, a search and the pick\'s plan touch no snapshot; remembered in holds.json',
+        [2, ['name:manual-1'], ['sub', 'x.txt'], ['y.txt'], ['x.txt'], 2, [], [true, false]],
+        [$first, array_column($b['moments'], 'id'), array_column($b['entries'], 'name'), array_column($b2['entries'], 'name'), array_column($b3['entries'], 'name'), count($looks), $p['blockers'],
+         [$holds["hazel/appdata@manual-1|$hk/manual-1/zz2"] ?? null, $holds["hazel/appdata@manual-0|$hk/manual-0/zz2"] ?? null]]);
+    unset($GLOBALS['rs']['holds_look']);
+
+    // ---- review 1.81.0, S1: the moment's own top — the app's folder inside the share's snapshot — is a link there: never
+    // followed (the browse says so and lists nothing, a pick below it is refused); the copy looks once more right before
+    $b = rsBrowse(['path' => '/mnt/user/appdata/zz3', 'rel' => '']);
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/appdata/zz3', rsUnitOwner($state, '/mnt/user/appdata/zz3'), 'name:manual-1', ['secret.txt'], 'copy', false, '20261025-100100', $c);
+    same('review S1: the app\'s folder a link in the moment — the browse follows nothing, a pick below it is refused',
+        [true, false, [], ['restore_browse_link']], [$b['link'], $b['here'], $b['entries'], array_column($p['blockers'], 'key')]);
+    $c = $ctx;
+    $p = rsPlanPickFor('/mnt/user/zzdocs', rsShareOwner($state, '/mnt/user/zzdocs'), 'name:manual-1', ['Verträge/2024/a.pdf'], 'copy', false, '20261025-100200', $c);
+    rename("$S/Verträge", "$S/Verträge.real");
+    symlink("$S/Verträge.real", "$S/Verträge");                    // a folder of the way inside the moment became a link since the preview
+    [$states, $j] = $run($p, '20261025-100200-aa07');
+    unlink("$S/Verträge");
+    rename("$S/Verträge.real", "$S/Verträge");
+    same('review S1: … a folder on the way inside the moment a link at the copy — stopped before writing', [[$S], ['failed'], 'path_link', false],
+        [$p['steps'][0]['tops'] ?? null, $states, $j['steps'][0]['note'] ?? null, file_exists("$mnt/hazel/zzdocs/Verträge/2024/a.pdf.restored-20261025-100200")]);
+    same('review S1: a link on the way down from a moment\'s top — the top itself never, outside it always', [false, true, true, false],
+        [rsLinkBelow($S, $S), rsLinkBelow($S, "$tmp/outside"), rsLinkBelow($S, "$S/evil/secret.txt"), rsLinkBelow($S, "$S/Fotos/a.jpg")]);
 
     // ---- picks: next to it, swapped in, into the restore folder
     $own = rsShareOwner($state, '/mnt/user/zzdocs');

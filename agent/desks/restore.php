@@ -58,6 +58,7 @@ const RS_SHARES_INI   = '/var/local/emhttp/shares.ini';   // emhttp's shares: wh
 const RS_DISKS_INI    = '/var/local/emhttp/disks.ini';    // free space per pool and disk, read without touching a disk
 const RS_MOMENTS_MAX  = 80;          // moments offered for one folder or share
 const RS_HOLDS_CHECK  = 24;          // moments looked into (does it hold the folder?) — each look mounts a ZFS snapshot
+const RS_HOLDS_KEEP   = 50000;       // answers of rsHoldsIn() remembered in holds.json at most (snapshot@path => holds it)
 const RS_ENTRIES_MAX  = 60;          // entries at the top of a share he brings back at once
 const RS_STOREROOM    = OFFICE_STOREROOM;   // Ms. Dustdevil's: never a share's own folder (nor one of its old name — storeroomName())
 const RS_OWN_LEFTOVER = '/\.(restored|aside|putback)-\d{8}-\d{6}$/D';   // what he left next to a folder himself
@@ -559,12 +560,23 @@ function rsSharePath(string $path, array $ctx): ?array
  * a copy from the parent's snapshot would miss them); btrfs: the disk's snapshot folders that
  * hold it. A sleeping base is named, never looked into.
  */
-function rsLocate(string $path, array &$ctx): array
+function rsLocate(string $path, array &$ctx, bool $snaps = true): array
 {
     $sp = rsSharePath($path, $ctx);
     if (!$sp) {
         return [];
     }
+    $places = rsLocateIn($sp, $ctx, $snaps);
+    rsHoldsFlush();
+    return $places;
+}
+
+/**
+ * rsLocate()'s look; $snaps false: the places only (where it lies, its dataset, datasets inside) — no snapshot touched
+ * (review 1.81.0, S2: a pick's guard and swap look need only the places)
+ */
+function rsLocateIn(array $sp, array &$ctx, bool $snaps): array
+{
     [$share, $rel, $only] = $sp;
     $mnt = $ctx['mnt'] ?? '/mnt';
     $bases = $only !== null ? [$only] : rsShareBases($share, $ctx);
@@ -602,15 +614,17 @@ function rsLocate(string $path, array &$ctx): array
                 }
                 // a snapshot counts for the folder only when it holds it (W4-1: a share on two pools, the folder on one —
                 // the other pool's snapshots were counted for it): the dataset's own top always, a folder inside it looked
-                // into (the pool is awake: a sleeping one never comes here), the newest RS_SNAPS_LOOK at most
+                // into (the pool is awake: a sleeping one never comes here), the newest RS_SNAPS_LOOK at most — each
+                // answer remembered, so a snapshot is touched once (S2); never through a link inside the snapshot (S1)
                 $inside = substr($live, strlen($best));
-                foreach (array_slice(array_reverse($ctx['snaps'][$ds] ?? []), 0, $inside === '' ? null : RS_SNAPS_LOOK) as $s) {
-                    $in = "$best/.zfs/snapshot/{$s['name']}$inside";
-                    if ($inside !== '' && !rsHolds($in)) {
+                foreach ($snaps ? array_slice(array_reverse($ctx['snaps'][$ds] ?? []), 0, $inside === '' ? null : RS_SNAPS_LOOK) : [] as $s) {
+                    $top = "$best/.zfs/snapshot/{$s['name']}";
+                    $in = $top . $inside;
+                    if ($inside !== '' && !rsHoldsIn("$ds@{$s['name']}|$in", $top, $in)) {
                         continue;
                     }
                     $p['snaps'][] = ['id' => "$ds@{$s['name']}", 'name' => $s['name'], 'time' => $s['time'],
-                                     'path' => $in, 'ours' => backupIsEngineSnap($s['name'], $ctx['prefixes'])];
+                                     'path' => $in, 'top' => $top, 'ours' => backupIsEngineSnap($s['name'], $ctx['prefixes'])];
                     if (count($p['snaps']) >= RS_SNAPS_MAX) {
                         break;
                     }
@@ -620,7 +634,7 @@ function rsLocate(string $path, array &$ctx): array
             // offered for this folder, as what they are — found by their mountpoint next to it. Only those taken
             // before it went aside: later ones (a backup run snapshots it too) hold the leftover, not the folder
             $aside = [];
-            foreach ($ctx['zfs'] as $mp => $ads) {
+            foreach ($snaps ? $ctx['zfs'] : [] as $mp => $ads) {
                 if (preg_match('/^' . preg_quote($live, '/') . '\.aside-(\d{8}-\d{6})$/D', (string) $mp, $am)) {
                     $asideAt = DateTimeImmutable::createFromFormat('!Ymd-His', $am[1]);
                     foreach (array_reverse($ctx['snaps'][$ads] ?? []) as $s) {
@@ -628,7 +642,7 @@ function rsLocate(string $path, array &$ctx): array
                             continue;
                         }
                         $aside[] = ['id' => "$ads@{$s['name']}", 'name' => $s['name'], 'time' => $s['time'], 'path' => "$mp/.zfs/snapshot/{$s['name']}",
-                                    'ours' => backupIsEngineSnap($s['name'], $ctx['prefixes']), 'aside' => (string) $mp];
+                                    'top' => "$mp/.zfs/snapshot/{$s['name']}", 'ours' => backupIsEngineSnap($s['name'], $ctx['prefixes']), 'aside' => (string) $mp];
                     }
                 }
             }
@@ -642,15 +656,16 @@ function rsLocate(string $path, array &$ctx): array
             // a snapshot of the whole disk: it counts for the folder when the folder is in it (W4-1; the share's folder alone
             // is not enough — a folder of the share made after the moment, or lying on another disk then, isn't in it)
             $dir = "$mnt/$base/" . $ctx['btrfs_dir'];
-            $names = array_filter(@scandir($dir, SCANDIR_SORT_DESCENDING) ?: [], fn ($n) => $n[0] !== '.');
+            $names = $snaps ? array_filter(@scandir($dir, SCANDIR_SORT_DESCENDING) ?: [], fn ($n) => $n[0] !== '.') : [];
             foreach (array_slice(array_values($names), 0, RS_SNAPS_LOOK) as $n) {
                 $in = "$dir/$n/$share" . ($rel !== '' ? "/$rel" : '');
-                if (!is_dir("$dir/$n/$share") || ($rel !== '' && !rsHolds($in))) {
+                // the share's folder in the moment no link, nothing on the way to the folder either (S1)
+                if (!is_dir("$dir/$n/$share") || rsLinkBelow("$dir/$n", "$dir/$n/$share") || ($rel !== '' && !rsHoldsIn(null, "$dir/$n", $in))) {
                     continue;
                 }
                 $t = preg_match('/(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)/', $n, $z)
                     ? (int) mktime((int) $z[4], (int) $z[5], 0, (int) $z[2], (int) $z[3], (int) $z[1]) : (int) @filemtime("$dir/$n");
-                $p['snaps'][] = ['id' => "$base:$n", 'name' => $n, 'time' => $t, 'path' => $in, 'ours' => backupIsEngineSnap($n, $ctx['prefixes'], 'btrfs')];
+                $p['snaps'][] = ['id' => "$base:$n", 'name' => $n, 'time' => $t, 'path' => $in, 'top' => "$dir/$n", 'ours' => backupIsEngineSnap($n, $ctx['prefixes'], 'btrfs')];
                 if (count($p['snaps']) >= RS_SNAPS_MAX) {
                     break;
                 }
@@ -669,8 +684,112 @@ function rsLocate(string $path, array &$ctx): array
 /** Is a path in a snapshot there (a file, a folder, a link)? — a ZFS snapshot is mounted by the look, read-only */
 function rsHolds(string $path): bool
 {
+    if (isset($GLOBALS['rs']['holds_look'])) {
+        return ($GLOBALS['rs']['holds_look'])($path);          // tests: the looks counted
+    }
     clearstatcache(true, $path);
     return file_exists($path) || is_link($path);
+}
+
+/**
+ * Does a moment hold a path (rsHolds()), with no link on the way to it inside the moment (from the snapshot's top $top
+ * down to the path's folder — review 1.81.0, S1: the way to a folder inside a dataset was never lstat'ed)? A ZFS
+ * snapshot never changes, so the answer is remembered per snapshot and path ($key: <dataset>@<snapshot>|<the path>,
+ * data/restore/holds.json — additive, read with a default): every snapshot is touched once (S2: every look into
+ * .zfs/snapshot/<name>/… automounts it; on Unraid 7.4.0-rc.2 that churn panicked the kernel). $key null: looked at,
+ * not remembered (btrfs: a folder, no automount).
+ */
+function rsHoldsIn(?string $key, string $top, string $path): bool
+{
+    $holds = &rsHoldsMemo();
+    if ($key !== null && is_bool($holds['holds'][$key] ?? null)) {
+        return $holds['holds'][$key];
+    }
+    $v = rsHolds($path) && !rsLinkBelow($top, dirname($path));
+    if ($key !== null) {
+        $holds['holds'][$key] = $v;
+        $holds['dirty'] = true;
+    }
+    return $v;
+}
+
+/** What he remembers of snapshots holding paths (holds.json, read once per process; only bools in exactly its shape) */
+function &rsHoldsMemo(): array
+{
+    static $memo = null;
+    if ($memo === null) {
+        $read = readJson(rsHoldsFile());
+        $memo = ['holds' => [], 'dirty' => false];
+        foreach (is_array($read['holds'] ?? null) ? $read['holds'] : [] as $k => $v) {
+            if (is_string($k) && is_bool($v)) {
+                $memo['holds'][$k] = $v;
+            }
+        }
+    }
+    return $memo;
+}
+
+function rsHoldsFile(): string
+{
+    return rsData() . '/holds.json';
+}
+
+/**
+ * New answers written to holds.json (after a look: rsLocate()) — merged with what another process wrote meanwhile (his
+ * job looks too); never more than RS_HOLDS_KEEP, the oldest let go first. A failed write costs nothing but a later look.
+ */
+function rsHoldsFlush(): void
+{
+    $holds = &rsHoldsMemo();
+    if (empty($holds['dirty'])) {
+        return;
+    }
+    $holds['dirty'] = false;
+    $read = readJson(rsHoldsFile());
+    $all = [];
+    foreach (is_array($read['holds'] ?? null) ? $read['holds'] : [] as $k => $v) {
+        if (is_string($k) && is_bool($v)) {
+            $all[$k] = $v;
+        }
+    }
+    $all = array_merge($all, $holds['holds']);
+    if (count($all) > RS_HOLDS_KEEP) {
+        $all = array_slice($all, -RS_HOLDS_KEEP, null, true);
+    }
+    $holds['holds'] = $all;
+    try {
+        if (is_dir(rsData()) || @mkdir(rsData(), 0700, true)) {
+            writeAtomic(rsHoldsFile(), jsonEncode(['v' => 1, 'time' => time(), 'holds' => $all]), 0600, 0, 0);
+        }
+    } catch (Throwable) {
+        // looked at again next time
+    }
+}
+
+/**
+ * A link on the way from a moment's top down to $path (review 1.81.0, S1): every folder of $path below $top, and $path
+ * itself, lstat'ed — true when one is a link, or $path doesn't lie under $top at all. The top itself isn't looked at
+ * (a snapshot's folder, Kopia's host folder, a pull's mount, a kept moment's: his own places).
+ */
+function rsLinkBelow(string $top, string $path): bool
+{
+    $top = rtrim($top, '/');
+    $path = rtrim($path, '/');
+    if ($path === $top) {
+        return false;
+    }
+    if ($top === '' || !under($path, $top)) {
+        return true;
+    }
+    $cur = $top;
+    foreach (explode('/', substr($path, strlen($top) + 1)) as $part) {
+        $cur .= "/$part";
+        clearstatcache(true, $cur);
+        if (is_link($cur)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /**
@@ -704,7 +823,7 @@ function rsMoments(array $places, array $kopia = []): array
             $m[$key] ??= ['id' => $key, 'key' => $key, 'name' => $s['name'], 'time' => 0, 'ours' => false, 'kopia' => false, 'parts' => [],
                           'aside' => $s['aside'] ?? null];
             if (!isset($m[$key]['parts'][$p['base']])) {
-                $m[$key]['parts'][$p['base']] = ['path' => $s['path'], 'snap' => $s['id'], 'name' => $s['name'], 'time' => (int) $s['time']];
+                $m[$key]['parts'][$p['base']] = ['path' => $s['path'], 'snap' => $s['id'], 'name' => $s['name'], 'time' => (int) $s['time'], 'top' => $s['top'] ?? null];
                 $m[$key]['time'] = max($m[$key]['time'], (int) $s['time']);
                 $m[$key]['ours'] = $m[$key]['ours'] || !empty($s['ours']);
                 if (str_starts_with($key, 'run:') && ($p['fs'] ?? '') === 'zfs') {
@@ -717,7 +836,7 @@ function rsMoments(array $places, array $kopia = []): array
         // a folder brought back elsewhere — by Kopia, or pulled from a partner office (`partner`: its name)
         $m[$k['id']] = ['id' => $k['id'], 'key' => $k['id'], 'name' => $k['name'], 'time' => (int) $k['time'], 'ours' => false, 'kopia' => true, 'aside' => null,
                         'partner' => $k['partner'] ?? null,
-                        'parts' => ['kopia' => ['path' => $k['path'], 'snap' => $k['id'], 'name' => $k['name'], 'time' => (int) $k['time']]]];
+                        'parts' => ['kopia' => ['path' => $k['path'], 'snap' => $k['id'], 'name' => $k['name'], 'time' => (int) $k['time'], 'top' => $k['top'] ?? null]]];
     }
     $m = array_values($m);
     usort($m, fn ($a, $b) => [$b['time'], $a['id']] <=> [$a['time'], $b['id']]);
@@ -844,7 +963,7 @@ function rsItemSources(array $moment, array $places, string $kopiaSub = ''): arr
     if ($moment['kopia']) {
         $p = $moment['parts']['kopia']['path'] . $kopiaSub;
         clearstatcache(true, $p);
-        return [file_exists($p) || is_link($p) ? [['base' => 'kopia', 'path' => $p, 'snap' => null]] : [], ['kopia']];
+        return [file_exists($p) || is_link($p) ? [['base' => 'kopia', 'path' => $p, 'snap' => null, 'top' => $moment['parts']['kopia']['top'] ?? null]] : [], ['kopia']];
     }
     $sources = $covered = [];
     foreach ($places as $p) {
@@ -853,13 +972,34 @@ function rsItemSources(array $moment, array $places, string $kopiaSub = ''): arr
                 $covered[] = $p['base'];
                 clearstatcache(true, $s['path']);
                 if (file_exists($s['path']) || is_link($s['path'])) {
-                    $sources[] = ['base' => $p['base'], 'path' => $s['path'], 'snap' => ($p['fs'] ?? '') === 'zfs' && str_contains((string) $s['id'], '@') ? (string) $s['id'] : null];
+                    $sources[] = ['base' => $p['base'], 'path' => $s['path'], 'snap' => ($p['fs'] ?? '') === 'zfs' && str_contains((string) $s['id'], '@') ? (string) $s['id'] : null,
+                                  'top' => $s['top'] ?? null];
                 }
                 break;
             }
         }
     }
     return [$sources, $covered];
+}
+
+/**
+ * An item $sub below a moment's start, from the moment's parts (located for the start already): each part's path plus
+ * $sub, where it is there — no other snapshot looked into (review 1.81.0, S2: a browse ran rsLocate() for every folder
+ * clicked, touching up to RS_SNAPS_LOOK snapshots per part each time)
+ *
+ * @return list<array{base:string, path:string, snap:?string, top:?string}>
+ */
+function rsMomentItem(array $moment, string $sub): array
+{
+    $out = [];
+    foreach ($moment['parts'] as $base => $part) {
+        $p = $part['path'] . $sub;
+        clearstatcache(true, $p);
+        if (file_exists($p) || is_link($p)) {
+            $out[] = ['base' => (string) $base, 'path' => $p, 'snap' => $base !== 'kopia' && str_contains((string) $part['snap'], '@') ? (string) $part['snap'] : null, 'top' => $part['top'] ?? null];
+        }
+    }
+    return $out;
 }
 
 // ===================================================================== the engine and its place
@@ -3166,9 +3306,10 @@ function rsKopiaRestored(string $path, array $ctx): array
         } else {
             $cand = str_starts_with($source, '.') ? "$host/$share$sub" : ($source === $share ? "$host$sub" : null);
         }
-        if ($cand !== null && is_dir($cand)) {
+        // the folder there, no link on the way to it from Kopia's folder (S1: the Kopia container writes that folder)
+        if ($cand !== null && is_dir($cand) && !rsLinkBelow($host, $cand)) {
             $time = (int) (readJson(rsDir($r['id']) . '/plan.json')['source']['time'] ?? 0) ?: (int) $r['finished'];
-            $out[] = ['id' => 'kopia:' . $r['id'], 'name' => 'Kopia ' . basename($host), 'time' => $time, 'path' => $cand, 'ours' => false, 'kopia' => true];
+            $out[] = ['id' => 'kopia:' . $r['id'], 'name' => 'Kopia ' . basename($host), 'time' => $time, 'path' => $cand, 'ours' => false, 'kopia' => true, 'top' => $host];
         }
     }
     return $out;
@@ -4939,6 +5080,14 @@ function rsDoCopy(array &$j, int $i): array
     }
     if (!$sources) {
         return rsFail('gone', ['path' => (string) ($s['from'] ?? '')]);
+    }
+    // never from below a link inside the moment (`tops`: per source the moment's top — a snapshot's folder, Kopia's, a
+    // pull's mount, a kept moment's; review 1.81.0, S1), looked at again right before the copy
+    foreach ($sources as $k => $from) {
+        $top = $s['tops'][$k] ?? null;
+        if (is_string($top) && $top !== '' && rsLinkBelow($top, dirname($from))) {
+            return rsFail('path_link', ['path' => $to, 'link' => $from]);
+        }
     }
     // into a share (`within`, review 1.72.0, H2): never through a link on the way, never from a folder that became a link
     // since the plan (a pick's source may be one: copied as the link)

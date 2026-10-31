@@ -64,27 +64,6 @@ function rsPickItems(mixed $v): array
 }
 
 /**
- * No folder of $depth parts above (and including) $path is a link — checked upward, the top of a ZFS snapshot
- * (<mountpoint>/.zfs/snapshot/<name>) standing for its dataset's mountpoint. A link inside a moment may point anywhere
- * on the server: never followed.
- */
-function rsBrowseNoLink(string $path, int $depth): bool
-{
-    $cur = $path;
-    for ($i = 0; $i < $depth; $i++) {
-        clearstatcache(true, $cur);
-        if (is_link($cur)) {
-            return false;
-        }
-        $cur = dirname($cur);
-        if (basename(dirname($cur)) === 'snapshot' && basename(dirname($cur, 2)) === '.zfs') {
-            $cur = dirname($cur, 3);
-        }
-    }
-    return true;
-}
-
-/**
  * One folder of a moment: the union of what its parts hold there (the first part's entry when a name lies on two, the
  * primary storage first), folders first, by name; a search ($q, any part of a name, case ignored) over the whole folder.
  * What he leaves himself (the storeroom, <name>.restored-/.aside-/.putback-<time>, .zfs) is left out; a name with a
@@ -208,27 +187,56 @@ function rsBrowseMoment(array $m): array
 }
 
 /**
- * The folder (or item) $rel below $root in a moment, in each part holding it — a dataset inside looked up in its own
- * snapshots (rsLocate of the deep path), what Kopia or a partner brought back by the path inside it. Never through a link.
+ * The folder (or item) $rel below $root in a moment, in each part holding it: the chosen moment's parts plus the path
+ * below (located for the start already — no other snapshot touched, review 1.81.0, S2); only a dataset of its own inside
+ * $root is looked up in its own snapshots (rsLocate of the deep path), what Kopia or a partner brought back by the path
+ * inside it. Never through a link — from the moment's top down (rsLinkBelow(), S1).
  *
- * @return array{0: list<array{base:string, path:string, snap:?string}>, 1: bool}  [where, a link was in the way]
+ * @return array{0: list<array{base:string, path:string, snap:?string, top:?string}>, 1: bool}  [where, a link was in the way]
  */
 function rsBrowseSources(array $moment, string $root, string $rel, array &$ctx, bool $item = false): array
 {
-    $deep = $rel === '' ? $root : "$root/$rel";
-    [$src] = rsItemSources($moment, $moment['kopia'] ? [] : rsLocate($deep, $ctx), $rel === '' ? '' : "/$rel");
-    $depth = $rel === '' ? 0 : count(explode('/', $rel));
+    $sub = $rel === '' ? '' : "/$rel";
+    if (!$moment['kopia'] && $rel !== '' && rsBrowseInner($root, "$root/$rel", $ctx)) {
+        [$src] = rsItemSources($moment, rsLocate("$root/$rel", $ctx), $sub);
+    } else {
+        $src = rsMomentItem($moment, $sub);
+    }
     $ok = [];
     $link = false;
     foreach ($src as $s) {
         // the folder itself and every folder above it inside the moment; an item picked may be a link (copied as one)
-        if (!($item ? rsBrowseNoLink(dirname($s['path']), max(0, $depth - 1)) : rsBrowseNoLink($s['path'], $depth))) {
+        $top = (string) ($s['top'] ?? '');
+        if ($top === '' || rsLinkBelow($top, $item ? dirname($s['path']) : $s['path'])) {
             $link = true;
         } elseif ($item || is_dir($s['path'])) {
             $ok[] = $s;
         }
     }
     return [$ok, $link];
+}
+
+/**
+ * Does $deep lie in a dataset of its own inside $root's dataset, on any of the share's bases? Then the parent's snapshot
+ * holds only its empty stub: the dataset's own snapshots are the moment's (rsLocate of the deep path)
+ */
+function rsBrowseInner(string $root, string $deep, array &$ctx): bool
+{
+    $sp = rsSharePath($root, $ctx);
+    if (!$sp || !str_starts_with($root, '/mnt/user/')) {
+        return false;
+    }
+    $mnt = rtrim((string) ($ctx['mnt'] ?? '/mnt'), '/');
+    foreach ($sp[2] !== null ? [$sp[2]] : rsShareBases($sp[0], $ctx) as $base) {
+        $liveRoot = "$mnt/$base/" . substr($root, strlen('/mnt/user/'));
+        $liveDeep = "$mnt/$base/" . substr($deep, strlen('/mnt/user/'));
+        foreach ($ctx['zfs'] ?? [] as $mp => $ds) {
+            if ($mp !== $liveRoot && under((string) $mp, $liveRoot) && under($liveDeep, (string) $mp)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 /**
@@ -412,8 +420,7 @@ function rsBrowseKept(array $r, string $rel, string $q, int $offset, bool $wake,
     }
     try {
         $path = $rel === '' ? $dir : "$dir/$rel";
-        $depth = $rel === '' ? 0 : count(explode('/', $rel));
-        $out['link'] = !rsBrowseNoLink($path, $depth);
+        $out['link'] = rsLinkBelow($dir, $path);
         $out['here'] = !$out['link'] && is_dir($path);
         if ($out['here']) {
             $out = array_merge($out, rsBrowseList([['base' => $k['pool'], 'path' => $path]], $q, $offset));
@@ -610,7 +617,7 @@ function rsPlanPickFor(string $root, array $owner, string $snap, array $items, s
                 $plan['blockers'][] = ['key' => 'restore_path_link', 'params' => ['path' => "$root/$rel", 'link' => '/mnt/user' . substr($link, strlen($user))]];
             }
             $office = null;
-            foreach (array_merge([$T], array_map(fn ($p) => (string) $p['live'], rsLocate("$root/$rel", $ctx))) as $at) {
+            foreach (array_merge([$T], array_map(fn ($p) => (string) $p['live'], rsLocate("$root/$rel", $ctx, false))) as $at) {     // the places only: no snapshot touched (S2)
                 $office ??= rsGuardHit($at, $guard);
             }
             if ($office !== null) {
@@ -635,9 +642,11 @@ function rsPlanPickFor(string $root, array $owner, string $snap, array $items, s
         if (file_exists($to) || is_link($to)) {
             $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $to]];
         }
-        $src = $it['file'] ? [$it['src'][0]['path']] : array_column($it['src'], 'path');
-        // `within` = the share written into: the restore folder lies in the office's share (review 1.81.0, M1)
-        $steps[] = ['do' => 'copy', 'from' => implode(' + ', $src), 'sources' => $src, 'to' => $to, 'dataset' => null,
+        $from = $it['file'] ? [$it['src'][0]] : $it['src'];
+        $src = array_column($from, 'path');
+        // `within` = the share written into: the restore folder lies in the office's share (review 1.81.0, M1); `tops` =
+        // per source the moment's top, looked at again for a link on the way right before the copy (S1)
+        $steps[] = ['do' => 'copy', 'from' => implode(' + ', $src), 'sources' => $src, 'to' => $to, 'dataset' => null, 'tops' => array_map(fn ($x) => $x['top'] ?? null, $from),
                     'like' => dirname($src[0]), 'like_depth' => count(explode('/', $rel)) - 1] + ($it['file'] ? ['file' => true] : [])
                     + ['within' => $mode === 'folder' ? $user . '/' . BACKUP_OFFICE_SHARE : "$user/$share"];
         array_push($paths, ...$src);
@@ -667,10 +676,11 @@ function rsPlanPickFor(string $root, array $owner, string $snap, array $items, s
         return $plan;
     }
 
-    // swap: what is there goes aside (a dataset of its own, or one holding one, stays — step 4 does those)
+    // swap: what is there goes aside (a dataset of its own, or one holding one, stays — step 4 does those); the places
+    // only, no snapshot touched (S2)
     foreach ($items as $rel) {
         $it = $infos[$rel];
-        foreach (rsLocate("$root/$rel", $ctx) as $p) {
+        foreach (rsLocate("$root/$rel", $ctx, false) as $p) {
             if ($p['own_dataset']) {
                 $plan['blockers'][] = ['key' => 'restore_kopia_swap_dataset', 'params' => ['dataset' => (string) $p['dataset'], 'share' => $share]];
             } elseif ($p['inner']) {
@@ -787,7 +797,7 @@ function rsPlanPickKept(array $r, array $items, bool $wake, string $stamp, array
         foreach ($items as $rel) {
             $p = "$look/$rel";
             $depth = count(explode('/', $rel));
-            if (!rsBrowseNoLink(dirname($p), $depth - 1)) {
+            if (rsLinkBelow($look, dirname($p))) {
                 $plan['blockers'][] = ['key' => 'restore_browse_link', 'params' => ['path' => $rel]];
                 continue;
             }
@@ -807,7 +817,7 @@ function rsPlanPickKept(array $r, array $items, bool $wake, string $stamp, array
             if (file_exists($to) || is_link($to)) {
                 $plan['blockers'][] = ['key' => 'restore_exists', 'params' => ['path' => $to]];
             }
-            $steps[] = ['do' => 'copy', 'from' => "$dir/$rel", 'sources' => ["$dir/$rel"], 'to' => $to, 'dataset' => null,
+            $steps[] = ['do' => 'copy', 'from' => "$dir/$rel", 'sources' => ["$dir/$rel"], 'to' => $to, 'dataset' => null, 'tops' => [$dir],
                         'like' => dirname("$dir/$rel"), 'like_depth' => $depth - 1, 'within' => $within] + ($file ? ['file' => true] : []);
         }
         $need = rsPickWalk($there);

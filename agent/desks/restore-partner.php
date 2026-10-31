@@ -1195,9 +1195,10 @@ function rspRestored(string $path): array
         }
         $cand = $p['mount'] . substr($path, strlen($p['path']));
         clearstatcache(true, $cand);
-        if (file_exists($cand)) {
+        // there, and no link on the way to it from the pull's mount (review 1.81.0, S1: the partner's stream is its word)
+        if (file_exists($cand) && !rsLinkBelow((string) $p['mount'], $cand)) {
             $out[] = ['id' => 'partner:' . $p['journal'] . ':' . $p['unit'], 'name' => $p['partner'] . ' ' . $p['snap'], 'time' => (int) ($p['time'] ?? 0),
-                      'path' => $cand, 'ours' => false, 'kopia' => true, 'partner' => $p['partner']];
+                      'path' => $cand, 'ours' => false, 'kopia' => true, 'partner' => $p['partner'], 'top' => (string) $p['mount']];
         }
     }
     return $out;
