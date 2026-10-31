@@ -533,7 +533,7 @@ async function run() {
   const spinning = await wakesVisit({ ...flash, hdds: ['parity', 'disk1'] }, 'wakes');
   same('a spinning disk, no wake yet: «none in 7 days», the switch and the filter bar', [spinning.tile[0], spinning.bar, spinning.switch],
     [T('wakes.tile_none'), true, true]);
-  const old = await wakesVisit({ ...flash, wakes: [{ id: 'w1', time: now - 3600, from: now - 3700, disks: ['disk1'], how: 'noticed', who: [] }] }, 'wakes');
+  const old = await wakesVisit({ ...flash, wakes: [{ id: 'w1', time: now - 60, from: now - 160, disks: ['disk1'], how: 'noticed', who: [] }] }, 'wakes');   // a minute ago: an hour ago lies in yesterday between 00:00 and 01:00 (release 1.83.0, 2026-11-01 00:10)
   same('no spinning disk now, but a wake kept from before: shown as always', [old.tile, old.bar], [[T('wakes.tile_today', { n: 1 }), T('wakes.tile_week', { n: 1 })], true]);
   const older = await wakesVisit({ since: now - 86400, look: 4, wakes: [] }, 'wakes');
   same('an older messenger\'s state (no `hdds`): the tile as it always was', [older.tile, older.bar], [[T('wakes.tile_none'), T('wakes.tile_since', { when: O.fmt.date(now - 86400) })], true]);
