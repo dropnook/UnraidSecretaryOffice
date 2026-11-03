@@ -27414,8 +27414,9 @@ function testWatchmanHost(): void
     same('chains: the minutes between when the first and the last came (not when seen again)', [$now, $now + 1500], [$ch[0]['first'], $ch[0]['last']]);
     check('chains: the message names it', str_contains((string) @file_get_contents("$tmp/notified"), '3 entries that may belong together'));
     $off = ['notify' => false];
-    same('chains: with the reports off never told, also not later', [[], []],
-        [watchmanChainsDue($cb, $off, $now + 21000, true, 'en'), watchmanChainsDue($cb, array_merge($off, ['notify' => true]), $now + 21300, true, 'en')]);
+    $quiet = watchmanChainsDue($cb, $off, $now + 21000, true, 'en');
+    $on = array_merge($off, ['notify' => true]);        // a variable: the state goes by reference
+    same('chains: with the reports off never told, also not later', [[], []], [$quiet, watchmanChainsDue($cb, $on, $now + 21300, true, 'en')]);
     putenv('OFFICE_NOTIFY_BIN');
     same('attack: every kind has its technique, in ATT&CK\'s shape', [[], []],
         [array_values(array_diff(array_keys(WATCH_KINDS), array_keys(WATCH_ATTACK))),
