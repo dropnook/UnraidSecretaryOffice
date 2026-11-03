@@ -27,6 +27,11 @@ declare(strict_types=1);
  *   loop     a disk image mounted from the array (an ISO, an img) keeps its file open: rc.local_shutdown logs `losetup -a`
  *            when the time-out ran out. Unraid's own (docker.img on /var/lib/docker, libvirt.img on /etc/libvirt) it
  *            unmounts itself.
+ *   snapshots a ZFS snapshot automounted (.zfs/snapshot/<name>, any look into it) inside a pool's dataset: emhttpd unmounts
+ *            the datasets — one still mounted can make that wait («dataset is busy»). A look from inside a container can
+ *            leave it mounted only in the container's own mount namespace (nostromo 2026-10-31), or — OpenZFS 2.4.4 on 7.3.4,
+ *            test4 2026-11-03 — on the host where `zfs destroy` can't drop it; counted per place (arrayholdSnaps()), not
+ *            as holding the array.
  * Not the array: /mnt/remotes (SMB/NFS shares of other machines), /mnt/disks and /mnt/rootshare (Unassigned Devices) —
  * they never hold it; a remote that doesn't answer only makes everything slower. /mnt/addons is the office's own (RAM).
  *
@@ -98,7 +103,7 @@ function arrayholdLook(array $paths, array $o = []): array
     $now = (int) ($o['now'] ?? time());
     $var = readCfg((string) $paths['var_ini']);
     $out = ['v' => 1, 'time' => $now, 'ms' => 0, 'cut' => false, 'started' => ($var['fsState'] ?? '') === 'Started', 'count' => 0,
-            'holds' => [], 'vms' => [], 'containers' => null, 'itself' => [], 'outside' => [], 'times' => []];
+            'holds' => [], 'vms' => [], 'containers' => null, 'itself' => [], 'outside' => [], 'times' => [], 'snaps' => null];
     if (!$out['started']) {
         return $out;
     }
@@ -198,6 +203,7 @@ function arrayholdLook(array $paths, array $o = []): array
         }
     }
     $out['vms'] = $vms;
+    $out['snaps'] = arrayholdSnaps((string) $paths['proc'], $cts);
     $vmWait = $vms ? $times['timeout'] : 0;
     $ctWait = ($managed ? $given : 0) + $others;
     $need = $ctWait + $vmWait + PARITYWHY_MARGIN;
@@ -408,9 +414,10 @@ function arrayholdVms(string $dir): array
 
 /**
  * The running containers: id, name, Unraid's own (its label) or not, its own stop time (StopTimeout; null: Docker's
- * default). Null: Docker isn't running or didn't answer. Only these fields — never a container's environment.
+ * default), its main process (pid, when Docker said it). Null: Docker isn't running or didn't answer. Only these fields —
+ * never a container's environment.
  *
- * @return list<array{id: string, name: string, managed: bool, own: ?int}>|null
+ * @return list<array{id: string, name: string, managed: bool, own: ?int, pid?: int}>|null
  */
 function arrayholdContainers(array $paths): ?array
 {
@@ -430,17 +437,59 @@ function arrayholdContainers(array $paths): ?array
         }
     }
     if ($out) {
-        [$exit, $text] = run(array_merge([$docker, 'inspect', '--format', "{{.Id}}\t{{.Config.StopTimeout}}"], array_keys($out)), 30);
+        [$exit, $text] = run(array_merge([$docker, 'inspect', '--format', "{{.Id}}\t{{.Config.StopTimeout}}\t{{.State.Pid}}"], array_keys($out)), 30);
         foreach (explode("\n", trim((string) $text)) as $line) {
             $f = explode("\t", $line);
-            if (count($f) === 2 && isset($out[$f[0]]) && preg_match('/^\d{1,6}$/D', $f[1])) {
+            if (count($f) < 2 || !isset($out[$f[0]])) {
+                continue;
+            }
+            if (preg_match('/^\d{1,6}$/D', $f[1])) {
                 $out[$f[0]]['own'] = (int) $f[1];
+            }
+            if (preg_match('/^[1-9]\d{0,9}$/D', $f[2] ?? '')) {
+                $out[$f[0]]['pid'] = (int) $f[2];      // its main process: whose mounts snapshotMountsEverywhere() reads
             }
         }
     }
     $out = array_values($out);
     usort($out, fn (array $a, array $b): int => strnatcasecmp($a['name'], $b['name']));
     return $out;
+}
+
+/**
+ * ZFS snapshots automounted right now (.zfs/snapshot/<name>, snapshotMountsEverywhere()): how many on the host, and per
+ * container inside its own mount namespace ($cts: arrayholdContainers(), with their main processes; null: Docker isn't
+ * running — then none can be in a container). The array's stop unmounts the pools' datasets: a snapshot still mounted
+ * can make that wait («dataset is busy») — his page says it, it isn't counted as holding the array.
+ *
+ * @return array{host: int, containers: list<array{name: string, n: int}>}
+ */
+function arrayholdSnaps(string $proc, ?array $cts): array
+{
+    $list = [];
+    foreach ($cts ?? [] as $c) {
+        if (isset($c['pid'])) {
+            $list[] = ['name' => $c['name'], 'pid' => $c['pid']];
+        }
+    }
+    $host = 0;
+    $inside = [];
+    foreach (snapshotMountsEverywhere($list, $proc) as $m) {
+        if (!$m['auto']) {
+            continue;
+        }
+        if ($m['where'] === 'host') {
+            $host++;
+        } else {
+            $inside[$m['container']] = ($inside[$m['container']] ?? 0) + 1;
+        }
+    }
+    ksort($inside, SORT_NATURAL | SORT_FLAG_CASE);
+    $containers = [];
+    foreach ($inside as $name => $n) {
+        $containers[] = ['name' => (string) $name, 'n' => $n];
+    }
+    return ['host' => $host, 'containers' => array_slice($containers, 0, ARRAYHOLD_LIST)];
 }
 
 /** His page: the last look (RAM) — only in exactly its shape */

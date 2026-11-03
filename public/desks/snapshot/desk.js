@@ -1500,17 +1500,63 @@ async function askDelete(ids) {
   });
 }
 
-async function remove(ids, unmount, wake) {
+async function remove(ids, unmount, wake, free) {
   setBusy(true);
   Office.toast(T('deleting', { n: ids.length }));
-  const j = await Office.api.post(`${ID}.delete`, { ids, unmount: !!unmount, wake: !!wake });
+  // free: the automounts ZFS can't drop itself (inside a container, or one it called busy) are unmounted first
+  const j = await Office.api.post(free ? `${ID}.free_mounts` : `${ID}.delete`, free ? { ids, wake: !!wake } : { ids, unmount: !!unmount, wake: !!wake });
   setBusy(false);
   if (!j.ok) { failed(j); return; }
   (j.deleted || []).forEach((id) => selection.delete(id));
   setState(j.state);
   const n = (j.deleted || []).length;
   if (n) Office.toast(T('deleted', { n }));
-  if ((j.failures || []).length) Office.showErrors(n ? T('delete.partly') : T('delete.failed'), j.failures, ID);
+  const failures = j.failures || [];
+  if (!failures.length) return;
+  const title = n ? T('delete.partly') : T('delete.failed');
+  // «dataset is busy» where she can see the mount: listed as the others, and «Free and delete…» for those
+  const freeable = free ? [] : failures.filter((f) => f.free && typeof f.id === 'string');
+  if (!freeable.length) { Office.showErrors(title, failures, ID); return; }
+  const box = el('div');
+  const ul = el('ul', 'shortlist');
+  failures.forEach((e) => ul.appendChild(el('li', 'error', Office.errorText(e, ID))));
+  box.appendChild(ul);
+  Office.dialog({
+    title,
+    body: box,
+    buttons: [
+      { text: Office.t('common.close') },
+      { text: T('free.button'), kind: 'danger', act: () => { askFree(freeable, wake); return true; } },
+    ],
+  });
+}
+
+/** «Free and delete…»: names where each one hangs and what happens, then deletes them with free_mounts */
+async function askFree(freeable, wake) {
+  if (!(await Office.freshState(ID))) return;
+  const list = freeable.filter((f) => index.has(f.id));
+  if (!list.length) return;
+  const n = list.length;
+  const box = el('div');
+  box.appendChild(el('p', '', T('free.intro', { n })));
+  const ul = el('ul', 'shortlist');
+  list.forEach((f) => {
+    const li = el('li', '', f.params.name);
+    const p = f.params;
+    li.appendChild(el('span', '', f.key === 'busy_in_container' ? T('free.in_container', { container: p.container, path: p.path }) : T('free.on_host', { path: p.path })));
+    ul.appendChild(li);
+  });
+  box.appendChild(ul);
+  box.appendChild(el('p', 'callout', T('free.note')));
+  const d = Office.dialog({
+    title: T('free.title'),
+    body: box,
+    buttons: [
+      { text: Office.t('common.cancel') },
+      { text: T('free.confirm', { n }), kind: 'danger', act: () => { remove(list.map((f) => f.id), false, wake, true); return true; } },
+    ],
+  });
+  d.buttons[0].focus();   // safe default: Enter cancels
 }
 
 async function askUnmount(s) {

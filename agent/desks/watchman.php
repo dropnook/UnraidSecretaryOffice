@@ -1429,6 +1429,8 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $pos['boot'] = $boot;
     }
     $containers = $docker ? $docker() : watchmanContainers();
+    // snapshot automounts right now, on the host and inside the containers (by their main processes; the metric's numbers)
+    $automounts = isset($paths['proc']) ? watchmanAutomounts($containers, (string) $paths['proc']) : null;
     $netContainers = $containers;          // with their addresses and ports: whose a router's line likely is (watchmanNetGuess())
     $look = $flow ? $flow($containers) : null;
     $prevSeen = readJson("$dir/seen.json") ?? [];      // the last round's look: a file the same as then isn't read again
@@ -1609,7 +1611,9 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $st['round'] = ['time' => $now, 'duration_ms' => (int) round((microtime(true) - $t0) * 1000), 'failed' => false,
                         'read' => $read['read'], 'skipped' => $read['skipped'], 'rotated' => $read['rotated'], 'syslog_full' => $read['full'],
                         'docker' => $seen['containers'] !== null, 'shares' => $seen['shares'] !== null, 'flow' => $look !== null,
-                        'snaps' => $snapRes !== null, 'added' => count($added)];
+                        'snaps' => $snapRes !== null, 'added' => count($added),
+                        // snapshot automounts right now, on the host and inside the containers (the metric's numbers)
+                        'automounts' => $automounts];
         if (is_array($st['night'] ?? null) && !isset($st['night']['until'])) {
             // the night shift's own state (the day's `night` has `until`): its rounds and what is new in it and open — the
             // office's page and the Dashboard tile say so while the array is stopped (officeNightShift() in src/mailbox.php)
@@ -2121,6 +2125,23 @@ function watchmanLogins(array &$b, array &$book, array &$st, array $events, bool
 }
 
 // ===================================================================== containers
+
+/**
+ * How many ZFS snapshots are automounted (.zfs/snapshot/<name>) right now: {host, container} — container null when Docker
+ * didn't answer. From /proc only (snapshotMountsEverywhere(), with the main processes his look already has: no docker call).
+ */
+function watchmanAutomounts(?array $containers, string $proc): array
+{
+    $list = [];
+    foreach ($containers ?? [] as $name => $c) {
+        if ((int) ($c['pid'] ?? 0) > 1) {
+            $list[] = ['name' => (string) $name, 'pid' => (int) $c['pid']];
+        }
+    }
+    $auto = array_filter(snapshotMountsEverywhere($list, $proc), fn (array $m): bool => $m['auto']);
+    return ['host' => count(array_filter($auto, fn (array $m): bool => $m['where'] === 'host')),
+            'container' => $containers === null ? null : count(array_filter($auto, fn (array $m): bool => $m['where'] === 'container'))];
+}
 
 /** Every container's rights, as docker run flags; null when Docker doesn't answer */
 function watchmanContainers(): ?array
@@ -9827,7 +9848,15 @@ function watchmanMetrics(?string $dir = null): array
     foreach (array_slice((array) ($flow['written'] ?? []), 0, WATCH_FLOW_TOP, true) as $share => $bytes) {
         $written[] = [['share' => (string) $share], (int) $bytes];
     }
+    $auto = [];
+    foreach (['host', 'container'] as $where) {
+        if (is_int($st['round']['automounts'][$where] ?? null)) {
+            $auto[] = [['where' => $where], $st['round']['automounts'][$where]];
+        }
+    }
     return [
+        ['name' => 'uso_watchman_snapshot_automounts', 'type' => 'gauge',
+         'help' => 'ZFS snapshots automounted (.zfs/snapshot) at his last round, on the host and inside containers', 'samples' => $auto],
         ['name' => 'uso_watchman_open_findings', 'type' => 'gauge', 'help' => 'Night watchman findings not noted yet', 'samples' => $samples],
         ['name' => 'uso_watchman_last_round_timestamp_seconds', 'type' => 'gauge', 'help' => 'When the night watchman last finished a round (unix time)',
          'samples' => $last > 0 ? [[[], $last]] : []],
