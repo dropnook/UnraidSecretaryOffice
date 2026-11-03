@@ -9855,8 +9855,6 @@ function watchmanMetrics(?string $dir = null): array
         }
     }
     return [
-        ['name' => 'uso_watchman_snapshot_automounts', 'type' => 'gauge',
-         'help' => 'ZFS snapshots automounted (.zfs/snapshot) at his last round, on the host and inside containers', 'samples' => $auto],
         ['name' => 'uso_watchman_open_findings', 'type' => 'gauge', 'help' => 'Night watchman findings not noted yet', 'samples' => $samples],
         ['name' => 'uso_watchman_last_round_timestamp_seconds', 'type' => 'gauge', 'help' => 'When the night watchman last finished a round (unix time)',
          'samples' => $last > 0 ? [[[], $last]] : []],
@@ -9864,6 +9862,8 @@ function watchmanMetrics(?string $dir = null): array
          'help' => 'Bytes the server sent to clients per file service (SMB, NFS, SSH, WebGUI) since the night watchman watches the data flow', 'samples' => $sent],
         ['name' => 'uso_watchman_written_bytes_total', 'type' => 'counter',
          'help' => 'Bytes written into ZFS shares since the night watchman watches the data flow (the ' . WATCH_FLOW_TOP . ' shares with the most)', 'samples' => $written],
+        ['name' => 'uso_watchman_snapshot_automounts', 'type' => 'gauge',
+         'help' => 'ZFS snapshots automounted (.zfs/snapshot) at his last round, on the host and inside containers', 'samples' => $auto],
         ...watchnetMetrics($st, readJson(($dir ?? watchmanDir()) . '/net.json')),      // the network (agent/lib/watchnet.php)
     ];
 }
