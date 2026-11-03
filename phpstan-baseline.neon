@@ -1,0 +1,1015 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Function agentNap\(\) has parameter \$bell with no type specified\.$#'
+			identifier: missingType.parameter
+			count: 1
+			path: agent/agent.php
+
+		-
+			message: '#^Function agentZoneChanged\(\) never assigns null to &\$seen so it can be removed from the by\-ref type\.$#'
+			identifier: parameterByRef.unusedType
+			count: 1
+			path: agent/agent.php
+
+		-
+			message: '#^Function doorbellClose\(\) has parameter \$bell with no type specified\.$#'
+			identifier: missingType.parameter
+			count: 1
+			path: agent/agent.php
+
+		-
+			message: '#^Function restartInPlace\(\) has parameter \$lock with no type specified\.$#'
+			identifier: missingType.parameter
+			count: 1
+			path: agent/agent.php
+
+		-
+			message: '#^Function advisorHttps\(\) should return array\{status\: int, headers\: array\<string, string\>, body\: string, error\: string\|null, errno\: int\} but returns array\{status\: 0, headers\: array\{\}, body\: '''', error\: ''no curl''\}\.$#'
+			identifier: return.type
+			count: 1
+			path: agent/desks/advisor.php
+
+		-
+			message: '#^Offset ''later'' on array\{container\: ''kopia'', template\: ''kopia''\}\|array\{image\: ''/\^grafana\(\-oss\|…'', optional\: true, group\: ''monitoring'', template\: ''Grafana''\}\|array\{image\: ''/\^prometheus\$/i'', optional\: true, group\: ''monitoring'', template\: ''prometheus''\}\|array\{plugin\: ''prometheus_node…'', image\: ''/\^node\[\-_\]exporter\$…'', optional\: true, group\: ''monitoring'', template\: ''Node\-Exporter''\} in empty\(\) does not exist\.$#'
+			identifier: empty.offset
+			count: 1
+			path: agent/desks/advisor.php
+
+		-
+			message: '#^Offset ''nodeexporter'' on array\{fcp\: non\-empty\-array, filesviewer\: non\-empty\-array, kopia\: non\-empty\-array, streamviewer\?\: non\-empty\-array, unbalanced\: non\-empty\-array, nodeexporter\: non\-empty\-array, prometheus\: non\-empty\-array, grafana\: non\-empty\-array, \.\.\.\} in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: agent/desks/advisor.php
+
+		-
+			message: '#^Offset ''refuse_rest'' does not exist on array\{id\: string, name\: string, template\: array, files\: list\<array\{path\: string, kind\: string, content\: string, there\: bool\}\>, refuse\: non\-empty\-array, dashboard\: bool\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: agent/desks/advisor.php
+
+		-
+			message: '#^Anonymous function never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 1
+			path: agent/desks/backup-letgo.php
+
+		-
+			message: '#^Call to function is_int\(\) with int will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: agent/desks/backup-ncopen.php
+
+		-
+			message: '#^Offset ''gid'' on array\{name\: string, passwd\: string, gid\: int, members\: list\<string\>\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: agent/desks/backup-ncopen.php
+
+		-
+			message: '#^Function backupHistory\(\) never assigns null to &\$skips so it can be removed from the by\-ref type\.$#'
+			identifier: parameterByRef.unusedType
+			count: 1
+			path: agent/desks/backup.php
+
+		-
+			message: '#^Function backupNextcloudDataDir\(\) never assigns null to &\$asleep so it can be removed from the by\-ref type\.$#'
+			identifier: parameterByRef.unusedType
+			count: 1
+			path: agent/desks/backup.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between non\-falsy\-string&numeric\-string and '''' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: agent/desks/backup.php
+
+		-
+			message: '#^Unable to resolve the template type T in call to function array_values$#'
+			identifier: argument.templateType
+			count: 1
+			path: agent/desks/backup.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type DateTime\|false\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 3
+			path: agent/desks/backup.php
+
+		-
+			message: '#^Comparison operation "\<" between int\<1, max\> and 1 is always false\.$#'
+			identifier: smaller.alwaysFalse
+			count: 2
+			path: agent/desks/cleanup.php
+
+		-
+			message: '#^Empty array passed to foreach\.$#'
+			identifier: foreach.emptyArray
+			count: 1
+			path: agent/desks/cleanup.php
+
+		-
+			message: '#^Function clVolumeStore\(\) never assigns null to &\$run so it can be removed from the by\-ref type\.$#'
+			identifier: parameterByRef.unusedType
+			count: 1
+			path: agent/desks/cleanup.php
+
+		-
+			message: '#^Match expression does not handle remaining value\: mixed$#'
+			identifier: match.unhandled
+			count: 1
+			path: agent/desks/cleanup.php
+
+		-
+			message: '#^Offset 1 on array\{0\: non\-empty\-string, 1\: string, 2\: non\-empty\-string, 3\?\: non\-falsy\-string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: agent/desks/cleanup.php
+
+		-
+			message: '#^Offset 2 on array\{0\: int\<0, max\>, 1\: int\<0, max\>, 2\: int, 3\: string, mime\: string, channels\?\: int, bits\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: agent/desks/cleanup.php
+
+		-
+			message: '#^Parameter \#1 \$array of function usort contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: agent/desks/cleanup.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function array_filter expects \(callable\(string\)\: bool\)\|null, ''strlen'' given\.$#'
+			identifier: argument.type
+			count: 1
+			path: agent/desks/cleanup.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function usort contains unresolvable type\.$#'
+			identifier: argument.unresolvableType
+			count: 1
+			path: agent/desks/cleanup.php
+
+		-
+			message: '#^Result of \|\| is always false\.$#'
+			identifier: booleanOr.alwaysFalse
+			count: 1
+			path: agent/desks/cleanup.php
+
+		-
+			message: '#^Variable \$to might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: agent/desks/cleanup.php
+
+		-
+			message: '#^Function jackGatherWatch\(\) has parameter \$proc with no type specified\.$#'
+			identifier: missingType.parameter
+			count: 1
+			path: agent/desks/jack.php
+
+		-
+			message: '#^Parameter \#1 \$array \(list\<array\{share\: string, title\: string, files\: int\<1, max\>, bytes\: int\<0, max\>, since\: int\<1, max\>\|null\}\>\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
+			count: 1
+			path: agent/desks/jack.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: agent/desks/jack.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function array_filter expects \(callable\(string\)\: bool\)\|null, ''strlen'' given\.$#'
+			identifier: argument.type
+			count: 2
+			path: agent/desks/logs.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between non\-empty\-string and '''' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: agent/desks/logs.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between non\-falsy\-string and '''' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: agent/desks/logs.php
+
+		-
+			message: '#^Parameter \#1 \$array \(list\<array\{string, int\<0, max\>\}\|string\>\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
+			count: 1
+			path: agent/desks/moverelli.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 1
+			path: agent/desks/moverelli.php
+
+		-
+			message: '#^Offset ''path'' on array\{kind\: ''app'', name\: non\-falsy\-string, share\: non\-falsy\-string, dir\: non\-falsy\-string, path\: null, user\: non\-falsy\-string, parent\: null, dataset\: null, \.\.\.\} on left side of \?\? always exists and is always null\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: agent/desks/restore-dataset.php
+
+		-
+			message: '#^Offset ''path'' on array\{kind\: ''app''\|''vm'', name\: non\-falsy\-string, share\: non\-falsy\-string, dir\: non\-falsy\-string, path\: null, user\: non\-falsy\-string, parent\: null, dataset\: null, \.\.\.\} on left side of \?\? always exists and is always null\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: agent/desks/restore-dataset.php
+
+		-
+			message: '#^Function drillKopiaPackageDir\(\) never assigns null to &\$failed so it can be removed from the by\-ref type\.$#'
+			identifier: parameterByRef.unusedType
+			count: 1
+			path: agent/desks/restore-drill.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function array_filter expects \(callable\(string\)\: bool\)\|null, ''strlen'' given\.$#'
+			identifier: argument.type
+			count: 3
+			path: agent/desks/restore-drill.php
+
+		-
+			message: '#^Call to an undefined method DOMNameSpaceNode\|DOMNode\:\:getAttribute\(\)\.$#'
+			identifier: method.notFound
+			count: 11
+			path: agent/desks/restore-partner.php
+
+		-
+			message: '#^Call to an undefined method DOMNameSpaceNode\|DOMNode\:\:hasAttribute\(\)\.$#'
+			identifier: method.notFound
+			count: 2
+			path: agent/desks/restore-partner.php
+
+		-
+			message: '#^Call to an undefined method DOMNameSpaceNode\|DOMNode\:\:removeAttribute\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: agent/desks/restore-partner.php
+
+		-
+			message: '#^Call to an undefined method DOMNameSpaceNode\|DOMNode\:\:setAttribute\(\)\.$#'
+			identifier: method.notFound
+			count: 8
+			path: agent/desks/restore-partner.php
+
+		-
+			message: '#^Empty array passed to foreach\.$#'
+			identifier: foreach.emptyArray
+			count: 2
+			path: agent/desks/restore-partner.php
+
+		-
+			message: '#^Function rspPeek\(\) never assigns null to &\$read so it can be removed from the by\-ref type\.$#'
+			identifier: parameterByRef.unusedType
+			count: 1
+			path: agent/desks/restore-partner.php
+
+		-
+			message: '#^Offset ''do'' on array\{do\: ''mount'', dataset\: non\-falsy\-string, path\: string\}\|array\{do\: ''pull_local'', source\: non\-falsy\-string, dataset\: non\-falsy\-string, parent\: non\-falsy\-string\|null, mount\: string, pair\: non\-falsy\-string, partner\: mixed, unit\: non\-falsy\-string, \.\.\.\}\|array\{do\: ''start_from'', kind\: ''look'', to\: null, mount\: string, partner\: mixed, templates\: string, libvirt\: string\}\|array\{only\?\: list\<mixed\>, do\: ''start_from'', kind\: ''share'', to\: mixed, mount\: string, partner\: mixed, templates\: string, libvirt\: string\}\|array\{skip\?\: non\-empty\-list\<mixed\>, do\: ''copy'', from\: string, to\: mixed, into_empty\: true, replaces\: true, putback_to\: non\-falsy\-string, partner\: mixed\}\|array\{to\: mixed, do\: ''start_from'', kind\: ''app'', name\: string, partner\: mixed, mount\: string, libvirt\: string, templates\: string\}\|array\{to\: mixed, do\: ''start_from'', kind\: ''vm'', name\: string, define\: bool, define_why\: ''start_vm_exists''\|''start_vm_service_off''\|null, partner\: mixed, mount\: string, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: agent/desks/restore-partner.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed~\(0\|0\.0\|''''\|''0''\|''false''\|array\{\}\|false\|null\) and ''0'' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: agent/desks/restore-partner.php
+
+		-
+			message: '#^Offset string on non\-empty\-array\<string, array\{kind\: ''dir''\|''file'', bases\: list\<string\>\}\> in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.offset
+			count: 1
+			path: agent/desks/restore.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: agent/desks/restore.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between non\-empty\-string and '''' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: agent/desks/restore.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type DateTime\|false\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: agent/desks/restore.php
+
+		-
+			message: '#^Negated boolean expression is always true\.$#'
+			identifier: booleanNot.alwaysTrue
+			count: 1
+			path: agent/desks/snapshot.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function array_filter expects \(callable\(string\)\: bool\)\|null, ''strlen'' given\.$#'
+			identifier: argument.type
+			count: 1
+			path: agent/desks/snapshot.php
+
+		-
+			message: '#^Function watchmanFlowCompare\(\) never assigns null to &\$bf so it can be removed from the by\-ref type\.$#'
+			identifier: parameterByRef.unusedType
+			count: 1
+			path: agent/desks/watchman.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 1
+			path: agent/desks/watchman.php
+
+		-
+			message: '#^Parameter \#1 \$array \(list\<array\{t\: int, ip\: string, user\: string\|null, service\: string\}\>\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
+			count: 1
+			path: agent/desks/watchman.php
+
+		-
+			message: '#^Parameter \#1 \$array \(non\-empty\-list\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
+			count: 1
+			path: agent/desks/watchman.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between non\-empty\-string and '''' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: agent/desks/watchman.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between non\-falsy\-string and '''' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: agent/desks/watchman.php
+
+		-
+			message: '#^Parameter \#1 \$array \(list\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
+			count: 1
+			path: agent/lib/arrayhold.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between numeric\-string and '''' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: agent/lib/house.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function array_filter expects \(callable\(string\)\: bool\)\|null, ''strlen'' given\.$#'
+			identifier: argument.type
+			count: 2
+			path: agent/lib/metrics.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: agent/lib/paritywhy.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 1
+			path: agent/lib/partner.php
+
+		-
+			message: '#^Call to function is_string\(\) with string will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: agent/lib/report.php
+
+		-
+			message: '#^Function reportScrub\(\) never assigns null to &\$seen so it can be removed from the by\-ref type\.$#'
+			identifier: parameterByRef.unusedType
+			count: 1
+			path: agent/lib/report.php
+
+		-
+			message: '#^Parameter &\$seen by\-ref type of function reportDiagText\(\) expects array\<string, string\>, array given\.$#'
+			identifier: parameterByRef.type
+			count: 2
+			path: agent/lib/report.php
+
+		-
+			message: '#^Parameter &\$seen by\-ref type of function reportLog\(\) expects array\<string, string\>, array\<string, string\>\|null given\.$#'
+			identifier: parameterByRef.type
+			count: 1
+			path: agent/lib/report.php
+
+		-
+			message: '#^Parameter &\$seen by\-ref type of function reportScrub\(\) expects array\<string, string\>\|null, array given\.$#'
+			identifier: parameterByRef.type
+			count: 1
+			path: agent/lib/report.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: agent/lib/snapshotplans.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between numeric\-string and '''' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: agent/lib/snapshotplans.php
+
+		-
+			message: '#^Using nullsafe method call on non\-nullable type DateTime\|false\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: agent/lib/snapshotplans.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: agent/lib/watchnet.php
+
+		-
+			message: '#^Binary operation "\+\=" between int\|list\<string\>\|string and int\<0, max\> results in an error\.$#'
+			identifier: assignOp.invalid
+			count: 1
+			path: agent/lib/where.php
+
+		-
+			message: '#^Comparison operation "\>" between \*NEVER\* and 1 results in an error\.$#'
+			identifier: greater.invalid
+			count: 1
+			path: agent/lib/where.php
+
+		-
+			message: '#^Function doorWriteLock\(\) has no return type specified\.$#'
+			identifier: missingType.return
+			count: 1
+			path: agent/partner-door.php
+
+		-
+			message: '#^Offset ''pid'' on array\{command\: string, pid\: int, running\: bool, signaled\: bool, stopped\: bool, exitcode\: int, termsig\: int, stopsig\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 4
+			path: agent/partner-door.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 6
+			path: src/page.php
+
+		-
+			message: '#^Right side of && is always false\.$#'
+			identifier: booleanAnd.rightAlwaysFalse
+			count: 1
+			path: src/place.php
+
+		-
+			message: '#^Call to function is_int\(\) with int\<0, max\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 2
+			path: src/reportimage.php
+
+		-
+			message: '#^Offset 0 on array\{0\: int\<0, max\>, 1\: int\<0, max\>, 2\: int, 3\: string, mime\: string, channels\?\: int, bits\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/reportimage.php
+
+		-
+			message: '#^Offset 1 on array\{0\: int\<0, max\>, 1\: int\<0, max\>, 2\: int, 3\: string, mime\: string, channels\?\: int, bits\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/reportimage.php
+
+		-
+			message: '#^Offset 2 on array\{0\: int\<0, max\>, 1\: int\<0, max\>, 2\: int, 3\: string, mime\: string, channels\?\: int, bits\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/reportimage.php
+
+		-
+			message: '#^Anonymous function has an unused use \$vms\.$#'
+			identifier: closure.unusedUse
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Anonymous function never returns null so it can be removed from the return type\.$#'
+			identifier: return.unusedType
+			count: 3
+			path: tests/run.php
+
+		-
+			message: '#^Call to function array_key_exists\(\) with ''wake'' and array\{quota_gb\: 0, retention\: ''7 4 6''\} will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments ''/sys/xfs/md1p1…'', array\{\} and true will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments ''cleanup_tool'', array\{''cache_path'', ''cache_budget'', ''number_episodes'', ''movie_share_percent'', ''max_episodes_per…'', ''max_resume_items'', ''max_resume_movies'', ''max_resume_series'', \.\.\.\} and true will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments ''fill_tool'', array\{''cache_path'', ''cache_budget'', ''number_episodes'', ''movie_share_percent'', ''max_episodes_per…'', ''max_resume_items'', ''max_resume_movies'', ''max_resume_series'', \.\.\.\} and true will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments ''logs'', array\{''caretaker'', ''backup'', ''snapshot'', ''restore'', ''watchman'', ''moverelli'', ''jack'', ''logs'', \.\.\.\} and true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments ''net_router_login'', array\{''login_new_ip'', ''login_failures'', ''smb_user'', ''door_new'', ''door_key_moved'', ''door_refused'', ''net_router_login'', ''net_router_login…'', \.\.\.\} and true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments ''net_spoof'', array\{''login_new_ip'', ''login_failures'', ''smb_user'', ''door_new'', ''door_key_moved'', ''door_refused'', ''net_router_login'', ''net_router_login…'', \.\.\.\} and true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments ''net_vpn_login'', array\{''login_new_ip'', ''login_failures'', ''smb_user'', ''door_new'', ''door_key_moved'', ''door_refused'', ''net_router_login'', ''net_router_login…'', \.\.\.\} and true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments ''parallel_disks'', array\{''cache_path'', ''cache_budget'', ''number_episodes'', ''movie_share_percent'', ''max_episodes_per…'', ''max_resume_items'', ''max_resume_movies'', ''max_resume_series'', \.\.\.\} and true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments ''parallel_per_disk'', array\{''cache_path'', ''cache_budget'', ''number_episodes'', ''movie_share_percent'', ''max_episodes_per…'', ''max_resume_items'', ''max_resume_movies'', ''max_resume_series'', \.\.\.\} and true will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments ''sharefile'', array\{''package'', ''dump'', ''sqlite'', ''vmdisk'', ''kopia'', ''sharefile''\} and true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments ''themes'', array\{''cache_path'', ''cache_budget'', ''number_episodes'', ''movie_share_percent'', ''max_episodes_per…'', ''max_resume_items'', ''max_resume_movies'', ''max_resume_series'', \.\.\.\} and true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments ''versitygw'', array\{''mega''\} and true will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to function in_array\(\) with arguments ''versitygw'', array\{''s3'', ''aws'', ''b2'', ''r2'', ''mega'', ''wasabi'', ''hetzner'', ''idrive'', \.\.\.\} and true will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to function is_array\(\) with mixed will always evaluate to false\.$#'
+			identifier: function.impossibleType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Call to preg_quote\(\) is missing delimiter / to be effective\.$#'
+			identifier: argument.invalidPregQuote
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Comparison operation "\<\=" between 5000 and 10000 is always true\.$#'
+			identifier: smallerOrEqual.alwaysTrue
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Comparison operation "\>" between 1000 and 0 is always true\.$#'
+			identifier: greater.alwaysTrue
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Expression on left side of \?\? is always null\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Function restoreGapsRun\(\) never assigns null to &\$j so it can be removed from the by\-ref type\.$#'
+			identifier: parameterByRef.unusedType
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Left side of && is always false\.$#'
+			identifier: booleanAnd.leftAlwaysFalse
+			count: 2
+			path: tests/run.php
+
+		-
+			message: '#^Left side of \|\| is always false\.$#'
+			identifier: booleanOr.leftAlwaysFalse
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''\-d'' on array\<string, string\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''\-m'' on array\<string, string\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 4
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''cleanup_tool'' on array\{fill_tool\: ''rsync'', cleanup_tool\: ''mover'', array_path\: ''/mnt/user0'', user_path\: ''/mnt/user'', array_disks_glob\: ''/mnt/disk\[0\-9\]\*'', shares_cfg_dir\: ''/boot/config/shares''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''cron_dead'' on array\{login_new_ip\: array\{''login'', true\}, login_failures\: array\{''login'', true\}, container_new\: array\{''container'', true\}, container_privileged\: array\{''container'', true\}, container_host\: array\{''container'', true\}, container_ports\: array\{''container'', false\}, container_rights\: array\{''container'', false\}, drill_throwaway\: array\{''container'', false\}, \.\.\.\} in isset\(\) does not exist\.$#'
+			identifier: isset.offset
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''d'' does not exist on array\{\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 3
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''d'' does not exist on non\-empty\-array\<''failed_q''\|''gave''\|''j''\|''jack_exit''\|''st_failed''\|''w''\|''wait'', mixed\>\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''domains'' does not exist on array\{secrets\: list\<string\>, names\: array\<string, array\{string, bool\}\>, shares\: array\<string, string\>, pools\: array\<string, string\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''emby'' on array\{whereabouts\: ''cleanup'', emby\: ''jack''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''fill_tool'' on array\{fill_tool\: ''rsync'', cleanup_tool\: ''mover'', array_path\: ''/mnt/user0'', user_path\: ''/mnt/user'', array_disks_glob\: ''/mnt/disk\[0\-9\]\*'', shares_cfg_dir\: ''/boot/config/shares''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''gave'' on array\{\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''guess'' does not exist on array\{t\: string, b\: int, name\?\: string, n\?\: int, new\?\: true, gone\?\: true, dir\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''j'' does not exist on array\{\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 4
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''jack_why'' on non\-empty\-array\<''failed_q''\|''gave''\|''j''\|''jack_exit''\|''st_failed''\|''w''\|''wait'', mixed\> on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''macs'' does not exist on array\{disks\: list\<array\{string, bool\}\>, dirs\: list\<array\{string, bool\}\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''mikrotik'' on array\{fcp\: array\{plugin\: ''fix\.common\.problems'', author\: ''Lime Technology'', plg\: ''https\://raw…''\}, filesviewer\: array\{plugin\: ''filesviewer'', author\: ''Lazaros Chalkidis'', plg\: ''https\://raw…''\}, kopia\: array\{container\: ''kopia'', template\: ''kopia''\}, streamviewer\: array\{plugin\: ''streamviewer'', media\: true, author\: ''Lazaros Chalkidis'', plg\: ''https\://github\.com…''\}, unbalanced\: array\{plugin\: ''unbalanced'', optional\: true\}, nodeexporter\: array\{plugin\: ''prometheus_node…'', image\: ''/\^node\[\-_\]exporter\$…'', optional\: true, group\: ''monitoring'', template\: ''Node\-Exporter''\}, prometheus\: array\{image\: ''/\^prometheus\$/i'', optional\: true, group\: ''monitoring'', template\: ''prometheus''\}, grafana\: array\{image\: ''/\^grafana\(\-oss\|…'', optional\: true, group\: ''monitoring'', template\: ''Grafana''\}, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''mnt'' does not exist on array\{tmp\: string, data\: string, fake\: string, boot\: string, root\: string, setup\: Closure, json\: Closure, coded\: Closure, \.\.\.\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 3
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''more'' does not exist on array\{t\: string, b\: int, name\?\: string, n\?\: int, new\?\: true, gone\?\: true, dir\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''net_blocked_from…'' on array\{snap_gone\: ''snap'', snap_hold_released\: ''snap'', flow_written\: ''flow'', flow_gone\: ''flow'', log_cleared\: ''log'', net_blocked_from_server\: ''exfil''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''nm'' does not exist on array\{\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''nm'' does not exist on non\-empty\-array\<''failed_q''\|''gave''\|''j''\|''jack_exit''\|''st_failed''\|''w''\|''wait'', mixed\>\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''pid'' on array\{command\: string, pid\: int, running\: bool, signaled\: bool, stopped\: bool, exitcode\: int, termsig\: int, stopsig\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 3
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''release'' on array\{report\: array\{''\-\-show\-on\-deck'', ''\-\-compact''\}, dry\: array\{\}, run\: array\{''\-\-run''\}, release\: array\{''\-\-release''\}\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''running'' on array\{command\: string, pid\: int, running\: bool, signaled\: bool, stopped\: bool, exitcode\: int, termsig\: int, stopsig\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''snaps'' does not exist on array\{v\: int, time\: int, ms\: int, cut\: bool, started\: bool, count\: int, holds\: list\<array\>, vms\: list\<array\>, \.\.\.\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''st_failed'' on array\{\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''stop_ask'' on non\-empty\-array\<''failed_q''\|''gave''\|''j''\|''jack_exit''\|''st_failed''\|''w''\|''wait'', mixed\> on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''w'' does not exist on array\{\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: tests/run.php
+
+		-
+			message: '#^Offset ''wait'' does not exist on array\{\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: tests/run.php
+
+		-
+			message: '#^Offset 0 does not exist on array\{\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 12
+			path: tests/run.php
+
+		-
+			message: '#^Offset 0 on ''ok''\|array\{string, array\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 5
+			path: tests/run.php
+
+		-
+			message: '#^Offset 0 on array\{\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 6
+			path: tests/run.php
+
+		-
+			message: '#^Offset 0 on list\<string\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: tests/run.php
+
+		-
+			message: '#^Offset 2 on array\{non\-falsy\-string, non\-falsy\-string, string, non\-empty\-string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Offset string does not exist on array\{\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Parameter \#1 \$array \(list\<\(int\|string\)\>\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
+			count: 2
+			path: tests/run.php
+
+		-
+			message: '#^Parameter \#1 \$inspect of function caretakerNetworkGaps expects list\<array\>, array\{null, ''x'', array\{Name\: ''''\}\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function array_filter expects \(callable\(mixed\)\: bool\)\|null, Closure\(mixed\)\: \(array\{\}\|array\{0\?\: ''\{fetched\}'', 1\?\: ''\{disks\}''\}\|array\{0\?\: ''\{folders\}'', 1\?\: ''\{shares\}''\}\|array\{0\?\: ''\{looked\}'', 1\?\: ''\{n\}''\}\|array\{0\?\: ''\{n\}'', 1\?\: ''\{size\}''\}\) given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function array_filter expects \(callable\(string\)\: bool\)\|null, ''strlen'' given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function array_filter expects \(callable\(string\)\: bool\)\|null, ''trim'' given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Parameter \#2 \$icons of function clOverrideSetIcons expects array\<string, string\>, array\<int, string\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Property WatchFsSpy\:\:\$context has no type specified\.$#'
+			identifier: missingType.property
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Property WatchFsSpy\:\:\$h has no type specified\.$#'
+			identifier: missingType.property
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Result of function clearstatcache \(void\) is used\.$#'
+			identifier: function.void
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Result of function writeAtomic \(void\) is used\.$#'
+			identifier: function.void
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Right side of && is always true\.$#'
+			identifier: booleanAnd.rightAlwaysTrue
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Right side of \|\| is always true\.$#'
+			identifier: booleanOr.rightAlwaysTrue
+			count: 3
+			path: tests/run.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between null and null will always evaluate to false\.$#'
+			identifier: notIdentical.alwaysFalse
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''/mnt/addons…'' and ''/mnt/addons…'' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''/usr/local/sbin…'' and ''/usr/local/sbin…'' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''Docs'' and '''' will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''https\://github\.com…'' and ''https\://github\.com…'' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between ''uso\-net\-1\-linux…'' and ''uso\-net\-1\-linux…'' will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between 5 and 5 will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between 60 and 60 will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between 72000 and 72000 will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between 8 and 8 will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between array\{''warning''\} and array\{''warning''\} will always evaluate to true\.$#'
+			identifier: identical.alwaysTrue
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Ternary operator condition is always false\.$#'
+			identifier: ternary.alwaysFalse
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Ternary operator condition is always true\.$#'
+			identifier: ternary.alwaysTrue
+			count: 1
+			path: tests/run.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>params" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: tests/run.php

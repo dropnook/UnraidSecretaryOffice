@@ -272,3 +272,4 @@ nostromo is real; USOPartner stays on the last release (only `tools/release.sh` 
 8. **Page changed?** `bash tools/ui-clicks.sh` on the Mac (headless Chrome, throwaway profile; stub states in
    `tests/ui/states/`): exit ≠ 0 on any failure; `--only <route>,…`. Screenshots: `bash tools/ui-shots.sh` (invented demo data
    only; prepare steps language-neutral).
+9. **PHP changed?** `bash tools/phpstan.sh` on the Mac (not on Unraid): no new findings — fix them, never add them to the baseline.

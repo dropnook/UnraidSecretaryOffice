@@ -1,0 +1,36 @@
+# PHPStan over the office's PHP: bash tools/phpstan.sh (docs/DEVELOPMENT.md «Checklist for a change»)
+includes:
+    - phpstan-baseline.neon
+
+parameters:
+    # 6: every parameter, return and property has a type; arrays stay plain `array` (see ignoreErrors)
+    level: 6
+    phpVersion: 80400
+    paths:
+        - agent
+        - src
+        - public/api.php
+        - public/index.php
+        - tests/run.php
+    bootstrapFiles:
+        - tools/phpstan-bootstrap.php
+    # defined at runtime from a call (tools/phpstan-bootstrap.php): their type is string, never the bootstrap's value
+    dynamicConstantNames:
+        - OFFICE_DIR
+        - RUN_DIR
+        - DATA_DIR_USER
+        - OFFICE_PUBLIC
+        - OFFICE_DATA
+        - OFFICE_DATA_USER
+        - WATCH_CRON_LINE
+        - NIGHT_MODE
+        - OFFICE_IN_UNRAID
+    # our docblocks describe what a function is meant to get, not what PHP checks: a guard against anything else stays
+    treatPhpDocTypesAsCertain: false
+    # a call asks the host again (run(), a file, a disk): never «the same answer as a line above» — the agent's guards
+    # re-read state on purpose (backupMounted() in a wait loop, clVolumeInspect() before and after a create)
+    rememberPossiblyImpureFunctionValues: false
+    ignoreErrors:
+        # «array» without its value type (3250 of them, 2026-11-03): our arrays are shapes read from files and requests,
+        # checked where they are read — a docblock on every one would say little the code doesn't
+        - identifier: missingType.iterableValue

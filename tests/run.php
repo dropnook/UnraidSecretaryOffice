@@ -207,9 +207,10 @@ function check(string $what, bool $ok, string $detail = ''): void
     }
 }
 
-function same(string $what, mixed $expected, mixed $actual): void
+/** $detail: what helps on a failure (a run's output), after expected and got */
+function same(string $what, mixed $expected, mixed $actual, string $detail = ''): void
 {
-    check($what, $expected === $actual, 'expected ' . json_encode($expected) . ', got ' . json_encode($actual));
+    check($what, $expected === $actual, 'expected ' . json_encode($expected) . ', got ' . json_encode($actual) . ($detail !== '' ? " — $detail" : ''));
 }
 
 // ===================================================================== logic
@@ -8858,7 +8859,7 @@ function testNotifyPlain(): void
                 if ($subject) {
                     $subjects++;
                     if (preg_match($jargon, $t, $m)) {
-                        $bad[] = "$desk $l $k: «{$m[0]}» in «$t»";
+                        $bad[] = "$desk $l $k: «{$m[0]}» in «{$t}»";
                     }
                 }
                 if (preg_match('~\b\p{Lu}{5,}\b~u', preg_replace('~\{[^}]*\}~', '', $t), $m)) {
@@ -27413,8 +27414,9 @@ function testWatchmanHost(): void
     same('chains: the minutes between when the first and the last came (not when seen again)', [$now, $now + 1500], [$ch[0]['first'], $ch[0]['last']]);
     check('chains: the message names it', str_contains((string) @file_get_contents("$tmp/notified"), '3 entries that may belong together'));
     $off = ['notify' => false];
-    same('chains: with the reports off never told, also not later', [[], []],
-        [watchmanChainsDue($cb, $off, $now + 21000, true, 'en'), watchmanChainsDue($cb, array_merge($off, ['notify' => true]), $now + 21300, true, 'en')]);
+    $quiet = watchmanChainsDue($cb, $off, $now + 21000, true, 'en');
+    $on = array_merge($off, ['notify' => true]);        // a variable: the state goes by reference
+    same('chains: with the reports off never told, also not later', [[], []], [$quiet, watchmanChainsDue($cb, $on, $now + 21300, true, 'en')]);
     putenv('OFFICE_NOTIFY_BIN');
     same('attack: every kind has its technique, in ATT&CK\'s shape', [[], []],
         [array_values(array_diff(array_keys(WATCH_KINDS), array_keys(WATCH_ATTACK))),
@@ -28169,6 +28171,9 @@ function testWatchmanApiDoor(): void
     $b = watchmanLoad($day)['baseline'];
     same('api: the first round is the baseline', [true, [], [$id1], false],
         [$r['fresh'], $r['added'], array_keys((array) ($b['host']['api'] ?? [])), $b['host']['doors']['api_sandbox']['on'] ?? null]);
+    // what he counted reaches the round's record inside the lock (uso_watchman_snapshot_automounts; null before: PHPStan, 2026-11-03)
+    same('api: the round writes down the snapshot automounts it counted (none here)', ['host' => 0, 'container' => 0],
+        watchmanLoad($day)['state']['round']['automounts'] ?? null);
     watchmanSyslogSet(true, $day, false);
 
     // a new ADMIN key, more rights for the first, the sandbox on, another origin, an Unraid.net account
@@ -31406,7 +31411,7 @@ function testApiGzip(): void
     require_once OFFICE_DIR . '/src/api.php';
     foreach (['gzip' => true, 'gzip, deflate, br' => true, 'br;q=1.0, gzip;q=0.8, *;q=0.1' => true, 'x-gzip' => true, 'GZIP' => true,
               '' => false, 'deflate, br' => false, 'gzip;q=0' => false, 'gzip; q=0.000' => false, 'identity' => false, 'gzipped' => false] as $accept => $want) {
-        same("api gzip: Accept-Encoding «$accept»", $want, apiGzipWanted($accept));
+        same("api gzip: Accept-Encoding «{$accept}»", $want, apiGzipWanted($accept));
     }
     $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
     same('api gzip: every answer goes out through apiSend() — answer() and answerThenLook()', 2, substr_count($api, 'apiSend(apiJson($data))'));
@@ -45421,7 +45426,7 @@ function testScheduleTile(): void
         $j = langFile(OFFICE_WEB . "/desks/jack/lang/$code.json");
         same("schedule tile: Mr. Backupsy's lines in $code (not set up, click to set it, how long a run takes)", [],
             array_values(array_filter(['stat.not_scheduled', 'stat.schedule_hint', 'schedule.duration'], fn ($k) => !is_string($b[$k] ?? null) || $b[$k] === '')));
-        check("schedule tile: Jack Streamer's lines in $code — a line per schedule, laying out «$words» (the joint run's word), how many are on",
+        check("schedule tile: Jack Streamer's lines in $code — a line per schedule, laying out «{$words}» (the joint run's word), how many are on",
             str_contains((string) ($j['plans.night'] ?? ''), $words) && str_contains((string) ($j['by.night'] ?? ''), $words) && is_string($j['plans.one'] ?? null)
             && is_array($j['plans.on'] ?? null) && !isset($j['plans.active']) && !isset($j['plans.off']));
     }
@@ -52256,7 +52261,7 @@ function testNightOrder(): void
     $t0 = mktime(2, 0, 3, 10, 22, 2026);
     file_put_contents("$tmp/engine/settings.ini", "[general]\n");      // set up: without settings nothing waits (engine 2.82)
     // (1) the job before the scheduled backup, on a clock of its own: $busy(s) = her run goes s seconds after its start
-    $job = function (callable $busy, callable $array = null) use ($tmp, $t0): array {
+    $job = function (callable $busy, ?callable $array = null) use ($tmp, $t0): array {
         $t = $t0;
         $GLOBALS['nightOrderHost'] = ['waitdir' => "$tmp/run", 'backup_data' => "$tmp/engine", 'night_dir' => "$tmp/mov",
             'night_running' => function () use (&$t, $t0, $busy) { return $busy($t - $t0); },
@@ -59691,7 +59696,7 @@ function testUsoNetStatus(): void
         check('USO network status: the helper\'s shape', usonetStatusValid(usonetTestStatus()));
         foreach (['v' => 2, 'time' => '1', 'backend' => 'Run ning', 'ips' => ['100.64.0.4', 1], 'tags' => ['uso'], 'control' => 1, 'peers' => [['name' => 'x']],
                   'name' => str_repeat('x', 101)] as $k => $bad) {
-            check("USO network status: «$k» not in its shape — no status", !usonetStatusValid(usonetTestStatus([$k => $bad])));
+            check("USO network status: «{$k}» not in its shape — no status", !usonetStatusValid(usonetTestStatus([$k => $bad])));
         }
         same('USO network card: not joined — off, no checks', ['off', []], [usonetPublic($now)['state'], usonetChecks($now)]);
         file_put_contents("$flash/usonet.cfg", "JOINED=\"yes\"\nNAME=\"uso-tower\"\nCONTROL=\"\"\n");

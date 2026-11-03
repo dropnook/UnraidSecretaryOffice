@@ -1,0 +1,27 @@
+# PHPStan over the office's PHP (tools/phpstan.sh, phpstan.neon): red when a change brings a finding the baseline
+# (phpstan-baseline.neon) doesn't hold. PHP 8.4 like Unraid's; the pinned phpstan.phar is fetched and its SHA-256
+# checked by the script — nothing of it goes into the plugin's package.
+name: PHPStan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  analyse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          tools: none
+
+      - name: PHPStan
+        run: bash tools/phpstan.sh --error-format=github

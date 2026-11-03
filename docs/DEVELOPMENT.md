@@ -352,6 +352,16 @@ active, `backup/` is left alone.
   `public/`, a RAM folder of their own and stand-ins for zfs, docker, ssh and Kopia — never the plugin's data folder,
   never the live agent. PHP syntax with `php -l`, shell with `bash -n`; JS syntax goes through `osascript -l JavaScript`
   (CLAUDE.md, «Checklist for a change») — Node is needed only for the browser tools below.
+* **PHPStan:** `bash tools/phpstan.sh` on the Mac (bash, curl, php 8.4; ≈ 1 min, then seconds from its cache; not on an
+  Unraid host — its PHP lacks the phar and tokenizer extensions) — static analysis of
+  `agent/`, `src/`, `public/*.php` and `tests/run.php` at the level in `phpstan.neon`. It fetches one pinned
+  `phpstan.phar` (its SHA-256 checked) into `~/.cache/uso-phpstan/` — no composer, no `vendor/`, never in the package.
+  `tools/phpstan-bootstrap.php` names the constants the office defines at runtime from a call (`RUN_DIR`, `OFFICE_DIR` …;
+  a new one goes there and into `dynamicConstantNames`). `phpstan-baseline.neon` holds what was there when it came (false
+  positives, loose array shapes): it must end with no finding — a new one is fixed, not added. Regenerate the baseline
+  (`bash tools/phpstan.sh --generate-baseline`) only to drop entries a change made obsolete (PHPStan names them as
+  «Ignored error pattern … was not matched»), never to swallow a new finding unread. The Action
+  `.github/workflows/phpstan.yml` runs the same on every push to main and every pull request.
 * **Click test:** `bash tools/ui-clicks.sh` on the Mac (node, playwright-core and a Chrome; a headless browser with a
   throwaway profile, never one with your sign-ins) builds every desk page from the clone's files with stub states
   (`tests/ui/`) and clicks every section, row, group and tile that opens or closes — both themes, 1440 and 375 px; it

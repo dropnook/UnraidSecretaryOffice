@@ -971,7 +971,7 @@ function backupPartnersFromSettings(array $s): array
  * Engine 2.27: a run's partner phase (status.json / a history line "partner") per partner - what went, how much, how
  * fast, what didn't and why. Only the engine's shape is taken; anything else is null.
  *
- * @return ?list<array{id:string, name:string, sent:int, bytes:int, seconds:int, mbit:?float, units:list<array>, skipped:list<array>, failed:list<array>, interrupted:?string}>
+ * @return ?list<array{id:string, name:string, sent:int, bytes:int, seconds:int, mbit:?float, units:list<array>, skipped:list<array>, failed:list<array>, interrupted:?string, interrupted_all:list<string>}>
  */
 function backupPartnerRun(mixed $p): ?array
 {
