@@ -28169,6 +28169,9 @@ function testWatchmanApiDoor(): void
     $b = watchmanLoad($day)['baseline'];
     same('api: the first round is the baseline', [true, [], [$id1], false],
         [$r['fresh'], $r['added'], array_keys((array) ($b['host']['api'] ?? [])), $b['host']['doors']['api_sandbox']['on'] ?? null]);
+    // what he counted reaches the round's record inside the lock (uso_watchman_snapshot_automounts; null before: PHPStan, 2026-11-03)
+    same('api: the round writes down the snapshot automounts it counted (none here)', ['host' => 0, 'container' => 0],
+        watchmanLoad($day)['state']['round']['automounts'] ?? null);
     watchmanSyslogSet(true, $day, false);
 
     // a new ADMIN key, more rights for the first, the sandbox on, another origin, an Unraid.net account
