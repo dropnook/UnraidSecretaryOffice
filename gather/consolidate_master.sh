@@ -101,7 +101,7 @@ json_str() {                 # $1 -> JSON-String (Anführungszeichen, Backslash,
     s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/ }"; s="${s//$'\r'/ }"; s="${s//$'\t'/ }"
     printf '"%s"' "$s"
 }
-sizes_json() {               # ,"sizes":{"<share>":{"<disk>":{"bytes":n,"files":n}}},"sizes_at":n  (erst nach dem Index)
+sizes_json() {               # $1 Zeitstempel des Status; ,"sizes":{"<share>":{"<disk>":{"bytes":n,"files":n}}},"sizes_at":n  (erst nach dem Index)
     $SIZES_DONE || return 0
     local b r k part out=""
     for b in "${BASE_RELS[@]}"; do
@@ -113,15 +113,16 @@ sizes_json() {               # ,"sizes":{"<share>":{"<disk>":{"bytes":n,"files":
         done
         out+="${out:+,}$(json_str "${b#/}"):{$part}"
     done
-    [[ "${DRYRUN:-true}" == false ]] && SIZES_AT=$(printf '%(%s)T' -1)    # scharf: die Zahlen stimmen jetzt, nach den Verschiebungen
+    [[ "${DRYRUN:-true}" == false ]] && SIZES_AT=$1    # scharf: die Zahlen stimmen jetzt, nach den Verschiebungen — derselbe Stempel wie "finished"
     printf ',"sizes":{%s},"sizes_at":%d' "$out" "$SIZES_AT"
 }
 write_status() {             # $1 result (ok|errors|failed|aborted|stopped), $2 exit code, $3 Meldung
     [[ -n "$STATUS_FILE" ]] || return 0
+    local now; now=$(printf '%(%s)T' -1)
     printf '{"version":"V11.5","mode":%s,"result":%s,"exit":%d,"message":%s,"started":%d,"finished":%d,"moved":%d,"duplicates":%d,"ignored":%d,"cache_skipped":%d,"full":%d,"errors":%d,"conflicts":%d,"dirs_deleted":%d,"dirs_failed":%d,"dirs_kept":%d,"folders":%d,"folders_done":%d%s}\n' \
         "$(json_str "$( [[ "${DRYRUN:-true}" == false ]] && echo run || echo dry )")" "$(json_str "$1")" "$2" "$(json_str "${3:-}")" \
-        "$STARTED" "$(printf '%(%s)T' -1)" "$N_MOVED" "$N_DUP_DELETED" "$N_IGNORED" "$N_SKIPPED_CACHE" \
-        "$N_FULL_FAILED" "$N_RSYNC_ERR" "$N_CONFLICT" "$N_DIRS_DELETED" "$N_DIRS_FAILED" "$N_DIRS_KEPT" "$N_FOLDERS" "$N_FOLDERS_DONE" "$(sizes_json)" > "$STATUS_FILE.tmp" 2>/dev/null \
+        "$STARTED" "$now" "$N_MOVED" "$N_DUP_DELETED" "$N_IGNORED" "$N_SKIPPED_CACHE" \
+        "$N_FULL_FAILED" "$N_RSYNC_ERR" "$N_CONFLICT" "$N_DIRS_DELETED" "$N_DIRS_FAILED" "$N_DIRS_KEPT" "$N_FOLDERS" "$N_FOLDERS_DONE" "$(sizes_json "$now")" > "$STATUS_FILE.tmp" 2>/dev/null \
         && mv -f "$STATUS_FILE.tmp" "$STATUS_FILE"
 }
 
