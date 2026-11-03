@@ -729,8 +729,9 @@
   .notice{margin:10px 12px 0}
   .page{padding:12px 12px 6px; gap:18px}
   .footer{padding:4px 12px 16px}
-  /* iOS zooms into inputs below 16px */
-  .search, .picker, .input, .input.small{font-size:16px}
+  /* iOS zooms into a field below 16px and doesn't zoom back out (2026-11-03: a setup's dialog then opened out of view):
+     every field 16px here, whatever a desk's own size says (Mr. Backupsy's 12.5px pickers, Ms. Moverelli's mono lists) */
+  & :is(input, select, textarea):not([type=checkbox], [type=radio], [type=range], [type=color]){font-size:16px !important}
   .timeline{display:none}
 }
 @media (max-width:640px){
