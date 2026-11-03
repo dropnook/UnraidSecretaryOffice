@@ -207,9 +207,10 @@ function check(string $what, bool $ok, string $detail = ''): void
     }
 }
 
-function same(string $what, mixed $expected, mixed $actual): void
+/** $detail: what helps on a failure (a run's output), after expected and got */
+function same(string $what, mixed $expected, mixed $actual, string $detail = ''): void
 {
-    check($what, $expected === $actual, 'expected ' . json_encode($expected) . ', got ' . json_encode($actual));
+    check($what, $expected === $actual, 'expected ' . json_encode($expected) . ', got ' . json_encode($actual) . ($detail !== '' ? " — $detail" : ''));
 }
 
 // ===================================================================== logic
