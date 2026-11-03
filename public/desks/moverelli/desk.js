@@ -29,7 +29,7 @@ async function load(fresh) {
   return Office.loadState(ID, { fresh }, took);
 }
 function took(j) {
-  if (j.ok && j.state) state = j.state;
+  if (j.ok && j.state) { state = j.state; unraidNow = undefined; }
   if (view && page === 'main') render();
   scheduleProgress();
 }
@@ -45,19 +45,22 @@ let progress = null;          // Smart Mover's live status while a real run goes
 let nightNow = null;          // the night run's short state while it goes (the part «progress»: phase, round, who works)
 let jackLive = null;          // his step at work in the night (free, fill): his live panel's {real, progress} (the part «progress»)
 let stopping = null;          // the stop file's why while she stops (user | now | mover)
+// Unraid 7.4's own mover saying how far it is, from the part «progress» while its card shows (undefined: not asked yet —
+// her state's own; null: it says nothing any more)
+let unraidNow;
 let progressAt = 0;
 let progressQuiet = false;    // no new word of the run (the array stopped, the messenger away): the card says its numbers are old (T40)
 let progTimer = null;
 const PROGRESS_POLL = 5000;
-/** While a real run goes: the part «progress» every 5 s; nothing otherwise */
+/** While a real run goes (or Unraid's own mover says how far it is): the part «progress» every 5 s; nothing otherwise */
 function scheduleProgress() {
   clearTimeout(progTimer);
   progTimer = null;
-  if (!view || page !== 'main' || !realRun()) return;
-  progTimer = setTimeout(askProgress, progress ? PROGRESS_POLL : 300);     // the first look soon after the run shows
+  if (!view || page !== 'main' || (!realRun() && !unraidGoing())) return;
+  progTimer = setTimeout(askProgress, progress || unraidNow ? PROGRESS_POLL : 300);     // the first look soon after the run shows
 }
 async function askProgress() {
-  if (!view || page !== 'main' || !realRun()) return;
+  if (!view || page !== 'main' || (!realRun() && !unraidGoing())) return;
   if (typeof document !== 'undefined' && document.hidden) { scheduleProgress(); return; }
   try { await Office.loadState(ID, { part: 'progress', fresh: true }, tookProgress); } catch (e) { scheduleProgress(); }
 }
@@ -67,11 +70,14 @@ async function askProgress() {
  * (truth review M18)
  */
 function peekRun() {
-  if (!view || page !== 'main' || !state || running() || nightGoing() || !Office.agent.running) return;
+  if (!view || page !== 'main' || !state || running() || nightGoing() || unraidGoing() || !Office.agent.running) return;
   if (typeof document !== 'undefined' && document.hidden) return;
   Office.loadState(ID, { part: 'progress' }, (j) => {
     const p = j && j.ok ? j.part : null;
-    if (p && p.running && typeof p.time === 'number' && p.time > (state.time || 0) && !running() && !nightGoing()) load(true);
+    // … and Unraid's own mover started or ended meanwhile, or began to say how far it is (an older agent: no such keys)
+    const m = mover();
+    const unraid = p && ((p.mover_running !== undefined && p.mover_running !== !!m.running) || (p.unraid_progress !== undefined && !!p.unraid_progress !== !!m.unraid_progress));
+    if (p && (p.running || unraid) && typeof p.time === 'number' && p.time > (state.time || 0) && !running() && !nightGoing()) load(true);
   }).catch(() => {});
 }
 function tookProgress(j) {
@@ -83,6 +89,12 @@ function tookProgress(j) {
   if (!p || typeof p.time !== 'number' || p.time < progressAt) { scheduleProgress(); return; }
   progressQuiet = quiet;
   progressAt = p.time;
+  if (unraidGoing()) {
+    // Unraid's own mover's card: its numbers anew; gone (it ended, or a run of hers began) — her state anew, the card goes
+    unraidNow = !p.real && p.unraid_progress ? p.unraid_progress : null;
+    if (unraidNow) { redrawCard(); scheduleProgress(); } else load(true);
+    return;
+  }
   if (!p.real) { progress = null; stopping = null; nightNow = null; jackLive = null; load(true); return; }     // the run ended: her state anew — the card goes
   progress = p.progress || null;
   nightNow = p.night || null;
@@ -95,7 +107,7 @@ function tookProgress(j) {
 function redrawCard() {
   const old = view && view.querySelector ? view.querySelector('.mo-run') : null;
   if (!old || !old.replaceWith) return;
-  const card = runCard(progress, Date.now() / 1000);
+  const card = unraidGoing() ? runCard(null, Date.now() / 1000, unraidLive()) : runCard(progress, Date.now() / 1000);
   if (progressQuiet && progressAt) card.appendChild(el('div', 'card-line mo-run-quiet', T('rc.quiet', { time: fmt.time(progressAt) })));
   old.replaceWith(card);
   // her bubble follows the share in flight (runningText()): its way and which files
@@ -171,7 +183,7 @@ function runCardData(p, now, nn = null) {
   const end = left !== null && !range && plan[plan.length - 1] === p.share ? now + left : null;
   // the file's own live rate (its .partial growing): said beside it
   const fileRate = fileBytes > 0 && p.file ? Office.runRate(`moverelli|${p.started}|${p.file}`, fileBytes, now) : null;
-  return { steps, at, percent, byTime: byTime !== null, filesPct, bytesPct, left, range, end, rate: est ? est.rate : null, estimating: !!est && est.left === null, fileRate, waking: !!p.waking && !fileBytes, wakingMaybe: !p.waking && !!p.waking_maybe && !fileBytes, fileBytes,
+  return { steps, at, key: `moverelli|${p.started}`, percent, byTime: byTime !== null, filesPct, bytesPct, left, range, end, rate: est ? est.rate : null, estimating: !!est && est.left === null, fileRate, waking: !!p.waking && !fileBytes, wakingMaybe: !p.waking && !!p.waking_maybe && !fileBytes, fileBytes,
     fileSize: p.file_size == null ? null : Number(p.file_size), share: p.share || '', file: p.file || '', files, bytes, dFiles, dBytes, started: p.started || null,
     fill: phase === 'share' || filling ? fillLine(p, nn) : null, filling };
 }
@@ -380,9 +392,69 @@ function percentText(d) {
   return T('rc.parts', { files: d.filesPct, bytes: d.bytesPct });
 }
 
-/** The card above the tiles while a real run goes: the steps, the bar, the file in flight, the end; «Stop after this file» */
-function runCard(p, now) {
-  const nn = nightNow || (nightGoing() ? night().last : null);
+/**
+ * The card's middle, her run's (runCardData()) and Unraid's own mover's (unraidCardData()) alike: since when, the steps,
+ * the bar with rate and time left, the share, the fill, the file in flight, the end
+ */
+function runCardBody(card, top, d, now, nn) {
+  if (d.started && !nn) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
+  if (d.steps) card.appendChild(Office.runSteps(d.steps, d.at, d.key));
+  if (d.percent !== null) {
+    // the share's average (Ø) and the time left — «being estimated» before a minute or 1 %, a range while unsure (runEstimate())
+    // (a rate below 1 B/s — tiny files over a slow start — says nothing yet: left out, H9)
+    const bar = Office.runBar(d.percent, percentText(d) + (d.rate >= 1 ? ' · ' + T('rc.rate_avg', { rate: fmt.size(d.rate) }) : '')
+      + (d.range || d.left !== null ? ' · ' + leftText(d) : d.estimating ? ' · ' + T('rc.estimating') : ''));
+    if (d.byTime && !d.unraid) bar.title = T('rc.percent_tip');
+    card.appendChild(bar);
+    if (!d.unraid) card.appendChild(el('div', 'card-line', T('rc.share', { share: d.share, done: d.dFiles, files: nOf('files', d.files), done_size: fmt.size(d.dBytes), size: fmt.size(d.bytes) })));
+    else {
+      // Unraid's mover: all its bytes, and the share in work when it isn't all of them (Unraid counts no files)
+      card.appendChild(el('div', 'card-line', T('rc.unraid_all', { done_size: fmt.size(d.dBytes), size: fmt.size(d.bytes) })));
+      if (d.share && d.shareBytes > 0 && d.shareBytes < d.bytes) card.appendChild(el('div', 'card-line', T('rc.unraid_share', { share: d.share, done_size: fmt.size(d.shareDone), size: fmt.size(d.shareBytes) })));
+    }
+  }
+  if (d.fill) card.appendChild(el('div', 'card-line', d.fill));
+  if (d.file) {
+    const sh = ((state && state.shares) || []).find((x) => x.share === d.share) || {};
+    card.appendChild(el('div', 'card-line mo-run-file', onWayText({ name: d.file, done: d.fileBytes, size: d.fileSize, from: d.from || sh.from || nightPool(nn), to: d.to || sh.to || 'array' })
+      + (d.fileRate >= 1 ? ' · ' + T('rc.rate', { rate: fmt.size(d.fileRate) }) : '')));
+    if (d.waking || d.wakingMaybe) card.appendChild(el('div', 'card-line', T(d.waking ? 'rc.waking' : 'rc.waking_maybe')));
+  }
+  // in the joint run her share's end is not the run's (measure again, Jack Streamer's fetch follow): said as her part (T33)
+  if (d.end) card.appendChild(el('div', 'card-line', nn ? T('rc.end_her', { end: endText(d.end, now) }) : endText(d.end, now)));
+}
+
+/**
+ * Unraid 7.4's own mover as her card shows it, pure (moverelliUnraidProgress()'s numbers, the shape of runCardData()):
+ * the bar what of all its bytes is across (the file in flight by its .partial — Unraid's own count drops only once a
+ * whole file is over), its average rate and time left as Unraid says them, the end, the share and file in work; no steps
+ * (Unraid names none ahead). While it adds up what it moves: no bar.
+ */
+function unraidCardData(u, now) {
+  const total = Math.max(0, Number(u.total) || 0);
+  const moving = u.action === 'move' || u.action === 'empty';
+  const fileBytes = moving ? Math.max(0, Number(u.file_bytes) || 0) : 0;
+  const dBytes = Math.min(total, Math.max(0, total - (Number(u.remain) || 0)) + fileBytes);
+  const sh = u.share || {};
+  const shBytes = Math.max(0, Number(sh.total) || 0);
+  const percent = u.action === 'count' || total <= 0 ? null : Math.min(100, Math.floor(100 * dBytes / total));
+  const left = percent !== null && Number(u.eta) > 0 ? Number(u.eta) : null;
+  return { unraid: true, steps: null, percent, byTime: true, filesPct: null, bytesPct: null, left, range: null, end: left !== null ? now + left : null,
+    rate: Number(u.rate) > 0 ? Number(u.rate) : null, estimating: percent !== null && left === null && dBytes < total,
+    fileRate: fileBytes > 0 && u.file ? Office.runRate(`unraid|${u.pid}|${u.file}`, fileBytes, now) : null,
+    waking: moving && !!u.waking && !fileBytes, wakingMaybe: moving && !u.waking && !!u.waking_maybe && !fileBytes, fileBytes,
+    fileSize: u.file_size == null ? null : Number(u.file_size), share: sh.name || '', file: moving ? u.file || '' : '', bytes: total, dBytes,
+    shareBytes: shBytes, shareDone: Math.min(shBytes, Math.max(0, shBytes - (Number(sh.remain) || 0)) + fileBytes),
+    started: u.started || null, from: u.from || '', to: u.to || '', action: u.action || '', disk: u.disk || '', fill: null };
+}
+
+/**
+ * The card above the tiles while a real run goes: the steps, the bar, the file in flight, the end; «Stop after this file».
+ * With $u (Unraid 7.4's own mover saying how far it is — moverelliUnraidProgress()): the same card for it, named as
+ * Unraid's mover, without her steps, her log and her stop (it isn't her run)
+ */
+function runCard(p, now, u = null) {
+  const nn = u ? null : nightNow || (nightGoing() ? night().last : null);
   // the night run: the card Jack Emby's page shows too (core.js Office.nightCard — «Joint run», since when, its phases);
   // who is at work — Jack Emby's files show on his page (his live panel)
   let card;
@@ -397,36 +469,24 @@ function runCard(p, now) {
   } else {
     card = el('div', 'card mo-run running');
     top = el('div', 'card-head');
-    top.append(el('span', 'spin'), el('span', 'card-name', T('rc.title')));
-    if (stopping) top.appendChild(chip(T('stopping'), 'warn'));
+    top.append(el('span', 'spin'), el('span', 'card-name', T(u ? 'rc.unraid_title' : 'rc.title')));
+    if (stopping && !u) top.appendChild(chip(T('stopping'), 'warn'));
     card.appendChild(top);
+  }
+  if (u) {
+    const d = unraidCardData(u, now);
+    if (d.action === 'count') card.appendChild(el('p', 'role', T('rc.unraid_count')));
+    if (d.action === 'tidy') card.appendChild(el('p', 'role', d.disk ? T('rc.unraid_empty', { disk: d.disk }) + ' · ' + T('rc.tidy') : T('rc.tidy')));
+    if (d.action === 'empty') card.appendChild(el('p', 'role', T('rc.unraid_empty', { disk: d.disk })));
+    runCardBody(card, top, d, now, null);
+    return card;
   }
   if (!p) {
     // the night between its steps (nobody at work): the pool measured — first, after his give-back, after her part
     const measuring = !!(nn && !nn.who && ['check', 'recheck'].includes(nn.phase));
     if (!nn || nn.who !== 'jack') card.appendChild(el('p', 'role', measuring ? T('rc.measuring', { pool: nightPool(nn) }) : T('rc.waiting')));
   } else {
-    const d = runCardData(p, now, nn);
-    if (d.started && !nn) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
-    card.appendChild(Office.runSteps(d.steps, d.at, `moverelli|${p.started}`));
-    if (d.percent !== null) {
-      // the share's average (Ø) and the time left — «being estimated» before a minute or 1 %, a range while unsure (runEstimate())
-      // (a rate below 1 B/s — tiny files over a slow start — says nothing yet: left out, H9)
-      const bar = Office.runBar(d.percent, percentText(d) + (d.rate >= 1 ? ' · ' + T('rc.rate_avg', { rate: fmt.size(d.rate) }) : '')
-        + (d.range || d.left !== null ? ' · ' + leftText(d) : d.estimating ? ' · ' + T('rc.estimating') : ''));
-      if (d.byTime) bar.title = T('rc.percent_tip');
-      card.appendChild(bar);
-      card.appendChild(el('div', 'card-line', T('rc.share', { share: d.share, done: d.dFiles, files: nOf('files', d.files), done_size: fmt.size(d.dBytes), size: fmt.size(d.bytes) })));
-    }
-    if (d.fill) card.appendChild(el('div', 'card-line', d.fill));
-    if (d.file) {
-      const sh = ((state && state.shares) || []).find((x) => x.share === d.share) || {};
-      card.appendChild(el('div', 'card-line mo-run-file', onWayText({ name: d.file, done: d.fileBytes, size: d.fileSize, from: sh.from || nightPool(nn), to: sh.to || 'array' })
-        + (d.fileRate >= 1 ? ' · ' + T('rc.rate', { rate: fmt.size(d.fileRate) }) : '')));
-      if (d.waking || d.wakingMaybe) card.appendChild(el('div', 'card-line', T(d.waking ? 'rc.waking' : 'rc.waking_maybe')));
-    }
-    // in the joint run her share's end is not the run's (measure again, Jack Streamer's fetch follow): said as her part (T33)
-    if (d.end) card.appendChild(el('div', 'card-line', nn ? T('rc.end_her', { end: endText(d.end, now) }) : endText(d.end, now)));
+    runCardBody(card, top, runCardData(p, now, nn), now, nn);
   }
   // Jack Streamer's file in flight while his step runs: the same one line, from his live view (his part below shows none)
   const cur = jackAtWork(nn) && jackLive.progress && jackLive.progress.current;
@@ -1035,6 +1095,10 @@ const running = () => !!(state && state.job && state.job.running);
 /** Her last run that moved or would have (a real or a dry run that started) — a look at the shares' list is none */
 const lastRun = () => ((state && state.history) || []).find((r) => ['run', 'dry'].includes(r.mode) && !['refused', 'skipped'].includes(r.result)) || null;
 const realRun = () => (running() && state.job.mode === 'run') || nightGoing();
+/** Unraid 7.4's own mover saying how far it is: the part «progress»'s once polled, else her state's — null when it says nothing */
+const unraidLive = () => (unraidNow !== undefined ? unraidNow : mover().unraid_progress) || null;
+/** … and its card shows: no real run of hers (she never runs beside it; her own card has the place) */
+const unraidGoing = () => !realRun() && !!unraidLive();
 const unraidOk = () => !!(state && state.unraid && state.unraid.ok);
 const mover = () => (state && state.mover) || { off: true, schedule: null, running: false };
 const jack = () => (state && state.jack) || { busy: false, list: null, uncovered: [] };
@@ -1213,6 +1277,8 @@ function moverNotice() {
     box.appendChild(el('p', 'role', T(otherMovers() || realWait() ? 'mover.ok_wait' : 'mover.ok')));
   }
   if (m.running) box.appendChild(el('p', 'role', T('mover.running')));
+  // Unraid 7.4 with ⟦Mover Progress⟧ off: how to have its progress here (before 7.4 there is no such setting: nothing)
+  if (m.running && m.progress_on === false) box.appendChild(el('p', 'role mo-hint', T('mover.progress_off')));
   return box;
 }
 
@@ -1383,6 +1449,12 @@ function hints() {
   const last = (state.history || [])[0];
   if (!running() && last && last.result === 'stopped' && last.why === 'mover') {
     out.push(el('p', 'callout warn', T(last.mover_by === 'schedule' ? 'stopped_mover_schedule' : 'stopped_mover')));
+  }
+  if (unraidGoing()) {
+    // Unraid 7.4's own mover at work and saying how far it is: the card of her runs for it, named as Unraid's
+    const one = el('div', 'card mo-one running');
+    one.appendChild(runCard(null, Date.now() / 1000, unraidLive()));
+    out.push(one);
   }
   if (realRun()) {
     // ONE card while the run goes (owner 2026-10-15): the run (steps, progress, buttons), Jack Streamer at work (his step
@@ -2988,7 +3060,7 @@ Office.places(ID, [
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, leftText, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
-    importPreview, importDone, importFileText, leftCount, runLeft, futureCount, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, isFilling, fillRoom, realWait, noLimit, chooseRun, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, saveFootEl, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, jackFailedText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
+    importPreview, importDone, importFileText, leftCount, runLeft, futureCount, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, unraidCardData, unraidLive, isFilling, fillRoom, realWait, noLimit, chooseRun, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, saveFootEl, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, jackFailedText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, setUnraid: (x) => { unraidNow = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };
 }

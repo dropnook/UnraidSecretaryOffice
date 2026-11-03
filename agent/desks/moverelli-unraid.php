@@ -136,3 +136,122 @@ function moverelliLetGo(array $r, ?array $h = null, ?array $moverHost = null): a
     }
     return ['ok' => true, 'schedule_off' => $was !== null, 'unraid' => $unraid];
 }
+
+/*
+ * Unraid's own mover, how far it is (2026-11-03, read from Unraid 7.4.0-rc.2's /usr/local/sbin/mover): with ⟦Settings⟧ →
+ * ⟦Scheduler⟧ → ⟦Mover Settings⟧ → ⟦Mover Progress⟧ «Enabled» (`shareMoverProgress="yes"`, emhttpd's var.ini has it) its
+ * writestatus() writes /usr/local/emhttp/state/mover.ini (a link to /var/local/emhttp) — whole, through a file of its own
+ * (`mover.ini.<pid>`, then `mv -f`), never read here — and removes it with the pid file at the end. Its keys: TotalSize,
+ * RemainSize, Throughput (bytes a second, the run's average), ETA (s), ShareTotal, ShareRemain, ShareThroughput, ShareETA,
+ * MoverPid, File (the path in work, in quotes with `\` and `"` escaped), Action (English: «Calculating mover totals»,
+ * «Mover totals calculated», «Moving share <share>», «Cleaning up share <share>», «Emptying <disk>», «Emptying <disk>
+ * (cleaning up)», «Mover output truncated»), Filepercent (the SHARE's percent, despite its name); the rest is the GUI's
+ * own (Showlines, Selectlines, movertitle1..5). Remain drops only once a whole file is across — the file in flight is
+ * measured by its .partial as in her own runs (moverelliInFlight()). Unraid's own page (nchan/parity_list) trusts it only
+ * while MoverPid is the live mover's pid; so does she. Before 7.4 neither the setting nor the file: nothing new.
+ */
+const MOVERELLI_UNRAID_INI      = '/var/local/emhttp/mover.ini';
+const MOVERELLI_UNRAID_PROGRESS = '7.4.0-alpha';      // from this Unraid on its mover can say how far it is
+const MOVERELLI_UNRAID_ACTIONS  = [                   // Action's English → what her card says
+    '/^(?:Calculating mover totals|Mover totals calculated)$/D'          => 'count',
+    '/^Moving share (.+)$/D'                                              => 'move',
+    '/^Cleaning up share (.+)$/D'                                         => 'tidy',
+    '/^Emptying (disk[1-9][0-9]*) \(cleaning up\)$/D'                     => 'tidy',
+    '/^Emptying (disk[1-9][0-9]*)$/D'                                     => 'empty',
+];
+
+/** ⟦Mover Progress⟧ on (true), off (false) — null before Unraid 7.4, which has no such setting */
+function moverelliUnraidProgressOn(string $version, string $varIni): ?bool
+{
+    if ($version === '' || version_compare($version, MOVERELLI_UNRAID_PROGRESS, '<')) {
+        return null;
+    }
+    return (readCfg($varIni)['shareMoverProgress'] ?? '') === 'yes';
+}
+
+/** Unraid's mover's pid from its pid file while that process is Unraid's mover (as Unraid's own page asks), else 0 */
+function moverelliUnraidPid(array $h): int
+{
+    $pid = trim((string) @file_get_contents($h['mover_pid'], false, null, 0, 32));
+    if (!preg_match('/^[1-9]\d{0,9}$/D', $pid)) {
+        return 0;
+    }
+    $cmd = str_replace("\0", ' ', (string) @file_get_contents("$h[proc]/$pid/cmdline", false, null, 0, 4096));
+    return preg_match('#(^|\s)(\S*/)?mover(\s|$)#', $cmd) === 1 ? (int) $pid : 0;
+}
+
+/**
+ * Unraid's mover's progress as her run card shows it: {total, remain, rate, eta, share: {name, total, remain, rate, eta},
+ * file, action (count | move | tidy | empty | other), disk (the one emptied), percent (the share's, whole), pid, started
+ * (the pid file's time), from, to (array or a pool: where the share's files go), file_bytes, file_size (the file in flight
+ * by its .partial)}; null when Unraid writes none or it isn't the running mover's (no mover, MoverPid another's, a file
+ * cut short).
+ */
+function moverelliUnraidProgress(?array $h = null): ?array
+{
+    $h ??= moverelliHost();
+    $pid = moverelliUnraidPid($h);
+    if ($pid === 0) {
+        return null;
+    }
+    $raw = [];
+    foreach (explode("\n", (string) @file_get_contents($h['mover_ini'], false, null, 0, 65536)) as $line) {
+        if (preg_match('/^([A-Za-z]\w*)=(.*)$/D', rtrim($line, "\r"), $m)) {
+            $raw[$m[1]] = $m[2];
+        }
+    }
+    $int = fn (string $k): ?int => preg_match('/^\d{1,19}$/D', $raw[$k] ?? '') ? (int) $raw[$k] : null;
+    // a value in quotes, its `\` and `"` escaped as Unraid's inivalue() does; anything else (a name with a line break in
+    // it cut the line) is no value
+    $text = function (string $k) use ($raw): ?string {
+        $v = $raw[$k] ?? '';
+        if (!preg_match('/^"((?:[^"\\\\]|\\\\.)*)"$/Ds', $v, $m)) {
+            return null;
+        }
+        return preg_replace('/\\\\(.)/s', '$1', $m[1]);
+    };
+    if ($int('MoverPid') !== $pid || $int('TotalSize') === null || $int('RemainSize') === null) {
+        return null;
+    }
+    $file = $text('File') ?? '';
+    $what = (string) ($text('Action') ?? '');
+    $action = 'other';
+    $named = '';
+    foreach (MOVERELLI_UNRAID_ACTIONS as $re => $code) {
+        if (preg_match($re, $what, $m)) {
+            [$action, $named] = [$code, (string) ($m[1] ?? '')];
+            break;
+        }
+    }
+    $disk = str_starts_with($named, 'disk') && $action !== 'move' ? $named : '';
+    // the share: from the path in work (/mnt/<disk or pool>/<share>/…), else from Action's words
+    $mnt = rtrim($h['mnt'], '/');
+    $from = $share = '';
+    if (preg_match('#^' . preg_quote($mnt, '#') . '/([\w.\-]+)/([^/]+)(?:/|$)#Du', $file, $m)) {
+        [$from, $share] = [$m[1], $m[2]];
+    } elseif ($disk === '') {
+        $share = $named;
+    }
+    $share = preg_match(MOVERELLI_SHARE, $share) ? $share : '';
+    $cfg = $share !== '' ? readCfg("$h[shares_dir]/$share.cfg") : [];
+    $use = (string) ($cfg['shareUseCache'] ?? '');
+    $to = $disk !== '' ? 'array' : match ($use) {
+        'prefer' => (string) ($cfg['shareCachePool'] ?? '') ?: 'cache',
+        'yes'    => (string) ($cfg['shareCachePool2'] ?? '') ?: 'array',
+        default  => '',
+    };
+    $pct = is_numeric($raw['Filepercent'] ?? null) ? (int) floor(max(0.0, min(100.0, (float) $raw['Filepercent']))) : null;
+    $out = [
+        'total' => $int('TotalSize'), 'remain' => $int('RemainSize'), 'rate' => $int('Throughput') ?? 0, 'eta' => $int('ETA') ?? 0,
+        'share' => ['name' => $share, 'total' => $int('ShareTotal') ?? 0, 'remain' => $int('ShareRemain') ?? 0,
+                    'rate' => $int('ShareThroughput') ?? 0, 'eta' => $int('ShareETA') ?? 0],
+        'file' => $file, 'action' => $action, 'disk' => $disk, 'percent' => $pct, 'pid' => $pid,
+        'started' => (int) (@filemtime($h['mover_pid']) ?: 0) ?: null,
+        'from' => $from === '' ? '' : (preg_match('/^disk\d+$/D', $from) ? 'array' : $from), 'to' => $to,
+        'file_bytes' => 0, 'file_size' => null,
+    ];
+    if (in_array($action, ['move', 'empty'], true) && $share !== '' && $file !== '') {
+        $out = moverelliInFlight(['phase' => 'share', 'share' => $share, 'file' => $file], $h) + $out;
+    }
+    return $out;
+}

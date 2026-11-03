@@ -46603,6 +46603,152 @@ SH);
 }
 
 /**
+ * Unraid 7.4's own mover, how far it is (moverelli-unraid.php, 2026-11-03): mover.ini as Unraid 7.4.0-rc.2 wrote it on a
+ * test server (tests/fixtures/unraid-mover/: while adding up, while moving a file whose name has `"` and `\`), read only
+ * while its MoverPid is the running mover's — no mover, another pid, a process that isn't Unraid's mover, no file, only
+ * Unraid's own temporary file, a file cut short: nothing; the name un-escaped, a line broken by a name: no name; the file
+ * in flight by its .partial; ⟦Mover Progress⟧ on/off on 7.4, nothing before; her poll and her state carry it; her page
+ * (node): the card of her runs named as Unraid's mover (no stop, no log of hers), the sentence while it is off.
+ */
+function testMoverelliUnraidProgress(): void
+{
+    $tmp = hardeningTmp('moverelli-unraid-progress');
+    $v = [];
+    moverelliFixture($tmp, $v);
+    $fx = OFFICE_DIR . '/tests/fixtures/unraid-mover';
+    $pid = 936068;     // the fixtures' MoverPid
+    @mkdir("$tmp/proc/$pid", 0700, true);
+    file_put_contents("$tmp/proc/$pid/cmdline", "/bin/bash\0/usr/local/sbin/mover\0start\0");
+    file_put_contents("$tmp/shares/uso-yes.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\nshareCachePool2=\"\"\n");
+    $ini = "$tmp/mover.ini";
+    $put = fn (string $name) => file_put_contents($ini, str_replace('/mnt/', "$tmp/mnt/", (string) file_get_contents("$fx/$name")));
+    $GLOBALS['moverelliHost'] += ['mover_ini' => $ini, 'mover_pid' => "$tmp/mover.pid", 'proc' => "$tmp/proc", 'asleep' => []];
+    $h = moverelliHost();
+    $put('mover-quote.ini');
+    same('unraid progress: no pid file (no mover at work) — nothing', null, moverelliUnraidProgress($h));
+    file_put_contents("$tmp/mover.pid", "$pid\n");
+    $u = moverelliUnraidProgress($h) ?? [];
+    $name = "$tmp/mnt/cache/uso-yes/progress-test2/Film \"Sommer\" \\ Teil 1.bin";
+    same('unraid progress: the fixture read — numbers as ints, the share from the path, the file un-escaped, where it goes',
+        [3156213760, 3156213760, 0, 0, ['name' => 'uso-yes', 'total' => 3145728000, 'remain' => 3145728000, 'rate' => 0, 'eta' => 0], $name, 'move', '', 0, $pid, 'cache', 'array', 0],
+        [$u['total'] ?? null, $u['remain'] ?? null, $u['rate'] ?? null, $u['eta'] ?? null, $u['share'] ?? null, $u['file'] ?? null, $u['action'] ?? null,
+         $u['disk'] ?? null, $u['percent'] ?? null, $u['pid'] ?? null, $u['from'] ?? null, $u['to'] ?? null, $u['file_bytes'] ?? null]);
+    same('unraid progress: since the pid file was written', filemtime("$tmp/mover.pid"), $u['started'] ?? null);
+    // the file in flight: Unraid's count drops only once the whole file is over — its .partial on the array says how far
+    @mkdir(dirname($name), 0700, true);
+    @mkdir("$tmp/mnt/disk1/uso-yes/progress-test2", 0700, true);
+    file_put_contents($name, str_repeat('s', 300000));
+    file_put_contents("$tmp/mnt/disk1/uso-yes/progress-test2/Film \"Sommer\" \\ Teil 1.bin.partial", str_repeat('p', 50000));
+    $alloc = (int) (stat("$tmp/mnt/disk1/uso-yes/progress-test2/Film \"Sommer\" \\ Teil 1.bin.partial")['blocks'] * 512);
+    $u = moverelliUnraidProgress($h) ?? [];
+    same('unraid progress: the file in flight by its .partial (allocated, never above the source), the source\'s size', [min($alloc, 300000), 300000], [$u['file_bytes'] ?? null, $u['file_size'] ?? null]);
+    // stale: the pid file another mover's (MoverPid an earlier run's), the pid file's process not Unraid's mover
+    @mkdir("$tmp/proc/4711", 0700, true);
+    file_put_contents("$tmp/proc/4711/cmdline", "/bin/bash\0/usr/local/sbin/mover\0start\0");
+    file_put_contents("$tmp/mover.pid", "4711\n");
+    same('unraid progress: MoverPid not the running mover\'s (a file of an earlier run) — nothing', null, moverelliUnraidProgress($h));
+    file_put_contents("$tmp/mover.pid", "$pid\n");
+    file_put_contents("$tmp/proc/$pid/cmdline", "/usr/bin/php\0/x/agent.php\0remover\0");
+    same('unraid progress: the pid file\'s process isn\'t Unraid\'s mover — nothing', null, moverelliUnraidProgress($h));
+    file_put_contents("$tmp/proc/$pid/cmdline", "/bin/bash\0/usr/local/sbin/mover\0start\0");
+    // missing, only Unraid's own temporary file (writestatus() writes mover.ini.<pid>, then mv -f), cut short
+    $whole = (string) file_get_contents($ini);
+    unlink($ini);
+    same('unraid progress: no mover.ini (⟦Mover Progress⟧ off, or before Unraid 7.4) — nothing', null, moverelliUnraidProgress($h));
+    file_put_contents("$ini.$pid", $whole);
+    same('unraid progress: only Unraid\'s temporary file being written — never read, nothing', null, moverelliUnraidProgress($h));
+    unlink("$ini.$pid");
+    file_put_contents($ini, implode("\n", array_slice(explode("\n", $whole), 0, 3)) . "\n");
+    same('unraid progress: a file cut short (no MoverPid) — nothing', null, moverelliUnraidProgress($h));
+    file_put_contents($ini, str_replace('Teil 1.bin"', "Teil\n1.bin\"", $whole));
+    $u = moverelliUnraidProgress($h) ?? [];
+    same('unraid progress: a name broken over two lines — no name (never half of one), the numbers still', ['', 3156213760], [$u['file'] ?? null, $u['total'] ?? null]);
+    $put('mover-counting.ini');
+    $u = moverelliUnraidProgress($h) ?? [];
+    same('unraid progress: while it adds up — count, no share, no file', ['count', '', '', 0], [$u['action'] ?? null, $u['share']['name'] ?? null, $u['file'] ?? null, $u['percent'] ?? null]);
+    foreach (['Cleaning up share uso-yes' => ['tidy', '', 'uso-yes'], 'Emptying disk3' => ['empty', 'disk3', ''], 'Emptying disk3 (cleaning up)' => ['tidy', 'disk3', ''],
+              'Mover output truncated' => ['other', '', '']] as $act => $want) {
+        file_put_contents($ini, str_replace('Action="Mover totals calculated"', "Action=\"$act\"", (string) file_get_contents($ini)));
+        $u = moverelliUnraidProgress($h) ?? [];
+        same("unraid progress: Action «{$act}» — what her card says", $want, [$u['action'] ?? null, $u['disk'] ?? null, $u['share']['name'] ?? null]);
+        $put('mover-counting.ini');
+    }
+    // ⟦Mover Progress⟧: on Unraid 7.4 on or off as emhttpd's var.ini says, nothing before 7.4
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\nshareMoverProgress=\"yes\"\n");
+    same('unraid progress: the setting — 7.3.4 none, 7.4.0-rc.2 on, 7.4.0 off when var.ini says no (or nothing)', [null, true, false, false],
+        [moverelliUnraidProgressOn('7.3.4', "$tmp/var.ini"), moverelliUnraidProgressOn('7.4.0-rc.2', "$tmp/var.ini"),
+         (function () use ($tmp) { file_put_contents("$tmp/var.ini", "shareMoverProgress=\"no\"\n"); return moverelliUnraidProgressOn('7.4.0', "$tmp/var.ini"); })(),
+         moverelliUnraidProgressOn('7.4.1', "$tmp/missing.ini")]);
+    // her poll (no run of hers) and her state carry it
+    $put('mover-quote.ini');
+    $v['mover'] = true;
+    $v['version'] = '7.4.0-rc.2';
+    file_put_contents("$tmp/var.ini", "fsState=\"Started\"\nshareMoverProgress=\"yes\"\n");
+    $h = moverelliHost();
+    $ps = moverelliProgressState($h);
+    $st = moverelliScan($h)['mover'] ?? [];
+    same('unraid progress: her poll says Unraid\'s mover at work and how far; her state too, with the setting on', [true, $pid, true, $pid, true],
+        [$ps['mover_running'] ?? null, $ps['unraid_progress']['pid'] ?? null, $st['running'] ?? null, $st['unraid_progress']['pid'] ?? null, $st['progress_on'] ?? null]);
+    unset($GLOBALS['moverelliHost']);
+
+    $node = testsNode();
+    if ($node === '') {
+        check('unraid progress page: node is missing here - skipped', true);
+        hardeningRm($tmp);
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: text == null ? '' : String(text), children: [], hidden: false, disabled: false, dataset: {}, style: {},
+  append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, insertBefore(c) { this.children.unshift(c); }, setAttribute() {}, scrollIntoView() {} });
+globalThis.document = { createTextNode: (t) => t };
+globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
+  fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
+  desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
+  dialog: () => ({ buttons: [] }), toast: () => {}, selbar: () => null, api: { post: async () => ({ ok: true }) } };
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const m = OFFICE_DESK_TESTS.moverelli;
+const texts = (n) => (typeof n === 'string' ? [n] : [n.text, ...n.children.flatMap(texts)].filter(Boolean));
+const out = {};
+const base = { configured: true, unraid: { ok: true, version: '7.4.0-rc.2', needed: '7.3.2' }, job: {}, schedule: {}, history: [], shares: [],
+  foreign: { tuning: { installed: false, active: false, lines: [] }, movers: [] }, jack: {}, night: {} };
+const notice = (mover) => { m.setState({ ...base, mover: { off: true, schedule: null, ...mover } }); m.setUnraid(undefined); return texts(m.moverNotice()); };
+out.off = notice({ running: true, progress_on: false, unraid_progress: null });
+out.old = notice({ running: true, progress_on: null });
+out.on = notice({ running: true, progress_on: true, unraid_progress: null });
+out.idle = notice({ running: false, progress_on: false });
+const u = { total: 3e9, remain: 2e9, rate: 5e7, eta: 40, share: { name: 'Ferien', total: 2e9, remain: 1e9, rate: 5e7, eta: 20 }, file: '/mnt/cache/Ferien/Tag 03.bin',
+  action: 'move', disk: '', percent: 50, pid: 9, started: 1000, from: 'cache', to: 'array', file_bytes: 1e8, file_size: 4e8 };
+m.setState({ ...base, mover: { off: true, schedule: null, running: true, progress_on: true, unraid_progress: u } });
+m.setUnraid(undefined);
+out.live = [!!m.unraidLive(), texts(m.runCard(null, 1100, m.unraidLive()))];
+out.count = texts(m.runCard(null, 1100, { ...u, action: 'count', remain: 3e9, eta: 0, rate: 0, file: '' }));
+out.hints = texts({ children: m.hints() }).filter((x) => /^rc\.unraid_title/.test(x)).length;
+out.ended = (m.setUnraid(null), [m.unraidLive(), texts({ children: m.hints() }).filter((x) => /^rc\.unraid_title/.test(x)).length]);
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/moverelli/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
+    $o = json_decode($raw, true);
+    check('unraid progress page: ran under node', is_array($o), $raw);
+    $o = is_array($o) ? $o : [];
+    same('unraid progress page: Unraid\'s mover at work, ⟦Mover Progress⟧ off on 7.4 — her notice and the sentence how to switch it on', ['mover.ok', 'mover.running', 'mover.progress_off'], $o['off'] ?? null);
+    same('unraid progress page: … before 7.4 (no such setting), with it on, or no mover at work — no sentence', [['mover.ok', 'mover.running'], ['mover.ok', 'mover.running'], ['mover.ok']],
+        [$o['old'] ?? null, $o['on'] ?? null, $o['idle'] ?? null]);
+    same('unraid progress page: the card named as Unraid\'s mover — since, all its bytes with the file in flight (the bar, Unraid\'s Ø and time left), the share, the file and the end; no stop, no log of hers',
+        [true, ['rc.unraid_title', 'rc.since {"time":"T1000","duration":"100s"}', '36 % · rc.rate_avg {"rate":"50000000 B"} · rc.left {"left":"40s"}',
+                'rc.unraid_all {"done_size":"1100000000 B","size":"3000000000 B"}', 'rc.unraid_share {"share":"Ferien","done_size":"1100000000 B","size":"2000000000 B"}',
+                'rc.on_way {"file":"Tag 03.bin (rc.file_bytes {\"done\":\"100000000 B\",\"size\":\"400000000 B\"})","from":"pic.pool_name {\"pool\":\"cache\"}","to":"pic.array"}',
+                'rc.end {"time":"T1140"}']],
+        [($o['live'] ?? [])[0] ?? null, array_values(array_filter(($o['live'] ?? [null, []])[1], fn ($x) => !in_array($x, ['36'], true)))]);
+    same('unraid progress page: while it adds up — said, no bar, no file', ['rc.unraid_title', 'rc.since {"time":"T1000","duration":"100s"}', 'rc.unraid_count'], $o['count'] ?? null);
+    same('unraid progress page: her hints show the card while it goes; the poll says nothing any more — no card', [1, [null, 0]], [$o['hints'] ?? null, $o['ended'] ?? null]);
+    hardeningRm($tmp);
+}
+
+/**
  * Ms. Moverelli and Unraid's own mover (agent/desks/moverelli-unraid.php, 2026-10-12): her save (and the import's apply)
  * refused while Unraid's schedule is on unless the page's consent comes along, nothing written then; with it Unraid's
  * form «Disabled» (an emcmd stand-in — never Unraid's own), the schedule it had noted once; her let-go refused while
@@ -59973,7 +60119,7 @@ function testBackupAnewChoice(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',

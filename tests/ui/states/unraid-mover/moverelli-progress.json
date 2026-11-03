@@ -1,0 +1,33 @@
+{
+  "time": 1791671989,
+  "running": false,
+  "real": false,
+  "stopping": null,
+  "progress": null,
+  "night": null,
+  "jack": null,
+  "mover_running": true,
+  "unraid_progress": {
+    "total": 38654705664,
+    "remain": 17179869184,
+    "rate": 118000000,
+    "eta": 146,
+    "share": {
+      "name": "Familienfilme",
+      "total": 32212254720,
+      "remain": 17179869184,
+      "rate": 121000000,
+      "eta": 177
+    },
+    "file": "/mnt/cache/Familienfilme/Sommer 2026/Grillabend.mkv",
+    "action": "move",
+    "disk": "",
+    "percent": 33,
+    "pid": 23817,
+    "started": 1791671838,
+    "from": "cache",
+    "to": "array",
+    "file_bytes": 524288000,
+    "file_size": 3221225472
+  }
+}
