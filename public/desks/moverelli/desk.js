@@ -408,9 +408,10 @@ function runCardBody(card, top, d, now, nn) {
     card.appendChild(bar);
     if (!d.unraid) card.appendChild(el('div', 'card-line', T('rc.share', { share: d.share, done: d.dFiles, files: nOf('files', d.files), done_size: fmt.size(d.dBytes), size: fmt.size(d.bytes) })));
     else {
-      // Unraid's mover: all its bytes, and the share in work when it isn't all of them (Unraid counts no files)
+      // Unraid's mover: all its bytes, and the share in work when it isn't all of them as said (Tower 2026-11-03: «uso-yes:
+      // 1.5 GB of 11 GB» under «In all: 1.5 GB of 11 GB», another share's 10 MB apart; Unraid counts no files)
       card.appendChild(el('div', 'card-line', T('rc.unraid_all', { done_size: fmt.size(d.dBytes), size: fmt.size(d.bytes) })));
-      if (d.share && d.shareBytes > 0 && d.shareBytes < d.bytes) card.appendChild(el('div', 'card-line', T('rc.unraid_share', { share: d.share, done_size: fmt.size(d.shareDone), size: fmt.size(d.shareBytes) })));
+      if (d.share && d.shareBytes > 0 && fmt.size(d.shareBytes) !== fmt.size(d.bytes)) card.appendChild(el('div', 'card-line', T('rc.unraid_share', { share: d.share, done_size: fmt.size(d.shareDone), size: fmt.size(d.shareBytes) })));
     }
   }
   if (d.fill) card.appendChild(el('div', 'card-line', d.fill));

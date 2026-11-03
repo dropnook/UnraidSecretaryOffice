@@ -46663,6 +46663,15 @@ function testMoverelliUnraidProgress(): void
     file_put_contents($ini, str_replace('Teil 1.bin"', "Teil\n1.bin\"", $whole));
     $u = moverelliUnraidProgress($h) ?? [];
     same('unraid progress: a name broken over two lines — no name (never half of one), the numbers still', ['', 3156213760], [$u['file'] ?? null, $u['total'] ?? null]);
+    $put('mover-moving.ini');
+    file_put_contents("$tmp/mover.pid", "1611741\n");      // this fixture's MoverPid
+    @mkdir("$tmp/proc/1611741", 0700, true);
+    file_put_contents("$tmp/proc/1611741/cmdline", "/bin/bash\0/usr/local/sbin/mover\0start\0");
+    $u = moverelliUnraidProgress($h) ?? [];
+    same('unraid progress: mid-run (a real file) — the run\'s rate and time left, the share\'s own, its percent whole',
+        [11649679360, 10076815360, 26658712, 378, 262144000, 38, 13, 'uso-yes', 'move'],
+        [$u['total'] ?? null, $u['remain'] ?? null, $u['rate'] ?? null, $u['eta'] ?? null, $u['share']['rate'] ?? null, $u['share']['eta'] ?? null, $u['percent'] ?? null, $u['share']['name'] ?? null, $u['action'] ?? null]);
+    file_put_contents("$tmp/mover.pid", "$pid\n");
     $put('mover-counting.ini');
     $u = moverelliUnraidProgress($h) ?? [];
     same('unraid progress: while it adds up — count, no share, no file', ['count', '', '', 0], [$u['action'] ?? null, $u['share']['name'] ?? null, $u['file'] ?? null, $u['percent'] ?? null]);
@@ -46705,7 +46714,7 @@ const mk = (tag, cls, text) => ({ tag, cls, className: cls, text, textContent: t
   append(...c) { this.children.push(...c); }, appendChild(c) { this.children.push(c); return c; }, insertBefore(c) { this.children.unshift(c); }, setAttribute() {}, scrollIntoView() {} });
 globalThis.document = { createTextNode: (t) => t };
 globalThis.Office = { sections: () => ({ el: {}, render() {}, mount: () => false, places: () => [], active: () => '' }), scope: () => T, t: T, el: mk,
-  fmt: { cron: (c) => c, size: (b) => b + ' B', date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
+  fmt: { cron: (c) => c, size: (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b + ' B'), date: (t) => 'D' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's', relative: (t) => 'R' + t },
   desk: () => {}, places: () => {}, placesFrom: () => {}, store: () => null, agent: { running: true }, place: (k, n) => n, go: () => {}, errorText: (e) => 'err:' + e.key,
   dialog: () => ({ buttons: [] }), toast: () => {}, selbar: () => null, api: { post: async () => ({ ok: true }) } };
 (0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
@@ -46726,6 +46735,8 @@ m.setState({ ...base, mover: { off: true, schedule: null, running: true, progres
 m.setUnraid(undefined);
 out.live = [!!m.unraidLive(), texts(m.runCard(null, 1100, m.unraidLive()))];
 out.count = texts(m.runCard(null, 1100, { ...u, action: 'count', remain: 3e9, eta: 0, rate: 0, file: '' }));
+// one share nearly all of it (another share's 10 MB): no second line that says the same
+out.one = texts(m.runCard(null, 1100, { ...u, share: { ...u.share, total: 3e9 - 1e7 } })).filter((x) => /^rc\.unraid_(all|share)/.test(x)).length;
 out.hints = texts({ children: m.hints() }).filter((x) => /^rc\.unraid_title/.test(x)).length;
 out.ended = (m.setUnraid(null), [m.unraidLive(), texts({ children: m.hints() }).filter((x) => /^rc\.unraid_title/.test(x)).length]);
 console.log(JSON.stringify(out));
@@ -46739,10 +46750,11 @@ JS);
         [$o['old'] ?? null, $o['on'] ?? null, $o['idle'] ?? null]);
     same('unraid progress page: the card named as Unraid\'s mover — since, all its bytes with the file in flight (the bar, Unraid\'s Ø and time left), the share, the file and the end; no stop, no log of hers',
         [true, ['rc.unraid_title', 'rc.since {"time":"T1000","duration":"100s"}', '36 % · rc.rate_avg {"rate":"50000000 B"} · rc.left {"left":"40s"}',
-                'rc.unraid_all {"done_size":"1100000000 B","size":"3000000000 B"}', 'rc.unraid_share {"share":"Ferien","done_size":"1100000000 B","size":"2000000000 B"}',
+                'rc.unraid_all {"done_size":"1.1 GB","size":"3.0 GB"}', 'rc.unraid_share {"share":"Ferien","done_size":"1.1 GB","size":"2.0 GB"}',
                 'rc.on_way {"file":"Tag 03.bin (rc.file_bytes {\"done\":\"100000000 B\",\"size\":\"400000000 B\"})","from":"pic.pool_name {\"pool\":\"cache\"}","to":"pic.array"}',
                 'rc.end {"time":"T1140"}']],
         [($o['live'] ?? [])[0] ?? null, array_values(array_filter(($o['live'] ?? [null, []])[1], fn ($x) => !in_array($x, ['36'], true)))]);
+    same('unraid progress page: one share as good as all of it — the line «in all» alone, never the same twice', 1, $o['one'] ?? null);
     same('unraid progress page: while it adds up — said, no bar, no file', ['rc.unraid_title', 'rc.since {"time":"T1000","duration":"100s"}', 'rc.unraid_count'], $o['count'] ?? null);
     same('unraid progress page: her hints show the card while it goes; the poll says nothing any more — no card', [1, [null, 0]], [$o['hints'] ?? null, $o['ended'] ?? null]);
     hardeningRm($tmp);
