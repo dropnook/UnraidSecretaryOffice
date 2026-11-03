@@ -352,7 +352,8 @@ active, `backup/` is left alone.
   `public/`, a RAM folder of their own and stand-ins for zfs, docker, ssh and Kopia — never the plugin's data folder,
   never the live agent. PHP syntax with `php -l`, shell with `bash -n`; JS syntax goes through `osascript -l JavaScript`
   (CLAUDE.md, «Checklist for a change») — Node is needed only for the browser tools below.
-* **PHPStan:** `bash tools/phpstan.sh` on the Mac or a host (bash, curl, php 8.4; ≈ 1½ min) — static analysis of
+* **PHPStan:** `bash tools/phpstan.sh` on the Mac (bash, curl, php 8.4; ≈ 1 min, then seconds from its cache; not on an
+  Unraid host — its PHP lacks the phar and tokenizer extensions) — static analysis of
   `agent/`, `src/`, `public/*.php` and `tests/run.php` at the level in `phpstan.neon`. It fetches one pinned
   `phpstan.phar` (its SHA-256 checked) into `~/.cache/uso-phpstan/` — no composer, no `vendor/`, never in the package.
   `tools/phpstan-bootstrap.php` names the constants the office defines at runtime from a call (`RUN_DIR`, `OFFICE_DIR` …;

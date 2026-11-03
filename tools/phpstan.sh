@@ -8,7 +8,8 @@
 #
 # No composer, no vendor/: one pinned phpstan.phar, its SHA-256 checked, cached outside the repository
 # (~/.cache/uso-phpstan/ or $USO_PHPSTAN_CACHE). Never part of the plugin's package (plugin/build.sh takes only its own
-# folders). Runs on the Mac and on an Unraid server (bash, curl, php 8.4) and in .github/workflows/phpstan.yml.
+# folders). Runs on the Mac (bash, curl, php 8.4) and in .github/workflows/phpstan.yml — not on an Unraid server: its
+# PHP has no phar and no tokenizer extension (Unraid 7.3.4, 2026-11-03), and PHPStan needs both.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -17,6 +18,11 @@ version=2.3.4
 sha256=a961d12cc71941a31ad6560e6a330347d487612628c3202a718f71a59de21a7c
 cache=${USO_PHPSTAN_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/uso-phpstan}
 phar="$cache/phpstan-$version.phar"
+
+php -r 'exit(extension_loaded("phar") && extension_loaded("tokenizer") ? 0 : 1);' || {
+    echo "This PHP lacks the phar or tokenizer extension (Unraid's has neither): run PHPStan on the Mac or in the Action." >&2
+    exit 2
+}
 
 sum() { (sha256sum "$1" 2>/dev/null || shasum -a 256 "$1") | cut -d' ' -f1; }
 
