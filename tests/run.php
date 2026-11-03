@@ -52261,7 +52261,7 @@ function testNightOrder(): void
     $t0 = mktime(2, 0, 3, 10, 22, 2026);
     file_put_contents("$tmp/engine/settings.ini", "[general]\n");      // set up: without settings nothing waits (engine 2.82)
     // (1) the job before the scheduled backup, on a clock of its own: $busy(s) = her run goes s seconds after its start
-    $job = function (callable $busy, callable $array = null) use ($tmp, $t0): array {
+    $job = function (callable $busy, ?callable $array = null) use ($tmp, $t0): array {
         $t = $t0;
         $GLOBALS['nightOrderHost'] = ['waitdir' => "$tmp/run", 'backup_data' => "$tmp/engine", 'night_dir' => "$tmp/mov",
             'night_running' => function () use (&$t, $t0, $busy) { return $busy($t - $t0); },
