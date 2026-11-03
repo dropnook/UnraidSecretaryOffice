@@ -38390,7 +38390,13 @@ if ($a[0] === "list") {
 }
 if ($a[0] === "destroy") {
     [$ds, $list] = explode("@", $a[1], 2);
-    $bad = array_intersect(explode(",", $list), file("$d/busy.txt", FILE_IGNORE_NEW_LINES));
+    $busy = file("$d/busy.txt", FILE_IGNORE_NEW_LINES);
+    if (is_file("$d/busyseq.txt")) {          // a different busy name on each try: the first line, used up
+        $seq = file("$d/busyseq.txt", FILE_IGNORE_NEW_LINES);
+        $busy = explode(",", (string) array_shift($seq));
+        file_put_contents("$d/busyseq.txt", $seq ? implode("\n", $seq) . "\n" : "");
+    }
+    $bad = array_intersect(explode(",", $list), $busy);
     foreach ($bad as $n) { fwrite(STDERR, "cannot destroy snapshot $ds@$n: dataset is busy\n"); }
     if ($bad) { exit(1); }
     file_put_contents("$d/names.txt", implode("\n", array_diff($names, explode(",", $list))) . "\n");
@@ -38435,6 +38441,18 @@ exit(0);'),
             ['do' => 'freed', 'ds' => 'tank/appdata', 'name' => 's2', 'where' => 'container', 'container' => 'minio', 'path' => '/data/.zfs/snapshot/s2'],
             ['do' => 'freed', 'ds' => 'tank/appdata', 'name' => 's3', 'where' => 'host', 'container' => null, 'path' => '/mnt/tank/appdata/.zfs/snapshot/s3'],
             ['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'tank/appdata', 'names' => ['s2', 's3']]], $rec);
+
+        // zfs answering busy for another one on each try: after SNAPSHOT_DESTROY_TRIES what is left is said, never kept silently
+        file_put_contents("$tmp/names.txt", "s6\ns7\ns8\ns9\n");
+        file_put_contents("$tmp/busy.txt", '');
+        file_put_contents("$tmp/busyseq.txt", "s6\ns7\ns8\n");
+        $calls();
+        $r = snapshotDelete(array_map($id, ['s6', 's7', 's8', 's9']));
+        same('busy: a different busy one on each try — three asked, each named; the one left untried said as not deleted', [[],
+            ['busy_unknown', 'busy_unknown', 'busy_unknown', 'command_failed'], 'tank/appdata@s9: not deleted — zfs destroy kept answering «dataset is busy» for others',
+            ['zfs destroy tank/appdata@s6,s7,s8,s9', 'zfs destroy tank/appdata@s7,s8,s9', 'zfs destroy tank/appdata@s8,s9']],
+            [$r['deleted'], array_column($r['failures'], 'key'), $r['failures'][3]['params']['detail'] ?? null, $calls()]);
+        @unlink("$tmp/busyseq.txt");
 
         // the container stopped between the look and the unmount; the unmount failing; a path that is no automount
         $m = ['ds' => 'tank/appdata', 'name' => 's4', 'where' => 'container', 'container' => 'minio', 'pid' => 4242, 'path' => '/data/.zfs/snapshot/s4', 'auto' => true];

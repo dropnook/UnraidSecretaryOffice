@@ -28,6 +28,7 @@ require_once __DIR__ . '/../lib/partnerlook.php';
 const SNAPSHOT_HOLD_TAG   = 'unraid-secretary-office';
 const SNAPSHOT_HOLD_TAGS  = ['unraid-secretary-office', 'snapshots-webseite'];   // ours, incl. the old name
 const SNAPSHOT_BTRFS_DIR  = '.btrfs-snap';
+const SNAPSHOT_DESTROY_TRIES = 3;   // `zfs destroy ds@a,b,c` asked again without the busy ones, at most this often
 const SNAPSHOT_NAME       = '/^[A-Za-z0-9][A-Za-z0-9_.:+-]{0,79}$/D';   // D: a trailing newline doesn't pass
 const VM_SNAPSHOT_DB      = '/etc/libvirt/qemu/snapshotdb';
 const VM_XML_DIR          = '/etc/libvirt/qemu';
@@ -1785,19 +1786,23 @@ function snapshotDelete(array $ids, bool $unmount = false, bool $wake = false, b
     $zfs = $GLOBALS['snapshotHost']['zfs'] ?? bin('zfs');
     foreach ($perDataset as $ds => $names) {
         foreach (array_chunk($names, 100) as $batch) {
-            // one `zfs destroy ds@a,b,c` is all or nothing: the busy ones are named and taken out, the rest asked again
-            for ($try = 0; $batch && $try < 2; $try++) {
+            // one `zfs destroy ds@a,b,c` is all or nothing: the busy ones are named and taken out, the rest asked again —
+            // up to SNAPSHOT_DESTROY_TRIES times; what is still left then is said, never silently kept
+            $said = false;
+            for ($try = 0; $batch && $try < SNAPSHOT_DESTROY_TRIES; $try++) {
                 $arg = "$ds@" . implode(',', $batch);
                 [$exit, , $err] = run([$zfs, 'destroy', $arg], 600);
                 if ($exit === 0) {
                     snapshotRecord(['do' => 'deleted', 'fs' => 'zfs', 'ds' => $ds, 'names' => array_values($batch)]);
                     logLine("Deleted: $arg");
+                    $said = true;
                     break;
                 }
                 logLine("Ms. Snapshotini: delete failed: $arg — " . trim($err));
                 $busy = snapshotBusyNames($err, $ds, $batch);
                 if (!$busy) {
                     $failures[] = ['key' => 'command_failed', 'params' => ['detail' => trim($err)]];
+                    $said = true;
                     break;
                 }
                 $now = snapshotMountsNow();
@@ -1806,6 +1811,11 @@ function snapshotDelete(array $ids, bool $unmount = false, bool $wake = false, b
                     $failures[] = snapshotBusyFailure($id, array_values(array_filter($now, fn (array $m): bool => $m['ds'] === $ds && $m['name'] === $name)));
                 }
                 $batch = array_values(array_diff($batch, $busy));
+            }
+            if (!$said && $batch) {
+                $left = "$ds@" . implode(',', $batch);
+                $failures[] = ['key' => 'command_failed', 'params' => ['detail' => "$left: not deleted — zfs destroy kept answering «dataset is busy» for others"]];
+                logLine("Ms. Snapshotini: not deleted after " . SNAPSHOT_DESTROY_TRIES . " tries: $left");
             }
         }
     }
