@@ -59,6 +59,7 @@
   "Mirror syslog to flash": "Duplicar registro syslog en la memoria Flash",
   "Move now": "Usar Mover",
   "Mover action": "Acción Mover",
+  "Mover Progress": "Mover Progress",
   "Mover schedule": "Programación del servicio Mover",
   "Mover Settings": "Ajustes del Servicio Mover",
   "Name": "Nombre",

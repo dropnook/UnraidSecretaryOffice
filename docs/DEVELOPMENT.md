@@ -726,6 +726,10 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   or unwatched over X: told. **Every file left says why** (Smart Mover's `left_codes`: a name ending in whitespace, its copy,
   the binary's words, a stop, else «in use or already there» — her share lines and run summary); files whose time lies more
   than a day ahead (a clock put right) are counted (`future`) and said once under her last run — never notified.
+  **Unraid 7.4's own mover** (⟦Mover Progress⟧ on): its mover.ini only read, trusted only while MoverPid is the live
+  mover's pid (`moverelliUnraidProgress()`, moverelli-unraid.php — the format in its comment, real files in
+  tests/fixtures/unraid-mover/); her run card shows it named as Unraid's mover, never her stop or log; off on 7.4: one sentence
+  where to switch it on; before 7.4 nothing.
 * **`logs` — Ms. Protocolli.** Reads logs from a fixed source list (ids only, never paths); lines into the page as text only;
   nothing read until chosen; routers' files only while their disks are awake. **Read only.** **Her tour on schedule**
   (1.78, off by default): job `logs` in the plugin's cron file (`<desk>.schedule` {cron} → `officeJobSetSchedule()`);

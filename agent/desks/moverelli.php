@@ -120,6 +120,10 @@ function moverelliHost(): array
         'version'       => $h['version'] ?? fn (): string => reportUnraidVersion(),
         'unraid'        => $h['unraid'] ?? fn (): array => jackMoverOwn(jackMoverHost()),
         'mover_running' => $h['mover_running'] ?? fn (?int $self = null): bool => jackMoverRunning(null, $self),
+        // Unraid 7.4's mover saying how far it is (moverelli-unraid.php moverelliUnraidProgress()): its file, its pid file, /proc
+        'mover_ini'     => $h['mover_ini'] ?? MOVERELLI_UNRAID_INI,
+        'mover_pid'     => $h['mover_pid'] ?? JACK_MOVER_PID,
+        'proc'          => $h['proc'] ?? '/proc',
         'jack_busy'     => $h['jack_busy'] ?? fn (): bool => jackAnyRunning(),
         'jack_desk'          => $h['jack_desk'] ?? fn (): ?array => moverelliJackLists(),
         'scheduled'     => $h['scheduled'] ?? fn (): bool => officeJobSchedule('moverelli', $h['cron_file'] ?? OFFICE_CRON)['enabled'],
@@ -1144,9 +1148,11 @@ function moverelliScan(?array $h = null): array
         'shares'     => moverelliShares($settings ?? moverelliDefaults(), $h['shares_dir'], $h),
         // rules of her own for shares Unraid no longer has (2026-10-18): shown on her setup page, removed only on a click
         'shares_gone' => moverelliSharesGone($settings, $h),
-        // Unraid's own mover: its schedule (real runs only while «Disabled»), at work right now
+        // Unraid's own mover: its schedule (real runs only while «Disabled»), at work right now; on Unraid 7.4 how far it
+        // is (null: it says nothing — ⟦Mover Progress⟧ off, not at work) and whether ⟦Mover Progress⟧ is on (null before 7.4)
         'mover'      => ['off' => jackMoverScheduleOff($own), 'schedule' => $own['cron'] ?? ($own['set'] !== '' ? $own['set'] : null),
-                         'running' => ($h['mover_running'])($job['running'] ? (int) $job['pid'] : null)],     // her own run's move binary isn't Unraid's mover
+                         'running' => ($h['mover_running'])($job['running'] ? (int) $job['pid'] : null),     // her own run's move binary isn't Unraid's mover
+                         'unraid_progress' => moverelliUnraidProgress($h), 'progress_on' => moverelliUnraidProgressOn($version, $h['var_ini'])],
         // other movers on a schedule of their own: Mover Tuning's (refuses real runs), scripts that call a mover (named)
         'foreign'    => array_diff_key(moverelliForeign($h), ['unraid' => 1]),
         'job'        => $job,
@@ -1272,7 +1278,10 @@ function moverelliStopAsk(?array $h = null): bool
     return true;
 }
 
-/** Her run card's poll: {time, running, real, stopping: why of the stop file or null, progress: Smart Mover's live status or null} */
+/**
+ * Her run card's poll: {time, running, real, stopping: why of the stop file or null, progress: Smart Mover's live status or
+ * null, …; while no real run of hers goes: mover_running (Unraid's mover at work), unraid_progress (how far, on 7.4)}
+ */
 function moverelliProgressState(?array $h = null): array
 {
     $h ??= moverelliHost();
@@ -1310,8 +1319,11 @@ function moverelliProgressState(?array $h = null): array
         $jl = (nightHost($h)['jack_progress'])($night);
         $jack = ['real' => true, 'progress' => is_array($jl) && is_array($jl['progress'] ?? null) ? $jl['progress'] : null];
     }
+    // no real run of hers: Unraid's own mover — at work, how far (her page's card for it, polled while it goes; a /proc look
+    // only then, never every 5 s of her own run)
+    $unraid = $real ? [] : ['mover_running' => ($h['mover_running'])($job['running'] ? (int) $job['pid'] : null), 'unraid_progress' => moverelliUnraidProgress($h)];
     return ['time' => time(), 'running' => $job['running'] || $nightReal, 'real' => $real, 'stopping' => is_array($stop) ? (string) ($stop['why'] ?? 'user') : null,
-            'progress' => $prog, 'night' => $short, 'jack' => $jack];
+            'progress' => $prog, 'night' => $short, 'jack' => $jack] + $unraid;
 }
 
 /**
