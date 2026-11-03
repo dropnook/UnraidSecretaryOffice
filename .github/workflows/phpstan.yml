@@ -5,7 +5,7 @@ name: PHPStan
 
 on:
   push:
-    branches: [main, task/phpstan]
+    branches: [main]
   pull_request:
 
 permissions:
