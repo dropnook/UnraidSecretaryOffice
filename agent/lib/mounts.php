@@ -111,7 +111,7 @@ function snapshotMountsEverywhere(?array $containers = null, string $proc = '/pr
 /** A mountinfo entry of a ZFS snapshot: {ds, name, path, auto} — else null */
 function snapshotMountOf(array $m): ?array
 {
-    if ($m['fs'] !== 'zfs' || !preg_match('#^([A-Za-z0-9][^@\s]{0,1000})@([^@/\s]{1,255})$#D', $m['source'], $x)) {
+    if ($m['fs'] !== 'zfs' || !preg_match('#^([A-Za-z0-9][^@\n]{0,1000})@([^@/\n]{1,255})$#D', $m['source'], $x)) {
         return null;
     }
     return ['ds' => $x[1], 'name' => $x[2], 'path' => $m['mount'], 'auto' => snapshotAutoPath($m['mount'], $x[2])];
