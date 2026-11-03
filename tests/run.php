@@ -8859,7 +8859,7 @@ function testNotifyPlain(): void
                 if ($subject) {
                     $subjects++;
                     if (preg_match($jargon, $t, $m)) {
-                        $bad[] = "$desk $l $k: «{$m[0]}» in «$t»";
+                        $bad[] = "$desk $l $k: «{$m[0]}» in «{$t}»";
                     }
                 }
                 if (preg_match('~\b\p{Lu}{5,}\b~u', preg_replace('~\{[^}]*\}~', '', $t), $m)) {
@@ -31410,7 +31410,7 @@ function testApiGzip(): void
     require_once OFFICE_DIR . '/src/api.php';
     foreach (['gzip' => true, 'gzip, deflate, br' => true, 'br;q=1.0, gzip;q=0.8, *;q=0.1' => true, 'x-gzip' => true, 'GZIP' => true,
               '' => false, 'deflate, br' => false, 'gzip;q=0' => false, 'gzip; q=0.000' => false, 'identity' => false, 'gzipped' => false] as $accept => $want) {
-        same("api gzip: Accept-Encoding «$accept»", $want, apiGzipWanted($accept));
+        same("api gzip: Accept-Encoding «{$accept}»", $want, apiGzipWanted($accept));
     }
     $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
     same('api gzip: every answer goes out through apiSend() — answer() and answerThenLook()', 2, substr_count($api, 'apiSend(apiJson($data))'));
@@ -45425,7 +45425,7 @@ function testScheduleTile(): void
         $j = langFile(OFFICE_WEB . "/desks/jack/lang/$code.json");
         same("schedule tile: Mr. Backupsy's lines in $code (not set up, click to set it, how long a run takes)", [],
             array_values(array_filter(['stat.not_scheduled', 'stat.schedule_hint', 'schedule.duration'], fn ($k) => !is_string($b[$k] ?? null) || $b[$k] === '')));
-        check("schedule tile: Jack Streamer's lines in $code — a line per schedule, laying out «$words» (the joint run's word), how many are on",
+        check("schedule tile: Jack Streamer's lines in $code — a line per schedule, laying out «{$words}» (the joint run's word), how many are on",
             str_contains((string) ($j['plans.night'] ?? ''), $words) && str_contains((string) ($j['by.night'] ?? ''), $words) && is_string($j['plans.one'] ?? null)
             && is_array($j['plans.on'] ?? null) && !isset($j['plans.active']) && !isset($j['plans.off']));
     }
@@ -59695,7 +59695,7 @@ function testUsoNetStatus(): void
         check('USO network status: the helper\'s shape', usonetStatusValid(usonetTestStatus()));
         foreach (['v' => 2, 'time' => '1', 'backend' => 'Run ning', 'ips' => ['100.64.0.4', 1], 'tags' => ['uso'], 'control' => 1, 'peers' => [['name' => 'x']],
                   'name' => str_repeat('x', 101)] as $k => $bad) {
-            check("USO network status: «$k» not in its shape — no status", !usonetStatusValid(usonetTestStatus([$k => $bad])));
+            check("USO network status: «{$k}» not in its shape — no status", !usonetStatusValid(usonetTestStatus([$k => $bad])));
         }
         same('USO network card: not joined — off, no checks', ['off', []], [usonetPublic($now)['state'], usonetChecks($now)]);
         file_put_contents("$flash/usonet.cfg", "JOINED=\"yes\"\nNAME=\"uso-tower\"\nCONTROL=\"\"\n");
