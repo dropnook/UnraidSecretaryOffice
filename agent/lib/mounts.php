@@ -10,12 +10,21 @@ declare(strict_types=1);
  * All mounts as the host sees them, in /proc/self/mountinfo order. Whatever
  * was mounted later comes further down and may build on earlier mounts.
  *
- * @return list<array{dev:string, root:string, mount:string, fs:string, source:string, options:string}>
+ * @return list<array{dev:string, root:string, mount:string, fs:string, source:string, options:string, tags:list<string>}>
  */
 function mountTable(): array
 {
+    return mountInfoParse((string) @file_get_contents('/proc/self/mountinfo'));
+}
+
+/**
+ * One mountinfo text (of any process: /proc/<pid>/mountinfo shows that process's mount namespace) as mountTable() gives
+ * it; `tags`: the optional fields (shared:N, master:N — how mounts propagate between namespaces)
+ */
+function mountInfoParse(string $text): array
+{
     $table = [];
-    foreach (@file('/proc/self/mountinfo', FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+    foreach (explode("\n", $text) as $line) {
         $parts = explode(' - ', $line, 2);
         if (count($parts) !== 2) {
             continue;
@@ -32,9 +41,116 @@ function mountTable(): array
             'fs'      => $b[0],
             'source'  => mountUnescape($b[1]),
             'options' => $b[2],
+            'tags'    => array_slice($a, 6),
         ];
     }
     return $table;
+}
+
+/**
+ * Every ZFS snapshot mounted right now (fstype zfs, source <pool>/<dataset>@<name>) — on the host (/proc/1/mountinfo)
+ * and inside each running container's own mount namespace (/proc/<its main pid>/mountinfo). A look into
+ * `.zfs/snapshot/<name>` from inside a container can leave the snapshot mounted there only: the host sees nothing,
+ * `zfs destroy` answers «dataset is busy» (2026-10-31). Read from /proc only: nothing under /mnt opened, no disk woken.
+ * A container whose /proc entry is gone between the list and the read is left out; one that shares the host's mount
+ * namespace counts as the host; a container's copy of a host mount that only propagated into it (master:N of the
+ * host's shared:N) is the host's — it goes when that goes.
+ * $containers: [{name, pid}] (null: the running ones from Docker, dockerRunningPids()); $proc: the tests' copy.
+ *
+ * @return list<array{ds: string, name: string, where: string, container: ?string, pid: int, path: string, auto: bool}>
+ *         `auto`: mounted at <something>/.zfs/snapshot/<name> (an automount), else mounted somewhere by hand
+ */
+function snapshotMountsEverywhere(?array $containers = null, string $proc = '/proc'): array
+{
+    $hostNs = @readlink("$proc/1/ns/mnt");
+    $out = [];
+    $shared = [];
+    foreach (mountInfoParse((string) @file_get_contents("$proc/1/mountinfo")) as $m) {
+        if (($s = snapshotMountOf($m)) !== null) {
+            $out[] = $s + ['where' => 'host', 'container' => null, 'pid' => 1];
+            foreach ($m['tags'] as $t) {
+                if (str_starts_with($t, 'shared:')) {
+                    $shared[$m['source'] . "\0" . substr($t, 7)] = true;
+                }
+            }
+        }
+    }
+    $seen = $hostNs !== false ? [$hostNs => true] : [];
+    foreach ($containers ?? dockerRunningPids() as $c) {
+        $pid = (int) ($c['pid'] ?? 0);
+        if ($pid <= 1 || !is_string($c['name'] ?? null)) {
+            continue;
+        }
+        $ns = @readlink("$proc/$pid/ns/mnt");
+        if ($ns !== false && isset($seen[$ns])) {
+            continue;                   // the host's namespace, or one already read
+        }
+        $text = @file_get_contents("$proc/$pid/mountinfo");
+        if ($text === false) {
+            continue;                   // stopped in between
+        }
+        if ($ns !== false) {
+            $seen[$ns] = true;
+        }
+        foreach (mountInfoParse($text) as $m) {
+            if (($s = snapshotMountOf($m)) === null) {
+                continue;
+            }
+            foreach ($m['tags'] as $t) {
+                if (str_starts_with($t, 'master:') && isset($shared[$m['source'] . "\0" . substr($t, 7)])) {
+                    continue 2;         // the host's own, propagated
+                }
+            }
+            $out[] = $s + ['where' => 'container', 'container' => $c['name'], 'pid' => $pid];
+        }
+    }
+    return array_map(fn (array $x): array => ['ds' => $x['ds'], 'name' => $x['name'], 'where' => $x['where'], 'container' => $x['container'],
+                                              'pid' => $x['pid'], 'path' => $x['path'], 'auto' => $x['auto']], $out);
+}
+
+/** A mountinfo entry of a ZFS snapshot: {ds, name, path, auto} — else null */
+function snapshotMountOf(array $m): ?array
+{
+    if ($m['fs'] !== 'zfs' || !preg_match('#^([A-Za-z0-9][^@\n]{0,1000})@([^@/\n]{1,255})$#D', $m['source'], $x)) {
+        return null;
+    }
+    return ['ds' => $x[1], 'name' => $x[2], 'path' => $m['mount'], 'auto' => snapshotAutoPath($m['mount'], $x[2])];
+}
+
+/** Is $path an automount of the snapshot $name: exactly <something>/.zfs/snapshot/<name>, nothing climbing up? */
+function snapshotAutoPath(string $path, string $name): bool
+{
+    return (bool) preg_match('#^(/[^/\0\n]+)+/\.zfs/snapshot/' . preg_quote($name, '#') . '$#D', $path)
+        && !preg_match('#/\.\.?(/|$)#', $path);
+}
+
+/**
+ * The running containers' main processes: [{name, pid}] — one `docker ps` and one `docker inspect` for all of them
+ * (through houseDocker(): a silent Docker costs one short wait); [] when Docker isn't running or doesn't answer
+ */
+function dockerRunningPids(): array
+{
+    $docker = function (array $args): array {
+        return function_exists('houseDocker') ? houseDocker($args) : run(['docker', ...$args], 20);
+    };
+    if (!file_exists('/var/run/docker.sock')) {
+        return [];
+    }
+    [$exit, $ids] = $docker(['ps', '-q', '--no-trunc']);
+    $ids = $exit === 0 ? array_slice(array_values(array_filter(explode("\n", trim((string) $ids)),
+        fn (string $x): bool => (bool) preg_match('/^[0-9a-f]{12,64}$/D', $x))), 0, 500) : [];
+    if (!$ids) {
+        return [];
+    }
+    [, $text] = $docker(['inspect', '--format', "{{.Name}}\t{{.State.Pid}}", ...$ids]);
+    $out = [];
+    foreach (explode("\n", trim((string) $text)) as $line) {
+        $f = explode("\t", $line);
+        if (count($f) === 2 && preg_match('/^[1-9]\d{0,9}$/D', $f[1])) {
+            $out[] = ['name' => mb_strcut(ltrim($f[0], '/'), 0, 200, 'UTF-8'), 'pid' => (int) $f[1]];
+        }
+    }
+    return $out;
 }
 
 /** mountinfo writes spaces and friends as \040 */

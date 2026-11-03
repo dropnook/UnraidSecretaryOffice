@@ -38316,6 +38316,205 @@ function testSnapshotPartner(): void
 }
 
 /**
+ * «dataset is busy» (nostromo 2026-10-31, test4 2026-11-03): snapshotMountsEverywhere() reads the host's and every running
+ * container's mountinfo for mounted ZFS snapshots; Ms. Snapshotini names where a busy one hangs (busy_in_container before
+ * `zfs destroy`, busy_on_host / busy_unknown from its answer — the rest of the batch still deleted) and «Free and delete…»
+ * (snapshot.free_mounts) unmounts the automounts — inside a container through nsenter into its mount namespace — then
+ * deletes; the Night Watchman counts them in «What holds the array?» and in uso_watchman_snapshot_automounts
+ */
+function testSnapshotBusy(): void
+{
+    $tmp = hardeningTmp('snap-busy');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $proc = "$tmp/proc";
+    $pid = function (int $pid, ?string $mountinfo, string $ns) use ($proc): void {
+        @mkdir("$proc/$pid/ns", 0700, true);
+        symlink($ns, "$proc/$pid/ns/mnt");
+        if ($mountinfo !== null) {
+            file_put_contents("$proc/$pid/mountinfo", $mountinfo);
+        }
+    };
+    $host = "20 1 0:2 / / rw - rootfs rootfs rw\n"
+        . "59 47 0:50 / /mnt/tank/appdata rw,noatime shared:14 - zfs tank/appdata rw,xattr\n"
+        . "66 59 0:53 / /mnt/tank/appdata/.zfs/snapshot/s3 rw,relatime shared:16 - zfs tank/appdata@s3 ro,xattr\n"
+        . "67 59 0:54 / /mnt/tank/Familien\\040filme/.zfs/snapshot/z\\040z rw,relatime shared:17 - zfs tank/Familien\\040filme@z\\040z ro\n"
+        . "68 20 0:55 / /mnt/addons/x rw shared:18 - zfs tank/appdata@kopia ro\n";
+    $pid(1, $host, 'mnt:[1]');
+    $pid(200, "115 106 0:50 / /data rw,noatime - zfs tank/appdata rw\n"
+        . "116 115 0:56 / /data/.zfs/snapshot/s2 rw,relatime - zfs tank/appdata@s2 ro\n"
+        . "117 115 0:57 / /data/.zfs/snapshot/s5 rw,relatime - zfs tank/appdata@s5 ro\n", 'mnt:[200]');
+    $pid(300, "115 106 0:50 / /share rw,noatime - zfs tank/appdata rw\n", 'mnt:[300]');      // a plain bind of the share
+    $pid(500, $host, 'mnt:[1]');                                                               // shares the host's namespace
+    $pid(600, "90 80 0:53 / /data/.zfs/snapshot/s3 rw master:16 - zfs tank/appdata@s3 ro\n", 'mnt:[600]');   // the host's, propagated
+    $cts = [['name' => 'minio', 'pid' => 200], ['name' => 'plex', 'pid' => 300], ['name' => 'stopped', 'pid' => 400],
+            ['name' => 'hostns', 'pid' => 500], ['name' => 'slave', 'pid' => 600]];
+    same('busy: the reader — host automounts (a space as \\040), a host mount by hand, two automounts inside a container; never a plain bind of the '
+        . 'share, a container gone in between, one in the host\'s namespace or a host mount that only propagated into one', [
+        ['ds' => 'tank/appdata', 'name' => 's3', 'where' => 'host', 'container' => null, 'pid' => 1, 'path' => '/mnt/tank/appdata/.zfs/snapshot/s3', 'auto' => true],
+        ['ds' => 'tank/Familien filme', 'name' => 'z z', 'where' => 'host', 'container' => null, 'pid' => 1, 'path' => '/mnt/tank/Familien filme/.zfs/snapshot/z z', 'auto' => true],
+        ['ds' => 'tank/appdata', 'name' => 'kopia', 'where' => 'host', 'container' => null, 'pid' => 1, 'path' => '/mnt/addons/x', 'auto' => false],
+        ['ds' => 'tank/appdata', 'name' => 's2', 'where' => 'container', 'container' => 'minio', 'pid' => 200, 'path' => '/data/.zfs/snapshot/s2', 'auto' => true],
+        ['ds' => 'tank/appdata', 'name' => 's5', 'where' => 'container', 'container' => 'minio', 'pid' => 200, 'path' => '/data/.zfs/snapshot/s5', 'auto' => true]],
+        snapshotMountsEverywhere($cts, $proc));
+    same('busy: the reader — the host alone', 3, count(snapshotMountsEverywhere([], $proc)));
+    same('busy: an automount path is exactly <something>/.zfs/snapshot/<its name>', [true, true, false, false, false, false, false],
+        [snapshotAutoPath('/data/.zfs/snapshot/s2', 's2'), snapshotAutoPath('/mnt/tank/a b/.zfs/snapshot/z z', 'z z'), snapshotAutoPath('/data/.zfs/snapshot/s22', 's2'),
+         snapshotAutoPath('/data/.zfs/snapshot/s2/x', 's2'), snapshotAutoPath('/.zfs/snapshot/s2', 's2'), snapshotAutoPath('/data/../x/.zfs/snapshot/s2', 's2'),
+         snapshotAutoPath("/data/.zfs/snapshot/s2\n", 's2')]);
+    same('busy: the snapshots zfs destroy named busy — of this dataset and batch only', ['s3', 's4'], snapshotBusyNames(
+        "cannot destroy snapshot tank/appdata@s3: dataset is busy\ncannot destroy snapshot tank/appdata@s4: dataset is busy\n"
+        . "cannot destroy snapshot tank/other@s1: dataset is busy\ncannot destroy snapshot tank/appdata@s9: dataset is busy\n", 'tank/appdata', ['s1', 's3', 's4']));
+    same('busy: something else than busy is no busy name', [], snapshotBusyNames("cannot destroy 'tank/appdata@s1': permission denied\n", 'tank/appdata', ['s1']));
+
+    // her delete on stand-ins: zfs (destroy all or nothing: a name in busy.txt fails the batch), umount, nsenter
+    $snaps = ['s1', 's2', 's3', 's4'];
+    file_put_contents("$tmp/names.txt", implode("\n", $snaps) . "\n");
+    file_put_contents("$tmp/busy.txt", "s3\ns4\n");
+    file_put_contents("$tmp/zfs-ds.txt", "tank\tfilesystem\t1000\t9000\t100\t50\t/mnt/tank\ntank/appdata\tfilesystem\t500\t9000\t400\t100\t/mnt/tank/appdata\n");
+    file_put_contents("$tmp/zpool.txt", "tank\t8000000\t5000000\t3000000\t62\tONLINE\t16\n");
+    file_put_contents("$tmp/disks.ini", "[\"tank\"]\nname=\"tank\"\ntype=\"Cache\"\nfsType=\"zfs\"\nspundown=\"0\"\n");
+    $stand = function (string $name, string $body) use ($tmp): string {
+        file_put_contents("$tmp/$name", "#!" . PHP_BINARY . "\n<?php\n\$d = " . var_export($tmp, true) . ";\n\$a = array_slice(\$argv, 1);\n"
+            . "file_put_contents(\"\$d/calls.log\", json_encode(array_merge([" . var_export($name, true) . "], \$a)) . \"\\n\", FILE_APPEND);\n$body");
+        chmod("$tmp/$name", 0755);
+        return "$tmp/$name";
+    };
+    $free = '$busy = array_values(array_diff(file("$d/busy.txt", FILE_IGNORE_NEW_LINES), [basename(end($a))]));'
+        . 'file_put_contents("$d/busy.txt", $busy ? implode("\n", $busy) . "\n" : ""); exit(is_file("$d/fail") ? 1 : 0);';
+    $GLOBALS['snapshotHost'] = [
+        'zfs' => $stand('zfs', '$names = file("$d/names.txt", FILE_IGNORE_NEW_LINES);
+if ($a[0] === "list") {
+    if (in_array("filesystem,volume", $a, true)) { echo file_get_contents("$d/zfs-ds.txt"); exit(0); }
+    foreach ($names as $i => $n) { echo "tank/appdata@$n\t" . (20 + $i) . "\t1700000000\t10\t400\t5\t0\t-\n"; }
+    exit(0);
+}
+if ($a[0] === "destroy") {
+    [$ds, $list] = explode("@", $a[1], 2);
+    $busy = file("$d/busy.txt", FILE_IGNORE_NEW_LINES);
+    if (is_file("$d/busyseq.txt")) {          // a different busy name on each try: the first line, used up
+        $seq = file("$d/busyseq.txt", FILE_IGNORE_NEW_LINES);
+        $busy = explode(",", (string) array_shift($seq));
+        file_put_contents("$d/busyseq.txt", $seq ? implode("\n", $seq) . "\n" : "");
+    }
+    $bad = array_intersect(explode(",", $list), $busy);
+    foreach ($bad as $n) { fwrite(STDERR, "cannot destroy snapshot $ds@$n: dataset is busy\n"); }
+    if ($bad) { exit(1); }
+    file_put_contents("$d/names.txt", implode("\n", array_diff($names, explode(",", $list))) . "\n");
+}
+exit(0);'),
+        'zpool' => $stand('zpool', 'echo file_get_contents("$d/zpool.txt");'),
+        'docker' => null, 'proc' => $proc, 'containers' => [['name' => 'minio', 'pid' => 200]],
+        'umount' => $stand('umount', $free), 'nsenter' => $stand('nsenter', $free)];
+    $iniBefore = $GLOBALS['disksIni'] ?? null;
+    $recordBefore = $GLOBALS['snapshotRecordFile'] ?? null;
+    $GLOBALS['disksIni'] = "$tmp/disks.ini";
+    $GLOBALS['snapshotPartnerPairs'] = "$tmp/pairs.json";
+    $GLOBALS['snapshotRecordFile'] = "$tmp/record/deletes.jsonl";
+    $GLOBALS['snapshot'] = null;
+    $id = fn (string $n): string => "zfs:tank/appdata@$n";
+    $calls = function () use ($tmp): array {
+        $out = array_map(fn ($l) => implode(' ', json_decode($l, true)), file("$tmp/calls.log", FILE_IGNORE_NEW_LINES) ?: []);
+        @unlink("$tmp/calls.log");
+        return array_values(array_filter($out, fn ($c) => !str_starts_with($c, 'zfs list') && !str_starts_with($c, 'zpool ')));
+    };
+    try {
+        $r = snapshotDelete(array_map($id, $snaps));
+        same('busy: delete — the one inside a container named before zfs is asked (with the container and its path there), the host automount ZFS '
+            . 'couldn\'t drop and the one nobody is seen holding named from zfs\'s answer; the rest deleted all the same', [
+            ['key' => 'busy_in_container', 'id' => $id('s2'), 'free' => true, 'params' => ['name' => 'tank/appdata@s2', 'container' => 'minio', 'path' => '/data/.zfs/snapshot/s2']],
+            ['key' => 'busy_on_host', 'id' => $id('s3'), 'free' => true, 'params' => ['name' => 'tank/appdata@s3', 'path' => '/mnt/tank/appdata/.zfs/snapshot/s3']],
+            ['key' => 'busy_unknown', 'id' => $id('s4'), 'free' => false, 'params' => ['name' => 'tank/appdata@s4']]], $r['failures']);
+        same('busy: … s1 deleted, asked twice: all of the rest, then without the busy ones; nothing unmounted on a plain delete',
+            [[$id('s1')], ['zfs destroy tank/appdata@s1,s3,s4', 'zfs destroy tank/appdata@s1']], [$r['deleted'], $calls()]);
+        check('busy: … zfs\'s raw text never on the page', !str_contains(json_encode($r['failures']), 'dataset is busy'));
+
+        file_put_contents("$tmp/busy.txt", "s3\ns4\n");
+        $r = snapshotDelete([$id('s2'), $id('s3'), $id('s4')], false, false, true);
+        same('busy: free and delete — inside the container through its mount namespace, the host\'s automount with a plain umount; both deleted; '
+            . 'the one nobody is seen holding stays busy', [[$id('s2'), $id('s3')], ['busy_unknown'],
+            ["nsenter --mount=$proc/200/ns/mnt umount /data/.zfs/snapshot/s2", 'umount /mnt/tank/appdata/.zfs/snapshot/s3',
+             'zfs destroy tank/appdata@s2,s3,s4', 'zfs destroy tank/appdata@s2,s3']],
+            [$r['deleted'], array_column($r['failures'], 'key'), $calls()]);
+        $rec = array_map(fn ($l) => array_diff_key(json_decode($l, true), ['t' => 1]), file("$tmp/record/deletes.jsonl", FILE_IGNORE_NEW_LINES));
+        same('busy: … her record says what was freed and deleted', [
+            ['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'tank/appdata', 'names' => ['s1']],
+            ['do' => 'freed', 'ds' => 'tank/appdata', 'name' => 's2', 'where' => 'container', 'container' => 'minio', 'path' => '/data/.zfs/snapshot/s2'],
+            ['do' => 'freed', 'ds' => 'tank/appdata', 'name' => 's3', 'where' => 'host', 'container' => null, 'path' => '/mnt/tank/appdata/.zfs/snapshot/s3'],
+            ['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'tank/appdata', 'names' => ['s2', 's3']]], $rec);
+
+        // zfs answering busy for another one on each try: after SNAPSHOT_DESTROY_TRIES what is left is said, never kept silently
+        file_put_contents("$tmp/names.txt", "s6\ns7\ns8\ns9\n");
+        file_put_contents("$tmp/busy.txt", '');
+        file_put_contents("$tmp/busyseq.txt", "s6\ns7\ns8\n");
+        $calls();
+        $r = snapshotDelete(array_map($id, ['s6', 's7', 's8', 's9']));
+        same('busy: a different busy one on each try — three asked, each named; the one left untried said as not deleted', [[],
+            ['busy_unknown', 'busy_unknown', 'busy_unknown', 'command_failed'], 'tank/appdata@s9: not deleted — zfs destroy kept answering «dataset is busy» for others',
+            ['zfs destroy tank/appdata@s6,s7,s8,s9', 'zfs destroy tank/appdata@s7,s8,s9', 'zfs destroy tank/appdata@s8,s9']],
+            [$r['deleted'], array_column($r['failures'], 'key'), $r['failures'][3]['params']['detail'] ?? null, $calls()]);
+        @unlink("$tmp/busyseq.txt");
+
+        // the container stopped between the look and the unmount; the unmount failing; a path that is no automount
+        $m = ['ds' => 'tank/appdata', 'name' => 's4', 'where' => 'container', 'container' => 'minio', 'pid' => 4242, 'path' => '/data/.zfs/snapshot/s4', 'auto' => true];
+        try {
+            snapshotFreeMount($m);
+            check('busy: a container gone in between refused', false);
+        } catch (Problem $p) {
+            same('busy: a container gone in between — container_gone, nothing run', ['container_gone', 'minio', []], [$p->key, $p->params['container'] ?? null, $calls()]);
+        }
+        file_put_contents("$proc/200/mountinfo", "116 115 0:56 / /data/.zfs/snapshot/s4 rw - zfs tank/appdata@s4 ro\n");
+        touch("$tmp/fail");
+        try {
+            snapshotFreeMount(['pid' => 200] + $m);
+            check('busy: an unmount that fails is a failure', false);
+        } catch (Problem $p) {
+            same('busy: an unmount that fails — free_failed with the container and the path (zfs\'s text in the log only)',
+                ['free_failed', ['container' => 'minio', 'path' => '/data/.zfs/snapshot/s4']], [$p->key, $p->params]);
+        }
+        @unlink("$tmp/fail");
+        $calls();
+        snapshotFreeMount(['pid' => 200, 'path' => '/data/s4'] + $m);
+        snapshotFreeMount(['pid' => 200, 'path' => '/data/.zfs/snapshot/s5'] + $m);
+        same('busy: never an unmount of anything but that snapshot\'s automount (a path by hand, another snapshot\'s)', [], $calls());
+    } finally {
+        $GLOBALS['snapshot'] = null;
+        unset($GLOBALS['snapshotHost'], $GLOBALS['snapshotPartnerPairs']);
+        foreach (['disksIni' => $iniBefore, 'snapshotRecordFile' => $recordBefore] as $k => $v) {
+            if ($v === null) {
+                unset($GLOBALS[$k]);
+            } else {
+                $GLOBALS[$k] = $v;
+            }
+        }
+    }
+
+    // the page: the action, its button and confirmation
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/snapshot/desk.js');
+    $desk = (string) file_get_contents(OFFICE_DIR . '/agent/desks/snapshot.php');
+    check('busy: the action free_mounts deletes with free (wake only as asked, never the request\'s pid)',
+        str_contains($desk, "'free_mounts' => fn (array \$r) => snapshotDelete(snapshotIdList(\$r, 'ids'), false, boolField(\$r, 'wake'), true),"));
+    check('busy: the page offers «Free and delete…» only for failures that can be freed, and asks first', str_contains($js, "failures.filter((f) => f.free && typeof f.id === 'string')")
+        && str_contains($js, "T('free.button')") && str_contains($js, "T('free.note')") && str_contains($js, "`\${ID}.free_mounts`"));
+
+    // the Night Watchman: his round's numbers (by the main processes he has) and the metric
+    $a = watchmanAutomounts(['minio' => ['pid' => 200], 'old' => ['pid' => 0]], $proc);
+    same('busy: the watchman\'s round counts the automounts on the host and inside containers', ['host' => 2, 'container' => 1], $a);
+    same('busy: … Docker not answering: the host only', ['host' => 2, 'container' => null], watchmanAutomounts(null, $proc));
+    @mkdir("$tmp/wm", 0700);
+    file_put_contents("$tmp/wm/state.json", json_encode(['round' => ['time' => 1760000000, 'automounts' => ['host' => 2, 'container' => 1]]]));
+    $fam = array_column(watchmanMetrics("$tmp/wm"), null, 'name')['uso_watchman_snapshot_automounts'] ?? null;
+    same('busy: the metric uso_watchman_snapshot_automounts{where}', ['gauge', [[['where' => 'host'], 2], [['where' => 'container'], 1]]],
+        [$fam['type'] ?? null, $fam['samples'] ?? null]);
+    same('busy: «What holds the array?» — on the host, per container', ['host' => 2, 'containers' => [['name' => 'minio', 'n' => 1]]],
+        arrayholdSnaps($proc, [['id' => 'x', 'name' => 'minio', 'managed' => true, 'own' => null, 'pid' => 200], ['id' => 'y', 'name' => 'plex', 'managed' => true, 'own' => null]]));
+    same('busy: … Docker not running: the host only', ['host' => 2, 'containers' => []], arrayholdSnaps($proc, null));
+    $wjs = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
+    check('busy: his page names them (not counted as holding the array)', str_contains($wjs, "group('hold.snaps', T('hold.snaps_sub')")
+        && str_contains($wjs, "T('hold.snaps_container', { name: c.name, n: Number(c.n) })"));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * Ms. Snapshotini and the entries a deleted VM left in Unraid's snapshot list (issue #3): an orphan only when the VM is gone
  * and nothing of any entry is left on disk (ZFS snapshot, overlay, .running/.mem), anything unsure is none; «Remove entry
  * from Unraid's list» moves the VM's folder into the storeroom in libvirt.img, «Put back» returns it — never over a VM again
@@ -38934,9 +39133,10 @@ function testWatchmanHold(): void
         same('array hold: what would hold it up — six things holding a file there and two VMs without an agent that answers; looked at all of it',
             [8, false, true], [$l['count'], $l['cut'], $l['started']]);
         $calls = file("$tmp/docker.calls", FILE_IGNORE_NEW_LINES);
-        same('array hold: Docker asked only for the running containers and their stop time — never a full inspect, never the environment', [
+        same('array hold: Docker asked only for the running containers, their stop time and main process — never a full inspect, never the environment', [
             'ps --no-trunc --format {{.ID}}\t{{.Names}}\t{{.Label "net.unraid.docker.managed"}}',
-            "inspect --format {{.Id}}\t{{.Config.StopTimeout}} {$ids[0]} {$ids[1]} {$ids[2]}"], $calls);
+            "inspect --format {{.Id}}\t{{index .Config \"StopTimeout\"}}\t{{.State.Pid}} {$ids[0]} {$ids[1]} {$ids[2]}"], $calls);
+        same('array hold: no snapshot mounted — none on the host, none inside a container', ['host' => 0, 'containers' => []], $l['snaps']);
 
         // all quiet: nothing open there, no VMs, Docker off — nothing holds it and the time-out is enough
         $quiet = $paths;
@@ -60215,7 +60415,7 @@ function testBackupAnewChoice(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],

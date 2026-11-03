@@ -629,7 +629,13 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   only; **an action on a sleeping pool refuses unless the request carries `wake`** (the page asks). The tour's «wake» switch
   *reads* the sleeping ones too («can wake them» — ZFS often answers from memory, a btrfs read spins the disk up); the answer's
   `slept` says per pool/disk whether it still sleeps (disks.ini after the read), one still asleep stays marked so. A partner's
-  copies are never a target, never deleted/renamed/held while the pair exists. Ids only in her scans' shape.
+  copies are never a target, never deleted/renamed/held while the pair exists. Ids only in her scans' shape. **«dataset is
+  busy»:** where a ZFS snapshot is mounted comes from `snapshotMountsEverywhere()` (lib/mounts.php: /proc/1 and each running
+  container's main process, /proc only); one inside a container is named before `zfs destroy` (`busy_in_container`), the
+  busy ones of zfs's answer after it (`busy_on_host`, `busy_unknown`) and the rest of the batch asked again (one destroy is all
+  or nothing); zfs's text only in the log. `free_mounts` unmounts only automounts (`<something>/.zfs/snapshot/<name>`) —
+  inside a container `nsenter --mount=/proc/<pid>/ns/mnt umount`, the pid the reader's, the mount looked up again right
+  before (`container_gone`); plain umount, never -f/-l; recorded (`freed`).
 * **`backup` — Mr. Backupsy.** The engine through its interface only. A real backup asked within the minute of the last is
   queued for the next; a tour, dry run or setup never waits. **Setup:** a level per share/VM/app (off · local · local + partner
   · local + offsite · local + partner + offsite; partner levels only with a pair and a dataset of its own); an app's further
@@ -1040,7 +1046,13 @@ The same thing has the same word on every desk and text; grammar follows the wor
   Tower 2026-10-30/31; the process stays in D holding its locks until a reboot). Upstream fixed one such race in 2.4.0
   (openzfs/zfs #17943), this one remains. Rule: touch snapshots as rarely as possible — a snapshot never changes, so an
   answer about it can be remembered; never a scan over all snapshots in a tick. The scenario harness refuses a run on a
-  panicked server (`base.sh`: a process at `spl_panic`).
+  panicked server (`base.sh`: a process at `spl_panic`). **Automounts and mount namespaces** (test4, 7.3.4, OpenZFS
+  2.4.4, 2026-11-03): ZFS mounts a snapshot at `<dataset's mountpoint>/.zfs/snapshot/<name>` in the host's namespace, also
+  when the look came from inside a container (the container then sees an empty folder) — and `zfs destroy` can't unmount
+  that one itself («dataset is busy»; a plain `umount` on the host can). A mount namespace made while an automount exists
+  (a container started then — Docker's binds are recursive —, `unshare --mount`, the test suite's own guard) keeps a copy
+  of it after the host's expired: visible only in that namespace, the snapshot busy until it is unmounted there or the
+  namespace ends (nostromo 2026-10-31: an S3 container). Ms. Snapshotini's «Free and delete…» does the first two.
 * **Share storage (cfg):** `shareUseCache` no = array, only = pool `shareCachePool`, yes/prefer = primary `shareCachePool` +
   secondary `shareCachePool2` (empty = array; mover primary→secondary for yes, back for prefer); `shareFloor` in KB.
   `/var/local/emhttp/shares.ini` lists every share (`exclusive`), `disks.ini` has `fsFree` (KB) without touching a disk,

@@ -577,5 +577,18 @@
   "why.partner": "A copy of partner {name} — the door's retention keeps it",
   "errors.partner_copy": "{name} is a copy of partner {partner} — the door's retention keeps those, not me.",
   "errors.partner_dataset": "{target} holds the copies of partner {partner} — never a target of mine: a snapshot of mine there would stop the next transfer.",
+  "errors.busy_in_container": "{name} is mounted inside the container {container} ({path}) — ZFS can't unmount it from out here, so it says «dataset is busy».",
+  "errors.busy_on_host": "{name} is still mounted at {path} and ZFS couldn't unmount it itself — this happens after a program in a container looked into it.",
+  "errors.busy_unknown": "{name} is busy, and I can't see by whom — a program may hold a file in it.",
+  "errors.container_gone": "{name}: the container {container} isn't running any more — try deleting it again.",
+  "errors.free_failed": "{name} couldn't be unmounted inside the container {container} ({path}) — restarting the container frees it too.",
+  "errors.free_failed_host": "{name} couldn't be unmounted at {path} — a program may still have a file open in it.",
+  "free.button": "Free and delete…",
+  "free.title": "Free and delete",
+  "free.intro": {"one": "This snapshot is still mounted where ZFS can't unmount it itself:", "other": "These {n} snapshots are still mounted where ZFS can't unmount them itself:"},
+  "free.in_container": "inside the container {container}: {path}",
+  "free.on_host": "on the server: {path}",
+  "free.note": "I unmount them there and then delete the snapshots. The container keeps running, nothing is written. Should something look in there again before that, the snapshot is mounted again and stays busy.",
+  "free.confirm": {"one": "Free and delete", "other": "Free and delete {n}"},
   "files_back": "Restore files"
 }

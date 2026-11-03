@@ -1333,6 +1333,12 @@
   "hold.out_ud": "Unassigned Devices",
   "hold.out_ud_title": "Un disco fuori dall'array (/mnt/disks): non trattiene mai l'array",
   "hold.out_type": "Il suo file system",
+  "hold.snaps": "Snapshot montati",
+  "hold.snaps_sub": "Uno sguardo nella cartella .zfs/snapshot di una condivisione monta quello snapshot; ZFS lo smonta di nuovo dopo circa cinque minuti. Quando l'array si ferma, Unraid smonta i dataset dei pool — uno snapshot ancora montato lì può farlo attendere («dataset is busy»).",
+  "hold.snaps_host": {"one": "Sul server: {n} snapshot", "other": "Sul server: {n} snapshot"},
+  "hold.snaps_host_title": "Montato nella cartella .zfs/snapshot di una condivisione sul server",
+  "hold.snaps_container": {"one": "Dentro il container {name}: {n} snapshot", "other": "Dentro il container {name}: {n} snapshot"},
+  "hold.snaps_container_title": "Montato solo dentro il container — il server non lo vede e ZFS non può smontarlo da fuori",
   "help.hold": "Cosa trattiene l'array?",
   "help.hold_text": "Cosa tratterrebbe l'array se lo fermassi adesso? Se un programma ha un file aperto su un disco, un pool o una condivisione, Unraid non può smontarlo. Quando «⟦Shutdown time-out⟧» scade, il server si spegne in modo non pulito e il prossimo avvio controlla la parità. VM e container li ferma Unraid stesso. Lui legge soltanto e non sveglia nessun disco."
 }

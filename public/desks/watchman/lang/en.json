@@ -1333,6 +1333,12 @@
   "hold.out_ud": "Unassigned Devices",
   "hold.out_ud_title": "A disk outside the array (/mnt/disks): it never holds the array",
   "hold.out_type": "Its file system",
+  "hold.snaps": "Snapshots mounted",
+  "hold.snaps_sub": "A look into a share's .zfs/snapshot folder mounts that snapshot; ZFS unmounts it again after about five minutes. When the array stops, Unraid unmounts the pools' datasets — a snapshot still mounted in one can make that wait («dataset is busy»).",
+  "hold.snaps_host": {"one": "On the server: {n} snapshot", "other": "On the server: {n} snapshots"},
+  "hold.snaps_host_title": "Mounted in a share's .zfs/snapshot folder on the server",
+  "hold.snaps_container": {"one": "Inside the container {name}: {n} snapshot", "other": "Inside the container {name}: {n} snapshots"},
+  "hold.snaps_container_title": "Mounted inside the container only — the server doesn't see it, and ZFS can't unmount it from out here",
   "help.hold": "What holds the array?",
   "help.hold_text": "What would hold up the array if you stopped it now? If a program has a file open on a disk, a pool or a share, Unraid can't unmount it. When «⟦Shutdown time-out⟧» runs out, the server shuts down unclean and the next start checks parity. VMs and containers Unraid stops itself. He only reads and wakes no disk."
 }

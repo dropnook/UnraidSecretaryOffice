@@ -3343,6 +3343,7 @@
   "running": false,
   "look": {
    "v": 1,
+   "snaps": {"host": 3, "containers": [{"name": "s3-gateway", "n": 9}]},
    "time": 1791563400,
    "ms": 212,
    "cut": false,
