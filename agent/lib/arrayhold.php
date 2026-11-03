@@ -437,7 +437,9 @@ function arrayholdContainers(array $paths): ?array
         }
     }
     if ($out) {
-        [$exit, $text] = run(array_merge([$docker, 'inspect', '--format', "{{.Id}}\t{{.Config.StopTimeout}}\t{{.State.Pid}}"], array_keys($out)), 30);
+        // `index`: a container without a stop time of its own has no StopTimeout at all — `.Config.StopTimeout` is then a
+        // template error that ends the whole inspect (Docker 29.8, test4 2026-11-03); index gives «<no value>»
+        [$exit, $text] = run(array_merge([$docker, 'inspect', '--format', "{{.Id}}\t{{index .Config \"StopTimeout\"}}\t{{.State.Pid}}"], array_keys($out)), 30);
         foreach (explode("\n", trim((string) $text)) as $line) {
             $f = explode("\t", $line);
             if (count($f) < 2 || !isset($out[$f[0]])) {

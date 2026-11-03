@@ -39117,7 +39117,7 @@ function testWatchmanHold(): void
         $calls = file("$tmp/docker.calls", FILE_IGNORE_NEW_LINES);
         same('array hold: Docker asked only for the running containers, their stop time and main process — never a full inspect, never the environment', [
             'ps --no-trunc --format {{.ID}}\t{{.Names}}\t{{.Label "net.unraid.docker.managed"}}',
-            "inspect --format {{.Id}}\t{{.Config.StopTimeout}}\t{{.State.Pid}} {$ids[0]} {$ids[1]} {$ids[2]}"], $calls);
+            "inspect --format {{.Id}}\t{{index .Config \"StopTimeout\"}}\t{{.State.Pid}} {$ids[0]} {$ids[1]} {$ids[2]}"], $calls);
         same('array hold: no snapshot mounted — none on the host, none inside a container', ['host' => 0, 'containers' => []], $l['snaps']);
 
         // all quiet: nothing open there, no VMs, Docker off — nothing holds it and the time-out is enough
