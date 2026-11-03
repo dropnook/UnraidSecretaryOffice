@@ -57,9 +57,9 @@ const ROOT = $('#sso');
  */
 function fixedSpace() {
   const z = (typeof getComputedStyle === 'function' && parseFloat(getComputedStyle(ROOT).zoom)) || 1;     // (the tests' DOM has none)
-  if (z === 1) return { w: window.innerWidth, h: window.innerHeight, k: 1 };
+  if (z === 1) return { w: window.innerWidth, h: window.innerHeight, k: 1, z };
   const ratio = ROOT.offsetWidth ? ROOT.getBoundingClientRect().width / ROOT.offsetWidth : z;
-  return { w: window.innerWidth / z, h: window.innerHeight / z, k: Math.abs(ratio - 1) < Math.abs(ratio - z) ? 1 : z };
+  return { w: window.innerWidth / z, h: window.innerHeight / z, k: Math.abs(ratio - 1) < Math.abs(ratio - z) ? 1 : z, z };
 }
 Office.fixedSpace = fixedSpace;
 
@@ -1032,6 +1032,8 @@ Office.dialog = function dialog({ title, body, buttons, wide, onClose, modal, on
  * at the bottom, its foot out of reach): a transformed parent makes «position:fixed» its own box, not the window — the
  * backdrop is then put over the window by hand; the dialog is never taller than the window below its top (a margin
  * left), so its body scrolls and its head and foot stay in view. On opening, on a dialog coming back, on resize/scroll.
+ * A phone zoomed in or with its keyboard open (2026-11-03: on an iPhone the dialog after a setup's «Save» opened at the
+ * page's top, out of view): «fixed» is the layout viewport, what is seen only the visual one — the backdrop goes there.
  */
 function dialogFit() {
   const backdrop = $('#sso-dialog-backdrop');
@@ -1039,24 +1041,41 @@ function dialogFit() {
   const st = backdrop.style;
   st.top = st.left = st.width = st.height = st.right = st.bottom = '';
   const s = fixedSpace();       // the office's own px (the text-size switch's zoom)
+  const v = seenSpace(s);
   const r = backdrop.getBoundingClientRect();
   const top = r.top / s.k, left = r.left / s.k, height = r.height / s.k, width = r.width / s.k;
-  if (Math.abs(top) > 0.5 || Math.abs(left) > 0.5 || Math.abs(height - s.h) > 0.5 || Math.abs(width - s.w) > 0.5) {
-    st.top = `${-top}px`;
-    st.left = `${-left}px`;
+  if (Math.abs(top - v.top) > 0.5 || Math.abs(left - v.left) > 0.5 || Math.abs(height - v.h) > 0.5 || Math.abs(width - v.w) > 0.5) {
+    st.top = `${v.top - top}px`;
+    st.left = `${v.left - left}px`;
     st.right = st.bottom = 'auto';
-    st.width = `${s.w}px`;
-    st.height = `${s.h}px`;
+    st.width = `${v.w}px`;
+    st.height = `${v.h}px`;
   }
   const dlg = $('#sso-dialog');
   dlg.style.maxHeight = '';
   const css = typeof getComputedStyle === 'function' ? parseFloat(getComputedStyle(dlg).maxHeight) : NaN;   // (the tests' DOM has none)
-  const room = s.h - dlg.getBoundingClientRect().top / s.k - 16;
+  // below its top, and never taller than what is seen (a centred dialog taller than a zoomed view would stick out both ends)
+  const room = Math.min(v.top + v.h - dlg.getBoundingClientRect().top / s.k - 16, v.h - 32);
   dlg.style.maxHeight = `${Math.max(160, Math.floor(Number.isFinite(css) ? Math.min(css, room) : room))}px`;
+}
+/**
+ * What of the window is seen, in the office's own px (s: fixedSpace()): the visual viewport where it isn't the layout
+ * viewport (pinched in, iOS's zoom into a field, an open keyboard), else the whole window as fixedSpace() says
+ */
+function seenSpace(s) {
+  const vv = window.visualViewport, doc = document.documentElement;
+  const off = vv && (Math.abs(vv.scale - 1) > 0.001 || Math.abs(vv.offsetTop) > 0.5 || Math.abs(vv.offsetLeft) > 0.5
+    || (doc && doc.clientHeight && Math.abs(vv.height - doc.clientHeight) > 0.5));
+  if (!off) return { top: 0, left: 0, w: s.w, h: s.h };
+  return { top: vv.offsetTop / s.z, left: vv.offsetLeft / s.z, w: vv.width / s.z, h: vv.height / s.z };
 }
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('resize', () => dialogFit());
   window.addEventListener('scroll', () => dialogFit(), true);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', () => dialogFit());
+    window.visualViewport.addEventListener('scroll', () => dialogFit());
+  }
 }
 
 /**

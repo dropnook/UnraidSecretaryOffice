@@ -47977,7 +47977,7 @@ function testStreamerFix3(): void
     $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
     $css = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
     check('fix3 layout: the dialog fits the window (a transformed parent made «fixed» its box) — on opening, a dialog back, resize/scroll',
-        str_contains($core, 'function dialogFit() {') && str_contains($core, "const room = s.h - dlg.getBoundingClientRect().top / s.k - 16;")
+        str_contains($core, 'function dialogFit() {') && str_contains($core, "const room = Math.min(v.top + v.h - dlg.getBoundingClientRect().top / s.k - 16, v.h - 32);")
         && str_contains($core, "window.addEventListener('scroll', () => dialogFit(), true);"));
     check('fix3 layout: head and foot fixed, only the body scrolls', str_contains($css, '.dialog > h3, .dialog > .dialog-foot{flex:none}')
         && str_contains($css, '.dialog > .dialog-body{flex:1 1 auto; min-height:0}') && str_contains($core, 'if (ownFoot) foot.appendChild(ownFoot);'));
@@ -48019,6 +48019,89 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
     }
     same('fix3 amount: an unconfigured Jack shows her X and age rule — not «not set up»', [true, true, false, '{"x":80,"y":70,"k":50,"min_age":7}'], $r['her']);
     same('fix3 amount: «not set up» only without her ini', 1, $r['none']);
+}
+
+/**
+ * The dialog where it is seen (2026-11-03, the owner on an iPhone: tapped into a setup field, «Save», the dialog only after
+ * scrolling up): a phone zoomed in or with its keyboard open sees only the visual viewport — core.js dialogFit() puts the
+ * backdrop there and follows it (its resize and scroll); a page without visualViewport, or one where it is the whole
+ * window, stays as it was. Run by node on a stand-in page (skipped where node is missing).
+ */
+function testDialogSeen(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('dialog seen: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('dialogseen');
+    file_put_contents("$tmp/t.js", <<<'JS'
+// core.js's dialog under node: a stand-in page whose backdrop lies where its style puts it (fixed to a 390 × 800 window)
+const fs = require('fs');
+const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [], childNodes: [],
+  classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {},
+  setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+  querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+  getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0 }), focus() {}, select() {} });
+const px = (v, d) => (v === '' || v === undefined || v === 'auto' ? d : parseFloat(v));
+const backdrop = mk();
+backdrop.getBoundingClientRect = () => {
+  const top = px(backdrop.style.top, 0), left = px(backdrop.style.left, 0);
+  return { top, left, width: px(backdrop.style.width, innerWidth), height: px(backdrop.style.height, innerHeight) };
+};
+const dlg = mk();
+dlg.getBoundingClientRect = () => ({ top: backdrop.getBoundingClientRect().top + 100 });     // a little below the backdrop's top
+const ids = { 'sso-dialog-backdrop': backdrop, 'sso-dialog': dlg };
+globalThis.window = globalThis;
+globalThis.addEventListener = () => {}; globalThis.innerWidth = 390; globalThis.innerHeight = 800; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.navigator = { languages: ['en'] };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+const CONFIG = { desks: [], languages: [{ code: 'en' }], base: '', staff_order: [] };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : ids[id] || mk()),
+  querySelector: (s) => (s[0] === '#' && ids[s.slice(1)]) || mk(), querySelectorAll: () => [], createElement: () => mk(), addEventListener() {},
+  removeEventListener() {}, documentElement: { scrollHeight: 0, clientWidth: 390, clientHeight: 800 }, activeElement: null, hidden: false, body: mk() };
+// a visual viewport there while core.js loads (it listens to it), then as each case needs it
+const heard = {};
+const vv = { offsetTop: 0, offsetLeft: 0, width: 390, height: 800, scale: 1, addEventListener(type, fn) { heard[type] = fn; } };
+globalThis.visualViewport = vv;
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+const out = {};
+const where = () => { const s = backdrop.style; return [s.top || '', s.left || '', s.width || '', s.height || '', dlg.style.maxHeight]; };
+const open = () => { O.dialog({ title: 'x', body: 'y', buttons: [{ text: 'OK' }] }); return where(); };
+out.listens = Object.keys(heard).sort();
+delete globalThis.visualViewport;
+out.none = open();
+globalThis.visualViewport = vv;
+out.whole = open();
+Object.assign(vv, { offsetTop: 300, height: 400 });          // the keyboard open, the field low on the page
+out.keyboard = open();
+Object.assign(vv, { offsetTop: 120, offsetLeft: 40, width: 260, height: 500, scale: 1.5 });   // pinched in, then panned
+heard.scroll();
+out.followed = where();
+Object.assign(vv, { offsetTop: 0, offsetLeft: 0, width: 390, height: 800, scale: 1 });        // back out
+heard.resize();
+out.back = where();
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    hardeningRm($tmp);
+    $r = json_decode(trim((string) preg_replace('/^.*\n(?=\{)/s', '', $raw)), true);
+    if (!is_array($r)) {
+        check('dialog seen: the stand-in page ran', false, $raw);
+        return;
+    }
+    same('dialog seen: core.js follows the visual viewport — its resize and its scroll', ['resize', 'scroll'], $r['listens']);
+    same('dialog seen: no visualViewport (the tests\' DOM, an old browser) — the backdrop as the stylesheet puts it, the dialog below its top as before',
+        ['', '', '', '', '684px'], $r['none']);
+    same('dialog seen: a visual viewport that is the whole window (a desktop) — nothing changes', ['', '', '', '', '684px'], $r['whole']);
+    same('dialog seen: the keyboard open (offsetTop 300, height 400) — the backdrop over what is seen, the dialog fits in it',
+        ['300px', '0px', '390px', '400px', '284px'], $r['keyboard']);
+    same('dialog seen: pinched in and panned — the backdrop follows on the visual viewport\'s scroll', ['120px', '40px', '260px', '500px', '384px'], $r['followed']);
+    same('dialog seen: zoomed back out — on its resize the backdrop is the stylesheet\'s again', ['', '', '', '', '684px'], $r['back']);
 }
 
 /**
@@ -59973,7 +60056,7 @@ function testBackupAnewChoice(): void
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
-                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testStreamerShares', 'testJackYield',
+                      'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
