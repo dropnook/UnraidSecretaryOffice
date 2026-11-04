@@ -26,6 +26,7 @@
     "where.help.copy",
     "where.help.labels",
     "where.help.rows",
+    "where.help.space",
     "where.help.tiles",
     "where.help.tour",
     "where.now",
@@ -41,6 +42,11 @@
     "where.section.scripts",
     "where.section.shares",
     "where.section.vms",
+    "where.space.bars",
+    "where.space.more",
+    "where.space.shares",
+    "where.space.table",
+    "where.space.title",
     "where.tile.advice"
   ],
   "texts": [
@@ -78,6 +84,7 @@
     "where.help.copy_text",
     "where.help.labels_text",
     "where.help.rows_text",
+    "where.help.space_text",
     "where.help.tiles_text",
     "where.help.tour_text"
   ]

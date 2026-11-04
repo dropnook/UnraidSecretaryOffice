@@ -2164,6 +2164,7 @@ Office.store('whereabouts.help', null);
 }
 
 let state = null;
+let space = null;        // «Storage»: the part «space» (agent/lib/space.php)
 let sizes = { sizes: {}, queue: [], running: [] };
 let view = null;
 let expanded = new Set();
@@ -2193,11 +2194,17 @@ const STAT_CORNERS = { array: 'disks', docker: 'docker', vms: 'vms', smb: 'netwo
  * while her page is shown, the new look following —, or when asked (`fresh`); the agent's start looks too.
  */
 async function load(fresh) {
-  const j = await Office.loadState(ID, { part: 'where', fresh }, took);
+  const [j] = await Promise.all([Office.loadState(ID, { part: 'where', fresh }, took), Office.loadState(ID, { part: 'space', fresh }, tookSpace)]);
   await loadSizes();
   if (view) render();
   hooks.changed();
   return j;
+}
+/** «Storage»'s look (the part «space»): drawn with the rest — a new one that followed, at once */
+function tookSpace(j, later) {
+  if (j.ok && j.part && Array.isArray(j.part.pools) && Array.isArray(j.part.devices)) space = j.part;
+  if (later && view) sw.render();
+  if (later) hooks.changed();
 }
 function took(j, later) {
   if (j.ok && j.part && Array.isArray(j.part.shares)) state = j.part;
@@ -2433,6 +2440,9 @@ function findings() {
   const bare = (h.pools || []).filter((p) => p.tolerates === 0);
   if (bare.length) f.push({ text: T('where.find.pool_unprotected', { n: bare.length, names: bare.map((p) => p.name).join(', ') }), go: () => pick('disks') });
   }
+  // the fullest pool or disk over Unraid's warning (over its critical the line above says it already) — one line, «Storage»
+  const top = spaceFullest();
+  if (top && top.level === 'warn') f.push({ text: T('where.find.space_warn', { name: top.name, pct: pctText(top.fill) }), go: () => pick('space') });
   const alerts = (state.notices || []).filter((n) => n.importance === 'alert');
   if (alerts.length) f.push({ text: T('where.find.alerts', { n: alerts.length }), go: () => pick('notices') });
   const lic = state.license;
@@ -2692,7 +2702,7 @@ function adviceRow(x, known) {
 }
 
 /** Where a tile's section begins: its head (her advice's is the search's place «If I were you …») */
-const headOf = (id) => (id === 'advice' ? 'where.adv.title' : `where.head.${id}`);
+const headOf = (id) => (id === 'advice' ? 'where.adv.title' : id === 'space' ? 'where.space.title' : `where.head.${id}`);
 
 /**
  * A link to a tile's section (what she noticed, a place's «more», her advice in the bubble): that tile open as a link
@@ -2782,6 +2792,7 @@ async function tour(wake) {
   const j = await Office.api.post(`${ID}.where_scan`, wake ? { wake: true } : {});
   if (j.ok && j.state) {
     state = j.state;
+    if (j.space && Array.isArray(j.space.pools)) space = j.space;
     if (view) render();
     hooks.changed();
   }
@@ -2817,9 +2828,9 @@ function renderNow() {
  * to (STAT_CORNERS). A click shows that section alone, nothing chosen = the whole page; the start «Where things are»;
  * the choice kept as `cleanup.where.tile`, a tile's route #/cleanup/where/<tile>.
  */
-const TILES = ['advice', 'places', ...SECTIONS];
-const TILE_ICONS = { advice: '💡', places: '🗺️', shares: '📁', folders: '🗃️', docker: '🐳', vms: '🖥️', disks: '💽', access: '👥', network: '🔌', scripts: '📜', backups: '🛟', notices: '🔔', plugins: '🧩' };
-const tileKey = (id) => (id === 'advice' ? 'where.tile.advice' : id === 'places' ? 'where.places' : `where.section.${id}`);
+const TILES = ['advice', 'places', 'space', ...SECTIONS];
+const TILE_ICONS = { advice: '💡', places: '🗺️', space: '📊', shares: '📁', folders: '🗃️', docker: '🐳', vms: '🖥️', disks: '💽', access: '👥', network: '🔌', scripts: '📜', backups: '🛟', notices: '🔔', plugins: '🧩' };
+const tileKey = (id) => (id === 'advice' ? 'where.tile.advice' : id === 'places' ? 'where.places' : id === 'space' ? 'where.space.title' : `where.section.${id}`);
 const sw = Office.sections({
   id: `${ID}/where`,                 // the routes #/cleanup/where/<tile>
   key: STORE + 'tile',
@@ -2838,6 +2849,7 @@ const sw = Office.sections({
 function whereSection(id) {
   if (id === 'advice') return whereAdvice();
   if (id === 'places') return wherePlaces();
+  if (id === 'space') return whereSpace();
   return whereCorner(id);
 }
 
@@ -2860,6 +2872,14 @@ function tileFace(id) {
       const b = { offsite: 0, local: 0, none: 0 };
       (s.locations || []).forEach((g) => { const w = placeSummary(g).worst; if (b[w] !== undefined) b[w]++; });
       return face(nOf('places', (s.locations || []).length), T('where.sum.shares_backup', b));
+    }
+    case 'space': {
+      // the fullest pool or disk against Unraid's thresholds, what is free over the pools and the array
+      if (!space) return face('…', T('where.space.tile_none'));
+      const f = spaceFullest();
+      const total = spaceTotals();
+      return face(f ? pctText(f.fill) : '–', [f ? T('where.space.tile_fullest', { name: f.name }) : '', T('where.space.tile_free', { free: fmt.size(total.free), size: fmt.size(total.size) })],
+        { alert: !!(f && f.level) });
     }
     case 'docker': {
       const stopped = s.containers.filter((c) => c.autostart && c.state !== 'running').length;
@@ -2949,6 +2969,7 @@ function helpItems() {
     [T('where.help.labels'), T('where.help.labels_text')],
     ...['offsite', 'local', 'none'].map((l) => [Office.backupChip(l), Office.t('protect.' + l + '_text')]),
     [T('where.help.tiles'), T('where.help.tiles_text')],
+    [T('where.help.space'), T('where.help.space_text')],
     [T('where.help.copy'), T('where.help.copy_text')],
     [T('where.help.rows'), T('where.help.rows_text')],
     [T('where.help.tour'), T('where.help.tour_text')],
@@ -3907,6 +3928,584 @@ function items(s) {
   return out.slice(0, WHERE_ITEMS);
 }
 
+// ------------------------------------------------------------------ storage (the part «space»)
+/* «Storage» (2026-11-04): how full every pool, disk and share is — the agent's look agent/lib/space.php, the part «space»
+   (data/cleanup-space.json). The pools, the array and its disks as stacked bars (a pool Ms. Moverelli keeps in her split,
+   her numbers), each with the sparkline of its history; the shares as a treemap (area = bytes; one colour family per
+   storage kind; a share not measured hatched beside it, never sized 0); the nerdy details per pool and device in a table
+   whose rows unfold; Docker's own data, the VMs' disks and appdata. Read only; inline SVG with the office's tokens
+   (classes cl-space-*), no library. */
+const SVGNS = 'http://www.w3.org/2000/svg';
+const spaceOpen = new Set();          // the table's rows unfolded (this visit)
+let spacePicked = null;               // the share the treemap's line shows (pointed at or tapped)
+
+function svg(tag, attrs, text) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) n.setAttribute(k, String(v));
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+const pctOf = (b, size) => (size > 0 ? (b / size) * 100 : 0);
+const pctText = (p) => `${fmt.number(p, p > 0 && p < 10 ? 1 : 0)} %`;
+/** Unraid's thresholds of a disk or pool: '' | warn | danger */
+function spaceLevel(fill, warn, crit) {
+  if (fill === null || fill === undefined) return '';
+  if (crit > 0 && fill >= crit) return 'danger';
+  if (warn > 0 && fill >= warn) return 'warn';
+  return '';
+}
+const signed = (b) => `${b < 0 ? '−' : '+'}${fmt.size(Math.abs(b))}`;
+const tolerates = (n) => (n > 0 ? T('where.space.tolerates', { n }) : T('where.space.no_redundancy'));
+const snapCount = (n) => (n === null || n === undefined ? T('where.space.snaps_unknown') : nOf('snapshots', n));
+
+/** What is fullest: a pool, an array disk or the boot device — {name, fill, warn, crit, level, route} or null */
+function spaceFullest() {
+  if (!space) return null;
+  const all = [
+    ...space.pools.filter((p) => p.fill !== null).map((p) => ({ name: p.name, fill: p.fill, warn: p.warn, crit: p.crit })),
+    ...space.devices.filter((d) => (d.role === 'data' || d.role === 'boot') && d.fill !== null).map((d) => ({ name: d.name, fill: d.fill, warn: d.warn, crit: d.crit })),
+  ];
+  const top = all.reduce((a, x) => (!a || x.fill > a.fill ? x : a), null);
+  return top ? { ...top, level: spaceLevel(top.fill, top.warn, top.crit) } : null;
+}
+
+/** Everything that holds data together (the pools and the array; the boot device apart) */
+function spaceTotals() {
+  let size = 0, used = 0;
+  for (const p of space.pools) if (p.size) { size += p.size; used += p.used; }
+  if (space.array && space.array.size) { size += space.array.size; used += space.array.used; }
+  return { size, used, free: Math.max(0, size - used) };
+}
+
+/** A share's bytes: the agent's (ZFS, a du, the parts ZFS knows), else a du measured since on this page — or none */
+function shareBytes(s) {
+  if (s.bytes !== null && s.bytes !== undefined) return { bytes: s.bytes, how: s.source, at: s.at };
+  const m = sizes.sizes[s.measure];
+  if (m && m.bytes !== null && m.bytes !== undefined) return { bytes: m.bytes, how: 'du', at: m.at };
+  if (sizes.running.includes(s.measure) || sizes.queue.includes(s.measure)) return { bytes: null, how: 'measuring' };
+  return { bytes: null, how: null };
+}
+
+/** Where a share's data may lie: pool only, array only, or both (cache yes/prefer) — its colour family */
+const shareKind = (s) => (s.primary !== 'array' && !s.secondary ? 'pool' : s.primary === 'array' && !s.secondary ? 'array' : 'mixed');
+
+function whereSpace() {
+  const s = el('section', 'section cl-space');
+  s.id = 'clw-space';
+  s.appendChild(Office.sectionHead(T('where.space.title'), T('where.space.sub'), { place: 'where.space.title' }));
+  if (!space) {
+    s.appendChild(emptyNote(Office.agent.running ? T('where.space.loading') : T('where.space.none')));
+    return s;
+  }
+  // what slept: Unraid's own numbers only, nothing else asked of it
+  const asleep = space.asleep || [];
+  const line = [Office.t('common.scanned_ago', { when: fmt.relative(space.time) })];
+  if (asleep.length) line.push(T('where.space.asleep_line', { n: asleep.length, names: asleep.join(', ') }));
+  s.appendChild(el('p', 'cl-space-line', line.join(' · ')));
+  s.append(spaceBars(), spaceShares(), spaceTable(), spaceMore());
+  return s;
+}
+
+// --------------------------------------------------------------- the bars
+/** One stacked bar (SVG, its width the box's): segments [{k, bytes, label, cls}] over size, Unraid's thresholds as marks */
+function spaceBar(size, segs, opts = {}) {
+  const W = 1000, H = 20;
+  const b = svg('svg', { class: 'cl-space-bar' + (opts.small ? ' cl-space-bar-small' : ''), viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none',
+    role: 'img', 'aria-label': opts.label || null });
+  b.appendChild(svg('rect', { class: 'cl-space-free', x: 0, y: 0, width: W, height: H }));
+  let x = 0;
+  for (const g of segs) {
+    if (!(g.bytes > 0) || !(size > 0) || x >= W) continue;
+    const w = Math.min(W - x, Math.max(2, (g.bytes / size) * W));
+    const r = svg('rect', { class: `cl-space-seg cl-space-seg-${g.k}${g.cls ? ' ' + g.cls : ''}`, x: x.toFixed(2), y: 0, width: w.toFixed(2), height: H });
+    r.appendChild(svg('title', {}, T('where.space.seg_tip', { what: g.label, size: fmt.size(g.bytes), pct: pctText(pctOf(g.bytes, size)) })));
+    b.appendChild(r);
+    x += w;
+  }
+  for (const [p, k] of [[opts.warn, 'warn'], [opts.crit, 'crit']]) {
+    if (p > 0 && p < 100) b.appendChild(svg('line', { class: 'cl-space-mark cl-space-mark-' + k, x1: p * 10, x2: p * 10, y1: 0, y2: H, 'vector-effect': 'non-scaling-stroke' }));
+  }
+  return b;
+}
+
+/** A sparkline of a pool's or disk's history (one point a day): how full it was, the last point a dot */
+function sparkline(key) {
+  const list = ((space.history || {})[key]) || [];
+  const box = el('div', 'cl-space-spark');
+  if (!list.length) return box;
+  const W = 120, H = 30;
+  const pts = list.map(([t, u, sz]) => [t, pctOf(u, sz)]);
+  const t0 = pts[0][0], t1 = pts[pts.length - 1][0];
+  const ps = pts.map((p) => p[1]);
+  const lo = Math.max(0, Math.min(...ps) - 2), hi = Math.min(100, Math.max(...ps) + 2);
+  const xy = pts.map(([t, p]) => [t1 > t0 ? 2 + ((t - t0) / (t1 - t0)) * (W - 6) : W - 4, H - 3 - (hi > lo ? (p - lo) / (hi - lo) : 0.5) * (H - 6)]);
+  const g = svg('svg', { class: 'cl-space-sparksvg', viewBox: `0 0 ${W} ${H}`, role: 'img' });
+  if (xy.length > 1) g.appendChild(svg('polyline', { class: 'cl-space-sparkline', points: xy.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ') }));
+  const [lx, ly] = xy[xy.length - 1];
+  g.appendChild(svg('circle', { class: 'cl-space-sparkdot', cx: lx.toFixed(1), cy: ly.toFixed(1), r: 2.5 }));
+  const first = list[0], last = list[list.length - 1];
+  const days = Math.max(1, Math.round((last[0] - first[0]) / 86400));
+  const tip = list.length === 1 ? T('where.space.spark_one')
+    : T('where.space.spark_tip', { days: nOf('days', days), from: pctText(pctOf(first[1], first[2])), to: pctText(pctOf(last[1], last[2])), change: signed(last[1] - first[1]) });
+  g.setAttribute('aria-label', tip);
+  box.title = tip;
+  box.append(g, el('small', '', list.length === 1 ? T('where.space.spark_first') : signed(last[1] - first[1])));
+  return box;
+}
+
+/** One bar's row: name and its chips, the bar with a note, the numbers, the sparkline */
+function barRow({ key, name, chips, size, used, segs, warn, crit, note, small, spark }) {
+  const r = Office.place(`space:${key}`, el('div', 'cl-space-brow' + (small ? ' cl-space-sub' : '')));
+  const head = el('div', 'cl-space-bname');
+  head.appendChild(el('b', '', name));
+  (chips || []).filter(Boolean).forEach((c) => head.append(' ', c));
+  const mid = el('div', 'cl-space-bmid');
+  const fill = size > 0 ? pctOf(used, size) : null;
+  const level = spaceLevel(fill, warn, crit);
+  if (size > 0) mid.appendChild(spaceBar(size, segs, { warn, crit, small, label: `${name}: ${T('where.space.used_of', { used: fmt.size(used), size: fmt.size(size) })}` }));
+  else mid.appendChild(el('div', 'cl-space-nobar', T('where.space.no_size')));
+  if (note) mid.appendChild(el('div', 'cl-space-note', note));
+  const num = el('div', 'cl-space-bnum' + (level ? ' cl-space-is-' + level : ''));
+  if (size > 0) {
+    num.append(el('b', '', pctText(fill)), el('span', '', T('where.space.used_of', { used: fmt.size(used), size: fmt.size(size) })),
+      el('span', '', T('where.space.free', { free: fmt.size(Math.max(0, size - used)) })));
+    num.title = level ? T('where.space.over_' + level, { pct: level === 'danger' ? crit : warn })
+      : warn > 0 ? T('where.space.thresholds', { warn, crit }) : '';
+  }
+  r.append(head, mid, num, spark || el('div', 'cl-space-spark'));
+  return r;
+}
+
+const ssdChip = (devs) => {
+  if (!devs.length) return null;
+  const ssd = devs.every((d) => !d.rotational);
+  const hdd = devs.every((d) => d.rotational);
+  const tr = [...new Set(devs.map((d) => d.transport).filter(Boolean))].join('/');
+  return chip(`${ssd ? 'SSD' : hdd ? 'HDD' : 'SSD + HDD'}${tr ? ' · ' + tr.toUpperCase() : ''}`, 'quiet', T(ssd ? 'where.space.ssd_tip' : hdd ? 'where.space.hdd_tip' : 'where.space.mixed_tip'));
+};
+const asleepChip = () => chip(T('where.space.asleep'), 'quiet', T('where.space.asleep_tip'));
+const fsChip = (fs) => (fs ? chip(fs.toUpperCase() === 'ZFS' ? 'ZFS' : fs, 'quiet', T('where.space.fs_tip', { fs })) : null);
+
+function poolSegs(p) {
+  if (p.managed) {
+    const m = p.managed;
+    return [
+      { k: 'fixed', bytes: m.fixed, label: T('where.space.seg.fixed') },
+      { k: 'others', bytes: m.others, label: T('where.space.seg.others') },
+      { k: 'jack', bytes: m.jack, label: T('where.space.seg.jack') },
+    ];
+  }
+  const level = spaceLevel(p.fill, p.warn, p.crit);
+  const snaps = p.zfs && p.zfs.looked ? p.zfs.snaps || 0 : 0;
+  return [
+    { k: 'data', bytes: Math.max(0, p.used - snaps), label: T('where.space.seg.data'), cls: level ? 'cl-space-is-' + level : '' },
+    { k: 'snaps', bytes: snaps, label: T('where.space.seg.snaps') },
+  ];
+}
+
+function spaceBars() {
+  const box = Office.place('where.space.bars', el('div', 'box cl-space-box'));
+  box.appendChild(el('div', 'cl-space-h', T('where.space.bars')));
+  const devs = (names) => space.devices.filter((d) => names.includes(d.name));
+  let managed = false, snaps = false;
+  for (const p of space.pools) {
+    const members = devs(p.members);
+    const layout = p.layout ? `${p.layout}${p.tolerates !== null ? ' · ' + tolerates(p.tolerates) : ''}` : null;
+    let note = '';
+    if (p.asleep) note = T('where.space.pool_asleep');
+    else if (p.managed) note = T('where.space.managed', { when: p.managed.at ? fmt.relative(p.managed.at) : '–' }) + (p.managed.estimated ? ' · ' + T('where.space.estimated') : '');
+    else if (p.zfs && p.zfs.looked && p.zfs.snaps) note = T('where.space.snaps_note', { size: fmt.size(p.zfs.snaps), count: snapCount(p.zfs.snapshots) });
+    managed = managed || !!p.managed;
+    snaps = snaps || !!(p.zfs && p.zfs.snaps && !p.managed);
+    const size = p.managed ? p.managed.size : p.size;
+    const used = p.managed ? p.managed.used : p.used;
+    box.appendChild(barRow({ key: 'pool:' + p.name, name: p.name, size, used, warn: p.warn, crit: p.crit, segs: poolSegs(p), note,
+      chips: [fsChip(p.fs), layout ? chip(layout, 'quiet', T('where.space.layout_tip')) : null, ssdChip(members), p.asleep ? asleepChip() : null],
+      spark: sparkline('pool:' + p.name) }));
+  }
+  const a = space.array;
+  if (a) {
+    const data = space.devices.filter((d) => d.role === 'data');
+    const segs = data.filter((d) => d.used).map((d, i) => ({ k: 'disk', bytes: d.used, label: d.name, cls: `cl-space-alt${i % 2}` }));
+    const parity = space.devices.filter((d) => d.role === 'parity');
+    box.appendChild(barRow({ key: 'array', name: T('where.space.array'), size: a.size, used: a.used, segs,
+      warn: null, crit: null, note: T('where.space.array_note', { disks: nOf('disks', a.disks), parity: parity.length ? parity.map((d) => `${d.name} ${fmt.size(d.disk_size)}`).join(', ') : T('where.space.no_parity') }),
+      chips: [ssdChip(data), a.asleep ? chip(T('where.space.n_asleep', { n: a.asleep }), 'quiet', T('where.space.asleep_tip')) : null], spark: sparkline('array') }));
+    for (const d of data) {
+      const level = spaceLevel(d.fill, d.warn, d.crit);
+      box.appendChild(barRow({ key: 'disk:' + d.name, name: d.name, size: d.size, used: d.used, warn: d.warn, crit: d.crit, small: true,
+        segs: [{ k: 'data', bytes: d.used, label: T('where.space.seg.data'), cls: level ? 'cl-space-is-' + level : '' }],
+        note: d.shares.length ? T('where.space.on_disk', { list: d.shares.join(', ') }) : d.maybe.length ? T('where.space.maybe_disk', { list: d.maybe.join(', ') }) : '',
+        chips: [fsChip(d.fs), d.asleep ? asleepChip() : null], spark: sparkline('disk:' + d.name) }));
+    }
+  }
+  const boot = space.devices.find((d) => d.role === 'boot');
+  if (boot) {
+    box.appendChild(barRow({ key: 'disk:' + boot.name, name: boot.name, size: boot.size, used: boot.used, warn: boot.warn, crit: boot.crit,
+      segs: [{ k: 'data', bytes: boot.used, label: T('where.space.seg.data') }], note: T('where.space.boot_note'),
+      chips: [fsChip(boot.fs), chip(boot.transport === 'usb' ? 'USB' : boot.transport || T('where.space.boot'), 'quiet', T('where.space.boot_tip'))],
+      spark: sparkline('disk:' + boot.name) }));
+  }
+  // the legend: each colour once, the threshold marks
+  const legend = el('div', 'cl-space-legend');
+  const key = (k, text) => {
+    const it = el('span', 'cl-space-key');
+    const sw2 = svg('svg', { class: 'cl-space-swatch', viewBox: '0 0 10 10' });
+    sw2.appendChild(svg('rect', { class: k === 'free' ? 'cl-space-free' : `cl-space-seg cl-space-seg-${k}`, x: 0, y: 0, width: 10, height: 10 }));
+    it.append(sw2, el('span', '', text));
+    legend.appendChild(it);
+  };
+  key('data', T('where.space.seg.data'));
+  if (snaps) key('snaps', T('where.space.seg.snaps'));
+  if (managed) ['fixed', 'others', 'jack'].forEach((k) => key(k, T('where.space.seg.' + k)));
+  key('free', T('where.space.seg.free'));
+  const marks = el('span', 'cl-space-key');
+  marks.append(el('i', 'cl-space-markkey cl-space-markkey-warn'), el('span', '', T('where.space.mark_warn')), el('i', 'cl-space-markkey cl-space-markkey-crit'), el('span', '', T('where.space.mark_crit')));
+  legend.appendChild(marks);
+  box.appendChild(legend);
+  return box;
+}
+
+// --------------------------------------------------------------- the shares: a treemap
+/** Squarified treemap (Bruls, Huizing, van Wijk): items [{v, …}] largest first, v in the rectangle's area units */
+function squarify(items, x0, y0, w0, h0) {
+  const out = [];
+  let x = x0, y = y0, w = w0, h = h0;
+  const worst = (row, side) => {
+    const s = row.reduce((a, r) => a + r.v, 0);
+    const max = Math.max(...row.map((r) => r.v)), min = Math.min(...row.map((r) => r.v));
+    return Math.max((side * side * max) / (s * s), (s * s) / (side * side * min));
+  };
+  let rest = items.slice();
+  while (rest.length && w > 0.5 && h > 0.5) {
+    const side = Math.min(w, h);
+    let row = [rest[0]];
+    let best = worst(row, side);
+    for (let i = 1; i < rest.length; i++) {
+      const next = worst(row.concat(rest[i]), side);
+      if (next > best) break;
+      row = row.concat(rest[i]);
+      best = next;
+    }
+    const sum = row.reduce((a, r) => a + r.v, 0);
+    if (w >= h) {
+      const cw = sum / h;
+      let yy = y;
+      for (const r of row) { const ih = r.v / cw; out.push({ ...r, x, y: yy, w: cw, h: ih }); yy += ih; }
+      x += cw; w -= cw;
+    } else {
+      const rh = sum / w;
+      let xx = x;
+      for (const r of row) { const iw = r.v / rh; out.push({ ...r, x: xx, y, w: iw, h: rh }); xx += iw; }
+      y += rh; h -= rh;
+    }
+    rest = rest.slice(row.length);
+  }
+  return out;
+}
+
+/** The line under the treemap: one share's numbers — what it takes, how known, where its parts lie, snapshots */
+function shareLine(s) {
+  const b = shareBytes(s);
+  const box = el('div', 'cl-space-tminfo');
+  const where = s.parts.map((p) => `${p.root}${p.bytes !== null ? ' ' + fmt.size(p.bytes) : ''}`).concat(s.unknown.map((r) => `${r} (${T('where.space.asleep')})`));
+  const how = b.bytes === null ? T(b.how === 'measuring' ? 'where.measuring' : 'where.space.unmeasured')
+    : b.how === 'du' ? T('where.measured_at', { when: fmt.relative(b.at) }) : b.how === 'part' ? T('where.space.at_least', { list: s.unmeasured.join(', ') })
+    : b.how === 'empty' ? T('where.space.empty') : 'ZFS';
+  box.append(el('b', '', s.name), ` · ${b.bytes !== null ? fmt.size(b.bytes) : '–'} · ${how}`);
+  const more = [where.length ? T('where.space.lies_on', { list: where.join(', ') }) : '', s.snaps ? T('where.space.snaps_of', { size: fmt.size(s.snaps) }) : '',
+    T('where.cache.' + s.use_cache) + ` (${s.use_cache})`].filter(Boolean).join(' · ');
+  box.appendChild(el('div', 'cl-space-tmmore', more));
+  return box;
+}
+
+function spaceShares() {
+  const box = Office.place('where.space.shares', el('div', 'box cl-space-box'));
+  box.appendChild(el('div', 'cl-space-h', T('where.space.shares')));
+  const all = space.shares.map((s) => ({ s, b: shareBytes(s) }));
+  const sized = all.filter((x) => x.b.bytes > 0).sort((p, q) => q.b.bytes - p.b.bytes);
+  const unmeasured = all.filter((x) => x.b.bytes === null);
+  const empty = all.filter((x) => x.b.bytes === 0);
+  const phone = typeof window !== 'undefined' && window.innerWidth < 640;
+  const W = phone ? 400 : 1000, H = phone ? 400 : 360;
+  const info = el('div', 'cl-space-tmline');
+  const show = (s) => { spacePicked = s ? s.name : null; info.replaceChildren(s ? shareLine(s) : el('span', 'cl-space-tmhint', T('where.space.tm_hint'))); };
+  if (sized.length) {
+    const total = sized.reduce((a, x) => a + x.b.bytes, 0);
+    const rects = squarify(sized.map((it) => ({ v: (it.b.bytes / total) * W * H, it })), 0, 0, W, H);
+    const g = svg('svg', { class: 'cl-space-tm', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': T('where.space.tm_label', { n: sized.length, size: fmt.size(total) }) });
+    const shade = { pool: 0, array: 0, mixed: 0 };
+    for (const r of rects) {
+      const s = r.it.s;
+      const kind = shareKind(s);
+      const t = svg('g', { class: 'cl-space-tmcell', tabindex: 0, 'data-own': '' });
+      const rect = svg('rect', { class: `cl-space-tmrect cl-space-tm-${kind} cl-space-tmshade${shade[kind]++ % 3}${r.it.b.how === 'part' ? ' cl-space-tm-part' : ''}`,
+        x: r.x.toFixed(1), y: r.y.toFixed(1), width: Math.max(0, r.w).toFixed(1), height: Math.max(0, r.h).toFixed(1) });
+      rect.appendChild(svg('title', {}, `${s.name} · ${fmt.size(r.it.b.bytes)} · ${T('where.space.kind.' + kind)}`));
+      t.appendChild(rect);
+      if (r.w > 54 && r.h > 22) {
+        const chars = Math.max(3, Math.floor(r.w / 8));
+        const name = s.name.length > chars ? s.name.slice(0, chars - 1) + '…' : s.name;
+        t.appendChild(svg('text', { class: 'cl-space-tmtext', x: (r.x + 6).toFixed(1), y: (r.y + 17).toFixed(1) }, name));
+        if (r.h > 40) t.appendChild(svg('text', { class: 'cl-space-tmtext cl-space-tmsize', x: (r.x + 6).toFixed(1), y: (r.y + 33).toFixed(1) }, fmt.size(r.it.b.bytes)));
+      }
+      t.addEventListener('mouseenter', () => show(s));
+      t.addEventListener('focus', () => show(s));
+      t.addEventListener('click', (e) => { e.stopPropagation(); show(s); });
+      g.appendChild(t);
+    }
+    box.appendChild(g);
+  } else {
+    box.appendChild(emptyNote(T('where.space.tm_none')));
+  }
+  box.appendChild(info);
+  show(space.shares.find((s) => s.name === spacePicked) || null);
+  // the colour families
+  const legend = el('div', 'cl-space-legend');
+  for (const kind of ['pool', 'mixed', 'array']) {
+    if (!sized.some((x) => shareKind(x.s) === kind)) continue;
+    const it = el('span', 'cl-space-key');
+    const sw2 = svg('svg', { class: 'cl-space-swatch', viewBox: '0 0 10 10' });
+    sw2.appendChild(svg('rect', { class: `cl-space-tmrect cl-space-tm-${kind} cl-space-tmshade0`, x: 0, y: 0, width: 10, height: 10 }));
+    it.append(sw2, el('span', '', T('where.space.kind.' + kind)));
+    it.title = T('where.space.kind.' + kind + '_tip');
+    legend.appendChild(it);
+  }
+  if (sized.some((x) => x.b.how === 'part')) {
+    const it = el('span', 'cl-space-key');
+    const sw2 = svg('svg', { class: 'cl-space-swatch', viewBox: '0 0 10 10' });
+    sw2.appendChild(svg('rect', { class: 'cl-space-tmrect cl-space-tm-mixed cl-space-tm-part', x: 0, y: 0, width: 10, height: 10 }));
+    it.append(sw2, el('span', '', T('where.space.kind.part')));
+    legend.appendChild(it);
+  }
+  box.appendChild(legend);
+  // the shares not measured: hatched, never sized 0 — and what a click on «Measure» costs
+  if (unmeasured.length) {
+    const un = el('div', 'cl-space-unmeasured');
+    const sw2 = svg('svg', { class: 'cl-space-swatch cl-space-hatchbox', viewBox: '0 0 10 10' });
+    sw2.appendChild(svg('rect', { class: 'cl-space-hatch', x: 0, y: 0, width: 10, height: 10 }));
+    un.append(sw2, el('span', '', T('where.space.unmeasured_list', { n: unmeasured.length })));
+    for (const x of unmeasured) un.appendChild(chip(x.s.name, 'quiet', x.b.how === 'measuring' ? T('where.measuring') : T('where.space.unmeasured_tip', { where: x.s.parts.map((p) => p.root).concat(x.s.unknown).join(', ') || '–' })));
+    const can = unmeasured.filter((x) => x.b.how !== 'measuring');
+    if (can.length) {
+      const btn = el('button', 'btn small', T('where.space.measure', { n: can.length }));
+      btn.type = 'button';
+      btn.disabled = !Office.agent.running;
+      btn.title = T('where.space.measure_tip');
+      btn.onclick = () => measure(can.map((x) => x.s.measure), can.some((x) => x.s.unknown.length || x.s.primary === 'array' || x.s.secondary === 'array'));
+      un.appendChild(btn);
+    }
+    box.appendChild(un);
+  }
+  if (empty.length) box.appendChild(el('p', 'cl-space-note', T('where.space.empty_list', { list: empty.map((x) => x.s.name).join(', ') })));
+  return box;
+}
+
+// --------------------------------------------------------------- the details: a table whose rows unfold
+const COLS = ['name', 'kind', 'fs', 'size', 'used', 'free', 'pct', 'temp', 'spin', 'errors', 'health', 'frag', 'ratio', 'ashift', 'record', 'dedup', 'scan', 'limits'];
+const spin = (d) => (d.role === 'boot' ? '–' : !d.rotational ? chip('SSD', 'quiet', T('where.space.ssd_tip')) : d.asleep ? chip(T('where.space.asleep'), 'quiet', T('where.space.asleep_tip')) : chip(T('where.space.spinning'), 'ok', T('where.space.spinning_tip')));
+function tempCell(d) {
+  if (d.temp === null || d.temp === undefined) return chip('–', 'quiet', d.asleep ? T('where.space.temp_asleep') : T('where.space.temp_none'));
+  const c = chip(`${d.temp} °C`, d.max && d.temp >= d.max ? 'danger' : d.hot && d.temp >= d.hot ? 'warn' : 'quiet');
+  c.title = T('where.space.temp_tip', { hot: d.hot ?? '–', max: d.max ?? '–' });
+  return c;
+}
+function scanCell(z) {
+  const sc = z && z.scan;
+  if (!sc || sc.what === 'none') return chip(T('where.space.scan_none'), 'quiet', T('where.space.scan_none_tip'));
+  if (sc.state === 'running') return chip(T('where.space.scan_running', { what: T('where.space.scan.' + sc.what), pct: sc.percent !== null ? pctText(sc.percent) : '…' }), 'accent', T('where.space.scan_since', { when: fmt.date(sc.at) }));
+  const old = sc.at && Date.now() / 1000 - sc.at > 60 * 86400;
+  const c = chip(`${T('where.space.scan.' + sc.what)} ${sc.at ? fmt.relative(sc.at) : ''}`.trim(), sc.errors ? 'danger' : old && sc.what === 'scrub' ? 'warn' : 'quiet');
+  c.title = sc.state === 'done' ? T('where.space.scan_tip', { what: T('where.space.scan.' + sc.what), when: fmt.date(sc.at), took: fmt.duration(sc.took || 0), errors: nOf('errors', sc.errors || 0), amount: sc.repaired || '0B' })
+    : T('where.space.scan_' + sc.state, { what: T('where.space.scan.' + sc.what), when: fmt.date(sc.at) });
+  return c;
+}
+const num = (v, f) => (v === null || v === undefined ? '–' : f ? f(v) : String(v));
+
+/** One row of the table: its cells by COLS, the details it unfolds */
+function tableRow(key, cells, detail, cls) {
+  const r = Office.place(`space-row:${key}`, el('div', 'row nocheck unfolds cl-space-trow' + (cls ? ' ' + cls : '')));
+  for (const c of COLS) {
+    const v = cells[c];
+    const td = el('div', 'cl-space-td cl-space-td-' + c + (c === 'name' ? ' row-name link text' : ''));
+    if (v instanceof Node) td.appendChild(v); else td.textContent = v === null || v === undefined || v === '' ? '–' : String(v);
+    if (c === 'name') td.title = T('where.details');        // only the name: chips explain themselves
+    r.appendChild(td);
+  }
+  let box = null;
+  const set = (open) => {
+    if (!open && box) { box.remove(); box = null; r.classList.remove('open'); spaceOpen.delete(key); }
+    if (open && !box) { box = el('div', 'row-detail'); box.appendChild(detail()); r.appendChild(box); r.classList.add('open'); spaceOpen.add(key); }
+  };
+  r.onclick = (e) => {
+    if (e.target.closest('button, a, input, select, textarea, .row-detail, [data-own]')) return;
+    if (String(window.getSelection && window.getSelection()).length) return;      // selecting text
+    Office.keepInPlace(r, () => set(!box));
+  };
+  if (spaceOpen.has(key)) set(true);
+  return r;
+}
+
+function zfsCells(z) {
+  if (!z) return {};
+  const health = chip(z.health || '–', z.health === 'ONLINE' ? 'ok' : 'danger', T('where.space.health_tip'));
+  return {
+    health,
+    frag: z.frag !== null ? `${z.frag} %` : '–',
+    ratio: z.ratio !== null && z.ratio !== undefined ? `${fmt.number(z.ratio, 2)}×` : '–',
+    ashift: z.ashift !== null ? `${z.ashift} (${fmt.size(2 ** z.ashift)})` : '–',
+    record: z.recordsize ? fmt.size(z.recordsize) : '–',
+    dedup: z.dedup !== null ? `${fmt.number(z.dedup, 2)}×` : '–',
+    scan: scanCell(z),
+  };
+}
+
+/** The ZFS facts of a pool (or a ZFS array disk) unfolded: the pool's own numbers, its datasets */
+function zfsDetail(z) {
+  const box = el('div', 'cl-space-zfs');
+  box.appendChild(kv([
+    [T('where.space.d.raw'), z.size !== null ? T('where.space.raw_text', { size: fmt.size(z.size), alloc: fmt.size(z.alloc), free: fmt.size(z.free), cap: z.cap ?? '–' }) : null],
+    [T('where.space.d.compression'), z.compression ? `${z.compression} · ${fmt.number(z.ratio || 1, 2)}×` : null],
+    [T('where.space.d.snapshots'), z.snaps !== null ? T('where.space.snaps_text', { size: fmt.size(z.snaps), count: snapCount(z.snapshots) }) : null],
+    [T('where.space.d.layers'), z.layers ? T('where.space.layers_text', { n: z.layers, size: fmt.size(z.layer_bytes) }) : null],
+    [T('where.space.d.scan'), z.scan && z.scan.what !== 'none' ? scanCell(z).title : T('where.space.scan_none_tip')],
+  ]));
+  if (!z.looked) { box.appendChild(el('p', 'cl-space-note', T('where.space.datasets_asleep'))); return box; }
+  const list = el('div', 'cl-space-ds');
+  const head = el('div', 'cl-space-dsrow cl-space-dshead');
+  for (const k of ['name', 'used', 'refer', 'snaps', 'n', 'ratio', 'record', 'comp']) head.appendChild(el('span', '', T('where.space.ds.' + k)));
+  list.appendChild(head);
+  for (const d of z.datasets) {
+    const depth = d.name.split('/').length - 1;
+    const r = el('div', 'cl-space-dsrow');
+    const n = el('span', 'mono', d.name.split('/').pop() || d.name);
+    n.style.paddingLeft = `${Math.min(depth, 6) * 12}px`;
+    n.title = d.name + (d.mount ? ` → ${d.mount}` : '');
+    r.append(n, el('span', '', fmt.size(d.used)), el('span', '', fmt.size(d.refer)), el('span', '', d.snaps ? fmt.size(d.snaps) : '–'),
+      el('span', '', d.snapshots === null || d.snapshots === undefined ? '–' : String(d.snapshots)), el('span', '', d.ratio ? `${fmt.number(d.ratio, 2)}×` : '–'),
+      el('span', '', d.recordsize ? fmt.size(d.recordsize) : '–'), el('span', '', d.compression || '–'));
+    list.appendChild(r);
+  }
+  box.appendChild(list);
+  if (z.datasets_cut) box.appendChild(el('p', 'cl-space-note', T('where.space.datasets_cut', { n: z.datasets.length })));
+  return box;
+}
+
+function deviceDetail(d) {
+  return kv([
+    [T('where.space.d.device'), `/dev/${d.device}`, true],
+    [T('where.space.d.id'), d.id, true],
+    [T('where.space.d.transport'), d.role === 'boot' ? (d.transport || '–').toUpperCase() : `${(d.transport || '–').toUpperCase()} · ${d.rotational ? 'HDD' : 'SSD'}`],
+    [T('where.space.d.disk_size'), d.disk_size ? fmt.size(d.disk_size) : null],
+    [T('where.space.d.status'), d.status],
+    [T('where.space.d.io'), d.reads !== null ? T('where.space.io_text', { reads: fmt.number(d.reads), writes: fmt.number(d.writes) }) : null],
+    [T('where.space.d.temp'), d.temp !== null ? T('where.space.temp_text', { temp: d.temp, hot: d.hot ?? '–', max: d.max ?? '–' }) : d.asleep ? T('where.space.temp_asleep') : null],
+    [T('where.space.d.limits'), d.size ? T('where.space.thresholds', { warn: d.warn, crit: d.crit }) : null],
+    [T('where.space.d.shares'), d.shares.length ? d.shares : d.maybe.length ? `${d.maybe.join(', ')} — ${T('where.asleep_unknown')}` : null],
+  ]);
+}
+
+function spaceTable() {
+  const box = Office.place('where.space.table', el('div', 'box cl-space-box'));
+  box.appendChild(el('div', 'cl-space-h', T('where.space.table')));
+  const scroll = el('div', 'cl-space-scroll');
+  const grid = el('div', 'cl-space-grid');
+  const head = el('div', 'cl-space-trow cl-space-thead');
+  for (const c of COLS) head.appendChild(el('div', 'cl-space-td cl-space-td-' + c, T('where.space.col.' + c)));
+  grid.appendChild(head);
+  const sizeCells = (size, used) => ({ size: num(size, fmt.size), used: num(used, fmt.size), free: size !== null && used !== null ? fmt.size(Math.max(0, size - used)) : '–' });
+  const pctCell = (fill, warn, crit) => {
+    if (fill === null || fill === undefined) return '–';
+    const lv = spaceLevel(fill, warn, crit);
+    return chip(pctText(fill), lv || 'quiet', warn > 0 ? T('where.space.thresholds', { warn, crit }) : '');
+  };
+  const limits = (x) => (x.warn > 0 ? `${x.warn} / ${x.crit} %` : '–');
+  const diskSize = (d) => (d.disk_size ? chip(fmt.size(d.disk_size), 'quiet', T('where.space.d.disk_size')) : '–');
+  // a pool's member: its device only (the pool's row has the file system's numbers); parity: the disk's size; the boot
+  // device: how it is connected (a USB stick says «rotational» — it never spins)
+  const devRow = (d, cls) => tableRow('dev:' + d.name, {
+    name: d.name, kind: `${T('where.space.role.' + d.role)} · ${d.role === 'boot' ? (d.transport || '–').toUpperCase() : d.rotational ? 'HDD' : 'SSD'}`,
+    ...(d.role === 'pool' || d.size === null ? { fs: '–', size: diskSize(d), used: '–', free: '–', pct: '–' }
+      : { fs: d.fs, ...sizeCells(d.size, d.used), pct: pctCell(d.fill, d.warn, d.crit) }),
+    temp: tempCell(d), spin: spin(d), errors: d.errors ? chip(String(d.errors), 'danger', T('where.space.errors_tip')) : '0',
+    health: d.status === 'DISK_OK' ? chip('OK', 'ok', d.status) : d.status ? chip(d.status.replace(/^DISK_/, ''), 'warn', d.status) : '–',
+    ...zfsCells(d.zfs), limits: d.size && d.role !== 'pool' ? limits(d) : '–',
+  }, () => {
+    const b = el('div');
+    b.appendChild(deviceDetail(d));
+    if (d.zfs) b.appendChild(zfsDetail(d.zfs));
+    return b;
+  }, cls);
+  for (const p of space.pools) {
+    const members = space.devices.filter((d) => p.members.includes(d.name));
+    const bt = p.btrfs;
+    grid.appendChild(tableRow('pool:' + p.name, {
+      name: p.name, kind: `${T('where.space.role.pool')} · ${p.profile || p.layout || nOf('devices', members.length)}`, fs: p.fs, ...sizeCells(p.size, p.used),
+      pct: pctCell(p.fill, p.warn, p.crit), temp: '', spin: p.asleep ? asleepChip() : '', errors: '',
+      health: bt ? chip(bt.data ? bt.data.profile : 'btrfs', 'quiet', T('where.space.btrfs_tip')) : '–', ...zfsCells(p.zfs), limits: limits(p),
+    }, () => {
+      const b = el('div');
+      b.appendChild(kv([
+        [T('where.space.d.members'), members.map((d) => `${d.name} (/dev/${d.device}, ${fmt.size(d.disk_size)})`)],
+        [T('where.space.d.layout'), [p.profile, p.width ? T('where.space.width', { n: p.width }) : '', p.groups ? T('where.space.groups', { n: p.groups }) : '',
+          p.tolerates !== null ? tolerates(p.tolerates) : ''].filter(Boolean).join(' · ') || null],
+        [T('where.space.d.source'), T('where.space.source.' + (p.source || 'none'))],
+        [T('where.space.d.shares'), p.shares],
+        [T('where.space.d.managed'), p.managed ? T('where.space.managed_text', { fixed: fmt.size(p.managed.fixed), others: fmt.size(p.managed.others), jack: fmt.size(p.managed.jack), x: p.managed.x || '–' }) : null],
+        [T('where.space.d.btrfs'), bt ? T('where.space.btrfs_text', { alloc: fmt.size(bt.allocated), unalloc: fmt.size(bt.unallocated), data: bt.data ? `${bt.data.profile} ${fmt.size(bt.data.used)} / ${fmt.size(bt.data.size)}` : '–',
+          meta: bt.metadata ? `${bt.metadata.profile} ${fmt.size(bt.metadata.used)} / ${fmt.size(bt.metadata.size)}` : '–' }) : null],
+      ]));
+      if (p.zfs) b.appendChild(zfsDetail(p.zfs));
+      return b;
+    }, 'cl-space-tpool'));
+    for (const d of members) grid.appendChild(devRow(d, 'cl-space-tmember'));
+  }
+  for (const role of ['parity', 'data', 'boot']) for (const d of space.devices.filter((x) => x.role === role)) grid.appendChild(devRow(d));
+  scroll.appendChild(grid);
+  box.appendChild(scroll);
+  return box;
+}
+
+// --------------------------------------------------------------- Docker, VMs, appdata
+const DF_COUNT = { images: 'df_images', containers: 'df_containers', volumes: 'df_volumes', cache: 'df_cache' };
+function spaceMore() {
+  const box = Office.place('where.space.more', el('div', 'box cl-space-box'));
+  box.appendChild(el('div', 'cl-space-h', T('where.space.more')));
+  const dk = space.docker;
+  const rows = [];
+  if (dk) {
+    const df = dk.df;
+    const part = (k) => (df && df[k] ? T('where.space.df_part', { size: fmt.size(df[k].size), count: df[k].count === null ? '–' : nOf(DF_COUNT[k], df[k].count), back: fmt.size(df[k].reclaimable || 0) }) : null);
+    rows.push([T('where.space.docker_where'), `${T('where.space.docker_mode.' + dk.mode)} · ${dk.path}`, false]);
+    if (dk.fs) {
+      const holder = el('div', 'cl-space-mini');
+      holder.append(spaceBar(dk.fs.size, [{ k: 'data', bytes: dk.fs.used, label: T('where.space.seg.data') }], { small: true }),
+        el('span', '', T('where.space.used_of', { used: fmt.size(dk.fs.used), size: fmt.size(dk.fs.size) }) + ` · ${dk.fs.fs}`));
+      rows.push([T('where.space.docker_fs'), holder]);
+    }
+    rows.push([T('where.space.df.images'), part('images')], [T('where.space.df.containers'), part('containers')], [T('where.space.df.volumes'), part('volumes')],
+      [T('where.space.df.cache'), part('cache')]);
+    rows.push([T('where.space.df_when'), df ? fmt.relative(df.at) : dk.asleep.length ? T('where.space.df_asleep', { list: dk.asleep.join(', ') }) : T('where.space.df_none')]);
+  } else {
+    rows.push([T('where.section.docker'), Office.t('common.docker_off')]);
+  }
+  box.appendChild(kv(rows));
+  // the VMs' disks: what each says it is, what it takes
+  const vms = space.vms || [];
+  if (vms.length) {
+    box.appendChild(el('div', 'cl-space-h2', T('where.space.vms')));
+    box.appendChild(kv(vms.map((vm) => [vm.name, lines(vm.disks.map((d) => `${d.source.split('/').pop()} ${T('where.space.vdisk', { size: fmt.size(d.bytes), takes: fmt.size(d.allocated) })}${d.format ? ' · ' + d.format : ''}`))])));
+  }
+  const ad = space.appdata;
+  if (ad && ad.folders.length) {
+    box.appendChild(el('div', 'cl-space-h2', T('where.space.appdata', { share: ad.share })));
+    const known = ad.folders.filter((f) => f.bytes !== null);
+    box.appendChild(kv(known.slice(0, 12).map((f) => [f.name, `${fmt.size(f.bytes)}${f.source === 'du' ? ' · ' + T('where.measured') : ''}${f.containers.length ? ' · ' + f.containers.join(', ') : ''}`])));
+    if (known.length < ad.total) box.appendChild(el('p', 'cl-space-note', T('where.space.appdata_rest', { n: ad.total - known.length })));
+  }
+  return box;
+}
+
 return {
   build, load, render, tour, bubble, reception, helpItems, sleeping, items, findings,
   /** her tiles as places of the search (#/cleanup/where/<tile>; «Where things are» only while she knows places) */
@@ -3928,7 +4527,8 @@ return {
   /** the visit ends: the bar's words and its switch go (never kept) */
   unmount() { view = null; clearTimeout(sizeTimer); if (bar) bar.reset(); },
   /** tests/run.php (testCleanupTiles): the switcher and what each tile says */
-  test: { sw, faces: () => (state ? Object.fromEntries(TILES.map((id) => [id, tileFace(id)])) : null) },
+  test: { sw, faces: () => (state ? Object.fromEntries(TILES.map((id) => [id, tileFace(id)])) : null),
+    space: { squarify, fullest: spaceFullest, totals: spaceTotals, shareBytes, shareKind, level: spaceLevel, set: (s) => { space = s; } } },
 };
 })();
 
@@ -3948,7 +4548,8 @@ Office.places(ID, [
   { kind: 'tile', key: 'tile.schedule', route: '#/cleanup/tidy/schedule', anchor: 'tile.schedule', text: 'schedule.sub', part: 'part.tidy' },
   { kind: 'help', key: 'part.where', text: 'part.where_sub' },
   { kind: 'help', key: 'part.tidy', text: 'part.tidy_sub' },
-  ...['labels', 'tiles', 'copy', 'rows', 'tour', 'asleep'].map((x) => ({ kind: 'help', key: `where.help.${x}`, text: `where.help.${x}_text` })),
+  ...['bars', 'shares', 'table', 'more'].map((x) => ({ kind: 'section', key: `where.space.${x}`, route: '#/cleanup/where/space', part: 'part.where' })),
+  ...['labels', 'tiles', 'space', 'copy', 'rows', 'tour', 'asleep'].map((x) => ({ kind: 'help', key: `where.help.${x}`, text: `where.help.${x}_text` })),
   ...['order', 'trash', 'check', 'loop', 'sizes', 'safe'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...['templates', 'stacks', 'appdata', 'vms', 'scripts', 'flash', 'docker', 'icons', 'leftovers', 'partners']
     .map((x) => ({ kind: 'help', key: `section.${x}`, text: `help.${x}_text` })),
@@ -3959,6 +4560,7 @@ Office.places(ID, [
 // — together at most 200 (120 + 80)
 Office.placesFrom(ID, (s, part) => {
   if (part === 'where') return Where.items(s);
+  if (part === 'space') return [];                         // «Storage»: its pools and disks are «Disks»' items already
   if (!s.docker || typeof s.docker !== 'object') return [];
   const out = [];
   for (const sec of ROOMS) {

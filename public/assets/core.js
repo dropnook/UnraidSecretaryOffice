@@ -259,7 +259,7 @@ function loggedOut(r) {
 // head's actions - free = in the window, inside the office, no control, row or words under it -; none free: a small
 // pill of its own at the window's bottom right corner, above Unraid's footer, the selection bar and the toasts. Never
 // Unraid's centred logo. Reads that poll or run beside the page (a log being followed, an estimate) stay quiet.
-const QUIET = /\.(read|output|log|estimate|detail|measure|where_refresh|where_measure|staff_order|supporter_code|supporter_claim|lang)$/;
+const QUIET = /\.(read|output|log|estimate|detail|measure|where_refresh|where_measure|space_refresh|staff_order|supporter_code|supporter_claim|lang)$/;
 let busyCount = 0, busyTimer = null, busyPress = null, busyFrom = null, busyFrame = 0;
 const BUSY_W = 26, BUSY_H = 15, BUSY_GAP = 16;
 const BUSY_SOLID = 'button, a, input, select, textarea, summary, label, .row, .chip, .bubble, .callout, .toast, .selbar, '

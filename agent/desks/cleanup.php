@@ -8,7 +8,8 @@ declare(strict_types=1);
  * shares, folders, containers, compose, VMs, disks, users and access, SMB/NFS, user scripts and cron,
  * backups, notices, plugins, «where things are» with their backup protection and her advice «If I
  * were you …» — read only, its own files (cleanup-where.json, cleanup-where-sizes.json), actions
- * where_refresh / where_scan / where_measure / where_sizes, its du jobs in her tick.
+ * where_refresh / where_scan / where_measure / where_sizes, its du jobs in her tick; its section «Storage»
+ * (agent/lib/space.php: cleanup-space.json and its history, action space_refresh).
  *
  * «Tidying up» — what she looks at, best tidied in this order:
  *   templates  my-*.xml in dockerMan's templates-user without a container;
@@ -217,6 +218,7 @@ const CL_WEAK = '#^(history/|plugins-removed/|[^/]+\.plg$|plugins/[^/]+\.plg$|pl
 
 require_once __DIR__ . '/../lib/partnerlook.php';
 require_once __DIR__ . '/../lib/where.php';
+require_once __DIR__ . '/../lib/space.php';
 
 const CL_WHERE_DEBOUNCE = 60;      // «where_refresh»: a look younger than this is fresh enough (several tabs ask at once)
 // her tour on schedule (2026-10-29): the plugin's cron file calls `job.sh cleanup` → `php agent.php job cleanup-tour-due`,
@@ -240,6 +242,7 @@ desk('cleanup', [
         } catch (Throwable $e) {
             logLine('cleanup: «where is what» failed at the start: ' . $e->getMessage());
         }
+        spaceStart();
         clScan();
     },
     'tick'    => fn () => clTickEach(clTickParts()),
@@ -262,22 +265,24 @@ desk('cleanup', [
         'icon_fallback' => fn (array $r) => clIconFallback(),
         // «Where is what»: her look at the whole server (agent/lib/where.php)
         'where_refresh' => fn (array $r) => ['ok' => true, 'state' => whereFresh(CL_WHERE_DEBOUNCE)],
-        'where_scan'    => fn (array $r) => ['ok' => true, 'state' => whereTour(optBool($r, 'wake'))],
+        'where_scan'    => fn (array $r) => ['ok' => true, 'state' => whereTour($wake = optBool($r, 'wake')), 'space' => spaceScan($wake)],
         'where_measure' => fn (array $r) => whereMeasure(idList($r, 'paths')),
         'where_sizes'   => fn (array $r) => ['ok' => true, 'sizes' => whereSizes()],
+        // «Storage» on «Where is what»: how full every pool, disk and share is (agent/lib/space.php), read only
+        'space_refresh' => fn (array $r) => ['ok' => true, 'state' => spaceFresh(CL_WHERE_DEBOUNCE)],
     ],
 ]);
 
 /**
- * The parts of her tick (every ~150 ms, each cheap): her own jobs, the backup flag, and the du jobs of «where is
- * what» asked for on her page — each on its own (clTickEach), so one that throws doesn't stop the others
+ * The parts of her tick (every ~150 ms, each cheap): her own jobs, the backup flag, the du jobs of «where is
+ * what» asked for on her page, the history of «Storage» (a look every SPACE_EVERY s) — each on its own (clTickEach), so one that throws doesn't stop the others
  *
  * @return array<string, callable(): void>
  */
 function clTickParts(): array
 {
     return ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick', 'drill' => 'clDrillCopiesTick',
-            'docker' => 'clDockerBackTick', 'scheduled' => 'clScheduledTick'];
+            'docker' => 'clDockerBackTick', 'scheduled' => 'clScheduledTick', 'space' => 'spaceTick'];
 }
 
 /** Her schedule's record (DATA_DIR/cleanup/schedule.json, tests: `$GLOBALS['clScheduleFile']`): {v, last: {at, how, asleep}} */
