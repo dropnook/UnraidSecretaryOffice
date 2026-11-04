@@ -1931,7 +1931,7 @@
   "where.space.empty": "aucun dossier sur aucun disque ni pool",
   "where.space.lies_on": "se trouve sur {list}",
   "where.space.snaps_of": "dont dans les snapshots {size}",
-  "where.space.unmeasured_list": {"one": "{n} partage pas ou seulement en partie mesuré — un du compte ce qu'aucun dataset ZFS ne dit :", "other": "{n} partages pas ou seulement en partie mesurés — un du compte ce qu'aucun dataset ZFS ne dit :"},
+  "where.space.unmeasured_list": {"one": "{n} partage pas encore entièrement mesuré — sans dataset ZFS, seul un du connaît la taille :", "other": "{n} partages pas encore entièrement mesurés — sans dataset ZFS, seul un du connaît la taille :"},
   "where.space.unmeasured_tip": "Sur {where} : un dossier ordinaire, seul un du peut le mesurer",
   "where.space.measure": {"one": "Mesurer", "other": "Mesurer les {n}"},
   "where.space.measure_tip": "Compte les octets des fichiers en arrière-plan (du) — un disque de l'array peut se réveiller pour cela",

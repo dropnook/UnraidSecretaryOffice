@@ -1931,7 +1931,7 @@
   "where.space.empty": "nessuna cartella su alcun disco o pool",
   "where.space.lies_on": "sta su {list}",
   "where.space.snaps_of": "di cui negli snapshot {size}",
-  "where.space.unmeasured_list": {"one": "{n} condivisione non misurata o misurata solo in parte — un du conta ciò che nessun dataset ZFS dice:", "other": "{n} condivisioni non misurate o misurate solo in parte — un du conta ciò che nessun dataset ZFS dice:"},
+  "where.space.unmeasured_list": {"one": "{n} condivisione non ancora misurata del tutto — senza un dataset ZFS solo un du ne conosce la dimensione:", "other": "{n} condivisioni non ancora misurate del tutto — senza un dataset ZFS solo un du ne conosce la dimensione:"},
   "where.space.unmeasured_tip": "Su {where}: una cartella normale, solo un du può misurarla",
   "where.space.measure": {"one": "Misura", "other": "Misura tutte e {n}"},
   "where.space.measure_tip": "Conta i byte dei file in background (du) — un disco dell'array può svegliarsi per questo",
