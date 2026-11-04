@@ -56667,7 +56667,7 @@ JS);
     same('cleanup tiles: the treemap\'s squares fill their box exactly (areas kept, none outside) and stay square-ish',
         [[4, 100, true], [7, 24, true]], [$r['squarify'], $r['squarify2']]);
     same('cleanup tiles: «Storage» — the fullest over the warning threshold (the stub: disk3 at 86 %); a share without a measure has none (never 0)',
-        [['disk3', 'warn'], ['bytes' => null, 'how' => null]], [$r['fullest'], $r['unmeasured']]);
+        [['disk3', 'warn'], ['bytes' => null, 'how' => null, 'measuring' => false]], [$r['fullest'], $r['unmeasured']]);
     same('cleanup tiles: … colour families by where a share lies; Unraid\'s thresholds (0 = none)', [['pool', 'array', 'mixed'], ['', 'warn', 'danger', '', '']],
         [$r['kinds'], $r['levels']]);
     same('cleanup tiles: the corner tiles carry the live numbers — Docker and VMs running of all, the hottest disk, SMB sessions, the engine',
