@@ -1931,7 +1931,7 @@
   "where.space.empty": "kein Ordner auf irgendeiner Disk oder einem Pool",
   "where.space.lies_on": "liegt auf {list}",
   "where.space.snaps_of": "davon in Snapshots {size}",
-  "where.space.unmeasured_list": {"one": "{n} Share nicht gemessen — kein ZFS-Dataset nennt seine Grösse:", "other": "{n} Shares nicht gemessen — kein ZFS-Dataset nennt ihre Grösse:"},
+  "where.space.unmeasured_list": {"one": "{n} Share nicht oder nur zum Teil gemessen — ein du zählt, was kein ZFS-Dataset nennt:", "other": "{n} Shares nicht oder nur zum Teil gemessen — ein du zählt, was kein ZFS-Dataset nennt:"},
   "where.space.unmeasured_tip": "Auf {where}: ein gewöhnlicher Ordner, nur ein du kann ihn messen",
   "where.space.measure": {"one": "Messen", "other": "Alle {n} messen"},
   "where.space.measure_tip": "Zählt die Bytes der Dateien im Hintergrund (du) — eine Disk des Arrays kann dafür aufwachen",

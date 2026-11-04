@@ -56380,6 +56380,16 @@ function testStaleShares(): void
     $wm = waWriteMethod(['md_write_method' => 'auto', 'spindownDelay' => '0'], $disks, $shares, null);
     same('stale shares: «n shares write straight to the array» names only the real one (helmi1987: docker, domains2 were gone)',
         [['docs'], 0, 'turbo'], [$wm['direct'], $wm['pooled'], $wm['tip']]);
+    // a sleeping disk may hold any share's files - also one set to «only» a pool (Unraid never moves leftovers off the
+    // array for it): the share is unknown there, never «empty» (1.85.0: a 2.8 TB trash share on disk4 was called empty)
+    file_put_contents("$cfgs/trash.cfg", "shareUseCache=\"only\"\nshareCachePool=\"cache\"\n");
+    @mkdir("$tmp/mnt/cache", 0700, true);
+    $roots = ['cache' => ['kind' => 'pool'], 'disk1' => ['kind' => 'disk'], 'disk2' => ['kind' => 'disk']];
+    $byRoots = array_column(waShares($roots, ['disk1' => true], [], [], $ini, $cfgs, "$tmp/mnt", $var), null, 'name');
+    same('stale shares: a sleeping disk is unknown for every share - the one set to «only» a pool too; the awake disk without the folder is not',
+        [['disk1'], ['disk1'], [], []],
+        [$byRoots['trash']['storage']['unknown'], $byRoots['docs']['storage']['unknown'], $byRoots['trash']['storage']['disks'], $byRoots['trash']['storage']['pools']]);
+    unlink("$cfgs/trash.cfg");
     same('stale shares: … the array stopped — Unraid can\'t tell, every cfg counts as before', [false, false],
         [!empty(array_column(waShares([], [], [], [], $ini, $cfgs, "$tmp/mnt", "$tmp/stopped.ini"), null, 'name')['docker']['stale_cfg']),
          array_column(waShares([], [], [], [], $ini, $cfgs, "$tmp/mnt", "$tmp/stopped.ini"), null, 'name')['docker']['storage']['missing']]);

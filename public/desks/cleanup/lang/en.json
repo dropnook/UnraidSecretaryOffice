@@ -1931,7 +1931,7 @@
   "where.space.empty": "no folder on any disk or pool",
   "where.space.lies_on": "lies on {list}",
   "where.space.snaps_of": "of it in snapshots {size}",
-  "where.space.unmeasured_list": {"one": "{n} share not measured — no ZFS dataset tells its size:", "other": "{n} shares not measured — no ZFS dataset tells their size:"},
+  "where.space.unmeasured_list": {"one": "{n} share not or only partly measured — a du counts what no ZFS dataset tells:", "other": "{n} shares not or only partly measured — a du counts what no ZFS dataset tells:"},
   "where.space.unmeasured_tip": "On {where}: a plain folder, only a du can measure it",
   "where.space.measure": {"one": "Measure it", "other": "Measure all {n}"},
   "where.space.measure_tip": "Counts the files' bytes in the background (du) — a disk of the array may wake for it",

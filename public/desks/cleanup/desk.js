@@ -4224,7 +4224,7 @@ function spaceShares() {
   box.appendChild(el('div', 'cl-space-h', T('where.space.shares')));
   const all = space.shares.map((s) => ({ s, b: shareBytes(s) }));
   const sized = all.filter((x) => x.b.bytes > 0).sort((p, q) => q.b.bytes - p.b.bytes);
-  const unmeasured = all.filter((x) => x.b.bytes === null);
+  const unmeasured = all.filter((x) => x.b.bytes === null || x.b.how === 'part');   // none, or only the parts ZFS knows: a du gets the rest
   const empty = all.filter((x) => x.b.bytes === 0);
   const phone = typeof window !== 'undefined' && window.innerWidth < 640;
   const W = phone ? 400 : 1000, H = phone ? 400 : 360;
@@ -4285,7 +4285,11 @@ function spaceShares() {
     const sw2 = svg('svg', { class: 'cl-space-swatch cl-space-hatchbox', viewBox: '0 0 10 10' });
     sw2.appendChild(svg('rect', { class: 'cl-space-hatch', x: 0, y: 0, width: 10, height: 10 }));
     un.append(sw2, el('span', '', T('where.space.unmeasured_list', { n: unmeasured.length })));
-    for (const x of unmeasured) un.appendChild(chip(x.s.name, 'quiet', x.b.how === 'measuring' ? T('where.measuring') : T('where.space.unmeasured_tip', { where: x.s.parts.map((p) => p.root).concat(x.s.unknown).join(', ') || '–' })));
+    for (const x of unmeasured) {
+      const tip = x.b.how === 'measuring' ? T('where.measuring') : x.b.how === 'part' ? T('where.space.at_least', { list: x.s.unmeasured.join(', ') })
+        : T('where.space.unmeasured_tip', { where: x.s.parts.map((p) => p.root).concat(x.s.unknown).join(', ') || '–' });
+      un.appendChild(chip(x.s.name, 'quiet', tip));
+    }
     const can = unmeasured.filter((x) => x.b.how !== 'measuring');
     if (can.length) {
       const btn = el('button', 'btn small', T('where.space.measure', { n: can.length }));

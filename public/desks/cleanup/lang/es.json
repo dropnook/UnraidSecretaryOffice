@@ -1931,7 +1931,7 @@
   "where.space.empty": "ninguna carpeta en ningún disco ni pool",
   "where.space.lies_on": "está en {list}",
   "where.space.snaps_of": "de ello en instantáneas {size}",
-  "where.space.unmeasured_list": {"one": "{n} recurso compartido sin medir — ningún dataset ZFS dice su tamaño:", "other": "{n} recursos compartidos sin medir — ningún dataset ZFS dice su tamaño:"},
+  "where.space.unmeasured_list": {"one": "{n} recurso compartido sin medir o medido solo en parte — un du cuenta lo que ningún dataset ZFS dice:", "other": "{n} recursos compartidos sin medir o medidos solo en parte — un du cuenta lo que ningún dataset ZFS dice:"},
   "where.space.unmeasured_tip": "En {where}: una carpeta normal, solo un du puede medirla",
   "where.space.measure": {"one": "Medir", "other": "Medir los {n}"},
   "where.space.measure_tip": "Cuenta los bytes de los archivos en segundo plano (du) — un disco del array puede despertarse por ello",

@@ -373,7 +373,9 @@ function waShares(array $roots, array $asleep, array $datasets, array $consumers
                 'real'      => $real,
                 'pools'     => $onPools,
                 'disks'     => $onDisks,
-                'unknown'   => $useCache === 'only' ? [] : array_values(array_filter($unknown, fn ($r) => ($roots[$r]['kind'] ?? '') === 'disk')),
+                // every sleeping disk, whatever the share's setting: «only» a pool doesn't move leftovers off the array
+                // (a share set to a pool with terabytes still on disk4 — 1.85.0 called it empty)
+                'unknown'   => array_values(array_filter($unknown, fn ($r) => ($roots[$r]['kind'] ?? '') === 'disk')),
                 'include'   => array_values(array_filter(explode(',', $cfg['shareInclude'] ?? ''))),
                 'exclude'   => array_values(array_filter(explode(',', $cfg['shareExclude'] ?? ''))),
                 'allocator' => $cfg['shareAllocator'] ?? null,
