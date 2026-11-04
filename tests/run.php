@@ -29196,7 +29196,7 @@ function testWhereDesk(): void
     preg_match_all("/part: '([a-z-]+)'/", $js, $m);
     $parts = array_map(fn ($p) => "cleanup-$p.json", array_values(array_unique($m[1])));      // the API's data/<desk>-<part>.json
     sort($parts);
-    same('where desk: the parts the page reads are her files', [WHERE_SIZES_FILE, WHERE_FILE], $parts);
+    same('where desk: the parts the page reads are her files', [SPACE_FILE, WHERE_SIZES_FILE, WHERE_FILE], $parts);
     $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
     check('where desk: her look and her measuring stay quiet (no spinner)', (bool) preg_match('/const QUIET = .*where_refresh.*where_measure/', $core));
     check('where desk: both parts on her page', str_contains($js, "part(T('part.where')") && str_contains($js, "part(T('part.tidy')"));
@@ -29230,7 +29230,8 @@ function testWhereDesk(): void
     // against the look's time, no where_refresh of its own that the normal action path would park for minutes
     require_once OFFICE_DIR . '/src/desks.php';
     $meta = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/cleanup/desk.json'), true);
-    same('where desk: the API keeps her look fresh (desk.json parts)', ['where' => ['refresh_after' => 600, 'action' => 'where_refresh']], officeDeskParts($meta['parts'] ?? null));
+    same('where desk: the API keeps her look fresh (desk.json parts) — «Storage» too', ['where' => ['refresh_after' => 600, 'action' => 'where_refresh'],
+        'space' => ['refresh_after' => 600, 'action' => 'space_refresh']], officeDeskParts($meta['parts'] ?? null));
     same('where desk: only well-formed part rules count', ['ok' => ['refresh_after' => 5, 'action' => 'look']],
         officeDeskParts(['ok' => ['refresh_after' => 5, 'action' => 'look'], 'Bad' => ['refresh_after' => 5, 'action' => 'look'], 'x' => ['refresh_after' => '5', 'action' => 'look'],
                          'y' => ['refresh_after' => 0, 'action' => 'look'], 'z' => ['refresh_after' => 5, 'action' => 'a.b'], 'w' => 'look', 7 => ['refresh_after' => 5, 'action' => 'look']]));
@@ -29288,6 +29289,176 @@ function testWhereProtectionTruth(): void
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         check("where T16: the code's note says where it comes back from ($l)", (langFile(OFFICE_WEB . "/desks/cleanup/lang/$l.json")['where.loc.office_dir_note'] ?? '') !== '');
     }
+}
+
+/**
+ * «Storage» on «Where is what» (agent/lib/space.php, 2026-11-04): the assembler on a fixture server — pools from Unraid's
+ * cfgs, mounts and ZFS (never an array disk or the flash), their size from the pool's own dataset, a sleeping one from
+ * disks.ini only; the last scan from zpool status; a share's bytes from ZFS, a du, at least its parts, or none (never 0);
+ * Docker's layers counted, not listed; btrfs usage; the history (one point a day per thing, 400 days, a broken line
+ * dropped); read only (no du, no smartctl, no zfs set of its own); wired into her desk.
+ */
+function testSpace(): void
+{
+    $K = 1024;
+    $T = 1024 ** 4;
+    $G = 1024 ** 3;
+    $now = mktime(12, 0, 0, 11, 4, 2026);
+    $kb = fn ($b) => (string) intdiv((int) $b, 1024);
+    $disks = [
+        'parity' => ['name' => 'parity', 'device' => 'sdb', 'type' => 'Parity', 'size' => $kb(8 * $T), 'rotational' => '1', 'spundown' => '0', 'temp' => '35', 'transport' => 'ata', 'numErrors' => '0'],
+        'disk1'  => ['name' => 'disk1', 'device' => 'sdc', 'type' => 'Data', 'size' => $kb(8 * $T), 'rotational' => '1', 'spundown' => '0', 'temp' => '36', 'fsType' => 'xfs',
+                     'fsSize' => $kb(7 * $T), 'fsFree' => $kb(2 * $T), 'numErrors' => '3'],
+        'disk2'  => ['name' => 'disk2', 'device' => 'sdd', 'type' => 'Data', 'size' => $kb(4 * $T), 'rotational' => '1', 'spundown' => '1', 'temp' => '*', 'fsType' => 'zfs',
+                     'fsSize' => $kb(4 * $T), 'fsFree' => $kb(1 * $T)],
+        'cache'  => ['name' => 'cache', 'device' => 'nvme0n1', 'type' => 'Cache', 'size' => $kb(1 * $T), 'rotational' => '0', 'spundown' => '0', 'temp' => '44', 'fsType' => 'zfs',
+                     'fsSize' => $kb(900 * $G), 'fsFree' => $kb(400 * $G), 'transport' => 'nvme'],
+        'cache2' => ['name' => 'cache2', 'device' => 'nvme1n1', 'type' => 'Cache', 'size' => $kb(1 * $T), 'rotational' => '0', 'spundown' => '0', 'temp' => '45'],
+        'fast'   => ['name' => 'fast', 'device' => 'sdf', 'type' => 'Cache', 'size' => $kb(2 * $T), 'rotational' => '0', 'spundown' => '0', 'temp' => '40', 'fsType' => 'btrfs',
+                     'fsSize' => $kb(2 * $T), 'fsFree' => $kb(1.5 * $T)],
+        'tank'   => ['name' => 'tank', 'device' => 'sdg', 'type' => 'Cache', 'size' => $kb(4 * $T), 'rotational' => '1', 'spundown' => '1', 'temp' => '*', 'fsType' => 'zfs',
+                     'fsSize' => $kb(4 * $T), 'fsFree' => $kb(3 * $T)],
+        'flash'  => ['name' => 'flash', 'device' => 'sda', 'type' => 'Flash', 'size' => $kb(32 * $G), 'rotational' => '1', 'spundown' => '0', 'fsType' => 'vfat',
+                     'fsSize' => $kb(32 * $G), 'fsFree' => $kb(30 * $G), 'transport' => 'usb'],
+        'parity2' => ['name' => 'parity2', 'device' => '', 'type' => 'Parity'],
+    ];
+    $asleep = array_map('diskAsleep', $disks);
+    $at = fn (int $t) => date('D M j H:i:s Y', $t);
+    $status = "  pool: cache\n state: ONLINE\n  scan: scrub repaired 12K in 1 days 02:03:04 with 2 errors on {$at($now - 86400)}\nconfig:\n"
+            . "  pool: disk2\n state: ONLINE\n  scan: resilvered 252K in 00:00:09 with 0 errors on {$at($now - 3 * 86400)}\n"
+            . "  pool: tank\n state: ONLINE\n  scan: scrub in progress since {$at($now - 600)}\n\t1.2T / 3T scanned, 1T / 3T issued\n\t0B repaired, 41.50% done, 00:30:00 to go\n";
+    $zpool = "cache\t" . 930 * $G . "\t" . 500 * $G . "\t" . 430 * $G . "\t17\t53\t1.00\tONLINE\t12\n"
+           . "disk2\t" . 4 * $T . "\t" . 3 * $T . "\t" . $T . "\t3\t75\t1.00\tONLINE\t12\n"
+           . "tank\t" . 4 * $T . "\t" . $T . "\t" . 3 * $T . "\t-\t25\t1.00x\tDEGRADED\t9\n";
+    $ds = fn (string $n, int $used, int $avail, int $refer, int $snaps, string $mount, string $ratio = '1.00x') => "$n\t$used\t$avail\t$refer\t$snaps\t0\t$ratio\t131072\tlz4\t$mount";
+    $layer = 'cache/system/docker/' . str_repeat('ab', 32);
+    $zfs = implode("\n", [
+        $ds('cache', 500 * $G, 400 * $G, 1 * $G, 0, '/mnt/cache', '1.30x'),
+        $ds('cache/appdata', 120 * $G, 400 * $G, 100 * $G, 20 * $G, '/mnt/cache/appdata'),
+        $ds('cache/media', 200 * $G, 400 * $G, 200 * $G, 0, '/mnt/cache/media'),
+        $ds('cache/system', 30 * $G, 400 * $G, 30 * $G, 0, '/mnt/cache/system'),
+        $ds($layer, 2 * $G, 400 * $G, 2 * $G, 0, 'legacy'),
+        $ds("$layer-init", 1 * $G, 400 * $G, 1 * $G, 0, 'legacy'),
+    ]) . "\n";
+    $share = fn (string $name, string $use, string $primary, ?string $sec, array $pools, array $dsk, array $unknown) => ['name' => $name, 'measure' => "/mnt/user/$name",
+        'storage' => ['use_cache' => $use, 'primary' => $primary, 'secondary' => $sec, 'exclusive' => false, 'real' => null, 'pools' => $pools, 'disks' => $dsk,
+                      'unknown' => $unknown, 'include' => [], 'exclude' => [], 'allocator' => 'highwater', 'dataset' => null, 'missing' => false]];
+    $btrfs = "Overall:\n    Device size:\t\t\t2199023255552\n    Device allocated:\t\t\t644245094400\n    Device unallocated:\t\t1554778161152\n"
+           . "    Device missing:\t\t\t0\n    Used:\t\t\t\t549755813888\n    Free (estimated):\t\t1610612736000\t(min: 833223655424)\n    Data ratio:\t\t\t1.00\n\n"
+           . "Data,single: Size:601295421440, Used:536870912000 (89.29%)\n   /dev/sdf1\t601295421440\n\nMetadata,DUP: Size:21474836480, Used:12884901888 (60.00%)\n"
+           . "System,DUP: Size:33554432, Used:65536 (0.20%)\n";
+    $raw = [
+        'time' => $now, 'disks' => $disks, 'asleep' => $asleep,
+        'health' => ['limits' => ['warning' => 70, 'critical' => 90], 'devices' => [['name' => 'disk1', 'hot' => 45, 'max' => 55, 'warn' => 70, 'crit' => 90],
+            ['name' => 'cache', 'hot' => 60, 'max' => 70, 'warn' => 50, 'crit' => 95]], 'pools' => [['name' => 'cache', 'layout' => 'mirror', 'tolerates' => 1]]],
+        'roots' => ['cache' => ['fs' => 'zfs', 'kind' => 'pool'], 'fast' => ['fs' => 'btrfs', 'kind' => 'pool'], 'disk1' => ['fs' => 'xfs', 'kind' => 'disk'],
+                    'disk2' => ['fs' => 'zfs', 'kind' => 'disk']],
+        'pool_cfg' => ['cache' => ['diskFsType' => 'zfs', 'diskFsProfile' => 'mirror', 'diskFsWidth' => '2'], 'fast' => ['diskFsType' => 'btrfs'], 'tank' => ['diskFsType' => 'zfs']],
+        'zpool_list' => $zpool, 'zpool_status' => $status, 'zfs_list' => $zfs, 'btrfs' => ['fast' => $btrfs],
+        'shares' => [
+            $share('appdata', 'only', 'cache', null, ['cache'], [], []),
+            $share('media', 'yes', 'cache', 'array', ['cache'], ['disk1'], ['disk2']),
+            $share('films', 'no', 'array', null, [], ['disk1'], []),
+            $share('isos', 'no', 'array', null, [], ['disk1'], ['disk2']),
+            $share('fresh', 'only', 'fast', null, ['fast'], [], []),
+            $share('nothing', 'only', 'cache', null, [], [], []),
+        ],
+        'share_cfg' => ['media' => ['split' => '1', 'floor' => '1048576'], 'films' => ['split' => '', 'floor' => '50GB']],
+        'sizes' => ['/mnt/user/films' => ['bytes' => 3 * $T, 'at' => $now - 3600], '/mnt/user/media' => ['bytes' => null, 'at' => $now]],
+        'where' => ['folders' => [['share' => 'appdata', 'folders' => [['name' => 'immich', 'real' => '/mnt/cache/appdata/immich', 'size' => ['bytes' => 9 * $G],
+            'used_by' => [['kind' => 'container', 'name' => 'immich_server']]], ['name' => 'plex', 'real' => '/mnt/cache/appdata/plex', 'size' => null, 'used_by' => []]]]],
+            'appdata' => 'appdata', 'vms' => [['name' => 'win', 'running' => true, 'disks' => [['device' => 'disk', 'source' => '/mnt/user/domains/win/vdisk1.img', 'bytes' => 64 * $G,
+            'allocated' => 20 * $G, 'format' => 'raw'], ['device' => 'cdrom', 'source' => '/mnt/user/isos/x.iso']]]]],
+        'levels' => ['at' => $now - 60, 'pools' => ['cache' => ['size' => 900 * $G, 'used' => 500 * $G, 'nm' => 250 * $G, 'movable' => 250 * $G, 'jack' => 100 * $G,
+            'others' => 150 * $G, 'x' => 80, 'mine' => true]]],
+        'snapshots' => ['at' => $now - 30, 'datasets' => ['cache/appdata' => 7, 'cache' => 2, 'tank/x' => 4]],
+        'docker' => null,
+    ];
+    $s = spaceBuild($raw);
+    $pools = array_column($s['pools'], null, 'name');
+    $devs = array_column($s['devices'], null, 'name');
+    $shares = array_column($s['shares'], null, 'name');
+    same('space: the pools — Unraid\'s cfgs, the mounts, ZFS; never an array disk (disk2) or the flash', ['cache', 'fast', 'tank'], array_keys($pools));
+    same('space: a ZFS pool\'s size from its own dataset (used + available), its devices, Ms. Moverelli\'s split from her state',
+        [900 * $G, 500 * $G, 'zfs', ['cache', 'cache2'], 'mirror', 1, 250 * $G, 150 * $G, 100 * $G, 80],
+        [$pools['cache']['size'], $pools['cache']['used'], $pools['cache']['source'], $pools['cache']['members'], $pools['cache']['layout'], $pools['cache']['tolerates'],
+         $pools['cache']['managed']['fixed'], $pools['cache']['managed']['others'], $pools['cache']['managed']['jack'], $pools['cache']['managed']['x']]);
+    same('space: … its ZFS facts — frag, ashift, dedup, health, compression ratio, snapshots (bytes, Ms. Snapshotini\'s count), Docker\'s layers counted, not listed',
+        [17, 12, 1.0, 'ONLINE', 1.3, 20 * $G, 9, 2, 3 * $G, ['cache', 'cache/appdata', 'cache/media', 'cache/system']],
+        [$pools['cache']['zfs']['frag'], $pools['cache']['zfs']['ashift'], $pools['cache']['zfs']['dedup'], $pools['cache']['zfs']['health'], $pools['cache']['zfs']['ratio'],
+         $pools['cache']['zfs']['snaps'], $pools['cache']['zfs']['snapshots'], $pools['cache']['zfs']['layers'], $pools['cache']['zfs']['layer_bytes'],
+         array_column($pools['cache']['zfs']['datasets'], 'name')]);
+    same('space: the last scan from zpool status — a scrub done (days in its time), a resilver, one running (its %); none on a pool without a scan line',
+        [['scrub', 'done', $now - 86400, 2, 86400 + 7384, '12K'], ['resilver', 'done', 9], ['scrub', 'running', 41.5, $now - 600]],
+        [array_values(array_intersect_key($pools['cache']['zfs']['scan'], array_flip(['what', 'state', 'at', 'errors', 'took', 'repaired']))),
+         [$devs['disk2']['zfs']['scan']['what'], $devs['disk2']['zfs']['scan']['state'], $devs['disk2']['zfs']['scan']['took']],
+         [$pools['tank']['zfs']['scan']['what'], $pools['tank']['zfs']['scan']['state'], $pools['tank']['zfs']['scan']['percent'], $pools['tank']['zfs']['scan']['at']]]);
+    same('space: a sleeping pool — Unraid\'s numbers (disks.ini), its datasets not looked at, its own numbers from zpool (in memory), frag «-» none',
+        [true, 'unraid', 4 * $T, 1 * $T, false, null, 'DEGRADED', 4],
+        [$pools['tank']['asleep'], $pools['tank']['source'], $pools['tank']['size'], $pools['tank']['used'], $pools['tank']['zfs']['looked'], $pools['tank']['zfs']['frag'],
+         $pools['tank']['zfs']['health'], $pools['tank']['zfs']['snapshots']]);
+    same('space: a btrfs pool — disks.ini for its size, the chunks from btrfs filesystem usage',
+        ['btrfs', 2 * $T, 'unraid', 644245094400, 'single', 536870912000, 'dup'],
+        [$pools['fast']['fs'], $pools['fast']['size'], $pools['fast']['source'], $pools['fast']['btrfs']['allocated'], $pools['fast']['btrfs']['data']['profile'],
+         $pools['fast']['btrfs']['data']['used'], $pools['fast']['btrfs']['metadata']['profile']]);
+    same('space: the array — its data disks together (a sleeping one with Unraid\'s numbers), parity apart (only the assigned one)',
+        [2, 11 * $T, 8 * $T, 1, ['parity'], 72.7],
+        [$s['array']['disks'], $s['array']['size'], $s['array']['used'], $s['array']['asleep'], $s['array']['parity'], $s['array']['fill']]);
+    same('space: the devices — role, pool, temperature (none while asleep), errors, Unraid\'s thresholds; what lies on a disk and what may (asleep)',
+        [['data', null, 36, 3, 70, 90, ['media', 'films', 'isos'], []], ['data', null, null, 0, null, null, [], ['media', 'isos']], ['pool', 'cache', 45], ['boot', 'vfat']],
+        [[$devs['disk1']['role'], $devs['disk1']['pool'], $devs['disk1']['temp'], $devs['disk1']['errors'], $devs['disk1']['warn'], $devs['disk1']['crit'], $devs['disk1']['shares'], $devs['disk1']['maybe']],
+         [$devs['disk2']['role'], $devs['disk2']['pool'], $devs['disk2']['temp'], $devs['disk2']['errors'], $devs['disk2']['warn'], $devs['disk2']['crit'], $devs['disk2']['shares'], $devs['disk2']['maybe']],
+         [$devs['cache2']['role'], $devs['cache2']['pool'], $devs['cache2']['temp']], [$devs['flash']['role'], $devs['flash']['fs']]]);
+    check('space: a slot without a device (parity2 unassigned) is no device', !isset($devs['parity2']));
+    same('space: a share\'s bytes — ZFS when every part is a dataset; a du asked for; at least the parts ZFS knows (the rest named); none — never 0; no folder anywhere: empty',
+        [[120 * $G, 'zfs', 20 * $G], [3 * $T, 'du', $now - 3600], [200 * $G, 'part', ['disk1', 'disk2']], [null, null], [null, null], [0, 'empty']],
+        [[$shares['appdata']['bytes'], $shares['appdata']['source'], $shares['appdata']['snaps']], [$shares['films']['bytes'], $shares['films']['source'], $shares['films']['at']],
+         [$shares['media']['bytes'], $shares['media']['source'], $shares['media']['unmeasured']], [$shares['isos']['bytes'], $shares['isos']['source']],
+         [$shares['fresh']['bytes'], $shares['fresh']['source']], [$shares['nothing']['bytes'], $shares['nothing']['source']]]);
+    same('space: … the share\'s settings as they are (split level, min free in KB or with its unit), the path a du of the page measures',
+        [['1', 1048576 * 1024], [null, 50_000_000_000], '/mnt/user/media'],
+        [[$shares['media']['split'], $shares['media']['floor']], [$shares['films']['split'], $shares['films']['floor']], $shares['media']['measure']]);
+    same('space: appdata\'s folders (ZFS or a du; one without a size listed after), the VMs\' disks (no CD-ROM)',
+        [[['immich', 9 * $G, 'zfs', ['immich_server']], ['plex', null, null, []]], [['win', 1, 64 * $G, 20 * $G]]],
+        [array_map(fn ($f) => [$f['name'], $f['bytes'], $f['source'], $f['containers']], $s['appdata']['folders']),
+         array_map(fn ($v) => [$v['name'], count($v['disks']), $v['disks'][0]['bytes'], $v['disks'][0]['allocated']], $s['vms'])]);
+    same('space: what slept, named', ['disk2', 'tank'], $s['asleep']);
+    same('space: Docker\'s df — its sizes (powers of 1000), counts, what could go; a unit it doesn\'t know: none',
+        [['size' => 6_300_000_000, 'reclaimable' => 1_200_000_000, 'count' => 9, 'active' => 5], ['size' => 512_500, 'reclaimable' => 0, 'count' => 3, 'active' => 1], null, 0],
+        [($df = spaceDockerDf("{\"Active\":\"5\",\"Reclaimable\":\"1.2GB (19%)\",\"Size\":\"6.3GB\",\"TotalCount\":\"9\",\"Type\":\"Images\"}\n"
+            . "{\"Active\":\"1\",\"Reclaimable\":\"0B (0%)\",\"Size\":\"512.5kB\",\"TotalCount\":\"3\",\"Type\":\"Local Volumes\"}\nnot json\n"))['images'], $df['volumes'],
+         spaceHumanBytes('12 parsecs'), spaceHumanBytes('0B')]);
+    same('space: the history keeps each pool, the array, each data disk and the boot device (a pool without a size: none)',
+        ['pool:cache', 'pool:fast', 'pool:tank', 'array', 'disk:disk1', 'disk:disk2', 'disk:flash'], array_keys(spaceHistoryPoints($s)));
+
+    // the history: one point a day per thing, 400 days, a broken line dropped, written only when it changed
+    $tmp = hardeningTmp('space-history');
+    $file = "$tmp/h.jsonl";
+    file_put_contents($file, json_encode(['t' => $now - 401 * 86400, 'k' => 'array', 'u' => 1, 's' => 9]) . "\n" . "{broken\n"
+        . json_encode(['t' => $now - 2 * 86400, 'k' => 'array', 'u' => 5, 's' => 9]) . "\n");
+    $h = spaceHistoryAdd(['array' => [6, 9], 'pool:cache' => [3, 4]], $file, $now);
+    same('space history: an old line (over 400 days) and a broken one gone, today\'s points added', [[[$now - 2 * 86400, 5, 9], [$now, 6, 9]], [[$now, 3, 4]]],
+        [$h['array'], $h['pool:cache']]);
+    $before = (string) file_get_contents($file);
+    $h = spaceHistoryAdd(['array' => [7, 9]], $file, $now + 3600);
+    same('space history: a second look the same day adds nothing (the day\'s first point stays), the file untouched', [2, $before], [count($h['array']), (string) file_get_contents($file)]);
+    $h = spaceHistoryAdd(['array' => [8, 9]], $file, $now + 86400);
+    same('space history: the next day its point', [3, 8, 3], [count($h['array']), $h['array'][2][1], substr_count((string) file_get_contents($file), '"k":"array"')]);
+
+    // her tick: a time compared, no look while the last one is young; wired into her desk; read only
+    $GLOBALS['spaceTried'] = 0;
+    $keep = $GLOBALS['space'];
+    $GLOBALS['space'] = ['time' => time()];
+    spaceTick();
+    same('space: her tick looks again only after SPACE_EVERY', 0, $GLOBALS['spaceTried']);
+    $GLOBALS['space'] = $keep;
+    check('space: her action and her tick part', isset(desks()['cleanup']['actions']['space_refresh']) && (clTickParts()['space'] ?? null) === 'spaceTick');
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/space.php');
+    check('space: read only — no du, no smartctl, no zfs set or other change; it writes only its two files',
+        !preg_match('/\[\'(du|nice|smartctl)\'|bin\(\'(du|smartctl)\'\)|\$zfs, \'(set|destroy|snapshot|rename|create)\'|\$zpool, \'(scrub|set|clear)\'|file_put_contents|unlink\(|rename\(/', $src)
+        && substr_count($src, 'writeAtomic(') === 2 && str_contains($src, "[\$zfs, 'list', '-Hp'"));
+    check('space: zfs list -r only on the awake pools (poolsBySleep), btrfs only on an awake pool, Docker\'s df only while its place is awake',
+        str_contains($src, "poolsBySleep(\$names, \$asleep)['awake']") && str_contains($src, "!baseAsleep((string) \$name, \$asleep)") && str_contains($src, '!$sleeping && file_exists('));
 }
 
 /**
@@ -29472,7 +29643,7 @@ function testWhereBuilding(): void
 function testCleanupTick(): void
 {
     same('cleanup tick: her parts, in order', ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick', 'drill' => 'clDrillCopiesTick',
-        'docker' => 'clDockerBackTick', 'scheduled' => 'clScheduledTick'], clTickParts());
+        'docker' => 'clDockerBackTick', 'scheduled' => 'clScheduledTick', 'space' => 'spaceTick'], clTickParts());
     same('cleanup tick: each a function', [], array_keys(array_filter(clTickParts(), fn ($f) => !is_callable($f))));
     $ran = [];
     $boom = true;
@@ -56377,7 +56548,8 @@ function testCleanupTiles(): void
     foreach ($where['shares'] as $i => $s) {
         $where['shares'][$i]['storage']['missing'] = $s['name'] === 'media';
     }
-    file_put_contents("$tmp/fx.json", json_encode(['where' => $where, 'rooms' => $rooms['state'] ?? $rooms]));
+    $space = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/states/cleanup-space.json'), true);
+    file_put_contents("$tmp/fx.json", json_encode(['where' => $where, 'rooms' => $rooms['state'] ?? $rooms, 'space' => $space]));
     file_put_contents("$tmp/t.js", <<<'JS'
 const fs = require('fs');
 const [core, desk, fxFile] = process.argv.slice(2);
@@ -56405,7 +56577,8 @@ globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textCon
 globalThis.fetch = async (url) => {
   const u = new URLSearchParams(String(url).split('?')[1] || '');
   const look = (k, data) => ({ ok: true, [k]: data, age: 5, stale: false, refreshing: false, refresh_after: 600 });
-  const a = u.get('a') === 'part' && u.get('part') === 'where' ? look('part', FX.where) : u.get('a') === 'state' ? look('state', FX.rooms) : { ok: false };
+  const a = u.get('a') === 'part' && u.get('part') === 'where' ? look('part', FX.where) : u.get('a') === 'part' && u.get('part') === 'space' ? look('part', FX.space)
+    : u.get('a') === 'state' ? look('state', FX.rooms) : { ok: false };
   return { redirected: false, url, ok: true, status: 200, json: async () => a, text: async () => JSON.stringify(a) };
 };
 globalThis.OFFICE_DESK_TESTS = {};
@@ -56431,6 +56604,20 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   out.vms = [ct.page(), ...body(ws), location.hash];
   await visit('where/stat:temp');
   out.temp = body(ws);
+  // «Storage»: its tile's route draws the section alone (bars, treemap, table, Docker — under this stand-in DOM)
+  await visit('where/space');
+  out.space = [ct.page(), ...body(ws)];
+  const sp = ct.where.space;
+  const cells = sp.squarify([{ v: 50 }, { v: 30 }, { v: 15 }, { v: 5 }], 0, 0, 100, 1);
+  out.squarify = [cells.length, Math.round(cells.reduce((a, c) => a + c.w * c.h, 0) * 1000) / 1000,
+    cells.every((c) => c.x >= -1e-9 && c.y >= -1e-9 && c.x + c.w <= 100 + 1e-6 && c.y + c.h <= 1 + 1e-6)];
+  const sq = sp.squarify([{ v: 6 }, { v: 6 }, { v: 4 }, { v: 3 }, { v: 2 }, { v: 2 }, { v: 1 }], 0, 0, 6, 4);
+  out.squarify2 = [sq.length, Math.round(sq.reduce((a, c) => a + c.w * c.h, 0) * 1000) / 1000, Math.max(...sq.map((c) => Math.max(c.w / c.h, c.h / c.w))) < 4];
+  const top = sp.fullest();
+  out.fullest = top ? [top.name, top.level] : null;
+  out.unmeasured = sp.shareBytes({ bytes: null, source: null, measure: '/mnt/user/x' });
+  out.kinds = [sp.shareKind({ primary: 'cache', secondary: null }), sp.shareKind({ primary: 'array', secondary: null }), sp.shareKind({ primary: 'cache', secondary: 'array' })];
+  out.levels = [sp.level(69.9, 70, 90), sp.level(70, 70, 90), sp.level(95, 70, 90), sp.level(95, 0, 0), sp.level(null, 70, 90)];
   await visit('tidy');
   out.tidy = [ct.page(), kept['office.cleanup.page'], ...body(ct.tidy)];
   await visit('tidy/docker');
@@ -56461,8 +56648,18 @@ JS);
     $sys = $where['system'];
     same('cleanup tiles: the first visit opens «Where is what» (kept as cleanup.page), «Where things are» alone under the row',
         ['where', 'where', 'places', 'places'], $r['first']);
-    same('cleanup tiles: one row of 13 tiles — her advice, «Where things are», the eleven corners',
-        ['advice', 'places', 'shares', 'folders', 'docker', 'vms', 'disks', 'access', 'network', 'scripts', 'backups', 'notices', 'plugins'], $r['tiles']);
+    same('cleanup tiles: one row of 14 tiles — her advice, «Where things are», «Storage», the eleven corners',
+        ['advice', 'places', 'space', 'shares', 'folders', 'docker', 'vms', 'disks', 'access', 'network', 'scripts', 'backups', 'notices', 'plugins'], $r['tiles']);
+    same('cleanup tiles: «Storage» says the fullest pool or disk in % (alert over Unraid\'s warning) and what is free', [true, true, true],
+        [(bool) preg_match('/%$/u', (string) ($r['faces']['space'][0] ?? '')), str_contains((string) ($r['faces']['space'][1] ?? ''), 'where.space.tile_fullest'),
+         $r['faces']['space'][2] ?? null]);
+    same('cleanup tiles: #/cleanup/where/space — «Storage» alone under the row', ['where', 'space', 'space'], $r['space']);
+    same('cleanup tiles: the treemap\'s squares fill their box exactly (areas kept, none outside) and stay square-ish',
+        [[4, 100, true], [7, 24, true]], [$r['squarify'], $r['squarify2']]);
+    same('cleanup tiles: «Storage» — the fullest over the warning threshold (the stub: disk3 at 86 %); a share without a measure has none (never 0)',
+        [['disk3', 'warn'], ['bytes' => null, 'how' => null]], [$r['fullest'], $r['unmeasured']]);
+    same('cleanup tiles: … colour families by where a share lies; Unraid\'s thresholds (0 = none)', [['pool', 'array', 'mixed'], ['', 'warn', 'danger', '', '']],
+        [$r['kinds'], $r['levels']]);
     same('cleanup tiles: the corner tiles carry the live numbers — Docker and VMs running of all, the hottest disk, SMB sessions, the engine',
         ["{$sys['docker']['running']} / {$sys['docker']['total']}", $sys['vms']['total'] ? "{$sys['vms']['running']} / {$sys['vms']['total']}" : '–', true, true, true],
         [$r['faces']['docker'][0] ?? null, $r['faces']['vms'][0] ?? null, (bool) preg_match('/°C$|^–$/u', (string) ($r['faces']['disks'][0] ?? '')),
@@ -60421,7 +60618,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
