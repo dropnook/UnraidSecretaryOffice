@@ -1927,6 +1927,8 @@
   "where.space.kind.mixed_tip": "Partages avec d'abord un pool, puis l'array (ou un autre pool)",
   "where.space.kind.part": "au moins (des parties non mesurées)",
   "where.space.unmeasured": "pas mesuré",
+  "where.space.measuring": "mesure en cours",
+  "where.space.measuring_tip": "Un du tourne ou attend son tour — le chiffre affiché reste jusqu'à ce qu'il ait fini",
   "where.space.at_least": "au moins — pas mesuré sur {list}",
   "where.space.empty": "aucun dossier sur aucun disque ni pool",
   "where.space.lies_on": "se trouve sur {list}",

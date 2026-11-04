@@ -1927,6 +1927,8 @@
   "where.space.kind.mixed_tip": "Condivisioni con prima un pool e poi l'array (o un altro pool)",
   "where.space.kind.part": "almeno (alcune parti non misurate)",
   "where.space.unmeasured": "non misurata",
+  "where.space.measuring": "in misurazione",
+  "where.space.measuring_tip": "Un du è in corso o in attesa del suo turno — la cifra mostrata resta finché non ha finito",
   "where.space.at_least": "almeno — non misurata su {list}",
   "where.space.empty": "nessuna cartella su alcun disco o pool",
   "where.space.lies_on": "sta su {list}",

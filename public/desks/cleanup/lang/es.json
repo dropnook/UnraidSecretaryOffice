@@ -1927,6 +1927,8 @@
   "where.space.kind.mixed_tip": "Recursos compartidos con un pool primero y el array (u otro pool) después",
   "where.space.kind.part": "al menos (partes sin medir)",
   "where.space.unmeasured": "sin medir",
+  "where.space.measuring": "midiendo",
+  "where.space.measuring_tip": "Un du está en marcha o espera su turno — la cifra mostrada se queda hasta que termine",
   "where.space.at_least": "al menos — sin medir en {list}",
   "where.space.empty": "ninguna carpeta en ningún disco ni pool",
   "where.space.lies_on": "está en {list}",

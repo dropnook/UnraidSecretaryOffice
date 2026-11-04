@@ -1927,6 +1927,8 @@
   "where.space.kind.mixed_tip": "Shares with a pool first and the array (or another pool) second",
   "where.space.kind.part": "at least (some parts not measured)",
   "where.space.unmeasured": "not measured",
+  "where.space.measuring": "measuring",
+  "where.space.measuring_tip": "A du of it runs or waits its turn — the figure shown stays until it is in",
   "where.space.at_least": "at least — not measured on {list}",
   "where.space.empty": "no folder on any disk or pool",
   "where.space.lies_on": "lies on {list}",

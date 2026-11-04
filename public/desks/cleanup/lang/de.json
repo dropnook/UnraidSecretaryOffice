@@ -1927,6 +1927,8 @@
   "where.space.kind.mixed_tip": "Shares mit einem Pool zuerst und dem Array (oder einem anderen Pool) danach",
   "where.space.kind.part": "mindestens (Teile nicht gemessen)",
   "where.space.unmeasured": "nicht gemessen",
+  "where.space.measuring": "wird gemessen",
+  "where.space.measuring_tip": "Ein du läuft oder wartet darauf — die gezeigte Zahl bleibt, bis es fertig ist",
   "where.space.at_least": "mindestens — auf {list} nicht gemessen",
   "where.space.empty": "kein Ordner auf irgendeiner Disk oder einem Pool",
   "where.space.lies_on": "liegt auf {list}",

@@ -3977,13 +3977,20 @@ function spaceTotals() {
   return { size, used, free: Math.max(0, size - used) };
 }
 
-/** A share's bytes: the agent's (ZFS, a du, the parts ZFS knows), else a du measured since on this page — or none */
+/**
+ * A share's bytes: complete from ZFS (or nothing there) as the agent says; else a du — the page's newer one beats the
+ * agent's and the parts ZFS knows («at least»); else those parts; else none. `measuring`: a du of it runs or waits
+ * right now (the figure shown stays what it was until the du is in).
+ */
 function shareBytes(s) {
-  if (s.bytes !== null && s.bytes !== undefined) return { bytes: s.bytes, how: s.source, at: s.at };
+  const measuring = sizes.running.includes(s.measure) || sizes.queue.includes(s.measure);
   const m = sizes.sizes[s.measure];
-  if (m && m.bytes !== null && m.bytes !== undefined) return { bytes: m.bytes, how: 'du', at: m.at };
-  if (sizes.running.includes(s.measure) || sizes.queue.includes(s.measure)) return { bytes: null, how: 'measuring' };
-  return { bytes: null, how: null };
+  const du = m && m.bytes !== null && m.bytes !== undefined ? { bytes: m.bytes, how: 'du', at: m.at, measuring } : null;
+  const own = s.bytes !== null && s.bytes !== undefined ? { bytes: s.bytes, how: s.source, at: s.at, measuring } : null;
+  if (own && (own.how === 'zfs' || own.how === 'empty')) return own;
+  if (du && (!own || own.how !== 'du' || (du.at || 0) >= (own.at || 0))) return du;
+  if (own) return own;
+  return { bytes: null, how: measuring ? 'measuring' : null, measuring };
 }
 
 /** Where a share's data may lie: pool only, array only, or both (cache yes/prefer) — its colour family */
@@ -4209,7 +4216,7 @@ function shareLine(s) {
   const b = shareBytes(s);
   const box = el('div', 'cl-space-tminfo');
   const where = s.parts.map((p) => `${p.root}${p.bytes !== null ? ' ' + fmt.size(p.bytes) : ''}`).concat(s.unknown.map((r) => `${r} (${T('where.space.asleep')})`));
-  const how = b.bytes === null ? T(b.how === 'measuring' ? 'where.measuring' : 'where.space.unmeasured')
+  const how = b.measuring ? T('where.space.measuring') : b.bytes === null ? T('where.space.unmeasured')
     : b.how === 'du' ? T('where.measured_at', { when: fmt.relative(b.at) }) : b.how === 'part' ? T('where.space.at_least', { list: s.unmeasured.join(', ') })
     : b.how === 'empty' ? T('where.space.empty') : 'ZFS';
   box.append(el('b', '', s.name), ` · ${b.bytes !== null ? fmt.size(b.bytes) : '–'} · ${how}`);
@@ -4286,11 +4293,14 @@ function spaceShares() {
     sw2.appendChild(svg('rect', { class: 'cl-space-hatch', x: 0, y: 0, width: 10, height: 10 }));
     un.append(sw2, el('span', '', T('where.space.unmeasured_list', { n: unmeasured.length })));
     for (const x of unmeasured) {
-      const tip = x.b.how === 'measuring' ? T('where.measuring') : x.b.how === 'part' ? T('where.space.at_least', { list: x.s.unmeasured.join(', ') })
+      const tip = x.b.how === 'part' ? T('where.space.at_least', { list: x.s.unmeasured.join(', ') })
         : T('where.space.unmeasured_tip', { where: x.s.parts.map((p) => p.root).concat(x.s.unknown).join(', ') || '–' });
-      un.appendChild(chip(x.s.name, 'quiet', tip));
+      if (!x.b.measuring) { un.appendChild(chip(x.s.name, 'quiet', tip)); continue; }
+      const c = chip('', 'quiet running', T('where.space.measuring_tip'));      // the wave: its du runs or waits
+      c.append(el('span', 'spin'), ` ${x.s.name} · ${T('where.space.measuring')}`);
+      un.appendChild(c);
     }
-    const can = unmeasured.filter((x) => x.b.how !== 'measuring');
+    const can = unmeasured.filter((x) => !x.b.measuring);
     if (can.length) {
       const btn = el('button', 'btn small', T('where.space.measure', { n: can.length }));
       btn.type = 'button';
