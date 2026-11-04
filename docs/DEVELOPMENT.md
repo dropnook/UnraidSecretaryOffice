@@ -813,7 +813,12 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   (`job.sh cleanup` → `job cleanup-tour-due`, a mark in RAM); her tick (`clScheduledTick()`) tours as «Tour» does —
   `whereTour(false)`, then `clScan(false, true, true)`, never with wake: what sleeps is left out and named
   (`clTourAsleep()`); the last one in `cleanup/schedule.json`; her tile «Schedule» at the end of her rooms
-  (`#/cleanup/schedule` → `tidy/schedule`). No notification (she sends none). No advice on ZFS's ARC or VM RAM (owner 2026-10-25). «Where is what» never
+  (`#/cleanup/schedule` → `tidy/schedule`). No notification (she sends none). No advice on ZFS's ARC or VM RAM (owner 2026-10-25). **«Storage»** (2026-11-04, a section with its tile `#/cleanup/where/space`, no third tab): agent/lib/space.php, the
+  part «space» (`cleanup-space.json`, action `space_refresh`, the tour brings it too, her tick looks every `SPACE_EVERY`)
+  and its history `cleanup-space-history.jsonl` (a point a day per pool, the array, data disk and boot device, 400 days);
+  read only and only what is awake — disks.ini for a sleeping disk, `zfs list -r` of the awake pools, btrfs usage of an awake
+  pool, `docker system df` at most every 6 h while its place is awake, Ms. Moverelli's split and Ms. Snapshotini's counts from
+  their state files; a share without a ZFS dataset or a du is «not measured» (null, hatched), never 0. Inline SVG, `cl-space-*`. «Where is what» never
   paints red what comes back at every start: /etc/cron.d, Docker's own data without volumes carry their source's protection
   (`waCronPlace()`, `waDockerImage()`); «not backed up» only for what a restart loses (lines added to root's crontab, a
   cron.d file no plugin writes); the cron place counts job lines in its head and RAM rows, files on the flash row. **Never deletes right

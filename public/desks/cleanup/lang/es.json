@@ -2027,12 +2027,14 @@
   "where.space.df_part": "{size} · {count} · {back} podrían irse",
   "where.space.df_when": "Docker contó",
   "where.space.df_asleep": "sin preguntar: {list} en reposo",
-  "where.space.df_none": "aún sin preguntar",
+  "where.space.df_none": "aún sin preguntar — la próxima ronda lo pregunta",
   "where.space.vms": "Los discos de las VM",
   "where.space.vdisk": "dice {size}, ocupa {takes}",
   "where.space.appdata": "Las carpetas más grandes de appdata ({share})",
   "where.space.appdata_rest": {"one": "{n} carpeta más sin tamaño — «Carpetas» puede medirla.", "other": "{n} carpetas más sin tamaño — «Carpetas» puede medirlas."},
   "where.find.space_warn": "{name} está al {pct} — no es mi departamento, pero yo echaría un vistazo",
   "where.help.space": "Espacio",
-  "where.help.space_text": "Cada pool y cada disco como barra: ocupado, en instantáneas, libre; las marcas son los umbrales de aviso y crítico de Unraid. Un pool que cuida la Señora Moverelli muestra su reparto. La línea al lado es su historial, un punto al día. Los recursos compartidos como bloques del tamaño de lo que ocupan; uno rayado aún no está medido (nunca dibujado vacío). Las filas de la tabla se despliegan al resto para curiosos: datasets, compresión, último scrub, temperaturas. Nada se despierta para nada de esto."
+  "where.help.space_text": "Cada pool y cada disco como barra: ocupado, en instantáneas, libre; las marcas son los umbrales de aviso y crítico de Unraid. Un pool que cuida la Señora Moverelli muestra su reparto. La línea al lado es su historial, un punto al día. Los recursos compartidos como bloques del tamaño de lo que ocupan; uno rayado aún no está medido (nunca dibujado vacío). Las filas de la tabla se despliegan al resto para curiosos: datasets, compresión, último scrub, temperaturas. Nada se despierta para nada de esto.",
+  "where.space.amount.scrub": "{size} reparados",
+  "where.space.amount.resilver": "{size} reconstruidos (resilver)"
 }

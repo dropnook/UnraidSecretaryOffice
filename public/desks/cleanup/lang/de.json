@@ -2027,12 +2027,14 @@
   "where.space.df_part": "{size} · {count} · {back} könnten weg",
   "where.space.df_when": "Docker gezählt",
   "where.space.df_asleep": "nicht gefragt: {list} schläft",
-  "where.space.df_none": "noch nicht gefragt",
+  "where.space.df_none": "noch nicht gefragt — der nächste Rundgang fragt",
   "where.space.vms": "Die Disks der VMs",
   "where.space.vdisk": "sagt {size}, belegt {takes}",
   "where.space.appdata": "Die grössten Ordner in appdata ({share})",
   "where.space.appdata_rest": {"one": "{n} weiterer Ordner ohne Grösse — «Ordner» kann ihn messen.", "other": "{n} weitere Ordner ohne Grösse — «Ordner» kann sie messen."},
   "where.find.space_warn": "{name} ist bei {pct} — nicht mein Ressort, aber ich würde nachsehen",
   "where.help.space": "Speicherplatz",
-  "where.help.space_text": "Jeder Pool und jede Disk als Balken: belegt, in Snapshots, frei; die Striche sind Unraids Warn- und kritische Schwelle. Ein Pool, den Frau Moverelli betreut, zeigt ihre Aufteilung. Die Linie daneben ist sein Verlauf, ein Punkt pro Tag. Die Shares als Flächen, so gross wie das, was sie belegen; eine schraffierte ist noch nicht gemessen (nie als leer gezeichnet). Die Zeilen der Tabelle klappen auf zum nerdigen Rest: Datasets, Kompression, letzter Scrub, Temperaturen. Für nichts davon wird etwas geweckt."
+  "where.help.space_text": "Jeder Pool und jede Disk als Balken: belegt, in Snapshots, frei; die Striche sind Unraids Warn- und kritische Schwelle. Ein Pool, den Frau Moverelli betreut, zeigt ihre Aufteilung. Die Linie daneben ist sein Verlauf, ein Punkt pro Tag. Die Shares als Flächen, so gross wie das, was sie belegen; eine schraffierte ist noch nicht gemessen (nie als leer gezeichnet). Die Zeilen der Tabelle klappen auf zum nerdigen Rest: Datasets, Kompression, letzter Scrub, Temperaturen. Für nichts davon wird etwas geweckt.",
+  "where.space.amount.scrub": "{size} repariert",
+  "where.space.amount.resilver": "{size} neu geschrieben (Resilver)"
 }

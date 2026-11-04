@@ -2027,12 +2027,14 @@
   "where.space.df_part": "{size} · {count} · {back} pourraient partir",
   "where.space.df_when": "Docker a compté",
   "where.space.df_asleep": "pas demandé : {list} endormi",
-  "where.space.df_none": "pas encore demandé",
+  "where.space.df_none": "pas encore demandé — la prochaine tournée le demande",
   "where.space.vms": "Les disques des VM",
   "where.space.vdisk": "annonce {size}, occupe {takes}",
   "where.space.appdata": "Les plus gros dossiers d'appdata ({share})",
   "where.space.appdata_rest": {"one": "{n} autre dossier sans taille — « Dossiers » peut le mesurer.", "other": "{n} autres dossiers sans taille — « Dossiers » peut les mesurer."},
   "where.find.space_warn": "{name} est à {pct} — ce n'est pas mon rayon, mais j'irais voir",
   "where.help.space": "Espace",
-  "where.help.space_text": "Chaque pool et chaque disque en barre : occupé, dans les snapshots, libre ; les traits sont les seuils d'avertissement et critique d'Unraid. Un pool dont s'occupe Madame Moverelli montre sa répartition. La ligne à côté est son historique, un point par jour. Les partages en blocs de la taille de ce qu'ils occupent ; un bloc hachuré n'est pas encore mesuré (jamais dessiné vide). Les lignes du tableau se déplient sur le reste pour les passionnés : datasets, compression, dernier scrub, températures. Rien n'est réveillé pour tout cela."
+  "where.help.space_text": "Chaque pool et chaque disque en barre : occupé, dans les snapshots, libre ; les traits sont les seuils d'avertissement et critique d'Unraid. Un pool dont s'occupe Madame Moverelli montre sa répartition. La ligne à côté est son historique, un point par jour. Les partages en blocs de la taille de ce qu'ils occupent ; un bloc hachuré n'est pas encore mesuré (jamais dessiné vide). Les lignes du tableau se déplient sur le reste pour les passionnés : datasets, compression, dernier scrub, températures. Rien n'est réveillé pour tout cela.",
+  "where.space.amount.scrub": "{size} réparés",
+  "where.space.amount.resilver": "{size} reconstruits (resilver)"
 }

@@ -2027,12 +2027,14 @@
   "where.space.df_part": "{size} · {count} · {back} potrebbero sparire",
   "where.space.df_when": "Docker ha contato",
   "where.space.df_asleep": "non chiesto: {list} in standby",
-  "where.space.df_none": "non ancora chiesto",
+  "where.space.df_none": "non ancora chiesto — il prossimo giro lo chiede",
   "where.space.vms": "I dischi delle VM",
   "where.space.vdisk": "dice {size}, occupa {takes}",
   "where.space.appdata": "Le cartelle più grandi di appdata ({share})",
   "where.space.appdata_rest": {"one": "{n} altra cartella senza dimensione — «Cartelle» può misurarla.", "other": "{n} altre cartelle senza dimensione — «Cartelle» può misurarle."},
   "where.find.space_warn": "{name} è al {pct} — non è il mio reparto, ma darei un'occhiata",
   "where.help.space": "Spazio",
-  "where.help.space_text": "Ogni pool e ogni disco come barra: occupato, negli snapshot, libero; i trattini sono la soglia di avviso e quella critica di Unraid. Un pool che cura la Signora Moverelli mostra la sua ripartizione. La linea accanto è la sua storia, un punto al giorno. Le condivisioni come blocchi grandi quanto ciò che occupano; uno tratteggiato non è ancora misurato (mai disegnato vuoto). Le righe della tabella si aprono sul resto da nerd: dataset, compressione, ultimo scrub, temperature. Per nulla di tutto ciò si sveglia qualcosa."
+  "where.help.space_text": "Ogni pool e ogni disco come barra: occupato, negli snapshot, libero; i trattini sono la soglia di avviso e quella critica di Unraid. Un pool che cura la Signora Moverelli mostra la sua ripartizione. La linea accanto è la sua storia, un punto al giorno. Le condivisioni come blocchi grandi quanto ciò che occupano; uno tratteggiato non è ancora misurato (mai disegnato vuoto). Le righe della tabella si aprono sul resto da nerd: dataset, compressione, ultimo scrub, temperature. Per nulla di tutto ciò si sveglia qualcosa.",
+  "where.space.amount.scrub": "{size} riparati",
+  "where.space.amount.resilver": "{size} ricostruiti (resilver)"
 }

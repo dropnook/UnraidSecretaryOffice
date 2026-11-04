@@ -4316,7 +4316,7 @@ function scanCell(z) {
   if (sc.state === 'running') return chip(T('where.space.scan_running', { what: T('where.space.scan.' + sc.what), pct: sc.percent !== null ? pctText(sc.percent) : '…' }), 'accent', T('where.space.scan_since', { when: fmt.date(sc.at) }));
   const old = sc.at && Date.now() / 1000 - sc.at > 60 * 86400;
   const c = chip(`${T('where.space.scan.' + sc.what)} ${sc.at ? fmt.relative(sc.at) : ''}`.trim(), sc.errors ? 'danger' : old && sc.what === 'scrub' ? 'warn' : 'quiet');
-  c.title = sc.state === 'done' ? T('where.space.scan_tip', { what: T('where.space.scan.' + sc.what), when: fmt.date(sc.at), took: fmt.duration(sc.took || 0), errors: nOf('errors', sc.errors || 0), amount: sc.repaired || '0B' })
+  c.title = sc.state === 'done' ? T('where.space.scan_tip', { what: T('where.space.scan.' + sc.what), when: fmt.date(sc.at), took: fmt.duration(sc.took || 0), errors: nOf('errors', sc.errors || 0), amount: T('where.space.amount.' + sc.what, { size: sc.repaired || '0B' }) })
     : T('where.space.scan_' + sc.state, { what: T('where.space.scan.' + sc.what), when: fmt.date(sc.at) });
   return c;
 }

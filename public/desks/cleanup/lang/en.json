@@ -2027,12 +2027,14 @@
   "where.space.df_part": "{size} · {count} · {back} could go",
   "where.space.df_when": "Docker counted",
   "where.space.df_asleep": "not asked: {list} asleep",
-  "where.space.df_none": "not asked yet",
+  "where.space.df_none": "not asked yet — the next tour asks it",
   "where.space.vms": "The VMs' disks",
   "where.space.vdisk": "says {size}, takes {takes}",
   "where.space.appdata": "Appdata's biggest folders ({share})",
   "where.space.appdata_rest": {"one": "{n} more folder without a size — «Folders» can measure it.", "other": "{n} more folders without a size — «Folders» can measure them."},
   "where.find.space_warn": "{name} is at {pct} — not my department, but I'd look",
   "where.help.space": "Storage",
-  "where.help.space_text": "Each pool and disk as a bar: used, in snapshots, free; the marks are Unraid's warning and critical thresholds. A pool Ms. Moverelli keeps shows her split. The line beside it is its history, one point a day. The shares as blocks sized by what they take; a hatched one isn't measured yet (never drawn as empty). The table's rows unfold to the nerdy rest: datasets, compression, last scrub, temperatures. Nothing is woken for any of it."
+  "where.help.space_text": "Each pool and disk as a bar: used, in snapshots, free; the marks are Unraid's warning and critical thresholds. A pool Ms. Moverelli keeps shows her split. The line beside it is its history, one point a day. The shares as blocks sized by what they take; a hatched one isn't measured yet (never drawn as empty). The table's rows unfold to the nerdy rest: datasets, compression, last scrub, temperatures. Nothing is woken for any of it.",
+  "where.space.amount.scrub": "{size} repaired",
+  "where.space.amount.resilver": "{size} resilvered"
 }
