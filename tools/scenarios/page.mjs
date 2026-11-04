@@ -178,8 +178,12 @@ function keyPatterns(key, lang) {
   const v = keyText(key, lang);
   if (v === undefined) return null;
   const forms = typeof v === 'string' ? [v] : Object.values(v || {}).filter((x) => typeof x === 'string');
+  // the words between the placeholders, each gap `[\s\S]*?`; a placeholder at the text's start or end (or two in a row)
+  // leaves no words — dropped, or the pattern began with `[\s\S]*?` and crawled the whole page text from every position
+  // (2026-11-04: «{n} Snapshots sind eingehängt» took 41 s per language on a page's innerText; 150 s per scenario on the
+  // release's Mac-side checks)
   return forms.map((t) => new RegExp(t.split(/\{[^}]*\}|⟦[^⟧]*⟧|<[^>]*>/).map((part) => part.trim().split(/\s+/).filter(Boolean)
-    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+')).join('[\\s\\S]*?')));
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+')).filter(Boolean).join('[\\s\\S]*?')));
 }
 function keyChecks(text, lang) {
   const out = [];

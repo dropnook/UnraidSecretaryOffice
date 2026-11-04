@@ -200,8 +200,10 @@ else
     done
     [[ -n $list ]] || { say "none of these desks has a pre-release scenario - nothing to run"; exit 3; }
 fi
-est=$(printf '%s\n' "$list" | awk -F'\t' '{s += $2} END {print int((s + 59) / 60)}')
-say "$(printf '%s\n' "$list" | wc -l | tr -d ' ') scenario(s)$( [[ -z $only ]] && echo ", ≈ $est min on Tower (+ the base reset and the Mac-side checks)"):"
+# the estimate: each scenario's own seconds plus ≈ 50 s of Mac-side checks after it (15 page drawings and the truth
+# look, 2026-11-04's measure: 3 s a drawing) — the base reset(s) on top
+est=$(printf '%s\n' "$list" | awk -F'\t' '{s += $2 + 50} END {print int((s + 59) / 60)}')
+say "$(printf '%s\n' "$list" | wc -l | tr -d ' ') scenario(s)$( [[ -z $only ]] && echo ", ≈ $est min on Tower with the Mac-side checks (+ the base reset)"):"
 printf '%s\n' "$list" | awk -F'\t' '{printf "   %-48s %s\n", $1, ($2 > 0 ? "≈ " $2 " s" : "")}'
 if ((dry)); then
     say "(dry, not run) USO_RUN_TAG=prerelease bash tools/scenarios/run.sh tower --only <these> --dev-sync"

@@ -1,7 +1,8 @@
 # The pre-release set: what tools/release.sh step 6b runs (through tools/scenarios/prerelease.sh) for the desks a release
 # touches. Short scenarios that were green on their last runs on Tower - no reboot half, no clock change, no let-go, nothing
 # marked nightly - all of them together ≈ 37 min on Tower (2026-10-30: six of wave 3 added, each run green on main that day),
-# the base reset and the Mac-side checks on top.
+# plus ≈ 50 s of Mac-side checks after each (≈ 75 min in all; 2026-11-04: before page.mjs's pattern fix they took 3 h),
+# the base reset on top.
 #
 # One a line, in the order they run:   <name>   <desk>[,<desk>…]   <seconds on Tower>
 # The desks are the ones whose changes call the scenario (prerelease.sh maps the release's changed files to desks); the
