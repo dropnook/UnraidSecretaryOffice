@@ -320,6 +320,45 @@
   ]
  },
  {
+  "nr": 7,
+  "desk": "cleanup",
+  "moment": "space",
+  "title": "Frau Putzteufel - Speicherplatz: jeder Pool und jede Disk als Balken mit Unraids Schwellen, die Shares als Blöcke nach Grösse",
+  "route": "cleanup/where",
+  "prepare": [
+   {
+    "click": "[data-place=\"where.space\"]",
+    "pause": 700
+   }
+  ],
+  "clip": [
+   "[data-place=\"where.space.bars\"]",
+   "[data-place=\"where.space.shares\"]"
+  ],
+  "pad": 0
+ },
+ {
+  "nr": 7,
+  "desk": "cleanup",
+  "moment": "space-details",
+  "title": "Frau Putzteufel - Speicherplatz, die Einzelheiten: ein Pool aufgeklappt mit Aufbau, Scrub, Snapshots und seinen Datasets",
+  "route": "cleanup/where",
+  "prepare": [
+   {
+    "click": "[data-place=\"where.space\"]",
+    "pause": 700
+   },
+   {
+    "click": "[data-place=\"where.space.table\"] .row.unfolds",
+    "pause": 500
+   }
+  ],
+  "clip": [
+   "[data-place=\"where.space.table\"]"
+  ],
+  "pad": 0
+ },
+ {
   "nr": 8,
   "desk": "logs",
   "moment": "tour",
