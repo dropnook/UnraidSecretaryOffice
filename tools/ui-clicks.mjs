@@ -596,6 +596,30 @@ async function cleanupMap(browser) {
     errors.forEach((e) => fail(`${width} px: ${e}`));
     await ctx.close();
   }
+  // by finger: a tap shows what it is, a tap on what is shown goes in
+  {
+    const ctx = await browser.newContext({ viewport: { width: 375, height: 800 }, hasTouch: true, isMobile: true, locale: 'en-US' });
+    const page = await ctx.newPage();
+    try {
+      await page.goto(`${h.url}#/cleanup/where/space`, { waitUntil: 'load' });
+      await page.waitForSelector('.cl-space-tmcell', { timeout: 8000 });
+      await page.evaluate(() => { [...document.querySelectorAll('.cl-space-tmcell')].find((c) => c.textContent.startsWith('films')).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      await page.locator('.cl-space-tminfo .cl-map-act button').tap();
+      await page.waitForSelector('.cl-map-svg', { timeout: 5000 });
+      const crumbs = () => page.locator('.cl-map-crumbs > *:not(.cl-map-sep)').count();
+      const before = await crumbs();
+      const cell = page.locator('.cl-map-cell').first();
+      await cell.tap({ position: { x: 6, y: 6 } });
+      if ((await crumbs()) !== before) fail('touch: the first tap went in instead of showing');
+      if (!(await page.locator('.cl-map-info .cl-map-path').count())) fail('touch: the first tap showed nothing');
+      await cell.tap({ position: { x: 6, y: 6 } });
+      if ((await crumbs()) !== before + 1) fail('touch: the second tap did not go in');
+      res.tested++;
+    } catch (e) {
+      fail(`touch: ${String(e.message).split('\n')[0].slice(0, 180)}`);
+    }
+    await ctx.close();
+  }
   await h.close();
   res.ms = Date.now() - t0;
   return res;

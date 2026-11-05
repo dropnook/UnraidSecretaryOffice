@@ -451,7 +451,7 @@ function whereMapJob(array $args): int
     }
     [$tree, $nodes] = whereMapFinish($walk['tree']);
     $dir = whereMapDir();
-    if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+    if (!is_dir($dir) && !@mkdir($dir, 0700, true)) {
         return 4;
     }
     writeAtomic(whereMapFile($share), jsonEncode(['v' => WHERE_MAP_V, 'share' => $share, 'path' => $path, 'at' => time(),
