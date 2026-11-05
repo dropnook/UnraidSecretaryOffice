@@ -374,8 +374,10 @@ function waShares(array $roots, array $asleep, array $datasets, array $consumers
                 'pools'     => $onPools,
                 'disks'     => $onDisks,
                 // every sleeping disk, whatever the share's setting: «only» a pool doesn't move leftovers off the array
-                // (a share set to a pool with terabytes still on disk4 — 1.85.0 called it empty)
-                'unknown'   => array_values(array_filter($unknown, fn ($r) => ($roots[$r]['kind'] ?? '') === 'disk')),
+                // (a share set to a pool with terabytes still on disk4 — 1.85.0 called it empty). Not for an exclusive
+                // share: Unraid grants that only while the share lies on its pool alone (checked at array start), its
+                // /mnt/user path is a link to the pool — a du there never reaches a disk (1.85.2 measured the pool twice)
+                'unknown'   => $exclusive ? [] : array_values(array_filter($unknown, fn ($r) => ($roots[$r]['kind'] ?? '') === 'disk')),
                 'include'   => array_values(array_filter(explode(',', $cfg['shareInclude'] ?? ''))),
                 'exclude'   => array_values(array_filter(explode(',', $cfg['shareExclude'] ?? ''))),
                 'allocator' => $cfg['shareAllocator'] ?? null,

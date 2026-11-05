@@ -56389,6 +56389,13 @@ function testStaleShares(): void
     same('stale shares: a sleeping disk is unknown for every share - the one set to «only» a pool too; the awake disk without the folder is not',
         [['disk1'], ['disk1'], [], []],
         [$byRoots['trash']['storage']['unknown'], $byRoots['docs']['storage']['unknown'], $byRoots['trash']['storage']['disks'], $byRoots['trash']['storage']['pools']]);
+    // … but not for an exclusive share: Unraid grants that only while the share lies on its pool alone (1.85.2 listed the
+    // sleeping disks as unknown for appdata and measured its pool twice)
+    file_put_contents("$tmp/shares-x.ini", "[\"docs\"]\nname=\"docs\"\nuseCache=\"no\"\nexclusive=\"no\"\n[\"appx\"]\nname=\"appx\"\nuseCache=\"only\"\ncachePool=\"cache\"\nexclusive=\"yes\"\n");
+    $byX = array_column(waShares($roots, ['disk1' => true], [], [], "$tmp/shares-x.ini", $cfgs, "$tmp/mnt", $var), null, 'name');
+    same('stale shares: an exclusive share has no unknown disk (its /mnt/user path is a link to the pool), the others keep theirs',
+        [[], true, ['disk1'], ['disk1']],
+        [$byX['appx']['storage']['unknown'], $byX['appx']['storage']['exclusive'], $byX['trash']['storage']['unknown'], $byX['docs']['storage']['unknown']]);
     unlink("$cfgs/trash.cfg");
     same('stale shares: … the array stopped — Unraid can\'t tell, every cfg counts as before', [false, false],
         [!empty(array_column(waShares([], [], [], [], $ini, $cfgs, "$tmp/mnt", "$tmp/stopped.ini"), null, 'name')['docker']['stale_cfg']),
