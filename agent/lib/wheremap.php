@@ -205,7 +205,11 @@ function whereMapAdd(array &$stack, array $node, array &$w): void
     }
 }
 
-/** A folded node in a rest: never «0 more» — an empty folder counts as one */
+/**
+ * A folded node in a rest: never «0 more» — an empty folder counts as one
+ *
+ * @param-out array $rest
+ */
 function whereMapFold(?array &$rest, array $node): void
 {
     $rest ??= ['f' => 0, 'b' => 0];
@@ -326,8 +330,7 @@ function whereMapFinish(array $tree): array
         $tree = whereMapPrune($tree, fn (array $n): bool => $n['b'] < WHERE_MAP_SMALL_BYTES || $n['b'] < WHERE_MAP_HARD_SHARE * $total, WHERE_MAP_HARD_CHILDREN);
     }
     if ($tree['x'] > WHERE_MAP_CAP) {
-        $sizes = [];
-        whereMapSizes($tree, $sizes);
+        $sizes = whereMapSizes($tree);
         rsort($sizes);
         $floor = $sizes[WHERE_MAP_CAP - 1];           // the root isn't in the list: this many nodes and it, ties all folded
         $rest = $tree['r'] ?? null;
@@ -365,13 +368,19 @@ function whereMapPrune(array $node, callable $small, int $children): array
     return $node;
 }
 
-/** @param list<int> $sizes */
-function whereMapSizes(array $node, array &$sizes): void
+/** Every node's bytes under this one, the root's not */
+function whereMapSizes(array $tree): array
 {
-    foreach ($node['c'] ?? [] as $kid) {
+    $sizes = [];
+    $todo = $tree['c'] ?? [];
+    while ($todo) {
+        $kid = array_pop($todo);
         $sizes[] = $kid['b'];
-        whereMapSizes($kid, $sizes);
+        foreach ($kid['c'] ?? [] as $inner) {
+            $todo[] = $inner;
+        }
     }
+    return $sizes;
 }
 
 /** The file's shape: x gone, children largest first */
