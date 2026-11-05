@@ -57,7 +57,12 @@ $GLOBALS['whereMapJobs'] = ['queue' => [], 'running' => []];
 
 function whereMapStateFile(): string
 {
-    return DATA_DIR . '/' . WHERE_MAP_FILE;
+    return $GLOBALS['whereMapStateFile'] ?? DATA_DIR . '/' . WHERE_MAP_FILE;
+}
+
+function whereMapDir(): string
+{
+    return $GLOBALS['whereMapDir'] ?? DATA_DIR . '/' . WHERE_MAP_DIR;
 }
 
 /** A share's name as a file's name: never a path, never hidden — the web side asks the same (src/api.php) */
@@ -71,7 +76,7 @@ function whereMapFile(string $share): string
     if (!whereMapShareOk($share)) {
         throw new Problem('unknown_target', ['target' => $share]);
     }
-    return DATA_DIR . '/' . WHERE_MAP_DIR . "/$share.json";
+    return whereMapDir() . "/$share.json";
 }
 
 // ===================================================================== kinds
@@ -436,7 +441,7 @@ function whereMapJob(array $args): int
         return 3;
     }
     [$tree, $nodes] = whereMapFinish($walk['tree']);
-    $dir = DATA_DIR . '/' . WHERE_MAP_DIR;
+    $dir = whereMapDir();
     if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
         return 4;
     }

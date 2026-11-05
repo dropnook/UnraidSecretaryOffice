@@ -2226,7 +2226,7 @@ function waSystem(array $containers, array $vms, array $scripts, array $backupSc
 
 function whereSizesFile(): string
 {
-    return DATA_DIR . '/' . WHERE_SIZES_FILE;
+    return $GLOBALS['whereSizesFile'] ?? DATA_DIR . '/' . WHERE_SIZES_FILE;
 }
 
 function whereSizes(): array

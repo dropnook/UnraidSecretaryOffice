@@ -2216,11 +2216,13 @@ function took(j, later) {
 
 async function loadSizes() {
   try {
-    const j = await Office.api.get({ a: 'part', desk: ID, part: 'where-sizes' });
+    const [j, m] = await Promise.all([Office.api.get({ a: 'part', desk: ID, part: 'where-sizes' }), Office.api.get({ a: 'part', desk: ID, part: 'where-map' })]);
     if (j.ok && j.part) sizes = { sizes: j.part.sizes || {}, queue: j.part.queue || [], running: j.part.running || [] };
+    if (m.ok && m.part) mapTook(m.part);
+    await mapNewer();
   } catch (e) { /* keep what we have */ }
   clearTimeout(sizeTimer);
-  if (sizes.queue.length || sizes.running.length) {
+  if (sizes.queue.length || sizes.running.length || scans.queue.length || scans.running.length) {
     sizeTimer = setTimeout(async () => { await loadSizes(); if (view) sw.render(); }, 3000);
   }
 }
@@ -3938,6 +3940,7 @@ function items(s) {
 const SVGNS = 'http://www.w3.org/2000/svg';
 const spaceOpen = new Set();          // the table's rows unfolded (this visit)
 let spacePicked = null;               // the share the treemap's line shows (pointed at or tapped)
+let spacePinned = null;               // the one clicked: back in that line when the pointer leaves the treemap
 
 function svg(tag, attrs, text) {
   const n = document.createElementNS(SVGNS, tag);
@@ -4220,6 +4223,7 @@ function shareLine(s) {
     : b.how === 'du' ? T('where.measured_at', { when: fmt.relative(b.at) }) : b.how === 'part' ? T('where.space.at_least', { list: s.unmeasured.join(', ') })
     : b.how === 'empty' ? T('where.space.empty') : 'ZFS';
   box.append(el('b', '', s.name), ` · ${b.bytes !== null ? fmt.size(b.bytes) : '–'} · ${how}`);
+  box.appendChild(mapButton(s));
   const more = [where.length ? T('where.space.lies_on', { list: where.join(', ') }) : '', s.snaps ? T('where.space.snaps_of', { size: fmt.size(s.snaps) }) : '',
     T('where.cache.' + s.use_cache) + ` (${s.use_cache})`].filter(Boolean).join(' · ');
   box.appendChild(el('div', 'cl-space-tmmore', more));
@@ -4227,8 +4231,12 @@ function shareLine(s) {
 }
 
 function spaceShares() {
-  const box = Office.place('where.space.shares', el('div', 'box cl-space-box'));
+  const box = Office.place('where.space.shares', el('div', 'box cl-space-box cl-map-home'));
   box.appendChild(el('div', 'cl-space-h', T('where.space.shares')));
+  if (mapView) {                      // the map of one share, in the treemap's place while it is open
+    box.appendChild(mapPanel());
+    return box;
+  }
   const all = space.shares.map((s) => ({ s, b: shareBytes(s) }));
   const sized = all.filter((x) => x.b.bytes > 0).sort((p, q) => q.b.bytes - p.b.bytes);
   const unmeasured = all.filter((x) => x.b.bytes === null || x.b.how === 'part');   // none, or only the parts ZFS knows: a du gets the rest
@@ -4258,9 +4266,11 @@ function spaceShares() {
       }
       t.addEventListener('mouseenter', () => show(s));
       t.addEventListener('focus', () => show(s));
-      t.addEventListener('click', (e) => { e.stopPropagation(); show(s); });
+      t.addEventListener('click', (e) => { e.stopPropagation(); spacePinned = s.name; show(s); });
       g.appendChild(t);
     }
+    // on the way from a rectangle to the map's button others are crossed: leaving the treemap, the one clicked is back
+    g.addEventListener('mouseleave', () => { const p = space.shares.find((x) => x.name === spacePinned); if (p) show(p); });
     box.appendChild(g);
   } else {
     box.appendChild(emptyNote(T('where.space.tm_none')));
@@ -4295,12 +4305,23 @@ function spaceShares() {
     for (const x of unmeasured) {
       const tip = x.b.how === 'part' ? T('where.space.at_least', { list: x.s.unmeasured.join(', ') })
         : T('where.space.unmeasured_tip', { where: x.s.parts.map((p) => p.root).concat(x.s.unknown).join(', ') || '–' });
-      if (!x.b.measuring) { un.appendChild(chip(x.s.name, 'quiet', tip)); continue; }
-      const c = chip('', 'quiet running', T('where.space.measuring_tip'));      // the wave: its du runs or waits
-      c.append(el('span', 'spin'), ` ${x.s.name} · ${T('where.space.measuring')}`);
+      const scanning = mapScanning(x.s);
+      let c;
+      if (scanning || x.b.measuring) {
+        c = chip('', 'quiet running', T(scanning ? 'where.map.scanning_tip' : 'where.space.measuring_tip'));      // the wave: its scan or du runs or waits
+        c.append(el('span', 'spin'), ` ${x.s.name} · ${T(scanning ? 'where.map.scanning' : 'where.space.measuring')}`);
+      } else {
+        c = chip(x.s.name, 'quiet', tip);
+      }
+      // no rectangle to point at: its chip brings its line, with «Scan…»
+      c.classList.add('cl-map-chip');
+      c.tabIndex = 0;
+      c.setAttribute('role', 'button');
+      c.addEventListener('click', () => { spacePinned = x.s.name; show(x.s); });
+      c.addEventListener('keydown', (e) => { if (e.key === 'Enter') { spacePinned = x.s.name; show(x.s); } });
       un.appendChild(c);
     }
-    const can = unmeasured.filter((x) => !x.b.measuring);
+    const can = unmeasured.filter((x) => !x.b.measuring && !mapScanning(x.s));
     if (can.length) {
       const btn = el('button', 'btn small', T('where.space.measure', { n: can.length }));
       btn.type = 'button';
@@ -4313,6 +4334,344 @@ function spaceShares() {
   }
   if (empty.length) box.appendChild(el('p', 'cl-space-note', T('where.space.empty_list', { list: empty.map((x) => x.s.name).join(', ') })));
   return box;
+}
+
+// --------------------------------------------------------------- the map of one share (agent/lib/wheremap.php)
+/* Read only: nothing here leads to a delete, nothing links anywhere; names only ever as text. A node {n, b, f, m, k, c, r}:
+   name, bytes, files under it, newest mtime, kind (files only), children, rest {f, b} («… n more»). */
+const MAP_KINDS = ['video', 'audio', 'image', 'document', 'archive', 'diskimage', 'database', 'code', 'other'];
+const MAP_AGES = ['new', 'mid', 'old'];
+const MAP_YEAR = 365.25 * 86400;
+let scans = { queue: [], running: [], maps: {}, failed: {} };
+let mapView = null;                   // {share, map, path: [nodes from the root], shown, picked, tapped}
+let mapPointer = 'mouse';
+
+function mapTook(part) {
+  scans = { queue: part.queue || [], running: part.running || [], maps: part.maps || {}, failed: part.failed || {} };
+}
+const mapScanning = (s) => scans.running.includes(s.measure) || scans.queue.includes(s.measure);
+const mapWakes = (s) => !!(s.unknown.length || s.primary === 'array' || s.secondary === 'array');
+const mapByAge = () => Office.store(STORE + 'map_colour') === 'age';
+const mapFolder = (n) => !n.k && !n.isRest;
+
+/** A share's scan: on a click only, the same dialog as «Measure» when a disk may wake */
+function mapScan(s) {
+  const go = async () => {
+    const j = await Office.api.post(`${ID}.where_map`, { paths: [s.measure] });
+    if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
+    mapTook(j.map);
+    if (view) sw.render();
+    await loadSizes();
+  };
+  if (!mapWakes(s)) { go(); return; }
+  Office.dialog({
+    title: T('where.map.scan_title'),
+    body: T('where.measure.wakes'),
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('where.map.scan_go'), kind: '', act: go }],
+  });
+}
+
+/** In a share's line: its map, or a scan — the wave while one runs */
+function mapButton(s) {
+  const box = el('div', 'cl-map-act');
+  if (s.missing) return box;
+  const known = scans.maps[s.name];
+  const failed = scans.failed[s.name];
+  if (mapScanning(s)) {
+    const c = chip('', 'quiet running', T('where.map.scanning_tip'));
+    c.append(el('span', 'spin'), ` ${T('where.map.scanning')}`);
+    box.appendChild(c);
+  }
+  if (known) {
+    const b = el('button', 'btn small', T('where.map.open'));
+    b.type = 'button';
+    b.title = T('where.map.scanned', { when: fmt.relative(known.at), took: fmt.duration(known.took || 0) });
+    b.onclick = () => mapOpen(s);
+    box.appendChild(b);
+  } else if (!mapScanning(s)) {
+    const b = el('button', 'btn small', T('where.map.scan'));
+    b.type = 'button';
+    b.disabled = !Office.agent.running;
+    b.title = T('where.map.scan_tip');
+    b.onclick = () => mapScan(s);
+    box.appendChild(b);
+  }
+  if (failed && !mapScanning(s) && (!known || failed.at > known.at)) box.appendChild(chip(T('where.map.failed'), 'warn'));
+  return box;
+}
+
+async function mapFetch(name) {
+  const j = await Office.api.get({ a: 'part', desk: ID, part: 'where-map', share: name });
+  return j.ok && j.part && j.part.tree ? j.part : null;
+}
+
+async function mapOpen(s) {
+  const map = await mapFetch(s.name);
+  if (!map) { Office.toast(T('where.map.none'), true); return; }
+  mapView = { share: s, map, path: [map.tree], shown: null, picked: null };
+  mapSwap();
+}
+
+function mapClose() {
+  mapView = null;
+  mapSwap();
+}
+
+/** The whole box drawn again in its place (treemap ↔ map): what stands above it never moves */
+function mapSwap() {
+  const box = document.querySelector('#clw-space .cl-map-home');
+  if (!box) { if (view) sw.render(); return; }
+  const above = box.previousElementSibling || box.parentElement;
+  Office.keepInPlace(above, () => box.replaceWith(spaceShares()));
+  const panel = document.querySelector('#clw-space .cl-map');
+  if (panel) panel.focus({ preventScroll: true });
+}
+
+/** A newer scan of the open share came in: the same folder shown from it, as far as it is still there */
+async function mapNewer() {
+  if (!mapView) return;
+  const known = scans.maps[mapView.share.name];
+  if (!known || known.at <= mapView.map.at) return;
+  const map = await mapFetch(mapView.share.name);
+  if (!map || !mapView) return;
+  const path = [map.tree];
+  for (const n of mapView.path.slice(1)) {
+    const next = (path[path.length - 1].c || []).find((x) => x.n === n.n && !x.k);
+    if (!next) break;
+    path.push(next);
+  }
+  mapView = { ...mapView, map, path, shown: null, picked: null };
+}
+
+/** The rectangles' colour class: a file's kind, a folder's largest kind (what is left of it), or its age */
+const mapMost = new WeakMap();
+function mapMostKind(n) {
+  if (mapMost.has(n)) return mapMost.get(n);
+  const tally = {};
+  const add = (x) => {
+    if (x.k) tally[x.k] = (tally[x.k] || 0) + x.b;
+    else (x.c || []).forEach(add);
+  };
+  add(n);
+  const best = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
+  const kind = best ? best[0] : 'rest';
+  mapMost.set(n, kind);
+  return kind;
+}
+function mapAge(m) {
+  const years = (Date.now() / 1000 - m) / MAP_YEAR;
+  return years < 1 ? 'new' : years < 3 ? 'mid' : 'old';
+}
+function mapTone(n) {
+  if (n.isRest) return 'rest';
+  return mapByAge() ? mapAge(n.m) : mapMostKind(n);
+}
+
+/** A folder's children and its rest as rectangles' items, largest first */
+function mapItems(n) {
+  const items = (n.c || []).filter((x) => x.b > 0);
+  if (n.r && n.r.b > 0) items.push({ n: T('where.map.more', { n: n.r.f }), b: n.r.b, f: n.r.f, isRest: true });
+  return items.sort((a, b) => b.b - a.b);
+}
+function mapLayout(n, x, y, w, h) {
+  const items = mapItems(n);
+  const total = items.reduce((a, i) => a + i.b, 0);
+  if (!total || w <= 0 || h <= 0) return [];
+  return squarify(items.map((node) => ({ v: (node.b / total) * w * h, node })), x, y, w, h);
+}
+
+/** The words of the place in the share: `/a/b` from the root */
+const mapPathOf = (nodes) => '/' + nodes.slice(1).map((x) => x.n).join('/');
+
+/** The box under the map: what is pointed at (path from the share's root, size, files, kind, newest change) */
+function mapBox(node, nodes) {
+  const box = el('div', 'cl-map-info');
+  if (!node) {
+    box.appendChild(el('span', 'cl-space-tmhint', T('where.map.hint')));
+    return box;
+  }
+  if (node.isRest) {
+    box.append(el('b', 'cl-map-path', `${mapPathOf(nodes)}${nodes.length > 1 ? '/' : ''}${node.n}`));
+    box.appendChild(el('div', 'cl-space-tmmore', `${fmt.size(node.b)} · ${T('where.map.more_tip')}`));
+    return box;
+  }
+  box.append(el('b', 'cl-map-path', mapPathOf([...nodes, node])));
+  const parts = [fmt.size(node.b), T('where.map.kind.' + (node.k || 'folder'))];
+  if (!node.k) parts.push(T('where.map.files', { n: node.f }));
+  parts.push(T('where.map.changed', { when: `${fmt.date(node.m)} (${fmt.relative(node.m)})` }));
+  box.appendChild(el('div', 'cl-space-tmmore', parts.join(' · ')));
+  return box;
+}
+
+/** The stage: the shown folder's children, each folder subdivided one level more (faint) */
+function mapStage(info) {
+  const v = mapView;
+  const here = v.path[v.path.length - 1];
+  const phone = typeof window !== 'undefined' && window.innerWidth < 640;
+  const W = phone ? 400 : 1000, H = 480;
+  const stage = svg('svg', { class: 'cl-map-svg', viewBox: `0 0 ${W} ${H}`, role: 'group',
+    'aria-label': T('where.map.label', { path: mapPathOf(v.path), size: fmt.size(here.b) }) });
+  const say = (node, nodes) => info.replaceChildren(mapBox(node, nodes));
+  stage.addEventListener('pointerdown', (e) => { mapPointer = e.pointerType || 'mouse'; });
+  stage.addEventListener('mouseleave', () => say(v.picked && v.picked.node, v.picked ? v.picked.nodes : v.path));
+  const act = (outer, node, nodes) => {
+    // by finger the first tap shows; a tap on what is shown goes in. By mouse the pointer has shown it already.
+    const again = v.picked && v.picked.node === node;
+    if (mapFolder(outer) && mapItems(outer).length && (mapPointer !== 'touch' || again)) { mapZoom(outer); return; }
+    v.picked = { node, nodes };
+    say(node, nodes);
+  };
+  for (const r of mapLayout(here, 0, 0, W, H)) {
+    const n = r.node;
+    const cell = svg('g', { class: 'cl-map-cell', tabindex: 0, role: 'button', 'aria-label': `${n.n} · ${fmt.size(n.b)}`, 'data-own': '' });
+    const folder = mapFolder(n);
+    cell.appendChild(svg('rect', { class: `cl-map-rect cl-map-t-${mapTone(n)}${folder ? ' cl-map-dir' : ''}${n.isRest ? ' cl-map-restbox' : ''}`,
+      x: r.x.toFixed(1), y: r.y.toFixed(1), width: Math.max(0, r.w).toFixed(1), height: Math.max(0, r.h).toFixed(1) }));
+    const label = r.w > 54 && r.h > 22;
+    const head = label && folder ? (r.h > 44 ? 20 : 0) : 0;
+    if (folder && r.w > 16 && r.h > 16 + head) {
+      const pad = 2;
+      for (const i of mapLayout(n, r.x + pad, r.y + pad + head, r.w - 2 * pad, r.h - 2 * pad - head)) {
+        if (i.w < 1.5 || i.h < 1.5) continue;
+        const inner = svg('rect', { class: `cl-map-rect cl-map-in cl-map-t-${mapTone(i.node)}${mapFolder(i.node) ? ' cl-map-dir2' : ''}${i.node.isRest ? ' cl-map-restbox' : ''}`,
+          x: i.x.toFixed(1), y: i.y.toFixed(1), width: i.w.toFixed(1), height: i.h.toFixed(1) });
+        const nodes = [...v.path, n];
+        inner.addEventListener('mouseenter', () => say(i.node, nodes));
+        inner.addEventListener('click', (e) => { e.stopPropagation(); act(n, i.node, nodes); });
+        cell.appendChild(inner);
+      }
+    }
+    if (label) {
+      const chars = Math.max(3, Math.floor(r.w / 8));
+      const name = n.n.length > chars ? n.n.slice(0, chars - 1) + '…' : n.n;
+      const y = r.y + (head ? 15 : 17);
+      cell.appendChild(svg('text', { class: 'cl-map-text', x: (r.x + 5).toFixed(1), y: y.toFixed(1) }, name));
+      if (!head && r.h > 40) cell.appendChild(svg('text', { class: 'cl-map-text cl-map-size', x: (r.x + 5).toFixed(1), y: (y + 16).toFixed(1) }, fmt.size(n.b)));
+      else if (head && r.w > 150 + name.length * 7) cell.appendChild(svg('text', { class: 'cl-map-text cl-map-size', x: (r.x + r.w - 5).toFixed(1), y: y.toFixed(1), 'text-anchor': 'end' }, fmt.size(n.b)));
+    }
+    cell.addEventListener('mouseenter', () => say(n, v.path));
+    cell.addEventListener('mousemove', (e) => { if (e.target.classList.contains('cl-map-dir')) say(n, v.path); });     // back from what it holds onto the folder itself
+    cell.addEventListener('focus', () => say(n, v.path));
+    cell.addEventListener('click', (e) => { e.stopPropagation(); act(n, n, v.path); });
+    cell.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      if (folder && mapItems(n).length) mapZoom(n, true);
+      else { v.picked = { node: n, nodes: v.path }; say(n, v.path); }
+    });
+    stage.appendChild(cell);
+  }
+  return stage;
+}
+
+function mapZoom(n, keys) {
+  mapView.path.push(n);
+  mapView.picked = null;
+  mapDraw(keys);
+}
+function mapUp(to, keys) {
+  mapView.path = mapView.path.slice(0, to + 1);
+  mapView.picked = null;
+  mapDraw(keys);
+}
+
+/** Drawn again inside its panel, in place — keys: the keyboard goes on from the first rectangle */
+function mapDraw(keys) {
+  const panel = document.querySelector('#clw-space .cl-map');
+  if (!panel) return;
+  Office.keepInPlace(panel, () => panel.replaceChildren(...mapParts()));
+  (keys && panel.querySelector('.cl-map-cell') || panel).focus({ preventScroll: true });   // Escape goes on working
+}
+
+function mapCrumbs() {
+  const nav = el('nav', 'cl-map-crumbs');
+  nav.setAttribute('aria-label', T('where.map.crumbs'));
+  mapView.path.forEach((n, i) => {
+    const last = i === mapView.path.length - 1;
+    if (i) nav.appendChild(el('span', 'cl-map-sep', '/'));
+    const words = i ? n.n : T('where.map.root', { name: mapView.map.share });
+    if (last) { const b = el('b', 'cl-map-here', words); b.setAttribute('aria-current', 'location'); nav.appendChild(b); return; }
+    const b = el('button', 'cl-map-crumb', words);
+    b.type = 'button';
+    b.onclick = () => mapUp(i);
+    nav.appendChild(b);
+  });
+  return nav;
+}
+
+function mapColours() {
+  const seg = el('div', 'seg cl-map-seg');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', T('where.map.by'));
+  for (const [id, words] of [['kind', T('where.map.by_kind')], ['age', T('where.map.by_age')]]) {
+    const b = el('button', '', words);
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(mapByAge() === (id === 'age')));
+    b.onclick = () => { Office.store(STORE + 'map_colour', id); mapDraw(); };
+    seg.appendChild(b);
+  }
+  return seg;
+}
+
+function mapLegend() {
+  const legend = el('div', 'cl-space-legend cl-map-legend');
+  const key = (tone, words) => {
+    const it = el('span', 'cl-space-key');
+    const sw2 = svg('svg', { class: 'cl-space-swatch', viewBox: '0 0 10 10' });
+    sw2.appendChild(svg('rect', { class: `cl-map-rect cl-map-t-${tone}${tone === 'rest' ? ' cl-map-restbox' : ''}`, x: 0, y: 0, width: 10, height: 10 }));
+    it.append(sw2, el('span', '', words));
+    legend.appendChild(it);
+  };
+  if (mapByAge()) MAP_AGES.forEach((a) => key(a, T('where.map.age.' + a)));
+  else MAP_KINDS.forEach((k) => key(k, T('where.map.kind.' + k)));
+  key('rest', T('where.map.kind.rest'));
+  return legend;
+}
+
+/** What the panel holds; the box first because the stage talks to it */
+function mapParts() {
+  const v = mapView;
+  const head = el('div', 'cl-map-head');
+  const close = el('button', 'btn small plain cl-map-close', T('where.map.close'));
+  close.type = 'button';
+  close.onclick = mapClose;
+  const tools = el('div', 'cl-map-tools');
+  tools.append(mapColours(), close);
+  head.append(mapCrumbs(), tools);
+  const line = el('div', 'cl-map-line');
+  const said = [T('where.map.scanned', { when: fmt.relative(v.map.at), took: fmt.duration(v.map.took || 0) })];
+  if (v.map.partial) said.push(T('where.map.partial'));
+  line.appendChild(el('span', '', said.join(' · ')));
+  if (mapScanning(v.share)) {
+    const c = chip('', 'quiet running', T('where.map.scanning_tip'));
+    c.append(el('span', 'spin'), ` ${T('where.map.scanning')}`);
+    line.appendChild(c);
+  } else {
+    const again = el('button', 'btn small plain', T('where.map.scan_again'));
+    again.type = 'button';
+    again.disabled = !Office.agent.running;
+    again.title = T('where.map.scan_tip');
+    again.onclick = () => mapScan(v.share);
+    line.appendChild(again);
+  }
+  const info = el('div', 'cl-space-tmline cl-map-infoline');
+  info.appendChild(mapBox(v.picked && v.picked.node, v.picked ? v.picked.nodes : v.path));
+  const here = v.path[v.path.length - 1];
+  const stage = mapItems(here).length ? mapStage(info) : emptyNote(T('where.map.empty'));
+  return [head, line, stage, info, mapLegend()];
+}
+
+function mapPanel() {
+  const panel = el('div', 'cl-map');
+  panel.tabIndex = -1;
+  panel.append(...mapParts());
+  panel.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation();
+    if (mapView.path.length > 1) mapUp(mapView.path.length - 2, true);
+    else mapClose();
+  });
+  return panel;
 }
 
 // --------------------------------------------------------------- the details: a table whose rows unfold
@@ -4542,7 +4901,7 @@ return {
   unmount() { view = null; clearTimeout(sizeTimer); if (bar) bar.reset(); },
   /** tests/run.php (testCleanupTiles): the switcher and what each tile says */
   test: { sw, faces: () => (state ? Object.fromEntries(TILES.map((id) => [id, tileFace(id)])) : null),
-    space: { squarify, fullest: spaceFullest, totals: spaceTotals, shareBytes, shareKind, level: spaceLevel, set: (s) => { space = s; } } },
+    space: { squarify, mapItems, mapAge, mapMostKind, fullest: spaceFullest, totals: spaceTotals, shareBytes, shareKind, level: spaceLevel, set: (s) => { space = s; } } },
 };
 })();
 
