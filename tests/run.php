@@ -29546,6 +29546,8 @@ function testWhereMap(): void
     check('where map: one treemap: one stage for every level, the old button, panel and swap gone', substr_count($js, 'function spaceStage(') === 1 && !preg_match('/mapButton|mapPanel|mapSwap|mapStage|mapOpen\b|mapClose|cl-map-home|where\.map\.(open|scan|close)\b/', $js));
     check('where map: every redraw of the treemap keeps the page in place', !str_contains($code, 'replaceChildren(...mapParts())') || substr_count($code, 'replaceChildren(...mapParts())') === substr_count($code, 'Office.keepInPlace(panel, () => panel.replaceChildren(...mapParts()))'));
     check('where map: a scan only ever from a click: mapScan and mapScanAll only from mapGo, the «Scan again…» and the «Scan all…» buttons', substr_count($code, 'mapScan(') === 3 && substr_count($code, 'mapScanAll(') === 2 && str_contains($code, 'again.onclick = () => mapScan(v.share)') && str_contains($code, 'all.onclick = () => mapScanAll(can)') && substr_count($js, 'where_map`') === 2);
+    check('where map: one stage, its height by the level: 480 inside a share, 360 with the shares, 400 on a phone', str_contains($code, 'H = phone ? 400 : v ? 480 : 360'));
+    check('where map: the snapshots\' strip only for a size from ZFS: a du has none in it', str_contains($code, "n.share && n.how === 'zfs' ? n.share.snaps : 0"));
     check('where map: the wave in a cell is the office\'s wave', str_contains($code, "`cl-map-over running") && str_contains($code, "over.appendChild(el('span', 'spin'))"));
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.css');
     $css = substr($css, (int) strpos($css, 'the map of one share'));

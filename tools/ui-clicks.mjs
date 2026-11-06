@@ -589,7 +589,8 @@ async function cleanupMap(browser) {
       if (before !== 2 || !(await page.locator('.cl-map-crumbs').textContent()).startsWith('Shares')) fail(`${width} px: the breadcrumb is «${await page.locator('.cl-map-crumbs').textContent()}»`);
       if (!(await page.locator('.cl-map-legend').count())) fail(`${width} px: no kinds' legend inside a share`);
       if (await page.locator('.cl-map-all').count()) fail(`${width} px: «Scan all…» inside a share`);
-      if ((await page.locator('.cl-map-svg').getAttribute('viewBox')) !== topBox) fail(`${width} px: another stage inside a share`);
+      const inBox = await page.locator('.cl-map-svg').getAttribute('viewBox');
+      if (inBox !== (width > 640 ? '0 0 1000 480' : '0 0 400 400')) fail(`${width} px: the stage inside a share has the viewBox ${inBox}`);
       if (!(await page.locator('.cl-map-close').getAttribute('aria-label'))) fail(`${width} px: the X has no label`);
       if (!(await page.getByRole('button', { name: 'Scan again…' }).count())) fail(`${width} px: no «Scan again…» inside a share`);
       await noScroll('inside a share');
@@ -821,6 +822,64 @@ async function cleanupMap(browser) {
     }
     await ctx.close();
     h.setState('cleanup-where-map-films', undefined);
+  }
+  // ---- a share's snapshots: its content over the walked part, a hatched strip for the rest; no map, no snapshots, a du's size: no strip
+  {
+    const withPhotos = stateFile('cleanup-where-map');
+    const photos = space.shares.find((s) => s.name === 'photos');
+    withPhotos.maps.photos = { path: photos.measure, at: 1793540800, took: 47, nodes: 505, bytes: 1000, partial: false };
+    const maps = (extra) => { const st = JSON.parse(JSON.stringify(withPhotos)); Object.assign(st.maps, extra); return st; };
+    const tree = stateFile('cleanup-where-map-films');
+    h.setState('cleanup-where-map-photos', { ...tree, share: 'photos', path: photos.measure, tree: { ...tree.tree, n: 'photos' } });
+    for (const width of [1440, 375]) {
+      h.setState('cleanup-where-map', undefined);
+      const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
+      const page = await open(ctx);
+      try {
+        await page.waitForSelector('.cl-map-cell[data-share="films"] .cl-map-in', { timeout: 5000 });
+        if (await cellOf(page, 'photos').locator('.cl-map-snaps').count()) fail(`${width} px: a strip on a share without a map`);
+        await page.close();
+        h.setState('cleanup-where-map', maps({}));
+        const page2 = await open(ctx);
+        const cell = cellOf(page2, 'photos');
+        await page2.waitForSelector('.cl-map-cell[data-share="photos"] .cl-map-snaps', { timeout: 5000 }).catch(() => fail(`${width} px: no snapshots' strip on a scanned share with snapshots`));
+        if (await cellOf(page2, 'films').locator('.cl-map-snaps').count()) fail(`${width} px: a strip on a scanned share without snapshots`);
+        const num = (loc, k) => loc.evaluate((e, a) => Number(e.getAttribute(a)), k);
+        const strip = cell.locator('.cl-map-snaps');
+        const [sw, sh, sx, sy] = [await num(strip, 'width'), await num(strip, 'height'), await num(strip, 'x'), await num(strip, 'y')];
+        const inner = await cell.locator('.cl-map-in').evaluateAll((l) => l.filter((e) => e.classList.value.split(' ').includes('cl-map-in') && !/cl-map-in[234]/.test(e.classList.value)).map((e) => ({ x: Number(e.getAttribute('x')), y: Number(e.getAttribute('y')), r: Number(e.getAttribute('x')) + Number(e.getAttribute('width')), b: Number(e.getAttribute('y')) + Number(e.getAttribute('height')) })));
+        const box = { x: Math.min(...inner.map((i) => i.x)), y: Math.min(...inner.map((i) => i.y)), r: Math.max(...inner.map((i) => i.r)), b: Math.max(...inner.map((i) => i.b)) };
+        const part = (sw * sh) / (sw * sh + (box.r - box.x) * (box.b - box.y));
+        const want = photos.snaps / photos.bytes;
+        if (Math.abs(part - want) > 0.02) fail(`${width} px: the strip is ${part.toFixed(3)} of the cell, its snapshots ${want.toFixed(3)}`);
+        if (box.r > sx + sw + 0.5 || box.b > sy + sh + 0.5 || (box.r > sx + 0.5 && box.b > sy + 0.5)) fail(`${width} px: the content reaches into the strip (${JSON.stringify(box)}, strip ${sx},${sy} ${sw}×${sh})`);
+        // on the side that keeps the content closer to square
+        const [cw, ch] = [box.r - box.x, box.b - box.y];
+        const off = (a, b) => Math.max(a / b, b / a);
+        const other = sw > sh ? off(cw * (1 - want), ch / (1 - want)) : off(cw / (1 - want), ch * (1 - want));
+        if (off(cw, ch) > other + 0.05) fail(`${width} px: the strip on the worse side: the content ${cw.toFixed(0)}×${ch.toFixed(0)}`);
+        if (!(await strip.evaluate((e) => getComputedStyle(e).fill.includes('url(')))) fail(`${width} px: the strip is not hatched`);
+        if (await page2.evaluate(() => [...document.querySelectorAll('#cl-map-snaphatch line')].some((l) => getComputedStyle(l).stroke === 'none'))) fail(`${width} px: the strip's hatching has no lines`);
+        if (width > 640) {
+          await strip.hover({ force: true });
+          const said = await page2.locator('.cl-space-tminfo').textContent();
+          if (!said.startsWith('photos') || !said.includes('of it in snapshots')) fail(`pointing at the strip: the line says «${said}»`);
+          await strip.click({ force: true });
+          await page2.waitForSelector('.cl-map-crumbs', { timeout: 3000 }).catch(() => fail('a click on the strip did not open the share'));
+          if (await page2.locator('.cl-map-snaps').count()) fail('a strip inside the share');
+          if (await page2.evaluate(() => document.querySelector('.cl-map-svg').getAttribute('viewBox')) !== '0 0 1000 480') fail('the share opened by the strip is not 480 high');
+          await page2.locator('.cl-map-close').click();
+          if ((await page2.locator('.cl-map-top').getAttribute('viewBox')) !== '0 0 1000 360') fail('back at the shares the stage is not 360 high');
+        }
+        if (await page2.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) fail(`${width} px: horizontal scrolling with the strip`);
+        res.tested++;
+      } catch (e) {
+        fail(`the strip, ${width} px: ${String(e.message).split('\n')[0].slice(0, 180)}`);
+      }
+      await ctx.close();
+    }
+    h.setState('cleanup-where-map-photos', undefined);
+    scanReset();
   }
   // the maps come after the first draw, the largest cell's first
   {
