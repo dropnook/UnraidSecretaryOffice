@@ -4605,7 +4605,7 @@ function mapHatch(box, id, size, cls = 'cl-map-hatch') {
 
 /**
  * The light on the files, lit from the top left: one gradient in this svg, its colours and strength tokens (desk.css), nothing
- * in the middle. What comes back is the rectangle mapReliefOver() copies for each file, null while the switch is off.
+ * in the middle. What comes back is the rectangle copied for each file, null while the switch is off.
  */
 function mapRelief(box, id) {
   if (!mapReliefOn()) return null;
