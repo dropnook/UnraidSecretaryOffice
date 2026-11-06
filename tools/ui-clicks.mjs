@@ -579,6 +579,21 @@ async function cleanupMap(browser) {
       if ((await crumbs()) !== before + 1 || (await page.locator('.cl-map-here').textContent()) !== 'Archiv') fail(`${width} px: a click deep inside did not go one step, into «Archiv»`);
       await page.locator('.cl-map-crumb').first().click();
       res.tested++;
+      // the window's width: drawn again only when phone ↔ desktop changes, in the same place
+      const box = () => page.locator('.cl-map-svg').getAttribute('viewBox');
+      const wide = await box();
+      await page.locator('.cl-map-cell').first().click({ position: { x: 8, y: 8 } });
+      await page.evaluate(() => { document.querySelector('.cl-map-svg').dataset.same = '1'; });
+      await page.setViewportSize({ width: width > 640 ? width - 200 : width + 60, height: 900 });
+      await page.waitForTimeout(350);
+      if (!(await page.locator('.cl-map-svg[data-same]').count())) fail(`${width} px: drawn again though phone or desktop stayed`);
+      await page.setViewportSize({ width: width > 640 ? 500 : 900, height: 900 });
+      await page.waitForFunction((was) => document.querySelector('.cl-map-svg').getAttribute('viewBox') !== was, wide, { timeout: 2000 }).catch(() => fail(`${width} px: the window changed sides, the viewBox stayed ${wide}`));
+      if ((await crumbs()) !== before + 1) fail(`${width} px: the redraw lost the place`);
+      await page.setViewportSize({ width, height: 900 });
+      await page.waitForFunction((was) => document.querySelector('.cl-map-svg').getAttribute('viewBox') === was, wide, { timeout: 2000 }).catch(() => fail(`${width} px: back again, the viewBox is not ${wide}`));
+      await page.locator('.cl-map-crumb').first().click();
+      res.tested++;
       // the keyboard: Enter zooms, Escape goes up, Escape at the root closes
       await page.locator('.cl-map-cell').first().focus();
       await page.keyboard.press('Enter');
@@ -589,6 +604,12 @@ async function cleanupMap(browser) {
       if (await page.locator('.cl-map').count()) fail(`${width} px: Escape at the top did not close the map`);
       if (!(await page.locator('.cl-space-tm').count())) fail(`${width} px: the treemap did not come back`);
       res.tested++;
+      // closed: no redraw waits for a resize, the treemap keeps its own drawing
+      await page.setViewportSize({ width: width > 640 ? 500 : 900, height: 900 });
+      await page.waitForTimeout(300);
+      await page.setViewportSize({ width, height: 900 });
+      await page.waitForTimeout(300);
+      if (await page.locator('.cl-map').count()) fail(`${width} px: a resize brought the closed map back`);
       // no scan yet, on the array: «Scan…» asks first; the wave after the yes, in the share's line
       if (width > 640) {
         await page.evaluate(() => { [...document.querySelectorAll('.cl-space-tmcell')].find((c) => c.textContent.startsWith('series')).dispatchEvent(new MouseEvent('click', { bubbles: true })); });

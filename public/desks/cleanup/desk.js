@@ -4349,6 +4349,8 @@ const MAP_INNER_MAX = 3000;           // rectangles inside the folder cells, per
 const MAP_INNER_MIN = 24;             // a folder narrower or lower than this (of the stage's units) holds no more rectangles
 const MAP_INNER_LEVELS = 4;           // how deep inside a cell; one child alone in its folder costs no level
 const mapIsPhone = () => typeof window !== 'undefined' && window.innerWidth < 640;
+let mapDrawnPhone = null;             // the stage's viewBox as it was last drawn: phone or not
+let mapResizeWait = null;
 
 function mapTook(part) {
   scans = { queue: part.queue || [], running: part.running || [], maps: part.maps || {}, failed: part.failed || {} };
@@ -4413,12 +4415,27 @@ async function mapOpen(s) {
   const map = await mapFetch(s.name);
   if (!map) { Office.toast(T('where.map.none'), true); return; }
   mapView = { share: s, map, path: [map.tree], shown: null, picked: null };
+  window.addEventListener('resize', mapResized);
   mapSwap();
 }
 
 function mapClose() {
   mapView = null;
+  window.removeEventListener('resize', mapResized);
+  clearTimeout(mapResizeWait);
   mapSwap();
+}
+
+/** The window turned or changed width: drawn again only when the stage's own shape changes (phone or not) */
+function mapResized() {
+  clearTimeout(mapResizeWait);
+  mapResizeWait = setTimeout(() => {
+    const panel = document.querySelector('#clw-space .cl-map');
+    if (!mapView || !panel || mapIsPhone() === mapDrawnPhone) return;
+    const inside = panel.contains(document.activeElement);
+    Office.keepInPlace(panel, () => panel.replaceChildren(...mapParts()));
+    if (inside) panel.focus({ preventScroll: true });
+  }, 150);
 }
 
 /** The whole box drawn again in its place (treemap ↔ map): what stands above it never moves */
@@ -4546,6 +4563,7 @@ function mapStage(info) {
   const v = mapView;
   const here = v.path[v.path.length - 1];
   const phone = mapIsPhone();
+  mapDrawnPhone = phone;
   const W = phone ? 400 : 1000, H = 480;
   const stage = svg('svg', { class: 'cl-map-svg', viewBox: `0 0 ${W} ${H}`, role: 'group',
     'aria-label': T('where.map.label', { path: mapPathOf(v.path), size: fmt.size(here.b) }) });
