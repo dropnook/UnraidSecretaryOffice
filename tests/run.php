@@ -56862,6 +56862,7 @@ const mk = () => ({ nodeType: 1, style: {}, dataset: {}, hidden: true, textConte
   querySelector: () => mk(), querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
   getBoundingClientRect: () => ({ top: 0, bottom: 40, left: 0, right: 1000 }), focus() {}, select() {} });
 globalThis.window = globalThis;
+globalThis.addEventListener = globalThis.removeEventListener = () => {};
 globalThis.Node = function Node() {};
 globalThis.DocumentFragment = function DocumentFragment() {};
 globalThis.innerHeight = 800; globalThis.innerWidth = 1200; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
