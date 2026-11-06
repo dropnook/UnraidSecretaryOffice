@@ -2063,6 +2063,8 @@
   "where.map.empty": "Aquí dentro no hay nada que ocupe espacio.",
   "where.map.more": {"one": "… {n} más", "other": "… {n} más"},
   "where.map.more_tip": "Las cosas más pequeñas de esta carpeta, juntas — el mapa muestra una a una las mayores",
+  "where.map.rest_each": "≈ {size} cada uno",
+  "where.map.rest_in": "en {folder}",
   "where.map.files": {"one": "{n} archivo", "other": "{n} archivos"},
   "where.map.changed": "último cambio {when}",
   "where.map.kind.folder": "Carpeta",

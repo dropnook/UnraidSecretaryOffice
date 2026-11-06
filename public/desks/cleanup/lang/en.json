@@ -2063,6 +2063,8 @@
   "where.map.empty": "Nothing in here that takes up space.",
   "where.map.more": {"one": "… {n} more", "other": "… {n} more"},
   "where.map.more_tip": "The smaller things in this folder, taken together — the map shows the largest ones one by one",
+  "where.map.rest_each": "≈ {size} each",
+  "where.map.rest_in": "in {folder}",
   "where.map.files": {"one": "{n} file", "other": "{n} files"},
   "where.map.changed": "newest change {when}",
   "where.map.kind.folder": "Folder",

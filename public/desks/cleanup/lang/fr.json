@@ -2063,6 +2063,8 @@
   "where.map.empty": "Rien ici qui prenne de la place.",
   "where.map.more": {"one": "… {n} de plus", "other": "… {n} de plus"},
   "where.map.more_tip": "Les plus petits éléments de ce dossier, regroupés — la carte montre un par un les plus gros",
+  "where.map.rest_each": "≈ {size} chacun",
+  "where.map.rest_in": "dans {folder}",
   "where.map.files": {"one": "{n} fichier", "other": "{n} fichiers"},
   "where.map.changed": "dernière modification {when}",
   "where.map.kind.folder": "Dossier",

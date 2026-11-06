@@ -544,6 +544,21 @@ async function cleanupMap(browser) {
         const said = await page.locator('.cl-map-info').textContent();
         if (!said.includes('/') || !/[KMGT]B|B\b/.test(said)) fail(`hover box says «${said}»`);
       }
+      // a rest never reads as an empty area: hatched at both levels and in the legend, its rectangle says how many and how much
+      const hatched = (loc) => loc.first().evaluate((e) => getComputedStyle(e).fill.includes('url('));
+      const rest = page.locator('.cl-map-cell[aria-label*="214 more"]');
+      if (!(await hatched(rest.locator('.cl-map-restbox')))) fail(`${width} px: the rest's rectangle is not hatched`);
+      if (!(await hatched(page.locator('.cl-map-in.cl-map-restbox')))) fail(`${width} px: a rest inside a folder is not hatched`);
+      if (!(await hatched(page.locator('.cl-map-legend .cl-map-restbox')))) fail(`${width} px: the legend's rest is not hatched`);
+      if (await page.evaluate(() => [...document.querySelectorAll('.cl-map pattern line')].some((l) => getComputedStyle(l).stroke === 'none'))) fail(`${width} px: the hatching has no lines`);
+      const words = await rest.locator('text').allTextContents();
+      if (!words[0].startsWith('… 214') || !words.join(' ').includes('96 GB') || !words.join(" ").includes("≈ ")) fail(`${width} px: the rest says «${words.join(' | ')}»`);
+      if (width > 640) {
+        await rest.hover();
+        const said = await page.locator('.cl-map-info').textContent();
+        if (!said.includes('… 214 more') || !/≈ .* each/.test(said) || !said.includes('in Share films') || !/\d+ GB/.test(said)) fail(`the hover box of a rest says «${said}»`);
+      }
+      res.tested++;
       // a folder zooms in, the breadcrumb grows; by finger the page is the same as by mouse here (playwright's click = mouse)
       const before = await crumbs();
       const label = await page.locator('.cl-map-cell').first().getAttribute('aria-label');

@@ -4503,6 +4503,33 @@ function mapLayout(n, x, y, w, h) {
   return squarify(items.map((node) => ({ v: (node.b / total) * w * h, node })), x, y, w, h);
 }
 
+/** A rest's average: what it says instead of thousands of rectangles */
+const mapRestEach = (rest) => T('where.map.rest_each', { size: fmt.size(rest.b / rest.f) });
+
+/** The hatching of a rest, in this svg: its colours are tokens (desk.css), the fill for a rectangle is what comes back */
+function mapHatch(box, id, size) {
+  const pattern = svg('pattern', { id, width: size, height: size, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' });
+  pattern.append(svg('rect', { class: 'cl-map-hatchbg', width: size, height: size }), svg('line', { class: 'cl-map-hatchline', x1: 0, y1: 0, x2: 0, y2: size }));
+  const defs = svg('defs');
+  defs.appendChild(pattern);
+  box.appendChild(defs);
+  return `url(#${id})`;
+}
+
+/** What a rest's rectangle says when it is big enough: how many and how much, under it the size of each */
+function mapRestLabel(cell, r, rest) {
+  if (r.w <= 54 || r.h <= 22) return;
+  const chars = Math.max(3, Math.floor(r.w / 8));
+  const fit = (words) => (words.length > chars ? words.slice(0, chars - 1) + '…' : words);
+  const whole = `${rest.n} · ${fmt.size(rest.b)}`;
+  const each = rest.f > 1 ? [mapRestEach(rest)] : [];
+  const lines = whole.length <= chars ? [whole, ...each] : [rest.n, fmt.size(rest.b), ...each];     // narrow: one thing a line
+  lines.forEach((words, i) => {
+    if (r.h <= 24 + i * 16) return;
+    cell.appendChild(svg('text', { class: `cl-map-text cl-map-restword${i ? ' cl-map-size' : ''}`, x: (r.x + 5).toFixed(1), y: (r.y + 17 + i * 16).toFixed(1) }, fit(words)));
+  });
+}
+
 /** The words of the place in the share: `/a/b` from the root */
 const mapPathOf = (nodes) => '/' + nodes.slice(1).map((x) => x.n).join('/');
 
@@ -4515,7 +4542,8 @@ function mapBox(node, nodes) {
   }
   if (node.isRest) {
     box.append(el('b', 'cl-map-path', `${mapPathOf(nodes)}${nodes.length > 1 ? '/' : ''}${node.n}`));
-    box.appendChild(el('div', 'cl-space-tmmore', `${fmt.size(node.b)} · ${T('where.map.more_tip')}`));
+    const folder = nodes.length > 1 ? mapPathOf(nodes) : T('where.map.root', { name: mapView.map.share });
+    box.appendChild(el('div', 'cl-space-tmmore', [fmt.size(node.b), mapRestEach(node), T('where.map.rest_in', { folder }), T('where.map.more_tip')].join(' · ')));
     return box;
   }
   box.append(el('b', 'cl-map-path', mapPathOf([...nodes, node])));
@@ -4569,6 +4597,7 @@ function mapStage(info) {
   const W = phone ? 400 : 1000, H = 480;
   const stage = svg('svg', { class: 'cl-map-svg', viewBox: `0 0 ${W} ${H}`, role: 'group',
     'aria-label': T('where.map.label', { path: mapPathOf(v.path), size: fmt.size(here.b) }) });
+  const hatch = mapHatch(stage, 'cl-map-hatch', 7);
   const say = (node, nodes) => info.replaceChildren(mapBox(node, nodes));
   stage.addEventListener('pointerdown', (e) => { mapPointer = e.pointerType || 'mouse'; });
   stage.addEventListener('mouseleave', () => say(v.picked && v.picked.node, v.picked ? v.picked.nodes : v.path));
@@ -4595,17 +4624,22 @@ function mapStage(info) {
     const n = r.node;
     const cell = svg('g', { class: 'cl-map-cell', tabindex: 0, role: 'button', 'aria-label': `${n.n} · ${fmt.size(n.b)}`, 'data-own': '' });
     const folder = mapFolder(n);
-    cell.appendChild(svg('rect', { class: `cl-map-rect cl-map-t-${mapTone(n)}${folder ? ' cl-map-dir' : ''}${n.isRest ? ' cl-map-restbox' : ''}`,
-      x: r.x.toFixed(1), y: r.y.toFixed(1), width: Math.max(0, r.w).toFixed(1), height: Math.max(0, r.h).toFixed(1) }));
+    const rect = svg('rect', { class: `cl-map-rect cl-map-t-${mapTone(n)}${folder ? ' cl-map-dir' : ''}${n.isRest ? ' cl-map-restbox' : ''}`,
+      x: r.x.toFixed(1), y: r.y.toFixed(1), width: Math.max(0, r.w).toFixed(1), height: Math.max(0, r.h).toFixed(1) });
+    if (n.isRest) rect.style.fill = hatch;
+    cell.appendChild(rect);
     const { label, head } = r;
     for (const i of r.inner) {
       const inner = svg('rect', { class: `cl-map-rect cl-map-in${i.level > 1 ? ` cl-map-in${i.level}` : ''} cl-map-t-${mapTone(i.node)}${mapFolder(i.node) ? ' cl-map-dir2' : ''}${i.node.isRest ? ' cl-map-restbox' : ''}`,
         x: i.x.toFixed(1), y: i.y.toFixed(1), width: i.w.toFixed(1), height: i.h.toFixed(1) });
       inner.addEventListener('mouseenter', () => say(i.node, i.nodes));
       inner.addEventListener('click', (e) => { e.stopPropagation(); act(n, i.node, i.nodes); });
+      if (i.node.isRest) inner.style.fill = hatch;
       cell.appendChild(inner);
     }
-    if (label) {
+    for (const i of r.inner) if (i.node.isRest) mapRestLabel(cell, i, i.node);
+    if (n.isRest) mapRestLabel(cell, r, n);
+    else if (label) {
       const chars = Math.max(3, Math.floor(r.w / 8));
       const name = n.n.length > chars ? n.n.slice(0, chars - 1) + '…' : n.n;
       const y = r.y + (head ? 15 : 17);
@@ -4682,7 +4716,9 @@ function mapLegend() {
   const key = (tone, words) => {
     const it = el('span', 'cl-space-key');
     const sw2 = svg('svg', { class: 'cl-space-swatch', viewBox: '0 0 10 10' });
-    sw2.appendChild(svg('rect', { class: `cl-map-rect cl-map-t-${tone}${tone === 'rest' ? ' cl-map-restbox' : ''}`, x: 0, y: 0, width: 10, height: 10 }));
+    const rect = svg('rect', { class: `cl-map-rect cl-map-t-${tone}${tone === 'rest' ? ' cl-map-restbox' : ''}`, x: 0, y: 0, width: 10, height: 10 });
+    if (tone === 'rest') rect.style.fill = mapHatch(sw2, 'cl-map-hatch-key', 4);
+    sw2.appendChild(rect);
     it.append(sw2, el('span', '', words));
     legend.appendChild(it);
   };
