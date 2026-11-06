@@ -4345,6 +4345,12 @@ const MAP_YEAR = 365.25 * 86400;
 let scans = { queue: [], running: [], maps: {}, failed: {} };
 let mapView = null;                   // {share, map, path: [nodes from the root], shown, picked, tapped}
 let mapPointer = 'mouse';
+const MAP_INNER_MAX = 3000;           // rectangles inside the folder cells, per draw
+const MAP_INNER_MIN = 24;             // a folder narrower or lower than this (of the stage's units) holds no more rectangles
+const MAP_INNER_LEVELS = 4;           // how deep inside a cell; one child alone in its folder costs no level
+const mapIsPhone = () => typeof window !== 'undefined' && window.innerWidth < 640;
+let mapDrawnPhone = null;             // the stage's viewBox as it was last drawn: phone or not
+let mapResizeWait = null;
 
 function mapTook(part) {
   scans = { queue: part.queue || [], running: part.running || [], maps: part.maps || {}, failed: part.failed || {} };
@@ -4353,6 +4359,8 @@ const mapScanning = (s) => scans.running.includes(s.measure) || scans.queue.incl
 const mapWakes = (s) => !!(s.unknown.length || s.primary === 'array' || s.secondary === 'array');
 const mapByAge = () => Office.store(STORE + 'map_colour') === 'age';
 const mapFolder = (n) => !n.k && !n.isRest;
+/** How long a scan took: under a minute in words, fmt.duration() speaks in minutes */
+const mapTookWords = (seconds) => (seconds < 60 ? T('where.map.took_short') : fmt.duration(seconds));
 
 /** A share's scan: on a click only, the same dialog as «Measure» when a disk may wake */
 function mapScan(s) {
@@ -4385,7 +4393,7 @@ function mapButton(s) {
   if (known) {
     const b = el('button', 'btn small', T('where.map.open'));
     b.type = 'button';
-    b.title = T('where.map.scanned', { when: fmt.relative(known.at), took: fmt.duration(known.took || 0) });
+    b.title = T('where.map.scanned', { when: fmt.relative(known.at), took: mapTookWords(known.took || 0) });
     b.onclick = () => mapOpen(s);
     box.appendChild(b);
   } else if (!mapScanning(s)) {
@@ -4409,12 +4417,27 @@ async function mapOpen(s) {
   const map = await mapFetch(s.name);
   if (!map) { Office.toast(T('where.map.none'), true); return; }
   mapView = { share: s, map, path: [map.tree], shown: null, picked: null };
+  window.addEventListener('resize', mapResized);
   mapSwap();
 }
 
 function mapClose() {
   mapView = null;
+  window.removeEventListener('resize', mapResized);
+  clearTimeout(mapResizeWait);
   mapSwap();
+}
+
+/** The window turned or changed width: drawn again only when the stage's own shape changes (phone or not) */
+function mapResized() {
+  clearTimeout(mapResizeWait);
+  mapResizeWait = setTimeout(() => {
+    const panel = document.querySelector('#clw-space .cl-map');
+    if (!mapView || !panel || mapIsPhone() === mapDrawnPhone) return;
+    const inside = panel.contains(document.activeElement);
+    Office.keepInPlace(panel, () => panel.replaceChildren(...mapParts()));
+    if (inside) panel.focus({ preventScroll: true });
+  }, 150);
 }
 
 /** The whole box drawn again in its place (treemap ↔ map): what stands above it never moves */
@@ -4480,6 +4503,33 @@ function mapLayout(n, x, y, w, h) {
   return squarify(items.map((node) => ({ v: (node.b / total) * w * h, node })), x, y, w, h);
 }
 
+/** A rest's average: what it says instead of thousands of rectangles */
+const mapRestEach = (rest) => T('where.map.rest_each', { size: fmt.size(rest.b / rest.f) });
+
+/** The hatching of a rest, in this svg: its colours are tokens (desk.css), the fill for a rectangle is what comes back */
+function mapHatch(box, id, size) {
+  const pattern = svg('pattern', { id, width: size, height: size, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' });
+  pattern.append(svg('rect', { class: 'cl-map-hatchbg', width: size, height: size }), svg('line', { class: 'cl-map-hatchline', x1: 0, y1: 0, x2: 0, y2: size }));
+  const defs = svg('defs');
+  defs.appendChild(pattern);
+  box.appendChild(defs);
+  return `url(#${id})`;
+}
+
+/** What a rest's rectangle says when it is big enough: how many and how much, under it the size of each */
+function mapRestLabel(cell, r, rest) {
+  if (r.w <= 54 || r.h <= 22) return;
+  const chars = Math.max(3, Math.floor(r.w / 8));
+  const fit = (words) => (words.length > chars ? words.slice(0, chars - 1) + '…' : words);
+  const whole = `${rest.n} · ${fmt.size(rest.b)}`;
+  const each = rest.f > 1 ? [mapRestEach(rest)] : [];
+  const lines = whole.length <= chars ? [whole, ...each] : [rest.n, fmt.size(rest.b), ...each];     // narrow: one thing a line
+  lines.forEach((words, i) => {
+    if (r.h <= 24 + i * 16) return;
+    cell.appendChild(svg('text', { class: `cl-map-text cl-map-restword${i ? ' cl-map-size' : ''}`, x: (r.x + 5).toFixed(1), y: (r.y + 17 + i * 16).toFixed(1) }, fit(words)));
+  });
+}
+
 /** The words of the place in the share: `/a/b` from the root */
 const mapPathOf = (nodes) => '/' + nodes.slice(1).map((x) => x.n).join('/');
 
@@ -4492,7 +4542,8 @@ function mapBox(node, nodes) {
   }
   if (node.isRest) {
     box.append(el('b', 'cl-map-path', `${mapPathOf(nodes)}${nodes.length > 1 ? '/' : ''}${node.n}`));
-    box.appendChild(el('div', 'cl-space-tmmore', `${fmt.size(node.b)} · ${T('where.map.more_tip')}`));
+    const folder = nodes.length > 1 ? mapPathOf(nodes) : T('where.map.root', { name: mapView.map.share });
+    box.appendChild(el('div', 'cl-space-tmmore', [fmt.size(node.b), mapRestEach(node), T('where.map.rest_in', { folder }), T('where.map.more_tip')].join(' · ')));
     return box;
   }
   box.append(el('b', 'cl-map-path', mapPathOf([...nodes, node])));
@@ -4503,14 +4554,50 @@ function mapBox(node, nodes) {
   return box;
 }
 
-/** The stage: the shown folder's children, each folder subdivided one level more (faint) */
+/**
+ * What the folder cells hold, drawn deeper and each level fainter, so that a folder with one big child never looks like an
+ * empty area: the largest folders first until MAP_INNER_MAX rectangles are used, a parent always before what it holds.
+ * A seed {x, y, w, h, node, nodes, level, out}: where a folder's children go, the path above it, and the list they go to.
+ */
+function mapInner(seeds) {
+  const todo = [];                    // smallest first: the largest comes off the end
+  const add = (t) => {
+    const area = t.w * t.h;
+    let lo = 0, hi = todo.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (todo[mid].w * todo[mid].h < area) lo = mid + 1; else hi = mid;
+    }
+    todo.splice(lo, 0, t);
+  };
+  seeds.forEach(add);
+  let used = 0;
+  while (todo.length) {
+    const t = todo.pop();
+    const rects = mapLayout(t.node, t.x, t.y, t.w, t.h).filter((i) => i.w >= 1.5 && i.h >= 1.5);
+    if (used + rects.length > MAP_INNER_MAX) continue;
+    used += rects.length;
+    const nodes = [...t.nodes, t.node];
+    const level = rects.length === 1 ? t.level : t.level + 1;
+    for (const i of rects) {
+      t.out.push({ ...i, nodes, level: t.level });
+      if (level <= MAP_INNER_LEVELS && mapFolder(i.node) && i.w >= MAP_INNER_MIN && i.h >= MAP_INNER_MIN && mapItems(i.node).length) {
+        add({ x: i.x + 1, y: i.y + 1, w: i.w - 2, h: i.h - 2, node: i.node, nodes, level, out: t.out });
+      }
+    }
+  }
+}
+
+/** The stage: the shown folder's children, each folder with what it holds drawn inside it (mapInner()) */
 function mapStage(info) {
   const v = mapView;
   const here = v.path[v.path.length - 1];
-  const phone = typeof window !== 'undefined' && window.innerWidth < 640;
+  const phone = mapIsPhone();
+  mapDrawnPhone = phone;
   const W = phone ? 400 : 1000, H = 480;
   const stage = svg('svg', { class: 'cl-map-svg', viewBox: `0 0 ${W} ${H}`, role: 'group',
     'aria-label': T('where.map.label', { path: mapPathOf(v.path), size: fmt.size(here.b) }) });
+  const hatch = mapHatch(stage, 'cl-map-hatch', 7);
   const say = (node, nodes) => info.replaceChildren(mapBox(node, nodes));
   stage.addEventListener('pointerdown', (e) => { mapPointer = e.pointerType || 'mouse'; });
   stage.addEventListener('mouseleave', () => say(v.picked && v.picked.node, v.picked ? v.picked.nodes : v.path));
@@ -4521,27 +4608,38 @@ function mapStage(info) {
     v.picked = { node, nodes };
     say(node, nodes);
   };
-  for (const r of mapLayout(here, 0, 0, W, H)) {
+  const cells = mapLayout(here, 0, 0, W, H);
+  const seeds = [];
+  for (const r of cells) {
+    r.label = r.w > 54 && r.h > 22;
+    r.head = r.label && mapFolder(r.node) ? (r.h > 44 ? 20 : 0) : 0;
+    r.inner = [];
+    const pad = 2;
+    if (mapFolder(r.node) && r.w > 16 && r.h > 16 + r.head) {
+      seeds.push({ x: r.x + pad, y: r.y + pad + r.head, w: r.w - 2 * pad, h: r.h - 2 * pad - r.head, node: r.node, nodes: v.path, level: 1, out: r.inner });
+    }
+  }
+  mapInner(seeds);
+  for (const r of cells) {
     const n = r.node;
     const cell = svg('g', { class: 'cl-map-cell', tabindex: 0, role: 'button', 'aria-label': `${n.n} · ${fmt.size(n.b)}`, 'data-own': '' });
     const folder = mapFolder(n);
-    cell.appendChild(svg('rect', { class: `cl-map-rect cl-map-t-${mapTone(n)}${folder ? ' cl-map-dir' : ''}${n.isRest ? ' cl-map-restbox' : ''}`,
-      x: r.x.toFixed(1), y: r.y.toFixed(1), width: Math.max(0, r.w).toFixed(1), height: Math.max(0, r.h).toFixed(1) }));
-    const label = r.w > 54 && r.h > 22;
-    const head = label && folder ? (r.h > 44 ? 20 : 0) : 0;
-    if (folder && r.w > 16 && r.h > 16 + head) {
-      const pad = 2;
-      for (const i of mapLayout(n, r.x + pad, r.y + pad + head, r.w - 2 * pad, r.h - 2 * pad - head)) {
-        if (i.w < 1.5 || i.h < 1.5) continue;
-        const inner = svg('rect', { class: `cl-map-rect cl-map-in cl-map-t-${mapTone(i.node)}${mapFolder(i.node) ? ' cl-map-dir2' : ''}${i.node.isRest ? ' cl-map-restbox' : ''}`,
-          x: i.x.toFixed(1), y: i.y.toFixed(1), width: i.w.toFixed(1), height: i.h.toFixed(1) });
-        const nodes = [...v.path, n];
-        inner.addEventListener('mouseenter', () => say(i.node, nodes));
-        inner.addEventListener('click', (e) => { e.stopPropagation(); act(n, i.node, nodes); });
-        cell.appendChild(inner);
-      }
+    const rect = svg('rect', { class: `cl-map-rect cl-map-t-${mapTone(n)}${folder ? ' cl-map-dir' : ''}${n.isRest ? ' cl-map-restbox' : ''}`,
+      x: r.x.toFixed(1), y: r.y.toFixed(1), width: Math.max(0, r.w).toFixed(1), height: Math.max(0, r.h).toFixed(1) });
+    if (n.isRest) rect.style.fill = hatch;
+    cell.appendChild(rect);
+    const { label, head } = r;
+    for (const i of r.inner) {
+      const inner = svg('rect', { class: `cl-map-rect cl-map-in${i.level > 1 ? ` cl-map-in${i.level}` : ''} cl-map-t-${mapTone(i.node)}${mapFolder(i.node) ? ' cl-map-dir2' : ''}${i.node.isRest ? ' cl-map-restbox' : ''}`,
+        x: i.x.toFixed(1), y: i.y.toFixed(1), width: i.w.toFixed(1), height: i.h.toFixed(1) });
+      inner.addEventListener('mouseenter', () => say(i.node, i.nodes));
+      inner.addEventListener('click', (e) => { e.stopPropagation(); act(n, i.node, i.nodes); });
+      if (i.node.isRest) inner.style.fill = hatch;
+      cell.appendChild(inner);
     }
-    if (label) {
+    for (const i of r.inner) if (i.node.isRest) mapRestLabel(cell, i, i.node);
+    if (n.isRest) mapRestLabel(cell, r, n);
+    else if (label) {
       const chars = Math.max(3, Math.floor(r.w / 8));
       const name = n.n.length > chars ? n.n.slice(0, chars - 1) + '…' : n.n;
       const y = r.y + (head ? 15 : 17);
@@ -4618,7 +4716,9 @@ function mapLegend() {
   const key = (tone, words) => {
     const it = el('span', 'cl-space-key');
     const sw2 = svg('svg', { class: 'cl-space-swatch', viewBox: '0 0 10 10' });
-    sw2.appendChild(svg('rect', { class: `cl-map-rect cl-map-t-${tone}${tone === 'rest' ? ' cl-map-restbox' : ''}`, x: 0, y: 0, width: 10, height: 10 }));
+    const rect = svg('rect', { class: `cl-map-rect cl-map-t-${tone}${tone === 'rest' ? ' cl-map-restbox' : ''}`, x: 0, y: 0, width: 10, height: 10 });
+    if (tone === 'rest') rect.style.fill = mapHatch(sw2, 'cl-map-hatch-key', 4);
+    sw2.appendChild(rect);
     it.append(sw2, el('span', '', words));
     legend.appendChild(it);
   };
@@ -4639,7 +4739,7 @@ function mapParts() {
   tools.append(mapColours(), close);
   head.append(mapCrumbs(), tools);
   const line = el('div', 'cl-map-line');
-  const said = [T('where.map.scanned', { when: fmt.relative(v.map.at), took: fmt.duration(v.map.took || 0) })];
+  const said = [T('where.map.scanned', { when: fmt.relative(v.map.at), took: mapTookWords(v.map.took || 0) })];
   if (v.map.partial) said.push(T('where.map.partial'));
   line.appendChild(el('span', '', said.join(' · ')));
   if (mapScanning(v.share)) {

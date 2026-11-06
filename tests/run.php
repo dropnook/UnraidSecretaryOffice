@@ -29386,7 +29386,31 @@ function testWhereMap(): void
     $deep = $level(6, 6, fn (string $n): array => ['n' => $n, 'b' => 4096, 'f' => 0, 'm' => 1, 'x' => 1]);   // folders alone: no file rule reaches them
     [$cut2, $n2] = whereMapFinish($deep);
     check("where map: folders alone over the cap: only the largest kept ($n2), the root's numbers whole", $n2 <= WHERE_MAP_CAP && $cut2['b'] === $deep['b']);
-    unset($wide, $deep, $capped, $cut2);
+    // over the cap the largest stay, whatever part of the share they are: 1 MB is far under 0.5 % of these 30 GB
+    $M = 1048576;
+    $folder = fn (string $n, array $c): array => ['n' => $n, 'b' => array_sum(array_column($c, 'b')), 'f' => array_sum(array_column($c, 'f')), 'm' => 1, 'x' => 1 + array_sum(array_column($c, 'x')), 'c' => $c];
+    $equal = $folder('blocks', array_map(fn (int $i): array => $file("b$i", $M), range(1, 200)));
+    $filler = $folder('filler', array_map(fn (int $i): array => $folder("d$i", [$file("x$i.txt", 400000 + $i * 1000)]), range(1, 30)));
+    $big = array_map(fn (int $i): array => $file("big$i.mkv", 10 * $G), range(1, 3));
+    $share = $folder('r', [$equal, $filler, ...$big]);
+    [$kept, $n3] = whereMapFinish($share, 70);
+    $at = array_column($kept['c'], null, 'n');
+    check("where map: over the cap the map stays within it ($n3 nodes of at most 70), the root's numbers whole", $n3 <= 70 && $kept['b'] === $share['b'] && $kept['f'] === $share['f']);
+    same('where map: … it stays near the cap, nothing folded that the cap had room for', 70, $n3);
+    same('where map: … 200 equal files of 1 MB under 0.5 % of the share: a folder\'s 48 stay as files, the others its rest', [48, 152, 'other'],
+        [count($at['blocks']['c'] ?? []), $at['blocks']['r']['f'] ?? 0, $at['blocks']['c'][0]['k'] ?? null]);
+    same('where map: … the big files stay', ['big1.mkv', 'big2.mkv', 'big3.mkv'], array_values(array_filter(array_keys($at), fn (string $k): bool => str_starts_with($k, 'big'))));
+    check('where map: … what the floor folded is the smallest: the filler lost its least, none of its largest', isset(array_column($at['filler']['c'], null, 'n')['d30']) && !isset(array_column($at['filler']['c'], null, 'n')['d1']));
+    [$under] = whereMapFinish($share);
+    same('where map: under the real cap nothing but a folder\'s 48 goes: every filler folder there', 30, count(array_column($under['c'], null, 'n')['filler']['c']));
+    $ties = $folder('r', array_map(fn (int $i): array => $folder("t$i", array_map(fn (int $j): array => $file("f$j", 2 * $M), range(1, 40))), range(1, 40)));
+    [$tied, $n4] = whereMapFinish($ties, 700);
+    check("where map: equal files alone over the cap: 24 a folder keeps more than folding them ($n4), never over it", $n4 <= 700 && $n4 > 41 && count($tied['c']) === 24 && $tied['b'] === $ties['b']);
+    $tiny = $folder('r', [$equal, $folder('empty', array_map(fn (int $i): array => ['n' => "e$i", 'b' => 4096, 'f' => 0, 'm' => 1, 'x' => 1], range(1, 30)))]);
+    [$noTies, $n5] = whereMapFinish($tiny, 60);
+    same("where map: many empty folders at the floor ($n5 nodes): they go, the large files keep their 48", [48, false],
+        [count(array_column($noTies['c'], null, 'n')['blocks']['c'] ?? []), isset(array_column($noTies['c'], null, 'n')['empty']['c'])]);
+    unset($wide, $deep, $capped, $cut2, $equal, $filler, $big, $share, $kept, $under, $ties, $tied, $tiny, $noTies);
     gc_collect_cycles();
     gc_mem_caches();
     @ini_set('memory_limit', (string) $limit);       // refused while PHP still holds more: then it stays raised, the suite goes on
@@ -29448,6 +29472,7 @@ function testWhereMap(): void
         [$status['running'], $status['failed'], is_int($status['maps']['share']['nodes'] ?? null), $status['maps']['share']['path'] ?? null]);
     $map = json_decode((string) @file_get_contents("$tmp/data/cleanup-map/share.json"), true) ?? [];
     same('where map: the file\'s shape', ['at', 'nodes', 'partial', 'path', 'share', 'took', 'tree', 'v'], (function (array $k) { sort($k); return $k; })(array_keys($map)));
+    same('where map: a scan under a second took 1 s, never 0', true, ($map['took'] ?? 0) >= 1);
     same('where map: … its tree as walked, the total known', [1, 'share', $root, $tree['b'], $tree['f']], [$map['v'] ?? null, $map['share'] ?? null, $map['path'] ?? null, $map['tree']['b'] ?? null, $map['tree']['f'] ?? null]);
     $sizes = json_decode((string) file_get_contents("$tmp/sizes.json"), true)['sizes'][$root] ?? [];
     same('where map: the scan also measures: its total in the sizes store under the measure path, as a du leaves it', [$tree['b'], $map['at'] ?? null, false, ['at', 'bytes', 'partial', 'seconds']],
@@ -29500,7 +29525,8 @@ function testWhereMap(): void
     $code = substr($js, (int) strpos($js, 'the map of one share (agent/lib/wheremap.php)'));
     $code = substr($code, 0, (int) strpos($code, 'the details: a table whose rows unfold'));
     check('where map: the page draws names as text only: no innerHTML, no link anywhere, nothing that deletes', $code !== '' && !preg_match('/innerHTML|insertAdjacentHTML|safeHref|<a\b|\'a\'|where_map_delete|\.park|\.remove`/', $code));
-    check('where map: one poll: the map\'s status in the sizes\' loop, no second timer', !str_contains($code, 'setTimeout') && !str_contains($code, 'setInterval') && str_contains($js, "part: 'where-map' })]"));
+    check('where map: one poll: the map\'s status in the sizes\' loop, no second timer', substr_count($code, 'setTimeout') === 1 && str_contains($code, 'mapResizeWait = setTimeout') && !str_contains($code, 'setInterval') && str_contains($js, "part: 'where-map' })]"));
+    check('where map: one listener for the window\'s width, while a map is open: gone when it closes', substr_count($code, "addEventListener('resize'") === 1 && substr_count($code, "removeEventListener('resize'") === 1);
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.css');
     $css = substr($css, (int) strpos($css, 'the map of one share'));
     check('where map: her colours are tokens, no colour written out', $css !== '' && !preg_match('/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/', $css));

@@ -528,6 +528,8 @@ async function cleanupMap(browser) {
       const noScroll = async (when) => {
         if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) fail(`${width} px: horizontal scrolling ${when}`);
       };
+      // the sentence under the treemap names the button: it only appears on a share's line
+      if (!(await page.locator('.cl-space-tmhint').textContent()).includes('Scan…')) fail(`${width} px: the hint under the treemap does not name «Scan…»`);
       // the share's line: pointed at or clicked, it has its button; the pointer's way to the button keeps the one clicked
       await page.evaluate(() => { [...document.querySelectorAll('.cl-space-tmcell')].find((c) => c.textContent.startsWith('films')).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
       const open = page.locator('.cl-space-tminfo .cl-map-act button');
@@ -542,6 +544,21 @@ async function cleanupMap(browser) {
         const said = await page.locator('.cl-map-info').textContent();
         if (!said.includes('/') || !/[KMGT]B|B\b/.test(said)) fail(`hover box says «${said}»`);
       }
+      // a rest never reads as an empty area: hatched at both levels and in the legend, its rectangle says how many and how much
+      const hatched = (loc) => loc.first().evaluate((e) => getComputedStyle(e).fill.includes('url('));
+      const rest = page.locator('.cl-map-cell[aria-label*="214 more"]');
+      if (!(await hatched(rest.locator('.cl-map-restbox')))) fail(`${width} px: the rest's rectangle is not hatched`);
+      if (!(await hatched(page.locator('.cl-map-in.cl-map-restbox')))) fail(`${width} px: a rest inside a folder is not hatched`);
+      if (!(await hatched(page.locator('.cl-map-legend .cl-map-restbox')))) fail(`${width} px: the legend's rest is not hatched`);
+      if (await page.evaluate(() => [...document.querySelectorAll('.cl-map pattern line')].some((l) => getComputedStyle(l).stroke === 'none'))) fail(`${width} px: the hatching has no lines`);
+      const words = await rest.locator('text').allTextContents();
+      if (!words[0].startsWith('… 214') || !words.join(' ').includes('96 GB') || !words.join(" ").includes("≈ ")) fail(`${width} px: the rest says «${words.join(' | ')}»`);
+      if (width > 640) {
+        await rest.hover();
+        const said = await page.locator('.cl-map-info').textContent();
+        if (!said.includes('… 214 more') || !/≈ .* each/.test(said) || !said.includes('in Share films') || !/\d+ GB/.test(said)) fail(`the hover box of a rest says «${said}»`);
+      }
+      res.tested++;
       // a folder zooms in, the breadcrumb grows; by finger the page is the same as by mouse here (playwright's click = mouse)
       const before = await crumbs();
       const label = await page.locator('.cl-map-cell').first().getAttribute('aria-label');
@@ -564,6 +581,38 @@ async function cleanupMap(browser) {
       await page.locator('.cl-map-crumb').first().click();
       if ((await crumbs()) !== before) fail(`${width} px: the breadcrumb did not go back up`);
       res.tested++;
+      // a folder that is one chain down to its files: drawn through to them, each level its own class; what is pointed at says
+      // its whole path, a click goes one step only (into the outer cell's folder)
+      const inner = (cls) => page.locator(`.cl-map-cell[aria-label^="Archiv"] .${cls}`);
+      if ((await inner('cl-map-dir2').count()) < 3) fail(`${width} px: the chain's folders are not drawn inside its cell`);
+      if (!(await page.locator('.cl-map-in2').count())) fail(`${width} px: no second level anywhere on the stage`);
+      const file = page.locator('.cl-map-cell[aria-label^="Archiv"] .cl-map-in:not(.cl-map-dir2)').first();
+      if (width > 640) {
+        await file.hover({ force: true });
+        const path = await page.locator('.cl-map-info .cl-map-path').textContent();
+        if (!path.startsWith('/Archiv/Digitalisiert/Kassetten/Hochzeit 1998/')) fail(`the hover box names «${path}» for a file at the end of the chain`);
+      }
+      await file.click({ force: true });
+      if ((await crumbs()) !== before + 1 || (await page.locator('.cl-map-here').textContent()) !== 'Archiv') fail(`${width} px: a click deep inside did not go one step, into «Archiv»`);
+      await page.locator('.cl-map-crumb').first().click();
+      res.tested++;
+      // the window's width: drawn again only when phone ↔ desktop changes, in the same place
+      const box = () => page.locator('.cl-map-svg').getAttribute('viewBox');
+      const wide = await box();
+      await page.locator('.cl-map-cell').first().click({ position: { x: 8, y: 8 } });
+      await page.evaluate(() => { document.querySelector('.cl-map-svg').dataset.same = '1'; });
+      await page.setViewportSize({ width: width > 640 ? width - 200 : width + 60, height: 900 });
+      await page.waitForTimeout(350);
+      if (!(await page.locator('.cl-map-svg[data-same]').count())) fail(`${width} px: drawn again though phone or desktop stayed`);
+      await page.setViewportSize({ width: width > 640 ? 500 : 900, height: 900 });
+      await page.waitForFunction((was) => document.querySelector('.cl-map-svg').getAttribute('viewBox') !== was, wide, { timeout: 2000 }).catch(() => fail(`${width} px: the window changed sides, the viewBox stayed ${wide}`));
+      if ((await crumbs()) !== before + 1) fail(`${width} px: the redraw lost the place`);
+      await page.setViewportSize({ width, height: 900 });
+      await page.waitForFunction((was) => document.querySelector('.cl-map-svg').getAttribute('viewBox') === was, wide, { timeout: 2000 }).catch(() => fail(`${width} px: back again, the viewBox is not ${wide}`));
+      await page.locator('.cl-map-crumb').first().click();
+      res.tested++;
+      // a scan under a minute says so, never «0 min» (the stub's took 47 s)
+      if (!(await page.locator('.cl-map-line').textContent()).includes('under a minute')) fail(`${width} px: the line says «${await page.locator('.cl-map-line').textContent()}»`);
       // the keyboard: Enter zooms, Escape goes up, Escape at the root closes
       await page.locator('.cl-map-cell').first().focus();
       await page.keyboard.press('Enter');
@@ -574,6 +623,12 @@ async function cleanupMap(browser) {
       if (await page.locator('.cl-map').count()) fail(`${width} px: Escape at the top did not close the map`);
       if (!(await page.locator('.cl-space-tm').count())) fail(`${width} px: the treemap did not come back`);
       res.tested++;
+      // closed: no redraw waits for a resize, the treemap keeps its own drawing
+      await page.setViewportSize({ width: width > 640 ? 500 : 900, height: 900 });
+      await page.waitForTimeout(300);
+      await page.setViewportSize({ width, height: 900 });
+      await page.waitForTimeout(300);
+      if (await page.locator('.cl-map').count()) fail(`${width} px: a resize brought the closed map back`);
       // no scan yet, on the array: «Scan…» asks first; the wave after the yes, in the share's line
       if (width > 640) {
         await page.evaluate(() => { [...document.querySelectorAll('.cl-space-tmcell')].find((c) => c.textContent.startsWith('series')).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
@@ -595,6 +650,40 @@ async function cleanupMap(browser) {
     }
     errors.forEach((e) => fail(`${width} px: ${e}`));
     await ctx.close();
+  }
+  // a very wide and deep tree: never more than 3 000 rectangles inside the cells, and the largest folders got them
+  {
+    const m = 1600000000;
+    const size = (i) => (500 - i * 7) * 1048576;
+    const leaf = (n, i) => ({ n, b: size(i), f: 1, m, k: 'video' });
+    const wide = (name, depth) => {
+      const c = [];
+      for (let i = 0; i < 48; i++) c.push(depth > 1 ? wide(`${name}-${i}`, depth - 1) : leaf(`${name}-${i}.mkv`, i));
+      return { n: name, b: c.reduce((a, x) => a + x.b, 0), f: c.reduce((a, x) => a + x.f, 0), m, c };
+    };
+    const parts = [wide('big-a', 3), wide('big-b', 3)];
+    for (let i = 0; i < 20; i++) parts.push(wide(`small-${i}`, 1));
+    const tree = { n: 'films', b: parts.reduce((a, x) => a + x.b, 0), f: parts.reduce((a, x) => a + x.f, 0), m, c: parts };
+    h.setState('cleanup-where-map-films', { v: 1, share: 'films', path: '/mnt/big/films', at: 1793540800, took: 47, nodes: 30000, partial: false, tree });
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US' });
+    const page = await ctx.newPage();
+    try {
+      await page.goto(`${h.url}#/cleanup/where/space`, { waitUntil: 'load' });
+      await page.waitForSelector('.cl-space-tmcell', { timeout: 8000 });
+      await page.evaluate(() => { [...document.querySelectorAll('.cl-space-tmcell')].find((c) => c.textContent.startsWith('films')).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      await page.locator('.cl-space-tminfo .cl-map-act button').click();
+      await page.waitForSelector('.cl-map-svg', { timeout: 8000 });
+      const n = await page.locator('.cl-map-in').count();
+      if (n > 3000 || n < 2500) fail(`a huge tree: ${n} rectangles inside the cells (at most 3 000, and it should use them)`);
+      const first = await page.locator('.cl-map-cell').first().locator('.cl-map-in').count();
+      const last = await page.locator('.cl-map-cell').last().locator('.cl-map-in').count();
+      if (first <= last) fail(`a huge tree: the largest cell holds ${first} rectangles, the smallest ${last}`);
+      res.tested++;
+    } catch (e) {
+      fail(`a huge tree: ${String(e.message).split('\n')[0].slice(0, 180)}`);
+    }
+    await ctx.close();
+    h.setState('cleanup-where-map-films', undefined);
   }
   // by finger: a tap shows what it is, a tap on what is shown goes in
   {
