@@ -564,6 +564,21 @@ async function cleanupMap(browser) {
       await page.locator('.cl-map-crumb').first().click();
       if ((await crumbs()) !== before) fail(`${width} px: the breadcrumb did not go back up`);
       res.tested++;
+      // a folder that is one chain down to its files: drawn through to them, each level its own class; what is pointed at says
+      // its whole path, a click goes one step only (into the outer cell's folder)
+      const inner = (cls) => page.locator(`.cl-map-cell[aria-label^="Archiv"] .${cls}`);
+      if ((await inner('cl-map-dir2').count()) < 3) fail(`${width} px: the chain's folders are not drawn inside its cell`);
+      if (!(await page.locator('.cl-map-in2').count())) fail(`${width} px: no second level anywhere on the stage`);
+      const file = page.locator('.cl-map-cell[aria-label^="Archiv"] .cl-map-in:not(.cl-map-dir2)').first();
+      if (width > 640) {
+        await file.hover({ force: true });
+        const path = await page.locator('.cl-map-info .cl-map-path').textContent();
+        if (!path.startsWith('/Archiv/Digitalisiert/Kassetten/Hochzeit 1998/')) fail(`the hover box names «${path}» for a file at the end of the chain`);
+      }
+      await file.click({ force: true });
+      if ((await crumbs()) !== before + 1 || (await page.locator('.cl-map-here').textContent()) !== 'Archiv') fail(`${width} px: a click deep inside did not go one step, into «Archiv»`);
+      await page.locator('.cl-map-crumb').first().click();
+      res.tested++;
       // the keyboard: Enter zooms, Escape goes up, Escape at the root closes
       await page.locator('.cl-map-cell').first().focus();
       await page.keyboard.press('Enter');
@@ -595,6 +610,40 @@ async function cleanupMap(browser) {
     }
     errors.forEach((e) => fail(`${width} px: ${e}`));
     await ctx.close();
+  }
+  // a very wide and deep tree: never more than 3 000 rectangles inside the cells, and the largest folders got them
+  {
+    const m = 1600000000;
+    const size = (i) => (500 - i * 7) * 1048576;
+    const leaf = (n, i) => ({ n, b: size(i), f: 1, m, k: 'video' });
+    const wide = (name, depth) => {
+      const c = [];
+      for (let i = 0; i < 48; i++) c.push(depth > 1 ? wide(`${name}-${i}`, depth - 1) : leaf(`${name}-${i}.mkv`, i));
+      return { n: name, b: c.reduce((a, x) => a + x.b, 0), f: c.reduce((a, x) => a + x.f, 0), m, c };
+    };
+    const parts = [wide('big-a', 3), wide('big-b', 3)];
+    for (let i = 0; i < 20; i++) parts.push(wide(`small-${i}`, 1));
+    const tree = { n: 'films', b: parts.reduce((a, x) => a + x.b, 0), f: parts.reduce((a, x) => a + x.f, 0), m, c: parts };
+    h.setState('cleanup-where-map-films', { v: 1, share: 'films', path: '/mnt/big/films', at: 1793540800, took: 47, nodes: 30000, partial: false, tree });
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US' });
+    const page = await ctx.newPage();
+    try {
+      await page.goto(`${h.url}#/cleanup/where/space`, { waitUntil: 'load' });
+      await page.waitForSelector('.cl-space-tmcell', { timeout: 8000 });
+      await page.evaluate(() => { [...document.querySelectorAll('.cl-space-tmcell')].find((c) => c.textContent.startsWith('films')).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      await page.locator('.cl-space-tminfo .cl-map-act button').click();
+      await page.waitForSelector('.cl-map-svg', { timeout: 8000 });
+      const n = await page.locator('.cl-map-in').count();
+      if (n > 3000 || n < 2500) fail(`a huge tree: ${n} rectangles inside the cells (at most 3 000, and it should use them)`);
+      const first = await page.locator('.cl-map-cell').first().locator('.cl-map-in').count();
+      const last = await page.locator('.cl-map-cell').last().locator('.cl-map-in').count();
+      if (first <= last) fail(`a huge tree: the largest cell holds ${first} rectangles, the smallest ${last}`);
+      res.tested++;
+    } catch (e) {
+      fail(`a huge tree: ${String(e.message).split('\n')[0].slice(0, 180)}`);
+    }
+    await ctx.close();
+    h.setState('cleanup-where-map-films', undefined);
   }
   // by finger: a tap shows what it is, a tap on what is shown goes in
   {
