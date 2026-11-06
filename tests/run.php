@@ -9396,8 +9396,8 @@ function testBackupInside(): void
     }
     foreach (['vm1', 'vm2', 'vm3'] as $v) {
         touch("$pool/domains/$v/vdisk1.img");
-        file_put_contents("$lv/qemu/$v.xml", "<domain><name>$v</name><uuid>uuid-$v</uuid><os><nvram>$lv/qemu/nvram/uuid-${v}_VARS.fd</nvram></os><devices><tpm model='tpm-tis'/></devices></domain>");
-        file_put_contents("$lv/qemu/nvram/uuid-${v}_VARS.fd", 'vars');
+        file_put_contents("$lv/qemu/$v.xml", "<domain><name>$v</name><uuid>uuid-$v</uuid><os><nvram>$lv/qemu/nvram/uuid-{$v}_VARS.fd</nvram></os><devices><tpm model='tpm-tis'/></devices></domain>");
+        file_put_contents("$lv/qemu/nvram/uuid-{$v}_VARS.fd", 'vars');
     }
     file_put_contents("$lv/qemu/swtpm/tpm-states/uuid-vm1/tpm2/tpm2-00.permall", 'tpm');
     file_put_contents("$lv/qemu/snapshotdb/vm1/snapshots.db", 'db');
@@ -29663,17 +29663,35 @@ function testSpace(): void
     $h = spaceHistoryAdd(['array' => [8, 9]], $file, $now + 86400);
     same('space history: the next day its point', [3, 8, 3], [count($h['array']), $h['array'][2][1], substr_count((string) file_get_contents($file), '"k":"array"')]);
 
-    // her tick: a time compared, no look while the last one is young; wired into her desk; read only
+    // her tick: a time compared, no look while the last one is young; an old one starts a process, read back when over; wired into her desk; read only
     $GLOBALS['spaceTried'] = 0;
     $keep = $GLOBALS['space'];
     $GLOBALS['space'] = ['time' => time()];
-    spaceTick();
-    same('space: her tick looks again only after SPACE_EVERY', 0, $GLOBALS['spaceTried']);
+    spaceTick(true);
+    same('space: her tick looks again only after SPACE_EVERY', [0, null], [$GLOBALS['spaceTried'], $GLOBALS['spaceLook']]);
+    $GLOBALS['space'] = ['time' => time() - SPACE_EVERY - 1];
+    spaceTick(false);
+    same('space: her tick never looks while the array is stopped', [0, null], [$GLOBALS['spaceTried'], $GLOBALS['spaceLook']]);
+    $look = $tmp . '/space-look.json';
+    $GLOBALS['spaceFile'] = $look;
+    $GLOBALS['spaceCommand'] = ['/bin/sh', '-c', 'echo \'{"time":' . (time() + 5) . ',"from":"the job"}\' > ' . escapeshellarg($look)];
+    spaceTick(true);
+    check('space: an old look starts the job as a process of its own (the tick does not wait)', $GLOBALS['spaceTried'] > 0 && is_resource($GLOBALS['spaceLook']));
+    $same = $GLOBALS['spaceTried'];
+    for ($i = 0; $i < 100 && $GLOBALS['spaceLook'] !== null; $i++) {
+        usleep(20000);
+        spaceTick(true);
+    }
+    same('space: the job over, its file read back, no second job while one runs', [null, 'the job', $same], [$GLOBALS['spaceLook'], $GLOBALS['space']['from'] ?? null, $GLOBALS['spaceTried']]);
+    unset($GLOBALS['spaceFile'], $GLOBALS['spaceCommand']);
+    $GLOBALS['spaceTried'] = 0;
     $GLOBALS['space'] = $keep;
-    check('space: her action and her tick part', isset(desks()['cleanup']['actions']['space_refresh']) && (clTickParts()['space'] ?? null) === 'spaceTick');
+    check('space: her action, her tick part and her job', isset(desks()['cleanup']['actions']['space_refresh']) && (clTickParts()['space'] ?? null) === 'spaceTick'
+        && isset(desks()['cleanup']['jobs'][SPACE_JOB]) && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/agent.php'), "'job'"));
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/space.php');
     check('space: read only — no du, no smartctl, no zfs set or other change; it writes only its two files',
-        !preg_match('/\[\'(du|nice|smartctl)\'|bin\(\'(du|smartctl)\'\)|\$zfs, \'(set|destroy|snapshot|rename|create)\'|\$zpool, \'(scrub|set|clear)\'|file_put_contents|unlink\(|rename\(/', $src)
+        !preg_match('/\[\'(du|smartctl)\'|bin\(\'(du|smartctl)\'\)|\$zfs, \'(set|destroy|snapshot|rename|create)\'|\$zpool, \'(scrub|set|clear)\'|file_put_contents|unlink\(|rename\(/', $src)
+        && substr_count($src, "'nice'") === 1 && str_contains($src, "['nice', '-n', '10', PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', SPACE_JOB]")
         && substr_count($src, 'writeAtomic(') === 2 && str_contains($src, "[\$zfs, 'list', '-Hp'"));
     check('space: zfs list -r only on the awake pools (poolsBySleep), btrfs only on an awake pool, Docker\'s df only while its place is awake',
         str_contains($src, "poolsBySleep(\$names, \$asleep)['awake']") && str_contains($src, "!baseAsleep((string) \$name, \$asleep)") && str_contains($src, '!$sleeping && file_exists('));

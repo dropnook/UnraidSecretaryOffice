@@ -814,7 +814,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   `whereTour(false)`, then `clScan(false, true, true)`, never with wake: what sleeps is left out and named
   (`clTourAsleep()`); the last one in `cleanup/schedule.json`; her tile «Schedule» at the end of her rooms
   (`#/cleanup/schedule` → `tidy/schedule`). No notification (she sends none). No advice on ZFS's ARC or VM RAM (owner 2026-10-25). **«Storage»** (2026-11-04, a section with its tile `#/cleanup/where/space`, no third tab): agent/lib/space.php, the
-  part «space» (`cleanup-space.json`, action `space_refresh`, the tour brings it too, her tick looks every `SPACE_EVERY`)
+  part «space» (`cleanup-space.json`, action `space_refresh`, the tour brings it too, her tick looks every `SPACE_EVERY` — as a process of its own, `php agent.php job cleanup-space-look`, read back when over)
   and its history `cleanup-space-history.jsonl` (a point a day per pool, the array, data disk and boot device, 400 days);
   read only and only what is awake — disks.ini for a sleeping disk, `zfs list -r` of the awake pools, btrfs usage of an awake
   pool, `docker system df` at most every 6 h while its place is awake, Ms. Moverelli's split and Ms. Snapshotini's counts from

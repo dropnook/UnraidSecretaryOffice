@@ -249,7 +249,7 @@ desk('cleanup', [
         clScan();
     },
     'tick'    => fn () => clTickEach(clTickParts()),
-    'jobs'    => ['cleanup-tour-due' => fn (array $args) => clTourDue(), WHERE_MAP_JOB => fn (array $args) => whereMapJob($args)],
+    'jobs'    => ['cleanup-tour-due' => fn (array $args) => clTourDue(), WHERE_MAP_JOB => fn (array $args) => whereMapJob($args), SPACE_JOB => fn (array $args) => spaceLookJob()],
     'checks'  => fn (): array => clChecks(),
     'metrics' => fn (): array => clMetrics(),
     'actions' => [

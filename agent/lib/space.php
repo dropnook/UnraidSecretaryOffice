@@ -29,9 +29,11 @@ const SPACE_TOP_FOLDERS   = 8;
 const SPACE_POOLS_DIR     = '/boot/config/pools';
 const SPACE_DOCKER_CFG    = '/boot/config/docker.cfg';
 const SPACE_DOCKER_MOUNT  = '/var/lib/docker';
+const SPACE_JOB           = 'cleanup-space-look';   // her tick's look, as a process of its own: `php agent.php job cleanup-space-look`
 
 $GLOBALS['space'] = null;
 $GLOBALS['spaceTried'] = 0;
+$GLOBALS['spaceLook'] = null;     // the look her tick started, while it runs (a process)
 
 function spaceFile(): string
 {
@@ -57,17 +59,50 @@ function spaceFresh(int $age): array
 }
 
 /**
- * Her tick (cheap: a time compared): once the last look is older than SPACE_EVERY a new one — without Docker's df (that
- * one only with the page) — so the history gets its point a day without a browser. A look that failed waits as long.
+ * Her tick (cheap: a time compared, a process asked): once the last look is older than SPACE_EVERY a new one — without
+ * Docker's df (that one only with the page) — so the history gets its point a day without a browser. The look runs as a
+ * process of its own (`zfs list -r` over every pool can take a second on a big server; the tick stays cheap); when it
+ * is over, its file is read back. A look that failed waits as long. $running: the array's state, for the tests.
  */
-function spaceTick(): void
+function spaceTick(?bool $running = null): void
 {
+    $look = $GLOBALS['spaceLook'];
+    if ($look !== null) {
+        if (proc_get_status($look)['running']) {
+            return;
+        }
+        proc_close($look);
+        $GLOBALS['spaceLook'] = null;
+        $fresh = readJson(spaceFile());
+        if (is_array($fresh) && (int) ($fresh['time'] ?? 0) >= (int) ($GLOBALS['space']['time'] ?? 0)) {
+            $GLOBALS['space'] = $fresh;
+        }
+        return;
+    }
     $last = max((int) ($GLOBALS['space']['time'] ?? 0), (int) $GLOBALS['spaceTried']);
-    if (time() - $last < SPACE_EVERY || !arrayRunning()) {
+    if (time() - $last < SPACE_EVERY || !($running ?? arrayRunning())) {
         return;
     }
     $GLOBALS['spaceTried'] = time();
+    $pipes = [];
+    $process = proc_open(spaceCommand(), [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/');
+    if (is_resource($process)) {
+        $GLOBALS['spaceLook'] = $process;
+    }
+}
+
+/** @return list<string> */
+function spaceCommand(): array
+{
+    return $GLOBALS['spaceCommand'] ?? ['nice', '-n', '10', PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', SPACE_JOB];
+}
+
+/** The job behind her tick: the last look read first (its Docker df stays), then one look without Docker's df, written for the agent to read back */
+function spaceLookJob(): int
+{
+    spaceStart();
     spaceScan(false, false);
+    return 0;
 }
 
 /** The look: gathered, assembled, its history point added, written — $awake: every disk was just woken (a tour with «wake») */
