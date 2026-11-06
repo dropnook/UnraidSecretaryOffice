@@ -340,6 +340,27 @@
  {
   "nr": 7,
   "desk": "cleanup",
+  "moment": "space-map",
+  "title": "Frau Putzteufel - ein Klick auf einen Share: seine Ordner und Dateien als Rechtecke, nach Art oder Alter gefärbt, ein Klick geht tiefer",
+  "route": "cleanup/where",
+  "prepare": [
+   {
+    "click": "[data-place=\"where.space\"]",
+    "pause": 1200
+   },
+   {
+    "click": ".cl-map-cell[data-share=\"Familienfilme\"]",
+    "pause": 700
+   }
+  ],
+  "clip": [
+   "[data-place=\"where.space.shares\"]"
+  ],
+  "pad": 0
+ },
+ {
+  "nr": 7,
+  "desk": "cleanup",
   "moment": "space-details",
   "title": "Frau Putzteufel - Speicherplatz, die Einzelheiten: ein Pool aufgeklappt mit Aufbau, Scrub, Snapshots und seinen Datasets",
   "route": "cleanup/where",
