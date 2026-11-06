@@ -572,6 +572,42 @@ async function cleanupMap(browser) {
       const topBox = await page.locator('.cl-map-svg').getAttribute('viewBox');
       if (topBox !== (width > 640 ? '0 0 1000 360' : '0 0 400 400')) fail(`${width} px: the stage's viewBox is ${topBox}`);
       res.tested++;
+      // ---- the relief: the switch in the bar; on: over files alone, the pointer through it; off: none, through a redraw and a reload
+      const reliefSwitch = page.locator('.cl-map-head .cl-map-reliefseg button');
+      const reliefs = () => page.locator('.cl-map-svg .cl-map-relief').count();
+      const reliefOn = () => reliefSwitch.getAttribute('aria-pressed');
+      const reliefRight = async (where) => {
+        if ((await reliefSwitch.count()) !== 1) fail(`${width} px: no relief switch in the bar ${where}`);
+        if ((await reliefOn()) !== 'true' || !(await reliefs())) fail(`${width} px: the relief is not on ${where} (${await reliefOn()}, ${await reliefs()})`);
+        const wrong = await page.evaluate(() => {
+          const bad = [];
+          const stops = [...document.querySelectorAll('.cl-map-svg linearGradient stop')].map((x) => Number(getComputedStyle(x).stopOpacity));
+          if (stops.length !== 4 || Math.max(...stops) > 0.181 || stops[1] !== 0 || stops[2] !== 0) bad.push(`the gradient's stops ${stops}`);
+          for (const o of document.querySelectorAll('.cl-map-svg .cl-map-relief')) {
+            const own = o.previousElementSibling;
+            if (!own || !own.matches('.cl-map-rect') || own.matches('.cl-map-dir, .cl-map-dir2, .cl-map-restbox')) { bad.push(`over ${own ? own.getAttribute('class') : 'nothing'}`); continue; }
+            if (['x', 'y', 'width', 'height'].some((k) => o.getAttribute(k) !== own.getAttribute(k))) bad.push('not on its file');
+            if (Number(o.getAttribute('width')) < 4 || Number(o.getAttribute('height')) < 4) bad.push('on a rectangle under 4 units');
+            if (getComputedStyle(o).pointerEvents !== 'none') bad.push('in the pointer\'s way');
+          }
+          return bad.slice(0, 3).join('; ');
+        });
+        if (wrong) fail(`${width} px: the relief ${where}: ${wrong}`);
+      };
+      const reliefOff = async (where) => {
+        if ((await reliefOn()) !== 'false' || (await reliefs())) fail(`${width} px: the relief is not off ${where} (${await reliefOn()}, ${await reliefs()})`);
+      };
+      await reliefRight('at the top');
+      if ((await reliefSwitch.textContent()) !== 'Relief' || !(await reliefSwitch.getAttribute('title'))) fail(`${width} px: the relief switch says «${await reliefSwitch.textContent()}», its title «${await reliefSwitch.getAttribute('title')}»`);
+      await steady('switching the relief', () => reliefSwitch.click());
+      await reliefOff('after its switch');
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForSelector('.cl-map-cell[data-share="films"] .cl-map-in', { timeout: 8000 });
+      await reliefOff('after a reload');
+      await reliefSwitch.click();
+      await reliefRight('switched on again');
+      await noScroll('with the relief switch');
+      res.tested++;
       // ---- the line: the pointed-at share's numbers; pointing at what a cell holds names it, path from the share's root
       if (width > 640) {
         await cell('series').hover(pos);
@@ -595,6 +631,22 @@ async function cleanupMap(browser) {
       if (!(await page.getByRole('button', { name: 'Scan again…' }).count())) fail(`${width} px: no «Scan again…» inside a share`);
       await noScroll('inside a share');
       // a click on a share that has its map fetches nothing again (they came when the section opened)
+      res.tested++;
+      // ---- the relief inside: the switch beside the colour's, the legend's swatches lit like the files, a rest's never
+      await reliefRight('inside a share');
+      if (!(await page.locator('.cl-map-tools .cl-map-seg + .cl-map-reliefseg').count())) fail(`${width} px: the relief switch is not beside the colour's`);
+      const lit = () => page.locator('.cl-map-legend .cl-map-relief').count();
+      if ((await lit()) !== 9) fail(`${width} px: ${await lit()} of the legend's nine kinds have the relief`);
+      if (await page.locator('.cl-map-legend .cl-map-restbox + .cl-map-relief').count()) fail(`${width} px: the legend's rest has the relief`);
+      if (await page.evaluate(() => getComputedStyle(document.querySelector('.cl-map-svg .cl-map-relief')).fill === 'none')) fail(`${width} px: the overlay has no fill`);
+      await reliefSwitch.click();
+      await reliefOff('inside a share');
+      if (await lit()) fail(`${width} px: the legend keeps the relief while it is off`);
+      await page.locator('.cl-map-seg button').nth(1).click();       // another redraw: the colour's switch
+      await reliefOff('after the colour\'s switch');
+      await page.locator('.cl-map-seg button').nth(0).click();
+      await reliefSwitch.click();
+      await reliefRight('inside, on again');
       res.tested++;
       if (width > 640) {
         await page.locator('.cl-map-cell').first().hover(pos);
