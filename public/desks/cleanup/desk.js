@@ -4944,7 +4944,7 @@ function mapColours() {
   return seg;
 }
 
-/** The relief on or off: beside the colour's switch inside a share, in the bar over the shares; a choice this browser keeps */
+/** The relief on or off, beside the colour's switch at every level; a choice this browser keeps */
 function mapReliefSwitch() {
   const seg = el('div', 'seg cl-map-reliefseg');
   const b = el('button', '', T('where.map.relief'));
@@ -4976,7 +4976,7 @@ function mapLegend() {
   return legend;
 }
 
-/** The bar over the shares: the hint, «Scan all…» — while scans run or wait: how many, with the wave */
+/** The bar over the shares: the hint, the colour and the relief of what they hold, «Scan all…» — while scans run or wait: how many, with the wave */
 function mapTopBar() {
   const bar = el('div', 'cl-map-head');
   const hint = el('span', 'cl-space-tmhint cl-map-hint', T('where.space.tm_hint'));
@@ -5000,7 +5000,7 @@ function mapTopBar() {
     all.onclick = () => mapScanAll(can);
   }
   const tools = el('div', 'cl-map-tools');
-  tools.append(mapReliefSwitch(), all);
+  tools.append(mapColours(), mapReliefSwitch(), all);
   bar.append(hint, tools);
   return bar;
 }

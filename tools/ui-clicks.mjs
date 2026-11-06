@@ -610,6 +610,16 @@ async function cleanupMap(browser) {
       const reliefOff = async (where) => {
         if ((await reliefOn()) !== 'false' || (await reliefs())) fail(`${width} px: the relief is not off ${where} (${await reliefOn()}, ${await reliefs()})`);
       };
+      // ---- the colour's switch at the top too: what the shares hold takes it, the shares keep their own colour
+      const topColour = page.locator('.cl-map-head .cl-map-seg button');
+      if ((await topColour.count()) !== 2) fail(`${width} px: no colour switch in the bar at the top`);
+      if (!(await page.locator('.cl-map-tools .cl-map-seg + .cl-map-reliefseg').count())) fail(`${width} px: at the top the relief switch is not beside the colour's`);
+      await steady('switching the colour at the top', () => topColour.nth(1).click());
+      if ((await topColour.nth(1).getAttribute('aria-pressed')) !== 'true') fail(`${width} px: «by age» not pressed at the top`);
+      if (!(await page.locator('.cl-map-top .cl-map-in.cl-map-t-new, .cl-map-top .cl-map-in.cl-map-t-mid, .cl-map-top .cl-map-in.cl-map-t-old').count())) fail(`${width} px: at the top nothing is coloured by age`);
+      if (await page.locator('.cl-map-legend').count()) fail(`${width} px: the colour's switch changed the top's own legend`);
+      await noScroll('with both switches at the top');
+      await topColour.nth(0).click();
       await reliefRight('at the top');
       if ((await reliefSwitch.textContent()) !== 'Relief' || !(await reliefSwitch.getAttribute('title'))) fail(`${width} px: the relief switch says «${await reliefSwitch.textContent()}», its title «${await reliefSwitch.getAttribute('title')}»`);
       await steady('switching the relief', () => reliefSwitch.click());
