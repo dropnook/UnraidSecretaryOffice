@@ -329,6 +329,10 @@
    {
     "click": "[data-place=\"where.space\"]",
     "pause": 700
+   },
+   {
+    "wait": ".cl-map-top .cl-map-snaps",
+    "pause": 300
    }
   ],
   "clip": [
@@ -349,8 +353,16 @@
     "pause": 1200
    },
    {
+    "wait": ".cl-map-cell[data-share=\"Familienfilme\"] .cl-map-in",
+    "pause": 200
+   },
+   {
     "click": ".cl-map-cell[data-share=\"Familienfilme\"]",
-    "pause": 700
+    "pause": 400
+   },
+   {
+    "wait": ".cl-map-crumbs",
+    "pause": 300
    }
   ],
   "clip": [

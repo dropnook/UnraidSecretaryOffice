@@ -217,7 +217,8 @@ ${js.map((f) => `<script src="${esc(BASE + f)}?v=${stamp}"></script>`).join('\n'
     const part = q.a === 'part' ? (q.get('part') || '') : '';
     const d = list.find((x) => x.id === desk);
     if (!d) return { ok: false, error: { key: 'unknown_desk', params: { desk } } };
-    const share = q.get('share') || '';     // a part kept per share (src/api.php apiPartOfShare()): <desk>-<part>-<share>.json
+    let share = q.get('share') || '';       // a part kept per share (src/api.php apiPartOfShare()): <desk>-<part>-<share>.json
+    for (const [a, b] of opts.names || []) if (share === b) share = a;      // the page asks by the name it was shown, the file has the family's
     const name = part ? `${desk}-${part}${share ? '-' + share : ''}` : desk;
     const s = stateOf(name);
     const n = (looks.get(name) || 0) + 1;
