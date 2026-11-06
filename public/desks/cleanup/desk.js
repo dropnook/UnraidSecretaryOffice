@@ -4368,6 +4368,7 @@ function mapScan(s) {
     const j = await Office.api.post(`${ID}.where_map`, { paths: [s.measure] });
     if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return; }
     mapTook(j.map);
+    spacePinned = spacePicked = s.name;          // the line drawn again shows this share: its wave, not what the pointer last crossed
     if (view) sw.render();
     await loadSizes();
   };

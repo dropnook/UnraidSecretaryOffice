@@ -639,7 +639,8 @@ async function cleanupMap(browser) {
         await page.waitForSelector('.dialog, [role=dialog]', { timeout: 3000 }).catch(() => fail('no wake dialog for a share on the array'));
         if (h.posts.length !== asked) fail('the scan started before the dialog was answered');
         await page.getByRole('button', { name: 'Scan', exact: true }).click();
-        await page.waitForSelector('.cl-space-tminfo .cl-map-act .spin', { timeout: 3000 }).catch(() => fail('no wave in the line while the scan runs'));
+        await page.mouse.move(5, 5);          // the pointer moves on: the dialog closed over the treemap, a cell under it would be the line's share
+        await page.waitForSelector('.cl-space-tminfo .cl-map-act .spin', { timeout: 3000 }).catch(async () => fail(`no wave in the line while the scan runs (the line: ${await page.evaluate(() => (document.querySelector('.cl-space-tmline') || {}).textContent)})`));
         const sent = h.posts.filter((p) => p.action === 'cleanup.where_map').pop();
         if (!sent || JSON.stringify(sent.data && sent.data.paths) !== JSON.stringify([series.measure])) fail(`the scan asked for ${JSON.stringify(sent)}`);
         h.setState('cleanup-where-map', undefined);
