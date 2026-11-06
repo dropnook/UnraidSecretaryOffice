@@ -1882,7 +1882,7 @@
   "where.space.seg.others": "los demás recursos con caché",
   "where.space.seg.jack": "de Jack Streamer",
   "where.space.mark_warn": "el umbral de aviso de Unraid",
-  "where.space.mark_crit": "su umbral crítico",
+  "where.space.mark_crit": "el umbral crítico de Unraid",
   "where.space.used_of": "{used} de {size}",
   "where.space.free": "{free} libres",
   "where.space.no_size": "tamaño desconocido",
@@ -2085,8 +2085,8 @@
   "where.map.kind.other": "Otros",
   "where.map.kind.rest": "El resto, más pequeño",
   "where.map.age.new": "cambiado en el último año",
-  "where.map.age.mid": "sin tocar 1–3 años",
-  "where.map.age.old": "sin tocar más de 3 años",
+  "where.map.age.mid": "sin cambios desde hace 1–3 años",
+  "where.map.age.old": "sin cambios desde hace más de 3 años",
   "errors.where_map_busy": "{share} ya se está escaneando.",
   "errors.share_missing": "Falta el recurso compartido {share}."
 }

@@ -1882,7 +1882,7 @@
   "where.space.seg.others": "the other caching shares",
   "where.space.seg.jack": "Jack Streamer's",
   "where.space.mark_warn": "Unraid's warning threshold",
-  "where.space.mark_crit": "its critical threshold",
+  "where.space.mark_crit": "Unraid's critical threshold",
   "where.space.used_of": "{used} of {size}",
   "where.space.free": "{free} free",
   "where.space.no_size": "no size known",
@@ -2085,8 +2085,8 @@
   "where.map.kind.other": "Other",
   "where.map.kind.rest": "The smaller rest",
   "where.map.age.new": "changed within a year",
-  "where.map.age.mid": "1–3 years untouched",
-  "where.map.age.old": "untouched for over 3 years",
+  "where.map.age.mid": "1–3 years unchanged",
+  "where.map.age.old": "unchanged for over 3 years",
   "errors.where_map_busy": "{share} is already being scanned.",
   "errors.share_missing": "The share {share} is missing."
 }

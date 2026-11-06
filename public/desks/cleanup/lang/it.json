@@ -1882,7 +1882,7 @@
   "where.space.seg.others": "le altre condivisioni con cache",
   "where.space.seg.jack": "di Jack Streamer",
   "where.space.mark_warn": "la soglia di avviso di Unraid",
-  "where.space.mark_crit": "la sua soglia critica",
+  "where.space.mark_crit": "la soglia critica di Unraid",
   "where.space.used_of": "{used} su {size}",
   "where.space.free": "{free} liberi",
   "where.space.no_size": "dimensione sconosciuta",
@@ -2085,8 +2085,8 @@
   "where.map.kind.other": "Altro",
   "where.map.kind.rest": "Il resto più piccolo",
   "where.map.age.new": "modificato nell’ultimo anno",
-  "where.map.age.mid": "intatto da 1–3 anni",
-  "where.map.age.old": "intatto da oltre 3 anni",
+  "where.map.age.mid": "invariato da 1–3 anni",
+  "where.map.age.old": "invariato da oltre 3 anni",
   "errors.where_map_busy": "{share} è già in scansione.",
   "errors.share_missing": "Manca la condivisione {share}."
 }
