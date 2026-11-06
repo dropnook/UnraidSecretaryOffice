@@ -497,50 +497,106 @@ await Promise.all(Array.from({ length: Math.min(opt.jobs, jobs.length) }, async 
     if (opt.verbose) console.log(`  ${r.fails.length ? 'FAIL' : 'ok  '} ${j.route} ${j.theme} ${j.width} (${(r.ms / 1000).toFixed(1)} s)`);
   }
 }));
-// ------------------------------------------------------------------ Ms. Dustdevil's map (2026-11-05)
-// «Storage»: a share's «Map» opens in the treemap's place, a folder zooms in (the breadcrumb grows), the breadcrumb and
-// Escape go back up, the colour switches by age, the hover box says what is pointed at, a share without a map offers «Scan…»
-// (with the wake dialog for one on the array, the wave while it runs); no horizontal scrolling at phone width either.
+// ------------------------------------------------------------------ Ms. Dustdevil's treemap (2026-11-06: one treemap to click into)
+// «Storage»: the shares at the top, what a scanned share holds drawn inside its cell; a click on a share goes inside, on a folder
+// deeper; the breadcrumb, Escape and the X come back up; a share without a map scans first (the wake question for one on the
+// array, the wave in its cell, it opens when the scan ends and nothing else was clicked); «Scan all…» asks once and queues;
+// no horizontal scrolling and no jumping page at phone width either, by finger a tap shows and the next one goes in.
 async function cleanupMap(browser) {
   const res = { route: 'cleanup map', theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
   const t0 = Date.now();
   const fail = (what) => { if (res.fails.length < 40 && !res.fails.includes(what)) res.fails.push(what); };
   const h = await startHarness({});
-  const space = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', 'cleanup-space.json'), 'utf8'));
+  const stateFile = (name) => JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', `${name}.json`), 'utf8'));
+  const space = stateFile('cleanup-space');
   const series = space.shares.find((s) => s.name === 'series');
-  h.setPost('cleanup.where_map', (body) => {
-    const st = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', 'cleanup-where-map.json'), 'utf8'));
-    st.running = body.paths;
+  const domains = space.shares.find((s) => s.name === 'domains');
+  const system = space.shares.find((s) => s.name === 'system');
+  // the agent's answer: what was asked for runs. mapsAlso(): a scan ended — its map there, nothing running
+  const scanStub = () => h.setPost('cleanup.where_map', (body) => {
+    const st = stateFile('cleanup-where-map');
+    st.running = body.paths.slice(0, 1);
+    st.queue = body.paths.slice(1);
     h.setState('cleanup-where-map', st);
     return { map: st };
   });
+  const scanEnded = (name, measure) => {
+    const st = stateFile('cleanup-where-map');
+    st.maps[name] = { path: measure, at: 1793540900, took: 3, nodes: 505, bytes: 1000, partial: false };
+    h.setState('cleanup-where-map', st);
+    const tree = stateFile('cleanup-where-map-films');
+    h.setState(`cleanup-where-map-${name}`, { ...tree, share: name, path: measure, at: 1793540900, took: 3, tree: { ...tree.tree, n: name } });
+  };
+  const scanReset = () => { for (const n of ['cleanup-where-map', 'cleanup-where-map-domains', 'cleanup-where-map-system']) h.setState(n, undefined); };
+  const open = async (ctx) => {
+    const page = await ctx.newPage();
+    await page.goto(`${h.url}#/cleanup/where/space`, { waitUntil: 'load' });
+    await page.waitForSelector('.cl-map-top .cl-map-cell', { timeout: 8000 });
+    return page;
+  };
+  const cellOf = (page, name) => page.locator(`.cl-map-cell[data-share="${name}"]`);
+  const crumbsOf = (page) => page.locator('.cl-map-crumbs > *:not(.cl-map-sep)').count();
+  const pos = { position: { x: 8, y: 8 } };           // on the cell's own head, never on what it holds
+  scanStub();
   for (const width of [1440, 375]) {
     const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
-    const page = await ctx.newPage();
     const errors = [];
+    const page = await open(ctx);
     page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
     page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 160)); });
     try {
-      await page.goto(`${h.url}#/cleanup/where/space`, { waitUntil: 'load' });
-      await page.waitForSelector('.cl-space-tmcell', { timeout: 8000 });
-      const crumbs = () => page.locator('.cl-map-crumbs > *:not(.cl-map-sep)').count();
-      const cell = (n) => page.locator('.cl-map-cell', { has: page.locator('text') }).nth(n);
+      const crumbs = () => crumbsOf(page);
+      const cell = (n) => cellOf(page, n);
       const noScroll = async (when) => {
         if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) fail(`${width} px: horizontal scrolling ${when}`);
       };
-      // the sentence under the treemap names the button: it only appears on a share's line
-      if (!(await page.locator('.cl-space-tmhint').textContent()).includes('Scan…')) fail(`${width} px: the hint under the treemap does not name «Scan…»`);
-      // the share's line: pointed at or clicked, it has its button; the pointer's way to the button keeps the one clicked
-      await page.evaluate(() => { [...document.querySelectorAll('.cl-space-tmcell')].find((c) => c.textContent.startsWith('films')).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-      const open = page.locator('.cl-space-tminfo .cl-map-act button');
-      if ((await open.textContent()) !== 'Map') fail(`${width} px: a scanned share's button says «${await open.textContent()}»`);
-      await open.click();
-      await page.waitForSelector('.cl-map-svg', { timeout: 5000 });
-      if (await page.locator('.cl-space-tm').count()) fail(`${width} px: the treemap still there with the map open`);
-      await noScroll('with the map open');
-      // hover: what it is (a mouse only on the wide page)
+      // a redraw never makes the page jump: the panel stays where it is on screen
+      const steady = async (when, change) => {
+        await page.evaluate(() => { const p = document.querySelector('.cl-map'); window.scrollBy(0, p.getBoundingClientRect().top - 120); });
+        const top = () => page.evaluate(() => document.querySelector('.cl-map').getBoundingClientRect().top);
+        const was = await top();
+        await change();
+        const now = await top();
+        if (Math.abs(now - was) > 1.5) fail(`${width} px: the page jumped ${when} (${was} → ${now})`);
+      };
+      // ---- the top: the shares, what a scanned one holds inside its cell, the bar
+      await page.waitForSelector('.cl-map-cell[data-share="films"] .cl-map-in', { timeout: 5000 }).catch(() => fail(`${width} px: a scanned share's content is not drawn inside its cell`));
+      if (await page.locator('.cl-map-cell[data-share="series"] .cl-map-in').count()) fail(`${width} px: a share without a map has content`);
+      if (await page.locator('.cl-map-crumbs').count()) fail(`${width} px: a breadcrumb at the top`);
+      if ((await page.locator('.cl-map-all').textContent()) !== 'Scan all…') fail(`${width} px: the bar's button says «${await page.locator('.cl-map-all').textContent()}»`);
+      if (!(await page.locator('.cl-map-hint').textContent()).includes('scans it')) fail(`${width} px: the hint does not say the first click scans`);
+      if (!(await cell('films').locator('.cl-space-tmrect').evaluate((e) => getComputedStyle(e).fill !== 'none'))) fail(`${width} px: the share's own fill is gone`);
+      if (await page.locator('.cl-map-legend').count()) fail(`${width} px: the kinds' legend at the top`);
+      if (!(await page.locator('.cl-space-unmeasured').count())) fail(`${width} px: the unmeasured line is gone`);
+      await noScroll('at the top');
+      const topBox = await page.locator('.cl-map-svg').getAttribute('viewBox');
+      if (topBox !== (width > 640 ? '0 0 1000 360' : '0 0 400 400')) fail(`${width} px: the stage's viewBox is ${topBox}`);
+      res.tested++;
+      // ---- the line: the pointed-at share's numbers; pointing at what a cell holds names it, path from the share's root
       if (width > 640) {
-        await cell(0).hover();
+        await cell('series').hover(pos);
+        if (!(await page.locator('.cl-space-tminfo').textContent()).startsWith('series')) fail('hovering a share: its numbers not in the line');
+        await cell('films').locator('.cl-map-in').first().hover({ force: true });
+        const said = await page.locator('.cl-map-infoline').textContent();
+        if (!said.startsWith('films') || !(await page.locator('.cl-map-infoline .cl-map-path').textContent()).startsWith('/')) fail(`pointing inside a share's cell: the line says «${said}»`);
+      }
+      res.tested++;
+      // ---- a click on a share goes inside: the breadcrumb, the kinds' legend, the X
+      await steady('going into a share', () => cell('films').click(pos));
+      await page.waitForSelector('.cl-map-crumbs', { timeout: 5000 });
+      if (await page.locator('.cl-map-top').count()) fail(`${width} px: still the top after a click on a share`);
+      const before = await crumbs();
+      if (before !== 2 || !(await page.locator('.cl-map-crumbs').textContent()).startsWith('Shares')) fail(`${width} px: the breadcrumb is «${await page.locator('.cl-map-crumbs').textContent()}»`);
+      if (!(await page.locator('.cl-map-legend').count())) fail(`${width} px: no kinds' legend inside a share`);
+      if (await page.locator('.cl-map-all').count()) fail(`${width} px: «Scan all…» inside a share`);
+      if ((await page.locator('.cl-map-svg').getAttribute('viewBox')) !== topBox) fail(`${width} px: another stage inside a share`);
+      if (!(await page.locator('.cl-map-close').getAttribute('aria-label'))) fail(`${width} px: the X has no label`);
+      if (!(await page.getByRole('button', { name: 'Scan again…' }).count())) fail(`${width} px: no «Scan again…» inside a share`);
+      await noScroll('inside a share');
+      // a click on a share that has its map fetches nothing again (they came when the section opened)
+      res.tested++;
+      if (width > 640) {
+        await page.locator('.cl-map-cell').first().hover(pos);
         const said = await page.locator('.cl-map-info').textContent();
         if (!said.includes('/') || !/[KMGT]B|B\b/.test(said)) fail(`hover box says «${said}»`);
       }
@@ -552,21 +608,20 @@ async function cleanupMap(browser) {
       if (!(await hatched(page.locator('.cl-map-legend .cl-map-restbox')))) fail(`${width} px: the legend's rest is not hatched`);
       if (await page.evaluate(() => [...document.querySelectorAll('.cl-map pattern line')].some((l) => getComputedStyle(l).stroke === 'none'))) fail(`${width} px: the hatching has no lines`);
       const words = await rest.locator('text').allTextContents();
-      if (!words[0].startsWith('… 214') || !words.join(' ').includes('96 GB') || !words.join(" ").includes("≈ ")) fail(`${width} px: the rest says «${words.join(' | ')}»`);
+      if (!words[0].startsWith('… 214') || !words.join(' ').includes('96 GB') || !words.join(' ').includes('≈ ')) fail(`${width} px: the rest says «${words.join(' | ')}»`);
       if (width > 640) {
         await rest.hover();
         const said = await page.locator('.cl-map-info').textContent();
         if (!said.includes('… 214 more') || !/≈ .* each/.test(said) || !said.includes('in Share films') || !/\d+ GB/.test(said)) fail(`the hover box of a rest says «${said}»`);
       }
       res.tested++;
-      // a folder zooms in, the breadcrumb grows; by finger the page is the same as by mouse here (playwright's click = mouse)
-      const before = await crumbs();
+      // ---- a folder goes one deeper, the breadcrumb grows
       const label = await page.locator('.cl-map-cell').first().getAttribute('aria-label');
-      await page.locator('.cl-map-cell').first().click({ position: { x: 8, y: 8 } });
+      await steady('going into a folder', () => page.locator('.cl-map-cell').first().click(pos));
       if ((await crumbs()) !== before + 1) fail(`${width} px: a click on «${label}» did not zoom in (${before} → ${await crumbs()})`);
       await noScroll('zoomed in');
       res.tested++;
-      // the colour by age: the switch and the legend
+      // ---- the colour by age: the switch and the legend
       await page.locator('.cl-map-seg button').nth(1).click();
       if ((await page.locator('.cl-map-seg button').nth(1).getAttribute('aria-pressed')) !== 'true') fail(`${width} px: «by age» not pressed`);
       if ((await page.locator('.cl-map-legend .cl-space-key').count()) !== 4) fail(`${width} px: the age legend has not three buckets and the rest`);
@@ -577,8 +632,8 @@ async function cleanupMap(browser) {
       // a fill comes from her tokens, in this theme: never transparent or black
       const fill = await page.locator('.cl-map-rect:not(.cl-map-dir):not(.cl-map-restbox)').first().evaluate((e) => getComputedStyle(e).fill);
       if (!fill || fill === 'none' || fill === 'rgb(0, 0, 0)') fail(`${width} px: a rectangle's fill is ${fill}`);
-      // the breadcrumb back
-      await page.locator('.cl-map-crumb').first().click();
+      // ---- the breadcrumb back: to the share's root, its second part
+      await page.locator('.cl-map-crumb').nth(1).click();
       if ((await crumbs()) !== before) fail(`${width} px: the breadcrumb did not go back up`);
       res.tested++;
       // a folder that is one chain down to its files: drawn through to them, each level its own class; what is pointed at says
@@ -589,17 +644,17 @@ async function cleanupMap(browser) {
       const file = page.locator('.cl-map-cell[aria-label^="Archiv"] .cl-map-in:not(.cl-map-dir2)').first();
       if (width > 640) {
         await file.hover({ force: true });
-        const path = await page.locator('.cl-map-info .cl-map-path').textContent();
-        if (!path.startsWith('/Archiv/Digitalisiert/Kassetten/Hochzeit 1998/')) fail(`the hover box names «${path}» for a file at the end of the chain`);
+        const p = await page.locator('.cl-map-info .cl-map-path').textContent();
+        if (!p.startsWith('/Archiv/Digitalisiert/Kassetten/Hochzeit 1998/')) fail(`the hover box names «${p}» for a file at the end of the chain`);
       }
       await file.click({ force: true });
       if ((await crumbs()) !== before + 1 || (await page.locator('.cl-map-here').textContent()) !== 'Archiv') fail(`${width} px: a click deep inside did not go one step, into «Archiv»`);
-      await page.locator('.cl-map-crumb').first().click();
+      await page.locator('.cl-map-crumb').nth(1).click();
       res.tested++;
-      // the window's width: drawn again only when phone ↔ desktop changes, in the same place
+      // ---- the window's width: drawn again only when phone ↔ desktop changes, in the same place
       const box = () => page.locator('.cl-map-svg').getAttribute('viewBox');
       const wide = await box();
-      await page.locator('.cl-map-cell').first().click({ position: { x: 8, y: 8 } });
+      await page.locator('.cl-map-cell').first().click(pos);
       await page.evaluate(() => { document.querySelector('.cl-map-svg').dataset.same = '1'; });
       await page.setViewportSize({ width: width > 640 ? width - 200 : width + 60, height: 900 });
       await page.waitForTimeout(350);
@@ -609,50 +664,131 @@ async function cleanupMap(browser) {
       if ((await crumbs()) !== before + 1) fail(`${width} px: the redraw lost the place`);
       await page.setViewportSize({ width, height: 900 });
       await page.waitForFunction((was) => document.querySelector('.cl-map-svg').getAttribute('viewBox') === was, wide, { timeout: 2000 }).catch(() => fail(`${width} px: back again, the viewBox is not ${wide}`));
-      await page.locator('.cl-map-crumb').first().click();
+      await page.locator('.cl-map-crumb').nth(1).click();
       res.tested++;
       // a scan under a minute says so, never «0 min» (the stub's took 47 s)
       if (!(await page.locator('.cl-map-line').textContent()).includes('under a minute')) fail(`${width} px: the line says «${await page.locator('.cl-map-line').textContent()}»`);
-      // the keyboard: Enter zooms, Escape goes up, Escape at the root closes
+      // ---- the keyboard: Enter goes in, Escape goes up one level, out of the share to the top; at the top it does nothing
       await page.locator('.cl-map-cell').first().focus();
       await page.keyboard.press('Enter');
       if ((await crumbs()) !== before + 1) fail(`${width} px: Enter did not zoom in`);
       await page.keyboard.press('Escape');
       if ((await crumbs()) !== before) fail(`${width} px: Escape did not go up`);
       await page.keyboard.press('Escape');
-      if (await page.locator('.cl-map').count()) fail(`${width} px: Escape at the top did not close the map`);
-      if (!(await page.locator('.cl-space-tm').count())) fail(`${width} px: the treemap did not come back`);
+      if (!(await page.locator('.cl-map-top').count())) fail(`${width} px: Escape at a share's root did not come back to the shares`);
+      await page.keyboard.press('Escape');
+      if (!(await page.locator('.cl-map-top').count())) fail(`${width} px: Escape at the top did something`);
+      await page.keyboard.press('Enter');         // the focus is back on the share we came from
+      await page.waitForSelector('.cl-map-crumbs', { timeout: 3000 }).catch(() => fail(`${width} px: back at the top the focus is not on the share`));
       res.tested++;
-      // closed: no redraw waits for a resize, the treemap keeps its own drawing
+      // ---- the X and the breadcrumb's «Shares» come back from any depth
+      await page.locator('.cl-map-cell').first().click(pos);
+      await steady('on the X', () => page.locator('.cl-map-close').click());
+      if (!(await page.locator('.cl-map-top').count())) fail(`${width} px: the X did not come back to the shares`);
+      await cell('films').click(pos);
+      await page.waitForSelector('.cl-map-crumbs', { timeout: 3000 });
+      await page.locator('.cl-map-crumb').first().click();
+      if (!(await page.locator('.cl-map-top').count())) fail(`${width} px: «Shares» in the breadcrumb did not come back`);
+      res.tested++;
+      // ---- back at the top a resize draws the top's stage, the same listener
       await page.setViewportSize({ width: width > 640 ? 500 : 900, height: 900 });
-      await page.waitForTimeout(300);
+      await page.waitForFunction((was) => document.querySelector('.cl-map-top').getAttribute('viewBox') !== was, topBox, { timeout: 2000 }).catch(() => fail(`${width} px: the top's stage kept its viewBox`));
       await page.setViewportSize({ width, height: 900 });
-      await page.waitForTimeout(300);
-      if (await page.locator('.cl-map').count()) fail(`${width} px: a resize brought the closed map back`);
-      // no scan yet, on the array: «Scan…» asks first; the wave after the yes, in the share's line
-      if (width > 640) {
-        await page.evaluate(() => { [...document.querySelectorAll('.cl-space-tmcell')].find((c) => c.textContent.startsWith('series')).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-        const scan = page.locator('.cl-space-tminfo .cl-map-act button');
-        if ((await scan.textContent()) !== 'Scan…') fail(`a share without a map says «${await scan.textContent()}»`);
-        const asked = h.posts.length;
-        await scan.click();
-        await page.waitForSelector('.dialog, [role=dialog]', { timeout: 3000 }).catch(() => fail('no wake dialog for a share on the array'));
-        if (h.posts.length !== asked) fail('the scan started before the dialog was answered');
-        await page.getByRole('button', { name: 'Scan', exact: true }).click();
-        await page.mouse.move(5, 5);          // the pointer moves on: the dialog closed over the treemap, a cell under it would be the line's share
-        await page.waitForSelector('.cl-space-tminfo .cl-map-act .spin', { timeout: 3000 }).catch(async () => fail(`no wave in the line while the scan runs (the line: ${await page.evaluate(() => (document.querySelector('.cl-space-tmline') || {}).textContent)})`));
-        const sent = h.posts.filter((p) => p.action === 'cleanup.where_map').pop();
-        if (!sent || JSON.stringify(sent.data && sent.data.paths) !== JSON.stringify([series.measure])) fail(`the scan asked for ${JSON.stringify(sent)}`);
-        h.setState('cleanup-where-map', undefined);
-        res.tested++;
-      }
+      await page.waitForFunction((was) => document.querySelector('.cl-map-top').getAttribute('viewBox') === was, topBox, { timeout: 2000 }).catch(() => fail(`${width} px: the top's stage did not come back`));
+      res.tested++;
+      // ---- a pool-only share without a map: no question, the wave in its cell, «scanning» in the line; it opens when the scan ends
+      const asked = h.posts.length;
+      await cell('domains').click(pos);
+      await page.waitForSelector('.cl-map-over .spin', { timeout: 3000 }).catch(() => fail(`${width} px: no wave in the cell of a share being scanned`));
+      if (await page.locator('.dialog:visible, [role=dialog]:visible').count()) fail(`${width} px: a question for a share on a pool only`);
+      if (!(await page.locator('.cl-space-tminfo').textContent()).includes('scanning')) fail(`${width} px: the line does not say «scanning»`);
+      const sent = h.posts.slice(asked).filter((p) => p.action === 'cleanup.where_map').pop();
+      if (!sent || JSON.stringify(sent.data && sent.data.paths) !== JSON.stringify([domains.measure])) fail(`${width} px: the scan asked for ${JSON.stringify(sent)}`);
+      await noScroll('with a wave in a cell');
+      scanEnded('domains', domains.measure);
+      await page.waitForFunction(() => (document.querySelector('.cl-map-here') || {}).textContent === 'domains', null, { timeout: 8000 }).catch(() => fail(`${width} px: the share did not open when its scan ended`));
+      await page.locator('.cl-map-close').click();
+      res.tested++;
+      // ---- something else clicked since: it does not open, its content appears in its cell
+      await cell('system').click(pos);
+      await page.waitForSelector('.cl-map-over .spin', { timeout: 3000 });
+      await page.locator('.cl-map .cl-space-legend').first().click();
+      scanEnded('system', system.measure);
+      await page.waitForSelector('.cl-map-cell[data-share="system"] .cl-map-in', { timeout: 8000 }).catch(() => fail(`${width} px: the scanned share's content did not appear in its cell`));
+      if (!(await page.locator('.cl-map-top').count())) fail(`${width} px: the share opened though something else was clicked`);
+      res.tested++;
+      // ---- on the array: asks first; a failed scan says so in the cell's rectangle and the line
+      const asked2 = h.posts.length;
+      await cell('series').click(pos);
+      await page.waitForSelector('.dialog, [role=dialog]', { timeout: 3000 }).catch(() => fail(`${width} px: no wake question for a share on the array`));
+      if (h.posts.length !== asked2) fail(`${width} px: the scan started before the question was answered`);
+      await page.getByRole('button', { name: 'Scan', exact: true }).click();
+      await page.mouse.move(5, 5);          // the pointer moves on: the dialog closed over the treemap, a cell under it would be the line's share
+      await page.waitForSelector('.cl-map-over .spin', { timeout: 3000 }).catch(() => fail(`${width} px: no wave after the question`));
+      const failedState = stateFile('cleanup-where-map');
+      failedState.failed = { series: { at: 1793540950 } };
+      h.setState('cleanup-where-map', failedState);
+      await page.waitForSelector('.cl-space-tmrect.cl-map-failed', { timeout: 8000 }).catch(() => fail(`${width} px: a failed scan is not said in the cell`));
+      await page.mouse.move(5, 5);
+      if (!(await page.locator('.cl-space-tminfo').textContent()).includes('brought no map')) fail(`${width} px: a failed scan is not said in the line`);
+      if (await page.locator('.cl-map-crumbs').count()) fail(`${width} px: a failed scan opened something`);
+      scanReset();
+      res.tested++;
     } catch (e) {
       fail(`${width} px: ${String(e.message).split('\n')[0].slice(0, 180)}`);
     }
     errors.forEach((e) => fail(`${width} px: ${e}`));
     await ctx.close();
+    scanReset();
   }
-  // a very wide and deep tree: never more than 3 000 rectangles inside the cells, and the largest folders got them
+  // ---- «Scan all…»: asks once which shares wake which disks, queues every share that can be scanned, waves in their cells
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US' });
+    const page = await open(ctx);
+    try {
+      const asked = h.posts.length;
+      await page.locator('.cl-map-all').click();
+      await page.waitForSelector('.dialog, [role=dialog]', { timeout: 3000 });
+      const said = await page.locator('.cl-map-wakes').textContent();
+      if (!said.includes('series: disk1, disk3') || said.includes('films')) fail(`scan all: the question says «${said}»`);
+      if (h.posts.length !== asked) fail('scan all: queued before the question was answered');
+      await page.getByRole('button', { name: 'Scan', exact: true }).click();
+      await page.waitForSelector('.cl-map-all .spin', { timeout: 3000 }).catch(() => fail('scan all: no wave on the button'));
+      const sent = h.posts.slice(asked).filter((p) => p.action === 'cleanup.where_map');
+      const can = space.shares.filter((s) => !s.missing && s.bytes !== 0).map((s) => s.measure);
+      if (sent.length !== 1 || JSON.stringify(sent[0].data.paths) !== JSON.stringify(can)) fail(`scan all: asked for ${JSON.stringify(sent.map((p) => p.data))}, not ${JSON.stringify(can)}`);
+      const text = await page.locator('.cl-map-all').textContent();
+      if (!text.includes(`${can.length} in the queue`)) fail(`scan all: the button says «${text}»`);
+      if (!(await page.locator('.cl-map-all').isDisabled())) fail('scan all: the button can be clicked again');
+      const waves = await page.locator('.cl-map-over .spin').count();
+      const cells = await page.locator('.cl-map-top .cl-map-cell').count();
+      if (waves !== cells) fail(`scan all: ${waves} waves over ${cells} cells`);
+      if (!(await page.locator('.cl-map-chip.running').count())) fail('scan all: no wave in the chip of an unmeasured share');
+      res.tested++;
+    } catch (e) {
+      fail(`scan all: ${String(e.message).split('\n')[0].slice(0, 180)}`);
+    }
+    await ctx.close();
+    scanReset();
+    // a server of pools only: nothing to ask
+    const pools = JSON.parse(JSON.stringify(space));
+    pools.shares = pools.shares.filter((s) => !s.unknown.length && s.primary !== 'array' && s.secondary !== 'array');
+    h.setState('cleanup-space', pools);
+    const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US' });
+    const page2 = await open(ctx2);
+    try {
+      await page2.locator('.cl-map-all').click();
+      await page2.waitForSelector('.cl-map-all .spin', { timeout: 3000 });
+      if (await page2.locator('.dialog:visible, [role=dialog]:visible').count()) fail('scan all: a question on a server of pools only');
+      res.tested++;
+    } catch (e) {
+      fail(`scan all, pools only: ${String(e.message).split('\n')[0].slice(0, 180)}`);
+    }
+    await ctx2.close();
+    h.setState('cleanup-space', undefined);
+    scanReset();
+  }
+  // a very wide and deep tree: never more than 3 000 rectangles inside the cells at any level, and the largest folders got them
   {
     const m = 1600000000;
     const size = (i) => (500 - i * 7) * 1048576;
@@ -667,13 +803,13 @@ async function cleanupMap(browser) {
     const tree = { n: 'films', b: parts.reduce((a, x) => a + x.b, 0), f: parts.reduce((a, x) => a + x.f, 0), m, c: parts };
     h.setState('cleanup-where-map-films', { v: 1, share: 'films', path: '/mnt/big/films', at: 1793540800, took: 47, nodes: 30000, partial: false, tree });
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US' });
-    const page = await ctx.newPage();
+    const page = await open(ctx);
     try {
-      await page.goto(`${h.url}#/cleanup/where/space`, { waitUntil: 'load' });
-      await page.waitForSelector('.cl-space-tmcell', { timeout: 8000 });
-      await page.evaluate(() => { [...document.querySelectorAll('.cl-space-tmcell')].find((c) => c.textContent.startsWith('films')).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-      await page.locator('.cl-space-tminfo .cl-map-act button').click();
-      await page.waitForSelector('.cl-map-svg', { timeout: 8000 });
+      await page.waitForSelector('.cl-map-cell[data-share="films"] .cl-map-in', { timeout: 8000 });
+      const top = await page.locator('.cl-map-in').count();
+      if (top > 3000) fail(`a huge tree: ${top} rectangles at the top (at most 3 000)`);
+      await cellOf(page, 'films').click(pos);
+      await page.waitForSelector('.cl-map-crumbs', { timeout: 8000 });
       const n = await page.locator('.cl-map-in').count();
       if (n > 3000 || n < 2500) fail(`a huge tree: ${n} rectangles inside the cells (at most 3 000, and it should use them)`);
       const first = await page.locator('.cl-map-cell').first().locator('.cl-map-in').count();
@@ -686,29 +822,66 @@ async function cleanupMap(browser) {
     await ctx.close();
     h.setState('cleanup-where-map-films', undefined);
   }
-  // by finger: a tap shows what it is, a tap on what is shown goes in
+  // the maps come after the first draw, the largest cell's first
   {
-    const ctx = await browser.newContext({ viewport: { width: 375, height: 800 }, hasTouch: true, isMobile: true, locale: 'en-US' });
+    const films2 = stateFile('cleanup-where-map');
+    films2.maps.photos = { path: '/mnt/big/photos', at: 1793540800, took: 47, nodes: 505, bytes: 1000, partial: false };
+    h.setState('cleanup-where-map', films2);
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US' });
     const page = await ctx.newPage();
+    const asked = [];
+    page.on('request', (r) => { const m = /part=where-map&share=([^&]+)/.exec(r.url()) || /share=([^&]+).*part=where-map/.exec(r.url()); if (m) asked.push(m[1]); });
     try {
       await page.goto(`${h.url}#/cleanup/where/space`, { waitUntil: 'load' });
-      await page.waitForSelector('.cl-space-tmcell', { timeout: 8000 });
-      await page.evaluate(() => { [...document.querySelectorAll('.cl-space-tmcell')].find((c) => c.textContent.startsWith('films')).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-      await page.locator('.cl-space-tminfo .cl-map-act button').tap();
-      await page.waitForSelector('.cl-map-svg', { timeout: 5000 });
-      const crumbs = () => page.locator('.cl-map-crumbs > *:not(.cl-map-sep)').count();
-      const before = await crumbs();
+      await page.waitForSelector('.cl-map-cell[data-share="films"] .cl-map-in', { timeout: 8000 });
+      if (asked[0] !== 'films' || asked[1] !== 'photos') fail(`the maps were fetched in the order ${asked.join(', ')}: the largest cell's first`);
+      res.tested++;
+    } catch (e) {
+      fail(`the maps' order: ${String(e.message).split('\n')[0].slice(0, 180)}`);
+    }
+    await ctx.close();
+    scanReset();
+  }
+  // by finger: a tap shows what it is, a tap on what is shown goes in — at every level; X and «Scan all…» big enough
+  {
+    const ctx = await browser.newContext({ viewport: { width: 375, height: 800 }, hasTouch: true, isMobile: true, locale: 'en-US' });
+    const page = await open(ctx);
+    try {
+      await page.waitForSelector('.cl-map-cell[data-share="films"] .cl-map-in', { timeout: 5000 });
+      const high = async (loc, what) => { const b = await loc.boundingBox(); if (!b || b.height < 44) fail(`touch: ${what} is ${b && b.height} px high, not 44`); };
+      await high(page.locator('.cl-map-all'), '«Scan all…»');
+      const films = cellOf(page, 'films');
+      await films.tap(pos);
+      if (await page.locator('.cl-map-crumbs').count()) fail('touch: the first tap on a share went in instead of showing');
+      if (!(await page.locator('.cl-space-tminfo').textContent()).startsWith('films')) fail('touch: the first tap on a share showed nothing in the line');
+      await films.tap(pos);
+      await page.waitForSelector('.cl-map-crumbs', { timeout: 3000 }).catch(() => fail('touch: the second tap on a share did not go in'));
+      await high(page.locator('.cl-map-close'), 'the X');
+      const before = await crumbsOf(page);
       const cell = page.locator('.cl-map-cell').first();
-      await cell.tap({ position: { x: 6, y: 6 } });
-      if ((await crumbs()) !== before) fail('touch: the first tap went in instead of showing');
+      await cell.tap(pos);
+      if ((await crumbsOf(page)) !== before) fail('touch: the first tap went in instead of showing');
       if (!(await page.locator('.cl-map-info .cl-map-path').count())) fail('touch: the first tap showed nothing');
-      await cell.tap({ position: { x: 6, y: 6 } });
-      if ((await crumbs()) !== before + 1) fail('touch: the second tap did not go in');
+      await cell.tap(pos);
+      if ((await crumbsOf(page)) !== before + 1) fail('touch: the second tap did not go in');
+      await page.locator('.cl-map-close').tap();
+      if (!(await page.locator('.cl-map-top').count())) fail('touch: the X did not come back');
+      // back at the top the first tap on the same share only shows again
+      await cellOf(page, 'films').tap(pos);
+      if (await page.locator('.cl-map-crumbs').count()) fail('touch: coming back, the first tap went straight in');
+      // a share without a map: the first tap its numbers, the second its scan
+      const asked = h.posts.length;
+      await cellOf(page, 'domains').tap(pos);
+      if (h.posts.length !== asked) fail('touch: the first tap started a scan');
+      await cellOf(page, 'domains').tap(pos);
+      await page.waitForSelector('.cl-map-over .spin', { timeout: 3000 }).catch(() => fail('touch: the second tap did not start the scan'));
+      if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) fail('touch: horizontal scrolling');
       res.tested++;
     } catch (e) {
       fail(`touch: ${String(e.message).split('\n')[0].slice(0, 180)}`);
     }
     await ctx.close();
+    scanReset();
   }
   await h.close();
   res.ms = Date.now() - t0;
