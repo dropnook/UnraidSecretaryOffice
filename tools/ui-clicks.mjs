@@ -678,17 +678,21 @@ async function cleanupMap(browser) {
       }
       // a rest never reads as an empty area: hatched at both levels and in the legend, its rectangle says how many and how much
       const hatched = (loc) => loc.first().evaluate((e) => getComputedStyle(e).fill.includes('url('));
-      const rest = page.locator('.cl-map-cell[aria-label*="214 more"]');
+      const rest = page.locator('.cl-map-cell[aria-label*="… 6 folders and 214 files"]');
       if (!(await hatched(rest.locator('.cl-map-restbox')))) fail(`${width} px: the rest's rectangle is not hatched`);
       if (!(await hatched(page.locator('.cl-map-in.cl-map-restbox')))) fail(`${width} px: a rest inside a folder is not hatched`);
       if (!(await hatched(page.locator('.cl-map-legend .cl-map-restbox')))) fail(`${width} px: the legend's rest is not hatched`);
       if (await page.evaluate(() => [...document.querySelectorAll('.cl-map pattern line')].some((l) => getComputedStyle(l).stroke === 'none'))) fail(`${width} px: the hatching has no lines`);
       const words = await rest.locator('text').allTextContents();
-      if (!words[0].startsWith('… 214') || !words.join(' ').includes('96 GB') || !words.join(' ').includes('≈ ')) fail(`${width} px: the rest says «${words.join(' | ')}»`);
+      if (!words[0].startsWith('… 6 folders') || !words.join(' ').includes('214 files') || words.join(' ').includes('…', 1) || !words.join(' ').includes('96 GB') || words.join(' ').includes('≈ ')) fail(`${width} px: the rest says «${words.join(' | ')}»`);
       if (width > 640) {
         await rest.hover();
         const said = await page.locator('.cl-map-info').textContent();
-        if (!said.includes('… 214 more') || !/≈ .* each/.test(said) || !said.includes('in Share films') || !/\d+ GB/.test(said)) fail(`the hover box of a rest says «${said}»`);
+        if (!said.includes('… 6 folders and 214 files') || said.includes('≈') || !said.includes('in Share films') || !/\d+ GB/.test(said)) fail(`the hover box of a rest says «${said}»`);
+        // a rest without `d` (a map of an older walker, and the stub's inner ones): in files alone
+        await page.locator('.cl-map-in.cl-map-restbox').first().hover({ force: true });
+        const inner = await page.locator('.cl-map-info .cl-map-path').textContent();
+        if (!/… \d+ files?$/.test(inner)) fail(`the hover box of a rest without folders counted says «${inner}»`);
       }
       res.tested++;
       // ---- a folder goes one deeper, the breadcrumb grows

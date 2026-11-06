@@ -4563,10 +4563,18 @@ function mapTone(n) {
   return mapByAge() ? mapAge(n.m) : mapMostKind(n);
 }
 
+/** What a rest holds, in words: `d` = how many of what was folded were folders (a map of an older walker has none) */
+function mapRestWords(rest) {
+  const d = rest.d > 0 ? rest.d : 0;
+  const f = rest.f > 0 ? rest.f : 0;
+  if (d && f) return T('where.map.rest_both', { folders: nOf('folders', d), files: nOf('files', f) });
+  return d ? T('where.map.rest_folders', { n: d }) : T('where.map.rest_files', { n: f });
+}
+
 /** A folder's children and its rest as rectangles' items, largest first */
 function mapItems(n) {
   const items = (n.c || []).filter((x) => x.b > 0);
-  if (n.r && n.r.b > 0) items.push({ n: T('where.map.more', { n: n.r.f }), b: n.r.b, f: n.r.f, isRest: true });
+  if (n.r && n.r.b > 0) items.push({ n: mapRestWords(n.r), b: n.r.b, f: n.r.f, d: n.r.d, isRest: true });
   return items.sort((a, b) => b.b - a.b);
 }
 function mapLayout(n, x, y, w, h) {
@@ -4585,9 +4593,6 @@ function spaceCells(W, H) {
     return { v: (x.b.bytes / total) * W * H, node: { ...tree, n: x.s.name, b: x.b.bytes, share: x.s, how: x.b.how } };
   }), 0, 0, W, H);
 }
-
-/** A rest's average: what it says instead of thousands of rectangles */
-const mapRestEach = (rest) => T('where.map.rest_each', { size: fmt.size(rest.b / rest.f) });
 
 /** The hatching of a rest, in this svg: its colours are tokens (desk.css), the fill for a rectangle is what comes back */
 function mapHatch(box, id, size, cls = 'cl-map-hatch') {
@@ -4624,20 +4629,20 @@ function mapReliefOver(box, r, relief) {
   box.appendChild(over);
 }
 
-/** Words on a hatched rectangle when it is big enough: `what · size` on a line, narrow one thing a line, `under` below them */
-function mapHatchWords(cell, r, what, bytes, under = []) {
+/** Words on a hatched rectangle when it is big enough: `what · size` on a line, narrow one thing a line (`parts`: what in pieces) */
+function mapHatchWords(cell, r, what, bytes, parts = [what]) {
   if (r.w <= 54 || r.h <= 22) return;
   const chars = Math.max(3, Math.floor(r.w / 8));
   const fit = (words) => (words.length > chars ? words.slice(0, chars - 1) + '…' : words);
   const whole = `${what} · ${fmt.size(bytes)}`;
-  const lines = whole.length <= chars ? [whole, ...under] : [what, fmt.size(bytes), ...under];
+  const lines = whole.length <= chars ? [whole] : [...(what.length <= chars ? [what] : parts), fmt.size(bytes)];
   lines.forEach((words, i) => {
     if (r.h <= 24 + i * 16) return;
     cell.appendChild(svg('text', { class: `cl-map-text cl-map-restword${i ? ' cl-map-size' : ''}`, x: (r.x + 5).toFixed(1), y: (r.y + 17 + i * 16).toFixed(1) }, fit(words)));
   });
 }
-/** What a rest's rectangle says: how many and how much, under it the size of each */
-const mapRestLabel = (cell, r, rest) => mapHatchWords(cell, r, rest.n, rest.b, rest.f > 1 ? [mapRestEach(rest)] : []);
+/** What a rest's rectangle says: how many and how much */
+const mapRestLabel = (cell, r, rest) => mapHatchWords(cell, r, rest.n, rest.b, rest.d > 0 && rest.f > 0 ? [T('where.map.rest_folders', { n: rest.d }), nOf('files', rest.f)] : [rest.n]);
 
 /**
  * A share's snapshots in its cell at the top: a walk never sees them, ZFS's size holds them. Its content gets the walked part,
@@ -4673,7 +4678,7 @@ function mapBox(node, nodes) {
   if (node.isRest) {
     box.append(el('b', 'cl-map-path', `${mapPathOf(nodes)}${nodes.length > 1 ? '/' : ''}${node.n}`));
     const folder = nodes.length > 1 ? mapPathOf(nodes) : T('where.map.root', { name: nodes[0].n });
-    box.appendChild(el('div', 'cl-space-tmmore', [fmt.size(node.b), mapRestEach(node), T('where.map.rest_in', { folder }), T('where.map.more_tip')].join(' · ')));
+    box.appendChild(el('div', 'cl-space-tmmore', [fmt.size(node.b), T('where.map.rest_in', { folder }), T('where.map.more_tip')].join(' · ')));
     return box;
   }
   box.append(el('b', 'cl-map-path', mapPathOf([...nodes, node])));
