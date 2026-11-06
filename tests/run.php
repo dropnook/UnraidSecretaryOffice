@@ -29196,7 +29196,7 @@ function testWhereDesk(): void
     preg_match_all("/part: '([a-z-]+)'/", $js, $m);
     $parts = array_map(fn ($p) => "cleanup-$p.json", array_values(array_unique($m[1])));      // the API's data/<desk>-<part>.json
     sort($parts);
-    same('where desk: the parts the page reads are her files', [SPACE_FILE, WHERE_SIZES_FILE, WHERE_FILE], $parts);
+    same('where desk: the parts the page reads are her files', [SPACE_FILE, WHERE_MAP_FILE, WHERE_SIZES_FILE, WHERE_FILE], $parts);
     $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
     check('where desk: her look and her measuring stay quiet (no spinner)', (bool) preg_match('/const QUIET = .*where_refresh.*where_measure/', $core));
     check('where desk: both parts on her page', str_contains($js, "part(T('part.where')") && str_contains($js, "part(T('part.tidy')"));
