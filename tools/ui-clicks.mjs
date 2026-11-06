@@ -559,6 +559,19 @@ async function cleanupMap(browser) {
         const now = await top();
         if (Math.abs(now - was) > 1.5) fail(`${width} px: the page jumped ${when} (${was} → ${now})`);
       };
+      // something running in a line: the wave and the words at the line's size, never a chip
+      const runningInLine = async (line, where) => {
+        const wrong = await page.evaluate((sel) => {        // in one go: the poll may draw the line anew at any moment
+          const box = document.querySelector(sel);
+          if (box.querySelector('.chip.running')) return 'a chip';
+          const r = box.querySelector('.cl-space-running');
+          const wave = r && r.querySelector('.spin');
+          if (!wave || !(wave.getBoundingClientRect().width > 0)) return 'no wave';
+          if (!r.textContent.trim()) return 'no words';
+          return getComputedStyle(r).fontSize === getComputedStyle(r.parentElement).fontSize ? '' : `${getComputedStyle(r).fontSize} in a line of ${getComputedStyle(r.parentElement).fontSize}`;
+        }, line);
+        if (wrong) fail(`${width} px: the running state ${where}: ${wrong}`);
+      };
       // ---- the top: the shares, what a scanned one holds inside its cell, the bar
       await page.waitForSelector('.cl-map-cell[data-share="films"] .cl-map-in', { timeout: 5000 }).catch(() => fail(`${width} px: a scanned share's content is not drawn inside its cell`));
       if (await page.locator('.cl-map-cell[data-share="series"] .cl-map-in').count()) fail(`${width} px: a share without a map has content`);
@@ -749,12 +762,26 @@ async function cleanupMap(browser) {
       await page.setViewportSize({ width, height: 900 });
       await page.waitForFunction((was) => document.querySelector('.cl-map-top').getAttribute('viewBox') === was, topBox, { timeout: 2000 }).catch(() => fail(`${width} px: the top's stage did not come back`));
       res.tested++;
+      // ---- a scan of the share we are in: the wave and its words in the bar, «Scan again…» away; when it ends, back
+      await cell('films').click(pos);
+      await page.waitForSelector('.cl-map-crumbs', { timeout: 5000 });
+      await page.getByRole('button', { name: 'Scan again…' }).click();
+      const ask = page.getByRole('button', { name: 'Scan', exact: true });
+      await ask.waitFor({ timeout: 1000 }).then(() => ask.click(), () => {});       // a share on the array asks first
+      await page.waitForSelector('.cl-map-tools .cl-space-running', { timeout: 8000 }).catch(() => fail(`${width} px: inside a share its running scan is not said`));
+      await runningInLine('.cl-map-tools', 'inside a share');
+      await noScroll('with a scan said inside a share');
+      h.setState('cleanup-where-map', undefined);
+      await page.waitForSelector('.cl-map-tools .cl-space-running', { state: 'detached', timeout: 8000 }).catch(() => fail(`${width} px: inside a share the scan is still said when it ended`));
+      await page.locator('.cl-map-close').click();
+      res.tested++;
       // ---- a pool-only share without a map: no question, the wave in its cell, «scanning» in the line; it opens when the scan ends
       const asked = h.posts.length;
       await cell('domains').click(pos);
       await page.waitForSelector('.cl-map-over .spin', { timeout: 3000 }).catch(() => fail(`${width} px: no wave in the cell of a share being scanned`));
       if (await page.locator('.dialog:visible, [role=dialog]:visible').count()) fail(`${width} px: a question for a share on a pool only`);
       if (!(await page.locator('.cl-space-tminfo').textContent()).includes('scanning')) fail(`${width} px: the line does not say «scanning»`);
+      await runningInLine('.cl-space-tminfo', 'in the line under the treemap');
       const sent = h.posts.slice(asked).filter((p) => p.action === 'cleanup.where_map').pop();
       if (!sent || JSON.stringify(sent.data && sent.data.paths) !== JSON.stringify([domains.measure])) fail(`${width} px: the scan asked for ${JSON.stringify(sent)}`);
       await noScroll('with a wave in a cell');
@@ -816,7 +843,8 @@ async function cleanupMap(browser) {
       const waves = await page.locator('.cl-map-over .spin').count();
       const cells = await page.locator('.cl-map-top .cl-map-cell').count();
       if (waves !== cells) fail(`scan all: ${waves} waves over ${cells} cells`);
-      if (!(await page.locator('.cl-map-chip.running').count())) fail('scan all: no wave in the chip of an unmeasured share');
+      if (!(await page.locator('.cl-space-unmeasured .cl-map-chip.cl-space-running .spin').count())) fail('scan all: no wave beside an unmeasured share');
+      if (await page.locator('.cl-space-unmeasured .chip.running').count()) fail('scan all: an unmeasured share\'s running state is a chip');
       res.tested++;
     } catch (e) {
       fail(`scan all: ${String(e.message).split('\n')[0].slice(0, 180)}`);
