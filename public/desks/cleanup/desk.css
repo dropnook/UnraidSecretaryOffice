@@ -246,6 +246,8 @@
 .cl-map-close{flex:none; font-size:16px; line-height:1}
 .cl-map-stage{position:relative}
 .cl-map-over{position:absolute; display:flex; align-items:center; justify-content:center; overflow:hidden; pointer-events:none}
+.cl-map-over-big .spin{box-sizing:content-box; width:42px; height:24px; padding:6px 10px; border-radius:var(--radius); background:var(--wave) center / 42px 24px no-repeat, var(--surface); box-shadow:0 0 0 1px var(--line2)}
+.cl-map-all.running:disabled{opacity:1}
 .cl-map-wakes ul{margin:6px 0 0; padding-left:18px}
 .cl-map-crumb{font:inherit; padding:0; border:0; background:none; color:var(--accent-ink); cursor:pointer; text-align:left; overflow-wrap:anywhere}
 .cl-map-crumb:hover{text-decoration:underline}

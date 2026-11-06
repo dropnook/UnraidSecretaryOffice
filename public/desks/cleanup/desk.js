@@ -4781,7 +4781,7 @@ function spaceStage(info) {
     });
     stage.appendChild(cell);
     if (s && (mapScanning(s) || mapEntering === s.name || failed)) {
-      const over = el('div', 'cl-map-over running');
+      const over = el('div', `cl-map-over running${r.w > 110 && r.h > 60 ? ' cl-map-over-big' : ''}`);
       over.style.left = `${(r.x / W) * 100}%`;
       over.style.top = `${(r.y / H) * 100}%`;
       over.style.width = `${(r.w / W) * 100}%`;
@@ -4907,7 +4907,7 @@ function mapTopBar() {
     hint.append(' ', w);
   }
   const waiting = scans.queue.length + scans.running.length;
-  const all = el('button', `btn small cl-map-all${waiting ? ' running' : ''}`);
+  const all = el('button', `btn small cl-map-all${waiting ? ' plain running' : ''}`);
   all.type = 'button';
   if (waiting) {
     all.append(el('span', 'spin'), ` ${T('where.map.in_queue', { n: waiting })}`);
