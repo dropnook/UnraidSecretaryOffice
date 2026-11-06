@@ -29405,8 +29405,12 @@ function testWhereMap(): void
     same('where map: under the real cap nothing but a folder\'s 48 goes: every filler folder there', 30, count(array_column($under['c'], null, 'n')['filler']['c']));
     $ties = $folder('r', array_map(fn (int $i): array => $folder("t$i", array_map(fn (int $j): array => $file("f$j", 2 * $M), range(1, 40))), range(1, 40)));
     [$tied, $n4] = whereMapFinish($ties, 700);
-    check("where map: equal files alone over the cap: 24 a folder, at last folded ($n4), never over it", $n4 <= 700 && count($tied['c']) === 24 && $tied['b'] === $ties['b']);
-    unset($wide, $deep, $capped, $cut2, $equal, $filler, $big, $share, $kept, $under, $ties, $tied);
+    check("where map: equal files alone over the cap: 24 a folder keeps more than folding them ($n4), never over it", $n4 <= 700 && $n4 > 41 && count($tied['c']) === 24 && $tied['b'] === $ties['b']);
+    $tiny = $folder('r', [$equal, $folder('empty', array_map(fn (int $i): array => ['n' => "e$i", 'b' => 4096, 'f' => 0, 'm' => 1, 'x' => 1], range(1, 30)))]);
+    [$noTies, $n5] = whereMapFinish($tiny, 60);
+    same("where map: many empty folders at the floor ($n5 nodes): they go, the large files keep their 48", [48, false],
+        [count(array_column($noTies['c'], null, 'n')['blocks']['c'] ?? []), isset(array_column($noTies['c'], null, 'n')['empty']['c'])]);
+    unset($wide, $deep, $capped, $cut2, $equal, $filler, $big, $share, $kept, $under, $ties, $tied, $tiny, $noTies);
     gc_collect_cycles();
     gc_mem_caches();
     @ini_set('memory_limit', (string) $limit);       // refused while PHP still holds more: then it stays raised, the suite goes on
@@ -29521,7 +29525,8 @@ function testWhereMap(): void
     $code = substr($js, (int) strpos($js, 'the map of one share (agent/lib/wheremap.php)'));
     $code = substr($code, 0, (int) strpos($code, 'the details: a table whose rows unfold'));
     check('where map: the page draws names as text only: no innerHTML, no link anywhere, nothing that deletes', $code !== '' && !preg_match('/innerHTML|insertAdjacentHTML|safeHref|<a\b|\'a\'|where_map_delete|\.park|\.remove`/', $code));
-    check('where map: one poll: the map\'s status in the sizes\' loop, no second timer', !str_contains($code, 'setTimeout') && !str_contains($code, 'setInterval') && str_contains($js, "part: 'where-map' })]"));
+    check('where map: one poll: the map\'s status in the sizes\' loop, no second timer', substr_count($code, 'setTimeout') === 1 && str_contains($code, 'mapResizeWait = setTimeout') && !str_contains($code, 'setInterval') && str_contains($js, "part: 'where-map' })]"));
+    check('where map: one listener for the window\'s width, while a map is open: gone when it closes', substr_count($code, "addEventListener('resize'") === 1 && substr_count($code, "removeEventListener('resize'") === 1);
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.css');
     $css = substr($css, (int) strpos($css, 'the map of one share'));
     check('where map: her colours are tokens, no colour written out', $css !== '' && !preg_match('/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/', $css));
