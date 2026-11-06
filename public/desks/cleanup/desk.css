@@ -173,6 +173,11 @@
 .cl-space-tmline{min-height:38px; font-size:12.5px; color:var(--ink2)}
 .cl-space-tmline b{color:var(--ink)}
 .cl-space-tmhint{color:var(--muted)}
+/* a scan or a du running, in a line: the wave as high as the words (the office's is 20.8 × 12 px at any size); a long share's
+   name among the unmeasured ones may wrap */
+.cl-space-running{font:inherit; color:var(--ink2); white-space:nowrap}
+.cl-space-running .spin{display:inline-block; width:1.664em; height:.96em}
+.cl-space-unmeasured .cl-space-running{white-space:normal; overflow-wrap:anywhere}
 .cl-space-tmmore{font-size:12px; color:var(--muted); overflow-wrap:anywhere}
 .cl-space-hatch{fill:var(--surface); stroke:var(--line2)}
 .cl-space-hatchbox{background:repeating-linear-gradient(135deg, var(--line2) 0 1.5px, transparent 1.5px 4px)}
@@ -222,7 +227,14 @@
   --cl-map-new:var(--logs-cat-limetech);
   --cl-map-mid:var(--logs-cat-warning);
   --cl-map-old:var(--logs-cat-fs);
+  /* the relief on the files (mapRelief()): white from the top left, black towards the bottom right, in every theme; a white
+     theme's pale fills take less */
+  --cl-map-light:var(--on-fill);
+  --cl-map-shade:var(--black);
+  --cl-map-relief:.18;
 }
+:is(.Theme--white, .Theme--azure, [data-unraid-theme=white]) &:not([data-theme=dark]) .cl-map,
+&[data-theme=light] .cl-map{--cl-map-relief:.11}
 .cl-map{display:flex; flex-direction:column; gap:8px; outline:none; min-width:0}
 .cl-map-t-video{--cl-map-hue:var(--cl-map-video)}
 .cl-map-t-audio{--cl-map-hue:var(--cl-map-audio)}
@@ -274,6 +286,11 @@
 .cl-map-snaps{stroke:var(--surface); stroke-width:.75px}
 .cl-map-snapbg{fill:color-mix(in srgb, var(--ink) 22%, var(--surface))}
 .cl-map-snapline{stroke:color-mix(in srgb, var(--ink) 62%, var(--surface)); stroke-width:1.5px}
+.cl-map-relief{pointer-events:none; stroke:none}
+.cl-map-lit{stop-color:var(--cl-map-light); stop-opacity:var(--cl-map-relief)}
+.cl-map-lit0{stop-color:var(--cl-map-light); stop-opacity:0}
+.cl-map-shaded0{stop-color:var(--cl-map-shade); stop-opacity:0}
+.cl-map-shaded{stop-color:var(--cl-map-shade); stop-opacity:var(--cl-map-relief)}
 .cl-map-restword{paint-order:stroke; stroke:var(--surface); stroke-width:3px; stroke-linejoin:round}
 .cl-map-cell:hover > .cl-map-rect:first-child, .cl-map-cell:focus-visible > .cl-map-rect:first-child{stroke:var(--ink); stroke-width:2.5px}
 .cl-map-rect.cl-map-in:hover{stroke:var(--ink); stroke-width:1.5px}

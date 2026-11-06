@@ -559,6 +559,19 @@ async function cleanupMap(browser) {
         const now = await top();
         if (Math.abs(now - was) > 1.5) fail(`${width} px: the page jumped ${when} (${was} → ${now})`);
       };
+      // something running in a line: the wave and the words at the line's size, never a chip
+      const runningInLine = async (line, where) => {
+        const wrong = await page.evaluate((sel) => {        // in one go: the poll may draw the line anew at any moment
+          const box = document.querySelector(sel);
+          if (box.querySelector('.chip.running')) return 'a chip';
+          const r = box.querySelector('.cl-space-running');
+          const wave = r && r.querySelector('.spin');
+          if (!wave || !(wave.getBoundingClientRect().width > 0)) return 'no wave';
+          if (!r.textContent.trim()) return 'no words';
+          return getComputedStyle(r).fontSize === getComputedStyle(r.parentElement).fontSize ? '' : `${getComputedStyle(r).fontSize} in a line of ${getComputedStyle(r.parentElement).fontSize}`;
+        }, line);
+        if (wrong) fail(`${width} px: the running state ${where}: ${wrong}`);
+      };
       // ---- the top: the shares, what a scanned one holds inside its cell, the bar
       await page.waitForSelector('.cl-map-cell[data-share="films"] .cl-map-in', { timeout: 5000 }).catch(() => fail(`${width} px: a scanned share's content is not drawn inside its cell`));
       if (await page.locator('.cl-map-cell[data-share="series"] .cl-map-in').count()) fail(`${width} px: a share without a map has content`);
@@ -571,6 +584,52 @@ async function cleanupMap(browser) {
       await noScroll('at the top');
       const topBox = await page.locator('.cl-map-svg').getAttribute('viewBox');
       if (topBox !== (width > 640 ? '0 0 1000 360' : '0 0 400 400')) fail(`${width} px: the stage's viewBox is ${topBox}`);
+      res.tested++;
+      // ---- the relief: the switch in the bar; on: over files alone, the pointer through it; off: none, through a redraw and a reload
+      const reliefSwitch = page.locator('.cl-map-head .cl-map-reliefseg button');
+      const reliefs = () => page.locator('.cl-map-svg .cl-map-relief').count();
+      const reliefOn = () => reliefSwitch.getAttribute('aria-pressed');
+      const reliefRight = async (where) => {
+        if ((await reliefSwitch.count()) !== 1) fail(`${width} px: no relief switch in the bar ${where}`);
+        if ((await reliefOn()) !== 'true' || !(await reliefs())) fail(`${width} px: the relief is not on ${where} (${await reliefOn()}, ${await reliefs()})`);
+        const wrong = await page.evaluate(() => {
+          const bad = [];
+          const stops = [...document.querySelectorAll('.cl-map-svg linearGradient stop')].map((x) => Number(getComputedStyle(x).stopOpacity));
+          if (stops.length !== 4 || Math.max(...stops) > 0.181 || stops[1] !== 0 || stops[2] !== 0) bad.push(`the gradient's stops ${stops}`);
+          for (const o of document.querySelectorAll('.cl-map-svg .cl-map-relief')) {
+            const own = o.previousElementSibling;
+            if (!own || !own.matches('.cl-map-rect') || own.matches('.cl-map-dir, .cl-map-dir2, .cl-map-restbox')) { bad.push(`over ${own ? own.getAttribute('class') : 'nothing'}`); continue; }
+            if (['x', 'y', 'width', 'height'].some((k) => o.getAttribute(k) !== own.getAttribute(k))) bad.push('not on its file');
+            if (Number(o.getAttribute('width')) < 4 || Number(o.getAttribute('height')) < 4) bad.push('on a rectangle under 4 units');
+            if (getComputedStyle(o).pointerEvents !== 'none') bad.push('in the pointer\'s way');
+          }
+          return bad.slice(0, 3).join('; ');
+        });
+        if (wrong) fail(`${width} px: the relief ${where}: ${wrong}`);
+      };
+      const reliefOff = async (where) => {
+        if ((await reliefOn()) !== 'false' || (await reliefs())) fail(`${width} px: the relief is not off ${where} (${await reliefOn()}, ${await reliefs()})`);
+      };
+      // ---- the colour's switch at the top too: what the shares hold takes it, the shares keep their own colour
+      const topColour = page.locator('.cl-map-head .cl-map-seg button');
+      if ((await topColour.count()) !== 2) fail(`${width} px: no colour switch in the bar at the top`);
+      if (!(await page.locator('.cl-map-tools .cl-map-seg + .cl-map-reliefseg').count())) fail(`${width} px: at the top the relief switch is not beside the colour's`);
+      await steady('switching the colour at the top', () => topColour.nth(1).click());
+      if ((await topColour.nth(1).getAttribute('aria-pressed')) !== 'true') fail(`${width} px: «by age» not pressed at the top`);
+      if (!(await page.locator('.cl-map-top .cl-map-in.cl-map-t-new, .cl-map-top .cl-map-in.cl-map-t-mid, .cl-map-top .cl-map-in.cl-map-t-old').count())) fail(`${width} px: at the top nothing is coloured by age`);
+      if (await page.locator('.cl-map-legend').count()) fail(`${width} px: the colour's switch changed the top's own legend`);
+      await noScroll('with both switches at the top');
+      await topColour.nth(0).click();
+      await reliefRight('at the top');
+      if ((await reliefSwitch.textContent()) !== 'Relief' || !(await reliefSwitch.getAttribute('title'))) fail(`${width} px: the relief switch says «${await reliefSwitch.textContent()}», its title «${await reliefSwitch.getAttribute('title')}»`);
+      await steady('switching the relief', () => reliefSwitch.click());
+      await reliefOff('after its switch');
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForSelector('.cl-map-cell[data-share="films"] .cl-map-in', { timeout: 8000 });
+      await reliefOff('after a reload');
+      await reliefSwitch.click();
+      await reliefRight('switched on again');
+      await noScroll('with the relief switch');
       res.tested++;
       // ---- the line: the pointed-at share's numbers; pointing at what a cell holds names it, path from the share's root
       if (width > 640) {
@@ -596,6 +655,22 @@ async function cleanupMap(browser) {
       await noScroll('inside a share');
       // a click on a share that has its map fetches nothing again (they came when the section opened)
       res.tested++;
+      // ---- the relief inside: the switch beside the colour's, the legend's swatches lit like the files, a rest's never
+      await reliefRight('inside a share');
+      if (!(await page.locator('.cl-map-tools .cl-map-seg + .cl-map-reliefseg').count())) fail(`${width} px: the relief switch is not beside the colour's`);
+      const lit = () => page.locator('.cl-map-legend .cl-map-relief').count();
+      if ((await lit()) !== 9) fail(`${width} px: ${await lit()} of the legend's nine kinds have the relief`);
+      if (await page.locator('.cl-map-legend .cl-map-restbox + .cl-map-relief').count()) fail(`${width} px: the legend's rest has the relief`);
+      if (await page.evaluate(() => getComputedStyle(document.querySelector('.cl-map-svg .cl-map-relief')).fill === 'none')) fail(`${width} px: the overlay has no fill`);
+      await reliefSwitch.click();
+      await reliefOff('inside a share');
+      if (await lit()) fail(`${width} px: the legend keeps the relief while it is off`);
+      await page.locator('.cl-map-seg button').nth(1).click();       // another redraw: the colour's switch
+      await reliefOff('after the colour\'s switch');
+      await page.locator('.cl-map-seg button').nth(0).click();
+      await reliefSwitch.click();
+      await reliefRight('inside, on again');
+      res.tested++;
       if (width > 640) {
         await page.locator('.cl-map-cell').first().hover(pos);
         const said = await page.locator('.cl-map-info').textContent();
@@ -603,17 +678,21 @@ async function cleanupMap(browser) {
       }
       // a rest never reads as an empty area: hatched at both levels and in the legend, its rectangle says how many and how much
       const hatched = (loc) => loc.first().evaluate((e) => getComputedStyle(e).fill.includes('url('));
-      const rest = page.locator('.cl-map-cell[aria-label*="214 more"]');
+      const rest = page.locator('.cl-map-cell[aria-label*="… 6 folders and 214 files"]');
       if (!(await hatched(rest.locator('.cl-map-restbox')))) fail(`${width} px: the rest's rectangle is not hatched`);
       if (!(await hatched(page.locator('.cl-map-in.cl-map-restbox')))) fail(`${width} px: a rest inside a folder is not hatched`);
       if (!(await hatched(page.locator('.cl-map-legend .cl-map-restbox')))) fail(`${width} px: the legend's rest is not hatched`);
       if (await page.evaluate(() => [...document.querySelectorAll('.cl-map pattern line')].some((l) => getComputedStyle(l).stroke === 'none'))) fail(`${width} px: the hatching has no lines`);
       const words = await rest.locator('text').allTextContents();
-      if (!words[0].startsWith('… 214') || !words.join(' ').includes('96 GB') || !words.join(' ').includes('≈ ')) fail(`${width} px: the rest says «${words.join(' | ')}»`);
+      if (!words[0].startsWith('… 6 folders') || !words.join(' ').includes('214 files') || words.join(' ').includes('…', 1) || !words.join(' ').includes('96 GB') || words.join(' ').includes('≈ ')) fail(`${width} px: the rest says «${words.join(' | ')}»`);
       if (width > 640) {
         await rest.hover();
         const said = await page.locator('.cl-map-info').textContent();
-        if (!said.includes('… 214 more') || !/≈ .* each/.test(said) || !said.includes('in Share films') || !/\d+ GB/.test(said)) fail(`the hover box of a rest says «${said}»`);
+        if (!said.includes('… 6 folders and 214 files') || said.includes('≈') || !said.includes('in Share films') || !/\d+ GB/.test(said)) fail(`the hover box of a rest says «${said}»`);
+        // a rest without `d` (a map of an older walker, and the stub's inner ones): in files alone
+        await page.locator('.cl-map-in.cl-map-restbox').first().hover({ force: true });
+        const inner = await page.locator('.cl-map-info .cl-map-path').textContent();
+        if (!/… \d+ files?$/.test(inner)) fail(`the hover box of a rest without folders counted says «${inner}»`);
       }
       res.tested++;
       // ---- a folder goes one deeper, the breadcrumb grows
@@ -697,12 +776,26 @@ async function cleanupMap(browser) {
       await page.setViewportSize({ width, height: 900 });
       await page.waitForFunction((was) => document.querySelector('.cl-map-top').getAttribute('viewBox') === was, topBox, { timeout: 2000 }).catch(() => fail(`${width} px: the top's stage did not come back`));
       res.tested++;
+      // ---- a scan of the share we are in: the wave and its words in the bar, «Scan again…» away; when it ends, back
+      await cell('films').click(pos);
+      await page.waitForSelector('.cl-map-crumbs', { timeout: 5000 });
+      await page.getByRole('button', { name: 'Scan again…' }).click();
+      const ask = page.getByRole('button', { name: 'Scan', exact: true });
+      await ask.waitFor({ timeout: 1000 }).then(() => ask.click(), () => {});       // a share on the array asks first
+      await page.waitForSelector('.cl-map-tools .cl-space-running', { timeout: 8000 }).catch(() => fail(`${width} px: inside a share its running scan is not said`));
+      await runningInLine('.cl-map-tools', 'inside a share');
+      await noScroll('with a scan said inside a share');
+      h.setState('cleanup-where-map', undefined);
+      await page.waitForSelector('.cl-map-tools .cl-space-running', { state: 'detached', timeout: 8000 }).catch(() => fail(`${width} px: inside a share the scan is still said when it ended`));
+      await page.locator('.cl-map-close').click();
+      res.tested++;
       // ---- a pool-only share without a map: no question, the wave in its cell, «scanning» in the line; it opens when the scan ends
       const asked = h.posts.length;
       await cell('domains').click(pos);
       await page.waitForSelector('.cl-map-over .spin', { timeout: 3000 }).catch(() => fail(`${width} px: no wave in the cell of a share being scanned`));
       if (await page.locator('.dialog:visible, [role=dialog]:visible').count()) fail(`${width} px: a question for a share on a pool only`);
       if (!(await page.locator('.cl-space-tminfo').textContent()).includes('scanning')) fail(`${width} px: the line does not say «scanning»`);
+      await runningInLine('.cl-space-tminfo', 'in the line under the treemap');
       const sent = h.posts.slice(asked).filter((p) => p.action === 'cleanup.where_map').pop();
       if (!sent || JSON.stringify(sent.data && sent.data.paths) !== JSON.stringify([domains.measure])) fail(`${width} px: the scan asked for ${JSON.stringify(sent)}`);
       await noScroll('with a wave in a cell');
@@ -764,7 +857,8 @@ async function cleanupMap(browser) {
       const waves = await page.locator('.cl-map-over .spin').count();
       const cells = await page.locator('.cl-map-top .cl-map-cell').count();
       if (waves !== cells) fail(`scan all: ${waves} waves over ${cells} cells`);
-      if (!(await page.locator('.cl-map-chip.running').count())) fail('scan all: no wave in the chip of an unmeasured share');
+      if (!(await page.locator('.cl-space-unmeasured .cl-map-chip.cl-space-running .spin').count())) fail('scan all: no wave beside an unmeasured share');
+      if (await page.locator('.cl-space-unmeasured .chip.running').count()) fail('scan all: an unmeasured share\'s running state is a chip');
       res.tested++;
     } catch (e) {
       fail(`scan all: ${String(e.message).split('\n')[0].slice(0, 180)}`);

@@ -309,16 +309,12 @@ function build(root, page) {
   v.wakeText = el('span', '', T('where.wake'));
   v.wakeLabel.append(v.wake, v.wakeText);
   v.wakeLabel.title = T('where.wake_title');
-  // switched on: said right under it that it holds for the next tour only, with that tour one click away (2026-10-17,
-  // silent controls: a switch that changed nothing until «Tour» and was off again afterwards, said only in its tip)
-  const wakeNote = el('span', 'clw-wake-note');
-  const wakeGo = el('button', 'btn small', T('where.scan_now'));
-  wakeGo.type = 'button';
-  wakeGo.onclick = () => tour();
-  wakeNote.append(el('span', '', T('where.wake_once')), wakeGo);
+  // switched on: said right under it that it holds for the next tour only (2026-10-17, silent controls: a switch that changed
+  // nothing until «Tour» and was off again afterwards, said only in its tip); «Tour» beside it is the one button
+  const wakeNote = el('span', 'clw-wake-note', T('where.wake_once'));
   const wakeBox = el('span', 'clw-wake-box');
   wakeBox.append(v.wakeLabel, wakeNote);
-  v.wakeSync = () => { wakeNote.hidden = !v.wake.checked || v.wakeLabel.hidden; wakeGo.disabled = v.scanBtn.disabled; };
+  v.wakeSync = () => { wakeNote.hidden = !v.wake.checked || v.wakeLabel.hidden; };
   v.wake.onchange = v.wakeSync;
   const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon },
     { actions: [wakeBox, v.scanBtn], pages: { list: PAGES(), current: page, store: PAGE_KEY } });
@@ -4275,6 +4271,14 @@ function spaceLegend(sized) {
 }
 
 /** The shares not measured: hatched, never sized 0 — and what a click on «Measure» costs. A chip stands in for the rectangle they don't have. */
+/** Something running in a line: the wave and the words at the line's own size, never a chip's smaller one */
+function spaceRunning(words, tip) {
+  const c = el('span', 'cl-space-running', '');
+  c.title = tip;
+  c.append(el('span', 'spin'), ` ${words}`);
+  return c;
+}
+
 function spaceUnmeasured(unmeasured) {
   const un = el('div', 'cl-space-unmeasured');
   const sw2 = svg('svg', { class: 'cl-space-swatch cl-space-hatchbox', viewBox: '0 0 10 10' });
@@ -4286,8 +4290,8 @@ function spaceUnmeasured(unmeasured) {
     const scanning = mapScanning(x.s);
     let c;
     if (scanning || x.b.measuring) {
-      c = chip('', 'quiet running', T(scanning ? 'where.map.scanning_tip' : 'where.space.measuring_tip'));      // the wave: its scan or du runs or waits
-      c.append(el('span', 'spin'), ` ${x.s.name} · ${T(scanning ? 'where.map.scanning' : 'where.space.measuring')}`);
+      // the wave: its scan or du runs or waits
+      c = spaceRunning(`${x.s.name} · ${T(scanning ? 'where.map.scanning' : 'where.space.measuring')}`, T(scanning ? 'where.map.scanning_tip' : 'where.space.measuring_tip'));
     } else {
       c = chip(x.s.name, 'quiet', tip);
     }
@@ -4336,6 +4340,7 @@ let mapPointer = 'mouse';
 const MAP_INNER_MAX = 3000;           // rectangles inside the cells, per draw
 const MAP_INNER_MIN = 24;             // a folder narrower or lower than this (of the stage's units) holds no more rectangles
 const MAP_INNER_LEVELS = 4;           // how deep inside a cell; one child alone in its folder costs no level
+const MAP_RELIEF_MIN = 4;             // a file narrower or lower than this (of the stage's units) gets no relief: only more nodes
 const mapIsPhone = () => typeof window !== 'undefined' && window.innerWidth < 640;
 let mapDrawnPhone = null;             // the stage's viewBox as it was last drawn: phone or not
 let mapResizeWait = null;
@@ -4348,6 +4353,8 @@ const mapScanning = (s) => scans.running.includes(s.measure) || scans.queue.incl
 const mapWakes = (s) => !!(s.unknown.length || s.primary === 'array' || s.secondary === 'array');
 const mapByAge = () => Office.store(STORE + 'map_colour') === 'age';
 const mapFolder = (n) => !n.k && !n.isRest;
+const mapFile = (n) => !n.isRest && !mapFolder(n);
+const mapReliefOn = () => Office.store(STORE + 'map_relief') !== 'off';
 /** How long a scan took: under a minute in words, fmt.duration() speaks in minutes */
 const mapTookWords = (seconds) => (seconds < 60 ? T('where.map.took_short') : fmt.duration(seconds));
 const mapScannedWords = (m) => [T('where.map.scanned', { when: fmt.relative(m.at), took: mapTookWords(m.took || 0) }), m.partial ? T('where.map.partial') : ''].filter(Boolean).join(' · ');
@@ -4409,11 +4416,7 @@ function mapScanAll(list) {
 function mapChips(s) {
   const box = el('div', 'cl-map-act');
   if (s.missing) return box;
-  if (mapScanning(s)) {
-    const c = chip('', 'quiet running', T('where.map.scanning_tip'));
-    c.append(el('span', 'spin'), ` ${T('where.map.scanning')}`);
-    box.appendChild(c);
-  }
+  if (mapScanning(s)) box.appendChild(spaceRunning(T('where.map.scanning'), T('where.map.scanning_tip')));
   if (mapFailed(s)) box.appendChild(chip(T('where.map.failed'), 'warn'));
   return box;
 }
@@ -4560,10 +4563,18 @@ function mapTone(n) {
   return mapByAge() ? mapAge(n.m) : mapMostKind(n);
 }
 
+/** What a rest holds, in words: `d` = how many of what was folded were folders (a map of an older walker has none) */
+function mapRestWords(rest) {
+  const d = rest.d > 0 ? rest.d : 0;
+  const f = rest.f > 0 ? rest.f : 0;
+  if (d && f) return T('where.map.rest_both', { folders: nOf('folders', d), files: nOf('files', f) });
+  return d ? T('where.map.rest_folders', { n: d }) : T('where.map.rest_files', { n: f });
+}
+
 /** A folder's children and its rest as rectangles' items, largest first */
 function mapItems(n) {
   const items = (n.c || []).filter((x) => x.b > 0);
-  if (n.r && n.r.b > 0) items.push({ n: T('where.map.more', { n: n.r.f }), b: n.r.b, f: n.r.f, isRest: true });
+  if (n.r && n.r.b > 0) items.push({ n: mapRestWords(n.r), b: n.r.b, f: n.r.f, d: n.r.d, isRest: true });
   return items.sort((a, b) => b.b - a.b);
 }
 function mapLayout(n, x, y, w, h) {
@@ -4583,9 +4594,6 @@ function spaceCells(W, H) {
   }), 0, 0, W, H);
 }
 
-/** A rest's average: what it says instead of thousands of rectangles */
-const mapRestEach = (rest) => T('where.map.rest_each', { size: fmt.size(rest.b / rest.f) });
-
 /** The hatching of a rest, in this svg: its colours are tokens (desk.css), the fill for a rectangle is what comes back */
 function mapHatch(box, id, size, cls = 'cl-map-hatch') {
   const pattern = svg('pattern', { id, width: size, height: size, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' });
@@ -4596,20 +4604,45 @@ function mapHatch(box, id, size, cls = 'cl-map-hatch') {
   return `url(#${id})`;
 }
 
-/** Words on a hatched rectangle when it is big enough: `what · size` on a line, narrow one thing a line, `under` below them */
-function mapHatchWords(cell, r, what, bytes, under = []) {
+/**
+ * The light on the files, lit from the top left: one gradient in this svg, its colours and strength tokens (desk.css), nothing
+ * in the middle. What comes back is the rectangle copied for each file, null while the switch is off.
+ */
+function mapRelief(box, id) {
+  if (!mapReliefOn()) return null;
+  const gradient = svg('linearGradient', { id, x1: 0, y1: 0, x2: 1, y2: 1 });
+  gradient.append(svg('stop', { class: 'cl-map-lit', offset: 0 }), svg('stop', { class: 'cl-map-lit0', offset: 0.5 }),
+    svg('stop', { class: 'cl-map-shaded0', offset: 0.5 }), svg('stop', { class: 'cl-map-shaded', offset: 1 }));
+  const defs = svg('defs');
+  defs.appendChild(gradient);
+  box.appendChild(defs);
+  return svg('rect', { class: 'cl-map-relief', fill: `url(#${id})` });
+}
+/** A file's relief: a second rectangle over its own, which the pointer goes through (desk.css). Only ever for mapFile() */
+function mapReliefOver(box, r, relief) {
+  if (!relief || r.w < MAP_RELIEF_MIN || r.h < MAP_RELIEF_MIN) return;
+  const over = relief.cloneNode(false);
+  over.setAttribute('x', r.x.toFixed(1));
+  over.setAttribute('y', r.y.toFixed(1));
+  over.setAttribute('width', r.w.toFixed(1));
+  over.setAttribute('height', r.h.toFixed(1));
+  box.appendChild(over);
+}
+
+/** Words on a hatched rectangle when it is big enough: `what · size` on a line, narrow one thing a line (`parts`: what in pieces) */
+function mapHatchWords(cell, r, what, bytes, parts = [what]) {
   if (r.w <= 54 || r.h <= 22) return;
   const chars = Math.max(3, Math.floor(r.w / 8));
   const fit = (words) => (words.length > chars ? words.slice(0, chars - 1) + '…' : words);
   const whole = `${what} · ${fmt.size(bytes)}`;
-  const lines = whole.length <= chars ? [whole, ...under] : [what, fmt.size(bytes), ...under];
+  const lines = whole.length <= chars ? [whole] : [...(what.length <= chars ? [what] : parts), fmt.size(bytes)];
   lines.forEach((words, i) => {
     if (r.h <= 24 + i * 16) return;
     cell.appendChild(svg('text', { class: `cl-map-text cl-map-restword${i ? ' cl-map-size' : ''}`, x: (r.x + 5).toFixed(1), y: (r.y + 17 + i * 16).toFixed(1) }, fit(words)));
   });
 }
-/** What a rest's rectangle says: how many and how much, under it the size of each */
-const mapRestLabel = (cell, r, rest) => mapHatchWords(cell, r, rest.n, rest.b, rest.f > 1 ? [mapRestEach(rest)] : []);
+/** What a rest's rectangle says: how many and how much */
+const mapRestLabel = (cell, r, rest) => mapHatchWords(cell, r, rest.n, rest.b, rest.d > 0 && rest.f > 0 ? [T('where.map.rest_folders', { n: rest.d }), nOf('files', rest.f)] : [rest.n]);
 
 /**
  * A share's snapshots in its cell at the top: a walk never sees them, ZFS's size holds them. Its content gets the walked part,
@@ -4645,7 +4678,7 @@ function mapBox(node, nodes) {
   if (node.isRest) {
     box.append(el('b', 'cl-map-path', `${mapPathOf(nodes)}${nodes.length > 1 ? '/' : ''}${node.n}`));
     const folder = nodes.length > 1 ? mapPathOf(nodes) : T('where.map.root', { name: nodes[0].n });
-    box.appendChild(el('div', 'cl-space-tmmore', [fmt.size(node.b), mapRestEach(node), T('where.map.rest_in', { folder }), T('where.map.more_tip')].join(' · ')));
+    box.appendChild(el('div', 'cl-space-tmmore', [fmt.size(node.b), T('where.map.rest_in', { folder }), T('where.map.more_tip')].join(' · ')));
     return box;
   }
   box.append(el('b', 'cl-map-path', mapPathOf([...nodes, node])));
@@ -4712,6 +4745,7 @@ function spaceStage(info) {
     'aria-label': v ? T('where.map.label', { path: mapPathOf(v.path), size: fmt.size(here.b) }) : T('where.space.tm_label', { n: cells.length, size: fmt.size(total) }) });
   const hatch = mapHatch(stage, 'cl-map-hatch', 7);
   const snapHatch = v ? '' : mapHatch(stage, 'cl-map-snaphatch', 7, 'cl-map-snap');
+  const relief = mapRelief(stage, 'cl-map-relief');
   const say = (node, nodes) => {
     if (!v) spacePicked = (node.share || nodes[0].share).name;
     info.replaceChildren(node && node.share ? shareLine(node.share) : mapBox(node, nodes));
@@ -4774,6 +4808,7 @@ function spaceStage(info) {
     if (n.isRest) rect.style.fill = hatch;
     if (s) rect.appendChild(svg('title', {}, `${s.name} · ${fmt.size(n.b)} · ${T('where.space.kind.' + kind)}`));
     cell.appendChild(rect);
+    if (mapFile(n)) mapReliefOver(cell, r, relief);
     const { label, head } = r;
     if (r.strip) {
       const words = T('where.space.snaps_of', { size: fmt.size(s.snaps) });
@@ -4791,6 +4826,7 @@ function spaceStage(info) {
       inner.addEventListener('click', (e) => { e.stopPropagation(); act(n, i.node, i.nodes); });
       if (i.node.isRest) inner.style.fill = hatch;
       cell.appendChild(inner);
+      if (mapFile(i.node)) mapReliefOver(cell, i, relief);
     }
     for (const i of r.inner) if (i.node.isRest) mapRestLabel(cell, i, i.node);
     if (n.isRest) mapRestLabel(cell, r, n);
@@ -4913,14 +4949,29 @@ function mapColours() {
   return seg;
 }
 
+/** The relief on or off, beside the colour's switch at every level; a choice this browser keeps */
+function mapReliefSwitch() {
+  const seg = el('div', 'seg cl-map-reliefseg');
+  const b = el('button', '', T('where.map.relief'));
+  b.type = 'button';
+  b.title = T('where.map.relief_tip');
+  b.setAttribute('aria-pressed', String(mapReliefOn()));
+  b.onclick = () => { Office.store(STORE + 'map_relief', mapReliefOn() ? 'off' : 'on'); mapDraw(); };
+  seg.appendChild(b);
+  return seg;
+}
+
 function mapLegend() {
   const legend = el('div', 'cl-space-legend cl-map-legend');
+  let relief;                         // its gradient once, in the first swatch that shows it: a rest is hatched, never lit
   const key = (tone, words) => {
     const it = el('span', 'cl-space-key');
     const sw2 = svg('svg', { class: 'cl-space-swatch', viewBox: '0 0 10 10' });
     const rect = svg('rect', { class: `cl-map-rect cl-map-t-${tone}${tone === 'rest' ? ' cl-map-restbox' : ''}`, x: 0, y: 0, width: 10, height: 10 });
     if (tone === 'rest') rect.style.fill = mapHatch(sw2, 'cl-map-hatch-key', 4);
+    if (tone !== 'rest' && relief === undefined) relief = mapRelief(sw2, 'cl-map-relief-key');
     sw2.appendChild(rect);
+    if (tone !== 'rest') mapReliefOver(sw2, { x: 0, y: 0, w: 10, h: 10 }, relief);
     it.append(sw2, el('span', '', words));
     legend.appendChild(it);
   };
@@ -4930,7 +4981,7 @@ function mapLegend() {
   return legend;
 }
 
-/** The bar over the shares: the hint, «Scan all…» — while scans run or wait: how many, with the wave */
+/** The bar over the shares: the hint, the colour and the relief of what they hold, «Scan all…» — while scans run or wait: how many, with the wave */
 function mapTopBar() {
   const bar = el('div', 'cl-map-head');
   const hint = el('span', 'cl-space-tmhint cl-map-hint', T('where.space.tm_hint'));
@@ -4953,7 +5004,9 @@ function mapTopBar() {
     all.disabled = !Office.agent.running || !can.length;
     all.onclick = () => mapScanAll(can);
   }
-  bar.append(hint, all);
+  const tools = el('div', 'cl-map-tools');
+  tools.append(mapColours(), mapReliefSwitch(), all);
+  bar.append(hint, tools);
   return bar;
 }
 
@@ -4962,11 +5015,9 @@ function mapShareBar() {
   const v = mapView;
   const head = el('div', 'cl-map-head');
   const tools = el('div', 'cl-map-tools');
-  tools.appendChild(mapColours());
+  tools.append(mapColours(), mapReliefSwitch());
   if (mapScanning(v.share)) {
-    const c = chip('', 'quiet running', T('where.map.scanning_tip'));
-    c.append(el('span', 'spin'), ` ${T('where.map.scanning')}`);
-    tools.appendChild(c);
+    tools.appendChild(spaceRunning(T('where.map.scanning'), T('where.map.scanning_tip')));
   } else {
     const again = el('button', 'btn small plain', T('where.map.scan_again'));
     again.type = 'button';
