@@ -2061,6 +2061,8 @@
   "where.map.by": "Colour",
   "where.map.by_kind": "by kind",
   "where.map.by_age": "by age",
+  "where.map.relief": "Relief",
+  "where.map.relief_tip": "Lights every file's rectangle from the top left, so the files stand out from each other and from the folders.",
   "where.map.scanned": "Scanned {when}, took {took}",
   "where.map.took_short": "under a minute",
   "where.map.partial": "some folders couldn't be read",

@@ -4336,6 +4336,7 @@ let mapPointer = 'mouse';
 const MAP_INNER_MAX = 3000;           // rectangles inside the cells, per draw
 const MAP_INNER_MIN = 24;             // a folder narrower or lower than this (of the stage's units) holds no more rectangles
 const MAP_INNER_LEVELS = 4;           // how deep inside a cell; one child alone in its folder costs no level
+const MAP_RELIEF_MIN = 4;             // a file narrower or lower than this (of the stage's units) gets no relief: only more nodes
 const mapIsPhone = () => typeof window !== 'undefined' && window.innerWidth < 640;
 let mapDrawnPhone = null;             // the stage's viewBox as it was last drawn: phone or not
 let mapResizeWait = null;
@@ -4348,6 +4349,8 @@ const mapScanning = (s) => scans.running.includes(s.measure) || scans.queue.incl
 const mapWakes = (s) => !!(s.unknown.length || s.primary === 'array' || s.secondary === 'array');
 const mapByAge = () => Office.store(STORE + 'map_colour') === 'age';
 const mapFolder = (n) => !n.k && !n.isRest;
+const mapFile = (n) => !n.isRest && !mapFolder(n);
+const mapReliefOn = () => Office.store(STORE + 'map_relief') !== 'off';
 /** How long a scan took: under a minute in words, fmt.duration() speaks in minutes */
 const mapTookWords = (seconds) => (seconds < 60 ? T('where.map.took_short') : fmt.duration(seconds));
 const mapScannedWords = (m) => [T('where.map.scanned', { when: fmt.relative(m.at), took: mapTookWords(m.took || 0) }), m.partial ? T('where.map.partial') : ''].filter(Boolean).join(' · ');
@@ -4596,6 +4599,31 @@ function mapHatch(box, id, size, cls = 'cl-map-hatch') {
   return `url(#${id})`;
 }
 
+/**
+ * The light on the files, lit from the top left: one gradient in this svg, its colours and strength tokens (desk.css), nothing
+ * in the middle. What comes back is the rectangle mapReliefOver() copies for each file, null while the switch is off.
+ */
+function mapRelief(box, id) {
+  if (!mapReliefOn()) return null;
+  const gradient = svg('linearGradient', { id, x1: 0, y1: 0, x2: 1, y2: 1 });
+  gradient.append(svg('stop', { class: 'cl-map-lit', offset: 0 }), svg('stop', { class: 'cl-map-lit0', offset: 0.5 }),
+    svg('stop', { class: 'cl-map-shaded0', offset: 0.5 }), svg('stop', { class: 'cl-map-shaded', offset: 1 }));
+  const defs = svg('defs');
+  defs.appendChild(gradient);
+  box.appendChild(defs);
+  return svg('rect', { class: 'cl-map-relief', fill: `url(#${id})` });
+}
+/** A file's relief: a second rectangle over its own, which the pointer goes through (desk.css). Only ever for mapFile() */
+function mapReliefOver(box, r, relief) {
+  if (!relief || r.w < MAP_RELIEF_MIN || r.h < MAP_RELIEF_MIN) return;
+  const over = relief.cloneNode(false);
+  over.setAttribute('x', r.x.toFixed(1));
+  over.setAttribute('y', r.y.toFixed(1));
+  over.setAttribute('width', r.w.toFixed(1));
+  over.setAttribute('height', r.h.toFixed(1));
+  box.appendChild(over);
+}
+
 /** Words on a hatched rectangle when it is big enough: `what · size` on a line, narrow one thing a line, `under` below them */
 function mapHatchWords(cell, r, what, bytes, under = []) {
   if (r.w <= 54 || r.h <= 22) return;
@@ -4712,6 +4740,7 @@ function spaceStage(info) {
     'aria-label': v ? T('where.map.label', { path: mapPathOf(v.path), size: fmt.size(here.b) }) : T('where.space.tm_label', { n: cells.length, size: fmt.size(total) }) });
   const hatch = mapHatch(stage, 'cl-map-hatch', 7);
   const snapHatch = v ? '' : mapHatch(stage, 'cl-map-snaphatch', 7, 'cl-map-snap');
+  const relief = mapRelief(stage, 'cl-map-relief');
   const say = (node, nodes) => {
     if (!v) spacePicked = (node.share || nodes[0].share).name;
     info.replaceChildren(node && node.share ? shareLine(node.share) : mapBox(node, nodes));
@@ -4774,6 +4803,7 @@ function spaceStage(info) {
     if (n.isRest) rect.style.fill = hatch;
     if (s) rect.appendChild(svg('title', {}, `${s.name} · ${fmt.size(n.b)} · ${T('where.space.kind.' + kind)}`));
     cell.appendChild(rect);
+    if (mapFile(n)) mapReliefOver(cell, r, relief);
     const { label, head } = r;
     if (r.strip) {
       const words = T('where.space.snaps_of', { size: fmt.size(s.snaps) });
@@ -4791,6 +4821,7 @@ function spaceStage(info) {
       inner.addEventListener('click', (e) => { e.stopPropagation(); act(n, i.node, i.nodes); });
       if (i.node.isRest) inner.style.fill = hatch;
       cell.appendChild(inner);
+      if (mapFile(i.node)) mapReliefOver(cell, i, relief);
     }
     for (const i of r.inner) if (i.node.isRest) mapRestLabel(cell, i, i.node);
     if (n.isRest) mapRestLabel(cell, r, n);
@@ -4913,14 +4944,29 @@ function mapColours() {
   return seg;
 }
 
+/** The relief on or off: beside the colour's switch inside a share, in the bar over the shares; a choice this browser keeps */
+function mapReliefSwitch() {
+  const seg = el('div', 'seg cl-map-reliefseg');
+  const b = el('button', '', T('where.map.relief'));
+  b.type = 'button';
+  b.title = T('where.map.relief_tip');
+  b.setAttribute('aria-pressed', String(mapReliefOn()));
+  b.onclick = () => { Office.store(STORE + 'map_relief', mapReliefOn() ? 'off' : 'on'); mapDraw(); };
+  seg.appendChild(b);
+  return seg;
+}
+
 function mapLegend() {
   const legend = el('div', 'cl-space-legend cl-map-legend');
+  let relief;                         // its gradient once, in the first swatch that shows it: a rest is hatched, never lit
   const key = (tone, words) => {
     const it = el('span', 'cl-space-key');
     const sw2 = svg('svg', { class: 'cl-space-swatch', viewBox: '0 0 10 10' });
     const rect = svg('rect', { class: `cl-map-rect cl-map-t-${tone}${tone === 'rest' ? ' cl-map-restbox' : ''}`, x: 0, y: 0, width: 10, height: 10 });
     if (tone === 'rest') rect.style.fill = mapHatch(sw2, 'cl-map-hatch-key', 4);
+    if (tone !== 'rest' && relief === undefined) relief = mapRelief(sw2, 'cl-map-relief-key');
     sw2.appendChild(rect);
+    if (tone !== 'rest') mapReliefOver(sw2, { x: 0, y: 0, w: 10, h: 10 }, relief);
     it.append(sw2, el('span', '', words));
     legend.appendChild(it);
   };
@@ -4953,7 +4999,9 @@ function mapTopBar() {
     all.disabled = !Office.agent.running || !can.length;
     all.onclick = () => mapScanAll(can);
   }
-  bar.append(hint, all);
+  const tools = el('div', 'cl-map-tools');
+  tools.append(mapReliefSwitch(), all);
+  bar.append(hint, tools);
   return bar;
 }
 
@@ -4962,7 +5010,7 @@ function mapShareBar() {
   const v = mapView;
   const head = el('div', 'cl-map-head');
   const tools = el('div', 'cl-map-tools');
-  tools.appendChild(mapColours());
+  tools.append(mapColours(), mapReliefSwitch());
   if (mapScanning(v.share)) {
     const c = chip('', 'quiet running', T('where.map.scanning_tip'));
     c.append(el('span', 'spin'), ` ${T('where.map.scanning')}`);

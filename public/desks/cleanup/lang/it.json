@@ -2061,6 +2061,8 @@
   "where.map.by": "Colore",
   "where.map.by_kind": "per tipo",
   "where.map.by_age": "per età",
+  "where.map.relief": "Rilievo",
+  "where.map.relief_tip": "Illumina il rettangolo di ogni file dall'alto a sinistra: i file si staccano l'uno dall'altro e dalle cartelle.",
   "where.map.scanned": "Scansionata {when}, durata {took}",
   "where.map.took_short": "meno di un minuto",
   "where.map.partial": "alcune cartelle non si potevano leggere",

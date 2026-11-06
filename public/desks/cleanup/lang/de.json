@@ -2061,6 +2061,8 @@
   "where.map.by": "Farbe",
   "where.map.by_kind": "nach Art",
   "where.map.by_age": "nach Alter",
+  "where.map.relief": "Relief",
+  "where.map.relief_tip": "Beleuchtet das Rechteck jeder Datei von links oben, so heben sich die Dateien voneinander und von den Ordnern ab.",
   "where.map.scanned": "Gescannt {when}, Dauer {took}",
   "where.map.took_short": "unter einer Minute",
   "where.map.partial": "einige Ordner liessen sich nicht lesen",

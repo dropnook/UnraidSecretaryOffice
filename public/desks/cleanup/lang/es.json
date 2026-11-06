@@ -2061,6 +2061,8 @@
   "where.map.by": "Color",
   "where.map.by_kind": "por tipo",
   "where.map.by_age": "por antigüedad",
+  "where.map.relief": "Relieve",
+  "where.map.relief_tip": "Ilumina el rectángulo de cada archivo desde arriba a la izquierda: los archivos se distinguen entre sí y de las carpetas.",
   "where.map.scanned": "Escaneado {when}, duró {took}",
   "where.map.took_short": "menos de un minuto",
   "where.map.partial": "algunas carpetas no se pudieron leer",
