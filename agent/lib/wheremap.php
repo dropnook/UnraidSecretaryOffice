@@ -15,7 +15,8 @@ declare(strict_types=1);
  *
  * The file's shape: {v: 1, share, path, at, took, nodes, partial, tree}; a node {n, b, f, m, k, c?, r?}: name, bytes on
  * disk (as du counts them: blocks, a hard link once), files under it, newest mtime under it, kind (files only), children
- * by bytes (largest first), rest {f, b}: what was folded here («… n more»).
+ * by bytes (largest first), rest {f, b, d}: what was folded here («… n more»: f files under the folded entries, their bytes,
+ * d of the entries were folders — a reader without d takes 0).
  *
  * How it stays small. On the way back up a folder keeps its WHERE_MAP_CHILDREN largest files and WHERE_MAP_FOLDERS largest
  * folders, the others go into its rest (48 files is enough for a folder of ten thousand equal blocks; a share's root with
@@ -215,9 +216,10 @@ function whereMapAdd(array &$stack, array $node, array &$w): void
  */
 function whereMapFold(?array &$rest, array $node): void
 {
-    $rest ??= ['f' => 0, 'b' => 0];
+    $rest ??= ['f' => 0, 'b' => 0, 'd' => 0];
     $rest['f'] += max(1, $node['f']);
     $rest['b'] += $node['b'];
+    $rest['d'] += isset($node['k']) ? 0 : 1;
 }
 
 /**

@@ -29342,7 +29342,7 @@ function testWhereMap(): void
     $many = $top['many'];
     same('where map: a folder keeps up to 500 folders: all 60 stay, no rest, largest first', [60, null, 'd59'], [count($many['c']), $many['r'] ?? null, $many['c'][0]['n']]);
     $files60 = $top['files'];
-    same('where map: a folder keeps its 48 largest files, the other 12 in its rest', [48, 12], [count($files60['c']), $files60['r']['f']]);
+    same('where map: a folder keeps its 48 largest files, the other 12 in its rest — files, no folder among them', [48, 12, 0], [count($files60['c']), $files60['r']['f'], $files60['r']['d']]);
     check('where map: … the largest kept, the rest\'s bytes counted, largest first',
         isset($by($files60)['f59.bin']) && !isset($by($files60)['f00.bin']) && $files60['r']['b'] > 0 && $files60['c'][0]['n'] === 'f59.bin' && $files60['c'][0]['b'] >= $files60['c'][47]['b']);
     same('where map: a folder\'s numbers hold what it folded: 60 files under it', [60, 60], [$many['f'], $files60['f']]);
@@ -29374,7 +29374,7 @@ function testWhereMap(): void
     $file = fn (string $n, int $b): array => ['n' => $n, 'b' => $b, 'f' => 1, 'm' => 1, 'k' => 'other', 'x' => 1];
     [$rule] = whereMapFinish(['n' => 'r', 'b' => 10 * $G, 'f' => 2, 'm' => 1, 'x' => 3, 'c' => [$file('film', 5 * 1048576), $file('note', 500 * 1024)]]);
     same('where map: … on a tree: the 5 MB file stays on a 10 GB share, the 500 KB one goes into the rest',
-        [['film'], ['f' => 1, 'b' => 500 * 1024]], [array_column($rule['c'], 'n'), $rule['r']]);
+        [['film'], ['f' => 1, 'b' => 500 * 1024, 'd' => 0]], [array_column($rule['c'], 'n'), $rule['r']]);
 
     // --- the cap: harder rules first, at last only the largest (the job's own memory limit: trees this size don't fit the default)
     $limit = ini_set('memory_limit', WHERE_MAP_MEMORY);
@@ -29416,6 +29416,7 @@ function testWhereMap(): void
     [$noTies, $n5] = whereMapFinish($tiny, 60);
     same("where map: many empty folders at the floor ($n5 nodes): they go, the large files keep their 48", [48, false],
         [count(array_column($noTies['c'], null, 'n')['blocks']['c'] ?? []), isset(array_column($noTies['c'], null, 'n')['empty']['c'])]);
+    same('where map: … the rest counts the folded folders apart from the files under them', 30, array_column($noTies['c'], null, 'n')['empty']['r']['d'] ?? null);
     unset($wide, $deep, $capped, $cut2, $equal, $filler, $big, $share, $kept, $under, $ties, $tied, $tiny, $noTies);
     gc_collect_cycles();
     gc_mem_caches();
