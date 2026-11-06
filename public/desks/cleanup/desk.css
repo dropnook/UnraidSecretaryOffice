@@ -271,6 +271,9 @@
 .cl-map-rect.cl-map-restbox{fill:color-mix(in srgb, var(--cl-map-rest) 60%, var(--surface)); stroke-dasharray:4 3; stroke:var(--line2)}
 .cl-map-hatchbg{fill:color-mix(in srgb, var(--cl-map-rest) 30%, var(--surface))}
 .cl-map-hatchline{stroke:color-mix(in srgb, var(--cl-map-rest) 70%, var(--surface)); stroke-width:1.5px}
+.cl-map-snaps{stroke:var(--surface); stroke-width:.75px}
+.cl-map-snapbg{fill:color-mix(in srgb, var(--ink) 22%, var(--surface))}
+.cl-map-snapline{stroke:color-mix(in srgb, var(--ink) 62%, var(--surface)); stroke-width:1.5px}
 .cl-map-restword{paint-order:stroke; stroke:var(--surface); stroke-width:3px; stroke-linejoin:round}
 .cl-map-cell:hover > .cl-map-rect:first-child, .cl-map-cell:focus-visible > .cl-map-rect:first-child{stroke:var(--ink); stroke-width:2.5px}
 .cl-map-rect.cl-map-in:hover{stroke:var(--ink); stroke-width:1.5px}

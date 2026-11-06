@@ -4587,27 +4587,48 @@ function spaceCells(W, H) {
 const mapRestEach = (rest) => T('where.map.rest_each', { size: fmt.size(rest.b / rest.f) });
 
 /** The hatching of a rest, in this svg: its colours are tokens (desk.css), the fill for a rectangle is what comes back */
-function mapHatch(box, id, size) {
+function mapHatch(box, id, size, cls = 'cl-map-hatch') {
   const pattern = svg('pattern', { id, width: size, height: size, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' });
-  pattern.append(svg('rect', { class: 'cl-map-hatchbg', width: size, height: size }), svg('line', { class: 'cl-map-hatchline', x1: 0, y1: 0, x2: 0, y2: size }));
+  pattern.append(svg('rect', { class: `${cls}bg`, width: size, height: size }), svg('line', { class: `${cls}line`, x1: 0, y1: 0, x2: 0, y2: size }));
   const defs = svg('defs');
   defs.appendChild(pattern);
   box.appendChild(defs);
   return `url(#${id})`;
 }
 
-/** What a rest's rectangle says when it is big enough: how many and how much, under it the size of each */
-function mapRestLabel(cell, r, rest) {
+/** Words on a hatched rectangle when it is big enough: `what · size` on a line, narrow one thing a line, `under` below them */
+function mapHatchWords(cell, r, what, bytes, under = []) {
   if (r.w <= 54 || r.h <= 22) return;
   const chars = Math.max(3, Math.floor(r.w / 8));
   const fit = (words) => (words.length > chars ? words.slice(0, chars - 1) + '…' : words);
-  const whole = `${rest.n} · ${fmt.size(rest.b)}`;
-  const each = rest.f > 1 ? [mapRestEach(rest)] : [];
-  const lines = whole.length <= chars ? [whole, ...each] : [rest.n, fmt.size(rest.b), ...each];     // narrow: one thing a line
+  const whole = `${what} · ${fmt.size(bytes)}`;
+  const lines = whole.length <= chars ? [whole, ...under] : [what, fmt.size(bytes), ...under];
   lines.forEach((words, i) => {
     if (r.h <= 24 + i * 16) return;
     cell.appendChild(svg('text', { class: `cl-map-text cl-map-restword${i ? ' cl-map-size' : ''}`, x: (r.x + 5).toFixed(1), y: (r.y + 17 + i * 16).toFixed(1) }, fit(words)));
   });
+}
+/** What a rest's rectangle says: how many and how much, under it the size of each */
+const mapRestLabel = (cell, r, rest) => mapHatchWords(cell, r, rest.n, rest.b, rest.f > 1 ? [mapRestEach(rest)] : []);
+
+/**
+ * A share's snapshots in its cell at the top: a walk never sees them, ZFS's size holds them. Its content gets the walked part,
+ * the snapshots a strip by their share of the cell, on the side that keeps the content closer to square. Only for a size
+ * from ZFS (a du's has no snapshots in it). {content, strip} or null.
+ */
+function mapSnapSplit(n, x, y, w, h) {
+  const snaps = n.share && n.how === 'zfs' ? n.share.snaps : 0;
+  if (!(snaps > 0) || !(n.b > 0)) return null;
+  const part = Math.min(snaps / n.b, 0.98);
+  const off = (a, b) => Math.max(a / b, b / a);
+  if (off(w * (1 - part), h) <= off(w, h * (1 - part))) {
+    const cw = w * (1 - part);
+    if (w - cw < 1.5) return null;
+    return { content: { x, y, w: cw, h }, strip: { x: x + cw, y, w: w - cw, h } };
+  }
+  const ch = h * (1 - part);
+  if (h - ch < 1.5) return null;
+  return { content: { x, y, w, h: ch }, strip: { x, y: y + ch, w, h: h - ch } };
 }
 
 /** The words of the place in the share: `/a/b` from the root */
@@ -4681,7 +4702,7 @@ function spaceStage(info) {
   const v = mapView;
   const phone = mapIsPhone();
   mapDrawnPhone = phone;
-  const W = phone ? 400 : 1000, H = phone ? 400 : 360;
+  const W = phone ? 400 : 1000, H = phone ? 400 : v ? 480 : 360;     // the shares a little lower: the bars stand above them
   const here = v ? v.path[v.path.length - 1] : null;
   const above = v ? v.path : [];
   const cells = v ? mapLayout(here, 0, 0, W, H) : spaceCells(W, H);
@@ -4690,6 +4711,7 @@ function spaceStage(info) {
   const stage = svg('svg', { class: `cl-map-svg${v ? '' : ' cl-map-top'}`, viewBox: `0 0 ${W} ${H}`, role: 'group',
     'aria-label': v ? T('where.map.label', { path: mapPathOf(v.path), size: fmt.size(here.b) }) : T('where.space.tm_label', { n: cells.length, size: fmt.size(total) }) });
   const hatch = mapHatch(stage, 'cl-map-hatch', 7);
+  const snapHatch = v ? '' : mapHatch(stage, 'cl-map-snaphatch', 7, 'cl-map-snap');
   const say = (node, nodes) => {
     if (!v) spacePicked = (node.share || nodes[0].share).name;
     info.replaceChildren(node && node.share ? shareLine(node.share) : mapBox(node, nodes));
@@ -4728,7 +4750,10 @@ function spaceStage(info) {
     r.inner = [];
     const pad = 2;
     if (holds && r.w > 16 && r.h > 16 + r.head) {
-      seeds.push({ x: r.x + pad, y: r.y + pad + r.head, w: r.w - 2 * pad, h: r.h - 2 * pad - r.head, node: n, nodes: above, level: 1, out: r.inner });
+      const area = { x: r.x + pad, y: r.y + pad + r.head, w: r.w - 2 * pad, h: r.h - 2 * pad - r.head };
+      const split = mapSnapSplit(n, area.x, area.y, area.w, area.h);
+      if (split) r.strip = split.strip;
+      seeds.push({ ...(split ? split.content : area), node: n, nodes: above, level: 1, out: r.inner });
     }
   }
   mapInner(seeds);
@@ -4750,6 +4775,15 @@ function spaceStage(info) {
     if (s) rect.appendChild(svg('title', {}, `${s.name} · ${fmt.size(n.b)} · ${T('where.space.kind.' + kind)}`));
     cell.appendChild(rect);
     const { label, head } = r;
+    if (r.strip) {
+      const words = T('where.space.snaps_of', { size: fmt.size(s.snaps) });
+      const strip = svg('rect', { class: 'cl-map-snaps', x: r.strip.x.toFixed(1), y: r.strip.y.toFixed(1), width: r.strip.w.toFixed(1), height: r.strip.h.toFixed(1) });
+      strip.style.fill = snapHatch;
+      strip.appendChild(svg('title', {}, words));
+      strip.addEventListener('mouseenter', () => say(n, above));
+      cell.appendChild(strip);
+      mapHatchWords(cell, r.strip, T('where.space.seg.snaps'), s.snaps);
+    }
     for (const i of r.inner) {
       const inner = svg('rect', { class: `cl-map-rect cl-map-in${i.level > 1 ? ` cl-map-in${i.level}` : ''} cl-map-t-${mapTone(i.node)}${mapFolder(i.node) ? ' cl-map-dir2' : ''}${i.node.isRest ? ' cl-map-restbox' : ''}`,
         x: i.x.toFixed(1), y: i.y.toFixed(1), width: i.w.toFixed(1), height: i.h.toFixed(1) });
