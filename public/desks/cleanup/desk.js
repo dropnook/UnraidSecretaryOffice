@@ -309,16 +309,12 @@ function build(root, page) {
   v.wakeText = el('span', '', T('where.wake'));
   v.wakeLabel.append(v.wake, v.wakeText);
   v.wakeLabel.title = T('where.wake_title');
-  // switched on: said right under it that it holds for the next tour only, with that tour one click away (2026-10-17,
-  // silent controls: a switch that changed nothing until «Tour» and was off again afterwards, said only in its tip)
-  const wakeNote = el('span', 'clw-wake-note');
-  const wakeGo = el('button', 'btn small', T('where.scan_now'));
-  wakeGo.type = 'button';
-  wakeGo.onclick = () => tour();
-  wakeNote.append(el('span', '', T('where.wake_once')), wakeGo);
+  // switched on: said right under it that it holds for the next tour only (2026-10-17, silent controls: a switch that changed
+  // nothing until «Tour» and was off again afterwards, said only in its tip); «Tour» beside it is the one button
+  const wakeNote = el('span', 'clw-wake-note', T('where.wake_once'));
   const wakeBox = el('span', 'clw-wake-box');
   wakeBox.append(v.wakeLabel, wakeNote);
-  v.wakeSync = () => { wakeNote.hidden = !v.wake.checked || v.wakeLabel.hidden; wakeGo.disabled = v.scanBtn.disabled; };
+  v.wakeSync = () => { wakeNote.hidden = !v.wake.checked || v.wakeLabel.hidden; };
   v.wake.onchange = v.wakeSync;
   const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon },
     { actions: [wakeBox, v.scanBtn], pages: { list: PAGES(), current: page, store: PAGE_KEY } });

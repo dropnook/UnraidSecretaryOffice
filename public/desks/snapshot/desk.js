@@ -295,16 +295,12 @@ function build(root) {
   const wakeText = el('span', '', T('wake'));
   wakeLabel.append(wake, wakeText);
   wakeLabel.title = T('wake_title');
-  // switched on: said right under it that it holds for the next tour only, with that tour one click away (2026-10-17,
-  // silent controls: a switch that changed nothing until «Tour» and was off again afterwards, said only in its tip)
-  const wakeNote = el('span', 'sp-wake-note');
-  const wakeGo = el('button', 'btn small', T('scan_now'));
-  wakeGo.type = 'button';
-  wakeGo.onclick = () => scan(true);
-  wakeNote.append(el('span', '', T('wake_once')), wakeGo);
+  // switched on: said right under it that it holds for the next tour only (2026-10-17, silent controls: a switch that changed
+  // nothing until «Tour» and was off again afterwards, said only in its tip); «Tour» beside it is the one button
+  const wakeNote = el('span', 'sp-wake-note', T('wake_once'));
   const wakeBox = el('span', 'sp-wake');
   wakeBox.append(wakeLabel, wakeNote);
-  const wakeSync = () => { wakeNote.hidden = !wake.checked || wakeLabel.hidden; wakeGo.disabled = scanBtn.disabled; };
+  const wakeSync = () => { wakeNote.hidden = !wake.checked || wakeLabel.hidden; };
   wake.onchange = wakeSync;
   const newBtn = el('button', 'btn', T('new'));
   newBtn.type = 'button';

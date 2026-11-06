@@ -5012,10 +5012,10 @@ function testSilentControlsMore(): void
     $jk = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
     check('silent controls: «Set them to manual» says it holds for this Apply', str_contains($bk, "el('small', 'bk-once', T('setup.sources_manual_once'))"));
     check('silent controls: «also to {partner}» on a default not chosen says it waits', str_contains($bk, "if (!on && !off) tickText.appendChild(el('small', '', T('setup.preset.kopia_partner_tick_wait')));"));
-    check('silent controls: Snapshotini\'s wake switch - its word and «Tour now» under it, shown only while on, off again after the tour',
-        str_contains($sp, "wakeNote.append(el('span', '', T('wake_once')), wakeGo);") && str_contains($sp, 'wakeNote.hidden = !wake.checked || wakeLabel.hidden;')
+    check('silent controls: Snapshotini\'s wake switch - its word under it, shown only while on, off again after the tour; «Tour» the one button',
+        str_contains($sp, "const wakeNote = el('span', 'sp-wake-note', T('wake_once'));") && !str_contains($sp, 'wakeGo') && str_contains($sp, 'wakeNote.hidden = !wake.checked || wakeLabel.hidden;')
         && str_contains($sp, '{ view.wake.checked = false; view.wakeSync(); }'));
-    check('silent controls: Dustdevil\'s the same', str_contains($cl, "wakeNote.append(el('span', '', T('where.wake_once')), wakeGo);")
+    check('silent controls: Dustdevil\'s the same', str_contains($cl, "const wakeNote = el('span', 'clw-wake-note', T('where.wake_once'));") && !str_contains($cl, 'wakeGo')
         && str_contains($cl, 'wakeNote.hidden = !v.wake.checked || v.wakeLabel.hidden;') && str_contains($cl, '{ view.wake.checked = false; view.wakeSync(); }'));
     // 2026-10-21 (the owner): no floating bar on his page — «Save» at the bottom says it, «Discard» beside it
     check('silent controls: Jack Streamer\'s «n changes» - said by «Save» at the bottom (with «Discard»), no floating bar',
@@ -5026,7 +5026,7 @@ function testSilentControlsMore(): void
         $c = $lang('cleanup', $l);
         $j = $lang('jack', $l);
         check("silent controls: the words ($l)", ($b['setup.sources_manual_once'] ?? '') !== '' && ($b['setup.preset.kopia_partner_tick_wait'] ?? '') !== ''
-            && ($s['wake_once'] ?? '') !== '' && ($c['where.wake_once'] ?? '') !== '' && ($c['where.scan_now'] ?? '') === ($s['scan_now'] ?? null)
+            && ($s['wake_once'] ?? '') !== '' && ($c['where.wake_once'] ?? '') !== ''
             && is_array($j['setup.bar_changes'] ?? null) && ($j['setup.bar_sub'] ?? '') !== '' && ($j['setup.discard'] ?? '') !== '');
     }
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
