@@ -29468,6 +29468,7 @@ function testWhereMap(): void
         [$status['running'], $status['failed'], is_int($status['maps']['share']['nodes'] ?? null), $status['maps']['share']['path'] ?? null]);
     $map = json_decode((string) @file_get_contents("$tmp/data/cleanup-map/share.json"), true) ?? [];
     same('where map: the file\'s shape', ['at', 'nodes', 'partial', 'path', 'share', 'took', 'tree', 'v'], (function (array $k) { sort($k); return $k; })(array_keys($map)));
+    same('where map: a scan under a second took 1 s, never 0', true, ($map['took'] ?? 0) >= 1);
     same('where map: … its tree as walked, the total known', [1, 'share', $root, $tree['b'], $tree['f']], [$map['v'] ?? null, $map['share'] ?? null, $map['path'] ?? null, $map['tree']['b'] ?? null, $map['tree']['f'] ?? null]);
     $sizes = json_decode((string) file_get_contents("$tmp/sizes.json"), true)['sizes'][$root] ?? [];
     same('where map: the scan also measures: its total in the sizes store under the measure path, as a du leaves it', [$tree['b'], $map['at'] ?? null, false, ['at', 'bytes', 'partial', 'seconds']],

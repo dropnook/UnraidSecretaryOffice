@@ -528,6 +528,8 @@ async function cleanupMap(browser) {
       const noScroll = async (when) => {
         if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) fail(`${width} px: horizontal scrolling ${when}`);
       };
+      // the sentence under the treemap names the button: it only appears on a share's line
+      if (!(await page.locator('.cl-space-tmhint').textContent()).includes('Scan…')) fail(`${width} px: the hint under the treemap does not name «Scan…»`);
       // the share's line: pointed at or clicked, it has its button; the pointer's way to the button keeps the one clicked
       await page.evaluate(() => { [...document.querySelectorAll('.cl-space-tmcell')].find((c) => c.textContent.startsWith('films')).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
       const open = page.locator('.cl-space-tminfo .cl-map-act button');

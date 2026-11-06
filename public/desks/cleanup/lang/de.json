@@ -2057,6 +2057,7 @@
   "where.map.by_kind": "nach Art",
   "where.map.by_age": "nach Alter",
   "where.map.scanned": "Gescannt {when}, Dauer {took}",
+  "where.map.took_short": "unter einer Minute",
   "where.map.partial": "einige Ordner liessen sich nicht lesen",
   "where.map.hint": "Zeig auf ein Rechteck (oder tippe es an), um zu sehen, was es ist. Ein Klick auf einen Ordner geht hinein.",
   "where.map.empty": "Hier drin liegt nichts, das Platz braucht.",

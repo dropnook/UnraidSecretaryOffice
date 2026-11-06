@@ -2057,6 +2057,7 @@
   "where.map.by_kind": "por tipo",
   "where.map.by_age": "por antigüedad",
   "where.map.scanned": "Escaneado {when}, duró {took}",
+  "where.map.took_short": "menos de un minuto",
   "where.map.partial": "algunas carpetas no se pudieron leer",
   "where.map.hint": "Señala un rectángulo (o tócalo) para ver qué es. Un clic en una carpeta entra en ella.",
   "where.map.empty": "Aquí dentro no hay nada que ocupe espacio.",

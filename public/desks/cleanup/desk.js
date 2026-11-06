@@ -4359,6 +4359,8 @@ const mapScanning = (s) => scans.running.includes(s.measure) || scans.queue.incl
 const mapWakes = (s) => !!(s.unknown.length || s.primary === 'array' || s.secondary === 'array');
 const mapByAge = () => Office.store(STORE + 'map_colour') === 'age';
 const mapFolder = (n) => !n.k && !n.isRest;
+/** How long a scan took: under a minute in words, fmt.duration() speaks in minutes */
+const mapTookWords = (seconds) => (seconds < 60 ? T('where.map.took_short') : fmt.duration(seconds));
 
 /** A share's scan: on a click only, the same dialog as «Measure» when a disk may wake */
 function mapScan(s) {
@@ -4391,7 +4393,7 @@ function mapButton(s) {
   if (known) {
     const b = el('button', 'btn small', T('where.map.open'));
     b.type = 'button';
-    b.title = T('where.map.scanned', { when: fmt.relative(known.at), took: fmt.duration(known.took || 0) });
+    b.title = T('where.map.scanned', { when: fmt.relative(known.at), took: mapTookWords(known.took || 0) });
     b.onclick = () => mapOpen(s);
     box.appendChild(b);
   } else if (!mapScanning(s)) {
@@ -4701,7 +4703,7 @@ function mapParts() {
   tools.append(mapColours(), close);
   head.append(mapCrumbs(), tools);
   const line = el('div', 'cl-map-line');
-  const said = [T('where.map.scanned', { when: fmt.relative(v.map.at), took: fmt.duration(v.map.took || 0) })];
+  const said = [T('where.map.scanned', { when: fmt.relative(v.map.at), took: mapTookWords(v.map.took || 0) })];
   if (v.map.partial) said.push(T('where.map.partial'));
   line.appendChild(el('span', '', said.join(' · ')));
   if (mapScanning(v.share)) {

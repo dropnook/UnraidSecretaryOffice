@@ -2057,6 +2057,7 @@
   "where.map.by_kind": "par type",
   "where.map.by_age": "par âge",
   "where.map.scanned": "Analysé {when}, durée {took}",
+  "where.map.took_short": "moins d’une minute",
   "where.map.partial": "certains dossiers n’ont pas pu être lus",
   "where.map.hint": "Pointez un rectangle (ou touchez-le) pour voir ce que c’est. Un clic sur un dossier y entre.",
   "where.map.empty": "Rien ici qui prenne de la place.",

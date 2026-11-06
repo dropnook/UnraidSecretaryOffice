@@ -468,7 +468,7 @@ function whereMapJob(array $args): int
         return 4;
     }
     writeAtomic(whereMapFile($share), jsonEncode(['v' => WHERE_MAP_V, 'share' => $share, 'path' => $path, 'at' => time(),
-        'took' => intdiv(hrtime(true) - $t0, 1000000000), 'nodes' => $nodes, 'partial' => $walk['partial'], 'tree' => $tree]));
+        'took' => max(1, intdiv(hrtime(true) - $t0, 1000000000)), 'nodes' => $nodes, 'partial' => $walk['partial'], 'tree' => $tree]));
     return 0;
 }
 

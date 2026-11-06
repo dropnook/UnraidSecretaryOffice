@@ -2057,6 +2057,7 @@
   "where.map.by_kind": "by kind",
   "where.map.by_age": "by age",
   "where.map.scanned": "Scanned {when}, took {took}",
+  "where.map.took_short": "under a minute",
   "where.map.partial": "some folders couldn't be read",
   "where.map.hint": "Point at a rectangle (or tap it) to see what it is. A click on a folder goes into it.",
   "where.map.empty": "Nothing in here that takes up space.",
