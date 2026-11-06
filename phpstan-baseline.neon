@@ -277,12 +277,6 @@ parameters:
 			path: agent/desks/restore-partner.php
 
 		-
-			message: '#^Strict comparison using \!\=\= between mixed~\(0\|0\.0\|''''\|''0''\|''false''\|array\{\}\|false\|null\) and ''0'' will always evaluate to true\.$#'
-			identifier: notIdentical.alwaysTrue
-			count: 1
-			path: agent/desks/restore-partner.php
-
-		-
 			message: '#^Offset string on non\-empty\-array\<string, array\{kind\: ''dir''\|''file'', bases\: list\<string\>\}\> in isset\(\) always exists and is not nullable\.$#'
 			identifier: isset.offset
 			count: 1

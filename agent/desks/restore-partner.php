@@ -1564,7 +1564,7 @@ function rsPlanPartnerStart(array $r, string $stamp): array
     $id = textField($r, 'pair');
     $unit = textField($r, 'unit');
     $snap = textField($r, 'snap');
-    $beside = !empty($r['beside']) && $r['beside'] !== 'false' && $r['beside'] !== '0';
+    $beside = optBool($r, 'beside');
     if (!preg_match(PARTNER_ID_RE, $id) || !preg_match(PARTNER_UNIT_RE, $unit) || !preg_match(PARTNER_SNAP_RE, $snap)) {
         throw new Problem('unknown_target', ['target' => "$id $unit $snap"]);
     }
