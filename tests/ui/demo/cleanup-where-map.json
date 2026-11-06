@@ -12,6 +12,14 @@
    "nodes": 494,
    "bytes": 1952663143713,
    "partial": false
+  },
+  "Familienfotos": {
+   "path": "/mnt/daten/Familienfotos",
+   "at": 1793540800,
+   "took": 38,
+   "nodes": 553,
+   "bytes": 1550311395131,
+   "partial": false
   }
  },
  "failed": {}

@@ -29447,6 +29447,22 @@ function testWhereMap(): void
     };
     same('where map: a path not of her last tour is refused — nothing queued', ['unknown_target', []], [$refused(["$tmp/outside"]), $GLOBALS['whereMapJobs']['queue']]);
     same('where map: a share whose folder is gone: said', 'share_missing', $refused(["$tmp/gone"]));
+    // «Scan all…»: every share in one request, queued in their order, one scan at a time; one of them asked already: nothing queued
+    @mkdir("$tmp/second");
+    $GLOBALS['where']['shares'][] = ['name' => 'second', 'measure' => "$tmp/second"];
+    same('where map: several in one request: all queued, in their order', [$root, "$tmp/second"], whereMapAsk([$root, "$tmp/second"])['map']['queue']);
+    same('where map: … asked again with one already waiting: refused', 'where_map_busy', $refused(["$tmp/second"]));
+    $GLOBALS['whereMapCommand'] = ['/bin/sleep', '0.2'];
+    whereMapTick();
+    same('where map: … one runs, the next waits', [["$tmp/second"], [$root]], [whereMapStatus()['queue'], whereMapStatus()['running']]);
+    $until = hrtime(true) + 5_000_000_000;
+    while (($GLOBALS['whereMapJobs']['queue'] || $GLOBALS['whereMapJobs']['running']) && hrtime(true) < $until) {
+        usleep(50000);
+        whereMapTick();
+    }
+    same('where map: … and the next when it is over', [[], []], [whereMapStatus()['queue'], whereMapStatus()['running']]);
+    @unlink("$tmp/cleanup-where-map.json");
+    array_pop($GLOBALS['where']['shares']);
     $asked = whereMapAsk([$root]);
     same('where map: asked: queued, in the answer and in the part\'s file', [[$root], [$root]],
         [$asked['map']['queue'], json_decode((string) file_get_contents("$tmp/cleanup-where-map.json"), true)['queue']]);
@@ -29526,7 +29542,13 @@ function testWhereMap(): void
     $code = substr($code, 0, (int) strpos($code, 'the details: a table whose rows unfold'));
     check('where map: the page draws names as text only: no innerHTML, no link anywhere, nothing that deletes', $code !== '' && !preg_match('/innerHTML|insertAdjacentHTML|safeHref|<a\b|\'a\'|where_map_delete|\.park|\.remove`/', $code));
     check('where map: one poll: the map\'s status in the sizes\' loop, no second timer', substr_count($code, 'setTimeout') === 1 && str_contains($code, 'mapResizeWait = setTimeout') && !str_contains($code, 'setInterval') && str_contains($js, "part: 'where-map' })]"));
-    check('where map: one listener for the window\'s width, while a map is open: gone when it closes', substr_count($code, "addEventListener('resize'") === 1 && substr_count($code, "removeEventListener('resize'") === 1);
+    check('where map: one listener for the window\'s width while her page is there: gone when the visit ends', substr_count($code, "addEventListener('resize'") === 1 && substr_count($code, "removeEventListener('resize'") === 1 && str_contains($js, 'mapRelease(); if (bar)'));
+    check('where map: one treemap: one stage for every level, the old button, panel and swap gone', substr_count($js, 'function spaceStage(') === 1 && !preg_match('/mapButton|mapPanel|mapSwap|mapStage|mapOpen\b|mapClose|cl-map-home|where\.map\.(open|scan|close)\b/', $js));
+    check('where map: every redraw of the treemap keeps the page in place', !str_contains($code, 'replaceChildren(...mapParts())') || substr_count($code, 'replaceChildren(...mapParts())') === substr_count($code, 'Office.keepInPlace(panel, () => panel.replaceChildren(...mapParts()))'));
+    check('where map: a scan only ever from a click: mapScan and mapScanAll only from mapGo, the «Scan again…» and the «Scan all…» buttons', substr_count($code, 'mapScan(') === 3 && substr_count($code, 'mapScanAll(') === 2 && str_contains($code, 'again.onclick = () => mapScan(v.share)') && str_contains($code, 'all.onclick = () => mapScanAll(can)') && substr_count($js, 'where_map`') === 2);
+    check('where map: one stage, its height by the level: 480 inside a share, 360 with the shares, 400 on a phone', str_contains($code, 'H = phone ? 400 : v ? 480 : 360'));
+    check('where map: the snapshots\' strip only for a size from ZFS: a du has none in it', str_contains($code, "n.share && n.how === 'zfs' ? n.share.snaps : 0"));
+    check('where map: the wave in a cell is the office\'s wave', str_contains($code, "`cl-map-over running") && str_contains($code, "over.appendChild(el('span', 'spin'))"));
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.css');
     $css = substr($css, (int) strpos($css, 'the map of one share'));
     check('where map: her colours are tokens, no colour written out', $css !== '' && !preg_match('/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/', $css));
@@ -56842,6 +56864,7 @@ const mk = () => ({ nodeType: 1, style: {}, dataset: {}, hidden: true, textConte
   querySelector: () => mk(), querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
   getBoundingClientRect: () => ({ top: 0, bottom: 40, left: 0, right: 1000 }), focus() {}, select() {} });
 globalThis.window = globalThis;
+globalThis.addEventListener = globalThis.removeEventListener = () => {};
 globalThis.Node = function Node() {};
 globalThis.DocumentFragment = function DocumentFragment() {};
 globalThis.innerHeight = 800; globalThis.innerWidth = 1200; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};

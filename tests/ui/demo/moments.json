@@ -329,10 +329,43 @@
    {
     "click": "[data-place=\"where.space\"]",
     "pause": 700
+   },
+   {
+    "wait": ".cl-map-top .cl-map-snaps",
+    "pause": 300
    }
   ],
   "clip": [
    "[data-place=\"where.space.bars\"]",
+   "[data-place=\"where.space.shares\"]"
+  ],
+  "pad": 0
+ },
+ {
+  "nr": 7,
+  "desk": "cleanup",
+  "moment": "space-map",
+  "title": "Frau Putzteufel - ein Klick auf einen Share: seine Ordner und Dateien als Rechtecke, nach Art oder Alter gefärbt, ein Klick geht tiefer",
+  "route": "cleanup/where",
+  "prepare": [
+   {
+    "click": "[data-place=\"where.space\"]",
+    "pause": 1200
+   },
+   {
+    "wait": ".cl-map-cell[data-share=\"Familienfilme\"] .cl-map-in",
+    "pause": 200
+   },
+   {
+    "click": ".cl-map-cell[data-share=\"Familienfilme\"]",
+    "pause": 400
+   },
+   {
+    "wait": ".cl-map-crumbs",
+    "pause": 300
+   }
+  ],
+  "clip": [
    "[data-place=\"where.space.shares\"]"
   ],
   "pad": 0
