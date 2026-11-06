@@ -4275,6 +4275,14 @@ function spaceLegend(sized) {
 }
 
 /** The shares not measured: hatched, never sized 0 — and what a click on «Measure» costs. A chip stands in for the rectangle they don't have. */
+/** Something running in a line: the wave and the words at the line's own size, never a chip's smaller one */
+function spaceRunning(words, tip) {
+  const c = el('span', 'cl-space-running', '');
+  c.title = tip;
+  c.append(el('span', 'spin'), ` ${words}`);
+  return c;
+}
+
 function spaceUnmeasured(unmeasured) {
   const un = el('div', 'cl-space-unmeasured');
   const sw2 = svg('svg', { class: 'cl-space-swatch cl-space-hatchbox', viewBox: '0 0 10 10' });
@@ -4286,8 +4294,8 @@ function spaceUnmeasured(unmeasured) {
     const scanning = mapScanning(x.s);
     let c;
     if (scanning || x.b.measuring) {
-      c = chip('', 'quiet running', T(scanning ? 'where.map.scanning_tip' : 'where.space.measuring_tip'));      // the wave: its scan or du runs or waits
-      c.append(el('span', 'spin'), ` ${x.s.name} · ${T(scanning ? 'where.map.scanning' : 'where.space.measuring')}`);
+      // the wave: its scan or du runs or waits
+      c = spaceRunning(`${x.s.name} · ${T(scanning ? 'where.map.scanning' : 'where.space.measuring')}`, T(scanning ? 'where.map.scanning_tip' : 'where.space.measuring_tip'));
     } else {
       c = chip(x.s.name, 'quiet', tip);
     }
@@ -4412,11 +4420,7 @@ function mapScanAll(list) {
 function mapChips(s) {
   const box = el('div', 'cl-map-act');
   if (s.missing) return box;
-  if (mapScanning(s)) {
-    const c = chip('', 'quiet running', T('where.map.scanning_tip'));
-    c.append(el('span', 'spin'), ` ${T('where.map.scanning')}`);
-    box.appendChild(c);
-  }
+  if (mapScanning(s)) box.appendChild(spaceRunning(T('where.map.scanning'), T('where.map.scanning_tip')));
   if (mapFailed(s)) box.appendChild(chip(T('where.map.failed'), 'warn'));
   return box;
 }
@@ -5012,9 +5016,7 @@ function mapShareBar() {
   const tools = el('div', 'cl-map-tools');
   tools.append(mapColours(), mapReliefSwitch());
   if (mapScanning(v.share)) {
-    const c = chip('', 'quiet running', T('where.map.scanning_tip'));
-    c.append(el('span', 'spin'), ` ${T('where.map.scanning')}`);
-    tools.appendChild(c);
+    tools.appendChild(spaceRunning(T('where.map.scanning'), T('where.map.scanning_tip')));
   } else {
     const again = el('button', 'btn small plain', T('where.map.scan_again'));
     again.type = 'button';
