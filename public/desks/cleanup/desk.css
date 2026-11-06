@@ -157,9 +157,7 @@
 .cl-space-markkey{display:inline-block; width:3px; height:12px; border-radius:1px}
 .cl-space-markkey-warn{background:var(--warn)}
 .cl-space-markkey-crit{background:var(--danger); margin-left:8px}
-/* the treemap: square-ish on a phone (its viewBox), the cells' text in the surface's colour on the fills */
-.cl-space-tm{display:block; width:100%; height:auto; border-radius:var(--radius); background:var(--surface2)}
-.cl-space-tmcell{cursor:pointer; outline:none}
+/* the treemap's top level: a share's own fill says where it lies, square-ish on a phone (its viewBox) */
 .cl-space-tmrect{stroke:var(--surface); stroke-width:2px}
 .cl-space-tmcell:hover .cl-space-tmrect, .cl-space-tmcell:focus-visible .cl-space-tmrect{stroke:var(--ink); stroke-width:2.5px}
 .cl-space-tm-pool.cl-space-tmshade0{fill:color-mix(in srgb, var(--accent) 78%, var(--surface))}
@@ -172,8 +170,6 @@
 .cl-space-tm-mixed.cl-space-tmshade1{fill:color-mix(in srgb, var(--accent) 28%, var(--data))}
 .cl-space-tm-mixed.cl-space-tmshade2{fill:color-mix(in srgb, var(--accent) 18%, var(--data))}
 .cl-space-tmrect.cl-space-tm-part{stroke-dasharray:6 4; stroke:var(--ink2)}
-.cl-space-tmtext{fill:var(--ink); font:600 13px var(--font); pointer-events:none}
-.cl-space-tmsize{font-weight:400; font-size:12px; fill:var(--ink2)}
 .cl-space-tmline{min-height:38px; font-size:12.5px; color:var(--ink2)}
 .cl-space-tmline b{color:var(--ink)}
 .cl-space-tmhint{color:var(--muted)}
@@ -242,8 +238,15 @@
 .cl-map-t-mid{--cl-map-hue:var(--cl-map-mid)}
 .cl-map-t-old{--cl-map-hue:var(--cl-map-old)}
 .cl-map-head{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px 12px}
+.cl-map-hint{flex:1 1 280px; min-width:0; font-size:12.5px}
+.cl-map-loading{display:inline-block; margin-left:4px}
+.cl-map-all{flex:none}
 .cl-map-tools{display:flex; flex-wrap:wrap; align-items:center; gap:8px}
-.cl-map-crumbs{display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 5px; min-width:0; font-size:13px; overflow-wrap:anywhere}
+.cl-map-crumbs{display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 5px; flex:1 1 200px; min-width:0; font-size:13px; overflow-wrap:anywhere}
+.cl-map-close{flex:none; font-size:16px; line-height:1}
+.cl-map-stage{position:relative}
+.cl-map-over{position:absolute; display:flex; align-items:center; justify-content:center; overflow:hidden; pointer-events:none}
+.cl-map-wakes ul{margin:6px 0 0; padding-left:18px}
 .cl-map-crumb{font:inherit; padding:0; border:0; background:none; color:var(--accent-ink); cursor:pointer; text-align:left; overflow-wrap:anywhere}
 .cl-map-crumb:hover{text-decoration:underline}
 .cl-map-sep{color:var(--muted)}
@@ -255,6 +258,8 @@
 .cl-map-rect.cl-map-dir{fill:color-mix(in srgb, var(--cl-map-hue) 20%, var(--surface))}
 .cl-map-rect.cl-map-dir2{fill:color-mix(in srgb, var(--cl-map-hue) 38%, var(--surface))}
 .cl-map-rect.cl-map-in{stroke-width:.75px}
+.cl-map-top .cl-map-rect.cl-map-in{opacity:.74}
+.cl-space-tmrect.cl-map-failed{stroke:var(--warn); stroke-width:2.5px}
 .cl-map-rect.cl-map-in2{fill:color-mix(in srgb, var(--cl-map-hue) 50%, var(--surface)); stroke-width:.6px}
 .cl-map-rect.cl-map-in3{fill:color-mix(in srgb, var(--cl-map-hue) 45%, var(--surface)); stroke-width:.5px}
 .cl-map-rect.cl-map-in4{fill:color-mix(in srgb, var(--cl-map-hue) 40%, var(--surface)); stroke-width:.4px}
@@ -269,11 +274,20 @@
 .cl-map-rect.cl-map-in:hover{stroke:var(--ink); stroke-width:1.5px}
 .cl-map-text{fill:var(--ink); font:600 13px var(--font); pointer-events:none}
 .cl-map-size{font-weight:400; font-size:12px; fill:var(--ink2)}
-.cl-map-infoline{min-height:44px}
+.cl-map-infoline{min-height:58px}
 .cl-map-info{min-width:0}
 .cl-map-path{color:var(--ink); font-family:var(--mono); font-size:12.5px; overflow-wrap:anywhere}
 .cl-map-act{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:4px}
 .cl-map-act:empty{display:none}
 .cl-map-chip{cursor:pointer}
 .cl-map-chip:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+@media (max-width:640px){
+  /* the X beside the breadcrumb, the tools under them; big enough for a finger */
+  .cl-map-crumbs{flex:1 1 0}
+  .cl-map-crumb{padding:6px 2px}
+  .cl-map-close{order:1; min-width:44px; min-height:44px}
+  .cl-map-tools{order:2; flex:1 1 100%}
+  .cl-map-all{min-height:44px}
+  .cl-map-hint{flex:1 1 100%}
+}
 }
