@@ -1917,7 +1917,7 @@
   "where.space.spark_first": "primer vistazo",
   "where.space.spark_tip": "En {days}: del {from} al {to} ({change})",
   "where.space.tm_label": {"one": "{n} recurso compartido, {size} en total, del tamaño de lo que ocupa", "other": "{n} recursos compartidos, {size} en total, cada uno del tamaño de lo que ocupa"},
-  "where.space.tm_hint": "Señala un recurso compartido (o tócalo) para ver sus cifras; un clic lo deja aquí, con su mapa.",
+  "where.space.tm_hint": "Señala un recurso compartido o tócalo para ver sus cifras; un clic lo deja aquí, y «Escanear…» dibuja el mapa de sus carpetas y archivos.",
   "where.space.tm_none": "Ningún recurso compartido tiene tamaño aún — ZFS lo da al momento, los demás tras «Medir».",
   "where.space.kind.pool": "solo en un pool",
   "where.space.kind.array": "solo en el array",

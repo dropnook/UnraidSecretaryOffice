@@ -1917,7 +1917,7 @@
   "where.space.spark_first": "premier coup d'œil",
   "where.space.spark_tip": "Sur {days} : de {from} à {to} ({change})",
   "where.space.tm_label": {"one": "{n} partage, {size} en tout, de la taille de ce qu'il occupe", "other": "{n} partages, {size} en tout, chacun de la taille de ce qu'il occupe"},
-  "where.space.tm_hint": "Pointez un partage (ou touchez-le) pour ses chiffres ; un clic le garde ici, avec sa carte.",
+  "where.space.tm_hint": "Pointez un partage ou touchez-le pour ses chiffres ; un clic le garde ici, et « Analyser… » dessine la carte de ses dossiers et fichiers.",
   "where.space.tm_none": "Aucun partage n'a encore de taille — ZFS la donne tout de suite, les autres après « Mesurer ».",
   "where.space.kind.pool": "seulement sur un pool",
   "where.space.kind.array": "seulement sur l'array",

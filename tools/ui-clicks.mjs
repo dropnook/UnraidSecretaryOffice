@@ -596,6 +596,8 @@ async function cleanupMap(browser) {
       await page.waitForFunction((was) => document.querySelector('.cl-map-svg').getAttribute('viewBox') === was, wide, { timeout: 2000 }).catch(() => fail(`${width} px: back again, the viewBox is not ${wide}`));
       await page.locator('.cl-map-crumb').first().click();
       res.tested++;
+      // a scan under a minute says so, never «0 min» (the stub's took 47 s)
+      if (!(await page.locator('.cl-map-line').textContent()).includes('under a minute')) fail(`${width} px: the line says «${await page.locator('.cl-map-line').textContent()}»`);
       // the keyboard: Enter zooms, Escape goes up, Escape at the root closes
       await page.locator('.cl-map-cell').first().focus();
       await page.keyboard.press('Enter');

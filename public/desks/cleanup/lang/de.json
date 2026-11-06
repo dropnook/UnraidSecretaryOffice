@@ -1917,7 +1917,7 @@
   "where.space.spark_first": "erster Blick",
   "where.space.spark_tip": "In {days}: von {from} auf {to} ({change})",
   "where.space.tm_label": {"one": "{n} Share, zusammen {size}, jeder so gross wie das, was er belegt", "other": "{n} Shares, zusammen {size}, jeder so gross wie das, was er belegt"},
-  "where.space.tm_hint": "Zeig auf einen Share (oder tipp ihn an) für seine Zahlen; ein Klick hält ihn hier fest, mit seiner Karte.",
+  "where.space.tm_hint": "Zeig auf einen Share oder tipp ihn an für seine Zahlen; ein Klick hält ihn hier fest, und «Scannen…» zeichnet die Karte seiner Ordner und Dateien.",
   "where.space.tm_none": "Noch kein Share hat eine Grösse — ZFS nennt sie sofort, die anderen nach «Messen».",
   "where.space.kind.pool": "nur auf einem Pool",
   "where.space.kind.array": "nur im Array",

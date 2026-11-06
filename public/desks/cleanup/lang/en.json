@@ -1917,7 +1917,7 @@
   "where.space.spark_first": "first look",
   "where.space.spark_tip": "Over {days}: from {from} to {to} ({change})",
   "where.space.tm_label": {"one": "{n} share, {size} in all, each sized by what it takes", "other": "{n} shares, {size} in all, each sized by what it takes"},
-  "where.space.tm_hint": "Point at a share (or tap it) for its numbers; a click keeps it here, with its map.",
+  "where.space.tm_hint": "Point at a share or tap it for its numbers; a click keeps it here, and «Scan…» draws the map of its folders and files.",
   "where.space.tm_none": "No share has a size yet — ZFS gives one at once, the others after «Measure».",
   "where.space.kind.pool": "only on a pool",
   "where.space.kind.array": "only on the array",

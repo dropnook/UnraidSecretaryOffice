@@ -1917,7 +1917,7 @@
   "where.space.spark_first": "prima occhiata",
   "where.space.spark_tip": "In {days}: dal {from} al {to} ({change})",
   "where.space.tm_label": {"one": "{n} condivisione, {size} in tutto, grande quanto ciò che occupa", "other": "{n} condivisioni, {size} in tutto, ognuna grande quanto ciò che occupa"},
-  "where.space.tm_hint": "Punta su una condivisione (o toccala) per i suoi numeri; un clic la tiene qui, con la sua mappa.",
+  "where.space.tm_hint": "Punta su una condivisione o toccala per i suoi numeri; un clic la tiene qui, e «Scansiona…» disegna la mappa delle sue cartelle e dei suoi file.",
   "where.space.tm_none": "Nessuna condivisione ha ancora una dimensione — ZFS la dà subito, le altre dopo «Misura».",
   "where.space.kind.pool": "solo su un pool",
   "where.space.kind.array": "solo sull'array",
