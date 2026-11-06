@@ -29386,7 +29386,27 @@ function testWhereMap(): void
     $deep = $level(6, 6, fn (string $n): array => ['n' => $n, 'b' => 4096, 'f' => 0, 'm' => 1, 'x' => 1]);   // folders alone: no file rule reaches them
     [$cut2, $n2] = whereMapFinish($deep);
     check("where map: folders alone over the cap: only the largest kept ($n2), the root's numbers whole", $n2 <= WHERE_MAP_CAP && $cut2['b'] === $deep['b']);
-    unset($wide, $deep, $capped, $cut2);
+    // over the cap the largest stay, whatever part of the share they are: 1 MB is far under 0.5 % of these 30 GB
+    $M = 1048576;
+    $folder = fn (string $n, array $c): array => ['n' => $n, 'b' => array_sum(array_column($c, 'b')), 'f' => array_sum(array_column($c, 'f')), 'm' => 1, 'x' => 1 + array_sum(array_column($c, 'x')), 'c' => $c];
+    $equal = $folder('blocks', array_map(fn (int $i): array => $file("b$i", $M), range(1, 200)));
+    $filler = $folder('filler', array_map(fn (int $i): array => $folder("d$i", [$file("x$i.txt", 400000 + $i * 1000)]), range(1, 30)));
+    $big = array_map(fn (int $i): array => $file("big$i.mkv", 10 * $G), range(1, 3));
+    $share = $folder('r', [$equal, $filler, ...$big]);
+    [$kept, $n3] = whereMapFinish($share, 70);
+    $at = array_column($kept['c'], null, 'n');
+    check("where map: over the cap the map stays within it ($n3 nodes of at most 70), the root's numbers whole", $n3 <= 70 && $kept['b'] === $share['b'] && $kept['f'] === $share['f']);
+    same('where map: … it stays near the cap, nothing folded that the cap had room for', 70, $n3);
+    same('where map: … 200 equal files of 1 MB under 0.5 % of the share: a folder\'s 48 stay as files, the others its rest', [48, 152, 'other'],
+        [count($at['blocks']['c'] ?? []), $at['blocks']['r']['f'] ?? 0, $at['blocks']['c'][0]['k'] ?? null]);
+    same('where map: … the big files stay', ['big1.mkv', 'big2.mkv', 'big3.mkv'], array_values(array_filter(array_keys($at), fn (string $k): bool => str_starts_with($k, 'big'))));
+    check('where map: … what the floor folded is the smallest: the filler lost its least, none of its largest', isset(array_column($at['filler']['c'], null, 'n')['d30']) && !isset(array_column($at['filler']['c'], null, 'n')['d1']));
+    [$under] = whereMapFinish($share);
+    same('where map: under the real cap nothing but a folder\'s 48 goes: every filler folder there', 30, count(array_column($under['c'], null, 'n')['filler']['c']));
+    $ties = $folder('r', array_map(fn (int $i): array => $folder("t$i", array_map(fn (int $j): array => $file("f$j", 2 * $M), range(1, 40))), range(1, 40)));
+    [$tied, $n4] = whereMapFinish($ties, 700);
+    check("where map: equal files alone over the cap: 24 a folder, at last folded ($n4), never over it", $n4 <= 700 && count($tied['c']) === 24 && $tied['b'] === $ties['b']);
+    unset($wide, $deep, $capped, $cut2, $equal, $filler, $big, $share, $kept, $under, $ties, $tied);
     gc_collect_cycles();
     gc_mem_caches();
     @ini_set('memory_limit', (string) $limit);       // refused while PHP still holds more: then it stays raised, the suite goes on

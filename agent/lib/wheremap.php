@@ -19,9 +19,11 @@ declare(strict_types=1);
  *
  * How it stays small. On the way back up a folder keeps its WHERE_MAP_CHILDREN largest children, the others go into its
  * rest. With the total known whereMapFinish() folds the small files (whereMapSmall()), then bounds the whole tree at
- * WHERE_MAP_CAP nodes (harder: WHERE_MAP_HARD_*; at last the largest WHERE_MAP_CAP alone). While walking, what is held is
- * the open folders (depth × 2 × WHERE_MAP_CHILDREN) and the finished subtrees below them; past WHERE_MAP_LIVE nodes a
- * size floor rises (whereMapSqueeze()), so memory stays bounded whatever the share holds.
+ * WHERE_MAP_CAP nodes: the largest of them stay, by a size floor over the whole tree and never by a part of the share (a
+ * percentage folded 11 706 blocks of 134 MB on a 1.4 TB share and left the map far under its cap). Only files of one size
+ * can leave it over the cap then: WHERE_MAP_HARD_CHILDREN per folder, at last those ties folded. While walking, what is
+ * held is the open folders (depth × 2 × WHERE_MAP_CHILDREN) and the finished subtrees below them; past WHERE_MAP_LIVE
+ * nodes a size floor rises (whereMapSqueeze()), so memory stays bounded whatever the share holds.
  *
  * One depth-first pass with lstat only: a symlink is never followed, `.zfs` never looked into (every look into
  * .zfs/snapshot automounts it), a mount never crossed — but for a ZFS child dataset of the share's own dataset
@@ -36,8 +38,7 @@ const WHERE_MAP_CHILDREN    = 48;
 const WHERE_MAP_SMALL_SHARE = 0.002;                      // a file folded: under this part of the share …
 const WHERE_MAP_SMALL_BYTES = 1048576;                    // … and under this size
 const WHERE_MAP_CAP         = 30000;                      // nodes in a map
-const WHERE_MAP_HARD_CHILDREN = 24;                       // over the cap: fewer children per folder
-const WHERE_MAP_HARD_SHARE  = 0.005;                      // … and every file under this part of the share folded
+const WHERE_MAP_HARD_CHILDREN = 24;                       // still over the cap after the size floor (ties): fewer children per folder
 const WHERE_MAP_LIVE        = 120000;                     // nodes held while walking, then the floor rises
 const WHERE_MAP_FLOOR_FIRST = 65536;
 const WHERE_MAP_MEMORY      = '512M';                     // the job's limit: WHERE_MAP_LIVE nodes and the hard links
@@ -317,31 +318,43 @@ function whereMapSmall(int $bytes, int $total): bool
 }
 
 /**
- * The rules on a finished walk: the small files folded, then the whole bounded at WHERE_MAP_CAP (harder rules, at last
- * only the largest nodes — a parent is never smaller than its child, the tree stays whole).
+ * The rules on a finished walk: the small files folded, then the whole bounded at $cap: the largest nodes stay, whatever
+ * part of the share they are (a parent is never smaller than its child, the tree stays whole). Only ties can leave it over
+ * the cap: fewer children per folder, at last the ties folded too.
  *
  * @return array{0: array, 1: int} the tree in the file's shape, its nodes
  */
-function whereMapFinish(array $tree): array
+function whereMapFinish(array $tree, int $cap = WHERE_MAP_CAP): array
 {
     $total = $tree['b'];
     $tree = whereMapPrune($tree, fn (array $n): bool => whereMapSmall($n['b'], $total), WHERE_MAP_CHILDREN);
-    if ($tree['x'] > WHERE_MAP_CAP) {
-        $tree = whereMapPrune($tree, fn (array $n): bool => $n['b'] < WHERE_MAP_SMALL_BYTES || $n['b'] < WHERE_MAP_HARD_SHARE * $total, WHERE_MAP_HARD_CHILDREN);
-    }
-    if ($tree['x'] > WHERE_MAP_CAP) {
+    if ($tree['x'] > $cap) {
         $sizes = whereMapSizes($tree);
         rsort($sizes);
-        $floor = $sizes[WHERE_MAP_CAP - 1];           // the root isn't in the list: this many nodes and it, ties all folded
-        $rest = $tree['r'] ?? null;
-        $tree['c'] = whereMapOverFloor($tree['c'] ?? [], $rest, $floor + 1);
-        if ($rest !== null) {
-            $tree['r'] = $rest;
-        }
-        $tree['x'] = 1 + array_sum(array_column($tree['c'], 'x'));
+        $tree = whereMapCut($tree, $sizes[$cap - 2]);  // the root isn't in the list: this many nodes and it, ties all kept
+    }
+    if ($tree['x'] > $cap) {
+        $tree = whereMapPrune($tree, fn (array $n): bool => false, WHERE_MAP_HARD_CHILDREN);
+    }
+    if ($tree['x'] > $cap) {
+        $sizes = whereMapSizes($tree);
+        rsort($sizes);
+        $tree = whereMapCut($tree, $sizes[$cap - 2] + 1);
     }
     $nodes = $tree['x'];
     return [whereMapClean($tree), $nodes];
+}
+
+/** The tree without what is under the floor, the root's own numbers whole */
+function whereMapCut(array $tree, int $floor): array
+{
+    $rest = $tree['r'] ?? null;
+    $tree['c'] = whereMapOverFloor($tree['c'] ?? [], $rest, $floor);
+    if ($rest !== null) {
+        $tree['r'] = $rest;
+    }
+    $tree['x'] = 1 + array_sum(array_column($tree['c'], 'x'));
+    return $tree;
 }
 
 /** One pass: small files folded, the largest $children kept, at every level; x counted anew */
