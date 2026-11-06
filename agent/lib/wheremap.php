@@ -17,12 +17,13 @@ declare(strict_types=1);
  * disk (as du counts them: blocks, a hard link once), files under it, newest mtime under it, kind (files only), children
  * by bytes (largest first), rest {f, b}: what was folded here («… n more»).
  *
- * How it stays small. On the way back up a folder keeps its WHERE_MAP_CHILDREN largest children, the others go into its
- * rest. With the total known whereMapFinish() folds the small files (whereMapSmall()), then bounds the whole tree at
+ * How it stays small. On the way back up a folder keeps its WHERE_MAP_CHILDREN largest files and WHERE_MAP_FOLDERS largest
+ * folders, the others go into its rest (48 files is enough for a folder of ten thousand equal blocks; a share's root with
+ * 900 series folders needs them all). With the total known whereMapFinish() folds the small files (whereMapSmall()), then bounds the whole tree at
  * WHERE_MAP_CAP nodes: the largest of them stay, by a size floor over the whole tree and never by a part of the share (a
  * percentage folded 11 706 blocks of 134 MB on a 1.4 TB share and left the map far under its cap). Only many of one size
  * can leave it over the cap then: those ties folded, or WHERE_MAP_HARD_CHILDREN per folder, whichever keeps more. While walking, what is
- * held is the open folders (depth × 2 × WHERE_MAP_CHILDREN) and the finished subtrees below them; past WHERE_MAP_LIVE
+ * held is the open folders (depth × 2 × (WHERE_MAP_CHILDREN + WHERE_MAP_FOLDERS)) and the finished subtrees below them; past WHERE_MAP_LIVE
  * nodes a size floor rises (whereMapSqueeze()), so memory stays bounded whatever the share holds.
  *
  * One depth-first pass with lstat only: a symlink is never followed, `.zfs` never looked into (every look into
@@ -34,7 +35,8 @@ const WHERE_MAP_FILE        = 'cleanup-where-map.json';   // in DATA_DIR: the pa
 const WHERE_MAP_DIR         = 'cleanup-map';              // in DATA_DIR: <share>.json, one map per share
 const WHERE_MAP_JOB         = 'cleanup-map-scan';
 const WHERE_MAP_V           = 1;
-const WHERE_MAP_CHILDREN    = 48;
+const WHERE_MAP_CHILDREN    = 48;                         // files a folder keeps (the largest), the others into its rest
+const WHERE_MAP_FOLDERS     = 500;                        // folders a folder keeps: a share's root often holds hundreds of them
 const WHERE_MAP_SMALL_SHARE = 0.002;                      // a file folded: under this part of the share …
 const WHERE_MAP_SMALL_BYTES = 1048576;                    // … and under this size
 const WHERE_MAP_CAP         = 30000;                      // nodes in a map
@@ -194,9 +196,9 @@ function whereMapAdd(array &$stack, array $node, array &$w): void
         return;
     }
     $stack[$top]['kids'][] = $node;
-    if (count($stack[$top]['kids']) >= 2 * WHERE_MAP_CHILDREN) {
+    if (count($stack[$top]['kids']) >= 2 * (WHERE_MAP_CHILDREN + WHERE_MAP_FOLDERS)) {
         $rest = $stack[$top]['r'];
-        $stack[$top]['kids'] = whereMapTop($stack[$top]['kids'], WHERE_MAP_CHILDREN, $rest);
+        $stack[$top]['kids'] = whereMapTop($stack[$top]['kids'], WHERE_MAP_CHILDREN, WHERE_MAP_FOLDERS, $rest);
         $stack[$top]['r'] = $rest;
         $w['live'] = whereMapLiveCount($stack);
     }
@@ -219,17 +221,25 @@ function whereMapFold(?array &$rest, array $node): void
 }
 
 /**
- * The largest $keep of $kids (by bytes, then name), the others folded into $rest
+ * The largest $files files and $folders folders of $kids (by bytes, then name), the others folded into $rest
  *
  * @return list<array>
  */
-function whereMapTop(array $kids, int $keep, ?array &$rest): array
+function whereMapTop(array $kids, int $files, int $folders, ?array &$rest): array
 {
     usort($kids, fn (array $a, array $b) => [$b['b'], (string) $a['n']] <=> [$a['b'], (string) $b['n']]);
-    foreach (array_splice($kids, $keep) as $node) {
-        whereMapFold($rest, $node);
+    $keep = [];
+    $nFiles = $nFolders = 0;
+    foreach ($kids as $node) {
+        $file = isset($node['k']);
+        if ($file ? $nFiles < $files : $nFolders < $folders) {
+            $keep[] = $node;
+            $file ? $nFiles++ : $nFolders++;
+        } else {
+            whereMapFold($rest, $node);
+        }
     }
-    return $kids;
+    return $keep;
 }
 
 /** A folder done: its largest children kept, what a node needs and no more (its subtree's count in x) */
@@ -237,7 +247,7 @@ function whereMapLeave(array $frame): array
 {
     $node = ['n' => $frame['n'], 'b' => $frame['b'], 'f' => $frame['f'], 'm' => $frame['m'], 'x' => 1];
     $rest = $frame['r'];
-    $kids = whereMapTop($frame['kids'], WHERE_MAP_CHILDREN, $rest);
+    $kids = whereMapTop($frame['kids'], WHERE_MAP_CHILDREN, WHERE_MAP_FOLDERS, $rest);
     foreach ($kids as $kid) {
         $node['x'] += $kid['x'];
     }
@@ -327,12 +337,12 @@ function whereMapSmall(int $bytes, int $total): bool
 function whereMapFinish(array $tree, int $cap = WHERE_MAP_CAP): array
 {
     $total = $tree['b'];
-    $tree = whereMapPrune($tree, fn (array $n): bool => whereMapSmall($n['b'], $total), WHERE_MAP_CHILDREN);
+    $tree = whereMapPrune($tree, fn (array $n): bool => whereMapSmall($n['b'], $total), WHERE_MAP_CHILDREN, WHERE_MAP_FOLDERS);
     if ($tree['x'] > $cap) {
         $largest = whereMapLargest($tree, $cap);
         if ($largest['x'] > $cap) {                    // many of one size at the floor: they go, or every folder keeps fewer
             $noTies = whereMapLargest($tree, $cap, 1);
-            $fewer = whereMapPrune($largest, fn (array $n): bool => false, WHERE_MAP_HARD_CHILDREN);
+            $fewer = whereMapPrune($largest, fn (array $n): bool => false, WHERE_MAP_HARD_CHILDREN, WHERE_MAP_HARD_CHILDREN);
             if ($fewer['x'] > $cap) {
                 $fewer = whereMapLargest($fewer, $cap, 1);
             }
@@ -358,8 +368,8 @@ function whereMapLargest(array $tree, int $cap, int $over = 0): array
     return $tree;
 }
 
-/** One pass: small files folded, the largest $children kept, at every level; x counted anew */
-function whereMapPrune(array $node, callable $small, int $children): array
+/** One pass: small files folded, the largest $files files and $folders folders kept, at every level; x counted anew */
+function whereMapPrune(array $node, callable $small, int $files, int $folders): array
 {
     $rest = $node['r'] ?? null;
     $keep = [];
@@ -367,10 +377,10 @@ function whereMapPrune(array $node, callable $small, int $children): array
         if (isset($kid['k']) && $small($kid)) {
             whereMapFold($rest, $kid);
         } else {
-            $keep[] = isset($kid['k']) ? $kid : whereMapPrune($kid, $small, $children);
+            $keep[] = isset($kid['k']) ? $kid : whereMapPrune($kid, $small, $files, $folders);
         }
     }
-    $keep = whereMapTop($keep, $children, $rest);
+    $keep = whereMapTop($keep, $files, $folders, $rest);
     $node['x'] = 1 + array_sum(array_column($keep, 'x'));
     unset($node['c'], $node['r']);
     if ($keep) {
@@ -403,7 +413,7 @@ function whereMapClean(array $node): array
     unset($node['x']);
     if (isset($node['c'])) {
         $none = null;
-        $node['c'] = whereMapTop(array_map('whereMapClean', $node['c']), PHP_INT_MAX, $none);
+        $node['c'] = whereMapTop(array_map('whereMapClean', $node['c']), PHP_INT_MAX, PHP_INT_MAX, $none);
     }
     return $node;
 }

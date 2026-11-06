@@ -29305,6 +29305,10 @@ function testWhereMap(): void
         @mkdir(sprintf('%s/many/d%02d', $root, $i));
         file_put_contents(sprintf('%s/many/d%02d/f.txt', $root, $i), str_repeat('x', 8192 + $i * 4096));
     }
+    @mkdir("$root/files", 0700, true);                              // 60 files over 1 MB (the small-file rule leaves them): 48 stay
+    for ($i = 0; $i < 60; $i++) {
+        file_put_contents(sprintf('%s/files/f%02d.bin', $root, $i), str_repeat('x', 1048576 + $i * 4096));
+    }
     file_put_contents("$root/film.MKV", $big);
     link("$root/film.MKV", "$root/film-again.mkv");                // a hard link: its blocks once, as du counts
     file_put_contents("$root/tiny.txt", 'x');
@@ -29336,12 +29340,14 @@ function testWhereMap(): void
     $top = $by($tree);
     same('where map: the root named after the share, nothing unreadable', ['share', false], [$tree['n'], $walk['partial']]);
     $many = $top['many'];
-    same('where map: a folder keeps its 48 largest, the other 12 in its rest', [48, 12], [count($many['c']), $many['r']['f']]);
+    same('where map: a folder keeps up to 500 folders: all 60 stay, no rest, largest first', [60, null, 'd59'], [count($many['c']), $many['r'] ?? null, $many['c'][0]['n']]);
+    $files60 = $top['files'];
+    same('where map: a folder keeps its 48 largest files, the other 12 in its rest', [48, 12], [count($files60['c']), $files60['r']['f']]);
     check('where map: … the largest kept, the rest\'s bytes counted, largest first',
-        isset($by($many)['d59']) && !isset($by($many)['d00']) && $many['r']['b'] > 0 && $many['c'][0]['n'] === 'd59' && $many['c'][0]['b'] >= $many['c'][47]['b']);
-    same('where map: a folder\'s numbers hold what it folded: 60 files under it', 60, $many['f']);
+        isset($by($files60)['f59.bin']) && !isset($by($files60)['f00.bin']) && $files60['r']['b'] > 0 && $files60['c'][0]['n'] === 'f59.bin' && $files60['c'][0]['b'] >= $files60['c'][47]['b']);
+    same('where map: a folder\'s numbers hold what it folded: 60 files under it', [60, 60], [$many['f'], $files60['f']]);
     check('where map: bytes on the way up — the rest and the children never more than the folder',
-        $many['b'] >= array_sum(array_column($many['c'], 'b')) + $many['r']['b']);
+        $files60['b'] >= array_sum(array_column($files60['c'], 'b')) + $files60['r']['b'] && $many['b'] >= array_sum(array_column($many['c'], 'b')));
     same('where map: a file\'s node: its kind by the name, no children', ['video', 1, false], [$top['film.MKV']['k'] ?? $top['film-again.mkv']['k'], 1, isset($top['film.MKV']['c'])]);
     same('where map: a hard link\'s second name has no bytes (folded), the first holds them', true,
         ($top['film-again.mkv']['b'] ?? 0) + ($top['film.MKV']['b'] ?? 0) >= 2 * 1048576 && (($top['film-again.mkv'] ?? null) === null || ($top['film.MKV'] ?? null) === null));
@@ -29349,7 +29355,7 @@ function testWhereMap(): void
     same('where map: .zfs never looked into', false, in_array('.zfs', $names, true));
     check('where map: a symlink is never followed: its target\'s 2 MB nowhere', !isset($top['link-to-outside']['c']) && ($top['link-to-outside']['b'] ?? 0) < 1048576);
     $files = iterator_count(new RecursiveIteratorIterator(new RecursiveDirectoryIterator("$root/many", FilesystemIterator::SKIP_DOTS)));
-    same('where map: every file counted once at the root (many + film ×2 + tiny + the link + new.pdf)', $files + 5, $tree['f']);
+    same('where map: every file counted once at the root (many + 60 files + film ×2 + tiny + the link + new.pdf)', $files + 65, $tree['f']);
     same('where map: the newest mtime bubbles up from a deep file', [2000000000, 2000000000, 2000000000],
         [$top['a']['m'], $by($top['a'])['b']['m'], $tree['m']]);
     same('where map: nodes as counted, x gone from the file', [$nodes, false], [(function (array $n) use (&$c) { $c = 0; $f = function (array $n) use (&$c, &$f): void { $c++; array_map($f, $n['c'] ?? []); }; $f($n); return $c; })($tree), str_contains(json_encode($tree), '"x":')]);
@@ -29358,7 +29364,7 @@ function testWhereMap(): void
     $small = whereMapWalk($root, 'share', [], 40);
     [$cut] = whereMapFinish($small['tree']);
     same('where map: squeezed while walking: the same bytes and files at the root', [$tree['b'], $tree['f']], [$cut['b'], $cut['f']]);
-    check('where map: … and fewer than 48 folders kept in «many»', count($by($cut)['many']['c'] ?? []) < 48);
+    check('where map: … and fewer than 60 folders kept in «many»', count($by($cut)['many']['c'] ?? []) < 60);
 
     // --- the small-file rule: both must hold (a film on a huge share stays, a file of a tiny one stays)
     $G = 1024 ** 3;
