@@ -9,7 +9,8 @@ declare(strict_types=1);
  * backups, notices, plugins, «where things are» with their backup protection and her advice «If I
  * were you …» — read only, its own files (cleanup-where.json, cleanup-where-sizes.json), actions
  * where_refresh / where_scan / where_measure / where_sizes, its du jobs in her tick; its section «Storage»
- * (agent/lib/space.php: cleanup-space.json and its history, action space_refresh).
+ * (agent/lib/space.php: cleanup-space.json and its history, action space_refresh) with its «Map» of one share
+ * (agent/lib/wheremap.php: cleanup-where-map.json, cleanup-map/<share>.json, action where_map, its job in her tick).
  *
  * «Tidying up» — what she looks at, best tidied in this order:
  *   templates  my-*.xml in dockerMan's templates-user without a container;
@@ -219,6 +220,7 @@ const CL_WEAK = '#^(history/|plugins-removed/|[^/]+\.plg$|plugins/[^/]+\.plg$|pl
 require_once __DIR__ . '/../lib/partnerlook.php';
 require_once __DIR__ . '/../lib/where.php';
 require_once __DIR__ . '/../lib/space.php';
+require_once __DIR__ . '/../lib/wheremap.php';
 
 const CL_WHERE_DEBOUNCE = 60;      // «where_refresh»: a look younger than this is fresh enough (several tabs ask at once)
 // her tour on schedule (2026-10-29): the plugin's cron file calls `job.sh cleanup` → `php agent.php job cleanup-tour-due`,
@@ -243,10 +245,11 @@ desk('cleanup', [
             logLine('cleanup: «where is what» failed at the start: ' . $e->getMessage());
         }
         spaceStart();
+        whereMapStart();
         clScan();
     },
     'tick'    => fn () => clTickEach(clTickParts()),
-    'jobs'    => ['cleanup-tour-due' => fn (array $args) => clTourDue()],
+    'jobs'    => ['cleanup-tour-due' => fn (array $args) => clTourDue(), WHERE_MAP_JOB => fn (array $args) => whereMapJob($args)],
     'checks'  => fn (): array => clChecks(),
     'metrics' => fn (): array => clMetrics(),
     'actions' => [
@@ -270,6 +273,8 @@ desk('cleanup', [
         'where_sizes'   => fn (array $r) => ['ok' => true, 'sizes' => whereSizes()],
         // «Storage» on «Where is what»: how full every pool, disk and share is (agent/lib/space.php), read only
         'space_refresh' => fn (array $r) => ['ok' => true, 'state' => spaceFresh(CL_WHERE_DEBOUNCE)],
+        // its «Map»: one share down to the files, a scan on the user's click (agent/lib/wheremap.php), read only
+        'where_map'     => fn (array $r) => whereMapAsk(idList($r, 'paths')),
     ],
 ]);
 
@@ -282,7 +287,7 @@ desk('cleanup', [
 function clTickParts(): array
 {
     return ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick', 'drill' => 'clDrillCopiesTick',
-            'docker' => 'clDockerBackTick', 'scheduled' => 'clScheduledTick', 'space' => 'spaceTick'];
+            'docker' => 'clDockerBackTick', 'scheduled' => 'clScheduledTick', 'space' => 'spaceTick', 'map' => 'whereMapTick'];
 }
 
 /** Her schedule's record (DATA_DIR/cleanup/schedule.json, tests: `$GLOBALS['clScheduleFile']`): {v, last: {at, how, asleep}} */

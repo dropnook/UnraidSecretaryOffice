@@ -29196,7 +29196,7 @@ function testWhereDesk(): void
     preg_match_all("/part: '([a-z-]+)'/", $js, $m);
     $parts = array_map(fn ($p) => "cleanup-$p.json", array_values(array_unique($m[1])));      // the API's data/<desk>-<part>.json
     sort($parts);
-    same('where desk: the parts the page reads are her files', [SPACE_FILE, WHERE_SIZES_FILE, WHERE_FILE], $parts);
+    same('where desk: the parts the page reads are her files', [SPACE_FILE, WHERE_MAP_FILE, WHERE_SIZES_FILE, WHERE_FILE], $parts);
     $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
     check('where desk: her look and her measuring stay quiet (no spinner)', (bool) preg_match('/const QUIET = .*where_refresh.*where_measure/', $core));
     check('where desk: both parts on her page', str_contains($js, "part(T('part.where')") && str_contains($js, "part(T('part.tidy')"));
@@ -29289,6 +29289,224 @@ function testWhereProtectionTruth(): void
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         check("where T16: the code's note says where it comes back from ($l)", (langFile(OFFICE_WEB . "/desks/cleanup/lang/$l.json")['where.loc.office_dir_note'] ?? '') !== '');
     }
+}
+
+/**
+ * The «Map» of «Storage» (agent/lib/wheremap.php, 2026-11-05): the walker on a fixture tree, its rules on a known total, the
+ * scan's queue on the user's click, the sizes store, the part serving a map. Read only: the tree is compared before and after.
+ */
+function testWhereMap(): void
+{
+    $tmp = hardeningTmp('where-map');
+    $root = "$tmp/share";
+    $big = str_repeat("\0", 2 * 1048576);
+    @mkdir("$root/many", 0700, true);
+    for ($i = 0; $i < 60; $i++) {
+        @mkdir(sprintf('%s/many/d%02d', $root, $i));
+        file_put_contents(sprintf('%s/many/d%02d/f.txt', $root, $i), str_repeat('x', 8192 + $i * 4096));
+    }
+    file_put_contents("$root/film.MKV", $big);
+    link("$root/film.MKV", "$root/film-again.mkv");                // a hard link: its blocks once, as du counts
+    file_put_contents("$root/tiny.txt", 'x');
+    @mkdir("$tmp/outside");
+    file_put_contents("$tmp/outside/secret.iso", $big);
+    symlink("$tmp/outside", "$root/link-to-outside");
+    @mkdir("$root/.zfs/snapshot/s1", 0700, true);
+    file_put_contents("$root/.zfs/snapshot/s1/in-a-snapshot.iso", $big);
+    @mkdir("$root/a/b/c", 0700, true);
+    file_put_contents("$root/a/b/c/new.pdf", str_repeat('p', 3 * 1048576));
+    touch("$root/a/b/c/new.pdf", 2000000000);
+    touch("$root/a/b/c", 1600000000);
+    touch("$root/a/b", 1600000000);
+    touch("$root/a", 1600000000);
+    $look = fn (): string => (string) shell_exec('cd ' . escapeshellarg($root) . ' && find . -type f -o -type l | sort | xargs -I{} ls -ld {} 2>&1 | md5sum');
+    $before = $look();
+
+    // --- kinds by extension
+    same('where map: kinds by extension, any case; none or a leading dot: other',
+        ['video', 'video', 'audio', 'image', 'document', 'archive', 'diskimage', 'database', 'code', 'other', 'other'],
+        array_map('whereMapKind', ['a.mkv', 'A.MP4', 'b.flac', 'c.HEIC', 'd.pdf', 'e.tar', 'f.qcow2', 'g.sqlite', 'h.yml', 'noextension', '.hidden']));
+
+    // --- the walk
+    same('where map: no folder, no walk (a file, a link, nothing)', [null, null, null],
+        [whereMapWalk("$root/tiny.txt", 'x'), whereMapWalk("$root/link-to-outside", 'x'), whereMapWalk("$tmp/none", 'x')]);
+    $walk = whereMapWalk($root, 'share');
+    [$tree, $nodes] = whereMapFinish($walk['tree']);
+    $by = fn (array $n): array => array_column($n['c'] ?? [], null, 'n');
+    $top = $by($tree);
+    same('where map: the root named after the share, nothing unreadable', ['share', false], [$tree['n'], $walk['partial']]);
+    $many = $top['many'];
+    same('where map: a folder keeps its 48 largest, the other 12 in its rest', [48, 12], [count($many['c']), $many['r']['f']]);
+    check('where map: … the largest kept, the rest\'s bytes counted, largest first',
+        isset($by($many)['d59']) && !isset($by($many)['d00']) && $many['r']['b'] > 0 && $many['c'][0]['n'] === 'd59' && $many['c'][0]['b'] >= $many['c'][47]['b']);
+    same('where map: a folder\'s numbers hold what it folded: 60 files under it', 60, $many['f']);
+    check('where map: bytes on the way up — the rest and the children never more than the folder',
+        $many['b'] >= array_sum(array_column($many['c'], 'b')) + $many['r']['b']);
+    same('where map: a file\'s node: its kind by the name, no children', ['video', 1, false], [$top['film.MKV']['k'] ?? $top['film-again.mkv']['k'], 1, isset($top['film.MKV']['c'])]);
+    same('where map: a hard link\'s second name has no bytes (folded), the first holds them', true,
+        ($top['film-again.mkv']['b'] ?? 0) + ($top['film.MKV']['b'] ?? 0) >= 2 * 1048576 && (($top['film-again.mkv'] ?? null) === null || ($top['film.MKV'] ?? null) === null));
+    $names = array_keys($top);
+    same('where map: .zfs never looked into', false, in_array('.zfs', $names, true));
+    check('where map: a symlink is never followed: its target\'s 2 MB nowhere', !isset($top['link-to-outside']['c']) && ($top['link-to-outside']['b'] ?? 0) < 1048576);
+    $files = iterator_count(new RecursiveIteratorIterator(new RecursiveDirectoryIterator("$root/many", FilesystemIterator::SKIP_DOTS)));
+    same('where map: every file counted once at the root (many + film ×2 + tiny + the link + new.pdf)', $files + 5, $tree['f']);
+    same('where map: the newest mtime bubbles up from a deep file', [2000000000, 2000000000, 2000000000],
+        [$top['a']['m'], $by($top['a'])['b']['m'], $tree['m']]);
+    same('where map: nodes as counted, x gone from the file', [$nodes, false], [(function (array $n) use (&$c) { $c = 0; $f = function (array $n) use (&$c, &$f): void { $c++; array_map($f, $n['c'] ?? []); }; $f($n); return $c; })($tree), str_contains(json_encode($tree), '"x":')]);
+
+    // --- the walk within its limit: a floor rises, nothing lost
+    $small = whereMapWalk($root, 'share', [], 40);
+    [$cut] = whereMapFinish($small['tree']);
+    same('where map: squeezed while walking: the same bytes and files at the root', [$tree['b'], $tree['f']], [$cut['b'], $cut['f']]);
+    check('where map: … and fewer than 48 folders kept in «many»', count($by($cut)['many']['c'] ?? []) < 48);
+
+    // --- the small-file rule: both must hold (a film on a huge share stays, a file of a tiny one stays)
+    $G = 1024 ** 3;
+    same('where map: small = under 0.2 % of the share AND under 1 MB; nothing at all always',
+        [true, false, false, true, true],
+        [whereMapSmall(500 * 1024, 10 * $G), whereMapSmall(5 * 1048576, 10 * $G), whereMapSmall(500 * 1024, 100 * 1048576), whereMapSmall(1024, 100 * 1048576), whereMapSmall(0, 0)]);
+    $file = fn (string $n, int $b): array => ['n' => $n, 'b' => $b, 'f' => 1, 'm' => 1, 'k' => 'other', 'x' => 1];
+    [$rule] = whereMapFinish(['n' => 'r', 'b' => 10 * $G, 'f' => 2, 'm' => 1, 'x' => 3, 'c' => [$file('film', 5 * 1048576), $file('note', 500 * 1024)]]);
+    same('where map: … on a tree: the 5 MB file stays on a 10 GB share, the 500 KB one goes into the rest',
+        [['film'], ['f' => 1, 'b' => 500 * 1024]], [array_column($rule['c'], 'n'), $rule['r']]);
+
+    // --- the cap: harder rules first, at last only the largest (the job's own memory limit: trees this size don't fit the default)
+    $limit = ini_set('memory_limit', WHERE_MAP_MEMORY);
+    $level = function (int $depth, int $wide, callable $leaf, string $name = 'r') use (&$level): array {
+        $c = [];
+        for ($i = 0; $i < $wide; $i++) {
+            $c[] = $depth > 1 ? $level($depth - 1, $wide, $leaf, "n$i") : $leaf("f$i");
+        }
+        return ['n' => $name, 'b' => array_sum(array_column($c, 'b')), 'f' => array_sum(array_column($c, 'f')), 'm' => 1, 'x' => 1 + array_sum(array_column($c, 'x')), 'c' => $c];
+    };
+    $wide = $level(3, 40, fn (string $n): array => $file($n, 2 * 1048576));
+    [$capped, $n] = whereMapFinish($wide);
+    check("where map: over 30 000 nodes the harder rule cuts it ($n)", $n <= WHERE_MAP_CAP && $capped['b'] === $wide['b'] && $capped['f'] === $wide['f']);
+    same('where map: … 24 children a folder at most', 24, count($capped['c']));
+    $deep = $level(6, 6, fn (string $n): array => ['n' => $n, 'b' => 4096, 'f' => 0, 'm' => 1, 'x' => 1]);   // folders alone: no file rule reaches them
+    [$cut2, $n2] = whereMapFinish($deep);
+    check("where map: folders alone over the cap: only the largest kept ($n2), the root's numbers whole", $n2 <= WHERE_MAP_CAP && $cut2['b'] === $deep['b']);
+    unset($wide, $deep, $capped, $cut2);
+    gc_collect_cycles();
+    gc_mem_caches();
+    @ini_set('memory_limit', (string) $limit);       // refused while PHP still holds more: then it stays raised, the suite goes on
+
+    // --- mounts: only ZFS children of the share's own dataset
+    $info = "36 35 0:30 / /mnt/cache/appdata rw,noatime shared:1 - zfs cache/appdata rw\n"
+          . "37 36 0:31 / /mnt/cache/appdata/immich rw,noatime shared:2 - zfs cache/appdata/immich rw\n"
+          . "38 36 0:32 / /mnt/cache/appdata/my\\040app rw,noatime shared:3 - zfs cache/appdata/my\\040app rw\n"
+          . "39 36 0:33 / /mnt/cache/appdata/layer rw,noatime shared:4 - zfs cache/abcdef rw\n"
+          . "40 36 0:34 / /mnt/cache/appdata/nfs rw,noatime shared:5 - nfs4 host:/x rw\n"
+          . "41 35 0:35 / /mnt/cache rw,noatime shared:6 - zfs cache rw\n"
+          . "42 35 9:1 / /mnt/disk1 rw,noatime shared:7 - xfs /dev/md1 rw\n";
+    same('where map: crossed only into child datasets of its own (never another dataset, never another file system)',
+        ['/mnt/cache/appdata/immich', '/mnt/cache/appdata/my app'], array_keys(whereMapCrossable($info, '/mnt/cache/appdata')));
+    same('where map: a share not on ZFS crosses nothing', [], whereMapCrossable($info, '/mnt/disk1/media'));
+    same('where map: a share below a pool\'s own mount: the pool\'s dataset is its own', ['/mnt/cache/appdata', '/mnt/cache/appdata/immich', '/mnt/cache/appdata/my app', '/mnt/cache/appdata/layer'],
+        array_keys(whereMapCrossable($info, '/mnt/cache')));
+
+    // --- the action and the tick
+    $GLOBALS['whereMapStateFile'] = "$tmp/cleanup-where-map.json";
+    $GLOBALS['whereMapDir'] = "$tmp/cleanup-map";
+    $GLOBALS['whereSizesFile'] = "$tmp/sizes.json";
+    $oldJobs = $GLOBALS['whereMapJobs'];
+    $oldWhere = $GLOBALS['where'] ?? null;
+    $GLOBALS['whereMapJobs'] = ['queue' => [], 'running' => []];
+    $GLOBALS['where'] = ['shares' => [['name' => 'share', 'measure' => $root], ['name' => 'gone', 'measure' => "$tmp/gone"]], 'folders' => []];
+    $refused = function (array $paths): string {
+        try {
+            whereMapAsk($paths);
+            return '';
+        } catch (Problem $e) {
+            return $e->key;
+        }
+    };
+    same('where map: a path not of her last tour is refused — nothing queued', ['unknown_target', []], [$refused(["$tmp/outside"]), $GLOBALS['whereMapJobs']['queue']]);
+    same('where map: a share whose folder is gone: said', 'share_missing', $refused(["$tmp/gone"]));
+    $asked = whereMapAsk([$root]);
+    same('where map: asked: queued, in the answer and in the part\'s file', [[$root], [$root]],
+        [$asked['map']['queue'], json_decode((string) file_get_contents("$tmp/cleanup-where-map.json"), true)['queue']]);
+    same('where map: asked again while it waits: refused', 'where_map_busy', $refused([$root]));
+    // the job: this tree's own walk, through the agent's real job in a data folder of its own
+    $GLOBALS['whereMapCommand'] = ['/bin/sh', '-c', 'sleep 1; exec ' . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(OFFICE_DIR . '/agent/agent.php') . ' job ' . WHERE_MAP_JOB . ' share ' . escapeshellarg($root)];
+    @mkdir("$tmp/data/cleanup-map", 0700, true);
+    symlink("$tmp/data/cleanup-map", "$tmp/cleanup-map");
+    $oldData = getenv('OFFICE_DATA_DIR');
+    putenv("OFFICE_DATA_DIR=$tmp/data");
+    whereMapTick();
+    putenv("OFFICE_DATA_DIR=$oldData");
+    same('where map: the tick started it: one running, none waiting', [[], [$root]], [whereMapStatus()['queue'], whereMapStatus()['running']]);
+    same('where map: asked again while it runs: refused', 'where_map_busy', $refused([$root]));
+    same('where map: the job\'s pid in the file', true, is_int(json_decode((string) file_get_contents("$tmp/cleanup-where-map.json"), true)['jobs'][$root]['pid'] ?? null));
+    $t0 = hrtime(true);
+    while (whereMapStatus()['running'] && hrtime(true) - $t0 < 30000000000) {
+        usleep(50000);
+        whereMapTick();
+    }
+    $status = whereMapStatus();
+    same('where map: done: nothing running, no failure, its numbers per share', [[], [], true, $root],
+        [$status['running'], $status['failed'], is_int($status['maps']['share']['nodes'] ?? null), $status['maps']['share']['path'] ?? null]);
+    $map = json_decode((string) @file_get_contents("$tmp/data/cleanup-map/share.json"), true) ?? [];
+    same('where map: the file\'s shape', ['at', 'nodes', 'partial', 'path', 'share', 'took', 'tree', 'v'], (function (array $k) { sort($k); return $k; })(array_keys($map)));
+    same('where map: … its tree as walked, the total known', [1, 'share', $root, $tree['b'], $tree['f']], [$map['v'] ?? null, $map['share'] ?? null, $map['path'] ?? null, $map['tree']['b'] ?? null, $map['tree']['f'] ?? null]);
+    $sizes = json_decode((string) file_get_contents("$tmp/sizes.json"), true)['sizes'][$root] ?? [];
+    same('where map: the scan also measures: its total in the sizes store under the measure path, as a du leaves it', [$tree['b'], $map['at'] ?? null, false, ['at', 'bytes', 'partial', 'seconds']],
+        [$sizes['bytes'] ?? null, $sizes['at'] ?? null, $sizes['partial'] ?? null, (function (array $k) { sort($k); return $k; })(array_keys($sizes))]);
+    // a job that ends without a map: said, no size
+    $GLOBALS['whereMapCommand'] = ['/bin/sh', '-c', 'exit 3'];
+    unlink("$tmp/data/cleanup-map/share.json");
+    whereMapAsk([$root]);
+    whereMapTick();
+    $t0 = hrtime(true);
+    while (whereMapStatus()['running'] && hrtime(true) - $t0 < 10000000000) {
+        usleep(50000);
+        whereMapTick();
+    }
+    same('where map: a job without a map: failed, the size store untouched', [true, $sizes], [is_int(whereMapStatus()['failed']['share']['at'] ?? null), json_decode((string) file_get_contents("$tmp/sizes.json"), true)['sizes'][$root] ?? []]);
+    // her start: what only waited is dropped, a job gone forgotten, never started later on its own
+    $GLOBALS['whereMapJobs'] = ['queue' => [$root => 'share'], 'running' => []];
+    whereMapSave();
+    $GLOBALS['whereMapJobs'] = ['queue' => [], 'running' => []];
+    $raw = json_decode((string) file_get_contents("$tmp/cleanup-where-map.json"), true);
+    $raw['jobs'] = ["$tmp/x" => ['share' => 'x', 'pid' => 999999, 'since' => 1]];
+    $raw['running'] = ["$tmp/x"];
+    file_put_contents("$tmp/cleanup-where-map.json", json_encode($raw));
+    whereMapStart();
+    whereMapTick();
+    same('where map: after a restart nothing is started on its own: what waited dropped, a gone job forgotten, the maps kept',
+        [[], [], true], [whereMapStatus()['queue'], whereMapStatus()['running'], isset(whereMapStatus()['maps']['share'])]);
+    unset($GLOBALS['whereMapCommand'], $GLOBALS['whereMapStateFile'], $GLOBALS['whereMapDir'], $GLOBALS['whereSizesFile']);
+    $GLOBALS['whereMapJobs'] = $oldJobs;
+    $GLOBALS['where'] = $oldWhere;
+    same('where map: the share\'s files untouched by all of this', $before, $look());
+
+    // --- the part: the map through the web side, only a share's name, only this part
+    @mkdir("$tmp/data/office", 0700, true);
+    file_put_contents("$tmp/data/cleanup-map/share.json", json_encode(['v' => 1, 'share' => 'share', 'tree' => ['n' => 'share', 'b' => 1]]));
+    file_put_contents("$tmp/data/secret.json", json_encode(['no' => 'never']));
+    file_put_contents("$tmp/web.php", '<?php require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; require ' . var_export(OFFICE_DIR . '/src/api.php', true) . ';'
+        . ' echo json_encode(array_map(fn ($a) => apiPartOfShare(...$a), json_decode($argv[1], true)));');
+    $cmd = 'OFFICE_DATA_DIR=' . escapeshellarg("$tmp/data") . ' OFFICE_RUN_DIR=' . escapeshellarg(TESTS_RUN_DIR) . ' ' . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg("$tmp/web.php") . ' ';
+    $raw = (string) shell_exec($cmd . escapeshellarg(json_encode([
+        ['cleanup', 'where-map', 'share'], ['cleanup', 'where-map', 'nothing-here'], ['cleanup', 'where-map', '../secret'], ['cleanup', 'where-map', '.hidden'], ['cleanup', 'where-sizes', 'share'], ['backup', 'where-map', 'share'],
+    ])));
+    $web = json_decode(substr($raw, (int) strpos($raw, '[')), true) ?? [];
+    same('where map: the part serves a map; no scan yet: null', [1, null], [$web[0]['part']['v'] ?? null, array_key_exists('part', $web[1] ?? []) ? $web[1]['part'] : 'absent']);
+    same('where map: … never a path, a hidden name, another part or desk', ['bad_request', 'bad_request', 'bad_request', 'bad_request'],
+        array_map(fn ($r) => $r['error']['key'] ?? '', array_slice($web, 2)));
+
+    // --- the page: names as text only, colours only her tokens, read only
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+    $code = substr($js, (int) strpos($js, 'the map of one share (agent/lib/wheremap.php)'));
+    $code = substr($code, 0, (int) strpos($code, 'the details: a table whose rows unfold'));
+    check('where map: the page draws names as text only: no innerHTML, no link anywhere, nothing that deletes', $code !== '' && !preg_match('/innerHTML|insertAdjacentHTML|safeHref|<a\b|\'a\'|where_map_delete|\.park|\.remove`/', $code));
+    check('where map: one poll: the map\'s status in the sizes\' loop, no second timer', !str_contains($code, 'setTimeout') && !str_contains($code, 'setInterval') && str_contains($js, "part: 'where-map' })]"));
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.css');
+    $css = substr($css, (int) strpos($css, 'the map of one share'));
+    check('where map: her colours are tokens, no colour written out', $css !== '' && !preg_match('/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/', $css));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/wheremap.php');
+    check('where map: the walker never writes into the share: no unlink, rename, chmod, touch, fopen for writing there', !preg_match('/\b(unlink|rename|chmod|chown|touch|rmdir|fopen)\s*\(/', $src));
+    check('where map: never from her tick on its own: spaceTick and spaceFresh know nothing of it', !preg_match('/whereMapAsk|where_map/', (string) file_get_contents(OFFICE_DIR . '/agent/lib/space.php')));
 }
 
 /**
@@ -29643,7 +29861,7 @@ function testWhereBuilding(): void
 function testCleanupTick(): void
 {
     same('cleanup tick: her parts, in order', ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick', 'drill' => 'clDrillCopiesTick',
-        'docker' => 'clDockerBackTick', 'scheduled' => 'clScheduledTick', 'space' => 'spaceTick'], clTickParts());
+        'docker' => 'clDockerBackTick', 'scheduled' => 'clScheduledTick', 'space' => 'spaceTick', 'map' => 'whereMapTick'], clTickParts());
     same('cleanup tick: each a function', [], array_keys(array_filter(clTickParts(), fn ($f) => !is_callable($f))));
     $ran = [];
     $boom = true;
@@ -60635,7 +60853,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],

@@ -497,6 +497,134 @@ await Promise.all(Array.from({ length: Math.min(opt.jobs, jobs.length) }, async 
     if (opt.verbose) console.log(`  ${r.fails.length ? 'FAIL' : 'ok  '} ${j.route} ${j.theme} ${j.width} (${(r.ms / 1000).toFixed(1)} s)`);
   }
 }));
+// ------------------------------------------------------------------ Ms. Dustdevil's map (2026-11-05)
+// «Storage»: a share's «Map» opens in the treemap's place, a folder zooms in (the breadcrumb grows), the breadcrumb and
+// Escape go back up, the colour switches by age, the hover box says what is pointed at, a share without a map offers «Scan…»
+// (with the wake dialog for one on the array, the wave while it runs); no horizontal scrolling at phone width either.
+async function cleanupMap(browser) {
+  const res = { route: 'cleanup map', theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => { if (res.fails.length < 40 && !res.fails.includes(what)) res.fails.push(what); };
+  const h = await startHarness({});
+  const space = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', 'cleanup-space.json'), 'utf8'));
+  const series = space.shares.find((s) => s.name === 'series');
+  h.setPost('cleanup.where_map', (body) => {
+    const st = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', 'cleanup-where-map.json'), 'utf8'));
+    st.running = body.paths;
+    h.setState('cleanup-where-map', st);
+    return { map: st };
+  });
+  for (const width of [1440, 375]) {
+    const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 160)); });
+    try {
+      await page.goto(`${h.url}#/cleanup/where/space`, { waitUntil: 'load' });
+      await page.waitForSelector('.cl-space-tmcell', { timeout: 8000 });
+      const crumbs = () => page.locator('.cl-map-crumbs > *:not(.cl-map-sep)').count();
+      const cell = (n) => page.locator('.cl-map-cell', { has: page.locator('text') }).nth(n);
+      const noScroll = async (when) => {
+        if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) fail(`${width} px: horizontal scrolling ${when}`);
+      };
+      // the share's line: pointed at or clicked, it has its button; the pointer's way to the button keeps the one clicked
+      await page.evaluate(() => { [...document.querySelectorAll('.cl-space-tmcell')].find((c) => c.textContent.startsWith('films')).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      const open = page.locator('.cl-space-tminfo .cl-map-act button');
+      if ((await open.textContent()) !== 'Map') fail(`${width} px: a scanned share's button says «${await open.textContent()}»`);
+      await open.click();
+      await page.waitForSelector('.cl-map-svg', { timeout: 5000 });
+      if (await page.locator('.cl-space-tm').count()) fail(`${width} px: the treemap still there with the map open`);
+      await noScroll('with the map open');
+      // hover: what it is (a mouse only on the wide page)
+      if (width > 640) {
+        await cell(0).hover();
+        const said = await page.locator('.cl-map-info').textContent();
+        if (!said.includes('/') || !/[KMGT]B|B\b/.test(said)) fail(`hover box says «${said}»`);
+      }
+      // a folder zooms in, the breadcrumb grows; by finger the page is the same as by mouse here (playwright's click = mouse)
+      const before = await crumbs();
+      const label = await page.locator('.cl-map-cell').first().getAttribute('aria-label');
+      await page.locator('.cl-map-cell').first().click({ position: { x: 8, y: 8 } });
+      if ((await crumbs()) !== before + 1) fail(`${width} px: a click on «${label}» did not zoom in (${before} → ${await crumbs()})`);
+      await noScroll('zoomed in');
+      res.tested++;
+      // the colour by age: the switch and the legend
+      await page.locator('.cl-map-seg button').nth(1).click();
+      if ((await page.locator('.cl-map-seg button').nth(1).getAttribute('aria-pressed')) !== 'true') fail(`${width} px: «by age» not pressed`);
+      if ((await page.locator('.cl-map-legend .cl-space-key').count()) !== 4) fail(`${width} px: the age legend has not three buckets and the rest`);
+      if (!(await page.locator('.cl-map-rect.cl-map-t-new, .cl-map-rect.cl-map-t-mid, .cl-map-rect.cl-map-t-old').count())) fail(`${width} px: no rectangle coloured by age`);
+      if ((await crumbs()) !== before + 1) fail(`${width} px: switching the colour lost the place`);
+      await page.locator('.cl-map-seg button').nth(0).click();
+      res.tested++;
+      // a fill comes from her tokens, in this theme: never transparent or black
+      const fill = await page.locator('.cl-map-rect:not(.cl-map-dir):not(.cl-map-restbox)').first().evaluate((e) => getComputedStyle(e).fill);
+      if (!fill || fill === 'none' || fill === 'rgb(0, 0, 0)') fail(`${width} px: a rectangle's fill is ${fill}`);
+      // the breadcrumb back
+      await page.locator('.cl-map-crumb').first().click();
+      if ((await crumbs()) !== before) fail(`${width} px: the breadcrumb did not go back up`);
+      res.tested++;
+      // the keyboard: Enter zooms, Escape goes up, Escape at the root closes
+      await page.locator('.cl-map-cell').first().focus();
+      await page.keyboard.press('Enter');
+      if ((await crumbs()) !== before + 1) fail(`${width} px: Enter did not zoom in`);
+      await page.keyboard.press('Escape');
+      if ((await crumbs()) !== before) fail(`${width} px: Escape did not go up`);
+      await page.keyboard.press('Escape');
+      if (await page.locator('.cl-map').count()) fail(`${width} px: Escape at the top did not close the map`);
+      if (!(await page.locator('.cl-space-tm').count())) fail(`${width} px: the treemap did not come back`);
+      res.tested++;
+      // no scan yet, on the array: «Scan…» asks first; the wave after the yes, in the share's line
+      if (width > 640) {
+        await page.evaluate(() => { [...document.querySelectorAll('.cl-space-tmcell')].find((c) => c.textContent.startsWith('series')).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+        const scan = page.locator('.cl-space-tminfo .cl-map-act button');
+        if ((await scan.textContent()) !== 'Scan…') fail(`a share without a map says «${await scan.textContent()}»`);
+        const asked = h.posts.length;
+        await scan.click();
+        await page.waitForSelector('.dialog, [role=dialog]', { timeout: 3000 }).catch(() => fail('no wake dialog for a share on the array'));
+        if (h.posts.length !== asked) fail('the scan started before the dialog was answered');
+        await page.getByRole('button', { name: 'Scan', exact: true }).click();
+        await page.waitForSelector('.cl-space-tminfo .cl-map-act .spin', { timeout: 3000 }).catch(() => fail('no wave in the line while the scan runs'));
+        const sent = h.posts.filter((p) => p.action === 'cleanup.where_map').pop();
+        if (!sent || JSON.stringify(sent.data && sent.data.paths) !== JSON.stringify([series.measure])) fail(`the scan asked for ${JSON.stringify(sent)}`);
+        h.setState('cleanup-where-map', undefined);
+        res.tested++;
+      }
+    } catch (e) {
+      fail(`${width} px: ${String(e.message).split('\n')[0].slice(0, 180)}`);
+    }
+    errors.forEach((e) => fail(`${width} px: ${e}`));
+    await ctx.close();
+  }
+  // by finger: a tap shows what it is, a tap on what is shown goes in
+  {
+    const ctx = await browser.newContext({ viewport: { width: 375, height: 800 }, hasTouch: true, isMobile: true, locale: 'en-US' });
+    const page = await ctx.newPage();
+    try {
+      await page.goto(`${h.url}#/cleanup/where/space`, { waitUntil: 'load' });
+      await page.waitForSelector('.cl-space-tmcell', { timeout: 8000 });
+      await page.evaluate(() => { [...document.querySelectorAll('.cl-space-tmcell')].find((c) => c.textContent.startsWith('films')).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      await page.locator('.cl-space-tminfo .cl-map-act button').tap();
+      await page.waitForSelector('.cl-map-svg', { timeout: 5000 });
+      const crumbs = () => page.locator('.cl-map-crumbs > *:not(.cl-map-sep)').count();
+      const before = await crumbs();
+      const cell = page.locator('.cl-map-cell').first();
+      await cell.tap({ position: { x: 6, y: 6 } });
+      if ((await crumbs()) !== before) fail('touch: the first tap went in instead of showing');
+      if (!(await page.locator('.cl-map-info .cl-map-path').count())) fail('touch: the first tap showed nothing');
+      await cell.tap({ position: { x: 6, y: 6 } });
+      if ((await crumbs()) !== before + 1) fail('touch: the second tap did not go in');
+      res.tested++;
+    } catch (e) {
+      fail(`touch: ${String(e.message).split('\n')[0].slice(0, 180)}`);
+    }
+    await ctx.close();
+  }
+  await h.close();
+  res.ms = Date.now() - t0;
+  return res;
+}
+
 // ------------------------------------------------------------------ the dialog stack (2026-10-14)
 // A dialog opened over a modal one stacks: Escape, a click outside and its «Cancel» close only it; the one below comes back
 // as it was — the typed value, the focus, still modal (the page inert). A long dialog fits the window: its body scrolls to
@@ -1120,6 +1248,7 @@ async function busyMark(browser) {
 }
 const walks = opt.states ? [] : WALK.filter((d) => !opt.only || routes.includes(d));
 results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d))));
+if (!opt.states && (!opt.only || routes.includes('cleanup/where'))) results.push(await cleanupMap(browser));
 if (!opt.states && (!opt.only || routes.includes('jack/setup'))) results.push(await dialogStack(browser, harness));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await firstHome(browser));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await netBusy(browser));

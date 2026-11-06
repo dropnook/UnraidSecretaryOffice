@@ -11,6 +11,7 @@ declare(strict_types=1);
  *                                     second ask), stored=1 never asks the agent (the reception, the badges)
  * GET  ?a=part&desk=<id>&part=<name>[&fresh=1|wait=1|stored=1]  an extra state file data/<id>-<name>.json, looked at
  *                                     again the same way where desk.json "parts" says how (officeDeskParts())
+ * GET  ?a=part&desk=cleanup&part=where-map&share=<name>   one share's map of Ms. Dustdevil's «Storage» (apiPartOfShare())
  * GET  ?a=strings&lang=<code>         all UI strings of a language
  * GET  ?a=places                      the words of the places the search finds (core.js), in every language — only the
  *                                     keys the desks list in places.json, nothing a request names (apiPlaceWords())
@@ -58,7 +59,8 @@ function api_main(): void
         if ($method === 'GET') {
             match (apiText($_GET, 'a')) {
                 'state'   => answerThenLook(apiState(apiText($_GET, 'desk'), apiLookMode($_GET))),
-                'part'    => answerThenLook(apiPart(apiText($_GET, 'desk'), apiText($_GET, 'part'), apiLookMode($_GET))),
+                'part'    => answerThenLook(apiText($_GET, 'share') !== '' ? apiPartOfShare(apiText($_GET, 'desk'), apiText($_GET, 'part'), apiText($_GET, 'share'))
+                                                                   : apiPart(apiText($_GET, 'desk'), apiText($_GET, 'part'), apiLookMode($_GET))),
                 'strings' => apiStrings(apiText($_GET, 'lang', 'en')),
                 'places'  => apiPlaces(apiText($_GET, 'part')),
                 'log'     => answer(['ok' => true, 'lines' => apiLogTail(400)]),
@@ -189,6 +191,22 @@ function apiPart(string $desk, string $part, string $look = ''): array
     $r['part'] = $r['state'];
     unset($r['state']);
     return ['ok' => true] + $r;
+}
+
+/** The parts kept per share: desk → part → their folder in the data folder */
+const API_SHARE_PARTS = ['cleanup' => ['where-map' => 'cleanup-map']];
+
+/**
+ * A part kept per share, a file of its own in a folder named here (`data/cleanup-map/<share>.json`, written by the agent,
+ * agent/lib/wheremap.php): only these, only a share's name (the same rule as whereMapShareOk()) — no map yet: part null.
+ */
+function apiPartOfShare(string $desk, string $part, string $share): array
+{
+    $folder = API_SHARE_PARTS[$desk][$part] ?? null;
+    if ($folder === null || preg_match('/^[^\/\x00.][^\/\x00]{0,199}$/D', $share) !== 1) {
+        return ['ok' => false, 'error' => ['key' => 'bad_request']];
+    }
+    return ['ok' => true, 'agent' => agentInfo(), 'part' => officeReadJson(OFFICE_DATA . "/$folder/$share.json")];
 }
 
 /** How a request wants its state: '' (at once, a stale one looked at again in the background), fresh, wait or stored */

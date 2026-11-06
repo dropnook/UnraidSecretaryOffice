@@ -210,4 +210,61 @@
   .cl-space-trow .row-detail{max-width:calc(100vw - 48px)}
   .cl-space-dsrow{grid-template-columns:minmax(120px,1fr) repeat(3, 70px) 40px 52px 60px 60px}
 }
+/* the map of one share (2026-11-05): colours only here, as tokens from office.css's hues; a rectangle's fill is its hue over
+   the surface, so her ink stays readable in both themes; a folder faint, what it holds stronger */
+.cl-map{
+  --cl-map-video:var(--logs-cat-drive);
+  --cl-map-audio:var(--logs-cat-network);
+  --cl-map-image:var(--logs-cat-limetech);
+  --cl-map-document:var(--logs-cat-warning);
+  --cl-map-archive:var(--logs-cat-login);
+  --cl-map-diskimage:var(--logs-cat-minor);
+  --cl-map-database:var(--logs-cat-fs);
+  --cl-map-code:var(--logs-cat-emhttp);
+  --cl-map-other:var(--logs-cat-system);
+  --cl-map-rest:var(--data);
+  --cl-map-new:var(--logs-cat-limetech);
+  --cl-map-mid:var(--logs-cat-warning);
+  --cl-map-old:var(--logs-cat-fs);
+}
+.cl-map{display:flex; flex-direction:column; gap:8px; outline:none; min-width:0}
+.cl-map-t-video{--cl-map-hue:var(--cl-map-video)}
+.cl-map-t-audio{--cl-map-hue:var(--cl-map-audio)}
+.cl-map-t-image{--cl-map-hue:var(--cl-map-image)}
+.cl-map-t-document{--cl-map-hue:var(--cl-map-document)}
+.cl-map-t-archive{--cl-map-hue:var(--cl-map-archive)}
+.cl-map-t-diskimage{--cl-map-hue:var(--cl-map-diskimage)}
+.cl-map-t-database{--cl-map-hue:var(--cl-map-database)}
+.cl-map-t-code{--cl-map-hue:var(--cl-map-code)}
+.cl-map-t-other{--cl-map-hue:var(--cl-map-other)}
+.cl-map-t-rest{--cl-map-hue:var(--cl-map-rest)}
+.cl-map-t-new{--cl-map-hue:var(--cl-map-new)}
+.cl-map-t-mid{--cl-map-hue:var(--cl-map-mid)}
+.cl-map-t-old{--cl-map-hue:var(--cl-map-old)}
+.cl-map-head{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px 12px}
+.cl-map-tools{display:flex; flex-wrap:wrap; align-items:center; gap:8px}
+.cl-map-crumbs{display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 5px; min-width:0; font-size:13px; overflow-wrap:anywhere}
+.cl-map-crumb{font:inherit; padding:0; border:0; background:none; color:var(--accent-ink); cursor:pointer; text-align:left; overflow-wrap:anywhere}
+.cl-map-crumb:hover{text-decoration:underline}
+.cl-map-sep{color:var(--muted)}
+.cl-map-here{color:var(--ink); overflow-wrap:anywhere}
+.cl-map-line{display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; font-size:12.5px; color:var(--muted)}
+.cl-map-svg{display:block; width:100%; height:auto; border-radius:var(--radius); background:var(--surface2)}
+.cl-map-cell{cursor:pointer; outline:none}
+.cl-map-rect{fill:color-mix(in srgb, var(--cl-map-hue) 56%, var(--surface)); stroke:var(--surface); stroke-width:1.5px}
+.cl-map-rect.cl-map-dir{fill:color-mix(in srgb, var(--cl-map-hue) 20%, var(--surface))}
+.cl-map-rect.cl-map-dir2{fill:color-mix(in srgb, var(--cl-map-hue) 38%, var(--surface))}
+.cl-map-rect.cl-map-in{stroke-width:.75px}
+.cl-map-rect.cl-map-restbox{fill:color-mix(in srgb, var(--cl-map-rest) 60%, var(--surface)); stroke-dasharray:4 3; stroke:var(--line2)}
+.cl-map-cell:hover > .cl-map-rect:first-child, .cl-map-cell:focus-visible > .cl-map-rect:first-child{stroke:var(--ink); stroke-width:2.5px}
+.cl-map-rect.cl-map-in:hover{stroke:var(--ink); stroke-width:1.5px}
+.cl-map-text{fill:var(--ink); font:600 13px var(--font); pointer-events:none}
+.cl-map-size{font-weight:400; font-size:12px; fill:var(--ink2)}
+.cl-map-infoline{min-height:44px}
+.cl-map-info{min-width:0}
+.cl-map-path{color:var(--ink); font-family:var(--mono); font-size:12.5px; overflow-wrap:anywhere}
+.cl-map-act{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:4px}
+.cl-map-act:empty{display:none}
+.cl-map-chip{cursor:pointer}
+.cl-map-chip:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
 }

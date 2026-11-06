@@ -1,0 +1,18 @@
+{
+ "v": 1,
+ "time": 1793800000,
+ "queue": [],
+ "running": [],
+ "jobs": {},
+ "maps": {
+  "Familienfilme": {
+   "path": "/mnt/daten/Familienfilme",
+   "at": 1793540800,
+   "took": 47,
+   "nodes": 494,
+   "bytes": 1952663143713,
+   "partial": false
+  }
+ },
+ "failed": {}
+}
