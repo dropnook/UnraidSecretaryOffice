@@ -28001,6 +28001,27 @@ function testWatchmanPosture(): void
         check("grafana: panel " . WATCH_GRAFANA_PANELS[$group] . " shows $metric ($group)", str_contains($exprs[WATCH_GRAFANA_PANELS[$group]] ?? '', $metric));
     }
 
+    // the snapshot automounts per place (host, container, process), shaped as the other panels: no two on one spot, ids unique
+    $autoPanel = array_values(array_filter((array) $dash['panels'], fn ($p) => str_contains(implode(' ', array_column((array) ($p['targets'] ?? []), 'expr')), 'uso_watchman_snapshot_automounts')))[0] ?? [];
+    same('grafana: a panel of the snapshot automounts by place, with the instance filter, as the other timeseries',
+        ['timeseries', 'max by (where) (uso_watchman_snapshot_automounts{instance=~"$instance"})', '{{where}}', true],
+        [$autoPanel['type'] ?? null, $autoPanel['targets'][0]['expr'] ?? null, $autoPanel['targets'][0]['legendFormat'] ?? null,
+         ($autoPanel['datasource']['uid'] ?? '') === '${DS_PROMETHEUS}' && isset($autoPanel['fieldConfig']['defaults'], $autoPanel['options']['legend'], $autoPanel['gridPos']['h'], $autoPanel['id'])]);
+    $grid = [];
+    $clash = [];
+    foreach ((array) $dash['panels'] as $p) {
+        $g = $p['gridPos'];
+        for ($y = $g['y']; $y < $g['y'] + $g['h']; $y++) {
+            for ($x = $g['x']; $x < $g['x'] + $g['w']; $x++) {
+                if (isset($grid["$x,$y"])) {
+                    $clash[$p['id']] = $grid["$x,$y"];
+                }
+                $grid["$x,$y"] = $p['id'];
+            }
+        }
+    }
+    same('grafana: the panels never overlap, their ids unique', [[], count($dash['panels'])], [$clash, count(array_unique(array_column($dash['panels'], 'id')))]);
+
     // every tip has its words, every link its label
     $en = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/watchman/lang/en.json'), true) ?: [];
     foreach (array_keys(WATCH_POSTURE) as $id) {

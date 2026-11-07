@@ -2731,6 +2731,87 @@
       "id": 52
     },
     {
+      "type": "timeseries",
+      "title": "Snapshot automounts",
+      "description": "ZFS snapshots automounted (.zfs/snapshot) at the night watchman's last round: on the host, inside containers and in other processes' mount namespaces. Every look into a snapshot mounts it for about five minutes; a process that keeps one mounted holds it, and ZFS can't delete it. The numbers come with his round — five minutes —, so the curve moves in steps.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "interval": "5m",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "A",
+          "expr": "max by (where) (uso_watchman_snapshot_automounts{instance=~\"$instance\"})",
+          "legendFormat": "{{where}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "noValue": "nothing yet"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 86
+      },
+      "id": 53
+    },
+    {
       "type": "row",
       "title": "Ms. Protocolli, Jack Streamer, Ms. Dustdevil",
       "id": 37,
@@ -2740,7 +2821,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 86
+        "y": 94
       }
     },
     {
@@ -2804,7 +2885,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 87
+        "y": 95
       },
       "id": 38
     },
@@ -2868,7 +2949,7 @@
         "h": 4,
         "w": 4,
         "x": 6,
-        "y": 87
+        "y": 95
       },
       "id": 39
     },
@@ -2933,7 +3014,7 @@
         "h": 4,
         "w": 4,
         "x": 10,
-        "y": 87
+        "y": 95
       },
       "id": 40
     },
@@ -3014,7 +3095,7 @@
         "h": 4,
         "w": 5,
         "x": 14,
-        "y": 87
+        "y": 95
       },
       "id": 41
     },
@@ -3079,7 +3160,7 @@
         "h": 4,
         "w": 5,
         "x": 19,
-        "y": 87
+        "y": 95
       },
       "id": 42
     },
@@ -3093,7 +3174,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 91
+        "y": 99
       }
     },
     {
@@ -3171,7 +3252,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 92
+        "y": 100
       },
       "id": 44
     },
@@ -3250,7 +3331,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 92
+        "y": 100
       },
       "id": 45
     },
@@ -3323,7 +3404,7 @@
         "h": 8,
         "w": 4,
         "x": 16,
-        "y": 92
+        "y": 100
       },
       "id": 46
     },
@@ -3396,7 +3477,7 @@
         "h": 8,
         "w": 4,
         "x": 20,
-        "y": 92
+        "y": 100
       },
       "id": 47
     },
@@ -3475,7 +3556,7 @@
         "h": 8,
         "w": 16,
         "x": 0,
-        "y": 100
+        "y": 108
       },
       "id": 48
     },
@@ -3539,7 +3620,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 100
+        "y": 108
       },
       "id": 49
     }
