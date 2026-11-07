@@ -1499,7 +1499,7 @@ async function askDelete(ids) {
 async function remove(ids, unmount, wake, free) {
   setBusy(true);
   Office.toast(T('deleting', { n: ids.length }));
-  // free: the automounts ZFS can't drop itself (inside a container, or one it called busy) are unmounted first
+  // free: the automounts ZFS can't drop itself (inside a container or process, or one it called busy) are unmounted first
   const j = await Office.api.post(free ? `${ID}.free_mounts` : `${ID}.delete`, free ? { ids, wake: !!wake } : { ids, unmount: !!unmount, wake: !!wake });
   setBusy(false);
   if (!j.ok) { failed(j); return; }
@@ -1539,7 +1539,8 @@ async function askFree(freeable, wake) {
   list.forEach((f) => {
     const li = el('li', '', f.params.name);
     const p = f.params;
-    li.appendChild(el('span', '', f.key === 'busy_in_container' ? T('free.in_container', { container: p.container, path: p.path }) : T('free.on_host', { path: p.path })));
+    li.appendChild(el('span', '', f.key === 'busy_in_container' ? T('free.in_container', { container: p.container, path: p.path })
+      : f.key === 'busy_in_process' ? T('free.in_process', { comm: p.comm, pid: p.pid, path: p.path }) : T('free.on_host', { path: p.path })));
     ul.appendChild(li);
   });
   box.appendChild(ul);

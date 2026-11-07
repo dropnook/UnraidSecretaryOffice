@@ -68,7 +68,7 @@ desk('snapshot', [
         'create'   => fn (array $r) => snapshotCreate($r),
         // on a sleeping pool only with `wake` (the page asks for it explicitly) — never woken on her own
         'delete'   => fn (array $r) => snapshotDelete(snapshotIdList($r, 'ids'), boolField($r, 'unmount'), boolField($r, 'wake')),
-        // the same, the automounts of those snapshots ZFS can't drop unmounted first (in a container: through its namespace)
+        // the same, the automounts of those snapshots ZFS can't drop unmounted first (in a container or process: through its namespace)
         'free_mounts' => fn (array $r) => snapshotDelete(snapshotIdList($r, 'ids'), false, boolField($r, 'wake'), true),
         'rename'   => fn (array $r) => snapshotRename(snapshotIdField($r, 'id'), textField($r, 'name'), boolField($r, 'wake')),
         'hold'     => fn (array $r) => snapshotHold(snapshotIdField($r, 'id'), true, boolField($r, 'wake')),
@@ -1704,9 +1704,9 @@ function snapshotCreate(array $r): array
  * $wake: the sleeping pools are listed fresh first (asked for on the page) — without it a snapshot on one is refused
  * (`pool_asleep`). A ZFS snapshot still mounted somewhere ZFS can't drop it by itself — inside a container's own mount
  * namespace (seen before `zfs destroy`), or a host automount `zfs destroy` answered «dataset is busy» for — is named
- * (`busy_in_container`, `busy_on_host`, `busy_unknown`: snapshotMountsEverywhere()); the raw answer goes to the log only.
- * $free (the page's «Free and delete…», `snapshot.free_mounts`): those automounts are unmounted first — inside the
- * container through its namespace, never anything else (snapshotFreeMount()).
+ * (`busy_in_container`, `busy_in_process`, `busy_on_host`, `busy_unknown`: snapshotMountsEverywhere()); the raw answer goes
+ * to the log only. $free (the page's «Free and delete…», `snapshot.free_mounts`): those automounts are unmounted first —
+ * inside a container or process through its namespace, never anything else (snapshotFreeMount()).
  */
 function snapshotDelete(array $ids, bool $unmount = false, bool $wake = false, bool $free = false): array
 {
@@ -1758,11 +1758,11 @@ function snapshotDelete(array $ids, bool $unmount = false, bool $wake = false, b
         }
     }
 
-    // where else they are mounted: inside a container zfs destroy can't reach them — said before it is asked
+    // where else they are mounted: in a container's or a process's own namespace zfs destroy can't reach them — said before it is asked
     $where = $zfsIds ? snapshotMountsNow() : [];
     foreach ($zfsIds as $id => $s) {
         $here = array_values(array_filter($where, fn (array $m): bool => $m['ds'] === $s['ds'] && $m['name'] === $s['name']));
-        $inside = array_values(array_filter($here, fn (array $m): bool => $m['where'] === 'container'));
+        $inside = array_values(array_filter($here, fn (array $m): bool => $m['where'] !== 'host'));
         if ($free) {
             try {
                 foreach ($here as $m) {
@@ -1777,7 +1777,7 @@ function snapshotDelete(array $ids, bool $unmount = false, bool $wake = false, b
             $inside = array_values(array_filter($inside, fn (array $m): bool => !$m['auto']));     // a mount by hand stays
         }
         if ($inside) {
-            $failures[] = snapshotBusyFailure($id, $here);
+            $failures[] = snapshotBusyFailure($id, $free ? $inside : $here);     // freed: only what is left
             continue;
         }
         $perDataset[$s['ds']][] = $s['name'];
@@ -1866,19 +1866,27 @@ function snapshotBusyNames(string $err, string $ds, array $batch): array
 }
 
 /**
- * Where a busy snapshot hangs, as a failure: inside a container (busy_in_container — its name and the path there), a host
- * automount ZFS couldn't drop (busy_on_host), or nothing to be seen (busy_unknown: a process may hold a file in it).
+ * Where a busy snapshot hangs, as a failure: inside a container (busy_in_container — its name and the path there), in
+ * another process's mount namespace (busy_in_process — its name, pid and the path there), a host automount ZFS couldn't drop
+ * (busy_on_host), or nothing to be seen (busy_unknown: a process may hold a file in it).
  * `free`: «Free and delete…» can help — an automount only (snapshotAutoPath()), never a mount someone made by hand.
  */
 function snapshotBusyFailure(string $id, array $here): array
 {
     $short = snapshotShortId($id);
     $inside = array_values(array_filter($here, fn (array $m): bool => $m['where'] === 'container'));
+    $process = array_values(array_filter($here, fn (array $m): bool => $m['where'] === 'process'));
     $host = array_values(array_filter($here, fn (array $m): bool => $m['where'] === 'host'));
     if ($inside) {
         return ['key' => 'busy_in_container', 'id' => $id, 'free' => (bool) array_filter($inside, fn (array $m): bool => $m['auto']),
                 'params' => ['name' => $short, 'container' => implode(', ', array_unique(array_column($inside, 'container'))),
                              'path' => implode(', ', array_column($inside, 'path'))]];
+    }
+    if ($process) {
+        return ['key' => 'busy_in_process', 'id' => $id, 'free' => (bool) array_filter($process, fn (array $m): bool => $m['auto']),
+                'params' => ['name' => $short, 'comm' => implode(', ', array_unique(array_column($process, 'comm'))),
+                             'pid' => implode(', ', array_unique(array_column($process, 'pid'))),
+                             'path' => implode(', ', array_column($process, 'path'))]];
     }
     if ($host) {
         return ['key' => 'busy_on_host', 'id' => $id, 'free' => (bool) array_filter($host, fn (array $m): bool => $m['auto']),
@@ -1889,10 +1897,12 @@ function snapshotBusyFailure(string $id, array $here): array
 
 /**
  * Unmounts one snapshot automount the reader found (snapshotMountsEverywhere()): on the host `umount <path>`, inside a
- * container `nsenter --mount=/proc/<pid>/ns/mnt umount <path>` — the container keeps running, nothing is written; plain
- * umount, never -f or -l (a file still open in it stays a failure, said as one). The path must be exactly
- * <something>/.zfs/snapshot/<its name>; the pid is the reader's (never the request's), and the mount is looked up in that
- * process once more right before: gone with the container → container_gone. Recorded in her record (`freed`).
+ * container or another process's namespace `nsenter --mount=/proc/<pid>/ns/mnt umount <path>` — what runs there keeps
+ * running, nothing is written; plain umount, never -f or -l (a file still open in it stays a failure, said as one). The
+ * path must be exactly <something>/.zfs/snapshot/<its name>; the pid is the reader's (never the request's), and the mount is
+ * looked up in that process once more right before: gone with the container → container_gone; a process that ended is no
+ * failure (`zfs destroy` then answers, and whoever else holds the namespace is named from a new look). Recorded in her
+ * record (`freed`).
  */
 function snapshotFreeMount(array $m): void
 {
@@ -1902,9 +1912,12 @@ function snapshotFreeMount(array $m): void
     if (!snapshotAutoPath($m['path'], $m['name'])) {
         return;                         // never a mount someone made by hand (the callers only hand in automounts)
     }
-    if ($m['where'] === 'container') {
+    if ($m['where'] !== 'host') {
         $pid = (int) $m['pid'];
         $text = $pid > 1 ? @file_get_contents("$proc/$pid/mountinfo") : false;
+        if ($text === false && $m['where'] === 'process') {
+            return;
+        }
         if ($text === false) {
             throw new Problem('container_gone', ['container' => (string) $m['container']]);
         }
@@ -1917,13 +1930,22 @@ function snapshotFreeMount(array $m): void
         $cmd = [$host['umount'] ?? bin('umount') ?? 'umount', $m['path']];
     }
     [$exit, , $err] = run($cmd, 60);
-    $at = $m['where'] === 'container' ? "inside the container {$m['container']}" : 'on the host';
+    $comm = (string) ($m['comm'] ?? '?');
+    $at = match ($m['where']) {
+        'container' => "inside the container {$m['container']}",
+        'process' => "inside the process $comm (pid {$m['pid']})",
+        default => 'on the host',
+    };
     if ($exit !== 0) {
         logLine("Ms. Snapshotini: could not unmount $short at {$m['path']} $at — " . trim($err));
+        if ($m['where'] === 'process') {
+            throw new Problem('free_failed_process', ['comm' => $comm, 'path' => $m['path']]);
+        }
         throw new Problem($m['where'] === 'container' ? 'free_failed' : 'free_failed_host', ['container' => (string) $m['container'], 'path' => $m['path']]);
     }
     logLine("Ms. Snapshotini: unmounted $short at {$m['path']} $at, to delete it");
-    snapshotRecord(['do' => 'freed', 'ds' => $m['ds'], 'name' => $m['name'], 'where' => $m['where'], 'container' => $m['container'], 'path' => $m['path']]);
+    snapshotRecord(['do' => 'freed', 'ds' => $m['ds'], 'name' => $m['name'], 'where' => $m['where'], 'container' => $m['container'], 'path' => $m['path']]
+        + ($m['where'] === 'process' ? ['comm' => $comm, 'pid' => (int) $m['pid']] : []));
 }
 
 function snapshotRename(string $id, string $new, bool $wake = false): array
@@ -2015,8 +2037,8 @@ function snapshotHold(string $id, bool $on, bool $wake = false): array
  *   {"t": <time>, "do": "deleted", "fs": "btrfs", "path": "<snapshot folder>"}
  *   {"t": <time>, "do": "released", "ds": "<dataset>", "name": "<snapshot>"}
  *   {"t": <time>, "do": "renamed", "where": "<dataset or disk>", "from": "<old>", "to": "<new>"}
- *   {"t": <time>, "do": "freed", "ds": "<dataset>", "name": "<snapshot>", "where": "host|container", "container": <name|null>,
- *    "path": "<where it was mounted>"}   an automount unmounted to delete it («Free and delete…»)
+ *   {"t": <time>, "do": "freed", "ds": "<dataset>", "name": "<snapshot>", "where": "host|container|process", "container": <name|null>,
+ *    "path": "<where it was mounted>"}   an automount unmounted to delete it («Free and delete…»); a process's also "comm", "pid"
  */
 const SNAPSHOT_RECORD_MAX = 1024 * 1024;
 
