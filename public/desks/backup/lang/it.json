@@ -2188,5 +2188,10 @@
   "setup.off_in_share_hint_vm_nolibvirt": "Senza backup: la VM non viene mai fermata, e senza l'archivio delle VM manca la sua configurazione. I suoi dischi stanno comunque nello snapshot di {share} (anche presso un partner, se {share} ci va), presi nel pieno del lavoro. Non è sicuro che parta.",
   "setup.asleep.chip_place": "{names} dorme adesso. Lì c'è anche il deposito dei backup, quindi ogni backup lo sveglia comunque — i pacchetti sono il punto.",
   "setup.sources.row_other_manual": "{what}: non è della segreteria — questo «Applica» la imposta anche su «manuale» (togli la spunta sotto per lasciarla com'è)",
-  "setup.apply_sources_manual": {"one": "Kopia: 1 vecchia sorgente viene impostata su «manuale» — Kopia non la pianifica più, i suoi snapshot restano: {list}", "other": "Kopia: {n} vecchie sorgenti vengono impostate su «manuale» — Kopia non le pianifica più, i loro snapshot restano: {list}"}
+  "setup.apply_sources_manual": {"one": "Kopia: 1 vecchia sorgente viene impostata su «manuale» — Kopia non la pianifica più, i suoi snapshot restano: {list}", "other": "Kopia: {n} vecchie sorgenti vengono impostate su «manuale» — Kopia non le pianifica più, i loro snapshot restano: {list}"},
+  "run.silent": "Nessun segno di vita da {n} minuti — forse è bloccato (un disco, un mount); lo lascio stare.",
+  "notify.job_stale.subject": "Un backup non dà segni di vita",
+  "notify.job_stale": "Un backup non dà segni di vita da {n} minuti: forse è bloccato. Non lo interrompo. Guarda il server: un disco, un mount.",
+  "check.job_stale": "Un backup non dà segni di vita da {minutes} minuti: forse è bloccato. Non lo interrompo; guarda il server (un disco, un mount).",
+  "check.job_stale_how": "Guarda ⟦Main⟧ in Unraid (manca un disco o ha errori?), dmesg in un terminale (task bloccati) e il suo log nella pagina del signor Backupsy. Se debba finire lo decidi solo tu."
 }

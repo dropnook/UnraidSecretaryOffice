@@ -5163,7 +5163,7 @@ function clRunLong(array $command, int $timeout): array
     stream_set_blocking($pipes[1], false);
     stream_set_blocking($pipes[2], false);
     $out = $err = '';
-    $start = $pulse = microtime(true);
+    $start = $pulse = hrtime(true) / 1e9;
     $killed = false;
     while (!feof($pipes[1]) || !feof($pipes[2])) {
         $read = array_values(array_filter([$pipes[1], $pipes[2]], fn ($h) => !feof($h)));
@@ -5178,13 +5178,13 @@ function clRunLong(array $command, int $timeout): array
                 }
             }
         }
-        if (microtime(true) - $pulse >= CL_VOLUME_PULSE) {
-            $pulse = microtime(true);
+        if (hrtime(true) / 1e9 - $pulse >= CL_VOLUME_PULSE) {
+            $pulse = hrtime(true) / 1e9;
             if (function_exists('agentPulse')) {
                 agentPulse();
             }
         }
-        if (microtime(true) - $start > $timeout) {
+        if (hrtime(true) / 1e9 - $start > $timeout) {
             proc_terminate($p, 9);
             $killed = true;
             break;

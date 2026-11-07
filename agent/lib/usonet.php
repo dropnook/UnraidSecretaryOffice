@@ -787,7 +787,7 @@ function usonetJoinJob(?int $wait = null): array
     }
     usonetJobStep('start');
     usonetConfigWrite(['JOINED' => 'yes', 'NAME' => (string) ($cfg['NAME'] ?? usonetNodeName()), 'CONTROL' => (string) ($cfg['CONTROL'] ?? '')]);
-    $end = time() + $wait;
+    $end = hrtime(true) / 1e9 + $wait;
     $why = 'no_contact';
     do {
         run(['bash', usonetScript(), 'check'], 30);
@@ -802,7 +802,7 @@ function usonetJoinJob(?int $wait = null): array
             break;
         }
         usleep(2000000);
-    } while (time() < $end);
+    } while (hrtime(true) / 1e9 < $end);
     $log = usonetLogTail();
     run(['bash', usonetScript(), 'leave'], 60);       // nothing half-joined stays
     return $result(false, $why, $log);

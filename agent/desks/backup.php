@@ -116,6 +116,7 @@ desk('backup', [
         backupLockTick();             // engine 2.56: Object Lock and Kopia's maintenance, asked a few times a day
         backupWatchTick();            // engine 2.68: the Kopia server's log - does the offsite storage still take writes?
         backupSharesTick();           // a share made, changed or removed in Unraid: his state looked at again at once
+        backupSilentTick();           // a run gone silent: the page's sentence, a hint, one warning
     },
     'checks' => fn () => backupChecks(),
     'metrics' => fn (): array => backupMetrics(),
@@ -218,6 +219,86 @@ function backupMetricsLastSuccess(string $file): int
     return 0;
 }
 
+// ===================================================================== a run gone silent
+
+/**
+ * A run that may hang, the same rule as Mr. Restori's job (OFFICE_JOB_STALE, 30 min; never a kill or a stop). The engine's
+ * `updated` alone can't say it: status_write comes at each phase, source and VM, so it stands still for days while Kopia
+ * uploads one big source, and every 10 s during a partner's send whether a byte moved or not. So what moved is:
+ *  - anything in status.json but `updated` itself (a partner's byte count, the next phase, source, VM …);
+ *  - during an upload (kopia.current) Kopia's own reads and writes: it runs in its container, below no process of the run,
+ *    while the run's own bash polls beside it (the engine's watchdog ends an upload that stays quiet for 15 min at 1 MiB;
+ *    this rule is for when that can't: docker top silent counts as moving there);
+ *  - during a partner's send (partner.current) only the bytes: the run's polling and status_write are work of their own;
+ *  - else the run's process tree (dumps, rsync, tar, zfs): CPU and bytes as officeLifeStep() counts them.
+ * With those a long upload, a large single file or a big dump never counts as silent, so the limit stays the one rule.
+ * $status: the run going on, not asked to stop; else null. $now, $work: the tests'.
+ *
+ * @return array{id: string, since: int, minutes: int}|null
+ */
+function backupSilentStep(?array $status, float $now, ?callable $work = null): ?array
+{
+    $run = is_string($status['run'] ?? null) ? $status['run'] : '';
+    if ($run === '') {
+        unset($GLOBALS['backupLife'], $GLOBALS['backupSilent']);
+        return null;
+    }
+    if (($GLOBALS['backupLife']['run'] ?? null) !== $run) {
+        $GLOBALS['backupLife'] = ['run' => $run, 'watch' => []];
+    }
+    $quiet = officeLifeStep($GLOBALS['backupLife']['watch'], $now, array_diff_key($status, ['updated' => 1]), $work ?? fn (): ?array => backupRunWork($status));
+    return $GLOBALS['backupSilent'] = $quiet > OFFICE_JOB_STALE ? ['id' => $run, 'since' => time() - $quiet, 'minutes' => intdiv($quiet, 60)] : null;
+}
+
+/** The work that counts for the part of a run going on (backupSilentStep()) */
+function backupRunWork(array $status, string $proc = '/proc'): ?array
+{
+    if (is_array($status['partner']['current'] ?? null)) {
+        return ['cpu' => 0, 'io' => 0];
+    }
+    if (is_string($status['kopia']['current'] ?? null)) {
+        $kopia = officeProcWork([], ['kopia'], $proc);
+        return $kopia === null ? null : ['cpu' => 0, 'io' => $kopia['io']];
+    }
+    return officeProcWork([(int) ($status['pid'] ?? 0)], [], $proc);
+}
+
+/** Once a minute: its status (a small state file), and the one warning; true when it looked */
+function backupSilentTick(): bool
+{
+    static $last = null;
+    $at = hrtime(true) / 1e9;
+    if ($last !== null && $at - $last < OFFICE_LIFE_EVERY) {
+        return false;
+    }
+    $last = $at;
+    if (backupHomeAsleep(BACKUP_DATA_DIR)) {
+        return false;
+    }
+    $state = BACKUP_DATA_DIR . '/state';
+    $status = readJson("$state/status.json");
+    $running = is_array($status) && ($status['result'] ?? '') === 'running' && (int) ($status['pid'] ?? 0) > 1
+        && posix_kill((int) $status['pid'], 0) && flockHeld("$state/lock");
+    $silent = backupSilentStep($running && backupAbortAsked(true, $status) === null ? $status : null, $at);
+    if ($silent !== null) {
+        backupSilentTell($silent);
+    }
+    return true;
+}
+
+/** One warning per run (officeSilentFirst()); true when it went */
+function backupSilentTell(array $silent): bool
+{
+    if (!officeSilentFirst(RUN_DIR . '/backup-silent.json', $silent['id'])) {
+        return false;
+    }
+    logLine("Backup: run {$silent['id']} - no sign of life for {$silent['minutes']} minutes; I leave it alone");
+    $lang = officeNotifyLang();
+    officeNotify(officeNotifyText('backup', 'notify.job_stale.subject', [], $lang), officeNotifyText('backup', 'notify.job_stale', ['n' => $silent['minutes']], $lang),
+        'warning', '', officeNotifyLink('#/backup'), 'backup', 'job_stale');
+    return true;
+}
+
 // ===================================================================== state
 
 function backupScan(): array
@@ -282,6 +363,7 @@ function backupScan(): array
         'holder'     => $holder,
         'paused'     => $running ? backupPaused($data) : null,
         'abort_asked' => backupAbortAsked($running, $status),     // «Abort» sent: the page says so until the run ends
+        'silent'     => $running ? ($GLOBALS['backupSilent'] ?? null) : null,      // no sign of life for a long while (backupSilentStep())
         // a run the array stop ended leaves what it stopped noted for the next run (engine 2.24)
         'left'       => !$running && ($status['result'] ?? '') === 'aborted' && ($status['message'] ?? '') === 'array_stopping' ? backupPaused($data) : null,
         'history'    => $history,
@@ -2871,6 +2953,10 @@ function backupChecks(): array
     $settings = backupReadSettings("$data/settings.ini");
     $summary = backupSettingsSummary($settings);
     $kopiaOn = $summary['kopia_enabled'];
+    // a run gone silent: a hint while it lasts (`job`: noting it holds for that run only)
+    if (is_array($silent = $GLOBALS['backupSilent'] ?? null)) {
+        $out[] = finding('job_stale', 'hint', false, ['minutes' => $silent['minutes'], 'job' => $silent['id']], '#/backup');
+    }
 
     // its way is his «Set up…» (B42: the setup's script named on the Team Lead's page was a script name there)
     $out[] = finding('setup', 'required', is_file("$data/settings.ini"), [], '#/backup/setup');

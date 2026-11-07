@@ -205,12 +205,6 @@ parameters:
 			path: agent/desks/moverelli.php
 
 		-
-			message: '#^Right side of && is always true\.$#'
-			identifier: booleanAnd.rightAlwaysTrue
-			count: 1
-			path: agent/desks/moverelli.php
-
-		-
 			message: '#^Offset ''path'' on array\{kind\: ''app'', name\: non\-falsy\-string, share\: non\-falsy\-string, dir\: non\-falsy\-string, path\: null, user\: non\-falsy\-string, parent\: null, dataset\: null, \.\.\.\} on left side of \?\? always exists and is always null\.$#'
 			identifier: nullCoalesce.offset
 			count: 1

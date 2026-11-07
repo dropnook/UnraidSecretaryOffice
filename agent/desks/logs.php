@@ -995,8 +995,8 @@ function logsTourTick(): void
     $job = $GLOBALS['logsTour'] ?? null;
     if (!$job) {
         $pid = $GLOBALS['logsTourOrphan'] ?? null;      // a tour started before the agent restarted
-        if ($pid && time() >= ($GLOBALS['logsTourOrphanLook'] ?? 0)) {
-            $GLOBALS['logsTourOrphanLook'] = time() + 5;
+        if ($pid && hrtime(true) / 1e9 >= ($GLOBALS['logsTourOrphanLook'] ?? 0)) {
+            $GLOBALS['logsTourOrphanLook'] = hrtime(true) / 1e9 + 5;
             if (!logsTourAlive($pid)) {
                 $GLOBALS['logsTourOrphan'] = null;
                 logsTourRecover();

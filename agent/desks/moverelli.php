@@ -102,7 +102,10 @@ desk('moverelli', [
     ],
     'checks'  => fn () => moverelliChecks(),
     // a share changed in Unraid (its cfg on the flash, shares.ini): her state looked at again at once (moverelliTick())
-    'tick'    => fn () => moverelliTick(),
+    'tick'    => function (): void {
+        moverelliTick();
+        moverelliSilentTick();        // a real run of hers gone silent: the page's sentence, a hint, one warning
+    },
 ]);
 
 /** Where she reads and writes, what she asks — the tests' stand-ins in $GLOBALS['moverelliHost'] */
@@ -183,7 +186,7 @@ const MOVERELLI_SHARES_EVERY = 1.0;     // s: how often the tick compares the sh
 function moverelliTick(?array $h = null, ?float $now = null): ?array
 {
     static $last = 0.0;
-    $now ??= microtime(true);
+    $now ??= hrtime(true) / 1e9;
     if ($h === null && $now - $last < MOVERELLI_SHARES_EVERY) {
         return null;
     }
@@ -198,6 +201,70 @@ function moverelliTick(?array $h = null, ?float $now = null): ?array
         return null;
     }
     return moverelliScan($h);
+}
+
+// ===================================================================== a run gone silent
+
+/**
+ * A real run of hers that may hang, the same rule as Mr. Restori's job (OFFICE_JOB_STALE, 30 min; never a kill or a stop).
+ * Her live status is written per file, at most once a second, so a large single file leaves it standing for hours. What
+ * moved is: the status file's mtime; with a file in flight (phase share) what of it has arrived (moverelliInFlight(): the
+ * .partial's allocated size — Unraid's move works through shfs, nothing of it in its own /proc io, and her script polls it
+ * meanwhile, which is work of its own); else (looking, tidying up) what runs below her job: CPU and bytes as officeLifeStep()
+ * counts them. The stat of the file in flight only once her status has stood still since the last look. Asked to stop:
+ * never (the file in flight ends first). $now, $work: the tests'.
+ *
+ * @return array{id: string, since: int, minutes: int}|null
+ */
+function moverelliSilentStep(array $h, float $now, ?callable $work = null): ?array
+{
+    $job = moverelliJobInfo($h['dir']);
+    $id = (string) ($job['started'] ?? '');
+    if (!$job['running'] || ($job['mode'] ?? '') !== 'run' || $id === '' || is_file("$h[dir]/office-stop.json")) {
+        unset($GLOBALS['moverelliLife'], $GLOBALS['moverelliSilent']);
+        return null;
+    }
+    if (($GLOBALS['moverelliLife']['run'] ?? null) !== $id) {
+        $GLOBALS['moverelliLife'] = ['run' => $id, 'watch' => [], 'mtime' => null, 'arrived' => null, 'moves' => 0];
+    }
+    clearstatcache(true, "$h[dir]/status.json");
+    $mtime = @filemtime("$h[dir]/status.json");
+    $st = readJson("$h[dir]/status.json") ?? [];
+    $flying = ($st['phase'] ?? '') === 'share' && (string) ($st['file'] ?? '') !== '';
+    $life = &$GLOBALS['moverelliLife'];
+    $arrived = $flying && $mtime === $life['mtime'] ? moverelliInFlight($st, $h)['file_bytes'] : null;
+    if ($arrived !== null && $life['arrived'] !== null && $arrived !== $life['arrived']) {
+        $life['moves']++;
+    }
+    $life['arrived'] = $arrived;
+    $life['mtime'] = $mtime;
+    $pid = (int) ($job['pid'] ?? 0);
+    $quiet = officeLifeStep($life['watch'], $now, [$mtime, $life['moves']],
+        $work ?? fn (): ?array => $flying ? ['cpu' => 0, 'io' => 0] : officeProcWork([$pid], [], '/proc', true));
+    return $GLOBALS['moverelliSilent'] = $quiet > OFFICE_JOB_STALE ? ['id' => $id, 'since' => time() - $quiet, 'minutes' => intdiv($quiet, 60)] : null;
+}
+
+/** Once a minute while she is hired: one warning per run (officeSilentFirst()); true when it looked */
+function moverelliSilentTick(): bool
+{
+    static $last = null;
+    $at = hrtime(true) / 1e9;
+    if ($last !== null && $at - $last < OFFICE_LIFE_EVERY) {
+        return false;
+    }
+    $last = $at;
+    $h = moverelliHost();
+    if (!($h['hired'])()) {
+        return false;
+    }
+    $silent = moverelliSilentStep($h, $at);
+    if ($silent !== null && officeSilentFirst(RUN_DIR . '/moverelli-silent.json', $silent['id'])) {
+        logLine("Ms. Moverelli: the run of {$silent['id']} - no sign of life for {$silent['minutes']} minutes; I leave it alone");
+        $lang = officeNotifyLang();
+        officeNotify(officeNotifyText('moverelli', 'notify.job_stale.subject', [], $lang), officeNotifyText('moverelli', 'notify.job_stale', ['n' => $silent['minutes']], $lang),
+            'warning', '', officeNotifyLink('#/moverelli'), 'moverelli', 'job_stale');
+    }
+    return true;
 }
 
 // ===================================================================== fit
@@ -1323,7 +1390,8 @@ function moverelliProgressState(?array $h = null): array
     // only then, never every 5 s of her own run)
     $unraid = $real ? [] : ['mover_running' => ($h['mover_running'])($job['running'] ? (int) $job['pid'] : null), 'unraid_progress' => moverelliUnraidProgress($h)];
     return ['time' => time(), 'running' => $job['running'] || $nightReal, 'real' => $real, 'stopping' => is_array($stop) ? (string) ($stop['why'] ?? 'user') : null,
-            'progress' => $prog, 'night' => $short, 'jack' => $jack] + $unraid;
+            'progress' => $prog, 'night' => $short, 'jack' => $jack] + $unraid
+         + (is_array($GLOBALS['moverelliSilent'] ?? null) ? ['silent' => $GLOBALS['moverelliSilent']] : []);
 }
 
 /**
@@ -1397,7 +1465,7 @@ function moverelliRunWatch($proc, string $stopFile, callable $mover, int $every 
 {
     $why = null;
     $by = null;
-    $last = $lastArray = time();
+    $last = $lastArray = hrtime(true) / 1e9;
     while (true) {
         $st = proc_get_status($proc);
         clearstatcache(true, $stopFile);
@@ -1416,14 +1484,14 @@ function moverelliRunWatch($proc, string $stopFile, callable $mover, int $every 
             $f = readJson($stopFile) ?? [];
             $why = in_array($f['why'] ?? '', ['mover', 'now', 'array'], true) ? $f['why'] : 'user';
             $by = $why === 'mover' ? (($f['by'] ?? '') === 'schedule' ? 'schedule' : 'hand') : null;
-        } elseif ($arrayStopping !== null && time() - $lastArray >= min($every, 2) && ($lastArray = time()) && ($arrayStopping)()) {
+        } elseif ($arrayStopping !== null && hrtime(true) / 1e9 - $lastArray >= min($every, 2) && ($lastArray = hrtime(true) / 1e9) && ($arrayStopping)()) {
             // D-F8 (2026-10-19): the array is being stopped — after the file in flight, as Unraid stops its own mover at ⟦Stop⟧
             // (before shfs and the disks go)
             $why = 'array';
             writeAtomic($stopFile, jsonEncode(['time' => time(), 'why' => 'array']), 0600, 0, 0);
             logLine('Ms. Moverelli: the array is being stopped — she stops after the file in flight');
-        } elseif (time() - $last >= $every) {
-            $last = time();
+        } elseif (hrtime(true) / 1e9 - $last >= $every) {
+            $last = hrtime(true) / 1e9;
             try {
                 $on = (bool) $mover();
             } catch (Throwable) {
@@ -1873,6 +1941,10 @@ function moverelliChecks(?array $h = null): array
 {
     $h ??= moverelliHost();
     $out = [];
+    // a real run gone silent: a hint while it lasts (`job`: noting it holds for that run only)
+    if (is_array($silent = $GLOBALS['moverelliSilent'] ?? null)) {
+        $out[] = finding('job_stale', 'hint', false, ['minutes' => $silent['minutes'], 'job' => $silent['id']], '#/moverelli');
+    }
     $configured = moverelliConfigured($h['dir']);
     $out[] = finding('configured', 'required', $configured, [], '#/moverelli/setup');
     if (!$configured) {

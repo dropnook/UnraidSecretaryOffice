@@ -20,6 +20,12 @@ const HOUSE_DOCKER_SOCK  = '/var/run/docker.sock';      // … dockerd's socket,
 // it; a job's (`heartbeat` in a restore's or a drill's record) is written every few seconds while a step runs, but a step
 // may be quiet for a long while, hence 30 min. The office says so and never ends the job (Benj, 2026-11-07).
 const OFFICE_JOB_STALE   = 1800;
+// A job's child may hang while the job itself still beats: what its processes did between two looks counts as a sign of
+// life only above these (officeLifeStep()). Below them it is a timer, not work: a Go program's own wake-ups and an ssh
+// keep-alive move a few bytes and a tick or two (the engine's Kopia watchdog saw the same: kopia_stall_look).
+const OFFICE_LIFE_EVERY  = 60;     // s between two looks
+const OFFICE_LIFE_CPU    = 5;      // clock ticks (1/100 s) of CPU within them
+const OFFICE_LIFE_IO     = 65536;  // bytes read + written within them
 
 /**
  * One finding of a check.
@@ -44,6 +50,117 @@ function finding(string $id, string $level, ?bool $ok, array $params = [], ?stri
 function jobStale(?int $heartbeat, ?int $now = null): bool
 {
     return $heartbeat !== null && ($now ?? time()) - $heartbeat > OFFICE_JOB_STALE;
+}
+
+/**
+ * What processes have worked so far: CPU in clock ticks (of those that ended and were waited for too), read + written in
+ * bytes — of $roots with everything below them ($under: only what is below them, a job that polls in its own loop), and of
+ * every process called one of $names. One read of /proc/<pid>/stat per process and /proc/<pid>/io per one that counts, never
+ * cmdline (it can block on a process hanging in D state). Null when none is there or /proc can't be read (off Linux):
+ * nothing can be told.
+ *
+ * @param list<int>    $roots
+ * @param list<string> $names
+ * @return array{cpu: int, io: int}|null
+ */
+function officeProcWork(array $roots, array $names = [], string $proc = '/proc', bool $under = false): ?array
+{
+    $below = $ticks = [];
+    $todo = [];
+    foreach (@scandir($proc) ?: [] as $d) {
+        if (!ctype_digit($d)) {
+            continue;
+        }
+        $raw = (string) @file_get_contents("$proc/$d/stat");
+        $open = strpos($raw, '(');
+        $close = strrpos($raw, ')');
+        if ($open === false || $close === false) {
+            continue;
+        }
+        $f = explode(' ', substr($raw, $close + 2));      // state ppid … utime(11) stime(12) cutime(13) cstime(14)
+        if (count($f) < 15) {
+            continue;
+        }
+        $pid = (int) $d;
+        $below[(int) $f[1]][] = $pid;
+        $ticks[$pid] = (int) $f[11] + (int) $f[12] + (int) $f[13] + (int) $f[14];
+        if ($names && in_array(substr($raw, $open + 1, $close - $open - 1), $names, true)) {
+            $todo[] = $pid;
+        }
+    }
+    foreach ($roots as $pid) {
+        if ($under) {
+            array_push($todo, ...($below[$pid] ?? []));
+        } elseif (isset($ticks[$pid])) {
+            $todo[] = $pid;
+        }
+    }
+    if (!$todo) {
+        return null;
+    }
+    $cpu = $io = 0;
+    $seen = [];
+    while ($todo) {
+        $pid = array_pop($todo);
+        if (isset($seen[$pid])) {
+            continue;
+        }
+        $seen[$pid] = true;
+        $cpu += $ticks[$pid];
+        if (preg_match_all('/^(?:rchar|wchar): (\d+)$/m', (string) @file_get_contents("$proc/$pid/io"), $m)) {
+            $io += array_sum(array_map('intval', $m[1]));
+        }
+        array_push($todo, ...($below[$pid] ?? []));
+    }
+    return ['cpu' => $cpu, 'io' => $io];
+}
+
+/**
+ * One step of the watch over something that may hang: how many seconds nothing moved (on the monotonic clock of this
+ * process). Moved is its own progress ($mark differs from the last step's), or its processes' work ($work: every
+ * OFFICE_LIFE_EVERY s, officeProcWork()'s shape; null: can't be told, which never counts as silent). $l is the watch's memory,
+ * [] at its start; its `quiet` holds the answer.
+ *
+ * @param array<string, mixed> $l
+ */
+function officeLifeStep(array &$l, float $now, mixed $mark, callable $work): int
+{
+    if (!$l) {
+        $l = ['at' => $now, 'looked' => null, 'work' => null, 'mark' => $mark, 'quiet' => 0];
+    }
+    if ($l['mark'] !== $mark) {
+        $l['mark'] = $mark;
+        $l['at'] = $now;
+    }
+    if ($l['looked'] === null || $now - $l['looked'] >= OFFICE_LIFE_EVERY) {
+        $w = $work();
+        $was = $l['work'];
+        if ($w === null || ($was !== null && ($w['cpu'] - $was['cpu'] >= OFFICE_LIFE_CPU || $w['io'] - $was['io'] >= OFFICE_LIFE_IO))) {
+            $l['at'] = $now;
+        }
+        $l['work'] = $w;
+        $l['looked'] = $now;
+    }
+    return $l['quiet'] = (int) ($now - $l['at']);
+}
+
+/**
+ * The one warning for a run that went silent, where no record of the job's own can keep it (the engine's status is the
+ * engine's, Smart Mover's its own): true the first time for $job, remembered in a small file in RAM before the warning goes —
+ * one that can't be written is no warning every minute.
+ */
+function officeSilentFirst(string $file, string $job): bool
+{
+    if ((readJson($file)['job'] ?? null) === $job) {
+        return false;
+    }
+    try {
+        writeAtomic($file, jsonEncode(['job' => $job, 'told' => time()]), 0600, 0, 0);
+    } catch (Throwable $e) {
+        logLine("Office: silent run $job: can't note the warning, none sent: " . $e->getMessage());
+        return false;
+    }
+    return true;
 }
 
 /**

@@ -2182,5 +2182,10 @@
   "setup.off_in_share_hint_vm_nolibvirt": "Not backed up: the VM is never held, and without the VM archive its configuration is missing. Its disks still lie in the snapshot of {share} (at a partner too, when {share} goes to one), caught mid-work. Whether it starts is not sure.",
   "setup.asleep.chip_place": "{names} is asleep right now. The backup place lies there too, so every backup wakes it anyway — the packages are the point.",
   "setup.sources.row_other_manual": "{what}: not the office's — this Apply sets it to «manual» too (untick below to leave it as it is)",
-  "setup.apply_sources_manual": {"one": "Kopia: 1 old source is set to «manual» — Kopia no longer schedules it, its snapshots stay: {list}", "other": "Kopia: {n} old sources are set to «manual» — Kopia no longer schedules them, their snapshots stay: {list}"}
+  "setup.apply_sources_manual": {"one": "Kopia: 1 old source is set to «manual» — Kopia no longer schedules it, its snapshots stay: {list}", "other": "Kopia: {n} old sources are set to «manual» — Kopia no longer schedules them, their snapshots stay: {list}"},
+  "run.silent": "No sign of life for {n} minutes — it may hang (a disk, a mount); I leave it alone.",
+  "notify.job_stale.subject": "A backup run gives no sign of life",
+  "notify.job_stale": "A backup run has given no sign of life for {n} minutes: it may hang. I don't end it. Look at the server: a disk, a mount.",
+  "check.job_stale": "A backup run has given no sign of life for {minutes} minutes: it may hang. I don't end it; look at the server (a disk, a mount).",
+  "check.job_stale_how": "Look at ⟦Main⟧ in Unraid (a disk missing or with errors?), at dmesg in a terminal (tasks that hang) and at the run's log on Mr. Backupsy's page. Only you decide whether it ends."
 }

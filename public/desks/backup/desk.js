@@ -760,6 +760,9 @@ function bk_slideMark(wrap, ol, key, at) {
   });
 }
 
+/** A run gone silent (the agent's word, state.silent): its minutes for the card's sentence, else null. The rule is the agent's alone. */
+const silentMinutes = (silent, now) => (silent && Number(silent.since) ? Math.max(1, Math.floor((now - Number(silent.since)) / 60)) : null);
+
 function runningCard() {
   const s = status();
   const p = progress();
@@ -773,6 +776,8 @@ function runningCard() {
   const since = s ? s.started : state.since;
   if (since) top.appendChild(el('span', 'status quiet', T('since', { time: fmt.time(since), duration: fmt.duration(Date.now() / 1000 - since) })));
   card.appendChild(top);
+  const silent = silentMinutes(state.silent, Date.now() / 1000);
+  if (silent !== null) card.appendChild(el('p', 'callout warn bk-silent', T('run.silent', { n: silent })));
   // «Abort» was sent: what the engine still waits for before it cleans up (it hears the signal after its current step)
   if (state.abort_asked) {
     const ph = s && s.phase;
@@ -4436,6 +4441,17 @@ function setupNewCounts(plan) {
   };
 }
 
+/**
+ * What the shares' tile counts as new: the plan's rows marked new, and what the page already calls a new share
+ * (state.truth.new, looked at within seconds of the share being made; the plan only knows it from the next «Plan anew») —
+ * the chip agrees with the page. The rows and the filter «only what's new» stay the plan's (setupNewCounts()).
+ */
+function setupNewShares(plan) {
+  const waits = waitingFolders();
+  const marked = (plan.shares || []).filter((sh) => shareIsNew(sh, waits.filter((w) => w.share === sh.name))).map((sh) => sh.name);
+  return new Set([...marked, ...truth().fresh]).size;
+}
+
 /** A retention as short figures: «7 d · 4 w · 6 m» (the parts that are numbers; none → '') */
 function retFigure(parts) {
   return parts.filter(([, n]) => /^\d+$/.test(String(n ?? '').trim())).map(([u, n]) => T('setup.tile.u_' + u, { n: Number(n) })).join(' · ');
@@ -4481,7 +4497,7 @@ function setupTileData(plan) {
   const shares = plan.shares || [];
   out.push({ id: 'shares', key: 'setup.shares', value: String(shares.length),
     sub: [T('setup.tile.on', { n: shares.filter((sh) => sh.exists !== false && (dget(`share|${sh.name}|mode`, 'off') === 'kopia'
-      || (dget(`share|${sh.name}|mode`, 'off') === 'snapshot' && !shareNoSnap(sh)))).length })], alert: false, fresh: fresh.shares });
+      || (dget(`share|${sh.name}|mode`, 'off') === 'snapshot' && !shareNoSnap(sh)))).length })], alert: false, fresh: setupNewShares(plan) });
   // 4 retention: the local snapshots' (ZFS «d w m», else btrfs days), offsite Kopia's own
   const zfs = (plan.bases || []).some((b) => b.fs === 'zfs');
   const btrfs = (plan.bases || []).some((b) => b.fs === 'btrfs');
@@ -7419,7 +7435,7 @@ if (globalThis.OFFICE_DESK_TESTS) {
     get setup() { return setup; },
     get sf() { const f = setupFilter().read(); return { text: f.words.join(' '), onlyNew: f.only }; },
     setupFilter,
-    setupFits, setupFirstNew, setupFocus, setupTileData, setupTileList, setupNewCounts, setupSwitcher, SETUP_TILES, STEP_TILE,
+    silentMinutes, runningCard, setupFits, setupFirstNew, setupFocus, setupTileData, setupTileList, setupNewCounts, setupSwitcher, SETUP_TILES, STEP_TILE,
     driftText, driftParams, messageText, orderText, scheduleSection, retentionTile, retentionCells, retentionView, retLocalText, retUnitName, retentionSection,
     overviewTiles, retireOn, foreignSource, oldSourceWords, asleepChip, runHint, missedRun, waitingUnsure, vmUnset, tileNode, tileList, protRows, protView, protTileCounts, protPartners, protChip, protSum, vmLevel, viaText, historyRows, PROT_TILES, PROT_ID, TILES,
     truth, levelTruth, kopiaTruth, protPartnerTruth, unitTry, shareLeftOut, setupDeriveItems, appNoSnap,

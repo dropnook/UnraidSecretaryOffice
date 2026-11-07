@@ -45,6 +45,7 @@ let progress = null;          // Smart Mover's live status while a real run goes
 let nightNow = null;          // the night run's short state while it goes (the part «progress»: phase, round, who works)
 let jackLive = null;          // his step at work in the night (free, fill): his live panel's {real, progress} (the part «progress»)
 let stopping = null;          // the stop file's why while she stops (user | now | mover)
+let silentNow = null;         // the agent's word on a run gone silent (her poll: progress.silent)
 // Unraid 7.4's own mover saying how far it is, from the part «progress» while its card shows (undefined: not asked yet —
 // her state's own; null: it says nothing any more)
 let unraidNow;
@@ -95,11 +96,12 @@ function tookProgress(j) {
     if (unraidNow) { redrawCard(); scheduleProgress(); } else load(true);
     return;
   }
-  if (!p.real) { progress = null; stopping = null; nightNow = null; jackLive = null; load(true); return; }     // the run ended: her state anew — the card goes
+  if (!p.real) { progress = null; stopping = null; silentNow = null; nightNow = null; jackLive = null; load(true); return; }     // the run ended: her state anew — the card goes
   progress = p.progress || null;
   nightNow = p.night || null;
   jackLive = p.jack || null;
   stopping = p.stopping || null;
+  silentNow = p.silent || null;
   redrawCard();
   if (picLive && picLive.isConnected && nightNow) picLive.update(nightNow);
   scheduleProgress();
@@ -489,6 +491,8 @@ function runCard(p, now, u = null) {
   } else {
     runCardBody(card, top, runCardData(p, now, nn), now, nn);
   }
+  // no sign of life for a long while (the agent's word, moverelliSilentStep()): said, and left alone
+  if (silentNow && Number(silentNow.since)) card.appendChild(el('p', 'callout warn mo-silent', T('rc.silent', { n: Math.max(1, Math.floor((now - Number(silentNow.since)) / 60)) })));
   // Jack Streamer's file in flight while his step runs: the same one line, from his live view (his part below shows none)
   const cur = jackAtWork(nn) && jackLive.progress && jackLive.progress.current;
   if (cur && cur.rel) {
@@ -3060,7 +3064,7 @@ Office.places(ID, [
 ]);
 
 if (globalThis.OFFICE_DESK_TESTS) {
-  globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, runSummary, leftText, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
+  globalThis.OFFICE_DESK_TESTS.moverelli = { setState: (s) => { state = s; }, setSilent: (x) => { silentNow = x; }, runCard, runSummary, leftText, onWayText, moverNotice, foreignNotices, shareSection, linesOf, filesOf,
     importPreview, importDone, importFileText, leftCount, runLeft, futureCount, scheduleDialog, letGoView, letGoDoneLines, consentSection, runCardData, unraidCardData, unraidLive, isFilling, fillRoom, realWait, noLimit, chooseRun, percentText, runningText, greeting, greetOk, idleText, runEstimate, estModel, endText, shareGroups, shareRuleLines, runCard, headActions, fillText, fillLine, resultBox, setProgress: (p, w) => { progress = p; stopping = w || null; }, setupChangeRows, setupBarSpec, saveFootEl, setupProblems, ownRulesText, idleRules, fillSetupShares, limitsOf, markLimits, formSettings, setupApply, foundNotice, setPage: (p) => { page = p; }, setSaved: (x) => { saved = x; }, bubbleText, segWidths, pictureBars, picFlyer, picFlight, fileOnto, movedByPlace, movedAt, extraPlaces, nightPicture, livePicture, tonightText, tonightShort, ageRule, lastNightText, jackOutText, jackFailedText, followRun, runEnded, runKeys, setSw: (x) => { sw = x; }, nightSteps, setNight: (x) => { nightNow = x; }, setJackLive: (x) => { jackLive = x; }, setUnraid: (x) => { unraidNow = x; }, jackPanel, jackAtWork, redrawCard, schedText, scheduleSection, historySection, footer, hints,
     tileList, switcher, scheduleTile, sharesTile, lastRunTile, setupTileData, setupTileList, SETUP_TILES, TILES, renderSetup,
     setForm: (f) => { form = f; }, initForm, levelMath, levelSection, levelLines, levelNight, jackUncoveredIn, jackNotice, form: () => form, setView: (v, p) => { view = v; page = p || 'main'; }, bars, render };

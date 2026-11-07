@@ -331,9 +331,10 @@ function advisorNetworkSeen(?string $file = null, ?int $now = null): array
  */
 function advisorTick(): void
 {
-    static $last = 0, $dash = 0, $relook = 0;
-    if (isset($GLOBALS['advisorPrepared']) && time() - $relook >= ADVISOR_RELOOK_EVERY) {
-        $relook = time();
+    static $last = null, $dash = null, $relook = null;      // the monotonic clock: a clock set back never stops these
+    $now = hrtime(true) / 1e9;
+    if (isset($GLOBALS['advisorPrepared']) && ($relook === null || $now - $relook >= ADVISOR_RELOOK_EVERY)) {
+        $relook = $now;
         $due = advisorRelookDue($GLOBALS['advisorPrepared'], houseContainers(), time());
         if ($due !== 'wait') {
             unset($GLOBALS['advisorPrepared']);
@@ -342,13 +343,13 @@ function advisorTick(): void
             advisorScan();          // the container is there: his page says so without waiting for its next look
         }
     }
-    if (time() - $last < 60) {
+    if ($last !== null && $now - $last < 60) {
         return;
     }
-    $last = time();
+    $last = $now;
     advisorInboxSweep(officeInboxDir(), 120);
-    if (time() - $dash >= ADVISOR_DASHBOARD_EVERY) {
-        $dash = time();
+    if ($dash === null || $now - $dash >= ADVISOR_DASHBOARD_EVERY) {
+        $dash = $now;
         $found = advisorFindContainer(ADVISOR_EXTERNALS['grafana'], houseContainers());
         $inspect = $found !== null && $found['running'] ? houseInspect($found['name']) : null;
         if ($inspect !== null) {
@@ -1975,7 +1976,7 @@ function advisorRunStdin(array $command, string $input, int $timeout = 120): arr
     stream_set_blocking($pipes[1], false);
     stream_set_blocking($pipes[2], false);
     $buf = [1 => '', 2 => ''];
-    $deadline = microtime(true) + $timeout;
+    $deadline = hrtime(true) / 1e9 + $timeout;
     $killed = false;
     while (!feof($pipes[1]) || !feof($pipes[2])) {
         $read = array_values(array_filter([$pipes[1], $pipes[2]], fn ($s) => !feof($s)));
@@ -1987,7 +1988,7 @@ function advisorRunStdin(array $command, string $input, int $timeout = 120): arr
                 $buf[$fd] .= $chunk;
             }
         }
-        if (microtime(true) > $deadline) {
+        if (hrtime(true) / 1e9 > $deadline) {
             proc_terminate($p, 9);
             $killed = true;
             break;

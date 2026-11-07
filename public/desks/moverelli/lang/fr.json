@@ -578,5 +578,10 @@
   "night.last_missed_jack": "le pool est encore à {pct} % — seul ce que Jack Streamer n'a pas regardé dépasse la limite",
   "notify.night_room_subject": "Pool {pool} : peu de place pour les autres",
   "notify.night_full": "appdata & co. et ce que Jack Streamer garde remplissent le pool {pool} jusqu'à {x} % — Jack Streamer ne peut rien ramener de nouveau. Fais de la place ou relève la limite.",
-  "notify.night_crowded": "Le budget de Jack Streamer ({jack} sur {pool}) ne laisse aux autres partages aucune place sous {x} % — les téléchargements du jour arrivent tous au-dessus. Réduis son budget ou relève la limite."
+  "notify.night_crowded": "Le budget de Jack Streamer ({jack} sur {pool}) ne laisse aux autres partages aucune place sous {x} % — les téléchargements du jour arrivent tous au-dessus. Réduis son budget ou relève la limite.",
+  "rc.silent": "Aucun signe de vie depuis {n} minutes — elle est peut-être bloquée (un disque, un montage) ; je la laisse tranquille.",
+  "notify.job_stale.subject": "Une de mes exécutions ne donne plus signe de vie",
+  "notify.job_stale": "Une de mes exécutions ne donne plus signe de vie depuis {n} minutes : elle est peut-être bloquée. Je ne l'arrête pas. Regarde le serveur : un disque, un montage.",
+  "check.job_stale": "Une de mes exécutions ne donne plus signe de vie depuis {minutes} minutes : elle est peut-être bloquée. Je ne l'arrête pas ; regarde le serveur (un disque, un montage).",
+  "check.job_stale_how": "Regarde ⟦Main⟧ dans Unraid (un disque manquant ou avec des erreurs ?), dmesg dans un terminal (tâches bloquées) et son journal sur la page de Madame Moverelli. C'est à toi de décider si elle doit s'arrêter."
 }
