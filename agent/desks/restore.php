@@ -2058,13 +2058,15 @@ function rsStaleJobs(): array
     return $out;
 }
 
-/** The Team Lead hears of it: a hint while it lasts, nothing for the office to fix (`job`: noting it holds for that job only) */
+/**
+ * The Team Lead hears of it: a hint while it lasts, nothing for the office to fix (`job`: noting it holds for that job
+ * only). One text per kind: his page shows them in its own language, and the words around a kind follow its grammar.
+ */
 function rsStaleChecks(): array
 {
-    $lang = officeNotifyLang();
-    return array_map(fn (array $s): array => finding('job_stale', 'hint', false,
-        ['kind' => officeNotifyText('restore', 'job.kind_' . $s['kind'], [], $lang), 'minutes' => $s['minutes'], 'job' => $s['id']],
-        $s['kind'] === 'drill' ? '#/restore/drill' : '#/restore/journal'), rsStaleJobs());
+    return array_map(fn (array $s): array => $s['kind'] === 'drill'
+        ? finding('job_stale_drill', 'hint', false, ['minutes' => $s['minutes'], 'job' => $s['id']], '#/restore/drill')
+        : finding('job_stale', 'hint', false, ['minutes' => $s['minutes'], 'job' => $s['id']], '#/restore/journal'), rsStaleJobs());
 }
 
 /** Once a minute whether a job went silent (a small state file or two); true when it looked */
@@ -2110,7 +2112,7 @@ function rsStaleTell(): array
         $kind = officeNotifyText('restore', 'job.kind_' . $s['kind'], [], $lang);
         officeNotify(officeNotifyText('restore', 'notify.job_stale', ['kind' => $kind], $lang),
             officeNotifyText('restore', 'notify.job_stale_text', ['kind' => $kind, 'n' => $s['minutes']], $lang),
-            'warning', '', officeNotifyLink($s['kind'] === 'drill' ? 'restore/drill' : 'restore/journal'), 'restore', 'job_stale');
+            'warning', '', officeNotifyLink($s['kind'] === 'drill' ? '#/restore/drill' : '#/restore/journal'), 'restore', 'job_stale');
         $told[] = $s['id'];
     }
     return $told;

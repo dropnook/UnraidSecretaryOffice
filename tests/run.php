@@ -14531,8 +14531,6 @@ function testJobStale(): void
     same('job stale: the Team Lead hears of it: one hint, not ok, how long, which job, a link to the journal',
         [['job_stale', 'hint', false, 31, $rid, '#/restore/journal']],
         array_map(fn ($f) => [$f['id'], $f['level'], $f['ok'], $f['params']['minutes'], $f['params']['job'], $f['link']], $checks));
-    same('job stale: the desk\'s checks carry it', true, in_array('job_stale', array_column(rsStaleChecks(), 'id'), true));
-    same('job stale: its kind in words', officeNotifyText('restore', 'job.kind_restore', [], officeNotifyLang()), $checks[0]['params']['kind'] ?? null);
     $later = $checks[0];
     $later['params']['minutes'] = 95;
     same('job stale: «I know, thanks» holds while the silence grows', caretakerAckSig('restore', $checks[0]), caretakerAckSig('restore', $later));
@@ -14541,6 +14539,7 @@ function testJobStale(): void
     same('job stale: the first look tells this job', [$rid], rsStaleTell());
     $log = (string) @file_get_contents("$tmp/notify.log");
     check('job stale: one warning', $told() === 1 && str_contains($log, "warning\n"), $log);
+    check('job stale: the warning\'s link opens his page', str_contains($log, 'SecretaryOffice#/restore/journal'), $log);
     check('job stale: the warning says which and how long', str_contains($log, officeNotifyText('restore', 'notify.job_stale', ['kind' => officeNotifyText('restore', 'job.kind_restore', [], officeNotifyLang())], officeNotifyLang()))
         && str_contains($log, '31'), $log);
     check('job stale: remembered in the job\'s record', is_int(rsJournal($rid)['stale_told'] ?? null));
@@ -14572,8 +14571,8 @@ function testJobStale(): void
     same('job stale: the drill too — stale and the stamp', [true, $old], [$d['stale'] ?? null, $d['heartbeat'] ?? null]);
     same('job stale: the drill\'s state and its word for the page carry it', [true, ['id' => $did, 'stale' => true, 'heartbeat' => $old]],
         [drillJobView($d)['stale'] ?? null, drillRunningBrief()]);
-    same('job stale: the drill\'s hint links to the drill', [['job_stale', 'hint', '#/restore/drill', officeNotifyText('restore', 'job.kind_drill', [], officeNotifyLang())]],
-        array_map(fn ($f) => [$f['id'], $f['level'], $f['link'], $f['params']['kind']], rsStaleChecks()));
+    same('job stale: the drill\'s hint: its own text, links to the drill', [['job_stale_drill', 'hint', false, 31, $did, '#/restore/drill']],
+        array_map(fn ($f) => [$f['id'], $f['level'], $f['ok'], $f['params']['minutes'], $f['params']['job'], $f['link']], rsStaleChecks()));
     same('job stale: the drill\'s one warning', [[$did], 2, [], 2], [rsStaleTell(), $told(), rsStaleTell(), $told()]);
     $deadlineWas = drillJournal($did)['deadline'] ?? null;
     check('job stale: the drill\'s deadline stays what it was, nothing else changed but the stamp', $deadlineWas !== null && is_int(drillJournal($did)['stale_told'] ?? null) && (drillJournal($did)['result'] ?? '') === 'running');
@@ -14609,7 +14608,7 @@ function testJobStale(): void
     check('job stale: never a kill, a stop or a new deadline from these', !preg_match('/posix_kill|rsStop|proc_terminate|\bkill\b|\'deadline\'|\[\'stop_asked\'\]/', $code));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $s = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$l.json"), true) ?: [];
-        same("job stale: $l - every word", [], array_values(array_filter(['rc.stale', 'drill.stale', 'notify.job_stale', 'notify.job_stale_text', 'job.kind_restore', 'job.kind_drill', 'check.job_stale', 'check.job_stale_how'], fn ($k) => !isset($s[$k]))));
+        same("job stale: $l - every word", [], array_values(array_filter(['rc.stale', 'drill.stale', 'notify.job_stale', 'notify.job_stale_text', 'job.kind_restore', 'job.kind_drill', 'check.job_stale', 'check.job_stale_how', 'check.job_stale_drill', 'check.job_stale_drill_how'], fn ($k) => !isset($s[$k]))));
     }
 
     proc_terminate($proc);
