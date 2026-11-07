@@ -1662,6 +1662,90 @@ async function busyMark(browser) {
   res.ms = Date.now() - t0;
   return res;
 }
+// ------------------------------------------------------------------ a job gone silent (OFFICE_JOB_STALE, 2026-11-07)
+// A restore and a drill whose heartbeat stopped: the agent's word in the state → the sentence on the card, the wave stays,
+// «running» gone, no new button; the heartbeat moving on in the job file → the sentence goes at once. Both themes, both widths.
+async function staleJob(browser) {
+  const res = { route: 'restore', theme: 'stale job', width: 0, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => res.fails.push(what);
+  const h = await startHarness({});
+  const now = Math.floor(Date.now() / 1000);
+  const hb = now - 31 * 60;
+  const base = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', 'restore.json'), 'utf8'));
+  const restore = { id: '20261107-120000-aa11', kind: 'files', what: 'photos', result: 'running', started: hb - 120, heartbeat: hb, pid: 4242, finished: null,
+    steps: [{ do: 'aside', path: '/mnt/user/photos', state: 'ok' }, { do: 'copy', from: '/a', to: '/mnt/user/photos', state: 'running' }] };
+  const drill = { id: '20261107-130000-bb22', kind: 'drill', what: 'now', scope: 'now', result: 'running', started: hb - 120, heartbeat: hb, pid: 4243, finished: null, deadline: now + 7200,
+    steps: [{ do: 'package', kind: 'app', id: 'photos', name: 'photos', state: 'running' }, { do: 'package', kind: 'app', id: 'notes', name: 'notes', state: 'pending' }] };
+  const dstate = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', 'post', 'restore.drill_state.json'), 'utf8'));
+  try {
+    for (const theme of ['dark', 'light']) {
+      for (const width of [1440, 375]) {
+        const at = `${theme} ${width}`;
+        const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
+        await ctx.addInitScript((t) => { try { localStorage.setItem('office.theme', t); } catch (e) { /* none */ } }, theme);
+        const page = await ctx.newPage();
+        const errors = [];
+        page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+        // the restore: the card above the tiles
+        h.setState('restore', { ...base, running: { id: restore.id, kind: restore.kind, what: restore.what, result: 'running', started: restore.started, step: 2, steps: 2, stale: true, heartbeat: hb }, drill_running: null });
+        h.setState('restore-job', restore);
+        await page.goto(`${h.url}#/restore`, { waitUntil: 'load' });
+        const there = await page.waitForSelector('.rs-run .rs-stale', { timeout: 15000 }).then(() => true, () => false);
+        res.tested++;
+        if (!there) fail(`${at}: a silent restore - no sentence on its card`);
+        const card = await page.evaluate(() => { const c = document.querySelector('.rs-run'); return c && { text: c.textContent, wave: !!c.querySelector('.spin'), chip: [...c.querySelectorAll('.card-head .chip')].length, buttons: [...c.querySelectorAll('button')].map((b) => b.textContent) }; });
+        res.tested++;
+        if (!card || !/No sign of life for 31 minutes/.test(card.text)) fail(`${at}: the card's sentence (${JSON.stringify(card)})`);
+        else {
+          if (!card.wave) fail(`${at}: the wave is gone from the card`);
+          if (card.chip) fail(`${at}: the card still says «running»`);
+          if (card.buttons.join() !== 'Journal') fail(`${at}: a new button on the card (${card.buttons.join()})`);
+        }
+        if (theme === 'dark' && width === 1440 && process.env.USO_STALE_SHOTS) await page.screenshot({ path: path.join(process.env.USO_STALE_SHOTS, 'restore-card.png') });
+        // it wakes: the job file's heartbeat moves on, the sentence goes at the next poll
+        h.setState('restore-job', { ...restore, heartbeat: now });
+        const gone = await page.waitForFunction(() => { const c = document.querySelector('.rs-run'); return c && !c.querySelector('.rs-stale') && /running/.test(c.textContent); }, null, { timeout: 8000 }).then(() => true, () => false);
+        res.tested++;
+        if (!gone) fail(`${at}: awake again, the sentence stays`);
+        // an agent that doesn't know the word yet (an older state): as before
+        h.setState('restore', { ...base, running: { id: restore.id, kind: restore.kind, what: restore.what, result: 'running', started: restore.started, step: 2, steps: 2 } });
+        h.setState('restore-job', restore);
+        await page.reload({ waitUntil: 'load' });
+        await page.waitForSelector('.rs-run', { timeout: 15000 }).catch(() => {});
+        res.tested++;
+        if (await page.$('.rs-run .rs-stale')) fail(`${at}: an older agent's state says the sentence`);
+        // the drill: its card under the tile
+        h.setState('restore', { ...base, running: null, drill_running: { id: drill.id, stale: true, heartbeat: hb } });
+        h.setState('restore-job', undefined);
+        h.setState('restore-drill-job', drill);
+        h.setPost('restore.drill_state', () => ({ ...dstate, running: { ...drill, stale: true } }));
+        await page.goto(`${h.url}#/restore/drill`, { waitUntil: 'load' });
+        await page.reload({ waitUntil: 'load' });
+        const box = await page.waitForSelector('.rs-dr-run .rs-stale', { timeout: 15000 }).then(() => true, () => false);
+        res.tested++;
+        if (!box) fail(`${at}: a silent drill - no sentence on its card`);
+        else {
+          const d = await page.evaluate(() => { const c = document.querySelector('.rs-dr-run'); return { text: c.textContent, wave: !!c.querySelector('.spin'), buttons: c.querySelectorAll('button').length }; });
+          if (!/No sign of life for 31 minutes/.test(d.text) || !d.wave || d.buttons) fail(`${at}: the drill's card (${JSON.stringify(d)})`);
+        }
+        if (theme === 'dark' && width === 1440 && process.env.USO_STALE_SHOTS) await page.screenshot({ path: path.join(process.env.USO_STALE_SHOTS, 'drill-card.png') });
+        const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+        res.tested++;
+        if (wide) fail(`${at}: the page scrolls sideways`);
+        for (const e of [...new Set(errors)]) fail(`${at}: ${e}`);
+        h.setState('restore-drill-job', undefined);
+        h.setPost('restore.drill_state', null);
+        await ctx.close();
+      }
+    }
+  } catch (e) {
+    fail(String(e.message || e).split('\n')[0].slice(0, 200));
+  }
+  await h.close();
+  res.ms = Date.now() - t0;
+  return res;
+}
 const walks = opt.states ? [] : WALK.filter((d) => !opt.only || routes.includes(d));
 results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d))));
 if (!opt.states && (!opt.only || routes.includes('cleanup/where'))) results.push(await cleanupMap(browser));
@@ -1671,6 +1755,7 @@ if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(awa
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await pairAddress(browser));
 if (!opt.states && (!opt.only || routes.includes('backup'))) results.push(await partnerStreams(browser));
 if (!opt.states && (!opt.only || routes.includes('snapshot'))) results.push(await busyMark(browser));
+if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await staleJob(browser));
 await browser.close();
 await harness.close();
 

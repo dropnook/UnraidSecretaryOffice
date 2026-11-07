@@ -8854,7 +8854,7 @@ function testNotifyPlain(): void
             $texts = is_array($v) ? array_values(array_filter($v, 'is_string')) : [(string) $v];
             // a subject: a key that says so, the watchman's (each of his notify.* but the list's tail and footer), the drill's
             $subject = str_contains((string) $k, 'subject') || ($desk === 'watchman' && !in_array($k, ['notify.more', 'notify.footer'], true))
-                    || ($desk === 'restore' && $k === 'notify.drill_failed');
+                    || ($desk === 'restore' && in_array($k, ['notify.drill_failed', 'notify.job_stale'], true));
             foreach ($texts as $t) {
                 if ($subject) {
                     $subjects++;
@@ -14467,6 +14467,223 @@ function testRestore(): void
  * Backupsy's run - the steps short (the full sentence in the journal), the current one's % and time left from the live
  * rate only with its size known, the whole's end only when every copy step still to come has a size; no history.
  */
+/**
+ * 2026-11-07 (Benj; a drill in D state on Tower, 2026-10-30, «running» for hours): 30 minutes without a heartbeat and the
+ * office says the job may hang — his page, one hint for the Team Lead, one warning per job; never ended by the office.
+ */
+function testJobStale(): void
+{
+    $now = 1800000000;
+    same('job stale: 29 minutes no, 31 yes, no stamp never, a stamp ahead of the clock no', [false, true, false, false],
+        [jobStale($now - 29 * 60, $now), jobStale($now - 31 * 60, $now), jobStale(null, $now), jobStale($now + 600, $now)]);
+    same('job stale: the rule is 30 minutes', 1800, OFFICE_JOB_STALE);
+    $tmp = hardeningTmp('job-stale');
+    $saved = [$GLOBALS['rs'] ?? [], $GLOBALS['drill'] ?? []];
+    $notifyWas = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP'), getenv('OFFICE_NOTIFY_HOME')];
+    @mkdir("$tmp/data/restore", 0700, true);
+    @mkdir("$tmp/data/restore-drill", 0700, true);
+    @mkdir("$tmp/nc", 0700, true);
+    $GLOBALS['rs']['data'] = "$tmp/data/restore";
+    $GLOBALS['rs']['job_file'] = "$tmp/data/restore-job.json";
+    $GLOBALS['drill'] = ['data' => "$tmp/data/restore-drill", 'cert' => "$tmp/data/restore-drill.json", 'job_file' => "$tmp/data/restore-drill-job.json"];
+    file_put_contents("$tmp/notify", "#!/bin/sh\nfor a in \"\$@\"; do printf '%s\\n' \"\$a\"; done >>" . escapeshellarg("$tmp/notify.log") . "\n");
+    chmod("$tmp/notify", 0755);
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    putenv("OFFICE_NOTIFY_STAMP=$tmp/notify.stamp");
+    putenv("OFFICE_NOTIFY_HOME=$tmp/nc");
+    $told = fn (): int => substr_count((string) @file_get_contents("$tmp/notify.log"), 'Unraid Secretary Office: ');
+    // the process is there and silent: an agent.php that only sleeps
+    $proc = proc_open([PHP_BINARY, '-r', 'sleep(120);', 'agent.php'], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+    $pid = (int) proc_get_status($proc)['pid'];
+    usleep(200000);
+    $old = time() - 31 * 60;
+    $rid = '20261107-120000-aa11';
+    $did = '20261107-130000-bb22';
+    $record = fn (string $id, array $more = []): array => $more + ['id' => $id, 'kind' => 'share', 'what' => 'photos', 'result' => 'running', 'created' => $old - 60, 'started' => $old - 60, 'finished' => null,
+        'pid' => $pid, 'heartbeat' => $old, 'steps' => [['do' => 'copy', 'state' => 'running']]];
+    $put = function (string $dir, string $job, array $j): void {
+        @mkdir($dir, 0700, true);
+        writeAtomic("$dir/journal.json", jsonEncode($j), 0600, 0, 0);
+        writeAtomic($job, jsonEncode($j));
+    };
+    $rsJob = fn (array $j) => $put(rsDir($rid), rsJobFile(), $j);
+    $drJob = fn (array $j) => $put(drillDir($did), drillJobFile(), $j);
+
+    $rsJob($record($rid));
+    $run = rsRunningJob();
+    same('job stale: an old heartbeat, the process there — his running job says so, with the stamp', [true, $old], [$run['stale'] ?? null, $run['heartbeat'] ?? null]);
+    $rsJob($record($rid, ['heartbeat' => time() - 29 * 60]));
+    same('job stale: 29 minutes — not yet', false, rsRunningJob()['stale'] ?? null);
+    same('job stale: no check while nothing is silent', [], rsStaleChecks());
+    same('job stale: no warning while nothing is silent', [[], 0], [rsStaleTell(), $told()]);
+    $rsJob($record($rid, ['finished' => time()]));
+    same('job stale: finished — never', false, rsRunningJob()['stale'] ?? null);
+    $rsJob($record($rid, ['stop_asked' => $old]));
+    same('job stale: asked to stop — never', false, rsRunningJob()['stale'] ?? null);
+    $rsJob($record($rid, ['heartbeat' => null]));
+    same('job stale: a record without a heartbeat — never', [false, null], [rsRunningJob()['stale'] ?? null, (rsRunningJob() ?? [])['heartbeat'] ?? null]);
+    $rsJob($record($rid, ['pid' => 2147483000]));
+    same('job stale: the process gone — the old way (not running, the journal settles to interrupted), never «stale»', [null, 'interrupted'], [rsRunningJob(), rsJournals()[0]['result'] ?? null]);
+    @exec('rm -rf ' . escapeshellarg(rsDir($rid)));
+
+    $rsJob($record($rid));
+    $checks = rsStaleChecks();
+    same('job stale: the Team Lead hears of it: one hint, not ok, how long, which job, a link to the journal',
+        [['job_stale', 'hint', false, 31, $rid, '#/restore/journal']],
+        array_map(fn ($f) => [$f['id'], $f['level'], $f['ok'], $f['params']['minutes'], $f['params']['job'], $f['link']], $checks));
+    same('job stale: the desk\'s checks carry it', true, in_array('job_stale', array_column(rsStaleChecks(), 'id'), true));
+    same('job stale: its kind in words', officeNotifyText('restore', 'job.kind_restore', [], officeNotifyLang()), $checks[0]['params']['kind'] ?? null);
+    $later = $checks[0];
+    $later['params']['minutes'] = 95;
+    same('job stale: «I know, thanks» holds while the silence grows', caretakerAckSig('restore', $checks[0]), caretakerAckSig('restore', $later));
+    check('job stale: a new job asks anew', caretakerAckSig('restore', $checks[0]) !== caretakerAckSig('restore', ['params' => ['job' => $did] + $checks[0]['params']] + $checks[0]));
+
+    same('job stale: the first look tells this job', [$rid], rsStaleTell());
+    $log = (string) @file_get_contents("$tmp/notify.log");
+    check('job stale: one warning', $told() === 1 && str_contains($log, "warning\n"), $log);
+    check('job stale: the warning says which and how long', str_contains($log, officeNotifyText('restore', 'notify.job_stale', ['kind' => officeNotifyText('restore', 'job.kind_restore', [], officeNotifyLang())], officeNotifyLang()))
+        && str_contains($log, '31'), $log);
+    check('job stale: remembered in the job\'s record', is_int(rsJournal($rid)['stale_told'] ?? null));
+    same('job stale: the second look tells nothing', [[], 1], [rsStaleTell(), $told()]);
+    check('job stale: the office never ended it — the process is still there, no stop asked, the record still running',
+        proc_get_status($proc)['running'] && (rsJournal($rid)['result'] ?? '') === 'running' && !isset(rsJournal($rid)['stop_asked']));
+    // the job wakes and writes from what it has in memory (no stale_told), then falls silent again: never a second warning
+    $mem = $record($rid);
+    rsJournalWrite($mem);
+    check('job stale: the job that wakes keeps the stamp, in the journal and the file the page polls',
+        is_int(rsJournal($rid)['stale_told'] ?? null) && is_int(readJson(rsJobFile())['stale_told'] ?? null) && ($mem['heartbeat'] ?? 0) >= time() - 5);
+    same('job stale: awake — no more silent', false, rsRunningJob()['stale'] ?? null);
+    $mem['heartbeat'] = $old;
+    $rsJob($mem);
+    same('job stale: silent again — the page and the Team Lead say it, no second warning', [true, 1, [], 1],
+        [rsRunningJob()['stale'] ?? null, count(rsStaleChecks()), rsStaleTell(), $told()]);
+    // a job that woke while the agent looked: the journal, the job's own, is newer than the job file — nothing written, nothing said
+    $woke = $record($rid, ['heartbeat' => time()]);
+    @exec('rm -rf ' . escapeshellarg(rsDir($rid)));
+    $rsJob($record($rid));
+    writeAtomic(rsDir($rid) . '/journal.json', jsonEncode($woke), 0600, 0, 0);
+    same('job stale: its journal says it just woke — nothing told, the record left to the job', [[], 1, null], [rsStaleTell(), $told(), rsJournal($rid)['stale_told'] ?? null]);
+    @exec('rm -rf ' . escapeshellarg(rsDir($rid)));
+    @unlink(rsJobFile());
+
+    // the drill: the same rule through its job file (what the page polls: the view)
+    $drJob($record($did, ['kind' => 'drill', 'scope' => 'now', 'deadline' => time() + 3600]));
+    $d = drillRunning();
+    same('job stale: the drill too — stale and the stamp', [true, $old], [$d['stale'] ?? null, $d['heartbeat'] ?? null]);
+    same('job stale: the drill\'s state and its word for the page carry it', [true, ['id' => $did, 'stale' => true, 'heartbeat' => $old]],
+        [drillJobView($d)['stale'] ?? null, drillRunningBrief()]);
+    same('job stale: the drill\'s hint links to the drill', [['job_stale', 'hint', '#/restore/drill', officeNotifyText('restore', 'job.kind_drill', [], officeNotifyLang())]],
+        array_map(fn ($f) => [$f['id'], $f['level'], $f['link'], $f['params']['kind']], rsStaleChecks()));
+    same('job stale: the drill\'s one warning', [[$did], 2, [], 2], [rsStaleTell(), $told(), rsStaleTell(), $told()]);
+    $deadlineWas = drillJournal($did)['deadline'] ?? null;
+    check('job stale: the drill\'s deadline stays what it was, nothing else changed but the stamp', $deadlineWas !== null && is_int(drillJournal($did)['stale_told'] ?? null) && (drillJournal($did)['result'] ?? '') === 'running');
+    $dm = $record($did, ['kind' => 'drill', 'scope' => 'now', 'deadline' => time() + 3600]);
+    drillJournalWrite($dm);
+    check('job stale: the drill that wakes keeps the stamp, the job file\'s view carries it', is_int(drillJournal($did)['stale_told'] ?? null) && is_int(readJson(drillJobFile())['stale_told'] ?? null));
+    $drJob($record($did, ['kind' => 'drill', 'finished' => time()]));
+    same('job stale: a finished drill — never', false, drillRunning()['stale'] ?? null);
+    $drJob($record($did, ['kind' => 'drill', 'stop_asked' => time()]));
+    same('job stale: a drill asked to stop — never', false, drillRunning()['stale'] ?? null);
+    $drJob($record($did, ['kind' => 'drill', 'result' => 'queued', 'created' => time()]));
+    same('job stale: queued — never', false, drillRunning()['stale'] ?? null);
+    @unlink(drillJobFile());
+    same('job stale: no drill — no word', null, drillRunningBrief());
+
+    // asked to stop: the job says so in its record at the next beat (a budget of a step is no stop of the job)
+    $GLOBALS['rsStop'] = true;
+    $GLOBALS['rsStopWhy'] = 'budget';
+    $b = ['id' => $rid, 'heartbeat' => time()];
+    @mkdir(rsDir($rid), 0700, true);
+    rsBeat($b);
+    $budget = isset($b['stop_asked']);
+    $GLOBALS['rsStopWhy'] = 'stopped';
+    rsBeat($b);
+    same('job stale: a stop at the next beat is in the record, a step\'s budget isn\'t', [false, true], [$budget, is_int($b['stop_asked'] ?? null)]);
+    $GLOBALS['rsStop'] = false;
+    $GLOBALS['rsStopWhy'] = null;
+
+    // the words, the code that never ends anything
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    $from = (int) strpos($src, 'function rsStaleJobs');
+    $code = (string) preg_replace('~/\*.*?\*/~s', '', substr($src, $from, (int) strpos($src, 'function rsJobAlive') - $from));
+    check('job stale: never a kill, a stop or a new deadline from these', !preg_match('/posix_kill|rsStop|proc_terminate|\bkill\b|\'deadline\'|\[\'stop_asked\'\]/', $code));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $s = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/restore/lang/$l.json"), true) ?: [];
+        same("job stale: $l - every word", [], array_values(array_filter(['rc.stale', 'drill.stale', 'notify.job_stale', 'notify.job_stale_text', 'job.kind_restore', 'job.kind_drill', 'check.job_stale', 'check.job_stale_how'], fn ($k) => !isset($s[$k]))));
+    }
+
+    proc_terminate($proc);
+    proc_close($proc);
+    foreach (['OFFICE_NOTIFY_BIN', 'OFFICE_NOTIFY_STAMP', 'OFFICE_NOTIFY_HOME'] as $i => $k) {
+        putenv($notifyWas[$i] === false ? $k : "$k={$notifyWas[$i]}");
+    }
+    [$GLOBALS['rs'], $GLOBALS['drill']] = $saved;
+
+    // the page: the sentence instead of «running», the wave stays; no sentence for a job awake or an older agent's state
+    $node = testsNode();
+    if ($node === '') {
+        check('job stale page: node is missing here - skipped', true);
+        exec('rm -rf ' . escapeshellarg($tmp));
+        return;
+    }
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.OFFICE_DESK_TESTS = {};
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+const el = (tag, cls, t) => ({ tag, className: cls || '', textContent: t == null ? '' : String(t), children: [], style: {}, dataset: {},
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, setAttribute() {} });
+const text = (n) => (typeof n === 'string' ? n : n.textContent + (n.children || []).map(text).join(''));
+const has = (n, cls) => (typeof n !== 'string') && ((n.className || '').split(' ').includes(cls) || (n.children || []).some((c) => has(c, cls)));
+globalThis.Office = { scope: () => T, t: T, el, store: () => null, desk: () => {}, places: () => {}, placesFrom: () => {}, placesTook: () => {},
+  sections: () => ({ places: () => [] }), has: () => false, withGreeting: (i, b) => b, agent: { running: true },
+  fmt: { size: (b) => b + ' B', relative: (t) => 'rel ' + t, date: (t) => 'date ' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's' } };
+(0, eval)(fs.readFileSync(process.argv[3], 'utf8'));
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const r = OFFICE_DESK_TESTS.restore;
+const now = 1800000000;
+const hb = now - 31 * 60;
+const job = (more = {}) => ({ id: 'j1', kind: 'share', what: 'photos', result: 'running', started: hb - 60, heartbeat: hb, ...more,
+  steps: [{ do: 'copy', from: '/a', to: '/b', state: 'running' }] });
+const run = (more = {}) => ({ id: 'j1', kind: 'share', what: 'photos', result: 'running', step: 1, steps: 1, stale: true, heartbeat: hb, ...more });
+const look = (x) => ({ sentence: text(x).includes('rc.stale {"n":31}'), chip: text(x).includes('jr.running'), wave: has(x, 'spin') });
+const out = {};
+out.pure = [r.silentMinutes(run(), job(), now), r.silentMinutes(run({ stale: false }), job(), now), r.silentMinutes(null, job(), now), r.silentMinutes(run(), job({ heartbeat: now }), now),
+  r.silentMinutes({ id: 'j1' }, job(), now), r.silentMinutes(run(), null, now), r.silentMinutes(run(), job({ id: 'other', heartbeat: now }), now)];
+r.setState({ running: run(), place: {}, engine: { found: true } });
+r.setJob(job());
+out.card = look(r.runCard(job(), now));
+r.setState({ running: run({ stale: false }), place: {}, engine: { found: true } });
+out.fresh = look(r.runCard(job(), now));
+r.setState({ running: { id: 'j1', kind: 'share', what: 'photos', result: 'running', step: 1, steps: 1 }, place: {}, engine: { found: true } });
+out.older = look(r.runCard(job(), now));
+r.setState({ running: run({ heartbeat: Date.now() / 1000 - 31 * 60 }), place: {}, engine: { found: true } });
+r.setJob(null);
+const short = r.runCardShort(run());
+out.short = { sentence: text(short).includes('rc.stale {"n":31}'), chip: text(short).includes('jr.running'), wave: has(short, 'spin') };
+out.bubble = r.bubbleText().includes('rc.stale {"n":31}');
+const h = r.drillHelpers();
+r.setState({ drill_running: { id: 'd1', stale: true, heartbeat: Date.now() / 1000 - 40 * 60 }, place: {}, engine: {} });
+out.drill = [h.drillSilent({ id: 'd1', heartbeat: 1 }), h.drillSilent({ id: 'd1', heartbeat: Date.now() / 1000 + 1 })];
+r.setState({ place: {}, engine: {} });
+out.drillOld = h.drillSilent({ id: 'd1', heartbeat: 1 });
+console.log(JSON.stringify(out));
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/restore/desk.js') . ' ' . escapeshellarg(testsRunHelpersJs($tmp)) . ' 2>&1');
+    $r = json_decode($raw, true) ?: [];
+    same('job stale page: the minutes from the agent\'s word; not stale, no state, awake in the job file, an older agent — none; no job file or another job\'s — the word holds',
+        [31, null, null, null, null, 31, 31], $r['pure'] ?? $raw);
+    same('job stale page: the card says the sentence instead of «running», the wave stays', ['sentence' => true, 'chip' => false, 'wave' => true], $r['card'] ?? $raw);
+    same('job stale page: a job with a fresh heartbeat runs as before', ['sentence' => false, 'chip' => true, 'wave' => true], $r['fresh'] ?? $raw);
+    same('job stale page: an older agent\'s state (no key) runs as before', ['sentence' => false, 'chip' => true, 'wave' => true], $r['older'] ?? $raw);
+    same('job stale page: the card before the job file is read, too', ['sentence' => true, 'chip' => false, 'wave' => true], $r['short'] ?? $raw);
+    same('job stale page: his bubble says it too', true, $r['bubble'] ?? $raw);
+    same('job stale page: the drill\'s minutes from his state; awake — none', [40, null], $r['drill'] ?? $raw);
+    check('job stale page: the drill with an older agent\'s state — none', array_key_exists('drillOld', $r) && $r['drillOld'] === null, $raw);
+    $djs = (string) file_get_contents(OFFICE_WEB . '/desks/restore/drill.js');
+    check('job stale page: the drill\'s card says it, in its own key', str_contains($djs, "T('drill.stale', { n: silent })") && str_contains($djs, "x.drillSilent ? x.drillSilent(job) : null"));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testRestoreRunCard(): void
 {
     $rjs = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
@@ -61245,7 +61462,7 @@ function testBackupAnewChoice(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
