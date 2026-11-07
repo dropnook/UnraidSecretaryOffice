@@ -503,6 +503,67 @@ await Promise.all(Array.from({ length: Math.min(opt.jobs, jobs.length) }, async 
 // array, the wave in its cell, it opens when the scan ends and nothing else was clicked); «Scan all…» asks once and queues;
 // no horizontal scrolling and no jumping page at phone width either, by finger a tap shows and the next one goes in.
 /**
+ * The plan in PHP beside Python (agent/desks/jack-shadow.php): no tile without its flag (no key in his state); with it the tile says the counts,
+ * its section the differences from the part «shadow»; all the same: no list, the part never asked. At 1440 and 375 px.
+ */
+async function jackShadow(browser) {
+  const res = { route: 'jack shadow', theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => { if (res.fails.length < 40 && !res.fails.includes(what)) res.fails.push(what); };
+  const h = await startHarness({});
+  const file = (name) => JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', `${name}.json`), 'utf8'));
+  const stub = file('jack');
+  const part = file('jack-shadow');
+  const idle = { ...stub, jobs: { embycache: { ...stub.jobs.embycache, running: false }, gather: stub.jobs.gather }, night: { ...stub.night, now: null } };
+  const tile = '#sso-desk [data-place="tile.shadow"], #sso-desk .stat:has-text("The plan in PHP")';
+  for (const width of [1440, 375]) {
+    const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(String(e.message).slice(0, 160)));
+    try {
+      h.setState('jack', idle);
+      h.setState('jack-shadow', part);
+      await page.goto(`${h.url}#/jack`, { waitUntil: 'load' });
+      await page.waitForSelector('#sso-desk .stats');
+      res.tested++;
+      if (await page.locator(tile).count()) fail(`${width}: a tile without the flag`);
+      // with the flag
+      h.setState('jack', { ...idle, shadow: part.summary });
+      await page.goto(`${h.url}#/jack/shadow`, { waitUntil: 'load' });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForSelector('#sso-desk .jo-structure');
+      await page.waitForFunction(() => document.querySelectorAll('#sso-desk .jo-structure .row').length > 0, null, { timeout: 8000 });
+      res.tested++;
+      const seen = await page.evaluate(() => {
+        const b = document.querySelector('#sso-desk .jo-structure');
+        return { text: b.textContent, rows: [...b.querySelectorAll('.row')].map((r) => [r.querySelector('.row-name').textContent, r.querySelector('.chip').textContent, r.querySelectorAll('.jo-structure-path').length]),
+          tile: [...document.querySelectorAll('#sso-desk .stat')].map((x) => x.textContent).find((t) => t.includes('The plan in PHP')) || '',
+          wide: document.documentElement.scrollWidth > window.innerWidth };
+      });
+      if (!seen.tile.includes('12 days the same, 1 with differences') || !seen.tile.includes('3 not compared')) fail(`${width}: the tile's counts: ${seen.tile}`);
+      if (seen.rows.length !== 3 || seen.rows[0][1] !== 'Comes to the pool' || seen.rows[1][1] !== 'Goes back by rank' || seen.rows[0][2] !== 2) fail(`${width}: the rows: ${JSON.stringify(seen.rows)}`);
+      if (!seen.text.includes('2 more differences not listed')) fail(`${width}: what isn't listed`);
+      if (seen.wide) fail(`${width}: scrolls sideways`);
+      // all the same: no list
+      h.setState('jack', { ...idle, shadow: { same: 5, differ: 0, not: 0, last: part.summary.last } });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForSelector('#sso-desk .jo-structure');
+      res.tested++;
+      if (await page.locator('#sso-desk .jo-structure .row').count()) fail(`${width}: rows though all the same`);
+      for (const e of errors) fail(`${width}: ${e}`);
+    } catch (e) {
+      fail(`${width}: ${String(e.message).slice(0, 200)}`);
+    } finally {
+      await ctx.close();
+    }
+  }
+  await h.close();
+  res.ms = Date.now() - t0;
+  return res;
+}
+
+/**
  * Jack Streamer's «Check the structure…» (agent/desks/jack-structure.php): the list drawn, grouped by kind with kinds as labels;
  * who didn't answer; the clean sentence; a check at work (the wave, the button off) and its end coming by the one timer; the
  * click sends exactly one structure_start. At 1440 and 375 px.
@@ -1831,6 +1892,7 @@ results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d
 if (!opt.states && (!opt.only || routes.includes('cleanup/where'))) results.push(await cleanupMap(browser));
 if (!opt.states && (!opt.only || routes.includes('jack/setup'))) results.push(await dialogStack(browser, harness));
 if (!opt.states && (!opt.only || routes.includes('jack'))) results.push(await jackStructure(browser));
+if (!opt.states && (!opt.only || routes.includes('jack'))) results.push(await jackShadow(browser));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await firstHome(browser));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await netBusy(browser));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await pairAddress(browser));

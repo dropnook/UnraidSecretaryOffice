@@ -1,0 +1,10 @@
+{
+  "nights": [
+    {"time": 1791550474, "more": 2, "differences": [
+      {"kind": "fill", "path": "Familienfilme/Ferien am See (2019)/Ferien am See (2019).mkv", "python": "true", "php": "false"},
+      {"kind": "give_back.order", "path": "Familienserien/Gartenprojekt (2020)/Season 01/Gartenprojekt S01E05.mkv", "python": "3", "php": "4"},
+      {"kind": "file", "path": "Familienserien/Unser Hausbau (2021)/Season 01/Unser Hausbau S01E03.mkv", "python": "{\"size\":123}", "php": "{\"size\":124}"}
+    ]}
+  ],
+  "summary": {"same": 12, "differ": 1, "not": 3, "last": 1791550474}
+}

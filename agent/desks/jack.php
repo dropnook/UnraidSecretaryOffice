@@ -142,11 +142,14 @@ desk('jack', [
         // «Check the structure…» (jack-structure.php): only ever on this click; the part «structure» (desk.json) reads its list
         'structure_start' => fn (array $r) => jackStructureAsk(),
         'structure_list'  => fn (array $r) => jackStructureList(),
+        // the plan in PHP beside Python (jack-shadow.php), only with its flag file: the part «shadow» reads the differences
+        'shadow_list'     => fn (array $r) => jackShadowList(),
     ],
     'jobs'    => [
         'embycache' => fn (array $args) => jackJob('embycache', $args),
         'gather'    => fn (array $args) => jackJob('gather', $args),
         'jack-structure' => fn (array $args) => jackStructureJob(),   // its part loads after this file on Linux: no constant of it here
+        'jack-shadow'    => fn (array $args) => jackShadowJob(),      // … the same; started by jackJob() after a real run, only with the flag
     ],
     'checks'  => fn () => jackChecks(),
     'metrics' => fn (): array => jackMetrics(),
@@ -390,6 +393,10 @@ function jackScan(): array
         // «Check the structure…» (jack-structure.php): the counts of the last check, whether one goes; null: never asked
         'structure'  => jackStructureSummary(),
     ];
+    // the plan in PHP beside Python (jack-shadow.php): the key only with its flag file
+    if (($shadow = jackShadowSummary()) !== null) {
+        $state['shadow'] = $shadow;
+    }
     $GLOBALS['jackDocker'] = $state['docker'];      // for his tick (jackDockerBackTick()): no file read every round
     writeAtomic(deskFile('jack'), jsonEncode($state));
     return $state;
@@ -3419,6 +3426,7 @@ function jackJob(string $tool, array $args): int
     } catch (Throwable $e) {
         fwrite(STDERR, "$tool: notification failed: {$e->getMessage()}\n");
     }
+    jackShadowAfterRun($tool, $mode, $exit, $noFill);     // only with its flag file: the plan in PHP beside Python (jack-shadow.php)
     return $exit;
 }
 

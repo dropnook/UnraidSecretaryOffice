@@ -45,6 +45,7 @@ let progBox = null;           // the panel on the page, redrawn in place
 let nightNow = null;          // the night run with Ms. Moverelli going for real (agent: jackNightNow()) — her card's phases on his page
 let watching = [];            // who is watching what while a real run goes (the job's look once a minute): [{name, items}] per person
 let startKicks = 0;           // a real run just started from here: look again until it shows as running
+const SHADOW_KINDS = ['request', 'outcome', 'run', 'give_back', 'give_back_order', 'cleanup', 'protected', 'fill', 'dropped', 'on_deck', 'file', 'person', 'selected', 'skipped'];     // what a comparison can name
 const STRUCTURE_KINDS = ['flat_movie', 'shared_folder', 'flat_series'];     // «Check the structure…»: the list's groups, in this order
 let structureList = null;     // the part «structure»: what the last check found
 let structureAsked = null;    // the check (its time) the part was last asked for
@@ -484,8 +485,10 @@ const sw = Office.sections({
       { id: 'shares', key: 'shares', place: 'tile.shares', section: () => shareSection(), tile: (a) => sharesTile(a) },
     ] : []),
     { id: 'gather', key: 'gather', place: 'tile.gather', section: () => gatherSection(), tile: (a) => gatherTile(a) },
+    ...(state && state.shadow ? [{ id: 'shadow', key: 'shadow.title', place: 'tile.shadow', section: () => shadowSection(), tile: (a) => shadowTile(a) }] : []),
   ],
   sections: { runs: () => historySection() },
+  wants: (sub) => sub === 'shadow',    // its tile comes only with his state (only with its flag file)
 });
 
 /** The desk's own actions — on both tabs (the other page is the tab, no head button for it) */
@@ -1243,6 +1246,68 @@ function structureBox() {
   }
   if (s.unmapped) box.appendChild(el('p', 'jo-structure-line', T('structure.unmapped', { n: s.unmapped })));
   return box;
+}
+
+/**
+ * The plan in PHP beside Python (agent/desks/jack-shadow.php): shown only with its flag file (state.shadow). What the comparisons
+ * after his real runs found; the differences come by the part «shadow». Nothing here changes anything.
+ */
+let shadowList = null;        // the part «shadow»
+let shadowAsked = null;       // the comparison (its time) the part was last asked for
+function shadowCounts(s) {
+  return T('shadow.value', { same: nOf('shadow_same', s.same), differ: nOf('shadow_differ', s.differ) });
+}
+function shadowTile(a) {
+  const s = state.shadow;
+  return Office.stat({ label: T('shadow.title'), value: s.last ? shadowCounts(s) : T('shadow.none'), sub: s.not ? nOf('shadow_not', s.not) : '', tip: T('shadow.tip'), alert: s.differ > 0, ...a });
+}
+function shadowAsk(at) {
+  shadowAsked = at;
+  Office.loadState(ID, { part: 'shadow', fresh: true }, (j) => {
+    shadowList = j && j.ok && j.part && Array.isArray(j.part.nights) ? j.part.nights : null;
+    if (dom.shadow && dom.shadow.isConnected) {
+      const n = shadowBox();
+      dom.shadow.replaceWith(n);
+      dom.shadow = n;
+    }
+  }).catch(() => { shadowAsked = null; });
+}
+function shadowBox() {
+  const box = el('div', 'jo-structure');
+  const s = state.shadow;
+  if (!s.last) {
+    box.appendChild(el('p', 'jo-structure-line', T('shadow.none')));
+    return box;
+  }
+  box.appendChild(el('p', 'jo-structure-line', T('shadow.line', { counts: shadowCounts(s), when: fmt.date(s.last) })));
+  if (s.not) box.appendChild(el('p', 'jo-structure-line', nOf('shadow_not', s.not)));
+  if (!s.differ) return box;
+  if (shadowAsked !== s.last) shadowAsk(s.last);
+  (shadowList || []).forEach((n) => {
+    box.appendChild(el('p', 'jo-structure-tip', fmt.date(n.time)));
+    const rows = el('div', 'box');
+    (Array.isArray(n.differences) ? n.differences : []).forEach((d) => {
+      const row = el('div', 'row nocheck');
+      const main = el('div', 'row-main');
+      main.appendChild(el('div', 'row-name', d.path || '–'));
+      const meta = el('div', 'row-meta');
+      const kind = String(d.kind).split('.')[0];
+      meta.appendChild(chip(T(SHADOW_KINDS.includes(kind) ? `shadow.kind.${kind}` : 'shadow.kind.other'), 'warn'));
+      meta.append(el('span', 'jo-structure-path', T('shadow.python', { what: d.python })), el('span', 'jo-structure-path', T('shadow.php', { what: d.php })));
+      main.appendChild(meta);
+      row.appendChild(main);
+      rows.appendChild(row);
+    });
+    box.appendChild(rows);
+    if (n.more > 0) box.appendChild(el('p', 'jo-structure-line', T('shadow.more', { n: n.more })));
+  });
+  return box;
+}
+function shadowSection() {
+  const s = section(T('shadow.title'), T('shadow.sub'), { place: 'tile.shadow' });
+  dom.shadow = shadowBox();
+  s.appendChild(dom.shadow);
+  return s;
 }
 
 /** The gather: an optional helper (2026-10-16) — fewer disks wake when films go back and forth; no run waits for it */
