@@ -1,6 +1,12 @@
 /* Jack Emby */
 #sso{   /* nested in the office's element, like office.css */
 .jo-bar{width:120px}
+/* «Check the structure…» under his shares: the sentence, each kind's word, the paths in full */
+.jo-structure, .jo-structure .box{min-height:0}
+.jo-structure-line{margin:10px 0 0; font-size:13px; color:var(--ink2); overflow-wrap:anywhere}
+.jo-structure-tip{margin:14px 0 6px; font-size:13px; color:var(--ink2); overflow-wrap:anywhere}
+.jo-structure-path{overflow-wrap:anywhere}
+.jo-structure .callout{margin:10px 0 0}
 /* the schedules' list (the section «Schedules»), the gather's two facts, the runs' log line */
 .jo-plans, .jo-facts{min-height:0}
 .jo-plans > .row:first-child, .jo-facts > .row:first-child{border-top:0}
