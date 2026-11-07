@@ -16,6 +16,10 @@ const HOUSE_DOCKER_AGAIN = 15;     // while Docker is silent, a page's request l
 const HOUSE_DOCKER_FRESH = 30;     // a longer docker call only when Docker answered within so long — else a short look first
 const HOUSE_DOCKER_PID   = '/var/run/dockerd.pid';      // Unraid's rc.docker has dockerd write it, and removes it at a stop
 const HOUSE_DOCKER_SOCK  = '/var/run/docker.sock';      // … dockerd's socket, gone with it
+// A job's silence, not the agent's: the agent's own heartbeat beats every 20 s and agent-watch.cron alerts after 10 min of
+// it; a job's (`heartbeat` in a restore's or a drill's record) is written every few seconds while a step runs, but a step
+// may be quiet for a long while, hence 30 min. The office says so and never ends the job (Benj, 2026-11-07).
+const OFFICE_JOB_STALE   = 1800;
 
 /**
  * One finding of a check.
@@ -32,6 +36,14 @@ const HOUSE_DOCKER_SOCK  = '/var/run/docker.sock';      // … dockerd's socket,
 function finding(string $id, string $level, ?bool $ok, array $params = [], ?string $link = null): array
 {
     return ['id' => $id, 'level' => $level, 'ok' => $ok, 'params' => $params, 'link' => $link];
+}
+
+/**
+ * A job's heartbeat older than OFFICE_JOB_STALE: it may hang. Stamps of another process, so the wall clock's. No stamp: never.
+ */
+function jobStale(?int $heartbeat, ?int $now = null): bool
+{
+    return $heartbeat !== null && ($now ?? time()) - $heartbeat > OFFICE_JOB_STALE;
 }
 
 /**
