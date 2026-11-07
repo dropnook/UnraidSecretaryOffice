@@ -1363,7 +1363,7 @@ function drillRunStoppable(array $cmd, int $timeout): array
     stream_set_blocking($pipes[1], false);
     stream_set_blocking($pipes[2], false);
     $out = $err = '';
-    $until = microtime(true) + $timeout;
+    $until = hrtime(true) / 1e9 + $timeout;
     $pid = (int) proc_get_status($p)['pid'];
     $ended = false;
     while (!feof($pipes[1]) || !feof($pipes[2])) {
@@ -1375,7 +1375,7 @@ function drillRunStoppable(array $cmd, int $timeout): array
         if (strlen($out) > (32 << 20)) {
             $out = substr($out, -(32 << 20));
         }
-        if (microtime(true) > $until || rsWatch()) {
+        if (hrtime(true) / 1e9 > $until || rsWatch()) {
             $ended = true;
             break;
         }
@@ -1410,6 +1410,21 @@ function drillPulse(?float $now = null): bool
     $last = $now;
     $pulse();
     return true;
+}
+
+/**
+ * When the drill's Kopia downloads must end, on the monotonic clock: their budget, or the drill's own deadline (a time of day,
+ * read once) when that comes first
+ */
+function drillKopiaUntil(array $j): float
+{
+    return hrtime(true) / 1e9 + min((int) $j['deadline'] - time(), DRILL_BUDGET_KOPIA);
+}
+
+/** Whole seconds left of that (0 or less: over) */
+function drillKopiaLeft(array $env): int
+{
+    return (int) ceil((float) $env['kopia_until'] - hrtime(true) / 1e9);
 }
 
 /** The end of a .gz after gzip -t — both stoppable — for a dump's closing line; null when damaged or stopped */
@@ -1599,8 +1614,8 @@ function drillDoKopiaDump(array &$j, int $i, array &$env): array
     if (isset($env['kopia_down'])) {
         return ['state' => 'not_checked', 'code' => 'kopia_unreachable', 'detail' => $env['kopia_down']] + $out;
     }
-    $env['kopia_until'] ??= min((int) $j['deadline'], time() + DRILL_BUDGET_KOPIA);
-    if (time() >= $env['kopia_until'] || $bytes > $env['kopia_left']) {
+    $env['kopia_until'] ??= drillKopiaUntil($j);
+    if (drillKopiaLeft($env) <= 0 || $bytes > $env['kopia_left']) {
         return ['state' => 'not_checked', 'code' => 'budget'] + $out;
     }
     // the throwaway can be made at all (its image here, room for it and the dump in RAM) — before anything is downloaded
@@ -1613,7 +1628,7 @@ function drillDoKopiaDump(array &$j, int $i, array &$env): array
         drillMade($j, ['kind' => 'kopia_tmp', 'name' => "/tmp/uso-drill-{$j['id']}", 'container' => $k['container'], 'uid' => $env['uid']]);
     }
     [$exit, $json, $err] = drillExec($j, drillKopiaCmd($k['container'], $env['uid'], $j['id'], ['--no-progress', 'snapshot', 'list', "{$k['root']}/{$s['source']}", '--json']),
-        max(30, min(300, $env['kopia_until'] - time())));
+        max(30, min(300, drillKopiaLeft($env))));
     if ($exit !== 0) {
         return drillKopiaListFailed($err, $env) + $out;
     }
@@ -1673,7 +1688,7 @@ function drillDoKopiaDump(array &$j, int $i, array &$env): array
         $hash = hash_init('sha256');
         $got = 0;
         $full = false;
-        [$exit, , $err] = drillExec($j, drillKopiaCmd($k['container'], $env['uid'], $j['id'], ['show', $entry['obj']]), max(30, $env['kopia_until'] - time()),
+        [$exit, , $err] = drillExec($j, drillKopiaCmd($k['container'], $env['uid'], $j['id'], ['show', $entry['obj']]), max(30, drillKopiaLeft($env)),
             $size !== null ? $size + 1 : $env['kopia_left'], function (string $data) use ($h, $hash, &$got, &$full): void {
                 hash_update($hash, $data);
                 $got += strlen($data);
@@ -1823,9 +1838,7 @@ function drillPlayCheck(array &$j, int $i, array &$env, array $s, string $name, 
         return ['state' => 'failed', 'code' => 'not_ready', 'detail' => drillContainerTail($name)] + $out;
     }
     $j['steps'][$i] = array_merge($j['steps'][$i], $step);
-    $before = [$GLOBALS['rsDeadline'] ?? null, $GLOBALS['rsDeadlineWhy'] ?? null];
-    $GLOBALS['rsDeadline'] = min((int) $j['deadline'], time() + DRILL_BUDGET_PLAY);
-    $GLOBALS['rsDeadlineWhy'] = $GLOBALS['rsDeadline'] < (int) $j['deadline'] ? 'budget' : 'deadline';
+    $GLOBALS['rsBudget'] = hrtime(true) / 1e9 + DRILL_BUDGET_PLAY;
     $t0 = time();
     $log = rsDir($j['id']) . '/log.txt';
     clearstatcache(true, $log);
@@ -1833,7 +1846,7 @@ function drillPlayCheck(array &$j, int $i, array &$env, array $s, string $name, 
     try {
         $play = rsDoPlay($j, $i);
     } finally {
-        [$GLOBALS['rsDeadline'], $GLOBALS['rsDeadlineWhy']] = $before;
+        unset($GLOBALS['rsBudget']);
     }
     $seconds = time() - $t0;
     if (!empty($GLOBALS['rsStop']) && ($GLOBALS['rsStopWhy'] ?? '') === 'budget') {
@@ -1954,7 +1967,7 @@ function drillLogSince(string $log, int $from): string
 /** MongoDB answers (the throwaway has no login: mongorestore needs none) */
 function drillMongoReady(array &$j, string $name): array
 {
-    $until = time() + DRILL_BUDGET_READY;
+    $until = hrtime(true) / 1e9 + DRILL_BUDGET_READY;
     $script = 'B=mongosh; command -v mongosh >/dev/null 2>&1 || B=mongo; exec "$B" --quiet --host 127.0.0.1 --eval "db.adminCommand({ping: 1}).ok"';
     do {
         [$exit, $out] = run(drillCmd(['docker', 'exec', $name, 'sh', '-c', $script]), 30);
@@ -1965,7 +1978,7 @@ function drillMongoReady(array &$j, string $name): array
             break;
         }
         sleep(2);
-    } while (time() < $until);
+    } while (hrtime(true) / 1e9 < $until);
     return ['state' => 'failed'];
 }
 
@@ -2403,7 +2416,7 @@ function drillExec(array &$j, array $cmd, int $timeout, int $limit = 33554432, ?
     stream_set_blocking($pipes[2], false);
     $out = $err = '';
     $bytes = 0;
-    $until = time() + $timeout;
+    $until = hrtime(true) / 1e9 + $timeout;
     $pid = (int) proc_get_status($p)['pid'];
     $ended = false;
     while (true) {
@@ -2427,7 +2440,7 @@ function drillExec(array &$j, array $cmd, int $timeout, int $limit = 33554432, ?
             $err = substr($err, -65536);
         }
         rsLifeLook([$pid], $bytes + strlen($err));
-        if ($bytes > $limit || time() > $until || rsBeat($j)) {
+        if ($bytes > $limit || hrtime(true) / 1e9 > $until || rsBeat($j)) {
             $ended = true;
             break;
         }
@@ -2497,8 +2510,8 @@ function drillDoKopia(array &$j, int $i, array &$env): array
     if (isset($env['kopia_down'])) {
         return ['state' => 'not_checked', 'code' => 'kopia_unreachable', 'detail' => $env['kopia_down']] + $out;
     }
-    $env['kopia_until'] ??= min((int) $j['deadline'], time() + DRILL_BUDGET_KOPIA);
-    if (time() >= $env['kopia_until']) {
+    $env['kopia_until'] ??= drillKopiaUntil($j);
+    if (drillKopiaLeft($env) <= 0) {
         return ['state' => 'not_checked', 'code' => 'budget'] + $out;
     }
     $env['uid'] ??= rsKopiaUid($k['container']);
@@ -2507,7 +2520,7 @@ function drillDoKopia(array &$j, int $i, array &$env): array
     }
     $path = "{$k['root']}/{$s['source']}";
     [$exit, $json, $err] = drillExec($j, drillKopiaCmd($k['container'], $env['uid'], $j['id'], ['--no-progress', 'snapshot', 'list', $path, '--json']),
-        max(30, min(300, $env['kopia_until'] - time())));
+        max(30, min(300, drillKopiaLeft($env))));
     if ($exit !== 0) {
         return drillKopiaListFailed($err, $env) + $out;
     }
@@ -2538,7 +2551,7 @@ function drillDoKopia(array &$j, int $i, array &$env): array
     }
     // structure: every content of the snapshots in the index (metadata only, no download of files)
     [$exit, , $err, $ended] = drillExec($j, drillKopiaCmd($k['container'], $env['uid'], $j['id'],
-        ['snapshot', 'verify', "--sources=$path", '--max-errors=10', '--verify-files-percent=0']), max(30, $env['kopia_until'] - time()));
+        ['snapshot', 'verify', "--sources=$path", '--max-errors=10', '--verify-files-percent=0']), max(30, drillKopiaLeft($env)));
     if ($ended && !empty($GLOBALS['rsStop'])) {
         return ['state' => 'skipped', 'code' => (string) $GLOBALS['rsStopWhy']] + $out;
     }
@@ -2641,7 +2654,7 @@ function drillKopiaSample(array &$j, array $s, array $snap, array &$env): array
         }
     }
     foreach ($files as [$rel, $obj, $size]) {
-        if (!empty($GLOBALS['rsStop']) || time() >= $env['kopia_until']) {
+        if (!empty($GLOBALS['rsStop']) || drillKopiaLeft($env) <= 0) {
             break;
         }
         // what Kopia may still download, less what is kept for the dumps it plays later
@@ -2651,7 +2664,7 @@ function drillKopiaSample(array &$j, array $s, array $snap, array &$env): array
         }
         $ctx = hash_init('sha256');
         $got = 0;
-        [$exit, , $err] = drillExec($j, drillKopiaCmd($k['container'], $env['uid'], $j['id'], ['show', $obj]), max(30, $env['kopia_until'] - time()),
+        [$exit, , $err] = drillExec($j, drillKopiaCmd($k['container'], $env['uid'], $j['id'], ['show', $obj]), max(30, drillKopiaLeft($env)),
             $size !== null ? $size + 1 : $avail, function (string $data) use ($ctx, &$got): void {
                 hash_update($ctx, $data);
                 $got += strlen($data);

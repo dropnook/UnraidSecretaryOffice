@@ -1848,7 +1848,7 @@ function rsWrite(array $state): array
 function rsSharesTick(?float $now = null, ?array $h = null): ?array
 {
     static $last = 0.0;
-    $now ??= microtime(true);
+    $now ??= hrtime(true) / 1e9;
     if ($h === null && $now - $last < RS_SHARES_EVERY) {
         return null;
     }
@@ -4582,8 +4582,8 @@ function rsBeat(array &$j, ?int $i = null, ?array $progress = null): bool
 
 /**
  * Asked to stop? SIGTERM (the job's handler), the array being stopped — end at once: the job holds the engine's lock
- * file open on the pool —, or a deadline the job set (the drill's: ≥ 15 min before the next backup; a step's own
- * budget). var.ini is read at most every 2 s.
+ * file open on the pool —, a deadline the job set (the drill's: ≥ 15 min before the next backup, a time of day) or a step's
+ * own budget (a span, on the monotonic clock). var.ini is read at most every 2 s.
  */
 function rsWatch(): bool
 {
@@ -4593,9 +4593,12 @@ function rsWatch(): bool
         if (rsArrayStopping()) {
             $GLOBALS['rsStop'] = true;
             $GLOBALS['rsStopWhy'] ??= 'array_stopping';
-        } elseif (!empty($GLOBALS['rsDeadline']) && time() >= (int) $GLOBALS['rsDeadline']) {
+        } elseif (!empty($GLOBALS['rsDeadline']) && time() >= (int) $GLOBALS['rsDeadline']) {       // a time of day: the drill's, before the next backup
             $GLOBALS['rsStop'] = true;
             $GLOBALS['rsStopWhy'] ??= (string) ($GLOBALS['rsDeadlineWhy'] ?? 'deadline');
+        } elseif (!empty($GLOBALS['rsBudget']) && hrtime(true) / 1e9 >= (float) $GLOBALS['rsBudget']) {      // a span: a step's own
+            $GLOBALS['rsStop'] = true;
+            $GLOBALS['rsStopWhy'] ??= 'budget';
         }
     }
     return !empty($GLOBALS['rsStop']);
@@ -4930,19 +4933,19 @@ function rsDoDump(array &$j, array $s): array
 function rsDoReady(array &$j, array $s): array
 {
     $script = rsDbScript('ready', $s);
-    $t0 = time();
+    $t0 = hrtime(true) / 1e9;
     $until = $t0 + max(10, (int) ($s['timeout'] ?? 180));
     do {
         [$exit, $out] = run(['docker', 'exec', $s['container'], 'sh', '-c', $script], 30);
         if ($exit === 0 && ($s['type'] === 'mongodb' || trim($out) === '1')) {
-            return ['state' => 'ok', 'seconds' => time() - $t0];
+            return ['state' => 'ok', 'seconds' => (int) (hrtime(true) / 1e9 - $t0)];
         }
         if (rsBeat($j)) {
             break;
         }
         sleep(2);
-    } while (time() < $until);
-    return rsFail('not_ready', ['container' => $s['container'], 'seconds' => time() - $t0]);
+    } while (hrtime(true) / 1e9 < $until);
+    return rsFail('not_ready', ['container' => $s['container'], 'seconds' => (int) (hrtime(true) / 1e9 - $t0)]);
 }
 
 /**

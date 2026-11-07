@@ -186,7 +186,7 @@ const MOVERELLI_SHARES_EVERY = 1.0;     // s: how often the tick compares the sh
 function moverelliTick(?array $h = null, ?float $now = null): ?array
 {
     static $last = 0.0;
-    $now ??= microtime(true);
+    $now ??= hrtime(true) / 1e9;
     if ($h === null && $now - $last < MOVERELLI_SHARES_EVERY) {
         return null;
     }
@@ -1465,7 +1465,7 @@ function moverelliRunWatch($proc, string $stopFile, callable $mover, int $every 
 {
     $why = null;
     $by = null;
-    $last = $lastArray = time();
+    $last = $lastArray = hrtime(true) / 1e9;
     while (true) {
         $st = proc_get_status($proc);
         clearstatcache(true, $stopFile);
@@ -1484,14 +1484,14 @@ function moverelliRunWatch($proc, string $stopFile, callable $mover, int $every 
             $f = readJson($stopFile) ?? [];
             $why = in_array($f['why'] ?? '', ['mover', 'now', 'array'], true) ? $f['why'] : 'user';
             $by = $why === 'mover' ? (($f['by'] ?? '') === 'schedule' ? 'schedule' : 'hand') : null;
-        } elseif ($arrayStopping !== null && time() - $lastArray >= min($every, 2) && ($lastArray = time()) && ($arrayStopping)()) {
+        } elseif ($arrayStopping !== null && hrtime(true) / 1e9 - $lastArray >= min($every, 2) && ($lastArray = hrtime(true) / 1e9) && ($arrayStopping)()) {
             // D-F8 (2026-10-19): the array is being stopped — after the file in flight, as Unraid stops its own mover at ⟦Stop⟧
             // (before shfs and the disks go)
             $why = 'array';
             writeAtomic($stopFile, jsonEncode(['time' => time(), 'why' => 'array']), 0600, 0, 0);
             logLine('Ms. Moverelli: the array is being stopped — she stops after the file in flight');
-        } elseif (time() - $last >= $every) {
-            $last = time();
+        } elseif (hrtime(true) / 1e9 - $last >= $every) {
+            $last = hrtime(true) / 1e9;
             try {
                 $on = (bool) $mover();
             } catch (Throwable) {

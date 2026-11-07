@@ -551,9 +551,9 @@ function watchmanLocked(string $dir, callable $fn): mixed
     if (!$h) {
         throw new Problem('watch_busy');
     }
-    $until = microtime(true) + 10;
+    $until = hrtime(true) / 1e9 + 10;
     while (!flock($h, LOCK_EX | LOCK_NB)) {
-        if (microtime(true) > $until) {
+        if (hrtime(true) / 1e9 > $until) {
             fclose($h);
             throw new Problem('watch_busy');
         }
@@ -5822,14 +5822,14 @@ function watchmanBtrfsWhere(string $dir, int $gen, string $bin = 'btrfs'): ?arra
         return null;
     }
     stream_set_blocking($pipes[1], false);
-    $deadline = microtime(true) + WATCH_FINDNEW_SECS;
+    $deadline = hrtime(true) / 1e9 + WATCH_FINDNEW_SECS;
     $per = [];
     $lines = 0;
     $buf = '';
     $part = false;
     $marker = false;
     while (true) {
-        if (microtime(true) > $deadline || $lines >= WATCH_FINDNEW_LINES) {
+        if (hrtime(true) / 1e9 > $deadline || $lines >= WATCH_FINDNEW_LINES) {
             $part = true;
             break;
         }
