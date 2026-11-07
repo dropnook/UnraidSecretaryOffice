@@ -29,7 +29,7 @@ const CARETAKER_NOTIFY_SETTLE = 1800;      // something new to do is told once i
 const CARETAKER_CRON_RETRY    = 600;       // a missing cron line: update_cron at most every 10 minutes
 const CARETAKER_WATCH_CRON    = '/boot/config/plugins/' . OFFICE_PLUGIN . '/agent-watch.cron';   // written by scripts/agent.sh
 const CARETAKER_ACK_SIG       = '/^[a-z0-9_-]{1,40}:[a-z0-9_]{1,60}:[0-9a-f]{16}$/';   // desk:id:hash, see caretakerAckSig()
-const CARETAKER_ACK_DRIFT     = ['days', 'size', 'knocked', 'nm'];    // params that change by themselves (an age, a size, a knock, a percent) — not a new situation
+const CARETAKER_ACK_DRIFT     = ['days', 'size', 'knocked', 'nm', 'minutes'];    // params that change by themselves (an age, a size, a knock, a percent, a silence) — not a new situation
 // params naming things with a size beside each («appdata (cache, 12 GB)»): only the names count (the truth review O11)
 const CARETAKER_ACK_NAMES     = ['cleanup:snap_only' => ['shares']];
 const CARETAKER_ACK_KEEP      = 30 * 86400;          // a noted point that hasn't turned up for this long is forgotten

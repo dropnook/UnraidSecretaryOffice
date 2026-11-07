@@ -471,7 +471,8 @@ and the plugin's look at the agent write English.
 * **Jack Streamer:** a real MediaCache or gather run failed or had problems (warning) — reports and dry runs stay quiet.
 * **Ms. Moverelli:** a real Smart Mover run failed or had problems (warning); one stopped because Unraid's mover started
   (normal) — lists, dry runs and a stop asked on her page stay quiet.
-* **Mr. Restori:** a drill couldn't prove that everything comes back (warning), once per drill.
+* **Mr. Restori:** a drill couldn't prove that everything comes back (warning), once per drill; a restore or drill without
+  a sign of life for 30 minutes (warning), once per job.
 * **Ms. Protocolli:** /var/log is 90 % full (warning) — which file fills it, with what, who is behind it; once, again only
   after it was below 80 %.
 * **The Team Lead:** something new under *Still to do* that stayed for half an hour (warning), once — again only if it
@@ -881,7 +882,8 @@ the last 60 history lines only for a source the file has none for. **The file
   whole under `<pool>/.UnraidSecretaryOffice-restore-<time>-<share>`, never a share of its own, the pull renamed into its
   place; refused while in use, under a running VM or an image, for the office's folders or inner datasets; put back swaps
   them back, removing the pull waits meanwhile); libvirt.img whole (`libvirt`) only with the VM service off and the image
-  attached nowhere — built in a copy, the old image aside; the boot pool's snapshots are only named. **The drill:**
+  attached nowhere — built in a copy, the old image aside; the boot pool's snapshots are only named. **A silent job**
+  (`jobStale()`, 30 min, the process still there): said on his page, a `job_stale` or `job_stale_drill` hint, one warning (`stale_told`); never ended by the office. **The drill:**
   throwaway containers only via `drillContainerArgs()` + `drillArgsSafe()`
   (`--network none`, no ports/binds/caps; too big = «not checked», never failed); refused during a parity check; a failed drill
   = one warning. Partner look from his tick, never a page request. **The flash archive's «Download…»** (`restore.flash_download`)

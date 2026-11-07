@@ -874,6 +874,7 @@ function drillJournalNew(string $id, array $plan): array
 function drillJournalWrite(array &$j, bool $public = true): void
 {
     $j['heartbeat'] = time();
+    rsJournalKeepTold($j, drillDir($j['id']) . '/journal.json');
     writeAtomic(drillDir($j['id']) . '/journal.json', jsonEncode($j), 0600, 0, 0);
     if ($public) {
         writeAtomic(drillJobFile(), jsonEncode(drillJobView($j)));
@@ -883,7 +884,7 @@ function drillJournalWrite(array &$j, bool $public = true): void
 /** The job file: the journal without what the page doesn't need (paths of the made objects stay in the journal) */
 function drillJobView(array $j): array
 {
-    $v = array_intersect_key($j, array_flip(['id', 'kind', 'what', 'scope', 'created', 'started', 'finished', 'pid', 'result', 'reason', 'deadline', 'egress', 'heartbeat']));
+    $v = array_intersect_key($j, array_flip(['id', 'kind', 'what', 'scope', 'created', 'started', 'finished', 'pid', 'result', 'reason', 'deadline', 'egress', 'heartbeat', 'stale', 'stale_told', 'stop_asked']));
     $v['steps'] = array_map(fn ($s) => array_intersect_key($s, array_flip(['do', 'kind', 'id', 'name', 'container', 'type', 'file', 'source', 'target',
         'state', 'level', 'copy', 'code', 'params', 'seconds', 'state_time', 'progress', 'started', 'finished'])), (array) ($j['steps'] ?? []));
     return $v;
@@ -902,9 +903,16 @@ function drillRunning(): ?array
         return null;
     }
     if ($j['result'] === 'queued') {
-        return time() - (int) ($j['created'] ?? 0) < 120 ? $j : null;
+        return time() - (int) ($j['created'] ?? 0) < 120 ? $j + ['stale' => false] : null;
     }
-    return rsJobAlive($j) ? $j : null;
+    return rsJobAlive($j) ? ['stale' => rsJobStale($j)] + $j : null;
+}
+
+/** The drill going on, in a word for his state: its id, whether it went silent, its last sign of life */
+function drillRunningBrief(): ?array
+{
+    $run = drillRunning();
+    return $run ? ['id' => $run['id'], 'stale' => $run['stale'], 'heartbeat' => is_int($run['heartbeat'] ?? null) ? $run['heartbeat'] : null] : null;
 }
 
 /** His drills for the page, newest first (a journal "running" whose job is gone was interrupted) */
@@ -1063,6 +1071,13 @@ function drillJob(array $args): int
         $fast = ($GLOBALS['rsStopWhy'] ?? '') === 'array_stopping';
         if ($fast) {
             rsLockRelease($lock);
+        } elseif (!empty($GLOBALS['rsStop'])) {
+            // asked to stop: said in the record — the clean-up may take its time, without a heartbeat (rsJobStale())
+            $j['stop_asked'] = time();
+            try {
+                drillJournalWrite($j);
+            } catch (Throwable) {
+            }
         }
         drillCleanup($j, $env, true, $fast);
         $stopped = !empty($GLOBALS['rsStop']);

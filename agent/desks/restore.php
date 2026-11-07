@@ -64,6 +64,7 @@ const RS_STOREROOM    = OFFICE_STOREROOM;   // Ms. Dustdevil's: never a share's 
 const RS_OWN_LEFTOVER = '/\.(restored|aside|putback)-\d{8}-\d{6}$/D';   // what he left next to a folder himself
 const RS_NAME_MAX     = 255;         // bytes a file's name may have (NAME_MAX): what he leaves beside is cut to it (rsBeside())
 const RS_WAKE_TIMEOUT = 90;          // seconds a sleeping disk gets to spin up when «wake» is ticked
+const RS_STALE_EVERY = 60;            // s: how often his tick looks whether a job went silent (rsStaleTell())
 const RS_SHARES_EVERY = 1.0;         // s: how often his tick compares the share files' stamp (officeSharesStamp(), lib/house.php)
 
 define('RS_DATA', DATA_DIR . '/restore');
@@ -135,8 +136,9 @@ desk('restore', [
         rsDuTick();
         drillTick();
         rspTick();
+        rsStaleTick();          // a job of his gone silent: one warning, never more
     },
-    'checks'  => fn (): array => drillChecks(),
+    'checks'  => fn (): array => array_merge(drillChecks(), rsStaleChecks()),
     'metrics' => fn (): array => drillMetrics(),
     'actions' => [
         'refresh'    => fn (array $r) => ['ok' => true, 'state' => rsScan()],
@@ -1660,6 +1662,7 @@ function rsScan(): array
         'run'      => null,
         'run_time' => null,
         'running'  => rsRunningJob(),          // a restore of his going on now
+        'drill_running' => drillRunningBrief(), // … a drill: its page's run card asks whether it went silent
         'restores' => rsJournals(),            // his restores, newest first
         'partners' => rspState(),              // what partner offices keep of mine (held.json, asked by his look job)
         'kept'     => rspKept(),               // what this office keeps of partners (received/<id>.json, the datasets here) — «Start here…»
@@ -1970,9 +1973,21 @@ function rsJournal(string $id): ?array
 function rsJournalWrite(array &$j, bool $public = true): void
 {
     $j['heartbeat'] = time();
+    rsJournalKeepTold($j, rsDir($j['id']) . '/journal.json');
     writeAtomic(rsDir($j['id']) . '/journal.json', jsonEncode($j), 0600, 0, 0);
     if ($public) {
         writeAtomic(rsJobFile(), jsonEncode($j));
+    }
+}
+
+/**
+ * The one thing someone else writes into a job's record: the agent's `stale_told` (rsStaleTell()). A job that wakes writes
+ * its record from memory — it takes that stamp along, so the warning stays once per job however often it falls silent.
+ */
+function rsJournalKeepTold(array &$j, string $file): void
+{
+    if (empty($j['stale_told']) && is_int($told = readJson($file)['stale_told'] ?? null)) {
+        $j['stale_told'] = $told;
     }
 }
 
@@ -2017,6 +2032,92 @@ function rsRunningJob(): ?array
     return rsJobAlive($j) ? rsJobSummary($j) : null;
 }
 
+/**
+ * A job whose process is there (rsJobAlive(), asked by the caller: a process that is gone is rsJournalSettle()'s
+ * «interrupted») and silent: running, not finished, not asked to stop, its heartbeat older than OFFICE_JOB_STALE
+ */
+function rsJobStale(array $j, ?int $now = null): bool
+{
+    return ($j['result'] ?? '') === 'running' && empty($j['finished']) && empty($j['stop_asked'])
+        && jobStale(is_int($j['heartbeat'] ?? null) ? $j['heartbeat'] : null, $now);
+}
+
+/**
+ * His jobs that went silent, for the Team Lead and the warning: kind (restore, drill), id, minutes without a sign of life
+ *
+ * @return list<array{kind: string, id: string, minutes: int}>
+ */
+function rsStaleJobs(): array
+{
+    $out = [];
+    foreach (['restore' => rsRunningJob(), 'drill' => drillRunning()] as $kind => $run) {
+        if ($run && !empty($run['stale'])) {
+            $out[] = ['kind' => $kind, 'id' => (string) $run['id'], 'minutes' => intdiv(time() - (int) $run['heartbeat'], 60)];
+        }
+    }
+    return $out;
+}
+
+/**
+ * The Team Lead hears of it: a hint while it lasts, nothing for the office to fix (`job`: noting it holds for that job
+ * only). One text per kind: his page shows them in its own language, and the words around a kind follow its grammar.
+ */
+function rsStaleChecks(): array
+{
+    return array_map(fn (array $s): array => $s['kind'] === 'drill'
+        ? finding('job_stale_drill', 'hint', false, ['minutes' => $s['minutes'], 'job' => $s['id']], '#/restore/drill')
+        : finding('job_stale', 'hint', false, ['minutes' => $s['minutes'], 'job' => $s['id']], '#/restore/journal'), rsStaleJobs());
+}
+
+/** Once a minute whether a job went silent (a small state file or two); true when it looked */
+function rsStaleTick(): bool
+{
+    static $last = null;
+    $at = hrtime(true) / 1e9;
+    if ($last !== null && $at - $last < RS_STALE_EVERY) {
+        return false;
+    }
+    $last = $at;
+    rsStaleTell();
+    return true;
+}
+
+/**
+ * One warning when a job turns silent, never again for that job: remembered in its record (`stale_told`), and written
+ * there before the warning goes — a record that can't be written is no warning every minute. Never a kill, a stop request
+ * or a new deadline: only the user decides about the job. The record's journal.json only: the job file stays the job's,
+ * and the job takes the stamp along when it wakes (rsJournalKeepTold()). The journal's own heartbeat is asked once more
+ * just before: a job that has woken meanwhile writes for itself. Returns the ids told.
+ *
+ * @return list<string>
+ */
+function rsStaleTell(): array
+{
+    $told = [];
+    foreach (rsStaleJobs() as $s) {
+        $file = ($s['kind'] === 'drill' ? drillDir($s['id']) : rsDir($s['id'])) . '/journal.json';
+        $j = readJson($file);
+        if (!$j || !empty($j['stale_told']) || !rsJobStale($j)) {
+            continue;
+        }
+        $j['stale_told'] = time();
+        try {
+            writeAtomic($file, jsonEncode($j), 0600, 0, 0);
+        } catch (Throwable $e) {
+            logLine("Mr. Restori: {$s['id']} - no sign of life for {$s['minutes']} minutes; its record can't be written: " . $e->getMessage());
+            continue;
+        }
+        logLine("Mr. Restori: {$s['id']} - no sign of life for {$s['minutes']} minutes; I leave it alone");
+        $lang = officeNotifyLang();
+        $kind = officeNotifyText('restore', $s['kind'] === 'drill' ? 'job.kind_drill' : 'job.kind_restore', [], $lang);
+        officeNotify(officeNotifyText('restore', 'notify.job_stale', ['kind' => $kind], $lang),
+            officeNotifyText('restore', 'notify.job_stale_text', ['kind' => $kind, 'n' => $s['minutes']], $lang),
+            'warning', '', officeNotifyLink($s['kind'] === 'drill' ? '#/restore/drill' : '#/restore/journal'), 'restore', 'job_stale');
+        $told[] = $s['id'];
+    }
+    return $told;
+}
+
 function rsJobAlive(array $j): bool
 {
     $pid = (int) ($j['pid'] ?? 0);
@@ -2033,7 +2134,8 @@ function rsJobSummary(array $j): array
         }
     }
     return ['id' => (string) $j['id'], 'kind' => (string) ($j['kind'] ?? ''), 'what' => (string) ($j['what'] ?? ''), 'result' => (string) ($j['result'] ?? ''),
-            'started' => $j['started'] ?? null, 'step' => $at, 'steps' => count($steps)];
+            'started' => $j['started'] ?? null, 'step' => $at, 'steps' => count($steps),
+            'stale' => rsJobStale($j), 'heartbeat' => is_int($j['heartbeat'] ?? null) ? $j['heartbeat'] : null];
 }
 
 /**
@@ -4162,6 +4264,11 @@ function rsJob(array $args): int
             $warn = $warn || $res['state'] === 'warning';
             $write();
         }
+        // asked to stop: said in the record — what still follows may take its time, without a heartbeat (rsJobStale())
+        if ($GLOBALS['rsStop']) {
+            $j['stop_asked'] = time();
+            $write();
+        }
         // «Make it a dataset of its own»: a failure (or a stop) rolls back by itself - the folder back, its dataset gone
         if (($failed || $GLOBALS['rsStop']) && ($j['kind'] ?? '') === 'make_dataset') {
             mdRollback($j);
@@ -4420,6 +4527,9 @@ function rsBeat(array &$j, ?int $i = null, ?array $progress = null): bool
     static $last = 0;
     if ($i !== null && $progress !== null) {
         $j['steps'][$i]['progress'] = $progress;
+    }
+    if (!empty($GLOBALS['rsStop']) && ($GLOBALS['rsStopWhy'] ?? null) !== 'budget') {       // a step's budget: the drill itself goes on
+        $j['stop_asked'] ??= time();
     }
     if (hrtime(true) / 1e9 - $last >= 2) {          // the monotonic clock: a clock stepped back never stops the beat
         $last = hrtime(true) / 1e9;

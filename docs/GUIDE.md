@@ -103,6 +103,7 @@ how much comes) and then opens the restore of its folders on it; a pulled whole 
 the backup once you have turned the VM service off — the old image stays aside.
 «Restored» lists every restore with its steps and what went aside where; *Put back* undoes one, also one that failed.
 What Kopia or a partner brought back waits there with *Now to its place…* for each folder it holds.
+A restore or drill that gives no sign of life for 30 minutes (a disk, a mount) is said to hang — on his page, to the Team Lead, in one warning — and he never ends it himself.
 He never starts or recreates a container — he says what to click. For the rest there are ready-made commands with your
 names and paths, and a guide *onto a new server*.
 
