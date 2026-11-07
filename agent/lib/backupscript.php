@@ -732,32 +732,39 @@ function backupZfsChildren(): array
 
 /**
  * What the engine's results say (its interface only — state/history.jsonl, drift.json, setup-plan.json, kopia-held.json,
- * kopia-watch.json, kopia-reach.json), read again only when one of them changed:
+ * kopia-watch.json, kopia-reach.json) and, for `new`, what settings.ini and Unraid's list of shares say beside them; read
+ * again only when one of them changed (officeSharesStamp(): the share files, the flash and RAM only — never a disk, never
+ * the engine asked):
  *   runs      how many backup runs the history holds (skipped ones not)
  *   kopia     good: source => when its newest good copy was made · last: source => whether its newest upload went ·
  *             held (the repository suddenly empty) · gone (drift: Kopia's container gone) · stuck / away (since when the
  *             storage takes nothing / can't be reached, else null)
  *   no_snaps  share => true: its file system takes no snapshot (drift share_live / share_snapshot_no_fs; a newer plan's
  *             method decides for the shares it lists)
- *   new       share => true: new or renamed, not in settings.ini (drift share_new / share_renamed)
+ *   new       share => true: new or renamed, not in settings.ini (drift share_new / share_renamed; what the engine says
+ *             stays, also for a share no longer listed) · 2026-11-07: every share Unraid lists (shares.ini) that settings.ini has
+ *             no section for, as the engine's drift check says it: not the office's own, not one [drift] ignore names, none
+ *             before the first setup (no settings: everything is still to be set up, nothing is new) — known at once, not
+ *             only at the next drift check, also while it is still empty
  *   partner   id => unit => {ok, why: skipped|failed, code: the engine's why, time} — its newest try
  *   cleared   when his let-go cleared the engine's snapshots away (backupLetGoCleared()), as long as no backup run came
  *             after — no local snapshot holds anything then, whatever the runs before made (else null)
  * Engine 2.80: state/results.json (backupResults()) fills in what the history no longer holds (it keeps 200 runs): a
  * source's newest good Kopia copy, a unit's newest partner try — the history decides wherever it says something.
  */
-function backupTruth(?string $data = null): array
+function backupTruth(?string $data = null, string $sharesIni = OFFICE_SHARES_INI, string $sharesDir = OFFICE_SHARES_CFG_DIR): array
 {
     static $cache = [];
     $data ??= BACKUP_DATA_DIR;
     $f = ['history' => "$data/state/history.jsonl", 'drift' => "$data/state/drift.json", 'plan' => "$data/state/setup-plan.json",
           'held' => "$data/state/kopia-held.json", 'watch' => "$data/state/kopia-watch.json", 'reach' => "$data/state/kopia-reach.json",
-          'results' => "$data/state/results.json"];
+          'results' => "$data/state/results.json", 'settings' => "$data/settings.ini"];
     clearstatcache();
     $letgo = backupLetGoJournalDir($data);
     $journals = backupLetGoJournals($letgo);
     $stamp = $data . '|' . implode('|', array_map(fn ($x) => @filemtime($x) . ':' . @filesize($x), $f))
-        . '|' . implode(',', array_map(fn ($n) => $n . ':' . @filemtime("$letgo/$n") . ':' . @filesize("$letgo/$n"), $journals));
+        . '|' . implode(',', array_map(fn ($n) => $n . ':' . @filemtime("$letgo/$n") . ':' . @filesize("$letgo/$n"), $journals))
+        . "|$sharesIni|" . officeSharesStamp($sharesDir, $sharesIni);
     if (($cache['stamp'] ?? null) === $stamp) {
         return $cache['truth'];
     }
@@ -828,6 +835,15 @@ function backupTruth(?string $data = null): array
             $t['new'][$name] = true;
         } elseif (in_array($code, ['kopia_no_container', 'kopia_container_gone'], true)) {
             $t['kopia']['gone'] = true;
+        }
+    }
+    $settings = backupReadSettings($f['settings']);
+    if ($settings) {
+        foreach (array_keys(readCfg($sharesIni, true)) as $name) {
+            $name = (string) $name;       // array_keys() makes a share called 2024 an int
+            if ($name !== BACKUP_OFFICE_SHARE && !isset($settings["share|$name"])) {
+                $t['new'][$name] = true;
+            }
         }
     }
     $plan = readJson($f['plan']);
