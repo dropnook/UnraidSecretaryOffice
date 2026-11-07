@@ -30385,7 +30385,7 @@ const mk = (tag, cls, text) => { const n = { tag, className: cls || '', textCont
   appendChild(c) { this.children.push(c); return c; } }; n.classList = { add(c) { n.className += ' ' + c; } }; return n; };
 const hired = [], toasts = [];
 const desks = new Map();
-globalThis.Office = { scope: () => T, t: T, el: mk, has: (k) => k === 'backup.name_with', fmt: {}, desk: () => {}, places: () => {}, placesFrom: () => {},
+globalThis.Office = { scope: () => T, t: T, el: mk, has: (k) => k === 'backup.name_with', deskRole: (id) => T(`${id}.role`), fmt: {}, desk: () => {}, places: () => {}, placesFrom: () => {},
   sections: () => ({ places: () => [], mount: () => false, render() {}, active: () => '' }),      // his row: a stand-in switcher
   place: (a, n) => { n.dataset.place = a; return n; }, avatar: () => mk('span'), agent: { running: true }, deskRank: () => 0, desks, config: {},
   hire: async (ids) => { hired.push(ids); return true; }, toast: (m) => toasts.push(m), loadState: async () => {}, fireDialog: () => {} };
@@ -30536,7 +30536,7 @@ const mk = (tag, cls, text) => { const n = { tag, className: cls || '', textCont
   appendChild(c) { this.children.push(c); return c; } }; n.classList = { add(c) { n.className += ' ' + c; } }; return n; };
 const hired = [];
 const desks = new Map();
-globalThis.Office = { scope: () => T, t: T, el: mk, has: (k) => k === 'moverelli.name_with', fmt: {}, desk: () => {}, places: () => {}, placesFrom: () => {},
+globalThis.Office = { scope: () => T, t: T, el: mk, has: (k) => k === 'moverelli.name_with', deskRole: (id) => T(`${id}.role`), fmt: {}, desk: () => {}, places: () => {}, placesFrom: () => {},
   sections: () => ({ places: () => [], mount: () => false, render() {}, active: () => '' }),
   place: (a, n) => { n.dataset.place = a; return n; }, avatar: () => mk('span'), agent: { running: true }, deskRank: () => 0, desks, config: {},
   hire: async (ids) => { hired.push(ids); return true; }, toast: () => {}, loadState: async () => {}, fireDialog: () => {} };
