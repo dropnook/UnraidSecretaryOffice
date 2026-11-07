@@ -68,7 +68,8 @@ export function desks() {
       const m = readJson(path.join(PUBLIC, 'desks', id, 'desk.json'));
       return { id, order: m.order ?? 100, icon: m.icon ?? '•', refresh_after: m.refresh_after ?? 300, parts: m.parts || {},
         css: fs.existsSync(path.join(PUBLIC, 'desks', id, 'desk.css')), always: !!m.always, training: !!m.training,
-        with: typeof m.with === 'string' && m.with !== id ? m.with : null };
+        with: typeof m.with === 'string' && m.with !== id ? m.with : (typeof m.needs === 'string' && m.needs !== id ? m.needs : null),
+        needs: typeof m.needs === 'string' && m.needs !== id ? m.needs : null };    // as src/desks.php hands it to the page
     })
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
 }

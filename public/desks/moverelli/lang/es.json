@@ -1,6 +1,7 @@
 {
   "name": "Señora Moverelli",
   "role": "Experta en mudanzas — lleva al array lo que ha estado bastante tiempo en el pool, deja en paz lo que debe quedarse y vigila al becario",
+  "role_solo": "Experta en mudanzas — lleva al array lo que ha estado bastante tiempo en el pool y deja en paz lo que debe quedarse",
   "visit": "Ir a ver a la Señora Moverelli",
   "fire_note": "Si me despides, apago mi programación y vuelvo a encender la antigua de Unraid. Una ejecución en curso termina primero su recurso compartido. Mientras Jack Streamer esté aquí, me quedo: un becario necesita a alguien que lo vigile.",
   "greet.1": "Archivos viejos empaquetados y etiquetados — ¡al array con ellos!",

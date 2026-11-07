@@ -1050,7 +1050,7 @@ function trainingRow(d) {
   main.appendChild(el('div', 'row-name text', Office.t(`${d.id}.name`)));
   const meta = el('div', 'row-meta');
   meta.appendChild(el('span', 'chip quiet', T('in_training')));
-  meta.appendChild(el('span', '', Office.t(`${d.id}.role`)));
+  meta.appendChild(el('span', '', Office.deskRole(d.id)));
   main.appendChild(meta);
   main.appendChild(el('div', 'row-detail', Office.t(`${d.id}.training`)));    // what she will do, «hireable soon»
   r.appendChild(main);
@@ -1068,7 +1068,7 @@ function teamRow(x) {
   const meta = el('div', 'row-meta');
   if (x.missing) meta.appendChild(el('span', 'chip danger', T('agent_missing')));
   else meta.appendChild(el('span', 'chip ' + (x.hired ? 'ok' : x.ok ? 'accent' : 'quiet'), T(x.hired ? 'in_team' : x.ok ? 'could_come' : 'declined')));
-  meta.appendChild(el('span', '', Office.t(`${x.id}.role`)));
+  meta.appendChild(el('span', '', Office.deskRole(x.id)));
   main.appendChild(meta);
   if (x.missing) main.appendChild(el('div', 'row-detail', T('agent_missing_text')));
   else if (!x.hired || x.why !== 'yes') main.appendChild(el('div', 'row-detail', fitText(x)));     // once hired, "would like to come" is old news

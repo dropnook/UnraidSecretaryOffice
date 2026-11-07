@@ -1,6 +1,7 @@
 {
   "name": "Frau Moverelli",
   "role": "Zügeldame — bringt aufs Array, was lange genug auf dem Pool lag, lässt in Ruhe, was bleiben soll, und behält den Praktikanten im Auge",
+  "role_solo": "Zügeldame — bringt aufs Array, was lange genug auf dem Pool lag, und lässt in Ruhe, was bleiben soll",
   "visit": "Frau Moverelli besuchen",
   "fire_note": "Entlässt du mich, schalte ich meinen Zeitplan aus und Unraids alten wieder ein. Ein laufender Lauf beendet zuerst seinen Share. Solange Jack Streamer hier ist, bleibe ich: Ein Praktikant braucht Aufsicht.",
   "greet.1": "Alte Dateien eingepackt und angeschrieben — ab aufs Array damit!",

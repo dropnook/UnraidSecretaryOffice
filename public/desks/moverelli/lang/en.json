@@ -1,6 +1,7 @@
 {
   "name": "Ms. Moverelli",
   "role": "Removals lady — moves what has sat on the pool long enough to the array, leaves alone what should stay, and keeps an eye on the intern",
+  "role_solo": "Removals lady — moves what has sat on the pool long enough to the array and leaves alone what should stay",
   "visit": "Visit Ms. Moverelli",
   "fire_note": "Letting me go switches my schedule off and Unraid's old one back on. A run that is going finishes its share first. While Jack Streamer is here, I stay: an intern needs someone keeping an eye on him.",
   "greet.1": "Old files packed and labelled — off to the array they go!",

@@ -1351,6 +1351,16 @@ Office.deskRank = function deskRank(id) {
 };
 /** The desks that work here, in the staff's order */
 Office.staffInOrder = () => [...Office.desks.values()].filter((d) => d.hired).sort((a, b) => Office.deskRank(a.id) - Office.deskRank(b.id));
+/**
+ * A desk's role line («Removals lady — … and keeps an eye on the intern»): `<id>.role_solo`, when the desk's lang has it,
+ * while no hired desk needs this one (desk.json "needs": Jack Streamer works only under Ms. Moverelli — without him she
+ * has no intern to keep an eye on; 2026-11-07), else `<id>.role`
+ */
+Office.deskRole = (id) => {
+  const solo = Office.strings[`${id}.role_solo`];
+  const watched = [...Office.desks.values()].some((d) => d.hired && d.id !== id && [].concat(d.needs || []).includes(id));
+  return t(solo !== undefined && !watched ? `${id}.role_solo` : `${id}.role`);
+};
 
 /**
  * Desks that went into another one: their old addresses lead to the part of the page that took them over
@@ -3489,7 +3499,7 @@ async function reception(root) {
     cards.set(desk.id, card);
     const top = el('div', 'desk-card-head');
     const name = el('div');
-    name.append(el('h2', '', t(`${desk.id}.name`)), el('div', 'role', t(`${desk.id}.role`)));
+    name.append(el('h2', '', t(`${desk.id}.name`)), el('div', 'role', Office.deskRole(desk.id)));
     top.append(Office.avatar(desk.id, true), name);
     const bubble = el('div', 'bubble', '…');
     const facts = el('ul', 'facts');

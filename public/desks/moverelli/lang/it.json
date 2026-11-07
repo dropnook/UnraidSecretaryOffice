@@ -1,6 +1,7 @@
 {
   "name": "Signora Moverelli",
   "role": "Traslocatrice — porta sull'array ciò che è rimasto abbastanza a lungo sul pool, lascia stare ciò che deve restare e tiene d'occhio lo stagista",
+  "role_solo": "Traslocatrice — porta sull'array ciò che è rimasto abbastanza a lungo sul pool e lascia stare ciò che deve restare",
   "visit": "Dalla Signora Moverelli",
   "fire_note": "Se mi licenzi spengo la mia pianificazione e riaccendo quella vecchia di Unraid. Un'esecuzione in corso finisce prima la sua condivisione. Finché Jack Streamer è qui, resto: uno stagista ha bisogno di qualcuno che lo tenga d'occhio.",
   "greet.1": "File vecchi impacchettati ed etichettati — via sull'array!",

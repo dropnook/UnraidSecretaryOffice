@@ -1,6 +1,7 @@
 {
   "name": "Madame Moverelli",
   "role": "Déménageuse — porte sur l'array ce qui est resté assez longtemps sur le pool, laisse en place ce qui doit rester et garde un œil sur le stagiaire",
+  "role_solo": "Déménageuse — porte sur l'array ce qui est resté assez longtemps sur le pool et laisse en place ce qui doit rester",
   "visit": "Aller voir Madame Moverelli",
   "fire_note": "Si tu me congédies, j'éteins ma planification et je rallume l'ancienne d'Unraid. Une exécution en cours termine d'abord son partage. Tant que Jack Streamer est ici, je reste : un stagiaire a besoin de quelqu'un qui garde un œil sur lui.",
   "greet.1": "Vieux fichiers emballés et étiquetés — direction l'array !",
