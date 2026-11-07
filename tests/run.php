@@ -58814,6 +58814,9 @@ function testBackupTruthShares(): void
     file_put_contents("$tmp/data/settings.ini", "\n[share \"photos\"]\nmode = off\n", FILE_APPEND);
     clearstatcache();
     same('truth shares: the cache knows settings.ini — the setup took it, no longer new', [], $new());
+    $list(['appdata', BACKUP_OFFICE_SHARE, 'tmp-one', 'keep-me']);
+    file_put_contents("$tmp/data/settings.ini", "\n[drift]\nignore = tmp-*\n", FILE_APPEND);
+    same('truth shares: one [drift] ignore names is not new (as the engine\'s drift check says it), another is', ['keep-me'], $new());
     same('truth shares: no shares.ini (the array stopped) — only what the engine said', [], array_keys(backupTruth("$tmp/data", "$tmp/none", "$tmp/shares")['new']));
     preg_match('/function backupTruth\(.*?\n\}\n/s', (string) file_get_contents(OFFICE_DIR . '/agent/lib/backupscript.php'), $m);
     check('truth shares: never the engine asked, no command run', ($m[0] ?? '') !== '' && !preg_match('/\brun(All)?\(|setup\.sh|backup\.sh --|backupLaunch\(/', $m[0]));

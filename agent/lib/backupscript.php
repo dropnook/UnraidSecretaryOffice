@@ -841,7 +841,8 @@ function backupTruth(?string $data = null, string $sharesIni = OFFICE_SHARES_INI
     if ($settings) {
         foreach (array_keys(readCfg($sharesIni, true)) as $name) {
             $name = (string) $name;       // array_keys() makes a share called 2024 an int
-            if ($name !== BACKUP_OFFICE_SHARE && !isset($settings["share|$name"])) {
+            if ($name !== BACKUP_OFFICE_SHARE && !isset($settings["share|$name"])
+                && !array_filter($settings['drift']['ignore'] ?? [], fn ($g) => $g !== '' && fnmatch($g, $name))) {      // the engine's matches_any
                 $t['new'][$name] = true;
             }
         }
