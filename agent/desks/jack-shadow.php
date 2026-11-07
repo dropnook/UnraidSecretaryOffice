@@ -19,7 +19,7 @@ declare(strict_types=1);
  * a different question (`request`: a URL one side asked and the other didn't). Files are looked at by both, back to back: if the
  * tape's plans differ, the whole pair is done once more and only what shows again counts (a film that arrived between the two).
  * Then one more plan with PHP's own client against the live servers (`live`): that the client talks to them. It can differ by the moment,
- * so it is only said in the night file, never a difference.
+ * so it is only said in the night file (its first three differences with it), never a difference.
  *
  * The result: JACK_DATA/shadow/<date>.json, one per night, small, kept 60 days; paths and person names only, never a key: time, version,
  * compared, why (when not), same, counts, differences [{kind, path, python, php}] (stable: no time in them, at most
@@ -349,8 +349,9 @@ function jackShadowPass(array $h, array $env, ?string &$why): ?array
             flock($lock, LOCK_UN);
             fclose($lock);
         }
+        $moved = jackShadowDiff($py, $seen);
         return ['counts' => jackShadowCounts($py, $tape), 'differences' => jackShadowDiff($py, $php, $tape->missing, $tape->left()), 'outcome' => $py['outcome'] ?? '',
-                'live' => ['same' => jackShadowDiff($py, $seen) === [], 'asked' => $live->asked, 'failed' => $live->failed]];
+                'live' => ['same' => $moved === [], 'asked' => $live->asked, 'failed' => $live->failed] + ($moved ? ['first' => array_slice($moved, 0, 3)] : [])];
     } finally {
         @unlink($tapeFile);
         @unlink($planFile);
@@ -396,8 +397,12 @@ function jackShadowJob(?array $h = null): int
     jackShadowWrite((string) $h['dir'], jackShadowEntry($h, $entry, $why));
     flock($single, LOCK_UN);
     fclose($single);
-    @unlink($h['run'] . '/job.lock');
-    @rmdir((string) $h['run']);
+    if ($why !== 'python_failed') {        // Python's log of the dry run stays in RAM only when it is the only word on what went wrong
+        foreach (glob($h['run'] . '/*') ?: [] as $f) {
+            @unlink($f);
+        }
+        @rmdir((string) $h['run']);
+    }
     return 0;
 }
 
