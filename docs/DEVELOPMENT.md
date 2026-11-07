@@ -883,7 +883,7 @@ the last 60 history lines only for a source the file has none for. **The file
   place; refused while in use, under a running VM or an image, for the office's folders or inner datasets; put back swaps
   them back, removing the pull waits meanwhile); libvirt.img whole (`libvirt`) only with the VM service off and the image
   attached nowhere — built in a copy, the old image aside; the boot pool's snapshots are only named. **A silent job**
-  (`jobStale()`, 30 min, the process still there): said on his page, a `job_stale` hint, one warning (`stale_told`); never ended by the office. **The drill:**
+  (`jobStale()`, 30 min, the process still there): said on his page, a `job_stale` or `job_stale_drill` hint, one warning (`stale_told`); never ended by the office. **The drill:**
   throwaway containers only via `drillContainerArgs()` + `drillArgsSafe()`
   (`--network none`, no ports/binds/caps; too big = «not checked», never failed); refused during a parity check; a failed drill
   = one warning. Partner look from his tick, never a page request. **The flash archive's «Download…»** (`restore.flash_download`)
