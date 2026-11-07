@@ -640,12 +640,14 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   *reads* the sleeping ones too («can wake them» — ZFS often answers from memory, a btrfs read spins the disk up); the answer's
   `slept` says per pool/disk whether it still sleeps (disks.ini after the read), one still asleep stays marked so. A partner's
   copies are never a target, never deleted/renamed/held while the pair exists. Ids only in her scans' shape. **«dataset is
-  busy»:** where a ZFS snapshot is mounted comes from `snapshotMountsEverywhere()` (lib/mounts.php: /proc/1 and each running
-  container's main process, /proc only); one inside a container is named before `zfs destroy` (`busy_in_container`), the
-  busy ones of zfs's answer after it (`busy_on_host`, `busy_unknown`) and the rest of the batch asked again (one destroy is all
-  or nothing); zfs's text only in the log. `free_mounts` unmounts only automounts (`<something>/.zfs/snapshot/<name>`) —
-  inside a container `nsenter --mount=/proc/<pid>/ns/mnt umount`, the pid the reader's, the mount looked up again right
-  before (`container_gone`); plain umount, never -f/-l; recorded (`freed`).
+  busy»:** where a ZFS snapshot is mounted comes from `snapshotMountsEverywhere()` (lib/mounts.php: /proc/1, each running
+  container's main process, then every other mount namespace in /proc — `SNAPSHOT_WALK_PIDS` pids at most, /proc only); one
+  inside a container or another process's namespace is named before `zfs destroy` (`busy_in_container`, `busy_in_process` with
+  the process's `comm` and pid; a container's wording first, then a process's, then the host's), the busy ones of zfs's answer
+  after it (`busy_on_host`, `busy_unknown`) and the rest of the batch asked again (one destroy is all or nothing); zfs's text
+  only in the log. `free_mounts` unmounts only automounts (`<something>/.zfs/snapshot/<name>`) — inside a container or process
+  `nsenter --mount=/proc/<pid>/ns/mnt umount`, the pid the reader's, the mount looked up again right before
+  (`container_gone`; a process that ended is no failure); plain umount, never -f/-l; recorded (`freed`).
 * **`backup` — Mr. Backupsy.** The engine through its interface only. A real backup asked within the minute of the last is
   queued for the next; a tour, dry run or setup never waits. **Setup:** a level per share/VM/app (off · local · local + partner
   · local + offsite · local + partner + offsite; partner levels only with a pair and a dataset of its own); an app's further
@@ -800,7 +802,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   started it (`by`: Unraid, its web page, a plugin, a user script, a terminal); a capture that found nobody looks again
   `LOGS_WAKE_AGAIN_LOOK` s later.
 * **`watchman` — The Night Watchman.** **The office's security department — no other desk gives security advice. Read only,
-  never a command that changes anything.** Posture tips (never in the book or notified) and the watch book (what differs from
+  never a command that changes anything.** Snapshot automounts he counts per place (`uso_watchman_snapshot_automounts{where}`
+  host/container/process, «What holds the array?»: `arrayholdSnaps()`, /proc only, `snapshotMountsEverywhere()`). Posture tips (never in the book or notified) and the watch book (what differs from
   normal; the office's own installs/drills adopted, never told). API keys: id, name, roles, a fingerprint — **never the key**;
   night mirror without passwords or key values. **Privacy rule:** another client's address/MAC/name only in
   `net_new_device`/`net_spoof`. Every kind has a MITRE technique. **Data flow** (`watchmanFlowAdd()`): a round's bytes
