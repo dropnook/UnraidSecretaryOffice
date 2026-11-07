@@ -1112,6 +1112,8 @@ The same thing has the same word on every desk and text; grammar follows the wor
   socket only — wait for TCP; a bind mount resolves at start (stop, swap, start).
   The house's 20 s of `docker ps` serve only the Docker that answered: dockerd's pid in `/var/run/dockerd.pid` and whether
   the socket is there (`houseDockerGeneration()`) — a stop or a start is seen at the next look.
+  A saved look said silent and Docker answers again (`houseDockerBackLook()`): the ticks of Ms. Dustdevil, Mr. Restori (his
+  whole look) and Jack Streamer (only his Docker part: his whole look can touch a sleeping pool) look again.
 * **Kopia:** a full maintenance over S3 can run many hours and never resumes — **never `maintenance run --full --safety=none`
   while anything can write, never drop deleted contents by hand.** Sources are named by the **container path** (a new Container
   Path = new sources; a new repository = full upload). Upload progress = `rchar` of its process (a VM by apparent size).

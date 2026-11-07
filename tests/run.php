@@ -25355,7 +25355,8 @@ function testHouseDockerSilent(): void
  * After Docker was silent (B15) and is fixed: a desk's saved look said «Docker isn't answering» until the web side found it
  * older than the desk's refresh_after (5 to 10 min; parking lot 10-22). houseDockerBackLook(): never inside the quiet time,
  * nothing asked with Docker switched off (no socket), one short look at most once per quiet time (none when a call came back
- * lately); Ms. Dustdevil's tick (clDockerBackTick()) asks it only when one of her looks said silent, and takes that look anew.
+ * lately); Ms. Dustdevil's tick (clDockerBackTick()) asks it only when one of her looks said silent, and takes that look anew;
+ * Mr. Restori's and Jack Streamer's (rsDockerBackTick(), jackDockerBackTick()) the same with theirs.
  */
 function testDockerBackLook(): void
 {
@@ -25412,6 +25413,59 @@ function testDockerBackLook(): void
     $GLOBALS['where']['system']['docker']['silent'] = true;
     same('docker back (her tick): both said silent - both taken anew', ['asked', 'where', 'tidy'], $tick(true));
     [$GLOBALS['clState'], $GLOBALS['where']] = $was;
+    // Mr. Restori's tick and Jack Streamer's: only a saved look that said silent asks the house, only «answers» looks again
+    $wasRs = $GLOBALS['rs']['state'] ?? null;
+    $wasJack = $GLOBALS['jackDocker'] ?? null;
+    $ticks = [
+        'his tick, Mr. Restori' => [function (?string $docker): void { $GLOBALS['rs']['state'] = $docker === null ? [] : ['docker' => $docker]; }, 'rsDockerBackTick'],
+        'his tick, Jack Streamer' => [function (?string $docker): void { $GLOBALS['jackDocker'] = $docker; }, 'jackDockerBackTick'],
+    ];
+    foreach ($ticks as $who => [$saved, $fn]) {
+        $tick = function (?string $docker, bool $answers) use (&$ran, $saved, $fn): array {
+            $saved($docker);
+            $ran = [];
+            $fn(function () use (&$ran, $answers) { $ran[] = 'asked'; return $answers; }, function () use (&$ran) { $ran[] = 'looked'; });
+            return $ran;
+        };
+        foreach ([null, 'up', 'off'] as $docker) {
+            same("docker back ($who): his look said " . ($docker ?? 'nothing') . ' - the house not asked', [], $tick($docker, true));
+        }
+        same("docker back ($who): his look said silent, Docker still silent - asked, nothing taken anew", ['asked'], $tick('silent', false));
+        same("docker back ($who): … Docker answers - his look taken anew", ['asked', 'looked'], $tick('silent', true));
+    }
+    $GLOBALS['rs']['state'] = $wasRs;
+    $GLOBALS['jackDocker'] = $wasJack;
+    $restore = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    $jack = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('docker back: both ticks stand in their desks\' tick (Jack Streamer\'s reads his memory, jackScan() sets it)',
+        str_contains($restore, "        rsDockerBackTick();     //") && str_contains($jack, "    'tick'    => fn () => jackDockerBackTick(),")
+        && str_contains($jack, "\$GLOBALS['jackDocker'] = \$state['docker'];"));
+    check('docker back: his look anew never from the cache - a «no answer» of the quiet time would say «off» and end the tick',
+        str_contains($restore, "    houseContainersKnown(true);\n    return rsScan();\n"));
+    // Jack Streamer's look anew: only Docker's part of what he saved, the cache's «no answer» not believed
+    $path = (string) getenv('PATH');
+    mkdir("$tmp/bin");
+    file_put_contents("$tmp/bin/docker", "#!/bin/sh\n[ -f " . escapeshellarg("$tmp/broken") . " ] && exit 1\nprintf 'Films\\tjellyfin/jellyfin\\trunning\\n'\n");
+    chmod("$tmp/bin/docker", 0755);
+    putenv("PATH=$tmp/bin:$path");
+    $reset();
+    file_put_contents("$tmp/jack.json", json_encode(['time' => 5, 'docker' => 'silent', 'emby' => [], 'cache' => ['files' => 7]]));
+    touch("$tmp/broken");
+    same('docker back (Jack Streamer): the cache holds a «no answer»', null, houseContainersKnown(true));
+    unlink("$tmp/broken");
+    $was = $GLOBALS['jackDocker'] ?? null;
+    $state = jackDockerBackLook("$tmp/jack.json");
+    same('docker back (Jack Streamer): Docker up and his media server back, what else he saved and its time as they were',
+        ['up', ['Films'], 5, ['files' => 7], 'up'],
+        [$state['docker'] ?? null, array_column($state['emby'] ?? [], 'name'), $state['time'] ?? null, $state['cache'] ?? null, $GLOBALS['jackDocker'] ?? null]);
+    same('docker back (Jack Streamer): … and that is what stands in the file', $state, readJson("$tmp/jack.json"));
+    unlink("$tmp/jack.json");
+    same('docker back (Jack Streamer): no saved state - nothing written, his tick asks no more', [null, false, null],
+        [jackDockerBackLook("$tmp/jack.json"), file_exists("$tmp/jack.json"), $GLOBALS['jackDocker'] ?? null]);
+    $GLOBALS['jackDocker'] = $was;
+    putenv("PATH=$path");
+    $reset();
+    houseContainers(true);          // the cache as the other tests find it: whatever this server's docker says
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
     check('docker back: her look says silent where Docker gave no answer (every early return of clDocker() and its end)',
         substr_count($src, "return ['silent' => houseDockerSilent()] + \$out;") === 2 && str_contains($src, "    \$out['silent'] = !\$out['ok'];\n")

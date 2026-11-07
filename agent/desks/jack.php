@@ -104,6 +104,7 @@ desk('jack', [
         return fit(true, $rule['ok'] || $rule['why'] === 'moverelli' ? 'yes' : 'yes_dry', ['name' => $emby[0]['name']]);
     },
     'start'   => fn () => jackScan(),
+    'tick'    => fn () => jackDockerBackTick(),     // his look said Docker was silent and it answers again: that part looked at again at once
     'actions' => [
         'refresh'      => fn (array $r) => ['ok' => true, 'state' => jackScan()],
         'connect'      => fn (array $r) => jackConnect(textField($r, 'url'), optText($r, 'api_key'), optText($r, 'type') ?: 'emby'),
@@ -377,7 +378,46 @@ function jackScan(): array
         // meanwhile), lost (it can't be written anew now: the pool asleep or unreadable); null: there
         'list'       => in_array($list, ['pending', 'lost'], true) ? $list : null,
     ];
+    $GLOBALS['jackDocker'] = $state['docker'];      // for his tick (jackDockerBackTick()): no file read every round
     writeAtomic(deskFile('jack'), jsonEncode($state));
+    return $state;
+}
+
+/**
+ * Docker answers again after his look found it silent (B15): the page shows what he saved, and the web side asks again only
+ * once that is older than refresh_after (5 min) — his page went on saying «Docker isn't answering» that long. As Ms.
+ * Dustdevil's clDockerBackTick(): each tick one array read; only when his look said silent the house is asked
+ * (houseDockerBackLook() decides: never inside the quiet time) and, Docker answering, the Docker part of his look is taken
+ * anew (jackDockerBackLook()). $back, $look: the tests' stand-ins.
+ */
+function jackDockerBackTick(?callable $back = null, ?callable $look = null): void
+{
+    if (($GLOBALS['jackDocker'] ?? null) !== 'silent' || !($back ?? 'houseDockerBackLook')()) {
+        return;
+    }
+    logLine('Jack Streamer: Docker answers again - his look at Docker taken anew');
+    ($look ?? 'jackDockerBackLook')();
+}
+
+/**
+ * Only the Docker part of his saved state anew: a whole jackScan() is no look for a tick, the user not asking — it stats
+ * every file of his list on the pool (jackCacheStats()) and lists every pool's top folder (jackPoolDirs()), neither asking
+ * whether that disk sleeps. `time` stays: the rest is as old as it was, refresh_after still looks at it all. The containers'
+ * own look, not the cache: a «no answer» of the quiet time (the same Docker, up to 20 s old) would make him say «off» and
+ * his tick never look again — that `docker ps` is the one jackContainers() would ask. $file: the tests'.
+ */
+function jackDockerBackLook(?string $file = null): ?array
+{
+    $file ??= deskFile('jack');
+    $state = readJson($file);
+    if (!is_array($state)) {
+        unset($GLOBALS['jackDocker']);
+        return null;
+    }
+    houseContainersKnown(true);
+    $state['emby'] = jackContainers();
+    $state['docker'] = $GLOBALS['jackDocker'] = houseDockerState();
+    writeAtomic($file, jsonEncode($state));
     return $state;
 }
 
