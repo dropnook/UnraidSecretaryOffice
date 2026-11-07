@@ -45,6 +45,9 @@ let progBox = null;           // the panel on the page, redrawn in place
 let nightNow = null;          // the night run with Ms. Moverelli going for real (agent: jackNightNow()) — her card's phases on his page
 let watching = [];            // who is watching what while a real run goes (the job's look once a minute): [{name, items}] per person
 let startKicks = 0;           // a real run just started from here: look again until it shows as running
+const STRUCTURE_KINDS = ['flat_movie', 'shared_folder', 'flat_series'];     // «Check the structure…»: the list's groups, in this order
+let structureList = null;     // the part «structure»: what the last check found
+let structureAsked = null;    // the check (its time) the part was last asked for
 
 // ------------------------------------------------------------------ loading
 /** His state: as kept at once, a new look following on his page (core.js Office.loadState()); fresh waits for a new look */
@@ -93,18 +96,22 @@ const lookRun = () => {
 const nightGoing = () => !!nightNow;
 /** Something on his page to follow live: EmbyCache's real run, or the night run */
 const liveRun = () => realRun() || nightGoing();
+/** «Check the structure…» at work (agent/desks/jack-structure.php): the same one timer looks at his state until it is over */
+const structureGoing = () => !!(state && state.structure && state.structure.running);
 
 /** While a real run goes: the part «progress» every 10 s (the first ask soon after the page shows the run); nothing otherwise */
 function scheduleProgress() {
   clearTimeout(progTimer);
   progTimer = null;
-  if (!view || page !== 'main' || !liveRun()) return;
+  if (!view || page !== 'main' || !(liveRun() || structureGoing())) return;
   progTimer = setTimeout(askProgress, Math.max(300, PROGRESS_POLL - (Date.now() - progAsked)));
 }
 async function askProgress() {
-  if (!view || page !== 'main' || !liveRun()) return;
+  if (!view || page !== 'main' || !(liveRun() || structureGoing())) return;
   progAsked = Date.now();
   if (document.hidden || Office.dialogOpen() || Office.menuOpen()) { scheduleProgress(); return; }
+  if (!liveRun()) { await load(false); return; }     // only the check: his state says when it is over (took() asks on)
+  if (structureGoing()) load(false);                 // … and beside a real run the same: the part below doesn't carry it
   try {
     await Office.loadState(ID, { part: 'progress', fresh: true }, tookProgress);
   } catch (e) {
@@ -512,6 +519,7 @@ function render() {
     [T('gather'), T('help.gather_text')],
     [T('help.watch'), T('help.watch_text')],
     [T('help.shares'), T('help.shares_text')],
+    [T('help.structure'), T('help.structure_text')],
     [T('help.sizes'), T('help.sizes_text')],
     [T('help.pool'), T('help.pool_text')],
     [T('help.schedule'), T('help.schedule_text')],
@@ -1124,7 +1132,9 @@ function shareSection() {
   const bad = badShares();
   const measure = button(T('measure'), 'small plain', measureDialog);
   measure.disabled = !Office.agent.running || running() || !shares.length;
-  const s = section(T('shares'), T('shares_sub'), bad ? chip(T('shares_bad', { n: bad }), 'warn') : chip(T('shares_good'), 'ok'), measure, { place: 'shares' });
+  const check = button(T('structure.check'), 'small plain', structureDialog);
+  check.disabled = !Office.agent.running || structureGoing();
+  const s = section(T('shares'), T('shares_sub'), bad ? chip(T('shares_bad', { n: bad }), 'warn') : chip(T('shares_good'), 'ok'), measure, check, { place: 'shares' });
   const box = el('div', 'box');
   const pool = (state.settings || {}).cache_path || '';
   shares.forEach((x) => {
@@ -1146,7 +1156,93 @@ function shareSection() {
   });
   if (!shares.length) box.appendChild(el('p', 'empty', T('shares_none')));
   s.appendChild(box);
+  dom.structure = structureBox();
+  s.appendChild(dom.structure);
   return s;
+}
+
+/**
+ * «Check the structure…» (agent/desks/jack-structure.php), only ever on this click: a hint, nothing moves. Under his shares what
+ * the last check found: the sentence (the counts from his state), the list grouped by kind (the part «structure», asked once
+ * per check), who didn't answer, what could not be judged. The paths are shown, never linked to anything.
+ */
+function structureDialog() {
+  const body = el('div');
+  const err = errorLine();
+  body.append(el('p', '', T('structure.check_text')), el('p', 'role', T('structure.check_rules')), err);
+  Office.dialog({
+    title: T('structure.check').replace(/…$/, ''),
+    body,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('structure.go'), kind: '', act: async () => {
+      if (!(await Office.freshState(ID))) return false;
+      const j = await Office.api.post(`${ID}.structure_start`, {});
+      if (!j.ok) { showError(err, j.error); return false; }
+      if (j.state) stateIn(j.state);
+      if (view && page === 'main') render();
+      scheduleProgress();
+      return true;
+    } }],
+  });
+}
+function structureAsk(at) {
+  structureAsked = at;
+  Office.loadState(ID, { part: 'structure', fresh: true }, (j) => {
+    const r = j && j.ok && j.part ? j.part.result : null;
+    if (r && r.time !== at) return;                   // a newer check meanwhile: its own ask follows
+    structureList = r;
+    if (dom.structure && dom.structure.isConnected) {
+      const n = structureBox();
+      dom.structure.replaceWith(n);
+      dom.structure = n;
+    }
+  }).catch(() => { structureAsked = null; });
+}
+/** The findings of the part's result in the kinds' order: [kind, [finding + server's name]] — only kinds this page knows, in exactly their shape */
+function structureGroups(r) {
+  const many = r.servers.length > 1;
+  return STRUCTURE_KINDS.map((kind) => [kind, r.servers.flatMap((sv) => (Array.isArray(sv.findings) ? sv.findings : [])
+    .filter((f) => f && f.kind === kind && typeof f.title === 'string' && typeof f.path === 'string')
+    .map((f) => ({ ...f, server: many ? sv.name : '' })))]).filter(([, list]) => list.length);
+}
+function structureBox() {
+  const box = el('div', 'jo-structure');
+  const s = state.structure;
+  if (!s) return box;
+  if (s.running) {
+    const p = el('p', 'jo-structure-line running');      // (the wave shows only inside .running)
+    p.append(el('span', 'spin'), document.createTextNode(' ' + T('structure.running')));
+    box.appendChild(p);
+  } else if (s.failed) box.appendChild(el('p', 'callout warn', T('structure.failed')));
+  if (!s.time) return box;
+  if (structureAsked !== s.time) structureAsk(s.time);
+  const r = structureList && structureList.time === s.time && Array.isArray(structureList.servers) ? structureList : null;
+  const counts = { films: nOf('films', s.films), series: nOf('series', s.series), time: fmt.date(s.time) };
+  const clean = !s.found && !s.servers_failed;
+  const key = s.found ? 'structure.found' : clean ? 'structure.clean' : 'structure.partly';
+  box.appendChild(el('p', 'jo-structure-line', T(key, { ...counts, found: nOf('items', s.found) })));
+  if (r) {
+    r.servers.filter((sv) => sv && sv.error).forEach((sv) => box.appendChild(el('p', 'callout warn', T('structure.server_failed', { name: sv.name, why: Office.errorText(sv.error, ID) }))));
+    structureGroups(r).forEach(([kind, list]) => {
+      box.appendChild(el('p', 'jo-structure-tip', T(`structure.tip.${kind}`)));
+      const rows = el('div', 'box');
+      list.forEach((f) => {
+        const row = el('div', 'row nocheck');
+        const main = el('div', 'row-main');
+        main.appendChild(el('div', 'row-name', f.title));
+        const meta = el('div', 'row-meta');
+        meta.appendChild(chip(T(`structure.kind.${kind}`), 'warn', T(`structure.tip.${kind}`)));
+        meta.appendChild(el('span', 'jo-structure-path', f.server ? `${f.server} · ${f.path}` : f.path));
+        main.appendChild(meta);
+        row.appendChild(main);
+        rows.appendChild(row);
+      });
+      box.appendChild(rows);
+    });
+    const shown = r.servers.reduce((n, sv) => n + (Array.isArray(sv.findings) ? sv.findings.length : 0), 0);
+    if (s.found > shown) box.appendChild(el('p', 'jo-structure-line', T('structure.more', { n: s.found - shown, max: shown })));
+  }
+  if (s.unmapped) box.appendChild(el('p', 'jo-structure-line', T('structure.unmapped', { n: s.unmapped })));
+  return box;
 }
 
 /** The gather: an optional helper (2026-10-16) — fewer disks wake when films go back and forth; no run waits for it */
@@ -3281,7 +3377,7 @@ Office.places(ID, [
   ...SETUP_TILES.map(([id, key]) => ({ kind: 'tile', key, anchor: `setup.tile.${id}`, ...SETUP, route: `#/${ID}/setup/${id}` })),
   ...[['report', 'help.report'], ['mode.dry', 'help.dry'], ['mode.run', 'help.run'], ['gather', 'help.gather_text']]
     .map(([key, text]) => ({ kind: 'help', key, text })),
-  ...['what', 'tools', 'progress', 'watch', 'shares', 'sizes', 'pool', 'schedule', 'letgo'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
+  ...['what', 'tools', 'progress', 'watch', 'shares', 'structure', 'sizes', 'pool', 'schedule', 'letgo'].map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
   ...[['import.title', 'import.help'], ['setup.key', 'setup.help_key'], ['setup.mapping', 'setup.help_mapping'], ['setup.users', 'setup.help_users'],
     ['setup.scope', 'setup.help_scope'], ['setup.more', 'setup.help_more'], ['share.title', 'share.help'], ['setup.save', 'setup.help_save']]
     .map(([key, text]) => ({ kind: 'help', key, text, ...SETUP })),

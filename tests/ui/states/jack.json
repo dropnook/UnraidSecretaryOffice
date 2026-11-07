@@ -532,5 +532,6 @@
    "stopping": null,
    "her": null
   }
- }
+ },
+  "structure": {"time": 1791550474, "films": 8, "series": 3, "items": 11, "unmapped": 2, "found": 3, "servers_failed": 1, "running": false, "failed": false}
 }

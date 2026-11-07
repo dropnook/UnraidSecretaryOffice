@@ -1039,6 +1039,235 @@ function testJack(): void
  * watch during a run (stop request → exit 3); the gather stopping between two folders (dry run on a
  * fixture tree, a stand-in df writes the stop request while the first folder is planned).
  */
+function testJackStructure(): void
+{
+    // the rules, on the servers' word alone
+    $libs = [['locations' => ['/data/Filme'], 'chosen' => true], ['locations' => ['/data/Serien/'], 'chosen' => true], ['locations' => ['/data/Andere'], 'chosen' => false],
+             ['locations' => ['/data/Weg'], 'chosen' => true], ['locations' => ['/data/Nie'], 'chosen' => true]];
+    $maps = ['/data/Filme' => '/mnt/user/Filme', '/data/Serien' => '/mnt/user/Serien', '/data/Andere' => '/mnt/user/Andere', '/data/Weg' => ''];
+    $film = fn (string $title, string $path, bool $disc = false) => ['type' => 'Movie', 'title' => $title, 'path' => $path, 'disc' => $disc];
+    $serie = fn (string $title, string $path) => ['type' => 'Series', 'title' => $title, 'path' => $path];
+    $r = jackStructureJudge([
+        $film('Sauber', '/data/Filme/Sauber (2020)/Sauber (2020).mkv'),
+        $film('Flach', '/data/Filme/Flach.mkv'),
+        $film('Eins', '/data/Filme/Geteilt/Eins.mkv'), $film('Zwei', '/data/Filme/Geteilt/Zwei.mkv'),
+        $film('Tief A', '/data/Filme/Sammlung/A/a.mkv'), $film('Tief B', '/data/Filme/Sammlung/A/b.mkv'),   // only directly under a location
+        $film('Rip', '/data/Filme/Rip', true),                       // a DVD's Path is its folder, no file in the root
+        $serie('Gut', '/data/Serien/Gut (2021)'),
+        $serie('Als Bibliothek', '/data/Serien'),
+        $serie('Als Bibliothek', '/data/Serien/'),                   // the same one twice (its folder and its flat episodes): one finding
+        $film('Fremd', '/data/Andere/Flach.mkv'),                    // a library the setup didn't choose: not looked at
+        $film('Ausgelassen', '/data/Weg/Flach.mkv'),                 // a mapping left out on purpose
+        $film('Ohne Zuordnung', '/data/Nie/Film/f.mkv'),
+        $film('Ohne Bibliothek', '/elsewhere/f.mkv'),
+        $film('Ohne Pfad', ''),
+    ], $libs, $maps);
+    same('structure: what is counted', ['films' => 7, 'series' => 3, 'items' => 10, 'unmapped' => 3, 'found' => 3],
+        array_intersect_key($r, ['films' => 1, 'series' => 1, 'items' => 1, 'unmapped' => 1, 'found' => 1]));
+    same('structure: the findings, kind by kind, each mapped to the host\'s view',
+        [['kind' => 'flat_movie', 'title' => 'Flach', 'path' => '/mnt/user/Filme/Flach.mkv'],
+         ['kind' => 'shared_folder', 'title' => 'Eins · Zwei', 'path' => '/mnt/user/Filme/Geteilt'],
+         ['kind' => 'flat_series', 'title' => 'Als Bibliothek', 'path' => '/mnt/user/Serien']], $r['findings']);
+    same('structure: a clean film and series — nothing', [],
+        jackStructureJudge([$film('A', '/data/Filme/A/a.mkv'), $serie('B', '/data/Serien/B')], $libs, $maps)['findings']);
+    same('structure: the mapping is matched at a path\'s border, the longest wins', ['/h/b/x', '/h/a/b2', null, '', '/h/a'],
+        [jackStructureMapped('/s/a/b/x', ['/s/a' => '/h/a', '/s/a/b' => '/h/b']), jackStructureMapped('/s/a/b2', ['/s/a' => '/h/a', '/s/a/b' => '/h/b']),
+         jackStructureMapped('/s/ab', ['/s/a' => '/h/a']), jackStructureMapped('/s/a/x', ['/s/a' => '']), jackStructureMapped('/s/a', ['/s/a' => '/h/a'])]);
+    same('structure: the server\'s mapping over the settings\' own (as MediaCache merges them), no trailing slash', ['/data/Filme' => '/mnt/user/Eigen', '/data/Serien' => '/mnt/user/Serien'],
+        array_intersect_key(jackStructureMaps(['path_mappings' => ['/data/Filme' => '/mnt/user/Alt', '/data/Serien' => '/mnt/user/Serien']], ['path_mappings' => ['/data/Filme' => '/mnt/user/Eigen/']]), ['/data/Filme' => 1, '/data/Serien' => 1]));
+
+    // Emby/Jellyfin: items, and episodes in a root (the servers make no Series of them — Tower, 2026-11-07)
+    same('structure: a Virtual item is no item, a disc\'s Path is a folder', [['Movie', true], ['Series', false]],
+        array_map(fn ($i) => [$i['type'], $i['disc']], jackStructureEmbyItems([['Type' => 'Movie', 'Name' => 'A', 'Path' => '/d/A', 'VideoType' => 'BluRay'], ['Type' => 'Movie', 'LocationType' => 'Virtual'],
+            ['Type' => 'Series', 'Name' => 'B', 'Path' => '/d/B'], ['Type' => 'Episode', 'Path' => '/d/x'], 'junk'])));
+    same('structure: flat episodes make one series per name and location', [['Series', 'Flach', '/d/S'], ['Series', 'Genannt', '/d/S'], ['Series', 'Ohne Nummer', '/d/S']],
+        array_values(array_map(fn ($i) => [$i['type'], $i['title'], $i['path']], jackStructureFlatEpisodes([
+            ['Type' => 'Episode', 'Path' => '/d/S/Flach S01E01.mkv'], ['Type' => 'Episode', 'Path' => '/d/S/Flach.s01e02.mkv'],
+            ['Type' => 'Episode', 'Path' => '/d/S/X S01E01.mkv', 'SeriesName' => 'Genannt'], ['Type' => 'Episode', 'Path' => '/d/S/Ohne Nummer.mkv'],
+            ['Type' => 'Episode', 'Path' => '/d/S/Gut/Season 1/Gut S01E01.mkv'], ['Type' => 'Movie', 'Path' => '/d/S/Film.mkv'], ['Type' => 'Episode'],
+        ], ['/d/S']))));
+    $page = fn (int $start, int $n, int $total) => array_map(fn ($i) => ['Type' => 'Movie', 'Name' => "F$i", 'Path' => "/data/Filme/F$i/f.mkv"], $start >= $total ? [] : range($start, min($total, $start + $n) - 1));
+    $asked = [];
+    $api = function (string $path) use (&$asked, $page) {
+        $asked[] = $path;
+        if ($path === '/Library/VirtualFolders') {
+            return [['Name' => 'Filme', 'Locations' => ['/data/Filme']], ['Name' => 'Serien', 'Locations' => ['/data/Serien']], ['Name' => 'Andere', 'Locations' => ['/data/Andere']], ['Name' => 'Eigen', 'Locations' => ['/config/x']]];
+        }
+        parse_str((string) parse_url($path, PHP_URL_QUERY), $q);
+        if (str_contains($path, 'IncludeItemTypes=Episode')) {
+            return ['Items' => [['Type' => 'Episode', 'Path' => '/data/Serien/Flach S01E01.mkv'], ['Type' => 'Episode', 'Path' => '/data/Andere/Fremd S01E01.mkv']]];
+        }
+        return ['Items' => $page((int) $q['StartIndex'], (int) $q['Limit'], JACK_STRUCTURE_PAGE + 3)];
+    };
+    $got = jackStructureItems('emby', $api, ['Filme', 'Serien']);
+    same('structure: Emby in pages until a short one, with Path; episodes too', [JACK_STRUCTURE_PAGE + 3 + 1, 4],
+        [count($got['items']), count($asked)]);
+    check('structure: the list asks for films and series with their paths', str_contains($asked[1], 'Recursive=true&IncludeItemTypes=Movie,Series&Fields=Path'));
+    same('structure: the chosen libraries, the media server\'s own folders left out', [['/data/Filme'], ['/data/Serien'], ['/data/Andere'], []],
+        array_column($got['libs'], 'locations'));
+    same('structure: only what the setup chose (no list chosen: all)', [[true, true, false, false], [true, true, true, true]],
+        [array_column($got['libs'], 'chosen'), array_column(jackStructureItems('emby', $api, [])['libs'], 'chosen')]);
+    same('structure: a flat episode of a library not chosen is no series here', ['Flach'], array_column(array_filter($got['items'], fn ($i) => $i['type'] === 'Series'), 'title'));
+
+    // Plex: its sections, the parts' `file`, a show's folder by its episodes (neither its list nor its metadata names a flat one's)
+    $plexAsked = [];
+    $plex = function (string $path) use (&$plexAsked) {
+        $plexAsked[] = $path;
+        return match (true) {
+            $path === '/library/sections' => ['MediaContainer' => ['Directory' => [
+                ['key' => '1', 'type' => 'movie', 'title' => 'Filme', 'Location' => [['path' => '/data/Filme']]],
+                ['key' => '2', 'type' => 'show', 'title' => 'Serien', 'Location' => [['path' => '/data/Serien']]],
+                ['key' => '3', 'type' => 'movie', 'title' => 'Andere', 'Location' => [['path' => '/data/Andere']]],
+                ['key' => '4', 'type' => 'artist', 'title' => 'Musik', 'Location' => [['path' => '/data/Musik']]]]]],
+            str_starts_with($path, '/library/sections/1/all') => ['MediaContainer' => ['Metadata' => [
+                ['title' => 'Sauber', 'Media' => [['Part' => [['file' => '/data/Filme/Sauber/s.mkv']]]]],
+                ['title' => 'Flach', 'Media' => [['Part' => [['file' => '/data/Filme/Flach.mkv']]]]],
+                ['title' => 'Eins', 'Media' => [['Part' => [['file' => '/data/Filme/G/1.mkv']]]]],
+                ['title' => 'Zwei', 'Media' => [['Part' => [['file' => '/data/Filme/G/2.mkv']]]]],
+                ['title' => 'Ohne Datei', 'Media' => [['Part' => [['id' => 7]]]]]]]],
+            str_contains($path, 'type=4') => ['MediaContainer' => ['Metadata' => [
+                ['grandparentRatingKey' => '20', 'Media' => [['Part' => [['file' => '/data/Serien/Flach S01E01.mkv']]]]],
+                ['grandparentRatingKey' => '21', 'Media' => [['Part' => [['file' => '/data/Serien/Gut/Season 1/e.mkv']]]]],
+                ['grandparentRatingKey' => '21', 'Media' => [['Part' => [['file' => '/data/Serien/Gut/e0.mkv']]]]]]]],
+            str_starts_with($path, '/library/sections/2/all') => ['MediaContainer' => ['Metadata' => [
+                ['ratingKey' => '20', 'title' => 'Flachserie'], ['ratingKey' => '21', 'title' => 'Gut'], ['ratingKey' => '22', 'title' => 'Ohne Folgen'],
+                ['ratingKey' => '23', 'title' => 'Mit Ort', 'Location' => [['path' => '/data/Serien/Ort']]]]]],
+            default => throw new Problem('jack_unreachable', ['url' => 'stub', 'detail' => $path]),
+        };
+    };
+    $got = jackStructureItems('plex', $plex, ['Filme', 'Serien']);
+    $r = jackStructureJudge($got['items'], $got['libs'], ['/data/Filme' => '/mnt/user/Filme', '/data/Serien' => '/mnt/user/Serien']);
+    same('structure: Plex under the same rules; a part without a file and a show without an episode are unmapped',
+        [['flat_movie', 'Flach'], ['shared_folder', 'Eins · Zwei'], ['flat_series', 'Flachserie']], array_map(fn ($f) => [$f['kind'], $f['title']], $r['findings']));
+    same('structure: … counted', [4, 3, 2], [$r['films'], $r['series'], $r['unmapped']]);
+    check('structure: Plex never reads a section not chosen', !array_filter($plexAsked, fn ($p) => preg_match('#/library/sections/[34]/#', $p)));
+    check('structure: Plex in pages', str_contains($plexAsked[1], 'X-Plex-Container-Start=0&X-Plex-Container-Size=' . JACK_STRUCTURE_PAGE));
+
+    // a server that never ends its pages is no answer
+    $deadline = hrtime(true) - 1;
+    try {
+        jackStructurePages(fn () => [1], $deadline);
+        check('structure: pages stop at the deadline', false);
+    } catch (Problem $p) {
+        same('structure: pages stop at the deadline', 'jack_structure_slow', $p->key);
+    }
+
+    // the result file: shape, the 500 cap, never a key, every count as it was
+    $findings = fn (int $n) => array_map(fn ($i) => ['kind' => 'flat_movie', 'title' => "F$i", 'path' => "/mnt/user/Filme/F$i.mkv"], $n ? range(1, $n) : []);
+    $res = jackStructureResult([['name' => 'A', 'films' => 400, 'series' => 5, 'items' => 405, 'unmapped' => 1, 'found' => 400, 'findings' => $findings(400)],
+                                ['name' => 'B', 'films' => 300, 'series' => 0, 'items' => 300, 'unmapped' => 2, 'found' => 300, 'findings' => $findings(300)],
+                                ['name' => 'C', 'films' => 1, 'series' => 0, 'items' => 1, 'unmapped' => 0, 'found' => 1, 'findings' => $findings(1)]], 1234);
+    same('structure: at most 500 kept over all servers, the count says the rest', [[400, 100, 0], 701, 3, 1234, 1, 701],
+        [array_map(fn ($s) => count($s['findings']), $res['servers']), $res['found'], $res['unmapped'], $res['time'], $res['v'], $res['films']]);
+
+    $tmp = hardeningTmp('jackstructure');
+    $key = 'SECRETKEY1234567';
+    $set = ['instances' => [
+        ['servername' => 'Heim', 'type' => 'jellyfin', 'url' => 'http://10.0.0.2:8097/', 'api_key' => $key, 'path_mappings' => ['/data/Filme' => '/mnt/user/Filme', '/data/Serien' => '/mnt/user/Serien']],
+        ['servername' => 'Weg', 'type' => 'emby', 'url' => 'http://10.0.0.3:8096', 'api_key' => $key, 'path_mappings' => []]],
+        'libraries' => ['Filme', 'Serien']];
+    file_put_contents("$tmp/mediacache_settings.json", json_encode($set));
+    $urls = [];
+    $stub = function (string $url, string $path) use (&$urls, $api) {
+        $urls[$url] = true;
+        if ($url === 'http://10.0.0.3:8096') {
+            throw new Problem('jack_unreachable', ['url' => $url, 'detail' => 'curl: (7) refused', 'extra' => 'dropped']);
+        }
+        return $api($path);
+    };
+    same('structure: the job ends 0 whatever a server answers', 0, jackStructureJob($stub, $tmp));
+    check('structure: the address without a trailing slash', isset($urls['http://10.0.0.2:8097']));
+    $text = (string) file_get_contents("$tmp/structure.json");
+    check('structure: the result file carries no key', !str_contains($text, $key) && !str_contains($text, 'api_key'));
+    $res = jackStructureRead($tmp);
+    same('structure: the result as read', [1, ['Heim', 'Weg'], JACK_STRUCTURE_PAGE + 3, 1, 1],
+        [$res['v'], array_column($res['servers'], 'name'), $res['films'], $res['series'], $res['found']]);
+    same('structure: a server with no answer stands with its error, in the error\'s shape', ['key' => 'jack_unreachable', 'params' => ['url' => 'http://10.0.0.3:8096', 'detail' => 'curl: (7) refused']], $res['servers'][1]['error']);
+    check('structure: only a result in exactly its shape is read', jackStructureRead("$tmp/none") === null);
+    file_put_contents("$tmp/structure.json", '{"v":2,"time":1,"servers":[]}');
+    check('structure: another version is not read', jackStructureRead($tmp) === null);
+
+    // the summary and the Team Lead's hint: absent while never checked, only after a check that found something
+    $GLOBALS['jackStructureRun'] = null;
+    @unlink(jackStructureRunFile());
+    same('structure: never asked — no summary, no hint', [null, null], [jackStructureSummary("$tmp/none"), jackStructureFinding(jackStructureSummary("$tmp/none"))]);
+    writeAtomic("$tmp/structure.json", jsonEncode(jackStructureResult([['name' => 'A', 'films' => 2, 'series' => 1, 'items' => 3, 'unmapped' => 1, 'found' => 0, 'findings' => []]], 1000)));
+    $sum = jackStructureSummary($tmp);
+    same('structure: clean — counts, no hint', [1000, 2, 1, 1, 0, 0, false, false, null],
+        [$sum['time'], $sum['films'], $sum['series'], $sum['unmapped'], $sum['found'], $sum['servers_failed'], $sum['running'], $sum['failed'], jackStructureFinding($sum)]);
+    writeAtomic("$tmp/structure.json", jsonEncode(jackStructureResult([['name' => 'A', 'films' => 2, 'series' => 1, 'items' => 3, 'unmapped' => 0, 'found' => 2, 'findings' => $findings(2)],
+        ['name' => 'B', 'films' => 0, 'series' => 0, 'items' => 0, 'unmapped' => 0, 'found' => 0, 'findings' => [], 'error' => ['key' => 'jack_bad_key', 'params' => []]]], 1000)));
+    $sum = jackStructureSummary($tmp);
+    same('structure: found — a hint, never more', ['id' => 'structure', 'level' => 'hint', 'ok' => false, 'params' => ['n' => 2], 'link' => '#/jack/shares'], jackStructureFinding($sum));
+    same('structure: the server without an answer is counted', 1, $sum['servers_failed']);
+    same('structure: the part reads the result', [1000, true], [jackStructureList($tmp)['state']['result']['time'], is_int(jackStructureList($tmp)['state']['time'])]);
+    same('structure: the part with nothing checked', null, jackStructureList("$tmp/none")['state']['result']);
+
+    // the job through his tick: started once, its end taken up, his saved state given the counts; nothing while none is asked
+    same('structure: the job is his', true, isset(desks()['jack']['jobs'][JACK_STRUCTURE_JOB]));
+    same('structure: never in a schedule or the joint run', [false, false],
+        [str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/nightrun.php'), JACK_STRUCTURE_JOB), str_contains((string) file_get_contents(OFFICE_DIR . '/plugin/scripts/job.sh'), JACK_STRUCTURE_JOB)]);
+    $dataFile = JACK_DATA . '/' . JACK_STRUCTURE_FILE;
+    @mkdir(JACK_DATA, 0700, true);
+    @unlink($dataFile);
+    $state = "$tmp/jack.json";
+    file_put_contents($state, json_encode(['time' => 5, 'kept' => 'yes']));
+    $GLOBALS['jackStructureCommand'] = ['/bin/sleep', '60'];
+    jackStructureTick($state);
+    same('structure: no tick starts anything unasked', [null, false], [$GLOBALS['jackStructureRun'], is_file(jackStructureRunFile())]);
+    $GLOBALS['jackStructureRun'] = ['asked' => time()];
+    jackStructureTick($state);
+    $proc = $GLOBALS['jackStructureRun'];
+    check('structure: asked — the job started, noted in RAM by its pid', is_resource($proc['process'] ?? null) && (readJson(jackStructureRunFile())['pid'] ?? null) === $proc['pid']);
+    same('structure: at work — the summary says so', true, jackStructureSummary()['running']);
+    jackStructureTick($state);
+    same('structure: a second tick starts no second job', $proc['pid'], $GLOBALS['jackStructureRun']['pid']);
+    proc_terminate($proc['process'], 9);
+    $until = hrtime(true) + 5000000000;
+    while ($GLOBALS['jackStructureRun'] !== null && hrtime(true) < $until) {
+        usleep(20000);
+        jackStructureTick($state);
+    }
+    $kept = readJson($state);
+    same('structure: a job with no result failed; his state takes it, the rest as it was', [null, true, false, null, 5, 'yes'],
+        [$GLOBALS['jackStructureRun'], $kept['structure']['failed'], $kept['structure']['running'], $kept['structure']['time'], $kept['time'], $kept['kept']]);
+    $GLOBALS['jackStructureCommand'] = [PHP_BINARY, '-r', 'file_put_contents($argv[1], json_encode(["v" => 1, "time" => time() + 1, "servers" => [], "films" => 3, "series" => 2, "items" => 5, "unmapped" => 0, "found" => 0]));', $dataFile];
+    $GLOBALS['jackStructureRun'] = ['asked' => time()];
+    $until = hrtime(true) + 5000000000;
+    do {
+        jackStructureTick($state);
+        usleep(20000);
+    } while ($GLOBALS['jackStructureRun'] !== null && hrtime(true) < $until);
+    $kept = readJson($state);
+    same('structure: a job with a result — its counts in his state, the failure gone', [3, 2, false, false, false],
+        [$kept['structure']['films'], $kept['structure']['series'], $kept['structure']['failed'], $kept['structure']['running'], is_file(jackStructureRunFile())]);
+    // a job from before a restart of the agent: taken up while it works; a click is never started later by itself
+    @unlink($dataFile);
+    writeAtomic(jackStructureRunFile(), jsonEncode(['pid' => 999999, 'since' => time()]), 0600, 0, 0);
+    file_put_contents($state, '{}');
+    $GLOBALS['jackStructureRun'] = null;
+    jackStructureStart();
+    same('structure: a job gone at his start — over, failed, none started', [null, true], [$GLOBALS['jackStructureRun'], is_int(readJson(jackStructureRunFile())['failed'] ?? null)]);
+    unset($GLOBALS['jackStructureCommand']);
+    $GLOBALS['jackStructureRun'] = null;
+    @unlink(jackStructureRunFile());
+
+    // «Set up from scratch» takes it along; nothing here ever looks at a disk or moves a file
+    file_put_contents("$tmp/structure.json", '{}');
+    @mkdir("$tmp/g");
+    jackReset(['dir' => $tmp, 'gather' => "$tmp/g", 'running' => fn () => false, 'schedule' => fn (string $job) => null]);
+    check('structure: «Set up from scratch» takes the result along', !file_exists("$tmp/structure.json"));
+    check('structure: jack.php names no constant of its part (glob sorts by locale: jack.php may load first)', !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), 'JACK_STRUCTURE_'));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-structure.php');
+    foreach (['rename(', 'scandir(', 'filesize(', 'stat(', 'is_file(', 'is_dir(', 'file_exists(', 'glob(', 'rsync', 'shell_exec'] as $never) {
+        check("structure: no $never — the servers' word only, nothing moved", !str_contains($src, $never));
+    }
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
+    check('structure: the page asks only on the click (structure_start once, in the dialog)', substr_count($js, 'structure_start') === 1);
+    same('structure: the part is named for the agent', 'structure_list', json_decode((string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.json'), true)['parts']['structure']['action'] ?? null);
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
 function testJackWatch(): void
 {
     $key = 'Abcdef0123456789abcdef0123456789';
@@ -25690,7 +25919,7 @@ function testDockerBackLook(): void
     $restore = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
     $jack = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('docker back: both ticks stand in their desks\' tick (Jack Streamer\'s reads his memory, jackScan() sets it)',
-        str_contains($restore, "        rsDockerBackTick();     //") && str_contains($jack, "    'tick'    => fn () => jackDockerBackTick(),")
+        str_contains($restore, "        rsDockerBackTick();     //") && str_contains($jack, "        jackDockerBackTick();     //")
         && str_contains($jack, "\$GLOBALS['jackDocker'] = \$state['docker'];"));
     check('docker back: his look anew never from the cache - a «no answer» of the quiet time would say «off» and end the tick',
         str_contains($restore, "    houseContainersKnown(true);\n    return rsScan();\n"));
@@ -27034,6 +27263,9 @@ function testStrings(): void
     // Ms. Protocolli's /var/log watch likewise (agent/desks/logs-flood.php)
     $sources['logs'] = array_merge($sources['logs'] ?? [], $sources['logs-flood'] ?? []);
     unset($sources['logs-flood']);
+    // Jack Streamer's «Check the structure…» likewise (agent/desks/jack-structure.php)
+    $sources['jack'] = array_merge($sources['jack'] ?? [], $sources['jack-structure'] ?? []);
+    unset($sources['jack-structure']);
     foreach ($sources as $desk => $files) {
         foreach ($files as $file) {
             preg_match_all("/\\bfinding\\(\\s*'([a-z0-9_]+)'/", (string) file_get_contents($file), $m);
@@ -61513,7 +61745,7 @@ function testBackupAnewChoice(): void
         str_contains($setup, 'OLD[$k]="${v//$\'\x1f\'/$\'\n\'}"') && str_contains($setup, 'was="$v"; [[ -n "${ANEW[$v]:-}" ]] && v="${ANEW[$v]}"'));
 }
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',

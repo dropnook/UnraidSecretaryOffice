@@ -1,0 +1,52 @@
+{
+  "time": 1791551074,
+  "result": {
+    "v": 1,
+    "time": 1791550474,
+    "films": 8,
+    "series": 3,
+    "items": 11,
+    "unmapped": 2,
+    "found": 3,
+    "servers": [
+      {
+        "name": "Emby",
+        "films": 8,
+        "series": 3,
+        "items": 11,
+        "unmapped": 2,
+        "found": 3,
+        "findings": [
+          {
+            "kind": "flat_movie",
+            "title": "Sommerfest im Hof",
+            "path": "/mnt/user/media/Familienfilme/Sommerfest im Hof.mkv"
+          },
+          {
+            "kind": "shared_folder",
+            "title": "Ferien am See · Velotour am Rhein",
+            "path": "/mnt/user/media/Familienfilme/Ferien am See (2019)"
+          },
+          {
+            "kind": "flat_series",
+            "title": "Gartenprojekt",
+            "path": "/mnt/user/media/Familienserien"
+          }
+        ]
+      },
+      {
+        "name": "Plex",
+        "films": 0,
+        "series": 0,
+        "items": 0,
+        "unmapped": 0,
+        "found": 0,
+        "findings": [],
+        "error": {
+          "key": "jack_bad_key",
+          "params": {}
+        }
+      }
+    ]
+  }
+}

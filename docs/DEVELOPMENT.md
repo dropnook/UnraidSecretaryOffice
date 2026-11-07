@@ -723,6 +723,12 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   his let-go's release (`MEDIACACHE_RELEASE_THEMES=1`) or the switch off (the next run gives them back, the state reset)
   brings them back. His page: the pool tile's «n themes on the pool · x MB» (the list's section), the run summary, a row
   in the live panel (phase `themes`).
+  **«Check the structure…»** (agent/desks/jack-structure.php, under his shares; 2026-11-07): only on the user's click, one job
+  `jack-structure` started from his tick, only the media servers' API (never a stat on /mnt, nothing moved or renamed):
+  `flat_movie`, `shared_folder` (one finding per folder), `flat_series`, a path no mapping covers `unmapped` (counted, not
+  judged); `JACK_DATA/structure.json` (at most 500 findings, `found` says how many), the list by the part «structure», the
+  Team Lead's hint `structure` only after a check that found something. Flat episodes make no Series item on Jellyfin and
+  Emby and no folder on Plex, so the job reads the episodes' paths too.
 * **`moverelli` — Ms. Moverelli.** Smart Mover beside Unraid's mover (7.3.2+; her ini, every value checked). **Unraid's own
   mover goes off with her setup:** refused unless the page's consent `mover_off: true` comes along; the old schedule noted once,
   **her let-go puts it back** through the same form (only `MOVERELLI_UNRAID_CRON` shapes). **Never a hand-written cron line.**

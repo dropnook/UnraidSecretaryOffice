@@ -103,8 +103,14 @@ desk('jack', [
         $rule = jackMoverRule();
         return fit(true, $rule['ok'] || $rule['why'] === 'moverelli' ? 'yes' : 'yes_dry', ['name' => $emby[0]['name']]);
     },
-    'start'   => fn () => jackScan(),
-    'tick'    => fn () => jackDockerBackTick(),     // his look said Docker was silent and it answers again: that part looked at again at once
+    'start'   => function () {
+        jackStructureStart();
+        return jackScan();
+    },
+    'tick'    => function () {
+        jackDockerBackTick();     // his look said Docker was silent and it answers again: that part looked at again at once
+        jackStructureTick();      // «Check the structure…» asked or at work (jack-structure.php): else one variable read
+    },
     'actions' => [
         'refresh'      => fn (array $r) => ['ok' => true, 'state' => jackScan()],
         'connect'      => fn (array $r) => jackConnect(textField($r, 'url'), optText($r, 'api_key'), optText($r, 'type') ?: 'emby'),
@@ -133,10 +139,14 @@ desk('jack', [
         'reset'          => fn (array $r) => jackReset(),
         // the setup's pool simulator, real data: the pool measured now — only on the user's click (it may wake the pool)
         'stop'           => fn (array $r) => ['ok' => true, 'asked' => jackNightNow() !== null ? nightStopAsk() : jackStopAsk(), 'state' => jackScan()],
+        // «Check the structure…» (jack-structure.php): only ever on this click; the part «structure» (desk.json) reads its list
+        'structure_start' => fn (array $r) => jackStructureAsk(),
+        'structure_list'  => fn (array $r) => jackStructureList(),
     ],
     'jobs'    => [
         'embycache' => fn (array $args) => jackJob('embycache', $args),
         'gather'    => fn (array $args) => jackJob('gather', $args),
+        'jack-structure' => fn (array $args) => jackStructureJob(),   // its part loads after this file on Linux: no constant of it here
     ],
     'checks'  => fn () => jackChecks(),
     'metrics' => fn (): array => jackMetrics(),
@@ -377,6 +387,8 @@ function jackScan(): array
         // his list not there (2026-10-29): pending (his first real run writes it — Ms. Moverelli leaves his shares alone
         // meanwhile), lost (it can't be written anew now: the pool asleep or unreadable); null: there
         'list'       => in_array($list, ['pending', 'lost'], true) ? $list : null,
+        // «Check the structure…» (jack-structure.php): the counts of the last check, whether one goes; null: never asked
+        'structure'  => jackStructureSummary(),
     ];
     $GLOBALS['jackDocker'] = $state['docker'];      // for his tick (jackDockerBackTick()): no file read every round
     writeAtomic(deskFile('jack'), jsonEncode($state));
@@ -1606,7 +1618,7 @@ function jackNotConfigured(?array $settings = null): Problem
  */
 const JACK_RESET_GONE   = ['mediacache_settings.json', '.mediacache_settings.trial.json', 'mediacache_origin.json', 'office-history.json', JACK_LIST_NOTE,
                            'office-run.json', 'office-output.txt', 'office-stop.json', 'jack-progress.json', 'jack-progress-speed.json', 'status.json',
-                           JACK_THEMES_STATE];
+                           JACK_THEMES_STATE, 'structure.json'];
 const GATHER_RESET_GONE = ['gather.json', 'consolidate.ini', 'measure.ini', 'last-real.json', 'sizes.json', 'status.json', 'office-history.json',
                            'office-run.json', 'office-output.txt', 'office-stop.json'];
 
@@ -3902,6 +3914,10 @@ function jackChecks(): array
     $out[] = finding('list_rebuilt', 'hint', !is_array(readJson(JACK_DATA . '/' . JACK_LIST_NOTE)['rebuilt'] ?? null), ['file' => $list], '#/jack');
     // the gather: optional — a calm hint, never a point that stays open (the owner, 2026-10-16)
     $out[] = finding('gather_optional', 'hint', true, [], '#/jack');
+    // «Check the structure…» found something (jack-structure.php): to know, never a must; absent while never checked or clean
+    if ($structure = jackStructureFinding(jackStructureSummary())) {
+        $out[] = $structure;
+    }
     $foreign = array_filter(jackForeignSchedules(), fn ($f) => $f['enabled']);
     $out[] = finding('foreign', 'recommended', !$foreign, ['where' => implode(', ', array_column($foreign, 'where'))], 'userscripts');
     // Unraid's mover schedule «Disabled» (and Mover Tuning, if any, keeping his list), else only dry runs go (jack-mover.php): one point
