@@ -502,6 +502,86 @@ await Promise.all(Array.from({ length: Math.min(opt.jobs, jobs.length) }, async 
 // deeper; the breadcrumb, Escape and the X come back up; a share without a map scans first (the wake question for one on the
 // array, the wave in its cell, it opens when the scan ends and nothing else was clicked); «Scan all…» asks once and queues;
 // no horizontal scrolling and no jumping page at phone width either, by finger a tap shows and the next one goes in.
+/**
+ * Jack Streamer's «Check the structure…» (agent/desks/jack-structure.php): the list drawn, grouped by kind with kinds as labels;
+ * who didn't answer; the clean sentence; a check at work (the wave, the button off) and its end coming by the one timer; the
+ * click sends exactly one structure_start. At 1440 and 375 px.
+ */
+async function jackStructure(browser) {
+  const res = { route: 'jack structure', theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => { if (res.fails.length < 40 && !res.fails.includes(what)) res.fails.push(what); };
+  const h = await startHarness({});
+  const file = (name) => JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', `${name}.json`), 'utf8'));
+  const stub = file('jack');
+  const part = file('jack-structure');
+  const clean = { ...stub.structure, found: 0, unmapped: 0, servers_failed: 0 };
+  const cleanPart = { ...part, result: { ...part.result, found: 0, unmapped: 0, servers: [{ name: 'Emby', films: 8, series: 3, items: 11, unmapped: 0, found: 0, findings: [] }] } };
+  const box = '#sso-desk .jo-structure';
+  for (const width of [1440, 375]) {
+    const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(String(e.message).slice(0, 160)));
+    // the stub has a real run going (the check goes beside it: his part doesn't carry the check's end); at phone width none
+    const jack = width === 1440 ? stub : { ...stub, jobs: { embycache: { ...stub.jobs.embycache, running: false }, gather: stub.jobs.gather }, night: { ...stub.night, now: null } };
+    try {
+      h.setState('jack', jack);
+      h.setState('jack-structure', part);
+      await page.goto(`${h.url}#/jack/shares`, { waitUntil: 'load' });
+      await page.waitForSelector(`${box} .chip`, { timeout: 8000 });
+      const list = await page.evaluate((sel) => {
+        const b = document.querySelector(sel);
+        return { rows: [...b.querySelectorAll('.row')].map((r) => [r.querySelector('.chip').textContent, r.querySelector('.chip').title !== '', r.querySelector('.row-name').textContent, r.querySelector('.jo-structure-path').textContent]),
+          text: b.textContent, wide: document.documentElement.scrollWidth > innerWidth };
+      }, box);
+      res.tested++;
+      const kinds = list.rows.map((r) => r[0]);
+      if (kinds.join('|') !== "Film in the library's root|Several films in one folder|Series without a folder") fail(`${width}: the kinds as labels, in their order: ${JSON.stringify(kinds)}`);
+      if (!list.rows.every((r) => r[1])) fail(`${width}: a label without its own title`);
+      if (list.rows[1][2] !== 'Ferien am See · Velotour am Rhein' || !list.rows[1][3].includes('/mnt/user/media/Familienfilme/Ferien am See (2019)')) fail(`${width}: title and path of a row: ${JSON.stringify(list.rows[1])}`);
+      if (!list.rows[0][3].startsWith('Emby · ')) fail(`${width}: several servers, the row doesn't name its own: ${list.rows[0][3]}`);
+      if (!list.text.includes('8 films and 3 series checked at') || !list.text.includes('3 items not in the expected pattern')) fail(`${width}: the sentence: ${list.text.slice(0, 160)}`);
+      if (!list.text.includes('Plex not checked: ')) fail(`${width}: the server without an answer isn't named`);
+      if (!list.text.includes('2 items lie where no folder mapping reaches')) fail(`${width}: what couldn't be judged isn't said`);
+      if (list.wide) fail(`${width}: the page scrolls sideways`);
+      if (await page.locator(`${box} a`).count()) fail(`${width}: a path is linked to something`);
+
+      // the click: a dialog, then the action exactly once; the check at work: the wave, the button off
+      h.setPost('jack.structure_start', () => ({ state: { ...jack, structure: { ...jack.structure, running: true } } }));
+      h.setState('jack', { ...jack, structure: { ...jack.structure, running: true } });
+      const before = h.posts.filter((x) => x.action === 'jack.structure_start').length;
+      const check = page.getByRole('button', { name: 'Check the structure…' });
+      await check.click();
+      await page.waitForSelector('#sso-dialog-foot .btn', { timeout: 4000 });
+      if (h.posts.filter((x) => x.action === 'jack.structure_start').length !== before) fail(`${width}: the check started before the dialog's button`);
+      await page.locator('#sso-dialog-foot .btn', { hasText: 'Check' }).click();
+      await page.waitForSelector(`${box} .spin`, { timeout: 4000 });
+      res.tested++;
+      if (h.posts.filter((x) => x.action === 'jack.structure_start').length !== before + 1) fail(`${width}: not exactly one structure_start`);
+      if (!(await page.locator(`${box}`).textContent()).includes("I'm asking the media servers")) fail(`${width}: at work without saying so`);
+      if (!(await check.isDisabled())) fail(`${width}: the button stays on while a check goes`);
+
+      // its end: his state says so, the one timer picks it up and the list follows — the clean sentence, no list
+      h.setState('jack', { ...jack, structure: { ...clean, time: jack.structure.time + 300 } });
+      h.setState('jack-structure', { ...cleanPart, result: { ...cleanPart.result, time: jack.structure.time + 300 } });
+      await page.waitForFunction((sel) => { const b = document.querySelector(sel); return b && !b.querySelector('.spin') && b.textContent.includes('everything in its place'); }, box, { timeout: 15000 });
+      res.tested++;
+      const end = await page.evaluate((sel) => ({ rows: document.querySelectorAll(`${sel} .row`).length, text: document.querySelector(sel).textContent }), box);
+      if (end.rows) fail(`${width}: rows in a clean result`);
+      if (!end.text.includes('8 films and 3 series checked at')) fail(`${width}: the clean sentence: ${end.text}`);
+      if (await check.isDisabled()) fail(`${width}: the button stays off after the check`);
+    } catch (e) {
+      fail(`${width}: broke off: ${String(e.message).split('\n').slice(0, 3).join(' ').slice(0, 240)}`);
+    }
+    errors.forEach((e) => fail(`${width}: page error: ${e}`));
+    await ctx.close();
+  }
+  await h.close();
+  res.ms = Date.now() - t0;
+  return res;
+}
+
 async function cleanupMap(browser) {
   const res = { route: 'cleanup map', theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
   const t0 = Date.now();
@@ -1750,6 +1830,7 @@ const walks = opt.states ? [] : WALK.filter((d) => !opt.only || routes.includes(
 results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d))));
 if (!opt.states && (!opt.only || routes.includes('cleanup/where'))) results.push(await cleanupMap(browser));
 if (!opt.states && (!opt.only || routes.includes('jack/setup'))) results.push(await dialogStack(browser, harness));
+if (!opt.states && (!opt.only || routes.includes('jack'))) results.push(await jackStructure(browser));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await firstHome(browser));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await netBusy(browser));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await pairAddress(browser));
