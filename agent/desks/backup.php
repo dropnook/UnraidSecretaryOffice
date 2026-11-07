@@ -46,6 +46,7 @@ const BACKUP_UPLOAD_LOOK = 180;          // a first upload's rate: from looks at
 const BACKUP_UPLOAD_KEEP = 900;          // … within the last 15 minutes; before that, the average since it started
 const BACKUP_OFFICE_SHARE = 'UnraidSecretaryOffice';     // the office's own share - the backup place he offers to create (the engine's UB_OFFICE_SHARE)
 const BACKUP_ASLEEP_NIGHTS = 7;          // engine 2.28: a share left out asleep so many nights in a row - the engine warned (UB_ASLEEP_NIGHTS)
+const BACKUP_SHARES_EVERY = 1.0;         // s: how often the tick compares the share files' stamp (officeSharesStamp(), lib/house.php)
 
 $GLOBALS['backup'] = null;
 $GLOBALS['backupLogCache'] = [];         // legacy log file => [mtime, parsed]
@@ -114,6 +115,7 @@ desk('backup', [
     'tick'    => function (): void {
         backupLockTick();             // engine 2.56: Object Lock and Kopia's maintenance, asked a few times a day
         backupWatchTick();            // engine 2.68: the Kopia server's log - does the offsite storage still take writes?
+        backupSharesTick();           // a share made, changed or removed in Unraid: his state looked at again at once
     },
     'checks' => fn () => backupChecks(),
     'metrics' => fn (): array => backupMetrics(),
@@ -319,6 +321,35 @@ function backupScan(): array
     $GLOBALS['backup'] = $state;
     writeAtomic(deskFile('backup'), jsonEncode($state));
     return $state;
+}
+
+/**
+ * A share made or removed in Unraid (2026-11-07: his page knew it only after the engine's next drift check, daily or on a
+ * run): once a second the share files' stamp, as Ms. Moverelli's and Mr. Restori's ticks do (officeSharesStamp(): a glob and
+ * a stat each on the flash); changed and calm → his state looked at again (backupScan(), which never looks into a sleeping
+ * home; backupTruth() reads shares.ini) — the page's next look gets it. Never the engine asked. Not hired, or never looked at
+ * yet (a new data folder): his page's first look will do. $now, $h (shares_dir, shares_ini, state_file, hired, scan) for the
+ * tests; the new state or null.
+ */
+function backupSharesTick(?float $now = null, ?array $h = null): ?array
+{
+    static $last = 0.0;
+    $now ??= hrtime(true) / 1e9;
+    if ($h === null && $now - $last < BACKUP_SHARES_EVERY) {
+        return null;
+    }
+    $last = $now;
+    $GLOBALS['backupSharesMemo'] ??= [];
+    $stamp = officeSharesStamp($h['shares_dir'] ?? OFFICE_SHARES_CFG_DIR, $h['shares_ini'] ?? OFFICE_SHARES_INI);
+    if (!officeSharesDue($GLOBALS['backupSharesMemo'], $stamp, $now)) {
+        return null;
+    }
+    $hired = $h['hired'] ?? fn (): bool => in_array('backup', staffHired($GLOBALS['agentStaffFile'] ?? null), true);
+    if (!$hired() || !is_file($h['state_file'] ?? deskFile('backup'))) {
+        return null;
+    }
+    logLine('Mr. Backupsy: the shares changed in Unraid - his look taken anew');
+    return ($h['scan'] ?? 'backupScan')();
 }
 
 /**
