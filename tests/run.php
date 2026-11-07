@@ -1153,13 +1153,35 @@ function testJackStructure(): void
     }
 
     // the result file: shape, the 500 cap, never a key, every count as it was
-    $findings = fn (int $n) => array_map(fn ($i) => ['kind' => 'flat_movie', 'title' => "F$i", 'path' => "/mnt/user/Filme/F$i.mkv"], $n ? range(1, $n) : []);
+    $findings = fn (int $n, string $at = 'A') => array_map(fn ($i) => ['kind' => 'flat_movie', 'title' => "F$i", 'path' => "/mnt/user/$at/F$i.mkv"], $n ? range(1, $n) : []);
     $res = jackStructureResult([['name' => 'A', 'films' => 400, 'series' => 5, 'items' => 405, 'unmapped' => 1, 'found' => 400, 'findings' => $findings(400)],
-                                ['name' => 'B', 'films' => 300, 'series' => 0, 'items' => 300, 'unmapped' => 2, 'found' => 300, 'findings' => $findings(300)],
-                                ['name' => 'C', 'films' => 1, 'series' => 0, 'items' => 1, 'unmapped' => 0, 'found' => 1, 'findings' => $findings(1)]], 1234);
+                                ['name' => 'B', 'films' => 300, 'series' => 0, 'items' => 300, 'unmapped' => 2, 'found' => 300, 'findings' => $findings(300, 'B')],
+                                ['name' => 'C', 'films' => 1, 'series' => 0, 'items' => 1, 'unmapped' => 0, 'found' => 1, 'findings' => $findings(1, 'C')]], 1234);
     same('structure: at most 500 kept over all servers, the count says the rest', [[400, 100, 0], 701, 3, 1234, 1, 701],
         [array_map(fn ($s) => count($s['findings']), $res['servers']), $res['found'], $res['unmapped'], $res['time'], $res['v'], $res['films']]);
 
+    // one library behind several servers: one finding, every server named; films and series once per path
+    $one = ['films' => 2, 'series' => 1, 'items' => 3, 'unmapped' => 0, 'found' => 2, 'findings' => $findings(2),
+            'paths' => ['films' => ['/mnt/user/A/F1.mkv', '/mnt/user/A/F2.mkv'], 'series' => ['/mnt/user/S']]];
+    $res = jackStructureResult([['name' => 'Jellyfin'] + $one, ['name' => 'Emby'] + $one,
+        ['name' => 'Plex', 'films' => 3, 'series' => 1, 'items' => 4, 'unmapped' => 1, 'found' => 1, 'findings' => $findings(1, 'P'),
+         'paths' => ['films' => ['/mnt/user/A/F1.mkv', '/mnt/user/A/F2.mkv', '/mnt/user/P/F1.mkv'], 'series' => ['/mnt/user/S']]]], 1234);
+    same('structure: several servers on one library - each finding once, the others named, the films once per path',
+        [3, [2, 0, 1], ['Emby'], [], 3, 1, 4, false],
+        [$res['found'], array_map(fn ($s) => count($s['findings']), $res['servers']), $res['servers'][0]['findings'][0]['also'], $res['servers'][2]['findings'][0]['also'] ?? [],
+         $res['films'], $res['series'], $res['items'], isset($res['servers'][0]['paths'])]);
+    $flat = fn (string $title) => ['kind' => 'flat_series', 'title' => $title, 'path' => '/mnt/user/Serien'];
+    $res = jackStructureResult([['name' => 'A', 'findings' => [$flat('Eins'), $flat('Zwei')]], ['name' => 'B', 'findings' => [$flat('eins')]]], 1234);
+    same('structure: two series flat in one library stay two; the same one on another server is one',
+        [2, 2, ['B'], false], [$res['found'], count($res['servers'][0]['findings']), $res['servers'][0]['findings'][0]['also'], isset($res['servers'][0]['findings'][1]['also'])]);
+    $res = jackStructureResult([['name' => 'A', 'findings' => $findings(3)], ['name' => 'B', 'findings' => $findings(3)]], 1234, 2);
+    same('structure: a finding over the cap, again on another server - counted once, no stray entry',
+        [3, [2, 0], ['B'], ['B']], [$res['found'], array_map(fn ($s) => count($s['findings']), $res['servers']),
+         $res['servers'][0]['findings'][0]['also'], $res['servers'][0]['findings'][1]['also']]);
+    same('structure: … the list is a plain list', [0, 1], array_keys($res['servers'][0]['findings']));
+    $res = jackStructureResult([['name' => 'A', 'findings' => array_merge($findings(1), $findings(1))]], 1234);
+    same('structure: the same finding twice on one server - once, no «also» of itself', [1, 1, false],
+        [$res['found'], count($res['servers'][0]['findings']), isset($res['servers'][0]['findings'][0]['also'])]);
     $tmp = hardeningTmp('jackstructure');
     $key = 'SECRETKEY1234567';
     $set = ['instances' => [

@@ -1202,7 +1202,7 @@ function structureGroups(r) {
   const many = r.servers.length > 1;
   return STRUCTURE_KINDS.map((kind) => [kind, r.servers.flatMap((sv) => (Array.isArray(sv.findings) ? sv.findings : [])
     .filter((f) => f && f.kind === kind && typeof f.title === 'string' && typeof f.path === 'string')
-    .map((f) => ({ ...f, server: many ? sv.name : '' })))]).filter(([, list]) => list.length);
+    .map((f) => ({ ...f, server: many ? [sv.name, ...(Array.isArray(f.also) ? f.also : [])].join(', ') : '' })))]).filter(([, list]) => list.length);
 }
 function structureBox() {
   const box = el('div', 'jo-structure');

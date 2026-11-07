@@ -93,7 +93,7 @@ function jackStructureJudge(array $items, array $libs, array $maps): array
         }
     }
     $films = $series = $unmapped = 0;
-    $flatFilms = $flatSeries = $folders = [];
+    $flatFilms = $flatSeries = $folders = $filmPaths = $seriesPaths = [];
     foreach ($items as $item) {
         $path = rtrim((string) ($item['path'] ?? ''), '/');
         $title = jackWatchText((string) ($item['title'] ?? ''));
@@ -113,12 +113,14 @@ function jackStructureJudge(array $items, array $libs, array $maps): array
         $depth = $rel === '' ? 0 : substr_count($rel, '/') + 1;
         if (($item['type'] ?? '') === 'Series') {
             $series++;
+            $seriesPaths[$mapped] = true;
             if ($rel === '') {
                 $flatSeries["$title\0$mapped"] = ['kind' => 'flat_series', 'title' => $title, 'path' => $mapped];
             }
             continue;
         }
         $films++;
+        $filmPaths[$mapped] = true;
         if (!empty($item['disc'])) {
             continue;                      // a rip's folder: the film has its folder
         }
@@ -140,7 +142,8 @@ function jackStructureJudge(array $items, array $libs, array $maps): array
         usort($list, fn (array $a, array $b): int => strnatcasecmp($a['title'], $b['title']) ?: strcmp($a['path'], $b['path']));
         $findings = array_merge($findings, $list);
     }
-    return ['films' => $films, 'series' => $series, 'items' => $films + $series, 'unmapped' => $unmapped, 'found' => count($findings), 'findings' => $findings];
+    return ['films' => $films, 'series' => $series, 'items' => $films + $series, 'unmapped' => $unmapped, 'found' => count($findings), 'findings' => $findings,
+            'paths' => ['films' => array_keys($filmPaths), 'series' => array_keys($seriesPaths)]];
 }
 
 /** The server's films and series as the rules take them: Emby/Jellyfin's items; one with no file (`Virtual`) is no item */
@@ -295,22 +298,63 @@ function jackStructureItems(string $type, callable $api, array $chosen): array
 }
 
 /**
- * The result file's content: at most $cap findings kept over all servers, every count as it was; a server that gave no
- * answer stands with its `error` (never «everything in its place»).
+ * What makes two servers' findings the same one: its kind and path — a flat series' path is the library's folder, shared
+ * by every series lying flat there, so its name counts too. A film's or a folder's name may differ between servers.
+ */
+function jackStructureKey(array $f): string
+{
+    return $f['kind'] . "\0" . $f['path'] . ($f['kind'] === 'flat_series' ? "\0" . mb_strtolower((string) $f['title']) : '');
+}
+
+/**
+ * The result file's content: at most $cap findings kept over all servers; a server that gave no answer stands with its
+ * `error` (never «everything in its place»). One library behind several servers (Jellyfin and Emby on the same share) is
+ * one library: a finding counts once per kind and path, under the first server, the others in its `also`; films and series
+ * once per path where the rules handed in their `paths` (they aren't written). Each server keeps its own counts.
  *
  * @param list<array<string, mixed>> $servers
  */
 function jackStructureResult(array $servers, int $time, int $cap = JACK_STRUCTURE_MAX): array
 {
     $out = ['v' => JACK_STRUCTURE_V, 'time' => $time, 'servers' => [], 'films' => 0, 'series' => 0, 'items' => 0, 'unmapped' => 0, 'found' => 0];
-    foreach ($servers as $s) {
-        foreach (['films', 'series', 'items', 'unmapped', 'found'] as $k) {
-            $out[$k] += (int) ($s[$k] ?? 0);
+    $paths = ['films' => [], 'series' => []];
+    $where = [];        // a finding's key => [server, its place there], null over the cap
+    foreach ($servers as $n => $s) {
+        $out['unmapped'] += (int) ($s['unmapped'] ?? 0);
+        foreach (['films', 'series'] as $k) {
+            if (isset($s['paths'][$k])) {
+                $paths[$k] += array_fill_keys((array) $s['paths'][$k], true);
+            } else {
+                $out[$k] += (int) ($s[$k] ?? 0);
+            }
         }
-        $s['findings'] = array_slice((array) ($s['findings'] ?? []), 0, max(0, $cap));
-        $cap -= count($s['findings']);
-        $out['servers'][] = $s;
+        unset($s['paths']);
+        $mine = [];
+        foreach ((array) ($s['findings'] ?? []) as $f) {
+            $key = jackStructureKey((array) $f);
+            if (array_key_exists($key, $where)) {
+                if ($where[$key] !== null && $where[$key][0] !== $n) {
+                    $out['servers'][$where[$key][0]]['findings'][$where[$key][1]]['also'][] = (string) ($s['name'] ?? '');
+                }
+                continue;
+            }
+            $out['found']++;
+            if (count($mine) < $cap) {
+                $where[$key] = [$n, count($mine)];
+                $mine[] = $f;
+            } else {
+                $where[$key] = null;
+            }
+        }
+        $s['findings'] = $mine;
+        $s['found'] = count($mine);
+        $cap -= count($mine);
+        $out['servers'][$n] = $s;
     }
+    $out['servers'] = array_values($out['servers']);
+    $out['films'] += count($paths['films']);
+    $out['series'] += count($paths['series']);
+    $out['items'] = $out['films'] + $out['series'];
     return $out;
 }
 
