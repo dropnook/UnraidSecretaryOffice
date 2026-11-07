@@ -1257,6 +1257,7 @@ function testJackStructure(): void
     @mkdir("$tmp/g");
     jackReset(['dir' => $tmp, 'gather' => "$tmp/g", 'running' => fn () => false, 'schedule' => fn (string $job) => null]);
     check('structure: «Set up from scratch» takes the result along', !file_exists("$tmp/structure.json"));
+    check('structure: jack.php names no constant of its part (glob sorts by locale: jack.php may load first)', !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), 'JACK_STRUCTURE_'));
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-structure.php');
     foreach (['rename(', 'scandir(', 'filesize(', 'stat(', 'is_file(', 'is_dir(', 'file_exists(', 'glob(', 'rsync', 'shell_exec'] as $never) {
         check("structure: no $never — the servers' word only, nothing moved", !str_contains($src, $never));

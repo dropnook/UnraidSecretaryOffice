@@ -146,7 +146,7 @@ desk('jack', [
     'jobs'    => [
         'embycache' => fn (array $args) => jackJob('embycache', $args),
         'gather'    => fn (array $args) => jackJob('gather', $args),
-        JACK_STRUCTURE_JOB => fn (array $args) => jackStructureJob(),
+        'jack-structure' => fn (array $args) => jackStructureJob(),   // its part loads after this file on Linux: no constant of it here
     ],
     'checks'  => fn () => jackChecks(),
     'metrics' => fn (): array => jackMetrics(),
@@ -1618,7 +1618,7 @@ function jackNotConfigured(?array $settings = null): Problem
  */
 const JACK_RESET_GONE   = ['mediacache_settings.json', '.mediacache_settings.trial.json', 'mediacache_origin.json', 'office-history.json', JACK_LIST_NOTE,
                            'office-run.json', 'office-output.txt', 'office-stop.json', 'jack-progress.json', 'jack-progress-speed.json', 'status.json',
-                           JACK_THEMES_STATE, JACK_STRUCTURE_FILE];
+                           JACK_THEMES_STATE, 'structure.json'];
 const GATHER_RESET_GONE = ['gather.json', 'consolidate.ini', 'measure.ini', 'last-real.json', 'sizes.json', 'status.json', 'office-history.json',
                            'office-run.json', 'office-output.txt', 'office-stop.json'];
 
