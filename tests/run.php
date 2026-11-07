@@ -33745,7 +33745,8 @@ JS);
     $kinds = ['desk', 'section', 'tile', 'step', 'setting', 'help', 'guide'];
     // headed with T('…') but no place: the recovery sheet's own page (printed, not the office's); a partner office's tile
     // (from the state — a later phase of the search)
-    $notPlaces = ['advisor' => ['sheet.repo', 'sheet.kopia'], 'restore' => ['pt.title']];
+    // jack: «The plan in PHP» only with its flag file (jack-shadow.php), never found by the search
+    $notPlaces = ['advisor' => ['sheet.repo', 'sheet.kopia'], 'restore' => ['pt.title'], 'jack' => ['shadow.title']];
     $count = [];
     foreach (array_merge([''], $desks) as $d) {
         $list = $r['registry'][$d] ?? [];
