@@ -671,6 +671,9 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   aside from there), Mr. Restori's place, the shares that aren't the place, Ms. Dustdevil's kept names, the Night Watchman's
   office shares; what writes there, and what describes the setup (`backupProtectionSet()`, the partner units), go by the
   settings alone.
+  **A new share at once** (1.89.0): `backupTruth()`'s `new` also takes the shares Unraid lists (shares.ini) that settings.ini has
+  no section for, and his tick (`backupSharesTick()`, the share files' stamp once a second) looks again when that list changes — never
+  a disk woken, never the engine asked; its drift check keeps its day.
   **Retention at a glance** (2026-10-30): his state's `retention` (`backupRetention()`: settings.ini, the partners' last
   answers in partner/state.json and pairs.json only — never a disk, a command or Kopia; the scan's `shares` and `vms`) =
   `{local: {d, w, m, set}, btrfs_days, kopia: {on, keep: [six; null = Kopia's own], set}, units: [{kind share|vm|app|flash,
