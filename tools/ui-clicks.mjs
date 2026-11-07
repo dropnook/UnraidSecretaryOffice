@@ -541,12 +541,13 @@ async function jackShadow(browser) {
           tile: [...document.querySelectorAll('#sso-desk .stat')].map((x) => x.textContent).find((t) => t.includes('The plan in PHP')) || '',
           wide: document.documentElement.scrollWidth > window.innerWidth };
       });
-      if (!seen.tile.includes('12 days the same, 1 with differences') || !seen.tile.includes('3 not compared')) fail(`${width}: the tile's counts: ${seen.tile}`);
-      if (seen.rows.length !== 3 || seen.rows[0][1] !== 'Comes to the pool' || seen.rows[1][1] !== 'Goes back by rank' || seen.rows[0][2] !== 2) fail(`${width}: the rows: ${JSON.stringify(seen.rows)}`);
+      if (!seen.tile.includes('12 days the same, 1 with differences') || !seen.tile.includes('3 not compared') || !seen.tile.includes('1 where both sides failed') || !seen.tile.includes('1 with a difference seen only once')) fail(`${width}: the tile's counts: ${seen.tile}`);
+      if (!seen.text.includes('both sides failed, nothing compared') || !seen.text.includes(': different plans')) fail(`${width}: what each listed comparison came to`);
+      if (seen.rows.length !== 4 || seen.rows[3][1] !== 'How the plan ended' || seen.rows[0][1] !== 'Comes to the pool' || seen.rows[1][1] !== 'Goes back by rank' || seen.rows[0][2] !== 2) fail(`${width}: the rows: ${JSON.stringify(seen.rows)}`);
       if (!seen.text.includes('2 more differences not listed')) fail(`${width}: what isn't listed`);
       if (seen.wide) fail(`${width}: scrolls sideways`);
       // all the same: no list
-      h.setState('jack', { ...idle, shadow: { same: 5, differ: 0, not: 0, last: part.summary.last } });
+      h.setState('jack', { ...idle, shadow: { same: 5, differ: 0, once: 0, error: 0, not: 0, last: part.summary.last } });
       await page.reload({ waitUntil: 'load' });
       await page.waitForSelector('#sso-desk .jo-structure');
       res.tested++;

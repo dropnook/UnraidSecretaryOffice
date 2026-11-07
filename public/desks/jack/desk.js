@@ -45,6 +45,7 @@ let progBox = null;           // the panel on the page, redrawn in place
 let nightNow = null;          // the night run with Ms. Moverelli going for real (agent: jackNightNow()) — her card's phases on his page
 let watching = [];            // who is watching what while a real run goes (the job's look once a minute): [{name, items}] per person
 let startKicks = 0;           // a real run just started from here: look again until it shows as running
+const SHADOW_RESULTS = ['differ', 'once', 'error'];     // what a listed comparison came to
 const SHADOW_KINDS = ['request', 'outcome', 'run', 'give_back', 'give_back_order', 'cleanup', 'protected', 'fill', 'dropped', 'on_deck', 'file', 'person', 'selected', 'skipped'];     // what a comparison can name
 const STRUCTURE_KINDS = ['flat_movie', 'shared_folder', 'flat_series'];     // «Check the structure…»: the list's groups, in this order
 let structureList = null;     // the part «structure»: what the last check found
@@ -1257,9 +1258,13 @@ let shadowAsked = null;       // the comparison (its time) the part was last ask
 function shadowCounts(s) {
   return T('shadow.value', { same: nOf('shadow_same', s.same), differ: nOf('shadow_differ', s.differ) });
 }
+/** What else the dates came to: seen once, both sides failed, not compared — each only when there is some */
+function shadowOthers(s) {
+  return [['shadow_once', s.once], ['shadow_error', s.error], ['shadow_not', s.not]].filter(([, n]) => n > 0).map(([k, n]) => nOf(k, n));
+}
 function shadowTile(a) {
   const s = state.shadow;
-  return Office.stat({ label: T('shadow.title'), value: s.last ? shadowCounts(s) : T('shadow.none'), sub: s.not ? nOf('shadow_not', s.not) : '', tip: T('shadow.tip'), alert: s.differ > 0, ...a });
+  return Office.stat({ label: T('shadow.title'), value: s.last ? shadowCounts(s) : T('shadow.none'), sub: shadowOthers(s), tip: T('shadow.tip'), alert: s.differ > 0 || s.error > 0, ...a });
 }
 function shadowAsk(at) {
   shadowAsked = at;
@@ -1280,11 +1285,12 @@ function shadowBox() {
     return box;
   }
   box.appendChild(el('p', 'jo-structure-line', T('shadow.line', { counts: shadowCounts(s), when: fmt.date(s.last) })));
-  if (s.not) box.appendChild(el('p', 'jo-structure-line', nOf('shadow_not', s.not)));
-  if (!s.differ) return box;
+  const others = shadowOthers(s);
+  if (others.length) box.appendChild(el('p', 'jo-structure-line', others.join(' · ')));
+  if (!s.differ && !s.once && !s.error) return box;
   if (shadowAsked !== s.last) shadowAsk(s.last);
   (shadowList || []).forEach((n) => {
-    box.appendChild(el('p', 'jo-structure-tip', fmt.date(n.time)));
+    box.appendChild(el('p', 'jo-structure-tip', T('shadow.when', { when: fmt.date(n.time), result: T(SHADOW_RESULTS.includes(n.result) ? `shadow.result.${n.result}` : 'shadow.result.differ') })));
     const rows = el('div', 'box');
     (Array.isArray(n.differences) ? n.differences : []).forEach((d) => {
       const row = el('div', 'row nocheck');

@@ -149,7 +149,6 @@ desk('jack', [
         'embycache' => fn (array $args) => jackJob('embycache', $args),
         'gather'    => fn (array $args) => jackJob('gather', $args),
         'jack-structure' => fn (array $args) => jackStructureJob(),   // its part loads after this file on Linux: no constant of it here
-        'jack-shadow'    => fn (array $args) => jackShadowJob(),      // … the same; started by jackJob() after a real run, only with the flag
     ],
     'checks'  => fn () => jackChecks(),
     'metrics' => fn (): array => jackMetrics(),
@@ -3361,6 +3360,8 @@ function jackJob(string $tool, array $args): int
     if ($cmd === null) {
         fwrite($out, "The gather's settings could not be put in RAM (" . RUN_DIR . ") - nothing done.\n");
     }
+    // only with its flag file: the plan in PHP beside Python's, right before this real run, on the state it acts on (jack-shadow.php)
+    $shadow = $tool === 'embycache' && $real && jackShadowOn() ? jackShadowBefore($mode, $env) : null;
     $proc = $cmd !== null ? proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => $out, 2 => $out], $pipes, $cwd, $env) : false;
     $stoppedFor = $stoppedWhy = null;
     if (!is_resource($proc)) {
@@ -3426,7 +3427,7 @@ function jackJob(string $tool, array $args): int
     } catch (Throwable $e) {
         fwrite(STDERR, "$tool: notification failed: {$e->getMessage()}\n");
     }
-    jackShadowAfterRun($tool, $mode, $exit, $noFill);     // only with its flag file: the plan in PHP beside Python (jack-shadow.php)
+    jackShadowAfter($shadow, $status);        // only with its flag file: what the comparison before the run found (jack-shadow.php)
     return $exit;
 }
 
