@@ -4441,6 +4441,17 @@ function setupNewCounts(plan) {
   };
 }
 
+/**
+ * What the shares' tile counts as new: the plan's rows marked new, and what the page already calls a new share
+ * (state.truth.new, looked at within seconds of the share being made; the plan only knows it from the next «Plan anew») —
+ * the chip agrees with the page. The rows and the filter «only what's new» stay the plan's (setupNewCounts()).
+ */
+function setupNewShares(plan) {
+  const waits = waitingFolders();
+  const marked = (plan.shares || []).filter((sh) => shareIsNew(sh, waits.filter((w) => w.share === sh.name))).map((sh) => sh.name);
+  return new Set([...marked, ...truth().fresh]).size;
+}
+
 /** A retention as short figures: «7 d · 4 w · 6 m» (the parts that are numbers; none → '') */
 function retFigure(parts) {
   return parts.filter(([, n]) => /^\d+$/.test(String(n ?? '').trim())).map(([u, n]) => T('setup.tile.u_' + u, { n: Number(n) })).join(' · ');
@@ -4486,7 +4497,7 @@ function setupTileData(plan) {
   const shares = plan.shares || [];
   out.push({ id: 'shares', key: 'setup.shares', value: String(shares.length),
     sub: [T('setup.tile.on', { n: shares.filter((sh) => sh.exists !== false && (dget(`share|${sh.name}|mode`, 'off') === 'kopia'
-      || (dget(`share|${sh.name}|mode`, 'off') === 'snapshot' && !shareNoSnap(sh)))).length })], alert: false, fresh: fresh.shares });
+      || (dget(`share|${sh.name}|mode`, 'off') === 'snapshot' && !shareNoSnap(sh)))).length })], alert: false, fresh: setupNewShares(plan) });
   // 4 retention: the local snapshots' (ZFS «d w m», else btrfs days), offsite Kopia's own
   const zfs = (plan.bases || []).some((b) => b.fs === 'zfs');
   const btrfs = (plan.bases || []).some((b) => b.fs === 'btrfs');

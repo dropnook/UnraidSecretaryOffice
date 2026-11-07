@@ -13458,6 +13458,12 @@ const extra = { ...S.plan.shares[0], name: 'Neu', why: 'new' };
 S.newItems.add('share:Neu');
 S.plan.shares.push(extra);
 out.newShare = b.setupTileData(S.plan).find((d) => d.id === 'shares');
+// … a share the page already calls new (state.truth.new), the plan not yet: the chip agrees with the page, the plan's row counted once
+const freshIn = (names) => { b.setState({ truth: { new: names }, shares: [] }); return b.setupTileData(S.plan).find((d) => d.id === 'shares').fresh; };
+out.truthNew = [freshIn([]), freshIn(['Neu']), freshIn(['Neu', 'Ganz neu']), b.setupNewCounts(S.plan).shares];
+b.setState({ truth: { new: ['Neu', 'Ganz neu'] }, shares: [{ name: 'Ganz neu' }] });
+out.truthKnown = b.setupTileData(S.plan).find((d) => d.id === 'shares').fresh;
+b.setState(null);
 // no backup place: Basics says so, alert
 delete S.draft['general|dumps_share'];
 out.noPlace = b.setupTileData(S.plan)[0];
@@ -13493,6 +13499,9 @@ JS);
         "setup.tile.u_d {\"n\":{$z[0]}} · setup.tile.u_w {\"n\":{$z[1]}} · setup.tile.u_m {\"n\":{$z[2]}}", $r['fig']['retention'][0]);
     $notes = isset($plan['notes']) ? array_sum(array_map(fn ($g) => count($g['items'] ?? []), $plan['notes'])) : count($plan['messages'] ?? []);
     same('setup tiles: «What the setup checked» — its messages counted', (string) $notes, $r['fig']['messages'][0]);
+    same('setup tiles: a new share the page already says (truth.new), the plan not yet — the chip agrees, the plan\'s own row once; the rows\' count stays the plan\'s',
+        [$r['fig']['shares'][3] + 1, $r['fig']['shares'][3] + 1, $r['fig']['shares'][3] + 2, $r['fig']['shares'][3] + 1], $r['truthNew'] ?? $raw);
+    same('setup tiles: … a share in his state is no new one any more', $r['fig']['shares'][3] + 1, $r['truthKnown'] ?? $raw);
     same('setup tiles: a new share — its tile counts it and carries the chip «new»', [(string) (count($plan['shares']) + 1), $r['fig']['shares'][3] + 1], [$r['newShare']['value'], $r['newShare']['fresh']]);
 }
 
