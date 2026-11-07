@@ -14728,6 +14728,21 @@ function testRestore(): void
  * rate only with its size known, the whole's end only when every copy step still to come has a size; no history.
  */
 /**
+ * Off Linux (the Mac) what needs /proc, a real /mnt-like host or the tools of one can't run: those checks are skipped there, said
+ * once each. By the system's name, never by a look at /proc: on a host every one of them runs, or fails.
+ */
+function testsOffLinux(string $what = ''): bool
+{
+    if (PHP_OS_FAMILY === 'Linux') {
+        return false;
+    }
+    if ($what !== '') {
+        echo "skip  $what: not on Linux\n";
+    }
+    return true;
+}
+
+/**
  * small-190: the same «silent» rule for Mr. Backupsy's run and Ms. Moverelli's real run — their own real progress is the sign
  * of life, so a long Kopia upload, a partner's send or a large single file never counts; a hung one says so, once, never ended.
  */
@@ -14817,7 +14832,7 @@ function testJobSilentRuns(): void
     $proc = proc_open([PHP_BINARY, '-r', 'sleep(120);', 'agent.php'], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
     $pid = (int) proc_get_status($proc)['pid'];
     usleep(200000);
-    if (is_readable("/proc/$pid/cmdline")) {
+    if (!testsOffLinux('silent run: hers, through /proc')) {
         file_put_contents("$dir/office-run.json", json_encode(['mode' => 'run', 'by' => 'hand', 'started' => 1800000000, 'pid' => $pid]));
         $status = function (array $s) use ($dir): void { file_put_contents("$dir/status.json", json_encode($s + ['result' => 'running'])); };
         $flyFile = "$tmp/mnt/cache/media/big.mkv";
@@ -15076,84 +15091,87 @@ function testJobStale(): void
     $rsJob = fn (array $j) => $put(rsDir($rid), rsJobFile(), $j);
     $drJob = fn (array $j) => $put(drillDir($did), drillJobFile(), $j);
 
-    $rsJob($record($rid));
-    $run = rsRunningJob();
-    same('job stale: an old heartbeat, the process there — his running job says so, with the stamp', [true, $old], [$run['stale'] ?? null, $run['heartbeat'] ?? null]);
-    $rsJob($record($rid, ['heartbeat' => time() - 29 * 60]));
-    same('job stale: 29 minutes — not yet', false, rsRunningJob()['stale'] ?? null);
-    same('job stale: no check while nothing is silent', [], rsStaleChecks());
-    same('job stale: no warning while nothing is silent', [[], 0], [rsStaleTell(), $told()]);
-    $rsJob($record($rid, ['finished' => time()]));
-    same('job stale: finished — never', false, rsRunningJob()['stale'] ?? null);
-    $rsJob($record($rid, ['stop_asked' => $old]));
-    same('job stale: asked to stop — never', false, rsRunningJob()['stale'] ?? null);
-    $rsJob($record($rid, ['heartbeat' => null]));
-    same('job stale: a record without a heartbeat — never', [false, null], [rsRunningJob()['stale'] ?? null, (rsRunningJob() ?? [])['heartbeat'] ?? null]);
-    $rsJob($record($rid, ['pid' => 2147483000]));
-    same('job stale: the process gone — the old way (not running, the journal settles to interrupted), never «stale»', [null, 'interrupted'], [rsRunningJob(), rsJournals()[0]['result'] ?? null]);
-    @exec('rm -rf ' . escapeshellarg(rsDir($rid)));
+    // what needs a process seen through /proc/<pid>/cmdline (rsJobAlive())
+    if (!testsOffLinux('job stale: a running job through /proc')) {
+        $rsJob($record($rid));
+        $run = rsRunningJob();
+        same('job stale: an old heartbeat, the process there — his running job says so, with the stamp', [true, $old], [$run['stale'] ?? null, $run['heartbeat'] ?? null]);
+        $rsJob($record($rid, ['heartbeat' => time() - 29 * 60]));
+        same('job stale: 29 minutes — not yet', false, rsRunningJob()['stale'] ?? null);
+        same('job stale: no check while nothing is silent', [], rsStaleChecks());
+        same('job stale: no warning while nothing is silent', [[], 0], [rsStaleTell(), $told()]);
+        $rsJob($record($rid, ['finished' => time()]));
+        same('job stale: finished — never', false, rsRunningJob()['stale'] ?? null);
+        $rsJob($record($rid, ['stop_asked' => $old]));
+        same('job stale: asked to stop — never', false, rsRunningJob()['stale'] ?? null);
+        $rsJob($record($rid, ['heartbeat' => null]));
+        same('job stale: a record without a heartbeat — never', [false, null], [rsRunningJob()['stale'] ?? null, (rsRunningJob() ?? [])['heartbeat'] ?? null]);
+        $rsJob($record($rid, ['pid' => 2147483000]));
+        same('job stale: the process gone — the old way (not running, the journal settles to interrupted), never «stale»', [null, 'interrupted'], [rsRunningJob(), rsJournals()[0]['result'] ?? null]);
+        @exec('rm -rf ' . escapeshellarg(rsDir($rid)));
 
-    $rsJob($record($rid));
-    $checks = rsStaleChecks();
-    same('job stale: the Team Lead hears of it: one hint, not ok, how long, which job, a link to the journal',
-        [['job_stale', 'hint', false, 31, $rid, '#/restore/journal']],
-        array_map(fn ($f) => [$f['id'], $f['level'], $f['ok'], $f['params']['minutes'], $f['params']['job'], $f['link']], $checks));
-    $later = $checks[0];
-    $later['params']['minutes'] = 95;
-    same('job stale: «I know, thanks» holds while the silence grows', caretakerAckSig('restore', $checks[0]), caretakerAckSig('restore', $later));
-    check('job stale: a new job asks anew', caretakerAckSig('restore', $checks[0]) !== caretakerAckSig('restore', ['params' => ['job' => $did] + $checks[0]['params']] + $checks[0]));
+        $rsJob($record($rid));
+        $checks = rsStaleChecks();
+        same('job stale: the Team Lead hears of it: one hint, not ok, how long, which job, a link to the journal',
+            [['job_stale', 'hint', false, 31, $rid, '#/restore/journal']],
+            array_map(fn ($f) => [$f['id'], $f['level'], $f['ok'], $f['params']['minutes'], $f['params']['job'], $f['link']], $checks));
+        $later = $checks[0];
+        $later['params']['minutes'] = 95;
+        same('job stale: «I know, thanks» holds while the silence grows', caretakerAckSig('restore', $checks[0]), caretakerAckSig('restore', $later));
+        check('job stale: a new job asks anew', caretakerAckSig('restore', $checks[0]) !== caretakerAckSig('restore', ['params' => ['job' => $did] + $checks[0]['params']] + $checks[0]));
 
-    same('job stale: the first look tells this job', [$rid], rsStaleTell());
-    $log = (string) @file_get_contents("$tmp/notify.log");
-    check('job stale: one warning', $told() === 1 && str_contains($log, "warning\n"), $log);
-    check('job stale: the warning\'s link opens his page', str_contains($log, 'SecretaryOffice#/restore/journal'), $log);
-    check('job stale: the warning says which and how long', str_contains($log, officeNotifyText('restore', 'notify.job_stale', ['kind' => officeNotifyText('restore', 'job.kind_restore', [], officeNotifyLang())], officeNotifyLang()))
-        && str_contains($log, '31'), $log);
-    check('job stale: remembered in the job\'s record', is_int(rsJournal($rid)['stale_told'] ?? null));
-    same('job stale: the second look tells nothing', [[], 1], [rsStaleTell(), $told()]);
-    check('job stale: the office never ended it — the process is still there, no stop asked, the record still running',
-        proc_get_status($proc)['running'] && (rsJournal($rid)['result'] ?? '') === 'running' && !isset(rsJournal($rid)['stop_asked']));
-    // the job wakes and writes from what it has in memory (no stale_told), then falls silent again: never a second warning
-    $mem = $record($rid);
-    rsJournalWrite($mem);
-    check('job stale: the job that wakes keeps the stamp, in the journal and the file the page polls',
-        is_int(rsJournal($rid)['stale_told'] ?? null) && is_int(readJson(rsJobFile())['stale_told'] ?? null) && ($mem['heartbeat'] ?? 0) >= time() - 5);
-    same('job stale: awake — no more silent', false, rsRunningJob()['stale'] ?? null);
-    $mem['heartbeat'] = $old;
-    $rsJob($mem);
-    same('job stale: silent again — the page and the Team Lead say it, no second warning', [true, 1, [], 1],
-        [rsRunningJob()['stale'] ?? null, count(rsStaleChecks()), rsStaleTell(), $told()]);
-    // a job that woke while the agent looked: the journal, the job's own, is newer than the job file — nothing written, nothing said
-    $woke = $record($rid, ['heartbeat' => time()]);
-    @exec('rm -rf ' . escapeshellarg(rsDir($rid)));
-    $rsJob($record($rid));
-    writeAtomic(rsDir($rid) . '/journal.json', jsonEncode($woke), 0600, 0, 0);
-    same('job stale: its journal says it just woke — nothing told, the record left to the job', [[], 1, null], [rsStaleTell(), $told(), rsJournal($rid)['stale_told'] ?? null]);
-    @exec('rm -rf ' . escapeshellarg(rsDir($rid)));
-    @unlink(rsJobFile());
+        same('job stale: the first look tells this job', [$rid], rsStaleTell());
+        $log = (string) @file_get_contents("$tmp/notify.log");
+        check('job stale: one warning', $told() === 1 && str_contains($log, "warning\n"), $log);
+        check('job stale: the warning\'s link opens his page', str_contains($log, 'SecretaryOffice#/restore/journal'), $log);
+        check('job stale: the warning says which and how long', str_contains($log, officeNotifyText('restore', 'notify.job_stale', ['kind' => officeNotifyText('restore', 'job.kind_restore', [], officeNotifyLang())], officeNotifyLang()))
+            && str_contains($log, '31'), $log);
+        check('job stale: remembered in the job\'s record', is_int(rsJournal($rid)['stale_told'] ?? null));
+        same('job stale: the second look tells nothing', [[], 1], [rsStaleTell(), $told()]);
+        check('job stale: the office never ended it — the process is still there, no stop asked, the record still running',
+            proc_get_status($proc)['running'] && (rsJournal($rid)['result'] ?? '') === 'running' && !isset(rsJournal($rid)['stop_asked']));
+        // the job wakes and writes from what it has in memory (no stale_told), then falls silent again: never a second warning
+        $mem = $record($rid);
+        rsJournalWrite($mem);
+        check('job stale: the job that wakes keeps the stamp, in the journal and the file the page polls',
+            is_int(rsJournal($rid)['stale_told'] ?? null) && is_int(readJson(rsJobFile())['stale_told'] ?? null) && ($mem['heartbeat'] ?? 0) >= time() - 5);
+        same('job stale: awake — no more silent', false, rsRunningJob()['stale'] ?? null);
+        $mem['heartbeat'] = $old;
+        $rsJob($mem);
+        same('job stale: silent again — the page and the Team Lead say it, no second warning', [true, 1, [], 1],
+            [rsRunningJob()['stale'] ?? null, count(rsStaleChecks()), rsStaleTell(), $told()]);
+        // a job that woke while the agent looked: the journal, the job's own, is newer than the job file — nothing written, nothing said
+        $woke = $record($rid, ['heartbeat' => time()]);
+        @exec('rm -rf ' . escapeshellarg(rsDir($rid)));
+        $rsJob($record($rid));
+        writeAtomic(rsDir($rid) . '/journal.json', jsonEncode($woke), 0600, 0, 0);
+        same('job stale: its journal says it just woke — nothing told, the record left to the job', [[], 1, null], [rsStaleTell(), $told(), rsJournal($rid)['stale_told'] ?? null]);
+        @exec('rm -rf ' . escapeshellarg(rsDir($rid)));
+        @unlink(rsJobFile());
 
-    // the drill: the same rule through its job file (what the page polls: the view)
-    $drJob($record($did, ['kind' => 'drill', 'scope' => 'now', 'deadline' => time() + 3600]));
-    $d = drillRunning();
-    same('job stale: the drill too — stale and the stamp', [true, $old], [$d['stale'] ?? null, $d['heartbeat'] ?? null]);
-    same('job stale: the drill\'s state and its word for the page carry it', [true, ['id' => $did, 'stale' => true, 'heartbeat' => $old]],
-        [drillJobView($d)['stale'] ?? null, drillRunningBrief()]);
-    same('job stale: the drill\'s hint: its own text, links to the drill', [['job_stale_drill', 'hint', false, 31, $did, '#/restore/drill']],
-        array_map(fn ($f) => [$f['id'], $f['level'], $f['ok'], $f['params']['minutes'], $f['params']['job'], $f['link']], rsStaleChecks()));
-    same('job stale: the drill\'s one warning', [[$did], 2, [], 2], [rsStaleTell(), $told(), rsStaleTell(), $told()]);
-    $deadlineWas = drillJournal($did)['deadline'] ?? null;
-    check('job stale: the drill\'s deadline stays what it was, nothing else changed but the stamp', $deadlineWas !== null && is_int(drillJournal($did)['stale_told'] ?? null) && (drillJournal($did)['result'] ?? '') === 'running');
-    $dm = $record($did, ['kind' => 'drill', 'scope' => 'now', 'deadline' => time() + 3600]);
-    drillJournalWrite($dm);
-    check('job stale: the drill that wakes keeps the stamp, the job file\'s view carries it', is_int(drillJournal($did)['stale_told'] ?? null) && is_int(readJson(drillJobFile())['stale_told'] ?? null));
-    $drJob($record($did, ['kind' => 'drill', 'finished' => time()]));
-    same('job stale: a finished drill — never', false, drillRunning()['stale'] ?? null);
-    $drJob($record($did, ['kind' => 'drill', 'stop_asked' => time()]));
-    same('job stale: a drill asked to stop — never', false, drillRunning()['stale'] ?? null);
-    $drJob($record($did, ['kind' => 'drill', 'result' => 'queued', 'created' => time()]));
-    same('job stale: queued — never', false, drillRunning()['stale'] ?? null);
-    @unlink(drillJobFile());
-    same('job stale: no drill — no word', null, drillRunningBrief());
+        // the drill: the same rule through its job file (what the page polls: the view)
+        $drJob($record($did, ['kind' => 'drill', 'scope' => 'now', 'deadline' => time() + 3600]));
+        $d = drillRunning();
+        same('job stale: the drill too — stale and the stamp', [true, $old], [$d['stale'] ?? null, $d['heartbeat'] ?? null]);
+        same('job stale: the drill\'s state and its word for the page carry it', [true, ['id' => $did, 'stale' => true, 'heartbeat' => $old]],
+            [drillJobView($d)['stale'] ?? null, drillRunningBrief()]);
+        same('job stale: the drill\'s hint: its own text, links to the drill', [['job_stale_drill', 'hint', false, 31, $did, '#/restore/drill']],
+            array_map(fn ($f) => [$f['id'], $f['level'], $f['ok'], $f['params']['minutes'], $f['params']['job'], $f['link']], rsStaleChecks()));
+        same('job stale: the drill\'s one warning', [[$did], 2, [], 2], [rsStaleTell(), $told(), rsStaleTell(), $told()]);
+        $deadlineWas = drillJournal($did)['deadline'] ?? null;
+        check('job stale: the drill\'s deadline stays what it was, nothing else changed but the stamp', $deadlineWas !== null && is_int(drillJournal($did)['stale_told'] ?? null) && (drillJournal($did)['result'] ?? '') === 'running');
+        $dm = $record($did, ['kind' => 'drill', 'scope' => 'now', 'deadline' => time() + 3600]);
+        drillJournalWrite($dm);
+        check('job stale: the drill that wakes keeps the stamp, the job file\'s view carries it', is_int(drillJournal($did)['stale_told'] ?? null) && is_int(readJson(drillJobFile())['stale_told'] ?? null));
+        $drJob($record($did, ['kind' => 'drill', 'finished' => time()]));
+        same('job stale: a finished drill — never', false, drillRunning()['stale'] ?? null);
+        $drJob($record($did, ['kind' => 'drill', 'stop_asked' => time()]));
+        same('job stale: a drill asked to stop — never', false, drillRunning()['stale'] ?? null);
+        $drJob($record($did, ['kind' => 'drill', 'result' => 'queued', 'created' => time()]));
+        same('job stale: queued — never', false, drillRunning()['stale'] ?? null);
+        @unlink(drillJobFile());
+        same('job stale: no drill — no word', null, drillRunningBrief());
+    }
 
     // asked to stop: the job says so in its record at the next beat (a budget of a step is no stop of the job)
     $GLOBALS['rsStop'] = true;
@@ -39885,12 +39903,15 @@ exit(0);'),
             ["nsenter --mount=$proc/200/ns/mnt umount /data/.zfs/snapshot/s2", 'umount /mnt/tank/appdata/.zfs/snapshot/s3',
              'zfs destroy tank/appdata@s2,s3,s4', 'zfs destroy tank/appdata@s2,s3']],
             [$r['deleted'], array_column($r['failures'], 'key'), $calls()]);
-        $rec = array_map(fn ($l) => array_diff_key(json_decode($l, true), ['t' => 1]), file("$tmp/record/deletes.jsonl", FILE_IGNORE_NEW_LINES));
-        same('busy: … her record says what was freed and deleted', [
-            ['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'tank/appdata', 'names' => ['s1']],
-            ['do' => 'freed', 'ds' => 'tank/appdata', 'name' => 's2', 'where' => 'container', 'container' => 'minio', 'path' => '/data/.zfs/snapshot/s2'],
-            ['do' => 'freed', 'ds' => 'tank/appdata', 'name' => 's3', 'where' => 'host', 'container' => null, 'path' => '/mnt/tank/appdata/.zfs/snapshot/s3'],
-            ['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'tank/appdata', 'names' => ['s2', 's3']]], $rec);
+        // her record is written only into a folder root's alone (snapshotRecordReady())
+        if (!testsOffLinux('busy: her record, root\'s folder')) {
+            $rec = array_map(fn ($l) => array_diff_key(json_decode($l, true), ['t' => 1]), file("$tmp/record/deletes.jsonl", FILE_IGNORE_NEW_LINES));
+            same('busy: … her record says what was freed and deleted', [
+                ['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'tank/appdata', 'names' => ['s1']],
+                ['do' => 'freed', 'ds' => 'tank/appdata', 'name' => 's2', 'where' => 'container', 'container' => 'minio', 'path' => '/data/.zfs/snapshot/s2'],
+                ['do' => 'freed', 'ds' => 'tank/appdata', 'name' => 's3', 'where' => 'host', 'container' => null, 'path' => '/mnt/tank/appdata/.zfs/snapshot/s3'],
+                ['do' => 'deleted', 'fs' => 'zfs', 'ds' => 'tank/appdata', 'names' => ['s2', 's3']]], $rec);
+        }
 
         // zfs answering busy for another one on each try: after SNAPSHOT_DESTROY_TRIES what is left is said, never kept silently
         file_put_contents("$tmp/names.txt", "s6\ns7\ns8\ns9\n");
@@ -39939,9 +39960,11 @@ exit(0);'),
         $r = snapshotDelete([$id('p1')], false, false, true);
         same('busy: free and delete — through that pid\'s namespace, then deleted', [[$id('p1')], [],
             ["nsenter --mount=$proc/700/ns/mnt umount /mnt/tank/appdata/.zfs/snapshot/p1", 'zfs destroy tank/appdata@p1']], [$r['deleted'], $r['failures'], $calls()]);
-        same('busy: … her record names the process', ['do' => 'freed', 'ds' => 'tank/appdata', 'name' => 'p1', 'where' => 'process', 'container' => null,
-            'path' => '/mnt/tank/appdata/.zfs/snapshot/p1', 'comm' => 'sh', 'pid' => 700],
-            array_diff_key(json_decode(file("$tmp/record/deletes.jsonl", FILE_IGNORE_NEW_LINES)[0], true), ['t' => 1]));
+        if (!testsOffLinux('busy: her record names the process')) {
+            same('busy: … her record names the process', ['do' => 'freed', 'ds' => 'tank/appdata', 'name' => 'p1', 'where' => 'process', 'container' => null,
+                'path' => '/mnt/tank/appdata/.zfs/snapshot/p1', 'comm' => 'sh', 'pid' => 700],
+                array_diff_key(json_decode(file("$tmp/record/deletes.jsonl", FILE_IGNORE_NEW_LINES)[0], true), ['t' => 1]));
+        }
         $r = snapshotDelete([$id('p3')], false, false, true);
         same('busy: free and delete — a mount by hand in a process stays, said without another offer', [['busy_in_process'], [false], []],
             [array_column($r['failures'], 'key'), array_column($r['failures'], 'free'), $calls()]);
@@ -57741,12 +57764,15 @@ function testStaleShares(): void
     same('stale shares: … her share table (as --list-shares sees it) without Gone', ['Arr', 'Back', 'Docs', 'Filme'], array_column($r['state']['shares'], 'share'));
     $env = ['CUSTOMMOVER_INI' => "$mt/data/smart_mover.ini", 'CUSTOMMOVER_SHARES_DIR' => "$mt/shares", 'CUSTOMMOVER_MNT' => "$mt/mnt", 'CUSTOMMOVER_LOG' => "$mt/data/x.log",
             'CUSTOMMOVER_LOCK' => "$mt/data/x.lock", 'CUSTOMMOVER_STATUS' => "$mt/data/x.json"];
-    [, $out] = runEnv(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh', '--list-shares'], $env, 30);
-    check('stale shares: Smart Mover --list-shares skips a cfg without /mnt/user/<share> and says so', !preg_match('/^\s*Gone\s/m', $out)
-        && str_contains($out, 'skip Gone: no such share (stale .cfg)') && (bool) preg_match('/^\s*Docs\s/m', $out), $out);
-    runEnv(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh'], $env, 30);
-    same('stale shares: … a dry run\'s status names no Gone, its file stays', [['Back', 'Docs', 'Filme'], true],
-        [array_column(readJson("$mt/data/x.json")['shares'] ?? [], 'share'), is_file("$mt/mnt/cache/Gone/old.mkv")]);
+    // the script takes its lock with flock(1), which the Mac hasn't
+    if (!testsOffLinux('stale shares: Smart Mover itself')) {
+        [, $out] = runEnv(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh', '--list-shares'], $env, 30);
+        check('stale shares: Smart Mover --list-shares skips a cfg without /mnt/user/<share> and says so', !preg_match('/^\s*Gone\s/m', $out)
+            && str_contains($out, 'skip Gone: no such share (stale .cfg)') && (bool) preg_match('/^\s*Docs\s/m', $out), $out);
+        runEnv(['bash', OFFICE_DIR . '/smartmover/custommover_run.sh'], $env, 30);
+        same('stale shares: … a dry run\'s status names no Gone, its file stays', [['Back', 'Docs', 'Filme'], true],
+            [array_column(readJson("$mt/data/x.json")['shares'] ?? [], 'share'), is_file("$mt/mnt/cache/Gone/old.mkv")]);
+    }
     $sm = (string) file_get_contents(OFFICE_DIR . '/smartmover/custommover_run.sh');
     check('stale shares: the script\'s guard right after the share filter, a USO: line in its header',
         str_contains($sm, "    [[ -d \"\$MNT/user/\$SHARE_NAME\" ]] || { log INFO \"skip \$SHARE_NAME: no such share (stale .cfg)\"; continue; }")
