@@ -1338,12 +1338,14 @@ function testJackShadow(): void
         ...jackPlanTestUser('http://emby', $key, 'u', [['Type' => 'Movie', 'Id' => 'a', 'Name' => 'A', 'Path' => '/m/Filme/A/a.mkv']], [])];
     $env = ['MEDIACACHE_MOUNTS' => "$tmp/mounts", 'MEDIACACHE_ZFS' => '/nonexistent', 'MEDIACACHE_NO_FILL' => '1', 'MEDIACACHE_RESULT' => "$dir/status.json", 'MEDIACACHE_STOP' => "$dir/office-stop.json", 'MEDIACACHE_PROGRESS' => '/x'];
     $clock = 1800000000;
+    /** @var int $calls */
     $calls = 0;
     $seenEnv = null;
     /** @var callable|null $edit what the stand-in for Python's dry twin does to its plan */
     $edit = null;
     $array = true;
     $stop = false;
+    /** @var array|callable $asleep */
     $asleep = [];
     $h = function (array $over = []) use ($tmp, $dir, $answers, &$clock, &$calls, &$edit, &$array, &$stop, &$asleep, &$seenEnv): array {
         return $over + ['dir' => $dir, 'run' => "$tmp/run", 'array' => function () use (&$array) {
@@ -1434,8 +1436,10 @@ function testJackShadow(): void
         [$n['result'] ?? null, $calls, $n['once'] ?? null], json_encode($n));
     $clock += 86400;
     $calls = 0;
-    $asleep = function () use (&$calls) {
-        return $calls >= 1 ? ['disk3'] : [];
+    $looks = [];
+    $asleep = function () use (&$looks): array {
+        $looks[] = 1;                           // the first look (before the first pair) awake, the second (before the second) not
+        return count($looks) > 1 ? ['disk3'] : [];
     };
     $both();
     $n = $file();

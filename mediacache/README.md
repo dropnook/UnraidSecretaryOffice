@@ -70,13 +70,13 @@
 >   file the binary moves is unknown until it is done — the progress gives it empty, the panel shows no part inside it.)
 >
 > **The plan in PHP** (2026-11-07, because Python 3 for Unraid loses its maintainer's support on 2026-11-30): `agent/desks/jack-plan.php` is
-> a port of this planner (settings, API clients, `Locations`, `Planner`, the dry run's decisions; never a copy, a move, a list), from
-> helmi1987's MediaCache with these changes, version 7.4.0 (2026-10-15), under the same licence, GPL-3.0-or-later. For now it only runs
-> in the shadow of Python (`agent/desks/jack-shadow.php`, asleep without the flag file `shadow.json`): after a real run
-> `mediacache_shadow.py` does a dry run (this code, nothing changed for it) that writes down the servers' answers, PHP plans from
-> exactly those, the office compares (tests/shadow/diff.php on a test server). `agent/desks/jack-plan-names.txt` is Python's own
-> Unicode table for `person_key()`. **A fix here or upstream is carried over to `jack-plan.php` by hand**; while Python goes,
-> the comparison shows one forgotten.
+> a port of this planner (settings, API clients, `Locations`, `Planner`, the dry run's decisions, `MEDIACACHE_NO_FILL`, `--release`; never a copy,
+> a move, a list), from helmi1987's MediaCache with these changes, version 7.4.0 (2026-10-15), under the same licence, GPL-3.0-or-later. For now it
+> only runs in the shadow of Python (`agent/desks/jack-shadow.php`, asleep without the flag file `shadow.json`): right before each real run
+> `mediacache_shadow.py` does that run's dry twin (this code, nothing changed for it) that writes down the servers' answers, PHP plans from
+> exactly those, the office compares (tests/shadow/diff.php on a test server). `agent/desks/jack-plan-names.txt` is Python's own Unicode table
+> for `person_key()` and `names()`. **A fix here or upstream is carried over to `jack-plan.php` by hand**; while Python goes, the comparison
+> shows one forgotten.
 >
 > **How the office runs it — every deviation from MediaCache's defaults, and why** (the owner, 2026-10-15: MediaCache's own
 > ways wherever they don't collide with the office's logic):

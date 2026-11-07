@@ -133,7 +133,8 @@ function jackShadowBefore(string $mode, array $env, ?array $h = null): ?array
             $ctx['why'] = 'stopped';
             return $ctx;
         }
-        if (($h['asleep'])()) {
+        $asleep = fn (): array => (array) ($h['asleep'])();      // asked again each time: a disk may fall asleep meanwhile
+        if ($asleep()) {
             $ctx['why'] = 'disk_asleep';
             return $ctx;
         }
@@ -146,11 +147,12 @@ function jackShadowBefore(string $mode, array $env, ?array $h = null): ?array
         }
         // a difference: the pair once more — the files were looked at twice, a moment apart
         $ctx['once'] = $pass;
-        $again = ($h['asleep'])() ? null : jackShadowPass($h, $env, $mode, $go, $why);
-        $ctx['second'] = $again === null ? ($why ?? 'disk_asleep') : null;
+        $why = 'disk_asleep';
+        $again = $asleep() ? null : jackShadowPass($h, $env, $mode, $go, $why);
+        $ctx['second'] = $again === null ? $why : null;
         $ctx['pass'] = $again;
     } catch (Throwable $e) {
-        $ctx['why'] ??= 'stopped';
+        $ctx = ['why' => 'stopped', 'pass' => null, 'once' => null] + $ctx;
         fwrite(STDERR, 'shadow: ' . $e->getMessage() . "\n");
     }
     return $ctx;
@@ -166,19 +168,20 @@ function jackShadowAfter(?array $ctx, array $status, ?array $h = null): void
         return;
     }
     $h = jackShadowHost($h);
+    $running = fn (): bool => (bool) ($h['array'])();        // asked again each time
     try {
         $entry = jackShadowEntry($h, $ctx);
-        if (($entry['result'] ?? '') !== 'not' && ($h['array'])()) {
+        if (($entry['result'] ?? '') !== 'not' && $running()) {
             $entry['real'] = jackShadowReal($ctx['pass']['py'] ?? $ctx['once']['py'] ?? [], $status);
             $until = hrtime(true) + JACK_SHADOW_LIVE * 1_000_000_000;
             $out = $h['run'] . '/live.json';
             $env = (array) ($ctx['env'] ?? []);
-            $exit = ($h['php'])($env, null, $out, $ctx['mode'], fn (): bool => ($h['array'])() && hrtime(true) < $until, (string) $h['plex_tv']);
+            $exit = ($h['php'])($env, null, $out, $ctx['mode'], fn (): bool => $running() && hrtime(true) < $until, (string) $h['plex_tv']);
             $live = $exit === 0 ? readJson($out) : null;
             $entry['live'] = is_array($live) ? ['outcome' => (string) ($live['plan']['outcome'] ?? ''), 'asked' => (int) ($live['asked'] ?? 0), 'failed' => (int) ($live['failed'] ?? 0)]
                 : ['outcome' => $exit === null ? 'stopped' : 'failed'];
         }
-        if (($h['array'])() && is_dir((string) $h['dir'])) {
+        if ($running() && is_dir((string) $h['dir'])) {
             jackShadowWrite((string) $h['dir'], $entry);
         }
     } catch (Throwable $e) {

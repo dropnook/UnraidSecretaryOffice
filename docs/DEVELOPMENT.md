@@ -729,22 +729,27 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   judged); `JACK_DATA/structure.json` (at most 500 findings, `found` says how many), the list by the part «structure», the
   Team Lead's hint `structure` only after a check that found something. Flat episodes make no Series item on Jellyfin and
   Emby and no folder on Plex, so the job reads the episodes' paths too.
-  **The plan in PHP beside Python** (agent/desks/jack-plan.php, jack-shadow.php; 2026-11-07; Python 3 for Unraid loses its maintainer's support on
-  2026-11-30): a port of MediaCache's planning only (settings, `MediaServerApi`/`PlexApi`, `Locations`, `Planner`, the dry run's decisions
-  for give-back, cleanup and fill; helmi1987's, GPL-3, named at its head and in mediacache/README.md; **fixes come over by hand**). It never copies,
-  moves, deletes or writes (a test greps it). **Python keeps moving the files.** Asleep without the flag file `JACK_DATA/shadow.json`: no button, no
-  setting, no migration, no key in his state, no check, no notification. With it: after a real run ended (`jackShadowAfterRun()`, not a `--nofill`
-  step) one job through atd (`jackShadowJob()`) waits while another tool holds its lock and out of the backup's minute; a disk his plan may
-  need asleep (`jackShadowAsleep()`) = «not compared», never a wake. **One set of answers:** `mediacache/mediacache_shadow.py` is Python's own dry
-  run writing down every API answer, its clock and the pool's numbers (a tape: RAM, 0600, a token only as its hash, removed at once; nothing
-  in `mediacache_lib.py`/`mediacache_run.py` is changed for it), PHP plans from exactly that, holding MediaCache's lock: a different plan is different
-  logic or a different question (`request`). The files are looked at by both a moment apart: differences count only when the pair shows them twice.
-  One more plan with PHP's own client against the live servers goes into the night file as `live`, never as a difference. Result: `JACK_DATA/shadow/<date>.json`
-  (60 days, paths and person keys, never a key), `summary.json`; a tile only with the flag, the differences by the part «shadow». No second flag exists:
-  making PHP live is a later, separate step. **`php tests/shadow/diff.php`** (a test server with Python, stand-in servers `tests/shadow/stub.php`; `--real
-  <settings.json>` against real servers, `--names` every code point) holds both planners side by side on 150+ cases, also comparing each request and its key; `testJackPlan`
-  needs no Python. On purpose the same as Python, also where Python looks odd: see the case names in diff.php. Known, harmless: letters newer than Python's Unicode
-  (person_key), a `NaN` in JSON (Python reads it, PHP doesn't).
+  **The plan in PHP beside Python** (agent/desks/jack-plan.php, jack-shadow.php; 2026-11-07, reworked 2026-11-08 after its review; Python 3 for
+  Unraid loses its maintainer's support on 2026-11-30): a port of MediaCache's planning only (settings, `MediaServerApi`/`PlexApi`, `Locations`,
+  `Planner`, the dry run's decisions for give-back, cleanup and fill, `MEDIACACHE_NO_FILL`, `--release`; helmi1987's, GPL-3, named at its head and in
+  mediacache/README.md; **fixes come over by hand**). It never copies, moves, deletes or writes (a test greps it). **Python keeps moving the files.**
+  Asleep without the flag file `JACK_DATA/shadow.json`: no button, no setting, no migration, no key in his state, no check, no notification, and a
+  real run goes as before. With it: **right before each real run** (`run`, also the joint run's `--nofill` step, and `release`), inside jackJob(), after
+  the run's gates and holding what the run holds, on the state the run then acts on and with **exactly the run's environment**
+  (`jackShadowBefore()`; only the run's result/stop/progress files left out). No lock and no job of its own: it refuses nothing the real run doesn't;
+  it only starts the run later, at most `JACK_SHADOW_SECONDS`, and not one moment once the array stops, a stop is asked or Unraid's mover starts.
+  Python's dry twin (`mediacache/mediacache_shadow.py`, nothing in `mediacache_lib.py`/`mediacache_run.py` changed for it) writes every API answer,
+  its clock and the pool's numbers on a tape (RAM, 0600, a token only as its hash, every plex.tv token form scrubbed); PHP plans from exactly that.
+  Each side is a process of its own, ended at once by the same signs: nothing of the share held open. A disk the plan may need asleep
+  (`jackShadowAsleep()`: mappings onto /mnt/user and /mnt/user0) = «not compared», never a wake. Results per comparison: `same`, `differ` (the pair
+  done twice, shown both times), `once` (the first pair's difference the second didn't show: kept), `error` (both sides failed: never «the same»),
+  `not` (why). After the run (`jackShadowAfter()`): PHP's own client against the live servers (`live`) and the run's own counts (`real`), said only.
+  `JACK_DATA/shadow/<date>.json` (60 days, paths and person keys, never a key; written only while the array runs and his data folder is there),
+  `summary.json`; a tile only with the flag, the differences by the part «shadow». No second flag: making PHP live is a later, separate step.
+  **`php tests/shadow/diff.php`** (a test server with Python, stand-in servers `tests/shadow/stub.php`; `--real <settings.json>` against real servers,
+  `--names` every code point) holds both planners side by side on 185 cases, also each request and its key; `testJackPlan` needs no Python. The
+  Unicode tables (`jack-plan-names.txt`, `tests/shadow/gen-names.py`) are the Python's the comparison runs against (Tower 3.11, Unicode 14).
+  Known, harmless: a `NaN` in JSON and a lone surrogate (Python reads them, PHP doesn't), Python's Final_Sigma in a name's lower() (a tie-break only).
 * **`moverelli` — Ms. Moverelli.** Smart Mover beside Unraid's mover (7.3.2+; her ini, every value checked). **Unraid's own
   mover goes off with her setup:** refused unless the page's consent `mover_off: true` comes along; the old schedule noted once,
   **her let-go puts it back** through the same form (only `MOVERELLI_UNRAID_CRON` shapes). **Never a hand-written cron line.**
