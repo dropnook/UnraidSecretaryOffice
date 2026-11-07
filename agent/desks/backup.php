@@ -359,7 +359,7 @@ function backupSharesTick(?float $now = null, ?array $h = null): ?array
     if (!$hired() || !is_file($h['state_file'] ?? deskFile('backup'))) {
         return null;
     }
-    logLine('Mr. Backupsy: the shares changed in Unraid - his look taken anew');
+    logLine('Backup: the shares changed in Unraid - his look taken anew');
     return ($h['scan'] ?? 'backupScan')();
 }
 
