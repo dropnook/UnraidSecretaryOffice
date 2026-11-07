@@ -207,6 +207,8 @@ function runningBox() {
   bar.appendChild(i);
   box.appendChild(bar);
   if (job.deadline) box.appendChild(el('div', 'role', T('drill.until', { time: x.fmt.time(job.deadline) })));
+  const silent = x.drillSilent ? x.drillSilent(job) : null;       // the agent's word in his state; the wave stays, nothing becomes a button
+  if (silent !== null) box.appendChild(el('p', 'callout warn rs-stale', T('drill.stale', { n: silent })));
   return box;
 }
 

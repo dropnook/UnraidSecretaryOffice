@@ -267,6 +267,19 @@ function runningJob() {
   return running;
 }
 
+/**
+ * A job that went silent (the agent's word: running.stale, its look at most 5 min old): the minutes without a sign of
+ * life for the page's sentence, else null. The job file the page polls knows first when it woke: a newer heartbeat there
+ * ends the sentence at once. The rule itself (OFFICE_JOB_STALE, the process still there) is the agent's alone.
+ */
+function silentMinutes(run, j, now) {
+  if (!run || !run.stale || !Number(run.heartbeat)) return null;
+  if (j && j.id === run.id && Number(j.heartbeat) > Number(run.heartbeat)) return null;
+  return Math.max(1, Math.floor((now - Number(run.heartbeat)) / 60));
+}
+/** The restore going on, silent: its minutes (the agent's list is the one that knows; the wave stays, nothing becomes a button) */
+const restoreSilent = (now) => silentMinutes(state && state.running, job, now === undefined ? Date.now() / 1000 : now);
+
 /** Who holds the engine's lock, unless it is a restore of his own */
 function otherHolder() {
   const h = engine().holder;
@@ -310,7 +323,10 @@ function bubbleText() {
   if (!e.found) return T('bubble.no_engine');
   if (state.place.asleep && !apps().length) return T('bubble.asleep');
   const run = runningJob();
-  if (run) return T('bubble.restoring', { what: run.what, n: run.step, total: run.steps });
+  if (run) {
+    const silent = restoreSilent();
+    return T('bubble.restoring', { what: run.what, n: run.step, total: run.steps }) + (silent === null ? '' : ' ' + T('rc.stale', { n: silent }));
+  }
   // a receiver keeps partners' copies without packages of its own (1.60.1): said as it is, not «they come with the first backup»
   const held = kept().reduce((n, p) => n + (p.units || []).filter((u) => (u.n || 0) > 0).length, 0);
   const tp = !state.place.found && ticketPartner();       // a new server with a ticket: the packages come with the partner's copy (gap 10)
@@ -383,8 +399,12 @@ function placeRunCard() {
 function runCardShort(run) {
   const card = el('div', 'card rs-run running');
   const top = el('div', 'card-head');
-  top.append(el('span', 'spin'), el('span', 'card-name', journalTitle({ kind: run.kind, what: run.what })), chip(T('jr.running'), 'accent'));
-  card.append(top, el('div', 'card-line', T('tile.journal_step', { n: run.step, total: run.steps })));
+  const silent = restoreSilent();
+  top.append(el('span', 'spin'), el('span', 'card-name', journalTitle({ kind: run.kind, what: run.what })));
+  if (silent === null) top.appendChild(chip(T('jr.running'), 'accent'));
+  card.appendChild(top);
+  if (silent !== null) card.appendChild(el('p', 'callout warn rs-stale', T('rc.stale', { n: silent })));
+  card.appendChild(el('div', 'card-line', T('tile.journal_step', { n: run.step, total: run.steps })));
   return card;
 }
 
@@ -3227,9 +3247,12 @@ function runCard(j, now) {
   const d = runCardData(j, now);
   const card = el('div', 'card rs-run running');
   const top = el('div', 'card-head');
-  top.append(el('span', 'spin'), el('span', 'card-name', d.title), chip(T('jr.running'), 'accent'));
+  const silent = restoreSilent(now);
+  top.append(el('span', 'spin'), el('span', 'card-name', d.title));
+  if (silent === null) top.appendChild(chip(T('jr.running'), 'accent'));
   if (d.started) top.appendChild(el('span', 'status quiet', T('rc.since', { time: fmt.time(d.started), duration: fmt.duration(now - d.started) })));
   card.appendChild(top);
+  if (silent !== null) card.appendChild(el('p', 'callout warn rs-stale', T('rc.stale', { n: silent })));
   // the steps and the bar: core.js's run card helpers (shared with Ms. Moverelli's run card)
   card.appendChild(Office.runSteps(d.steps, d.at, j.id));
   if (d.percent !== null) card.appendChild(Office.runBar(d.percent, `${d.percent} %` + (d.left !== null ? ' · ' + T('rc.left', { left: fmt.duration(d.left) }) : '')));
@@ -3442,7 +3465,8 @@ function openJournal(id) {
 /** drill.js gets the helpers it shares with this page; it says when it has something new to show */
 function drillHelpers() {
   const redraw = () => { if (view && view.notes) sw.render(); };       // the drill's tile, and its section where it stands
-  return { T, fmt, date, chip, button, sectionBox, unfoldingRow, fold, listBlock, redraw, tiles: redraw, shown: () => !!view };
+  return { T, fmt, date, chip, button, sectionBox, unfoldingRow, fold, listBlock, redraw, tiles: redraw, shown: () => !!view,
+    drillSilent: (j) => silentMinutes(state && state.drill_running, j, Date.now() / 1000) };
 }
 function loadDrill() {
   if (Office.restoreDrill || !SELF) return;
@@ -3539,6 +3563,6 @@ Office.placesFrom(ID, (s, part) => {
 // tests/run.php runs the databases tile's logic and the preview's sizes under node
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.restore = { setState: (s) => { state = s; }, greetOk, shareFromKopia, kopiaFetched, dbGroups, dbName, dbRequest, earlierOf, tileLine, sizesDone,
-    noPackagesText, noPackages, bootSnapsPart, placesBack, placesPart, swapPart, swappable, vmAllFold, putbackHint, kopiaBlock, partnerPart, fetchLead, atPartnerChip, ownerPlaces, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip, moveFacts };
+    noPackagesText, noPackages, bootSnapsPart, placesBack, placesPart, swapPart, swappable, vmAllFold, putbackHint, kopiaBlock, partnerPart, fetchLead, atPartnerChip, ownerPlaces, setJob: (j) => { job = j; }, runCardData, runCard, shortStep, liveJob, runCardShort, bubbleText, snapsChip, moveFacts, silentMinutes, drillHelpers };
 }
 })();
