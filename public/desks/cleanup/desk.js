@@ -4283,7 +4283,10 @@ function spaceUnmeasured(unmeasured) {
   const un = el('div', 'cl-space-unmeasured');
   const sw2 = svg('svg', { class: 'cl-space-swatch cl-space-hatchbox', viewBox: '0 0 10 10' });
   sw2.appendChild(svg('rect', { class: 'cl-space-hatch', x: 0, y: 0, width: 10, height: 10 }));
-  un.append(sw2, el('span', '', T('where.space.unmeasured_list', { n: unmeasured.length })));
+  // the swatch leads the sentence's first line (one flex child: on a phone the sentence wraps, the swatch never stands alone)
+  const lead = el('span', 'cl-space-unmlead');
+  lead.append(sw2, el('span', '', T('where.space.unmeasured_list', { n: unmeasured.length })));
+  un.appendChild(lead);
   for (const x of unmeasured) {
     const tip = x.b.how === 'part' ? T('where.space.at_least', { list: x.s.unmeasured.join(', ') })
       : T('where.space.unmeasured_tip', { where: x.s.parts.map((p) => p.root).concat(x.s.unknown).join(', ') || '–' });
