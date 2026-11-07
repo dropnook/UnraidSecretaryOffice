@@ -269,12 +269,14 @@ function runningJob() {
 
 /**
  * A job that went silent (the agent's word: running.stale, its look at most 5 min old): the minutes without a sign of
- * life for the page's sentence, else null. The job file the page polls knows first when it woke: a newer heartbeat there
- * ends the sentence at once. The rule itself (OFFICE_JOB_STALE, the process still there) is the agent's alone.
+ * life for the page's sentence, else null. The job file the page polls knows first when it woke: a newer sign of life there
+ * (its heartbeat less `quiet`, how long the child it waits for had not moved — the job itself beats on meanwhile; a minute
+ * apart, as the two come in whole seconds from two writes) ends the sentence at once. The rule itself (OFFICE_JOB_STALE, the
+ * process still there) is the agent's alone.
  */
 function silentMinutes(run, j, now) {
   if (!run || !run.stale || !Number(run.heartbeat)) return null;
-  if (j && j.id === run.id && Number(j.heartbeat) > Number(run.heartbeat)) return null;
+  if (j && j.id === run.id && Number(j.heartbeat) - (Number(j.quiet) || 0) > Number(run.heartbeat) + 60) return null;
   return Math.max(1, Math.floor((now - Number(run.heartbeat)) / 60));
 }
 /** The restore going on, silent: its minutes (the agent's list is the one that knows; the wave stays, nothing becomes a button) */

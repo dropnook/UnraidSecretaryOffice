@@ -1973,6 +1973,7 @@ function rsJournal(string $id): ?array
 function rsJournalWrite(array &$j, bool $public = true): void
 {
     $j['heartbeat'] = time();
+    rsJournalQuiet($j);
     rsJournalKeepTold($j, rsDir($j['id']) . '/journal.json');
     writeAtomic(rsDir($j['id']) . '/journal.json', jsonEncode($j), 0600, 0, 0);
     if ($public) {
@@ -1989,6 +1990,38 @@ function rsJournalKeepTold(array &$j, string $file): void
     if (empty($j['stale_told']) && is_int($told = readJson($file)['stale_told'] ?? null)) {
         $j['stale_told'] = $told;
     }
+}
+
+/** The record says for how long the child it waits for has not moved (rsLifeLook()); nothing while it moves or none is waited for */
+function rsJournalQuiet(array &$j): void
+{
+    $quiet = (int) ($GLOBALS['rsLife']['quiet'] ?? 0);
+    if ($quiet > 0) {
+        $j['quiet'] = $quiet;
+    } else {
+        unset($j['quiet']);
+    }
+}
+
+/**
+ * The job's beat says only that the job lives. While it waits for a child, this says whether the child does: its progress
+ * ($mark: what it said so far) or its processes' work (officeLifeStep()). No time limit and never a kill: a big copy may
+ * take days, and a child that stopped moving is only said to (rsJobStale()). $now, $work: the tests'.
+ *
+ * @param list<int> $pids
+ */
+function rsLifeLook(array $pids, mixed $mark, ?float $now = null, ?callable $work = null): int
+{
+    $life = $GLOBALS['rsLife'] ?? [];
+    $quiet = officeLifeStep($life, $now ?? hrtime(true) / 1e9, $mark, $work ?? fn (): ?array => officeProcWork($pids));
+    $GLOBALS['rsLife'] = $life;
+    return $quiet;
+}
+
+/** The wait for that child is over: the next record has no `quiet` any more */
+function rsLifeEnd(): void
+{
+    unset($GLOBALS['rsLife']);
 }
 
 /** A line in a restore's log (data/restore/<id>/log.txt, root only) */
@@ -2033,13 +2066,22 @@ function rsRunningJob(): ?array
 }
 
 /**
+ * A job's last sign of life: its heartbeat, less how long the child it waits for had not moved by then (`quiet`,
+ * rsLifeLook()). Null: no heartbeat.
+ */
+function rsJobLife(array $j): ?int
+{
+    return is_int($j['heartbeat'] ?? null) ? $j['heartbeat'] - (is_int($j['quiet'] ?? null) ? max(0, $j['quiet']) : 0) : null;
+}
+
+/**
  * A job whose process is there (rsJobAlive(), asked by the caller: a process that is gone is rsJournalSettle()'s
- * «interrupted») and silent: running, not finished, not asked to stop, its heartbeat older than OFFICE_JOB_STALE
+ * «interrupted») and silent: running, not finished, not asked to stop, its last sign of life older than OFFICE_JOB_STALE
  */
 function rsJobStale(array $j, ?int $now = null): bool
 {
     return ($j['result'] ?? '') === 'running' && empty($j['finished']) && empty($j['stop_asked'])
-        && jobStale(is_int($j['heartbeat'] ?? null) ? $j['heartbeat'] : null, $now);
+        && jobStale(rsJobLife($j), $now);
 }
 
 /**
@@ -2052,7 +2094,7 @@ function rsStaleJobs(): array
     $out = [];
     foreach (['restore' => rsRunningJob(), 'drill' => drillRunning()] as $kind => $run) {
         if ($run && !empty($run['stale'])) {
-            $out[] = ['kind' => $kind, 'id' => (string) $run['id'], 'minutes' => intdiv(time() - (int) $run['heartbeat'], 60)];
+            $out[] = ['kind' => $kind, 'id' => (string) $run['id'], 'minutes' => intdiv(time() - (int) rsJobLife($run), 60)];
         }
     }
     return $out;
@@ -2135,7 +2177,7 @@ function rsJobSummary(array $j): array
     }
     return ['id' => (string) $j['id'], 'kind' => (string) ($j['kind'] ?? ''), 'what' => (string) ($j['what'] ?? ''), 'result' => (string) ($j['result'] ?? ''),
             'started' => $j['started'] ?? null, 'step' => $at, 'steps' => count($steps),
-            'stale' => rsJobStale($j), 'heartbeat' => is_int($j['heartbeat'] ?? null) ? $j['heartbeat'] : null];
+            'stale' => rsJobStale($j), 'heartbeat' => rsJobLife($j)];
 }
 
 /**
@@ -4725,13 +4767,17 @@ function rsDbScript(string $what, array $s): string
     throw new Problem('command_failed', ['detail' => (string) $s['type']]);
 }
 
-/** Waits for processes; heartbeat meanwhile; ends them when the job is asked to stop. @return list<int> exit codes */
+/**
+ * Waits for processes; heartbeat meanwhile, and whether they still move (rsLifeLook()); ends them when the job is asked to
+ * stop. @return list<int> exit codes
+ */
 function rsWait(array &$j, array $procs, ?int $i = null, ?callable $progress = null): array
 {
     $codes = array_fill(0, count($procs), -1);
     $open = array_keys($procs);
     $prog = null;
     while ($open) {
+        $pids = [];
         foreach ($open as $k => $n) {
             $st = proc_get_status($procs[$n]);
             if (!$st['running']) {
@@ -4739,9 +4785,14 @@ function rsWait(array &$j, array $procs, ?int $i = null, ?callable $progress = n
                 $prog = $progress ? $progress() : null;        // what it said last, before proc_close() frees its pipes
                 proc_close($procs[$n]);
                 unset($open[$k]);
+            } else {
+                $pids[] = (int) $st['pid'];
             }
         }
         $prog = $open && $progress ? $progress() : $prog;
+        if ($open) {
+            rsLifeLook($pids, [$prog, count($open)]);
+        }
         if ($open && rsBeat($j, $i, $prog)) {
             foreach ($open as $n) {
                 proc_terminate($procs[$n]);
@@ -4751,6 +4802,7 @@ function rsWait(array &$j, array $procs, ?int $i = null, ?callable $progress = n
             usleep(200000);
         }
     }
+    rsLifeEnd();
     return $codes;
 }
 
@@ -4790,8 +4842,9 @@ function rsPipe(array &$j, array $cmd, ?array $filter, string $outFile): bool
 }
 
 /**
- * A command that may read for a long while and says nothing: the job's heartbeat goes on meanwhile (rsBeat(): a silent job
- * is said to hang after OFFICE_JOB_STALE) and it ends when the job is asked to stop or at $timeout (exit 124)
+ * A command that may read for a long while and says nothing: the job's heartbeat goes on meanwhile, with whether it still
+ * works (rsBeat(), rsLifeLook(): a silent job is said to hang after OFFICE_JOB_STALE) and it ends when the job is asked to
+ * stop or at $timeout (exit 124)
  */
 function rsRunBeating(array &$j, array $cmd, int $timeout): int
 {
@@ -4804,13 +4857,16 @@ function rsRunBeating(array &$j, array $cmd, int $timeout): int
         $st = proc_get_status($p);
         if (!$st['running']) {
             proc_close($p);
+            rsLifeEnd();
             return (int) $st['exitcode'];
         }
+        rsLifeLook([(int) $st['pid']], null);
         if (hrtime(true) / 1e9 > $until || rsBeat($j)) {
             proc_terminate($p);
             usleep(100000);
             proc_terminate($p, 9);
             proc_close($p);
+            rsLifeEnd();
             return 124;
         }
         usleep(200000);

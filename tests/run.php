@@ -14728,6 +14728,57 @@ function testJobStale(): void
     same('job stale: 29 minutes no, 31 yes, no stamp never, a stamp ahead of the clock no', [false, true, false, false],
         [jobStale($now - 29 * 60, $now), jobStale($now - 31 * 60, $now), jobStale(null, $now), jobStale($now + 600, $now)]);
     same('job stale: the rule is 30 minutes', 1800, OFFICE_JOB_STALE);
+
+    // a child that hangs while the job beats on: its progress or its processes' work are its sign of life
+    $step = function (array &$l, float $now, mixed $mark, ?array $w): int {
+        return officeLifeStep($l, $now, $mark, fn (): ?array => $w);
+    };
+    $l = [];
+    $seen = [$step($l, 1000.0, 'm', ['cpu' => 100, 'io' => 1000])];
+    $seen[] = $step($l, 1030.0, 'm', ['cpu' => 999, 'io' => 1 << 30]);        // between two looks nothing is looked at
+    $seen[] = $step($l, 1060.0, 'm', ['cpu' => 100 + OFFICE_LIFE_CPU - 1, 'io' => 1000 + OFFICE_LIFE_IO - 1]);
+    $seen[] = $step($l, 1120.0, 'm', ['cpu' => 100 + OFFICE_LIFE_CPU - 1 + OFFICE_LIFE_CPU, 'io' => 1000]);
+    same('child alive: at its start 0; below both limits nothing moved; its CPU above the limit moved', [0, 30, 60, 0], $seen);
+    $seen = [$step($l, 1180.0, 'm', ['cpu' => 200, 'io' => 1000]), $step($l, 1240.0, 'm', ['cpu' => 200, 'io' => 1000 + OFFICE_LIFE_IO])];
+    same('child alive: its bytes above the limit moved', [0, 0], $seen);
+    same('child alive: its own progress moved, without a look at its work', 0, $step($l, 1250.0, 'n', ['cpu' => 200, 'io' => 1000 + OFFICE_LIFE_IO]));
+    same('child alive: nothing moved for 31 minutes', 1860, array_reduce(range(1, 31), function (int $c, int $i) use ($step, &$l): int {
+        return $step($l, 1250.0 + $i * 60, 'n', ['cpu' => 200, 'io' => 1000 + OFFICE_LIFE_IO]);
+    }, 0));
+    same('child alive: a look that can\'t tell (off Linux, the process just gone) never counts as silent', 0, $step($l, 3200.0, 'n', null));
+
+    // /proc in a folder: the tree below a root, by name, what ended is in its parent's cpu, none of them there
+    $fake = hardeningTmp('job-stale-proc');
+    $ps = function (int $pid, int $ppid, string $comm, int $cpu, ?int $io) use ($fake): void {
+        @mkdir("$fake/$pid", 0700, true);
+        file_put_contents("$fake/$pid/stat", "$pid ($comm) S $ppid 0 0 0 -1 0 0 0 0 0 $cpu 1 2 3 20 0 1 0 0 0 0\n");
+        if ($io !== null) {
+            file_put_contents("$fake/$pid/io", "rchar: $io\nwchar: 5\nsyscr: 7\nsyscw: 7\nread_bytes: 900\nwrite_bytes: 900\n");
+        }
+    };
+    $ps(10, 1, 'agent.php', 100, 1);
+    $ps(20, 10, 'rsync', 10, 1000);
+    $ps(21, 20, 'a) b', 20, 2000);
+    $ps(30, 1, 'kopia', 40, null);
+    $ps(31, 1, 'other', 80, 8000);
+    same('child alive: the tree below a root — with its children\'s CPU, a name with a bracket read right, io rchar + wchar',
+        ['cpu' => 10 + 6 + 20 + 6, 'io' => 1005 + 2005], officeProcWork([20], [], $fake));
+    same('child alive: by name, beside a root, none twice', ['cpu' => 46 + 42, 'io' => 3010], officeProcWork([20, 21], ['kopia'], $fake));
+    same('child alive: none of them there, no /proc — nothing can be told', [null, null, null],
+        [officeProcWork([999], [], $fake), officeProcWork([], ['nothing'], $fake), officeProcWork([20], [], "$fake/none")]);
+    @exec('rm -rf ' . escapeshellarg($fake));
+
+    // the record: the job beats, its child doesn't move
+    $nowJ = time();
+    same('child alive: the last sign of life is the heartbeat less `quiet` — silent though it beats; no `quiet`, odd ones count for nothing',
+        [$nowJ - 1860, true, $nowJ, false, $nowJ, false, null, false],
+        [rsJobLife(['heartbeat' => $nowJ, 'quiet' => 1860]), rsJobStale(['result' => 'running', 'heartbeat' => $nowJ, 'quiet' => 1860]),
+         rsJobLife(['heartbeat' => $nowJ, 'quiet' => 'x']), rsJobStale(['result' => 'running', 'heartbeat' => $nowJ, 'quiet' => 1700]),
+         rsJobLife(['heartbeat' => $nowJ, 'quiet' => -9]), rsJobStale(['result' => 'running', 'heartbeat' => $nowJ, 'quiet' => 1860, 'stop_asked' => $nowJ]),
+         rsJobLife(['quiet' => 1860]), rsJobStale(['result' => 'running', 'quiet' => 1860])]);
+    same('child alive: rsLifeLook — quiet on the given clock, its memory ended with the wait', [0, 1860, 1860, null],
+        [rsLifeLook([1], 'm', 100.0, fn () => ['cpu' => 1, 'io' => 1]), rsLifeLook([1], 'm', 1960.0, fn () => ['cpu' => 1, 'io' => 1]),
+         $GLOBALS['rsLife']['quiet'] ?? null, (function () { rsLifeEnd(); return $GLOBALS['rsLife'] ?? null; })()]);
     $tmp = hardeningTmp('job-stale');
     $saved = [$GLOBALS['rs'] ?? [], $GLOBALS['drill'] ?? []];
     // a long quiet command keeps its sign of life: gzip -t in a restore (rsRunBeating()), any command in a drill (drillPulse())
@@ -14739,7 +14790,7 @@ function testJobStale(): void
     same('job stale: … no pulse outside a drill\'s own process', false, drillPulse(2000.0));
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-drill.php');
     check('job stale: the drill\'s stoppable command pulses, the drill\'s job sets it',
-        (bool) preg_match('/rsWatch\(\)\) \{\s+\$ended = true;\s+break;\s+\}\s+drillPulse\(\);/', $src) && str_contains($src, "\$GLOBALS['drillPulse'] = function () use (&\$j)"));
+        (bool) preg_match('/rsWatch\(\)\) \{\s+\$ended = true;\s+break;\s+\}\s+rsLifeLook\(\[\$pid\], [^;]+;\s+drillPulse\(\);/', $src) && str_contains($src, "\$GLOBALS['drillPulse'] = function () use (&\$j)"));
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
     check('job stale: a dump\'s gzip -t beats (no plain run() of it in a restore)', str_contains($src, "rsRunBeating(\$j, ['gzip', '-t', \$file], 7200)") && !str_contains($src, "run(['gzip', '-t', \$file]"));
     $notifyWas = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP'), getenv('OFFICE_NOTIFY_HOME')];
@@ -14763,6 +14814,18 @@ function testJobStale(): void
     same('job stale: a quiet command - its exit, and the heartbeat went on meanwhile',
         [3, true], [rsRunBeating($beat, ['sh', '-c', 'sleep 3; exit 3'], 60), $beat['heartbeat'] > time() - 60]);
     same('job stale: … over its time - ended, 124', 124, rsRunBeating($beat, ['sleep', '30'], 1));
+    // a wait for a child that doesn't move: the record says so while the job beats, and no more once the wait is over
+    // (the same mark as rsWait()'s: its progress, how many are open; the last look just now, so none is made in these seconds)
+    $hrNow = hrtime(true) / 1e9;
+    $GLOBALS['rsLife'] = ['at' => $hrNow - 1900, 'looked' => $hrNow, 'work' => null, 'mark' => [null, 1], 'quiet' => 1900];
+    $waitJ = $beat;
+    $hung = proc_open(['sleep', '3'], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $hungP);
+    $codes = rsWait($waitJ, [$hung]);
+    $onDisk = readJson(rsDir($beat['id']) . '/journal.json');
+    same('child alive: rsWait() — the journal said the child doesn\'t move though the job beat, the exit as ever, no memory left',
+        [true, [0], null], [(int) ($onDisk['quiet'] ?? 0) >= 1900 && rsJobStale(['result' => 'running'] + $onDisk), $codes, $GLOBALS['rsLife'] ?? null]);
+    rsJournalWrite($waitJ);
+    same('child alive: … the next record has no `quiet`', [false, false], [isset($waitJ['quiet']), isset(readJson(rsDir($beat['id']) . '/journal.json')['quiet'])]);
     file_put_contents("$tmp/dump.gz", gzencode("-- PostgreSQL database cluster dump complete\n"));
     file_put_contents("$tmp/broken.gz", 'not gzip at all');
     same('job stale: a dump\'s end through it - a good .gz, a broken one',
@@ -14935,6 +14998,7 @@ const look = (x) => ({ sentence: text(x).includes('rc.stale {"n":31}'), chip: te
 const out = {};
 out.pure = [r.silentMinutes(run(), job(), now), r.silentMinutes(run({ stale: false }), job(), now), r.silentMinutes(null, job(), now), r.silentMinutes(run(), job({ heartbeat: now }), now),
   r.silentMinutes({ id: 'j1' }, job(), now), r.silentMinutes(run(), null, now), r.silentMinutes(run(), job({ id: 'other', heartbeat: now }), now)];
+out.hung = [r.silentMinutes(run(), job({ heartbeat: now, quiet: 31 * 60 }), now), r.silentMinutes(run(), job({ heartbeat: now, quiet: 31 * 60 - 1 }), now), r.silentMinutes(run(), job({ heartbeat: now, quiet: 0 }), now)];
 r.setState({ running: run(), place: {}, engine: { found: true } });
 r.setJob(job());
 out.card = look(r.runCard(job(), now));
@@ -14958,6 +15022,8 @@ JS);
     $r = json_decode($raw, true) ?: [];
     same('job stale page: the minutes from the agent\'s word; not stale, no state, awake in the job file, an older agent — none; no job file or another job\'s — the word holds',
         [31, null, null, null, null, 31, 31], $r['pure'] ?? $raw);
+    same('job stale page: the job beats, its child hasn\'t moved — the word holds (a second off from the agent\'s look too); moved again: none',
+        [31, 31, null], $r['hung'] ?? $raw);
     same('job stale page: the card says the sentence instead of «running», the wave stays', ['sentence' => true, 'chip' => false, 'wave' => true], $r['card'] ?? $raw);
     same('job stale page: a job with a fresh heartbeat runs as before', ['sentence' => false, 'chip' => true, 'wave' => true], $r['fresh'] ?? $raw);
     same('job stale page: an older agent\'s state (no key) runs as before', ['sentence' => false, 'chip' => true, 'wave' => true], $r['older'] ?? $raw);

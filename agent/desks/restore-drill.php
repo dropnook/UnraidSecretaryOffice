@@ -875,6 +875,7 @@ function drillJournalNew(string $id, array $plan): array
 function drillJournalWrite(array &$j, bool $public = true): void
 {
     $j['heartbeat'] = time();
+    rsJournalQuiet($j);
     rsJournalKeepTold($j, drillDir($j['id']) . '/journal.json');
     writeAtomic(drillDir($j['id']) . '/journal.json', jsonEncode($j), 0600, 0, 0);
     if ($public) {
@@ -885,7 +886,7 @@ function drillJournalWrite(array &$j, bool $public = true): void
 /** The job file: the journal without what the page doesn't need (paths of the made objects stay in the journal) */
 function drillJobView(array $j): array
 {
-    $v = array_intersect_key($j, array_flip(['id', 'kind', 'what', 'scope', 'created', 'started', 'finished', 'pid', 'result', 'reason', 'deadline', 'egress', 'heartbeat', 'stale', 'stale_told', 'stop_asked']));
+    $v = array_intersect_key($j, array_flip(['id', 'kind', 'what', 'scope', 'created', 'started', 'finished', 'pid', 'result', 'reason', 'deadline', 'egress', 'heartbeat', 'quiet', 'stale', 'stale_told', 'stop_asked']));
     $v['steps'] = array_map(fn ($s) => array_intersect_key($s, array_flip(['do', 'kind', 'id', 'name', 'container', 'type', 'file', 'source', 'target',
         'state', 'level', 'copy', 'code', 'params', 'seconds', 'state_time', 'progress', 'started', 'finished'])), (array) ($j['steps'] ?? []));
     return $v;
@@ -913,7 +914,7 @@ function drillRunning(): ?array
 function drillRunningBrief(): ?array
 {
     $run = drillRunning();
-    return $run ? ['id' => $run['id'], 'stale' => $run['stale'], 'heartbeat' => is_int($run['heartbeat'] ?? null) ? $run['heartbeat'] : null] : null;
+    return $run ? ['id' => $run['id'], 'stale' => $run['stale'], 'heartbeat' => rsJobLife($run)] : null;
 }
 
 /** His drills for the page, newest first (a journal "running" whose job is gone was interrupted) */
@@ -1363,6 +1364,7 @@ function drillRunStoppable(array $cmd, int $timeout): array
     stream_set_blocking($pipes[2], false);
     $out = $err = '';
     $until = microtime(true) + $timeout;
+    $pid = (int) proc_get_status($p)['pid'];
     $ended = false;
     while (!feof($pipes[1]) || !feof($pipes[2])) {
         $read = array_values(array_filter([$pipes[1], $pipes[2]], fn ($x) => !feof($x)));
@@ -1377,8 +1379,10 @@ function drillRunStoppable(array $cmd, int $timeout): array
             $ended = true;
             break;
         }
+        rsLifeLook([$pid], strlen($out) + strlen($err));
         drillPulse();
     }
+    rsLifeEnd();
     if ($ended) {
         proc_terminate($p);
         usleep(100000);
@@ -1391,8 +1395,8 @@ function drillRunStoppable(array $cmd, int $timeout): array
 }
 
 /**
- * The drill's sign of life while one command runs quietly (a silent job is said to hang after OFFICE_JOB_STALE): its record
- * written at most every DRILL_PULSE_EVERY s, in the drill's own process only ($GLOBALS['drillPulse'], set by drillJob()).
+ * The drill's beat while one command runs quietly (a silent job is said to hang after OFFICE_JOB_STALE; the command that
+ * stopped working too, rsLifeLook()): its record written at most every DRILL_PULSE_EVERY s, in the drill's own process only ($GLOBALS['drillPulse'], set by drillJob()).
  * $now: the tests' clock. True when it wrote.
  */
 function drillPulse(?float $now = null): bool
@@ -2400,6 +2404,7 @@ function drillExec(array &$j, array $cmd, int $timeout, int $limit = 33554432, ?
     $out = $err = '';
     $bytes = 0;
     $until = time() + $timeout;
+    $pid = (int) proc_get_status($p)['pid'];
     $ended = false;
     while (true) {
         $read = array_values(array_filter([$pipes[1], $pipes[2]], fn ($x) => !feof($x)));
@@ -2421,11 +2426,13 @@ function drillExec(array &$j, array $cmd, int $timeout, int $limit = 33554432, ?
         if (strlen($err) > 65536) {
             $err = substr($err, -65536);
         }
+        rsLifeLook([$pid], $bytes + strlen($err));
         if ($bytes > $limit || time() > $until || rsBeat($j)) {
             $ended = true;
             break;
         }
     }
+    rsLifeEnd();
     if ($ended) {
         proc_terminate($p);
         usleep(200000);
