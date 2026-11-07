@@ -29,7 +29,8 @@ declare(strict_types=1);
  *            unmounts itself.
  *   snapshots a ZFS snapshot automounted (.zfs/snapshot/<name>, any look into it) inside a pool's dataset: emhttpd unmounts
  *            the datasets — one still mounted can make that wait («dataset is busy»). A look from inside a container can
- *            leave it mounted only in the container's own mount namespace (nostromo 2026-10-31), or — OpenZFS 2.4.4 on 7.3.4,
+ *            leave it mounted only in the container's own mount namespace (nostromo 2026-10-31; any other process's mount
+ *            namespace likewise), or — OpenZFS 2.4.4 on 7.3.4,
  *            test4 2026-11-03 — on the host where `zfs destroy` can't drop it; counted per place (arrayholdSnaps()), not
  *            as holding the array.
  * Not the array: /mnt/remotes (SMB/NFS shares of other machines), /mnt/disks and /mnt/rootshare (Unassigned Devices) —
@@ -459,12 +460,13 @@ function arrayholdContainers(array $paths): ?array
 }
 
 /**
- * ZFS snapshots automounted right now (.zfs/snapshot/<name>, snapshotMountsEverywhere()): how many on the host, and per
+ * ZFS snapshots automounted right now (.zfs/snapshot/<name>, snapshotMountsEverywhere()): how many on the host, per
  * container inside its own mount namespace ($cts: arrayholdContainers(), with their main processes; null: Docker isn't
- * running — then none can be in a container). The array's stop unmounts the pools' datasets: a snapshot still mounted
- * can make that wait («dataset is busy») — his page says it, it isn't counted as holding the array.
+ * running — then none can be in a container) and in any other process's mount namespace. The array's stop unmounts the
+ * pools' datasets: a snapshot still mounted can make that wait («dataset is busy») — his page says it, it isn't counted as
+ * holding the array.
  *
- * @return array{host: int, containers: list<array{name: string, n: int}>}
+ * @return array{host: int, containers: list<array{name: string, n: int}>, process: int}
  */
 function arrayholdSnaps(string $proc, ?array $cts): array
 {
@@ -474,7 +476,7 @@ function arrayholdSnaps(string $proc, ?array $cts): array
             $list[] = ['name' => $c['name'], 'pid' => $c['pid']];
         }
     }
-    $host = 0;
+    $host = $process = 0;
     $inside = [];
     foreach (snapshotMountsEverywhere($list, $proc) as $m) {
         if (!$m['auto']) {
@@ -482,6 +484,8 @@ function arrayholdSnaps(string $proc, ?array $cts): array
         }
         if ($m['where'] === 'host') {
             $host++;
+        } elseif ($m['where'] === 'process') {
+            $process++;
         } else {
             $inside[$m['container']] = ($inside[$m['container']] ?? 0) + 1;
         }
@@ -491,7 +495,7 @@ function arrayholdSnaps(string $proc, ?array $cts): array
     foreach ($inside as $name => $n) {
         $containers[] = ['name' => (string) $name, 'n' => $n];
     }
-    return ['host' => $host, 'containers' => array_slice($containers, 0, ARRAYHOLD_LIST)];
+    return ['host' => $host, 'containers' => array_slice($containers, 0, ARRAYHOLD_LIST), 'process' => $process];
 }
 
 /** His page: the last look (RAM) — only in exactly its shape */

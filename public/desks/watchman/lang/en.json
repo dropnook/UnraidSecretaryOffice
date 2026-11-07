@@ -1339,6 +1339,8 @@
   "hold.snaps_host_title": "Mounted in a share's .zfs/snapshot folder on the server",
   "hold.snaps_container": {"one": "Inside the container {name}: {n} snapshot", "other": "Inside the container {name}: {n} snapshots"},
   "hold.snaps_container_title": "Mounted inside the container only — the server doesn't see it, and ZFS can't unmount it from out here",
+  "hold.snaps_process": {"one": "In a process: {n} snapshot", "other": "In a process: {n} snapshots"},
+  "hold.snaps_process_title": "Mounted only in a process's own view of the mounts — the server doesn't see it, and ZFS can't unmount it from out here",
   "help.hold": "What holds the array?",
   "help.hold_text": "What would hold up the array if you stopped it now? If a program has a file open on a disk, a pool or a share, Unraid can't unmount it. When «⟦Shutdown time-out⟧» runs out, the server shuts down unclean and the next start checks parity. VMs and containers Unraid stops itself. He only reads and wakes no disk."
 }

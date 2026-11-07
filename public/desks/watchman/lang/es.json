@@ -1339,6 +1339,8 @@
   "hold.snaps_host_title": "Montada en la carpeta .zfs/snapshot de un recurso compartido en el servidor",
   "hold.snaps_container": {"one": "Dentro del contenedor {name}: {n} instantánea", "other": "Dentro del contenedor {name}: {n} instantáneas"},
   "hold.snaps_container_title": "Montada solo dentro del contenedor — el servidor no la ve y ZFS no puede desmontarla desde fuera",
+  "hold.snaps_process": {"one": "En un proceso: {n} instantánea", "other": "En un proceso: {n} instantáneas"},
+  "hold.snaps_process_title": "Montada solo en la vista de montajes propia de un proceso — el servidor no la ve y ZFS no puede desmontarla desde fuera",
   "help.hold": "¿Qué retiene el array?",
   "help.hold_text": "¿Qué retendría el array si lo detuvieras ahora? Si un programa tiene un archivo abierto en un disco, un pool o un recurso compartido, Unraid no puede desmontarlo. Cuando se agota «⟦Shutdown time-out⟧», el servidor se apaga sin limpieza y el próximo inicio comprueba la paridad. Las VM y los contenedores los detiene Unraid mismo. Él solo lee y no despierta ningún disco."
 }

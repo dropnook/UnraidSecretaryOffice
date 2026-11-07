@@ -1712,10 +1712,10 @@ function holdSection() {
   group('hold.waits', T('hold.waits_sub', { docker: t.docker, vm: t.vm }), waits);
   const itself = (l.itself || []).filter((x) => x && typeof x.kind === 'string');
   if (itself.length) group('hold.itself', T('hold.itself_sub'), itself.map(itselfRow));
-  // ZFS snapshots mounted right now (on the server, inside containers) — said, not counted as holding the array
+  // ZFS snapshots mounted right now (on the server, inside containers, in other processes) — said, not counted as holding the array
   const sn = l.snaps && typeof l.snaps === 'object' ? l.snaps : null;
   const snCts = sn && Array.isArray(sn.containers) ? sn.containers.filter((c) => c && typeof c.name === 'string' && Number(c.n) > 0) : [];
-  if (sn && (Number(sn.host) > 0 || snCts.length)) {
+  if (sn && (Number(sn.host) > 0 || snCts.length || Number(sn.process) > 0)) {
     const snRow = (text, title) => {
       const r = el('div', 'row nocheck');
       const main = el('div', 'row-main');
@@ -1726,7 +1726,8 @@ function holdSection() {
       return r;
     };
     group('hold.snaps', T('hold.snaps_sub'), (Number(sn.host) > 0 ? [snRow(T('hold.snaps_host', { n: Number(sn.host) }), T('hold.snaps_host_title'))] : [])
-      .concat(snCts.map((c) => snRow(T('hold.snaps_container', { name: c.name, n: Number(c.n) }), T('hold.snaps_container_title')))));
+      .concat(snCts.map((c) => snRow(T('hold.snaps_container', { name: c.name, n: Number(c.n) }), T('hold.snaps_container_title'))))
+      .concat(Number(sn.process) > 0 ? [snRow(T('hold.snaps_process', { n: Number(sn.process) }), T('hold.snaps_process_title'))] : []));
   }
   const outside = (l.outside || []).filter((x) => x && typeof x.mount === 'string');
   if (outside.length) group('hold.outside', T('hold.outside_sub'), outside.map((x) => {

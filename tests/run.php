@@ -28284,7 +28284,7 @@ function testWatchmanApiDoor(): void
     same('api: the first round is the baseline', [true, [], [$id1], false],
         [$r['fresh'], $r['added'], array_keys((array) ($b['host']['api'] ?? [])), $b['host']['doors']['api_sandbox']['on'] ?? null]);
     // what he counted reaches the round's record inside the lock (uso_watchman_snapshot_automounts; null before: PHPStan, 2026-11-03)
-    same('api: the round writes down the snapshot automounts it counted (none here)', ['host' => 0, 'container' => 0],
+    same('api: the round writes down the snapshot automounts it counted (none here)', ['host' => 0, 'container' => 0, 'process' => 0],
         watchmanLoad($day)['state']['round']['automounts'] ?? null);
     watchmanSyslogSet(true, $day, false);
 
@@ -38898,10 +38898,11 @@ function testSnapshotPartner(): void
 }
 
 /**
- * «dataset is busy» (nostromo 2026-10-31, test4 2026-11-03): snapshotMountsEverywhere() reads the host's and every running
- * container's mountinfo for mounted ZFS snapshots; Ms. Snapshotini names where a busy one hangs (busy_in_container before
- * `zfs destroy`, busy_on_host / busy_unknown from its answer — the rest of the batch still deleted) and «Free and delete…»
- * (snapshot.free_mounts) unmounts the automounts — inside a container through nsenter into its mount namespace — then
+ * «dataset is busy» (nostromo 2026-10-31, test4 2026-11-03): snapshotMountsEverywhere() reads the host's, every running
+ * container's and every other mount namespace's mountinfo for mounted ZFS snapshots; Ms. Snapshotini names where a busy one
+ * hangs (busy_in_container, busy_in_process before `zfs destroy`, busy_on_host / busy_unknown from its answer — the rest of
+ * the batch still deleted) and «Free and delete…» (snapshot.free_mounts) unmounts the automounts — inside a container or
+ * process through nsenter into its mount namespace — then
  * deletes; the Night Watchman counts them in «What holds the array?» and in uso_watchman_snapshot_automounts
  */
 function testSnapshotBusy(): void
@@ -38925,20 +38926,58 @@ function testSnapshotBusy(): void
     $pid(200, "115 106 0:50 / /data rw,noatime - zfs tank/appdata rw\n"
         . "116 115 0:56 / /data/.zfs/snapshot/s2 rw,relatime - zfs tank/appdata@s2 ro\n"
         . "117 115 0:57 / /data/.zfs/snapshot/s5 rw,relatime - zfs tank/appdata@s5 ro\n", 'mnt:[200]');
+    file_put_contents("$proc/200/comm", "minio\n");
     $pid(300, "115 106 0:50 / /share rw,noatime - zfs tank/appdata rw\n", 'mnt:[300]');      // a plain bind of the share
     $pid(500, $host, 'mnt:[1]');                                                               // shares the host's namespace
     $pid(600, "90 80 0:53 / /data/.zfs/snapshot/s3 rw master:16 - zfs tank/appdata@s3 ro\n", 'mnt:[600]');   // the host's, propagated
     $cts = [['name' => 'minio', 'pid' => 200], ['name' => 'plex', 'pid' => 300], ['name' => 'stopped', 'pid' => 400],
             ['name' => 'hostns', 'pid' => 500], ['name' => 'slave', 'pid' => 600]];
+    // not Docker's: a process in a namespace of its own, a second one in it (never read), one that ended between the list
+    // and the read (the next of its namespace is read), one without a namespace link (a zombie), a host mount only propagated
+    $p1 = "90 80 0:60 / /mnt/tank/appdata/.zfs/snapshot/p1 rw,relatime - zfs tank/appdata@p1 ro\n";
+    $pid(700, $p1, 'mnt:[700]');
+    file_put_contents("$proc/700/comm", "sh\n");
+    $pid(701, "90 80 0:61 / /x/.zfs/snapshot/never rw - zfs tank/appdata@never ro\n", 'mnt:[700]');
+    file_put_contents("$proc/701/comm", "other\n");
+    $pid(710, null, 'mnt:[710]');
+    $pid(711, "91 80 0:62 / /opt/.zfs/snapshot/p2 rw - zfs tank/appdata@p2 ro\n" . "92 80 0:63 / /by/hand rw - zfs tank/appdata@p3 ro\n", 'mnt:[710]');
+    file_put_contents("$proc/711/comm", "caf\xc3\xa9 " . str_repeat('x', 40) . "\n");
+    @mkdir("$proc/720", 0700);
+    $pid(730, "90 80 0:53 / /data/.zfs/snapshot/s3 rw master:16 - zfs tank/appdata@s3 ro\n", 'mnt:[730]');
+    $pid(740, "90 80 0:64 / /gone/.zfs/snapshot/p4 rw - zfs tank/appdata@p4 ro\n", 'mnt:[740]');   // no comm: ended just then
+    @mkdir("$proc/self/ns", 0700, true);
+    symlink('mnt:[999]', "$proc/self/ns/mnt");
+    file_put_contents("$proc/self/mountinfo", "90 80 0:65 / /self/.zfs/snapshot/p5 rw - zfs tank/appdata@p5 ro\n");
+    $pl = fn (string $name, int $p, string $path, bool $auto, string $comm): array => ['ds' => 'tank/appdata', 'name' => $name, 'where' => 'process', 'container' => null,
+                                                                                         'pid' => $p, 'path' => $path, 'auto' => $auto, 'comm' => $comm];
+    $long = 'caf?? ' . str_repeat('x', 26);
+    $walked = [$pl('p1', 700, '/mnt/tank/appdata/.zfs/snapshot/p1', true, 'sh'), $pl('p2', 711, '/opt/.zfs/snapshot/p2', true, $long), $pl('p3', 711, '/by/hand', false, $long)];
     same('busy: the reader — host automounts (a space as \\040), a host mount by hand, two automounts inside a container; never a plain bind of the '
         . 'share, a container gone in between, one in the host\'s namespace or a host mount that only propagated into one', [
         ['ds' => 'tank/appdata', 'name' => 's3', 'where' => 'host', 'container' => null, 'pid' => 1, 'path' => '/mnt/tank/appdata/.zfs/snapshot/s3', 'auto' => true],
         ['ds' => 'tank/Familien filme', 'name' => 'z z', 'where' => 'host', 'container' => null, 'pid' => 1, 'path' => '/mnt/tank/Familien filme/.zfs/snapshot/z z', 'auto' => true],
         ['ds' => 'tank/appdata', 'name' => 'kopia', 'where' => 'host', 'container' => null, 'pid' => 1, 'path' => '/mnt/addons/x', 'auto' => false],
         ['ds' => 'tank/appdata', 'name' => 's2', 'where' => 'container', 'container' => 'minio', 'pid' => 200, 'path' => '/data/.zfs/snapshot/s2', 'auto' => true],
-        ['ds' => 'tank/appdata', 'name' => 's5', 'where' => 'container', 'container' => 'minio', 'pid' => 200, 'path' => '/data/.zfs/snapshot/s5', 'auto' => true]],
+        ['ds' => 'tank/appdata', 'name' => 's5', 'where' => 'container', 'container' => 'minio', 'pid' => 200, 'path' => '/data/.zfs/snapshot/s5', 'auto' => true],
+        ...$walked],
         snapshotMountsEverywhere($cts, $proc));
-    same('busy: the reader — the host alone', 3, count(snapshotMountsEverywhere([], $proc)));
+    same('busy: the walk — without Docker\'s list a container\'s namespace is a process', [3, 5],
+        [count(array_filter(snapshotMountsEverywhere([], $proc), fn (array $m): bool => $m['where'] === 'host')),
+         count(array_filter(snapshotMountsEverywhere([], $proc), fn (array $m): bool => $m['where'] === 'process'))]);
+    same('busy: the walk — a process\'s name: trimmed, printable ASCII only, 32 characters at most; nothing left is a question mark',
+        ['sh', 'a?b', str_repeat('y', 32), '?'], [snapshotCommName("sh\n"), snapshotCommName("a\x01b"), snapshotCommName(str_repeat('y', 40)), snapshotCommName(" \n")]);
+    // more pids than the cap, each in a namespace of its own: reads stop there, no error
+    $capProc = "$tmp/capproc";
+    for ($i = 2; $i < SNAPSHOT_WALK_PIDS + 40; $i++) {
+        @mkdir("$capProc/$i/ns", 0700, true);
+        symlink("mnt:[$i]", "$capProc/$i/ns/mnt");
+        file_put_contents("$capProc/$i/mountinfo", "90 80 0:60 / /a/.zfs/snapshot/c$i rw - zfs tank/appdata@c$i ro\n");
+        file_put_contents("$capProc/$i/comm", "c\n");
+    }
+    same('busy: the walk — a /proc with more pids than the cap: reads stop at it, no error', [SNAPSHOT_WALK_PIDS, SNAPSHOT_WALK_PIDS],
+        [count(snapshotWalkPids($capProc)), count(snapshotMountsEverywhere([], $capProc))]);
+    exec('rm -rf ' . escapeshellarg($capProc));
+    same('busy: the walk — no /proc at all: nothing, no error', [], snapshotMountsEverywhere([], "$tmp/noproc"));
     same('busy: an automount path is exactly <something>/.zfs/snapshot/<its name>', [true, true, false, false, false, false, false],
         [snapshotAutoPath('/data/.zfs/snapshot/s2', 's2'), snapshotAutoPath('/mnt/tank/a b/.zfs/snapshot/z z', 'z z'), snapshotAutoPath('/data/.zfs/snapshot/s22', 's2'),
          snapshotAutoPath('/data/.zfs/snapshot/s2/x', 's2'), snapshotAutoPath('/.zfs/snapshot/s2', 's2'), snapshotAutoPath('/data/../x/.zfs/snapshot/s2', 's2'),
@@ -39058,6 +39097,47 @@ exit(0);'),
         snapshotFreeMount(['pid' => 200, 'path' => '/data/s4'] + $m);
         snapshotFreeMount(['pid' => 200, 'path' => '/data/.zfs/snapshot/s5'] + $m);
         same('busy: never an unmount of anything but that snapshot\'s automount (a path by hand, another snapshot\'s)', [], $calls());
+
+        // a snapshot hanging only in another process's namespace: named before zfs is asked, freed through that pid's namespace
+        file_put_contents("$tmp/names.txt", "p1\np2\np3\n");
+        file_put_contents("$tmp/busy.txt", "");
+        $r = snapshotDelete([$id('p1'), $id('p3')]);
+        same('busy: delete — in a process\'s own namespace: busy_in_process with its name, pid and path, before zfs is asked; a mount by hand there can\'t be freed', [[
+            ['key' => 'busy_in_process', 'id' => $id('p1'), 'free' => true, 'params' => ['name' => 'tank/appdata@p1', 'comm' => 'sh', 'pid' => '700', 'path' => '/mnt/tank/appdata/.zfs/snapshot/p1']],
+            ['key' => 'busy_in_process', 'id' => $id('p3'), 'free' => false, 'params' => ['name' => 'tank/appdata@p3', 'comm' => $long, 'pid' => '711', 'path' => '/by/hand']]], [], []],
+            [$r['failures'], $r['deleted'], $calls()]);
+        @unlink("$tmp/record/deletes.jsonl");
+        $r = snapshotDelete([$id('p1')], false, false, true);
+        same('busy: free and delete — through that pid\'s namespace, then deleted', [[$id('p1')], [],
+            ["nsenter --mount=$proc/700/ns/mnt umount /mnt/tank/appdata/.zfs/snapshot/p1", 'zfs destroy tank/appdata@p1']], [$r['deleted'], $r['failures'], $calls()]);
+        same('busy: … her record names the process', ['do' => 'freed', 'ds' => 'tank/appdata', 'name' => 'p1', 'where' => 'process', 'container' => null,
+            'path' => '/mnt/tank/appdata/.zfs/snapshot/p1', 'comm' => 'sh', 'pid' => 700],
+            array_diff_key(json_decode(file("$tmp/record/deletes.jsonl", FILE_IGNORE_NEW_LINES)[0], true), ['t' => 1]));
+        $r = snapshotDelete([$id('p3')], false, false, true);
+        same('busy: free and delete — a mount by hand in a process stays, said without another offer', [['busy_in_process'], [false], []],
+            [array_column($r['failures'], 'key'), array_column($r['failures'], 'free'), $calls()]);
+        $pm = $pl('p9', 4242, '/data/.zfs/snapshot/p9', true, 'sh');
+        snapshotFreeMount($pm);
+        same('busy: a process that ended in between — no failure, nothing run (zfs answers next, a new look names who is left)', [], $calls());
+        file_put_contents("$proc/700/mountinfo", "90 80 0:60 / /data/.zfs/snapshot/p9 rw - zfs tank/appdata@p9 ro\n");
+        touch("$tmp/fail");
+        try {
+            snapshotFreeMount(['pid' => 700] + $pm);
+            check('busy: an unmount in a process that fails is a failure', false);
+        } catch (Problem $p) {
+            same('busy: an unmount in a process that fails — free_failed_process with its name and the path',
+                ['free_failed_process', ['comm' => 'sh', 'path' => '/data/.zfs/snapshot/p9']], [$p->key, $p->params]);
+        }
+        @unlink("$tmp/fail");
+        $calls();
+        file_put_contents("$proc/700/mountinfo", $p1);
+        // who wins the wording: a container, then a process, then the host
+        $ct = ['ds' => 'tank/appdata', 'name' => 'x', 'where' => 'container', 'container' => 'minio', 'pid' => 200, 'path' => '/data/.zfs/snapshot/x', 'auto' => true];
+        $pr = $pl('x', 700, '/p/.zfs/snapshot/x', true, 'sh');
+        $ho = ['where' => 'host', 'container' => null, 'pid' => 1, 'path' => '/mnt/tank/appdata/.zfs/snapshot/x'] + $ct;
+        same('busy: a container\'s mount wins the wording, then a process\'s, then the host\'s; two processes named both', ['busy_in_container', 'busy_in_process', 'busy_on_host', 'sh, ash', '700, 701'],
+            [snapshotBusyFailure($id('x'), [$ho, $pr, $ct])['key'], snapshotBusyFailure($id('x'), [$ho, $pr])['key'], snapshotBusyFailure($id('x'), [$ho])['key'],
+             snapshotBusyFailure($id('x'), [$pr, ['pid' => 701, 'comm' => 'ash'] + $pr])['params']['comm'], snapshotBusyFailure($id('x'), [$pr, ['pid' => 701, 'comm' => 'ash'] + $pr])['params']['pid']]);
     } finally {
         $GLOBALS['snapshot'] = null;
         unset($GLOBALS['snapshotHost'], $GLOBALS['snapshotPartnerPairs']);
@@ -39077,22 +39157,28 @@ exit(0);'),
         str_contains($desk, "'free_mounts' => fn (array \$r) => snapshotDelete(snapshotIdList(\$r, 'ids'), false, boolField(\$r, 'wake'), true),"));
     check('busy: the page offers «Free and delete…» only for failures that can be freed, and asks first', str_contains($js, "failures.filter((f) => f.free && typeof f.id === 'string')")
         && str_contains($js, "T('free.button')") && str_contains($js, "T('free.note')") && str_contains($js, "`\${ID}.free_mounts`"));
+    check('busy: … its confirmation names the process', str_contains($js, "T('free.in_process', { comm: p.comm, pid: p.pid, path: p.path })"));
 
     // the Night Watchman: his round's numbers (by the main processes he has) and the metric
     $a = watchmanAutomounts(['minio' => ['pid' => 200], 'old' => ['pid' => 0]], $proc);
-    same('busy: the watchman\'s round counts the automounts on the host and inside containers', ['host' => 2, 'container' => 1], $a);
-    same('busy: … Docker not answering: the host only', ['host' => 2, 'container' => null], watchmanAutomounts(null, $proc));
+    same('busy: the watchman\'s round counts the automounts on the host, inside containers and in other namespaces (a mount by hand no automount)',
+        ['host' => 2, 'container' => 1, 'process' => 2], $a);
+    same('busy: … Docker not answering: no container count, what is inside one counts as a process', ['host' => 2, 'container' => null, 'process' => 3], watchmanAutomounts(null, $proc));
     @mkdir("$tmp/wm", 0700);
-    file_put_contents("$tmp/wm/state.json", json_encode(['round' => ['time' => 1760000000, 'automounts' => ['host' => 2, 'container' => 1]]]));
+    file_put_contents("$tmp/wm/state.json", json_encode(['round' => ['time' => 1760000000, 'automounts' => ['host' => 2, 'container' => 1, 'process' => 4]]]));
     $fam = array_column(watchmanMetrics("$tmp/wm"), null, 'name')['uso_watchman_snapshot_automounts'] ?? null;
-    same('busy: the metric uso_watchman_snapshot_automounts{where}', ['gauge', [[['where' => 'host'], 2], [['where' => 'container'], 1]]],
+    same('busy: the metric uso_watchman_snapshot_automounts{where}', ['gauge', [[['where' => 'host'], 2], [['where' => 'container'], 1], [['where' => 'process'], 4]]],
         [$fam['type'] ?? null, $fam['samples'] ?? null]);
-    same('busy: «What holds the array?» — on the host, per container', ['host' => 2, 'containers' => [['name' => 'minio', 'n' => 1]]],
+    file_put_contents("$tmp/wm/state.json", json_encode(['round' => ['time' => 1760000000, 'automounts' => ['host' => 2, 'container' => 1]]]));
+    same('busy: … a round of an older version: no process sample', [[['where' => 'host'], 2], [['where' => 'container'], 1]],
+        array_column(watchmanMetrics("$tmp/wm"), null, 'name')['uso_watchman_snapshot_automounts']['samples'] ?? null);
+    same('busy: «What holds the array?» — on the host, per container, in other namespaces', ['host' => 2, 'containers' => [['name' => 'minio', 'n' => 1]], 'process' => 2],
         arrayholdSnaps($proc, [['id' => 'x', 'name' => 'minio', 'managed' => true, 'own' => null, 'pid' => 200], ['id' => 'y', 'name' => 'plex', 'managed' => true, 'own' => null]]));
-    same('busy: … Docker not running: the host only', ['host' => 2, 'containers' => []], arrayholdSnaps($proc, null));
+    same('busy: … Docker not running: none in a container, what is inside one counts as a process', ['host' => 2, 'containers' => [], 'process' => 3], arrayholdSnaps($proc, null));
     $wjs = (string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js');
     check('busy: his page names them (not counted as holding the array)', str_contains($wjs, "group('hold.snaps', T('hold.snaps_sub')")
-        && str_contains($wjs, "T('hold.snaps_container', { name: c.name, n: Number(c.n) })"));
+        && str_contains($wjs, "T('hold.snaps_container', { name: c.name, n: Number(c.n) })")
+        && str_contains($wjs, "T('hold.snaps_process', { n: Number(sn.process) })"));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -39718,7 +39804,7 @@ function testWatchmanHold(): void
         same('array hold: Docker asked only for the running containers, their stop time and main process — never a full inspect, never the environment', [
             'ps --no-trunc --format {{.ID}}\t{{.Names}}\t{{.Label "net.unraid.docker.managed"}}',
             "inspect --format {{.Id}}\t{{index .Config \"StopTimeout\"}}\t{{.State.Pid}} {$ids[0]} {$ids[1]} {$ids[2]}"], $calls);
-        same('array hold: no snapshot mounted — none on the host, none inside a container', ['host' => 0, 'containers' => []], $l['snaps']);
+        same('array hold: no snapshot mounted — none on the host, none inside a container, none in a process', ['host' => 0, 'containers' => [], 'process' => 0], $l['snaps']);
 
         // all quiet: nothing open there, no VMs, Docker off — nothing holds it and the time-out is enough
         $quiet = $paths;

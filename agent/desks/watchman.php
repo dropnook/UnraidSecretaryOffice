@@ -1429,7 +1429,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
         $pos['boot'] = $boot;
     }
     $containers = $docker ? $docker() : watchmanContainers();
-    // snapshot automounts right now, on the host and inside the containers (by their main processes; the metric's numbers)
+    // snapshot automounts right now, on the host, inside the containers (by their main processes) and in other mount namespaces (the metric's numbers)
     $automounts = isset($paths['proc']) ? watchmanAutomounts($containers, (string) $paths['proc']) : null;
     $netContainers = $containers;          // with their addresses and ports: whose a router's line likely is (watchmanNetGuess())
     $look = $flow ? $flow($containers) : null;
@@ -1612,7 +1612,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                         'read' => $read['read'], 'skipped' => $read['skipped'], 'rotated' => $read['rotated'], 'syslog_full' => $read['full'],
                         'docker' => $seen['containers'] !== null, 'shares' => $seen['shares'] !== null, 'flow' => $look !== null,
                         'snaps' => $snapRes !== null, 'added' => count($added),
-                        // snapshot automounts right now, on the host and inside the containers (the metric's numbers)
+                        // snapshot automounts right now, on the host, inside the containers and in other processes' namespaces (the metric's numbers)
                         'automounts' => $automounts];
         if (is_array($st['night'] ?? null) && !isset($st['night']['until'])) {
             // the night shift's own state (the day's `night` has `until`): its rounds and what is new in it and open — the
@@ -2127,8 +2127,9 @@ function watchmanLogins(array &$b, array &$book, array &$st, array $events, bool
 // ===================================================================== containers
 
 /**
- * How many ZFS snapshots are automounted (.zfs/snapshot/<name>) right now: {host, container} — container null when Docker
- * didn't answer. From /proc only (snapshotMountsEverywhere(), with the main processes his look already has: no docker call).
+ * How many ZFS snapshots are automounted (.zfs/snapshot/<name>) right now: {host, container, process} — container null when
+ * Docker didn't answer (a container's namespace then counts as a process); process: any other mount namespace. From /proc
+ * only (snapshotMountsEverywhere(), with the main processes his look already has: no docker call).
  */
 function watchmanAutomounts(?array $containers, string $proc): array
 {
@@ -2140,7 +2141,8 @@ function watchmanAutomounts(?array $containers, string $proc): array
     }
     $auto = array_filter(snapshotMountsEverywhere($list, $proc), fn (array $m): bool => $m['auto']);
     return ['host' => count(array_filter($auto, fn (array $m): bool => $m['where'] === 'host')),
-            'container' => $containers === null ? null : count(array_filter($auto, fn (array $m): bool => $m['where'] === 'container'))];
+            'container' => $containers === null ? null : count(array_filter($auto, fn (array $m): bool => $m['where'] === 'container')),
+            'process' => count(array_filter($auto, fn (array $m): bool => $m['where'] === 'process'))];
 }
 
 /** Every container's rights, as docker run flags; null when Docker doesn't answer */
@@ -9849,7 +9851,7 @@ function watchmanMetrics(?string $dir = null): array
         $written[] = [['share' => (string) $share], (int) $bytes];
     }
     $auto = [];
-    foreach (['host', 'container'] as $where) {
+    foreach (['host', 'container', 'process'] as $where) {
         if (is_int($st['round']['automounts'][$where] ?? null)) {
             $auto[] = [['where' => $where], $st['round']['automounts'][$where]];
         }
@@ -9863,7 +9865,7 @@ function watchmanMetrics(?string $dir = null): array
         ['name' => 'uso_watchman_written_bytes_total', 'type' => 'counter',
          'help' => 'Bytes written into ZFS shares since the night watchman watches the data flow (the ' . WATCH_FLOW_TOP . ' shares with the most)', 'samples' => $written],
         ['name' => 'uso_watchman_snapshot_automounts', 'type' => 'gauge',
-         'help' => 'ZFS snapshots automounted (.zfs/snapshot) at his last round, on the host and inside containers', 'samples' => $auto],
+         'help' => 'ZFS snapshots automounted (.zfs/snapshot) at his last round, on the host, inside containers and in other processes\' mount namespaces', 'samples' => $auto],
         ...watchnetMetrics($st, readJson(($dir ?? watchmanDir()) . '/net.json')),      // the network (agent/lib/watchnet.php)
     ];
 }
