@@ -55723,7 +55723,7 @@ function testBackupTiles(): void
     check('restore: the wave on the journal\'s «running» chip, the running step, the run card and the tile\'s step while a restore runs',
         str_contains($rjs, "const waving = (x) => { const w = el('span', 'running'); w.append(el('span', 'spin'), ' ', ...[].concat(x)); return w; };")
         && str_contains($rjs, "meta.appendChild(r.result === 'running' ? waving(head) : head);") && str_contains($rjs, "li.append(s.state === 'running' ? waving(sc) : sc, ' ', stepText(s));")
-        && str_contains($rjs, "top.append(el('span', 'spin'), el('span', 'card-name', d.title), chip(T('jr.running'), 'accent'));") && str_contains($rjs, "lines: [[line, going && right ? waving(right) : right]]")
+        && str_contains($rjs, "top.append(el('span', 'spin'), el('span', 'card-name', d.title));") && str_contains($rjs, "if (silent === null) top.appendChild(chip(T('jr.running'), 'accent'));") && str_contains($rjs, "lines: [[line, going && right ? waving(right) : right]]")
         && str_contains($core, "st.state === 'failed' ? 'done failed' : 'done', st.name);"));
     $ocss = (string) file_get_contents(OFFICE_WEB . '/assets/office.css');
     preg_match('/--wave:url\("data:image\/svg\+xml,([^"]+)"\);/', $ocss, $w);

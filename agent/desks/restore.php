@@ -2109,7 +2109,7 @@ function rsStaleTell(): array
         }
         logLine("Mr. Restori: {$s['id']} - no sign of life for {$s['minutes']} minutes; I leave it alone");
         $lang = officeNotifyLang();
-        $kind = officeNotifyText('restore', 'job.kind_' . $s['kind'], [], $lang);
+        $kind = officeNotifyText('restore', $s['kind'] === 'drill' ? 'job.kind_drill' : 'job.kind_restore', [], $lang);
         officeNotify(officeNotifyText('restore', 'notify.job_stale', ['kind' => $kind], $lang),
             officeNotifyText('restore', 'notify.job_stale_text', ['kind' => $kind, 'n' => $s['minutes']], $lang),
             'warning', '', officeNotifyLink($s['kind'] === 'drill' ? '#/restore/drill' : '#/restore/journal'), 'restore', 'job_stale');
