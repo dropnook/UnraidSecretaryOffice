@@ -60773,6 +60773,20 @@ function testRestoreSharesTick(): void
     $t = [...$t, rsSharesTick(1002.0, $h), rsSharesTick(1003.0, $h), rsSharesTick(1004.5, $h), rsSharesTick(1010.0, $h)];
     same('restore shares tick: nothing at first, the cfg changed — looked at once 2 s calm, then not again',
         [null, null, null, null, ['time' => 1], null], $t);
+    // emhttpd rewrites shares.ini with each share's free, used and color on its own (every 10–30 s while a pool works):
+    // no look for that (2026-11-07) — a share's setting in it still counts
+    $stamp = officeSharesStamp("$tmp/shares", "$tmp/shares.ini");
+    file_put_contents("$tmp/shares.ini", "[Docs]\nname=\"Docs\"\nfree=\"1000\"\nused=\"20\"\ncolor=\"green-on\"\n");
+    clearstatcache();
+    $same = officeSharesStamp("$tmp/shares", "$tmp/shares.ini") === $stamp;
+    file_put_contents("$tmp/shares.ini", "[Docs]\nname=\"Docs\"\nfree=\"900\"\nused=\"120\"\ncolor=\"green-blink\"\n");
+    touch("$tmp/shares.ini", time() + 20);
+    clearstatcache();
+    $t = [$same, officeSharesStamp("$tmp/shares", "$tmp/shares.ini") === $stamp, rsSharesTick(1011.0, $h), rsSharesTick(1014.0, $h)];
+    file_put_contents("$tmp/shares.ini", "[Docs]\nname=\"Docs\"\nfree=\"900\"\nused=\"120\"\ncolor=\"green-blink\"\nuseCache=\"only\"\n");
+    clearstatcache();
+    same('restore shares tick: shares.ini rewritten with free, used and color — the same stamp, no look; a setting in it — a new one',
+        [true, true, null, null, false], [...$t, officeSharesStamp("$tmp/shares", "$tmp/shares.ini") === $stamp]);
     file_put_contents("$tmp/shares.ini", "[Media]\nname=\"Media\"\n");
     unlink("$tmp/shares/Docs.cfg");
     clearstatcache();

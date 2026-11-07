@@ -415,17 +415,22 @@ const OFFICE_SHARES_CALM    = 2.0;     // s: a changed stamp the same this long 
 /**
  * The stamp of Unraid's share facts, cheap (no file read, no disk woken — the flash and RAM only): the folder of the share
  * cfgs and each cfg's mtime and size, shares.ini's. Changes with every ⟦Apply⟧ on a share, a share added or removed.
- * Ms. Moverelli's and Mr. Restori's ticks look at it once a second (2026-10-18, 2026-10-28: a page told for up to
- * refresh_after's 5 min what was no longer so).
+ * Ms. Moverelli's, Mr. Restori's and Mr. Backupsy's ticks look at it once a second (2026-10-18, 2026-10-28: a page told
+ * for up to refresh_after's 5 min what was no longer so). shares.ini counts by its content without the lines emhttpd
+ * rewrites on its own — each share's `free` and `used` whenever a pool's space changes (every 10–30 s while a pool works)
+ * and `color` with the disks' state: by its mtime the stamp changed that often and the ticks took their whole look anew
+ * each time (Tower, 2026-11-07). A share added, removed or applied still changes it (its section, its settings).
  */
 function officeSharesStamp(string $sharesDir = OFFICE_SHARES_CFG_DIR, string $sharesIni = OFFICE_SHARES_INI): string
 {
     $parts = [];
-    foreach ([$sharesDir, ...(glob("$sharesDir/*.cfg", GLOB_NOSORT) ?: []), $sharesIni] as $f) {
+    foreach ([$sharesDir, ...(glob("$sharesDir/*.cfg", GLOB_NOSORT) ?: [])] as $f) {
         $st = @stat($f);
         $parts[] = $st ? basename($f) . ':' . $st['mtime'] . ':' . $st['size'] : basename($f) . ':-';
     }
     sort($parts, SORT_STRING);
+    $ini = @file_get_contents($sharesIni);
+    $parts[] = 'shares.ini:' . ($ini === false ? '-' : md5((string) preg_replace('/^(free|used|color)=.*\n?/m', '', $ini)));
     return md5(implode('|', $parts));
 }
 
