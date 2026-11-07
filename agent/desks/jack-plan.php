@@ -585,17 +585,10 @@ function jackPlanConfig(string $file, array $env, bool $requirePaths = true): ar
         if ($inst['url'] === '' || !jpTrue($inst['api_key'] ?? null)) {
             throw new JackPlanConfigError('url or api_key missing');
         }
-        if (!$cfg['path_mappings'] instanceof stdClass) {
-            jpCrash('path_mappings is no dict');
-        }
-        $own = jpOr($inst['path_mappings'] ?? null, new stdClass());
-        if (!$own instanceof stdClass) {
-            jpCrash('path_mappings is no dict');
-        }
         $merged = [];
-        foreach ([$cfg['path_mappings'], $own] as $m) {
-            foreach (get_object_vars($m) as $k => $v) {
-                $merged["k$k"] = [(string) $k, $v];
+        foreach ([$cfg['path_mappings'], jpOr($inst['path_mappings'] ?? null, new stdClass())] as $m) {
+            foreach (jackPlanMappingPairs($m) as [$k, $v]) {
+                $merged["k$k"] = [$k, $v];
             }
         }
         $maps = $skip = [];
@@ -652,6 +645,28 @@ function jackPlanConfig(string $file, array $env, bool $requirePaths = true): ar
         throw new JackPlanConfigError('rsync_args');
     }
     return $cfg;
+}
+
+/** dict(x): a dict, or a list of pairs (an empty list too: that is how PHP's save writes no mappings); else Python's traceback */
+function jackPlanMappingPairs(mixed $m): array
+{
+    $out = [];
+    if ($m instanceof stdClass) {
+        foreach (get_object_vars($m) as $k => $v) {
+            $out[] = [(string) $k, $v];
+        }
+        return $out;
+    }
+    if (!is_array($m)) {
+        jpCrash('path_mappings is no dict');
+    }
+    foreach ($m as $pair) {
+        if (!is_array($pair) || count($pair) !== 2 || !is_string($pair[0])) {
+            jpCrash('path_mappings is no dict');
+        }
+        $out[] = [$pair[0], $pair[1]];
+    }
+    return $out;
 }
 
 /** keep_bytes(): MEDIACACHE_KEEP_BYTES, null: no floor */
@@ -1054,7 +1069,7 @@ final class JackPlanLive implements JackPlanHost
                 throw new JackPlanApiError("$path: no answer");
             }
             $body = (string) stream_get_contents($fh);
-            $timedOut = (bool) (stream_get_meta_data($fh)['timed_out'] ?? false);
+            $timedOut = stream_get_meta_data($fh)['timed_out'];
             fclose($fh);
             if ($timedOut) {
                 throw new JackPlanApiError("$path: timed out");
@@ -1321,7 +1336,7 @@ function jackPlanShareMode(array $cfg, string $share): array
         }
         $vals = $defaults;
     }
-    $mode = mb_strtolower($vals['shareUseCache'] ?? '', 'UTF-8');
+    $mode = mb_strtolower($vals['shareUseCache'], 'UTF-8');
     return [$mode === '' ? null : $mode, ($vals['shareCachePool'] ?? '') !== '' ? $vals['shareCachePool'] : 'cache'];
 }
 

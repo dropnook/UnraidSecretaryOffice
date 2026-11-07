@@ -302,7 +302,7 @@ function jackShadowCounts(array $py, ?JackPlanTape $tape): array
     return ['on_deck' => count($deck), 'on_deck_bytes' => array_sum(array_map(fn (array $f): int => (int) $f['size'], $deck)),
             'on_cache' => count(array_filter($deck, fn (array $f): bool => !empty($f['on_cache']))), 'persons' => count($py['persons'] ?? []),
             'fill' => count($py['fill']['rels'] ?? []), 'cleanup' => count($py['cleanup']['paths'] ?? []), 'give_back' => count($py['give_back']['paths'] ?? []),
-            'requests' => $tape?->asked ?? 0];
+            'requests' => $tape !== null ? $tape->asked : 0];
 }
 
 /** One pair: Python's dry run with its tape, PHP from the tape. Null with a code in $why: not compared */

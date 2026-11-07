@@ -536,6 +536,9 @@ $case('settings: no key', ['world' => [], 'servers' => [['type' => 'emby', 'url'
 $case('settings: only empty mappings', ['world' => [], 'servers' => [['type' => 'emby', 'url' => 'http://127.0.0.1:9', 'api_key' => 'x', 'path_mappings' => ['/m' => '']]], 'expect' => $out('config')]);
 $case('settings: no pool folder', $settingsCase(['cache_path' => '/nonexistent/pool']));
 $case('settings: numbers as text, sizes in odd spellings', $settingsCase(['min_free_percent' => ' 12.5 ', 'max_resume_movies' => '3', 'cache_budget' => ' 2.5 t', 'movie_share_percent' => '1_0', 'parallel_total' => '0'], $complete));
+$case('settings: path_mappings as an empty list (how the setup saves none)', $settingsCase(['path_mappings' => []], $complete));
+$case('settings: path_mappings as a list of pairs, odd ones', ['world' => $emby1, 'settings' => ['path_mappings' => [['/n', '/mnt/user/n']]]]);
+$case('settings: path_mappings a number', $settingsCase(['path_mappings' => 5], $out('crash')));
 $case('settings: a dict of people with budgets, without', $settingsCase(['cache_budget' => '50K', 'valid_users' => ['u1' => ['budget' => 1000], 'u2' => null]], $complete));
 $case('settings: themes only as a real true', $settingsCase(['themes' => 'true'], $complete) + ['extra' => ['Filme/Ferien (2019)/theme.mp3' => 33]]);
 $case('env: MEDIACACHE_KEEP_BYTES no number', ['world' => $emby1, 'env' => ['MEDIACACHE_KEEP_BYTES' => 'x'], 'expect' => $out('config')]);
@@ -609,8 +612,8 @@ foreach ($cases as $name => $c) {
     $settings = ['cache_path' => "$t/pool", 'array_path' => "$t/user0", 'user_path' => "$t/user", 'array_disks_glob' => "$t/disk[0-9]*", 'shares_cfg_dir' => "$t/cfg/shares",
         'instances' => $instances, 'min_free_percent' => 1, 'api_timeout' => 5];
     foreach ($c['settings'] ?? [] as $k => $v) {
-        if ($k === 'path_mappings') {
-            $v = array_map($sub, $v);
+        if ($k === 'path_mappings' && is_array($v)) {
+            $v = array_map(fn (mixed $m): mixed => is_string($m) ? $sub($m) : $m, $v);
         }
         $settings[$k] = $v;
     }
@@ -638,9 +641,17 @@ foreach ($cases as $name => $c) {
     chmod("$t/zfs", 0755);
     $env = ['MEDIACACHE_DIR' => "$t/data", 'MEDIACACHE_MOUNTS' => "$t/mounts", 'MEDIACACHE_ZFS' => "$t/zfs", 'MEDIACACHE_SHADOW_PLEX_TV' => "$base/plextv"] + array_map(fn ($v) => is_string($v) ? $sub($v) : $v, $c['env'] ?? []);
     // settings with no pool folder: as asked
+    $look = function () use ($t): string {
+        exec('find ' . escapeshellarg("$t/user0") . ' ' . escapeshellarg("$t/pool") . ' ' . escapeshellarg("$t/data") . ' -printf "%p %s %T@\n" | grep -v "/mediacache.lock\|/data " | sort | md5sum', $o);
+        return (string) ($o[0] ?? '');
+    };
+    $before = $look();
     // the key never on the tape: the instance's, the account's and the friend's tokens
     $r = threePlans($env, $t, "$base/plextv", $logFile, ['"k1"', 'plexadmintoken', 'friendtoken', 'secret-account-token']);
     $bad = isset($c['expect']) ? ($c['expect'])($r['py']) : null;
+    if ($look() !== $before) {
+        $bad = 'something changed in the array, the pool or his data';
+    }
     $fine = report($name, $r, $bad);
     if (!$fine) {
         $failed++;

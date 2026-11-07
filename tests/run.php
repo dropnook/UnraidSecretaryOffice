@@ -1103,7 +1103,7 @@ function testJackPlan(): void
     same('plan config: sizes', [0, 0, 1536 * 2 ** 20, 800 * 2 ** 30, 100], [jackPlanSize(null), jackPlanSize(' '), jackPlanSize('1536 m'), jackPlanSize('800G'), jackPlanSize(100)]);
 
     // a person is the same name ignoring case, spaces and accents
-    same('plan: person key — case, spaces, accents, ß, the same over several servers', ['p:anna', 'p:anna', 'p:anna', 'p:leo', 'p:strasse', 'p:', 'p:0', 'p:müller' === 'x' ? '' : 'p:muller'],
+    same('plan: person key — case, spaces, accents, ß, the same over several servers', ['p:anna', 'p:anna', 'p:anna', 'p:leo', 'p:strasse', 'p:', 'p:0', 'p:muller'],
         [jpPersonKey('Anna'), jpPersonKey(' ánna'), jpPersonKey("A\u{00a0}N\u{0303}NA"), jpPersonKey('Leo'), jpPersonKey('Straße'), jpPersonKey(null), jpPersonKey('0'), jpPersonKey("Mu\u{308}ller")]);
 
     // where things lie (testJackPaths and README: longest wins, `..` never out of the share)
@@ -1333,7 +1333,8 @@ function testJackShadow(): void
     $env = ['MEDIACACHE_MOUNTS' => "$tmp/mounts", 'MEDIACACHE_ZFS' => '/nonexistent'];
     $clock = 1800000000;
     $calls = 0;
-    $edit = null;             // what the stand-in for Python's dry run does to its plan
+    /** @var callable|null $edit what the stand-in for Python's dry run does to its plan */
+    $edit = null;
     $h = function (array $over = []) use ($tmp, $dir, $env, $answers, &$clock, &$calls, &$edit): array {
         return $over + ['dir' => $dir, 'run' => "$tmp/run", 'array' => fn () => true, 'busy' => fn () => null, 'asleep' => fn () => [], 'env' => fn () => $env, 'sleep' => function () {
         }, 'now' => function () use (&$clock) {
