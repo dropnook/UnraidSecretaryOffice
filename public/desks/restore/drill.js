@@ -126,7 +126,8 @@ function tileLine() {
   if (live()) {
     const steps = job.steps || [];
     const at = steps.filter((s) => !['pending', 'running'].includes(s.state)).length;
-    return [T('drill.tile_running'), T('drill.tile_step', { n: Math.min(at + 1, steps.length), total: steps.length })];
+    const silent = x.drillSilent ? x.drillSilent(job) : null;
+    return [T('drill.tile_running'), silent === null ? T('drill.tile_step', { n: Math.min(at + 1, steps.length), total: steps.length }) : T('jr.silent', { n: silent })];
   }
   const freq = freqText();
   if (!cert || !cert.last) return [T('drill.tile_none'), freq || ''];

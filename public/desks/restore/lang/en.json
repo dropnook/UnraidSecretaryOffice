@@ -439,6 +439,7 @@
   "jk.putback": "Put back: {what}",
   "jr.queued": "starting",
   "jr.running": "running",
+  "jr.silent": "no sign of life for {n} min",
   "jr.ok": "done",
   "jr.warnings": "done, with warnings",
   "jr.failed": "failed",

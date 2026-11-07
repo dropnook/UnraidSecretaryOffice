@@ -14479,6 +14479,18 @@ function testJobStale(): void
     same('job stale: the rule is 30 minutes', 1800, OFFICE_JOB_STALE);
     $tmp = hardeningTmp('job-stale');
     $saved = [$GLOBALS['rs'] ?? [], $GLOBALS['drill'] ?? []];
+    // a long quiet command keeps its sign of life: gzip -t in a restore (rsRunBeating()), any command in a drill (drillPulse())
+    $pulses = 0;
+    $GLOBALS['drillPulse'] = function () use (&$pulses): void { $pulses++; };
+    same('job stale: the drill\'s pulse - at once, not within 20 s, again after them',
+        [true, false, true, 2], [drillPulse(1000.0), drillPulse(1010.0), drillPulse(1021.0), $pulses]);
+    unset($GLOBALS['drillPulse']);
+    same('job stale: … no pulse outside a drill\'s own process', false, drillPulse(2000.0));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-drill.php');
+    check('job stale: the drill\'s stoppable command pulses, the drill\'s job sets it',
+        (bool) preg_match('/rsWatch\(\)\) \{\s+\$ended = true;\s+break;\s+\}\s+drillPulse\(\);/', $src) && str_contains($src, "\$GLOBALS['drillPulse'] = function () use (&\$j)"));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    check('job stale: a dump\'s gzip -t beats (no plain run() of it in a restore)', str_contains($src, "rsRunBeating(\$j, ['gzip', '-t', \$file], 7200)") && !str_contains($src, "run(['gzip', '-t', \$file]"));
     $notifyWas = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP'), getenv('OFFICE_NOTIFY_HOME')];
     @mkdir("$tmp/data/restore", 0700, true);
     @mkdir("$tmp/data/restore-drill", 0700, true);
@@ -14492,6 +14504,30 @@ function testJobStale(): void
     putenv("OFFICE_NOTIFY_STAMP=$tmp/notify.stamp");
     putenv("OFFICE_NOTIFY_HOME=$tmp/nc");
     $told = fn (): int => substr_count((string) @file_get_contents("$tmp/notify.log"), 'Unraid Secretary Office: ');
+    // rsRunBeating(): the command's own exit, a sign of life while it runs, ended when the job is asked to stop
+    $beat = ['id' => '20261107-110000-cc33', 'result' => 'running', 'heartbeat' => time() - 3600, 'steps' => []];
+    @mkdir("$tmp/data/restore/{$beat['id']}", 0700, true);
+    $stopWas = [$GLOBALS['rsStop'] ?? null, $GLOBALS['rsStopWhy'] ?? null];
+    unset($GLOBALS['rsStop'], $GLOBALS['rsStopWhy']);
+    same('job stale: a quiet command - its exit, and the heartbeat went on meanwhile',
+        [3, true], [rsRunBeating($beat, ['sh', '-c', 'sleep 3; exit 3'], 60), $beat['heartbeat'] > time() - 60]);
+    same('job stale: … over its time - ended, 124', 124, rsRunBeating($beat, ['sleep', '30'], 1));
+    file_put_contents("$tmp/dump.gz", gzencode("-- PostgreSQL database cluster dump complete\n"));
+    file_put_contents("$tmp/broken.gz", 'not gzip at all');
+    same('job stale: a dump\'s end through it - a good .gz, a broken one',
+        [true, null], [str_contains((string) rsGzTail($beat, "$tmp/dump.gz"), 'cluster dump complete'), rsGzTail($beat, "$tmp/broken.gz")]);
+    $GLOBALS['rsStop'] = true;
+    $at = hrtime(true);
+    $code = rsRunBeating($beat, ['sleep', '30'], 60);
+    same('job stale: … asked to stop - ended at once, said in the record', [124, true, true],
+        [$code, (hrtime(true) - $at) / 1e9 < 5, is_int($beat['stop_asked'] ?? null)]);
+    unset($GLOBALS['rsStop']);
+    if ($stopWas[0] !== null) {
+        $GLOBALS['rsStop'] = $stopWas[0];
+    }
+    if ($stopWas[1] !== null) {
+        $GLOBALS['rsStopWhy'] = $stopWas[1];
+    }
     // the process is there and silent: an agent.php that only sleeps
     $proc = proc_open([PHP_BINARY, '-r', 'sleep(120);', 'agent.php'], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
     $pid = (int) proc_get_status($proc)['pid'];
@@ -25738,10 +25774,29 @@ function testDockerGeneration(): void
     same('docker generation: Docker started - «off» ends at once, no 20 s', [['one'], 6], [$names(), $calls()]);
     unlink($sock);
     same('docker generation: only the socket gone (the same pid) - asked again at once', [['one'], 7], [$names(), $calls()]);
+    // the quiet time's «no answer» isn't served once Docker was heard again: a page's look would save «off» for 20 s
+    touch($sock);
+    $names(true);
+    $GLOBALS['houseDockerSilent'] = hrtime(true) / 1e9;
+    $before = $calls();
+    same('docker generation: inside the quiet time - no answer, nothing asked', [null, $before], [$names(true), $calls()]);
+    same('docker generation: … that «no answer» is served while Docker stays unheard', [null, $before], [$names(), $calls()]);
+    unset($GLOBALS['houseDockerSilent']);
+    usleep(1000);
+    houseDockerHeard();
+    same('docker generation: Docker heard again - asked at once, within the 20 s', [['one'], $before + 1], [$names(), $calls()]);
+    same('docker generation: … and served again', [['one'], $before + 1], [$names(), $calls()]);
+    touch("$tmp/stopped");
+    $names(true);
+    usleep(1000);
+    houseDockerHeard();
+    $before = $calls();
+    same('docker generation: a plain failure (exit 1, Docker off) keeps its 20 s, heard or not', [null, $before], [$names(), $calls()]);
+    unlink("$tmp/stopped");
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/house.php');
     check('docker generation: the clock stepped back still looks anew, the 20 s still count',
         str_contains($src, 'if (!$fresh && $cache !== null && time() >= $at && time() - $at < HOUSE_CACHE) {      // a clock stepped back: looked at anew')
-        && str_contains($src, '$fresh = $fresh || $now !== $generation;'));
+        && str_contains($src, '$fresh = $fresh || $now !== $generation || $over;'));
     putenv("PATH=$path");
     unset($GLOBALS['houseDockerSilent'], $GLOBALS['houseDockerAnswered'], $GLOBALS['houseDockerLooked'], $GLOBALS['houseDockerBackLooked']);
     foreach ($keep as $k => $v) {

@@ -449,7 +449,10 @@ function tileLine(sec) {
   }
   if (sec === 'journal') {
     const run = runningJob();
-    if (run) return [T('tile.journal_running', { what: run.what }), T('tile.journal_step', { n: run.step, total: run.steps })];
+    if (run) {
+      const silent = restoreSilent();
+      return [T('tile.journal_running', { what: run.what }), silent === null ? T('tile.journal_step', { n: run.step, total: run.steps }) : T('jr.silent', { n: silent })];
+    }
     const list = state.restores || [];
     // after a restore the tile says how the last one went (like Mr. Backupsy's «Last backup» after a run)
     const last = list[0];
@@ -3290,7 +3293,10 @@ function journalTitle(r) {
 
 function journalRow(r) {
   const meta = el('div', 'row-meta');
-  const head = chip(T('jr.' + r.result), resultClass(r.result), r.reason ? problemText({ key: r.reason, params: r.reason_params }) : null);
+  // silent (the agent's word, restoreSilent()): said on its row too; the wave stays, it runs as far as anyone knows
+  const silent = r.result === 'running' && state && state.running && state.running.id === r.id ? restoreSilent() : null;
+  const head = silent !== null ? chip(T('jr.silent', { n: silent }), 'warn', T('rc.stale', { n: silent }))
+    : chip(T('jr.' + r.result), resultClass(r.result), r.reason ? problemText({ key: r.reason, params: r.reason_params }) : null);
   meta.appendChild(r.result === 'running' ? waving(head) : head);
   meta.appendChild(el('span', '', date(r.started || r.created)));
   if (r.finished && r.started) meta.appendChild(el('span', '', fmt.duration(Math.max(60, r.finished - r.started))));

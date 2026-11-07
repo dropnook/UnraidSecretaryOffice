@@ -147,9 +147,13 @@ function houseContainers(bool $fresh = false): array
  */
 function houseContainersKnown(bool $fresh = false, string $pid = HOUSE_DOCKER_PID, string $sock = HOUSE_DOCKER_SOCK): ?array
 {
-    static $cache = null, $ok = false, $at = 0, $generation = null;
+    static $cache = null, $ok = false, $at = 0, $generation = null, $unheard = null;
     $now = houseDockerGeneration($pid, $sock);
-    $fresh = $fresh || $now !== $generation;
+    // a time-out or the quiet time gave no answer and Docker was heard since: that «no answer» is over — kept, a page's
+    // look would save «off» for up to 20 s just after the quiet time ended (houseDockerHeard(); job-stale's and
+    // docker-back's follow-up, 2026-11-07)
+    $over = $unheard !== null && (float) ($GLOBALS['houseDockerAnswered'] ?? 0.0) > $unheard;
+    $fresh = $fresh || $now !== $generation || $over;
     if (!$fresh && $cache !== null && time() >= $at && time() - $at < HOUSE_CACHE) {      // a clock stepped back: looked at anew
         return $ok ? $cache : null;
     }
@@ -158,6 +162,7 @@ function houseContainersKnown(bool $fresh = false, string $pid = HOUSE_DOCKER_PI
     $generation = $now;         // read before the call: a Docker that changes during it is asked again
     [$exit, $out] = houseDocker(['ps', '-a', '--format', '{{.Names}}\t{{.Image}}\t{{.State}}']);
     $ok = $exit === 0;
+    $unheard = $exit === 124 ? hrtime(true) / 1e9 : null;
     if ($ok) {
         foreach (rows($out) as $f) {
             if (count($f) >= 3) {

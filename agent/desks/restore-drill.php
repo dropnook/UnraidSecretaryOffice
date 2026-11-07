@@ -63,6 +63,7 @@ const DRILL_BUDGET_TOTAL   = 5400;            // a whole drill: 90 min at most
 const DRILL_BUDGET_PLAY    = 1800;            // one dump played
 const DRILL_BUDGET_READY   = 180;             // a throwaway answering
 const DRILL_BUDGET_SQLITE  = 600;             // one integrity_check
+const DRILL_PULSE_EVERY = 20;     // s: a quiet command's sign of life in the drill's record (drillPulse())
 const DRILL_BUDGET_KOPIA   = 1800;            // all Kopia steps together
 const DRILL_KOPIA_MB       = 1024;            // what Kopia may download per drill (setting)
 const DRILL_KOPIA_SAMPLES  = 3;               // files sampled per share source
@@ -979,6 +980,12 @@ function drillJob(array $args): int
     $GLOBALS['rs']['data'] = drillData();
     $GLOBALS['rs']['job_file'] = drillJobFile();
     $j = drillJournal($id);
+    // a long quiet command (gzip -t, an integrity check) keeps its sign of life: drillRunStoppable() through drillPulse()
+    $GLOBALS['drillPulse'] = function () use (&$j): void {
+        if ($j) {
+            drillJournalWrite($j);
+        }
+    };
     $plan = readJson(drillDir($id) . '/plan.json');
     if (!$j || !$plan || ($j['result'] ?? '') !== 'queued') {
         fwrite(STDERR, "restore-drill $id: nothing to do\n");
@@ -1370,6 +1377,7 @@ function drillRunStoppable(array $cmd, int $timeout): array
             $ended = true;
             break;
         }
+        drillPulse();
     }
     if ($ended) {
         proc_terminate($p);
@@ -1380,6 +1388,24 @@ function drillRunStoppable(array $cmd, int $timeout): array
     fclose($pipes[2]);
     $code = proc_close($p);
     return [$ended ? 124 : $code, $out, $err];
+}
+
+/**
+ * The drill's sign of life while one command runs quietly (a silent job is said to hang after OFFICE_JOB_STALE): its record
+ * written at most every DRILL_PULSE_EVERY s, in the drill's own process only ($GLOBALS['drillPulse'], set by drillJob()).
+ * $now: the tests' clock. True when it wrote.
+ */
+function drillPulse(?float $now = null): bool
+{
+    static $last = null;
+    $pulse = $GLOBALS['drillPulse'] ?? null;
+    $now ??= hrtime(true) / 1e9;
+    if (!$pulse || ($last !== null && $now >= $last && $now - $last < DRILL_PULSE_EVERY)) {
+        return false;
+    }
+    $last = $now;
+    $pulse();
+    return true;
 }
 
 /** The end of a .gz after gzip -t — both stoppable — for a dump's closing line; null when damaged or stopped */

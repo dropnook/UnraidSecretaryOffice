@@ -439,6 +439,7 @@
   "jk.putback": "Rimesso a posto: {what}",
   "jr.queued": "si avvia",
   "jr.running": "in corso",
+  "jr.silent": "nessun segno di vita da {n} min",
   "jr.ok": "fatto",
   "jr.warnings": "fatto, con avvisi",
   "jr.failed": "fallito",

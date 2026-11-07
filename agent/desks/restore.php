@@ -4789,10 +4789,38 @@ function rsPipe(array &$j, array $cmd, ?array $filter, string $outFile): bool
     return !array_filter($codes, fn ($c) => $c !== 0) && empty($GLOBALS['rsStop']);
 }
 
-/** The end of a .gz (it reads through: gzip -t first) — for the closing line of a dump */
-function rsGzTail(string $file, int $bytes = 8192): ?string
+/**
+ * A command that may read for a long while and says nothing: the job's heartbeat goes on meanwhile (rsBeat(): a silent job
+ * is said to hang after OFFICE_JOB_STALE) and it ends when the job is asked to stop or at $timeout (exit 124)
+ */
+function rsRunBeating(array &$j, array $cmd, int $timeout): int
 {
-    if (run(['gzip', '-t', $file], 7200)[0] !== 0) {
+    $p = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/', rsEnv());
+    if (!is_resource($p)) {
+        return 127;
+    }
+    $until = hrtime(true) / 1e9 + $timeout;
+    while (true) {
+        $st = proc_get_status($p);
+        if (!$st['running']) {
+            proc_close($p);
+            return (int) $st['exitcode'];
+        }
+        if (hrtime(true) / 1e9 > $until || rsBeat($j)) {
+            proc_terminate($p);
+            usleep(100000);
+            proc_terminate($p, 9);
+            proc_close($p);
+            return 124;
+        }
+        usleep(200000);
+    }
+}
+
+/** The end of a .gz (it reads through: gzip -t first, with the heartbeat) — for the closing line of a dump */
+function rsGzTail(array &$j, string $file, int $bytes = 8192): ?string
+{
+    if (rsRunBeating($j, ['gzip', '-t', $file], 7200) !== 0) {
         return null;
     }
     $h = @gzopen($file, 'rb');
@@ -4828,7 +4856,7 @@ function rsDoDump(array &$j, array $s): array
     $ok = rsPipe($j, $cmd, $s['type'] === 'mongodb' ? null : ['gzip', '-6'], $file);
     $size = (int) @filesize($file);
     if ($ok && $s['type'] !== 'mongodb') {
-        $tail = rsGzTail($file);
+        $tail = rsGzTail($j, $file);
         $ok = $tail !== null && str_contains($tail, $s['type'] === 'postgres' ? 'PostgreSQL database cluster dump complete' : 'Dump completed');
     }
     if (!$ok || $size === 0) {

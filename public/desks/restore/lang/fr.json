@@ -439,6 +439,7 @@
   "jk.putback": "Remis en place : {what}",
   "jr.queued": "démarre",
   "jr.running": "en cours",
+  "jr.silent": "aucun signe de vie depuis {n} min",
   "jr.ok": "terminé",
   "jr.warnings": "terminé, avec avertissements",
   "jr.failed": "échoué",
