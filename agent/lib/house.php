@@ -137,7 +137,8 @@ function houseContainersKnown(bool $fresh = false, string $pid = HOUSE_DOCKER_PI
 {
     static $cache = null, $ok = false, $at = 0, $generation = null;
     $now = houseDockerGeneration($pid, $sock);
-    if (!$fresh && $cache !== null && $now === $generation && time() >= $at && time() - $at < HOUSE_CACHE) {      // a clock stepped back: looked at anew
+    $fresh = $fresh || $now !== $generation;
+    if (!$fresh && $cache !== null && time() >= $at && time() - $at < HOUSE_CACHE) {      // a clock stepped back: looked at anew
         return $ok ? $cache : null;
     }
     $cache = [];

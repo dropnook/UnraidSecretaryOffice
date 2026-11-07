@@ -25524,7 +25524,8 @@ function testDockerGeneration(): void
     same('docker generation: only the socket gone (the same pid) - asked again at once', [['one'], 7], [$names(), $calls()]);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/house.php');
     check('docker generation: the clock stepped back still looks anew, the 20 s still count',
-        str_contains($src, '$now === $generation && time() >= $at && time() - $at < HOUSE_CACHE) {      // a clock stepped back: looked at anew'));
+        str_contains($src, 'if (!$fresh && $cache !== null && time() >= $at && time() - $at < HOUSE_CACHE) {      // a clock stepped back: looked at anew')
+        && str_contains($src, '$fresh = $fresh || $now !== $generation;'));
     putenv("PATH=$path");
     unset($GLOBALS['houseDockerSilent'], $GLOBALS['houseDockerAnswered'], $GLOBALS['houseDockerLooked'], $GLOBALS['houseDockerBackLooked']);
     foreach ($keep as $k => $v) {
