@@ -131,6 +131,7 @@ desk('restore', [
     },
     'tick'    => function (): void {
         rsSharesTick();         // a share changed in Unraid (its cfg on the flash, shares.ini): his state looked at again at once
+        rsDockerBackTick();     // his look said Docker was silent and it answers again: his state looked at again at once
         rsDuTick();
         drillTick();
         rspTick();
@@ -1859,6 +1860,32 @@ function rsSharesTick(?float $now = null, ?array $h = null): ?array
         return null;
     }
     return ($h['scan'] ?? 'rsScan')();
+}
+
+/**
+ * Docker answers again after his look found it silent (B15): the page shows what he saved, and the web side asks again only
+ * once that is older than refresh_after (5 min) — his page went on saying «Docker isn't answering» that long. As Ms.
+ * Dustdevil's clDockerBackTick(): each tick one array read; only when his look said silent the house is asked
+ * (houseDockerBackLook() decides: never inside the quiet time) and, Docker answering, his look is taken anew. $back, $scan:
+ * the tests' stand-ins.
+ */
+function rsDockerBackTick(?callable $back = null, ?callable $scan = null): void
+{
+    if (($GLOBALS['rs']['state']['docker'] ?? null) !== 'silent' || !($back ?? 'houseDockerBackLook')()) {
+        return;
+    }
+    logLine('Mr. Restori: Docker answers again - his look taken anew');
+    ($scan ?? 'rsDockerBackScan')();
+}
+
+/**
+ * His look anew — with the containers' own look, not the cache: a «no answer» of the quiet time (the same Docker, up to
+ * 20 s old) would make him say «off» and his tick never look again. That `docker ps` is the one his look would ask.
+ */
+function rsDockerBackScan(): array
+{
+    houseContainersKnown(true);
+    return rsScan();
 }
 
 // ===================================================================== older packages

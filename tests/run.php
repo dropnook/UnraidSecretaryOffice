@@ -25355,7 +25355,8 @@ function testHouseDockerSilent(): void
  * After Docker was silent (B15) and is fixed: a desk's saved look said «Docker isn't answering» until the web side found it
  * older than the desk's refresh_after (5 to 10 min; parking lot 10-22). houseDockerBackLook(): never inside the quiet time,
  * nothing asked with Docker switched off (no socket), one short look at most once per quiet time (none when a call came back
- * lately); Ms. Dustdevil's tick (clDockerBackTick()) asks it only when one of her looks said silent, and takes that look anew.
+ * lately); Ms. Dustdevil's tick (clDockerBackTick()) asks it only when one of her looks said silent, and takes that look anew;
+ * Mr. Restori's and Jack Streamer's (rsDockerBackTick(), jackDockerBackTick()) the same with theirs.
  */
 function testDockerBackLook(): void
 {
@@ -25412,6 +25413,59 @@ function testDockerBackLook(): void
     $GLOBALS['where']['system']['docker']['silent'] = true;
     same('docker back (her tick): both said silent - both taken anew', ['asked', 'where', 'tidy'], $tick(true));
     [$GLOBALS['clState'], $GLOBALS['where']] = $was;
+    // Mr. Restori's tick and Jack Streamer's: only a saved look that said silent asks the house, only «answers» looks again
+    $wasRs = $GLOBALS['rs']['state'] ?? null;
+    $wasJack = $GLOBALS['jackDocker'] ?? null;
+    $ticks = [
+        'his tick, Mr. Restori' => [function (?string $docker): void { $GLOBALS['rs']['state'] = $docker === null ? [] : ['docker' => $docker]; }, 'rsDockerBackTick'],
+        'his tick, Jack Streamer' => [function (?string $docker): void { $GLOBALS['jackDocker'] = $docker; }, 'jackDockerBackTick'],
+    ];
+    foreach ($ticks as $who => [$saved, $fn]) {
+        $tick = function (?string $docker, bool $answers) use (&$ran, $saved, $fn): array {
+            $saved($docker);
+            $ran = [];
+            $fn(function () use (&$ran, $answers) { $ran[] = 'asked'; return $answers; }, function () use (&$ran) { $ran[] = 'looked'; });
+            return $ran;
+        };
+        foreach ([null, 'up', 'off'] as $docker) {
+            same("docker back ($who): his look said " . ($docker ?? 'nothing') . ' - the house not asked', [], $tick($docker, true));
+        }
+        same("docker back ($who): his look said silent, Docker still silent - asked, nothing taken anew", ['asked'], $tick('silent', false));
+        same("docker back ($who): … Docker answers - his look taken anew", ['asked', 'looked'], $tick('silent', true));
+    }
+    $GLOBALS['rs']['state'] = $wasRs;
+    $GLOBALS['jackDocker'] = $wasJack;
+    $restore = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+    $jack = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('docker back: both ticks stand in their desks\' tick (Jack Streamer\'s reads his memory, jackScan() sets it)',
+        str_contains($restore, "        rsDockerBackTick();     //") && str_contains($jack, "    'tick'    => fn () => jackDockerBackTick(),")
+        && str_contains($jack, "\$GLOBALS['jackDocker'] = \$state['docker'];"));
+    check('docker back: his look anew never from the cache - a «no answer» of the quiet time would say «off» and end the tick',
+        str_contains($restore, "    houseContainersKnown(true);\n    return rsScan();\n"));
+    // Jack Streamer's look anew: only Docker's part of what he saved, the cache's «no answer» not believed
+    $path = (string) getenv('PATH');
+    mkdir("$tmp/bin");
+    file_put_contents("$tmp/bin/docker", "#!/bin/sh\n[ -f " . escapeshellarg("$tmp/broken") . " ] && exit 1\nprintf 'Films\\tjellyfin/jellyfin\\trunning\\n'\n");
+    chmod("$tmp/bin/docker", 0755);
+    putenv("PATH=$tmp/bin:$path");
+    $reset();
+    file_put_contents("$tmp/jack.json", json_encode(['time' => 5, 'docker' => 'silent', 'emby' => [], 'cache' => ['files' => 7]]));
+    touch("$tmp/broken");
+    same('docker back (Jack Streamer): the cache holds a «no answer»', null, houseContainersKnown(true));
+    unlink("$tmp/broken");
+    $was = $GLOBALS['jackDocker'] ?? null;
+    $state = jackDockerBackLook("$tmp/jack.json");
+    same('docker back (Jack Streamer): Docker up and his media server back, what else he saved and its time as they were',
+        ['up', ['Films'], 5, ['files' => 7], 'up'],
+        [$state['docker'] ?? null, array_column($state['emby'] ?? [], 'name'), $state['time'] ?? null, $state['cache'] ?? null, $GLOBALS['jackDocker'] ?? null]);
+    same('docker back (Jack Streamer): … and that is what stands in the file', $state, readJson("$tmp/jack.json"));
+    unlink("$tmp/jack.json");
+    same('docker back (Jack Streamer): no saved state - nothing written, his tick asks no more', [null, false, null],
+        [jackDockerBackLook("$tmp/jack.json"), file_exists("$tmp/jack.json"), $GLOBALS['jackDocker'] ?? null]);
+    $GLOBALS['jackDocker'] = $was;
+    putenv("PATH=$path");
+    $reset();
+    houseContainers(true);          // the cache as the other tests find it: whatever this server's docker says
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
     check('docker back: her look says silent where Docker gave no answer (every early return of clDocker() and its end)',
         substr_count($src, "return ['silent' => houseDockerSilent()] + \$out;") === 2 && str_contains($src, "    \$out['silent'] = !\$out['ok'];\n")
@@ -25420,6 +25474,64 @@ function testDockerBackLook(): void
     foreach ($keep as $k => $v) {
         $GLOBALS[$k] = $v;
     }
+    hardeningRm($tmp);
+}
+
+/**
+ * The house's 20 s of Docker's answer serve only the Docker that answered (houseDockerGeneration(), 2026-10-26: «up» with
+ * yesterday's list for 20 s after a stop, «off» after a start): dropped when dockerd's pid file changes or goes or its
+ * socket goes, whatever the 20 s say; the clock-stepped-back rule stays. Stand-in files, never the live /var/run.
+ */
+function testDockerGeneration(): void
+{
+    $tmp = hardeningTmp('dockergen');
+    $path = (string) getenv('PATH');
+    file_put_contents("$tmp/docker", "#!/bin/sh\necho x >> " . escapeshellarg("$tmp/calls") . "\n[ -f " . escapeshellarg("$tmp/stopped") . " ] && exit 1\n"
+        . "printf 'one\\tsome/image\\trunning\\n'\n");
+    chmod("$tmp/docker", 0755);
+    $keep = array_intersect_key($GLOBALS, array_flip(['houseDockerSilent', 'houseDockerAnswered', 'houseDockerLooked', 'houseDockerBackLooked']));
+    unset($GLOBALS['houseDockerSilent'], $GLOBALS['houseDockerAnswered'], $GLOBALS['houseDockerLooked'], $GLOBALS['houseDockerBackLooked']);
+    putenv("PATH=$tmp:$path");
+    $pid = "$tmp/dockerd.pid";
+    $sock = "$tmp/docker.sock";
+    $calls = fn (): int => count(file("$tmp/calls", FILE_SKIP_EMPTY_LINES) ?: []);
+    $names = function (bool $fresh = false) use ($pid, $sock): ?array {
+        $known = houseContainersKnown($fresh, $pid, $sock);
+        return $known === null ? null : array_keys($known);
+    };
+    file_put_contents($pid, "111\n");
+    touch($sock);
+    same('docker generation: dockerd\'s pid and the socket', '111|socket', houseDockerGeneration($pid, $sock));
+    same('docker generation: a first look asks', [['one'], 1], [$names(true), $calls()]);
+    same('docker generation: within the 20 s, the same Docker - served, nothing asked', [['one'], 1], [$names(), $calls()]);
+    same('docker generation: $fresh asks whatever it is', [['one'], 2], [$names(true), $calls()]);
+    file_put_contents($pid, "222\n");
+    same('docker generation: a new pid (Docker started anew) - asked again at once', [['one'], 3], [$names(), $calls()]);
+    same('docker generation: … and served again', [['one'], 3], [$names(), $calls()]);
+    // Docker stopped: the pid file and the socket gone, one after the other as rc.docker has it
+    touch("$tmp/stopped");
+    unlink($pid);
+    same('docker generation: the pid file gone - asked at once: no answer, never yesterday\'s list', [null, 4], [$names(), $calls()]);
+    same('docker generation: … the «no answer» is served too', [null, 4], [$names(), $calls()]);
+    unlink($sock);
+    same('docker generation: nothing there', '|none', houseDockerGeneration($pid, $sock));
+    same('docker generation: the socket gone - asked again at once', [null, 5], [$names(), $calls()]);
+    unlink("$tmp/stopped");
+    touch($sock);
+    file_put_contents($pid, "333\n");
+    same('docker generation: Docker started - «off» ends at once, no 20 s', [['one'], 6], [$names(), $calls()]);
+    unlink($sock);
+    same('docker generation: only the socket gone (the same pid) - asked again at once', [['one'], 7], [$names(), $calls()]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/lib/house.php');
+    check('docker generation: the clock stepped back still looks anew, the 20 s still count',
+        str_contains($src, 'if (!$fresh && $cache !== null && time() >= $at && time() - $at < HOUSE_CACHE) {      // a clock stepped back: looked at anew')
+        && str_contains($src, '$fresh = $fresh || $now !== $generation;'));
+    putenv("PATH=$path");
+    unset($GLOBALS['houseDockerSilent'], $GLOBALS['houseDockerAnswered'], $GLOBALS['houseDockerLooked'], $GLOBALS['houseDockerBackLooked']);
+    foreach ($keep as $k => $v) {
+        $GLOBALS[$k] = $v;
+    }
+    houseContainers(true);          // the cache as the other tests find it: whatever this server's docker says
     hardeningRm($tmp);
 }
 
@@ -60933,7 +61045,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
+          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

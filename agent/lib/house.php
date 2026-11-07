@@ -14,6 +14,8 @@ const HOUSE_DOCKER_QUIET = 60;     // after one that didn't answer, nor its shor
 const HOUSE_DOCKER_LOOK  = 5;      // seconds `docker version` may take when it only looks whether Docker answers at all (houseDockerAnswers())
 const HOUSE_DOCKER_AGAIN = 15;     // while Docker is silent, a page's request looks again once so long after the last look
 const HOUSE_DOCKER_FRESH = 30;     // a longer docker call only when Docker answered within so long — else a short look first
+const HOUSE_DOCKER_PID   = '/var/run/dockerd.pid';      // Unraid's rc.docker has dockerd write it, and removes it at a stop
+const HOUSE_DOCKER_SOCK  = '/var/run/docker.sock';      // … dockerd's socket, gone with it
 
 /**
  * One finding of a check.
@@ -125,18 +127,23 @@ function houseContainers(bool $fresh = false): array
 /**
  * The containers as houseContainers() gives them — or null when `docker ps` didn't answer (Docker stopped, silent): «we
  * don't know» is never «none» (truth review P3: an app «gone», «no media server», «not in the house» with Docker off).
- * The page says `common.docker_off` / `common.docker_silent` (houseDockerSilent()).
+ * The page says `common.docker_off` / `common.docker_silent` (houseDockerSilent()). The cache serves only the Docker it
+ * asked (houseDockerGeneration()): for 20 s after a stop Mr. Restori and Jack Streamer said «up» with yesterday's list,
+ * and «off» after a start (2026-10-26). $pid, $sock: the tests' stand-ins.
  *
  * @return array<string, array{name:string, image:string, running:bool}>|null
  */
-function houseContainersKnown(bool $fresh = false): ?array
+function houseContainersKnown(bool $fresh = false, string $pid = HOUSE_DOCKER_PID, string $sock = HOUSE_DOCKER_SOCK): ?array
 {
-    static $cache = null, $ok = false, $at = 0;
+    static $cache = null, $ok = false, $at = 0, $generation = null;
+    $now = houseDockerGeneration($pid, $sock);
+    $fresh = $fresh || $now !== $generation;
     if (!$fresh && $cache !== null && time() >= $at && time() - $at < HOUSE_CACHE) {      // a clock stepped back: looked at anew
         return $ok ? $cache : null;
     }
     $cache = [];
     $at = time();
+    $generation = $now;         // read before the call: a Docker that changes during it is asked again
     [$exit, $out] = houseDocker(['ps', '-a', '--format', '{{.Names}}\t{{.Image}}\t{{.State}}']);
     $ok = $exit === 0;
     if ($ok) {
@@ -147,6 +154,16 @@ function houseContainersKnown(bool $fresh = false): ?array
         }
     }
     return $ok ? $cache : null;
+}
+
+/**
+ * Which Docker this is, without asking it: dockerd's pid and whether its socket is there — stopped, both go; started, a
+ * new pid. A small read and a stat in RAM, for every look at the cache. The stat cache would keep a gone socket «there».
+ */
+function houseDockerGeneration(string $pid = HOUSE_DOCKER_PID, string $sock = HOUSE_DOCKER_SOCK): string
+{
+    clearstatcache(true, $sock);
+    return trim((string) @file_get_contents($pid, false, null, 0, 32)) . '|' . (file_exists($sock) ? 'socket' : 'none');
 }
 
 /** Docker's state for a page: 'up', 'off' (stopped: no answer) or 'silent' (switched on, no answer in time — B15) */
@@ -300,7 +317,7 @@ function houseDockerForPage(callable $f): mixed
  * HOUSE_DOCKER_FRESH s. Docker switched off (no socket): false, nothing asked. True: it answers — the desk looks again.
  * $docker, $sock: the tests' stand-ins.
  */
-function houseDockerBackLook(string $docker = 'docker', string $sock = '/var/run/docker.sock'): bool
+function houseDockerBackLook(string $docker = 'docker', string $sock = HOUSE_DOCKER_SOCK): bool
 {
     if (!file_exists($sock) || houseDockerSilent($docker)) {
         return false;
