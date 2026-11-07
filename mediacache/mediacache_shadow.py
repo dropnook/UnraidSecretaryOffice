@@ -10,7 +10,10 @@ One dry run, the same code as `mediacache_run.py` without flags (Runner(cfg, "dr
                   at once), the clock of this run and the pool's numbers, frozen for the whole run. The PHP planner plans
                   from exactly this, so a difference can only be logic, never a look a minute later. No key on it: a token
                   stands as its hash, plex.tv's tokens in an answer as `tape:<hash>`.
-  --plan <file>   the plan in a stable form, the same shape as jackPlanDry()'s.
+  --plan <file>   the plan in a stable form, the same shape as jackPlanDry()'s (jackPlanReleaseDry()'s for --mode release).
+  --mode run|release  which real run this is the dry twin of (the office runs it right BEFORE that real run, with its environment:
+                  MEDIACACHE_NO_FILL, _KEEP_BYTES, _WATCHED_ONLY, _GIVE_BACK_FREE, _RELEASE_THEMES …). `release` plans --release's
+                  cleanup over the whole list, writing nothing (no list, no themes state).
 
 Nothing in mediacache_lib.py or mediacache_run.py is changed for this: their module-level names are stood in for inside this
 process only. `theme.mp3`'s scan is left out (it asks for every item of every library and belongs to no plan), and
@@ -29,6 +32,7 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 from pathlib import Path
 
 import mediacache_lib as lib
@@ -51,14 +55,41 @@ def token_of(req):
     return ""
 
 
+ACCOUNT_KEEP = ("id", "title", "username")      # all the plan reads of plex.tv's /api/v2/user (when it is a dict)
+
+
+def untoken(v):
+    """An answer that is no dict, as it is (the plan reads its shape), every dict in it without a key holding «token»"""
+    if isinstance(v, dict):
+        return {k: untoken(x) for k, x in v.items() if "token" not in str(k).lower()}
+    if isinstance(v, list):
+        return [untoken(x) for x in v]
+    return v
+
+
 def scrub(url, body):
-    """plex.tv's answers hold tokens: the users' become `tape:<hash>` (the plan needs to tell them apart), the account's goes."""
+    """plex.tv's answers hold tokens. The account (/api/v2/user): only what the plan reads (an allow-list, never a token). Any other
+    answer: every attribute or key with «token» in its name, in either quotes — the users' accessToken become `tape:<hash>` (the plan
+    tells them apart by it), every other one goes."""
     if not url.startswith(lib.PlexApi.PLEX_TV):
         return body
     text = body.decode("utf-8", "surrogateescape")
-    text = re.sub(r'accessToken="([^"]*)"',
-                  lambda m: f'accessToken="tape:{token_id(html.unescape(m.group(1)))}"' if m.group(1) else m.group(0), text)
-    text = re.sub(r'"(authToken|authentication_token)"(\s*):(\s*)"[^"]*"', r'"\1"\2:\3"x"', text)
+    if urllib.parse.urlsplit(url).path.endswith("/api/v2/user"):
+        try:
+            acc = json.loads(text)
+        except ValueError:
+            return b"{}"                    # the plan can't read it either: it sees the same failure, none of the bytes
+        return json.dumps({k: acc[k] for k in ACCOUNT_KEEP if k in acc} if isinstance(acc, dict) else untoken(acc)).encode("utf-8")
+
+    def attr(m):
+        name, q, val = m.group(1), m.group(2), m.group(3)
+        if not val:
+            return m.group(0)
+        if name == "accessToken":
+            return f'{name}={q}tape:{token_id(html.unescape(val))}{q}'
+        return f'{name}={q}x{q}'
+    text = re.sub(r'([A-Za-z_:][\w:.-]*[Tt][Oo][Kk][Ee][Nn][\w:.-]*)\s*=\s*(["\'])(.*?)\2', attr, text, flags=re.S)
+    text = re.sub(r'("[^"]*[Tt][Oo][Kk][Ee][Nn][^"]*"\s*:\s*)"(?:[^"\\]|\\.)*"', r'\1"x"', text)
     return text.encode("utf-8", "surrogateescape")
 
 
@@ -67,7 +98,7 @@ class Tape:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         self.fh = os.fdopen(fd, "w", encoding="utf-8")
         self.now = time.time()
-        self.add({"v": TAPE_V, "now": self.now})
+        self.add({"v": TAPE_V, "now": self.now, "py": list(sys.version_info[:2])})
 
     def add(self, rec):
         self.fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -150,6 +181,7 @@ def main():
     ap.add_argument("--tape", required=True)
     ap.add_argument("--plan", required=True)
     ap.add_argument("--logs", required=True)
+    ap.add_argument("--mode", choices=("run", "release"), default="run")
     args = ap.parse_args()
 
     lib.LOG_DIR = Path(args.logs)         # before mediacache_run: its import opens the log
@@ -215,8 +247,18 @@ def main():
     class Runner(run.Runner):
         def __init__(self, cfg):
             super().__init__(cfg, "dry")
+            # --release keeps the themes unless MEDIACACHE_RELEASE_THEMES (Runner.__init__ asks mode == "release")
+            if args.mode == "release":
+                self.keep_themes = self.themes.on and not run.RELEASE_THEMES
             self.themes.on = False        # no scan of every library; keep_themes (the cleanup) stays what the run has
             self.progress = Dropped(self.progress)
+
+        def write_list(self, paths):      # a dry twin writes nothing: --release's own write
+            grabbed["list"] = sorted(paths)
+
+        def release(self, sessions, sessions_ok):
+            self.themes.off = lambda: None      # … nor the themes state
+            return super().release(sessions, sessions_ok)
 
         def cleanup(self, loc, current, sessions, protected):
             grabbed["protected"] = protected
@@ -254,8 +296,13 @@ def main():
             """What the incomplete plan's branch keeps protected: the same expression as Runner._execute()."""
             return {p for p in lib.read_exclude() if Path(p).exists()}
 
-        runner._execute()
-        doc = plan_doc(run, cfg, runner, grabbed, sessions, planned_protected)
+        if args.mode == "release":
+            s, ok = run.collect_sessions(cfg, log)
+            runner.release(s, ok)
+            doc = release_doc(runner, grabbed, sessions)
+        else:
+            runner._execute()
+            doc = plan_doc(run, cfg, runner, grabbed, sessions, planned_protected)
     except Exception as e:  # noqa: BLE001 – Python's own end of the run: only that it ended this way counts
         log.exception(f"shadow: {e}")
         doc = {"outcome": "crash", "tape": TAPE_V, "detail": type(e).__name__}
@@ -277,11 +324,13 @@ def plan_doc(run, cfg, runner, grabbed, sessions, planned_protected):
     files = grabbed["order"]
     loc = run.Locations(cfg, cfg["instances"][0]["_mappings"])
     incomplete = bool(p.errors or not sessions["ok"])
-    planned = [str(f.rel) for f in files if not f.on_cache and str(f.rel) not in set(grabbed["dropped"])]
+    # MEDIACACHE_NO_FILL (the joint run's first step): nothing is fetched, what lies on the array only counted as waiting
+    planned = [] if run.NO_FILL else [str(f.rel) for f in files if not f.on_cache and str(f.rel) not in set(grabbed["dropped"])]
     kept = [f for f in files if f.on_cache]
     return {
         "outcome": "ok",
         "tape": TAPE_V,
+        "mode": "run",
         "incomplete": incomplete,
         "errors": p.errors,
         "sessions": sessions,
@@ -298,6 +347,20 @@ def plan_doc(run, cfg, runner, grabbed, sessions, planned_protected):
         "protected": sorted(planned_protected(loc) if incomplete else grabbed["protected"]),
         "fill": {"rels": planned, "dropped": grabbed["dropped"], "bytes": runner.to_cache, "waiting": runner.waiting, "waiting_bytes": runner.waiting_bytes},
         "sim_delta": runner.sim_delta,
+    }
+
+
+def release_doc(runner, grabbed, sessions):
+    """--release's decisions (Runner.release()): the cleanup over the whole list, what stays protected"""
+    return {
+        "outcome": "ok",
+        "tape": TAPE_V,
+        "mode": "release",
+        "incomplete": not sessions["ok"],
+        "sessions": sessions,
+        "cleanup": {"paths": grabbed["cleanup"], "bytes": runner.to_array},
+        "protected": sorted(grabbed["protected"]),
+        "keep_themes": runner.keep_themes,
     }
 
 
