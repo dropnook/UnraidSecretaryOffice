@@ -18,9 +18,10 @@ declare(strict_types=1);
  * Python's traceback would (JackPlanCrash, outcome «crash»); only what Python raises as RuntimeError counts as a server's error
  * (JackPlanApiError, planner errors, «incomplete»).
  *
- * Paths are bytes here and str in Python; order is the same (UTF-8's byte order is the code points' order). A byte that is no
- * UTF-8 is written as \xNN in the plan on both sides (jackPlanClean()). Names: person_key() needs NFKD and casefold; PHP here
- * has no intl, so jack-plan-names.txt holds Python's table (tools note at jpPersonKey()).
+ * Paths are bytes here and str in Python. Order: UTF-8's byte order is the code points' order; a byte that is no UTF-8 is, as in
+ * Python's surrogateescape, U+DC80+byte (jpCmp()). Such a byte is written as \xNN in the plan on both sides (jackPlanClean()). Names:
+ * person_key() needs NFKD, casefold and lower(); PHP here has no intl, and mbstring's Unicode is newer than Python's: jack-plan-names.txt
+ * holds the tables of the Python the comparison runs against (tests/shadow/gen-names.py; tools note at jpPersonKey()).
  */
 
 const JACK_PLAN_SOURCE = '7.4.0 (2026-10-15)';      // the MediaCache this was ported from
@@ -54,7 +55,7 @@ final class JackPlanConfigError extends RuntimeException
 interface JackPlanHost
 {
     /** The body of an answer; JackPlanApiError for an HTTP error or no answer. $plain headers go along redirects, $key only to its own host */
-    public function fetch(string $url, array $plain, array $key, string $token, int $timeout): string;
+    public function fetch(string $url, array $plain, array $key, string $token, mixed $timeout): string;
 
     public function now(): float;
 
@@ -122,9 +123,43 @@ function jpStr(mixed $v): string
         $v === true => 'True',
         $v === false => 'False',
         is_int($v) => (string) $v,
-        is_float($v) => is_finite($v) ? (floor($v) === $v && abs($v) < 1e16 ? sprintf('%.1f', $v) : (string) json_encode($v)) : (is_nan($v) ? 'nan' : ($v > 0 ? 'inf' : '-inf')),
+        is_float($v) => jpFloatRepr($v),
         default => jpRepr($v),
     };
+}
+
+/** repr() of a float: the shortest digits; fixed from 1e-4 up to 1e16, else «1e-05», «1.5e+16» */
+function jpFloatRepr(float $v): string
+{
+    if (is_nan($v)) {
+        return 'nan';
+    }
+    if (is_infinite($v)) {
+        return $v > 0 ? 'inf' : '-inf';
+    }
+    if ($v === 0.0) {
+        return fdiv(1.0, $v) < 0 ? '-0.0' : '0.0';
+    }
+    $r = var_export($v, true);       // the shortest round trip: «1.0E-5», «0.1», «1.0E+25», «100.0»
+    if (!preg_match('/^(-?)(\d+)(?:\.(\d+))?(?:E([+-]\d+))?$/D', $r, $m)) {
+        return $r;
+    }
+    $digits = $m[2] . ($m[3] ?? '');
+    $point = strlen($m[2]) + (int) ($m[4] ?? 0);
+    $lead = strlen($digits) - strlen(ltrim($digits, '0'));
+    $digits = rtrim(substr($digits, $lead), '0');
+    $point -= $lead;
+    $exp = $point - 1;
+    if ($exp < -4 || $exp >= 16) {
+        $mant = $digits[0] . (strlen($digits) > 1 ? '.' . substr($digits, 1) : '');
+        return $m[1] . $mant . 'e' . ($exp < 0 ? '-' : '+') . sprintf('%02d', abs($exp));
+    }
+    if ($point <= 0) {
+        return $m[1] . '0.' . str_repeat('0', -$point) . $digits;
+    }
+    $int = substr(str_pad($digits, $point, '0'), 0, $point);
+    $frac = (string) substr($digits, $point);
+    return $m[1] . $int . '.' . ($frac === '' ? '0' : $frac);
 }
 
 /** a == b */
@@ -235,8 +270,11 @@ function jpInt(mixed $v): int
         return (int) $v;
     }
     if (is_float($v)) {
-        if (!is_finite($v)) {
-            jpCrash('int() of ' . (is_nan($v) ? 'nan' : 'inf'));
+        if (is_nan($v)) {
+            throw new ValueError('int() of nan');            // Python: ValueError (a size «nanG» is a ConfigError)
+        }
+        if (is_infinite($v)) {
+            jpCrash('int() of inf');                         // Python: OverflowError, caught nowhere
         }
         return (int) $v;
     }
@@ -364,11 +402,51 @@ function jpName(string $rel): string
     return $p === false ? $rel : substr($rel, $p + 1);
 }
 
-/** Path.stem */
+/** Path.stem of the Python the plan follows: «foo.» is «foo.» up to 3.13, «foo» from 3.14 (jackPlanPython()) */
 function jpStem(string $name): string
 {
     $i = strrpos($name, '.');
-    return $i !== false && $i > 0 && $i < strlen($name) - 1 ? substr($name, 0, $i) : $name;
+    $last = jackPlanPython() >= [3, 14] ? strlen($name) : strlen($name) - 1;
+    return $i !== false && $i > 0 && $i < $last ? substr($name, 0, $i) : $name;
+}
+
+/** Which Python's rules: the one that wrote the tape (its header), else 3.11 (Tower's, the one this was ported from) */
+function jackPlanPython(?array $set = null): array
+{
+    static $py = [3, 11];
+    if ($set !== null) {
+        $py = array_map('intval', array_slice($set, 0, 2));
+    }
+    return $py;
+}
+
+const JACK_PLAN_UTF8_RUN = '/(?:[\x00-\x7f]|[\xc2-\xdf][\x80-\xbf]|\xe0[\xa0-\xbf][\x80-\xbf]|[\xe1-\xec\xee\xef][\x80-\xbf]{2}|\xed[\x80-\x9f][\x80-\xbf]|\xf0[\x90-\xbf][\x80-\xbf]{2}|[\xf1-\xf3][\x80-\xbf]{3}|\xf4[\x80-\x8f][\x80-\xbf]{2})+|(.)/s';
+
+/** Python's order of two texts: code points; a byte that is no UTF-8 is U+DC80+byte (surrogateescape) */
+function jpCmp(string $a, string $b): int
+{
+    if (mb_check_encoding($a, 'UTF-8') && mb_check_encoding($b, 'UTF-8')) {
+        return strcmp($a, $b) <=> 0;
+    }
+    return strcmp(jpSortKey($a), jpSortKey($b)) <=> 0;
+}
+
+/** A text's code points, four bytes each (their order is the bytes' order) */
+function jpSortKey(string $s): string
+{
+    preg_match_all(JACK_PLAN_UTF8_RUN, $s, $m, PREG_SET_ORDER);
+    $out = '';
+    foreach ($m as $x) {
+        $out .= isset($x[1]) ? pack('N', 0xDC00 + ord($x[1])) : (string) mb_convert_encoding($x[0], 'UTF-32BE', 'UTF-8');
+    }
+    return $out;
+}
+
+/** sorted() of texts */
+function jpSorted(array $list): array
+{
+    usort($list, 'jpCmp');
+    return $list;
 }
 
 /** Sorted as a list of Paths: part by part, so «a/c» comes before «a b/c» */
@@ -381,7 +459,7 @@ function jpSortPaths(array $paths): array
             if (!isset($pb[$i])) {
                 return 1;
             }
-            if (($c = strcmp($x, $pb[$i])) !== 0) {
+            if (($c = jpCmp($x, $pb[$i])) !== 0) {
                 return $c;
             }
         }
@@ -395,7 +473,10 @@ function jpSortPaths(array $paths): array
 /**
  * person_key(): the same name ignoring case, spaces and accents. NFKD without intl: jack-plan-names.txt, made from Python's own
  * unicodedata (one line per character whose NFKD is another: «hex,hex hex …»; then `#combining`, ranges of hex with a
- * non-zero combining class). Hangul's syllables by their rule. Casefold: mbstring's.
+ * non-zero combining class; `#casefold` and `#lower`, the characters str.casefold()/str.lower() change). Hangul's syllables by their
+ * rule. The table is that of the Python the comparison runs against (now Tower's 3.11, Unicode 14.0; its first line says which). WHEN
+ * PYTHON IS GONE: keep the table (PHP then decides alone — the same people as before) or switch to mbstring's MB_CASE_FOLD and
+ * mb_strtolower (a newer Unicode: about 30 rare letters fold otherwise); never regenerate it from another Python while both run.
  */
 function jpPersonKey(mixed $name): string
 {
@@ -425,34 +506,54 @@ function jpPersonKey(mixed $name): string
         }
         $kept .= $c;
     }
-    return 'p:' . mb_convert_case($kept, MB_CASE_FOLD, 'UTF-8');
+    return 'p:' . jpCaseMap($kept, 2);
 }
 
-/** @return array{array<int, string>, array<int, true>} */
+/** str.casefold() ($which 2) or str.lower() (3, without Final_Sigma's Σ → ς at a word's end) by Python's table */
+function jpCaseMap(string $s, int $which): string
+{
+    if (preg_match('/^[\x00-\x7f]*$/D', $s)) {
+        return strtolower($s);
+    }
+    $map = jpNamesTable()[$which];
+    $out = '';
+    foreach ((array) mb_str_split(mb_scrub($s, 'UTF-8'), 1, 'UTF-8') as $c) {
+        $out .= $map[mb_ord($c, 'UTF-8')] ?? $c;
+    }
+    return $out;
+}
+
+/** str.lower() */
+function jpLower(string $s): string
+{
+    return jpCaseMap($s, 3);
+}
+
+/** @return array{array<int, string>, array<int, true>, array<int, string>, array<int, string>} NFKD, combining, casefold, lower */
 function jpNamesTable(): array
 {
     static $table = null;
     if ($table !== null) {
         return $table;
     }
-    $map = $marks = [];
-    $inMarks = false;
+    $t = [[], [], [], []];
+    $part = 0;
     foreach (@file(__DIR__ . '/jack-plan-names.txt', FILE_IGNORE_NEW_LINES) ?: [] as $line) {
-        if ($line === '#combining') {
-            $inMarks = true;
+        if (str_starts_with($line, '#')) {
+            $part = ['#combining' => 1, '#casefold' => 2, '#lower' => 3][$line] ?? $part;
             continue;
         }
-        if ($inMarks) {
+        if ($part === 1) {
             [$a, $b] = explode('-', $line . '-' . $line);
             for ($c = (int) hexdec($a), $e = (int) hexdec($b); $c <= $e; $c++) {
-                $marks[$c] = true;
+                $t[1][$c] = true;
             }
             continue;
         }
         [$from, $to] = explode(',', $line);
-        $map[(int) hexdec($from)] = implode('', array_map(fn (string $h): string => (string) mb_chr((int) hexdec($h), 'UTF-8'), explode(' ', $to)));
+        $t[$part][(int) hexdec($from)] = implode('', array_map(fn (string $h): string => (string) mb_chr((int) hexdec($h), 'UTF-8'), explode(' ', $to)));
     }
-    return $table = [$map, $marks];
+    return $table = $t;
 }
 
 // ===================================================================== the settings (load_config())
@@ -534,7 +635,7 @@ function jackPlanConfig(string $file, array $env, bool $requirePaths = true): ar
         $cfg['rsync_args'] = (array) preg_split('/\s+/', trim($env['MEDIACACHE_RSYNC_ARGS']), -1, PREG_SPLIT_NO_EMPTY);
     }
     if ($has('MEDIACACHE_FILL_TOOL')) {
-        $cfg['fill_tool'] = mb_strtolower($env['MEDIACACHE_FILL_TOOL'], 'UTF-8');
+        $cfg['fill_tool'] = jpLower($env['MEDIACACHE_FILL_TOOL']);
     }
     foreach (['cache_path', 'array_path', 'user_path'] as $key) {
         $cfg[$key] = rtrim(jpStr($cfg[$key]), '/') ?: '/';
@@ -571,11 +672,11 @@ function jackPlanConfig(string $file, array $env, bool $requirePaths = true): ar
             jpCrash('an instance is no dict');
         }
         $inst = get_object_vars($one);
-        $inst['url'] = rtrim(jpStr($inst['url'] ?? ''), '/');
+        $inst['url'] = rtrim(jpStr(array_key_exists('url', $inst) ? $inst['url'] : ''), '/');
         if (!array_key_exists('servername', $inst)) {
             $inst['servername'] = 'Server' . ($i + 1);
         }
-        $inst['type'] = mb_strtolower(jpStr(jpOr($inst['type'] ?? null, 'emby')), 'UTF-8');
+        $inst['type'] = jpLower(jpStr(jpOr($inst['type'] ?? null, 'emby')));
         if (!in_array($inst['type'], JACK_PLAN_TYPES, true)) {
             throw new JackPlanConfigError('bad type');
         }
@@ -602,7 +703,7 @@ function jackPlanConfig(string $file, array $env, bool $requirePaths = true): ar
                 $skip[] = rtrim($k, '/');
             }
         }
-        sort($skip, SORT_STRING);
+        $skip = jpSorted($skip);
         $inst['_mappings'] = array_values($maps);
         $inst['_skip'] = $skip;
         if (!$inst['_mappings']) {
@@ -621,7 +722,7 @@ function jackPlanConfig(string $file, array $env, bool $requirePaths = true): ar
         throw new JackPlanConfigError('fill_tool');
     }
     if ($has('MEDIACACHE_CLEANUP_TOOL')) {
-        $cfg['cleanup_tool'] = mb_strtolower($env['MEDIACACHE_CLEANUP_TOOL'], 'UTF-8');
+        $cfg['cleanup_tool'] = jpLower($env['MEDIACACHE_CLEANUP_TOOL']);
     }
     if (!in_array($cfg['cleanup_tool'], ['rsync', 'mover'], true)) {
         throw new JackPlanConfigError('cleanup_tool');
@@ -696,6 +797,28 @@ function jackPlanQuery(array $params): string
     return implode('&', $out);
 }
 
+/** urllib's Request(): a URL without a scheme is Python's ValueError (a traceback, before anything is asked) */
+function jackPlanUrlOk(string $url): string
+{
+    if (!preg_match('#^[^/:]+:#', $url)) {
+        jpCrash('unknown url type');
+    }
+    return $url;
+}
+
+/** api_timeout as socket.settimeout() takes it: a number ≥ 0, or null (none: here a day); anything else a traceback at the first
+ * request (JackPlanLive; from a tape the request's own record says so) */
+function jackPlanTimeout(mixed $t): float
+{
+    if ($t === null) {
+        return 86400.0;
+    }
+    if (!(is_int($t) || is_float($t) || is_bool($t)) || $t < 0 || is_nan((float) $t)) {
+        jpCrash('settimeout() of ' . gettype($t));
+    }
+    return (float) $t;
+}
+
 /** The hash a token stands as on the tape (mediacache_shadow.py: token_id()); a `tape:<hash>` from an answer on the tape is that hash */
 function jackPlanTokenId(string $token): string
 {
@@ -711,12 +834,12 @@ class JackPlanServer
 
     public bool $usersIncomplete = false;
 
-    public function __construct(string $url, protected string $apiKey, protected int $timeout, protected string $type, protected JackPlanHost $host)
+    public function __construct(string $url, protected string $apiKey, protected mixed $timeout, protected string $type, protected JackPlanHost $host)
     {
         $this->url = rtrim($url, '/');
     }
 
-    public static function forInstance(array $inst, int $timeout, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV): self
+    public static function forInstance(array $inst, mixed $timeout, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV): self
     {
         if ($inst['type'] === 'plex') {
             return new JackPlanPlex($inst['url'], jpStr($inst['api_key']), $timeout, (int) $inst['days_to_monitor'], $host, $plexTv);
@@ -728,7 +851,7 @@ class JackPlanServer
     {
         $query = jackPlanQuery($params);
         $key = $this->type === 'jellyfin' ? ['Authorization' => "MediaBrowser Token=\"$this->apiKey\""] : ['X-Emby-Token' => $this->apiKey];
-        $body = $this->host->fetch($this->url . $path . ($query !== '' ? "?$query" : ''), ['Accept' => 'application/json'], $key, $this->apiKey, $this->timeout);
+        $body = $this->host->fetch(jackPlanUrlOk($this->url . $path . ($query !== '' ? "?$query" : '')), ['Accept' => 'application/json'], $key, $this->apiKey, $this->timeout);
         try {
             return jpJson($body);
         } catch (ValueError $e) {
@@ -803,7 +926,7 @@ final class JackPlanPlex extends JackPlanServer
 
     private array $names = [];
 
-    public function __construct(string $url, string $apiKey, int $timeout, private int $days, JackPlanHost $host, private string $plexTv)
+    public function __construct(string $url, string $apiKey, mixed $timeout, private int $days, JackPlanHost $host, private string $plexTv)
     {
         parent::__construct($url, $apiKey, $timeout, 'plex', $host);
     }
@@ -811,7 +934,7 @@ final class JackPlanPlex extends JackPlanServer
     private function request(string $full, string $token, bool $json = true): mixed
     {
         $plain = ['X-Plex-Client-Identifier' => 'mediacache', 'X-Plex-Product' => 'MediaCache'] + ($json ? ['Accept' => 'application/json'] : []);
-        $body = $this->host->fetch($full, $plain, ['X-Plex-Token' => $token], $token, $this->timeout);
+        $body = $this->host->fetch(jackPlanUrlOk($full), $plain, ['X-Plex-Token' => $token], $token, $this->timeout);
         if (!mb_check_encoding($body, 'UTF-8')) {
             jpCrash('no UTF-8');                       // .decode() outside its except: Python's traceback
         }
@@ -1041,18 +1164,21 @@ final class JackPlanLive implements JackPlanHost
     {
     }
 
-    public function fetch(string $url, array $plain, array $key, string $token, int $timeout): string
+    public function fetch(string $url, array $plain, array $key, string $token, mixed $timeout): string
     {
         $this->asked++;
         try {
-            return $this->go($url, $plain, $key, $timeout);
+            if (!in_array(strtolower((string) parse_url($url, PHP_URL_SCHEME)), ['http', 'https'], true)) {
+                throw new JackPlanApiError('unknown url type');       // urllib's URLError (it would try ftp: never here)
+            }
+            return $this->go($url, $plain, $key, jackPlanTimeout($timeout));
         } catch (JackPlanApiError $e) {
             $this->failed++;
             throw $e;
         }
     }
 
-    private function go(string $url, array $plain, array $key, int $timeout): string
+    private function go(string $url, array $plain, array $key, float $timeout): string
     {
         $visited = [];
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
@@ -1151,6 +1277,9 @@ final class JackPlanTape implements JackPlanHost
 
     public int $asked = 0;
 
+    /** @var array{int, int} the Python that wrote it (its rules: jpStem()) */
+    public array $python = [3, 11];
+
     public static function read(string $file): ?self
     {
         $fh = @fopen($file, 'r');
@@ -1171,6 +1300,9 @@ final class JackPlanTape implements JackPlanHost
                     return null;
                 }
                 $t->clock = (float) $r['now'];
+                if (is_array($r['py'] ?? null) && count($r['py']) === 2) {
+                    $t->python = [(int) $r['py'][0], (int) $r['py'][1]];
+                }
                 $first = false;
             } elseif (isset($r['pool'])) {
                 $t->pool['p' . $r['pool']] = $r;
@@ -1182,7 +1314,7 @@ final class JackPlanTape implements JackPlanHost
         return $first ? null : $t;
     }
 
-    public function fetch(string $url, array $plain, array $key, string $token, int $timeout): string
+    public function fetch(string $url, array $plain, array $key, string $token, mixed $timeout): string
     {
         $this->asked++;
         $id = jackPlanTokenId($token) . " $url";
@@ -1327,7 +1459,10 @@ function jackPlanShareMode(array $cfg, string $share): array
         }
         return $vals;
     };
-    $dir = jpNorm((string) $cfg['shares_cfg_dir']);
+    if (!is_string($cfg['shares_cfg_dir'])) {
+        jpCrash('Path() of no text');
+    }
+    $dir = jpNorm($cfg['shares_cfg_dir']);
     $vals = $read(jpJoin($dir, "$share.cfg"));
     if (!$vals || !array_key_exists('shareUseCache', $vals)) {
         $defaults = $read(jpJoin(jpParent($dir) === '' ? '.' : jpParent($dir), 'share.cfg'));
@@ -1336,7 +1471,7 @@ function jackPlanShareMode(array $cfg, string $share): array
         }
         $vals = $defaults;
     }
-    $mode = mb_strtolower($vals['shareUseCache'], 'UTF-8');
+    $mode = jpLower($vals['shareUseCache']);
     return [$mode === '' ? null : $mode, ($vals['shareCachePool'] ?? '') !== '' ? $vals['shareCachePool'] : 'cache'];
 }
 
@@ -1888,7 +2023,7 @@ final class JackPlanner
     /** plan_instance() */
     private function planInstance(array $inst, array $uids): void
     {
-        $api = JackPlanServer::forInstance($inst, jpInt($this->cfg['api_timeout']), $this->host, $this->plexTv);
+        $api = JackPlanServer::forInstance($inst, $this->cfg['api_timeout'], $this->host, $this->plexTv);
         $loc = new JackPlanLocations($this->cfg, $inst['_mappings'], $inst['_skip']);
         $name = $inst['servername'];
         if (!$uids) {
@@ -2041,7 +2176,7 @@ final class JackPlanner
             if ($wanted) {
                 $known = [];
                 try {
-                    $api = JackPlanServer::forInstance($inst, jpInt($this->cfg['api_timeout']), $this->host, $this->plexTv);
+                    $api = JackPlanServer::forInstance($inst, $this->cfg['api_timeout'], $this->host, $this->plexTv);
                     foreach ($api->users() as $u) {
                         $id = self::userId($u);
                         $known[jpKey($id)] = jpGet($u, 'Name', $id);
@@ -2147,7 +2282,7 @@ final class JackPlanner
             foreach ($lists as $l) {
                 if (isset($l[$r])) {
                     $fs = $l[$r]->files;
-                    usort($fs, fn (JackPlanFile $a, JackPlanFile $b): int => strcmp($a->rel, $b->rel));
+                    usort($fs, fn (JackPlanFile $a, JackPlanFile $b): int => jpCmp($a->rel, $b->rel));
                     foreach ($fs as $f) {
                         $canon = $this->files["f$f->rel"] ?? null;
                         if ($canon !== null && !isset($placed[spl_object_id($canon)])) {
@@ -2177,10 +2312,10 @@ final class JackPlanner
             if (!is_string($n)) {
                 jpCrash('.lower() of no text');
             }
-            return mb_strtolower($n, 'UTF-8');
+            return jpLower($n);
         };
         $keys = array_map('strval', array_keys($f->ranks));
-        usort($keys, fn (string $a, string $b): int => [$f->ranks[$a], $lower($a)] <=> [$f->ranks[$b], $lower($b)]);
+        usort($keys, fn (string $a, string $b): int => ($f->ranks[$a] <=> $f->ranks[$b]) ?: jpCmp($lower($a), $lower($b)));
         return implode(', ', array_map(fn (string $k): string => jpStr($name($k)), $keys));
     }
 }
@@ -2212,14 +2347,14 @@ function jackPlanGiveBackOrder(array $kept): array
         }
         $last = '';
         foreach ($fs as $f) {
-            $last = strcmp($f->rel, $last) > 0 ? $f->rel : $last;
+            $last = jpCmp($f->rel, $last) > 0 ? $f->rel : $last;
         }
         $byAhead[$ranks ? min($ranks) : 0][] = [$last, $fs, $ranks];
     }
     krsort($byAhead);
     $out = [];
     foreach ($byAhead as $ahead => $pending) {
-        usort($pending, fn (array $a, array $b): int => strcmp($b[0], $a[0]));     // stable, as sorted(reverse=True)
+        usort($pending, fn (array $a, array $b): int => jpCmp($b[0], $a[0]));     // stable, as sorted(reverse=True)
         while ($pending) {
             $best = 0;
             $bestHas = -INF;
@@ -2238,7 +2373,7 @@ function jackPlanGiveBackOrder(array $kept): array
                 }
             }
             $fs = array_splice($pending, $best, 1)[0][1];
-            usort($fs, fn (JackPlanFile $a, JackPlanFile $b): int => strcmp($b->rel, $a->rel));
+            usort($fs, fn (JackPlanFile $a, JackPlanFile $b): int => jpCmp($b->rel, $a->rel));
             foreach ($fs as $f) {
                 $out[] = $f;
                 foreach ($f->ranks as $k => $a) {
@@ -2271,21 +2406,16 @@ function jackPlanReadList(string $file): array
 }
 
 /**
- * Runner's dry run, every decision of it, in the shape of mediacache_shadow.py's plan: nothing moves, nothing is written. Order as
- * Runner._execute(): sessions, the plan, what goes back by rank (give_back()), the cleanup, the fill with the free space simulated.
- * «incomplete» (a server that can't be asked): no cleanup, the old list protected, never «nothing watched».
+ * collect_sessions(): what plays right now — [rels «r<rel>» => rel, names (basename => n), ok]; a server that doesn't answer: not ok
  *
- * @param array<string, string> $env what Python would find in its environment
+ * @return array{array<string, string>, array<int|string, int>, bool}
  */
-function jackPlanDry(array $cfg, array $env, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV): array
+function jackPlanSessions(array $cfg, JackPlanHost $host, string $plexTv): array
 {
-    clearstatcache(true);
-    $listFile = jpJoin(($env['MEDIACACHE_DIR'] ?? '') ?: '.', 'mediacache_exclude.txt');
-    // collect_sessions(): what plays right now is never touched
     $rels = $names = [];
     $sessionsOk = true;
     foreach ($cfg['instances'] as $inst) {
-        $api = JackPlanServer::forInstance($inst, jpInt($cfg['api_timeout']), $host, $plexTv);
+        $api = JackPlanServer::forInstance($inst, $cfg['api_timeout'], $host, $plexTv);
         $loc = new JackPlanLocations($cfg, $inst['_mappings'], $inst['_skip']);
         try {
             $sessions = $api->sessions();
@@ -2309,7 +2439,75 @@ function jackPlanDry(array $cfg, array $env, JackPlanHost $host, string $plexTv 
             jpGet($s, 'UserName', '?');
         }
     }
-    $names = array_flip(array_map('strval', array_values($names)));
+    return [$rels, array_flip(array_map('strval', array_values($names))), $sessionsOk];
+}
+
+/**
+ * cleanup(): the entries of his list nobody wants any more (not in $current), what goes back first by $backRank, then by path; what
+ * plays, a kept theme.mp3 and a share the move binary can't give back stay protected. [cache paths, bytes, protected «p<entry>» => entry]
+ */
+function jackPlanCleanup(array $cfg, JackPlanLocations $loc, array $list, array $current, array $backRank, callable $playing, bool $keepThemes): array
+{
+    $protected = $cleanup = [];
+    $toArray = 0;
+    usort($list, function (string $a, string $b) use ($backRank): int {
+        return [isset($backRank["c$a"]), $backRank["c$a"] ?? 0] <=> [isset($backRank["c$b"]), $backRank["c$b"] ?? 0] ?: jpCmp($a, $b);
+    });
+    $checked = [];
+    foreach ($list as $p) {
+        if (isset($current["c$p"])) {
+            continue;
+        }
+        $path = jpNorm($p);
+        if (!file_exists($path)) {
+            continue;
+        }
+        if ($keepThemes && jpName($path) === JACK_PLAN_THEME) {
+            $protected["p$p"] = $p;
+            continue;
+        }
+        $rel = jpRelative($p, $loc->cache);
+        if ($rel === null) {
+            continue;
+        }
+        if ($playing($rel)) {
+            $protected["p$p"] = $p;
+            continue;
+        }
+        if ($rel === '') {
+            jpCrash('rel.parts[0] of the pool itself');
+        }
+        $share = explode('/', $rel)[0];
+        if (!array_key_exists("s$share", $checked)) {            // share_mode_ok()
+            $checked["s$share"] = $cfg['cleanup_tool'] === 'rsync' || in_array(jackPlanShareMode($cfg, $share)[0], ['yes', null, 'no'], true);
+        }
+        if (!$checked["s$share"]) {
+            $protected["p$p"] = $p;
+            continue;
+        }
+        $size = @filesize($path);
+        if ($size === false) {
+            continue;
+        }
+        $toArray += $size;
+        $cleanup[] = jpJoin($loc->cache, $rel);
+    }
+    return [$cleanup, $toArray, $protected];
+}
+
+/**
+ * Runner's dry run, every decision of it, in the shape of mediacache_shadow.py's plan: nothing moves, nothing is written. Order as
+ * Runner._execute(): sessions, the plan, what goes back by rank (give_back()), the cleanup, the fill with the free space simulated.
+ * «incomplete» (a server that can't be asked): no cleanup, the old list protected, never «nothing watched».
+ *
+ * @param array<string, string> $env what Python would find in its environment
+ */
+function jackPlanDry(array $cfg, array $env, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV): array
+{
+    clearstatcache(true);
+    $listFile = jpJoin(($env['MEDIACACHE_DIR'] ?? '') ?: '.', 'mediacache_exclude.txt');
+    // collect_sessions(): what plays right now is never touched
+    [$rels, $names, $sessionsOk] = jackPlanSessions($cfg, $host, $plexTv);
     $playing = fn (string $rel): bool => isset($rels["r$rel"]) || isset($names[jpName($rel)]);
 
     $planner = new JackPlanner($cfg, $host, $plexTv);
@@ -2403,57 +2601,24 @@ function jackPlanDry(array $cfg, array $env, JackPlanHost $host, string $plexTv 
             }
         }
     } else {
-        usort($list, function (string $a, string $b) use ($backRank): int {
-            return [isset($backRank["c$a"]), $backRank["c$a"] ?? 0] <=> [isset($backRank["c$b"]), $backRank["c$b"] ?? 0] ?: strcmp($a, $b);
-        });
-        $checked = [];
-        foreach ($list as $p) {
-            if (isset($current["c$p"])) {
-                continue;
-            }
-            $path = jpNorm($p);
-            if (!file_exists($path)) {
-                continue;
-            }
-            if ($themes && jpName($path) === JACK_PLAN_THEME) {
-                $protected["p$p"] = $p;
-                continue;
-            }
-            $rel = jpRelative($p, $loc->cache);
-            if ($rel === null) {
-                continue;
-            }
-            if ($playing($rel)) {
-                $protected["p$p"] = $p;
-                continue;
-            }
-            if ($rel === '') {
-                jpCrash('rel.parts[0] of the pool itself');
-            }
-            $share = explode('/', $rel)[0];
-            if (!array_key_exists("s$share", $checked)) {            // share_mode_ok()
-                $checked["s$share"] = $cfg['cleanup_tool'] === 'rsync' || in_array(jackPlanShareMode($cfg, $share)[0], ['yes', null, 'no'], true);
-            }
-            if (!$checked["s$share"]) {
-                $protected["p$p"] = $p;
-                continue;
-            }
-            $size = @filesize($path);
-            if ($size === false) {
-                continue;
-            }
-            $toArray += $size;
-            $cleanup[] = jpJoin($loc->cache, $rel);
-        }
+        [$cleanup, $toArray, $protected] = jackPlanCleanup($cfg, $loc, $list, $current, $backRank, $playing, $themes);
         if ($cleanup) {
             $simDelta += $toArray;
         }
     }
 
-    // the fill: what is still on the array comes to the pool, in the order of the plan, as long as the free space lasts
+    // the fill: what is still on the array comes to the pool, in the order of the plan, as long as the free space lasts;
+    // MEDIACACHE_NO_FILL (the joint run's first step): nothing fetched, what lies on the array only counted as waiting
     $roots = $fill = $dropped = [];
     $toCache = $waiting = $waitingBytes = 0;
-    foreach ($files as $f) {
+    $noFill = ($env['MEDIACACHE_NO_FILL'] ?? '') === '1';
+    foreach ($noFill ? $files : [] as $f) {
+        if (!file_exists($loc->onCache($f->rel))) {
+            $waiting++;
+            $waitingBytes += $f->size;
+        }
+    }
+    foreach ($noFill ? [] : $files as $f) {
         if ($f->onCache) {
             continue;
         }
@@ -2485,7 +2650,7 @@ function jackPlanDry(array $cfg, array $env, JackPlanHost $host, string $plexTv 
                     $disks[] = $d;
                 }
             }
-            sort($disks, SORT_STRING);
+            $disks = jpSorted($disks);
             $src = $disks[0] ?? $src;
         }
         if (!is_file($src)) {
@@ -2499,17 +2664,18 @@ function jackPlanDry(array $cfg, array $env, JackPlanHost $host, string $plexTv 
     }
 
     $sortedRels = array_map('strval', array_values($rels));
-    sort($sortedRels, SORT_STRING);
+    $sortedRels = jpSorted($sortedRels);
     $sortedNames = array_map('strval', array_keys($names));
-    sort($sortedNames, SORT_STRING);
+    $sortedNames = jpSorted($sortedNames);
     $group = fn (JackPlanGroup $g): array => ['chain' => $g->chain, 'category' => $g->category, 'source' => $g->source, 'series' => $g->series, 'title' => $g->title,
         'size' => $g->size, 'files' => array_map(fn (JackPlanFile $x): string => $x->rel, $g->files)];
     $prot = array_values($protected);
-    sort($prot, SORT_STRING);
+    $prot = jpSorted($prot);
     $backPaths = array_keys($backRank);
     return jackPlanClean([
         'outcome'    => 'ok',
         'tape'       => JACK_PLAN_TAPE_V,
+        'mode'       => 'run',
         'incomplete' => $incomplete,
         'errors'     => $planner->errors,
         'sessions'   => ['rels' => $sortedRels, 'names' => $sortedNames, 'ok' => $sessionsOk],
@@ -2533,21 +2699,85 @@ function jackPlanDry(array $cfg, array $env, JackPlanHost $host, string $plexTv 
 }
 
 /**
+ * --release's decisions, dry (Runner.release()): what plays stays, everything else on his list goes back the cleanup's way; nothing is
+ * planned, no list or themes state written. With `themes` the theme.mp3 stay unless MEDIACACHE_RELEASE_THEMES=1.
+ *
+ * @param array<string, string> $env
+ */
+function jackPlanReleaseDry(array $cfg, array $env, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV): array
+{
+    clearstatcache(true);
+    $listFile = jpJoin(($env['MEDIACACHE_DIR'] ?? '') ?: '.', 'mediacache_exclude.txt');
+    [$rels, $names, $sessionsOk] = jackPlanSessions($cfg, $host, $plexTv);
+    $playing = fn (string $rel): bool => isset($rels["r$rel"]) || isset($names[jpName($rel)]);
+    $loc = new JackPlanLocations($cfg, $cfg['instances'][0]['_mappings']);
+    $keepThemes = $cfg['themes'] === true && ($env['MEDIACACHE_RELEASE_THEMES'] ?? '') !== '1';
+    [$cleanup, $toArray, $protected] = jackPlanCleanup($cfg, $loc, jackPlanReadList($listFile), [], [], $playing, $keepThemes);
+    return jackPlanClean(['outcome' => 'ok', 'tape' => JACK_PLAN_TAPE_V, 'mode' => 'release', 'incomplete' => !$sessionsOk,
+        'sessions' => ['rels' => jpSorted(array_map('strval', array_values($rels))), 'names' => jpSorted(array_map('strval', array_keys($names))), 'ok' => $sessionsOk],
+        'cleanup' => ['paths' => $cleanup, 'bytes' => $toArray], 'protected' => jpSorted(array_values($protected)), 'keep_themes' => $keepThemes]);
+}
+
+/**
  * One whole dry plan from the settings, ending as Python's script would: outcome ok | config | crash (with a Python traceback, or
  * what no Python has: anything PHP throws). Never throws.
  *
  * @param array<string, string> $env
  */
-function jackPlanRun(array $env, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV): array
+function jackPlanRun(array $env, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV, string $mode = 'run'): array
 {
     try {
+        jackPlanPython($host instanceof JackPlanTape ? $host->python : [3, 11]);
         $dir = ($env['MEDIACACHE_DIR'] ?? '') ?: '.';
         $cfg = jackPlanConfig(($env['MEDIACACHE_CONFIG'] ?? '') ?: jpJoin($dir, 'mediacache_settings.json'), $env);
         jackPlanKeepBytes($env);
-        return jackPlanDry($cfg, $env, $host, $plexTv);
+        return $mode === 'release' ? jackPlanReleaseDry($cfg, $env, $host, $plexTv) : jackPlanDry($cfg, $env, $host, $plexTv);
     } catch (JackPlanConfigError) {
         return ['outcome' => 'config', 'tape' => JACK_PLAN_TAPE_V];
     } catch (Throwable $e) {
         return ['outcome' => 'crash', 'tape' => JACK_PLAN_TAPE_V, 'detail' => get_class($e) . ': ' . jackPlanCleanText($e->getMessage())];
     }
+}
+
+/**
+ * The plan as a process of its own (jack-shadow.php starts it, and stops it at once when the array stops, a stop is asked or its time is
+ * up: nothing of the share is held while it plans): `php jack-plan.php --env <json> --out <json> --mode run|release [--tape <file>]
+ * [--plex-tv <url>]`. Without --tape it asks the servers itself (JackPlanLive). Writes {plan, asked, failed, missing, left}, 0600.
+ */
+function jackPlanMain(array $argv): int
+{
+    $opt = [];
+    for ($i = 1; $i < count($argv) - 1; $i += 2) {
+        $opt[ltrim((string) $argv[$i], '-')] = (string) $argv[$i + 1];
+    }
+    $env = json_decode((string) @file_get_contents($opt['env'] ?? ''), true);
+    if (!is_array($env) || !isset($opt['out'])) {
+        fwrite(STDERR, "jack-plan: --env and --out\n");
+        return 2;
+    }
+    $host = isset($opt['tape']) ? JackPlanTape::read($opt['tape']) : new JackPlanLive($env);
+    if ($host === null) {
+        fwrite(STDERR, "jack-plan: no tape\n");
+        return 2;
+    }
+    $plan = jackPlanRun(array_map('strval', $env), $host, $opt['plex-tv'] ?? JACK_PLAN_PLEX_TV, ($opt['mode'] ?? 'run') === 'release' ? 'release' : 'run');
+    $out = ['plan' => $plan, 'asked' => $host->asked, 'failed' => $host instanceof JackPlanLive ? $host->failed : 0,
+            'missing' => $host instanceof JackPlanTape ? $host->missing : [], 'left' => $host instanceof JackPlanTape ? $host->left() : []];
+    $tmp = $opt['out'] . '.tmp';
+    umask(077);
+    if (@file_put_contents($tmp, (string) json_encode($out, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)) === false || !@rename($tmp, $opt['out'])) {
+        return 1;
+    }
+    return 0;
+}
+
+if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath((string) $argv[0]) === __FILE__) {
+    if (!function_exists('run')) {
+        if (!defined('FILE_UID')) {
+            define('FILE_UID', 0);
+            define('FILE_GID', 0);
+        }
+        require_once dirname(__DIR__) . '/lib/util.php';
+    }
+    exit(jackPlanMain($argv));
 }
