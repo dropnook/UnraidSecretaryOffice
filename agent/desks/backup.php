@@ -326,10 +326,12 @@ function backupScan(): array
 /**
  * A share made or removed in Unraid (2026-11-07: his page knew it only after the engine's next drift check, daily or on a
  * run): once a second the share files' stamp, as Ms. Moverelli's and Mr. Restori's ticks do (officeSharesStamp(): a glob and
- * a stat each on the flash); changed and calm → his state looked at again (backupScan(), which never looks into a sleeping
- * home; backupTruth() reads shares.ini) — the page's next look gets it. Never the engine asked. Not hired, or never looked at
- * yet (a new data folder): his page's first look will do. $now, $h (shares_dir, shares_ini, state_file, hired, scan) for the
- * tests; the new state or null.
+ * a stat each on the flash); changed and calm, and the list of shares in shares.ini (RAM) is another → his state looked at
+ * again (backupScan(), which never looks into a sleeping home; backupTruth() reads shares.ini) — the page's next look gets
+ * it. The list, because shares.ini carries each share's free and used: Unraid writes it anew whenever a pool's space
+ * changes (a test server: every 10-30 s, the stamp with it) and nothing about the shares changed then. Never the engine
+ * asked. Not hired, or never looked at yet (a new data folder): his page's first look will do. $now, $h (shares_dir,
+ * shares_ini, state_file, hired, scan) for the tests; the new state or null.
  */
 function backupSharesTick(?float $now = null, ?array $h = null): ?array
 {
@@ -340,8 +342,17 @@ function backupSharesTick(?float $now = null, ?array $h = null): ?array
     }
     $last = $now;
     $GLOBALS['backupSharesMemo'] ??= [];
-    $stamp = officeSharesStamp($h['shares_dir'] ?? OFFICE_SHARES_CFG_DIR, $h['shares_ini'] ?? OFFICE_SHARES_INI);
-    if (!officeSharesDue($GLOBALS['backupSharesMemo'], $stamp, $now)) {
+    $ini = $h['shares_ini'] ?? OFFICE_SHARES_INI;
+    $first = !isset($GLOBALS['backupSharesMemo']['stamp']);
+    $due = officeSharesDue($GLOBALS['backupSharesMemo'], officeSharesStamp($h['shares_dir'] ?? OFFICE_SHARES_CFG_DIR, $ini), $now);
+    if (!$first && !$due) {
+        return null;
+    }
+    $names = array_keys(readCfg($ini, true));
+    sort($names, SORT_STRING);
+    $same = !$first && $names === ($GLOBALS['backupSharesMemo']['names'] ?? null);
+    $GLOBALS['backupSharesMemo']['names'] = $names;
+    if ($first || $same) {
         return null;
     }
     $hired = $h['hired'] ?? fn (): bool => in_array('backup', staffHired($GLOBALS['agentStaffFile'] ?? null), true);

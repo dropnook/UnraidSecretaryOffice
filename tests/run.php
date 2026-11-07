@@ -60792,9 +60792,10 @@ function testRestoreSharesTick(): void
 }
 
 /**
- * Mr. Backupsy looks again when a share changes in Unraid (2026-11-07), as Mr. Restori's and Ms. Moverelli's ticks do: nothing
- * when the stamp didn't change, a scan once a changed one is calm (2 s) and never twice for it; none when not hired or no state
- * file; registered in his tick after the two that were there.
+ * Mr. Backupsy looks again when a share is made or removed in Unraid (2026-11-07), as Mr. Restori's and Ms. Moverelli's ticks
+ * do: nothing when the stamp didn't change or the list of shares is the same (Unraid rewrites shares.ini with free and used), a
+ * scan once a changed one is calm (2 s) and never twice for it; none when not hired or no state file; registered in his tick
+ * after the two that were there.
  */
 function testBackupSharesTick(): void
 {
@@ -60811,6 +60812,12 @@ function testBackupSharesTick(): void
     $GLOBALS['backupSharesMemo'] = [];
     $t = [backupSharesTick(1000.0, $h), backupSharesTick(1001.0, $h), backupSharesTick(1100.0, $h)];
     same('backup shares tick: the first stamp only remembered, nothing while it stays — no scan', [[null, null, null], 0], [$t, $scans]);
+    // Unraid writes shares.ini anew whenever a pool's space changes (free, used): the stamp moves, nothing about the shares did
+    file_put_contents("$tmp/shares.ini", "[\"appdata\"]\nname=\"appdata\"\nfree=\"1000\"\nused=\"5\"\n");
+    file_put_contents("$tmp/shares/appdata.cfg", "shareUseCache=\"only\"\nshareComment=\"x\"\n");
+    clearstatcache();
+    $t = [backupSharesTick(1110.0, $h), backupSharesTick(1113.0, $h), backupSharesTick(1114.0, $h)];
+    same('backup shares tick: the file written anew, the same shares — no scan', [[null, null, null], 0], [$t, $scans]);
     file_put_contents("$tmp/shares.ini", "[\"uso-newshare-test\"]\nname=\"uso-newshare-test\"\n", FILE_APPEND);
     clearstatcache();
     $t = [backupSharesTick(1200.0, $h), backupSharesTick(1201.0, $h), backupSharesTick(1202.5, $h), backupSharesTick(1210.0, $h)];
