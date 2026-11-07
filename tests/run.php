@@ -25883,7 +25883,7 @@ function testDockerBackLook(): void
     $restore = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
     $jack = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('docker back: both ticks stand in their desks\' tick (Jack Streamer\'s reads his memory, jackScan() sets it)',
-        str_contains($restore, "        rsDockerBackTick();     //") && str_contains($jack, "    'tick'    => fn () => jackDockerBackTick(),")
+        str_contains($restore, "        rsDockerBackTick();     //") && str_contains($jack, "        jackDockerBackTick();     //")
         && str_contains($jack, "\$GLOBALS['jackDocker'] = \$state['docker'];"));
     check('docker back: his look anew never from the cache - a «no answer» of the quiet time would say «off» and end the tick',
         str_contains($restore, "    houseContainersKnown(true);\n    return rsScan();\n"));
