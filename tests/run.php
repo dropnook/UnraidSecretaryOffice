@@ -14719,6 +14719,214 @@ function testRestore(): void
  * rate only with its size known, the whole's end only when every copy step still to come has a size; no history.
  */
 /**
+ * small-190: the same «silent» rule for Mr. Backupsy's run and Ms. Moverelli's real run — their own real progress is the sign
+ * of life, so a long Kopia upload, a partner's send or a large single file never counts; a hung one says so, once, never ended.
+ */
+function testJobSilentRuns(): void
+{
+    $tmp = hardeningTmp('job-silent');
+    $notifyWas = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_NOTIFY_STAMP'), getenv('OFFICE_NOTIFY_HOME')];
+    @mkdir("$tmp/nc", 0700, true);
+    file_put_contents("$tmp/notify", "#!/bin/sh\nfor a in \"\$@\"; do printf '%s\\n' \"\$a\"; done >>" . escapeshellarg("$tmp/notify.log") . "\n");
+    chmod("$tmp/notify", 0755);
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    putenv("OFFICE_NOTIFY_STAMP=$tmp/notify.stamp");
+    putenv("OFFICE_NOTIFY_HOME=$tmp/nc");
+    $told = fn (): int => substr_count((string) @file_get_contents("$tmp/notify.log"), 'Unraid Secretary Office: ');
+    $still = fn (): array => ['cpu' => 1, 'io' => 1];
+
+    // --- Mr. Backupsy's run: anything in status.json but `updated` is progress
+    unset($GLOBALS['backupLife'], $GLOBALS['backupSilent']);
+    $run = ['run' => '20261107-0300', 'pid' => 4242, 'phase' => 'dumps', 'updated' => 100, 'partner' => null, 'kopia' => ['current' => null]];
+    $at = 1000.0;
+    same('silent run: backup - 30 minutes without anything moving: not yet', null, (function () use (&$at, $run, $still) {
+        backupSilentStep($run, $at, $still);
+        return backupSilentStep($run + ['x' => 0], $at, $still) ?? backupSilentStep($run + ['x' => 0], $at + 1800, $still);
+    })());
+    $s = backupSilentStep($run + ['x' => 0], $at + 1860, $still);
+    same('silent run: backup - 31 minutes: the run, how long, since when', ['20261107-0300', 31, true], [$s['id'] ?? null, $s['minutes'] ?? null, abs(($s['since'] ?? 0) - (time() - 1860)) < 5]);
+    $partner = $run + ['x' => 0];
+    $partner['updated'] = 999;                  // status_write every 10 s during a send, whether a byte moved or not
+    check('silent run: backup - `updated` alone is no sign of life', backupSilentStep($partner, $at + 1920, $still) !== null);
+    same('silent run: backup - anything else that moved in status.json ends it', null, backupSilentStep(['phase' => 'partner'] + $run + ['x' => 0], $at + 1980, $still));
+    same('silent run: backup - a new run starts anew', null, backupSilentStep(['run' => '20261108-0300'] + $run, $at + 9000, $still));
+    backupSilentStep(null, $at);
+    same('silent run: backup - no run (or asked to stop): nothing', [null, null], [$GLOBALS['backupSilent'] ?? null, $GLOBALS['backupLife'] ?? null]);
+    // what counts for which part: Kopia's own io during an upload (not the run's polling, not the Kopia server's CPU),
+    // only the bytes during a send, else the run's tree
+    $fake = "$tmp/proc";
+    $ps = function (int $pid, int $ppid, string $comm, int $cpu, int $io) use ($fake): void {
+        @mkdir("$fake/$pid", 0700, true);
+        file_put_contents("$fake/$pid/stat", "$pid ($comm) S $ppid 0 0 0 -1 0 0 0 0 0 $cpu 0 0 0 20 0 1 0 0 0 0\n");
+        file_put_contents("$fake/$pid/io", "rchar: $io\nwchar: 0\n");
+    };
+    $ps(4242, 1, 'bash', 500, 5);
+    $ps(4243, 4242, 'gzip', 70, 7000);
+    $ps(777, 1, 'kopia', 900, 90000);
+    same('silent run: backup - the work that counts: the tree; an upload: Kopia\'s bytes alone; a send: none; no Kopia there: can\'t be told',
+        [['cpu' => 570, 'io' => 7005], ['cpu' => 0, 'io' => 90000], ['cpu' => 0, 'io' => 0], null],
+        [backupRunWork($run, $fake), backupRunWork(['kopia' => ['current' => 'photos']] + $run, $fake),
+         backupRunWork(['partner' => ['current' => ['id' => 'p1']]] + $run, $fake), backupRunWork(['kopia' => ['current' => 'photos']] + $run, "$tmp/none")]);
+    // a long upload: nothing in the status moves for 3 hours, Kopia reads on
+    unset($GLOBALS['backupLife'], $GLOBALS['backupSilent']);
+    $up = ['kopia' => ['current' => 'photos']] + $run;
+    $io = 0;
+    $long = null;
+    for ($m = 0; $m <= 180; $m++) {
+        $io += 50 << 20;
+        $long = backupSilentStep($up, 5000.0 + $m * 60, function () use (&$io) { return ['cpu' => 0, 'io' => $io]; }) ?? $long;
+    }
+    same('silent run: backup - a 3-hour upload whose status stands still: never silent', null, $long);
+    for ($m = 181; $m <= 211; $m++) {
+        $long = backupSilentStep($up, 5000.0 + $m * 60, function () use (&$io) { return ['cpu' => 0, 'io' => $io + 4096]; });
+    }
+    same('silent run: backup - … Kopia hanging (a few bytes of Go\'s own): said after 31 minutes', 31, $long['minutes'] ?? null);
+    // its hint and its one warning
+    $found = array_values(array_filter(backupChecks(), fn ($f) => $f['id'] === 'job_stale'));
+    same('silent run: backup - one hint for the Team Lead: not ok, how long, which run, his page', [['hint', false, 31, '20261107-0300', '#/backup']],
+        array_map(fn ($f) => [$f['level'], $f['ok'], $f['params']['minutes'], $f['params']['job'], $f['link']], $found));
+    $later = $found[0];
+    $later['params']['minutes'] = 95;
+    same('silent run: backup - «I know, thanks» holds while the silence grows', caretakerAckSig('backup', $found[0]), caretakerAckSig('backup', $later));
+    @unlink(RUN_DIR . '/backup-silent.json');
+    $one = ['id' => '20261107-0300', 'since' => time() - 1860, 'minutes' => 31];
+    same('silent run: backup - one warning per run, a new run its own', [true, 1, false, 1, true],
+        [backupSilentTell($one), $told(), backupSilentTell($one), $told(), backupSilentTell(['id' => '20261108-0300'] + $one)]);
+    $log = (string) @file_get_contents("$tmp/notify.log");
+    check('silent run: backup - a warning, its link his page, how long', str_contains($log, "warning\n") && str_contains($log, 'SecretaryOffice#/backup') && str_contains($log, '31'), $log);
+    @unlink(RUN_DIR . '/backup-silent.json');
+    unset($GLOBALS['backupLife'], $GLOBALS['backupSilent']);
+
+    // --- Ms. Moverelli's real run: the status file's mtime, what of the file in flight arrived, else what runs below her job
+    $dir = "$tmp/moverelli";
+    @mkdir("$dir", 0700, true);
+    @mkdir("$tmp/mnt/cache/media", 0700, true);
+    @mkdir("$tmp/mnt/disk1/media", 0700, true);
+    @mkdir("$tmp/shares", 0700, true);
+    file_put_contents("$tmp/shares/media.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    $h = ['dir' => $dir, 'mnt' => "$tmp/mnt", 'shares_dir' => "$tmp/shares", 'asleep' => []] + moverelliHost();
+    $proc = proc_open([PHP_BINARY, '-r', 'sleep(120);', 'agent.php'], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+    $pid = (int) proc_get_status($proc)['pid'];
+    usleep(200000);
+    if (is_readable("/proc/$pid/cmdline")) {
+        file_put_contents("$dir/office-run.json", json_encode(['mode' => 'run', 'by' => 'hand', 'started' => 1800000000, 'pid' => $pid]));
+        $status = function (array $s) use ($dir): void { file_put_contents("$dir/status.json", json_encode($s + ['result' => 'running'])); };
+        $flyFile = "$tmp/mnt/cache/media/big.mkv";
+        $fh = fopen($flyFile, 'w');
+        ftruncate($fh, 1 << 30);
+        fclose($fh);
+        $status(['phase' => 'share', 'share' => 'media', 'file' => $flyFile]);
+        touch("$dir/status.json", 1700000000);
+        unset($GLOBALS['moverelliLife'], $GLOBALS['moverelliSilent']);
+        same('silent run: hers - at its start, and 30 minutes on', [null, null], [moverelliSilentStep($h, 100.0, $still), moverelliSilentStep($h, 1900.0, $still)]);
+        $s = moverelliSilentStep($h, 1960.0, $still);
+        same('silent run: hers - 31 minutes with a file in flight that doesn\'t grow, status standing still: said', ['1800000000', 31], [$s['id'] ?? null, $s['minutes'] ?? null]);
+        same('silent run: hers - her poll and her Team Lead hear of it', [31, ['hint', false, 31, '1800000000', '#/moverelli']],
+            [moverelliProgressState($h)['silent']['minutes'] ?? null,
+             array_values(array_map(fn ($f) => [$f['level'], $f['ok'], $f['params']['minutes'], $f['params']['job'], $f['link']], array_filter(moverelliChecks(['dir' => $dir] + $h), fn ($f) => $f['id'] === 'job_stale')))[0] ?? null]);
+        // a large single file arriving: its .partial grows, the status stands still — never silent
+        unset($GLOBALS['moverelliLife'], $GLOBALS['moverelliSilent']);
+        moverelliSilentStep($h, 100.0, $still);
+        $grew = null;
+        foreach ([1, 2, 3, 4] as $i) {
+            file_put_contents("$tmp/mnt/disk1/media/big.mkv.partial", str_repeat('x', 1 << 20), FILE_APPEND);
+            clearstatcache();
+            exec('sync ' . escapeshellarg("$tmp/mnt/disk1/media/big.mkv.partial") . ' 2>/dev/null');
+            $grew = moverelliSilentStep($h, 100.0 + $i * 1000, $still) ?? $grew;
+        }
+        same('silent run: hers - a large file arriving for over an hour, her status standing still: never silent', null, $grew);
+        @unlink("$tmp/mnt/disk1/media/big.mkv.partial");
+        // her status moved: no stat of the file in flight, and it ends the silence
+        unset($GLOBALS['moverelliLife'], $GLOBALS['moverelliSilent']);
+        moverelliSilentStep($h, 100.0, $still);
+        moverelliSilentStep($h, 2100.0, $still);
+        touch("$dir/status.json", 1700000500);
+        same('silent run: hers - her status written anew ends it', null, moverelliSilentStep($h, 2160.0, $still));
+        // looking around: what runs below her job, never her job's own polling
+        $status(['phase' => 'look', 'share' => '', 'file' => '']);
+        touch("$dir/status.json", 1700000900);
+        unset($GLOBALS['moverelliLife'], $GLOBALS['moverelliSilent']);
+        $cpu = 0;
+        $busy = null;
+        for ($m = 0; $m <= 40; $m++) {
+            $cpu += 50;
+            $busy = moverelliSilentStep($h, 100.0 + $m * 60, function () use (&$cpu) { return ['cpu' => $cpu, 'io' => 0]; }) ?? $busy;
+        }
+        same('silent run: hers - looking around for 40 minutes, its find working: never silent', null, $busy);
+        $s = null;
+        for ($m = 41; $m <= 71; $m++) {
+            $s = moverelliSilentStep($h, 100.0 + $m * 60, function () use (&$cpu) { return ['cpu' => $cpu, 'io' => 0]; });
+        }
+        same('silent run: hers - … its find hanging: said', 31, $s['minutes'] ?? null);
+        file_put_contents("$dir/office-stop.json", '{"why":"user"}');
+        same('silent run: hers - asked to stop: never', [null, null], [moverelliSilentStep($h, 9000.0, $still), $GLOBALS['moverelliSilent'] ?? null]);
+        @unlink("$dir/office-stop.json");
+        file_put_contents("$dir/office-run.json", json_encode(['mode' => 'dry', 'started' => 1800000000, 'pid' => $pid]));
+        same('silent run: hers - a dry run has no live status: never', null, moverelliSilentStep($h, 9000.0, $still));
+        // below her job, not her job
+        $child = proc_open(['sh', '-c', 'exec sleep 30'], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes2);
+        $me = getmypid();
+        usleep(100000);
+        check('silent run: hers - only what runs below a process when asked', is_array(officeProcWork([$me], [], '/proc', true)) && officeProcWork([(int) proc_get_status($child)['pid']], [], '/proc', true) === null);
+        proc_terminate($child, 9);
+        proc_close($child);
+    }
+    proc_terminate($proc, 9);
+    proc_close($proc);
+    unset($GLOBALS['moverelliLife'], $GLOBALS['moverelliSilent']);
+
+    @unlink(RUN_DIR . '/moverelli-silent.json');
+    same('silent run: the one warning\'s memory — first time, again, another job', [true, false, true],
+        [officeSilentFirst("$tmp/s.json", 'a'), officeSilentFirst("$tmp/s.json", 'a'), officeSilentFirst("$tmp/s.json", 'b')]);
+
+    // never a kill or a stop from these
+    foreach (['backup' => ['function backupSilentStep', 'function backupScan'], 'moverelli' => ['function moverelliSilentStep', '// ===================================================================== fit']] as $desk => [$from, $to]) {
+        $src = (string) file_get_contents(OFFICE_DIR . "/agent/desks/$desk.php");
+        $at0 = (int) strpos($src, $from);
+        $code = (string) preg_replace('~/\*.*?\*/~s', '', substr($src, $at0, (int) strpos($src, $to) - $at0));
+        check("silent run: $desk - never a kill or a stop from these", $code !== '' && !preg_match('/posix_kill\([^)]*,\s*(?!0)|proc_terminate|\bkill\b|backupAbort\(|office-stop\.json", /', $code));
+    }
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        foreach (['backup' => 'run.silent', 'moverelli' => 'rc.silent'] as $desk => $sentence) {
+            $w = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/$desk/lang/$l.json"), true) ?: [];
+            same("silent run: $desk $l - every word", [], array_values(array_filter([$sentence, 'notify.job_stale.subject', 'notify.job_stale', 'check.job_stale', 'check.job_stale_how'], fn ($k) => !isset($w[$k]))));
+        }
+    }
+
+    // the pages: the sentence on the card
+    $node = testsNode();
+    if ($node !== '') {
+        file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const text = (n) => (n ? (n.textContent || '') + (n.children || []).map(text).join(' ') : '');
+const mk = (tag) => { const n = { tag, children: [], dataset: {}, style: {}, classList: { add() {}, remove() {}, toggle() {}, contains: () => false }, addEventListener() {}, setAttribute() {},
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { c.forEach((x) => this.children.push(x)); }, querySelector: () => null, querySelectorAll: () => [] }; return n; };
+globalThis.document = { createElement: mk, createTextNode: (t) => ({ textContent: t, children: [] }), hidden: false, addEventListener() {} };
+globalThis.OFFICE_DESK_TESTS = {};
+globalThis.window = globalThis;
+const T = (k, p) => k + (p ? ' ' + JSON.stringify(p) : '');
+globalThis.Office = new Proxy({ t: T, el: (tag, cls, txt) => { const n = mk(tag); n.className = cls; if (txt !== undefined) n.textContent = String(txt); return n; },
+  fmt: { size: (b) => b + ' B', relative: (t) => 'rel ' + t, date: (t) => 'date ' + t, time: (t) => 'T' + t, duration: (s) => Math.round(s) + 's' }, agent: { running: true } }, { get: (o, k) => (k in o ? o[k] : (...a) => mk('div')) });
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const out = {};
+const b = OFFICE_DESK_TESTS.backup;
+const now = Date.now() / 1000;
+out.pure = [b.silentMinutes({ since: now - 1860 }, now), b.silentMinutes(null, now), b.silentMinutes({}, now), b.silentMinutes({ since: now }, now)];
+console.log(JSON.stringify(out));
+JS);
+        $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/backup/desk.js') . ' 2>&1');
+        same('silent run: the backup page\'s minutes: from the agent\'s word, none without it, at least one', [31, null, null, 1], json_decode($raw, true)['pure'] ?? $raw);
+    }
+    foreach ([['backup', "silent !== null) card.appendChild(el('p', 'callout warn bk-silent', T('run.silent'"], ['moverelli', "'callout warn mo-silent', T('rc.silent'"]] as [$desk, $needle]) {
+        check("silent run: the $desk page says it on the run's card", str_contains((string) file_get_contents(OFFICE_WEB . "/desks/$desk/desk.js"), $needle));
+    }
+    foreach (['OFFICE_NOTIFY_BIN', 'OFFICE_NOTIFY_STAMP', 'OFFICE_NOTIFY_HOME'] as $i => $name) {
+        putenv($notifyWas[$i] === false ? $name : "$name={$notifyWas[$i]}");
+    }
+    @exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * 2026-11-07 (Benj; a drill in D state on Tower, 2026-10-30, «running» for hours): 30 minutes without a heartbeat and the
  * office says the job may hang — his page, one hint for the Team Lead, one warning per job; never ended by the office.
  */
@@ -61836,7 +62044,7 @@ function testBackupAnewChoice(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],

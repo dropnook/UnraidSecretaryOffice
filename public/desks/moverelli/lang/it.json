@@ -578,5 +578,10 @@
   "night.last_missed_jack": "il pool è ancora al {pct} % — sopra il limite c'è solo ciò che Jack Streamer non ha guardato",
   "notify.night_room_subject": "Pool {pool}: poco spazio per gli altri",
   "notify.night_full": "appdata & co. e ciò che Jack Streamer tiene riempiono il pool {pool} fino al {x} % — Jack Streamer non può prendere niente di nuovo. Fai spazio o alza il limite.",
-  "notify.night_crowded": "Il budget di Jack Streamer ({jack} su {pool}) non lascia spazio alle altre condivisioni sotto il {x} % — i download del giorno finiscono tutti sopra. Riduci il suo budget o alza il limite."
+  "notify.night_crowded": "Il budget di Jack Streamer ({jack} su {pool}) non lascia spazio alle altre condivisioni sotto il {x} % — i download del giorno finiscono tutti sopra. Riduci il suo budget o alza il limite.",
+  "rc.silent": "Nessun segno di vita da {n} minuti — forse è bloccata (un disco, un mount); la lascio stare.",
+  "notify.job_stale.subject": "Una mia esecuzione non dà segni di vita",
+  "notify.job_stale": "Una mia esecuzione non dà segni di vita da {n} minuti: forse è bloccata. Non la interrompo. Guarda il server: un disco, un mount.",
+  "check.job_stale": "Una mia esecuzione non dà segni di vita da {minutes} minuti: forse è bloccata. Non la interrompo; guarda il server (un disco, un mount).",
+  "check.job_stale_how": "Guarda ⟦Main⟧ in Unraid (manca un disco o ha errori?), dmesg in un terminale (task bloccati) e il suo log nella pagina della Signora Moverelli. Se debba finire lo decidi solo tu."
 }

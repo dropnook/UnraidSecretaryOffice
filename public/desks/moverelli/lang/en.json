@@ -578,5 +578,10 @@
   "night.last_missed_jack": "the pool is still at {pct} % — only what Jack Streamer hasn't watched is over the limit",
   "notify.night_room_subject": "Pool {pool}: little room for the others",
   "notify.night_full": "appdata & co. and what Jack Streamer keeps fill the pool {pool} up to {x} % — Jack Streamer can't fetch anything new. Make room or set the limit higher.",
-  "notify.night_crowded": "Jack Streamer's budget ({jack} on {pool}) leaves the other shares no room below {x} % — the day's downloads all land above it. Make his budget smaller or set the limit higher."
+  "notify.night_crowded": "Jack Streamer's budget ({jack} on {pool}) leaves the other shares no room below {x} % — the day's downloads all land above it. Make his budget smaller or set the limit higher.",
+  "rc.silent": "No sign of life for {n} minutes — it may hang (a disk, a mount); I leave it alone.",
+  "notify.job_stale.subject": "A run of mine gives no sign of life",
+  "notify.job_stale": "A run of mine has given no sign of life for {n} minutes: it may hang. I don't end it. Look at the server: a disk, a mount.",
+  "check.job_stale": "A run of mine has given no sign of life for {minutes} minutes: it may hang. I don't end it; look at the server (a disk, a mount).",
+  "check.job_stale_how": "Look at ⟦Main⟧ in Unraid (a disk missing or with errors?), at dmesg in a terminal (tasks that hang) and at the run's log on Ms. Moverelli's page. Only you decide whether it ends."
 }

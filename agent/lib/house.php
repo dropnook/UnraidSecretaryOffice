@@ -54,15 +54,16 @@ function jobStale(?int $heartbeat, ?int $now = null): bool
 
 /**
  * What processes have worked so far: CPU in clock ticks (of those that ended and were waited for too), read + written in
- * bytes — of $roots with everything below them, and of every process called one of $names. One read of /proc/<pid>/stat per
- * process and /proc/<pid>/io per one that counts, never cmdline (it can block on a process hanging in D state). Null when
- * none is there or /proc can't be read (off Linux): nothing can be told.
+ * bytes — of $roots with everything below them ($under: only what is below them, a job that polls in its own loop), and of
+ * every process called one of $names. One read of /proc/<pid>/stat per process and /proc/<pid>/io per one that counts, never
+ * cmdline (it can block on a process hanging in D state). Null when none is there or /proc can't be read (off Linux):
+ * nothing can be told.
  *
  * @param list<int>    $roots
  * @param list<string> $names
  * @return array{cpu: int, io: int}|null
  */
-function officeProcWork(array $roots, array $names = [], string $proc = '/proc'): ?array
+function officeProcWork(array $roots, array $names = [], string $proc = '/proc', bool $under = false): ?array
 {
     $below = $ticks = [];
     $todo = [];
@@ -88,7 +89,9 @@ function officeProcWork(array $roots, array $names = [], string $proc = '/proc')
         }
     }
     foreach ($roots as $pid) {
-        if (isset($ticks[$pid])) {
+        if ($under) {
+            array_push($todo, ...($below[$pid] ?? []));
+        } elseif (isset($ticks[$pid])) {
             $todo[] = $pid;
         }
     }
@@ -139,6 +142,25 @@ function officeLifeStep(array &$l, float $now, mixed $mark, callable $work): int
         $l['looked'] = $now;
     }
     return $l['quiet'] = (int) ($now - $l['at']);
+}
+
+/**
+ * The one warning for a run that went silent, where no record of the job's own can keep it (the engine's status is the
+ * engine's, Smart Mover's its own): true the first time for $job, remembered in a small file in RAM before the warning goes —
+ * one that can't be written is no warning every minute.
+ */
+function officeSilentFirst(string $file, string $job): bool
+{
+    if ((readJson($file)['job'] ?? null) === $job) {
+        return false;
+    }
+    try {
+        writeAtomic($file, jsonEncode(['job' => $job, 'told' => time()]), 0600, 0, 0);
+    } catch (Throwable $e) {
+        logLine("Office: silent run $job: can't note the warning, none sent: " . $e->getMessage());
+        return false;
+    }
+    return true;
 }
 
 /**

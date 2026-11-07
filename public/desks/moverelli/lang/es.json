@@ -578,5 +578,10 @@
   "night.last_missed_jack": "el pool sigue al {pct} % — solo lo que Jack Streamer no ha visto supera el límite",
   "notify.night_room_subject": "Pool {pool}: poco sitio para los demás",
   "notify.night_full": "appdata & co. y lo que Jack Streamer conserva llenan el pool {pool} hasta el {x} % — Jack Streamer no puede traer nada nuevo. Haz sitio o sube el límite.",
-  "notify.night_crowded": "El presupuesto de Jack Streamer ({jack} en {pool}) no deja sitio a los otros recursos compartidos por debajo del {x} % — las descargas del día caen todas por encima. Reduce su presupuesto o sube el límite."
+  "notify.night_crowded": "El presupuesto de Jack Streamer ({jack} en {pool}) no deja sitio a los otros recursos compartidos por debajo del {x} % — las descargas del día caen todas por encima. Reduce su presupuesto o sube el límite.",
+  "rc.silent": "Sin señales de vida desde hace {n} minutos — quizá está colgada (un disco, un montaje); la dejo en paz.",
+  "notify.job_stale.subject": "Una ejecución mía no da señales de vida",
+  "notify.job_stale": "Una ejecución mía no da señales de vida desde hace {n} minutos: quizá está colgada. No la detengo. Mira el servidor: un disco, un montaje.",
+  "check.job_stale": "Una ejecución mía no da señales de vida desde hace {minutes} minutos: quizá está colgada. No la detengo; mira el servidor (un disco, un montaje).",
+  "check.job_stale_how": "Mira ⟦Main⟧ en Unraid (¿falta un disco o tiene errores?), dmesg en un terminal (tareas colgadas) y su registro en la página de la Señora Moverelli. Solo tú decides si debe terminar."
 }

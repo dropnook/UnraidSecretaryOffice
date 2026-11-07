@@ -2203,5 +2203,10 @@
   "setup.off_in_share_hint_vm_nolibvirt": "Sin copia: la VM nunca se detiene, y sin el archivo de las VMs falta su configuración. Sus discos siguen en la instantánea de {share} (también en un socio, si {share} va a uno), tomados en plena faena. No es seguro que arranque.",
   "setup.asleep.chip_place": "{names} duerme ahora. Allí está también el lugar de las copias, así que cada copia lo despierta de todos modos — los paquetes son lo importante.",
   "setup.sources.row_other_manual": "{what}: no es de la secretaría — este «Aplicar» también la pone en «manual» (desmarca abajo para dejarla como está)",
-  "setup.apply_sources_manual": {"one": "Kopia: 1 fuente antigua se pone en «manual» — Kopia ya no la programa, sus instantáneas se quedan: {list}", "other": "Kopia: {n} fuentes antiguas se ponen en «manual» — Kopia ya no las programa, sus instantáneas se quedan: {list}"}
+  "setup.apply_sources_manual": {"one": "Kopia: 1 fuente antigua se pone en «manual» — Kopia ya no la programa, sus instantáneas se quedan: {list}", "other": "Kopia: {n} fuentes antiguas se ponen en «manual» — Kopia ya no las programa, sus instantáneas se quedan: {list}"},
+  "run.silent": "Sin señales de vida desde hace {n} minutos — quizá está colgada (un disco, un montaje); la dejo en paz.",
+  "notify.job_stale.subject": "Una copia no da señales de vida",
+  "notify.job_stale": "Una copia no da señales de vida desde hace {n} minutos: quizá está colgada. No la detengo. Mira el servidor: un disco, un montaje.",
+  "check.job_stale": "Una copia no da señales de vida desde hace {minutes} minutos: quizá está colgada. No la detengo; mira el servidor (un disco, un montaje).",
+  "check.job_stale_how": "Mira ⟦Main⟧ en Unraid (¿falta un disco o tiene errores?), dmesg en un terminal (tareas colgadas) y su registro en la página del señor Backupsy. Solo tú decides si debe terminar."
 }

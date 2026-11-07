@@ -2182,5 +2182,10 @@
   "setup.off_in_share_hint_vm_nolibvirt": "Nicht gesichert: Die VM wird nie angehalten, und ohne VM-Archiv fehlt ihre Konfiguration. Ihre Disks liegen aber im Snapshot von {share} (auch beim Partner, wenn {share} zu einem geht), mitten im Betrieb festgehalten. Ob sie startet, ist offen.",
   "setup.asleep.chip_place": "{names} schläft gerade. Dort liegt auch die Backup-Ablage, darum weckt jedes Backup es trotzdem — um die Pakete geht es.",
   "setup.sources.row_other_manual": "{what}: nicht vom Sekretariat — dieses Übernehmen stellt es auch auf «manuell» (unten abwählen, dann bleibt es, wie es ist)",
-  "setup.apply_sources_manual": {"one": "Kopia: 1 alte Quelle wird auf «manuell» gestellt — Kopia plant sie nicht mehr, ihre Snapshots bleiben: {list}", "other": "Kopia: {n} alte Quellen werden auf «manuell» gestellt — Kopia plant sie nicht mehr, ihre Snapshots bleiben: {list}"}
+  "setup.apply_sources_manual": {"one": "Kopia: 1 alte Quelle wird auf «manuell» gestellt — Kopia plant sie nicht mehr, ihre Snapshots bleiben: {list}", "other": "Kopia: {n} alte Quellen werden auf «manuell» gestellt — Kopia plant sie nicht mehr, ihre Snapshots bleiben: {list}"},
+  "run.silent": "Seit {n} Minuten kein Lebenszeichen — es hängt vielleicht (eine Disk, ein Mount); ich lasse es in Ruhe.",
+  "notify.job_stale.subject": "Ein Backup gibt kein Lebenszeichen",
+  "notify.job_stale": "Ein Backup gibt seit {n} Minuten kein Lebenszeichen: Es hängt vielleicht. Ich beende es nicht. Schau auf dem Server nach: eine Disk, ein Mount.",
+  "check.job_stale": "Ein Backup gibt seit {minutes} Minuten kein Lebenszeichen: Es hängt vielleicht. Ich beende es nicht; schau auf dem Server nach (eine Disk, ein Mount).",
+  "check.job_stale_how": "Schau auf ⟦Main⟧ in Unraid (fehlt eine Disk, hat eine Fehler?), auf dmesg in einem Terminal (hängende Tasks) und in sein Protokoll auf Herrn Backupsys Seite. Ob es endet, entscheidest nur du."
 }

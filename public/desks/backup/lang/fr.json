@@ -2203,5 +2203,10 @@
   "setup.off_in_share_hint_vm_nolibvirt": "Pas sauvegardée : la VM n'est jamais mise en pause, et sans l'archive des VM sa configuration manque. Ses disques restent dans le snapshot de {share} (aussi chez un partenaire, si {share} y va), pris en plein travail. Rien ne garantit qu'elle démarre.",
   "setup.asleep.chip_place": "{names} dort en ce moment. L'emplacement des sauvegardes s'y trouve aussi, donc chaque sauvegarde le réveille quand même — les paquets sont l'essentiel.",
   "setup.sources.row_other_manual": "{what} : pas du secrétariat — cet « Appliquer » la passe aussi en « manual » (décoche plus bas pour la laisser telle quelle)",
-  "setup.apply_sources_manual": {"one": "Kopia : {n} ancienne source passe en « manual » — Kopia ne la planifie plus, ses snapshots restent : {list}", "other": "Kopia : {n} anciennes sources passent en « manual » — Kopia ne les planifie plus, leurs snapshots restent : {list}"}
+  "setup.apply_sources_manual": {"one": "Kopia : {n} ancienne source passe en « manual » — Kopia ne la planifie plus, ses snapshots restent : {list}", "other": "Kopia : {n} anciennes sources passent en « manual » — Kopia ne les planifie plus, leurs snapshots restent : {list}"},
+  "run.silent": "Aucun signe de vie depuis {n} minutes — elle est peut-être bloquée (un disque, un montage) ; je la laisse tranquille.",
+  "notify.job_stale.subject": "Une sauvegarde ne donne plus signe de vie",
+  "notify.job_stale": "Une sauvegarde ne donne plus signe de vie depuis {n} minutes : elle est peut-être bloquée. Je ne l'arrête pas. Regarde le serveur : un disque, un montage.",
+  "check.job_stale": "Une sauvegarde ne donne plus signe de vie depuis {minutes} minutes : elle est peut-être bloquée. Je ne l'arrête pas ; regarde le serveur (un disque, un montage).",
+  "check.job_stale_how": "Regarde ⟦Main⟧ dans Unraid (un disque manquant ou avec des erreurs ?), dmesg dans un terminal (tâches bloquées) et son journal sur la page de Monsieur Backupsy. C'est à toi de décider si elle doit s'arrêter."
 }
