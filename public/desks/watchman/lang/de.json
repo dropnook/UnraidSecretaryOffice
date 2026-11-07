@@ -1339,6 +1339,8 @@
   "hold.snaps_host_title": "Im Ordner .zfs/snapshot eines Shares auf dem Server eingehängt",
   "hold.snaps_container": {"one": "Im Container {name}: {n} Snapshot", "other": "Im Container {name}: {n} Snapshots"},
   "hold.snaps_container_title": "Nur im Container eingehängt — der Server sieht ihn nicht, und ZFS kann ihn von aussen nicht aushängen",
+  "hold.snaps_process": {"one": "In einem Prozess: {n} Snapshot", "other": "In einem Prozess: {n} Snapshots"},
+  "hold.snaps_process_title": "Nur in der eigenen Mount-Sicht eines Prozesses eingehängt — der Server sieht ihn nicht, und ZFS kann ihn von aussen nicht aushängen",
   "help.hold": "Was hält das Array fest?",
   "help.hold_text": "Was würde das Array jetzt beim Stoppen aufhalten? Hat ein Programm eine Datei auf einer Disk, einem Pool oder einem Share offen, kann Unraid sie nicht aushängen. Läuft «⟦Shutdown time-out⟧» ab, fährt der Server unsauber herunter, und der nächste Start prüft die Parität. VMs und Container stoppt Unraid selbst. Er liest nur und weckt keine Disk."
 }

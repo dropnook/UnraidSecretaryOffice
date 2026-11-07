@@ -1339,6 +1339,8 @@
   "hold.snaps_host_title": "Montato nella cartella .zfs/snapshot di una condivisione sul server",
   "hold.snaps_container": {"one": "Dentro il container {name}: {n} snapshot", "other": "Dentro il container {name}: {n} snapshot"},
   "hold.snaps_container_title": "Montato solo dentro il container — il server non lo vede e ZFS non può smontarlo da fuori",
+  "hold.snaps_process": {"one": "In un processo: {n} snapshot", "other": "In un processo: {n} snapshot"},
+  "hold.snaps_process_title": "Montato solo nella vista dei mount propria di un processo — il server non lo vede e ZFS non può smontarlo da fuori",
   "help.hold": "Cosa trattiene l'array?",
   "help.hold_text": "Cosa tratterrebbe l'array se lo fermassi adesso? Se un programma ha un file aperto su un disco, un pool o una condivisione, Unraid non può smontarlo. Quando «⟦Shutdown time-out⟧» scade, il server si spegne in modo non pulito e il prossimo avvio controlla la parità. VM e container li ferma Unraid stesso. Lui legge soltanto e non sveglia nessun disco."
 }
