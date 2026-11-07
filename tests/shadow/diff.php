@@ -40,13 +40,13 @@ function tree(string $dir, array $files): void
 }
 
 /** Python with its tape: [plan, tape] */
-function pyPlan(array $env, string $work): array
+function pyPlan(array $env, string $work, string $mode = 'run'): array
 {
     $tape = "$work/tape.jsonl";
     $plan = "$work/plan.json";
     @unlink($plan);
     $full = $env + ['PYTHONDONTWRITEBYTECODE' => '1', 'PATH' => getenv('PATH') ?: '/usr/bin:/bin', 'LANG' => 'C.UTF-8', 'HOME' => '/root'];
-    $p = proc_open(['python3', $GLOBALS['app'] . '/mediacache_shadow.py', '--tape', $tape, '--plan', $plan, '--logs', "$work/logs"],
+    $p = proc_open(['python3', $GLOBALS['app'] . '/mediacache_shadow.py', '--tape', $tape, '--plan', $plan, '--logs', "$work/logs", '--mode', $mode],
         [0 => ['file', '/dev/null', 'r'], 1 => ['file', "$work/py.out", 'w'], 2 => ['file', "$work/py.err", 'w']], $pipes, $GLOBALS['app'], $full);
     $exit = proc_close($p);
     $doc = readJson($plan);
@@ -59,16 +59,16 @@ function roundTrip(array $doc): array
 }
 
 /** The three plans of one setup: the differences, per comparison. With a stub's log: each request and the key it carried, Python's and PHP's live client's, the same */
-function threePlans(array $env, string $work, string $plexTv, ?string $log = null, array $secrets = []): array
+function threePlans(array $env, string $work, string $plexTv, ?string $log = null, array $secrets = [], string $mode = 'run'): array
 {
     @unlink((string) $log);
-    [$py, $tape] = pyPlan($env, $work);
+    [$py, $tape] = pyPlan($env, $work, $mode);
     $pyAsked = $log !== null ? (string) @file_get_contents($log) : '';
     $tapeText = (string) @file_get_contents("$work/tape.jsonl");
-    $fromTape = $tape === null ? ['outcome' => 'no tape'] : roundTrip(jackPlanRun($env, $tape, $plexTv));
+    $fromTape = $tape === null ? ['outcome' => 'no tape'] : roundTrip(jackPlanRun($env, $tape, $plexTv, $mode));
     @unlink((string) $log);
     $live = new JackPlanLive($env);
-    $seen = roundTrip(jackPlanRun($env, $live, $plexTv));
+    $seen = roundTrip(jackPlanRun($env, $live, $plexTv, $mode));
     $liveDiff = jackShadowDiff($py, $seen);
     $tapeDiff = jackShadowDiff($py, $fromTape, $tape->missing ?? [], $tape?->left() ?? []);
     if ($log !== null) {
@@ -201,7 +201,7 @@ if (($argvRest[0] ?? '') === '--real') {
         'themes on' => ['themes' => true],
         'array_source disk' => ['array_source' => 'disk'],
     ];
-    $envs = ['' => [], ' + give back (min free 99)' => ['MEDIACACHE_GIVE_BACK_FREE' => '1', 'MEDIACACHE_MIN_FREE_PERCENT' => '99'],
+    $envs = ['' => [], ' + give back (min free 99)' => ['MEDIACACHE_GIVE_BACK_FREE' => '1', 'MEDIACACHE_MIN_FREE_PERCENT' => '99'], ' + no fill' => ['MEDIACACHE_NO_FILL' => '1', 'MEDIACACHE_GIVE_BACK_FREE' => '1'],
              ' + watched only' => ['MEDIACACHE_WATCHED_ONLY' => '1', 'MEDIACACHE_MIN_FREE_PERCENT' => '40', 'MEDIACACHE_KEEP_BYTES' => '1000']];
     $all = true;
     $n = 0;
@@ -211,9 +211,14 @@ if (($argvRest[0] ?? '') === '--real') {
             copy($list, "$work/data/mediacache_exclude.txt");
         }
         foreach ($envs as $tag => $env) {
-            $r = threePlans($env + ['MEDIACACHE_DIR' => "$work/data"], $work, JACK_PLAN_PLEX_TV);
-            $all = report($name . $tag, $r, null) && $all;
-            $n++;
+            foreach (['run', 'release'] as $mode) {
+                if ($mode === 'release' && $tag !== '') {
+                    continue;
+                }
+                $r = threePlans($env + ['MEDIACACHE_DIR' => "$work/data"], $work, JACK_PLAN_PLEX_TV, null, [], $mode);
+                $all = report($name . $tag . ($mode === 'release' ? ' (release)' : ''), $r, null) && $all;
+                $n++;
+            }
         }
     }
     say(($all ? 'all the same' : 'DIFFERENCES') . " ($n setups, " . count($cases) . ' settings)');
@@ -229,17 +234,27 @@ $tmp = sys_get_temp_dir() . '/uso-shadow-' . getmypid();
 $worldFile = "$tmp/world.json";
 $logFile = "$tmp/stub.log";
 file_put_contents($worldFile, '{}');
-$stub = proc_open([PHP_BINARY, '-d', 'auto_prepend_file=', '-d', 'display_errors=0', '-S', "127.0.0.1:$port", __DIR__ . '/stub.php'],
+$stub = proc_open(['setsid', PHP_BINARY, '-d', 'auto_prepend_file=', '-d', 'display_errors=0', '-S', "127.0.0.1:$port", __DIR__ . '/stub.php'],
     [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, $tmp, ['STUB_WORLD' => $worldFile, 'STUB_LOG' => $logFile, 'PATH' => getenv('PATH') ?: '/usr/bin:/bin', 'PHP_CLI_SERVER_WORKERS' => '4']);
 for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port, $e, $s, 0.2); $i++) {
     usleep(100000);
 }
 $base = "http://127.0.0.1:$port";
 $shutdown = function () use ($stub, $tmp): void {
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    $done = true;
+    $pid = (int) (proc_get_status($stub)['pid'] ?? 0);
+    if ($pid > 1) {
+        posix_kill(-$pid, SIGTERM);      // the server and its workers: their own process group (setsid)
+    }
     proc_terminate($stub);
     proc_close($stub);
     exec('rm -rf ' . escapeshellarg($tmp));
 };
+register_shutdown_function($shutdown);
 
 $film = fn (string $id, string $name, string $path, array $x = []): array => $x + ['Id' => $id, 'Type' => 'Movie', 'Name' => $name, 'Path' => $path, 'LocationType' => 'FileSystem'];
 $ep = fn (string $sid, string $sname, int $s, int $e, string $path, array $x = []): array => $x + ['Id' => "$sid-$s-$e", 'Type' => 'Episode', 'Name' => "Folge $e", 'SeriesId' => $sid, 'SeriesName' => $sname,
@@ -545,6 +560,32 @@ $case('env: MEDIACACHE_KEEP_BYTES no number', ['world' => $emby1, 'env' => ['MED
 $case('env: a budget from outside', ['world' => $emby1, 'env' => ['MEDIACACHE_CACHE_BUDGET' => '3K']]);
 $case('array_source disk: the source is the disk', ['world' => $emby1, 'settings' => ['array_source' => 'disk'], 'disks' => ['disk1' => ['Filme/Ferien (2019)/Ferien.mkv' => 4000], 'disk2' => ['Filme/Ferien (2019)/Ferien.mkv' => 4000, 'Filme/Taufe (2018)/Taufe.mkv' => 2000]]]);
 
+// ---------------------------------------------------- the review (2026-11-08): what the real runs do, orders, odd settings
+$case('no fill (the joint run\'s first step): give back and clean up, fetch nothing', ['world' => $emby1, 'cache' => $onPool + $oldCache, 'list' => $old, 'env' => $give + ['MEDIACACHE_NO_FILL' => '1']] + $pool(100000, 15000));
+$case('no fill: what waits on the array only counted', ['world' => $emby1, 'env' => ['MEDIACACHE_NO_FILL' => '1'], 'expect' => fn (array $py): ?string => ($py['fill']['waiting'] ?? 0) > 0 && !$py['fill']['rels'] ? null : 'expected only waiting']);
+$case('release: everything on the list back, what plays stays', ['mode' => 'release', 'world' => ['one' => ['type' => 'emby', 'sessions' => [['NowPlayingItem' => ['Path' => '/m/Filme/Alt/alt.mkv']]]] + $mb], 'list' => $old, 'cache' => $oldCache, 'expect' => fn (array $py): ?string => count($py['cleanup']['paths'] ?? []) > 2 ? null : 'expected a cleanup']);
+$case('release: a server not answering — what plays can\'t be told', ['mode' => 'release', 'world' => $oneRaw(['/Sessions' => ['status' => 500]]), 'list' => $old, 'cache' => $oldCache, 'expect' => $inc]);
+$case('release: themes stay', ['mode' => 'release', 'world' => $emby1, 'settings' => ['themes' => true], 'list' => ['@T@/pool/Filme/Taufe (2018)/theme.mp3', '@T@/pool/Filme/Alt/alt.mkv'], 'cache' => ['Filme/Taufe (2018)/theme.mp3' => 34, 'Filme/Alt/alt.mkv' => 500]]);
+$case('release: themes go too (RELEASE_THEMES)', ['mode' => 'release', 'world' => $emby1, 'settings' => ['themes' => true], 'env' => ['MEDIACACHE_RELEASE_THEMES' => '1'], 'list' => ['@T@/pool/Filme/Taufe (2018)/theme.mp3', '@T@/pool/Filme/Alt/alt.mkv'], 'cache' => ['Filme/Taufe (2018)/theme.mp3' => 34, 'Filme/Alt/alt.mkv' => 500]]);
+$case('order: names that are no UTF-8 beside UTF-8 ones (surrogateescape)', $oneItem([$film('1', 'a', '/m/Filme/Gemischt/Don’t.mkv')], [], ['extra' => ["Filme/Gemischt/Don’t.mkv" => 1, "Filme/Gemischt/Don\x92t.srt" => 2, "Filme/Gemischt/Don\xc0t.nfo" => 3, "Filme/Gemischt/Don😀t.jpg" => 4, "Filme/Gemischt/Don\xfft.x" => 5, "Filme/Gemischt/Don\u{e000}t.y" => 6]]));
+$case('order: give back inside an item with such names', $oneItem([$film('1', 'a', '/m/Filme/Gemischt/Don’t.mkv')], [], ['extra' => ["Filme/Gemischt/Don’t.mkv" => 1000, "Filme/Gemischt/Don\x92t.srt" => 2000],
+    'cache' => ["Filme/Gemischt/Don’t.mkv" => 1000, "Filme/Gemischt/Don\x92t.srt" => 2000], 'env' => $give] + $pool(100000, 19500)));
+$case('names: numbers as names at the same rank (who gives back)', ['world' => ['one' => ['type' => 'emby', 'users' => [$u('a', '10'), $u('b', '9'), $u('c', '1e3'), $u('d', '999')],
+    'resume' => ['a' => [$film('1', 'x', $A)], 'b' => [$film('1', 'x', $A)], 'c' => [$film('1', 'x', $A)], 'd' => [$film('1', 'x', $A)]]]], 'cache' => $onPool, 'env' => $give] + $pool(100000, 1000));
+$case('names: letters newer folds than Python\'s Unicode', ['world' => ['em' => ['type' => 'emby', 'users' => [$u('a', "\u{1c89}x"), $u('b', "\u{a7cb}y")], 'resume' => ['a' => [$film('1', 'a', $A)], 'b' => [$film('2', 'b', $B)]]], 'je' => ['type' => 'jellyfin', 'users' => [$u('c', "\u{1c8a}x"), $u('d', "\u{264}y")], 'resume' => ['c' => [$film('3', 'c', $C)], 'd' => [$film('4', 'd', $D)]]]]]);
+$case('floats: ids and titles as floats', $oneItem([$film('x', 'a', $A, ['Id' => 1.0e-5, 'Name' => -0.0]), $film('y', 'b', $B, ['Id' => 1.0e16, 'Name' => 123.25]), $film('z', 'c', $C, ['Id' => 0.0001, 'Name' => 1.5e300])]));
+$case('settings: api_timeout null (no timeout)', $settingsCase(['api_timeout' => null], $complete));
+$case('settings: api_timeout as text', $settingsCase(['api_timeout' => '10'], $out('crash')));
+$case('settings: api_timeout negative', $settingsCase(['api_timeout' => -1], $out('crash')));
+$case('settings: a size of nan', $settingsCase(['cache_budget' => 'nanG']));
+$case('settings: a size of inf', $settingsCase(['cache_budget' => 'infG'], $out('crash')));
+$case('settings: shares_cfg_dir null', ['world' => $emby1, 'settings' => ['shares_cfg_dir' => null], 'shares' => [], 'expect' => $out('crash')]);
+$case('settings: a server\'s url null', ['world' => [], 'servers' => [['type' => 'emby', 'url' => null, 'api_key' => 'x', 'path_mappings' => ['/m' => '/x']]], 'expect' => $out('crash')]);
+$case('settings: a server\'s url without http', ['world' => [], 'servers' => [['type' => 'emby', 'url' => 'ftp://127.0.0.1:9', 'api_key' => 'x', 'path_mappings' => ['/m' => '@T@/user']]], 'expect' => $inc]);
+$case('plex.tv: every token form scrubbed from the tape', ['world' => ['px' => $plex, 'plextv' => ['account' => ['id' => 111, 'title' => 'Chef', 'authToken' => 'secret-account-token', 'services' => [['token' => 'svc-token-1']], 'subscription' => ['plexToken' => 'svc-token-1']],
+    'shared' => "<MediaContainer><SharedServer userID='222' username='Freund' accessToken='single-quoted-tok' inviteToken=\"other-attr-tok\"/><SharedServer userID=\"223\" username=\"Zwei\" accessToken=\"friendtoken\"/></MediaContainer>"] + $plextv], 'key' => 'plexadmintoken',
+    'expect' => fn (array $py): ?string => count($py['persons'] ?? []) === 3 ? null : 'expected the admin and two friends']);
+
 // ======================================================================== run them
 
 $only = array_values(array_filter($argvRest, fn (string $a): bool => $a !== '--list'));
@@ -647,7 +688,7 @@ foreach ($cases as $name => $c) {
     };
     $before = $look();
     // the key never on the tape: the instance's, the account's and the friend's tokens
-    $r = threePlans($env, $t, "$base/plextv", $logFile, ['"k1"', 'plexadmintoken', 'friendtoken', 'secret-account-token']);
+    $r = threePlans($env, $t, "$base/plextv", $logFile, ['"k1"', 'plexadmintoken', 'friendtoken', 'secret-account-token', 'svc-token-1', 'single-quoted-tok', 'other-attr-tok'], $c['mode'] ?? 'run');
     $bad = isset($c['expect']) ? ($c['expect'])($r['py']) : null;
     if ($look() !== $before) {
         $bad = 'something changed in the array, the pool or his data';

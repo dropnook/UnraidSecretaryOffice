@@ -1303,6 +1303,10 @@ if (str_starts_with($u, "/to-")) { http_response_code(302); header("Location: " 
 
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-plan.php');
     $code = (string) preg_replace('#/\*.*?\*/|//[^\n]*#s', '', $src);
+    $main = (string) strstr((string) strstr($code, 'function jackPlanMain('), "\nif (PHP_SAPI", true);
+    check('plan: its process writes only its own result (--out, a new file then rename), nothing else', substr_count($main, 'file_put_contents(') === 1 && substr_count($main, 'rename(') === 1
+        && str_contains($main, "@file_put_contents(\$tmp,") && str_contains($main, "\$tmp = \$opt['out'] . '.tmp';"));
+    $code = str_replace($main, '', $code);
     check('plan: this file moves nothing: no copy, rename, delete, write, chmod, mkdir or a command but `zfs list`',
         !preg_match('/\b(copy|rename|unlink|rmdir|mkdir|file_put_contents|fwrite|fputs|touch|chmod|chown|symlink|link|writeAtomic|writeNewFile|shell_exec|passthru|exec|system|popen|proc_open|hostLaunch|emcmd)\s*\(/', $code)
         && substr_count($code, 'run([') === 2 && substr_count($code, "'zfs', 'list'") === 2);
@@ -1313,8 +1317,10 @@ if (str_starts_with($u, "/to-")) { http_response_code(302); header("Location: " 
 }
 
 /**
- * MediaCache's plan in PHP in the shadow of Python (agent/desks/jack-shadow.php): asleep without its flag; the job with stand-ins for Python's dry run: the same, a
- * difference (only what shows twice), not compared (a disk asleep, someone's lock, Python failed), one file a date, 60 days, no key; his state's key.
+ * MediaCache's plan in PHP in the shadow of Python (agent/desks/jack-shadow.php, reworked 2026-11-08): asleep without its flag; right before a
+ * real run, inside its job, with the run's environment; stand-ins for both sides: the same, a difference (seen twice: differ; once: kept as
+ * once), both failing (error), not compared (a disk asleep, a stop asked, the array stopped, Python failed); nothing written after an array
+ * stop or without his data folder; one file a date, 60 days, no key; his state's key.
  */
 function testJackShadow(): void
 {
@@ -1330,130 +1336,204 @@ function testJackShadow(): void
     file_put_contents("$tmp/mounts", "/dev/x $tmp/pool xfs rw 0 0\n");
     $answers = [['http://emby/Sessions', $key, []], ['http://emby/Users', $key, [['Id' => 'u', 'Name' => 'Anna']]],
         ...jackPlanTestUser('http://emby', $key, 'u', [['Type' => 'Movie', 'Id' => 'a', 'Name' => 'A', 'Path' => '/m/Filme/A/a.mkv']], [])];
-    $env = ['MEDIACACHE_MOUNTS' => "$tmp/mounts", 'MEDIACACHE_ZFS' => '/nonexistent'];
+    $env = ['MEDIACACHE_MOUNTS' => "$tmp/mounts", 'MEDIACACHE_ZFS' => '/nonexistent', 'MEDIACACHE_NO_FILL' => '1', 'MEDIACACHE_RESULT' => "$dir/status.json", 'MEDIACACHE_STOP' => "$dir/office-stop.json", 'MEDIACACHE_PROGRESS' => '/x'];
     $clock = 1800000000;
     $calls = 0;
-    /** @var callable|null $edit what the stand-in for Python's dry run does to its plan */
+    $seenEnv = null;
+    /** @var callable|null $edit what the stand-in for Python's dry twin does to its plan */
     $edit = null;
-    $h = function (array $over = []) use ($tmp, $dir, $env, $answers, &$clock, &$calls, &$edit): array {
-        return $over + ['dir' => $dir, 'run' => "$tmp/run", 'array' => fn () => true, 'busy' => fn () => null, 'asleep' => fn () => [], 'env' => fn () => $env, 'sleep' => function () {
+    $array = true;
+    $stop = false;
+    $asleep = [];
+    $h = function (array $over = []) use ($tmp, $dir, $answers, &$clock, &$calls, &$edit, &$array, &$stop, &$asleep, &$seenEnv): array {
+        return $over + ['dir' => $dir, 'run' => "$tmp/run", 'array' => function () use (&$array) {
+            return $array;
+        }, 'stop' => function () use (&$stop) {
+            return $stop;
+        }, 'asleep' => function () use (&$asleep) {
+            return is_callable($asleep) ? $asleep() : $asleep;
         }, 'now' => function () use (&$clock) {
             return $clock;
-        }, 'version' => '9.9.9', 'plex_tv' => 'http://nowhere', 'python' => function (array $e, string $tape, string $plan) use ($answers, &$calls, &$edit, $tmp): int {
+        }, 'version' => '9.9.9', 'plex_tv' => 'http://nowhere',
+        'python' => function (array $e, string $tape, string $plan, string $logs, string $mode, callable $go) use ($answers, &$calls, &$edit, &$seenEnv, $tmp): ?int {
             $calls++;
-            $doc = json_decode((string) json_encode(jackPlanRun($e, jackPlanTestTape($tape, $answers, ["$tmp/pool" => [1000000, 900000]]))), true);
+            $seenEnv = $e + ['mode' => $mode];
+            if (!$go()) {
+                return null;
+            }
+            $answers = $mode === 'release' ? [$answers[0]] : $answers;      // a release asks only what plays
+            jackPlanTestTape($tape, $answers, ["$tmp/pool" => [1000000, 900000]]);
+            $doc = json_decode((string) json_encode(jackPlanRun($e, jackPlanTestTape("$tape.py", $answers, ["$tmp/pool" => [1000000, 900000]]), 'http://nowhere', $mode)), true);
+            @unlink("$tape.py");
             if ($edit !== null) {
                 $doc = $edit($doc, $calls);
             }
             file_put_contents($plan, json_encode($doc));
-            jackPlanTestTape($tape, $answers, ["$tmp/pool" => [1000000, 900000]]);
+            return 0;
+        },
+        'php' => function (array $e, ?string $tape, string $out, string $mode, callable $go, string $plexTv): ?int {
+            if (!$go()) {
+                return null;
+            }
+            $host = $tape === null ? null : JackPlanTape::read($tape);
+            $plan = $host === null ? ['outcome' => 'ok'] : jackPlanRun($e, $host, $plexTv, $mode);
+            file_put_contents($out, json_encode(['plan' => $plan, 'asked' => $host->asked ?? 3, 'failed' => 0, 'missing' => $host->missing ?? [], 'left' => $host?->left() ?? []]));
             return 0;
         }];
     };
     $file = function () use ($dir, &$clock): ?array {
         return readJson("$dir/shadow/" . date('Y-m-d', $clock) . '.json');
     };
+    $both = function (array $over = [], array $status = []) use ($h, $env): void {
+        jackShadowAfter(jackShadowBefore('run', $env, $h($over)), $status, $h($over));
+    };
 
     // asleep: no flag, nothing at all
-    same('shadow asleep: without its file the job does nothing, nothing shows', [0, 0, false, null, ['ok' => true, 'state' => null]], [jackShadowJob($h()), $calls, is_dir("$dir/shadow"), jackShadowSummary($dir), jackShadowList($dir)]);
+    same('shadow asleep: without its file nothing runs, nothing shows', [null, 0, false, null, ['ok' => true, 'state' => null]],
+        [jackShadowBefore('run', $env, $h()), $calls, is_dir("$dir/shadow"), jackShadowSummary($dir), jackShadowList($dir)]);
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
-    check('shadow asleep: his state has the key only with the flag; started only from the end of jackJob()', str_contains($src, "if ((\$shadow = jackShadowSummary()) !== null) {\n        \$state['shadow'] = \$shadow;") && str_contains($src, 'jackShadowAfterRun($tool, $mode, $exit, $noFill);'));
+    check('shadow asleep: his state has the key only with the flag; asked only right before a real run of his, in its own job',
+        str_contains($src, "if ((\$shadow = jackShadowSummary()) !== null) {\n        \$state['shadow'] = \$shadow;")
+        && str_contains($src, "\$shadow = \$tool === 'embycache' && \$real && jackShadowOn() ? jackShadowBefore(\$mode, \$env) : null;\n    \$proc = \$cmd !== null ? proc_open(")
+        && str_contains($src, 'jackShadowAfter($shadow, $status);') && !str_contains($src, "'jack-shadow'"));
     $shadow = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-shadow.php');
-    check('shadow: through atd only, no check, no notification, nothing in tick', str_contains($shadow, 'hostLaunch(JACK_SHADOW_JOB,') && !str_contains($shadow, 'officeNotify(') && !str_contains($shadow, 'finding(') && !str_contains((string) preg_replace('/.*\'tick\'\s*=>/s', '', (string) strstr($src, "'actions' =>", true)), 'jackShadow'));
+    check('shadow: no check, no notification, no atd job, no lock of its own', !str_contains($shadow, 'officeNotify(') && !str_contains($shadow, 'finding(')
+        && !str_contains($shadow, 'hostLaunch(') && !str_contains($shadow, 'flock('));
 
-    // the flag: the same
+    // the flag: the same, with exactly the run's environment
     file_put_contents("$dir/shadow.json", "{}\n");
-    same('shadow: the job runs with the flag, ends 0', 0, jackShadowJob($h()));
+    $both([], ['cleanup' => ['planned' => 0], 'fill' => ['planned' => 0]]);
     $n = $file();
-    same('shadow: the same plan: one night file in its shape, counted once, one pair', [1, $clock, '9.9.9', true, true, 1, 1, ['same' => 1, 'differ' => 0, 'not' => 0, 'last' => $clock]],
-        [$n['v'] ?? null, $n['time'] ?? null, $n['version'] ?? null, $n['compared'] ?? null, $n['same'] ?? null, $n['counts']['on_deck'] ?? null, $calls, jackShadowSummary($dir)], json_encode($n));
-    check('shadow: no key in anything it leaves, the tape gone at once', !str_contains((string) file_get_contents("$dir/shadow/" . date('Y-m-d', $clock) . '.json'), $key) && !is_dir("$tmp/run"));
-    same('shadow: the live look only says what it saw, it is no difference (no server here: failed)', [false, true], [$n['live']['same'] ?? null, $n['same']]);
+    same('shadow: the same plan: one file in its shape, counted once, one pair', [2, $clock, '9.9.9', 'run', 'same', 1, 1, ['same' => 1, 'differ' => 0, 'once' => 0, 'error' => 0, 'not' => 0, 'last' => $clock]],
+        [$n['v'] ?? null, $n['time'] ?? null, $n['version'] ?? null, $n['mode'] ?? null, $n['result'] ?? null, $n['counts']['on_deck'] ?? null, $calls, jackShadowSummary($dir)], json_encode($n));
+    same('shadow: the run\'s environment (no-fill step included), never its result, stop or progress files', ['1', false, false, false, $dir, 'run'],
+        [$seenEnv['MEDIACACHE_NO_FILL'] ?? null, isset($seenEnv['MEDIACACHE_RESULT']), isset($seenEnv['MEDIACACHE_STOP']), isset($seenEnv['MEDIACACHE_PROGRESS']), $seenEnv['MEDIACACHE_DIR'] ?? null, $seenEnv['mode'] ?? null]);
+    same('shadow: the live look and the run\'s own counts, said only', [['outcome' => 'ok', 'asked' => 3, 'failed' => 0], ['cleanup' => [0, 0], 'fill' => [0, 0]]], [$n['live'] ?? null, $n['real'] ?? null]);
+    check('shadow: no key in anything it leaves, nothing left in RAM', !str_contains((string) file_get_contents("$dir/shadow/" . date('Y-m-d', $clock) . '.json'), $key) && !is_dir("$tmp/run"));
 
-    // a difference: stable entries, the pair done twice; what shows only once counts for nothing
+    // a difference seen twice: differ; only once: once (never thrown away)
     $clock += 86400;
     $calls = 0;
     $edit = function (array $doc): array {
         $doc['on_deck'][0]['size'] = 6;
-        $doc['fill']['rels'] = [];
         return $doc;
     };
-    jackShadowJob($h());
+    $both();
     $n = $file();
-    same('shadow: a difference: only the difference, by kind and path, what each planned; shown twice before it counts',
-        [false, 2, true, [['kind' => 'fill', 'path' => 'Filme/A/a.mkv', 'python' => false, 'php' => true], ['kind' => 'file', 'path' => 'Filme/A/a.mkv', 'python' => ['size' => 6], 'php' => ['size' => 5]]], ['same' => 1, 'differ' => 1, 'not' => 0, 'last' => $clock]],
-        [$n['same'] ?? null, $calls, $n['second_look'] ?? null, $n['differences'] ?? null, jackShadowSummary($dir)], json_encode($n));
+    same('shadow: a difference shown twice: differ, by kind and path, what each planned', ['differ', 2, [['kind' => 'file', 'path' => 'Filme/A/a.mkv', 'python' => ['size' => 6], 'php' => ['size' => 5]]], false],
+        [$n['result'] ?? null, $calls, $n['differences'] ?? null, isset($n['once'])], json_encode($n));
     $list = jackShadowList($dir)['state'];
-    same('shadow: the part: the night with differences, each side in words', [$clock, 'fill', 'false', 'true', '{"size":6}'],
-        [$list['nights'][0]['time'] ?? null, $list['nights'][0]['differences'][0]['kind'] ?? null, $list['nights'][0]['differences'][0]['python'] ?? null, $list['nights'][0]['differences'][0]['php'] ?? null, $list['nights'][0]['differences'][1]['python'] ?? null]);
+    same('shadow: the part: the date with differences, each side in words', [$clock, 'differ', 'file', '{"size":6}', '{"size":5}'],
+        [$list['nights'][0]['time'] ?? null, $list['nights'][0]['result'] ?? null, $list['nights'][0]['differences'][0]['kind'] ?? null, $list['nights'][0]['differences'][0]['python'] ?? null, $list['nights'][0]['differences'][0]['php'] ?? null]);
     $clock += 86400;
     $calls = 0;
-    $edit = fn (array $doc, int $c): array => $c === 1 ? ['outcome' => 'crash'] + $doc : $doc;      // a film arrived between the two looks: only the first differs
-    jackShadowJob($h());
+    $edit = fn (array $doc, int $c): array => $c === 1 ? ['errors' => 7] + $doc : $doc;      // a film arrived between the two looks: only the first differs
+    $both();
     $n = $file();
-    same('shadow: what doesn\'t show again is the moment: the same', [true, 2, true], [$n['same'] ?? null, $calls, $n['second_look'] ?? null], json_encode($n));
+    same('shadow: what the second pair doesn\'t show again is kept as «once», never «the same»', ['once', 2, [['kind' => 'run', 'path' => 'errors', 'python' => 7, 'php' => 0]]],
+        [$n['result'] ?? null, $calls, $n['once'] ?? null], json_encode($n));
+    $clock += 86400;
+    $calls = 0;
+    $asleep = function () use (&$calls) {
+        return $calls >= 1 ? ['disk3'] : [];
+    };
+    $both();
+    $n = $file();
+    same('shadow: a disk asleep before the second pair: the first difference kept, the second look «disk_asleep»', ['once', 'disk_asleep', 1, 'errors'],
+        [$n['result'] ?? null, $n['second'] ?? null, $calls, $n['once'][0]['path'] ?? null], json_encode($n));
+    $asleep = [];
 
-    // a second comparison on the same date
-    $edit = fn (array $doc): array => ['errors' => 7] + $doc;
-    $clock += 60;
-    jackShadowJob($h());
+    // both sides failing is an error, never the same
+    $clock += 86400;
+    file_put_contents("$tmp/bad.json", '[1, 2]');
+    $edit = null;
+    jackShadowAfter(jackShadowBefore('run', ['MEDIACACHE_CONFIG' => "$tmp/bad.json"] + $env, $h()), [], $h());
     $n = $file();
-    same('shadow: another comparison on the same date: one file, the last on top, the earlier kept; the date counts as with differences',
-        [false, [true], ['kind' => 'run', 'path' => 'errors', 'python' => 7, 'php' => 0], 1], [$n['same'] ?? null, array_column($n['earlier'] ?? [], 'same'), $n['differences'][0] ?? null, $n['v'] ?? null], json_encode($n));
-    same('shadow: the count over the dates', ['same' => 1, 'differ' => 2, 'not' => 0], array_slice((array) jackShadowSummary($dir), 0, 3));
+    same('shadow: both sides crash: «error», with each side\'s outcome; the date counts apart', ['error', ['python' => 'crash', 'php' => 'crash'], 1],
+        [$n['result'] ?? null, $n['outcome'] ?? null, jackShadowSummary($dir)['error'] ?? null], json_encode($n));
+    $clock += 60;
+    jackShadowAfter(jackShadowBefore('run', ['MEDIACACHE_CACHE_BUDGET' => '12X'] + $env, $h()), [], $h());
+    same('shadow: both say «config»: «error» too; another comparison of the date kept beside it', ['error', ['python' => 'config', 'php' => 'config'], ['error']],
+        [$file()['result'] ?? null, $file()['outcome'] ?? null, array_map('jackShadowResult', $file()['earlier'] ?? [])]);
+    $edit = fn (array $doc): array => ['outcome' => 'crash'];
+    $clock += 60;
+    $both();
+    same('shadow: one side failing is a difference (the outcome)', ['differ', 'outcome'], [$file()['result'] ?? null, $file()['differences'][0]['kind'] ?? null]);
+    $edit = null;
 
     // not compared: never a difference, never a wake
-    $edit = null;
-    foreach ([['asleep', ['asleep' => fn () => ['disk3']], 'disk_asleep', 0], ['the array stopped', ['array' => fn () => false], 'stopped', 0],
-              ['Python failed', ['python' => fn () => 1], 'python_failed', 0], ['Python found its lock held', ['python' => function (array $e, string $tape, string $plan) {
-                  file_put_contents($plan, '{"outcome":"busy"}');
-                  return 0;
-              }], 'busy', 0], ['Python stopped', ['python' => fn () => null], 'stopped', 0]] as [$what, $over, $why, $expected]) {
+    foreach ([['a disk asleep', function () use (&$asleep) {
+        $asleep = ['disk3'];
+    }, 'disk_asleep', 0], ['a stop asked', function () use (&$stop) {
+        $stop = true;
+    }, 'stopped', 1], ['the array stopping', function () use (&$array) {
+        $array = 'later';
+    }, 'stopped', 1], ['Python failed', function () use (&$edit) {
+        $edit = 'fail';
+    }, 'python_failed', 1]] as [$what, $set, $why, $expected]) {
         $clock += 86400;
         $calls = 0;
-        jackShadowJob($h($over));
+        $set();
+        $over = $edit === 'fail' ? ['python' => function () use (&$calls) {
+            $calls++;
+            return 1;
+        }] : [];
+        if ($array === 'later') {
+            $array = true;
+            $ctx = jackShadowBefore('run', $env, $h(['array' => function () use (&$calls) {
+                return $calls === 0;
+            }] + $over));
+        } else {
+            $ctx = jackShadowBefore('run', $env, $h($over));
+        }
+        jackShadowAfter($ctx, [], $h($over));
         $n = $file();
-        same("shadow not compared: $what — said, no difference, Python not asked beyond it", [false, $why, $expected, false], [$n['compared'] ?? null, $n['why'] ?? null, $calls, isset($n['differences'])], json_encode($n));
+        same("shadow not compared: $what — said, no difference, nothing asked beyond it", ['not', $why, $expected, false], [$n['result'] ?? null, $n['why'] ?? null, $calls, isset($n['differences'])], json_encode($n));
+        $asleep = [];
+        $stop = false;
+        $edit = null;
     }
-    $clock += 86400;
-    $seen = 0;
-    jackShadowJob($h(['busy' => function () use (&$seen) {
-        return ++$seen <= 2 ? 'moverelli' : null;
-    }]));
-    same('shadow: it waits while another holds its lock, then compares; someone starting meanwhile: not compared', [true, 3], [$file()['compared'] ?? null, $seen - 1], json_encode($file()));
-    $clock += 86400;
-    $seen = 0;
-    jackShadowJob($h(['busy' => function () use (&$seen) {
-        return ++$seen === 1 ? null : 'backup';
-    }]));
-    same('shadow: someone started while the plans were made: not compared', [false, 'busy'], [$file()['compared'] ?? null, $file()['why'] ?? null]);
-    $flock = fopen("$tmp/run-lock", 'c');
-    @mkdir("$tmp/run", 0700, true);
-    $lock = fopen("$tmp/run/job.lock", 'c');
-    flock($lock, LOCK_EX);
-    $before = file_get_contents("$dir/shadow/summary.json");
-    same('shadow: a second job while one goes ends at once', [0, $before], [jackShadowJob($h()), file_get_contents("$dir/shadow/summary.json")]);
-    flock($lock, LOCK_UN);
-    fclose($lock);
-    fclose($flock);
-    exec('rm -rf ' . escapeshellarg("$tmp/run"));
 
-    // 60 days
+    // after an array stop nothing is written, no folder made (never into /mnt)
+    $clock += 86400;
+    $ctx = jackShadowBefore('run', $env, $h());
+    $array = false;
+    jackShadowAfter($ctx, [], $h());
+    $array = true;
+    check('shadow: the array stopped after the run: nothing written', $file() === null);
+    $gone = "$tmp/gone/mediacache";
+    $ctx = jackShadowBefore('run', $env, $h());
+    jackShadowAfter($ctx, [], $h(['dir' => $gone]));
+    check('shadow: his data folder not there: no folder made', !file_exists("$tmp/gone"));
+
+    // a process of the comparison ends at once when asked to
+    $t0 = hrtime(true);
+    $r = jackShadowChild(['sleep', '30'], ['PATH' => '/usr/bin:/bin'], '/dev/null', fn (): bool => false, '/');
+    check('shadow: a process ends at once when the array stops or a stop is asked: nothing waits for it', $r === null && hrtime(true) - $t0 < 3_000_000_000);
+
+    // --release: its own twin
+    $clock += 86400;
+    $calls = 0;
+    jackShadowAfter(jackShadowBefore('release', $env, $h()), [], $h());
+    same('shadow: before a release, the release\'s plan', ['release', 'same', 'release'], [$seenEnv['mode'] ?? null, $file()['result'] ?? null, $file()['mode'] ?? null], json_encode($file()));
+
+    // 60 days; an older file's shape still counted
     $old = "$dir/shadow/" . date('Y-m-d', $clock - 70 * 86400) . '.json';
     file_put_contents($old, '{"v":1}');
     $young = "$dir/shadow/" . date('Y-m-d', $clock - 50 * 86400) . '.json';
-    file_put_contents($young, '{"v":1,"compared":false,"why":"busy"}');
+    file_put_contents($young, '{"v":1,"compared":true,"same":true,"time":1}');
     $clock += 86400;
-    jackShadowJob($h());
-    same('shadow: kept 60 days', [false, true], [is_file($old), is_file($young)]);
+    $before = jackShadowCount("$dir/shadow")['same'];
+    $both();
+    same('shadow: kept 60 days; a file of the first version counted by its own words', [false, true, $before + 1], [is_file($old), is_file($young), jackShadowSummary($dir)['same'] ?? null]);
 
-    // which disks a plan may need
-    $settings = ['cache_path' => '/mnt/cache', 'user_path' => '/mnt/user', 'instances' => [['path_mappings' => ['/m' => '/mnt/user/media/Filme', '/o' => '/mnt/user/Alles', '/n' => '/mnt/user/Nur']]]];
-    $shares = ['media' => ['include' => 'disk1,disk2', 'exclude' => '', 'useCache' => 'yes'], 'Alles' => ['include' => '', 'exclude' => 'disk2', 'useCache' => 'yes'], 'Nur' => ['include' => 'disk4', 'useCache' => 'only']];
-    $asleep = ['disk1' => false, 'disk2' => true, 'disk3' => true, 'disk4' => true, 'disk10' => false, 'cache' => false, 'parity' => true];
-    same('shadow asleep: only the array disks his mapped shares may use, and his pool (a cache-only share none)', ['disk2', 'disk3', 'disk4'], jackShadowAsleep($settings, $asleep, $shares));
-    same('shadow asleep: a disk no mapped share may use may sleep', ['disk2'], jackShadowAsleep(['cache_path' => '/mnt/cache', 'user_path' => '/mnt/user', 'instances' => [['path_mappings' => ['/m' => '/mnt/user/media/Filme']]]], $asleep, $shares));
-    same('shadow asleep: none of them asleep', [], jackShadowAsleep(['cache_path' => '/mnt/cache', 'instances' => [['path_mappings' => ['/m' => '/mnt/user/media']]]], ['disk1' => false, 'disk2' => false, 'disk3' => true, 'cache' => false], ['media' => ['include' => 'disk1,disk2']]));
+    // which disks a plan may need (also a mapping onto /mnt/user0 or the pool)
+    $settings = ['cache_path' => '/mnt/cache', 'user_path' => '/mnt/user', 'array_path' => '/mnt/user0', 'instances' => [['path_mappings' => ['/m' => '/mnt/user/media/Filme', '/o' => '/mnt/user/Alles', '/n' => '/mnt/user/Nur']]]];
+    $shares = ['media' => ['include' => 'disk1,disk2', 'exclude' => '', 'useCache' => 'yes'], 'Alles' => ['include' => '', 'exclude' => 'disk2', 'useCache' => 'yes'], 'Nur' => ['include' => 'disk4', 'useCache' => 'only'], 'Roh' => ['include' => 'disk10']];
+    $sleeping = ['disk1' => false, 'disk2' => true, 'disk3' => true, 'disk4' => true, 'disk10' => true, 'cache' => false, 'parity' => true];
+    same('shadow asleep: only the array disks his mapped shares may use, and his pool (a cache-only share none)', ['disk2', 'disk3', 'disk4', 'disk10'], jackShadowAsleep($settings, $sleeping, $shares));
+    same('shadow asleep: a mapping onto /mnt/user0 counts too; one onto the pool only the pool', ['disk10'],
+        jackShadowAsleep(['cache_path' => '/mnt/cache', 'instances' => [['path_mappings' => ['/r' => '/mnt/user0/Roh/x', '/p' => '/mnt/cache/media']]]], $sleeping, $shares));
     same('shadow asleep: his pool asleep; every disk with array_source disk', ['disk3', 'cache'], jackShadowAsleep(['array_source' => 'disk', 'cache_path' => '/mnt/cache', 'instances' => []], ['disk1' => false, 'disk3' => true, 'cache2' => true], []));
 
     // the comparison itself
@@ -1461,10 +1541,10 @@ function testJackShadow(): void
         'give_back' => ['paths' => [], 'files' => 0, 'bytes' => 0, 'held' => 0, 'keep' => null, 'items' => []], 'cleanup' => ['paths' => ['p'], 'bytes' => 1], 'fill' => ['rels' => ['x', 'y'], 'dropped' => [], 'bytes' => 2, 'waiting' => 0, 'waiting_bytes' => 0],
         'on_deck' => [['rel' => 'x', 'size' => 1], ['rel' => 'y', 'size' => 1]], 'persons' => [['key' => 'p:a', 'budget' => '1.000', 'selected' => [['files' => ['x'], 'chain' => 'c', 'title' => 'T']], 'skipped' => []]]];
     same('shadow diff: the same', [], jackShadowDiff($base, $base));
-    same('shadow diff: both failed the same way: nothing to compare', [], jackShadowDiff(['outcome' => 'crash', 'detail' => 'TypeError'], ['outcome' => 'crash', 'detail' => 'x']));
     same('shadow diff: an outcome', [['kind' => 'outcome', 'path' => '', 'python' => 'ok', 'php' => 'crash']], jackShadowDiff($base, ['outcome' => 'crash']));
     same('shadow diff: the order of the fill: its first place', [['kind' => 'fill.order', 'path' => 'x', 'python' => 0, 'php' => 1], ['kind' => 'on_deck.order', 'path' => 'x', 'python' => 0, 'php' => 1]],
         jackShadowDiff($base, ['fill' => ['rels' => ['y', 'x']] + $base['fill'], 'on_deck' => array_reverse($base['on_deck'])] + $base));
+    same('shadow diff: the same entries, one twice: their count', [['kind' => 'fill.count', 'path' => '', 'python' => 2, 'php' => 3]], jackShadowDiff($base, ['fill' => ['rels' => ['x', 'y', 'y']] + $base['fill']] + $base));
     same('shadow diff: a question one side asked', [['kind' => 'request', 'path' => 'http://a', 'python' => 2, 'php' => 0], ['kind' => 'request', 'path' => 'http://b', 'python' => 0, 'php' => 1]], jackShadowDiff($base, $base, ['http://b' => 1], ['http://a' => 2]));
     same('shadow diff: a person\'s numbers; a group that differs inside', [['kind' => 'person', 'path' => 'p:a.budget', 'python' => '1.000', 'php' => '2.000'], ['kind' => 'selected.group', 'path' => 'x', 'python' => $base['persons'][0]['selected'][0], 'php' => ['title' => 'U'] + $base['persons'][0]['selected'][0]]],
         jackShadowDiff($base, ['persons' => [['budget' => '2.000', 'selected' => [['title' => 'U'] + $base['persons'][0]['selected'][0]]] + $base['persons'][0]]] + $base));
