@@ -6,6 +6,9 @@ declare(strict_types=1);
  * sleeping array disk stays asleep.
  */
 
+/** How many /proc/<pid> entries snapshotMountsEverywhere() looks at, at most: it runs in the watchman's round and the array-hold look */
+const SNAPSHOT_WALK_PIDS = 4096;
+
 /**
  * All mounts as the host sees them, in /proc/self/mountinfo order. Whatever
  * was mounted later comes further down and may build on earlier mounts.
@@ -48,16 +51,19 @@ function mountInfoParse(string $text): array
 }
 
 /**
- * Every ZFS snapshot mounted right now (fstype zfs, source <pool>/<dataset>@<name>) — on the host (/proc/1/mountinfo)
- * and inside each running container's own mount namespace (/proc/<its main pid>/mountinfo). A look into
- * `.zfs/snapshot/<name>` from inside a container can leave the snapshot mounted there only: the host sees nothing,
- * `zfs destroy` answers «dataset is busy» (2026-10-31). Read from /proc only: nothing under /mnt opened, no disk woken.
- * A container whose /proc entry is gone between the list and the read is left out; one that shares the host's mount
- * namespace counts as the host; a container's copy of a host mount that only propagated into it (master:N of the
- * host's shared:N) is the host's — it goes when that goes.
+ * Every ZFS snapshot mounted right now (fstype zfs, source <pool>/<dataset>@<name>) — on the host (/proc/1/mountinfo),
+ * inside each running container's own mount namespace (/proc/<its main pid>/mountinfo) and in every other mount namespace
+ * in /proc (an LXC container, an `unshare`d process, a compose sidecar Docker's list misses: `where` process, `comm` the
+ * name of the pid read). A look into `.zfs/snapshot/<name>` from there can leave the snapshot mounted there only: the host
+ * sees nothing, `zfs destroy` answers «dataset is busy» (2026-10-31). Read from /proc only: nothing under /mnt opened, no
+ * disk woken; one readlink per pid, one mountinfo per namespace (the lowest pid that shows it), SNAPSHOT_WALK_PIDS pids
+ * at most. A container or process whose /proc entry is gone between the list and the read is left out; one that shares the
+ * host's mount namespace counts as the host; a copy of a host mount that only propagated into a namespace (master:N of
+ * the host's shared:N) is the host's — it goes when that goes. While Docker doesn't answer, a container's namespace is
+ * seen by the walk as a process.
  * $containers: [{name, pid}] (null: the running ones from Docker, dockerRunningPids()); $proc: the tests' copy.
  *
- * @return list<array{ds: string, name: string, where: string, container: ?string, pid: int, path: string, auto: bool}>
+ * @return list<array{ds: string, name: string, where: string, container: ?string, pid: int, path: string, auto: bool, comm?: string}>
  *         `auto`: mounted at <something>/.zfs/snapshot/<name> (an automount), else mounted somewhere by hand
  */
 function snapshotMountsEverywhere(?array $containers = null, string $proc = '/proc'): array
@@ -75,6 +81,22 @@ function snapshotMountsEverywhere(?array $containers = null, string $proc = '/pr
             }
         }
     }
+    // one namespace's snapshot mounts, without the host's own that only propagated into it
+    $own = function (string $text) use ($shared): array {
+        $mine = [];
+        foreach (mountInfoParse($text) as $m) {
+            if (($s = snapshotMountOf($m)) === null) {
+                continue;
+            }
+            foreach ($m['tags'] as $t) {
+                if (str_starts_with($t, 'master:') && isset($shared[$m['source'] . "\0" . substr($t, 7)])) {
+                    continue 2;
+                }
+            }
+            $mine[] = $s;
+        }
+        return $mine;
+    };
     $seen = $hostNs !== false ? [$hostNs => true] : [];
     foreach ($containers ?? dockerRunningPids() as $c) {
         $pid = (int) ($c['pid'] ?? 0);
@@ -92,20 +114,61 @@ function snapshotMountsEverywhere(?array $containers = null, string $proc = '/pr
         if ($ns !== false) {
             $seen[$ns] = true;
         }
-        foreach (mountInfoParse($text) as $m) {
-            if (($s = snapshotMountOf($m)) === null) {
-                continue;
-            }
-            foreach ($m['tags'] as $t) {
-                if (str_starts_with($t, 'master:') && isset($shared[$m['source'] . "\0" . substr($t, 7)])) {
-                    continue 2;         // the host's own, propagated
-                }
-            }
+        foreach ($own($text) as $s) {
             $out[] = $s + ['where' => 'container', 'container' => $c['name'], 'pid' => $pid];
         }
     }
+    foreach (snapshotWalkPids($proc) as $pid) {
+        $ns = @readlink("$proc/$pid/ns/mnt");
+        if ($pid === 1 || $ns === false || isset($seen[$ns])) {
+            continue;                   // the host, gone or a zombie, or a namespace already read
+        }
+        $text = @file_get_contents("$proc/$pid/mountinfo");
+        if ($text === false) {
+            continue;                   // ended in between: the next pid of this namespace, if there is one, is read
+        }
+        $mine = $own($text);
+        $comm = $mine ? @file_get_contents("$proc/$pid/comm") : '';
+        if ($comm === false) {
+            continue;                   // the same
+        }
+        $seen[$ns] = true;
+        foreach ($mine as $s) {
+            $out[] = $s + ['where' => 'process', 'container' => null, 'pid' => $pid, 'comm' => snapshotCommName($comm)];
+        }
+    }
     return array_map(fn (array $x): array => ['ds' => $x['ds'], 'name' => $x['name'], 'where' => $x['where'], 'container' => $x['container'],
-                                              'pid' => $x['pid'], 'path' => $x['path'], 'auto' => $x['auto']], $out);
+                                              'pid' => $x['pid'], 'path' => $x['path'], 'auto' => $x['auto']]
+        + (isset($x['comm']) ? ['comm' => $x['comm']] : []), $out);
+}
+
+/**
+ * The numeric entries of /proc, lowest first — SNAPSHOT_WALK_PIDS at most (reading stops there, no error)
+ *
+ * @return list<int>
+ */
+function snapshotWalkPids(string $proc): array
+{
+    $dir = @opendir($proc);
+    if ($dir === false) {
+        return [];
+    }
+    $pids = [];
+    while (count($pids) < SNAPSHOT_WALK_PIDS && ($e = readdir($dir)) !== false) {
+        if (preg_match('/^[1-9]\d{0,9}$/D', $e)) {
+            $pids[] = (int) $e;
+        }
+    }
+    closedir($dir);
+    sort($pids);
+    return $pids;
+}
+
+/** A process's name as the page may say it: /proc/<pid>/comm trimmed, printable ASCII only, 32 characters at most */
+function snapshotCommName(string $comm): string
+{
+    $name = substr((string) preg_replace('/[^\x20-\x7e]/', '?', trim($comm)), 0, 32);
+    return $name !== '' ? $name : '?';
 }
 
 /** A mountinfo entry of a ZFS snapshot: {ds, name, path, auto} — else null */
