@@ -741,6 +741,9 @@ function logsWakeFiles(string $proc, int $pid, int &$fds, array &$ns, ?callable 
  * (asks the power state only), smartctl in standby mode (never wakes a disk), smartctl/hdparm/sdspin (not «up») that
  * Unraid started (emhttpd reads SMART once it sees a disk awake). $smartThen: an entry of an older agent (no `by`) at a
  * wake Unraid read SMART for — its smartctl was that read.
+ * `sensors` (lm-sensors, run by Unraid's dashboard and plugins) reads hwmon only — board, CPU, NVMe, RAM: it reaches a
+ * rotating disk only through the `drivetemp` driver, so without a drivetemp hwmon it is never a cause either (2026-11-08:
+ * caught in state D at a wake on a server without drivetemp, «maybe»); entries of older agents read the same way.
  */
 function logsWakeReaction(array $w, bool $smartThen = false): bool
 {
@@ -755,7 +758,27 @@ function logsWakeReaction(array $w, bool $smartThen = false): bool
         || ($prog === 'smartctl' && preg_match('/(?:^|\s)(?:-n\s*|--nocheck[= ]?)(?:standby|sleep|idle)\b/', $cmd))
         || ($by === 'unraid' && in_array($prog, ['smartctl', 'hdparm'], true))
         || ($by === 'unraid' && $prog === 'sdspin' && !preg_match('/\sup(?:\s|$)/', $cmd))
-        || ($by === null && $smartThen && $prog === 'smartctl');
+        || ($by === null && $smartThen && $prog === 'smartctl')
+        || ($prog === 'sensors' && !logsWakeDrivetemp());
+}
+
+/** A `drivetemp` hwmon here (/sys/class/hwmon/hwmonN/name — RAM): only then can reading the sensors touch a rotating disk */
+function logsWakeDrivetemp(?string $sys = null): bool
+{
+    static $known = [];
+    $sys ??= logsWakeSys();
+    $mono = hrtime(true) / 1e9;
+    if (!isset($known[$sys]) || $mono - $known[$sys][0] > 300) {        // modules come and go rarely: looked at every 5 min
+        $found = false;
+        foreach (glob("$sys/class/hwmon/*/name", GLOB_NOSORT) ?: [] as $f) {
+            if (trim((string) @file_get_contents($f)) === 'drivetemp') {
+                $found = true;
+                break;
+            }
+        }
+        $known[$sys] = [$mono, $found];
+    }
+    return $known[$sys][1];
 }
 
 /**

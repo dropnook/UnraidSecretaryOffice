@@ -42010,6 +42010,23 @@ function testLogsWakeTrail(): void
                  ['disk' => 'disk4', 'dir' => 5, 'n' => 1, 'bytes' => 1], 'junk']])['dirs'])]);
         check('logs trail: mountinfo untouched by the tests\' own look', $mountinfo === file_get_contents("$proc/1/mountinfo"));
 
+        // `sensors` reaches a rotating disk only through drivetemp: without one it is Unraid's look, never a cause
+        mkdir("$tmp/sys-plain/class/hwmon/hwmon0", 0700, true);
+        file_put_contents("$tmp/sys-plain/class/hwmon/hwmon0/name", "nvme\n");
+        mkdir("$tmp/sys-dt/class/hwmon/hwmon3", 0700, true);
+        file_put_contents("$tmp/sys-dt/class/hwmon/hwmon3/name", "drivetemp\n");
+        $sensors = ['kind' => 'program', 'prog' => 'sensors', 'cmd' => '/usr/bin/sensors -A', 'by' => 'unraid', 'byname' => '', 'pid' => 77, 'files' => []];
+        $old = ['id' => 's1', 'time' => 1792522284, 'disks' => ['disk4'], 'how' => 'caught',
+                'who' => [['kind' => 'program', 'prog' => 'sensors', 'cmd' => 'sensors -A', 'sure' => 'maybe', 'files' => []]]];
+        $GLOBALS['logsWakeSys'] = "$tmp/sys-plain";
+        $plain = [logsWakeReaction($sensors), logsWakeCauses([['who' => [$sensors], 'wrote' => [], 'open' => []]], ['/mnt/disk4']),
+                  logsWakeShaped($old)['who'], logsWakeShaped($old)['unraid']];
+        $GLOBALS['logsWakeSys'] = "$tmp/sys-dt";
+        $dt = [logsWakeReaction($sensors), array_column(logsWakeShaped($old)['who'], 'prog'), logsWakeShaped($old)['unraid']];
+        same('logs trail: sensors without a drivetemp hwmon is Unraid\'s look (now and in an older agent\'s entry), with drivetemp a cause it can be',
+            [[true, [], [], true], [false, ['sensors'], false]], [$plain, $dt]);
+        $GLOBALS['logsWakeSys'] = $sys;
+
         // the bounded reader: ended at its byte limit, said so
         if (is_executable('/usr/bin/yes') || is_executable('/bin/yes')) {
             [$code, $out, $cut] = logsWakeRunCapped([is_executable('/usr/bin/yes') ? '/usr/bin/yes' : '/bin/yes'], 5, 100000);
