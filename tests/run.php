@@ -1109,10 +1109,13 @@ function testJackPlan(): void
     // where things lie (testJackPaths and README: longest wins, `..` never out of the share)
     $cfg = ['cache_path' => '/mnt/cache', 'array_path' => '/mnt/user0', 'user_path' => '/mnt/user'];
     $loc = new JackPlanLocations($cfg, [['/media/movies', '/mnt/user/Filme'], ['/media', '/mnt/user/Rest'], ['/deep/lib', '/mnt/user/medien/Filme']], ['/media/nie']);
-    same('plan paths: the longest mapping, at a border only; «..» never out of the share; no mapping: none',
-        ['Filme/A/a.mkv', 'Rest/moviesX/a.mkv', null, null, 'Rest/nie/x', null, 'Filme/A/x.mkv'],
+    same('plan paths: the longest mapping, at a border only; «..» never out of the share; no mapping: none; an empty line under a broader one: none',
+        ['Filme/A/a.mkv', 'Rest/moviesX/a.mkv', null, null, null, null, 'Filme/A/x.mkv'],
         [$loc->relFromDocker('/media/movies/A/a.mkv'), $loc->relFromDocker('/media/moviesX/a.mkv'), $loc->relFromDocker('/media/movies/../../../../boot/config/go'), $loc->relFromDocker('/nix/a.mkv'),
          $loc->relFromDocker('/media/nie/x'), $loc->relFromDocker('/media/movies/A/../../Other/x'), $loc->relFromDocker('/media/movies//A/./x.mkv')]);
+    $under = new JackPlanLocations($cfg, [['/media/movies', '/mnt/user/Filme']], ['/media']);
+    same('plan paths: a real line below an empty one still maps; only the empty one\'s other paths are skipped', ['Filme/A/a.mkv', null, true, false],
+        [$under->relFromDocker('/media/movies/A/a.mkv'), $under->relFromDocker('/media/other/b.mkv'), $under->skipped('/media/nie/x'), $loc->skipped('/media/nie2/x')]);
     check('plan paths: a library root is no film\'s folder', $loc->isLibraryRoot('') && $loc->isLibraryRoot('Filme') && $loc->isLibraryRoot('medien/Filme') && !$loc->isLibraryRoot('medien/Filme/A'));
     same('plan paths: Path.stem, sorted part by part', ['E1', '.hidden', 'ends.', 'a.b', ['a/c', 'a b/c', 'b']], [jpStem('E1.mkv'), jpStem('.hidden'), jpStem('ends.'), jpStem('a.b.c'), jpSortPaths(['b', 'a b/c', 'a/c'])]);
 

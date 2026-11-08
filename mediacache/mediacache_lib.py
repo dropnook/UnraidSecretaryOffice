@@ -608,11 +608,14 @@ class Locations:
                 self.library_roots.add(rel)
 
     def to_host(self, docker_path):
-        """Längstes passendes Mapping, Prefix nur an Pfadgrenzen."""
+        """Längstes passendes Mapping, Prefix nur an Pfadgrenzen. USO (2026-11-08): eine Zeile mit leerem Host-Pfad zählt
+        mit – ist sie die längste, ist der Ordner absichtlich nicht gecacht (None), auch unter einem breiteren Mapping."""
         best, repl = "", ""
         for d, h in self.mappings.items():
             if (docker_path == d or docker_path.startswith(d + "/")) and len(d) > len(best):
                 best, repl = d, h
+        if self.skipped(docker_path, len(best)):
+            return None
         if not best:
             return None
         return repl + docker_path[len(best):]
@@ -630,8 +633,9 @@ class Locations:
             return rel if rel.parts else None
         return None
 
-    def skipped(self, docker_path):
-        return any(docker_path == d or docker_path.startswith(d + "/") for d in self.skip)
+    def skipped(self, docker_path, longer_than=-1):
+        """Eine leere Zeile deckt den Pfad (länger als `longer_than`: länger als das beste Mapping)."""
+        return any((docker_path == d or docker_path.startswith(d + "/")) and len(d) > longer_than for d in self.skip)
 
     def rel_from_docker(self, docker_path):
         host = self.to_host(docker_path)

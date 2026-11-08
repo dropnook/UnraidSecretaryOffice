@@ -1539,7 +1539,8 @@ final class JackPlanLocations
         }
     }
 
-    /** The longest mapping that fits, at a path's border only */
+    /** The longest mapping that fits, at a path's border only; a line with an empty host path counts too: when it is the
+     *  longest, the folder is deliberately not cached (null), under a broader mapping as well (Python's to_host(), 2026-11-08) */
     public function toHost(string $docker): ?string
     {
         $best = $repl = null;
@@ -1548,6 +1549,9 @@ final class JackPlanLocations
                 $best = $d;
                 $repl = $h;
             }
+        }
+        if ($this->skipped($docker, strlen($best ?? ''))) {
+            return null;
         }
         return $best === null ? null : $repl . substr($docker, strlen($best));
     }
@@ -1568,10 +1572,11 @@ final class JackPlanLocations
         return null;
     }
 
-    public function skipped(string $docker): bool
+    /** An empty line covers the path (longer than `$longerThan`: longer than the best mapping) */
+    public function skipped(string $docker, int $longerThan = -1): bool
     {
         foreach ($this->skip as $d) {
-            if ($docker === $d || str_starts_with($docker, "$d/")) {
+            if (($docker === $d || str_starts_with($docker, "$d/")) && strlen($d) > $longerThan) {
                 return true;
             }
         }

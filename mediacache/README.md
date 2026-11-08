@@ -13,7 +13,8 @@
 >   `MEDIACACHE_ZFS` / `MEDIACACHE_MOUNTS` point it at stand-ins for the tests). The key/token goes only to the server's own
 >   host: unredirected headers and `_SameHostRedirect` (all three types, Plex's plex.tv calls too). A path with `..` is never
 >   followed out of the share (`Locations.to_rel`). A path mapping with an empty host path means «deliberately not cached»
->   (`Locations(…, skip)`), the longest mapping wins — never a shorter one. An answer without an item list, a server
+>   (`Locations(…, skip)`), the longest mapping wins — never a shorter one; an empty line under a broader mapping wins
+>   too (2026-11-08: before, the broader one cached the folder anyway). An answer without an item list, a server
 >   without users, or a claimed Plex whose shared users plex.tv didn't give is an incomplete plan (no cleanup that run),
 >   never «nothing watched». `PlexApi.resume_items` honours `IncludeItemTypes` (the separate limits below).
 > * (Gone in 1.65.0, the owner: the office's «back to the disk they came from» — Unraid's share rules and its move binary
