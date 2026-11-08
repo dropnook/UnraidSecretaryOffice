@@ -789,7 +789,7 @@
   "count.shadow_differ": {"one": "{n} con diferencias", "other": "{n} con diferencias"},
   "count.shadow_not": {"one": "{n} sin comparar", "other": "{n} sin comparar"},
   "shadow.title": "El plan en PHP",
-  "shadow.sub": "Tras una ejecución real planifico otra vez en PHP, con las mismas respuestas que los servidores multimedia dieron a Python. Los archivos solo los mueve Python.",
+  "shadow.sub": "Justo antes de cada ejecución real planifico otra vez en PHP, con las mismas respuestas que los servidores multimedia dan a Python, y comparo. Los archivos solo los mueve Python.",
   "shadow.tip": "Solo una comparación: no mueve nada.",
   "shadow.value": "{same}, {differ}",
   "shadow.none": "Aún nada comparado",

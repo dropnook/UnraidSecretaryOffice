@@ -789,7 +789,7 @@
   "count.shadow_differ": {"one": "{n} mit Unterschieden", "other": "{n} mit Unterschieden"},
   "count.shadow_not": {"one": "{n} nicht verglichen", "other": "{n} nicht verglichen"},
   "shadow.title": "Der Plan in PHP",
-  "shadow.sub": "Nach einem echten Lauf plane ich noch einmal in PHP, aus denselben Antworten, die die Medienserver Python gaben. Dateien verschiebt nur Python.",
+  "shadow.sub": "Direkt vor jedem echten Lauf plane ich noch einmal in PHP, aus denselben Antworten, die die Medienserver Python geben, und vergleiche. Dateien verschiebt nur Python.",
   "shadow.tip": "Nur ein Vergleich: dadurch wird nichts verschoben.",
   "shadow.value": "{same}, {differ}",
   "shadow.none": "Noch nichts verglichen",
