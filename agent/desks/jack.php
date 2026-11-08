@@ -142,6 +142,8 @@ desk('jack', [
         // «Check the structure…» (jack-structure.php): only ever on this click; the part «structure» (desk.json) reads its list
         'structure_start' => fn (array $r) => jackStructureAsk(),
         'structure_list'  => fn (array $r) => jackStructureList(),
+        // the plan in PHP beside Python (jack-shadow.php), only with its flag file: the part «shadow» reads the differences
+        'shadow_list'     => fn (array $r) => jackShadowList(),
     ],
     'jobs'    => [
         'embycache' => fn (array $args) => jackJob('embycache', $args),
@@ -390,6 +392,10 @@ function jackScan(): array
         // «Check the structure…» (jack-structure.php): the counts of the last check, whether one goes; null: never asked
         'structure'  => jackStructureSummary(),
     ];
+    // the plan in PHP beside Python (jack-shadow.php): the key only with its flag file
+    if (($shadow = jackShadowSummary()) !== null) {
+        $state['shadow'] = $shadow;
+    }
     $GLOBALS['jackDocker'] = $state['docker'];      // for his tick (jackDockerBackTick()): no file read every round
     writeAtomic(deskFile('jack'), jsonEncode($state));
     return $state;
@@ -3354,6 +3360,8 @@ function jackJob(string $tool, array $args): int
     if ($cmd === null) {
         fwrite($out, "The gather's settings could not be put in RAM (" . RUN_DIR . ") - nothing done.\n");
     }
+    // only with its flag file: the plan in PHP beside Python's, right before this real run, on the state it acts on (jack-shadow.php)
+    $shadow = $tool === 'embycache' && $real && jackShadowOn() ? jackShadowBefore($mode, $env) : null;
     $proc = $cmd !== null ? proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => $out, 2 => $out], $pipes, $cwd, $env) : false;
     $stoppedFor = $stoppedWhy = null;
     if (!is_resource($proc)) {
@@ -3419,6 +3427,7 @@ function jackJob(string $tool, array $args): int
     } catch (Throwable $e) {
         fwrite(STDERR, "$tool: notification failed: {$e->getMessage()}\n");
     }
+    jackShadowAfter($shadow, $status);        // only with its flag file: what the comparison before the run found (jack-shadow.php)
     return $exit;
 }
 

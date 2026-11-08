@@ -1032,6 +1032,541 @@ function testJack(): void
 }
 
 /**
+ * The plan in PHP (agent/desks/jack-plan.php, 2026-11-07): what MediaCache's own tests and the office's say about the planner, on the same
+ * fixtures, without Python and without a server: every answer from a tape. (tests/shadow/diff.php holds the plans of both side by side.)
+ */
+function jackPlanTestTape(string $file, array $answers, array $pool = [], float $now = 1800000000.0): JackPlanTape
+{
+    $lines = [json_encode(['v' => JACK_PLAN_TAPE_V, 'now' => $now])];
+    foreach ($answers as [$url, $token, $answer]) {
+        $rec = ['url' => $url, 'token' => jackPlanTokenId($token)];
+        $lines[] = json_encode(is_int($answer) ? $rec + ['http' => $answer] : $rec + ['body' => is_string($answer) ? $answer : json_encode($answer, JSON_UNESCAPED_SLASHES)], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+    foreach ($pool as $path => [$total, $free]) {
+        $lines[] = json_encode(['pool' => $path, 'total' => $total, 'free' => $free], JSON_UNESCAPED_SLASHES);
+    }
+    file_put_contents($file, implode("\n", $lines) . "\n");
+    $t = JackPlanTape::read($file);
+    assert($t !== null);
+    return $t;
+}
+
+/** The Emby questions of one user who asks for little: their answers on a tape line each */
+function jackPlanTestUser(string $url, string $token, string $uid, array $movies, array $episodes, array $series = []): array
+{
+    $f = 'Path%2CSeriesId%2CParentIndexNumber%2CIndexNumber%2CLocationType';
+    $out = [["$url/Users/$uid/Items/Resume?MediaTypes=Video&IncludeItemTypes=Movie&Limit=10&Fields=$f", $token, ['Items' => $movies]],
+            ["$url/Users/$uid/Items/Resume?MediaTypes=Video&IncludeItemTypes=Episode&Limit=10&Fields=$f", $token, ['Items' => $episodes]]];
+    foreach ($series as $sid => $eps) {
+        $out[] = ["$url/Users/$uid/Items?ParentId=$sid&Recursive=true&IncludeItemTypes=Episode&SortBy=ParentIndexNumber%2CIndexNumber&SortOrder=Ascending&Fields=Path%2CParentIndexNumber%2CIndexNumber%2CLocationType", $token, ['Items' => $eps]];
+    }
+    return $out;
+}
+
+function testJackPlan(): void
+{
+    $tmp = hardeningTmp('jack-plan');
+    $write = function (array $files, string $root) use ($tmp): void {
+        foreach ($files as $rel => $n) {
+            @mkdir(dirname("$tmp/$root/$rel"), 0777, true);
+            file_put_contents("$tmp/$root/$rel", str_repeat('x', $n));
+        }
+    };
+
+    // the settings (testJackUpstream)
+    @mkdir("$tmp/pool", 0777, true);
+    @mkdir("$tmp/user0", 0777, true);
+    $inst = [['servername' => 'Emby: Home', 'url' => 'http://192.168.20.10:8096/', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme/' => '/mnt/user/Filme/', '/media/nie' => '']]];
+    $set = fn (array $x) => file_put_contents("$tmp/s.json", json_encode($x + ['cache_path' => "$tmp/pool", 'array_path' => "$tmp/user0", 'instances' => $inst], JSON_UNESCAPED_SLASHES));
+    $set([]);
+    $c = jackPlanConfig("$tmp/s.json", []);
+    same('plan config: numbers as numbers, the defaults, the mappings without their last slash, an empty one apart',
+        [20.0, 0, 'mover', 'emby', 'http://192.168.20.10:8096', [['/media/Filme', '/mnt/user/Filme']], ['/media/nie']],
+        [$c['min_free_percent'], $c['mover_debug_level'], $c['cleanup_tool'], $c['instances'][0]['type'], $c['instances'][0]['url'], $c['instances'][0]['_mappings'], $c['instances'][0]['_skip']]);
+    $c = jackPlanConfig("$tmp/s.json", ['MEDIACACHE_MIN_FREE_PERCENT' => '12.5', 'MEDIACACHE_MOVER_DEBUG' => '2', 'MEDIACACHE_CACHE_BUDGET' => '2.5T']);
+    same('plan config: … from the environment too', [12.5, 2, (int) (2.5 * 1024 ** 4)], [$c['min_free_percent'], $c['mover_debug_level'], $c['cache_budget_bytes']]);
+    $refused = function (array $x, array $env = []) use ($tmp, $set): bool {
+        $set($x);
+        try {
+            jackPlanConfig("$tmp/s.json", $env);
+            return false;
+        } catch (JackPlanConfigError) {
+            return true;
+        }
+    };
+    check('plan config: no number, a bad size, a share out of range, no server, a bad tool: ConfigError, never on with a guess',
+        $refused(['min_free_percent' => 'viel']) && $refused([], ['MEDIACACHE_MOVER_DEBUG' => 'x']) && $refused(['mover_debug_level' => null]) && $refused(['cache_budget' => '12X'])
+        && $refused(['movie_share_percent' => 101]) && $refused(['instances' => []]) && $refused(['cleanup_tool' => 'x']) && $refused(['cache_path' => '/nonexistent']));
+    $set(['valid_users' => ['u1' => ['budget' => '5G'], 'u2' => null, 'u3' => ['budget' => 0]], 'themes' => 'true']);
+    $c = jackPlanConfig("$tmp/s.json", []);
+    same('plan config: people with budgets; `themes` only as a real true', [['u1', 'u2', 'u3'], ['u1' => 5 * 2 ** 30], false], [$c['valid_users'], $c['user_budgets'], $c['themes']]);
+    same('plan config: sizes', [0, 0, 1536 * 2 ** 20, 800 * 2 ** 30, 100], [jackPlanSize(null), jackPlanSize(' '), jackPlanSize('1536 m'), jackPlanSize('800G'), jackPlanSize(100)]);
+
+    // a person is the same name ignoring case, spaces and accents
+    same('plan: person key — case, spaces, accents, ß, the same over several servers', ['p:anna', 'p:anna', 'p:anna', 'p:leo', 'p:strasse', 'p:', 'p:0', 'p:muller'],
+        [jpPersonKey('Anna'), jpPersonKey(' ánna'), jpPersonKey("A\u{00a0}N\u{0303}NA"), jpPersonKey('Leo'), jpPersonKey('Straße'), jpPersonKey(null), jpPersonKey('0'), jpPersonKey("Mu\u{308}ller")]);
+
+    // where things lie (testJackPaths and README: longest wins, `..` never out of the share)
+    $cfg = ['cache_path' => '/mnt/cache', 'array_path' => '/mnt/user0', 'user_path' => '/mnt/user'];
+    $loc = new JackPlanLocations($cfg, [['/media/movies', '/mnt/user/Filme'], ['/media', '/mnt/user/Rest'], ['/deep/lib', '/mnt/user/medien/Filme']], ['/media/nie']);
+    same('plan paths: the longest mapping, at a border only; «..» never out of the share; no mapping: none',
+        ['Filme/A/a.mkv', 'Rest/moviesX/a.mkv', null, null, 'Rest/nie/x', null, 'Filme/A/x.mkv'],
+        [$loc->relFromDocker('/media/movies/A/a.mkv'), $loc->relFromDocker('/media/moviesX/a.mkv'), $loc->relFromDocker('/media/movies/../../../../boot/config/go'), $loc->relFromDocker('/nix/a.mkv'),
+         $loc->relFromDocker('/media/nie/x'), $loc->relFromDocker('/media/movies/A/../../Other/x'), $loc->relFromDocker('/media/movies//A/./x.mkv')]);
+    check('plan paths: a library root is no film\'s folder', $loc->isLibraryRoot('') && $loc->isLibraryRoot('Filme') && $loc->isLibraryRoot('medien/Filme') && !$loc->isLibraryRoot('medien/Filme/A'));
+    same('plan paths: Path.stem, sorted part by part', ['E1', '.hidden', 'ends.', 'a.b', ['a/c', 'a b/c', 'b']], [jpStem('E1.mkv'), jpStem('.hidden'), jpStem('ends.'), jpStem('a.b.c'), jpSortPaths(['b', 'a b/c', 'a/c'])]);
+
+    // the budget (testJackUpstream: nostromo 2026-10-16: a big film first no longer takes a person's whole budget)
+    $G = 2 ** 30;
+    $g = fn (string $cat, int $size, string $chain, string $t): JackPlanGroup => new JackPlanGroup([new JackPlanFile("$chain/$t", $size * $G, false, 'p:x', 'resume', $t, 0, "i|$t")], $cat, $chain, 'Weiterschauen', null, $t);
+    $select = function (array $mv, array $se, int $budget, float $share) use ($G): array {
+        $up = new JackPlanUser('p:x', 'x');
+        $up->movies = $mv;
+        $up->series = $se;
+        JackPlanner::select($up, (float) ($budget * $G), $share);
+        return [(int) round($up->movieBytes / $G), (int) round($up->seriesBytes / $G), in_array('Big', array_map(fn ($x) => $x->title, $up->selected), true)];
+    };
+    $mv = [$g('movie', 25, 'm1', 'Big'), $g('movie', 3, 'm2', 'Small')];
+    $se = array_map(fn (int $i) => $g('series', 1, 's' . ($i % 2), "E$i"), range(0, 29));
+    same('plan budget: the films\' share holds while episodes wait; only films: they get the room; few episodes: the film too',
+        [[3, 27, false], [28, 0, true], [25, 3, true]], [$select($mv, $se, 30, 0.2), $select($mv, [], 30, 0.2), $select([$g('movie', 25, 'm1', 'Big')], array_slice($se, 0, 3), 30, 0.2)]);
+    $up = new JackPlanUser('p:x', 'x');
+    $up->series = [$g('series', 9, 'c', 'e1'), $g('series', 8, 'c', 'e2'), $g('series', 1, 'c', 'e3'), $g('series', 1, 'd', 'x1')];
+    JackPlanner::select($up, 10.0 * $G, 0.0);
+    same('plan budget: what no longer fits stops its chain, never episode 3 without 2; another series goes on', [['e1', 'x1'], ['e2', 'e3']],
+        [array_map(fn ($x) => $x->title, $up->selected), array_map(fn ($x) => $x->title, $up->skipped)]);
+
+    // persons over two servers (testJackPersons): one share, one budget under any of their ids, an item two servers name once
+    $write(['Filme/A/a.mkv' => 100, 'Filme/B/b.mkv' => 200, 'Serien/S/S01/e1.mkv' => 10, 'Serien/S/S01/e2.mkv' => 10], 'user0');
+    $film = fn (string $id, string $p): array => ['Type' => 'Movie', 'Id' => $id, 'Name' => strtoupper($id), 'Path' => $p];
+    $ep = fn (int $i): array => ['Type' => 'Episode', 'Id' => "e$i", 'Name' => "E$i", 'SeriesId' => 's', 'SeriesName' => 'S', 'ParentIndexNumber' => 1, 'IndexNumber' => $i, 'Path' => "/m/Serien/S/S01/e$i.mkv"];
+    $A = $film('a', '/m/Filme/A/a.mkv');
+    $B = $film('b', '/m/Filme/B/b.mkv');
+    $emby = 'http://emby';
+    $jelly = 'http://jelly';
+    $f = 'Path%2CSeriesId%2CParentIndexNumber%2CIndexNumber%2CLocationType';
+    $answers = [["$emby/Sessions", 'ke', []], ["$jelly/Sessions", 'kj', []], ["$emby/Users", 'ke', [['Id' => 'e-anna', 'Name' => 'Anna'], ['Id' => 'e-leo', 'Name' => 'Leo']]],
+        ...jackPlanTestUser($emby, 'ke', 'e-anna', [$A], [$ep(1)], ['s' => [$ep(1), $ep(2)]]), ...jackPlanTestUser($emby, 'ke', 'e-leo', [$B], []),
+        ["$jelly/Users", 'kj', [['Id' => 'j-anna', 'Name' => " \u{e1}nna"]]],
+        ["$jelly/UserItems/Resume?userId=j-anna&MediaTypes=Video&IncludeItemTypes=Movie&Limit=10&Fields=$f", 'kj', ['Items' => [$A]]], ["$jelly/UserItems/Resume?userId=j-anna&MediaTypes=Video&IncludeItemTypes=Episode&Limit=10&Fields=$f", 'kj', ['Items' => []]]];
+    file_put_contents("$tmp/mediacache_settings.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => "$tmp/user0", 'user_path' => "$tmp/user", 'array_disks_glob' => "$tmp/disk[0-9]*", 'max_favorite_series' => 0, 'use_next_up' => false, 'number_episodes' => 2, 'cache_budget' => 10000, 'valid_users' => [],
+        'shares_cfg_dir' => "$tmp/none", 'instances' => [['servername' => 'Emby', 'type' => 'emby', 'url' => $emby, 'api_key' => 'ke', 'path_mappings' => ['/m' => "$tmp/user"]], ['servername' => 'Jelly', 'type' => 'jellyfin', 'url' => $jelly, 'api_key' => 'kj', 'path_mappings' => ['/m' => "$tmp/user"]]]]));
+    $env = ['MEDIACACHE_DIR' => $tmp, 'MEDIACACHE_MOUNTS' => "$tmp/no-mounts", 'MEDIACACHE_ZFS' => '/nonexistent'];
+    $tape = jackPlanTestTape("$tmp/t.jsonl", $answers, ["$tmp/pool" => [1000000, 900000]]);
+    $plan = jackPlanRun($env, $tape);
+    same('plan persons: «Anna» on Emby and « ánna» on Jellyfin are one person (both ids, both servers), Leo another',
+        [['Anna', 'Leo'], ['e-anna', 'j-anna'], ['Emby', 'Jelly'], ['p:anna', 'p:leo']],
+        [array_column($plan['persons'], 'name'), $plan['persons'][0]['uids'] ?? null, $plan['persons'][0]['servers'] ?? null, array_column($plan['persons'], 'key')], (string) ($plan['detail'] ?? ''));
+    same('plan persons: the film both servers name once in her plan, every file once; every question asked and none beyond',
+        [['Filme/A/a.mkv', 'Filme/B/b.mkv', 'Serien/S/S01/e1.mkv', 'Serien/S/S01/e2.mkv'], [], []],
+        [(function (array $r) { sort($r); return $r; })(array_column($plan['on_deck'] ?? [], 'rel')), $tape->missing, $tape->left()]);
+
+    // a file two persons want (mediacache tests/test_shared.py): its rank at each, copied once
+    $mk = function (string $user, string $rel, int $size, int $ahead = 0, string $cat = 'movie'): JackPlanGroup {
+        return new JackPlanGroup([new JackPlanFile($rel, $size, false, $user, 'resume', $rel, $ahead, "id|$rel")], $cat, "$cat:$rel", 'Weiterschauen', null, $rel);
+    };
+    $bare = ['cache_budget_bytes' => 0, 'valid_users' => [], 'instances' => [], 'themes' => false, 'movie_mode' => 'folder', 'user_budgets' => [], 'movie_share_percent' => 50];
+    $p = new JackPlanner($bare, new JackPlanLive([]));
+    $mother = new JackPlanUser('p:mutter', 'Mutter');
+    $father = new JackPlanUser('p:vater', 'Vater');
+    $mother->movies = [$mk('p:mutter', 'Filme/Ferien 1998/f.mkv', 3000), $mk('p:mutter', 'Filme/Taufe/t.mkv', 1000)];
+    $father->movies = [$mk('p:vater', 'Filme/Velotour/v.mkv', 2000), $mk('p:vater', 'Filme/Ferien 1998/f.mkv', 3000, 1)];
+    $p->users = ['p:mutter' => $mother, 'p:vater' => $father];
+    $files = $p->run();
+    $shared = array_values(array_filter($files, fn (JackPlanFile $x) => jpName($x->rel) === 'f.mkv'))[0];
+    same('plan shared: its rank at each, copied once, whoever watches it soonest first; the order round robin',
+        [['p:mutter' => 0, 'p:vater' => 1], 3, 'Mutter, Vater', 0, ['Filme/Ferien 1998/f.mkv', 'Filme/Velotour/v.mkv', 'Filme/Taufe/t.mkv']],
+        [$shared->ranks, count($files), $p->names($shared), $shared->ahead(), array_map(fn (JackPlanFile $x) => $x->rel, $files)]);
+    $p->budgetMode = true;
+    $big = fn (string $u) => $mk($u, 'Filme/Big/b.mkv', 9000);
+    $mother->skipped = [$big('p:mutter'), $mk('p:mutter', 'Serien/S/e5.mkv', 500, 0, 'series')];
+    $father->skipped = [$big('p:vater'), $mk('p:vater', 'Filme/Taufe/t.mkv', 1000)];
+    $p->files = ['fFilme/Taufe/t.mkv' => $shared];
+    same('plan not in budget: each entry once in all, per person the big film at both, what another\'s budget takes at neither',
+        ['items' => 2, 'films' => 1, 'episodes' => 1, 'bytes' => 9500, 'persons' => [['name' => 'Mutter', 'items' => 2, 'films' => 1, 'episodes' => 1, 'bytes' => 9500], ['name' => 'Vater', 'items' => 1, 'films' => 1, 'episodes' => 0, 'bytes' => 9000]]], $p->notInBudget());
+    $p->budgetMode = false;
+    check('plan not in budget: none outside the budget mode', $p->notInBudget() === null);
+
+    // what goes back first: furthest ahead, then whoever holds most, a started film last (Python's answer on Tower, tests/shadow/diff.php holds the same)
+    $file = function (string $rel, int $size, array $ranks, ?string $item = null): JackPlanFile {
+        $x = new JackPlanFile($rel, $size, true, (string) array_key_first($ranks), 'resume', $rel, 0, $item ?? "i|$rel");
+        $x->ranks = $ranks;
+        return $x;
+    };
+    $order = jackPlanGiveBackOrder([$file('a/started.mkv', 500, ['p:a' => 0]), $file('a/next.mkv', 100, ['p:a' => 1]), $file('b/next.mkv', 300, ['p:b' => 1]), $file('b/far.mkv', 10, ['p:b' => 5]),
+        $file('both/m.mkv', 200, ['p:a' => 2, 'p:b' => 1]), $file('both/m.srt', 1, ['p:a' => 2, 'p:b' => 1], 'i|both/m.mkv'), $file('a/three.mkv', 50, ['p:a' => 3])]);
+    same('plan give back: the furthest ahead first, at a rank from whoever holds most, an item together, what is started last',
+        ['b/far.mkv', 'a/three.mkv', 'a/next.mkv', 'both/m.srt', 'both/m.mkv', 'b/next.mkv', 'a/started.mkv'], array_map(fn (JackPlanFile $x) => $x->rel, $order));
+
+    // an incomplete plan never reads as «nothing watched»: no cleanup, the old list protected (testJackUpstream, test_list.py)
+    file_put_contents("$tmp/mediacache_exclude.txt", "$tmp/pool/Filme/Alt/alt.mkv\n# a comment\n\n");
+    $write(['Filme/Alt/alt.mkv' => 7], 'pool');
+    $settings = ['cache_path' => "$tmp/pool", 'array_path' => "$tmp/user0", 'user_path' => "$tmp/user", 'array_disks_glob' => "$tmp/disk[0-9]*", 'max_favorite_series' => 0, 'use_next_up' => false, 'number_episodes' => 2, 'cleanup_tool' => 'rsync', 'shares_cfg_dir' => "$tmp/none",
+        'instances' => [['servername' => 'Emby', 'type' => 'emby', 'url' => $emby, 'api_key' => 'ke', 'path_mappings' => ['/m' => "$tmp/user"]]]];
+    file_put_contents("$tmp/mediacache_settings.json", json_encode($settings));
+    $users = [$emby . '/Users', 'ke', [['Id' => 'u', 'Name' => 'Anna']]];
+    $sessions = ["$emby/Sessions", 'ke', []];
+    $pool = ["$tmp/pool" => [1000000, 900000], "$tmp/pool/Filme" => [1000000, 900000]];
+    $run = fn (array $answers): array => jackPlanRun($env, jackPlanTestTape("$tmp/t.jsonl", $answers, $pool));
+    $complete = $run([$sessions, $users, ...jackPlanTestUser($emby, 'ke', 'u', [], [])]);
+    same('plan cleanup: a complete plan with nothing on deck gives back what the list holds', [false, ["$tmp/pool/Filme/Alt/alt.mkv"], []], [$complete['incomplete'], $complete['cleanup']['paths'], $complete['protected']], (string) ($complete['detail'] ?? ''));
+    foreach (['users: HTTP 500' => [$sessions, [$users[0], 'ke', 500]], 'users: none' => [$sessions, [$users[0], 'ke', []]], 'sessions: HTTP 500' => [[$sessions[0], 'ke', 503], $users, ...jackPlanTestUser($emby, 'ke', 'u', [], [])],
+              'an answer without Items' => [$sessions, $users, [jackPlanTestUser($emby, 'ke', 'u', [], [])[0][0], 'ke', ['TotalRecordCount' => 0]], jackPlanTestUser($emby, 'ke', 'u', [], [])[1]],
+              'Items {}' => [$sessions, $users, [jackPlanTestUser($emby, 'ke', 'u', [], [])[0][0], 'ke', '{"Items":{}}']]] as $what => $answers) {
+        $r = $run($answers);
+        same("plan incomplete: $what — no cleanup, the old list stays protected, never «nothing watched»", [true, [], ["$tmp/pool/Filme/Alt/alt.mkv"]], [$r['incomplete'] ?? null, $r['cleanup']['paths'] ?? null, $r['protected'] ?? null], (string) ($r['detail'] ?? ''));
+    }
+    foreach (['users a dict' => '{"Id":"u"}', 'not JSON' => '<html>', 'an item no dict' => null] as $what => $body) {
+        $r = $run($body !== null ? [$sessions, [$users[0], 'ke', $body]] : [$sessions, $users, [jackPlanTestUser($emby, 'ke', 'u', [], [])[0][0], 'ke', '{"Items":["x"]}'], jackPlanTestUser($emby, 'ke', 'u', [], [])[1]]);
+        same("plan odd answers: $what ends the plan as Python's traceback does", 'crash', $r['outcome']);
+    }
+
+    // Plex: the same face; plex.tv says who else is there (testJackUpstream)
+    $plex = 'http://plex';
+    $tv = 'https://plex.tv';
+    $settings['instances'] = [['servername' => 'Plex', 'type' => 'plex', 'url' => $plex, 'api_key' => 'pk', 'days_to_monitor' => 30, 'path_mappings' => ['/m' => "$tmp/user"]]];
+    file_put_contents("$tmp/mediacache_settings.json", json_encode($settings));
+    $root = fn (string $state): array => ['MediaContainer' => ['machineIdentifier' => 'mid', 'myPlexSigninState' => $state]];
+    $none = ['MediaContainer' => []];
+    $deck = function (array $meta): array {
+        return ['MediaContainer' => ['Metadata' => $meta]];
+    };
+    $mv = fn (string $key, string $p, ?int $seen): array => ['type' => 'movie', 'ratingKey' => $key, 'title' => $key, 'Media' => [['Part' => [['file' => $p]]]]] + ($seen !== null ? ['lastViewedAt' => $seen] : []);
+    $now = 1800000000;
+    foreach (['none' => false, 'ok' => true] as $state => $incomplete) {
+        $r = jackPlanRun($env, jackPlanTestTape("$tmp/t.jsonl", [["$plex/status/sessions", 'pk', $none], ["$tv/api/v2/user", 'pk', 401], ["$plex/", 'pk', $root($state)], ["$plex/library/onDeck", 'pk', $deck([])], ["$plex/library/onDeck", 'pk', $deck([])]], [], (float) $now));
+        same("plan Plex: plex.tv silent, $state: only the admin, " . ($incomplete ? 'incomplete' : 'complete'), [$incomplete, ['p:admin']], [$r['incomplete'] ?? null, array_column($r['persons'] ?? [], 'key')], (string) ($r['detail'] ?? ''));
+    }
+    $write(['Filme/Neu/n.mkv' => 11, 'Filme/Alt2/o.mkv' => 12, 'Filme/Offen/x.mkv' => 13, 'Filme/Freund/f.mkv' => 14], 'user0');
+    $xml = '<MediaContainer><SharedServer userID="222" username="Freund" accessToken="tape:' . jackPlanTokenId('ft') . '"/><SharedServer userID="333" username="Ohne" accessToken=""/></MediaContainer>';
+    $tape = jackPlanTestTape("$tmp/t.jsonl", [["$plex/status/sessions", 'pk', $none], ["$tv/api/v2/user", 'pk', ['id' => 111, 'title' => 'Chef']], ["$plex/", 'pk', $root('ok')], ["$tv/api/servers/mid/shared_servers", 'pk', $xml],
+        ["$plex/library/onDeck", 'pk', $deck([$mv('n', '/m/Filme/Neu/n.mkv', $now - 86400), $mv('o', '/m/Filme/Alt2/o.mkv', $now - 40 * 86400), $mv('x', '/m/Filme/Offen/x.mkv', null), ['type' => 'episode', 'title' => 'e', 'grandparentTitle' => 's']])], ["$plex/library/onDeck", 'pk', $deck([['type' => 'episode', 'ratingKey' => 'e', 'title' => 'e']])],
+        ["$plex/library/onDeck", 'tape:' . jackPlanTokenId('ft'), $deck([$mv('f', '/m/Filme/Freund/f.mkv', $now - 100)])], ["$plex/library/onDeck", 'tape:' . jackPlanTokenId('ft'), $deck([])]], $pool, (float) $now);
+    $r = jackPlanRun($env, $tape);
+    same('plan Plex: admin and friend, the friend by his own token, a user without a token left out; on deck only within days_to_monitor; a never viewed entry always; complete',
+        [['p:chef', 'p:freund'], ['Filme/Neu/n.mkv', 'Filme/Freund/f.mkv', 'Filme/Offen/x.mkv'], false, [], []],
+        [array_column($r['persons'] ?? [], 'key'), array_column($r['on_deck'] ?? [], 'rel'), $r['incomplete'] ?? null, $tape->missing, $tape->left()], (string) ($r['detail'] ?? ''));
+
+    // theme.mp3 (test_themes.py): with `themes` it no longer travels with its film and goes back with nothing
+    $write(['Filme/Thema/t.mkv' => 20, 'Filme/Thema/theme.mp3' => 5, 'Filme/Thema/Extras/theme.mp3' => 6], 'user0');
+    $write(['Filme/Thema2/theme.mp3' => 4], 'pool');
+    file_put_contents("$tmp/mediacache_exclude.txt", "$tmp/pool/Filme/Thema2/theme.mp3\n");
+    $settings['instances'] = [['servername' => 'Emby', 'type' => 'emby', 'url' => $emby, 'api_key' => 'ke', 'path_mappings' => ['/m' => "$tmp/user"]]];
+    $themed = function (bool $on) use ($settings, $tmp, $run, $sessions, $users, $emby, $film): array {
+        file_put_contents("$tmp/mediacache_settings.json", json_encode(['themes' => $on] + $settings));
+        return $run([$sessions, $users, ...jackPlanTestUser($emby, 'ke', 'u', [$film('t', '/m/Filme/Thema/t.mkv')], [])]);
+    };
+    $r = $themed(true);
+    same('plan themes on: the theme stays out of the film (one in a folder below is a file like any), the list\'s theme protected',
+        [['Filme/Thema/Extras/theme.mp3', 'Filme/Thema/t.mkv'], [], ["$tmp/pool/Filme/Thema2/theme.mp3"]], [array_column($r['on_deck'] ?? [], 'rel'), $r['cleanup']['paths'] ?? null, $r['protected'] ?? null], (string) ($r['detail'] ?? ''));
+    $r = $themed(false);
+    same('plan themes off: it travels with its film, the list\'s goes back', [['Filme/Thema/Extras/theme.mp3', 'Filme/Thema/t.mkv', 'Filme/Thema/theme.mp3'], ["$tmp/pool/Filme/Thema2/theme.mp3"]], [array_column($r['on_deck'] ?? [], 'rel'), $r['cleanup']['paths'] ?? null]);
+
+    // the fill: free space simulated, what plays never, give back by rank above the limit
+    @unlink("$tmp/mediacache_exclude.txt");
+    $settings['min_free_percent'] = 50;
+    file_put_contents("$tmp/mediacache_settings.json", json_encode($settings));
+    file_put_contents("$tmp/mounts", "/dev/x $tmp/pool xfs rw 0 0\n");
+    $env2 = ['MEDIACACHE_MOUNTS' => "$tmp/mounts"] + $env;
+    $answers = [["$emby/Sessions", 'ke', [['NowPlayingItem' => ['Path' => '/m/Filme/B/b.mkv']]]], $users, ...jackPlanTestUser($emby, 'ke', 'u', [$film('b', '/m/Filme/B/b.mkv'), $A, $film('n', '/m/Filme/Neu/n.mkv')], [])];
+    $r = jackPlanRun($env2, jackPlanTestTape("$tmp/t.jsonl", $answers, ["$tmp/pool" => [1000, 600], "$tmp/pool/Filme" => [1000, 600]]));
+    same('plan fill: what plays stays, the free space counted down, the rest waits', [['Filme/A/a.mkv'], ['Filme/B/b.mkv', 'Filme/Neu/n.mkv'], 11, 1, -100],
+        [$r['fill']['rels'] ?? null, $r['fill']['dropped'] ?? null, $r['fill']['waiting_bytes'] ?? null, $r['fill']['waiting'] ?? null, $r['sim_delta'] ?? null], (string) ($r['detail'] ?? ''));
+
+    // the client: the key to the server itself, along a redirect to the same host, never to another (testJackKeyRedirect)
+    $router = "$tmp/router.php";
+    file_put_contents($router, '<?php $u = $_SERVER["REQUEST_URI"]; file_put_contents(' . var_export("$tmp/seen", true) . ', json_encode([$_SERVER["HTTP_HOST"], $u, $_SERVER["HTTP_X_EMBY_TOKEN"] ?? $_SERVER["HTTP_AUTHORIZATION"] ?? $_SERVER["HTTP_X_PLEX_TOKEN"] ?? null]) . "\n", FILE_APPEND);
+if (str_starts_with($u, "/to-")) { http_response_code(302); header("Location: " . substr($u, 4)); exit; } echo "{}";');
+    $port = 19100 + getmypid() % 700;
+    $server = proc_open([PHP_BINARY, '-d', 'auto_prepend_file=', '-S', "127.0.0.1:$port", $router], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, $tmp);
+    for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port, $en, $es, 0.2); $i++) {
+        usleep(100000);
+    }
+    $host = new JackPlanLive([]);
+    foreach (['emby' => 'abcdefgh12345678', 'jellyfin' => 'MediaBrowser Token="abcdefgh12345678"', 'plex' => 'abcdefgh12345678'] as $type => $sent) {
+        @unlink("$tmp/seen");
+        $api = JackPlanServer::forInstance(['type' => $type, 'url' => "http://127.0.0.1:$port", 'api_key' => 'abcdefgh12345678', 'days_to_monitor' => 99], 5, $host);
+        foreach (["/to-http://127.0.0.1:$port/same", "/to-http://localhost:$port/other"] as $path) {
+            $api->get($path);
+        }
+        $seen = array_map(fn (string $l) => json_decode($l, true), file("$tmp/seen", FILE_IGNORE_NEW_LINES) ?: []);
+        same("plan client ($type): the key to the server, along a redirect to the same host, never to another", [$sent, $sent, $sent, null], array_column($seen, 2));
+    }
+    try {
+        JackPlanServer::forInstance(['type' => 'emby', 'url' => 'http://127.0.0.1:9', 'api_key' => 'k'], 2, $host)->users();
+        check('plan client: nothing listens: an error', false);
+    } catch (JackPlanApiError $e) {
+        check('plan client: nothing listens: its error, with no key in it', !str_contains($e->getMessage(), 'k1'));
+    }
+    proc_terminate($server);
+    proc_close($server);
+
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-plan.php');
+    $code = (string) preg_replace('#/\*.*?\*/|//[^\n]*#s', '', $src);
+    $main = (string) strstr((string) strstr($code, 'function jackPlanMain('), "\nif (PHP_SAPI", true);
+    check('plan: its process writes only its own result (--out, a new file then rename), nothing else', substr_count($main, 'file_put_contents(') === 1 && substr_count($main, 'rename(') === 1
+        && str_contains($main, "@file_put_contents(\$tmp,") && str_contains($main, "\$tmp = \$opt['out'] . '.tmp';"));
+    $code = str_replace($main, '', $code);
+    check('plan: this file moves nothing: no copy, rename, delete, write, chmod, mkdir or a command but `zfs list`',
+        !preg_match('/\b(copy|rename|unlink|rmdir|mkdir|file_put_contents|fwrite|fputs|touch|chmod|chown|symlink|link|writeAtomic|writeNewFile|shell_exec|passthru|exec|system|popen|proc_open|hostLaunch|emcmd)\s*\(/', $code)
+        && substr_count($code, 'run([') === 2 && substr_count($code, "'zfs', 'list'") === 2);
+    check('plan: names its source, its version and its licence at its head', str_contains($src, 'MediaCache by helmi1987') && str_contains($src, 'GPL-3.0-or-later') && str_contains($src, '7.4.0 (2026-10-15)')
+        && JACK_PLAN_SOURCE === explode('"', (string) preg_replace('/^.*__version__ = "/s', '"', (string) file_get_contents(JACK_APP . '/mediacache_lib.py')))[1]);
+    check('plan: the README says where this is and that fixes come over by hand', str_contains((string) file_get_contents(JACK_APP . '/README.md'), 'jack-plan.php'));
+    hardeningRm($tmp);
+}
+
+/**
+ * MediaCache's plan in PHP in the shadow of Python (agent/desks/jack-shadow.php, reworked 2026-11-08): asleep without its flag; right before a
+ * real run, inside its job, with the run's environment; stand-ins for both sides: the same, a difference (seen twice: differ; once: kept as
+ * once), both failing (error), not compared (a disk asleep, a stop asked, the array stopped, Python failed); nothing written after an array
+ * stop or without his data folder; one file a date, 60 days, no key; his state's key.
+ */
+function testJackShadow(): void
+{
+    $tmp = hardeningTmp('jack-shadow');
+    $dir = "$tmp/data";
+    @mkdir("$dir", 0777, true);
+    @mkdir("$tmp/pool", 0777, true);
+    @mkdir("$tmp/user0/Filme/A", 0777, true);
+    file_put_contents("$tmp/user0/Filme/A/a.mkv", 'xxxxx');
+    $key = 'abcdefgh12345678';
+    file_put_contents("$dir/mediacache_settings.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => "$tmp/user0", 'user_path' => "$tmp/user", 'max_favorite_series' => 0, 'use_next_up' => false, 'number_episodes' => 2, 'shares_cfg_dir' => "$tmp/none",
+        'instances' => [['servername' => 'Emby', 'type' => 'emby', 'url' => 'http://emby', 'api_key' => $key, 'path_mappings' => ['/m' => "$tmp/user"]]]]));
+    file_put_contents("$tmp/mounts", "/dev/x $tmp/pool xfs rw 0 0\n");
+    $answers = [['http://emby/Sessions', $key, []], ['http://emby/Users', $key, [['Id' => 'u', 'Name' => 'Anna']]],
+        ...jackPlanTestUser('http://emby', $key, 'u', [['Type' => 'Movie', 'Id' => 'a', 'Name' => 'A', 'Path' => '/m/Filme/A/a.mkv']], [])];
+    $env = ['MEDIACACHE_MOUNTS' => "$tmp/mounts", 'MEDIACACHE_ZFS' => '/nonexistent', 'MEDIACACHE_NO_FILL' => '1', 'MEDIACACHE_RESULT' => "$dir/status.json", 'MEDIACACHE_STOP' => "$dir/office-stop.json", 'MEDIACACHE_PROGRESS' => '/x'];
+    $clock = 1800000000;
+    /** @var int $calls */
+    $calls = 0;
+    $seenEnv = null;
+    /** @var callable|null $edit what the stand-in for Python's dry twin does to its plan */
+    $edit = null;
+    $array = true;
+    $stop = false;
+    /** @var array|callable $asleep */
+    $asleep = [];
+    $h = function (array $over = []) use ($tmp, $dir, $answers, &$clock, &$calls, &$edit, &$array, &$stop, &$asleep, &$seenEnv): array {
+        return $over + ['dir' => $dir, 'run' => "$tmp/run", 'array' => function () use (&$array) {
+            return $array;
+        }, 'stop' => function () use (&$stop) {
+            return $stop;
+        }, 'asleep' => function () use (&$asleep) {
+            return is_callable($asleep) ? $asleep() : $asleep;
+        }, 'now' => function () use (&$clock) {
+            return $clock;
+        }, 'version' => '9.9.9', 'plex_tv' => 'http://nowhere',
+        'python' => function (array $e, string $tape, string $plan, string $logs, string $mode, callable $go) use ($answers, &$calls, &$edit, &$seenEnv, $tmp): ?int {
+            $calls++;
+            $seenEnv = $e + ['mode' => $mode];
+            if (!$go()) {
+                return null;
+            }
+            $answers = $mode === 'release' ? [$answers[0]] : $answers;      // a release asks only what plays
+            jackPlanTestTape($tape, $answers, ["$tmp/pool" => [1000000, 900000]]);
+            $doc = json_decode((string) json_encode(jackPlanRun($e, jackPlanTestTape("$tape.py", $answers, ["$tmp/pool" => [1000000, 900000]]), 'http://nowhere', $mode)), true);
+            @unlink("$tape.py");
+            if ($edit !== null) {
+                $doc = $edit($doc, $calls);
+            }
+            file_put_contents($plan, json_encode($doc));
+            return 0;
+        },
+        'php' => function (array $e, ?string $tape, string $out, string $mode, callable $go, string $plexTv): ?int {
+            if (!$go()) {
+                return null;
+            }
+            $host = $tape === null ? null : JackPlanTape::read($tape);
+            $plan = $host === null ? ['outcome' => 'ok'] : jackPlanRun($e, $host, $plexTv, $mode);
+            file_put_contents($out, json_encode(['plan' => $plan, 'asked' => $host->asked ?? 3, 'failed' => 0, 'missing' => $host->missing ?? [], 'left' => $host?->left() ?? []]));
+            return 0;
+        }];
+    };
+    $file = function () use ($dir, &$clock): ?array {
+        return readJson("$dir/shadow/" . date('Y-m-d', $clock) . '.json');
+    };
+    $both = function (array $over = [], array $status = []) use ($h, $env): void {
+        jackShadowAfter(jackShadowBefore('run', $env, $h($over)), $status, $h($over));
+    };
+
+    // asleep: no flag, nothing at all
+    same('shadow asleep: without its file nothing runs, nothing shows', [null, 0, false, null, ['ok' => true, 'state' => null]],
+        [jackShadowBefore('run', $env, $h()), $calls, is_dir("$dir/shadow"), jackShadowSummary($dir), jackShadowList($dir)]);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    check('shadow asleep: his state has the key only with the flag; asked only right before a real run of his, in its own job',
+        str_contains($src, "if ((\$shadow = jackShadowSummary()) !== null) {\n        \$state['shadow'] = \$shadow;")
+        && str_contains($src, "\$shadow = \$tool === 'embycache' && \$real && jackShadowOn() ? jackShadowBefore(\$mode, \$env) : null;\n    \$proc = \$cmd !== null ? proc_open(")
+        && str_contains($src, 'jackShadowAfter($shadow, $status);') && !str_contains($src, "'jack-shadow'"));
+    $shadow = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-shadow.php');
+    check('shadow: no check, no notification, no atd job, no lock of its own', !str_contains($shadow, 'officeNotify(') && !str_contains($shadow, 'finding(')
+        && !str_contains($shadow, 'hostLaunch(') && !str_contains($shadow, 'flock('));
+
+    // the flag: the same, with exactly the run's environment
+    file_put_contents("$dir/shadow.json", "{}\n");
+    $both([], ['cleanup' => ['planned' => 0], 'fill' => ['planned' => 0]]);
+    $n = $file();
+    same('shadow: the same plan: one file in its shape, counted once, one pair', [2, $clock, '9.9.9', 'run', 'same', 1, 1, ['same' => 1, 'differ' => 0, 'once' => 0, 'error' => 0, 'not' => 0, 'last' => $clock]],
+        [$n['v'] ?? null, $n['time'] ?? null, $n['version'] ?? null, $n['mode'] ?? null, $n['result'] ?? null, $n['counts']['on_deck'] ?? null, $calls, jackShadowSummary($dir)], json_encode($n));
+    same('shadow: the run\'s environment (no-fill step included), never its result, stop or progress files', ['1', false, false, false, $dir, 'run'],
+        [$seenEnv['MEDIACACHE_NO_FILL'] ?? null, isset($seenEnv['MEDIACACHE_RESULT']), isset($seenEnv['MEDIACACHE_STOP']), isset($seenEnv['MEDIACACHE_PROGRESS']), $seenEnv['MEDIACACHE_DIR'] ?? null, $seenEnv['mode'] ?? null]);
+    same('shadow: the live look and the run\'s own counts, said only', [['outcome' => 'ok', 'asked' => 3, 'failed' => 0], ['cleanup' => [0, 0], 'fill' => [0, 0]]], [$n['live'] ?? null, $n['real'] ?? null]);
+    check('shadow: no key in anything it leaves, nothing left in RAM', !str_contains((string) file_get_contents("$dir/shadow/" . date('Y-m-d', $clock) . '.json'), $key) && !is_dir("$tmp/run"));
+
+    // a difference seen twice: differ; only once: once (never thrown away)
+    $clock += 86400;
+    $calls = 0;
+    $edit = function (array $doc): array {
+        $doc['on_deck'][0]['size'] = 6;
+        return $doc;
+    };
+    $both();
+    $n = $file();
+    same('shadow: a difference shown twice: differ, by kind and path, what each planned', ['differ', 2, [['kind' => 'file', 'path' => 'Filme/A/a.mkv', 'python' => ['size' => 6], 'php' => ['size' => 5]]], false],
+        [$n['result'] ?? null, $calls, $n['differences'] ?? null, isset($n['once'])], json_encode($n));
+    $list = jackShadowList($dir)['state'];
+    same('shadow: the part: the date with differences, each side in words', [$clock, 'differ', 'file', '{"size":6}', '{"size":5}'],
+        [$list['nights'][0]['time'] ?? null, $list['nights'][0]['result'] ?? null, $list['nights'][0]['differences'][0]['kind'] ?? null, $list['nights'][0]['differences'][0]['python'] ?? null, $list['nights'][0]['differences'][0]['php'] ?? null]);
+    $clock += 86400;
+    $calls = 0;
+    $edit = fn (array $doc, int $c): array => $c === 1 ? ['errors' => 7] + $doc : $doc;      // a film arrived between the two looks: only the first differs
+    $both();
+    $n = $file();
+    same('shadow: what the second pair doesn\'t show again is kept as «once», never «the same»', ['once', 2, [['kind' => 'run', 'path' => 'errors', 'python' => 7, 'php' => 0]]],
+        [$n['result'] ?? null, $calls, $n['once'] ?? null], json_encode($n));
+    $clock += 86400;
+    $calls = 0;
+    $looks = [];
+    $asleep = function () use (&$looks): array {
+        $looks[] = 1;                           // the first look (before the first pair) awake, the second (before the second) not
+        return count($looks) > 1 ? ['disk3'] : [];
+    };
+    $both();
+    $n = $file();
+    same('shadow: a disk asleep before the second pair: the first difference kept, the second look «disk_asleep»', ['once', 'disk_asleep', 1, 'errors'],
+        [$n['result'] ?? null, $n['second'] ?? null, $calls, $n['once'][0]['path'] ?? null], json_encode($n));
+    $asleep = [];
+
+    // both sides failing is an error, never the same
+    $clock += 86400;
+    file_put_contents("$tmp/bad.json", '[1, 2]');
+    $edit = null;
+    jackShadowAfter(jackShadowBefore('run', ['MEDIACACHE_CONFIG' => "$tmp/bad.json"] + $env, $h()), [], $h());
+    $n = $file();
+    same('shadow: both sides crash: «error», with each side\'s outcome; the date counts apart', ['error', ['python' => 'crash', 'php' => 'crash'], 1],
+        [$n['result'] ?? null, $n['outcome'] ?? null, jackShadowSummary($dir)['error'] ?? null], json_encode($n));
+    $clock += 60;
+    jackShadowAfter(jackShadowBefore('run', ['MEDIACACHE_CACHE_BUDGET' => '12X'] + $env, $h()), [], $h());
+    same('shadow: both say «config»: «error» too; another comparison of the date kept beside it', ['error', ['python' => 'config', 'php' => 'config'], ['error']],
+        [$file()['result'] ?? null, $file()['outcome'] ?? null, array_map('jackShadowResult', $file()['earlier'] ?? [])]);
+    $edit = fn (array $doc): array => ['outcome' => 'crash'];
+    $clock += 60;
+    $both();
+    same('shadow: one side failing is a difference (the outcome)', ['differ', 'outcome'], [$file()['result'] ?? null, $file()['differences'][0]['kind'] ?? null]);
+    $edit = null;
+
+    // not compared: never a difference, never a wake
+    foreach ([['a disk asleep', function () use (&$asleep) {
+        $asleep = ['disk3'];
+    }, 'disk_asleep', 0], ['a stop asked', function () use (&$stop) {
+        $stop = true;
+    }, 'stopped', 1], ['the array stopping', function () use (&$array) {
+        $array = 'later';
+    }, 'stopped', 1], ['Python failed', function () use (&$edit) {
+        $edit = 'fail';
+    }, 'python_failed', 1]] as [$what, $set, $why, $expected]) {
+        $clock += 86400;
+        $calls = 0;
+        $set();
+        $over = $edit === 'fail' ? ['python' => function () use (&$calls) {
+            $calls++;
+            return 1;
+        }] : [];
+        if ($array === 'later') {
+            $array = true;
+            $ctx = jackShadowBefore('run', $env, $h(['array' => function () use (&$calls) {
+                return $calls === 0;
+            }] + $over));
+        } else {
+            $ctx = jackShadowBefore('run', $env, $h($over));
+        }
+        jackShadowAfter($ctx, [], $h($over));
+        $n = $file();
+        same("shadow not compared: $what — said, no difference, nothing asked beyond it", ['not', $why, $expected, false], [$n['result'] ?? null, $n['why'] ?? null, $calls, isset($n['differences'])], json_encode($n));
+        $asleep = [];
+        $stop = false;
+        $edit = null;
+    }
+
+    // after an array stop nothing is written, no folder made (never into /mnt)
+    $clock += 86400;
+    $ctx = jackShadowBefore('run', $env, $h());
+    $array = false;
+    jackShadowAfter($ctx, [], $h());
+    $array = true;
+    check('shadow: the array stopped after the run: nothing written', $file() === null);
+    $gone = "$tmp/gone/mediacache";
+    $ctx = jackShadowBefore('run', $env, $h());
+    jackShadowAfter($ctx, [], $h(['dir' => $gone]));
+    check('shadow: his data folder not there: no folder made', !file_exists("$tmp/gone"));
+
+    // a process of the comparison ends at once when asked to
+    $t0 = hrtime(true);
+    $r = jackShadowChild(['sleep', '30'], ['PATH' => '/usr/bin:/bin'], '/dev/null', fn (): bool => false, '/');
+    check('shadow: a process ends at once when the array stops or a stop is asked: nothing waits for it', $r === null && hrtime(true) - $t0 < 3_000_000_000);
+
+    // --release: its own twin
+    $clock += 86400;
+    $calls = 0;
+    jackShadowAfter(jackShadowBefore('release', $env, $h()), [], $h());
+    same('shadow: before a release, the release\'s plan', ['release', 'same', 'release'], [$seenEnv['mode'] ?? null, $file()['result'] ?? null, $file()['mode'] ?? null], json_encode($file()));
+
+    // 60 days; an older file's shape still counted
+    $old = "$dir/shadow/" . date('Y-m-d', $clock - 70 * 86400) . '.json';
+    file_put_contents($old, '{"v":1}');
+    $young = "$dir/shadow/" . date('Y-m-d', $clock - 50 * 86400) . '.json';
+    file_put_contents($young, '{"v":1,"compared":true,"same":true,"time":1}');
+    $clock += 86400;
+    $before = jackShadowCount("$dir/shadow")['same'];
+    $both();
+    same('shadow: kept 60 days; a file of the first version counted by its own words', [false, true, $before + 1], [is_file($old), is_file($young), jackShadowSummary($dir)['same'] ?? null]);
+
+    // which disks a plan may need (also a mapping onto /mnt/user0 or the pool)
+    $settings = ['cache_path' => '/mnt/cache', 'user_path' => '/mnt/user', 'array_path' => '/mnt/user0', 'instances' => [['path_mappings' => ['/m' => '/mnt/user/media/Filme', '/o' => '/mnt/user/Alles', '/n' => '/mnt/user/Nur']]]];
+    $shares = ['media' => ['include' => 'disk1,disk2', 'exclude' => '', 'useCache' => 'yes'], 'Alles' => ['include' => '', 'exclude' => 'disk2', 'useCache' => 'yes'], 'Nur' => ['include' => 'disk4', 'useCache' => 'only'], 'Roh' => ['include' => 'disk10']];
+    $sleeping = ['disk1' => false, 'disk2' => true, 'disk3' => true, 'disk4' => true, 'disk10' => true, 'cache' => false, 'parity' => true];
+    same('shadow asleep: only the array disks his mapped shares may use, and his pool (a cache-only share none)', ['disk2', 'disk3', 'disk4', 'disk10'], jackShadowAsleep($settings, $sleeping, $shares));
+    same('shadow asleep: a mapping onto /mnt/user0 counts too; one onto the pool only the pool', ['disk10'],
+        jackShadowAsleep(['cache_path' => '/mnt/cache', 'instances' => [['path_mappings' => ['/r' => '/mnt/user0/Roh/x', '/p' => '/mnt/cache/media']]]], $sleeping, $shares));
+    same('shadow asleep: his pool asleep; every disk with array_source disk', ['disk3', 'cache'], jackShadowAsleep(['array_source' => 'disk', 'cache_path' => '/mnt/cache', 'instances' => []], ['disk1' => false, 'disk3' => true, 'cache2' => true], []));
+
+    // the comparison itself
+    $base = ['outcome' => 'ok', 'incomplete' => false, 'errors' => 0, 'sessions' => [], 'not_in_budget' => null, 'sim_delta' => 0, 'protected' => [], 'give_back_order' => ['a', 'b'],
+        'give_back' => ['paths' => [], 'files' => 0, 'bytes' => 0, 'held' => 0, 'keep' => null, 'items' => []], 'cleanup' => ['paths' => ['p'], 'bytes' => 1], 'fill' => ['rels' => ['x', 'y'], 'dropped' => [], 'bytes' => 2, 'waiting' => 0, 'waiting_bytes' => 0],
+        'on_deck' => [['rel' => 'x', 'size' => 1], ['rel' => 'y', 'size' => 1]], 'persons' => [['key' => 'p:a', 'budget' => '1.000', 'selected' => [['files' => ['x'], 'chain' => 'c', 'title' => 'T']], 'skipped' => []]]];
+    same('shadow diff: the same', [], jackShadowDiff($base, $base));
+    same('shadow diff: an outcome', [['kind' => 'outcome', 'path' => '', 'python' => 'ok', 'php' => 'crash']], jackShadowDiff($base, ['outcome' => 'crash']));
+    same('shadow diff: the order of the fill: its first place', [['kind' => 'fill.order', 'path' => 'x', 'python' => 0, 'php' => 1], ['kind' => 'on_deck.order', 'path' => 'x', 'python' => 0, 'php' => 1]],
+        jackShadowDiff($base, ['fill' => ['rels' => ['y', 'x']] + $base['fill'], 'on_deck' => array_reverse($base['on_deck'])] + $base));
+    same('shadow diff: the same entries, one twice: their count', [['kind' => 'fill.count', 'path' => '', 'python' => 2, 'php' => 3]], jackShadowDiff($base, ['fill' => ['rels' => ['x', 'y', 'y']] + $base['fill']] + $base));
+    same('shadow diff: a question one side asked', [['kind' => 'request', 'path' => 'http://a', 'python' => 2, 'php' => 0], ['kind' => 'request', 'path' => 'http://b', 'python' => 0, 'php' => 1]], jackShadowDiff($base, $base, ['http://b' => 1], ['http://a' => 2]));
+    same('shadow diff: a person\'s numbers; a group that differs inside', [['kind' => 'person', 'path' => 'p:a.budget', 'python' => '1.000', 'php' => '2.000'], ['kind' => 'selected.group', 'path' => 'x', 'python' => $base['persons'][0]['selected'][0], 'php' => ['title' => 'U'] + $base['persons'][0]['selected'][0]]],
+        jackShadowDiff($base, ['persons' => [['budget' => '2.000', 'selected' => [['title' => 'U'] + $base['persons'][0]['selected'][0]]] + $base['persons'][0]]] + $base));
+    hardeningRm($tmp);
+}
+
+/** The plans of both side by side on every stand-in case (tests/shadow/diff.php), where there is a Python; a test server's differential check */
+function testJackShadowPython(): void
+{
+    if (!needsPython(__FUNCTION__)) {
+        return;
+    }
+    [$exit, $out, $err] = run([PHP_BINARY, OFFICE_DIR . '/tests/shadow/diff.php'], 600);
+    $lines = array_values(array_filter(explode("\n", (string) $out), fn (string $l): bool => str_starts_with($l, 'DIFF') || str_starts_with($l, '  ') || str_starts_with($l, 'all ') || str_contains($l, ' DIFFER')));
+    same('shadow: Python and PHP plan the same on every stand-in case', [0, 1], [$exit, count(array_filter($lines, fn (string $l): bool => str_starts_with($l, 'all ')))], substr(implode("\n", $lines) . $err, 0, 2000));
+}
+
+/**
  * The rule: no real gather while someone watches Emby. A stand-in Emby (fixture answers shaped
  * like a real server's /Sessions, no network): who watches, down, a bad key or answer; the gate before a
  * real run (from the page: refused; on schedule: waits 15 min at a time up to 2 h with a fake clock,
@@ -33671,7 +34206,8 @@ JS);
     $kinds = ['desk', 'section', 'tile', 'step', 'setting', 'help', 'guide'];
     // headed with T('…') but no place: the recovery sheet's own page (printed, not the office's); a partner office's tile
     // (from the state — a later phase of the search)
-    $notPlaces = ['advisor' => ['sheet.repo', 'sheet.kopia'], 'restore' => ['pt.title']];
+    // jack: «The plan in PHP» only with its flag file (jack-shadow.php), never found by the search
+    $notPlaces = ['advisor' => ['sheet.repo', 'sheet.kopia'], 'restore' => ['pt.title'], 'jack' => ['shadow.title']];
     $count = [];
     foreach (array_merge([''], $desks) as $d) {
         $list = $r['registry'][$d] ?? [];
@@ -62152,7 +62688,7 @@ function testBackupAnewChoice(): void
         str_contains($setup, 'OLD[$k]="${v//$\'\x1f\'/$\'\n\'}"') && str_contains($setup, 'was="$v"; [[ -n "${ANEW[$v]:-}" ]] && v="${ANEW[$v]}"'));
 }
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
