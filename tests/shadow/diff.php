@@ -176,6 +176,12 @@ if (($argvRest[0] ?? '') === '--real') {
         $inst['path_mappings'] = $m;
         return $inst;
     };
+    $broadOff = function (array $inst, string $sub): array {        // one broad line over both libraries, one of them left empty below it
+        $m = (array) $inst['path_mappings'];
+        $docker = dirname((string) array_key_first($m));
+        $inst['path_mappings'] = [$docker => dirname((string) $m[array_key_first($m)]), "$docker/$sub" => ''];
+        return $inst;
+    };
     $userIds = [];
     $cases = [
         'emby alone' => ['instances' => $byType(['emby'])],
@@ -196,6 +202,9 @@ if (($argvRest[0] ?? '') === '--real') {
         'cleanup by rsync' => ['cleanup_tool' => 'rsync'],
         'a mapping left empty: Familienserien not cached' => ['instances' => array_map(fn (array $i): array => $mapsOff($i, 'Familienserien'), $base['instances'])],
         'a mapping left empty: Familienfilme not cached' => ['instances' => array_map(fn (array $i): array => $mapsOff($i, 'Familienfilme'), $base['instances'])],
+        'one broad line, Familienserien left empty below it' => ['instances' => array_map(fn (array $i): array => $broadOff($i, 'Familienserien'), $base['instances'])],
+        'one broad line, Familienfilme left empty below it' => ['instances' => array_map(fn (array $i): array => $broadOff($i, 'Familienfilme'), $base['instances'])],
+        'one broad line, nothing left empty' => ['instances' => array_map(fn (array $i): array => $broadOff($i, 'nichts') , $base['instances'])],
         'a server that does not answer among them' => ['instances' => array_merge($base['instances'], [['servername' => 'off', 'type' => 'emby', 'url' => 'http://127.0.0.1:9', 'api_key' => 'x', 'path_mappings' => ['/mnt/media' => '/mnt/user/media']]])],
         'a wrong key' => ['instances' => array_map(fn (array $i): array => ['api_key' => $i['type'] === 'plex' ? $i['api_key'] : 'wrongwrongwrong'] + $i, $base['instances'])],
         'themes on' => ['themes' => true],
