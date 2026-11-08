@@ -6,7 +6,9 @@ declare(strict_types=1);
  * Functions only, in a file of their own beside her desk (the agent's desk glob loads it, logs.php require_once's it):
  * its name sorts before logs.php in every locale (glob() sorts by strcoll — en_US ignores the «-»), or the glob would
  * load it a second time after logs.php had.
- * Read only, RAM only: disks.ini, /proc and the syslog — never a disk, never a walk or a stat under /mnt.
+ * Read only. The tick and the capture read RAM only: disks.ini, /proc, /sys and the syslog — never a disk, never a walk or a
+ * stat under /mnt. The one look at a disk is the trail (below): only the disk that just woke, only after the wake, only
+ * from the naming job, bounded in time and entries.
  *
  * Unraid logs a spin-down («emhttpd: spinning down /dev/sdX»), never the wake, so she watches herself, in her tick:
  *   every LOGS_WAKE_INI s   disks.ini (sleepingDisks()'s rule: spun down AND rotating — an SSD/NVMe never counts);
@@ -31,6 +33,15 @@ declare(strict_types=1);
  * Names that need a command (a container's name, an SMB client's machine) and what was due then (cron lines, containers
  * just started, Unraid's «read SMART /dev/sdX» as a second time) come afterwards from a short job of its own
  * (logsWakeNameRun(), `php agent.php job logs-wake-name`), never in the tick.
+ * The trail (2026-11-08: a script wrote a clip through /mnt/user and left within seconds — nobody in state D, never on
+ * the writers' list): the same job names what was written on the woken disk itself around the wake, by folder
+ * (logsWakeTrail()) — a hint, not a cause, and only while the disk is awake (looking then costs no further wake), only
+ * for a wake of the last LOGS_WAKE_TRAIL_LATE s, never on another disk or one asleep again. btrfs keeps a transaction id
+ * per change: the tick notes the disk's generation from /sys when it falls asleep (RAM), and `btrfs subvolume find-new`
+ * lists only what came after (every writable subvolume; read-only snapshots and `.btrfs-snap` left out). XFS, ZFS and the
+ * rest keep no such list: a walk of the woken disk's own mounts (`find -xdev`, `.zfs` pruned) for folders changed since
+ * it slept, then their files changed since — bounded, cut and said so; a file changed in place in an old folder escapes
+ * it. Left out: the office's own data folder and Unraid's `.btrfs-snap`.
  *
  * data/logs-wakes.json {"v":1, "since", "wakes":[…], "totals":{disk: n}} — written only by her tick (the naming job
  * hands its answer over in RAM); the last LOGS_WAKE_KEEP seconds, at most LOGS_WAKE_MAX wakes; tolerant: entries and
@@ -79,6 +90,16 @@ const LOGS_WAKE_SHFS      = 400;          // shfs's open files read at most (whi
 const LOGS_WAKE_SURE      = ['sure' => 0, 'wrote' => 1, 'likely' => 2, 'open' => 3, 'maybe' => 4];
 // who started a plain program: Unraid itself, its web page, a plugin, a user script, a terminal or SSH session
 const LOGS_WAKE_BY        = ['unraid', 'web', 'plugin', 'user_script', 'session'];
+// the trail: what was written on the woken disk around the wake (logsWakeTrail(), the naming job only)
+const LOGS_WAKE_TRAIL_LATE  = 300;        // only for a wake this many seconds old at most (later writes would blur it)
+const LOGS_WAKE_TRAIL_AFTER = 30;         // a file changed this long after the wake still counts (a copy going on)
+const LOGS_WAKE_TRAIL_RUN   = 25;         // seconds all trails of one naming job may take (the job has LOGS_WAKE_NAME_RUN)
+const LOGS_WAKE_TRAIL_FILES = 2000;       // files looked at (find-new's or a walk's), at most
+const LOGS_WAKE_TRAIL_OUT   = 4 << 20;    // bytes of find-new's or find's answer read, at most
+const LOGS_WAKE_TRAIL_DIRS  = 4;          // folders kept per wake (the earliest written first)
+const LOGS_WAKE_TRAIL_WALK  = 300;        // changed folders a walk looks into, at most
+const LOGS_WAKE_TRAIL_TREES = 16;         // btrfs subvolumes asked, at most
+const LOGS_WAKE_TRAIL_GENS  = 4;          // btrfs without the generation from before the sleep: the last this many transactions
 
 require_once __DIR__ . '/../lib/watchnet.php';        // watchnetBases(): which disks and pools a user share lies on
 
@@ -241,11 +262,19 @@ function logsWakeIniLook(float $mono): void
     }
     $look = $m['look'];
     $changed = $before === null || array_map(fn ($d) => $d['asleep'], $disks) !== array_map(fn ($d) => !empty($d['asleep']), $before);
-    $m['disks'] = array_map(fn (array $d): array => ['dev' => $d['dev'], 'asleep' => $d['asleep'], 'mount' => $d['mount']], $disks);
+    // asleep since when, and (btrfs) its generation then — kept from the first look that saw it asleep (the trail's start)
+    $m['disks'] = [];
+    foreach ($disks as $name => $d) {
+        $was = $before[$name] ?? null;
+        $sleep = !$d['asleep'] ? [] : (!empty($was['asleep']) && is_int($was['since'] ?? null)
+            ? ['since' => $was['since'], 'gen' => is_int($was['gen'] ?? null) ? $was['gen'] : null]
+            : ['since' => $now, 'gen' => is_string($d['mount']) ? logsWakeBtrfsGen($d['mount']) : null]);
+        $m['disks'][$name] = ['dev' => $d['dev'], 'asleep' => $d['asleep'], 'mount' => $d['mount']] + $sleep;
+    }
     $m['look'] = $now;
     if ($woke && $look !== null && $now - $look <= LOGS_WAKE_LATE) {
         try {
-            logsWakeRecord($woke, $look, $now, $disks);
+            logsWakeRecord($woke, $look, $now, $disks, array_intersect_key((array) $before, array_flip($woke)));
         } catch (Throwable $e) {
             logLine('Ms. Protocolli: a wake could not be kept — ' . $e->getMessage());
         }
@@ -868,8 +897,9 @@ function logsWakeHostPath(string $path, array $mounts, array $host): ?string
  * and its likely causes from the captures before it; named afterwards by the naming job.
  *
  * @param list<string> $woke
+ * @param array<string, array> $slept the woken disks as her memory had them asleep (since, gen: the trail's start)
  */
-function logsWakeRecord(array $woke, int $from, int $to, array $disks): void
+function logsWakeRecord(array $woke, int $from, int $to, array $disks, array $slept = []): void
 {
     $m = &logsWakeMem();
     $caught = [];
@@ -885,6 +915,12 @@ function logsWakeRecord(array $woke, int $from, int $to, array $disks): void
              'disks' => $woke, 'how' => $caught ? 'caught' : 'noticed', 'who' => logsWakeCauses($caught, $mounts, logsWakeShareBases()),
              'cut' => (bool) array_filter(array_column($caught, 'cut')), 'named' => false,
              'unraid' => (bool) array_filter($caught, fn (array $c): bool => !empty($c['unraid']))];
+    // since when each slept and its btrfs generation then: where the naming job's trail starts
+    foreach ($woke as $name) {
+        if (is_int($slept[$name]['since'] ?? null)) {
+            $wake['asleep'][$name] = ['since' => $slept[$name]['since'], 'gen' => is_int($slept[$name]['gen'] ?? null) ? $slept[$name]['gen'] : null];
+        }
+    }
     $all = logsWakesRead();
     $all['wakes'][] = $wake;
     foreach ($woke as $name) {
@@ -1057,7 +1093,7 @@ function logsWakeShaped(mixed $w): ?array
     return ['id' => $w['id'], 'time' => $w['time'], 'from' => is_int($w['from'] ?? null) ? $w['from'] : $w['time'],
             'disks' => array_values(array_filter($w['disks'], 'is_string')), 'how' => $w['how'], 'who' => $who,
             'cut' => !empty($w['cut']), 'named' => !empty($w['named']), 'cron' => $strings('cron'), 'started' => $strings('started'),
-            'smart' => is_int($w['smart'] ?? null) ? $w['smart'] : null, 'unraid' => $unraid];
+            'smart' => is_int($w['smart'] ?? null) ? $w['smart'] : null, 'unraid' => $unraid, 'trail' => logsWakeTrailShaped($w['trail'] ?? null)];
 }
 
 /** For her state: the rotating disks there are (no tile without one), since when she watches, the wakes */
@@ -1081,6 +1117,378 @@ function logsWakeMetrics(?string $file = null): array
     }
     return $samples ? [['name' => 'uso_logs_disk_wakes_total', 'type' => 'counter',
         'help' => 'Spinning disks woken up, as Ms. Protocolli noticed (since she started counting)', 'samples' => $samples]] : [];
+}
+
+// ===================================================================== the trail (what was written on the woken disk)
+
+/** /sys (tests: a tree of their own) */
+function logsWakeSys(): string
+{
+    return $GLOBALS['logsWakeSys'] ?? '/sys';
+}
+
+/**
+ * What is mounted at exactly this mount point, as the server's first process sees it (/proc/1/mountinfo — RAM):
+ * [type, source, root inside its filesystem] — null when nothing is
+ *
+ * @return array{type: string, source: string, root: string}|null
+ */
+function logsWakeFsOf(string $mount, ?string $proc = null): ?array
+{
+    foreach (logsWakeFsList($proc) as $f) {
+        if ($f['point'] === $mount) {
+            return ['type' => $f['type'], 'source' => $f['source'], 'root' => $f['root']];
+        }
+    }
+    return null;
+}
+
+/**
+ * Every mount of the server's first process: point, type, source, root (/proc/1/mountinfo: «… root point opts … - type
+ * source super-opts»)
+ *
+ * @return list<array{point: string, type: string, source: string, root: string}>
+ */
+function logsWakeFsList(?string $proc = null): array
+{
+    $out = [];
+    foreach (@file(($proc ?? logsWakeProc()) . '/1/mountinfo', FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+        $f = explode(' ', $line);
+        $dash = array_search('-', $f, true);
+        if (count($f) >= 5 && $dash !== false && $dash >= 6 && isset($f[$dash + 2])) {
+            $out[] = ['point' => mountUnescape($f[4]), 'type' => $f[$dash + 1], 'source' => mountUnescape($f[$dash + 2]), 'root' => mountUnescape($f[3])];
+        }
+    }
+    return $out;
+}
+
+/**
+ * A btrfs filesystem's generation (its newest transaction id) from /sys/fs/btrfs/<fsid>/generation — RAM, never the
+ * disk: found by the device mounted there (/dev/md4p1, an encrypted /dev/mapper/md4p1 by its dm-N). Null: not btrfs or
+ * not to be found.
+ */
+function logsWakeBtrfsGen(string $mount, ?string $proc = null, ?string $sys = null): ?int
+{
+    $fs = logsWakeFsOf($mount, $proc);
+    if ($fs === null || $fs['type'] !== 'btrfs' || !str_starts_with($fs['source'], '/dev/')) {
+        return null;
+    }
+    $sys ??= logsWakeSys();
+    $dev = basename((string) (@realpath($fs['source']) ?: $fs['source']));
+    if (!preg_match('/^[A-Za-z0-9._-]{1,64}$/D', $dev)) {
+        return null;
+    }
+    foreach (glob("$sys/fs/btrfs/*/devices/$dev", GLOB_NOSORT) ?: [] as $link) {
+        $g = trim((string) @file_get_contents(dirname($link, 2) . '/generation'));
+        if (ctype_digit($g)) {
+            return (int) $g;
+        }
+    }
+    return null;
+}
+
+/**
+ * A command whose answer can be long, bounded: at most $max bytes of its output and $seconds — then it is ended
+ * (`cut`). No shell, stderr dropped.
+ *
+ * @param list<string> $cmd
+ * @return array{0: int, 1: string, 2: bool} exit code, output, cut
+ */
+function logsWakeRunCapped(array $cmd, float $seconds, int $max): array
+{
+    $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'LC_ALL' => 'C', 'HOME' => '/root'];
+    $pipes = [];
+    $p = @proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/', $env);
+    if (!is_resource($p)) {
+        return [127, '', false];
+    }
+    stream_set_blocking($pipes[1], false);
+    $out = '';
+    $cut = false;
+    $deadline = hrtime(true) + (int) ($seconds * 1e9);
+    while (!feof($pipes[1])) {
+        if (strlen($out) >= $max || hrtime(true) > $deadline) {
+            $cut = true;
+            break;
+        }
+        $r = [$pipes[1]];
+        $w = $e = null;
+        @stream_select($r, $w, $e, 0, 200000);
+        $chunk = fread($pipes[1], 65536);
+        if (is_string($chunk)) {
+            $out .= $chunk;
+        }
+    }
+    if ($cut) {
+        proc_terminate($p, 9);
+    }
+    fclose($pipes[1]);
+    $code = proc_close($p);
+    return [$cut ? 124 : $code, substr($out, 0, $max), $cut];
+}
+
+/**
+ * btrfs: the files written after the generation $gen (`btrfs subvolume find-new <tree> <gen>` lists only file extents
+ * of newer transactions — inclusive, so the caller passes the one after the sleep's), in the mounted tree and every
+ * writable subvolume below it that changed since (read-only ones — snapshots — and `.btrfs-snap` left out). Without
+ * $gen: the last LOGS_WAKE_TRAIL_GENS transactions. Path (absolute) => bytes of its new extents.
+ *
+ * @param callable(list<string>, float, int): array{0: int, 1: string, 2: bool} $run
+ * @return array{files: array<string, int>, cut: bool}
+ */
+function logsWakeTrailBtrfs(string $mount, ?int $gen, callable $run, int $deadline, string $root = '/'): array
+{
+    $left = fn (): float => max(0.0, ($deadline - hrtime(true)) / 1e9);
+    $btrfs = bin('btrfs') ?? 'btrfs';
+    if ($gen === null) {
+        [, $text] = $run([$btrfs, 'subvolume', 'find-new', $mount, '999999999999'], min(10.0, $left()), 4096);
+        if (!preg_match('/transid marker was (\d+)/', $text, $mk)) {
+            return ['files' => [], 'cut' => false];
+        }
+        $gen = max(1, (int) $mk[1] - LOGS_WAKE_TRAIL_GENS + 1);
+    }
+    $trees = [$mount];
+    if ($root === '/') {                // the top of the filesystem mounted here: the subvolumes' paths are below it
+        [$e1, $all] = $run([$btrfs, 'subvolume', 'list', $mount], min(10.0, $left()), 1 << 20);
+        [$e2, $ro] = $run([$btrfs, 'subvolume', 'list', '-r', $mount], min(10.0, $left()), 1 << 20);
+        $readonly = [];
+        foreach (explode("\n", $e2 === 0 ? $ro : '') as $line) {
+            if (preg_match('/^ID (\d+) /', $line, $id)) {
+                $readonly[$id[1]] = true;
+            }
+        }
+        foreach (explode("\n", $e1 === 0 ? $all : '') as $line) {
+            if (!preg_match('/^ID (\d+) gen (\d+) top level \d+ path (.+)$/D', $line, $sv) || isset($readonly[$sv[1]]) || (int) $sv[2] < $gen
+                || in_array('.btrfs-snap', explode('/', $sv[3]), true) || in_array('..', explode('/', $sv[3]), true)) {
+                continue;
+            }
+            if (count($trees) >= LOGS_WAKE_TRAIL_TREES) {
+                break;
+            }
+            $trees[] = "$mount/{$sv[3]}";
+        }
+    }
+    $files = [];
+    $cut = false;
+    foreach ($trees as $tree) {
+        if ($left() <= 0) {
+            $cut = true;
+            break;
+        }
+        [$exit, $text, $c] = $run([$btrfs, 'subvolume', 'find-new', $tree, (string) $gen], $left(), LOGS_WAKE_TRAIL_OUT);
+        $cut = $cut || $c;
+        if ($exit !== 0 && !$c) {
+            continue;
+        }
+        // inode 261 file offset 0 len 8192 disk start 13733888 offset 0 gen 10 flags NONE Musik-Videos/a b "c".mkv
+        foreach (explode("\n", $text) as $line) {
+            if (!preg_match('/^inode \d+ file offset \d+ len (\d+) disk start \d+ offset \d+ gen \d+ flags \S+ (.+)$/D', $line, $x)
+                || $x[2][0] === '/' || in_array('..', explode('/', $x[2]), true)) {
+                continue;
+            }
+            $p = "$tree/{$x[2]}";
+            if (!isset($files[$p]) && count($files) >= LOGS_WAKE_TRAIL_FILES) {
+                $cut = true;
+                break 2;
+            }
+            $files[$p] = ($files[$p] ?? 0) + (int) $x[1];
+        }
+    }
+    return ['files' => $files, 'cut' => $cut];
+}
+
+/**
+ * XFS, ZFS and the rest keep no list of what changed: the folders under the woken disk's mounts changed since $since
+ * (`find -xdev … -type d -newerct` — find knows a folder by its entry, so only folders are looked at closer; `.zfs` and
+ * `.btrfs-snap` pruned, a ZFS disk's own datasets each a mount of their own), then their files changed since. Bounded
+ * (LOGS_WAKE_TRAIL_WALK folders, LOGS_WAKE_TRAIL_FILES files, the deadline): `cut`. A file changed in place in a folder
+ * that didn't change escapes it. Path (absolute) => [bytes, ctime].
+ *
+ * @param callable(list<string>, float, int): array{0: int, 1: string, 2: bool} $run
+ * @return array{files: array<string, array{0: int, 1: int}>, cut: bool}
+ */
+function logsWakeTrailWalk(string $mount, int $since, callable $run, int $deadline, ?string $proc = null): array
+{
+    $left = fn (): float => max(0.0, ($deadline - hrtime(true)) / 1e9);
+    $roots = [$mount];
+    $fs = logsWakeFsOf($mount, $proc);
+    if ($fs !== null && $fs['type'] === 'zfs') {
+        foreach (logsWakeFsList($proc) as $f) {
+            if ($f['type'] === 'zfs' && str_starts_with($f['point'], "$mount/") && str_starts_with($f['source'], $fs['source'] . '/')
+                && !str_contains($f['point'] . '/', '/.zfs/') && count($roots) < LOGS_WAKE_TRAIL_TREES) {
+                $roots[] = $f['point'];
+            }
+        }
+    }
+    $dirs = [];
+    $cut = false;
+    foreach ($roots as $root) {
+        if ($left() <= 0) {
+            $cut = true;
+            break;
+        }
+        [, $text, $c] = $run(['find', $root, '-xdev', '(', '-name', '.zfs', '-o', '-name', '.btrfs-snap', ')', '-prune', '-o',
+            '-type', 'd', '-newerct', "@$since", '-print0'], $left(), LOGS_WAKE_TRAIL_OUT);
+        $cut = $cut || $c;
+        foreach (explode("\0", $text) as $d) {
+            if ($d !== '' && $d[0] === '/') {
+                $dirs[$d] = true;
+            }
+        }
+    }
+    if (count($dirs) > LOGS_WAKE_TRAIL_WALK) {
+        $dirs = array_slice($dirs, 0, LOGS_WAKE_TRAIL_WALK, true);
+        $cut = true;
+    }
+    $files = [];
+    foreach (array_keys($dirs) as $d) {
+        if ($left() <= 0) {
+            $cut = true;
+            break;
+        }
+        foreach (@scandir((string) $d) ?: [] as $e) {
+            if ($e === '.' || $e === '..') {
+                continue;
+            }
+            if (count($files) >= LOGS_WAKE_TRAIL_FILES) {
+                $cut = true;
+                break 2;
+            }
+            $st = @lstat("$d/$e");
+            if (is_array($st) && ($st['mode'] & 0170000) === 0100000 && $st['ctime'] >= $since) {
+                $files["$d/$e"] = [(int) $st['size'], (int) $st['ctime']];
+            }
+        }
+    }
+    return ['files' => $files, 'cut' => $cut];
+}
+
+/**
+ * What was written on the woken disks around a wake, by folder (the naming job, never the tick): only disks awake now
+ * (every member of a pool), only for a wake of the last LOGS_WAKE_TRAIL_LATE s; btrfs by its transactions since the
+ * sleep, the rest by a bounded walk (see the top of the file). Left out: `.btrfs-snap`, `.zfs` and the office's own
+ * data folder ($o['exclude']: absolute paths as /mnt/user/… or on a disk). A file changed more than
+ * LOGS_WAKE_TRAIL_AFTER s after the wake is a later one. At most LOGS_WAKE_TRAIL_DIRS folders, the earliest written
+ * first: {how: btrfs|walk|both, cut, dirs: [{disk, dir, n, bytes, first, last}], more (folders), files (all)}.
+ * Null: nothing that could be looked at (parity, a disk asleep again, a wake too old).
+ *
+ * @param array<string, array{dev: string, asleep: bool, mount: ?string}> $disks disks.ini now (logsWakeDisks())
+ * @param array{run?: callable, now?: int, deadline?: int, exclude?: list<string>, proc?: string} $o
+ */
+function logsWakeTrail(array $w, array $disks, array $o = []): ?array
+{
+    $now = $o['now'] ?? time();
+    $time = (int) ($w['time'] ?? 0);
+    if ($now - $time > LOGS_WAKE_TRAIL_LATE || $time > $now + 60) {
+        return null;
+    }
+    $run = $o['run'] ?? 'logsWakeRunCapped';
+    $deadline = $o['deadline'] ?? hrtime(true) + LOGS_WAKE_TRAIL_RUN * 1_000_000_000;
+    $proc = $o['proc'] ?? null;
+    $mounts = [];
+    foreach ((array) ($w['disks'] ?? []) as $name) {
+        $mt = $disks[$name]['mount'] ?? null;
+        if (!is_string($mt) || !empty($disks[$name]['asleep'])) {
+            continue;
+        }
+        // a pool: every rotating member awake (one asleep — a look would wake it)
+        if (array_filter($disks, fn (array $d): bool => $d['mount'] === $mt && $d['asleep'])) {
+            continue;
+        }
+        $slept = $w['asleep'][$name] ?? [];
+        $since = is_int($slept['since'] ?? null) ? $slept['since'] : (int) ($w['from'] ?? $time) - logsWakeWindow();
+        $gen = is_int($slept['gen'] ?? null) ? $slept['gen'] : null;
+        // a pool's members woke together: its mount once, from the earliest sleep
+        $mounts[$mt] = isset($mounts[$mt]) ? ['since' => min($mounts[$mt]['since'], $since), 'gen' => $mounts[$mt]['gen'] ?? $gen] : ['since' => $since, 'gen' => $gen];
+    }
+    if (!$mounts) {
+        return null;
+    }
+    // the office's own data folder, as a path inside a share or a disk (Mediathek/x for /mnt/user/Mediathek/x)
+    $skip = [];
+    foreach ($o['exclude'] ?? [] as $x) {
+        if (preg_match('#^/mnt/(?:user0?|[A-Za-z0-9_.-]+)/(.+?)/*$#D', (string) $x, $r)) {
+            $skip[] = $r[1];
+        }
+    }
+    $hows = [];
+    $cut = false;
+    $groups = [];
+    $all = 0;
+    foreach ($mounts as $mt => $s) {
+        $fs = logsWakeFsOf($mt, $proc);
+        if ($fs === null) {
+            continue;
+        }
+        if ($fs['type'] === 'btrfs') {
+            $hows['btrfs'] = true;
+            $t = logsWakeTrailBtrfs($mt, $s['gen'] === null ? null : $s['gen'] + 1, $run, $deadline, $fs['root']);
+            $files = [];
+            foreach ($t['files'] as $p => $bytes) {
+                $files[$p] = [$bytes, null];
+            }
+        } else {
+            $hows['walk'] = true;
+            $t = logsWakeTrailWalk($mt, $s['since'], $run, $deadline, $proc);
+            $files = $t['files'];
+        }
+        $cut = $cut || $t['cut'];
+        $stats = 0;
+        foreach ($files as $p => [$bytes, $ctime]) {
+            $rel = substr((string) $p, strlen($mt) + 1);
+            $parts = explode('/', $rel);
+            if ($rel === '' || in_array('.btrfs-snap', $parts, true) || in_array('.zfs', $parts, true)
+                || array_filter($skip, fn (string $k): bool => $rel === $k || str_starts_with($rel, "$k/"))) {
+                continue;
+            }
+            if ($ctime === null && $stats++ < LOGS_WAKE_TRAIL_FILES) {
+                $st = @lstat((string) $p);          // the disk is awake: its time and size
+                if (is_array($st)) {
+                    $ctime = (int) $st['ctime'];
+                    $bytes = min($bytes, (int) $st['size']);
+                }
+            }
+            if ($ctime !== null && $ctime > $time + LOGS_WAKE_TRAIL_AFTER) {
+                continue;                           // written later: not what woke it
+            }
+            $dir = dirname($rel);
+            $key = basename($mt) . '|' . $dir;
+            $g = $groups[$key] ?? ['disk' => basename($mt), 'dir' => mb_strcut($dir === '.' ? '' : $dir, 0, LOGS_WAKE_PATH, 'UTF-8'),
+                                    'n' => 0, 'bytes' => 0, 'first' => null, 'last' => null];
+            $g['n']++;
+            $g['bytes'] += $bytes;
+            if ($ctime !== null) {
+                $g['first'] = $g['first'] === null ? $ctime : min($g['first'], $ctime);
+                $g['last'] = $g['last'] === null ? $ctime : max($g['last'], $ctime);
+            }
+            $groups[$key] = $g;
+            $all++;
+        }
+    }
+    if (!$hows) {
+        return null;
+    }
+    $groups = array_values($groups);
+    usort($groups, fn (array $a, array $b): int => [$a['first'] ?? PHP_INT_MAX, -$a['n']] <=> [$b['first'] ?? PHP_INT_MAX, -$b['n']]);
+    return ['how' => count($hows) > 1 ? 'both' : array_key_first($hows), 'cut' => $cut, 'dirs' => array_slice($groups, 0, LOGS_WAKE_TRAIL_DIRS),
+            'more' => max(0, count($groups) - LOGS_WAKE_TRAIL_DIRS), 'files' => $all];
+}
+
+/** A trail as the page reads it — exactly its shape, else none */
+function logsWakeTrailShaped(mixed $t): ?array
+{
+    if (!is_array($t) || !in_array($t['how'] ?? null, ['btrfs', 'walk', 'both'], true) || !is_array($t['dirs'] ?? null)) {
+        return null;
+    }
+    $dirs = [];
+    foreach ($t['dirs'] as $d) {
+        if (is_array($d) && is_string($d['disk'] ?? null) && is_string($d['dir'] ?? null) && is_int($d['n'] ?? null) && is_int($d['bytes'] ?? null)
+            && count($dirs) < LOGS_WAKE_TRAIL_DIRS) {
+            $dirs[] = ['disk' => $d['disk'], 'dir' => $d['dir'], 'n' => $d['n'], 'bytes' => $d['bytes'],
+                       'first' => is_int($d['first'] ?? null) ? $d['first'] : null, 'last' => is_int($d['last'] ?? null) ? $d['last'] : null];
+        }
+    }
+    return ['how' => $t['how'], 'cut' => !empty($t['cut']), 'dirs' => $dirs, 'more' => is_int($t['more'] ?? null) ? $t['more'] : 0];
 }
 
 // ===================================================================== naming afterwards (a job of its own)
@@ -1153,6 +1561,9 @@ function logsWakeNameMerge(): void
                 $w['how'] = 'syslog';
             }
         }
+        if (is_array($n['trail'] ?? null)) {
+            $w['trail'] = $n['trail'];
+        }
         $w['named'] = true;
     }
     unset($w);
@@ -1160,8 +1571,9 @@ function logsWakeNameMerge(): void
 }
 
 /**
- * php agent.php job logs-wake-name: names for the unnamed wakes, into RAM (logsWakeNamesFile()). $o (tests): what
- * Docker, smbstatus, the cron files and the syslog would say — docker, smb, cron, syslog.
+ * php agent.php job logs-wake-name: names for the unnamed wakes and their trails, into RAM (logsWakeNamesFile()). $o
+ * (tests): what Docker, smbstatus, the cron files, the syslog and disks.ini would say — docker, smb, cron, syslog, disks —
+ * and the trail's options (logsWakeTrail(): run, now, proc).
  */
 function logsWakeNameRun(array $o = []): int
 {
@@ -1178,6 +1590,10 @@ function logsWakeNameRun(array $o = []): int
     $cron = $o['cron'] ?? logsWakeCronLines();
     $syslog = $o['syslog'] ?? logsTail('/var/log/syslog', 2000);
     $out = readJson(logsWakeNamesFile()) ?? [];
+    // the trails: disks.ini now (a disk asleep again is never looked at), one deadline for them all
+    $disksNow = $o['disks'] ?? logsWakeDisks();
+    $trail = ($o['trail'] ?? []) + ['deadline' => hrtime(true) + LOGS_WAKE_TRAIL_RUN * 1_000_000_000,
+                                    'exclude' => array_values(array_filter([defined('DATA_DIR') ? (string) DATA_DIR : '', defined('DATA_DIR_USER') ? (string) DATA_DIR_USER : '']))];
     foreach ($wakes as $w) {
         $devs = array_values(array_filter(array_map(fn (string $d): string => (string) (logsWakeMem()['disks'][$d]['dev'] ?? ''), (array) $w['disks'])));
         $out[$w['id']] = [
@@ -1187,6 +1603,7 @@ function logsWakeNameRun(array $o = []): int
             'started' => array_values(array_map(fn (array $c): string => $c[0],
                 array_filter($docker['started'], fn (array $c): bool => $c[1] >= (int) $w['time'] - 120 && $c[1] <= (int) $w['time'] + 10))),
             'smart' => logsWakeSmartTime($syslog, $devs, (int) $w['from'] - 60, (int) $w['time'] + 120),
+            'trail' => logsWakeTrail($w, $disksNow, $trail),
         ];
     }
     writeAtomic(logsWakeNamesFile(), jsonEncode($out), 0600, 0, 0);

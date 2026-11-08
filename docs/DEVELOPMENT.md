@@ -828,7 +828,14 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   flush): a writers' list while a disk sleeps (files open for writing there, every `LOGS_WAKE_HOLD` s, budgeted; their
   write counters every look) gives «wrote to it»; a user share's file by the disk shfs holds it on; a plain program by who
   started it (`by`: Unraid, its web page, a plugin, a user script, a terminal); a capture that found nobody looks again
-  `LOGS_WAKE_AGAIN_LOOK` s later.
+  `LOGS_WAKE_AGAIN_LOOK` s later. **The trail** (`trail`, `logsWakeTrail()`, only in the job `logs-wake-name`, never the
+  tick): what was written on the woken disk itself around the wake, by folder (count, bytes, first/last time; at most
+  `LOGS_WAKE_TRAIL_DIRS`) — a hint, not a cause; only on a disk awake now (a pool: every member), for a wake of the last
+  `LOGS_WAKE_TRAIL_LATE` s. btrfs: the tick notes each disk's generation from `/sys/fs/btrfs/<fsid>/generation` when it
+  falls asleep (RAM), the job asks `btrfs subvolume find-new` after it (the mounted tree and every writable subvolume that
+  changed; read-only snapshots and `.btrfs-snap` left out); XFS/ZFS: `find -xdev` over the disk's own mounts for folders
+  changed since it slept (`.zfs` pruned), then their files — bounded (`LOGS_WAKE_TRAIL_*`), `cut` said. The office's data
+  folder is left out. Folders only on her page.
 * **`watchman` — The Night Watchman.** **The office's security department — no other desk gives security advice. Read only,
   never a command that changes anything.** Snapshot automounts he counts per place (`uso_watchman_snapshot_automounts{where}`
   host/container/process, «What holds the array?»: `arrayholdSnaps()`, /proc only, `snapshotMountsEverywhere()`). Posture tips (never in the book or notified) and the watch book (what differs from

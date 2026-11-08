@@ -41371,6 +41371,7 @@ function testLogsWakes(): void
     $GLOBALS['logsWakeVarIni'] = "$tmp/var.ini";
     $GLOBALS['logsWakeNoJob'] = true;
     $GLOBALS['logsWakeSharesIni'] = "$tmp/shares.ini";          // none: a share's disks not known
+    $GLOBALS['logsWakeSys'] = "$tmp/sys";                        // none: no btrfs generation
     $GLOBALS['disksIni'] = "$tmp/disks.ini";
     $GLOBALS['agentStaffFile'] = "$tmp/staff.json";
     file_put_contents("$tmp/staff.json", '{"hired":{"logs":{}}}');
@@ -41792,7 +41793,231 @@ function testLogsWakes(): void
         }
     } finally {
         unset($GLOBALS['logsWakesFile'], $GLOBALS['logsWakeMemFile'], $GLOBALS['logsWakeNamesFile'], $GLOBALS['logsWakeVarIni'],
-            $GLOBALS['logsWakeNoJob'], $GLOBALS['logsWakeProc'], $GLOBALS['logsWake'], $GLOBALS['logsWakeSharesIni']);
+            $GLOBALS['logsWakeNoJob'], $GLOBALS['logsWakeProc'], $GLOBALS['logsWake'], $GLOBALS['logsWakeSharesIni'], $GLOBALS['logsWakeSys']);
+        [$GLOBALS['disksIni'], $GLOBALS['agentStaffFile']] = $keep;
+        if ($keep[0] === null) {
+            unset($GLOBALS['disksIni']);
+        }
+        if ($keep[1] === null) {
+            unset($GLOBALS['agentStaffFile']);
+        }
+        hardeningRm($tmp);
+    }
+}
+
+/*
+ * The trail of a wake (agent/desks/logs-diskwakes.php, 2026-11-08: a script wrote a clip through /mnt/user and left
+ * within seconds — nobody caught): the tick notes since when a disk sleeps and its btrfs generation (from /sys, RAM);
+ * the naming job names what was written on the woken disk — btrfs by `find-new` after that generation (every writable
+ * subvolume that changed, never a read-only snapshot or `.btrfs-snap`; names with spaces and quotes), XFS/ZFS by a
+ * bounded walk of folders changed since (`.zfs` pruned, a ZFS disk's datasets each), grouped by folder; never on a disk
+ * asleep again, a pool with a member asleep, parity or a wake too old; the office's data folder left out; cut said; the
+ * page reads it only in exactly its shape, an old entry without it still reads.
+ */
+function testLogsWakeTrail(): void
+{
+    $tmp = hardeningTmp('logswaketrail');
+    $keep = [$GLOBALS['disksIni'] ?? null, $GLOBALS['agentStaffFile'] ?? null];
+    try {
+        $mnt = "$tmp/mnt";
+        foreach (['disk4/Mediathek/Musik-Videos/Techno & Trance', 'disk4/Mediathek/sub/Neu', 'disk4/appdata/UnraidSecretaryOffice/data',
+                  'disk1/Fotos/2026', 'disk2/media/Filme', 'cache/x'] as $d) {
+            mkdir("$mnt/$d", 0700, true);
+        }
+        $clips = [];
+        for ($i = 1; $i <= 12; $i++) {
+            $clips[] = $f = "clip $i \"live\" it's.mkv";
+            file_put_contents("$mnt/disk4/Mediathek/Musik-Videos/Techno & Trance/$f", str_repeat('x', 5000));
+        }
+        file_put_contents("$mnt/disk4/Mediathek/Musik-Videos/Techno & Trance/poster.jpg", 'jpg');
+        file_put_contents("$mnt/disk4/Mediathek/sub/Neu/a.txt", 'a');
+        file_put_contents("$mnt/disk4/appdata/UnraidSecretaryOffice/data/logs-wakes.json", '{}');
+        file_put_contents("$mnt/disk1/Fotos/2026/IMG 1.jpg", str_repeat('y', 300));
+        file_put_contents("$mnt/disk1/Fotos/2026/IMG 2.jpg", str_repeat('y', 200));
+        file_put_contents("$mnt/disk2/media/Filme/neu.mkv", str_repeat('z', 70));
+        $proc = "$tmp/proc";
+        mkdir("$proc/1", 0700, true);
+        $esc = fn (string $p): string => str_replace(' ', '\\040', $p);
+        file_put_contents("$proc/1/mountinfo", "20 1 0:2 / / rw - rootfs rootfs rw\n"
+            . "45 20 9:4 / {$esc("$mnt/disk4")} rw,noatime shared:2 - btrfs /dev/md4p1 rw,space_cache=v2,subvolid=5,subvol=/\n"
+            . "46 20 9:1 / {$esc("$mnt/disk1")} rw,noatime shared:3 - xfs /dev/md1p1 rw\n"
+            . "47 20 0:38 / {$esc("$mnt/disk2")} rw,noatime shared:4 - zfs disk2 rw\n"
+            . "49 47 0:40 / {$esc("$mnt/disk2/media")} rw,noatime shared:6 - zfs disk2/media rw\n"
+            . "50 49 0:41 / {$esc("$mnt/disk2/media/.zfs/snapshot/s1")} ro - zfs disk2/media@s1 ro\n"
+            . "51 20 0:42 / {$esc("$mnt/disk2/other")} rw - xfs /dev/sdz1 rw\n"
+            . "52 20 8:49 / {$esc("$mnt/cache")} rw - btrfs /dev/sdd1 rw\n"
+            . "53 20 9:4 / /mnt/disk4 rw,noatime - btrfs /dev/md4p1 rw\n");                     // the tick's look (disks.ini's disk4)
+        $sys = "$tmp/sys";
+        mkdir("$sys/fs/btrfs/0aa1-fsid/devices", 0700, true);
+        touch("$sys/fs/btrfs/0aa1-fsid/devices/md4p1");
+        file_put_contents("$sys/fs/btrfs/0aa1-fsid/generation", "1234\n");
+        same('logs trail: a btrfs disk\'s generation from /sys by the device mounted there; XFS, ZFS, nothing there: none',
+            [1234, null, null, null, null], [logsWakeBtrfsGen("$mnt/disk4", $proc, $sys), logsWakeBtrfsGen("$mnt/disk1", $proc, $sys),
+             logsWakeBtrfsGen("$mnt/disk2", $proc, $sys), logsWakeBtrfsGen("$mnt/cache", $proc, $sys), logsWakeBtrfsGen("$mnt/disk9", $proc, $sys)]);
+
+        // btrfs: find-new after the sleep's generation — the fake btrfs answers as the real one does (btrfs-progs 6.x)
+        $log = new stdClass();           // what the fake was asked
+        $log->calls = [];
+        $calls = fn (): array => (array) $log->calls;
+        $runFake = function (array $cmd, float $s, int $max) use ($log, $mnt, $clips): array {
+            $log->calls[] = ($cmd[0] ?? '') === 'find' ? $cmd : array_slice($cmd, 1);           // btrfs by its path on the host
+            $arg = implode(' ', array_slice($cmd, 1));
+            $ext = fn (int $ino, int $len, string $p, string $flags = 'NONE'): string =>
+                "inode $ino file offset 0 len $len disk start 13733888 offset 0 gen 1236 flags $flags $p\n";
+            if ($arg === "subvolume list $mnt/disk4") {
+                return [0, "ID 256 gen 1240 top level 5 path Mediathek/sub\nID 257 gen 1236 top level 5 path .btrfs-snap/2026-11-08_1800\n"
+                    . "ID 258 gen 1100 top level 5 path old-sub\nID 259 gen 1239 top level 5 path Mediathek/ro-copy\n", false];
+            }
+            if ($arg === "subvolume list -r $mnt/disk4") {
+                return [0, "ID 257 gen 1236 top level 5 path .btrfs-snap/2026-11-08_1800\nID 259 gen 1239 top level 5 path Mediathek/ro-copy\n", false];
+            }
+            if ($arg === "subvolume find-new $mnt/disk4 1235") {
+                $out = '';
+                foreach ($clips as $i => $c) {
+                    $out .= $ext(300 + $i, 4096, "Mediathek/Musik-Videos/Techno & Trance/$c") . $ext(300 + $i, 4096, "Mediathek/Musik-Videos/Techno & Trance/$c");
+                }
+                return [0, $out . $ext(400, 3, 'Mediathek/Musik-Videos/Techno & Trance/poster.jpg', 'INLINE')
+                    . $ext(401, 2, 'appdata/UnraidSecretaryOffice/data/logs-wakes.json', 'INLINE')
+                    . $ext(402, 9, 'Mediathek/gone meanwhile.nfo', 'INLINE') . $ext(403, 9, '../escape') . "garbage line\ntransid marker was 1241\n", false];
+            }
+            if ($arg === "subvolume find-new $mnt/disk4/Mediathek/sub 1235") {
+                return [0, $ext(257, 1, 'Neu/a.txt', 'INLINE') . "transid marker was 1241\n", false];
+            }
+            if ($arg === "subvolume find-new $mnt/disk4 999999999999") {
+                return [0, "transid marker was 1241\n", false];
+            }
+            if (($cmd[0] ?? '') === 'find') {
+                $root = $cmd[1];
+                $dirs = ["$mnt/disk1" => ["$mnt/disk1/Fotos", "$mnt/disk1/Fotos/2026"], "$mnt/disk2" => [], "$mnt/disk2/media" => ["$mnt/disk2/media/Filme"]][$root] ?? [];
+                return [0, $dirs ? implode("\0", $dirs) . "\0" : '', false];
+            }
+            return [1, '', false];
+        };
+        $now = time();
+        $disks = ['parity' => ['dev' => 'sdc', 'asleep' => false, 'mount' => null], 'disk4' => ['dev' => 'sde', 'asleep' => false, 'mount' => "$mnt/disk4"],
+                  'disk1' => ['dev' => 'sdb', 'asleep' => false, 'mount' => "$mnt/disk1"], 'disk2' => ['dev' => 'sdf', 'asleep' => false, 'mount' => "$mnt/disk2"],
+                  'cache' => ['dev' => 'sdd', 'asleep' => false, 'mount' => "$mnt/cache"], 'cache2' => ['dev' => 'sdg', 'asleep' => true, 'mount' => "$mnt/cache"]];
+        $o = ['run' => $runFake, 'now' => $now, 'proc' => $proc, 'exclude' => ['/mnt/user/appdata/UnraidSecretaryOffice/data']];
+        $wake = ['id' => 'w1', 'time' => $now, 'from' => $now - 8, 'disks' => ['parity', 'disk4'], 'how' => 'noticed', 'who' => [],
+                 'asleep' => ['disk4' => ['since' => $now - 3600, 'gen' => 1234], 'parity' => ['since' => $now - 3600, 'gen' => null]]];
+        $t = logsWakeTrail($wake, $disks, $o);
+        $askedList = array_map(fn (array $c): string => implode(' ', $c), $calls());
+        same('logs trail: btrfs — only find-new after the sleep\'s generation, in the disk\'s tree and its writable subvolume that changed since (no snapshot, no .btrfs-snap, no older one)',
+            ["subvolume list $mnt/disk4", "subvolume list -r $mnt/disk4", "subvolume find-new $mnt/disk4 1235", "subvolume find-new $mnt/disk4/Mediathek/sub 1235"], $askedList);
+        $dirs = array_map(fn (array $d): array => [$d['disk'], $d['dir'], $d['n'], $d['bytes'], is_int($d['first']), is_int($d['last'])], $t['dirs'] ?? []);
+        same('logs trail: btrfs — grouped by folder, names with spaces and quotes, bytes of the new data (at most the file\'s size), times by the files; the office\'s data folder left out, a path going up never',
+            ['btrfs', false, [['disk4', 'Mediathek/Musik-Videos/Techno & Trance', 13, 12 * 5000 + 3, true, true], ['disk4', 'Mediathek/sub/Neu', 1, 1, true, true],
+             ['disk4', 'Mediathek', 1, 9, false, false]], 0, 15], [$t['how'] ?? null, $t['cut'] ?? null, $dirs, $t['more'] ?? null, $t['files'] ?? null]);
+        // without the generation (an older agent's memory): the last few transactions by find-new's marker
+        $log->calls = [];
+        $wake2 = ['asleep' => ['disk4' => ['since' => $now - 3600, 'gen' => null]]] + $wake;
+        logsWakeTrail($wake2, $disks, $o);
+        same('logs trail: btrfs without the generation from before the sleep — the marker minus a few transactions',
+            ["subvolume find-new $mnt/disk4 999999999999", "subvolume find-new $mnt/disk4 " . (1241 - LOGS_WAKE_TRAIL_GENS + 1)],
+            array_values(array_filter(array_map(fn (array $c): string => implode(' ', $c), $calls()), fn (string $c): bool => str_contains($c, "find-new $mnt/disk4 "))));
+        // never: a disk asleep again, a pool with a member asleep, parity alone, a wake too old
+        $log->calls = [];
+        $asleep = ['disk4' => ['asleep' => true] + $disks['disk4']] + $disks;
+        same('logs trail: never on a disk asleep again, a pool with a member asleep, parity, a wake too old — nothing asked',
+            [null, null, null, null, []], [logsWakeTrail($wake, $asleep, $o), logsWakeTrail(['disks' => ['cache']] + $wake, $disks, $o),
+             logsWakeTrail(['disks' => ['parity']] + $wake, $disks, $o), logsWakeTrail(['time' => $now - LOGS_WAKE_TRAIL_LATE - 1] + $wake, $disks, $o), $calls()]);
+        // a file written well after the wake is a later one
+        $t = logsWakeTrail(['time' => $now - LOGS_WAKE_TRAIL_AFTER - 60] + $wake, $disks, ['now' => $now - 60] + $o);
+        same('logs trail: files changed well after the wake are later ones — only what has no time stays', [['disk4', 'Mediathek', 1]],
+            array_map(fn (array $d): array => [$d['disk'], $d['dir'], $d['n']], $t['dirs'] ?? []));
+
+        // XFS: a walk of the folders changed since the sleep, then their files
+        $log->calls = [];
+        $w1 = ['disks' => ['disk1'], 'asleep' => ['disk1' => ['since' => $now - 3600, 'gen' => null]]] + $wake;
+        $t = logsWakeTrail($w1, $disks, $o);
+        same('logs trail: XFS — find over the disk alone (-xdev, .zfs and .btrfs-snap pruned) for folders changed since it slept',
+            [['find', "$mnt/disk1", '-xdev', '(', '-name', '.zfs', '-o', '-name', '.btrfs-snap', ')', '-prune', '-o', '-type', 'd', '-newerct', '@' . ($now - 3600), '-print0']], $calls());
+        same('logs trail: XFS — their files changed since, by folder', ['walk', [['disk1', 'Fotos/2026', 2, 500]]],
+            [$t['how'] ?? null, array_map(fn (array $d): array => [$d['disk'], $d['dir'], $d['n'], $d['bytes']], $t['dirs'] ?? [])]);
+        $t = logsWakeTrail(['asleep' => ['disk1' => ['since' => $now + 5, 'gen' => null]]] + $w1, $disks, $o);
+        same('logs trail: XFS — a file changed before the sleep is no trail', [], $t['dirs'] ?? null);
+        // ZFS: the disk's own datasets each, never a snapshot's mount or another filesystem below it
+        $log->calls = [];
+        $t = logsWakeTrail(['disks' => ['disk2'], 'asleep' => ['disk2' => ['since' => $now - 3600, 'gen' => null]]] + $wake, $disks, $o);
+        same('logs trail: ZFS — the disk and its datasets (no snapshot mount, no other filesystem)', [["$mnt/disk2", "$mnt/disk2/media"], [['disk2', 'media/Filme', 1, 70]]],
+            [array_column($calls(), 1), array_map(fn (array $d): array => [$d['disk'], $d['dir'], $d['n'], $d['bytes']], $t['dirs'] ?? [])]);
+        // cut short: said so; at most LOGS_WAKE_TRAIL_DIRS folders, the rest counted
+        $many = function (array $cmd, float $s, int $max) use ($mnt): array {
+            if (($cmd[3] ?? '') === "$mnt/disk4" && ($cmd[2] ?? '') === 'find-new') {
+                $out = '';
+                for ($i = 0; $i < 7; $i++) {
+                    $out .= "inode " . (500 + $i) . " file offset 0 len 10 disk start 1 offset 0 gen 1236 flags NONE Folder $i/f.bin\n";
+                }
+                return [124, $out, true];
+            }
+            return [1, '', false];
+        };
+        $t = logsWakeTrail($wake, $disks, ['run' => $many] + $o);
+        same('logs trail: cut short and said so; four folders kept, the rest counted', [true, LOGS_WAKE_TRAIL_DIRS, 3, 7],
+            [$t['cut'] ?? null, count($t['dirs'] ?? []), $t['more'] ?? null, $t['files'] ?? null]);
+
+        // the tick notes since when a disk sleeps and its generation (once — the first look that saw it asleep)
+        $GLOBALS['logsWakesFile'] = "$tmp/logs-wakes.json";
+        $GLOBALS['logsWakeMemFile'] = "$tmp/mem.json";
+        $GLOBALS['logsWakeNamesFile'] = "$tmp/names.json";
+        $GLOBALS['logsWakeVarIni'] = "$tmp/var.ini";
+        $GLOBALS['logsWakeNoJob'] = true;
+        $GLOBALS['logsWakeSharesIni'] = "$tmp/shares.ini";
+        $GLOBALS['logsWakeProc'] = $proc;
+        $GLOBALS['logsWakeSys'] = $sys;
+        $GLOBALS['disksIni'] = "$tmp/disks.ini";
+        $GLOBALS['agentStaffFile'] = "$tmp/staff.json";
+        file_put_contents("$tmp/staff.json", '{"hired":{"logs":{}}}');
+        file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+        $ini = fn (bool $asleep) => file_put_contents("$tmp/disks.ini", "[\"disk4\"]\nname=\"disk4\"\ndevice=\"sde\"\ntype=\"Data\"\nrotational=\"1\"\nspundown=\"" . ($asleep ? 1 : 0) . "\"\n");
+        $GLOBALS['logsWakeMonoNow'] = 1000.0;
+        $tick = function (float $s): void {
+            $GLOBALS['logsWakeMonoNow'] += $s;
+            logsWakeTick();
+        };
+        unset($GLOBALS['logsWake']);
+        $ini(false);
+        $tick(0);
+        $ini(true);
+        $tick(LOGS_WAKE_INI);
+        $first = logsWakeMem()['disks']['disk4'] ?? [];
+        file_put_contents("$sys/fs/btrfs/0aa1-fsid/generation", "1235\n");     // the writes that will wake it: a new transaction
+        $tick(LOGS_WAKE_INI);
+        $ini(false);
+        $tick(LOGS_WAKE_INI);
+        $w = logsWakesRead()['wakes'][0] ?? [];
+        same('logs trail: the tick notes since when the disk sleeps and its generation then — kept from the first look, into the wake',
+            [1234, 1234, true], [$first['gen'] ?? null, $w['asleep']['disk4']['gen'] ?? null, ($w['asleep']['disk4']['since'] ?? 0) === ($first['since'] ?? -1)]);
+        same('logs trail: awake, the memory keeps no sleep', [false, false], [isset(logsWakeMem()['disks']['disk4']['since']), isset(logsWakeMem()['disks']['disk4']['gen'])]);
+
+        // the naming job: the trail into her file; the page reads it only in its shape, an old entry without one still reads
+        $mountinfo = (string) file_get_contents("$proc/1/mountinfo");
+        $all = logsWakesRead();
+        $all['wakes'][0]['time'] = $now;
+        logsWakesWrite($all);
+        logsWakeNameRun(['docker' => ['names' => [], 'started' => []], 'cron' => [], 'syslog' => [], 'disks' => $disks,
+                         'trail' => ['run' => $runFake, 'now' => $now, 'proc' => $proc, 'exclude' => ['/mnt/user/appdata/UnraidSecretaryOffice/data']]]);
+        logsWakeNameMerge();
+        $page = logsWakesForPage($disks)['wakes'][0] ?? [];
+        same('logs trail: named — the trail kept in the wake and on her page (folders only, no machine or command)', ['btrfs', 'Mediathek/Musik-Videos/Techno & Trance', 13],
+            [$page['trail']['how'] ?? null, $page['trail']['dirs'][0]['dir'] ?? null, $page['trail']['dirs'][0]['n'] ?? null]);
+        same('logs trail: the agent\'s log never names a folder', false, str_contains((string) @file_get_contents(AGENT_LOG), 'Techno & Trance'));
+        same('logs trail: an entry without a trail (older agents) reads; one in another shape is none; a folder in another shape left out',
+            [null, null, [['disk4', 'x']]],
+            [logsWakeShaped(['id' => 'o', 'time' => 1, 'disks' => ['disk1'], 'how' => 'noticed', 'who' => []])['trail'],
+             logsWakeShaped(['id' => 'o', 'time' => 1, 'disks' => ['disk1'], 'how' => 'noticed', 'who' => [], 'trail' => ['how' => 'guess', 'dirs' => []]])['trail'],
+             array_map(fn (array $d): array => [$d['disk'], $d['dir']], logsWakeTrailShaped(['how' => 'walk', 'dirs' => [['disk' => 'disk4', 'dir' => 'x', 'n' => 1, 'bytes' => 1],
+                 ['disk' => 'disk4', 'dir' => 5, 'n' => 1, 'bytes' => 1], 'junk']])['dirs'])]);
+        check('logs trail: mountinfo untouched by the tests\' own look', $mountinfo === file_get_contents("$proc/1/mountinfo"));
+
+        // the bounded reader: ended at its byte limit, said so
+        if (is_executable('/usr/bin/yes') || is_executable('/bin/yes')) {
+            [$code, $out, $cut] = logsWakeRunCapped([is_executable('/usr/bin/yes') ? '/usr/bin/yes' : '/bin/yes'], 5, 100000);
+            same('logs trail: a long answer read only up to its limit and ended', [124, 100000, true], [$code, strlen($out), $cut]);
+        }
+    } finally {
+        unset($GLOBALS['logsWakesFile'], $GLOBALS['logsWakeMemFile'], $GLOBALS['logsWakeNamesFile'], $GLOBALS['logsWakeVarIni'], $GLOBALS['logsWakeNoJob'],
+            $GLOBALS['logsWakeProc'], $GLOBALS['logsWakeSys'], $GLOBALS['logsWake'], $GLOBALS['logsWakeSharesIni'], $GLOBALS['logsWakeMonoNow']);
         [$GLOBALS['disksIni'], $GLOBALS['agentStaffFile']] = $keep;
         if ($keep[0] === null) {
             unset($GLOBALS['disksIni']);
@@ -62691,7 +62916,7 @@ function testBackupAnewChoice(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
