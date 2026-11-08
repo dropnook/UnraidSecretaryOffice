@@ -1191,7 +1191,7 @@ function wakeRow(w, look) {
       if (w.unraid) facts.push(T('wakes.unraid'));
       if (w.cron && w.cron.length) facts.push(T('wakes.cron_due', { list: w.cron.map(cronName).join(' · ') }));
       if (w.started && w.started.length) facts.push(T('wakes.started', { list: w.started.join(', ') }));
-      facts.push(w.how === 'caught' ? T(w.who.length ? 'wakes.how.caught' : 'wakes.how.asked', { s: look }) : w.how === 'syslog' ? T('wakes.how.syslog')
+      facts.push(w.how === 'caught' ? T(w.who.length ? 'wakes.how.caught' : 'wakes.how.asked') : w.how === 'syslog' ? T('wakes.how.syslog')
         : T('wakes.how.noticed', { from: fmt.date(w.from), to: fmt.date(w.time) }));
       if (w.smart && w.how === 'caught') facts.push(T('wakes.smart', { when: fmt.date(w.smart) }));
       if (!w.named) facts.push(T('wakes.naming'));
