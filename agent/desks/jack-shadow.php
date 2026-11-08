@@ -27,7 +27,7 @@ declare(strict_types=1);
  *
  * The result: JACK_DATA/shadow/<date>.json, one per date, kept 60 days; paths and person keys only, never a key: time, version, mode,
  * result (same | differ | once | error | not), why (when not), counts, differences / once [{kind, path, python, php}] (at most
- * JACK_SHADOW_MAX each), more, live, real; another comparison on the same date goes to `earlier` (at most ten). Written only while the
+ * JACK_SHADOW_MAX each), more, live, real; another comparison on the same date goes to `earlier` (at most fifty). Written only while the
  * array runs and JACK_DATA is there (never a folder under /mnt made by this). summary.json for his state; his page: a tile only with
  * the flag (desk.js), the differences by the part «shadow».
  */
@@ -36,7 +36,7 @@ const JACK_SHADOW_FLAG    = 'shadow.json';
 const JACK_SHADOW_DIR     = 'shadow';
 const JACK_SHADOW_KEEP    = 60;           // days
 const JACK_SHADOW_MAX     = 200;          // differences kept per comparison
-const JACK_SHADOW_EARLIER = 10;           // comparisons kept per date beside the last
+const JACK_SHADOW_EARLIER = 50;           // comparisons kept per date beside the last (a day of tests makes many)
 const JACK_SHADOW_SECONDS = 900;          // s: the comparison before a real run at most — the run never starts later than that
 const JACK_SHADOW_LIVE    = 300;          // s: the live look after the run at most
 const JACK_SHADOW_LIST    = 20;           // dates with differences the part «shadow» shows
