@@ -15272,9 +15272,6 @@ function testNoWallWaits(): void
     $files = array_merge(glob(OFFICE_DIR . '/agent/*.php') ?: [], glob(OFFICE_DIR . '/agent/lib/*.php') ?: [], glob(OFFICE_DIR . '/agent/desks/*.php') ?: []);
     $bad = [];
     foreach ($files as $file) {
-        if (basename($file) === 'jack-mover.php') {         // jackMoversLock()'s wait: still to come, his desk was another worker's in this round
-            continue;
-        }
         foreach (file($file) ?: [] as $n => $line) {
             if (preg_match('/\$\w*(?:until|deadline|end)\w* *= *(?:microtime\(true\)|time\(\)) *\+|(?:microtime\(true\)|\btime\(\)) *[<>]=? *\$\w*(?:until|deadline|end)\b/', $line)) {
                 $bad[] = basename($file) . ':' . ($n + 1);

@@ -101,13 +101,13 @@ function jackMoversLock(int $wait = 30, string $dir = RUN_DIR): mixed
     if (!$f) {
         return null;
     }
-    $until = microtime(true) + $wait;
+    $until = hrtime(true) + $wait * 1_000_000_000;      // the monotonic clock: a step of the wall clock never ends the wait early
     do {
         if (flock($f, LOCK_EX | LOCK_NB)) {
             return $f;
         }
         usleep(100000);
-    } while (microtime(true) < $until);
+    } while (hrtime(true) < $until);
     fclose($f);
     return null;
 }
