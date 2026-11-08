@@ -1385,6 +1385,50 @@
     "unraid": true
    },
    {
+    "id": "demo0022",
+    "from": 1791505646,
+    "disks": [
+     "disk2",
+     "parity"
+    ],
+    "how": "caught",
+    "who": [
+     {
+      "kind": "container",
+      "prog": "photoprism",
+      "sure": "maybe",
+      "name": "photoprism",
+      "desk": "",
+      "cmd": "/opt/photoprism/bin/photoprism start",
+      "by": "",
+      "byname": "",
+      "files": []
+     }
+    ],
+    "cut": false,
+    "named": true,
+    "cron": [],
+    "started": [],
+    "smart": 1791505650,
+    "time": 1791505650,
+    "unraid": true,
+    "trail": {
+     "how": "btrfs",
+     "cut": false,
+     "dirs": [
+      {
+       "disk": "disk2",
+       "dir": "Familienfilme/Sommerferien 2025",
+       "n": 4,
+       "bytes": 285212672,
+       "first": 1791505631,
+       "last": 1791505632
+      }
+     ],
+     "more": 0
+    }
+   },
+   {
     "id": "demo0021",
     "from": 1791505592,
     "disks": [

@@ -1011,7 +1011,7 @@ function wakesByDisk(all) {
       const x = by.get(d);
       x.week += 1;
       if (w.time >= startOfToday()) x.today += 1;
-      const who = causeName(w.who[0]);
+      const who = trailLeads(w) ? T('wakes.trail_most', { dir: trailTop(trailDirs(w)[0]) }) : causeName(w.who[0]);
       x.causes.set(who, (x.causes.get(who) || 0) + 1);
     }
   }
@@ -1100,6 +1100,10 @@ function secTime(seconds) {
 
 /** The trail's folders (what was written on the woken disk then): their names, the disk said when there are several */
 const trailDirs = (w) => (w.trail && Array.isArray(w.trail.dirs) ? w.trail.dirs : []);
+/** The trail leads a wake when nobody surer than «maybe» was caught (everyone just waiting, no file of theirs there) */
+const trailLeads = (w) => trailDirs(w).length > 0 && (!w.who.length || w.who.every((c) => c.sure === 'maybe'));
+/** A trail folder's first two levels for counting by disk («Media/Music videos» of «Media/Music videos/Rock/Season 47») */
+const trailTop = (d) => (d.dir ? d.dir.split('/').slice(0, 2).join('/') : T('wakes.trail_top'));
 function trailName(w, d) {
   const many = new Set(trailDirs(w).map((x) => x.disk)).size > 1;
   return (many ? d.disk + ': ' : '') + (d.dir || T('wakes.trail_top'));
@@ -1146,7 +1150,12 @@ function wakeRow(w, look) {
   name.title = T('details');
   const meta = el('div', 'row-meta');
   const first = w.who[0];
-  if (first) {
+  if (first && trailLeads(w)) {
+    // only a «maybe» caught (waiting, no file of it on the disk): what was written then says more — it leads, the maybe follows
+    const v = el('span', 'lg-wake-trail-verdict', T('wakes.trail_verdict_maybe', { dir: trailName(w, trailDirs(w)[0]) }));
+    v.title = T('wakes.trail_verdict_maybe_title');
+    meta.append(v, chip(T('wakes.trail_also', { who: w.who.map(causeName).join(', ') }), 'quiet', T('wakes.trail_also_title')));
+  } else if (first) {
     meta.appendChild(el('b', 'lg-wake-who', causeName(first)));
     meta.appendChild(sureChip(first));
     if (w.who.length > 1) meta.appendChild(chip(T('wakes.more', { n: w.who.length - 1 }), '', T('wakes.more_title')));
@@ -1164,10 +1173,12 @@ function wakeRow(w, look) {
     if (!open && box) { box.remove(); box = null; unfoldedWakes.delete(w.id); r.classList.remove('open'); }
     if (open && !box) {
       box = el('div', 'row-detail lg-wake-detail');
+      const lead = trailLeads(w);       // the trail stands in the head line: it comes first, every cause with its name
+      if (lead) box.appendChild(trailBox(w));
       w.who.forEach((c, i) => {
         const one = el('div', 'lg-wake-cause');
         const head = el('div', 'lg-wake-cause-head');
-        if (i > 0) head.append(el('b', '', causeName(c)), ' ', sureChip(c));
+        if (i > 0 || lead) head.append(el('b', '', causeName(c)), ' ', sureChip(c));
         if (c.kind !== 'program' && c.prog) head.append(i > 0 ? ' ' : '', el('span', 'role', T('wakes.prog', { name: c.prog })));
         if (head.childNodes.length) one.appendChild(head);
         if (c.files && c.files.length) one.appendChild(el('pre', 'code lg-wake-files', c.files.join('\n')));
@@ -1175,7 +1186,7 @@ function wakeRow(w, look) {
         box.appendChild(one);
       });
       if (!w.who.length) box.appendChild(el('p', 'role', T('wakes.cause.none_title')));
-      if (w.trail) box.appendChild(trailBox(w));
+      if (w.trail && !lead) box.appendChild(trailBox(w));
       const facts = [];
       if (w.unraid) facts.push(T('wakes.unraid'));
       if (w.cron && w.cron.length) facts.push(T('wakes.cron_due', { list: w.cron.map(cronName).join(' · ') }));
