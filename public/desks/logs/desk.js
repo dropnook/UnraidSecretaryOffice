@@ -1070,7 +1070,7 @@ function wakesView() {
   bar.time.avail(all.length > 0);
   const fits = all.filter((w) => (!wakeDisk || w.disks.includes(wakeDisk)) && inSpan(span, w.time)
     && Office.fits(f.words, [w.disks.join(' '), ...w.who.map((c) => [causeName(c), T('wakes.sure.' + c.sure), c.prog, c.cmd, ...(c.files || [])].join(' ')), ...(w.cron || []), ...(w.started || []),
-      w.who.length ? '' : T('wakes.cause.none')]));
+      w.who.length ? '' : T('wakes.cause.none'), ...trailDirs(w).map((d) => trailName(w, d))]));
   const list = el('div', 'box');
   list.appendChild(wakeHead(T('wakes.every')));
   for (const w of fits) list.appendChild(wakeRow(w, look));
@@ -1090,6 +1090,44 @@ function cronName(x) {
   if (!job) return x;
   const desk = JOB_DESK[job[1]];
   return T('wakes.office_job', { name: desk && Office.desks.has(desk) ? Office.t(desk + '.name') : job[1] });
+}
+
+/** A time to the second (the trail's «17:56:18–17:56:23») */
+function secTime(seconds) {
+  const d = new Date(seconds * 1000);
+  try { return new Intl.DateTimeFormat(Office.locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(d); } catch (e) { return d.toLocaleTimeString(); }
+}
+
+/** The trail's folders (what was written on the woken disk then): their names, the disk said when there are several */
+const trailDirs = (w) => (w.trail && Array.isArray(w.trail.dirs) ? w.trail.dirs : []);
+function trailName(w, d) {
+  const many = new Set(trailDirs(w).map((x) => x.disk)).size > 1;
+  return (many ? d.disk + ': ' : '') + (d.dir || T('wakes.trail_top'));
+}
+
+/** One folder of the trail: «Mediathek/Musik-Videos: 12 files (3.1 MB) written 17:56:18–17:56:23» */
+function trailLine(w, d) {
+  const p = { n: d.n, dir: trailName(w, d), size: fmt.size(d.bytes) };
+  if (!d.first) return T('wakes.trail_dir_untimed', p);
+  const when = d.last && d.last !== d.first ? `${secTime(d.first)}–${secTime(d.last)}` : secTime(d.first);
+  return T('wakes.trail_dir', { ...p, when });
+}
+
+/** The trail unfolded: a hint, not proof — its folders, the rest counted, how it was looked for */
+function trailBox(w) {
+  const box = el('div', 'lg-wake-cause lg-wake-trail');
+  const dirs = trailDirs(w);
+  if (!dirs.length) {
+    box.appendChild(el('p', 'role lg-wake-fact', T('wakes.trail_nothing')));
+    return box;
+  }
+  box.appendChild(el('div', 'lg-wake-cause-head', T('wakes.trail_head')));
+  const lines = dirs.map((d) => trailLine(w, d));
+  if (w.trail.more) lines.push(T('wakes.trail_more', { n: w.trail.more }));
+  box.appendChild(el('pre', 'code lg-wake-files', lines.join('\n')));
+  if (w.trail.how !== 'btrfs') box.appendChild(el('p', 'role lg-wake-fact', T('wakes.trail_walk')));
+  if (w.trail.cut) box.appendChild(el('p', 'role lg-wake-fact', T('wakes.trail_cut')));
+  return box;
 }
 
 /** A label: its words and its own tip */
@@ -1112,6 +1150,11 @@ function wakeRow(w, look) {
     meta.appendChild(el('b', 'lg-wake-who', causeName(first)));
     meta.appendChild(sureChip(first));
     if (w.who.length > 1) meta.appendChild(chip(T('wakes.more', { n: w.who.length - 1 }), '', T('wakes.more_title')));
+  } else if (trailDirs(w).length) {
+    // nobody caught, but something was written on it just then: that folder, as a hint
+    const v = el('span', 'lg-wake-trail-verdict', T('wakes.trail_verdict', { dir: trailName(w, trailDirs(w)[0]) }));
+    v.title = T('wakes.trail_verdict_title');
+    meta.appendChild(v);
   } else meta.appendChild(chip(T('wakes.cause.none'), 'quiet', T('wakes.cause.none_title')));
   if (w.cut) meta.appendChild(chip(T('wakes.cut'), 'warn', T('wakes.cut_title')));
   main.append(name, meta);
@@ -1132,6 +1175,7 @@ function wakeRow(w, look) {
         box.appendChild(one);
       });
       if (!w.who.length) box.appendChild(el('p', 'role', T('wakes.cause.none_title')));
+      if (w.trail) box.appendChild(trailBox(w));
       const facts = [];
       if (w.unraid) facts.push(T('wakes.unraid'));
       if (w.cron && w.cron.length) facts.push(T('wakes.cron_due', { list: w.cron.map(cronName).join(' · ') }));

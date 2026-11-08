@@ -1398,7 +1398,16 @@
     "started": [],
     "smart": 1791505596,
     "time": 1791505596,
-    "unraid": true
+    "unraid": true,
+    "trail": {
+     "how": "btrfs",
+     "cut": false,
+     "dirs": [
+      {"disk": "disk1", "dir": "Mediathek/Musik-Videos/Konzerte", "n": 12, "bytes": 734003200, "first": 1791505570, "last": 1791505575},
+      {"disk": "disk1", "dir": "Mediathek/Musik-Videos/Konzerte/Plakate", "n": 3, "bytes": 420000, "first": 1791505576, "last": 1791505576}
+     ],
+     "more": 0
+    }
    },
    {
     "id": "demo0022",
