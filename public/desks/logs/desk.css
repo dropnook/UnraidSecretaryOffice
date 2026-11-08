@@ -146,6 +146,7 @@
 .lg-wake-cause-head{display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px; font-size:13px}
 & pre.lg-wake-files{white-space:pre-wrap; word-break:break-word; font-size:12px; margin:4px 0 0; max-height:10em; overflow:auto}
 .lg-wake-fact{margin:2px 0; font-size:12px}
+.lg-wake-trail-verdict{font-size:13px; color:var(--muted); overflow-wrap:anywhere}
 @media (max-width:600px){ & pre.lg-out{height:60vh} .lg-picker{max-width:100%; flex:1 1 100%} .lg-pop{width:100%}
   .row.lg-kind{padding-left:14px} .lg-more{padding-left:14px} }
 }
