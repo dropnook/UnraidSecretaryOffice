@@ -176,6 +176,12 @@ if (($argvRest[0] ?? '') === '--real') {
         $inst['path_mappings'] = $m;
         return $inst;
     };
+    $broadOff = function (array $inst, string $sub): array {        // one broad line over both libraries, one of them left empty below it
+        $m = (array) $inst['path_mappings'];
+        $docker = dirname((string) array_key_first($m));
+        $inst['path_mappings'] = [$docker => dirname((string) $m[array_key_first($m)]), "$docker/$sub" => ''];
+        return $inst;
+    };
     $userIds = [];
     $cases = [
         'emby alone' => ['instances' => $byType(['emby'])],
@@ -196,6 +202,9 @@ if (($argvRest[0] ?? '') === '--real') {
         'cleanup by rsync' => ['cleanup_tool' => 'rsync'],
         'a mapping left empty: Familienserien not cached' => ['instances' => array_map(fn (array $i): array => $mapsOff($i, 'Familienserien'), $base['instances'])],
         'a mapping left empty: Familienfilme not cached' => ['instances' => array_map(fn (array $i): array => $mapsOff($i, 'Familienfilme'), $base['instances'])],
+        'one broad line, Familienserien left empty below it' => ['instances' => array_map(fn (array $i): array => $broadOff($i, 'Familienserien'), $base['instances'])],
+        'one broad line, Familienfilme left empty below it' => ['instances' => array_map(fn (array $i): array => $broadOff($i, 'Familienfilme'), $base['instances'])],
+        'one broad line, nothing left empty' => ['instances' => array_map(fn (array $i): array => $broadOff($i, 'nichts') , $base['instances'])],
         'a server that does not answer among them' => ['instances' => array_merge($base['instances'], [['servername' => 'off', 'type' => 'emby', 'url' => 'http://127.0.0.1:9', 'api_key' => 'x', 'path_mappings' => ['/mnt/media' => '/mnt/user/media']]])],
         'a wrong key' => ['instances' => array_map(fn (array $i): array => ['api_key' => $i['type'] === 'plex' ? $i['api_key'] : 'wrongwrongwrong'] + $i, $base['instances'])],
         'themes on' => ['themes' => true],
@@ -386,9 +395,11 @@ $case('mappings: the longest wins, at borders only', ['world' => ['one' => ['typ
     'mappings' => ['/m' => '@T@/user', '/m/Deep' => '@T@/user/Tief'], 'extra' => ['Filme2/Other/o.mkv' => 11, 'Tief/inner/d.mkv' => 12, 'Deep/inner/d.mkv' => 13]]);
 $case('mappings: an empty host path = deliberately not cached', ['world' => ['one' => ['type' => 'emby', 'users' => [$u('u', 'Anna')], 'resume' => ['u' => [$film('1', 'a', $A), $film('2', 'b', $B)]]]],
     'mappings' => ['/m/Filme/Ferien (2019)' => '@T@/user/Filme/Ferien (2019)', '/m/Filme/Taufe (2018)' => ''], 'expect' => $deck(2)]);
-// Python today: `_skip` only silences a warning; a shorter mapping above an empty one still takes the path. Kept the same on purpose, reported
-$case('mappings: an empty one below a shorter one: the shorter takes it', ['world' => ['one' => ['type' => 'emby', 'users' => [$u('u', 'Anna')], 'resume' => ['u' => [$film('1', 'a', $A), $film('2', 'b', $B)]]]],
-    'mappings' => ['/m' => '@T@/user', '/m/Filme/Taufe (2018)' => ''], 'expect' => $deck(4)]);
+// 2026-11-08 (the owner): an empty line is a mapping too, the longest wins — under a broader one it still means «not cached»
+$case('mappings: an empty one below a shorter one: not cached', ['world' => ['one' => ['type' => 'emby', 'users' => [$u('u', 'Anna')], 'resume' => ['u' => [$film('1', 'a', $A), $film('2', 'b', $B)]]]],
+    'mappings' => ['/m' => '@T@/user', '/m/Filme/Taufe (2018)' => ''], 'expect' => $deck(3)]);      // Ferien's three files, Taufe left out
+$case('mappings: a real one below an empty one: the longer takes it', ['world' => ['one' => ['type' => 'emby', 'users' => [$u('u', 'Anna')], 'resume' => ['u' => [$film('1', 'a', $A), $film('2', 'b', $B)]]]],
+    'mappings' => ['/m' => '', '/m/Filme/Taufe (2018)' => '@T@/user/Filme/Taufe (2018)'], 'expect' => $deck(1)]);   // Taufe's one file only
 $case('mappings: per server over the global ones', ['world' => ['em' => ['type' => 'emby', 'users' => [$u('u', 'Anna')], 'resume' => ['u' => [$film('1', 'a', '/x/Filme/Ferien (2019)/Ferien.mkv')]]], 'je' => ['type' => 'jellyfin', 'users' => [$u('j', 'Leo')], 'resume' => ['j' => [$film('2', 'b', '/y/Filme/Taufe (2018)/Taufe.mkv')]]]],
     'settings' => ['path_mappings' => ['/x' => '@T@/user', '/y' => '@T@/nowhere']], 'instances' => ['em' => ['path_mappings' => []], 'je' => ['path_mappings' => ['/y' => '@T@/user']]], 'mappings' => null]);
 $case('mappings: a path with .. never leaves the share', ['world' => ['one' => ['type' => 'emby', 'users' => [$u('u', 'Anna')], 'resume' => ['u' => [$film('1', 'a', '/m/Filme/../../../etc/passwd'), $film('2', 'b', '/m/Filme/x/../Taufe (2018)/Taufe.mkv')]]]], 'expect' => $deck(0)]);
