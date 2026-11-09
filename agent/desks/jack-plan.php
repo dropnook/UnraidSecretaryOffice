@@ -70,6 +70,19 @@ function jpCrash(string $why): never
     throw new JackPlanCrash($why);
 }
 
+/** human(): «1.50 GB» */
+function jpHuman(int|float $size): string
+{
+    $size = (float) $size;
+    foreach (['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as $unit) {
+        if ($size < 1024) {
+            return sprintf('%.2f %s', $size, $unit);
+        }
+        $size /= 1024;
+    }
+    return sprintf('%.2f EB', $size);
+}
+
 /** dict.get(): only a dict has it */
 function jpGet(mixed $o, string $key, mixed $default = null): mixed
 {
@@ -906,13 +919,20 @@ class JackPlanServer
                 'EnableImages' => 'false', 'EnableUserData' => 'false', 'StartIndex' => $start, 'Limit' => JACK_PLAN_THEME_PAGE]);
             foreach ($page as $i) {
                 if ($i instanceof stdClass && in_array($i->Type ?? null, ['Movie', 'Series'], true)) {
-                    $out[] = ['Id' => jpStr(jpOr($i->Id ?? null, '')), 'Type' => $i->Type, 'Path' => jpOr($i->Path ?? null, '')];
+                    $out[] = ['Id' => jpStr(jpOr($i->Id ?? null, '')), 'Type' => $i->Type, 'Path' => jpOr($i->Path ?? null, ''),
+                              'DateCreated' => $i->DateCreated ?? null, 'LocationType' => $i->LocationType ?? null];
                 }
             }
             if (count($page) < JACK_PLAN_THEME_PAGE) {
                 return $out;
             }
         }
+    }
+
+    /** theme_folder(): the folder (a Docker path) a theme.mp3 of an item would lie in — Emby and Jellyfin know it from its Path */
+    public function themeFolder(array $item): mixed
+    {
+        return jpOr($item['Path'] ?? null, '');
     }
 }
 
@@ -1142,10 +1162,25 @@ final class JackPlanPlex extends JackPlanServer
                         }
                     }
                 }
-                $out[] = ['Id' => jpStr($m->ratingKey), 'Type' => $kind, 'Path' => jpOr($path, '')];
+                $out[] = ['Id' => jpStr($m->ratingKey), 'Type' => $kind, 'Path' => jpOr($path, ''), 'DateCreated' => $m->addedAt ?? null];
             }
         }
         return $out;
+    }
+
+    /** theme_folder(): a series the list gave without its Location — asked once, when it is needed */
+    public function themeFolder(array $item): mixed
+    {
+        if (jpTrue($item['Path'] ?? null) || ($item['Type'] ?? null) !== 'Series') {
+            return jpOr($item['Path'] ?? null, '');
+        }
+        $meta = jpIter(jpOr(jpGet($this->get('/library/metadata/' . jpStr($item['Id'] ?? '')), 'Metadata'), [new stdClass()]))[0] ?? new stdClass();
+        foreach (jpIter(jpOr(jpGet($meta, 'Location'), [])) as $l) {
+            if (jpTrue(jpGet($l, 'path'))) {
+                return jpGet($l, 'path');
+            }
+        }
+        return '';
     }
 }
 
@@ -1754,9 +1789,20 @@ final class JackPlanner
 
     private ?string $planning = null;
 
+    /** The real run in PHP (jack-run.php): Python's log lines of the plan, at its places and levels (they count as its warnings and
+     *  errors); null: silent, as in the shadow. fn (string $level, string $message): void */
+    public ?Closure $say = null;
+
     public function __construct(private array $cfg, private JackPlanHost $host, private string $plexTv = JACK_PLAN_PLEX_TV)
     {
         $this->budgetMode = (int) $cfg['cache_budget_bytes'] > 0;
+    }
+
+    private function say(string $level, string $message): void
+    {
+        if ($this->say !== null) {
+            ($this->say)($level, $message);
+        }
     }
 
     /** files_for_item() */
@@ -1771,11 +1817,17 @@ final class JackPlanner
         }
         $rel = $loc->relFromDocker($raw);
         if ($rel === null) {
+            if ($loc->skipped($raw)) {
+                $this->say('DEBUG', "Ordner absichtlich nicht gecacht: $raw");
+            } else {
+                $this->say('WARNING', "Kein Path-Mapping für $raw – Item übersprungen (Mapping in der Config prüfen)");
+            }
             return [];     // deliberately not cached (empty host path), or no mapping: skipped
         }
         $existsDir = is_dir($loc->onArray($rel)) || is_dir($loc->onCache($rel));
         $existsFile = is_file($loc->onArray($rel)) || is_file($loc->onCache($rel));
         if (!$existsDir && !$existsFile) {
+            $this->say('WARNING', "Datei nicht gefunden: $rel (Mapping oder array_path/cache_path prüfen)");
             return [];
         }
         // with `themes` the theme.mp3 in the item's folder doesn't travel with the item: it belongs to the collector
@@ -1807,6 +1859,7 @@ final class JackPlanner
             $on = file_exists($cacheP);
             $size = @filesize($on ? $cacheP : $loc->onArray($rel));
             if ($size === false) {
+                $this->say('WARNING', 'Datei nicht lesbar, übersprungen: ' . ($on ? $cacheP : $loc->onArray($rel)));
                 continue;
             }
             $files[] = new JackPlanFile($rel, $size, $on, $this->planning, JACK_PLAN_SOURCE_CODES[$source] ?? 'other', $what, $ahead,
@@ -1876,7 +1929,7 @@ final class JackPlanner
     }
 
     /** The chain of one series from an episode: it, then the next ones in order */
-    private function chainFrom(JackPlanServer $api, JackPlanLocations $loc, stdClass $item, mixed $uid, string $source, mixed $sid, mixed $sname, int $first): array
+    private function chainFrom(JackPlanServer $api, JackPlanLocations $loc, stdClass $item, mixed $uid, string $source, mixed $sid, mixed $sname, int $first, string $server = ''): array
     {
         $chain = [];
         $g = $this->makeGroup($loc, $item, 'series', 'series:' . jpStr($sid), $source, self::epLabel($item), $sname, $first);
@@ -1890,8 +1943,9 @@ final class JackPlanner
                     $chain[] = $g;
                 }
             }
-        } catch (JackPlanApiError) {
+        } catch (JackPlanApiError $e) {
             $this->errors++;
+            $this->say('ERROR', "[$server] Folgen von «" . jpStr($sname) . "» nicht abrufbar: {$e->getMessage()}");
         }
         return $chain;
     }
@@ -1920,8 +1974,9 @@ final class JackPlanner
                     }
                 }
             }
-        } catch (JackPlanApiError) {
+        } catch (JackPlanApiError $e) {
             $this->errors++;
+            $this->say('ERROR', "[$name] Resume-Liste von " . jpStr($uname) . " nicht abrufbar: {$e->getMessage()}");
             return;
         }
         $chains = [];
@@ -1945,15 +2000,16 @@ final class JackPlanner
                 continue;
             }
             $seenSeries[jpKey($sid)] = true;
-            if ($chain = $this->chainFrom($api, $loc, $item, $uid, 'Weiterschauen', $sid, $sname, 0)) {
+            if ($chain = $this->chainFrom($api, $loc, $item, $uid, 'Weiterschauen', $sid, $sname, 0, $name)) {
                 $chains[] = $chain;
             }
         }
         if (jpTrue($this->cfg['use_next_up'])) {
             try {
                 $nextUp = $api->nextUp($uid, ['Limit' => (int) $this->cfg['max_resume_series'], 'Fields' => JACK_PLAN_FIELDS]);
-            } catch (JackPlanApiError) {
+            } catch (JackPlanApiError $e) {
                 $this->errors++;
+                $this->say('ERROR', "[$name] NextUp-Liste von " . jpStr($uname) . " nicht abrufbar: {$e->getMessage()}");
                 $nextUp = [];
             }
             foreach ($nextUp as $item) {
@@ -1966,7 +2022,7 @@ final class JackPlanner
                     continue;
                 }
                 $seenSeries[jpKey($sid)] = true;
-                if ($chain = $this->chainFrom($api, $loc, $item, $uid, 'Als Nächstes', $sid, $sname, 1)) {
+                if ($chain = $this->chainFrom($api, $loc, $item, $uid, 'Als Nächstes', $sid, $sname, 1, $name)) {
                     $chains[] = $chain;
                 }
             }
@@ -1975,8 +2031,9 @@ final class JackPlanner
         if ($maxFav > 0) {
             try {
                 $favs = $api->userItems($uid, ['Recursive' => 'true', 'IncludeItemTypes' => 'Series', 'Filters' => 'IsFavorite', 'Limit' => $maxFav, 'Fields' => 'Path']);
-            } catch (JackPlanApiError) {
+            } catch (JackPlanApiError $e) {
                 $this->errors++;
+                $this->say('ERROR', "[$name] Favoriten von " . jpStr($uname) . " nicht abrufbar: {$e->getMessage()}");
                 $favs = [];
             }
             foreach ($favs as $series) {
@@ -1993,8 +2050,9 @@ final class JackPlanner
                             $chain[] = $g;
                         }
                     }
-                } catch (JackPlanApiError) {
+                } catch (JackPlanApiError $e) {
                     $this->errors++;
+                    $this->say('ERROR', "[$name] Folgen von Favorit «" . jpStr(jpGet($series, 'Name', '?')) . "» nicht abrufbar: {$e->getMessage()}");
                 }
                 if ($chain) {
                     $chains[] = $chain;
@@ -2034,12 +2092,14 @@ final class JackPlanner
         if (!$uids) {
             try {
                 $users = $api->users();
-            } catch (JackPlanApiError) {
+            } catch (JackPlanApiError $e) {
                 $this->errors++;
+                $this->say('ERROR', '[' . jpStr($name) . "] Benutzerliste nicht abrufbar: {$e->getMessage()}");
                 return;
             }
             if ($api->usersIncomplete || !$users) {
                 $this->errors++;    // no users, or Plex's shared ones missing: never «nobody watches anything»
+                $this->say('ERROR', '[' . jpStr($name) . '] Benutzerliste unvollständig – Cleanup wird übersprungen');
             }
             foreach ($users as $u) {
                 $id = self::userId($u);
@@ -2138,6 +2198,9 @@ final class JackPlanner
                 }
             }
         }
+        if ($total - array_sum($explicit) < 0) {
+            $this->say('WARNING', 'Feste Benutzer-Budgets (' . jpHuman(array_sum($explicit)) . ') übersteigen cache_budget (' . jpHuman($total) . ')');
+        }
         $pool = max(0, $total - array_sum($explicit));
         $flexible = array_values(array_filter($active, fn (JackPlanUser $u): bool => !isset($explicit[$u->key])));
         $fixed = [];
@@ -2170,6 +2233,11 @@ final class JackPlanner
                 self::select($u, (float) $explicit[$u->key], $share);
             }
         }
+        foreach ($this->say !== null ? $active : [] as $u) {
+            $skipped = array_sum(array_map(fn (JackPlanGroup $g): int => $g->size, $u->skipped));
+            $this->say('INFO', 'Budget ' . jpStr($u->name) . ': ' . jpHuman($u->bytes) . ' von ' . jpHuman((float) $u->budget) . ' (Filme ' . jpHuman($u->movieBytes)
+                . ', Serien ' . jpHuman($u->seriesBytes) . ')' . ($u->skipped ? ' – nicht im Budget: ' . count($u->skipped) . ' Einträge, ' . jpHuman($skipped) : ''));
+        }
     }
 
     /** run(): the plan, in the order of the fill */
@@ -2186,12 +2254,14 @@ final class JackPlanner
                         $id = self::userId($u);
                         $known[jpKey($id)] = jpGet($u, 'Name', $id);
                     }
-                } catch (JackPlanApiError) {
+                } catch (JackPlanApiError $e) {
                     $this->errors++;
+                    $this->say('ERROR', '[' . jpStr($inst['servername']) . "] nicht erreichbar: {$e->getMessage()}");
                     continue;
                 }
                 if ($api->usersIncomplete) {
                     $this->errors++;     // a chosen user may be one plex.tv didn't give: never «nobody of them is here»
+                    $this->say('ERROR', '[' . jpStr($inst['servername']) . '] Benutzerliste unvollständig – Cleanup wird übersprungen');
                 }
                 foreach ($wanted as $u) {
                     if (array_key_exists("s:$u", $known)) {
@@ -2199,6 +2269,7 @@ final class JackPlanner
                     }
                 }
                 if (!$uids) {
+                    $this->say('WARNING', '[' . jpStr($inst['servername']) . '] keiner der konfigurierten Benutzer existiert auf dieser Instanz');
                     continue;
                 }
             }
@@ -2224,6 +2295,10 @@ final class JackPlanner
                     }
                 }
             }
+        }
+        if ($this->budgetMode && $this->say !== null) {
+            $this->say('INFO', 'Budget gesamt: ' . jpHuman(array_sum(array_map(fn (JackPlanFile $f): int => $f->size, $this->files))) . ' von '
+                . jpHuman((int) $this->cfg['cache_budget_bytes']) . ' für ' . count(array_filter($this->users, fn (JackPlanUser $u): bool => $u->hasCandidates())) . ' aktive Benutzer');
         }
         return $this->fillOrder();
     }
@@ -2411,11 +2486,12 @@ function jackPlanReadList(string $file): array
 }
 
 /**
- * collect_sessions(): what plays right now — [rels «r<rel>» => rel, names (basename => n), ok]; a server that doesn't answer: not ok
+ * collect_sessions(): what plays right now — [rels «r<rel>» => rel, names (basename => n), ok]; a server that doesn't answer: not ok.
+ * $say: Python's log lines (the real run in PHP, jack-run.php), null silent.
  *
  * @return array{array<string, string>, array<int|string, int>, bool}
  */
-function jackPlanSessions(array $cfg, JackPlanHost $host, string $plexTv): array
+function jackPlanSessions(array $cfg, JackPlanHost $host, string $plexTv, ?Closure $say = null): array
 {
     $rels = $names = [];
     $sessionsOk = true;
@@ -2424,8 +2500,9 @@ function jackPlanSessions(array $cfg, JackPlanHost $host, string $plexTv): array
         $loc = new JackPlanLocations($cfg, $inst['_mappings'], $inst['_skip']);
         try {
             $sessions = $api->sessions();
-        } catch (JackPlanApiError) {
+        } catch (JackPlanApiError $e) {
             $sessionsOk = false;
+            $say && $say('WARNING', '[' . jpStr($inst['servername']) . "] Sessions nicht abrufbar: {$e->getMessage()}");
             continue;
         }
         foreach ($sessions as $s) {
@@ -2438,22 +2515,52 @@ function jackPlanSessions(array $cfg, JackPlanHost $host, string $plexTv): array
             }
             $names["n$p"] = str_ends_with($p, '/') ? '' : jpName($p);
             $rel = $loc->relFromDocker($p);
+            $who = jpGet($s, 'UserName', '?');
             if ($rel !== null) {
                 $rels["r$rel"] = $rel;
+                $say && $say('INFO', '[' . jpStr($inst['servername']) . '] Läuft gerade (' . jpStr($who) . "): $rel");
             }
-            jpGet($s, 'UserName', '?');
         }
     }
     return [$rels, array_flip(array_map('strval', array_values($names))), $sessionsOk];
 }
 
 /**
- * cleanup(): the entries of his list nobody wants any more (not in $current), what goes back first by $backRank, then by path; what
- * plays, a kept theme.mp3 and a share the move binary can't give back stay protected. [cache paths, bytes, protected «p<entry>» => entry]
+ * share_mode_ok(): can the move binary bring this share's files back (Cache → Array)? Once per share, said once (the real run).
+ * cleanup_tool rsync: always.
  */
-function jackPlanCleanup(array $cfg, JackPlanLocations $loc, array $list, array $current, array $backRank, callable $playing, bool $keepThemes): array
+function jackPlanShareModeOk(array $cfg, string $share, array &$checked, ?Closure $say): bool
 {
-    $protected = $cleanup = [];
+    if (array_key_exists("s$share", $checked)) {
+        return $checked["s$share"];
+    }
+    if ($cfg['cleanup_tool'] === 'rsync') {
+        return $checked["s$share"] = true;
+    }
+    [$mode, $primary] = jackPlanShareMode($cfg, $share);
+    if ($mode === 'yes') {
+        $say && $say('INFO', "Share «{$share}»: shareUseCache=yes (Primary $primary) – Mover Cache → Array – Cleanup über das move-Binary funktioniert");
+        return $checked["s$share"] = true;
+    }
+    if ($mode === null || $mode === 'no') {
+        $say && $say('WARNING', "Share «{$share}»: shareUseCache=" . ($mode ?? '?') . ' – ' . ($mode === null
+            ? 'keine Share-Konfiguration gefunden – Mover-Richtung unbekannt, Cleanup wird versucht'
+            : 'Array only: der reguläre Mover fasst den Share nicht an; ob das move-Binary Pool-Pfade trotzdem aufs Array schiebt, ist ungetestet'));
+        return $checked["s$share"] = true;
+    }
+    $say && $say('ERROR', "Share «{$share}»: shareUseCache=$mode (Primary $primary) – das move-Binary kann diesen Share nicht Cache → Array bringen. "
+        . 'Cleanup für diesen Share übersprungen (Alternative: cleanup_tool=rsync).');
+    return $checked["s$share"] = false;
+}
+
+/**
+ * cleanup(): the entries of his list nobody wants any more (not in $current), what goes back first by $backRank, then by path; what
+ * plays, a kept theme.mp3 and a share the move binary can't give back stay protected. [cache paths, bytes, protected «p<entry>» => entry,
+ * sizes «c<path>» => bytes]
+ */
+function jackPlanCleanup(array $cfg, JackPlanLocations $loc, array $list, array $current, array $backRank, callable $playing, bool $keepThemes, ?Closure $say = null): array
+{
+    $protected = $cleanup = $sizes = [];
     $toArray = 0;
     usort($list, function (string $a, string $b) use ($backRank): int {
         return [isset($backRank["c$a"]), $backRank["c$a"] ?? 0] <=> [isset($backRank["c$b"]), $backRank["c$b"] ?? 0] ?: jpCmp($a, $b);
@@ -2473,20 +2580,18 @@ function jackPlanCleanup(array $cfg, JackPlanLocations $loc, array $list, array 
         }
         $rel = jpRelative($p, $loc->cache);
         if ($rel === null) {
+            $say && $say('WARNING', "Exclude-Eintrag liegt nicht unter {$loc->cache}, ignoriert: $p");
             continue;
         }
         if ($playing($rel)) {
+            $say && $say('INFO', "[BLEIBT: läuft gerade] $rel");
             $protected["p$p"] = $p;
             continue;
         }
         if ($rel === '') {
             jpCrash('rel.parts[0] of the pool itself');
         }
-        $share = explode('/', $rel)[0];
-        if (!array_key_exists("s$share", $checked)) {            // share_mode_ok()
-            $checked["s$share"] = $cfg['cleanup_tool'] === 'rsync' || in_array(jackPlanShareMode($cfg, $share)[0], ['yes', null, 'no'], true);
-        }
-        if (!$checked["s$share"]) {
+        if (!jackPlanShareModeOk($cfg, explode('/', $rel)[0], $checked, $say)) {
             $protected["p$p"] = $p;
             continue;
         }
@@ -2496,28 +2601,35 @@ function jackPlanCleanup(array $cfg, JackPlanLocations $loc, array $list, array 
         }
         $toArray += $size;
         $cleanup[] = jpJoin($loc->cache, $rel);
+        $sizes['c' . jpJoin($loc->cache, $rel)] = $size;
     }
-    return [$cleanup, $toArray, $protected];
+    return [$cleanup, $toArray, $protected, $sizes];
 }
 
 /**
- * Runner's dry run, every decision of it, in the shape of mediacache_shadow.py's plan: nothing moves, nothing is written. Order as
- * Runner._execute(): sessions, the plan, what goes back by rank (give_back()), the cleanup, the fill with the free space simulated.
- * «incomplete» (a server that can't be asked): no cleanup, the old list protected, never «nothing watched».
+ * Everything a run decides before it moves anything, in Runner._execute()'s order: sessions, the plan, what goes back by rank
+ * (give_back()), the cleanup's selection («incomplete»: no cleanup, the old list protected, never «nothing watched»). The dry plan
+ * (jackPlanDry()) and the real run in PHP (jack-run.php) both act on exactly this; nothing here moves or writes. $say: Python's log
+ * lines (the real run), null silent (the shadow).
  *
  * @param array<string, string> $env what Python would find in its environment
  */
-function jackPlanDry(array $cfg, array $env, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV): array
+function jackPlanDecide(array $cfg, array $env, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV, ?Closure $say = null): array
 {
     clearstatcache(true);
     $listFile = jpJoin(($env['MEDIACACHE_DIR'] ?? '') ?: '.', 'mediacache_exclude.txt');
     // collect_sessions(): what plays right now is never touched
-    [$rels, $names, $sessionsOk] = jackPlanSessions($cfg, $host, $plexTv);
+    [$rels, $names, $sessionsOk] = jackPlanSessions($cfg, $host, $plexTv, $say);
     $playing = fn (string $rel): bool => isset($rels["r$rel"]) || isset($names[jpName($rel)]);
 
     $planner = new JackPlanner($cfg, $host, $plexTv);
+    $planner->say = $say;
     $files = $planner->run();
     $notInBudget = $planner->notInBudget();
+    if ($say) {
+        $say('INFO', 'On deck: ' . count($files) . ' Dateien, ' . jpHuman(array_sum(array_map(fn (JackPlanFile $f): int => $f->size, $files)))
+            . ' (davon ' . count(array_filter($files, fn (JackPlanFile $f): bool => $f->onCache)) . ' bereits auf dem Cache)');
+    }
     $loc = new JackPlanLocations($cfg, $cfg['instances'][0]['_mappings']);
     $current = [];
     foreach ($files as $f) {
@@ -2530,7 +2642,7 @@ function jackPlanDry(array $cfg, array $env, JackPlanHost $host, string $plexTv 
     $giveBackFree = ($env['MEDIACACHE_GIVE_BACK_FREE'] ?? '') === '1' && !$watchedOnly && $minFree > 0;
     $keep = jackPlanKeepBytes($env);
     $held = $givenBack = $givenBackBytes = 0;
-    $backRank = $givenList = [];
+    $backRank = $givenList = $backWhy = [];
 
     // give_back(): only in the office; what is watched goes first (the cleanup's bytes count as free), then by rank
     if ($giveBackFree || $watchedOnly) {
@@ -2565,17 +2677,27 @@ function jackPlanDry(array $cfg, array $env, JackPlanHost $host, string $plexTv 
             if ($total > 0 && $free * 100 < $total * $minFree) {
                 $need = jpInt(-jpFloorDiv(-$total * $minFree, 100.0)) - $free;
             }
+            $why = $need > 0 ? sprintf('Zu wenig frei auf dem Pool: %.1f %% (%s von %s), Minimum %s %% – %s gehen zurück aufs Array (bis %s %% frei), das am weitesten voraus Liegende zuerst',
+                $free / $total * 100, jpHuman($free), jpHuman($total), jpFloatG($minFree), jpHuman($need), jpFloatG($minFree)) : '';
             if ($need > 0 && $keep !== null) {
                 $room = $held - $keep;
+                if ($room <= 0) {
+                    $say && $say('INFO', sprintf('Zu wenig frei auf dem Pool (%.1f %%, Minimum %s %%), aber ich halte nur %s – meine Hälfte ist %s: nichts geht zurück',
+                        $free / $total * 100, jpFloatG($minFree), jpHuman($held), jpHuman($keep)));
+                } elseif ($room < $need) {
+                    $why .= ' – höchstens ' . jpHuman($room) . ': meine Hälfte (' . jpHuman($keep) . ') bleibt';
+                }
                 $need = $room <= 0 ? 0 : min($need, $room);
             }
             if ($need > 0) {
+                $say && $say('WARNING', $why);
                 $freed = 0;
                 foreach (jackPlanGiveBackOrder($kept) as $f) {
                     if ($freed >= $need) {
                         break;
                     }
                     if ($playing($f->rel)) {
+                        $say && $say('INFO', "[BLEIBT: läuft gerade] $f->rel");
                         continue;
                     }
                     $p = $loc->onCache($f->rel);
@@ -2585,80 +2707,115 @@ function jackPlanDry(array $cfg, array $env, JackPlanHost $host, string $plexTv 
                     $givenBack++;
                     $givenBackBytes += $f->size;
                     $entry = ['title' => jpTrue($f->title) ? $f->title : $f->rel, 'ahead' => $f->ahead(), 'who' => $planner->names($f)];
+                    $backWhy["c$p"] = $entry;
                     $backRank["c$p"] = count($backRank);
                     if ((!$givenList || !jpEq($givenList[count($givenList) - 1]['title'], $entry['title'])) && count($givenList) < 20) {
                         $givenList[] = $entry;
+                    }
+                    if ($say) {
+                        $a = $f->ahead();
+                        $say('INFO', "[ZURÜCK: Rang] $f->rel (" . jpHuman($f->size) . ') – Gebe zurück: ' . jpStr($entry['title']) . ' ('
+                            . ($a <= 0 ? 'angefangen' : ($a === 1 ? 'als Nächstes' : "Folge $a voraus")) . ($entry['who'] !== '' ? ", {$entry['who']}" : '') . ')');
                     }
                 }
             }
         }
     }
 
-    // the cleanup: entries of the old list nobody wants any more
-    $protected = $cleanup = [];
+    // the cleanup's selection: entries of the old list nobody wants any more
+    $protected = $cleanup = $sizes = [];
     $toArray = 0;
-    $simDelta = 0;
     $list = jackPlanReadList($listFile);
     if ($incomplete) {
+        $say && $say('WARNING', 'Planung unvollständig (Medienserver nicht vollständig erreichbar) – Cleanup wird übersprungen, bisherige Exclude-Liste bleibt geschützt');
         foreach ($list as $p) {
             if (file_exists(jpNorm($p))) {
                 $protected["p$p"] = $p;
             }
         }
     } else {
-        [$cleanup, $toArray, $protected] = jackPlanCleanup($cfg, $loc, $list, $current, $backRank, $playing, $themes);
-        if ($cleanup) {
-            $simDelta += $toArray;
-        }
+        [$cleanup, $toArray, $protected, $sizes] = jackPlanCleanup($cfg, $loc, $list, $current, $backRank, $playing, $themes, $say);
     }
+    return ['cfg' => $cfg, 'env' => $env, 'rels' => $rels, 'names' => $names, 'sessions_ok' => $sessionsOk, 'playing' => $playing, 'planner' => $planner,
+            'files' => $files, 'not_in_budget' => $notInBudget, 'loc' => $loc, 'current' => $current, 'incomplete' => $incomplete, 'themes' => $themes,
+            'min_free' => $minFree, 'give_back_free' => $giveBackFree, 'watched_only' => $watchedOnly, 'keep' => $keep, 'held' => $held,
+            'given_back' => $givenBack, 'given_back_bytes' => $givenBackBytes, 'back_rank' => $backRank, 'back_why' => $backWhy, 'given_list' => $givenList,
+            'list' => $list, 'protected' => $protected, 'cleanup' => $cleanup, 'cleanup_sizes' => $sizes, 'to_array' => $toArray];
+}
 
-    // the fill: what is still on the array comes to the pool, in the order of the plan, as long as the free space lasts;
-    // MEDIACACHE_NO_FILL (the joint run's first step): nothing fetched, what lies on the array only counted as waiting
+/** f"{v:g}" for the free space's percent */
+function jpFloatG(float $v): string
+{
+    return $v == floor($v) && abs($v) < 1e15 ? (string) (int) $v : rtrim(rtrim(sprintf('%.6g', $v), '0'), '.');
+}
+
+/**
+ * The dry run's fill: what is still on the array comes to the pool, in the order of the plan, as long as the free space lasts (the
+ * cleanup's bytes counted as freed, each planned copy as taken); MEDIACACHE_NO_FILL (the joint run's first step): nothing fetched, what
+ * lies on the array only counted as waiting. $shareRoot: ensure_share_root() of a dry run (jackPlanShareRoot(), or the real run's in
+ * dry mode with its words).
+ */
+function jackPlanDryFill(array $d, JackPlanHost $host, ?Closure $say = null, ?Closure $shareRoot = null): array
+{
+    $cfg = $d['cfg'];
+    $env = $d['env'];
+    $loc = $d['loc'];
+    $playing = $d['playing'];
+    $simDelta = $d['cleanup'] ? $d['to_array'] : 0;
+    $held = $d['held'];
     $roots = $fill = $dropped = [];
     $toCache = $waiting = $waitingBytes = 0;
     $noFill = ($env['MEDIACACHE_NO_FILL'] ?? '') === '1';
-    foreach ($noFill ? $files : [] as $f) {
+    $shareRoot ??= fn (string $share, array &$roots): bool => jackPlanShareRoot($cfg, $loc->cache, $share, $env, $roots);
+    foreach ($noFill ? $d['files'] : [] as $f) {
         if (!file_exists($loc->onCache($f->rel))) {
             $waiting++;
             $waitingBytes += $f->size;
         }
     }
-    foreach ($noFill ? [] : $files as $f) {
+    $lastGroup = null;
+    foreach ($noFill ? [] : $d['files'] as $f) {
         if ($f->onCache) {
             continue;
         }
         if ($playing($f->rel)) {
+            $say && $say('INFO', "[SKIP: läuft gerade] $f->rel");
             $dropped[] = $f->rel;
             continue;
         }
         $share = explode('/', $f->rel)[0];
-        if (!jackPlanShareRoot($cfg, $loc->cache, $share, $env, $roots)) {
+        if (!$shareRoot($share, $roots)) {
+            $say && $say('WARNING', "[SKIP: Share-Wurzel] $f->rel");
             $dropped[] = $f->rel;
             continue;
         }
-        $shareRoot = jpJoin($loc->cache, $share);
+        $shareRootDir = jpJoin($loc->cache, $share);
         $after = jackPlanFreeAfter($loc->cache, $f->size, $simDelta, $host);
-        if (is_dir($shareRoot)) {
-            $after = min($after, jackPlanFreeAfter($shareRoot, $f->size, $simDelta, $host));
+        if (is_dir($shareRootDir)) {
+            $after = min($after, jackPlanFreeAfter($shareRootDir, $f->size, $simDelta, $host));
         }
-        if ($after < $minFree) {
+        if ($after < $d['min_free']) {
+            $say && $say('WARNING', sprintf('[SKIP: Freiplatz] %s (%s) – danach nur %.1f %% frei, Minimum %s %% (Dry-Run: Cleanup und geplante Kopien eingerechnet)',
+                $f->rel, jpHuman($f->size), $after, jpFloatG($d['min_free'])));
             $waiting++;
             $waitingBytes += $f->size;
             $dropped[] = $f->rel;
             continue;
         }
         $src = $loc->onArray($f->rel);
-        if ($cfg['array_source'] === 'disk') {
-            $disks = [];
-            foreach (glob(jpJoin(jpNorm($cfg['array_disks_glob']), $f->rel)) ?: [] as $d) {
-                if (file_exists($d)) {
-                    $disks[] = $d;
-                }
+        $disks = [];
+        // Locations.on_disk(): the shadow looks at no disk unless the copy reads from one (array_source disk); the run's dry mode as Python's
+        foreach ($cfg['array_source'] === 'disk' || $say !== null ? glob(jpJoin(jpNorm($cfg['array_disks_glob']), $f->rel)) ?: [] : [] as $disk) {
+            if (file_exists($disk)) {
+                $disks[] = $disk;
             }
-            $disks = jpSorted($disks);
+        }
+        $disks = jpSorted($disks);
+        if ($cfg['array_source'] === 'disk') {
             $src = $disks[0] ?? $src;
         }
         if (!is_file($src)) {
+            $say && $say('WARNING', "Quelle nicht gefunden: $src");
             $dropped[] = $f->rel;
             continue;
         }
@@ -2666,24 +2823,60 @@ function jackPlanDry(array $cfg, array $env, JackPlanHost $host, string $plexTv 
         $held += $f->size;
         $fill[] = $f->rel;
         $simDelta -= $f->size;
+        if ($say) {
+            $key = jackPlanGroupKey($f->rel);
+            if ($key !== $lastGroup) {
+                $say('INFO', "[PLAN: -> CACHE] $key   (" . jpStr($f->title) . ')');
+                $lastGroup = $key;
+            }
+            $say('INFO', sprintf('      %10s  %-7s %s', jpHuman($f->size), $disks ? jackPlanDiskName($disks[0], $cfg) : '?', $f->rel));
+        }
     }
+    return ['rels' => $fill, 'dropped' => $dropped, 'bytes' => $toCache, 'waiting' => $waiting, 'waiting_bytes' => $waitingBytes, 'held' => $held, 'sim_delta' => $simDelta];
+}
 
-    $sortedRels = array_map('strval', array_values($rels));
-    $sortedRels = jpSorted($sortedRels);
-    $sortedNames = array_map('strval', array_keys($names));
-    $sortedNames = jpSorted($sortedNames);
+/** group_key(): share/top folder (the series or the film's folder), else the share */
+function jackPlanGroupKey(string $rel): string
+{
+    $parts = explode('/', $rel);
+    return count($parts) > 2 ? "$parts[0]/$parts[1]" : $parts[0];
+}
+
+/** Path(p).parts: the root (when there is one) as the first part */
+function jpPyParts(string $path): array
+{
+    [$root, $parts] = jpParts($path);
+    return $root !== '' ? array_merge([$root], $parts) : $parts;
+}
+
+/** _disk_name(): /mnt/disk3/Filme/x.mkv -> disk3 */
+function jackPlanDiskName(string $path, array $cfg): string
+{
+    $depth = count(jpPyParts($cfg['array_disks_glob']));
+    $parts = jpPyParts($path);
+    return count($parts) >= $depth ? $parts[$depth - 1] : '?';
+}
+
+/**
+ * The plan in the stable shape of mediacache_shadow.py's (both sides of the comparison, and what the real run in PHP acted on): the
+ * decisions ($d, jackPlanDecide()) and the fill ($fill, jackPlanDryFill() or the real run's).
+ */
+function jackPlanDoc(array $d, array $fill): array
+{
+    $planner = $d['planner'];
+    $files = $d['files'];
+    $sortedRels = jpSorted(array_map('strval', array_values($d['rels'])));
+    $sortedNames = jpSorted(array_map('strval', array_keys($d['names'])));
     $group = fn (JackPlanGroup $g): array => ['chain' => $g->chain, 'category' => $g->category, 'source' => $g->source, 'series' => $g->series, 'title' => $g->title,
         'size' => $g->size, 'files' => array_map(fn (JackPlanFile $x): string => $x->rel, $g->files)];
-    $prot = array_values($protected);
-    $prot = jpSorted($prot);
-    $backPaths = array_keys($backRank);
+    $backPaths = array_keys($d['back_rank']);
     return jackPlanClean([
         'outcome'    => 'ok',
         'tape'       => JACK_PLAN_TAPE_V,
         'mode'       => 'run',
-        'incomplete' => $incomplete,
+        'incomplete' => $d['incomplete'],
         'errors'     => $planner->errors,
-        'sessions'   => ['rels' => $sortedRels, 'names' => $sortedNames, 'ok' => $sessionsOk],
+        'sessions'   => ['rels' => $sortedRels, 'names' => $sortedNames, 'ok' => $d['sessions_ok']],
         'persons'    => array_map(fn (JackPlanUser $u): array => ['key' => $u->key, 'name' => $u->name, 'uids' => $u->uids, 'servers' => $u->servers,
             'budget' => $u->budget === null ? null : sprintf('%.3f', $u->budget), 'bytes' => $u->bytes, 'movie_bytes' => $u->movieBytes, 'series_bytes' => $u->seriesBytes,
             'exhausted' => $u->exhausted, 'selected' => array_map($group, $u->selected), 'skipped' => array_map($group, $u->skipped)], array_values($planner->users)),
@@ -2692,35 +2885,64 @@ function jackPlanDry(array $cfg, array $env, JackPlanHost $host, string $plexTv 
             ksort($ranks, SORT_STRING);
             return ['rel' => $f->rel, 'size' => $f->size, 'on_cache' => $f->onCache, 'user' => $f->user, 'source' => $f->source, 'title' => $f->title, 'ranks' => $ranks, 'item' => $f->item];
         }, $files),
-        'not_in_budget'   => $notInBudget,
+        'not_in_budget'   => $d['not_in_budget'],
         'give_back_order' => array_map(fn (JackPlanFile $f): string => $f->rel, jackPlanGiveBackOrder(array_values(array_filter($files, fn (JackPlanFile $f): bool => $f->onCache)))),
-        'give_back'  => ['paths' => array_map(fn (int|string $k): string => substr((string) $k, 1), $backPaths), 'files' => $givenBack, 'bytes' => $givenBackBytes,
-                         'held' => $held, 'keep' => $keep, 'items' => $givenList],
-        'cleanup'    => ['paths' => $cleanup, 'bytes' => $toArray],
-        'protected'  => $prot,
-        'fill'       => ['rels' => $fill, 'dropped' => $dropped, 'bytes' => $toCache, 'waiting' => $waiting, 'waiting_bytes' => $waitingBytes],
-        'sim_delta'  => $simDelta,
+        'give_back'  => ['paths' => array_map(fn (int|string $k): string => substr((string) $k, 1), $backPaths), 'files' => $d['given_back'], 'bytes' => $d['given_back_bytes'],
+                         'held' => $fill['held'], 'keep' => $d['keep'], 'items' => $d['given_list']],
+        'cleanup'    => ['paths' => $d['cleanup'], 'bytes' => $d['to_array']],
+        'protected'  => jpSorted(array_values($d['protected'])),
+        'fill'       => ['rels' => $fill['rels'], 'dropped' => $fill['dropped'], 'bytes' => $fill['bytes'], 'waiting' => $fill['waiting'], 'waiting_bytes' => $fill['waiting_bytes']],
+        'sim_delta'  => $fill['sim_delta'],
     ]);
 }
 
 /**
- * --release's decisions, dry (Runner.release()): what plays stays, everything else on his list goes back the cleanup's way; nothing is
- * planned, no list or themes state written. With `themes` the theme.mp3 stay unless MEDIACACHE_RELEASE_THEMES=1.
+ * Runner's dry run, every decision of it, in the shape of mediacache_shadow.py's plan: nothing moves, nothing is written.
+ *
+ * @param array<string, string> $env what Python would find in its environment
+ */
+function jackPlanDry(array $cfg, array $env, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV): array
+{
+    $d = jackPlanDecide($cfg, $env, $host, $plexTv);
+    return jackPlanDoc($d, jackPlanDryFill($d, $host));
+}
+
+/**
+ * --release's decisions (Runner.release()): what plays stays, everything else on his list goes back the cleanup's way; nothing is
+ * planned. With `themes` the theme.mp3 stay unless MEDIACACHE_RELEASE_THEMES=1. [sessions, ok, the cleanup's selection …]
  *
  * @param array<string, string> $env
  */
-function jackPlanReleaseDry(array $cfg, array $env, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV): array
+function jackPlanReleaseDecide(array $cfg, array $env, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV, ?Closure $say = null): array
 {
     clearstatcache(true);
     $listFile = jpJoin(($env['MEDIACACHE_DIR'] ?? '') ?: '.', 'mediacache_exclude.txt');
-    [$rels, $names, $sessionsOk] = jackPlanSessions($cfg, $host, $plexTv);
+    [$rels, $names, $sessionsOk] = jackPlanSessions($cfg, $host, $plexTv, $say);
     $playing = fn (string $rel): bool => isset($rels["r$rel"]) || isset($names[jpName($rel)]);
+    if (!$sessionsOk && $say) {
+        $say('WARNING', 'Nicht alle Emby-Instanzen haben geantwortet – was dort gerade läuft, kann nicht geschützt werden (das Office fragt vorher, ob jemand schaut)');
+    }
     $loc = new JackPlanLocations($cfg, $cfg['instances'][0]['_mappings']);
     $keepThemes = $cfg['themes'] === true && ($env['MEDIACACHE_RELEASE_THEMES'] ?? '') !== '1';
-    [$cleanup, $toArray, $protected] = jackPlanCleanup($cfg, $loc, jackPlanReadList($listFile), [], [], $playing, $keepThemes);
-    return jackPlanClean(['outcome' => 'ok', 'tape' => JACK_PLAN_TAPE_V, 'mode' => 'release', 'incomplete' => !$sessionsOk,
-        'sessions' => ['rels' => jpSorted(array_map('strval', array_values($rels))), 'names' => jpSorted(array_map('strval', array_keys($names))), 'ok' => $sessionsOk],
-        'cleanup' => ['paths' => $cleanup, 'bytes' => $toArray], 'protected' => jpSorted(array_values($protected)), 'keep_themes' => $keepThemes]);
+    $list = jackPlanReadList($listFile);
+    [$cleanup, $toArray, $protected, $sizes] = jackPlanCleanup($cfg, $loc, $list, [], [], $playing, $keepThemes, $say);
+    return ['cfg' => $cfg, 'env' => $env, 'rels' => $rels, 'names' => $names, 'sessions_ok' => $sessionsOk, 'playing' => $playing, 'loc' => $loc,
+            'keep_themes' => $keepThemes, 'list' => $list, 'cleanup' => $cleanup, 'to_array' => $toArray, 'protected' => $protected, 'cleanup_sizes' => $sizes,
+            'back_why' => [], 'back_rank' => []];
+}
+
+/** --release's decisions in the plan's shape */
+function jackPlanReleaseDoc(array $d): array
+{
+    return jackPlanClean(['outcome' => 'ok', 'tape' => JACK_PLAN_TAPE_V, 'mode' => 'release', 'incomplete' => !$d['sessions_ok'],
+        'sessions' => ['rels' => jpSorted(array_map('strval', array_values($d['rels']))), 'names' => jpSorted(array_map('strval', array_keys($d['names']))), 'ok' => $d['sessions_ok']],
+        'cleanup' => ['paths' => $d['cleanup'], 'bytes' => $d['to_array']], 'protected' => jpSorted(array_values($d['protected'])), 'keep_themes' => $d['keep_themes']]);
+}
+
+/** --release's decisions, dry: nothing is written (no list, no themes state) */
+function jackPlanReleaseDry(array $cfg, array $env, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV): array
+{
+    return jackPlanReleaseDoc(jackPlanReleaseDecide($cfg, $env, $host, $plexTv));
 }
 
 /**
