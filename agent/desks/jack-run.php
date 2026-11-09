@@ -671,7 +671,7 @@ final class JackRunProc
         while ($this->poll() && hrtime(true) < $until) {
             usleep(50_000);
         }
-        if ($this->exit === null) {
+        if ($this->poll()) {
             @proc_terminate($this->proc, 9);
             while ($this->poll()) {
                 usleep(50_000);
@@ -2780,7 +2780,7 @@ function jackRunMain(array $argv, array $env, ?JackPlanHost $live = null, mixed 
             $log->warning('Die Antworten des Vergleichs (--tape) sind nicht lesbar – der Lauf fragt die Medienserver selbst');
         }
     }
-    jackPlanPython($tape?->python ?? [3, 11]);
+    jackPlanPython($tape !== null ? $tape->python : [3, 11]);
     try {
         $cfg = jackPlanConfig($paths->config, $env);
         jackPlanKeepBytes($env);
@@ -2814,7 +2814,7 @@ function jackRunMain(array $argv, array $env, ?JackPlanHost $live = null, mixed 
     } finally {
         flock($lock, LOCK_UN);
         fclose($lock);
-        jackRunWriteResult($paths, $log, ($runner?->result ?? ['mode' => $mode]) + ['result' => $result, 'started' => $started, 'finished' => time()]);
+        jackRunWriteResult($paths, $log, ($runner !== null ? $runner->result : ['mode' => $mode]) + ['result' => $result, 'started' => $started, 'finished' => time()]);
         if ($runner?->planDoc !== null && isset($opt['--plan-out'])) {
             try {
                 writeAtomic($opt['--plan-out'], jackRunJson($runner->planDoc), 0600, 0, 0);

@@ -1787,6 +1787,12 @@ function testJackRun(): void
     [, $st, , , $out, , $array] = $run($t, $env, $tape);
     same('run: a copy whose size differs — the source stays (never deleted before the copy is verified)', [['Filme/A/a.mkv' => 1000], 1, true], [$array, $st['failed']['fill'] ?? null, str_contains($out, 'Grösse stimmt nicht überein nach rsync, Quelle bleibt')]);
 
+    // (8b) a file name that is no UTF-8 (beyond Python, whose run ends in an error there): it stays on the array, never in the list
+    [$t, $env, $tape] = $world(['array' => ['Filme/A/a.mkv' => 1000, "Filme/A/a\xff.srt" => 3], 'answers' => [["$emby/Sessions", $key, []], ["$emby/Users", $key, [['Id' => 'u1', 'Name' => 'Anna']]], ...jackPlanTestUser($emby, $key, 'u1', [$film('a', 'Filme/A/a.mkv')], [])]]);
+    [$exit, $st, , $list, $out, $pool, $array] = $run($t, $env, $tape);
+    same('run: a name that is no UTF-8 — it stays on the array and out of the list (Python couldn\'t read such a list back), the rest goes, said',
+        [0, ['Filme/A/a.mkv' => 1000], ["Filme/A/a\xff.srt" => 3], "$t/pool/Filme/A/a.mkv\n", true], [$exit, $pool, $array, $list, str_contains($out, '[SKIP: Dateiname kein UTF-8]')], $out);
+
     // (9) the array stops mid-copy: the copy ends at once (not after it), the source stays, nothing half on the pool, stopped
     [$t, $env, $tape] = $world();
     $fakeRsync($t, "printf 'fsState=\"Stopping\"\\n' > $t/side/var.ini; d=\"\${@: -1}\"; mkdir -p \"\$(dirname \"\$d\")\"; t=\"\$(dirname \"\$d\")/.x.tmp\"; trap 'rm -f \"\$t\"; exit 20' TERM; head -c 5 /dev/zero > \"\$t\"; sleep 20 & wait");
@@ -1796,6 +1802,16 @@ function testJackRun(): void
     same('run: the array stops mid-copy — ended at once (not after the copy), stopped, exit 3, every source on the array, nothing half on the pool, no fill error',
         [3, 'stopped', 6, [], 0, true], [$exit, $st['result'] ?? null, count($array), $pool, $st['failed']['fill'] ?? null, $secs < 8], sprintf('%.1f s', $secs) . "\n$out");
     putenv("PATH=$pathBefore");
+
+    // (9b) the array stops while Unraid's move binary brings a file back: it ends at once, the file stays on the pool and in the list
+    [$t, $env, $tape] = $world(['pool' => ['Filme/Old/old.mkv' => 500, 'Filme/Old2/o2.mkv' => 5], 'list' => ['Filme/Old/old.mkv', 'Filme/Old2/o2.mkv']]);
+    file_put_contents("$t/move", "#!/bin/bash\nprintf 'fsState=\"Stopping\"\\n' > $t/side/var.ini\ntrap 'exit 1' TERM\nsleep 20 & wait\n");
+    $t0 = hrtime(true);
+    [$exit, $st, , $list, $out, $pool, $array] = $run($t, $env, $tape);
+    $secs = (hrtime(true) - $t0) / 1e9;
+    same('run: the array stops while the move binary works — ended at once, stopped, nothing filled, both files still on the pool and in the list',
+        [3, 'stopped', 0, ['Filme/Old/old.mkv' => 500, 'Filme/Old2/o2.mkv' => 5], "$t/pool/Filme/Old/old.mkv\n$t/pool/Filme/Old2/o2.mkv\n", true],
+        [$exit, $st['result'] ?? null, $st['fill']['done'] ?? null, $pool, $list, $secs < 8], sprintf('%.1f s', $secs) . "\n$out");
 
     // (10) copies in parallel: one per disk at once, the queue's places, every file in flight in the progress
     $disks = ['disk1' => ['Filme/A/a.mkv' => 1000, 'Filme/A/a.srt' => 10, 'Serien/S/S01/e1.mkv' => 300], 'disk2' => ['Filme/B/b.mkv' => 2000, 'Serien/S/S01/e2.mkv' => 310, 'Serien/S/S01/e3.mkv' => 320]];
