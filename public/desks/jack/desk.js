@@ -1264,7 +1264,7 @@ function shadowOthers(s) {
 }
 function shadowTile(a) {
   const s = state.shadow;
-  return Office.stat({ label: T('shadow.title'), value: s.last ? shadowCounts(s) : T('shadow.none'), sub: shadowOthers(s), tip: T('shadow.tip'), alert: s.differ > 0 || s.error > 0, ...a });
+  return Office.stat({ label: T('shadow.title'), value: s.last ? shadowCounts(s) : T('shadow.none'), sub: shadowOthers(s), tip: T(s.php ? 'shadow.tip_php' : 'shadow.tip'), alert: s.differ > 0 || s.error > 0, ...a });
 }
 function shadowAsk(at) {
   shadowAsked = at;
@@ -1310,7 +1310,7 @@ function shadowBox() {
   return box;
 }
 function shadowSection() {
-  const s = section(T('shadow.title'), T('shadow.sub'), { place: 'tile.shadow' });
+  const s = section(T('shadow.title'), T(state.shadow && state.shadow.php ? 'shadow.sub_php' : 'shadow.sub'), { place: 'tile.shadow' });   // PHP acts (php.json): who moves, who compares
   dom.shadow = shadowBox();
   s.appendChild(dom.shadow);
   return s;

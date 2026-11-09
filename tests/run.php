@@ -1399,7 +1399,7 @@ function testJackShadow(): void
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('shadow asleep: his state has the key only with the flag; asked only right before a real run of his, in its own job',
         str_contains($src, "if ((\$shadow = jackShadowSummary()) !== null) {\n        \$state['shadow'] = \$shadow;")
-        && str_contains($src, "\$shadow = \$tool === 'embycache' && \$real && jackShadowOn() ? jackShadowBefore(\$mode, \$env) : null;\n    \$proc = \$cmd !== null ? proc_open(")
+        && str_contains($src, "\$shadow = \$tool === 'embycache' && \$real && jackShadowOn() ? jackShadowBefore(\$mode, \$env) : null;\n    if (\$tool === 'embycache' && \$real && \$cmd !== null && jackPhpOn(\$dir)) {\n        \$cmd = array_merge(\$cmd, jackShadowHandoff(\$shadow));")
         && str_contains($src, 'jackShadowAfter($shadow, $status);') && !str_contains($src, "'jack-shadow'"));
     $shadow = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-shadow.php');
     check('shadow: no check, no notification, no atd job, no lock of its own', !str_contains($shadow, 'officeNotify(') && !str_contains($shadow, 'finding(')
@@ -1409,7 +1409,7 @@ function testJackShadow(): void
     file_put_contents("$dir/shadow.json", "{}\n");
     $both([], ['cleanup' => ['planned' => 0], 'fill' => ['planned' => 0]]);
     $n = $file();
-    same('shadow: the same plan: one file in its shape, counted once, one pair', [2, $clock, '9.9.9', 'run', 'same', 1, 1, ['same' => 1, 'differ' => 0, 'once' => 0, 'error' => 0, 'not' => 0, 'last' => $clock]],
+    same('shadow: the same plan: one file in its shape, counted once, one pair', [2, $clock, '9.9.9', 'run', 'same', 1, 1, ['same' => 1, 'differ' => 0, 'once' => 0, 'error' => 0, 'not' => 0, 'last' => $clock, 'php' => false]],
         [$n['v'] ?? null, $n['time'] ?? null, $n['version'] ?? null, $n['mode'] ?? null, $n['result'] ?? null, $n['counts']['on_deck'] ?? null, $calls, jackShadowSummary($dir)], json_encode($n));
     same('shadow: the run\'s environment (no-fill step included), never its result, stop or progress files', ['1', false, false, false, $dir, 'run'],
         [$seenEnv['MEDIACACHE_NO_FILL'] ?? null, isset($seenEnv['MEDIACACHE_RESULT']), isset($seenEnv['MEDIACACHE_STOP']), isset($seenEnv['MEDIACACHE_PROGRESS']), $seenEnv['MEDIACACHE_DIR'] ?? null, $seenEnv['mode'] ?? null]);

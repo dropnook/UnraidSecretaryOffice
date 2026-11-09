@@ -42,10 +42,11 @@ const JACK_SHADOW_LIVE    = 300;          // s: the live look after the run at m
 const JACK_SHADOW_LIST    = 20;           // dates with differences the part «shadow» shows
 const JACK_SHADOW_RESULTS = ['same', 'differ', 'once', 'error', 'not'];
 
-/** The flag: a file; absent = asleep */
+/** The flag: a file; absent = asleep. PHP acting (jack-run.php, its flag php.json) wakes it too: then Python plans dry beside PHP */
 function jackShadowOn(?string $dir = null): bool
 {
-    return is_file(($dir ?? JACK_DATA) . '/' . JACK_SHADOW_FLAG);
+    $dir ??= JACK_DATA;
+    return is_file("$dir/" . JACK_SHADOW_FLAG) || jackPhpOn($dir);
 }
 
 /** Where the comparison looks: the tests' stand-ins in $GLOBALS['jackShadowHost'] */
@@ -159,8 +160,44 @@ function jackShadowBefore(string $mode, array $env, ?array $h = null): ?array
 }
 
 /**
+ * PHP acts (php.json): what the real run in PHP gets from the comparison — the answers its plan was compared on (`--tape`, the last pair
+ * that planned on both sides; none when nothing was compared: it asks the servers itself) and where it writes the plan it acted on
+ * (`--plan-out`, RAM). The arguments for jack-run.php.
+ */
+function jackShadowHandoff(?array $ctx, ?array $h = null): array
+{
+    $h = jackShadowHost($h);
+    $run = (string) $h['run'];
+    if ($ctx === null || !is_dir($run)) {
+        return [];
+    }
+    $compared = $ctx['pass'] ?? $ctx['once'] ?? null;
+    $tape = "$run/tape-run.jsonl";
+    return array_merge($compared !== null && is_file($tape) ? ['--tape', $tape] : [], ['--plan-out', "$run/executed.json"]);
+}
+
+/**
+ * The plan the real run in PHP acted on beside the one compared with Python's (the same answers): everything the plan decides — the
+ * fill's own numbers left out (the real run measures the pool again after the cleanup, the dry one counts the cleanup as freed).
+ * [result: same | differ | none (no plan written: the run failed early), differences]
+ */
+function jackShadowExecuted(?array $compared, ?array $executed): array
+{
+    if ($compared === null || $executed === null) {
+        return ['result' => 'none'];
+    }
+    $strip = function (array $p): array {
+        unset($p['fill'], $p['sim_delta'], $p['give_back']['held']);
+        return $p;
+    };
+    $d = jackShadowDiff($strip($compared), $strip($executed));
+    return $d ? ['result' => 'differ', 'differences' => array_slice($d, 0, JACK_SHADOW_MAX), 'more' => max(0, count($d) - JACK_SHADOW_MAX)] : ['result' => 'same'];
+}
+
+/**
  * After the real run: PHP's own client against the live servers (said only), the run's own counts beside the plan's (said only), the
  * date's file. $status: the run's MEDIACACHE_RESULT. Never throws. Nothing written once the array stopped or his data folder is gone.
+ * PHP acted (php.json): `engine` php, and `executed` — the plan it acted on beside the plan compared.
  */
 function jackShadowAfter(?array $ctx, array $status, ?array $h = null): void
 {
@@ -171,6 +208,14 @@ function jackShadowAfter(?array $ctx, array $status, ?array $h = null): void
     $running = fn (): bool => (bool) ($h['array'])();        // asked again each time
     try {
         $entry = jackShadowEntry($h, $ctx);
+        if (jackPhpOn((string) $h['dir'])) {
+            $entry['engine'] = 'php';
+            $compared = $ctx['pass'] ?? $ctx['once'] ?? null;
+            if ($compared !== null) {
+                $executed = readJson($h['run'] . '/executed.json');
+                $entry['executed'] = jackShadowExecuted(is_array($compared['php'] ?? null) ? $compared['php'] : null, $executed);
+            }
+        }
         if (($entry['result'] ?? '') !== 'not' && $running()) {
             $entry['real'] = jackShadowReal($ctx['pass']['py'] ?? $ctx['once']['py'] ?? [], $status);
             $until = hrtime(true) + JACK_SHADOW_LIVE * 1_000_000_000;
@@ -295,7 +340,11 @@ function jackShadowPass(array $h, array $env, string $mode, callable $go, ?strin
             $why = 'php_failed';
             return null;
         }
-        return ['py' => $py, 'outcome' => [$py['outcome'] ?? '', $php['plan']['outcome'] ?? ''], 'requests' => (int) ($php['asked'] ?? 0),
+        // PHP acts (php.json): this pair's answers are the ones the real run plans from — the plan compared is the plan executed
+        if (jackPhpOn((string) $h['dir']) && is_file($tape)) {
+            @rename($tape, "$run/tape-run.jsonl");
+        }
+        return ['py' => $py, 'php' => $php['plan'], 'outcome' => [$py['outcome'] ?? '', $php['plan']['outcome'] ?? ''], 'requests' => (int) ($php['asked'] ?? 0),
                 'differences' => jackShadowDiff($py, $php['plan'], (array) ($php['missing'] ?? []), (array) ($php['left'] ?? []))];
     } finally {
         @unlink($tape);
@@ -411,7 +460,7 @@ function jackShadowSummary(?string $dir = null): ?array
     foreach (JACK_SHADOW_RESULTS as $r) {
         $out[$r] = (int) ($s[$r] ?? 0);
     }
-    return $out + ['last' => isset($s['last']) ? (int) $s['last'] : null];
+    return $out + ['last' => isset($s['last']) ? (int) $s['last'] : null, 'php' => jackPhpOn($dir)];
 }
 
 // ===================================================================== the comparison

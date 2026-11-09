@@ -791,6 +791,8 @@
   "shadow.title": "Le plan en PHP",
   "shadow.sub": "Juste avant chaque exécution réelle, je planifie encore une fois en PHP, à partir des mêmes réponses que les serveurs multimédia donnent à Python, et je compare. Seul Python déplace des fichiers.",
   "shadow.tip": "Une simple comparaison : rien n'est déplacé.",
+  "shadow.sub_php": "C'est PHP qui déplace les fichiers maintenant : juste avant chaque exécution réelle, Python planifie la même exécution à blanc, à partir des mêmes réponses des serveurs multimédia, et je compare. PHP agit ensuite exactement selon le plan comparé.",
+  "shadow.tip_php": "PHP déplace, Python compare à blanc.",
   "shadow.value": "{same}, {differ}",
   "shadow.none": "Rien de comparé pour l'instant",
   "shadow.line": "{counts} ; dernière comparaison le {when}.",

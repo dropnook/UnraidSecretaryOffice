@@ -791,6 +791,8 @@
   "shadow.title": "The plan in PHP",
   "shadow.sub": "Right before each real run I plan once more in PHP, from the same answers the media servers give Python, and compare. Only Python moves files.",
   "shadow.tip": "A comparison only: nothing moves because of it.",
+  "shadow.sub_php": "PHP moves the files now: right before each real run Python plans the same run dry, from the same answers the media servers give, and I compare. PHP then acts on exactly the plan compared.",
+  "shadow.tip_php": "PHP moves, Python compares dry.",
   "shadow.value": "{same}, {differ}",
   "shadow.none": "Nothing compared yet",
   "shadow.line": "{counts}; last compared on {when}.",

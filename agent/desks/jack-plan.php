@@ -2614,7 +2614,7 @@ function jackPlanCleanup(array $cfg, JackPlanLocations $loc, array $list, array 
  *
  * @param array<string, string> $env what Python would find in its environment
  */
-function jackPlanDecide(array $cfg, array $env, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV, ?Closure $say = null): array
+function jackPlanDecide(array $cfg, array $env, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV, ?Closure $say = null, bool $selection = true): array
 {
     clearstatcache(true);
     $listFile = jpJoin(($env['MEDIACACHE_DIR'] ?? '') ?: '.', 'mediacache_exclude.txt');
@@ -2631,11 +2631,14 @@ function jackPlanDecide(array $cfg, array $env, JackPlanHost $host, string $plex
             . ' (davon ' . count(array_filter($files, fn (JackPlanFile $f): bool => $f->onCache)) . ' bereits auf dem Cache)');
     }
     $loc = new JackPlanLocations($cfg, $cfg['instances'][0]['_mappings']);
+    $incomplete = $planner->errors > 0 || !$sessionsOk;
+    if (!$selection) {          // the report: only the plan
+        return ['planner' => $planner, 'files' => $files, 'not_in_budget' => $notInBudget, 'loc' => $loc, 'incomplete' => $incomplete];
+    }
     $current = [];
     foreach ($files as $f) {
         $current['c' . $loc->onCache($f->rel)] = true;
     }
-    $incomplete = $planner->errors > 0 || !$sessionsOk;
     $themes = $cfg['themes'] === true;
     $minFree = (float) $cfg['min_free_percent'];
     $watchedOnly = ($env['MEDIACACHE_WATCHED_ONLY'] ?? '') === '1';
