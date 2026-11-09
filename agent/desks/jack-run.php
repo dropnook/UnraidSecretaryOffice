@@ -2528,6 +2528,8 @@ final class JackRunner
         if (!$noFill) {
             $this->progress->planFill($d['planner'], $files);
         }
+        // the plan as decided, before anything moves (a copy marks its file on the pool): the fill's part is added after it
+        $decided = jackPlanDoc($d, ['rels' => [], 'dropped' => [], 'bytes' => 0, 'waiting' => 0, 'waiting_bytes' => 0, 'held' => $d['held'], 'sim_delta' => 0]);
         $loc = $d['loc'];
         $protected = $d['protected'];
         $this->held = $d['held'];
@@ -2601,8 +2603,9 @@ final class JackRunner
             } else {
                 $this->writeList(array_merge($onCache, array_values($protected)));
             }
-            $this->planDoc = jackPlanDoc($d, ['rels' => $fill['rels'], 'dropped' => $fill['dropped'], 'bytes' => $this->toCache, 'waiting' => $this->waiting,
-                'waiting_bytes' => $this->waitingBytes, 'held' => $this->held, 'sim_delta' => $simDelta - $this->toCache]);
+            $this->planDoc = jackPlanClean(['fill' => ['rels' => $fill['rels'], 'dropped' => $fill['dropped'], 'bytes' => $this->toCache, 'waiting' => $this->waiting,
+                'waiting_bytes' => $this->waitingBytes], 'sim_delta' => $simDelta - $this->toCache]) + $decided;
+            $this->planDoc['give_back']['held'] = $this->held;
         }
         $excl = jackRunReadExclude($this->paths->exclude);
         $this->log->info("Ergebnis Cleanup:  $this->movedBack von $this->cleanupPlanned Dateien aufs Array verschoben (" . jpHuman($this->movedBackBytes) . ' von ' . jpHuman($this->toArray) . ')');

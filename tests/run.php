@@ -1654,6 +1654,7 @@ function testJackRun(): void
     // (1) the common run: the old entry back through the move binary, the plan to the pool in its order, the list, the files' place
     [$t, $env, $tape] = $world(['pool' => ['Filme/Old/old.mkv' => 500], 'list' => ['Filme/Old/old.mkv']]);
     @chmod("$t/user0/Serien/S", 0750);
+    $compared = jackPlanRun($env, jackPlanTestTape("$t/side/tape2.jsonl", $answers(), ["$t/pool" => [1000000, 900000], "$t/pool/Filme" => [1000000, 900000]]));     // the shadow's plan of the same answers
     [$exit, $st, $pr, $list, $out, $pool, $array] = $run($t, $env, $tape);
     same('run: back through the move binary, the plan to the pool — every file where it belongs, the sources gone', [0, ['Filme/A/a.mkv' => 1000, 'Filme/A/a.srt' => 10, 'Filme/B/b.mkv' => 2000,
         'Serien/S/S01/e1.mkv' => 300, 'Serien/S/S01/e2.mkv' => 310, 'Serien/S/S01/e3.mkv' => 320], ['Filme/Old/old.mkv' => 500]], [$exit, $pool, $array], $out);
@@ -1672,8 +1673,9 @@ function testJackRun(): void
     check('run: the output in Python\'s line format, its words', (bool) preg_match('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \| INFO \| === MediaCache 7\.4\.0 \(2026-10-15\) \(PHP\) – Modus: RUN ===$/m', $out)
         && str_contains($out, '| INFO | Ergebnis Befüllen: 6 von 6 Dateien auf den Cache kopiert') && is_file("$t/data/logs/mediacache.log") && $st0 !== false);
     $plan = readJson("$t/side/plan.json");
-    same('run: the plan it acted on, in the plan\'s shape (the night file compares it with the plan compared)', ['ok', 6, ["$t/pool/Filme/Old/old.mkv"]],
-        [$plan['outcome'] ?? null, count($plan['fill']['rels'] ?? []), $plan['cleanup']['paths'] ?? null]);
+    same('run: the plan it acted on, in the plan\'s shape — the plan compared is the plan executed (the shadow\'s dry plan of the same answers, as decided before anything moved)',
+        ['ok', 6, ["$t/pool/Filme/Old/old.mkv"], ['result' => 'same'], $compared['fill']['rels'] ?? null],
+        [$plan['outcome'] ?? null, count($plan['fill']['rels'] ?? []), $plan['cleanup']['paths'] ?? null, jackShadowExecuted($compared, $plan), $plan['fill']['rels'] ?? null]);
     // the shapes Python's real run writes (fixtures from tests/shadow/diff.php --run on Tower)
     $shape = function (mixed $v) use (&$shape): mixed {
         return match (true) {
