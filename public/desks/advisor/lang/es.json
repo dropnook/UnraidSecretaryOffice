@@ -87,7 +87,7 @@
   "absent": "no está",
   "help.absent": "No está instalado — y está bien así: la secretaría se las arregla sin él.",
   "ext.unbalanced.name": "unbalanced",
-  "ext.unbalanced.what": "Un plugin de Juan B. Rodriguez que mueve archivos y carpetas entre los discos de tu array — para vaciar un disco o para repartir las cosas. Entre nosotros: a la secretaría no le encanta tenerlo cerca. Pero el cliente siempre tiene la razón.",
+  "ext.unbalanced.what": "Un plugin de Juan B. Rodriguez que mueve archivos y carpetas entre los discos de tu array — para vaciar un disco o para repartir las cosas. Cuando lo uses, asegúrate de que la Señora Moverelli no esté funcionando al mismo tiempo.",
   "ext.unbalanced.careful": "No durante una copia, ni mientras se prepara o se agrupan carpetas: unbalanced mueve archivos entre discos. La copia solo pilla entonces la mitad, y Jack Streamer pierde la pista.",
   "ext.unbalanced.clash": "puede estorbar a {name}",
   "open.unbalanced": "Abrir unbalanced",
