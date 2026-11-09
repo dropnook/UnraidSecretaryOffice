@@ -146,19 +146,19 @@ final class JackRunLog
         $this->line('ERROR', $m . "\n" . get_class($e) . ': ' . $e->getMessage() . "\n" . $e->getTraceAsString());
     }
 
+    /** print(): the report's own lines, plain, where the log's lines go */
+    public function print(string $s): void
+    {
+        if ($this->out !== null) {
+            @fwrite($this->out, "$s\n");
+        }
+    }
+
     public function say(): Closure
     {
         return function (string $level, string $message): void {
             $this->line($level, $message);
         };
-    }
-}
-
-/** print(): the report's own lines, plain */
-function jackRunPrint(string $s): void
-{
-    if (defined('STDOUT')) {
-        fwrite(STDOUT, "$s\n");
     }
 }
 
@@ -407,11 +407,12 @@ function jackRunDiskRoot(string $src, array $cfg, string $array, bool $fromDisk)
         return $array;
     }
     $depth = count(jpPyParts($cfg['array_disks_glob']));
-    $parts = jpPyParts($src);
-    if (count($parts) <= $depth) {
+    [$root, $parts] = jpParts($src);
+    $depth -= $root !== '' ? 1 : 0;           // Path(*src.parts[:depth]): the root is one of the parts
+    if (count($parts) + ($root !== '' ? 1 : 0) <= count(jpPyParts($cfg['array_disks_glob']))) {
         return $array;
     }
-    return jpNorm(implode('/', array_slice($parts, 0, $depth)));
+    return $root . implode('/', array_slice($parts, 0, $depth));
 }
 
 /** zfs_dataset_exists() */
@@ -1351,6 +1352,12 @@ final class JackRunThemes
         uksort($fetch, fn (string $a, string $b): int => jpCmp($a, $b));
         foreach ($fetch as $k => [$loc, $size]) {
             $trel = substr($k, 1);
+            if (!mb_check_encoding($trel, 'UTF-8')) {
+                $r->log->warning('[theme.mp3 bleibt: Ordnername kein UTF-8] ' . mb_scrub($trel, 'UTF-8'));
+                $r->progress->themeDone($trel, $size, false);
+                $failedN++;
+                continue;
+            }
             if ($r->halt()) {
                 $r->progress->themeDone($trel, $size, false);
                 $waiting++;
@@ -1541,7 +1548,8 @@ final class JackRunner
 
     private int $arrayLooked = 0;
 
-    private ?JackPlanHost $live = null;
+    /** the live servers (the theme.mp3 collector, a run without a tape); the tests' stand-in */
+    public ?JackPlanHost $live = null;
 
     /** @param ?JackPlanHost $tape the comparison's tape (or null: the live servers) */
     public function __construct(public array $cfg, public string $mode, public array $env, public JackRunPaths $paths, public JackRunLog $log,
@@ -1551,6 +1559,7 @@ final class JackRunner
         $this->runMode = in_array($mode, ['run', 'release'], true);
         $this->result = ['mode' => $mode];
         $this->host = new JackRunHost($tape ?? $this->liveHost(), $env);
+        JackPlanServer::$say = $log->say();
         $this->progress = new JackRunProgress($mode, $this->runMode && $paths->progress !== '', $paths->progress);
         $this->keep = jackPlanKeepBytes($env);
         $watchedOnly = ($env['MEDIACACHE_WATCHED_ONLY'] ?? '') === '1';
@@ -2061,6 +2070,13 @@ final class JackRunner
             if ($f->onCache) {
                 continue;
             }
+            if (!mb_check_encoding($f->rel, 'UTF-8')) {
+                // beyond Python (which ends its run on such a name): it stays on the array, so no list ever holds what Python can't read
+                $this->log->warning('[SKIP: Dateiname kein UTF-8] ' . mb_scrub($f->rel, 'UTF-8') . ' – bleibt auf dem Array');
+                $dropped[] = $f->rel;
+                $this->progress->drop($f);
+                continue;
+            }
             if ($playing($f->rel)) {
                 $this->log->info("[SKIP: läuft gerade] $f->rel");
                 $dropped[] = $f->rel;
@@ -2071,6 +2087,8 @@ final class JackRunner
             $shareRoot = jpJoin($loc->cache, $share);
             try {
                 $rootOk = jackRunShareRoot($cfg, $loc->cache, $loc->array, $share, true, $this->log, $roots, $this->env);
+            } catch (JackPlanCrash $e) {
+                throw $e;                   // where Python's run ends in a traceback, this one ends too
             } catch (RuntimeException $e) {
                 $this->log->error("Share-Wurzel nicht angelegt: {$e->getMessage()}");
                 $rootOk = $roots["s$share"] = false;
@@ -2367,7 +2385,7 @@ final class JackRunner
     }
 
     /** render_groups(): films one by one, series as a block with their episodes in order */
-    private static function renderGroups(array $groups, string $mark, bool $showFiles, string $indent = '    '): void
+    private function renderGroups(array $groups, string $mark, bool $showFiles, string $indent = '    '): void
     {
         $chains = [];
         foreach ($groups as $g) {
@@ -2378,21 +2396,21 @@ final class JackRunner
             $first = $chainGroups[0];
             if (!jpTrue($first->series) && $first->series === null) {
                 foreach ($chainGroups as $g) {
-                    jackRunPrint("$indent$mark " . jpStr($g->title) . '   [' . self::location($g) . '] ' . jpHuman($g->size) . ', ' . $nFiles($g) . "   ($g->source)");
+                    $this->log->print("$indent$mark " . jpStr($g->title) . '   [' . self::location($g) . '] ' . jpHuman($g->size) . ', ' . $nFiles($g) . "   ($g->source)");
                     foreach ($showFiles ? $g->files : [] as $f) {
-                        jackRunPrint("$indent  $mark [" . ($f->onCache ? 'CACHE' : 'ARRAY') . '] ' . sprintf('%10s', jpHuman($f->size)) . "  $f->rel");
+                        $this->log->print("$indent  $mark [" . ($f->onCache ? 'CACHE' : 'ARRAY') . '] ' . sprintf('%10s', jpHuman($f->size)) . "  $f->rel");
                     }
                 }
                 continue;
             }
             $locs = array_unique(array_map(fn (JackPlanGroup $g): string => self::location($g), $chainGroups));
             $total = array_sum(array_map(fn (JackPlanGroup $g): int => $g->size, $chainGroups));
-            jackRunPrint("$indent$mark " . jpStr($first->series) . "   ($first->source)  " . count($chainGroups) . ' Folge' . (count($chainGroups) !== 1 ? 'n' : '') . ', '
+            $this->log->print("$indent$mark " . jpStr($first->series) . "   ($first->source)  " . count($chainGroups) . ' Folge' . (count($chainGroups) !== 1 ? 'n' : '') . ', '
                 . jpHuman($total) . '  [' . (count($locs) === 1 ? reset($locs) : 'TEILS') . ']');
             foreach ($chainGroups as $g) {
-                jackRunPrint("$indent  $mark " . jpStr($g->title) . '   [' . self::location($g) . '] ' . jpHuman($g->size) . ', ' . $nFiles($g) . "   ($g->source)");
+                $this->log->print("$indent  $mark " . jpStr($g->title) . '   [' . self::location($g) . '] ' . jpHuman($g->size) . ', ' . $nFiles($g) . "   ($g->source)");
                 foreach ($showFiles ? $g->files : [] as $f) {
-                    jackRunPrint("$indent    $mark [" . ($f->onCache ? 'CACHE' : 'ARRAY') . '] ' . sprintf('%10s', jpHuman($f->size)) . "  $f->rel");
+                    $this->log->print("$indent    $mark [" . ($f->onCache ? 'CACHE' : 'ARRAY') . '] ' . sprintf('%10s', jpHuman($f->size)) . "  $f->rel");
                 }
             }
         }
@@ -2419,8 +2437,8 @@ final class JackRunner
                 return isset($wanted[mb_strtolower(jpStr($u->name))]);
             }));
             if (!$users) {
-                jackRunPrint("\nKein Benutzer passt auf: " . implode(', ', jpSorted(array_map('strval', array_keys($wanted)))));
-                jackRunPrint('Bekannt: ' . implode(', ', array_map(fn (JackPlanUser $u): string => jpStr($u->name) . ' (' . jpStr($u->uids[0] ?? '') . ')', $planner->users)));
+                $this->log->print("\nKein Benutzer passt auf: " . implode(', ', jpSorted(array_map('strval', array_keys($wanted)))));
+                $this->log->print('Bekannt: ' . implode(', ', array_map(fn (JackPlanUser $u): string => jpStr($u->name) . ' (' . jpStr($u->uids[0] ?? '') . ')', $planner->users)));
                 return;
             }
         }
@@ -2430,26 +2448,26 @@ final class JackRunner
             if ($planner->budgetMode && $u->hasCandidates()) {
                 $head .= '  Budget: ' . jpHuman($u->bytes) . ' von ' . jpHuman((float) $u->budget) . ' (Filme ' . jpHuman($u->movieBytes) . ', Serien ' . jpHuman($u->seriesBytes) . ')';
             }
-            jackRunPrint("\n$head");
+            $this->log->print("\n$head");
             if (!$u->hasCandidates()) {
-                jackRunPrint('  (nichts on deck)');
+                $this->log->print('  (nichts on deck)');
                 continue;
             }
             $movies = array_values(array_filter($u->selected, fn (JackPlanGroup $g): bool => $g->category === 'movie'));
             $series = array_values(array_filter($u->selected, fn (JackPlanGroup $g): bool => $g->category !== 'movie'));
             if ($movies) {
-                jackRunPrint('  Filme: ' . count($movies) . ' Einträge, ' . jpHuman(array_sum(array_map(fn (JackPlanGroup $g): int => $g->size, $movies))));
-                self::renderGroups($movies, '•', $this->showFiles);
+                $this->log->print('  Filme: ' . count($movies) . ' Einträge, ' . jpHuman(array_sum(array_map(fn (JackPlanGroup $g): int => $g->size, $movies))));
+                $this->renderGroups($movies, '•', $this->showFiles);
             }
             if ($series) {
                 $n = count(array_unique(array_map(fn (JackPlanGroup $g): string => $g->chain, $series)));
-                jackRunPrint("  Serien: $n Serie" . ($n !== 1 ? 'n' : '') . ', ' . count($series) . ' Folgen, ' . jpHuman(array_sum(array_map(fn (JackPlanGroup $g): int => $g->size, $series))));
-                self::renderGroups($series, '•', $this->showFiles);
+                $this->log->print("  Serien: $n Serie" . ($n !== 1 ? 'n' : '') . ', ' . count($series) . ' Folgen, ' . jpHuman(array_sum(array_map(fn (JackPlanGroup $g): int => $g->size, $series))));
+                $this->renderGroups($series, '•', $this->showFiles);
             }
             if ($u->skipped) {
-                jackRunPrint('  Nicht im Budget: ' . count($u->skipped) . ' Einträge, ' . jpHuman(array_sum(array_map(fn (JackPlanGroup $g): int => $g->size, $u->skipped)))
+                $this->log->print('  Nicht im Budget: ' . count($u->skipped) . ' Einträge, ' . jpHuman(array_sum(array_map(fn (JackPlanGroup $g): int => $g->size, $u->skipped)))
                     . '  (bleiben auf dem Array bzw. werden zurückgeräumt)');
-                self::renderGroups($u->skipped, '✗', $this->showFiles);
+                $this->renderGroups($u->skipped, '✗', $this->showFiles);
             }
             foreach ($u->selected as $g) {
                 foreach ($g->files as $f) {
@@ -2460,13 +2478,13 @@ final class JackRunner
         $files = $wanted ? array_values(array_filter($planner->files, fn (JackPlanFile $f): bool => isset($shown["f$f->rel"]))) : array_values($planner->files);
         $onC = array_sum(array_map(fn (JackPlanFile $f): int => $f->onCache ? $f->size : 0, $files));
         $onA = array_sum(array_map(fn (JackPlanFile $f): int => $f->onCache ? 0 : $f->size, $files));
-        jackRunPrint("\n" . ($wanted ? 'Auswahl' : 'Gesamt') . ': ' . count($files) . ' Dateien – auf dem Cache ' . jpHuman($onC) . ', noch auf dem Array ' . jpHuman($onA)
+        $this->log->print("\n" . ($wanted ? 'Auswahl' : 'Gesamt') . ': ' . count($files) . ' Dateien – auf dem Cache ' . jpHuman($onC) . ', noch auf dem Array ' . jpHuman($onA)
             . ', zusammen ' . jpHuman($onC + $onA));
         if (!$wanted && $planner->budgetMode) {
-            jackRunPrint('Budget: ' . jpHuman((int) $this->cfg['cache_budget_bytes']) . ' für ' . count(array_filter($planner->users, fn (JackPlanUser $u): bool => $u->hasCandidates()))
+            $this->log->print('Budget: ' . jpHuman((int) $this->cfg['cache_budget_bytes']) . ' für ' . count(array_filter($planner->users, fn (JackPlanUser $u): bool => $u->hasCandidates()))
                 . ' aktive Benutzer');
         }
-        jackRunPrint('Exclude-Liste: ' . $this->paths->exclude . ' (' . count(jackRunReadExclude($this->paths->exclude)) . " Einträge)\n");
+        $this->log->print('Exclude-Liste: ' . $this->paths->exclude . ' (' . count(jackRunReadExclude($this->paths->exclude)) . " Einträge)\n");
     }
 
     // ----------------------------------------------------------------- the run
@@ -2560,6 +2578,14 @@ final class JackRunner
             }
             // theme.mp3: after the fill — only when the list is written afterwards (else a fetched theme.mp3 would stand in no list)
             $this->collectThemes(!($incomplete && !file_exists($this->paths->exclude)));
+        } catch (Throwable $e) {
+            // beyond Python (whose list then holds only what it got to): an error midway keeps every entry still on the pool listed
+            foreach ($d['list'] as $p) {
+                if (file_exists(jpNorm($p))) {
+                    $protected["p$p"] = $p;
+                }
+            }
+            throw $e;
         } finally {
             $this->progress->phase('done');
             clearstatcache();
@@ -2644,8 +2670,16 @@ final class JackRunner
     private function writeList(array $paths): void
     {
         $listed = [];
+        $bad = 0;
         foreach ($paths as $p) {
-            $listed[(string) $p] = true;
+            if (mb_check_encoding((string) $p, 'UTF-8')) {
+                $listed[(string) $p] = true;
+            } else {
+                $bad++;
+            }
+        }
+        if ($bad) {         // beyond Python: a name that is no UTF-8 is never written (Python couldn't read the list back after a switch)
+            $this->log->warning("$bad Einträge mit einem Dateinamen, der kein UTF-8 ist, nicht in die Exclude-Liste geschrieben");
         }
         if (!$this->keepThemes) {
             jackRunWriteExclude($this->paths->exclude, array_keys($listed));
@@ -2709,7 +2743,7 @@ function jackRunWriteResult(JackRunPaths $paths, JackRunLog $log, array $data): 
  *
  * @param array<string, string> $env
  */
-function jackRunMain(array $argv, array $env): int
+function jackRunMain(array $argv, array $env, ?JackPlanHost $live = null, mixed $out = null): int
 {
     $flags = [];
     $opt = [];
@@ -2722,7 +2756,7 @@ function jackRunMain(array $argv, array $env): int
         }
     }
     $paths = new JackRunPaths($env);
-    $log = new JackRunLog("$paths->logDir/mediacache.log", ($env['MEDIACACHE_LOG_LEVEL'] ?? '') ?: 'INFO');
+    $log = new JackRunLog("$paths->logDir/mediacache.log", ($env['MEDIACACHE_LOG_LEVEL'] ?? '') ?: 'INFO', $out);
     if (isset($flags['--status'])) {
         $log->error('--status: in der PHP-Fassung nicht vorhanden (das Office liest den Fortschritt aus MEDIACACHE_PROGRESS)');
         return 2;
@@ -2751,7 +2785,7 @@ function jackRunMain(array $argv, array $env): int
         $cfg = jackPlanConfig($paths->config, $env);
         jackPlanKeepBytes($env);
     } catch (JackPlanConfigError $e) {
-        $log->error('Konfiguration: ' . $e->getMessage());
+        $log->error($e->getMessage());
         jackRunWriteResult($paths, $log, ['mode' => $mode, 'result' => 'config', 'message' => $e->getMessage(), 'started' => $started, 'finished' => time()]);
         return 1;
     } catch (Throwable $e) {
@@ -2768,6 +2802,9 @@ function jackRunMain(array $argv, array $env): int
     try {
         $runner = new JackRunner($cfg, $mode, $env, $paths, $log, $tape, $filter !== null && $filter !== '' ? explode(',', $filter) : null, !isset($flags['--compact']),
             $opt['--plex-tv'] ?? JACK_PLAN_PLEX_TV, ($env['JACK_RUN_VAR_INI'] ?? '') ?: JACK_RUN_VAR_INI, ($env['JACK_RUN_MOVER_PID'] ?? '') ?: JACK_RUN_MOVER_PID);
+        if ($live !== null) {
+            $runner->live = $live;
+        }
         $code = $runner->execute();
         $result = $runner->stopped ? 'stopped' : 'ok';
         return $code;

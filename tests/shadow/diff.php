@@ -9,6 +9,13 @@ declare(strict_types=1);
  *   php tests/shadow/diff.php [--list] [name-part …]        the stand-in servers (stub.php): every case below
  *   php tests/shadow/diff.php --names                       person_key() over every code point
  *   php tests/shadow/diff.php --real <settings.json>        real servers: variations of those settings, on the real pool and array
+ *   php tests/shadow/diff.php --run [name-part …]           the REAL runs (2026-11-09, jack-run.php): every case from the same starting tree
+ *                                                           twice — Python's mediacache_run.py --run (tests/shadow/pyrun.py), then PHP's
+ *                                                           jack-run.php --run from the tape of Python's dry twin, as the office runs it
+ *                                                           with php.json — and the end states compared: every file and folder (where,
+ *                                                           size, content, owner, mode, a file's mtime), the list, the themes state, the
+ *                                                           status (no times), the progress (no times), the exit code. A stand-in move
+ *                                                           binary and zfs (create too) inside the case.
  */
 $root = dirname(__DIR__, 2);
 if (!defined('FILE_UID')) {
@@ -116,6 +123,154 @@ function report(string $name, array $r, ?string $bad): bool
         say("      the case itself: $bad");
     }
     return $fine;
+}
+
+// ======================================================================== the real runs, side by side (--run)
+
+/** The end state of a case: every entry below the array, the pool and the disks; the list, the themes state, the stand-ins' tables */
+function endState(string $t): array
+{
+    $out = [];
+    $walk = function (string $dir) use (&$walk, &$out, $t): void {
+        foreach (@scandir($dir) ?: [] as $n) {
+            if ($n === '.' || $n === '..') {
+                continue;
+            }
+            $p = "$dir/$n";
+            $rel = substr($p, strlen($t) + 1);
+            $st = lstat($p);
+            if (is_link($p)) {
+                $out[$rel] = ['link', readlink($p)];
+            } elseif (is_dir($p)) {
+                $out[$rel] = ['dir', sprintf('%o', $st['mode'] & 07777), $st['uid'], $st['gid']];
+                $walk($p);
+            } else {
+                $out[$rel] = ['file', $st['size'], sprintf('%o', $st['mode'] & 07777), $st['uid'], $st['gid'], $st['mtime'], md5_file($p)];
+            }
+        }
+    };
+    foreach (glob("$t/{user0,pool,disk*}", GLOB_BRACE) ?: [] as $root) {
+        $walk($root);
+    }
+    $themes = json_decode((string) @file_get_contents("$t/data/mediacache_themes.json"), true);
+    if (is_array($themes)) {
+        unset($themes['first'], $themes['collected'], $themes['off']);
+        foreach ((array) ($themes['items'] ?? []) as $k => $v) {
+            if (is_array($v) && isset($v[3])) {
+                $themes['items'][$k][3] = 0;
+            }
+        }
+    }
+    return ['tree' => $out, 'list' => @file_get_contents("$t/data/mediacache_exclude.txt"), 'themes' => $themes,
+            'mounts' => @file_get_contents("$t/mounts"), 'zfs' => @file_get_contents("$t/zfs.txt")];
+}
+
+/** A result or progress file without its times */
+function noTimes(mixed $v): mixed
+{
+    if (!is_array($v)) {
+        return $v;
+    }
+    foreach (['started', 'finished', 'updated', 'ended', 'since', 'version', 'engine'] as $k) {
+        if (array_key_exists($k, $v) && !array_is_list($v)) {
+            $v[$k] = in_array($k, ['version', 'engine'], true) ? null : ($v[$k] === null ? null : 'T');
+        }
+    }
+    return array_map('noTimes', $v);
+}
+
+/** One real run of a case: [exit, end state, status, progress, output] */
+function realRun(string $who, array $c, string $t, array $env, string $plexTv): array
+{
+    $mode = ($c['mode'] ?? 'run') === 'release' ? '--release' : '--run';
+    $side = dirname($t);
+    foreach (['status', 'progress', 'live', 'plan'] as $f) {
+        @unlink("$side/$who-$f.json");
+    }
+    $full = $env + ['PATH' => getenv('PATH') ?: '/usr/bin:/bin', 'LANG' => 'C.UTF-8', 'HOME' => '/root', 'PYTHONDONTWRITEBYTECODE' => '1',
+        'MEDIACACHE_RESULT' => "$side/$who-status.json", 'MEDIACACHE_PROGRESS' => "$side/$who-progress.json", 'MEDIACACHE_STOP' => "$side/stop.json",
+        'MEDIACACHE_LIVE_STATUS' => "$side/$who-live.json", 'MEDIACACHE_SHADOW_PLEX_TV' => $plexTv, 'JACK_RUN_VAR_INI' => "$side/var.ini"];
+    if ($who === 'python') {
+        $cmd = ['python3', __DIR__ . '/pyrun.py', $GLOBALS['app'], $mode];
+    } else {
+        // as the office with php.json: Python's dry twin first (its tape), then PHP acts on exactly those answers
+        $tape = "$side/tape.jsonl";
+        @unlink($tape);
+        $twinEnv = array_diff_key($full, array_flip(['MEDIACACHE_RESULT', 'MEDIACACHE_STOP', 'MEDIACACHE_PROGRESS']));
+        $p = proc_open(['python3', $GLOBALS['app'] . '/mediacache_shadow.py', '--tape', $tape, '--plan', "$side/twin.json", '--logs', "$side/twin-logs", '--mode', $mode === '--release' ? 'release' : 'run'],
+            [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', "$side/twin.err", 'w']], $pipes, $GLOBALS['app'], $twinEnv);
+        proc_close($p);
+        $cmd = [PHP_BINARY, dirname(__DIR__, 2) . '/agent/desks/jack-run.php', $mode, '--plex-tv', $plexTv, '--plan-out', "$side/$who-plan.json"];
+        if (is_file($tape)) {
+            array_push($cmd, '--tape', $tape);
+        }
+    }
+    $p = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['file', "$side/$who.out", 'w'], 2 => ['file', "$side/$who.out", 'a']], $pipes, $who === 'python' ? $GLOBALS['app'] : '/', $full);
+    $exit = proc_close($p);
+    $status = noTimes(json_decode((string) @file_get_contents("$side/$who-status.json"), true));
+    $progress = noTimes(json_decode((string) @file_get_contents("$side/$who-progress.json"), true));
+    return [$exit, endState($t), $status, $progress, (string) @file_get_contents("$side/$who.out")];
+}
+
+/** What differs between two end states, as lines */
+function stateDiff(array $a, array $b, string $path = ''): array
+{
+    $out = [];
+    foreach (array_unique(array_merge(array_keys($a), array_keys($b))) as $k) {
+        $p = $path === '' ? (string) $k : "$path.$k";
+        $x = $a[$k] ?? null;
+        $y = $b[$k] ?? null;
+        if (is_array($x) && is_array($y) && !array_is_list($x) && !array_is_list($y)) {
+            array_push($out, ...stateDiff($x, $y, $p));
+        } elseif ($x !== $y) {
+            $out[] = [$p, $x, $y];
+        }
+    }
+    return $out;
+}
+
+/** The case run for real by both, from the same starting tree: the same end? */
+function runBoth(string $name, array $c, string $t, array $env, string $plexTv): bool
+{
+    $side = dirname($t);
+    file_put_contents("$side/var.ini", "fsState=\"Started\"\n");
+    // the stand-in move binary (Unraid's for a «Cache: yes» share: pool -> array; an existing target stays, said)
+    file_put_contents("$t/move", "#!/bin/bash\nwhile IFS= read -r p; do [ -z \"\$p\" ] && continue; r=\${p#$t/pool/}; d=\"$t/user0/\$r\"; "
+        . "if [ -e \"\$d\" ]; then echo \"\$p: File exists\"; continue; fi; mkdir -p \"\$(dirname \"\$d\")\"; mv \"\$p\" \"\$d\"; done\n");
+    chmod("$t/move", 0755);
+    $set = json_decode((string) file_get_contents("$t/data/mediacache_settings.json"), true);
+    if (is_array($set) && !isset($set['mover_bin'])) {
+        $set['mover_bin'] = "$t/move";
+        file_put_contents("$t/data/mediacache_settings.json", json_encode($set, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    }
+    exec('rm -rf ' . escapeshellarg("$t.orig") . ' && cp -a ' . escapeshellarg($t) . ' ' . escapeshellarg("$t.orig"));
+    $py = realRun('python', $c, $t, $env, $plexTv);
+    if (($fx = getenv('DIFF_FIXTURE')) !== false && $fx !== '') {      // Python's own files of this case, for tests/fixtures/jack-run/
+        @copy("$side/python-status.json", "$fx/python-status.json");
+        @copy("$side/python-progress.json", "$fx/python-progress.json");
+    }
+    exec('rm -rf ' . escapeshellarg($t) . ' && cp -a ' . escapeshellarg("$t.orig") . ' ' . escapeshellarg($t));
+    $php = realRun('php', $c, $t, $env, $plexTv);
+    $diff = [];
+    if ($py[0] !== $php[0]) {
+        $diff[] = ['exit', $py[0], $php[0]];
+    }
+    array_push($diff, ...stateDiff(['state' => $py[1], 'status' => $py[2], 'progress' => $py[3]], ['state' => $php[1], 'status' => $php[2], 'progress' => $php[3]]));
+    $moved = count(array_filter($py[1]['tree'], fn (array $e): bool => $e[0] === 'file'));
+    say(($diff ? 'DIFF  ' : 'same  ') . sprintf('%-60s exit %d  %s', $name, $py[0], ($py[2]['result'] ?? '?') . ' ' . json_encode(['back' => $py[2]['cleanup']['done'] ?? null, 'fill' => $py[2]['fill']['done'] ?? null, 'files' => $moved])));
+    foreach (array_slice($diff, 0, 14) as [$p, $x, $y]) {
+        say("      $p\n        python " . json_encode($x, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) . "\n        php    " . json_encode($y, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+    if (count($diff) > 14) {
+        say('      … ' . (count($diff) - 14) . ' more');
+    }
+    if ($diff && getenv('DIFF_KEEP')) {
+        $keep = sys_get_temp_dir() . '/jrun-kept/' . substr(md5($name), 0, 8);
+        exec('rm -rf ' . escapeshellarg($keep) . ' && mkdir -p ' . escapeshellarg($keep));
+        file_put_contents("$keep/out.txt", "== $name\n== python\n{$py[4]}\n== php\n{$php[4]}\n");
+        say("      kept: $keep");
+    }
+    return !$diff;
 }
 
 // ======================================================================== person_key() over everything
@@ -599,7 +754,8 @@ $case('plex.tv: every token form scrubbed from the tape', ['world' => ['px' => $
 
 // ======================================================================== run them
 
-$only = array_values(array_filter($argvRest, fn (string $a): bool => $a !== '--list'));
+$runMode = in_array('--run', $argvRest, true);
+$only = array_values(array_filter($argvRest, fn (string $a): bool => $a !== '--list' && $a !== '--run'));
 if (in_array('--list', $argvRest, true)) {
     foreach (array_keys($cases) as $n) {
         say($n);
@@ -689,9 +845,18 @@ foreach ($cases as $name => $c) {
         $table .= "$name2 $used $avail\n";
     }
     file_put_contents("$t/zfs.txt", $table);
-    file_put_contents("$t/zfs", "#!/bin/bash\n# list -Hp -o used,avail NAME | list -H -o name NAME\nname=\${@: -1}\nline=\$(grep -F \"\$name \" $t/zfs.txt | head -1)\n[ -n \"\$line\" ] || exit 1\nset -- \$1 \$2 \$3 \$4 \$5\nif [ \"\$4\" = name ]; then echo \"\$name\"; else echo \"\$line\" | awk '{print \$2\"\\t\"\$3}'; fi\n");
+    file_put_contents("$t/zfs", "#!/bin/bash\n# list -Hp -o used,avail NAME | list -H -o name NAME | create NAME (--run: mounted below the pool's folder)\nname=\${@: -1}\n"
+        . "if [ \"\$1\" = create ]; then grep -qF \"\$name \" $t/zfs.txt && exit 1; echo \"\$name 0 500000000\" >> $t/zfs.txt; mp=$t/pool/\${name#tank/}; mkdir -p \"\$mp\"; echo \"\$name \$mp zfs rw 0 0\" >> $t/mounts; exit 0; fi\n"
+        . "line=\$(grep -F \"\$name \" $t/zfs.txt | head -1)\n[ -n \"\$line\" ] || exit 1\nset -- \$1 \$2 \$3 \$4 \$5\nif [ \"\$4\" = name ]; then echo \"\$name\"; else echo \"\$line\" | awk '{print \$2\"\\t\"\$3}'; fi\n");
     chmod("$t/zfs", 0755);
     $env = ['MEDIACACHE_DIR' => "$t/data", 'MEDIACACHE_MOUNTS' => "$t/mounts", 'MEDIACACHE_ZFS' => "$t/zfs", 'MEDIACACHE_SHADOW_PLEX_TV' => "$base/plextv"] + array_map(fn ($v) => is_string($v) ? $sub($v) : $v, $c['env'] ?? []);
+    if ($runMode) {
+        $fine = runBoth($name, $c, $t, $env, "$base/plextv");
+        if (!$fine) {
+            $failed++;
+        }
+        continue;
+    }
     // settings with no pool folder: as asked
     $look = function () use ($t): string {
         exec('find ' . escapeshellarg("$t/user0") . ' ' . escapeshellarg("$t/pool") . ' ' . escapeshellarg("$t/data") . ' -printf "%p %s %T@\n" | grep -v "/mediacache.lock\|/data " | sort | md5sum', $o);

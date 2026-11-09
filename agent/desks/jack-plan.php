@@ -592,17 +592,17 @@ function jackPlanSize(mixed $value): int
         }
         return jpInt(jpFloat($num) * JACK_PLAN_UNITS[$unit]);
     } catch (ValueError) {
-        throw new JackPlanConfigError("bad size: $text");
+        throw new JackPlanConfigError("Ungültige Grössenangabe: '" . jpStr($value) . "' (erlaubt z.B. 2.5T, 800G, 100GB)");
     }
 }
 
-/** Numbers as Python reads them in a setting: what is none is a ConfigError */
+/** Numbers as Python reads them in a setting: what is none is a ConfigError — with Python's words ($what: its message) */
 function jackPlanNumber(callable $read, mixed $v, string $what): mixed
 {
     try {
         return $read($v);
     } catch (ValueError) {
-        throw new JackPlanConfigError("$what: no number");
+        throw new JackPlanConfigError($what);
     }
 }
 
@@ -615,7 +615,7 @@ function jackPlanNumber(callable $read, mixed $v, string $what): mixed
 function jackPlanConfig(string $file, array $env, bool $requirePaths = true): array
 {
     if (!file_exists($file)) {
-        throw new JackPlanConfigError('no settings');
+        throw new JackPlanConfigError("Konfiguration nicht gefunden: $file – zuerst mediacache_setup.py ausführen");
     }
     $text = (string) @file_get_contents($file);
     if (!mb_check_encoding($text, 'UTF-8')) {
@@ -623,8 +623,8 @@ function jackPlanConfig(string $file, array $env, bool $requirePaths = true): ar
     }
     try {
         $raw = jpJson($text === '' ? ' ' : $text);
-    } catch (ValueError) {
-        throw new JackPlanConfigError('settings: no JSON');
+    } catch (ValueError $e) {
+        throw new JackPlanConfigError("Konfiguration ist kein gültiges JSON ($file): {$e->getMessage()}");
     }
     if (!$raw instanceof stdClass) {
         jpCrash('settings: no dict');
@@ -642,8 +642,8 @@ function jackPlanConfig(string $file, array $env, bool $requirePaths = true): ar
     if ($has('MEDIACACHE_MOVER_DEBUG')) {
         $cfg['mover_debug_level'] = $env['MEDIACACHE_MOVER_DEBUG'];
     }
-    $cfg['min_free_percent'] = jackPlanNumber('jpFloat', $cfg['min_free_percent'], 'min_free_percent');
-    $cfg['mover_debug_level'] = jackPlanNumber('jpInt', $cfg['mover_debug_level'], 'mover_debug_level');
+    $cfg['min_free_percent'] = jackPlanNumber('jpFloat', $cfg['min_free_percent'], 'min_free_percent muss eine Zahl, mover_debug_level eine ganze Zahl sein (auch MEDIACACHE_MIN_FREE_PERCENT / MEDIACACHE_MOVER_DEBUG prüfen)');
+    $cfg['mover_debug_level'] = jackPlanNumber('jpInt', $cfg['mover_debug_level'], 'min_free_percent muss eine Zahl, mover_debug_level eine ganze Zahl sein (auch MEDIACACHE_MIN_FREE_PERCENT / MEDIACACHE_MOVER_DEBUG prüfen)');
     if (array_key_exists('MEDIACACHE_RSYNC_ARGS', $env)) {
         $cfg['rsync_args'] = (array) preg_split('/\s+/', trim($env['MEDIACACHE_RSYNC_ARGS']), -1, PREG_SPLIT_NO_EMPTY);
     }
@@ -669,15 +669,15 @@ function jackPlanConfig(string $file, array $env, bool $requirePaths = true): ar
     $cfg['valid_users'] = array_values(array_filter(array_map('jpStr', jpIter($vu)), fn (string $k): bool => jpStrip($k) !== ''));
     $cfg['cache_budget_bytes'] = jackPlanSize($cfg['cache_budget']);
     foreach (['max_resume_movies', 'max_resume_series'] as $key) {
-        $cfg[$key] = jackPlanNumber('jpInt', $cfg[$key] ?? $cfg['max_resume_items'], $key);
+        $cfg[$key] = jackPlanNumber('jpInt', $cfg[$key] ?? $cfg['max_resume_items'], 'max_resume_movies und max_resume_series müssen ganze Zahlen sein');
     }
-    $cfg['movie_share_percent'] = jackPlanNumber('jpFloat', $cfg['movie_share_percent'], 'movie_share_percent');
-    $cfg['max_episodes_per_series'] = jackPlanNumber('jpInt', $cfg['max_episodes_per_series'], 'max_episodes_per_series');
+    $cfg['movie_share_percent'] = jackPlanNumber('jpFloat', $cfg['movie_share_percent'], 'movie_share_percent muss eine Zahl 0–100, max_episodes_per_series eine ganze Zahl sein');
+    $cfg['max_episodes_per_series'] = jackPlanNumber('jpInt', $cfg['max_episodes_per_series'], 'movie_share_percent muss eine Zahl 0–100, max_episodes_per_series eine ganze Zahl sein');
     if (!($cfg['movie_share_percent'] >= 0 && $cfg['movie_share_percent'] <= 100)) {
-        throw new JackPlanConfigError('movie_share_percent: 0 to 100');
+        throw new JackPlanConfigError('movie_share_percent muss zwischen 0 und 100 liegen');
     }
     if (!jpTrue($cfg['instances'])) {
-        throw new JackPlanConfigError('no instances');
+        throw new JackPlanConfigError('Keine Medienserver-Instanz konfiguriert (instances)');
     }
     $instances = [];
     foreach (jpIter($cfg['instances']) as $i => $one) {
@@ -690,14 +690,15 @@ function jackPlanConfig(string $file, array $env, bool $requirePaths = true): ar
             $inst['servername'] = 'Server' . ($i + 1);
         }
         $inst['type'] = jpLower(jpStr(jpOr($inst['type'] ?? null, 'emby')));
+        $which = 'Instanz ' . ($i + 1) . ' (' . jpStr($inst['servername']) . ')';
         if (!in_array($inst['type'], JACK_PLAN_TYPES, true)) {
-            throw new JackPlanConfigError('bad type');
+            throw new JackPlanConfigError("$which: type muss emby oder jellyfin oder plex sein");
         }
         if ($inst['type'] === 'plex') {
-            $inst['days_to_monitor'] = jackPlanNumber('jpInt', array_key_exists('days_to_monitor', $inst) ? $inst['days_to_monitor'] : 99, 'days_to_monitor');
+            $inst['days_to_monitor'] = jackPlanNumber('jpInt', array_key_exists('days_to_monitor', $inst) ? $inst['days_to_monitor'] : 99, "$which: days_to_monitor muss eine ganze Zahl sein");
         }
         if ($inst['url'] === '' || !jpTrue($inst['api_key'] ?? null)) {
-            throw new JackPlanConfigError('url or api_key missing');
+            throw new JackPlanConfigError("$which: url oder api_key fehlt");
         }
         $merged = [];
         foreach ([$cfg['path_mappings'], jpOr($inst['path_mappings'] ?? null, new stdClass())] as $m) {
@@ -720,43 +721,45 @@ function jackPlanConfig(string $file, array $env, bool $requirePaths = true): ar
         $inst['_mappings'] = array_values($maps);
         $inst['_skip'] = $skip;
         if (!$inst['_mappings']) {
-            throw new JackPlanConfigError('no path_mappings');
+            throw new JackPlanConfigError("$which: keine path_mappings – ohne Mapping passiert nichts");
         }
         $instances[] = $inst;
     }
     $cfg['instances'] = $instances;
-    if ($requirePaths && (!is_dir($cfg['cache_path']) || !is_dir($cfg['array_path']))) {
-        throw new JackPlanConfigError('cache_path or array_path missing');
+    foreach ($requirePaths ? ['cache_path', 'array_path'] : [] as $key) {
+        if (!is_dir($cfg[$key])) {
+            throw new JackPlanConfigError("$key existiert nicht: {$cfg[$key]}");
+        }
     }
     if (!in_array($cfg['movie_mode'], ['folder', 'file'], true)) {
-        throw new JackPlanConfigError('movie_mode');
+        throw new JackPlanConfigError("movie_mode muss 'folder' oder 'file' sein");
     }
     if (!in_array($cfg['fill_tool'], ['rsync', 'mover'], true)) {
-        throw new JackPlanConfigError('fill_tool');
+        throw new JackPlanConfigError("fill_tool muss 'rsync' oder 'mover' sein");
     }
     if ($has('MEDIACACHE_CLEANUP_TOOL')) {
         $cfg['cleanup_tool'] = jpLower($env['MEDIACACHE_CLEANUP_TOOL']);
     }
     if (!in_array($cfg['cleanup_tool'], ['rsync', 'mover'], true)) {
-        throw new JackPlanConfigError('cleanup_tool');
+        throw new JackPlanConfigError("cleanup_tool muss 'rsync' oder 'mover' sein");
     }
     if (!in_array($cfg['array_source'], ['user0', 'disk'], true)) {
-        throw new JackPlanConfigError('array_source');
+        throw new JackPlanConfigError("array_source muss 'user0' oder 'disk' sein");
     }
     foreach ([['parallel_per_disk', 'MEDIACACHE_PARALLEL_PER_DISK', 1], ['parallel_total', 'MEDIACACHE_PARALLEL_TOTAL', 0],
               ['status_log_interval', 'MEDIACACHE_STATUS_LOG_INTERVAL', 0]] as [$key, $var, $min]) {
         if ($has($var)) {
             $cfg[$key] = $env[$var];
         }
-        $cfg[$key] = jackPlanNumber('jpInt', $cfg[$key], $key);
+        $cfg[$key] = jackPlanNumber('jpInt', $cfg[$key], "$key muss eine ganze Zahl sein");
         if ($cfg[$key] < $min) {
-            throw new JackPlanConfigError("$key: at least $min");
+            throw new JackPlanConfigError("$key muss mindestens $min sein");
         }
     }
     $cfg['create_share_root'] = jpTrue($cfg['create_share_root']);
     $cfg['themes'] = $cfg['themes'] === true;
     if (!jpTrue($cfg['rsync_args'])) {
-        throw new JackPlanConfigError('rsync_args');
+        throw new JackPlanConfigError('rsync_args darf nicht leer sein (Original: ["-aAX", "--numeric-ids"])');
     }
     return $cfg;
 }
@@ -791,7 +794,7 @@ function jackPlanKeepBytes(array $env): ?int
         return null;
     }
     if (!ctype_digit($v)) {
-        throw new JackPlanConfigError('MEDIACACHE_KEEP_BYTES');
+        throw new JackPlanConfigError('MEDIACACHE_KEEP_BYTES ist keine ganze Zahl: ' . jpRepr($v));
     }
     return (int) $v;
 }
@@ -851,6 +854,9 @@ class JackPlanServer
     {
         $this->url = rtrim($url, '/');
     }
+
+    /** The real run in PHP (jack-run.php): the clients' own log lines, as Python's logging.getLogger("MediaCache") — null: silent */
+    public static ?Closure $say = null;
 
     public static function forInstance(array $inst, mixed $timeout, JackPlanHost $host, string $plexTv = JACK_PLAN_PLEX_TV): self
     {
@@ -1005,7 +1011,10 @@ final class JackPlanPlex extends JackPlanServer
                     }
                 }
             }
-        } catch (JackPlanApiError) {
+        } catch (JackPlanApiError $e) {
+            if (JackPlanServer::$say !== null) {
+                (JackPlanServer::$say)('WARNING', "Plex-Benutzer über plex.tv nicht abrufbar ({$e->getMessage()}) – nur Admin");
+            }
             try {
                 $root = $this->get('/');
                 $state = jpGet($root, 'myPlexSigninState');
@@ -2601,7 +2610,9 @@ function jackPlanCleanup(array $cfg, JackPlanLocations $loc, array $list, array 
         }
         $toArray += $size;
         $cleanup[] = jpJoin($loc->cache, $rel);
-        $sizes['c' . jpJoin($loc->cache, $rel)] = $size;
+        // the size the real run counts as done: Python looks it up by the entry as the list wrote it — one written otherwise
+        // («//», «/./») counts 0 there (its bytes_done), while bytes_planned has it
+        $sizes['c' . jpJoin($loc->cache, $rel)] = $p === jpJoin($loc->cache, $rel) ? $size : 0;
     }
     return [$cleanup, $toArray, $protected, $sizes];
 }
