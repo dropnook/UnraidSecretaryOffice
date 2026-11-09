@@ -606,7 +606,7 @@ final class JackRunProc
         if ($this->exit === null) {
             $st = proc_get_status($this->proc);
             if (!$st['running']) {
-                $this->exit = $st['exitcode'];
+                $this->exit = $st['signaled'] ? -$st['termsig'] : $st['exitcode'];      // killed by a signal: -N, as Python's returncode
                 $this->read();
                 foreach ($this->pipes as $pipe) {
                     @fclose($pipe);
