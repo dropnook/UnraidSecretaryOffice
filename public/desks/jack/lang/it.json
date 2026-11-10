@@ -792,7 +792,7 @@
   "shadow.title": "Il piano in PHP",
   "shadow.sub": "Subito prima di ogni esecuzione vera pianifico ancora una volta in PHP, dalle stesse risposte che i server multimediali danno a Python, e confronto. I file li sposta solo Python.",
   "shadow.tip": "Solo un confronto: non sposta nulla.",
-  "shadow.sub_php": "Ora i file li sposta PHP: subito prima di ogni esecuzione vera Python pianifica la stessa esecuzione a secco, dalle stesse risposte dei server multimediali, e confronto. Poi PHP agisce esattamente secondo il piano confrontato.",
+  "shadow.sub_php": "Ora i file li sposta PHP: subito prima di ogni esecuzione vera Python pianifica la stessa esecuzione a secco, dalle stesse risposte dei server multimediali, e confronto. PHP agisce secondo il piano confrontato; se non si è potuto confrontare o i piani differiscono, secondo il proprio — il confronto lo dice.",
   "shadow.tip_php": "PHP sposta, Python confronta a secco.",
   "shadow.value": "{same}, {differ}",
   "shadow.none": "Ancora nessun confronto",

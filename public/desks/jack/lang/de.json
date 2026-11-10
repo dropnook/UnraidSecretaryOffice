@@ -792,7 +792,7 @@
   "shadow.title": "Der Plan in PHP",
   "shadow.sub": "Direkt vor jedem echten Lauf plane ich noch einmal in PHP, aus denselben Antworten, die die Medienserver Python geben, und vergleiche. Dateien verschiebt nur Python.",
   "shadow.tip": "Nur ein Vergleich: dadurch wird nichts verschoben.",
-  "shadow.sub_php": "Jetzt verschiebt PHP die Dateien: direkt vor jedem echten Lauf plant Python denselben Lauf als Probelauf, aus denselben Antworten der Medienserver, und ich vergleiche. PHP handelt nach dem verglichenen Plan; liess sich nichts vergleichen oder weichen die Pläne ab, nach seinem eigenen — der Vergleich der Nacht sagt es.",
+  "shadow.sub_php": "Jetzt verschiebt PHP die Dateien: direkt vor jedem echten Lauf plant Python denselben Lauf als Probelauf, aus denselben Antworten der Medienserver, und ich vergleiche. PHP handelt nach dem verglichenen Plan; liess sich nichts vergleichen oder weichen die Pläne ab, nach seinem eigenen — der Vergleich sagt es.",
   "shadow.tip_php": "PHP verschiebt, Python vergleicht im Probelauf.",
   "shadow.value": "{same}, {differ}",
   "shadow.none": "Noch nichts verglichen",

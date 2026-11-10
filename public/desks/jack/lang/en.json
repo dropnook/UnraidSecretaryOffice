@@ -792,7 +792,7 @@
   "shadow.title": "The plan in PHP",
   "shadow.sub": "Right before each real run I plan once more in PHP, from the same answers the media servers give Python, and compare. Only Python moves files.",
   "shadow.tip": "A comparison only: nothing moves because of it.",
-  "shadow.sub_php": "PHP moves the files now: right before each real run Python plans the same run dry, from the same answers the media servers give, and I compare. PHP acts on the plan compared; when nothing could be compared or the plans differ, it acts on its own plan — the night's comparison says so.",
+  "shadow.sub_php": "PHP moves the files now: right before each real run Python plans the same run dry, from the same answers the media servers give, and I compare. PHP acts on the plan compared; when nothing could be compared or the plans differ, it acts on its own plan — the comparison says so.",
   "shadow.tip_php": "PHP moves, Python compares dry.",
   "shadow.value": "{same}, {differ}",
   "shadow.none": "Nothing compared yet",

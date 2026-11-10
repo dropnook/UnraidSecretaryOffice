@@ -792,7 +792,7 @@
   "shadow.title": "El plan en PHP",
   "shadow.sub": "Justo antes de cada ejecución real planifico otra vez en PHP, con las mismas respuestas que los servidores multimedia dan a Python, y comparo. Los archivos solo los mueve Python.",
   "shadow.tip": "Solo una comparación: no mueve nada.",
-  "shadow.sub_php": "Ahora los archivos los mueve PHP: justo antes de cada ejecución real Python planifica la misma ejecución en simulación, con las mismas respuestas de los servidores multimedia, y comparo. Después PHP actúa exactamente según el plan comparado.",
+  "shadow.sub_php": "Ahora los archivos los mueve PHP: justo antes de cada ejecución real Python planifica la misma ejecución en simulación, con las mismas respuestas de los servidores multimedia, y comparo. PHP actúa según el plan comparado; si no se pudo comparar o los planes difieren, según el suyo — la comparación lo dice.",
   "shadow.tip_php": "PHP mueve, Python compara en simulación.",
   "shadow.value": "{same}, {differ}",
   "shadow.none": "Aún nada comparado",
