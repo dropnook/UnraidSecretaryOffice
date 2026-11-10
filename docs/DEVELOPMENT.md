@@ -758,11 +758,15 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   **the plan compared is the plan executed**: the last pair's tape goes to the run (`--tape`, jackShadowHandoff()), which plans from it
   (jackPlanDecide(), the shadow's own code) and acts; only the fill measures the pool again after the cleanup, as Python's real run does. It
   writes the plan it acted on (`--plan-out`); the night file says `engine: php` and `executed` (same | differ | none against the plan
-  compared, the fill's own numbers aside). A difference before a run never stops it. Nothing compared (a disk asleep, Python failed): PHP asks
-  the servers itself. The same files in the same shapes (status.json, the progress file, the list and its themes section, the themes state,
+  compared — the decisions only: the fill measures the pool live after the cleanup, so its order and what it left out are not set against
+  the plan compared) and `acted` (compared | own_differ | own_uncompared). A difference before a run never stops it (Benj decides that
+  later): then, and when nothing was compared (a disk asleep, Python failed), PHP acts on its own plan. Right before acting the run asks the
+  servers once more what plays (Python's moment; the tape may be up to JACK_SHADOW_SECONDS old) and only adds that to what stays. The same files in the same shapes (status.json, the progress file, the list and its themes section, the themes state,
   the same flock on mediacache.lock, logs/mediacache.log in Python's line format — its warnings and errors are the result's counts): deleting
   php.json is the rollback, Python's next run goes on from what PHP left. Beyond Python: the array stopping (var.ini Stopping/Stopped, looked
-  at once a second) ends the rsync or move binary in flight at once (stopped, the source kept); a file name that is no UTF-8 stays on the
+  at once a second) ends an rsync at once (SIGTERM: it removes its temporary file) and lets Unraid's move binary finish only the file in work
+  (it writes `<name>.partial` and renames it when whole; on SIGTERM it finishes that file and stops — tried on Tower; never SIGKILL mid-file
+  before JACK_RUN_MOVE_FINISH), result stopped, `stopped_by: array` (his run list: «the array is being stopped»); a file name that is no UTF-8 stays on the
   array and out of the list; a run that ends in an error never writes an empty list. The shadow tile says who acts (`shadow.sub_php`,
   `shadow.tip_php`); the Night Watchman names jack-run.php as Jack Streamer's run. **`php tests/shadow/diff.php --run`** (a test server with
   Python): every stand-in case for real from the same tree, Python and PHP, the end states compared (where each file lies, size, content,

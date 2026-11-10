@@ -635,6 +635,7 @@
   "gather_stopped_user": "detenido tras {done} de {total} carpetas — como pediste",
   "stopped_mover_summary": "detenido tras el archivo en el que estaba — arrancó el mover de Unraid",
   "stopped_user_summary": "detenido tras el archivo en el que estaba — como pediste",
+  "stopped_array_summary": "detenido enseguida — se está deteniendo el array",
   "refused_times": "{n} veces seguidas",
   "mode_hint.run_mover": "Ahora no — el mover de Unraid podría llevarse mis archivos (por qué y qué ayuda, en mi página).",
   "bubble.mover_dry": "Por ahora solo simulaciones — la programación del mover de Unraid devolvería enseguida lo que preparé. En mi página puedes apagarla.",

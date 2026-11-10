@@ -87,7 +87,8 @@
 > office runs `php jack-run.php` with this tool's environment, flags, files and exit codes, and this Python only plans each real run dry
 > beside it (`mediacache_shadow.py`): PHP plans from exactly the answers that comparison got. The same lock (`mediacache.lock`), the same
 > list, status, progress and themes files in the same shapes, the same log lines and levels — a run of either can follow a run of the other.
-> Where it is more careful than this script: the array stopping ends the copy in flight at once (result `stopped`); a file name that is no
+> Where it is more careful than this script: the array stopping ends an rsync in flight at once and lets Unraid's move binary finish only
+> its file in work (result `stopped`); right before acting it asks the servers once more what plays, as this script's run does; a file name that is no
 > UTF-8 stays on the array and out of the list (here the run ends with an error, and a list with such a name couldn't be read back); a run
 > ending in an error never writes an empty list. `tests/shadow/diff.php --run` (a test server with Python) runs every stand-in case twice for
 > real from the same tree, this script and the port, and compares the end states; `tests/shadow/pyrun.py` is only that comparison's starter.

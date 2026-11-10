@@ -210,6 +210,13 @@ function jackShadowAfter(?array $ctx, array $status, ?array $h = null): void
         $entry = jackShadowEntry($h, $ctx);
         if (jackPhpOn((string) $h['dir'])) {
             $entry['engine'] = 'php';
+            // which plan PHP acted on: the one compared with Python's and found the same — or its own (they differed, or nothing was
+            // compared: then it asked the servers itself); a difference never stops the run (Benj decides that later)
+            $entry['acted'] = match ($entry['result'] ?? '') {
+                'same' => 'compared',
+                'differ', 'once' => 'own_differ',
+                default => 'own_uncompared',
+            };
             $compared = $ctx['pass'] ?? $ctx['once'] ?? null;
             if ($compared !== null) {
                 $executed = readJson($h['run'] . '/executed.json');

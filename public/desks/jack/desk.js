@@ -279,7 +279,7 @@ function runSummary(r) {
   if (s.mode === 'report' || r.mode === 'report') return (s.on_deck ? T('report_summary', { n: s.on_deck.files, size: fmt.size(s.on_deck.bytes) }) : '') + themesNote(s);
   const c = s.cleanup || {}; const f = s.fill || {};
   // stopped after the file it was on: Unraid's mover started (jack-mover.php), or asked on his panel («Stop after this file»)
-  const stopped = s.result === 'stopped' ? T(r.why === 'user' ? 'stopped_user_summary' : 'stopped_mover_summary') + ' · ' : '';
+  const stopped = s.result === 'stopped' ? T(r.why === 'user' ? 'stopped_user_summary' : r.why === 'array' ? 'stopped_array_summary' : 'stopped_mover_summary') + ' · ' : '';
   // everything back to the array when he was let go (jack-letgo.php)
   if ((s.mode || r.mode) === 'release') return stopped + T('release_summary', { back: c.done || 0, planned: c.planned || 0, left: s.protected || 0 });
   const key = (s.mode || r.mode) === 'run' ? 'run_summary' : 'dry_summary';

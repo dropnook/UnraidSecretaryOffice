@@ -44,6 +44,8 @@ const JACK_RUN_THEMES_MARK = '# USO themes: theme.mp3 kept on the pool for good 
 const JACK_RUN_MOVERS = ['/usr/libexec/unraid/move', '/usr/local/sbin/move', '/usr/local/bin/move'];
 const JACK_RUN_MOVER_PID = '/var/run/mover.pid';
 const JACK_RUN_VAR_INI = '/var/local/emhttp/var.ini';
+const JACK_RUN_KILL_GRACE = 10;                 // s: rsync after SIGTERM (it removes its temporary file and ends), and any child after SIGKILL
+const JACK_RUN_MOVE_FINISH = 1800;              // s: Unraid's move binary after SIGTERM — it brings the file in work to its end, then stops
 const JACK_RUN_LOG_MAX = 10 * 1024 * 1024;       // RotatingFileHandler: 10 MB x 20
 const JACK_RUN_LOG_KEEP = 20;
 const JACK_RUN_QUEUE_MAX = 5000;
@@ -561,13 +563,14 @@ final class JackRunProc
     private string $stdin = '';
 
     /** @param ?Closure $onLine fn (string $line): void — every line as it comes (rsync's progress) */
-    private function __construct(private ?Closure $onLine)
+    private function __construct(private ?Closure $onLine, public bool $move)
     {
     }
 
-    public static function start(array $cmd, ?string $stdin = null, bool $merge = true, ?Closure $onLine = null): ?self
+    /** $move: Unraid's move binary (it ends a SIGTERM only after the file in work, see kill()) */
+    public static function start(array $cmd, ?string $stdin = null, bool $merge = true, ?Closure $onLine = null, bool $move = false): ?self
     {
-        $p = new self($onLine);
+        $p = new self($onLine, $move);
         $spec = [0 => $stdin === null ? ['file', '/dev/null', 'r'] : ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => $merge ? ['redirect', 1] : ['pipe', 'w']];
         $proc = @proc_open($cmd, $spec, $pipes, '/');
         if (!is_resource($proc)) {
@@ -660,20 +663,28 @@ final class JackRunProc
         return $this->err;
     }
 
-    /** The array stops: ended now (SIGTERM, 2 s later SIGKILL) — rsync removes its temporary file, the source stays */
+    /**
+     * Ended (the array stops, an error): SIGTERM. rsync then removes its temporary file and ends at once (code 20; tried on Tower
+     * 2026-11-10). Unraid's move binary writes into «<name>.partial» and renames it only when whole; on SIGTERM it brings the file in
+     * work to its end and then stops (Tower 2026-11-10: «received signal 15, terminating!», the 6 GB file complete under its name, the
+     * source gone) — it is given that time (JACK_RUN_MOVE_FINISH), never killed mid-file without need: a SIGKILL leaves only the
+     * .partial beside, never a half file under the real name. Every wait has its deadline (hrtime): a child stuck in the kernel (a disk
+     * going away) is left to init after JACK_RUN_KILL_GRACE, the run goes on.
+     */
     public function kill(): void
     {
-        if ($this->exit !== null) {
+        if ($this->exit !== null || !$this->poll()) {
             return;
         }
         @proc_terminate($this->proc, 15);
-        $until = hrtime(true) + 2_000_000_000;
+        $until = hrtime(true) + ($this->move ? JACK_RUN_MOVE_FINISH : JACK_RUN_KILL_GRACE) * 1_000_000_000;
         while ($this->poll() && hrtime(true) < $until) {
             usleep(50_000);
         }
         if ($this->poll()) {
             @proc_terminate($this->proc, 9);
-            while ($this->poll()) {
+            $until = hrtime(true) + JACK_RUN_KILL_GRACE * 1_000_000_000;
+            while ($this->poll() && hrtime(true) < $until) {
                 usleep(50_000);
             }
         }
@@ -709,7 +720,7 @@ final class JackRunProgress
     /** @var array<string, array> the files in work, in the order they began */
     private array $active = [];
 
-    private float $themesWritten = 0.0;
+    private int $themesWritten = 0;          // hrtime (ns)
 
     public function __construct(string $mode, private bool $on, private string $file)
     {
@@ -943,8 +954,8 @@ final class JackRunProgress
             $this->data['themes']['files']++;
             $this->data['themes']['bytes'] += $found;
         }
-        if ($force || microtime(true) - $this->themesWritten >= 1) {
-            $this->themesWritten = microtime(true);
+        if ($force || hrtime(true) - $this->themesWritten >= 1_000_000_000) {
+            $this->themesWritten = hrtime(true);
             $this->write();
         }
     }
@@ -1002,14 +1013,15 @@ final class JackRunStatus
 
     private bool $dirty = true;
 
-    private float $lastLog;
+    /** hrtime (ns) of the last log line and the last write: the throttles on the monotonic clock */
+    private int $lastLog;
 
-    private float $lastWrite = 0.0;
+    private int $lastWrite = 0;
 
     public function __construct(string $mode, private JackRunLog $log, private bool $enabled, private int $logInterval, private string $file)
     {
         $now = microtime(true);
-        $this->lastLog = $now;
+        $this->lastLog = hrtime(true);
         $this->data = ['pid' => getmypid(), 'version' => JACK_RUN_SOURCE, 'mode' => $mode, 'state' => 'läuft', 'started' => $now, 'updated' => $now, 'phase' => 'Start',
                        'phase_started' => $now, 'files_total' => 0, 'bytes_total' => 0, 'files_done' => 0, 'files_failed' => 0, 'bytes_done' => 0, 'jobs' => [], 'recent' => []];
         if ($enabled) {
@@ -1023,7 +1035,7 @@ final class JackRunStatus
         $this->data = ['phase' => $name, 'phase_started' => $now, 'files_total' => $files, 'bytes_total' => $size, 'files_done' => 0, 'files_failed' => 0,
                        'bytes_done' => 0, 'jobs' => []] + $this->data;
         $this->dirty = true;
-        $this->lastLog = $now;
+        $this->lastLog = hrtime(true);
     }
 
     public function jobStart(string $key, string $rel, string $disk, int $size, int $index): void
@@ -1066,12 +1078,12 @@ final class JackRunStatus
     /** The ticker's work (Python: a thread every 2 s): the file when changed, a progress line every status_log_interval while copying */
     public function tick(): void
     {
-        $now = microtime(true);
-        if ($now - $this->lastWrite >= 2) {
+        $now = hrtime(true);
+        if ($now - $this->lastWrite >= 2_000_000_000) {
             if ($this->dirty && $this->enabled) {
                 $this->write();
             }
-            if ($this->logInterval && $this->data['jobs'] && $now - $this->lastLog >= $this->logInterval) {
+            if ($this->logInterval && $this->data['jobs'] && $now - $this->lastLog >= $this->logInterval * 1_000_000_000) {
                 $this->lastLog = $now;
                 $this->log->info($this->summary());
             }
@@ -1108,8 +1120,8 @@ final class JackRunStatus
 
     private function write(): void
     {
-        $this->lastWrite = microtime(true);
-        $this->data['updated'] = $this->lastWrite;
+        $this->lastWrite = hrtime(true);
+        $this->data['updated'] = microtime(true);
         $this->dirty = false;
         try {
             $data = $this->data;
@@ -1425,6 +1437,11 @@ final class JackRunThemes
         $r->progress->themeStart($trel, $size, $dst);
         $r->log->info(sprintf('[theme.mp3 -> CACHE] %-7s %10s  %s', $disk, jpHuman($size), $trel));
         [$rc, $out] = $r->rsyncCopyBlocking($r->rsyncCmd($src, $dst), $dst, $trel);
+        if ($rc !== 0 && $r->arrayStop) {
+            $r->log->warning("theme.mp3 beim Stoppen des Arrays nicht geholt, bleibt auf dem Array: $trel");
+            $r->progress->themeDone($trel, $size, false);
+            return [null, null];
+        }
         if ($rc !== 0) {
             $r->log->error(jackRunVanished($rc, $out) ? JACK_RUN_VANISHED_SAID . $trel : "rsync-Fehler (Code $rc) bei $trel: " . trim($out));
             $r->progress->themeDone($trel, $size, false);
@@ -1614,8 +1631,9 @@ final class JackRunner
         $fs = is_array($ini) ? trim((string) ($ini['fsState'] ?? ''), '"') : '';
         if (in_array($fs, ['Stopping', 'Stopped'], true)) {
             $this->arrayStop = $this->stopped = true;
-            $this->log->warning('Das Array wird gestoppt – was gerade kopiert oder verschoben wird, endet jetzt (die Quelle bleibt), '
-                . 'was noch auf dem Cache liegt, bleibt geschützt');
+            $this->result['stopped_by'] = 'array';          // his run list says why (jackJob)
+            $this->log->warning('Das Array wird gestoppt – eine Kopie endet jetzt (die Quelle bleibt), Unraids move-Binary bringt nur noch seine '
+                . 'Datei in Arbeit zu Ende; nichts Neues beginnt, was noch auf dem Cache liegt, bleibt geschützt');
             foreach ($this->procs as $p) {
                 $p->kill();
             }
@@ -1714,12 +1732,23 @@ final class JackRunner
             $cmd = array_merge($cmd, ['-d', (string) (int) $this->cfg['mover_debug_level']]);
         }
         $this->log->debug('Mover-Aufruf: ' . implode(' ', $cmd) . ' mit ' . count($paths) . ' Pfaden');
-        $p = JackRunProc::start($cmd, implode("\n", $paths) . "\n", false);
+        $p = JackRunProc::start($cmd, implode("\n", $paths) . "\n", false, null, true);
         if ($p === null) {
             $this->log->error("move-Binary konnte nicht gestartet werden ($mover)");
             return [1, '', 'start failed'];
         }
         $this->procs[] = $p;
+        try {
+            return $this->moverWatch($p, $items, $label);
+        } finally {
+            $p->kill();
+            $this->forget($p);
+        }
+    }
+
+    /** track_mover(): every 2 s which sources are gone (the file in work, its progress); [rc, stdout, stderr] */
+    private function moverWatch(JackRunProc $p, array $items, string $label): array
+    {
         $count = count($items);
         $pending = [];
         foreach ($items as $i => $it) {
@@ -1813,7 +1842,9 @@ final class JackRunner
                 $this->log->debug("mover: $line");
             }
         }
-        if ($p->exit() !== 0) {
+        if ($p->exit() !== 0 && $this->arrayStop) {
+            $this->log->warning('move-Binary beim Stoppen des Arrays beendet (Code ' . $p->exit() . ')');
+        } elseif ($p->exit() !== 0) {
             $this->log->error('move-Binary endete mit Code ' . $p->exit());
         }
         return [$p->exit(), $p->out, $p->stderr()];
@@ -2174,6 +2205,17 @@ final class JackRunner
         $flight = [];
         $stop = false;
         $perDiskNow = [];
+        try {
+            $this->copyLoop($loc, $queues, $count, $perDisk, $total, $oneByOne, $flight, $stop, $perDiskNow);
+        } finally {
+            foreach ($this->procs as $p) {      // an error out of the loop: nothing keeps copying with nobody to check it
+                $p->kill();
+            }
+        }
+    }
+
+    private function copyLoop(JackPlanLocations $loc, array $queues, int $count, int $perDisk, int $total, bool $oneByOne, array $flight, bool $stop, array $perDiskNow): void
+    {
         while (true) {
             // start what may start: the disk whose next file comes first in the plan
             while (!$stop) {
@@ -2283,6 +2325,11 @@ final class JackRunner
         $ok = false;
         $src = $c['src'];
         $dst = $c['dst'];
+        // the array stop's kill came after rsync had put the whole copy under its name: done (the check below), never a film on both sides
+        if ($rc !== 0 && $this->arrayStop && is_file($dst) && @filesize($dst) === @filesize($src)) {
+            $this->log->info("Kopie war vor dem Stoppen des Arrays schon ganz: $f->rel");
+            $rc = 0;
+        }
         if ($rc !== 0) {
             if ($this->arrayStop) {
                 $this->log->warning("Kopie beim Stoppen des Arrays abgebrochen, Quelle bleibt auf dem Array: $f->rel");
@@ -2487,6 +2534,48 @@ final class JackRunner
         $this->log->print('Exclude-Liste: ' . $this->paths->exclude . ' (' . count(jackRunReadExclude($this->paths->exclude)) . " Einträge)\n");
     }
 
+    // ----------------------------------------------------------------- right before acting
+
+    /**
+     * What plays right now. With the comparison's tape the plan saw the sessions of its moment (up to JACK_SHADOW_SECONDS ago): the
+     * servers are asked once more, as Python's run asks at its start — what plays now is added to what the plan protects, never taken
+     * from it (the plan compared stays the plan executed). A server not answering: the tape's sessions stand, said. Without a tape the
+     * plan asked just now. [playing(rel), the live rels or null]
+     */
+    private function playingNow(Closure $planned): array
+    {
+        if (!$this->host->plan instanceof JackPlanTape) {
+            return [$planned, null];
+        }
+        [$rels, $names, $ok] = jackPlanSessions($this->cfg, $this->liveHost(), $this->plexTv);
+        if (!$ok) {
+            $this->log->warning('Was gerade läuft, jetzt nicht von jedem Medienserver erfahren – es gilt zusätzlich, was der Vergleich vor dem Lauf sah');
+        }
+        $live = fn (string $rel): bool => isset($rels["r$rel"]) || isset($names[jpName($rel)]);
+        return [fn (string $rel): bool => $planned($rel) || $live($rel), jpSorted(array_map('strval', array_values($rels)))];
+    }
+
+    /** The cleanup's candidates that still may go back: what plays now stays (protected); an entry with «..» never leaves its place */
+    private function stillMayGoBack(JackPlanLocations $loc, array $candidates, array $sizes, array &$protected, Closure $playing): array
+    {
+        $out = [];
+        foreach ($candidates as $p) {
+            $rel = (string) jpRelative($p, $loc->cache);
+            if (in_array('..', explode('/', $rel), true)) {
+                $this->log->warning("Exclude-Eintrag mit «..» – bleibt, wo er ist: $p");
+                $protected["p$p"] = $p;
+                continue;
+            }
+            if ($playing($rel)) {
+                $this->log->info("[BLEIBT: läuft gerade] $rel");
+                $protected["p$p"] = $p;
+                continue;
+            }
+            $out[] = $p;
+        }
+        return $out;
+    }
+
     // ----------------------------------------------------------------- the run
 
     public function execute(): int
@@ -2561,9 +2650,13 @@ final class JackRunner
             $this->resultEnd($protected, $incomplete);
             return 0;
         }
+        // what plays right now, asked at Python's moment (its run asks first): the compared plan stays, this only protects more
+        [$playing, $sessionsLive] = $this->playingNow($d['playing']);
+        $cleanup = $this->stillMayGoBack($loc, $d['cleanup'], $d['cleanup_sizes'], $protected, $playing);
+        $decided['sessions_live'] = $sessionsLive;
         try {
             if (!$incomplete) {
-                $this->cleanup($loc, $d['cleanup'], $d['to_array'], $d['cleanup_sizes'], $protected, $d['back_why']);
+                $this->cleanup($loc, $cleanup, array_sum(array_map(fn (string $p): int => (int) @filesize($p), $cleanup)), $d['cleanup_sizes'], $protected, $d['back_why']);
             }
             if ($noFill) {
                 clearstatcache();
@@ -2576,7 +2669,7 @@ final class JackRunner
                 $this->log->info("Nur freigeben (MEDIACACHE_NO_FILL): nichts geholt – $this->waiting Dateien (" . jpHuman($this->waitingBytes) . ') warten auf dem Array');
             } else {
                 $this->progress->phase('fill');
-                $fill = $this->fill($loc, $files, $d['playing']);
+                $fill = $this->fill($loc, $files, $playing);
             }
             // theme.mp3: after the fill — only when the list is written afterwards (else a fetched theme.mp3 would stand in no list)
             $this->collectThemes(!($incomplete && !file_exists($this->paths->exclude)));
@@ -2639,9 +2732,11 @@ final class JackRunner
         $this->host->live = true;
         $previous = jackRunReadExclude($this->paths->exclude);
         $protected = $d['protected'];
+        [$playing, $sessionsLive] = $this->playingNow($d['playing']);
+        $cleanup = $this->stillMayGoBack($d['loc'], $d['cleanup'], $d['cleanup_sizes'], $protected, $playing);
         $left = [];
         try {
-            $this->cleanup($d['loc'], $d['cleanup'], $d['to_array'], $d['cleanup_sizes'], $protected, []);
+            $this->cleanup($d['loc'], $cleanup, array_sum(array_map(fn (string $p): int => (int) @filesize($p), $cleanup)), $d['cleanup_sizes'], $protected, []);
         } finally {
             $this->progress->phase('done');
             clearstatcache();
@@ -2656,7 +2751,7 @@ final class JackRunner
             if (!$this->keepThemes) {
                 $this->themes->off();
             }
-            $this->planDoc = jackPlanReleaseDoc($d);
+            $this->planDoc = jackPlanReleaseDoc($d) + ['sessions_live' => $sessionsLive];
         }
         $this->log->info("Ergebnis Zurückbringen: $this->movedBack von $this->cleanupPlanned Dateien aufs Array verschoben (" . jpHuman($this->movedBackBytes) . ' von ' . jpHuman($this->toArray) . ')');
         $this->log->info('Exclude-Liste: ' . count($left) . ' Einträge' . ($left ? ' (liegen weiter auf dem Cache)' : ''));
@@ -2828,7 +2923,7 @@ function jackRunMain(array $argv, array $env, ?JackPlanHost $live = null, mixed 
     }
 }
 
-if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath((string) $argv[0]) === __FILE__) {
+if (PHP_SAPI === 'cli' && (get_included_files()[0] ?? null) === __FILE__) {
     error_reporting(E_ALL);
     chdir('/');
     // the server's time zone (Python's log lines are local time; its environment has no TZ)

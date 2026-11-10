@@ -1399,7 +1399,7 @@ function testJackShadow(): void
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('shadow asleep: his state has the key only with the flag; asked only right before a real run of his, in its own job',
         str_contains($src, "if ((\$shadow = jackShadowSummary()) !== null) {\n        \$state['shadow'] = \$shadow;")
-        && str_contains($src, "\$shadow = \$tool === 'embycache' && \$real && jackShadowOn() ? jackShadowBefore(\$mode, \$env) : null;\n    if (\$tool === 'embycache' && \$real && \$cmd !== null && jackPhpOn(\$dir)) {\n        \$cmd = array_merge(\$cmd, jackShadowHandoff(\$shadow));")
+        && str_contains($src, "\$shadow = \$tool === 'embycache' && \$real && jackShadowOn() ? jackShadowBefore(\$mode, \$env) : null;\n    if (\$php && \$real && \$cmd !== null) {\n        \$cmd = array_merge(\$cmd, jackShadowHandoff(\$shadow));")
         && str_contains($src, 'jackShadowAfter($shadow, $status);') && !str_contains($src, "'jack-shadow'"));
     $shadow = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-shadow.php');
     check('shadow: no check, no notification, no atd job, no lock of its own', !str_contains($shadow, 'officeNotify(') && !str_contains($shadow, 'finding(')
@@ -1795,25 +1795,97 @@ function testJackRun(): void
     same('run: a name that is no UTF-8 — it stays on the array and out of the list (Python couldn\'t read such a list back), the rest goes, said',
         [0, ['Filme/A/a.mkv' => 1000], ["Filme/A/a\xff.srt" => 3], "$t/pool/Filme/A/a.mkv\n", true], [$exit, $pool, $array, $list, str_contains($out, '[SKIP: Dateiname kein UTF-8]')], $out);
 
-    // (9) the array stops mid-copy: the copy ends at once (not after it), the source stays, nothing half on the pool, stopped
-    [$t, $env, $tape] = $world();
-    $fakeRsync($t, "printf 'fsState=\"Stopping\"\\n' > $t/side/var.ini; d=\"\${@: -1}\"; mkdir -p \"\$(dirname \"\$d\")\"; t=\"\$(dirname \"\$d\")/.x.tmp\"; trap 'rm -f \"\$t\"; exit 20' TERM; head -c 5 /dev/zero > \"\$t\"; sleep 20 & wait");
-    $t0 = hrtime(true);
-    [$exit, $st, $pr, $list, $out, $pool, $array] = $run($t, $env, $tape);
-    $secs = (hrtime(true) - $t0) / 1e9;
-    same('run: the array stops mid-copy — ended at once (not after the copy), stopped, exit 3, every source on the array, nothing half on the pool, no fill error',
-        [3, 'stopped', 6, [], 0, true], [$exit, $st['result'] ?? null, count($array), $pool, $st['failed']['fill'] ?? null, $secs < 8], sprintf('%.1f s', $secs) . "\n$out");
-    putenv("PATH=$pathBefore");
-
-    // (9b) the array stops while Unraid's move binary brings a file back: it ends at once, the file stays on the pool and in the list
-    [$t, $env, $tape] = $world(['pool' => ['Filme/Old/old.mkv' => 500, 'Filme/Old2/o2.mkv' => 5], 'list' => ['Filme/Old/old.mkv', 'Filme/Old2/o2.mkv']]);
-    file_put_contents("$t/move", "#!/bin/bash\nprintf 'fsState=\"Stopping\"\\n' > $t/side/var.ini\ntrap 'exit 1' TERM\nsleep 20 & wait\n");
+    // (9) the array stops mid-copy — REAL rsync (slowed down, 30 MB): it ends on SIGTERM and removes its own temporary file; the source stays
+    $big = ['Filme/A/a.mkv' => 30 << 20];
+    $one = [["$emby/Sessions", $key, []], ["$emby/Users", $key, [['Id' => 'u1', 'Name' => 'Anna']]], ...jackPlanTestUser($emby, $key, 'u1', [$film('a', 'Filme/A/a.mkv')], [])];
+    [$t, $env, $tape] = $world(['array' => $big, 'answers' => $one]);
+    $fakeRsync($t, "(sleep 1; printf 'fsState=\"Stopping\"\\n' > $t/side/var.ini) & exec /usr/bin/rsync --bwlimit=1000 \"\$@\"");
     $t0 = hrtime(true);
     [$exit, $st, , $list, $out, $pool, $array] = $run($t, $env, $tape);
     $secs = (hrtime(true) - $t0) / 1e9;
-    same('run: the array stops while the move binary works — ended at once, stopped, nothing filled, both files still on the pool and in the list',
-        [3, 'stopped', 0, ['Filme/Old/old.mkv' => 500, 'Filme/Old2/o2.mkv' => 5], "$t/pool/Filme/Old/old.mkv\n$t/pool/Filme/Old2/o2.mkv\n", true],
-        [$exit, $st['result'] ?? null, $st['fill']['done'] ?? null, $pool, $list, $secs < 8], sprintf('%.1f s', $secs) . "\n$out");
+    $left = array_values(array_filter(array_map('strval', glob("$t/pool/Filme/A/{,.}*", GLOB_BRACE) ?: []), fn (string $f): bool => !in_array(basename($f), ['.', '..'], true)));
+    same('run: the array stops mid-copy (real rsync) — ended at once, stopped (stopped_by array), the source on the array, nothing on the pool (not even rsync\'s temporary file), no fill error',
+        [3, 'stopped', 'array', $big, [], [], 0, true], [$exit, $st['result'] ?? null, $st['stopped_by'] ?? null, $array, $pool, $left, $st['failed']['fill'] ?? null, $secs < 10], sprintf('%.1f s', $secs) . "\n$out");
+
+    // (9b) … during the rsync cleanup (real rsync): the file stays on the pool and in the list, nothing half on the array
+    [$t, $env, $tape] = $world(['array' => [], 'pool' => ['Filme/Old/old.mkv' => 30 << 20], 'list' => ['Filme/Old/old.mkv'], 'settings' => ['cleanup_tool' => 'rsync'], 'answers' => $one]);
+    $fakeRsync($t, "(sleep 1; printf 'fsState=\"Stopping\"\\n' > $t/side/var.ini) & exec /usr/bin/rsync --bwlimit=1000 \"\$@\"");
+    [$exit, $st, , $list, $out, $pool, $array] = $run($t, $env, $tape);
+    same('run: the array stops during the rsync cleanup — stopped, the file still on the pool and in the list, nothing on the array, no error', [3, ['Filme/Old/old.mkv' => 30 << 20], [], "$t/pool/Filme/Old/old.mkv\n", 0],
+        [$exit, $pool, $array, $list, $st['errors'] ?? null], $out);
+    putenv("PATH=$pathBefore");
+
+    // (9c) … while Unraid's move binary brings a file back. The real one (Tower, 2026-11-10) writes <name>.partial, renames it when whole,
+    // and on SIGTERM finishes the file in work, then stops: the stand-in does the same. It is waited for, never killed mid-file; the next file never begins
+    [$t, $env, $tape] = $world(['pool' => ['Filme/Old/old.mkv' => 500, 'Filme/Old2/o2.mkv' => 5], 'list' => ['Filme/Old/old.mkv', 'Filme/Old2/o2.mkv']]);
+    file_put_contents("$t/move", "#!/bin/bash\nread -r p; r=\${p#$t/pool/}; d=\"$t/user0/\$r\"; mkdir -p \"\$(dirname \"\$d\")\"; cp \"\$p\" \"\$d.partial\"\n"
+        . "trap 'sleep 1; mv \"\$d.partial\" \"\$d\"; rm \"\$p\"; echo \"received signal 15, terminating!\"; exit 0' TERM\nprintf 'fsState=\"Stopping\"\\n' > $t/side/var.ini\nsleep 20 & wait\n");
+    $t0 = hrtime(true);
+    [$exit, $st, , $list, $out, $pool, $array] = $run($t, $env, $tape);
+    $secs = (hrtime(true) - $t0) / 1e9;
+    same('run: the array stops while the move binary works — its file finished (whole under its name, no .partial), the next one never begun, stopped; the list: what still lies on the pool',
+        [3, 'stopped', 500, [], ['Filme/Old2/o2.mkv' => 5], "$t/pool/Filme/Old2/o2.mkv\n", 0, true],
+        [$exit, $st['result'] ?? null, $array['Filme/Old/old.mkv'] ?? null, glob("$t/user0/Filme/Old/*.partial") ?: [], $pool, $list, $st['errors'] ?? null, $secs < 10], sprintf('%.1f s', $secs) . "\n$out");
+
+    // (9d) … during a theme.mp3 fetch (real rsync): it stays on the array, waiting for the next run; a warning, no error
+    [$t, $env, $tape] = $world(['array' => ['Filme/A/theme.mp3' => 30 << 20], 'settings' => ['themes' => true], 'answers' => [["$emby/Sessions", $key, []], ["$emby/Users", $key, [['Id' => 'u1', 'Name' => 'Anna']]], ...jackPlanTestUser($emby, $key, 'u1', [], [])]]);
+    $fakeRsync($t, "(sleep 1; printf 'fsState=\"Stopping\"\\n' > $t/side/var.ini) & exec /usr/bin/rsync --bwlimit=1000 \"\$@\"");
+    $libT = jackPlanTestTape("$t/side/lib.jsonl", [["$emby/Sessions", $key, []], ["$emby/Items?Recursive=true&IncludeItemTypes=Movie%2CSeries&Fields=Path%2CDateCreated&EnableImages=false&EnableUserData=false&StartIndex=0&Limit=2000", $key,
+        ['Items' => [['Id' => 'a', 'Type' => 'Movie', 'Path' => '/m/Filme/A/a.mkv']]]]]);
+    [$exit, $st, , , $out, $pool, $array] = $run($t, $env, $tape, ['--run'], $libT);
+    same('run: the array stops during a theme.mp3 fetch — it stays on the array, waiting; stopped, no error', [3, ['Filme/A/theme.mp3' => 30 << 20], [], 1, 0],
+        [$exit, $array, $pool, $st['themes']['waiting'] ?? null, $st['errors'] ?? null], $out);
+    putenv("PATH=$pathBefore");
+
+    // (9e) what plays right now, asked again right before acting (the tape may be minutes old): a film nobody wants any more but someone
+    // started meanwhile stays on the pool and in the list — the plan compared is unchanged, the live sessions only protect more
+    [$t, $env, $tape] = $world(['pool' => ['Filme/Old/old.mkv' => 500], 'list' => ['Filme/Old/old.mkv']]);
+    $now = jackPlanTestTape("$t/side/now.jsonl", [["$emby/Sessions", $key, [['NowPlayingItem' => ['Path' => '/m/Filme/Old/old.mkv'], 'UserName' => 'Leo']]]]);
+    [$exit, $st, , $list, $out, $pool] = $run($t, $env, $tape, ['--run'], $now);
+    $plan = readJson("$t/side/plan.json");
+    same('run: started meanwhile — it stays (the live sessions only add), the plan compared still says it goes back, the live sessions beside it',
+        [0, 500, true, ["$t/pool/Filme/Old/old.mkv"], ['Filme/Old/old.mkv'], 0], [$exit, $pool['Filme/Old/old.mkv'] ?? null, str_contains((string) $list, "$t/pool/Filme/Old/old.mkv"),
+         $plan['cleanup']['paths'] ?? null, $plan['sessions_live'] ?? null, $st['cleanup']['done'] ?? null], $out);
+    [, , , $list] = $run($t, $env, jackPlanTestTape("$t/side/tape.jsonl", $answers(), ["$t/pool" => [1000000, 900000]]), ['--run'],
+        jackPlanTestTape("$t/side/now.jsonl", [["$emby/Sessions", $key, 503]]));
+    check('run: … a server not answering now: the tape\'s sessions stand, said; the film goes back as compared', !str_contains((string) $list, 'Old/old.mkv'));
+
+    // (9f) more paths: an incomplete plan with a list (all protected), WATCHED_ONLY, fill_tool mover, a stop file during parallel copies,
+    // an unreadable tape, «..» in a list entry, an error midway (the old list kept)
+    [$t, $env, $tape] = $world(['pool' => ['Filme/Old/old.mkv' => 500], 'list' => ['Filme/Old/old.mkv'], 'answers' => [["$emby/Sessions", $key, []], ["$emby/Users", $key, 500]]]);
+    [$exit, $st, , $list, , $pool] = $run($t, $env, $tape);
+    same('run: an incomplete plan with a list — nothing back, every listed file protected', [0, true, ['Filme/Old/old.mkv' => 500], "$t/pool/Filme/Old/old.mkv\n", 1],
+        [$exit, $st['incomplete'] ?? null, $pool, $list, $st['protected'] ?? null]);
+    [$t, $env, $tape] = $world(['array' => [], 'pool' => $onPool, 'list' => array_keys($onPool), 'pool_usage' => [10000, 1500],
+        'env' => ['MEDIACACHE_GIVE_BACK_FREE' => '1', 'MEDIACACHE_MIN_FREE_PERCENT' => '20', 'MEDIACACHE_WATCHED_ONLY' => '1']]);
+    [, $st, , , , $pool] = $run($t, $env, $tape);
+    same('run: WATCHED_ONLY — over the limit, still nothing back by rank (only what is watched goes); what he holds said', [6, 0, 3940],
+        [count($pool), $st['give_back']['files'] ?? null, $st['pool']['held'] ?? null]);
+    [$t, $env, $tape] = $world(['array' => ['Filme/A/a.mkv' => 1000], 'answers' => $one, 'settings' => ['fill_tool' => 'mover']]);
+    file_put_contents("$t/move", "#!/bin/bash\nwhile IFS= read -r p; do r=\${p#$t/user0/}; d=\"$t/pool/\$r\"; mkdir -p \"\$(dirname \"\$d\")\"; mv \"\$p\" \"\$d\"; done\n");
+    [$exit, $st, , $list, , $pool, $array] = $run($t, $env, $tape);
+    same('run: fill_tool mover — the move binary brings it to the pool, counted, listed', [0, ['Filme/A/a.mkv' => 1000], [], 1, "$t/pool/Filme/A/a.mkv\n"],
+        [$exit, $pool, $array, $st['fill']['done'] ?? null, $list]);
+    [$t, $env, $tape] = $world(['disks' => ['disk1' => ['Filme/A/a.mkv' => 1000, 'Filme/A/a.srt' => 10, 'Serien/S/S01/e1.mkv' => 300], 'disk2' => ['Filme/B/b.mkv' => 2000, 'Serien/S/S01/e2.mkv' => 310, 'Serien/S/S01/e3.mkv' => 320]],
+        'env' => ['MEDIACACHE_PARALLEL_TOTAL' => '2']]);
+    $fakeRsync($t, "touch $t/side/stop.json; sleep 0.3; exec /usr/bin/rsync \"\$@\"");
+    [$exit, $st, , , $out, $pool] = $run($t, $env, $tape);
+    putenv("PATH=$pathBefore");
+    same('run: a stop asked during parallel copies — the two in flight end, no new one begins; stopped', [3, 'stopped', 2], [$exit, $st['result'] ?? null, count($pool)], $out);
+    [$t, $env] = $world();
+    file_put_contents("$t/side/tape.jsonl", "not a tape\n");
+    [$exit, $st, , , $out] = $run($t, $env + ['MEDIACACHE_DIR' => $env['MEDIACACHE_DIR']], new JackPlanLive([]));
+    check('run: an unreadable tape — said, the servers asked live (here: none answers: an incomplete plan, nothing moves)',
+        $exit === 0 && str_contains($out, 'Die Antworten des Vergleichs (--tape) sind nicht lesbar') && ($st['incomplete'] ?? null) === true, $out);
+    [$t, $env, $tape] = $world(['pool' => ['Filme/Old/old.mkv' => 500], 'list' => ['Filme/Old/../Old/old.mkv']]);
+    [$exit, , , $list, $out, $pool] = $run($t, $env, $tape);
+    same('run: a list entry with «..» — it stays where it is (never handed to the move binary), said', [0, 500, true], [$exit, $pool['Filme/Old/old.mkv'] ?? null, str_contains($out, 'Exclude-Eintrag mit «..»')], $out);
+    [$t, $env, $tape] = $world(['pool' => ['Filme/Old/old.mkv' => 500, 'Filme/A/a.mkv' => 1000], 'array' => ['Filme/B/b.mkv' => 2000, 'Serien/S/S01/e1.mkv' => 300],
+        'list' => ['Filme/Old/old.mkv', 'Filme/A/a.mkv'], 'settings' => ['shares_cfg_dir' => null, 'cleanup_tool' => 'rsync']]);
+    file_put_contents("$t/mounts", "tank $t/pool zfs rw 0 0\n");
+    [$exit, $st, , $list, $out] = $run($t, ['MEDIACACHE_ZFS' => '/bin/false'] + $env, $tape);
+    same('run: an error midway (a share\'s folder on ZFS can\'t be judged: Python\'s traceback) — failed, exit 1, and the list still names what lies on the pool',
+        [1, 'failed', true], [$exit, $st['result'] ?? null, str_contains((string) $list, "$t/pool/Filme/A/a.mkv")], $out);
 
     // (10) copies in parallel: one per disk at once, the queue's places, every file in flight in the progress
     $disks = ['disk1' => ['Filme/A/a.mkv' => 1000, 'Filme/A/a.srt' => 10, 'Serien/S/S01/e1.mkv' => 300], 'disk2' => ['Filme/B/b.mkv' => 2000, 'Serien/S/S01/e2.mkv' => 310, 'Serien/S/S01/e3.mkv' => 320]];
@@ -1851,7 +1923,7 @@ function testJackRun(): void
         && !str_contains($code, "proc_open('") && !str_contains($code, 'proc_open("'));
     $job = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     check('run: the job — python3 mediacache_run.py without php.json, php jack-run.php with it (the same modes), the compared tape handed over',
-        str_contains($job, "\$cmd = jackPhpOn(\$dir) ? array_merge([PHP_BINARY, __DIR__ . '/jack-run.php'], JACK_MODES[\$mode]) : array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[\$mode]);")
+        str_contains($job, "\$php = \$tool === 'embycache' && jackPhpOn(\$dir);") && str_contains($job, "\$cmd = \$php ? array_merge([PHP_BINARY, __DIR__ . '/jack-run.php'], JACK_MODES[\$mode]) : array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[\$mode]);")
         && str_contains($job, '$cmd = array_merge($cmd, jackShadowHandoff($shadow));'));
     @mkdir("$tmp/flag");
     same('run: the flag — absent: Python, the shadow asleep; php.json: PHP, the comparison on (it says who acts)', [false, false, true, true],

@@ -635,6 +635,7 @@
   "gather_stopped_user": "fermato dopo {done} di {total} cartelle — come hai chiesto",
   "stopped_mover_summary": "fermato dopo il file a cui era — è partito il mover di Unraid",
   "stopped_user_summary": "fermato dopo il file a cui era — come hai chiesto",
+  "stopped_array_summary": "fermato subito — l'array viene fermato",
   "refused_times": "{n} volte di fila",
   "mode_hint.run_mover": "Non ora — il mover di Unraid potrebbe portarsi via i miei file (perché e cosa aiuta lo dice la mia pagina).",
   "bubble.mover_dry": "Per ora solo prove a secco — la pianificazione del mover di Unraid riporterebbe subito indietro ciò che preparo. Sulla mia pagina puoi spegnerla.",

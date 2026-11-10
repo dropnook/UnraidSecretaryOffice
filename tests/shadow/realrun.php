@@ -22,12 +22,31 @@ require "$root/agent/lib/util.php";
 define('JACK_DATA', '/nonexistent');
 require "$root/agent/desks/jack-plan.php";
 
-[$base, $share] = [json_decode((string) file_get_contents($argv[1]), true), $argv[2]];
+// it moves real films: only on the test server (its name), or when told so for another throw-away server
+if (strtolower(gethostname() ?: '') !== 'tower' && getenv('JRUN_I_MEAN_IT') !== '1') {
+    fwrite(STDERR, "realrun: only on the test server Tower (or JRUN_I_MEAN_IT=1 on another throw-away server) — it moves real files\n");
+    exit(2);
+}
+[$base, $share] = [json_decode((string) file_get_contents($argv[1]), true), $argv[2] ?? ''];
+if (!is_array($base) || !preg_match('/^[\w. -]+$/uD', $share)) {
+    fwrite(STDERR, "realrun: <settings.json> <share>\n");
+    exit(2);
+}
+// every mapping must lie in that one share: it is the only one layout() and putBack() know and put back
+foreach (array_merge([(array) ($base['path_mappings'] ?? [])], array_map(fn ($i) => (array) ($i['path_mappings'] ?? []), (array) ($base['instances'] ?? []))) as $maps) {
+    foreach ($maps as $host) {
+        $host = is_array($host) ? (string) ($host[1] ?? '') : (string) $host;
+        if ($host !== '' && !preg_match('#^/mnt/user0?/' . preg_quote($share, '#') . '(/|$)#', $host)) {
+            fwrite(STDERR, "realrun: the mapping $host lies outside /mnt/user/$share — refused\n");
+            exit(2);
+        }
+    }
+}
 $only = array_slice($argv, 3);
 $app = "$root/mediacache";
 $work = '/tmp/jrun-real';
 $data = "$work/data";
-$pool = '/mnt/cache';
+$pool = rtrim((string) ($base['cache_path'] ?? '/mnt/cache'), '/');
 $disks = array_values(array_filter(glob('/mnt/disk[0-9]*') ?: [], 'is_dir'));
 
 function say(string $s): void
