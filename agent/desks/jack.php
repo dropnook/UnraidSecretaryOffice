@@ -3330,7 +3330,8 @@ function jackJob(string $tool, array $args): int
     }
 
     // the shares' folders on a ZFS pool: MediaCache makes the dataset itself, as Unraid does (create_share_root, 1.65.0)
-    $progress = null;                    // a real EmbyCache run: its two RAM files for the live panel
+    $progress = null;
+    $php = $tool === 'embycache' && jackPhpOn($dir);      // the flag read once for this job: the command and the hand-over agree                    // a real EmbyCache run: its two RAM files for the live panel
     if ($tool === 'gather') {
         $text = $mode === 'measure' ? jackWriteMeasureIni(jackMeasureShares(), jackReadSettings() ?? [])
             : jackWriteGatherIni(jackGatherSettings() ?? [], jackReadSettings() ?? []);
@@ -3341,7 +3342,8 @@ function jackJob(string $tool, array $args): int
              + ($mode === 'run' ? ['CONSOLIDATE_STOP' => "$dir/office-stop.json"] : []);
         $cwd = '/';
     } else {
-        $cmd = array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[$mode]);
+        // the flag file php.json (jack-run.php): MediaCache's run in PHP, the same environment, output and exit codes; Python only plans dry beside it
+        $cmd = $php ? array_merge([PHP_BINARY, __DIR__ . '/jack-run.php'], JACK_MODES[$mode]) : array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[$mode]);
         $env = jackPyEnv() + ['MEDIACACHE_RESULT' => "$dir/status.json"] + ($real ? ['MEDIACACHE_STOP' => "$dir/office-stop.json"] : [])
              // Ms. Moverelli's limit and his half (a dry run sees what the real one would)
              + (in_array($mode, ['dry', 'run'], true) ? jackPoolEnv(jackReadSettings()) : [])
@@ -3362,6 +3364,9 @@ function jackJob(string $tool, array $args): int
     }
     // only with its flag file: the plan in PHP beside Python's, right before this real run, on the state it acts on (jack-shadow.php)
     $shadow = $tool === 'embycache' && $real && jackShadowOn() ? jackShadowBefore($mode, $env) : null;
+    if ($php && $real && $cmd !== null) {
+        $cmd = array_merge($cmd, jackShadowHandoff($shadow));     // PHP acts on the answers its plan was compared on
+    }
     $proc = $cmd !== null ? proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => $out, 2 => $out], $pipes, $cwd, $env) : false;
     $stoppedFor = $stoppedWhy = null;
     if (!is_resource($proc)) {
@@ -3412,13 +3417,14 @@ function jackJob(string $tool, array $args): int
     if ($result === 'stopped') {
         // 1.64.2: a stop the watcher didn't see (the night run writes EmbyCache's own stop file, EmbyCache stops itself) was
         // asked by someone — only the watcher knows «watching», so without its word it is the user's
-        $note['why'] = in_array($stoppedWhy, ['mover', 'watching'], true) ? $stoppedWhy : 'user';
+        // the PHP run says when the array's stop ended it (status `stopped_by`, jack-run.php)
+        $note['why'] = in_array($stoppedWhy, ['mover', 'watching'], true) ? $stoppedWhy : (($status['stopped_by'] ?? null) === 'array' ? 'array' : 'user');
         if ($note['why'] === 'watching') {
             $note['who'] = $stoppedFor ?? [];
         }
         logLine('Jack Streamer: ' . ($tool === 'gather' ? 'the gather stopped after ' . (int) ($status['folders_done'] ?? 0) . ' of ' . (int) ($status['folders'] ?? 0) . ' folders'
             : "EmbyCache ($mode) stopped after the file it was on") . ' — ' . match ($note['why']) {
-                'mover' => "Unraid's mover started", 'watching' => 'someone watches Emby', default => 'as asked' });
+                'mover' => "Unraid's mover started", 'watching' => 'someone watches Emby', 'array' => 'the array is being stopped', default => 'as asked' });
     }
     jackRemember(['tool' => $tool, 'mode' => $mode, 'by' => $by, 'from' => $from, 'started' => $started, 'finished' => time(),
                   'exit' => $exit, 'result' => $result, 'status' => jackStatusShort($status)] + $note);

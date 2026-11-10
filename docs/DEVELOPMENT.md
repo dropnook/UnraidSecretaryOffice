@@ -750,6 +750,28 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   `--names` every code point) holds both planners side by side on 185 cases, also each request and its key; `testJackPlan` needs no Python. The
   Unicode tables (`jack-plan-names.txt`, `tests/shadow/gen-names.py`) are the Python's the comparison runs against (Tower 3.11, Unicode 14).
   Known, harmless: a `NaN` in JSON and a lone surrogate (Python reads them, PHP doesn't), Python's Final_Sigma in a name's lower() (a tie-break only).
+  **The run in PHP** (agent/desks/jack-run.php; 2026-11-09, Benj: on his own server first): MediaCache's doing half ported (Runner, Progress,
+  Themes, Status, the lib's helpers that act; GPL-3, named at its head and in mediacache/README.md). Asleep without the flag file
+  `JACK_DATA/php.json` (no button, no setting, no migration): without it everything is as before. With it jackJob() starts `php jack-run.php`
+  instead of `python3 mediacache_run.py` — the same modes and flags, environment, output file and exit codes (0 ok, 3 stopped, 1 failed) — and
+  php.json wakes the comparison too (jackShadowOn()), turned round: Python's dry twin plans, PHP plans from that tape and compares, and
+  **the plan compared is the plan executed**: the last pair's tape goes to the run (`--tape`, jackShadowHandoff()), which plans from it
+  (jackPlanDecide(), the shadow's own code) and acts; only the fill measures the pool again after the cleanup, as Python's real run does. It
+  writes the plan it acted on (`--plan-out`); the night file says `engine: php` and `executed` (same | differ | none against the plan
+  compared — the decisions only: the fill measures the pool live after the cleanup, so its order and what it left out are not set against
+  the plan compared) and `acted` (compared | own_differ | own_uncompared). A difference before a run never stops it (Benj decides that
+  later): then, and when nothing was compared (a disk asleep, Python failed), PHP acts on its own plan. Right before acting the run asks the
+  servers once more what plays (Python's moment; the tape may be up to JACK_SHADOW_SECONDS old) and only adds that to what stays. The same files in the same shapes (status.json, the progress file, the list and its themes section, the themes state,
+  the same flock on mediacache.lock, logs/mediacache.log in Python's line format — its warnings and errors are the result's counts): deleting
+  php.json is the rollback, Python's next run goes on from what PHP left. Beyond Python: the array stopping (var.ini Stopping/Stopped, looked
+  at once a second) ends an rsync at once (SIGTERM: it removes its temporary file) and lets Unraid's move binary finish only the file in work
+  (it writes `<name>.partial` and renames it when whole; on SIGTERM it finishes that file and stops — tried on Tower; never SIGKILL mid-file
+  before JACK_RUN_MOVE_FINISH), result stopped, `stopped_by: array` (his run list: «the array is being stopped»); a file name that is no UTF-8 stays on the
+  array and out of the list; a run that ends in an error never writes an empty list. The shadow tile says who acts (`shadow.sub_php`,
+  `shadow.tip_php`); the Night Watchman names jack-run.php as Jack Streamer's run. **`php tests/shadow/diff.php --run`** (a test server with
+  Python): every stand-in case for real from the same tree, Python and PHP, the end states compared (where each file lies, size, content,
+  owner, mode, mtime; the list, the themes state, the status and the progress without times, the exit code); `testJackRun` needs no Python.
+  Not in PHP yet: the gather (bash), the job's two small `python3 -c` helpers (the settings check, MediaCache's DEFAULTS).
 * **`moverelli` — Ms. Moverelli.** Smart Mover beside Unraid's mover (7.3.2+; her ini, every value checked). **Unraid's own
   mover goes off with her setup:** refused unless the page's consent `mover_off: true` comes along; the old schedule noted once,
   **her let-go puts it back** through the same form (only `MOVERELLI_UNRAID_CRON` shapes). **Never a hand-written cron line.**

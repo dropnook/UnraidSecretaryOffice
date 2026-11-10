@@ -6027,7 +6027,7 @@ function watchmanFlowMover(array $argv): ?string
     return match (true) {
         (bool) array_intersect($names, ['mover', 'age_mover']), in_array((string) ($argv[0] ?? ''), WATCH_MOVE_BINS, true) => 'mover',
         (bool) array_intersect($names, ['custommover_run.sh'])                                 => 'smartmover',
-        (bool) array_intersect($names, ['mediacache_run.py', 'embycache_run.py'])              => 'embycache',
+        (bool) array_intersect($names, ['mediacache_run.py', 'embycache_run.py', 'jack-run.php']) => 'embycache',    // jack-run.php: MediaCache's run in PHP
         (bool) array_intersect($names, ['consolidate_master.sh'])                              => 'gather',
         $names[0] === 'rsync' && in_array('--remove-source-files', $argv, true)               => 'rsync',
         $names[0] === 'rm' && (bool) array_filter($argv, fn ($a) => str_contains((string) $a, '/') && storeroomIn((string) $a)) => 'storeroom',
