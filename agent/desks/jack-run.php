@@ -2542,13 +2542,13 @@ final class JackRunner
      * from it (the plan compared stays the plan executed). A server not answering: the tape's sessions stand, said. Without a tape the
      * plan asked just now. [playing(rel), the live rels or null]
      */
-    private function playingNow(Closure $planned): array
+    private function playingNow(Closure $planned, bool $plannedOk): array
     {
         if (!$this->host->plan instanceof JackPlanTape) {
             return [$planned, null];
         }
         [$rels, $names, $ok] = jackPlanSessions($this->cfg, $this->liveHost(), $this->plexTv);
-        if (!$ok) {
+        if (!$ok && $plannedOk) {          // a server the plan already saw silent was said then (and its plan is incomplete)
             $this->log->warning('Was gerade läuft, jetzt nicht von jedem Medienserver erfahren – es gilt zusätzlich, was der Vergleich vor dem Lauf sah');
         }
         $live = fn (string $rel): bool => isset($rels["r$rel"]) || isset($names[jpName($rel)]);
@@ -2651,7 +2651,7 @@ final class JackRunner
             return 0;
         }
         // what plays right now, asked at Python's moment (its run asks first): the compared plan stays, this only protects more
-        [$playing, $sessionsLive] = $this->playingNow($d['playing']);
+        [$playing, $sessionsLive] = $this->playingNow($d['playing'], $d['sessions_ok']);
         $cleanup = $this->stillMayGoBack($loc, $d['cleanup'], $d['cleanup_sizes'], $protected, $playing);
         $decided['sessions_live'] = $sessionsLive;
         try {
@@ -2732,7 +2732,7 @@ final class JackRunner
         $this->host->live = true;
         $previous = jackRunReadExclude($this->paths->exclude);
         $protected = $d['protected'];
-        [$playing, $sessionsLive] = $this->playingNow($d['playing']);
+        [$playing, $sessionsLive] = $this->playingNow($d['playing'], $d['sessions_ok']);
         $cleanup = $this->stillMayGoBack($d['loc'], $d['cleanup'], $d['cleanup_sizes'], $protected, $playing);
         $left = [];
         try {
