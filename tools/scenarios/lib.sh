@@ -946,7 +946,9 @@ _empty_dirs() {
     local b
     for b in $(bases); do
         base_asleep "$b" && continue
-        [[ -d /mnt/$b/$1 ]] && find "/mnt/$b/$1" \( "${_INV_PRUNE[@]}" \) -prune -o -type d -empty -printf "$b/%P\n" 2>/dev/null
+        # -mindepth 1: the share's own top folder on a base isn't one — Unraid 7.4.0's mover empties a pool's share folder
+        # down to it and leaves it there (Tower, 2026-11-12: «new empty folders in media: cache/» on 1.92.0 code too)
+        [[ -d /mnt/$b/$1 ]] && find "/mnt/$b/$1" -mindepth 1 \( "${_INV_PRUNE[@]}" \) -prune -o -type d -empty -printf "$b/%P\n" 2>/dev/null
     done | LC_ALL=C sort
 }
 
