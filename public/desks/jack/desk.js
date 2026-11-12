@@ -1288,7 +1288,10 @@ function shadowBox() {
     box.appendChild(el('p', 'jo-structure-line', T('shadow.none')));
     return box;
   }
-  box.appendChild(el('p', 'jo-structure-line', T('shadow.line', { counts: shadowCounts(s), when: fmt.date(s.last) })));
+  // no Python and never compared (only «not compared» dates): no «last compared on …» — nothing ever was
+  if (!(shadowNoPython(s) && !s.same && !s.differ && !s.once && !s.error)) {
+    box.appendChild(el('p', 'jo-structure-line', T('shadow.line', { counts: shadowCounts(s), when: fmt.date(s.last) })));
+  }
   const others = shadowOthers(s);
   if (others.length) box.appendChild(el('p', 'jo-structure-line', others.join(' · ')));
   if (!s.differ && !s.once && !s.error) return box;

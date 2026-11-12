@@ -567,6 +567,7 @@ async function jackShadow(browser) {
       }));
       if (!nopy.tile.includes('Not compared: no Python') || !nopy.tile.includes('2 not compared')) fail(`${width}: no Python — the tile: ${nopy.tile}`);
       if (!nopy.page.includes('This server has no Python 3: PHP plans each real run')) fail(`${width}: no Python — the section doesn't say who moves`);
+      if (nopy.page.includes('last compared on')) fail(`${width}: no Python, never compared — still «last compared on»`);
       if (nopy.page.includes('Python 3 is missing') || nopy.page.includes('I need Python 3')) fail(`${width}: no Python — still asked for`);
       if (!nopy.foot.includes('PHP 8.4.12') || nopy.foot.includes('Python')) fail(`${width}: no Python — the footer: ${nopy.foot}`);
       if (nopy.wide) fail(`${width}: no Python — scrolls sideways`);
