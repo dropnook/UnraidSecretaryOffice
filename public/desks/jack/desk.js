@@ -448,7 +448,6 @@ function bubbleText() {
   if (dockerDown()) return `${intro} ${T('bubble.docker_down', { docker: Office.t(`common.docker_${state.docker}`) })}`;
   // set up, his servers are in his settings (one may live on another machine): «no media server» only before that
   if (!state.emby.length && !state.configured) return `${intro} ${T('bubble.no_emby')}`;
-  if (!state.python) return `${intro} ${T('bubble.no_python')}`;
   if (!state.configured) return `${intro} ${T('bubble.setup')}`;
   if (state.jobs.gather.running) return T('bubble.gathering');
   if (state.jobs.embycache.running) return T(lookRun() ? `bubble.running_${lookRun()}` : 'bubble.running');
@@ -535,7 +534,6 @@ function render() {
   const hints = [];
   if (dockerDown()) hints.push(el('p', 'callout warn', T('notice.docker_down', { docker: Office.t(`common.docker_${state.docker}`) })));
   else if (!state.emby.length && !state.configured) hints.push(el('p', 'callout warn', T('notice.no_emby')));
-  if (!state.python) hints.push(el('p', 'callout warn', T('notice.no_python')));
   const foreign = state.foreign.filter((f) => f.enabled);
   if (foreign.length) hints.push(el('p', 'callout warn', T('notice.foreign', { where: foreign.map((f) => f.where).join(', ') })));
   const back = letGoNotice();
@@ -599,15 +597,17 @@ function scopeLine() {
 }
 
 /**
- * Under all (no section): the tools' versions (Python missing is a callout above) and the quiet credit — both tools
- * are helmi1987's, and a share of the tips goes to him
+ * Under all (no section): the tools' versions with the one that does MediaCache's work — PHP (php.json, or no python3 on the
+ * server: state.shadow.php) or Python; no Python line where there is none — and the quiet credit: both tools are helmi1987's,
+ * and a share of the tips goes to him
  */
 function footer() {
   const box = Office.place('tools', el('div', 'jo-foot'));
   const line = el('div', 'row-meta jo-tools');
   const ver = (state.versions.embycache || '?').replace(/\s*\(.*\)$/, '');
   line.append(el('span', '', `MediaCache ${ver}`), el('span', '', `${T('gather')} ${state.versions.gather || '?'}`));
-  if (state.python) line.appendChild(el('span', '', `Python ${state.python}`));
+  if (state.shadow && state.shadow.php) line.appendChild(el('span', '', `PHP ${state.php || ''}`.trim()));
+  else if (state.python) line.appendChild(el('span', '', `Python ${state.python}`));
   box.append(line, credit());
   return box;
 }
@@ -1262,9 +1262,13 @@ function shadowCounts(s) {
 function shadowOthers(s) {
   return [['shadow_once', s.once], ['shadow_error', s.error], ['shadow_not', s.not]].filter(([, n]) => n > 0).map(([k, n]) => nOf(k, n));
 }
+/** No python3 on the server (python false; an older agent's state has no key): PHP acts alone, nothing is compared — said so */
+const shadowNoPython = (s) => s.python === false;
 function shadowTile(a) {
   const s = state.shadow;
-  return Office.stat({ label: T('shadow.title'), value: s.last ? shadowCounts(s) : T('shadow.none'), sub: shadowOthers(s), tip: T(s.php ? 'shadow.tip_php' : 'shadow.tip'), alert: s.differ > 0 || s.error > 0, ...a });
+  const value = shadowNoPython(s) ? T('shadow.no_python') : s.last ? shadowCounts(s) : T('shadow.none');
+  const tip = T(shadowNoPython(s) ? 'shadow.tip_no_python' : s.php ? 'shadow.tip_php' : 'shadow.tip');
+  return Office.stat({ label: T('shadow.title'), value, sub: shadowOthers(s), tip, alert: s.differ > 0 || s.error > 0, ...a });
 }
 function shadowAsk(at) {
   shadowAsked = at;
@@ -1310,7 +1314,9 @@ function shadowBox() {
   return box;
 }
 function shadowSection() {
-  const s = section(T('shadow.title'), T(state.shadow && state.shadow.php ? 'shadow.sub_php' : 'shadow.sub'), { place: 'tile.shadow' });   // PHP acts (php.json): who moves, who compares
+  // PHP acts (php.json, or no python3): who moves, who compares — or that nothing is compared, there being no Python
+  const sub = state.shadow && shadowNoPython(state.shadow) ? 'shadow.sub_no_python' : state.shadow && state.shadow.php ? 'shadow.sub_php' : 'shadow.sub';
+  const s = section(T('shadow.title'), T(sub), { place: 'tile.shadow' });
   dom.shadow = shadowBox();
   s.appendChild(dom.shadow);
   return s;
