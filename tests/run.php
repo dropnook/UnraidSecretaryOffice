@@ -24710,8 +24710,8 @@ function testNotify(): void
     $f = fn (string $id, string $level, ?bool $ok, array $p = []) => finding($id, $level, $ok, $p);
     $red = caretakerRed(['backup' => [$f('setup', 'required', true), $f('schedule', 'required', false), $f('kopia_repo', 'required', null),
                                       $f('drift', 'recommended', false), $f('kopia_running', 'required', false, ['name' => 'kopia'])],
-                         'jack'   => [$f('python', 'required', false)]]);
-    same('notify: red findings', ['backup:schedule:', 'backup:kopia_running:kopia', 'jack:python:'], array_keys($red));
+                         'jack'   => [$f('configured', 'required', false)]]);
+    same('notify: red findings', ['backup:schedule:', 'backup:kopia_running:kopia', 'jack:configured:'], array_keys($red));
 
     // the steps by themselves
     $t0 = 1_800_000_000;
@@ -24737,7 +24737,7 @@ function testNotify(): void
 
     // the whole way, with the state file and the stand-in notify
     $file = "$tmp/caretaker/notify.json";
-    $checks = ['backup' => [$f('schedule', 'required', false)], 'jack' => [$f('python', 'required', true)]];
+    $checks = ['backup' => [$f('schedule', 'required', false)], 'jack' => [$f('configured', 'required', true)]];
     caretakerNotifyEvaluate($checks, $file, $t0, 'de');
     same('notify: a new red finding waits', 0, count($calls()));
     check('notify: state written', is_file($file));
@@ -24756,14 +24756,14 @@ function testNotify(): void
     same('notify: same finding — quiet', 1, count($calls()));
     caretakerNotifyEvaluate(['backup' => [$f('schedule', 'required', true)]], $file, $t0 + 6000, 'de');
     same('notify: solved — no all clear', 1, count($calls()));
-    $two = ['backup' => [$f('schedule', 'required', false)], 'jack' => [$f('python', 'required', false)]];
+    $two = ['backup' => [$f('schedule', 'required', false)], 'jack' => [$f('configured', 'required', false)]];
     caretakerNotifyEvaluate($two, $file, $t0 + 6100, 'en');
     caretakerNotifyEvaluate($two, $file, $t0 + 7900, 'en');
     $c = $calls();
     same('notify: back and a second one — one notification', 2, count($c));
     same('notify: both in it (English)', 'Unraid Secretary Office: 2 new things to do', $c[1]['-s'] ?? null);
     check('notify: both listed', str_contains($c[1]['-d'] ?? '', 'Mr. Backupsy — A backup is scheduled')
-        && str_contains($c[1]['-d'] ?? '', 'Jack Streamer — Python 3'), $c[1]['-d'] ?? '');
+        && str_contains($c[1]['-d'] ?? '', 'Jack Streamer — Jack Streamer is set up'), $c[1]['-d'] ?? '');
     // switched off: since 1.68 his row in the notification centre (lib/notifycenter.php) — «alerts only»: the gate keeps
     // what he tells (warnings) from Unraid, its history has it as not sent; his old `on` no longer decides
     $home = "$tmp/centre";
@@ -25538,12 +25538,12 @@ function testCaretakerAcks(): void
 
     // the marks: a noted recommendation or note counts no more; a must or something in place is never marked
     $t0 = 1_800_000_000;
-    $checks = ['jack'      => [$f('schedule', 'recommended', false), $f('python', 'required', false)],
+    $checks = ['jack'      => [$f('schedule', 'recommended', false), $f('configured', 'required', false)],
                'caretaker' => [$f('other_backup_container', 'hint', null, ['name' => 'duplicati', 'image' => 'x']), $f('community_apps', 'recommended', true)]];
     $s = fn (string $desk, int $i) => caretakerAckSig($desk, $checks[$desk][$i]);
     $note = fn (string $desk, string $id) => ['desk' => $desk, 'id' => $id, 'time' => $t0, 'seen' => $t0];
     $acks = [$s('jack', 0) => $note('jack', 'schedule'), $s('caretaker', 0) => $note('caretaker', 'other_backup_container'),
-             $s('jack', 1) => $note('jack', 'python'), $s('caretaker', 1) => $note('caretaker', 'community_apps')];   // the last two can't be noted
+             $s('jack', 1) => $note('jack', 'configured'), $s('caretaker', 1) => $note('caretaker', 'community_apps')];   // the last two can't be noted
     [$marked, $kept] = caretakerAckStep($checks, $acks, $t0 + 60);
     same('ack mark: every finding has its sig', [true, true, true, true],
         array_map(fn ($x) => preg_match(CARETAKER_ACK_SIG, (string) ($x['sig'] ?? '')) === 1, [...$marked['jack'], ...$marked['caretaker']]));
