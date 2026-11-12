@@ -504,7 +504,8 @@ await Promise.all(Array.from({ length: Math.min(opt.jobs, jobs.length) }, async 
 // no horizontal scrolling and no jumping page at phone width either, by finger a tap shows and the next one goes in.
 /**
  * The plan in PHP beside Python (agent/desks/jack-shadow.php): no tile without its flag (no key in his state); with it the tile says the counts,
- * its section the differences from the part «shadow»; all the same: no list, the part never asked. At 1440 and 375 px.
+ * its section the differences from the part «shadow»; all the same: no list, the part never asked; no python3: «not compared: no Python»,
+ * the footer names PHP. At 1440 and 375 px.
  */
 async function jackShadow(browser) {
   const res = { route: 'jack shadow', theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
@@ -552,6 +553,24 @@ async function jackShadow(browser) {
       await page.waitForSelector('#sso-desk .jo-structure');
       res.tested++;
       if (await page.locator('#sso-desk .jo-structure .row').count()) fail(`${width}: rows though all the same`);
+      // no python3 on the server (2026-11-12): PHP acts alone — the tile and its section say «not compared: no Python», no Python
+      // callout or bubble, the footer names PHP and no Python
+      h.setState('jack', { ...idle, python: null, php: '8.4.12', shadow: { same: 0, differ: 0, once: 0, error: 0, not: 2, last: part.summary.last, php: true, python: false } });
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForSelector('#sso-desk .jo-structure');
+      res.tested++;
+      const nopy = await page.evaluate(() => ({
+        tile: [...document.querySelectorAll('#sso-desk .stat')].map((x) => x.textContent).find((t) => t.includes('The plan in PHP')) || '',
+        page: document.querySelector('#sso-desk').textContent,
+        foot: (document.querySelector('#sso-desk .jo-tools') || {}).textContent || '',
+        wide: document.documentElement.scrollWidth > window.innerWidth,
+      }));
+      if (!nopy.tile.includes('Not compared: no Python') || !nopy.tile.includes('2 not compared')) fail(`${width}: no Python — the tile: ${nopy.tile}`);
+      if (!nopy.page.includes('This server has no Python 3: PHP plans each real run')) fail(`${width}: no Python — the section doesn't say who moves`);
+      if (nopy.page.includes('last compared on')) fail(`${width}: no Python, never compared — still «last compared on»`);
+      if (nopy.page.includes('Python 3 is missing') || nopy.page.includes('I need Python 3')) fail(`${width}: no Python — still asked for`);
+      if (!nopy.foot.includes('PHP 8.4.12') || nopy.foot.includes('Python')) fail(`${width}: no Python — the footer: ${nopy.foot}`);
+      if (nopy.wide) fail(`${width}: no Python — scrolls sideways`);
       for (const e of errors) fail(`${width}: ${e}`);
     } catch (e) {
       fail(`${width}: ${String(e.message).slice(0, 200)}`);

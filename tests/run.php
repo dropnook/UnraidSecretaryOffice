@@ -1328,6 +1328,7 @@ if (str_starts_with($u, "/to-")) { http_response_code(302); header("Location: " 
 function testJackShadow(): void
 {
     $tmp = hardeningTmp('jack-shadow');
+    $GLOBALS['jackPythonHost'] = '3.11';        // a server with python3 (the no-Python case below on its own)
     $dir = "$tmp/data";
     @mkdir("$dir", 0777, true);
     @mkdir("$tmp/pool", 0777, true);
@@ -1409,7 +1410,7 @@ function testJackShadow(): void
     file_put_contents("$dir/shadow.json", "{}\n");
     $both([], ['cleanup' => ['planned' => 0], 'fill' => ['planned' => 0]]);
     $n = $file();
-    same('shadow: the same plan: one file in its shape, counted once, one pair', [2, $clock, '9.9.9', 'run', 'same', 1, 1, ['same' => 1, 'differ' => 0, 'once' => 0, 'error' => 0, 'not' => 0, 'last' => $clock, 'php' => false]],
+    same('shadow: the same plan: one file in its shape, counted once, one pair', [2, $clock, '9.9.9', 'run', 'same', 1, 1, ['same' => 1, 'differ' => 0, 'once' => 0, 'error' => 0, 'not' => 0, 'last' => $clock, 'php' => false, 'python' => true]],
         [$n['v'] ?? null, $n['time'] ?? null, $n['version'] ?? null, $n['mode'] ?? null, $n['result'] ?? null, $n['counts']['on_deck'] ?? null, $calls, jackShadowSummary($dir)], json_encode($n));
     same('shadow: the run\'s environment (no-fill step included), never its result, stop or progress files', ['1', false, false, false, $dir, 'run'],
         [$seenEnv['MEDIACACHE_NO_FILL'] ?? null, isset($seenEnv['MEDIACACHE_RESULT']), isset($seenEnv['MEDIACACHE_STOP']), isset($seenEnv['MEDIACACHE_PROGRESS']), $seenEnv['MEDIACACHE_DIR'] ?? null, $seenEnv['mode'] ?? null]);
@@ -1501,6 +1502,34 @@ function testJackShadow(): void
         $edit = null;
     }
 
+    // no python3 on the server (2026-11-12): PHP acts as with php.json, the comparison is on and skipped — no child, no difference
+    $clock += 86400;
+    $calls = 0;
+    $live = 0;
+    $pre = jackShadowSummary($dir);
+    $GLOBALS['jackPythonHost'] = null;
+    @unlink("$dir/shadow.json");
+    $on = [jackPhpOn($dir), jackPhpActs($dir), jackShadowOn($dir)];
+    $noLive = ['php' => function () use (&$live): int {
+        $live++;
+        return 0;
+    }];
+    $ctx = jackShadowBefore('run', $env, $h($noLive));
+    $handoff = jackShadowHandoff($ctx, $h($noLive));
+    jackShadowAfter($ctx, ['cleanup' => ['planned' => 1], 'fill' => ['planned' => 2]], $h($noLive));
+    $n = $file();
+    same('shadow without python3: PHP acts (no php.json), the comparison skipped and said — «not compared: no Python», PHP on its own plan',
+        [[false, true, true], 'not', 'no_python', 'php', 'own_uncompared', false, false, false], [$on, $n['result'] ?? null, $n['why'] ?? null, $n['engine'] ?? null, $n['acted'] ?? null,
+        isset($n['differences']), isset($n['live']), isset($n['executed'])], json_encode($n));
+    same('shadow without python3: no child started (no dry twin, no PHP plan, no live look), nothing handed to the run, nothing in RAM',
+        [0, 0, [], false], [$calls, $live, $handoff, is_dir("$tmp/run")]);
+    $sum = jackShadowSummary($dir);
+    same('shadow without python3: his state — PHP acts, no Python; the night counted once as not compared, never as an error or a difference',
+        [true, false, $pre['error'] ?? null, $pre['differ'] ?? null, ($pre['not'] ?? 0) + 1], [$sum['php'] ?? null, $sum['python'] ?? null, $sum['error'] ?? null, $sum['differ'] ?? null, $sum['not'] ?? null]);
+    $GLOBALS['jackPythonHost'] = '3.11';
+    same('shadow with python3 again, no flag: Python acts, the comparison asleep', [false, false], [jackPhpActs($dir), jackShadowOn($dir)]);
+    file_put_contents("$dir/shadow.json", "{}\n");
+
     // after an array stop nothing is written, no folder made (never into /mnt)
     $clock += 86400;
     $ctx = jackShadowBefore('run', $env, $h());
@@ -1555,6 +1584,7 @@ function testJackShadow(): void
     same('shadow diff: a question one side asked', [['kind' => 'request', 'path' => 'http://a', 'python' => 2, 'php' => 0], ['kind' => 'request', 'path' => 'http://b', 'python' => 0, 'php' => 1]], jackShadowDiff($base, $base, ['http://b' => 1], ['http://a' => 2]));
     same('shadow diff: a person\'s numbers; a group that differs inside', [['kind' => 'person', 'path' => 'p:a.budget', 'python' => '1.000', 'php' => '2.000'], ['kind' => 'selected.group', 'path' => 'x', 'python' => $base['persons'][0]['selected'][0], 'php' => ['title' => 'U'] + $base['persons'][0]['selected'][0]]],
         jackShadowDiff($base, ['persons' => [['budget' => '2.000', 'selected' => [['title' => 'U'] + $base['persons'][0]['selected'][0]]] + $base['persons'][0]]] + $base));
+    unset($GLOBALS['jackPythonHost']);
     hardeningRm($tmp);
 }
 
@@ -1567,6 +1597,137 @@ function testJackShadowPython(): void
     [$exit, $out, $err] = run([PHP_BINARY, OFFICE_DIR . '/tests/shadow/diff.php'], 600);
     $lines = array_values(array_filter(explode("\n", (string) $out), fn (string $l): bool => str_starts_with($l, 'DIFF') || str_starts_with($l, '  ') || str_starts_with($l, 'all ') || str_contains($l, ' DIFFER')));
     same('shadow: Python and PHP plan the same on every stand-in case', [0, 1], [$exit, count(array_filter($lines, fn (string $l): bool => str_starts_with($l, 'all ')))], substr(implode("\n", $lines) . $err, 0, 2000));
+}
+
+/**
+ * Jack Streamer without python3 (2026-11-12; Python 3 for Unraid loses its maintainer on 2026-11-30): his settings written and checked in
+ * PHP (jackWriteSettings(): save_config()'s file, load_config()'s checks by jackPlanConfig(), the trial dance, MediaCache's words on a
+ * refusal), MediaCache's DEFAULTS as a table, and no gate that asks for Python (page, Team Lead, let-go). Where python3 is there: the
+ * same file as Python's own save_config() writes, the same words as its load_config() refuses with, Python reads PHP's file, the same
+ * DEFAULTS. Who acts and the comparison without Python: testJackShadow, testJackRun.
+ */
+function testJackNoPython(): void
+{
+    $tmp = hardeningTmp('jack-nopy');
+    @mkdir("$tmp/pool", 0700, true);
+    @mkdir("$tmp/run", 0700, true);
+    $inst = [['servername' => 'Emby Fïlme ✓', 'type' => 'emby', 'url' => 'http://192.168.20.10:8096/', 'api_key' => 'abcdefgh12345678',
+        'path_mappings' => ['/media/Filme' => '/mnt/user/Filme', '/media/Privat' => ''], '_mappings' => [['x', 'y']], '_skip' => ['z']],
+        ['servername' => "Plex\u{2028}zwei\x01", 'type' => 'plex', 'url' => 'http://plex:32400', 'api_key' => 'plexplexplexplex', 'days_to_monitor' => 30,
+        'path_mappings' => ['/data/Serien' => '/mnt/user/Serien']]];
+    $good = ['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'user_path' => '/mnt/user', 'cache_budget' => '1.5T', 'movie_share_percent' => 37.5,
+        'max_resume_movies' => null, 'valid_users' => ['abc' => ['budget' => '300G'], 'def' => []], 'libraries' => [], 'path_mappings' => [], 'themes' => true,
+        'parallel_disks' => true, '_private' => 'gone', 'instances' => $inst];
+    $refused = function (callable $f): string {
+        try {
+            $f();
+            return 'ok';
+        } catch (Problem $p) {
+            return $p->key . ': ' . (string) ($p->params['detail'] ?? '');
+        }
+    };
+    $text = fn (string $d): ?string => is_file("$d/mediacache_settings.json") ? (string) file_get_contents("$d/mediacache_settings.json") : null;
+    $left = fn (string $d): array => array_values(array_merge(glob("$d/.mediacache_settings.trial*") ?: [], glob("$tmp/run/.jack-settings*") ?: []));
+
+    // written in PHP: save_config()'s shape, 0600, the keys with «_» left out
+    $dir = "$tmp/php";
+    $w = $refused(fn () => jackWriteSettings($good, $dir, "$tmp/run"));
+    $saved = json_decode((string) $text($dir), true);
+    same('no python: his settings written in PHP — MediaCache\'s file, root only, nothing beside it, no key with «_»', ['ok', '0600', [], false, false, false, 'abcdefgh12345678', 'rsync', 'mover'],
+        [$w, substr(sprintf('%o', (int) @fileperms("$dir/mediacache_settings.json")), -4), $left($dir), isset($saved['_private']), isset($saved['instances'][0]['_mappings']),
+         isset($saved['instances'][0]['_skip']), $saved['instances'][0]['api_key'] ?? null, $saved['fill_tool'] ?? null, $saved['cleanup_tool'] ?? null]);
+    check('no python: … indented by four, unicode as it is, a line end at the end (json.dumps(indent=4, ensure_ascii=False))',
+        str_contains((string) $text($dir), "\n    \"instances\": [\n        {\n            \"servername\": \"Emby Fïlme ✓\",") && str_contains((string) $text($dir), "Plex\u{2028}zwei\\u0001")
+        && str_ends_with((string) $text($dir), "}\n"));
+
+    // a refusal: MediaCache's words, the old file as it was, nothing left
+    $before = $text($dir);
+    $bad = [['min_free_percent', ['min_free_percent' => 'viel'], 'min_free_percent muss eine Zahl, mover_debug_level eine ganze Zahl sein (auch MEDIACACHE_MIN_FREE_PERCENT / MEDIACACHE_MOVER_DEBUG prüfen)'],
+        ['movie_share_percent', ['movie_share_percent' => 120], 'movie_share_percent muss zwischen 0 und 100 liegen'],
+        ['a size', ['cache_budget' => '12X'], "Ungültige Grössenangabe: '12X' (erlaubt z.B. 2.5T, 800G, 100GB)"],
+        ['a type', ['instances' => [['type' => 'kodi'] + $inst[0]]], 'Instanz 1 (Emby Fïlme ✓): type muss emby oder jellyfin oder plex sein'],
+        ['no key', ['instances' => [['api_key' => ''] + $inst[0]]], 'Instanz 1 (Emby Fïlme ✓): url oder api_key fehlt'],
+        ['no mapping', ['instances' => [['path_mappings' => ['/media/Privat' => '']] + $inst[0]]], 'Instanz 1 (Emby Fïlme ✓): keine path_mappings – ohne Mapping passiert nichts'],
+        ['no pool', ['cache_path' => "$tmp/none"], "cache_path existiert nicht: $tmp/none"],
+        ['movie_mode', ['movie_mode' => 'egal'], "movie_mode muss 'folder' oder 'file' sein"],
+        ['without a server, the rest checked', ['instances' => [], 'max_episodes_per_series' => 'drei'], 'movie_share_percent muss eine Zahl 0–100, max_episodes_per_series eine ganze Zahl sein']];
+    foreach ($bad as [$what, $over, $words]) {
+        same("no python: refused ($what) — MediaCache's own words, the file as it was, nothing left beside it or in RAM", ["jack_config: mediacache_lib.ConfigError: $words", $before, []],
+            [$refused(fn () => jackWriteSettings($over + $good, $dir, "$tmp/run")), $text($dir), $left($dir)]);
+    }
+    $w = $refused(fn () => jackWriteSettings(['instances' => []] + $good, $dir, "$tmp/run"));
+    same('no python: no server left — the rest checked with a stand-in, written with none, the stand-in gone', ['ok', [], '1.5T', []],
+        [$w, json_decode((string) $text($dir), true)['instances'] ?? null, json_decode((string) $text($dir), true)['cache_budget'] ?? null, $left($dir)]);
+    file_put_contents("$dir/.mediacache_settings.trial.json", '{}');
+    jackWriteSettings($good, $dir, "$tmp/run");
+    same('no python: an older agent\'s trial file never left behind', [], $left($dir));
+    same('no python: an invalid text (no UTF-8) refused, never half written', ['jack_config: Malformed UTF-8 characters, possibly incorrectly encoded', $text($dir)],
+        [$refused(fn () => jackWriteSettings(['cache_budget' => "\xff"] + $good, $dir, "$tmp/run")), $text($dir)]);
+
+    // MediaCache's DEFAULTS: a table now
+    same('no python: MediaCache\'s DEFAULTS without asking Python — every key of it, the import reads them', [JACK_MEDIACACHE_DEFAULTS, 33, ['cache_path', 'themes']],
+        [jackImportDefaults(), count(JACK_MEDIACACHE_DEFAULTS), [array_key_first(JACK_MEDIACACHE_DEFAULTS), array_key_last(JACK_MEDIACACHE_DEFAULTS)]]);
+
+    // no gate asks for Python
+    $jack = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    $letgo = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-letgo.php');
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
+    check('no python: python3 only as Python\'s run (jackJob(): without php.json and with python3) — no «python3 -c» left, no check for the Team Lead',
+        substr_count($jack, "'python3'") === 2 && str_contains($jack, "array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[\$mode])")
+        && str_contains($jack, "run(['python3', '--version'], 10)") && !str_contains($jack, "'python3', '-c'") && !str_contains($jack, "finding('python'"));
+    check('no python: the let-go brings the films back without Python (no gate)', !str_contains($letgo, 'jack_letgo_python') && !str_contains($letgo, 'jackPython'));
+    check('no python: the page — no «I need Python 3» bubble or callout; the footer names who works (PHP or Python, no Python line where none); the tile says «not compared: no Python»',
+        str_contains($js, "T('shadow.no_python')") && !str_contains($js, "'bubble.no_python'") && !str_contains($js, "'notice.no_python'")
+        && str_contains($js, "if (state.shadow && state.shadow.php) line.appendChild(el('span', '', `PHP \${state.php || ''}`.trim()));\n  else if (state.python) line.appendChild(el('span', '', `Python \${state.python}`));")
+        && str_contains($js, "const shadowNoPython = (s) => s.python === false;"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
+        $lang = readJson(OFFICE_WEB . "/desks/jack/lang/$l.json") ?? [];
+        check("no python lang $l: the Python bubble, callout, check and let-go error gone; «not compared: no Python» there",
+            !isset($lang['bubble.no_python'], $lang['notice.no_python'], $lang['check.python'], $lang['check.python_how'], $lang['errors.jack_letgo_python'])
+            && !array_intersect(['bubble.no_python', 'notice.no_python', 'check.python', 'check.python_how', 'errors.jack_letgo_python'], array_keys($lang))
+            && is_string($lang['shadow.no_python'] ?? null) && is_string($lang['shadow.tip_no_python'] ?? null) && is_string($lang['shadow.sub_no_python'] ?? null));
+    }
+    same('no python: the German words as the owner said them', 'Nicht verglichen: kein Python', (readJson(OFFICE_WEB . '/desks/jack/lang/de.json') ?? [])['shadow.no_python'] ?? null);
+
+    // where python3 is there: the same file as Python's own save_config(), the same words as its load_config(), Python reads PHP's file
+    if (!needsPython(__FUNCTION__, 'against Python')) {
+        hardeningRm($tmp);
+        return;
+    }
+    // the agent's former way (1.92.0): MediaCache's save_config() + load_config() through python3 -c, in a trial file
+    $pyWrite = function (array $cfg, string $d) use ($tmp): array {
+        @mkdir($d, 0700, true);
+        $req = "$tmp/run/req.json";
+        file_put_contents($req, json_encode(jackTools($cfg), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        $trial = "$d/.trial.json";
+        @unlink($trial);
+        $py = 'import json, sys, pathlib; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; '
+            . 'c = json.load(open(sys.argv[2], encoding="utf-8")); l.save_config(c); '
+            . 'l.CONFIG_FILE = l.CONFIG_FILE if c.get("instances") else pathlib.Path(sys.argv[3]); '
+            . 'c.get("instances") or l.save_config(dict(c, instances=[{"servername": "check", "type": "emby", "url": "http://check", '
+            . '"api_key": "check", "path_mappings": {"/check": "/mnt/user/check"}}])); l.load_config()';
+        [$exit, , $err] = runEnv(['python3', '-c', $py, JACK_APP, $req, "$tmp/run/stand.json"], ['MEDIACACHE_DIR' => $d] + jackPyEnv() + ['MEDIACACHE_CONFIG' => $trial], 30);
+        @unlink($req);
+        @unlink("$tmp/run/stand.json");
+        $lines = array_filter(explode("\n", trim((string) $err)));
+        $out = $exit === 0 ? 'ok' : 'jack_config: ' . end($lines);
+        $file = is_file($trial) ? (string) file_get_contents($trial) : null;
+        @unlink($trial);
+        return [$out, $exit === 0 ? $file : null];
+    };
+    foreach (array_merge([['a full setting', []], ['no server', ['instances' => []]], ['other numbers', ['movie_share_percent' => 50, 'min_free_percent' => 12.25, 'number_episodes' => 0]]], array_map(fn (array $b): array => [$b[0], $b[1]], $bad)) as [$what, $over]) {
+        $d = "$tmp/cmp";
+        hardeningRm($d);
+        @mkdir($d, 0700, true);
+        $php = $refused(fn () => jackWriteSettings($over + $good, $d, "$tmp/run"));
+        same("no python against Python ($what): the same answer, the same file byte for byte", $pyWrite($over + $good, "$tmp/py"), [$php, $php === 'ok' ? $text($d) : null]);
+    }
+    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(); print(len(c["instances"]), c["cache_budget_bytes"], c["themes"])';
+    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $dir] + jackPyEnv(), 30);
+    same('no python against Python: MediaCache\'s own load_config() takes the file PHP wrote', [0, '2 1649267441664 True'], [$exit, trim((string) $out)], (string) $err);
+    [$exit, $out] = runEnv(['python3', '-c', 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; print(json.dumps(l.DEFAULTS))', JACK_APP], jackPyEnv(), 30);
+    same('no python against Python: the DEFAULTS table is mediacache_lib.py\'s DEFAULTS', [0, JACK_MEDIACACHE_DEFAULTS], [$exit, json_decode(trim((string) $out), true)]);
+    hardeningRm($tmp);
 }
 
 /**
@@ -1922,12 +2083,18 @@ function testJackRun(): void
     check('run: jack-run.php starts its children only in array form (proc_open, run()), never a shell string', !preg_match('/\b(shell_exec|passthru|system|popen|exec)\s*\(|`/', $code)
         && !str_contains($code, "proc_open('") && !str_contains($code, 'proc_open("'));
     $job = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
-    check('run: the job — python3 mediacache_run.py without php.json, php jack-run.php with it (the same modes), the compared tape handed over',
-        str_contains($job, "\$php = \$tool === 'embycache' && jackPhpOn(\$dir);") && str_contains($job, "\$cmd = \$php ? array_merge([PHP_BINARY, __DIR__ . '/jack-run.php'], JACK_MODES[\$mode]) : array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[\$mode]);")
+    check('run: the job — python3 mediacache_run.py without php.json, php jack-run.php with it or without python3 (the same modes), the compared tape handed over',
+        str_contains($job, "\$php = \$tool === 'embycache' && jackPhpActs(\$dir);") && str_contains($job, "\$cmd = \$php ? array_merge([PHP_BINARY, __DIR__ . '/jack-run.php'], JACK_MODES[\$mode]) : array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[\$mode]);")
         && str_contains($job, '$cmd = array_merge($cmd, jackShadowHandoff($shadow));'));
     @mkdir("$tmp/flag");
-    same('run: the flag — absent: Python, the shadow asleep; php.json: PHP, the comparison on (it says who acts)', [false, false, true, true],
-        [jackPhpOn("$tmp/flag"), jackShadowOn("$tmp/flag"), (touch("$tmp/flag/php.json") && jackPhpOn("$tmp/flag")), jackShadowOn("$tmp/flag")]);
+    $GLOBALS['jackPythonHost'] = '3.11';
+    same('run: the flag — absent: Python, the shadow asleep; php.json: PHP, the comparison on (it says who acts)', [false, false, false, true, true, true],
+        [jackPhpOn("$tmp/flag"), jackPhpActs("$tmp/flag"), jackShadowOn("$tmp/flag"), (touch("$tmp/flag/php.json") && jackPhpOn("$tmp/flag")), jackPhpActs("$tmp/flag"), jackShadowOn("$tmp/flag")]);
+    $GLOBALS['jackPythonHost'] = null;
+    @unlink("$tmp/flag/php.json");
+    same('run: no python3 on the server — PHP acts without the flag, the comparison on (and skipped: jack-shadow.php)', [false, true, true],
+        [jackPhpOn("$tmp/flag"), jackPhpActs("$tmp/flag"), jackShadowOn("$tmp/flag")]);
+    unset($GLOBALS['jackPythonHost']);
     $run2 = "$tmp/flag-run";
     @mkdir($run2);
     file_put_contents("$run2/tape-run.jsonl", "{}\n");
@@ -2783,9 +2950,6 @@ JS);
  */
 function testJackImport(): void
 {
-    if (!needsPython(__FUNCTION__)) {
-        return;
-    }
     $tmp = hardeningTmp('jackimport');
     $fs = "$tmp/fs";                      // the fake server: /mnt and /boot below it
     $pool = "$tmp/pool";                  // EmbyCache's pool (load_config() wants a real folder)
@@ -3073,7 +3237,7 @@ function testJackLetGo(): void
     $launched = [];
     $GLOBALS['jackLetGoHost'] = ['cron' => $cron, 'apply' => false, 'dir' => $dir,
         'settings' => function () use (&$settings) { return $settings; }, 'running' => function () use (&$running) { return $running; },
-        'waiting' => fn () => false, 'look' => function () use (&$look) { return $look; }, 'python' => fn () => true,
+        'waiting' => fn () => false, 'look' => function () use (&$look) { return $look; },
         'launch' => function (string $job, array $args) use (&$launched) { $launched[] = [$job, $args]; },
         'mover_off' => function () use (&$moverOff) { return $moverOff; }];
     $moverOff = true;
@@ -4038,9 +4202,6 @@ PY);
 
 function testJackRsync(): void
 {
-    if (!needsPython(__FUNCTION__)) {
-        return;
-    }
     // 2026-10-15 (the owner): MediaCache's own ways — filling with rsync, giving back with Unraid's move binary; written
     // into the settings by Jack, never forced through the environment
     $tmp = hardeningTmp('jackrsync');
@@ -4095,8 +4256,12 @@ function testJackRsync(): void
     $env = jackPyEnv();
     same('tools: no environment forces a tool (the settings say it)', [false, false], [isset($env['MEDIACACHE_FILL_TOOL']), isset($env['MEDIACACHE_CLEANUP_TOOL'])]);
     $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(require_paths=False); print(c["fill_tool"] + "|" + c["cleanup_tool"] + "|" + str("return_to_origin" in l.DEFAULTS))';
-    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"] + $env, 30);
-    same('tools: MediaCache run with Jack\'s environment on his file — rsync in, the move binary back, no «origin» at all', [0, 'rsync|mover|False'], [$exit, trim($out) ?: trim($err)]);
+    if (needsPython(__FUNCTION__, 'MediaCache\'s own load_config()')) {
+        [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"] + $env, 30);
+        same('tools: MediaCache run with Jack\'s environment on his file — rsync in, the move binary back, no «origin» at all', [0, 'rsync|mover|False'], [$exit, trim($out) ?: trim($err)]);
+    }
+    $php = jackPlanConfig("$tmp/emby/mediacache_settings.json", array_map('strval', $env), false);
+    same('tools: … and its PHP port says the same (no Python needed)', ['rsync', 'mover'], [$php['fill_tool'], $php['cleanup_tool']]);
     same('tools: only MediaCache\'s own way is a valid value', [true, false, true, false], [jackImportValueOk('cleanup_tool', 'mover', 'mover'),
         jackImportValueOk('cleanup_tool', 'rsync', 'mover'), jackImportValueOk('fill_tool', 'rsync', 'rsync'), jackImportValueOk('fill_tool', 'mover', 'rsync')]);
     same('tools: the import sets both itself', ['rsync', 'mover'], [JACK_IMPORT_FIXED['fill_tool'] ?? null, JACK_IMPORT_FIXED['cleanup_tool'] ?? null]);
@@ -24545,8 +24710,8 @@ function testNotify(): void
     $f = fn (string $id, string $level, ?bool $ok, array $p = []) => finding($id, $level, $ok, $p);
     $red = caretakerRed(['backup' => [$f('setup', 'required', true), $f('schedule', 'required', false), $f('kopia_repo', 'required', null),
                                       $f('drift', 'recommended', false), $f('kopia_running', 'required', false, ['name' => 'kopia'])],
-                         'jack'   => [$f('python', 'required', false)]]);
-    same('notify: red findings', ['backup:schedule:', 'backup:kopia_running:kopia', 'jack:python:'], array_keys($red));
+                         'jack'   => [$f('configured', 'required', false)]]);
+    same('notify: red findings', ['backup:schedule:', 'backup:kopia_running:kopia', 'jack:configured:'], array_keys($red));
 
     // the steps by themselves
     $t0 = 1_800_000_000;
@@ -24572,7 +24737,7 @@ function testNotify(): void
 
     // the whole way, with the state file and the stand-in notify
     $file = "$tmp/caretaker/notify.json";
-    $checks = ['backup' => [$f('schedule', 'required', false)], 'jack' => [$f('python', 'required', true)]];
+    $checks = ['backup' => [$f('schedule', 'required', false)], 'jack' => [$f('configured', 'required', true)]];
     caretakerNotifyEvaluate($checks, $file, $t0, 'de');
     same('notify: a new red finding waits', 0, count($calls()));
     check('notify: state written', is_file($file));
@@ -24591,14 +24756,14 @@ function testNotify(): void
     same('notify: same finding — quiet', 1, count($calls()));
     caretakerNotifyEvaluate(['backup' => [$f('schedule', 'required', true)]], $file, $t0 + 6000, 'de');
     same('notify: solved — no all clear', 1, count($calls()));
-    $two = ['backup' => [$f('schedule', 'required', false)], 'jack' => [$f('python', 'required', false)]];
+    $two = ['backup' => [$f('schedule', 'required', false)], 'jack' => [$f('configured', 'required', false)]];
     caretakerNotifyEvaluate($two, $file, $t0 + 6100, 'en');
     caretakerNotifyEvaluate($two, $file, $t0 + 7900, 'en');
     $c = $calls();
     same('notify: back and a second one — one notification', 2, count($c));
     same('notify: both in it (English)', 'Unraid Secretary Office: 2 new things to do', $c[1]['-s'] ?? null);
     check('notify: both listed', str_contains($c[1]['-d'] ?? '', 'Mr. Backupsy — A backup is scheduled')
-        && str_contains($c[1]['-d'] ?? '', 'Jack Streamer — Python 3'), $c[1]['-d'] ?? '');
+        && str_contains($c[1]['-d'] ?? '', 'Jack Streamer — Jack Streamer is set up'), $c[1]['-d'] ?? '');
     // switched off: since 1.68 his row in the notification centre (lib/notifycenter.php) — «alerts only»: the gate keeps
     // what he tells (warnings) from Unraid, its history has it as not sent; his old `on` no longer decides
     $home = "$tmp/centre";
@@ -25373,12 +25538,12 @@ function testCaretakerAcks(): void
 
     // the marks: a noted recommendation or note counts no more; a must or something in place is never marked
     $t0 = 1_800_000_000;
-    $checks = ['jack'      => [$f('schedule', 'recommended', false), $f('python', 'required', false)],
+    $checks = ['jack'      => [$f('schedule', 'recommended', false), $f('configured', 'required', false)],
                'caretaker' => [$f('other_backup_container', 'hint', null, ['name' => 'duplicati', 'image' => 'x']), $f('community_apps', 'recommended', true)]];
     $s = fn (string $desk, int $i) => caretakerAckSig($desk, $checks[$desk][$i]);
     $note = fn (string $desk, string $id) => ['desk' => $desk, 'id' => $id, 'time' => $t0, 'seen' => $t0];
     $acks = [$s('jack', 0) => $note('jack', 'schedule'), $s('caretaker', 0) => $note('caretaker', 'other_backup_container'),
-             $s('jack', 1) => $note('jack', 'python'), $s('caretaker', 1) => $note('caretaker', 'community_apps')];   // the last two can't be noted
+             $s('jack', 1) => $note('jack', 'configured'), $s('caretaker', 1) => $note('caretaker', 'community_apps')];   // the last two can't be noted
     [$marked, $kept] = caretakerAckStep($checks, $acks, $t0 + 60);
     same('ack mark: every finding has its sig', [true, true, true, true],
         array_map(fn ($x) => preg_match(CARETAKER_ACK_SIG, (string) ($x['sig'] ?? '')) === 1, [...$marked['jack'], ...$marked['caretaker']]));
@@ -50655,11 +50820,7 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
     check('remove server: saved with none — libraries and people forgotten on the agent too',
         str_contains($src, "\$cfg['libraries'] = \$instances ? array_values(array_filter(\$in['libraries'], 'is_string')) : [];")
         && str_contains($src, "foreach (\$instances ? (array) (\$in['valid_users'] ?? []) : [] as \$id) {") && str_contains($src, 'foreach ($instances ? $people : [] as $ids) {'));
-    // MediaCache's own check on a file without a server: the rest checked with a stand-in, the file written as it is
-    if (trim((string) shell_exec('command -v python3')) === '') {
-        check('remove server: python3 is missing here - skipped', true);
-        return;
-    }
+    // MediaCache's own check on a file without a server (in PHP since 2026-11-12): the rest checked with a stand-in, the file written as it is
     $tmp = hardeningTmp('jackremove');
     @mkdir("$tmp/emby", 0700, true);
     @mkdir("$tmp/pool", 0700, true);
@@ -50671,6 +50832,10 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
         ['ok', [], '300G', [], false], [$w, $saved['instances'] ?? null, $saved['cache_budget'] ?? null, array_values(array_diff(scandir("$tmp/run"), ['.', '..'])), is_file("$tmp/emby/.mediacache_settings.trial.json")]);
     same('remove server: … a wrong value still refused (checked with the stand-in)', 'jack_config',
         $refused(fn () => jackWriteSettings(['min_free_percent' => 'bad'] + $cfg, "$tmp/emby", "$tmp/run")));
+    if (!needsPython(__FUNCTION__, 'MediaCache refuses to run on it')) {
+        exec('rm -rf ' . escapeshellarg($tmp));
+        return;
+    }
     $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l
 try:
     l.load_config(require_paths=False); print("ran")
@@ -58435,11 +58600,11 @@ function testTilesMediaPages(): void
     check('jack page: «Recent runs» filtered by the switcher (sw.active(), the note line from sw.note), the result box its first row',
         str_contains($jackSrc, "const only = sw.active() === 'runs' ? 'embycache' : '';") && str_contains($jackSrc, "runsBar.done(fit.length, runs.length, sw.note('runs'));")
         && str_contains($jackSrc, "s.id = 'jo-runs';\n  const rb = resultBox();\n  if (rb) s.appendChild(rb);"));
-    check('jack page: the row first (owner 2026-10-15), then the hints, the live panel and «How I work» under it, over the sections, in one box filled anew; the tools a footer; Python missing a callout',
+    check('jack page: the row first (owner 2026-10-15), then the hints, the live panel and «How I work» under it, over the sections, in one box filled anew; the tools a footer; no Python callout (2026-11-12: PHP works without)',
         str_contains($jackSrc, "if (progBox) hints.push(progBox);\n  if (state.configured) hints.push(scopeLine());\n  root.appendChild(sw.el);\n  // one box in the switcher (it lives as long as the page; core.js redraws only the row and the body), filled anew\n  if (!hintsBox) hintsBox = sw.el.insertBefore(el('div', 'jo-hints'), sw.body);\n  hintsBox.innerHTML = '';\n  hints.forEach((n) => hintsBox.appendChild(n));\n  sw.render();\n  root.appendChild(footer());")
         && !preg_match('/\n  if \([^\n]*\) root\.appendChild\(el\(\'p\', \'callout/', substr($jackSrc, (int) strpos($jackSrc, '\nfunction render() {'), 3000))
         && str_contains($jackSrc, "Office.place('overview', el('div', 'jo-scope'))") && str_contains($jackSrc, "Office.place('tools', el('div', 'jo-foot'))")
-        && !str_contains($jackSrc, "T('tools_sub')") && !str_contains($jackSrc, "T('tools.python_missing')") && str_contains($jackSrc, "T('notice.no_python')"));
+        && !str_contains($jackSrc, "T('tools_sub')") && !str_contains($jackSrc, "T('tools.python_missing')") && !str_contains($jackSrc, "T('notice.no_python')"));
     check('jack page: «Consolidate folders» — its two facts as rows, no tiles inside a section', str_contains($jackSrc, "const facts = el('div', 'box jo-facts');")
         && !str_contains($jackSrc, "el('div', 'stats')"));
     check('jack page: two tabs «Overview» / «Setup» on both pages, no «← Back», no head button «Set up…»; his setup is the office\'s tab with tiles (no wizard)',
@@ -63300,7 +63465,7 @@ function testBackupAnewChoice(): void
         str_contains($setup, 'OLD[$k]="${v//$\'\x1f\'/$\'\n\'}"') && str_contains($setup, 'was="$v"; [[ -n "${ANEW[$v]:-}" ]] && v="${ANEW[$v]}"'));
 }
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',

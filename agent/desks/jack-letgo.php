@@ -34,7 +34,7 @@ const JACK_LETGO_JOBS  = ['embycache', 'gather'];
 /**
  * Where the let-go reads and writes, and what it asks — the tests put stand-ins into $GLOBALS['jackLetGoHost']: cron (the
  * office's cron file), apply (update_cron), dir (his data folder), settings, running, look
- * (who watches Emby), python, launch (hostLaunch()).
+ * (who watches Emby), launch (hostLaunch()). No Python asked: without python3 PHP brings them back (jackPhpActs()).
  */
 function jackLetGoHost(): array
 {
@@ -48,7 +48,6 @@ function jackLetGoHost(): array
         'waiting'  => $h['waiting'] ?? fn (): bool => jackGatherWaiting() !== null,
         // asked in the agent's own loop: a short look (the job asks again, fully)
         'look'     => $h['look'] ?? fn (?array $s): array => jackWatching($s, fn (string $url, string $key, int $t = 0, string $type = 'emby') => jackWatchFetch($url, $key, JACK_WATCH_PAGE, $type)),
-        'python'   => $h['python'] ?? fn (): bool => jackPython() !== null,
         'launch'   => $h['launch'] ?? 'hostLaunch',
         // Unraid's own mover schedule «Disabled»? (jack-mover.php) — it stays so after the let-go, the dialog says
         'mover_off' => $h['mover_off'] ?? fn (): bool => jackMoverScheduleOff(jackMoverOwn(jackMoverHost())),
@@ -103,16 +102,15 @@ function jackLetGoOnPool(?array $settings, string $dir): array
 }
 
 /**
- * May the films be brought back now? null, or the error key why not (settings, Python, nothing on the pool, a run
+ * May the films be brought back now? null, or the error key why not (settings, nothing on the pool, a run
  * going) — the watchers are asked apart (jackLetGoWatch()), only when nothing else stops it.
  */
-function jackLetGoReleaseWhyNot(?array $settings, array $onPool, ?string $running, callable $python): ?string
+function jackLetGoReleaseWhyNot(?array $settings, array $onPool, ?string $running): ?string
 {
     return match (true) {
         $settings === null || empty($settings['instances']) => 'jack_not_configured',
         $onPool['files'] === 0                               => 'jack_letgo_nothing',
         $running !== null                                    => 'jack_running',
-        !$python()                                           => 'jack_letgo_python',
         default                                              => null,
     };
 }
@@ -136,7 +134,7 @@ function jackLetGoLook(): array
     $settings = ($h['settings'])();
     $onPool = jackLetGoOnPool($settings, $h['dir']);
     $running = ($h['running'])();
-    $why = jackLetGoReleaseWhyNot($settings, $onPool, $running, $h['python']);
+    $why = jackLetGoReleaseWhyNot($settings, $onPool, $running);
     $watch = null;
     if ($why === null && ($p = jackLetGoWatchProblem(($h['look'])($settings)))) {
         $why = $p->key;
@@ -198,7 +196,7 @@ function jackLetGoRelease(array $h, ?string $running): array
     try {
         $settings = ($h['settings'])();
         $onPool = jackLetGoOnPool($settings, $h['dir']);
-        if ($why = jackLetGoReleaseWhyNot($settings, $onPool, $running, $h['python'])) {
+        if ($why = jackLetGoReleaseWhyNot($settings, $onPool, $running)) {
             throw new Problem($why);
         }
         $look = ($h['look'])($settings);
