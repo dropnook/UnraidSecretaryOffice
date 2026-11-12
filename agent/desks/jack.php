@@ -343,7 +343,8 @@ function jackScan(): array
     $jobs = ['embycache' => jackJobInfo('embycache'), 'gather' => jackJobInfo('gather')];
     $state = [
         'time'       => time(),
-        'python'     => jackPython(),
+        'python'     => jackPython(),           // null: no python3 here — PHP does MediaCache's work (jackPhpActs())
+        'php'        => PHP_VERSION,            // the footer names the one at work
         'emby'       => jackContainers(),
         'docker'     => houseDockerState(),     // 'off' / 'silent': his media servers can't be seen — the page says so (T36)
         'versions'   => jackVersions(),
@@ -392,7 +393,7 @@ function jackScan(): array
         // «Check the structure…» (jack-structure.php): the counts of the last check, whether one goes; null: never asked
         'structure'  => jackStructureSummary(),
     ];
-    // the plan in PHP beside Python (jack-shadow.php): the key only with its flag file
+    // the plan in PHP beside Python (jack-shadow.php): the key only with its flag file, php.json, or no python3
     if (($shadow = jackShadowSummary()) !== null) {
         $state['shadow'] = $shadow;
     }
@@ -439,10 +440,33 @@ function jackDockerBackLook(?string $file = null): ?array
     return $state;
 }
 
+/**
+ * python3 on this server: its version, or null — none there (Python 3 for Unraid loses its maintainer on 2026-11-30): then PHP acts
+ * (jackPhpActs()). Asked once a minute at most (his look, the checks, every job); $GLOBALS['jackPythonHost']: the tests' answer.
+ */
 function jackPython(): ?string
 {
-    [$exit, $out] = run(['python3', '--version'], 10);
-    return $exit === 0 ? trim(str_replace('Python', '', $out)) : null;
+    if (array_key_exists('jackPythonHost', $GLOBALS)) {
+        $h = $GLOBALS['jackPythonHost'];
+        return is_callable($h) ? $h() : (is_string($h) ? $h : null);
+    }
+    static $at = null, $version = null;
+    if ($at === null || hrtime(true) - $at > 60_000_000_000) {
+        [$exit, $out] = run(['python3', '--version'], 10);
+        $version = $exit === 0 ? trim(str_replace('Python', '', $out)) : null;
+        $at = hrtime(true);
+    }
+    return $version;
+}
+
+/**
+ * Who does MediaCache's work (2026-11-12): PHP (jack-run.php) with its flag file php.json — and on a server without python3, as if the
+ * flag were there (nothing would run otherwise; the comparison with Python is skipped and says so, jack-shadow.php). With python3 and
+ * no flag: Python, exactly as before.
+ */
+function jackPhpActs(?string $dir = null): bool
+{
+    return jackPhpOn($dir) || jackPython() === null;
 }
 
 /** The versions of the two tools that ship with the office */
@@ -1672,47 +1696,72 @@ function jackReset(array $o = []): array
 }
 
 /**
- * EmbyCache's settings file in $dir, written by its own save_config(). save_config() writes
- * before load_config() checks: it writes a trial file (EMBYCACHE_CONFIG), and only once
- * EmbyCache accepts it is that put in place. The request goes through a new 0600 file in $tmp
- * (it holds the API key).
+ * MediaCache's settings file in $dir, as its own save_config() writes it and checked as its load_config() checks it — in PHP
+ * (2026-11-12, no python3 needed; jackPlanConfig() is load_config() ported, jack-plan.php). The trial dance as before: the file is
+ * written beside (0600, a new name), checked, and only once accepted put in place; a refusal leaves the old file as it was. No server
+ * (every one removed): load_config() refuses that by design (so no run can go without one) — everything else is checked with a stand-in
+ * server in RAM ($tmp, 0600, gone afterwards), the file written with none. A refusal says MediaCache's own words, as Python's last line
+ * did (`mediacache_lib.ConfigError: …`).
  */
 function jackWriteSettings(array $cfg, string $dir = JACK_DATA, string $tmp = RUN_DIR): void
 {
-    if (!is_file(JACK_APP . '/mediacache_lib.py')) {
-        throw new Problem('jack_missing_tool', ['path' => JACK_APP]);
-    }
     jackDataDir($dir);
     @mkdir($tmp, 0700, true);
     $cfg = jackTools($cfg);                       // whatever writes Jack's settings (his setup, the import): rsync both ways
-    $file = writeNewFile("$tmp/.jack-settings", json_encode($cfg, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 0600);
-    if ($file === null) {
-        throw new Problem('jack_config', ['detail' => "cannot write in $tmp"]);
-    }
-    $trial = "$dir/.mediacache_settings.trial.json";
-    @unlink($trial);
-    // no server (every one removed): MediaCache's load_config() refuses that by design (so no run of it can go without one) —
-    // everything else it checks with a stand-in server, written to RAM beside the request and gone afterwards
-    $py = 'import json, sys, pathlib; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; '
-        . 'c = json.load(open(sys.argv[2], encoding="utf-8")); l.save_config(c); '
-        . 'l.CONFIG_FILE = l.CONFIG_FILE if c.get("instances") else pathlib.Path(sys.argv[3]); '
-        . 'c.get("instances") or l.save_config(dict(c, instances=[{"servername": "check", "type": "emby", "url": "http://check", '
-        . '"api_key": "check", "path_mappings": {"/check": "/mnt/user/check"}}])); l.load_config()';
-    $stand = "$tmp/.jack-settings-check.json";
-    @unlink($stand);
+    @unlink("$dir/.mediacache_settings.trial.json");       // an older agent's trial, never left behind
+    $trial = $stand = null;
+    $ok = false;
     try {
-        [$exit, , $err] = runEnv(['python3', '-c', $py, JACK_APP, $file, $stand], ['MEDIACACHE_DIR' => $dir] + jackPyEnv() + ['MEDIACACHE_CONFIG' => $trial], 30);
+        $text = jackSettingsText($cfg);
+        $trial = writeNewFile("$dir/.mediacache_settings.trial.json", $text, 0600);
+        if ($trial === null) {
+            throw new Problem('jack_config', ['detail' => "cannot write in $dir"]);
+        }
+        $check = $trial;
+        if (empty($cfg['instances'])) {
+            $stand = writeNewFile("$tmp/.jack-settings-check", jackSettingsText(['instances' => [['servername' => 'check', 'type' => 'emby', 'url' => 'http://check',
+                'api_key' => 'check', 'path_mappings' => ['/check' => '/mnt/user/check']]]] + $cfg), 0600);
+            if ($stand === null) {
+                throw new Problem('jack_config', ['detail' => "cannot write in $tmp"]);
+            }
+            $check = $stand;
+        }
+        jackPlanConfig($check, array_map('strval', jackPyEnv() + array_filter(getenv(), 'is_string')));
+        $ok = true;
+    } catch (JackPlanConfigError $e) {
+        throw new Problem('jack_config', ['detail' => 'mediacache_lib.ConfigError: ' . $e->getMessage()]);
+    } catch (JackPlanCrash | JsonException | ValueError $e) {
+        throw new Problem('jack_config', ['detail' => $e->getMessage()]);
     } finally {
-        @unlink($file);
-        @unlink($stand);
+        if ($stand !== null) {
+            @unlink($stand);
+        }
+        if ($trial !== null && !$ok) {
+            @unlink($trial);
+        }
     }
-    if ($exit !== 0 || !is_file($trial)) {
+    if (!@rename($trial, "$dir/mediacache_settings.json")) {
         @unlink($trial);
-        $lines = array_filter(explode("\n", trim($err)));
-        throw new Problem('jack_config', ['detail' => (string) end($lines)]);
+        throw new Problem('jack_config', ['detail' => "cannot write in $dir"]);
     }
-    chmod($trial, 0600);
-    rename($trial, "$dir/mediacache_settings.json");
+}
+
+/**
+ * The file as MediaCache's save_config() writes it: the keys that start with «_» left out (and an instance's _mappings, _skip),
+ * json.dumps(indent=4, ensure_ascii=False) and a line end — Python's own load_config() reads it, a later save by Python writes the same.
+ */
+function jackSettingsText(array $cfg): string
+{
+    $clean = array_filter($cfg, fn ($k): bool => !str_starts_with((string) $k, '_'), ARRAY_FILTER_USE_KEY);
+    if (is_array($clean['instances'] ?? null)) {
+        foreach ($clean['instances'] as $i => $inst) {
+            if (is_array($inst)) {
+                unset($inst['_mappings'], $inst['_skip']);
+                $clean['instances'][$i] = $inst;
+            }
+        }
+    }
+    return json_encode($clean, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_LINE_TERMINATORS | JSON_THROW_ON_ERROR) . "\n";
 }
 
 /**
@@ -2010,17 +2059,24 @@ function jackImportRead(string $dir, string $name, int $cap): ?string
     return importRead($dir, $name, $cap, 'jack_import');
 }
 
-/** EmbyCache's own DEFAULTS (the version that ships with the office), asked from mediacache_lib.py */
+/**
+ * MediaCache's own DEFAULTS (mediacache_lib.py, the version that ships with the office) as Python's json.dumps() gives them, read back
+ * as PHP reads JSON ({} an empty array, None null). A table since 2026-11-12 (no python3 needed); testJackNoPython compares it with
+ * mediacache_lib.py's wherever python3 is there — a later MediaCache with other defaults changes both.
+ */
+const JACK_MEDIACACHE_DEFAULTS = [
+    'cache_path' => '/mnt/cache', 'array_path' => '/mnt/user0', 'user_path' => '/mnt/user', 'array_disks_glob' => '/mnt/disk[0-9]*', 'array_source' => 'user0',
+    'instances' => [], 'path_mappings' => [], 'libraries' => [], 'valid_users' => [], 'number_episodes' => 3, 'cache_budget' => '',
+    'movie_share_percent' => 50, 'max_episodes_per_series' => 0, 'max_resume_items' => 10, 'max_resume_movies' => null, 'max_resume_series' => null,
+    'max_favorite_series' => 10, 'use_next_up' => true, 'min_free_percent' => 20, 'movie_mode' => 'folder', 'create_share_root' => true, 'mover_bin' => '',
+    'mover_debug_level' => 0, 'rsync_args' => ['-aAX', '--numeric-ids'], 'fill_tool' => 'rsync', 'cleanup_tool' => 'mover', 'parallel_per_disk' => 1,
+    'parallel_total' => 1, 'copy_progress' => true, 'status_log_interval' => 60, 'api_timeout' => 10, 'shares_cfg_dir' => '/boot/config/shares', 'themes' => false,
+];
+
+/** MediaCache's own DEFAULTS, for the import: the keys it knows (others are dropped) and the default of each value */
 function jackImportDefaults(): array
 {
-    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; print(json.dumps(l.DEFAULTS))';
-    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], jackPyEnv(), 30);
-    $j = $exit === 0 ? json_decode(trim($out), true) : null;
-    if (!is_array($j) || !array_key_exists('cache_path', $j)) {
-        $lines = array_filter(explode("\n", trim((string) $err)));
-        throw new Problem('jack_config', ['detail' => (string) (end($lines) ?: 'DEFAULTS')]);
-    }
-    return $j;
+    return JACK_MEDIACACHE_DEFAULTS;
 }
 
 /**
@@ -3331,7 +3387,7 @@ function jackJob(string $tool, array $args): int
 
     // the shares' folders on a ZFS pool: MediaCache makes the dataset itself, as Unraid does (create_share_root, 1.65.0)
     $progress = null;
-    $php = $tool === 'embycache' && jackPhpOn($dir);      // the flag read once for this job: the command and the hand-over agree                    // a real EmbyCache run: its two RAM files for the live panel
+    $php = $tool === 'embycache' && jackPhpActs($dir);      // php.json or no python3, asked once for this job: the command and the hand-over agree                    // a real EmbyCache run: its two RAM files for the live panel
     if ($tool === 'gather') {
         $text = $mode === 'measure' ? jackWriteMeasureIni(jackMeasureShares(), jackReadSettings() ?? [])
             : jackWriteGatherIni(jackGatherSettings() ?? [], jackReadSettings() ?? []);
@@ -3342,7 +3398,8 @@ function jackJob(string $tool, array $args): int
              + ($mode === 'run' ? ['CONSOLIDATE_STOP' => "$dir/office-stop.json"] : []);
         $cwd = '/';
     } else {
-        // the flag file php.json (jack-run.php): MediaCache's run in PHP, the same environment, output and exit codes; Python only plans dry beside it
+        // the flag file php.json or no python3 (jack-run.php): MediaCache's run in PHP, the same environment, output and exit codes; Python (where
+        // there is one) only plans dry beside it
         $cmd = $php ? array_merge([PHP_BINARY, __DIR__ . '/jack-run.php'], JACK_MODES[$mode]) : array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[$mode]);
         $env = jackPyEnv() + ['MEDIACACHE_RESULT' => "$dir/status.json"] + ($real ? ['MEDIACACHE_STOP' => "$dir/office-stop.json"] : [])
              // Ms. Moverelli's limit and his half (a dry run sees what the real one would)
@@ -3895,7 +3952,6 @@ function jackChecks(): array
     if (!$emby) {
         return $out;                       // without Emby nothing else matters for Jack
     }
-    $out[] = finding('python', 'required', jackPython() !== null, [], 'apps');
     $settings = jackReadSettings();
     $out[] = finding('configured', 'required', jackConfigured($settings), [], '#/jack/setup');
     if (!$settings) {

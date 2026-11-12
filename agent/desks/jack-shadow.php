@@ -42,11 +42,14 @@ const JACK_SHADOW_LIVE    = 300;          // s: the live look after the run at m
 const JACK_SHADOW_LIST    = 20;           // dates with differences the part «shadow» shows
 const JACK_SHADOW_RESULTS = ['same', 'differ', 'once', 'error', 'not'];
 
-/** The flag: a file; absent = asleep. PHP acting (jack-run.php, its flag php.json) wakes it too: then Python plans dry beside PHP */
+/**
+ * The flag: a file; absent = asleep. PHP acting (jack-run.php: its flag php.json, or no python3 on the server — jackPhpActs()) wakes it
+ * too: then Python plans dry beside PHP — and where there is no Python, the comparison says so («not compared: no Python»).
+ */
 function jackShadowOn(?string $dir = null): bool
 {
     $dir ??= JACK_DATA;
-    return is_file("$dir/" . JACK_SHADOW_FLAG) || jackPhpOn($dir);
+    return is_file("$dir/" . JACK_SHADOW_FLAG) || jackPhpActs($dir);
 }
 
 /** Where the comparison looks: the tests' stand-ins in $GLOBALS['jackShadowHost'] */
@@ -125,6 +128,10 @@ function jackShadowBefore(string $mode, array $env, ?array $h = null): ?array
         return null;
     }
     $ctx = ['mode' => $mode, 'time' => (int) ($h['now'])(), 'why' => null, 'pass' => null, 'once' => null, 'second' => null];
+    if (jackPython() === null) {          // no python3 here: nothing to compare with — no child, PHP plans and acts on its own
+        $ctx['why'] = 'no_python';
+        return $ctx;
+    }
     try {
         $env = array_diff_key($env, array_flip(['MEDIACACHE_RESULT', 'MEDIACACHE_STOP', 'MEDIACACHE_PROGRESS'])) + ['MEDIACACHE_DIR' => (string) $h['dir']];
         $ctx['env'] = $env;
@@ -208,7 +215,7 @@ function jackShadowAfter(?array $ctx, array $status, ?array $h = null): void
     $running = fn (): bool => (bool) ($h['array'])();        // asked again each time
     try {
         $entry = jackShadowEntry($h, $ctx);
-        if (jackPhpOn((string) $h['dir'])) {
+        if (jackPhpActs((string) $h['dir'])) {
             $entry['engine'] = 'php';
             // which plan PHP acted on: the one compared with Python's and found the same — or its own (they differed, or nothing was
             // compared: then it asked the servers itself); a difference never stops the run (Benj decides that later)
@@ -348,7 +355,7 @@ function jackShadowPass(array $h, array $env, string $mode, callable $go, ?strin
             return null;
         }
         // PHP acts (php.json): this pair's answers are the ones the real run plans from — the plan compared is the plan executed
-        if (jackPhpOn((string) $h['dir']) && is_file($tape)) {
+        if (jackPhpActs((string) $h['dir']) && is_file($tape)) {
             @rename($tape, "$run/tape-run.jsonl");
         }
         return ['py' => $py, 'php' => $php['plan'], 'outcome' => [$py['outcome'] ?? '', $php['plan']['outcome'] ?? ''], 'requests' => (int) ($php['asked'] ?? 0),
@@ -467,7 +474,8 @@ function jackShadowSummary(?string $dir = null): ?array
     foreach (JACK_SHADOW_RESULTS as $r) {
         $out[$r] = (int) ($s[$r] ?? 0);
     }
-    return $out + ['last' => isset($s['last']) ? (int) $s['last'] : null, 'php' => jackPhpOn($dir)];
+    // php: PHP acts; python: false where there is none (the page: «not compared: no Python», never a difference)
+    return $out + ['last' => isset($s['last']) ? (int) $s['last'] : null, 'php' => jackPhpActs($dir), 'python' => jackPython() !== null];
 }
 
 // ===================================================================== the comparison
