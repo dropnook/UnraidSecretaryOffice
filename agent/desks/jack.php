@@ -343,8 +343,10 @@ function jackScan(): array
     $jobs = ['embycache' => jackJobInfo('embycache'), 'gather' => jackJobInfo('gather')];
     $state = [
         'time'       => time(),
-        'python'     => jackPython(),           // null: no python3 here — PHP does MediaCache's work (jackPhpActs())
-        'php'        => PHP_VERSION,            // the footer names the one at work
+        // python3's version, asked only where Python may matter (python.json, the comparison's flag); null: not asked or none there
+        'python'     => jackPythonAsked() || jackShadowOn() ? jackPython() : null,
+        'php'        => PHP_VERSION,
+        'engine'     => jackPhpActs() ? 'php' : 'python',     // who does MediaCache's work (jackPhpActs()): the footer names it
         'emby'       => jackContainers(),
         'docker'     => houseDockerState(),     // 'off' / 'silent': his media servers can't be seen — the page says so (T36)
         'versions'   => jackVersions(),
@@ -460,13 +462,13 @@ function jackPython(): ?string
 }
 
 /**
- * Who does MediaCache's work (2026-11-12): PHP (jack-run.php) with its flag file php.json — and on a server without python3, as if the
- * flag were there (nothing would run otherwise; the comparison with Python is skipped and says so, jack-shadow.php). With python3 and
- * no flag: Python, exactly as before.
+ * Who does MediaCache's work (1.94.0): PHP (jack-run.php) on every server — python3 is not even asked. Only support's way back, the flag
+ * file python.json (jackPythonAsked()), makes Python act again, and only where python3 exists (without it nothing would run: PHP acts).
+ * python.json wins over 1.92.0's php.json: it is the later, deliberate word. Python 3 for Unraid loses its maintainer on 2026-11-30.
  */
 function jackPhpActs(?string $dir = null): bool
 {
-    return jackPhpOn($dir) || jackPython() === null;
+    return !jackPythonAsked($dir) || jackPython() === null;
 }
 
 /** The versions of the two tools that ship with the office */
@@ -3386,8 +3388,8 @@ function jackJob(string $tool, array $args): int
     }
 
     // the shares' folders on a ZFS pool: MediaCache makes the dataset itself, as Unraid does (create_share_root, 1.65.0)
-    $progress = null;
-    $php = $tool === 'embycache' && jackPhpActs($dir);      // php.json or no python3, asked once for this job: the command and the hand-over agree                    // a real EmbyCache run: its two RAM files for the live panel
+    $progress = null;                                        // a real EmbyCache run: its two RAM files for the live panel
+    $php = $tool === 'embycache' && jackPhpActs($dir);      // PHP unless python.json (and python3), asked once for this job: the command and the hand-over agree
     if ($tool === 'gather') {
         $text = $mode === 'measure' ? jackWriteMeasureIni(jackMeasureShares(), jackReadSettings() ?? [])
             : jackWriteGatherIni(jackGatherSettings() ?? [], jackReadSettings() ?? []);
@@ -3398,8 +3400,8 @@ function jackJob(string $tool, array $args): int
              + ($mode === 'run' ? ['CONSOLIDATE_STOP' => "$dir/office-stop.json"] : []);
         $cwd = '/';
     } else {
-        // the flag file php.json or no python3 (jack-run.php): MediaCache's run in PHP, the same environment, output and exit codes; Python (where
-        // there is one) only plans dry beside it
+        // PHP (jack-run.php, every server since 1.94.0): MediaCache's run, the same environment, output and exit codes; Python's run only with
+        // support's python.json; Python's dry twin only where the comparison's flag lies (jackShadowOn())
         $cmd = $php ? array_merge([PHP_BINARY, __DIR__ . '/jack-run.php'], JACK_MODES[$mode]) : array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[$mode]);
         $env = jackPyEnv() + ['MEDIACACHE_RESULT' => "$dir/status.json"] + ($real ? ['MEDIACACHE_STOP' => "$dir/office-stop.json"] : [])
              // Ms. Moverelli's limit and his half (a dry run sees what the real one would)
@@ -3419,7 +3421,7 @@ function jackJob(string $tool, array $args): int
     if ($cmd === null) {
         fwrite($out, "The gather's settings could not be put in RAM (" . RUN_DIR . ") - nothing done.\n");
     }
-    // only with its flag file: the plan in PHP beside Python's, right before this real run, on the state it acts on (jack-shadow.php)
+    // only with its flag file (shadow.json or php.json): the plans compared, right before this real run, on the state it acts on (jack-shadow.php)
     $shadow = $tool === 'embycache' && $real && jackShadowOn() ? jackShadowBefore($mode, $env) : null;
     if ($php && $real && $cmd !== null) {
         $cmd = array_merge($cmd, jackShadowHandoff($shadow));     // PHP acts on the answers its plan was compared on

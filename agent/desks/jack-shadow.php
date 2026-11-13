@@ -3,10 +3,10 @@ declare(strict_types=1);
 
 /*
  * Jack Streamer: the plan in PHP (jack-plan.php) in the shadow of Python's MediaCache (2026-11-07, reworked 2026-11-08 after the
- * review). Python keeps moving the files. Asleep unless the flag file JACK_DATA/shadow.json exists (no button, no setting, no
+ * review). Asleep unless the flag file JACK_DATA/shadow.json exists (no button, no setting, no
  * migration): without it nothing runs, nothing shows, his state has no key for it, and a real run goes exactly as before (jackJob()
- * asks jackShadowOn() and nothing else). Only on the test servers and, by hand, nostromo. A later, separate step makes PHP live; there
- * is no second flag here. The Team Lead gets no check and no notification from this.
+ * asks jackShadowOn() and nothing else). Only on the test servers and, by hand, nostromo. Since 1.94.0 PHP acts (jackPhpActs()) and the
+ * comparison is turned round: Python's dry twin beside PHP's run. The Team Lead gets no check and no notification from this.
  *
  * When: inside a real run's own job (jackJob(), `embycache run` — also the joint run's `--nofill` step — and `release`), right BEFORE
  * MediaCache starts: after the run's gates passed and with everything the run holds, on the very state the run then acts on, with
@@ -43,13 +43,15 @@ const JACK_SHADOW_LIST    = 20;           // dates with differences the part «s
 const JACK_SHADOW_RESULTS = ['same', 'differ', 'once', 'error', 'not'];
 
 /**
- * The flag: a file; absent = asleep. PHP acting (jack-run.php: its flag php.json, or no python3 on the server — jackPhpActs()) wakes it
- * too: then Python plans dry beside PHP — and where there is no Python, the comparison says so («not compared: no Python»).
+ * The flag: a file; absent = asleep. 1.92.0's php.json wakes it too (nostromo). Since 1.94.0 PHP acts everywhere (jackPhpActs()), but the
+ * comparison only where one of the two files lies: nowhere else a Python child, nothing on the page. With the flag, PHP acting: Python
+ * plans dry beside PHP — and where there is no Python, the comparison says so («not compared: no Python»); python.json turns it round
+ * again (Python acts, PHP plans dry).
  */
 function jackShadowOn(?string $dir = null): bool
 {
     $dir ??= JACK_DATA;
-    return is_file("$dir/" . JACK_SHADOW_FLAG) || jackPhpActs($dir);
+    return is_file("$dir/" . JACK_SHADOW_FLAG) || jackPhpOn($dir);
 }
 
 /** Where the comparison looks: the tests' stand-ins in $GLOBALS['jackShadowHost'] */

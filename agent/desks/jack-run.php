@@ -11,10 +11,11 @@ declare(strict_types=1);
  * says so. The plan itself is jack-plan.php's (jackPlanDecide()): one plan, the one the shadow compares. A later fix upstream or in the
  * Python copy is ported here by hand.
  *
- * Why: Python 3 for Unraid loses its maintainer's support on 2026-11-30. Asleep unless the flag file JACK_DATA/php.json exists: then
- * jackJob() starts THIS as the run's own process (`php jack-run.php --run|--release|--show-on-deck --compact|<dry>`, the same
- * environment, the same output file, the same exit codes: 0 ok, 3 stopped, 1 failed/busy/config, 2 a bad call) and Python only plans dry
- * beside it (jack-shadow.php). Before a real run the job hands over the tape the comparison planned from (`--tape`): this run plans from
+ * Why: Python 3 for Unraid loses its maintainer's support on 2026-11-30. Since 1.94.0 PHP acts on every server (jackPhpActs()); the
+ * flag file JACK_DATA/python.json (support's way back, where python3 exists) makes Python act again. jackJob() starts THIS as the run's own
+ * process (`php jack-run.php --run|--release|--show-on-deck --compact|<dry>`, the same environment, the same output file, the same exit
+ * codes: 0 ok, 3 stopped, 1 failed/busy/config, 2 a bad call); only where the comparison's flag lies (shadow.json or php.json) Python plans
+ * dry beside it (jack-shadow.php). Before a real run the job hands over the tape the comparison planned from (`--tape`): this run plans from
  * exactly those answers, so the plan compared is the plan executed, and writes that plan down (`--plan-out`, RAM) for the night file.
  * Without a tape (nothing was compared: a disk asleep, Python failed …) it asks the servers itself.
  *
@@ -38,7 +39,8 @@ if (!interface_exists('JackPlanHost', false)) {        // on its own (the run's 
 }
 
 const JACK_RUN_SOURCE = '7.4.0 (2026-10-15)';   // the MediaCache this was ported from (its __version__)
-const JACK_RUN_FLAG = 'php.json';
+const JACK_RUN_FLAG = 'php.json';              // 1.92.0's flag: PHP acts — now the default; still read (it wakes the comparison, jackShadowOn())
+const JACK_PYTHON_FLAG = 'python.json';         // support's way back (1.94.0): Python acts again where python3 exists
 const JACK_RUN_THEME = 'theme.mp3';
 const JACK_RUN_THEMES_MARK = '# USO themes: theme.mp3 kept on the pool for good (Unraid Secretary Office, Jack Streamer)';
 const JACK_RUN_MOVERS = ['/usr/libexec/unraid/move', '/usr/local/sbin/move', '/usr/local/bin/move'];
@@ -58,10 +60,17 @@ const JACK_RUN_VANISHED_SAID = 'Ein anderes Programm hat die halb kopierte Datei
 const JACK_RUN_PROGRESS_RE = '/^\s*([\d,.\']+)\s+(\d+)%\s+(\S+\/s)\s+(\d+:\d+:\d+)/';
 const JACK_RUN_LEVELS = ['DEBUG' => 10, 'INFO' => 20, 'WARNING' => 30, 'ERROR' => 40];
 
-/** The flag: a file; absent = Python runs, exactly as before */
+/** php.json: a file (1.92.0's switch to PHP; since 1.94.0 PHP acts anyway — the file still wakes the comparison) */
 function jackPhpOn(?string $dir = null): bool
 {
     return is_file(($dir ?? JACK_DATA) . '/' . JACK_RUN_FLAG);
+}
+
+/** python.json: a plain file, never a link (any content) — support asks Python to act again (jackPhpActs()) */
+function jackPythonAsked(?string $dir = null): bool
+{
+    $f = ($dir ?? JACK_DATA) . '/' . JACK_PYTHON_FLAG;
+    return !is_link($f) && is_file($f);
 }
 
 /** vanished(): rsync's temporary file was deleted in the target before its rename (code 23) */
