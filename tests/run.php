@@ -1331,6 +1331,7 @@ function testJackShadow(): void
     $GLOBALS['jackPythonHost'] = '3.11';        // a server with python3 (the no-Python case below on its own)
     $dir = "$tmp/data";
     @mkdir("$dir", 0777, true);
+    file_put_contents("$dir/python.json", "{}\n");     // support's way back: Python acts, PHP plans dry beside it (the comparison's first direction)
     @mkdir("$tmp/pool", 0777, true);
     @mkdir("$tmp/user0/Filme/A", 0777, true);
     file_put_contents("$tmp/user0/Filme/A/a.mkv", 'xxxxx');
@@ -1502,13 +1503,13 @@ function testJackShadow(): void
         $edit = null;
     }
 
-    // no python3 on the server (2026-11-12): PHP acts as with php.json, the comparison is on and skipped — no child, no difference
+    // no python3 on the server, the comparison's flag there (2026-11-12): PHP acts (python.json changes nothing without python3), the
+    // comparison is on and skipped — no child, no difference
     $clock += 86400;
     $calls = 0;
     $live = 0;
     $pre = jackShadowSummary($dir);
     $GLOBALS['jackPythonHost'] = null;
-    @unlink("$dir/shadow.json");
     $on = [jackPhpOn($dir), jackPhpActs($dir), jackShadowOn($dir)];
     $noLive = ['php' => function () use (&$live): int {
         $live++;
@@ -1518,7 +1519,7 @@ function testJackShadow(): void
     $handoff = jackShadowHandoff($ctx, $h($noLive));
     jackShadowAfter($ctx, ['cleanup' => ['planned' => 1], 'fill' => ['planned' => 2]], $h($noLive));
     $n = $file();
-    same('shadow without python3: PHP acts (no php.json), the comparison skipped and said — «not compared: no Python», PHP on its own plan',
+    same('shadow without python3: PHP acts (no php.json, python.json there), the comparison skipped and said — «not compared: no Python», PHP on its own plan',
         [[false, true, true], 'not', 'no_python', 'php', 'own_uncompared', false, false, false], [$on, $n['result'] ?? null, $n['why'] ?? null, $n['engine'] ?? null, $n['acted'] ?? null,
         isset($n['differences']), isset($n['live']), isset($n['executed'])], json_encode($n));
     same('shadow without python3: no child started (no dry twin, no PHP plan, no live look), nothing handed to the run, nothing in RAM',
@@ -1527,7 +1528,12 @@ function testJackShadow(): void
     same('shadow without python3: his state — PHP acts, no Python; the night counted once as not compared, never as an error or a difference',
         [true, false, $pre['error'] ?? null, $pre['differ'] ?? null, ($pre['not'] ?? 0) + 1], [$sum['php'] ?? null, $sum['python'] ?? null, $sum['error'] ?? null, $sum['differ'] ?? null, $sum['not'] ?? null]);
     $GLOBALS['jackPythonHost'] = '3.11';
-    same('shadow with python3 again, no flag: Python acts, the comparison asleep', [false, false], [jackPhpActs($dir), jackShadowOn($dir)]);
+    @unlink("$dir/shadow.json");
+    same('shadow with python3 again, no flag, python.json: Python acts, the comparison asleep', [false, false], [jackPhpActs($dir), jackShadowOn($dir)]);
+    $GLOBALS['jackPythonHost'] = null;
+    same('shadow without python3, no flag (1.94.0): PHP acts, the comparison asleep — no key in his state, no tile, no «not compared»', [true, false, null],
+        [jackPhpActs($dir), jackShadowOn($dir), jackShadowSummary($dir)]);
+    $GLOBALS['jackPythonHost'] = '3.11';
     file_put_contents("$dir/shadow.json", "{}\n");
 
     // after an array stop nothing is written, no folder made (never into /mnt)
@@ -1672,13 +1678,13 @@ function testJackNoPython(): void
     $jack = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
     $letgo = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-letgo.php');
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
-    check('no python: python3 only as Python\'s run (jackJob(): without php.json and with python3) — no «python3 -c» left, no check for the Team Lead',
+    check('no python: python3 only as Python\'s run (jackJob(): python.json and python3) — no «python3 -c» left, no check for the Team Lead',
         substr_count($jack, "'python3'") === 2 && str_contains($jack, "array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[\$mode])")
         && str_contains($jack, "run(['python3', '--version'], 10)") && !str_contains($jack, "'python3', '-c'") && !str_contains($jack, "finding('python'"));
     check('no python: the let-go brings the films back without Python (no gate)', !str_contains($letgo, 'jack_letgo_python') && !str_contains($letgo, 'jackPython'));
     check('no python: the page — no «I need Python 3» bubble or callout; the footer names who works (PHP or Python, no Python line where none); the tile says «not compared: no Python»',
         str_contains($js, "T('shadow.no_python')") && !str_contains($js, "'bubble.no_python'") && !str_contains($js, "'notice.no_python'")
-        && str_contains($js, "if (state.shadow && state.shadow.php) line.appendChild(el('span', '', `PHP \${state.php || ''}`.trim()));\n  else if (state.python) line.appendChild(el('span', '', `Python \${state.python}`));")
+        && str_contains($js, "const php = state.engine ? state.engine === 'php' : !!(state.shadow && state.shadow.php);\n  if (php) line.appendChild(el('span', '', `PHP \${state.php || ''}`.trim()));\n  else if (state.python) line.appendChild(el('span', '', `Python \${state.python}`));")
         && str_contains($js, "const shadowNoPython = (s) => s.python === false;"));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $lang = readJson(OFFICE_WEB . "/desks/jack/lang/$l.json") ?? [];
@@ -2083,17 +2089,64 @@ function testJackRun(): void
     check('run: jack-run.php starts its children only in array form (proc_open, run()), never a shell string', !preg_match('/\b(shell_exec|passthru|system|popen|exec)\s*\(|`/', $code)
         && !str_contains($code, "proc_open('") && !str_contains($code, 'proc_open("'));
     $job = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
-    check('run: the job — python3 mediacache_run.py without php.json, php jack-run.php with it or without python3 (the same modes), the compared tape handed over',
+    check('run: the job — php jack-run.php on every server, python3 mediacache_run.py only with python.json and python3 (the same modes), the compared tape handed over',
         str_contains($job, "\$php = \$tool === 'embycache' && jackPhpActs(\$dir);") && str_contains($job, "\$cmd = \$php ? array_merge([PHP_BINARY, __DIR__ . '/jack-run.php'], JACK_MODES[\$mode]) : array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[\$mode]);")
         && str_contains($job, '$cmd = array_merge($cmd, jackShadowHandoff($shadow));'));
+    // who acts (1.94.0): PHP everywhere; support's python.json (a plain file) brings Python back where python3 exists; php.json still read
+    // (it wakes the comparison, as shadow.json does); python3 not even asked without python.json
     @mkdir("$tmp/flag");
-    $GLOBALS['jackPythonHost'] = '3.11';
-    same('run: the flag — absent: Python, the shadow asleep; php.json: PHP, the comparison on (it says who acts)', [false, false, false, true, true, true],
-        [jackPhpOn("$tmp/flag"), jackPhpActs("$tmp/flag"), jackShadowOn("$tmp/flag"), (touch("$tmp/flag/php.json") && jackPhpOn("$tmp/flag")), jackPhpActs("$tmp/flag"), jackShadowOn("$tmp/flag")]);
-    $GLOBALS['jackPythonHost'] = null;
-    @unlink("$tmp/flag/php.json");
-    same('run: no python3 on the server — PHP acts without the flag, the comparison on (and skipped: jack-shadow.php)', [false, true, true],
-        [jackPhpOn("$tmp/flag"), jackPhpActs("$tmp/flag"), jackShadowOn("$tmp/flag")]);
+    $asked = 0;
+    $py = '3.11';
+    $GLOBALS['jackPythonHost'] = function () use (&$asked, &$py): ?string {
+        $asked++;
+        return $py;
+    };
+    $f = "$tmp/flag";
+    $who = fn (): array => [jackPhpActs($f), jackShadowOn($f)];
+    $rows = ['none' => $who()];
+    $firstAsked = $asked;
+    file_put_contents("$f/python.json", '');
+    $rows['python.json'] = $who();
+    $py = null;
+    $rows['python.json, no python3'] = $who();
+    $py = '3.11';
+    unlink("$f/python.json");
+    file_put_contents("$tmp/flag-py", '{}');
+    symlink("$tmp/flag-py", "$f/python.json");
+    $rows['python.json a link'] = $who();
+    unlink("$f/python.json");
+    mkdir("$f/python.json");
+    $rows['python.json a folder'] = $who();
+    rmdir("$f/python.json");
+    touch("$f/php.json");
+    $rows['php.json'] = $who();
+    file_put_contents("$f/python.json", 'x');
+    $rows['php.json + python.json'] = $who();
+    unlink("$f/php.json");
+    unlink("$f/python.json");
+    touch("$f/shadow.json");
+    $rows['shadow.json'] = $who();
+    file_put_contents("$f/python.json", '');
+    $rows['shadow.json + python.json'] = $who();
+    unlink("$f/python.json");
+    unlink("$f/shadow.json");
+    same('run: who acts [PHP, comparison] — PHP by default, python.json Python (not without python3, never a link), php.json and shadow.json compare',
+        ['none' => [true, false], 'python.json' => [false, false], 'python.json, no python3' => [true, false], 'python.json a link' => [true, false],
+         'python.json a folder' => [true, false], 'php.json' => [true, true], 'php.json + python.json' => [false, true], 'shadow.json' => [true, true],
+         'shadow.json + python.json' => [false, true]], $rows);
+    same('run: no flag — python3 never asked', 0, $firstAsked);
+    // no flag: no comparison before the run — no Python child, nothing handed to the run
+    $child = 0;
+    $stub = function () use (&$child): int {
+        $child++;
+        return 0;
+    };
+    $sh = ['dir' => $f, 'run' => "$tmp/flag-shadow", 'array' => fn (): bool => true, 'stop' => fn (): bool => false, 'asleep' => fn (): array => [],
+        'python' => $stub, 'php' => $stub, 'now' => fn (): int => 1800000000];
+    $ctx = jackShadowBefore('run', [], $sh);
+    jackShadowAfter($ctx, [], $sh);
+    same('run: no flag — no comparison: no child (Python or PHP), nothing handed over, nothing written, no key in his state', [null, 0, [], false, false, null],
+        [$ctx, $child, jackShadowHandoff($ctx, $sh), is_dir("$tmp/flag-shadow"), is_dir("$f/shadow"), jackShadowSummary($f)]);
     unset($GLOBALS['jackPythonHost']);
     $run2 = "$tmp/flag-run";
     @mkdir($run2);
