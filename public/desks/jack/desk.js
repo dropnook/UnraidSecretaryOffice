@@ -597,8 +597,8 @@ function scopeLine() {
 }
 
 /**
- * Under all (no section): the tools' versions with the one that does MediaCache's work — PHP (php.json, or no python3 on the
- * server: state.shadow.php) or Python; no Python line where there is none — and the quiet credit: both tools are helmi1987's,
+ * Under all (no section): the tools' versions with the one that does MediaCache's work — state.engine (1.94.0: PHP, Python only with
+ * support's python.json; an older agent's state has none: its state.shadow.php) — and the quiet credit: both tools are helmi1987's,
  * and a share of the tips goes to him
  */
 function footer() {
@@ -606,7 +606,8 @@ function footer() {
   const line = el('div', 'row-meta jo-tools');
   const ver = (state.versions.embycache || '?').replace(/\s*\(.*\)$/, '');
   line.append(el('span', '', `MediaCache ${ver}`), el('span', '', `${T('gather')} ${state.versions.gather || '?'}`));
-  if (state.shadow && state.shadow.php) line.appendChild(el('span', '', `PHP ${state.php || ''}`.trim()));
+  const php = state.engine ? state.engine === 'php' : !!(state.shadow && state.shadow.php);
+  if (php) line.appendChild(el('span', '', `PHP ${state.php || ''}`.trim()));
   else if (state.python) line.appendChild(el('span', '', `Python ${state.python}`));
   box.append(line, credit());
   return box;
@@ -1317,7 +1318,7 @@ function shadowBox() {
   return box;
 }
 function shadowSection() {
-  // PHP acts (php.json, or no python3): who moves, who compares — or that nothing is compared, there being no Python
+  // only with the comparison's flag (shadow.json, php.json): who moves, who compares — or that nothing is compared, there being no Python
   const sub = state.shadow && shadowNoPython(state.shadow) ? 'shadow.sub_no_python' : state.shadow && state.shadow.php ? 'shadow.sub_php' : 'shadow.sub';
   const s = section(T('shadow.title'), T(sub), { place: 'tile.shadow' });
   dom.shadow = shadowBox();
