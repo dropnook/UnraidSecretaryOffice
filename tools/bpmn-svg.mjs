@@ -37,7 +37,7 @@ try {
   for (const f of files) {
     const xml = fs.readFileSync(f, 'utf8');
     try {
-      const svg = await page.evaluate(async (x) => {
+      let svg = await page.evaluate(async (x) => {
         const v = new window.BpmnJS({ container: '#c' });
         await v.importXML(x);
         const { svg } = await v.saveSVG();
