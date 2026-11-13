@@ -59,15 +59,15 @@ search with ⌘K, on the phone too. **[The full guide](docs/GUIDE.md)** walks th
 
 ## Install
 
-Unraid **7.3.2 or a newer 7.x**; snapshots need ZFS or btrfs, Jack Streamer needs Python 3 (e.g. *Python 3 for UNRAID*
-from *Apps*). In Unraid, go to *Plugins → Install Plugin* and paste:
+Unraid **7.3.2 or a newer 7.x**; snapshots need ZFS or btrfs. In Unraid, find **Unraid Secretary Office** in *Apps*
+(Community Applications), or go to *Plugins → Install Plugin* and paste:
 
 ```
 https://github.com/dropnook/UnraidSecretaryOffice/releases/latest/download/unraid-secretary-office.plg
 ```
 
 Then open **Office** in Unraid's menu bar (*Sekretariat*, *Segreteria* … when Unraid speaks another language); the Team
-Lead welcomes you. Coming soon to Community Applications; updates come through Unraid's plugin manager either way.
+Lead welcomes you. Updates come through Unraid's plugin manager either way.
 
 ## Support
 

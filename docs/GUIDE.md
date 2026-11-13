@@ -224,13 +224,13 @@ the place. It all runs in your browser.
 ## Install and first steps
 
 Unraid **7.3.2 or a newer 7.x**; Unraid 8 is not supported yet, the plugin refuses to install there. Snapshots need
-pools or array disks on ZFS or btrfs (shares on XFS are backed up without one); partner offices need ZFS. Jack Streamer
-needs Python 3 (e.g. *Python 3 for UNRAID* from *Apps*), nobody else does — the Team Lead says so when it is missing.
+pools or array disks on ZFS or btrfs (shares on XFS are backed up without one); partner offices need ZFS. Nothing else to
+install: Jack Streamer works without Python 3 (where Python 3 is installed, his tools keep using it).
 Before you update Unraid itself, look for an office release that names the new version — Unraid switches off a plugin
 that doesn't at its first boot, and the scheduled backups stop with it; the Team Lead reminds you once your Unraid is
 newer than the one the office was tested on.
 
-1. *Plugins → Install Plugin* and paste
+1. *Apps* (Community Applications): search for *secretary* and install — or *Plugins → Install Plugin* and paste
    ```
    https://github.com/dropnook/UnraidSecretaryOffice/releases/latest/download/unraid-secretary-office.plg
    ```
