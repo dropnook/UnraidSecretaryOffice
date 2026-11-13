@@ -9,7 +9,7 @@
       <bpmn:outgoing>F2</bpmn:outgoing>
       <bpmn:outgoing>F4</bpmn:outgoing>
     </bpmn:exclusiveGateway>
-    <bpmn:task id="T1" name="Erbt die Stufe des Shares: ausser Haus, nur lokal oder nicht gesichert">
+    <bpmn:task id="T1" name="Erbt die Stufe des Shares: aus, lokal, + Partner oder + ausser Haus">
       <bpmn:incoming>F2</bpmn:incoming>
       <bpmn:outgoing>F3</bpmn:outgoing>
     </bpmn:task>
@@ -29,14 +29,14 @@
     <bpmn:endEvent id="E2">
       <bpmn:incoming>F6</bpmn:incoming>
     </bpmn:endEvent>
-    <bpmn:task id="T3" name="Erbt die Stufe der App/VM: nur lokal (eine neue bekommt die Vorgabe)">
+    <bpmn:task id="T3" name="Erbt die Stufe der App/VM: bleibt lokal, nichts wartet">
       <bpmn:incoming>F7</bpmn:incoming>
       <bpmn:outgoing>F8</bpmn:outgoing>
     </bpmn:task>
     <bpmn:endEvent id="E3">
       <bpmn:incoming>F8</bpmn:incoming>
     </bpmn:endEvent>
-    <bpmn:task id="T4" name="Kann nichts erben: bleibt lokal und wartet auf deine Entscheidung">
+    <bpmn:task id="T4" name="Noch nichts entschieden: bleibt lokal und wartet auf deine Entscheidung">
       <bpmn:incoming>F9</bpmn:incoming>
       <bpmn:outgoing>F10</bpmn:outgoing>
     </bpmn:task>
@@ -49,9 +49,9 @@
     <bpmn:sequenceFlow id="F4" name="Ja" sourceRef="G1" targetRef="G2" />
     <bpmn:sequenceFlow id="F5" name="einer, die ausser Haus geht" sourceRef="G2" targetRef="T2" />
     <bpmn:sequenceFlow id="F6" sourceRef="T2" targetRef="E2" />
-    <bpmn:sequenceFlow id="F7" name="einer nur lokalen oder neuen" sourceRef="G2" targetRef="T3" />
+    <bpmn:sequenceFlow id="F7" name="einer früher eingerichteten, nur lokalen" sourceRef="G2" targetRef="T3" />
     <bpmn:sequenceFlow id="F8" sourceRef="T3" targetRef="E3" />
-    <bpmn:sequenceFlow id="F9" name="keiner" sourceRef="G2" targetRef="T4" />
+    <bpmn:sequenceFlow id="F9" name="einer neuen oder keiner" sourceRef="G2" targetRef="T4" />
     <bpmn:sequenceFlow id="F10" sourceRef="T4" targetRef="E4" />
     <bpmn:textAnnotation id="A1">
       <bpmn:text>appdata und domains: wo Unraid die Ordner der Apps und VMs ablegt (Docker- und VM-Einstellungen)</bpmn:text>
@@ -149,7 +149,7 @@
         <di:waypoint x="605" y="268" />
         <di:waypoint x="730" y="268" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="620" y="274" width="84" height="27" />
+          <dc:Bounds x="612" y="274" width="110" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F8_di" bpmnElement="F8">
@@ -160,7 +160,7 @@
         <di:waypoint x="580" y="293" />
         <di:waypoint x="580" y="380" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="596" y="325" width="30" height="14" />
+          <dc:Bounds x="590" y="325" width="110" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10">

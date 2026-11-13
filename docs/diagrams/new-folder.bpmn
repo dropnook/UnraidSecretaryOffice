@@ -9,7 +9,7 @@
       <bpmn:outgoing>F2</bpmn:outgoing>
       <bpmn:outgoing>F4</bpmn:outgoing>
     </bpmn:exclusiveGateway>
-    <bpmn:task id="T1" name="Inherits the share's level: offsite, local only or not backed up">
+    <bpmn:task id="T1" name="Inherits the share's level: off, local, + partner or + offsite">
       <bpmn:incoming>F2</bpmn:incoming>
       <bpmn:outgoing>F3</bpmn:outgoing>
     </bpmn:task>
@@ -29,14 +29,14 @@
     <bpmn:endEvent id="E2">
       <bpmn:incoming>F6</bpmn:incoming>
     </bpmn:endEvent>
-    <bpmn:task id="T3" name="Inherits the app's or VM's level: local only (a new one gets the preset)">
+    <bpmn:task id="T3" name="Inherits the app's or VM's level: stays local, nothing waits">
       <bpmn:incoming>F7</bpmn:incoming>
       <bpmn:outgoing>F8</bpmn:outgoing>
     </bpmn:task>
     <bpmn:endEvent id="E3">
       <bpmn:incoming>F8</bpmn:incoming>
     </bpmn:endEvent>
-    <bpmn:task id="T4" name="Nothing to inherit: stays local and waits for your decision">
+    <bpmn:task id="T4" name="Nothing decided yet: stays local and waits for your decision">
       <bpmn:incoming>F9</bpmn:incoming>
       <bpmn:outgoing>F10</bpmn:outgoing>
     </bpmn:task>
@@ -49,9 +49,9 @@
     <bpmn:sequenceFlow id="F4" name="Yes" sourceRef="G1" targetRef="G2" />
     <bpmn:sequenceFlow id="F5" name="one that goes offsite" sourceRef="G2" targetRef="T2" />
     <bpmn:sequenceFlow id="F6" sourceRef="T2" targetRef="E2" />
-    <bpmn:sequenceFlow id="F7" name="a local-only or new one" sourceRef="G2" targetRef="T3" />
+    <bpmn:sequenceFlow id="F7" name="one set up before, local only" sourceRef="G2" targetRef="T3" />
     <bpmn:sequenceFlow id="F8" sourceRef="T3" targetRef="E3" />
-    <bpmn:sequenceFlow id="F9" name="none" sourceRef="G2" targetRef="T4" />
+    <bpmn:sequenceFlow id="F9" name="a new one, or none" sourceRef="G2" targetRef="T4" />
     <bpmn:sequenceFlow id="F10" sourceRef="T4" targetRef="E4" />
     <bpmn:textAnnotation id="A1">
       <bpmn:text>appdata and domains: where Unraid keeps the folders of apps and VMs (Docker and VM settings)</bpmn:text>
@@ -149,7 +149,7 @@
         <di:waypoint x="605" y="268" />
         <di:waypoint x="730" y="268" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="620" y="274" width="84" height="27" />
+          <dc:Bounds x="612" y="274" width="110" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F8_di" bpmnElement="F8">
@@ -160,7 +160,7 @@
         <di:waypoint x="580" y="293" />
         <di:waypoint x="580" y="380" />
         <bpmndi:BPMNLabel>
-          <dc:Bounds x="596" y="325" width="30" height="14" />
+          <dc:Bounds x="590" y="325" width="110" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10">
