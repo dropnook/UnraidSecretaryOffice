@@ -3739,10 +3739,19 @@ function jackOutput(string $tool): array
     $text = (string) @file_get_contents(jackToolDir($tool) . '/office-output.txt', false, null, 0, 2 * 1024 * 1024);
     // his last run was a step of the night with Ms. Moverelli: the whole night's output — every step, not only his last
     $night = DATA_DIR . '/moverelli/night-output.txt';
-    if ($tool === 'embycache' && (jackJobInfo($tool)['by'] ?? '') === 'night' && is_file($night) && !is_link($night)) {
+    $info = jackJobInfo($tool);
+    if ($tool === 'embycache' && ($info['by'] ?? '') === 'night' && is_file($night) && !is_link($night)) {
+        $own = $text;
         $text = (string) @file_get_contents($night, false, null, 0, 2 * 1024 * 1024);
+        // the night adds a step once it ended: his step going on now follows as it is, under the head it will get
+        // (2026-11-13: «Raw output» showed nothing of the fetch while it ran)
+        if (!empty($info['running'])) {
+            $n = readJson(dirname($night) . '/night.json') ?? [];
+            $text .= sprintf("===== Jack Streamer · %s · round %d · running =====\n%s", is_string($n['phase'] ?? null) ? $n['phase'] : 'run',
+                (int) ($n['round'] ?? 1), $own);
+        }
     }
-    return ['ok' => true, 'info' => jackJobInfo($tool), 'text' => jackPlainOutput($text)];
+    return ['ok' => true, 'info' => $info, 'text' => jackPlainOutput($text)];
 }
 
 /** Terminal output as text: progress lines (\r) collapsed, colour/erase codes and the log prefix gone */

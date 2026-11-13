@@ -55485,9 +55485,15 @@ function testNightRun(): void
         [$m[1], str_contains($out, "his output after: jack run --night --office --nofill\n"), str_contains($out, "his output after: jack run --night --office\n")]);
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
     check('night run 1: «Raw output» on both pages shows the whole night when the last run was a step of it; his result box sums his steps',
-        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), "(jackJobInfo(\$tool)['by'] ?? '') === 'night' && is_file(\$night)")
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'), "(\$info['by'] ?? '') === 'night' && is_file(\$night)")
         && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php'), "(moverelliJobInfo(\$h['dir'])['by'] ?? '') === 'night' && is_file(\"\$h[dir]/night-output.txt\")")
         && str_contains($js, "const st = nightStatus('last_status' in state ? state.last_status : state.last);"));
+    // 2026-11-13: «Raw output» during the night — the step going on now follows the ended ones, under the head it will get
+    $jsrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
+    $msrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/moverelli.php');
+    check('night run 1: «Raw output» while a step runs — his running step and hers follow the night\'s ended steps, each only while its own step goes on',
+        str_contains($jsrc, "if (!empty(\$info['running'])) {") && str_contains($jsrc, '"===== Jack Streamer · %s · round %d · running =====\\n%s"')
+        && str_contains($msrc, "if (!empty(\$n['running']) && (\$n['who'] ?? null) === 'her') {") && str_contains($msrc, '"===== Ms. Moverelli · %s · round %d · running =====\\n%s"'));
     same('night run 1: his steps keep their counts', [true, false, true],
         [isset(($n['steps'][0] ?? [])['cleanup']), isset(($n['steps'][1] ?? [])['cleanup']), isset((end($n['steps']) ?: [])['fill'])]);
     $pic = $n['picture'] ?? [];
