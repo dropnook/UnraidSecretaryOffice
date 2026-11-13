@@ -56085,8 +56085,10 @@ JS);
     same('jack chaos page: her last joint run — «done — Jack Streamer: 2 files not laid out»; done alone without; missed keeps its words',
         ['night.last {"when":"R2000","how":"night.last_ok — night.jack_failed {\"n\":2}"}', 'night.last {"when":"R2000","how":"night.last_ok"}',
          'night.last {"when":"R2000","how":"night.last_missed {\"pct\":81} — night.jack_failed {\"n\":2}"}'], $j['lastNight'] ?? null);
-    same('jack chaos page: her «Last run» (her part of that night) — his files said under it, a warning; without them green; a run of hers before the night: nothing of his',
-        [['mode.run · result.ok', 'night.jack_failed {"n":2}'], true, [['mode.run · result.ok'], false], ['mode.run · result.ok']],
+    // 2026-11-13: her part of a joint run says the joint run, its end and how long it took (not her step's at its start)
+    same('jack chaos page: her «Last run» (her part of that night: «Joint run · done · took …») — his files said under it, a warning; without them green; a run of hers before the night: nothing of his, her own run\'s time',
+        [['rc.night_title · result.ok · last_took {"time":"1900s"}', 'night.jack_failed {"n":2}'], true, [['rc.night_title · result.ok · last_took {"time":"1900s"}'], false],
+         ['mode.run · result.ok · last_took {"time":"10s"}']],
         [$j['herTile'][0] ?? null, $j['herTile'][1] ?? null, $j['herOk'] ?? null, $j['herBefore'] ?? null]);
     same('jack chaos page: her schedule section — a warning chip with his count and why, the way to his page', [['night.jack_failed {"n":2}', 'night.jack_failed_tip']], $j['chip'] ?? null);
 
@@ -57443,7 +57445,7 @@ JS);
     same('moverelli tiles: «Schedule» (hers, Unraid\'s mover as its line), «Shares» (moving of all, the rules for all), «Last run» — each a button with its summary', [
         ['schedule', 'schedule', 'tile.schedule', 'schedule', 'C15 5 * * *', ['unraid_schedule: unraid_off'], false, 'function'],
         ['shares', 'shares', 'tile.shares', 'shares', '1 / 3', ['shares_moving {"n":1}', 'rule_age {"n":30} · rule_fill {"pct":80}'], false, 'function'],
-        ['runs', 'last_run', 'tile.runs', 'last_run', 'R900', ['mode.run · result.ok'], false, 'function']], $o['tiles'] ?? null);
+        ['runs', 'last_run', 'tile.runs', 'last_run', 'R900', ['mode.run · result.ok · last_took {"time":"100s"}'], false, 'function']], $o['tiles'] ?? null);
     same('moverelli tiles: not set up — no «Schedule» tile', ['shares', 'runs'], $o['unset'] ?? null);
     same('moverelli tiles: «Last run» — a look at the shares\' list is no run: none yet; one after a real run doesn\'t hide it', [['last_run_none', [], null], 'R900'],
         [$o['listOnly'] ?? null, $o['listOver'] ?? null]);
@@ -57460,7 +57462,7 @@ JS);
         $o['underRow'] ?? null);
     same('moverelli tiles: «Last run» names the kind of the run going — a real night with the last dry run\'s job file, a scheduled night, a dry night, a dry run, a list; none once the night ended', [
         ['output_running', ['mode.run']], ['output_running', ['mode.run']], ['output_running', ['mode.dry']], ['output_running', ['mode.dry']], ['output_running', ['mode.list']],
-        ['R900', ['mode.run · result.ok']]], $o['kinds'] ?? null);
+        ['R900', ['mode.run · result.ok · last_took {"time":"100s"}']]], $o['kinds'] ?? null);
     same('moverelli tiles: the sections — «Schedule» (hers with «Change…», Unraid\'s), «Shares» (head, bar, box), «My runs» (the last run\'s result on top)', [
         ['schedule', 'sched.mine', 'C15 5 * * *', 'by_office', 'sched.change', 'night.unmeasured_mine', 'night.steps_mine', 'night.dry', 'unraid_schedule', 'unraid_off', 'unraid_off_sub'], 3,
         ['history', 'run_summary {"moved":2,"files":2,"size":"5 B","left":"count.left {\"n\":0}"}', 'share_moved {"share":"Filme","moved":2,"files":"count.files {\"n\":2}","size":"5 B","left":"count.left {\"n\":0}"}', 'show_log']],
