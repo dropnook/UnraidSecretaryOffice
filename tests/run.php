@@ -2096,6 +2096,7 @@ function testJackRun(): void
     // (it wakes the comparison, as shadow.json does); python3 not even asked without python.json
     @mkdir("$tmp/flag");
     $asked = 0;
+    /** @var ?string $py python3's version on this stand-in server, null: none */
     $py = '3.11';
     $GLOBALS['jackPythonHost'] = function () use (&$asked, &$py): ?string {
         $asked++;
