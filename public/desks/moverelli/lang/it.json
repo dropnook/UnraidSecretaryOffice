@@ -78,6 +78,7 @@
   "schedule": "Pianificazione",
   "not_scheduled": "nessuna",
   "by_office": "nel file cron dell'ufficio",
+  "last_took": "durata {time}",
   "last_run": "Ultima esecuzione",
   "never": "mai",
   "share_moved": "{share}: {moved} di {files} spostati ({size}), {left}",

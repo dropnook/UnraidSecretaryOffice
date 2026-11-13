@@ -78,6 +78,7 @@
   "schedule": "Zeitplan",
   "not_scheduled": "keiner",
   "by_office": "in der Cron-Datei des Sekretariats",
+  "last_took": "dauerte {time}",
   "last_run": "Letzter Lauf",
   "never": "nie",
   "share_moved": "{share}: {moved} von {files} verschoben ({size}), {left}",

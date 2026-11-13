@@ -78,6 +78,7 @@
   "schedule": "Schedule",
   "not_scheduled": "none",
   "by_office": "in the office's cron file",
+  "last_took": "took {time}",
   "last_run": "Last run",
   "never": "never",
   "share_moved": "{share}: {moved} of {files} moved ({size}), {left}",

@@ -1675,12 +1675,16 @@ function lastRunTile(a) {
     value = T('output_running');
     sub.push(T('mode.' + going));
   } else if (last && last.finished) {
-    value = fmt.relative(last.finished);
-    sub.push(`${T('mode.' + last.mode)} · ${T('result.' + (last.result || 'failed'))}`);
-    if (last.jack_out) sub.push(jackOutText(last.jack_out));
     // her part of a joint run that is over, Jack Streamer's step after it lost files: said here too, never «done» alone
     const l = night().last;
     const ofNight = !!(l && l.finished && !l.running && last.started >= l.started && last.started <= l.finished);
+    // when it ended and how long it took: of a joint run the whole run (its end, not her step's at its start —
+    // Benj 2026-11-13: «vor 8 Minuten» read as its start)
+    const [from, to] = ofNight ? [l.started, l.finished] : [last.started, last.finished];
+    value = fmt.relative(to);
+    const took = from && to >= from ? T('last_took', { time: fmt.duration(to - from) }) : null;
+    sub.push([ofNight ? T('rc.night_title') : T('mode.' + last.mode), T('result.' + (last.result || 'failed')), took].filter(Boolean).join(' · '));
+    if (last.jack_out) sub.push(jackOutText(last.jack_out));
     if (ofNight && jackFailed(l)) sub.push(jackFailedText(l));
     alert = !!((last.status && last.status.errors) || !['ok', 'stopped'].includes(last.result) || (ofNight && jackFailed(l)));
   }
