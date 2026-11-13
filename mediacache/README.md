@@ -83,9 +83,10 @@
 > give-back, fill, parallel copies, the vanished retry, the move binary both ways, `--release`, the report, the dry run), `Progress`, `Themes`,
 > `Status` and the lib's helpers that act (mkdir_like, remove_empty_*, ensure_share_root, run_mover, run_rsync, acquire_lock, the exclude
 > list and the themes state, write_progress, write_result) — from helmi1987's MediaCache with these changes, version 7.4.0 (2026-10-15), under
-> the same licence, GPL-3.0-or-later; the plan is jack-plan.php's. Asleep without the flag file `php.json` in the data folder; with it the
-> office runs `php jack-run.php` with this tool's environment, flags, files and exit codes, and this Python only plans each real run dry
-> beside it (`mediacache_shadow.py`): PHP plans from exactly the answers that comparison got. The same lock (`mediacache.lock`), the same
+> the same licence, GPL-3.0-or-later; the plan is jack-plan.php's. Since the office's 1.94.0 it acts on every server: the office runs
+> `php jack-run.php` with this tool's environment, flags, files and exit codes; this Python acts only with the flag file `python.json` in the
+> data folder (support's way back), and plans each real run dry beside PHP only with `shadow.json` or `php.json` there
+> (`mediacache_shadow.py`): PHP then plans from exactly the answers that comparison got. The same lock (`mediacache.lock`), the same
 > list, status, progress and themes files in the same shapes, the same log lines and levels — a run of either can follow a run of the other.
 > Where it is more careful than this script: the array stopping ends an rsync in flight at once and lets Unraid's move binary finish only
 > its file in work (result `stopped`); right before acting it asks the servers once more what plays, as this script's run does; a file name that is no
