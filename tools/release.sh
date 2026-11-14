@@ -46,7 +46,9 @@
 #                 stops the release like the suite; it waits at most 30 min for Tower held by another run (the nightly,
 #                 a worker), then stops. No desk touched: nothing runs. Its time stands in the last lines
 #    7 suite      rsync to <suite_host>:/tmp/uso-main/, php tests/run.php there ends «… passed, 0 failed»
-#                 (suite_host2: there, then the tests it skipped on <suite_host> - see the conf above)
+#                 (suite_host2: there, then the tests it skipped on <suite_host> - see the conf above). On
+#                 <suite_host> under the Tower lock like the scenarios (tools/scenarios/tower-lock.sh): never beside
+#                 another run of scenarios there - waited for 30 min at most, then red
 #                 (a red build, click test, scenario or suite puts the two version lines back)
 #
 #   Steps 5-7 keep their result in the state file beside the log (<notes_dir>/releases/<x.y.z>.state: a line a step -
@@ -129,6 +131,9 @@ repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo" || exit 2
 # shellcheck source=tools/release-lib.sh
 . "$repo/tools/release-lib.sh"
+# who holds Tower (the Mac's lock, no run-local.sh there): the suite on suite_host takes it like the scenarios do
+# shellcheck source=tools/scenarios/tower-lock.sh
+. "$repo/tools/scenarios/tower-lock.sh"
 notes_dir='' suite_host='' suite_host2='' servers=()
 # shellcheck source=/dev/null
 [[ -r "$conf" ]] && source "$conf"
@@ -176,7 +181,7 @@ unbump() { (( bumped )) && { git checkout -- src/bootstrap.php agent/agent.php; 
 par_pids=()
 killtree() { local c; for c in $(pgrep -P "$1" 2>/dev/null); do killtree "$c"; done; kill "$1" 2>/dev/null; }
 stop_jobs() { local p; for p in ${par_pids[@]+"${par_pids[@]}"}; do killtree "$p"; done; par_pids=(); }
-trap 'echo; stop_jobs; unbump; echo "INTERRUPTED at step $step_no ($step_name). Log: $log"; exit 1' INT TERM
+trap 'echo; stop_jobs; tower_drop; unbump; echo "INTERRUPTED at step $step_no ($step_name). Log: $log"; exit 1' INT TERM
 
 # The state file ($state, beside the log): a green step of an earlier run of this version is taken, not run again, while
 # its inputs (the table in the head) are the same - said loudly; --fresh runs everything
@@ -368,8 +373,24 @@ scen_job() {
     echo "$rc" > "$par/scen/rc"; echo $(( $(date +%s) - t0 )) > "$par/scen/took"; touch "$par/scen/done"
 }
 # suite_on <host> [test …]: the copy to <host>:$suite_dir and php tests/run.php there (the named tests only) - its
-# output into the suite's out, the «… passed, … failed» line into $par/suite/line; exit as the run's
+# output into the suite's out, the «… passed, … failed» line into $par/suite/line; exit as the run's. On suite_host
+# (Tower) under the Tower lock: never beside a run of scenarios (the nightly's, a worker's) - waited for 30 min at most
 suite_on() {
+    local host=$1 rc; shift
+    if [[ "$host" == "$suite_host" ]]; then
+        tower_take "release $ver suite" "$host" "${USO_RELEASE_TOWER_WAIT:-1800}" >> "$par/suite/out" 2>&1
+        rc=$?
+        if (( rc != 0 )); then
+            echo "$host not free for the suite: ${TOWER_WHY:-not reachable} (waited $(( ${USO_RELEASE_TOWER_WAIT:-1800} / 60 )) min) - later again" > "$par/suite/line"
+            return 1
+        fi
+    fi
+    suite_run "$host" "$@"
+    rc=$?
+    [[ "$host" == "$suite_host" ]] && tower_drop
+    return $rc
+}
+suite_run() {
     local host=$1 rc; shift
     echo "\$ rsync -a --delete --exclude .git ./ $host:$suite_dir/" >> "$par/suite/out"
     if ! rsync -a --delete --exclude .git ./ "$host:$suite_dir/" >> "$par/suite/out" 2>&1; then
