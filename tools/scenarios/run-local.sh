@@ -23,7 +23,9 @@
 # (flock -o: the lock's fd is not handed down - an agent a scenario restarts would hold the lock for its whole life.)
 # Its output goes to <name>.out. A scenario run with an argument keeps its files as <name>@<arg>.* (one run may call the
 # same scenario with several). Without a result file from lib.sh one is made from the exit code: 0 green, 1 red,
-# 2 skipped, 3 dirty (undo failed: base.sh before the next), 124 timeout, 75 lock busy, else error (both dirty too).
+# 2 skipped, 3 dirty (undo failed: base.sh before the next), 124 timeout, 75 lock busy, 126 the kernel panicked in ZFS
+# while it ran (a process at spl_panic, looked for every 30 s: the scenario ended at once, error - base.sh then refuses
+# the next reset until a reboot), else error (all dirty too).
 # Exit (list mode): 0 nothing red, 1 something red/dirty/error, 2 wrong call.
 # --summary is plain bash 3.2 (the Mac's) and reads only DIR.
 set -u
@@ -49,7 +51,7 @@ while (($#)); do
         --keep) keep=1; shift ;;
         --timeout) tmo=${2:-3600}; shift 2 ;;
         --profile) profile=${2:-}; shift 2 ;;
-        -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
         *) echo "run-local: unknown argument $1" >&2; exit 2 ;;
     esac
 done
@@ -214,6 +216,11 @@ fi
 
 # seconds since boot — a clock step never moves it
 _up() { local u; read -r u _ </proc/uptime; echo "${u%.*}"; }
+# a kernel that panicked in ZFS: the processes stuck in D at spl_panic («pid (comm)», empty when none) - base.sh's own
+# look. 2026-11-14 on Tower (7.4.0, OpenZFS 2.4.4): a drill's look into a snapshot panicked it at 09:51, and the run sat
+# in that scenario until its timeout; now the scenario ends within a minute and says so (and base.sh refuses the next reset)
+_panicked() { ps -eo pid,stat,wchan:20,comm --no-headers 2>/dev/null | awk '$2 ~ /^D/ && $3 == "spl_panic" {printf "%s%s (%s)", (c++ ? ", " : ""), $1, $4}'; }
+
 # one scenario (or a half): its file, under the lock, at most $tmo s; the result file made when lib.sh wrote none
 run_one() {
     local spec=$1 name arg file code t0 v why label x
@@ -248,7 +255,7 @@ run_one() {
     t0=$(_up)
     # a scenario's own `# timeout: <s>` line (in its first 30) when it needs longer than --timeout (M14: a 50-min run and
     # the checks of 100 000 files)
-    local lim=$tmo own pid killed=0
+    local lim=$tmo own pid killed=0 panic='' look=0
     own=$(sed -n '1,30s/^# timeout: *\([0-9][0-9]*\).*/\1/p' "$file" | head -1)
     [[ -n $own ]] && ((own > lim)) && lim=$own
     # the time limit on the time since boot (/proc/uptime), never the wall clock: GNU timeout's timer is the wall clock's,
@@ -259,21 +266,34 @@ run_one() {
     pid=$!
     while kill -0 "$pid" 2>/dev/null; do
         if (($(_up) - t0 >= lim)); then kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null; killed=1; break; fi
+        # every 30 s: the kernel still sound (a process at spl_panic never comes back - nothing after it can be trusted)
+        if (($(_up) - look >= 30)); then
+            look=$(_up)
+            panic=$(_panicked)
+            if [[ -n $panic ]]; then
+                echo "run-local: the kernel panicked in ZFS - $panic at spl_panic: the scenario ends here, reboot $(hostname) before any other"
+                kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null; killed=1; break
+            fi
+        fi
         sleep 2
-    done
+    done >> "$out/$name.out"
     wait "$pid"
     code=$?
     if ((killed)); then
         code=124
-        # flock ends at the TERM, the scenario's bash goes on with its undo: the group waited for (20 min at most)
-        local w=$(_up)
-        while pgrep -g "$pid" >/dev/null 2>&1 && (($(_up) - w < 1200)); do sleep 2; done
+        [[ -n $panic ]] && code=126
+        # flock ends at the TERM, the scenario's bash goes on with its undo: the group waited for (20 min at most; 1 min
+        # after a panic - its undo may hang in ZFS too)
+        local w=$(_up) most=1200
+        [[ -n $panic ]] && most=60
+        while pgrep -g "$pid" >/dev/null 2>&1 && (($(_up) - w < most)); do sleep 2; done
     fi
     case $code in
         0) v=green ;; 1) v=red ;; 2) v=skipped ;; 3) v=dirty ;; 124) v=timeout; why="ran longer than $lim s" ;;
+        126) v=error; why="the kernel panicked in ZFS during it ($panic at spl_panic) - reboot $(hostname); nothing after it can be trusted" ;;
         75) v=busy; why='the Tower lock stayed busy for 30 min' ;; *) v=error; why="exit $code" ;;
     esac
-    if [[ ! -s $out/$name.result ]] || ((code == 124 || code == 75)); then
+    if [[ ! -s $out/$name.result ]] || ((code == 124 || code == 126 || code == 75)); then
         { echo "verdict=$v"; [[ -n ${why:-} ]] && echo "why=$why"; } > "$out/$name.result"
     fi
     echo "exit=$code" >> "$out/$name.result"
