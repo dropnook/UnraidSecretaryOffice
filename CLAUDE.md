@@ -229,9 +229,10 @@ More (cron, VMs, Docker, Kopia, containers, data flow, logins, Add Container for
 * **Which disk a file is on:** `getfattr -n system.LOCATION` on a /mnt/user path — no look at other disks.
 * **ZFS:** a pool's top folder sees only its own dataset (fullness via `zfs list -Hp -o used,avail <pool>`); every share and VM
   folder in `domains` is a dataset — `rename()` can't move them, use `zfs rename`. **Every look into
-  `<mountpoint>/.zfs/snapshot/<name>/…` automounts that snapshot** (ZFS unmounts it ~300 s later): touch snapshots as rarely
-  as possible — on Unraid 7.4.0-rc.2 (OpenZFS 2.4.4) a re-mount of an expiring one panicked the kernel three times (Tower,
-  2026-10-30/31; docs/DEVELOPMENT.md «Server facts in full»).
+  `<mountpoint>/.zfs/snapshot/<name>/…` automounts that snapshot.** On Unraid 7.4.0 (OpenZFS 2.4.4) a snapshot renamed while
+  still listed for its automount (kept alive by another mount: a container's copy, a hand mount) panics the kernel at the
+  next look under the new name. So the office never reads through `.zfs` (restore-mounts.php) and frees every mount of what
+  it renames first (`zfsRenameFree()`); docs/DEVELOPMENT.md «Snapshot automounts».
 * **Shares:** `shareUseCache` no = array, only = pool, yes/prefer = primary + secondary; `/var/local/emhttp/shares.ini` lists
   every share, `disks.ini` has `fsFree` without touching a disk. **Exclusive shares:** `/mnt/user/<share>` is a symlink to the
   pool — code that refuses links allows exactly this one via `officeUnraidPath()`; /mnt/user costs ~50× the pool path.
