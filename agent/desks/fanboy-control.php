@@ -235,6 +235,8 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 'table' => $m['table'] ?? null, 'floor' => $floor,
                 'start' => $m !== null && is_numeric($m['start_pct'] ?? null) ? (int) $m['start_pct'] : $floor,
                 'off_ok' => ($f['off_ok'] ?? false) === true && $m !== null && $hasTach,
+                // «give back» (part 3): the owner's choice for a fan found on a fixed value — 'auto' gives the chip's mode
+                'back' => in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : FANBOY_BACK_DEFAULT, 'auto' => null,
                 'device' => null, 'pct' => null, 'value' => null, 'changed' => null, 'kick_until' => null, 'trim' => 0.0,
                 'rpm' => null, 'zero_since' => null, 'gone' => false, 'foreign' => false, 'taken' => false, 'verified' => false,
             ];
@@ -324,6 +326,8 @@ function fanboyLocate(array &$c, array $scan): array
         }
         foreach ($scan['chips'] as $chip) {
             if ($chip['name'] === $f['chip'] && $chip['address'] === $r['address']) {
+                $c['fans'][$id]['auto'] = ($f['back'] ?? null) === 'auto'
+                    ? fanboyAutoMode($chip, $f['output'], fanboyInitialRead()['boards'][$c['key']][$id] ?? null) : null;
                 $c['fans'][$id]['device'] = $chip['device'];
                 $c['fans'][$id]['address_now'] = $chip['address'];
                 $c['fans'][$id]['hwmon'] = $chip['hwmon'];
@@ -410,7 +414,8 @@ function fanboyTakeAll(array &$c): void
         if ($f['taken'] || $f['foreign'] || $f['device'] === null) {
             continue;
         }
-        $t = fanboyTake(['id' => $id, 'chip' => $f['chip'], 'address' => $f['address_now'] ?? $f['address'], 'device' => $f['device'], 'output' => $f['output']], $c['owner'], $c['key']);
+        $t = fanboyTake(['id' => $id, 'chip' => $f['chip'], 'address' => $f['address_now'] ?? $f['address'], 'device' => $f['device'], 'output' => $f['output'],
+            'auto' => $f['auto'] ?? null], $c['owner'], $c['key']);
         if ($t !== null) {
             $c['fans'][$id]['taken'] = true;
             $c['fans'][$id]['value'] = null;
@@ -846,7 +851,7 @@ function fanboyHoldReason(?array $settings): ?string
     if (($settings['armed'] ?? false) !== true) {
         return 'not_armed';
     }
-    if (fanboyControllers(fanboyPaths(fanboySysRoot() ?: null))) {
+    if (fanboyBlocking(fanboyControllers(fanboyPaths(fanboySysRoot() ?: null)))) {
         return 'other';
     }
     return null;

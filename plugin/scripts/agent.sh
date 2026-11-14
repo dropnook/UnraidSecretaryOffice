@@ -55,10 +55,10 @@ WATCH_LINE="*/5 * * * * bash $DIR/scripts/job.sh watch > /dev/null 2>&1"
 WATCH_DOWN=$RUN/watch-down        # since when the agent hasn't checked in (array started)
 WATCH_TOLD=$RUN/watch-told        # this outage was reported
 WATCH_AFTER=600                   # seconds without a sign of life before Unraid hears of it
-# Fanboy's guard (agent/fanboy-guard.php): every minute, only when his journal in RAM names a holder of a fan output -
-# a holder gone (killed hard) or hung: its outputs back to the state they had before him, also when the agent is gone
+# Fanboy's journal in RAM: what holds a fan output (agent/fanboy-guard.php gives them back at every stop). His guard's
+# cron line lives in a file of his own (fanboy-guard.cron), there only while he is armed - the agent writes it at «Take
+# over» and takes it away at «Hand back» (agent/desks/fanboy-setup.php fanboyGuardCron()); agent-watch.cron never has it.
 FANBOY_JOURNAL=$RUN/fanboy/journal.json
-FANBOY_LINE="* * * * * grep -qs '\"owner\":{' $FANBOY_JOURNAL && php $DIR/agent/fanboy-guard.php watch > /dev/null 2>&1"
 # the mark of the office's jobs in atd's queue - the same line as HOST_LAUNCH_MARK in agent/lib/house.php
 # (hostLaunch()): the night watchman knows them by it
 HOST_LAUNCH_MARK='# written by the Unraid Secretary Office agent'
@@ -252,7 +252,7 @@ usonet_check() {
 # crontab right away: Unraid builds it from the installed plugins' cron files only on update_cron.
 watch_cron() {
     local want
-    want="# Unraid Secretary Office - is the agent at work? (written by scripts/agent.sh)"$'\n'"$WATCH_LINE"$'\n'"$FANBOY_LINE"
+    want="# Unraid Secretary Office - is the agent at work? (written by scripts/agent.sh)"$'\n'"$WATCH_LINE"
     if [[ -d "$FLASH" && "$(cat "$WATCH_CRON" 2>/dev/null)" != "$want" ]]; then
         printf '%s\n' "$want" >"$WATCH_CRON.tmp" && mv -f "$WATCH_CRON.tmp" "$WATCH_CRON"
     fi

@@ -17,8 +17,13 @@ declare(strict_types=1);
  * behind his back is someone else's write (fanboyForeign()).
  *
  *   RUN_DIR/fanboy/journal.json   {"v": 1, "boot": "<boot id>", "outputs": {"<fan id>": {chip, address, device, output,
- *                                  initial: {value, enable}, at, owner: null | {kind, pid, start, since},
- *                                  expect: null | {value, enable}, given: null | {at, why, ok}}}}
+ *                                  initial: {value, enable}, back: null | {value, enable}, at,
+ *                                  owner: null | {kind, pid, start, since}, expect: null | {value, enable},
+ *                                  given: null | {at, why, ok}}}}
+ *                                 back (part 3): where «give back» goes when it isn't the state before — only for an
+ *                                 output found on a fixed value someone else set (enable 1) whose owner chose «the
+ *                                 mainboard's automatic» for it: the same value, the chip's own mode number. Set by the
+ *                                 control at each take; a setup step's take clears it (a test always goes back exactly)
  *   RUN_DIR/fanboy/write.lock     every write and every change of the journal under its flock
  *   RUN_DIR/fanboy/beat-<pid>     a holder's beat: hrtime() in ns (CLOCK_MONOTONIC: the same for every process)
  *   <data folder>/fanboy/initial.json   {"v": 1, "boards": {"<board key>": {"<fan id>": {value, enable, boot, at}}}} —
@@ -226,7 +231,7 @@ function fanboyJournal(): array
     }
     foreach ($j['outputs'] as $id => $o) {
         if (is_string($id) && is_array($o) && is_string($o['device'] ?? null) && is_int($o['output'] ?? null) && is_array($o['initial'] ?? null)) {
-            $out['outputs'][$id] = $o + ['owner' => null, 'expect' => null, 'given' => null];
+            $out['outputs'][$id] = $o + ['owner' => null, 'expect' => null, 'given' => null, 'back' => null];
         }
     }
     return $out;
@@ -287,7 +292,10 @@ function fanboyOwnerState(array $owner, ?float $now = null): string
  * Takes an output for a holder: its state taken down first when this boot hasn't yet (then also into the data
  * folder's copy, per board), the holder noted. Refused (null) when another live holder has it or the output isn't there.
  *
- * @param array{id:string, chip:string, address:string, device:string, output:int} $fan
+ * $fan['auto']: the chip's own mode number to give back to instead of a fixed value found there (the owner's choice
+ * «the mainboard's automatic», only the control passes it) — null or missing: back exactly to the state before.
+ *
+ * @param array{id:string, chip:string, address:string, device:string, output:int, auto?:?int} $fan
  */
 function fanboyTake(array $fan, array $owner, string $boardKey = ''): ?array
 {
@@ -308,6 +316,9 @@ function fanboyTake(array $fan, array $owner, string $boardKey = ''): ?array
                 'initial' => $now, 'at' => time(), 'expect' => null, 'given' => null];
         $o['device'] = $fan['device'];          // the device path is this boot's (an address may have moved)
         $o['owner'] = $owner;
+        $auto = $fan['auto'] ?? null;
+        $o['back'] = is_int($auto) && $auto >= 2 && $auto <= 9 && ($o['initial']['enable'] ?? null) === 1
+            ? ['value' => $o['initial']['value'] ?? null, 'enable' => $auto] : null;
         $j['outputs'][$fan['id']] = $o;
         return [$j, ['first' => $first, 'initial' => $o['initial']]];
     });
@@ -361,7 +372,7 @@ function fanboyGiveBack(?array $ids, string $why, ?array $only = null, bool $dea
             if ($state === 'hung') {
                 fanboyKillHung($o['owner']);
             }
-            $r = fanboyWriteState($o['device'], $o['output'], $o['initial']);
+            $r = fanboyWriteState($o['device'], $o['output'], is_array($o['back'] ?? null) ? $o['back'] : $o['initial']);
             $j['outputs'][$id]['owner'] = null;
             $j['outputs'][$id]['expect'] = null;
             $j['outputs'][$id]['given'] = ['at' => time(), 'why' => $why, 'ok' => $r['ok']];

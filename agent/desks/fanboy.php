@@ -99,6 +99,11 @@ if (fanboyShown()) {
             'dry_run'       => fn (array $r) => fanboyDryRun(),
             'take_over'     => fn (array $r) => fanboyTakeOver() + ['state' => fanboyScan()],
             'hand_back'     => fn (array $r) => fanboyHandBack() + ['state' => fanboyScan()],
+            // part 3: the page's own small actions — «give back to» for a fan found on a fixed value, a fan's look
+            // (model, size, colour: pictures only), the history part for the curve view (read only)
+            'back'          => fn (array $r) => fanboyBack($r),
+            'fan_look'      => fn (array $r) => fanboyFanLook($r),
+            'history'       => fn (array $r) => ['ok' => true, 'state' => fanboyHistoryPart()],
         ],
     ]);
 }
@@ -323,6 +328,18 @@ function fanboyStart(): void
 {
     fanboyDriversBoot();
     fanboyWatch();
+    fanboyGuardCron((fanboyBoardRaw()['armed'] ?? false) === true);       // the guard's line only while he is armed
+}
+
+/**
+ * The curve view's history (the part `history`, data/fanboy-history.json, desk.json "parts"): per zone of this board the
+ * last 24 hours, a point a minute [time, warmest °C, level %, rpm] — as the control keeps it in RAM (or the data
+ * folder's copy after a restart). Read only.
+ */
+function fanboyHistoryPart(): array
+{
+    $key = fanboyBoardKey(fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']));
+    return ['v' => 1, 'time' => time(), 'every' => (int) FANBOY_HISTORY_EVERY, 'zones' => fanboyHistoryLoad($key) ?: new stdClass()];
 }
 
 /**
@@ -548,7 +565,13 @@ function fanboySetupState(array $scan, ?array $settings): array
             continue;
         }
         $m = is_array($f['measured'] ?? null) ? $f['measured'] : null;
+        $model = is_array($f['model'] ?? null) ? $f['model'] : null;
         $fans[] = ['id' => $id, 'chip' => $stored['chip'], 'output' => $stored['output'], 'tachs' => array_values(array_filter(is_array($f['tachs'] ?? null) ? $f['tachs'] : [], 'is_int')),
+            // part 3: its look for the pictures, «give back to» (null: not chosen — the default counts)
+            'model' => $model === null ? null : ['id' => is_string($model['id'] ?? null) ? $model['id'] : null, 'mm' => is_int($model['mm'] ?? null) ? $model['mm'] : null,
+                'blades' => is_int($model['blades'] ?? null) ? $model['blades'] : null],
+            'colour' => is_string($f['colour'] ?? null) && in_array($f['colour'], FANBOY_COLOURS, true) ? $f['colour'] : null,
+            'back' => in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : null,
             'found' => is_string($f['found'] ?? null) ? $f['found'] : null, 'role' => is_string($f['role'] ?? null) ? $f['role'] : null,
             'name' => is_string($f['name'] ?? null) ? $f['name'] : '', 'place' => is_string($f['place'] ?? null) ? $f['place'] : null,
             'off_ok' => ($f['off_ok'] ?? false) === true, 'measured' => $m !== null, 'min_pct' => $m['min_pct'] ?? null, 'start_pct' => $m['start_pct'] ?? null,
@@ -560,10 +583,26 @@ function fanboySetupState(array $scan, ?array $settings): array
     }
     $store = fanboyStoreRead();
     $key = fanboyBoardKey($scan['board']);
+    $zones = is_array($settings['zones'] ?? null) ? array_values(array_filter($settings['zones'], 'is_array')) : [];
+    // each zone's curve as the control reads it, its scale and the three presets on that scale (the page draws them)
+    $curves = [];
+    foreach ($zones as $z) {
+        if (is_string($z['id'] ?? null)) {
+            [$lo, $hi] = fanboyZoneScale($z);
+            $curves[$z['id']] = ['points' => fanboyZoneCurve($z), 'scale' => [$lo, $hi],
+                'presets' => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, $lo, $hi), FANBOY_PRESETS))];
+        }
+    }
+    $before = fanboyBefore($scan);
     return [
         'board' => $key, 'others' => count(array_diff(array_keys($store['boards']), [$key])),
-        'fans' => $fans, 'zones' => is_array($settings['zones'] ?? null) ? $settings['zones'] : [], 'armed' => ($settings['armed'] ?? false) === true,
+        'fans' => $fans, 'zones' => $zones, 'armed' => ($settings['armed'] ?? false) === true,
         'outputs' => array_keys(fanboyOutputs($scan)), 'missing' => $missing, 'sources' => fanboySources($scan),
+        // part 3: the curves, each output's state before Fanboy, «give back» still open, the defaults the page shows
+        'curves' => $curves ?: new stdClass(), 'before' => $before ?: new stdClass(),
+        'back_open' => $settings === null ? [] : fanboyBackOpen($scan, $settings), 'back_default' => FANBOY_BACK_DEFAULT,
+        'scales' => FANBOY_SOURCE_DEFAULTS, 'presets_of' => array_combine(array_keys(FANBOY_SOURCE_DEFAULTS),
+            array_map(fn ($d) => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, (float) $d['low'], (float) $d['high']), FANBOY_PRESETS)), FANBOY_SOURCE_DEFAULTS)),
     ];
 }
 

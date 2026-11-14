@@ -32,6 +32,20 @@ const FANBOY_PLACES = ['front', 'rear', 'top', 'bottom', 'side'];
 const FANBOY_ZONES_MAX = 8;
 const FANBOY_SOURCES_MAX = 32;
 const FANBOY_ID_RE = '/^[A-Za-z0-9_.:-]{1,80}:pwm\d{1,2}$/D';
+/*
+ * «Give back» for an output Fanboy found on a FIXED value someone else set (pwmN_enable 1 — on the owner's server another
+ * plugin's 128): to the mainboard's automatic ('auto': the chip's own mode, only where the chip offers one) or back to
+ * exactly that value ('fixed'). The owner's decision (2026-11-14): the automatic by default, the fixed value the other
+ * choice in the setup; where the chip has no automatic mode the fixed value stays, and the page says so. null would
+ * leave it open: the setup would ask and «Take over» wait for an answer (fanboyBackOpen()).
+ */
+const FANBOY_BACK_DEFAULT = 'auto';
+const FANBOY_BACKS = ['auto', 'fixed'];
+// the chip's own automatic mode (pwmN_enable) by driver, when the output doesn't show it right now (it87: 2 its curve;
+// nct6775 and w83627ehf: 5 Smart Fan IV; f71882fg: 2) — the kernel's hwmon documentation of each driver
+const FANBOY_AUTO_MODES = ['it87' => 2, 'nct6775' => 5, 'w83627ehf' => 5, 'f71882fg' => 2];
+const FANBOY_COLOURS = ['auto', 'black', 'graphite', 'grey', 'white', 'slate', 'accent'];
+const FANBOY_GUARD_CRON = '/boot/config/plugins/unraid-secretary-office/fanboy-guard.cron';
 
 final class FanboyStepStop extends RuntimeException
 {
@@ -316,6 +330,7 @@ function fanboyMeasure(array $o, array $tachs, array $owner, array $io, string $
             }
             $table[] = [$pct, $rpm];
             $steady = $pct;
+            ($io['note'] ?? fn (array $p) => null)(['table' => $table]);       // the page shows the table as it grows
         }
         $start = $steady;
         if ($stalledAt !== null) {
@@ -364,6 +379,12 @@ function fanboyStepRun(array $step, array $io): array
                 $step['results'][$id] = ['result' => 'not_there'];
                 continue;
             }
+            // what a step says while it works (the measure's table so far) into the step's state, for the page
+            $io['note'] = function (array $p) use (&$step, $id): void {
+                $step['progress'] = ['id' => $id] + $p;
+                fanboyStepWrite($step);
+            };
+            $step['progress'] = null;
             if ($step['kind'] === 'test_up') {
                 $r = fanboyTestUp($o, $owner, $io, $key);
                 $step['results'][$id] = $r;
@@ -404,6 +425,7 @@ function fanboyStepRun(array $step, array $io): array
             fanboyStepWrite($step);
         }
         $step['status'] = 'done';
+        $step['progress'] = null;
     } catch (FanboyStepStop $e) {
         $step['status'] = 'stopped';
         $step['why'] = $e->getMessage();
@@ -736,11 +758,16 @@ function fanboyTakeOver(): array
     if (!fanboyControlNew($settings, '', ['pid' => 0])['zones']) {
         throw new Problem('fanboy_no_zones');
     }
+    $open = fanboyBackOpen($scan, $settings);
+    if ($open) {
+        throw new Problem('fanboy_back_open', ['n' => count($open)]);
+    }
     fanboyStoreUpdate(function (array $e): array {
         $e['armed'] = true;
         $e['armed_at'] = time();
         return $e;
     }, $scan['board']);
+    fanboyGuardCron(true);
     $GLOBALS['fanboyCrashes'] = [];
     fanboyLaunch('fanboy-control');
     logLine('Fanboy: taken over on the user\'s click');
@@ -755,6 +782,184 @@ function fanboyHandBack(): array
         return $e;
     });
     $back = fanboyControlStop('hand_back');
+    fanboyGuardCron(false);
     logLine('Fanboy: handed back to the BIOS on the user\'s click (' . count($back) . ' outputs)');
     return ['ok' => true, 'given' => count($back)];
+}
+
+// ===================================================================== part 3: give back, a fan's look, the guard's line
+
+/**
+ * The chip's own automatic mode for an output — only where the chip offers one (part 1's `auto`): the mode it shows now
+ * (≥ 2), the one kept from before Fanboy on this board, else its driver's (FANBOY_AUTO_MODES). null: none known.
+ */
+function fanboyAutoMode(array $chip, int $output, ?array $kept = null): ?int
+{
+    $o = array_values(array_filter($chip['outputs'] ?? [], fn ($x) => ($x['n'] ?? null) === $output))[0] ?? null;
+    if ($o === null || ($o['auto'] ?? false) !== true) {
+        return null;
+    }
+    if (is_int($o['enable'] ?? null) && $o['enable'] >= 2 && $o['enable'] <= 9) {
+        return $o['enable'];
+    }
+    if (is_int($kept['enable'] ?? null) && $kept['enable'] >= 2 && $kept['enable'] <= 9) {
+        return $kept['enable'];
+    }
+    return FANBOY_AUTO_MODES[$chip['module'] ?? ''] ?? null;
+}
+
+/**
+ * What each output had before Fanboy, for the page: from this boot's journal (taken down at his first write), else as it
+ * is now when nobody of his holds it, else the copy kept in the data folder — {value, pct, enable, mode, fixed, auto, from}
+ * (fixed: a value someone set by hand, enable 1; auto: the chip's own mode number to give back to, null when it has none)
+ */
+function fanboyBefore(array $scan, ?array $journal = null): array
+{
+    $journal ??= fanboyJournal();
+    $kept = fanboyInitialRead()['boards'][fanboyBoardKey($scan['board'])] ?? [];
+    $out = [];
+    foreach ($scan['chips'] as $c) {
+        if (!fanboyOffers($c)) {
+            continue;
+        }
+        foreach ($c['outputs'] as $o) {
+            $id = fanboyFanId($c['name'], $c['address'], $o['n']);
+            $j = $journal['outputs'][$id] ?? null;
+            $k = is_array($kept[$id] ?? null) ? $kept[$id] : null;
+            [$from, $st] = is_array($j['initial'] ?? null) ? ['journal', $j['initial']]
+                : (!is_array($j['owner'] ?? null) ? ['now', ['value' => $o['value'], 'enable' => $o['enable']]] : ['kept', $k ?? []]);
+            $v = is_int($st['value'] ?? null) ? $st['value'] : null;
+            $e = is_int($st['enable'] ?? null) ? $st['enable'] : null;
+            $out[$id] = ['value' => $v, 'pct' => $v === null ? null : (int) round(max(0, min(255, $v)) / 2.55), 'enable' => $e,
+                'mode' => $e === null ? null : ($e === 0 ? 'full' : ($e === 1 ? 'manual' : 'auto')), 'fixed' => $e === 1,
+                'auto' => fanboyAutoMode($c, $o['n'], $k), 'from' => $from];
+        }
+    }
+    return $out;
+}
+
+/**
+ * A fan's «give back» as it counts: the owner's choice, else FANBOY_BACK_DEFAULT; 'auto' where the chip has no automatic
+ * mode for the output: the fixed value (said on the page). null only while the default is open and nothing was chosen.
+ */
+function fanboyBackOf(array $fan, array $before): ?string
+{
+    $b = in_array($fan['back'] ?? null, FANBOY_BACKS, true) ? $fan['back'] : FANBOY_BACK_DEFAULT;
+    return $b === 'auto' && ($before['auto'] ?? null) === null ? 'fixed' : $b;
+}
+
+/** His fans in the zones that sit on a fixed value someone else set and whose «give back» is still open: [fan id…] */
+function fanboyBackOpen(array $scan, array $settings): array
+{
+    $before = fanboyBefore($scan);
+    $open = [];
+    foreach (fanboyControlNew($settings, '', ['pid' => 0])['fans'] as $id => $f) {
+        $b = $before[$id] ?? null;
+        if ($b !== null && $b['fixed'] && fanboyBackOf(is_array($settings['fans'][$id] ?? null) ? $settings['fans'][$id] : [], $b) === null) {
+            $open[] = $id;
+        }
+    }
+    return $open;
+}
+
+/** «Give back to»: the mainboard's automatic or this fixed value — for a fan found on a fixed value */
+function fanboyBack(array $r): array
+{
+    $id = textField($r, 'fan');
+    $back = textField($r, 'back');
+    if (!in_array($back, FANBOY_BACKS, true)) {
+        throw new Problem('fanboy_bad_back');
+    }
+    $scan = fanboyDetect();
+    $before = fanboyBefore($scan)[$id] ?? null;
+    if ($before === null) {
+        throw new Problem('fanboy_no_output', ['fan' => $id]);
+    }
+    if ($back === 'auto' && $before['auto'] === null) {
+        throw new Problem('fanboy_no_auto');            // the chip has no automatic mode for this output
+    }
+    $e = fanboyStoreUpdate(function (array $e) use ($id, $back): array {
+        if (!is_array($e['fans'][$id] ?? null)) {
+            throw new Problem('fanboy_no_output', ['fan' => $id]);
+        }
+        $e['fans'][$id]['back'] = $back;
+        return $e;
+    }, $scan['board']);
+    return ['ok' => true, 'fan' => $e['fans'][$id]];
+}
+
+/**
+ * A fan's look for the pictures (no steering depends on it): its model from the catalogue (an id) or «another fan» by
+ * size and blades, its wheel's colour. What Fanboy measured always counts before the catalogue.
+ */
+function fanboyFanLook(array $r): array
+{
+    $id = textField($r, 'fan');
+    $model = optText($r, 'model');
+    if ($model !== '' && !preg_match('/^[a-z0-9][a-z0-9-]{0,63}$/D', $model)) {
+        throw new Problem('fanboy_bad_look', ['field' => 'model']);
+    }
+    $mm = optInt($r, 'mm', 0);
+    $blades = optInt($r, 'blades', 0);
+    if (($mm !== 0 && ($mm < 40 || $mm > 200)) || ($blades !== 0 && ($blades < 3 || $blades > 15))) {
+        throw new Problem('fanboy_bad_look', ['field' => 'size']);
+    }
+    $colour = optText($r, 'colour');
+    if ($colour !== '' && !in_array($colour, FANBOY_COLOURS, true)) {
+        throw new Problem('fanboy_bad_look', ['field' => 'colour']);
+    }
+    $e = fanboyStoreUpdate(function (array $e) use ($id, $model, $mm, $blades, $colour, $r): array {
+        $f = $e['fans'][$id] ?? null;
+        if (!is_array($f) || !in_array($f['found'] ?? null, ['tach', 'silent', 'unclear'], true)) {
+            throw new Problem('fanboy_no_output', ['fan' => $id]);
+        }
+        if (array_key_exists('model', $r) || array_key_exists('mm', $r) || array_key_exists('blades', $r)) {
+            $f['model'] = ['id' => $model !== '' ? $model : null, 'mm' => $mm ?: null, 'blades' => $blades ?: null];
+        }
+        if ($colour !== '') {
+            $f['colour'] = $colour;
+        }
+        $e['fans'][$id] = $f;
+        return $e;
+    });
+    return ['ok' => true, 'fan' => $e['fans'][$id]];
+}
+
+/** The guard's cron line's file: on the flash (Unraid adds every plugin's *.cron to root's crontab) — the tests' tree in a test */
+function fanboyGuardCronFile(): string
+{
+    return fanboySysRoot() . FANBOY_GUARD_CRON;
+}
+
+/**
+ * The guard's cron line (agent/fanboy-guard.php watch, every minute, only when the journal names a holder): there only
+ * while Fanboy is armed — written at «Take over», gone at «Hand back», put right at every agent start. Unarmed nothing
+ * of his holds an output but a setup step, and a step gives back by itself (its lease ends 45 s after the page is gone),
+ * the agent's tick and its supervisor give back for one killed hard. A server where he is hidden never has the line.
+ */
+function fanboyGuardCron(bool $on): void
+{
+    $file = fanboyGuardCronFile();
+    $line = "# Unraid Secretary Office - Fanboy's guard, only while he steers (written by the agent)\n"
+        . "* * * * * grep -qs '\"owner\":{' " . fanboyRunDir() . '/journal.json && php ' . OFFICE_DIR . "/agent/fanboy-guard.php watch > /dev/null 2>&1\n";
+    $there = !is_link($file) && is_file($file);
+    if ($on ? $there && @file_get_contents($file) === $line : !$there) {
+        return;
+    }
+    if (!is_dir(dirname($file))) {
+        return;                         // no flash folder of the plugin (never made here)
+    }
+    if ($on) {
+        writeAtomic($file, $line, 0600, 0, 0);
+    } else {
+        @unlink($file);
+    }
+    if (fanboySysRoot() !== '') {
+        $GLOBALS['fanboyCronApplied'] = ($GLOBALS['fanboyCronApplied'] ?? 0) + 1;      // the tests' tree: no crontab
+        return;
+    }
+    [$exit, , $err] = run(['/bin/bash', '/usr/local/sbin/update_cron'], 30);        // its first line is no shebang
+    if ($exit !== 0) {
+        logLine('Fanboy: update_cron failed: ' . trim($err));
+    }
 }

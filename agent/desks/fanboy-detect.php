@@ -46,14 +46,16 @@ const FANBOY_PLUGINS = [
     // part 2 (2026-11-14, read in their sources on GitHub): PWM Fan steers from root's crontab (its scripts pwm-fan.sh,
     // pwm_hdd.sh, pwm_hdd_extra.sh — «running» = such a line in the crontab, or one of them running now; its settings
     // say «started» for each it scheduled); WAZ Cooling Control (md12xx.fancontrol) steers Dell MD1200/MD1220 shelves
-    // (SES) and Dell PowerEdge chassis fans through IPMI — not a board's hwmon outputs, counted all the same while its
-    // supervisors run (only one steers; the honest «installed» vs «running» either way)
+    // (SES) and Dell PowerEdge chassis fans through IPMI — not a board's hwmon outputs. Part 3 (the coordinator,
+    // 2026-11-14): it no longer holds Fanboy back — named as a hint only ('hint_only'); the guard against a foreign write
+    // on his outputs stays the safety net
     'pwm-fan'                => ['name' => 'PWM Fan', 'author' => 'alturismo', 'kind' => 'controller',
                                  'controller' => ['pwm-fan', 'pwmfansettings', '#pwm-fan/scripts/(pwm-fan|pwm_hdd|pwm_hdd_extra)\.sh#'],
                                  'on' => [['cron_state', 'started'], ['hdd_cron_state', 'started'], ['hdd_extra_cron_state', 'started']],
                                  'cron' => '#pwm-fan/scripts/(pwm-fan|pwm_hdd|pwm_hdd_extra)\.sh#'],
     'md12xx.fancontrol'      => ['name' => 'WAZ Cooling Control', 'author' => 'TheIlluminate92', 'kind' => 'controller',
-                                 'controller' => ['md12xx.fancontrol', '', '#md12xx\.fancontrol/(scripts/(controller|ipmi)-supervisor\.sh|include/(ipmi-)?controller\.php)#']],
+                                 'controller' => ['md12xx.fancontrol', '', '#md12xx\.fancontrol/(scripts/(controller|ipmi)-supervisor\.sh|include/(ipmi-)?controller\.php)#'],
+                                 'hint_only' => true],
 ];
 // a hint by the board's maker, never a verdict: whose chip such boards mostly carry
 const FANBOY_BOARD_HINTS = ['/gigabyte/i' => ['ite', 'Gigabyte'], '/micro-star|\bmsi\b/i' => ['nuvoton', 'MSI']];
@@ -264,7 +266,10 @@ function fanboyIpmi(array $p): ?array
  * Another controller: FanCtrl Plus (or its fork), Dynamix System Autofan — its settings switched on (service="1") or its
  * loop running.
  *
- * @return list<array{id:string, name:string, settings:bool, running:bool}>
+ * blocks: false for a controller of other fans than the board's outputs (WAZ Cooling Control: shelves, IPMI) — named,
+ * never holding Fanboy back (fanboyBlocking()).
+ *
+ * @return list<array{id:string, name:string, settings:bool, running:bool, blocks:bool}>
  */
 function fanboyControllers(array $p): array
 {
@@ -288,10 +293,16 @@ function fanboyControllers(array $p): array
         $running = (bool) array_filter($cmdlines, fn ($c) => preg_match($marker, $c) === 1)
             || (isset($plugin['cron']) && fanboyCronNames($p['crontab'], $plugin['cron']));
         if ($settings || $running) {
-            $out[] = ['id' => $id, 'name' => $plugin['name'], 'settings' => $settings, 'running' => $running];
+            $out[] = ['id' => $id, 'name' => $plugin['name'], 'settings' => $settings, 'running' => $running, 'blocks' => ($plugin['hint_only'] ?? false) !== true];
         }
     }
     return $out;
+}
+
+/** The controllers that keep Fanboy from steering: those of the board's outputs (not a hint-only one) */
+function fanboyBlocking(array $controllers): array
+{
+    return array_values(array_filter($controllers, fn ($c) => ($c['blocks'] ?? true) === true));
 }
 
 /** Does a line of root's crontab (not a comment) name what $re matches? Read only, at most 64 KiB */
@@ -522,7 +533,7 @@ function fanboyDetect(?string $root = null, ?int $now = null): array
     $controllers = fanboyControllers($p);
     $driversMissing = fanboyDriversMissing($p, $chips);
     $board = fanboyBoard($p['dmi']);
-    $situation = fanboySituation($chips, $controllers, $ipmi, $driversMissing);
+    $situation = fanboySituation($chips, fanboyBlocking($controllers), $ipmi, $driversMissing);
     $tools = fanboyTools($p, $chips, $controllers);
     [$hint, $maker] = fanboyBoardHint($board);
     $fans = array_merge(...array_map(fn ($c) => $c['fans'], $chips) ?: [[]]);
@@ -559,7 +570,7 @@ function fanboyDetect(?string $root = null, ?int $now = null): array
         ],
         'hottest'     => fanboyHottest($chips, $disks),
         // who steers the fans now — part 1: never Fanboy (the BIOS; another plugin; a BMC), with the reason
-        'who'         => fanboyWho($controllers, $ipmi, $chips),
+        'who'         => fanboyWho(fanboyBlocking($controllers), $ipmi, $chips),
     ];
 }
 

@@ -2,5 +2,11 @@
   "order": 55,
   "icon": "🌀",
   "refresh_after": 10,
-  "switch": "show.json"
+  "switch": "show.json",
+  "parts": {
+    "history": {
+      "refresh_after": 60,
+      "action": "history"
+    }
+  }
 }
