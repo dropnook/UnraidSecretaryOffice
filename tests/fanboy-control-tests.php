@@ -55,8 +55,7 @@ function fanboyTEnd(): void
     [$bin, $stamp] = $GLOBALS['fanboyTEnv'] ?? [false, false];
     putenv($bin === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$bin");
     putenv($stamp === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$stamp");
-    unset($GLOBALS['fanboyLauncher'], $GLOBALS['fanboyCrashes'], $GLOBALS['fanboySeenDead'], $GLOBALS['fanboyTEnv']);
-    $GLOBALS['fanboyLaunched'] = -INF;
+    unset($GLOBALS['fanboyLauncher'], $GLOBALS['fanboyCrashes'], $GLOBALS['fanboySeenDead'], $GLOBALS['fanboyTEnv'], $GLOBALS['fanboyLaunched'], $GLOBALS['fanboyLaunchedAt']);
     exec('rm -rf ' . escapeshellarg(TESTS_RUN_DIR . '/fanboy') . ' ' . escapeshellarg(FANBOY_DIR));
     $data = dirname(FANBOY_DIR);
     if (is_dir("$data/fanboy.tests-aside")) {
@@ -1076,6 +1075,41 @@ function testFanboyState(): void
         // the agent's tick: the control started when it should run (hired, armed, the array started) — here not hired: nothing
         fanboyEnsureControl(100.0);
         same('fanboy state: the tick starts no control for a desk not hired', [], $GLOBALS['fanboyLaunched']);
+        // the tick when hired (his desk there for the time, a staff list of the test's): it starts the control; a control that
+        // dies is started again after 30 s, three deaths in 30 minutes and the BIOS keeps the fans; told once per run of deaths
+        $GLOBALS['desks']['fanboy'] = ['actions' => [], 'start' => null, 'tick' => null, 'checks' => null, 'fit' => null, 'metrics' => null];
+        file_put_contents("{$t['tmp']}/staff.json", json_encode(['hired' => ['fanboy' => ['at' => 1]]]));
+        $GLOBALS['agentStaffFile'] = "{$t['tmp']}/staff.json";
+        @unlink(fanboyStatusFile());
+        $launched = [];
+        $dead = function (int $pid) {
+            fanboyStatusWrite(['v' => 1, 'pid' => $pid, 'who' => 'bios', 'why' => 'crashed', 'phase' => 'ended']);     // as the guard's look leaves it
+        };
+        fanboyEnsureControl(10.0);
+        $launched[] = count($GLOBALS['fanboyLaunched']);
+        $dead(4242);
+        fanboyEnsureControl(20.0);
+        $launched[] = count($GLOBALS['fanboyLaunched']);
+        fanboyEnsureControl(51.0);
+        $launched[] = count($GLOBALS['fanboyLaunched']);
+        $dead(4243);
+        fanboyEnsureControl(100.0);
+        fanboyEnsureControl(131.0);
+        $launched[] = count($GLOBALS['fanboyLaunched']);
+        $dead(4244);
+        fanboyEnsureControl(200.0);
+        fanboyEnsureControl(231.0);
+        fanboyEnsureControl(1000.0);
+        $launched[] = count($GLOBALS['fanboyLaunched']);
+        same('fanboy state: the tick — started; died (found by the guard first): not again for 30 s, then again; a third death in 30 minutes: not again',
+            [1, 1, 2, 3, 3], $launched);
+        same('fanboy state: … told once for the run of deaths (a warning)', 1, count(array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, '-i warning'))));
+        fanboyEnsureControl(200.0 + FANBOY_CRASH_WINDOW + 1);
+        $dead(4245);
+        fanboyEnsureControl(200.0 + FANBOY_CRASH_WINDOW + 2);
+        same('fanboy state: … calm for 30 minutes: started again, and a new death is told again', [4, 2],
+            [count($GLOBALS['fanboyLaunched']), count(array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, '-i warning')))]);
+        unset($GLOBALS['desks']['fanboy'], $GLOBALS['agentStaffFile']);
         // the page's stub state carries the part-2 keys (the click test draws it)
         $stub = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/states/fanboy.json'), true);
         check('fanboy state: the page\'s stub state has control, setup, drivers', isset($stub['control'], $stub['setup'], $stub['drivers']));

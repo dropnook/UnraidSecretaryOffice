@@ -372,16 +372,24 @@ function fanboySettingsCached(): ?array
 /** Should the control run and doesn't? Then it starts — after a death only after a pause, and not after too many */
 function fanboyEnsureControl(float $now): void
 {
+    // steering again for half an hour without a death: a next death is told again
+    $last = $GLOBALS['fanboyCrashes'] ?? [];
+    if ($last && $now - end($last) > FANBOY_CRASH_WINDOW) {
+        $GLOBALS['fanboyCrashes'] = [];
+        fanboyUntellOnce('crashed');
+    }
     $settings = fanboySettingsCached();
     if ($settings === null || ($settings['armed'] ?? false) !== true || !fanboyControlNew($settings, '', ['pid' => 0])['zones']
-        || !arrayRunning(fanboyVarIni()) || !in_array('fanboy', staffHired(), true) || fanboyStepRunning() || fanboyControlPid() !== null) {
+        || !arrayRunning(fanboyVarIni()) || !in_array('fanboy', staffHired($GLOBALS['agentStaffFile'] ?? null), true) || fanboyStepRunning() || fanboyControlPid() !== null) {
         return;
     }
     $status = readJson(fanboyStatusFile());
     $crashes = &$GLOBALS['fanboyCrashes'];
     $crashes ??= [];
-    if (is_array($status) && ($status['phase'] ?? '') !== 'ended' && is_int($status['pid'] ?? null) && ($GLOBALS['fanboySeenDead'] ?? null) !== $status['pid']) {
-        // it died without ending (killed hard, a PHP error): its outputs were given back above; said once per run of deaths
+    // it died without ending (killed hard, a PHP error) — or the guard's cron look found it so first (why «crashed»): its
+    // outputs were given back already; counted once per process, said once per run of deaths
+    if (is_array($status) && (($status['phase'] ?? '') !== 'ended' || ($status['why'] ?? '') === 'crashed') && is_int($status['pid'] ?? null)
+        && ($GLOBALS['fanboySeenDead'] ?? null) !== $status['pid']) {
         $GLOBALS['fanboySeenDead'] = $status['pid'];
         $crashes[] = $now;
         logLine("Fanboy: the control (PID {$status['pid']}) ended without giving back — the BIOS steers; started again in " . (int) FANBOY_CRASH_PAUSE . ' s');
@@ -393,10 +401,10 @@ function fanboyEnsureControl(float $now): void
     }
     $crashes = array_values(array_filter($crashes, fn ($t) => $now - $t < FANBOY_CRASH_WINDOW));
     if (count($crashes) >= FANBOY_CRASH_MAX || ($crashes && $now - end($crashes) < FANBOY_CRASH_PAUSE)
-        || $now - ($GLOBALS['fanboyLaunched'] ?? -INF) < FANBOY_CRASH_PAUSE) {
+        || $now - ($GLOBALS['fanboyLaunchedAt'] ?? -INF) < FANBOY_CRASH_PAUSE) {
         return;
     }
-    $GLOBALS['fanboyLaunched'] = $now;
+    $GLOBALS['fanboyLaunchedAt'] = $now;
     fanboyLaunch('fanboy-control');
 }
 
@@ -413,6 +421,15 @@ function fanboyTellOnce(string $once, string $key, array $params, string $level)
     $lang = officeNotifyLang();
     officeNotify(officeNotifyText('fanboy', "notify.{$key}_subject", $params, $lang), officeNotifyText('fanboy', "notify.$key", $params, $lang),
         $level, '', officeNotifyLink('#/fanboy'), 'fanboy', $key);
+}
+
+function fanboyUntellOnce(string $once): void
+{
+    $told = readJson(fanboyRunDir() . '/told.json') ?? [];
+    if (isset($told[$once])) {
+        unset($told[$once]);
+        writeAtomic(fanboyRunDir() . '/told.json', jsonEncode($told), 0600, 0, 0);
+    }
 }
 
 /**
@@ -473,7 +490,7 @@ function fanboyLookNow(): array
 {
     @mkdir(fanboyRunDir(), 0700, true);
     writeAtomic(fanboyRunDir() . '/look-now', (string) time(), 0600, 0, 0);
-    $GLOBALS['fanboyLaunched'] = -INF;          // and the control started at the next tick when it should run
+    $GLOBALS['fanboyLaunchedAt'] = -INF;        // and the control started at the next tick when it should run
     return ['ok' => true, 'state' => fanboyScan()];
 }
 
