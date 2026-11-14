@@ -9,8 +9,8 @@
      curve(opts)               → { el, set(points), destroy() }        temperature → percent (or rpm), points to drag
      picker(opts)              → { el, set(value), destroy() }        a fan from the catalogue, or «other fan» by hand
      catalog(url?)             → Promise<{ v, fans: [...] }>           fans-catalog.json beside this file
-     turns(rpm, min, max)      → turns per second the picture shows (0, or 0.4 … 3)
-     COLOURS, STATES, PLACES, KINDS                                    the keys the caller may pass
+     turns(rpm, min, max)      → turns per second the picture shows (0, or 0.12 … 1.1, eased)
+     COLOURS, STATES, PLACES, KINDS, FLOWS, SIDES                      the keys the caller may pass
    }
 
    A fan (wheel(), and every entry of a zone's fans):
@@ -25,21 +25,31 @@
               unknown  no feedback (rpm null): stands, dashed frame
               bios     the BIOS controls it: turns as measured (when it reports), dotted frame, badge
        colour: 'auto' | 'black' | 'graphite' | 'grey' | 'white' | 'slate' | 'accent'
-       place: 'front' | 'rear' | 'top' | 'bottom' | 'side'     (server picture only: where it sits in its zone)
-       px: size in pixels (default from mm) }
+       place: 'front' | 'rear' | 'top' | 'bottom' | 'side'     (server picture only: the wall of its zone it sits in)
+       flow: 'in' | 'out'                        the air: streaks coming to the wheel or leaving it, more and quicker the
+                                                 faster it turns, none while it stands, calmer for a BIOS fan. Without a
+                                                 flow they just leave it; in the server picture front and bottom fans take
+                                                 air in, rear and top ones let it out
+       side: 'right' | 'left' | 'top' | 'bottom' where the streaks are (wheel alone: right, left for flow in; the server
+                                                 picture sets it from place) · air: false — no streaks at all
+       caption: 'below' | 'right' | 'left'      where the words stand (default below; the server picture sets it)
+       px: size in pixels (default from mm; in the server picture opts.px, 46) }
 
    The server picture (server()):
      { zones: [{
          id, name,                               the zone's key and its name
          note,                                   one line under the name (the curve, the percent it asks for) — optional
-         fans: [fan, …],                         as above, `place` puts it on that side of the zone
+         fans: [fan, …],                         as above: `place` puts it in that wall, `flow` says which way the air
+                                                 goes; the zone's own air drifts from its intake to its exhaust, as fast
+                                                 as its fans turn on average
          sources: [{ id, label, kind, temp, asleep, limit, title, sub }],
                                                  kind: 'disk' | 'nvme' | 'cpu' | 'ram' | 'board' | 'gpu' | 'other';
                                                  temp °C or null; asleep: true for a sleeping disk (no temp read);
                                                  limit °C: from limit-5 the chip turns orange, from limit red
          warmest: source id                      optional; else the warmest temp of the zone (asleep and null left out)
        }, …] }
-     opts.texts: { temp(t) → '41 °C', asleep → 'asleep', warmest → 'warmest', none → 'no heat source' }
+     opts.texts: { temp(t) → '41 °C', asleep → 'asleep', warmest → 'warmest', none → 'no heat source' }; opts.px: the wheels' size (46);
+                 opts.air: false — no air at all (the zones' and the fans')
 
    The curve editor (curve()):
      opts = { points: [{ t: °C, v: percent or rpm }, …] (≥ 2), unit: 'percent' | 'rpm',
@@ -97,15 +107,18 @@
   }
 
   /**
-   * The picture's speed: a picture of the real one, not 1:1 — 0 rpm stands, the fan's min … max turns 0.4 … 3 times a
-   * second (below min down to 0 in proportion, above max stays 3). Unknown range: 20 % … 100 % of 2000 rpm.
+   * The picture's speed: it hints at the real one, never 1:1. 0 rpm stands; the fan's min … max turns 0.12 … 1.1 times a
+   * second, eased (the share of the range to the power 0.6: more difference in the slow half than at the top), so slow
+   * looks pleasantly slow and the top stays readable (7 blades at 1.1 turns: 6.6° a frame at 60 Hz — no strobing, no
+   * disc). Below min down to 0 in proportion, above max stays 1.1. Unknown range: 20 % … 100 % of 2000 rpm.
    */
+  const SLOW = 0.12, FAST = 1.1, EASE = 0.6;
   function turns(rpm, min, max) {
     if (!(typeof rpm === 'number' && rpm > 0)) return 0;
     const hi = num(max, 0) > 0 ? max : 2000;
     const lo = num(min, 0) > 0 && min < hi ? min : hi * 0.2;
-    if (rpm <= lo) return 0.4 * rpm / lo;
-    return Math.min(3, 0.4 + 2.6 * (rpm - lo) / (hi - lo));
+    if (rpm <= lo) return SLOW * rpm / lo;
+    return SLOW + (FAST - SLOW) * Math.pow(Math.min(1, (rpm - lo) / (hi - lo)), EASE);
   }
 
   // ------------------------------------------------------------------------------------------------ the wheel
@@ -157,22 +170,145 @@
     return s;
   }
 
-  // every live wheel shares one eye on the screen, one ear on the tab and one on the user's motion setting
+  // Everything that moves (a wheel with its air, a zone's air) is a mover: its animations (transform and opacity only,
+  // the browser's compositor turns them) run at one rate that glides to each new speed. All movers share one eye on the
+  // screen, one ear on the tab and one on the user's motion setting: nothing runs off screen, in a hidden tab or with
+  // reduced motion.
   const live = new Set();
   const reduce = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
   const eye = window.IntersectionObserver ? new IntersectionObserver((seen) => {
     for (const e of seen) {
-      const w = e.target.fanWheel;
-      if (!w) continue;
-      if (!e.target.isConnected) { w.destroy(); continue; }        // taken off the page without destroy(): let it go
-      w.seen = e.isIntersecting;
-      w.apply();
+      const m = e.target.fanMover;
+      if (!m) continue;
+      if (!e.target.isConnected) { m.destroy(); continue; }        // taken off the page without destroy(): let it go
+      m.seen = e.isIntersecting;
+      m.apply();
     }
   }, { rootMargin: '40px' }) : null;
-  const all = (fn) => { for (const w of [...live]) fn(w); };
-  document.addEventListener('visibilitychange', () => all((w) => (w.el.isConnected ? w.apply() : w.destroy())));
-  const onMotion = () => all((w) => w.mode());
-  if (reduce.addEventListener) reduce.addEventListener('change', onMotion);
+  const all = (fn) => { for (const m of [...live]) fn(m); };
+  document.addEventListener('visibilitychange', () => all((m) => (m.el.isConnected ? m.apply() : m.destroy())));
+  if (reduce.addEventListener) reduce.addEventListener('change', () => all((m) => m.mode()));
+
+  /** an endless animation of one element, its clock at phase (0 … 1 of a pass), paused until a mover runs it */
+  function loop(node, frames, phase) {
+    if (!node.animate) return null;
+    const a = node.animate(frames, { duration: 1000, iterations: Infinity });
+    a.currentTime = (phase || 0) * 1000;
+    a.pause();
+    return a;
+  }
+
+  /**
+   * A mover on host: parts [{ a: animation, k: its speed per turn, on(rate): runs at this rate, rows: [{ nodes, on(rate) }]
+   * shown at this rate }].
+   * rate = the wheel's turns a second (0 stands); glide(to) moves it there over GLIDE_MS while it is seen.
+   */
+  function mover(host) {
+    const m = { el: host, seen: !eye, rate: 0, target: 0, parts: [], raf: 0, onMode: null };
+    host.fanMover = m;
+    /** run what is shown at this rate; while gliding (some), the air takes the new rate only every few frames */
+    m.apply = (some) => {
+      const go = m.seen && !document.hidden && !reduce.matches;
+      for (const p of m.parts) {
+        if (!p.a) continue;
+        const on = m.rate > 0.005 && p.on(m.rate);
+        for (const r of p.rows || []) {           // the streaks shown at this rate (none while it stands)
+          const show = on && r.on(m.rate);
+          if (r.shown !== show) { for (const n of r.nodes) n.style.visibility = show ? '' : 'hidden'; r.shown = show; }
+        }
+        if (on && go) {
+          if ((!some || p.rotor) && Math.abs(p.a.playbackRate - m.rate * p.k) > 1e-4) p.a.playbackRate = m.rate * p.k;
+          if (p.a.playState !== 'running') p.a.play();
+        } else if (p.a.playState === 'running') {
+          p.a.pause();
+        }
+      }
+    };
+    m.glide = (to) => {
+      m.target = to;
+      cancelAnimationFrame(m.raf);
+      if (reduce.matches || !m.seen || document.hidden || Math.abs(to - m.rate) < 0.005) {
+        m.rate = to;
+        m.apply();
+        return;
+      }
+      const from = m.rate, t0 = performance.now();
+      let frame = 0;
+      const step = (now) => {
+        const k = Math.min(1, (now - t0) / GLIDE_MS);
+        m.rate = from + (to - from) * (1 - Math.pow(1 - k, 3));
+        m.apply(k < 1 && ++frame % 4 !== 0);
+        if (k < 1) m.raf = requestAnimationFrame(step);
+      };
+      m.raf = requestAnimationFrame(step);
+    };
+    m.mode = () => {
+      if (reduce.matches) { cancelAnimationFrame(m.raf); m.rate = m.target; }
+      if (m.onMode) m.onMode();
+      m.apply();
+    };
+    /** drop the parts named by the test (all without one), their animations ended */
+    m.drop = (test) => {
+      m.parts = m.parts.filter((p) => {
+        if (test && !test(p)) return true;
+        if (p.a) p.a.cancel();
+        return false;
+      });
+    };
+    m.destroy = () => {
+      cancelAnimationFrame(m.raf);
+      m.drop();
+      if (eye) eye.unobserve(host);
+      live.delete(m);
+      host.fanMover = null;
+    };
+    live.add(m);
+    if (eye) eye.observe(host);
+    return m;
+  }
+
+  // ---------------------------------------------------------------------------------------------------- the air
+  const SIDES = ['left', 'right', 'top', 'bottom'];
+  const FLOWS = ['in', 'out'];
+  const AXIS = { left: ['x', -1], right: ['x', 1], top: ['y', -1], bottom: ['y', 1] };
+  const tr = (axis, v) => (axis === 'x' ? `translateX(${v}%)` : `translateY(${v}%)`);
+  /**
+   * A stream of air in box: each streak ([across %, phase 0…1]) a small element of its own sliding along the axis the way
+   * the air goes, fading in and out (transform and opacity: the compositor's work). Small layers on purpose: one strip
+   * the stream wide, or a mask fading its ends, cost two to four times as much in Chrome (measured 2026-11-14). Its pass
+   * runs from `from` to `to` % of its own length; k = passes a second per turn of the wheel. The faster the air, the more
+   * streaks show (at least `least`); a hidden one rests.
+   */
+  function stream(m, box, axis, sign, rows, k, least, from, to, peak, hold) {
+    const [a, b] = sign > 0 ? [from, to] : [to, from];
+    const mid = hold ? [{ opacity: peak, offset: 0.15 }, { opacity: peak, offset: 0.85 }] : [{ opacity: peak, offset: 0.3 }];
+    const frames = [{ transform: tr(axis, a), opacity: 0 }, ...mid, { transform: tr(axis, b), opacity: 0 }];
+    rows.forEach(([across, phase], i) => {
+      const s = el('span', 'fan-streak');
+      s.style.setProperty('--fan-at', across + '%');
+      box.appendChild(s);
+      const on = (rate) => i < Math.max(least, Math.ceil(rows.length * Math.pow(Math.min(1, rate / FAST), 1.4)));
+      m.parts.push({ air: true, a: loop(s, frames, phase), k, on, rows: [{ nodes: [s], shown: true, on }] });
+    });
+  }
+
+  /**
+   * A wheel's air: up to four fine streaks on its outside (side), leaving the wheel (out, and without a flow) or coming
+   * to it (in); the faster it turns, the more of them and the quicker; none while it stands; a BIOS fan's calmer.
+   */
+  const STREAKS = [[24, 0], [72, 0.5], [46, 0.25], [88, 0.75]];          // across %, phase
+  function wheelAir(m, box, side, flow, calm) {
+    m.drop((p) => p.air);
+    const old = box.querySelector('.fan-air');
+    if (old) old.remove();
+    if (!side) return;
+    const [axis, toward] = AXIS[side];
+    const air = el('div', `fan-air fan-air-${side} fan-air-${axis}${calm ? ' fan-air-calm' : ''}`);
+    air.setAttribute('aria-hidden', 'true');
+    // a streak is 45 % of the stream long: from -40 % to 180 % of itself it crosses it
+    stream(m, air, axis, flow === 'in' ? -toward : toward, STREAKS.slice(0, calm ? 2 : 4), calm ? 1.0 : 1.7, 1, -40, 180, calm ? 0.6 : 0.9, false);
+    box.appendChild(air);
+  }
 
   function wheel(fan) {
     styles();
@@ -187,45 +323,11 @@
     cap.append(label, sub);
     box.append(frameSvg(), rotor, arc, badge);
     root.append(box, cap);
-    let anim = null, drawn = '', glideRaf = 0;
-    const w = { el: root, seen: !eye, rate: 0, target: 0 };
+    let drawn = '', aired = '';
+    const m = mover(root);
+    const w = { el: root, mover: m };
     root.fanWheel = w;
-
-    /** run the turning only when it is seen, the tab shows and the user allows motion */
-    w.apply = () => {
-      if (!anim) return;
-      const go = w.seen && !document.hidden && !reduce.matches && w.rate > 0.005;
-      if (go) {
-        anim.playbackRate = w.rate;
-        if (anim.playState !== 'running') anim.play();
-      } else if (anim.playState === 'running') {
-        anim.pause();
-      }
-    };
-    /** reduced motion: a still wheel and the arc; else the turning */
-    w.mode = () => {
-      root.classList.toggle('fan-still', !!reduce.matches);
-      if (reduce.matches) cancelAnimationFrame(glideRaf), (w.rate = w.target);
-      w.apply();
-    };
-    /** a new speed glides in: the rate moves to the target over GLIDE_MS (only while it is seen and turning) */
-    function glide(to) {
-      w.target = to;
-      cancelAnimationFrame(glideRaf);
-      if (!anim || reduce.matches || !w.seen || document.hidden || Math.abs(to - w.rate) < 0.01) {
-        w.rate = to;
-        w.apply();
-        return;
-      }
-      const from = w.rate, t0 = performance.now();
-      const step = (now) => {
-        const k = Math.min(1, (now - t0) / GLIDE_MS);
-        w.rate = from + (to - from) * (1 - Math.pow(1 - k, 3));
-        w.apply();
-        if (k < 1) glideRaf = requestAnimationFrame(step);
-      };
-      glideRaf = requestAnimationFrame(step);
-    }
+    m.onMode = () => root.classList.toggle('fan-still', !!reduce.matches);
 
     w.update = (next) => {
       f = Object.assign({}, f, next || {});
@@ -234,16 +336,22 @@
       const state = pick(f.state, STATES, 'run');
       const px = Math.round(num(f.px, pxOf(mm)));
       root.className = `fan-wheel fan-c-${pick(f.colour, COLOURS, 'auto')} fan-s-${state}`
-        + (reduce.matches ? ' fan-still' : '') + (f.cls ? ' ' + f.cls : '');
+        + (reduce.matches ? ' fan-still' : '') + (f.caption === 'right' || f.caption === 'left' ? ` fan-cap-${f.caption}` : '')
+        + (f.air !== false && f.caption !== 'right' && f.caption !== 'left' ? ` fan-airy-${pick(f.side, SIDES, f.flow === 'in' ? 'left' : 'right')}` : '')
+        + (f.cls ? ' ' + f.cls : '');
       root.style.setProperty('--fan-px', px + 'px');
       if (drawn !== `${mm}/${blades}`) {            // the shape only when it changed: the turning goes on
         drawn = `${mm}/${blades}`;
         rotor.replaceChildren(rotorSvg(mm, blades));
       }
-      if (!anim && rotor.animate) {
-        anim = rotor.animate([{ transform: 'rotate(0turn)' }, { transform: 'rotate(1turn)' }], { duration: 1000, iterations: Infinity });
-        anim.pause();
+      if (!m.parts.some((p) => p.rotor)) {
+        m.parts.unshift({ rotor: true, a: loop(rotor, [{ transform: 'rotate(0turn)' }, { transform: 'rotate(1turn)' }], 0), k: 1, on: () => true });
       }
+      // the air: on the side given (default: right, or left for air coming in), none with air: false
+      const flow = pick(f.flow, FLOWS, null);
+      const side = f.air === false ? null : pick(f.side, SIDES, flow === 'in' ? 'left' : 'right');
+      const airKey = `${side}/${flow}/${state === 'bios'}`;
+      if (aired !== airKey) { aired = airKey; wheelAir(m, box, side, flow, state === 'bios'); }
       label.textContent = text(f.label);
       sub.textContent = text(f.sub);
       label.hidden = !f.label;
@@ -257,19 +365,10 @@
       const share = clamp(rpm / max, 0, 1);
       arc.lastChild.setAttribute('stroke-dasharray', `${(share * 100).toFixed(1)} 100`);
       arc.lastChild.setAttribute('visibility', share > 0 ? 'visible' : 'hidden');     // a round cap would leave a dot at 0
-      glide(turns(rpm, f.min, f.max));
+      m.glide(turns(rpm, f.min, f.max));
       return w;
     };
-    w.destroy = () => {
-      cancelAnimationFrame(glideRaf);
-      if (anim) anim.cancel();
-      anim = null;
-      if (eye) eye.unobserve(root);
-      live.delete(w);
-      root.fanWheel = null;
-    };
-    live.add(w);
-    if (eye) eye.observe(root);
+    w.destroy = () => { m.destroy(); root.fanWheel = null; };
     w.update(fan);
     return w;
   }
@@ -299,12 +398,53 @@
     return best ? best.id : null;
   }
 
+  // The zone as a piece of a case: its walls a frame, the fans on the wall they sit in (place), the heat sources between
+  // them, the air drifting through from the intake to the exhaust. A fan without flow: front and bottom take air in,
+  // rear and top let it out (the usual case). On a phone the zone stands upright: front fans on the top wall, rear ones on
+  // the bottom wall, the air from top to bottom.
+  const narrow = window.matchMedia ? window.matchMedia('(max-width:640px)') : { matches: false };
+  const WALL = { wide: { front: 'left', rear: 'right', top: 'top', side: 'top', bottom: 'bottom' },
+    tall: { front: 'top', rear: 'bottom', top: 'top', side: 'top', bottom: 'bottom' } };
+  const flowAt = (fan, place) => pick(fan.flow, FLOWS, place === 'front' || place === 'bottom' ? 'in' : 'out');
+  /** the zone's air: [axis, sign] from what its fans take in and let out (each fan pushes along its wall's normal) */
+  function zoneWay(fans, wall) {
+    let x = 0, y = 0;
+    for (const fan of fans) {
+      const place = pick(fan.place, PLACES, 'front');
+      const [axis, toward] = AXIS[wall[place]];
+      const v = flowAt(fan, place) === 'out' ? toward : -toward;
+      if (axis === 'x') x += v; else y += v;
+    }
+    if (!x && !y) return wall === WALL.tall ? ['y', 1] : ['x', 1];
+    return Math.abs(x) >= Math.abs(y) ? ['x', x > 0 ? 1 : -1] : ['y', y > 0 ? 1 : -1];
+  }
+  /** how fast the zone's air goes: the mean of its fans' pictures (standing ones count 0, a BIOS fan's at half) */
+  function zoneRate(fans) {
+    if (!fans.length) return 0;
+    let sum = 0;
+    for (const fan of fans) {
+      const state = pick(fan.state, STATES, 'run');
+      if (state === 'stopped' || state === 'unknown') continue;
+      sum += turns(num(fan.rpm, 0), fan.min, fan.max) * (state === 'bios' ? 0.5 : 1);
+    }
+    return sum / fans.length;
+  }
+  const ZONE_STREAKS = [[14, 0], [60, 0.55], [36, 0.3], [82, 0.8], [24, 0.15], [70, 0.65], [48, 0.42]];
+  function zoneAir(m, layer, axis, sign) {
+    m.drop();
+    layer.replaceChildren();
+    layer.className = `fan-flow fan-flow-${axis}`;
+    // a streak is 20 % of the zone long: from -110 % to 560 % of itself it crosses it
+    stream(m, layer, axis, sign, ZONE_STREAKS, 0.32, 2, -110, 560, 1, true);
+  }
+
   function server(picture, opts) {
     styles();
     const o = opts || {};
     const tx = Object.assign({ temp: (t) => String(t), asleep: '', warmest: '', none: '' }, o.texts || {});
+    const px = num(o.px, 46);
     const root = el('div', 'fan-server');
-    let wheels = new Map();
+    let wheels = new Map(), flows = new Map(), last = picture;
 
     function chip(s, warm) {
       const c = el('span', `fan-src fan-k-${pick(s.kind, KINDS, 'other')}`);
@@ -324,11 +464,14 @@
     }
 
     function draw(p) {
-      const keep = new Map();
+      last = p;
+      const wall = narrow.matches ? WALL.tall : WALL.wide;
+      const keep = new Map(), keepFlows = new Map();
       root.replaceChildren();
       const zones = Array.isArray(p && p.zones) ? p.zones : [];
       zones.forEach((z, zi) => {
         const zid = z.id != null ? String(z.id) : String(zi);
+        const fans = Array.isArray(z.fans) ? z.fans : [];
         const box = el('section', 'fan-zone');
         box.dataset.id = zid;
         const head = el('header', 'fan-zone-head');
@@ -336,38 +479,66 @@
         if (z.note) head.appendChild(el('span', 'fan-zone-note', text(z.note)));
         box.appendChild(head);
         const area = el('div', 'fan-zone-area');
+        // the air first: behind the walls' fans and the chips
+        let fl = flows.get(zid);
+        if (!fl || !fl.m.el.fanMover) {
+          const layer = el('div', 'fan-flow');
+          layer.setAttribute('aria-hidden', 'true');
+          fl = { layer, m: mover(layer), way: '' };
+        }
+        flows.delete(zid);
+        keepFlows.set(zid, fl);
+        const [axis, sign] = zoneWay(fans, wall);
+        if (o.air === false) { fl.m.drop(); fl.layer.replaceChildren(); fl.way = ''; } else if (fl.way !== `${axis}${sign}`) { fl.way = `${axis}${sign}`; zoneAir(fl.m, fl.layer, axis, sign); }
+        area.appendChild(fl.layer);
         const sides = {};
-        for (const place of ['top', 'front', 'rear', 'bottom']) {
-          sides[place] = el('div', `fan-side fan-at-${place}`);
-          area.appendChild(sides[place]);
+        for (const w of SIDES) {
+          sides[w] = el('div', `fan-side fan-wall-${w}`);
+          area.appendChild(sides[w]);
         }
         const mid = el('div', 'fan-heat');
         area.appendChild(mid);
-        (Array.isArray(z.fans) ? z.fans : []).forEach((fan, fi) => {
+        fans.forEach((fan, fi) => {
           const key = `${zid}/${fan.id != null ? fan.id : fi}`;
+          const place = pick(fan.place, PLACES, 'front');
+          const side = wall[place];
+          const look = Object.assign({ px }, fan, { side, flow: flowAt(fan, place), caption: side === 'right' ? 'left' : 'right' },
+            o.air === false ? { air: false } : {});
           let w = wheels.get(key);
-          if (w && w.el.fanWheel) w.update(fan); else w = wheel(fan);
+          if (w && w.el.fanWheel) w.update(look); else w = wheel(look);
           wheels.delete(key);
           keep.set(key, w);
-          const place = pick(fan.place, PLACES, 'front');
-          sides[place === 'side' ? 'top' : place].appendChild(w.el);
+          sides[side].appendChild(w.el);
         });
-        for (const place in sides) if (!sides[place].childElementCount) sides[place].classList.add('fan-empty');
+        for (const w of SIDES) {
+          if (sides[w].childElementCount) area.classList.add(`fan-has-${w}`); else sides[w].remove();
+        }
         const warm = warmestOf(z);
         const list = Array.isArray(z.sources) ? z.sources : [];
         if (!list.length && tx.none) mid.appendChild(el('span', 'fan-src-none', tx.none));
         for (const s of list) mid.appendChild(chip(s, s.id != null && s.id === warm));
         box.appendChild(area);
         root.appendChild(box);
+        fl.m.glide(zoneRate(fans));
       });
-      for (const w of wheels.values()) w.destroy();      // fans that are gone
+      for (const w of wheels.values()) w.destroy();      // fans and zones that are gone
+      for (const f of flows.values()) f.m.destroy();
       wheels = keep;
+      flows = keepFlows;
     }
+    const turn = () => draw(last);                       // phone ↔ desk: the zones stand up or lie down
+    if (narrow.addEventListener) narrow.addEventListener('change', turn);
     draw(picture);
     return {
       el: root,
       update: (p) => draw(p),
-      destroy() { for (const w of wheels.values()) w.destroy(); wheels.clear(); },
+      destroy() {
+        for (const w of wheels.values()) w.destroy();
+        for (const f of flows.values()) f.m.destroy();
+        wheels.clear();
+        flows.clear();
+        if (narrow.removeEventListener) narrow.removeEventListener('change', turn);
+      },
     };
   }
 
@@ -429,7 +600,7 @@
     read.setAttribute('aria-live', 'polite');
     const s = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'fan-curve-svg' });   // its size set by fitSize()
     chart.appendChild(s);
-    const wh = wheel(Object.assign({}, fan, { px: num(fan.px, 96), rpm: 0, state: 'run' }));
+    const wh = wheel(Object.assign({}, fan, { px: num(fan.px, 96), rpm: 0, state: 'run', air: false }));
     side.append(wh.el, read);
     root.append(chart, side);
     if (tx.axisT) chart.appendChild(el('span', 'fan-curve-axis fan-curve-axis-t', tx.axisT));
@@ -675,7 +846,7 @@
     for (let n = 5; n <= 11; n++) bladeSel.appendChild(opt(n, String(n)));
     const facts = el('p', 'fan-pick-facts');
     const look = el('div', 'fan-pick-look');
-    const wh = wheel({ mm: 120, blades: 7, rpm: 0, px: 88 });
+    const wh = wheel({ mm: 120, blades: 7, rpm: 0, px: 88, air: false });
     look.append(wh.el, facts);
     root.append(form, look);
     void fBrand;
@@ -732,5 +903,5 @@
     return { el: root, set, value: () => cur, destroy() { wh.destroy(); } };
   }
 
-  window.FanArt = { wheel, server, curve, picker, catalog, turns, styles, COLOURS, STATES, PLACES, KINDS };
+  window.FanArt = { wheel, server, curve, picker, catalog, turns, styles, COLOURS, STATES, PLACES, KINDS, FLOWS, SIDES };
 })();

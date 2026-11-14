@@ -63532,7 +63532,8 @@ function testBackupAnewChoice(): void
  * the catalogue in exactly its shape (every value from the maker's page or null, each entry's page named in the dev-only
  * tools/fanboy/fans-catalog.sources.md, on the maker's own site), the three files shipped and the demo kept out of the
  * package, the stylesheet nested in #sso with the office's tokens only, the components with no words of their own, and
- * the wheel's speed picture under node (0 stands, min … max 0.4 … 3 turns a second, never more).
+ * the wheel's speed picture under node (0 stands, min … max 0.12 … 1.1 turns a second, eased, never more; round 2,
+ * 2026-11-14: the owner wanted it to hint at the speed, slow pleasantly slow), and the air moving like the wheel.
  */
 function testFanboyLook(): void
 {
@@ -63620,6 +63621,8 @@ function testFanboyLook(): void
     same('fanboy look: fan-art.css — no colour of its own (tokens only)', 0, preg_match_all('/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i', $bare));
     preg_match_all('/var\((--[a-z0-9-]+)/i', $bare, $used);
     preg_match_all('/(--[a-z0-9-]+):/i', $bare . (string) file_get_contents(OFFICE_WEB . '/assets/office.css'), $defined);
+    preg_match_all("/setProperty\('(--[a-z0-9-]+)'/", (string) file_get_contents("$dir/fan-art.js"), $setByJs);     // --fan-px, --fan-at
+    $defined[1] = array_merge($defined[1], $setByJs[1]);
     $palette = fn ($v) => (bool) preg_match('/^--(gray|blue|red|green|orange|yellow)-\d+$|^--(white|black)$/', $v);
     same('fanboy look: fan-art.css — every variable it uses is the office\'s, Unraid\'s palette or its own', [],
         array_values(array_unique(array_filter(array_diff($used[1], $defined[1]), fn ($v) => !$palette($v)))));
@@ -63638,9 +63641,17 @@ function testFanboyLook(): void
     check('fanboy look: fan-art.js — never into body, no role=button, no scrollIntoView, no bare details',
         !str_contains($js, 'document.body') && !str_contains($js, 'role="button"') && !str_contains($js, "'button')") && !str_contains($js, 'scrollIntoView(')
         && !str_contains($js, "el('details'"));
-    check('fanboy look: the wheel turns by a transform only, paused off screen and in a hidden tab, still with reduced motion',
-        str_contains($js, "rotor.animate([{ transform: 'rotate(0turn)' }, { transform: 'rotate(1turn)' }]") && str_contains($js, 'new IntersectionObserver(')
-        && str_contains($js, "'visibilitychange'") && str_contains($js, "'(prefers-reduced-motion: reduce)'") && str_contains($js, 'w.seen && !document.hidden && !reduce.matches'));
+    check('fanboy look: the wheel turns by a transform only, its air and the zone\'s by transform and opacity; all paused off screen and in a hidden tab, still with reduced motion',
+        str_contains($js, "loop(rotor, [{ transform: 'rotate(0turn)' }, { transform: 'rotate(1turn)' }], 0)")
+        && str_contains($js, "const frames = [{ transform: tr(axis, a), opacity: 0 }, ...mid, { transform: tr(axis, b), opacity: 0 }];") && str_contains($js, 'stream(m, air, ') && str_contains($js, 'stream(m, layer, ')
+        && substr_count($js, '.animate(') === 1 && str_contains($js, 'new IntersectionObserver(')
+        && str_contains($js, "'visibilitychange'") && str_contains($js, "'(prefers-reduced-motion: reduce)'") && str_contains($js, 'const go = m.seen && !document.hidden && !reduce.matches;')
+        && str_contains($bare, '@media (prefers-reduced-motion:reduce){ .fan-flow, .fan-air{display:none} }') && str_contains($bare, '.fan-still .fan-air{display:none}'));
+    check('fanboy look: the air — more streaks and quicker the faster, none while it stands, a BIOS fan\'s calmer; the zone\'s from its fans\' flow',
+        str_contains($js, 'const on = m.rate > 0.005 && p.on(m.rate);') && str_contains($js, 'const show = on && r.on(m.rate);')
+        && str_contains($js, 'STREAKS.slice(0, calm ? 2 : 4), calm ? 1.0 : 1.7, 1, -40, 180, calm ? 0.6 : 0.9, false)')
+        && str_contains($js, "wheelAir(m, box, side, flow, state === 'bios')") && str_contains($js, 'const [axis, sign] = zoneWay(fans, wall);')
+        && str_contains($js, 'fl.m.glide(zoneRate(fans));'));
 
     // the speed picture under node
     $node = testsNode();
@@ -63660,15 +63671,16 @@ const curve = [];
 for (let rpm = 0; rpm <= 3000; rpm += 50) curve.push(t(rpm, 300, 1500));
 console.log(JSON.stringify({
   zero: t(0, 300, 1500), none: t(null, 300, 1500), min: r(t(300, 300, 1500)), max: r(t(1500, 300, 1500)), over: t(9000, 300, 1500),
-  mid: r(t(900, 300, 1500)), below: r(t(150, 300, 1500)), unknown: r(t(2000, null, null)), rising: curve.every((v, i) => !i || v >= curve[i - 1]),
-  keys: [window.FanArt.COLOURS.length, window.FanArt.STATES.join(','), window.FanArt.KINDS.length],
+  mid: r(t(900, 300, 1500)), eased: t(900, 300, 1500) - t(300, 300, 1500) > t(1500, 300, 1500) - t(900, 300, 1500), below: r(t(150, 300, 1500)), unknown: r(t(2000, null, null)), rising: curve.every((v, i) => !i || v >= curve[i - 1]),
+  keys: [window.FanArt.COLOURS.length, window.FanArt.STATES.join(','), window.FanArt.KINDS.length, window.FanArt.FLOWS.join(',')],
 }));
 JS);
     $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg("$dir/fan-art.js") . ' 2>&1'), true);
-    same('fanboy look: the speed picture — 0 rpm and no feedback stand, min 0.4, max 3, above max still 3, half way 1.7, below min in proportion',
-        [0, 0, 0.4, 3, 3, 1.7, 0.2], [$o['zero'] ?? null, $o['none'] ?? null, $o['min'] ?? null, $o['max'] ?? null, $o['over'] ?? null, $o['mid'] ?? null, $o['below'] ?? null]);
-    same('fanboy look: … an unknown range is 20 % … 100 % of 2000 rpm, and faster never turns slower', [3, true], [$o['unknown'] ?? null, $o['rising'] ?? null]);
-    same('fanboy look: the keys a caller may pass (colours, states, kinds)', [7, 'run,stopped,unknown,bios', 7], $o['keys'] ?? null);
+    same('fanboy look: the speed picture — 0 rpm and no feedback stand, min 0.12, max 1.1, above max still 1.1, half way eased (0.767), below min in proportion',
+        [0, 0, 0.12, 1.1, 1.1, 0.767, 0.06], [$o['zero'] ?? null, $o['none'] ?? null, $o['min'] ?? null, $o['max'] ?? null, $o['over'] ?? null, $o['mid'] ?? null, $o['below'] ?? null]);
+    same('fanboy look: … an unknown range is 20 % … 100 % of 2000 rpm, faster never turns slower, the slow half differs more than the fast one',
+        [1.1, true, true], [$o['unknown'] ?? null, $o['rising'] ?? null, $o['eased'] ?? null]);
+    same('fanboy look: the keys a caller may pass (colours, states, kinds, flows)', [7, 'run,stopped,unknown,bios', 7, 'in,out'], $o['keys'] ?? null);
 }
 
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',

@@ -7,7 +7,7 @@
 //
 //   --serve     only serve the demo page (http://127.0.0.1:<port>/?theme=white …) until Ctrl-C
 //   default     the pictures: demo-<theme>-<width>.png (black, white × 1440, 390), wheels-still-<theme>.png (reduced
-//               motion), wheels.png (an animated PNG of the turning wheels, 50 frames a second, stepped on the animations'
+//               motion), wheels.png (an animated PNG: slow, medium and fast wheels and a zone with its air, 40 frames a second, stepped on the animations'
 //               own clock so no frame is skipped) and cpu.txt: twelve wheels on one page, 10 s each — the page's main
 //               thread (Chrome's TaskDuration) and all of Chrome's processes together (ps), steady and with a new speed
 //               every 3 s; the empty page (no wheel) as the baseline.
@@ -189,7 +189,16 @@ if (opt.shots) {
     await new Promise((ok) => setTimeout(ok, 900));
     return { from, mid, end: a.playbackRate };
   });
-  want(`a new speed glides in (${glide.from.toFixed(2)} → ${glide.mid.toFixed(2)} → ${glide.end.toFixed(2)})`, glide.mid < glide.from && glide.mid > glide.end && Math.abs(glide.end - 0.4) < 0.01);
+  want(`a new speed glides in (${glide.from.toFixed(2)} → ${glide.mid.toFixed(2)} → ${glide.end.toFixed(2)})`, glide.mid < glide.from && glide.mid > glide.end && Math.abs(glide.end - 0.12) < 0.01);
+  const air = await page.evaluate(() => {
+    const seen = (el) => [...el.querySelectorAll('.fan-streak')].filter((s) => s.style.visibility !== 'hidden').length;
+    const ws = window.flDemo.wheels;
+    const by = (id) => ws.find((w) => w.w.id === id).x.el;
+    return { stands: seen(by('w10')) + seen(by('w11')), slow: seen(by('w9')), fast: seen(by('w6')), bios: seen(by('w12')),
+      zone: [...document.querySelectorAll('.fan-flow')].map(seen) };
+  });
+  want(`air: none while it stands, more the faster, a BIOS fan's calmer (stands ${air.stands}, slow ${air.slow}, fast ${air.fast}, BIOS ${air.bios}; zones ${air.zone})`,
+    air.stands === 0 && air.slow >= 1 && air.fast > air.slow && air.bios <= 2 && air.zone.length === 2 && air.zone.every((n) => n >= 2));
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.waitForTimeout(400);
   const paused = await page.evaluate(() => [...document.querySelectorAll('.fl-wheels .fan-rotor')].map((r) => r.getAnimations()[0].playState));
@@ -240,10 +249,10 @@ function apng(frames, fps) {
   return Buffer.concat(parts);
 }
 if (opt.movie) {
-  const fps = 50, n = 70;
-  const { ctx, page } = await open('?theme=black&only=wheels&calm', { width: 860, height: 600, scale: 1 });
+  const fps = 40, n = 100;
+  const { ctx, page } = await open('?theme=black&only=movie&calm', { width: 720, height: 700, scale: 1 });
   await page.waitForTimeout(1200);       // the glide from 0 to each wheel's speed is over
-  const box = await page.locator('.fl-wheels').boundingBox();
+  const box = await page.locator('#fl-demo section').first().boundingBox();
   await page.evaluate(() => {
     window.flFrames = document.getAnimations().map((a) => ({ a, t: a.currentTime, r: a.playState === 'running' ? a.playbackRate : 0 }));
     for (const f of window.flFrames) f.a.pause();
@@ -283,18 +292,24 @@ async function measure(query, secs) {
   await page.waitForTimeout(secs * 1000);
   const b = await metric(), cb = chromeTree(), dt = (Date.now() - t0) / 1000;
   const wheels = await page.evaluate(() => document.querySelectorAll('.fan-wheel').length);
+  const streaks = await page.evaluate(() => document.querySelectorAll('.fan-streak').length);
   const running = await page.evaluate(() => document.getAnimations().filter((x) => x.playState === 'running').length);
   await ctx.close();
-  return { query, wheels, running, main: 100 * (b.TaskDuration - a.TaskDuration) / dt, script: 100 * (b.ScriptDuration - a.ScriptDuration) / dt, all: 100 * spent(ca, cb) / dt };
+  return { query, wheels, streaks, running, main: 100 * (b.TaskDuration - a.TaskDuration) / dt, script: 100 * (b.ScriptDuration - a.ScriptDuration) / dt, all: 100 * spent(ca, cb) / dt };
 }
 if (opt.cpu) {
-  const runs = [];
-  runs.push(await measure('?theme=black&only=wheels&calm&none', 10));
-  runs[0].query += ' (baseline, wheels hidden)';
-  runs.push(await measure('?theme=black&only=wheels&calm', 10));
-  runs.push(await measure('?theme=black&only=wheels', 10));
-  const lines = runs.map((r) => `${r.query.padEnd(48)} wheels ${String(r.wheels).padStart(2)} turning ${String(r.running).padStart(2)}  main thread ${r.main.toFixed(2)} % (script ${r.script.toFixed(2)} %)  all Chrome processes ${r.all.toFixed(1)} % of one core`);
-  const text = `Fanboy's wheels: CPU in headless Chrome (${new Date().toISOString().slice(0, 16)}, ${os.cpus()[0].model}, 1440×900, scale 1, 10 s each)\n${lines.join('\n')}\n`;
+  // the machine may be busy with other work: each look three times, interleaved, the median kept
+  const looks = [['?theme=black&only=wheels&calm&none', 'baseline: the page without a wheel'],
+    ['?theme=black&only=wheels&calm&noair', '12 wheels, no air (the first look)'], ['?theme=black&only=wheels&calm', '12 wheels with their air'],
+    ['?theme=black&only=wheels', '12 wheels with air, a new speed every 3 s'],
+    ['?theme=black&only=server&calm&noair', 'server picture, no air'], ['?theme=black&only=server&calm', 'server picture with its air'],
+    ['?theme=black&only=server', 'server picture with air, new speeds every 3 s']];
+  const got = looks.map(() => []);
+  for (let round = 0; round < 3; round++) for (const [i, [q]] of looks.entries()) got[i].push(await measure(q, 8));
+  const median = (list, key) => list.map((r) => r[key]).sort((a, b) => a - b)[1];
+  const lines = looks.map(([q, name], i) => `${name.padEnd(46)} streaks ${String(got[i][0].streaks).padStart(2)}  main thread ${median(got[i], 'main').toFixed(2)} %`
+    + `  all Chrome processes ${median(got[i], 'all').toFixed(1)} % of one core  (runs: ${got[i].map((r) => r.all.toFixed(1)).join(' / ')})`);
+  const text = `Fanboy's wheels and air: CPU in headless Chrome (${new Date().toISOString().slice(0, 16)}, ${os.cpus()[0].model}, load ${os.loadavg()[0].toFixed(1)}, 1440×900, scale 1, 8 s each, median of 3)\n${lines.join('\n')}\n`;
   fs.writeFileSync(path.join(opt.out, 'cpu.txt'), text);
   console.log(text.trim());
 }

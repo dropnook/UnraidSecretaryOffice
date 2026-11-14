@@ -50,6 +50,26 @@
   background:var(--surface2); border:1px solid var(--line2); color:var(--ink2); white-space:nowrap;
 }
 .fan-cap{display:flex; flex-direction:column; align-items:center; gap:1px; text-align:center; min-width:0; max-width:100%}
+.fan-cap-right, .fan-cap-left{flex-direction:row; align-items:center; gap:8px; max-width:none}
+.fan-cap-left{flex-direction:row-reverse}
+.fan-cap-right .fan-cap{align-items:flex-start; text-align:left}
+.fan-cap-left .fan-cap{align-items:flex-end; text-align:right}
+/* the air: fine streaks beside the wheel, on its outside (fan-art.js turns them with the wheel; never with reduced motion) */
+.fan-wheel{--fan-air:color-mix(in srgb, var(--ink) 55%, transparent)}
+.fan-air{position:absolute; pointer-events:none; --fan-len:calc(var(--fan-px) * .55)}
+.fan-air-right{left:100%; top:14%; width:var(--fan-len); height:72%}
+.fan-air-left{right:100%; top:14%; width:var(--fan-len); height:72%}
+.fan-air-top{bottom:100%; left:14%; height:var(--fan-len); width:72%}
+.fan-air-bottom{top:100%; left:14%; height:var(--fan-len); width:72%}
+.fan-streak{position:absolute; border-radius:1px}
+.fan-air-x .fan-streak{left:0; top:var(--fan-at); width:45%; height:1.5px; background:linear-gradient(to right, transparent, var(--fan-air) 50%, transparent)}
+.fan-air-y .fan-streak{top:0; left:var(--fan-at); height:45%; width:1.5px; background:linear-gradient(to bottom, transparent, var(--fan-air) 50%, transparent)}
+.fan-still .fan-air{display:none}
+/* a wheel with its words below keeps room for its air on that side (beside other wheels, at the page's edge) */
+.fan-airy-right{margin-right:calc(var(--fan-px) * .55)}
+.fan-airy-left{margin-left:calc(var(--fan-px) * .55)}
+.fan-airy-top{margin-top:calc(var(--fan-px) * .55)}
+.fan-airy-bottom{margin-bottom:calc(var(--fan-px) * .55)}
 .fan-label{font-size:12.5px; color:var(--ink); line-height:1.25; overflow-wrap:anywhere}
 .fan-sub{font-size:11.5px; color:var(--muted); line-height:1.25; font-variant-numeric:tabular-nums; overflow-wrap:anywhere}
 
@@ -62,24 +82,37 @@
 .fan-s-bios .fan-box{outline:1.5px dotted var(--muted); outline-offset:2px}
 
 /* ------------------------------------------------------------------------------------------- the server picture */
-.fan-server{display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:14px; min-width:0}
-.fan-zone{display:flex; flex-direction:column; border:1px solid var(--line2); border-radius:8px; background:var(--surface); padding:10px 12px 12px; min-width:0}
+.fan-server{
+  --fan-wall:color-mix(in srgb, var(--ink) 24%, var(--surface));
+  --fan-flow:color-mix(in srgb, var(--ink) 22%, transparent);
+  display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 360px), 1fr)); align-items:start; gap:14px; min-width:0;
+}
+.fan-zone{border:1px solid var(--line2); border-radius:8px; background:var(--surface); padding:10px 12px 12px; min-width:0}
 .fan-zone-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; margin:0 0 8px}
 .fan-zone-name{margin:0; font-size:14px; font-weight:600; color:var(--ink)}
 .fan-zone-note{font-size:12.5px; color:var(--muted)}
-/* the zone as the inside of a case: fans on top, in front (left), at the rear (right), at the bottom; the heat between */
+/* the zone as a piece of a case: its walls a frame, the fans in the wall they sit in (their air reaching out past it),
+   the heat sources between them, the zone's air drifting behind them from the intake to the exhaust */
 .fan-zone-area{
-  display:grid; grid-template-columns:auto minmax(0, 1fr) auto; grid-template-rows:auto 1fr auto;
-  grid-template-areas:"top top top" "front heat rear" "bottom bottom bottom"; gap:8px;
-  flex:1 1 auto; border-radius:6px; background:color-mix(in srgb, var(--ink) 4%, var(--bg)); padding:10px;
+  position:relative; display:grid; grid-template-columns:auto minmax(0, 1fr) auto;
+  grid-template-areas:"top top top" "left heat right" "bottom bottom bottom"; gap:6px 12px; padding:8px;
+  border:3px solid var(--fan-wall); border-radius:10px; background:color-mix(in srgb, var(--ink) 4%, var(--bg));
 }
-.fan-side{display:flex; gap:10px; align-items:flex-start; justify-content:center; flex-wrap:wrap}
-.fan-at-top{grid-area:top}
-.fan-at-bottom{grid-area:bottom}
-.fan-at-front{grid-area:front; flex-direction:column; align-items:center; justify-content:center}
-.fan-at-rear{grid-area:rear; flex-direction:column; align-items:center; justify-content:center}
-.fan-side.fan-empty{display:none}
-.fan-heat{grid-area:heat; display:flex; flex-wrap:wrap; align-content:center; gap:6px; min-width:0}
+.fan-zone-area.fan-has-left{margin-left:16px}
+.fan-zone-area.fan-has-right{margin-right:16px}
+.fan-zone-area.fan-has-top{margin-top:16px}
+.fan-zone-area.fan-has-bottom{margin-bottom:16px}
+.fan-side{position:relative; z-index:1; display:flex; gap:8px 14px; min-width:0}
+.fan-wall-left, .fan-wall-right{flex-direction:column; justify-content:center}
+.fan-wall-left{grid-area:left; align-items:flex-start}
+.fan-wall-right{grid-area:right; align-items:flex-end}
+.fan-wall-top, .fan-wall-bottom{flex-wrap:wrap; justify-content:center; align-items:center}
+.fan-wall-top{grid-area:top}
+.fan-wall-bottom{grid-area:bottom}
+.fan-heat{grid-area:heat; position:relative; z-index:1; display:flex; flex-wrap:wrap; align-content:center; justify-content:center; gap:6px; min-width:0; padding:2px 0}
+.fan-flow{position:absolute; inset:4px; z-index:0; overflow:hidden; pointer-events:none}     /* no rounded clip, no mask: either would repaint every frame */
+.fan-flow-x .fan-streak{left:0; top:var(--fan-at); width:20%; height:2px; background:linear-gradient(to right, transparent, var(--fan-flow) 50%, transparent)}
+.fan-flow-y .fan-streak{top:0; left:var(--fan-at); height:20%; width:2px; background:linear-gradient(to bottom, transparent, var(--fan-flow) 50%, transparent)}
 .fan-src{
   display:inline-flex; align-items:center; gap:5px; max-width:100%; padding:2px 8px 2px 6px; border-radius:11px;
   font-size:12px; line-height:18px; background:var(--surface2); border:1px solid var(--line); color:var(--ink2);
@@ -92,17 +125,19 @@
 .fan-src.fan-warm .fan-src-temp{color:var(--warn-ink)}
 .fan-src.fan-hot{background:var(--danger-soft); border-color:transparent}
 .fan-src.fan-hot .fan-src-temp{color:var(--danger-ink)}
-.fan-src.fan-asleep{background:transparent; color:var(--muted)}
+.fan-src.fan-asleep{background:var(--surface); color:var(--muted)}      /* solid: the air behind never shows through */
 .fan-src.fan-asleep .fan-src-temp{font-weight:400; color:var(--muted)}
 /* the warmest of a zone: the one the fans answer to */
 .fan-src.fan-warmest{border:1.5px solid var(--accent); box-shadow:0 0 0 2px var(--accent-soft)}
 .fan-src.fan-warmest .fan-kind{stroke:var(--accent-ink); opacity:1}
 .fan-src-none{font-size:12.5px; color:var(--muted)}
 @media (max-width:640px){
+  /* the zone stands up (fan-art.js puts front fans in the top wall, rear ones in the bottom wall) */
   .fan-zone{padding:8px}
-  .fan-zone-area{grid-template-columns:minmax(0, 1fr); grid-template-areas:"top" "front" "heat" "rear" "bottom"; padding:8px}
-  .fan-at-front, .fan-at-rear{flex-direction:row; flex-wrap:wrap; align-items:flex-start}
+  .fan-zone-area{grid-template-columns:minmax(0, 1fr); grid-template-areas:"top" "heat" "bottom"; padding:8px 6px}
+  .fan-wall-left, .fan-wall-right{flex-direction:row; flex-wrap:wrap}
 }
+@media (prefers-reduced-motion:reduce){ .fan-flow, .fan-air{display:none} }
 
 /* ------------------------------------------------------------------------------------------- the curve editor */
 .fan-curve{display:grid; grid-template-columns:minmax(0, 1fr) 150px; gap:14px; align-items:center; min-width:0}
