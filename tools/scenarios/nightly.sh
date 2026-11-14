@@ -1,7 +1,7 @@
 #!/bin/bash
-# The nightly run of all scenarios (on the Mac, launchd: tools/scenarios/uso-scenarios-nightly.plist - written, installed
-# only by the coordinator with the owner's OK): origin/main on Tower, the reds rerun once, a summary with the diff to the
-# night before.
+# The full run of all scenarios, once a week (on the Mac, launchd: tools/scenarios/uso-scenarios-nightly.plist - written,
+# installed only by the coordinator with the owner's OK; the name «nightly» stays from when it was meant for every night):
+# origin/main on Tower, the reds rerun once, a summary with the diff to the last full run before.
 #
 #   bash tools/scenarios/nightly.sh [--ref origin/main | --tree DIR] [--released] [--no-rerun] [--wait s] [--dry]
 #   bash tools/scenarios/nightly.sh --compare <old nightly.tsv> <new nightly.tsv>     the diff part alone (its self-test)
@@ -10,18 +10,22 @@
 #      --wait s, default 7200); not free → nightly.md says so, exit 4.
 #   2. The tree: a detached worktree of this repository at <ref> (default origin/main, fetched first) in
 #      ~/Claude/UnraidSecretaryOffice-worktrees/nightly (USO_NIGHTLY_TREE), made the first time and reset to <ref>
-#      every night (only that worktree - it is the nightly's own); --tree DIR runs DIR as it is.
+#      every run (only that worktree - it is the nightly's own); --tree DIR runs DIR as it is.
 #   3. `USO_RUN_TAG=nightly run.sh tower --all --dev-sync` from that tree (--released: without --dev-sync, the plugin
 #      Tower has). Only Tower: run.sh refuses USOPartner and nostromo by their addresses.
 #   4. Every red one (red, dirty, error, timeout, busy; at most 20) once more: `USO_RUN_TAG=nightly-rerun run.sh tower
 #      --only <them>`. Red and then green = flaky, listed apart; red twice = red.
 #   5. ~/Claude/UnraidSecretaryOffice-briefs/scenarios/<date>/nightly.md (atop: the feedback inbox, tools/inbox-health.sh -
 #      red when it takes no reports; and nightly.tsv: name, verdict, first verdict,
-#      seconds, red invariants - what the next night compares with), the diff to the last night before: new reds, fixed,
+#      seconds, red invariants - what the next run compares with), the diff to the last run before: new reds, fixed,
 #      flaky flips, new and gone scenarios; run.sh's own reports beside in tower-nightly/ and tower-nightly-rerun/.
-#   --dry: says what it would do (the tree, the lock, the last night) - nothing runs, Tower is not contacted.
+#   --dry: says what it would do (the tree, the lock, the last run) - nothing runs, Tower is not contacted.
 # Exit 0 nothing red (flaky ones allowed), 1 something red, 2 wrong call, 4 Tower not free or not reachable.
+# The whole script is one { … } block: bash reads it all before it starts, so a pull or merge into the clone it runs
+# from (launchd: the main clone) during the hours it runs can't change what it does next (2026-11-14: a running bash
+# script reads on at its old byte offset in the new file).
 set -u
+{
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo=$(cd "$here/../.." && pwd)
 BRIEFS=${USO_BRIEFS:-$HOME/Claude/UnraidSecretaryOffice-briefs}
@@ -46,13 +50,13 @@ compare() {
             continue
         fi
         if [[ $v == red && $pv != red ]]; then nr="$nr
-- $n (last night $pv)"
+- $n (last run $pv)"
         elif [[ $v == red ]]; then sr=$((sr + 1))
         elif [[ $pv == red && $v == green ]]; then fx="$fx
 - $n"
         fi
         if [[ $v == flaky && $pv != flaky ]]; then fl="$fl
-- $n became flaky (last night $pv)"
+- $n became flaky (last run $pv)"
         elif [[ $pv == flaky && $v != flaky ]]; then fl="$fl
 - $n no longer flaky: $v"
         fi
@@ -63,7 +67,7 @@ compare() {
     done < "$old"
     echo "**New reds:** ${nr:-none}"
     echo
-    echo "**Fixed** (red last night, green now): ${fx:-none}"
+    echo "**Fixed** (red last run, green now): ${fx:-none}"
     echo
     echo "**Flaky flips:** ${fl:-none}"
     echo
@@ -85,7 +89,7 @@ while (($#)); do
         --no-rerun) rerun=0; shift ;;
         --wait) wait=${2:-7200}; shift 2 ;;
         --dry) dry=1; shift ;;
-        -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
         *) echo "nightly: unknown argument $1" >&2; exit 2 ;;
     esac
 done
@@ -97,7 +101,7 @@ mkdir -p "$out" || exit 2
 log=$out/nightly.log
 say() { echo "nightly: $*"; }
 t_start=$(date +%s) started=$(date '+%Y-%m-%d %H:%M')
-# the last night before this one: the newest nightly.tsv of an earlier day
+# the last full run before this one: the newest nightly.tsv of an earlier day
 prev=$(ls -d "$BRIEFS"/scenarios/20??-??-?? 2>/dev/null | sort | while read -r d; do
     [[ $(basename "$d") < $day && -s $d/nightly.tsv ]] && echo "$d/nightly.tsv"; done | tail -1)
 
@@ -105,7 +109,7 @@ if ((dry)); then
     say "(dry) the tree: ${tree:-$WT at $ref (git fetch origin, then a detached worktree reset to it)}"
     say "(dry) the lock: ${USO_TOWER_LOCK:-$BRIEFS/scenarios/.tower.lock}, then no run-local.sh on Tower, waited for at most $wait s"
     say "(dry) USO_RUN_TAG=nightly bash <tree>/tools/scenarios/run.sh tower --all $devsync; the reds once more (at most $MAX_RERUN)"
-    say "(dry) the summary: $md; the night before: ${prev:-none yet}"
+    say "(dry) the summary: $md; the last run before: ${prev:-none yet}"
     exit 0
 fi
 
@@ -120,8 +124,8 @@ inbox=$(bash "$here/../inbox-health.sh"); inbox_rc=$?
 if ((inbox_rc == 0)); then inbox_md="Feedback inbox: $inbox"; else inbox_md="🔴 **Feedback inbox: $inbox**"; fi
 say "feedback inbox: $inbox"
 
-not_run() {     # not_run <why>: a nightly.md that says so (the next night compares with the last real one)
-    { echo "# Nightly scenarios - $day"; echo; echo "$inbox_md"; echo; echo "**Not run:** $1 ($started)."; } > "$md"
+not_run() {     # not_run <why>: a nightly.md that says so (the next run compares with the last real one)
+    { echo "# All scenarios - $day"; echo; echo "$inbox_md"; echo; echo "**Not run:** $1 ($started)."; } > "$md"
     say "not run: $1"
 }
 
@@ -211,7 +215,7 @@ total=$(grep -vc '^#' "$tsv")
 g=$(count green) r=$(count red) f=$(count flaky) s=$(count skipped)
 took=$(( ($(date +%s) - t_start) / 60 ))
 {
-    echo "# Nightly scenarios - $day"
+    echo "# All scenarios - $day"
     echo
     echo "$inbox_md"
     echo
@@ -220,11 +224,11 @@ took=$(( ($(date +%s) - t_start) / 60 ))
     echo "**$total scenarios: $r red, $f flaky, $s skipped, $g green.**"
     echo
     if [[ -n $prev ]]; then
-        echo "## Since the night before ($(basename "$(dirname "$prev")"))"
+        echo "## Since the last run before ($(basename "$(dirname "$prev")"))"
         echo
         compare "$prev" "$tsv"
     else
-        echo "(no night before to compare with)"
+        echo "(no run before to compare with)"
     fi
     echo
     echo "## Red"
@@ -258,3 +262,4 @@ say "summary $md: $r red, $f flaky, $g green ($took min)"
 tower_drop
 ((r == 0)) && exit 0
 exit 1
+}
