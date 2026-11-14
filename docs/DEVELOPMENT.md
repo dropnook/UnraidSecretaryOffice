@@ -633,7 +633,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
 `nightorder.php`, `poollevel.php`) and links (`#/<desk>`) — each must work on its own. Entry tests: `testSnapshot*`, `testPlanGone`,
 `testSleepingPools`, `testBackup*`, `testSetup*`, `testJack*`, `testMoverelli*`, `testNight*`, `testPoolLevel`, `testHireNeeds`,
 `testLogs*`, `testWatchman*`, `testParityWhy`, `testCleanup*`, `testWhere*`, `testHiddenStoreroom`, `testAdvisor*`,
-`testRestore*`, `testCaretaker*`, `testAckContent`, `testPartner*`.
+`testRestore*`, `testCaretaker*`, `testAckContent`, `testPartner*`, `testFanboy*` (part `fanboy`).
 
 * **`snapshot` — Ms. Snapshotini.** ZFS/btrfs/VM snapshots and plans (lib/snapshotplans.php, `uso-plan-<plan>-…`; retention
   touches only those, never the engine's; plans read only via `snapPlans()`; a gone target is no failure). Lists awake ZFS pools
@@ -957,6 +957,28 @@ the last 60 history lines only for a source the file has none for. **The file
   newest backup snapshot into a fresh `<share>/.uso-drill-<id>` on an awake pool or disk, compares it, and puts that folder into
   Ms. Dustdevil's storeroom of the share through her helpers (`drillScratchAway()`; she finds it by `drillTrashRoots()`), with
   the verified copy's name, size and sha256 (journal `made[].files`, manifest `drill`) — so it empties itself after 7 days.
+* **`fanboy` — Fanboy** (the building services, his fans' biggest fan; the same name in all five languages). **Hidden until the
+  owner lets him out:** desk.json `"switch": "show.json"` — the desk exists only where `<data folder>/fanboy/show.json` lies
+  (a plain file, any content, never a link; `src/desks.php officeDeskSwitchedOn()`, agent `fanboyShown()` — the same rule,
+  his desk.json unreadable = hidden): without it no tile, route, hiring, strings, `desk()`, action or fit. Out for everyone =
+  remove the key. **Part 1 writes nothing to a fan — no `pwm*` file, anywhere** (`testFanboyNoWrite` greps his files; the only
+  write is his state, the only command `ipmitool sdr type Fan` for an IPMI board's report). His look
+  (`agent/desks/fanboy-detect.php`, read only, a few ms): `/sys/class/hwmon` (chips by name + device path **without hwmonN**,
+  module; outputs `pwmN` with `_enable` mode and the chip's own auto mode; tach inputs; temperatures with a kind — drivetemp's
+  never read: they ask the disk), DMI board vendor + model (never a serial), Unraid's disks from disks.ini via `diskAsleep()`
+  (never smartctl, nothing that wakes a disk), a BMC, FanControl Plus (`fanctrlplus/*.cfg` `service="1"` or its loop) and
+  Dynamix Auto Fan, driver plugins whose module isn't loaded. Situations: ok · other (another controller: Fanboy steers
+  nothing) · ipmi (no output Linux shows, a BMC: said honestly, the wish button) · driver_missing (only a known driver plugin
+  installed with its module not loaded) · no_output (hint at the driver plugins). A graphics card's outputs are never offered.
+  **Identity:** a fan = chip name + device address + output (`fanboyFanId()`: `it8696:it87.2624:pwm4`) + its tach input as
+  fingerprint, resolved against a fresh look on every use (`fanboyResolve()`: here · moved — the address changed and exactly
+  one chip of that name · ambiguous · missing · no_output); settings in `<data folder>/fanboy/settings.json` keyed by board
+  (vendor | model) — another board's stay; **nothing is deleted or rewritten because it doesn't match** (the shape is documented
+  at the top of `agent/desks/fanboy.php`). **The report** for the makers' wish form (`fanboyReportText()`): board model, chips
+  and drivers, counts, sensor kinds, kernel, Unraid version, the situation, an IPMI board's BMC ids, firmware and fan sensor
+  names — never the server's name, serials, disk ids or names, a device's address, a path (no «/» in it at all); the page puts
+  it into the office's report form as a wish of his desk (the form's draft), the user sees and edits it and only «Send» sends.
+  The suite's fake sysfs: `fanboyFakeTree()` in tests/run.php. Not in part 1: setup, the control service, notifications.
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same

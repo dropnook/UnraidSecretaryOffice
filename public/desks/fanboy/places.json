@@ -1,0 +1,22 @@
+{
+  "keys": [
+    "fans.title",
+    "help.fans",
+    "help.outputs",
+    "help.report",
+    "help.sensors",
+    "help.who",
+    "outputs.title",
+    "sensors.title",
+    "tile.fans",
+    "tile.hottest",
+    "tile.who"
+  ],
+  "texts": [
+    "help.fans_text",
+    "help.outputs_text",
+    "help.report_text",
+    "help.sensors_text",
+    "help.who_text"
+  ]
+}
