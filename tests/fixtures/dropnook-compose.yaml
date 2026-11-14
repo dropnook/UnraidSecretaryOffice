@@ -1,5 +1,5 @@
 # Dropnook — instant sharing for your home network
-# Setup, HTTPS and updates: https://github.com/dropnook/dropnook.app
+# Setup, HTTPS and updates: https://github.com/dropnook/drop
 #
 # Before the first start: create the Unraid share "drop" and fill in SETTINGS.
 # Without Unraid: see "Without Unraid" in docs/DEVELOPMENT.md.
@@ -74,7 +74,7 @@ services:
       # "WebUI" in the Docker tab: the name you open Drop under.
       # Without a domain and without sharing: http://[IP]/
       net.unraid.docker.webui: https://drop.example.com
-      net.unraid.docker.icon: https://raw.githubusercontent.com/dropnook/dropnook.app/main/.github/icons/drop.png
+      net.unraid.docker.icon: https://raw.githubusercontent.com/dropnook/drop/main/.github/icons/drop.png
 
   # Share links only — the one container your reverse proxy points to.
   drop-share:
@@ -115,7 +115,7 @@ services:
       br0:
         ipv4_address: *share_ip
     labels:
-      net.unraid.docker.icon: https://raw.githubusercontent.com/dropnook/dropnook.app/main/.github/icons/drop-share.png
+      net.unraid.docker.icon: https://raw.githubusercontent.com/dropnook/drop/main/.github/icons/drop-share.png
 
 networks:
   br0:            # Unraid's network for containers with their own LAN address
