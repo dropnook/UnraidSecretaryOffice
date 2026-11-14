@@ -63527,13 +63527,157 @@ function testBackupAnewChoice(): void
         str_contains($setup, 'OLD[$k]="${v//$\'\x1f\'/$\'\n\'}"') && str_contains($setup, 'was="$v"; [[ -n "${ANEW[$v]:-}" ]] && v="${ANEW[$v]}"'));
 }
 
+/*
+ * Fanboy's pictures (public/desks/fanboy/fan-art.js, fan-art.css, fans-catalog.json; built 2026-11-14 beside the desk):
+ * the catalogue in exactly its shape (every value from the maker's page or null, each entry's page named in the dev-only
+ * tools/fanboy/fans-catalog.sources.md, on the maker's own site), the three files shipped and the demo kept out of the
+ * package, the stylesheet nested in #sso with the office's tokens only, the components with no words of their own, and
+ * the wheel's speed picture under node (0 stands, min … max 0.4 … 3 turns a second, never more).
+ */
+function testFanboyLook(): void
+{
+    $dir = OFFICE_WEB . '/desks/fanboy';
+    $cat = json_decode((string) @file_get_contents("$dir/fans-catalog.json"), true);
+    check('fanboy look: fans-catalog.json is JSON with v 1 and a list of fans', is_array($cat) && ($cat['v'] ?? null) === 1 && array_is_list($cat['fans'] ?? null));
+    $fans = is_array($cat) && is_array($cat['fans'] ?? null) ? $cat['fans'] : [];
+    check('fanboy look: the catalogue holds the usual fans (40 … 60 of them)', count($fans) >= 40 && count($fans) <= 60, (string) count($fans));
+    $keys = ['id', 'brand', 'model', 'mm', 'rpm_min', 'rpm_max', 'blades', 'connector'];
+    $intOrNull = fn ($v, int $lo, int $hi) => $v === null || (is_int($v) && $v >= $lo && $v <= $hi);
+    $bad = [];
+    foreach ($fans as $i => $f) {
+        $id = is_array($f) && is_string($f['id'] ?? null) ? $f['id'] : "#$i";
+        $ok = is_array($f) && array_keys($f) === $keys
+            && preg_match('/^[a-z0-9]+(-[a-z0-9]+)*$/D', (string) $f['id'])
+            && is_string($f['brand']) && trim($f['brand']) !== '' && is_string($f['model']) && trim($f['model']) !== ''
+            && !preg_match('~[<>]|https?:~', $f['brand'] . $f['model'])
+            && is_int($f['mm']) && $f['mm'] >= 40 && $f['mm'] <= 200
+            && $intOrNull($f['rpm_max'], 100, 12000) && $intOrNull($f['rpm_min'], 0, 12000)
+            && ($f['rpm_min'] === null || $f['rpm_max'] === null || $f['rpm_min'] < $f['rpm_max'])
+            && $intOrNull($f['blades'], 3, 15) && in_array($f['connector'], [null, '3-pin', '4-pin'], true);
+        if (!$ok) {
+            $bad[] = $id;
+        }
+    }
+    same('fanboy look: every fan in exactly the shape (id, brand, model, mm 40-200, rpm min < max or null, blades, connector)', [], $bad);
+    $ids = array_column($fans, 'id');
+    same('fanboy look: no id twice', [], array_values(array_unique(array_diff_assoc($ids, array_unique($ids)))));
+    $names = array_map(fn ($f) => mb_strtolower(($f['brand'] ?? '') . ' ' . ($f['model'] ?? '')), $fans);
+    same('fanboy look: no fan twice (brand and model)', [], array_values(array_unique(array_diff_assoc($names, array_unique($names)))));
+    check('fanboy look: the usual sizes are there (80, 92, 120, 140 and 200 mm)', !array_diff([80, 92, 120, 140, 200], array_column($fans, 'mm')));
+
+    // where each value comes from: a row per fan with the maker's own page (never a retailer's), no row for a fan not there
+    $src = (string) @file_get_contents(OFFICE_DIR . '/tools/fanboy/fans-catalog.sources.md');
+    $rows = [];
+    foreach (explode("\n", $src) as $line) {
+        if (preg_match('~^\| ([a-z0-9-]+) \| (.+?) \| .+? \| \d+ \| (https://[^\s|]+) \|~', $line, $m)) {
+            $rows[$m[1]] = ['brand' => $m[2], 'url' => $m[3]];
+        }
+    }
+    $makers = ['Noctua' => 'noctua.at', 'Arctic' => 'arctic.de', 'be quiet!' => 'bequiet.com', 'Corsair' => 'corsair.com',
+        'Fractal Design' => 'fractal-design.com', 'Phanteks' => 'phanteks.com', 'Thermalright' => 'thermalright.com',
+        'Cooler Master' => 'coolermaster.com', 'SilverStone' => 'silverstonetek.com', 'Lian Li' => 'lian-li.com', 'Thermaltake' => 'thermaltake.com'];
+    $noPage = [];
+    foreach ($fans as $f) {
+        $r = $rows[$f['id'] ?? ''] ?? null;
+        $host = $r ? (string) parse_url($r['url'], PHP_URL_HOST) : '';
+        $site = $makers[$f['brand'] ?? ''] ?? null;
+        if (!$r || $site === null || !($host === $site || str_ends_with($host, ".$site"))) {
+            $noPage[] = $f['id'] ?? '?';
+        }
+    }
+    same('fanboy look: every fan\'s page named in tools/fanboy/fans-catalog.sources.md, on its maker\'s own site', [], $noPage);
+    same('fanboy look: … and no row there for a fan the catalogue doesn\'t have', [], array_values(array_diff(array_keys($rows), $ids)));
+
+    // the package: public/ goes in whole (the three files with it), tools/ never
+    $build = (string) file_get_contents(OFFICE_DIR . '/plugin/build.sh');
+    check('fanboy look: build.sh ships public/ (fan-art.js, fan-art.css, fans-catalog.json) and nothing of tools/',
+        str_contains($build, 'cp -R public/. "$pkg/"') && !preg_match('~cp [^\n]*\btools\b~', $build)
+        && is_file("$dir/fan-art.js") && is_file("$dir/fan-art.css") && is_file(OFFICE_DIR . '/tools/fanboy/demo.html'));
+
+    // the stylesheet: nested in #sso, no colour of its own, only the office's tokens, Unraid's palette and its own
+    $css = (string) file_get_contents("$dir/fan-art.css");
+    $bare = preg_replace('~/\*.*?\*/~s', '', $css);
+    $top = [];                              // the selectors at the top level: only #sso (every rule nested in it)
+    $depth = 0;
+    $sel = '';
+    foreach (str_split($bare) as $ch) {
+        if ($ch === '{') {
+            if ($depth === 0) {
+                $top[] = trim($sel);
+            }
+            $depth++;
+            $sel = '';
+        } elseif ($ch === '}') {
+            $depth--;
+            $sel = '';
+        } elseif ($ch === ';') {
+            $sel = '';
+        } else {
+            $sel .= $ch;
+        }
+    }
+    same('fanboy look: fan-art.css — every rule under #sso, the braces closed', [['#sso'], 0], [$top, $depth]);
+    same('fanboy look: fan-art.css — no colour of its own (tokens only)', 0, preg_match_all('/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i', $bare));
+    preg_match_all('/var\((--[a-z0-9-]+)/i', $bare, $used);
+    preg_match_all('/(--[a-z0-9-]+):/i', $bare . (string) file_get_contents(OFFICE_WEB . '/assets/office.css'), $defined);
+    $palette = fn ($v) => (bool) preg_match('/^--(gray|blue|red|green|orange|yellow)-\d+$|^--(white|black)$/', $v);
+    same('fanboy look: fan-art.css — every variable it uses is the office\'s, Unraid\'s palette or its own', [],
+        array_values(array_unique(array_filter(array_diff($used[1], $defined[1]), fn ($v) => !$palette($v)))));
+    check('fanboy look: fan-art.css — a size of its own under 640 px (phone) for the zone and the curve', substr_count($bare, '@media (max-width:640px)') >= 2);
+
+    // the components: no words of their own, nothing outside #sso, the house rules
+    $js = (string) file_get_contents("$dir/fan-art.js");
+    $code = (string) preg_replace('~^\s*(/\*.*?\*/|//[^\n]*)~ms', '', (string) preg_replace('~/\*.*?\*/~s', '', $js));
+    $words = [];
+    foreach (explode("\n", $code) as $i => $line) {
+        if (preg_match("/(textContent|title|label)\s*=\s*'[A-Za-z]|el\('[a-z0-9]+', [^,)]+, '[A-Za-z]{2}/", $line)) {
+            $words[] = $i + 1;
+        }
+    }
+    same('fanboy look: fan-art.js — no words of its own (every label from the caller)', [], $words);
+    check('fanboy look: fan-art.js — never into body, no role=button, no scrollIntoView, no bare details',
+        !str_contains($js, 'document.body') && !str_contains($js, 'role="button"') && !str_contains($js, "'button')") && !str_contains($js, 'scrollIntoView(')
+        && !str_contains($js, "el('details'"));
+    check('fanboy look: the wheel turns by a transform only, paused off screen and in a hidden tab, still with reduced motion',
+        str_contains($js, "rotor.animate([{ transform: 'rotate(0turn)' }, { transform: 'rotate(1turn)' }]") && str_contains($js, 'new IntersectionObserver(')
+        && str_contains($js, "'visibilitychange'") && str_contains($js, "'(prefers-reduced-motion: reduce)'") && str_contains($js, 'w.seen && !document.hidden && !reduce.matches'));
+
+    // the speed picture under node
+    $node = testsNode();
+    if ($node === '') {
+        check('fanboy look: node is missing here - the speed picture skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('fanboy-look');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.window = globalThis;
+globalThis.document = { currentScript: null, addEventListener() {}, getElementById: () => null, hidden: false };
+new Function(fs.readFileSync(process.argv[2], 'utf8'))();
+const t = window.FanArt.turns;
+const r = (x) => Math.round(x * 1000) / 1000;
+const curve = [];
+for (let rpm = 0; rpm <= 3000; rpm += 50) curve.push(t(rpm, 300, 1500));
+console.log(JSON.stringify({
+  zero: t(0, 300, 1500), none: t(null, 300, 1500), min: r(t(300, 300, 1500)), max: r(t(1500, 300, 1500)), over: t(9000, 300, 1500),
+  mid: r(t(900, 300, 1500)), below: r(t(150, 300, 1500)), unknown: r(t(2000, null, null)), rising: curve.every((v, i) => !i || v >= curve[i - 1]),
+  keys: [window.FanArt.COLOURS.length, window.FanArt.STATES.join(','), window.FanArt.KINDS.length],
+}));
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg("$dir/fan-art.js") . ' 2>&1'), true);
+    same('fanboy look: the speed picture — 0 rpm and no feedback stand, min 0.4, max 3, above max still 3, half way 1.7, below min in proportion',
+        [0, 0, 0.4, 3, 3, 1.7, 0.2], [$o['zero'] ?? null, $o['none'] ?? null, $o['min'] ?? null, $o['max'] ?? null, $o['over'] ?? null, $o['mid'] ?? null, $o['below'] ?? null]);
+    same('fanboy look: … an unknown range is 20 % … 100 % of 2000 rpm, and faster never turns slower', [3, true], [$o['unknown'] ?? null, $o['rising'] ?? null]);
+    same('fanboy look: the keys a caller may pass (colours, states, kinds)', [7, 'run,stopped,unknown,bios', 7], $o['keys'] ?? null);
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
