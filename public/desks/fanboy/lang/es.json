@@ -644,5 +644,46 @@
   "sensors.more": {
     "one": "{n} sensor más",
     "other": "{n} sensores más"
-  }
+  },
+  "dash.open": "Abrir la página de Fanboy",
+  "dash.why.not_set_up": "aún no configurado",
+  "dash.why.not_armed": "configurado, aún sin darle el control",
+  "dash.why.starting": "Fanboy está por tomar el control",
+  "dash.why.chip_missing": "falta el chip de los ventiladores",
+  "dash.why.other": "Fanboy se contiene",
+  "dash.why.crashed": "su regulación se detuvo",
+  "dash.why.released": "devueltos cuando la secretaría se detuvo",
+  "dash.why.array_stopped": "array detenido",
+  "dash.why.stopped": "devueltos",
+  "dash.why.hand_back": "devueltos",
+  "dash.why.hold": "Fanboy se contiene por ahora",
+  "dash.why.no_output": "ninguna salida que Fanboy pueda regular",
+  "dash.why.ipmi": "regulados por IPMI",
+  "dash.since": "{what} — desde {when}",
+  "dash.pct": "{pct} %",
+  "dash.stands": "Un ventilador está parado: {fan}",
+  "dash.stale": "Últimos valores: {when} — su página trae los nuevos",
+  "dash.zones_more": {
+    "one": "+ {n} zona más",
+    "other": "+ {n} zonas más"
+  },
+  "dash.fans_more": {
+    "one": "+ {n} ventilador más",
+    "other": "+ {n} ventiladores más"
+  },
+  "dash.connectors": {
+    "one": "{n} conector indica una velocidad",
+    "other": "{n} conectores indican una velocidad"
+  },
+  "dash.connectors_none": "Ningún conector indica una velocidad",
+  "dash.set_up": "Configurar",
+  "dash.watched": "Con la BIOS, vigilados:",
+  "dash.setting": "Mostrar en el Dashboard",
+  "dash.setting_sub": "Un mosaico propio en el Dashboard de Unraid — muévelo u ocúltalo allí como cualquier otro. Para todos los que abran el Dashboard.",
+  "dash.show.off": "No",
+  "dash.show.off_title": "Ningún mosaico suyo en el Dashboard",
+  "dash.show.speeds": "Velocidades",
+  "dash.show.speeds_title": "Quién regula, y por zona el punto más caliente, el nivel y la velocidad",
+  "dash.show.history": "Velocidades con evolución",
+  "dash.show.history_title": "Las velocidades, y por zona una pequeña curva de las últimas horas"
 }

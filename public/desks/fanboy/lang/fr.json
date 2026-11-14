@@ -644,5 +644,46 @@
   "sensors.more": {
     "one": "{n} autre capteur",
     "other": "{n} autres capteurs"
-  }
+  },
+  "dash.open": "Ouvrir la page de Fanboy",
+  "dash.why.not_set_up": "pas encore configuré",
+  "dash.why.not_armed": "configuré, pas encore pris en main",
+  "dash.why.starting": "Fanboy va prendre la main",
+  "dash.why.chip_missing": "la puce des ventilateurs est absente",
+  "dash.why.other": "Fanboy se retient",
+  "dash.why.crashed": "sa régulation s'est arrêtée",
+  "dash.why.released": "rendus quand le secrétariat s'est arrêté",
+  "dash.why.array_stopped": "array arrêté",
+  "dash.why.stopped": "rendus",
+  "dash.why.hand_back": "rendus",
+  "dash.why.hold": "Fanboy se retient pour l'instant",
+  "dash.why.no_output": "aucune sortie que Fanboy puisse régler",
+  "dash.why.ipmi": "réglés par IPMI",
+  "dash.since": "{what} — depuis {when}",
+  "dash.pct": "{pct} %",
+  "dash.stands": "Un ventilateur est arrêté : {fan}",
+  "dash.stale": "Dernières valeurs : {when} — sa page en apporte de nouvelles",
+  "dash.zones_more": {
+    "one": "+ {n} autre zone",
+    "other": "+ {n} autres zones"
+  },
+  "dash.fans_more": {
+    "one": "+ {n} autre ventilateur",
+    "other": "+ {n} autres ventilateurs"
+  },
+  "dash.connectors": {
+    "one": "{n} connecteur indique une vitesse",
+    "other": "{n} connecteurs indiquent une vitesse"
+  },
+  "dash.connectors_none": "Aucun connecteur n'indique de vitesse",
+  "dash.set_up": "Configurer",
+  "dash.watched": "Chez le BIOS, surveillés :",
+  "dash.setting": "Afficher dans le Dashboard",
+  "dash.setting_sub": "Une tuile à lui dans le Dashboard d'Unraid — déplace-la ou masque-la là-bas comme toute autre. Pour tous ceux qui ouvrent le Dashboard.",
+  "dash.show.off": "Non",
+  "dash.show.off_title": "Aucune tuile de lui dans le Dashboard",
+  "dash.show.speeds": "Vitesses",
+  "dash.show.speeds_title": "Qui règle, et pour chaque zone le point le plus chaud, le niveau et la vitesse",
+  "dash.show.history": "Vitesses avec historique",
+  "dash.show.history_title": "Les vitesses, et pour chaque zone une petite courbe des dernières heures"
 }

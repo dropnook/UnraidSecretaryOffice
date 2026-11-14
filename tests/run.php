@@ -63725,6 +63725,7 @@ function testsSwitchesOn(string $data): void
 require __DIR__ . '/fanboy-responder.php';
 require __DIR__ . '/fanboy-control-tests.php';
 require __DIR__ . '/fanboy-desk-tests.php';
+require __DIR__ . '/fanboy-dash-tests.php';
 
 function testFanboyHidden(): void
 {
@@ -63772,7 +63773,7 @@ function testFanboyHidden(): void
         [$off[0]['desk'] ?? $off[0], $off[0]['actions'] ?? null, $off[0]['fit'] ?? null, $off[0]['checks'] ?? null, $off[1]['desk'] ?? $off[1]]);
     same('fanboy hidden: with the file — the desk on both sides (refresh, report and part 2\'s actions; a fit, checks, his two jobs, a tick)',
         [true, ['refresh', 'report', 'look_now', 'drivers_load', 'drivers_undo', 'import', 'test_up', 'measure', 'step_alive', 'step_stop', 'answer', 'role',
-                'zones_propose', 'zones_save', 'dry_run', 'take_over', 'hand_back', 'back', 'fan_look', 'history'], true, true, ['fanboy-control', 'fanboy-step'], true, true],
+                'zones_propose', 'zones_save', 'dry_run', 'take_over', 'hand_back', 'back', 'fan_look', 'history', 'dashboard'], true, true, ['fanboy-control', 'fanboy-step'], true, true],
         [$on[0]['desk'] ?? $on[0], $on[0]['actions'] ?? null, $on[0]['fit'] ?? null, $on[0]['checks'] ?? null, $on[0]['jobs'] ?? null, $on[0]['tick'] ?? null, $on[1]['desk'] ?? $on[1]]);
     same('fanboy hidden: … and the other desks the same either way', $on[1]['others'] - 1, $off[1]['others'] ?? null);
     // the repository's own data folder (what every other test sees): no switch, so no Fanboy among the agent's desks
@@ -63786,8 +63787,9 @@ function testFanboyHidden(): void
             $elsewhere[] = substr($f, strlen(OFFICE_DIR) + 1);
         }
     }
-    same('fanboy hidden: no core file, job or Dashboard names him — only agent.sh (the release at every stop), the .plg\'s removal (his guard\'s cron file, there only while armed) and his log label (lib/report.php)',
-        ['plugin/unraid-secretary-office.plg', 'plugin/scripts/agent.sh', 'agent/lib/report.php'], $elsewhere);
+    // … and the Dashboard page: his own tile, there only while his desk is (testFanboyDashTile)
+    same('fanboy hidden: no core file or job names him — only agent.sh (the release at every stop), the .plg\'s removal (his guard\'s cron file, there only while armed), his log label (lib/report.php) and the Dashboard page\'s second tile',
+        ['plugin/SecretaryOfficeDashboard.page', 'plugin/unraid-secretary-office.plg', 'plugin/scripts/agent.sh', 'agent/lib/report.php'], $elsewhere);
 }
 
 function testFanboyNoWrite(): void
@@ -63805,6 +63807,7 @@ function testFanboyNoWrite(): void
         'fanboy-control.php'  => ['writeAtomic', 'fopen', 'unlink'],
         'fanboy-setup.php'    => ['writeAtomic', 'fopen', 'unlink', 'run'],      // part 3: update_cron for the guard's line (fanboyGuardCron())
         'fanboy-drivers.php'  => ['writeAtomic', 'run', 'unlink'],
+        'fanboy-dash.php'     => ['writeAtomic'],                              // his Dashboard tile's setting and its mirror in RAM
         'fanboy-write.php'    => ['writeAtomic', 'fopen', 'fwrite', 'unlink'],
         'fanboy-guard.php'    => ['writeAtomic', 'fwrite'],
         // the page's scripts write nothing (they can't): a regular expression's exec() and a local copy() only
@@ -64407,7 +64410,8 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
           'fanboy' => ['testFanboyHidden', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
                        'testFanboyWrite', 'testFanboyControl', 'testFanboyAlarms', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',
                        'testFanboyProcesses', 'testFanboyDrivers', 'testFanboyImport', 'testFanboyStopScripts', 'testFanboyState',
-                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyDeskWords']];
+                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyDeskWords',
+                       'testFanboyDashTile', 'testFanboyDashSource', 'testFanboyDashSetting']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
 $only = array_values(array_unique(array_slice($argv, 1)));

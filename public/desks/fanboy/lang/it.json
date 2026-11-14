@@ -644,5 +644,46 @@
   "sensors.more": {
     "one": "{n} altro sensore",
     "other": "{n} altri sensori"
-  }
+  },
+  "dash.open": "Apri la pagina di Fanboy",
+  "dash.why.not_set_up": "non ancora configurato",
+  "dash.why.not_armed": "configurato, non ancora affidato a lui",
+  "dash.why.starting": "Fanboy sta per prendere il controllo",
+  "dash.why.chip_missing": "manca il chip delle ventole",
+  "dash.why.other": "Fanboy si trattiene",
+  "dash.why.crashed": "la sua regolazione si è fermata",
+  "dash.why.released": "restituite quando la segreteria si è fermata",
+  "dash.why.array_stopped": "array fermo",
+  "dash.why.stopped": "restituite",
+  "dash.why.hand_back": "restituite",
+  "dash.why.hold": "Fanboy per ora si trattiene",
+  "dash.why.no_output": "nessuna uscita che Fanboy possa regolare",
+  "dash.why.ipmi": "regolate via IPMI",
+  "dash.since": "{what} — da {when}",
+  "dash.pct": "{pct} %",
+  "dash.stands": "Una ventola è ferma: {fan}",
+  "dash.stale": "Ultimi valori: {when} — quelli nuovi li porta la sua pagina",
+  "dash.zones_more": {
+    "one": "+ {n} altra zona",
+    "other": "+ altre {n} zone"
+  },
+  "dash.fans_more": {
+    "one": "+ {n} altra ventola",
+    "other": "+ altre {n} ventole"
+  },
+  "dash.connectors": {
+    "one": "{n} connettore segnala una velocità",
+    "other": "{n} connettori segnalano una velocità"
+  },
+  "dash.connectors_none": "Nessun connettore segnala una velocità",
+  "dash.set_up": "Configura",
+  "dash.watched": "Al BIOS, sorvegliate:",
+  "dash.setting": "Mostra nella Dashboard",
+  "dash.setting_sub": "Una tessera tutta sua nella Dashboard di Unraid — spostala o nascondila lì come ogni altra. Vale per chiunque apra la Dashboard.",
+  "dash.show.off": "No",
+  "dash.show.off_title": "Nessuna sua tessera nella Dashboard",
+  "dash.show.speeds": "Velocità",
+  "dash.show.speeds_title": "Chi regola, e per ogni zona il punto più caldo, il livello e la velocità",
+  "dash.show.history": "Velocità con andamento",
+  "dash.show.history_title": "Le velocità, e per ogni zona una piccola curva delle ultime ore"
 }
