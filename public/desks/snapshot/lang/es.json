@@ -375,6 +375,8 @@
   "errors.same_name": "Ya se llama así.",
   "errors.name_exists": "«{name}» ya existe ahí.",
   "errors.rename_failed": "El renombrado no funcionó.",
+  "errors.rename_held": "No he renombrado {name}: sigue montada en {path} y no pude desmontarla — algo la sigue usando. Ciérralo e inténtalo de nuevo — renombrada ahora, el servidor podría bloquearse (un fallo de ZFS en Unraid 7.4).",
+  "errors.rename_held_container": "No he renombrado {name}: sigue montada dentro del contenedor {container}. Detén el contenedor e inténtalo de nuevo — renombrada ahora, el servidor podría bloquearse (un fallo de ZFS en Unraid 7.4).",
   "errors.rename_mounted": "Está montada ({paths}) — desmonta primero.",
   "errors.cannot_rename": "Esta instantánea no se puede renombrar aquí.",
   "errors.hold_zfs_only": "La protección solo funciona con instantáneas ZFS.",

@@ -394,6 +394,8 @@
   "errors.cleanup_trash_failed": "Konnte den Ordner der Abstellkammer {path} nicht anlegen.",
   "errors.cleanup_target_exists": "{path} gibt es schon.",
   "errors.cleanup_move_failed": "Konnte {path} nicht verschieben: {detail}",
+  "errors.rename_held": "Ich habe {name} nicht umbenannt: Ein Snapshot davon ist noch unter {path} eingehängt und liess sich nicht aushängen — etwas benutzt ihn noch. Schliesse das und versuch es nochmals — jetzt umbenannt, könnte der Server stehen bleiben (ein ZFS-Fehler in Unraid 7.4).",
+  "errors.rename_held_container": "Ich habe {name} nicht umbenannt: Ein Snapshot davon ist noch im Container {container} eingehängt. Stoppe den Container und versuch es nochmals — jetzt umbenannt, könnte der Server stehen bleiben (ein ZFS-Fehler in Unraid 7.4).",
   "errors.cleanup_no_way_back": "{name} lässt sich nicht zurücklegen — es ist nicht verzeichnet, woher es kommt.",
   "errors.cleanup_no_home": "{path} gibt es nicht mehr.",
   "errors.cleanup_vm_back": "Es gibt wieder eine VM namens {name} — ihre Snapshot-Liste bleibt in der Abstellkammer (die neue VM würde die alten Einträge übernehmen). Leeren, oder zurücklegen, wenn diese VM wieder weg ist.",

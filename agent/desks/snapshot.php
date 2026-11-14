@@ -1906,38 +1906,22 @@ function snapshotBusyFailure(string $id, array $here): array
  */
 function snapshotFreeMount(array $m): void
 {
-    $host = $GLOBALS['snapshotHost'] ?? [];
-    $proc = $host['proc'] ?? '/proc';
     $short = "{$m['ds']}@{$m['name']}";
-    if (!snapshotAutoPath($m['path'], $m['name'])) {
-        return;                         // never a mount someone made by hand (the callers only hand in automounts)
+    [$how, $err] = snapshotUnmountAuto($m);           // the shared unmount (agent/lib/mounts.php): the renames use it too
+    if ($how === 'not_auto' || $how === 'gone') {
+        return;                         // never a mount someone made by hand; gone by itself, or the process ended
     }
-    if ($m['where'] !== 'host') {
-        $pid = (int) $m['pid'];
-        $text = $pid > 1 ? @file_get_contents("$proc/$pid/mountinfo") : false;
-        if ($text === false && $m['where'] === 'process') {
-            return;
-        }
-        if ($text === false) {
-            throw new Problem('container_gone', ['container' => (string) $m['container']]);
-        }
-        $still = array_filter(mountInfoParse($text), fn (array $x): bool => $x['mount'] === $m['path'] && $x['source'] === $short);
-        if (!$still) {
-            return;                     // gone by itself in between
-        }
-        $cmd = [$host['nsenter'] ?? bin('nsenter') ?? 'nsenter', "--mount=$proc/$pid/ns/mnt", 'umount', $m['path']];
-    } else {
-        $cmd = [$host['umount'] ?? bin('umount') ?? 'umount', $m['path']];
+    if ($how === 'container_gone') {
+        throw new Problem('container_gone', ['container' => (string) $m['container']]);
     }
-    [$exit, , $err] = run($cmd, 60);
     $comm = (string) ($m['comm'] ?? '?');
     $at = match ($m['where']) {
         'container' => "inside the container {$m['container']}",
         'process' => "inside the process $comm (pid {$m['pid']})",
         default => 'on the host',
     };
-    if ($exit !== 0) {
-        logLine("Ms. Snapshotini: could not unmount $short at {$m['path']} $at — " . trim($err));
+    if ($how !== 'done') {
+        logLine("Ms. Snapshotini: could not unmount $short at {$m['path']} $at — $err");
         if ($m['where'] === 'process') {
             throw new Problem('free_failed_process', ['comm' => $comm, 'path' => $m['path']]);
         }
@@ -1969,6 +1953,12 @@ function snapshotRename(string $id, string $new, bool $wake = false): array
     }
 
     if ($s['fs'] === 'zfs') {
+        // every mount of it down first — an automount anywhere (zfsRenameFree(), agent/lib/mounts.php: renamed while still
+        // listed for its automount, the next look at the new name can panic Unraid 7.4.0); what still holds it refuses
+        if ($left = zfsRenameFree("{$s['ds']}@{$s['name']}", 'Ms. Snapshotini')) {
+            $held = zfsRenameHeld("{$s['ds']}@{$s['name']}", $left);
+            throw new Problem($held['key'], $held['params']);
+        }
         [$exit, , $err] = run([bin('zfs'), 'rename', "{$s['ds']}@{$s['name']}", "{$s['ds']}@$new"], 60);
         if ($exit !== 0) {
             throw new Problem('command_failed', ['detail' => trim($err)]);

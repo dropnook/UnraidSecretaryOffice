@@ -375,6 +375,8 @@
   "errors.same_name": "Si chiama già così.",
   "errors.name_exists": "«{name}» esiste già lì.",
   "errors.rename_failed": "La rinomina non è riuscita.",
+  "errors.rename_held": "Non ho rinominato {name}: è ancora montato in {path} e non è stato possibile smontarlo — qualcosa lo sta ancora usando. Chiudilo e riprova — rinominato adesso, il server potrebbe bloccarsi (un difetto di ZFS in Unraid 7.4).",
+  "errors.rename_held_container": "Non ho rinominato {name}: è ancora montato dentro il container {container}. Ferma il container e riprova — rinominato adesso, il server potrebbe bloccarsi (un difetto di ZFS in Unraid 7.4).",
   "errors.rename_mounted": "È montato ({paths}) — prima smontalo.",
   "errors.cannot_rename": "Questo snapshot non si può rinominare qui.",
   "errors.hold_zfs_only": "La protezione funziona solo sugli snapshot ZFS.",

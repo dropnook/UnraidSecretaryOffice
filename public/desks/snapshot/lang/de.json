@@ -375,6 +375,8 @@
   "errors.same_name": "Das ist schon sein Name.",
   "errors.name_exists": "«{name}» gibt es dort schon.",
   "errors.rename_failed": "Umbenennen hat nicht geklappt.",
+  "errors.rename_held": "Ich habe {name} nicht umbenannt: Er ist noch unter {path} eingehängt und liess sich nicht aushängen — etwas benutzt ihn noch. Schliesse das und versuch es nochmals — jetzt umbenannt, könnte der Server stehen bleiben (ein ZFS-Fehler in Unraid 7.4).",
+  "errors.rename_held_container": "Ich habe {name} nicht umbenannt: Er ist noch im Container {container} eingehängt. Stoppe den Container und versuch es nochmals — jetzt umbenannt, könnte der Server stehen bleiben (ein ZFS-Fehler in Unraid 7.4).",
   "errors.rename_mounted": "Ist eingehängt ({paths}) — erst aushängen.",
   "errors.cannot_rename": "Dieser Snapshot lässt sich hier nicht umbenennen.",
   "errors.hold_zfs_only": "Schützen geht nur bei ZFS-Snapshots.",

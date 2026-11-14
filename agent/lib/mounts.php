@@ -180,6 +180,120 @@ function snapshotMountOf(array $m): ?array
     return ['ds' => $x[1], 'name' => $x[2], 'path' => $m['mount'], 'auto' => snapshotAutoPath($m['mount'], $x[2])];
 }
 
+/**
+ * One snapshot automount unmounted where snapshotMountsEverywhere() found it: on the host `umount <path>`, inside a
+ * container or another process's namespace `nsenter --mount=/proc/<pid>/ns/mnt umount <path>` — what runs there keeps
+ * running, nothing is written; plain umount, never -f or -l (a file still open in it stays a failure). Only exactly
+ * <something>/.zfs/snapshot/<its name> (never a mount someone made by hand); the pid is the reader's, and the mount is
+ * looked up in that process once more right before. [how, the command's error text]: done | failed | gone (gone by itself,
+ * or the process ended) | container_gone (its container stopped in between) | not_auto. Ms. Snapshotini's «Free and
+ * delete…» (snapshotFreeMount()) and every rename the office runs (zfsRenameFree()) — the tests' /proc, nsenter and umount
+ * through `$GLOBALS['snapshotHost']`.
+ *
+ * @return array{0: string, 1: string}
+ */
+function snapshotUnmountAuto(array $m): array
+{
+    $host = $GLOBALS['snapshotHost'] ?? [];
+    $proc = $host['proc'] ?? '/proc';
+    if (!snapshotAutoPath((string) $m['path'], (string) $m['name'])) {
+        return ['not_auto', ''];
+    }
+    if ($m['where'] !== 'host') {
+        $pid = (int) $m['pid'];
+        $text = $pid > 1 ? @file_get_contents("$proc/$pid/mountinfo") : false;
+        if ($text === false) {
+            return [$m['where'] === 'process' ? 'gone' : 'container_gone', ''];
+        }
+        $short = "{$m['ds']}@{$m['name']}";
+        if (!array_filter(mountInfoParse($text), fn (array $x): bool => $x['mount'] === $m['path'] && $x['source'] === $short)) {
+            return ['gone', ''];
+        }
+        $cmd = [$host['nsenter'] ?? bin('nsenter') ?? 'nsenter', "--mount=$proc/$pid/ns/mnt", 'umount', (string) $m['path']];
+    } else {
+        $cmd = [$host['umount'] ?? bin('umount') ?? 'umount', (string) $m['path']];
+    }
+    [$exit, , $err] = run($cmd, 60);
+    return [$exit === 0 ? 'done' : 'failed', trim((string) $err)];
+}
+
+/**
+ * Before the office renames a ZFS dataset (its snapshots and the datasets inside it go along) or one snapshot
+ * (`<ds>@<name>`): every mount of those snapshots taken down first, so the rename can't arm the OpenZFS 2.4.4 panic
+ * (Unraid 7.4.0: a snapshot automounted again under its NEW name while the kernel still lists it under the old one panics
+ * the kernel — docs/DEVELOPMENT.md «Snapshot automounts»). The kernel's list can't be seen from here, and an entry stays in
+ * it as long as ANY mount keeps the snapshot alive, so nothing of them may stay mounted:
+ *   - an automount (`.zfs/snapshot/<name>`) on the host, inside a container or another process's namespace: unmounted there
+ *     (snapshotUnmountAuto(), plain umount);
+ *   - a mount of the office's own on the host (Mr. Restori's snapshot reads in /mnt/addons/UnraidSecretaryOffice/snapread,
+ *     the backup engine's mounts there, a kept moment's peek in the office's RAM folder): plain umount — a job still
+ *     reading in it keeps it busy, then it holds;
+ *   - anything else (a mount someone made by hand, a file open in an automount): left alone — it holds.
+ * Read from /proc only (a sleeping disk stays asleep; an automount exists only on an awake pool). What still holds one of
+ * them comes back ([] = free to rename): the caller refuses the rename and says who (zfsRenameHeld()). $who: the log's name.
+ *
+ * @return list<array{snapshot: string, where: string, container: ?string, comm: ?string, pid: int, path: string}>
+ */
+function zfsRenameFree(string $name, string $who): array
+{
+    $host = $GLOBALS['snapshotHost'] ?? [];
+    $ofIt = function (array $m) use ($name): bool {
+        $ds = (string) $m['ds'];
+        return str_contains($name, '@') ? "$ds@{$m['name']}" === $name : ($ds === $name || str_starts_with($ds, "$name/"));
+    };
+    $look = fn (): array => array_values(array_filter(snapshotMountsEverywhere($host['containers'] ?? null, $host['proc'] ?? '/proc'), $ofIt));
+    $here = $look();
+    if (!$here) {
+        return [];
+    }
+    foreach ($here as $m) {
+        $at = "{$m['ds']}@{$m['name']} at {$m['path']}" . ($m['where'] === 'host' ? '' : " (inside {$m['where']} " . ($m['container'] ?? $m['comm'] ?? '?') . ", pid {$m['pid']})");
+        if ($m['auto']) {
+            [$how, $err] = snapshotUnmountAuto($m);
+        } elseif ($m['where'] === 'host' && zfsOfficeMount((string) $m['path'])) {
+            [$exit, , $err] = run([$host['umount'] ?? bin('umount') ?? 'umount', (string) $m['path']], 60);
+            $how = $exit === 0 ? 'done' : 'failed';
+        } else {
+            continue;
+        }
+        logLine($how === 'done' ? "$who: unmounted $at before renaming $name" : "$who: could not unmount $at before renaming $name" . ($err !== '' ? " — $err" : ''));
+    }
+    return array_map(fn (array $m): array => ['snapshot' => "{$m['ds']}@{$m['name']}", 'where' => (string) $m['where'], 'container' => $m['container'] ?? null,
+                                             'comm' => $m['comm'] ?? null, 'pid' => (int) $m['pid'], 'path' => (string) $m['path']], $look());
+}
+
+/** A mount of the office's own: under its folder in /mnt/addons, or in its RAM folder (the kernel names /var/run as /run) */
+function zfsOfficeMount(string $path): bool
+{
+    $roots = ['/mnt/addons/UnraidSecretaryOffice'];
+    if (defined('RUN_DIR')) {
+        $roots[] = RUN_DIR;
+        $roots[] = preg_replace('#^/var/run/#', '/run/', RUN_DIR);
+    }
+    foreach ($roots as $root) {
+        if (str_starts_with($path, rtrim((string) $root, '/') . '/')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * What holds a rename, as the page says it: inside a container (`rename_held_container`: its names — the user stops it),
+ * else where it is mounted (`rename_held`: the paths, a process's name with them — the user closes what uses it).
+ *
+ * @return array{key: string, params: array<string, string>}
+ */
+function zfsRenameHeld(string $name, array $left): array
+{
+    $ct = array_values(array_unique(array_filter(array_column(array_filter($left, fn ($m) => $m['where'] === 'container'), 'container'), 'is_string')));
+    if ($ct) {
+        return ['key' => 'rename_held_container', 'params' => ['name' => $name, 'container' => implode(', ', $ct)]];
+    }
+    $paths = array_map(fn ($m) => $m['path'] . ($m['where'] === 'process' ? " ({$m['comm']})" : ''), $left);
+    return ['key' => 'rename_held', 'params' => ['name' => $name, 'path' => implode(', ', array_values(array_unique($paths)))]];
+}
+
 /** Is $path an automount of the snapshot $name: exactly <something>/.zfs/snapshot/<name>, nothing climbing up? */
 function snapshotAutoPath(string $path, string $name): bool
 {

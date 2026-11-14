@@ -543,6 +543,8 @@
   "sn.verify_unread": "No se pudo leer el dump para la comparación.",
   "sn.verify_none": "MongoDB: mongorestore lo comprobó por sí mismo.",
   "sn.rename_failed": "No se pudo mover {path}.",
+  "sn.rename_held": "No he renombrado {name}: una instantánea suya sigue montada en {path} y no pude desmontarla — algo la sigue usando. Ciérralo e inténtalo de nuevo — renombrado ahora, el servidor podría bloquearse (un fallo de ZFS en Unraid 7.4).",
+  "sn.rename_held_container": "No he renombrado {name}: una instantánea suya sigue montada dentro del contenedor {container}. Detén el contenedor e inténtalo de nuevo — renombrado ahora, el servidor podría bloquearse (un fallo de ZFS en Unraid 7.4).",
   "sn.copy_failed": "La copia hacia {path} falló.",
   "sn.copy_vanished": "Durante la copia desaparecieron archivos — la copia está de todos modos.",
   "sn.virsh_failed": "libvirt lo rechazó ({name}).",
