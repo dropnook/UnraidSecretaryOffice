@@ -397,7 +397,9 @@ suite_run() {
         echo "rsync to $host:$suite_dir failed" > "$par/suite/line"; return 1
     fi
     echo "\$ ssh $host 'cd $suite_dir && php tests/run.php${*:+ $*}'   (it prints its failures and the sum)" >> "$par/suite/out"
-    printf 'cd %q && php tests/run.php%s </dev/null\n' "$suite_dir" "$(printf ' %q' "$@")" \
+    # the test names only when there are some: printf with no word after its format prints it once anyway (« ''» - an
+    # empty name, which run.php refuses: «Unknown test or part:»)
+    printf 'cd %q && php tests/run.php%s </dev/null\n' "$suite_dir" "$( (($#)) && printf ' %q' "$@")" \
         | ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" bash -s > "$par/suite/run" 2>&1
     rc=$?
     cat "$par/suite/run" >> "$par/suite/out"

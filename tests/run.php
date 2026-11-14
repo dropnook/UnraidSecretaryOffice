@@ -63693,7 +63693,10 @@ SH);
     same('clicks retry: three red pages of two routes - both routes once (sorted, once each), three flaky lines', ['0', ['call ', 'call --only cleanup/where,jack'],
         "flaky: jack shadow (dark 1440)\nflaky: cleanup map (dark 1440)\nflaky: jack (light 375)"], [$g['rc'], $g['calls'], $g['flaky']]);
     $g = $go(['STUB_RED' => 'restore|restore|stale job|0', 'STUB_RED_AGAIN' => 'restore|restore|stale job|0']);
-    same('clicks retry: a page whose theme has a space - red twice, said whole', ['1', 'ui clicks: 4 pages, 9 toggles clicked twice, 1 failed - 1 s; red again alone: restore (stale job 0)'], [$g['rc'], $g['summary']]);
+    same('clicks retry: a page whose theme has a space - red twice, said whole', ['1', 'ui clicks: 4 pages, 9 toggles clicked twice, 1 failed - 1 s; red again alone: restore (stale job)'], [$g['rc'], $g['summary']]);
+    $g = $go(['STUB_RED' => 'caretaker|first start|both|0']);
+    same('clicks retry: a page drawn once for both themes (width 0) - named without the 0', ['0', ['call ', 'call --only caretaker'], 'flaky: first start (both themes)'],
+        [$g['rc'], $g['calls'], $g['flaky']]);
     $g = $go(['STUB_MODE' => 'noline']);
     same('clicks retry: red without a «ui clicks failed:» line - red, no retry', ['1', 1], [$g['rc'], count($g['calls'])]);
     $g = $go(['STUB_MODE' => 'norun']);
@@ -63750,6 +63753,9 @@ function testScenarioToolsSafe(): void
     $n = (string) file_get_contents(OFFICE_DIR . '/tools/scenarios/nightly.sh');
     check('nightly.sh: a run that stopped early says so (N of M) and is not green', str_contains($n, 'Stopped early:') && str_contains($n, '((r == 0)) && [[ -z $stopped ]] && exit 0'));
     $plist = (string) file_get_contents(OFFICE_DIR . '/tools/scenarios/uso-scenarios-nightly.plist');
+    $rs = (string) file_get_contents(OFFICE_DIR . '/tools/release.sh');
+    check('release.sh: the suite gets test names only when there are some (an empty word is «Unknown test or part»)',
+        str_contains($rs, '"$( (($#)) && printf \' %q\' "$@")"') && !str_contains($rs, '"$(printf \' %q\' "$@")"'));
     check('the full run\'s plist: weekly (a Weekday in its StartCalendarInterval)', (bool) preg_match('#<key>StartCalendarInterval</key>\s*<dict>\s*<key>Weekday</key>\s*<integer>[0-7]</integer>#', $plist));
 }
 
