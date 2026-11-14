@@ -1,0 +1,147 @@
+/* Fanboy's pictures (fan-art.js): the fan wheel, the server picture, the curve editor, the catalogue picker.
+   Nested in #sso like office.css and every desk.css; colours only from the office's tokens (--ink, --surface …) and
+   Unraid's palette (--gray-…) — never a colour of its own, so the black, white, azure and gray themes all work.
+   Loaded once by FanArt.styles() (the page itself loads only a desk's desk.css). Names: fan-… */
+#sso{
+
+/* ------------------------------------------------------------------------------------------------ the wheel */
+.fan-wheel{
+  --fan-px:64px;
+  --fan-line:var(--line2);
+  --fan-frame:color-mix(in srgb, var(--ink) 16%, var(--surface));
+  --fan-well:color-mix(in srgb, var(--ink) 6%, var(--bg));
+  --fan-blade:color-mix(in srgb, var(--ink) 48%, var(--surface));
+  --fan-edge:color-mix(in srgb, var(--ink) 62%, var(--surface));
+  --fan-hub:color-mix(in srgb, var(--ink) 30%, var(--surface));
+  --fan-hub2:color-mix(in srgb, var(--ink) 18%, var(--surface));
+  display:inline-flex; flex-direction:column; align-items:center; gap:4px; margin:0; min-width:0;
+  max-width:calc(var(--fan-px) + 60px);
+}
+.fan-c-black{--fan-frame:var(--gray-800); --fan-blade:var(--gray-700); --fan-edge:var(--gray-600); --fan-hub:var(--gray-800); --fan-hub2:var(--gray-600)}
+.fan-c-graphite{--fan-frame:var(--gray-700); --fan-blade:var(--gray-600); --fan-edge:var(--gray-500); --fan-hub:var(--gray-700); --fan-hub2:var(--gray-500)}
+.fan-c-grey{--fan-frame:var(--gray-500); --fan-blade:var(--gray-400); --fan-edge:var(--gray-300); --fan-hub:var(--gray-500); --fan-hub2:var(--gray-300)}
+.fan-c-white{--fan-frame:var(--gray-150); --fan-blade:var(--white); --fan-edge:var(--gray-300); --fan-hub:var(--gray-200); --fan-hub2:var(--gray-100)}
+.fan-c-slate{
+  --fan-frame:color-mix(in srgb, var(--blue-900) 35%, var(--gray-700)); --fan-blade:color-mix(in srgb, var(--blue-900) 45%, var(--gray-500));
+  --fan-edge:color-mix(in srgb, var(--blue-900) 30%, var(--gray-400)); --fan-hub:color-mix(in srgb, var(--blue-900) 35%, var(--gray-700));
+  --fan-hub2:color-mix(in srgb, var(--blue-900) 25%, var(--gray-400));
+}
+.fan-c-accent{--fan-blade:var(--accent); --fan-edge:color-mix(in srgb, var(--accent) 70%, var(--ink)); --fan-hub2:var(--accent-soft)}
+
+.fan-box{position:relative; width:var(--fan-px); height:var(--fan-px); flex:0 0 auto; border-radius:calc(var(--fan-px) * .11)}
+.fan-frame, .fan-arc{position:absolute; inset:0; width:100%; height:100%; overflow:visible}
+.fan-housing{fill:var(--fan-frame); stroke:var(--fan-line); stroke-width:1}
+.fan-well{fill:var(--fan-well)}
+.fan-screw{fill:var(--fan-well); stroke:var(--fan-line); stroke-width:.6}
+/* the turning part: an element of its own, turned by a transform only (the browser's compositor does the work) */
+.fan-rotor{position:absolute; inset:2.5%; will-change:transform; transform-origin:50% 50%}
+.fan-rotor svg{display:block; width:100%; height:100%}
+.fan-blades path{fill:var(--fan-blade); stroke:var(--fan-edge); stroke-width:.7; stroke-linejoin:round}
+.fan-hub{fill:var(--fan-hub); stroke:var(--fan-edge); stroke-width:.7}
+.fan-hub2{fill:var(--fan-hub2)}
+.fan-arc{display:none}
+.fan-arc circle{fill:none; stroke-width:3.2}
+.fan-arc-track{stroke:color-mix(in srgb, var(--ink) 12%, transparent)}
+.fan-arc-bar{stroke:var(--accent); stroke-linecap:round}
+.fan-still .fan-arc{display:block}
+.fan-c-accent .fan-arc-bar{stroke:var(--ink)}           /* the orange wheel's arc in the text's colour */
+.fan-badge{
+  position:absolute; right:-4px; bottom:-4px; font-size:9.5px; line-height:14px; padding:0 4px; border-radius:7px;
+  background:var(--surface2); border:1px solid var(--line2); color:var(--ink2); white-space:nowrap;
+}
+.fan-cap{display:flex; flex-direction:column; align-items:center; gap:1px; text-align:center; min-width:0; max-width:100%}
+.fan-label{font-size:12.5px; color:var(--ink); line-height:1.25; overflow-wrap:anywhere}
+.fan-sub{font-size:11.5px; color:var(--muted); line-height:1.25; font-variant-numeric:tabular-nums; overflow-wrap:anywhere}
+
+/* the states: stopped although it should run (red frame), no feedback (dashed, faded), the BIOS's (dotted) */
+.fan-s-stopped .fan-box{box-shadow:0 0 0 2px var(--danger)}
+.fan-s-stopped .fan-housing{stroke:var(--danger)}
+.fan-s-stopped .fan-sub{color:var(--danger-ink)}
+.fan-s-unknown .fan-box{outline:1.5px dashed var(--line2); outline-offset:2px}
+.fan-s-unknown .fan-rotor, .fan-s-unknown .fan-frame{opacity:.5}
+.fan-s-bios .fan-box{outline:1.5px dotted var(--muted); outline-offset:2px}
+
+/* ------------------------------------------------------------------------------------------- the server picture */
+.fan-server{display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:14px; min-width:0}
+.fan-zone{display:flex; flex-direction:column; border:1px solid var(--line2); border-radius:8px; background:var(--surface); padding:10px 12px 12px; min-width:0}
+.fan-zone-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; margin:0 0 8px}
+.fan-zone-name{margin:0; font-size:14px; font-weight:600; color:var(--ink)}
+.fan-zone-note{font-size:12.5px; color:var(--muted)}
+/* the zone as the inside of a case: fans on top, in front (left), at the rear (right), at the bottom; the heat between */
+.fan-zone-area{
+  display:grid; grid-template-columns:auto minmax(0, 1fr) auto; grid-template-rows:auto 1fr auto;
+  grid-template-areas:"top top top" "front heat rear" "bottom bottom bottom"; gap:8px;
+  flex:1 1 auto; border-radius:6px; background:color-mix(in srgb, var(--ink) 4%, var(--bg)); padding:10px;
+}
+.fan-side{display:flex; gap:10px; align-items:flex-start; justify-content:center; flex-wrap:wrap}
+.fan-at-top{grid-area:top}
+.fan-at-bottom{grid-area:bottom}
+.fan-at-front{grid-area:front; flex-direction:column; align-items:center; justify-content:center}
+.fan-at-rear{grid-area:rear; flex-direction:column; align-items:center; justify-content:center}
+.fan-side.fan-empty{display:none}
+.fan-heat{grid-area:heat; display:flex; flex-wrap:wrap; align-content:center; gap:6px; min-width:0}
+.fan-src{
+  display:inline-flex; align-items:center; gap:5px; max-width:100%; padding:2px 8px 2px 6px; border-radius:11px;
+  font-size:12px; line-height:18px; background:var(--surface2); border:1px solid var(--line); color:var(--ink2);
+}
+.fan-kind{width:14px; height:14px; flex:0 0 auto; fill:none; stroke:currentColor; stroke-width:1.3; stroke-linejoin:round; opacity:.8}
+.fan-src-name{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0}
+.fan-src-temp{font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--ink)}
+.fan-src-sub{color:var(--muted); white-space:nowrap}
+.fan-src.fan-warm{background:var(--warn-soft); border-color:transparent}
+.fan-src.fan-warm .fan-src-temp{color:var(--warn-ink)}
+.fan-src.fan-hot{background:var(--danger-soft); border-color:transparent}
+.fan-src.fan-hot .fan-src-temp{color:var(--danger-ink)}
+.fan-src.fan-asleep{background:transparent; color:var(--muted)}
+.fan-src.fan-asleep .fan-src-temp{font-weight:400; color:var(--muted)}
+/* the warmest of a zone: the one the fans answer to */
+.fan-src.fan-warmest{border:1.5px solid var(--accent); box-shadow:0 0 0 2px var(--accent-soft)}
+.fan-src.fan-warmest .fan-kind{stroke:var(--accent-ink); opacity:1}
+.fan-src-none{font-size:12.5px; color:var(--muted)}
+@media (max-width:640px){
+  .fan-zone{padding:8px}
+  .fan-zone-area{grid-template-columns:minmax(0, 1fr); grid-template-areas:"top" "front" "heat" "rear" "bottom"; padding:8px}
+  .fan-at-front, .fan-at-rear{flex-direction:row; flex-wrap:wrap; align-items:flex-start}
+}
+
+/* ------------------------------------------------------------------------------------------- the curve editor */
+.fan-curve{display:grid; grid-template-columns:minmax(0, 1fr) 150px; gap:14px; align-items:center; min-width:0}
+.fan-curve-chart{position:relative; min-width:0; padding:0 0 16px 16px}
+.fan-curve-svg{display:block; width:100%; height:auto; touch-action:none; user-select:none; overflow:visible}
+.fan-curve-grid line{stroke:var(--line); stroke-width:1}
+.fan-curve-grid text, .fan-curve-marks text{fill:var(--muted); font-size:12px; font-family:var(--font)}
+.fan-curve-area{fill:var(--accent-soft); opacity:.75}
+.fan-curve-line{fill:none; stroke:var(--accent); stroke-width:2.5; stroke-linejoin:round}
+.fan-curve-ends line{stroke:var(--accent); stroke-width:2; stroke-dasharray:4 4; opacity:.7}
+.fan-curve-floor{stroke:var(--warn); stroke-width:1.5; stroke-dasharray:6 4}
+text.fan-curve-floor{stroke:none; fill:var(--warn-ink)}
+.fan-curve-now{stroke:var(--ink2); stroke-width:1.5; stroke-dasharray:2 3}
+text.fan-curve-now{stroke:none; fill:var(--ink2)}
+.fan-curve-cross{stroke:var(--muted); stroke-width:1}
+.fan-curve-pt{cursor:grab; outline:none}
+.fan-dragging .fan-curve-pt{cursor:grabbing}
+.fan-curve-hit{fill:transparent}
+.fan-curve-dot{fill:var(--surface); stroke:var(--accent); stroke-width:3}
+.fan-curve-pt:hover .fan-curve-dot{fill:var(--accent-soft)}
+.fan-curve-pt:focus-visible .fan-curve-dot{fill:var(--accent); stroke:var(--ink); stroke-width:2.5}
+.fan-curve-axis{position:absolute; font-size:11.5px; color:var(--muted)}
+.fan-curve-axis-t{right:14px; bottom:0}
+.fan-curve-axis-v{left:0; top:50%; writing-mode:vertical-rl; transform:translateY(-50%) rotate(180deg)}
+.fan-curve-side{display:flex; flex-direction:column; align-items:center; gap:8px; min-width:0}
+.fan-curve-read{margin:0; font-size:12.5px; color:var(--ink2); text-align:center; font-variant-numeric:tabular-nums; min-height:3em}
+@media (max-width:640px){
+  .fan-curve{grid-template-columns:minmax(0, 1fr)}
+  .fan-curve-side{flex-direction:row; justify-content:center}
+  .fan-curve-read{text-align:left}
+}
+
+/* ------------------------------------------------------------------------------------------- the picker */
+.fan-pick{display:flex; flex-wrap:wrap; gap:14px 20px; align-items:center; min-width:0}
+.fan-pick-form{display:flex; flex-wrap:wrap; gap:10px 14px; flex:1 1 300px; min-width:0}
+.fan-pick-field{display:flex; flex-direction:column; gap:3px; min-width:0; max-width:100%}
+.fan-pick-field[hidden]{display:none}
+.fan-pick-field select{max-width:100%}
+.fan-pick-label{font-size:12px; color:var(--muted)}
+.fan-pick-look{display:flex; align-items:center; gap:12px; flex:0 1 auto; min-width:0}
+.fan-pick-facts{margin:0; font-size:12.5px; color:var(--ink2); max-width:260px}
+}
