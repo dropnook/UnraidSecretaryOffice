@@ -33,6 +33,7 @@ const FANBOY_DOWN_STEP_RPM = 15;        // rpm a round at most going down (rpm z
 const FANBOY_FLOOR_MARGIN = 5;          // percent above the lowest steady value measured
 const FANBOY_BLIND_FLOOR = 40;          // percent at least for a fan without rpm feedback or not measured
 const FANBOY_KICK = 4.0;                // seconds at the start value when a fan starts from standing
+const FANBOY_KICK_MAX = 2;              // kicks from standing without the fan turning — then no more: it stands (the alarm)
 const FANBOY_STAND_AFTER = 15.0;        // seconds at 0 rpm while it should turn: it stands
 const FANBOY_HOT_AFTER = 60.0;          // seconds over a limit at full speed: alarm
 const FANBOY_SENSOR_AFTER = 30.0;       // seconds a sensor says nothing: alarm
@@ -242,7 +243,7 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 // «give back» (part 3): the owner's choice for a fan found on a fixed value — 'auto' gives the chip's mode
                 'back' => in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : FANBOY_BACK_DEFAULT, 'auto' => null,
                 'device' => null, 'pct' => null, 'value' => null, 'changed' => null, 'kick_until' => null, 'trim' => 0.0,
-                'rpm' => null, 'zero_since' => null, 'gone' => false, 'foreign' => false, 'taken' => false, 'verified' => false,
+                'rpm' => null, 'zero_since' => null, 'kicks' => 0, 'gone' => false, 'foreign' => false, 'taken' => false, 'verified' => false,
             ];
             $ids[] = $id;
         }
@@ -653,10 +654,15 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
             $pct = max($pct, (float) $f['floor']);
         }
         $c['fans'][$id]['pct'] = (int) round($pct);
-        // it stands though it should turn: every one of its tach inputs counted (one fan of two on a hub too)
+        // it stands though it should turn: every one of its tach inputs counted (one fan of two on a hub too). The clock runs
+        // ACROSS kicks (2026-11-15: a floor under the start value kicked a blocked fan for ever, each kick resetting the
+        // clock — no alarm); it stops only when the fan turns, and then the kicks are counted from nought again
         $rpms = $f['rpms'] ?? [];
-        $zero = $f['tachs'] && $rpms && in_array(0, $rpms, true) && $c['fans'][$id]['pct'] > 0 && $f['kick_until'] === null;
+        $zero = $f['tachs'] && $rpms && in_array(0, $rpms, true) && $c['fans'][$id]['pct'] > 0;
         $c['fans'][$id]['zero_since'] = $zero ? ($f['zero_since'] ?? $now) : null;
+        if ($rpms && !in_array(0, $rpms, true) && !in_array(null, $rpms, true)) {
+            $c['fans'][$id]['kicks'] = 0;
+        }
         if ($zero && $now - $c['fans'][$id]['zero_since'] >= FANBOY_STAND_AFTER) {
             $reasons['stands'] = ['fan' => fanboyFanLabel($f), 'zone' => $z['name']];
         }
@@ -672,8 +678,9 @@ function fanboyApply(array &$c, string $id, float $now): void
         $pct = max($pct, $f['start']);
     } elseif ($f['kick_until'] !== null) {
         $c['fans'][$id]['kick_until'] = null;
-    } elseif ($pct > 0 && $pct < $f['start'] && ($f['value'] === 0 || ($f['rpm'] === 0 && $f['tachs']))) {
+    } elseif ($pct > 0 && $pct < $f['start'] && ($f['value'] === 0 || ($f['rpm'] === 0 && $f['tachs'])) && ($f['kicks'] ?? 0) < FANBOY_KICK_MAX) {
         $c['fans'][$id]['kick_until'] = $now + FANBOY_KICK;       // standing (off, or stalled): kicked at its start value
+        $c['fans'][$id]['kicks'] = ($f['kicks'] ?? 0) + 1;         // … a few times at most: then it stands, said by the alarm
         $pct = max($pct, $f['start']);
     }
     $value = (int) round($pct * 2.55);
@@ -839,6 +846,9 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
         'missing' => $c['missing'] === null ? null : ['since' => $c['missing']['at'], 'why' => $c['missing']['why'], 'told' => isset($c['told']['missing'])],
         'watch' => array_values(array_map(fn ($w) => ['id' => $w['id'], 'name' => $w['name'], 'role' => $w['role'], 'rpm' => $w['rpm']], $c['watch'])),
         'notes' => $c['notes'],
+        // since when each fan (and each watched BIOS fan) stands though it should turn — on the monotonic clock, so a
+        // control started again goes on counting instead of starting from nought (three restarts in a row still alarm)
+        'stand_since' => array_filter(array_map(fn ($f) => $f['zero_since'], $c['fans']) + array_map(fn ($w) => $w['zero_since'], $c['watch']), fn ($v) => $v !== null),
     ];
 }
 
@@ -949,6 +959,7 @@ function fanboyControlMain(): int
     $why = fanboyHoldReason($settings);
     $c = fanboyControlNew($settings ?? [], $key, $owner);
     $c['hist'] = fanboyHistoryLoad($key);
+    fanboyStandCarry($c, readJson(fanboyStatusFile()), fanboyMono());
     $stamp = @filemtime(fanboyStoreFile());
     $lastHold = fanboyMono();
     $exit = in_array($why, ['other', null], true) ? null : $why;
@@ -1013,6 +1024,24 @@ function fanboyControlMain(): int
         fclose($lock);
     }
     return 0;
+}
+
+/**
+ * A standing fan's clock from the control before (its status in RAM), when that is fresh (≤ 10 minutes on the monotonic
+ * clock): a fan blocked across restarts alarms after FANBOY_STAND_AFTER all told, not anew each time
+ */
+function fanboyStandCarry(array &$c, ?array $status, float $now): void
+{
+    foreach (is_array($status['stand_since'] ?? null) ? $status['stand_since'] : [] as $id => $since) {
+        if (!is_string($id) || !(is_float($since) || is_int($since)) || $since > $now || $now - $since > 600) {
+            continue;
+        }
+        if (isset($c['fans'][$id])) {
+            $c['fans'][$id]['zero_since'] = (float) $since;
+        } elseif (isset($c['watch'][$id])) {
+            $c['watch'][$id]['zero_since'] = (float) $since;
+        }
+    }
 }
 
 /** Was the control asked to end (TERM, INT, HUP — its signal handler)? */

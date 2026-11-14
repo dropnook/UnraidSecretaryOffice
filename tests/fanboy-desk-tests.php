@@ -532,3 +532,68 @@ function testFanboyRound3Words(): void
         !is_file(OFFICE_DIR . '/agent/desks/fanboy-import.php') && !str_contains($agent, "'import'") && !str_contains($agent, 'fanboyImport') && !$keys
         && !preg_match('/\bimport(Block|AsZones)\b|S\(\)\.import/', $js));
 }
+
+/**
+ * Round 4, safety (2026-11-15, found by the real agent on a test VM): a blocked fan whose floor lies under its start value
+ * (measured lowest 25 % → floor 30 %, start 40 %) was kicked to 40 % and back for ever, each kick resetting the «stands»
+ * clock — no alarm. The suite missed it: every stands test ran with floor ≥ start (the hub unmeasured: floor = start
+ * = 40 %; the disk fan floor 30 = start 30), so no kick happened. Now: the clock runs across kicks, two kicks at most.
+ */
+function testFanboyStandsKick(): void
+{
+    $t = fanboyT('standskick');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        $settings['fans'][fanboyTId(4)]['measured']['start_pct'] = 40;       // floor 25 + 5 = 30 < start 40
+        fanboyTStore($settings);
+        $spec = fanboyTSpec();
+        fanboyTSettle($t, $spec);
+        fanboyBeat();
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        same('fanboy stands kick: the case the suite never had — the disk fan\'s floor under its start value', [30, 40], [$c['fans'][fanboyTId(4)]['floor'], $c['fans'][fanboyTId(4)]['start']]);
+        $now = 3000.0;
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        $stuck = fanboyTSpec(10, [4 => ['stuck' => true]]);
+        $written = [];
+        $alarmAt = null;
+        for ($i = 0; $i < 40 && $alarmAt === null; $i++) {
+            fanboyTRounds($c, $now, $t, $stuck, 1);
+            $written[] = fanboyTOut($t, 4)[0];
+            if ($c['alarm'] !== null) {
+                $alarmAt = $i * FANBOY_ROUND;
+            }
+        }
+        $kicks = 0;
+        for ($i = 1; $i < count($written); $i++) {
+            $kicks += $written[$i] === 102 && $written[$i - 1] !== 102 ? 1 : 0;      // 40 % = 102
+        }
+        check('fanboy stands kick: blocked — alarm «stands» within FANBOY_STAND_AFTER and a margin (' . ($alarmAt ?? 'never') . ' s)',
+            $alarmAt !== null && $alarmAt <= FANBOY_STAND_AFTER + 2 * FANBOY_ROUND && ($c['alarm']['code'] ?? null) === 'stands');
+        same('fanboy stands kick: … kicked twice at most (no flapping 30 % ↔ 40 % in what was written), then full speed', [true, 255],
+            [$kicks <= FANBOY_KICK_MAX, fanboyTOut($t, 4)[0]]);
+        fanboyTRounds($c, $now, $t, $stuck, 20);
+        same('fanboy stands kick: … exactly one notification however long it stands', 1, count(array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, '-i alert'))));
+        // freed: it turns — the alarm clears after FANBOY_CLEAR_AFTER, the curve again
+        fanboyTRounds($c, $now, $t, $spec, (int) ceil(FANBOY_CLEAR_AFTER / FANBOY_ROUND) - 2);
+        same('fanboy stands kick: freed — still in alarm before FANBOY_CLEAR_AFTER', 'stands', $c['alarm']['code'] ?? null);
+        fanboyTRounds($c, $now, $t, $spec, 6);
+        same('fanboy stands kick: … then over, the kicks counted from nought again', [null, 0], [$c['alarm'], $c['fans'][fanboyTId(4)]['kicks']]);
+        fanboyLetGo($c, 'end');
+
+        // a control started again three times while the fan stays blocked: the clock goes on, the third one alarms
+        $rounds = (int) ceil(8 / FANBOY_ROUND);          // 8 s each: alone never 15 s, carried the third passes it
+        $alarmed = [];
+        for ($k = 0; $k < 3; $k++) {
+            $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+            fanboyStandCarry($c, readJson(fanboyStatusFile()), $now);
+            fanboyTRounds($c, $now, $t, $stuck, $rounds);
+            fanboyStatusWrite(fanboyStatus($c));
+            $alarmed[] = $c['alarm']['code'] ?? null;
+            fanboyLetGo($c, 'restart');
+        }
+        same('fanboy stands kick: three restarts of 8 s each with the fan blocked — the clock carried, the third alarms', [null, null, 'stands'], $alarmed);
+    } finally {
+        fanboyTEnd();
+    }
+}
