@@ -96,7 +96,10 @@
 # 2 wrong call.
 #
 # No `set -e`: every step checks what it ran and says what went wrong.
+# The whole script is one { … } block: bash reads it all before the first step, so a pull or merge into this clone
+# while a run lasts (35-120 min) can't change what the running one does next.
 set -u -o pipefail
+{
 
 conf=${USO_RELEASE_CONF:-$HOME/.config/uso-release.conf}
 name=unraid-secretary-office
@@ -160,6 +163,7 @@ red() {
     fi
     echo
     echo "STOPPED at step $step_no ($step_name): $*"
+    last_lines
     echo "Log: $log"
     exit 1
 }
@@ -825,3 +829,4 @@ last_lines
 echo "Next (the release playbook): tonight's run on $(label "$main"); note the release in the day's notes."
 echo "Log: $log"
 exit 0
+}
