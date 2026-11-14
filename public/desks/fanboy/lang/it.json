@@ -1,6 +1,6 @@
 {
   "name": "Fanboy",
-  "role": "Il più grande fan delle sue ventole — tiene freschi i vostri dischi e il case, proprio come piace a voi",
+  "role": "Il più grande fan delle sue ventole — tiene freschi i tuoi dischi e il case, proprio come piace a te",
   "fit.yes": "Regola le ventole in base a ciò che si scalda davvero — e non dimentica mai le sue impostazioni",
   "fit.other": "Qui le ventole le regola {who} — lui guarderebbe, lo direbbe e non comanderebbe nulla finché è attivo",
   "fit.no_output": "Qui non trova nessuna uscita per ventole che Linux possa comandare — lo direbbe onestamente e potrebbe mandare un rapporto a chi costruisce la segreteria",

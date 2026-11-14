@@ -1,6 +1,6 @@
 {
   "name": "Fanboy",
-  "role": "El mayor fan de sus ventiladores — mantiene frescos vuestros discos y la caja, justo como os gusta",
+  "role": "El mayor fan de sus ventiladores — mantiene frescos tus discos y la caja, justo como te gusta",
   "fit.yes": "Regula tus ventiladores según lo que de verdad se calienta — y nunca olvida sus ajustes",
   "fit.other": "Aquí los ventiladores los regula {who} — él miraría, lo diría y no controlaría nada mientras siga activo",
   "fit.no_output": "Aquí no encuentra ninguna salida de ventilador que Linux pueda controlar — lo diría con franqueza y podría enviar un informe a quienes construyen la secretaría",
