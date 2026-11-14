@@ -1,0 +1,431 @@
+{
+    "v": 1,
+    "time": 1763100000,
+    "hwmon": true,
+    "board": {
+        "vendor": "Example Boards Inc.",
+        "model": "EB-Z100 PRO"
+    },
+    "kernel": "6.18.60-Unraid",
+    "unraid": "7.3.2",
+    "chips": [
+        {
+            "hwmon": "hwmon0",
+            "name": "nvme",
+            "device": "pci0000:00/0000:00:1b.4/0000:82:00.0/nvme/nvme2",
+            "address": "nvme2",
+            "module": "nvme",
+            "kind": "nvme",
+            "outputs": [],
+            "fans": [],
+            "temps": [
+                {
+                    "n": 1,
+                    "label": "Composite",
+                    "c": 29.9
+                },
+                {
+                    "n": 2,
+                    "label": "Sensor 1",
+                    "c": 31.9
+                }
+            ]
+        },
+        {
+            "hwmon": "hwmon1",
+            "name": "nvme",
+            "device": "pci0000:00/0000:00:01.0/0000:01:00.0/nvme/nvme1",
+            "address": "nvme1",
+            "module": "nvme",
+            "kind": "nvme",
+            "outputs": [],
+            "fans": [],
+            "temps": [
+                {
+                    "n": 1,
+                    "label": "Composite",
+                    "c": 25.9
+                },
+                {
+                    "n": 2,
+                    "label": "Sensor 1",
+                    "c": 27.9
+                }
+            ]
+        },
+        {
+            "hwmon": "hwmon2",
+            "name": "nvme",
+            "device": "pci0000:00/0000:00:06.1/0000:03:00.0/nvme/nvme0",
+            "address": "nvme0",
+            "module": "nvme",
+            "kind": "nvme",
+            "outputs": [],
+            "fans": [],
+            "temps": [
+                {
+                    "n": 1,
+                    "label": "Composite",
+                    "c": 27.9
+                },
+                {
+                    "n": 2,
+                    "label": "Sensor 1",
+                    "c": 29.9
+                }
+            ]
+        },
+        {
+            "hwmon": "hwmon3",
+            "name": "acpi_fan",
+            "device": "platform/INTC1042:00/INTC1063:00",
+            "address": "INTC1063:00",
+            "module": null,
+            "kind": "other",
+            "outputs": [],
+            "fans": [
+                {
+                    "n": 1,
+                    "rpm": null,
+                    "label": ""
+                }
+            ],
+            "temps": []
+        },
+        {
+            "hwmon": "hwmon4",
+            "name": "gigabyte_wmi",
+            "device": "platform/PNP0C14:02/wmi_bus/wmi_bus-PNP0C14:02",
+            "address": "wmi_bus-PNP0C14:02",
+            "module": null,
+            "kind": "board",
+            "outputs": [],
+            "fans": [],
+            "temps": [
+                {
+                    "n": 1,
+                    "label": "",
+                    "c": 21
+                },
+                {
+                    "n": 2,
+                    "label": "",
+                    "c": 31
+                },
+                {
+                    "n": 3,
+                    "label": "",
+                    "c": 29
+                },
+                {
+                    "n": 4,
+                    "label": "",
+                    "c": 25
+                },
+                {
+                    "n": 5,
+                    "label": "",
+                    "c": 23
+                },
+                {
+                    "n": 6,
+                    "label": "",
+                    "c": 23
+                }
+            ]
+        },
+        {
+            "hwmon": "hwmon5",
+            "name": "spd5118",
+            "device": "pci0000:00/0000:00:1f.4/i2c-0/0-0051",
+            "address": "0-0051",
+            "module": "spd5118",
+            "kind": "ram",
+            "outputs": [],
+            "fans": [],
+            "temps": [
+                {
+                    "n": 1,
+                    "label": "",
+                    "c": 22.8
+                }
+            ]
+        },
+        {
+            "hwmon": "hwmon6",
+            "name": "spd5118",
+            "device": "pci0000:00/0000:00:1f.4/i2c-0/0-0053",
+            "address": "0-0053",
+            "module": "spd5118",
+            "kind": "ram",
+            "outputs": [],
+            "fans": [],
+            "temps": [
+                {
+                    "n": 1,
+                    "label": "",
+                    "c": 21.3
+                }
+            ]
+        },
+        {
+            "hwmon": "hwmon7",
+            "name": "coretemp",
+            "device": "platform/coretemp.0",
+            "address": "coretemp.0",
+            "module": "coretemp",
+            "kind": "cpu",
+            "outputs": [],
+            "fans": [],
+            "temps": [
+                {
+                    "n": 1,
+                    "label": "Package id 0",
+                    "c": 28
+                },
+                {
+                    "n": 2,
+                    "label": "Core 0",
+                    "c": 26
+                },
+                {
+                    "n": 6,
+                    "label": "Core 4",
+                    "c": 28
+                }
+            ]
+        },
+        {
+            "hwmon": "hwmon8",
+            "name": "iwlwifi_1",
+            "device": "virtual/thermal/thermal_zone4",
+            "address": "thermal_zone4",
+            "module": null,
+            "kind": "other",
+            "outputs": [],
+            "fans": [],
+            "temps": [
+                {
+                    "n": 1,
+                    "label": "",
+                    "c": null
+                }
+            ]
+        },
+        {
+            "hwmon": "hwmon9",
+            "name": "acpitz",
+            "device": "virtual/thermal/thermal_zone5",
+            "address": "thermal_zone5",
+            "module": null,
+            "kind": "board",
+            "outputs": [],
+            "fans": [],
+            "temps": [
+                {
+                    "n": 1,
+                    "label": "",
+                    "c": 16.8
+                },
+                {
+                    "n": 2,
+                    "label": "",
+                    "c": 27.8
+                }
+            ]
+        },
+        {
+            "hwmon": "hwmon10",
+            "name": "it8696_a0060607",
+            "device": "platform/it87.2608",
+            "address": "it87.2608",
+            "module": "it87",
+            "kind": "board",
+            "outputs": [
+                {
+                    "n": 1,
+                    "value": 128,
+                    "pct": 50,
+                    "enable": 1,
+                    "mode": "manual",
+                    "auto": true
+                },
+                {
+                    "n": 2,
+                    "value": 128,
+                    "pct": 50,
+                    "enable": 1,
+                    "mode": "manual",
+                    "auto": true
+                },
+                {
+                    "n": 3,
+                    "value": 128,
+                    "pct": 50,
+                    "enable": 1,
+                    "mode": "manual",
+                    "auto": true
+                },
+                {
+                    "n": 4,
+                    "value": 128,
+                    "pct": 50,
+                    "enable": 1,
+                    "mode": "manual",
+                    "auto": true
+                },
+                {
+                    "n": 5,
+                    "value": 128,
+                    "pct": 50,
+                    "enable": 1,
+                    "mode": "manual",
+                    "auto": true
+                },
+                {
+                    "n": 6,
+                    "value": 128,
+                    "pct": 50,
+                    "enable": 1,
+                    "mode": "manual",
+                    "auto": true
+                }
+            ],
+            "fans": [
+                {
+                    "n": 1,
+                    "rpm": 1310,
+                    "label": ""
+                },
+                {
+                    "n": 2,
+                    "rpm": 0,
+                    "label": ""
+                },
+                {
+                    "n": 3,
+                    "rpm": 0,
+                    "label": ""
+                },
+                {
+                    "n": 4,
+                    "rpm": 1397,
+                    "label": ""
+                },
+                {
+                    "n": 5,
+                    "rpm": 1421,
+                    "label": ""
+                },
+                {
+                    "n": 6,
+                    "rpm": 1363,
+                    "label": ""
+                }
+            ],
+            "temps": [
+                {
+                    "n": 1,
+                    "label": "",
+                    "c": 21
+                },
+                {
+                    "n": 2,
+                    "label": "",
+                    "c": 31
+                },
+                {
+                    "n": 3,
+                    "label": "",
+                    "c": 28
+                },
+                {
+                    "n": 4,
+                    "label": "",
+                    "c": 25
+                },
+                {
+                    "n": 5,
+                    "label": "",
+                    "c": 23
+                },
+                {
+                    "n": 6,
+                    "label": "",
+                    "c": 23
+                }
+            ]
+        }
+    ],
+    "disks": [
+        {
+            "name": "parity",
+            "type": "parity",
+            "rotational": true,
+            "asleep": false,
+            "temp": 35
+        },
+        {
+            "name": "disk1",
+            "type": "data",
+            "rotational": true,
+            "asleep": true,
+            "temp": null
+        },
+        {
+            "name": "disk2",
+            "type": "data",
+            "rotational": true,
+            "asleep": false,
+            "temp": 33
+        },
+        {
+            "name": "cache",
+            "type": "pool",
+            "rotational": false,
+            "asleep": false,
+            "temp": 40
+        }
+    ],
+    "ipmi": null,
+    "controllers": [
+        {
+            "id": "fancontrolplus",
+            "name": "FanControl Plus",
+            "settings": true,
+            "running": true
+        }
+    ],
+    "drivers_missing": [],
+    "situation": {
+        "code": "other",
+        "who": [
+            "fancontrolplus"
+        ],
+        "names": [
+            "FanControl Plus"
+        ]
+    },
+    "counts": {
+        "outputs": 6,
+        "fans": 7,
+        "turning": 4,
+        "zero": 2,
+        "rpm_min": 1310,
+        "rpm_max": 1421,
+        "temps": 26
+    },
+    "hottest": {
+        "c": 40,
+        "kind": "disk",
+        "chip": null,
+        "label": "",
+        "n": null,
+        "disk": "cache"
+    },
+    "who": {
+        "who": "fancontrolplus",
+        "name": "FanControl Plus",
+        "why": "other"
+    }
+}

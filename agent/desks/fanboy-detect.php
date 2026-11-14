@@ -358,6 +358,7 @@ function fanboyDetect(?string $root = null, ?int $now = null): array
             'outputs' => array_sum(array_map(fn ($c) => fanboyOffers($c) ? count($c['outputs']) : 0, $chips)),
             'fans'    => count($fans),
             'turning' => count($turning),
+            'zero'    => count(array_filter(array_column($fans, 'rpm'), fn ($r) => $r === 0)),      // 0 rpm (nothing said: not counted)
             'rpm_min' => $turning ? min($turning) : null,
             'rpm_max' => $turning ? max($turning) : null,
             'temps'   => array_sum(array_map(fn ($c) => count($c['temps']), $chips)),

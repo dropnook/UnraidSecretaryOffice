@@ -1,0 +1,99 @@
+{
+    "v": 1,
+    "time": 1763100000,
+    "hwmon": true,
+    "board": {
+        "vendor": "Example Server Co.",
+        "model": "ES-2U"
+    },
+    "kernel": "6.18.60-Unraid",
+    "unraid": "7.3.2",
+    "chips": [
+        {
+            "hwmon": "hwmon0",
+            "name": "coretemp",
+            "device": "platform/coretemp.0",
+            "address": "coretemp.0",
+            "module": "coretemp",
+            "kind": "cpu",
+            "outputs": [],
+            "fans": [],
+            "temps": [
+                {
+                    "n": 1,
+                    "label": "Package id 0",
+                    "c": 40
+                },
+                {
+                    "n": 2,
+                    "label": "Core 0",
+                    "c": 38
+                }
+            ]
+        }
+    ],
+    "disks": [
+        {
+            "name": "parity",
+            "type": "parity",
+            "rotational": true,
+            "asleep": false,
+            "temp": 35
+        },
+        {
+            "name": "disk1",
+            "type": "data",
+            "rotational": true,
+            "asleep": true,
+            "temp": null
+        },
+        {
+            "name": "disk2",
+            "type": "data",
+            "rotational": true,
+            "asleep": false,
+            "temp": 33
+        },
+        {
+            "name": "cache",
+            "type": "pool",
+            "rotational": false,
+            "asleep": false,
+            "temp": 40
+        }
+    ],
+    "ipmi": {
+        "bmc": true,
+        "manufacturer_id": "0x002a7c",
+        "product_id": "0x1b0d",
+        "firmware_revision": "1.74",
+        "ipmi_version": "2.0",
+        "device_id": "32"
+    },
+    "controllers": [],
+    "drivers_missing": [],
+    "situation": {
+        "code": "ipmi"
+    },
+    "counts": {
+        "outputs": 0,
+        "fans": 0,
+        "turning": 0,
+        "zero": 0,
+        "rpm_min": null,
+        "rpm_max": null,
+        "temps": 2
+    },
+    "hottest": {
+        "c": 40,
+        "kind": "cpu",
+        "chip": "coretemp",
+        "label": "Package id 0",
+        "n": 1,
+        "disk": null
+    },
+    "who": {
+        "who": "bmc",
+        "why": "ipmi"
+    }
+}

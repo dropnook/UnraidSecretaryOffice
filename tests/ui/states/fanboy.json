@@ -397,6 +397,7 @@
         "outputs": 6,
         "fans": 7,
         "turning": 4,
+        "zero": 2,
         "rpm_min": 1310,
         "rpm_max": 1421,
         "temps": 26

@@ -80,7 +80,7 @@ function fansTile(a) {
   const c = counts();
   const all = Number(c.fans) || 0;
   const turning = Number(c.turning) || 0;
-  const zero = Math.max(0, all - turning);
+  const zero = Number(c.zero) || 0;          // 0 rpm reported (an input that says nothing isn't one)
   const sub = [];
   if (turning) sub.push(T('fans.range', { min: fmt.number(c.rpm_min), max: fmt.number(c.rpm_max) }));
   if (zero) sub.push(T('fans.zero', { n: zero }));
@@ -131,11 +131,9 @@ function outputsSection() {
     meta.appendChild(chipOf(mode === 'auto' ? 'ok' : mode === 'unknown' ? 'quiet' : 'accent', T(`mode.${mode}`), T(`mode.${mode}_title`)));
     if (o.auto && mode !== 'auto') meta.appendChild(chipOf('quiet', T('can_auto'), T('can_auto_title')));
     main.appendChild(meta);
-    const fig = el('div', 'figures');
-    const v = el('b', '', o.pct === null || o.pct === undefined ? '–' : T('value', { pct: o.pct }));
+    const v = el('div', 'fb-value', o.pct === null || o.pct === undefined ? '–' : T('value', { pct: o.pct }));
     if (o.value !== null && o.value !== undefined) v.title = T('value_title', { value: o.value });
-    fig.append(v, el('span', ''));
-    r.append(main, fig);
+    r.append(main, v);
     list.appendChild(r);
   }));
   if (!list.children.length) list.appendChild(el('p', 'empty', T('outputs.none')));
@@ -155,9 +153,7 @@ function fansSection() {
     meta.appendChild(chipLabel(c));
     if (f.rpm === null || f.rpm === undefined) meta.appendChild(chipOf('quiet', T('fans.no_value'), T('fans.no_value_title')));
     main.appendChild(meta);
-    const fig = el('div', 'figures');
-    fig.append(el('b', '', f.rpm === null || f.rpm === undefined ? '–' : T('fans.rpm', { rpm: fmt.number(f.rpm) })), el('span', ''));
-    r.append(main, fig);
+    r.append(main, el('div', 'fb-value', f.rpm === null || f.rpm === undefined ? '–' : T('fans.rpm', { rpm: fmt.number(f.rpm) })));
     list.appendChild(r);
   }));
   if (!list.children.length) list.appendChild(el('p', 'empty', T('fans.empty')));
@@ -196,9 +192,7 @@ function sensorsSection() {
     if (x.asleep) meta.appendChild(chipOf('quiet', T('sensors.asleep'), T('sensors.asleep_title')));
     else if (x.c === null || x.c === undefined) meta.appendChild(chipOf('quiet', T('sensors.no_value'), T('sensors.no_value_title')));
     main.appendChild(meta);
-    const fig = el('div', 'figures');
-    fig.append(el('b', '', x.c === null || x.c === undefined ? '–' : T('hottest.value', { c: fmt.number(x.c) })), el('span', ''));
-    r.append(main, fig);
+    r.append(main, el('div', 'fb-value', x.c === null || x.c === undefined ? '–' : T('hottest.value', { c: fmt.number(x.c) })));
     list.appendChild(r);
   });
   if (!list.children.length) list.appendChild(el('p', 'empty', all.length ? T('sensors.none_fit') : T('sensors.none')));

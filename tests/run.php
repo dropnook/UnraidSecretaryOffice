@@ -63826,8 +63826,8 @@ function testFanboyDetect(): void
     same('fanboy detect: six outputs — value, percent, mode (pwm_enable 1 = a fixed value), the chip\'s own auto mode',
         array_fill(0, 6, [128, 50, 1, 'manual', true]), array_map(fn ($o) => [$o['value'], $o['pct'], $o['enable'], $o['mode'], $o['auto']], $ite['outputs']));
     same('fanboy detect: six tach inputs, two at 0 rpm', [1310, 0, 0, 1397, 1421, 1363], array_column($ite['fans'], 'rpm'));
-    same('fanboy detect: counts — 6 outputs, 7 tach inputs (the ACPI fan says nothing), 4 turning, 1310–1421 rpm',
-        [6, 7, 4, 1310, 1421], [$s['counts']['outputs'], $s['counts']['fans'], $s['counts']['turning'], $s['counts']['rpm_min'], $s['counts']['rpm_max']]);
+    same('fanboy detect: counts — 6 outputs, 7 tach inputs (the ACPI fan says nothing), 4 turning, 2 at 0 rpm (not the silent one), 1310–1421 rpm',
+        [6, 7, 4, 2, 1310, 1421], [$s['counts']['outputs'], $s['counts']['fans'], $s['counts']['turning'], $s['counts']['zero'], $s['counts']['rpm_min'], $s['counts']['rpm_max']]);
     $kinds = [];
     foreach ($s['chips'] as $c) {
         $kinds[$c['name']] = $c['kind'];
