@@ -251,22 +251,40 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey): arra
     return ['found' => $follow ? 'tach' : ($full ? 'unclear' : 'ask'), 'tachs' => $follow, 'base' => $base];
 }
 
-/** Too warm to go on measuring: a CPU, NVMe or awake disk at its limit less 5 °C */
-function fanboyStepWarm(): ?string
+/**
+ * Too warm to go on measuring: a source at its limit less 5 °C — each by its OWN kind and limit (round 4: an NVMe pool
+ * at 50 °C is ordinary; the hard disks' 52 °C held it to 47 and no fan could ever be measured): a zone's own limit for it
+ * once set, else its kind's (hard disk, SSD/NVMe, CPU). Which source, its temperature and the limit — or null.
+ */
+function fanboyStepWarm(?array $settings = null): ?array
 {
     $p = fanboyPaths(fanboySysRoot() ?: null);
-    foreach (fanboyChips($p['hwmon']) as $c) {
-        if (in_array($c['kind'], ['cpu', 'nvme'], true)) {
-            foreach ($c['temps'] as $t) {
-                if ($t['c'] !== null && $t['c'] >= FANBOY_SOURCE_DEFAULTS[$c['kind']]['limit'] - 5) {
-                    return "{$c['name']} {$t['c']} °C";
+    $own = [];
+    foreach (is_array($settings['zones'] ?? null) ? $settings['zones'] : [] as $z) {
+        foreach (is_array($z['sources'] ?? null) ? $z['sources'] : [] as $src) {
+            if (is_string($src['id'] ?? null) && is_numeric($src['limit'] ?? null)) {
+                $own[$src['id']] = min((float) $src['limit'], $own[$src['id']] ?? INF);
+            }
+        }
+    }
+    $check = function (string $id, string $kind, string $label, ?float $c) use ($own): ?array {
+        $limit = $own[$id] ?? (float) (FANBOY_SOURCE_DEFAULTS[$kind] ?? FANBOY_SOURCE_DEFAULTS['other'])['limit'];
+        return $c !== null && $c >= $limit - 5 ? ['source' => $label, 'kind' => $kind, 'c' => $c, 'limit' => $limit] : null;
+    };
+    foreach (fanboyChips($p['hwmon']) as $chip) {
+        if (in_array($chip['kind'], ['cpu', 'nvme'], true)) {
+            foreach ($chip['temps'] as $t) {
+                $w = $check(fanboySourceId($chip, $t['n']), $chip['kind'], $t['label'] !== '' ? $t['label'] : $chip['name'] . " #{$t['n']}", $t['c'] === null ? null : (float) $t['c']);
+                if ($w !== null) {
+                    return $w;
                 }
             }
         }
     }
     foreach (fanboyDisks($p['disks']) as $d) {
-        if (!$d['asleep'] && $d['temp'] !== null && $d['temp'] >= FANBOY_SOURCE_DEFAULTS['disk']['limit'] - 5) {
-            return "{$d['name']} {$d['temp']} °C";
+        $w = $d['asleep'] ? null : $check($d['name'], $d['rotational'] ? 'disk' : 'ssd', $d['name'], $d['temp'] === null ? null : (float) $d['temp']);
+        if ($w !== null) {
+            return $w;
         }
     }
     return null;
@@ -318,7 +336,7 @@ function fanboyMeasure(array $o, array $tachs, array $owner, array $io, string $
         $steady = 100;
         $stalledAt = null;
         foreach (FANBOY_MEASURE_STEPS as $pct) {
-            if (($warm = fanboyStepWarm()) !== null) {
+            if (($warm = fanboyStepWarm(fanboyBoardRaw())) !== null) {
                 fanboySet($o['id'], FANBOY_FULL, $owner);
                 return ['result' => 'warm', 'warm' => $warm, 'table' => $table];
             }
@@ -418,6 +436,7 @@ function fanboyStepRun(array $step, array $io): array
                     }, $board);
                 }
                 if ($r['result'] === 'warm') {
+                    $step['warm'] = $r['warm'];          // which source, how warm, its limit — the page says it
                     throw new FanboyStepStop('warm');
                 }
             }
@@ -600,10 +619,10 @@ function fanboyZonesPropose(array $scan, array $settings): array
     $zones = [];
     if ($disks) {
         $zones[] = ['id' => 'disks', 'kind' => 'disks', 'name' => '', 'fans' => $disks, 'unit' => 'pct', 'target' => ['preset' => 'normal'],
-            'sources' => array_values(array_map(fn ($s) => ['kind' => 'disk', 'id' => $s['id']], array_filter($sources, fn ($s) => $s['kind'] === 'disk')))];
+            'sources' => array_values(array_map(fn ($s) => ['kind' => 'disk', 'id' => $s['id']], array_filter($sources, fn ($s) => $s['kind'] === 'disk')))];     // hard disks only: an SSD/NVMe pool is warm at rest
     }
     if ($case) {
-        $kinds = $disks ? ['nvme', 'ram', 'board'] : ['disk', 'nvme', 'ram', 'board'];
+        $kinds = $disks ? ['ssd', 'nvme', 'ram', 'board'] : ['disk', 'ssd', 'nvme', 'ram', 'board'];
         $zones[] = ['id' => 'case', 'kind' => 'case', 'name' => '', 'fans' => $case, 'unit' => 'pct', 'target' => ['preset' => 'normal'],
             'sources' => array_values(array_map(fn ($s) => ['kind' => $s['kind'], 'id' => $s['id']], array_filter($sources, fn ($s) => in_array($s['kind'], $kinds, true))))];
     }

@@ -597,3 +597,77 @@ function testFanboyStandsKick(): void
         fanboyTEnd();
     }
 }
+
+/** disks.ini for the round-4 kind tests: [name, type, device, temp ('*' asleep), rotational] */
+function fanboyTDisksKinds(array $t, array $disks): void
+{
+    file_put_contents("{$t['root']}/var/local/emhttp/disks.ini", implode('', array_map(fn ($x) => "[{$x[0]}]\nname=\"{$x[0]}\"\ntype=\"{$x[1]}\"\ndevice=\"{$x[2]}\"\n"
+        . 'id="EXAMPLE_' . strtoupper($x[0]) . "\"\ntemp=\"{$x[3]}\"\nspundown=\"" . ($x[3] === '*' ? 1 : 0) . "\"\nrotational=\"{$x[4]}\"\nstatus=\"DISK_OK\"\n", $disks)));
+}
+
+/**
+ * Round 4 (the real agent on a test VM): an NVMe pool at an ordinary 50 °C stopped every measuring as «warm» — every
+ * disk was held to the hard disks' 52 − 5 °C. Now each source by its own kind and limit (a zone's own once set), and
+ * the step says which source, how warm and the limit.
+ */
+function testFanboyNvmeWarm(): void
+{
+    $t = fanboyT('nvmewarm');
+    try {
+        fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '35', '1'], ['disk1', 'Data', 'sdc', '*', '1'], ['cache', 'Cache', 'nvme0n1', '50', '0']]);
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        unset($settings['fans'][fanboyTId(4)]['measured']);
+        fanboyTStore($settings);
+        same('fanboy nvme warm: the NVMe pool at 50 °C, the hard disks at 35 — nothing too warm (the SSD\'s limit 70)', null, fanboyStepWarm($settings));
+        $spec = fanboyTSpec();
+        fanboyTSettle($t, $spec);
+        $clock = 0.0;
+        $step = fanboyStepRun(['id' => 'n1', 'kind' => 'measure', 'fans' => [fanboyTId(4)]], fanboyTIo($t, $spec, $clock));
+        same('fanboy nvme warm: … measuring runs through: a table, a lowest steady value', ['done', 'ok', 20],
+            [$step['status'], $step['results'][fanboyTId(4)]['result'] ?? null, $step['results'][fanboyTId(4)]['min_pct'] ?? null]);
+        // the user's own, lower limit for the pool in a zone: it counts — and the step says which, how warm, the limit
+        $s2 = $settings;
+        $s2['zones'][1]['sources'][] = ['kind' => 'ssd', 'id' => 'cache', 'limit' => 52];
+        fanboyTStore($s2);
+        same('fanboy nvme warm: a zone\'s own limit for the pool (52) — too warm at 50 (52 − 5)', ['source' => 'cache', 'kind' => 'ssd', 'c' => 50.0, 'limit' => 52.0], fanboyStepWarm($s2));
+        $clock = 0.0;
+        $step = fanboyStepRun(['id' => 'n2', 'kind' => 'measure', 'fans' => [fanboyTId(4)]], fanboyTIo($t, $spec, $clock));
+        same('fanboy nvme warm: … the step stops «warm» and names it', ['stopped', 'warm', 'cache', 50.0, 52.0, [128, 1]],
+            [$step['status'], $step['why'], $step['warm']['source'] ?? null, $step['warm']['c'] ?? null, $step['warm']['limit'] ?? null, fanboyTOut($t, 4)]);
+        fanboyTStore($settings);
+        fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '35', '1'], ['cache', 'Cache', 'nvme0n1', '66', '0']]);
+        same('fanboy nvme warm: the pool at 66 °C — close to the SSD limit (70 − 5)', ['cache', 'ssd', 70.0], array_values(array_intersect_key(fanboyStepWarm($settings) ?? [], array_flip(['source', 'kind', 'limit']))));
+        fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '48', '1'], ['cache', 'Cache', 'nvme0n1', '50', '0']]);
+        same('fanboy nvme warm: a hard disk at 48 °C — its own kind\'s limit (52 − 5)', ['parity', 'disk', 52.0], array_values(array_intersect_key(fanboyStepWarm($settings) ?? [], array_flip(['source', 'kind', 'limit']))));
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/** Round 4: the zones proposed by kind — hard disks on their scale, an SSD/NVMe pool in the case zone; at rest no zone at full */
+function testFanboyProposeKinds(): void
+{
+    $t = fanboyT('proposekinds');
+    try {
+        fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '35', '1'], ['disk1', 'Data', 'sdc', '35', '1'], ['cache', 'Cache', 'nvme0n1', '50', '0']]);
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        unset($settings['zones']);
+        fanboyTStore($settings);
+        $scan = fanboyDetect();
+        $zones = fanboyZonesPropose($scan, fanboyBoardRaw());
+        $by = array_column($zones, null, 'id');
+        same('fanboy propose kinds: the disk zone — the hard disks only; the pool (SSD/NVMe) in the case zone as «ssd»', [['parity', 'disk1'], ['ssd', 'cache']],
+            [array_column($by['disks']['sources'], 'id'), array_values(array_filter(array_map(fn ($s) => $s['id'] === 'cache' ? [$s['kind'], $s['id']] : null, $by['case']['sources'])))[0] ?? null]);
+        fanboyZonesSave(['zones' => array_map(fn ($z) => ['id' => $z['id'], 'name' => $z['id'], 'fans' => $z['fans'], 'sources' => array_map(fn ($s) => ['id' => $s['id']], $z['sources']),
+            'unit' => 'pct', 'target' => ['preset' => 'normal']], $zones)]);
+        $dry = fanboyDryRun()['dry'];
+        $levels = array_column($dry['zones'], 'level', 'id');
+        check('fanboy propose kinds: at rest (disks 35 °C, the pool 50 °C) no zone asks for full speed (' . json_encode($levels) . ')',
+            count($levels) === 2 && max($levels) < 80);
+        same('fanboy propose kinds: … the case zone led by the pool on the SSD\'s own scale', 'cache', array_column($dry['zones'], 'warmest', 'id')['case']['id'] ?? null);
+    } finally {
+        fanboyTEnd();
+    }
+}

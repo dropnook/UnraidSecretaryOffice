@@ -662,5 +662,7 @@
   "hottest.near_own": "{d} °C sotto il tuo limite ({limit} °C)",
   "errors.fanboy_bad_count": "Tra 1 e 8 ventole su un connettore.",
   "hottest.whose_line": "{whose} · {c} °C",
-  "step.blocked_steering": "Solo dopo che avrai restituito le ventole (passo 7)."
+  "step.blocked_steering": "Solo dopo che avrai restituito le ventole (passo 7).",
+  "kind.ssd": "SSD",
+  "step.ended.warm_what": "Misura interrotta: {where} era a {c} °C, vicino al suo limite di {limit} °C. Ogni uscita è tornata com'era — riprova quando si sarà raffreddato."
 }

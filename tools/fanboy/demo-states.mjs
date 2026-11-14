@@ -48,14 +48,14 @@ function ite(outs, rpms) {
 const devKey = (d) => d.replace(/\/([a-z]+)\/\1\d+$/, '/$1');
 /** Every heat source as fanboySources() lists them */
 function sources(chips, disks) {
-  const out = disks.map((d) => ({ kind: 'disk', id: d.name, label: d.name, c: d.temp, asleep: d.asleep }));
+  const out = disks.map((d) => ({ kind: d.rotational === false ? 'ssd' : 'disk', id: d.name, label: d.name, c: d.temp, asleep: d.asleep }));
   for (const c of chips) {
     if (c.kind === 'disk') continue;
     for (const t of c.temps) out.push({ kind: c.kind, id: `${c.name}@${devKey(c.device)}#${t.n}`, label: t.label || `${c.name} #${t.n}`, c: t.c, asleep: false, chip: c.name, hwmon: c.hwmon, n: t.n });
   }
   return out;
 }
-const DEFAULTS = { disk: [35, 45, 52], nvme: [40, 65, 75], cpu: [45, 80, 92], ram: [40, 60, 75], gpu: [45, 80, 90], board: [35, 55, 70], other: [35, 55, 75] };
+const DEFAULTS = { disk: [35, 45, 52], ssd: [40, 60, 70], nvme: [40, 65, 75], cpu: [45, 80, 92], ram: [40, 60, 75], gpu: [45, 80, 90], board: [35, 55, 70], other: [35, 55, 75] };
 const SCALES = Object.fromEntries(Object.entries(DEFAULTS).map(([k, [low, high, limit]]) => [k, { low, high, limit }]));
 function preset(p, lo, hi) {
   const mid = (lo + hi) / 2;

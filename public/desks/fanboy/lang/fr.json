@@ -662,5 +662,7 @@
   "hottest.near_own": "{d} °C sous ta limite ({limit} °C)",
   "errors.fanboy_bad_count": "Entre 1 et 8 ventilateurs sur un connecteur.",
   "hottest.whose_line": "{whose} · {c} °C",
-  "step.blocked_steering": "Seulement quand tu auras rendu les ventilateurs (étape 7)."
+  "step.blocked_steering": "Seulement quand tu auras rendu les ventilateurs (étape 7).",
+  "kind.ssd": "SSD",
+  "step.ended.warm_what": "Mesure arrêtée : {where} était à {c} °C, près de sa limite de {limit} °C. Chaque sortie est revenue comme elle était — réessaie quand ce sera refroidi."
 }

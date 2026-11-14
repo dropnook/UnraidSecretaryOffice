@@ -662,10 +662,12 @@ function testFanboyZones(): void
         fanboyTStore($settings);
         $scan = fanboyDetect();
         $prop = fanboyZonesPropose($scan, $settings);
-        same('fanboy zones: proposed — «disks» (the disk fan, every Unraid disk), «case» (hub and silent fan, NVMe, RAM, board)',
-            [['disks', [fanboyTId(4)], ['parity', 'disk1', 'disk2', 'cache']], ['case', [fanboyTId(2), fanboyTId(5)]]],
+        // round 4: the hard disks in «disks», the NVMe pool (cache: not rotating) in «case» on the SSD's own scale
+        same('fanboy zones: proposed — «disks» (the disk fan, the hard disks), «case» (hub and silent fan, the SSD pool, NVMe, RAM, board)',
+            [['disks', [fanboyTId(4)], ['parity', 'disk1', 'disk2']], ['case', [fanboyTId(2), fanboyTId(5)]]],
             [[$prop[0]['id'], $prop[0]['fans'], array_column($prop[0]['sources'], 'id')], [$prop[1]['id'], array_values(array_diff($prop[1]['fans'], []))]]);
-        check('fanboy zones: … the case zone\'s sources: NVMe, RAM, the board — no CPU, no disk', !array_diff(array_unique(array_column($prop[1]['sources'], 'kind')), ['nvme', 'ram', 'board']));
+        check('fanboy zones: … the case zone\'s sources: the SSD pool, NVMe, RAM, the board — no CPU, no hard disk', !array_diff(array_unique(array_column($prop[1]['sources'], 'kind')), ['ssd', 'nvme', 'ram', 'board'])
+            && in_array('cache', array_column($prop[1]['sources'], 'id'), true));
         $good = [['id' => 'disks', 'name' => 'Disks', 'fans' => [fanboyTId(4)], 'sources' => [['id' => 'parity'], ['id' => 'disk2', 'limit' => 50]], 'unit' => 'pct', 'target' => ['preset' => 'quiet']]];
         same('fanboy zones: a zone checked — the kind from the source, limits kept', [['kind' => 'disk', 'id' => 'disk2', 'low' => null, 'high' => null, 'limit' => 50.0]],
             [fanboyZonesCheck($good, $scan, $settings)[0]['sources'][1]]);

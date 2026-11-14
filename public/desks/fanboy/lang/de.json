@@ -662,5 +662,7 @@
   "hottest.near_own": "{d} °C unter deiner Grenze ({limit} °C)",
   "errors.fanboy_bad_count": "Zwischen 1 und 8 Lüfter an einem Anschluss.",
   "hottest.whose_line": "{whose} · {c} °C",
-  "step.blocked_steering": "Geht erst, wenn du die Lüfter zurückgegeben hast (Schritt 7)."
+  "step.blocked_steering": "Geht erst, wenn du die Lüfter zurückgegeben hast (Schritt 7).",
+  "kind.ssd": "SSD",
+  "step.ended.warm_what": "Vermessen abgebrochen: {where} hatte {c} °C, nahe an seiner Grenze von {limit} °C. Jeder Ausgang ging zurück, wie er war — versuch es wieder, wenn es abgekühlt ist."
 }

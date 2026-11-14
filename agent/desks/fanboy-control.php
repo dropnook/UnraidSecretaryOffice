@@ -56,7 +56,8 @@ const FANBOY_HISTORY_KEEP = 600.0;      // the history into the data folder ever
 const FANBOY_RPM_TRIM_MAX = 15;         // percent an rpm zone's correction moves a fan at most
 // a heat source's own scale by its kind: low = cool (the curve's start), high = needs all the air, limit = alarm
 const FANBOY_SOURCE_DEFAULTS = [
-    'disk'  => ['low' => 35, 'high' => 45, 'limit' => 52],
+    'disk'  => ['low' => 35, 'high' => 45, 'limit' => 52],      // a hard disk (rotating)
+    'ssd'   => ['low' => 40, 'high' => 60, 'limit' => 70],      // an SSD or NVMe of Unraid's (disks.ini, not rotating) — round 4
     'nvme'  => ['low' => 40, 'high' => 65, 'limit' => 75],
     'cpu'   => ['low' => 45, 'high' => 80, 'limit' => 92],
     'ram'   => ['low' => 40, 'high' => 60, 'limit' => 75],
@@ -65,6 +66,7 @@ const FANBOY_SOURCE_DEFAULTS = [
     'other' => ['low' => 35, 'high' => 55, 'limit' => 75],
 ];
 const FANBOY_PRESETS = ['quiet', 'normal', 'cool'];
+const FANBOY_DISK_KINDS = ['disk', 'ssd'];                      // sources from Unraid's disks.ini (never asked, never woken)
 const FANBOY_ROLES_BIOS = ['cpu', 'pump', 'unknown'];           // stay with the BIOS: never written again
 const FANBOY_ROLES_OURS = ['case', 'disks', 'ram', 'nvme', 'other'];
 const FANBOY_ALARMS = ['stands', 'bios_stands', 'hot', 'sensor', 'chip'];
@@ -195,7 +197,8 @@ function fanboySources(array $scan): array
 {
     $out = [];
     foreach ($scan['disks'] ?? [] as $d) {
-        $out[] = ['kind' => 'disk', 'id' => $d['name'], 'label' => $d['name'], 'c' => $d['temp'], 'asleep' => $d['asleep']];
+        // a rotating disk is «disk», an SSD/NVMe pool member «ssd»: their temperatures mean different things (round 4)
+        $out[] = ['kind' => ($d['rotational'] ?? true) ? 'disk' : 'ssd', 'id' => $d['name'], 'label' => $d['name'], 'c' => $d['temp'], 'asleep' => $d['asleep']];
     }
     foreach ($scan['chips'] ?? [] as $c) {
         if ($c['kind'] === 'disk') {
@@ -373,8 +376,19 @@ function fanboyReadSources(array &$c, float $now): void
             $c['disks'][$d['name']] = $d;
         }
         $c['disks_at'] = $now;
+        // a zone saved before round 4 calls an SSD pool member «disk»: on the SSD's scale and limit from now on
+        foreach ($c['zones'] as $zid => $z) {
+            foreach ($z['sources'] as $i => $s) {
+                if ($s['kind'] === 'disk' && ($c['disks'][$s['id']]['rotational'] ?? true) === false) {
+                    $c['zones'][$zid]['sources'][$i]['kind'] = 'ssd';
+                    if (isset($c['sources'][$s['id']])) {
+                        $c['sources'][$s['id']]['kind'] = 'ssd';
+                    }
+                }
+            }
+        }
     }
-    if ($c['scan_at'] === null || $now - $c['scan_at'] >= 30 || array_filter($c['sources'], fn ($s) => $s['path'] === null && $s['kind'] !== 'disk')) {
+    if ($c['scan_at'] === null || $now - $c['scan_at'] >= 30 || array_filter($c['sources'], fn ($s) => $s['path'] === null && !in_array($s['kind'], FANBOY_DISK_KINDS, true))) {
         // where each sensor is this boot (looked up anew every 30 s and while one is missing)
         $chips = fanboyChips($p['hwmon']);
         $where = [];
@@ -387,13 +401,13 @@ function fanboyReadSources(array &$c, float $now): void
             foreach ($z['sources'] as $s) {
                 $w = $where[$s['id']] ?? null;
                 $c['sources'][$s['id']] = ['kind' => $s['kind'], 'path' => $w !== null && !$w['disk'] ? $w['path'] : null,
-                    'label' => $s['kind'] === 'disk' ? $s['id'] : (($w['label'] ?? '') !== '' ? $w['label'] : $s['id'])] + ($c['sources'][$s['id']] ?? []);
+                    'label' => in_array($s['kind'], FANBOY_DISK_KINDS, true) ? $s['id'] : (($w['label'] ?? '') !== '' ? $w['label'] : $s['id'])] + ($c['sources'][$s['id']] ?? []);
             }
         }
         $c['scan_at'] = $now;
     }
     foreach ($c['sources'] as $id => $s) {
-        if ($s['kind'] === 'disk') {
+        if (in_array($s['kind'], FANBOY_DISK_KINDS, true)) {
             $d = $c['disks'][$id] ?? null;
             $c['sources'][$id]['asleep'] = $d !== null && $d['asleep'];
             $c['sources'][$id]['c'] = $d['temp'] ?? null;
@@ -585,7 +599,7 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
         }
         if ($r['c'] === null) {
             $states[$s['id']] = 'quiet';
-            $after = $s['kind'] === 'disk' ? FANBOY_DISK_SENSOR_AFTER : FANBOY_SENSOR_AFTER;
+            $after = in_array($s['kind'], FANBOY_DISK_KINDS, true) ? FANBOY_DISK_SENSOR_AFTER : FANBOY_SENSOR_AFTER;
             if ($r['quiet_since'] !== null && $now - $r['quiet_since'] >= $after) {
                 $reasons['sensor'] = ['source' => $r['label'], 'zone' => $z['name']];
             }

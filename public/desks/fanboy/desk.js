@@ -159,7 +159,7 @@ function fanName(id) {
 /** A heat source's name: Unraid's disks as Unraid names them (Disk 1, Parity), a sensor by its label */
 function srcLabel(s) {
   if (!s) return '';
-  if (s.kind === 'disk') {
+  if (s.kind === 'disk' || s.kind === 'ssd') {
     const m = /^disk(\d+)$/.exec(s.id);
     if (m) return T('src.disk', { n: m[1] });
     const p = /^parity(\d*)$/.exec(s.id);
@@ -490,7 +490,7 @@ function zoneNote(z, cz) {
 function picture() {
   const su = setup();
   const src = new Map((su.sources || []).map((s) => [s.id, s]));
-  const asSource = (s) => ({ id: s.id, label: srcLabel(s), kind: s.kind === 'disk' ? 'disk' : s.kind, temp: num(s.c), asleep: !!s.asleep, limit: srcLimit(s),
+  const asSource = (s) => ({ id: s.id, label: srcLabel(s), kind: s.kind === 'ssd' ? 'nvme' : s.kind, temp: num(s.c), asleep: !!s.asleep, limit: srcLimit(s),
     title: s.asleep ? T('pic.asleep_title') : '' });
   const zones = [];
   const zonesNow = new Map((control().zones || []).map((z) => [z.id, z]));
@@ -591,7 +591,7 @@ function hottestLead() {
 /** A heat source's kind for the tile: hdd, ssd (SSD, NVMe), cpu, board, ram, other */
 function hotKind(x) {
   if (x.kind === 'disk') { const d = (S().disks || []).find((y) => y.name === x.id); return d && d.rotational === false ? 'ssd' : 'hdd'; }
-  return { nvme: 'ssd', cpu: 'cpu', board: 'board', ram: 'ram' }[x.kind] || 'other';
+  return { nvme: 'ssd', ssd: 'ssd', cpu: 'cpu', board: 'board', ram: 'ram' }[x.kind] || 'other';
 }
 /**
  * «Warmest spots»: the warmest of each kind (a hard disk's 44 °C and an NVMe's are not the same thing); the place nearest
@@ -1410,7 +1410,10 @@ function runningLine(s, text) {
 function stepEnded(box, s, kind) {
   if (!s || s.kind !== kind || running(s) || !['stopped', 'failed'].includes(s.status)) return;
   const why = s.status === 'failed' ? 'error' : s.why || 'stopped';
-  box.appendChild(para(has(`step.ended.${why}`) ? T(`step.ended.${why}`) : T('step.ended.stopped'), 'callout warn'));
+  // too warm: which source, how warm, its limit (round 4: by its own kind — an NVMe pool's 50 °C stops nothing)
+  const w = why === 'warm' && s.warm && s.warm.source ? T('step.ended.warm_what', { where: srcLabel({ kind: s.warm.kind === 'disk' || s.warm.kind === 'ssd' ? s.warm.kind : 'other', id: s.warm.source, label: s.warm.source }),
+    c: fmt.number(s.warm.c), limit: fmt.number(s.warm.limit) }) : null;
+  box.appendChild(para(w || (has(`step.ended.${why}`) ? T(`step.ended.${why}`) : T('step.ended.stopped')), 'callout warn'));
 }
 /**
  * A step can't run now — another controller steers, or Fanboy does: the banner says who and why; the step says only its
@@ -1734,7 +1737,7 @@ function zoneCard(z, i, zones, ours) {
   // its heat sources: any the server shows (a source may count in several zones), the warmest counts
   card.appendChild(el('h4', 'fb-sub', T('zones.sources')));
   card.appendChild(para(T('zones.sources_sub')));
-  const kinds = ['disk', 'nvme', 'cpu', 'ram', 'board', 'gpu', 'other'];
+  const kinds = ['disk', 'ssd', 'nvme', 'cpu', 'ram', 'board', 'gpu', 'other'];
   const srcBox = el('div', 'fb-sources');
   const inZone = new Set((z.sources || []).map((s) => s.id));
   kinds.forEach((k) => {

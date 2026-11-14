@@ -662,5 +662,7 @@
   "hottest.near_own": "{d} °C under your limit ({limit} °C)",
   "errors.fanboy_bad_count": "Between 1 and 8 fans on one connector.",
   "hottest.whose_line": "{whose} · {c} °C",
-  "step.blocked_steering": "Only once you have handed the fans back (step 7)."
+  "step.blocked_steering": "Only once you have handed the fans back (step 7).",
+  "kind.ssd": "SSD",
+  "step.ended.warm_what": "Measuring stopped: {where} was at {c} °C, close to its limit of {limit} °C. Every output went back as it was — try again when it has cooled down."
 }
