@@ -1,15 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  The nightly scenarios (tools/scenarios/nightly.sh) at 02:30 on the coordinator's Mac. Written, not installed: the
-  coordinator installs it only with the owner's OK. @REPO@ = the main clone on the Mac, @HOME@ = the home folder:
+  All scenarios once a week (tools/scenarios/nightly.sh - the name stays from when it was meant for every night) on the
+  coordinator's Mac: Friday 22:00 (Weekday 5, Hour 22 below). Written, not installed: the coordinator installs it only
+  with the owner's OK. @REPO@ = the main clone on the Mac, @HOME@ = the home folder:
 
     sed -e "s#@REPO@#$PWD#g" -e "s#@HOME@#$HOME#g" tools/scenarios/uso-scenarios-nightly.plist \
         > ~/Library/LaunchAgents/uso-scenarios-nightly.plist
     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/uso-scenarios-nightly.plist
 
-  Off again: launchctl bootout gui/$(id -u)/uso-scenarios-nightly (and the file removed). A Mac asleep at 02:30 runs it
+  Off again: launchctl bootout gui/$(id -u)/uso-scenarios-nightly (and the file removed). A Mac asleep then runs it
   when it wakes; nightly.sh keeps the Mac awake while it runs (caffeinate). ssh to Tower must work without a prompt.
+  Why then: the full set holds Tower for hours (2026-11-14: see tools/scenarios/README.md); started Friday evening it
+  ends in the night, so Tower is free again on Saturday morning; a release that night waits 30 min for Tower, then
+  stops (tower-lock.sh). It touches neither the main server nor its own runs at 01:30-02:30 - only Tower (and
+  USOPartner as a backup partner, never updated).
 -->
 <plist version="1.0">
 <dict>
@@ -31,10 +36,12 @@
     </dict>
     <key>StartCalendarInterval</key>
     <dict>
+        <key>Weekday</key>
+        <integer>5</integer>
         <key>Hour</key>
-        <integer>2</integer>
+        <integer>22</integer>
         <key>Minute</key>
-        <integer>30</integer>
+        <integer>0</integer>
     </dict>
     <key>StandardOutPath</key>
     <string>@HOME@/Library/Logs/uso-scenarios-nightly.log</string>
