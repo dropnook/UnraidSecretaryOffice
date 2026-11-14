@@ -2937,7 +2937,10 @@ function rsDoSwapOut(array &$j, int $i): array
     $undo = [['do' => 'swap_back', 'dataset' => $da, 'to' => $do, 'path' => (string) $s['path'], 'guid' => rspDsGet($do, 'guid'),
               'aside' => (string) ($s['aside'] ?? ''), 'pulled' => $s['pulled'] ?? null, 'pulled_guid' => $s['pulled_guid'] ?? null, 'mount' => $s['mount'] ?? '']];
     rspUndoFirst($j, $i, $undo);
-    [$exit, , $err] = rsRun($j, [rspZfs(), 'rename', $do, $da], 300);
+    [$exit, , $err, $held] = rsZfsRename($j, rspZfs(), $do, $da, 300);
+    if ($held) {
+        return $held;
+    }
     if ($exit !== 0) {
         return rsFail('rename_failed', ['path' => (string) $s['path']], trim($err));
     }
@@ -2976,7 +2979,10 @@ function rsDoSwapIn(array &$j, int $i): array
     $undo = [['do' => 'swap_unsettle', 'dataset' => $do, 'to' => $dn, 'guid' => $s['guid'] ?? null, 'mountpoint' => $mp]];
     rspUndoFirst($j, $i, $undo);
     rspPullSwapped($j);                     // the pull's own entry knows for good (M3)
-    [$exit, , $err] = rsRun($j, [rspZfs(), 'rename', $dn, $do], 300);
+    [$exit, , $err, $held] = rsZfsRename($j, rspZfs(), $dn, $do, 300);
+    if ($held) {
+        return $held;
+    }
     if ($exit !== 0) {
         return rsFail('rename_failed', ['path' => $dn], trim($err));
     }
@@ -3028,11 +3034,12 @@ function rsDoSwapUnsettle(array &$j, array $s): array
     }
     // a pull again: read-only as its receive made it (review 1.81.0, N3)
     foreach ([['set', 'canmount=noauto', $do], ['set', 'mountpoint=legacy', $do], ['set', 'readonly=on', $do], ['rename', $do, $dn]] as $args) {
-        [$exit, , $err] = rsRun($j, array_merge([rspZfs()], $args), 300);
+        // the rename: every mount of its snapshots down first, or refused (rsZfsRename())
+        [$exit, , $err, $held] = $args[0] === 'rename' ? rsZfsRename($j, rspZfs(), $do, $dn, 300) : [...rsRun($j, array_merge([rspZfs()], $args), 300), null];
         if ($exit !== 0) {
             // never a share left unmounted (H2): back as it was, mounted where the share is
             rspResettle($j, $do, (string) ($s['mountpoint'] ?? ''));
-            return rsFail('rename_failed', ['path' => $do], trim($err));
+            return $held ?? rsFail('rename_failed', ['path' => $do], trim($err));
         }
     }
     return ['state' => 'ok'];
@@ -3069,7 +3076,7 @@ function rsDoSwapBack(array &$j, array $s): array
     if (rspDsExists($do)) {
         return rsFail('exists', ['path' => $do]);
     }
-    [$exit, , $err] = rsRun($j, [rspZfs(), 'rename', $da, $do], 300);
+    [$exit, , $err, $held] = rsZfsRename($j, rspZfs(), $da, $do, 300);
     if ($exit !== 0) {
         // the set-aside dataset busy (a shell or an SMB client in its folder): never a share left missing (H2) — the pull,
         // just turned back into the read-only copy, is made the share again; «Put back» is offered once more
@@ -3080,9 +3087,11 @@ function rsDoSwapBack(array &$j, array $s): array
             foreach (rspMounts()[$dn] ?? [] as $mnt) {
                 rsRun($j, [partnerBin('umount') ?? 'umount', $mnt], 60);
             }
-            $back = rsRun($j, [rspZfs(), 'rename', $dn, $do], 300)[0] === 0 && rspResettle($j, $do, (string) ($s['path'] ?? ''));
+            $back = rsZfsRename($j, rspZfs(), $dn, $do, 300)[0] === 0 && rspResettle($j, $do, (string) ($s['path'] ?? ''));
         }
-        return rsFail($back ? 'swap_back_busy' : 'rename_failed', ['path' => $back ? (string) ($s['aside'] ?? $da) : $da], trim($err));
+        // the set-aside one held by a mount of its snapshots (rsZfsRename()): said so when the pull couldn't step in either
+        return $back ? rsFail('swap_back_busy', ['path' => (string) ($s['aside'] ?? $da)])
+            : ($held ?? rsFail('rename_failed', ['path' => $da], trim($err)));
     }
     @rmdir((string) ($s['aside'] ?? ''));          // the empty folder ZFS may leave at the old mountpoint (L6)
     if (rspDsGet($do, 'mounted') !== 'yes') {

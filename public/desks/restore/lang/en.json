@@ -543,6 +543,8 @@
   "sn.verify_unread": "The dump couldn't be read for the check.",
   "sn.verify_none": "MongoDB: mongorestore checked it itself.",
   "sn.rename_failed": "Couldn't move {path}.",
+  "sn.rename_held": "I didn't rename {name}: a snapshot of it is still mounted at {path} and I couldn't unmount it — something still uses it. Close that and try again — renamed now, it could make the server stop (a ZFS fault in Unraid 7.4).",
+  "sn.rename_held_container": "I didn't rename {name}: a snapshot of it is still mounted inside the container {container}. Stop the container and try again — renamed now, it could make the server stop (a ZFS fault in Unraid 7.4).",
   "sn.copy_failed": "Copying to {path} failed.",
   "sn.copy_vanished": "Some files vanished while copying — the copy is still there.",
   "sn.virsh_failed": "libvirt refused it ({name}).",

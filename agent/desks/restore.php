@@ -4552,6 +4552,26 @@ function rsRun(array $j, array $cmd, int $timeout = 120): array
     return [$exit, $out, $err];
 }
 
+/**
+ * A zfs rename of his (a dataset with its snapshots and the datasets inside it): every mount of those snapshots taken down
+ * first — zfsRenameFree() (agent/lib/mounts.php: a rename while one is still listed for its automount can make the next look
+ * at it panic Unraid 7.4.0's kernel); what still holds one refuses it, said with who holds it. [exit, out, err, that refusal
+ * as the step's failure — or null]
+ *
+ * @return array{0: int, 1: string, 2: string, 3: ?array}
+ */
+function rsZfsRename(array $j, string $zfs, string $from, string $to, int $timeout): array
+{
+    $left = zfsRenameFree($from, 'Mr. Restori');
+    if ($left) {
+        $held = zfsRenameHeld($from, $left);
+        rsLog($j['id'], "  zfs rename $from refused: its snapshots are still mounted at " . implode(', ', array_column($left, 'path')));
+        return [1, '', 'still mounted: ' . implode(', ', array_column($left, 'path')), rsFail($held['key'], $held['params'])];
+    }
+    [$exit, $out, $err] = rsRun($j, [$zfs, 'rename', $from, $to], $timeout);
+    return [$exit, $out, $err, null];
+}
+
 function rsFail(string $note, array $params = [], string $detail = ''): array
 {
     return ['state' => 'failed', 'note' => $note, 'params' => $params, 'detail' => $detail];
@@ -5282,7 +5302,10 @@ function rsDoAside(array &$j, array $s): array
         return rsFail('exists', ['path' => $to]);
     }
     if ($isDs) {
-        [$exit, , $err] = rsRun($j, ['zfs', 'rename', $ds, $tds], 300);
+        [$exit, , $err, $held] = rsZfsRename($j, 'zfs', $ds, $tds, 300);
+        if ($held) {
+            return $held;
+        }
         if ($exit !== 0) {
             return rsFail('rename_failed', ['path' => $from], trim($err));
         }
@@ -5321,7 +5344,10 @@ function rsDoMove(array &$j, array $s): array
         return rsFail('exists', ['path' => $to]);
     }
     if ($isDs) {
-        [$exit, , $err] = rsRun($j, ['zfs', 'rename', $fds, $tds], 300);
+        [$exit, , $err, $held] = rsZfsRename($j, 'zfs', $fds, $tds, 300);
+        if ($held) {
+            return $held;
+        }
         if ($exit !== 0) {
             return rsFail('rename_failed', ['path' => $from], trim($err));
         }

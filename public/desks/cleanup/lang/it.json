@@ -394,6 +394,8 @@
   "errors.cleanup_trash_failed": "Non sono riuscita a creare la cartella del ripostiglio {path}.",
   "errors.cleanup_target_exists": "{path} esiste già.",
   "errors.cleanup_move_failed": "Non sono riuscita a spostare {path}: {detail}",
+  "errors.rename_held": "Non ho rinominato {name}: uno snapshot è ancora montato in {path} e non è stato possibile smontarlo — qualcosa lo sta ancora usando. Chiudilo e riprova — rinominato adesso, il server potrebbe bloccarsi (un difetto di ZFS in Unraid 7.4).",
+  "errors.rename_held_container": "Non ho rinominato {name}: uno snapshot è ancora montato dentro il container {container}. Ferma il container e riprova — rinominato adesso, il server potrebbe bloccarsi (un difetto di ZFS in Unraid 7.4).",
   "errors.cleanup_no_way_back": "{name} non si può rimettere a posto — non è registrato da dove viene.",
   "errors.cleanup_no_home": "{path} non esiste più.",
   "errors.cleanup_vm_back": "Esiste di nuovo una VM chiamata {name} — il suo elenco di snapshot resta nel ripostiglio (la nuova VM prenderebbe le vecchie voci). Svuotalo, o rimettilo a posto quando quella VM non c'è più.",

@@ -375,6 +375,8 @@
   "errors.same_name": "That's its name already.",
   "errors.name_exists": "«{name}» already exists there.",
   "errors.rename_failed": "Renaming didn't work.",
+  "errors.rename_held": "I didn't rename {name}: it is still mounted at {path} and I couldn't unmount it — something still uses it. Close that and try again — renamed now, it could make the server stop (a ZFS fault in Unraid 7.4).",
+  "errors.rename_held_container": "I didn't rename {name}: it is still mounted inside the container {container}. Stop the container and try again — renamed now, it could make the server stop (a ZFS fault in Unraid 7.4).",
   "errors.rename_mounted": "Is mounted ({paths}) — unmount first.",
   "errors.cannot_rename": "This snapshot can't be renamed here.",
   "errors.hold_zfs_only": "Holds only work on ZFS snapshots.",

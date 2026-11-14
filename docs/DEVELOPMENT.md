@@ -1135,7 +1135,12 @@ The same thing has the same word on every desk and text; grammar follows the wor
   **Rule: the office never reads a snapshot through `.zfs`** — `agent/desks/restore-mounts.php` (`rsSnapReal()`) mounts it
   read-only under `/mnt/addons/UnraidSecretaryOffice/snapread/p<pid>-<hash>` for the look, the step or the plan and
   unmounts it again; swept after a killed job (agent start, job start, his tick), released by agent.sh at the array stop
-  (`snapread_release`), never on a sleeping pool; the drill reads only the run's snapshot, found by name. A snapshot never
+  (`snapread_release`), never on a sleeping pool; the drill reads only the run's snapshot, found by name. **Before every
+  `zfs rename`** of the office (Ms. Snapshotini's rename, Mr. Restori's aside/put-back/swap via `rsZfsRename()`, Ms.
+  Dustdevil's storeroom and put-back) `zfsRenameFree()` (agent/lib/mounts.php, the same unmount as «Free and delete…»)
+  takes every mount of the snapshots it renames down — automounts on the host and in every namespace, the office's own
+  mounts; anything still mounted refuses the rename, naming the container or the path (`rename_held_container`,
+  `rename_held`); the scenario base does the same in bash before its renames. A snapshot never
   changes, so «does it hold» answers stay remembered (holds.json); never a scan over all snapshots in a tick. The
   scenario harness refuses a run on a panicked server (`base.sh`: a process at `spl_panic`).
   **Automounts and mount namespaces** (test4, 7.3.4, OpenZFS
