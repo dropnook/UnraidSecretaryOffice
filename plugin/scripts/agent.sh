@@ -486,7 +486,7 @@ restored_release() {
 }
 
 # Array stopping: what Mr. Restori or his drill read out of a ZFS snapshot is mounted read-only under the office's
-# snapread/ folder in /mnt/addons (agent/desks/restore-snapread.php - never through .zfs/snapshot: its automount
+# snapread/ folder in /mnt/addons (agent/desks/restore-mounts.php - never through .zfs/snapshot: its automount
 # panicked Unraid 7.4.0) - unmounted now (lazily when busy) and the folders removed, else the pool can't go; after
 # drill_release, so their jobs had their chance to let go themselves. Nothing there - nothing done (one read of
 # /proc/mounts, one glob in RAM).

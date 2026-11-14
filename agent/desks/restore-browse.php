@@ -211,7 +211,7 @@ function rsBrowseSources(array $moment, string $root, string $rel, array &$ctx, 
             $link = true;
             continue;
         }
-        // a ZFS snapshot under a mount of the office's own, never its automount (restore-snapread.php): the paths given
+        // a ZFS snapshot under a mount of the office's own, never its automount (restore-mounts.php): the paths given
         // back are that mount's, held for $tag (the browse: rsBrowse() lets go; a plan: rsPlan() names them back)
         if (under((string) $s['path'], $top)) {
             $real = rsSnapReal($top, $tag);

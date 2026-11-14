@@ -39392,6 +39392,236 @@ function testDrillImageData(): void
     same('drill image data: no volume at all — the usual place', ['/var/lib/postgresql/data', ['/var/lib/postgresql/data' => $big]], [$none['dir'], $none['tmpfs']]);
 }
 
+/**
+ * Stand-ins for mount and umount (OFFICE_PARTNER_BIN, called through run() like the real ones): `mount -t zfs -o … <snap>
+ * <dir>` copies the test's tree for that snapshot ($tmp/src/<snap with / and @ as _>) into <dir> and writes the line into
+ * the test's mounts file; a snapshot without a tree is gone (exit 32). `umount [-l] <dir>` takes the line out and empties
+ * <dir>; with $tmp/busy only the lazy one works. Every call in $tmp/calls.
+ */
+function snapReadBins(string $tmp): void
+{
+    @mkdir("$tmp/bin", 0755, true);
+    $q = fn (string $p) => escapeshellarg("$tmp/$p");
+    file_put_contents("$tmp/bin/mount", "#!/bin/sh\necho \"mount \$*\" >>{$q('calls')}\nsnap=\$5; dir=\$6\n"
+        . "src={$q('src')}/\$(printf '%s' \"\$snap\" | tr '/@' '__')\n[ -d \"\$src\" ] || exit 32\ncp -a \"\$src/.\" \"\$dir/\" || exit 32\n"
+        . "printf '%s %s zfs ro,noatime 0 0\\n' \"\$snap\" \"\$dir\" >>{$q('mounts')}\n");
+    file_put_contents("$tmp/bin/umount", "#!/bin/sh\necho \"umount \$*\" >>{$q('calls')}\n"
+        . "if [ \"\$1\" = -l ]; then dir=\$2; else dir=\$1; [ -e {$q('busy')} ] && exit 32; fi\n"
+        . "awk -v d=\"\$dir\" '\$2 != d' {$q('mounts')} >{$q('mounts.new')} && mv {$q('mounts.new')} {$q('mounts')}\n"
+        . "rm -rf \"\$dir\"/* 2>/dev/null; exit 0\n");
+    chmod("$tmp/bin/mount", 0755);
+    chmod("$tmp/bin/umount", 0755);
+}
+
+/**
+ * A ZFS snapshot is read through a read-only mount of the office's own, never through .zfs/snapshot (restore-mounts.php:
+ * an automount under a renamed snapshot's new name panicked Unraid 7.4.0, Tower 2026-11-14): the mount and its folder,
+ * one mount per snapshot and process, tags let go, a sleeping pool never touched, a snapshot that is gone, other paths as
+ * they are, a killed job's leftovers swept, a restore step's paths and back, agent.sh at the array stop.
+ */
+function testSnapRead(): void
+{
+    $tmp = hardeningTmp('snapread');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    snapReadBins($tmp);
+    $saved = $GLOBALS['rs'];
+    $oldBin = getenv('OFFICE_PARTNER_BIN');
+    putenv("OFFICE_PARTNER_BIN=$tmp/bin");
+    $GLOBALS['rs']['mounts_file'] = "$tmp/mounts";
+    $GLOBALS['rs']['snapread_root'] = "$tmp/snapread";
+    $GLOBALS['rs']['snapread_mnt'] = "$tmp/mnt";
+    $mp = "$tmp/mnt/cache/appdata";
+    @mkdir($mp, 0755, true);
+    file_put_contents("$tmp/mounts", "cache/appdata $mp zfs rw 0 0\ncache $tmp/mnt/cache zfs rw 0 0\n");
+    $snap = 'cache/appdata@uso-backup-20261114-0951';
+    @mkdir("$tmp/src/cache_appdata_uso-backup-20261114-0951/jellyfin/data", 0755, true);
+    file_put_contents("$tmp/src/cache_appdata_uso-backup-20261114-0951/jellyfin/data/jellyfin.db", 'the copy of 09:51');
+    $dir = "$tmp/snapread/p" . getmypid() . '-' . substr(hash('sha256', $snap), 0, 16);
+    $calls = fn () => array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/calls"))));
+    $mounted = fn () => array_keys(array_filter(rspMounts(), fn ($k) => str_contains((string) $k, '@'), ARRAY_FILTER_USE_KEY));
+    try {
+        $logical = "$mp/.zfs/snapshot/uso-backup-20261114-0951/jellyfin/data/jellyfin.db";
+        $real = rsSnapReal($logical, 'look', []);
+        same('snapread: a path in a ZFS snapshot — read under a read-only mount of the office\'s own (RAM, the pid and the snapshot in its name), never through .zfs',
+            ["$dir/jellyfin/data/jellyfin.db", 'the copy of 09:51', ["mount -t zfs -o ro,noatime,nosuid,nodev,noexec $snap $dir"], false],
+            [$real, (string) @file_get_contents((string) $real), $calls(), file_exists("$mp/.zfs")]);
+        same('snapread: the same snapshot again (another path, another tag) — the same mount, no second one', ["$dir/jellyfin", 1],
+            [rsSnapReal("$mp/.zfs/snapshot/uso-backup-20261114-0951/jellyfin", 'job', []), count($calls())]);
+        rsSnapReadRelease('look');
+        same('snapread: one tag let go — still mounted for the other', [[$snap], true], [$mounted(), is_file("$dir/jellyfin/data/jellyfin.db")]);
+        rsSnapReadRelease('job');
+        same('snapread: the last tag let go — unmounted, its folder gone', [[], false, "umount $dir"], [$mounted(), is_dir($dir), $calls()[1] ?? null]);
+
+        @unlink("$tmp/calls");
+        same('snapread: its pool asleep — null, nothing mounted (a sleeping pool is never touched)', [null, []], [rsSnapReal($logical, 'look', ['cache' => true]), $calls()]);
+        same('snapread: a snapshot that is gone — null, the mount tried once, nothing left behind', [null, 1, []],
+            [rsSnapReal("$mp/.zfs/snapshot/uso-backup-20261101-0300/x", 'look', []), count($calls()), array_values(array_diff(scandir("$tmp/snapread") ?: [], ['.', '..']))]);
+        @unlink("$tmp/calls");
+        same('snapread: a dataset not mounted there, a name ZFS wouldn\'t give, a way up — null, nothing mounted', [null, null, null, []],
+            [rsSnapReal("$tmp/mnt/cache/gone/.zfs/snapshot/s/x", 'look', []), rsSnapReal("$mp/.zfs/snapshot/a\$b/x", 'look', []),
+             rsSnapReal("$mp/.zfs/snapshot/s/../../etc", 'look', []), $calls()]);
+        $btrfs = "$tmp/mnt/disk1/.btrfs-snap/uso-backup-20261114-0951/Fotos/a.jpg";
+        same('snapread: anything else as it is — a btrfs moment\'s folder, a live path, a dataset outside its /mnt (the tests\' trees): nothing mounted',
+            [$btrfs, "$mp/jellyfin", '/tmp/x/.zfs/snapshot/s/y', []],
+            [rsSnapReal($btrfs, 'look', []), rsSnapReal("$mp/jellyfin", 'look', []), rsSnapReal('/tmp/x/.zfs/snapshot/s/y', 'look', []), $calls()]);
+
+        // a restore step: every path into a snapshot under the mount (held for the step), named again as planned afterwards
+        $step = ['do' => 'copy', 'from' => "$mp/.zfs/snapshot/uso-backup-20261114-0951/jellyfin", 'sources' => ["$mp/.zfs/snapshot/uso-backup-20261114-0951/jellyfin"],
+                 'tops' => ["$mp/.zfs/snapshot/uso-backup-20261114-0951"], 'to' => "$mp/jellyfin.restored-x", 'like' => "$mp/.zfs/snapshot/uso-backup-20261114-0951"];
+        $real = rsSnapReadStep($step, $back, $gone);
+        same('snapread: a restore step\'s from, sources, tops, like under the mount — its target untouched; and back as planned',
+            [["$dir/jellyfin", ["$dir/jellyfin"], [$dir], "$mp/jellyfin.restored-x", $dir], null, $step, ['path' => "$mp/.zfs/snapshot/uso-backup-20261114-0951/jellyfin/x"]],
+            [[$real['from'], $real['sources'], $real['tops'], $real['to'], $real['like']], $gone, rsSnapReadBack($real, $back), rsSnapReadBack(['path' => "$dir/jellyfin/x"], $back)]);
+        rsSnapReadRelease('job');
+        $step['sources'][] = "$mp/.zfs/snapshot/uso-backup-20261101-0300/jellyfin";
+        rsSnapReadStep($step, $back, $gone);
+        same('snapread: a step reading a snapshot that is gone — named, so the step says «gone»', "$mp/.zfs/snapshot/uso-backup-20261101-0300/jellyfin", $gone);
+        rsSnapReadRelease('*');
+        check('snapread: rsStep() runs every restore step through it and lets go when the step ends',
+            (bool) preg_match('/function rsStep\(array &\$j, int \$i\): array\n\{\n(?:.*\n){0,4}\s*\$j\[\'steps\'\]\[\$i\] = rsSnapReadStep\(\$planned, \$back, \$gone\);(?:.*\n){1,14}\s*rsSnapReadRelease\(\'job\'\);/',
+                (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php')));
+
+        // busy: the lazy unmount — never left holding the pool
+        rsSnapReal($logical, 'look', []);
+        touch("$tmp/busy");
+        @unlink("$tmp/calls");
+        rsSnapReadRelease('look');
+        same('snapread: something still reads in it — unmounted lazily, the folder gone', [["umount $dir", "umount -l $dir"], [], false], [$calls(), $mounted(), is_dir($dir)]);
+        @unlink("$tmp/busy");
+
+        // a killed job's mount (its pid no agent.php any more) — taken down by the next start; a live job's stays
+        $dead = "$tmp/snapread/p999999-" . substr(hash('sha256', 'cache/appdata@a'), 0, 16);
+        $live = "$tmp/snapread/p424242-" . substr(hash('sha256', 'cache/appdata@b'), 0, 16);
+        $empty = "$tmp/snapread/p999998-" . substr(hash('sha256', 'cache/appdata@c'), 0, 16);
+        foreach ([$dead, $live, $empty] as $d) {
+            @mkdir($d, 0700, true);
+        }
+        file_put_contents("$tmp/mounts", "cache/appdata@a $dead zfs ro 0 0\ncache/appdata@b $live zfs ro 0 0\n", FILE_APPEND);
+        $GLOBALS['rs']['snapread_alive'] = fn (int $pid): bool => $pid === 424242;
+        @unlink("$tmp/calls");
+        same('snapread: what a killed job left (mounted, or only its folder) — unmounted and removed at the next start; a live job\'s mount untouched',
+            [2, ["umount $dead"], ['cache/appdata@b'], false, false, true],
+            [rsSnapReadSweep(), $calls(), $mounted(), is_dir($dead), is_dir($empty), is_dir($live)]);
+        $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
+        $drill = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-drill.php');
+        check('snapread: swept at the agent\'s start, from his tick, at every restore\'s and drill\'s start; the drill lets go after each step and at its end',
+            str_contains($src, "            rsSnapReadSweep();      // snapshot mounts a killed job or the agent before left")
+            && str_contains($src, "        rsSnapReadTick();") && str_contains($src, "    rsSnapReadSweep();                    // snapshot mounts a killed job left")
+            && str_contains($drill, "        rsSnapReadSweep();              // snapshot mounts a killed job left")
+            && str_contains($drill, "rsSnapReadRelease('job');    // the step's snapshot mounts") && str_contains($drill, "        rsSnapReadRelease('*');        // nothing of a pool kept mounted"));
+        unset($GLOBALS['rs']['snapread_alive']);
+        exec('rm -rf ' . escapeshellarg($live));
+
+        // agent.sh at the array stop: everything under the folder unmounted (lazily when busy), the folders gone, said once
+        $sh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
+        check('snapread: agent.sh releases the folder at the array stop, after the jobs were asked to end',
+            (bool) preg_match('/\n\s+drill_release\s+#[^\n]*\n\s+snapread_release\s+#/', $sh)
+            && str_contains($sh, 'SNAPREAD_ROOT="${USO_SNAPREAD_ROOT:-/mnt/addons/UnraidSecretaryOffice/snapread}"') && RS_SNAPREAD_ROOT === '/mnt/addons/UnraidSecretaryOffice/snapread');
+        $release = fn (string $root) => trim((string) shell_exec('USO_SNAPREAD_ROOT=' . escapeshellarg($root) . ' bash -c ' . escapeshellarg('source '
+            . escapeshellarg(OFFICE_DIR . '/plugin/scripts/agent.sh') . '; LOG=' . escapeshellarg("$tmp/agent.log") . '; PROC_MOUNTS=' . escapeshellarg("$tmp/proc-mounts")
+            . '; PATH=' . escapeshellarg("$tmp/bin") . ':$PATH; snapread_release; echo "rc=$?"') . ' 2>&1'));
+        $rel = "$tmp/rel";
+        @mkdir("$rel/p999999-0123456789abcdef", 0700, true);
+        @mkdir("$rel/p999997-0123456789abcdef", 0700, true);
+        file_put_contents("$tmp/proc-mounts", "cache/appdata@a $rel/p999999-0123456789abcdef zfs ro 0 0\ncache/appdata@a /elsewhere zfs ro 0 0\n");
+        file_put_contents("$tmp/mounts", '');
+        @unlink("$tmp/calls");
+        same('snapread: agent.sh — the mount there unmounted, a mount elsewhere never, every folder of ours gone, one line in its log',
+            ['rc=0', ["umount $rel/p999999-0123456789abcdef"], false, false, true],
+            [$release($rel), $calls(), is_dir("$rel/p999999-0123456789abcdef"), is_dir("$rel/p999997-0123456789abcdef"),
+             str_contains((string) @file_get_contents("$tmp/agent.log"), "array stopping: 1 snapshot mount(s) of Mr. Restori's released ($rel)")]);
+        @unlink("$tmp/agent.log");
+        file_put_contents("$tmp/proc-mounts", "cache/appdata@a /elsewhere zfs ro 0 0\n");      // the kernel's list after that unmount
+        same('snapread: agent.sh — nothing there: nothing done, nothing said; an odd root: nothing looked at', ['rc=0', 'rc=0', 'rc=0', false],
+            [$release($rel), $release('snapread'), $release('/'), is_file("$tmp/agent.log")]);
+    } finally {
+        rsSnapReadRelease('*');
+        $oldBin === false ? putenv('OFFICE_PARTNER_BIN') : putenv("OFFICE_PARTNER_BIN=$oldBin");
+        $GLOBALS['rs'] = $saved;
+    }
+    hardeningRm($tmp);
+}
+
+/**
+ * The drill reads only the run's snapshot, under a mount of the office's own: no «does it hold» look at the dataset's
+ * other snapshots (Tower 2026-11-14: one at a snapshot the scenario base had renamed panicked the kernel), nothing
+ * through .zfs; a sleeping pool «asleep», never touched; the run's snapshot gone — «missing» (its step reads the package
+ * and says so); a btrfs place as before.
+ */
+function testDrillSnapRead(): void
+{
+    $tmp = hardeningTmp('drill-snapread');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    snapReadBins($tmp);
+    $saved = $GLOBALS['rs'];
+    $oldBin = getenv('OFFICE_PARTNER_BIN');
+    putenv("OFFICE_PARTNER_BIN=$tmp/bin");
+    $GLOBALS['rs']['mounts_file'] = "$tmp/mounts";
+    $GLOBALS['rs']['snapread_root'] = "$tmp/snapread";
+    $GLOBALS['rs']['snapread_mnt'] = "$tmp/mnt";
+    $looks = [];
+    $GLOBALS['rs']['holds_look'] = function (string $p) use (&$looks): bool {
+        $looks[] = $p;
+        return true;
+    };
+    $GLOBALS['rs']['data'] = "$tmp/data";
+    $place = "$tmp/mnt/cache/UnraidSecretaryOffice";
+    @mkdir("$place/apps/Jellyfin/db", 0755, true);
+    file_put_contents("$place/apps/Jellyfin/db/sqlite_Jellyfin_jellyfin.db", 'the package');
+    file_put_contents("$tmp/mounts", "cache/UnraidSecretaryOffice $place zfs rw 0 0\n");
+    $run = '20261114-0951';
+    @mkdir("$tmp/src/cache_UnraidSecretaryOffice_uso-backup-$run/apps/Jellyfin/db", 0755, true);
+    file_put_contents("$tmp/src/cache_UnraidSecretaryOffice_uso-backup-$run/apps/Jellyfin/db/sqlite_Jellyfin_jellyfin.db", 'the run\'s copy');
+    $ctx = ['fs' => ['cache' => 'zfs', 'disk1' => 'btrfs'], 'zfs' => [$place => 'cache/UnraidSecretaryOffice', "$tmp/mnt/cache" => 'cache'],
+            'snaps' => ['cache/UnraidSecretaryOffice' => [['name' => 'uso-aside-20261114-094956-uso-backup-20261114-0430', 'time' => 1794626000],
+                                                          ['name' => 'uso-backup-20261114-0950', 'time' => 1794646200], ['name' => "uso-backup-$run", 'time' => 1794646260]]],
+            'asleep' => [], 'prefixes' => ['uso-backup-'], 'btrfs_dir' => '.btrfs-snap', 'mnt' => "$tmp/mnt", 'settings' => [], 'zfs_kept' => [],
+            'cfg' => ['UnraidSecretaryOffice' => ['shareUseCache' => 'only', 'shareCachePool' => 'cache'], 'Fotos' => ['shareUseCache' => 'no']]];
+    $snap = "cache/UnraidSecretaryOffice@uso-backup-$run";
+    $dir = "$tmp/snapread/p" . getmypid() . '-' . substr(hash('sha256', $snap), 0, 16);
+    $calls = fn () => array_values(array_filter(explode("\n", (string) @file_get_contents("$tmp/calls"))));
+    try {
+        $l = drillLocal('/mnt/user/UnraidSecretaryOffice/apps/Jellyfin/db/sqlite_Jellyfin_jellyfin.db', $run, $ctx);
+        same('drill snapread: the run\'s snapshot found by its name in the list and read under a mount of the office\'s own — no other snapshot looked into, the aside one never, nothing through .zfs',
+            ['found', "$dir/apps/Jellyfin/db/sqlite_Jellyfin_jellyfin.db", $snap, 'the run\'s copy', ["mount -t zfs -o ro,noatime,nosuid,nodev,noexec $snap $dir"], [], false],
+            [$l['state'], $l['path'] ?? null, $l['snap'] ?? null, (string) @file_get_contents((string) ($l['path'] ?? '')), $calls(), $looks, file_exists("$place/.zfs")]);
+        rsSnapReadRelease('job');
+        same('drill snapread: the step\'s end lets go of it', [false, ["umount $dir"]], [is_dir($dir), array_slice($calls(), 1)]);
+
+        @unlink("$tmp/calls");
+        $sleepy = $ctx;
+        $sleepy['asleep'] = ['cache' => true];
+        same('drill snapread: the pool asleep — «asleep», nothing mounted, nothing looked into', [['state' => 'asleep'], [], []],
+            [drillLocal('/mnt/user/UnraidSecretaryOffice/apps/Jellyfin/db/sqlite_Jellyfin_jellyfin.db', $run, $sleepy), $calls(), $looks]);
+        $gone = $ctx;
+        $gone['snaps']['cache/UnraidSecretaryOffice'][] = ['name' => 'uso-backup-20261114-0952', 'time' => 1794646320];
+        same('drill snapread: the run\'s snapshot gone since the list — «missing» (the step reads the package, copy: package), nothing left mounted',
+            [['state' => 'missing'], 1, []],
+            [drillLocal('/mnt/user/UnraidSecretaryOffice/apps/Jellyfin/db/sqlite_Jellyfin_jellyfin.db', '20261114-0952', $gone), count($calls()),
+             array_values(array_diff(@scandir("$tmp/snapread") ?: [], ['.', '..']))]);
+        same('drill snapread: a run that has no snapshot here — «missing», nothing mounted', [['state' => 'missing'], 1],
+            [drillLocal('/mnt/user/UnraidSecretaryOffice/apps/Jellyfin/db/sqlite_Jellyfin_jellyfin.db', '20261113-0430', $ctx), count($calls())]);
+        $sq = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-drill.php');
+        check('drill snapread: sqlite and dump say copy «snapshot» only when the run\'s snapshot was read, else «package»',
+            str_contains($sq, "'copy' => \$local['state'] === 'found' ? 'snapshot' : 'package'") && str_contains($sq, "if (\$local['state'] === 'found') {\n        \$out['copy'] = 'snapshot';"));
+
+        // btrfs: the disk's snapshot folder as before — read where it lies, nothing mounted
+        $bt = "$tmp/mnt/disk1/.btrfs-snap/uso-backup-$run";
+        @mkdir("$bt/Fotos/2019", 0755, true);
+        @mkdir("$tmp/mnt/disk1/Fotos/2019", 0755, true);
+        file_put_contents("$bt/Fotos/2019/a.jpg", 'jpg');
+        @unlink("$tmp/calls");
+        $l = drillLocal('/mnt/user/Fotos/2019/a.jpg', $run, $ctx);
+        same('drill snapread: a btrfs place unchanged — the snapshot folder\'s file, nothing mounted', ['found', "$bt/Fotos/2019/a.jpg", []],
+            [$l['state'], $l['path'] ?? null, $calls()]);
+    } finally {
+        rsSnapReadRelease('*');
+        $oldBin === false ? putenv('OFFICE_PARTNER_BIN') : putenv("OFFICE_PARTNER_BIN=$oldBin");
+        $GLOBALS['rs'] = $saved;
+    }
+    hardeningRm($tmp);
+}
+
 function testRestoreDrill(): void
 {
     $tmp = sys_get_temp_dir() . '/office-tests-drill-' . getmypid();
@@ -44860,8 +45090,8 @@ function testPlgRemove(): void
     // agent.sh release: what the array stop releases, without the night shift — and the array stop uses it
     $sh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
     $body = preg_match('/^release\(\) \{\n(.*?)^\}/ms', $sh, $m) ? preg_replace('/\s*#.*$/m', '', $m[1]) : '';
-    same('agent.sh release: the agent stopped, then drill, partner door, backup mounts, Mr. Restori\'s pulls',
-        ['stop', 'drill_release', 'partner_release', 'backup_release', 'restored_release'], preg_split('/\s+/', trim($body)));
+    same('agent.sh release: the agent stopped, then drill, his snapshot mounts, partner door, backup mounts, Mr. Restori\'s pulls',
+        ['stop', 'drill_release', 'snapread_release', 'partner_release', 'backup_release', 'restored_release'], preg_split('/\s+/', trim($body)));
     check('agent.sh: the array stop releases the same way, then the night shift; "release" is a command', preg_match('/\n\s+release\s+# [^\n]*\n\s+night_start/', $sh)
         && str_contains($sh, '    release)   release ;;'));
     hardeningRm($tmp);
@@ -63530,7 +63760,7 @@ function testBackupAnewChoice(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],

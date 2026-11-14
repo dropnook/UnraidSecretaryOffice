@@ -81,7 +81,7 @@ require_once __DIR__ . '/restore-dataset.php';      // «Make it a dataset of it
 require_once __DIR__ . '/restore-paths.php';        // 1.72: every share, one path out of Kopia, Kopia's packages as earlier versions
 require_once __DIR__ . '/restore-browse.php';       // files and folders at any depth of a moment, local or kept for a partner (matrix gap 4)
 require_once __DIR__ . '/restore-libvirt.php';      // all of libvirt.img back from its archive, the VM service off (matrix gap 7)
-require_once __DIR__ . '/restore-snapread.php';     // a ZFS snapshot read through a mount of the office's own, never .zfs (the 7.4.0 panic)
+require_once __DIR__ . '/restore-mounts.php';       // a ZFS snapshot read through a mount of the office's own, never .zfs (the 7.4.0 panic)
 
 function rsSizesFile(): string
 {
@@ -126,7 +126,7 @@ desk('restore', [
             logLine('Mr. Restori: the drill\'s sweeper: ' . $e->getMessage());
         }
         try {
-            rsSnapReadSweep();      // snapshot mounts a killed job or the agent before left (restore-snapread.php)
+            rsSnapReadSweep();      // snapshot mounts a killed job or the agent before left (restore-mounts.php)
         } catch (Throwable $e) {
             logLine('Mr. Restori: the snapshot mounts\' sweeper: ' . $e->getMessage());
         }
@@ -721,7 +721,7 @@ function rsHoldsIn(?string $key, string $top, string $path): bool
     if ($key !== null && is_bool($holds['holds'][$key] ?? null)) {
         return $holds['holds'][$key];
     }
-    // a ZFS snapshot looked into through a read-only mount of the office's own, never its automount (restore-snapread.php:
+    // a ZFS snapshot looked into through a read-only mount of the office's own, never its automount (restore-mounts.php:
     // a look at a renamed snapshot through .zfs panicked Unraid 7.4.0); a btrfs moment's folder as it is
     [$realTop, $real] = [$top, $path];
     if (!isset($GLOBALS['rs']['holds_look']) && under($path, $top)) {
@@ -911,7 +911,7 @@ function rsMomentEntries(array $moment, array $roots = [], array $guard = []): a
     $names = $left = $office = [];
     $count = 0;
     foreach ($moment['parts'] as $base => $part) {
-        // a ZFS snapshot read under a mount of the office's own (restore-snapread.php), let go after this part
+        // a ZFS snapshot read under a mount of the office's own (restore-mounts.php), let go after this part
         $real = rsSnapReal((string) $part['path'], 'entries');
         foreach ($real !== null ? (@scandir($real, SCANDIR_SORT_ASCENDING) ?: []) : [] as $n) {
             if ($n === '.' || $n === '..' || $n === '.zfs' || $n === RS_STOREROOM || $n === OFFICE_STOREROOM_OLD || preg_match(RS_OWN_LEFTOVER, $n)) {
@@ -1964,7 +1964,7 @@ function rsVersionList(array $place, string $kind, string $id, string $currentRu
     foreach (array_merge($place['places'], [['snaps' => array_map(fn ($x) => $x + ['partner_path' => true], rspPlaceSnaps())]], [['snaps' => $kopia]]) as $p) {
         foreach ($p['snaps'] as $s) {
             $dir = !empty($s['kopia']) ? $s['path'] : "{$s['path']}/{$kind}s/$id";
-            // a ZFS snapshot's package read under a mount of the office's own, one at a time (restore-snapread.php)
+            // a ZFS snapshot's package read under a mount of the office's own, one at a time (restore-mounts.php)
             $real = rsSnapReal((string) $dir);
             $m = $real !== null && is_file("$real/manifest.json") ? readJson("$real/manifest.json") : null;
             if (!$m) {
@@ -4313,7 +4313,7 @@ function rsJob(array $args): int
         rsArrayStopSignal();
     }
     drillMarker('restore', $id);          // agent.sh's drill_release ends it at the array stop (its lock file lies on the pool)
-    rsSnapReadSweep();                    // snapshot mounts a killed job left (restore-snapread.php)
+    rsSnapReadSweep();                    // snapshot mounts a killed job left (restore-mounts.php)
     $j['result'] = 'running';
     $j['started'] = time();
     $j['pid'] = getmypid();
@@ -4421,7 +4421,7 @@ function rsStepLine(array $s): string
 function rsStep(array &$j, int $i): array
 {
     // what the step reads out of a ZFS snapshot (`.zfs/snapshot/<name>/…` as planned) is read under a read-only mount of
-    // the office's own, held while the step runs (restore-snapread.php: never the automount); its pool asleep or the
+    // the office's own, held while the step runs (restore-mounts.php: never the automount); its pool asleep or the
     // snapshot gone: «gone», nothing done. The journal and the result keep the snapshot's paths as planned.
     $planned = $j['steps'][$i];
     $j['steps'][$i] = rsSnapReadStep($planned, $back, $gone);
@@ -5899,7 +5899,7 @@ function rsDuTick(): void
     $changed = null;
     $open = function (string $path, bool $apparent): mixed {
         // a ZFS snapshot's folder measured under a mount of the office's own (held until both runs ended), never its
-        // automount (restore-snapread.php); its pool asleep or the snapshot gone: not measured
+        // automount (restore-mounts.php); its pool asleep or the snapshot gone: not measured
         $real = rsSnapReal($path, 'du');
         if ($real === null) {
             return null;

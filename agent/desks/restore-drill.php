@@ -1040,7 +1040,7 @@ function drillJob(array $args): int
     $env = null;
     try {
         drillSweep($id, true);
-        rsSnapReadSweep();              // snapshot mounts a killed job left (restore-snapread.php)
+        rsSnapReadSweep();              // snapshot mounts a killed job left (restore-mounts.php)
         $env = drillEnv($j, $plan);
     } catch (Throwable $e) {
         // nothing proven, nothing to blame on the backups: the drill itself couldn't look — ended, said so
@@ -1189,7 +1189,7 @@ function drillLocal(string $path, string $run, array &$ctx): array
     $asleep = false;
     // the places only, no snapshot looked into (rsLocate without its looks): on ZFS the run's snapshot straight from the
     // list, read through a mount of the office's own (drillLocalZfs) — never another snapshot, never through .zfs (a look
-    // at a renamed snapshot there panicked Unraid 7.4.0: restore-snapread.php). btrfs as before (no automount there).
+    // at a renamed snapshot there panicked Unraid 7.4.0: restore-mounts.php). btrfs as before (no automount there).
     $places = rsLocate($path, $ctx, false);
     $btrfs = null;
     foreach ($places as $p) {
@@ -2845,7 +2845,7 @@ function drillDoShareFile(array &$j, int $i, array &$env): array
         return ['state' => 'asleep', 'code' => 'asleep'] + $out;
     }
     $snap = $part !== null ? (array_values(array_filter($part['snaps'], fn ($x) => !empty($x['ours'])))[0] ?? null) : null;
-    // read through a mount of the office's own, never through .zfs (restore-snapread.php); a btrfs moment as it is
+    // read through a mount of the office's own, never through .zfs (restore-mounts.php); a btrfs moment as it is
     $from = $snap !== null ? rsSnapReal((string) $snap['path'], 'job', $env['ctx']['asleep'] ?? null) : null;
     if ($from === null || !is_dir($from) || is_link($from)) {
         return ['state' => 'not_checked', 'code' => 'sharefile_no_snap'] + $out;
