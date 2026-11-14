@@ -105,9 +105,9 @@ toy scenario: the three desks' fresh looks, standard checks.
   `--dry` lists the desks, the scenarios and the estimate without Tower (`USO_RELEASE_DIFF=<file>`: an invented diff);
   `--no-scenarios` skips it with a loud line; the step's time stands in the release's last lines.
   By hand: `bash tools/scenarios/prerelease.sh --dry` (or `--only <name>` for a real run of the step).
-* **The weekly full run** (`nightly.sh` - the name stays; launchd `uso-scenarios-nightly.plist`, **Friday 22:00** —
+* **The weekly full run** (`nightly.sh` - the name stays; launchd `uso-scenarios-nightly.plist`, **Saturday 20:00** —
   written, installed only by the coordinator with the owner's OK; the install lines are in the plist): every scenario
-  (171, 2026-11-14), so once a week, not every night; origin/main in its own detached worktree
+  (171 in about 11 h on 2026-11-14, the reds' rerun about 1 h more), so once a week, not every night; origin/main in its own detached worktree
   (`~/Claude/UnraidSecretaryOffice-worktrees/nightly`), `run.sh tower --all --dev-sync`, every red one once more (red,
   then green = **flaky**, listed apart), `scenarios/<date>/nightly.md` + `nightly.tsv` with the diff to the run before
   (new reds, fixed, flaky flips, new and gone scenarios). `--dry` says what it would do. By hand:
