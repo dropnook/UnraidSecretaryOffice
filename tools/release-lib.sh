@@ -71,6 +71,10 @@ rl_state_put() {
     mv "$tmp" "$file"
 }
 
+# «<page> (<theme> <width>)» from «route|page|theme|width» lines; a page drawn once for all (width 0: «first start»
+# in both themes, «restore» as «stale job») without the 0
+RL_PAGE_AWK='function page(p, t, w) { return w == 0 ? (t == "both" ? p " (both themes)" : p " (" t ")") : p " (" t " " w ")" }'
+
 rl_clicks() {
     local d=$1 cmd=${USO_UI_CLICKS:-bash tools/ui-clicks.sh} force=${USO_RELEASE_FLAKY:-} f1='' f2='' rc rc2 failed routes
     shift
@@ -92,12 +96,12 @@ rl_clicks() {
             cat "$d/second" >> "$d/out"
             if ((rc2 == 0)); then
                 rc=0
-                awk -F'|' '{printf "flaky: %s (%s %s)\n", $2, $3, $4}' <<<"$failed" > "$d/flaky"
+                awk -F'|' "$RL_PAGE_AWK"' {print "flaky: " page($2, $3, $4)}' <<<"$failed" > "$d/flaky"
                 printf '%s (%s page(s) red once, green again alone - flaky)\n' \
                     "$(cat "$d/summary")" "$(wc -l < "$d/flaky" | tr -d ' ')" > "$d/summary"
             else
                 printf '%s; red again alone: %s\n' "$(cat "$d/summary")" \
-                    "$(sed -n 's/^ui clicks failed: //p' "$d/second" | awk -F'|' '{printf "%s%s (%s %s)", (NR > 1 ? ", " : ""), $2, $3, $4}')" > "$d/summary"
+                    "$(sed -n 's/^ui clicks failed: //p' "$d/second" | awk -F'|' "$RL_PAGE_AWK"' {printf "%s%s", (NR > 1 ? ", " : ""), page($2, $3, $4)}')" > "$d/summary"
             fi
         fi
     fi
