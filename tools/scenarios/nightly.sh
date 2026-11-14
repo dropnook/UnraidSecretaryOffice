@@ -20,7 +20,8 @@
 #      seconds, red invariants - what the next run compares with), the diff to the last run before: new reds, fixed,
 #      flaky flips, new and gone scenarios; run.sh's own reports beside in tower-nightly/ and tower-nightly-rerun/.
 #   --dry: says what it would do (the tree, the lock, the last run) - nothing runs, Tower is not contacted.
-# Exit 0 nothing red (flaky ones allowed), 1 something red, 2 wrong call, 4 Tower not free or not reachable.
+# Exit 0 nothing red (flaky ones allowed), 1 something red or the run stopped early (said atop nightly.md: N of M ran,
+# run.sh's why), 2 wrong call, 4 Tower not free or not reachable.
 # The whole script is one { … } block: bash reads it all before it starts, so a pull or merge into the clone it runs
 # from (launchd: the main clone) during the hours it runs can't change what it does next (2026-11-14: a running bash
 # script reads on at its old byte offset in the new file).
@@ -89,7 +90,7 @@ while (($#)); do
         --no-rerun) rerun=0; shift ;;
         --wait) wait=${2:-7200}; shift 2 ;;
         --dry) dry=1; shift ;;
-        -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
         *) echo "nightly: unknown argument $1" >&2; exit 2 ;;
     esac
 done
@@ -179,6 +180,14 @@ if [[ -z $dir || ! -f $dir/summary.md ]]; then
     exit 4
 fi
 first=$(rows "$dir/summary.md")
+# all of them, or did run.sh stop early (a base reset refused - a panicked kernel, a VM that didn't come back)?
+planned=$(sed -n 's/^run: \([0-9]*\) scenario(s): .*/\1/p' "$out/nightly-nightly.out" | head -1)
+ran=$(printf '%s\n' "$first" | sed '/^$/d' | wc -l | tr -d ' ')
+stopped=''
+if [[ -n $planned ]] && ((ran < planned)); then
+    stopped="$ran of $planned scenarios ran - $(grep -E 'no further scenario runs|stopping here|panicked' "$out/nightly-nightly.out" | tail -1 | sed 's/^run: //')"
+    say "stopped early: $stopped"
+fi
 
 # the reds once more
 reds=$(printf '%s\n' "$first" | while IFS=$'\t' read -r n v _; do is_red "$v" && echo "$n"; done)
@@ -222,6 +231,7 @@ took=$(( ($(date +%s) - t_start) / 60 ))
     echo "Tower · tree $desc ($( [[ -n $devsync ]] && echo 'the code under test, dev-synced' || echo 'the plugin Tower has')) · started $started · $took min"
     echo
     echo "**$total scenarios: $r red, $f flaky, $s skipped, $g green.**"
+    [[ -n $stopped ]] && { echo; echo "🔴 **Stopped early:** $stopped. The others did not run - this is not a full run."; }
     echo
     if [[ -n $prev ]]; then
         echo "## Since the last run before ($(basename "$(dirname "$prev")"))"
@@ -260,6 +270,6 @@ took=$(( ($(date +%s) - t_start) / 60 ))
 } > "$md"
 say "summary $md: $r red, $f flaky, $g green ($took min)"
 tower_drop
-((r == 0)) && exit 0
+((r == 0)) && [[ -z $stopped ]] && exit 0
 exit 1
 }
