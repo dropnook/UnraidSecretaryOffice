@@ -396,8 +396,10 @@ active, `backup/` is left alone.
   (agent/agent.php) don't match the version. The plugin's own version is a date (Unraid compares with `strcmp`).
 * **A release** is a tag `v<version>` on `main` with English notes for users; publishing it runs
   `.github/workflows/plugin.yml`, which builds and attaches the `.plg` and the `.txz`. Maintainers make it with
-  `tools/release.sh <version> --dry`, then without `--dry` — bump, build, the click test, the scenarios of the touched
-  desks on Tower (tools/scenarios/README.md «Before a release and every night»), the suite on a test server,
+  `tools/release.sh <version> --dry`, then without `--dry` — bump, build, then side by side the click test (a red page
+  gets one retry: green alone = «flaky», named), the scenarios of the touched desks on Tower (tools/scenarios/README.md
+  «Before a release and every week») and the suite on a test server; a step green in an earlier run of the same version
+  with the same inputs is taken from its state file, not run again (`--fresh` runs all; the table in its head); then
   the commit, `gh release create`, the Action, the release's assets, then the servers one after another (the partner
   test server as the canary, watched 5 min, then the test server, then the main one), stopping at the first red step
   (a red build, click test, scenario or suite, or Ctrl-C before the commit, puts the version lines back). `--no-main` stops
@@ -1236,6 +1238,6 @@ The checklist for a change, steps 3 and 8, in full:
    minute.**
 8. **Page changed?** `bash tools/ui-clicks.sh` on the Mac (headless Chrome with a throwaway profile — never a browser with
    sign-ins; stub states in `tests/ui/states/`, a new state shape goes there): every control clicked twice, both themes, 1440
-   and 375 px; exit ≠ 0 on any failure; `--only <route>,…`, `-v`. `tools/release.sh` runs it before the suite. **Screenshots**
+   and 375 px; exit ≠ 0 on any failure; `--only <route>,…`, `-v`. `tools/release.sh` runs it beside the scenarios and the suite. **Screenshots**
    for product page/forum: `bash tools/ui-shots.sh` (demo data in `tests/ui/demo/` — invented family data only; `--moments`,
    `--themes black,white`); prepare steps stay language-neutral (`Office.t(…)`, not German selectors).
