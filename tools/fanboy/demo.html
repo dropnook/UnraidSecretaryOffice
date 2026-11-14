@@ -1,0 +1,29 @@
+<!doctype html>
+<!-- Fanboy's pictures with invented data (tools/fanboy/look.mjs serves it; dev-only, never in the package).
+     ?theme=black|white  Unraid's theme · ?only=wheels  only the twelve wheels (the CPU measurement) · ?calm  no speed changes -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fanboy look</title>
+<script>(function(){var t=(/[?&]theme=(black|white)(?:&|$)/.exec(location.search)||[])[1]||'black';document.documentElement.setAttribute('data-unraid-theme',t)})()</script>
+<link rel="stylesheet" href="/unraid.css">
+<link rel="stylesheet" href="/plugins/unraid-secretary-office/assets/office.css">
+<style>
+#sso .fl-demo{display:flex; flex-direction:column; gap:26px; max-width:1180px}
+#sso .fl-demo h3{margin:0 0 4px; font-size:16px; color:var(--ink)}
+#sso .fl-demo .fl-note{margin:0 0 12px; font-size:13px; color:var(--muted)}
+#sso .fl-wheels{display:flex; flex-wrap:wrap; gap:18px 22px; align-items:flex-end}
+#sso .fl-box{border:1px solid var(--line); border-radius:8px; padding:12px; background:var(--surface)}
+</style>
+</head>
+<body>
+<div class="sso in-unraid" id="sso">
+<main class="page" id="sso-desk">
+<div class="fl-demo" id="fl-demo"></div>
+</main>
+</div>
+<script src="/plugins/unraid-secretary-office/desks/fanboy/fan-art.js"></script>
+<script src="/demo/demo.js"></script>
+</body>
+</html>
