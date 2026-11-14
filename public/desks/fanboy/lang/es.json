@@ -350,7 +350,7 @@
   "curve.readout": "A {t} °C: {v} · unas {rpm} rpm",
   "curve.floor": "velocidad estable más baja",
   "curves.title": "Curvas y evolución",
-  "curves.sub": "Por zona: su curva con la temperatura de ahora, y las últimas {h} horas — el punto más caliente y la velocidad que dio.",
+  "curves.sub": "Por zona: su curva con la temperatura de ahora, y el periodo elegido — el punto más caliente y la velocidad que dio.",
   "curves.change": "Cambiar una curva",
   "curves.none": "Aún sin zona — la configuración las crea.",
   "curves.line_now": "Ahora: {where} a {c} °C → {level}",
@@ -359,7 +359,7 @@
   "curves.curve_caption": "La curva y dónde está ahora",
   "curves.now": "ahora {c} °C",
   "curves.now_short": "ahora",
-  "curves.history_label": "Las últimas {h} horas: el punto más caliente y la velocidad",
+  "curves.history_label": "La evolución ({period}): el punto más caliente y la velocidad",
   "curves.history_none": "Aún sin evolución — se llena con un punto por minuto mientras regula.",
   "curves.key_temp": "punto más caliente (°C)",
   "curves.key_level": "velocidad (%)",
@@ -644,5 +644,18 @@
   "sensors.more": {
     "one": "{n} sensor más",
     "other": "{n} sensores más"
-  }
+  },
+  "curves.period": "Periodo",
+  "curves.p1": "1 h",
+  "curves.p3": "3 h",
+  "curves.p6": "6 h",
+  "curves.p12": "12 h",
+  "curves.p24": "1 día",
+  "curves.p72": "3 días",
+  "curves.ago_min": "−{n} min",
+  "curves.ago_h": "−{n} h",
+  "curves.history_loading": "Un momento — traigo la evolución…",
+  "curves.since": "Registrado solo desde hace {time}.",
+  "errors.fanboy_bad_period": "Fanboy no guarda ese periodo.",
+  "dur.d_h": "{d} d {h} h"
 }

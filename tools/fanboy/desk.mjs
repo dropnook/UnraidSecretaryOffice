@@ -66,6 +66,10 @@ const PICTURES = [
   ['no-output', 'fanboy-nooutput', 'fanboy', null, false],
   ['array-stopped', 'fanboy-array', 'fanboy', null, false],
   ['curves', 'fanboy', 'fanboy/today', null, false],
+  // round 3: the history's period (the segmented choice above the curves)
+  ['curves-1h', 'fanboy', 'fanboy/today', '.fb-period button:nth-child(1)', false],
+  ['curves-12h', 'fanboy', 'fanboy/today', '.fb-period button:nth-child(4)', false],
+  ['curves-3d', 'fanboy', 'fanboy/today', '.fb-period button:nth-child(6)', false],
   ['fans', 'fanboy', 'fanboy/fans', null, false],
 ].filter((p) => !opt.only || opt.only.includes(p[0]));
 const LOCALES = { de: 'de-CH', en: 'en-US' };

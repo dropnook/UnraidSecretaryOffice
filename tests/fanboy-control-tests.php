@@ -330,7 +330,7 @@ function testFanboyControl(): void
         for ($i = 0; $i < FANBOY_HISTORY_MAX + 30; $i++) {
             fanboyHistory($h, 5000.0 + $i * FANBOY_HISTORY_EVERY);
         }
-        same('fanboy control: the history — a point a minute per zone, at most a day of them', [FANBOY_HISTORY_MAX, FANBOY_HISTORY_MAX, 4],
+        same('fanboy control: the history — a point a minute per zone, never more than the bound (round 3: 12 h of minutes, then 5-minute spans)', [FANBOY_HISTORY_MAX, FANBOY_HISTORY_MAX, 4],
             [count($h['hist']['disks']), count($h['hist']['case']), count($h['hist']['disks'][0])]);
         fanboyHistory($h, 5000.0 + (FANBOY_HISTORY_MAX + 30) * FANBOY_HISTORY_EVERY - 10);
         same('fanboy control: … never two in the same minute', FANBOY_HISTORY_MAX, count($h['hist']['disks']));

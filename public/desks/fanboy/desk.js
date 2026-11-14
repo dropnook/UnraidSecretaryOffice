@@ -23,7 +23,12 @@ const { el, fmt } = Office;
 const LOOK_MS = 5000;           // a new look while a page of his is shown (the agent's look is a few file reads)
 const LOOK_STEP_MS = 2000;      // … while a setup step runs: the table grows, the wheel under test speeds up
 const ALIVE_MS = 15000;         // the step's lease (part 2: 45 s without a sign of life and the step gives back)
-const HISTORY_HOURS = 6;        // the curve view's window
+// the curve view's period (round 3, the owner): one choice for every zone, remembered per browser (a choice, not a
+// filter); up to a day from the part `history` (a day of it), 3 days asked for on its own (history {hours: 72})
+const PERIODS = [1, 3, 6, 12, 24, 72];
+const PERIOD_DEFAULT = 6;
+let period = (() => { const v = Number(Office.store('fanboy.period')); return PERIODS.includes(v) ? v : PERIOD_DEFAULT; })();
+let history72 = null;           // the 3 days, when that period is chosen
 const PIC_PX = 84;              // the server picture's wheels (fan-art's default 46: owner, round 2 — the picture is the hero)
 const PIC_PX_PHONE = 64;
 const PAGES = () => [{ id: '', text: t('common.page_overview') }, { id: 'setup', text: T('page.setup') }];
@@ -230,6 +235,7 @@ function plan() {
   timer = null;
   if (!view) { stopAlive(); return; }
   timer = setTimeout(() => load(false), stepRuns() ? LOOK_STEP_MS : LOOK_MS);
+  if (page === '' && Date.now() - histAt > 60000) loadHistory();        // the history: a look a minute (the part's refresh_after)
   if (stepRuns()) startAlive(); else stopAlive();
 }
 function startAlive() {
@@ -247,13 +253,27 @@ function stopAlive() {
   clearInterval(alive);
   alive = null;
 }
+let histAt = 0;
 function loadHistory() {
   if (!Office.agent.running && history) return;
+  histAt = Date.now();
   Office.loadState(ID, { part: 'history' }, (j) => {
     if (j.ok && j.part) history = j.part;
     if (view && page === '' && sw.active() !== 'hints') redraw();
   });
+  if (period > 24) loadLong();
 }
+/** The 3 days: only when chosen, a look a minute while the overview is shown (read only) */
+let longAt = 0;
+async function loadLong() {
+  if (!Office.agent.running || Date.now() - longAt < 55000) return;
+  longAt = Date.now();
+  const j = await Office.api.post(`${ID}.history`, { hours: 72 });
+  if (j.ok && j.state) history72 = j.state;
+  if (view && page === '') redraw();
+}
+/** The history of the chosen period: the part's day, or the 3 days */
+const historyNow = () => (period > 24 ? history72 : history);
 
 /**
  * The page again — only when what it shows changed (a look that brings nothing new draws nothing: a row being clicked,
@@ -274,7 +294,7 @@ function setupSig() {
     su.outputs, su.curves, step(), dry, zdraft, S().import ? S().import.files : 0, setupSw ? setupSw.active() : '']);
 }
 function overviewSig() {
-  return quiet([!!art(), !!cat, Office.agent.running, busy, state, history && history.zones, sw.active(), (sensorBar && sensorBar.read().words) || []]);
+  return quiet([!!art(), !!cat, Office.agent.running, busy, state, history && history.zones, period, period > 24 && history72 ? history72.zones : null, sw.active(), (sensorBar && sensorBar.read().words) || []]);
 }
 
 // ------------------------------------------------------------------ the bubble
@@ -558,7 +578,7 @@ function today() {
   return max === null ? null : { max, above };
 }
 /** The moment the history was read at (the agent's clock), else now */
-const histNow = () => (history && num(history.now) !== null ? history.now : Date.now() / 1000);
+const histNow = (h = history) => (h && num(h.now) !== null ? h.now : Date.now() / 1000);
 /** A zone's quiet level: its curve's lowest value */
 function quietLevel(zid) {
   const c = (setup().curves || {})[zid];
@@ -567,6 +587,7 @@ function quietLevel(zid) {
 function durationText(s) {
   const m = Math.round(s / 60);
   if (m < 60) return T('dur.min', { n: m });
+  if (m >= 1440) return T('dur.d_h', { d: Math.floor(m / 1440), h: Math.floor((m % 1440) / 60) });
   return T('dur.h_min', { h: Math.floor(m / 60), m: m % 60 });
 }
 
@@ -827,31 +848,63 @@ function curveStill(zid, unit, nowC) {
   }
   return s;
 }
-/** The zone's last hours: the warmest temperature and the level, a point a minute */
+/** A time axis's ticks for the period: every so long, at round local hours; labelled «−2 h», «14:00» or «Mo 12:00» */
+function timeTicks(from, now) {
+  const step = { 1: 900, 3: 3600, 6: 7200, 12: 10800, 24: 21600, 72: 43200 }[period] || 7200;
+  if (period <= 12) {
+    const out = [];
+    for (let t = now; t >= from - 1; t -= step) out.push([t, t === now ? T('curves.now_short') : period === 1 ? T('curves.ago_min', { n: Math.round((now - t) / 60) }) : T('curves.ago_h', { n: Math.round((now - t) / 3600) })]);
+    return out;
+  }
+  const out = [];
+  const d = new Date(from * 1000);
+  d.setMinutes(0, 0, 0);
+  const hours = step / 3600;
+  d.setHours(Math.ceil(d.getHours() / hours) * hours);
+  let wd = null;
+  try { wd = new Intl.DateTimeFormat(Office.locale || Office.lang || 'en', { weekday: 'short' }); } catch (e) { wd = null; }
+  for (let t = d.getTime() / 1000; t <= now; t += step) {
+    out.push([t, period > 24 && wd ? `${wd.format(new Date(t * 1000))} ${fmt.time(t)}` : fmt.time(t)]);
+  }
+  return out;
+}
+/** The zone's chosen period: the warmest temperature and the level — a point a minute, older ones a 5-minute span each */
 function historyChart(zid) {
-  const pts = ((history && history.zones && history.zones[zid]) || []).filter((p) => Array.isArray(p) && p.length === 4);
-  const now = histNow();
-  const from = now - HISTORY_HOURS * 3600;
-  const shown = pts.filter((p) => p[0] >= from);
+  const h = historyNow();
+  const pts = ((h && h.zones && h.zones[zid]) || []).filter((p) => Array.isArray(p) && p.length === 4);
+  const now = histNow(h);
+  const want = now - period * 3600;
+  const shown = pts.filter((p) => p[0] >= want);
+  if (!h) { const p = el('p', 'fb-wait'); p.append(wave(), el('span', '', T('curves.history_loading'))); return p; }
   if (shown.length < 2) return el('p', 'fb-hint-text', T('curves.history_none'));
+  // less than the period: the chart shows what there is, the caption says since when
+  const from = Math.max(want, shown[0][0] - 60);
   const W = 320, H = 150, L = 34, R = 34, Tp = 8, B = 22;
   const temps = shown.map((p) => p[1]).filter((v) => num(v) !== null);
   const tLo = Math.floor((Math.min(...temps, 30) - 2) / 5) * 5, tHi = Math.ceil((Math.max(...temps, 40) + 2) / 5) * 5;
-  const x = (ts) => L + (ts - from) / (now - from) * (W - L - R);
+  const x = (ts) => L + (ts - from) / ((now - from) || 1) * (W - L - R);
   const yT = (c) => Tp + (1 - (c - tLo) / (tHi - tLo)) * (H - Tp - B);
   const yL = (v) => Tp + (1 - v / 100) * (H - Tp - B);
-  const s = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'fb-chart', role: 'img', 'aria-label': T('curves.history_label', { h: HISTORY_HOURS }) });
+  const s = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'fb-chart', role: 'img', 'aria-label': T('curves.history_label', { period: T(`curves.p${period}`) }) });
   for (let c = tLo; c <= tHi; c += Math.max(5, Math.round((tHi - tLo) / 4 / 5) * 5)) {
     s.appendChild(svg('line', { x1: L, x2: W - R, y1: yT(c), y2: yT(c), class: 'fb-grid' }));
     s.appendChild(svg('text', { x: L - 4, y: yT(c) + 3, class: 'fb-tick fb-t', 'text-anchor': 'end' }, `${c}°`));
   }
   [0, 50, 100].forEach((v) => s.appendChild(svg('text', { x: W - R + 4, y: yL(v) + 3, class: 'fb-tick fb-l' }, `${v} %`)));
-  for (let h = HISTORY_HOURS; h >= 0; h -= 2) s.appendChild(svg('text', { x: x(now - h * 3600), y: H - 6, class: 'fb-tick', 'text-anchor': 'middle' }, h ? `−${h} h` : T('curves.now_short')));
+  const ticks = timeTicks(from, now).filter(([t]) => t >= from - 1);
+  const room = (W - L - R) / Math.max(1, ticks.length);
+  ticks.forEach(([t, label], i) => {
+    if (room < 34 && i % 2) return;                 // narrow: every other label
+    s.appendChild(svg('line', { x1: x(t), x2: x(t), y1: H - B, y2: H - B + 3, class: 'fb-grid' }));
+    s.appendChild(svg('text', { x: Math.min(W - R, Math.max(L, x(t))), y: H - 6, class: 'fb-tick', 'text-anchor': 'middle' }, label));
+  });
+  const full = num(h.full) || 43200;
   const path = (ys) => {
     let d = '', pen = false, last = null;
     shown.forEach((p) => {
       const v = ys(p);
-      if (v === null || (last !== null && p[0] - last > 180)) { pen = false; }
+      // a gap in the record breaks the line: more than 3 minutes among the minutes, 15 among the 5-minute spans
+      if (v === null || (last !== null && p[0] - last > (p[0] < now - full ? 900 : 180))) { pen = false; }
       if (v !== null) { d += `${pen ? 'L' : 'M'}${x(p[0]).toFixed(1)} ${v.toFixed(1)}`; pen = true; }
       last = p[0];
     });
@@ -859,18 +912,48 @@ function historyChart(zid) {
   };
   s.appendChild(svg('path', { d: path((p) => (num(p[2]) === null ? null : yL(p[2]))), class: 'fb-level-line' }));
   s.appendChild(svg('path', { d: path((p) => (num(p[1]) === null ? null : yT(p[1]))), class: 'fb-temp-line' }));
+  if (shown[0][0] > want + 600) {
+    const box = el('div', 'fb-history');
+    box.append(s, el('p', 'fb-since', T('curves.since', { time: durationText(now - shown[0][0]) })));
+    return box;
+  }
   return s;
+}
+/** The period's choice: one for every zone (office.css .seg) */
+function periodChoice() {
+  const box = el('div', 'seg fb-period');
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', T('curves.period'));
+  PERIODS.forEach((p) => {
+    const b = el('button', '', T(`curves.p${p}`));
+    b.type = 'button';
+    b.setAttribute('aria-pressed', p === period ? 'true' : 'false');
+    b.dataset.own = '1';
+    b.onclick = () => {
+      if (p === period) return;
+      period = p;
+      Office.store('fanboy.period', p === PERIOD_DEFAULT ? null : String(p));
+      if (p > 24) { longAt = 0; loadLong(); }
+      drawn = '';
+      redraw();
+    };
+    box.appendChild(b);
+  });
+  return box;
 }
 function curvesSection() {
   const s = el('section', 'section');
   const go = el('a', 'btn small', T('curves.change'));
   go.href = `#/${ID}/setup/zones`;
-  s.appendChild(Office.sectionHead(T('curves.title'), T('curves.sub', { h: HISTORY_HOURS }), (setup().zones || []).length ? go : null, { place: 'curves.title' }));
+  s.appendChild(Office.sectionHead(T('curves.title'), T('curves.sub'), (setup().zones || []).length ? go : null, { place: 'curves.title' }));
   const zones = setup().zones || [];
   if (!zones.length) {
     s.appendChild(el('p', 'empty', T('curves.none')));
     return s;
   }
+  const pick = el('div', 'fb-period-row');
+  pick.append(el('span', 'fb-field-label', T('curves.period')), periodChoice());
+  s.appendChild(pick);
   const grid = el('div', 'fb-curves');
   const now = new Map((control().zones || []).map((z) => [z.id, z]));
   zones.forEach((z) => {

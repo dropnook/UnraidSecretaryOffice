@@ -216,18 +216,34 @@ files['fanboy-ready'] = state({ ite: ite({}, RPM), fans: SET_UP, zones: ZONES, w
 files['fanboy-gone'] = state({ ite: ite({}, RPM), fans: [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'ask' })],
   step: { id: 'a1b2c3d4e5f6', kind: 'test_up', fans: OUTPUTS, status: 'stopped', why: 'page_gone', pid: 4242, start: '123456', current: null, done: [P(1), P(2)], results: {}, progress: null, at: T0 - 20 } });
 
-// the curve view's history: six hours of minutes for both zones (a warm afternoon, the levels following)
-const hist = { v: 1, time: T0, now: T0, every: 60, zones: { disks: [], case: [] } };
-for (let m = 360; m >= 0; m--) {
+// the curve view's history (invented): three days for the disk cage, 30 hours for the case (a zone added later — the page
+// says «recorded only since …»), a point a minute, then kept as the agent keeps it (fanboyHistoryThin(): 12 h of minutes,
+// older ones a 5-minute span carrying its warmest, highest level and rpm). Warm afternoons, cool nights.
+function thin(pts, wall) {
+  const full = [], spans = new Map();
+  for (const p of pts) {
+    if (p[0] < wall - 259200) continue;
+    if (p[0] >= wall - 43200) { full.push(p); continue; }
+    const k = Math.floor(p[0] / 300), b = spans.get(k);
+    spans.set(k, b ? [Math.max(b[0], p[0]), Math.max(b[1], p[1]), Math.max(b[2], p[2]), Math.max(b[3], p[3])] : p);
+  }
+  return [...[...spans.keys()].sort((a, b) => a - b).map((k) => spans.get(k)), ...full].slice(-1460);
+}
+const raw = { disks: [], case: [] };
+for (let m = 72 * 60; m >= 0; m--) {
   const t = T0 - m * 60;
-  const wave = Math.sin((360 - m) / 360 * Math.PI);
-  const dc = Math.round((34 + 5 * wave + Math.sin(m / 9) * 0.6) * 10) / 10;
-  const cc = Math.round((26 + 4 * wave + Math.sin(m / 7) * 0.8) * 10) / 10;
+  const day = Math.sin(((t / 3600 + 1) % 24 - 9) / 24 * 2 * Math.PI);        // warmest mid-afternoon
+  const dc = Math.round((34.5 + 4 * day + Math.sin(m / 9) * 0.6 + (m % 977 === 0 ? 3 : 0)) * 10) / 10;
+  const cc = Math.round((26 + 3.5 * day + Math.sin(m / 7) * 0.8) * 10) / 10;
   const dl = Math.max(20, Math.min(100, Math.round(20 + (dc - 35) / 5 * 25)));
   const cl = Math.max(25, Math.min(100, Math.round(25 + (cc - 30) * 1.5)));
-  hist.zones.disks.push([t, dc, dl, Math.round(tableRpm(TABLE4, dl))]);
-  hist.zones.case.push([t, cc, cl, Math.round(tableRpm(TABLE5, cl))]);
+  raw.disks.push([t, dc, dl, Math.round(tableRpm(TABLE4, dl))]);
+  if (m <= 30 * 60) raw.case.push([t, cc, cl, Math.round(tableRpm(TABLE5, cl))]);
 }
+const kept = { disks: thin(raw.disks, T0), case: thin(raw.case, T0) };
+const window = (h) => Object.fromEntries(Object.entries(kept).map(([z, pts]) => [z, pts.filter((p) => p[0] >= T0 - h * 3600)]));
+const histOf = (h) => ({ v: 1, time: T0, now: T0, hours: h, every: 60, thin: 300, full: 43200, zones: window(h) });
+const hist = histOf(24);
 function tableRpm(table, pct) {
   const pts = table.slice().sort((a, b) => a[0] - b[0]);
   if (pct <= pts[0][0]) return pts[0][1];
@@ -246,6 +262,10 @@ for (const [name, v] of Object.entries(files)) write(DEMO, name, v);
 write(DEMO, 'fanboy-history', hist);
 fs.mkdirSync(path.join(DEMO, 'post'), { recursive: true });
 write(path.join(DEMO, 'post'), 'fanboy.dry_run', dry);
+// the 3 days the page asks for (history {hours: 72})
+write(path.join(DEMO, 'post'), 'fanboy.history', { ok: true, state: histOf(72) });
+fs.mkdirSync(path.join(STATES, 'post'), { recursive: true });
+write(path.join(STATES, 'post'), 'fanboy.history', { ok: true, state: histOf(72) });
 // the click test's stub: the overview steering (every tile has its section), its history
 write(STATES, 'fanboy', files.fanboy);
 write(STATES, 'fanboy-history', hist);

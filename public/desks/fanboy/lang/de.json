@@ -350,7 +350,7 @@
   "curve.readout": "Bei {t} °C: {v} · etwa {rpm} U/min",
   "curve.floor": "tiefste stabile Drehzahl",
   "curves.title": "Kurven und Verlauf",
-  "curves.sub": "Pro Zone: ihre Kurve mit der Temperatur jetzt, und die letzten {h} Stunden — die wärmste Stelle und die Drehzahl, die er gab.",
+  "curves.sub": "Pro Zone: ihre Kurve mit der Temperatur jetzt, und der gewählte Zeitraum — die wärmste Stelle und die Drehzahl, die er gab.",
   "curves.change": "Kurve ändern",
   "curves.none": "Noch keine Zone — die Einrichtung legt sie an.",
   "curves.line_now": "Jetzt: {where} mit {c} °C → {level}",
@@ -359,7 +359,7 @@
   "curves.curve_caption": "Die Kurve und wo sie jetzt steht",
   "curves.now": "jetzt {c} °C",
   "curves.now_short": "jetzt",
-  "curves.history_label": "Die letzten {h} Stunden: die wärmste Stelle und die Drehzahl",
+  "curves.history_label": "Der Verlauf ({period}): die wärmste Stelle und die Drehzahl",
   "curves.history_none": "Noch kein Verlauf — er füllt sich mit einem Punkt pro Minute, solange er regelt.",
   "curves.key_temp": "wärmste Stelle (°C)",
   "curves.key_level": "Drehzahl (%)",
@@ -644,5 +644,18 @@
   "sensors.more": {
     "one": "{n} weiterer Fühler",
     "other": "{n} weitere Fühler"
-  }
+  },
+  "curves.period": "Zeitraum",
+  "curves.p1": "1 h",
+  "curves.p3": "3 h",
+  "curves.p6": "6 h",
+  "curves.p12": "12 h",
+  "curves.p24": "1 Tag",
+  "curves.p72": "3 Tage",
+  "curves.ago_min": "−{n} min",
+  "curves.ago_h": "−{n} h",
+  "curves.history_loading": "Einen Moment — ich hole den Verlauf…",
+  "curves.since": "Aufgezeichnet erst seit {time}.",
+  "errors.fanboy_bad_period": "Diesen Zeitraum führt Fanboy nicht.",
+  "dur.d_h": "{d} Tg. {h} h"
 }

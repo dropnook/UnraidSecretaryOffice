@@ -350,7 +350,7 @@
   "curve.readout": "At {t} °C: {v} · about {rpm} rpm",
   "curve.floor": "lowest steady speed",
   "curves.title": "Curves and lately",
-  "curves.sub": "Per zone: its curve with the temperature now, and the last {h} hours — the warmest spot and the speed he gave.",
+  "curves.sub": "Per zone: its curve with the temperature now, and the chosen period — the warmest spot and the speed he gave.",
   "curves.change": "Change a curve",
   "curves.none": "No zone yet — the setup makes them.",
   "curves.line_now": "Now: {where} at {c} °C → {level}",
@@ -359,7 +359,7 @@
   "curves.curve_caption": "The curve and where it stands now",
   "curves.now": "now {c} °C",
   "curves.now_short": "now",
-  "curves.history_label": "The last {h} hours: the warmest spot and the speed",
+  "curves.history_label": "The history ({period}): the warmest spot and the speed",
   "curves.history_none": "No history yet — it fills a point a minute while he steers.",
   "curves.key_temp": "warmest spot (°C)",
   "curves.key_level": "speed (%)",
@@ -644,5 +644,18 @@
   "sensors.more": {
     "one": "{n} more sensor",
     "other": "{n} more sensors"
-  }
+  },
+  "curves.period": "Period",
+  "curves.p1": "1 h",
+  "curves.p3": "3 h",
+  "curves.p6": "6 h",
+  "curves.p12": "12 h",
+  "curves.p24": "1 day",
+  "curves.p72": "3 days",
+  "curves.ago_min": "−{n} min",
+  "curves.ago_h": "−{n} h",
+  "curves.history_loading": "One moment — fetching the history…",
+  "curves.since": "Recorded only since {time} ago.",
+  "errors.fanboy_bad_period": "That isn't a period Fanboy keeps.",
+  "dur.d_h": "{d} d {h} h"
 }

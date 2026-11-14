@@ -103,7 +103,7 @@ if (fanboyShown()) {
             // (model, size, colour: pictures only), the history part for the curve view (read only)
             'back'          => fn (array $r) => fanboyBack($r),
             'fan_look'      => fn (array $r) => fanboyFanLook($r),
-            'history'       => fn (array $r) => ['ok' => true, 'state' => fanboyHistoryPart()],
+            'history'       => fn (array $r) => ['ok' => true, 'state' => fanboyHistoryPart(fanboyHistoryHours($r))],
         ],
     ]);
 }
@@ -332,16 +332,35 @@ function fanboyStart(): void
 }
 
 /**
- * The curve view's history (the part `history`, data/fanboy-history.json, desk.json "parts"): per zone of this board the
- * last 24 hours, a point a minute [time, warmest °C, level %, rpm] — as the control keeps it in RAM (or the data
- * folder's copy after a restart). Read only.
+ * The curve view's history: per zone of this board the points of the last $hours (a point a minute for 12 hours, older
+ * ones a 5-minute span each — fanboyHistoryThin()) [time, warmest °C, level %, rpm], as the control keeps it in RAM (or
+ * the data folder's copy after a restart or a boot). The part `history` (desk.json "parts": a look a minute) carries a
+ * day — the tile «Today» and the periods up to 24 h; 3 days only when the page asks (`history {hours: 72}`). Read only.
  */
-function fanboyHistoryPart(): array
+function fanboyHistoryPart(int $hours = 24, ?int $wall = null): array
 {
+    $t = $wall ?? time();
     $key = fanboyBoardKey(fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']));
-    $t = time();
+    $zones = [];
+    foreach (fanboyHistoryLoad($key, $t) as $zid => $pts) {
+        $in = array_values(array_filter($pts, fn ($p) => $p[0] >= $t - $hours * 3600));
+        if ($in) {
+            $zones[$zid] = $in;
+        }
+    }
     // `now`: the moment the points are read against (the page draws «the last hours» back from it, never the browser's clock)
-    return ['v' => 1, 'time' => $t, 'now' => $t, 'every' => (int) FANBOY_HISTORY_EVERY, 'zones' => fanboyHistoryLoad($key) ?: new stdClass()];
+    return ['v' => 1, 'time' => $t, 'now' => $t, 'hours' => $hours, 'every' => (int) FANBOY_HISTORY_EVERY, 'thin' => FANBOY_HISTORY_THIN,
+        'full' => FANBOY_HISTORY_FULL, 'zones' => $zones ?: new stdClass()];
+}
+
+/** The period the page asks for — hours, one of FANBOY_HISTORY_PERIODS (read strictly); none: a day (the part's look) */
+function fanboyHistoryHours(array $r): int
+{
+    $h = optInt($r, 'hours', 24, 1);
+    if (!in_array($h, FANBOY_HISTORY_PERIODS, true)) {
+        throw new Problem('fanboy_bad_period');
+    }
+    return $h;
 }
 
 /**
