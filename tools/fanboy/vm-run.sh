@@ -47,8 +47,9 @@ nmark() { nlist > "$OUT/.notify-$1"; }
 nsince() {
     local f g
     comm -13 "$OUT/.notify-$1" <(nlist) | while read -r f; do
-        g=$(ls /tmp/notifications/unread/"$f" /tmp/notifications/archive/"$f" 2>/dev/null | head -1)
-        grep -q 'fanboy' "$g" || continue
+        # Unraid's archive copy carries no link: the unread one first; his subjects begin «…: Fanboy»
+        g=/tmp/notifications/unread/$f; [[ -f $g ]] || g=/tmp/notifications/archive/$f
+        grep -q '^subject=".*: Fanboy' "$g" || continue
         printf '%s | %s | %s\n' "$(sed -n 's/^subject="\(.*\)"$/\1/p' "$g")" "$(sed -n 's/^description="\(.*\)"$/\1/p' "$g")" "$(sed -n 's/^importance="\(.*\)"$/\1/p' "$g")"
     done
 }
@@ -111,6 +112,15 @@ take() { ask fanboy.take_over >/dev/null; until_ 30 steering >/dev/null; }
 # ---------------------------------------------------------------------------------------------------------- setup
 phase_setup() {
     begin_phase setup
+    if [[ ${FRESH:-0} == 1 ]]; then     # a setup from the start: his settings of an earlier run put aside (never deleted)
+        local f; for f in settings.json initial.json; do [[ -f $D/fanboy/$f ]] && mv "$D/fanboy/$f" "$D/fanboy/$f.vmrun-$(date +%s)"; done
+        info "fresh" "earlier settings put aside: $(ls "$D/fanboy" | tr '\n' ' ')"
+    fi
+    if [[ ${PATCH_WARM:-0} == 1 ]]; then   # test3 only, never the repo: NVMe pools (rotational=0) left out of «too warm to measure»
+        sed -i "s/        if (!\$d\['asleep'\] && \$d\['temp'\] !== null && \$d\['temp'\] >= FANBOY_SOURCE_DEFAULTS\['disk'\]\['limit'\] - 5) {/        if (\$d['rotational'] \&\& !\$d['asleep'] \&\& \$d['temp'] !== null \&\& \$d['temp'] >= FANBOY_SOURCE_DEFAULTS['disk']['limit'] - 5) {   \/\/ VMRIG PATCH/" "$P/agent/desks/fanboy-setup.php"
+        info "patched on test3" "$(grep -n 'VMRIG PATCH' "$P/agent/desks/fanboy-setup.php" | head -c 300)"
+        sleep 8
+    fi
     calm; sleep 2
     state before
     local before; before=$(regs)
@@ -148,12 +158,13 @@ phase_setup() {
     m5=$(sj after-measure ".step.results[\"$(F 5)\"] | [.result, .min_pct, .start_pct, .stalled_at, .max_rpm] | @csv")
     near() { awk -v a="$1" -v b="$2" 'BEGIN{exit !(a > b*0.96 && a < b*1.04)}'; }
     check "measure: splitter pwm2 (stalls < 20 %, starts at 20 %, 1200 rpm)" "$( [[ $m2 == '"ok",20,20,15,'* ]] && near "${m2##*,}" 1200 && echo 1 || echo 0)" "result,min,start,stalled_at,max = $m2"
-    check "measure: disk cage pwm4 (stalls < 25 %, starts at 35 %, 1500 rpm)" "$( [[ $m4 == '"ok",25,35,20,'* ]] && near "${m4##*,}" 1500 && echo 1 || echo 0)" "$m4"
+    # 35 % is value 89 = 34.9 % for the rig's fan: it starts at the next step, 40 %
+    check "measure: disk cage pwm4 (stalls < 25 %, starts at 35 % → 40 %, 1500 rpm)" "$( [[ $m4 == '"ok",25,40,20,'* ]] && near "${m4##*,}" 1500 && echo 1 || echo 0)" "$m4"
     check "measure: rear pwm5 (no stall down to 10 %, 1000 rpm)" "$( [[ $m5 == '"ok",10,10,,'* ]] && near "${m5##*,}" 1000 && echo 1 || echo 0)" "$m5"
     info "measure: time and tables" "$(sj after-measure .step.status) in ${t} s; pwm4 table $(sj after-measure ".step.results[\"$(F 4)\"].table | tostring")"
     check "measure: every output back exactly" "$( [[ $(regs) == "$before" ]] && echo 1 || echo 0)" "before: $before · after: $(regs)"
     # the page gone: no step_alive — the step must stop after 45 s and give the outputs back
-    local m5before t0 tstop; m5before=$(sj after-measure ".setup.fans[] | select(.id == \"$(F 5)\") | .measured.at")
+    local m5before t0 tstop; m5before=$(sj after-measure ".setup.fans[] | select(.id == \"$(F 5)\") | .table | tostring")
     sampler_start lease 0.5
     t0=$(date +%s); r=$(ask fanboy.measure "{\"fans\":[\"$(F 5)\"]}")
     t=$(step_wait 0 200); tstop=$(date +%s)
@@ -163,7 +174,7 @@ phase_setup() {
     check "lease: a step without the page stops after 45 s" "$( [[ $(sj after-lease .step.status) == stopped && $(sj after-lease .step.why) == page_gone ]] && ((tstop - t0 >= 44 && tstop - t0 <= 52)) && echo 1 || echo 0)" \
         "status $(sj after-lease .step.status) ($(sj after-lease .step.why)) after $((tstop - t0)) s (polled every 2 s); log: $(logsince phase | grep 'setup step measure' | tail -1)"
     check "lease: outputs back" "$( [[ $back == "$before" ]] && echo 1 || echo 0)" "$back"
-    check "lease: the stored measurement kept" "$( [[ $(sj after-lease ".setup.fans[] | select(.id == \"$(F 5)\") | .measured.at") == "$m5before" ]] && echo 1 || echo 0)" "measured.at $m5before"
+    check "lease: the stored measurement kept" "$( [[ $(sj after-lease ".setup.fans[] | select(.id == \"$(F 5)\") | .table | tostring") == "$m5before" && $m5before != null ]] && echo 1 || echo 0)" "table ${m5before:0:120}"
     ask fanboy.zones_propose > "$OUT/zones-propose.json"
     info "zones_propose" "$(jq -c '[.zones[] | {id, fans: [.fans[] | split(":") | last], sources: [.sources[].id]}]' "$OUT/zones-propose.json")"
     r=$(ask fanboy.zones_save "$(ZONES)")
@@ -180,7 +191,7 @@ phase_setup() {
     check "take_over: he steers" "$( [[ $t != timeout ]] && echo 1 || echo 0)" "answer ${r:0:120}; steering after ${t} s; who $(sj after-take .who.who)/$(sj after-take .who.why); regs $(regs); log: $(logsince phase | grep -E 'taken over|control started' | tr '\n' ' ')"
     check "take_over: the CPU cooler untouched" "$( [[ $(reg 1) == 128/2 ]] && echo 1 || echo 0)" "pwm1 $(reg 1)"
     check "take_over: the empty connector untouched" "$( [[ $(reg 6) == 128/2 ]] && echo 1 || echo 0)" "pwm6 $(reg 6)"
-    check "take_over: the guard's cron line there" "$(ok test -s /boot/config/plugins/unraid-secretary-office/fanboy-guard.cron)" "$(cat /boot/config/plugins/unraid-secretary-office/fanboy-guard.cron 2>/dev/null | tail -1); crontab: $(crontab -l | grep -c fanboy-guard)"
+    check "take_over: the guard's cron line there" "$(ok test -s /boot/config/plugins/unraid-secretary-office/fanboy-guard.cron)" "$(cat /boot/config/plugins/unraid-secretary-office/fanboy-guard.cron 2>/dev/null | tail -1); in /etc/cron.d/root (update_cron): $(grep -c fanboy-guard /etc/cron.d/root)"
     end_phase
 }
 
@@ -265,7 +276,7 @@ phase_safety() {
     r=$(ask fanboy.hand_back); sleep 1; sampler_stop
     check "hand_back: everything back at once" "$( [[ $(regs) == 'p1=128/2 p2=128/2 p3=128/2 p4=128/2 p5=128/2 p6=128/2' ]] && echo 1 || echo 0)" \
         "before $before → after $(regs) (pwm3 found on a fixed 128: back to the automatic); answer ${r:0:120}"
-    check "hand_back: guard line gone, control gone" "$( [[ ! -e /boot/config/plugins/unraid-secretary-office/fanboy-guard.cron && -z $(ctlpid) ]] && echo 1 || echo 0)" "cron $(ls /boot/config/plugins/unraid-secretary-office/fanboy-guard.cron 2>&1 | head -c 120)"
+    check "hand_back: guard line gone, control gone" "$( [[ ! -e /boot/config/plugins/unraid-secretary-office/fanboy-guard.cron && $(grep -c fanboy-guard /etc/cron.d/root) == 0 && -z $(ctlpid) ]] && echo 1 || echo 0)" "cron $(ls /boot/config/plugins/unraid-secretary-office/fanboy-guard.cron 2>&1 | head -c 120)"
     take; sleep 6
     # 2. the agent restarts itself in place (its code changed): the control in its own session never notices
     sampler_start inplace 0.2; logmark inplace
