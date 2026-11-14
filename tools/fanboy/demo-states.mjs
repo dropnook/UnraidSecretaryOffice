@@ -1,0 +1,251 @@
+#!/usr/bin/env node
+// Fanboy's demo and stub states for the page (tests/ui/demo/fanboy*.json, tests/ui/states/fanboy*.json): one invented
+// board (the suite's fake ITE board, part 1's look of it in tests/ui/demo/fanboy-steering.json as the base) in every
+// situation the page shows — the overview steering, the alarm, the chip missing, another controller, IPMI, no output, the
+// array stopped — and the setup at each step of the wizard. Everything invented: no real server's name, path or person;
+// the fans' names German first (tests/ui/harness.mjs DEMO_NAMES_EN gives the English shots theirs).
+// The state's shape follows agent/desks/fanboy.php fanboyScan() (testFanboyDesk compares the keys with a real look).
+// Dev-only (tools/ is never in the package).
+//
+//   node tools/fanboy/demo-states.mjs        writes the files and lists them
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const REPO = path.resolve(HERE, '..', '..');
+const DEMO = path.join(REPO, 'tests', 'ui', 'demo');
+const STATES = path.join(REPO, 'tests', 'ui', 'states');
+const T0 = 1763100000;                       // the demo's «now» (the harness moves `time` and its kin to the real now)
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const base = JSON.parse(fs.readFileSync(path.join(DEMO, 'fanboy-steering.json'), 'utf8'));
+const CHIP = 'it8696_a0060607', ADDR = 'it87.2608';
+const P = (n) => `${CHIP}:${ADDR}:pwm${n}`;
+
+// the plugins he knows (agent/desks/fanboy-detect.php FANBOY_PLUGINS), none steering
+const TOOLS = [
+  ['it87-driver', 'ITE IT87 Driver', 'ich777', 'driver', true, true, null],
+  ['nct6687-driver', 'Nuvoton NCT6687 Driver', 'ich777', 'driver', false, false, null],
+  ['dynamix.system.temp', 'Dynamix System Temp', 'Bergware', 'sensors', true, null, null],
+  ['fanctrlplus', 'FanCtrl Plus', 'ck9393', 'controller', false, null, false],
+  ['fanctrlplus2', 'FanCtrl Plus 2', 'ck9393 / andrebrait', 'controller', false, null, false],
+  ['dynamix.system.autofan', 'Dynamix System Autofan', 'Bergware/gfjardim', 'controller', false, null, false],
+  ['pwm-fan', 'PWM Fan', 'alturismo', 'controller', false, null, false],
+  ['md12xx.fancontrol', 'WAZ Cooling Control', 'TheIlluminate92', 'controller', false, null, false],
+].map(([id, name, author, kind, installed, loaded, active]) => ({ id, name, author, kind, installed, loaded, active }));
+
+// ------------------------------------------------------------------ the server's parts
+/** The fake board's ITE chip with these outputs ({n: [value, enable]}) and tach readings ({n: rpm}) */
+function ite(outs, rpms) {
+  const c = clone(base.chips.find((x) => x.name === CHIP));
+  c.outputs = c.outputs.map((o) => {
+    const [value, enable] = outs[o.n] || [128, 1];
+    return { ...o, value, pct: Math.round(value / 2.55), enable, mode: enable === 0 ? 'full' : enable === 1 ? 'manual' : 'auto', auto: true };
+  });
+  c.fans = c.fans.map((f) => ({ ...f, rpm: rpms[f.n] ?? f.rpm }));
+  return c;
+}
+const devKey = (d) => d.replace(/\/([a-z]+)\/\1\d+$/, '/$1');
+/** Every heat source as fanboySources() lists them */
+function sources(chips, disks) {
+  const out = disks.map((d) => ({ kind: 'disk', id: d.name, label: d.name, c: d.temp, asleep: d.asleep }));
+  for (const c of chips) {
+    if (c.kind === 'disk') continue;
+    for (const t of c.temps) out.push({ kind: c.kind, id: `${c.name}@${devKey(c.device)}#${t.n}`, label: t.label || `${c.name} #${t.n}`, c: t.c, asleep: false, chip: c.name, hwmon: c.hwmon, n: t.n });
+  }
+  return out;
+}
+const DEFAULTS = { disk: [35, 45, 52], nvme: [40, 65, 75], cpu: [45, 80, 92], ram: [40, 60, 75], gpu: [45, 80, 90], board: [35, 55, 70], other: [35, 55, 75] };
+const SCALES = Object.fromEntries(Object.entries(DEFAULTS).map(([k, [low, high, limit]]) => [k, { low, high, limit }]));
+function preset(p, lo, hi) {
+  const mid = (lo + hi) / 2;
+  return { quiet: [[lo, 0], [mid, 30], [hi, 60], [hi + 5, 100]], cool: [[lo - 3, 35], [mid - 3, 65], [hi - 3, 100]] }[p] || [[lo, 20], [mid, 45], [hi, 80], [hi + 3, 100]];
+}
+const presets = (lo, hi) => ({ quiet: preset('quiet', lo, hi), normal: preset('normal', lo, hi), cool: preset('cool', lo, hi) });
+const PRESETS_OF = Object.fromEntries(Object.entries(DEFAULTS).map(([k, [lo, hi]]) => [k, presets(lo, hi)]));
+
+const NVME = `nvme@${devKey(base.chips.find((c) => c.address === 'nvme0').device)}#1`;
+const RAM = `spd5118@pci0000:00/0000:00:1f.4/i2c-0/0-0051#1`;
+const TABLE4 = [[100, 1600], [90, 1490], [80, 1344], [70, 1210], [60, 1088], [50, 960], [45, 896], [40, 832], [35, 768], [30, 704], [25, 640]];
+const TABLE5 = [[100, 1450], [90, 1340], [80, 1220], [70, 1100], [60, 980], [50, 860], [40, 740], [30, 610]];
+/** His fans as the store keeps them, at a step of the setup */
+function fan(n, more) {
+  // the keys in fanboySetupState()'s order
+  const f = { id: P(n), chip: CHIP, output: n, tachs: [], model: null, colour: null, back: null, found: null, role: null, name: '', place: null, off_ok: false,
+    measured: false, min_pct: null, start_pct: null, max_rpm: null, table: null, no_turn: false };
+  return Object.assign(f, more);
+}
+const FANS = {
+  1: fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler', place: 'rear', model: { id: 'noctua-nf-a12x25-pwm', mm: null, blades: null }, colour: 'graphite' }),
+  2: fan(2, { found: 'silent', role: 'case', name: 'Deckel', place: 'top', model: { id: 'arctic-p14-pwm-pst', mm: null, blades: null }, colour: 'black' }),
+  3: fan(3, { found: 'empty' }),
+  4: fan(4, { tachs: [4], found: 'tach', role: 'disks', name: 'Plattenkäfig', place: 'front', measured: true, min_pct: 25, start_pct: 30, max_rpm: 1600, table: TABLE4,
+    model: { id: 'noctua-nf-a12x25-pwm', mm: null, blades: null }, colour: 'graphite' }),
+  5: fan(5, { tachs: [5, 6], found: 'tach', role: 'case', name: 'Vorn', place: 'front', measured: true, min_pct: 30, start_pct: 35, max_rpm: 1450, table: TABLE5,
+    model: { id: 'be-quiet-silent-wings-4-140mm-pwm', mm: null, blades: null }, colour: 'black' }),
+  6: fan(6, { found: 'empty' }),
+};
+const ZONES = [
+  { id: 'disks', name: 'Plattenkäfig', fans: [P(4)], unit: 'pct', target: { preset: 'normal' }, low: null, high: null,
+    sources: ['parity', 'disk1', 'disk2'].map((id) => ({ kind: 'disk', id, low: null, high: null, limit: null })) },
+  { id: 'case', name: 'Gehäuse', fans: [P(5), P(2)], unit: 'pct', target: { points: [[30, 25], [40, 40], [50, 70], [60, 100]] }, low: null, high: null,
+    sources: [{ kind: 'nvme', id: NVME, low: null, high: null, limit: null }, { kind: 'ram', id: RAM, low: null, high: null, limit: null }] },
+];
+function curves(zones) {
+  const out = {};
+  for (const z of zones) {
+    const [lo, hi] = DEFAULTS[z.sources[0] ? z.sources[0].kind : 'disk'];
+    out[z.id] = { points: z.target.points || preset(z.target.preset, lo, hi), scale: [lo, hi], presets: presets(lo, hi) };
+  }
+  return out;
+}
+const OUTPUTS = [1, 2, 3, 4, 5, 6].map(P);
+const BEFORE = Object.fromEntries(OUTPUTS.map((id) => [id, { value: 128, pct: 50, enable: 1, mode: 'manual', fixed: true, auto: 2, from: 'journal' }]));
+
+/** A whole state: the look, then who/control/setup/step/drivers/import as fanboyScan() puts them on top */
+function state(o) {
+  const chips = (o.chips || base.chips.filter((c) => c.name !== CHIP).concat(o.ite ? [o.ite] : [])).sort((a, b) => +a.hwmon.slice(5) - +b.hwmon.slice(5));
+  const disks = o.disks || [
+    { name: 'parity', type: 'parity', rotational: true, asleep: false, temp: 38 },
+    { name: 'disk1', type: 'data', rotational: true, asleep: true, temp: null },
+    { name: 'disk2', type: 'data', rotational: true, asleep: false, temp: 36 },
+    { name: 'cache', type: 'pool', rotational: false, asleep: false, temp: 40 },
+  ];
+  const fansAll = chips.flatMap((c) => c.fans);
+  const turning = fansAll.map((f) => f.rpm).filter((r) => typeof r === 'number' && r > 0);
+  const offered = chips.filter((c) => c.outputs.length && c.kind !== 'gpu');
+  const fans = (o.fans || []).map((f) => clone(f));
+  const zones = clone(o.zones || []);
+  let hottest = null;
+  for (const c of chips) for (const t of c.temps) if (t.c !== null && (!hottest || t.c > hottest.c)) hottest = { c: t.c, kind: c.kind, chip: c.name, label: t.label, n: t.n, disk: null };
+  for (const d of disks) if (d.temp !== null && (!hottest || d.temp > hottest.c)) hottest = { c: d.temp, kind: 'disk', chip: null, label: '', n: null, disk: d.name };
+  const s = {
+    v: 1, time: T0, hwmon: true, board: base.board, kernel: '6.18.60-Unraid', unraid: '7.4.0', chips, disks, ipmi: o.ipmi || null,
+    controllers: o.controllers || [], drivers_missing: o.drivers_missing || {}, situation: o.situation || { code: 'ok' }, tools: o.tools || TOOLS,
+    suggest: o.suggest || [], board_hint: 'ite', board_maker: base.board_maker || 'Example Boards', acpi_lax: false, names: [],
+    hints_open: ['no_output', 'driver_missing', 'other', 'ipmi'].includes((o.situation || { code: 'ok' }).code),
+    counts: { outputs: offered.reduce((n, c) => n + c.outputs.length, 0), fans: fansAll.length, turning: turning.length, zero: fansAll.filter((f) => f.rpm === 0).length,
+      rpm_min: turning.length ? Math.min(...turning) : null, rpm_max: turning.length ? Math.max(...turning) : null, temps: chips.reduce((n, c) => n + c.temps.length, 0) },
+    hottest,
+    who: o.who || { who: 'bios', why: offered.length ? 'not_set_up' : 'no_output' },
+    control: { running: false, armed: !!o.armed, who: 'bios', why: null, zones: [], alarm: null, missing: null, notes: [], watch: [], time: null, guard: null, ...(o.control || {}) },
+    setup: {
+      board: 'Example Boards Inc. | EB-Z100 PRO', others: 0, fans, zones, armed: !!o.armed, outputs: offered.length ? OUTPUTS : [], missing: [],
+      sources: sources(chips, disks), curves: curves(zones), before: offered.length ? clone(BEFORE) : {}, back_default: 'auto',
+      scales: SCALES, presets_of: PRESETS_OF,
+    },
+    step: o.step || null,
+    drivers: o.drivers || { mine: [], last: null, can: true },
+    import: o.import || null,
+  };
+  return s;
+}
+
+// ------------------------------------------------------------------ the scenarios
+const all = (pick) => [1, 2, 3, 4, 5, 6].map((n) => FANS[n]).filter((f) => !pick || pick.includes(f.output));
+const SET_UP = Object.values(FANS);
+const RPM = { 1: 1310, 2: 0, 3: 0, 4: 1018, 5: 905, 6: 878 };
+const NOTES = [{ code: 'chip_back', params: { minutes: 3 }, at: T0 - 5400 }, { code: 'alarm_over', params: { code: 'hot' }, at: T0 - 2400 }];
+function steering(more = {}) {
+  const rpm = { ...RPM, ...(more.rpm || {}) };
+  const itec = ite({ 1: [128, 2], 2: [102, 1], 4: [107, 1], 5: [102, 1] }, rpm);
+  const zonesNow = [
+    { id: 'disks', name: 'Plattenkäfig', unit: 'pct', level: 42, warmest: { id: 'parity', label: 'parity', c: 38, mapped: 38, kind: 'disk' }, asleep: 1,
+      fans: [{ id: P(4), name: 'Plattenkäfig', output: 4, pct: 42, rpm: rpm[4], held: true, foreign: false }] },
+    { id: 'case', name: 'Gehäuse', unit: 'pct', level: 40, warmest: { id: NVME, label: 'Composite', c: 27.9, mapped: 27.9, kind: 'nvme' }, asleep: 0,
+      fans: [{ id: P(5), name: 'Vorn', output: 5, pct: 40, rpm: rpm[5], held: true, foreign: false }, { id: P(2), name: 'Deckel', output: 2, pct: 40, rpm: null, held: true, foreign: false }] },
+  ];
+  return state({ ite: itec, fans: SET_UP, zones: ZONES, armed: true, who: more.who || { who: 'fanboy', why: 'steers', zones: 2 },
+    control: { running: true, armed: true, who: 'fanboy', why: more.why || null, phase: 'run', zones: zonesNow, alarm: more.alarm || null, notes: more.notes || NOTES,
+      watch: [{ id: P(1), name: 'CPU-Kühler', role: 'cpu', rpm: rpm[1] }], time: T0 } });
+}
+const fresh = () => state({ ite: ite({}, RPM) });
+const files = {};
+files.fanboy = steering();
+files['fanboy-steering'] = steering();
+files['fanboy-alarm'] = steering({ rpm: { 5: 0, 6: 0 }, who: { who: 'fanboy', why: 'alarm', zones: 2 }, why: 'alarm',
+  alarm: { code: 'stands', params: { fan: 'Vorn', zone: 'Gehäuse' }, since: T0 - 40 },
+  notes: [...NOTES, { code: 'alarm_stands', params: { fan: 'Vorn' }, at: T0 - 40 }] });
+// the fan chip gone (its driver missing after an update): no outputs seen, the control waits for it
+files['fanboy-missing'] = state({ fans: SET_UP, zones: ZONES, armed: true, situation: { code: 'driver_missing', plugins: ['it87-driver'], modules: ['it87'] },
+  drivers_missing: { 'it87-driver': ['it87'] }, tools: TOOLS.map((t) => (t.id === 'it87-driver' ? { ...t, loaded: false } : t)),
+  who: { who: 'bios', why: 'chip_missing' },
+  control: { running: true, armed: true, why: 'chip_missing', phase: 'wait_chip', missing: { since: T0 - 1200, why: 'missing', told: true }, notes: [...NOTES, { code: 'missing_told', params: {}, at: T0 - 300 }], time: T0 } });
+// another controller steering: FanCtrl Plus, his import as the proposal
+files['fanboy-other'] = state({ ite: ite({}, RPM), situation: { code: 'other', who: ['fanctrlplus'], names: ['FanCtrl Plus'] },
+  controllers: [{ id: 'fanctrlplus', name: 'FanCtrl Plus', settings: true, running: true, blocks: true }],
+  tools: TOOLS.map((t) => (t.id === 'fanctrlplus' ? { ...t, installed: true, active: true } : t)),
+  who: { who: 'fanctrlplus', name: 'FanCtrl Plus', why: 'other' },
+  import: { files: 6, active: true, zones: [{ id: 'fcp1', name: 'FanCtrl Plus', fans: OUTPUTS, outputs: [1, 2, 3, 4, 5, 6], from: 'fanctrlplus_1.cfg', idle_pct: 50, unit: 'pct',
+    sources: ['parity', 'disk1', 'disk2'].map((id) => ({ kind: 'disk', id })), target: { points: [[41, 50], [46, 90]] } }], unmatched: [] } });
+// WAZ Cooling Control running beside him: a hint only (it steers shelves and IPMI fans)
+files['fanboy-waz'] = (() => {
+  const s = steering();
+  s.tools = TOOLS.map((t) => (t.id === 'md12xx.fancontrol' ? { ...t, installed: true, active: true } : t));
+  s.controllers = [{ id: 'md12xx.fancontrol', name: 'WAZ Cooling Control', settings: false, running: true, blocks: false }];
+  return s;
+})();
+// a server board: no output Linux shows, a BMC
+files['fanboy-ipmi'] = state({ situation: { code: 'ipmi' }, ipmi: { bmc: true, manufacturer: 10876, product: 2398, firmware: '1.74' }, who: { who: 'bmc', why: 'ipmi' }, suggest: [] });
+// nothing Linux could steer: the hints open
+files['fanboy-nooutput'] = state({ situation: { code: 'no_output' }, suggest: ['it87-driver', 'dynamix.system.temp'],
+  tools: TOOLS.map((t) => ({ ...t, installed: false, loaded: t.kind === 'driver' ? false : t.loaded })), who: { who: 'bios', why: 'no_output' } });
+// the array stopped while armed: the BIOS runs them
+files['fanboy-array'] = state({ ite: ite({}, RPM), fans: SET_UP, zones: ZONES, armed: true, who: { who: 'bios', why: 'array_stopped' },
+  control: { running: false, armed: true, why: 'array_stopped', phase: 'ended', notes: NOTES, time: T0 } });
+
+// the wizard, step by step
+files['fanboy-fresh'] = fresh();
+const running = (kind, fans, current, done, results, more = {}) => ({ id: 'a1b2c3d4e5f6', kind, fans, status: 'running', why: null, pid: 4242, start: '123456',
+  current, done, results, progress: null, at: T0 - 2, begun: T0 - 40, ...more });
+files['fanboy-test'] = state({ ite: ite({ 3: [255, 1] }, { ...RPM }), fans: [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'ask' })],
+  who: { who: 'bios', why: 'not_set_up' },
+  step: running('test_up', OUTPUTS, P(3), [P(1), P(2)], { [P(1)]: { found: 'tach', tachs: [1] }, [P(2)]: { found: 'ask', tachs: [] } }) });
+files['fanboy-ask'] = state({ ite: ite({}, RPM), fans: [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'ask' }), fan(3, { found: 'empty' }),
+  fan(4, { tachs: [4], found: 'tach' }), fan(5, { tachs: [5, 6], found: 'tach' }), fan(6, { found: 'empty' })],
+  step: { id: 'a1b2c3d4e5f6', kind: 'test_up', fans: OUTPUTS, status: 'done', why: null, pid: 4242, start: '123456', current: null, done: OUTPUTS, results: {}, progress: null, at: T0 - 30 } });
+const tested = [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'silent' }), fan(3, { found: 'empty' }), fan(4, { tachs: [4], found: 'tach' }),
+  fan(5, { tachs: [5, 6], found: 'tach' }), fan(6, { found: 'empty' })];
+files['fanboy-roles'] = state({ ite: ite({}, RPM), fans: [{ ...tested[0], role: 'cpu', name: 'CPU-Kühler', place: 'rear' }, tested[1], tested[2],
+  { ...tested[3], role: 'disks', name: 'Plattenkäfig', place: 'front', model: { id: 'noctua-nf-a12x25-pwm', mm: null, blades: null } }, tested[4], tested[5]] });
+files['fanboy-measure'] = state({ ite: ite({ 4: [115, 1] }, { ...RPM, 4: 896 }), fans: SET_UP.map((f) => (f.output === 5 ? { ...f, measured: false, min_pct: null, start_pct: null, max_rpm: null, table: null }
+  : f.output === 4 ? { ...f, measured: false, min_pct: null, start_pct: null, max_rpm: null, table: null } : f)),
+  step: running('measure', [P(4), P(5)], P(4), [], {}, { progress: { id: P(4), table: TABLE4.slice(0, 7) } }) });
+files['fanboy-zones'] = state({ ite: ite({}, RPM), fans: SET_UP });
+files['fanboy-ready'] = state({ ite: ite({}, RPM), fans: SET_UP, zones: ZONES, who: { who: 'bios', why: 'not_armed' } });
+files['fanboy-gone'] = state({ ite: ite({}, RPM), fans: [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'ask' })],
+  step: { id: 'a1b2c3d4e5f6', kind: 'test_up', fans: OUTPUTS, status: 'stopped', why: 'page_gone', pid: 4242, start: '123456', current: null, done: [P(1), P(2)], results: {}, progress: null, at: T0 - 20 } });
+
+// the curve view's history: six hours of minutes for both zones (a warm afternoon, the levels following)
+const hist = { v: 1, time: T0, now: T0, every: 60, zones: { disks: [], case: [] } };
+for (let m = 360; m >= 0; m--) {
+  const t = T0 - m * 60;
+  const wave = Math.sin((360 - m) / 360 * Math.PI);
+  const dc = Math.round((34 + 5 * wave + Math.sin(m / 9) * 0.6) * 10) / 10;
+  const cc = Math.round((26 + 4 * wave + Math.sin(m / 7) * 0.8) * 10) / 10;
+  const dl = Math.max(20, Math.min(100, Math.round(20 + (dc - 35) / 5 * 25)));
+  const cl = Math.max(25, Math.min(100, Math.round(25 + (cc - 30) * 1.5)));
+  hist.zones.disks.push([t, dc, dl, Math.round(tableRpm(TABLE4, dl))]);
+  hist.zones.case.push([t, cc, cl, Math.round(tableRpm(TABLE5, cl))]);
+}
+function tableRpm(table, pct) {
+  const pts = table.slice().sort((a, b) => a[0] - b[0]);
+  if (pct <= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++) if (pct <= pts[i][0]) { const [p0, r0] = pts[i - 1], [p1, r1] = pts[i]; return r0 + (r1 - r0) * (pct - p0) / (p1 - p0); }
+  return pts[pts.length - 1][1];
+}
+// the dry run's answer (a canned post for the shots: demo/post/fanboy.dry_run.json)
+const dry = { ok: true, dry: { found: true, why: null, time: T0, zones: [
+  { id: 'disks', name: 'Plattenkäfig', unit: 'pct', level: 42, warmest: { id: 'parity', label: 'parity', c: 38, mapped: 38, kind: 'disk' }, asleep: 1, quiet: 0,
+    fans: [{ id: P(4), name: 'Plattenkäfig', output: 4, pct: 42, value: 107, now: { value: 128, enable: 1 }, floor: 30 }] },
+  { id: 'case', name: 'Gehäuse', unit: 'pct', level: 25, warmest: { id: NVME, label: 'Composite', c: 27.9, mapped: 27.9, kind: 'nvme' }, asleep: 0, quiet: 0,
+    fans: [{ id: P(5), name: 'Vorn', output: 5, pct: 35, value: 89, now: { value: 128, enable: 1 }, floor: 35 }, { id: P(2), name: 'Deckel', output: 2, pct: 40, value: 102, now: { value: 128, enable: 1 }, floor: 40 }] }] } };
+
+const write = (dir, name, v) => { fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify(v, null, 1) + '\n'); console.log(path.relative(REPO, path.join(dir, `${name}.json`))); };
+for (const [name, v] of Object.entries(files)) write(DEMO, name, v);
+write(DEMO, 'fanboy-history', hist);
+fs.mkdirSync(path.join(DEMO, 'post'), { recursive: true });
+write(path.join(DEMO, 'post'), 'fanboy.dry_run', dry);
+// the click test's stub: the overview steering (every tile has its section), its history
+write(STATES, 'fanboy', files.fanboy);
+write(STATES, 'fanboy-history', hist);

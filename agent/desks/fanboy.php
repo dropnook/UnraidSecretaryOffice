@@ -1,0 +1,659 @@
+<?php
+declare(strict_types=1);
+
+/*
+ * Fanboy — the office's building services, the biggest fan of his fans (docs/DEVELOPMENT.md «The desks»).
+ *
+ * Part 1, the foundation: he looks (agent/desks/fanboy-detect.php), says the situation, keeps a store of settings that
+ * never depends on a boot number, and writes a report for the makers' wish form.
+ * Part 2, steering (each in its own file): fanboy-write.php — the ONE place that writes a fan output, its journal of
+ * every output's state before him; fanboy-setup.php — the setup's steps as actions; fanboy-control.php — the control
+ * service (one process for all zones); fanboy-drivers.php — «load drivers» on the user's click; fanboy-import.php —
+ * FanCtrl Plus's files read into a proposed zone; agent/fanboy-guard.php — what gives the fans back when nobody else
+ * can (scripts/agent.sh stop|release, a cron line every minute). testFanboyNoWrite holds who may write what.
+ *
+ * Who gives the fans back (the safety design, docs: fanboy-control-notes in the hand-over):
+ *   · the control or a setup step itself — every way it ends (TERM, done, stop, the page gone, a hold), read back
+ *   · the agent's tick every 5 s — a holder gone (killed hard) or hung (no beat for 30 s, ended for good first)
+ *   · the guard's cron line every minute — the same, for when the agent is gone too
+ *   · scripts/agent.sh stop (stop, restart, update) and release (removal, the array stopping) — every output, read back
+ *   An agent restarting itself in place touches none of it: the control runs in a session of its own, the agent finds
+ *   it again by its pid file (no flap).
+ *
+ * HIDDEN until the owner lets him out: desk.json "switch": "show.json" — the desk exists only where
+ * <data folder>/fanboy/show.json lies (a plain file, any content, never a link). Without it: no desk() here (no action,
+ * no fit, no check), and the web side (src/desks.php officeDeskSwitchedOn()) shows no tile, no route, no hiring. Letting
+ * him out for everyone = removing the "switch" key from desk.json.
+ *
+ * The store (part 2 adds setup and control on top; keep this shape, add keys):
+ *   <data folder>/fanboy/settings.json
+ *   {"v": 1,
+ *    "boards": {                                  keyed by fanboyBoardKey(): «vendor | model» — another board's entry
+ *      "<board key>": {                           stays stored and counts again when that board comes back
+ *        "board": {"vendor": "…", "model": "…"},
+ *        "fans": {                                keyed by fanboyFanId(): «chip:address:pwmN» (no hwmonN ever)
+ *          "<fan id>": {"chip": "it8696", "address": "it87.2624", "output": 4, "tach": 4 | null, …part 2's keys}
+ *        }}}}
+ * Readers take only entries in exactly that shape and never rewrite or delete anything that doesn't match
+ * (fanboyStoreRead(), fanboyResolve()): what fits nothing stays where it is, Fanboy says what is missing.
+ */
+
+define('FANBOY_DIR', DATA_DIR . '/fanboy');
+const FANBOY_STORE = 'settings.json';
+const FANBOY_REPORT_MAX = 3500;                  // bytes: the wish form's text takes 4096, the user's words go above it
+const FANBOY_IPMI_FANS_MAX = 24;
+
+/** The switch file's name (desk.json "switch"), null once he is out for everyone */
+function fanboySwitchName(?string $web = null): ?string
+{
+    $s = readJson(($web ?? OFFICE_WEB) . '/desks/fanboy/desk.json')['switch'] ?? null;
+    return is_string($s) && preg_match('/^[a-z0-9_-]{1,32}\.json$/D', $s) ? $s : null;
+}
+
+/**
+ * Is the desk there? Out for everyone (no "switch" in desk.json) — or the switch file lies in his data folder: a plain
+ * file, never a link. The same rule as src/desks.php officeDeskSwitchedOn() (testFanboyHidden compares them).
+ */
+function fanboyShown(?string $dataDir = null, ?string $web = null): bool
+{
+    $meta = readJson(($web ?? OFFICE_WEB) . '/desks/fanboy/desk.json');
+    if ($meta === null) {
+        return false;                   // his desk.json not readable: hidden (never shown by a mistake)
+    }
+    if (!array_key_exists('switch', $meta)) {
+        return true;
+    }
+    $s = fanboySwitchName($web);
+    $f = ($dataDir ?? DATA_DIR) . "/fanboy/$s";
+    return $s !== null && !is_link($f) && is_file($f);
+}
+
+if (fanboyShown()) {
+    desk('fanboy', [
+        'fit'     => fn (): array => fanboyFit(fanboyDetect()),
+        'start'   => fn () => fanboyStart(),
+        'tick'    => fn () => fanboyTick(),
+        'checks'  => fn (): array => fanboyChecks(fanboyBoardRaw(), readJson(fanboyStatusFile())),
+        'metrics' => fn (): array => fanboyMetrics(readJson(fanboyStatusFile()), fanboyControlPid() !== null),
+        'jobs'    => [
+            'fanboy-control' => fn (array $a): int => fanboyControlMain(),
+            'fanboy-step'    => fn (array $a): int => fanboyStepMain(),
+        ],
+        'actions' => [
+            'refresh' => fn (array $r) => ['ok' => true, 'state' => fanboyScan()],
+            // the text for the wish form: shown to the user in the form before anything goes (read only, like refresh)
+            'report'  => fn (array $r) => ['ok' => true, 'report' => fanboyReportText($scan = fanboyDetect(), fanboyIpmiFans($scan))],
+            // part 2: steering
+            'look_now'      => fn (array $r) => fanboyLookNow(),
+            'drivers_load'  => fn (array $r) => fanboyDriversLoad() + ['state' => fanboyScan()],
+            'drivers_undo'  => fn (array $r) => fanboyDriversUndo() + ['state' => fanboyScan()],
+            'import'        => fn (array $r) => ['ok' => true, 'import' => fanboyImport(fanboyDetect())],
+            'test_up'       => fn (array $r) => fanboyStepStart('test_up', idList($r, 'fans')),
+            'measure'       => fn (array $r) => fanboyStepStart('measure', idList($r, 'fans')),
+            'step_alive'    => function (array $r): array { fanboyStepAliveTouch(); return ['ok' => true, 'step' => fanboyStepRead()]; },
+            'step_stop'     => fn (array $r) => fanboyStepStopAction(),
+            'answer'        => fn (array $r) => fanboyAnswer($r),
+            'role'          => fn (array $r) => fanboyRole($r),
+            'zones_propose' => fn (array $r) => ['ok' => true, 'zones' => fanboyZonesPropose($scan = fanboyDetect(), fanboyBoardRaw($scan['board']) ?? [])],
+            'zones_save'    => fn (array $r) => fanboyZonesSave($r),
+            'dry_run'       => fn (array $r) => fanboyDryRun(),
+            'take_over'     => fn (array $r) => fanboyTakeOver() + ['state' => fanboyScan()],
+            'hand_back'     => fn (array $r) => fanboyHandBack() + ['state' => fanboyScan()],
+            // part 3: the page's own small actions — «give back to» for a fan found on a fixed value, a fan's look
+            // (model, size, colour: pictures only), the history part for the curve view (read only)
+            'back'          => fn (array $r) => fanboyBack($r),
+            'fan_look'      => fn (array $r) => fanboyFanLook($r),
+            'history'       => fn (array $r) => ['ok' => true, 'state' => fanboyHistoryPart()],
+        ],
+    ]);
+}
+
+/**
+ * A new look, kept as his state (data/fanboy.json): part 1's look, and on top who steers now and why (the control's
+ * status in RAM), his setup on this board, a step running, the drivers he loaded, FanCtrl Plus's files as a proposal
+ */
+function fanboyScan(): array
+{
+    $state = fanboyDetect();
+    $settings = fanboyBoardRaw($state['board']);
+    $control = fanboyControlState($settings);
+    $state['control'] = $control;
+    $state['who'] = fanboyWhoNow($state, $control, $settings);
+    $state['setup'] = fanboySetupState($state, $settings);
+    $state['step'] = fanboyStepRead();
+    $state['drivers'] = fanboyDriversState($state['board']);
+    $import = fanboyImport($state);
+    $state['import'] = $import['files'] ? $import : null;
+    writeAtomic(deskFile('fanboy'), jsonEncode($state));
+    return $state;
+}
+
+/** For the Team Lead: Fanboy fits every server (he can always say what he finds); the reason says what that is */
+function fanboyFit(array $scan): array
+{
+    $code = $scan['situation']['code'];
+    return fit(true, $code === 'ok' ? 'yes' : $code, $code === 'other' ? ['who' => implode(', ', $scan['situation']['names'] ?? [])] : []);
+}
+
+// ===================================================================== the store: identity without the boot number
+
+function fanboyStoreFile(?string $dir = null): string
+{
+    return ($dir ?? FANBOY_DIR) . '/' . FANBOY_STORE;
+}
+
+/** The board's key: «vendor | model», spaces folded — '' parts stay '' (a board saying nothing is one board too) */
+function fanboyBoardKey(array $board): string
+{
+    $f = fn ($s) => trim((string) preg_replace('/\s+/', ' ', is_string($s) ? $s : ''));
+    return $f($board['vendor'] ?? '') . ' | ' . $f($board['model'] ?? '');
+}
+
+/** A fan's id: the chip's name, its device's address and the output — «it8696:it87.2624:pwm4» */
+function fanboyFanId(string $chip, string $address, int $output): string
+{
+    return "$chip:$address:pwm$output";
+}
+
+/** One stored fan in exactly its shape, else null (never repaired, never removed) */
+function fanboyStoredFan(mixed $f): ?array
+{
+    if (!is_array($f) || !is_string($f['chip'] ?? null) || !preg_match(FANBOY_NAME_RE, $f['chip'])
+        || !is_string($f['address'] ?? null) || !preg_match(FANBOY_NAME_RE, $f['address'])
+        || !is_int($f['output'] ?? null) || $f['output'] < 1 || $f['output'] > 99
+        || (array_key_exists('tach', $f) && $f['tach'] !== null && (!is_int($f['tach']) || $f['tach'] < 1 || $f['tach'] > 99))) {
+        return null;
+    }
+    return $f + ['tach' => null];
+}
+
+/**
+ * The store as kept: {v, boards: {key: {board, fans: {id: fan}}}} — only entries in exactly their shape; the file is
+ * never written here (and nothing in it ever deleted because it doesn't match). No file or a broken one: no boards.
+ */
+function fanboyStoreRead(?string $file = null): array
+{
+    $j = readJson($file ?? fanboyStoreFile());
+    $out = ['v' => 1, 'boards' => []];
+    foreach (is_array($j['boards'] ?? null) ? $j['boards'] : [] as $key => $b) {
+        if (!is_string($key) || !is_array($b) || !is_array($b['board'] ?? null)) {
+            continue;
+        }
+        $fans = [];
+        foreach (is_array($b['fans'] ?? null) ? $b['fans'] : [] as $id => $f) {
+            if (is_string($id) && ($fan = fanboyStoredFan($f)) !== null) {
+                $fans[$id] = $fan;
+            }
+        }
+        $out['boards'][$key] = ['board' => ['vendor' => (string) ($b['board']['vendor'] ?? ''), 'model' => (string) ($b['board']['model'] ?? '')], 'fans' => $fans];
+    }
+    return $out;
+}
+
+/** This board's settings (null: none yet — a new board, the others' stay stored) and the other boards kept */
+function fanboyBoardSettings(array $store, array $board): array
+{
+    $key = fanboyBoardKey($board);
+    return ['key' => $key, 'here' => $store['boards'][$key] ?? null, 'others' => array_values(array_diff(array_keys($store['boards']), [$key]))];
+}
+
+/**
+ * Where a stored fan is now, looked up in a fresh scan on every use (never a stored path):
+ *   how: here (same chip, same address) · moved (the address changed, exactly one chip of that name: taken) ·
+ *        missing (no chip of that name) · ambiguous (the address gone, several chips of that name: none taken) ·
+ *        no_output (the chip is there, the output isn't)
+ *   path: the output's file now (only for here and moved; the hwmon root of the scan + this boot's hwmonN), tach: the
+ *   fingerprint — the paired tach input there now (true), gone (false), none stored (null).
+ */
+function fanboyResolve(array $fan, array $scan, string $hwmon = FANBOY_HWMON): array
+{
+    $same = array_values(array_filter($scan['chips'] ?? [], fn ($c) => $c['name'] === $fan['chip']));
+    $at = array_values(array_filter($same, fn ($c) => $c['address'] === $fan['address']));
+    $how = $at ? 'here' : (count($same) === 1 ? 'moved' : ($same ? 'ambiguous' : 'missing'));
+    $chip = $at[0] ?? (count($same) === 1 ? $same[0] : null);
+    if ($chip === null) {
+        return ['how' => $how, 'path' => null, 'address' => null, 'tach' => null];
+    }
+    if (!in_array($fan['output'], array_column($chip['outputs'], 'n'), true)) {
+        return ['how' => 'no_output', 'path' => null, 'address' => $chip['address'], 'tach' => null];
+    }
+    return [
+        'how'     => $how,
+        'path'    => rtrim($hwmon, '/') . '/' . $chip['hwmon'] . '/pwm' . $fan['output'],
+        'address' => $chip['address'],
+        'tach'    => $fan['tach'] === null ? null : in_array($fan['tach'], array_column($chip['fans'], 'n'), true),
+    ];
+}
+
+// ===================================================================== the report for the wish form
+
+/**
+ * The names of a BMC's fan sensors (IPMI boards only), read with ipmitool when it is there (the IPMI plugin brings it):
+ * `ipmitool sdr type Fan`, read only. [] when there is no BMC, no ipmitool or it says nothing usable.
+ */
+function fanboyIpmiFans(array $scan, ?string $bin = null): array
+{
+    if (($scan['ipmi'] ?? null) === null) {
+        return [];
+    }
+    $bin ??= array_values(array_filter(['/usr/bin/ipmitool', '/usr/sbin/ipmitool', '/usr/local/bin/ipmitool', '/usr/local/sbin/ipmitool'], 'is_executable'))[0] ?? '';
+    if ($bin === '' || !is_executable($bin)) {
+        return [];
+    }
+    [$exit, $out] = run([$bin, 'sdr', 'type', 'Fan'], 15);
+    $names = [];
+    foreach ($exit === 0 ? explode("\n", $out) : [] as $line) {
+        $name = trim(explode('|', $line)[0]);
+        if (preg_match('/^[A-Za-z0-9 _.#-]{1,32}$/D', $name) && !in_array($name, $names, true)) {
+            $names[] = $name;
+        }
+    }
+    return array_slice($names, 0, FANBOY_IPMI_FANS_MAX);
+}
+
+/**
+ * The report for the makers' wish form — technical only (the concept's list): the board's model, chips and drivers,
+ * how many outputs and tach inputs, the kinds of sensors, kernel and Unraid version, the situation; for an IPMI board
+ * the BMC's manufacturer and product id, firmware revision and its fan sensors' names. NEVER: the server's name,
+ * serial numbers, disk ids or names, paths, a device's address, names the user gave. English (it is read by the makers),
+ * plain lines, no «/» at all (testFanboyReport).
+ */
+function fanboyReportText(array $scan, array $ipmiFans = []): string
+{
+    $clean = fn ($s) => trim((string) preg_replace('/[^A-Za-z0-9 ,.()_+:#-]+/', ' ', (string) $s));
+    $b = $scan['board'] ?? [];
+    $lines = ['Fanboy detection report v1'];
+    $lines[] = 'Board: ' . ($clean($b['vendor'] ?? '') ?: '?') . ' - ' . ($clean($b['model'] ?? '') ?: '?');
+    $lines[] = 'Kernel: ' . ($clean($scan['kernel'] ?? '') ?: '?') . ' · Unraid: ' . ($clean($scan['unraid'] ?? '') ?: '?');
+    $s = $scan['situation'] ?? ['code' => 'unknown'];
+    $what = $clean($s['code'] ?? '?');
+    if (!empty($s['who'])) {
+        $what .= ' (' . implode(', ', array_map($clean, $s['who'])) . ')';
+    }
+    if (!empty($s['plugins'])) {
+        $what .= ' (plugin ' . implode(', ', array_map($clean, $s['plugins'])) . ', module ' . implode(', ', array_map($clean, $s['modules'] ?? [])) . ' not loaded)';
+    }
+    $lines[] = "Situation: $what";
+    $lines[] = 'Chips:';
+    $kinds = [];
+    foreach ($scan['chips'] ?? [] as $c) {
+        $turning = count(array_filter($c['fans'], fn ($f) => ($f['rpm'] ?? 0) > 0));
+        $modes = array_count_values(array_map(fn ($o) => (string) ($o['mode'] ?? '?'), $c['outputs']));
+        ksort($modes);
+        $line = '- ' . $clean($c['name']) . ' (driver ' . ($c['module'] !== null ? $clean($c['module']) : '-') . ', ' . $clean($c['kind']) . '): '
+            . 'outputs ' . count($c['outputs']);
+        if ($c['outputs']) {
+            $line .= ' (auto mode ' . (array_filter($c['outputs'], fn ($o) => $o['auto']) ? 'yes' : 'no') . '; now '
+                . implode(', ', array_map(fn ($m, $n) => "$n $m", array_keys($modes), $modes)) . ')';
+        }
+        $line .= ', tach inputs ' . count($c['fans']) . " ($turning turning), temperatures " . count($c['temps']);
+        $lines[] = $line;
+        if ($c['temps']) {
+            $kinds[$c['kind']] = ($kinds[$c['kind']] ?? 0) + count($c['temps']);
+        }
+    }
+    if (!($scan['chips'] ?? [])) {
+        $lines[] = '- none' . (empty($scan['hwmon']) ? ' (no hwmon at all)' : '');
+    }
+    ksort($kinds);
+    $lines[] = 'Sensor kinds: ' . ($kinds ? implode(', ', array_map(fn ($k, $n) => "$k $n", array_keys($kinds), $kinds)) : 'none');
+    $disks = $scan['disks'] ?? [];
+    $lines[] = 'Unraid disks: ' . count($disks) . ' (' . count(array_filter($disks, fn ($d) => $d['rotational'])) . ' rotating)';
+    foreach ($scan['controllers'] ?? [] as $x) {
+        $lines[] = 'Other controller: ' . $clean($x['id']) . ' (settings ' . ($x['settings'] ? 'on' : 'off') . ', loop ' . ($x['running'] ? 'running' : 'not running') . ')';
+    }
+    $there = array_filter($scan['tools'] ?? [], fn ($t) => $t['installed'] || $t['active']);
+    $lines[] = 'Plugins: ' . ($there ? implode(', ', array_map(fn ($t) => $clean($t['name']) . ' installed'
+        . ($t['loaded'] === null ? '' : ($t['loaded'] ? ' (module loaded)' : ' (module not loaded)')) . ($t['active'] ? ' (steering)' : ''), $there)) : 'none of those Fanboy knows');
+    $lines[] = 'Start option acpi_enforce_resources=lax: ' . (!empty($scan['acpi_lax']) ? 'set' : 'not set');
+    if (($i = $scan['ipmi'] ?? null) !== null) {
+        $lines[] = 'IPMI: BMC ' . ($i['bmc'] ? 'seen' : 'not seen') . '; manufacturer id ' . ($clean($i['manufacturer_id'] ?? '') ?: '?')
+            . ', product id ' . ($clean($i['product_id'] ?? '') ?: '?') . ', device id ' . ($clean($i['device_id'] ?? '') ?: '?')
+            . ', firmware ' . ($clean($i['firmware_revision'] ?? '') ?: '?') . ', IPMI ' . ($clean($i['ipmi_version'] ?? '') ?: '?');
+        $lines[] = 'IPMI fan sensors: ' . ($ipmiFans ? implode(', ', array_map($clean, $ipmiFans)) : 'not read (no ipmitool)');
+    }
+    $text = implode("\n", $lines);
+    return strlen($text) > FANBOY_REPORT_MAX ? mb_strcut($text, 0, FANBOY_REPORT_MAX, 'UTF-8') : $text;
+}
+
+// ===================================================================== part 2: the service around the control
+
+const FANBOY_TICK_EVERY = 5.0;          // the agent's look at the holders and the control, seconds
+const FANBOY_CRASH_PAUSE = 30.0;        // a control that died: started again after this long …
+const FANBOY_CRASH_WINDOW = 1800.0;     // … unless it died FANBOY_CRASH_MAX times within this: then the BIOS keeps them
+const FANBOY_CRASH_MAX = 3;
+
+/** At the agent's start: the drivers that helped on this board loaded again (before the control steers), holders gone given back */
+function fanboyStart(): void
+{
+    fanboyDriversBoot();
+    fanboyWatch();
+    fanboyGuardCron((fanboyBoardRaw()['armed'] ?? false) === true);       // the guard's line only while he is armed
+}
+
+/**
+ * The curve view's history (the part `history`, data/fanboy-history.json, desk.json "parts"): per zone of this board the
+ * last 24 hours, a point a minute [time, warmest °C, level %, rpm] — as the control keeps it in RAM (or the data
+ * folder's copy after a restart). Read only.
+ */
+function fanboyHistoryPart(): array
+{
+    $key = fanboyBoardKey(fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']));
+    $t = time();
+    // `now`: the moment the points are read against (the page draws «the last hours» back from it, never the browser's clock)
+    return ['v' => 1, 'time' => $t, 'now' => $t, 'every' => (int) FANBOY_HISTORY_EVERY, 'zones' => fanboyHistoryLoad($key) ?: new stdClass()];
+}
+
+/**
+ * The agent's tick (every FANBOY_TICK_EVERY s on the monotonic clock, a few file reads): outputs whose holder is gone
+ * given back; the control started when it should run and doesn't (after a death: a pause; too many deaths: not again)
+ */
+function fanboyTick(?float $now = null): void
+{
+    static $next = 0.0;
+    $now ??= fanboyMono();
+    if ($now < $next) {
+        return;
+    }
+    $next = $now + FANBOY_TICK_EVERY;
+    fanboyWatch();
+    fanboyEnsureControl($now);
+}
+
+/** Holders gone (killed hard) or hung: their outputs back with the BIOS, said in the log */
+function fanboyWatch(): array
+{
+    if (!is_file(fanboyRunDir() . '/journal.json') || !fanboyHeld()) {
+        return [];
+    }
+    $back = fanboyGiveBack(null, 'holder_gone', null, true);
+    if ($back) {
+        $bad = array_keys(array_filter($back, fn ($x) => !$x['ok'] && $x['why'] !== 'gone'));
+        $who = array_values(array_unique(array_map(fn ($x) => ($x['owner']['kind'] ?? '?') . ' PID ' . ($x['owner']['pid'] ?? '?') . ' ' . ($x['holder'] ?? ''), $back)));
+        logLine('Fanboy: a holder was gone (' . implode(', ', $who) . ') — ' . count($back) . ' outputs back with the BIOS' . ($bad ? ', NOT read back as before: ' . implode(', ', $bad) : ''));
+    }
+    return $back;
+}
+
+/** This board's settings, read again only when the store changed */
+function fanboySettingsCached(): ?array
+{
+    static $stamp = null, $settings = null;
+    clearstatcache(true, fanboyStoreFile());
+    $m = @filemtime(fanboyStoreFile());
+    if ($m !== $stamp) {
+        $stamp = $m;
+        $settings = fanboyBoardRaw();
+    }
+    return $settings;
+}
+
+/** Should the control run and doesn't? Then it starts — after a death only after a pause, and not after too many */
+function fanboyEnsureControl(float $now): void
+{
+    // steering again for half an hour without a death: a next death is told again
+    $last = $GLOBALS['fanboyCrashes'] ?? [];
+    if ($last && $now - end($last) > FANBOY_CRASH_WINDOW) {
+        $GLOBALS['fanboyCrashes'] = [];
+        fanboyUntellOnce('crashed');
+    }
+    $settings = fanboySettingsCached();
+    if ($settings === null || ($settings['armed'] ?? false) !== true || !fanboyControlNew($settings, '', ['pid' => 0])['zones']
+        || !arrayRunning(fanboyVarIni()) || !in_array('fanboy', staffHired($GLOBALS['agentStaffFile'] ?? null), true) || fanboyStepRunning() || fanboyControlPid() !== null) {
+        return;
+    }
+    $status = readJson(fanboyStatusFile());
+    $crashes = &$GLOBALS['fanboyCrashes'];
+    $crashes ??= [];
+    // it died without ending (killed hard, a PHP error) — or the guard's cron look found it so first (why «crashed»): its
+    // outputs were given back already; counted once per process, said once per run of deaths
+    if (is_array($status) && (($status['phase'] ?? '') !== 'ended' || ($status['why'] ?? '') === 'crashed') && is_int($status['pid'] ?? null)
+        && ($GLOBALS['fanboySeenDead'] ?? null) !== $status['pid']) {
+        $GLOBALS['fanboySeenDead'] = $status['pid'];
+        $crashes[] = $now;
+        logLine("Fanboy: the control (PID {$status['pid']}) ended without giving back — the BIOS steers; started again in " . (int) FANBOY_CRASH_PAUSE . ' s');
+        $status['who'] = 'bios';
+        $status['why'] = 'crashed';
+        $status['phase'] = 'ended';
+        fanboyStatusWrite($status);
+        fanboyTellOnce('crashed', 'crashed', [], 'warning');
+    }
+    $crashes = array_values(array_filter($crashes, fn ($t) => $now - $t < FANBOY_CRASH_WINDOW));
+    if (count($crashes) >= FANBOY_CRASH_MAX || ($crashes && $now - end($crashes) < FANBOY_CRASH_PAUSE)
+        || $now - ($GLOBALS['fanboyLaunchedAt'] ?? -INF) < FANBOY_CRASH_PAUSE) {
+        return;
+    }
+    $GLOBALS['fanboyLaunchedAt'] = $now;
+    fanboyLaunch('fanboy-control');
+}
+
+/** One notification from the agent's side, once until fanboyUntellOnce() — the marks in RAM (a restart in place keeps them) */
+function fanboyTellOnce(string $once, string $key, array $params, string $level): void
+{
+    $told = readJson(fanboyRunDir() . '/told.json') ?? [];
+    if (isset($told[$once])) {
+        return;
+    }
+    $told[$once] = time();
+    @mkdir(fanboyRunDir(), 0700, true);
+    writeAtomic(fanboyRunDir() . '/told.json', jsonEncode($told), 0600, 0, 0);
+    $lang = officeNotifyLang();
+    officeNotify(officeNotifyText('fanboy', "notify.{$key}_subject", $params, $lang), officeNotifyText('fanboy', "notify.$key", $params, $lang),
+        $level, '', officeNotifyLink('#/fanboy'), 'fanboy', $key);
+}
+
+function fanboyUntellOnce(string $once): void
+{
+    $told = readJson(fanboyRunDir() . '/told.json') ?? [];
+    if (isset($told[$once])) {
+        unset($told[$once]);
+        writeAtomic(fanboyRunDir() . '/told.json', jsonEncode($told), 0600, 0, 0);
+    }
+}
+
+/**
+ * A job of his in a process of its own: its own session (setsid -f — an agent restarting itself in place, or stopping,
+ * never takes it along; agent.sh's stop asks it to end through the guard), nothing open to the agent
+ */
+function fanboyLaunch(string $job): void
+{
+    if (isset($GLOBALS['fanboyLauncher'])) {
+        ($GLOBALS['fanboyLauncher'])($job);         // the tests' own
+        return;
+    }
+    $p = @proc_open(['setsid', '-f', PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', $job],
+        [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/');
+    if (is_resource($p)) {
+        proc_close($p);
+    }
+}
+
+/** The control's pid when it runs (its pid file: pid and the process's start time — never another process later), else null */
+function fanboyControlPid(): ?int
+{
+    $raw = trim((string) @file_get_contents(fanboyRunDir() . '/control.pid', false, null, 0, 64));
+    if (!preg_match('/^(\d{1,9}) (\d{1,20})$/D', $raw, $m)) {
+        return null;
+    }
+    $pid = (int) $m[1];
+    return $pid > 1 && fanboyProcStart($pid) === $m[2] ? $pid : null;
+}
+
+/** The control asked to end (TERM; it gives back itself), at most 5 s — then whatever it still holds given back here */
+function fanboyControlStop(string $why): array
+{
+    $raw = trim((string) @file_get_contents(fanboyRunDir() . '/control.pid', false, null, 0, 64));
+    $pid = fanboyControlPid();
+    $t0 = time();
+    if ($pid !== null) {
+        @posix_kill($pid, SIGTERM);
+        $until = fanboyMono() + 5;
+        while (fanboyControlPid() !== null && fanboyMono() < $until) {
+            usleep(100000);
+        }
+    }
+    $given = [];
+    if (preg_match('/^(\d{1,9}) (\d{1,20})$/D', $raw, $m)) {
+        $given = fanboyGiveBack(null, $why, ['pid' => (int) $m[1], 'start' => $m[2]]);
+    }
+    foreach (fanboyJournal()['outputs'] as $id => $o) {
+        if (is_array($o['given']) && ($o['given']['at'] ?? 0) >= $t0 && !isset($given[$id])) {
+            $given[$id] = ['ok' => (bool) ($o['given']['ok'] ?? false)];
+        }
+    }
+    return $given;
+}
+
+/** «Look now»: the control looks for the chip at once (when it waits for it), and a new look for the page */
+function fanboyLookNow(): array
+{
+    @mkdir(fanboyRunDir(), 0700, true);
+    writeAtomic(fanboyRunDir() . '/look-now', (string) time(), 0600, 0, 0);
+    $GLOBALS['fanboyLaunchedAt'] = -INF;        // and the control started at the next tick when it should run
+    return ['ok' => true, 'state' => fanboyScan()];
+}
+
+/** The control's status for the page: as it wrote it, «running» from its pid; one that died without ending: crashed */
+function fanboyControlState(?array $settings): array
+{
+    $s = readJson(fanboyStatusFile());
+    $running = fanboyControlPid() !== null;
+    $out = ['running' => $running, 'armed' => ($settings['armed'] ?? false) === true, 'who' => 'bios', 'why' => null, 'zones' => [], 'alarm' => null,
+            'missing' => null, 'notes' => [], 'watch' => [], 'time' => null];
+    if (is_array($s)) {
+        $out = array_merge($out, array_intersect_key($s, array_flip(['who', 'why', 'zones', 'alarm', 'missing', 'notes', 'watch', 'time', 'phase'])));
+        if (!$running) {
+            $out['who'] = 'bios';
+            if (($s['phase'] ?? '') !== 'ended') {
+                $out['why'] = 'crashed';
+            }
+            $out['alarm'] = null;
+        }
+    }
+    $out['guard'] = readJson(fanboyRunDir() . '/guard.json');
+    return $out;
+}
+
+/** Who steers now and why — Fanboy (his zones), or the BIOS / another plugin / the board with the reason */
+function fanboyWhoNow(array $scan, array $control, ?array $settings): array
+{
+    if ($control['running'] && $control['who'] === 'fanboy') {
+        return ['who' => 'fanboy', 'why' => $control['alarm'] !== null ? 'alarm' : 'steers', 'zones' => count($control['zones'])];
+    }
+    $who = $scan['who'];
+    if ($who['who'] !== 'bios') {
+        return $who;                   // another plugin, the board's BMC: as part 1 says
+    }
+    if ($settings !== null && ($settings['armed'] ?? false) === true) {
+        return ['who' => 'bios', 'why' => is_string($control['why']) && $control['why'] !== '' ? $control['why'] : 'starting'];
+    }
+    if ($settings !== null && fanboyControlNew($settings, '', ['pid' => 0])['zones']) {
+        return ['who' => 'bios', 'why' => 'not_armed'];
+    }
+    return $who;
+}
+
+/**
+ * His setup on this board for the page (and the wizard): each fan he knows (found, role, measured …), the zones, armed,
+ * the outputs there now, stored fans not found now (nothing is ever discarded), how many other boards are kept
+ */
+function fanboySetupState(array $scan, ?array $settings): array
+{
+    $fans = [];
+    $missing = [];
+    foreach (is_array($settings['fans'] ?? null) ? $settings['fans'] : [] as $id => $f) {
+        $stored = fanboyStoredFan($f);
+        if (!is_string($id) || $stored === null) {
+            continue;
+        }
+        $m = is_array($f['measured'] ?? null) ? $f['measured'] : null;
+        $model = is_array($f['model'] ?? null) ? $f['model'] : null;
+        $fans[] = ['id' => $id, 'chip' => $stored['chip'], 'output' => $stored['output'], 'tachs' => array_values(array_filter(is_array($f['tachs'] ?? null) ? $f['tachs'] : [], 'is_int')),
+            // part 3: its look for the pictures, «give back to» (null: not chosen — the default counts)
+            'model' => $model === null ? null : ['id' => is_string($model['id'] ?? null) ? $model['id'] : null, 'mm' => is_int($model['mm'] ?? null) ? $model['mm'] : null,
+                'blades' => is_int($model['blades'] ?? null) ? $model['blades'] : null],
+            'colour' => is_string($f['colour'] ?? null) && in_array($f['colour'], FANBOY_COLOURS, true) ? $f['colour'] : null,
+            'back' => in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : null,
+            'found' => is_string($f['found'] ?? null) ? $f['found'] : null, 'role' => is_string($f['role'] ?? null) ? $f['role'] : null,
+            'name' => is_string($f['name'] ?? null) ? $f['name'] : '', 'place' => is_string($f['place'] ?? null) ? $f['place'] : null,
+            'off_ok' => ($f['off_ok'] ?? false) === true, 'measured' => $m !== null, 'min_pct' => $m['min_pct'] ?? null, 'start_pct' => $m['start_pct'] ?? null,
+            'max_rpm' => $m['max_rpm'] ?? null, 'table' => $m['table'] ?? null, 'no_turn' => ($f['no_turn'] ?? false) === true];
+        $r = fanboyResolve($stored, $scan);
+        if ($r['path'] === null) {
+            $missing[] = ['id' => $id, 'how' => $r['how']];
+        }
+    }
+    $store = fanboyStoreRead();
+    $key = fanboyBoardKey($scan['board']);
+    $zones = is_array($settings['zones'] ?? null) ? array_values(array_filter($settings['zones'], 'is_array')) : [];
+    // each zone's curve as the control reads it, its scale and the three presets on that scale (the page draws them)
+    $curves = [];
+    foreach ($zones as $z) {
+        if (is_string($z['id'] ?? null)) {
+            [$lo, $hi] = fanboyZoneScale($z);
+            $curves[$z['id']] = ['points' => fanboyZoneCurve($z), 'scale' => [$lo, $hi],
+                'presets' => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, $lo, $hi), FANBOY_PRESETS))];
+        }
+    }
+    $before = fanboyBefore($scan);
+    return [
+        'board' => $key, 'others' => count(array_diff(array_keys($store['boards']), [$key])),
+        'fans' => $fans, 'zones' => $zones, 'armed' => ($settings['armed'] ?? false) === true,
+        'outputs' => array_keys(fanboyOutputs($scan)), 'missing' => $missing, 'sources' => fanboySources($scan),
+        // part 3: the curves, each output's state before Fanboy, «give back» still open, the defaults the page shows
+        'curves' => $curves ?: new stdClass(), 'before' => $before ?: new stdClass(),
+        'back_default' => FANBOY_BACK_DEFAULT,
+        'scales' => FANBOY_SOURCE_DEFAULTS, 'presets_of' => array_combine(array_keys(FANBOY_SOURCE_DEFAULTS),
+            array_map(fn ($d) => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, (float) $d['low'], (float) $d['high']), FANBOY_PRESETS)), FANBOY_SOURCE_DEFAULTS)),
+    ];
+}
+
+/**
+ * For the Team Lead, only once he was given fans and took them over: does he steer them (not: driver missing, another
+ * plugin, given back), and no alarm (a fan standing, too warm, a sensor silent). From the status in RAM — cheap.
+ */
+function fanboyChecks(?array $settings, ?array $status): array
+{
+    if ($settings === null || ($settings['armed'] ?? false) !== true) {
+        return [];
+    }
+    $running = fanboyControlPid() !== null;
+    $steers = $running && ($status['who'] ?? '') === 'fanboy';
+    $starting = $running && in_array($status['why'] ?? '', ['starting'], true);
+    $alarm = $running && is_array($status['alarm'] ?? null);
+    return [
+        finding('fanboy_steers', 'recommended', $steers ? true : ($starting ? null : false), [], '#/fanboy'),
+        finding('fanboy_alarm', 'recommended', $running ? !$alarm : null, [], '#/fanboy'),
+    ];
+}
+
+/** His numbers for Prometheus, from the status in RAM: steering, alarm, each zone's level and warmest, each fan's rpm */
+function fanboyMetrics(?array $s, bool $running): array
+{
+    if (!is_array($s)) {
+        return [];
+    }
+    $steering = $running && ($s['who'] ?? '') === 'fanboy';
+    $zones = array_values(array_filter(is_array($s['zones'] ?? null) ? $s['zones'] : [], fn ($z) => is_array($z) && is_string($z['id'] ?? null)));
+    $level = $temp = $rpm = [];
+    foreach ($zones as $z) {
+        if ($steering && is_numeric($z['level'] ?? null) && ($z['unit'] ?? 'pct') === 'pct') {
+            $level[] = [['zone' => $z['id']], (float) $z['level']];
+        }
+        if (is_numeric($z['warmest']['c'] ?? null)) {
+            $temp[] = [['zone' => $z['id']], (float) $z['warmest']['c']];
+        }
+        foreach (is_array($z['fans'] ?? null) ? $z['fans'] : [] as $f) {
+            if (is_int($f['rpm'] ?? null) && is_int($f['output'] ?? null)) {
+                $rpm[] = [['zone' => $z['id'], 'output' => 'pwm' . $f['output']], $f['rpm']];
+            }
+        }
+    }
+    return array_values(array_filter([
+        metricsGauge('uso_fanboy_steering', 'Fanboy steers the fans he was given (1), or the BIOS does (0)', $steering ? 1 : 0),
+        metricsGauge('uso_fanboy_alarm', 'An alarm at Fanboy\'s fans: a fan stands, too warm at full speed, a sensor silent, the chip gone (1)', $running && is_array($s['alarm'] ?? null) ? 1 : 0),
+        $level ? metricsGauge('uso_fanboy_zone_level_percent', 'Each zone\'s level, percent (zones steered by percent)', $level) : null,
+        $temp ? metricsGauge('uso_fanboy_zone_temperature_celsius', 'Each zone\'s warmest heat source, °C', $temp) : null,
+        $rpm ? metricsGauge('uso_fanboy_fan_rpm', 'Each fan Fanboy steers, rpm', $rpm) : null,
+    ]));
+}

@@ -16,14 +16,27 @@ declare(strict_types=1);
 function officeDesks(): array
 {
     static $desks = null;
-    if ($desks !== null) {
-        return $desks;
-    }
+    return $desks ??= officeDesksIn(OFFICE_PUBLIC, OFFICE_DATA);
+}
+
+/**
+ * The desks of the web files in $public, as a data folder $data shows them (a desk behind a switch only where its file
+ * lies there) — officeDesks() for this request; the tests ask with another data folder.
+ *
+ * @return array<string, array{id:string, order:int, icon:string, refresh_after:int, parts:array<string, array{refresh_after:int, action:string}>, css:bool, always:bool, training:bool, with:?string, needs:?string}>
+ */
+function officeDesksIn(string $public, string $data): array
+{
     $desks = [];
-    foreach (glob(OFFICE_PUBLIC . '/desks/*/desk.json') ?: [] as $file) {
+    foreach (glob($public . '/desks/*/desk.json') ?: [] as $file) {
         $id = basename(dirname($file));
         $meta = officeReadJson($file);
         if (!$meta || !preg_match('/^[a-z][a-z0-9_-]{0,31}$/', $id) || !is_file(dirname($file) . '/desk.js')) {
+            continue;
+        }
+        // a desk not out yet (desk.json "switch": Fanboy): only where its switch file lies — else no tile, no route,
+        // no hiring, no strings, no action through the page
+        if (array_key_exists('switch', $meta) && !officeDeskSwitchedOn($id, $meta['switch'], $data)) {
             continue;
         }
         $desks[$id] = [
@@ -54,6 +67,21 @@ function officeDesks(): array
     }
     uasort($desks, fn ($a, $b) => [$a['order'], $a['id']] <=> [$b['order'], $b['id']]);
     return $desks;
+}
+
+/**
+ * A desk that isn't out for everyone yet (desk.json "switch": "<name>.json") is there only where
+ * <data folder>/<id>/<name>.json lies — a plain file, any content, never a link (the owner puts it on a server by hand;
+ * a release can bring the desk without anyone seeing it). A switch that isn't such a name: never there. The agent's
+ * side says the same (agent/desks/fanboy.php fanboyShown(), testFanboyHidden).
+ */
+function officeDeskSwitchedOn(string $id, mixed $switch, ?string $data = null): bool
+{
+    if (!is_string($switch) || !preg_match('/^[a-z0-9_-]{1,32}\.json$/D', $switch)) {
+        return false;
+    }
+    $f = ($data ?? OFFICE_DATA) . "/$id/$switch";
+    return !is_link($f) && is_file($f);
 }
 
 /**

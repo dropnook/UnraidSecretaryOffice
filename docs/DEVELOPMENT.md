@@ -633,7 +633,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
 `nightorder.php`, `poollevel.php`) and links (`#/<desk>`) — each must work on its own. Entry tests: `testSnapshot*`, `testPlanGone`,
 `testSleepingPools`, `testBackup*`, `testSetup*`, `testJack*`, `testMoverelli*`, `testNight*`, `testPoolLevel`, `testHireNeeds`,
 `testLogs*`, `testWatchman*`, `testParityWhy`, `testCleanup*`, `testWhere*`, `testHiddenStoreroom`, `testAdvisor*`,
-`testRestore*`, `testCaretaker*`, `testAckContent`, `testPartner*`.
+`testRestore*`, `testCaretaker*`, `testAckContent`, `testPartner*`, `testFanboy*` (part `fanboy`).
 
 * **`snapshot` — Ms. Snapshotini.** ZFS/btrfs/VM snapshots and plans (lib/snapshotplans.php, `uso-plan-<plan>-…`; retention
   touches only those, never the engine's; plans read only via `snapPlans()`; a gone target is no failure). Lists awake ZFS pools
@@ -958,6 +958,76 @@ the last 60 history lines only for a source the file has none for. **The file
   newest backup snapshot into a fresh `<share>/.uso-drill-<id>` on an awake pool or disk, compares it, and puts that folder into
   Ms. Dustdevil's storeroom of the share through her helpers (`drillScratchAway()`; she finds it by `drillTrashRoots()`), with
   the verified copy's name, size and sha256 (journal `made[].files`, manifest `drill`) — so it empties itself after 7 days.
+* **`fanboy` — Fanboy** (the building services, his fans' biggest fan; the same name in all five languages). **Hidden until the
+  owner lets him out:** desk.json `"switch": "show.json"` — the desk exists only where `<data folder>/fanboy/show.json` lies
+  (a plain file, any content, never a link; `src/desks.php officeDeskSwitchedOn()`, agent `fanboyShown()` — the same rule,
+  his desk.json unreadable = hidden): without it no tile, route, hiring, strings, `desk()`, action or fit. Out for everyone =
+  remove the key. **One file writes fan outputs: `agent/desks/fanboy-write.php`**, only through `fanboyWriteFile()` (a
+  `pwmN`/`pwmN_enable` directly in a hwmonN of the hwmon root, there already, really under /sys/devices — `testFanboyNoWrite`
+  holds every other file of his to its own few write calls). His look
+  (`agent/desks/fanboy-detect.php`, read only, a few ms): `/sys/class/hwmon` (chips by name + device path **without hwmonN**,
+  module; outputs `pwmN` with `_enable` mode and the chip's own auto mode; tach inputs; temperatures with a kind — drivetemp's
+  never read: they ask the disk), DMI board vendor + model (never a serial), Unraid's disks from disks.ini via `diskAsleep()`
+  (never smartctl, nothing that wakes a disk), a BMC, FanControl Plus (`fanctrlplus/*.cfg` `service="1"` or its loop) and
+  Dynamix Auto Fan, driver plugins whose module isn't loaded. Situations: ok · other (another controller: Fanboy steers
+  nothing) · ipmi (no output Linux shows, a BMC: said honestly, the wish button) · driver_missing (only a known driver plugin
+  installed with its module not loaded) · no_output (hint at the driver plugins). A graphics card's outputs are never offered.
+  **Identity:** a fan = chip name + device address + output (`fanboyFanId()`: `it8696:it87.2624:pwm4`) + its tach input as
+  fingerprint, resolved against a fresh look on every use (`fanboyResolve()`: here · moved — the address changed and exactly
+  one chip of that name · ambiguous · missing · no_output); settings in `<data folder>/fanboy/settings.json` keyed by board
+  (vendor | model) — another board's stay; **nothing is deleted or rewritten because it doesn't match** (the shape is documented
+  at the top of `agent/desks/fanboy.php`). **The report** for the makers' wish form (`fanboyReportText()`): board model, chips
+  and drivers, counts, sensor kinds, kernel, Unraid version, the situation, an IPMI board's BMC ids, firmware and fan sensor
+  names — never the server's name, serials, disk ids or names, a device's address, a path (no «/» in it at all); the page puts
+  it into the office's report form as a wish of his desk (the form's draft), the user sees and edits it and only «Send» sends.
+  **Hints** («Why is this tricky?», the tile «Hints», a fold that opens by itself unless the situation is ok): what is there
+  (the plugins he knows, `FANBOY_PLUGINS`: names and authors exactly as Community Applications lists them, checked against
+  its public feed — installed by their `.plg`, a driver's module loaded, a controller steering), the start option
+  `acpi_enforce_resources=lax` (read from /proc/cmdline, never set), the names given in Dynamix System Temp's
+  `sensors.conf` (read, never written; shown as suggestions, never in the report), the plugins that fit (only with no
+  output, only what isn't there, narrowed by a board maker's hint), each found by its name in ⟦Apps⟧ — **Fanboy installs
+  nothing**; modprobe only on «Load drivers» (below). The suite's fake sysfs: `fanboyFakeTree()` in tests/run.php, fans that
+  answer: tests/fanboy-responder.php, part 2's tests: tests/fanboy-control-tests.php.
+  **Part 2, steering:** the write helper keeps a **journal in RAM** (`RUN_DIR/fanboy/journal.json`, a copy per board in
+  `<data>/fanboy/initial.json`): each output's state before his first write this boot (value + the exact `pwmN_enable`
+  number), its holder (the control or a setup step: pid + process start time + a beat on the monotonic clock) and what was
+  written last; `fanboyGiveBack()` puts exactly the state before back and reads it back. **Who gives back:** the holder itself
+  (every way it ends); the agent's tick every 5 s and the guard's cron line every minute (`agent/fanboy-guard.php watch`,
+  in its own `fanboy-guard.cron` on the flash — there only while he is armed: written at «Take over», gone at «Hand back», put right at every agent start (`fanboyGuardCron()`); only when the journal names a holder — it needs only util.php and the write helper) for a holder
+  gone or hung; `agent.sh stop` (stop, restart, update) and `release` (removal, the array stopping) through
+  `fanboy_release` → `fanboy-guard.php release`. The control (`php agent.php job fanboy-control`, `fanboy-control.php`) runs
+  in a session of its own (`setsid -f`): an agent restarting in place never touches it. It steers only while the array is
+  started, he is hired, shown, set up and armed («take over»), and no known controller runs (FanCtrl Plus, its fork,
+  Dynamix System Autofan, PWM Fan — WAZ Cooling Control steers shelf and IPMI fans: named as a hint only, `'hint_only'`, `fanboyBlocking()`); outputs looked up anew at every start through the identity;
+  zones (fans + heat sources: disks only from disks.ini — asleep is asleep, never cold —, hwmon sensors; each source's own
+  low/high mapped onto the zone's, the warmest counts) and a curve (quiet/normal/cool or points, percent or rpm by the
+  measured table with a correction); up at once, down a percent a round only 2 °C below; never under a fan's lowest steady
+  value («off» only where allowed); alarms (a fan stands — his or a watched CPU cooler/pump —, too warm at full speed, a
+  sensor silent, the chip gone): every output he holds to full, told once; someone else's write: that output given back;
+  the chip missing: looked for every 5 s, then every minute, one notification after 15 minutes, then every 5 minutes,
+  «Look now». **Setup steps** (`fanboy-setup.php`, actions; the wizard's page is part 3): test up (which tach follows; none
+  → «louder?»), roles (CPU cooler, pump, «don't know» stay the BIOS's for good), measure down (his fans with feedback only;
+  a stall stops it, the start value found going back up), zones, a dry run, take over / hand back — each step in a process
+  of its own, the page's lease (`step_alive`) or everything goes back. **Drivers** (`fanboy-drivers.php`, on the click):
+  only Unraid's own in-kernel fan-chip drivers (`FANBOY_DRIVERS`, checked with modinfo), a useless one and whatever a try
+  pulled in unloaded again, the ACPI refusal only explained, what helped loaded at every agent start, an undo; nothing
+  downloaded, nothing on the flash. **FanCtrl Plus** (`fanboy-import.php`): its files read into a proposed zone (outputs by
+  their number, disks by Unraid's id, never a serial), never written.
+  **Give back** for an output found on a fixed value something else set (enable 1): to the mainboard's automatic (the
+  chip's own mode — shown now, kept from before, else its driver's: `FANBOY_AUTO_MODES`) by default (the owner,
+  2026-11-14: `FANBOY_BACK_DEFAULT`), «this fixed value» the other choice in the setup (`back` action); a chip without an
+  automatic: the fixed value, said on the page. Only the control's take carries it into the journal (`back`); a setup
+  step always goes back exactly. **Part 3, the page** (desk.js + `fan-art.js`/`fan-art.css` beside it, loaded by desk.js
+  — only his page needs them): two pages. The overview's tiles «Who steers» (the server picture: zones as pieces of a
+  case, fans turning by their speed, the warmest framed, sleeping disks marked, the BIOS's own watched — one picture kept
+  across looks, speeds glide), «Fans» (outputs and tach inputs; a row unfolds the technical detail — the only place for
+  `pwmN`, `hwmonN`, chip names), «Warmest spot» (sensors), «Today» (each zone's curve with «now» and its last 6 hours:
+  the part `history`, desk.json `"parts"`), «Hints». The setup's seven steps as tiles in part 2's order (detect, test,
+  roles with the catalogue picker and «give back», measure with the table as it grows — `step.progress` —, zones with
+  the curve editor, dry run, take over / hand back); any step opens alone, so a curve, a zone or a fan's model changes
+  without the wizard again. A running step is kept alive by the page (`step_alive` every 15 s, only while a page of his
+  is shown) and can be stopped any time; ended by the page gone it says so. Pictures and CPU: `tools/fanboy/desk.mjs`;
+  demo states: `tools/fanboy/demo-states.mjs`.
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same

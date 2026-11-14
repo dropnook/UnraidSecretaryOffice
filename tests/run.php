@@ -32288,6 +32288,7 @@ function testStaffOrder(): void
     symlink(OFFICE_DIR . '/public/desks', "$tmp/plugin/desks");
     symlink(OFFICE_DIR . '/public/lang', "$tmp/plugin/lang");
     mkdir("$tmp/data/office", 0700, true);
+    testsSwitchesOn("$tmp/data");      // every desk of the repository, those behind a switch too (Fanboy)
     $file = "$tmp/data/office/staff.json";
     file_put_contents($file, json_encode(['hired' => ['backup' => 5, 'whereabouts' => 7, 'logs' => 8], 'order' => ['logs', 'whereabouts', 'backup']]));
     $web = "$tmp/web.php";
@@ -32337,8 +32338,9 @@ function testStaffOrder(): void
         array_values(array_filter(scandir("$tmp/data/office") ?: [], fn ($n) => str_ends_with($n, '.tmp')))]);
     // without data/office (the agent makes it): said, nothing written
     mkdir("$tmp/none", 0700);
+    testsSwitchesOn("$tmp/none");
     [$out, $raw] = $webRun([['office.staff_order', ['order' => ['backup']]]], "$tmp/none");
-    same('staff order web: no data/office — office_storage, nothing written', ['office_storage', $default, []], [$out[1]['error'] ?? $raw, $out[0] ?? null, array_values(array_diff(scandir("$tmp/none") ?: [], ['.', '..']))]);
+    same('staff order web: no data/office — office_storage, nothing written', ['office_storage', $default, []], [$out[1]['error'] ?? $raw, $out[0] ?? null, array_values(array_diff(scandir("$tmp/none") ?: [], ['.', '..', 'fanboy']))]);
     hardeningRm($tmp);
 }
 
@@ -34614,6 +34616,7 @@ function testSearchPlaces(): void
             symlink("$pub/$d", "$tmp/plugin/$d");
         }
         mkdir("$tmp/data/office", 0700, true);
+        testsSwitchesOn("$tmp/data");      // every desk of the repository, those behind a switch too (Fanboy)
         mkdir("$tmp/run", 0700);
         file_put_contents("$tmp/web.php", '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; require '
             . var_export("$tmp/plugin/src/api.php", true) . '; api_main();');
@@ -34975,6 +34978,7 @@ function testSearchItems(): void
         $images[] = ['id' => "img:$i", 'kind' => 'image', 'name' => "repo/img-$i:latest", 'category' => 'unused', 'bytes' => 1, 'why' => null];
     }
     $states = [
+        'fanboy' => json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/states/fanboy.json'), true),       // his look on the fake board
         'caretaker' => ['time' => 1000, 'checks' => [
             'backup' => [['id' => 'kopia_running', 'level' => 'required', 'ok' => false, 'params' => ['name' => 'kopia'], 'sig' => 'backup:kopia_running:0123456789abcdef'],
                          ['id' => 'schedule', 'level' => 'recommended', 'ok' => true, 'sig' => 'backup:schedule:1111111111111111']],
@@ -35375,6 +35379,7 @@ function testSearchGuides(): void
             symlink("$pub/$d", "$tmp/plugin/$d");
         }
         mkdir("$tmp/data/office", 0700, true);
+        testsSwitchesOn("$tmp/data");      // every desk of the repository, those behind a switch too (Fanboy)
         mkdir("$tmp/run", 0700);
         file_put_contents("$tmp/web.php", '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; require '
             . var_export("$tmp/plugin/src/api.php", true) . '; api_main();');
@@ -46098,8 +46103,10 @@ function testReport(): void
     same('report: Ms. Protocolli\'s comparing keeps its <path>', 'moved <path> to "<path>"', logsNormalizePaths('moved /mnt/user/Media/a.mkv to "/x/y z.mkv"'));
 
     // the label map: every desk, every logLine() of a desk starts with one of its labels
-    same('report: a label for every desk (and the office)', [], array_values(array_diff(array_merge(['office'], array_keys(desks())), array_keys(REPORT_LOG_LABELS))));
-    same('report: … and none for a desk that isn\'t', [], array_values(array_diff(array_keys(REPORT_LOG_LABELS), array_merge(['office'], array_keys(desks())))));
+    // a desk behind its switch (desk.json "switch", Fanboy) isn't among this run's desks — its label counts all the same
+    $switched = array_map(fn ($f) => basename(dirname($f)), array_filter(glob(OFFICE_WEB . '/desks/*/desk.json') ?: [], fn ($f) => is_string((readJson($f) ?? [])['switch'] ?? null)));
+    same('report: a label for every desk (and the office)', [], array_values(array_diff(array_merge(['office'], array_keys(desks()), $switched), array_keys(REPORT_LOG_LABELS))));
+    same('report: … and none for a desk that isn\'t', [], array_values(array_diff(array_keys(REPORT_LOG_LABELS), array_merge(['office'], array_keys(desks()), $switched))));
     $files = [];
     foreach (glob(OFFICE_DIR . '/agent/desks/*.php') ?: [] as $f) {
         $files[$f] = explode('-', basename($f, '.php'))[0];
@@ -60188,6 +60195,7 @@ const SECTIONS_DESKS = [
     'snapshot' => [],
     'caretaker' => [],
     'moverelli' => [],
+    'fanboy' => [],                     // part 1: «Erkennen», three tiles, three sections
 ];
 
 /**
@@ -63892,15 +63900,879 @@ function testBackupAnewChoice(): void
         str_contains($setup, 'OLD[$k]="${v//$\'\x1f\'/$\'\n\'}"') && str_contains($setup, 'was="$v"; [[ -n "${ANEW[$v]:-}" ]] && v="${ANEW[$v]}"'));
 }
 
+// ===================================================================== Fanboy (agent/desks/fanboy*.php, public/desks/fanboy)
+
+/**
+ * A fake sysfs for Fanboy's look (agent/desks/fanboy-detect.php): a folder shaped like the real thing — the hwmon class
+ * folder with hwmonN links into /sys/devices (each chip's files in its hwmonN, `device` back to the device, its
+ * `driver` with `module`), DMI, Unraid's disks.ini, the flash's plugin folder, /sys/module, /proc, /dev, a BMC.
+ * Everything invented; its shape copies a real board (an ITE IT8696E: 6 outputs, 6 tach inputs of which 2 read 0, CPU,
+ * three NVMe, two RAM sticks, the board's own sensors). fanboyDetect($root) reads it like the real one.
+ *
+ *   $spec = ['board' => [vendor, model], 'chips' => [[hwmon, name, device path under /sys/devices, module|null,
+ *            'pwm' => [n => [value, enable, auto]], 'fans' => [n => rpm|''], 'temps' => [n => [milli|'', label]]] …],
+ *            'disks' => ini text, 'plugins' => [path under boot/config/plugins => content], 'modules' => [name …],
+ *            'procs' => [pid => cmdline], 'ipmi' => [file => value] | null, 'dmi_extra' => [file => value],
+ *            'files' => [path => content], 'unraid' => version]
+ */
+function fanboyFakeTree(string $root, array $spec): string
+{
+    $mk = function (string $f, string $content) use ($root): void {
+        @mkdir(dirname("$root/$f"), 0700, true);
+        file_put_contents("$root/$f", $content);
+    };
+    @mkdir("$root/sys/class/hwmon", 0700, true);
+    foreach ($spec['chips'] ?? [] as $c) {
+        [$n, $name, $dev, $module] = $c;
+        $hw = "sys/devices/$dev/hwmon/hwmon$n";
+        @mkdir("$root/$hw", 0700, true);
+        $mk("$hw/name", "$name\n");
+        // hwmonN/device → the device (two up); the device's driver → /sys/bus/platform/drivers/<module>, its module
+        symlink('../..', "$root/$hw/device");
+        if ($module !== null) {
+            @mkdir("$root/sys/bus/platform/drivers/$module", 0700, true);
+            @mkdir("$root/sys/module/$module", 0700, true);
+            if (!is_link("$root/sys/bus/platform/drivers/$module/module")) {
+                symlink("$root/sys/module/$module", "$root/sys/bus/platform/drivers/$module/module");
+            }
+            // the driver lies on the device — or, for a class device (nvme/nvme0), on its PCI device further up ('driver_up')
+            $at = $dev;
+            for ($i = 0; $i < ($c['driver_up'] ?? 0); $i++) {
+                $at = dirname($at);
+            }
+            if (!is_link("$root/sys/devices/$at/driver")) {
+                symlink("$root/sys/bus/platform/drivers/$module", "$root/sys/devices/$at/driver");
+            }
+        }
+        foreach ($c['pwm'] ?? [] as $i => [$value, $enable, $auto]) {
+            $mk("$hw/pwm$i", "$value\n");
+            if ($enable !== null) {
+                $mk("$hw/pwm{$i}_enable", "$enable\n");
+            }
+            if ($auto) {
+                $mk("$hw/pwm{$i}_auto_point1_temp", "0\n");
+                $mk("$hw/pwm{$i}_auto_channels_temp", "1\n");
+            }
+            $mk("$hw/pwm{$i}_freq", "23437\n");
+        }
+        foreach ($c['fans'] ?? [] as $i => $rpm) {
+            $mk("$hw/fan{$i}_input", "$rpm\n");
+            $mk("$hw/fan{$i}_min", "0\n");
+        }
+        foreach ($c['temps'] ?? [] as $i => [$milli, $label]) {
+            $mk("$hw/temp{$i}_input", "$milli\n");
+            $mk("$hw/temp{$i}_max", "127000\n");
+            if ($label !== '') {
+                $mk("$hw/temp{$i}_label", "$label\n");
+            }
+        }
+        foreach ($c['extra'] ?? [] as $f => $content) {
+            $mk("sys/devices/$dev/$f", $content);
+        }
+        symlink("../../devices/$dev/hwmon/hwmon$n", "$root/sys/class/hwmon/hwmon$n");
+    }
+    [$vendor, $model] = $spec['board'] ?? ['Example Boards Inc.', 'EB-Z100 PRO'];
+    $mk('sys/class/dmi/id/board_vendor', "$vendor\n");
+    $mk('sys/class/dmi/id/board_name', "$model\n");
+    foreach ($spec['dmi_extra'] ?? [] as $f => $v) {
+        $mk("sys/class/dmi/id/$f", "$v\n");
+    }
+    $mk('var/local/emhttp/disks.ini', $spec['disks'] ?? '');
+    @mkdir("$root/boot/config/plugins", 0700, true);
+    foreach ($spec['plugins'] ?? [] as $f => $content) {
+        $mk("boot/config/plugins/$f", $content);
+    }
+    foreach ($spec['modules'] ?? [] as $m) {
+        @mkdir("$root/sys/module/$m", 0700, true);
+    }
+    @mkdir("$root/proc", 0700, true);
+    foreach ($spec['procs'] ?? [] as $pid => $cmd) {
+        $mk("proc/$pid/cmdline", str_replace(' ', "\0", $cmd) . "\0");
+    }
+    @mkdir("$root/dev", 0700, true);
+    if (($spec['ipmi'] ?? null) !== null) {
+        $mk('dev/ipmi0', '');
+        @mkdir("$root/sys/class/ipmi/ipmi0", 0700, true);
+        foreach ($spec['ipmi'] as $f => $v) {
+            $mk("sys/devices/platform/ipmi_bmc.0/$f", "$v\n");
+        }
+    }
+    foreach ($spec['files'] ?? [] as $f => $content) {
+        $mk($f, $content);
+    }
+    $mk('etc/unraid-version', 'version="' . ($spec['unraid'] ?? '7.3.2') . "\"\n");
+    return $root;
+}
+
+/** The invented board after a real one (an IT8696E as on an owner's server — everything else made up): $n = the chip's hwmonN */
+function fanboyFakeBoard(int $n = 10, string $address = 'it87.2608', array $more = []): array
+{
+    $ite = [$n, 'it8696_a0060607', "platform/$address", 'it87',
+        'pwm'   => array_fill_keys(range(1, 6), [128, 1, true]),
+        'fans'  => [1 => 1310, 2 => 0, 3 => 0, 4 => 1397, 5 => 1421, 6 => 1363],
+        'temps' => [1 => [21000, ''], 2 => [31000, ''], 3 => [28000, ''], 4 => [25000, ''], 5 => [23000, ''], 6 => [23000, '']]];
+    $nvme = fn (int $h, string $pci, string $nv, int $milli) => [$h, 'nvme', "pci0000:00/$pci/nvme/$nv", 'nvme', 'driver_up' => 2,
+        'temps' => [1 => [$milli, 'Composite'], 2 => [$milli + 2000, 'Sensor 1']]];
+    $spec = [
+        'board' => ['Example Boards Inc.', 'EB-Z100 PRO'],
+        'chips' => [
+            $nvme(0, '0000:00:1b.4/0000:82:00.0', 'nvme2', 29850),
+            $nvme(1, '0000:00:01.0/0000:01:00.0', 'nvme1', 25850),
+            $nvme(2, '0000:00:06.1/0000:03:00.0', 'nvme0', 27850),
+            [3, 'acpi_fan', 'platform/INTC1042:00/INTC1063:00', null, 'fans' => [1 => '']],
+            [4, 'gigabyte_wmi', 'platform/PNP0C14:02/wmi_bus/wmi_bus-PNP0C14:02', null,
+                'temps' => [1 => [21000, ''], 2 => [31000, ''], 3 => [29000, ''], 4 => [25000, ''], 5 => [23000, ''], 6 => [23000, '']]],
+            [5, 'spd5118', 'pci0000:00/0000:00:1f.4/i2c-0/0-0051', 'spd5118', 'temps' => [1 => [22750, '']]],
+            [6, 'spd5118', 'pci0000:00/0000:00:1f.4/i2c-0/0-0053', 'spd5118', 'temps' => [1 => [21250, '']]],
+            [7, 'coretemp', 'platform/coretemp.0', 'coretemp', 'temps' => [1 => [28000, 'Package id 0'], 2 => [26000, 'Core 0'], 6 => [28000, 'Core 4']]],
+            [8, 'iwlwifi_1', 'virtual/thermal/thermal_zone4', null, 'temps' => [1 => ['', '']]],
+            [9, 'acpitz', 'virtual/thermal/thermal_zone5', null, 'temps' => [1 => [16800, ''], 2 => [27800, '']]],
+            $ite,
+        ],
+        'disks' => "[parity]\nname=\"parity\"\ntype=\"Parity\"\ndevice=\"sdb\"\nid=\"EXAMPLE_HDD_SN000001\"\ntemp=\"35\"\nspundown=\"0\"\nrotational=\"1\"\nstatus=\"DISK_OK\"\n"
+            . "[disk1]\nname=\"disk1\"\ntype=\"Data\"\ndevice=\"sdc\"\nid=\"EXAMPLE_HDD_SN000002\"\ntemp=\"*\"\nspundown=\"1\"\nrotational=\"1\"\nstatus=\"DISK_OK\"\n"
+            . "[disk2]\nname=\"disk2\"\ntype=\"Data\"\ndevice=\"sdd\"\nid=\"EXAMPLE_HDD_SN000003\"\ntemp=\"33\"\nspundown=\"0\"\nrotational=\"1\"\nstatus=\"DISK_OK\"\n"
+            . "[disk3]\nname=\"disk3\"\ntype=\"Data\"\ndevice=\"\"\nstatus=\"DISK_NP\"\n"
+            . "[cache]\nname=\"cache\"\ntype=\"Cache\"\ndevice=\"nvme0n1\"\nid=\"EXAMPLE_NVME_SN000004\"\ntemp=\"40\"\nspundown=\"0\"\nrotational=\"0\"\nstatus=\"DISK_OK\"\n"
+            . "[flash]\nname=\"flash\"\ntype=\"Flash\"\ndevice=\"sda\"\nid=\"EXAMPLE_FLASH\"\n",
+        // the ITE driver plugin and Dynamix System Temp installed; names given there (invented): two labels, one hidden fan
+        'plugins' => ['it87-driver.plg' => '<PLUGIN/>', 'dynamix.system.temp.plg' => '<PLUGIN/>',
+            'dynamix.system.temp/sensors.conf' => "# made by System Temp\nchip \"it8696-isa-0a30\"\n    label temp1 \"Board Left\"\n    label fan1 \"Front Intake\"\n"
+                . "    ignore fan3\nchip \"coretemp-*\"\n    label temp1 \"CPU Package\"\nchip \"nct6798-isa-0290\"\n    label fan2 \"Not Here\"\n"],
+        'procs' => [1 => '/sbin/init', 812 => '/usr/sbin/sshd -D'],
+        'files' => ['proc/cmdline' => "BOOT_IMAGE=/bzimage initrd=/bzroot\n"],
+    ];
+    return array_replace($spec, $more);
+}
+
+/** A chip of a scan by name (the first) */
+function fanboyChipNamed(array $scan, string $name): ?array
+{
+    foreach ($scan['chips'] as $c) {
+        if ($c['name'] === $name) {
+            return $c;
+        }
+    }
+    return null;
+}
+
+/** Every file's content under a folder (links not followed) — what a look must leave as it was */
+function fanboyTreeHash(string $dir): string
+{
+    $out = [];
+    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS));
+    foreach ($it as $f) {
+        if (!is_link($f->getPathname()) && $f->isFile()) {
+            $out[substr($f->getPathname(), strlen($dir))] = md5_file($f->getPathname()) . ':' . $f->getMTime();
+        }
+    }
+    ksort($out);
+    return md5(serialize($out));
+}
+
+/**
+ * A test's data folder that shows every desk of the repository: the switch file of each desk not out for everyone yet
+ * (desk.json "switch", src/desks.php officeDeskSwitchedOn()) laid into it — for the tests that compare the web side's
+ * answer with every desk.json
+ */
+function testsSwitchesOn(string $data): void
+{
+    foreach (glob(OFFICE_WEB . '/desks/*/desk.json') ?: [] as $f) {
+        $s = json_decode((string) file_get_contents($f), true)['switch'] ?? null;
+        if (is_string($s)) {
+            @mkdir($data . '/' . basename(dirname($f)), 0700, true);
+            file_put_contents($data . '/' . basename(dirname($f)) . "/$s", '');
+        }
+    }
+}
+
+// part 2 (steering): its tests and the fans that answer in files of their own
+require __DIR__ . '/fanboy-responder.php';
+require __DIR__ . '/fanboy-control-tests.php';
+require __DIR__ . '/fanboy-desk-tests.php';
+
+function testFanboyHidden(): void
+{
+    $tmp = hardeningTmp('fanboy-hidden');
+    $meta = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.json'), true);
+    same('fanboy hidden: desk.json carries the switch (show.json) — he is not out for everyone yet', 'show.json', $meta['switch'] ?? null);
+    same('fanboy hidden: the agent reads the same name', 'show.json', fanboySwitchName());
+
+    // the agent's rule and the web side's: no file · a plain file · a link · a folder — the same answers
+    require_once OFFICE_DIR . '/src/desks.php';
+    $cases = [];
+    @mkdir("$tmp/none/fanboy", 0700, true);
+    @mkdir("$tmp/file/fanboy", 0700, true);
+    file_put_contents("$tmp/file/fanboy/show.json", '');
+    @mkdir("$tmp/link/fanboy", 0700, true);
+    file_put_contents("$tmp/elsewhere.json", '{}');
+    symlink("$tmp/elsewhere.json", "$tmp/link/fanboy/show.json");
+    @mkdir("$tmp/folder/fanboy/show.json", 0700, true);
+    foreach (['none', 'file', 'link', 'folder'] as $k) {
+        $cases[$k] = [fanboyShown("$tmp/$k"), officeDeskSwitchedOn('fanboy', 'show.json', "$tmp/$k")];
+    }
+    same('fanboy hidden: [agent, web] — only a plain file switches him on; nothing, a link, a folder: hidden',
+        ['none' => [false, false], 'file' => [true, true], 'link' => [false, false], 'folder' => [false, false]], $cases);
+    same('fanboy hidden: a switch that isn\'t a plain «<name>.json» never counts (web)', [false, false, false],
+        [officeDeskSwitchedOn('fanboy', '../file/fanboy/show.json', "$tmp/file"), officeDeskSwitchedOn('fanboy', true, "$tmp/file"), officeDeskSwitchedOn('fanboy', 'show', "$tmp/file")]);
+    same('fanboy hidden: the agent without a readable desk.json — hidden, even with the file (never shown by a mistake)', false, fanboyShown("$tmp/file", "$tmp/no-web"));
+
+    // the whole office, as each side sees it with a data folder without and with the file (a php of its own each)
+    $run = function (string $code, string $data): array {
+        $p = proc_open([PHP_BINARY, '-r', $code], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+            ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+        $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+        proc_close($p);
+        return preg_match('/\{"desk":.*\}/', $out, $m) ? json_decode($m[0], true) : ['raw' => $out];
+    };
+    $agent = 'define("AGENT_LIBRARY_ONLY", 1); define("OFFICE_WEB", ' . var_export(OFFICE_WEB, true) . '); require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . ';'
+        . ' $d = desks()["fanboy"] ?? null; echo json_encode(["desk" => $d !== null, "actions" => $d ? array_keys($d["actions"]) : [], "fit" => $d && $d["fit"] !== null,'
+        . ' "checks" => $d && $d["checks"] !== null, "jobs" => $d ? array_keys($d["jobs"] ?? []) : [], "tick" => $d && $d["tick"] !== null]);';
+    $web = 'require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; $d = officeDesksIn(' . var_export(OFFICE_WEB, true) . ', OFFICE_DATA);'
+        . ' echo json_encode(["desk" => isset($d["fanboy"]), "others" => count($d), "staff" => array_values(array_filter(array_keys($d), fn ($i) => $i === "fanboy"))]);';
+    $off = [$run($agent, "$tmp/none"), $run($web, "$tmp/none")];
+    $on = [$run($agent, "$tmp/file"), $run($web, "$tmp/file")];
+    same('fanboy hidden: without the file — no desk on the agent (no action, no fit, no check, no job, no tick), none on the web side (no tile, route, hiring, strings)',
+        [false, [], false, false, false],
+        [$off[0]['desk'] ?? $off[0], $off[0]['actions'] ?? null, $off[0]['fit'] ?? null, $off[0]['checks'] ?? null, $off[1]['desk'] ?? $off[1]]);
+    same('fanboy hidden: with the file — the desk on both sides (refresh, report and part 2\'s actions; a fit, checks, his two jobs, a tick)',
+        [true, ['refresh', 'report', 'look_now', 'drivers_load', 'drivers_undo', 'import', 'test_up', 'measure', 'step_alive', 'step_stop', 'answer', 'role',
+                'zones_propose', 'zones_save', 'dry_run', 'take_over', 'hand_back', 'back', 'fan_look', 'history'], true, true, ['fanboy-control', 'fanboy-step'], true, true],
+        [$on[0]['desk'] ?? $on[0], $on[0]['actions'] ?? null, $on[0]['fit'] ?? null, $on[0]['checks'] ?? null, $on[0]['jobs'] ?? null, $on[0]['tick'] ?? null, $on[1]['desk'] ?? $on[1]]);
+    same('fanboy hidden: … and the other desks the same either way', $on[1]['others'] - 1, $off[1]['others'] ?? null);
+    // the repository's own data folder (what every other test sees): no switch, so no Fanboy among the agent's desks
+    check('fanboy hidden: in this run (no switch in the tests\' data folder) the agent has no desk fanboy', !isset(desks()['fanboy']));
+    // nothing else names him: no job, no Dashboard, no core code — but agent.sh: its stop gives his fans back and its cron
+    // line looks every minute (agent/fanboy-guard.php), whether he is shown or not (a fan is never left where he left it)
+    $elsewhere = [];
+    foreach (array_merge(glob(OFFICE_DIR . '/plugin/*') ?: [], glob(OFFICE_DIR . '/plugin/scripts/*') ?: [], glob(OFFICE_DIR . '/plugin/event/*') ?: [],
+                         glob(OFFICE_DIR . '/agent/lib/*.php') ?: [], [OFFICE_DIR . '/agent/agent.php', OFFICE_WEB . '/assets/core.js', OFFICE_DIR . '/src/dashboard.php']) as $f) {
+        if (is_file($f) && stripos((string) file_get_contents($f), 'fanboy') !== false) {
+            $elsewhere[] = substr($f, strlen(OFFICE_DIR) + 1);
+        }
+    }
+    same('fanboy hidden: no core file, job or Dashboard names him — only agent.sh (the release at every stop), the .plg\'s removal (his guard\'s cron file, there only while armed) and his log label (lib/report.php)',
+        ['plugin/unraid-secretary-office.plg', 'plugin/scripts/agent.sh', 'agent/lib/report.php'], $elsewhere);
+}
+
+function testFanboyNoWrite(): void
+{
+    // Part 2 loosened this on purpose: ONE file writes fan outputs — agent/desks/fanboy-write.php, and there only through
+    // fanboyWriteFile() (a pwmN or pwmN_enable directly in a hwmonN folder of the hwmon root, there already, really under
+    // /sys/devices — testFanboyWrite tries the refusals for real). Every other file of his: no line names pwm with a write,
+    // and only the write calls listed here (state and RAM files, his locks, the detached start of his processes, modprobe).
+    $files = array_merge(glob(OFFICE_DIR . '/agent/desks/fanboy*.php') ?: [], [OFFICE_DIR . '/agent/fanboy-guard.php'], glob(OFFICE_WEB . '/desks/fanboy/*.js') ?: []);
+    check('fanboy no write: his files there (' . count($files) . ')', count($files) >= 9);
+    $allowed = [
+        'fanboy.php'          => ['writeAtomic', 'run', 'proc_open'],
+        'fanboy-detect.php'   => [],
+        'fanboy-import.php'   => [],
+        'fanboy-control.php'  => ['writeAtomic', 'fopen', 'unlink'],
+        'fanboy-setup.php'    => ['writeAtomic', 'fopen', 'unlink', 'run'],      // part 3: update_cron for the guard's line (fanboyGuardCron())
+        'fanboy-drivers.php'  => ['writeAtomic', 'run', 'unlink'],
+        'fanboy-write.php'    => ['writeAtomic', 'fopen', 'fwrite', 'unlink'],
+        'fanboy-guard.php'    => ['writeAtomic', 'fwrite'],
+        // the page's scripts write nothing (they can't): a regular expression's exec() and a local copy() only
+        'desk.js'             => ['exec'],
+        'fan-art.js'          => ['copy'],
+    ];
+    $bad = [];
+    $writes = '/\b(file_put_contents|fopen|fwrite|fputs|writeAtomic|writeNewFile|touch|rename|copy|unlink|symlink|chmod|exec|shell_exec|system|passthru|popen|proc_open|run|runAll|hostLaunch|fanboyWriteFile)\s*\(/';
+    foreach ($files as $f) {
+        $src = (string) file_get_contents($f);
+        $base = basename($f);
+        $code = (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', $src);
+        foreach (explode("\n", $code) as $i => $line) {
+            if ($base !== 'fanboy-write.php' && stripos($line, 'pwm') !== false && preg_match($writes, $line)) {
+                $bad[] = "$base: pwm and a write on one line";
+            }
+        }
+        preg_match_all($writes, $code, $m);
+        foreach (array_unique($m[1]) as $fn) {
+            if (!in_array($fn, $allowed[$base] ?? [], true) && !($base === 'fanboy-write.php' && $fn === 'fanboyWriteFile')) {
+                $bad[] = "$base: $fn()";
+            }
+        }
+    }
+    same('fanboy no write: no line names pwm together with a write outside the write helper, and each file only its own write calls', [], $bad);
+    $w = (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-write.php'));
+    $fn = substr($w, (int) strpos($w, 'function fanboyWriteFile('), 1400);
+    $fn = substr($fn, 0, (int) strpos($fn, "\n}\n"));
+    same('fanboy no write: the write helper has ONE fwrite, inside fanboyWriteFile(), which takes only pwmN/pwmN_enable under the hwmon root, never creates, never through a link',
+        [1, true, true, true, true, true],
+        [substr_count($w, 'fwrite('), str_contains($fn, 'fwrite('), str_contains($fn, "'/hwmon\\d{1,4}/pwm\\d{1,2}(_enable)?$#D'"), str_contains($fn, "fopen(\$real, 'r+')"),
+         str_contains($fn, 'is_link($file)'), str_contains($fn, "str_starts_with(\$real, \"\$devices/\")")]);
+    // the part-1 files: their writes are the state file and files in RAM; the one command ipmitool's read (modprobe lives in fanboy-drivers.php)
+    $p1 = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy.php') . (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-detect.php');
+    preg_match_all('/writeAtomic\(([^,]+),/', $p1, $wa);
+    same('fanboy no write: fanboy.php writes his state file and files in RAM only; its one command is ipmitool\'s read',
+        [[], 1], [array_values(array_filter($wa[1], fn ($t) => !str_contains($t, "deskFile('fanboy')") && !str_contains($t, 'fanboyRunDir()'))), substr_count($p1, 'run([')]);
+    // and for real: a look over the whole fake tree changes no file in it
+    $root = fanboyFakeTree(hardeningTmp('fanboy-nowrite'), fanboyFakeBoard());
+    $before = fanboyTreeHash($root);
+    for ($i = 0; $i < 3; $i++) {
+        fanboyDetect($root);
+    }
+    $scan = fanboyDetect($root);
+    fanboyReportText($scan);
+    fanboyResolve(['chip' => 'it8696_a0060607', 'address' => 'it87.2608', 'output' => 1, 'tach' => 1], $scan, "$root/sys/class/hwmon");
+    fanboyImport($scan, "$root/boot/config/plugins");
+    same('fanboy no write: four looks, a report, a resolve and an import leave every file of the tree as it was', $before, fanboyTreeHash($root));
+}
+
+function testFanboyDetect(): void
+{
+    $root = fanboyFakeTree(hardeningTmp('fanboy-detect'), fanboyFakeBoard());
+    $t0 = hrtime(true);
+    $s = fanboyDetect($root, 1700000000);
+    $ms = (hrtime(true) - $t0) / 1e6;
+    check("fanboy detect: cheap enough for every few seconds ({$ms} ms)", $ms < 200);
+    same('fanboy detect: the board (DMI vendor and model), the time, hwmon there', [['vendor' => 'Example Boards Inc.', 'model' => 'EB-Z100 PRO'], 1700000000, true],
+        [$s['board'], $s['time'], $s['hwmon']]);
+    same('fanboy detect: every chip in hwmon order (hwmon10 after hwmon9)', ['nvme', 'nvme', 'nvme', 'acpi_fan', 'gigabyte_wmi', 'spd5118', 'spd5118', 'coretemp', 'iwlwifi_1', 'acpitz', 'it8696_a0060607'],
+        array_column($s['chips'], 'name'));
+    $ite = fanboyChipNamed($s, 'it8696_a0060607');
+    same('fanboy detect: the fan chip — its device path without hwmonN, its address, its module, a board chip, hwmon10 only as this boot\'s number',
+        ['platform/it87.2608', 'it87.2608', 'it87', 'board', 'hwmon10'], [$ite['device'], $ite['address'], $ite['module'], $ite['kind'], $ite['hwmon']]);
+    same('fanboy detect: six outputs — value, percent, mode (pwm_enable 1 = a fixed value), the chip\'s own auto mode',
+        array_fill(0, 6, [128, 50, 1, 'manual', true]), array_map(fn ($o) => [$o['value'], $o['pct'], $o['enable'], $o['mode'], $o['auto']], $ite['outputs']));
+    same('fanboy detect: six tach inputs, two at 0 rpm', [1310, 0, 0, 1397, 1421, 1363], array_column($ite['fans'], 'rpm'));
+    same('fanboy detect: counts — 6 outputs, 7 tach inputs (the ACPI fan says nothing), 4 turning, 2 at 0 rpm (not the silent one), 1310–1421 rpm',
+        [6, 7, 4, 2, 1310, 1421], [$s['counts']['outputs'], $s['counts']['fans'], $s['counts']['turning'], $s['counts']['zero'], $s['counts']['rpm_min'], $s['counts']['rpm_max']]);
+    $kinds = [];
+    foreach ($s['chips'] as $c) {
+        $kinds[$c['name']] = $c['kind'];
+    }
+    same('fanboy detect: what each chip\'s temperatures are', ['nvme' => 'nvme', 'acpi_fan' => 'other', 'gigabyte_wmi' => 'board', 'spd5118' => 'ram', 'coretemp' => 'cpu',
+        'iwlwifi_1' => 'other', 'acpitz' => 'board', 'it8696_a0060607' => 'board'], $kinds);
+    $cpu = fanboyChipNamed($s, 'coretemp');
+    same('fanboy detect: labels and °C (an empty input: null)', [['Package id 0', 28.0], [null]],
+        [[$cpu['temps'][0]['label'], $cpu['temps'][0]['c']], array_column(fanboyChipNamed($s, 'iwlwifi_1')['temps'], 'c')]);
+    same('fanboy detect: the nvme\'s stable address is its PCI path, never hwmonN; its module from the PCI device above it', ['pci0000:00/0000:00:1b.4/0000:82:00.0/nvme/nvme2', 'nvme'],
+        [$s['chips'][0]['device'], $s['chips'][0]['module']]);
+    same('fanboy detect: Unraid\'s disks from disks.ini — no flash, no empty slot; a sleeping one without temperature',
+        [['parity', 'parity', 35, false], ['disk1', 'data', null, true], ['disk2', 'data', 33, false], ['cache', 'pool', 40, false]],
+        array_map(fn ($d) => [$d['name'], $d['type'], $d['temp'], $d['asleep']], $s['disks']));
+    same('fanboy detect: the warmest spot — the awake pool at 40 °C', ['c' => 40.0, 'kind' => 'disk', 'disk' => 'cache'],
+        array_intersect_key($s['hottest'] ?? [], ['c' => 1, 'kind' => 1, 'disk' => 1]));
+    same('fanboy detect: situation ok, who steers: the BIOS (Fanboy isn\'t set up — part 1 never steers)', [['code' => 'ok'], ['who' => 'bios', 'why' => 'not_set_up']],
+        [$s['situation'], $s['who']]);
+
+    // drivetemp: its files ask the disk — never read (an unreadable stand-in would fail the look if it were)
+    $root2 = fanboyFakeTree(hardeningTmp('fanboy-drivetemp'), fanboyFakeBoard(10, 'it87.2608', ['chips' => [
+        [0, 'drivetemp', 'pci0000:00/0000:00:17.0/ata1/host0/target0:0:0/0:0:0:0', 'drivetemp', 'temps' => [1 => [41000, '']]]]]));
+    chmod("$root2/sys/devices/pci0000:00/0000:00:17.0/ata1/host0/target0:0:0/0:0:0:0/hwmon/hwmon0/temp1_input", 0);
+    $d = fanboyDetect($root2);
+    same('fanboy detect: a drivetemp chip is a disk, its temperature never read (Unraid\'s disks.ini says it)', ['disk', [null]],
+        [$d['chips'][0]['kind'], array_column($d['chips'][0]['temps'], 'c')]);
+
+    // the request side: no action reads a root from the request (the paths come from fanboyPaths(), the root only from tests)
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy.php');
+    check('fanboy detect: the actions call fanboyDetect() without a root — never one from a request', str_contains($src, "'refresh' => fn (array \$r) => ['ok' => true, 'state' => fanboyScan()]")
+        && str_contains($src, '$scan = fanboyDetect()') && !preg_match('/fanboyDetect\(\$r|textField\(\$r|optText\(\$r/', $src));
+    same('fanboy detect: the real paths by default', ['/sys/class/hwmon', '/sys/class/dmi/id', '/boot/config/plugins'],
+        [fanboyPaths()['hwmon'], fanboyPaths()['dmi'], fanboyPaths()['plugins']]);
+}
+
+function testFanboySituations(): void
+{
+    $look = function (array $spec): array {
+        static $n = 0;
+        return fanboyDetect(fanboyFakeTree(hardeningTmp('fanboy-sit-' . ++$n), $spec));
+    };
+    $board = fanboyFakeBoard();
+    $noIte = $board;
+    array_pop($noIte['chips']);
+
+    // no hwmon at all
+    $s = fanboyDetect(hardeningTmp('fanboy-empty'));
+    same('fanboy situations: no hwmon at all — no chip, no output; «no output», the BIOS', [false, [], 'no_output', 'bios', null],
+        [$s['hwmon'], $s['chips'], $s['situation']['code'], $s['who']['who'], $s['hottest']]);
+    // the chip missing: the driver plugin there, its module not loaded
+    $s = $look($noIte);
+    same('fanboy situations: chip missing, it87-driver installed, it87 not loaded — «driver missing» with plugin and module',
+        ['code' => 'driver_missing', 'plugins' => ['it87-driver'], 'modules' => ['it87']], $s['situation']);
+    // … module loaded, but the chip still not there (it needs a force_id): no output, not «driver missing»
+    $s = $look($noIte + ['modules' => ['it87']]);
+    same('fanboy situations: … the module loaded but no chip — «no output» (the hint at the driver plugins)', 'no_output', $s['situation']['code']);
+    // no driver plugin at all
+    $s = $look(array_replace($noIte, ['plugins' => []]));
+    same('fanboy situations: no chip, no driver plugin — «no output»', 'no_output', $s['situation']['code']);
+    // the chip appears later (the driver came with a plugin update): the next look finds it
+    $later = hardeningTmp('fanboy-later');
+    fanboyFakeTree($later, $noIte);
+    $first = fanboyDetect($later)['situation']['code'];
+    fanboyFakeTree("$later-2", $board);
+    $GLOBALS['testsTmp']["$later-2"] = true;
+    same('fanboy situations: the chip appears later — the next look says ok', ['driver_missing', 'ok'], [$first, fanboyDetect("$later-2")['situation']['code']]);
+    // outputs without tach inputs
+    $bare = $board;
+    $bare['chips'][count($bare['chips']) - 1]['fans'] = [];
+    $s = $look($bare);
+    same('fanboy situations: outputs without tach inputs — still ok, 6 outputs, no fan of the chip', ['ok', 6, 0],
+        [$s['situation']['code'], $s['counts']['outputs'], count(fanboyChipNamed($s, 'it8696_a0060607')['fans'])]);
+    // two chips
+    $two = $board;
+    $two['chips'][] = [11, 'nct6798', 'platform/nct6775.656', 'nct6775', 'pwm' => [1 => [255, 5, true], 2 => [100, 0, false]], 'fans' => [1 => 900, 2 => 0], 'temps' => [1 => [30000, 'SYSTIN']]];
+    $s = $look($two);
+    $nct = fanboyChipNamed($s, 'nct6798');
+    same('fanboy situations: two chips — 8 outputs; enable 5 the chip steers, 0 full speed', ['ok', 8, ['auto', 'full'], 'nct6775', 'board'],
+        [$s['situation']['code'], $s['counts']['outputs'], array_column($nct['outputs'], 'mode'), $nct['module'], $nct['kind']]);
+    // a graphics card's pwm alone: never offered
+    $gpu = ['board' => ['Example', 'Box'], 'chips' => [[0, 'amdgpu', 'pci0000:00/0000:00:01.0/0000:01:00.0', 'amdgpu', 'pwm' => [1 => [80, 2, true]], 'fans' => [1 => 1200], 'temps' => [1 => [45000, 'edge']]]]];
+    $s = $look($gpu);
+    same('fanboy situations: only a graphics card\'s output — not offered, «no output»', ['no_output', 0, 'gpu'], [$s['situation']['code'], $s['counts']['outputs'], $s['chips'][0]['kind']]);
+    // an IPMI-only board
+    $ipmi = ['board' => ['Example Server Co.', 'ES-2U'], 'chips' => [[0, 'coretemp', 'platform/coretemp.0', 'coretemp', 'temps' => [1 => [40000, 'Package id 0']]]],
+        'ipmi' => ['manufacturer_id' => '0x002a7c', 'product_id' => '0x1b0d', 'firmware_revision' => '1.74', 'ipmi_version' => '2.0', 'device_id' => '32']];
+    $s = $look($ipmi);
+    same('fanboy situations: IPMI-only board — «ipmi», the BMC\'s ids, who steers: the board',
+        ['ipmi', ['bmc' => true, 'manufacturer_id' => '0x002a7c', 'product_id' => '0x1b0d', 'firmware_revision' => '1.74', 'ipmi_version' => '2.0', 'device_id' => '32'], 'bmc'],
+        [$s['situation']['code'], $s['ipmi'], $s['who']['who']]);
+    // FanCtrl Plus active: its settings switched on, its loop running
+    $fcp = $board + [];
+    $fcp['plugins'] = ['it87-driver.plg' => '<PLUGIN/>', 'fanctrlplus/pwm1.cfg' => "service=\"1\"\ncontroller=\"/sys/devices/platform/it87.2608/hwmon/hwmon10/pwm1\"\n",
+        'fanctrlplus/pwm2.cfg' => "service=\"0\"\n"];
+    $fcp['procs'] = [1 => '/sbin/init', 4711 => '/bin/bash /usr/local/emhttp/plugins/fanctrlplus/scripts/fanctrlplus_loop.sh pwm1'];
+    $s = $look($fcp);
+    same('fanboy situations: FanCtrl Plus active — «other» with its name as Community Applications lists it; who steers: FanCtrl Plus',
+        [['code' => 'other', 'who' => ['fanctrlplus'], 'names' => ['FanCtrl Plus']], [['id' => 'fanctrlplus', 'name' => 'FanCtrl Plus', 'settings' => true, 'running' => true, 'blocks' => true]], 'fanctrlplus', 'other'],
+        [$s['situation'], $s['controllers'], $s['who']['who'], $s['who']['why']]);
+    $fcp['procs'] = [];
+    same('fanboy situations: … its settings on, the loop not running — still «other»', 'other', $look($fcp)['situation']['code']);
+    $fcp['plugins']['fanctrlplus/pwm1.cfg'] = "service=\"0\"\n";
+    same('fanboy situations: … every file service="0", no loop — ok', 'ok', $look($fcp)['situation']['code']);
+    $fcp['procs'] = [99 => '/bin/bash /usr/local/emhttp/plugins/fanctrlplus/scripts/fanctrlplus_loop.sh pwm3'];
+    same('fanboy situations: … a loop running with its settings off — «other»', 'other', $look($fcp)['situation']['code']);
+    $af = $board;
+    $af['plugins'] = ['dynamix.system.autofan/fan.cfg' => "service=\"1\"\n"];
+    same('fanboy situations: Dynamix System Autofan on — «other»', ['other', ['Dynamix System Autofan']], [($s = $look($af))['situation']['code'], $s['situation']['names']]);
+    $fork = $board;
+    $fork['procs'] = [77 => '/bin/bash /usr/local/emhttp/plugins/fanctrlplus2/scripts/loop.sh'];
+    same('fanboy situations: the fork FanCtrl Plus 2 running — «other», only the fork named', ['other', ['FanCtrl Plus 2']], [($f = $look($fork))['situation']['code'], $f['situation']['names']]);
+    // the Team Lead's fit: always yes, the reason the situation's
+    same('fanboy situations: the fit — yes; other with the name; ipmi', [['ok' => true, 'why' => 'yes', 'params' => []], ['ok' => true, 'why' => 'other', 'params' => ['who' => 'Dynamix System Autofan']], 'ipmi'],
+        [fanboyFit($look($board)), fanboyFit($s), fanboyFit($look($ipmi))['why']]);
+}
+
+function testFanboyIdentity(): void
+{
+    // two «boots»: the same board, the chip hwmon10 then hwmon7 (a disk more, another kernel) — the stored fan found both times
+    $boot1 = fanboyFakeTree(hardeningTmp('fanboy-boot1'), fanboyFakeBoard(10));
+    $boot2 = fanboyFakeTree(hardeningTmp('fanboy-boot2'), fanboyFakeBoard(14));
+    $fan = ['chip' => 'it8696_a0060607', 'address' => 'it87.2608', 'output' => 4, 'tach' => 4];
+    same('fanboy identity: the id — chip, address, output; never hwmonN', 'it8696_a0060607:it87.2608:pwm4', fanboyFanId('it8696_a0060607', 'it87.2608', 4));
+    $r1 = fanboyResolve($fan, fanboyDetect($boot1), "$boot1/sys/class/hwmon");
+    $r2 = fanboyResolve($fan, fanboyDetect($boot2), "$boot2/sys/class/hwmon");
+    same('fanboy identity: the hwmon number changes between two boots — found both times, the path of each boot, the tach there',
+        [['here', "$boot1/sys/class/hwmon/hwmon10/pwm4", true], ['here', "$boot2/sys/class/hwmon/hwmon14/pwm4", true]],
+        [[$r1['how'], $r1['path'], $r1['tach']], [$r2['how'], $r2['path'], $r2['tach']]]);
+    check('fanboy identity: … and the path really is that output', is_file($r2['path']) && trim((string) file_get_contents($r2['path'])) === '128');
+    // the address changed (the chip at another I/O port), exactly one chip of that name: taken
+    $moved = fanboyDetect(fanboyFakeTree(hardeningTmp('fanboy-moved'), fanboyFakeBoard(10, 'it87.2624')));
+    same('fanboy identity: the address changed, one chip of that name — moved, taken, the new address', ['moved', 'it87.2624', true],
+        array_values(array_intersect_key(fanboyResolve($fan, $moved), ['how' => 1, 'address' => 1, 'tach' => 1])));
+    // two chips of that name and the stored address gone: none taken
+    $twin = fanboyFakeBoard(10, 'it87.2624');
+    $twin['chips'][] = [11, 'it8696_a0060607', 'platform/it87.2640', 'it87', 'pwm' => [4 => [128, 1, true]], 'fans' => [4 => 1000]];
+    same('fanboy identity: the address gone, two chips of that name — ambiguous, nothing taken', ['ambiguous', null],
+        array_values(array_intersect_key(fanboyResolve($fan, fanboyDetect(fanboyFakeTree(hardeningTmp('fanboy-twin'), $twin))), ['how' => 1, 'path' => 1])));
+    $twin['chips'][] = [12, 'it8696_a0060607', 'platform/it87.2608', 'it87', 'pwm' => [4 => [128, 1, true]], 'fans' => [4 => 1000]];
+    same('fanboy identity: … but one of them at the stored address — that one', ['here', 'it87.2608'],
+        array_values(array_intersect_key(fanboyResolve($fan, fanboyDetect(fanboyFakeTree(hardeningTmp('fanboy-twin2'), $twin))), ['how' => 1, 'address' => 1])));
+    // the chip missing (the driver not there yet) · the output gone · the tach input gone
+    $none = fanboyFakeBoard();
+    array_pop($none['chips']);
+    same('fanboy identity: the chip missing — missing, no path', ['missing', null], array_values(array_intersect_key(fanboyResolve($fan, fanboyDetect(fanboyFakeTree(hardeningTmp('fanboy-none'), $none))), ['how' => 1, 'path' => 1])));
+    $less = fanboyFakeBoard();
+    $less['chips'][count($less['chips']) - 1]['pwm'] = [1 => [128, 1, true]];
+    $less['chips'][count($less['chips']) - 1]['fans'] = [1 => 1300];
+    $sLess = fanboyDetect(fanboyFakeTree(hardeningTmp('fanboy-less'), $less));
+    same('fanboy identity: the output gone — no_output', 'no_output', fanboyResolve($fan, $sLess)['how']);
+    same('fanboy identity: the tach input gone — the fingerprint says so (false); none stored — null', [false, null],
+        [fanboyResolve(['output' => 1, 'tach' => 4] + $fan, $sLess)['tach'], fanboyResolve(['output' => 1, 'tach' => null] + $fan, $sLess)['tach']]);
+
+    // the store: per board, another board's entry stays, nothing rewritten or dropped for not matching
+    $dir = hardeningTmp('fanboy-store');
+    $store = ['v' => 1, 'unknown_key' => ['kept' => true], 'boards' => [
+        'Example Boards Inc. | EB-Z100 PRO' => ['board' => ['vendor' => 'Example Boards Inc.', 'model' => 'EB-Z100 PRO'],
+            'fans' => ['it8696_a0060607:it87.2608:pwm4' => $fan + ['name' => 'Case back', 'zone' => 'case'],
+                       'broken' => ['chip' => 'x', 'output' => 'four'], 'old' => ['chip' => 'nct6798', 'address' => 'nct6775.656', 'output' => 2]]],
+        'Other Vendor | OV-1' => ['board' => ['vendor' => 'Other Vendor', 'model' => 'OV-1'], 'fans' => ['nct6798:nct6775.656:pwm1' => ['chip' => 'nct6798', 'address' => 'nct6775.656', 'output' => 1]]],
+        'not a board' => 'x']];
+    file_put_contents(fanboyStoreFile($dir), json_encode($store));
+    $md5 = md5_file(fanboyStoreFile($dir));
+    $read = fanboyStoreRead(fanboyStoreFile($dir));
+    same('fanboy identity: the store as read — both boards, only entries in their exact shape (part 2\'s keys kept on an entry)',
+        [['Example Boards Inc. | EB-Z100 PRO', 'Other Vendor | OV-1'], ['it8696_a0060607:it87.2608:pwm4', 'old'], 'Case back'],
+        [array_keys($read['boards']), array_keys($read['boards']['Example Boards Inc. | EB-Z100 PRO']['fans']), $read['boards']['Example Boards Inc. | EB-Z100 PRO']['fans']['it8696_a0060607:it87.2608:pwm4']['name'] ?? null]);
+    $here = fanboyBoardSettings($read, fanboyDetect($boot1)['board']);
+    same('fanboy identity: this board\'s settings by vendor and model; the other board kept aside', ['Example Boards Inc. | EB-Z100 PRO', true, ['Other Vendor | OV-1']],
+        [$here['key'], $here['here'] !== null, $here['others']]);
+    $new = fanboyBoardSettings($read, ['vendor' => 'Brand New', 'model' => 'BN-9']);
+    same('fanboy identity: another board — no settings for it, both old ones kept', [null, ['Example Boards Inc. | EB-Z100 PRO', 'Other Vendor | OV-1']], [$new['here'], $new['others']]);
+    // everything resolved against a scan where half of it doesn't match: the file stays byte for byte
+    foreach ($read['boards'] as $b) {
+        foreach ($b['fans'] as $f) {
+            fanboyResolve($f, fanboyDetect($boot2));
+        }
+    }
+    same('fanboy identity: reading and resolving (with the old chip missing) leaves the store byte for byte', $md5, md5_file(fanboyStoreFile($dir)));
+    same('fanboy identity: no store, a broken one — no boards (nothing made up)', [[], []],
+        [fanboyStoreRead("$dir/none.json")['boards'], (function () use ($dir) { file_put_contents("$dir/bad.json", '{nope'); return fanboyStoreRead("$dir/bad.json")['boards']; })()]);
+    same('fanboy identity: the board key folds spaces', 'Example Boards Inc. | EB-Z100 PRO', fanboyBoardKey(['vendor' => ' Example  Boards Inc. ', 'model' => "EB-Z100\tPRO"]));
+}
+
+function testFanboyReport(): void
+{
+    // a fake server full of what must never leave it: serials, the server's name, disk ids and names, paths, names given
+    $spec = fanboyFakeBoard(10, 'it87.2608', [
+        'dmi_extra' => ['board_serial' => 'BSN-7Q2X9-SECRET', 'product_serial' => 'PSN-4711-SECRET', 'product_uuid' => '0b1c2d3e-uuid-secret', 'chassis_serial' => 'CSN-SECRET'],
+        'files'     => ['boot/config/ident.cfg' => "NAME=\"FamilyVault\"\nCOMMENT=\"Basement rack\"\n", 'etc/hostname' => "FamilyVault\n",
+                        'sys/devices/pci0000:00/0000:00:06.1/0000:03:00.0/nvme/nvme0/serial' => "NVMESERIAL123\n"],
+    ]);
+    $spec['disks'] .= "[familypool]\nname=\"familypool\"\ntype=\"Cache\"\ndevice=\"sde\"\nid=\"WDC_WD40EFRX-68N32N0_WD-WCC7K1234567\"\ntemp=\"38\"\nspundown=\"0\"\nrotational=\"1\"\n";
+    $root = fanboyFakeTree(hardeningTmp('fanboy-report'), $spec);
+    $scan = fanboyDetect($root);
+    $text = fanboyReportText($scan);
+    $never = ['BSN-7Q2X9', 'PSN-4711', 'uuid-secret', 'CSN-SECRET', 'FamilyVault', 'Basement', 'NVMESERIAL', 'WCC7K1234567', 'WD40EFRX', 'EXAMPLE_HDD', 'EXAMPLE_NVME',
+              'familypool', 'parity', 'disk1', 'cache', 'it87.2608', 'hwmon', 'devices', 'platform', 'pci0000', 'nvme2', $root,
+              'Board Left', 'Front Intake', 'CPU Package'];
+    same('fanboy report: none of the server\'s name, serials, disk ids or names, a device\'s address, a path, the names given in System Temp', [],
+        array_values(array_filter($never, fn ($x) => stripos($text, $x) !== false)));
+    check('fanboy report: no «/» at all (no path can hide in it)', !str_contains($text, '/'), $text);
+    $want = ['Fanboy detection report v1', 'Board: Example Boards Inc. - EB-Z100 PRO', 'Kernel: test · Unraid: 7.3.2', 'Situation: ok',
+             '- it8696_a0060607 (driver it87, board): outputs 6 (auto mode yes; now 6 manual), tach inputs 6 (4 turning), temperatures 6',
+             'Sensor kinds: board 14, cpu 3, nvme 6, other 1, ram 2', 'Unraid disks: 5 (4 rotating)',
+             'Plugins: ITE IT87 Driver installed (module loaded), Dynamix System Temp installed', 'Start option acpi_enforce_resources=lax: not set'];
+    same('fanboy report: the technical lines the concept lists', [], array_values(array_filter($want, fn ($l) => !str_contains($text, $l))), $text);
+    check('fanboy report: small enough for the wish form (' . strlen($text) . ' bytes)', strlen($text) <= FANBOY_REPORT_MAX && strlen($text) > 200);
+    // the driver missing: said in the situation line
+    $noIte = fanboyFakeBoard();
+    array_pop($noIte['chips']);
+    same('fanboy report: «driver missing» with the plugin and module', true,
+        str_contains(fanboyReportText(fanboyDetect(fanboyFakeTree(hardeningTmp('fanboy-report-dm'), $noIte))), 'Situation: driver_missing (plugin it87-driver, module it87 not loaded)'));
+
+    // an IPMI board: the BMC's ids, its firmware, its fan sensors' names (a stand-in ipmitool); a sensor name with a
+    // path or a long token in it never comes through
+    $ipmi = ['board' => ['Example Server Co.', 'ES-2U'], 'chips' => [[0, 'coretemp', 'platform/coretemp.0', 'coretemp', 'temps' => [1 => [40000, 'Package id 0']]]],
+        'ipmi' => ['manufacturer_id' => '0x002a7c', 'product_id' => '0x1b0d', 'firmware_revision' => '1.74', 'ipmi_version' => '2.0', 'device_id' => '32', 'guid' => 'deadbeef-guid-secret'],
+        'files' => ['usr/bin/ipmitool' => "#!/bin/sh\n[ \"\$*\" = 'sdr type Fan' ] || exit 3\nprintf 'FAN1             | 41h | ok  | 29.1 | 1400 RPM\\nFAN2             | 42h | ok  | 29.2 | 1500 RPM\\n"
+            . "FAN_CPU          | 43h | ns  | 29.3 | No Reading\\n/mnt/user/x      | 44h | ok  | 1 | 1 RPM\\nFAN1             | 41h | ok  | 29.1 | 1400 RPM\\n'\n"]];
+    $root = fanboyFakeTree(hardeningTmp('fanboy-report-ipmi'), $ipmi);
+    chmod("$root/usr/bin/ipmitool", 0755);
+    $scan = fanboyDetect($root);
+    $fans = fanboyIpmiFans($scan, "$root/usr/bin/ipmitool");
+    same('fanboy report ipmi: the fan sensors\' names from ipmitool — each once, nothing that isn\'t a plain name', ['FAN1', 'FAN2', 'FAN_CPU'], $fans);
+    $text = fanboyReportText($scan, $fans);
+    $want = ['Situation: ipmi', 'IPMI: BMC seen; manufacturer id 0x002a7c, product id 0x1b0d, device id 32, firmware 1.74, IPMI 2.0', 'IPMI fan sensors: FAN1, FAN2, FAN_CPU'];
+    same('fanboy report ipmi: the BMC\'s ids, firmware and fan sensors', [], array_values(array_filter($want, fn ($l) => !str_contains($text, $l))), $text);
+    check('fanboy report ipmi: … never its GUID, never a path', !str_contains($text, 'guid') && !str_contains($text, 'secret') && !str_contains($text, '/'));
+    same('fanboy report ipmi: no ipmitool — said, nothing made up; no BMC — not even asked', [[], 'IPMI fan sensors: not read (no ipmitool)', []],
+        [fanboyIpmiFans($scan, "$root/usr/bin/none"), str_contains(fanboyReportText($scan), 'IPMI fan sensors: not read (no ipmitool)') ? 'IPMI fan sensors: not read (no ipmitool)' : fanboyReportText($scan),
+         fanboyIpmiFans(['ipmi' => null], "$root/usr/bin/ipmitool")]);
+
+    // the page: the button opens the office's report form as a wish of his desk, the report in the text — sent only by «Send»
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    check('fanboy report page: fanboy.report, then the form\'s draft (kind wish, desk fanboy, the report under the user\'s words) and Office.reportDialog(ID)',
+        str_contains($js, "Office.api.post(`\${ID}.report`, {})") && str_contains($js, "kind: 'wish',") && str_contains($js, 'desk: ID,')
+        && str_contains($js, '`${mine || T(\'report_wish\')}\n\n\n${j.report}`') && str_contains($js, 'Office.reportDialog(ID);')
+        && !str_contains($js, 'office.report_send'));
+    // the form takes it: a wish of his desk, the report's text within the form's limit
+    $GLOBALS['desks']['fanboy'] ??= ['actions' => []];
+    $w = reportWords(['kind' => 'wish', 'desk' => 'fanboy', 'title' => 'Fanboy: what he finds on this board', 'text' => "What I'd like Fanboy to do here:\n\n\n" . $text]);
+    unset($GLOBALS['desks']['fanboy']);
+    same('fanboy report page: the office\'s form takes it as a wish of his desk', ['wish', 'fanboy'], [$w['kind'], $w['desk']]);
+}
+
+function testFanboyHints(): void
+{
+    $look = function (array $spec): array {
+        static $n = 0;
+        return fanboyDetect(fanboyFakeTree(hardeningTmp('fanboy-hints-' . ++$n), $spec));
+    };
+    $by = fn (array $s) => array_column(array_map(fn ($t) => [$t['id'], [$t['installed'], $t['loaded'], $t['active']]], $s['tools']), 1, 0);
+    // the catalogue: names and authors exactly as Community Applications lists them (checked against its feed 2026-11-14)
+    same('fanboy hints: the plugins he knows — the names and authors of Community Applications',
+        ['it87-driver' => ['ITE IT87 Driver', 'ich777'], 'nct6687-driver' => ['Nuvoton NCT6687 Driver', 'ich777'], 'dynamix.system.temp' => ['Dynamix System Temp', 'Bergware'],
+         'fanctrlplus' => ['FanCtrl Plus', 'ck9393'], 'fanctrlplus2' => ['FanCtrl Plus 2', 'ck9393 / andrebrait'], 'dynamix.system.autofan' => ['Dynamix System Autofan', 'Bergware/gfjardim'],
+         'pwm-fan' => ['PWM Fan', 'alturismo'], 'md12xx.fancontrol' => ['WAZ Cooling Control', 'TheIlluminate92']],
+        array_map(fn ($p) => [$p['name'], $p['author']], FANBOY_PLUGINS));
+
+    // what is there: on the fake board the ITE driver (installed, loaded) and System Temp; nothing else
+    $board = fanboyFakeBoard();
+    $s = $look($board);
+    same('fanboy hints: what is there — ITE driver installed and loaded, System Temp installed, the rest not; [installed, loaded, active]',
+        ['it87-driver' => [true, true, null], 'nct6687-driver' => [false, false, null], 'dynamix.system.temp' => [true, null, null], 'fanctrlplus' => [false, null, false],
+         'fanctrlplus2' => [false, null, false], 'dynamix.system.autofan' => [false, null, false], 'pwm-fan' => [false, null, false], 'md12xx.fancontrol' => [false, null, false]], $by($s));
+    same('fanboy hints: ok — nothing suggested, the fold closed, the start option not set', [[], false, false], [$s['suggest'], $s['hints_open'], $s['acpi_lax']]);
+    // the owner's kind of server: both plugins there and FanCtrl Plus steering
+    $owner = $board;
+    $owner['plugins'] += ['fanctrlplus.plg' => '<PLUGIN/>', 'fanctrlplus/pwm1.cfg' => "service=\"1\"\n"];
+    $s = $look($owner);
+    same('fanboy hints: … with FanCtrl Plus installed and on — «steering», the fold open', [[true, null, true], true, 'other'],
+        [$by($s)['fanctrlplus'], $s['hints_open'], $s['situation']['code']]);
+    // the driver plugin there, its driver not loaded (after an Unraid update)
+    $noIte = $board;
+    array_pop($noIte['chips']);
+    $s = $look($noIte);
+    same('fanboy hints: driver plugin installed, driver not loaded — said so, nothing suggested (the plugin is there), the fold open',
+        [[true, false, null], [], true], [$by($s)['it87-driver'], $s['suggest'], $s['hints_open']]);
+
+    // what fits: only with no output, only what isn't there; the board maker's hint narrows the drivers
+    $bare = array_replace($noIte, ['plugins' => []]);
+    $fit = fn (string $vendor, array $plugins = []) => $look(array_replace($bare, ['board' => [$vendor, 'X1'], 'plugins' => $plugins]));
+    same('fanboy hints: no output, nothing installed — Gigabyte: the ITE driver; MSI: the NCT6687 driver; another maker: both; each with System Temp',
+        [['it87-driver', 'dynamix.system.temp'], ['nct6687-driver', 'dynamix.system.temp'], ['it87-driver', 'nct6687-driver', 'dynamix.system.temp']],
+        [$fit('Gigabyte Technology Co., Ltd.')['suggest'], $fit('Micro-Star International Co., Ltd.')['suggest'], $fit('Example Boards Inc.')['suggest']]);
+    same('fanboy hints: … the hint is a hint, with the maker\'s short name ([ite, Gigabyte], [nuvoton, MSI], none)', [['ite', 'Gigabyte'], ['nuvoton', 'MSI'], [null, null]],
+        array_map(fn ($x) => [$x['board_hint'], $x['board_maker']], [$fit('Gigabyte Technology Co., Ltd.'), $fit('Micro-Star International Co., Ltd.'), $fit('Example Boards Inc.')]));
+    same('fanboy hints: … System Temp already there — only the driver', ['it87-driver'], $fit('GIGABYTE', ['dynamix.system.temp.plg' => '<PLUGIN/>'])['suggest']);
+    same('fanboy hints: … the hinted driver installed already (and not loaded) — driver missing, nothing suggested', ['driver_missing', []],
+        [($x = $fit('GIGABYTE', ['it87-driver.plg' => '<PLUGIN/>']))['situation']['code'], $x['suggest']]);
+    $ipmi = ['board' => ['Example Server Co.', 'ES-2U'], 'chips' => [], 'ipmi' => ['manufacturer_id' => '0x002a7c']];
+    same('fanboy hints: IPMI — nothing suggested, the fold open', [[], true], [($x = $look($ipmi))['suggest'], $x['hints_open']]);
+
+    // the start option for a chip the BIOS keeps to itself: read from this boot's command line, never set
+    same('fanboy hints: acpi_enforce_resources=lax set at this boot — seen; a longer word isn\'t it', [true, false],
+        [$look(array_replace($board, ['files' => ['proc/cmdline' => "BOOT_IMAGE=/bzimage acpi_enforce_resources=lax initrd=/bzroot\n"]]))['acpi_lax'],
+         $look(array_replace($board, ['files' => ['proc/cmdline' => "acpi_enforce_resources=laxer\n"]]))['acpi_lax']]);
+
+    // the names from Dynamix System Temp: matched by chip name and isa address; another chip's lines left out
+    $s = $look($board);
+    same('fanboy hints: System Temp\'s names for the chips seen — two labels and a hidden fan on the ITE chip (isa 0a30 = it87.2608), the CPU\'s label; nct6798 not here',
+        [['it8696_a0060607', 'temp1', 'Board Left', false], ['it8696_a0060607', 'fan1', 'Front Intake', false], ['it8696_a0060607', 'fan3', null, true], ['coretemp', 'temp1', 'CPU Package', false]],
+        array_map(fn ($x) => [$x['chip'], $x['feature'], $x['label'], $x['ignore']], $s['names']));
+    $other = $board;
+    $other['plugins']['dynamix.system.temp/sensors.conf'] = "chip \"it8696-isa-0a40\"\n label temp1 \"Elsewhere\"\n";
+    same('fanboy hints: … a chip line at another isa address — not this chip', [], $look($other)['names']);
+    $root = fanboyFakeTree(hardeningTmp('fanboy-hints-ro'), $board);
+    $conf = "$root/boot/config/plugins/dynamix.system.temp/sensors.conf";
+    $md5 = md5_file($conf);
+    $mtime = filemtime($conf);
+    fanboyDetect($root);
+    same('fanboy hints: … sensors.conf read, never written', [$md5, $mtime], [md5_file($conf), filemtime($conf)]);
+
+    // the page: the fourth tile and its fold-out section (open by itself in those situations), the ⟦Apps⟧ link, no install
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    check('fanboy hints page: the tile «Hints» with its section; the fold kept (keepFold) and open by itself when hints_open',
+        str_contains($js, "{ id: 'hints', key: 'tile.hints', place: 'tile.hints', tile: hintsTile, section: () => hintsSection() }")
+        && str_contains($js, "keepFold(el('details', 'fb-hints'), 'hints', !!S().hints_open)"));
+    check('fanboy hints page: what fits by the agent\'s list only, each found in ⟦Apps⟧ by its name (a link, nothing installed), the wish button there',
+        str_contains($js, "(S().suggest || []).map((id) => tools().find((x) => x.id === id))") && str_contains($js, "Office.safeHref('/Apps')")
+        && str_contains($js, "T('hints.apps_how', { name: x.name, author: x.author })") && str_contains($js, 'bar.appendChild(reportButton(true));')
+        && !preg_match('/install\'?\s*[,)]|plugin install|\.install`/', $js));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-detect.php') . (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy.php');
+    check('fanboy hints: no modprobe, no plugin install anywhere in his code', !preg_match('/modprobe|insmod|plugin\s+install|\binstall\s*\(/i', (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', $src)));
+}
+
+function testFanboyPage(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    // part 3: the overview's five tiles, each its section (who → the server picture, fans, hottest → sensors, today → the
+    // curves, hints); the setup's seven steps on a switcher of their own
+    check('fanboy page: on the section switcher — five tiles, each its section',
+        str_contains($js, 'const sw = Office.sections({') && str_contains($js, "{ id: 'who', key: 'tile.who', place: 'tile.who', tile: whoTile, section: () => serverSection() }")
+        && str_contains($js, "{ id: 'fans', key: 'tile.fans', place: 'tile.fans', tile: fansTile, section: () => fansSection() }")
+        && str_contains($js, "{ id: 'hottest', key: 'tile.hottest', place: 'tile.hottest', tile: hottestTile, section: () => sensorsSection() }")
+        && str_contains($js, "{ id: 'today', key: 'tile.today', place: 'tile.today', tile: todayTile, section: () => curvesSection() }")
+        && str_contains($js, "{ id: 'hints', key: 'tile.hints', place: 'tile.hints', tile: hintsTile, section: () => hintsSection() }"));
+    preg_match_all("/act\\('([a-z_]+)'/", $js, $acts);
+    $acts = array_values(array_unique($acts[1]));
+    sort($acts);
+    same('fanboy page: the banner between the row and the sections; the page\'s actions through act() — the wizard\'s and part 2\'s',
+        [true, ['answer', 'back', 'drivers_load', 'drivers_undo', 'dry_run', 'fan_look', 'hand_back', 'look_now', 'role', 'take_over', 'zones_propose', 'zones_save']],
+        [str_contains($js, "banner = sw.el.insertBefore(el('div', 'fb-banner'), sw.body)"), $acts]);
+    check('fanboy page: in SECTIONS_DESKS', array_key_exists('fanboy', SECTIONS_DESKS));
+    // the stub and demo states: the shape of a real look on the fake tree (the click test and the pictures)
+    $look = fanboyDetect(fanboyFakeTree(hardeningTmp('fanboy-page'), fanboyFakeBoard()));
+    $keys = fn (array $a) => array_keys($a);
+    foreach (['tests/ui/states/fanboy.json', 'tests/ui/demo/fanboy.json'] as $f) {
+        $st = json_decode((string) @file_get_contents(OFFICE_DIR . "/$f"), true);
+        same("fanboy page: $f has a look's keys (part 2's on top), its chips a chip's", [[...$keys($look), 'control', 'setup', 'step', 'drivers', 'import'], $keys($look['chips'][10])],
+            [is_array($st) ? $keys($st) : null, is_array($st['chips'][10] ?? null) ? $keys($st['chips'][10]) : null]);
+    }
+    // the docs: his entry under «The desks»
+    $dev = (string) file_get_contents(OFFICE_DIR . '/docs/DEVELOPMENT.md');
+    check('fanboy page: docs/DEVELOPMENT.md has his entry (the switch, nothing written to a fan)', str_contains($dev, '**`fanboy` — Fanboy**') && str_contains($dev, 'show.json'));
+    // the name the same in all five languages
+    $names = [];
+    foreach (['en', 'de', 'fr', 'it', 'es'] as $c) {
+        $names[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true)['name'] ?? null;
+    }
+    same('fanboy page: «Fanboy» in all five languages', array_fill_keys(['en', 'de', 'fr', 'it', 'es'], 'Fanboy'), $names);
+}
+
+
+/*
+ * Fanboy's pictures (public/desks/fanboy/fan-art.js, fan-art.css, fans-catalog.json; built 2026-11-14 beside the desk):
+ * the catalogue in exactly its shape (every value from the maker's page or null, each entry's page named in the dev-only
+ * tools/fanboy/fans-catalog.sources.md, on the maker's own site), the three files shipped and the demo kept out of the
+ * package, the stylesheet nested in #sso with the office's tokens only, the components with no words of their own, and
+ * the wheel's speed picture under node (0 stands, min … max 0.12 … 1.1 turns a second, eased, never more; round 2,
+ * 2026-11-14: the owner wanted it to hint at the speed, slow pleasantly slow), and the air moving like the wheel.
+ */
+function testFanboyLook(): void
+{
+    $dir = OFFICE_WEB . '/desks/fanboy';
+    $cat = json_decode((string) @file_get_contents("$dir/fans-catalog.json"), true);
+    check('fanboy look: fans-catalog.json is JSON with v 1 and a list of fans', is_array($cat) && ($cat['v'] ?? null) === 1 && array_is_list($cat['fans'] ?? null));
+    $fans = is_array($cat) && is_array($cat['fans'] ?? null) ? $cat['fans'] : [];
+    check('fanboy look: the catalogue holds the usual fans (40 … 60 of them)', count($fans) >= 40 && count($fans) <= 60, (string) count($fans));
+    $keys = ['id', 'brand', 'model', 'mm', 'rpm_min', 'rpm_max', 'blades', 'connector'];
+    $intOrNull = fn ($v, int $lo, int $hi) => $v === null || (is_int($v) && $v >= $lo && $v <= $hi);
+    $bad = [];
+    foreach ($fans as $i => $f) {
+        $id = is_array($f) && is_string($f['id'] ?? null) ? $f['id'] : "#$i";
+        $ok = is_array($f) && array_keys($f) === $keys
+            && preg_match('/^[a-z0-9]+(-[a-z0-9]+)*$/D', (string) $f['id'])
+            && is_string($f['brand']) && trim($f['brand']) !== '' && is_string($f['model']) && trim($f['model']) !== ''
+            && !preg_match('~[<>]|https?:~', $f['brand'] . $f['model'])
+            && is_int($f['mm']) && $f['mm'] >= 40 && $f['mm'] <= 200
+            && $intOrNull($f['rpm_max'], 100, 12000) && $intOrNull($f['rpm_min'], 0, 12000)
+            && ($f['rpm_min'] === null || $f['rpm_max'] === null || $f['rpm_min'] < $f['rpm_max'])
+            && $intOrNull($f['blades'], 3, 15) && in_array($f['connector'], [null, '3-pin', '4-pin'], true);
+        if (!$ok) {
+            $bad[] = $id;
+        }
+    }
+    same('fanboy look: every fan in exactly the shape (id, brand, model, mm 40-200, rpm min < max or null, blades, connector)', [], $bad);
+    $ids = array_column($fans, 'id');
+    same('fanboy look: no id twice', [], array_values(array_unique(array_diff_assoc($ids, array_unique($ids)))));
+    $names = array_map(fn ($f) => mb_strtolower(($f['brand'] ?? '') . ' ' . ($f['model'] ?? '')), $fans);
+    same('fanboy look: no fan twice (brand and model)', [], array_values(array_unique(array_diff_assoc($names, array_unique($names)))));
+    check('fanboy look: the usual sizes are there (80, 92, 120, 140 and 200 mm)', !array_diff([80, 92, 120, 140, 200], array_column($fans, 'mm')));
+
+    // where each value comes from: a row per fan with the maker's own page (never a retailer's), no row for a fan not there
+    $src = (string) @file_get_contents(OFFICE_DIR . '/tools/fanboy/fans-catalog.sources.md');
+    $rows = [];
+    foreach (explode("\n", $src) as $line) {
+        if (preg_match('~^\| ([a-z0-9-]+) \| (.+?) \| .+? \| \d+ \| (https://[^\s|]+) \|~', $line, $m)) {
+            $rows[$m[1]] = ['brand' => $m[2], 'url' => $m[3]];
+        }
+    }
+    $makers = ['Noctua' => 'noctua.at', 'Arctic' => 'arctic.de', 'be quiet!' => 'bequiet.com', 'Corsair' => 'corsair.com',
+        'Fractal Design' => 'fractal-design.com', 'Phanteks' => 'phanteks.com', 'Thermalright' => 'thermalright.com',
+        'Cooler Master' => 'coolermaster.com', 'SilverStone' => 'silverstonetek.com', 'Lian Li' => 'lian-li.com', 'Thermaltake' => 'thermaltake.com'];
+    $noPage = [];
+    foreach ($fans as $f) {
+        $r = $rows[$f['id'] ?? ''] ?? null;
+        $host = $r ? (string) parse_url($r['url'], PHP_URL_HOST) : '';
+        $site = $makers[$f['brand'] ?? ''] ?? null;
+        if (!$r || $site === null || !($host === $site || str_ends_with($host, ".$site"))) {
+            $noPage[] = $f['id'] ?? '?';
+        }
+    }
+    same('fanboy look: every fan\'s page named in tools/fanboy/fans-catalog.sources.md, on its maker\'s own site', [], $noPage);
+    same('fanboy look: … and no row there for a fan the catalogue doesn\'t have', [], array_values(array_diff(array_keys($rows), $ids)));
+
+    // the package: public/ goes in whole (the three files with it), tools/ never
+    $build = (string) file_get_contents(OFFICE_DIR . '/plugin/build.sh');
+    check('fanboy look: build.sh ships public/ (fan-art.js, fan-art.css, fans-catalog.json) and nothing of tools/',
+        str_contains($build, 'cp -R public/. "$pkg/"') && !preg_match('~cp [^\n]*\btools\b~', $build)
+        && is_file("$dir/fan-art.js") && is_file("$dir/fan-art.css") && is_file(OFFICE_DIR . '/tools/fanboy/demo.html'));
+
+    // the stylesheet: nested in #sso, no colour of its own, only the office's tokens, Unraid's palette and its own
+    $css = (string) file_get_contents("$dir/fan-art.css");
+    $bare = preg_replace('~/\*.*?\*/~s', '', $css);
+    $top = [];                              // the selectors at the top level: only #sso (every rule nested in it)
+    $depth = 0;
+    $sel = '';
+    foreach (str_split($bare) as $ch) {
+        if ($ch === '{') {
+            if ($depth === 0) {
+                $top[] = trim($sel);
+            }
+            $depth++;
+            $sel = '';
+        } elseif ($ch === '}') {
+            $depth--;
+            $sel = '';
+        } elseif ($ch === ';') {
+            $sel = '';
+        } else {
+            $sel .= $ch;
+        }
+    }
+    same('fanboy look: fan-art.css — every rule under #sso, the braces closed', [['#sso'], 0], [$top, $depth]);
+    same('fanboy look: fan-art.css — no colour of its own (tokens only)', 0, preg_match_all('/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i', $bare));
+    preg_match_all('/var\((--[a-z0-9-]+)/i', $bare, $used);
+    preg_match_all('/(--[a-z0-9-]+):/i', $bare . (string) file_get_contents(OFFICE_WEB . '/assets/office.css'), $defined);
+    preg_match_all("/setProperty\('(--[a-z0-9-]+)'/", (string) file_get_contents("$dir/fan-art.js"), $setByJs);     // --fan-px, --fan-at
+    $defined[1] = array_merge($defined[1], $setByJs[1]);
+    $palette = fn ($v) => (bool) preg_match('/^--(gray|blue|red|green|orange|yellow)-\d+$|^--(white|black)$/', $v);
+    same('fanboy look: fan-art.css — every variable it uses is the office\'s, Unraid\'s palette or its own', [],
+        array_values(array_unique(array_filter(array_diff($used[1], $defined[1]), fn ($v) => !$palette($v)))));
+    check('fanboy look: fan-art.css — a size of its own under 640 px (phone) for the zone and the curve', substr_count($bare, '@media (max-width:640px)') >= 2);
+
+    // the components: no words of their own, nothing outside #sso, the house rules
+    $js = (string) file_get_contents("$dir/fan-art.js");
+    $code = (string) preg_replace('~^\s*(/\*.*?\*/|//[^\n]*)~ms', '', (string) preg_replace('~/\*.*?\*/~s', '', $js));
+    $words = [];
+    foreach (explode("\n", $code) as $i => $line) {
+        if (preg_match("/(textContent|title|label)\s*=\s*'[A-Za-z]|el\('[a-z0-9]+', [^,)]+, '[A-Za-z]{2}/", $line)) {
+            $words[] = $i + 1;
+        }
+    }
+    same('fanboy look: fan-art.js — no words of its own (every label from the caller)', [], $words);
+    check('fanboy look: fan-art.js — never into body, no role=button, no scrollIntoView, no bare details',
+        !str_contains($js, 'document.body') && !str_contains($js, 'role="button"') && !str_contains($js, "'button')") && !str_contains($js, 'scrollIntoView(')
+        && !str_contains($js, "el('details'"));
+    check('fanboy look: the wheel turns by a transform only, its air and the zone\'s by transform and opacity; all paused off screen and in a hidden tab, still with reduced motion',
+        str_contains($js, "loop(rotor, [{ transform: 'rotate(0turn)' }, { transform: 'rotate(1turn)' }], 0)")
+        && str_contains($js, "const frames = [{ transform: tr(axis, a), opacity: 0 }, ...mid, { transform: tr(axis, b), opacity: 0 }];") && str_contains($js, 'stream(m, air, ') && str_contains($js, 'stream(m, layer, ')
+        && substr_count($js, '.animate(') === 1 && str_contains($js, 'new IntersectionObserver(')
+        && str_contains($js, "'visibilitychange'") && str_contains($js, "'(prefers-reduced-motion: reduce)'") && str_contains($js, 'const go = m.seen && !document.hidden && !reduce.matches;')
+        && str_contains($bare, '@media (prefers-reduced-motion:reduce){ .fan-flow, .fan-air{display:none} }') && str_contains($bare, '.fan-still .fan-air{display:none}'));
+    check('fanboy look: the air — more streaks and quicker the faster, none while it stands, a BIOS fan\'s calmer; the zone\'s from its fans\' flow',
+        str_contains($js, 'const on = m.rate > 0.005 && p.on(m.rate);') && str_contains($js, 'const show = on && r.on(m.rate);')
+        && str_contains($js, 'STREAKS.slice(0, calm ? 2 : 4), calm ? 1.0 : 1.7, 1, -40, 180, calm ? 0.6 : 0.9, false)')
+        && str_contains($js, "wheelAir(m, box, side, flow, state === 'bios')") && str_contains($js, 'const [axis, sign] = zoneWay(fans, wall);')
+        && str_contains($js, 'fl.m.glide(zoneRate(fans));'));
+
+    // the speed picture under node
+    $node = testsNode();
+    if ($node === '') {
+        check('fanboy look: node is missing here - the speed picture skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('fanboy-look');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.window = globalThis;
+globalThis.document = { currentScript: null, addEventListener() {}, getElementById: () => null, hidden: false };
+new Function(fs.readFileSync(process.argv[2], 'utf8'))();
+const t = window.FanArt.turns;
+const r = (x) => Math.round(x * 1000) / 1000;
+const curve = [];
+for (let rpm = 0; rpm <= 3000; rpm += 50) curve.push(t(rpm, 300, 1500));
+console.log(JSON.stringify({
+  zero: t(0, 300, 1500), none: t(null, 300, 1500), min: r(t(300, 300, 1500)), max: r(t(1500, 300, 1500)), over: t(9000, 300, 1500),
+  mid: r(t(900, 300, 1500)), eased: t(900, 300, 1500) - t(300, 300, 1500) > t(1500, 300, 1500) - t(900, 300, 1500), below: r(t(150, 300, 1500)), unknown: r(t(2000, null, null)), rising: curve.every((v, i) => !i || v >= curve[i - 1]),
+  keys: [window.FanArt.COLOURS.length, window.FanArt.STATES.join(','), window.FanArt.KINDS.length, window.FanArt.FLOWS.join(',')],
+}));
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg("$dir/fan-art.js") . ' 2>&1'), true);
+    same('fanboy look: the speed picture — 0 rpm and no feedback stand, min 0.12, max 1.1, above max still 1.1, half way eased (0.767), below min in proportion',
+        [0, 0, 0.12, 1.1, 1.1, 0.767, 0.06], [$o['zero'] ?? null, $o['none'] ?? null, $o['min'] ?? null, $o['max'] ?? null, $o['over'] ?? null, $o['mid'] ?? null, $o['below'] ?? null]);
+    same('fanboy look: … an unknown range is 20 % … 100 % of 2000 rpm, faster never turns slower, the slow half differs more than the fast one',
+        [1.1, true, true], [$o['unknown'] ?? null, $o['rising'] ?? null, $o['eased'] ?? null]);
+    same('fanboy look: the keys a caller may pass (colours, states, kinds, flows)', [7, 'run,stopped,unknown,bios', 7, 'in,out'], $o['keys'] ?? null);
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
-          'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
+          'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
+          'fanboy' => ['testFanboyHidden', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
+                       'testFanboyWrite', 'testFanboyControl', 'testFanboyAlarms', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',
+                       'testFanboyProcesses', 'testFanboyDrivers', 'testFanboyImport', 'testFanboyStopScripts', 'testFanboyState',
+                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyDeskWords']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
 $only = array_values(array_unique(array_slice($argv, 1)));
