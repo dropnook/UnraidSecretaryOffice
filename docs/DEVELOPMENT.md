@@ -916,7 +916,8 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   power cut) is noted, and «Put back» then removes it into Ms. Dustdevil's storeroom through her helpers (never deleted); a
   program holding a file open blocks a replace (he never ends one). Lists only awake ZFS pools. **A snapshot counts for a folder
   only when it holds it** (`rsLocate()`, W4-1: a share on two pools, the folder on one): ZFS's `.zfs/snapshot/<name>/<rel>`
-  (a dataset's own top always), the btrfs moment's folder, looked into on awake places only — his count, «newest», each
+  (a dataset's own top always), the btrfs moment's folder, looked into on awake places only (a ZFS snapshot always through a
+  read-only mount of the office's own, never `.zfs`: restore-mounts.php, «Snapshot automounts») — his count, «newest», each
   place's latest and the dialog's moments come from that one list; a sleeping ZFS pool shows what held the folder at his
   last look (`held` in his file), never a look now. A missing share blocks; never a
   folder holding a running VM's disks; never starts containers; credentials only as variable names; partner pulls into a NEW
@@ -1122,14 +1123,22 @@ The same thing has the same word on every desk and text; grammar follows the wor
 * **ZFS:** a pool's top folder sees only its own dataset — fullness via `zfs list -Hp -o used,avail <pool>`. Every share and
   each VM folder in `domains` is a dataset: `rename()` can't move them, use `zfs rename`. `written` = since the latest snapshot.
   **Snapshot automounts:** every look into `<mountpoint>/.zfs/snapshot/<name>/…` (an `access()`, a `file_exists()`) mounts
-  that snapshot; ZFS unmounts it again ~300 s later (`zfs_expire_snapshot`) through a taskq. Mr. Restori's `rsLocate()`
-  touches up to `RS_SNAPS_LOOK` snapshots per place on every refresh, so a server shows dozens of automounts and a steady
-  expiry churn. On Unraid 7.4.0-rc.2 (kernel 6.18, OpenZFS 2.4.4) a re-mount of a snapshot whose expiry unmount was still
-  pending panicked the kernel three times in a drill (`VERIFY(avl_find(...) == NULL)` in `avl_add` ← `zfsctl_snapshot_mount`,
-  Tower 2026-10-30/31; the process stays in D holding its locks until a reboot). Upstream fixed one such race in 2.4.0
-  (openzfs/zfs #17943), this one remains. Rule: touch snapshots as rarely as possible — a snapshot never changes, so an
-  answer about it can be remembered; never a scan over all snapshots in a tick. The scenario harness refuses a run on a
-  panicked server (`base.sh`: a process at `spl_panic`). **Automounts and mount namespaces** (test4, 7.3.4, OpenZFS
+  that snapshot; ZFS unmounts it again ~300 s later (`zfs_expire_snapshot`) through a taskq. OpenZFS 2.4.4 (Unraid 7.4.0
+  and its rc.2) keeps every automounted snapshot in two kernel trees, by full name and by objset; its entry goes only when
+  the snapshot's superblock dies. **The panic** (`VERIFY(avl_find(...) == NULL)` in `avl_add` ← `zfsctl_snapshot_mount`,
+  Tower 2026-10-30/31 and 2026-11-14 on 7.4.0 final; the process stays in D until a reboot): a snapshot's full name changed
+  (`zfs rename` of it or of its dataset) while the tree still held it under the old one (automounted, or its superblock kept
+  alive by another mount — a container's copy of the mount, a hand mount, a file open in it), then a look under the new
+  name: the automount adds the objset a second time (proven from the source and the 7.4.0 module, +0x88f = that add; no
+  timing needed). A mount by hand (`mount -t zfs -o ro <ds>@<snap> <dir>`) never enters those trees. Fixed upstream only
+  on master (`e8e3076927`, «rewrite snapshot automount facility», 2026-08: no trees, no helpers), in no 2.4.x.
+  **Rule: the office never reads a snapshot through `.zfs`** — `agent/desks/restore-mounts.php` (`rsSnapReal()`) mounts it
+  read-only under `/mnt/addons/UnraidSecretaryOffice/snapread/p<pid>-<hash>` for the look, the step or the plan and
+  unmounts it again; swept after a killed job (agent start, job start, his tick), released by agent.sh at the array stop
+  (`snapread_release`), never on a sleeping pool; the drill reads only the run's snapshot, found by name. A snapshot never
+  changes, so «does it hold» answers stay remembered (holds.json); never a scan over all snapshots in a tick. The
+  scenario harness refuses a run on a panicked server (`base.sh`: a process at `spl_panic`).
+  **Automounts and mount namespaces** (test4, 7.3.4, OpenZFS
   2.4.4, 2026-11-03): ZFS mounts a snapshot at `<dataset's mountpoint>/.zfs/snapshot/<name>` in the host's namespace, also
   when the look came from inside a container (the container then sees an empty folder) — and `zfs destroy` can't unmount
   that one itself («dataset is busy»; a plain `umount` on the host can). A mount namespace made while an automount exists
