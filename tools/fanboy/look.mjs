@@ -269,13 +269,15 @@ function chromeTree() {
   const roots = rows.filter((r) => r.cmd.startsWith(chrome) && r.cmd.includes('--remote-debugging-pipe') && !rows.some((p) => p.pid === r.ppid && p.cmd.startsWith(chrome)));
   const keep = new Set(roots.map((r) => r.pid));
   for (let grew = true; grew;) { grew = false; for (const r of rows) if (!keep.has(r.pid) && keep.has(r.ppid)) { keep.add(r.pid); grew = true; } }
-  return rows.filter((r) => keep.has(r.pid)).reduce((s, r) => s + secs(r.time), 0);
+  return new Map(rows.filter((r) => keep.has(r.pid)).map((r) => [r.pid, secs(r.time)]));
 }
+/** CPU seconds between two looks, of the processes there at both (one that ended or began between them would lie) */
+const spent = (a, b) => [...b].reduce((s, [pid, t]) => s + (a.has(pid) ? t - a.get(pid) : 0), 0);
 async function measure(query, secs) {
   const { ctx, page } = await open(query, { width: 1440, height: 900, scale: 1 });
   const cdp = await ctx.newCDPSession(page);
   await cdp.send('Performance.enable');
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(3000);       // the last page's processes gone, this one's settled
   const metric = async () => Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((m) => [m.name, m.value]));
   const a = await metric(), ca = chromeTree(), t0 = Date.now();
   await page.waitForTimeout(secs * 1000);
@@ -283,7 +285,7 @@ async function measure(query, secs) {
   const wheels = await page.evaluate(() => document.querySelectorAll('.fan-wheel').length);
   const running = await page.evaluate(() => document.getAnimations().filter((x) => x.playState === 'running').length);
   await ctx.close();
-  return { query, wheels, running, main: 100 * (b.TaskDuration - a.TaskDuration) / dt, script: 100 * (b.ScriptDuration - a.ScriptDuration) / dt, all: 100 * (cb - ca) / dt };
+  return { query, wheels, running, main: 100 * (b.TaskDuration - a.TaskDuration) / dt, script: 100 * (b.ScriptDuration - a.ScriptDuration) / dt, all: 100 * spent(ca, cb) / dt };
 }
 if (opt.cpu) {
   const runs = [];
