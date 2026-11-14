@@ -214,7 +214,7 @@ function outputsSection() {
   const s = el('section', 'section');
   s.appendChild(Office.sectionHead(T('outputs.title'), who().who === 'fanboy' ? T('outputs.sub_steers') : T('outputs.sub'), { place: 'outputs.title' }));
   const zones = zonesBox();
-  if (zones) s.append(el('h3', 'fb-hint-head', T('zones.title')), zones);
+  if (zones) s.append(Office.place('zones.title', el('h3', 'fb-hint-head', T('zones.title'))), zones);
   const held = heldOutputs();
   const list = el('div', 'box');
   chips().filter((c) => c.outputs.length).forEach((c) => c.outputs.forEach((o) => {
@@ -402,9 +402,9 @@ function hintsSection() {
   }
 
   const drivers = driversBlock();
-  if (drivers) body.append(hintHead(T('drivers.title')), drivers);
+  if (drivers) body.append(Office.place('drivers.title', hintHead(T('drivers.title'))), drivers);
   const imp = importBlock();
-  if (imp) body.append(hintHead(T('import.title')), imp);
+  if (imp) body.append(Office.place('import.title', hintHead(T('import.title'))), imp);
 
   // the three reasons, the BIOS, who gets in each other's way, IPMI
   body.appendChild(hintHead(T('hints.why_title')));

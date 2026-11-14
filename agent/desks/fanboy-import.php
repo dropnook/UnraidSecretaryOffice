@@ -118,7 +118,7 @@ function fanboyImport(array $scan, ?string $plugins = null): array
                 }
             }
         }
-        $zones[] = ['id' => 'fcp' . $i, 'name' => $g['from'][0] ?? "FanCtrl Plus $i", 'fans' => $g['fans'], 'outputs' => $g['outputs'], 'sources' => $sources,
+        $zones[] = ['id' => 'fcp' . $i, 'name' => $g['from'][0], 'fans' => $g['fans'], 'outputs' => $g['outputs'], 'sources' => $sources,
             'target' => $points !== null ? ['points' => $points] : ['preset' => 'normal'], 'unit' => 'pct', 'from' => $g['from'],
             'idle_pct' => $pct($g['idle'])];
     }

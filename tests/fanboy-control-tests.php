@@ -778,6 +778,15 @@ function testFanboyProcesses(): void
         // 1. killed hard — the guard's cron look gives everything back (the agent gone too)
         $pid = $start();
         check('fanboy procs: the control runs in a process of its own and steers (77 on the disk fan)' . ($pid ? '' : ': ' . @file_get_contents("{$t['tmp']}/proc.out")), $pid !== null);
+        // an agent restarting itself (in place, or its supervisor starting it anew): its tick finds the running control and
+        // touches nothing; a second start of the control ends at once (one at a time) — no fan flaps
+        $journal = (string) file_get_contents(fanboyRunDir() . '/journal.json');
+        $w = fanboyWatch();
+        $second = fanboyTProc($t, 'fanboyControlMain()', $data);
+        $secondEnded = fanboyTWait(fn () => !proc_get_status($second)['running'], 10);
+        proc_close($second);
+        same('fanboy procs: an agent restart — the tick leaves the running control alone, a second control ends at once, nothing written',
+            [[], true, $pid, [77, 1], $journal], [$w, $secondEnded, fanboyControlPid(), fanboyTOut($t, 4), (string) file_get_contents(fanboyRunDir() . '/journal.json')]);
         posix_kill((int) $pid, 9);
         fanboyTWait(fn () => !is_dir("/proc/$pid") || str_contains((string) @file_get_contents("/proc/$pid/stat"), ') Z'), 5);
         $out = fanboyTGuard($t, $data, 'watch');
@@ -876,6 +885,7 @@ fi
 mode=$(cat "$root/mode-$1" 2>/dev/null || echo nochip)
 case "$mode" in
     nochip) echo "modprobe: ERROR: could not insert '$1': No such device" >&2; exit 1 ;;
+    nochipdeps) mkdir -p "$root/sys/module/${1}_core"; echo "modprobe: ERROR: could not insert '$1': No such device" >&2; exit 1 ;;
     acpi)   echo "modprobe: ERROR: could not insert '$1': Device or resource busy" >&2; exit 1 ;;
     nooutput) mkdir -p "$root/sys/module/$1"; exit 0 ;;
     outputs) mkdir -p "$root/sys/module/$1"; mv "$root/staged-hwmon10" "$root/sys/class/hwmon/hwmon10"; exit 0 ;;
@@ -885,11 +895,25 @@ SH);
         putenv("OFFICE_MODPROBE_BIN={$t['tmp']}/modprobe");
         file_put_contents("$root/mode-nct6775", 'nooutput');
         file_put_contents("$root/mode-it87", 'outputs');
+        file_put_contents("$root/mode-nct6683", 'nochipdeps');
         same('fanboy drivers: before — no output shown', 0, fanboyDetect()['counts']['outputs']);
         $r = fanboyDriversLoad();
         same('fanboy drivers: tried in the list\'s order — nct6775 loads but brings no output (unloaded again), it87 brings 6: kept, the rest not tried',
             [['nct6775', 'no_output'], ['it87', 'kept']], array_map(fn ($s) => [$s['module'], $s['result']], $r['steps']));
         same('fanboy drivers: … modprobe called: nct6775, -r nct6775, it87', ['nct6775', '-r nct6775', 'it87'], array_values(array_filter(explode("\n", (string) file_get_contents($log)))));
+        // as seen on test4 (Unraid 7.4.0): a refused try leaves its helper loaded — unloaded again
+        file_put_contents($log, '');
+        unlink("$root/mode-nct6775");
+        rename("$root/sys/class/hwmon/hwmon10", "$root/staged-hwmon10");
+        exec('rm -rf ' . escapeshellarg("$root/sys/module/it87"));
+        file_put_contents("$root/mode-it87", 'nochip');
+        fanboyDriversLoad();
+        same('fanboy drivers: a refused try that pulled in a helper (nct6683_core) — the helper unloaded again, nothing new left loaded',
+            [true, false], [in_array('-r nct6683_core', explode("\n", (string) file_get_contents($log)), true), is_dir("$root/sys/module/nct6683_core")]);
+        file_put_contents("$root/mode-it87", 'outputs');
+        unlink("$root/mode-nct6683");
+        file_put_contents("$root/mode-nct6775", 'nooutput');
+        fanboyDriversLoad();
         same('fanboy drivers: … remembered for this board, the outputs there now', [['it87'], 6], [fanboyDriversRead()['boards'][FANBOY_T_KEY]['modules'] ?? null, fanboyDetect()['counts']['outputs']]);
         try {
             fanboyDriversLoad();

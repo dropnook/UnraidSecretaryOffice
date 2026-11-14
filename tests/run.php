@@ -64204,15 +64204,19 @@ function testFanboyPage(): void
         str_contains($js, 'const sw = Office.sections({') && str_contains($js, "{ id: 'who', key: 'tile.who', place: 'tile.who', tile: whoTile, section: () => outputsSection() }")
         && str_contains($js, "{ id: 'fans', key: 'tile.fans', place: 'tile.fans', tile: fansTile, section: () => fansSection() }")
         && str_contains($js, "{ id: 'hottest', key: 'tile.hottest', place: 'tile.hottest', tile: hottestTile, section: () => sensorsSection() }"));
-    check('fanboy page: the situation a banner between the row and the sections; no write action on the page',
-        str_contains($js, "banner = sw.el.insertBefore(el('div', 'fb-banner'), sw.body)") && preg_match_all('/Office\.api\.post\(/', $js) === 1);
+    // part 2: the page's own actions are few on purpose — the report's text, and through act(): look now, load drivers, undo
+    // (the setup's steps are the wizard's, part 3)
+    preg_match_all("/act\('([a-z_]+)'/", $js, $acts);
+    check('fanboy page: the situation a banner between the row and the sections; the page\'s actions: the report, look now, load drivers, undo',
+        str_contains($js, "banner = sw.el.insertBefore(el('div', 'fb-banner'), sw.body)") && preg_match_all('/Office\.api\.post\(/', $js) === 2
+        && array_values(array_unique($acts[1])) === ['drivers_load', 'drivers_undo', 'look_now']);
     check('fanboy page: in SECTIONS_DESKS', array_key_exists('fanboy', SECTIONS_DESKS));
     // the stub and demo states: the shape of a real look on the fake tree (the click test and the pictures)
     $look = fanboyDetect(fanboyFakeTree(hardeningTmp('fanboy-page'), fanboyFakeBoard()));
     $keys = fn (array $a) => array_keys($a);
     foreach (['tests/ui/states/fanboy.json', 'tests/ui/demo/fanboy.json'] as $f) {
         $st = json_decode((string) @file_get_contents(OFFICE_DIR . "/$f"), true);
-        same("fanboy page: $f has a look's keys, its chips a chip's", [$keys($look), $keys($look['chips'][10])],
+        same("fanboy page: $f has a look's keys (part 2's on top), its chips a chip's", [[...$keys($look), 'control', 'setup', 'step', 'drivers', 'import'], $keys($look['chips'][10])],
             [is_array($st) ? $keys($st) : null, is_array($st['chips'][10] ?? null) ? $keys($st['chips'][10]) : null]);
     }
     // the docs: his entry under «The desks»

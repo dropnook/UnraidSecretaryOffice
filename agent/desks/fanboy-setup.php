@@ -668,7 +668,7 @@ function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
             }
             $target = ['preset' => $t['preset']];
         }
-        $out[$z['id']] = ['id' => $z['id'], 'name' => $name, 'fans' => array_values($z['fans']), 'sources' => array_values($sources),
+        $out[$z['id']] = ['id' => $z['id'], 'name' => $name, 'fans' => $z['fans'], 'sources' => array_values($sources),
             'target' => $target, 'unit' => $unit, 'low' => fanboyNum($z, 'low', 0, 110), 'high' => fanboyNum($z, 'high', 0, 120)];
     }
     return array_values($out);

@@ -13,6 +13,8 @@ declare(strict_types=1);
  * /lib/modules/<kernel>/kernel/drivers/hwmon/. Only Super-I/O chips that find themselves (the board's fan chip) — no
  * i2c/USB devices (those load by themselves when their bus sees them). nct6687 and the newer it87 for IT86xx chips are
  * NOT Unraid's (the driver plugins bring them): Fanboy never loads a module from anywhere else.
+ * Seen there too: a refused modprobe leaves the helpers it pulled in loaded (nct6775 → nct6775_core, hwmon_vid) — whatever
+ * a try brought that isn't kept is unloaded again (fanboyModulesNew()).
  */
 
 const FANBOY_DRIVERS = ['nct6775', 'it87', 'nct6683', 'f71882fg', 'f71805f', 'w83627ehf', 'w83627hf', 'sch5627', 'sch5636',
@@ -24,6 +26,22 @@ function fanboyModprobe(): ?string
 {
     $b = getenv('OFFICE_MODPROBE_BIN');
     return is_string($b) && $b !== '' ? (is_executable($b) ? $b : null) : bin('modprobe');
+}
+
+/** The modules loaded now (/sys/module) */
+function fanboyModules(): array
+{
+    return array_values(array_filter(@scandir(fanboyPaths(fanboySysRoot() ?: null)['modules']) ?: [], fn ($m) => preg_match('/^[a-z0-9_]{1,48}$/D', $m) === 1));
+}
+
+/** What a try brought besides what was there before it: unloaded again (modprobe -r refuses one in use) */
+function fanboyModulesNew(string $bin, array $before): array
+{
+    $new = array_values(array_diff(fanboyModules(), $before));
+    foreach ($new as $m) {
+        run([$bin, '-r', $m], 30);
+    }
+    return $new;
 }
 
 function fanboyModuleLoaded(string $m): bool
@@ -78,8 +96,10 @@ function fanboyDriversLoad(): array
             $steps[] = ['module' => $m, 'result' => 'there', 'outputs' => fanboyModuleOutputs($before, $m)];
             continue;
         }
+        $was = fanboyModules();
         [$code, , $err] = run([$bin, $m], 30);
         if ($code !== 0) {
+            fanboyModulesNew($bin, $was);           // the helpers a refused try pulled in
             $steps[] = ['module' => $m, 'result' => stripos($err, 'resource busy') !== false ? 'acpi' : (stripos($err, 'no such device') !== false ? 'no_chip' : 'failed'), 'outputs' => 0];
             continue;
         }
@@ -87,6 +107,7 @@ function fanboyDriversLoad(): array
         $n = fanboyModuleOutputs($after, $m);
         if ($n === 0) {
             run([$bin, '-r', $m], 30);
+            fanboyModulesNew($bin, $was);           // and whatever of it is still there
             $steps[] = ['module' => $m, 'result' => 'no_output', 'outputs' => 0];
             continue;
         }

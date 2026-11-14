@@ -961,8 +961,9 @@ the last 60 history lines only for a source the file has none for. **The file
   owner lets him out:** desk.json `"switch": "show.json"` — the desk exists only where `<data folder>/fanboy/show.json` lies
   (a plain file, any content, never a link; `src/desks.php officeDeskSwitchedOn()`, agent `fanboyShown()` — the same rule,
   his desk.json unreadable = hidden): without it no tile, route, hiring, strings, `desk()`, action or fit. Out for everyone =
-  remove the key. **Part 1 writes nothing to a fan — no `pwm*` file, anywhere** (`testFanboyNoWrite` greps his files; the only
-  write is his state, the only command `ipmitool sdr type Fan` for an IPMI board's report). His look
+  remove the key. **One file writes fan outputs: `agent/desks/fanboy-write.php`**, only through `fanboyWriteFile()` (a
+  `pwmN`/`pwmN_enable` directly in a hwmonN of the hwmon root, there already, really under /sys/devices — `testFanboyNoWrite`
+  holds every other file of his to its own few write calls). His look
   (`agent/desks/fanboy-detect.php`, read only, a few ms): `/sys/class/hwmon` (chips by name + device path **without hwmonN**,
   module; outputs `pwmN` with `_enable` mode and the chip's own auto mode; tach inputs; temperatures with a kind — drivetemp's
   never read: they ask the disk), DMI board vendor + model (never a serial), Unraid's disks from disks.ini via `diskAsleep()`
@@ -984,8 +985,33 @@ the last 60 history lines only for a source the file has none for. **The file
   `acpi_enforce_resources=lax` (read from /proc/cmdline, never set), the names given in Dynamix System Temp's
   `sensors.conf` (read, never written; shown as suggestions, never in the report), the plugins that fit (only with no
   output, only what isn't there, narrowed by a board maker's hint), each found by its name in ⟦Apps⟧ — **Fanboy installs
-  nothing, never modprobe**. The suite's fake sysfs: `fanboyFakeTree()` in tests/run.php. Not in part 1: setup, the
-  control service, notifications.
+  nothing**; modprobe only on «Load drivers» (below). The suite's fake sysfs: `fanboyFakeTree()` in tests/run.php, fans that
+  answer: tests/fanboy-responder.php, part 2's tests: tests/fanboy-control-tests.php.
+  **Part 2, steering:** the write helper keeps a **journal in RAM** (`RUN_DIR/fanboy/journal.json`, a copy per board in
+  `<data>/fanboy/initial.json`): each output's state before his first write this boot (value + the exact `pwmN_enable`
+  number), its holder (the control or a setup step: pid + process start time + a beat on the monotonic clock) and what was
+  written last; `fanboyGiveBack()` puts exactly the state before back and reads it back. **Who gives back:** the holder itself
+  (every way it ends); the agent's tick every 5 s and the guard's cron line every minute (`agent/fanboy-guard.php watch`,
+  in `agent-watch.cron`, only when the journal names a holder — it needs only util.php and the write helper) for a holder
+  gone or hung; `agent.sh stop` (stop, restart, update) and `release` (removal, the array stopping) through
+  `fanboy_release` → `fanboy-guard.php release`. The control (`php agent.php job fanboy-control`, `fanboy-control.php`) runs
+  in a session of its own (`setsid -f`): an agent restarting in place never touches it. It steers only while the array is
+  started, he is hired, shown, set up and armed («take over»), and no known controller runs (FanCtrl Plus, its fork,
+  Dynamix System Autofan, PWM Fan, WAZ Cooling Control); outputs looked up anew at every start through the identity;
+  zones (fans + heat sources: disks only from disks.ini — asleep is asleep, never cold —, hwmon sensors; each source's own
+  low/high mapped onto the zone's, the warmest counts) and a curve (quiet/normal/cool or points, percent or rpm by the
+  measured table with a correction); up at once, down a percent a round only 2 °C below; never under a fan's lowest steady
+  value («off» only where allowed); alarms (a fan stands — his or a watched CPU cooler/pump —, too warm at full speed, a
+  sensor silent, the chip gone): every output he holds to full, told once; someone else's write: that output given back;
+  the chip missing: looked for every 5 s, then every minute, one notification after 15 minutes, then every 5 minutes,
+  «Look now». **Setup steps** (`fanboy-setup.php`, actions; the wizard's page is part 3): test up (which tach follows; none
+  → «louder?»), roles (CPU cooler, pump, «don't know» stay the BIOS's for good), measure down (his fans with feedback only;
+  a stall stops it, the start value found going back up), zones, a dry run, take over / hand back — each step in a process
+  of its own, the page's lease (`step_alive`) or everything goes back. **Drivers** (`fanboy-drivers.php`, on the click):
+  only Unraid's own in-kernel fan-chip drivers (`FANBOY_DRIVERS`, checked with modinfo), a useless one and whatever a try
+  pulled in unloaded again, the ACPI refusal only explained, what helped loaded at every agent start, an undo; nothing
+  downloaded, nothing on the flash. **FanCtrl Plus** (`fanboy-import.php`): its files read into a proposed zone (outputs by
+  their number, disks by Unraid's id, never a serial), never written.
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same

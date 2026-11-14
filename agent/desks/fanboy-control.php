@@ -880,10 +880,10 @@ function fanboyControlMain(): int
     if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) {
         return 0;                       // one runs already
     }
-    $stop = false;
+    $GLOBALS['fanboyStop'] = false;
     pcntl_async_signals(true);
     foreach ([SIGTERM, SIGINT, SIGHUP] as $sig) {
-        pcntl_signal($sig, function () use (&$stop) { $stop = true; });
+        pcntl_signal($sig, function () { $GLOBALS['fanboyStop'] = true; });
     }
     $owner = fanboyMe('control');
     writeAtomic("$dir/control.pid", $owner['pid'] . ' ' . $owner['start'], 0600, 0, 0);
@@ -898,7 +898,7 @@ function fanboyControlMain(): int
     $exit = in_array($why, ['other', null], true) ? null : $why;
     logLine('Fanboy: the control started (PID ' . $owner['pid'] . ', ' . count($c['zones']) . ' zones, ' . count($c['fans']) . ' fans)');
     try {
-        while (!$stop && $exit === null) {
+        while (!fanboyStopAsked() && $exit === null) {
             $now = fanboyMono();
             fanboyBeat();
             if ($now - $lastHold >= 10) {
@@ -939,7 +939,7 @@ function fanboyControlMain(): int
                 }
             }
             $until = $now + FANBOY_ROUND;
-            while (!$stop && fanboyMono() < $until && !is_file("$dir/look-now")) {
+            while (!fanboyStopAsked() && fanboyMono() < $until && !is_file("$dir/look-now")) {
                 usleep(200000);
             }
         }
@@ -957,6 +957,12 @@ function fanboyControlMain(): int
         fclose($lock);
     }
     return 0;
+}
+
+/** Was the control asked to end (TERM, INT, HUP — its signal handler)? */
+function fanboyStopAsked(): bool
+{
+    return ($GLOBALS['fanboyStop'] ?? false) === true;
 }
 
 /** The control's notes into the agent's log (each once) */
