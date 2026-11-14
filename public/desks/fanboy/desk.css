@@ -24,8 +24,46 @@
   .fb-banner:empty{display:none}
   .fb-callout{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
   .fb-callout > p{margin:0; flex:1 1 280px}
-  /* the server picture */
-  .fb-server{margin-top:6px}
+  /* the server picture — the hero of the page (owner, round 2): his zones two by two across the page's width, the BIOS's
+     own group narrow beside them; bigger walls, chips and air than fan-art.css's defaults (only here) */
+  .fb-server.fan-server{margin-top:6px; gap:16px; grid-template-columns:repeat(var(--fb-cols, 2), minmax(0, 1fr));
+    --fan-flow:color-mix(in srgb, var(--accent) 42%, transparent)}
+  .fb-server.fb-with-bios{grid-template-columns:repeat(var(--fb-cols, 2), minmax(0, 1fr)) minmax(220px, .5fr)}
+  .fb-server .fan-zone[data-id="_bios"]{grid-column:-2; grid-row:1 / span var(--fb-rows, 1)}
+  .fb-server .fan-zone{padding:12px 14px 14px}
+  .fb-server .fan-zone-name{font-size:16px}
+  .fb-server .fan-zone-note{font-size:13px}
+  .fb-server .fan-zone-area{min-height:200px; padding:14px; gap:12px 20px}
+  .fb-server .fan-zone-area.fan-has-left{margin-left:24px}
+  .fb-server .fan-zone-area.fan-has-right{margin-right:24px}
+  .fb-server .fan-zone-area.fan-has-top{margin-top:24px}
+  .fb-server .fan-zone-area.fan-has-bottom{margin-bottom:24px}
+  .fb-server .fan-heat{gap:8px}
+  .fb-server .fan-src{font-size:13.5px; line-height:22px; padding:3px 11px 3px 8px; border-radius:14px}
+  .fb-server .fan-kind{width:16px; height:16px}
+  .fb-server .fan-label{font-size:13.5px}
+  .fb-server .fan-sub{font-size:12.5px}
+  .fb-server .fan-wheel{--fan-air:color-mix(in srgb, var(--accent) 60%, transparent)}
+  .fb-server .fan-air-x .fan-streak{height:2px}
+  .fb-server .fan-air-y .fan-streak{width:2px}
+  .fb-server .fan-flow-x .fan-streak{height:3px; width:24%}
+  .fb-server .fan-flow-y .fan-streak{width:3px; height:24%}
+  @media (max-width:1100px){
+    .fb-server.fb-with-bios{grid-template-columns:repeat(var(--fb-cols, 2), minmax(0, 1fr))}
+    .fb-server .fan-zone[data-id="_bios"]{grid-column:1 / -1; grid-row:auto}
+  }
+  @media (max-width:760px){
+    .fb-server.fan-server, .fb-server.fb-with-bios{grid-template-columns:minmax(0, 1fr)}
+    .fb-server .fan-zone-area{min-height:0; padding:10px 8px}
+  }
+  /* a list's subheading (a tinted bar, its rows under it) and the fold with the rest */
+  .fb-group{display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 10px; background:var(--surface2); padding:5px 12px; font-size:12.5px}
+  .fb-group-name{font-weight:600; color:var(--ink)}
+  .fb-group-sub{color:var(--muted)}
+  .fb-group ~ .fb-row{padding-left:22px}
+  .fb-more{margin-top:8px}
+  .fb-more > summary{cursor:pointer; color:var(--accent-ink); font-size:13px; padding:4px 0}
+  .fb-more > .box{margin-top:6px}
   /* the curves and lately */
   .fb-curves{display:grid; gap:14px}
   .fb-curve-card{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); padding:10px 12px}

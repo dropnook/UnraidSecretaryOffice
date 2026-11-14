@@ -624,5 +624,25 @@
   "back.no_auto_note": "Questo chip non ha un automatico per l'uscita: torna al valore fisso ({pct} %).",
   "back.default_note": "Se non scegli altro: l'automatico della scheda madre.",
   "src.sensor": "Sensore {kind} {n}",
-  "src.nth": "{label} · {n}"
+  "src.nth": "{label} · {n}",
+  "fans.group_his": "Regola Fanboy",
+  "fans.group_his_sub": "le ventole delle sue zone",
+  "fans.group_bios": "Al BIOS",
+  "fans.group_bios_sub": "con una ventola collegata, o non ancora provate",
+  "fans.none_first": "Nessuna uscita con una ventola collegata.",
+  "fans.more": {
+    "one": "{n} in più: uscite vuote e ingressi di velocità da soli",
+    "other": "{n} in più: uscite vuote e ingressi di velocità da soli"
+  },
+  "sensors.too_warm": "troppo caldo",
+  "sensors.too_warm_title": "Al suo limite o sopra",
+  "sensors.group_alarm": "Troppo caldi o muti",
+  "sensors.group_zone": "fonti di calore di questa zona, la più calda per prima",
+  "sensors.group_main": "Dischi, CPU e NVMe",
+  "sensors.group_main_sub": "ciò che di solito si scalda — le zone decideranno dopo",
+  "sensors.none_first": "Nessun sensore di una zona corrisponde — gli altri sono sotto.",
+  "sensors.more": {
+    "one": "{n} altro sensore",
+    "other": "{n} altri sensori"
+  }
 }

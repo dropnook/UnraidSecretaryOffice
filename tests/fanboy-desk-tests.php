@@ -245,11 +245,21 @@ function testFanboyDesk(): void
     check('fanboy desk: the honest return — a step ended by the page gone or interrupted said plainly on both pages',
         str_contains($js, "['page_gone', 'interrupted'].includes(s2.why)") && str_contains($js, "function stepEnded("));
     check('fanboy desk: fan-art.js loaded once beside desk.js (it brings fan-art.css), the picture kept across looks (update, never a new one)',
-        str_contains($js, "fan-art.js\${q || '?'}") && str_contains($js, 'window.FanArt.styles();') && str_contains($js, 'if (!pic) pic = A.server(p, { texts });') && str_contains($js, 'else pic.update(p);'));
+        str_contains($js, "fan-art.js\${q || '?'}") && str_contains($js, 'window.FanArt.styles();') && str_contains($js, 'if (!pic) pic = A.server(p, { texts, px: ') && str_contains($js, 'else pic.update(p);'));
     check('fanboy desk: two pages (overview, setup) — never more', str_contains($js, "const PAGES = () => [{ id: '', text: t('common.page_overview') }, { id: 'setup', text: T('page.setup') }];"));
     check('fanboy desk: «give back» — the automatic preselected, the fixed value where the chip has none, said plainly',
         str_contains($js, "if (cur === 'auto' && noAuto) cur = 'fixed';") && str_contains($js, "T('back.no_auto_note'"));
     check('fanboy desk: no logo, no picture of a maker — their names as text only', !preg_match('/<img|\.png|\.svg|logo/i', $js));
+    // round 2 (owner): the picture the hero, the lists short, the sections in reading order
+    preg_match_all("/\{ id: '([a-z]+)', key: 'tile\.[a-z]+', place: 'tile\.[a-z]+', tile: [a-zA-Z]+, section: \(\) => ([a-zA-Z]+)\(\) \}/", $js, $tiles);
+    same('fanboy desk: tile order = section order — the picture, today\'s curves, the fans, the heat sources, the hints',
+        [['who', 'today', 'fans', 'hottest', 'hints'], ['serverSection', 'curvesSection', 'fansSection', 'sensorsSection', 'hintsSection']], [$tiles[1], $tiles[2]]);
+    preg_match('/const PIC_PX = (\d+);/', $js, $px);
+    check('fanboy desk: the server picture\'s wheels big (fan-art\'s default 46)', (int) ($px[1] ?? 0) >= 72);
+    check('fanboy desk: the long lists — first what counts, the rest behind one fold each (keepFold: kept while the page lives, never per browser), the filter over both',
+        str_contains($js, "moreFold('sensors-more', rest, T('sensors.more', { n: rest.length }), f.words.length > 0)") && str_contains($js, "moreFold('fans-more', rest, T('fans.more', { n: rest.length }), false)")
+        && str_contains($js, "const det = keepFold(el('details', 'fb-more'), filtering ? `\${key}:filtered` : key, !!filtering);")
+        && !preg_match('/Office\.store\(/', $js) && str_contains($js, 'bar.done(fits.length, all.length, sw.note());'));
     // the demo states: the setup's keys as a real look on the fake tree has them
     $t = fanboyT('deskstate');
     try {
@@ -316,5 +326,7 @@ function testFanboyDeskWords(): void
     same('fanboy words: what is about safety stays plain (no exclamation: alarms, ended steps, errors, the control, giving back)', [], $plain);
     $sie = array_keys(array_filter($l['de'], fn ($v) => preg_match('/\b(Ihnen|Ihre[mnrs]?|Ihr)\b/', implode(' ', (array) $v))));
     same('fanboy words: German says «du»', [], $sie);
+    same('fanboy words: the folds\' counts are plurals in all five', [true, true, true, true, true],
+        array_map(fn ($c) => is_array($l[$c]['sensors.more'] ?? null) && is_array($l[$c]['fans.more'] ?? null), array_keys($l)));
     check('fanboy words: his bubbles may cheer (the setup\'s and the steering\'s)', str_contains($l['en']['bubble.testing'], '!') && str_contains($l['de']['bubble.ready'], '!'));
 }

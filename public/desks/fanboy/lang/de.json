@@ -624,5 +624,25 @@
   "back.no_auto_note": "Dieser Chip hat für den Ausgang keine Automatik: Er geht an den festen Wert zurück ({pct} %).",
   "back.default_note": "Wenn du nichts anderes wählst: die Automatik des Mainboards.",
   "src.sensor": "{kind}-Fühler {n}",
-  "src.nth": "{label} · {n}"
+  "src.nth": "{label} · {n}",
+  "fans.group_his": "Fanboy regelt",
+  "fans.group_his_sub": "die Lüfter seiner Zonen",
+  "fans.group_bios": "Beim BIOS",
+  "fans.group_bios_sub": "ein Lüfter daran, oder noch nicht getestet",
+  "fans.none_first": "Kein Ausgang mit einem Lüfter daran.",
+  "fans.more": {
+    "one": "{n} weiterer: leere Ausgänge und blosse Drehzahl-Eingänge",
+    "other": "{n} weitere: leere Ausgänge und blosse Drehzahl-Eingänge"
+  },
+  "sensors.too_warm": "zu warm",
+  "sensors.too_warm_title": "Auf oder über seiner Grenze",
+  "sensors.group_alarm": "Zu warm oder stumm",
+  "sensors.group_zone": "Wärmequellen dieser Zone, die wärmste zuerst",
+  "sensors.group_main": "Disks, CPU und NVMe",
+  "sensors.group_main_sub": "was meistens warm wird — die Zonen entscheiden später",
+  "sensors.none_first": "Kein Fühler einer Zone passt — die anderen stehen unten.",
+  "sensors.more": {
+    "one": "{n} weiterer Fühler",
+    "other": "{n} weitere Fühler"
+  }
 }

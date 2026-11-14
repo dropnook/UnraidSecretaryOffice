@@ -624,5 +624,25 @@
   "back.no_auto_note": "Cette puce n'a pas d'automatique pour la sortie : elle revient à la valeur fixe ({pct} %).",
   "back.default_note": "Sauf si tu choisis autre chose : l'automatique de la carte mère.",
   "src.sensor": "Capteur {kind} {n}",
-  "src.nth": "{label} · {n}"
+  "src.nth": "{label} · {n}",
+  "fans.group_his": "Fanboy règle",
+  "fans.group_his_sub": "les ventilateurs de ses zones",
+  "fans.group_bios": "Chez le BIOS",
+  "fans.group_bios_sub": "un ventilateur branché, ou pas encore testée",
+  "fans.none_first": "Aucune sortie avec un ventilateur branché.",
+  "fans.more": {
+    "one": "{n} de plus : sorties vides et entrées de vitesse seules",
+    "other": "{n} de plus : sorties vides et entrées de vitesse seules"
+  },
+  "sensors.too_warm": "trop chaud",
+  "sensors.too_warm_title": "À sa limite ou au-dessus",
+  "sensors.group_alarm": "Trop chaud ou muet",
+  "sensors.group_zone": "sources de chaleur de cette zone, la plus chaude d'abord",
+  "sensors.group_main": "Disques, CPU et NVMe",
+  "sensors.group_main_sub": "ce qui chauffe le plus souvent — les zones décideront plus tard",
+  "sensors.none_first": "Aucun capteur d'une zone ne correspond — les autres sont plus bas.",
+  "sensors.more": {
+    "one": "{n} autre capteur",
+    "other": "{n} autres capteurs"
+  }
 }

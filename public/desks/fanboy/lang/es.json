@@ -624,5 +624,25 @@
   "back.no_auto_note": "Este chip no tiene automático para la salida: vuelve al valor fijo ({pct} %).",
   "back.default_note": "Si no eliges otra cosa: el automático de la placa base.",
   "src.sensor": "Sensor {kind} {n}",
-  "src.nth": "{label} · {n}"
+  "src.nth": "{label} · {n}",
+  "fans.group_his": "Regula Fanboy",
+  "fans.group_his_sub": "los ventiladores de sus zonas",
+  "fans.group_bios": "Con la BIOS",
+  "fans.group_bios_sub": "con un ventilador conectado, o aún sin probar",
+  "fans.none_first": "Ninguna salida con un ventilador conectado.",
+  "fans.more": {
+    "one": "{n} más: salidas vacías y entradas de velocidad sueltas",
+    "other": "{n} más: salidas vacías y entradas de velocidad sueltas"
+  },
+  "sensors.too_warm": "demasiado calor",
+  "sensors.too_warm_title": "En su límite o por encima",
+  "sensors.group_alarm": "Demasiado calientes o mudos",
+  "sensors.group_zone": "fuentes de calor de esta zona, la más caliente primero",
+  "sensors.group_main": "Discos, CPU y NVMe",
+  "sensors.group_main_sub": "lo que suele calentarse — las zonas decidirán después",
+  "sensors.none_first": "Ningún sensor de una zona coincide — los demás están abajo.",
+  "sensors.more": {
+    "one": "{n} sensor más",
+    "other": "{n} sensores más"
+  }
 }

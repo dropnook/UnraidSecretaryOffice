@@ -624,5 +624,25 @@
   "back.no_auto_note": "This chip has no automatic mode for the output: it goes back to the fixed value ({pct} %).",
   "back.default_note": "Unless you choose otherwise: the mainboard's automatic.",
   "src.sensor": "{kind} sensor {n}",
-  "src.nth": "{label} · {n}"
+  "src.nth": "{label} · {n}",
+  "fans.group_his": "Fanboy steers",
+  "fans.group_his_sub": "the fans of his zones",
+  "fans.group_bios": "With the BIOS",
+  "fans.group_bios_sub": "a fan on it, or not tested yet",
+  "fans.none_first": "No output with a fan on it.",
+  "fans.more": {
+    "one": "{n} more: empty outputs and bare speed inputs",
+    "other": "{n} more: empty outputs and bare speed inputs"
+  },
+  "sensors.too_warm": "too warm",
+  "sensors.too_warm_title": "At or over its limit",
+  "sensors.group_alarm": "Too warm or silent",
+  "sensors.group_zone": "heat sources of this zone, the warmest first",
+  "sensors.group_main": "Disks, CPU and NVMe",
+  "sensors.group_main_sub": "what usually gets warm — the zones decide later",
+  "sensors.none_first": "No sensor of a zone fits — the others are below.",
+  "sensors.more": {
+    "one": "{n} more sensor",
+    "other": "{n} more sensors"
+  }
 }
