@@ -518,5 +518,100 @@
         "who": "fanctrlplus",
         "name": "FanCtrl Plus",
         "why": "other"
+    },
+    "control": {
+        "running": false,
+        "armed": false,
+        "who": "bios",
+        "why": null,
+        "zones": [],
+        "alarm": null,
+        "missing": null,
+        "notes": [],
+        "watch": [],
+        "time": null,
+        "guard": null
+    },
+    "setup": {
+        "board": "Example Boards Inc. | EB-Z100 PRO",
+        "others": 0,
+        "fans": [],
+        "zones": [],
+        "armed": false,
+        "outputs": [
+            "it8696_a0060607:it87.2608:pwm1",
+            "it8696_a0060607:it87.2608:pwm2",
+            "it8696_a0060607:it87.2608:pwm3",
+            "it8696_a0060607:it87.2608:pwm4",
+            "it8696_a0060607:it87.2608:pwm5",
+            "it8696_a0060607:it87.2608:pwm6"
+        ],
+        "missing": [],
+        "sources": []
+    },
+    "step": null,
+    "drivers": {
+        "mine": [],
+        "last": null,
+        "can": true
+    },
+    "import": {
+        "files": 6,
+        "active": true,
+        "unmatched": [],
+        "zones": [
+            {
+                "id": "fcp1",
+                "name": "Front",
+                "fans": [
+                    "it8696_a0060607:it87.2608:pwm1",
+                    "it8696_a0060607:it87.2608:pwm2",
+                    "it8696_a0060607:it87.2608:pwm3",
+                    "it8696_a0060607:it87.2608:pwm4",
+                    "it8696_a0060607:it87.2608:pwm5",
+                    "it8696_a0060607:it87.2608:pwm6"
+                ],
+                "outputs": [
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6
+                ],
+                "sources": [
+                    {
+                        "kind": "disk",
+                        "id": "disk2"
+                    },
+                    {
+                        "kind": "disk",
+                        "id": "parity"
+                    }
+                ],
+                "target": {
+                    "points": [
+                        [
+                            41,
+                            50
+                        ],
+                        [
+                            46,
+                            90
+                        ]
+                    ]
+                },
+                "unit": "pct",
+                "from": [
+                    "Front",
+                    "Rear",
+                    "Top",
+                    "Cage1",
+                    "Cage2",
+                    "CPU"
+                ],
+                "idle_pct": 39
+            }
+        ]
     }
 }

@@ -1,5 +1,6 @@
 {
   "keys": [
+    "drivers.title",
     "fans.title",
     "help.fans",
     "help.outputs",
@@ -7,12 +8,14 @@
     "help.sensors",
     "help.who",
     "hints.title",
+    "import.title",
     "outputs.title",
     "sensors.title",
     "tile.fans",
     "tile.hints",
     "tile.hottest",
-    "tile.who"
+    "tile.who",
+    "zones.title"
   ],
   "texts": [
     "help.fans_text",
