@@ -35,6 +35,9 @@
 //   tools/scenarios/page.sh); only the pages are clicked then (the routes walk, the dialog stack and the first start
 //   need the stub states and are left out).
 //   UC_DEBUG=1 …   prints every click and the state it left
+//   UC_FORCE_FAIL=<route> …   one page of that route red on purpose (tools/release.sh's retry, USO_RELEASE_FLAKY there)
+// Every red page ends the output with a line «ui clicks failed: <--only route>|<page>|<theme>|<width>» (tools/release.sh
+// runs those routes once more: green then = flaky, red twice = red).
 //
 // Needs node and playwright-core (USO_PLAYWRIGHT=<its folder>, else found in node's own paths or npx's cache) and a
 // Chrome (USO_CHROME=<binary>, else Google Chrome in /Applications, else playwright's own Chromium).
@@ -1922,8 +1925,20 @@ if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await
 await browser.close();
 await harness.close();
 
+// ------------------------------------------------------------------ a forced red (tools/release.sh's retry, tested)
+// UC_FORCE_FAIL=<route>: one page of that route (the first in the table's order) gets a failure of its own - how
+// tools/release.sh shows its retry of a red page (USO_RELEASE_FLAKY there). Never set in a real run.
+const ONLY_OF = { 'cleanup map': 'cleanup/where', 'dialog stack': 'jack/setup', 'jack structure': 'jack', 'jack shadow': 'jack', 'first start': 'caretaker',
+  'USO network card': 'caretaker', 'pair address': 'caretaker', 'partner streams': 'backup', 'busy mark': 'snapshot' };
+// the --only route that runs a result's page again (a route walk, a special check: its desk's route)
+const onlyOf = (r) => ONLY_OF[r.route] || (r.route.endsWith(' routes') ? r.route.slice(0, -' routes'.length) : r.route);
+
 // ------------------------------------------------------------------ the table
 results.sort((a, b) => routes.indexOf(a.route) - routes.indexOf(b.route) || opt.themes.indexOf(a.theme) - opt.themes.indexOf(b.theme) || b.width - a.width);
+if (process.env.UC_FORCE_FAIL) {
+  const r = results.find((x) => onlyOf(x) === process.env.UC_FORCE_FAIL.replace(/^#?\/?/, ''));
+  if (r) r.fails.push('forced red (UC_FORCE_FAIL - a test of tools/release.sh\'s retry, never a real failure)');
+}
 const pad = (s, n) => String(s).padEnd(n);
 console.log(`${pad('page', 15)}${pad('theme', 7)}${pad('width', 7)}${pad('clicked', 9)}${pad('skipped', 9)}${pad('capped', 8)}result`);
 for (const r of results) {
@@ -1934,6 +1949,9 @@ for (const r of failed) {
   console.log(`\n${r.route} ${r.theme} ${r.width}:`);
   for (const f of r.fails) console.log(`  - ${f}`);
 }
+// for tools/release.sh: one line a red page - the --only route that runs it again | the page | its theme | its width
+if (failed.length) console.log('');
+for (const r of failed) console.log(`ui clicks failed: ${onlyOf(r)}|${r.route}|${r.theme}|${r.width}`);
 const clicks = results.reduce((s, r) => s + r.tested, 0);
 const v2 = results.reduce((s, r) => s + r.sections, 0);
 console.log(`\nui clicks: ${results.length} pages, ${clicks} toggles clicked twice${v2 ? `, ${v2} switcher clicks checked (tiles v2)` : ''}, ${failed.length} failed - ${((Date.now() - started) / 1000).toFixed(0)} s`);
