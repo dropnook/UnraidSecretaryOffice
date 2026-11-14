@@ -194,7 +194,7 @@ function rsBrowseMoment(array $m): array
  *
  * @return array{0: list<array{base:string, path:string, snap:?string, top:?string}>, 1: bool}  [where, a link was in the way]
  */
-function rsBrowseSources(array $moment, string $root, string $rel, array &$ctx, bool $item = false): array
+function rsBrowseSources(array $moment, string $root, string $rel, array &$ctx, bool $item = false, string $tag = 'browse'): array
 {
     $sub = $rel === '' ? '' : "/$rel";
     if (!$moment['kopia'] && $rel !== '' && rsBrowseInner($root, "$root/$rel", $ctx)) {
@@ -207,7 +207,21 @@ function rsBrowseSources(array $moment, string $root, string $rel, array &$ctx, 
     foreach ($src as $s) {
         // the folder itself and every folder above it inside the moment; an item picked may be a link (copied as one)
         $top = (string) ($s['top'] ?? '');
-        if ($top === '' || rsLinkBelow($top, $item ? dirname($s['path']) : $s['path'])) {
+        if ($top === '') {
+            $link = true;
+            continue;
+        }
+        // a ZFS snapshot under a mount of the office's own, never its automount (restore-snapread.php): the paths given
+        // back are that mount's, held for $tag (the browse: rsBrowse() lets go; a plan: rsPlan() names them back)
+        if (under((string) $s['path'], $top)) {
+            $real = rsSnapReal($top, $tag);
+            if ($real === null) {
+                continue;                   // its pool asleep now, the snapshot gone: not offered
+            }
+            $s['path'] = $real . substr((string) $s['path'], strlen($top));
+            $s['top'] = $real;
+        }
+        if (rsLinkBelow((string) $s['top'], $item ? dirname((string) $s['path']) : (string) $s['path'])) {
             $link = true;
         } elseif ($item || is_dir($s['path'])) {
             $ok[] = $s;
@@ -391,10 +405,14 @@ function rsBrowse(array $r): array
     if (!$mo['moment']) {
         return $out;
     }
-    [$dirs, $link] = rsBrowseSources($mo['moment'], $from['root'], $rel, $ctx);
-    $out['link'] = $link;
-    $out['here'] = (bool) $dirs;
-    return array_merge($out, $dirs ? rsBrowseList($dirs, $q, $offset) : []);
+    try {
+        [$dirs, $link] = rsBrowseSources($mo['moment'], $from['root'], $rel, $ctx);
+        $out['link'] = $link;
+        $out['here'] = (bool) $dirs;
+        return array_merge($out, $dirs ? rsBrowseList($dirs, $q, $offset) : []);
+    } finally {
+        rsSnapReadRelease('browse');        // the snapshot mounts of this one folder's look
+    }
 }
 
 /** «Browse…» in a partner's moment kept here: mounted read-only in RAM, one folder listed, unmounted again */
@@ -570,7 +588,7 @@ function rsPlanPickFor(string $root, array $owner, string $snap, array $items, s
     $infos = [];
     $sleeping = $mo['asleep'];
     foreach ($items as $rel) {
-        [$src, $link] = rsBrowseSources($moment, $root, $rel, $ctx, true);
+        [$src, $link] = rsBrowseSources($moment, $root, $rel, $ctx, true, 'plan');
         $T = $user . substr("$root/$rel", strlen('/mnt/user'));
         clearstatcache(true, $T);
         $there = !$sleeping && (file_exists($T) || is_link($T));

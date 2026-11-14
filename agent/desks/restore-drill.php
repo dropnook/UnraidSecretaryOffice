@@ -674,7 +674,7 @@ function drillPlanBuild(string $scope): array
     }
     foreach ($pk['vms'] as $v) {
         foreach ($v['disks'] as $d) {
-            foreach (rsLocate($d['source'], $ctx) as $p) {
+            foreach (rsLocate($d['source'], $ctx, false) as $p) {     // asleep or not: no snapshot looked into
                 if ($p['asleep']) {
                     $asleep[] = $p['base'];
                 }
@@ -1040,6 +1040,7 @@ function drillJob(array $args): int
     $env = null;
     try {
         drillSweep($id, true);
+        rsSnapReadSweep();              // snapshot mounts a killed job left (restore-snapread.php)
         $env = drillEnv($j, $plan);
     } catch (Throwable $e) {
         // nothing proven, nothing to blame on the backups: the drill itself couldn't look — ended, said so
@@ -1062,6 +1063,8 @@ function drillJob(array $args): int
                 $res = drillStep($j, $i, $env);
             } catch (Throwable $e) {
                 $res = ['state' => 'failed', 'code' => 'drill_error', 'detail' => mb_substr($e->getMessage(), 0, 400)];
+            } finally {
+                rsSnapReadRelease('job');    // the step's snapshot mounts (drillLocal) taken down: none kept between steps
             }
             // stopped from outside (the array, the deadline, SIGTERM) while the step ran: it proved nothing
             if (!empty($GLOBALS['rsStop']) && in_array($res['state'], ['failed', 'not_checked'], true)) {
@@ -1077,6 +1080,7 @@ function drillJob(array $args): int
         // the array is being stopped: the lock file (on the pool) let go first, only the throwaways removed — the rest
         // (Kopia's temporary folder, the sweeper's look) waits for the next agent start
         $fast = ($GLOBALS['rsStopWhy'] ?? '') === 'array_stopping';
+        rsSnapReadRelease('*');        // nothing of a pool kept mounted (lazily when busy): first, the array may be stopping
         if ($fast) {
             rsLockRelease($lock);
         } elseif (!empty($GLOBALS['rsStop'])) {
@@ -1183,12 +1187,25 @@ function drillLocal(string $path, string $run, array &$ctx): array
         return ['state' => 'missing'];
     }
     $asleep = false;
-    foreach (rsLocate($path, $ctx) as $p) {
+    // the places only, no snapshot looked into (rsLocate without its looks): on ZFS the run's snapshot straight from the
+    // list, read through a mount of the office's own (drillLocalZfs) — never another snapshot, never through .zfs (a look
+    // at a renamed snapshot there panicked Unraid 7.4.0: restore-snapread.php). btrfs as before (no automount there).
+    $places = rsLocate($path, $ctx, false);
+    $btrfs = null;
+    foreach ($places as $p) {
         if ($p['asleep']) {
             $asleep = true;
             continue;
         }
-        foreach ($p['snaps'] as $s) {
+        if ($p['fs'] === 'zfs') {
+            $l = drillLocalZfs($p, $run, $ctx);
+            if ($l !== null) {
+                return $l;
+            }
+            continue;
+        }
+        $btrfs ??= array_column(rsLocate($path, $ctx), null, 'base');
+        foreach ($btrfs[$p['base']]['snaps'] ?? [] as $s) {
             if (rsMomentKey($s) === "run:$run") {
                 clearstatcache(true, $s['path']);
                 if (is_file($s['path']) && !is_link($s['path'])) {
@@ -1199,6 +1216,39 @@ function drillLocal(string $path, string $run, array &$ctx): array
         }
     }
     return ['state' => $asleep ? 'asleep' : 'missing'];
+}
+
+/**
+ * drillLocal() on one awake ZFS place: the run's snapshot of the dataset holding it (the engine's name for that run, from
+ * the list — nothing looked into to find it), mounted read-only by the office (held until the step ends) and the file
+ * there: a plain file, no link on the way. null: not there (the next place is tried).
+ */
+function drillLocalZfs(array $p, string $run, array $ctx): ?array
+{
+    $ds = $p['dataset'] ?? null;
+    $mp = $ds !== null ? array_search($ds, $ctx['zfs'] ?? [], true) : false;
+    if (!is_string($mp) || !under((string) $p['live'], $mp)) {
+        return null;
+    }
+    $inside = substr((string) $p['live'], strlen($mp));
+    foreach (array_reverse($ctx['snaps'][$ds] ?? []) as $s) {
+        $s['ours'] = backupIsEngineSnap((string) $s['name'], $ctx['prefixes'] ?? []);
+        if (rsMomentKey($s) !== "run:$run") {
+            continue;
+        }
+        $top = "$mp/.zfs/snapshot/{$s['name']}";
+        $real = rsSnapReal($top, 'job', $ctx['asleep'] ?? null);
+        if ($real === null) {
+            return null;
+        }
+        $file = $real . $inside;
+        clearstatcache(true, $file);
+        if (is_file($file) && !is_link($file) && !rsLinkBelow($real, dirname($file))) {
+            return ['state' => 'found', 'path' => $file, 'snap' => "$ds@{$s['name']}"];
+        }
+        return null;
+    }
+    return null;
 }
 
 // --------------------------------------------------------------------- packages (L1)
@@ -2138,7 +2188,7 @@ function drillDoSqlite(array &$j, array $s, array &$env): array
     }
     $live = null;
     if ($env['set']['live_sqlite'] && $s['source'] !== '' && str_starts_with((string) $s['source'], '/mnt/')) {
-        $asleep = (bool) array_filter(rsLocate((string) $s['source'], $env['ctx']), fn ($p) => $p['asleep']);
+        $asleep = (bool) array_filter(rsLocate((string) $s['source'], $env['ctx'], false), fn ($p) => $p['asleep']);
         if (!$asleep && is_file((string) $s['source'])) {
             $live = drillSqliteLook('file:' . drillUriPath((string) $s['source']) . '?mode=ro', false);
         }
@@ -2795,14 +2845,16 @@ function drillDoShareFile(array &$j, int $i, array &$env): array
         return ['state' => 'asleep', 'code' => 'asleep'] + $out;
     }
     $snap = $part !== null ? (array_values(array_filter($part['snaps'], fn ($x) => !empty($x['ours'])))[0] ?? null) : null;
-    if ($snap === null || !is_dir($snap['path']) || is_link($snap['path'])) {
+    // read through a mount of the office's own, never through .zfs (restore-snapread.php); a btrfs moment as it is
+    $from = $snap !== null ? rsSnapReal((string) $snap['path'], 'job', $env['ctx']['asleep'] ?? null) : null;
+    if ($from === null || !is_dir($from) || is_link($from)) {
         return ['state' => 'not_checked', 'code' => 'sharefile_no_snap'] + $out;
     }
     $out['state_time'] = (int) $snap['time'];
     if (preg_match('/(\d{8}-\d{4})$/', (string) $snap['name'], $m)) {
         $out['run'] = $m[1];
     }
-    $pick = drillShareFilePickFile($snap['path'], (int) $snap['time']);
+    $pick = drillShareFilePickFile($from, (int) $snap['time']);
     if ($pick === null) {
         return ['state' => 'not_checked', 'code' => 'sharefile_none'] + $out;
     }

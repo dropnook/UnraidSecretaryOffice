@@ -63,6 +63,7 @@ BACKUP_STAGE=/run/unraid-backup-stage   # the backup engine's private staging ar
 # where Mr. Restori mounts what he pulled from a partner (RSP_MOUNT_ROOT in agent/desks/restore-partner.php); the tests
 # name a folder of their own (USO_RESTORED_ROOT) - live it is always this one
 RESTORED_ROOT="${USO_RESTORED_ROOT:-/mnt/addons/UnraidSecretaryOffice/restored}"
+SNAPREAD_ROOT="${USO_SNAPREAD_ROOT:-/mnt/addons/UnraidSecretaryOffice/snapread}"
 VAR_INI=/var/local/emhttp/var.ini
 # The array runs: "Started" - and Unraid's "Started, formatting/clearing" (fsState Formatting, Clearing: a new
 # disk is formatted or cleared for hours while the array runs). One definition: agent.php's ARRAY_RUNNING says the
@@ -484,6 +485,27 @@ restored_release() {
     return 0
 }
 
+# Array stopping: what Mr. Restori or his drill read out of a ZFS snapshot is mounted read-only under the office's
+# snapread/ folder in /mnt/addons (agent/desks/restore-snapread.php - never through .zfs/snapshot: its automount
+# panicked Unraid 7.4.0) - unmounted now (lazily when busy) and the folders removed, else the pool can't go; after
+# drill_release, so their jobs had their chance to let go themselves. Nothing there - nothing done (one read of
+# /proc/mounts, one glob in RAM).
+snapread_release() {
+    local root=$SNAPREAD_ROOT mnt d n=0
+    [[ "$root" == /?* && "$root" != *[[:space:]]* && "$root" != */ ]] || return 0
+    while IFS= read -r mnt; do
+        mnt=${mnt//\\040/ }
+        [[ "$mnt" == "$root"/* ]] || continue
+        umount "$mnt" 2>/dev/null || umount -l "$mnt" 2>/dev/null
+        n=$((n + 1))
+    done < <(awk -v r="$root/" 'index($2, r) == 1 { print $2 }' "${PROC_MOUNTS:-/proc/mounts}" 2>/dev/null)
+    for d in "$root"/p*; do
+        [[ -d "$d" && ! -L "$d" ]] && rmdir "$d" 2>/dev/null
+    done
+    (( n )) && echo "$(date '+%F %T') array stopping: $n snapshot mount(s) of Mr. Restori's released ($root)" >>"$LOG"
+    return 0
+}
+
 # Array stopping: Mr. Restori's drill or restore, Mr. Backupsy's let-go clearing (atd jobs, the engine's lock file open
 # on the pool) ended at once - SIGTERM to the agent.php its RAM marker names ("<pid> <id>"), the drill's throwaways
 # (label uso.drill) gone; no marker: nothing. At the array stop (STOP_WHY=array_stopping, set by array_event) the drill
@@ -513,6 +535,7 @@ drill_release() {
 release() {
     stop                # the agent and whatever it started: nothing may keep a pool busy
     drill_release       # Mr. Restori's drill or restore (atd jobs): ended, the drill's throwaways gone
+    snapread_release    # what they read out of a ZFS snapshot, mounted read-only by the office - nor that
     partner_release     # a partner's transfer coming in through the door - nor that
     backup_release      # the backup engine's mounts left between runs (keep_mounts) - nor those
     restored_release    # what Mr. Restori pulled from a partner, mounted read-only - nor that
