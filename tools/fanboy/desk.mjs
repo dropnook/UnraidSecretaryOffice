@@ -72,7 +72,10 @@ const LOCALES = { de: 'de-CH', en: 'en-US' };
 const faults = [];
 const log = (...a) => { if (opt.v) console.log(...a); };
 fs.mkdirSync(opt.out, { recursive: true });
-const browser = await pw.chromium.launch({ headless: true, executablePath: chrome, args: ['--no-first-run', '--no-default-browser-check', '--font-render-hinting=none'] });
+// a mark of this run on its Chrome: the CPU measure counts only its processes (another session's Chrome on the same Mac
+// carries --remote-debugging-pipe too — counted with it, the numbers were nonsense)
+const MARK = `--fanboy-desk-run=${process.pid}`;
+const browser = await pw.chromium.launch({ headless: true, executablePath: chrome, args: ['--no-first-run', '--no-default-browser-check', '--font-render-hinting=none', MARK] });
 const harnesses = new Map();
 async function harness(state, lang) {
   const k = `${state}/${lang}`;
@@ -194,7 +197,7 @@ function chromeTree() {
     return m && { pid: +m[1], ppid: +m[2], time: m[3], cmd: m[4] };
   }).filter(Boolean);
   const secs = (t) => t.split(/[:-]/).reverse().reduce((s, x, i) => s + parseFloat(x) * [1, 60, 3600, 86400][i], 0);
-  const roots = rows.filter((r) => r.cmd.startsWith(chrome) && r.cmd.includes('--remote-debugging-pipe') && !rows.some((p) => p.pid === r.ppid && p.cmd.startsWith(chrome)));
+  const roots = rows.filter((r) => r.cmd.startsWith(chrome) && r.cmd.includes(MARK) && !rows.some((p) => p.pid === r.ppid && p.cmd.startsWith(chrome)));
   const keep = new Set(roots.map((r) => r.pid));
   for (let grew = true; grew;) { grew = false; for (const r of rows) if (!keep.has(r.pid) && keep.has(r.ppid)) { keep.add(r.pid); grew = true; } }
   return new Map(rows.filter((r) => keep.has(r.pid)).map((r) => [r.pid, secs(r.time)]));
