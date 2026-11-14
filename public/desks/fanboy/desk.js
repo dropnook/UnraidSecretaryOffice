@@ -478,7 +478,9 @@ function zoneNote(z, cz) {
   const parts = [];
   const tgt = z.target || {};
   parts.push(tgt.points ? T('curve.own') : T(`preset.${has(`preset.${tgt.preset}`) ? tgt.preset : 'normal'}`));
-  if (cz && control().running && steers()) {
+  if (cz && cz.full && control().running) {
+    parts.push(T('pic.full'));                // round 4: an alarm here — this zone at 100 %, the others steer on
+  } else if (cz && control().running && steers()) {
     if (cz.warmest && num(cz.warmest.c) !== null) {
       const lvl = num(cz.level) === null ? null : cz.unit === 'rpm' ? T('pic.rpm', { rpm: fmt.number(Math.round(cz.level)) }) : T('value', { pct: Math.round(cz.level) });
       parts.push(lvl ? T('pic.asks', { where: srcLabel({ ...cz.warmest, id: cz.warmest.id }), c: fmt.number(cz.warmest.c), level: lvl }) : T('pic.warmest', { where: srcLabel(cz.warmest), c: fmt.number(cz.warmest.c) }));
@@ -1207,7 +1209,9 @@ function paintBanner() {
   const st = S().situation || {};
   const box = (cls, text, data) => { const p = el('div', `callout ${cls} fb-callout`); p.appendChild(el('p', '', text)); Object.entries(data || {}).forEach(([k, v]) => { p.dataset[k] = v; }); banner.appendChild(p); return p; };
   if (c.running && c.alarm && has(`alarm.${c.alarm.code}`)) {
-    box('warn', T(`alarm.${c.alarm.code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}) }), { alarm: c.alarm.code });
+    // a standing fan alone in its zone: «… sets it to 100 %» (round 4: the alarm acts per zone)
+    const code = c.alarm.code === 'stands' && c.alarm.params && c.alarm.params.alone ? 'stands_alone' : c.alarm.code;
+    box('warn', T(`alarm.${code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}) }), { alarm: c.alarm.code });
   }
   if (['chip_missing', 'crashed'].includes(w.why)) {
     const p = box('warn', T(`control.${w.why}`), { why: w.why });

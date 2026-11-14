@@ -272,7 +272,7 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
     }
     return [
         'key' => $boardKey, 'owner' => $owner, 'phase' => 'start', 'hold' => null, 'fans' => $fans, 'zones' => $zones, 'watch' => $watch,
-        'chips' => [], 'sources' => [], 'alarm' => null, 'reasons' => [], 'clear_since' => null, 'told' => [], 'notes' => [],
+        'chips' => [], 'sources' => [], 'alarm' => null, 'reasons' => [], 'clear_since' => null, 'told' => [], 'notes' => [], 'full_since' => [],
         'missing' => null, 'started' => null, 'last_hist' => null, 'last_keep' => null, 'hist' => [], 'look_now' => false,
         'disks_at' => null, 'disks' => [], 'scan_at' => null, 'events' => [],
     ];
@@ -553,13 +553,17 @@ function fanboyRound(array &$c, float $now): void
         }
     }
     fanboyAlarm($c, $now, $reasons);
-    if ($c['alarm'] !== null) {
-        fanboyFull($c);
-    } else {
-        foreach ($c['fans'] as $id => $f) {
-            if ($f['taken'] && $f['pct'] !== null) {
-                fanboyApply($c, $id, $now);
-            }
+    // a zone with an alarm reason at 100 % until FANBOY_CLEAR_AFTER without one (a fan standing, too warm at full, a
+    // sensor silent); every other zone steers on — a watched BIOS fan standing drives nothing (told only)
+    $full = fanboyFullZones($c, $now);
+    foreach ($c['fans'] as $id => $f) {
+        if (!$f['taken']) {
+            continue;
+        }
+        if (isset($full[$f['zone']])) {
+            fanboyFullOne($c, $id);
+        } elseif ($f['pct'] !== null) {
+            fanboyApply($c, $id, $now);
         }
     }
     // 5. read back after the start: does each measured fan still follow its table?
@@ -601,7 +605,8 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
             $states[$s['id']] = 'quiet';
             $after = in_array($s['kind'], FANBOY_DISK_KINDS, true) ? FANBOY_DISK_SENSOR_AFTER : FANBOY_SENSOR_AFTER;
             if ($r['quiet_since'] !== null && $now - $r['quiet_since'] >= $after) {
-                $reasons['sensor'] = ['source' => $r['label'], 'zone' => $z['name']];
+                $reasons['sensor'] = ['source' => $r['label'], 'zone' => $z['name'], 'zid' => $zid];
+                $c['full_since'][$zid] = $now;
             }
             continue;
         }
@@ -625,9 +630,11 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
     $t = $warmest['mapped'] ?? $lo;
     if ($hot) {
         $cur = $z['unit'] === 'pct' ? 100.0 : max($raw, $cur ?? $raw);     // over a limit: full now (each fan below)
+        $z['hold_t'] = $t;          // went up at this temperature: the way down starts once it is FANBOY_GAP under it again
         $z['hot_since'] ??= $now;
         if ($now - $z['hot_since'] >= FANBOY_HOT_AFTER) {
-            $reasons['hot'] = $hotWhat ?? [];
+            $reasons['hot'] = ($hotWhat ?? []) + ['zid' => $zid];
+            $c['full_since'][$zid] = $now;
         }
     } else {
         $z['hot_since'] = null;
@@ -678,7 +685,9 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
             $c['fans'][$id]['kicks'] = 0;
         }
         if ($zero && $now - $c['fans'][$id]['zero_since'] >= FANBOY_STAND_AFTER) {
-            $reasons['stands'] = ['fan' => fanboyFanLabel($f), 'zone' => $z['name']];
+            // round 4 (the owner): the alarm acts where it is — this fan and the other fans of ITS zone to 100 %
+            $reasons['stands'] = ['fan' => fanboyFanLabel($f), 'zone' => $z['name'], 'zid' => $zid, 'alone' => count($z['fans']) === 1];
+            $c['full_since'][$zid] = $now;
         }
     }
 }
@@ -708,7 +717,32 @@ function fanboyApply(array &$c, string $id, float $now): void
     }
 }
 
-/** Every output he holds to full speed (the alarm) */
+/** The zones at 100 % for an alarm now: a reason in the last FANBOY_CLEAR_AFTER seconds — [zone id => true] */
+function fanboyFullZones(array &$c, float $now): array
+{
+    $out = [];
+    foreach ($c['full_since'] ?? [] as $zid => $at) {
+        if ($now - $at < FANBOY_CLEAR_AFTER && isset($c['zones'][$zid])) {
+            $out[$zid] = true;
+        } else {
+            unset($c['full_since'][$zid]);
+        }
+    }
+    return $out;
+}
+
+/** One output to 100 % (its zone's alarm): written once, kept */
+function fanboyFullOne(array &$c, string $id): void
+{
+    $f = $c['fans'][$id];
+    if ($f['value'] !== FANBOY_FULL && fanboySet($id, FANBOY_FULL, $c['owner']) !== null) {
+        $c['fans'][$id]['value'] = FANBOY_FULL;
+        $c['fans'][$id]['changed'] = null;
+    }
+    $c['fans'][$id]['pct'] = 100;
+}
+
+/** Every output he holds to full speed (the chip going: what can still be written) */
 function fanboyFull(array &$c): void
 {
     foreach ($c['fans'] as $id => $f) {
@@ -726,11 +760,13 @@ function fanboyFull(array &$c): void
 function fanboyAlarm(array &$c, float $now, array $reasons): void
 {
     foreach ($reasons as $code => $what) {
+        // a standing fan alone in its zone: «… stellt ihn auf 100 %» (the words without «the other fans of its zone»)
+        $key = $code === 'stands' && !empty($what['alone']) ? 'alarm_stands_alone' : "alarm_$code";
         if ($c['alarm'] === null) {
             $c['alarm'] = ['code' => $code, 'params' => $what, 'since' => time(), 'mono' => $now];
             fanboyNote($c, "alarm_$code", $what);
         }
-        fanboyTell($c, "alarm:$code", "alarm_$code", $what, 'alert');
+        fanboyTell($c, "alarm:$code", $key, $what, 'alert');
     }
     $c['reasons'] = $reasons;
     if ($reasons) {
@@ -848,6 +884,7 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
     $zones = [];
     foreach ($c['zones'] as $z) {
         $zones[] = ['id' => $z['id'], 'name' => $z['name'], 'unit' => $z['unit'], 'level' => $z['cur'] === null ? null : round($z['cur'], 1),
+            'full' => isset($c['full_since'][$z['id']]),         // round 4: this zone at 100 % for an alarm
             'warmest' => $z['warmest'], 'asleep' => count(array_filter($z['state'], fn ($s) => $s === 'asleep')),
             'fans' => array_map(fn ($id) => ['id' => $id, 'name' => $c['fans'][$id]['name'], 'output' => $c['fans'][$id]['output'],
                 'pct' => $c['fans'][$id]['taken'] ? $c['fans'][$id]['pct'] : null, 'rpm' => $c['fans'][$id]['rpm'] ?? null,

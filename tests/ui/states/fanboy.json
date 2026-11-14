@@ -645,6 +645,7 @@
     "name": "Plattenkäfig",
     "unit": "pct",
     "level": 42,
+    "full": false,
     "warmest": {
      "id": "disk2",
      "label": "disk2",
@@ -670,6 +671,7 @@
     "name": "Gehäuse",
     "unit": "pct",
     "level": 40,
+    "full": false,
     "warmest": {
      "id": "nvme@pci0000:00/0000:00:06.1/0000:03:00.0/nvme#1",
      "label": "Composite",

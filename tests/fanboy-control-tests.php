@@ -355,26 +355,28 @@ function testFanboyAlarms(): void
         $now = 2000.0;
         fanboyTRounds($c, $now, $t, $spec, 3);
 
-        // a fan stands though it should turn (one fan of the hub): after 15 s every output he holds to full, told once
+        // a fan stands though it should turn (one fan of the hub): after 15 s ITS zone at 100 % (round 4, the owner: the hub
+        // and the silent top fan of «Case»), the other zone steers on, told once
         $stuck = fanboyTSpec(10, [6 => ['stuck' => true]]);
         fanboyTRounds($c, $now, $t, $stuck, 4);
         same('fanboy alarms: one fan of the hub stands — not yet (under 15 s)', null, $c['alarm']);
         fanboyTRounds($c, $now, $t, $stuck, 6);
-        same('fanboy alarms: … 15 s — alarm «stands», every output he holds at full speed (255), the CPU cooler not his',
-            ['stands', 'Front', [255, 1], [255, 1], [255, 1], [128, 1]],
+        same('fanboy alarms: … 15 s — alarm «stands», its zone at 100 % (hub and top fan: 255), the disk zone keeps its level, the CPU cooler not his',
+            ['stands', 'Front', [77, 1], [255, 1], [255, 1], [128, 1]],
             [$c['alarm']['code'] ?? null, $c['alarm']['params']['fan'] ?? null, fanboyTOut($t, 4), fanboyTOut($t, 5), fanboyTOut($t, 2), fanboyTOut($t, 1)]);
         fanboyTRounds($c, $now, $t, $stuck, 10);
         same('fanboy alarms: … told once (an alert), however long it stands', 1, count(array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, '-i alert'))));
         fanboyTRounds($c, $now, $t, $spec, 30);
-        same('fanboy alarms: it turns again — still full for 2 minutes', [255, 'stands'], [fanboyTOut($t, 4)[0], $c['alarm']['code'] ?? null]);
+        same('fanboy alarms: it turns again — its zone still at 100 % for 2 minutes', [255, 'stands'], [fanboyTOut($t, 5)[0], $c['alarm']['code'] ?? null]);
         fanboyTRounds($c, $now, $t, $spec, 40);
-        same('fanboy alarms: … then over: the curve again', [null, 77], [$c['alarm'], fanboyTOut($t, 4)[0]]);
+        same('fanboy alarms: … then over: the curve again', [null, 77, 102], [$c['alarm'], fanboyTOut($t, 4)[0], fanboyTOut($t, 5)[0]]);
 
-        // a BIOS fan he only watches stands (the CPU cooler): alarm too, his outputs to full; the cooler itself untouched
+        // a BIOS fan he only watches stands (the CPU cooler): an alarm told — no output of his driven for it (round 4); the
+        // cooler itself untouched
         $cpu = fanboyTSpec(10, [1 => ['stuck' => true]]);
         fanboyTRounds($c, $now, $t, $cpu, 12);
-        same('fanboy alarms: the CPU cooler stands — alarm «bios_stands», his outputs full, the cooler\'s output untouched',
-            ['bios_stands', 255, [128, 1]], [$c['alarm']['code'] ?? null, fanboyTOut($t, 4)[0], fanboyTOut($t, 1)]);
+        same('fanboy alarms: the CPU cooler stands — alarm «bios_stands» told, his zones steer on, the cooler\'s output untouched',
+            ['bios_stands', 77, 102, [128, 1]], [$c['alarm']['code'] ?? null, fanboyTOut($t, 4)[0], fanboyTOut($t, 5)[0], fanboyTOut($t, 1)]);
         fanboyTRounds($c, $now, $t, $spec, 70);
         same('fanboy alarms: … over two minutes after it turns again', null, $c['alarm']);
 
@@ -386,7 +388,7 @@ function testFanboyAlarms(): void
         same('fanboy alarms: … a minute at full and still over — alarm «hot», told', ['hot', 'parity'], [$c['alarm']['code'] ?? null, $c['alarm']['params']['source'] ?? null]);
         fanboyTDisks($t, 35, null, 33);
         fanboyTRounds($c, $now, $t, $spec, 70);
-        same('fanboy alarms: … cool again: over', null, $c['alarm']);
+        same('fanboy alarms: … cool again: over, and the zone well on its way down (round 4 found it stayed at 100 % for good)', [null, true], [$c['alarm'], fanboyTOut($t, 4)[0] < 100]);
 
         // a sensor that says nothing (the NVMe's file gone): 30 s, then alarm «sensor»
         $nv = glob("{$t['root']}/sys/devices/pci0000:00/0000:00:06.1/0000:03:00.0/nvme/*/hwmon/hwmon*/temp1_input")[0];
@@ -394,7 +396,7 @@ function testFanboyAlarms(): void
         fanboyTRounds($c, $now, $t, $spec, 10);
         same('fanboy alarms: the NVMe says nothing — under 30 s: no alarm', null, $c['alarm']);
         fanboyTRounds($c, $now, $t, $spec, 8);
-        same('fanboy alarms: … 30 s — alarm «sensor», every output full', ['sensor', 255, 255], [$c['alarm']['code'] ?? null, fanboyTOut($t, 5)[0], fanboyTOut($t, 4)[0]]);
+        same('fanboy alarms: … 30 s — alarm «sensor», its zone («Case») at 100 %, the disk zone keeps its level', ['sensor', 255, 77], [$c['alarm']['code'] ?? null, fanboyTOut($t, 5)[0], fanboyTOut($t, 4)[0]]);
         rename("$nv.away", $nv);
         fanboyTRounds($c, $now, $t, $spec, 80);
         same('fanboy alarms: … back: over', null, $c['alarm']);

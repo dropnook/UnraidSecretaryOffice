@@ -177,9 +177,9 @@ function steering(more = {}) {
   const rpm = { ...RPM, ...(more.rpm || {}) };
   const itec = ite({ 1: [128, 2], 2: [102, 1], 4: [107, 1], 5: [102, 1] }, rpm);
   const zonesNow = [
-    { id: 'disks', name: 'Plattenkäfig', unit: 'pct', level: 42, warmest: { id: 'disk2', label: 'disk2', c: 41, mapped: 41, kind: 'disk' }, asleep: 1,
+    { id: 'disks', name: 'Plattenkäfig', unit: 'pct', level: 42, full: false, warmest: { id: 'disk2', label: 'disk2', c: 41, mapped: 41, kind: 'disk' }, asleep: 1,
       fans: [{ id: P(4), name: 'Plattenkäfig', output: 4, pct: 42, rpm: rpm[4], held: true, foreign: false }] },
-    { id: 'case', name: 'Gehäuse', unit: 'pct', level: 40, warmest: { id: NVME, label: 'Composite', c: 27.9, mapped: 27.9, kind: 'nvme' }, asleep: 0,
+    { id: 'case', name: 'Gehäuse', unit: 'pct', level: 40, full: !!more.caseFull, warmest: { id: NVME, label: 'Composite', c: 27.9, mapped: 27.9, kind: 'nvme' }, asleep: 0,
       fans: [{ id: P(5), name: 'Vorn', output: 5, pct: 40, rpm: rpm[5], held: true, foreign: false }, { id: P(2), name: 'Deckel', output: 2, pct: 40, rpm: null, held: true, foreign: false }] },
   ];
   return state({ ite: itec, fans: SET_UP, zones: ZONES, armed: true, who: more.who || { who: 'fanboy', why: 'steers', zones: 2 },
@@ -190,8 +190,9 @@ const fresh = () => state({ ite: ite({}, RPM) });
 const files = {};
 files.fanboy = steering();
 files['fanboy-steering'] = steering();
-files['fanboy-alarm'] = steering({ rpm: { 5: 0, 6: 0 }, who: { who: 'fanboy', why: 'alarm', zones: 2 }, why: 'alarm',
-  alarm: { code: 'stands', params: { fan: 'Vorn', zone: 'Gehäuse' }, since: T0 - 40 },
+// the alarm acts where it is (round 4): the case zone at 100 %, the disk cage steers on
+files['fanboy-alarm'] = steering({ rpm: { 5: 0, 6: 0 }, who: { who: 'fanboy', why: 'alarm', zones: 2 }, why: 'alarm', caseFull: true,
+  alarm: { code: 'stands', params: { fan: 'Vorn', zone: 'Gehäuse', zid: 'case', alone: false }, since: T0 - 40 },
   notes: [...NOTES, { code: 'alarm_stands', params: { fan: 'Vorn' }, at: T0 - 40 }] });
 // the fan chip gone (its driver missing after an update): no outputs seen, the control waits for it
 files['fanboy-missing'] = state({ fans: SET_UP, zones: ZONES, armed: true, situation: { code: 'driver_missing', plugins: ['it87-driver'], modules: ['it87'] },
