@@ -212,7 +212,7 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
     $lines = ['Fanboy detection report v1'];
     $lines[] = 'Board: ' . ($clean($b['vendor'] ?? '') ?: '?') . ' - ' . ($clean($b['model'] ?? '') ?: '?');
     $lines[] = 'Kernel: ' . ($clean($scan['kernel'] ?? '') ?: '?') . ' · Unraid: ' . ($clean($scan['unraid'] ?? '') ?: '?');
-    $s = $scan['situation'] ?? ['code' => '?'];
+    $s = $scan['situation'] ?? ['code' => 'unknown'];
     $what = $clean($s['code'] ?? '?');
     if (!empty($s['who'])) {
         $what .= ' (' . implode(', ', array_map($clean, $s['who'])) . ')';

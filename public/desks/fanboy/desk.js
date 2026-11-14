@@ -314,7 +314,7 @@ function hintsSection() {
       main.appendChild(meta);
       if (Office.has(`${ID}.plugin.${x.id}`)) main.appendChild(el('div', 'row-detail', T(`plugin.${x.id}`)));
       const chip = { 'it87-driver': 'ite', 'nct6687-driver': 'nuvoton' }[x.id];
-      if (chip && state.board_hint === chip) main.appendChild(el('div', 'row-detail', T(`hints.board_${chip}`, { maker: state.board_maker || '?' })));
+      if (chip && state.board_hint === chip) main.appendChild(el('div', 'row-detail', T(`hints.board_${chip}`, { maker: state.board_maker })));
       main.appendChild(el('div', 'row-detail', T('hints.apps_how', { name: x.name, author: x.author })));
       const go = el('a', 'btn small', T('hints.apps'));
       const href = Office.safeHref('/Apps');
