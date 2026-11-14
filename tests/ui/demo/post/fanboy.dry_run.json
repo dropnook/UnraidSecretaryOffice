@@ -11,10 +11,10 @@
     "unit": "pct",
     "level": 42,
     "warmest": {
-     "id": "parity",
-     "label": "parity",
-     "c": 38,
-     "mapped": 38,
+     "id": "disk2",
+     "label": "disk2",
+     "c": 41,
+     "mapped": 41,
      "kind": "disk"
     },
     "asleep": 1,

@@ -29,6 +29,7 @@ const FANBOY_MEASURE_STEPS = [90, 80, 70, 60, 50, 45, 40, 35, 30, 25, 20, 15, 10
 const FANBOY_SETTLE_MAX = 10.0;         // measure: seconds at most for a value to settle
 const FANBOY_START_WAIT = 4.0;          // measure: seconds a start value gets to make a standing fan turn
 const FANBOY_PLACES = ['front', 'rear', 'top', 'bottom', 'side'];
+const FANBOY_COUNT_MAX = 8;             // fans on one connector at most (a hub): the page draws as many wheels
 const FANBOY_ZONES_MAX = 8;
 const FANBOY_SOURCES_MAX = 32;
 const FANBOY_ID_RE = '/^[A-Za-z0-9_.:-]{1,80}:pwm\d{1,2}$/D';
@@ -549,7 +550,12 @@ function fanboyRole(array $r): array
         throw new Problem('fanboy_bad_place');
     }
     $offOk = optBool($r, 'off_ok', false);
-    $e = fanboyStoreUpdate(function (array $e) use ($id, $role, $name, $place, $offOk): array {
+    // round 3: how many fans hang on this one connector (a Y-cable, a hub) — 1 … 8; not sent: as it was
+    $count = optInt($r, 'count', null, 1);
+    if ($count !== null && $count > FANBOY_COUNT_MAX) {
+        throw new Problem('fanboy_bad_count');
+    }
+    $e = fanboyStoreUpdate(function (array $e) use ($id, $role, $name, $place, $offOk, $count): array {
         $f = $e['fans'][$id] ?? null;
         if (!is_array($f) || !in_array($f['found'] ?? null, ['tach', 'silent', 'unclear'], true)) {
             throw new Problem('fanboy_no_output', ['fan' => $id]);
@@ -561,6 +567,9 @@ function fanboyRole(array $r): array
         $f['name'] = $name;
         $f['place'] = $place !== '' ? $place : null;
         $f['off_ok'] = $offOk && in_array($role, FANBOY_ROLES_OURS, true);
+        if ($count !== null) {
+            $f['count'] = $count;
+        }
         $e['fans'][$id] = $f;
         return in_array($role, FANBOY_ROLES_BIOS, true) ? fanboyZonesWithout($e, $id) : $e;
     });

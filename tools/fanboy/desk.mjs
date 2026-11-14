@@ -5,7 +5,8 @@
 // situations, an animated picture of the overview with its fans turning, and its CPU — measured as tools/fanboy/look.mjs
 // measures the pictures alone (Chrome's main thread and all its processes, 8 s, median of 3). Dev-only.
 //
-//   node tools/fanboy/desk.mjs [--out <folder>] [--no-shots] [--no-cpu] [--no-movie] [--only <name>,…] [-v]
+//   node tools/fanboy/desk.mjs [--out <folder>] [--no-shots] [--no-cpu] [--no-movie] [--no-callouts] [--only <name>,…] [-v]
+//   --callouts (default on): every demo state, both routes shown whole — fails when a callout's text stands twice
 // Fails (exit 1) on a console error, a page error or a horizontal scroll. Exit 3: playwright-core or Chrome missing.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -19,13 +20,14 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 const require = createRequire(import.meta.url);
 const args = process.argv.slice(2);
-const opt = { out: path.join(process.env.USO_SHOTS || path.join(os.homedir(), 'uso-shots'), 'fanboy-desk'), shots: true, cpu: true, movie: true, only: null, v: false };
+const opt = { out: path.join(process.env.USO_SHOTS || path.join(os.homedir(), 'uso-shots'), 'fanboy-desk'), shots: true, cpu: true, movie: true, callouts: true, only: null, v: false };
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--out') opt.out = path.resolve(args[++i]);
   else if (a === '--no-shots') opt.shots = false;
   else if (a === '--no-cpu') opt.cpu = false;
   else if (a === '--no-movie') opt.movie = false;
+  else if (a === '--no-callouts') opt.callouts = false;
   else if (a === '--only') opt.only = args[++i].split(',');
   else if (a === '-v') opt.v = true;
   else { console.log(`fanboy desk: unknown argument ${a}`); process.exit(2); }
@@ -72,6 +74,10 @@ const PICTURES = [
   ['curves-3d', 'fanboy', 'fanboy/today', '.fb-period button:nth-child(6)', false],
   // his picture (avatar.svg; avatar-alarm.svg while something is wrong): the tab row and his head, the reception's card
   ['avatar-head', 'fanboy', 'fanboy', null, 'both', { until: '.deskhead' }],
+  // round 3: the tile row (connectors, the warmest spots per kind), the setup shown whole with another controller steering
+  ['tiles', 'fanboy', 'fanboy', null, 'both', { until: '[data-sections-body]', before: true }],
+  ['tiles-nozones', 'fanboy-fresh', 'fanboy', null, false, { until: '[data-sections-body]', before: true }],
+  ['setup-whole-other', 'fanboy-other', 'fanboy/setup', null, 'both', { whole: true }],
   ['avatar-alarm-head', 'fanboy-alarm', 'fanboy', null, 'both', { until: '.deskhead' }],
   ['avatar-reception', 'fanboy', '', null, 'both', { clip: '.desk-card[data-desk=fanboy]', wait: '.desk-card[data-desk=fanboy]' }],
   ['fans', 'fanboy', 'fanboy/fans', null, false],
@@ -123,9 +129,14 @@ if (opt.shots) {
         const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         if (wide > 1) faults.push(`${tag}: the page scrolls sideways by ${wide} px`);
         const file = path.join(opt.out, `${name}-${l.theme}-${l.lang}-${l.width}.png`);
+        if (shot && shot.whole) {
+          // the page shown whole: the tile the page opened with clicked off again
+          await page.evaluate(() => { const on = document.querySelector('#sso-desk button.stat[aria-pressed=true]'); if (on) on.click(); });
+          await page.waitForTimeout(700);
+        }
         if (shot && shot.until) {
           const box = await page.locator(shot.until).first().boundingBox();
-          await page.screenshot({ path: file, clip: { x: 0, y: 0, width: l.width, height: Math.ceil(box.y + box.height + 12) } });
+          await page.screenshot({ path: file, clip: { x: 0, y: 0, width: l.width, height: Math.ceil(shot.before ? box.y : box.y + box.height + 12) } });
         } else if (shot && shot.clip) await page.locator(shot.clip).first().screenshot({ path: file });
         else await page.screenshot({ path: file, fullPage: true, animations: 'allow', caret: 'hide' });
         log(file);
@@ -142,6 +153,27 @@ if (opt.shots) {
   const still = await page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length);
   if (still) faults.push(`reduced motion: ${still} animations still running`);
   await ctx.close();
+}
+
+// ------------------------------------------------------------------ no text twice: every demo state, both pages shown whole
+// (round 3, the owner: with another controller the setup page said the same warning three times) — every callout's text
+// once on a page, never again in a step
+if (opt.callouts) {
+  const states = fs.readdirSync(path.join(REPO, 'tests', 'ui', 'demo')).filter((f) => /^fanboy(-[a-z]+)?\.json$/.test(f) && f !== 'fanboy-history.json').map((f) => f.replace(/\.json$/, ''));
+  let pages = 0;
+  for (const state of states) {
+    for (const route of ['fanboy', 'fanboy/setup']) {
+      const { ctx, page, tag } = await open(state, route, { scale: 1 });
+      await page.evaluate(() => { const on = document.querySelector('#sso-desk button.stat[aria-pressed=true]'); if (on) on.click(); });
+      await page.waitForTimeout(500);
+      const texts = await page.evaluate(() => [...document.querySelectorAll('#sso-desk .callout')].map((c) => c.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean));
+      const twice = [...new Set(texts.filter((x, i) => texts.indexOf(x) !== i))];
+      for (const x of twice) faults.push(`${tag}: the same callout twice on the page shown whole — «${x.slice(0, 90)}»`);
+      pages++;
+      await ctx.close();
+    }
+  }
+  console.log(`fanboy desk: callouts — ${pages} pages shown whole (${states.length} demo states × 2 routes), ${faults.filter((f) => f.includes('callout twice')).length} with a text twice`);
 }
 
 // ------------------------------------------------------------------ the overview's picture as an animated PNG (as look.mjs)

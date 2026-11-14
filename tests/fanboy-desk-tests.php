@@ -418,3 +418,117 @@ function testFanboyAvatar(): void
     check('fanboy avatar: the package takes public/ whole (build.sh), so both drawings ship; the emoji in desk.json stays the fallback',
         (bool) preg_match('/\bpublic\b/', $build) && (json_decode((string) file_get_contents("$dir/desk.json"), true)['icon'] ?? '') === '🌀');
 }
+
+/** Several fans on one connector (round 3): how many, said in the roles step — stored, read strictly; the words count connectors */
+function testFanboyCount(): void
+{
+    $t = fanboyT('count');
+    try {
+        fanboyTStore(fanboyTSettings());
+        $id = fanboyTId(1);
+        same('fanboy count: none stored — one fan on the connector', 1, array_column(fanboySetupState(fanboyDetect(), fanboyBoardRaw())['fans'], 'count', 'id')[$id]);
+        fanboyRole(['fan' => $id, 'role' => 'cpu', 'name' => 'CPU', 'count' => 2]);
+        fanboyRole(['fan' => $id, 'role' => 'cpu', 'name' => 'CPU cooler']);
+        same('fanboy count: two fans on the CPU cooler\'s connector — kept when the role is saved again without it', [2, 'CPU cooler'],
+            [fanboyBoardRaw()['fans'][$id]['count'] ?? null, fanboyBoardRaw()['fans'][$id]['name'] ?? null]);
+        $codes = [];
+        foreach ([['count' => '2'], ['count' => 0], ['count' => 9], ['count' => 2.0]] as $r) {
+            try {
+                fanboyRole(['fan' => $id, 'role' => 'cpu'] + $r);
+                $codes[] = 'kept';
+            } catch (Problem $p) {
+                $codes[] = $p->key;
+            }
+        }
+        same('fanboy count: read strictly — text, 0, 9, a float refused', ['bad_request', 'bad_request', 'fanboy_bad_count', 'bad_request'], $codes);
+        same('fanboy count: the setup\'s state carries it (the picture draws as many wheels)', 2, array_column(fanboySetupState(fanboyDetect(), fanboyBoardRaw())['fans'], 'count', 'id')[$id]);
+    } finally {
+        fanboyTEnd();
+    }
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $l = [];
+    foreach (['en', 'de', 'fr', 'it', 'es'] as $c) {
+        $l[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true);
+    }
+    check('fanboy count: the page — «How many fans on it?» sent with the role, as many wheels in the picture sharing one speed, the tile counting connectors',
+        str_contains($js, "count: Number(count.value) }") && str_contains($js, 'fans: (z.fans || []).flatMap((id) => wheelsOf(id)),')
+        && str_contains($js, "T('fans.reporting', { n: turning })") && !str_contains($js, "'fans.turning'"));
+    same('fanboy count: «connectors report a speed» in five languages as a plural; the hints say what a Y-cable or hub hides', [true, true, true, true, true],
+        array_map(fn ($c) => is_array($l[$c]['fans.reporting'] ?? null) && isset($l[$c]['hints.hub.1'], $l[$c]['hints.hub.2']), array_keys($l)));
+    check('fanboy count: «4 Anschlüsse melden Drehzahl»', ($l['de']['fans.reporting']['other'] ?? '') === '{n} Anschlüsse melden Drehzahl');
+}
+
+/**
+ * The warmest spots per kind (round 3): hard disks and SSD/NVMe apart, Unraid's limits (a disk's own, else the global one
+ * of its kind — dynamix.cfg over the webGui's defaults; read only), the lead by its limit, a sleeping disk asleep, no
+ * limit made up
+ */
+function testFanboyHottestKinds(): void
+{
+    $ini = fn (array $d) => implode('', array_map(fn ($x) => "[{$x[0]}]\nname=\"{$x[0]}\"\ntype=\"{$x[1]}\"\ndevice=\"{$x[2]}\"\nid=\"EXAMPLE_" . strtoupper($x[0]) . "\"\ntemp=\"{$x[3]}\"\n"
+        . 'spundown="' . ($x[3] === '*' ? 1 : 0) . "\"\nrotational=\"{$x[4]}\"\nstatus=\"DISK_OK\"\n" . ($x[5] ?? ''), $d));
+    $t = fanboyT('hotkinds', 10, FANBOY_T_ADDR, ['files' => [
+        'usr/local/emhttp/plugins/dynamix/default.cfg' => "[display]\nhot=\"45\"\nmax=\"55\"\nhotssd=\"60\"\nmaxssd=\"70\"\n",
+        'boot/config/plugins/dynamix/dynamix.cfg' => "[display]\ntheme=\"black\"\nhot=\"42\"\nmaxssd=\"\"\n"]]);
+    try {
+        file_put_contents("{$t['root']}/var/local/emhttp/disks.ini", $ini([['parity', 'Parity', 'sdb', '41', '1'], ['disk1', 'Data', 'sdc', '*', '1'],
+            ['disk2', 'Data', 'sdd', '39', '1', "hotTemp=\"38\"\nmaxTemp=\"48\"\n"], ['cache', 'Cache', 'nvme0n1', '50', '0']]));
+        same('fanboy hottest: Unraid\'s limits — the user\'s global HDD warning (42) over the default, the rest the defaults (an empty value: the default)',
+            ['hot' => 42, 'max' => 55, 'hotssd' => 60, 'maxssd' => 70], fanboyDiskLimits(fanboyPaths()));
+        $s = fanboyDetect();
+        same('fanboy hottest: each disk\'s limits — its own (disk2: 38/48), else the global of its kind (HDD 42/55, SSD 60/70)',
+            [['parity', 42, 55], ['disk1', 42, 55], ['disk2', 38, 48], ['cache', 60, 70]], array_map(fn ($d) => [$d['name'], $d['warn'], $d['crit']], $s['disks']));
+        $k = array_column($s['hottest_kinds'], null, 'kind');
+        same('fanboy hottest: per kind — HDD the warmest of the rotating ones (parity 41 °C, one asleep), SSD/NVMe apart (the NVMe pool 50 °C)',
+            [['parity', 41, 1], ['cache', 50]], [[$k['hdd']['warmest']['disk'], $k['hdd']['warmest']['c'], $k['hdd']['asleep']], [$k['ssd']['warmest']['disk'], $k['ssd']['warmest']['c']]]);
+        same('fanboy hottest: the lead — not the hottest number but the one over its limit: disk2 at 39 °C over its own 38; the NVMe at 50 far from 60',
+            [39, 'disk2', 38, 1, 'warn'], array_values(array_intersect_key($s['hottest_lead'], array_flip(['disk', 'c', 'warn', 'margin', 'over']))));
+        same('fanboy hottest: the CPU, the board, the RAM — shown, never judged (no limit made up)', [null, null, null], [$k['cpu']['near'], $k['board']['near'], $k['ram']['near']]);
+        same('fanboy hottest: the old `hottest` stays (an older page reads it)', 50.0, (float) $s['hottest']['c']);
+        // every hard disk asleep: the kind says so, never cold
+        file_put_contents("{$t['root']}/var/local/emhttp/disks.ini", $ini([['parity', 'Parity', 'sdb', '*', '1'], ['disk1', 'Data', 'sdc', '*', '1']]));
+        $k = array_column(fanboyDetect()['hottest_kinds'], null, 'kind');
+        same('fanboy hottest: all hard disks asleep — no warmest, two asleep, nothing near a limit', [null, 2, null], [$k['hdd']['warmest'], $k['hdd']['asleep'], $k['hdd']['near']]);
+        // no limits known (no dynamix files): no judgement at all
+        unlink("{$t['root']}/usr/local/emhttp/plugins/dynamix/default.cfg");
+        unlink("{$t['root']}/boot/config/plugins/dynamix/dynamix.cfg");
+        file_put_contents("{$t['root']}/var/local/emhttp/disks.ini", $ini([['parity', 'Parity', 'sdb', '47', '1']]));
+        $s = fanboyDetect();
+        same('fanboy hottest: no limit known anywhere — the disk\'s value, no warning made up, no lead', [47, null, null], [$s['hottest_kinds'][0]['warmest']['c'], $s['disks'][0]['warn'], $s['hottest_lead']]);
+    } finally {
+        fanboyTEnd();
+    }
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/lang/en.json'), true);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    check('fanboy hottest: the tile — plural, the lead by its limit (Unraid\'s or the user\'s), «All calm» without colour when nothing is near',
+        $en['tile.hottest'] === 'Warmest spots' && str_contains($js, 'return lead && lead.c - lead.limit >= -LEAD_NEAR ? lead : null;')
+        && str_contains($js, "if (!lead) return Office.stat({ label: T('tile.hottest'), value: T('hottest.calm'), sub: kinds.slice(0, 4).map(line), ...a });"));
+}
+
+/** Round 3: no text twice on a page, the plain line to switch the others off, the FanCtrl Plus import gone */
+function testFanboyRound3Words(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $l = [];
+    foreach (['en', 'de', 'fr', 'it', 'es'] as $c) {
+        $l[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true);
+    }
+    same('fanboy round 3: the banner\'s texts once — another controller only in the banner; a step that can\'t run says its own short line',
+        [1, 0, 2], [substr_count($js, "T('situation.other'"), substr_count($js, "T('step.steering')"), substr_count($js, "T('step.blocked_other')")]);
+    check('fanboy round 3: the owner\'s words — «Deaktiviere die anderen Lüftersteuerungen bitte zuerst.», «Please switch off the other fan controls first.»',
+        str_ends_with($l['de']['hints.clash.1'], 'Deaktiviere die anderen Lüftersteuerungen bitte zuerst.') && str_ends_with($l['en']['hints.clash.1'], 'Please switch off the other fan controls first.'));
+    $clumsy = [];
+    foreach ($l as $c => $strings) {
+        foreach ($strings as $k => $v) {
+            if (preg_match('/selbst aus|switch it off yourself|arrête-le toi-même|désactive-le d\'abord toi-même|lo spegni tu|lo apagas tú/i', implode(' ', (array) $v))) {
+                $clumsy[] = "$c:$k";
+            }
+        }
+    }
+    same('fanboy round 3: the clumsy «you switch it off yourself» nowhere any more', [], $clumsy);
+    $agent = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy.php');
+    $keys = array_filter(array_keys($l['en']), fn ($k) => str_starts_with($k, 'import.') || str_starts_with($k, 'zones.import'));
+    check('fanboy round 3: the FanCtrl Plus import gone — no action, no file, no part of the state, no strings, nothing on the page',
+        !is_file(OFFICE_DIR . '/agent/desks/fanboy-import.php') && !str_contains($agent, "'import'") && !str_contains($agent, 'fanboyImport') && !$keys
+        && !preg_match('/\bimport(Block|AsZones)\b|S\(\)\.import/', $js));
+}

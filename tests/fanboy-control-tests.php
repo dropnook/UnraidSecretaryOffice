@@ -961,45 +961,6 @@ SH);
     }
 }
 
-// ===================================================================== moving over from FanCtrl Plus
-
-function testFanboyImport(): void
-{
-    $cfg = fn (int $n, string $disks, string $name, string $low = '41') => "custom=\"$name\"\nlabel=\"$name\"\nservice=\"1\"\ncontroller=\"/sys/devices/platform/it87.2624/hwmon/hwmon10/pwm$n\"\n"
-        . "pwm=\"128\"\nmax=\"230\"\nidle=\"100\"\nlow=\"$low\"\nhigh=\"46\"\ninterval=\"1\"\ndisks=\"$disks\"\nsyslog=\"1\"\ncpu_enable=\"0\"\n";
-    $files = [];
-    foreach ([1, 2, 3, 4, 5, 6] as $n) {
-        $files["fanctrlplus/fanctrlplus_Fan$n.cfg"] = $cfg($n, 'ata-EXAMPLE_HDD_SN000001,ata-EXAMPLE_HDD_SN000003', "Fan$n");
-    }
-    $files['fanctrlplus/fanctrlplus_Odd.cfg'] = $cfg(4, 'ata-EXAMPLE_HDD_SN000003,ata-EXAMPLE_HDD_SN999999', 'Odd', '38');
-    $files['fanctrlplus/fanctrlplus_Broken.cfg'] = "custom=\"Broken\"\ncontroller=\"/etc/passwd\"\n";
-    $board = fanboyFakeBoard(12, 'it87.2608');
-    $board['plugins'] = $files + $board['plugins'];
-    $t = fanboyT('import', 12, 'it87.2608', ['plugins' => $board['plugins']]);
-    try {
-        $before = fanboyTreeHash("{$t['root']}/boot");
-        $scan = fanboyDetect();
-        $imp = fanboyImport($scan);
-        same('fanboy import: its files read (8), switched on', [8, true], [$imp['files'], $imp['active']]);
-        same('fanboy import: the six equal files make one zone — every output found by its NUMBER (the path said hwmon10 and it87.2624; now hwmon12, it87.2608)',
-            [array_map(fn ($n) => fanboyTId($n), [1, 2, 3, 4, 5, 6]), ['disk2', 'parity'], ['points' => [[41, 50], [46, 90]]]],
-            [$imp['zones'][0]['fans'], array_column($imp['zones'][0]['sources'], 'id'), $imp['zones'][0]['target']]);
-        same('fanboy import: … another file with other values: a zone of its own; a path that is none and a disk not there: said', [2, ['path', 'disk']],
-            [count($imp['zones']), array_column($imp['unmatched'], 'why')]);
-        check('fanboy import: … never a serial (by-id name) in the proposal', !str_contains(json_encode($imp), 'SN0000') && !str_contains(json_encode($imp), 'SN999999'));
-        same('fanboy import: … nothing written there', $before, fanboyTreeHash("{$t['root']}/boot"));
-        // the proposal fits the zones' check once the fans have their roles (the user's step)
-        $s = fanboyTSettings('it87.2608');
-        $z = $imp['zones'][0];
-        $z['fans'] = [fanboyTId(4)];
-        $z['name'] = 'Disks';
-        same('fanboy import: … a proposed zone passes the zones\' check (with fans given to him)', ['disks', 'parity'],
-            [fanboyZonesCheck([['id' => 'disks'] + $z], $scan, $s)[0]['id'], fanboyZonesCheck([['id' => 'disks'] + $z], $scan, $s)[0]['sources'][1]['id']]);
-    } finally {
-        fanboyTEnd();
-    }
-}
-
 // ===================================================================== agent.sh: every stop gives back; the cron line
 
 function testFanboyStopScripts(): void

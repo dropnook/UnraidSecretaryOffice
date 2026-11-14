@@ -71,12 +71,13 @@ const TABLE5 = [[100, 1450], [90, 1340], [80, 1220], [70, 1100], [60, 980], [50,
 /** His fans as the store keeps them, at a step of the setup */
 function fan(n, more) {
   // the keys in fanboySetupState()'s order
-  const f = { id: P(n), chip: CHIP, output: n, tachs: [], model: null, colour: null, back: null, found: null, role: null, name: '', place: null, off_ok: false,
+  const f = { id: P(n), chip: CHIP, output: n, tachs: [], model: null, colour: null, back: null, count: 1, found: null, role: null, name: '', place: null, off_ok: false,
     measured: false, min_pct: null, start_pct: null, max_rpm: null, table: null, no_turn: false };
   return Object.assign(f, more);
 }
 const FANS = {
-  1: fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler', place: 'rear', model: { id: 'noctua-nf-a12x25-pwm', mm: null, blades: null }, colour: 'graphite' }),
+  // the CPU cooler: two fans on one connector (a Y-cable) — one speed for both (round 3)
+  1: fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler', place: 'rear', model: { id: 'noctua-nf-a12x25-pwm', mm: null, blades: null }, colour: 'graphite', count: 2 }),
   2: fan(2, { found: 'silent', role: 'case', name: 'Deckel', place: 'top', model: { id: 'arctic-p14-pwm-pst', mm: null, blades: null }, colour: 'black' }),
   3: fan(3, { found: 'empty' }),
   4: fan(4, { tachs: [4], found: 'tach', role: 'disks', name: 'Plattenkäfig', place: 'front', measured: true, min_pct: 25, start_pct: 30, max_rpm: 1600, table: TABLE4,
@@ -102,14 +103,40 @@ function curves(zones) {
 const OUTPUTS = [1, 2, 3, 4, 5, 6].map(P);
 const BEFORE = Object.fromEntries(OUTPUTS.map((id) => [id, { value: 128, pct: 50, enable: 1, mode: 'manual', fixed: true, auto: 2, from: 'journal' }]));
 
-/** A whole state: the look, then who/control/setup/step/drivers/import as fanboyScan() puts them on top */
+/** fanboyHottestKinds() and fanboyHottestLead() of agent/desks/fanboy-detect.php, for the invented data */
+function hottestKinds(chips, disks) {
+  const cand = disks.map((d) => ({ kind: d.rotational ? 'hdd' : 'ssd', c: d.temp, label: '', disk: d.name, chip: null, n: null, asleep: d.asleep, warn: d.warn ?? null, crit: d.crit ?? null }));
+  for (const c of chips) {
+    if (c.kind === 'disk') continue;
+    const kind = { nvme: 'ssd', cpu: 'cpu', board: 'board', ram: 'ram' }[c.kind] || 'other';
+    for (const t of c.temps) cand.push({ kind, c: t.c, label: t.label, disk: null, chip: c.name, n: t.n, asleep: false, warn: null, crit: null });
+  }
+  const out = [];
+  for (const kind of ['hdd', 'ssd', 'cpu', 'board', 'ram', 'other']) {
+    const of = cand.filter((x) => x.kind === kind);
+    if (!of.length) continue;
+    let warm = null, near = null;
+    for (const x of of) {
+      if (x.c !== null && (!warm || x.c > warm.c)) warm = x;
+      if (x.c !== null && x.warn !== null && (!near || x.c - x.warn > near.c - near.warn)) near = x;
+    }
+    out.push({ kind, warmest: warm, near: near && { ...near, margin: near.c - near.warn, over: near.crit !== null && near.c >= near.crit ? 'crit' : near.c >= near.warn ? 'warn' : null },
+      count: of.length, asleep: of.filter((x) => x.asleep).length });
+  }
+  return out;
+}
+const leadOf = (kinds) => kinds.reduce((l, k) => (k.near && (!l || k.near.margin > l.margin) ? k.near : l), null);
+
+/** A whole state: the look, then who/control/setup/step/drivers as fanboyScan() puts them on top */
 function state(o) {
   const chips = (o.chips || base.chips.filter((c) => c.name !== CHIP).concat(o.ite ? [o.ite] : [])).sort((a, b) => +a.hwmon.slice(5) - +b.hwmon.slice(5));
+  // Unraid's limits (round 3): hard disks warn at 45 °C, SSDs at 60 °C — disk2 has its own, lower warning (40 °C) and
+  // is over it at 41 °C, cooler in degrees than the NVMe pool at 46 °C, which is far from its SSD limit
   const disks = o.disks || [
-    { name: 'parity', type: 'parity', rotational: true, asleep: false, temp: 38 },
-    { name: 'disk1', type: 'data', rotational: true, asleep: true, temp: null },
-    { name: 'disk2', type: 'data', rotational: true, asleep: false, temp: 36 },
-    { name: 'cache', type: 'pool', rotational: false, asleep: false, temp: 40 },
+    { name: 'parity', type: 'parity', rotational: true, asleep: false, temp: 38, warn: 45, crit: 55 },
+    { name: 'disk1', type: 'data', rotational: true, asleep: true, temp: null, warn: 45, crit: 55 },
+    { name: 'disk2', type: 'data', rotational: true, asleep: false, temp: 41, warn: 40, crit: 50 },
+    { name: 'cache', type: 'pool', rotational: false, asleep: false, temp: 46, warn: 60, crit: 70 },
   ];
   const fansAll = chips.flatMap((c) => c.fans);
   const turning = fansAll.map((f) => f.rpm).filter((r) => typeof r === 'number' && r > 0);
@@ -119,6 +146,7 @@ function state(o) {
   let hottest = null;
   for (const c of chips) for (const t of c.temps) if (t.c !== null && (!hottest || t.c > hottest.c)) hottest = { c: t.c, kind: c.kind, chip: c.name, label: t.label, n: t.n, disk: null };
   for (const d of disks) if (d.temp !== null && (!hottest || d.temp > hottest.c)) hottest = { c: d.temp, kind: 'disk', chip: null, label: '', n: null, disk: d.name };
+  const kinds = hottestKinds(chips, disks);
   const s = {
     v: 1, time: T0, hwmon: true, board: base.board, kernel: '6.18.60-Unraid', unraid: '7.4.0', chips, disks, ipmi: o.ipmi || null,
     controllers: o.controllers || [], drivers_missing: o.drivers_missing || {}, situation: o.situation || { code: 'ok' }, tools: o.tools || TOOLS,
@@ -126,7 +154,7 @@ function state(o) {
     hints_open: ['no_output', 'driver_missing', 'other', 'ipmi'].includes((o.situation || { code: 'ok' }).code),
     counts: { outputs: offered.reduce((n, c) => n + c.outputs.length, 0), fans: fansAll.length, turning: turning.length, zero: fansAll.filter((f) => f.rpm === 0).length,
       rpm_min: turning.length ? Math.min(...turning) : null, rpm_max: turning.length ? Math.max(...turning) : null, temps: chips.reduce((n, c) => n + c.temps.length, 0) },
-    hottest,
+    hottest, hottest_kinds: kinds, hottest_lead: leadOf(kinds),
     who: o.who || { who: 'bios', why: offered.length ? 'not_set_up' : 'no_output' },
     control: { running: false, armed: !!o.armed, who: 'bios', why: null, zones: [], alarm: null, missing: null, notes: [], watch: [], time: null, guard: null, ...(o.control || {}) },
     setup: {
@@ -136,7 +164,6 @@ function state(o) {
     },
     step: o.step || null,
     drivers: o.drivers || { mine: [], last: null, can: true },
-    import: o.import || null,
   };
   return s;
 }
@@ -150,7 +177,7 @@ function steering(more = {}) {
   const rpm = { ...RPM, ...(more.rpm || {}) };
   const itec = ite({ 1: [128, 2], 2: [102, 1], 4: [107, 1], 5: [102, 1] }, rpm);
   const zonesNow = [
-    { id: 'disks', name: 'Plattenkäfig', unit: 'pct', level: 42, warmest: { id: 'parity', label: 'parity', c: 38, mapped: 38, kind: 'disk' }, asleep: 1,
+    { id: 'disks', name: 'Plattenkäfig', unit: 'pct', level: 42, warmest: { id: 'disk2', label: 'disk2', c: 41, mapped: 41, kind: 'disk' }, asleep: 1,
       fans: [{ id: P(4), name: 'Plattenkäfig', output: 4, pct: 42, rpm: rpm[4], held: true, foreign: false }] },
     { id: 'case', name: 'Gehäuse', unit: 'pct', level: 40, warmest: { id: NVME, label: 'Composite', c: 27.9, mapped: 27.9, kind: 'nvme' }, asleep: 0,
       fans: [{ id: P(5), name: 'Vorn', output: 5, pct: 40, rpm: rpm[5], held: true, foreign: false }, { id: P(2), name: 'Deckel', output: 2, pct: 40, rpm: null, held: true, foreign: false }] },
@@ -171,13 +198,11 @@ files['fanboy-missing'] = state({ fans: SET_UP, zones: ZONES, armed: true, situa
   drivers_missing: { 'it87-driver': ['it87'] }, tools: TOOLS.map((t) => (t.id === 'it87-driver' ? { ...t, loaded: false } : t)),
   who: { who: 'bios', why: 'chip_missing' },
   control: { running: true, armed: true, why: 'chip_missing', phase: 'wait_chip', missing: { since: T0 - 1200, why: 'missing', told: true }, notes: [...NOTES, { code: 'missing_told', params: {}, at: T0 - 300 }], time: T0 } });
-// another controller steering: FanCtrl Plus, his import as the proposal
+// another controller steering: FanCtrl Plus
 files['fanboy-other'] = state({ ite: ite({}, RPM), situation: { code: 'other', who: ['fanctrlplus'], names: ['FanCtrl Plus'] },
   controllers: [{ id: 'fanctrlplus', name: 'FanCtrl Plus', settings: true, running: true, blocks: true }],
   tools: TOOLS.map((t) => (t.id === 'fanctrlplus' ? { ...t, installed: true, active: true } : t)),
-  who: { who: 'fanctrlplus', name: 'FanCtrl Plus', why: 'other' },
-  import: { files: 6, active: true, zones: [{ id: 'fcp1', name: 'FanCtrl Plus', fans: OUTPUTS, outputs: [1, 2, 3, 4, 5, 6], from: 'fanctrlplus_1.cfg', idle_pct: 50, unit: 'pct',
-    sources: ['parity', 'disk1', 'disk2'].map((id) => ({ kind: 'disk', id })), target: { points: [[41, 50], [46, 90]] } }], unmatched: [] } });
+  who: { who: 'fanctrlplus', name: 'FanCtrl Plus', why: 'other' } });
 // WAZ Cooling Control running beside him: a hint only (it steers shelves and IPMI fans)
 files['fanboy-waz'] = (() => {
   const s = steering();
@@ -252,7 +277,7 @@ function tableRpm(table, pct) {
 }
 // the dry run's answer (a canned post for the shots: demo/post/fanboy.dry_run.json)
 const dry = { ok: true, dry: { found: true, why: null, time: T0, zones: [
-  { id: 'disks', name: 'Plattenkäfig', unit: 'pct', level: 42, warmest: { id: 'parity', label: 'parity', c: 38, mapped: 38, kind: 'disk' }, asleep: 1, quiet: 0,
+  { id: 'disks', name: 'Plattenkäfig', unit: 'pct', level: 42, warmest: { id: 'disk2', label: 'disk2', c: 41, mapped: 41, kind: 'disk' }, asleep: 1, quiet: 0,
     fans: [{ id: P(4), name: 'Plattenkäfig', output: 4, pct: 42, value: 107, now: { value: 128, enable: 1 }, floor: 30 }] },
   { id: 'case', name: 'Gehäuse', unit: 'pct', level: 25, warmest: { id: NVME, label: 'Composite', c: 27.9, mapped: 27.9, kind: 'nvme' }, asleep: 0, quiet: 0,
     fans: [{ id: P(5), name: 'Vorn', output: 5, pct: 35, value: 89, now: { value: 128, enable: 1 }, floor: 35 }, { id: P(2), name: 'Deckel', output: 2, pct: 40, value: 102, now: { value: 128, enable: 1 }, floor: 40 }] }] } };

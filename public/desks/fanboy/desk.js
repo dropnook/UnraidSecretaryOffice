@@ -3,9 +3,9 @@
    · the overview: the server as a picture (fan-art.js FanArt.server(): the zones as pieces of a case, the fans turning
      with their air, the heat sources between them, the warmest framed, sleeping disks marked — fed by every look, the
      speeds gliding), the fans and outputs, the heat sources, the curves with «now» and what happened lately, the hints
-     (why it's tricky, drivers, FanCtrl Plus, the report for the makers);
+     (why it's tricky, drivers, the report for the makers);
    · the setup (the wizard), each step a tile in the order of part 2's steps: detect → test each output upward → roles
-     (the catalogue picker, name, place, «give back to») → measure → zones (the proposal or FanCtrl Plus's, the curve to
+     (the catalogue picker, name, place, «give back to») → measure → zones (his proposal, the curve to
      drag) → dry run → «Take over». Nothing changes for good before «Take over»; a step that writes (test, measure) runs
      only while this page keeps it alive (step_alive): a closed tab or a reload gives every output back after 45 s, and
      the page says so when it comes back. Any step can be opened alone later — a curve, a zone, a fan's model change
@@ -226,7 +226,7 @@ function load(fresh) {
 }
 function took(j) {
   if (j.ok && j.state) state = j.state;
-  // his picture with a red mark while something is wrong at his fans (avatar-alarm.svg, as the Night Watchman's)
+  // his picture with a red mark while something is wrong at his fans (its alarm variant, as the Night Watchman has one)
   if (state) Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'crashed'].includes(who().why) ? 'alarm' : '');
   if (view) redraw();
   plan();
@@ -256,10 +256,12 @@ function stopAlive() {
   alive = null;
 }
 let histAt = 0;
+let historyTried = false;
 function loadHistory() {
   if (!Office.agent.running && history) return;
   histAt = Date.now();
   Office.loadState(ID, { part: 'history' }, (j) => {
+    historyTried = true;
     if (j.ok && j.part) history = j.part;
     if (view && page === '' && sw.active() !== 'hints') redraw();
   });
@@ -278,6 +280,14 @@ async function loadLong() {
 const historyNow = () => (period > 24 ? history72 : history);
 
 /**
+ * Everything the first drawing needs: his pictures (fan-art.js), the fan catalogue, the history (the overview) — or 4 s
+ * gone by. Until then the sections wait (the wave): each of them arriving later would draw the lists anew under a hand
+ * that is unfolding a row (the release's click run met one, 2026-11-14).
+ */
+let warmFrom = 0;
+const WARM_MS = 4000;
+const ready = () => (!!art() && !!cat && (page === 'setup' || historyTried)) || Date.now() - warmFrom > WARM_MS;
+/**
  * The page again — only when what it shows changed (a look that brings nothing new draws nothing: a row being clicked,
  * a field being typed in stays as it is; the picture's speeds glide in its own update). Time stamps alone are no change.
  */
@@ -292,11 +302,11 @@ const VOLATILE = new Set(['time', 'at', 'since', 'begun', 'mono', 'now', 'tested
 const quiet = (v) => JSON.stringify(v, (k, x) => (VOLATILE.has(k) ? undefined : x));
 function setupSig() {
   const su = setup();
-  return quiet([!!art(), !!cat, Office.agent.running, busy, who(), situation(), control().running, (control().alarm || {}).code, su.fans, su.zones, su.armed,
-    su.outputs, su.curves, step(), dry, zdraft, S().import ? S().import.files : 0, setupSw ? setupSw.active() : '']);
+  return quiet([ready(), !!art(), !!cat, Office.agent.running, busy, who(), situation(), control().running, (control().alarm || {}).code, su.fans, su.zones, su.armed,
+    su.outputs, su.curves, step(), dry, zdraft, setupSw ? setupSw.active() : '']);
 }
 function overviewSig() {
-  return quiet([!!art(), !!cat, Office.agent.running, busy, state, history && history.zones, period, period > 24 && history72 ? history72.zones : null, sw.active(), (sensorBar && sensorBar.read().words) || []]);
+  return quiet([ready(), !!art(), !!cat, Office.agent.running, busy, state, history && history.zones, period, period > 24 && history72 ? history72.zones : null, sw.active(), (sensorBar && sensorBar.read().words) || []]);
 }
 
 // ------------------------------------------------------------------ the bubble
@@ -399,7 +409,7 @@ function button(text, tip, onClick, cls) {
   const b = el('button', cls || 'btn small', text);
   b.type = 'button';
   if (tip) b.title = tip;
-  b.disabled = busy || !Office.agent.running;
+  b.disabled = busy || !Office.agent.running || noRun;
   b.onclick = () => onClick(b);
   return b;
 }
@@ -452,6 +462,17 @@ function wheelOf(id, opts) {
     badge: st === 'bios' ? T('pic.bios') : '', title: st === 'bios' ? (ROLES_BIOS.includes(f.role) ? T('pic.watched_title') : T('pic.bios_title')) : T('pic.his_title'),
   };
 }
+/**
+ * The wheels of one connector: as many as the user said hang on it (a Y-cable, a hub — round 3), one speed for all of
+ * them (one connector, one tach), the same model; the first carries the words, the others say they share its connector
+ */
+function wheelsOf(id, opts) {
+  const w = wheelOf(id, opts);
+  const n = Math.max(1, Math.min(8, (setupFan(id) || {}).count || 1));
+  if (n === 1) return [w];
+  const first = { ...w, sub: `${w.sub} · ${T('pic.on_one', { n })}`, title: `${w.title} · ${T('pic.on_one_title', { n })}` };
+  return [first, ...Array.from({ length: n - 1 }, (x, k) => ({ ...w, id: `${id}#${k + 2}`, label: '', sub: T('pic.same_connector'), badge: '', title: T('pic.on_one_title', { n }) }))];
+}
 /** A zone's line under its name: its curve, the warmest spot and what it asks for */
 function zoneNote(z, cz) {
   const parts = [];
@@ -477,7 +498,7 @@ function picture() {
     const cz = zonesNow.get(z.id);
     zones.push({
       id: z.id, name: z.name || z.id, note: zoneNote(z, cz),
-      fans: (z.fans || []).map((id) => wheelOf(id)),
+      fans: (z.fans || []).flatMap((id) => wheelsOf(id)),
       sources: (z.sources || []).map((s) => src.get(s.id)).filter(Boolean).map((s) => asSource({ ...s, limit: s.limit ?? (z.sources.find((x) => x.id === s.id) || {}).limit })),
       warmest: cz && cz.warmest ? cz.warmest.id : null,
     });
@@ -486,7 +507,7 @@ function picture() {
   const watched = (su.fans || []).filter((f) => ['cpu', 'pump'].includes(f.role) && f.found === 'tach');
   if (zones.length) {
     if (watched.length) {
-      zones.push({ id: '_bios', name: T('pic.bios_zone'), note: T('pic.bios_zone_note'), fans: watched.map((f) => ({ ...wheelOf(f.id), place: 'top' })),      // a narrow column: the wheel on top, the chips under it
+      zones.push({ id: '_bios', name: T('pic.bios_zone'), note: T('pic.bios_zone_note'), fans: watched.flatMap((f) => wheelsOf(f.id).map((w) => ({ ...w, place: 'top' }))),      // a narrow column: the wheel on top, the chips under it
         sources: (su.sources || []).filter((s) => s.kind === 'cpu').slice(0, 2).map(asSource) });
     }
     return { zones };
@@ -541,12 +562,61 @@ function fansTile(a) {
   const stands = control().running && control().alarm && ['stands', 'bios_stands'].includes(control().alarm.code);
   if (stands) sub.push(T('fans.stands'));
   else if (zero) sub.push(T('fans.zero', { n: zero }));
-  return Office.stat({ label: T('tile.fans'), value: !state ? '…' : all ? T('fans.turning', { n: turning }) : T('fans.none'), sub, alert: !!stands, ...a });
+  return Office.stat({ label: T('tile.fans'), value: !state ? '…' : all ? T('fans.reporting', { n: turning }) : T('fans.none'), sub, alert: !!stands, ...a });
 }
+/** Whose a place is, in words: «HDD · Disk 3», «SSD/NVMe · Composite · 2» */
+function hotWhose(x) {
+  if (!x) return '';
+  if (x.disk) return srcLabel({ kind: 'disk', id: x.disk });
+  const src = (setup().sources || []).find((y) => y.chip === x.chip && y.n === x.n && (y.label === x.label || !x.label));
+  return src ? srcLabel(src) : x.label || '';
+}
+const LEAD_NEAR = 5;            // °C under its limit from which a place leads the tile (over it: in colour)
+/**
+ * Which place leads: the one nearest to (or over) its limit — Unraid's for disks (the agent's `near`), the user's own
+ * limit for a heat source of a zone; places without a limit are shown, never judged. null: nothing near a limit.
+ */
+function hottestLead() {
+  const cands = [];
+  (S().hottest_kinds || []).forEach((k) => { if (k.near) cands.push({ kind: k.kind, c: k.near.c, limit: k.near.warn, crit: k.near.crit, whose: hotWhose(k.near), unraid: true }); });
+  const src = new Map((setup().sources || []).map((x) => [x.id, x]));
+  (setup().zones || []).forEach((z) => (z.sources || []).forEach((zs) => {
+    const x = src.get(zs.id);
+    if (x && num(zs.limit) !== null && num(x.c) !== null) cands.push({ kind: hotKind(x), c: x.c, limit: zs.limit, crit: null, whose: srcLabel(x), unraid: false });
+  }));
+  let lead = null;
+  cands.forEach((c) => { if (!lead || c.c - c.limit > lead.c - lead.limit) lead = c; });
+  return lead && lead.c - lead.limit >= -LEAD_NEAR ? lead : null;
+}
+/** A heat source's kind for the tile: hdd, ssd (SSD, NVMe), cpu, board, ram, other */
+function hotKind(x) {
+  if (x.kind === 'disk') { const d = (S().disks || []).find((y) => y.name === x.id); return d && d.rotational === false ? 'ssd' : 'hdd'; }
+  return { nvme: 'ssd', cpu: 'cpu', board: 'board', ram: 'ram' }[x.kind] || 'other';
+}
+/**
+ * «Warmest spots»: the warmest of each kind (a hard disk's 44 °C and an NVMe's are not the same thing); the place nearest
+ * to its limit leads, in colour once over it; nothing near a limit: the kinds side by side, calmly
+ */
 function hottestTile(a) {
-  const h = S().hottest;
-  const where = h ? (h.disk ? srcLabel({ kind: 'disk', id: h.disk }) : [T(`kind.${h.kind}`), h.label].filter(Boolean).join(' · ')) : '';
-  return Office.stat({ label: T('tile.hottest'), value: !state ? '…' : h ? T('temp', { c: fmt.number(h.c) }) : T('hottest.none'), sub: where, ...a });
+  const kinds = (S().hottest_kinds || []).filter((k) => k.warmest || k.asleep);
+  if (!state || !kinds.length) {
+    const h = S().hottest;
+    return Office.stat({ label: T('tile.hottest'), value: !state ? '…' : h ? T('temp', { c: fmt.number(h.c) }) : T('hottest.none'), ...a });
+  }
+  // «HDD · Disk 3 · 41 °C»; a name that says its kind already («Mainboard-Fühler 2») without the kind in front
+  const line = (k) => {
+    if (!k.warmest) return T('hottest.kind_asleep', { kind: T(`hk.${k.kind}`) });
+    const whose = hotWhose(k.warmest);
+    const c = fmt.number(k.warmest.c);
+    return whose.toLowerCase().startsWith(T(`hk.${k.kind}`).toLowerCase()) ? T('hottest.whose_line', { whose, c }) : T('hottest.kind_line', { kind: T(`hk.${k.kind}`), whose, c });
+  };
+  const lead = hottestLead();
+  if (!lead) return Office.stat({ label: T('tile.hottest'), value: T('hottest.calm'), sub: kinds.slice(0, 4).map(line), ...a });
+  const over = lead.c >= lead.limit;
+  const how = over ? (lead.unraid ? T('hottest.over_unraid', { limit: fmt.number(lead.limit) }) : T('hottest.over_own', { limit: fmt.number(lead.limit) }))
+    : (lead.unraid ? T('hottest.near_unraid', { d: fmt.number(lead.limit - lead.c), limit: fmt.number(lead.limit) }) : T('hottest.near_own', { d: fmt.number(lead.limit - lead.c), limit: fmt.number(lead.limit) }));
+  return Office.stat({ label: T('tile.hottest'), value: T('hottest.lead', { kind: T(`hk.${lead.kind}`), whose: lead.whose, c: fmt.number(lead.c) }),
+    sub: [how, ...kinds.filter((k) => k.kind !== lead.kind).slice(0, 3).map(line)], alert: over, ...a });
 }
 /** «Today»: the highest temperature of the day and how long his fans ran above their quiet level */
 function todayTile(a) {
@@ -744,7 +814,8 @@ function sensorRows() {
     out.push({ id: sid, name: sid ? srcLabel(src.find((y) => y.id === sid)) : x.label || T('sensors.row', { n: x.n }), label: x.label, chip: c, kind: c.kind, c: x.c,
       key: `${c.address}:${x.n}`, feature: `temp${x.n}` });
   }));
-  (S().disks || []).forEach((d) => out.push({ id: d.name, name: srcLabel({ kind: 'disk', id: d.name }), chip: null, kind: 'disk', c: d.temp, asleep: d.asleep, key: `disk:${d.name}`, disk: d.name }));
+  (S().disks || []).forEach((d) => out.push({ id: d.name, name: srcLabel({ kind: 'disk', id: d.name }), chip: null, kind: 'disk', c: d.temp, asleep: d.asleep, key: `disk:${d.name}`, disk: d.name,
+    rot: d.rotational !== false, warn: num(d.warn), crit: num(d.crit) }));
   out.forEach((x) => { x.zones = x.id ? (setup().zones || []).filter((z) => (z.sources || []).some((y) => y.id === x.id)) : []; });
   return out;
 }
@@ -753,11 +824,19 @@ function sensorsBar() {
   sensorBar = sensorBar || Office.filterBar({ key: 'fanboy.sensors', label: T('sensors.filter_label'), onChange: () => sw.render() });
   return sensorBar;
 }
+/** A sensor row's kind as the tile «Warmest spots» counts it */
+function rowKind(x) {
+  if (x.kind === 'disk') return x.rot === false ? 'ssd' : 'hdd';
+  return { nvme: 'ssd', cpu: 'cpu', board: 'board', ram: 'ram' }[x.kind] || 'other';
+}
 /** A sensor in alarm: over its limit (the zone's or its kind's), or the one the control's alarm names */
 function inAlarm(x) {
   const a = control().running && control().alarm ? control().alarm : null;
   if (a && ['hot', 'sensor'].includes(a.code) && a.params && a.params.source && [x.name, x.label, x.disk].includes(a.params.source)) return true;
-  const lim = x.id ? srcLimit({ kind: x.kind, ...((x.zones[0] && (x.zones[0].sources || []).find((y) => y.id === x.id)) || {}) }) : null;
+  // a limit the user set for it in a zone, or Unraid's own for a disk — never one made up
+  const own = x.zones.map((z) => ((z.sources || []).find((y) => y.id === x.id) || {}).limit).find((l) => num(l) !== null);
+  const lim = num(own) ?? null;
+  if (num(x.c) !== null && num(x.warn) !== null && x.c >= x.warn) return true;        // a disk over Unraid's own warning
   return num(x.c) !== null && num(lim) !== null && x.c >= lim;
 }
 function sensorRow(x, place) {
@@ -802,8 +881,13 @@ function sensorsSection() {
     });
   };
   put(T('sensors.group_alarm'), '', fits.filter(inAlarm));
-  if (zones.length) zones.forEach((z) => put(z.name, T('sensors.group_zone'), fits.filter((x) => x.zones.includes(z))));
-  else put(T('sensors.group_main'), T('sensors.group_main_sub'), fits.filter((x) => ['disk', 'cpu', 'nvme'].includes(x.kind) && !first.has(x)));
+  // each sensor once, in its first group (too warm first; a source counting in two zones under the first): one row, one
+  // fold state — its zone labels say where else it counts
+  if (zones.length) zones.forEach((z) => put(z.name, T('sensors.group_zone'), fits.filter((x) => x.zones.includes(z) && !first.has(x))));
+  else {
+    // before the setup: grouped by kind — hard disks, SSD/NVMe, CPU, RAM (the board's and the rest's many sensors folded)
+    ['hdd', 'ssd', 'cpu', 'ram'].forEach((k) => put(T(`hk.${k}`), '', fits.filter((x) => rowKind(x) === k && !first.has(x))));
+  }
   const rest = fits.filter((x) => !first.has(x)).map((x) => sensorRow(x, !placed.has(x.key)));
   if (!list.children.length) list.appendChild(el('p', 'empty', !all.length ? T('sensors.none') : fits.length ? T('sensors.none_first') : T('sensors.none_fit')));
   s.appendChild(list);
@@ -982,7 +1066,7 @@ function curvesSection() {
   return s;
 }
 
-// ------------------------------------------------------------------ hints, drivers, FanCtrl Plus, the report
+// ------------------------------------------------------------------ hints, drivers, the report
 function toolChip(x) {
   if (x.kind === 'controller' && x.id === 'md12xx.fancontrol') return x.active ? chipOfText('quiet', T('hints.st_other_fans'), T('hints.st_other_fans_title')) : chipOfText('quiet', T('hints.st_idle'), T('hints.st_idle_title'));
   if (x.kind === 'controller') return x.active ? chipOfText('warn', T('hints.st_steering'), T('hints.st_steering_title')) : chipOfText('quiet', T('hints.st_idle'), T('hints.st_idle_title'));
@@ -1060,14 +1144,14 @@ function hintsSection() {
   }
   const drivers = driversBlock();
   if (drivers) body.append(Office.place('drivers.title', hintHead(T('drivers.title'))), drivers);
-  const imp = importBlock();
-  if (imp) body.append(Office.place('import.title', hintHead(T('import.title'))), imp);
   body.appendChild(hintHead(T('hints.why_title')));
   const why = el('ol', 'fb-hint-list');
   for (let i = 1; has(`hints.why.${i}`); i++) why.appendChild(el('li', '', T(`hints.why.${i}`)));
   body.appendChild(why);
   body.appendChild(hintHead(T('hints.bios_title')));
   hintParas(body, 'hints.bios');
+  body.appendChild(hintHead(T('hints.hub_title')));
+  hintParas(body, 'hints.hub');
   body.appendChild(hintHead(T('hints.clash_title')));
   hintParas(body, 'hints.clash');
   body.appendChild(hintHead(T('hints.ipmi_title')));
@@ -1108,36 +1192,6 @@ function driversBlock() {
   }
   if (mine.length) bar.appendChild(button(T('drivers.undo'), T('drivers.undo_tip'), (b) => act('drivers_undo', {}, b, () => Office.toast(T('drivers.undone_toast')))));
   if (bar.children.length) box.appendChild(bar);
-  return box;
-}
-function importBlock() {
-  const imp = S().import;
-  if (!imp || !imp.files) return null;
-  const box = el('div', 'fb-import');
-  box.appendChild(el('p', 'fb-hint-text', T('import.text', { n: imp.files })));
-  const list = el('div', 'box');
-  (imp.zones || []).forEach((z) => {
-    const r = Office.place(`import:${z.id}`, el('div', 'row nocheck fb-row'));
-    const main = el('div', 'row-main');
-    main.appendChild(el('div', 'row-name text', z.name));
-    const meta = el('div', 'row-meta');
-    meta.appendChild(el('span', '', T('import.outputs', { list: (z.outputs || []).join(', ') })));
-    const disks = (z.sources || []).filter((x) => x.kind === 'disk').map((x) => srcLabel(x));
-    if (disks.length) meta.appendChild(el('span', '', T('import.disks', { list: disks.join(', ') })));
-    const p = z.target && Array.isArray(z.target.points) && z.target.points.length === 2 ? z.target.points : null;
-    if (p) meta.appendChild(el('span', '', T('import.curve', { t1: p[0][0], t2: p[1][0], v1: p[0][1], v2: p[1][1] })));
-    main.appendChild(meta);
-    r.appendChild(main);
-    list.appendChild(r);
-  });
-  box.appendChild(list);
-  if ((imp.unmatched || []).length) box.appendChild(el('p', 'fb-hint-text', T('import.unmatched', { n: imp.unmatched.length })));
-  if (imp.active) box.appendChild(el('p', 'fb-hint-text', T('import.active')));
-  const go = el('a', 'btn small', T('import.use'));
-  go.href = `#/${ID}/setup/zones`;
-  const bar = el('div', 'toolbar');
-  bar.appendChild(go);
-  box.appendChild(bar);
   return box;
 }
 
@@ -1221,7 +1275,9 @@ function stepSection(k) {
   const s = el('section', 'section fb-step');
   s.dataset.step = k;
   s.appendChild(Office.sectionHead(T(`step.${k}`), T(`step.${k}_sub`), { place: `step.${k}` }));
+  noRun = (situation() === 'other' || !!control().running) && ['test', 'measure'].includes(k);      // nothing that writes beside another
   const body = ({ detect: detectStep, test: testStep, roles: rolesStep, measure: measureStep, zones: zonesStep, dry: dryStep, take: takeStep })[k]();
+  noRun = false;
   s.appendChild(body);
   return s;
 }
@@ -1249,13 +1305,13 @@ function detectStep() {
   const su = setup();
   const s = situation();
   if (!(su.outputs || []).length) {
-    box.appendChild(para(s === 'ipmi' ? T('detect.ipmi') : s === 'driver_missing' ? T('detect.driver_missing') : T('detect.none'), 'callout warn'));
+    // the banner above says why (never the same text twice on a page); here only that there is nothing to set up
+    box.appendChild(para(T('step.nothing')));
     const go = el('a', 'btn small', T('detect.hints'));
     go.href = `#/${ID}/hints`;
     box.appendChild(bar(go, reportButton(true)));
     return box;
   }
-  if (s === 'other') box.appendChild(para(T('situation.other', { who: otherNames() }), 'callout warn'));
   const list = el('div', 'fb-cards');
   (su.outputs || []).forEach((id) => {
     const o = outputNow(id);
@@ -1356,16 +1412,19 @@ function stepEnded(box, s, kind) {
   const why = s.status === 'failed' ? 'error' : s.why || 'stopped';
   box.appendChild(para(has(`step.ended.${why}`) ? T(`step.ended.${why}`) : T('step.ended.stopped'), 'callout warn'));
 }
-/** A step can't run now: another controller steers, or Fanboy steers (hand back first) */
+/**
+ * A step can't run now — another controller steers, or Fanboy does: the banner says who and why; the step says only its
+ * own short line, its cards stay to read and its buttons are off (noRun) — never the banner's text again
+ */
+let noRun = false;
 function blocked(box) {
   if (situation() === 'other') {
-    box.appendChild(para(T('situation.other', { who: otherNames() }), 'callout warn'));
-    return true;
+    box.appendChild(para(T('step.blocked_other'), 'fb-hint-text fb-strong'));
+    return false;
   }
   if (control().running) {
-    box.appendChild(para(T('step.steering'), 'callout'));
-    box.appendChild(bar(button(T('take.hand_back'), T('take.hand_back_tip'), (b) => handBack(b))));
-    return true;
+    box.appendChild(para(T('step.blocked_steering'), 'fb-hint-text fb-strong'));        // «Hand back» is the take-over step's
+    return false;
   }
   return false;
 }
@@ -1420,15 +1479,21 @@ function roleCard(f) {
   place.appendChild(new Option(T('roles.place_any'), ''));
   PLACES.forEach((p) => place.appendChild(new Option(T(`place.${p}`), p)));
   place.value = f.place || '';
+  // round 3: how many fans hang on this connector (a Y-cable, a hub) — one speed for all of them
+  const count = el('select');
+  for (let n = 1; n <= 8; n++) count.appendChild(new Option(String(n), String(n)));
+  count.value = String(f.count || 1);
   const save = () => {
     if (!role.value) return;
-    act('role', { fan: id, role: role.value, name: name.value.trim(), place: place.value, off_ok: !!f.off_ok && ROLES_OURS.includes(role.value) }, null);
+    act('role', { fan: id, role: role.value, name: name.value.trim(), place: place.value, off_ok: !!f.off_ok && ROLES_OURS.includes(role.value), count: Number(count.value) }, null);
   };
+  count.onchange = save;
   role.onchange = save;
   place.onchange = save;
   name.onchange = save;
   const field = (label, input) => { const l = el('label', 'fb-field'); l.append(el('span', 'fb-field-label', label), input); return l; };
-  form.append(field(T('roles.role'), role), field(T('roles.name'), name), field(T('roles.place'), place));
+  form.append(field(T('roles.role'), role), field(T('roles.name'), name), field(T('roles.place'), place), field(T('roles.count'), count));
+  if ((f.count || 1) > 1) form.appendChild(para(T('roles.count_note', { n: f.count })));
   if (ROLES_BIOS.includes(f.role)) form.appendChild(para(T(`roles.bios_note.${f.role}`)));
   // the model from the catalogue, or «other fan» by size; the wheel's colour
   const A = art();
@@ -1587,11 +1652,6 @@ function zonesStep() {
   const zones = zonesNow();
   const tools2 = bar(
     button(T('zones.propose'), T('zones.propose_tip'), (b) => act('zones_propose', {}, b, (j) => { zdraft = (j.zones || []).map((z) => ({ ...z, name: z.name || T(`zones.kind.${z.kind}`) })); })),
-    S().import && (S().import.zones || []).length ? button(T('zones.import'), T('zones.import_tip'), () => {
-      zdraft = importAsZones();
-      drawn = '';
-      redraw();
-    }) : null,
     zones.length < 8 ? button(T('zones.add'), T('zones.add_tip'), () => changeZones((z) => z.push({ id: freeId(z), name: T('zones.new_name', { n: z.length + 1 }), fans: [], sources: [], unit: 'pct', target: { preset: 'normal' } }))) : null);
   box.appendChild(tools2);
   if (!zones.length) box.appendChild(para(T('zones.empty')));
@@ -1616,19 +1676,6 @@ function cleanZone(z) {
   if (num(z.low) !== null) out.low = z.low;
   if (num(z.high) !== null) out.high = z.high;
   return out;
-}
-/** FanCtrl Plus's zones as a proposal: only fans he may steer, sources the server shows */
-function importAsZones() {
-  const su = setup();
-  const okFan = new Set((su.fans || []).filter((f) => ROLES_OURS.includes(f.role) && ['tach', 'silent'].includes(f.found)).map((f) => f.id));
-  const okSrc = new Set((su.sources || []).map((s) => s.id));
-  const used = new Set();
-  return (S().import.zones || []).map((z, i) => {
-    const fans = (z.fans || []).filter((id) => okFan.has(id) && !used.has(id));
-    fans.forEach((id) => used.add(id));
-    return { id: `fcp${i + 1}`, name: z.name || T('zones.new_name', { n: i + 1 }), fans, unit: 'pct', sources: (z.sources || []).filter((s) => okSrc.has(s.id)).map((s) => ({ id: s.id, kind: s.kind })),
-      target: z.target && Array.isArray(z.target.points) ? { points: z.target.points } : { preset: 'normal' } };
-  });
 }
 function zoneCard(z, i, zones, ours) {
   const card = Office.place(`zone:${z.id}`, el('div', 'fb-zone-card'));
@@ -1847,7 +1894,7 @@ function takeStep() {
     return box;
   }
   const why = [];
-  if (situation() === 'other') why.push(T('situation.other', { who: otherNames() }));
+  if (situation() === 'other') why.push(T('step.blocked_other'));
   if (!(su.zones || []).length) why.push(T('take.no_zones'));
   if (stepRuns()) why.push(T('take.step_runs'));
   box.appendChild(para(T('take.text')));
@@ -1875,6 +1922,12 @@ function handBack(b) {
 // ------------------------------------------------------------------ the page
 function render() {
   if (!view) return;
+  if (!ready()) {
+    // the head at once, the sections once everything they draw is there (no second drawing a moment later)
+    const { head } = Office.deskHead(Office.desks.get(ID), { bubble: bubbleText(), pages: { list: PAGES(), current: page } });
+    view.replaceChildren(head, waiting());
+    return;
+  }
   const plain = plainNow();
   const actions = page === '' ? [reportButton(true)] : [];
   const { head } = Office.deskHead(Office.desks.get(ID), { bubble: plain ? bubbleText() : Office.withGreeting(ID, bubbleText()), actions,
@@ -1910,6 +1963,9 @@ Office.desk({
     page = Office.pageFrom(PAGES(), sub) === 'setup' ? 'setup' : '';
     drawn = '';
     banner = null;
+    warmFrom = Date.now();
+    // still waiting for something after WARM_MS: draw without it (ready() is in the signature — no redraw when it was there)
+    setTimeout(() => { if (view === root) redraw(); }, WARM_MS + 100);
     if (page === 'setup') {
       // #/fanboy/setup/<step> picks that step like a click; else the step at hand once his state is in (never kept)
       const rest = String(sub || '').split('/').slice(1).join('/');
@@ -1944,7 +2000,7 @@ Office.desk({
     if (!state) return null;
     const facts = [];
     const c = counts();
-    if (c.fans) facts.push(T('fans.turning', { n: c.turning || 0 }));
+    if (c.fans) facts.push(T('fans.reporting', { n: c.turning || 0 }));
     if (S().hottest) facts.push(`${T('tile.hottest')}: ${T('temp', { c: fmt.number(S().hottest.c) })}`);
     return { bubble: bubbleText(), facts };
   },
@@ -1960,7 +2016,6 @@ Office.places(ID, [
   { kind: 'section', key: 'curves.title', route: `#/${ID}/today` },
   { kind: 'section', key: 'hints.title', route: `#/${ID}/hints` },
   { kind: 'section', key: 'drivers.title', route: `#/${ID}/hints` },
-  { kind: 'section', key: 'import.title', route: `#/${ID}/hints` },
   { kind: 'help', key: 'help.who', text: 'help.who_text' },
   { kind: 'help', key: 'help.picture', text: 'help.picture_text' },
   { kind: 'help', key: 'help.outputs', text: 'help.outputs_text' },

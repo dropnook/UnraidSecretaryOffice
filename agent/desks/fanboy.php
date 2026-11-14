@@ -8,9 +8,9 @@ declare(strict_types=1);
  * never depends on a boot number, and writes a report for the makers' wish form.
  * Part 2, steering (each in its own file): fanboy-write.php — the ONE place that writes a fan output, its journal of
  * every output's state before him; fanboy-setup.php — the setup's steps as actions; fanboy-control.php — the control
- * service (one process for all zones); fanboy-drivers.php — «load drivers» on the user's click; fanboy-import.php —
- * FanCtrl Plus's files read into a proposed zone; agent/fanboy-guard.php — what gives the fans back when nobody else
- * can (scripts/agent.sh stop|release, a cron line every minute). testFanboyNoWrite holds who may write what.
+ * service (one process for all zones); fanboy-drivers.php — «load drivers» on the user's click;
+ * agent/fanboy-guard.php — what gives the fans back when nobody else can (scripts/agent.sh stop|release, his own cron
+ * line while he is armed). testFanboyNoWrite holds who may write what.
  *
  * Who gives the fans back (the safety design, docs: fanboy-control-notes in the hand-over):
  *   · the control or a setup step itself — every way it ends (TERM, done, stop, the page gone, a hold), read back
@@ -87,7 +87,6 @@ if (fanboyShown()) {
             'look_now'      => fn (array $r) => fanboyLookNow(),
             'drivers_load'  => fn (array $r) => fanboyDriversLoad() + ['state' => fanboyScan()],
             'drivers_undo'  => fn (array $r) => fanboyDriversUndo() + ['state' => fanboyScan()],
-            'import'        => fn (array $r) => ['ok' => true, 'import' => fanboyImport(fanboyDetect())],
             'test_up'       => fn (array $r) => fanboyStepStart('test_up', idList($r, 'fans')),
             'measure'       => fn (array $r) => fanboyStepStart('measure', idList($r, 'fans')),
             'step_alive'    => function (array $r): array { fanboyStepAliveTouch(); return ['ok' => true, 'step' => fanboyStepRead()]; },
@@ -110,7 +109,7 @@ if (fanboyShown()) {
 
 /**
  * A new look, kept as his state (data/fanboy.json): part 1's look, and on top who steers now and why (the control's
- * status in RAM), his setup on this board, a step running, the drivers he loaded, FanCtrl Plus's files as a proposal
+ * status in RAM), his setup on this board, a step running, the drivers he loaded
  */
 function fanboyScan(): array
 {
@@ -122,8 +121,6 @@ function fanboyScan(): array
     $state['setup'] = fanboySetupState($state, $settings);
     $state['step'] = fanboyStepRead();
     $state['drivers'] = fanboyDriversState($state['board']);
-    $import = fanboyImport($state);
-    $state['import'] = $import['files'] ? $import : null;
     writeAtomic(deskFile('fanboy'), jsonEncode($state));
     return $state;
 }
@@ -593,6 +590,8 @@ function fanboySetupState(array $scan, ?array $settings): array
                 'blades' => is_int($model['blades'] ?? null) ? $model['blades'] : null],
             'colour' => is_string($f['colour'] ?? null) && in_array($f['colour'], FANBOY_COLOURS, true) ? $f['colour'] : null,
             'back' => in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : null,
+            // round 3: fans on this one connector (the user says; one speed for all of them) — none stored: one
+            'count' => is_int($f['count'] ?? null) && $f['count'] >= 1 && $f['count'] <= FANBOY_COUNT_MAX ? $f['count'] : 1,
             'found' => is_string($f['found'] ?? null) ? $f['found'] : null, 'role' => is_string($f['role'] ?? null) ? $f['role'] : null,
             'name' => is_string($f['name'] ?? null) ? $f['name'] : '', 'place' => is_string($f['place'] ?? null) ? $f['place'] : null,
             'off_ok' => ($f['off_ok'] ?? false) === true, 'measured' => $m !== null, 'min_pct' => $m['min_pct'] ?? null, 'start_pct' => $m['start_pct'] ?? null,
