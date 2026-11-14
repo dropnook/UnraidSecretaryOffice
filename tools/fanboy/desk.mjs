@@ -70,6 +70,10 @@ const PICTURES = [
   ['curves-1h', 'fanboy', 'fanboy/today', '.fb-period button:nth-child(1)', false],
   ['curves-12h', 'fanboy', 'fanboy/today', '.fb-period button:nth-child(4)', false],
   ['curves-3d', 'fanboy', 'fanboy/today', '.fb-period button:nth-child(6)', false],
+  // his picture (avatar.svg; avatar-alarm.svg while something is wrong): the tab row and his head, the reception's card
+  ['avatar-head', 'fanboy', 'fanboy', null, 'both', { until: '.deskhead' }],
+  ['avatar-alarm-head', 'fanboy-alarm', 'fanboy', null, 'both', { until: '.deskhead' }],
+  ['avatar-reception', 'fanboy', '', null, 'both', { clip: '.desk-card[data-desk=fanboy]', wait: '.desk-card[data-desk=fanboy]' }],
   ['fans', 'fanboy', 'fanboy/fans', null, false],
 ].filter((p) => !opt.only || opt.only.includes(p[0]));
 const LOCALES = { de: 'de-CH', en: 'en-US' };
@@ -86,7 +90,7 @@ async function harness(state, lang) {
   if (!harnesses.has(k)) harnesses.set(k, await startHarness({ demo: true, alias: { fanboy: state }, names: lang === 'de' ? null : DEMO_NAMES_EN }));
   return harnesses.get(k);
 }
-async function open(state, route, { theme = 'black', lang = 'de', width = 1440, scale = 2, reduce = false } = {}) {
+async function open(state, route, { theme = 'black', lang = 'de', width = 1440, scale = 2, reduce = false, wait = '#sso-desk section' } = {}) {
   const phone = width < 768;
   const h = await harness(state, lang);
   const ctx = await browser.newContext({ viewport: { width, height: phone ? 844 : 900 }, deviceScaleFactor: scale, isMobile: phone, hasTouch: phone,
@@ -98,19 +102,20 @@ async function open(state, route, { theme = 'black', lang = 'de', width = 1440, 
   page.on('pageerror', (e) => faults.push(`${tag}: ${String(e.message).slice(0, 200)}`));
   page.on('dialog', (d) => d.dismiss().catch(() => {}));
   await page.goto(`${h.url}?theme=${theme}#/${route}`, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.Office && window.FanArt && document.querySelector('#sso-desk section'), null, { timeout: 15000 });
+  await page.waitForFunction((w) => window.Office && window.FanArt && document.querySelector(w), wait, { timeout: 15000 });
   await page.evaluate(async () => { await document.fonts.ready; });
   await page.waitForTimeout(1500);       // the catalogue in, the speeds glided in
   return { ctx, page, tag };
 }
 
 if (opt.shots) {
-  for (const [name, state, route, click, every] of PICTURES) {
-    const looks = every ? ['black', 'white'].flatMap((theme) => ['de', 'en'].flatMap((lang) => [1440, 390].map((width) => ({ theme, lang, width }))))
-      : [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'en', width: 390 }];
+  for (const [name, state, route, click, every, shot] of PICTURES) {
+    const looks = every === 'both' ? [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'de', width: 1440 }, { theme: 'black', lang: 'en', width: 390 }, { theme: 'white', lang: 'en', width: 390 }]
+      : every ? ['black', 'white'].flatMap((theme) => ['de', 'en'].flatMap((lang) => [1440, 390].map((width) => ({ theme, lang, width }))))
+        : [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'en', width: 390 }];
     for (const l of looks) {
       try {
-        const { ctx, page, tag } = await open(state, route, l);
+        const { ctx, page, tag } = await open(state, route, { ...l, ...(shot && shot.wait ? { wait: shot.wait } : {}) });
         if (click) {
           await page.click(click);
           await page.waitForTimeout(900);
@@ -118,7 +123,11 @@ if (opt.shots) {
         const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         if (wide > 1) faults.push(`${tag}: the page scrolls sideways by ${wide} px`);
         const file = path.join(opt.out, `${name}-${l.theme}-${l.lang}-${l.width}.png`);
-        await page.screenshot({ path: file, fullPage: true, animations: 'allow', caret: 'hide' });
+        if (shot && shot.until) {
+          const box = await page.locator(shot.until).first().boundingBox();
+          await page.screenshot({ path: file, clip: { x: 0, y: 0, width: l.width, height: Math.ceil(box.y + box.height + 12) } });
+        } else if (shot && shot.clip) await page.locator(shot.clip).first().screenshot({ path: file });
+        else await page.screenshot({ path: file, fullPage: true, animations: 'allow', caret: 'hide' });
         log(file);
         if (name === 'overview') await page.locator('.fb-server').screenshot({ path: path.join(opt.out, `overview-picture-${l.theme}-${l.lang}-${l.width}.png`) });
         await ctx.close();

@@ -226,6 +226,8 @@ function load(fresh) {
 }
 function took(j) {
   if (j.ok && j.state) state = j.state;
+  // his picture with a red mark while something is wrong at his fans (avatar-alarm.svg, as the Night Watchman's)
+  if (state) Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'crashed'].includes(who().why) ? 'alarm' : '');
   if (view) redraw();
   plan();
 }

@@ -401,3 +401,20 @@ function testFanboyHistoryThin(): void
         str_contains($js, 'const PERIODS = [1, 3, 6, 12, 24, 72];') && str_contains($js, 'const PERIOD_DEFAULT = 6;') && str_contains($js, "Office.store('fanboy.period'")
         && str_contains($js, "Office.api.post(`\${ID}.history`, { hours: 72 })") && str_contains($js, "T('curves.since', { time: durationText(now - shown[0][0]) })"));
 }
+
+/** His picture: a case fan seen from the front (avatar.svg), its alarm variant, packed with the desk */
+function testFanboyAvatar(): void
+{
+    $dir = OFFICE_WEB . '/desks/fanboy';
+    $a = (string) @file_get_contents("$dir/avatar.svg");
+    $b = (string) @file_get_contents("$dir/avatar-alarm.svg");
+    check('fanboy avatar: avatar.svg — 64×64 like every desk\'s, a title saying what it shows, four corner holes, a hub, no text, no link, no script',
+        str_contains($a, 'viewBox="0 0 64 64" width="64" height="64"') && str_contains($a, '<title>Fanboy: a case fan seen from the front</title>')
+        && substr_count($a, '<circle cx="12.5"') + substr_count($a, '<circle cx="51.5"') === 4 && !preg_match('/<text|<a\b|<script|href=|on[a-z]+=/i', $a));
+    check('fanboy avatar: avatar-alarm.svg — the same fan with the red mark (as the Night Watchman\'s alert), set while an alarm, a missing chip or a stopped control holds',
+        str_starts_with(str_replace('an alarm at his fans', 'a case fan seen from the front', $b), rtrim(str_replace('</svg>', '', $a))) && str_contains($b, 'fill="#D9453B"')
+        && str_contains((string) file_get_contents("$dir/desk.js"), "Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'crashed'].includes(who().why) ? 'alarm' : '');"));
+    $build = (string) file_get_contents(OFFICE_DIR . '/plugin/build.sh');
+    check('fanboy avatar: the package takes public/ whole (build.sh), so both drawings ship; the emoji in desk.json stays the fallback',
+        (bool) preg_match('/\bpublic\b/', $build) && (json_decode((string) file_get_contents("$dir/desk.json"), true)['icon'] ?? '') === '🌀');
+}
