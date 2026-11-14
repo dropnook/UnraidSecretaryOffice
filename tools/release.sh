@@ -1,7 +1,7 @@
 #!/bin/bash
 # Unraid Secretary Office - the mechanical part of a release (for the coordinator, on the Mac).
 #
-#   tools/release.sh <x.y.z> [--dry] [--no-main] [--servers-only] [--no-scenarios] [--no-inbox-check]
+#   tools/release.sh <x.y.z> [--dry] [--fresh] [--no-main] [--servers-only] [--no-scenarios] [--no-inbox-check]
 #
 # Run it from the clone on the Mac. What must be done and checked BEFORE it (suite, browser smoke, update test from
 # the previous version) and the rules around it (order of the servers, the quiet day after a release) are in the
@@ -11,7 +11,10 @@
 # Its machines and folders come from a file outside the repository, $USO_RELEASE_CONF (default
 # ~/.config/uso-release.conf; bash, sourced). Without it the script stops before anything else:
 #   notes_dir=<folder>              release-<x.y.z>-notes.md lies there, the logs go to <folder>/releases/
-#   suite_host=<ssh host>           where the suite runs (step 7)
+#   suite_host=<ssh host>           where the suite runs (step 7) - Tower, the scenarios' host: after them
+#   suite_host2=<ssh host>          optional: the suite runs there instead, beside the scenarios (test4); the tests it
+#                                   skips (no python3 there: «… 0 failed, N skipped») then run alone on suite_host
+#                                   once the scenarios are done - both together must be 0 failed
 #   servers=(<host>=<Label> …)      step 12's order: the first is the canary, the last the main server
 #
 # Its steps:
@@ -24,18 +27,38 @@
 #    4 bump       OFFICE_VERSION (src/bootstrap.php) == AGENT_VERSION (agent/agent.php), both older than x.y.z;
 #                 both set to x.y.z
 #    5 build      bash plugin/build.sh <x.y.z> passes on the Mac (what the Action runs: versions, the .plg's max)
+#   6, 6b and 7 run side by side (each in the background, its output into a file of its own - `tail -f` named at the
+#   start): the click test on this Mac, the scenarios on Tower, the suite on suite_host2 (without it: on suite_host
+#   after the scenarios). A red one doesn't stop the others: when all three ended, each step gets its block in the log
+#   (6, 6b, 7 - never interleaved) and every red is said; then the run stops (the version lines put back only then).
 #    6 ui clicks  bash tools/ui-clicks.sh on this Mac: every desk page built from this clone's files in a headless
 #                 Chrome (a throwaway profile, both themes, 1440 and 375 px) - every <summary>, row, group and tile
 #                 that opens or closes does so on its own and stays so (also when the desk draws itself anew), no
 #                 console error, no horizontal scrolling. Red stops the release like the suite; without node,
-#                 playwright-core or a Chrome it is skipped with a note (≈ 2 min)
+#                 playwright-core or a Chrome it is skipped with a note (≈ 8 min). A red page gets one retry: the red
+#                 pages' routes alone (--only, from its «ui clicks failed:» lines); green then = the step is green, each
+#                 page said as «flaky: <page> (<theme> <width>)» in its block and in the last lines; red twice = red.
+#                 (USO_RELEASE_FLAKY=<route> forces one page of <route> red in the first run - the flaky path shown;
+#                 <route>:twice also in the retry - red twice. Never in a real release.)
 #   6b scenarios  the desks this release touches (the files changed since the last tag, the bump left out) and their
 #                 scenarios of the pre-release set on Tower with the code under test: tools/scenarios/prerelease.sh
 #                 (its head: which file calls which desk, tools/scenarios/quick.list: the set, ≈ 40 min at most). Red
 #                 stops the release like the suite; it waits at most 30 min for Tower held by another run (the nightly,
 #                 a worker), then stops. No desk touched: nothing runs. Its time stands in the last lines
 #    7 suite      rsync to <suite_host>:/tmp/uso-main/, php tests/run.php there ends «… passed, 0 failed»
+#                 (suite_host2: there, then the tests it skipped on <suite_host> - see the conf above)
 #                 (a red build, click test, scenario or suite puts the two version lines back)
+#
+#   Steps 5-7 keep their result in the state file beside the log (<notes_dir>/releases/<x.y.z>.state: a line a step -
+#   its inputs' hash, when it ran, green/red). A step green in an earlier run of the same version whose inputs are the
+#   same is not run again: «>>> TAKEN from the run of <time>, same inputs», in its block and the last lines. Its inputs
+#   (conservative - git ls-tree of the working tree as it is, untracked files too, hashed before the bump, so the two
+#   version lines never change them; plus the version the step runs with):
+#       5 build       the whole tree
+#       6 ui clicks   public/ tests/ui/ tools/ui-* src/
+#       6b scenarios  everything but docs/ (+ the last tag, --dry, USO_RELEASE_DIFF's content)
+#       7 suite       the whole tree
+#   Steps 1-4 and 8-12 always run. --fresh: nothing taken (every step runs, the state file is written anew).
 #    8 commit     «Version x.y.z» , push main, origin/main is that commit
 #    9 release    gh release create v<x.y.z> --target <that commit> --title «Version x.y» (x.y.z for a fix) - step 11
 #                 retitles it to the plugin's date version (2026.10.18e) and puts «Unraid Secretary Office x.y.z» atop the notes
@@ -61,6 +84,7 @@
 #                   server but the main one `plugin check` plus the checks against what is installed. Nothing is bumped,
 #                   committed, pushed, released or updated; the main server is not contacted at all. A red step does not stop a dry
 #                   run: every red step is listed at the end (exit 1 if any).
+#   --fresh         steps 5-7 run even when the state file has them green with the same inputs
 #   --no-main       stop before the main server - it later, when no run is active: `tools/release.sh <x.y.z> --servers-only`
 #   --servers-only  the release is out already: only steps 1, 10, 11, 12 (resume after a red server step)
 #   --no-inbox-check  step 1's look at the feedback inbox skipped - said loudly there: say why in the day's notes
@@ -68,7 +92,8 @@
 #                   elsewhere): say why in the day's notes
 #
 # Log: <notes_dir>/releases/<x.y.z>.log - every run appended: all it prints, the suite's
-# output and every server's answers included. Exit: 0 done, 1 a red step, 2 wrong call.
+# output and every server's answers included; the state file beside it (<x.y.z>.state). Exit: 0 done, 1 a red step,
+# 2 wrong call.
 #
 # No `set -e`: every step checks what it ran and says what went wrong.
 set -u -o pipefail
@@ -80,10 +105,11 @@ canary_watch=300   # s: the canary's agent log without error/fatal before the ne
 
 usage() { sed -n '4p' "${BASH_SOURCE[0]}" | sed 's/^# *//' >&2; exit 2; }
 
-ver='' dry=0 no_main=0 servers_only=0 no_scenarios=0 no_inbox_check=0
+ver='' dry=0 no_main=0 servers_only=0 no_scenarios=0 no_inbox_check=0 fresh=0
 for a in "$@"; do
     case $a in
         --dry) dry=1 ;;
+        --fresh) fresh=1 ;;
         --no-scenarios) no_scenarios=1 ;;
         --no-inbox-check) no_inbox_check=1 ;;
         --no-main) no_main=1 ;;
@@ -98,7 +124,9 @@ done
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo" || exit 2
-notes_dir='' suite_host='' servers=()
+# shellcheck source=tools/release-lib.sh
+. "$repo/tools/release-lib.sh"
+notes_dir='' suite_host='' suite_host2='' servers=()
 # shellcheck source=/dev/null
 [[ -r "$conf" ]] && source "$conf"
 if [[ -z "$notes_dir" || -z "$suite_host" ]] || (( ${#servers[@]} == 0 )); then
@@ -107,6 +135,7 @@ if [[ -z "$notes_dir" || -z "$suite_host" ]] || (( ${#servers[@]} == 0 )); then
 fi
 mkdir -p "$notes_dir/releases" || { echo "release: cannot create $notes_dir/releases" >&2; exit 2; }
 log="$notes_dir/releases/$ver.log"
+state="$notes_dir/releases/$ver.state"
 notes="$notes_dir/release-$ver-notes.md"
 exec > >(tee -a "$log") 2>&1
 
@@ -139,7 +168,41 @@ show() { echo "   \$ $*"; "$@"; }
 # a red build or suite after the bump puts the two version lines back (so does Ctrl-C before the commit)
 bumped=0
 unbump() { (( bumped )) && { git checkout -- src/bootstrap.php agent/agent.php; echo "   (the two version lines are put back)"; bumped=0; }; return 0; }
-trap 'echo; unbump; echo "INTERRUPTED at step $step_no ($step_name). Log: $log"; exit 1' INT TERM
+# steps 6, 6b, 7 run as background jobs: Ctrl-C ends them (and what they started) before the version lines go back
+par_pids=()
+killtree() { local c; for c in $(pgrep -P "$1" 2>/dev/null); do killtree "$c"; done; kill "$1" 2>/dev/null; }
+stop_jobs() { local p; for p in ${par_pids[@]+"${par_pids[@]}"}; do killtree "$p"; done; par_pids=(); }
+trap 'echo; stop_jobs; unbump; echo "INTERRUPTED at step $step_no ($step_name). Log: $log"; exit 1' INT TERM
+
+# The state file ($state, beside the log): a green step of an earlier run of this version is taken, not run again, while
+# its inputs (the table in the head) are the same - said loudly; --fresh runs everything
+tree0='' taken_when='' taken_what='' taken_line='' taken_notes=() flaky_notes=() par_reds=()
+inputs() { [[ -n "$tree0" ]] && rl_hash "$repo" "$tree0" "$@"; }
+taken_quiet() {     # taken_quiet <step> <hash>: green with these inputs in the state file (and no --fresh)
+    local got
+    taken_when='' taken_what='' taken_line=''
+    (( fresh )) && return 1
+    [[ -n "$2" ]] || return 1
+    got=$(rl_state_get "$state" "$1" "$2") || return 1
+    taken_when=${got%%$'\t'*} taken_what=${got#*$'\t'}
+    taken_line="   >>> TAKEN from the run of $taken_when, same inputs ($1 $2): $taken_what - not run again (--fresh runs it)"
+}
+taken() {
+    taken_quiet "$@" || return 1
+    echo "$taken_line"
+    taken_notes+=("[$step_no $step_name] taken from the run of $taken_when, same inputs")
+}
+remember() { [[ -n "$2" ]] && rl_state_put "$state" "$1" "$2" "$3" "$4"; return 0; }
+# pred: a red step of the three side by side - said now, the stop comes when all three are said
+pred() { echo "   RED [$step_no $step_name]: $*"; par_reds+=("[$step_no $step_name] $*"); }
+# the last lines' notes: flaky pages, steps taken from an earlier run, the scenarios' time
+last_lines() {
+    local n
+    for n in ${flaky_notes[@]+"${flaky_notes[@]}"}; do echo "$n"; done
+    for n in ${taken_notes[@]+"${taken_notes[@]}"}; do echo "$n"; done
+    [[ -n "${scen_note:-}" ]] && echo "$scen_note"
+    return 0
+}
 
 # remote <host> [var=value …] <<'EOF' … EOF - runs the script from stdin on <host> with those variables set first.
 # Everything goes through stdin: no pattern of ours ever stands in a remote command line (pgrep -f would see it).
@@ -222,6 +285,10 @@ else
     ok "$notes ($(wc -l < "$notes" | tr -d ' ') lines; first: $(grep -m1 . "$notes" | cut -c1-80))"
 fi
 
+# the inputs' hashes come from the tree as it is now - before the bump, so the two version lines never change them
+tree0=$(rl_tree "$repo") || tree0=''
+[[ -n "$tree0" ]] || echo "   note: no tree hash (git add -A into a throwaway index failed) - every step runs, nothing is taken or kept"
+
 # ---------------------------------------------------------------------------------------------------------------------
 step 4 bump
 if [[ -z "$cur_office" || -z "$cur_agent" ]]; then
@@ -252,30 +319,163 @@ fi
 step 5 build
 build_ver=$ver
 (( dry )) && build_ver=$cur_office && echo "   (dry: built with the current version $cur_office - the bump is not made)"
-if [[ -n "$build_ver" ]] && show bash plugin/build.sh "$build_ver"; then
+h_build=$(inputs build "$build_ver")
+if taken build "$h_build"; then
+    :
+elif [[ -n "$build_ver" ]] && show bash plugin/build.sh "$build_ver"; then
     ok "plugin/build.sh $build_ver"
+    remember build "$h_build" green "plugin/build.sh $build_ver"
 else
+    remember build "$h_build" red "plugin/build.sh $build_ver failed"
     unbump; red "plugin/build.sh $build_ver failed - the Action would fail the same way"
 fi
 
 # ---------------------------------------------------------------------------------------------------------------------
+# Steps 6, 6b and 7 side by side: the click test on this Mac, the scenarios on Tower, the suite on $suite_host2 (without
+# it: on $suite_host once the scenarios are done - Tower can't take both). Each writes into a folder of its own; when all
+# are done, each step gets its block below, in their order. A red one doesn't stop the others: all results are said,
+# then the release stops (the version lines put back only then - the others read the tree until they end).
+run_ver=$ver; (( dry )) && run_ver=$cur_office
+last_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null)
+diff_word=''; [[ -n ${USO_RELEASE_DIFF:-} ]] && diff_word="diff $(rl_sha < "$USO_RELEASE_DIFF" 2>/dev/null)"
+h_clicks=$(inputs clicks "$run_ver")
+h_scen=$(inputs scenarios "$run_ver" "since ${last_tag:-none}" "dry $dry" "$diff_word")
+h_suite=$(inputs suite "$run_ver")
+suite_dir=/tmp/uso-main
+(( dry )) && suite_dir=/tmp/uso-release-dry
+par=$(mktemp -d "${TMPDIR%/}/uso-release-par.XXXXXX")
+mkdir -p "$par/clicks" "$par/scen" "$par/suite"
+
+# the jobs (each in the background; «done» is written last)
+clicks_job() {
+    local t0; t0=$(date +%s)
+    rl_clicks "$par/clicks"
+    echo $(( $(date +%s) - t0 )) > "$par/clicks/took"; touch "$par/clicks/done"
+}
+scen_job() {
+    local t0 rc; t0=$(date +%s)
+    if [[ -z "$last_tag" ]]; then
+        echo "no v* tag before HEAD" > "$par/scen/out"; rc=2
+    else
+        { echo "\$ bash tools/scenarios/prerelease.sh ${sc_args[*]}   (the desks, the scenarios, run.sh's lines and summary)"
+          bash tools/scenarios/prerelease.sh "${sc_args[@]}" < /dev/null 2>&1; } > "$par/scen/out"
+        rc=$?
+    fi
+    echo "$rc" > "$par/scen/rc"; echo $(( $(date +%s) - t0 )) > "$par/scen/took"; touch "$par/scen/done"
+}
+# suite_on <host> [test …]: the copy to <host>:$suite_dir and php tests/run.php there (the named tests only) - its
+# output into the suite's out, the «… passed, … failed» line into $par/suite/line; exit as the run's
+suite_on() {
+    local host=$1 rc; shift
+    echo "\$ rsync -a --delete --exclude .git ./ $host:$suite_dir/" >> "$par/suite/out"
+    if ! rsync -a --delete --exclude .git ./ "$host:$suite_dir/" >> "$par/suite/out" 2>&1; then
+        echo "rsync to $host:$suite_dir failed" > "$par/suite/line"; return 1
+    fi
+    echo "\$ ssh $host 'cd $suite_dir && php tests/run.php${*:+ $*}'   (it prints its failures and the sum)" >> "$par/suite/out"
+    printf 'cd %q && php tests/run.php%s </dev/null\n' "$suite_dir" "$(printf ' %q' "$@")" \
+        | ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" bash -s > "$par/suite/run" 2>&1
+    rc=$?
+    cat "$par/suite/run" >> "$par/suite/out"
+    grep -E '^[0-9]+ passed, [0-9]+ failed' "$par/suite/run" | tail -n 1 > "$par/suite/line"
+    return $rc
+}
+# the suite's verdict into $par/suite/why (empty: green) and $par/suite/sum
+suite_job() {
+    local t0 rc line skipped why=''; t0=$(date +%s)
+    : > "$par/suite/out"
+    if [[ -z "$suite_host2" ]]; then
+        if (( scen_bg )); then
+            echo "(waiting for the scenarios: Tower is theirs until they end)" >> "$par/suite/out"
+            while [[ ! -e "$par/scen/done" ]]; do sleep 5; done
+        fi
+        suite_on "$suite_host"; rc=$?
+        line=$(cat "$par/suite/line")
+        if [[ $rc -ne 0 || ! "$line" =~ ^[0-9]+\ passed,\ 0\ failed$ ]]; then
+            why="the suite on $suite_host did not end with 0 failed (${line:-no summary line}; its output above)"
+        fi
+        echo "$suite_host: ${line:-no summary line}" > "$par/suite/sum"
+    else
+        suite_on "$suite_host2"; rc=$?
+        line=$(cat "$par/suite/line")
+        echo "$suite_host2: ${line:-no summary line}" > "$par/suite/sum"
+        if [[ ! "$line" =~ ^[0-9]+\ passed,\ 0\ failed(,\ [0-9]+\ skipped\ .*)?$ ]] || { [[ "$line" != *skipped* ]] && (( rc != 0 )); }; then
+            why="the suite on $suite_host2 did not end with 0 failed (${line:-no summary line}; its output above)"
+        elif [[ "$line" == *skipped* ]]; then
+            # what $suite_host2 can't run (no python3 there): those tests alone on $suite_host, once Tower is free
+            skipped=$(sed -n 's/^SKIP  \(test[A-Za-z0-9_]*\).*/\1/p' "$par/suite/run" | sort -u | tr '\n' ' ')
+            if [[ -z "${skipped// }" ]]; then
+                why="$suite_host2 skipped tests but named none (SKIP lines) - nothing to run on $suite_host"
+            else
+                { echo; echo "($suite_host2 skipped: $skipped- they run on $suite_host$( (( scen_bg )) && echo ' once the scenarios are done'))"; } >> "$par/suite/out"
+                if (( scen_bg )); then while [[ ! -e "$par/scen/done" ]]; do sleep 5; done; fi
+                # shellcheck disable=SC2086
+                suite_on "$suite_host" $skipped; rc=$?
+                local line2; line2=$(cat "$par/suite/line")
+                echo "$suite_host2: $line + on $suite_host the $(wc -w <<<"$skipped" | tr -d ' ') skipped: ${line2:-no summary line}" > "$par/suite/sum"
+                if [[ $rc -ne 0 || ! "$line2" =~ ^[0-9]+\ passed,\ 0\ failed$ ]]; then
+                    why="the tests $suite_host2 skipped did not end with 0 failed on $suite_host (${line2:-no summary line}; its output above)"
+                fi
+            fi
+        fi
+    fi
+    echo "$why" > "$par/suite/why"
+    echo $(( $(date +%s) - t0 )) > "$par/suite/took"; touch "$par/suite/done"
+}
+
+echo
+echo "== [6 6b 7] side by side: the click test (this Mac), the scenarios (Tower), the suite (${suite_host2:-$suite_host after the scenarios}) - each step's block below when all are done"
+sc_args=(--since "$last_tag")
+(( dry )) && sc_args+=(--dry)
+clicks_bg=0 scen_bg=0 suite_bg=0 par_pids=()
+step_no=6 step_name='ui clicks'
+if taken_quiet clicks "$h_clicks" && [[ -z ${USO_RELEASE_FLAKY:-} ]]; then echo "   6  ui clicks   taken from the run of $taken_when"
+else clicks_job & par_pids+=($!); clicks_bg=1; echo "   6  ui clicks   running on this Mac        (live: tail -f $par/clicks/out)"; fi
+if (( no_scenarios )); then echo "   6b scenarios   skipped (--no-scenarios)"
+elif taken_quiet scenarios "$h_scen"; then echo "   6b scenarios   taken from the run of $taken_when"
+else scen_job & par_pids+=($!); scen_bg=1; echo "   6b scenarios   running$( (( dry )) && echo ' (dry: the list only)' || echo ' on Tower')            (live: tail -f $par/scen/out)"; fi
+if taken_quiet suite "$h_suite"; then echo "   7  suite       taken from the run of $taken_when"
+else suite_job & par_pids+=($!); suite_bg=1; echo "   7  suite       running on ${suite_host2:-$suite_host}$( [[ -z "$suite_host2" ]] && (( scen_bg )) && echo ' after the scenarios')   (live: tail -f $par/suite/out)"; fi
+# waiting: a line when one ends (not their output - that comes in the blocks)
+par_t0=$(date +%s)
+for j in clicks:'6  ui clicks' scen:'6b scenarios' suite:'7  suite'; do eval "said_${j%%:*}=0"; done
+while :; do
+    left=0
+    for j in clicks:'6  ui clicks' scen:'6b scenarios' suite:'7  suite'; do
+        k=${j%%:*} bg_var="${j%%:*}_bg" said_var="said_${j%%:*}"
+        (( ${!bg_var} )) || continue
+        if [[ -e "$par/$k/done" ]]; then
+            (( ${!said_var} )) || { echo "   $(date '+%H:%M:%S') ${j#*:} ended after $(( $(cat "$par/$k/took") / 60 )) min $(( $(cat "$par/$k/took") % 60 )) s"; eval "$said_var=1"; }
+        else
+            left=1
+        fi
+    done
+    (( left )) || break
+    sleep 5
+done
+wait 2>/dev/null
+par_pids=()
+par_reds=()
+
+# ---------------------------------------------------------------------------------------------------------------------
 step 6 'ui clicks'
-uc_out=$(mktemp "${TMPDIR:-/tmp}/uso-release-clicks.XXXXXX")
-started=$(date +%s)
-echo "   \$ bash tools/ui-clicks.sh   (its table and every failure follow)"
-bash tools/ui-clicks.sh > "$uc_out" 2>&1
-rc=$?
-sed 's/^/   | /' "$uc_out"
-last=$(grep -E '^ui clicks:' "$uc_out" | tail -n 1)
-echo "   $(( $(date +%s) - started )) s, exit $rc"
-if (( rc == 3 )); then
-    echo "   SKIPPED: ${last:-the click test did not run} - it needs node and playwright-core on this Mac (tools/ui-clicks.mjs)"
-elif (( rc != 0 )); then
-    unbump; red "the click test failed (${last:-no summary line}; its table above)"
+if (( ! clicks_bg )); then
+    taken clicks "$h_clicks"
 else
-    ok "$last"
+    rc=$(cat "$par/clicks/rc" 2>/dev/null || echo 9)
+    last=$(cat "$par/clicks/summary" 2>/dev/null)
+    sed 's/^/   | /' "$par/clicks/out"
+    echo "   $(cat "$par/clicks/took") s, exit $rc"
+    if (( rc == 3 )); then
+        echo "   SKIPPED: ${last:-the click test did not run} - it needs node and playwright-core on this Mac (tools/ui-clicks.mjs)"
+    elif (( rc != 0 )); then
+        remember clicks "$h_clicks" red "${last:-no summary line}"
+        pred "the click test failed (${last:-no summary line}; its table above)"
+    else
+        while IFS= read -r f; do [[ -n $f ]] && { echo "   $f"; flaky_notes+=("$f"); }; done < "$par/clicks/flaky"
+        remember clicks "$h_clicks" green "$last"
+        ok "$last"
+    fi
 fi
-rm -f "$uc_out"
 
 # ---------------------------------------------------------------------------------------------------------------------
 step 6b scenarios
@@ -283,71 +483,75 @@ scen_note=''
 if (( no_scenarios )); then
     scen_note="!!! NO SCENARIOS: step 6b skipped (--no-scenarios) - say why in the day's notes"
     echo "   $scen_note"
+elif (( ! scen_bg )); then
+    taken scenarios "$h_scen"
+    scen_note="6b scenarios: taken from the run of $taken_when ($taken_what)"
 else
-    last_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null)
-    sc_args=(--since "$last_tag")
-    (( dry )) && sc_args+=(--dry)
-    sc_out=$(mktemp "${TMPDIR:-/tmp}/uso-release-scenarios.XXXXXX")
-    started=$(date +%s)
-    echo "   \$ bash tools/scenarios/prerelease.sh ${sc_args[*]}   (the desks, the scenarios, run.sh's lines and summary)"
-    if [[ -z "$last_tag" ]]; then
-        rc=2; echo "no v* tag before HEAD" > "$sc_out"
-    else
-        # line by line as it comes (sed into a pipe would hold half an hour of lines back)
-        bash tools/scenarios/prerelease.sh "${sc_args[@]}" < /dev/null 2>&1 | tee "$sc_out" \
-            | while IFS= read -r line; do echo "   | $line"; done
-        rc=${PIPESTATUS[0]}
-    fi
-    took=$(( $(date +%s) - started ))
+    rc=$(cat "$par/scen/rc" 2>/dev/null || echo 9)
+    took=$(cat "$par/scen/took" 2>/dev/null || echo 0)
+    sc_out=$par/scen/out
+    sed 's/^/   | /' "$sc_out"
     sum=$(grep -E '^[0-9]+ scenarios: ' "$sc_out" | tail -n 1)
     est=$(sed -n 's/^prerelease: \([0-9]* scenario(s), ≈ [0-9]* min\).*/\1/p' "$sc_out" | head -n 1)
     note3=$(grep -m1 -E 'no desk touched|nothing to run' "$sc_out" | sed 's/^prerelease: //')
     note4=$(grep -m1 'Tower not free' "$sc_out" | sed 's/^prerelease: //')
-    rm -f "$sc_out"
     echo "   $(( took / 60 )) min $(( took % 60 )) s, exit $rc"
     case $rc in
         0) if (( dry )); then scen_note="6b scenarios (dry): ${est:-see above} would run since $last_tag"
            else scen_note="6b scenarios: ${sum:-green} in $(( took / 60 )) min"; fi
+           remember scenarios "$h_scen" green "${scen_note#6b scenarios: }"
            ok "$scen_note" ;;
         3) scen_note="6b scenarios: none to run ($note3)"
+           remember scenarios "$h_scen" green "none to run"
            ok "$scen_note" ;;
         4) scen_note="6b scenarios: not run - ${note4:-Tower not reachable}"
-           unbump; red "Tower was not free or not reachable (above) - later again, or --no-scenarios with a reason" ;;
+           pred "Tower was not free or not reachable (above) - later again, or --no-scenarios with a reason" ;;
         *) scen_note="6b scenarios: RED after $(( took / 60 )) min (${sum:-no summary})"
-           unbump
+           remember scenarios "$h_scen" red "${sum:-no summary}"
            # the verdict is run.sh's exit code: exit 1 with no red cell means not every scenario ran (the line to
            # Tower dropped, a base reset failed) - say that, not «not green»
            if [[ -z $sum || $sum == *" 0 red,"* ]]; then
-               red "run.sh ended $rc without a red cell (${sum:-no summary line}) - not every scenario ran (the line to Tower dropped? run.sh's last lines above say where it stopped): later again"
+               pred "run.sh ended $rc without a red cell (${sum:-no summary line}) - not every scenario ran (the line to Tower dropped? run.sh's last lines above say where it stopped): later again"
            else
-               red "the scenarios of the touched desks were not green ($sum; the reports: the folder in run.sh's last line above)"
+               pred "the scenarios of the touched desks were not green ($sum; the reports: the folder in run.sh's last line above)"
            fi ;;
     esac
 fi
 
 # ---------------------------------------------------------------------------------------------------------------------
 step 7 suite
-suite_dir=/tmp/uso-main
-(( dry )) && suite_dir=/tmp/uso-release-dry && echo "   (dry: a copy of its own, $suite_host:$suite_dir - /tmp/uso-main stays the coordinator's)"
-suite_out=$(mktemp "${TMPDIR:-/tmp}/uso-release-suite.XXXXXX")
-started=$(date +%s)
-if ! show rsync -a --delete --exclude .git ./ "$suite_host:$suite_dir/"; then
-    unbump; red "rsync to $suite_host:$suite_dir failed"
+(( dry )) && echo "   (dry: a copy of its own, $suite_dir - /tmp/uso-main stays the coordinator's)"
+if (( ! suite_bg )); then
+    taken suite "$h_suite"
 else
-    echo "   \$ ssh $suite_host 'cd $suite_dir && php tests/run.php'   (it prints its failures and the sum)"
-    printf 'cd %q && php tests/run.php </dev/null\n' "$suite_dir" \
-        | ssh -o BatchMode=yes -o ConnectTimeout=10 "$suite_host" bash -s > "$suite_out" 2>&1
-    rc=$?
-    sed 's/^/   | /' "$suite_out"
-    last=$(grep -E '^[0-9]+ passed, [0-9]+ failed$' "$suite_out" | tail -n 1)
-    echo "   $(( $(date +%s) - started )) s, exit $rc: ${last:-no summary line}"
-    if [[ $rc -ne 0 || ! "$last" =~ ^[0-9]+\ passed,\ 0\ failed$ ]]; then
-        unbump; red "the suite on $suite_host did not end with 0 failed (${last:-no summary line}; its output above)"
+    sed 's/^/   | /' "$par/suite/out"
+    why=$(cat "$par/suite/why" 2>/dev/null) sum=$(cat "$par/suite/sum" 2>/dev/null)
+    echo "   $(cat "$par/suite/took" 2>/dev/null) s: ${sum:-no summary line}"
+    if [[ ! -e "$par/suite/done" ]]; then
+        pred "the suite did not end (no verdict)"
+    elif [[ -n "$why" ]]; then
+        remember suite "$h_suite" red "$sum"
+        pred "$why"
     else
-        ok "$last"
+        remember suite "$h_suite" green "$sum"
+        ok "$sum"
     fi
 fi
-rm -f "$suite_out"
+rm -rf "$par"
+# a red one of the three: all are said above; now the version lines go back and the release stops
+if (( ${#par_reds[@]} )); then
+    unbump
+    if (( dry )); then
+        reds+=("${par_reds[@]}")
+    else
+        echo
+        echo "STOPPED at step(s) $(printf '%s\n' "${par_reds[@]}" | sed 's/^\[\([^ ]*\) .*/\1/' | paste -sd, - | sed 's/,/, /g'):"
+        printf '   %s\n' "${par_reds[@]}"
+        last_lines
+        echo "Log: $log"
+        exit 1
+    fi
+fi
 
 # ---------------------------------------------------------------------------------------------------------------------
 step 8 commit
@@ -606,16 +810,17 @@ if (( dry )); then
     if (( ${#reds[@]} )); then
         echo "DRY RUN: ${#reds[@]} red step(s) - a real run would stop at the first:"
         printf '   %s\n' "${reds[@]}"
-        [[ -n "${scen_note:-}" ]] && echo "$scen_note"
+        last_lines
         echo "Log: $log"
         exit 1
     fi
-    [[ -n "${scen_note:-}" ]] && echo "$scen_note"
-    echo "DRY RUN: all green. Log: $log"
+    echo "DRY RUN: all green."
+    last_lines
+    echo "Log: $log"
     exit 0
 fi
 echo "DONE: v$rel ($plg_ver) - ${done_at[*]:-no server}"
-[[ -n "${scen_note:-}" ]] && echo "$scen_note"
+last_lines
 (( no_main )) && echo "$(label "$main") not updated: when no run is active, tools/release.sh $rel --servers-only"
 echo "Next (the release playbook): tonight's run on $(label "$main"); note the release in the day's notes."
 echo "Log: $log"

@@ -140,9 +140,15 @@ self_test() {
     # release.sh's own step 6b, cut out of it, with its helpers stubbed: --dry on the invented diff, --no-scenarios
     local step6b
     step6b=$(mktemp "${TMPDIR:-/tmp}/uso-prerelease-6b.XXXXXX")
-    { echo 'set -u -o pipefail; step() { echo "== [$1] $2"; }; ok() { echo "ok: $*"; }; red() { echo "RED: $*"; }; unbump() { :; }'
+    # (since 2026-11-14 its job runs in the background beside the click test and the suite: scen_job, then the block)
+    { echo 'set -u -o pipefail; step() { echo "== [$1] $2"; }; ok() { echo "ok: $*"; }; red() { echo "RED: $*"; }; pred() { echo "RED: $*"; }'
+      echo 'unbump() { :; }; remember() { :; }; taken() { echo "TAKEN"; }; taken_when=x taken_what=y h_scen=x'
+      echo 'par=$(mktemp -d "${TMPDIR:-/tmp}/uso-prerelease-par.XXXXXX"); mkdir -p "$par/scen"; scen_bg=0'
+      echo 'last_tag=$(git describe --tags --abbrev=0 --match "v[0-9]*" HEAD 2>/dev/null); sc_args=(--since "$last_tag"); ((dry)) && sc_args+=(--dry)'
+      sed -n '/^scen_job() {/,/^}/p' "$repo/tools/release.sh"
+      echo '((no_scenarios)) || { scen_job; scen_bg=1; }'
       sed -n '/^step 6b /,/^# ------/p' "$repo/tools/release.sh" | sed '$d'
-      echo 'echo "NOTE: $scen_note"'; } > "$step6b"
+      echo 'rm -rf "$par"; echo "NOTE: $scen_note"'; } > "$step6b"
     printf '%s\n' smartmover/mover.sh > "$fake"
     got=$(cd "$repo" && dry=1 no_scenarios=0 USO_RELEASE_DIFF=$fake bash "$step6b" < /dev/null 2>&1)
     if grep -q '^ok: 6b scenarios (dry): [0-9]* scenario(s), ≈ [0-9]* min would run since v' <<<"$got" \
