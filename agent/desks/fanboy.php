@@ -339,7 +339,9 @@ function fanboyStart(): void
 function fanboyHistoryPart(): array
 {
     $key = fanboyBoardKey(fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']));
-    return ['v' => 1, 'time' => time(), 'every' => (int) FANBOY_HISTORY_EVERY, 'zones' => fanboyHistoryLoad($key) ?: new stdClass()];
+    $t = time();
+    // `now`: the moment the points are read against (the page draws «the last hours» back from it, never the browser's clock)
+    return ['v' => 1, 'time' => $t, 'now' => $t, 'every' => (int) FANBOY_HISTORY_EVERY, 'zones' => fanboyHistoryLoad($key) ?: new stdClass()];
 }
 
 /**

@@ -635,5 +635,7 @@
   "errors.fanboy_bad_look": "Cela ne correspond à aucun ventilateur ({field}).",
   "back.auto_none": "l'automatique de la carte mère — cette puce n'en a pas pour la sortie",
   "back.no_auto_note": "Cette puce n'a pas d'automatique pour la sortie : elle revient à la valeur fixe ({pct} %).",
-  "back.default_note": "Sauf si tu choisis autre chose : l'automatique de la carte mère."
+  "back.default_note": "Sauf si tu choisis autre chose : l'automatique de la carte mère.",
+  "src.sensor": "Capteur {kind} {n}",
+  "src.nth": "{label} · {n}"
 }

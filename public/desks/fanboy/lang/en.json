@@ -635,5 +635,7 @@
   "errors.fanboy_bad_look": "That doesn't fit a fan ({field}).",
   "back.auto_none": "the mainboard's automatic — this chip has none for the output",
   "back.no_auto_note": "This chip has no automatic mode for the output: it goes back to the fixed value ({pct} %).",
-  "back.default_note": "Unless you choose otherwise: the mainboard's automatic."
+  "back.default_note": "Unless you choose otherwise: the mainboard's automatic.",
+  "src.sensor": "{kind} sensor {n}",
+  "src.nth": "{label} · {n}"
 }

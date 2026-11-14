@@ -635,5 +635,7 @@
   "errors.fanboy_bad_look": "Eso no corresponde a ningún ventilador ({field}).",
   "back.auto_none": "el automático de la placa base — este chip no tiene para la salida",
   "back.no_auto_note": "Este chip no tiene automático para la salida: vuelve al valor fijo ({pct} %).",
-  "back.default_note": "Si no eliges otra cosa: el automático de la placa base."
+  "back.default_note": "Si no eliges otra cosa: el automático de la placa base.",
+  "src.sensor": "Sensor {kind} {n}",
+  "src.nth": "{label} · {n}"
 }

@@ -45,7 +45,9 @@ export const DEMO_NAMES_EN = [['Liste von Vater', 'Dad\'s list'], ['Windows-Spie
   ['Strand am Abend', 'Beach at dusk'], ['Titelmusik', 'Title music'], ['neuester Schnitt', 'latest cut'], ['Fassung', 'Version'],
   ['vor-dem-umzug', 'before-the-move'],
   // the USO network's node names (demo/caretaker-usonet.json) and the servers' local names
-  ['familienserver', 'familyserver'], ['grosseltern', 'grandparents'], ['onkel', 'uncle'], ['tochter', 'daughter']];
+  ['familienserver', 'familyserver'], ['grosseltern', 'grandparents'], ['onkel', 'uncle'], ['tochter', 'daughter'],
+  // Fanboy's fans and zones (tests/ui/demo/fanboy*.json, tools/fanboy/demo-states.mjs)
+  ['Plattenkäfig', 'Disk cage'], ['Gehäuse', 'Case'], ['CPU-Kühler', 'CPU cooler'], ['Deckel', 'Top'], ['Vorn', 'Front']];
 export function renamed(v, names) {
   if (!names || !names.length || v == null) return v;
   let t = JSON.stringify(v);

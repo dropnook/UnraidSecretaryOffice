@@ -635,5 +635,7 @@
   "errors.fanboy_bad_look": "Non corrisponde a nessuna ventola ({field}).",
   "back.auto_none": "l'automatico della scheda madre — questo chip non ne ha per l'uscita",
   "back.no_auto_note": "Questo chip non ha un automatico per l'uscita: torna al valore fisso ({pct} %).",
-  "back.default_note": "Se non scegli altro: l'automatico della scheda madre."
+  "back.default_note": "Se non scegli altro: l'automatico della scheda madre.",
+  "src.sensor": "Sensore {kind} {n}",
+  "src.nth": "{label} · {n}"
 }

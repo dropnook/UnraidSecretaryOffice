@@ -87,8 +87,9 @@ const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 const steers = () => who().who === 'fanboy';
 
 /** An output's id parts: chip, address, output number */
+const ID_PARTS = /^(.*):([^:]+):pwm(\d{1,2})$/;
 function idParts(id) {
-  const m = /^(.*):([^:]+):pwm(\d{1,2})$/.exec(String(id || ''));
+  const m = ID_PARTS.exec(String(id || ''));
   return m ? { chip: m[1], address: m[2], output: +m[3] } : null;
 }
 /** The chip of an output id as the look has it now (by address, else the only chip of that name) */
@@ -158,7 +159,36 @@ function srcLabel(s) {
     if (p) return p[1] ? T('src.parity_n', { n: p[1] }) : T('src.parity');
     return s.id;
   }
-  return s.label || T(`kind.${s.kind}`);
+  const named = labels().get(s.id);
+  return named || s.label || T(`kind.${has(`kind.${s.kind}`) ? s.kind : 'other'}`);
+}
+/**
+ * Every sensor's name for the page, once per look: its own label, numbered when several of a kind share it («Composite ·
+ * 2» for the second NVMe); one without a label of its own (the agent names it by its chip, «spd5118 #1») by its kind and
+ * a running number of that kind — never the chip's driver name
+ */
+let labelsOf = null, labelsMap = new Map();
+function labels() {
+  const list = setup().sources || [];
+  if (labelsOf === list) return labelsMap;
+  labelsOf = list;
+  labelsMap = new Map();
+  const kindN = {}, seen = {}, count = {};
+  const own = (x) => x.kind !== 'disk' && x.label && !/^[A-Za-z0-9_.-]+ #\d+$/.test(x.label);
+  list.forEach((x) => { if (own(x)) count[`${x.kind}|${x.label}`] = (count[`${x.kind}|${x.label}`] || 0) + 1; });
+  list.forEach((x) => {
+    if (x.kind === 'disk') return;
+    const kind = T(`kind.${has(`kind.${x.kind}`) ? x.kind : 'other'}`);
+    if (own(x)) {
+      const k = `${x.kind}|${x.label}`;
+      seen[k] = (seen[k] || 0) + 1;
+      labelsMap.set(x.id, count[k] > 1 ? T('src.nth', { label: x.label, n: seen[k] }) : x.label);
+    } else {
+      kindN[x.kind] = (kindN[x.kind] || 0) + 1;
+      labelsMap.set(x.id, T('src.sensor', { kind, n: kindN[x.kind] }));
+    }
+  });
+  return labelsMap;
 }
 const srcLimit = (s) => {
   const d = (setup().scales || {})[s.kind] || (setup().scales || {}).other;
@@ -205,7 +235,8 @@ function startAlive() {
   const beat = async () => {
     if (!view || !stepRuns() || !Office.agent.running) return;
     const j = await Office.api.post(`${ID}.step_alive`, {});
-    if (j.ok && state) { state.step = j.step || null; if (view) redraw(); }
+    // the step as the agent has it now (null: none any more); an answer without one changes nothing
+    if (j.ok && state && j.step !== undefined) { state.step = j.step; if (view) redraw(); }
   };
   beat();
   alive = setInterval(beat, ALIVE_MS);
@@ -234,7 +265,7 @@ function redraw() {
 }
 function setupSig() {
   const su = setup();
-  return JSON.stringify([!!art(), !!cat, Office.agent.running, busy, who(), situation(), control().running, control().alarm, su.fans, su.zones, su.armed,
+  return JSON.stringify([!!art(), !!cat, Office.agent.running, busy, who(), situation(), control().running, (control().alarm || {}).code, su.fans, su.zones, su.armed,
     su.outputs, su.back_open, su.curves, step(), dry, zdraft, S().import ? S().import.files : 0, setupSw ? setupSw.active() : '']);
 }
 
@@ -304,8 +335,8 @@ function keepFold(det, key, open) {
   return det;
 }
 /** A row that unfolds its technical detail: the whole row clicks (its own controls not), the name takes Enter and Space */
-function unfoldRow(key, place, name, meta, value, detail) {
-  const r = Office.place(place, el('div', 'row unfolds fb-row' + (opened.has(key) ? ' open' : '')));
+function unfoldRow(key, at, name, meta, value, detail) {
+  const r = Office.place(at.place, el('div', 'row unfolds fb-row' + (opened.has(key) ? ' open' : '')));
   const main = el('div', 'row-main');
   const n = el('div', 'row-name link', name);
   n.tabIndex = 0;
@@ -496,7 +527,7 @@ function hintsTile(a) {
 function today() {
   const zs = history && history.zones ? history.zones : null;
   if (!zs) return null;
-  const start = new Date();
+  const start = new Date(histNow() * 1000);
   start.setHours(0, 0, 0, 0);
   const from = start.getTime() / 1000;
   let max = null, above = 0;
@@ -511,6 +542,8 @@ function today() {
   });
   return max === null ? null : { max, above };
 }
+/** The moment the history was read at (the agent's clock), else now */
+const histNow = () => (history && num(history.now) !== null ? history.now : Date.now() / 1000);
 /** A zone's quiet level: its curve's lowest value */
 function quietLevel(zid) {
   const c = (setup().curves || {})[zid];
@@ -595,7 +628,7 @@ function fansSection() {
     const v = el('div', 'fb-value', num(o.pct) === null ? '–' : T('value', { pct: o.pct }));
     v.title = T('value_title', { value: o.value ?? '–' });
     const b = (setup().before || {})[id];
-    list.appendChild(unfoldRow(`out:${id}`, `out:${c.address}:${o.n}`, f && f.name ? f.name : T('out.name', { n: o.n }), meta, v, [
+    list.appendChild(unfoldRow(`out:${id}`, { place: `out:${c.address}:${o.n}` }, f && f.name ? f.name : T('out.name', { n: o.n }), meta, v, [
       [T('tech.chip'), `${c.name} · ${c.address}${c.module ? ' · ' + c.module : ''}`],
       [T('tech.output'), `pwm${o.n} · ${c.hwmon}`],
       [T('tech.mode'), `pwm${o.n}_enable = ${o.enable ?? '–'} · ${o.value ?? '–'} / 255`],
@@ -611,7 +644,7 @@ function fansSection() {
     const meta = el('div', 'row-meta');
     meta.appendChild(chipOfText('quiet', T('fans.input'), T('fans.input_title')));
     if (f.rpm === null || f.rpm === undefined) meta.appendChild(chipOfText('quiet', T('fans.no_value'), T('fans.no_value_title')));
-    list.appendChild(unfoldRow(`tach:${c.address}:${f.n}`, `fan:${c.address}:${f.n}`, f.label || T('fans.row', { n: f.n }), meta,
+    list.appendChild(unfoldRow(`tach:${c.address}:${f.n}`, { place: `fan:${c.address}:${f.n}` }, f.label || T('fans.row', { n: f.n }), meta,
       el('div', 'fb-value', f.rpm === null || f.rpm === undefined ? '–' : T('pic.rpm', { rpm: fmt.number(f.rpm) })),
       [[T('tech.chip'), `${c.name} · ${c.address}`], [T('tech.input'), `fan${f.n}_input · ${c.hwmon}`]]));
   }));
@@ -651,7 +684,7 @@ function sensorsSection() {
     const zs = (setup().zones || []).filter((z) => (z.sources || []).some((y) => y.id === (x.disk || (x.chip ? `${x.chip.name}@` : '\u0000')) || (x.chip && y.id.startsWith(`${x.chip.name}@`) && y.id.endsWith(`#${x.feature.slice(4)}`))));
     zs.forEach((z) => meta.appendChild(chipOfText('accent', z.name, T('sensors.in_zone'))));
     const v = el('div', 'fb-value', x.c === null || x.c === undefined ? '–' : T('temp', { c: fmt.number(x.c) }));
-    list.appendChild(unfoldRow(`temp:${x.key}`, `temp:${x.key}`, x.name, meta, v,
+    list.appendChild(unfoldRow(`temp:${x.key}`, { place: `temp:${x.key}` }, x.name, meta, v,
       x.chip ? [[T('tech.chip'), `${x.chip.name} · ${x.chip.address}`], [T('tech.sensor'), `${x.feature}_input · ${x.chip.hwmon}`]]
         : [[T('tech.disk'), x.disk], [T('tech.from'), 'disks.ini']]));
   });
@@ -701,7 +734,7 @@ function curveStill(zid, unit, nowC) {
 /** The zone's last hours: the warmest temperature and the level, a point a minute */
 function historyChart(zid) {
   const pts = ((history && history.zones && history.zones[zid]) || []).filter((p) => Array.isArray(p) && p.length === 4);
-  const now = Date.now() / 1000;
+  const now = histNow();
   const from = now - HISTORY_HOURS * 3600;
   const shown = pts.filter((p) => p[0] >= from);
   if (shown.length < 2) return el('p', 'fb-hint-text', T('curves.history_none'));
@@ -1007,7 +1040,7 @@ function stepTile(k, i, a) {
 function stepSection(k) {
   const s = el('section', 'section fb-step');
   s.dataset.step = k;
-  s.appendChild(Office.sectionHead(T('step.n', { n: STEPS.indexOf(k) + 1, name: T(`step.${k}`) }), T(`step.${k}_sub`), { place: `step.${k}` }));
+  s.appendChild(Office.sectionHead(T(`step.${k}`), T(`step.${k}_sub`), { place: `step.${k}` }));
   const body = ({ detect: detectStep, test: testStep, roles: rolesStep, measure: measureStep, zones: zonesStep, dry: dryStep, take: takeStep })[k]();
   s.appendChild(body);
   return s;

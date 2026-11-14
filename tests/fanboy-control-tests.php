@@ -88,7 +88,10 @@ function fanboyTSpec(int $n = 10, array $change = []): array
 /** The setup a user would have made on the fake board: CPU cooler (BIOS), a disk fan measured, a hub and a silent fan for the case */
 function fanboyTSettings(string $address = FANBOY_T_ADDR, array $more = []): array
 {
-    $fan = fn (int $n, array $x) => $x + ['chip' => FANBOY_T_CHIP, 'address' => $address, 'output' => $n, 'tach' => null, 'tachs' => []];
+    // part 3: «give back» set to the fixed value for his fans here (the default is the mainboard's automatic since the
+    // owner's decision) — part 2's tests read the outputs back exactly as before; testFanboyBack tries the automatic
+    $fan = fn (int $n, array $x) => $x + ['chip' => FANBOY_T_CHIP, 'address' => $address, 'output' => $n, 'tach' => null, 'tachs' => []]
+        + (in_array($x['role'] ?? null, ['case', 'disks'], true) ? ['back' => 'fixed'] : []);
     $nvme = FANBOY_T_NVME;
     return $more + [
         'board' => ['vendor' => 'Example Boards Inc.', 'model' => 'EB-Z100 PRO'],
@@ -1004,7 +1007,10 @@ function testFanboyStopScripts(): void
     $sh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
     check('fanboy stop: stop() ends with fanboy_release (stop, restart, the plugin\'s update)', preg_match('/^stop\(\) \{\n    night_stop\n    agent_stop\n    fanboy_release\n\}/m', $sh) === 1);
     check('fanboy stop: release() (removal, the array stopping) goes through stop()', preg_match('/^release\(\) \{\n    stop\b/m', $sh) === 1 && str_contains($sh, "        release             # everything the office holds on a pool"));
-    check('fanboy stop: the guard\'s line every minute in agent-watch.cron', str_contains($sh, '"$WATCH_LINE"$\'\n\'"$FANBOY_LINE"') && str_contains($sh, 'FANBOY_LINE="* * * * * grep -qs'));
+    // part 3: the guard's line is no longer in agent-watch.cron on every server — a file of his own, only while armed
+    // (testFanboyGuardCron)
+    check('fanboy stop: agent-watch.cron has the watch line only (the guard\'s line moved to fanboy-guard.cron, only while armed)',
+        str_contains($sh, 'want="# Unraid Secretary Office - is the agent at work? (written by scripts/agent.sh)"$\'\n\'"$WATCH_LINE"' . "\n") && !str_contains($sh, 'FANBOY_LINE'));
     $t = fanboyT('stopsh');
     try {
         // the cron line's look: only a journal that names a holder — the holder a sleeping process of the test's (it gets the TERM)

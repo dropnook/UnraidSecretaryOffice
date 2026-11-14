@@ -635,5 +635,7 @@
   "errors.fanboy_bad_look": "Das passt zu keinem Lüfter ({field}).",
   "back.auto_none": "die Automatik des Mainboards — dieser Chip hat für den Ausgang keine",
   "back.no_auto_note": "Dieser Chip hat für den Ausgang keine Automatik: Er geht an den festen Wert zurück ({pct} %).",
-  "back.default_note": "Wenn du nichts anderes wählst: die Automatik des Mainboards."
+  "back.default_note": "Wenn du nichts anderes wählst: die Automatik des Mainboards.",
+  "src.sensor": "{kind}-Fühler {n}",
+  "src.nth": "{label} · {n}"
 }
