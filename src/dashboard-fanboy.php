@@ -402,7 +402,8 @@ function officeFanboyDashTile(): string
         . '</tbody>'
         . '<style>'
         . '#db-sso-fanboy .sso-fb-logo{width:32px;height:32px;margin-right:8px;font-size:26px;line-height:32px;text-align:center;flex:none}'
-        . '#db-sso-fanboy .sso-fb-dash{display:flex;flex-direction:column;min-width:0}'
+        // Unraid's tables keep every cell on one line (tbody td: white-space nowrap): his texts wrap, or a long alarm widens the column
+        . '#db-sso-fanboy .sso-fb-dash{display:flex;flex-direction:column;min-width:0;white-space:normal}'
         . '#db-sso-fanboy .sso-fb-who{padding:0 0 6px;overflow-wrap:anywhere}'
         . '#db-sso-fanboy .sso-fb-banner{display:block;padding:6px 0;font-weight:bold;text-decoration:none;overflow-wrap:anywhere;border-top:1px solid var(--table-border-color,rgba(128,128,128,.25))}'
         . '#db-sso-fanboy .sso-fb-stale{padding:6px 0;opacity:.8;font-style:italic;border-top:1px solid var(--table-border-color,rgba(128,128,128,.25))}'
