@@ -6,9 +6,11 @@
     "help.report",
     "help.sensors",
     "help.who",
+    "hints.title",
     "outputs.title",
     "sensors.title",
     "tile.fans",
+    "tile.hints",
     "tile.hottest",
     "tile.who"
   ],

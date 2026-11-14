@@ -75,6 +75,68 @@
     "situation": {
         "code": "ipmi"
     },
+    "tools": [
+        {
+            "id": "it87-driver",
+            "name": "ITE IT87 Driver",
+            "author": "ich777",
+            "kind": "driver",
+            "installed": false,
+            "loaded": false,
+            "active": null
+        },
+        {
+            "id": "nct6687-driver",
+            "name": "Nuvoton NCT6687 Driver",
+            "author": "ich777",
+            "kind": "driver",
+            "installed": false,
+            "loaded": false,
+            "active": null
+        },
+        {
+            "id": "dynamix.system.temp",
+            "name": "Dynamix System Temp",
+            "author": "Bergware",
+            "kind": "sensors",
+            "installed": false,
+            "loaded": null,
+            "active": null
+        },
+        {
+            "id": "fanctrlplus",
+            "name": "FanCtrl Plus",
+            "author": "ck9393",
+            "kind": "controller",
+            "installed": false,
+            "loaded": null,
+            "active": false
+        },
+        {
+            "id": "fanctrlplus2",
+            "name": "FanCtrl Plus 2",
+            "author": "ck9393 / andrebrait",
+            "kind": "controller",
+            "installed": false,
+            "loaded": null,
+            "active": false
+        },
+        {
+            "id": "dynamix.system.autofan",
+            "name": "Dynamix System Autofan",
+            "author": "Bergware/gfjardim",
+            "kind": "controller",
+            "installed": false,
+            "loaded": null,
+            "active": false
+        }
+    ],
+    "suggest": [],
+    "board_hint": null,
+    "board_maker": null,
+    "acpi_lax": false,
+    "names": [],
+    "hints_open": true,
     "counts": {
         "outputs": 0,
         "fans": 0,

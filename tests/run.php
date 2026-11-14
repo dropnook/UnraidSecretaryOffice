@@ -63668,8 +63668,12 @@ function fanboyFakeBoard(int $n = 10, string $address = 'it87.2608', array $more
             . "[disk3]\nname=\"disk3\"\ntype=\"Data\"\ndevice=\"\"\nstatus=\"DISK_NP\"\n"
             . "[cache]\nname=\"cache\"\ntype=\"Cache\"\ndevice=\"nvme0n1\"\nid=\"EXAMPLE_NVME_SN000004\"\ntemp=\"40\"\nspundown=\"0\"\nrotational=\"0\"\nstatus=\"DISK_OK\"\n"
             . "[flash]\nname=\"flash\"\ntype=\"Flash\"\ndevice=\"sda\"\nid=\"EXAMPLE_FLASH\"\n",
-        'plugins' => ['it87-driver.plg' => '<PLUGIN/>'],
+        // the ITE driver plugin and Dynamix System Temp installed; names given there (invented): two labels, one hidden fan
+        'plugins' => ['it87-driver.plg' => '<PLUGIN/>', 'dynamix.system.temp.plg' => '<PLUGIN/>',
+            'dynamix.system.temp/sensors.conf' => "# made by System Temp\nchip \"it8696-isa-0a30\"\n    label temp1 \"Board Left\"\n    label fan1 \"Front Intake\"\n"
+                . "    ignore fan3\nchip \"coretemp-*\"\n    label temp1 \"CPU Package\"\nchip \"nct6798-isa-0290\"\n    label fan2 \"Not Here\"\n"],
         'procs' => [1 => '/sbin/init', 812 => '/usr/sbin/sshd -D'],
+        'files' => ['proc/cmdline' => "BOOT_IMAGE=/bzimage initrd=/bzroot\n"],
     ];
     return array_replace($spec, $more);
 }
@@ -63923,14 +63927,14 @@ function testFanboySituations(): void
     same('fanboy situations: IPMI-only board — «ipmi», the BMC\'s ids, who steers: the board',
         ['ipmi', ['bmc' => true, 'manufacturer_id' => '0x002a7c', 'product_id' => '0x1b0d', 'firmware_revision' => '1.74', 'ipmi_version' => '2.0', 'device_id' => '32'], 'bmc'],
         [$s['situation']['code'], $s['ipmi'], $s['who']['who']]);
-    // FanControl Plus active: its settings switched on, its loop running
+    // FanCtrl Plus active: its settings switched on, its loop running
     $fcp = $board + [];
     $fcp['plugins'] = ['it87-driver.plg' => '<PLUGIN/>', 'fanctrlplus/pwm1.cfg' => "service=\"1\"\ncontroller=\"/sys/devices/platform/it87.2608/hwmon/hwmon10/pwm1\"\n",
         'fanctrlplus/pwm2.cfg' => "service=\"0\"\n"];
     $fcp['procs'] = [1 => '/sbin/init', 4711 => '/bin/bash /usr/local/emhttp/plugins/fanctrlplus/scripts/fanctrlplus_loop.sh pwm1'];
     $s = $look($fcp);
-    same('fanboy situations: FanControl Plus active — «other» with its name; who steers: FanControl Plus',
-        [['code' => 'other', 'who' => ['fancontrolplus'], 'names' => ['FanControl Plus']], [['id' => 'fancontrolplus', 'name' => 'FanControl Plus', 'settings' => true, 'running' => true]], 'fancontrolplus', 'other'],
+    same('fanboy situations: FanCtrl Plus active — «other» with its name as Community Applications lists it; who steers: FanCtrl Plus',
+        [['code' => 'other', 'who' => ['fanctrlplus'], 'names' => ['FanCtrl Plus']], [['id' => 'fanctrlplus', 'name' => 'FanCtrl Plus', 'settings' => true, 'running' => true]], 'fanctrlplus', 'other'],
         [$s['situation'], $s['controllers'], $s['who']['who'], $s['who']['why']]);
     $fcp['procs'] = [];
     same('fanboy situations: … its settings on, the loop not running — still «other»', 'other', $look($fcp)['situation']['code']);
@@ -63940,9 +63944,12 @@ function testFanboySituations(): void
     same('fanboy situations: … a loop running with its settings off — «other»', 'other', $look($fcp)['situation']['code']);
     $af = $board;
     $af['plugins'] = ['dynamix.system.autofan/fan.cfg' => "service=\"1\"\n"];
-    same('fanboy situations: Dynamix Auto Fan on — «other»', ['other', ['Dynamix Auto Fan']], [($s = $look($af))['situation']['code'], $s['situation']['names']]);
+    same('fanboy situations: Dynamix System Autofan on — «other»', ['other', ['Dynamix System Autofan']], [($s = $look($af))['situation']['code'], $s['situation']['names']]);
+    $fork = $board;
+    $fork['procs'] = [77 => '/bin/bash /usr/local/emhttp/plugins/fanctrlplus2/scripts/loop.sh'];
+    same('fanboy situations: the fork FanCtrl Plus 2 running — «other», only the fork named', ['other', ['FanCtrl Plus 2']], [($f = $look($fork))['situation']['code'], $f['situation']['names']]);
     // the Team Lead's fit: always yes, the reason the situation's
-    same('fanboy situations: the fit — yes; other with the name; ipmi', [['ok' => true, 'why' => 'yes', 'params' => []], ['ok' => true, 'why' => 'other', 'params' => ['who' => 'Dynamix Auto Fan']], 'ipmi'],
+    same('fanboy situations: the fit — yes; other with the name; ipmi', [['ok' => true, 'why' => 'yes', 'params' => []], ['ok' => true, 'why' => 'other', 'params' => ['who' => 'Dynamix System Autofan']], 'ipmi'],
         [fanboyFit($look($board)), fanboyFit($s), fanboyFit($look($ipmi))['why']]);
 }
 
@@ -64027,16 +64034,18 @@ function testFanboyReport(): void
     $scan = fanboyDetect($root);
     $text = fanboyReportText($scan);
     $never = ['BSN-7Q2X9', 'PSN-4711', 'uuid-secret', 'CSN-SECRET', 'FamilyVault', 'Basement', 'NVMESERIAL', 'WCC7K1234567', 'WD40EFRX', 'EXAMPLE_HDD', 'EXAMPLE_NVME',
-              'familypool', 'parity', 'disk1', 'cache', 'it87.2608', 'hwmon', 'sys', 'platform', 'pci0000', 'nvme2', $root];
-    same('fanboy report: none of the server\'s name, serials, disk ids or names, a device\'s address, a path', [],
+              'familypool', 'parity', 'disk1', 'cache', 'it87.2608', 'hwmon', 'devices', 'platform', 'pci0000', 'nvme2', $root,
+              'Board Left', 'Front Intake', 'CPU Package'];
+    same('fanboy report: none of the server\'s name, serials, disk ids or names, a device\'s address, a path, the names given in System Temp', [],
         array_values(array_filter($never, fn ($x) => stripos($text, $x) !== false)));
     check('fanboy report: no «/» at all (no path can hide in it)', !str_contains($text, '/'), $text);
     $want = ['Fanboy detection report v1', 'Board: Example Boards Inc. - EB-Z100 PRO', 'Kernel: test · Unraid: 7.3.2', 'Situation: ok',
              '- it8696_a0060607 (driver it87, board): outputs 6 (auto mode yes; now 6 manual), tach inputs 6 (4 turning), temperatures 6',
-             'Sensor kinds: board 14, cpu 3, nvme 6, other 1, ram 2', 'Unraid disks: 5 (4 rotating)'];
+             'Sensor kinds: board 14, cpu 3, nvme 6, other 1, ram 2', 'Unraid disks: 5 (4 rotating)',
+             'Plugins: ITE IT87 Driver installed (module loaded), Dynamix System Temp installed', 'Start option acpi_enforce_resources=lax: not set'];
     same('fanboy report: the technical lines the concept lists', [], array_values(array_filter($want, fn ($l) => !str_contains($text, $l))), $text);
     check('fanboy report: small enough for the wish form (' . strlen($text) . ' bytes)', strlen($text) <= FANBOY_REPORT_MAX && strlen($text) > 200);
-    // the driver missing, FanControl Plus: said in the situation line
+    // the driver missing: said in the situation line
     $noIte = fanboyFakeBoard();
     array_pop($noIte['chips']);
     same('fanboy report: «driver missing» with the plugin and module', true,
@@ -64072,6 +64081,86 @@ function testFanboyReport(): void
     $w = reportWords(['kind' => 'wish', 'desk' => 'fanboy', 'title' => 'Fanboy: what he finds on this board', 'text' => "What I'd like Fanboy to do here:\n\n\n" . $text]);
     unset($GLOBALS['desks']['fanboy']);
     same('fanboy report page: the office\'s form takes it as a wish of his desk', ['wish', 'fanboy'], [$w['kind'], $w['desk']]);
+}
+
+function testFanboyHints(): void
+{
+    $look = function (array $spec): array {
+        static $n = 0;
+        return fanboyDetect(fanboyFakeTree(hardeningTmp('fanboy-hints-' . ++$n), $spec));
+    };
+    $by = fn (array $s) => array_column(array_map(fn ($t) => [$t['id'], [$t['installed'], $t['loaded'], $t['active']]], $s['tools']), 1, 0);
+    // the catalogue: names and authors exactly as Community Applications lists them (checked against its feed 2026-11-14)
+    same('fanboy hints: the plugins he knows — the names and authors of Community Applications',
+        ['it87-driver' => ['ITE IT87 Driver', 'ich777'], 'nct6687-driver' => ['Nuvoton NCT6687 Driver', 'ich777'], 'dynamix.system.temp' => ['Dynamix System Temp', 'Bergware'],
+         'fanctrlplus' => ['FanCtrl Plus', 'ck9393'], 'fanctrlplus2' => ['FanCtrl Plus 2', 'ck9393 / andrebrait'], 'dynamix.system.autofan' => ['Dynamix System Autofan', 'Bergware/gfjardim']],
+        array_map(fn ($p) => [$p['name'], $p['author']], FANBOY_PLUGINS));
+
+    // what is there: on the fake board the ITE driver (installed, loaded) and System Temp; nothing else
+    $board = fanboyFakeBoard();
+    $s = $look($board);
+    same('fanboy hints: what is there — ITE driver installed and loaded, System Temp installed, the rest not; [installed, loaded, active]',
+        ['it87-driver' => [true, true, null], 'nct6687-driver' => [false, false, null], 'dynamix.system.temp' => [true, null, null], 'fanctrlplus' => [false, null, false],
+         'fanctrlplus2' => [false, null, false], 'dynamix.system.autofan' => [false, null, false]], $by($s));
+    same('fanboy hints: ok — nothing suggested, the fold closed, the start option not set', [[], false, false], [$s['suggest'], $s['hints_open'], $s['acpi_lax']]);
+    // the owner's kind of server: both plugins there and FanCtrl Plus steering
+    $owner = $board;
+    $owner['plugins'] += ['fanctrlplus.plg' => '<PLUGIN/>', 'fanctrlplus/pwm1.cfg' => "service=\"1\"\n"];
+    $s = $look($owner);
+    same('fanboy hints: … with FanCtrl Plus installed and on — «steering», the fold open', [[true, null, true], true, 'other'],
+        [$by($s)['fanctrlplus'], $s['hints_open'], $s['situation']['code']]);
+    // the driver plugin there, its driver not loaded (after an Unraid update)
+    $noIte = $board;
+    array_pop($noIte['chips']);
+    $s = $look($noIte);
+    same('fanboy hints: driver plugin installed, driver not loaded — said so, nothing suggested (the plugin is there), the fold open',
+        [[true, false, null], [], true], [$by($s)['it87-driver'], $s['suggest'], $s['hints_open']]);
+
+    // what fits: only with no output, only what isn't there; the board maker's hint narrows the drivers
+    $bare = array_replace($noIte, ['plugins' => []]);
+    $fit = fn (string $vendor, array $plugins = []) => $look(array_replace($bare, ['board' => [$vendor, 'X1'], 'plugins' => $plugins]));
+    same('fanboy hints: no output, nothing installed — Gigabyte: the ITE driver; MSI: the NCT6687 driver; another maker: both; each with System Temp',
+        [['it87-driver', 'dynamix.system.temp'], ['nct6687-driver', 'dynamix.system.temp'], ['it87-driver', 'nct6687-driver', 'dynamix.system.temp']],
+        [$fit('Gigabyte Technology Co., Ltd.')['suggest'], $fit('Micro-Star International Co., Ltd.')['suggest'], $fit('Example Boards Inc.')['suggest']]);
+    same('fanboy hints: … the hint is a hint, with the maker\'s short name ([ite, Gigabyte], [nuvoton, MSI], none)', [['ite', 'Gigabyte'], ['nuvoton', 'MSI'], [null, null]],
+        array_map(fn ($x) => [$x['board_hint'], $x['board_maker']], [$fit('Gigabyte Technology Co., Ltd.'), $fit('Micro-Star International Co., Ltd.'), $fit('Example Boards Inc.')]));
+    same('fanboy hints: … System Temp already there — only the driver', ['it87-driver'], $fit('GIGABYTE', ['dynamix.system.temp.plg' => '<PLUGIN/>'])['suggest']);
+    same('fanboy hints: … the hinted driver installed already (and not loaded) — driver missing, nothing suggested', ['driver_missing', []],
+        [($x = $fit('GIGABYTE', ['it87-driver.plg' => '<PLUGIN/>']))['situation']['code'], $x['suggest']]);
+    $ipmi = ['board' => ['Example Server Co.', 'ES-2U'], 'chips' => [], 'ipmi' => ['manufacturer_id' => '0x002a7c']];
+    same('fanboy hints: IPMI — nothing suggested, the fold open', [[], true], [($x = $look($ipmi))['suggest'], $x['hints_open']]);
+
+    // the start option for a chip the BIOS keeps to itself: read from this boot's command line, never set
+    same('fanboy hints: acpi_enforce_resources=lax set at this boot — seen; a longer word isn\'t it', [true, false],
+        [$look(array_replace($board, ['files' => ['proc/cmdline' => "BOOT_IMAGE=/bzimage acpi_enforce_resources=lax initrd=/bzroot\n"]]))['acpi_lax'],
+         $look(array_replace($board, ['files' => ['proc/cmdline' => "acpi_enforce_resources=laxer\n"]]))['acpi_lax']]);
+
+    // the names from Dynamix System Temp: matched by chip name and isa address; another chip's lines left out
+    $s = $look($board);
+    same('fanboy hints: System Temp\'s names for the chips seen — two labels and a hidden fan on the ITE chip (isa 0a30 = it87.2608), the CPU\'s label; nct6798 not here',
+        [['it8696_a0060607', 'temp1', 'Board Left', false], ['it8696_a0060607', 'fan1', 'Front Intake', false], ['it8696_a0060607', 'fan3', null, true], ['coretemp', 'temp1', 'CPU Package', false]],
+        array_map(fn ($x) => [$x['chip'], $x['feature'], $x['label'], $x['ignore']], $s['names']));
+    $other = $board;
+    $other['plugins']['dynamix.system.temp/sensors.conf'] = "chip \"it8696-isa-0a40\"\n label temp1 \"Elsewhere\"\n";
+    same('fanboy hints: … a chip line at another isa address — not this chip', [], $look($other)['names']);
+    $root = fanboyFakeTree(hardeningTmp('fanboy-hints-ro'), $board);
+    $conf = "$root/boot/config/plugins/dynamix.system.temp/sensors.conf";
+    $md5 = md5_file($conf);
+    $mtime = filemtime($conf);
+    fanboyDetect($root);
+    same('fanboy hints: … sensors.conf read, never written', [$md5, $mtime], [md5_file($conf), filemtime($conf)]);
+
+    // the page: the fourth tile and its fold-out section (open by itself in those situations), the ⟦Apps⟧ link, no install
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    check('fanboy hints page: the tile «Hints» with its section; the fold kept (keepFold) and open by itself when hints_open',
+        str_contains($js, "{ id: 'hints', key: 'tile.hints', place: 'tile.hints', tile: hintsTile, section: () => hintsSection() }")
+        && str_contains($js, "keepFold(el('details', 'fb-hints'), 'hints', !!(state && state.hints_open))"));
+    check('fanboy hints page: what fits by the agent\'s list only, each found in ⟦Apps⟧ by its name (a link, nothing installed), the wish button there',
+        str_contains($js, "((state && state.suggest) || []).map((id) => tools().find((x) => x.id === id))") && str_contains($js, "Office.safeHref('/Apps')")
+        && str_contains($js, "T('hints.apps_how', { name: x.name, author: x.author })") && str_contains($js, 'wish.onclick = () => sendReport(wish);')
+        && !preg_match('/install\'?\s*[,)]|plugin install|\.install`/', $js));
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-detect.php') . (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy.php');
+    check('fanboy hints: no modprobe, no plugin install anywhere in his code', !preg_match('/modprobe|insmod|plugin\s+install|\binstall\s*\(/i', (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', $src)));
 }
 
 function testFanboyPage(): void
@@ -64113,7 +64202,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
-          'fanboy' => ['testFanboyHidden', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyPage']];
+          'fanboy' => ['testFanboyHidden', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
 $only = array_values(array_unique(array_slice($argv, 1)));

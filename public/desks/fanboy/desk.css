@@ -1,5 +1,13 @@
-/* Fanboy's page (desk.js): the value of a row — an output's percent, a fan's speed, a temperature — is what the row is
-   for, so it stays on a phone too (office.css hides .figures there) */
+/* Fanboy's page (desk.js) */
 #sso{
+  /* the value of a row — an output's percent, a fan's speed, a temperature — is what the row is for, so it stays on a
+     phone too (office.css hides .figures there) */
   .fb-value{font-size:12.5px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap}
+  /* «Why is this tricky?»: a fold, its small heads, its plain paragraphs */
+  .fb-hints > summary{cursor:pointer; color:var(--accent-ink); font-size:13px; padding:2px 0}
+  .fb-hints-body{display:flex; flex-direction:column; gap:8px; margin-top:8px}
+  .fb-hint-head{font-size:13.5px; font-weight:600; color:var(--ink); margin:8px 0 0}
+  .fb-hint-text{font-size:13px; line-height:1.5; color:var(--ink2); margin:0; max-width:80ch}
+  .fb-hint-list{font-size:13px; line-height:1.5; color:var(--ink2); margin:0; padding-left:20px; max-width:80ch}
+  .fb-hint-list li + li{margin-top:4px}
 }

@@ -393,6 +393,97 @@
     "situation": {
         "code": "ok"
     },
+    "tools": [
+        {
+            "id": "it87-driver",
+            "name": "ITE IT87 Driver",
+            "author": "ich777",
+            "kind": "driver",
+            "installed": true,
+            "loaded": true,
+            "active": null
+        },
+        {
+            "id": "nct6687-driver",
+            "name": "Nuvoton NCT6687 Driver",
+            "author": "ich777",
+            "kind": "driver",
+            "installed": false,
+            "loaded": false,
+            "active": null
+        },
+        {
+            "id": "dynamix.system.temp",
+            "name": "Dynamix System Temp",
+            "author": "Bergware",
+            "kind": "sensors",
+            "installed": true,
+            "loaded": null,
+            "active": null
+        },
+        {
+            "id": "fanctrlplus",
+            "name": "FanCtrl Plus",
+            "author": "ck9393",
+            "kind": "controller",
+            "installed": false,
+            "loaded": null,
+            "active": false
+        },
+        {
+            "id": "fanctrlplus2",
+            "name": "FanCtrl Plus 2",
+            "author": "ck9393 / andrebrait",
+            "kind": "controller",
+            "installed": false,
+            "loaded": null,
+            "active": false
+        },
+        {
+            "id": "dynamix.system.autofan",
+            "name": "Dynamix System Autofan",
+            "author": "Bergware/gfjardim",
+            "kind": "controller",
+            "installed": false,
+            "loaded": null,
+            "active": false
+        }
+    ],
+    "suggest": [],
+    "board_hint": null,
+    "board_maker": null,
+    "acpi_lax": false,
+    "names": [
+        {
+            "chip": "it8696_a0060607",
+            "address": "it87.2608",
+            "feature": "temp1",
+            "label": "Board Left",
+            "ignore": false
+        },
+        {
+            "chip": "it8696_a0060607",
+            "address": "it87.2608",
+            "feature": "fan1",
+            "label": "Front Intake",
+            "ignore": false
+        },
+        {
+            "chip": "it8696_a0060607",
+            "address": "it87.2608",
+            "feature": "fan3",
+            "label": null,
+            "ignore": true
+        },
+        {
+            "chip": "coretemp",
+            "address": "coretemp.0",
+            "feature": "temp1",
+            "label": "CPU Package",
+            "ignore": false
+        }
+    ],
+    "hints_open": false,
     "counts": {
         "outputs": 6,
         "fans": 7,

@@ -978,7 +978,14 @@ the last 60 history lines only for a source the file has none for. **The file
   and drivers, counts, sensor kinds, kernel, Unraid version, the situation, an IPMI board's BMC ids, firmware and fan sensor
   names — never the server's name, serials, disk ids or names, a device's address, a path (no «/» in it at all); the page puts
   it into the office's report form as a wish of his desk (the form's draft), the user sees and edits it and only «Send» sends.
-  The suite's fake sysfs: `fanboyFakeTree()` in tests/run.php. Not in part 1: setup, the control service, notifications.
+  **Hints** («Why is this tricky?», the tile «Hints», a fold that opens by itself unless the situation is ok): what is there
+  (the plugins he knows, `FANBOY_PLUGINS`: names and authors exactly as Community Applications lists them, checked against
+  its public feed — installed by their `.plg`, a driver's module loaded, a controller steering), the start option
+  `acpi_enforce_resources=lax` (read from /proc/cmdline, never set), the names given in Dynamix System Temp's
+  `sensors.conf` (read, never written; shown as suggestions, never in the report), the plugins that fit (only with no
+  output, only what isn't there, narrowed by a board maker's hint), each found by its name in ⟦Apps⟧ — **Fanboy installs
+  nothing, never modprobe**. The suite's fake sysfs: `fanboyFakeTree()` in tests/run.php. Not in part 1: setup, the
+  control service, notifications.
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same

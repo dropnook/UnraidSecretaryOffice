@@ -249,6 +249,10 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
     foreach ($scan['controllers'] ?? [] as $x) {
         $lines[] = 'Other controller: ' . $clean($x['id']) . ' (settings ' . ($x['settings'] ? 'on' : 'off') . ', loop ' . ($x['running'] ? 'running' : 'not running') . ')';
     }
+    $there = array_filter($scan['tools'] ?? [], fn ($t) => $t['installed'] || $t['active']);
+    $lines[] = 'Plugins: ' . ($there ? implode(', ', array_map(fn ($t) => $clean($t['name']) . ' installed'
+        . ($t['loaded'] === null ? '' : ($t['loaded'] ? ' (module loaded)' : ' (module not loaded)')) . ($t['active'] ? ' (steering)' : ''), $there)) : 'none of those Fanboy knows');
+    $lines[] = 'Start option acpi_enforce_resources=lax: ' . (!empty($scan['acpi_lax']) ? 'set' : 'not set');
     if (($i = $scan['ipmi'] ?? null) !== null) {
         $lines[] = 'IPMI: BMC ' . ($i['bmc'] ? 'seen' : 'not seen') . '; manufacturer id ' . ($clean($i['manufacturer_id'] ?? '') ?: '?')
             . ', product id ' . ($clean($i['product_id'] ?? '') ?: '?') . ', device id ' . ($clean($i['device_id'] ?? '') ?: '?')
