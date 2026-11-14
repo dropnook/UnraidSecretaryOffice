@@ -63724,6 +63724,35 @@ SH);
     check('ui-clicks: every special page runs again by a real route (ONLY_OF)', count($sm[1]) >= 10 && !$bad && count($routes) > 10, implode(', ', $bad) . ' / ' . count($sm[1]));
 }
 
+/**
+ * The Mac's long runs read their whole script before the first step (one { … } block): a running bash script reads on
+ * at its old byte offset when its file changes - a pull into the clone during a release (35-120 min) or the weekly full
+ * run (hours, launchd from the main clone) must not change what they do next. And the scenarios' runner ends a scenario
+ * at once when the kernel panicked in ZFS (Tower 2026-11-14: the full run sat in it until its 1 h timeout).
+ */
+function testScenarioToolsSafe(): void
+{
+    foreach (['tools/release.sh', 'tools/scenarios/nightly.sh'] as $f) {
+        $src = (string) file_get_contents(OFFICE_DIR . "/$f");
+        $lines = explode("\n", rtrim($src, "\n"));
+        $open = array_search('{', $lines, true);
+        check("$f: one { … } block from the start of its work to its last line", $open !== false && $open < 140 && end($lines) === '}'
+            && !preg_grep('/^[a-z_]+=|^(cd|exec|trap|for|if|while|step) /', array_slice($lines, 0, (int) $open)), $f);
+        [$e, , $err] = run(['bash', '-n', OFFICE_DIR . "/$f"], 30);
+        same("$f: bash -n", [0, ''], [$e, trim($err)]);
+    }
+    $rl = (string) file_get_contents(OFFICE_DIR . '/tools/scenarios/run-local.sh');
+    check('run-local: a scenario ends at once when a process sits at spl_panic (looked for every 30 s), error 126, said so',
+        str_contains($rl, '$2 ~ /^D/ && $3 == "spl_panic"') && str_contains($rl, 'panic=$(_panicked)') && str_contains($rl, '[[ -n $panic ]] && code=126')
+        && str_contains($rl, '126) v=error; why="the kernel panicked in ZFS'));
+    $base = (string) file_get_contents(OFFICE_DIR . '/tools/scenarios/base.sh');
+    check('base.sh: refuses a reset on a panicked kernel (what stops run.sh after such a scenario)', str_contains($base, '$3 == "spl_panic"') && str_contains($base, 'reboot $(hostname) first'));
+    $n = (string) file_get_contents(OFFICE_DIR . '/tools/scenarios/nightly.sh');
+    check('nightly.sh: a run that stopped early says so (N of M) and is not green', str_contains($n, 'Stopped early:') && str_contains($n, '((r == 0)) && [[ -z $stopped ]] && exit 0'));
+    $plist = (string) file_get_contents(OFFICE_DIR . '/tools/scenarios/uso-scenarios-nightly.plist');
+    check('the full run\'s plist: weekly (a Weekday in its StartCalendarInterval)', (bool) preg_match('#<key>StartCalendarInterval</key>\s*<dict>\s*<key>Weekday</key>\s*<integer>[0-7]</integer>#', $plist));
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
@@ -63733,7 +63762,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
-          'tools' => ['testReleaseHashes', 'testReleaseState', 'testReleaseClicksRetry']];
+          'tools' => ['testReleaseHashes', 'testReleaseState', 'testReleaseClicksRetry', 'testScenarioToolsSafe']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
 $only = array_values(array_unique(array_slice($argv, 1)));
