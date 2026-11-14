@@ -222,9 +222,12 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
                 $rpm = $int($f['rpm'] ?? null);
                 $pct = $int($f['pct'] ?? null);
                 $rpms[] = $rpm;
-                $fans[] = [$fanName($f['id'], $f), ($rpm === null ? officeDashT($s, 'fanboy.pic.no_tach') : officeDashT($s, 'fanboy.pic.rpm', ['rpm' => $rpm]))
-                    . ($pct !== null ? ' · ' . officeDashT($s, 'fanboy.dash.pct', ['pct' => $pct]) : '')];
-                if ($rpm === 0 && $pct !== null && $pct > 0 && ($f['held'] ?? false) === true) {
+                // one he holds and drives that reports 0 rpm stands: marked on its row (and said at the top)
+                $stands = $rpm === 0 && $pct !== null && $pct > 0 && ($f['held'] ?? false) === true;
+                $fans[] = [$fanName($f['id'], $f), ($stands ? officeDashT($s, 'fanboy.pic.should_turn')
+                    : ($rpm === null ? officeDashT($s, 'fanboy.pic.no_tach') : officeDashT($s, 'fanboy.pic.rpm', ['rpm' => $rpm])))
+                    . ($pct !== null ? ' · ' . officeDashT($s, 'fanboy.dash.pct', ['pct' => $pct]) : ''), $stands];
+                if ($stands) {
                     $standing[] = $fanName($f['id'], $f);
                 }
             }
@@ -238,7 +241,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
                 }
                 $rpm = $tach[$fid] ?? null;
                 $rpms[] = $rpm;
-                $fans[] = [$fanName($fid), $rpm === null ? officeDashT($s, 'fanboy.pic.no_tach') : officeDashT($s, 'fanboy.pic.rpm', ['rpm' => $rpm])];
+                $fans[] = [$fanName($fid), $rpm === null ? officeDashT($s, 'fanboy.pic.no_tach') : officeDashT($s, 'fanboy.pic.rpm', ['rpm' => $rpm]), false];
             }
             $warm = null;
             foreach (is_array($z['sources'] ?? null) ? $z['sources'] : [] as $ref) {
@@ -258,6 +261,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             'level'   => $level === null ? officeDashT($s, 'fanboy.pic.bios')
                 : ($unit === 'rpm' ? officeDashT($s, 'fanboy.pic.rpm', ['rpm' => (int) round($level)]) : officeDashT($s, 'fanboy.dash.pct', ['pct' => (int) round($level)])),
             'speed'   => count($fans) ? officeFanboyDashSpeed($s, $rpms) : officeDashT($s, 'fanboy.zones.no_fan'),
+            'stands'  => in_array(true, array_column($fans, 2), true),
             'fans'    => array_slice($fans, 0, FANBOY_DASH_FANS),
             'fans_more' => max(0, count($fans) - FANBOY_DASH_FANS),
         ];
@@ -354,11 +358,11 @@ function officeFanboyDashRows(string $lang, ?int $now = null): string
     }
     $dim = $m['stale'] !== null ? ' sso-fb-old' : '';
     foreach ($m['zones'] as $z) {
-        $out .= '<details class="sso-fb-zone' . $dim . '" data-zone="' . $h($z['id']) . '"><summary>'
+        $out .= '<details class="sso-fb-zone' . $dim . '" data-zone="' . $h($z['id']) . '"' . ($z['stands'] ? ' open' : '') . '><summary>'
             . '<span class="sso-fb-name">' . $h($z['name']) . '<small>' . $h($z['warmest']) . '</small></span>'
-            . '<span class="sso-fb-val"><b>' . $h($z['level']) . '</b><small>' . $h($z['speed']) . '</small></span></summary>';
-        foreach ($z['fans'] as [$name, $text]) {
-            $out .= '<div class="sso-fb-fan"><span>' . $h($name) . '</span><span>' . $h($text) . '</span></div>';
+            . '<span class="sso-fb-val"><b>' . $h($z['level']) . '</b><small' . ($z['stands'] ? ' class="red-text"' : '') . '>' . $h($z['speed']) . '</small></span></summary>';
+        foreach ($z['fans'] as [$name, $text, $stands]) {
+            $out .= '<div class="sso-fb-fan' . ($stands ? ' red-text' : '') . '"><span>' . $h($name) . '</span><span>' . $h($text) . '</span></div>';
         }
         if ($z['fans_more'] > 0) {
             $out .= '<a class="sso-fb-more" href="' . $h($url . '/fans') . '">' . $h(officeDashT($s, 'fanboy.dash.fans_more', ['n' => $z['fans_more']])) . '</a>';
@@ -401,6 +405,17 @@ function officeFanboyDashTile(): string
         . '<tr><td><div id="sso-fb-dash" class="sso-fb-dash">' . officeFanboyDashRows($lang) . '</div></td></tr>'
         . '</tbody>'
         . '<style>'
+        // his tones on Unraid's themes (7.4 names the theme on <html>): Unraid's own red, green and link blue read below 4.5:1 on
+        // the dark tiles and its orange below it on the light ones — the lighter or darker step of Unraid's own palette instead
+        // (tools/fanboy/dashboard.mjs measures it in all four themes); another theme or an older Unraid: Unraid's own
+        . 'html.Theme--black #db-sso-fanboy,html.Theme--gray #db-sso-fanboy{--sso-fb-red:var(--red-300);--sso-fb-green:var(--green-500);--sso-fb-orange:var(--orange-300);--sso-fb-link:var(--blue-700)}'
+        . 'html.Theme--white #db-sso-fanboy,html.Theme--azure #db-sso-fanboy{--sso-fb-red:var(--red-900);--sso-fb-green:var(--green-900);'
+        . '--sso-fb-orange:color-mix(in srgb,var(--orange-900) 80%,var(--black));--sso-fb-link:var(--blue-900)}'
+        . '#db-sso-fanboy .sso-fb-dash .red-text{color:var(--sso-fb-red,var(--red-600))}'
+        . '#db-sso-fanboy .sso-fb-dash .green-text{color:var(--sso-fb-green,var(--green-800))}'
+        . '#db-sso-fanboy .sso-fb-dash .orange-text{color:var(--sso-fb-orange,var(--orange-300))}'
+        . '#db-sso-fanboy .sso-fb-dash a:not(.sso-fb-banner){color:var(--sso-fb-link,var(--link-text-color))}'
+        . '#db-sso-fanboy .sso-fb-fan.red-text span:last-child,#db-sso-fanboy small.red-text{opacity:1;font-weight:bold}'
         . '#db-sso-fanboy .sso-fb-logo{width:32px;height:32px;margin-right:8px;font-size:26px;line-height:32px;text-align:center;flex:none}'
         // Unraid's tables keep every cell on one line (tbody td: white-space nowrap): his texts wrap, or a long alarm widens the column
         . '#db-sso-fanboy .sso-fb-dash{display:flex;flex-direction:column;min-width:0;white-space:normal}'

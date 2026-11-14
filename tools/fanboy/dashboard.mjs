@@ -59,6 +59,7 @@ function lookedAt(state, at) {
 /** Six zones, one with nine fans: the tile caps both */
 function many() {
   const s = lookedAt(demo('fanboy'), NOW - 5);
+  s.who = { who: 'fanboy', why: 'steers', zones: 6 };
   const names = ['Plattenkäfig', 'Gehäuse vorn', 'Gehäuse hinten', 'Deckel', 'Netzteilkammer', 'Grafikkarte'];
   s.setup.zones = [];
   s.control.zones = [];
@@ -168,6 +169,37 @@ try {
       await ctx.close();
     }
   }
+  // contrast of his coloured lines (alarm, warnings, who steers, the links) on the tile in all four of Unraid's themes —
+  // at least 4.5:1 (WCAG AA), measured as Chrome draws it: the text's colour against the tile's background
+  const contrast = [];
+  for (const [name, files, run] of SCENES) {
+    const html = tile(name, files, run, 'en');
+    for (const theme of ['black', 'gray', 'white', 'azure']) {
+      const file = path.join(tmp, `${name}-${theme}-contrast.html`);
+      fs.writeFileSync(file, page(theme, html));
+      const ctx = await browser.newContext({ viewport: { width: 1440, height: 700 } });
+      const p = await ctx.newPage();
+      await p.goto(pathToFileURL(file).href);
+      const got = await p.evaluate(() => {
+        const rgb = (c) => (c.match(/[\d.]+/g) || []).map(Number);
+        const lum = ([r, g, b]) => [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
+          .reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0);
+        const bg = (el) => { for (let e = el; e; e = e.parentElement) { const c = rgb(getComputedStyle(e).backgroundColor); if (c.length === 3 || (c.length === 4 && c[3] > 0)) return c.slice(0, 3); } return [255, 255, 255]; };
+        return [...document.querySelectorAll('#db-sso-fanboy .red-text, #db-sso-fanboy .orange-text, #db-sso-fanboy .green-text, #db-sso-fanboy .sso-fb-dash a:not(.red-text):not(.orange-text)')].map((e) => {
+          const [a, b] = [lum(rgb(getComputedStyle(e).color).slice(0, 3)), lum(bg(e))];
+          return [e.className || 'a', getComputedStyle(e).color, Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100];
+        });
+      });
+      for (const [cls, colour, ratio] of got) {
+        const line = `${name} ${theme} ${cls} ${colour} ${ratio}:1`;
+        if (!contrast.includes(line)) contrast.push(line);
+        if (ratio < 4.5) failed.push(`contrast below 4.5:1 — ${line}`);
+      }
+      await ctx.close();
+    }
+  }
+  fs.writeFileSync(path.join(opt.out, 'contrast.txt'), contrast.join('\n') + '\n');
+
   // the setting on his page (the office's harness, tests/ui/harness.mjs): «Show on the Dashboard» under the server picture
   if (!opt.only || opt.only.includes('setting')) {
     const { startHarness, DEMO_NAMES_EN } = await import(path.join(REPO, 'tests', 'ui', 'harness.mjs'));

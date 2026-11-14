@@ -114,6 +114,9 @@ function testFanboyDashTile(): void
     $m = $o['model'] ?? [];
     same('fanboy dash: alarm — red, first, the alarm\'s own words; no second «stands» line for the same fan', [[['red', 'Alarm: Vorn stands although it should turn. Every fan Fanboy holds runs at full speed until it turns again.']], true],
         [$m['banners'] ?? null, strpos((string) ($o['rows'] ?? ''), 'sso-fb-banner red-text') < strpos((string) ($o['rows'] ?? ''), '<details')]);
+    same('fanboy dash: alarm — the demo consistent: every fan he holds at full; the one that stands marked on its row, its zone open', [['100 %', '100 %'], true, true],
+        [array_column($m['zones'] ?? [], 'level'), str_contains((string) ($o['rows'] ?? ''), '<div class="sso-fb-fan red-text"><span>Vorn</span><span>0 rpm · should turn · 100 %</span>'),
+         str_contains((string) ($o['rows'] ?? ''), 'data-zone="case" open>')]);
     $state = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy.json'), true);
     $state['control']['zones'][1]['fans'][0]['rpm'] = 0;
     $o = fanboyDashWeb(['fanboy.json' => $state] + fanboyDashFiles('fanboy'), [], $now);
@@ -216,6 +219,10 @@ function testFanboyDashSource(): void
     $js = substr($src, (int) strpos($src, '<script>'));
     check('fanboy dash: the refresh — 20 s while he steers, a minute else, not while the page is hidden, unfolded zones kept',
         str_contains($js, 'steers()?20000:60000') && str_contains($js, 'if(!document.hidden)load();') && !str_contains($js, 'setInterval') && str_contains($js, 'details[open]'), $js);
+    check('fanboy dash: readable tones — on the dark themes the lighter steps of Unraid\'s palette, on the light ones the darker (≥ 4.5:1, measured by tools/fanboy/dashboard.mjs), Unraid\'s own elsewhere',
+        str_contains($src, "html.Theme--black #db-sso-fanboy,html.Theme--gray #db-sso-fanboy{--sso-fb-red:var(--red-300);--sso-fb-green:var(--green-500);--sso-fb-orange:var(--orange-300);--sso-fb-link:var(--blue-700)}")
+        && str_contains($src, "html.Theme--white #db-sso-fanboy,html.Theme--azure #db-sso-fanboy{--sso-fb-red:var(--red-900);--sso-fb-green:var(--green-900);")
+        && str_contains($src, '.red-text{color:var(--sso-fb-red,var(--red-600))}'), '');
     check('fanboy dash: colours only Unraid\'s (its tone classes, its border variable) — no colour of its own',
         !preg_match('/#[0-9a-f]{3,6}\b|rgb\((?!128,128,128)/i', substr($src, (int) strpos($src, '<style>'), (int) strpos($src, '</style>') - (int) strpos($src, '<style>'))), '');
 }

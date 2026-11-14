@@ -148,12 +148,14 @@ const RPM = { 1: 1310, 2: 0, 3: 0, 4: 1018, 5: 905, 6: 878 };
 const NOTES = [{ code: 'chip_back', params: { minutes: 3 }, at: T0 - 5400 }, { code: 'alarm_over', params: { code: 'hot' }, at: T0 - 2400 }];
 function steering(more = {}) {
   const rpm = { ...RPM, ...(more.rpm || {}) };
-  const itec = ite({ 1: [128, 2], 2: [102, 1], 4: [107, 1], 5: [102, 1] }, rpm);
+  // an alarm: every fan he holds at full (more.full) — the outputs' values too
+  const [p1, p2] = more.full ? [100, 100] : [42, 40];
+  const itec = ite(more.full ? { 1: [128, 2], 2: [255, 1], 4: [255, 1], 5: [255, 1] } : { 1: [128, 2], 2: [102, 1], 4: [107, 1], 5: [102, 1] }, rpm);
   const zonesNow = [
-    { id: 'disks', name: 'Plattenkäfig', unit: 'pct', level: 42, warmest: { id: 'parity', label: 'parity', c: 38, mapped: 38, kind: 'disk' }, asleep: 1,
-      fans: [{ id: P(4), name: 'Plattenkäfig', output: 4, pct: 42, rpm: rpm[4], held: true, foreign: false }] },
-    { id: 'case', name: 'Gehäuse', unit: 'pct', level: 40, warmest: { id: NVME, label: 'Composite', c: 27.9, mapped: 27.9, kind: 'nvme' }, asleep: 0,
-      fans: [{ id: P(5), name: 'Vorn', output: 5, pct: 40, rpm: rpm[5], held: true, foreign: false }, { id: P(2), name: 'Deckel', output: 2, pct: 40, rpm: null, held: true, foreign: false }] },
+    { id: 'disks', name: 'Plattenkäfig', unit: 'pct', level: p1, warmest: { id: 'parity', label: 'parity', c: 38, mapped: 38, kind: 'disk' }, asleep: 1,
+      fans: [{ id: P(4), name: 'Plattenkäfig', output: 4, pct: p1, rpm: rpm[4], held: true, foreign: false }] },
+    { id: 'case', name: 'Gehäuse', unit: 'pct', level: p2, warmest: { id: NVME, label: 'Composite', c: 27.9, mapped: 27.9, kind: 'nvme' }, asleep: 0,
+      fans: [{ id: P(5), name: 'Vorn', output: 5, pct: p2, rpm: rpm[5], held: true, foreign: false }, { id: P(2), name: 'Deckel', output: 2, pct: p2, rpm: null, held: true, foreign: false }] },
   ];
   return state({ ite: itec, fans: SET_UP, zones: ZONES, armed: true, who: more.who || { who: 'fanboy', why: 'steers', zones: 2 },
     control: { running: true, armed: true, who: 'fanboy', why: more.why || null, phase: 'run', zones: zonesNow, alarm: more.alarm || null, notes: more.notes || NOTES,
@@ -163,7 +165,7 @@ const fresh = () => state({ ite: ite({}, RPM) });
 const files = {};
 files.fanboy = steering();
 files['fanboy-steering'] = steering();
-files['fanboy-alarm'] = steering({ rpm: { 5: 0, 6: 0 }, who: { who: 'fanboy', why: 'alarm', zones: 2 }, why: 'alarm',
+files['fanboy-alarm'] = steering({ full: true, rpm: { 4: 1590, 5: 0, 6: 0 }, who: { who: 'fanboy', why: 'alarm', zones: 2 }, why: 'alarm',
   alarm: { code: 'stands', params: { fan: 'Vorn', zone: 'Gehäuse' }, since: T0 - 40 },
   notes: [...NOTES, { code: 'alarm_stands', params: { fan: 'Vorn' }, at: T0 - 40 }] });
 // the fan chip gone (its driver missing after an update): no outputs seen, the control waits for it

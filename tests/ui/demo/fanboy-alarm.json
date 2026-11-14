@@ -252,8 +252,8 @@
     },
     {
      "n": 2,
-     "value": 102,
-     "pct": 40,
+     "value": 255,
+     "pct": 100,
      "enable": 1,
      "mode": "manual",
      "auto": true
@@ -268,16 +268,16 @@
     },
     {
      "n": 4,
-     "value": 107,
-     "pct": 42,
+     "value": 255,
+     "pct": 100,
      "enable": 1,
      "mode": "manual",
      "auto": true
     },
     {
      "n": 5,
-     "value": 102,
-     "pct": 40,
+     "value": 255,
+     "pct": 100,
      "enable": 1,
      "mode": "manual",
      "auto": true
@@ -309,7 +309,7 @@
     },
     {
      "n": 4,
-     "rpm": 1018,
+     "rpm": 1590,
      "label": ""
     },
     {
@@ -478,8 +478,8 @@
   "fans": 7,
   "turning": 2,
   "zero": 4,
-  "rpm_min": 1018,
-  "rpm_max": 1310,
+  "rpm_min": 1310,
+  "rpm_max": 1590,
   "temps": 26
  },
  "hottest": {
@@ -505,7 +505,7 @@
     "id": "disks",
     "name": "Plattenkäfig",
     "unit": "pct",
-    "level": 42,
+    "level": 100,
     "warmest": {
      "id": "parity",
      "label": "parity",
@@ -519,8 +519,8 @@
       "id": "it8696_a0060607:it87.2608:pwm4",
       "name": "Plattenkäfig",
       "output": 4,
-      "pct": 42,
-      "rpm": 1018,
+      "pct": 100,
+      "rpm": 1590,
       "held": true,
       "foreign": false
      }
@@ -530,7 +530,7 @@
     "id": "case",
     "name": "Gehäuse",
     "unit": "pct",
-    "level": 40,
+    "level": 100,
     "warmest": {
      "id": "nvme@pci0000:00/0000:00:06.1/0000:03:00.0/nvme#1",
      "label": "Composite",
@@ -544,7 +544,7 @@
       "id": "it8696_a0060607:it87.2608:pwm5",
       "name": "Vorn",
       "output": 5,
-      "pct": 40,
+      "pct": 100,
       "rpm": 0,
       "held": true,
       "foreign": false
@@ -553,7 +553,7 @@
       "id": "it8696_a0060607:it87.2608:pwm2",
       "name": "Deckel",
       "output": 2,
-      "pct": 40,
+      "pct": 100,
       "rpm": null,
       "held": true,
       "foreign": false
