@@ -5271,7 +5271,15 @@ function spaceMore() {
     box.appendChild(el('div', 'cl-space-h2', T('where.space.appdata', { share: ad.share })));
     const known = ad.folders.filter((f) => f.bytes !== null);
     box.appendChild(kv(known.slice(0, 12).map((f) => [f.name, `${fmt.size(f.bytes)}${f.source === 'du' ? ' · ' + T('where.measured') : ''}${f.containers.length ? ' · ' + f.containers.join(', ') : ''}`])));
-    if (known.length < ad.total) box.appendChild(el('p', 'cl-space-note', T('where.space.appdata_rest', { n: ad.total - known.length })));
+    if (known.length < ad.total) {
+      // the rest has no size yet: «Folders» measures (a walk through the folder — only when asked), so the note leads there
+      const rest = el('p', 'cl-space-note', T('where.space.appdata_rest', { n: ad.total - known.length }) + ' ');
+      const go = el('button', 'btn plain small', T('where.space.appdata_rest_go'));
+      go.type = 'button';
+      go.onclick = () => Office.go(`#/${ID}/where/folders`);
+      rest.appendChild(go);
+      box.appendChild(rest);
+    }
   }
   return box;
 }
