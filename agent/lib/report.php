@@ -141,6 +141,7 @@ const REPORT_LOG_LABELS = [
     'cleanup'   => ['Dustdevil', 'cleanup: ', 'Measured '],
     'watchman'  => ['Night watchman: '],
     'advisor'   => ['Consultant: '],
+    'fanboy'    => ['Fanboy: '],
 ];
 // the agent's own lines that go with every desk's: its starts and stops, errors, PHP warnings
 const REPORT_LOG_OWN_LABELS = ['Agent started', 'Agent stopped', 'Error: ', 'PHP: '];

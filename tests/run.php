@@ -45738,8 +45738,10 @@ function testReport(): void
     same('report: Ms. Protocolli\'s comparing keeps its <path>', 'moved <path> to "<path>"', logsNormalizePaths('moved /mnt/user/Media/a.mkv to "/x/y z.mkv"'));
 
     // the label map: every desk, every logLine() of a desk starts with one of its labels
-    same('report: a label for every desk (and the office)', [], array_values(array_diff(array_merge(['office'], array_keys(desks())), array_keys(REPORT_LOG_LABELS))));
-    same('report: … and none for a desk that isn\'t', [], array_values(array_diff(array_keys(REPORT_LOG_LABELS), array_merge(['office'], array_keys(desks())))));
+    // a desk behind its switch (desk.json "switch", Fanboy) isn't among this run's desks — its label counts all the same
+    $switched = array_map(fn ($f) => basename(dirname($f)), array_filter(glob(OFFICE_WEB . '/desks/*/desk.json') ?: [], fn ($f) => is_string((readJson($f) ?? [])['switch'] ?? null)));
+    same('report: a label for every desk (and the office)', [], array_values(array_diff(array_merge(['office'], array_keys(desks()), $switched), array_keys(REPORT_LOG_LABELS))));
+    same('report: … and none for a desk that isn\'t', [], array_values(array_diff(array_keys(REPORT_LOG_LABELS), array_merge(['office'], array_keys(desks()), $switched))));
     $files = [];
     foreach (glob(OFFICE_DIR . '/agent/desks/*.php') ?: [] as $f) {
         $files[$f] = explode('-', basename($f, '.php'))[0];
@@ -63719,6 +63721,10 @@ function testsSwitchesOn(string $data): void
     }
 }
 
+// part 2 (steering): its tests and the fans that answer in files of their own
+require __DIR__ . '/fanboy-responder.php';
+require __DIR__ . '/fanboy-control-tests.php';
+
 function testFanboyHidden(): void
 {
     $tmp = hardeningTmp('fanboy-hidden');
@@ -63763,13 +63769,15 @@ function testFanboyHidden(): void
     same('fanboy hidden: without the file — no desk on the agent (no action, no fit, no check, no job, no tick), none on the web side (no tile, route, hiring, strings)',
         [false, [], false, false, false],
         [$off[0]['desk'] ?? $off[0], $off[0]['actions'] ?? null, $off[0]['fit'] ?? null, $off[0]['checks'] ?? null, $off[1]['desk'] ?? $off[1]]);
-    same('fanboy hidden: with the file — the desk on both sides (refresh, report; a fit for the Team Lead; no check, job or tick in part 1)',
-        [true, ['refresh', 'report'], true, false, [], false, true],
+    same('fanboy hidden: with the file — the desk on both sides (refresh, report and part 2\'s actions; a fit, checks, his two jobs, a tick)',
+        [true, ['refresh', 'report', 'look_now', 'drivers_load', 'drivers_undo', 'import', 'test_up', 'measure', 'step_alive', 'step_stop', 'answer', 'role',
+                'zones_propose', 'zones_save', 'dry_run', 'take_over', 'hand_back'], true, true, ['fanboy-control', 'fanboy-step'], true, true],
         [$on[0]['desk'] ?? $on[0], $on[0]['actions'] ?? null, $on[0]['fit'] ?? null, $on[0]['checks'] ?? null, $on[0]['jobs'] ?? null, $on[0]['tick'] ?? null, $on[1]['desk'] ?? $on[1]]);
     same('fanboy hidden: … and the other desks the same either way', $on[1]['others'] - 1, $off[1]['others'] ?? null);
     // the repository's own data folder (what every other test sees): no switch, so no Fanboy among the agent's desks
     check('fanboy hidden: in this run (no switch in the tests\' data folder) the agent has no desk fanboy', !isset(desks()['fanboy']));
-    // nothing else names him: no cron line, no job, no Dashboard, no core code
+    // nothing else names him: no job, no Dashboard, no core code — but agent.sh: its stop gives his fans back and its cron
+    // line looks every minute (agent/fanboy-guard.php), whether he is shown or not (a fan is never left where he left it)
     $elsewhere = [];
     foreach (array_merge(glob(OFFICE_DIR . '/plugin/*') ?: [], glob(OFFICE_DIR . '/plugin/scripts/*') ?: [], glob(OFFICE_DIR . '/plugin/event/*') ?: [],
                          glob(OFFICE_DIR . '/agent/lib/*.php') ?: [], [OFFICE_DIR . '/agent/agent.php', OFFICE_WEB . '/assets/core.js', OFFICE_DIR . '/src/dashboard.php']) as $f) {
@@ -63777,35 +63785,59 @@ function testFanboyHidden(): void
             $elsewhere[] = substr($f, strlen(OFFICE_DIR) + 1);
         }
     }
-    same('fanboy hidden: no core file, cron line, job or Dashboard names him', [], $elsewhere);
+    same('fanboy hidden: no core file, job or Dashboard names him — only agent.sh (the release at every stop, the guard\'s cron line) and his log label (lib/report.php)',
+        ['plugin/scripts/agent.sh', 'agent/lib/report.php'], $elsewhere);
 }
 
 function testFanboyNoWrite(): void
 {
-    // part 1 writes NOTHING to a fan: no write function near «pwm», the only write his state file, the only command ipmitool's read
-    $files = array_merge(glob(OFFICE_DIR . '/agent/desks/fanboy*.php') ?: [], glob(OFFICE_WEB . '/desks/fanboy/*.js') ?: []);
-    check('fanboy no write: his files there (' . count($files) . ')', count($files) >= 3);
+    // Part 2 loosened this on purpose: ONE file writes fan outputs — agent/desks/fanboy-write.php, and there only through
+    // fanboyWriteFile() (a pwmN or pwmN_enable directly in a hwmonN folder of the hwmon root, there already, really under
+    // /sys/devices — testFanboyWrite tries the refusals for real). Every other file of his: no line names pwm with a write,
+    // and only the write calls listed here (state and RAM files, his locks, the detached start of his processes, modprobe).
+    $files = array_merge(glob(OFFICE_DIR . '/agent/desks/fanboy*.php') ?: [], [OFFICE_DIR . '/agent/fanboy-guard.php'], glob(OFFICE_WEB . '/desks/fanboy/*.js') ?: []);
+    check('fanboy no write: his files there (' . count($files) . ')', count($files) >= 9);
+    $allowed = [
+        'fanboy.php'          => ['writeAtomic', 'run', 'proc_open'],
+        'fanboy-detect.php'   => [],
+        'fanboy-import.php'   => [],
+        'fanboy-control.php'  => ['writeAtomic', 'fopen', 'unlink'],
+        'fanboy-setup.php'    => ['writeAtomic', 'fopen', 'unlink'],
+        'fanboy-drivers.php'  => ['writeAtomic', 'run', 'unlink'],
+        'fanboy-write.php'    => ['writeAtomic', 'fopen', 'fwrite', 'unlink'],
+        'fanboy-guard.php'    => ['writeAtomic', 'fwrite'],
+    ];
     $bad = [];
-    $writes = '/\b(file_put_contents|fopen|fwrite|fputs|writeAtomic|writeNewFile|touch|rename|copy|unlink|symlink|chmod|exec|shell_exec|system|passthru|popen|proc_open|run|runAll|hostLaunch)\s*\(/';
+    $writes = '/\b(file_put_contents|fopen|fwrite|fputs|writeAtomic|writeNewFile|touch|rename|copy|unlink|symlink|chmod|exec|shell_exec|system|passthru|popen|proc_open|run|runAll|hostLaunch|fanboyWriteFile)\s*\(/';
     foreach ($files as $f) {
         $src = (string) file_get_contents($f);
-        foreach (explode("\n", $src) as $i => $line) {
-            $code = preg_replace('~^\s*(\*|//).*$~', '', $line);
-            if (stripos($code, 'pwm') !== false && preg_match($writes, $code)) {
-                $bad[] = basename($f) . ':' . ($i + 1);
+        $base = basename($f);
+        $code = (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', $src);
+        foreach (explode("\n", $code) as $i => $line) {
+            if ($base !== 'fanboy-write.php' && stripos($line, 'pwm') !== false && preg_match($writes, $line)) {
+                $bad[] = "$base: pwm and a write on one line";
             }
         }
-        preg_match_all($writes, (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', $src), $m);
-        foreach ($m[1] as $fn) {
-            if (!in_array($fn, ['writeAtomic', 'run'], true)) {
-                $bad[] = basename($f) . ": $fn()";
+        preg_match_all($writes, $code, $m);
+        foreach (array_unique($m[1]) as $fn) {
+            if (!in_array($fn, $allowed[$base] ?? [], true) && !($base === 'fanboy-write.php' && $fn === 'fanboyWriteFile')) {
+                $bad[] = "$base: $fn()";
             }
         }
     }
-    same('fanboy no write: no line names pwm together with a write, and no write call but his state file and ipmitool\'s read', [], $bad);
-    $all = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy.php') . (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-detect.php');
-    same('fanboy no write: the one writeAtomic is his state file, the one command ipmitool sdr type Fan', [1, 1, 1, 1],
-        [substr_count($all, 'writeAtomic('), substr_count($all, "writeAtomic(deskFile('fanboy')"), substr_count($all, 'run(['), substr_count($all, "run([\$bin, 'sdr', 'type', 'Fan']")]);
+    same('fanboy no write: no line names pwm together with a write outside the write helper, and each file only its own write calls', [], $bad);
+    $w = (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-write.php'));
+    $fn = substr($w, (int) strpos($w, 'function fanboyWriteFile('), 1400);
+    $fn = substr($fn, 0, (int) strpos($fn, "\n}\n"));
+    same('fanboy no write: the write helper has ONE fwrite, inside fanboyWriteFile(), which takes only pwmN/pwmN_enable under the hwmon root, never creates, never through a link',
+        [1, true, true, true, true, true],
+        [substr_count($w, 'fwrite('), str_contains($fn, 'fwrite('), str_contains($fn, "'/hwmon\\d{1,4}/pwm\\d{1,2}(_enable)?$#D'"), str_contains($fn, "fopen(\$real, 'r+')"),
+         str_contains($fn, 'is_link($file)'), str_contains($fn, "str_starts_with(\$real, \"\$devices/\")")]);
+    // the part-1 files: their writes are the state file and files in RAM; the one command ipmitool's read (modprobe lives in fanboy-drivers.php)
+    $p1 = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy.php') . (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-detect.php');
+    preg_match_all('/writeAtomic\(([^,]+),/', $p1, $wa);
+    same('fanboy no write: fanboy.php writes his state file and files in RAM only; its one command is ipmitool\'s read',
+        [[], 1], [array_values(array_filter($wa[1], fn ($t) => !str_contains($t, "deskFile('fanboy')") && !str_contains($t, 'fanboyRunDir()'))), substr_count($p1, 'run([')]);
     // and for real: a look over the whole fake tree changes no file in it
     $root = fanboyFakeTree(hardeningTmp('fanboy-nowrite'), fanboyFakeBoard());
     $before = fanboyTreeHash($root);
@@ -63815,7 +63847,8 @@ function testFanboyNoWrite(): void
     $scan = fanboyDetect($root);
     fanboyReportText($scan);
     fanboyResolve(['chip' => 'it8696_a0060607', 'address' => 'it87.2608', 'output' => 1, 'tach' => 1], $scan, "$root/sys/class/hwmon");
-    same('fanboy no write: four looks, a report and a resolve leave every file of the tree as it was', $before, fanboyTreeHash($root));
+    fanboyImport($scan, "$root/boot/config/plugins");
+    same('fanboy no write: four looks, a report, a resolve and an import leave every file of the tree as it was', $before, fanboyTreeHash($root));
 }
 
 function testFanboyDetect(): void
@@ -64093,7 +64126,8 @@ function testFanboyHints(): void
     // the catalogue: names and authors exactly as Community Applications lists them (checked against its feed 2026-11-14)
     same('fanboy hints: the plugins he knows — the names and authors of Community Applications',
         ['it87-driver' => ['ITE IT87 Driver', 'ich777'], 'nct6687-driver' => ['Nuvoton NCT6687 Driver', 'ich777'], 'dynamix.system.temp' => ['Dynamix System Temp', 'Bergware'],
-         'fanctrlplus' => ['FanCtrl Plus', 'ck9393'], 'fanctrlplus2' => ['FanCtrl Plus 2', 'ck9393 / andrebrait'], 'dynamix.system.autofan' => ['Dynamix System Autofan', 'Bergware/gfjardim']],
+         'fanctrlplus' => ['FanCtrl Plus', 'ck9393'], 'fanctrlplus2' => ['FanCtrl Plus 2', 'ck9393 / andrebrait'], 'dynamix.system.autofan' => ['Dynamix System Autofan', 'Bergware/gfjardim'],
+         'pwm-fan' => ['PWM Fan', 'alturismo'], 'md12xx.fancontrol' => ['WAZ Cooling Control', 'TheIlluminate92']],
         array_map(fn ($p) => [$p['name'], $p['author']], FANBOY_PLUGINS));
 
     // what is there: on the fake board the ITE driver (installed, loaded) and System Temp; nothing else
@@ -64101,7 +64135,7 @@ function testFanboyHints(): void
     $s = $look($board);
     same('fanboy hints: what is there — ITE driver installed and loaded, System Temp installed, the rest not; [installed, loaded, active]',
         ['it87-driver' => [true, true, null], 'nct6687-driver' => [false, false, null], 'dynamix.system.temp' => [true, null, null], 'fanctrlplus' => [false, null, false],
-         'fanctrlplus2' => [false, null, false], 'dynamix.system.autofan' => [false, null, false]], $by($s));
+         'fanctrlplus2' => [false, null, false], 'dynamix.system.autofan' => [false, null, false], 'pwm-fan' => [false, null, false], 'md12xx.fancontrol' => [false, null, false]], $by($s));
     same('fanboy hints: ok — nothing suggested, the fold closed, the start option not set', [[], false, false], [$s['suggest'], $s['hints_open'], $s['acpi_lax']]);
     // the owner's kind of server: both plugins there and FanCtrl Plus steering
     $owner = $board;
@@ -64202,7 +64236,9 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
-          'fanboy' => ['testFanboyHidden', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage']];
+          'fanboy' => ['testFanboyHidden', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
+                       'testFanboyWrite', 'testFanboyControl', 'testFanboyAlarms', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',
+                       'testFanboyProcesses', 'testFanboyDrivers', 'testFanboyImport', 'testFanboyStopScripts', 'testFanboyState']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
 $only = array_values(array_unique(array_slice($argv, 1)));

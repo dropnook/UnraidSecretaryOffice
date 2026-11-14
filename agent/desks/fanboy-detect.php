@@ -43,6 +43,17 @@ const FANBOY_PLUGINS = [
                                  'controller' => ['fanctrlplus2', '*.cfg', '/fanctrlplus2/']],
     'dynamix.system.autofan' => ['name' => 'Dynamix System Autofan', 'author' => 'Bergware/gfjardim', 'kind' => 'controller',
                                  'controller' => ['dynamix.system.autofan', 'fan.cfg', '/dynamix\.system\.autofan|\bautofan\b/']],
+    // part 2 (2026-11-14, read in their sources on GitHub): PWM Fan steers from root's crontab (its scripts pwm-fan.sh,
+    // pwm_hdd.sh, pwm_hdd_extra.sh — «running» = such a line in the crontab, or one of them running now; its settings
+    // say «started» for each it scheduled); WAZ Cooling Control (md12xx.fancontrol) steers Dell MD1200/MD1220 shelves
+    // (SES) and Dell PowerEdge chassis fans through IPMI — not a board's hwmon outputs, counted all the same while its
+    // supervisors run (only one steers; the honest «installed» vs «running» either way)
+    'pwm-fan'                => ['name' => 'PWM Fan', 'author' => 'alturismo', 'kind' => 'controller',
+                                 'controller' => ['pwm-fan', 'pwmfansettings', '#pwm-fan/scripts/(pwm-fan|pwm_hdd|pwm_hdd_extra)\.sh#'],
+                                 'on' => [['cron_state', 'started'], ['hdd_cron_state', 'started'], ['hdd_extra_cron_state', 'started']],
+                                 'cron' => '#pwm-fan/scripts/(pwm-fan|pwm_hdd|pwm_hdd_extra)\.sh#'],
+    'md12xx.fancontrol'      => ['name' => 'WAZ Cooling Control', 'author' => 'TheIlluminate92', 'kind' => 'controller',
+                                 'controller' => ['md12xx.fancontrol', '', '#md12xx\.fancontrol/(scripts/(controller|ipmi)-supervisor\.sh|include/(ipmi-)?controller\.php)#']],
 ];
 // a hint by the board's maker, never a verdict: whose chip such boards mostly carry
 const FANBOY_BOARD_HINTS = ['/gigabyte/i' => ['ite', 'Gigabyte'], '/micro-star|\bmsi\b/i' => ['nuvoton', 'MSI']];
@@ -66,6 +77,7 @@ const FANBOY_TEMP_KINDS = [
  */
 function fanboyPaths(?string $root = null): array
 {
+    $root ??= (function_exists('fanboySysRoot') && fanboySysRoot() !== '' ? fanboySysRoot() : null);     // the tests' tree, for a process of theirs
     $r = $root === null ? '' : rtrim($root, '/');
     return [
         'hwmon'    => $r . FANBOY_HWMON,
@@ -80,6 +92,7 @@ function fanboyPaths(?string $root = null): array
         'cmdline'  => "$r/proc/cmdline",
         'unraid'   => "$r/etc/unraid-version",
         'ipmitool' => $root === null ? '' : "$r/usr/bin/ipmitool",     // '' = found in the PATH (fanboyIpmiFans())
+        'crontab'  => "$r/var/spool/cron/crontabs/root",               // root's crontab (PWM Fan steers from there): read only
     ];
 }
 
@@ -263,18 +276,35 @@ function fanboyControllers(array $p): array
         }
         [$folder, $files, $marker] = $plugin['controller'];
         $settings = false;
-        foreach (glob($p['plugins'] . "/$folder/$files") ?: [] as $f) {
-            if (!is_link($f) && is_file($f) && (readCfg($f)['service'] ?? '') === '1') {
-                $settings = true;
+        foreach ($files === '' ? [] : (glob($p['plugins'] . "/$folder/$files") ?: []) as $f) {
+            $cfg = !is_link($f) && is_file($f) ? readCfg($f) : [];
+            foreach ($plugin['on'] ?? [['service', '1']] as [$k, $v]) {
+                $settings = $settings || ($cfg[$k] ?? '') === $v;
+            }
+            if ($settings) {
                 break;
             }
         }
-        $running = (bool) array_filter($cmdlines, fn ($c) => preg_match($marker, $c) === 1);
+        $running = (bool) array_filter($cmdlines, fn ($c) => preg_match($marker, $c) === 1)
+            || (isset($plugin['cron']) && fanboyCronNames($p['crontab'], $plugin['cron']));
         if ($settings || $running) {
             $out[] = ['id' => $id, 'name' => $plugin['name'], 'settings' => $settings, 'running' => $running];
         }
     }
     return $out;
+}
+
+/** Does a line of root's crontab (not a comment) name what $re matches? Read only, at most 64 KiB */
+function fanboyCronNames(string $crontab, string $re): bool
+{
+    $text = is_link($crontab) ? false : @file_get_contents($crontab, false, null, 0, 65536);
+    foreach (is_string($text) ? explode("\n", $text) : [] as $line) {
+        $line = trim($line);
+        if ($line !== '' && $line[0] !== '#' && preg_match($re, $line) === 1) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /** Every process's command line (spaces for its NULs), the agent's own left out */

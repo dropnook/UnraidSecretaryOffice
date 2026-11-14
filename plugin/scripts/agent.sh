@@ -55,6 +55,10 @@ WATCH_LINE="*/5 * * * * bash $DIR/scripts/job.sh watch > /dev/null 2>&1"
 WATCH_DOWN=$RUN/watch-down        # since when the agent hasn't checked in (array started)
 WATCH_TOLD=$RUN/watch-told        # this outage was reported
 WATCH_AFTER=600                   # seconds without a sign of life before Unraid hears of it
+# Fanboy's guard (agent/fanboy-guard.php): every minute, only when his journal in RAM names a holder of a fan output -
+# a holder gone (killed hard) or hung: its outputs back to the state they had before him, also when the agent is gone
+FANBOY_JOURNAL=$RUN/fanboy/journal.json
+FANBOY_LINE="* * * * * grep -qs '\"owner\":{' $FANBOY_JOURNAL && php $DIR/agent/fanboy-guard.php watch > /dev/null 2>&1"
 # the mark of the office's jobs in atd's queue - the same line as HOST_LAUNCH_MARK in agent/lib/house.php
 # (hostLaunch()): the night watchman knows them by it
 HOST_LAUNCH_MARK='# written by the Unraid Secretary Office agent'
@@ -185,6 +189,17 @@ agent_start() {
 stop() {
     night_stop
     agent_stop
+    fanboy_release
+}
+
+# Fanboy's fans back to the state they had before him, read back (agent/fanboy-guard.php release): after the agent is
+# gone (it starts no control any more), whatever holds an output asked to end, then every output still held given back.
+# Every stop goes through here - stop, restart, the plugin's update (stop) and removal (release), the array stopping
+# (release). Nothing held: one look at a file in RAM.
+fanboy_release() {
+    [[ -f "$DIR/agent/fanboy-guard.php" && -s "$FANBOY_JOURNAL" ]] || return 0
+    timeout -k 1 15 php "$DIR/agent/fanboy-guard.php" release </dev/null >>"$LOG" 2>&1
+    return 0
 }
 
 # The night watchman's round (php agent.php job watchman-round, in the agent's session) tells Unraid's notifications
@@ -237,7 +252,7 @@ usonet_check() {
 # crontab right away: Unraid builds it from the installed plugins' cron files only on update_cron.
 watch_cron() {
     local want
-    want="# Unraid Secretary Office - is the agent at work? (written by scripts/agent.sh)"$'\n'"$WATCH_LINE"
+    want="# Unraid Secretary Office - is the agent at work? (written by scripts/agent.sh)"$'\n'"$WATCH_LINE"$'\n'"$FANBOY_LINE"
     if [[ -d "$FLASH" && "$(cat "$WATCH_CRON" 2>/dev/null)" != "$want" ]]; then
         printf '%s\n' "$want" >"$WATCH_CRON.tmp" && mv -f "$WATCH_CRON.tmp" "$WATCH_CRON"
     fi

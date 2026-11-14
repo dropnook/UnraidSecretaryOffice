@@ -5,8 +5,20 @@ declare(strict_types=1);
  * Fanboy — the office's building services, the biggest fan of his fans (docs/DEVELOPMENT.md «The desks»).
  *
  * Part 1, the foundation: he looks (agent/desks/fanboy-detect.php), says the situation, keeps a store of settings that
- * never depends on a boot number, and writes a report for the makers' wish form. He writes NOTHING to a fan — no pwm
- * file, anywhere (testFanboyNoWrite greps this desk's files). Setup and the control service come in part 2.
+ * never depends on a boot number, and writes a report for the makers' wish form.
+ * Part 2, steering (each in its own file): fanboy-write.php — the ONE place that writes a fan output, its journal of
+ * every output's state before him; fanboy-setup.php — the setup's steps as actions; fanboy-control.php — the control
+ * service (one process for all zones); fanboy-drivers.php — «load drivers» on the user's click; fanboy-import.php —
+ * FanCtrl Plus's files read into a proposed zone; agent/fanboy-guard.php — what gives the fans back when nobody else
+ * can (scripts/agent.sh stop|release, a cron line every minute). testFanboyNoWrite holds who may write what.
+ *
+ * Who gives the fans back (the safety design, docs: fanboy-control-notes in the hand-over):
+ *   · the control or a setup step itself — every way it ends (TERM, done, stop, the page gone, a hold), read back
+ *   · the agent's tick every 5 s — a holder gone (killed hard) or hung (no beat for 30 s, ended for good first)
+ *   · the guard's cron line every minute — the same, for when the agent is gone too
+ *   · scripts/agent.sh stop (stop, restart, update) and release (removal, the array stopping) — every output, read back
+ *   An agent restarting itself in place touches none of it: the control runs in a session of its own, the agent finds
+ *   it again by its pid file (no flap).
  *
  * HIDDEN until the owner lets him out: desk.json "switch": "show.json" — the desk exists only where
  * <data folder>/fanboy/show.json lies (a plain file, any content, never a link). Without it: no desk() here (no action,
@@ -59,18 +71,54 @@ function fanboyShown(?string $dataDir = null, ?string $web = null): bool
 if (fanboyShown()) {
     desk('fanboy', [
         'fit'     => fn (): array => fanboyFit(fanboyDetect()),
+        'start'   => fn () => fanboyStart(),
+        'tick'    => fn () => fanboyTick(),
+        'checks'  => fn (): array => fanboyChecks(fanboyBoardRaw(), readJson(fanboyStatusFile())),
+        'metrics' => fn (): array => fanboyMetrics(readJson(fanboyStatusFile()), fanboyControlPid() !== null),
+        'jobs'    => [
+            'fanboy-control' => fn (array $a): int => fanboyControlMain(),
+            'fanboy-step'    => fn (array $a): int => fanboyStepMain(),
+        ],
         'actions' => [
             'refresh' => fn (array $r) => ['ok' => true, 'state' => fanboyScan()],
             // the text for the wish form: shown to the user in the form before anything goes (read only, like refresh)
             'report'  => fn (array $r) => ['ok' => true, 'report' => fanboyReportText($scan = fanboyDetect(), fanboyIpmiFans($scan))],
+            // part 2: steering
+            'look_now'      => fn (array $r) => fanboyLookNow(),
+            'drivers_load'  => fn (array $r) => fanboyDriversLoad() + ['state' => fanboyScan()],
+            'drivers_undo'  => fn (array $r) => fanboyDriversUndo() + ['state' => fanboyScan()],
+            'import'        => fn (array $r) => ['ok' => true, 'import' => fanboyImport(fanboyDetect())],
+            'test_up'       => fn (array $r) => fanboyStepStart('test_up', idList($r, 'fans')),
+            'measure'       => fn (array $r) => fanboyStepStart('measure', idList($r, 'fans')),
+            'step_alive'    => function (array $r): array { fanboyStepAliveTouch(); return ['ok' => true, 'step' => fanboyStepRead()]; },
+            'step_stop'     => fn (array $r) => fanboyStepStopAction(),
+            'answer'        => fn (array $r) => fanboyAnswer($r),
+            'role'          => fn (array $r) => fanboyRole($r),
+            'zones_propose' => fn (array $r) => ['ok' => true, 'zones' => fanboyZonesPropose($scan = fanboyDetect(), fanboyBoardRaw($scan['board']) ?? [])],
+            'zones_save'    => fn (array $r) => fanboyZonesSave($r),
+            'dry_run'       => fn (array $r) => fanboyDryRun(),
+            'take_over'     => fn (array $r) => fanboyTakeOver() + ['state' => fanboyScan()],
+            'hand_back'     => fn (array $r) => fanboyHandBack() + ['state' => fanboyScan()],
         ],
     ]);
 }
 
-/** A new look, kept as his state (data/fanboy.json) */
+/**
+ * A new look, kept as his state (data/fanboy.json): part 1's look, and on top who steers now and why (the control's
+ * status in RAM), his setup on this board, a step running, the drivers he loaded, FanCtrl Plus's files as a proposal
+ */
 function fanboyScan(): array
 {
     $state = fanboyDetect();
+    $settings = fanboyBoardRaw($state['board']);
+    $control = fanboyControlState($settings);
+    $state['control'] = $control;
+    $state['who'] = fanboyWhoNow($state, $control, $settings);
+    $state['setup'] = fanboySetupState($state, $settings);
+    $state['step'] = fanboyStepRead();
+    $state['drivers'] = fanboyDriversState($state['board']);
+    $import = fanboyImport($state);
+    $state['import'] = $import['files'] ? $import : null;
     writeAtomic(deskFile('fanboy'), jsonEncode($state));
     return $state;
 }
@@ -261,4 +309,293 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
     }
     $text = implode("\n", $lines);
     return strlen($text) > FANBOY_REPORT_MAX ? mb_strcut($text, 0, FANBOY_REPORT_MAX, 'UTF-8') : $text;
+}
+
+// ===================================================================== part 2: the service around the control
+
+const FANBOY_TICK_EVERY = 5.0;          // the agent's look at the holders and the control, seconds
+const FANBOY_CRASH_PAUSE = 30.0;        // a control that died: started again after this long …
+const FANBOY_CRASH_WINDOW = 1800.0;     // … unless it died FANBOY_CRASH_MAX times within this: then the BIOS keeps them
+const FANBOY_CRASH_MAX = 3;
+
+/** At the agent's start: the drivers that helped on this board loaded again (before the control steers), holders gone given back */
+function fanboyStart(): void
+{
+    fanboyDriversBoot();
+    fanboyWatch();
+}
+
+/**
+ * The agent's tick (every FANBOY_TICK_EVERY s on the monotonic clock, a few file reads): outputs whose holder is gone
+ * given back; the control started when it should run and doesn't (after a death: a pause; too many deaths: not again)
+ */
+function fanboyTick(?float $now = null): void
+{
+    static $next = 0.0;
+    $now ??= fanboyMono();
+    if ($now < $next) {
+        return;
+    }
+    $next = $now + FANBOY_TICK_EVERY;
+    fanboyWatch();
+    fanboyEnsureControl($now);
+}
+
+/** Holders gone (killed hard) or hung: their outputs back with the BIOS, said in the log */
+function fanboyWatch(): array
+{
+    if (!is_file(fanboyRunDir() . '/journal.json') || !fanboyHeld()) {
+        return [];
+    }
+    $back = fanboyGiveBack(null, 'holder_gone', null, true);
+    if ($back) {
+        $bad = array_keys(array_filter($back, fn ($x) => !$x['ok'] && $x['why'] !== 'gone'));
+        $who = array_values(array_unique(array_map(fn ($x) => ($x['owner']['kind'] ?? '?') . ' PID ' . ($x['owner']['pid'] ?? '?') . ' ' . ($x['holder'] ?? ''), $back)));
+        logLine('Fanboy: a holder was gone (' . implode(', ', $who) . ') — ' . count($back) . ' outputs back with the BIOS' . ($bad ? ', NOT read back as before: ' . implode(', ', $bad) : ''));
+    }
+    return $back;
+}
+
+/** This board's settings, read again only when the store changed */
+function fanboySettingsCached(): ?array
+{
+    static $stamp = null, $settings = null;
+    clearstatcache(true, fanboyStoreFile());
+    $m = @filemtime(fanboyStoreFile());
+    if ($m !== $stamp) {
+        $stamp = $m;
+        $settings = fanboyBoardRaw();
+    }
+    return $settings;
+}
+
+/** Should the control run and doesn't? Then it starts — after a death only after a pause, and not after too many */
+function fanboyEnsureControl(float $now): void
+{
+    $settings = fanboySettingsCached();
+    if ($settings === null || ($settings['armed'] ?? false) !== true || !fanboyControlNew($settings, '', ['pid' => 0])['zones']
+        || !arrayRunning(fanboyVarIni()) || !in_array('fanboy', staffHired(), true) || fanboyStepRunning() || fanboyControlPid() !== null) {
+        return;
+    }
+    $status = readJson(fanboyStatusFile());
+    $crashes = &$GLOBALS['fanboyCrashes'];
+    $crashes ??= [];
+    if (is_array($status) && ($status['phase'] ?? '') !== 'ended' && is_int($status['pid'] ?? null) && ($GLOBALS['fanboySeenDead'] ?? null) !== $status['pid']) {
+        // it died without ending (killed hard, a PHP error): its outputs were given back above; said once per run of deaths
+        $GLOBALS['fanboySeenDead'] = $status['pid'];
+        $crashes[] = $now;
+        logLine("Fanboy: the control (PID {$status['pid']}) ended without giving back — the BIOS steers; started again in " . (int) FANBOY_CRASH_PAUSE . ' s');
+        $status['who'] = 'bios';
+        $status['why'] = 'crashed';
+        $status['phase'] = 'ended';
+        fanboyStatusWrite($status);
+        fanboyTellOnce('crashed', 'crashed', [], 'warning');
+    }
+    $crashes = array_values(array_filter($crashes, fn ($t) => $now - $t < FANBOY_CRASH_WINDOW));
+    if (count($crashes) >= FANBOY_CRASH_MAX || ($crashes && $now - end($crashes) < FANBOY_CRASH_PAUSE)
+        || $now - ($GLOBALS['fanboyLaunched'] ?? -INF) < FANBOY_CRASH_PAUSE) {
+        return;
+    }
+    $GLOBALS['fanboyLaunched'] = $now;
+    fanboyLaunch('fanboy-control');
+}
+
+/** One notification from the agent's side, once until fanboyUntellOnce() — the marks in RAM (a restart in place keeps them) */
+function fanboyTellOnce(string $once, string $key, array $params, string $level): void
+{
+    $told = readJson(fanboyRunDir() . '/told.json') ?? [];
+    if (isset($told[$once])) {
+        return;
+    }
+    $told[$once] = time();
+    @mkdir(fanboyRunDir(), 0700, true);
+    writeAtomic(fanboyRunDir() . '/told.json', jsonEncode($told), 0600, 0, 0);
+    $lang = officeNotifyLang();
+    officeNotify(officeNotifyText('fanboy', "notify.{$key}_subject", $params, $lang), officeNotifyText('fanboy', "notify.$key", $params, $lang),
+        $level, '', officeNotifyLink('#/fanboy'), 'fanboy', $key);
+}
+
+/**
+ * A job of his in a process of its own: its own session (setsid -f — an agent restarting itself in place, or stopping,
+ * never takes it along; agent.sh's stop asks it to end through the guard), nothing open to the agent
+ */
+function fanboyLaunch(string $job): void
+{
+    if (isset($GLOBALS['fanboyLauncher'])) {
+        ($GLOBALS['fanboyLauncher'])($job);         // the tests' own
+        return;
+    }
+    $p = @proc_open(['setsid', '-f', PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', $job],
+        [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/');
+    if (is_resource($p)) {
+        proc_close($p);
+    }
+}
+
+/** The control's pid when it runs (its pid file: pid and the process's start time — never another process later), else null */
+function fanboyControlPid(): ?int
+{
+    $raw = trim((string) @file_get_contents(fanboyRunDir() . '/control.pid', false, null, 0, 64));
+    if (!preg_match('/^(\d{1,9}) (\d{1,20})$/D', $raw, $m)) {
+        return null;
+    }
+    $pid = (int) $m[1];
+    return $pid > 1 && fanboyProcStart($pid) === $m[2] ? $pid : null;
+}
+
+/** The control asked to end (TERM; it gives back itself), at most 5 s — then whatever it still holds given back here */
+function fanboyControlStop(string $why): array
+{
+    $raw = trim((string) @file_get_contents(fanboyRunDir() . '/control.pid', false, null, 0, 64));
+    $pid = fanboyControlPid();
+    $t0 = time();
+    if ($pid !== null) {
+        @posix_kill($pid, SIGTERM);
+        $until = fanboyMono() + 5;
+        while (fanboyControlPid() !== null && fanboyMono() < $until) {
+            usleep(100000);
+        }
+    }
+    $given = [];
+    if (preg_match('/^(\d{1,9}) (\d{1,20})$/D', $raw, $m)) {
+        $given = fanboyGiveBack(null, $why, ['pid' => (int) $m[1], 'start' => $m[2]]);
+    }
+    foreach (fanboyJournal()['outputs'] as $id => $o) {
+        if (is_array($o['given']) && ($o['given']['at'] ?? 0) >= $t0 && !isset($given[$id])) {
+            $given[$id] = ['ok' => (bool) ($o['given']['ok'] ?? false)];
+        }
+    }
+    return $given;
+}
+
+/** «Look now»: the control looks for the chip at once (when it waits for it), and a new look for the page */
+function fanboyLookNow(): array
+{
+    @mkdir(fanboyRunDir(), 0700, true);
+    writeAtomic(fanboyRunDir() . '/look-now', (string) time(), 0600, 0, 0);
+    $GLOBALS['fanboyLaunched'] = -INF;          // and the control started at the next tick when it should run
+    return ['ok' => true, 'state' => fanboyScan()];
+}
+
+/** The control's status for the page: as it wrote it, «running» from its pid; one that died without ending: crashed */
+function fanboyControlState(?array $settings): array
+{
+    $s = readJson(fanboyStatusFile());
+    $running = fanboyControlPid() !== null;
+    $out = ['running' => $running, 'armed' => ($settings['armed'] ?? false) === true, 'who' => 'bios', 'why' => null, 'zones' => [], 'alarm' => null,
+            'missing' => null, 'notes' => [], 'watch' => [], 'time' => null];
+    if (is_array($s)) {
+        $out = array_merge($out, array_intersect_key($s, array_flip(['who', 'why', 'zones', 'alarm', 'missing', 'notes', 'watch', 'time', 'phase'])));
+        if (!$running) {
+            $out['who'] = 'bios';
+            if (($s['phase'] ?? '') !== 'ended') {
+                $out['why'] = 'crashed';
+            }
+            $out['alarm'] = null;
+        }
+    }
+    $out['guard'] = readJson(fanboyRunDir() . '/guard.json');
+    return $out;
+}
+
+/** Who steers now and why — Fanboy (his zones), or the BIOS / another plugin / the board with the reason */
+function fanboyWhoNow(array $scan, array $control, ?array $settings): array
+{
+    if ($control['running'] && $control['who'] === 'fanboy') {
+        return ['who' => 'fanboy', 'why' => $control['alarm'] !== null ? 'alarm' : 'steers', 'zones' => count($control['zones'])];
+    }
+    $who = $scan['who'];
+    if ($who['who'] !== 'bios') {
+        return $who;                   // another plugin, the board's BMC: as part 1 says
+    }
+    if ($settings !== null && ($settings['armed'] ?? false) === true) {
+        return ['who' => 'bios', 'why' => is_string($control['why']) && $control['why'] !== '' ? $control['why'] : 'starting'];
+    }
+    if ($settings !== null && fanboyControlNew($settings, '', ['pid' => 0])['zones']) {
+        return ['who' => 'bios', 'why' => 'not_armed'];
+    }
+    return $who;
+}
+
+/**
+ * His setup on this board for the page (and the wizard): each fan he knows (found, role, measured …), the zones, armed,
+ * the outputs there now, stored fans not found now (nothing is ever discarded), how many other boards are kept
+ */
+function fanboySetupState(array $scan, ?array $settings): array
+{
+    $fans = [];
+    $missing = [];
+    foreach (is_array($settings['fans'] ?? null) ? $settings['fans'] : [] as $id => $f) {
+        $stored = fanboyStoredFan($f);
+        if (!is_string($id) || $stored === null) {
+            continue;
+        }
+        $m = is_array($f['measured'] ?? null) ? $f['measured'] : null;
+        $fans[] = ['id' => $id, 'chip' => $stored['chip'], 'output' => $stored['output'], 'tachs' => array_values(array_filter(is_array($f['tachs'] ?? null) ? $f['tachs'] : [], 'is_int')),
+            'found' => is_string($f['found'] ?? null) ? $f['found'] : null, 'role' => is_string($f['role'] ?? null) ? $f['role'] : null,
+            'name' => is_string($f['name'] ?? null) ? $f['name'] : '', 'place' => is_string($f['place'] ?? null) ? $f['place'] : null,
+            'off_ok' => ($f['off_ok'] ?? false) === true, 'measured' => $m !== null, 'min_pct' => $m['min_pct'] ?? null, 'start_pct' => $m['start_pct'] ?? null,
+            'max_rpm' => $m['max_rpm'] ?? null, 'table' => $m['table'] ?? null, 'no_turn' => ($f['no_turn'] ?? false) === true];
+        $r = fanboyResolve($stored, $scan);
+        if ($r['path'] === null) {
+            $missing[] = ['id' => $id, 'how' => $r['how']];
+        }
+    }
+    $store = fanboyStoreRead();
+    $key = fanboyBoardKey($scan['board']);
+    return [
+        'board' => $key, 'others' => count(array_diff(array_keys($store['boards']), [$key])),
+        'fans' => $fans, 'zones' => is_array($settings['zones'] ?? null) ? $settings['zones'] : [], 'armed' => ($settings['armed'] ?? false) === true,
+        'outputs' => array_keys(fanboyOutputs($scan)), 'missing' => $missing, 'sources' => fanboySources($scan),
+    ];
+}
+
+/**
+ * For the Team Lead, only once he was given fans and took them over: does he steer them (not: driver missing, another
+ * plugin, given back), and no alarm (a fan standing, too warm, a sensor silent). From the status in RAM — cheap.
+ */
+function fanboyChecks(?array $settings, ?array $status): array
+{
+    if ($settings === null || ($settings['armed'] ?? false) !== true) {
+        return [];
+    }
+    $running = fanboyControlPid() !== null;
+    $steers = $running && ($status['who'] ?? '') === 'fanboy';
+    $starting = $running && in_array($status['why'] ?? '', ['starting'], true);
+    $alarm = $running && is_array($status['alarm'] ?? null);
+    return [
+        finding('fanboy_steers', 'recommended', $steers ? true : ($starting ? null : false), [], '#/fanboy'),
+        finding('fanboy_alarm', 'recommended', $running ? !$alarm : null, [], '#/fanboy'),
+    ];
+}
+
+/** His numbers for Prometheus, from the status in RAM: steering, alarm, each zone's level and warmest, each fan's rpm */
+function fanboyMetrics(?array $s, bool $running): array
+{
+    if (!is_array($s)) {
+        return [];
+    }
+    $steering = $running && ($s['who'] ?? '') === 'fanboy';
+    $zones = array_values(array_filter(is_array($s['zones'] ?? null) ? $s['zones'] : [], fn ($z) => is_array($z) && is_string($z['id'] ?? null)));
+    $level = $temp = $rpm = [];
+    foreach ($zones as $z) {
+        if ($steering && is_numeric($z['level'] ?? null) && ($z['unit'] ?? 'pct') === 'pct') {
+            $level[] = [['zone' => $z['id']], (float) $z['level']];
+        }
+        if (is_numeric($z['warmest']['c'] ?? null)) {
+            $temp[] = [['zone' => $z['id']], (float) $z['warmest']['c']];
+        }
+        foreach (is_array($z['fans'] ?? null) ? $z['fans'] : [] as $f) {
+            if (is_int($f['rpm'] ?? null) && is_int($f['output'] ?? null)) {
+                $rpm[] = [['zone' => $z['id'], 'output' => 'pwm' . $f['output']], $f['rpm']];
+            }
+        }
+    }
+    return array_values(array_filter([
+        metricsGauge('uso_fanboy_steering', 'Fanboy steers the fans he was given (1), or the BIOS does (0)', $steering ? 1 : 0),
+        metricsGauge('uso_fanboy_alarm', 'An alarm at Fanboy\'s fans: a fan stands, too warm at full speed, a sensor silent, the chip gone (1)', $running && is_array($s['alarm'] ?? null) ? 1 : 0),
+        $level ? metricsGauge('uso_fanboy_zone_level_percent', 'Each zone\'s level, percent (zones steered by percent)', $level) : null,
+        $temp ? metricsGauge('uso_fanboy_zone_temperature_celsius', 'Each zone\'s warmest heat source, °C', $temp) : null,
+        $rpm ? metricsGauge('uso_fanboy_fan_rpm', 'Each fan Fanboy steers, rpm', $rpm) : null,
+    ]));
 }
