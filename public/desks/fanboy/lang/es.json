@@ -379,10 +379,6 @@
   "step.n": "{n} · {name}",
   "step.here": "el siguiente paso",
   "step.next": "Siguiente: {name}",
-  "step.back_open": {
-    "one": "{n} «devolver» por elegir",
-    "other": "{n} «devolver» por elegir"
-  },
   "step.v.outputs": {
     "one": "{n} salida",
     "other": "{n} salidas"
@@ -505,11 +501,6 @@
   "back.auto": "el automático de la placa base (su curva)",
   "back.fixed": "este valor fijo ({pct} %)",
   "back.no_auto": "Este chip no tiene automático para la salida",
-  "back.open": "Aún sin elegir — «Darle el control» espera tu respuesta.",
-  "back.open_note": {
-    "one": "Para {n} ventilador aún no se ha elegido «devolver» — en «Papeles».",
-    "other": "Para {n} ventiladores aún no se ha elegido «devolver» — en «Papeles»."
-  },
   "measure.none": "Ningún ventilador suyo con lectura de velocidad — nada que medir. Los ventiladores sin lectura reciben una velocidad mínima segura.",
   "measure.one": "Medir",
   "measure.again": "Medir de nuevo",
@@ -626,10 +617,6 @@
   "help.safe_text": "Hasta «Darle el control» nada cambia para siempre: probar y medir devuelven cada salida exactamente como estaba — también cuando la página se cierra (a los 45 segundos) o la secretaría se detiene.",
   "help.later": "Cambiar algo más tarde",
   "help.later_text": "Una curva, una zona, el modelo de un ventilador: abre su paso solo y cámbialo — lo demás se queda. Probar y medir de nuevo requieren antes devolver los ventiladores.",
-  "errors.fanboy_back_open": {
-    "one": "Elige primero «devolver» para {n} ventilador (en «Papeles»).",
-    "other": "Elige primero «devolver» para {n} ventiladores (en «Papeles»)."
-  },
   "errors.fanboy_bad_back": "Fanboy no conoce esa elección.",
   "errors.fanboy_no_auto": "Este chip no tiene automático para esa salida.",
   "errors.fanboy_bad_look": "Eso no corresponde a ningún ventilador ({field}).",

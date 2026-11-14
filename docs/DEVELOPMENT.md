@@ -992,12 +992,12 @@ the last 60 history lines only for a source the file has none for. **The file
   number), its holder (the control or a setup step: pid + process start time + a beat on the monotonic clock) and what was
   written last; `fanboyGiveBack()` puts exactly the state before back and reads it back. **Who gives back:** the holder itself
   (every way it ends); the agent's tick every 5 s and the guard's cron line every minute (`agent/fanboy-guard.php watch`,
-  in `agent-watch.cron`, only when the journal names a holder — it needs only util.php and the write helper) for a holder
+  in its own `fanboy-guard.cron` on the flash — there only while he is armed: written at «Take over», gone at «Hand back», put right at every agent start (`fanboyGuardCron()`); only when the journal names a holder — it needs only util.php and the write helper) for a holder
   gone or hung; `agent.sh stop` (stop, restart, update) and `release` (removal, the array stopping) through
   `fanboy_release` → `fanboy-guard.php release`. The control (`php agent.php job fanboy-control`, `fanboy-control.php`) runs
   in a session of its own (`setsid -f`): an agent restarting in place never touches it. It steers only while the array is
   started, he is hired, shown, set up and armed («take over»), and no known controller runs (FanCtrl Plus, its fork,
-  Dynamix System Autofan, PWM Fan, WAZ Cooling Control); outputs looked up anew at every start through the identity;
+  Dynamix System Autofan, PWM Fan — WAZ Cooling Control steers shelf and IPMI fans: named as a hint only, `'hint_only'`, `fanboyBlocking()`); outputs looked up anew at every start through the identity;
   zones (fans + heat sources: disks only from disks.ini — asleep is asleep, never cold —, hwmon sensors; each source's own
   low/high mapped onto the zone's, the warmest counts) and a curve (quiet/normal/cool or points, percent or rpm by the
   measured table with a correction); up at once, down a percent a round only 2 °C below; never under a fan's lowest steady
@@ -1012,6 +1012,21 @@ the last 60 history lines only for a source the file has none for. **The file
   pulled in unloaded again, the ACPI refusal only explained, what helped loaded at every agent start, an undo; nothing
   downloaded, nothing on the flash. **FanCtrl Plus** (`fanboy-import.php`): its files read into a proposed zone (outputs by
   their number, disks by Unraid's id, never a serial), never written.
+  **Give back** for an output found on a fixed value something else set (enable 1): to the mainboard's automatic (the
+  chip's own mode — shown now, kept from before, else its driver's: `FANBOY_AUTO_MODES`) by default (the owner,
+  2026-11-14: `FANBOY_BACK_DEFAULT`), «this fixed value» the other choice in the setup (`back` action); a chip without an
+  automatic: the fixed value, said on the page. Only the control's take carries it into the journal (`back`); a setup
+  step always goes back exactly. **Part 3, the page** (desk.js + `fan-art.js`/`fan-art.css` beside it, loaded by desk.js
+  — only his page needs them): two pages. The overview's tiles «Who steers» (the server picture: zones as pieces of a
+  case, fans turning by their speed, the warmest framed, sleeping disks marked, the BIOS's own watched — one picture kept
+  across looks, speeds glide), «Fans» (outputs and tach inputs; a row unfolds the technical detail — the only place for
+  `pwmN`, `hwmonN`, chip names), «Warmest spot» (sensors), «Today» (each zone's curve with «now» and its last 6 hours:
+  the part `history`, desk.json `"parts"`), «Hints». The setup's seven steps as tiles in part 2's order (detect, test,
+  roles with the catalogue picker and «give back», measure with the table as it grows — `step.progress` —, zones with
+  the curve editor, dry run, take over / hand back); any step opens alone, so a curve, a zone or a fan's model changes
+  without the wizard again. A running step is kept alive by the page (`step_alive` every 15 s, only while a page of his
+  is shown) and can be stopped any time; ended by the page gone it says so. Pictures and CPU: `tools/fanboy/desk.mjs`;
+  demo states: `tools/fanboy/demo-states.mjs`.
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same

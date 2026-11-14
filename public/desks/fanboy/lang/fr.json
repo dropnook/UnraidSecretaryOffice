@@ -379,10 +379,6 @@
   "step.n": "{n} · {name}",
   "step.here": "la prochaine étape",
   "step.next": "Suivant : {name}",
-  "step.back_open": {
-    "one": "{n} « rendre » à choisir",
-    "other": "{n} « rendre » à choisir"
-  },
   "step.v.outputs": {
     "one": "{n} sortie",
     "other": "{n} sorties"
@@ -505,11 +501,6 @@
   "back.auto": "l'automatique de la carte mère (sa courbe)",
   "back.fixed": "cette valeur fixe ({pct} %)",
   "back.no_auto": "Cette puce n'a pas d'automatique pour cette sortie",
-  "back.open": "Pas encore choisi — « Prendre en main » attend ta réponse.",
-  "back.open_note": {
-    "one": "Pour {n} ventilateur, « rendre » n'est pas encore choisi — sous « Rôles ».",
-    "other": "Pour {n} ventilateurs, « rendre » n'est pas encore choisi — sous « Rôles »."
-  },
   "measure.none": "Aucun de ses ventilateurs n'a de retour de vitesse — rien à mesurer. Les ventilateurs sans retour reçoivent une vitesse minimale sûre.",
   "measure.one": "Mesurer",
   "measure.again": "Mesurer à nouveau",
@@ -626,10 +617,6 @@
   "help.safe_text": "Avant « Prendre en main », rien ne change pour de bon : tester et mesurer rendent chaque sortie exactement comme elle était — aussi quand la page se ferme (au bout de 45 secondes) ou que le secrétariat s'arrête.",
   "help.later": "Changer quelque chose plus tard",
   "help.later_text": "Une courbe, une zone, le modèle d'un ventilateur : ouvre son étape seule et change-le — le reste reste. Tester et mesurer à nouveau demandent d'abord de rendre les ventilateurs.",
-  "errors.fanboy_back_open": {
-    "one": "Choisis d'abord « rendre » pour {n} ventilateur (sous « Rôles »).",
-    "other": "Choisis d'abord « rendre » pour {n} ventilateurs (sous « Rôles »)."
-  },
   "errors.fanboy_bad_back": "Fanboy ne connaît pas ce choix.",
   "errors.fanboy_no_auto": "Cette puce n'a pas d'automatique pour cette sortie.",
   "errors.fanboy_bad_look": "Cela ne correspond à aucun ventilateur ({field}).",

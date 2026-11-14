@@ -71,7 +71,7 @@ const art = () => window.FanArt || null;
 // ------------------------------------------------------------------ the state, read
 const S = () => state || {};
 const chips = () => (Array.isArray(S().chips) ? S().chips : []);
-const setup = () => S().setup || { fans: [], zones: [], outputs: [], sources: [], curves: {}, before: {}, back_open: [] };
+const setup = () => S().setup || { fans: [], zones: [], outputs: [], sources: [], curves: {}, before: {} };
 const control = () => S().control || {};
 const who = () => S().who || {};
 const step = () => S().step || null;
@@ -205,7 +205,7 @@ function stepAtHand() {
   const tested = (id) => { const f = fans.find((x) => x.id === id); return f && ['tach', 'silent', 'empty'].includes(f.found); };
   if (!(su.outputs || []).every(tested)) return 'test';
   const found = fans.filter((f) => ['tach', 'silent', 'unclear'].includes(f.found));
-  if (found.some((f) => !f.role) || (su.back_open || []).length) return 'roles';
+  if (found.some((f) => !f.role)) return 'roles';
   const toMeasure = found.filter((f) => ROLES_OURS.includes(f.role) && f.found === 'tach');
   if (toMeasure.some((f) => !f.measured && !f.no_turn)) return 'measure';
   if (!(su.zones || []).length) return 'zones';
@@ -266,7 +266,7 @@ function redraw() {
 function setupSig() {
   const su = setup();
   return JSON.stringify([!!art(), !!cat, Office.agent.running, busy, who(), situation(), control().running, (control().alarm || {}).code, su.fans, su.zones, su.armed,
-    su.outputs, su.back_open, su.curves, step(), dry, zdraft, S().import ? S().import.files : 0, setupSw ? setupSw.active() : '']);
+    su.outputs, su.curves, step(), dry, zdraft, S().import ? S().import.files : 0, setupSw ? setupSw.active() : '']);
 }
 
 // ------------------------------------------------------------------ the bubble
@@ -1034,7 +1034,6 @@ function stepTile(k, i, a) {
   if (k === 'dry') value = dry ? T('step.v.seen') : '–';
   if (k === 'take') value = steers() ? T('who.fanboy', { n: who().zones || 0 }) : su.armed ? T('step.v.armed') : T('who.bios');
   if (here && !(k === 'take' && (steers() || su.armed))) sub.push(T('step.here'));
-  if (k === 'roles' && (su.back_open || []).length) sub.push(T('step.back_open', { n: su.back_open.length }));
   return Office.stat({ label: T('step.n', { n: i + 1, name: T(`step.${k}`) }), value, sub, alert: k === 'take' && control().running && !!control().alarm, ...a });
 }
 function stepSection(k) {
@@ -1206,7 +1205,6 @@ function rolesStep() {
   const list = el('div', 'fb-cards fb-cards-wide');
   found.forEach((f) => list.appendChild(roleCard(f)));
   box.appendChild(list);
-  if ((su.back_open || []).length) box.appendChild(para(T('back.open_note', { n: su.back_open.length }), 'callout warn'));
   box.appendChild(bar(nextButton('roles')));
   return box;
 }
@@ -1315,7 +1313,6 @@ function backChoice(f, b) {
     box.appendChild(l);
   });
   if (noAuto) box.appendChild(para(T('back.no_auto_note', { pct: b.pct ?? '–' }), 'fb-strong'));
-  else if (!f.back && !setup().back_default) box.appendChild(para(T('back.open'), 'fb-strong'));
   else if (!f.back) box.appendChild(para(T('back.default_note')));
   return box;
 }
@@ -1671,7 +1668,6 @@ function takeStep() {
   const why = [];
   if (situation() === 'other') why.push(T('situation.other', { who: otherNames() }));
   if (!(su.zones || []).length) why.push(T('take.no_zones'));
-  if ((su.back_open || []).length) why.push(T('back.open_note', { n: su.back_open.length }));
   if (stepRuns()) why.push(T('take.step_runs'));
   box.appendChild(para(T('take.text')));
   why.forEach((w) => box.appendChild(para(w, 'callout warn')));

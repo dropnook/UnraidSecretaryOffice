@@ -379,10 +379,6 @@
   "step.n": "{n} · {name}",
   "step.here": "der nächste Schritt",
   "step.next": "Weiter: {name}",
-  "step.back_open": {
-    "one": "{n}× «Zurückgeben» zu wählen",
-    "other": "{n}× «Zurückgeben» zu wählen"
-  },
   "step.v.outputs": {
     "one": "{n} Ausgang",
     "other": "{n} Ausgänge"
@@ -505,11 +501,6 @@
   "back.auto": "die Automatik des Mainboards (seine Kurve)",
   "back.fixed": "diesen festen Wert ({pct} %)",
   "back.no_auto": "Dieser Chip hat für den Ausgang keine Automatik",
-  "back.open": "Noch nicht gewählt — «Übernehmen» wartet auf deine Antwort.",
-  "back.open_note": {
-    "one": "Für {n} Lüfter ist «Zurückgeben» noch nicht gewählt — unter «Rollen».",
-    "other": "Für {n} Lüfter ist «Zurückgeben» noch nicht gewählt — unter «Rollen»."
-  },
   "measure.none": "Kein Lüfter von ihm mit Drehzahl-Rückmeldung — nichts zu vermessen. Lüfter ohne Rückmeldung bekommen eine sichere tiefste Drehzahl.",
   "measure.one": "Vermessen",
   "measure.again": "Neu vermessen",
@@ -626,10 +617,6 @@
   "help.safe_text": "Bis «Übernehmen» ändert sich nichts für immer: Testen und Vermessen geben jeden Ausgang genau so zurück, wie er war — auch wenn die Seite zugeht (nach 45 Sekunden) oder das Sekretariat stoppt.",
   "help.later": "Später etwas ändern",
   "help.later_text": "Eine Kurve, eine Zone, das Modell eines Lüfters: Öffne seinen Schritt allein und ändere es — der Rest bleibt. Nochmal testen und vermessen geht erst, wenn die Lüfter zurückgegeben sind.",
-  "errors.fanboy_back_open": {
-    "one": "Wähle zuerst «Zurückgeben» für {n} Lüfter (unter «Rollen»).",
-    "other": "Wähle zuerst «Zurückgeben» für {n} Lüfter (unter «Rollen»)."
-  },
   "errors.fanboy_bad_back": "Diese Wahl kennt Fanboy nicht.",
   "errors.fanboy_no_auto": "Dieser Chip hat für diesen Ausgang keine Automatik.",
   "errors.fanboy_bad_look": "Das passt zu keinem Lüfter ({field}).",

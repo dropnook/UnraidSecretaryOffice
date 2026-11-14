@@ -1091,7 +1091,6 @@
     "from": "journal"
    }
   },
-  "back_open": [],
   "back_default": "auto",
   "scales": {
    "disk": {

@@ -379,10 +379,6 @@
   "step.n": "{n} · {name}",
   "step.here": "the next step",
   "step.next": "Next: {name}",
-  "step.back_open": {
-    "one": "{n} «give back» to choose",
-    "other": "{n} «give back» to choose"
-  },
   "step.v.outputs": {
     "one": "{n} output",
     "other": "{n} outputs"
@@ -505,11 +501,6 @@
   "back.auto": "the mainboard's automatic (its curve)",
   "back.fixed": "this fixed value ({pct} %)",
   "back.no_auto": "This chip has no automatic for the output",
-  "back.open": "Not chosen yet — «Take over» waits for your answer.",
-  "back.open_note": {
-    "one": "For {n} fan «give back» isn't chosen yet — under «Roles».",
-    "other": "For {n} fans «give back» isn't chosen yet — under «Roles»."
-  },
   "measure.none": "No fan of his with speed feedback — nothing to measure. Fans without feedback get a safe lowest speed.",
   "measure.one": "Measure",
   "measure.again": "Measure again",
@@ -626,10 +617,6 @@
   "help.safe_text": "Until «Take over» nothing changes for good: tests and measuring give every output back exactly as it was — also when the page closes (after 45 seconds) or the office stops.",
   "help.later": "Changing something later",
   "help.later_text": "A curve, a zone, a fan's model: open its step alone and change it — the rest stays. Tests and measuring again need the fans handed back first.",
-  "errors.fanboy_back_open": {
-    "one": "Choose «give back» for {n} fan first (under «Roles»).",
-    "other": "Choose «give back» for {n} fans first (under «Roles»)."
-  },
   "errors.fanboy_bad_back": "That isn't a choice Fanboy knows.",
   "errors.fanboy_no_auto": "This chip has no automatic for that output.",
   "errors.fanboy_bad_look": "That doesn't fit a fan ({field}).",

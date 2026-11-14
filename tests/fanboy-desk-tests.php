@@ -32,7 +32,6 @@ function testFanboyBack(): void
         $before = fanboyBefore($scan);
         same('fanboy back: before Fanboy — each output on the fixed value something set (128, enable 1), the chip\'s automatic 2 (it87)',
             [true, 50, 2, 'now'], [$before[fanboyTId(4)]['fixed'], $before[fanboyTId(4)]['pct'], $before[fanboyTId(4)]['auto'], $before[fanboyTId(4)]['from']]);
-        same('fanboy back: nothing open with the default the automatic (take over doesn\'t wait)', [], fanboyBackOpen($scan, $settings));
         // the control takes and gives back: the disk fan (default) to the chip's automatic, the front fan («fixed») to 128
         fanboyBeat();
         $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));

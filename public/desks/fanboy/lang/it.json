@@ -379,10 +379,6 @@
   "step.n": "{n} · {name}",
   "step.here": "il prossimo passo",
   "step.next": "Avanti: {name}",
-  "step.back_open": {
-    "one": "{n} «restituire» da scegliere",
-    "other": "{n} «restituire» da scegliere"
-  },
   "step.v.outputs": {
     "one": "{n} uscita",
     "other": "{n} uscite"
@@ -505,11 +501,6 @@
   "back.auto": "l'automatico della scheda madre (la sua curva)",
   "back.fixed": "questo valore fisso ({pct} %)",
   "back.no_auto": "Questo chip non ha un automatico per l'uscita",
-  "back.open": "Non ancora scelto — «Affida a lui» aspetta la tua risposta.",
-  "back.open_note": {
-    "one": "Per {n} ventola «restituire» non è ancora scelto — in «Ruoli».",
-    "other": "Per {n} ventole «restituire» non è ancora scelto — in «Ruoli»."
-  },
   "measure.none": "Nessuna sua ventola con ritorno di velocità — niente da misurare. Le ventole senza ritorno ricevono una velocità minima sicura.",
   "measure.one": "Misura",
   "measure.again": "Misura di nuovo",
@@ -626,10 +617,6 @@
   "help.safe_text": "Fino ad «Affida a lui» non cambia nulla per sempre: provare e misurare restituiscono ogni uscita esattamente com'era — anche quando la pagina si chiude (dopo 45 secondi) o la segreteria si ferma.",
   "help.later": "Cambiare qualcosa più tardi",
   "help.later_text": "Una curva, una zona, il modello di una ventola: apri il suo passo da solo e cambialo — il resto resta. Provare e misurare di nuovo richiedono prima di restituire le ventole.",
-  "errors.fanboy_back_open": {
-    "one": "Scegli prima «restituire» per {n} ventola (in «Ruoli»).",
-    "other": "Scegli prima «restituire» per {n} ventole (in «Ruoli»)."
-  },
   "errors.fanboy_bad_back": "Fanboy non conosce questa scelta.",
   "errors.fanboy_no_auto": "Questo chip non ha un automatico per quell'uscita.",
   "errors.fanboy_bad_look": "Non corrisponde a nessuna ventola ({field}).",

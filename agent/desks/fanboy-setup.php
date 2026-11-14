@@ -36,8 +36,7 @@ const FANBOY_ID_RE = '/^[A-Za-z0-9_.:-]{1,80}:pwm\d{1,2}$/D';
  * «Give back» for an output Fanboy found on a FIXED value someone else set (pwmN_enable 1 — on the owner's server another
  * plugin's 128): to the mainboard's automatic ('auto': the chip's own mode, only where the chip offers one) or back to
  * exactly that value ('fixed'). The owner's decision (2026-11-14): the automatic by default, the fixed value the other
- * choice in the setup; where the chip has no automatic mode the fixed value stays, and the page says so. null would
- * leave it open: the setup would ask and «Take over» wait for an answer (fanboyBackOpen()).
+ * choice in the setup; where the chip has no automatic mode the fixed value stays, and the page says so.
  */
 const FANBOY_BACK_DEFAULT = 'auto';
 const FANBOY_BACKS = ['auto', 'fixed'];
@@ -758,10 +757,6 @@ function fanboyTakeOver(): array
     if (!fanboyControlNew($settings, '', ['pid' => 0])['zones']) {
         throw new Problem('fanboy_no_zones');
     }
-    $open = fanboyBackOpen($scan, $settings);
-    if ($open) {
-        throw new Problem('fanboy_back_open', ['n' => count($open)]);
-    }
     fanboyStoreUpdate(function (array $e): array {
         $e['armed'] = true;
         $e['armed_at'] = time();
@@ -840,26 +835,12 @@ function fanboyBefore(array $scan, ?array $journal = null): array
 
 /**
  * A fan's «give back» as it counts: the owner's choice, else FANBOY_BACK_DEFAULT; 'auto' where the chip has no automatic
- * mode for the output: the fixed value (said on the page). null only while the default is open and nothing was chosen.
+ * mode for the output: the fixed value (said on the page)
  */
-function fanboyBackOf(array $fan, array $before): ?string
+function fanboyBackOf(array $fan, array $before): string
 {
     $b = in_array($fan['back'] ?? null, FANBOY_BACKS, true) ? $fan['back'] : FANBOY_BACK_DEFAULT;
     return $b === 'auto' && ($before['auto'] ?? null) === null ? 'fixed' : $b;
-}
-
-/** His fans in the zones that sit on a fixed value someone else set and whose «give back» is still open: [fan id…] */
-function fanboyBackOpen(array $scan, array $settings): array
-{
-    $before = fanboyBefore($scan);
-    $open = [];
-    foreach (fanboyControlNew($settings, '', ['pid' => 0])['fans'] as $id => $f) {
-        $b = $before[$id] ?? null;
-        if ($b !== null && $b['fixed'] && fanboyBackOf(is_array($settings['fans'][$id] ?? null) ? $settings['fans'][$id] : [], $b) === null) {
-            $open[] = $id;
-        }
-    }
-    return $open;
 }
 
 /** «Give back to»: the mainboard's automatic or this fixed value — for a fan found on a fixed value */
