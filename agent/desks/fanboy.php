@@ -228,12 +228,12 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
         $modes = array_count_values(array_map(fn ($o) => (string) ($o['mode'] ?? '?'), $c['outputs']));
         ksort($modes);
         $line = '- ' . $clean($c['name']) . ' (driver ' . ($c['module'] !== null ? $clean($c['module']) : '-') . ', ' . $clean($c['kind']) . '): '
-            . count($c['outputs']) . ' outputs';
+            . 'outputs ' . count($c['outputs']);
         if ($c['outputs']) {
             $line .= ' (auto mode ' . (array_filter($c['outputs'], fn ($o) => $o['auto']) ? 'yes' : 'no') . '; now '
                 . implode(', ', array_map(fn ($m, $n) => "$n $m", array_keys($modes), $modes)) . ')';
         }
-        $line .= ', ' . count($c['fans']) . " tach inputs ($turning turning), " . count($c['temps']) . ' temperatures';
+        $line .= ', tach inputs ' . count($c['fans']) . " ($turning turning), temperatures " . count($c['temps']);
         $lines[] = $line;
         if ($c['temps']) {
             $kinds[$c['kind']] = ($kinds[$c['kind']] ?? 0) + count($c['temps']);

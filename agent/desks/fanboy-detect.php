@@ -116,8 +116,12 @@ function fanboyChip(string $hwmon, string $entry): ?array
     $where = $device ?? dirname(dirname($real));
     $pos = strrpos($where, '/devices/');
     $stable = $pos === false ? basename($where) : substr($where, $pos + 9);
-    $driver = $device !== null ? realpath("$device/driver") : false;
-    $module = $driver !== false ? (realpath("$driver/module") ?: null) : null;
+    // the driver's module: on the device, or — for a class device (nvme0 under its PCI device) — on a parent, two up at most
+    $module = null;
+    for ($d = $device, $i = 0; $d !== null && $module === null && $i < 3; $d = dirname($d), $i++) {
+        $driver = realpath("$d/driver");
+        $module = $driver !== false ? (realpath("$driver/module") ?: null) : null;
+    }
     $files = @scandir($attr) ?: [];
     $outputs = $fans = $temps = [];
     foreach ($files as $f) {

@@ -63568,8 +63568,13 @@ function fanboyFakeTree(string $root, array $spec): string
             if (!is_link("$root/sys/bus/platform/drivers/$module/module")) {
                 symlink("$root/sys/module/$module", "$root/sys/bus/platform/drivers/$module/module");
             }
-            if (!is_link("$root/sys/devices/$dev/driver")) {
-                symlink("$root/sys/bus/platform/drivers/$module", "$root/sys/devices/$dev/driver");
+            // the driver lies on the device — or, for a class device (nvme/nvme0), on its PCI device further up ('driver_up')
+            $at = $dev;
+            for ($i = 0; $i < ($c['driver_up'] ?? 0); $i++) {
+                $at = dirname($at);
+            }
+            if (!is_link("$root/sys/devices/$at/driver")) {
+                symlink("$root/sys/bus/platform/drivers/$module", "$root/sys/devices/$at/driver");
             }
         }
         foreach ($c['pwm'] ?? [] as $i => [$value, $enable, $auto]) {
@@ -63639,7 +63644,7 @@ function fanboyFakeBoard(int $n = 10, string $address = 'it87.2608', array $more
         'pwm'   => array_fill_keys(range(1, 6), [128, 1, true]),
         'fans'  => [1 => 1310, 2 => 0, 3 => 0, 4 => 1397, 5 => 1421, 6 => 1363],
         'temps' => [1 => [21000, ''], 2 => [31000, ''], 3 => [28000, ''], 4 => [25000, ''], 5 => [23000, ''], 6 => [23000, '']]];
-    $nvme = fn (int $h, string $pci, string $nv, int $milli) => [$h, 'nvme', "pci0000:00/$pci/nvme/$nv", 'nvme',
+    $nvme = fn (int $h, string $pci, string $nv, int $milli) => [$h, 'nvme', "pci0000:00/$pci/nvme/$nv", 'nvme', 'driver_up' => 2,
         'temps' => [1 => [$milli, 'Composite'], 2 => [$milli + 2000, 'Sensor 1']]];
     $spec = [
         'board' => ['Example Boards Inc.', 'EB-Z100 PRO'],
@@ -63837,7 +63842,8 @@ function testFanboyDetect(): void
     $cpu = fanboyChipNamed($s, 'coretemp');
     same('fanboy detect: labels and °C (an empty input: null)', [['Package id 0', 28.0], [null]],
         [[$cpu['temps'][0]['label'], $cpu['temps'][0]['c']], array_column(fanboyChipNamed($s, 'iwlwifi_1')['temps'], 'c')]);
-    same('fanboy detect: the nvme\'s stable address is its PCI path, never hwmonN', 'pci0000:00/0000:00:1b.4/0000:82:00.0/nvme/nvme2', $s['chips'][0]['device']);
+    same('fanboy detect: the nvme\'s stable address is its PCI path, never hwmonN; its module from the PCI device above it', ['pci0000:00/0000:00:1b.4/0000:82:00.0/nvme/nvme2', 'nvme'],
+        [$s['chips'][0]['device'], $s['chips'][0]['module']]);
     same('fanboy detect: Unraid\'s disks from disks.ini — no flash, no empty slot; a sleeping one without temperature',
         [['parity', 'parity', 35, false], ['disk1', 'data', null, true], ['disk2', 'data', 33, false], ['cache', 'pool', 40, false]],
         array_map(fn ($d) => [$d['name'], $d['type'], $d['temp'], $d['asleep']], $s['disks']));
@@ -64026,7 +64032,7 @@ function testFanboyReport(): void
         array_values(array_filter($never, fn ($x) => stripos($text, $x) !== false)));
     check('fanboy report: no «/» at all (no path can hide in it)', !str_contains($text, '/'), $text);
     $want = ['Fanboy detection report v1', 'Board: Example Boards Inc. - EB-Z100 PRO', 'Kernel: test · Unraid: 7.3.2', 'Situation: ok',
-             '- it8696_a0060607 (driver it87, board): 6 outputs (auto mode yes; now 6 manual), 6 tach inputs (4 turning), 6 temperatures',
+             '- it8696_a0060607 (driver it87, board): outputs 6 (auto mode yes; now 6 manual), tach inputs 6 (4 turning), temperatures 6',
              'Sensor kinds: board 14, cpu 3, nvme 6, other 1, ram 2', 'Unraid disks: 5 (4 rotating)'];
     same('fanboy report: the technical lines the concept lists', [], array_values(array_filter($want, fn ($l) => !str_contains($text, $l))), $text);
     check('fanboy report: small enough for the wish form (' . strlen($text) . ' bytes)', strlen($text) <= FANBOY_REPORT_MAX && strlen($text) > 200);
