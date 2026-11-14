@@ -63527,6 +63527,203 @@ function testBackupAnewChoice(): void
         str_contains($setup, 'OLD[$k]="${v//$\'\x1f\'/$\'\n\'}"') && str_contains($setup, 'was="$v"; [[ -n "${ANEW[$v]:-}" ]] && v="${ANEW[$v]}"'));
 }
 
+/**
+ * tools/release.sh's state file and its inputs (tools/release-lib.sh, 2026-11-14): a green step of an earlier run of the
+ * same version is taken while its inputs are the same - so the hash must change with every file in the step's inputs
+ * (untracked ones too) and with nothing else: not with a file outside them, an ignored one (dist/), the two version lines
+ * (hashed before the bump) or git's own index (never touched). Run on a throwaway repository.
+ */
+/** releaseLibSh(<script>, <env>, <arg …>): tools/release-lib.sh sourced, then <script> with $1 … = the args */
+function releaseLibSh(string $script, array $env = [], string ...$args): array
+{
+    $vars = [];
+    foreach ($env as $k => $v) {
+        $vars[] = "$k=$v";
+    }
+    return run(array_merge(['env'], $vars, ['bash', '-c', '. "$0"; ' . $script, OFFICE_DIR . '/tools/release-lib.sh'], $args), 60);
+}
+
+function testReleaseHashes(): void
+{
+    $t = hardeningTmp('release-hashes');
+    $files = ['public/desks/a/desk.js' => 'a', 'src/bootstrap.php' => "<?php\nconst OFFICE_VERSION = '1.2.3';\n", 'agent/agent.php' => "<?php\nconst AGENT_VERSION = '1.2.3';\n",
+        'docs/GUIDE.md' => 'guide', 'tools/ui-clicks.mjs' => 'clicks', 'tools/scenarios/lib.sh' => 'lib', 'tests/ui/harness.mjs' => 'h', 'tests/run.php' => 'run', '.gitignore' => "dist/\n"];
+    foreach ($files as $f => $c) {
+        @mkdir(dirname("$t/$f"), 0700, true);
+        file_put_contents("$t/$f", $c);
+    }
+    [$e] = run(['bash', '-c', 'cd "$1" && git init -q && git add -A && git -c user.name=t -c user.email=t@t commit -q -m one', 'x', $t], 30);
+    same('release hashes: a throwaway repository', 0, $e);
+    $hashes = function (string $word = '1.2.3') use ($t): array {
+        [$e, $out] = releaseLibSh('tree=$(rl_tree "$1") || exit 1; for s in build clicks scenarios suite; do echo "$s=$(rl_hash "$1" "$tree" "$s" "$2")"; done', [], $t, $word);
+        parse_str(str_replace("\n", '&', trim($out)), $h);
+        return $e === 0 ? $h : ['exit' => $e];
+    };
+    $changed = function (array $a, array $b): array {
+        return array_values(array_filter(['build', 'clicks', 'scenarios', 'suite'], fn ($s) => ($a[$s] ?? '') !== ($b[$s] ?? '')));
+    };
+    $h0 = $hashes();
+    check('release hashes: every step has one (16 hex)', count(array_filter($h0, fn ($v) => preg_match('/^[0-9a-f]{16}$/D', (string) $v) === 1)) === 4, json_encode($h0));
+    same('release hashes: the same tree twice - the same hashes', $h0, $hashes());
+    [, $status0] = run(['git', '-C', $t, 'status', '--porcelain'], 30);
+    $edit = function (string $f, ?string $c) use ($t): void {
+        if ($c === null) {
+            unlink("$t/$f");
+            return;
+        }
+        @mkdir(dirname("$t/$f"), 0700, true);
+        file_put_contents("$t/$f", $c);
+    };
+    $cases = [
+        ['docs only', 'docs/GUIDE.md', 'guide 2', ['build', 'suite']],
+        ['a page', 'public/desks/a/desk.js', 'a 2', ['build', 'clicks', 'scenarios', 'suite']],
+        ['the click test\'s tool', 'tools/ui-clicks.mjs', 'clicks 2', ['build', 'clicks', 'scenarios', 'suite']],
+        ['a scenario helper', 'tools/scenarios/lib.sh', 'lib 2', ['build', 'scenarios', 'suite']],
+        ['the click test\'s harness', 'tests/ui/harness.mjs', 'h 2', ['build', 'clicks', 'scenarios', 'suite']],
+        ['the suite', 'tests/run.php', 'run 2', ['build', 'scenarios', 'suite']],
+        ['an untracked file in src/', 'src/new.php', 'new', ['build', 'clicks', 'scenarios', 'suite']],
+        ['an ignored file (dist/)', 'dist/x.txz', 'built', []],
+    ];
+    foreach ($cases as [$label, $f, $c, $want]) {
+        $old = is_file("$t/$f") ? (string) file_get_contents("$t/$f") : null;
+        $edit($f, $c);
+        same("release hashes: $label changes exactly these steps' inputs", $want, $changed($h0, $hashes()));
+        $edit($f, $old);
+    }
+    same('release hashes: back as it was - the same hashes again', $h0, $hashes());
+    // the bump: what release.sh hashes is the tree before it; bumped and put back = the same
+    $bs = (string) file_get_contents("$t/src/bootstrap.php");
+    $edit('src/bootstrap.php', str_replace('1.2.3', '1.2.4', $bs));
+    same('release hashes: the version lines bumped - they would change (so release.sh hashes before the bump)', ['build', 'clicks', 'scenarios', 'suite'], $changed($h0, $hashes()));
+    $edit('src/bootstrap.php', $bs);
+    same('release hashes: the version a step runs with is a word of its own', ['build', 'clicks', 'scenarios', 'suite'], $changed($h0, $hashes('1.2.4')));
+    [, $status1] = run(['git', '-C', $t, 'status', '--porcelain'], 30);
+    [, $cached] = run(['git', '-C', $t, 'diff', '--cached', '--name-only'], 30);
+    same('release hashes: git\'s own index untouched (nothing staged, the status as before)', [$status0, ''], [$status1, trim($cached)]);
+    [$e] = releaseLibSh('rl_list "$1" HEAD nosuchstep', [], $t);
+    check('release hashes: an unknown step has no inputs (no hash, never taken)', $e !== 0);
+    // in release.sh: the tree hashed before step 4 (the bump), each of steps 5-7 under its own name, nothing after them taken
+    $src = (string) file_get_contents(OFFICE_DIR . '/tools/release.sh');
+    $tree = strpos($src, 'tree0=$(rl_tree "$repo")');
+    $bump = strpos($src, "\nstep 4 bump");
+    check('release.sh: the tree hashed before the bump', $tree !== false && $bump !== false && $tree < $bump);
+    preg_match_all('/\b(?:taken|taken_quiet|remember) (\w+) "\$h_/', $src, $m);
+    same('release.sh: only build, clicks, scenarios and suite are taken or kept', ['build', 'clicks', 'scenarios', 'suite'], array_values(array_unique($m[1])));
+    $commit = strpos($src, "\nstep 8 commit");
+    $lastTaken = max(array_map(fn ($x) => $x[1], preg_match_all('/\b(?:taken|taken_quiet|remember) \w+ "\$h_/', $src, $mm, PREG_OFFSET_CAPTURE) ? $mm[0] : [[0, 0]]));
+    check('release.sh: nothing of steps 8-12 is taken from the state file', $commit !== false && $lastTaken < $commit);
+    check('release.sh: --fresh takes nothing', str_contains($src, '--fresh) fresh=1 ;;') && str_contains($src, "(( fresh )) && return 1"));
+}
+
+/** The state file: one line a step, the last one counts; only a green line with the same hash is taken */
+function testReleaseState(): void
+{
+    $t = hardeningTmp('release-state');
+    $f = "$t/9.9.9.state";
+    $sh = fn (string $s) => releaseLibSh('f=$1; ' . $s, [], $f);
+    [$e] = $sh('rl_state_get "$f" suite aaaa');
+    check('release state: no file - nothing taken', $e !== 0);
+    $sh('rl_state_put "$f" suite aaaa green "1 passed, 0 failed"; rl_state_put "$f" clicks bbbb green "ui clicks: 2 pages"');
+    [$e, $out] = $sh('rl_state_get "$f" suite aaaa');
+    check('release state: green with the same hash - its time and what it said', $e === 0 && preg_match('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\t1 passed, 0 failed$/D', trim($out)) === 1, $out);
+    [$e] = $sh('rl_state_get "$f" suite cccc');
+    check('release state: other inputs - not taken', $e !== 0);
+    [$e] = $sh('rl_state_get "$f" build aaaa');
+    check('release state: another step\'s line is not this one\'s', $e !== 0);
+    $sh('rl_state_put "$f" suite aaaa red "1 passed, 1 failed"');
+    [$e] = $sh('rl_state_get "$f" suite aaaa');
+    check('release state: red with the same hash - not taken (it runs again)', $e !== 0);
+    [$e2, $out2] = $sh('rl_state_get "$f" clicks bbbb');
+    check('release state: the other step\'s line kept', $e2 === 0 && str_ends_with(trim($out2), 'ui clicks: 2 pages'));
+    $sh('rl_state_put "$f" suite dddd green "with	a tab
+and a line"');
+    $lines = file($f, FILE_IGNORE_NEW_LINES) ?: [];
+    same('release state: one line a step, five fields each (a tab or newline in what it said flattened)', [2, [5, 5]],
+        [count($lines), array_map(fn ($l) => count(explode("\t", $l)), $lines)]);
+    same('release state: its folder holds only the file (written by a rename)', ['9.9.9.state'], array_values(array_diff(scandir($t) ?: [], ['.', '..'])));
+}
+
+/**
+ * The click test's one retry (rl_clicks): a red page's route once more alone (--only, from «ui clicks failed:» lines);
+ * green then = green, the page named «flaky: <page> (<theme> <width>)»; red twice = red; a red without such a line, or a
+ * click test that didn't run (exit 3), gets no retry. A stand-in for tools/ui-clicks.sh: red while UC_FORCE_FAIL is set
+ * (what USO_RELEASE_FLAKY does) or STUB_RED says so.
+ */
+function testReleaseClicksRetry(): void
+{
+    $t = hardeningTmp('release-clicks');
+    file_put_contents("$t/stub.sh", <<<'SH'
+#!/bin/bash
+echo "call $*" >> "$STUB_LOG"
+case ${STUB_MODE:-} in
+    norun) echo "ui clicks: node not found - not run"; exit 3 ;;
+    noline) echo "ui clicks: 1 pages, 0 failed? no"; exit 1 ;;
+esac
+red=''
+[[ -n ${UC_FORCE_FAIL:-} ]] && red="$UC_FORCE_FAIL|$UC_FORCE_FAIL|dark|1440"
+[[ -n ${STUB_RED:-} && $* != *--only* ]] && red=$STUB_RED
+[[ -n ${STUB_RED_AGAIN:-} && $* == *--only* ]] && red=$STUB_RED_AGAIN
+if [[ -n $red ]]; then
+    tr ';' '\n' <<<"$red" | sed 's/^/ui clicks failed: /'
+    echo "ui clicks: 4 pages, 9 toggles clicked twice, $(tr ';' '\n' <<<"$red" | wc -l | tr -d ' ') failed - 1 s"
+    exit 1
+fi
+echo "ui clicks: 4 pages, 9 toggles clicked twice, 0 failed - 1 s"
+exit 0
+SH);
+    $go = function (array $env) use ($t): array {
+        @unlink("$t/log");
+        hardeningRm("$t/d");
+        $env += ['USO_UI_CLICKS' => "bash $t/stub.sh", 'STUB_LOG' => "$t/log"];
+        [$e] = releaseLibSh('rl_clicks "$1"', $env, "$t/d");
+        $r = fn (string $n) => is_file("$t/d/$n") ? trim((string) file_get_contents("$t/d/$n")) : null;
+        return ['exit' => $e, 'rc' => $r('rc'), 'calls' => array_values(array_filter(explode("\n", (string) @file_get_contents("$t/log")))),
+            'flaky' => $r('flaky'), 'summary' => $r('summary'), 'out' => $r('out')];
+    };
+    $g = $go([]);
+    same('clicks retry: green at once - one call, no flaky page', ['0', ['call '], ''], [$g['rc'], $g['calls'], $g['flaky']]);
+    $g = $go(['USO_RELEASE_FLAKY' => 'jack']);
+    same('clicks retry: a forced red page, green alone - green, the route alone once more, named flaky', ['0', 0, ['call ', 'call --only jack'], 'flaky: jack (dark 1440)'],
+        [$g['rc'], $g['exit'], $g['calls'], $g['flaky']]);
+    check('clicks retry: the summary says it', str_contains((string) $g['summary'], 'flaky') && str_contains((string) $g['out'], 'once more'), (string) $g['summary']);
+    $g = $go(['USO_RELEASE_FLAKY' => 'jack:twice']);
+    same('clicks retry: red twice - red, no flaky page, the summary names the page', ['1', 1, 2, ''], [$g['rc'], $g['exit'], count($g['calls']), $g['flaky']]);
+    check('clicks retry: … red again alone: jack (dark 1440)', str_contains((string) $g['summary'], 'red again alone: jack (dark 1440)'), (string) $g['summary']);
+    $g = $go(['STUB_RED' => 'jack|jack shadow|dark|1440;cleanup/where|cleanup map|dark|1440;jack|jack|light|375']);
+    same('clicks retry: three red pages of two routes - both routes once (sorted, once each), three flaky lines', ['0', ['call ', 'call --only cleanup/where,jack'],
+        "flaky: jack shadow (dark 1440)\nflaky: cleanup map (dark 1440)\nflaky: jack (light 375)"], [$g['rc'], $g['calls'], $g['flaky']]);
+    $g = $go(['STUB_RED' => 'restore|restore|stale job|0', 'STUB_RED_AGAIN' => 'restore|restore|stale job|0']);
+    same('clicks retry: a page whose theme has a space - red twice, said whole', ['1', 'ui clicks: 4 pages, 9 toggles clicked twice, 1 failed - 1 s; red again alone: restore (stale job 0)'], [$g['rc'], $g['summary']]);
+    $g = $go(['STUB_MODE' => 'noline']);
+    same('clicks retry: red without a «ui clicks failed:» line - red, no retry', ['1', 1], [$g['rc'], count($g['calls'])]);
+    $g = $go(['STUB_MODE' => 'norun']);
+    same('clicks retry: not run (exit 3) - 3, no retry', ['3', 1], [$g['rc'], count($g['calls'])]);
+    // the click test itself: a red page says its line; every special page's name maps to a route it can be run again by
+    $mjs = (string) file_get_contents(OFFICE_DIR . '/tools/ui-clicks.mjs');
+    check('ui-clicks: one «ui clicks failed: <route>|<page>|<theme>|<width>» line a red page', str_contains($mjs, 'console.log(`ui clicks failed: ${onlyOf(r)}|${r.route}|${r.theme}|${r.width}`)'));
+    check('ui-clicks: UC_FORCE_FAIL forces one page of a route red (the retry shown)', str_contains($mjs, 'process.env.UC_FORCE_FAIL'));
+    preg_match("/^const ROUTES = \\[([^\\]]*)\\]/m", $mjs, $rm);
+    $routes = array_map(fn ($x) => trim($x, " '"), explode(',', $rm[1] ?? ''));
+    preg_match("/^const ONLY_OF = \\{(.*?)\\};/ms", $mjs, $om);
+    preg_match_all("/'([^']+)': '([^']+)'/", $om[1] ?? '', $pairs, PREG_SET_ORDER);
+    $only = [];
+    foreach ($pairs as $p) {
+        $only[$p[1]] = $p[2];
+    }
+    preg_match_all("/const res = \\{ route: (?:'([^']+)'|`\\\$\\{desk\\} routes`)/", $mjs, $sm);
+    $bad = [];
+    foreach ($sm[1] as $name) {
+        if ($name === '') {
+            continue;       // «<desk> routes»: the desk itself
+        }
+        $to = $only[$name] ?? $name;
+        if (!in_array($to, $routes, true)) {
+            $bad[] = "$name → $to";
+        }
+    }
+    check('ui-clicks: every special page runs again by a real route (ONLY_OF)', count($sm[1]) >= 10 && !$bad && count($routes) > 10, implode(', ', $bad) . ' / ' . count($sm[1]));
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
@@ -63535,7 +63732,8 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
-          'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords']];
+          'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
+          'tools' => ['testReleaseHashes', 'testReleaseState', 'testReleaseClicksRetry']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.
 $only = array_values(array_unique(array_slice($argv, 1)));
