@@ -637,6 +637,12 @@
   "dash.pct": "{pct} %",
   "dash.stands": "Un ventilateur est arrêté : {fan}",
   "dash.stale": "Dernières valeurs : {when} — sa page en apporte de nouvelles",
+  "dash.curve": "Dernières {h} h",
+  "dash.curve_temp": "{lo}–{hi} °C",
+  "dash.curve_temp_one": "{c} °C",
+  "dash.curve_level": "niveau {lo}–{hi} %",
+  "dash.curve_level_one": "niveau {pct} %",
+  "dash.curve_none": "Pas encore de courbe — Fanboy l’enregistre tant qu’il régule.",
   "dash.zones_more": {
     "one": "+ {n} autre zone",
     "other": "+ {n} autres zones"
@@ -644,10 +650,6 @@
   "dash.fans_more": {
     "one": "+ {n} autre ventilateur",
     "other": "+ {n} autres ventilateurs"
-  },
-  "dash.connectors": {
-    "one": "{n} connecteur indique une vitesse",
-    "other": "{n} connecteurs indiquent une vitesse"
   },
   "dash.connectors_none": "Aucun connecteur n'indique de vitesse",
   "dash.set_up": "Configurer",

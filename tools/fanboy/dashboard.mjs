@@ -71,10 +71,37 @@ function many() {
   });
   return s;
 }
+/**
+ * The control's history in RAM (RUN_DIR/fanboy/history.json) for «with history»: round 3's invented three days
+ * (tests/ui/demo/post/fanboy.history.json) moved to end at $at, each zone shifted so its last point is what the state
+ * shows now (its warmest °C, its level) — a zone without a history of its own borrows the case zone's shape
+ */
+function history(state, at) {
+  const days = demo('post/fanboy.history').state;
+  const zones = {};
+  const now = Object.fromEntries(((state.control && state.control.zones) || []).map((z) => [z.id, z]));
+  for (const z of (state.setup && state.setup.zones) || []) {
+    const pts = days.zones[z.id] || days.zones.case;
+    const last = pts[pts.length - 1];
+    const live = now[z.id] || {};
+    const dc = live.warmest && typeof live.warmest.c === 'number' ? live.warmest.c - last[1] : 0;
+    const dl = typeof live.level === 'number' && !live.full ? live.level - last[2] : 0;
+    const swing = days.zones[z.id] ? 1 : 2.5;          // a borrowed shape: a little livelier, so it isn't the case zone's twice
+    zones[z.id] = pts.map((p) => [p[0] - days.now + at, Math.round((live.warmest && typeof live.warmest.c === 'number' ? live.warmest.c + (p[1] - last[1]) * swing : p[1] + dc) * 10) / 10,
+      Math.max(0, Math.min(100, p[2] + dl)), p[3]]);
+    if (live.full) zones[z.id][zones[z.id].length - 1][2] = 100;          // an alarm here: its last minute at 100 %
+  }
+  return { v: 1, board: state.setup.board, every: 60, zones };
+}
 const ON = { 'fanboy/show.json': '{}', 'office/staff.json': { hired: { fanboy: 1 } }, 'fanboy/dashboard.json': { v: 1, show: 'speeds' } };
+const WITH = { ...ON, 'fanboy/dashboard.json': { v: 1, show: 'history' } };
+const looked = (name, at) => lookedAt(demo(name), at);
 // name → [data folder files (null: none — the array stopped), RAM files, a zone to unfold, all combinations]
 const SCENES = [
   ['steering', { ...ON, 'fanboy.json': lookedAt(demo('fanboy'), NOW - 4) }, {}, 'case', true],
+  ['history', { ...WITH, 'fanboy.json': looked('fanboy', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy', NOW - 4), NOW - 30) }, null, true],
+  ['cpu-history', { ...WITH, 'fanboy.json': looked('fanboy-cpu', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy-cpu', NOW - 4), NOW - 30) }, 'cpu', false],
+  ['alarm-history', { ...WITH, 'fanboy.json': looked('fanboy-alarm', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy-alarm', NOW - 4), NOW - 30) }, null, false],
   ['alarm', { ...ON, 'fanboy.json': lookedAt(demo('fanboy-alarm'), NOW - 4) }, {}, null, false],
   ['chip-missing', { ...ON, 'fanboy.json': lookedAt(demo('fanboy-missing'), NOW - 4) }, {}, null, false],
   ['other', { ...ON, 'fanboy.json': lookedAt(demo('fanboy-other'), NOW - 4) }, {}, null, false],
@@ -112,7 +139,9 @@ function tile(name, files, run, lang) {
   if (r.status !== 0 || r.stderr.trim()) throw new Error(`php for ${name}/${lang}: ${r.stderr}`);
   if (!r.stdout.startsWith('<tbody id="db-sso-fanboy"')) throw new Error(`no tile for ${name}/${lang}: ${r.stdout.slice(0, 200)}`);
   // what Unraid's own script adds to every tile (DashStats.page addProperties()): the close and the chevron icons
-  return r.stdout.replace('<tr><td><span class="tile-header">', "<tr><td><i class='fa fa-fw fa-close control tile' title='Close Tile'></i><span class=\"tile-header\">")
+  // his pictures from the repository (the page is a file here, not served by Unraid)
+  const pics = pathToFileURL(path.join(REPO, 'public', 'desks', 'fanboy')).href + '/';
+  return r.stdout.replaceAll('/plugins/unraid-secretary-office/desks/fanboy/', pics).replace('<tr><td><span class="tile-header">', "<tr><td><i class='fa fa-fw fa-close control tile' title='Close Tile'></i><span class=\"tile-header\">")
     .replace('</span></span></span></td></tr>', "<i class='fa fa-fw fa-chevron-up control openclose' title='Show/Hide Content'></i></span></span></span></td></tr>");
 }
 
@@ -181,7 +210,7 @@ try {
       const p = await ctx.newPage();
       await p.goto(pathToFileURL(file).href);
       const got = await p.evaluate(() => {
-        const rgb = (c) => (c.match(/[\d.]+/g) || []).map(Number);
+        const rgb = (c) => { const n = (c.match(/[\d.]+/g) || []).map(Number); return c.startsWith('color(srgb') ? n.map((v, i) => (i < 3 ? v * 255 : v)) : n; };   // Chrome writes a color-mix() as color(srgb 0…1)
         const lum = ([r, g, b]) => [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
           .reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0);
         const bg = (el) => { for (let e = el; e; e = e.parentElement) { const c = rgb(getComputedStyle(e).backgroundColor); if (c.length === 3 || (c.length === 4 && c[3] > 0)) return c.slice(0, 3); } return [255, 255, 255]; };
@@ -190,6 +219,21 @@ try {
           return [e.className || 'a', getComputedStyle(e).color, Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100];
         });
       });
+      const lines = await p.evaluate(() => {
+        const rgb = (c) => { const n = (c.match(/[\d.]+/g) || []).map(Number); return c.startsWith('color(srgb') ? n.map((v, i) => (i < 3 ? v * 255 : v)) : n; };   // Chrome writes a color-mix() as color(srgb 0…1)
+        const lum = ([r, g, b]) => [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
+          .reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0);
+        const bg = (el) => { for (let e = el; e; e = e.parentElement) { const c = rgb(getComputedStyle(e).backgroundColor); if (c.length === 3 || (c.length === 4 && c[3] > 0)) return c.slice(0, 3); } return [255, 255, 255]; };
+        return [...document.querySelectorAll('#db-sso-fanboy .sso-fb-temp')].slice(0, 1).map((e) => {
+          const [a, b] = [lum(rgb(getComputedStyle(e).stroke).slice(0, 3)), lum(bg(e.closest('details')))];
+          return ['sso-fb-temp (line)', getComputedStyle(e).stroke, Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100];
+        });
+      });
+      for (const [cls, colour, ratio] of lines) {
+        const line = `${name} ${theme} ${cls} ${colour} ${ratio}:1`;
+        if (!contrast.includes(line)) contrast.push(line);
+        if (ratio < 3) failed.push(`a line below 3:1 — ${line}`);
+      }
       for (const [cls, colour, ratio] of got) {
         const line = `${name} ${theme} ${cls} ${colour} ${ratio}:1`;
         if (!contrast.includes(line)) contrast.push(line);

@@ -637,6 +637,12 @@
   "dash.pct": "{pct} %",
   "dash.stands": "A fan stands: {fan}",
   "dash.stale": "As of {when} — his page brings new numbers",
+  "dash.curve": "Last {h} h",
+  "dash.curve_temp": "{lo}–{hi} °C",
+  "dash.curve_temp_one": "{c} °C",
+  "dash.curve_level": "level {lo}–{hi} %",
+  "dash.curve_level_one": "level {pct} %",
+  "dash.curve_none": "No curve yet — Fanboy records one while he steers.",
   "dash.zones_more": {
     "one": "+ {n} more zone",
     "other": "+ {n} more zones"
@@ -644,10 +650,6 @@
   "dash.fans_more": {
     "one": "+ {n} more fan",
     "other": "+ {n} more fans"
-  },
-  "dash.connectors": {
-    "one": "{n} connector reports a speed",
-    "other": "{n} connectors report a speed"
   },
   "dash.connectors_none": "No connector reports a speed",
   "dash.set_up": "Set up",

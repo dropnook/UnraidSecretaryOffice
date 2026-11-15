@@ -637,6 +637,12 @@
   "dash.pct": "{pct} %",
   "dash.stands": "Una ventola è ferma: {fan}",
   "dash.stale": "Ultimi valori: {when} — quelli nuovi li porta la sua pagina",
+  "dash.curve": "Ultime {h} h",
+  "dash.curve_temp": "{lo}–{hi} °C",
+  "dash.curve_temp_one": "{c} °C",
+  "dash.curve_level": "livello {lo}–{hi} %",
+  "dash.curve_level_one": "livello {pct} %",
+  "dash.curve_none": "Ancora nessuna curva — Fanboy la registra mentre regola.",
   "dash.zones_more": {
     "one": "+ {n} altra zona",
     "other": "+ altre {n} zone"
@@ -644,10 +650,6 @@
   "dash.fans_more": {
     "one": "+ {n} altra ventola",
     "other": "+ altre {n} ventole"
-  },
-  "dash.connectors": {
-    "one": "{n} connettore segnala una velocità",
-    "other": "{n} connettori segnalano una velocità"
   },
   "dash.connectors_none": "Nessun connettore segnala una velocità",
   "dash.set_up": "Configura",

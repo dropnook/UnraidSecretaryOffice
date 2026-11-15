@@ -637,6 +637,12 @@
   "dash.pct": "{pct} %",
   "dash.stands": "Un ventilador está parado: {fan}",
   "dash.stale": "Últimos valores: {when} — su página trae los nuevos",
+  "dash.curve": "Últimas {h} h",
+  "dash.curve_temp": "{lo}–{hi} °C",
+  "dash.curve_temp_one": "{c} °C",
+  "dash.curve_level": "nivel {lo}–{hi} %",
+  "dash.curve_level_one": "nivel {pct} %",
+  "dash.curve_none": "Aún no hay curva — Fanboy la registra mientras regula.",
   "dash.zones_more": {
     "one": "+ {n} zona más",
     "other": "+ {n} zonas más"
@@ -644,10 +650,6 @@
   "dash.fans_more": {
     "one": "+ {n} ventilador más",
     "other": "+ {n} ventiladores más"
-  },
-  "dash.connectors": {
-    "one": "{n} conector indica una velocidad",
-    "other": "{n} conectores indican una velocidad"
   },
   "dash.connectors_none": "Ningún conector indica una velocidad",
   "dash.set_up": "Configurar",

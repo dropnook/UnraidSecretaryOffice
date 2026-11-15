@@ -637,6 +637,12 @@
   "dash.pct": "{pct} %",
   "dash.stands": "Ein Lüfter steht: {fan}",
   "dash.stale": "Stand {when} — neue Werte bringt seine Seite",
+  "dash.curve": "Letzte {h} h",
+  "dash.curve_temp": "{lo}–{hi} °C",
+  "dash.curve_temp_one": "{c} °C",
+  "dash.curve_level": "Stufe {lo}–{hi} %",
+  "dash.curve_level_one": "Stufe {pct} %",
+  "dash.curve_none": "Noch keine Kurve — Fanboy zeichnet sie auf, solange er regelt.",
   "dash.zones_more": {
     "one": "+ {n} weitere Zone",
     "other": "+ {n} weitere Zonen"
@@ -644,10 +650,6 @@
   "dash.fans_more": {
     "one": "+ {n} weiterer Lüfter",
     "other": "+ {n} weitere Lüfter"
-  },
-  "dash.connectors": {
-    "one": "{n} Anschluss meldet eine Drehzahl",
-    "other": "{n} Anschlüsse melden eine Drehzahl"
   },
   "dash.connectors_none": "Kein Anschluss meldet eine Drehzahl",
   "dash.set_up": "Einrichten",
