@@ -283,6 +283,8 @@
   "fans.stands": "a fan stands",
   "src.disk": "Disk {n}",
   "src.parity": "Parity",
+  "src.unassigned": "Unassigned · {size}",
+  "src.unassigned_n": "Unassigned · {size} ({n})",
   "src.parity_n": "Parity {n}",
   "tile.today": "Today",
   "today.above": "above their quiet level for {time}",

@@ -337,7 +337,11 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
     ksort($kinds);
     $lines[] = 'Sensor kinds: ' . ($kinds ? implode(', ', array_map(fn ($k, $n) => "$k $n", array_keys($kinds), $kinds)) : 'none');
     $disks = $scan['disks'] ?? [];
-    $lines[] = 'Unraid disks: ' . count($disks) . ' (' . count(array_filter($disks, fn ($d) => $d['rotational'])) . ' rotating)';
+    $un = array_filter($disks, fn ($d) => ($d['type'] ?? '') === 'unassigned');
+    $lines[] = 'Unraid disks: ' . (count($disks) - count($un)) . ' (' . count(array_filter($disks, fn ($d) => $d['rotational'] && ($d['type'] ?? '') !== 'unassigned')) . ' rotating)';
+    // round 13b: outside array and pools (devs.ini) — counts only, never an id
+    $lines[] = 'Disks outside array and pools: ' . count($un) . ($un ? ' (' . count(array_filter($un, fn ($d) => $d['rotational'])) . ' rotating, '
+        . count(array_filter($un, fn ($d) => $d['asleep'])) . ' asleep, ' . count(array_filter($un, fn ($d) => !empty($d['in_use']))) . ' in use without a temperature)' : '');
     foreach ($scan['controllers'] ?? [] as $x) {
         $lines[] = 'Other controller: ' . $clean($x['id']) . ' (settings ' . ($x['settings'] ? 'on' : 'off') . ', loop ' . ($x['running'] ? 'running' : 'not running') . ')';
     }

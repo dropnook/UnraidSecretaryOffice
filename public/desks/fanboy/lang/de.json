@@ -283,6 +283,8 @@
   "fans.stands": "ein Lüfter steht",
   "src.disk": "Disk {n}",
   "src.parity": "Parität",
+  "src.unassigned": "Nicht zugewiesen · {size}",
+  "src.unassigned_n": "Nicht zugewiesen · {size} ({n})",
   "src.parity_n": "Parität {n}",
   "tile.today": "Heute",
   "today.above": "{time} über dem Ruhewert",

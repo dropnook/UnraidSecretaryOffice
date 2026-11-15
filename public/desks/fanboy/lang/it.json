@@ -283,6 +283,8 @@
   "fans.stands": "una ventola è ferma",
   "src.disk": "Disco {n}",
   "src.parity": "Parità",
+  "src.unassigned": "Non assegnato · {size}",
+  "src.unassigned_n": "Non assegnato · {size} ({n})",
   "src.parity_n": "Parità {n}",
   "tile.today": "Oggi",
   "today.above": "sopra il livello di riposo per {time}",

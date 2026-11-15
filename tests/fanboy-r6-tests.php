@@ -2144,3 +2144,118 @@ function testFanboyR13Refused(): void
         fanboyTEnd();
     }
 }
+
+/** Round 13b: devs.ini on the fake board — the disks outside array and pools (ids carry serials that must never leak) */
+function fanboyDevsFixture(array $t): void
+{
+    $dev = fn (int $n, string $device, string $id, string $rot, string $down, string $temp, string $sectors) =>
+        "[\"dev$n\"]\nname=\"dev$n\"\nid=\"$id\"\ndevice=\"$device\"\nsectors=\"$sectors\"\nsector_size=\"512\"\nrotational=\"$rot\"\nspundown=\"$down\"\ntemp=\"$temp\"\nnumReads=\"0\"\nnumWrites=\"0\"\nnumErrors=\"0\"\n";
+    $big = '27344764928';           // 14.0 TB
+    file_put_contents("{$t['root']}/var/local/emhttp/devs.ini",
+        $dev(1, 'sdf', 'EXAMPLE_HDD_14TB_SERIALAAA111', '1', '0', '34', $big)
+        . $dev(2, 'sdg', 'EXAMPLE_HDD_14TB_SERIALBBB222', '1', '1', '*', $big)
+        . $dev(3, 'sdh', 'EXAMPLE_HDD_14TB_SERIALCCC333', '1', '1', '*', $big)
+        . $dev(4, 'sdi', 'EXAMPLE_SSD_1TB_SERIALDDD444', '0', '0', '31', '1953525168')
+        . $dev(5, 'nvme1n1', 'EXAMPLE_NVME_SERIALEEE555', '0', '0', '40', '1953525168'));
+    @mkdir("{$t['root']}/var/state/unassigned.devices", 0700, true);
+    file_put_contents("{$t['root']}/var/state/unassigned.devices/disk_names.json", json_encode(['sdi' => 'Scratch', 'EXAMPLE_GONE_SERIALFFF666' => 'Old']));
+    foreach (['sdf' => 1000, 'sdg' => 2000, 'sdh' => 3000, 'sdi' => 4000] as $d => $io) {
+        @mkdir("{$t['root']}/sys/block/$d", 0700, true);
+        fanboyDevsIo($t, $d, $io);
+    }
+}
+
+function fanboyDevsIo(array $t, string $dev, int $reads, int $inFlight = 0): void
+{
+    file_put_contents("{$t['root']}/sys/block/$dev/stat", sprintf("%8d %8d %8d %8d %8d %8d %8d %8d %8d %8d %8d\n", $reads, 0, $reads * 8, 10, 50, 0, 400, 5, $inFlight, 20, 15));
+}
+
+/**
+ * Round 13b (the owner: «hier fehlen doch Festplatten — es hat ja auch Festplatten an VMs oder nicht zugewiesene»): the
+ * disks outside array and pools from devs.ini — awake with a temperature, asleep, in use without one (its I/O counters
+ * moved), an SSD, three alike, an NVMe left to its own sensor; a stable id that carries no serial; the plugin's name
+ */
+function testFanboyR13Devs(): void
+{
+    $t = fanboyT('r13devs');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        fanboyDevsFixture($t);
+        @unlink(fanboyRunDir() . '/devstat.json');
+        $p = fanboyPaths();
+        fanboyDisks($p['disks']);                       // the first look: the counters noted
+        fanboyDevsIo($t, 'sdh', 3500);                  // a VM reads from sdh while Unraid takes it for spun down
+        $un = array_values(array_filter(fanboyDisks($p['disks'], fanboyDiskLimits($p)), fn ($d) => $d['type'] === 'unassigned'));
+        $by = array_column($un, null, 'device');
+        same('fanboy r13 devs: four disks outside array and pools (the NVMe left to its own sensor) — awake 34 °C, asleep, in use without a temperature, an SSD',
+            [['sdf', 'sdg', 'sdh', 'sdi'], [false, 34, false], [true, null, false], [false, null, true], [false, 31, false, false]],
+            [array_column($un, 'device'), [$by['sdf']['asleep'], $by['sdf']['temp'], $by['sdf']['in_use']], [$by['sdg']['asleep'], $by['sdg']['temp'], $by['sdg']['in_use']],
+             [$by['sdh']['asleep'], $by['sdh']['temp'], $by['sdh']['in_use']], [$by['sdi']['asleep'], $by['sdi']['temp'], $by['sdi']['in_use'], $by['sdi']['rotational']]]);
+        same('fanboy r13 devs: a stable id from devs.ini\'s id (hashed: «ud-» + 12 hex), the same on every look; the plugin\'s name for the SSD',
+            [true, fanboyDevId('EXAMPLE_HDD_14TB_SERIALAAA111'), 'Scratch', null], [(bool) preg_match('/^ud-[0-9a-f]{12}$/D', $by['sdf']['name']), $by['sdf']['name'], $by['sdi']['label'], $by['sdf']['label']]);
+        $sources = array_values(array_filter(fanboySources(['disks' => fanboyDisks($p['disks']), 'chips' => []]), fn ($s) => ($s['group'] ?? null) === 'unassigned'));
+        $names = fanboySourceNames($sources, 'de');
+        same('fanboy r13 devs: their own group; the names — the plugin\'s, else «Nicht zugewiesen · 14,0 TB» with a number when alike; kinds disk/ssd',
+            [['Nicht zugewiesen · 14,0 TB (1)', 'Nicht zugewiesen · 14,0 TB (2)', 'Nicht zugewiesen · 14,0 TB (3)', 'Scratch'], ['disk', 'disk', 'disk', 'ssd']],
+            [array_values(array_map(fn ($s) => $names[$s['id']], $sources)), array_column($sources, 'kind')]);
+        // nothing of a serial anywhere: the page's state, the setup's sources, the report, the RAM notes
+        $state = jsonEncode(fanboyScan());
+        $report = fanboyReportText($scan = fanboyDetect(), fanboyIpmiFans($scan));
+        $ram = (string) @file_get_contents(fanboyRunDir() . '/devstat.json');
+        same('fanboy r13 devs: no serial (nor the id) in the page\'s state, the report or the RAM notes', [false, false, false],
+            [(bool) preg_match('/SERIAL|EXAMPLE_HDD/', $state), (bool) preg_match('/SERIAL|EXAMPLE_HDD/', $report), (bool) preg_match('/SERIAL|EXAMPLE_HDD/', $ram)]);
+        check('fanboy r13 devs: … the report counts them', str_contains($report, 'Disks outside array and pools: 4 (3 rotating, 1 asleep, 1 in use without a temperature)'), $report);
+        // the zones' proposal: the rotating ones where the array's disks go
+        $settings = fanboyTSettings();
+        $zones = fanboyZonesPropose(fanboyDetect(), $settings);
+        $disksZone = array_column(array_values(array_filter($zones, fn ($z) => $z['id'] === 'disks'))[0]['sources'] ?? [], 'id');
+        same('fanboy r13 devs: the proposal puts the rotating ones into the disks zone (the SSD not)', [true, true, true, false],
+            [in_array($by['sdf']['name'], $disksZone, true), in_array($by['sdg']['name'], $disksZone, true), in_array($by['sdh']['name'], $disksZone, true), in_array($by['sdi']['name'], $disksZone, true)]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 13b: the control with disks outside array and pools in a zone — one awake counts (with part 5's allowance), one
+ * asleep asks nothing, one in use without a temperature is said («in_use») and taken like a sensor that says nothing:
+ * after its wait the zone at full (the safer way)
+ */
+function testFanboyR13DevsControl(): void
+{
+    $t = fanboyT('r13devsctl');
+    try {
+        fanboyTDisks($t, 30, null, 30);
+        fanboyDevsFixture($t);
+        @unlink(fanboyRunDir() . '/devstat.json');
+        $spec = fanboyTSpec();
+        $p = fanboyPaths();
+        fanboyDisks($p['disks']);
+        $ids = array_column(array_values(array_filter(fanboyDisks($p['disks']), fn ($d) => $d['type'] === 'unassigned')), 'name', 'device');
+        $settings = fanboyTSettings();
+        $settings['zones'] = [['id' => 'disks', 'name' => 'Disks', 'fans' => [fanboyTId(4)], 'unit' => 'pct', 'target' => ['preset' => 'normal'],
+            'sources' => [['kind' => 'disk', 'id' => 'parity'], ['kind' => 'disk', 'id' => $ids['sdf']], ['kind' => 'disk', 'id' => $ids['sdg']]]]];
+        fanboyTStore($settings);
+        fanboyTSettle($t, $spec);
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        $z = $c['zones']['disks'];
+        same('fanboy r13 devs control: the awake one (34 °C) leads over parity (30), the asleep one asks nothing', [$ids['sdf'], 34, 'asleep'],
+            [$z['warmest']['id'] ?? null, $z['warmest']['c'] ?? null, $z['state'][$ids['sdg']] ?? null]);
+        // sdg is used by a VM now: its counters move, Unraid still says spun down — in use, no temperature
+        $settings['zones'][0]['sources'][] = ['kind' => 'disk', 'id' => $ids['sdh']];
+        fanboyLetGo($c, 'test');
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        for ($i = 0; $i < 70; $i++) {
+            fanboyDevsIo($t, 'sdh', 3000 + $i * 50);
+            fanboyTRounds($c, $now, $t, $spec, 1);
+        }
+        $st = fanboyStatus($c)['zones'][0];
+        same('fanboy r13 devs control: a disk in use without a temperature — said («in_use»), and after its wait (120 s) the zone at full with the sensor alarm',
+            [[$ids['sdh']], true, 'sensor', 255], [$st['in_use'] ?? null, $st['full'] ?? null, $c['alarm']['code'] ?? null, fanboyTOut($t, 4)[0]]);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyTEnd();
+    }
+}

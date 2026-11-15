@@ -283,6 +283,8 @@
   "fans.stands": "un ventilateur est arrêté",
   "src.disk": "Disque {n}",
   "src.parity": "Parité",
+  "src.unassigned": "Non attribué · {size}",
+  "src.unassigned_n": "Non attribué · {size} ({n})",
   "src.parity_n": "Parité {n}",
   "tile.today": "Aujourd'hui",
   "today.above": "au-dessus du niveau de repos pendant {time}",

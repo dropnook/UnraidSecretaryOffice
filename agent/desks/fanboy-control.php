@@ -347,7 +347,30 @@ function fanboySourceNames(array $sources, ?string $lang = null): array
     }
     $seen = [];
     $kindN = [];
+    // round 13b: the disks outside array and pools — the plugin's name, else «Nicht zugewiesen · 14,6 TB» (a number when alike)
+    $size = function (int $b) use ($lang): string {
+        $tb = $b / 1e12;
+        $txt = $tb >= 1 ? number_format($tb, $tb >= 10 ? 1 : 2, ($lang ?? 'en') === 'en' ? '.' : ',', '') . ' TB' : number_format($b / 1e9, 0, '.', '') . ' GB';
+        return $txt;
+    };
+    $alike = [];
     foreach ($sources as $x) {
+        if (($x['group'] ?? null) === 'unassigned' && !is_string($x['name'] ?? null)) {
+            $alike[$size((int) ($x['size'] ?? 0))] = ($alike[$size((int) ($x['size'] ?? 0))] ?? 0) + 1;
+        }
+    }
+    $alikeN = [];
+    foreach ($sources as $x) {
+        if (($x['group'] ?? null) === 'unassigned') {
+            if (is_string($x['name'] ?? null) && $x['name'] !== '') {
+                $out[$x['id']] = $x['name'];
+                continue;
+            }
+            $sz = $size((int) ($x['size'] ?? 0));
+            $alikeN[$sz] = ($alikeN[$sz] ?? 0) + 1;
+            $out[$x['id']] = $alike[$sz] > 1 ? $t('src.unassigned_n', ['size' => $sz, 'n' => $alikeN[$sz]]) : $t('src.unassigned', ['size' => $sz]);
+            continue;
+        }
         if (in_array($x['kind'], FANBOY_DISK_KINDS, true)) {
             $out[$x['id']] = preg_match('/^disk(\d+)$/D', $x['id'], $m) ? $t('src.disk', ['n' => $m[1]])
                 : (preg_match('/^parity(\d*)$/D', $x['id'], $m) ? ($m[1] !== '' ? $t('src.parity_n', ['n' => $m[1]]) : $t('src.parity')) : $x['id']);
@@ -429,7 +452,11 @@ function fanboySources(array $scan): array
     $out = [];
     foreach ($scan['disks'] ?? [] as $d) {
         // a rotating disk is «disk», an SSD/NVMe pool member «ssd»: their temperatures mean different things (round 4)
-        $out[] = ['kind' => ($d['rotational'] ?? true) ? 'disk' : 'ssd', 'id' => $d['name'], 'label' => $d['name'], 'c' => $d['temp'], 'asleep' => $d['asleep']];
+        $out[] = ['kind' => ($d['rotational'] ?? true) ? 'disk' : 'ssd', 'id' => $d['name'], 'label' => ($d['type'] ?? '') === 'unassigned' ? (string) ($d['label'] ?? '') : $d['name'],
+                  'c' => $d['temp'], 'asleep' => $d['asleep']]
+            // round 13b: a disk outside array and pools (devs.ini) — its own group on the page, the Unassigned Devices
+            // plugin's name for it (or none: the page says «not assigned · size»), in use without a temperature
+            + (($d['type'] ?? '') === 'unassigned' ? ['group' => 'unassigned', 'name' => $d['label'] ?? null, 'size' => $d['size'] ?? 0, 'in_use' => $d['in_use'] ?? false] : []);
     }
     foreach ($scan['chips'] ?? [] as $c) {
         if ($c['kind'] === 'disk') {
@@ -678,6 +705,7 @@ function fanboyReadSources(array &$c, float $now): void
             $c['sources'][$id]['raw'] = $d['temp'] ?? null;
             $c['sources'][$id]['c'] = ($d['temp'] ?? null) === null ? null : $d['temp'] + ($c['allow'] ?? 0);
             $c['sources'][$id]['there'] = $d !== null;
+            $c['sources'][$id]['in_use'] = ($d['in_use'] ?? false) === true;       // round 13b: in use, no temperature
         } else {
             $raw = $s['path'] === null ? null : fanboyReadInt($s['path']);
             $c['sources'][$id]['asleep'] = false;
@@ -882,7 +910,9 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
             continue;
         }
         if ($r['c'] === null) {
-            $states[$s['id']] = 'quiet';
+            // round 13b: a disk outside array and pools in use without a temperature (a VM's) — said so, and taken like a
+            // sensor that says nothing: past its wait the zone at full (the safer way)
+            $states[$s['id']] = !empty($r['in_use']) ? 'in_use' : 'quiet';
             $after = in_array($s['kind'], FANBOY_DISK_KINDS, true) ? FANBOY_DISK_SENSOR_AFTER : FANBOY_SENSOR_AFTER;
             if ($r['quiet_since'] !== null && $now - $r['quiet_since'] >= $after) {
                 $reasons['sensor'] = ['source' => $r['label'], 'zone' => $z['name'], 'zid' => $zid];
@@ -1320,6 +1350,7 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
             'full' => isset($c['full_since'][$z['id']]),         // round 4: this zone at 100 % for an alarm
             'react' => $z['react'], 'down' => fanboyDownProfile($z['warmest']['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']),
             'warmest' => $z['warmest'], 'asleep' => count(array_filter($z['state'], fn ($s) => $s === 'asleep')),
+            'in_use' => array_keys(array_filter($z['state'], fn ($s) => $s === 'in_use')),        // round 13b: in use, temperature unknown
             // round 13: every kind's curve as it counts now (own or derived), its warmest source and what it asks, who leads
             'curves' => fanboyZoneKindCurves($z), 'by_kind' => ($z['by_kind'] ?? []) ?: new stdClass(), 'leader' => $z['leader'] ?? null,
             'fans' => array_map(fn ($id) => ['id' => $id, 'name' => $c['fans'][$id]['name'], 'output' => $c['fans'][$id]['output'],
