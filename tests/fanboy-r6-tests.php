@@ -619,3 +619,33 @@ function testFanboyR6GpuZone(): void
         fanboyTEnd();
     }
 }
+
+/** Part 3: the agent's side — asks only for a minute after his page looked, writes the answer for his look, never waits */
+function testFanboyR6GpuTick(): void
+{
+    $t = fanboyT('r6gputick');
+    try {
+        fanboyR6NvidiaSmi($t, 'ok');
+        unset($GLOBALS['fanboyGpu'], $GLOBALS['fanboyGpuWanted']);
+        fanboyGpuTick(500.0);
+        same('fanboy r6 gpu tick: his page never looked — nothing asked', false, is_file("{$t['tmp']}/gpu.calls"));
+        fanboyGpuWant(500.0);
+        $t0 = hrtime(true);
+        fanboyGpuTick(500.1);
+        check('fanboy r6 gpu tick: his page looked — started, the tick returns at once', is_resource($GLOBALS['fanboyGpu']['proc']) && (hrtime(true) - $t0) / 1e6 < 200);
+        for ($i = 0; $i < 300 && is_resource($GLOBALS['fanboyGpu']['proc']); $i++) {
+            usleep(10000);
+            fanboyGpuTick(500.2);
+        }
+        same('fanboy r6 gpu tick: … its answer kept for his look (both cards)', 2, count(fanboyGpuCards()['cards'] ?? []));
+        @unlink("{$t['tmp']}/gpu.calls");
+        fanboyGpuTick(570.0);
+        same('fanboy r6 gpu tick: a minute after his last look — asked no more', false, is_file("{$t['tmp']}/gpu.calls"));
+    } finally {
+        if (isset($GLOBALS['fanboyGpu'])) {
+            fanboyGpuStop($GLOBALS['fanboyGpu']);
+        }
+        unset($GLOBALS['fanboyGpu'], $GLOBALS['fanboyGpuWanted']);
+        fanboyTEnd();
+    }
+}
