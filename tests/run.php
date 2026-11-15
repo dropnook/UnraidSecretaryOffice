@@ -64794,7 +64794,7 @@ function testFanboyPage(): void
     $acts = array_values(array_unique($acts[1]));
     sort($acts);
     same('fanboy page: the banner between the row and the sections; the page\'s actions through act() — the wizard\'s and part 2\'s',
-        [true, ['dashboard', 'drivers_load', 'drivers_undo', 'dry_run', 'hand_back', 'look_now', 'role', 'show', 'show_stop', 'take_over', 'watch', 'zones_propose', 'zones_save']],
+        [true, ['dashboard', 'drivers_load', 'drivers_undo', 'dry_run', 'hand_back', 'look_now', 'role', 'safety_back', 'show', 'show_stop', 'stop_all', 'take_over', 'watch', 'zones_propose', 'zones_save']],
         [str_contains($js, "banner = sw.el.insertBefore(el('div', 'fb-banner'), sw.body)"), $acts]);
     // step 2's list and panel: its actions queued through send() (no click dropped, a refusal said in the strip)
     preg_match_all("/send\\('([a-z_]+)'/", $js, $sends);

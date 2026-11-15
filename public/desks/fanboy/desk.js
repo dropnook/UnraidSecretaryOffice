@@ -1751,10 +1751,12 @@ function send(action, body, opts) {
 }
 /** «Alles stoppen»: whatever the setup holds goes back — a step, a show, the fans standing for a quiet test */
 function stopAll() {
-  return send('stop_all', {}, { done: () => Office.toast(T('strip.stopped_toast')) });
+  return send('stop_all', {}, { done: () => Office.toast(T('stop_all_toast')) });
 }
 
 // ------------------------------------------------------------------ small parts of the list-and-panel
+/** Why no test or show can start now, in a short line: another controller steers, or Fanboy does («Hand back» is step 6's) */
+const noTestWhy = () => (situation() === 'other' ? T('step.blocked_other') : control().running ? T('step.blocked_steering') : '');
 /** A button of the bench: its click queued (send), off only with its reason said beside it — never by a silent gate */
 function btn(text, cls, on, tip) {
   const b = el('button', cls === undefined ? 'btn small plain' : cls, text);
@@ -1982,7 +1984,7 @@ function benchMake() {
 
   function stripUpdate() {
     const s = step();
-    const noTest = situation() === 'other' ? T('step.blocked_other') : control().running ? T('step.blocked_steering') : '';
+    const noTest = noTestWhy();
     let mood = 'idle', text = T('strip.idle');
     if (run.pause) {
       mood = 'run';
@@ -2006,7 +2008,7 @@ function benchMake() {
     else if (!run.kind && endedText(s) && !(s.why === 'no_restart' && run.safety.length)) { line = endedText(s); warn = true; }     // (line 1 says the safety-full itself)
     else if (!run.kind && showEndedText()) { line = showEndedText(); warn = true; }
     else if (run.kind === 'test' || run.kind === 'measure') line = T('strip.keep_open');
-    else if (sends > 0) line = T('strip.moment');
+    else if (sends > 0) line = T('busy_wait');
     setText(note, line);
     note.classList.toggle('fb-strip-warn', warn);
     strip.classList.toggle('fb-strip-told', warn);
@@ -2017,7 +2019,7 @@ function benchMake() {
         out.push(btn(T(run.safety.length > 1 ? 'safety.back_all' : 'safety.back'), 'btn small', () => send('safety_back', { fan: run.safety[0].id, all: true }),
           run.safety.length > 1 ? T('safety.back_tip_all') : T('safety.back_tip', { pct: safetyPct(run.safety[0]) })));
       }
-      if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('strip.stop_all'), 'btn small danger', () => stopAll(), T('strip.stop_all_tip')));
+      if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('stop_all'), 'btn small danger', () => stopAll(), T('stop_all_tip')));
       out.forEach((b) => { b.disabled = !Office.agent.running; });
       return out;
     });
@@ -2217,7 +2219,7 @@ function panelMake(id, benchRun, benchUpdate) {
     const here = run.id === id && !!run.kind && !run.pause;
     const away = !Office.agent.running;
     const never = ['ignored', 'inverted'].includes(found);
-    const noTest = situation() === 'other' ? T('step.blocked_other') : control().running ? T('step.blocked_steering') : '';
+    const noTest = noTestWhy();
     const sf = safetyOf(id);
     if (wh) wh.update(wheelNow(id, run));
     root.classList.toggle('fb-live', here);
@@ -2305,7 +2307,8 @@ function panelMake(id, benchRun, benchUpdate) {
     if (document.activeElement !== count) count.value = String((f && f.count) || 1);
     let hint = '';
     if (found === 'empty') hint = T('panel.empty_note');
-    else if (f && (f.role === 'cpu' || f.role === 'pump')) hint = T('assign.never_stopped');
+    else if (f && f.role === 'cpu') hint = f.cpu_own ? '' : T('assign.cpu_bios');        // (given to Fanboy: its block above says since when)
+    else if (f && f.role === 'pump') hint = T('assign.never_stopped');
     else if (f && f.role === 'unknown') hint = T('roles.bios_note.unknown');
     else if (!roleSet && p && p.output === 1 && !never) hint = T('roles.cpu_hint');
     else if (f && num(f.kick_start) !== null) hint = T('assign.kick', { pct: Math.round(f.kick_start / 2.55) });
