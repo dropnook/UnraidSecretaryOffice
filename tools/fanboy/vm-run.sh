@@ -2,7 +2,7 @@
 # tools/fanboy/vm-run.sh — Fanboy's whole run on test3 against vm-rig.sh's chip, through the plugin's own mailbox
 # (tools/scenarios/ask.php: what the page's buttons send). Dev only. Runs ON test3 from a copy of the tree, the rig up.
 #
-#   bash vm-run.sh <phase>…     setup steer safety alarms chip renumber other drivers leave   (in this order)
+#   bash vm-run.sh <phase>…     setup steer safety alarms round4 chip renumber other drivers leave   (in this order)
 #                               boot-pre / boot-post (the reboot case: the Mac reboots test3 between them)
 #   bash vm-run.sh report       every phase's table into /tmp/uso-fanboy-vmrun/report.md
 #
@@ -31,6 +31,8 @@ state() { php "$ASKP" --raw fanboy.refresh 2>/dev/null | jq '.state' > "$OUT/sta
 sj() { jq -r "$2" "$OUT/state-$1.json"; }
 row() { printf '| %s | %s | %s |\n' "$1" "$2" "${3//|/\\|}" >> "$OUT/report.md"; }
 check() { local n=$1 ok=$2; shift 2; local w=PASS; [[ $ok == 1 ]] || w=FAIL; row "$n" "$w" "$*"; say "CHECK $w $n — $*"; }
+# a check of a finding known and planned (round 5, 2026-11-15): kept as it is, a FAIL marked so it isn't counted as new
+kcheck() { local n=$1 ok=$2; shift 2; local w=PASS; [[ $ok == 1 ]] || w='FAIL (known, round 5)'; row "$n" "$w" "$*"; say "CHECK $w $n — $*"; }
 info() { row "$1" info "$2"; say "INFO $1 — $2"; }
 ok() { "$@" >/dev/null 2>&1 && echo 1 || echo 0; }
 addr() { jq -r '.addr // "pcspkr"' "$RIGDIR/layout.json" 2>/dev/null || echo pcspkr; }
@@ -222,13 +224,15 @@ phase_steer() {
     # the gap: 70 → 69 °C (less than 2 °C below): nothing goes down
     RIG knob cpu 69 >/dev/null; sleep 12
     check "gap: 1 °C down changes nothing" "$( [[ $(cat "$(chipdir)/pwm2") == "$high" ]] && echo 1 || echo 0)" "pwm2 $high → $(cat "$(chipdir)/pwm2") after 12 s at 69 °C"
-    # down slowly: 67 °C (3 °C below) → raw 70 %: 1 % a round
-    RIG knob cpu 67 >/dev/null; t0=$(date +%s); sleep 20
+    # down by the leading kind (round 4): the case zone is led by the CPU — «balanced» cpu: gap 2.5 °C, hold 6 s, then 5 % a
+    # round down to the curve. 67 °C (3 °C below) → the curve's 73 % (187): holds 6 s, then two rounds
+    RIG knob cpu 67 >/dev/null; t0=$(date +%s.%N); sleep 4
     v=$(cat "$(chipdir)/pwm2")
-    local drop=$(( $(pct "$high") - $(pct "$v") ))
-    check "down slowly: 1 % a round (2 s)" "$( ((drop >= 7 && drop <= 11)) && echo 1 || echo 0)" "after 20 s at 67 °C: $(pct "$high") % → $(pct "$v") % (−$drop; expected ≈ −10)"
-    t=$(until_ 60 bash -c "[[ \$(cat $(chipdir)/pwm2) -le 188 ]]")
-    info "down slowly: reached the curve's 73 % at 67 °C (187)" "after $(( $(date +%s) - t0 )) s: pwm2 $(reg 2)"
+    check "down (cpu, balanced): holds 6 s first" "$( [[ $v == "$high" ]] && echo 1 || echo 0)" "4 s at 67 °C: pwm2 $high → $v"
+    t=$(until_ 30 bash -c "[[ \$(cat $(chipdir)/pwm2) -le 188 ]]")
+    local tdown; tdown=$(awk -v a="$t0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.1f", b-a}')
+    check "down (cpu, balanced): then 5 % a round to the curve's 73 %" "$( [[ $t != timeout ]] && awk -v t="$tdown" 'BEGIN{exit !(t >= 6 && t <= 14)}' && echo 1 || echo 0)" \
+        "$(pct "$high") % → $(pct "$(cat "$(chipdir)/pwm2")") % $tdown s after 70 → 67 °C (expected ≈ 6 s hold + 2 rounds); zone $(jq -c '.zones[] | select(.id == "case") | {react, down}' "$FB/control.json")"
     # the floor: everything cool — the case zone wants 25 %; pwm2 floor 25 (min 20 + 5), pwm3 (no tach) 40 %
     RIG knob cpu 30 >/dev/null; RIG knob nvme 30 >/dev/null; RIG knob board2 25 >/dev/null
     t=$(until_ 150 bash -c "[[ \$(cat $(chipdir)/pwm2) -le 64 ]]")
@@ -370,14 +374,14 @@ phase_safety() {
     check "foreign mode: that output given back (its curve: the value is the chip's)" "$( [[ $t != timeout && $(reg 2) == */2 ]] && echo 1 || echo 0)" "pwm2_enable=2 written by another: after ${t} s pwm2 $(reg 2); others: $(regs)"
     sleep 10; sampler_stop
     n=$(nsince foreign)
-    check "foreign: one notification each" "$( [[ $(grep -c . <<<"$n") == 2 ]] && echo 1 || echo 0)" "${n:-none}"
+    kcheck "foreign: one notification each (finding 3)" "$( [[ $(grep -c . <<<"$n") == 2 ]] && echo 1 || echo 0)" "${n:-none}"
     ask fanboy.hand_back >/dev/null; take
     end_phase
 }
 
 # ---------------------------------------------------------------------------------------------------------- alarms
-alarm_case() {   # <name> <expected code> <knob on…> -- <knob off…>
-    local name=$1 code=$2; shift 2
+alarm_case() {   # <name> <expected code> <outputs of the zone at 100 %, e.g. "2 3"> <knob on…> -- <knob off…>
+    local name=$1 code=$2 full=$3; shift 3
     local on=() off=() side=on
     for a in "$@"; do [[ $a == -- ]] && { side=off; continue; }; [[ $side == on ]] && on+=("$a") || off+=("$a"); done
     nmark "$name"; logmark "$name"; sampler_start "$name" 0.5
@@ -387,7 +391,19 @@ alarm_case() {   # <name> <expected code> <knob on…> -- <knob off…>
     sleep 3; state "$name-on"
     check "alarm $name: $code" "$( [[ $t != timeout ]] && echo 1 || echo 0)" \
         "alarm after ${t} s: $(sj "$name-on" '.control.alarm | tostring'); regs $(regs)"
-    check "alarm $name: his outputs at full" "$( [[ $(reg 2) == 255/1 && $(reg 3) == 255/1 && $(reg 4) == 255/1 && $(reg 5) == 255/1 ]] && echo 1 || echo 0)" "$(regs) (CPU cooler pwm1 and empty pwm6 untouched: $(reg 1), $(reg 6))"
+    # round 4: the alarm acts per zone — that zone's outputs at 100 %, the other zones steer on (a BIOS fan: told only)
+    local o zok=1 zs=''
+    for o in 2 3 4 5; do
+        if [[ " $full " == *" $o "* ]]; then [[ $(reg $o) == 255/1 ]] || zok=0; zs+="p$o=$(reg $o) (zone: full) "
+        else [[ $(reg $o) == 255/* ]] && zok=0; zs+="p$o=$(reg $o) (steers on) "; fi
+    done
+    [[ $(reg 6) == 128/2 ]] || zok=0
+    check "alarm $name: only its zone at 100 %${full:+ (pwm ${full// /, })}${full:-: none (told only)}" "$zok" "$zs; pwm1 $(reg 1), empty pwm6 $(reg 6); zones full: $(jq -c '[.zones[] | select(.full) | .id]' "$FB/control.json")"
+    if [[ $name == stands ]]; then
+        # finding 0 of the first night: a blocked fan whose floor (30 %) is under its start value (40 %) — two kicks at most
+        local kicks; kicks=$(awk '{for (i=2;i<=NF;i++) if ($i ~ /^p4=/) {split(substr($i,4),a,"/"); v=a[1]+0; if (v == 102 && p < 102) k++; p=v}} END{print k+0}' "$OUT/pwm-$name.txt")
+        check "alarm stands: two kicks at most (floor 30 % < start 40 %)" "$( ((kicks >= 1 && kicks <= 2)) && echo 1 || echo 0)" "kicks to 40 % seen in pwm4 samples: $kicks; stand_since $(jq -c '.stand_since' "$FB/control.json")"
+    fi
     RIG knob "${off[@]}" >/dev/null
     t=$(until_ 200 bash -c "[[ \$(jq -r '.alarm // \"none\"' $FB/control.json) == none ]]")
     sleep 8
@@ -400,13 +416,152 @@ phase_alarms() {
     begin_phase alarms
     steering || take
     calm; sleep 20
-    alarm_case stands stands stand4 1 -- stand4 0
+    alarm_case stands stands "4" stand4 1 -- stand4 0
     calm; sleep 10
-    alarm_case hot hot nvme 72 -- nvme 42
+    alarm_case hot hot "2 3" nvme 72 -- nvme 42
     calm; sleep 10
-    alarm_case sensor sensor quiet_board3 1 -- quiet_board3 0
+    alarm_case sensor sensor "5" quiet_board3 1 -- quiet_board3 0
     calm; sleep 10
-    alarm_case bios_stands bios_stands stand1 1 -- stand1 0
+    alarm_case bios_stands bios_stands "" stand1 1 -- stand1 0
+    end_phase
+}
+
+# ---------------------------------------------------------------------------------------------------------- round 3 + 4
+err() { jq -r '.error.key // "ok"' <<<"$1"; }
+errf() { jq -r '"\(.error.key // "ok") \(.error.params.field // "")"' <<<"$1"; }
+fanj() { sj "$1" ".setup.fans[] | select(.id == \"$2\") | $3"; }
+zone() { jq -c ".zones[] | select(.id == \"$1\") | $2" "$FB/control.json" 2>/dev/null; }
+# the zones of «setup» with a jq change on top (react, kinds, a CPU cooler)
+ZONESX() { ZONES | jq -c "$1"; }
+phase_round4() {
+    begin_phase round4
+    steering || take
+    calm; sleep 10
+    local r t t0 high v
+    # --- fans per connector (round 3): the splitter's two fans
+    r=$(ask fanboy.role "{\"fan\":\"$(F 2)\",\"role\":\"case\",\"name\":\"Front pair\",\"place\":\"front\",\"count\":2}")
+    check "count: two fans on pwm2 kept" "$(jq -r '.fan.count == 2' <<<"$r" | grep -c true)" "${r:0:200}"
+    r=$(ask fanboy.role "{\"fan\":\"$(F 2)\",\"role\":\"case\",\"name\":\"Front pair\",\"count\":9}"); local r2; r2=$(ask fanboy.role "{\"fan\":\"$(F 2)\",\"role\":\"case\",\"name\":\"Front pair\",\"count\":\"2\"}")
+    local r3; r3=$(ask fanboy.role "{\"fan\":\"$(F 2)\",\"role\":\"case\",\"name\":\"Front pair\",\"count\":0}")
+    check "count: 9, \"2\" and 0 refused" "$( [[ $(err "$r") == fanboy_bad_count && $(err "$r2") == bad_request && $(err "$r3") == bad_request ]] && echo 1 || echo 0)" "9 → $(err "$r"), \"2\" → $(err "$r2"), 0 → $(err "$r3")"
+    r=$(ask fanboy.role "{\"fan\":\"$(F 2)\",\"role\":\"case\",\"name\":\"Front pair\",\"place\":\"front\"}"); state count
+    check "count: not sent = as it was" "$( [[ $(fanj count "$(F 2)" .count) == 2 ]] && echo 1 || echo 0)" "state count $(fanj count "$(F 2)" .count)"
+    # --- reaction per zone (round 4): the case zone «quick» — cpu: gap 1.5 °C, hold 3 s, 8 % a round
+    r=$(ask fanboy.zones_save "$(ZONESX '.zones[1].react = "fast"')")
+    check "react: an unknown reaction refused" "$( [[ $(errf "$r") == 'fanboy_bad_zones react' ]] && echo 1 || echo 0)" "$(errf "$r")"
+    r=$(ask fanboy.zones_save "$(ZONESX '.zones[1].react = "quick"')")
+    t=$(until_ 30 bash -c "[[ \$(jq -r '.zones[] | select(.id == \"case\") | .react' $FB/control.json) == quick ]]")
+    check "react: quick saved, the control takes it" "$( [[ $(jq -r '.zones[1].react' <<<"$r") == quick && $t != timeout ]] && echo 1 || echo 0)" "after ${t} s: $(zone case '{react, down}')"
+    sampler_start react-quick 0.5
+    RIG knob cpu 70 >/dev/null; until_ 10 bash -c "[[ \$(cat $(chipdir)/pwm2) -ge 205 ]]" >/dev/null; sleep 6; high=$(cat "$(chipdir)/pwm2")
+    t0=$(date +%s.%N); RIG knob cpu 68 >/dev/null
+    t=$(until_ 20 bash -c "[[ \$(cat $(chipdir)/pwm2) -lt $high ]]")
+    sleep 6; v=$(cat "$(chipdir)/pwm2"); sampler_stop
+    check "react quick: 2 °C down is enough (gap 1.5), after ~3 s" "$( [[ $t != timeout ]] && awk -v t="$t" 'BEGIN{exit !(t >= 2.5 && t <= 7)}' && ((v >= 194 && v <= 198)) && echo 1 || echo 0)" \
+        "70 → 68 °C: pwm2 $high ($(pct "$high") %) began down after ${t} s, 6 s later $v ($(pct "$v") %; the curve at 68 °C: 77 %)"
+    r=$(ask fanboy.zones_save "$(ZONES)")
+    until_ 30 bash -c "[[ \$(jq -r '.zones[] | select(.id == \"case\") | .react' $FB/control.json) == balanced ]]" >/dev/null
+    sampler_start react-balanced 0.5
+    RIG knob cpu 45 >/dev/null; sleep 4; RIG knob cpu 70 >/dev/null; until_ 10 bash -c "[[ \$(cat $(chipdir)/pwm2) -ge 205 ]]" >/dev/null; sleep 6; high=$(cat "$(chipdir)/pwm2")
+    RIG knob cpu 68 >/dev/null; sleep 14; v=$(cat "$(chipdir)/pwm2"); sampler_stop
+    check "react balanced (the default again): 2 °C down holds (gap 2.5)" "$( [[ $v == "$high" && $(zone case .react) == '"balanced"' ]] && echo 1 || echo 0)" "70 → 68 °C: pwm2 $high → $v after 14 s; $(zone case '{react, down}')"
+    calm; sleep 6
+    # --- degrees per kind (round 4): the case zone's NVMe «full at 55, limit 60» — its own limit (70) taken off the source
+    local KZ='del(.zones[1].sources[1].limit)'
+    r=$(ask fanboy.zones_save "$(ZONESX "$KZ | .zones[1].kinds = {disk: {limit: 50}}")"); r2=$(ask fanboy.zones_save "$(ZONESX "$KZ | .zones[1].kinds = {nvme: {limit: 50}}")")
+    r3=$(ask fanboy.zones_save "$(ZONESX "$KZ | .zones[1].kinds = {nvme: {limit: 130}}")")
+    check "kinds: refused — a kind the zone hasn't, low < high < limit broken, out of bounds" \
+        "$( [[ $(errf "$r") == 'fanboy_bad_zones kinds' && $(err "$r2") == fanboy_bad_temps && $(err "$r3") != ok ]] && echo 1 || echo 0)" "disk in case → $(errf "$r"); nvme limit 50 (< high 65) → $(err "$r2") $(jq -c .error.params <<<"$r2"); nvme 130 → $(errf "$r3")"
+    r=$(ask fanboy.zones_save "$(ZONESX "$KZ | .zones[1].kinds = {nvme: {high: 55, limit: 60}}")")
+    check "kinds: saved" "$(jq -r '.zones[1].kinds.nvme == {high: 55, limit: 60}' <<<"$r" | grep -c true)" "$(jq -c '.zones[1] | {kinds, s: .sources[1]}' <<<"$r")"
+    sleep 10; nmark kinds; logmark kinds; sampler_start kinds 0.5
+    RIG knob nvme 62 >/dev/null
+    t=$(until_ 120 bash -c "[[ \$(jq -r '.alarm.code // empty' $FB/control.json) == hot ]]"); sleep 3
+    check "kinds: NVMe 62 °C over its zone's limit 60 → «too warm» after 60 s" "$( [[ $t != timeout ]] && awk -v t="$t" 'BEGIN{exit !(t >= 58 && t <= 75)}' && echo 1 || echo 0)" "after ${t} s: $(jq -c .alarm "$FB/control.json")"
+    check "kinds: only the case zone at 100 %" "$( [[ $(reg 2) == 255/1 && $(reg 3) == 255/1 && $(reg 4) != 255/* && $(reg 5) != 255/* ]] && echo 1 || echo 0)" "$(regs); full $(jq -c '[.zones[] | select(.full) | .id]' "$FB/control.json")"
+    RIG knob nvme 42 >/dev/null
+    t=$(until_ 200 bash -c "[[ \$(jq -r '.alarm // \"none\"' $FB/control.json) == none ]]"); sleep 4; sampler_stop
+    check "kinds: over, one notification" "$( [[ $t != timeout && $(nsince kinds | grep -c .) == 1 ]] && echo 1 || echo 0)" "over after ${t} s; $(nsince kinds | tr '\n' ' ')"
+    r=$(ask fanboy.zones_save "$(ZONES)"); calm; sleep 6
+    # --- the CPU cooler under Fanboy (round 4): only confirmed, only in a zone with a CPU temperature
+    r=$(ask fanboy.role "{\"fan\":\"$(F 1)\",\"role\":\"cpu\",\"name\":\"CPU cooler\",\"cpu_own\":true}")
+    r2=$(ask fanboy.role "{\"fan\":\"$(F 2)\",\"role\":\"case\",\"name\":\"Front pair\",\"cpu_own\":true,\"cpu_confirm\":true}")
+    check "cpu_own: refused without the tick, refused for a case fan" "$( [[ $(err "$r") == fanboy_cpu_confirm && $(err "$r2") == fanboy_bad_role ]] && echo 1 || echo 0)" "no cpu_confirm → $(err "$r"); role case → $(err "$r2")"
+    r=$(ask fanboy.role "{\"fan\":\"$(F 1)\",\"role\":\"cpu\",\"name\":\"CPU cooler\",\"cpu_own\":true,\"cpu_confirm\":true}")
+    check "cpu_own: given, dated" "$(jq -r '.fan.cpu_own.at | type == "number"' <<<"$r" | grep -c true)" "$(jq -c '.fan | {role, cpu_own}' <<<"$r"); pwm1 still $(reg 1)"
+    r=$(ask fanboy.zones_save "$(ZONESX ".zones[2].fans += [\"$(F 1)\"]")")
+    check "cpu_own: refused in a zone without a CPU temperature" "$( [[ $(err "$r") == fanboy_cpu_zone_needs_cpu ]] && echo 1 || echo 0)" "rear + CPU cooler → $(err "$r")"
+    sampler_start cpu-take 0.5
+    r=$(ask fanboy.zones_save "$(ZONESX ".zones[1].fans += [\"$(F 1)\"]")")
+    t=$(until_ 30 bash -c "[[ \$(cat $(chipdir)/pwm1_enable) == 1 ]]")
+    check "cpu_own: he takes the CPU cooler in the case zone" "$( [[ $t != timeout ]] && echo 1 || echo 0)" "after ${t} s: pwm1 $(reg 1); $(zone case '[.fans[] | {o: .output, pct, held}]')"
+    r=$(ask fanboy.role "{\"fan\":\"$(F 1)\",\"role\":\"cpu\",\"name\":\"CPU fan\",\"place\":\"\"}"); state cpu-renamed
+    check "cpu_own: a role edit without cpu_own keeps it" "$( [[ $(fanj cpu-renamed "$(F 1)" .cpu_own) =~ ^[0-9]+$ ]] && echo 1 || echo 0)" "cpu_own $(fanj cpu-renamed "$(F 1)" .cpu_own), name $(fanj cpu-renamed "$(F 1)" .name)"
+    # its floor: max(40, min + 5) — never off: cool, the case zone wants 25 %
+    RIG knob cpu 30 >/dev/null; RIG knob nvme 30 >/dev/null; RIG knob board2 25 >/dev/null
+    t=$(until_ 120 bash -c "[[ \$(cat $(chipdir)/pwm1) -le 102 ]]"); sleep 10; sampler_stop
+    local min1; min1=$(awk '{for (i=2;i<=NF;i++) if ($i ~ /^p1=/) {split(substr($i,4),a,"/"); if (a[2] == 1 && (m == "" || a[1]+0 < m)) m=a[1]+0}} END{print m}' "$OUT/pwm-cpu-take.txt")
+    check "cpu_own: floor 40 % (max(40, min+5)), never under, never off" "$( [[ $(reg 1) == 102/1 && $min1 -ge 102 ]] && echo 1 || echo 0)" "cool: pwm1 $(reg 1) after ${t} s; lowest written $min1; $(zone case '{level, warmest: .warmest.c}')"
+    # the way down: cpu 70 → 60 °C — holds 6 s, then about 5 % a round to the curve's 50 %
+    RIG knob cpu 70 >/dev/null; until_ 10 bash -c "[[ \$(cat $(chipdir)/pwm1) -ge 205 ]]" >/dev/null; sleep 6
+    sampler_start cpu-down 0.25; sleep 1; t0=$(date +%s.%N); RIG knob cpu 60 >/dev/null
+    until_ 40 bash -c "[[ \$(cat $(chipdir)/pwm1) -le 128 ]]" >/dev/null; sleep 3; sampler_stop
+    local steps; steps=$(awk -v t0="$t0" '{for (i=2;i<=NF;i++) if ($i ~ /^p1=/) {split(substr($i,4),a,"/"); v=a[1]+0; if (p != "" && v != p) printf "%.1f:%d ", $1-t0, v-p; p=v}}' "$OUT/pwm-cpu-down.txt")
+    local first; first=$(awk '{print $1+0; exit}' <<<"${steps%%:*}")
+    check "cpu_own: way down — hold 6 s, then ~5 % a round" "$(awk -v f="$first" -v s="$steps" 'BEGIN{n=split(s,a," "); ok=(f >= 5.5 && f <= 9); for (i=1;i<=n;i++) {split(a[i],b,":"); if (b[2] < -14 || b[2] > 0) ok=0} exit !ok}' && echo 1 || echo 0)" \
+        "70 → 60 °C, changes of pwm1 (s after : value step): $steps(5 % = 12.75)"
+    # it stands: its zone at 100 % — the CPU cooler, the front pair, the 3-pin; disks and rear steer on
+    calm; sleep 12; nmark cpustand; logmark cpustand; sampler_start cpu-stand 0.5
+    RIG knob stand1 1 >/dev/null
+    t=$(until_ 60 bash -c "[[ \$(jq -r '.alarm.code // empty' $FB/control.json) == stands ]]"); sleep 3
+    check "cpu_own: it stands → alarm" "$( [[ $t != timeout ]] && echo 1 || echo 0)" "after ${t} s: $(jq -c .alarm "$FB/control.json")"
+    check "cpu_own: it stands → its zone at 100 %, the others steer on" "$( [[ $(reg 1) == 255/1 && $(reg 2) == 255/1 && $(reg 3) == 255/1 && $(reg 4) != 255/* && $(reg 5) != 255/* ]] && echo 1 || echo 0)" "$(regs)"
+    RIG knob stand1 0 >/dev/null
+    t=$(until_ 200 bash -c "[[ \$(jq -r '.alarm // \"none\"' $FB/control.json) == none ]]"); sleep 4; sampler_stop
+    check "cpu_own: over, one notification" "$( [[ $t != timeout && $(nsince cpustand | grep -c .) == 1 ]] && echo 1 || echo 0)" "over after ${t} s; $(nsince cpustand | tr '\n' ' ')"
+    # «back to the BIOS»: the confirmation gone, the output back to the board's automatic at once
+    sampler_start cpu-back 0.25
+    r=$(ask fanboy.role "{\"fan\":\"$(F 1)\",\"role\":\"cpu\",\"name\":\"CPU cooler\",\"place\":\"\",\"cpu_own\":false}")
+    t=$(until_ 30 bash -c "[[ \$(cat $(chipdir)/pwm1_enable) == 2 ]]"); sleep 4; sampler_stop; state cpu-back
+    check "cpu_own: back to the BIOS clears it" "$( [[ $t != timeout && $(reg 1) == */2 && $(fanj cpu-back "$(F 1)" .cpu_own) == null ]] && echo 1 || echo 0)" "after ${t} s pwm1 $(reg 1); cpu_own $(fanj cpu-back "$(F 1)" .cpu_own); the others $(regs)"
+    r=$(ask fanboy.zones_save "$(ZONES)"); sleep 4
+    # --- the history and its periods (round 3)
+    r=$(ask fanboy.history '{"hours":1}'); r2=$(ask fanboy.history '{"hours":5}'); r3=$(ask fanboy.history '{"hours":"24"}')
+    local now; now=$(jq -r .state.now <<<"$r")
+    check "history: the period 1 h only the last hour; 5 and \"24\" refused" \
+        "$( [[ $(jq -r '.state.hours' <<<"$r") == 1 && $(jq -r --argjson n "$now" '[.state.zones[][] | .[0] < $n - 3600] | any' <<<"$r") == false && $(err "$r2") == fanboy_bad_period && $(err "$r3") == bad_request ]] && echo 1 || echo 0)" \
+        "1 h: $(jq -c '.state.zones | map_values(length)' <<<"$r"); 5 → $(err "$r2"); \"24\" → $(err "$r3")"
+    # thinning: points two days old a minute each (a peak among them) and one four days old put into the RAM history while
+    # the control is away — loaded, folded into 5-minute spans (peaks kept), the old one gone (seconds :07 = ours)
+    ask fanboy.hand_back >/dev/null; until_ 20 bash -c "! kill -0 $(ctlpid) 2>/dev/null" >/dev/null; sleep 1
+    local T; T=$(( $(date +%s) / 60 * 60 + 7 ))
+    jq -c --argjson T "$T" '.zones.disks = ([[($T - 345600), 99, 99, 9999]] + [range(0; 61) as $i | [($T - 144000 - 3600 + $i * 60), (if $i == 30 then 66 else 40 end), (if $i == 31 then 90 else 30 end), 700]] + .zones.disks)' \
+        "$FB/history.json" > "$FB/.vmrun-history" && mv "$FB/.vmrun-history" "$FB/history.json"
+    r=$(ask fanboy.history '{"hours":72}')
+    local seeded; seeded=$(jq -c --argjson T "$T" '[.state.zones.disks[] | select(.[0] < $T - 43200)]' <<<"$r")
+    check "history: 3 days — minutes older than 12 h folded into 5-minute spans, peaks kept, older than 3 days gone" \
+        "$(jq -r --argjson T "$T" 'length >= 12 and length <= 13 and all(.[0] >= $T - 259200) and (map(.[1]) | max) == 66 and (map(.[2]) | max) == 90' <<<"$seeded" | grep -c true)" \
+        "61 minutes 40 h ago + 1 point 96 h ago seeded → $(jq -r length <<<"$seeded") points: $(jq -c 'map([.[0] % 3600, .[1], .[2]])' <<<"$seeded" | head -c 400); hours $(jq .state.hours <<<"$r")"
+    take; sleep 70
+    check "history: the control keeps it thinned (RAM, a minute later)" "$(jq -r --argjson T "$T" '[.zones.disks[] | select(.[0] < $T - 43200)] | length >= 12 and length <= 13' "$FB/history.json" | grep -c true)" \
+        "$(jq -c --argjson T "$T" '.zones | map_values(length), [.disks[] | select(.[0] < $T - 43200)] | length' "$FB/history.json" | tr '\n' ' ')"
+    ask fanboy.hand_back >/dev/null; until_ 20 bash -c "[[ -z \$(pgrep -f '[j]ob fanboy-control') ]]" >/dev/null; sleep 1
+    local h; for h in "$FB/history.json" "$D/fanboy/history.json"; do
+        [[ -f $h ]] && jq -c --argjson T "$T" '.zones.disks |= map(select(.[0] >= $T - 43200 or .[0] % 60 != 7))' "$h" > "$h.vmrun" && mv "$h.vmrun" "$h"
+    done
+    info "history: the seeded points taken out again" "$(jq -c --argjson T "$T" '[.zones.disks[] | select(.[0] < $T - 43200)] | length' "$FB/history.json") left"
+    take; sleep 6
+    # --- the Dashboard setting and its tile (reads state files only)
+    r=$(ask fanboy.dashboard '{"show":"loud"}'); r2=$(ask fanboy.dashboard '{"show":true}'); r3=$(ask fanboy.dashboard '{}')
+    check "dashboard: odd values refused" "$( [[ $(err "$r") == bad_request && $(err "$r2") == bad_request && $(err "$r3") == bad_request ]] && echo 1 || echo 0)" "loud → $(err "$r"), true → $(err "$r2"), {} → $(err "$r3"); file $(cat "$D/fanboy/dashboard.json" 2>/dev/null || echo none)"
+    local s
+    for s in speeds history off; do
+        r=$(ask fanboy.dashboard "{\"show\":\"$s\"}")
+        php -d disable_functions=exec,shell_exec,system,passthru,proc_open,popen,pcntl_exec "$HERE/vm-tile.php" > "$OUT/tile-$s.txt" 2>&1
+        check "dashboard $s: kept, mirrored, the tile from state files only" \
+            "$( [[ $(jq -r .show <<<"$r") == "$s" && $(jq -r .show "$D/fanboy/dashboard.json") == "$s" && $(jq -r .show "$FB/dash.json") == "$s" ]] && grep -q '^forbidden: none$' "$OUT/tile-$s.txt" && grep -q "^tile: $( [[ $s == off ]] && echo empty || echo shown)" "$OUT/tile-$s.txt" && echo 1 || echo 0)" \
+            "file $(jq -c . "$D/fanboy/dashboard.json"); mirror $(cat "$FB/dash.json"); $(grep -E '^(tile|rows|outside|forbidden|zones|curves):' "$OUT/tile-$s.txt" | tr '\n' ' ' | head -c 500)"
+    done
     end_phase
 }
 
@@ -430,7 +585,7 @@ phase_chip() {
     # 15 real minutes: one notification; looks every 5 s for 2 min, then every minute, then every 5 minutes
     sleep $((t0 + 915 - $(date +%s)))         # the 15-minute one is due at 900 s; Unraid writes its file a moment later
     local n15; n15=$(nsince gone)
-    check "chip missing 15 min: one notification" "$( [[ $(grep -c . <<<"$n15") == 1 ]] && echo 1 || echo 0)" "${n15:-none}; status $(jq -c '{why, missing}' "$FB/control.json")"
+    kcheck "chip missing 15 min: one notification (finding 7)" "$( [[ $(grep -c . <<<"$n15") == 1 ]] && echo 1 || echo 0)" "${n15:-none}; status $(jq -c '{why, missing}' "$FB/control.json")"
     sleep $((t0 + 1260 - $(date +%s)))         # 21 minutes: a quiet look (every 5 min) seen
     info "chip missing: the looks (seconds between the control's looks into /sys/class/hwmon)" "$(looks)"
     RIG chip back >/dev/null; t=$(until_ 330 steering); atime_stop
@@ -540,7 +695,7 @@ phase_leave() {
     RIG down >/dev/null
     rm -f "$D/fanboy/show.json"
     bash "$P/scripts/agent.sh" restart >/dev/null 2>&1; sleep 5
-    check "left: no rig mount, no responder, no control, no step" "$( [[ -z $(mount | grep '^rig-') && -z $(pgrep -f 'vm-responder|job fanboy|fanctrlplus_loop|vm-rig.sh watch') ]] && echo 1 || echo 0)" \
+    check "left: no rig mount, no responder, no control, no step" "$( [[ -z $(mount | grep '^rig-') && -z $(pgrep -f '[v]m-responder|[j]ob fanboy|[f]anctrlplus_loop|[v]m-rig.sh watch') ]] && echo 1 || echo 0)" \
         "$(mount | grep -c '^rig-') mounts; procs: $(pgrep -af 'vm-responder|job fanboy|fanctrlplus_loop|vm-rig.sh watch' | head -3)"
     check "left: array started, agent at work, Fanboy hidden" "$( grep -q '^fsState="Started"' /var/local/emhttp/var.ini && bash "$P/scripts/agent.sh" status >/dev/null && ! tail -3 "$D/agent.log" | grep 'Agent started' | grep -q fanboy && echo 1 || echo 0)" \
         "$(tail -2 "$D/agent.log" | tr '\n' ' '); guard cron $(ls /boot/config/plugins/unraid-secretary-office/fanboy-guard.cron 2>&1 | head -c 100)"
@@ -548,13 +703,13 @@ phase_leave() {
     end_phase
 }
 
-report() { { echo "# Fanboy on test3 — $(date -Is)"; for p in setup steer safety alarms chip renumber other drivers boot-pre boot-post leave; do cat "$ROOT/$p/report.md" 2>/dev/null; done; } > "$ROOT/report.md"; echo "$ROOT/report.md"; }
+report() { { echo "# Fanboy on test3 — $(date -Is)"; for p in setup steer safety alarms round4 chip renumber other drivers boot-pre boot-post leave; do cat "$ROOT/$p/report.md" 2>/dev/null; done; } > "$ROOT/report.md"; echo "$ROOT/report.md"; }
 
 [[ $(cat /sys/class/dmi/id/product_uuid 2>/dev/null) == 89b3d774-ddbb-4fbd-84b1-49b1f8647350 ]] || { echo "not test3 — refused"; exit 1; }
 mkdir -p "$ROOT"
 for ph in "$@"; do
     case $ph in
-    setup|steer|safety|alarms|chip|renumber|other|drivers|leave) "phase_$ph" ;;
+    setup|steer|safety|alarms|round4|chip|renumber|other|drivers|leave) "phase_$ph" ;;
     boot-pre) phase_boot_pre ;; boot-post) phase_boot_post ;;
     report) report ;;
     *) echo "unknown phase $ph"; exit 2 ;;
