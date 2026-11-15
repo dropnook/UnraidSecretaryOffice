@@ -184,12 +184,14 @@ const NOTES = [{ code: 'chip_back', params: { minutes: 3 }, at: T0 - 5400 }, { c
 function steering(more = {}) {
   const zonesSet = more.zones || ZONES, fansSet = more.fans || SET_UP;
   const rpm = { ...RPM, ...(more.rpm || {}) };
-  const itec = ite({ 1: [128, 2], 2: [102, 1], 4: [107, 1], 5: [102, 1], ...(more.pwm || {}) }, rpm);
+  // an alarm in the case zone (round 4: only that zone at 100 %, its outputs' values too; the disk cage steers on)
+  const pc = more.caseFull ? 100 : 40;
+  const itec = ite({ 1: [128, 2], 2: [more.caseFull ? 255 : 102, 1], 4: [107, 1], 5: [more.caseFull ? 255 : 102, 1], ...(more.pwm || {}) }, rpm);
   const zonesNow = [
     { id: 'disks', name: 'Plattenkäfig', unit: 'pct', level: 42, full: false, warmest: { id: 'disk2', label: 'disk2', c: 41, mapped: 41, kind: 'disk' }, asleep: 1,
       fans: [{ id: P(4), name: 'Plattenkäfig', output: 4, pct: 42, rpm: rpm[4], held: true, foreign: false }] },
-    { id: 'case', name: 'Gehäuse', unit: 'pct', level: 40, full: !!more.caseFull, warmest: { id: NVME, label: 'Composite', c: 27.9, mapped: 27.9, kind: 'nvme' }, asleep: 0,
-      fans: [{ id: P(5), name: 'Vorn', output: 5, pct: 40, rpm: rpm[5], held: true, foreign: false }, { id: P(2), name: 'Deckel', output: 2, pct: 40, rpm: null, held: true, foreign: false }] },
+    { id: 'case', name: 'Gehäuse', unit: 'pct', level: pc, full: !!more.caseFull, warmest: { id: NVME, label: 'Composite', c: 27.9, mapped: 27.9, kind: 'nvme' }, asleep: 0,
+      fans: [{ id: P(5), name: 'Vorn', output: 5, pct: pc, rpm: rpm[5], held: true, foreign: false }, { id: P(2), name: 'Deckel', output: 2, pct: pc, rpm: null, held: true, foreign: false }] },
   ];
   if (more.zonesNow) zonesNow.push(...more.zonesNow);
   return state({ ite: itec, fans: fansSet, zones: zonesSet, armed: true, who: more.who || { who: 'fanboy', why: 'steers', zones: 2 },

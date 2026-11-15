@@ -1,6 +1,7 @@
 {
   "keys": [
     "curves.title",
+    "dash.setting",
     "drivers.title",
     "fans.title",
     "help.curves",

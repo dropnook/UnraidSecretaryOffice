@@ -692,7 +692,34 @@ function serverSection() {
   s.appendChild(pictureEl());
   const notes = notesBox();
   if (notes) s.append(Office.place('notes.title', el('h3', 'fb-head', T('notes.title'))), notes);
+  s.appendChild(dashChoice());
   return s;
+}
+
+/**
+ * «Show on the Dashboard»: his own tile on Unraid's Dashboard (src/dashboard-fanboy.php) — off (the default), speeds,
+ * speeds with history. Office-wide (the agent keeps it: fanboy.dashboard), never per browser.
+ */
+const DASH_SHOWS = ['off', 'speeds', 'history'];
+function dashChoice() {
+  const box = Office.place('dash.setting', el('div', 'fb-dash-choice'));
+  const now = DASH_SHOWS.includes(S().dashboard) ? S().dashboard : 'off';
+  const head = el('div', 'fb-dash-text');
+  head.append(el('h3', 'fb-head', T('dash.setting')), el('p', 'fb-hint-text', T('dash.setting_sub')));
+  const seg = el('div', 'seg');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', T('dash.setting'));
+  DASH_SHOWS.forEach((k) => {
+    const b = el('button', '', T(`dash.show.${k}`));
+    b.type = 'button';
+    b.title = T(`dash.show.${k}_title`);
+    b.setAttribute('aria-pressed', String(k === now));
+    b.disabled = !state || !Office.agent.running;
+    b.onclick = () => { if (k !== now) act('dashboard', { show: k }, b); };
+    seg.appendChild(b);
+  });
+  box.append(head, seg);
+  return box;
 }
 
 /** What happened lately at his fans (the control's notes, newest first, known kinds only) */
@@ -2235,6 +2262,7 @@ const SETUP_ROUTE = { route: `#/${ID}/setup`, crumb: 'page.setup' };
 Office.places(ID, [
   { kind: 'section', key: 'server.title', route: `#/${ID}/who` },
   { kind: 'section', key: 'notes.title', route: `#/${ID}/who` },
+  { kind: 'section', key: 'dash.setting', route: `#/${ID}/who` },
   { kind: 'section', key: 'fans.title', route: `#/${ID}/fans` },
   { kind: 'section', key: 'sensors.title', route: `#/${ID}/hottest` },
   { kind: 'section', key: 'curves.title', route: `#/${ID}/today` },

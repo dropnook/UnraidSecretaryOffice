@@ -18,6 +18,10 @@
   .fb-strong{font-weight:600; color:var(--ink)}
   .fb-hints > summary{cursor:pointer; color:var(--accent-ink); font-size:13px; padding:2px 0}
   .fb-hints-body{display:flex; flex-direction:column; gap:8px; margin-top:8px}
+  /* «Show on the Dashboard» under the server picture: the words, the three choices beside them (under them on a phone) */
+  .fb-dash-choice{display:flex; align-items:flex-end; justify-content:space-between; gap:8px 16px; flex-wrap:wrap; margin-top:12px; padding-top:10px; border-top:1px solid var(--line)}
+  .fb-dash-text{min-width:0; flex:1 1 280px}
+  .fb-dash-text .fb-head{margin-top:0}
   .fb-wait{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin:8px 0}
   /* above the tiles: what holds now */
   .fb-banner{display:flex; flex-direction:column; gap:8px}

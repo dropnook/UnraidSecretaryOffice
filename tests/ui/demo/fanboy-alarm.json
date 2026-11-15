@@ -252,8 +252,8 @@
     },
     {
      "n": 2,
-     "value": 102,
-     "pct": 40,
+     "value": 255,
+     "pct": 100,
      "enable": 1,
      "mode": "manual",
      "auto": true
@@ -276,8 +276,8 @@
     },
     {
      "n": 5,
-     "value": 102,
-     "pct": 40,
+     "value": 255,
+     "pct": 100,
      "enable": 1,
      "mode": "manual",
      "auto": true
@@ -670,7 +670,7 @@
     "id": "case",
     "name": "Gehäuse",
     "unit": "pct",
-    "level": 40,
+    "level": 100,
     "full": true,
     "warmest": {
      "id": "nvme@pci0000:00/0000:00:06.1/0000:03:00.0/nvme#1",
@@ -685,7 +685,7 @@
       "id": "it8696_a0060607:it87.2608:pwm5",
       "name": "Vorn",
       "output": 5,
-      "pct": 40,
+      "pct": 100,
       "rpm": 0,
       "held": true,
       "foreign": false
@@ -694,7 +694,7 @@
       "id": "it8696_a0060607:it87.2608:pwm2",
       "name": "Deckel",
       "output": 2,
-      "pct": 40,
+      "pct": 100,
       "rpm": null,
       "held": true,
       "foreign": false

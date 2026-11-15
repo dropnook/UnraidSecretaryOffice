@@ -103,6 +103,8 @@ if (fanboyShown()) {
             'back'          => fn (array $r) => fanboyBack($r),
             'fan_look'      => fn (array $r) => fanboyFanLook($r),
             'history'       => fn (array $r) => ['ok' => true, 'state' => fanboyHistoryPart(fanboyHistoryHours($r))],
+            // his own tile on Unraid's Dashboard: off, speeds, speeds with history (fanboy-dash.php)
+            'dashboard'     => fn (array $r) => fanboyDashSet($r),
         ],
     ]);
 }
@@ -121,6 +123,7 @@ function fanboyScan(): array
     $state['setup'] = fanboySetupState($state, $settings);
     $state['step'] = fanboyStepRead();
     $state['drivers'] = fanboyDriversState($state['board']);
+    $state['dashboard'] = fanboyDashState();            // his Dashboard tile's setting (fanboy-dash.php), its mirror in RAM
     writeAtomic(deskFile('fanboy'), jsonEncode($state));
     return $state;
 }
