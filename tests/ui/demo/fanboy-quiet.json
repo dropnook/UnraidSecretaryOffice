@@ -1688,7 +1688,12 @@
     "tachs": []
    }
   },
-  "progress": null,
+  "progress": {
+   "id": "it8696_a0060607:it87.2608:pwm3",
+   "phase": "full",
+   "quiet": true,
+   "until": 1763100048
+  },
   "at": 1763099998,
   "begun": 1763099960,
   "quiet": true

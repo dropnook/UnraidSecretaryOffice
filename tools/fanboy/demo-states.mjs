@@ -297,7 +297,18 @@ files['fanboy-quiet'] = state({ ite: ite({ 1: [0, 1], 2: [0, 1], 3: [255, 0], 4:
   // round 8: assigned while testing — output 1 the CPU cooler, 2 «Deckel hinten», 3 (under test now) named as he hears it
   fans: [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler' }), fan(2, { found: 'ask', name: 'Deckel hinten' }), fan(3, { name: 'Vorn unten', role: 'case' })],
   who: { who: 'bios', why: 'not_set_up' },
-  step: running('test_up', OUTPUTS, P(3), [P(1), P(2)], { [P(1)]: { found: 'tach', tachs: [1] }, [P(2)]: { found: 'ask', tachs: [] } }, { quiet: true }) });
+  step: running('test_up', OUTPUTS, P(3), [P(1), P(2)], { [P(1)]: { found: 'tach', tachs: [1] }, [P(2)]: { found: 'ask', tachs: [] } },
+    { quiet: true, progress: { id: P(3), phase: 'full', quiet: true, until: T0 + 48 } }) });
+// round 9 (H3): the pause after output 2 — everything back, the fans starting again
+files['fanboy-pause'] = state({ ite: ite({}, { ...RPM, 4: 380, 5: 0 }),
+  fans: [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler' }), fan(2, { found: 'ask', name: 'Deckel hinten' })],
+  who: { who: 'bios', why: 'not_set_up' },
+  step: running('test_up', OUTPUTS, P(2), [P(1)], { [P(1)]: { found: 'tach', tachs: [1] } }, { quiet: true, progress: { id: P(2), phase: 'pause', until: T0 + 4 } }) });
+// round 9 (H2): output 5's fan didn't start again after the quiet test, not even after a kick — at 100 % for safety
+files['fanboy-safety'] = state({ ite: ite({ 5: [255, 1] }, { ...RPM, 5: 2960, 6: 2880 }),
+  fans: [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler' }), fan(5, { tachs: [5, 6], found: 'tach', name: 'Vorn unten' })],
+  who: { who: 'bios', why: 'not_set_up' },
+  safety: { [P(5)]: { why: 'no_restart', at: T0 - 120, before: { value: 128, enable: 1 } } } });
 const tested = [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'silent' }), fan(3, { found: 'empty' }), fan(4, { tachs: [4], found: 'tach' }),
   fan(5, { tachs: [5, 6], found: 'tach' }), fan(6, { found: 'empty' })];
 files['fanboy-roles'] = state({ ite: ite({}, RPM), fans: [{ ...tested[0], role: 'cpu', name: 'CPU-Kühler', place: 'rear' }, tested[1], tested[2],

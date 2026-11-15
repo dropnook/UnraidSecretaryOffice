@@ -97,7 +97,16 @@
   .fb-cards{display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:10px}
   .fb-cards-wide{grid-template-columns:repeat(auto-fill, minmax(340px, 1fr))}
   .fb-card{display:flex; gap:12px; align-items:flex-start; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); padding:10px 12px; min-width:0}
-  .fb-card-now{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent)}
+  /* round 9 (H3, the owner): the card (and the row) whose output is at full because of him — framed like the office's
+     active tiles (office.css .tile-on): a ring and a glow from the accent */
+  .fb-card-now, .fb-row-now{border-color:var(--accent); background:var(--accent-soft);
+    box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 18px 2px color-mix(in srgb, var(--accent) 38%, transparent)}
+  .fb-row-now{position:relative; z-index:1}
+  .fb-now{display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 12px; margin:0 0 12px; border:1px solid var(--line); border-radius:var(--radius);
+    background:var(--surface); font-size:13.5px; color:var(--ink2)}
+  .fb-now-on{border-color:var(--accent); color:var(--ink)}
+  .fb-now-text{flex:1 1 220px; min-width:0}
+  .fb-safety{display:flex; flex-direction:column; gap:6px}
   .fb-card-text, .fb-form{display:flex; flex-direction:column; gap:6px; min-width:0; flex:1}
   .fb-card-name{font-size:13.5px; font-weight:600; color:var(--ink)}
   .fb-card-line{font-size:13px; color:var(--ink2); line-height:1.45}

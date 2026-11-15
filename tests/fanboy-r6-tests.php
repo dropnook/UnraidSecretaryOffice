@@ -1109,3 +1109,83 @@ function testFanboyR9Safety(): void
         fanboyTEnd();
     }
 }
+
+/**
+ * H3/H4: the page always says what runs (a test's output at full, the pause, a kick, a show, a safety full — or nothing),
+ * frames the card at full like the active tiles, a refused click always says why; «Alles stoppen» stops a test or show
+ * and brings the safety fulls back; a test stopped half-way still kicks a fan that doesn't start (never left standing)
+ */
+function testFanboyR9Now(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css');
+    check('fanboy r9 now: one line says what runs (full, full with the others standing, pause with seconds, kick, show, back, safety, nothing) — above the test step and the fans list',
+        str_contains($js, "box.appendChild(nowLine());\n  stepEnded(box, s, 'test_up');") && str_contains($js, "s.appendChild(nowLine());")
+        && !array_filter(['now.full', 'now.full_quiet', 'now.pause', 'now.kick', 'now.next', 'now.restore', 'now.safety', 'now.nothing'], fn ($k) => !str_contains($js, "'$k'")));
+    check('fanboy r9 now: the card and row at full framed like the office\'s active tiles; «Alles stoppen» beside the line while anything runs',
+        str_contains($css, '.fb-card-now, .fb-row-now{border-color:var(--accent); background:var(--accent-soft);') && str_contains($js, "act('stop_all', {}, b,"));
+    check('fanboy r9 now: a click that can\'t go through says why (busy, the messenger away) — never silence',
+        str_contains($js, "if (busy) { Office.toast(T('busy_wait'), true); return null; }") && str_contains($js, "if (!Office.agent.running) { Office.toast(t('errors.agent_away'), true); return null; }"));
+    check('fanboy r9 fields: the cards\' selects and fields in the office\'s field look (input small), full width there',
+        substr_count($js, "el('select', 'input small')") >= 4 && str_contains($js, "n = el('input', 'input small');") && str_contains($css, '.fb-assign .input{width:100%; flex:none}'));
+    $t = fanboyT('r9now');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        fanboyTStore($settings);
+        $spec = fanboyR8Spec();
+        $spec['fans'][4]['start'] = 0.6;            // needs a kick
+        fanboyTSettle($t, $spec);
+        // the step says its phases for the page: full (with the others standing), then the pause, the kick
+        $phases = [];
+        // and «Abbrechen» at 20 s, in the middle of the quiet phase; the page's view: the step's state as written
+        [$step] = fanboyR8Run($t, $spec, [1, 2], true, function () use (&$phases): void {
+            $p = fanboyStepRead()['progress']['phase'] ?? null;
+            if ($p !== null && end($phases) !== $p) {
+                $phases[] = $p;
+            }
+        }, 20.0);
+        same('fanboy r9 now: the phases said (full → pause → kick); stopped at 20 s — and still the fan that doesn\'t start alone was kicked: back at 128, turning, nothing at full',
+            [['full', 'pause', 'kick'], 'stopped', [128, 1], true, []], [array_values(array_unique($phases)), $step['status'], fanboyTOut($t, 4),
+                fanboyAllTachs()[fanboyTachId(FANBOY_T_CHIP, FANBOY_T_ADDR, 4)] > 500, array_keys(fanboySafetyFull())]);
+        // «Alles stoppen» with a safety full and nothing else running: the tick starts «back to the value before» for all
+        fanboyFullNow([fanboyTId(4)], 'no_restart');
+        $GLOBALS['fanboyLaunched'] = [];
+        @mkdir(TESTS_RUN_DIR . '/fanboy', 0700, true);
+        file_put_contents(TESTS_RUN_DIR . '/fanboy/stop-all', (string) time());
+        fanboyStopAllTick();
+        same('fanboy r9 now: «Alles stoppen» — once nothing runs, every safety full goes back (its process started for all), the mark gone',
+            [['fanboy-restore'], [fanboyTId(4)], false], [$GLOBALS['fanboyLaunched'], fanboyRestoreRead()['fans'] ?? null, is_file(TESTS_RUN_DIR . '/fanboy/stop-all')]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * H6: the CPU cooler — choosing the role never switches «Fanboy steers it» on: that needs the role first (another click)
+ * and the ticked confirmation; the card says plainly which of the two it is
+ */
+function testFanboyR9CpuOwn(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    check('fanboy r9 cpu: the card says which — «regelt das BIOS» or «regelt Fanboy auf dein Risiko seit …»; a role click forgets a half-made choice',
+        str_contains($js, "note = f.cpu_own ? T('assign.cpu_own', { date: Office.fmt.date(f.cpu_own) }) : T('assign.cpu_bios');") && str_contains($js, 'cpuAsk.delete(id);'));
+    $t = fanboyT('r9cpu');
+    try {
+        fanboyTStore(fanboyTSettings());
+        $raw = fanboyBoardRaw();
+        unset($raw['fans'][fanboyTId(1)]['role']);
+        fanboyTStore($raw);
+        same('fanboy r9 cpu: the role and «Fanboy steers it» in one click — refused', 'fanboy_cpu_role_first',
+            fanboyR6Refused(fn () => fanboyRole(['fan' => fanboyTId(1), 'role' => 'cpu', 'cpu_own' => true, 'cpu_confirm' => true])));
+        fanboyRole(['fan' => fanboyTId(1), 'role' => 'cpu']);
+        same('fanboy r9 cpu: the role «CPU cooler» chosen — the BIOS steers it (no own-risk date)', [true, false], [isset(fanboyBoardRaw()['fans'][fanboyTId(1)]['role']), isset(fanboyBoardRaw()['fans'][fanboyTId(1)]['cpu_own'])]);
+        same('fanboy r9 cpu: … «Fanboy steers it» without the tick — refused, still the BIOS\'s', ['fanboy_cpu_confirm', false],
+            [fanboyR6Refused(fn () => fanboyRole(['fan' => fanboyTId(1), 'role' => 'cpu', 'cpu_own' => true])), isset(fanboyBoardRaw()['fans'][fanboyTId(1)]['cpu_own'])]);
+        fanboyRole(['fan' => fanboyTId(1), 'role' => 'cpu', 'count' => 1]);
+        same('fanboy r9 cpu: another field\'s save (the count) keeps it the BIOS\'s', false, isset(fanboyBoardRaw()['fans'][fanboyTId(1)]['cpu_own']));
+    } finally {
+        fanboyTEnd();
+    }
+}
