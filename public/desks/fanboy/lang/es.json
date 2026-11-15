@@ -817,5 +817,7 @@
   "note.show": "{fan} mostrado al 100 % durante 5 segundos",
   "errors.fanboy_show_running": "Ya se está mostrando un ventilador: uno a la vez.",
   "errors.fanboy_show_alarm": "Hay una alarma: los ventiladores de su zona ya están al 100 %. Muéstralo cuando termine la alarma.",
-  "errors.fanboy_show_not": "Esta salida no obedece, funciona al revés o su controlador no acepta valores: Fanboy nunca escribe en ella."
+  "errors.fanboy_show_not": "Esta salida no obedece, funciona al revés o su controlador no acepta valores: Fanboy nunca escribe en ella.",
+  "hints.poll_add": "Valores de hasta {min} minutos: en mis zonas les sumo {add} °C (un valor así es un límite inferior).",
+  "zones.poll_add": "Por eso Fanboy suma {add} °C a cada valor de disco."
 }

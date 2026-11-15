@@ -817,5 +817,7 @@
   "note.show": "{fan} shown at 100 % for 5 seconds",
   "errors.fanboy_show_running": "A fan is being shown right now — one at a time.",
   "errors.fanboy_show_alarm": "An alarm holds — the fans of its zone are at 100 % already. Show it when the alarm is over.",
-  "errors.fanboy_show_not": "This output doesn't obey, works the other way round or its driver takes no values — Fanboy never writes it."
+  "errors.fanboy_show_not": "This output doesn't obey, works the other way round or its driver takes no values — Fanboy never writes it.",
+  "hints.poll_add": "Values up to {min} minutes old — I add {add} °C to them in my zones (such a value is a lower bound of the truth).",
+  "zones.poll_add": "So Fanboy adds {add} °C to each disk value."
 }

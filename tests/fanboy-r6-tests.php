@@ -298,3 +298,60 @@ function testFanboyR6ShowControl(): void
         fanboyTEnd();
     }
 }
+
+/** Unraid's poll_attributes in the fake tree's var.ini (null: not there) */
+function fanboyR6Poll(array $t, ?int $poll): void
+{
+    file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Started\"\n" . ($poll === null ? '' : "poll_attributes=\"$poll\"\n"));
+}
+
+/**
+ * Part 5: an old disk value is a lower bound — over 300 s of poll_attributes the zone logic counts +1 °C per started
+ * 10 minutes, at most +3; at 300 s or less nothing changes; a sleeping disk stays without value; an NVMe read from hwmon
+ * stays as it is (live). The status carries the allowance, the page's state and the report too.
+ */
+function testFanboyR6OldDisks(): void
+{
+    same('fanboy r6 old disks: the allowance by poll_attributes (unknown, 30 s, 300, 301, 600, 601, 1200, 1201, 1800, a day)', [0, 0, 0, 1, 1, 2, 2, 3, 3, 3],
+        array_map('fanboyPollAllowance', [null, 30, 300, 301, 600, 601, 1200, 1201, 1800, 86400]));
+    $t = fanboyT('r6poll');
+    try {
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);
+        $spec = fanboyTSpec();
+        fanboyTSettle($t, $spec);
+        fanboyBeat();
+        $run = function (?int $poll, ?int $parity, ?int $disk1) use ($t, $settings, $spec): array {
+            fanboyR6Poll($t, $poll);
+            fanboyTDisks($t, $parity, $disk1, 38);
+            $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+            $now = 1000.0;
+            fanboyTRounds($c, $now, $t, $spec, 3);
+            $out = [$c['zones']['disks']['warmest'], $c['sources']['parity']['c'], $c['sources']['disk1']['c'], $c['sources'][FANBOY_T_NVME]['c'],
+                fanboyStatus($c)['disk_allow'], $c['zones']['disks']['cur']];
+            fanboyLetGo($c, 'end');
+            return $out;
+        };
+        $live = $run(300, 40, null);
+        $old = $run(1800, 40, null);
+        same('fanboy r6 old disks: at 300 s a disk counts as it is (40 °C), the status says nothing added', [40, ['poll' => 300, 'add' => 0]], [$live[1], $live[4]]);
+        same('fanboy r6 old disks: at 1800 s the zone counts it 3 °C warmer (43 °C, its own value kept beside), the status says +3', [43, 43, 40, ['poll' => 1800, 'add' => 3]],
+            [$old[1], $old[0]['c'], $old[0]['raw'] ?? null, $old[4]]);
+        check('fanboy r6 old disks: … so the disk zone runs higher than with fresh values (' . $live[5] . ' → ' . $old[5] . ' %)', $old[5] > $live[5]);
+        same('fanboy r6 old disks: a sleeping disk stays without value; the NVMe read from hwmon is live — unchanged', [null, null, $live[3]], [$old[2], $live[2], $old[3]]);
+        same('fanboy r6 old disks: 700 s → +2 °C', 42, $run(700, 40, null)[1]);
+        // the page's state and the report say it
+        fanboyR6Poll($t, 1800);
+        $scan = fanboyDetect();
+        $state = fanboyScan();
+        same('fanboy r6 old disks: his state carries the allowance beside poll (the hint\'s words)', [1800, 3], [$state['poll'], $state['disk_allow']]);
+        check('fanboy r6 old disks: the report says what the zone logic adds', str_contains(fanboyReportText($scan), 'Disk temperatures polled every: 1800 s (poll_attributes); zone logic adds 3 degrees to disk values'));
+        // the measuring's «too warm» counts it too: 45 °C + 3 is within 5 °C of the hard disks' 52
+        fanboyTDisks($t, 45, null, 30);
+        same('fanboy r6 old disks: measuring stops «warm» by the value with the allowance (Parity 48 °C at 1800 s)', 48.0, fanboyStepWarm()['c'] ?? null);
+        fanboyR6Poll($t, 60);
+        same('fanboy r6 old disks: … not at 60 s (45 °C is under 47)', null, fanboyStepWarm());
+    } finally {
+        fanboyTEnd();
+    }
+}

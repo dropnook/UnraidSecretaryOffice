@@ -1645,5 +1645,6 @@
    }
   }
  },
- "show": null
+ "show": null,
+ "disk_allow": 3
 }

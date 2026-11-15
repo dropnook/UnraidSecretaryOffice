@@ -178,6 +178,8 @@ function state(o) {
     // round 6: the fans he doesn't steer, watched (fanboyIdleState()): on, nothing standing
     idle: o.idle || { on: true, warm: null, tachs: {}, time: T0 },
     show: o.show || null,                     // round 6: «show me this fan» (fanboyShowRead())
+    // round 6: °C his zones add to an old disk value (fanboyPollAllowance(): +1 per started 10 minutes over 300 s, at most 3)
+    disk_allow: (() => { const p = o.poll === undefined ? 1800 : o.poll; return p === null || p <= 300 ? 0 : Math.min(3, Math.ceil(p / 600)); })(),
   };
   return s;
 }

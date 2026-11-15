@@ -817,5 +817,7 @@
   "note.show": "{fan} montré à 100 % pendant 5 secondes",
   "errors.fanboy_show_running": "Un ventilateur est déjà montré — un à la fois.",
   "errors.fanboy_show_alarm": "Une alarme est en cours — les ventilateurs de sa zone sont déjà à 100 %. Montrez-le quand l'alarme est terminée.",
-  "errors.fanboy_show_not": "Cette sortie n'obéit pas, fonctionne à l'envers ou son pilote n'accepte aucune valeur — Fanboy n'y écrit jamais."
+  "errors.fanboy_show_not": "Cette sortie n'obéit pas, fonctionne à l'envers ou son pilote n'accepte aucune valeur — Fanboy n'y écrit jamais.",
+  "hints.poll_add": "Des valeurs jusqu'à {min} minutes d'âge — j'y ajoute {add} °C dans mes zones (une telle valeur est une limite basse).",
+  "zones.poll_add": "Fanboy ajoute donc {add} °C à chaque valeur de disque."
 }

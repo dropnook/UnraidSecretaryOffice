@@ -131,6 +131,7 @@ function fanboyScan(): array
     $state['dashboard'] = fanboyDashState();            // his Dashboard tile's setting (fanboy-dash.php), its mirror in RAM
     $state['show'] = fanboyShowRead();                  // round 6: «show me this fan» running or just done
     $state['idle'] = fanboyIdleState();                 // round 6: the fans he doesn't steer, watched (fanboy-watch.php)
+    $state['disk_allow'] = fanboyPollAllowance($state['poll'] ?? null);      // round 6: °C the zone logic adds to an old disk value
     writeAtomic(deskFile('fanboy'), jsonEncode($state));
     return $state;
 }
@@ -333,7 +334,8 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
             $lines[] = 'Driver plugin ' . $clean($t['id']) . ': version ' . $clean($m[1]);
         }
     }
-    $lines[] = 'Disk temperatures polled every: ' . (isset($scan['poll']) ? (int) $scan['poll'] . ' s (poll_attributes)' : 'unknown');
+    $lines[] = 'Disk temperatures polled every: ' . (isset($scan['poll']) ? (int) $scan['poll'] . ' s (poll_attributes)' : 'unknown')
+        . (fanboyPollAllowance($scan['poll'] ?? null) > 0 ? '; zone logic adds ' . fanboyPollAllowance($scan['poll']) . ' degrees to disk values' : '');
     $lines[] = 'Virtual machine: ' . (!empty($scan['vm']) ? 'yes' : 'no');
     if (!empty($scan['twins'])) {
         $lines[] = 'Two drivers on one chip: ' . implode(', ', array_map($clean, $scan['twins']));

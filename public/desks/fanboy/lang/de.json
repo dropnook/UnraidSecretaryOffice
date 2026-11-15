@@ -817,5 +817,7 @@
   "note.show": "{fan} 5 Sekunden auf 100 % gezeigt",
   "errors.fanboy_show_running": "Gerade wird ein Lüfter gezeigt — einer nach dem anderen.",
   "errors.fanboy_show_alarm": "Ein Alarm läuft — die Lüfter seiner Zone sind schon auf 100 %. Zeig ihn, wenn der Alarm vorbei ist.",
-  "errors.fanboy_show_not": "Dieser Ausgang gehorcht nicht, arbeitet verkehrt herum oder sein Treiber nimmt keine Werte an — Fanboy schreibt nie darauf."
+  "errors.fanboy_show_not": "Dieser Ausgang gehorcht nicht, arbeitet verkehrt herum oder sein Treiber nimmt keine Werte an — Fanboy schreibt nie darauf.",
+  "hints.poll_add": "Werte bis {min} Minuten alt — ich rechne in meinen Zonen {add} °C dazu (so ein Wert ist eine Untergrenze).",
+  "zones.poll_add": "Darum rechnet Fanboy zu jedem Disk-Wert {add} °C dazu."
 }

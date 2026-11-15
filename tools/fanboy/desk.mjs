@@ -93,6 +93,8 @@ const PICTURES = [
   ['r6-1-watch', 'fanboy-watch', 'fanboy/fans', '.fb-more summary', false],
   // round 6: 4 «show me this fan» — a button per output (here the disk cage shown right now)
   ['r6-4-show', 'fanboy-show', 'fanboy/fans', null, false],
+  // round 6: 5 old disk values — the hint says how old and what his zones add
+  ['r6-5-old-disks', 'fanboy', 'fanboy/hints', '.fb-hints summary', false],
 ].filter((p) => !opt.only || opt.only.includes(p[0]));
 const LOCALES = { de: 'de-CH', en: 'en-US' };
 const faults = [];

@@ -1248,6 +1248,8 @@ function hintsSection() {
     const main = el('div', 'row-main');
     main.appendChild(el('div', 'row-name text', T('hints.poll', { min: Math.round(poll / 60) })));
     main.appendChild(el('div', 'row-detail', T('hints.poll_how')));
+    // round 6: such a value is a lower bound — his zones count it warmer by what it may have risen since
+    if (num(S().disk_allow) > 0) main.appendChild(el('div', 'row-detail fb-strong', T('hints.poll_add', { min: Math.round(poll / 60), add: S().disk_allow })));
     r.appendChild(main);
     list.appendChild(r);
   }
@@ -1878,7 +1880,8 @@ function zonesStep() {
     button(T('zones.propose'), T('zones.propose_tip'), (b) => act('zones_propose', {}, b, (j) => { zdraft = (j.zones || []).map((z) => ({ ...z, name: z.name || T(`zones.kind.${z.kind}`) })); })),
     zones.length < 8 ? button(T('zones.add'), T('zones.add_tip'), () => changeZones((z) => z.push({ id: freeId(z), name: T('zones.new_name', { n: z.length + 1 }), fans: [], sources: [], unit: 'pct', target: { preset: 'normal' } }))) : null);
   box.appendChild(tools2);
-  box.appendChild(para(T('zones.how_often', { s: setup().round || 2 }) + (num(S().poll) !== null && S().poll > 300 ? ' ' + T('zones.poll', { min: Math.round(S().poll / 60) }) : '')));
+  box.appendChild(para(T('zones.how_often', { s: setup().round || 2 }) + (num(S().poll) !== null && S().poll > 300 ? ' ' + T('zones.poll', { min: Math.round(S().poll / 60) })
+    + (num(S().disk_allow) > 0 ? ' ' + T('zones.poll_add', { add: S().disk_allow }) : '') : '')));
   if (!zones.length) box.appendChild(para(T('zones.empty')));
   const unzoned = ours.filter((f) => !zones.some((z) => (z.fans || []).includes(f.id)));
   if (unzoned.length && zones.length) box.appendChild(para(T('zones.unzoned', { list: unzoned.map((f) => fanName(f.id)).join(', ') })));

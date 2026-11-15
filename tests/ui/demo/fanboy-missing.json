@@ -1870,5 +1870,6 @@
   "tachs": {},
   "time": 1763100000
  },
- "show": null
+ "show": null,
+ "disk_allow": 3
 }

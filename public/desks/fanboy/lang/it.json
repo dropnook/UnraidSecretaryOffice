@@ -817,5 +817,7 @@
   "note.show": "{fan} mostrata al 100 % per 5 secondi",
   "errors.fanboy_show_running": "Si sta già mostrando una ventola: una alla volta.",
   "errors.fanboy_show_alarm": "È in corso un allarme: le ventole della sua zona sono già al 100 %. Mostrala quando l'allarme è finito.",
-  "errors.fanboy_show_not": "Questa uscita non obbedisce, funziona al contrario o il suo driver non accetta valori: Fanboy non ci scrive mai."
+  "errors.fanboy_show_not": "Questa uscita non obbedisce, funziona al contrario o il suo driver non accetta valori: Fanboy non ci scrive mai.",
+  "hints.poll_add": "Valori vecchi fino a {min} minuti: nelle mie zone aggiungo {add} °C (un valore così è un limite inferiore).",
+  "zones.poll_add": "Perciò Fanboy aggiunge {add} °C a ogni valore dei dischi."
 }

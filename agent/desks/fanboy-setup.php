@@ -346,8 +346,9 @@ function fanboyStepWarm(?array $settings = null): ?array
             }
         }
     }
+    $add = fanboyPollAllowance(fanboyPollAttributes($p));       // round 6: an old disk value is a lower bound
     foreach (fanboyDisks($p['disks']) as $d) {
-        $w = $d['asleep'] ? null : $check($d['name'], $d['rotational'] ? 'disk' : 'ssd', $d['name'], $d['temp'] === null ? null : (float) $d['temp']);
+        $w = $d['asleep'] ? null : $check($d['name'], $d['rotational'] ? 'disk' : 'ssd', $d['name'], $d['temp'] === null ? null : (float) ($d['temp'] + $add));
         if ($w !== null) {
             return $w;
         }
