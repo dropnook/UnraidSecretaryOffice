@@ -12,6 +12,7 @@
     "help.safe",
     "help.sensors",
     "help.setup",
+    "help.show",
     "help.who",
     "hints.title",
     "notes.title",
@@ -40,6 +41,7 @@
     "help.safe_text",
     "help.sensors_text",
     "help.setup_text",
+    "help.show_text",
     "help.who_text"
   ]
 }

@@ -271,7 +271,7 @@ files['fanboy-watch'] = state({ ite: ite({}, { ...RPM, 4: 0, 5: 0 }),
 // round 6, part 4: «show me this fan» — the disk cage shown by the control (100 % for 5 s, then its curve again)
 files['fanboy-show'] = (() => {
   const s = steering({ pwm: { 4: [255, 1] }, rpm: { 4: 1590 } });
-  s.show = { id: 'b1c2d3e4f5a6', fan: P(4), via: 'control', status: 'running', why: null, until: T0 + 4, pid: 4242, start: '123456', ok: null, begun: T0 - 1, at: T0 - 1, tachs: [4] };
+  s.show = { id: 'b1c2d3e4f5a6', fan: P(4), via: 'control', status: 'running', why: null, until: T0 + 14, pid: 4242, start: '123456', ok: null, begun: T0 - 1, at: T0 - 1, tachs: [4] };
   return s;
 })();
 // the array stopped while armed: the BIOS runs them

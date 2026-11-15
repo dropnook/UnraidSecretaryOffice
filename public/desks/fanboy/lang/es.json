@@ -804,9 +804,8 @@
   "watch.banner": "{fan} está parado aunque {source} está a {c} °C. Fanboy no regula este ventilador, solo lo vigila: revísalo.",
   "watch.banner_cool": "{fan} estaba parado mientras algo estaba caliente y no gira desde entonces. Fanboy no regula este ventilador, solo lo vigila: revísalo.",
   "show.button": "Muéstrame este ventilador",
-  "show.tip": "Esta salida al 100 % durante 5 segundos y luego exactamente como estaba: escucha y mira qué ventilador acelera",
-  "show.running": "al 100 % …",
-  "show.toast": "{fan} gira al 100 % durante 5 segundos y luego vuelve a como estaba",
+  "show.tip": "Solo este ventilador al 100 % durante 15 segundos como mucho y luego exactamente como estaba: escucha y mira cuál acelera",
+  "show.toast": "{fan} gira al 100 % durante 15 segundos como mucho y luego vuelve a como estaba",
   "show.off.ignored": "Esta salida no obedece (la mantiene la BIOS): Fanboy nunca escribe en ella",
   "show.off.inverted": "Esta salida funciona al revés: Fanboy nunca escribe en ella",
   "show.off.other": "Regula otro control de ventiladores: desactívalo primero",
@@ -814,10 +813,14 @@
   "show.off.one": "Se está mostrando otro ventilador: uno a la vez",
   "show.off.alarm": "Hay una alarma: los ventiladores de su zona ya están al 100 %",
   "show.give_back_failed": "Después de mostrarlo, la salida de {fan} no se lee como antes: mírala en la lista de ventiladores; un reinicio de Unraid la devuelve a la BIOS.",
-  "note.show": "{fan} mostrado al 100 % durante 5 segundos",
+  "note.show": "{fan} mostrado al 100 %",
   "errors.fanboy_show_running": "Ya se está mostrando un ventilador: uno a la vez.",
   "errors.fanboy_show_alarm": "Hay una alarma: los ventiladores de su zona ya están al 100 %. Muéstralo cuando termine la alarma.",
   "errors.fanboy_show_not": "Esta salida no obedece, funciona al revés o su controlador no acepta valores: Fanboy nunca escribe en ella.",
   "hints.poll_add": "Valores de hasta {min} minutos: en mis zonas les sumo {add} °C (un valor así es un límite inferior).",
-  "zones.poll_add": "Por eso Fanboy suma {add} °C a cada valor de disco."
+  "zones.poll_add": "Por eso Fanboy suma {add} °C a cada valor de disco.",
+  "show.stop": "Encontrado — parar",
+  "show.stop_tip": "Termina ahora: el ventilador vuelve exactamente a como estaba",
+  "help.show": "Muéstrame este ventilador",
+  "help.show_text": "Solo este ventilador va a toda velocidad durante 15 segundos como mucho. Todos los demás siguen exactamente como están: Fanboy nunca para un ventilador para que se oiga otro. Después el ventilador vuelve exactamente a como estaba (uno que regula él: de nuevo a su curva). «Encontrado — parar» termina antes."
 }

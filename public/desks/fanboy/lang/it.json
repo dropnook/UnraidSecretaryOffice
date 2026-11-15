@@ -804,9 +804,8 @@
   "watch.banner": "{fan} è ferma anche se {source} è a {c} °C. Fanboy non regola questa ventola, la osserva soltanto: controllala.",
   "watch.banner_cool": "{fan} era ferma mentre qualcosa era caldo e da allora non gira. Fanboy non regola questa ventola, la osserva soltanto: controllala.",
   "show.button": "Mostrami questa ventola",
-  "show.tip": "Questa uscita al 100 % per 5 secondi, poi di nuovo esattamente com'era: ascolta e guarda quale ventola accelera",
-  "show.running": "al 100 % …",
-  "show.toast": "{fan} gira al 100 % per 5 secondi, poi torna com'era",
+  "show.tip": "Solo questa ventola al 100 % per al massimo 15 secondi, poi di nuovo esattamente com'era: ascolta e guarda quale accelera",
+  "show.toast": "{fan} gira al 100 % per al massimo 15 secondi, poi torna com'era",
   "show.off.ignored": "Questa uscita non obbedisce (la tiene il BIOS): Fanboy non ci scrive mai",
   "show.off.inverted": "Questa uscita funziona al contrario: Fanboy non ci scrive mai",
   "show.off.other": "Regola un altro controllo delle ventole: disattivalo prima",
@@ -814,10 +813,14 @@
   "show.off.one": "Si sta mostrando un'altra ventola: una alla volta",
   "show.off.alarm": "È in corso un allarme: le ventole della sua zona sono già al 100 %",
   "show.give_back_failed": "Dopo averla mostrata, l'uscita di {fan} non risulta com'era prima: guardala nell'elenco delle ventole; un riavvio di Unraid la restituisce al BIOS.",
-  "note.show": "{fan} mostrata al 100 % per 5 secondi",
+  "note.show": "{fan} mostrata al 100 %",
   "errors.fanboy_show_running": "Si sta già mostrando una ventola: una alla volta.",
   "errors.fanboy_show_alarm": "È in corso un allarme: le ventole della sua zona sono già al 100 %. Mostrala quando l'allarme è finito.",
   "errors.fanboy_show_not": "Questa uscita non obbedisce, funziona al contrario o il suo driver non accetta valori: Fanboy non ci scrive mai.",
   "hints.poll_add": "Valori vecchi fino a {min} minuti: nelle mie zone aggiungo {add} °C (un valore così è un limite inferiore).",
-  "zones.poll_add": "Perciò Fanboy aggiunge {add} °C a ogni valore dei dischi."
+  "zones.poll_add": "Perciò Fanboy aggiunge {add} °C a ogni valore dei dischi.",
+  "show.stop": "Trovata — stop",
+  "show.stop_tip": "Termina subito: la ventola torna esattamente com'era",
+  "help.show": "Mostrami questa ventola",
+  "help.show_text": "Solo questa ventola va al massimo per al massimo 15 secondi. Tutte le altre continuano a girare esattamente come sono: Fanboy non ferma mai una ventola per far sentire un'altra. Poi la ventola torna esattamente com'era (una che regola lui: di nuovo sulla sua curva). «Trovata — stop» termina prima."
 }
