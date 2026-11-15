@@ -64540,7 +64540,7 @@ function testFanboySituations(): void
         [$s['situation']['code'], $s['ipmi'], $s['who']['who']]);
     // FanCtrl Plus active: its settings switched on, its loop running
     $fcp = $board + [];
-    $fcp['plugins'] = ['it87-driver.plg' => '<PLUGIN/>', 'fanctrlplus/pwm1.cfg' => "service=\"1\"\ncontroller=\"/sys/devices/platform/it87.2608/hwmon/hwmon10/pwm1\"\n",
+    $fcp['plugins'] = ['it87-driver.plg' => '<PLUGIN/>', 'fanctrlplus.plg' => '<PLUGIN/>', 'fanctrlplus/pwm1.cfg' => "service=\"1\"\ncontroller=\"/sys/devices/platform/it87.2608/hwmon/hwmon10/pwm1\"\n",
         'fanctrlplus/pwm2.cfg' => "service=\"0\"\n"];
     $fcp['procs'] = [1 => '/sbin/init', 4711 => '/bin/bash /usr/local/emhttp/plugins/fanctrlplus/scripts/fanctrlplus_loop.sh pwm1'];
     $s = $look($fcp);
@@ -64554,10 +64554,11 @@ function testFanboySituations(): void
     $fcp['procs'] = [99 => '/bin/bash /usr/local/emhttp/plugins/fanctrlplus/scripts/fanctrlplus_loop.sh pwm3'];
     same('fanboy situations: … a loop running with its settings off — «other»', 'other', $look($fcp)['situation']['code']);
     $af = $board;
-    $af['plugins'] = ['dynamix.system.autofan/fan.cfg' => "service=\"1\"\n"];
+    $af['plugins'] = ['dynamix.system.autofan.plg' => '<PLUGIN/>', 'dynamix.system.autofan/fan.cfg' => "service=\"1\"\n"];
     same('fanboy situations: Dynamix System Autofan on — «other»', ['other', ['Dynamix System Autofan']], [($s = $look($af))['situation']['code'], $s['situation']['names']]);
     $fork = $board;
     $fork['procs'] = [77 => '/bin/bash /usr/local/emhttp/plugins/fanctrlplus2/scripts/loop.sh'];
+    $fork['plugins'] = ($fork['plugins'] ?? []) + ['fanctrlplus2.plg' => '<PLUGIN/>'];
     same('fanboy situations: the fork FanCtrl Plus 2 running — «other», only the fork named', ['other', ['FanCtrl Plus 2']], [($f = $look($fork))['situation']['code'], $f['situation']['names']]);
     // the Team Lead's fit: always yes, the reason the situation's
     same('fanboy situations: the fit — yes; other with the name; ipmi', [['ok' => true, 'why' => 'yes', 'params' => []], ['ok' => true, 'why' => 'other', 'params' => ['who' => 'Dynamix System Autofan']], 'ipmi'],
@@ -65216,7 +65217,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
           'fanboy' => ['testFanboyHidden', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
                        'testFanboyWrite', 'testFanboyControl', 'testFanboyAlarms', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',
                        'testFanboyProcesses', 'testFanboyDrivers', 'testFanboyStopScripts', 'testFanboyState',
-                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR7FullOnObeys', 'testFanboyR7ControlFullOn', 'testFanboyR7Fixed',
+                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR7FullOnObeys', 'testFanboyR7ControlFullOn', 'testFanboyR7Fixed', 'testFanboyR7NotAController',
                        'testFanboyDashTile', 'testFanboyDashSource', 'testFanboyDashSetting', 'testFanboyDashHistory'],
           'tools' => ['testReleaseHashes', 'testReleaseState', 'testReleaseClicksRetry', 'testScenarioToolsSafe']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

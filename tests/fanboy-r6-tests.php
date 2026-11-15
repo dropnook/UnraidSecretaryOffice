@@ -289,6 +289,7 @@ function testFanboyR6ShowRefused(): void
         @unlink(TESTS_RUN_DIR . '/fanboy/control.pid');
         @mkdir("{$t['root']}/boot/config/plugins/fanctrlplus", 0700, true);
         file_put_contents("{$t['root']}/boot/config/plugins/fanctrlplus/fan1.cfg", "service=\"1\"\n");
+        file_put_contents("{$t['root']}/boot/config/plugins/fanctrlplus.plg", "<PLUGIN/>\n");
         same('fanboy r6 show refused: another controller steers — its name in the words', ['fanboy_other', []], [$show(4), $GLOBALS['fanboyLaunched']]);
         same('fanboy r6 show refused: … nothing was started, no output written', [[128, 1], null], [fanboyTOut($t, 4), fanboyShowRead()]);
     } finally {
@@ -543,4 +544,37 @@ function testFanboyR7Fixed(): void
     } finally {
         fanboyTEnd();
     }
+}
+
+/**
+ * F4: a `fanboy.refresh` from a shell whose own command line held «fanctrl» and «autofan» (a grep pattern) made FanCtrl
+ * Plus AND Dynamix System Autofan «running, blocks» though neither was installed. A controller now only by a process's
+ * own program (its executable or its script) and, for a plugin's, only while the plugin is installed.
+ */
+function testFanboyR7NotAController(): void
+{
+    same('fanboy r7 programs: a process\'s own program — the executable; an interpreter\'s script; a shell\'s -c is the shell; env → the interpreter → its script',
+        ['/usr/bin/grep', '/bin/bash /usr/local/emhttp/plugins/fanctrlplus/scripts/fanctrlplus_loop.sh', '/bin/bash', '/usr/bin/vi',
+         '/usr/bin/php /usr/local/emhttp/plugins/md12xx.fancontrol/include/controller.php', 'python3 /usr/bin/liquidctl', '/usr/bin/php', ''],
+        array_map('fanboyProgram', ["/usr/bin/grep\0-E\0fanctrl|autofan\0/proc/1/cmdline", "/bin/bash\0/usr/local/emhttp/plugins/fanctrlplus/scripts/fanctrlplus_loop.sh\0pwm1",
+            "/bin/bash\0-c\0grep -E 'fanctrl|autofan' /proc/*/cmdline; /usr/local/emhttp/plugins/dynamix.system.autofan/scripts/autofan", "/usr/bin/vi\0/usr/local/emhttp/plugins/fanctrlplus/scripts/fanctrlplus_loop.sh",
+            "/usr/bin/php\0-d\0memory_limit=64M\0/usr/local/emhttp/plugins/md12xx.fancontrol/include/controller.php", "/usr/bin/env\0python3\0/usr/bin/liquidctl\0status",
+            "/usr/bin/php\0-r\0echo 'autofan fanctrlplus';", ""]));
+    $look = function (array $procs, array $plugins = []): array {
+        static $n = 0;
+        $root = fanboyFakeTree(hardeningTmp('fanboy-r7ctl' . ++$n), fanboyFakeBoard(10, 'it87.2608', ['procs' => [1 => '/sbin/init'] + $procs, 'plugins' => fanboyFakeBoard()['plugins'] + $plugins]));
+        $s = fanboyDetect($root);
+        return [$s['situation']['code'], array_map(fn ($c) => [$c['id'], $c['running'], $c['blocks']], $s['controllers'])];
+    };
+    $shells = [4001 => "/bin/bash -c grep -E 'fanctrl|autofan' /proc/*/cmdline", 4002 => '/usr/bin/grep -E fanctrlplus|dynamix.system.autofan /var/log/syslog',
+        4003 => '/usr/bin/vi /usr/local/emhttp/plugins/fanctrlplus/scripts/fanctrlplus_loop.sh', 4004 => '/usr/bin/curl -s http://x/fanboy.refresh?fanctrl=autofan'];
+    same('fanboy r7 not a controller: a shell, a grep, an editor, a request naming them — nobody, neither installed', ['ok', []], $look($shells));
+    $installed = ['fanctrlplus.plg' => '<PLUGIN/>', 'dynamix.system.autofan.plg' => '<PLUGIN/>'];
+    same('fanboy r7 not a controller: … both installed but not switched on — the same processes are still no controller', ['ok', []], $look($shells, $installed));
+    same('fanboy r7 not a controller: settings an uninstall left behind (service="1", no .plg) steer nothing', ['ok', []],
+        $look([], ['fanctrlplus/pwm1.cfg' => "service=\"1\"\n", 'dynamix.system.autofan/fan.cfg' => "service=\"1\"\n"]));
+    same('fanboy r7 not a controller: the real ones still are — FanCtrl Plus\'s loop script, Autofan\'s script run by php, a container\'s program (liquidctl)',
+        ['other', [['fanctrlplus', true, true], ['dynamix.system.autofan', true, true], ['liquidctl', true, true]]],
+        $look($shells + [5001 => '/bin/bash /usr/local/emhttp/plugins/fanctrlplus/scripts/fanctrlplus_loop.sh pwm1',
+            5002 => '/usr/bin/php /usr/local/emhttp/plugins/dynamix.system.autofan/scripts/autofan', 5003 => '/usr/bin/python3 /usr/bin/liquidctl status'], $installed));
 }

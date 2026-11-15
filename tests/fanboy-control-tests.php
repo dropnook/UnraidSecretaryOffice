@@ -709,6 +709,7 @@ function testFanboyZones(): void
         same('fanboy zones: taken over — armed, the control started', [true, ['fanboy-control']], [fanboyBoardRaw()['armed'], $GLOBALS['fanboyLaunched']]);
         @mkdir("{$t['root']}/boot/config/plugins/fanctrlplus", 0700, true);
         file_put_contents("{$t['root']}/boot/config/plugins/fanctrlplus/fanctrlplus_x.cfg", "service=\"1\"\ncontroller=\"/sys/x/pwm1\"\n");
+        file_put_contents("{$t['root']}/boot/config/plugins/fanctrlplus.plg", "<PLUGIN/>\n");      // round 7: installed
         try {
             fanboyTakeOver();
             $code = 'kept';
