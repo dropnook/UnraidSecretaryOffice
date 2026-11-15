@@ -772,8 +772,12 @@
      5,
      6
     ],
-    "model": null,
-    "colour": null,
+    "model": {
+     "id": "noctua-nf-a12x25-pwm",
+     "mm": null,
+     "blades": null
+    },
+    "colour": "black",
     "back": null,
     "count": 2,
     "found": "tach",

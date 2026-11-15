@@ -359,6 +359,16 @@ function testFanboyUx(): void
     check('fanboy ux: the same parts on every step — steps 2 and 3 on listPanel() (list, one panel, next bar), the zones as a list and one zone\'s panel, rows to read in steps 1 and 6, each step\'s next bar with ONE primary button',
         substr_count($js, 'listPanel({') === 2 && str_contains($js, "const b = el('button', 'fb-item fb-item-plain');") && substr_count($js, 'readRow(') >= 4 && substr_count($js, 'nextBar(') >= 6
         && str_contains($js, "out.push(goButton('measure', !open.length && !run.kind));") && str_contains($js, "out.push(goButton('zones', !open.length && !run.kind));"));
+    check('fanboy ux: a click answers within a blink — the clicked button carries the wave until the agent has answered (send() and act()), a picked role is pressed at once',
+        str_contains($js, "b.onclick = () => { clicked = b; on(b); clicked = null; };") && str_contains($js, 'const done = working(clicked);') && str_contains($js, 'const worked = working(b);')
+        && str_contains($js, "roleBtns.forEach((b, r) => b.setAttribute('aria-pressed', r === k ? 'true' : 'false'));") && str_contains($js, "const cur = picked || (found === 'empty' ? 'empty' : (f && f.role) || '');"));
+    $art = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.js');
+    check('fanboy ux: the colour beside a model is honest — «like the model» by default, any other paints the whole fan (frame, blades, hub: «my copy is black»), the preview shows it at once',
+        str_contains($art, "const edition = !!(look && colour !== 'auto' && colour !== 'accent');") && str_contains($art, "'--fan-frame': edition ? null : look.frame,")
+        && str_contains($art, "colour(c) { colour = pick(c, COLOURS, 'auto'); look2(); }") && str_contains($js, "colour.onchange = () => { if (pk.colour) pk.colour(colour.value); send('fan_look', { fan: id, colour: colour.value }, { quietly: true }); };")
+        && str_contains($js, "setText(colour.options[0], isModel ? T('colour.model') : T('colour.auto'));"));
+    check('fanboy ux: no text of the page speaks of a «card» or of «More» any more (de, en)', !preg_match('/\bKarte\b|«Mehr»/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de'])))
+        && !preg_match('/(?<!graphics )\bcards?\b|«More»/i', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['en']))));
     same('fanboy ux: a demo state for each moment of step 2', [], array_values(array_filter(['fanboy-uxrun', 'fanboy-uxpause', 'fanboy-uxfound', 'fanboy-uxsafety', 'fanboy-uxopen'],
         fn ($n) => !is_file(OFFICE_DIR . "/tests/ui/demo/$n.json"))));
 }

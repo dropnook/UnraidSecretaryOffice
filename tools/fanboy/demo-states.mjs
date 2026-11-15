@@ -338,7 +338,8 @@ files['fanboy-uxpause'] = state({ ite: ite({}, { ...RPM, 4: 310, 5: 420, 6: 380 
 const UX_FOUND = [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler', place: 'rear' }), fan(2, { found: 'empty' }),
   fan(3, { found: 'silent', name: 'Vorn unten', role: 'case', place: 'front' }),
   fan(4, { tachs: [4], found: 'tach', role: 'disks', name: 'Plattenkäfig', place: 'front', model: { id: 'noctua-nf-a12x25-pwm', mm: null, blades: null } }),
-  fan(5, { tachs: [5, 6], found: 'tach', role: 'case', name: 'Vorn', place: 'front', count: 2 }), fan(6, { found: 'empty' })];
+  // (output 5: a beige model in its black edition — the user's colour paints the whole fan)
+  fan(5, { tachs: [5, 6], found: 'tach', role: 'case', name: 'Vorn', place: 'front', count: 2, model: { id: 'noctua-nf-a12x25-pwm', mm: null, blades: null }, colour: 'black' }), fan(6, { found: 'empty' })];
 files['fanboy-uxfound'] = state({ ite: ite({}, RPM), fans: UX_FOUND,
   step: { id: 'a1b2c3d4e5f6', kind: 'test_up', fans: OUTPUTS, status: 'done', why: null, pid: 4242, start: '123456', current: null, done: OUTPUTS, results: {}, progress: null, at: T0 - 30 } });
 // a fan that didn't start again after standing: Fanboy set its output to full for safety — said, with the way back

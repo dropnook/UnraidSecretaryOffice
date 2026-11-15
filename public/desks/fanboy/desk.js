@@ -2363,7 +2363,7 @@ function panelMake(id, benchRun, benchUpdate) {
       COLOURS.forEach((c) => colour.appendChild(new Option(T(`colour.${c}`), c)));
       colour.onchange = () => { if (pk.colour) pk.colour(colour.value); send('fan_look', { fan: id, colour: colour.value }, { quietly: true }); };
       lookNote = el('div', 'fb-look-note');
-      lookBody.append(el('p', 'fb-hint-text', T('look.text')), pk.el, field(T('look.colour'), colour, 'fb-field-colour'), lookNote);
+      lookBody.append(el('p', 'fb-hint-text', T('look.text')), pk.el, field(T('look.colour'), colour, 'fb-field-colour'), el('p', 'fb-hint-text', T('look.colour_note')), lookNote);
     }
     if (colour) {
       const isModel = !!(f && f.model && f.model.id);
