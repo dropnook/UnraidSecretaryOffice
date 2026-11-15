@@ -858,5 +858,16 @@
   "role.left": "Don't test — leave it with the BIOS",
   "test.left": "Not tested — stays with the BIOS",
   "step.v.tested": "{n} of {m} tested",
-  "step.v.assigned": "{n} assigned"
+  "step.v.assigned": "{n} assigned",
+  "safety.no_restart": "Fanboy set it to 100 % for safety — it didn't start again by itself after it stood (before: {pct} %).",
+  "safety.not_back": "Fanboy set it to 100 % for safety — the mainboard didn't take it back after he gave it back (before: {pct} %).",
+  "safety.chip": "100 % for safety",
+  "safety.back": "Back to the value before",
+  "safety.back_tip": "Back to {pct} % as before — if it doesn't start by itself, it gets a short kick",
+  "safety.back_all": "All back to the value before",
+  "safety.back_tip_all": "Each back to its value before — a fan that doesn't start by itself gets a short kick",
+  "safety.backing": "going back …",
+  "safety.wait": "Only once nothing else runs (a test, a show)",
+  "safety.banner": "Fanboy set {list} to 100 % for safety — it didn't start again by itself after it stood. Back to the value before: here, or on its card.",
+  "assign.kick": "Needs a kick to start: it keeps turning at {pct} %, but doesn't start from standing there."
 }

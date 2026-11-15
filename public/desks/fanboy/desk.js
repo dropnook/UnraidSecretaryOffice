@@ -126,6 +126,28 @@ function quietChoice() {
   box.append(head, seg);
   return box;
 }
+/**
+ * Round 9 (H2): an output Fanboy set to full for safety (a fan that didn't start again; one the mainboard didn't take back)
+ * — said on its card and in the fans list, undone there with «Zurück auf den Wert von vorher» (a process of its own: back,
+ * a kick when it doesn't start)
+ */
+const safetyOf = (id) => (S().safety || {})[id] || null;
+const restoreNow = () => S().restore || null;
+const restoreRuns = () => { const x = restoreNow(); return !!x && (x.status === 'starting' || x.status === 'running'); };
+function safetyBlock(id) {
+  const x = safetyOf(id);
+  if (!x) return null;
+  const box = el('div', 'fb-safety');
+  const pct = num((x.before || {}).value) === null ? '–' : Math.round(x.before.value / 2.55);
+  box.appendChild(el('div', 'fb-card-line fb-strong', T(x.why === 'not_back' ? 'safety.not_back' : 'safety.no_restart', { pct })));
+  const mine = restoreRuns() && (restoreNow().fans || []).includes(id);
+  const b = button(T('safety.back'), T('safety.back_tip', { pct }), (btn) => act('safety_back', { fan: id }, btn));
+  b.dataset.own = '1';
+  if (mine) { b.replaceChildren(wave(), el('span', '', T('safety.backing'))); b.disabled = true; }
+  else if (stepRuns() || showRuns() || restoreRuns()) { b.disabled = true; b.title = T('safety.wait'); }
+  box.appendChild(bar(b));
+  return box;
+}
 /** Round 6: «show me this fan» — running or just ended (fanboy-show.php) */
 const showNow = () => S().show || null;
 const showRuns = () => { const x = showNow(); return !!x && (x.status === 'starting' || x.status === 'running'); };
@@ -903,6 +925,13 @@ function outputRow(c, o) {
   const wc = watchChipOf(c, f);
   if (wc) meta.appendChild(wc);
   if (offered(c)) meta.appendChild(showButton(id, f));
+  // round 9 (H2): set to full by him for safety — said here and undone here
+  const sx = safetyOf(id);
+  if (sx) {
+    meta.appendChild(chipOfText('warn', T('safety.chip'), T(sx.why === 'not_back' ? 'safety.not_back' : 'safety.no_restart', { pct: num((sx.before || {}).value) === null ? '–' : Math.round(sx.before.value / 2.55) })));
+    const sb = safetyBlock(id);
+    if (sb) meta.appendChild(sb.lastChild);
+  }
   const v = el('div', 'fb-value', num(o.pct) === null ? '–' : T('value', { pct: o.pct }));
   v.title = T('value_title', { value: o.value ?? '–' });
   const b = (setup().before || {})[id];
@@ -1411,6 +1440,14 @@ function paintBanner() {
     const code = c.alarm.code === 'stands' && c.alarm.params && c.alarm.params.alone ? 'stands_alone' : c.alarm.code;
     box('warn', T(`alarm.${code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}) }), { alarm: c.alarm.code });
   }
+  // round 9 (H2): outputs he set to full for safety — named, undone in one click (each card has its own button too)
+  const safe = Object.keys(S().safety || {});
+  if (safe.length) {
+    const p = box('warn', T('safety.banner', { list: safe.map((id) => fanName(id)).join(', ') }), { safety: 'full' });
+    const b = button(T('safety.back_all'), T('safety.back_tip_all'), (btn) => act('safety_back', { fan: safe[0], all: true }, btn));
+    if (stepRuns() || showRuns() || restoreRuns()) { b.disabled = true; b.title = T('safety.wait'); }
+    p.appendChild(b);
+  }
   // round 6: a fan he doesn't steer stands — told (after 2 minutes while something was warm; a CPU cooler or pump at once)
   if (idle().on) {
     Object.entries(idle().tachs || {}).filter(([, x]) => x && x.state === 'alarm').forEach(([tid, x]) => {
@@ -1587,7 +1624,7 @@ function testCard(id, s, live) {
   const under = live && s.current === id;
   const o = outputNow(id);
   const p = idParts(id);
-  const card = Office.place(`test:${id}`, el('div', 'fb-card fb-card-test' + (under ? ' fb-card-now' : '')));
+  const card = Office.place(`test:${id}`, el('div', 'fb-card fb-card-test' + (under || safetyOf(id) ? ' fb-card-now' : '')));
   // the output under test turns faster: its wheel shows what the output gets now (full while tested)
   card.appendChild(cardWheel({ rpm: o && num(o.pct) !== null ? 2000 * o.pct / 100 : 0, min: 400, max: 2000, state: under ? 'run' : 'bios', mm: 120,
     colour: under ? 'accent' : 'auto' }));
@@ -1628,6 +1665,8 @@ function testCard(id, s, live) {
     txt.appendChild(bar(button(found ? T('test.again') : T('test.one'), T('test.one_tip'), (b) => startStep('test_up', [id], b)),
       ['tach', 'silent', 'unclear'].includes(found) ? showButton(id, f) : null));
   }
+  const sb = safetyBlock(id);
+  if (sb) txt.appendChild(sb);
   txt.appendChild(assignBox(id, f, live));
   card.appendChild(txt);
   return card;
@@ -1671,6 +1710,7 @@ function assignBox(id, f, live) {
   const r = f && f.role;
   let note = '';
   if (r === 'cpu' || r === 'pump') note = T('assign.never_stopped');
+  else if (f && num(f.kick_start) !== null) note = T('assign.kick', { pct: Math.round(f.kick_start / 2.55) });
   else if (r && ROLES_BIOS.includes(r)) note = T(`roles.bios_note.${r}`);
   else if (!r && p && p.output === 1 && ['tach', 'silent'].includes(found)) note = T('roles.cpu_hint');
   else if (f && (f.count || 1) > 1) note = T('roles.count_note', { n: f.count });

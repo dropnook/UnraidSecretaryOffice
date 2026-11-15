@@ -79,6 +79,7 @@ if (fanboyShown()) {
             'fanboy-control' => fn (array $a): int => fanboyControlMain(),
             'fanboy-step'    => fn (array $a): int => fanboyStepMain(),
             'fanboy-show'    => fn (array $a): int => fanboyShowMain(),        // round 6: «show me this fan»
+            'fanboy-restore' => fn (array $a): int => fanboyRestoreMain(),     // round 9 (H2): a safety full undone, with a kick
         ],
         'actions' => [
             'refresh' => fn (array $r) => ['ok' => true, 'state' => fanboyScan()],
@@ -113,6 +114,7 @@ if (fanboyShown()) {
             // round 6: «show me this fan» — an output to 100 % for 5 s, then back exactly (fanboy-show.php)
             'show'          => fn (array $r) => fanboyShowStart($r),
             'show_stop'     => fn (array $r) => fanboyShowStop($r),          // 4b: «Found it — stop»
+            'safety_back'   => fn (array $r) => fanboyRestoreStart($r),      // round 9 (H2): «Zurück auf den Wert von vorher»
         ],
     ]);
 }
@@ -133,6 +135,8 @@ function fanboyScan(): array
     $state['drivers'] = fanboyDriversState($state['board']);
     $state['dashboard'] = fanboyDashState();            // his Dashboard tile's setting (fanboy-dash.php), its mirror in RAM
     $state['show'] = fanboyShowRead();                  // round 6: «show me this fan» running or just done
+    $state['safety'] = fanboySafetyFull() ?: new stdClass();     // round 9 (H2): outputs he set to full for safety
+    $state['restore'] = fanboyRestoreRead();            // round 9 (H2): «back to the value before» running or just done
     $state['idle'] = fanboyIdleState();                 // round 6: the fans he doesn't steer, watched (fanboy-watch.php)
     $state['disk_allow'] = fanboyPollAllowance($state['poll'] ?? null);      // round 6: °C the zone logic adds to an old disk value
     writeAtomic(deskFile('fanboy'), jsonEncode($state));
@@ -669,11 +673,13 @@ function fanboyFixedOutputs(array $scan, ?array $settings): array
 function fanboyWhoNow(array $scan, array $control, ?array $settings): array
 {
     $who = fanboyWhoBase($scan, $control, $settings);
+    $safety = fanboySafetyFull();       // round 9 (H2): set to full by him for safety — never «left by someone»
     if (($who['who'] ?? '') !== 'bios' || in_array($who['why'] ?? '', ['array_stopped', 'chip_missing', 'chip_gone', 'no_output', 'starting'], true)
         || fanboyStepRunning() || fanboyShowRunning()) {
         return $who;
     }
     $fx = fanboyFixedOutputs($scan, $settings);
+    $fx['fixed'] = array_values(array_filter($fx['fixed'], fn ($x) => !isset($safety[$x['id']])));
     if ($fx['fixed'] && !$fx['auto']) {
         return ['who' => 'nobody', 'why' => 'fixed', 'fixed' => $fx['fixed'], 'was' => $who['why'] ?? null];
     }
@@ -730,7 +736,9 @@ function fanboySetupState(array $scan, ?array $settings): array
             'off_ok' => ($f['off_ok'] ?? false) === true, 'measured' => $m !== null,
             // round 4: a CPU cooler given to him on the owner's risk — since when (null: the BIOS's)
             'cpu_own' => fanboyCpuOwn($f) ? $f['cpu_own']['at'] : null, 'min_pct' => $m['min_pct'] ?? null, 'start_pct' => $m['start_pct'] ?? null,
-            'max_rpm' => $m['max_rpm'] ?? null, 'table' => $m['table'] ?? null, 'no_turn' => ($f['no_turn'] ?? false) === true];
+            'max_rpm' => $m['max_rpm'] ?? null, 'table' => $m['table'] ?? null, 'no_turn' => ($f['no_turn'] ?? false) === true,
+            // round 9 (H1): it didn't start from standing at this value (0–255) — it needed a kick
+            'kick_start' => is_int($f['kick_start']['value'] ?? null) ? $f['kick_start']['value'] : null];
         $r = fanboyResolve($stored, $scan);
         if ($r['path'] === null) {
             $missing[] = ['id' => $id, 'how' => $r['how']];

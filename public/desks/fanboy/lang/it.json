@@ -858,5 +858,16 @@
   "role.left": "Non provare — lasciala al BIOS",
   "test.left": "Non provata — resta al BIOS",
   "step.v.tested": "{n} di {m} provate",
-  "step.v.assigned": "{n} assegnate"
+  "step.v.assigned": "{n} assegnate",
+  "safety.no_restart": "Fanboy l'ha messa al 100 % per sicurezza: dopo la sosta non è ripartita da sola (prima {pct} %).",
+  "safety.not_back": "Fanboy l'ha messa al 100 % per sicurezza: la scheda madre non l'ha ripresa dopo la restituzione (prima {pct} %).",
+  "safety.chip": "100 % per sicurezza",
+  "safety.back": "Torna al valore di prima",
+  "safety.back_tip": "Di nuovo al {pct} % come prima: se non parte da sola riceve una breve spinta",
+  "safety.back_all": "Tutte al valore di prima",
+  "safety.back_tip_all": "Ognuna al suo valore di prima: quella che non parte da sola riceve una breve spinta",
+  "safety.backing": "sta tornando …",
+  "safety.wait": "Solo quando non è in corso nient'altro (un test, una dimostrazione)",
+  "safety.banner": "Fanboy ha messo {list} al 100 % per sicurezza: dopo la sosta non è ripartita da sola. Torna al valore di prima: qui o sulla sua scheda.",
+  "assign.kick": "Ha bisogno di una spinta per partire: al {pct} % continua a girare, ma da ferma lì non parte."
 }
