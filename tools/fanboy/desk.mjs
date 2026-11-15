@@ -95,6 +95,8 @@ const PICTURES = [
   ['r6-4-show', 'fanboy-show', 'fanboy/fans', '.page-help summary', false],
   // round 6: 5 old disk values — the hint says how old and what his zones add
   ['r6-5-old-disks', 'fanboy', 'fanboy/hints', '.fb-hints summary', false],
+  // round 7: F3 nobody steers — outputs left on a fixed value
+  ['r7-3-fixed', 'fanboy-fixed', 'fanboy', null, false],
 ].filter((p) => !opt.only || opt.only.includes(p[0]));
 const LOCALES = { de: 'de-CH', en: 'en-US' };
 const faults = [];

@@ -1011,6 +1011,11 @@ function testFanboyState(): void
     $t = fanboyT('state');
     try {
         fanboyTDisks($t, 35, null, 33);
+        // round 7: the outputs in the chip's automatic, as the BIOS leaves them (on a fixed value someone left nobody
+        // steers — testFanboyR7Fixed)
+        foreach ([1, 2, 3, 4, 5, 6] as $n) {
+            file_put_contents("{$t['hw']}/pwm{$n}_enable", "2\n");
+        }
         $settings = fanboyTSettings();
         fanboyTStore($settings);
         $scan = fanboyDetect();

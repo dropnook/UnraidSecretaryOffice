@@ -498,3 +498,49 @@ function testFanboyR7ControlFullOn(): void
         fanboyTEnd();
     }
 }
+
+/**
+ * F3 (the owner's server after another controller was uninstalled): every output on a fixed 50 % (enable 1), nothing
+ * steering, Fanboy not set up — not «the BIOS runs every fan» but «nobody steers», each output and its value listed;
+ * outputs in the chip's own automatic: the BIOS; some fixed: the BIOS with those listed. The Dashboard says it too.
+ */
+function testFanboyR7Fixed(): void
+{
+    $t = fanboyT('r7fixed');
+    try {
+        $w = fanboyScan()['who'];
+        same('fanboy r7 fixed: all six outputs on a fixed 50 % someone left, nothing steering — «nobody», why «fixed», each listed with its value',
+            ['nobody', 'fixed', 6, [50]], [$w['who'], $w['why'], count($w['fixed'] ?? []), array_values(array_unique(array_column($w['fixed'] ?? [], 'pct')))]);
+        file_put_contents("{$t['hw']}/pwm2_enable", "0\n");
+        same('fanboy r7 fixed: «full on» (enable 0) is a fixed value too — 100 %', 100, array_column(fanboyScan()['who']['fixed'], 'pct', 'output')[2] ?? null);
+        foreach ([1, 2, 3] as $n) {
+            file_put_contents("{$t['hw']}/pwm{$n}_enable", "2\n");
+        }
+        $w = fanboyScan()['who'];
+        same('fanboy r7 fixed: three in the chip\'s automatic, three fixed — the BIOS, the fixed ones listed', ['bios', 'not_set_up', [4, 5, 6]],
+            [$w['who'], $w['why'], array_column($w['fixed'] ?? [], 'output')]);
+        foreach ([4, 5, 6] as $n) {
+            file_put_contents("{$t['hw']}/pwm{$n}_enable", "2\n");
+        }
+        $w = fanboyScan()['who'];
+        same('fanboy r7 fixed: all in the automatic — the BIOS, nothing listed', ['bios', 'not_set_up', false], [$w['who'], $w['why'], isset($w['fixed'])]);
+        // outputs the test found empty (nothing on them) don't count; a setup step moving outputs: never «nobody»
+        foreach ([1, 2, 3, 4, 5, 6] as $n) {
+            file_put_contents("{$t['hw']}/pwm{$n}_enable", $n <= 3 ? "2\n" : "1\n");
+        }
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        $settings['fans'][fanboyTId(6)] = ['chip' => FANBOY_T_CHIP, 'address' => FANBOY_T_ADDR, 'output' => 6, 'tach' => null, 'tachs' => [], 'found' => 'empty'];
+        fanboyTStore($settings);
+        same('fanboy r7 fixed: an output the test found empty is not counted', [4, 5], array_column(fanboyScan()['who']['fixed'] ?? [], 'output'));
+        file_put_contents(fanboyStepFile(), json_encode(['kind' => 'test_up', 'status' => 'running', 'pid' => getmypid(), 'start' => fanboyProcStart(getmypid()), 'at' => time()]));
+        same('fanboy r7 fixed: while a setup step runs — as before (no «nobody»)', [false, 'bios'], [isset(fanboyScan()['who']['fixed']), fanboyScan()['who']['who']]);
+        @unlink(fanboyStepFile());
+        // the Dashboard tile: «Nobody · left on a fixed value», orange
+        $state = ['who' => ['who' => 'nobody', 'why' => 'fixed', 'fixed' => [['id' => fanboyTId(4), 'output' => 4, 'pct' => 50]]], 'time' => time(), 'setup' => ['board' => FANBOY_T_KEY]];
+        $o = fanboyDashWeb(['fanboy.json' => $state, 'office/staff.json' => ['hired' => ['fanboy' => 1]], 'fanboy/show.json' => '{}', 'fanboy/dashboard.json' => ['v' => 1, 'show' => 'speeds']], [], time());
+        same('fanboy r7 fixed: the Dashboard tile — «Nobody · left on a fixed value», orange', ['Nobody · left on a fixed value', 'orange'], [$o['model']['who'] ?? $o, $o['model']['tone'] ?? null]);
+    } finally {
+        fanboyTEnd();
+    }
+}
