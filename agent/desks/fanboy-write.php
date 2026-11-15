@@ -49,6 +49,7 @@ const FANBOY_BACK_CHECK = 10;           // round 5: seconds after a give-back th
 const FANBOY_BACK_CHECK_UNTIL = 180;    // … no later than this (a look that comes too late says nothing)
 const FANBOY_RPM_SANE = 20000;          // round 5 (forum 3.8): an rpm at or over this is a sentinel (65535), not a speed
 const FANBOY_OWNER_STALE = 30;          // seconds without a beat: the holder is taken for hung, its outputs given back
+const FANBOY_OWNER_STALE_STANDING = 10; // round 12: … when it holds an output standing at 0 (a CPU cooler may): sooner
 const FANBOY_JOURNAL_MAX = 64;          // outputs in the journal at most (a board has 3–10)
 const FANBOY_OWNER_KINDS = ['control', 'step'];
 
@@ -309,7 +310,7 @@ function fanboyBeat(?int $pid = null): void
  * Is a holder still at work? Its process there (same pid, same start time) and its beat fresh (≤ FANBOY_OWNER_STALE s
  * on the monotonic clock). 'dead' (gone), 'hung' (there, no beat), 'alive'.
  */
-function fanboyOwnerState(array $owner, ?float $now = null): string
+function fanboyOwnerState(array $owner, ?float $now = null, int $stale = FANBOY_OWNER_STALE): string
 {
     $pid = is_int($owner['pid'] ?? null) ? $owner['pid'] : 0;
     if ($pid <= 1 || !is_dir("/proc/$pid") || ($owner['start'] ?? null) !== fanboyProcStart($pid)) {
@@ -318,7 +319,7 @@ function fanboyOwnerState(array $owner, ?float $now = null): string
     $raw = trim((string) @file_get_contents(fanboyRunDir() . "/beat-$pid", false, null, 0, 32));
     $beat = ctype_digit($raw) ? (int) $raw : 0;
     $age = ($now ?? fanboyMono()) - $beat / 1e9;
-    return $beat > 0 && $age <= FANBOY_OWNER_STALE ? 'alive' : 'hung';
+    return $beat > 0 && $age <= $stale ? 'alive' : 'hung';
 }
 
 /**
@@ -480,6 +481,18 @@ function fanboySafetyFull(): array
     return $out;
 }
 
+/** Round 12: an output held standing — its holder wrote 0 last (a fixed 0, read back) */
+function fanboyStanding(array $o): bool
+{
+    return is_array($o['owner'] ?? null) && ($o['expect']['value'] ?? null) === 0 && ($o['expect']['enable'] ?? 1) === 1;
+}
+
+/** Round 12: is any output held standing now? (the guard looks again within its minute while one is) */
+function fanboyStandingHeld(): bool
+{
+    return (bool) array_filter(fanboyJournal()['outputs'], fn ($o) => is_array($o) && fanboyStanding($o));
+}
+
 /** Writes a value to an output this holder has (pct of 255 already turned into 0–255), read back into «expect» */
 function fanboySet(string $id, int $value, array $owner): ?array
 {
@@ -512,7 +525,8 @@ function fanboyGiveBack(?array $ids, string $why, ?array $only = null, bool $dea
                 || ($only !== null && !fanboySameOwner($o['owner'], $only))) {
                 continue;
             }
-            $state = $dead ? fanboyOwnerState($o['owner'], $mono) : null;
+            // round 12: a holder that keeps an output standing at 0 counts as hung sooner (a standing fan never waits 30 s)
+            $state = $dead ? fanboyOwnerState($o['owner'], $mono, fanboyStanding($o) ? FANBOY_OWNER_STALE_STANDING : FANBOY_OWNER_STALE) : null;
             if ($dead && $state === 'alive') {
                 continue;
             }

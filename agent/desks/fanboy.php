@@ -745,7 +745,9 @@ function fanboySetupState(array $scan, ?array $settings): array
             'stand' => $m !== null && array_key_exists('stops', $m) ? array_intersect_key($m + ['floor_rpm' => null, 'start_from_stop' => null, 'kick_start' => null, 'stops_safe' => null],
                 array_flip(['stops', 'floor_rpm', 'start_from_stop', 'kick_start', 'stops_safe'])) : null,
             // … and «darf stehen» chosen but not in effect: why (measure_again, never_stops, not_safe, not_measured)
-            'off_why' => fanboyStandPlan($f, is_array($m['table'] ?? null) ? $m : null, ($f['found'] ?? null) === 'tach', fanboyCpuOwn($f), 0)[1]];
+            'off_why' => ($plan = fanboyStandPlan($f, is_array($m['table'] ?? null) ? $m : null, ($f['found'] ?? null) === 'tach', fanboyCpuOwn($f), 0))[1],
+            // … in effect (it may stand), and a CPU cooler's second tick — since when (null: none)
+            'may_stand' => $plan[0], 'cpu_off' => fanboyCpuOwn($f) && is_int($f['cpu_off']['at'] ?? null) ? $f['cpu_off']['at'] : null];
         $r = fanboyResolve($stored, $scan);
         if ($r['path'] === null) {
             $missing[] = ['id' => $id, 'how' => $r['how']];

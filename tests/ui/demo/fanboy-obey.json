@@ -689,7 +689,9 @@
     "no_turn": false,
     "kick_start": null,
     "stand": null,
-    "off_why": null
+    "off_why": null,
+    "may_stand": false,
+    "cpu_off": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm2",
@@ -714,7 +716,9 @@
     "no_turn": false,
     "kick_start": null,
     "stand": null,
-    "off_why": null
+    "off_why": null,
+    "may_stand": false,
+    "cpu_off": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm3",
@@ -739,7 +743,9 @@
     "no_turn": false,
     "kick_start": null,
     "stand": null,
-    "off_why": null
+    "off_why": null,
+    "may_stand": false,
+    "cpu_off": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm4",
@@ -766,7 +772,9 @@
     "no_turn": false,
     "kick_start": null,
     "stand": null,
-    "off_why": null
+    "off_why": null,
+    "may_stand": false,
+    "cpu_off": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm5",
@@ -794,7 +802,9 @@
     "no_turn": false,
     "kick_start": null,
     "stand": null,
-    "off_why": null
+    "off_why": null,
+    "may_stand": false,
+    "cpu_off": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm6",
@@ -819,7 +829,9 @@
     "no_turn": false,
     "kick_start": null,
     "stand": null,
-    "off_why": null
+    "off_why": null,
+    "may_stand": false,
+    "cpu_off": null
    }
   ],
   "zones": [],

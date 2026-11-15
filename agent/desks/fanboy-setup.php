@@ -33,6 +33,8 @@ const FANBOY_SETTLE_MAX = 10.0;         // measure: seconds at most for a value 
 const FANBOY_START_WAIT = 4.0;          // measure: seconds a start value gets to make a standing fan turn
 const FANBOY_STOP_LOOK = 15.0;          // round 12: the standstill part — seconds at 0 for the fan to stop (else: a floor it keeps)
 const FANBOY_STOP_START_MAX = 60;       // … the start from standstill looked for up to this percent, then the kick
+const FANBOY_STOP_CPU_MAX = 70.0;       // round 12, a CPU cooler's standstill part: back to full at once at this CPU °C …
+const FANBOY_STOP_CPU_RISE = 15.0;      // … or when the CPU rose this much during it (a missing reading: at once too)
 const FANBOY_PLACES = ['front', 'rear', 'top', 'bottom', 'side'];
 const FANBOY_COUNT_MAX = 8;             // fans on one connector at most (a hub): the page draws as many wheels
 const FANBOY_ZONES_MAX = 8;
@@ -791,7 +793,7 @@ function fanboyTakenBack(array $o, int $value, ?array $wrote): bool
  * (fanboyStandstill()), and the restart check of the quiet test after it. $partial: the measurement as far as it got
  * once the table is complete (the step stores it when the standstill part or the restart check ends the run).
  */
-function fanboyMeasure(array $o, array $tachs, array $owner, array $io, string $boardKey, bool $standstill = false, ?array &$partial = null): array
+function fanboyMeasure(array $o, array $tachs, array $owner, array $io, string $boardKey, bool $standstill = false, ?array &$partial = null, bool $cpu = false): array
 {
     $partial = null;
     $tachsBefore = $standstill ? fanboyAllTachs() : [];
@@ -852,7 +854,7 @@ function fanboyMeasure(array $o, array $tachs, array $owner, array $io, string $
         }
         $partial = $r;
         $stood = true;
-        $stop = fanboyStandstill($o, $tachs, $owner, $io, $steady, $table);
+        $stop = fanboyStandstill($o, $tachs, $owner, $io, $steady, $table, $cpu);
         if (isset($stop['warm'])) {
             return ['result' => 'warm', 'warm' => $stop['warm'], 'table' => $table, 'measured' => $r];
         }
@@ -881,16 +883,27 @@ function fanboyMeasure(array $o, array $tachs, array $owner, array $io, string $
  * kick — full for FANBOY_KICK_FOR, then $min + 5 % (kick_start: the value it holds at); still not: stops_safe false (it
  * must never be let stand). Ends with the fan at full (turning); the caller gives it back. Too warm: full at once, ['warm'].
  */
-function fanboyStandstill(array $o, array $tachs, array $owner, array $io, int $min, array $table): array
+function fanboyStandstill(array $o, array $tachs, array $owner, array $io, int $min, array $table, bool $cpu = false): array
 {
+    // round 12 (the owner: a CPU cooler under cpu_own may stand): its own guard — the CPU at FANBOY_STOP_CPU_MAX, or
+    // FANBOY_STOP_CPU_RISE over where it began, or no reading: full at once
+    $cpuAt = fn (): ?float => fanboyCpuNow(fanboyChips(fanboyPaths(fanboySysRoot() ?: null)['hwmon']));
+    $cpuStart = $cpu ? $cpuAt() : null;
     $note = fn (array $p) => ($io['note'] ?? fn (array $p) => null)(['table' => $table] + $p);
     $turns = function () use ($o, $tachs): array {
         $s = fanboySample($o);
         $r = array_map(fn ($n) => $s[$n] ?? 0, $tachs);
         return [min($r) >= 100, (int) round(array_sum($r) / max(1, count($r)))];
     };
-    $warm = function () use ($o, $owner): ?array {
-        if (($w = fanboyStepWarm(fanboyBoardRaw())) !== null) {
+    $warm = function () use ($o, $owner, $cpu, $cpuAt, $cpuStart): ?array {
+        $w = fanboyStepWarm(fanboyBoardRaw());
+        if ($w === null && $cpu) {
+            $c = $cpuAt();
+            if ($c === null || $cpuStart === null || $c >= FANBOY_STOP_CPU_MAX || $c - $cpuStart >= FANBOY_STOP_CPU_RISE) {
+                $w = ['source' => 'CPU', 'kind' => 'cpu', 'c' => $c, 'limit' => $cpuStart === null ? FANBOY_STOP_CPU_MAX : min(FANBOY_STOP_CPU_MAX, $cpuStart + FANBOY_STOP_CPU_RISE)];
+            }
+        }
+        if ($w !== null) {
             fanboySet($o['id'], FANBOY_FULL, $owner);
         }
         return $w;
@@ -1020,11 +1033,13 @@ function fanboyStepRun(array $step, array $io): array
                     $step['results'][$id] = ['result' => 'not_his'];
                     continue;
                 }
-                // round 12: the standstill part only for a fan that may be let stand — never a CPU cooler or pump (cpu_own too)
-                $standstill = in_array($f['role'] ?? null, FANBOY_ROLES_OURS, true);
+                // round 12: the standstill part for a fan that may be let stand — his own roles, and (the owner's decision,
+                // 2026-11-15) a CPU cooler he steers on the owner's risk, with its own CPU guard; never a pump, never the BIOS's
+                $cpuFan = fanboyCpuOwn($f);
+                $standstill = in_array($f['role'] ?? null, FANBOY_ROLES_OURS, true) || $cpuFan;
                 $partial = null;
                 try {
-                    $r = fanboyMeasure($o, $tachs, $owner, $io, $key, $standstill, $partial);
+                    $r = fanboyMeasure($o, $tachs, $owner, $io, $key, $standstill, $partial, $cpuFan);
                 } catch (Throwable $e) {
                     if (is_array($partial)) {           // the table is complete: kept, whatever ended the standstill part
                         fanboyMeasuredStore($id, $partial, $board);
@@ -1334,6 +1349,8 @@ function fanboyRole(array $r): array
         throw new Problem('fanboy_bad_place');
     }
     $offOk = optBool($r, 'off_ok', false);
+    // round 12 (the owner, 2026-11-15): a CPU cooler he steers may stand — only with its own tick, apart from cpu_confirm
+    $cpuOffConfirm = optBool($r, 'cpu_off_confirm', false);
     // round 3: how many fans hang on this one connector (a Y-cable, a hub) — 1 … 8; not sent: as it was
     $count = optInt($r, 'count', null, 1);
     if ($count !== null && $count > FANBOY_COUNT_MAX) {
@@ -1359,7 +1376,7 @@ function fanboyRole(array $r): array
     $outputs = fanboyOutputs(fanboyDetect());
     $hasName = array_key_exists('name', $r);
     $hasPlace = array_key_exists('place', $r);
-    $e = fanboyStoreUpdate(function (array $e) use ($id, $role, $name, $place, $offOk, $count, $cpuOwn, $outputs, $hasName, $hasPlace): array {
+    $e = fanboyStoreUpdate(function (array $e) use ($id, $role, $name, $place, $offOk, $count, $cpuOwn, $outputs, $hasName, $hasPlace, $cpuOffConfirm): array {
         $e = fanboyFanEnsure($e, $id, $outputs);
         $f = $e['fans'][$id];
         // round 9 (H6): «Fanboy steers the CPU cooler» never in the same click that makes it the CPU cooler — first the role,
@@ -1375,8 +1392,28 @@ function fanboyRole(array $r): array
         } elseif ($cpuOwn === true && !fanboyCpuOwn($f)) {
             $f['cpu_own'] = ['at' => time()];
         }
+        if ($offOk && $role === 'pump') {
+            throw new Problem('fanboy_off_pump');                 // a pump never stands
+        }
+        if ($offOk && $role === 'cpu' && !fanboyCpuOwn($f)) {
+            throw new Problem('fanboy_cpu_off_bios');             // a CPU cooler the BIOS steers is not his to stop
+        }
         if ($offOk && !is_array($f['measured'] ?? null)) {
             throw new Problem('fanboy_off_needs_measure');        // «off» only for a fan measured with feedback
+        }
+        // round 12: a CPU cooler may stand only when its measuring found it stops and starts again safely, and with the
+        // second tick (kept with its time, like cpu_own — another field's save keeps it)
+        $cpuOff = $offOk && $role === 'cpu' && fanboyCpuOwn($f);
+        if ($cpuOff && ($f['measured']['stops_safe'] ?? null) !== true) {
+            throw new Problem('fanboy_off_not_safe');
+        }
+        if ($cpuOff && !$cpuOffConfirm && !is_int($f['cpu_off']['at'] ?? null)) {
+            throw new Problem('fanboy_cpu_off_confirm');
+        }
+        if ($cpuOff) {
+            $f['cpu_off'] = is_int($f['cpu_off']['at'] ?? null) ? $f['cpu_off'] : ['at' => time()];
+        } else {
+            unset($f['cpu_off']);
         }
         $f['role'] = $role;
         if ($hasName) {
@@ -1385,7 +1422,7 @@ function fanboyRole(array $r): array
         if ($hasPlace) {
             $f['place'] = $place !== '' ? $place : null;
         }
-        $f['off_ok'] = $offOk && in_array($role, FANBOY_ROLES_OURS, true);
+        $f['off_ok'] = $offOk && (in_array($role, FANBOY_ROLES_OURS, true) || $cpuOff);
         if ($count !== null) {
             $f['count'] = $count;
         }
