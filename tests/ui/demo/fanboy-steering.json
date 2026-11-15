@@ -747,6 +747,7 @@
   "phase": "run"
  },
  "setup": {
+  "uncovered": [],
   "board": "Example Boards Inc. | EB-Z100 PRO",
   "others": 0,
   "fans": [

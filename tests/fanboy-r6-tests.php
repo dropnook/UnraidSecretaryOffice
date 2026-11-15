@@ -2132,3 +2132,161 @@ function testFanboyR12FixConfirm(): void
         fanboyTEnd();
     }
 }
+
+/** The owner's board as Unraid sees it: six array disks (parity, disk1–5), a pool of six SATA SSDs (ssd … ssd6); temperatures given */
+function fanboyNetDisks(array $t, int $hdd, int $ssd, bool $ssdAsleep = false): void
+{
+    $d = fn (string $name, string $type, string $dev, ?int $c, string $rot) => "[$name]\nname=\"$name\"\ntype=\"$type\"\ndevice=\"$dev\"\nid=\"EXAMPLE_DISK_" . strtoupper($name) . "\"\ntemp=\"" . ($c ?? '*') . "\"\nspundown=\"" . ($c === null ? 1 : 0) . "\"\nrotational=\"$rot\"\nstatus=\"DISK_OK\"\n";
+    $ini = $d('parity', 'Parity', 'sdb', $hdd, '1');
+    foreach ([1, 2, 3, 4, 5] as $i) {
+        $ini .= $d("disk$i", 'Data', 'sd' . chr(99 + $i), $hdd, '1');
+    }
+    foreach (['ssd', 'ssd2', 'ssd3', 'ssd4', 'ssd5', 'ssd6'] as $i => $n) {
+        $ini .= $d($n, 'Cache', 'sd' . chr(105 + $i), $ssdAsleep ? null : $ssd, '0');
+    }
+    file_put_contents("{$t['root']}/var/local/emhttp/disks.ini", $ini);
+}
+
+/** His zones: «CPU» (the CPU package; the CPU cooler and one case fan), «HDD-Käfig» (the six array disks; two case fans); all case fans «darf stehen» */
+function fanboyNetSettings(): array
+{
+    $m = ['table' => [[100, 1500], [50, 900], [10, 420]], 'min_pct' => 10, 'start_pct' => 10, 'max_rpm' => 1500, 'at' => 1,
+          'stops' => true, 'floor_rpm' => null, 'start_from_stop' => 35, 'kick_start' => null, 'stops_safe' => true];
+    $fan = fn (int $n, array $x) => $x + ['chip' => FANBOY_T_CHIP, 'address' => FANBOY_T_ADDR, 'output' => $n, 'tach' => $n, 'tachs' => [$n], 'found' => 'tach',
+        'name' => "Fan $n", 'back' => 'fixed', 'measured' => $m];
+    return ['board' => ['vendor' => 'Example Boards Inc.', 'model' => 'EB-Z100 PRO'], 'armed' => true, 'fans' => [
+        fanboyTId(2) => $fan(2, ['role' => 'cpu', 'cpu_own' => ['at' => 1700000000]]),
+        fanboyTId(1) => $fan(1, ['role' => 'case', 'off_ok' => true]),
+        fanboyTId(4) => $fan(4, ['role' => 'disks', 'off_ok' => true]),
+        fanboyTId(5) => $fan(5, ['role' => 'disks', 'off_ok' => true]),
+    ], 'zones' => [
+        ['id' => 'cpu', 'name' => 'CPU', 'fans' => [fanboyTId(2), fanboyTId(1)], 'unit' => 'pct', 'target' => ['points' => [[30, 0], [62, 0], [81, 100]]],
+         'sources' => [['kind' => 'cpu', 'id' => FANBOY_R12_CPU]]],
+        ['id' => 'hdd', 'name' => 'HDD-Käfig', 'fans' => [fanboyTId(4), fanboyTId(5)], 'unit' => 'pct', 'target' => ['points' => [[30, 0], [40, 0], [45, 60], [50, 100]]],
+         'sources' => array_map(fn ($n) => ['kind' => 'disk', 'id' => $n], ['parity', 'disk1', 'disk2', 'disk3', 'disk4', 'disk5'])],
+    ]];
+}
+
+/**
+ * Round 12 fix (the owner's first night: «Hinten rechts folgt nicht mehr wie vermessen — 0 U/min, vermessen 300»): the
+ * drift look never judges a fan standing on purpose, nor one starting or stopping (the settle time), nor at a value
+ * outside its table — and still says a fan that really doesn't follow
+ */
+function testFanboyNetDrift(): void
+{
+    $t = fanboyT('netdrift');
+    try {
+        $spec = fanboyR12Spec();
+        fanboyNetDisks($t, 35, 33);
+        fanboyR12CpuTemp($t, 40);
+        $s = fanboyNetSettings();
+        fanboyTStore($s);
+        fanboyTSettle($t, $spec);
+        $c = fanboyControlNew($s, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        $drifts = fn () => array_values(array_filter($c['notes'], fn ($n) => $n['code'] === 'drift'));
+        fanboyTRounds($c, $now, $t, $spec, 20);
+        same('fanboy net drift: the case fans stand on purpose (their curves ask nothing) — no «doesn\'t follow» after the start\'s look', [0, 0, []],
+            [fanboyTOut($t, 4)[0], fanboyTOut($t, 5)[0], $drifts()]);
+        fanboyNetDisks($t, 46, 33);                     // the cage warms: they start from standing …
+        fanboyTRounds($c, $now, $t, $spec, 20);
+        fanboyNetDisks($t, 35, 33);                     // … and stop again
+        fanboyTRounds($c, $now, $t, $spec, 60);
+        same('fanboy net drift: started from standing, then stopping — still none', [], $drifts());
+        fanboyLetGo($c, 'end');
+        // a fan that really doesn't follow its table (turning at 60 % of it) at a value its table covers — still said
+        $slow = $spec;
+        $slow['fans'][4]['max'] = 700;
+        fanboyNetDisks($t, 46, 33);
+        $c = fanboyControlNew($s, FANBOY_T_KEY, fanboyMe('control'));
+        fanboyTRounds($c, $now, $t, $slow, 25);
+        same('fanboy net drift: a fan that really runs slower than measured, at a value its table covers — said once', 1,
+            count(array_filter($c['notes'], fn ($n) => $n['code'] === 'drift' && str_contains(json_encode($n['params']), 'Fan 4'))));
+        fanboyLetGo($c, 'end');
+        same('fanboy net drift: the table covers 10–100 % only', [false, true, true, false], [fanboyTableCovers([[100, 1500], [10, 420]], 0), fanboyTableCovers([[100, 1500], [10, 420]], 10),
+            fanboyTableCovers([[100, 1500], [10, 420]], 55), fanboyTableCovers([[100, 1500], [10, 420]], 5)]);
+    } finally {
+        fanboyR12CpuTemp($t, 28);
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 12 fix (his SSD pool and NVMe in no zone, 33 → 50 °C with every fan standing): the setup says which sources are
+ * in no zone; the control's net — at a source's «volle Drehzahl bei» (SSD 60 °C) every fan he steers ≥ 60 % (standing ones
+ * start), at its limit (70) 100 %, one notification, over after 2 minutes 5 °C under; a sleeping disk never counts
+ */
+function testFanboyNet(): void
+{
+    $t = fanboyT('net');
+    try {
+        $spec = fanboyR12Spec();
+        fanboyNetDisks($t, 35, 33);
+        fanboyR12CpuTemp($t, 40);
+        $s = fanboyNetSettings();
+        fanboyTStore($s);
+        fanboyTSettle($t, $spec);
+        $un = fanboySetupState(fanboyDetect(), fanboyBoardRaw())['uncovered'];
+        $nvme = array_values(array_filter(array_column($un, 'id'), fn ($id) => str_starts_with($id, 'nvme@')));
+        same('fanboy net: his layout — the six SSDs and the NVMe sensors are in no zone, nothing else (disks, SSDs, NVMe only); kind, name, °C',
+            [['ssd', 'ssd2', 'ssd3', 'ssd4', 'ssd5', 'ssd6'], true, [], ['ssd', 33]],
+            [array_slice(array_column($un, 'id'), 0, 6), in_array(FANBOY_T_NVME, $nvme, true), array_values(array_diff(array_column($un, 'id'), ['ssd', 'ssd2', 'ssd3', 'ssd4', 'ssd5', 'ssd6'], $nvme)),
+             [$un[0]['kind'] ?? null, $un[0]['c'] ?? null]]);
+        $c = fanboyControlNew($s, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 10);
+        same('fanboy net: all cool — the case fans stand, no net', [[0, 0, 0], null], [[fanboyTOut($t, 1)[0], fanboyTOut($t, 4)[0], fanboyTOut($t, 5)[0]], $c['net']]);
+        fanboyNetDisks($t, 35, 59);
+        fanboyTRounds($c, $now, $t, $spec, 6);
+        same('fanboy net: the SSDs at 59 °C (under 60) — nothing yet', null, $c['net']);
+        $n0 = count(fanboyTNotified($t));
+        fanboyNetDisks($t, 35, 60);
+        fanboyTRounds($c, $now, $t, $spec, 6);
+        same('fanboy net: the SSDs at 60 °C (the SSD kind\'s «volle Drehzahl bei») — every fan he steers at least 60 %, the standing ones started; the state says which',
+            [60, true, true, true, 'ssd'], [$c['net']['level'] ?? null, fanboyTOut($t, 1)[0] >= 153, fanboyTOut($t, 4)[0] >= 153, fanboyTOut($t, 5)[0] >= 153, $c['net']['source']['kind'] ?? null]);
+        fanboyNetDisks($t, 35, 70);
+        fanboyTRounds($c, $now, $t, $spec, 6);
+        same('fanboy net: at 70 °C (its limit) — 100 %', [100, 255], [$c['net']['level'] ?? null, fanboyTOut($t, 4)[0]]);
+        $said = array_values(array_filter(array_slice(fanboyTNotified($t), $n0), fn ($l) => str_contains($l, 'in no zone') || str_contains($l, 'in keiner Zone')));
+        same('fanboy net: said once (warm), once more at its limit (an alert)', 2, count($said));
+        fanboyNetDisks($t, 35, 56);
+        fanboyTRounds($c, $now, $t, $spec, 70);
+        same('fanboy net: 56 °C (not yet 5 under 60) — it holds', 100, $c['net']['level'] ?? null);
+        fanboyNetDisks($t, 35, 54);
+        fanboyTRounds($c, $now, $t, $spec, 70);
+        same('fanboy net: 54 °C for 2 minutes — over, the case fans stand again', [null, 0], [$c['net'], fanboyTOut($t, 4)[0]]);
+        fanboyNetDisks($t, 35, 75, true);
+        fanboyTRounds($c, $now, $t, $spec, 10);
+        same('fanboy net: the SSDs asleep (Unraid: spun down) — never counted', [null, null], [$c['net'], (array_values(array_filter(fanboyStatus($c)['loose'], fn ($l) => $l['id'] === 'ssd'))[0] ?? ['c' => 'x'])['c']],
+            json_encode(array_column(fanboyStatus($c)['loose'], 'id')));
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyR12CpuTemp($t, 28);
+        fanboyTEnd();
+    }
+}
+
+/** Round 12 fix: «take over» with fans that may stand while heat sources are in no zone — refused without an explicit yes */
+function testFanboyNetTakeOver(): void
+{
+    $t = fanboyT('nettake');
+    try {
+        fanboyNetDisks($t, 35, 33);
+        fanboyTStore(fanboyNetSettings() + ['armed' => false]);
+        $s = fanboyBoardRaw();
+        $s['armed'] = false;
+        fanboyTStore($s);
+        same('fanboy net take over: fans may stand and sources are in no zone — refused (fanboy_uncovered), not armed', ['fanboy_uncovered', false],
+            [fanboyR6Refused(fn () => fanboyTakeOver([])), fanboyBoardRaw()['armed'] ?? null]);
+        same('fanboy net take over: … with the explicit yes — armed', ['', true], [fanboyR6Refused(fn () => fanboyTakeOver(['uncovered_ok' => true])), fanboyBoardRaw()['armed'] ?? null]);
+        $s = fanboyBoardRaw();
+        $s['armed'] = false;
+        foreach ($s['fans'] as $id => $f) {
+            $s['fans'][$id]['off_ok'] = false;
+        }
+        fanboyTStore($s);
+        same('fanboy net take over: no fan may stand — no question', '', fanboyR6Refused(fn () => fanboyTakeOver([])));
+    } finally {
+        fanboyTEnd();
+    }
+}

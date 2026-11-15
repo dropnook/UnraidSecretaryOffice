@@ -226,6 +226,80 @@ function fanboySourceLimit(array $source): float
 }
 
 /** A measured fan's table [[pct, rpm]…]: the rpm at a percentage (linear), and the percentage for an rpm */
+const FANBOY_NET_KINDS = ['disk', 'ssd', 'nvme'];      // round 12 fix: what the net watches when no zone has it — disks, SSDs, NVMe
+const FANBOY_NET_WARM_PCT = 60;         // round 12 fix: a source in no zone at its kind's «volle Drehzahl bei» (or Unraid's warning): every fan ≥ 60 % …
+const FANBOY_NET_HOT_PCT = 100;         // … at its limit (or Unraid's critical): 100 %
+const FANBOY_NET_GAP = 5.0;             // … over once every such source is this far under its warm value …
+const FANBOY_NET_CLEAR = 120.0;         // … for this long
+
+/**
+ * Round 12 fix (the owner's first night: his SSD pool in no zone went from 33 to 50 °C while every fan stood): the net
+ * for the heat sources he knows that none of his zones has ($c['loose'], never «other», never a sleeping disk). A source
+ * at its kind's «volle Drehzahl bei» — or Unraid's own warning for that disk, whichever is lower — puts every fan he
+ * steers at FANBOY_NET_WARM_PCT, at its limit (or Unraid's critical, the lower) at 100 %; over when every such source was
+ * FANBOY_NET_GAP under its warm value for FANBOY_NET_CLEAR s. Said once (a warning; at the limit once more, an alert).
+ * Returns the level now (0: none).
+ */
+function fanboyNet(array &$c, float $now): int
+{
+    $level = 0;
+    $worst = null;
+    $calm = true;
+    foreach ($c['loose'] as $id => $l) {
+        if (!is_float($l['c'] ?? null) && !is_int($l['c'] ?? null)) {
+            continue;
+        }
+        $d = FANBOY_SOURCE_DEFAULTS[$l['kind']];
+        $disk = $c['disks'][$id] ?? null;
+        $warm = (float) min($d['high'], is_int($disk['warn'] ?? null) ? $disk['warn'] : PHP_INT_MAX);
+        $limit = (float) min($d['limit'], is_int($disk['crit'] ?? null) ? $disk['crit'] : PHP_INT_MAX);
+        $t = (float) $l['c'];
+        $here = $t >= $limit ? FANBOY_NET_HOT_PCT : ($t >= $warm ? FANBOY_NET_WARM_PCT : 0);
+        if ($t > $warm - FANBOY_NET_GAP) {
+            $calm = false;
+        }
+        if ($here > 0 && ($worst === null || $here > $level || ($here === $level && $t - $warm > $worst['c'] - $worst['warm']))) {
+            $worst = ['id' => $id, 'label' => $l['label'], 'kind' => $l['kind'], 'c' => $t, 'warm' => $warm, 'limit' => $limit];
+        }
+        $level = max($level, $here);
+    }
+    $n = $c['net'];
+    if ($level > 0) {
+        $first = $n === null;
+        $c['net'] = ['level' => max($level, $n['level'] ?? 0), 'since' => $n['since'] ?? time(), 'source' => $worst, 'below_since' => null];
+        if ($first) {
+            fanboyNote($c, 'net', ['source' => $worst['label'], 'c' => (int) round($worst['c'])]);
+            fanboyTell($c, 'net', 'net_warm', ['source' => $worst['label'], 'c' => (int) round($worst['c'])], 'warning');
+        }
+        if ($level >= FANBOY_NET_HOT_PCT) {
+            fanboyTell($c, 'net_hot', 'net_hot', ['source' => $worst['label'], 'c' => (int) round($worst['c'])], 'alert');
+        }
+        return $c['net']['level'];
+    }
+    if ($n === null) {
+        return 0;
+    }
+    if (!$calm) {
+        $c['net']['below_since'] = null;
+        return $n['level'];         // warm values gone, not yet 5 °C under: it holds
+    }
+    $c['net']['below_since'] ??= $now;
+    if ($now - $c['net']['below_since'] >= FANBOY_NET_CLEAR) {
+        fanboyNote($c, 'net_over', ['source' => $n['source']['label'] ?? '']);
+        $c['net'] = null;
+        fanboyUntell($c, 'net');
+        return 0;
+    }
+    return $n['level'];
+}
+
+/** Round 12 fix: does the measured table reach this percent (between its lowest and highest step with an rpm)? */
+function fanboyTableCovers(array $table, float $pct): bool
+{
+    $steps = array_column(array_values(array_filter($table, fn ($p) => is_array($p) && ($p[1] ?? 0) > 0)), 0);
+    return $steps !== [] && $pct >= min($steps) - 0.5 && $pct <= max($steps) + 0.5;
+}
+
 function fanboyTableRpm(array $table, float $pct): ?float
 {
     $t = array_values(array_filter($table, fn ($p) => $p[1] > 0));
@@ -469,6 +543,7 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
         'chips' => [], 'sources' => [], 'alarm' => null, 'reasons' => [], 'clear_since' => null, 'told' => [], 'notes' => [], 'full_since' => [],
         'missing' => null, 'started' => null, 'last_hist' => null, 'last_keep' => null, 'hist' => [], 'look_now' => false,
         'disks_at' => null, 'disks' => [], 'scan_at' => null, 'events' => [], 'poll' => null, 'allow' => 0,
+        'loose' => [], 'net' => null,         // round 12 fix: the heat sources in none of his zones, and the net for them
     ];
 }
 
@@ -567,7 +642,7 @@ function fanboyReadSources(array &$c, float $now): void
     $p = fanboyPaths(fanboySysRoot() ?: null);
     if ($c['disks_at'] === null || $now - $c['disks_at'] >= 10) {
         $c['disks'] = [];
-        foreach (fanboyDisks($p['disks']) as $d) {
+        foreach (fanboyDisks($p['disks'], fanboyDiskLimits($p)) as $d) {      // round 12 fix: with Unraid's warning per disk (the net)
             $c['disks'][$d['name']] = $d;
         }
         $c['disks_at'] = $now;
@@ -615,7 +690,36 @@ function fanboyReadSources(array &$c, float $now): void
                     + ($c['sources'][$s['id']] ?? []);
             }
         }
+        // round 12 fix (the owner's SSD pool in no zone went from 33 to 50 °C with every fan standing): every source he knows
+        // that no zone has — watched by the net (fanboyNet()); never kind «other»
+        $inZones = [];
+        foreach ($c['zones'] as $z) {
+            foreach ($z['sources'] as $s) {
+                $inZones[$s['id']] = true;
+            }
+        }
+        $all = fanboySources(['chips' => $chips, 'disks' => array_values($c['disks'])]);
+        $loose = [];
+        foreach ($all as $s) {
+            if (isset($inZones[$s['id']]) || !in_array($s['kind'], FANBOY_NET_KINDS, true)) {
+                continue;
+            }
+            $w = $where[$s['id']] ?? null;
+            $loose[$s['id']] = ['kind' => $s['kind'], 'label' => $names[$s['id']] ?? $s['id'],
+                'path' => in_array($s['kind'], FANBOY_DISK_KINDS, true) ? null : ($w !== null && !$w['disk'] ? $w['path'] : null),
+                'c' => $c['loose'][$s['id']]['c'] ?? null];
+        }
+        $c['loose'] = $loose;
         $c['scan_at'] = $now;
+    }
+    // round 12 fix: their temperatures now — hwmon every round, Unraid's disks as disks.ini says (asleep: none)
+    foreach ($c['loose'] as $id => $l) {
+        if (in_array($l['kind'], FANBOY_DISK_KINDS, true)) {
+            $d = $c['disks'][$id] ?? null;
+            $c['loose'][$id]['c'] = $d === null || $d['asleep'] || $d['temp'] === null ? null : $d['temp'] + ($c['allow'] ?? 0);
+        } else {
+            $c['loose'][$id]['c'] = $l['path'] === null ? null : fanboySaneTemp(fanboyReadInt($l['path']));
+        }
     }
     foreach ($c['sources'] as $id => $s) {
         if (in_array($s['kind'], FANBOY_DISK_KINDS, true)) {
@@ -771,10 +875,21 @@ function fanboyRound(array &$c, float $now): void
     // a zone with an alarm reason at 100 % until FANBOY_CLEAR_AFTER without one (a fan standing, too warm at full, a
     // sensor silent); every other zone steers on — a watched BIOS fan standing drives nothing (told only)
     $full = fanboyFullZones($c, $now);
+    // round 12 fix: a heat source in none of his zones warm — every fan he steers at least the net's level (a standing one starts)
+    $net = fanboyNet($c, $now);
+    if ($net > 0) {
+        foreach ($c['fans'] as $id => $f) {
+            if ($f['taken'] && $f['pct'] !== null && $f['pct'] < $net) {
+                $c['fans'][$id]['pct'] = $net;
+                $c['fans'][$id]['stand_since'] = null;
+            }
+        }
+    }
     // round 6: «show me this fan» asked of the control for a fan it holds — 100 % for a few seconds, then its curve again
     $shown = function_exists('fanboyShowControl') ? fanboyShowControl($c, $now) : null;
     foreach ($c['fans'] as $id => $f) {
         if (!$f['taken']) {
+            $c['fans'][$id]['stand_since'] = null;
             continue;
         }
         if (isset($full[$f['zone']])) {
@@ -789,9 +904,14 @@ function fanboyRound(array &$c, float $now): void
     if ($c['started'] !== null && $now - $c['started'] >= FANBOY_VERIFY_AFTER) {
         foreach ($c['fans'] as $id => $f) {
             // round 5 (the VM run): compared at the value written (not the zone's percentage), never while an alarm holds
-            // its zone at full — a fan at full is no news
+            // its zone at full — a fan at full is no news. Round 12 fix (the owner's first night: three «doesn't follow»
+            // for fans he held at 0 on purpose): never a fan standing on purpose (written 0), never within a start, kick or
+            // stop (FANBOY_SETTLE_MAX after the last write, as the measuring waits), never at a value outside the measured
+            // table (under its lowest or over its highest step there is no rpm to expect)
             if (!$f['taken'] || $f['verified'] || $f['table'] === null || $f['rpm'] === null || $f['value'] === null || $f['kick_until'] !== null
-                || isset($full[$f['zone']]) || ($f['changed'] !== null && $now - $f['changed'] < 6)) {
+                || $f['value'] === 0 || ($f['stand_since'] ?? null) !== null
+                || isset($full[$f['zone']]) || ($f['changed'] !== null && $now - $f['changed'] < FANBOY_SETTLE_MAX)
+                || !fanboyTableCovers($f['table'], $f['value'] / 2.55)) {
                 continue;
             }
             $c['fans'][$id]['verified'] = true;
@@ -1282,6 +1402,9 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
         // round 6: how old Unraid's disk values can be and what the zone logic adds to them (°C)
         'disk_allow' => ['poll' => $c['poll'] ?? null, 'add' => $c['allow'] ?? 0],
         'refuses' => array_keys(array_filter($c['fans'], fn ($f) => !empty($f['refuses']))),     // round 5: the driver takes no values
+        // round 12 fix: the net for the sources in no zone — {level %, since, source {id, label, kind, c, warm, limit}, below_since}|null
+        'net' => $c['net'] === null ? null : array_diff_key($c['net'], ['below_since' => 1]) + ['clearing' => $c['net']['below_since'] !== null],
+        'loose' => array_values(array_map(fn ($id, $l) => ['id' => $id, 'kind' => $l['kind'], 'label' => $l['label'], 'c' => $l['c']], array_keys($c['loose']), $c['loose'])),
         // since when each fan (and each watched BIOS fan) stands though it should turn — on the monotonic clock, so a
         // control started again goes on counting instead of starting from nought (three restarts in a row still alarm)
         'stand_since' => array_filter(array_map(fn ($f) => $f['zero_since'], $c['fans']) + array_map(fn ($w) => $w['zero_since'], $c['watch']), fn ($v) => $v !== null),
