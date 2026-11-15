@@ -748,6 +748,7 @@
  },
  "setup": {
   "auto_back_seen": null,
+  "uncovered": [],
   "board": "Example Boards Inc. | EB-Z100 PRO",
   "others": 0,
   "fans": [
