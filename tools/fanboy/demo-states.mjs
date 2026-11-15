@@ -160,6 +160,8 @@ function state(o) {
     controllers: o.controllers || [], drivers_missing: o.drivers_missing || {}, situation: o.situation || { code: 'ok' }, tools: o.tools || TOOLS,
     suggest: o.suggest || [], board_hint: 'ite', board_maker: base.board_maker || 'Example Boards', acpi_lax: false, names: [],
     hints_open: ['no_output', 'driver_missing', 'other', 'ipmi'].includes((o.situation || { code: 'ok' }).code),
+    // round 5: Unraid's poll_attributes (its default 1800 s — the hint shows), a virtual machine, chips with two drivers
+    poll: o.poll === undefined ? 1800 : o.poll, vm: !!o.vm, twins: o.twins || [],
     counts: { outputs: offered.reduce((n, c) => n + c.outputs.length, 0), fans: fansAll.length, turning: turning.length, zero: fansAll.filter((f) => f.rpm === 0).length,
       rpm_min: turning.length ? Math.min(...turning) : null, rpm_max: turning.length ? Math.max(...turning) : null, temps: chips.reduce((n, c) => n + c.temps.length, 0) },
     hottest, hottest_kinds: kinds, hottest_lead: leadOf(kinds),
@@ -240,6 +242,13 @@ files['fanboy-ipmi'] = state({ situation: { code: 'ipmi' }, ipmi: { bmc: true, m
 // nothing Linux could steer: the hints open
 files['fanboy-nooutput'] = state({ situation: { code: 'no_output' }, suggest: ['it87-driver', 'dynamix.system.temp'],
   tools: TOOLS.map((t) => ({ ...t, installed: false, loaded: t.kind === 'driver' ? false : t.loaded })), who: { who: 'bios', why: 'no_output' } });
+// round 5: a virtual machine without a fan chip (the hint: the fans belong to the host); two drivers on one chip; the test
+// step having found an output the BIOS keeps (doesn't obey) and one that works the other way round
+files['fanboy-vm'] = state({ situation: { code: 'no_output' }, vm: true, suggest: ['it87-driver', 'dynamix.system.temp'],
+  tools: TOOLS.map((t) => ({ ...t, installed: false, loaded: t.kind === 'driver' ? false : t.loaded })), who: { who: 'bios', why: 'no_output' } });
+files['fanboy-twins'] = state({ ite: ite({}, RPM), twins: ['nct6687', 'nct6683'] });
+files['fanboy-obey'] = state({ ite: ite({}, RPM), fans: [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'silent' }), fan(3, { found: 'ignored' }),
+  fan(4, { tachs: [4], found: 'tach' }), fan(5, { tachs: [5, 6], found: 'tach' }), fan(6, { tachs: [], found: 'inverted' })] });
 // the array stopped while armed: the BIOS runs them
 files['fanboy-array'] = state({ ite: ite({}, RPM), fans: SET_UP, zones: ZONES, armed: true, who: { who: 'bios', why: 'array_stopped' },
   control: { running: false, armed: true, why: 'array_stopped', phase: 'ended', notes: NOTES, time: T0 } });

@@ -247,7 +247,7 @@
   "notify.alarm_chip_subject": "Fanboy: el chip de los ventiladores desapareció",
   "notify.alarm_chip": "El chip de los ventiladores desapareció mientras Fanboy regulaba. Ahora no regula nadie: los ventiladores siguen en los valores que escribió por última vez. Fanboy busca el chip y toma el control en cuanto vuelva. Si hace calor, reiniciar Unraid devuelve los ventiladores a la BIOS.",
   "notify.foreign_subject": "Fanboy: otro cambió {fan}",
-  "notify.foreign": "Otro cambió {fan} a espaldas de Fanboy. Él lo devolvió a la BIOS y lo deja en paz.",
+  "notify.foreign": "Otro cambió {fan} a espaldas de Fanboy — ningún plugin que conozca: ¿un script o un contenedor? Lo devolvió a la BIOS y lo deja en paz.",
   "notify.drift_subject": "Fanboy: {fan} ya no sigue su medida",
   "notify.drift": "{fan} gira a {rpm} rpm donde su medida dice {want} rpm — ¿reconectado o cambiado? Mídelo de nuevo en la página de Fanboy.",
   "notify.missing_subject": "Fanboy no regula: falta el controlador",
@@ -737,5 +737,11 @@
   "notify.not_back": "Tras la devolución de Fanboy, {fan} giraba claramente más lento que antes — la placa base no lo recuperó. Fanboy lo puso al 100 %; sigue así hasta que Fanboy lo regule de nuevo o Unraid se reinicie.",
   "notify.refuses_subject": "Fanboy: el controlador no acepta valores para {fan}",
   "notify.refuses": "El controlador del chip de los ventiladores rechaza cualquier valor para {fan}. Fanboy lo devolvió a la BIOS en lo posible y ya no lo regula. A menudo ayuda reiniciar; si no, envía el informe de Fanboy a los desarrolladores.",
-  "note.refuses": "El controlador no acepta valores para {fan} — devuelto a la BIOS"
+  "note.refuses": "El controlador no acepta valores para {fan} — devuelto a la BIOS",
+  "hints.poll": "Unraid solo vuelve a leer las temperaturas de los discos cada {min} minutos",
+  "hints.poll_how": "Una temperatura de disco que ve Fanboy puede tener esa edad. Acórtalo en ⟦Disk Settings⟧ en «poll_attributes» (en segundos; no despierta los discos dormidos). Fanboy nunca lo cambia.",
+  "zones.poll": "Aquí Unraid solo las renueva cada {min} minutos (ver las pistas).",
+  "situation.vm": "Aquí Unraid funciona en una máquina virtual: los ventiladores son del anfitrión.",
+  "situation.twins": "Dos controladores están a la vez en el chip de ventiladores {chips} (p. ej. nct6683 y nct6687) — así no acepta valores de forma fiable. Fanboy no lo regula hasta que solo quede uno cargado.",
+  "hints.twins": "Dos controladores en un chip: {chips} — Fanboy lo deja en paz"
 }

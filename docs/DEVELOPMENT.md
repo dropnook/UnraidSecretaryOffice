@@ -1036,7 +1036,14 @@ the last 60 history lines only for a source the file has none for. **The file
   **Round 5:** texts name sources as the page does (`fanboySourceNames()`: «Board sensor 3», «Composite (cache)» — never a
   chip's id); a chip whose address moved maps the zones' sensors as the outputs (stored ids unchanged); the rpm correction
   and the «doesn't follow as measured» check wait while an alarm holds the zone at full; the guard logs in the agent's zone
-  (`fanboyZone()` = `agentZone()`). Tests: tests/fanboy-r5-tests.php.
+  (`fanboyZone()` = `agentZone()`). From the forum: an output the BIOS keeps (a write changed back 2 s later, or a fan
+  turning that no output moves) is `ignored`, one working the other way round `inverted` — both never steered; 10 s after
+  a give-back the fan is compared with its rpm before his first take this boot (journal `rpm`): clearly slower and not
+  rising → full speed fixed, one alert (`fanboyGivenCheck()`, agent tick and guard); rpm ≥ 20 000 and temperatures 0,
+  −128, 127, ≥ 125 °C are no readings; three refused writes in a row → that output back, «the driver takes no values»;
+  `poll_attributes` > 300 s, a VM, two drivers on one chip (not offered) as hints; controllers in containers
+  (CoolerControl, fan2go, liquidctl, FanBridge) by their process; a board DMI says nothing about is keyed
+  ` | <product> | <chip>@<address>` (the old ` | ` read). Tests: tests/fanboy-r5-tests.php.
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same

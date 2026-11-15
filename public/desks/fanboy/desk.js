@@ -215,7 +215,7 @@ function stepAtHand() {
   const s = step();
   if (running(s)) return s.kind === 'measure' ? 'measure' : 'test';
   const fans = su.fans || [];
-  const tested = (id) => { const f = fans.find((x) => x.id === id); return f && ['tach', 'silent', 'empty'].includes(f.found); };
+  const tested = (id) => { const f = fans.find((x) => x.id === id); return f && ['tach', 'silent', 'empty', 'ignored', 'inverted'].includes(f.found); };
   if (!(su.outputs || []).every(tested)) return 'test';
   const found = fans.filter((f) => ['tach', 'silent', 'unclear'].includes(f.found));
   if (found.some((f) => !f.role)) return 'roles';
@@ -1083,7 +1083,7 @@ function curvesSection() {
 // ------------------------------------------------------------------ hints, drivers, the report
 function toolChip(x) {
   if (x.kind === 'controller' && x.id === 'md12xx.fancontrol') return x.active ? chipOfText('quiet', T('hints.st_other_fans'), T('hints.st_other_fans_title')) : chipOfText('quiet', T('hints.st_idle'), T('hints.st_idle_title'));
-  if (x.kind === 'controller') return x.active ? chipOfText('warn', T('hints.st_steering'), T('hints.st_steering_title')) : chipOfText('quiet', T('hints.st_idle'), T('hints.st_idle_title'));
+  if (x.kind === 'controller' || x.kind === 'container') return x.active ? chipOfText('warn', T('hints.st_steering'), T('hints.st_steering_title')) : chipOfText('quiet', T('hints.st_idle'), T('hints.st_idle_title'));
   if (x.kind === 'driver') return x.loaded ? chipOfText('ok', T('hints.st_loaded'), T('hints.st_loaded_title')) : chipOfText('warn', T('hints.st_not_loaded'), T('hints.st_not_loaded_title'));
   return chipOfText('ok', T('hints.st_installed'), T('hints.st_installed_title'));
 }
@@ -1119,6 +1119,23 @@ function hintsSection() {
     meta.append(el('span', 'mono', 'acpi_enforce_resources=lax'),
       S().acpi_lax ? chipOfText('ok', T('hints.acpi_set'), T('hints.acpi_set_title')) : chipOfText('quiet', T('hints.acpi_unset'), T('hints.acpi_unset_title')));
     main.appendChild(meta);
+    r.appendChild(main);
+    list.appendChild(r);
+  }
+  // round 5: how fresh Unraid keeps the disks' temperatures (poll_attributes) — the user changes it, never Fanboy
+  const poll = num(S().poll);
+  if (poll !== null && poll > 300) {
+    const r = el('div', 'row nocheck fb-row');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', T('hints.poll', { min: Math.round(poll / 60) })));
+    main.appendChild(el('div', 'row-detail', T('hints.poll_how')));
+    r.appendChild(main);
+    list.appendChild(r);
+  }
+  if ((S().twins || []).length) {
+    const r = el('div', 'row nocheck fb-row');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', T('hints.twins', { chips: S().twins.join(', ') })));
     r.appendChild(main);
     list.appendChild(r);
   }
@@ -1230,6 +1247,7 @@ function paintBanner() {
     p.appendChild(button(T('control.look_now'), T('control.look_now_tip'), (b) => act('look_now', {}, b, () => Office.toast(T('control.looked')))));
   }
   if (w.why === 'array_stopped' || (c.armed && c.why === 'array_stopped')) box('warn', T('control.array_stopped'), { why: 'array_stopped' });
+  if ((S().twins || []).length) box('warn', T('situation.twins', { chips: S().twins.join(', ') }), { situation: 'twins' });
   if (s === 'other') {
     box('warn', T('situation.other', { who: otherNames() }), { situation: s });
   } else if (s === 'driver_missing' && w.why !== 'chip_gone') {      // round 5: «until then the BIOS» isn't true then — the banner above says it
@@ -1238,7 +1256,8 @@ function paintBanner() {
     const p = box('warn', T('situation.ipmi'), { situation: s });
     p.appendChild(reportButton(true));
   } else if (s === 'no_output') {
-    box('warn', T('situation.no_output'), { situation: s });
+    // round 5: in a virtual machine the fans are the host's (a hint only — a VM with a chip passed through steers on)
+    box('warn', T('situation.no_output') + (S().vm ? ' ' + T('situation.vm') : ''), { situation: s });
   } else if (s === 'ok' && !banner.children.length) {
     box('', steers() ? T(cpuGiven() ? 'situation.steers_cpu' : 'situation.steers', { n: w.zones || 0 }) : c.armed === false && (setup().zones || []).length ? T('situation.not_armed') : T('situation.ok'), { situation: s });
   }
@@ -1725,7 +1744,7 @@ function zonesStep() {
     button(T('zones.propose'), T('zones.propose_tip'), (b) => act('zones_propose', {}, b, (j) => { zdraft = (j.zones || []).map((z) => ({ ...z, name: z.name || T(`zones.kind.${z.kind}`) })); })),
     zones.length < 8 ? button(T('zones.add'), T('zones.add_tip'), () => changeZones((z) => z.push({ id: freeId(z), name: T('zones.new_name', { n: z.length + 1 }), fans: [], sources: [], unit: 'pct', target: { preset: 'normal' } }))) : null);
   box.appendChild(tools2);
-  box.appendChild(para(T('zones.how_often', { s: setup().round || 2 })));
+  box.appendChild(para(T('zones.how_often', { s: setup().round || 2 }) + (num(S().poll) !== null && S().poll > 300 ? ' ' + T('zones.poll', { min: Math.round(S().poll / 60) }) : '')));
   if (!zones.length) box.appendChild(para(T('zones.empty')));
   const unzoned = ours.filter((f) => !zones.some((z) => (z.fans || []).includes(f.id)));
   if (unzoned.length && zones.length) box.appendChild(para(T('zones.unzoned', { list: unzoned.map((f) => fanName(f.id)).join(', ') })));

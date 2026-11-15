@@ -1193,7 +1193,8 @@ function fanboyBoardRaw(?array $board = null): ?array
 {
     $board ??= fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']);
     $raw = readJson(fanboyStoreFile());
-    $b = $raw['boards'][fanboyBoardKey($board)] ?? null;
+    // round 5: a board DMI says nothing about was kept under « | » before — read there until written under its new key
+    $b = $raw['boards'][fanboyBoardKey($board)] ?? (isset($board['chip']) ? ($raw['boards'][' | '] ?? null) : null);
     return is_array($b) ? $b : null;
 }
 

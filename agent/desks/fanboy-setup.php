@@ -71,7 +71,8 @@ function fanboyStoreUpdate(callable $fn, ?array $board = null): array
         $raw = readJson(fanboyStoreFile()) ?? [];
         $raw['v'] ??= 1;
         $raw['boards'] = is_array($raw['boards'] ?? null) ? $raw['boards'] : [];
-        $entry = is_array($raw['boards'][$key] ?? null) ? $raw['boards'][$key] : [];
+        $entry = is_array($raw['boards'][$key] ?? null) ? $raw['boards'][$key]
+            : (isset($board['chip']) && is_array($raw['boards'][' | '] ?? null) ? $raw['boards'][' | '] : []);     // round 5: the old key « | » read, kept as it was
         $entry['board'] = $board;
         $entry['fans'] = is_array($entry['fans'] ?? null) ? $entry['fans'] : [];
         $entry = $fn($entry);

@@ -481,6 +481,9 @@
  "acpi_lax": false,
  "names": [],
  "hints_open": false,
+ "poll": 1800,
+ "vm": false,
+ "twins": [],
  "counts": {
   "outputs": 6,
   "fans": 7,

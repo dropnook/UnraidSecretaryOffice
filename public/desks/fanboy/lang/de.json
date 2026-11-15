@@ -247,7 +247,7 @@
   "notify.alarm_chip_subject": "Fanboy: der Lüfter-Chip ist weg",
   "notify.alarm_chip": "Der Lüfter-Chip ging weg, während Fanboy regelte. Jetzt regelt niemand: Die Lüfter bleiben auf den Werten, die er zuletzt geschrieben hat. Fanboy sucht den Chip und übernimmt, sobald er zurück ist. Wird es warm, gibt ein Neustart von Unraid die Lüfter dem BIOS zurück.",
   "notify.foreign_subject": "Fanboy: jemand anderes hat {fan} verändert",
-  "notify.foreign": "Jemand anderes hat {fan} hinter Fanboys Rücken verändert. Er hat ihn ans BIOS zurückgegeben und lässt ihn in Ruhe.",
+  "notify.foreign": "Jemand anderes hat {fan} hinter Fanboys Rücken verändert — kein Plugin, das Fanboy kennt: ein Script oder ein Container? Er hat ihn ans BIOS zurückgegeben und lässt ihn in Ruhe.",
   "notify.drift_subject": "Fanboy: {fan} folgt nicht mehr wie vermessen",
   "notify.drift": "{fan} dreht mit {rpm} U/min, vermessen waren {want} U/min — umgesteckt oder getauscht? Vermiss ihn auf Fanboys Seite neu.",
   "notify.missing_subject": "Fanboy regelt nicht: Treiber fehlt",
@@ -737,5 +737,11 @@
   "notify.not_back": "Nach Fanboys Rückgabe drehte {fan} deutlich langsamer als vorher — das Mainboard hat ihn nicht übernommen. Fanboy hat ihn auf 100 % gestellt; so bleibt er, bis Fanboy ihn wieder regelt oder Unraid neu startet.",
   "notify.refuses_subject": "Fanboy: der Treiber nimmt für {fan} keine Werte an",
   "notify.refuses": "Der Treiber des Lüfter-Chips weist jeden Wert für {fan} zurück. Fanboy hat ihn ans BIOS zurückgegeben, so weit das noch geht, und regelt ihn nicht mehr. Oft hilft ein Neustart; sonst schick Fanboys Bericht an die Entwickler.",
-  "note.refuses": "Der Treiber nimmt für {fan} keine Werte an — zurück ans BIOS"
+  "note.refuses": "Der Treiber nimmt für {fan} keine Werte an — zurück ans BIOS",
+  "hints.poll": "Unraid liest die Temperaturen der Disks nur alle {min} Minuten neu",
+  "hints.poll_how": "So alt kann eine Disk-Temperatur sein, die Fanboy sieht. Kürzer stellst du es unter ⟦Disk Settings⟧ bei «poll_attributes» (in Sekunden; schlafende Disks weckt das nicht). Fanboy ändert es nie.",
+  "zones.poll": "Unraid frischt sie hier nur alle {min} Minuten auf (siehe Hinweise).",
+  "situation.vm": "Unraid läuft hier in einer virtuellen Maschine: Die Lüfter gehören dem Gastgeber.",
+  "situation.twins": "Am Lüfter-Chip {chips} hängen zwei Treiber zugleich (z. B. nct6683 und nct6687) — so nimmt er Werte nicht verlässlich an. Fanboy regelt ihn nicht, bis nur noch einer geladen ist.",
+  "hints.twins": "Zwei Treiber am selben Chip: {chips} — Fanboy lässt ihn in Ruhe"
 }

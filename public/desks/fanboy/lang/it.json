@@ -247,7 +247,7 @@
   "notify.alarm_chip_subject": "Fanboy: il chip delle ventole è sparito",
   "notify.alarm_chip": "Il chip delle ventole è sparito mentre Fanboy regolava. Ora non regola nessuno: le ventole restano ai valori che ha scritto per ultimi. Fanboy cerca il chip e riprende il controllo appena torna. Se fa caldo, riavviare Unraid restituisce le ventole al BIOS.",
   "notify.foreign_subject": "Fanboy: qualcun altro ha cambiato {fan}",
-  "notify.foreign": "Qualcun altro ha cambiato {fan} alle spalle di Fanboy. L'ha restituita al BIOS e la lascia stare.",
+  "notify.foreign": "Qualcun altro ha cambiato {fan} alle spalle di Fanboy — nessun plugin che conosca: uno script o un container? L'ha restituito al BIOS e lo lascia stare.",
   "notify.drift_subject": "Fanboy: {fan} non segue più la misura",
   "notify.drift": "{fan} gira a {rpm} giri/min dove la misura dice {want} giri/min — ricollegata o sostituita? Misurala di nuovo sulla pagina di Fanboy.",
   "notify.missing_subject": "Fanboy non regola: manca il driver",
@@ -737,5 +737,11 @@
   "notify.not_back": "Dopo la restituzione di Fanboy, {fan} girava molto più piano di prima — la scheda madre non l'ha ripreso. Fanboy l'ha messo al 100 %; resta così finché Fanboy non lo regola di nuovo o Unraid si riavvia.",
   "notify.refuses_subject": "Fanboy: il driver non accetta valori per {fan}",
   "notify.refuses": "Il driver del chip delle ventole rifiuta ogni valore per {fan}. Fanboy l'ha restituito al BIOS per quanto ancora possibile e non lo regola più. Spesso aiuta un riavvio; altrimenti invia il rapporto di Fanboy agli sviluppatori.",
-  "note.refuses": "Il driver non accetta valori per {fan} — restituito al BIOS"
+  "note.refuses": "Il driver non accetta valori per {fan} — restituito al BIOS",
+  "hints.poll": "Unraid rilegge le temperature dei dischi solo ogni {min} minuti",
+  "hints.poll_how": "Una temperatura di disco vista da Fanboy può avere quest'età. Accorciala in ⟦Disk Settings⟧ alla voce «poll_attributes» (in secondi; non sveglia i dischi addormentati). Fanboy non la cambia mai.",
+  "zones.poll": "Qui Unraid le aggiorna solo ogni {min} minuti (vedi i suggerimenti).",
+  "situation.vm": "Qui Unraid gira in una macchina virtuale: le ventole appartengono all'host.",
+  "situation.twins": "Al chip delle ventole {chips} sono attaccati due driver insieme (p. es. nct6683 e nct6687) — così non accetta i valori in modo affidabile. Fanboy non lo regola finché non ne resta caricato uno solo.",
+  "hints.twins": "Due driver su un chip: {chips} — Fanboy lo lascia stare"
 }

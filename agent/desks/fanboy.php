@@ -143,6 +143,9 @@ function fanboyStoreFile(?string $dir = null): string
 function fanboyBoardKey(array $board): string
 {
     $f = fn ($s) => trim((string) preg_replace('/\s+/', ' ', is_string($s) ? $s : ''));
+    if ($f($board['vendor'] ?? '') === '' && $f($board['model'] ?? '') === '' && is_string($board['chip'] ?? null) && $board['chip'] !== '') {
+        return ' | ' . ($f($board['product'] ?? '') ?: '?') . ' | ' . $f($board['chip']);     // round 5: no DMI board — product + chip
+    }
     return $f($board['vendor'] ?? '') . ' | ' . $f($board['model'] ?? '');
 }
 
@@ -285,6 +288,15 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
         }
         $line .= ', tach inputs ' . count($c['fans']) . " ($turning turning), temperatures " . count($c['temps']);
         $lines[] = $line;
+        // round 5 (forum 3.18): per output what the test found (obeys / ignored / inverted …), no mode file, PWM or DC
+        $mine = is_array($scan['board'] ?? null) ? ((fanboyBoardRaw($scan['board']) ?? [])['fans'] ?? []) : [];
+        $dir = fanboyPaths()['hwmon'] . '/' . $c['hwmon'];
+        foreach ($c['outputs'] as $o) {
+            $found = $mine[fanboyFanId($c['name'], $c['address'], $o['n'])]['found'] ?? null;
+            $pin = fanboyReadInt("$dir/pwm{$o['n']}_mode");
+            $lines[] = "  pwm{$o['n']}: " . match ($found) { 'tach', 'silent' => 'obeys', null => 'not tested', default => $clean((string) $found) }
+                . ($o['enable'] === null ? ', no enable' : '') . ($pin === null ? '' : ($pin === 0 ? ', DC' : ', PWM'));
+        }
         if ($c['temps']) {
             $kinds[$c['kind']] = ($kinds[$c['kind']] ?? 0) + count($c['temps']);
         }
@@ -303,6 +315,19 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
     $lines[] = 'Plugins: ' . ($there ? implode(', ', array_map(fn ($t) => $clean($t['name']) . ' installed'
         . ($t['loaded'] === null ? '' : ($t['loaded'] ? ' (module loaded)' : ' (module not loaded)')) . ($t['active'] ? ' (steering)' : ''), $there)) : 'none of those Fanboy knows');
     $lines[] = 'Start option acpi_enforce_resources=lax: ' . (!empty($scan['acpi_lax']) ? 'set' : 'not set');
+    // round 5 (forum 3.18): the driver plugins' versions (a regression was findable only by them), how fresh the disks'
+    // temperatures are, a virtual machine, two drivers on one chip
+    foreach ($there as $t) {
+        $plg = is_link(fanboyPaths()['plugins'] . "/{$t['id']}.plg") ? '' : (string) @file_get_contents(fanboyPaths()['plugins'] . "/{$t['id']}.plg", false, null, 0, 8192);
+        if ($t['kind'] === 'driver' && preg_match('/<PLUGIN\b[^>]*\bversion="([^"]{1,40})"/i', $plg, $m)) {
+            $lines[] = 'Driver plugin ' . $clean($t['id']) . ': version ' . $clean($m[1]);
+        }
+    }
+    $lines[] = 'Disk temperatures polled every: ' . (isset($scan['poll']) ? (int) $scan['poll'] . ' s (poll_attributes)' : 'unknown');
+    $lines[] = 'Virtual machine: ' . (!empty($scan['vm']) ? 'yes' : 'no');
+    if (!empty($scan['twins'])) {
+        $lines[] = 'Two drivers on one chip: ' . implode(', ', array_map($clean, $scan['twins']));
+    }
     if (($i = $scan['ipmi'] ?? null) !== null) {
         $lines[] = 'IPMI: BMC ' . ($i['bmc'] ? 'seen' : 'not seen') . '; manufacturer id ' . ($clean($i['manufacturer_id'] ?? '') ?: '?')
             . ', product id ' . ($clean($i['product_id'] ?? '') ?: '?') . ', device id ' . ($clean($i['device_id'] ?? '') ?: '?')

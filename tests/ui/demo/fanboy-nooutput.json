@@ -362,6 +362,9 @@
  "acpi_lax": false,
  "names": [],
  "hints_open": true,
+ "poll": 1800,
+ "vm": false,
+ "twins": [],
  "counts": {
   "outputs": 0,
   "fans": 1,

@@ -247,7 +247,7 @@
   "notify.alarm_chip_subject": "Fanboy: the fan chip went away",
   "notify.alarm_chip": "The fan chip went away while Fanboy steered. Nobody steers now: the fans stay at the values he wrote last. Fanboy looks for the chip and takes over when it is back. If it gets warm, restarting Unraid gives the fans back to the BIOS.",
   "notify.foreign_subject": "Fanboy: someone else changed {fan}",
-  "notify.foreign": "Someone else changed {fan} behind Fanboy's back. He gave it back to the BIOS and leaves it alone.",
+  "notify.foreign": "Someone else changed {fan} behind Fanboy's back — no plugin Fanboy knows: a script or a container? He gave it back to the BIOS and leaves it alone.",
   "notify.drift_subject": "Fanboy: {fan} doesn't follow as measured",
   "notify.drift": "{fan} turns at {rpm} rpm where its measurement says {want} rpm — replugged or replaced? Measure it again on Fanboy's page.",
   "notify.missing_subject": "Fanboy doesn't steer: driver missing",
@@ -737,5 +737,11 @@
   "notify.not_back": "After Fanboy gave it back, {fan} turned clearly slower than before — the mainboard didn't take it back. Fanboy set it to 100 %; it stays so until Fanboy steers it again or Unraid restarts.",
   "notify.refuses_subject": "Fanboy: the driver takes no values for {fan}",
   "notify.refuses": "The fan chip's driver refuses every value for {fan}. Fanboy gave it back to the BIOS as far as that still works and doesn't steer it any more. A restart often helps; otherwise send Fanboy's report to the makers.",
-  "note.refuses": "The driver takes no values for {fan} — back to the BIOS"
+  "note.refuses": "The driver takes no values for {fan} — back to the BIOS",
+  "hints.poll": "Unraid reads the disks' temperatures again only every {min} minutes",
+  "hints.poll_how": "A disk temperature Fanboy sees can be that old. Make it shorter under ⟦Disk Settings⟧ at «poll_attributes» (in seconds; it doesn't wake sleeping disks). Fanboy never changes it.",
+  "zones.poll": "Here Unraid renews them only every {min} minutes (see the hints).",
+  "situation.vm": "Unraid runs in a virtual machine here: the fans belong to the host.",
+  "situation.twins": "Two drivers sit on the fan chip {chips} at once (e.g. nct6683 and nct6687) — it doesn't take values reliably so. Fanboy doesn't steer it until only one is loaded.",
+  "hints.twins": "Two drivers on one chip: {chips} — Fanboy leaves it alone"
 }

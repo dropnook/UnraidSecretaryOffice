@@ -469,3 +469,132 @@ function testFanboyR5Refused(): void
         fanboyTEnd();
     }
 }
+
+/**
+ * B6–B10, B12 (forum 3.1/3.3, 3.10, 3.12, 3.13, 3.16, 3.18): what part 1 sees anew — Unraid's poll_attributes, a virtual
+ * machine (a hint only), two drivers on one chip (not offered), controllers in containers by their process, a board
+ * DMI says nothing about (product + chip; the old key read), and the report's new lines.
+ */
+function testFanboyR5Detect(): void
+{
+    $board = fanboyFakeBoard();
+    $chips = array_merge($board['chips'], [
+        [11, 'nct6687', 'platform/nct6687.2592', 'nct6687', 'pwm' => [1 => [100, 1, true]], 'fans' => [1 => 900]],
+        [12, 'nct6683', 'platform/nct6683.2592', 'nct6683', 'pwm' => [1 => [100, 1, true]], 'fans' => [1 => 900]]]);
+    $t = fanboyT('r5detect', 10, FANBOY_T_ADDR, ['chips' => $chips, 'board' => ['Default string', 'To be filled by O.E.M.'],
+        'files' => ['var/local/emhttp/var.ini' => "fsState=\"Started\"\npoll_attributes=\"1800\"\n", 'sys/class/dmi/id/sys_vendor' => "QEMU\n",
+            'sys/class/dmi/id/product_name' => "Example Box 4\n", 'proc/cmdline' => "BOOT_IMAGE=/bzimage\n",
+            'proc/sys/kernel/random/boot_id' => FANBOY_T_BOOT . "\n", 'boot/config/plugins/it87-driver.plg' => '<?xml version="1.0"?><PLUGIN name="it87-driver" version="2026.09.15"/>'],
+        'procs' => [1 => '/sbin/init', 4321 => "/usr/bin/coolercontrold\0--config\0/etc/cc"]]);
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $scan = fanboyDetect();
+        same('fanboy r5 detect: poll_attributes 1800 s, a virtual machine (QEMU), two drivers on one chip (nct6683 + nct6687)',
+            [1800, true, ['nct6687', 'nct6683']], [$scan['poll'], $scan['vm'], $scan['twins']]);
+        same('fanboy r5 detect: … the twins\' outputs not offered — only the ITE chip\'s', [FANBOY_T_CHIP], array_values(array_unique(array_column(fanboyOutputs($scan), 'chip'))));
+        same('fanboy r5 detect: CoolerControl in a container, seen by its process — another controller, he holds back', ['coolercontrol', true, 'other'],
+            [$scan['controllers'][0]['id'] ?? null, $scan['controllers'][0]['blocks'] ?? null, $scan['situation']['code']]);
+        $key = fanboyBoardKey($scan['board']);
+        same('fanboy r5 detect: DMI says nothing of the board — keyed by product and fan chip with its address', ' | Example Box 4 | ' . FANBOY_T_CHIP . '@' . FANBOY_T_ADDR, $key);
+        // what was kept under the old key « | » stays readable, and the first write keeps it under the new key
+        @mkdir(FANBOY_DIR, 0700, true);
+        file_put_contents(fanboyStoreFile(), json_encode(['v' => 1, 'boards' => [' | ' => fanboyTSettings()]], JSON_UNESCAPED_SLASHES));
+        same('fanboy r5 detect: … the settings under the old key « | » read', 'Disks', fanboyBoardRaw()['zones'][0]['name'] ?? null);
+        fanboyStoreUpdate(fn (array $e) => $e);
+        $raw = readJson(fanboyStoreFile());
+        same('fanboy r5 detect: … written under the new key, the old one kept as it was', [true, true], [isset($raw['boards'][$key]['zones']), isset($raw['boards'][' | ']['zones'])]);
+        $report = fanboyReportText($scan);
+        foreach (['Disk temperatures polled every: 1800 s (poll_attributes)', 'Virtual machine: yes', 'Two drivers on one chip: nct6687, nct6683',
+                  'Driver plugin it87-driver: version 2026.09.15', '  pwm4: obeys', '  pwm3: empty'] as $line) {
+            check("fanboy r5 detect: the report says «{$line}»", str_contains($report, $line));
+        }
+    } finally {
+        fanboyTEnd();
+    }
+    $t = fanboyT('r5detect2');
+    try {
+        $scan = fanboyDetect();
+        same('fanboy r5 detect: a board as usual — no VM, no twins, poll_attributes unknown, the old key', [false, [], null, FANBOY_T_KEY],
+            [$scan['vm'], $scan['twins'], $scan['poll'], fanboyBoardKey($scan['board'])]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * B11 (forum 3.6): a zone with NVMe/board/CPU sources never goes to its rest value only because its disks sleep (all
+ * disks asleep, NVMe 60 °C); the rest value of a zone with sleeping disks only is never under a fan's floor.
+ */
+function testFanboyR5DisksAsleep(): void
+{
+    $t = fanboyT('r5asleep');
+    try {
+        fanboyTDisks($t, null, null, null);              // every disk asleep
+        $nv = glob("{$t['root']}/sys/devices/pci0000:00/0000:00:06.1/0000:03:00.0/nvme/*/hwmon/hwmon*/temp1_input")[0];
+        file_put_contents($nv, "60000\n");
+        $settings = fanboyTSettings();
+        $settings['zones'][0]['sources'][] = ['kind' => 'nvme', 'id' => FANBOY_T_NVME];      // the disk zone with the NVMe pool too
+        fanboyTStore($settings);
+        $spec = fanboyTSpec();
+        fanboyTSettle($t, $spec);
+        fanboyBeat();
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 6);
+        $rest = fanboyZoneCurve($c['zones']['disks'])[0][1];
+        same('fanboy r5 asleep: every disk asleep, the NVMe at 60 °C — the zone led by the NVMe, not its rest value',
+            [FANBOY_T_NVME, true], [$c['zones']['disks']['warmest']['id'] ?? null, $c['zones']['disks']['cur'] > $rest]);
+        // the disks only, all asleep: its rest value — never under the disk fan's floor (measured 25 % + 5)
+        $settings['zones'][0]['sources'] = array_slice($settings['zones'][0]['sources'], 0, 3);
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        fanboyTRounds($c, $now, $t, $spec, 6);
+        same('fanboy r5 asleep: the disks only, all asleep — its rest value, the fan at its floor (30 %), not under it',
+            [null, 30], [$c['zones']['disks']['warmest'], $c['fans'][fanboyTId(4)]['pct']]);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * B13 (forum 3.7, 1.16): two chips of one driver at different addresses (a Gigabyte IT8689 + IT87952) — each output its
+ * own id, both steered; two chips of the SAME name with a stored address that moved: ambiguous, never guessed.
+ */
+function testFanboyR5TwoChips(): void
+{
+    $board = fanboyFakeBoard();
+    $second = [11, 'it87952', 'platform/it87.2624', 'it87', 'pwm' => [1 => [128, 1, true], 2 => [128, 1, true]], 'fans' => [1 => 1100, 2 => 0]];
+    $t = fanboyT('r5two', 10, FANBOY_T_ADDR, ['chips' => array_merge($board['chips'], [$second])]);
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $scan = fanboyDetect();
+        $ids = array_keys(fanboyOutputs($scan));
+        check('fanboy r5 two chips: both chips of the it87 driver offered, each output its own id (' . implode(', ', $ids) . ')',
+            in_array(fanboyTId(4), $ids, true) && in_array(fanboyFanId('it87952', 'it87.2624', 1), $ids, true) && count($ids) === 8);
+        $settings = fanboyTSettings();
+        $other = fanboyFanId('it87952', 'it87.2624', 1);
+        $settings['fans'][$other] = ['chip' => 'it87952', 'address' => 'it87.2624', 'output' => 1, 'tach' => 1, 'tachs' => [1], 'found' => 'tach', 'role' => 'case', 'name' => 'Rear', 'back' => 'fixed'];
+        $settings['zones'][1]['fans'][] = $other;
+        fanboyTStore($settings);
+        fanboyBeat();
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        fanboyRound($c, $now);
+        same('fanboy r5 two chips: … a zone with outputs of both — both taken, steered', ['run', true, true],
+            [$c['phase'], $c['fans'][fanboyTId(5)]['taken'], $c['fans'][$other]['taken']]);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyTEnd();
+    }
+    $twin = [11, FANBOY_T_CHIP, 'platform/it87.2624', 'it87', 'pwm' => [1 => [128, 1, true]], 'fans' => [1 => 1100]];
+    $t = fanboyT('r5same', 10, FANBOY_T_ADDR, ['chips' => array_merge($board['chips'], [$twin])]);
+    try {
+        $scan = fanboyDetect();
+        $hw = fanboyPaths()['hwmon'];
+        same('fanboy r5 two chips: the same name twice — the stored address there: here; an address of before gone: ambiguous, never guessed',
+            ['here', 'ambiguous'], [fanboyResolve(['chip' => FANBOY_T_CHIP, 'address' => FANBOY_T_ADDR, 'output' => 1, 'tach' => 1], $scan, $hw)['how'],
+                fanboyResolve(['chip' => FANBOY_T_CHIP, 'address' => 'it87.2700', 'output' => 1, 'tach' => 1], $scan, $hw)['how']]);
+    } finally {
+        fanboyTEnd();
+    }
+}
