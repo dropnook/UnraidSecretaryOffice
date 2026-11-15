@@ -64794,7 +64794,7 @@ function testFanboyPage(): void
     $acts = array_values(array_unique($acts[1]));
     sort($acts);
     same('fanboy page: the banner between the row and the sections; the page\'s actions through act() — the wizard\'s and part 2\'s',
-        [true, ['answer', 'back', 'dashboard', 'drivers_load', 'drivers_undo', 'dry_run', 'fan_look', 'hand_back', 'look_now', 'role', 'show', 'show_stop', 'step_next', 'step_stop', 'take_over', 'watch', 'zones_propose', 'zones_save']],
+        [true, ['answer', 'back', 'dashboard', 'drivers_load', 'drivers_undo', 'dry_run', 'fan_look', 'hand_back', 'look_now', 'role', 'safety_back', 'show', 'show_stop', 'step_next', 'step_stop', 'stop_all', 'take_over', 'watch', 'zones_propose', 'zones_save']],
         [str_contains($js, "banner = sw.el.insertBefore(el('div', 'fb-banner'), sw.body)"), $acts]);
     check('fanboy page: in SECTIONS_DESKS', array_key_exists('fanboy', SECTIONS_DESKS));
     // the stub and demo states: the shape of a real look on the fake tree (the click test and the pictures)
