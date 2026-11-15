@@ -3,7 +3,11 @@
 // headless Chrome with a throwaway profile, inside Unraid's look (tests/ui/unraid: palette, black and white theme, fonts).
 // Dev-only: tools/ is never in the package.
 //
-//   node tools/fanboy/look.mjs [--out <folder>] [--serve [port]] [--no-shots] [--no-cpu] [--no-movie] [-v]
+//   node tools/fanboy/look.mjs [--out <folder>] [--serve [port]] [--no-shots] [--no-cpu] [--no-movie] [--looks <folder>] [-v]
+//
+//   --looks     only the models' looks (?only=looks, tools/fanboy/demo-looks.js) into <folder>: looks-sheet-<theme>.png (every
+//               model at the picker's size), looks-states-<theme>.png, looks-pickers-<theme>.png, looks-zone-<theme>.png
+//               (black and white theme), and checks: each model's colours drawn, its name on the hub, a state still seen
 //
 //   --serve     only serve the demo page (http://127.0.0.1:<port>/?theme=white …) until Ctrl-C
 //   default     the pictures: demo-<theme>-<width>.png (black, white × 1440, 390), wheels-still-<theme>.png (reduced
@@ -30,7 +34,7 @@ const BASE = '/plugins/unraid-secretary-office/';
 const require = createRequire(import.meta.url);
 
 const args = process.argv.slice(2);
-const opt = { out: path.join(process.env.USO_SHOTS || path.join(os.homedir(), 'uso-shots'), 'fanboy-look'), serve: null, shots: true, cpu: true, movie: true, v: false };
+const opt = { out: path.join(process.env.USO_SHOTS || path.join(os.homedir(), 'uso-shots'), 'fanboy-look'), serve: null, shots: true, cpu: true, movie: true, looks: null, v: false };
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--out') opt.out = path.resolve(args[++i]);
@@ -38,6 +42,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--no-shots') opt.shots = false;
   else if (a === '--no-cpu') opt.cpu = false;
   else if (a === '--no-movie') opt.movie = false;
+  else if (a === '--looks') { opt.looks = path.resolve(args[++i]); opt.shots = opt.cpu = opt.movie = false; }
   else if (a === '-v') opt.v = true;
   else { console.log(`fanboy look: unknown argument ${a}`); process.exit(2); }
 }
@@ -112,6 +117,55 @@ async function open(query, { width = 1440, height = 900, scale = 2, reduce = fal
   await page.goto(url + query, { waitUntil: 'load' });
   await page.evaluate(() => document.fonts.ready);
   return { ctx, page };
+}
+
+// ------------------------------------------------------------------ the models' looks
+if (opt.looks) {
+  fs.mkdirSync(opt.looks, { recursive: true });
+  for (const theme of ['black', 'white']) {
+    const { ctx, page } = await open(`?theme=${theme}&only=looks`, { width: 1440, height: 900 });
+    const n = await page.waitForSelector('html[data-looks]', { timeout: 8000 }).then(() => page.evaluate(() => +document.documentElement.dataset.looks)).catch(() => 0);
+    if (n !== 60) faults.push(`looks ${theme}: ${n} models drawn, not 60`);
+    await page.waitForTimeout(700);
+    // every model of the sheet: its frame and blades painted in its own colours, its name on the hub as text
+    const sheet = await page.evaluate(() => [...document.querySelectorAll('#fl-sheet .fan-wheel')].map((w) => {
+      const cs = getComputedStyle(w);
+      return { look: w.classList.contains('fan-look-wheel'), frame: cs.getPropertyValue('--fan-frame').trim(), blade: cs.getPropertyValue('--fan-blade').trim(),
+        tag: [...w.querySelectorAll('.fan-sticker-text tspan')].map((t) => t.textContent).join(' '), label: w.querySelector('.fan-label').textContent,
+        fill: getComputedStyle(w.querySelector('.fan-housing')).fill };
+    }));
+    const bad = sheet.filter((x) => !x.look || !x.frame.startsWith('var(--fan-k-') && !/^(rgb|color|#)/.test(x.frame) || !x.tag);
+    if (bad.length) faults.push(`looks ${theme}: ${bad.length} models without their look or name: ${bad.slice(0, 4).map((x) => x.label).join(', ')}`);
+    const fills = new Set(sheet.map((x) => x.fill));
+    if (fills.size < 4) faults.push(`looks ${theme}: only ${fills.size} frame colours over the sheet`);
+    // the states stay seen on a model's colours: the stopped one's red ring, the unknown one's dashes
+    const st = await page.evaluate(() => [...document.querySelectorAll('#fl-states .fan-wheel')].map((w) => {
+      const b = getComputedStyle(w.querySelector('.fan-box'));
+      return { cls: w.className, shadow: b.boxShadow, outline: b.outlineStyle, rotor: getComputedStyle(w.querySelector('.fan-rotor')).opacity };
+    }));
+    const stopped = st.filter((x) => x.cls.includes('fan-s-stopped')), unknown = st.filter((x) => x.cls.includes('fan-s-unknown')), bios = st.filter((x) => x.cls.includes('fan-s-bios'));
+    if (stopped.length !== 3 || stopped.some((x) => !/2px/.test(x.shadow))) faults.push(`looks ${theme}: a stopped model without its red ring`);
+    if (unknown.length !== 3 || unknown.some((x) => x.outline !== 'dashed' || x.rotor !== '0.5')) faults.push(`looks ${theme}: a model without feedback not dashed and faded`);
+    if (bios.length !== 3 || bios.some((x) => x.outline !== 'dotted')) faults.push(`looks ${theme}: a BIOS model not dotted`);
+    const over = await page.evaluate(() => { const w = document.querySelectorAll('#fl-states .fan-wheel'); const a = w[w.length - 2], o = w[w.length - 1];
+      return { accent: a.classList.contains('fan-c-accent') && !a.classList.contains('fan-look-wheel') && a.style.getPropertyValue('--fan-blade') === '', other: !o.classList.contains('fan-look') && !o.querySelector('.fan-sticker') }; });
+    if (!over.accent) faults.push(`looks ${theme}: the user's colour does not win over the model's wheel`);
+    if (!over.other) faults.push(`looks ${theme}: «other fan» is not the neutral wheel`);
+    const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    if (wide > 0) faults.push(`looks ${theme}: ${wide} px of horizontal scroll`);
+    for (const [id, name] of [['fl-sheet', 'sheet'], ['fl-states', 'states'], ['fl-pickers', 'pickers'], ['fl-zone', 'zone']]) {
+      const file = path.join(opt.looks, `looks-${name}-${theme}.png`);
+      await page.locator(`#${id}`).screenshot({ path: file });
+      log(file);
+    }
+    await ctx.close();
+  }
+  // at the phone's width: the sheet wraps, nothing scrolls sideways
+  const { ctx, page } = await open('?theme=black&only=looks', { width: 390, height: 844 });
+  await page.waitForSelector('html[data-looks]', { timeout: 8000 }).catch(() => {});
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  if (wide > 0) faults.push(`looks 390: ${wide} px of horizontal scroll`);
+  await ctx.close();
 }
 
 // ------------------------------------------------------------------ the pictures
@@ -317,4 +371,4 @@ if (opt.cpu) {
 await browser.close();
 server.close();
 if (faults.length) { console.log('fanboy look: ' + faults.length + ' fault(s)\n  ' + faults.join('\n  ')); process.exit(1); }
-console.log(`fanboy look: done → ${opt.out}`);
+console.log(`fanboy look: done → ${opt.looks || opt.out}`);

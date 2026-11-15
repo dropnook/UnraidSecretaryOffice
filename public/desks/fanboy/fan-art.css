@@ -27,18 +27,41 @@
   --fan-hub2:color-mix(in srgb, var(--blue-900) 25%, var(--gray-400));
 }
 .fan-c-accent{--fan-blade:var(--accent); --fan-edge:color-mix(in srgb, var(--accent) 70%, var(--ink)); --fan-hub2:var(--accent-soft)}
+/* a model's look (the catalogue's look): fan-art.js sets --fan-frame, --fan-blade, --fan-hub, --fan-pad and --fan-tag to one of
+   these names, each made from Unraid's palette — the same in every theme, as the real fan is */
+.fan-wheel{
+  --fan-k-black:var(--gray-800); --fan-k-charcoal:var(--gray-700); --fan-k-graphite:var(--gray-600); --fan-k-grey:var(--gray-500);
+  --fan-k-silver:var(--gray-300); --fan-k-white:var(--white);
+  --fan-k-beige:color-mix(in srgb, var(--orange-100) 70%, var(--gray-400));
+  --fan-k-brown:color-mix(in srgb, var(--orange-800) 30%, var(--gray-700));
+  --fan-k-frost:color-mix(in srgb, var(--white) 55%, transparent);
+  --fan-pad:transparent; --fan-tag:var(--gray-800); --fan-tag-ink:var(--gray-100);
+}
+/* a model's frame always has an outline in the text's colour: a black fan on the black theme, a white one on the white */
+.fan-look{--fan-line:color-mix(in srgb, var(--ink) 45%, transparent)}
+.fan-look-wheel{--fan-edge:color-mix(in srgb, var(--fan-blade) 60%, var(--ink)); --fan-hub2:color-mix(in srgb, var(--fan-hub) 85%, var(--ink))}
+/* through a model's gaps a shade of its frame (a black fan stays black on the white theme, its blades still apart) */
+.fan-look{--fan-well:color-mix(in srgb, var(--fan-frame) 50%, var(--bg))}
 
 .fan-box{position:relative; width:var(--fan-px); height:var(--fan-px); flex:0 0 auto; border-radius:calc(var(--fan-px) * .11)}
 .fan-frame, .fan-arc{position:absolute; inset:0; width:100%; height:100%; overflow:visible}
 .fan-housing{fill:var(--fan-frame); stroke:var(--fan-line); stroke-width:1}
 .fan-well{fill:var(--fan-well)}
 .fan-screw{fill:var(--fan-well); stroke:var(--fan-line); stroke-width:.6}
+.fan-pad{fill:var(--fan-pad); stroke:var(--fan-line); stroke-width:.6}
+/* what stands still in front of the blades: a model's guide vanes, the sticker with its name (plain text, no mark) */
+.fan-front{position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none}
+.fan-vanes path{fill:none; stroke:var(--fan-frame); stroke-width:1.7; stroke-linecap:round}
+.fan-sticker{fill:var(--fan-tag); stroke:var(--fan-line); stroke-width:.5}
+.fan-sticker-text{fill:var(--fan-tag-ink); font-family:inherit; font-weight:600; letter-spacing:-.01em}
 /* the turning part: an element of its own, turned by a transform only (the browser's compositor does the work) */
 .fan-rotor{position:absolute; inset:2.5%; will-change:transform; transform-origin:50% 50%}
 .fan-rotor svg{display:block; width:100%; height:100%}
 .fan-blades path{fill:var(--fan-blade); stroke:var(--fan-edge); stroke-width:.7; stroke-linejoin:round}
 .fan-hub{fill:var(--fan-hub); stroke:var(--fan-edge); stroke-width:.7}
 .fan-hub2{fill:var(--fan-hub2)}
+.fan-rim{fill:none; stroke:var(--fan-blade); stroke-width:2.6}
+.fan-look .fan-housing{stroke-width:1.4}
 .fan-arc{display:none}
 .fan-arc circle{fill:none; stroke-width:3.2}
 .fan-arc-track{stroke:color-mix(in srgb, var(--ink) 12%, transparent)}
@@ -78,7 +101,7 @@
 .fan-s-stopped .fan-housing{stroke:var(--danger)}
 .fan-s-stopped .fan-sub{color:var(--danger-ink)}
 .fan-s-unknown .fan-box{outline:1.5px dashed var(--line2); outline-offset:2px}
-.fan-s-unknown .fan-rotor, .fan-s-unknown .fan-frame{opacity:.5}
+.fan-s-unknown .fan-rotor, .fan-s-unknown .fan-frame, .fan-s-unknown .fan-front{opacity:.5}
 .fan-s-bios .fan-box{outline:1.5px dotted var(--muted); outline-offset:2px}
 
 /* ------------------------------------------------------------------------------------------- the server picture */
