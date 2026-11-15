@@ -724,5 +724,18 @@
   "pic.nobody_now": "nobody steers them now — they stay as they were",
   "curves.line_nobody": "Nobody steers this zone's fans now — they stay as Fanboy set them last.",
   "pic.stuck": "stuck",
-  "pic.stuck_title": "Nobody steers this fan — it stays as Fanboy set it last"
+  "pic.stuck_title": "Nobody steers this fan — it stays as Fanboy set it last",
+  "test.ignored": "Doesn't obey — the BIOS keeps this connector",
+  "test.ignored_hint": "Fanboy never steers it. To give it to him: choose a fixed or flat setting for this connector in the BIOS and test again — otherwise it stays with the BIOS.",
+  "test.inverted": "The other way round: more power makes it slower",
+  "test.inverted_hint": "The driver steers this connector the other way round. Fanboy gave it back at once and never steers it; it stays with the BIOS.",
+  "out.ignored": "doesn't obey",
+  "out.ignored_title": "The BIOS keeps this connector — Fanboy never steers it",
+  "out.inverted": "the other way round",
+  "out.inverted_title": "More power makes this fan slower — Fanboy never steers it, it stays with the BIOS",
+  "notify.not_back_subject": "Fanboy: the mainboard didn't take {fan} back",
+  "notify.not_back": "After Fanboy gave it back, {fan} turned clearly slower than before — the mainboard didn't take it back. Fanboy set it to 100 %; it stays so until Fanboy steers it again or Unraid restarts.",
+  "notify.refuses_subject": "Fanboy: the driver takes no values for {fan}",
+  "notify.refuses": "The fan chip's driver refuses every value for {fan}. Fanboy gave it back to the BIOS as far as that still works and doesn't steer it any more. A restart often helps; otherwise send Fanboy's report to the makers.",
+  "note.refuses": "The driver takes no values for {fan} — back to the BIOS"
 }

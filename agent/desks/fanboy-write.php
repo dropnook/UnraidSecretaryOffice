@@ -45,6 +45,9 @@ function fanboyZone(string $link = '/etc/localtime'): string
 }
 
 const FANBOY_FULL = 255;
+const FANBOY_BACK_CHECK = 10;           // round 5: seconds after a give-back the fan is looked at (did the mainboard take it?)
+const FANBOY_BACK_CHECK_UNTIL = 180;    // … no later than this (a look that comes too late says nothing)
+const FANBOY_RPM_SANE = 20000;          // round 5 (forum 3.8): an rpm at or over this is a sentinel (65535), not a speed
 const FANBOY_OWNER_STALE = 30;          // seconds without a beat: the holder is taken for hung, its outputs given back
 const FANBOY_JOURNAL_MAX = 64;          // outputs in the journal at most (a board has 3–10)
 const FANBOY_OWNER_KINDS = ['control', 'step'];
@@ -326,6 +329,13 @@ function fanboyTake(array $fan, array $owner, string $boardKey = ''): ?array
         $o ??= ['chip' => $fan['chip'], 'address' => $fan['address'], 'device' => $fan['device'], 'output' => $fan['output'],
                 'initial' => $now, 'at' => time(), 'expect' => null, 'given' => null];
         $o['device'] = $fan['device'];          // the device path is this boot's (an address may have moved)
+        // round 5: its tach inputs and how fast the mainboard ran it before his first take this boot (the give-back's check)
+        if (is_array($fan['paired'] ?? null) && $fan['paired']) {
+            $o['tachs'] = array_values(array_filter($fan['paired'], 'is_int'));
+            if ($first) {
+                $o['rpm'] = fanboyTachNow($fan['device'], $o['tachs']);
+            }
+        }
         $o['owner'] = $owner;
         $auto = $fan['auto'] ?? null;
         $o['back'] = is_int($auto) && $auto >= 2 && $auto <= 9 && ($o['initial']['enable'] ?? null) === 1
@@ -342,6 +352,59 @@ function fanboyTake(array $fan, array $owner, string $boardKey = ''): ?array
 function fanboySameOwner(array $a, array $b): bool
 {
     return ($a['pid'] ?? null) === ($b['pid'] ?? null) && ($a['start'] ?? null) === ($b['start'] ?? null);
+}
+
+/** The fastest of these tach inputs of an output's chip now (rpm; a sentinel ≥ FANBOY_RPM_SANE is no reading), null: none */
+function fanboyTachNow(string $device, array $tachs): ?int
+{
+    $found = preg_match('#^[A-Za-z0-9_.:/-]{1,200}$#D', $device) && !str_contains($device, '..')
+        ? (glob(fanboySysRoot() . "/sys/devices/$device/hwmon/hwmon*", GLOB_ONLYDIR) ?: []) : [];
+    $dir = count($found) === 1 ? $found[0] : null;
+    $best = null;
+    foreach ($tachs as $n) {
+        $r = is_int($n) && $dir !== null ? fanboyReadInt("$dir/fan{$n}_input") : null;
+        if ($r !== null && $r >= 0 && $r < FANBOY_RPM_SANE) {
+            $best = max($best ?? 0, $r);
+        }
+    }
+    return $best;
+}
+
+/**
+ * Round 5 (forum 3.4, it87 issue #56: a chip that ignores its own mode once written): FANBOY_BACK_CHECK seconds after a
+ * give-back, the fan against what it turned before Fanboy first took it this boot — clearly slower (under half) and not
+ * rising again: the mainboard didn't take it back — full speed, fixed, noted in the journal (`given.full`). A fan the
+ * BIOS keeps standing (0 before) is fine. $wall: the tests' clock. Returns the outputs set to full now.
+ */
+function fanboyGivenCheck(?int $wall = null): array
+{
+    $wall ??= time();
+    if (!is_file(fanboyRunDir() . '/journal.json')) {
+        return [];
+    }
+    return fanboyLocked(function (array $j) use ($wall): array {
+        $full = [];
+        $changed = false;
+        foreach ($j['outputs'] as $id => $o) {
+            $g = $o['given'] ?? null;
+            if (is_array($o['owner']) || !is_array($g) || isset($g['checked']) || !is_int($g['at'] ?? null) || $wall - $g['at'] < FANBOY_BACK_CHECK) {
+                continue;
+            }
+            $j['outputs'][$id]['given']['checked'] = $wall;
+            $changed = true;
+            $before = $o['rpm'] ?? null;
+            if ($wall - $g['at'] > FANBOY_BACK_CHECK_UNTIL || in_array($g['why'] ?? '', ['foreign', 'gone'], true) || !is_int($before) || $before < 300) {
+                continue;
+            }
+            $now = fanboyTachNow($o['device'], is_array($o['tachs'] ?? null) ? $o['tachs'] : []);
+            if ($now !== null && $now < $before * 0.5 && $now <= ($g['rpm'] ?? $now) * 1.1 + 50) {
+                $w = fanboyWriteValue($o['device'], $o['output'], FANBOY_FULL);
+                $j['outputs'][$id]['given']['full'] = ['at' => $wall, 'rpm' => $now, 'before' => $before, 'ok' => $w !== null];
+                $full[$id] = $j['outputs'][$id]['given']['full'] + ['chip' => $o['chip'], 'output' => $o['output']];
+            }
+        }
+        return [$changed ? $j : null, $full];
+    }) ?? [];
 }
 
 /** Writes a value to an output this holder has (pct of 255 already turned into 0–255), read back into «expect» */
@@ -386,7 +449,8 @@ function fanboyGiveBack(?array $ids, string $why, ?array $only = null, bool $dea
             $r = fanboyWriteState($o['device'], $o['output'], is_array($o['back'] ?? null) ? $o['back'] : $o['initial']);
             $j['outputs'][$id]['owner'] = null;
             $j['outputs'][$id]['expect'] = null;
-            $j['outputs'][$id]['given'] = ['at' => time(), 'why' => $why, 'ok' => $r['ok']];
+            $j['outputs'][$id]['given'] = ['at' => time(), 'why' => $why, 'ok' => $r['ok'],
+                'rpm' => fanboyTachNow($o['device'], is_array($o['tachs'] ?? null) ? $o['tachs'] : [])];
             $out[$id] = $r + ['owner' => $o['owner'], 'holder' => $state];
         }
         return [$out ? $j : null, $out];

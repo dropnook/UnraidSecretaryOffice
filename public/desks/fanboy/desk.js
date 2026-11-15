@@ -724,6 +724,7 @@ function outputRole(id) {
   if (cf && cf.held && control().running) return chipOfText('accent', T('out.held', { pct: num(cf.pct) === null ? '–' : cf.pct }), T('out.held_title', { zone: zoneName(cf.zone || zoneOfFan(id)) }));
   if (!f || !f.found) return chipOfText('quiet', T('out.untested'), T('out.untested_title'));
   if (f.found === 'empty') return chipOfText('quiet', T('out.empty'), T('out.empty_title'));
+  if (f.found === 'ignored' || f.found === 'inverted') return chipOfText('warn', T(`out.${f.found}`), T(`out.${f.found}_title`));
   if (f.role && ROLES_BIOS.includes(f.role)) return chipOfText('quiet', T(`role.${f.role}`) + ' · ' + T('out.watched'), T('out.watched_title'));
   if (f.role) return chipOfText('quiet', T(`role.${f.role}`), T('out.his_title'));
   return chipOfText('quiet', T('out.no_role'), T('out.no_role_title'));
@@ -1378,8 +1379,10 @@ function testStep() {
     else if (found === 'empty') line = T('test.empty');
     else if (found === 'unclear') line = T('test.unclear');
     else if (found === 'ask') line = T('test.ask');
+    else if (found === 'ignored' || found === 'inverted') line = T(`test.${found}`);     // round 5: never steered
     if (r && r.found === 'busy') line = T('test.busy');
     txt.appendChild(el('div', 'fb-card-line', line));
+    if (!live && (found === 'ignored' || found === 'inverted')) txt.appendChild(el('div', 'fb-card-line', T(`test.${found}_hint`)));
     if (!live && ['ask', 'unclear'].includes(found)) {
       txt.appendChild(el('div', 'fb-card-line fb-strong', T('test.louder')));
       txt.appendChild(bar(

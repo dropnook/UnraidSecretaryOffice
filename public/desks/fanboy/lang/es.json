@@ -724,5 +724,18 @@
   "pic.nobody_now": "ahora no los regula nadie — siguen como estaban",
   "curves.line_nobody": "Ahora nadie regula los ventiladores de esta zona — siguen como Fanboy los dejó.",
   "pic.stuck": "fijo",
-  "pic.stuck_title": "Nadie regula este ventilador — sigue como Fanboy lo dejó"
+  "pic.stuck_title": "Nadie regula este ventilador — sigue como Fanboy lo dejó",
+  "test.ignored": "No obedece — la BIOS se queda con este conector",
+  "test.ignored_hint": "Fanboy nunca lo regula. Para dárselo: elige en la BIOS un ajuste fijo o plano para este conector y prueba de nuevo — si no, se queda con la BIOS.",
+  "test.inverted": "Al revés: más potencia lo hace más lento",
+  "test.inverted_hint": "El controlador maneja este conector al revés. Fanboy lo devolvió enseguida y nunca lo regula; se queda con la BIOS.",
+  "out.ignored": "no obedece",
+  "out.ignored_title": "La BIOS se queda con este conector — Fanboy nunca lo regula",
+  "out.inverted": "al revés",
+  "out.inverted_title": "Más potencia hace más lento este ventilador — Fanboy nunca lo regula, se queda con la BIOS",
+  "notify.not_back_subject": "Fanboy: la placa base no recuperó {fan}",
+  "notify.not_back": "Tras la devolución de Fanboy, {fan} giraba claramente más lento que antes — la placa base no lo recuperó. Fanboy lo puso al 100 %; sigue así hasta que Fanboy lo regule de nuevo o Unraid se reinicie.",
+  "notify.refuses_subject": "Fanboy: el controlador no acepta valores para {fan}",
+  "notify.refuses": "El controlador del chip de los ventiladores rechaza cualquier valor para {fan}. Fanboy lo devolvió a la BIOS en lo posible y ya no lo regula. A menudo ayuda reiniciar; si no, envía el informe de Fanboy a los desarrolladores.",
+  "note.refuses": "El controlador no acepta valores para {fan} — devuelto a la BIOS"
 }

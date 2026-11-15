@@ -179,7 +179,7 @@ function fanboyChip(string $hwmon, string $entry): ?array
                 'auto'   => $auto,
             ];
         } elseif (preg_match('/^fan(\d{1,2})_input$/D', $f, $m)) {
-            $fans[(int) $m[1]] = ['n' => (int) $m[1], 'rpm' => fanboyInt("$attr/$f"), 'label' => fanboyLine("$attr/fan{$m[1]}_label")];
+            $fans[(int) $m[1]] = ['n' => (int) $m[1], 'rpm' => fanboySaneRpm(fanboyInt("$attr/$f")), 'label' => fanboyLine("$attr/fan{$m[1]}_label")];
         } elseif (preg_match('/^temp(\d{1,3})_input$/D', $f, $m)) {
             $temps[(int) $m[1]] = ['n' => (int) $m[1], 'label' => fanboyLine("$attr/temp{$m[1]}_label")];
         }
@@ -189,7 +189,7 @@ function fanboyChip(string $hwmon, string $entry): ?array
         // drivetemp asks the disk for its temperature: never read here (a sleeping disk would wake) — Unraid's own
         // disks.ini says it instead
         $raw = $kind === 'disk' ? null : fanboyInt("$attr/temp{$n}_input");
-        $temps[$n]['c'] = $raw === null || $raw < -40000 || $raw > 200000 ? null : round($raw / 1000, 1);
+        $temps[$n]['c'] = fanboySaneTemp($raw);
     }
     ksort($outputs);
     ksort($fans);
@@ -205,6 +205,25 @@ function fanboyChip(string $hwmon, string $entry): ?array
         'fans'    => array_values($fans),
         'temps'   => array_values($temps),
     ];
+}
+
+/** An rpm read as it counts: a sentinel (≥ FANBOY_RPM_SANE) or a negative number is no reading */
+function fanboySaneRpm(?int $rpm): ?int
+{
+    return $rpm === null || $rpm < 0 || $rpm >= FANBOY_RPM_SANE ? null : $rpm;
+}
+
+/**
+ * A temperature read as it counts (°C from millidegrees): 0, −128, 127 and anything at or over 125 °C are what broken
+ * or unwired sensors report (forum 3.8: an NCT6776 CPUTIN reading nonsense) — «says nothing», never «too warm»
+ */
+function fanboySaneTemp(?int $milli): ?float
+{
+    if ($milli === null) {
+        return null;
+    }
+    $c = round($milli / 1000, 1);
+    return $c == 0.0 || $c <= -128.0 || $c >= 125.0 ? null : $c;
 }
 
 /** The chips under the hwmon folder, in its order (hwmon0, hwmon1 … hwmon10) */

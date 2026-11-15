@@ -724,5 +724,18 @@
   "pic.nobody_now": "personne ne les règle — ils restent comme ils étaient",
   "curves.line_nobody": "Personne ne règle les ventilateurs de cette zone — ils restent comme Fanboy les a réglés en dernier.",
   "pic.stuck": "figé",
-  "pic.stuck_title": "Personne ne règle ce ventilateur — il reste comme Fanboy l'a réglé en dernier"
+  "pic.stuck_title": "Personne ne règle ce ventilateur — il reste comme Fanboy l'a réglé en dernier",
+  "test.ignored": "N'obéit pas — le BIOS garde ce connecteur",
+  "test.ignored_hint": "Fanboy ne le règle jamais. Pour le lui confier : choisis dans le BIOS un réglage fixe ou plat pour ce connecteur et teste à nouveau — sinon il reste au BIOS.",
+  "test.inverted": "À l'envers : plus de puissance le ralentit",
+  "test.inverted_hint": "Le pilote commande ce connecteur à l'envers. Fanboy l'a rendu tout de suite et ne le règle jamais ; il reste au BIOS.",
+  "out.ignored": "n'obéit pas",
+  "out.ignored_title": "Le BIOS garde ce connecteur — Fanboy ne le règle jamais",
+  "out.inverted": "à l'envers",
+  "out.inverted_title": "Plus de puissance ralentit ce ventilateur — Fanboy ne le règle jamais, il reste au BIOS",
+  "notify.not_back_subject": "Fanboy : la carte mère n'a pas repris {fan}",
+  "notify.not_back": "Après que Fanboy l'a rendu, {fan} tournait nettement moins vite qu'avant — la carte mère ne l'a pas repris. Fanboy l'a mis à 100 % ; il reste ainsi jusqu'à ce que Fanboy le règle à nouveau ou qu'Unraid redémarre.",
+  "notify.refuses_subject": "Fanboy : le pilote n'accepte aucune valeur pour {fan}",
+  "notify.refuses": "Le pilote de la puce des ventilateurs refuse toute valeur pour {fan}. Fanboy l'a rendu au BIOS autant que possible et ne le règle plus. Un redémarrage aide souvent ; sinon envoie le rapport de Fanboy aux développeurs.",
+  "note.refuses": "Le pilote n'accepte aucune valeur pour {fan} — rendu au BIOS"
 }

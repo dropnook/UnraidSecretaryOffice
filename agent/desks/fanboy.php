@@ -309,6 +309,11 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
             . ', firmware ' . ($clean($i['firmware_revision'] ?? '') ?: '?') . ', IPMI ' . ($clean($i['ipmi_version'] ?? '') ?: '?');
         $lines[] = 'IPMI fan sensors: ' . ($ipmiFans ? implode(', ', array_map($clean, $ipmiFans)) : 'not read (no ipmitool)');
     }
+    // round 5 (forum 3.9): outputs whose driver refused every value while he steered (the control's last status)
+    $st = readJson(fanboyRunDir() . '/control.json');
+    if (is_array($st['refuses'] ?? null) && $st['refuses']) {
+        $lines[] = 'Driver refused values (EIO/EACCES) for: ' . implode(', ', array_map($clean, $st['refuses']));
+    }
     // round 4: a CPU cooler steered by Fanboy on the owner's risk (no names: only that and since when)
     $mine = is_array($scan['board'] ?? null) ? (fanboyBoardRaw($scan['board']) ?? []) : [];
     $own = array_filter(is_array($mine['fans'] ?? null) ? $mine['fans'] : [], fn ($f) => is_array($f) && fanboyCpuOwn($f));
@@ -379,7 +384,27 @@ function fanboyTick(?float $now = null): void
     }
     $next = $now + FANBOY_TICK_EVERY;
     fanboyWatch();
+    fanboyBackCheck();
     fanboyEnsureControl($now);
+}
+
+/**
+ * Round 5 (forum 3.4): a fan the mainboard didn't take back after a give-back is at full speed now (fanboyGivenCheck()) —
+ * said once per output and boot, an alert, and in the log. $wall: the tests' clock.
+ */
+function fanboyBackCheck(?int $wall = null): array
+{
+    $full = fanboyGivenCheck($wall);
+    if (!$full) {
+        return [];
+    }
+    $fans = (fanboyBoardRaw() ?? [])['fans'] ?? [];
+    foreach ($full as $id => $x) {
+        $name = is_string($fans[$id]['name'] ?? null) && $fans[$id]['name'] !== '' ? $fans[$id]['name'] : officeNotifyText('fanboy', 'out.name', ['n' => $x['output']], officeNotifyLang());
+        logLine("Fanboy: $id not taken back by the mainboard ({$x['rpm']} rpm, {$x['before']} before Fanboy) — set to full speed" . ($x['ok'] ? '' : ' — NOT written'));
+        fanboyTellOnce("not_back:$id", 'not_back', ['fan' => $name], 'alert');
+    }
+    return $full;
 }
 
 /** Holders gone (killed hard) or hung: their outputs back with the BIOS, said in the log */

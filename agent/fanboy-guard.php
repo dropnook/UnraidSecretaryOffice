@@ -61,6 +61,10 @@ function fanboyGuardMain(string $cmd): int
         return 0;
     }
     if ($cmd === 'watch') {
+        // round 5: a give-back the mainboard didn't take: full speed (the agent tells it when it is there)
+        foreach (fanboyGivenCheck() as $id => $x) {
+            logLine("Fanboy: $id not taken back by the mainboard ({$x['rpm']} rpm, {$x['before']} before Fanboy) — set to full speed (the guard's look)");
+        }
         if (!fanboyHeld()) {
             return 0;
         }

@@ -724,5 +724,18 @@
   "pic.nobody_now": "niemand regelt sie gerade — sie bleiben, wie sie waren",
   "curves.line_nobody": "Die Lüfter dieser Zone regelt gerade niemand — sie bleiben, wie Fanboy sie zuletzt gestellt hat.",
   "pic.stuck": "fest",
-  "pic.stuck_title": "Niemand regelt diesen Lüfter — er bleibt, wie Fanboy ihn zuletzt gestellt hat"
+  "pic.stuck_title": "Niemand regelt diesen Lüfter — er bleibt, wie Fanboy ihn zuletzt gestellt hat",
+  "test.ignored": "Gehorcht nicht — das BIOS behält diesen Anschluss",
+  "test.ignored_hint": "Fanboy regelt ihn nie. Willst du ihn ihm geben: im BIOS für diesen Anschluss eine feste oder flache Einstellung wählen und neu testen — sonst bleibt er beim BIOS.",
+  "test.inverted": "Verkehrt herum: Mehr Leistung macht ihn langsamer",
+  "test.inverted_hint": "Der Treiber steuert diesen Anschluss verkehrt herum. Fanboy hat ihn sofort zurückgegeben und regelt ihn nie; er bleibt beim BIOS.",
+  "out.ignored": "gehorcht nicht",
+  "out.ignored_title": "Das BIOS behält diesen Anschluss — Fanboy regelt ihn nie",
+  "out.inverted": "verkehrt herum",
+  "out.inverted_title": "Mehr Leistung macht diesen Lüfter langsamer — Fanboy regelt ihn nie, er bleibt beim BIOS",
+  "notify.not_back_subject": "Fanboy: das Mainboard hat {fan} nicht übernommen",
+  "notify.not_back": "Nach Fanboys Rückgabe drehte {fan} deutlich langsamer als vorher — das Mainboard hat ihn nicht übernommen. Fanboy hat ihn auf 100 % gestellt; so bleibt er, bis Fanboy ihn wieder regelt oder Unraid neu startet.",
+  "notify.refuses_subject": "Fanboy: der Treiber nimmt für {fan} keine Werte an",
+  "notify.refuses": "Der Treiber des Lüfter-Chips weist jeden Wert für {fan} zurück. Fanboy hat ihn ans BIOS zurückgegeben, so weit das noch geht, und regelt ihn nicht mehr. Oft hilft ein Neustart; sonst schick Fanboys Bericht an die Entwickler.",
+  "note.refuses": "Der Treiber nimmt für {fan} keine Werte an — zurück ans BIOS"
 }

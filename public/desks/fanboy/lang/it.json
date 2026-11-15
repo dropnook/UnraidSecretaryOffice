@@ -724,5 +724,18 @@
   "pic.nobody_now": "ora non le regola nessuno — restano come erano",
   "curves.line_nobody": "Ora nessuno regola le ventole di questa zona — restano come Fanboy le ha impostate l'ultima volta.",
   "pic.stuck": "ferma",
-  "pic.stuck_title": "Nessuno regola questa ventola — resta come Fanboy l'ha impostata l'ultima volta"
+  "pic.stuck_title": "Nessuno regola questa ventola — resta come Fanboy l'ha impostata l'ultima volta",
+  "test.ignored": "Non obbedisce — il BIOS tiene questo connettore",
+  "test.ignored_hint": "Fanboy non lo regola mai. Per affidarglielo: scegli nel BIOS un'impostazione fissa o piatta per questo connettore e prova di nuovo — altrimenti resta al BIOS.",
+  "test.inverted": "Al contrario: più potenza lo rallenta",
+  "test.inverted_hint": "Il driver comanda questo connettore al contrario. Fanboy l'ha restituito subito e non lo regola mai; resta al BIOS.",
+  "out.ignored": "non obbedisce",
+  "out.ignored_title": "Il BIOS tiene questo connettore — Fanboy non lo regola mai",
+  "out.inverted": "al contrario",
+  "out.inverted_title": "Più potenza rallenta questa ventola — Fanboy non la regola mai, resta al BIOS",
+  "notify.not_back_subject": "Fanboy: la scheda madre non ha ripreso {fan}",
+  "notify.not_back": "Dopo la restituzione di Fanboy, {fan} girava molto più piano di prima — la scheda madre non l'ha ripreso. Fanboy l'ha messo al 100 %; resta così finché Fanboy non lo regola di nuovo o Unraid si riavvia.",
+  "notify.refuses_subject": "Fanboy: il driver non accetta valori per {fan}",
+  "notify.refuses": "Il driver del chip delle ventole rifiuta ogni valore per {fan}. Fanboy l'ha restituito al BIOS per quanto ancora possibile e non lo regola più. Spesso aiuta un riavvio; altrimenti invia il rapporto di Fanboy agli sviluppatori.",
+  "note.refuses": "Il driver non accetta valori per {fan} — restituito al BIOS"
 }

@@ -285,3 +285,187 @@ function testFanboyR5NoDriftAtFull(): void
         fanboyTEnd();
     }
 }
+
+/**
+ * B1/B2 (forum 3.2, 3.11): «doesn't obey» is not «empty» — a write the BIOS takes back (read back 2 s later), or a fan
+ * turning that no output moves; and an output working the other way round. Both given back at once, never steered.
+ */
+function testFanboyR5Obeys(): void
+{
+    $t = fanboyT('r5obey');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        fanboyTStore($settings);
+        $run = function (array $spec, array $outs) use ($t, $settings): array {
+            fanboyTStore($settings);                              // each case from the same setup, a new boot's journal
+            @unlink(TESTS_RUN_DIR . '/fanboy/journal.json');
+            fanboyTSettle($t, $spec);
+            $clock = 0.0;
+            $step = fanboyStepRun(['id' => 'o' . mt_rand(), 'kind' => 'test_up', 'fans' => array_map('fanboyTId', $outs)], fanboyTIo($t, $spec, $clock));
+            return array_map(fn ($r) => $r['found'], $step['results']);
+        };
+        // the BIOS puts output 4's mode back after every write: read back 2 s later — «doesn't obey»
+        $spec = fanboyTSpec(10, [4 => ['auto' => 1100]]);
+        $spec['revert'] = [4 => 2];
+        file_put_contents("{$t['hw']}/pwm4_enable", "2\n");
+        same('fanboy r5 obeys: the BIOS takes the mode back — «ignored» (not «ask», not «empty»)', [fanboyTId(4) => 'ignored'], $run($spec, [4]));
+        same('fanboy r5 obeys: … stored so, out of every zone, never in the control', ['ignored', false, false],
+            [fanboyBoardRaw()['fans'][fanboyTId(4)]['found'], in_array(fanboyTId(4), array_merge(...array_column(fanboyBoardRaw()['zones'], 'fans')), true),
+             isset(fanboyControlNew(fanboyBoardRaw(), FANBOY_T_KEY, ['pid' => 0])['fans'][fanboyTId(4)])]);
+        same('fanboy r5 obeys: … given back to its mode (2, the chip\'s own curve)', 2, fanboyTOut($t, 4)[1]);
+        // the write stands, but its fan turns on by the BIOS's curve and no output moves it: no «louder?», «ignored»
+        file_put_contents("{$t['hw']}/pwm4", "128\n");
+        file_put_contents("{$t['hw']}/pwm4_enable", "1\n");
+        $spec = fanboyTSpec(10, [4 => ['bios' => true, 'auto' => 1100]]);
+        same('fanboy r5 obeys: a fan turning that no output moves — the output where nothing followed is «ignored»', [fanboyTId(4) => 'ignored'], $run($spec, [4]));
+        // nothing turning anywhere unpaired: «ask» as before (the silent fan, the empty connector)
+        same('fanboy r5 obeys: … nothing unpaired turning: outputs 2, 3 «ask» as before', [fanboyTId(2) => 'ask', fanboyTId(3) => 'ask'], $run(fanboyTSpec(), [2, 3]));
+        // the other way round: full makes its fan fall — «inverted», given back at once
+        file_put_contents("{$t['hw']}/pwm4", "128\n");
+        file_put_contents("{$t['hw']}/pwm4_enable", "1\n");
+        $spec = fanboyTSpec(10, [4 => ['inverted' => true]]);
+        same('fanboy r5 obeys: full makes it slower — «inverted»', [fanboyTId(4) => 'inverted'], $run($spec, [4]));
+        same('fanboy r5 obeys: … given back as it was, nothing held, never steered', [[128, 1], [], false],
+            [fanboyTOut($t, 4), fanboyHeld(), isset(fanboyControlNew(fanboyBoardRaw(), FANBOY_T_KEY, ['pid' => 0])['fans'][fanboyTId(4)])]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * B3 (forum 3.4, it87 issue #56): give back safely — value, then mode; 10 s later the fan against what the mainboard ran
+ * it at before; clearly slower and not rising: full speed, fixed, one alert, the journal says it. A normal give-back
+ * stays quiet; a fan the BIOS keeps standing (0 before) is fine.
+ */
+function testFanboyR5GiveBackSafe(): void
+{
+    $t = fanboyT('r5back');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        unset($settings['fans'][fanboyTId(4)]['back']);
+        fanboyTStore($settings);
+        file_put_contents("{$t['hw']}/pwm4", "30\n");             // the mainboard's own curve, its register low
+        file_put_contents("{$t['hw']}/pwm4_enable", "2\n");
+        $case = function (array $after, ?array $before = null) use ($t, $settings): array {
+            @unlink(TESTS_RUN_DIR . '/fanboy/journal.json');
+            @unlink(fanboyRunDir() . '/told.json');
+            $before ??= fanboyTSpec(10, [4 => ['auto' => 1100]]);
+            fanboyTSettle($t, $before, 20);
+            fanboyBeat();
+            $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+            $now = 1000.0;
+            fanboyTRounds($c, $now, $t, $before, 10);
+            fanboyLetGo($c, 'end');
+            $order = fanboyTOut($t, 4);
+            fanboyTSettle($t, $after, 12);
+            $at = fanboyJournal()['outputs'][fanboyTId(4)]['given']['at'];
+            $early = fanboyBackCheck($at + 5);
+            $full = fanboyBackCheck($at + 12);
+            return [$order, array_keys($early), array_keys($full), fanboyTOut($t, 4), fanboyJournal()['outputs'][fanboyTId(4)]['given']['full']['before'] ?? null];
+        };
+        $n0 = count(fanboyTNotified($t));
+        same('fanboy r5 back: a mainboard that takes it back — its value then its mode (30, 2), looked at after 10 s, quiet',
+            [[30, 2], [], [], [30, 2], null], $case(fanboyTSpec(10, [4 => ['auto' => 1100]])));
+        same('fanboy r5 back: … no notification', $n0, count(fanboyTNotified($t)));
+        file_put_contents("{$t['hw']}/pwm4", "30\n");
+        file_put_contents("{$t['hw']}/pwm4_enable", "2\n");
+        same('fanboy r5 back: a chip that ignores its own mode (it87 #56) — the fan stops: after 10 s full speed, fixed, in the journal',
+            [[30, 2], [], [fanboyTId(4)], [255, 1], 1100], $case(fanboyTSpec(10, [4 => ['auto' => 1100, 'auto_dead' => true]])));
+        $alerts = array_values(array_filter(array_slice(fanboyTNotified($t), $n0), fn ($l) => str_contains($l, '-i alert')));
+        check('fanboy r5 back: … one alert naming it (' . ($alerts[0] ?? '') . ')', count($alerts) === 1 && str_contains($alerts[0], "didn't take Cage back"));
+        // a fan the BIOS keeps standing (fan stop): 0 before, 0 after — fine
+        file_put_contents("{$t['hw']}/pwm4", "30\n");
+        file_put_contents("{$t['hw']}/pwm4_enable", "2\n");
+        same('fanboy r5 back: a fan the BIOS kept standing before (0 rpm) — nothing done', [[30, 2], [], [], [30, 2], null],
+            $case(fanboyTSpec(10, [4 => ['auto' => 0]]), fanboyTSpec(10, [4 => ['auto' => 0]])));
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * B4 (forum 3.8): readings that are no readings — rpm 65535 (≥ 20 000) and temperatures 0, −128, 127, ≥ 125 °C are
+ * «says nothing», never a speed or «too warm»; one 0 rpm among good readings never trips «stands» (it needs 15 s).
+ */
+function testFanboyR5Sane(): void
+{
+    same('fanboy r5 sane: rpm — 1200 is a speed, 0 too; 65535, 20000, −1 are none',
+        [1200, 0, null, null, null, null], array_map('fanboySaneRpm', [1200, 0, 65535, 20000, -1, null]));
+    same('fanboy r5 sane: °C — 45.5 and −5 are temperatures; 0, −128, 127, 125, 200 are none',
+        [45.5, -5.0, null, null, null, null, null], array_map('fanboySaneTemp', [45500, -5000, 0, -128000, 127000, 125000, 200000]));
+    $t = fanboyT('r5sane');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);
+        $spec = fanboyTSpec();
+        fanboyTSettle($t, $spec);
+        fanboyBeat();
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 6);
+        // one 0 among good readings (an outlier, as an IT8688E shows): nothing
+        file_put_contents("{$t['hw']}/fan4_input", "0\n");
+        fanboyRound($c, $now);
+        $now += FANBOY_ROUND;
+        fanboyTRounds($c, $now, $t, $spec, 10);
+        same('fanboy r5 sane: one 0 rpm among good readings — no alarm, its clock back to nought', [null, null], [$c['alarm'], $c['fans'][fanboyTId(4)]['zero_since']]);
+        // 65535 on the hub's second input for half a minute: no reading — never «stands»
+        $hub = fanboyTSpec(10, [6 => ['stuck' => true]]);
+        for ($i = 0; $i < 15; $i++) {
+            fanboyFakeRespond($t['root'], $hub, FANBOY_ROUND);
+            file_put_contents("{$t['hw']}/fan6_input", "65535\n");
+            fanboyRound($c, $now);
+            $now += FANBOY_ROUND;
+        }
+        same('fanboy r5 sane: 65535 for 30 s — no speed, never «stands»', [null, null], [$c['alarm'], $c['fans'][fanboyTId(5)]['rpm']]);
+        // the NVMe reports 127 °C (a broken sensor): «says nothing», never «too warm» at full
+        $nv = glob("{$t['root']}/sys/devices/pci0000:00/0000:00:06.1/0000:03:00.0/nvme/*/hwmon/hwmon*/temp1_input")[0];
+        file_put_contents($nv, "127000\n");
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        same('fanboy r5 sane: an NVMe at «127 °C» — no reading (no «too warm»)', [null, null], [$c['sources'][FANBOY_T_NVME]['c'], $c['alarm']]);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * B5 (forum 3.9): a driver that refuses every write (EIO/EACCES; here: the pwm file a link — the write helper refuses
+ * it the same way). Before round 5: tried again every round, silently. Now after 3 in a row: that output back as far as
+ * it goes, never taken again by this control, one warning, a note, a line in the report.
+ */
+function testFanboyR5Refused(): void
+{
+    $t = fanboyT('r5refuse');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);
+        $spec = fanboyTSpec();
+        fanboyTSettle($t, $spec);
+        fanboyBeat();
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 6);
+        // the driver takes no values for output 4 from now on
+        rename("{$t['hw']}/pwm4", "{$t['hw']}/pwm4.real");
+        symlink("{$t['hw']}/pwm4.real", "{$t['hw']}/pwm4");
+        fanboyTDisks($t, 44, null, 33);             // warmer: the disk zone wants more — writes needed
+        fanboyTRounds($c, $now, $t, $spec, 8);
+        $st = fanboyStatus($c);
+        same('fanboy r5 refused: three refused writes — not his any more (never taken again), the status and a note say it',
+            [false, true, [fanboyTId(4)], 'refuses'], [$c['fans'][fanboyTId(4)]['taken'], $c['fans'][fanboyTId(4)]['refuses'] ?? false, $st['refuses'], end($st['notes'])['code'] ?? null]);
+        fanboyTRounds($c, $now, $t, $spec, 8);
+        same('fanboy r5 refused: … one warning naming it', 1, count(array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, 'takes no values for Cage'))));
+        fanboyStatusWrite($st);
+        check('fanboy r5 refused: … a line in the report', str_contains(fanboyReportText(fanboyDetect()), 'Driver refused values (EIO/EACCES) for: ' . fanboyTId(4)));
+        same('fanboy r5 refused: … the other zone steers on', true, $c['fans'][fanboyTId(5)]['taken']);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyTEnd();
+    }
+}

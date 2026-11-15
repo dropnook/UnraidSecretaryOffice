@@ -11,7 +11,10 @@ declare(strict_types=1);
  *   $spec = ['hwmon' => 'hwmon10',                         the chip's folder under <root>/sys/class/hwmon
  *            'fans'  => [tach => ['output' => n, 'max' => rpm at 255, 'stall' => 0–1 (below: stops),
  *                                 'start' => 0–1 (from standing: needs this), 'auto' => rpm in the chip's mode,
- *                                 'lag' => seconds, 'stuck' => true (never turns)]]]
+ *                                 'lag' => seconds, 'stuck' => true (never turns), 'inverted' => true (more is slower),
+ *                                 'auto_dead' => true (the chip's mode does nothing: the value counts, it87 #56),
+ *                                 'bios' => true (the BIOS runs it whatever is written: its «auto» rpm)]],
+ *            'revert' => [output => enable]]       the BIOS puts that output's mode back after every write (round 5)
  */
 
 function fanboyFakeRpmTarget(array $f, ?int $value, ?int $enable, int $now): int
@@ -19,10 +22,13 @@ function fanboyFakeRpmTarget(array $f, ?int $value, ?int $enable, int $now): int
     if (!empty($f['stuck'])) {
         return 0;
     }
-    if ($enable !== null && $enable >= 2) {
+    if (!empty($f['bios']) || ($enable !== null && $enable >= 2 && empty($f['auto_dead']))) {
         return (int) ($f['auto'] ?? 1200);
     }
     $d = $enable === 0 ? 1.0 : max(0, min(255, $value ?? 0)) / 255;
+    if (!empty($f['inverted'])) {
+        $d = 1.0 - $d;
+    }
     $stall = (float) ($f['stall'] ?? 0.2);
     $start = (float) ($f['start'] ?? max($stall, 0.3));
     if ($d < $stall || ($now < 50 && $d < $start)) {
@@ -35,6 +41,11 @@ function fanboyFakeRpmTarget(array $f, ?int $value, ?int $enable, int $now): int
 function fanboyFakeRespond(string $root, array $spec, float $dt): void
 {
     $dir = "$root/sys/class/hwmon/" . $spec['hwmon'];
+    foreach ($spec['revert'] ?? [] as $n => $enable) {
+        if (is_file("$dir/pwm{$n}_enable") && trim((string) @file_get_contents("$dir/pwm{$n}_enable")) !== (string) $enable) {
+            @file_put_contents("$dir/pwm{$n}_enable", "$enable\n");
+        }
+    }
     foreach ($spec['fans'] as $tach => $f) {
         $n = $f['output'];
         $read = function (string $file): ?int {

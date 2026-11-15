@@ -53,6 +53,7 @@ const FANBOY_HISTORY_THIN = 300;        // … older ones a point per 5 minutes 
 const FANBOY_HISTORY_SPAN = 259200;     // … up to 3 days; older ones go (a zone removed: its history with them)
 const FANBOY_HISTORY_PERIODS = [1, 3, 6, 12, 24, 72];      // hours the page may ask for
 const FANBOY_HISTORY_KEEP = 600.0;      // the history into the data folder every 10 minutes (RAM every minute)
+const FANBOY_REFUSED_MAX = 3;           // round 5: writes refused in a row before «the driver takes no values»
 const FANBOY_RPM_TRIM_MAX = 15;         // percent an rpm zone's correction moves a fan at most
 // a heat source's own scale by its kind: low = cool (the curve's start), high = needs all the air, limit = alarm
 const FANBOY_SOURCE_DEFAULTS = [
@@ -504,7 +505,8 @@ function fanboyTachs(?string $hwmon, array $tachs): array
         return [];
     }
     $dir = fanboyPaths(fanboySysRoot() ?: null)['hwmon'] . "/$hwmon";
-    return array_map(fn ($n) => fanboyReadInt("$dir/fan{$n}_input"), $tachs);
+    // round 5 (forum 3.8): 65535 and the like are no speed — no reading (never «stands», never a speed)
+    return array_map(fn ($n) => fanboySaneRpm(fanboyReadInt("$dir/fan{$n}_input")), $tachs);
 }
 
 /** The zones' sources now: [id => {c, asleep, label, kind}] — disks from disks.ini (every 10 s), sensors every round */
@@ -570,7 +572,7 @@ function fanboyReadSources(array &$c, float $now): void
         } else {
             $raw = $s['path'] === null ? null : fanboyReadInt($s['path']);
             $c['sources'][$id]['asleep'] = false;
-            $c['sources'][$id]['c'] = $raw === null || $raw < -40000 || $raw > 200000 ? null : round($raw / 1000, 1);
+            $c['sources'][$id]['c'] = fanboySaneTemp($raw);
             $c['sources'][$id]['there'] = $s['path'] !== null;
         }
         // since when it says nothing (an asleep disk says nothing on purpose)
@@ -585,10 +587,10 @@ function fanboyReadSources(array &$c, float $now): void
 function fanboyTakeAll(array &$c): void
 {
     foreach ($c['fans'] as $id => $f) {
-        if ($f['taken'] || $f['foreign'] || $f['device'] === null) {
+        if ($f['taken'] || $f['foreign'] || !empty($f['refuses']) || $f['device'] === null) {
             continue;
         }
-        $t = fanboyTake(['id' => $id, 'chip' => $f['chip'], 'address' => $f['address_now'] ?? $f['address'], 'device' => $f['device'], 'output' => $f['output'],
+        $t = fanboyTake(['id' => $id, 'chip' => $f['chip'], 'address' => $f['address_now'] ?? $f['address'], 'device' => $f['device'], 'output' => $f['output'], 'paired' => $f['tachs'],
             'auto' => $f['auto'] ?? null], $c['owner'], $c['key']);
         if ($t !== null) {
             $c['fans'][$id]['taken'] = true;
@@ -887,7 +889,33 @@ function fanboyApply(array &$c, string $id, float $now): void
     if ($back !== null) {
         $c['fans'][$id]['value'] = $value;
         $c['fans'][$id]['changed'] = $now;
+        $c['fans'][$id]['refused'] = 0;
+    } else {
+        fanboyRefused($c, $id);
     }
+}
+
+/**
+ * Round 5 (forum 3.9): a write the driver refuses (EIO, EACCES — seen after 7.3.3 with nct6687, and with two drivers on
+ * one chip) — before, it was tried again every round, silently, the fan left where it was. FANBOY_REFUSED_MAX in a row:
+ * «the driver takes no values» — that output back to the BIOS as far as it goes, never taken again by this control,
+ * one notification, a note (the report's line).
+ */
+function fanboyRefused(array &$c, string $id): void
+{
+    $f = $c['fans'][$id];
+    if ($f['device'] === null || fanboyOutputFiles($f['device'], $f['output']) === null) {
+        return;                     // gone, not refused: the chip's own path
+    }
+    $c['fans'][$id]['refused'] = ($f['refused'] ?? 0) + 1;
+    if ($c['fans'][$id]['refused'] < FANBOY_REFUSED_MAX) {
+        return;
+    }
+    fanboyLetGo($c, 'refused', [$id]);
+    $c['fans'][$id]['refuses'] = true;
+    $label = fanboyFanLabel($f);
+    fanboyNote($c, 'refuses', ['fan' => $label]);
+    fanboyTell($c, "refuses:$id", 'refuses', ['fan' => $label], 'warning');
 }
 
 /** The zones at 100 % for an alarm now: a reason in the last FANBOY_CLEAR_AFTER seconds — [zone id => true] */
@@ -908,9 +936,13 @@ function fanboyFullZones(array &$c, float $now): array
 function fanboyFullOne(array &$c, string $id): void
 {
     $f = $c['fans'][$id];
-    if ($f['value'] !== FANBOY_FULL && fanboySet($id, FANBOY_FULL, $c['owner']) !== null) {
-        $c['fans'][$id]['value'] = FANBOY_FULL;
-        $c['fans'][$id]['changed'] = null;
+    if ($f['value'] !== FANBOY_FULL) {
+        if (fanboySet($id, FANBOY_FULL, $c['owner']) !== null) {
+            $c['fans'][$id]['value'] = FANBOY_FULL;
+            $c['fans'][$id]['changed'] = null;
+        } else {
+            fanboyRefused($c, $id);
+        }
     }
     $c['fans'][$id]['pct'] = 100;
 }
@@ -1077,6 +1109,7 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
         'missing' => $c['missing'] === null ? null : ['since' => $c['missing']['at'], 'why' => $c['missing']['why'], 'told' => isset($c['told']['missing'])],
         'watch' => array_values(array_map(fn ($w) => ['id' => $w['id'], 'name' => $w['name'], 'role' => $w['role'], 'rpm' => $w['rpm']], $c['watch'])),
         'notes' => $c['notes'],
+        'refuses' => array_keys(array_filter($c['fans'], fn ($f) => !empty($f['refuses']))),     // round 5: the driver takes no values
         // since when each fan (and each watched BIOS fan) stands though it should turn — on the monotonic clock, so a
         // control started again goes on counting instead of starting from nought (three restarts in a row still alarm)
         'stand_since' => array_filter(array_map(fn ($f) => $f['zero_since'], $c['fans']) + array_map(fn ($w) => $w['zero_since'], $c['watch']), fn ($v) => $v !== null),
