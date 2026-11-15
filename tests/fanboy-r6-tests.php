@@ -272,6 +272,7 @@ function testFanboyR6ShowRefused(): void
         $settings = fanboyTSettings();
         $settings['armed'] = false;
         $settings['fans'][fanboyTId(3)]['found'] = 'ignored';
+        $settings['fans'][fanboyTId(3)]['why'] = 'taken_back';         // round 8: an «ignored» counts with its reason
         $settings['fans'][fanboyTId(6)] = ['chip' => FANBOY_T_CHIP, 'address' => FANBOY_T_ADDR, 'output' => 6, 'tach' => null, 'tachs' => [], 'found' => 'inverted'];
         fanboyTStore($settings);
         $show = fn (int $n) => fanboyR6Refused(fn () => fanboyShowStart(['fan' => fanboyTId($n)]));
@@ -630,9 +631,88 @@ function testFanboyR7TestLongEnough(): void
             . ' — at least FANBOY_UP_FOR (' . FANBOY_UP_FOR . ' s) less a look', count($quiet) === 3 && min($loud) >= FANBOY_UP_FOR - 0.5, json_encode($loud));
         $tach = array_map(fn ($id) => $atFull[(int) substr($id, -1)] ?? 0, array_keys(array_filter($found, fn ($f) => $f === 'tach')));
         check('fanboy r7 long enough: outputs a tach follows (' . count($tach) . ') at full ' . implode(', ', array_map(fn ($x) => round($x, 1) . ' s', $tach))
-            . ' (≥ 4 s); the six outputs took ' . round($clock) . ' s on the tests\' clock (one silent output ≈ ' . round(FANBOY_UP_BASE + FANBOY_UP_FOR) . ' s + its calm-down)',
-            count($tach) === 3 && min($tach) >= 4 - 0.5 && $clock < 6 * (FANBOY_UP_BASE + FANBOY_UP_FOR + FANBOY_UP_SETTLE));
+            . ' (≥ 8 s since round 8\'s G2); the six outputs took ' . round($clock) . ' s on the tests\' clock (one silent output ≈ ' . round(FANBOY_UP_BASE + FANBOY_UP_FOR) . ' s + its calm-down)',
+            count($tach) === 3 && min($tach) >= FANBOY_UP_FOR - 0.5 && $clock < 6 * (FANBOY_UP_BASE + FANBOY_UP_FOR + FANBOY_UP_SETTLE));
         same('fanboy r7 long enough: … every output given back as it was', [[128, 1], [128, 1], [128, 1], [128, 1], [128, 1], [128, 1]], array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]));
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+// ===================================================================== round 8: the owner's second test on real hardware
+
+/** The owner's board: output 1 → tach 1, 2 and 3 nothing on them (tachs read 0), 4 → 4, 5 → 5, 6 → 6 — every fan lagging */
+function fanboyR8Spec(float $lag = 1.0): array
+{
+    $f = fn (int $out, int $max) => ['output' => $out, 'max' => $max, 'stall' => 0.15, 'start' => 0.25, 'lag' => $lag];
+    return ['hwmon' => 'hwmon10', 'full0' => [1, 2, 3, 4, 5, 6], 'fans' => [1 => $f(1, 1906), 4 => $f(4, 1800), 5 => $f(5, 1800), 6 => $f(6, 1800)]];
+}
+
+/**
+ * G3: «ignored» by round 5's second rule (a turning tach no output moves) was judged with the outputs not yet tested —
+ * tested one by one in the owner's order, outputs 2 and 3 (nothing on them) became «the BIOS keeps it» because the fans
+ * of 4–6 turned unpaired. Judged now only once every output of the chip has a verdict; an «ignored» saved without its
+ * reason before this fix counts as not tested.
+ */
+function testFanboyR8IgnoredLate(): void
+{
+    $t = fanboyT('r8late');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        file_put_contents("{$t['hw']}/fan2_input", "0\n");
+        file_put_contents("{$t['hw']}/fan3_input", "0\n");
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        $found = [];
+        foreach ([1, 2, 3, 4, 5, 6] as $n) {           // the owner's clicks: each card's «test» in turn
+            $clock = 0.0;
+            $step = fanboyStepRun(['id' => "r8l$n", 'kind' => 'test_up', 'fans' => [fanboyTId($n)]], fanboyTIo($t, $spec, $clock));
+            $found[$n] = $step['results'][fanboyTId($n)]['found'];
+        }
+        same('fanboy r8 late: tested one by one — 1 tach, 2 and 3 nothing followed («louder?», not «the BIOS keeps it»), 4/5/6 their tachs',
+            [1 => 'tach', 2 => 'ask', 3 => 'ask', 4 => 'tach', 5 => 'tach', 6 => 'tach'], $found);
+        same('fanboy r8 late: … so saved', ['ask', 'ask'], [fanboyBoardRaw()['fans'][fanboyTId(2)]['found'], fanboyBoardRaw()['fans'][fanboyTId(3)]['found']]);
+        // the rule itself still holds once every output was tried: a fan turning that no output moves
+        $all = fanboyUpIgnored(['a:x:pwm1' => ['found' => 'tach', 'tachs' => [1]], 'a:x:pwm2' => ['found' => 'ask']], ['a:x:pwm2' => ['base' => [1 => 900, 3 => 1200]]], ['a:x:pwm1', 'a:x:pwm2']);
+        $early = fanboyUpIgnored(['a:x:pwm1' => ['found' => 'tach', 'tachs' => [1]], 'a:x:pwm2' => ['found' => 'ask']], ['a:x:pwm2' => ['base' => [1 => 900, 3 => 1200]]], ['a:x:pwm1', 'a:x:pwm2', 'a:x:pwm3']);
+        same('fanboy r8 late: every output tried, tach 3 claimed by none — «ignored» (why «unpaired»); an output still untested — no verdict yet',
+            [['ignored', 'unpaired'], 'ask'], [[$all['a:x:pwm2']['found'], $all['a:x:pwm2']['why'] ?? null], $early['a:x:pwm2']['found']]);
+        // an «ignored» saved before this fix (no reason) shows as not tested; a taken-back one stays
+        $settings = fanboyBoardRaw();
+        $settings['fans'][fanboyTId(2)]['found'] = 'ignored';
+        unset($settings['fans'][fanboyTId(2)]['why']);
+        $settings['fans'][fanboyTId(3)]['found'] = 'ignored';
+        $settings['fans'][fanboyTId(3)]['why'] = 'taken_back';
+        fanboyTStore($settings);
+        $fans = array_column(fanboyScan()['setup']['fans'], 'found', 'id');
+        same('fanboy r8 late: an old «ignored» without its reason — not tested (the page offers the test); «taken back» stays «ignored»', [null, 'ignored'],
+            [$fans[fanboyTId(2)], $fans[fanboyTId(3)]]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/** G2: also with a tach following at once, the output stays at full for FANBOY_UP_FOR (a lagging fan is up and heard) */
+function testFanboyR8FullLongEnough(): void
+{
+    $t = fanboyT('r8long');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR8Spec(3.0);              // a fan that takes its time (the owner's: 1328 → 1906 rpm over ~5 s)
+        fanboyTSettle($t, $spec);
+        $clock = 0.0;
+        $full = 0.0;
+        $io = fanboyTIo($t, $spec, $clock);
+        $sleep = $io['sleep'];
+        $io['sleep'] = function (float $s) use ($sleep, $t, &$full): void {
+            if (fanboyTOut($t, 1)[0] === 255) {
+                $full += $s;
+            }
+            $sleep($s);
+        };
+        $step = fanboyStepRun(['id' => 'r8long', 'kind' => 'test_up', 'fans' => [fanboyTId(1)]], $io);
+        same('fanboy r8 long: tach 1 follows — still at full the whole ' . FANBOY_UP_FOR . ' s (here ' . $full . ' s), found, given back', [true, 'tach', [128, 1]],
+            [$full >= FANBOY_UP_FOR - 0.5, $step['results'][fanboyTId(1)]['found'], fanboyTOut($t, 1)]);
     } finally {
         fanboyTEnd();
     }

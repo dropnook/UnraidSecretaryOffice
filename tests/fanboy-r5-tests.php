@@ -297,6 +297,8 @@ function testFanboyR5Obeys(): void
         fanboyTDisks($t, 35, null, 33);
         $settings = fanboyTSettings();
         $settings['armed'] = false;
+        // round 8 (G3): the «unpaired» rule needs every output of the chip tested — output 6 found empty before
+        $settings['fans'][fanboyTId(6)] = ['chip' => FANBOY_T_CHIP, 'address' => FANBOY_T_ADDR, 'output' => 6, 'tach' => null, 'tachs' => [], 'found' => 'empty'];
         fanboyTStore($settings);
         $run = function (array $spec, array $outs) use ($t, $settings): array {
             fanboyTStore($settings);                              // each case from the same setup, a new boot's journal

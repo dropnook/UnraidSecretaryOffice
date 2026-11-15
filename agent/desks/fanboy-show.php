@@ -91,7 +91,7 @@ function fanboyShowStart(array $r): array
     }
     $f = (fanboyBoardRaw($scan['board']) ?? [])['fans'][$id] ?? null;
     $refuses = $controlRuns && is_array($status['refuses'] ?? null) && in_array($id, $status['refuses'], true);
-    if ((is_array($f) && in_array($f['found'] ?? null, ['ignored', 'inverted'], true)) || $refuses) {
+    if (in_array(fanboyFound($f), ['ignored', 'inverted'], true) || $refuses) {
         throw new Problem('fanboy_show_not');
     }
     $owner = fanboyJournal()['outputs'][$id]['owner'] ?? null;
