@@ -309,6 +309,12 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
             . ', firmware ' . ($clean($i['firmware_revision'] ?? '') ?: '?') . ', IPMI ' . ($clean($i['ipmi_version'] ?? '') ?: '?');
         $lines[] = 'IPMI fan sensors: ' . ($ipmiFans ? implode(', ', array_map($clean, $ipmiFans)) : 'not read (no ipmitool)');
     }
+    // round 4: a CPU cooler steered by Fanboy on the owner's risk (no names: only that and since when)
+    $mine = is_array($scan['board'] ?? null) ? (fanboyBoardRaw($scan['board']) ?? []) : [];
+    $own = array_filter(is_array($mine['fans'] ?? null) ? $mine['fans'] : [], fn ($f) => is_array($f) && fanboyCpuOwn($f));
+    if ($own) {
+        $lines[] = 'CPU cooler: steered by Fanboy on the owner\'s own risk since ' . gmdate('Y-m-d', min(array_map(fn ($f) => $f['cpu_own']['at'], $own)));
+    }
     $text = implode("\n", $lines);
     return strlen($text) > FANBOY_REPORT_MAX ? mb_strcut($text, 0, FANBOY_REPORT_MAX, 'UTF-8') : $text;
 }
@@ -594,7 +600,9 @@ function fanboySetupState(array $scan, ?array $settings): array
             'count' => is_int($f['count'] ?? null) && $f['count'] >= 1 && $f['count'] <= FANBOY_COUNT_MAX ? $f['count'] : 1,
             'found' => is_string($f['found'] ?? null) ? $f['found'] : null, 'role' => is_string($f['role'] ?? null) ? $f['role'] : null,
             'name' => is_string($f['name'] ?? null) ? $f['name'] : '', 'place' => is_string($f['place'] ?? null) ? $f['place'] : null,
-            'off_ok' => ($f['off_ok'] ?? false) === true, 'measured' => $m !== null, 'min_pct' => $m['min_pct'] ?? null, 'start_pct' => $m['start_pct'] ?? null,
+            'off_ok' => ($f['off_ok'] ?? false) === true, 'measured' => $m !== null,
+            // round 4: a CPU cooler given to him on the owner's risk — since when (null: the BIOS's)
+            'cpu_own' => fanboyCpuOwn($f) ? $f['cpu_own']['at'] : null, 'min_pct' => $m['min_pct'] ?? null, 'start_pct' => $m['start_pct'] ?? null,
             'max_rpm' => $m['max_rpm'] ?? null, 'table' => $m['table'] ?? null, 'no_turn' => ($f['no_turn'] ?? false) === true];
         $r = fanboyResolve($stored, $scan);
         if ($r['path'] === null) {
@@ -621,7 +629,7 @@ function fanboySetupState(array $scan, ?array $settings): array
         // part 3: the curves, each output's state before Fanboy, «give back» still open, the defaults the page shows
         'curves' => $curves ?: new stdClass(), 'before' => $before ?: new stdClass(),
         'back_default' => FANBOY_BACK_DEFAULT,
-        'scales' => FANBOY_SOURCE_DEFAULTS, 'presets_of' => array_combine(array_keys(FANBOY_SOURCE_DEFAULTS),
+        'scales' => FANBOY_SOURCE_DEFAULTS, 'down' => FANBOY_DOWN_PROFILES, 'round' => FANBOY_ROUND, 'cpu_floor' => FANBOY_CPU_FLOOR, 'presets_of' => array_combine(array_keys(FANBOY_SOURCE_DEFAULTS),
             array_map(fn ($d) => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, (float) $d['low'], (float) $d['high']), FANBOY_PRESETS)), FANBOY_SOURCE_DEFAULTS)),
     ];
 }

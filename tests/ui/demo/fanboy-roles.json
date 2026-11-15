@@ -667,6 +667,7 @@
     "place": "rear",
     "off_ok": false,
     "measured": false,
+    "cpu_own": null,
     "min_pct": null,
     "start_pct": null,
     "max_rpm": null,
@@ -688,6 +689,7 @@
     "place": null,
     "off_ok": false,
     "measured": false,
+    "cpu_own": null,
     "min_pct": null,
     "start_pct": null,
     "max_rpm": null,
@@ -709,6 +711,7 @@
     "place": null,
     "off_ok": false,
     "measured": false,
+    "cpu_own": null,
     "min_pct": null,
     "start_pct": null,
     "max_rpm": null,
@@ -736,6 +739,7 @@
     "place": "front",
     "off_ok": false,
     "measured": false,
+    "cpu_own": null,
     "min_pct": null,
     "start_pct": null,
     "max_rpm": null,
@@ -760,6 +764,7 @@
     "place": null,
     "off_ok": false,
     "measured": false,
+    "cpu_own": null,
     "min_pct": null,
     "start_pct": null,
     "max_rpm": null,
@@ -781,6 +786,7 @@
     "place": null,
     "off_ok": false,
     "measured": false,
+    "cpu_own": null,
     "min_pct": null,
     "start_pct": null,
     "max_rpm": null,
@@ -1189,6 +1195,106 @@
     "limit": 75
    }
   },
+  "down": {
+   "disk": {
+    "balanced": {
+     "gap": 2,
+     "hold": 0,
+     "step": 1
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 0,
+     "step": 3
+    }
+   },
+   "ssd": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   },
+   "nvme": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   },
+   "ram": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   },
+   "board": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   },
+   "cpu": {
+    "balanced": {
+     "gap": 2.5,
+     "hold": 6,
+     "step": 5
+    },
+    "quick": {
+     "gap": 1.5,
+     "hold": 3,
+     "step": 8
+    }
+   },
+   "gpu": {
+    "balanced": {
+     "gap": 2.5,
+     "hold": 6,
+     "step": 5
+    },
+    "quick": {
+     "gap": 1.5,
+     "hold": 3,
+     "step": 8
+    }
+   },
+   "other": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   }
+  },
+  "round": 2,
+  "cpu_floor": 40,
   "presets_of": {
    "disk": {
     "quiet": [

@@ -66,9 +66,57 @@ const FANBOY_SOURCE_DEFAULTS = [
     'other' => ['low' => 35, 'high' => 55, 'limit' => 75],
 ];
 const FANBOY_PRESETS = ['quiet', 'normal', 'cool'];
+/*
+ * The way down per kind (round 4, the owner): up is immediate always; down waits until the leading source is `gap` °C
+ * under the temperature it went up at, holds `hold` seconds more, then steps `step` % a round (FANBOY_ROUND, 2 s). Disks
+ * slow as ever (no hold, 1 % a round); a CPU or GPU quick but never a snap (6 s, then about 5 % a round, a gap wide
+ * enough that a spiky CPU doesn't make the fan hunt); NVMe/SSD, RAM, board in between. «Sofort reagieren» (quick)
+ * shortens hold and gap within the kind's profile and steps faster — it never removes the gap.
+ */
+const FANBOY_REACTS = ['balanced', 'quick'];
+// what a user may set per kind (°C): «ab», «volle Drehzahl bei», «Grenze» within these, low < high < limit
+const FANBOY_KIND_BOUNDS = ['disk' => [20, 70], 'ssd' => [20, 100], 'nvme' => [20, 100], 'cpu' => [20, 110], 'ram' => [20, 100],
+    'gpu' => [20, 110], 'board' => [20, 100], 'other' => [0, 120]];
+const FANBOY_DOWN_PROFILES = [
+    'disk'  => ['balanced' => ['gap' => 2.0, 'hold' => 0.0, 'step' => 1.0], 'quick' => ['gap' => 1.0, 'hold' => 0.0, 'step' => 3.0]],
+    'ssd'   => ['balanced' => ['gap' => 2.0, 'hold' => 4.0, 'step' => 2.0], 'quick' => ['gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
+    'nvme'  => ['balanced' => ['gap' => 2.0, 'hold' => 4.0, 'step' => 2.0], 'quick' => ['gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
+    'ram'   => ['balanced' => ['gap' => 2.0, 'hold' => 4.0, 'step' => 2.0], 'quick' => ['gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
+    'board' => ['balanced' => ['gap' => 2.0, 'hold' => 4.0, 'step' => 2.0], 'quick' => ['gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
+    'cpu'   => ['balanced' => ['gap' => 2.5, 'hold' => 6.0, 'step' => 5.0], 'quick' => ['gap' => 1.5, 'hold' => 3.0, 'step' => 8.0]],
+    'gpu'   => ['balanced' => ['gap' => 2.5, 'hold' => 6.0, 'step' => 5.0], 'quick' => ['gap' => 1.5, 'hold' => 3.0, 'step' => 8.0]],
+    'other' => ['balanced' => ['gap' => 2.0, 'hold' => 4.0, 'step' => 2.0], 'quick' => ['gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
+];
+
+/** The way down for a zone now: the profile of its leading source's kind, balanced or quick */
+function fanboyDownProfile(string $kind, string $react): array
+{
+    $p = FANBOY_DOWN_PROFILES[$kind] ?? FANBOY_DOWN_PROFILES['other'];
+    return $p[in_array($react, FANBOY_REACTS, true) ? $react : 'balanced'];
+}
 const FANBOY_DISK_KINDS = ['disk', 'ssd'];                      // sources from Unraid's disks.ini (never asked, never woken)
-const FANBOY_ROLES_BIOS = ['cpu', 'pump', 'unknown'];           // stay with the BIOS: never written again
+const FANBOY_ROLES_BIOS = ['cpu', 'pump', 'unknown'];           // stay with the BIOS: never written again (a CPU cooler only with the owner's opt-in, below)
 const FANBOY_ROLES_OURS = ['case', 'disks', 'ram', 'nvme', 'other'];
+/*
+ * The CPU cooler on the owner's own risk (round 4): role «cpu» plus a stored, dated confirmation (`cpu_own` {at}) — only
+ * then is it his. Safeguards: its zone must hold a CPU temperature (else it stays the BIOS's), a floor of its own
+ * (never under FANBOY_CPU_FLOOR, nor under the lowest steady value measured + margin), never «off», given back to the
+ * mainboard's automatic only (no automatic for the output: no opt-in). The alarm, the reaction, three control deaths:
+ * as for every fan of his. Pumps never.
+ */
+const FANBOY_CPU_FLOOR = 40;
+
+/** A CPU cooler the owner gave Fanboy, confirmed and dated */
+function fanboyCpuOwn(array $f): bool
+{
+    return ($f['role'] ?? null) === 'cpu' && is_array($f['cpu_own'] ?? null) && is_int($f['cpu_own']['at'] ?? null);
+}
+
+/** A fan whose role makes it his: the roles of his own, or a CPU cooler given to him on the owner's risk */
+function fanboyFanOurs(array $f): bool
+{
+    return in_array($f['role'] ?? null, FANBOY_ROLES_OURS, true) || fanboyCpuOwn($f);
+}
 const FANBOY_ALARMS = ['stands', 'bios_stands', 'hot', 'sensor', 'chip'];
 
 // ===================================================================== curves and sources (pure)
@@ -77,10 +125,39 @@ const FANBOY_ALARMS = ['stands', 'bios_stands', 'hot', 'sensor', 'chip'];
 function fanboyZoneScale(array $zone): array
 {
     $kind = $zone['sources'][0]['kind'] ?? 'disk';
-    $d = FANBOY_SOURCE_DEFAULTS[$kind] ?? FANBOY_SOURCE_DEFAULTS['other'];
+    // round 4: the user's values for this kind in this zone (the table «Temperaturen») before the kind's defaults
+    $d = fanboyKindValues($zone, $kind);
     $lo = is_numeric($zone['low'] ?? null) ? (float) $zone['low'] : (float) $d['low'];
     $hi = is_numeric($zone['high'] ?? null) ? (float) $zone['high'] : (float) $d['high'];
     return [$lo, $hi > $lo ? $hi : $lo + 10];
+}
+
+/**
+ * A kind's «ab» (low), «volle Drehzahl bei» (high) and «Grenze» (limit) in a zone: what the user set in its table
+ * (`kinds`, round 4) over the kind's defaults — only numbers in shape, each on its own
+ */
+function fanboyKindValues(array $zone, string $kind): array
+{
+    $d = FANBOY_SOURCE_DEFAULTS[$kind] ?? FANBOY_SOURCE_DEFAULTS['other'];
+    $own = is_array($zone['kinds'][$kind] ?? null) ? $zone['kinds'][$kind] : [];
+    foreach (['low', 'high', 'limit'] as $k) {
+        if (is_int($own[$k] ?? null) || is_float($own[$k] ?? null)) {
+            $d[$k] = $own[$k];
+        }
+    }
+    return $d;
+}
+
+/** A source with its effective low/high/limit: its own, else its zone's for its kind, else the kind's defaults */
+function fanboySourceValues(array $zone, array $source): array
+{
+    $k = fanboyKindValues($zone, $source['kind'] ?? 'other');
+    foreach (['low', 'high', 'limit'] as $f) {
+        if (!is_numeric($source[$f] ?? null)) {
+            $source[$f] = $k[$f];
+        }
+    }
+    return $source;
 }
 
 /** A preset as points on the zone's scale (percent) */
@@ -229,22 +306,29 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
         $ids = [];
         foreach ($z['fans'] as $id) {
             $f = is_string($id) ? ($settings['fans'][$id] ?? null) : null;
-            if (!is_array($f) || isset($fans[$id]) || !in_array($f['role'] ?? null, FANBOY_ROLES_OURS, true)
+            if (!is_array($f) || isset($fans[$id]) || !fanboyFanOurs($f)
                 || !in_array($f['found'] ?? null, ['tach', 'silent'], true) || fanboyStoredFan($f) === null) {
                 continue;
+            }
+            $cpu = fanboyCpuOwn($f);
+            if ($cpu && !in_array('cpu', array_column(array_filter(is_array($z['sources'] ?? null) ? $z['sources'] : [], 'is_array'), 'kind'), true)) {
+                continue;           // a CPU cooler only with a CPU temperature in its zone — else it stays the BIOS's
             }
             $m = is_array($f['measured'] ?? null) && is_array($f['measured']['table'] ?? null) ? $f['measured'] : null;
             $hasTach = ($f['found'] ?? '') === 'tach';
             $floor = $m !== null && $hasTach && is_numeric($m['min_pct'] ?? null) ? min(100, (int) $m['min_pct'] + FANBOY_FLOOR_MARGIN) : FANBOY_BLIND_FLOOR;
+            if ($cpu) {
+                $floor = max($floor, FANBOY_CPU_FLOOR);
+            }
             $fans[$id] = [
                 'id' => $id, 'zone' => $z['id'], 'chip' => $f['chip'], 'address' => $f['address'], 'output' => $f['output'],
                 'tachs' => array_values(array_filter(is_array($f['tachs'] ?? null) ? $f['tachs'] : [$f['tach']], 'is_int')),
                 'name' => is_string($f['name'] ?? null) ? $f['name'] : '',
                 'table' => $m['table'] ?? null, 'floor' => $floor,
                 'start' => $m !== null && is_numeric($m['start_pct'] ?? null) ? (int) $m['start_pct'] : $floor,
-                'off_ok' => ($f['off_ok'] ?? false) === true && $m !== null && $hasTach,
+                'off_ok' => !$cpu && ($f['off_ok'] ?? false) === true && $m !== null && $hasTach, 'cpu' => $cpu,
                 // «give back» (part 3): the owner's choice for a fan found on a fixed value — 'auto' gives the chip's mode
-                'back' => in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : FANBOY_BACK_DEFAULT, 'auto' => null,
+                'back' => $cpu ? 'auto' : (in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : FANBOY_BACK_DEFAULT), 'auto' => null,
                 'device' => null, 'pct' => null, 'value' => null, 'changed' => null, 'kick_until' => null, 'trim' => 0.0,
                 'rpm' => null, 'zero_since' => null, 'kicks' => 0, 'gone' => false, 'foreign' => false, 'taken' => false, 'verified' => false,
             ];
@@ -257,14 +341,16 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 'target' => is_array($z['target'] ?? null) ? $z['target'] : ['preset' => 'normal'],
                 'unit' => ($z['unit'] ?? 'pct') === 'rpm' ? 'rpm' : 'pct',
                 'low' => $z['low'] ?? null, 'high' => $z['high'] ?? null,
+                'kinds' => is_array($z['kinds'] ?? null) ? $z['kinds'] : [],      // round 4: «Temperaturen» per kind
                 'cur' => null, 'hold_t' => null, 'warmest' => null, 'hot_since' => null, 'level' => null, 'state' => [],
+                'react' => in_array($z['react'] ?? null, FANBOY_REACTS, true) ? $z['react'] : 'balanced', 'below_since' => null,
             ];
         }
     }
     // the BIOS's fans he only watches (CPU cooler, pump with a tach): one standing is an alarm too
     $watch = [];
     foreach (is_array($settings['fans'] ?? null) ? $settings['fans'] : [] as $id => $f) {
-        if (is_array($f) && in_array($f['role'] ?? null, ['cpu', 'pump'], true) && ($f['found'] ?? null) === 'tach' && fanboyStoredFan($f) !== null) {
+        if (is_array($f) && !isset($fans[$id]) && in_array($f['role'] ?? null, ['cpu', 'pump'], true) && ($f['found'] ?? null) === 'tach' && fanboyStoredFan($f) !== null) {
             $watch[$id] = ['id' => $id, 'chip' => $f['chip'], 'address' => $f['address'], 'role' => $f['role'],
                 'tachs' => array_values(array_filter(is_array($f['tachs'] ?? null) ? $f['tachs'] : [$f['tach']], 'is_int')),
                 'name' => is_string($f['name'] ?? null) ? $f['name'] : '', 'zero_since' => null, 'rpm' => null];
@@ -593,6 +679,7 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
     $hot = false;
     $states = [];
     foreach ($z['sources'] as $s) {
+        $s = fanboySourceValues($z, $s);        // its own values, else the zone's for its kind, else the kind's
         $r = $c['sources'][$s['id']] ?? null;
         if ($r === null) {
             continue;
@@ -638,11 +725,19 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
         }
     } else {
         $z['hot_since'] = null;
+        $down = fanboyDownProfile($warmest['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']);
         if ($cur === null || $raw >= $cur) {
             $cur = $raw;                                            // up at once
             $z['hold_t'] = $t;
-        } elseif ($t <= ($z['hold_t'] ?? $t) - FANBOY_GAP) {
-            $cur = max($raw, $cur - ($z['unit'] === 'pct' ? FANBOY_DOWN_STEP : FANBOY_DOWN_STEP_RPM));   // down slowly
+            $z['below_since'] = null;
+        } elseif ($t <= ($z['hold_t'] ?? $t) - $down['gap']) {
+            // down by the leading source's kind: after its hold, its step a round (rpm zones: the same share in rpm)
+            $z['below_since'] ??= $now;
+            if ($now - $z['below_since'] >= $down['hold']) {
+                $cur = max($raw, $cur - ($z['unit'] === 'pct' ? $down['step'] : $down['step'] * FANBOY_DOWN_STEP_RPM / FANBOY_DOWN_STEP));
+            }
+        } else {
+            $z['below_since'] = null;
         }
     }
     $z['cur'] = $cur;
@@ -885,6 +980,7 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
     foreach ($c['zones'] as $z) {
         $zones[] = ['id' => $z['id'], 'name' => $z['name'], 'unit' => $z['unit'], 'level' => $z['cur'] === null ? null : round($z['cur'], 1),
             'full' => isset($c['full_since'][$z['id']]),         // round 4: this zone at 100 % for an alarm
+            'react' => $z['react'], 'down' => fanboyDownProfile($z['warmest']['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']),
             'warmest' => $z['warmest'], 'asleep' => count(array_filter($z['state'], fn ($s) => $s === 'asleep')),
             'fans' => array_map(fn ($id) => ['id' => $id, 'name' => $c['fans'][$id]['name'], 'output' => $c['fans'][$id]['output'],
                 'pct' => $c['fans'][$id]['taken'] ? $c['fans'][$id]['pct'] : null, 'rpm' => $c['fans'][$id]['rpm'] ?? null,

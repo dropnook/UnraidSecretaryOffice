@@ -55,6 +55,10 @@ const PICTURES = [
   ['setup-3-roles', 'fanboy-roles', 'fanboy/setup/roles', null, true],
   ['setup-4-measure-running', 'fanboy-measure', 'fanboy/setup/measure', null, true],
   ['setup-5-zones', 'fanboy-ready', 'fanboy/setup/zones', null, true],
+  // round 4: the CPU cooler «Fanboy regelt ihn» behind its tick; given to him (its zone, since when); the zones' degrees and reaction
+  ['setup-3-roles-cpu', 'fanboy-roles', 'fanboy/setup/roles', ['.fb-cpu .seg button:nth-child(2)', '.fb-cpu-risk input[type=checkbox]'], false],
+  ['setup-5-zones-cpu', 'fanboy-cpu', 'fanboy/setup/zones', null, false],
+  ['overview-cpu', 'fanboy-cpu', 'fanboy/fans', null, false],
   ['setup-6-dry', 'fanboy-ready', 'fanboy/setup/dry', '.fb-step[data-step=dry] .fb-bar .btn', true],
   ['setup-7-take', 'fanboy-ready', 'fanboy/setup/take', null, true],
   ['setup-armed', 'fanboy', 'fanboy/setup/take', null, false],
@@ -122,8 +126,8 @@ if (opt.shots) {
     for (const l of looks) {
       try {
         const { ctx, page, tag } = await open(state, route, { ...l, ...(shot && shot.wait ? { wait: shot.wait } : {}) });
-        if (click) {
-          await page.click(click);
+        for (const one of click ? [].concat(click) : []) {        // one selector or several, clicked in turn
+          await page.click(one);
           await page.waitForTimeout(900);
         }
         const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

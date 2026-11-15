@@ -262,8 +262,11 @@ function fanboyStepWarm(?array $settings = null): ?array
     $own = [];
     foreach (is_array($settings['zones'] ?? null) ? $settings['zones'] : [] as $z) {
         foreach (is_array($z['sources'] ?? null) ? $z['sources'] : [] as $src) {
-            if (is_string($src['id'] ?? null) && is_numeric($src['limit'] ?? null)) {
-                $own[$src['id']] = min((float) $src['limit'], $own[$src['id']] ?? INF);
+            // the source's own limit, or its zone's for its kind (the table «Temperaturen»), once set
+            $k = is_string($src['kind'] ?? null) && is_numeric($z['kinds'][$src['kind']]['limit'] ?? null) ? (float) $z['kinds'][$src['kind']]['limit'] : null;
+            $l = is_numeric($src['limit'] ?? null) ? (float) $src['limit'] : $k;
+            if (is_string($src['id'] ?? null) && $l !== null) {
+                $own[$src['id']] = min($l, $own[$src['id']] ?? INF);
             }
         }
     }
@@ -418,7 +421,7 @@ function fanboyStepRun(array $step, array $io): array
             } else {
                 $f = fanboyBoardRaw($board)['fans'][$id] ?? null;
                 $tachs = is_array($f) ? array_values(array_filter(is_array($f['tachs'] ?? null) ? $f['tachs'] : [], 'is_int')) : [];
-                if (!is_array($f) || !in_array($f['role'] ?? null, FANBOY_ROLES_OURS, true) || ($f['found'] ?? null) !== 'tach' || !$tachs) {
+                if (!is_array($f) || !fanboyFanOurs($f) || ($f['found'] ?? null) !== 'tach' || !$tachs) {
                     $step['results'][$id] = ['result' => 'not_his'];
                     continue;
                 }
@@ -508,10 +511,10 @@ function fanboyStepStart(string $kind, array $ids): array
             throw new Problem('fanboy_no_output', ['fan' => $id]);
         }
         $f = $settings['fans'][$id] ?? null;
-        if ($kind === 'measure' && (!is_array($f) || !in_array($f['role'] ?? null, FANBOY_ROLES_OURS, true) || ($f['found'] ?? null) !== 'tach')) {
-            throw new Problem('fanboy_not_his', ['fan' => $id]);        // CPU cooler, pump, «don't know», no feedback: never down
+        if ($kind === 'measure' && (!is_array($f) || !fanboyFanOurs($f) || ($f['found'] ?? null) !== 'tach')) {
+            throw new Problem('fanboy_not_his', ['fan' => $id]);        // CPU cooler (not given to him), pump, «don't know», no feedback: never down
         }
-        if ($kind === 'test_up' && is_array($f) && in_array($f['role'] ?? null, FANBOY_ROLES_BIOS, true) && ($f['role'] ?? null) !== 'unknown') {
+        if ($kind === 'test_up' && is_array($f) && in_array($f['role'] ?? null, FANBOY_ROLES_BIOS, true) && ($f['role'] ?? null) !== 'unknown' && !fanboyCpuOwn($f)) {
             throw new Problem('fanboy_not_his', ['fan' => $id]);        // a known CPU cooler or pump: no more tests
         }
     }
@@ -552,7 +555,11 @@ function fanboyAnswer(array $r): array
     return ['ok' => true, 'fan' => $e['fans'][$id]];
 }
 
-/** A role (and name, place, «off allowed»): CPU cooler, pump, «don't know» stay with the BIOS — out of every zone */
+/**
+ * A role (and name, place, «off allowed»): CPU cooler, pump, «don't know» stay with the BIOS — out of every zone. Round 4:
+ * the CPU cooler «Fanboy regelt ihn» only with `cpu_own` AND the ticked `cpu_confirm`, and only where the output has a
+ * mainboard automatic to give it back to; stored with its date (kept while it stays so). `cpu_own` not sent: as it was.
+ */
 function fanboyRole(array $r): array
 {
     $id = textField($r, 'fan');
@@ -574,10 +581,30 @@ function fanboyRole(array $r): array
     if ($count !== null && $count > FANBOY_COUNT_MAX) {
         throw new Problem('fanboy_bad_count');
     }
-    $e = fanboyStoreUpdate(function (array $e) use ($id, $role, $name, $place, $offOk, $count): array {
+    $cpuOwn = array_key_exists('cpu_own', $r) ? optBool($r, 'cpu_own') : null;
+    if ($cpuOwn === true && $role !== 'cpu') {
+        throw new Problem('fanboy_bad_role');
+    }
+    if ($cpuOwn === true && !optBool($r, 'cpu_confirm')) {
+        throw new Problem('fanboy_cpu_confirm');            // the owner ticks that he knows what it means
+    }
+    $auto = null;
+    if ($cpuOwn === true) {
+        $scan = fanboyDetect();
+        $auto = fanboyBefore($scan)[$id]['auto'] ?? null;
+        if ($auto === null) {
+            throw new Problem('fanboy_cpu_no_auto');        // nothing to give it back to but a fixed value: it stays the BIOS's
+        }
+    }
+    $e = fanboyStoreUpdate(function (array $e) use ($id, $role, $name, $place, $offOk, $count, $cpuOwn): array {
         $f = $e['fans'][$id] ?? null;
         if (!is_array($f) || !in_array($f['found'] ?? null, ['tach', 'silent', 'unclear'], true)) {
             throw new Problem('fanboy_no_output', ['fan' => $id]);
+        }
+        if ($role !== 'cpu' || $cpuOwn === false) {
+            unset($f['cpu_own']);
+        } elseif ($cpuOwn === true && !fanboyCpuOwn($f)) {
+            $f['cpu_own'] = ['at' => time()];
         }
         if ($offOk && !is_array($f['measured'] ?? null)) {
             throw new Problem('fanboy_off_needs_measure');        // «off» only for a fan measured with feedback
@@ -590,7 +617,7 @@ function fanboyRole(array $r): array
             $f['count'] = $count;
         }
         $e['fans'][$id] = $f;
-        return in_array($role, FANBOY_ROLES_BIOS, true) ? fanboyZonesWithout($e, $id) : $e;
+        return in_array($role, FANBOY_ROLES_BIOS, true) && !fanboyCpuOwn($f) ? fanboyZonesWithout($e, $id) : $e;
     });
     return ['ok' => true, 'fan' => $e['fans'][$id]];
 }
@@ -612,9 +639,10 @@ function fanboyZonesWithout(array $e, string $id): array
 function fanboyZonesPropose(array $scan, array $settings): array
 {
     $fans = array_filter(is_array($settings['fans'] ?? null) ? $settings['fans'] : [],
-        fn ($f) => is_array($f) && in_array($f['role'] ?? null, FANBOY_ROLES_OURS, true) && in_array($f['found'] ?? null, ['tach', 'silent'], true));
+        fn ($f) => is_array($f) && fanboyFanOurs($f) && in_array($f['found'] ?? null, ['tach', 'silent'], true));
     $disks = array_keys(array_filter($fans, fn ($f) => $f['role'] === 'disks'));
-    $case = array_keys(array_filter($fans, fn ($f) => $f['role'] !== 'disks'));
+    $cpu = array_keys(array_filter($fans, fn ($f) => $f['role'] === 'cpu'));
+    $case = array_keys(array_filter($fans, fn ($f) => !in_array($f['role'], ['disks', 'cpu'], true)));
     $sources = fanboySources($scan);
     $zones = [];
     if ($disks) {
@@ -625,6 +653,11 @@ function fanboyZonesPropose(array $scan, array $settings): array
         $kinds = $disks ? ['ssd', 'nvme', 'ram', 'board'] : ['disk', 'ssd', 'nvme', 'ram', 'board'];
         $zones[] = ['id' => 'case', 'kind' => 'case', 'name' => '', 'fans' => $case, 'unit' => 'pct', 'target' => ['preset' => 'normal'],
             'sources' => array_values(array_map(fn ($s) => ['kind' => $s['kind'], 'id' => $s['id']], array_filter($sources, fn ($s) => in_array($s['kind'], $kinds, true))))];
+    }
+    // round 4: a CPU cooler given to him — a zone of its own on the CPU's temperatures (none: not proposed, it stays the BIOS's)
+    $cpuSources = array_values(array_map(fn ($s) => ['kind' => 'cpu', 'id' => $s['id']], array_filter($sources, fn ($s) => $s['kind'] === 'cpu')));
+    if ($cpu && $cpuSources) {
+        $zones[] = ['id' => 'cpu', 'kind' => 'cpu', 'name' => '', 'fans' => $cpu, 'unit' => 'pct', 'target' => ['preset' => 'normal'], 'sources' => $cpuSources];
     }
     return $zones;
 }
@@ -669,7 +702,7 @@ function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
         }
         foreach ($z['fans'] as $id) {
             $f = is_string($id) ? ($settings['fans'][$id] ?? null) : null;
-            if (!is_array($f) || !in_array($f['role'] ?? null, FANBOY_ROLES_OURS, true) || !in_array($f['found'] ?? null, ['tach', 'silent'], true) || isset($used[$id])) {
+            if (!is_array($f) || !fanboyFanOurs($f) || !in_array($f['found'] ?? null, ['tach', 'silent'], true) || isset($used[$id])) {
                 throw new Problem('fanboy_bad_zones', ['field' => 'fans']);
             }
             if ($unit === 'rpm' && (($f['found'] ?? null) !== 'tach' || !is_array($f['measured'] ?? null))) {
@@ -692,6 +725,32 @@ function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
                 throw new Problem('fanboy_bad_zones', ['field' => 'high']);
             }
             $sources[$s['id']] = ['kind' => $known[$s['id']]['kind'], 'id' => $s['id'], 'low' => $low, 'high' => $high, 'limit' => $limit];
+        }
+        // round 4: a CPU cooler given to him only in a zone with a CPU temperature
+        if (!in_array('cpu', array_column($sources, 'kind'), true)
+            && array_filter($z['fans'], fn ($id) => fanboyCpuOwn($settings['fans'][$id]))) {
+            throw new Problem('fanboy_cpu_zone_needs_cpu');
+        }
+        // round 4: «Temperaturen» per kind — {kind: {low?, high?, limit?}}, only kinds the zone has, numbers within the
+        // kind's bounds, and with each source's own values: low < high < limit (the defaults filling the gaps)
+        $kinds = [];
+        $raw = $z['kinds'] ?? [];
+        if (!is_array($raw) || ($raw !== [] && array_is_list($raw))) {
+            throw new Problem('fanboy_bad_zones', ['field' => 'kinds']);
+        }
+        foreach ($raw as $kind => $v) {
+            if (!is_string($kind) || !isset(FANBOY_KIND_BOUNDS[$kind]) || !is_array($v) || !in_array($kind, array_column($sources, 'kind'), true)) {
+                throw new Problem('fanboy_bad_zones', ['field' => 'kinds']);
+            }
+            [$lo, $hi] = FANBOY_KIND_BOUNDS[$kind];
+            $kinds[$kind] = array_filter(['low' => fanboyNum($v, 'low', $lo, $hi), 'high' => fanboyNum($v, 'high', $lo, $hi), 'limit' => fanboyNum($v, 'limit', $lo, $hi)],
+                fn ($x) => $x !== null);
+        }
+        foreach ($sources as $src) {
+            $e = fanboySourceValues(['kinds' => $kinds], $src);
+            if (!($e['low'] < $e['high'] && $e['high'] < $e['limit'])) {
+                throw new Problem('fanboy_bad_temps', ['source' => $src['id'], 'low' => $e['low'], 'high' => $e['high'], 'limit' => $e['limit']]);
+            }
         }
         $t = $z['target'] ?? ['preset' => 'normal'];
         if (!is_array($t)) {
@@ -717,8 +776,14 @@ function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
             }
             $target = ['preset' => $t['preset']];
         }
+        // round 4: how he reacts — «balanced» (the default) or «quick»; read strictly, absent = balanced
+        $react = $z['react'] ?? 'balanced';
+        if (!in_array($react, FANBOY_REACTS, true)) {
+            throw new Problem('fanboy_bad_zones', ['field' => 'react']);
+        }
         $out[$z['id']] = ['id' => $z['id'], 'name' => $name, 'fans' => $z['fans'], 'sources' => array_values($sources),
-            'target' => $target, 'unit' => $unit, 'low' => fanboyNum($z, 'low', 0, 110), 'high' => fanboyNum($z, 'high', 0, 120)];
+            'target' => $target, 'unit' => $unit, 'low' => fanboyNum($z, 'low', 0, 110), 'high' => fanboyNum($z, 'high', 0, 120), 'react' => $react,
+            'kinds' => $kinds ?: new stdClass()];
     }
     return array_values($out);
 }
@@ -760,6 +825,7 @@ function fanboyDryRun(): array
         fanboyZoneRound($c, $zid, $now, $reasons);
         $z = $c['zones'][$zid];
         $out[] = ['id' => $zid, 'name' => $z['name'], 'unit' => $z['unit'], 'level' => $z['cur'] === null ? null : round($z['cur'], 1), 'warmest' => $z['warmest'],
+            'react' => $z['react'], 'down' => fanboyDownProfile($z['warmest']['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']),
             'asleep' => count(array_filter($z['state'], fn ($s) => $s === 'asleep')), 'quiet' => count(array_filter($z['state'], fn ($s) => $s === 'quiet')),
             'fans' => array_map(function ($id) use ($c) {
                 $f = $c['fans'][$id];

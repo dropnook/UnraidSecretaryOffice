@@ -63,16 +63,22 @@ function preset(p, lo, hi) {
 }
 const presets = (lo, hi) => ({ quiet: preset('quiet', lo, hi), normal: preset('normal', lo, hi), cool: preset('cool', lo, hi) });
 const PRESETS_OF = Object.fromEntries(Object.entries(DEFAULTS).map(([k, [lo, hi]]) => [k, presets(lo, hi)]));
+// FANBOY_DOWN_PROFILES of agent/desks/fanboy-control.php (round 4): the way down per kind, balanced or quick
+const DP = (b, q) => ({ balanced: { gap: b[0], hold: b[1], step: b[2] }, quick: { gap: q[0], hold: q[1], step: q[2] } });
+const MID = DP([2, 4, 2], [1, 2, 4]);
+const DOWN = { disk: DP([2, 0, 1], [1, 0, 3]), ssd: MID, nvme: MID, ram: MID, board: MID, cpu: DP([2.5, 6, 5], [1.5, 3, 8]), gpu: DP([2.5, 6, 5], [1.5, 3, 8]), other: MID };
 
 const NVME = `nvme@${devKey(base.chips.find((c) => c.address === 'nvme0').device)}#1`;
 const RAM = `spd5118@pci0000:00/0000:00:1f.4/i2c-0/0-0051#1`;
+const CORE = base.chips.find((c) => c.name === 'coretemp');
+const CPU_SRC = (label) => `coretemp@${devKey(CORE.device)}#${CORE.temps.find((t) => t.label === label).n}`;
 const TABLE4 = [[100, 1600], [90, 1490], [80, 1344], [70, 1210], [60, 1088], [50, 960], [45, 896], [40, 832], [35, 768], [30, 704], [25, 640]];
 const TABLE5 = [[100, 1450], [90, 1340], [80, 1220], [70, 1100], [60, 980], [50, 860], [40, 740], [30, 610]];
 /** His fans as the store keeps them, at a step of the setup */
 function fan(n, more) {
   // the keys in fanboySetupState()'s order
   const f = { id: P(n), chip: CHIP, output: n, tachs: [], model: null, colour: null, back: null, count: 1, found: null, role: null, name: '', place: null, off_ok: false,
-    measured: false, min_pct: null, start_pct: null, max_rpm: null, table: null, no_turn: false };
+    measured: false, cpu_own: null, min_pct: null, start_pct: null, max_rpm: null, table: null, no_turn: false };
   return Object.assign(f, more);
 }
 const FANS = {
@@ -88,14 +94,16 @@ const FANS = {
 };
 const ZONES = [
   { id: 'disks', name: 'Plattenkäfig', fans: [P(4)], unit: 'pct', target: { preset: 'normal' }, low: null, high: null,
-    sources: ['parity', 'disk1', 'disk2'].map((id) => ({ kind: 'disk', id, low: null, high: null, limit: null })) },
+    sources: ['parity', 'disk1', 'disk2'].map((id) => ({ kind: 'disk', id, low: null, high: null, limit: null })), react: 'balanced', kinds: { disk: { high: 44 } } },
   { id: 'case', name: 'Gehäuse', fans: [P(5), P(2)], unit: 'pct', target: { points: [[30, 25], [40, 40], [50, 70], [60, 100]] }, low: null, high: null,
-    sources: [{ kind: 'nvme', id: NVME, low: null, high: null, limit: null }, { kind: 'ram', id: RAM, low: null, high: null, limit: null }] },
+    sources: [{ kind: 'nvme', id: NVME, low: null, high: null, limit: null }, { kind: 'ram', id: RAM, low: null, high: null, limit: 70 }], react: 'quick', kinds: { nvme: { low: 38, high: 60 } } },
 ];
 function curves(zones) {
   const out = {};
   for (const z of zones) {
-    const [lo, hi] = DEFAULTS[z.sources[0] ? z.sources[0].kind : 'disk'];
+    const k = z.sources[0] ? z.sources[0].kind : 'disk';
+    const own = (z.kinds || {})[k] || {};
+    const lo = own.low ?? DEFAULTS[k][0], hi = own.high ?? DEFAULTS[k][1];     // fanboyZoneScale: the first kind's degrees, the zone's own
     out[z.id] = { points: z.target.points || preset(z.target.preset, lo, hi), scale: [lo, hi], presets: presets(lo, hi) };
   }
   return out;
@@ -160,7 +168,7 @@ function state(o) {
     setup: {
       board: 'Example Boards Inc. | EB-Z100 PRO', others: 0, fans, zones, armed: !!o.armed, outputs: offered.length ? OUTPUTS : [], missing: [],
       sources: sources(chips, disks), curves: curves(zones), before: offered.length ? clone(BEFORE) : {}, back_default: 'auto',
-      scales: SCALES, presets_of: PRESETS_OF,
+      scales: SCALES, down: DOWN, round: 2, cpu_floor: 40, presets_of: PRESETS_OF,
     },
     step: o.step || null,
     drivers: o.drivers || { mine: [], last: null, can: true },
@@ -174,22 +182,32 @@ const SET_UP = Object.values(FANS);
 const RPM = { 1: 1310, 2: 0, 3: 0, 4: 1018, 5: 905, 6: 878 };
 const NOTES = [{ code: 'chip_back', params: { minutes: 3 }, at: T0 - 5400 }, { code: 'alarm_over', params: { code: 'hot' }, at: T0 - 2400 }];
 function steering(more = {}) {
+  const zonesSet = more.zones || ZONES, fansSet = more.fans || SET_UP;
   const rpm = { ...RPM, ...(more.rpm || {}) };
-  const itec = ite({ 1: [128, 2], 2: [102, 1], 4: [107, 1], 5: [102, 1] }, rpm);
+  const itec = ite({ 1: [128, 2], 2: [102, 1], 4: [107, 1], 5: [102, 1], ...(more.pwm || {}) }, rpm);
   const zonesNow = [
     { id: 'disks', name: 'Plattenkäfig', unit: 'pct', level: 42, full: false, warmest: { id: 'disk2', label: 'disk2', c: 41, mapped: 41, kind: 'disk' }, asleep: 1,
       fans: [{ id: P(4), name: 'Plattenkäfig', output: 4, pct: 42, rpm: rpm[4], held: true, foreign: false }] },
     { id: 'case', name: 'Gehäuse', unit: 'pct', level: 40, full: !!more.caseFull, warmest: { id: NVME, label: 'Composite', c: 27.9, mapped: 27.9, kind: 'nvme' }, asleep: 0,
       fans: [{ id: P(5), name: 'Vorn', output: 5, pct: 40, rpm: rpm[5], held: true, foreign: false }, { id: P(2), name: 'Deckel', output: 2, pct: 40, rpm: null, held: true, foreign: false }] },
   ];
-  return state({ ite: itec, fans: SET_UP, zones: ZONES, armed: true, who: more.who || { who: 'fanboy', why: 'steers', zones: 2 },
+  if (more.zonesNow) zonesNow.push(...more.zonesNow);
+  return state({ ite: itec, fans: fansSet, zones: zonesSet, armed: true, who: more.who || { who: 'fanboy', why: 'steers', zones: 2 },
     control: { running: true, armed: true, who: 'fanboy', why: more.why || null, phase: 'run', zones: zonesNow, alarm: more.alarm || null, notes: more.notes || NOTES,
-      watch: [{ id: P(1), name: 'CPU-Kühler', role: 'cpu', rpm: rpm[1] }], time: T0 } });
+      watch: more.watch || [{ id: P(1), name: 'CPU-Kühler', role: 'cpu', rpm: rpm[1] }], time: T0 } });
 }
 const fresh = () => state({ ite: ite({}, RPM) });
+// round 4: the CPU cooler given to Fanboy on the owner's risk (ticked 3 days ago), in a zone of its own on the CPU's temperatures
+const CPU_OWN = SET_UP.map((f) => (f.output === 1 ? { ...f, cpu_own: T0 - 3 * 86400 + 600, measured: true, min_pct: 20, start_pct: 25, max_rpm: 1800,
+  table: [[100, 1800], [80, 1460], [60, 1100], [40, 740], [20, 380]] } : f));
+const CPU_ZONE = { id: 'cpu', name: 'CPU', fans: [P(1)], unit: 'pct', target: { preset: 'normal' }, low: null, high: null,
+  sources: ['Package id 0', 'Core 0', 'Core 4'].map((l) => ({ kind: 'cpu', id: CPU_SRC(l), low: null, high: null, limit: null })), react: 'balanced', kinds: { cpu: { high: 75 } } };
 const files = {};
 files.fanboy = steering();
 files['fanboy-steering'] = steering();
+files['fanboy-cpu'] = steering({ fans: CPU_OWN, zones: [...ZONES, CPU_ZONE], watch: [], who: { who: 'fanboy', why: 'steers', zones: 3 }, pwm: { 1: [102, 1] },
+  zonesNow: [{ id: 'cpu', name: 'CPU', unit: 'pct', level: 40, full: false, warmest: { id: CPU_SRC('Package id 0'), label: 'Package id 0', c: CORE.temps.find((t) => t.label === 'Package id 0').c, mapped: CORE.temps.find((t) => t.label === 'Package id 0').c, kind: 'cpu' }, asleep: 0,
+    fans: [{ id: P(1), name: 'CPU-Kühler', output: 1, pct: 40, rpm: 740, held: true, foreign: false }] }], rpm: { 1: 740 } });
 // the alarm acts where it is (round 4): the case zone at 100 %, the disk cage steers on
 files['fanboy-alarm'] = steering({ rpm: { 5: 0, 6: 0 }, who: { who: 'fanboy', why: 'alarm', zones: 2 }, why: 'alarm', caseFull: true,
   alarm: { code: 'stands', params: { fan: 'Vorn', zone: 'Gehäuse', zid: 'case', alone: false }, since: T0 - 40 },
@@ -278,9 +296,9 @@ function tableRpm(table, pct) {
 }
 // the dry run's answer (a canned post for the shots: demo/post/fanboy.dry_run.json)
 const dry = { ok: true, dry: { found: true, why: null, time: T0, zones: [
-  { id: 'disks', name: 'Plattenkäfig', unit: 'pct', level: 42, warmest: { id: 'disk2', label: 'disk2', c: 41, mapped: 41, kind: 'disk' }, asleep: 1, quiet: 0,
+  { id: 'disks', name: 'Plattenkäfig', unit: 'pct', level: 42, warmest: { id: 'disk2', label: 'disk2', c: 41, mapped: 41, kind: 'disk' }, asleep: 1, quiet: 0, react: 'balanced', down: DOWN.disk.balanced,
     fans: [{ id: P(4), name: 'Plattenkäfig', output: 4, pct: 42, value: 107, now: { value: 128, enable: 1 }, floor: 30 }] },
-  { id: 'case', name: 'Gehäuse', unit: 'pct', level: 25, warmest: { id: NVME, label: 'Composite', c: 27.9, mapped: 27.9, kind: 'nvme' }, asleep: 0, quiet: 0,
+  { id: 'case', name: 'Gehäuse', unit: 'pct', level: 25, warmest: { id: NVME, label: 'Composite', c: 27.9, mapped: 27.9, kind: 'nvme' }, asleep: 0, quiet: 0, react: 'quick', down: DOWN.nvme.quick,
     fans: [{ id: P(5), name: 'Vorn', output: 5, pct: 35, value: 89, now: { value: 128, enable: 1 }, floor: 35 }, { id: P(2), name: 'Deckel', output: 2, pct: 40, value: 102, now: { value: 128, enable: 1 }, floor: 40 }] }] } };
 
 const write = (dir, name, v) => { fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify(v, null, 1) + '\n'); console.log(path.relative(REPO, path.join(dir, `${name}.json`))); };

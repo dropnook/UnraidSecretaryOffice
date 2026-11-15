@@ -19,6 +19,12 @@
     },
     "asleep": 1,
     "quiet": 0,
+    "react": "balanced",
+    "down": {
+     "gap": 2,
+     "hold": 0,
+     "step": 1
+    },
     "fans": [
      {
       "id": "it8696_a0060607:it87.2608:pwm4",
@@ -48,6 +54,12 @@
     },
     "asleep": 0,
     "quiet": 0,
+    "react": "quick",
+    "down": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    },
     "fans": [
      {
       "id": "it8696_a0060607:it87.2608:pwm5",

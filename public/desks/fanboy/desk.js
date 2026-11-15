@@ -35,6 +35,10 @@ const PAGES = () => [{ id: '', text: t('common.page_overview') }, { id: 'setup',
 const t = Office.t;
 const ROLES_OURS = ['case', 'disks', 'ram', 'nvme', 'other'];
 const ROLES_BIOS = ['cpu', 'pump', 'unknown'];
+/** A fan that is his: a role of his own, or a CPU cooler the owner gave him on his own risk (round 4) */
+const isOurs = (f) => !!f && (ROLES_OURS.includes(f.role) || (f.role === 'cpu' && !!f.cpu_own));
+const cpuGiven = () => (setup().fans || []).some((f) => f.role === 'cpu' && f.cpu_own);
+const cpuAsk = new Map();       // fan id → {tick} while the owner is choosing «Fanboy regelt ihn» (kept over drawings)
 const PLACES = ['front', 'rear', 'top', 'bottom', 'side'];
 const COLOURS = ['auto', 'black', 'graphite', 'grey', 'white', 'slate', 'accent'];
 const STEPS = ['detect', 'test', 'roles', 'measure', 'zones', 'dry', 'take'];
@@ -213,7 +217,7 @@ function stepAtHand() {
   if (!(su.outputs || []).every(tested)) return 'test';
   const found = fans.filter((f) => ['tach', 'silent', 'unclear'].includes(f.found));
   if (found.some((f) => !f.role)) return 'roles';
-  const toMeasure = found.filter((f) => ROLES_OURS.includes(f.role) && f.found === 'tach');
+  const toMeasure = found.filter((f) => isOurs(f) && f.found === 'tach');
   if (toMeasure.some((f) => !f.measured && !f.no_turn)) return 'measure';
   if (!(su.zones || []).length) return 'zones';
   if (su.armed) return 'take';
@@ -506,7 +510,7 @@ function picture() {
     });
   });
   // the BIOS's own: the CPU cooler and pumps he only watches (and, before any zone, every fan the board reports)
-  const watched = (su.fans || []).filter((f) => ['cpu', 'pump'].includes(f.role) && f.found === 'tach');
+  const watched = (su.fans || []).filter((f) => ['cpu', 'pump'].includes(f.role) && !isOurs(f) && f.found === 'tach');
   if (zones.length) {
     if (watched.length) {
       zones.push({ id: '_bios', name: T('pic.bios_zone'), note: T('pic.bios_zone_note'), fans: watched.flatMap((f) => wheelsOf(f.id).map((w) => ({ ...w, place: 'top' }))),      // a narrow column: the wheel on top, the chips under it
@@ -779,7 +783,7 @@ function fansSection() {
     const cf = controlFan(id);
     const row = outputRow(c, o);
     if (!offered(c) || (f && f.found === 'empty')) rest.push(row);
-    else if ((cf && cf.held && control().running) || (f && ROLES_OURS.includes(f.role) && (setup().zones || []).some((z) => (z.fans || []).includes(id)))) his.push(row);
+    else if ((cf && cf.held && control().running) || (isOurs(f) && (setup().zones || []).some((z) => (z.fans || []).includes(id)))) his.push(row);
     else bios.push(row);
   }));
   // tach inputs no output of his has: what the board reports (the CPU cooler on its own header, an empty one)
@@ -798,6 +802,8 @@ function fansSection() {
   if (his.length) { list.appendChild(group(T('fans.group_his'), T('fans.group_his_sub'))); his.forEach((r) => list.appendChild(r)); }
   if (bios.length) { list.appendChild(group(T('fans.group_bios'), T('fans.group_bios_sub'))); bios.forEach((r) => list.appendChild(r)); }
   if (!list.children.length) list.appendChild(el('p', 'empty', rest.length ? T('fans.none_first') : T('outputs.none')));
+  // round 4: a CPU cooler given to him on the owner's risk — said where his fans are, with the date
+  (setup().fans || []).filter((f) => f.role === 'cpu' && f.cpu_own).forEach((f) => s.appendChild(el('p', 'fb-cpu-own', T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) }))));
   s.appendChild(list);
   const more = moreFold('fans-more', rest, T('fans.more', { n: rest.length }), false);
   if (more) s.appendChild(more);
@@ -1228,7 +1234,7 @@ function paintBanner() {
   } else if (s === 'no_output') {
     box('warn', T('situation.no_output'), { situation: s });
   } else if (s === 'ok' && !banner.children.length) {
-    box('', steers() ? T('situation.steers', { n: w.zones || 0 }) : c.armed === false && (setup().zones || []).length ? T('situation.not_armed') : T('situation.ok'), { situation: s });
+    box('', steers() ? T(cpuGiven() ? 'situation.steers_cpu' : 'situation.steers', { n: w.zones || 0 }) : c.armed === false && (setup().zones || []).length ? T('situation.not_armed') : T('situation.ok'), { situation: s });
   }
   const s2 = step();
   if (s2 && s2.status === 'stopped' && ['page_gone', 'interrupted'].includes(s2.why) && page === '') {
@@ -1258,7 +1264,7 @@ function stepTile(k, i, a) {
   const here = stepAtHand() === k;
   const fans = su.fans || [];
   const found = fans.filter((f) => ['tach', 'silent', 'unclear'].includes(f.found));
-  const ours = found.filter((f) => ROLES_OURS.includes(f.role) && f.found === 'tach');
+  const ours = found.filter((f) => isOurs(f) && f.found === 'tach');
   const s = step();
   let value = '';
   const sub = [];
@@ -1440,6 +1446,55 @@ async function startStep(kind, ids, b) {
   await act(kind, { fans: ids }, b, async () => { await load(true); });
 }
 
+/**
+ * Round 4: who steers the CPU cooler — the BIOS (the default) or «Fanboy regelt ihn», only behind a tick that says in
+ * plain words what it means; given to him: since when, and back to the BIOS with one click. No mainboard automatic for
+ * this output: not offered (it could only be given back to a fixed value).
+ */
+function cpuPart(f) {
+  const box = el('div', 'fb-cpu');
+  const auto = ((setup().before || {})[f.id] || {}).auto;
+  if (f.cpu_own) {
+    box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));
+    box.appendChild(bar(button(T('cpu.back'), T('cpu.back_tip'), (b) => act('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }, b))));
+    return box;
+  }
+  if (!cpuAsk.has(f.id)) box.appendChild(para(T('roles.bios_note.cpu')));
+  if (auto === null || auto === undefined) {
+    box.appendChild(para(T('cpu.no_auto')));
+    return box;
+  }
+  const seg = el('div', 'seg');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', T('cpu.who'));
+  const asking = cpuAsk.has(f.id);
+  [['bios', !asking], ['fanboy', asking]].forEach(([w, on]) => {
+    const b = el('button', '', T(`cpu.${w}`));
+    b.type = 'button';
+    b.dataset.own = '1';
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.onclick = () => { if (w === 'fanboy') cpuAsk.set(f.id, { tick: false }); else cpuAsk.delete(f.id); drawn = ''; redraw(); };
+    seg.appendChild(b);
+  });
+  box.appendChild(seg);
+  if (asking) {
+    const risk = el('div', 'fb-cpu-risk');
+    ['risk_1', 'risk_2', 'risk_3', 'risk_4'].forEach((k) => risk.appendChild(para(T(`cpu.${k}`, { floor: setup().cpu_floor || 40 }))));
+    const tick = el('input');
+    tick.type = 'checkbox';
+    tick.checked = !!cpuAsk.get(f.id).tick;
+    const go = button(T('cpu.go'), T('cpu.go_tip'), (b) => act('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: true, cpu_confirm: tick.checked }, b,
+      () => { cpuAsk.delete(f.id); }), 'btn');
+    go.disabled = !tick.checked;
+    tick.onchange = () => { cpuAsk.set(f.id, { tick: tick.checked }); go.disabled = !tick.checked; };
+    const l = el('label', 'fb-check');
+    l.append(tick, el('span', '', T('cpu.confirm')));
+    risk.append(l, bar(go));
+    box.appendChild(risk);
+  }
+  return box;
+}
+
 // 3 — roles: what each fan is, its name, place, model, colour, «give back to»
 function rolesStep() {
   const box = el('div', 'fb-step-body');
@@ -1501,7 +1556,8 @@ function roleCard(f) {
   const field = (label, input) => { const l = el('label', 'fb-field'); l.append(el('span', 'fb-field-label', label), input); return l; };
   form.append(field(T('roles.role'), role), field(T('roles.name'), name), field(T('roles.place'), place), field(T('roles.count'), count));
   if ((f.count || 1) > 1) form.appendChild(para(T('roles.count_note', { n: f.count })));
-  if (ROLES_BIOS.includes(f.role)) form.appendChild(para(T(`roles.bios_note.${f.role}`)));
+  if (f.role === 'cpu') form.appendChild(cpuPart(f));
+  else if (ROLES_BIOS.includes(f.role)) form.appendChild(para(T(`roles.bios_note.${f.role}`)));
   // the model from the catalogue, or «other fan» by size; the wheel's colour
   const A = art();
   if (A && cat) {
@@ -1578,7 +1634,7 @@ function measureStep() {
   const live = running(s) && s.kind === 'measure';
   if (blocked(box)) return box;
   stepEnded(box, s, 'measure');
-  const ours = (su.fans || []).filter((f) => ROLES_OURS.includes(f.role) && f.found === 'tach');
+  const ours = (su.fans || []).filter((f) => isOurs(f) && f.found === 'tach');
   if (!ours.length) {
     box.appendChild(para(T('measure.none')));
     box.appendChild(bar(nextButton('measure')));
@@ -1651,7 +1707,7 @@ function changeZones(fn) {
 function zonesStep() {
   const box = el('div', 'fb-step-body');
   const su = setup();
-  const ours = (su.fans || []).filter((f) => ROLES_OURS.includes(f.role) && ['tach', 'silent'].includes(f.found));
+  const ours = (su.fans || []).filter((f) => isOurs(f) && ['tach', 'silent'].includes(f.found));
   if (!ours.length) {
     box.appendChild(para(T('zones.no_fans')));
     return box;
@@ -1661,6 +1717,7 @@ function zonesStep() {
     button(T('zones.propose'), T('zones.propose_tip'), (b) => act('zones_propose', {}, b, (j) => { zdraft = (j.zones || []).map((z) => ({ ...z, name: z.name || T(`zones.kind.${z.kind}`) })); })),
     zones.length < 8 ? button(T('zones.add'), T('zones.add_tip'), () => changeZones((z) => z.push({ id: freeId(z), name: T('zones.new_name', { n: z.length + 1 }), fans: [], sources: [], unit: 'pct', target: { preset: 'normal' } }))) : null);
   box.appendChild(tools2);
+  box.appendChild(para(T('zones.how_often', { s: setup().round || 2 })));
   if (!zones.length) box.appendChild(para(T('zones.empty')));
   const unzoned = ours.filter((f) => !zones.some((z) => (z.fans || []).includes(f.id)));
   if (unzoned.length && zones.length) box.appendChild(para(T('zones.unzoned', { list: unzoned.map((f) => fanName(f.id)).join(', ') })));
@@ -1682,6 +1739,15 @@ function cleanZone(z) {
     target: z.target && Array.isArray(z.target.points) ? { points: z.target.points.map((p) => [Math.round(p[0]), Math.round(p[1])]) } : { preset: (z.target && z.target.preset) || 'normal' } };
   if (num(z.low) !== null) out.low = z.low;
   if (num(z.high) !== null) out.high = z.high;
+  out.react = z.react === 'quick' ? 'quick' : 'balanced';
+  // the table «Temperaturen»: only what the user set (numbers), per kind the zone has
+  const kinds = {};
+  Object.entries(z.kinds || {}).forEach(([k, v]) => {
+    const o = {};
+    ['low', 'high', 'limit'].forEach((f) => { if (v && num(v[f]) !== null) o[f] = v[f]; });
+    if (Object.keys(o).length) kinds[k] = o;
+  });
+  if (Object.keys(kinds).length) out.kinds = kinds;
   return out;
 }
 function zoneCard(z, i, zones, ours) {
@@ -1765,8 +1831,151 @@ function zoneCard(z, i, zones, ours) {
     srcBox.appendChild(g);
   });
   card.appendChild(srcBox);
+  card.appendChild(tempsPart(z, i));
+  card.appendChild(reactPart(z, i));
   card.appendChild(curvePart(z, i));
   return card;
+}
+/** A source's kind as the zone counts it (from the server's look: a pool not rotating is «ssd») */
+const srcKind = (id) => ((setup().sources || []).find((x) => x.id === id) || {}).kind || 'other';
+/** The kinds a zone has, in a steady order */
+function zoneKinds(z) {
+  const order = ['disk', 'ssd', 'nvme', 'cpu', 'gpu', 'ram', 'board', 'other'];
+  return [...new Set((z.sources || []).map((x) => srcKind(x.id)))].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+}
+/** A kind's values in a zone: the user's for it, else the kind's defaults */
+/** The three presets on a scale lo … hi — exactly fanboyPreset() of agent/desks/fanboy-control.php (a test compares them) */
+function presetsOn(lo, hi) {
+  const mid = (lo + hi) / 2;
+  return { quiet: [[lo, 0], [mid, 30], [hi, 60], [hi + 5, 100]], normal: [[lo, 20], [mid, 45], [hi, 80], [hi + 3, 100]], cool: [[lo - 3, 35], [mid - 3, 65], [hi - 3, 100]] };
+}
+function kindValues(z, kind) {
+  const d = (setup().scales || {})[kind] || (setup().scales || {}).other || { low: 35, high: 55, limit: 75 };
+  const own = (z.kinds || {})[kind] || {};
+  return { low: num(own.low) ?? d.low, high: num(own.high) ?? d.high, limit: num(own.limit) ?? d.limit, d };
+}
+/**
+ * «Temperaturen» (round 4, the owner): per kind in the zone «ab» (from here the fans speed up), «volle Drehzahl bei»
+ * (full speed from here), «Grenze» (the alarm) — the defaults filled in, each editable, «back to the proposal»; a single
+ * source with its own values where it differs. Disks: Unraid's own warning/critical beside them, never copied.
+ */
+function tempsPart(z, i) {
+  const box = el('div', 'fb-temps');
+  box.appendChild(el('h4', 'fb-sub', T('temps.title')));
+  const kinds = zoneKinds(z);
+  if (!kinds.length) return box;
+  box.appendChild(para(kinds.length > 1 ? T('temps.mixed', { kind: T(`kind.${kinds[0]}`) }) : T('temps.single')));
+  const tb = el('table', 'fb-table fb-temps-table');
+  const h = el('tr');
+  h.append(el('th', '', T('temps.kind')), el('th', '', T('temps.low')), el('th', '', T('temps.high')), el('th', '', T('temps.limit')), el('th', '', ''));
+  tb.appendChild(h);
+  const field = (val, def, set, label) => {
+    const n = el('input');
+    n.type = 'number';
+    n.step = '1';
+    n.value = String(val);
+    n.placeholder = String(def);
+    n.className = 'fb-num';
+    n.setAttribute('aria-label', label);
+    n.onchange = () => set(n.value === '' ? null : Number(n.value));
+    return n;
+  };
+  const src = new Map((setup().sources || []).map((x) => [x.id, x]));
+  kinds.forEach((k) => {
+    const v = kindValues(z, k);
+    const tr = el('tr');
+    const set = (f) => (x) => changeZones((all) => {
+      const kk = { ...(all[i].kinds || {}) };
+      const o = { ...(kk[k] || {}) };
+      if (x === null || x === v.d[f]) delete o[f]; else o[f] = x;
+      if (Object.keys(o).length) kk[k] = o; else delete kk[k];
+      all[i].kinds = kk;
+      curves.delete(z.id);
+    });
+    const name = el('td', 'fb-strong', T(`kind.${k}`));
+    tr.append(name, el('td'), el('td'), el('td'), el('td', 'fb-temps-note'));
+    tr.children[1].appendChild(field(v.low, v.d.low, set('low'), `${T(`kind.${k}`)} · ${T('temps.low')}`));
+    tr.children[2].appendChild(field(v.high, v.d.high, set('high'), `${T(`kind.${k}`)} · ${T('temps.high')}`));
+    tr.children[3].appendChild(field(v.limit, v.d.limit, set('limit'), `${T(`kind.${k}`)} · ${T('temps.limit')}`));
+    const notes = [];
+    if (!(v.low < v.high && v.high < v.limit)) notes.push(T('temps.order'));
+    // a disk: Unraid's own warning and critical temperatures beside it — a hint, never copied
+    if (k === 'disk' || k === 'ssd') {
+      const d = (S().disks || []).find((x) => (z.sources || []).some((y) => y.id === x.name) && (k === 'ssd') === (x.rotational === false) && num(x.warn) !== null);
+      if (d) notes.push(T('temps.unraid', { warn: d.warn, crit: num(d.crit) ?? '–' }));
+    }
+    const over = (z.sources || []).map((y) => src.get(y.id)).filter((x) => x && srcKind(x.id) === k && num(x.c) !== null && x.c >= v.limit);
+    if (over.length) notes.push(T('temps.over', { where: srcLabel(over[0]), c: fmt.number(over[0].c) }));
+    tr.lastChild.textContent = notes.join(' · ');
+    tb.appendChild(tr);
+  });
+  const wrap = el('div', 'fb-table-wrap');
+  wrap.appendChild(tb);
+  box.appendChild(wrap);
+  // single sources with values of their own
+  const own = (z.sources || []).filter((y) => ['low', 'high', 'limit'].some((f) => num(y[f]) !== null));
+  own.forEach((y) => {
+    const k = srcKind(y.id);
+    const v = kindValues(z, k);
+    const row = el('div', 'fb-row-fields fb-own');
+    row.appendChild(el('span', 'fb-strong', srcLabel(src.get(y.id) || { id: y.id, kind: k })));
+    ['low', 'high', 'limit'].forEach((f) => {
+      const l = el('label', 'fb-field');
+      l.append(el('span', 'fb-field-label', T(`temps.${f}`)), field(num(y[f]) ?? v[f], v[f], (x) => changeZones((all) => {
+        const s2 = all[i].sources.find((q) => q.id === y.id);
+        if (x === null) delete s2[f]; else s2[f] = x;
+        curves.delete(z.id);
+      }), `${srcLabel(src.get(y.id) || { id: y.id, kind: k })} · ${T(`temps.${f}`)}`));
+      row.appendChild(l);
+    });
+    const rm = el('button', 'btn small plain', T('temps.own_remove'));
+    rm.type = 'button';
+    rm.onclick = () => changeZones((all) => { const s2 = all[i].sources.find((q) => q.id === y.id); ['low', 'high', 'limit'].forEach((f) => delete s2[f]); });
+    row.appendChild(rm);
+    box.appendChild(row);
+  });
+  const pick = el('select');
+  pick.appendChild(new Option(T('temps.own_add'), ''));
+  (z.sources || []).filter((y) => !own.includes(y)).forEach((y) => pick.appendChild(new Option(srcLabel(src.get(y.id) || { id: y.id, kind: srcKind(y.id) }), y.id)));
+  pick.onchange = () => {
+    if (!pick.value) return;
+    changeZones((all) => { const s2 = all[i].sources.find((q) => q.id === pick.value); const v = kindValues(all[i], srcKind(pick.value)); s2.low = v.low; s2.high = v.high; s2.limit = v.limit; });
+  };
+  const back = el('button', 'btn small plain', T('temps.reset'));
+  back.type = 'button';
+  back.onclick = () => changeZones((all) => { all[i].kinds = {}; all[i].sources.forEach((q) => { delete q.low; delete q.high; delete q.limit; }); curves.delete(z.id); });
+  box.appendChild(bar(pick, back));
+  return box;
+}
+/** The way down in words for a kind: «up: at once · down: after 6 s, about 5 % every 2 s» */
+function downWords(kind, react) {
+  const p = (((setup().down || {})[kind] || (setup().down || {}).other || {})[react === 'quick' ? 'quick' : 'balanced']) || { gap: 2, hold: 0, step: 1 };
+  const r = setup().round || 2;
+  return p.hold > 0 ? T('react.profile', { gap: fmt.number(p.gap, 1), hold: fmt.number(p.hold), step: fmt.number(p.step), s: r })
+    : T('react.profile_now', { gap: fmt.number(p.gap, 1), step: fmt.number(p.step), s: r });
+}
+/** How he reacts: «Ausgewogen reagieren» (default) or «Sofort reagieren» — and what that means per kind, in words */
+function reactPart(z, i) {
+  const box = el('div', 'fb-react');
+  box.appendChild(el('h4', 'fb-sub', T('react.title')));
+  const seg = el('div', 'seg');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', T('react.title'));
+  const cur = z.react === 'quick' ? 'quick' : 'balanced';
+  ['balanced', 'quick'].forEach((r) => {
+    const b = el('button', '', T(`react.${r}`));
+    b.type = 'button';
+    b.dataset.own = '1';
+    b.setAttribute('aria-pressed', r === cur ? 'true' : 'false');
+    b.onclick = () => { if (r !== cur) changeZones((all) => { all[i].react = r; }); };
+    seg.appendChild(b);
+  });
+  box.appendChild(seg);
+  // one line per way down: kinds with the same profile share it («NVMe, RAM: …»)
+  const ways = new Map();
+  zoneKinds(z).forEach((k) => { const w = downWords(k, cur); ways.set(w, [...(ways.get(w) || []), T(`kind.${k}`)]); });
+  ways.forEach((names, w) => box.appendChild(el('p', 'fb-hint-text', `${names.join(', ')}: ${w}`)));
+  return box;
 }
 /** The zone's curve: quiet, normal, cool — or its own, dragged; percent, or rpm where every fan is measured */
 function curvePart(z, i) {
@@ -1777,7 +1986,9 @@ function curvePart(z, i) {
   const tgt = z.target || { preset: 'normal' };
   const own = Array.isArray(tgt.points);
   const kind = (z.sources && z.sources[0] && z.sources[0].kind) || ((setup().sources || []).find((s) => (z.sources || []).some((x) => x.id === s.id)) || {}).kind || 'disk';
-  const presets = ((setup().presets_of || {})[kind]) || ((setup().curves || {})[z.id] || {}).presets || null;
+  // the presets on the zone's own scale: its first kind's «ab» … «volle Drehzahl bei» (round 4: the degrees are settable)
+  const kv = kindValues(z, kind);
+  const presets = presetsOn(kv.low, kv.high);
   const choose = el('select');
   ['quiet', 'normal', 'cool'].forEach((p) => choose.appendChild(new Option(T(`preset.${p}`), p)));
   choose.appendChild(new Option(T('curve.own'), 'own'));
@@ -1815,10 +2026,13 @@ function curvePart(z, i) {
   const vMax = rpmUnit ? Math.max(...fans.map((f) => f.max_rpm || 0), 500) : 100;
   const temps = pts.map((p) => p[0]);
   const tMin = Math.max(0, Math.floor((Math.min(...temps) - 10) / 5) * 5), tMax = Math.ceil((Math.max(...temps) + 10) / 5) * 5;
-  const floor = lead.measured && num(lead.min_pct) !== null ? (rpmUnit ? tableRpm(lead.table, lead.min_pct) : lead.min_pct) : null;
+  // round 4: a CPU cooler given to him never under its own floor (cpu_floor) — that line instead of the lowest steady value
+  const cpuFloor = lead.role === 'cpu' && lead.cpu_own ? Math.max(setup().cpu_floor || 40, num(lead.min_pct) ?? 0) : null;
+  const floorPct = cpuFloor ?? (lead.measured && num(lead.min_pct) !== null ? lead.min_pct : null);
+  const floor = floorPct === null ? null : rpmUnit ? (lead.table ? tableRpm(lead.table, floorPct) : null) : floorPct;
   const cz = (control().zones || []).find((x) => x.id === z.id);
   const nowC = cz && cz.warmest ? num(cz.warmest.mapped) ?? num(cz.warmest.c) : null;
-  const key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|${own}|${own ? '' : tgt.preset}|${floor}`;
+  const key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|${own}|${own ? '' : tgt.preset}|${floor}|${kv.low}|${kv.high}`;
   let cv = curves.get(z.id);
   if (!cv || cv.key !== key) {
     if (cv) cv.c.destroy();
@@ -1830,7 +2044,7 @@ function curvePart(z, i) {
         axisT: T('curve.axis_t'), axisV: rpmUnit ? T('curve.axis_rpm') : T('curve.axis_pct'), tickT: (x) => `${x}°`, tickV: (v) => (rpmUnit ? fmt.number(v) : `${v} %`),
         point: (k, n) => T('curve.point', { i: k + 1, n }), value: (x, v) => (rpmUnit ? T('curve.value_rpm', { t: x, v: fmt.number(v) }) : T('curve.value_pct', { t: x, v })),
         readout: (x, v, r) => T('curve.readout', { t: x, v: rpmUnit ? T('pic.rpm', { rpm: fmt.number(v) }) : T('value', { pct: Math.round(v) }), rpm: fmt.number(Math.round(r || 0)) }),
-        floor: T('curve.floor'), now: nowC !== null ? T('curves.now', { c: fmt.number(nowC) }) : '',
+        floor: cpuFloor !== null ? T('curve.floor_cpu', { pct: cpuFloor }) : T('curve.floor'), now: nowC !== null ? T('curves.now', { c: fmt.number(nowC) }) : '',
       },
       // dragging a preset makes it the zone's own curve; kept on the page until «Save»
       onChange: (p) => {
@@ -1838,7 +2052,7 @@ function curvePart(z, i) {
         if (!zs[i]) return;
         zs[i].target = { points: p.map((x) => [x.t, x.v]) };
         zdraft = zs;
-        cv.key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|true||${floor}`;
+        cv.key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|true||${floor}|${kv.low}|${kv.high}`;
         drawn = '';
         redraw();
       },
@@ -1868,6 +2082,9 @@ function dryStep() {
       card.appendChild(el('h4', 'fb-sub', z.name));
       const w = z.warmest && num(z.warmest.c) !== null ? T('dry.warmest', { where: srcLabel(z.warmest), c: fmt.number(z.warmest.c) }) : T('dry.nothing');
       card.appendChild(para(`${w}${z.asleep ? ' · ' + T('dry.asleep', { n: z.asleep }) : ''}`));
+      // how he reacts here, in words (round 4): up at once, down by the leading kind's profile
+      const lead = z.warmest && z.warmest.kind ? z.warmest.kind : 'disk';
+      card.appendChild(para(T('dry.react', { react: T(`react.${z.react === 'quick' ? 'quick' : 'balanced'}`), how: downWords(lead, z.react) })));
       const tb = el('table', 'fb-table');
       const h = el('tr');
       h.append(el('th', '', T('dry.fan')), el('th', '', T('dry.would')), el('th', '', T('dry.now')));
@@ -1904,7 +2121,7 @@ function takeStep() {
   if (situation() === 'other') why.push(T('step.blocked_other'));
   if (!(su.zones || []).length) why.push(T('take.no_zones'));
   if (stepRuns()) why.push(T('take.step_runs'));
-  box.appendChild(para(T('take.text')));
+  box.appendChild(para(T(cpuGiven() ? 'take.text_cpu' : 'take.text')));
   why.forEach((w) => box.appendChild(para(w, 'callout warn')));
   const b = button(T('take.go'), T('take.go_tip'), (btn) => {
     Office.dialog({
