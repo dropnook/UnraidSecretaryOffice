@@ -296,7 +296,7 @@ function fanboySourceNames(array $sources, ?string $lang = null): array
                 : (preg_match('/^parity(\d*)$/D', $x['id'], $m) ? ($m[1] !== '' ? $t('src.parity_n', ['n' => $m[1]]) : $t('src.parity')) : $x['id']);
             continue;
         }
-        $kind = $t('kind.' . (in_array($x['kind'], ['cpu', 'gpu', 'nvme', 'ram', 'board'], true) ? $x['kind'] : 'other'));
+        $kind = $t(fanboyKindKey($x['kind']));
         if ($own($x)) {
             $k = "{$x['kind']}|{$x['label']}";
             $seen[$k] = ($seen[$k] ?? 0) + 1;
@@ -308,6 +308,15 @@ function fanboySourceNames(array $sources, ?string $lang = null): array
         }
     }
     return $out;
+}
+
+/** A kind's word in his language files (each key written out: a test holds every key the code asks for to its file) */
+function fanboyKindKey(string $kind): string
+{
+    return match ($kind) {
+        'cpu' => 'kind.cpu', 'gpu' => 'kind.gpu', 'nvme' => 'kind.nvme', 'ram' => 'kind.ram', 'board' => 'kind.board',
+        'disk' => 'kind.disk', 'ssd' => 'kind.ssd', default => 'kind.other',
+    };
 }
 
 /** The Unraid disk an NVMe chip is (disks.ini's device «nvme0n1» for the chip's «…/nvme/nvme0»): its name, else null */
@@ -557,7 +566,7 @@ function fanboyReadSources(array &$c, float $now): void
                 $c['sources'][$s['id']] = ['kind' => $s['kind'], 'path' => $w !== null && !$w['disk'] ? $w['path'] : null,
                     // a sensor gone from the chip's list keeps the name it had; one never seen: its kind's word, never its id
                     'label' => $names[$now_id] ?? $names[$s['id']] ?? $c['sources'][$s['id']]['label']
-                        ?? (function_exists('officeNotifyText') ? officeNotifyText('fanboy', 'kind.' . $s['kind'], [], function_exists('officeNotifyLang') ? officeNotifyLang() : 'en') : $s['kind'])]
+                        ?? (function_exists('officeNotifyText') ? officeNotifyText('fanboy', fanboyKindKey($s['kind']), [], function_exists('officeNotifyLang') ? officeNotifyLang() : 'en') : $s['kind'])]
                     + ($c['sources'][$s['id']] ?? []);
             }
         }
