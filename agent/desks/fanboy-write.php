@@ -416,6 +416,16 @@ function fanboyGivenCheck(?int $wall = null): array
             }
             $j['outputs'][$id]['given']['checked'] = $wall;
             $changed = true;
+            // round 12 correction: proof that the chip's automatic takes over on this board — given back to it (enable ≥ 2),
+            // read back so, and its fan turning at the check (the agent keeps it per board: auto_back_seen)
+            $back = is_array($o['back'] ?? null) ? $o['back'] : (is_array($o['initial'] ?? null) ? $o['initial'] : null);     // what was written back
+            if ($back !== null && is_int($back['enable'] ?? null) && $back['enable'] >= 2 && $wall - $g['at'] <= FANBOY_BACK_CHECK_UNTIL) {
+                $read = fanboyOutputNow($o['device'], $o['output']);
+                $rpm = fanboyTachNow($o['device'], is_array($o['tachs'] ?? null) ? $o['tachs'] : []);
+                if (is_int($read['enable'] ?? null) && $read['enable'] >= 2 && $rpm !== null && $rpm >= 300) {
+                    $j['outputs'][$id]['given']['auto_ok'] = $wall;
+                }
+            }
             $before = $o['rpm'] ?? null;
             if ($wall - $g['at'] > FANBOY_BACK_CHECK_UNTIL || in_array($g['why'] ?? '', ['foreign', 'gone'], true) || !is_int($before) || $before < 300) {
                 continue;

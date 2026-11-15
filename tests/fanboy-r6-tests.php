@@ -1799,7 +1799,8 @@ function fanboyR12CpuControl(array $t, array $spec): array
     fanboyR12Store([2 => $m]);
     $s = fanboyBoardRaw();
     $s['fans'][fanboyTId(2)] += ['off_ok' => true, 'cpu_off' => ['at' => 1700000001]];
-    $s['zones'] = [['id' => 'cpu', 'name' => 'CPU', 'fans' => [fanboyTId(2)], 'unit' => 'pct', 'target' => ['preset' => 'normal'],
+    // round 12 correction: the curve decides where it may stand — 0 % up to 45 °C, then to 100 % at 80 °C (starts_at 45)
+    $s['zones'] = [['id' => 'cpu', 'name' => 'CPU', 'fans' => [fanboyTId(2)], 'unit' => 'pct', 'target' => ['points' => [[30, 0], [45, 0], [80, 100]]],
         'sources' => [['kind' => 'cpu', 'id' => FANBOY_R12_CPU], ['kind' => 'disk', 'id' => 'parity']]]];
     fanboyTStore($s);
     fanboyTSettle($t, $spec);
@@ -2071,8 +2072,8 @@ function testFanboyR12FixControl(): void
         $seen = $spiky(60, 30);
         same('fanboy r12 fix control: … and stays standing through two minutes of such spikes (under the hard value, 80 °C)', [0], array_values(array_unique($seen)));
         $fan = fanboyStatus($c)['zones'][0]['fans'][0] ?? [];
-        same('fanboy r12 fix control: the state says what it goes by — smoothed, peak, «ab», the hard value', [30.0, 45.0, 80.0, true],
-            [$fan['cpu_by']['smooth'] ?? null, $fan['cpu_by']['ab'] ?? null, $fan['cpu_by']['hard'] ?? null, is_float($fan['cpu_by']['peak'] ?? null) || is_int($fan['cpu_by']['peak'] ?? null)]);
+        same('fanboy r12 fix control: the state says what it goes by — smoothed, peak, where its curve starts, the hard value', [30.0, 45.0, 80.0, true],
+            [$fan['cpu_by']['smooth'] ?? null, $fan['cpu_by']['starts_at'] ?? null, $fan['cpu_by']['hard'] ?? null, is_float($fan['cpu_by']['peak'] ?? null) || is_int($fan['cpu_by']['peak'] ?? null)]);
         // a real rise: 46 °C held — it starts in the round the smoothed CPU reaches «ab»
         $at = null;
         for ($i = 0; $i < 6 && $at === null; $i++) {
@@ -2128,6 +2129,156 @@ function testFanboyR12FixConfirm(): void
             array_slice($phases, array_search('start_find:30', $phases, true) ?: 0));
         same('fanboy r12 fix confirm: … back as before, turning', [[128, 1], true], [fanboyTOut($t, 1), fanboyReadInt("{$t['hw']}/fan1_input") > 300]);
         same('fanboy r12 fix confirm: the control starts a standing fan 5 % above it (45 %)', 45, fanboyStandPlan(['off_ok' => false], $m, true, false, 15)[2]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/** Round 12 correction: the owner's CPU curve — 0 % up to 62 °C, then up to 100 % at 81 °C — on his CPU cooler (output 2, may stand) */
+function fanboyR12CurveControl(array $t, array $spec, array $points = [[30, 0], [62, 0], [81, 100]]): array
+{
+    $m = ['table' => [[100, 1500], [50, 900], [10, 420]], 'min_pct' => 10, 'start_pct' => 10, 'max_rpm' => 1500, 'at' => 1,
+          'stops' => true, 'floor_rpm' => null, 'start_from_stop' => 35, 'kick_start' => null, 'stops_safe' => true, 'start_tries' => ['passed' => 3, 'failed' => 0]];
+    fanboyR12Store([2 => $m]);
+    $s = fanboyBoardRaw();
+    $s['fans'][fanboyTId(2)] += ['off_ok' => true, 'cpu_off' => ['at' => 1700000001]];
+    $s['zones'] = [['id' => 'cpu', 'name' => 'CPU', 'fans' => [fanboyTId(2)], 'unit' => 'pct', 'target' => ['points' => $points],
+        'sources' => [['kind' => 'cpu', 'id' => FANBOY_R12_CPU]]]];
+    fanboyTStore($s);
+    fanboyTSettle($t, $spec);
+    return fanboyControlNew($s, FANBOY_T_KEY, fanboyMe('control'));
+}
+
+/**
+ * Round 12 correction (the owner: «bis 60 Grad darf der Lüfter stehen bleiben» — the confirmation said 45/40): the curve is
+ * the truth for standing — his curve gives starts_at 62, it stands under 57 for a minute, a spike to 60 doesn't start it,
+ * 62 smoothed does, a reading at 81 (where the curve reaches 100 %) at once; a curve that never asks for nothing never
+ * lets a fan stand (curve_never_zero)
+ */
+function testFanboyR12Curve(): void
+{
+    $t = fanboyT('r12curve');
+    try {
+        $spec = fanboyR12Spec();
+        fanboyTDisks($t, 30, null, 30);
+        fanboyR12CpuTemp($t, 50);
+        $c = fanboyR12CurveControl($t, $spec);
+        $now = 1000.0;
+        $fan = fn () => fanboyStatus($c)['zones'][0]['fans'][0] ?? [];
+        fanboyTRounds($c, $now, $t, $spec, 2);
+        same('fanboy r12 curve: his curve — starts at 62 °C (where it leaves 0 %), may stop under 57, the hard value 81 (its 100 %), smoothed over 10 s',
+            [62.0, 57.0, 81.0, FANBOY_CPU_SMOOTH], [$fan()['starts_at'] ?? null, $fan()['stops_below'] ?? null, $fan()['hard'] ?? null, $fan()['window'] ?? null]);
+        fanboyTRounds($c, $now, $t, $spec, 30);
+        same('fanboy r12 curve: 50 °C for a minute (under 57) — it stands', 0, fanboyTOut($t, 2)[0]);
+        fanboyR12CpuTemp($t, 60);
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        fanboyR12CpuTemp($t, 50);
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        same('fanboy r12 curve: one reading at 60 °C — still standing', 0, fanboyTOut($t, 2)[0]);
+        fanboyR12CpuTemp($t, 59);
+        fanboyTRounds($c, $now, $t, $spec, 10);
+        same('fanboy r12 curve: 59 °C held (under 62) — still standing (no second threshold: «ab» 45 doesn\'t count)', 0, fanboyTOut($t, 2)[0]);
+        $at = null;
+        for ($i = 0; $i < 6 && $at === null; $i++) {
+            fanboyR12CpuTemp($t, 62);
+            fanboyTRounds($c, $now, $t, $spec, 1);
+            if (fanboyTOut($t, 2)[0] > 0) {
+                $at = $c['fans'][fanboyTId(2)]['cpu_by']['smooth'];
+            }
+        }
+        same('fanboy r12 curve: 62 °C held — it starts in the round the smoothed CPU reaches 62', 62.0, $at);
+        fanboyR12CpuTemp($t, 50);
+        fanboyTRounds($c, $now, $t, $spec, 36);
+        same('fanboy r12 curve: (standing again after a calm minute)', 0, fanboyTOut($t, 2)[0]);
+        fanboyR12CpuTemp($t, 81);
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        same('fanboy r12 curve: one reading at 81 °C (the hard value) — it starts the same round', true, fanboyTOut($t, 2)[0] > 0);
+        fanboyLetGo($c, 'end');
+        // a curve that never asks for nothing (normal preset: 20 % at its start) — never stands
+        $c = fanboyR12CurveControl($t, $spec, [[45, 20], [80, 100]]);
+        same('fanboy r12 curve: a curve that never reaches 0 % — «darf stehen» not in effect (curve_never_zero), in the control and the setup',
+            [false, 'curve_never_zero', 'curve_never_zero'], [$c['fans'][fanboyTId(2)]['off_ok'], $c['fans'][fanboyTId(2)]['off_why'],
+                array_column(fanboySetupState(fanboyDetect(), fanboyBoardRaw())['fans'], 'off_why', 'id')[fanboyTId(2)] ?? null]);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyR12CpuTemp($t, 28);
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 12 correction: the curve in the status is the one the control applies — a rising sweep of the CPU over his
+ * curve: what is written equals the effective curve (0 where it stands, at least the floor 40 % where it turns)
+ */
+function testFanboyR12CurveEffective(): void
+{
+    $t = fanboyT('r12curveeff');
+    try {
+        $spec = fanboyR12Spec();
+        fanboyTDisks($t, 30, null, 30);
+        fanboyR12CpuTemp($t, 40);
+        $c = fanboyR12CurveControl($t, $spec);
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 32);         // standing after the calm minute
+        $eff = fanboyStatus($c)['zones'][0]['fans'][0]['curve'] ?? [];
+        check('fanboy r12 curve effective: the status — 0 % up to 62 °C, then at least the floor 40 % (until the curve passes it, 69.6 °C), 100 % at 81',
+            ['cpu', [[30, 0], [62, 0], [62, 40], [69.6, 40], [81, 100]]] == [$eff['kind'] ?? null, $eff['points'] ?? null], json_encode($eff));
+        $off = [];
+        foreach ([45, 52, 58, 61, 63, 66, 69, 71, 74, 77, 80] as $deg) {
+            fanboyR12CpuTemp($t, $deg);
+            fanboyTRounds($c, $now, $t, $spec, 4);
+            $want = (int) round(fanboyCurveAt($eff['points'], (float) $deg) * 2.55);
+            if (abs(fanboyTOut($t, 2)[0] - $want) > 2) {
+                $off[] = "$deg °C: wrote " . fanboyTOut($t, 2)[0] . ", the status says $want";
+            }
+        }
+        same('fanboy r12 curve effective: a rising sweep 45…80 °C — what the control writes is the status\'s curve (± rounding)', [], $off);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyR12CpuTemp($t, 28);
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 12 correction: «the mainboard's automatic takes over» only once SEEN — a give-back to the chip's automatic that
+ * read back as automatic with the fan turning at the 10-s check sets the board's auto_back_seen; a chip that ignores its
+ * mode (the fan stops) or a give-back to a fixed value never does
+ */
+function testFanboyR12AutoSeen(): void
+{
+    $t = fanboyT('r12autoseen');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        unset($settings['fans'][fanboyTId(4)]['back']);
+        fanboyTStore($settings);
+        $case = function (array $spec, int $enable, string $back = 'auto') use ($t, $settings): ?array {
+            $settings['fans'][fanboyTId(4)]['back'] = $back;
+            @unlink(TESTS_RUN_DIR . '/fanboy/journal.json');
+            file_put_contents("{$t['hw']}/pwm4", "30\n");
+            file_put_contents("{$t['hw']}/pwm4_enable", "$enable\n");
+            fanboyTSettle($t, $spec, 20);
+            fanboyBeat();
+            $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+            $now = 1000.0;
+            fanboyTRounds($c, $now, $t, $spec, 10);
+            fanboyLetGo($c, 'end');
+            fanboyTSettle($t, $spec, 12);
+            $at = fanboyJournal()['outputs'][fanboyTId(4)]['given']['at'];
+            fanboyBackCheck($at + 12);
+            return fanboySetupState(fanboyDetect(), fanboyBoardRaw())['auto_back_seen'];
+        };
+        same('fanboy r12 auto seen: never seen yet — null', null, fanboySetupState(fanboyDetect(), fanboyBoardRaw())['auto_back_seen']);
+        same('fanboy r12 auto seen: a chip that ignores its own mode (the fan stops) — not seen', null, $case(fanboyTSpec(10, [4 => ['auto' => 1100, 'auto_dead' => true]]), 2));
+        same('fanboy r12 auto seen: a give-back to the fixed value found (the owner\'s «back: fixed») — not seen', null, $case(fanboyTSpec(10, [4 => ['auto' => 1100]]), 1, 'fixed'));
+        $seen = $case(fanboyTSpec(10, [4 => ['auto' => 1100]]), 2);
+        same('fanboy r12 auto seen: given back to the automatic, read back so, the fan turning at the check — seen, kept for the board',
+            [true, fanboyTId(4), $seen], [is_int($seen['at'] ?? null), $seen['output'] ?? null, fanboyBoardRaw()['auto_back_seen'] ?? null]);
+        // the fallback the status says for an output: what it goes back to (the journal's), the seconds each way
+        $fb = fanboyFallback(fanboyJournal()['outputs'][fanboyTId(4)], ['value' => 0]);
+        same('fanboy r12 fallback: back to the chip\'s automatic (enable 2) as kept; standing: hung within 15 s, the guard alone within 30 s, a dead control within 5 s',
+            [['value' => 30, 'enable' => 2, 'auto' => true], 15, 30, 5, null], [$fb['to'], $fb['within']['control_hung'], $fb['within']['guard_only'], $fb['within']['control_dead'], $fb['within']['agent_restart']]);
     } finally {
         fanboyTEnd();
     }
