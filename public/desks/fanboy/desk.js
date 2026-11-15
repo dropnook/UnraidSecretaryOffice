@@ -3,9 +3,9 @@
    · the overview: the server as a picture (fan-art.js FanArt.server(): the zones as pieces of a case, the fans turning
      with their air, the heat sources between them, the warmest framed, sleeping disks marked — fed by every look, the
      speeds gliding), the fans and outputs, the heat sources, the curves with «now» and what happened lately, the hints
-     (why it's tricky, drivers, FanCtrl Plus, the report for the makers);
+     (why it's tricky, drivers, the report for the makers);
    · the setup (the wizard), each step a tile in the order of part 2's steps: detect → test each output upward → roles
-     (the catalogue picker, name, place, «give back to») → measure → zones (the proposal or FanCtrl Plus's, the curve to
+     (the catalogue picker, name, place, «give back to») → measure → zones (his proposal, the curve to
      drag) → dry run → «Take over». Nothing changes for good before «Take over»; a step that writes (test, measure) runs
      only while this page keeps it alive (step_alive): a closed tab or a reload gives every output back after 45 s, and
      the page says so when it comes back. Any step can be opened alone later — a curve, a zone, a fan's model change
@@ -23,13 +23,22 @@ const { el, fmt } = Office;
 const LOOK_MS = 5000;           // a new look while a page of his is shown (the agent's look is a few file reads)
 const LOOK_STEP_MS = 2000;      // … while a setup step runs: the table grows, the wheel under test speeds up
 const ALIVE_MS = 15000;         // the step's lease (part 2: 45 s without a sign of life and the step gives back)
-const HISTORY_HOURS = 6;        // the curve view's window
+// the curve view's period (round 3, the owner): one choice for every zone, remembered per browser (a choice, not a
+// filter); up to a day from the part `history` (a day of it), 3 days asked for on its own (history {hours: 72})
+const PERIODS = [1, 3, 6, 12, 24, 72];
+const PERIOD_DEFAULT = 6;
+let period = (() => { const v = Number(Office.store('fanboy.period')); return PERIODS.includes(v) ? v : PERIOD_DEFAULT; })();
+let history72 = null;           // the 3 days, when that period is chosen
 const PIC_PX = 84;              // the server picture's wheels (fan-art's default 46: owner, round 2 — the picture is the hero)
 const PIC_PX_PHONE = 64;
 const PAGES = () => [{ id: '', text: t('common.page_overview') }, { id: 'setup', text: T('page.setup') }];
 const t = Office.t;
 const ROLES_OURS = ['case', 'disks', 'ram', 'nvme', 'other'];
 const ROLES_BIOS = ['cpu', 'pump', 'unknown'];
+/** A fan that is his: a role of his own, or a CPU cooler the owner gave him on his own risk (round 4) */
+const isOurs = (f) => !!f && (ROLES_OURS.includes(f.role) || (f.role === 'cpu' && !!f.cpu_own));
+const cpuGiven = () => (setup().fans || []).some((f) => f.role === 'cpu' && f.cpu_own);
+const cpuAsk = new Map();       // fan id → {tick} while the owner is choosing «Fanboy regelt ihn» (kept over drawings)
 const PLACES = ['front', 'rear', 'top', 'bottom', 'side'];
 const COLOURS = ['auto', 'black', 'graphite', 'grey', 'white', 'slate', 'accent'];
 const STEPS = ['detect', 'test', 'roles', 'measure', 'zones', 'dry', 'take'];
@@ -154,7 +163,7 @@ function fanName(id) {
 /** A heat source's name: Unraid's disks as Unraid names them (Disk 1, Parity), a sensor by its label */
 function srcLabel(s) {
   if (!s) return '';
-  if (s.kind === 'disk') {
+  if (s.kind === 'disk' || s.kind === 'ssd') {
     const m = /^disk(\d+)$/.exec(s.id);
     if (m) return T('src.disk', { n: m[1] });
     const p = /^parity(\d*)$/.exec(s.id);
@@ -208,7 +217,7 @@ function stepAtHand() {
   if (!(su.outputs || []).every(tested)) return 'test';
   const found = fans.filter((f) => ['tach', 'silent', 'unclear'].includes(f.found));
   if (found.some((f) => !f.role)) return 'roles';
-  const toMeasure = found.filter((f) => ROLES_OURS.includes(f.role) && f.found === 'tach');
+  const toMeasure = found.filter((f) => isOurs(f) && f.found === 'tach');
   if (toMeasure.some((f) => !f.measured && !f.no_turn)) return 'measure';
   if (!(su.zones || []).length) return 'zones';
   if (su.armed) return 'take';
@@ -221,6 +230,8 @@ function load(fresh) {
 }
 function took(j) {
   if (j.ok && j.state) state = j.state;
+  // his picture with a red mark while something is wrong at his fans (its alarm variant, as the Night Watchman has one)
+  if (state) Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'crashed'].includes(who().why) ? 'alarm' : '');
   if (view) redraw();
   plan();
 }
@@ -230,6 +241,7 @@ function plan() {
   timer = null;
   if (!view) { stopAlive(); return; }
   timer = setTimeout(() => load(false), stepRuns() ? LOOK_STEP_MS : LOOK_MS);
+  if (page === '' && Date.now() - histAt > 60000) loadHistory();        // the history: a look a minute (the part's refresh_after)
   if (stepRuns()) startAlive(); else stopAlive();
 }
 function startAlive() {
@@ -247,14 +259,38 @@ function stopAlive() {
   clearInterval(alive);
   alive = null;
 }
+let histAt = 0;
+let historyTried = false;
 function loadHistory() {
   if (!Office.agent.running && history) return;
+  histAt = Date.now();
   Office.loadState(ID, { part: 'history' }, (j) => {
+    historyTried = true;
     if (j.ok && j.part) history = j.part;
     if (view && page === '' && sw.active() !== 'hints') redraw();
   });
+  if (period > 24) loadLong();
 }
+/** The 3 days: only when chosen, a look a minute while the overview is shown (read only) */
+let longAt = 0;
+async function loadLong() {
+  if (!Office.agent.running || Date.now() - longAt < 55000) return;
+  longAt = Date.now();
+  const j = await Office.api.post(`${ID}.history`, { hours: 72 });
+  if (j.ok && j.state) history72 = j.state;
+  if (view && page === '') redraw();
+}
+/** The history of the chosen period: the part's day, or the 3 days */
+const historyNow = () => (period > 24 ? history72 : history);
 
+/**
+ * Everything the first drawing needs: his pictures (fan-art.js), the fan catalogue, the history (the overview) — or 4 s
+ * gone by. Until then the sections wait (the wave): each of them arriving later would draw the lists anew under a hand
+ * that is unfolding a row (the release's click run met one, 2026-11-14).
+ */
+let warmFrom = 0;
+const WARM_MS = 4000;
+const ready = () => (!!art() && !!cat && (page === 'setup' || historyTried)) || Date.now() - warmFrom > WARM_MS;
 /**
  * The page again — only when what it shows changed (a look that brings nothing new draws nothing: a row being clicked,
  * a field being typed in stays as it is; the picture's speeds glide in its own update). Time stamps alone are no change.
@@ -270,11 +306,11 @@ const VOLATILE = new Set(['time', 'at', 'since', 'begun', 'mono', 'now', 'tested
 const quiet = (v) => JSON.stringify(v, (k, x) => (VOLATILE.has(k) ? undefined : x));
 function setupSig() {
   const su = setup();
-  return quiet([!!art(), !!cat, Office.agent.running, busy, who(), situation(), control().running, (control().alarm || {}).code, su.fans, su.zones, su.armed,
-    su.outputs, su.curves, step(), dry, zdraft, S().import ? S().import.files : 0, setupSw ? setupSw.active() : '']);
+  return quiet([ready(), !!art(), !!cat, Office.agent.running, busy, who(), situation(), control().running, (control().alarm || {}).code, su.fans, su.zones, su.armed,
+    su.outputs, su.curves, step(), dry, zdraft, setupSw ? setupSw.active() : '']);
 }
 function overviewSig() {
-  return quiet([!!art(), !!cat, Office.agent.running, busy, state, history && history.zones, sw.active(), (sensorBar && sensorBar.read().words) || []]);
+  return quiet([ready(), !!art(), !!cat, Office.agent.running, busy, state, history && history.zones, period, period > 24 && history72 ? history72.zones : null, sw.active(), (sensorBar && sensorBar.read().words) || []]);
 }
 
 // ------------------------------------------------------------------ the bubble
@@ -377,7 +413,7 @@ function button(text, tip, onClick, cls) {
   const b = el('button', cls || 'btn small', text);
   b.type = 'button';
   if (tip) b.title = tip;
-  b.disabled = busy || !Office.agent.running;
+  b.disabled = busy || !Office.agent.running || noRun;
   b.onclick = () => onClick(b);
   return b;
 }
@@ -430,12 +466,25 @@ function wheelOf(id, opts) {
     badge: st === 'bios' ? T('pic.bios') : '', title: st === 'bios' ? (ROLES_BIOS.includes(f.role) ? T('pic.watched_title') : T('pic.bios_title')) : T('pic.his_title'),
   };
 }
+/**
+ * The wheels of one connector: as many as the user said hang on it (a Y-cable, a hub — round 3), one speed for all of
+ * them (one connector, one tach), the same model; the first carries the words, the others say they share its connector
+ */
+function wheelsOf(id, opts) {
+  const w = wheelOf(id, opts);
+  const n = Math.max(1, Math.min(8, (setupFan(id) || {}).count || 1));
+  if (n === 1) return [w];
+  const first = { ...w, sub: `${w.sub} · ${T('pic.on_one', { n })}`, title: `${w.title} · ${T('pic.on_one_title', { n })}` };
+  return [first, ...Array.from({ length: n - 1 }, (x, k) => ({ ...w, id: `${id}#${k + 2}`, label: '', sub: T('pic.same_connector'), badge: '', title: T('pic.on_one_title', { n }) }))];
+}
 /** A zone's line under its name: its curve, the warmest spot and what it asks for */
 function zoneNote(z, cz) {
   const parts = [];
   const tgt = z.target || {};
   parts.push(tgt.points ? T('curve.own') : T(`preset.${has(`preset.${tgt.preset}`) ? tgt.preset : 'normal'}`));
-  if (cz && control().running && steers()) {
+  if (cz && cz.full && control().running) {
+    parts.push(T('pic.full'));                // round 4: an alarm here — this zone at 100 %, the others steer on
+  } else if (cz && control().running && steers()) {
     if (cz.warmest && num(cz.warmest.c) !== null) {
       const lvl = num(cz.level) === null ? null : cz.unit === 'rpm' ? T('pic.rpm', { rpm: fmt.number(Math.round(cz.level)) }) : T('value', { pct: Math.round(cz.level) });
       parts.push(lvl ? T('pic.asks', { where: srcLabel({ ...cz.warmest, id: cz.warmest.id }), c: fmt.number(cz.warmest.c), level: lvl }) : T('pic.warmest', { where: srcLabel(cz.warmest), c: fmt.number(cz.warmest.c) }));
@@ -447,7 +496,7 @@ function zoneNote(z, cz) {
 function picture() {
   const su = setup();
   const src = new Map((su.sources || []).map((s) => [s.id, s]));
-  const asSource = (s) => ({ id: s.id, label: srcLabel(s), kind: s.kind === 'disk' ? 'disk' : s.kind, temp: num(s.c), asleep: !!s.asleep, limit: srcLimit(s),
+  const asSource = (s) => ({ id: s.id, label: srcLabel(s), kind: s.kind === 'ssd' ? 'nvme' : s.kind, temp: num(s.c), asleep: !!s.asleep, limit: srcLimit(s),
     title: s.asleep ? T('pic.asleep_title') : '' });
   const zones = [];
   const zonesNow = new Map((control().zones || []).map((z) => [z.id, z]));
@@ -455,16 +504,16 @@ function picture() {
     const cz = zonesNow.get(z.id);
     zones.push({
       id: z.id, name: z.name || z.id, note: zoneNote(z, cz),
-      fans: (z.fans || []).map((id) => wheelOf(id)),
+      fans: (z.fans || []).flatMap((id) => wheelsOf(id)),
       sources: (z.sources || []).map((s) => src.get(s.id)).filter(Boolean).map((s) => asSource({ ...s, limit: s.limit ?? (z.sources.find((x) => x.id === s.id) || {}).limit })),
       warmest: cz && cz.warmest ? cz.warmest.id : null,
     });
   });
   // the BIOS's own: the CPU cooler and pumps he only watches (and, before any zone, every fan the board reports)
-  const watched = (su.fans || []).filter((f) => ['cpu', 'pump'].includes(f.role) && f.found === 'tach');
+  const watched = (su.fans || []).filter((f) => ['cpu', 'pump'].includes(f.role) && !isOurs(f) && f.found === 'tach');
   if (zones.length) {
     if (watched.length) {
-      zones.push({ id: '_bios', name: T('pic.bios_zone'), note: T('pic.bios_zone_note'), fans: watched.map((f) => ({ ...wheelOf(f.id), place: 'top' })),      // a narrow column: the wheel on top, the chips under it
+      zones.push({ id: '_bios', name: T('pic.bios_zone'), note: T('pic.bios_zone_note'), fans: watched.flatMap((f) => wheelsOf(f.id).map((w) => ({ ...w, place: 'top' }))),      // a narrow column: the wheel on top, the chips under it
         sources: (su.sources || []).filter((s) => s.kind === 'cpu').slice(0, 2).map(asSource) });
     }
     return { zones };
@@ -519,12 +568,61 @@ function fansTile(a) {
   const stands = control().running && control().alarm && ['stands', 'bios_stands'].includes(control().alarm.code);
   if (stands) sub.push(T('fans.stands'));
   else if (zero) sub.push(T('fans.zero', { n: zero }));
-  return Office.stat({ label: T('tile.fans'), value: !state ? '…' : all ? T('fans.turning', { n: turning }) : T('fans.none'), sub, alert: !!stands, ...a });
+  return Office.stat({ label: T('tile.fans'), value: !state ? '…' : all ? T('fans.reporting', { n: turning }) : T('fans.none'), sub, alert: !!stands, ...a });
 }
+/** Whose a place is, in words: «HDD · Disk 3», «SSD/NVMe · Composite · 2» */
+function hotWhose(x) {
+  if (!x) return '';
+  if (x.disk) return srcLabel({ kind: 'disk', id: x.disk });
+  const src = (setup().sources || []).find((y) => y.chip === x.chip && y.n === x.n && (y.label === x.label || !x.label));
+  return src ? srcLabel(src) : x.label || '';
+}
+const LEAD_NEAR = 5;            // °C under its limit from which a place leads the tile (over it: in colour)
+/**
+ * Which place leads: the one nearest to (or over) its limit — Unraid's for disks (the agent's `near`), the user's own
+ * limit for a heat source of a zone; places without a limit are shown, never judged. null: nothing near a limit.
+ */
+function hottestLead() {
+  const cands = [];
+  (S().hottest_kinds || []).forEach((k) => { if (k.near) cands.push({ kind: k.kind, c: k.near.c, limit: k.near.warn, crit: k.near.crit, whose: hotWhose(k.near), unraid: true }); });
+  const src = new Map((setup().sources || []).map((x) => [x.id, x]));
+  (setup().zones || []).forEach((z) => (z.sources || []).forEach((zs) => {
+    const x = src.get(zs.id);
+    if (x && num(zs.limit) !== null && num(x.c) !== null) cands.push({ kind: hotKind(x), c: x.c, limit: zs.limit, crit: null, whose: srcLabel(x), unraid: false });
+  }));
+  let lead = null;
+  cands.forEach((c) => { if (!lead || c.c - c.limit > lead.c - lead.limit) lead = c; });
+  return lead && lead.c - lead.limit >= -LEAD_NEAR ? lead : null;
+}
+/** A heat source's kind for the tile: hdd, ssd (SSD, NVMe), cpu, board, ram, other */
+function hotKind(x) {
+  if (x.kind === 'disk') { const d = (S().disks || []).find((y) => y.name === x.id); return d && d.rotational === false ? 'ssd' : 'hdd'; }
+  return { nvme: 'ssd', ssd: 'ssd', cpu: 'cpu', board: 'board', ram: 'ram' }[x.kind] || 'other';
+}
+/**
+ * «Warmest spots»: the warmest of each kind (a hard disk's 44 °C and an NVMe's are not the same thing); the place nearest
+ * to its limit leads, in colour once over it; nothing near a limit: the kinds side by side, calmly
+ */
 function hottestTile(a) {
-  const h = S().hottest;
-  const where = h ? (h.disk ? srcLabel({ kind: 'disk', id: h.disk }) : [T(`kind.${h.kind}`), h.label].filter(Boolean).join(' · ')) : '';
-  return Office.stat({ label: T('tile.hottest'), value: !state ? '…' : h ? T('temp', { c: fmt.number(h.c) }) : T('hottest.none'), sub: where, ...a });
+  const kinds = (S().hottest_kinds || []).filter((k) => k.warmest || k.asleep);
+  if (!state || !kinds.length) {
+    const h = S().hottest;
+    return Office.stat({ label: T('tile.hottest'), value: !state ? '…' : h ? T('temp', { c: fmt.number(h.c) }) : T('hottest.none'), ...a });
+  }
+  // «HDD · Disk 3 · 41 °C»; a name that says its kind already («Mainboard-Fühler 2») without the kind in front
+  const line = (k) => {
+    if (!k.warmest) return T('hottest.kind_asleep', { kind: T(`hk.${k.kind}`) });
+    const whose = hotWhose(k.warmest);
+    const c = fmt.number(k.warmest.c);
+    return whose.toLowerCase().startsWith(T(`hk.${k.kind}`).toLowerCase()) ? T('hottest.whose_line', { whose, c }) : T('hottest.kind_line', { kind: T(`hk.${k.kind}`), whose, c });
+  };
+  const lead = hottestLead();
+  if (!lead) return Office.stat({ label: T('tile.hottest'), value: T('hottest.calm'), sub: kinds.slice(0, 4).map(line), ...a });
+  const over = lead.c >= lead.limit;
+  const how = over ? (lead.unraid ? T('hottest.over_unraid', { limit: fmt.number(lead.limit) }) : T('hottest.over_own', { limit: fmt.number(lead.limit) }))
+    : (lead.unraid ? T('hottest.near_unraid', { d: fmt.number(lead.limit - lead.c), limit: fmt.number(lead.limit) }) : T('hottest.near_own', { d: fmt.number(lead.limit - lead.c), limit: fmt.number(lead.limit) }));
+  return Office.stat({ label: T('tile.hottest'), value: T('hottest.lead', { kind: T(`hk.${lead.kind}`), whose: lead.whose, c: fmt.number(lead.c) }),
+    sub: [how, ...kinds.filter((k) => k.kind !== lead.kind).slice(0, 3).map(line)], alert: over, ...a });
 }
 /** «Today»: the highest temperature of the day and how long his fans ran above their quiet level */
 function todayTile(a) {
@@ -558,7 +656,7 @@ function today() {
   return max === null ? null : { max, above };
 }
 /** The moment the history was read at (the agent's clock), else now */
-const histNow = () => (history && num(history.now) !== null ? history.now : Date.now() / 1000);
+const histNow = (h = history) => (h && num(h.now) !== null ? h.now : Date.now() / 1000);
 /** A zone's quiet level: its curve's lowest value */
 function quietLevel(zid) {
   const c = (setup().curves || {})[zid];
@@ -567,6 +665,7 @@ function quietLevel(zid) {
 function durationText(s) {
   const m = Math.round(s / 60);
   if (m < 60) return T('dur.min', { n: m });
+  if (m >= 1440) return T('dur.d_h', { d: Math.floor(m / 1440), h: Math.floor((m % 1440) / 60) });
   return T('dur.h_min', { h: Math.floor(m / 60), m: m % 60 });
 }
 
@@ -593,7 +692,34 @@ function serverSection() {
   s.appendChild(pictureEl());
   const notes = notesBox();
   if (notes) s.append(Office.place('notes.title', el('h3', 'fb-head', T('notes.title'))), notes);
+  s.appendChild(dashChoice());
   return s;
+}
+
+/**
+ * «Show on the Dashboard»: his own tile on Unraid's Dashboard (src/dashboard-fanboy.php) — off (the default), speeds,
+ * speeds with history. Office-wide (the agent keeps it: fanboy.dashboard), never per browser.
+ */
+const DASH_SHOWS = ['off', 'speeds', 'history'];
+function dashChoice() {
+  const box = Office.place('dash.setting', el('div', 'fb-dash-choice'));
+  const now = DASH_SHOWS.includes(S().dashboard) ? S().dashboard : 'off';
+  const head = el('div', 'fb-dash-text');
+  head.append(el('h3', 'fb-head', T('dash.setting')), el('p', 'fb-hint-text', T('dash.setting_sub')));
+  const seg = el('div', 'seg');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', T('dash.setting'));
+  DASH_SHOWS.forEach((k) => {
+    const b = el('button', '', T(`dash.show.${k}`));
+    b.type = 'button';
+    b.title = T(`dash.show.${k}_title`);
+    b.setAttribute('aria-pressed', String(k === now));
+    b.disabled = !state || !Office.agent.running;
+    b.onclick = () => { if (k !== now) act('dashboard', { show: k }, b); };
+    seg.appendChild(b);
+  });
+  box.append(head, seg);
+  return box;
 }
 
 /** What happened lately at his fans (the control's notes, newest first, known kinds only) */
@@ -684,7 +810,7 @@ function fansSection() {
     const cf = controlFan(id);
     const row = outputRow(c, o);
     if (!offered(c) || (f && f.found === 'empty')) rest.push(row);
-    else if ((cf && cf.held && control().running) || (f && ROLES_OURS.includes(f.role) && (setup().zones || []).some((z) => (z.fans || []).includes(id)))) his.push(row);
+    else if ((cf && cf.held && control().running) || (isOurs(f) && (setup().zones || []).some((z) => (z.fans || []).includes(id)))) his.push(row);
     else bios.push(row);
   }));
   // tach inputs no output of his has: what the board reports (the CPU cooler on its own header, an empty one)
@@ -703,6 +829,8 @@ function fansSection() {
   if (his.length) { list.appendChild(group(T('fans.group_his'), T('fans.group_his_sub'))); his.forEach((r) => list.appendChild(r)); }
   if (bios.length) { list.appendChild(group(T('fans.group_bios'), T('fans.group_bios_sub'))); bios.forEach((r) => list.appendChild(r)); }
   if (!list.children.length) list.appendChild(el('p', 'empty', rest.length ? T('fans.none_first') : T('outputs.none')));
+  // round 4: a CPU cooler given to him on the owner's risk — said where his fans are, with the date
+  (setup().fans || []).filter((f) => f.role === 'cpu' && f.cpu_own).forEach((f) => s.appendChild(el('p', 'fb-cpu-own', T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) }))));
   s.appendChild(list);
   const more = moreFold('fans-more', rest, T('fans.more', { n: rest.length }), false);
   if (more) s.appendChild(more);
@@ -721,7 +849,8 @@ function sensorRows() {
     out.push({ id: sid, name: sid ? srcLabel(src.find((y) => y.id === sid)) : x.label || T('sensors.row', { n: x.n }), label: x.label, chip: c, kind: c.kind, c: x.c,
       key: `${c.address}:${x.n}`, feature: `temp${x.n}` });
   }));
-  (S().disks || []).forEach((d) => out.push({ id: d.name, name: srcLabel({ kind: 'disk', id: d.name }), chip: null, kind: 'disk', c: d.temp, asleep: d.asleep, key: `disk:${d.name}`, disk: d.name }));
+  (S().disks || []).forEach((d) => out.push({ id: d.name, name: srcLabel({ kind: 'disk', id: d.name }), chip: null, kind: 'disk', c: d.temp, asleep: d.asleep, key: `disk:${d.name}`, disk: d.name,
+    rot: d.rotational !== false, warn: num(d.warn), crit: num(d.crit) }));
   out.forEach((x) => { x.zones = x.id ? (setup().zones || []).filter((z) => (z.sources || []).some((y) => y.id === x.id)) : []; });
   return out;
 }
@@ -730,11 +859,19 @@ function sensorsBar() {
   sensorBar = sensorBar || Office.filterBar({ key: 'fanboy.sensors', label: T('sensors.filter_label'), onChange: () => sw.render() });
   return sensorBar;
 }
+/** A sensor row's kind as the tile «Warmest spots» counts it */
+function rowKind(x) {
+  if (x.kind === 'disk') return x.rot === false ? 'ssd' : 'hdd';
+  return { nvme: 'ssd', cpu: 'cpu', board: 'board', ram: 'ram' }[x.kind] || 'other';
+}
 /** A sensor in alarm: over its limit (the zone's or its kind's), or the one the control's alarm names */
 function inAlarm(x) {
   const a = control().running && control().alarm ? control().alarm : null;
   if (a && ['hot', 'sensor'].includes(a.code) && a.params && a.params.source && [x.name, x.label, x.disk].includes(a.params.source)) return true;
-  const lim = x.id ? srcLimit({ kind: x.kind, ...((x.zones[0] && (x.zones[0].sources || []).find((y) => y.id === x.id)) || {}) }) : null;
+  // a limit the user set for it in a zone, or Unraid's own for a disk — never one made up
+  const own = x.zones.map((z) => ((z.sources || []).find((y) => y.id === x.id) || {}).limit).find((l) => num(l) !== null);
+  const lim = num(own) ?? null;
+  if (num(x.c) !== null && num(x.warn) !== null && x.c >= x.warn) return true;        // a disk over Unraid's own warning
   return num(x.c) !== null && num(lim) !== null && x.c >= lim;
 }
 function sensorRow(x, place) {
@@ -779,8 +916,13 @@ function sensorsSection() {
     });
   };
   put(T('sensors.group_alarm'), '', fits.filter(inAlarm));
-  if (zones.length) zones.forEach((z) => put(z.name, T('sensors.group_zone'), fits.filter((x) => x.zones.includes(z))));
-  else put(T('sensors.group_main'), T('sensors.group_main_sub'), fits.filter((x) => ['disk', 'cpu', 'nvme'].includes(x.kind) && !first.has(x)));
+  // each sensor once, in its first group (too warm first; a source counting in two zones under the first): one row, one
+  // fold state — its zone labels say where else it counts
+  if (zones.length) zones.forEach((z) => put(z.name, T('sensors.group_zone'), fits.filter((x) => x.zones.includes(z) && !first.has(x))));
+  else {
+    // before the setup: grouped by kind — hard disks, SSD/NVMe, CPU, RAM (the board's and the rest's many sensors folded)
+    ['hdd', 'ssd', 'cpu', 'ram'].forEach((k) => put(T(`hk.${k}`), '', fits.filter((x) => rowKind(x) === k && !first.has(x))));
+  }
   const rest = fits.filter((x) => !first.has(x)).map((x) => sensorRow(x, !placed.has(x.key)));
   if (!list.children.length) list.appendChild(el('p', 'empty', !all.length ? T('sensors.none') : fits.length ? T('sensors.none_first') : T('sensors.none_fit')));
   s.appendChild(list);
@@ -827,31 +969,63 @@ function curveStill(zid, unit, nowC) {
   }
   return s;
 }
-/** The zone's last hours: the warmest temperature and the level, a point a minute */
+/** A time axis's ticks for the period: every so long, at round local hours; labelled «−2 h», «14:00» or «Mo 12:00» */
+function timeTicks(from, now) {
+  const step = { 1: 900, 3: 3600, 6: 7200, 12: 10800, 24: 21600, 72: 43200 }[period] || 7200;
+  if (period <= 12) {
+    const out = [];
+    for (let t = now; t >= from - 1; t -= step) out.push([t, t === now ? T('curves.now_short') : period === 1 ? T('curves.ago_min', { n: Math.round((now - t) / 60) }) : T('curves.ago_h', { n: Math.round((now - t) / 3600) })]);
+    return out;
+  }
+  const out = [];
+  const d = new Date(from * 1000);
+  d.setMinutes(0, 0, 0);
+  const hours = step / 3600;
+  d.setHours(Math.ceil(d.getHours() / hours) * hours);
+  let wd = null;
+  try { wd = new Intl.DateTimeFormat(Office.locale || Office.lang || 'en', { weekday: 'short' }); } catch (e) { wd = null; }
+  for (let t = d.getTime() / 1000; t <= now; t += step) {
+    out.push([t, period > 24 && wd ? `${wd.format(new Date(t * 1000))} ${fmt.time(t)}` : fmt.time(t)]);
+  }
+  return out;
+}
+/** The zone's chosen period: the warmest temperature and the level — a point a minute, older ones a 5-minute span each */
 function historyChart(zid) {
-  const pts = ((history && history.zones && history.zones[zid]) || []).filter((p) => Array.isArray(p) && p.length === 4);
-  const now = histNow();
-  const from = now - HISTORY_HOURS * 3600;
-  const shown = pts.filter((p) => p[0] >= from);
+  const h = historyNow();
+  const pts = ((h && h.zones && h.zones[zid]) || []).filter((p) => Array.isArray(p) && p.length === 4);
+  const now = histNow(h);
+  const want = now - period * 3600;
+  const shown = pts.filter((p) => p[0] >= want);
+  if (!h) { const p = el('p', 'fb-wait'); p.append(wave(), el('span', '', T('curves.history_loading'))); return p; }
   if (shown.length < 2) return el('p', 'fb-hint-text', T('curves.history_none'));
+  // less than the period: the chart shows what there is, the caption says since when
+  const from = Math.max(want, shown[0][0] - 60);
   const W = 320, H = 150, L = 34, R = 34, Tp = 8, B = 22;
   const temps = shown.map((p) => p[1]).filter((v) => num(v) !== null);
   const tLo = Math.floor((Math.min(...temps, 30) - 2) / 5) * 5, tHi = Math.ceil((Math.max(...temps, 40) + 2) / 5) * 5;
-  const x = (ts) => L + (ts - from) / (now - from) * (W - L - R);
+  const x = (ts) => L + (ts - from) / ((now - from) || 1) * (W - L - R);
   const yT = (c) => Tp + (1 - (c - tLo) / (tHi - tLo)) * (H - Tp - B);
   const yL = (v) => Tp + (1 - v / 100) * (H - Tp - B);
-  const s = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'fb-chart', role: 'img', 'aria-label': T('curves.history_label', { h: HISTORY_HOURS }) });
+  const s = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'fb-chart', role: 'img', 'aria-label': T('curves.history_label', { period: T(`curves.p${period}`) }) });
   for (let c = tLo; c <= tHi; c += Math.max(5, Math.round((tHi - tLo) / 4 / 5) * 5)) {
     s.appendChild(svg('line', { x1: L, x2: W - R, y1: yT(c), y2: yT(c), class: 'fb-grid' }));
     s.appendChild(svg('text', { x: L - 4, y: yT(c) + 3, class: 'fb-tick fb-t', 'text-anchor': 'end' }, `${c}°`));
   }
   [0, 50, 100].forEach((v) => s.appendChild(svg('text', { x: W - R + 4, y: yL(v) + 3, class: 'fb-tick fb-l' }, `${v} %`)));
-  for (let h = HISTORY_HOURS; h >= 0; h -= 2) s.appendChild(svg('text', { x: x(now - h * 3600), y: H - 6, class: 'fb-tick', 'text-anchor': 'middle' }, h ? `−${h} h` : T('curves.now_short')));
+  const ticks = timeTicks(from, now).filter(([t]) => t >= from - 1);
+  const room = (W - L - R) / Math.max(1, ticks.length);
+  ticks.forEach(([t, label], i) => {
+    if (room < 34 && i % 2) return;                 // narrow: every other label
+    s.appendChild(svg('line', { x1: x(t), x2: x(t), y1: H - B, y2: H - B + 3, class: 'fb-grid' }));
+    s.appendChild(svg('text', { x: Math.min(W - R, Math.max(L, x(t))), y: H - 6, class: 'fb-tick', 'text-anchor': 'middle' }, label));
+  });
+  const full = num(h.full) || 43200;
   const path = (ys) => {
     let d = '', pen = false, last = null;
     shown.forEach((p) => {
       const v = ys(p);
-      if (v === null || (last !== null && p[0] - last > 180)) { pen = false; }
+      // a gap in the record breaks the line: more than 3 minutes among the minutes, 15 among the 5-minute spans
+      if (v === null || (last !== null && p[0] - last > (p[0] < now - full ? 900 : 180))) { pen = false; }
       if (v !== null) { d += `${pen ? 'L' : 'M'}${x(p[0]).toFixed(1)} ${v.toFixed(1)}`; pen = true; }
       last = p[0];
     });
@@ -859,18 +1033,48 @@ function historyChart(zid) {
   };
   s.appendChild(svg('path', { d: path((p) => (num(p[2]) === null ? null : yL(p[2]))), class: 'fb-level-line' }));
   s.appendChild(svg('path', { d: path((p) => (num(p[1]) === null ? null : yT(p[1]))), class: 'fb-temp-line' }));
+  if (shown[0][0] > want + 600) {
+    const box = el('div', 'fb-history');
+    box.append(s, el('p', 'fb-since', T('curves.since', { time: durationText(now - shown[0][0]) })));
+    return box;
+  }
   return s;
+}
+/** The period's choice: one for every zone (office.css .seg) */
+function periodChoice() {
+  const box = el('div', 'seg fb-period');
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', T('curves.period'));
+  PERIODS.forEach((p) => {
+    const b = el('button', '', T(`curves.p${p}`));
+    b.type = 'button';
+    b.setAttribute('aria-pressed', p === period ? 'true' : 'false');
+    b.dataset.own = '1';
+    b.onclick = () => {
+      if (p === period) return;
+      period = p;
+      Office.store('fanboy.period', p === PERIOD_DEFAULT ? null : String(p));
+      if (p > 24) { longAt = 0; loadLong(); }
+      drawn = '';
+      redraw();
+    };
+    box.appendChild(b);
+  });
+  return box;
 }
 function curvesSection() {
   const s = el('section', 'section');
   const go = el('a', 'btn small', T('curves.change'));
   go.href = `#/${ID}/setup/zones`;
-  s.appendChild(Office.sectionHead(T('curves.title'), T('curves.sub', { h: HISTORY_HOURS }), (setup().zones || []).length ? go : null, { place: 'curves.title' }));
+  s.appendChild(Office.sectionHead(T('curves.title'), T('curves.sub'), (setup().zones || []).length ? go : null, { place: 'curves.title' }));
   const zones = setup().zones || [];
   if (!zones.length) {
     s.appendChild(el('p', 'empty', T('curves.none')));
     return s;
   }
+  const pick = el('div', 'fb-period-row');
+  pick.append(el('span', 'fb-field-label', T('curves.period')), periodChoice());
+  s.appendChild(pick);
   const grid = el('div', 'fb-curves');
   const now = new Map((control().zones || []).map((z) => [z.id, z]));
   zones.forEach((z) => {
@@ -897,7 +1101,7 @@ function curvesSection() {
   return s;
 }
 
-// ------------------------------------------------------------------ hints, drivers, FanCtrl Plus, the report
+// ------------------------------------------------------------------ hints, drivers, the report
 function toolChip(x) {
   if (x.kind === 'controller' && x.id === 'md12xx.fancontrol') return x.active ? chipOfText('quiet', T('hints.st_other_fans'), T('hints.st_other_fans_title')) : chipOfText('quiet', T('hints.st_idle'), T('hints.st_idle_title'));
   if (x.kind === 'controller') return x.active ? chipOfText('warn', T('hints.st_steering'), T('hints.st_steering_title')) : chipOfText('quiet', T('hints.st_idle'), T('hints.st_idle_title'));
@@ -975,14 +1179,14 @@ function hintsSection() {
   }
   const drivers = driversBlock();
   if (drivers) body.append(Office.place('drivers.title', hintHead(T('drivers.title'))), drivers);
-  const imp = importBlock();
-  if (imp) body.append(Office.place('import.title', hintHead(T('import.title'))), imp);
   body.appendChild(hintHead(T('hints.why_title')));
   const why = el('ol', 'fb-hint-list');
   for (let i = 1; has(`hints.why.${i}`); i++) why.appendChild(el('li', '', T(`hints.why.${i}`)));
   body.appendChild(why);
   body.appendChild(hintHead(T('hints.bios_title')));
   hintParas(body, 'hints.bios');
+  body.appendChild(hintHead(T('hints.hub_title')));
+  hintParas(body, 'hints.hub');
   body.appendChild(hintHead(T('hints.clash_title')));
   hintParas(body, 'hints.clash');
   body.appendChild(hintHead(T('hints.ipmi_title')));
@@ -1025,36 +1229,6 @@ function driversBlock() {
   if (bar.children.length) box.appendChild(bar);
   return box;
 }
-function importBlock() {
-  const imp = S().import;
-  if (!imp || !imp.files) return null;
-  const box = el('div', 'fb-import');
-  box.appendChild(el('p', 'fb-hint-text', T('import.text', { n: imp.files })));
-  const list = el('div', 'box');
-  (imp.zones || []).forEach((z) => {
-    const r = Office.place(`import:${z.id}`, el('div', 'row nocheck fb-row'));
-    const main = el('div', 'row-main');
-    main.appendChild(el('div', 'row-name text', z.name));
-    const meta = el('div', 'row-meta');
-    meta.appendChild(el('span', '', T('import.outputs', { list: (z.outputs || []).join(', ') })));
-    const disks = (z.sources || []).filter((x) => x.kind === 'disk').map((x) => srcLabel(x));
-    if (disks.length) meta.appendChild(el('span', '', T('import.disks', { list: disks.join(', ') })));
-    const p = z.target && Array.isArray(z.target.points) && z.target.points.length === 2 ? z.target.points : null;
-    if (p) meta.appendChild(el('span', '', T('import.curve', { t1: p[0][0], t2: p[1][0], v1: p[0][1], v2: p[1][1] })));
-    main.appendChild(meta);
-    r.appendChild(main);
-    list.appendChild(r);
-  });
-  box.appendChild(list);
-  if ((imp.unmatched || []).length) box.appendChild(el('p', 'fb-hint-text', T('import.unmatched', { n: imp.unmatched.length })));
-  if (imp.active) box.appendChild(el('p', 'fb-hint-text', T('import.active')));
-  const go = el('a', 'btn small', T('import.use'));
-  go.href = `#/${ID}/setup/zones`;
-  const bar = el('div', 'toolbar');
-  bar.appendChild(go);
-  box.appendChild(bar);
-  return box;
-}
 
 // ------------------------------------------------------------------ above the tiles: what holds now, plainly
 /** The situation and the control's word: the alarm, the chip missing (with «Look now»), another controller, array stopped */
@@ -1068,7 +1242,9 @@ function paintBanner() {
   const st = S().situation || {};
   const box = (cls, text, data) => { const p = el('div', `callout ${cls} fb-callout`); p.appendChild(el('p', '', text)); Object.entries(data || {}).forEach(([k, v]) => { p.dataset[k] = v; }); banner.appendChild(p); return p; };
   if (c.running && c.alarm && has(`alarm.${c.alarm.code}`)) {
-    box('warn', T(`alarm.${c.alarm.code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}) }), { alarm: c.alarm.code });
+    // a standing fan alone in its zone: «… sets it to 100 %» (round 4: the alarm acts per zone)
+    const code = c.alarm.code === 'stands' && c.alarm.params && c.alarm.params.alone ? 'stands_alone' : c.alarm.code;
+    box('warn', T(`alarm.${code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}) }), { alarm: c.alarm.code });
   }
   if (['chip_missing', 'crashed'].includes(w.why)) {
     const p = box('warn', T(`control.${w.why}`), { why: w.why });
@@ -1085,7 +1261,7 @@ function paintBanner() {
   } else if (s === 'no_output') {
     box('warn', T('situation.no_output'), { situation: s });
   } else if (s === 'ok' && !banner.children.length) {
-    box('', steers() ? T('situation.steers', { n: w.zones || 0 }) : c.armed === false && (setup().zones || []).length ? T('situation.not_armed') : T('situation.ok'), { situation: s });
+    box('', steers() ? T(cpuGiven() ? 'situation.steers_cpu' : 'situation.steers', { n: w.zones || 0 }) : c.armed === false && (setup().zones || []).length ? T('situation.not_armed') : T('situation.ok'), { situation: s });
   }
   const s2 = step();
   if (s2 && s2.status === 'stopped' && ['page_gone', 'interrupted'].includes(s2.why) && page === '') {
@@ -1115,7 +1291,7 @@ function stepTile(k, i, a) {
   const here = stepAtHand() === k;
   const fans = su.fans || [];
   const found = fans.filter((f) => ['tach', 'silent', 'unclear'].includes(f.found));
-  const ours = found.filter((f) => ROLES_OURS.includes(f.role) && f.found === 'tach');
+  const ours = found.filter((f) => isOurs(f) && f.found === 'tach');
   const s = step();
   let value = '';
   const sub = [];
@@ -1136,7 +1312,9 @@ function stepSection(k) {
   const s = el('section', 'section fb-step');
   s.dataset.step = k;
   s.appendChild(Office.sectionHead(T(`step.${k}`), T(`step.${k}_sub`), { place: `step.${k}` }));
+  noRun = (situation() === 'other' || !!control().running) && ['test', 'measure'].includes(k);      // nothing that writes beside another
   const body = ({ detect: detectStep, test: testStep, roles: rolesStep, measure: measureStep, zones: zonesStep, dry: dryStep, take: takeStep })[k]();
+  noRun = false;
   s.appendChild(body);
   return s;
 }
@@ -1164,13 +1342,13 @@ function detectStep() {
   const su = setup();
   const s = situation();
   if (!(su.outputs || []).length) {
-    box.appendChild(para(s === 'ipmi' ? T('detect.ipmi') : s === 'driver_missing' ? T('detect.driver_missing') : T('detect.none'), 'callout warn'));
+    // the banner above says why (never the same text twice on a page); here only that there is nothing to set up
+    box.appendChild(para(T('step.nothing')));
     const go = el('a', 'btn small', T('detect.hints'));
     go.href = `#/${ID}/hints`;
     box.appendChild(bar(go, reportButton(true)));
     return box;
   }
-  if (s === 'other') box.appendChild(para(T('situation.other', { who: otherNames() }), 'callout warn'));
   const list = el('div', 'fb-cards');
   (su.outputs || []).forEach((id) => {
     const o = outputNow(id);
@@ -1269,24 +1447,79 @@ function runningLine(s, text) {
 function stepEnded(box, s, kind) {
   if (!s || s.kind !== kind || running(s) || !['stopped', 'failed'].includes(s.status)) return;
   const why = s.status === 'failed' ? 'error' : s.why || 'stopped';
-  box.appendChild(para(has(`step.ended.${why}`) ? T(`step.ended.${why}`) : T('step.ended.stopped'), 'callout warn'));
+  // too warm: which source, how warm, its limit (round 4: by its own kind — an NVMe pool's 50 °C stops nothing)
+  const w = why === 'warm' && s.warm && s.warm.source ? T('step.ended.warm_what', { where: srcLabel({ kind: s.warm.kind === 'disk' || s.warm.kind === 'ssd' ? s.warm.kind : 'other', id: s.warm.source, label: s.warm.source }),
+    c: fmt.number(s.warm.c), limit: fmt.number(s.warm.limit) }) : null;
+  box.appendChild(para(w || (has(`step.ended.${why}`) ? T(`step.ended.${why}`) : T('step.ended.stopped')), 'callout warn'));
 }
-/** A step can't run now: another controller steers, or Fanboy steers (hand back first) */
+/**
+ * A step can't run now — another controller steers, or Fanboy does: the banner says who and why; the step says only its
+ * own short line, its cards stay to read and its buttons are off (noRun) — never the banner's text again
+ */
+let noRun = false;
 function blocked(box) {
   if (situation() === 'other') {
-    box.appendChild(para(T('situation.other', { who: otherNames() }), 'callout warn'));
-    return true;
+    box.appendChild(para(T('step.blocked_other'), 'fb-hint-text fb-strong'));
+    return false;
   }
   if (control().running) {
-    box.appendChild(para(T('step.steering'), 'callout'));
-    box.appendChild(bar(button(T('take.hand_back'), T('take.hand_back_tip'), (b) => handBack(b))));
-    return true;
+    box.appendChild(para(T('step.blocked_steering'), 'fb-hint-text fb-strong'));        // «Hand back» is the take-over step's
+    return false;
   }
   return false;
 }
 async function startStep(kind, ids, b) {
   if (!ids.length) return;
   await act(kind, { fans: ids }, b, async () => { await load(true); });
+}
+
+/**
+ * Round 4: who steers the CPU cooler — the BIOS (the default) or «Fanboy regelt ihn», only behind a tick that says in
+ * plain words what it means; given to him: since when, and back to the BIOS with one click. No mainboard automatic for
+ * this output: not offered (it could only be given back to a fixed value).
+ */
+function cpuPart(f) {
+  const box = el('div', 'fb-cpu');
+  const auto = ((setup().before || {})[f.id] || {}).auto;
+  if (f.cpu_own) {
+    box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));
+    box.appendChild(bar(button(T('cpu.back'), T('cpu.back_tip'), (b) => act('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }, b))));
+    return box;
+  }
+  if (!cpuAsk.has(f.id)) box.appendChild(para(T('roles.bios_note.cpu')));
+  if (auto === null || auto === undefined) {
+    box.appendChild(para(T('cpu.no_auto')));
+    return box;
+  }
+  const seg = el('div', 'seg');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', T('cpu.who'));
+  const asking = cpuAsk.has(f.id);
+  [['bios', !asking], ['fanboy', asking]].forEach(([w, on]) => {
+    const b = el('button', '', T(`cpu.${w}`));
+    b.type = 'button';
+    b.dataset.own = '1';
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.onclick = () => { if (w === 'fanboy') cpuAsk.set(f.id, { tick: false }); else cpuAsk.delete(f.id); drawn = ''; redraw(); };
+    seg.appendChild(b);
+  });
+  box.appendChild(seg);
+  if (asking) {
+    const risk = el('div', 'fb-cpu-risk');
+    ['risk_1', 'risk_2', 'risk_3', 'risk_4'].forEach((k) => risk.appendChild(para(T(`cpu.${k}`, { floor: setup().cpu_floor || 40 }))));
+    const tick = el('input');
+    tick.type = 'checkbox';
+    tick.checked = !!cpuAsk.get(f.id).tick;
+    const go = button(T('cpu.go'), T('cpu.go_tip'), (b) => act('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: true, cpu_confirm: tick.checked }, b,
+      () => { cpuAsk.delete(f.id); }), 'btn');
+    go.disabled = !tick.checked;
+    tick.onchange = () => { cpuAsk.set(f.id, { tick: tick.checked }); go.disabled = !tick.checked; };
+    const l = el('label', 'fb-check');
+    l.append(tick, el('span', '', T('cpu.confirm')));
+    risk.append(l, bar(go));
+    box.appendChild(risk);
+  }
+  return box;
 }
 
 // 3 — roles: what each fan is, its name, place, model, colour, «give back to»
@@ -1335,16 +1568,23 @@ function roleCard(f) {
   place.appendChild(new Option(T('roles.place_any'), ''));
   PLACES.forEach((p) => place.appendChild(new Option(T(`place.${p}`), p)));
   place.value = f.place || '';
+  // round 3: how many fans hang on this connector (a Y-cable, a hub) — one speed for all of them
+  const count = el('select');
+  for (let n = 1; n <= 8; n++) count.appendChild(new Option(String(n), String(n)));
+  count.value = String(f.count || 1);
   const save = () => {
     if (!role.value) return;
-    act('role', { fan: id, role: role.value, name: name.value.trim(), place: place.value, off_ok: !!f.off_ok && ROLES_OURS.includes(role.value) }, null);
+    act('role', { fan: id, role: role.value, name: name.value.trim(), place: place.value, off_ok: !!f.off_ok && ROLES_OURS.includes(role.value), count: Number(count.value) }, null);
   };
+  count.onchange = save;
   role.onchange = save;
   place.onchange = save;
   name.onchange = save;
   const field = (label, input) => { const l = el('label', 'fb-field'); l.append(el('span', 'fb-field-label', label), input); return l; };
-  form.append(field(T('roles.role'), role), field(T('roles.name'), name), field(T('roles.place'), place));
-  if (ROLES_BIOS.includes(f.role)) form.appendChild(para(T(`roles.bios_note.${f.role}`)));
+  form.append(field(T('roles.role'), role), field(T('roles.name'), name), field(T('roles.place'), place), field(T('roles.count'), count));
+  if ((f.count || 1) > 1) form.appendChild(para(T('roles.count_note', { n: f.count })));
+  if (f.role === 'cpu') form.appendChild(cpuPart(f));
+  else if (ROLES_BIOS.includes(f.role)) form.appendChild(para(T(`roles.bios_note.${f.role}`)));
   // the model from the catalogue, or «other fan» by size; the wheel's colour
   const A = art();
   if (A && cat) {
@@ -1421,7 +1661,7 @@ function measureStep() {
   const live = running(s) && s.kind === 'measure';
   if (blocked(box)) return box;
   stepEnded(box, s, 'measure');
-  const ours = (su.fans || []).filter((f) => ROLES_OURS.includes(f.role) && f.found === 'tach');
+  const ours = (su.fans || []).filter((f) => isOurs(f) && f.found === 'tach');
   if (!ours.length) {
     box.appendChild(para(T('measure.none')));
     box.appendChild(bar(nextButton('measure')));
@@ -1494,7 +1734,7 @@ function changeZones(fn) {
 function zonesStep() {
   const box = el('div', 'fb-step-body');
   const su = setup();
-  const ours = (su.fans || []).filter((f) => ROLES_OURS.includes(f.role) && ['tach', 'silent'].includes(f.found));
+  const ours = (su.fans || []).filter((f) => isOurs(f) && ['tach', 'silent'].includes(f.found));
   if (!ours.length) {
     box.appendChild(para(T('zones.no_fans')));
     return box;
@@ -1502,13 +1742,9 @@ function zonesStep() {
   const zones = zonesNow();
   const tools2 = bar(
     button(T('zones.propose'), T('zones.propose_tip'), (b) => act('zones_propose', {}, b, (j) => { zdraft = (j.zones || []).map((z) => ({ ...z, name: z.name || T(`zones.kind.${z.kind}`) })); })),
-    S().import && (S().import.zones || []).length ? button(T('zones.import'), T('zones.import_tip'), () => {
-      zdraft = importAsZones();
-      drawn = '';
-      redraw();
-    }) : null,
     zones.length < 8 ? button(T('zones.add'), T('zones.add_tip'), () => changeZones((z) => z.push({ id: freeId(z), name: T('zones.new_name', { n: z.length + 1 }), fans: [], sources: [], unit: 'pct', target: { preset: 'normal' } }))) : null);
   box.appendChild(tools2);
+  box.appendChild(para(T('zones.how_often', { s: setup().round || 2 })));
   if (!zones.length) box.appendChild(para(T('zones.empty')));
   const unzoned = ours.filter((f) => !zones.some((z) => (z.fans || []).includes(f.id)));
   if (unzoned.length && zones.length) box.appendChild(para(T('zones.unzoned', { list: unzoned.map((f) => fanName(f.id)).join(', ') })));
@@ -1530,20 +1766,16 @@ function cleanZone(z) {
     target: z.target && Array.isArray(z.target.points) ? { points: z.target.points.map((p) => [Math.round(p[0]), Math.round(p[1])]) } : { preset: (z.target && z.target.preset) || 'normal' } };
   if (num(z.low) !== null) out.low = z.low;
   if (num(z.high) !== null) out.high = z.high;
-  return out;
-}
-/** FanCtrl Plus's zones as a proposal: only fans he may steer, sources the server shows */
-function importAsZones() {
-  const su = setup();
-  const okFan = new Set((su.fans || []).filter((f) => ROLES_OURS.includes(f.role) && ['tach', 'silent'].includes(f.found)).map((f) => f.id));
-  const okSrc = new Set((su.sources || []).map((s) => s.id));
-  const used = new Set();
-  return (S().import.zones || []).map((z, i) => {
-    const fans = (z.fans || []).filter((id) => okFan.has(id) && !used.has(id));
-    fans.forEach((id) => used.add(id));
-    return { id: `fcp${i + 1}`, name: z.name || T('zones.new_name', { n: i + 1 }), fans, unit: 'pct', sources: (z.sources || []).filter((s) => okSrc.has(s.id)).map((s) => ({ id: s.id, kind: s.kind })),
-      target: z.target && Array.isArray(z.target.points) ? { points: z.target.points } : { preset: 'normal' } };
+  out.react = z.react === 'quick' ? 'quick' : 'balanced';
+  // the table «Temperaturen»: only what the user set (numbers), per kind the zone has
+  const kinds = {};
+  Object.entries(z.kinds || {}).forEach(([k, v]) => {
+    const o = {};
+    ['low', 'high', 'limit'].forEach((f) => { if (v && num(v[f]) !== null) o[f] = v[f]; });
+    if (Object.keys(o).length) kinds[k] = o;
   });
+  if (Object.keys(kinds).length) out.kinds = kinds;
+  return out;
 }
 function zoneCard(z, i, zones, ours) {
   const card = Office.place(`zone:${z.id}`, el('div', 'fb-zone-card'));
@@ -1602,7 +1834,7 @@ function zoneCard(z, i, zones, ours) {
   // its heat sources: any the server shows (a source may count in several zones), the warmest counts
   card.appendChild(el('h4', 'fb-sub', T('zones.sources')));
   card.appendChild(para(T('zones.sources_sub')));
-  const kinds = ['disk', 'nvme', 'cpu', 'ram', 'board', 'gpu', 'other'];
+  const kinds = ['disk', 'ssd', 'nvme', 'cpu', 'ram', 'board', 'gpu', 'other'];
   const srcBox = el('div', 'fb-sources');
   const inZone = new Set((z.sources || []).map((s) => s.id));
   kinds.forEach((k) => {
@@ -1626,8 +1858,151 @@ function zoneCard(z, i, zones, ours) {
     srcBox.appendChild(g);
   });
   card.appendChild(srcBox);
+  card.appendChild(tempsPart(z, i));
+  card.appendChild(reactPart(z, i));
   card.appendChild(curvePart(z, i));
   return card;
+}
+/** A source's kind as the zone counts it (from the server's look: a pool not rotating is «ssd») */
+const srcKind = (id) => ((setup().sources || []).find((x) => x.id === id) || {}).kind || 'other';
+/** The kinds a zone has, in a steady order */
+function zoneKinds(z) {
+  const order = ['disk', 'ssd', 'nvme', 'cpu', 'gpu', 'ram', 'board', 'other'];
+  return [...new Set((z.sources || []).map((x) => srcKind(x.id)))].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+}
+/** A kind's values in a zone: the user's for it, else the kind's defaults */
+/** The three presets on a scale lo … hi — exactly fanboyPreset() of agent/desks/fanboy-control.php (a test compares them) */
+function presetsOn(lo, hi) {
+  const mid = (lo + hi) / 2;
+  return { quiet: [[lo, 0], [mid, 30], [hi, 60], [hi + 5, 100]], normal: [[lo, 20], [mid, 45], [hi, 80], [hi + 3, 100]], cool: [[lo - 3, 35], [mid - 3, 65], [hi - 3, 100]] };
+}
+function kindValues(z, kind) {
+  const d = (setup().scales || {})[kind] || (setup().scales || {}).other || { low: 35, high: 55, limit: 75 };
+  const own = (z.kinds || {})[kind] || {};
+  return { low: num(own.low) ?? d.low, high: num(own.high) ?? d.high, limit: num(own.limit) ?? d.limit, d };
+}
+/**
+ * «Temperaturen» (round 4, the owner): per kind in the zone «ab» (from here the fans speed up), «volle Drehzahl bei»
+ * (full speed from here), «Grenze» (the alarm) — the defaults filled in, each editable, «back to the proposal»; a single
+ * source with its own values where it differs. Disks: Unraid's own warning/critical beside them, never copied.
+ */
+function tempsPart(z, i) {
+  const box = el('div', 'fb-temps');
+  box.appendChild(el('h4', 'fb-sub', T('temps.title')));
+  const kinds = zoneKinds(z);
+  if (!kinds.length) return box;
+  box.appendChild(para(kinds.length > 1 ? T('temps.mixed', { kind: T(`kind.${kinds[0]}`) }) : T('temps.single')));
+  const tb = el('table', 'fb-table fb-temps-table');
+  const h = el('tr');
+  h.append(el('th', '', T('temps.kind')), el('th', '', T('temps.low')), el('th', '', T('temps.high')), el('th', '', T('temps.limit')), el('th', '', ''));
+  tb.appendChild(h);
+  const field = (val, def, set, label) => {
+    const n = el('input');
+    n.type = 'number';
+    n.step = '1';
+    n.value = String(val);
+    n.placeholder = String(def);
+    n.className = 'fb-num';
+    n.setAttribute('aria-label', label);
+    n.onchange = () => set(n.value === '' ? null : Number(n.value));
+    return n;
+  };
+  const src = new Map((setup().sources || []).map((x) => [x.id, x]));
+  kinds.forEach((k) => {
+    const v = kindValues(z, k);
+    const tr = el('tr');
+    const set = (f) => (x) => changeZones((all) => {
+      const kk = { ...(all[i].kinds || {}) };
+      const o = { ...(kk[k] || {}) };
+      if (x === null || x === v.d[f]) delete o[f]; else o[f] = x;
+      if (Object.keys(o).length) kk[k] = o; else delete kk[k];
+      all[i].kinds = kk;
+      curves.delete(z.id);
+    });
+    const name = el('td', 'fb-strong', T(`kind.${k}`));
+    tr.append(name, el('td'), el('td'), el('td'), el('td', 'fb-temps-note'));
+    tr.children[1].appendChild(field(v.low, v.d.low, set('low'), `${T(`kind.${k}`)} · ${T('temps.low')}`));
+    tr.children[2].appendChild(field(v.high, v.d.high, set('high'), `${T(`kind.${k}`)} · ${T('temps.high')}`));
+    tr.children[3].appendChild(field(v.limit, v.d.limit, set('limit'), `${T(`kind.${k}`)} · ${T('temps.limit')}`));
+    const notes = [];
+    if (!(v.low < v.high && v.high < v.limit)) notes.push(T('temps.order'));
+    // a disk: Unraid's own warning and critical temperatures beside it — a hint, never copied
+    if (k === 'disk' || k === 'ssd') {
+      const d = (S().disks || []).find((x) => (z.sources || []).some((y) => y.id === x.name) && (k === 'ssd') === (x.rotational === false) && num(x.warn) !== null);
+      if (d) notes.push(T('temps.unraid', { warn: d.warn, crit: num(d.crit) ?? '–' }));
+    }
+    const over = (z.sources || []).map((y) => src.get(y.id)).filter((x) => x && srcKind(x.id) === k && num(x.c) !== null && x.c >= v.limit);
+    if (over.length) notes.push(T('temps.over', { where: srcLabel(over[0]), c: fmt.number(over[0].c) }));
+    tr.lastChild.textContent = notes.join(' · ');
+    tb.appendChild(tr);
+  });
+  const wrap = el('div', 'fb-table-wrap');
+  wrap.appendChild(tb);
+  box.appendChild(wrap);
+  // single sources with values of their own
+  const own = (z.sources || []).filter((y) => ['low', 'high', 'limit'].some((f) => num(y[f]) !== null));
+  own.forEach((y) => {
+    const k = srcKind(y.id);
+    const v = kindValues(z, k);
+    const row = el('div', 'fb-row-fields fb-own');
+    row.appendChild(el('span', 'fb-strong', srcLabel(src.get(y.id) || { id: y.id, kind: k })));
+    ['low', 'high', 'limit'].forEach((f) => {
+      const l = el('label', 'fb-field');
+      l.append(el('span', 'fb-field-label', T(`temps.${f}`)), field(num(y[f]) ?? v[f], v[f], (x) => changeZones((all) => {
+        const s2 = all[i].sources.find((q) => q.id === y.id);
+        if (x === null) delete s2[f]; else s2[f] = x;
+        curves.delete(z.id);
+      }), `${srcLabel(src.get(y.id) || { id: y.id, kind: k })} · ${T(`temps.${f}`)}`));
+      row.appendChild(l);
+    });
+    const rm = el('button', 'btn small plain', T('temps.own_remove'));
+    rm.type = 'button';
+    rm.onclick = () => changeZones((all) => { const s2 = all[i].sources.find((q) => q.id === y.id); ['low', 'high', 'limit'].forEach((f) => delete s2[f]); });
+    row.appendChild(rm);
+    box.appendChild(row);
+  });
+  const pick = el('select');
+  pick.appendChild(new Option(T('temps.own_add'), ''));
+  (z.sources || []).filter((y) => !own.includes(y)).forEach((y) => pick.appendChild(new Option(srcLabel(src.get(y.id) || { id: y.id, kind: srcKind(y.id) }), y.id)));
+  pick.onchange = () => {
+    if (!pick.value) return;
+    changeZones((all) => { const s2 = all[i].sources.find((q) => q.id === pick.value); const v = kindValues(all[i], srcKind(pick.value)); s2.low = v.low; s2.high = v.high; s2.limit = v.limit; });
+  };
+  const back = el('button', 'btn small plain', T('temps.reset'));
+  back.type = 'button';
+  back.onclick = () => changeZones((all) => { all[i].kinds = {}; all[i].sources.forEach((q) => { delete q.low; delete q.high; delete q.limit; }); curves.delete(z.id); });
+  box.appendChild(bar(pick, back));
+  return box;
+}
+/** The way down in words for a kind: «up: at once · down: after 6 s, about 5 % every 2 s» */
+function downWords(kind, react) {
+  const p = (((setup().down || {})[kind] || (setup().down || {}).other || {})[react === 'quick' ? 'quick' : 'balanced']) || { gap: 2, hold: 0, step: 1 };
+  const r = setup().round || 2;
+  return p.hold > 0 ? T('react.profile', { gap: fmt.number(p.gap, 1), hold: fmt.number(p.hold), step: fmt.number(p.step), s: r })
+    : T('react.profile_now', { gap: fmt.number(p.gap, 1), step: fmt.number(p.step), s: r });
+}
+/** How he reacts: «Ausgewogen reagieren» (default) or «Sofort reagieren» — and what that means per kind, in words */
+function reactPart(z, i) {
+  const box = el('div', 'fb-react');
+  box.appendChild(el('h4', 'fb-sub', T('react.title')));
+  const seg = el('div', 'seg');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', T('react.title'));
+  const cur = z.react === 'quick' ? 'quick' : 'balanced';
+  ['balanced', 'quick'].forEach((r) => {
+    const b = el('button', '', T(`react.${r}`));
+    b.type = 'button';
+    b.dataset.own = '1';
+    b.setAttribute('aria-pressed', r === cur ? 'true' : 'false');
+    b.onclick = () => { if (r !== cur) changeZones((all) => { all[i].react = r; }); };
+    seg.appendChild(b);
+  });
+  box.appendChild(seg);
+  // one line per way down: kinds with the same profile share it («NVMe, RAM: …»)
+  const ways = new Map();
+  zoneKinds(z).forEach((k) => { const w = downWords(k, cur); ways.set(w, [...(ways.get(w) || []), T(`kind.${k}`)]); });
+  ways.forEach((names, w) => box.appendChild(el('p', 'fb-hint-text', `${names.join(', ')}: ${w}`)));
+  return box;
 }
 /** The zone's curve: quiet, normal, cool — or its own, dragged; percent, or rpm where every fan is measured */
 function curvePart(z, i) {
@@ -1638,7 +2013,9 @@ function curvePart(z, i) {
   const tgt = z.target || { preset: 'normal' };
   const own = Array.isArray(tgt.points);
   const kind = (z.sources && z.sources[0] && z.sources[0].kind) || ((setup().sources || []).find((s) => (z.sources || []).some((x) => x.id === s.id)) || {}).kind || 'disk';
-  const presets = ((setup().presets_of || {})[kind]) || ((setup().curves || {})[z.id] || {}).presets || null;
+  // the presets on the zone's own scale: its first kind's «ab» … «volle Drehzahl bei» (round 4: the degrees are settable)
+  const kv = kindValues(z, kind);
+  const presets = presetsOn(kv.low, kv.high);
   const choose = el('select');
   ['quiet', 'normal', 'cool'].forEach((p) => choose.appendChild(new Option(T(`preset.${p}`), p)));
   choose.appendChild(new Option(T('curve.own'), 'own'));
@@ -1676,10 +2053,13 @@ function curvePart(z, i) {
   const vMax = rpmUnit ? Math.max(...fans.map((f) => f.max_rpm || 0), 500) : 100;
   const temps = pts.map((p) => p[0]);
   const tMin = Math.max(0, Math.floor((Math.min(...temps) - 10) / 5) * 5), tMax = Math.ceil((Math.max(...temps) + 10) / 5) * 5;
-  const floor = lead.measured && num(lead.min_pct) !== null ? (rpmUnit ? tableRpm(lead.table, lead.min_pct) : lead.min_pct) : null;
+  // round 4: a CPU cooler given to him never under its own floor (cpu_floor) — that line instead of the lowest steady value
+  const cpuFloor = lead.role === 'cpu' && lead.cpu_own ? Math.max(setup().cpu_floor || 40, num(lead.min_pct) ?? 0) : null;
+  const floorPct = cpuFloor ?? (lead.measured && num(lead.min_pct) !== null ? lead.min_pct : null);
+  const floor = floorPct === null ? null : rpmUnit ? (lead.table ? tableRpm(lead.table, floorPct) : null) : floorPct;
   const cz = (control().zones || []).find((x) => x.id === z.id);
   const nowC = cz && cz.warmest ? num(cz.warmest.mapped) ?? num(cz.warmest.c) : null;
-  const key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|${own}|${own ? '' : tgt.preset}|${floor}`;
+  const key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|${own}|${own ? '' : tgt.preset}|${floor}|${kv.low}|${kv.high}`;
   let cv = curves.get(z.id);
   if (!cv || cv.key !== key) {
     if (cv) cv.c.destroy();
@@ -1691,7 +2071,7 @@ function curvePart(z, i) {
         axisT: T('curve.axis_t'), axisV: rpmUnit ? T('curve.axis_rpm') : T('curve.axis_pct'), tickT: (x) => `${x}°`, tickV: (v) => (rpmUnit ? fmt.number(v) : `${v} %`),
         point: (k, n) => T('curve.point', { i: k + 1, n }), value: (x, v) => (rpmUnit ? T('curve.value_rpm', { t: x, v: fmt.number(v) }) : T('curve.value_pct', { t: x, v })),
         readout: (x, v, r) => T('curve.readout', { t: x, v: rpmUnit ? T('pic.rpm', { rpm: fmt.number(v) }) : T('value', { pct: Math.round(v) }), rpm: fmt.number(Math.round(r || 0)) }),
-        floor: T('curve.floor'), now: nowC !== null ? T('curves.now', { c: fmt.number(nowC) }) : '',
+        floor: cpuFloor !== null ? T('curve.floor_cpu', { pct: cpuFloor }) : T('curve.floor'), now: nowC !== null ? T('curves.now', { c: fmt.number(nowC) }) : '',
       },
       // dragging a preset makes it the zone's own curve; kept on the page until «Save»
       onChange: (p) => {
@@ -1699,7 +2079,7 @@ function curvePart(z, i) {
         if (!zs[i]) return;
         zs[i].target = { points: p.map((x) => [x.t, x.v]) };
         zdraft = zs;
-        cv.key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|true||${floor}`;
+        cv.key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|true||${floor}|${kv.low}|${kv.high}`;
         drawn = '';
         redraw();
       },
@@ -1729,6 +2109,9 @@ function dryStep() {
       card.appendChild(el('h4', 'fb-sub', z.name));
       const w = z.warmest && num(z.warmest.c) !== null ? T('dry.warmest', { where: srcLabel(z.warmest), c: fmt.number(z.warmest.c) }) : T('dry.nothing');
       card.appendChild(para(`${w}${z.asleep ? ' · ' + T('dry.asleep', { n: z.asleep }) : ''}`));
+      // how he reacts here, in words (round 4): up at once, down by the leading kind's profile
+      const lead = z.warmest && z.warmest.kind ? z.warmest.kind : 'disk';
+      card.appendChild(para(T('dry.react', { react: T(`react.${z.react === 'quick' ? 'quick' : 'balanced'}`), how: downWords(lead, z.react) })));
       const tb = el('table', 'fb-table');
       const h = el('tr');
       h.append(el('th', '', T('dry.fan')), el('th', '', T('dry.would')), el('th', '', T('dry.now')));
@@ -1762,10 +2145,10 @@ function takeStep() {
     return box;
   }
   const why = [];
-  if (situation() === 'other') why.push(T('situation.other', { who: otherNames() }));
+  if (situation() === 'other') why.push(T('step.blocked_other'));
   if (!(su.zones || []).length) why.push(T('take.no_zones'));
   if (stepRuns()) why.push(T('take.step_runs'));
-  box.appendChild(para(T('take.text')));
+  box.appendChild(para(T(cpuGiven() ? 'take.text_cpu' : 'take.text')));
   why.forEach((w) => box.appendChild(para(w, 'callout warn')));
   const b = button(T('take.go'), T('take.go_tip'), (btn) => {
     Office.dialog({
@@ -1790,6 +2173,12 @@ function handBack(b) {
 // ------------------------------------------------------------------ the page
 function render() {
   if (!view) return;
+  if (!ready()) {
+    // the head at once, the sections once everything they draw is there (no second drawing a moment later)
+    const { head } = Office.deskHead(Office.desks.get(ID), { bubble: bubbleText(), pages: { list: PAGES(), current: page } });
+    view.replaceChildren(head, waiting());
+    return;
+  }
   const plain = plainNow();
   const actions = page === '' ? [reportButton(true)] : [];
   const { head } = Office.deskHead(Office.desks.get(ID), { bubble: plain ? bubbleText() : Office.withGreeting(ID, bubbleText()), actions,
@@ -1825,6 +2214,9 @@ Office.desk({
     page = Office.pageFrom(PAGES(), sub) === 'setup' ? 'setup' : '';
     drawn = '';
     banner = null;
+    warmFrom = Date.now();
+    // still waiting for something after WARM_MS: draw without it (ready() is in the signature — no redraw when it was there)
+    setTimeout(() => { if (view === root) redraw(); }, WARM_MS + 100);
     if (page === 'setup') {
       // #/fanboy/setup/<step> picks that step like a click; else the step at hand once his state is in (never kept)
       const rest = String(sub || '').split('/').slice(1).join('/');
@@ -1859,7 +2251,7 @@ Office.desk({
     if (!state) return null;
     const facts = [];
     const c = counts();
-    if (c.fans) facts.push(T('fans.turning', { n: c.turning || 0 }));
+    if (c.fans) facts.push(T('fans.reporting', { n: c.turning || 0 }));
     if (S().hottest) facts.push(`${T('tile.hottest')}: ${T('temp', { c: fmt.number(S().hottest.c) })}`);
     return { bubble: bubbleText(), facts };
   },
@@ -1870,12 +2262,12 @@ const SETUP_ROUTE = { route: `#/${ID}/setup`, crumb: 'page.setup' };
 Office.places(ID, [
   { kind: 'section', key: 'server.title', route: `#/${ID}/who` },
   { kind: 'section', key: 'notes.title', route: `#/${ID}/who` },
+  { kind: 'section', key: 'dash.setting', route: `#/${ID}/who` },
   { kind: 'section', key: 'fans.title', route: `#/${ID}/fans` },
   { kind: 'section', key: 'sensors.title', route: `#/${ID}/hottest` },
   { kind: 'section', key: 'curves.title', route: `#/${ID}/today` },
   { kind: 'section', key: 'hints.title', route: `#/${ID}/hints` },
   { kind: 'section', key: 'drivers.title', route: `#/${ID}/hints` },
-  { kind: 'section', key: 'import.title', route: `#/${ID}/hints` },
   { kind: 'help', key: 'help.who', text: 'help.who_text' },
   { kind: 'help', key: 'help.picture', text: 'help.picture_text' },
   { kind: 'help', key: 'help.outputs', text: 'help.outputs_text' },

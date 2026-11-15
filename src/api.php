@@ -19,6 +19,7 @@ declare(strict_types=1);
  *                                     page has its own language's in the strings (apiPlaceTexts())
  * GET  ?a=log                         tail of the agent log
  * GET  ?a=dash&lang=<code>            the rows of the tile on Unraid's Dashboard (dashboard.php), in the browser's language
+ * GET  ?a=dash&part=fanboy&lang=<code>   the rows of Fanboy's own tile (dashboard-fanboy.php): state files only, no agent
  * GET  ?a=agent                       the messenger alone (agentInfo(): the array stopped, the night shift)
  * POST {"a": "<desk>.<action>", ...}  a request for the agent; it checks everything
  * POST {"a": "office.hire|fire"}       who works here (see staff.php)
@@ -64,7 +65,7 @@ function api_main(): void
                 'strings' => apiStrings(apiText($_GET, 'lang', 'en')),
                 'places'  => apiPlaces(apiText($_GET, 'part')),
                 'log'     => answer(['ok' => true, 'lines' => apiLogTail(400)]),
-                'dash'    => apiDash(apiText($_GET, 'lang')),
+                'dash'    => apiText($_GET, 'part') === 'fanboy' ? apiDashFanboy(apiText($_GET, 'lang')) : apiDash(apiText($_GET, 'lang')),
                 'agent'   => answer(['ok' => true, 'agent' => agentInfo()]),
                 default   => answer(['ok' => false, 'error' => ['key' => 'bad_request']], 404),
             };
@@ -801,4 +802,16 @@ function apiDash(string $lang): never
     require_once __DIR__ . '/dashboard.php';
     $jobs = officeDashJobs();
     answer(['ok' => true, 'html' => officeDashRows(officeDashLang($lang), $jobs), 'busy' => (bool) $jobs]);
+}
+
+/** Fanboy's tile's rows again (dashboard-fanboy.php) — none while his tile isn't there (hidden, not hired, switched off) */
+function apiDashFanboy(string $lang): never
+{
+    require_once __DIR__ . '/page.php';
+    require_once __DIR__ . '/dashboard.php';
+    require_once __DIR__ . '/dashboard-fanboy.php';
+    if (officeFanboyDashGate() === null) {
+        answer(['ok' => false, 'error' => ['key' => 'unknown_desk', 'params' => ['desk' => 'fanboy']]], 404);
+    }
+    answer(['ok' => true, 'html' => officeFanboyDashRows(officeDashLang($lang))]);
 }

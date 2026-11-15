@@ -1013,8 +1013,7 @@ the last 60 history lines only for a source the file has none for. **The file
   of its own, the page's lease (`step_alive`) or everything goes back. **Drivers** (`fanboy-drivers.php`, on the click):
   only Unraid's own in-kernel fan-chip drivers (`FANBOY_DRIVERS`, checked with modinfo), a useless one and whatever a try
   pulled in unloaded again, the ACPI refusal only explained, what helped loaded at every agent start, an undo; nothing
-  downloaded, nothing on the flash. **FanCtrl Plus** (`fanboy-import.php`): its files read into a proposed zone (outputs by
-  their number, disks by Unraid's id, never a serial), never written.
+  downloaded, nothing on the flash.
   **Give back** for an output found on a fixed value something else set (enable 1): to the mainboard's automatic (the
   chip's own mode — shown now, kept from before, else its driver's: `FANBOY_AUTO_MODES`) by default (the owner,
   2026-11-14: `FANBOY_BACK_DEFAULT`), «this fixed value» the other choice in the setup (`back` action); a chip without an

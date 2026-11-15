@@ -18,6 +18,10 @@
   .fb-strong{font-weight:600; color:var(--ink)}
   .fb-hints > summary{cursor:pointer; color:var(--accent-ink); font-size:13px; padding:2px 0}
   .fb-hints-body{display:flex; flex-direction:column; gap:8px; margin-top:8px}
+  /* «Show on the Dashboard» under the server picture: the words, the three choices beside them (under them on a phone) */
+  .fb-dash-choice{display:flex; align-items:flex-end; justify-content:space-between; gap:8px 16px; flex-wrap:wrap; margin-top:12px; padding-top:10px; border-top:1px solid var(--line)}
+  .fb-dash-text{min-width:0; flex:1 1 280px}
+  .fb-dash-text .fb-head{margin-top:0}
   .fb-wait{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin:8px 0}
   /* above the tiles: what holds now */
   .fb-banner{display:flex; flex-direction:column; gap:8px}
@@ -80,6 +84,8 @@
   .fb-temp-line{fill:none; stroke:var(--danger); stroke-width:1.8; stroke-linejoin:round}
   .fb-level-line{fill:none; stroke:var(--accent); stroke-width:1.5; stroke-linejoin:round; opacity:.8}
   .fb-legend{display:flex; gap:12px; flex-wrap:wrap}
+  .fb-period-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px}
+  .fb-since{font-size:12px; color:var(--muted); margin:2px 0 0}
   .fb-key::before{content:''; display:inline-block; width:14px; height:3px; border-radius:2px; vertical-align:middle; margin-right:5px; background:var(--accent)}
   .fb-key-t::before{background:var(--danger)}
   /* the setup: steps, cards, fields */
@@ -123,6 +129,14 @@
   .fb-curve-part{display:flex; flex-direction:column; gap:6px}
   .fb-curve-edit{max-width:760px}
   .fb-unsaved{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+  /* round 4: the zone's temperatures per kind, a source's own values, the reaction */
+  .fb-temps, .fb-react{display:flex; flex-direction:column; gap:6px}
+  .fb-cpu{display:flex; flex-direction:column; gap:6px}
+  .fb-cpu-risk{border:1px solid var(--warn, var(--line)); border-radius:6px; padding:8px 10px; display:flex; flex-direction:column; gap:6px}
+  .fb-cpu-own{font-size:13px; color:var(--ink); margin:0 0 8px}
+  .fb-num{width:5.5em; max-width:100%}
+  .fb-temps-note{font-size:12px; color:var(--muted); min-width:10em}
+  .fb-own{align-items:flex-end}
   .fb-dry-zone{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); padding:8px 12px}
   @media (max-width:640px){
     .fb-curve-two{grid-template-columns:1fr}

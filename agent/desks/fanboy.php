@@ -8,9 +8,9 @@ declare(strict_types=1);
  * never depends on a boot number, and writes a report for the makers' wish form.
  * Part 2, steering (each in its own file): fanboy-write.php — the ONE place that writes a fan output, its journal of
  * every output's state before him; fanboy-setup.php — the setup's steps as actions; fanboy-control.php — the control
- * service (one process for all zones); fanboy-drivers.php — «load drivers» on the user's click; fanboy-import.php —
- * FanCtrl Plus's files read into a proposed zone; agent/fanboy-guard.php — what gives the fans back when nobody else
- * can (scripts/agent.sh stop|release, a cron line every minute). testFanboyNoWrite holds who may write what.
+ * service (one process for all zones); fanboy-drivers.php — «load drivers» on the user's click;
+ * agent/fanboy-guard.php — what gives the fans back when nobody else can (scripts/agent.sh stop|release, his own cron
+ * line while he is armed). testFanboyNoWrite holds who may write what.
  *
  * Who gives the fans back (the safety design, docs: fanboy-control-notes in the hand-over):
  *   · the control or a setup step itself — every way it ends (TERM, done, stop, the page gone, a hold), read back
@@ -87,7 +87,6 @@ if (fanboyShown()) {
             'look_now'      => fn (array $r) => fanboyLookNow(),
             'drivers_load'  => fn (array $r) => fanboyDriversLoad() + ['state' => fanboyScan()],
             'drivers_undo'  => fn (array $r) => fanboyDriversUndo() + ['state' => fanboyScan()],
-            'import'        => fn (array $r) => ['ok' => true, 'import' => fanboyImport(fanboyDetect())],
             'test_up'       => fn (array $r) => fanboyStepStart('test_up', idList($r, 'fans')),
             'measure'       => fn (array $r) => fanboyStepStart('measure', idList($r, 'fans')),
             'step_alive'    => function (array $r): array { fanboyStepAliveTouch(); return ['ok' => true, 'step' => fanboyStepRead()]; },
@@ -103,14 +102,16 @@ if (fanboyShown()) {
             // (model, size, colour: pictures only), the history part for the curve view (read only)
             'back'          => fn (array $r) => fanboyBack($r),
             'fan_look'      => fn (array $r) => fanboyFanLook($r),
-            'history'       => fn (array $r) => ['ok' => true, 'state' => fanboyHistoryPart()],
+            'history'       => fn (array $r) => ['ok' => true, 'state' => fanboyHistoryPart(fanboyHistoryHours($r))],
+            // his own tile on Unraid's Dashboard: off, speeds, speeds with history (fanboy-dash.php)
+            'dashboard'     => fn (array $r) => fanboyDashSet($r),
         ],
     ]);
 }
 
 /**
  * A new look, kept as his state (data/fanboy.json): part 1's look, and on top who steers now and why (the control's
- * status in RAM), his setup on this board, a step running, the drivers he loaded, FanCtrl Plus's files as a proposal
+ * status in RAM), his setup on this board, a step running, the drivers he loaded
  */
 function fanboyScan(): array
 {
@@ -122,8 +123,7 @@ function fanboyScan(): array
     $state['setup'] = fanboySetupState($state, $settings);
     $state['step'] = fanboyStepRead();
     $state['drivers'] = fanboyDriversState($state['board']);
-    $import = fanboyImport($state);
-    $state['import'] = $import['files'] ? $import : null;
+    $state['dashboard'] = fanboyDashState();            // his Dashboard tile's setting (fanboy-dash.php), its mirror in RAM
     writeAtomic(deskFile('fanboy'), jsonEncode($state));
     return $state;
 }
@@ -312,6 +312,12 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
             . ', firmware ' . ($clean($i['firmware_revision'] ?? '') ?: '?') . ', IPMI ' . ($clean($i['ipmi_version'] ?? '') ?: '?');
         $lines[] = 'IPMI fan sensors: ' . ($ipmiFans ? implode(', ', array_map($clean, $ipmiFans)) : 'not read (no ipmitool)');
     }
+    // round 4: a CPU cooler steered by Fanboy on the owner's risk (no names: only that and since when)
+    $mine = is_array($scan['board'] ?? null) ? (fanboyBoardRaw($scan['board']) ?? []) : [];
+    $own = array_filter(is_array($mine['fans'] ?? null) ? $mine['fans'] : [], fn ($f) => is_array($f) && fanboyCpuOwn($f));
+    if ($own) {
+        $lines[] = 'CPU cooler: steered by Fanboy on the owner\'s own risk since ' . gmdate('Y-m-d', min(array_map(fn ($f) => $f['cpu_own']['at'], $own)));
+    }
     $text = implode("\n", $lines);
     return strlen($text) > FANBOY_REPORT_MAX ? mb_strcut($text, 0, FANBOY_REPORT_MAX, 'UTF-8') : $text;
 }
@@ -332,16 +338,35 @@ function fanboyStart(): void
 }
 
 /**
- * The curve view's history (the part `history`, data/fanboy-history.json, desk.json "parts"): per zone of this board the
- * last 24 hours, a point a minute [time, warmest °C, level %, rpm] — as the control keeps it in RAM (or the data
- * folder's copy after a restart). Read only.
+ * The curve view's history: per zone of this board the points of the last $hours (a point a minute for 12 hours, older
+ * ones a 5-minute span each — fanboyHistoryThin()) [time, warmest °C, level %, rpm], as the control keeps it in RAM (or
+ * the data folder's copy after a restart or a boot). The part `history` (desk.json "parts": a look a minute) carries a
+ * day — the tile «Today» and the periods up to 24 h; 3 days only when the page asks (`history {hours: 72}`). Read only.
  */
-function fanboyHistoryPart(): array
+function fanboyHistoryPart(int $hours = 24, ?int $wall = null): array
 {
+    $t = $wall ?? time();
     $key = fanboyBoardKey(fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']));
-    $t = time();
+    $zones = [];
+    foreach (fanboyHistoryLoad($key, $t) as $zid => $pts) {
+        $in = array_values(array_filter($pts, fn ($p) => $p[0] >= $t - $hours * 3600));
+        if ($in) {
+            $zones[$zid] = $in;
+        }
+    }
     // `now`: the moment the points are read against (the page draws «the last hours» back from it, never the browser's clock)
-    return ['v' => 1, 'time' => $t, 'now' => $t, 'every' => (int) FANBOY_HISTORY_EVERY, 'zones' => fanboyHistoryLoad($key) ?: new stdClass()];
+    return ['v' => 1, 'time' => $t, 'now' => $t, 'hours' => $hours, 'every' => (int) FANBOY_HISTORY_EVERY, 'thin' => FANBOY_HISTORY_THIN,
+        'full' => FANBOY_HISTORY_FULL, 'zones' => $zones ?: new stdClass()];
+}
+
+/** The period the page asks for — hours, one of FANBOY_HISTORY_PERIODS (read strictly); none: a day (the part's look) */
+function fanboyHistoryHours(array $r): int
+{
+    $h = optInt($r, 'hours', 24, 1);
+    if (!in_array($h, FANBOY_HISTORY_PERIODS, true)) {
+        throw new Problem('fanboy_bad_period');
+    }
+    return $h;
 }
 
 /**
@@ -574,9 +599,13 @@ function fanboySetupState(array $scan, ?array $settings): array
                 'blades' => is_int($model['blades'] ?? null) ? $model['blades'] : null],
             'colour' => is_string($f['colour'] ?? null) && in_array($f['colour'], FANBOY_COLOURS, true) ? $f['colour'] : null,
             'back' => in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : null,
+            // round 3: fans on this one connector (the user says; one speed for all of them) — none stored: one
+            'count' => is_int($f['count'] ?? null) && $f['count'] >= 1 && $f['count'] <= FANBOY_COUNT_MAX ? $f['count'] : 1,
             'found' => is_string($f['found'] ?? null) ? $f['found'] : null, 'role' => is_string($f['role'] ?? null) ? $f['role'] : null,
             'name' => is_string($f['name'] ?? null) ? $f['name'] : '', 'place' => is_string($f['place'] ?? null) ? $f['place'] : null,
-            'off_ok' => ($f['off_ok'] ?? false) === true, 'measured' => $m !== null, 'min_pct' => $m['min_pct'] ?? null, 'start_pct' => $m['start_pct'] ?? null,
+            'off_ok' => ($f['off_ok'] ?? false) === true, 'measured' => $m !== null,
+            // round 4: a CPU cooler given to him on the owner's risk — since when (null: the BIOS's)
+            'cpu_own' => fanboyCpuOwn($f) ? $f['cpu_own']['at'] : null, 'min_pct' => $m['min_pct'] ?? null, 'start_pct' => $m['start_pct'] ?? null,
             'max_rpm' => $m['max_rpm'] ?? null, 'table' => $m['table'] ?? null, 'no_turn' => ($f['no_turn'] ?? false) === true];
         $r = fanboyResolve($stored, $scan);
         if ($r['path'] === null) {
@@ -603,7 +632,7 @@ function fanboySetupState(array $scan, ?array $settings): array
         // part 3: the curves, each output's state before Fanboy, «give back» still open, the defaults the page shows
         'curves' => $curves ?: new stdClass(), 'before' => $before ?: new stdClass(),
         'back_default' => FANBOY_BACK_DEFAULT,
-        'scales' => FANBOY_SOURCE_DEFAULTS, 'presets_of' => array_combine(array_keys(FANBOY_SOURCE_DEFAULTS),
+        'scales' => FANBOY_SOURCE_DEFAULTS, 'down' => FANBOY_DOWN_PROFILES, 'round' => FANBOY_ROUND, 'cpu_floor' => FANBOY_CPU_FLOOR, 'presets_of' => array_combine(array_keys(FANBOY_SOURCE_DEFAULTS),
             array_map(fn ($d) => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, (float) $d['low'], (float) $d['high']), FANBOY_PRESETS)), FANBOY_SOURCE_DEFAULTS)),
     ];
 }
