@@ -527,6 +527,7 @@
   "who": "bios",
   "why": "no_output"
  },
+ "gpus": null,
  "control": {
   "running": false,
   "armed": false,

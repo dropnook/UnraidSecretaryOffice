@@ -836,5 +836,13 @@
   "ipmi.failed.error": "ipmitool non è riuscito a leggere i sensori del BMC: Fanboy riprova tra 10 minuti.",
   "ipmi.failed.empty": "Il BMC non elenca alcun sensore di ventola (nessuno in giri/min).",
   "ipmi.failed.no_tool": "ipmitool non c'è (lo porta un plugin): Fanboy non installa nulla.",
-  "ipmi.banner": "{fans}: vicino o sotto la soglia inferiore del BMC, che può far salire e scendere tutte le ventole a ondate. I suggerimenti dicono cosa aiuta."
+  "ipmi.banner": "{fans}: vicino o sotto la soglia inferiore del BMC, che può far salire e scendere tutte le ventole a ondate. I suggerimenti dicono cosa aiuta.",
+  "gpu.card": "Scheda NVIDIA",
+  "gpu.untested": "non ancora verificato su hardware reale",
+  "gpu.untested_title": "Fanboy chiede a nvidia-smi la temperatura di questa scheda, al massimo ogni 10 secondi, senza mai aspettarla. Costruito e provato con un sostituto, non ancora su una scheda reale.",
+  "gpu.away": "assente",
+  "gpu.away_title.vfio": "nvidia-smi non elenca più questa scheda: una scheda NVIDIA è legata a vfio-pci (data a una VM). Nessun allarme: le sue zone continuano con le altre fonti di calore.",
+  "gpu.away_title.not_listed": "nvidia-smi non elenca più questa scheda (data a una VM o rimossa). Nessun allarme: le sue zone continuano con le altre fonti di calore.",
+  "gpu.away_title.no_tool": "nvidia-smi non c'è o il driver NVIDIA non è caricato: questa scheda ora non dice nulla. Le sue zone continuano con le altre fonti di calore.",
+  "errors.fanboy_gpu_only": "Una scheda NVIDIA non può essere l'unica fonte di calore di una zona: può sparire (data a una VM). Aggiungi alla zona un'altra fonte, un disco o un sensore della scheda madre."
 }

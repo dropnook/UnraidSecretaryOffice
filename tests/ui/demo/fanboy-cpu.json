@@ -648,6 +648,7 @@
   "why": "steers",
   "zones": 3
  },
+ "gpus": null,
  "control": {
   "running": true,
   "armed": true,

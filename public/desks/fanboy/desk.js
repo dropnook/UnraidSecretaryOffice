@@ -949,6 +949,11 @@ function sensorRows() {
   }));
   (S().disks || []).forEach((d) => out.push({ id: d.name, name: srcLabel({ kind: 'disk', id: d.name }), chip: null, kind: 'disk', c: d.temp, asleep: d.asleep, key: `disk:${d.name}`, disk: d.name,
     rot: d.rotational !== false, warn: num(d.warn), crit: num(d.crit) }));
+  // round 6: NVIDIA cards as nvidia-smi said last; a card a zone counts on that isn't listed now: away (a VM has it)
+  const gp = S().gpus;
+  ((gp && gp.cards) || []).forEach((g) => out.push({ id: `nvidia@${g.uuid}`, name: g.name, label: g.name, chip: null, kind: 'gpu', c: g.c, key: `gpu:${g.uuid}`, gpu: g.uuid }));
+  (setup().zones || []).forEach((z) => (z.sources || []).filter((y) => /^nvidia@/.test(y.id) && !out.some((o) => o.id === y.id)).forEach((y) => out.push({
+    id: y.id, name: T('gpu.card'), chip: null, kind: 'gpu', c: null, key: `gpu:${y.id}`, gpu: y.id.slice(7), away: !gp ? 'no_tool' : gp.vfio ? 'vfio' : 'not_listed' })));
   out.forEach((x) => { x.zones = x.id ? (setup().zones || []).filter((z) => (z.sources || []).some((y) => y.id === x.id)) : []; });
   return out;
 }
@@ -978,14 +983,16 @@ function sensorRow(x, place) {
   const n = x.chip ? nameOf(x.chip, x.feature) : null;
   if (n && n.label) meta.appendChild(chipOfText('quiet', `«${n.label}»`, T('hints.names')));
   if (n && n.ignore) meta.appendChild(chipOfText('quiet', T('hints.names_hidden'), T('hints.names')));
-  if (x.asleep) meta.appendChild(chipOfText('quiet', T('sensors.asleep'), T('sensors.asleep_title')));
+  if (x.gpu) meta.appendChild(chipOfText('quiet', T('gpu.untested'), T('gpu.untested_title')));
+  if (x.away) meta.appendChild(chipOfText('quiet', T('gpu.away'), T(`gpu.away_title.${x.away}`)));
+  else if (x.asleep) meta.appendChild(chipOfText('quiet', T('sensors.asleep'), T('sensors.asleep_title')));
   else if (x.c === null || x.c === undefined) meta.appendChild(chipOfText('quiet', T('sensors.no_value'), T('sensors.no_value_title')));
   if (inAlarm(x)) meta.appendChild(chipOfText('warn', T('sensors.too_warm'), T('sensors.too_warm_title')));
   x.zones.forEach((z) => meta.appendChild(chipOfText('accent', z.name, T('sensors.in_zone'))));
   const v = el('div', 'fb-value', x.c === null || x.c === undefined ? '–' : T('temp', { c: fmt.number(x.c) }));
   return unfoldRow(`temp:${x.key}`, place ? { place: `temp:${x.key}` } : {}, x.name, meta, v,
     x.chip ? [[T('tech.chip'), `${x.chip.name} · ${x.chip.address}`], [T('tech.sensor'), `${x.feature}_input · ${x.chip.hwmon}`]]
-      : [[T('tech.disk'), x.disk], [T('tech.from'), 'disks.ini']]);
+      : x.gpu ? [[T('tech.sensor'), x.gpu], [T('tech.from'), 'nvidia-smi']] : [[T('tech.disk'), x.disk], [T('tech.from'), 'disks.ini']]);
 }
 /**
  * The heat sources: first those that count — grouped by zone, the warmest of each first (before the setup: Unraid's disks,

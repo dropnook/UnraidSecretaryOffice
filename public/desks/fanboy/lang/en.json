@@ -836,5 +836,13 @@
   "ipmi.failed.error": "ipmitool couldn't read the BMC's sensors — Fanboy tries again in 10 minutes.",
   "ipmi.failed.empty": "The BMC lists no fan sensor (none in rpm).",
   "ipmi.failed.no_tool": "ipmitool isn't there (a plugin brings it) — Fanboy installs nothing.",
-  "ipmi.banner": "{fans}: near or under the BMC's lower threshold — the BMC may spin every fan up and down in waves. The hints say what helps."
+  "ipmi.banner": "{fans}: near or under the BMC's lower threshold — the BMC may spin every fan up and down in waves. The hints say what helps.",
+  "gpu.card": "NVIDIA card",
+  "gpu.untested": "not yet checked on real hardware",
+  "gpu.untested_title": "Fanboy asks nvidia-smi for this card's temperature, at most every 10 seconds, never waiting for it. Built and tested against a stand-in — not yet on a real card.",
+  "gpu.away": "away",
+  "gpu.away_title.vfio": "nvidia-smi no longer lists this card — an NVIDIA card is bound to vfio-pci (handed to a VM). No alarm: its zones go on with their other heat sources.",
+  "gpu.away_title.not_listed": "nvidia-smi no longer lists this card (handed to a VM, or removed). No alarm: its zones go on with their other heat sources.",
+  "gpu.away_title.no_tool": "nvidia-smi isn't there or the NVIDIA driver isn't loaded — this card says nothing now. Its zones go on with their other heat sources.",
+  "errors.fanboy_gpu_only": "An NVIDIA card can't be a zone's only heat source — it can go away (handed to a VM). Add another source to the zone, a disk or a sensor of the board."
 }

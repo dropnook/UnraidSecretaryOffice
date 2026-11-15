@@ -529,6 +529,7 @@
   "who": "bmc",
   "why": "ipmi"
  },
+ "gpus": null,
  "control": {
   "running": false,
   "armed": false,

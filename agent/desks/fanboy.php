@@ -121,6 +121,7 @@ if (fanboyShown()) {
  */
 function fanboyScan(): array
 {
+    fanboyGpuWant();                                    // round 6: his page looks — the tick asks nvidia-smi for a minute
     $state = fanboyDetect();
     $settings = fanboyBoardRaw($state['board']);
     $control = fanboyControlState($settings);
@@ -419,6 +420,7 @@ function fanboyTick(?float $now = null): void
 {
     static $next = 0.0;
     $now ??= fanboyMono();
+    fanboyGpuTick($now);            // round 6: a running nvidia-smi looked at (never waited for), only while his page looked
     if ($now < $next) {
         return;
     }

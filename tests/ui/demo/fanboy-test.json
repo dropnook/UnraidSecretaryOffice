@@ -647,6 +647,7 @@
   "who": "bios",
   "why": "not_set_up"
  },
+ "gpus": null,
  "control": {
   "running": false,
   "armed": false,

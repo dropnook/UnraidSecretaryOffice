@@ -534,6 +534,7 @@
   "who": "bios",
   "why": "chip_missing"
  },
+ "gpus": null,
  "control": {
   "running": true,
   "armed": true,
