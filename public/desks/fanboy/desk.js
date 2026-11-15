@@ -106,26 +106,6 @@ const idleOf = (chip, address, n) => (idle().tachs || {})[`${chip}@${address}#${
  * he doesn't steer) the others stand, so only that fan is heard. On by default, remembered per browser (a choice).
  */
 const quietOn = () => Office.store('fanboy.quiet') !== '0';
-function quietChoice() {
-  const box = Office.place('quiet.setting', el('div', 'fb-dash-choice'));
-  const on = quietOn();
-  const head = el('div', 'fb-dash-text');
-  head.append(el('h3', 'fb-head', T('quiet.setting')), el('p', 'fb-hint-text', T('quiet.note')));
-  const seg = el('div', 'seg');
-  seg.setAttribute('role', 'group');
-  seg.setAttribute('aria-label', T('quiet.setting'));
-  [['on', true], ['off', false]].forEach(([k, v]) => {
-    const b = el('button', '', T(`quiet.${k}`));
-    b.type = 'button';
-    b.title = T(`quiet.${k}_title`);
-    b.setAttribute('aria-pressed', String(v === on));
-    b.disabled = stepRuns();
-    b.onclick = () => { if (v !== on) { Office.store('fanboy.quiet', v ? null : '0'); drawn = ''; redraw(); } };
-    seg.appendChild(b);
-  });
-  box.append(head, seg);
-  return box;
-}
 /**
  * Round 9 (H2): an output Fanboy set to full for safety (a fan that didn't start again; one the mainboard didn't take back)
  * — said on its card and in the fans list, undone there with «Zurück auf den Wert von vorher» (a process of its own: back,
@@ -387,6 +367,7 @@ function took(j) {
   // his picture with a red mark while something is wrong at his fans (its alarm variant, as the Night Watchman has one)
   if (state) Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'chip_gone', 'crashed'].includes(who().why)
     || (idle().on && Object.values(idle().tachs || {}).some((x) => x && x.state === 'alarm')) ? 'alarm' : '');
+  if (view && page === 'setup') settleHeard();
   if (view) redraw();
   plan();
 }
@@ -452,10 +433,23 @@ const ready = () => (!!art() && !!cat && (page === 'setup' || historyTried)) || 
  */
 function redraw() {
   if (!view) return;
-  const sig = page === 'setup' ? setupSig() : overviewSig();
+  if (page === 'setup') {
+    // the frame (head, tiles, which steps show) anew only when it changed; step 2's list and panel are patched in place —
+    // a look every 2 s while a test runs replaces no node there (cards «jumped», a click on a node just replaced was lost)
+    const f = frameSig();
+    if (f !== drawn) { drawn = f; tilesDrawn = tilesSig(); bannerDrawn = bannerSig(); paint(); return; }
+    if (tilesSig() !== tilesDrawn) { tilesDrawn = tilesSig(); if (setupSw) setupSw.row(); }
+    if (bannerSig() !== bannerDrawn) { bannerDrawn = bannerSig(); Office.keepInPlace(bench ? bench.el : null, paintBanner); }
+    if (bench && bench.el.isConnected) bench.update();
+    return;
+  }
+  const sig = overviewSig();
   if (sig === drawn) return;
   drawn = sig;
-  // round 8: a field he is typing in (a fan's name while its test runs) keeps its focus and caret through the drawing
+  paint();
+}
+/** The page drawn anew; a field he is typing in (a fan's name while its test runs) keeps its focus and caret through it */
+function paint() {
   const a = document.activeElement;
   const keep = a && a.dataset && a.dataset.fbKeep ? [a, a.selectionStart, a.selectionEnd] : null;
   Office.keepInPlace(null, render);
@@ -464,13 +458,24 @@ function redraw() {
     try { keep[0].setSelectionRange(keep[1], keep[2]); } catch (e) { /* not a text field */ }
   }
 }
+let tilesDrawn = '', bannerDrawn = '';
 const VOLATILE = new Set(['time', 'at', 'since', 'begun', 'mono', 'now', 'tested_at']);
 const quiet = (v) => JSON.stringify(v, (k, x) => (VOLATILE.has(k) ? undefined : x));
-function setupSig() {
+/** What the setup page's frame shows: the head, the banner's place, the steps shown — and, for every step but step 2 (it patches itself), their content */
+function frameSig() {
   const su = setup();
-  return quiet([ready(), !!art(), !!cat, Office.agent.running, busy, who(), situation(), control().running, (control().alarm || {}).code, su.fans, su.zones, su.armed,
-    su.outputs, su.curves, step(), showNow(), dry, zdraft, setupSw ? setupSw.active() : '']);
+  const active = setupSw ? setupSw.active() : '';
+  const rest = active === 'test' ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft];
+  return quiet([ready(), !!art(), !!cat, !!state, Office.agent.running, bubbleText(), plainNow(), situation(), control().running, su.armed, su.outputs, active, rest]);
 }
+/** What the step tiles say */
+function tilesSig() {
+  const su = setup(), s = step();
+  return quiet([(su.fans || []).map((f) => [f.id, f.found, f.role, f.measured, f.no_turn, f.cpu_own]), (su.zones || []).length, s && [s.kind, s.status], !!dry, who(), su.armed, (control().alarm || {}).code,
+    setupSw ? setupSw.active() : '']);
+}
+/** What the banner above the steps says */
+const bannerSig = () => quiet([stepRuns(), showRuns(), Object.keys(S().safety || {}).length, who(), S().situation, control().running, control().alarm, control().armed, control().why, idle(), S().twins, S().vm, setup().zones && setup().zones.length, cpuGiven()]);
 function overviewSig() {
   return quiet([ready(), !!art(), !!cat, Office.agent.running, busy, state, history && history.zones, period, period > 24 && history72 ? history72.zones : null, sw.active(), (sensorBar && sensorBar.read().words) || []]);
 }
@@ -1508,7 +1513,7 @@ function paintBanner() {
     box('warn', T(`alarm.${code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}) }), { alarm: c.alarm.code });
   }
   // round 9 (H2): outputs he set to full for safety — named, undone in one click (each card has its own button too)
-  const safe = Object.keys(S().safety || {});
+  const safe = page === 'setup' ? [] : Object.keys(S().safety || {});      // (the setup's strip says it and puts them back)
   if (safe.length) {
     const p = box('warn', T('safety.banner', { list: safe.map((id) => fanName(id)).join(', ') }), { safety: 'full' });
     const b = button(T('safety.back_all'), T('safety.back_tip_all'), (btn) => act('safety_back', { fan: safe[0], all: true }, btn));
@@ -1544,11 +1549,12 @@ function paintBanner() {
     box('warn', T('situation.fixed', { list: fixedList(w.fixed) }), { situation: 'fixed' });
   } else if (s === 'ok' && (w.fixed || []).length && !banner.children.length) {
     box('warn', T('situation.fixed_some', { list: fixedList(w.fixed) }), { situation: 'fixed_some' });
-  } else if (s === 'ok' && !banner.children.length) {
+  } else if (s === 'ok' && !banner.children.length && !(page === 'setup' && (stepRuns() || showRuns() || Object.keys(S().safety || {}).length))) {
+    // (while the setup holds outputs, «the BIOS steers every fan» would be untrue — the setup's strip says what runs)
     box('', steers() ? T(cpuGiven() ? 'situation.steers_cpu' : 'situation.steers', { n: w.zones || 0 }) : c.armed === false && (setup().zones || []).length ? T('situation.not_armed') : T('situation.ok'), { situation: s });
   }
   // round 6: a show whose give-back didn't read back as before (the fan may sit at 100 %)
-  const sh = showNow();
+  const sh = page === 'setup' ? null : showNow();        // the setup page's strip says how a show or a step ended
   if (sh && sh.status !== 'running' && sh.status !== 'starting' && sh.why === 'give_back') box('warn', T('show.give_back_failed', { fan: fanName(sh.fan) }), { show: 'give_back' });
   if (sh && sh.status !== 'running' && sh.status !== 'starting' && ['quiet_warm', 'no_restart'].includes(sh.why) && sh.quiet_stop) {
     box('warn', T(`show.${sh.why}`, { what: sh.quiet_stop.what || '', c: num(sh.quiet_stop.c) === null ? '' : fmt.number(sh.quiet_stop.c) }), { show: sh.why });
@@ -1662,177 +1668,731 @@ function detectStep() {
   return box;
 }
 
-// 2 — test each output upward
-function testStep() {
-  const box = el('div', 'fb-step-body');
-  const su = setup();
-  const s = step();
-  const live = running(s) && s.kind === 'test_up';
-  if (blocked(box)) return box;
-  box.appendChild(nowLine());
-  stepEnded(box, s, 'test_up');
-  box.appendChild(quietChoice());
-  const list = el('div', 'fb-cards fb-cards-wide');
-  (su.outputs || []).forEach((id) => list.appendChild(testCard(id, s, live)));
-  box.appendChild(list);
-  if (live) {
-    box.appendChild(runningLine(s, T(s.quiet ? 'test.running_quiet' : 'test.running', { n: (s.done || []).length + 1, m: (s.fans || []).length })));
-  } else {
-    const all = button(T('test.all'), T('test.all_tip'), (b) => startStep('test_up', (su.outputs || []).filter((id) => !leftAlone(setupFan(id))), b), 'btn');
-    box.appendChild(bar(all, nextButton('test')));
+// ------------------------------------------------------------------ what runs now, said in one place
+/**
+ * What the setup holds right now — ONE reading for the strip, the list and the panel (the owner, 2026-11-15: «the GUI
+ * doesn't show which one is running»), from what round 9's agent says: the step's `progress` {phase: full | pause |
+ * kick, quiet, until}, the show's `phase` and `until`, `safety` (outputs he set to full for safety), `restore` (one going
+ * back to its value from before). An older agent's first state lacks the phases: then the step's `current` is «at full».
+ *   kind  test | show | measure | restore | null     id  the output at hand     quiet  the others stand meanwhile
+ *   stopped [ids]   pause {left, kick, next} | null   queue [ids still to come]   safety [{id, why, before}]
+ *   left  seconds it stays at full at most (the agent's `until`), else null — then `since` (the page's clock, ms)
+ */
+function runNow() {
+  const s = step(), x = showNow();
+  const r = { kind: null, id: null, quiet: false, stopped: [], pause: null, queue: [], safety: [], since: null, left: null, back: [] };
+  let phase = null, until = null;
+  if (showRuns()) { r.kind = 'show'; r.id = x.fan; r.quiet = !!x.quiet; phase = x.phase || 'full'; until = x.until; }
+  else if (running(s)) {
+    const p = s.progress || {};
+    r.kind = s.kind === 'measure' ? 'measure' : 'test';
+    r.id = s.current || null;
+    r.quiet = r.kind === 'test' && !!(p.quiet ?? s.quiet);
+    r.queue = (s.fans || []).filter((id) => id !== s.current && !(s.done || []).includes(id));
+    if (r.kind === 'test') { phase = p.phase || (r.id ? 'full' : null); until = p.until; }
+  } else if (restoreRuns()) { r.kind = 'restore'; r.back = (restoreNow().fans || []).slice(); }
+  if (phase === 'pause' || phase === 'kick') r.pause = { left: secsTo(until), kick: phase === 'kick', next: r.kind === 'test' ? r.queue[0] || null : null };
+  if (phase === 'full') r.left = secsTo(until);
+  // standing on purpose: every other output the quiet test holds at 0 right now
+  if (r.quiet && r.id && !r.pause) {
+    r.stopped = (setup().outputs || []).filter((id) => { const o = outputNow(id); return id !== r.id && o && o.pct === 0 && o.mode === 'manual'; });
   }
-  return box;
+  r.safety = Object.keys(S().safety || {}).map((id) => ({ id, ...S().safety[id] }));
+  // without the agent's `until`: since when this output is at full, by the page's own clock from the look that first showed it
+  const key = r.id && !r.pause && (r.kind === 'test' || r.kind === 'show') ? `${r.kind}:${(s && s.id) || (x && x.id) || ''}:${r.id}` : '';
+  if (key !== fullKey) { fullKey = key; fullFrom = key ? Date.now() : 0; }
+  r.since = key ? fullFrom : null;
+  return r;
+}
+let fullKey = '', fullFrom = 0;
+const FULL_MAX = 60;            // seconds an output stays at full at most (the agent's FANBOY_UP_FOR / FANBOY_SHOW_FOR)
+/** The percent an output had before Fanboy set it to full for safety (its tip and its words) */
+const safetyPct = (x) => (num((x.before || {}).value) === null ? '–' : Math.round(x.before.value / 2.55));
+/** What the page said last that must not get lost: a refusal, a click that came too early — until the next action */
+let said = null;                // {text, warn}
+function say(text, warn) {
+  said = text ? { text, warn: warn !== false } : null;
+  if (bench) bench.update();
+}
+/**
+ * An action from the setup's list-and-panel: never dropped, never silent (the owner: a click «was swallowed»). Clicks
+ * queue up behind each other; a refusal is said in the strip and stays there (and as the toast); the new state is drawn
+ * in place. `quietly`: a field's save — it says nothing when it worked and doesn't clear what the strip says.
+ */
+let sending = Promise.resolve();
+let sends = 0;
+function send(action, body, opts) {
+  const o = opts || {};
+  sends++;
+  if (!o.quietly) said = null;
+  if (bench) bench.update();
+  const job = sending.then(async () => {
+    if (!Office.agent.running) { say(T('strip.away')); return null; }
+    if (o.fresh) await Office.freshState(ID);
+    const j = await Office.api.post(`${ID}.${action}`, body || {});
+    if (!j.ok) {
+      const text = Office.errorText(j.error, ID);
+      Office.toast(text, true);
+      said = { text: T('strip.refused', { why: text }), warn: true };
+      return null;
+    }
+    if (j.state) { state = j.state; stateAt = Date.now(); }
+    if (o.done) await o.done(j);
+    if (!j.state) await load(true);
+    return j;
+  }).catch(() => null).then((j) => {
+    sends--;
+    if (view) redraw();
+    plan();
+    return j;
+  });
+  sending = job;
+  return job;
+}
+/** «Alles stoppen»: whatever the setup holds goes back — a step, a show, the fans standing for a quiet test */
+function stopAll() {
+  return send('stop_all', {}, { done: () => Office.toast(T('stop_all_toast')) });
+}
+
+// ------------------------------------------------------------------ small parts of the list-and-panel
+/** Why no test or show can start now, in a short line: another controller steers, or Fanboy does («Hand back» is step 6's) */
+const noTestWhy = () => (situation() === 'other' ? T('step.blocked_other') : control().running ? T('step.blocked_steering') : '');
+/** A button of the bench: its click queued (send), off only with its reason said beside it — never by a silent gate */
+function btn(text, cls, on, tip) {
+  const b = el('button', cls === undefined ? 'btn small plain' : cls, text);
+  b.type = 'button';
+  b.dataset.own = '1';
+  if (tip) b.title = tip;
+  b.onclick = () => on(b);
+  return b;
+}
+/** Draws a part anew only when what it shows changed (its signature) — buttons and fields under a hand stay the same nodes */
+const sigs = new WeakMap();
+function swap(node, sig, build) {
+  const k = typeof sig === 'string' ? sig : JSON.stringify(sig);
+  if (sigs.get(node) === k) return false;
+  sigs.set(node, k);
+  node.replaceChildren(...[].concat(build()).filter(Boolean));
+  return true;
+}
+const setText = (node, text) => { if (node.textContent !== text) node.textContent = text; };
+/** A select or text field in the office's field look (office.css .input — never the browser's white box) */
+function inputEl(tag, type) {
+  const n = el(tag, 'input small fb-input');
+  if (type) n.type = type;
+  n.dataset.own = '1';
+  return n;
+}
+/** A wheel for an output as it is right now: fast = at full, standing = stopped by Fanboy, else as its fan turns */
+function wheelNow(id, run) {
+  const f = setupFan(id);
+  const look = fanLook(f);
+  const o = outputNow(id);
+  const max = look.max || 2000;
+  const full = (run.id === id && !run.pause && run.kind !== 'measure') || !!safetyOf(id);
+  const plain = !look.look && look.colour === 'auto';
+  const base = { mm: look.mm, blades: look.blades, min: look.min, max, look: look.look, colour: full && plain ? 'accent' : look.colour, badge: '' };
+  if (full) return { ...base, rpm: max, state: 'run' };
+  if (run.stopped.includes(id)) return { ...base, rpm: 0, state: 'run', badge: T('wheel.stands') };
+  const live = f && f.found === 'tach' ? rpmNow(id, f.tachs) : null;
+  return { ...base, rpm: live !== null ? live : o && num(o.pct) !== null ? max * o.pct / 100 : 0, state: 'bios' };
 }
 /** An output the user left with the BIOS without testing it («don't test — leave it with the BIOS»: role «unknown», no verdict) */
 const leftAlone = (f) => !!f && !f.found && f.role === 'unknown';
-/** One output's card: its test (state, buttons) and — round 8 — everything that says what it is (assignBox) */
-function testCard(id, s, live) {
-  const f = setupFan(id);
-  const r = s && s.kind === 'test_up' && s.results ? s.results[id] : null;
-  const under = live && s.current === id;
-  const o = outputNow(id);
-  const p = idParts(id);
-  const card = Office.place(`test:${id}`, el('div', 'fb-card fb-card-test' + (atFullNow(id) || under ? ' fb-card-now' : '')));
-  // the output under test turns faster: its wheel shows what the output gets now (full while tested)
-  // round 9 (H3): the wheel of the output at full turns fast in the accent; a stopped one (0 %) stands
-  const hot = under || atFullNow(id);
-  card.appendChild(cardWheel({ rpm: o && num(o.pct) !== null ? 2000 * o.pct / 100 : 0, min: 400, max: 2000, state: hot ? 'run' : 'bios', mm: 120,
-    colour: hot ? 'accent' : 'auto' }));
-  const txt = el('div', 'fb-card-text');
-  const rpm = f && f.found === 'tach' ? rpmNow(id, f.tachs) : null;
-  txt.appendChild(el('div', 'fb-card-name', T('out.name', { n: p ? p.output : '?' }) + (rpm !== null ? ` · ${T('pic.rpm', { rpm: fmt.number(rpm) })}` : '')));
+/** What an output's test found, in a sentence (the list's second line, the panel's state) */
+function foundLine(f) {
   const found = f ? f.found : null;
-  let line = leftAlone(f) ? T('test.left') : T('test.not_yet');
-  if (under) line = T('test.now');
-  else if (live && (s.fans || []).includes(id) && !(s.done || []).includes(id)) line = T('test.waiting');
-  else if (found === 'tach') line = (f.tachs || []).length > 1 ? T('test.hub', { list: f.tachs.join(', ') }) : T('test.tach', { n: (f.tachs || [])[0] });
-  else if (found === 'silent') line = T('test.silent');
-  else if (found === 'empty') line = T('test.empty');
-  else if (found === 'unclear') line = T('test.unclear');
-  else if (found === 'ask') line = T('test.ask');
-  else if (found === 'ignored' || found === 'inverted') line = T(`test.${found}`);     // round 5: never steered
-  if (r && r.found === 'busy') line = T('test.busy');
-  // round 7 (F2): the state's line keeps room for two lines and a card keeps its button row while a test runs (the button
-  // off) — a card changes no height as the test walks through the outputs
-  txt.appendChild(el('div', 'fb-card-line fb-card-state', line));
-  if (!live && (found === 'ignored' || found === 'inverted')) txt.appendChild(el('div', 'fb-card-line', T(`test.${found}_hint`)));
-  if (live && under) {
-    // round 8 (the owner): up to a minute at full — he ends it when he has found the fan, or ends the whole run
-    txt.appendChild(bar(
-      button(T('test.found_next'), T('test.found_next_tip'), (b) => act('step_next', { fan: id }, b)),
-      button(T('test.abort'), T('test.abort_tip'), (b) => act('step_stop', {}, b, () => Office.toast(T('step.stopped_toast'))))));
-  } else if (live) {
-    const off = button(found ? T('test.again') : T('test.one'), T('test.wait_tip'), () => {});
-    off.disabled = true;
-    txt.appendChild(bar(off));
-  } else if (['ask', 'unclear'].includes(found)) {
-    txt.appendChild(el('div', 'fb-card-line fb-strong', T('test.louder')));
-    txt.appendChild(bar(
-      button(T('test.yes'), T('test.yes_tip'), (b) => act('answer', { fan: id, louder: true }, b)),
-      button(T('test.no'), T('test.no_tip'), (b) => act('answer', { fan: id, louder: false }, b)),
-      button(T('test.again'), T('test.again_tip'), (b) => startStep('test_up', [id], b))));
-  } else {
-    txt.appendChild(bar(button(found ? T('test.again') : T('test.one'), T('test.one_tip'), (b) => startStep('test_up', [id], b)),
-      ['tach', 'silent', 'unclear'].includes(found) ? showButton(id, f) : null));
+  if (found === 'tach') return (f.tachs || []).length > 1 ? T('test.hub', { list: f.tachs.join(', ') }) : T('test.tach', { n: (f.tachs || [])[0] });
+  if (found === 'silent') return T('test.silent');
+  if (found === 'empty') return T('test.empty');
+  if (found === 'unclear') return T('test.unclear');
+  if (found === 'ask') return T('test.ask');
+  if (found === 'ignored' || found === 'inverted') return T(`test.${found}`);
+  return leftAlone(f) ? T('test.left') : T('test.not_yet');
+}
+/** An output still open in step 2: not tested (and not left with the BIOS), a question unanswered, or found without a role */
+function openWhy(id) {
+  const f = setupFan(id);
+  const found = f ? f.found : null;
+  if (!found) return leftAlone(f) ? '' : 'test';
+  if (['ask', 'unclear'].includes(found)) return 'ask';
+  if (['tach', 'silent'].includes(found) && !f.role) return 'role';
+  return '';
+}
+/** The ONE label of a row: what is with this output right now — [chip class, text, tip] */
+function rowLabel(id, run) {
+  const f = setupFan(id);
+  const found = f ? f.found : null;
+  const sx = safetyOf(id);
+  if (sx) return ['warn', T('safety.chip'), T(sx.why === 'not_back' ? 'safety.not_back' : 'safety.no_restart', { pct: safetyPct(sx) })];
+  if (run.id === id && !run.pause && run.kind) return ['solid', T('label.now'), T('label.now_tip')];
+  if (run.stopped.includes(id)) return ['quiet', T('label.stands'), T('label.stands_tip')];
+  if (run.kind === 'test' && run.queue.includes(id)) return ['quiet', T('label.waits'), T('label.waits_tip')];
+  if (found === 'ignored' || found === 'inverted') return ['warn', T(`out.${found}`), T(`out.${found}_title`)];
+  if (found === 'empty') return ['quiet', T('label.empty'), T('label.empty_tip')];
+  if (found === 'ask' || found === 'unclear') return ['warn', T('label.ask'), T('label.ask_tip')];
+  if (f && f.role && found) return [ROLES_BIOS.includes(f.role) && !f.cpu_own ? 'quiet' : 'accent', T(`role.${f.role}`), isOurs(f) ? T('label.his_tip') : T('label.bios_tip')];
+  if (found) return ['outline', T('label.what'), T('label.what_tip')];
+  if (leftAlone(f)) return ['quiet', T('label.left'), T('label.left_tip')];
+  return ['quiet', T('label.untested'), T('label.untested_tip')];
+}
+
+// ------------------------------------------------------------------ 2 — test and assign: the list and the panel
+/**
+ * Step 2 as ONE thing built once and patched in place (the owner's three tests, 2026-11-15: cards «jump», a click was
+ * swallowed, nothing said what runs): the strip (what runs now, the last refusal, «Stop everything»), the quiet switch
+ * with its honest hints, a compact list of every output and ONE panel for the output at hand — its big wheel, what it
+ * is doing, its buttons, and everything that says what it is. A look that brings a new state changes words and wheels
+ * where they stand: no node under a finger is replaced, no row changes its height, the wheels go on turning.
+ */
+let bench = null;
+let sel = '';                   // the output the panel shows (the user's click; follows the running output unless he types)
+let ranLast = '';               // the output that ran at the last look (the panel follows a NEW one only)
+const heard = new Map();        // output → true («found») | false («heard nothing»): his answer while it ran, for a silent output
+function benchMake() {
+  const root = el('div', 'fb-bench');
+  // the strip
+  const strip = el('div', 'fb-strip');
+  const stripWave = wave();
+  const now = el('p', 'fb-strip-now');
+  const note = el('p', 'fb-strip-note');
+  note.setAttribute('role', 'status');
+  note.setAttribute('aria-live', 'polite');
+  const words = el('div', 'fb-strip-text');
+  words.append(now, note);
+  const main = el('div', 'fb-strip-main');
+  main.append(stripWave, words);
+  const meterBar = el('span', 'fb-meter-bar');
+  const meter = el('div', 'fb-meter');
+  meter.appendChild(meterBar);
+  const since = el('span', 'fb-strip-since');
+  const side = el('div', 'fb-strip-side');
+  const clock = el('div', 'fb-strip-clock');
+  clock.append(since, meter);
+  const stripActs = el('div', 'fb-strip-acts');
+  side.append(clock, stripActs);
+  strip.append(main, side);
+  // the quiet switch and its honest hints
+  const quiet = Office.place('quiet.setting', el('div', 'fb-quiet'));
+  const qHead = el('div', 'fb-quiet-head');
+  const qSeg = el('div', 'seg');
+  qSeg.setAttribute('role', 'group');
+  qSeg.setAttribute('aria-label', T('quiet.setting'));
+  const qBtn = {};
+  [['on', true], ['off', false]].forEach(([k, v]) => {
+    const b = btn(T(`quiet.${k}`), '', () => {
+      if (v === quietOn()) return;
+      Office.store('fanboy.quiet', v ? null : '0');       // a choice, kept per browser; a test already running keeps its own
+      update();
+    }, T(`quiet.${k}_title`));
+    qBtn[k] = b;
+    qSeg.appendChild(b);
+  });
+  qHead.append(el('h3', 'fb-head', T('quiet.setting')), qSeg);
+  const qList = el('ul', 'fb-quiet-hints');
+  ['hint_1', 'hint_2', 'hint_3'].forEach((k) => qList.appendChild(el('li', '', T(`quiet.${k}`))));
+  const qOff = el('p', 'fb-quiet-off', T('quiet.off_note'));
+  quiet.append(qHead, qList, qOff);
+  // the list and the panel
+  const list = el('div', 'fb-list');
+  list.setAttribute('role', 'group');
+  list.setAttribute('aria-label', T('list.label'));
+  const slot = el('div', 'fb-panel-slot');
+  const two = el('div', 'fb-two');
+  two.append(list, slot);
+  // what is still open, and the way on
+  const next = el('div', 'fb-next');
+  const nextText = el('div', 'fb-next-text');
+  const nextActs = el('div', 'fb-next-acts');
+  next.append(nextText, nextActs);
+  root.append(strip, quiet, two, next);
+
+  const items = new Map();      // output → its row
+  const panels = new Map();     // output → its panel (built when first shown, kept: its fields, its picker)
+  let ticker = null;
+  let run = runNow();
+  const benchRun = () => run;
+
+  function item(id) {
+    let it = items.get(id);
+    if (it) return it;
+    const b = el('button', 'fb-item');
+    b.type = 'button';
+    b.dataset.fan = id;
+    const A = art();
+    const wh = A ? A.wheel({ px: 40, air: false, rpm: 0 }) : null;
+    const pic2 = el('span', 'fb-item-wheel');
+    if (wh) pic2.appendChild(wh.el);
+    const name = el('span', 'fb-item-name');
+    const sub = el('span', 'fb-item-sub');
+    const txt = el('span', 'fb-item-text');
+    txt.append(name, sub);
+    const lab = el('span', 'fb-item-label');
+    b.append(pic2, txt, lab);
+    b.onclick = () => { if (sel !== id) { sel = id; update(); } };
+    it = { el: b, wh, name, sub, lab };
+    items.set(id, it);
+    return it;
   }
-  const sb = safetyBlock(id);
-  if (sb) txt.appendChild(sb);
-  txt.appendChild(assignBox(id, f, live));
-  card.appendChild(txt);
-  return card;
+  function itemUpdate(id) {
+    const it = item(id);
+    const f = setupFan(id);
+    const p = idParts(id);
+    if (it.wh) it.wh.update({ ...wheelNow(id, run), badge: '' });       // the row's label says «stands»; the small wheel just stands
+    setText(it.name, T('out.name', { n: p ? p.output : '?' }));
+    const rpm = f && f.found === 'tach' ? rpmNow(id, f.tachs) : null;
+    setText(it.sub, [f && f.name ? f.name : '', rpm !== null ? T('pic.rpm', { rpm: fmt.number(rpm) }) : ''].filter(Boolean).join(' · ') || (f && f.found ? '' : ' '));
+    const [cls, text, tip] = rowLabel(id, run);
+    swap(it.lab, [cls, text, run.id === id && !run.pause], () => {
+      const c = chipOfText(cls, text, tip);
+      if (cls === 'solid') { c.classList.add('running'); c.prepend(wave()); }
+      return c;
+    });
+    it.el.setAttribute('aria-pressed', sel === id ? 'true' : 'false');
+    it.el.classList.toggle('fb-live', run.id === id && !run.pause && !!run.kind);
+    it.el.classList.toggle('fb-item-warn', !!safetyOf(id));
+    it.el.title = T('list.row_tip', { name: fanName(id) });
+  }
+
+  function update() {
+    if (!state) return;
+    run = runNow();
+    const su = setup();
+    const outs = su.outputs || [];
+    // the panel follows a newly started output — never while he types in the panel's fields
+    const typing = slot.contains(document.activeElement) && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if (run.id && run.id !== ranLast && run.kind !== 'measure' && !typing) sel = run.id;
+    ranLast = run.id || '';
+    if (!outs.includes(sel)) sel = [run.id, (run.safety[0] || {}).id, outs.find((id) => openWhy(id)), outs[0]].find((id) => id && outs.includes(id)) || '';
+    stripUpdate();
+    quietUpdate();
+    // the rows: every output, in the board's order (built once; a board never changes its outputs under the page)
+    if (list.children.length !== outs.length || outs.some((id, i) => list.children[i] !== item(id).el)) list.replaceChildren(...outs.map((id) => item(id).el));
+    outs.forEach(itemUpdate);
+    list.classList.toggle('fb-list-many', outs.length > 8);
+    // the panel of the output at hand
+    if (sel) {
+      let pn = panels.get(sel);
+      if (!pn) { pn = panelMake(sel, benchRun, update); panels.set(sel, pn); }
+      if (slot.firstChild !== pn.el) slot.replaceChildren(pn.el);
+      pn.update();
+    } else slot.replaceChildren(para(T('step.nothing')));
+    nextUpdate();
+    if (run.kind && !ticker) ticker = setInterval(tick, 1000);
+    if (!run.kind && ticker) { clearInterval(ticker); ticker = null; }
+  }
+
+  function stripUpdate() {
+    const s = step();
+    const noTest = noTestWhy();
+    let mood = 'idle', text = T('strip.idle');
+    if (run.pause) {
+      mood = 'run';
+      const fan = run.pause.next || '';
+      const left = run.pause.left;
+      text = run.pause.kick ? (left !== null ? T('strip.kick', { s: left }) : T('strip.pause_plain'))
+        : left !== null ? (fan ? T('strip.pause_next', { s: left, fan: fanName(fan) }) : T('strip.pause', { s: left })) : T('strip.pause_plain');
+    } else if (run.kind === 'restore') { mood = 'run'; text = T('strip.restore', { fan: run.back.map((id) => fanName(id)).join(', ') }); }
+    else if (run.kind === 'test' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.test_quiet' : 'strip.test', { fan: fanName(run.id) }); }
+    else if (run.kind === 'show' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.show_quiet' : 'strip.show', { fan: fanName(run.id) }); }
+    else if (run.kind === 'measure') { mood = 'run'; text = T('strip.measure', { fan: run.id ? fanName(run.id) : '' }); }
+    else if (run.kind) { mood = 'run'; text = T('strip.starting'); }
+    else if (run.safety.length) { mood = 'warn'; text = T('strip.safety', { n: run.safety.length, list: run.safety.map((y) => fanName(y.id)).join(', ') }); }
+    else if (noTest) text = noTest;
+    strip.dataset.mood = mood;
+    strip.classList.toggle('running', mood === 'run');       // office.css shows the wave inside .running
+    setText(now, text);
+    // line 2: what was refused or said last; else how the last run ended; else what to know while it runs
+    let line = '', warn = false;
+    if (said) { line = said.text; warn = said.warn; }
+    else if (!run.kind && endedText(s) && !(s.why === 'no_restart' && run.safety.length)) { line = endedText(s); warn = true; }     // (line 1 says the safety-full itself)
+    else if (!run.kind && showEndedText()) { line = showEndedText(); warn = true; }
+    else if (run.kind === 'test' || run.kind === 'measure') line = T('strip.keep_open');
+    else if (sends > 0) line = T('busy_wait');
+    setText(note, line);
+    note.classList.toggle('fb-strip-warn', warn);
+    strip.classList.toggle('fb-strip-told', warn);
+    swap(stripActs, [run.kind, run.safety.map((y) => y.id), Office.agent.running], () => {
+      const out = [];
+      // set to full for safety: back to the value before, for all of them at once (each panel has its own button)
+      if (run.safety.length && !run.kind) {
+        out.push(btn(T(run.safety.length > 1 ? 'safety.back_all' : 'safety.back'), 'btn small', () => send('safety_back', { fan: run.safety[0].id, all: true }),
+          run.safety.length > 1 ? T('safety.back_tip_all') : T('safety.back_tip', { pct: safetyPct(run.safety[0]) })));
+      }
+      if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('stop_all'), 'btn small danger', () => stopAll(), T('stop_all_tip')));
+      out.forEach((b) => { b.disabled = !Office.agent.running; });
+      return out;
+    });
+    strip.classList.toggle('fb-strip-stuck', !!run.kind);
+    if (run.kind) {
+      const menu = document.getElementById('menu');
+      const head = root.closest('section') ? root.closest('section').querySelector('.section-head.sticky') : null;
+      const above = (menu && /^(sticky|fixed)$/.test(getComputedStyle(menu).position) ? menu.offsetHeight : 0)
+        + (head && getComputedStyle(head).position === 'sticky' ? head.offsetHeight : 0);
+      strip.style.top = `${above}px`;
+    }
+    clockUpdate();
+  }
+  /** Each second while something runs: «for 12 s» and the bar — in place, nothing else moves */
+  function tick() {
+    const was = run.pause ? run.pause.left : null;
+    run = runNow();
+    if ((run.pause ? run.pause.left : null) !== was) stripUpdate(); else clockUpdate();
+  }
+  function clockUpdate() {
+    const on = !!run.since && (run.kind === 'test' || run.kind === 'show');
+    clock.classList.toggle('fb-clock-off', !on);
+    if (!on) { setText(since, ''); return; }
+    // how long it stays at full at most: the agent's word; without it, since when (the page's clock)
+    const secs = run.left !== null ? FULL_MAX - Math.min(FULL_MAX, run.left) : Math.min(FULL_MAX, Math.max(0, Math.floor((Date.now() - run.since) / 1000)));
+    setText(since, run.left !== null ? T('strip.left', { s: run.left }) : T('strip.since', { s: secs }));
+    meterBar.style.width = `${Math.round(100 * secs / FULL_MAX)}%`;
+  }
+
+  function quietUpdate() {
+    const on = quietOn();
+    qBtn.on.setAttribute('aria-pressed', String(on));
+    qBtn.off.setAttribute('aria-pressed', String(!on));
+    qList.hidden = !on;
+    qOff.hidden = on;
+  }
+
+  function nextUpdate() {
+    const su = setup();
+    const outs = su.outputs || [];
+    const open = outs.map((id) => [id, openWhy(id)]).filter(([, w]) => w);
+    const toTest = open.filter(([, w]) => w === 'test').map(([id]) => id);
+    const tested = outs.length - toTest.length;
+    const roles = outs.filter((id) => { const f = setupFan(id); return f && (f.role || f.found === 'empty'); }).length;
+    swap(nextText, [tested, outs.length, roles, open, sel], () => {
+      const out = [el('span', 'fb-next-count', `${T('step.v.tested', { n: tested, m: outs.length })} · ${T('step.v.assigned', { n: roles })}`)];
+      if (open.length) {
+        const line = el('span', 'fb-next-open', T('next.open'));
+        open.forEach(([id, w]) => {
+          const b = btn(T('out.name', { n: (idParts(id) || {}).output }), 'fb-link', () => { sel = id; update(); }, T(`next.open_${w}`));
+          line.append(' ', b);
+        });
+        out.push(line);
+      } else out.push(el('span', 'fb-next-open', T('next.all_done')));
+      return out;
+    });
+    const noTest = situation() === 'other' || !!control().running;
+    const selOpen = openWhy(sel) === 'test';
+    swap(nextActs, [open.length, toTest.length, !!run.kind, noTest, selOpen, Office.agent.running], () => {
+      const out = [];
+      // the ONE primary button: the panel's own «Start the test» while its output is untested; else here
+      if (toTest.length && !selOpen && !run.kind && !noTest) {
+        out.push(btn(T('next.test_open', { n: toTest.length }), 'btn', () => startTest(toTest), T('test.all_tip')));
+      }
+      const go = btn(T('step.next', { name: T('step.measure') }), open.length || run.kind ? 'btn small plain' : 'btn', () => { setupSwitcher().pick('measure'); drawn = ''; redraw(); });
+      out.push(go);
+      out.forEach((b) => { if (b !== go) b.disabled = !Office.agent.running; });
+      return out;
+    });
+  }
+
+  update();
+  return {
+    el: root,
+    update,
+    destroy() {
+      clearInterval(ticker);
+      items.forEach((it) => { if (it.wh) it.wh.destroy(); });
+      panels.forEach((p) => p.destroy());
+    },
+  };
 }
 /**
- * Round 8 (the owner: test and assign in ONE step — he labels a fan the moment he hears it): what the roles step held,
- * on the output's card — the role (incl. «nothing attached» and «leave it with the BIOS»), «Wo sitzt er?» (its name), how
- * many fans on the connector; behind «More» its place, model and colour, «give back to», the CPU cooler on own risk. Every
- * field saves at once and works during a test too (the same actions and checks as before). Room fixed from the start.
+ * His answer while it ran, for an output no tach followed (the two buttons replace the later question «did anything get
+ * louder?»): «found» → a fan without feedback, «heard nothing» → nothing attached. Sent once its verdict is in.
  */
-function assignBox(id, f, live) {
-  const box = el('div', 'fb-assign');
-  const found = f ? f.found : null;
-  const off = !state || !Office.agent.running || ['ignored', 'inverted'].includes(found);
-  const field = (label, input) => { const l = el('label', 'fb-field'); l.append(el('span', 'fb-field-label', label), input); return l; };
-  const role = el('select', 'input small');          // round 9 (H5): the office's field look (Unraid's own is white on dark)
-  role.appendChild(new Option(T('roles.choose'), ''));
-  const g1 = el('optgroup');
-  g1.label = T('roles.his');
-  ROLES_OURS.forEach((r) => g1.appendChild(new Option(T(`role.${r}`), r)));
-  const g2 = el('optgroup');
-  g2.label = T('roles.bios');
-  ROLES_BIOS.forEach((r) => g2.appendChild(new Option(r === 'unknown' && !found ? T('role.left') : T(`role.${r}`), r)));
-  g2.appendChild(new Option(T('role.empty'), 'empty'));
-  role.append(g1, g2);
-  role.value = found === 'empty' ? 'empty' : (f && f.role) || '';
-  role.disabled = off;
-  role.onchange = () => setRole(id, f, role.value);
-  const count = el('select', 'input small');
-  for (let n = 1; n <= 8; n++) count.appendChild(new Option(String(n), String(n)));
-  count.value = String((f && f.count) || 1);
-  count.disabled = off || !(f && f.role);
-  count.onchange = () => act('role', { fan: id, role: f.role, count: Number(count.value), off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, null);
-  const row = el('div', 'fb-assign-row');
-  row.append(field(T('roles.role'), role), field(T('assign.where'), nameField(id, f, off)));
-  const countRow = el('label', 'fb-field fb-field-inline');
-  countRow.append(el('span', 'fb-field-label', T('roles.count')), count);
-  box.append(row, countRow);
-  // one note with room for two lines: never stopped (a CPU cooler or pump), its BIOS role, the proposal for output 1, a hub
+function settleHeard() {
+  const run = runNow();
+  heard.forEach((v, id) => {
+    const f = setupFan(id);
+    if ((run.id === id && !run.pause) || !f || !f.found) return;     // still at full, or no verdict yet
+    heard.delete(id);
+    if (['ask', 'unclear'].includes(f.found)) send('answer', { fan: id, louder: v }, { quietly: true });
+  });
+}
+/** Start the test for these outputs, in the board's order — the quiet switch as it stands */
+function startTest(ids) {
+  if (!ids.length) return null;
+  return send('test_up', { fans: ids, quiet: quietOn() }, { fresh: true });
+}
+/** How the last test ended, when it didn't simply finish: the page gone, stopped, too warm, a fan that didn't start again */
+function endedText(s) {
+  if (!s || s.kind !== 'test_up' || running(s) || !['stopped', 'failed'].includes(s.status)) return '';
+  const why = s.status === 'failed' ? 'error' : s.why || 'stopped';
+  if (['quiet_warm', 'no_restart'].includes(why) && s.quiet_stop) return T(`step.ended.${why}`, { what: s.quiet_stop.what || '', c: num(s.quiet_stop.c) === null ? '' : fmt.number(s.quiet_stop.c) });
+  return has(`step.ended.${why}`) ? T(`step.ended.${why}`) : T('step.ended.stopped');
+}
+function showEndedText() {
+  const sh = showNow();
+  if (!sh || showRuns()) return '';
+  if (sh.why === 'give_back') return T('show.give_back_failed', { fan: fanName(sh.fan) });
+  if (['quiet_warm', 'no_restart'].includes(sh.why) && sh.quiet_stop) return T(`show.${sh.why}`, { what: sh.quiet_stop.what || '', c: num(sh.quiet_stop.c) === null ? '' : fmt.number(sh.quiet_stop.c) });
+  return '';
+}
+
+/**
+ * The panel of ONE output: the big wheel, what the output does right now, its buttons (one of them the primary one of the
+ * moment), then what it is — «Was ist das?» as buttons, its name, where it sits, how many fans hang on it —, the CPU
+ * cooler's own block where it is one, and behind two folds named for what they hold: model and colour (for the
+ * picture), «give back to» (only for an output found on a fixed value). Built once per output, patched in place.
+ */
+function panelMake(id, benchRun, benchUpdate) {
   const p = idParts(id);
-  const r = f && f.role;
-  let note = '';
-  if (r === 'cpu') note = f.cpu_own ? T('assign.cpu_own', { date: Office.fmt.date(f.cpu_own) }) : T('assign.cpu_bios');
-  else if (r === 'pump') note = T('assign.never_stopped');
-  else if (f && num(f.kick_start) !== null) note = T('assign.kick', { pct: Math.round(f.kick_start / 2.55) });
-  else if (r && ROLES_BIOS.includes(r)) note = T(`roles.bios_note.${r}`);
-  else if (!r && p && p.output === 1 && ['tach', 'silent'].includes(found)) note = T('roles.cpu_hint');
-  else if (f && (f.count || 1) > 1) note = T('roles.count_note', { n: f.count });
-  box.appendChild(el('div', 'fb-card-line fb-assign-note', note));
-  // what the roles step offered beyond that, behind a small unfold
-  const more = keepFold(el('details', 'fb-assign-more'), `assign:${id}`, false);
-  more.appendChild(el('summary', '', T('assign.more')));
-  const place = el('select', 'input small');
+  const root = Office.place(`test:${id}`, el('div', 'fb-panel'));
+  root.dataset.fan = id;
+  const A = art();
+  const wh = A ? A.wheel({ px: 116, air: false, rpm: 0 }) : null;
+  const pict = el('div', 'fb-panel-wheel');
+  if (wh) pict.appendChild(wh.el);
+  const title = el('h3', 'fb-panel-title');
+  const line = el('p', 'fb-panel-line');
+  const acts = el('div', 'fb-panel-acts');
+  const why = el('p', 'fb-panel-why');
+  const headText = el('div', 'fb-panel-headtext');
+  headText.append(title, line, acts, why);
+  const head = el('div', 'fb-panel-head');
+  head.append(pict, headText);
+  const safety = el('div', 'callout warn fb-safety');
+  safety.hidden = true;
+  // «Was ist das?»
+  const what = el('div', 'fb-what');
+  what.appendChild(el('h4', 'fb-q', T('what.title')));
+  const roleBtns = new Map();
+  const group = (label, keys) => {
+    const g = el('div', 'fb-what-group');
+    g.appendChild(el('span', 'fb-what-label', label));
+    const row = el('div', 'fb-what-row');
+    keys.forEach((k) => {
+      const b = btn(k === 'empty' ? T('role.empty') : T(`role.${k}`), 'fb-pick', () => pickRole(k), k === 'empty' ? T('what.empty_tip') : T(`what.tip.${ROLES_OURS.includes(k) ? 'his' : k}`));
+      roleBtns.set(k, b);
+      row.appendChild(b);
+    });
+    g.appendChild(row);
+    what.appendChild(g);
+  };
+  group(T('roles.his'), ROLES_OURS);
+  group(T('roles.bios'), ROLES_BIOS);
+  group(T('what.nothing'), ['empty']);
+  const cpu = el('div', 'fb-cpu-slot');
+  // its name, where it sits, how many
+  const fields = el('div', 'fb-fields');
+  const field = (label, input, cls) => { const l = el('label', `fb-field ${cls || ''}`); l.append(el('span', 'fb-field-label', label), input); return l; };
+  const name = nameField(id, setupFan(id), false);
+  const place = inputEl('select');
   place.appendChild(new Option(T('roles.place_any'), ''));
   PLACES.forEach((pl) => place.appendChild(new Option(T(`place.${pl}`), pl)));
-  place.value = (f && f.place) || '';
-  place.disabled = off || !(f && f.role);
-  place.onchange = () => act('role', { fan: id, role: f.role, place: place.value, off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, null);
-  more.appendChild(field(T('roles.place'), place));
-  const A = art();
-  if (A && cat && !off) {
-    let pk = pickers.get(id);
-    if (!pk) {
-      pk = A.picker({ catalog: cat, value: f && f.model ? (f.model.id ? { id: f.model.id } : { mm: f.model.mm, blades: f.model.blades }) : null, texts: pickerTexts(),
-        onChange: (v) => { if (!v) return; act('fan_look', v.id ? { fan: id, model: v.id } : { fan: id, model: '', mm: v.mm, blades: v.blades }, null); } });
-      pickers.set(id, pk);
-    }
-    const det = keepFold(el('details', 'fb-model'), `model:${id}`, false);
-    det.appendChild(el('summary', '', f && f.model ? T('roles.model_is', { model: modelText(f.model) }) : T('roles.model')));
-    det.appendChild(pk.el);
-    const colour = el('select', 'input small');
-    COLOURS.forEach((c) => colour.appendChild(new Option(T(`colour.${c}`), c)));
-    colour.value = (f && f.colour) || 'auto';
-    colour.onchange = () => act('fan_look', { fan: id, colour: colour.value }, null);
-    det.appendChild(field(T('roles.colour'), colour));
-    const c = catFan(f && f.model && f.model.id);
-    if (c && f.measured && num(f.max_rpm) && num(c.rpm_max) && Math.abs(f.max_rpm - c.rpm_max) > Math.max(250, 0.3 * c.rpm_max)) {
-      det.appendChild(para(T('roles.model_off', { measured: fmt.number(f.max_rpm), sheet: fmt.number(c.rpm_max) }), 'callout'));
-    }
-    more.appendChild(det);
+  place.onchange = () => { const f = setupFan(id); if (f && f.role) send('role', { fan: id, role: f.role, place: place.value, off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true }); };
+  const count = inputEl('select');
+  for (let n = 1; n <= 8; n++) count.appendChild(new Option(String(n), String(n)));
+  count.onchange = () => { const f = setupFan(id); if (f && f.role) send('role', { fan: id, role: f.role, count: Number(count.value), off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true }); };
+  fields.append(field(T('fields.name'), name, 'fb-field-name'), field(T('fields.place'), place), field(T('roles.count'), count, 'fb-field-count'));
+  const note = el('p', 'fb-panel-note');
+  // the folds
+  const look = keepFold(el('details', 'fb-fold'), `look:${id}`, false);
+  const lookSum = el('summary', '');
+  const lookBody = el('div', 'fb-fold-body');
+  look.append(lookSum, lookBody);
+  const back = keepFold(el('details', 'fb-fold'), `back:${id}`, false);
+  const backSum = el('summary', '', T('back.fold'));
+  const backBody = el('div', 'fb-fold-body');
+  back.append(backSum, backBody);
+  root.append(head, safety, what, cpu, fields, note, look, back);
+  let pk = null, colour = null, lookNote = null;
+
+  function pickRole(k) {
+    const f = setupFan(id);
+    cpuAsk.delete(id);              // round 9 (H6): a role click never carries a half-made «Fanboy steers it» along
+    if (k === 'empty') { send('answer', { fan: id, louder: false }); return; }
+    if (f && ['ask', 'unclear'].includes(f.found) && benchRun().id !== id) send('answer', { fan: id, louder: true }, { quietly: true });
+    send('role', { fan: id, role: k, off_ok: !!(f && f.off_ok) && ROLES_OURS.includes(k) });
   }
-  // «give back to» for a fan found on a fixed value someone else set; the CPU cooler on the owner's own risk
-  const b = (setup().before || {})[id];
-  if (f && b && b.fixed && !ROLES_BIOS.includes(f.role)) more.appendChild(backChoice(f, b));
-  if (f && f.role === 'cpu' && ['tach', 'silent', 'unclear'].includes(found)) more.appendChild(cpuPart(f));
-  box.appendChild(more);
+
+  function update() {
+    const run = benchRun();
+    const f = setupFan(id);
+    const found = f ? f.found : null;
+    const here = run.id === id && !!run.kind && !run.pause;
+    const away = !Office.agent.running;
+    const never = ['ignored', 'inverted'].includes(found);
+    const noTest = noTestWhy();
+    const sf = safetyOf(id);
+    if (wh) wh.update(wheelNow(id, run));
+    root.classList.toggle('fb-live', here);
+    setText(title, f && f.name ? T('panel.title_named', { n: p ? p.output : '?', name: f.name }) : T('out.name', { n: p ? p.output : '?' }));
+    // what it does right now, in a sentence
+    const rpm = f && found === 'tach' ? rpmNow(id, f.tachs) : null;
+    let text = foundLine(f);
+    const res = step() && step().kind === 'test_up' && step().results ? step().results[id] : null;
+    if (res && res.found === 'busy') text = T('test.busy');
+    if (here && run.kind === 'show') text = T('panel.showing');
+    else if (here) text = T('panel.now');
+    else if (sf) text = T('panel.safety');
+    else if (run.stopped.includes(id)) text = found ? `${foundLine(f)} · ${T('panel.stands')}` : T('panel.stands');
+    else if (run.kind === 'test' && run.queue.includes(id)) text = T('test.waiting');
+    else if (rpm !== null) text = `${text} · ${T('pic.rpm', { rpm: fmt.number(rpm) })}`;
+    if (!here && ['ask', 'unclear'].includes(found) && !run.kind) text = `${text} — ${T('panel.ask')}`;
+    setText(line, text);
+    // its buttons: the one of the moment first; a button that can't act is off and the line under them says why
+    const open = (setup().outputs || []).filter((x) => openWhy(x) === 'test');
+    const more = run.kind === 'test' && run.queue.length > 0;
+    const queued = run.kind === 'test' && !here && (run.queue.includes(id) || (run.pause && run.pause.next === id));
+    let reason = '';
+    if (queued) reason = T('panel.queued');
+    else if (!here && run.pause) reason = T('panel.pause');
+    else if (!here && run.kind) reason = T('panel.busy', { fan: run.id ? fanName(run.id) : '' });
+    else if (!run.kind && noTest) reason = noTest;
+    else if (!run.kind && never) reason = T(`test.${found}_hint`);
+    else if (away) reason = T('strip.away');
+    setText(why, reason);
+    swap(acts, [here, run.kind, more, found, leftAlone(f), !!noTest, away, open.length, open[0] === id, !!sf, queued], () => {
+      const out = [];
+      if (queued) return out;                  // its turn comes in this run: nothing to start here (the strip has «Stop everything»)
+      const blocked = !!run.kind || !!noTest || away;
+      if (here && run.kind === 'show') {
+        out.push(btn(T('show.stop'), 'btn', () => send('show_stop', { fan: id }), T('show.stop_tip')));
+      } else if (here) {
+        out.push(btn(T(more ? 'test.found_next' : 'test.found_done'), 'btn', () => { heard.set(id, true); send('step_next', { fan: id }); }, T('test.found_next_tip')));
+        out.push(btn(T(more ? 'test.none_next' : 'test.none_done'), 'btn small plain', () => { heard.set(id, false); send('step_next', { fan: id }); }, T('test.none_tip')));
+        out.push(btn(T('test.abort'), 'btn small plain', () => send('step_stop', {}, { done: () => Office.toast(T('step.stopped_toast')) }), T('test.abort_tip')));
+      } else if (['ask', 'unclear'].includes(found) && !run.kind) {
+        out.push(btn(T('ask.yes'), 'btn small', () => send('answer', { fan: id, louder: true }), T('test.yes_tip')));
+        out.push(btn(T('ask.no'), 'btn small', () => send('answer', { fan: id, louder: false }), T('test.no_tip')));
+        out.push(btn(T('test.again_long'), 'btn small plain', () => startTest([id]), T('test.again_tip')));
+      } else if (!found && !leftAlone(f)) {
+        // untested: the primary «Start the test» runs every open output in the board's order, this one first
+        const rest = [id, ...open.filter((x) => x !== id)];
+        out.push(btn(open.length > 1 ? T('test.start') : T('test.start_one'), 'btn', () => startTest(open.length > 1 ? rest : [id]), open.length > 1 ? T('test.all_tip') : T('test.one_tip')));
+        if (open.length > 1) out.push(btn(T('test.only'), 'btn small plain', () => startTest([id]), T('test.one_tip')));
+      } else {
+        out.push(btn(leftAlone(f) ? T('test.start_one') : T('test.again_long'), 'btn small plain', () => startTest([id]), T('test.one_tip')));
+        if (['tach', 'silent'].includes(found)) out.push(btn(T('show.button'), 'btn small plain', () => send('show', { fan: id, quiet: quietOn() && !control().running }, { fresh: true }), T('show.tip')));
+      }
+      // answering the question writes no output: only the messenger away turns it off; a test or a show needs the way free
+      if (!here) out.forEach((b) => { b.disabled = ['ask', 'unclear'].includes(found) && !run.kind && b !== out[2] ? away : blocked; });
+      return out;
+    });
+    // set to full for safety: said here, with the way back (a process of its own: back, a kick when it doesn't start)
+    safety.hidden = !sf;
+    if (sf) {
+      const going = restoreRuns() && (restoreNow().fans || []).includes(id);
+      const waits = !going && (stepRuns() || showRuns() || restoreRuns());
+      swap(safety, [sf.why || '', safetyPct(sf), away, going, waits], () => {
+        const b = btn(T('safety.back'), 'btn small', () => send('safety_back', { fan: id }), T('safety.back_tip', { pct: safetyPct(sf) }));
+        if (going) { b.classList.add('running'); b.replaceChildren(wave(), el('span', '', T('safety.backing'))); }
+        b.disabled = away || going || waits;
+        const text = el('p', '', T(sf.why === 'not_back' ? 'safety.not_back' : 'safety.no_restart', { pct: safetyPct(sf) }));
+        return [text, b, waits ? el('p', 'fb-safety-wait', T('safety.wait')) : null];
+      });
+    }
+    // «Was ist das?»
+    const cur = found === 'empty' ? 'empty' : (f && f.role) || '';
+    roleBtns.forEach((b, k) => {
+      b.setAttribute('aria-pressed', k === cur ? 'true' : 'false');
+      b.disabled = away || never || (found === 'empty' && k !== 'empty');
+      if (k === 'unknown') setText(b, !found && !run.kind ? T('role.left') : T('role.unknown'));
+    });
+    // the CPU cooler: who steers it — right under the question, never behind a fold
+    const isCpu = !!f && f.role === 'cpu';
+    swap(cpu, [isCpu, isCpu && f.cpu_own, isCpu && found, cpuAsk.has(id), (cpuAsk.get(id) || {}).tick, away, ((setup().before || {})[id] || {}).auto ?? null], () => (isCpu ? cpuBlock(f, benchUpdate) : []));
+    // the fields
+    nameField(id, f, away || never);
+    const roleSet = !!(f && f.role);
+    place.disabled = count.disabled = away || never || !roleSet;
+    if (document.activeElement !== place) place.value = (f && f.place) || '';
+    if (document.activeElement !== count) count.value = String((f && f.count) || 1);
+    let hint = '';
+    if (found === 'empty') hint = T('panel.empty_note');
+    else if (f && f.role === 'cpu') hint = f.cpu_own ? '' : T('assign.cpu_bios');        // (given to Fanboy: its block above says since when)
+    else if (f && f.role === 'pump') hint = T('assign.never_stopped');
+    else if (f && f.role === 'unknown') hint = T('roles.bios_note.unknown');
+    else if (!roleSet && p && p.output === 1 && !never) hint = T('roles.cpu_hint');
+    else if (f && num(f.kick_start) !== null) hint = T('assign.kick', { pct: Math.round(f.kick_start / 2.55) });
+    else if (f && (f.count || 1) > 1) hint = T('roles.count_note', { n: f.count });
+    else if (!roleSet && !never) hint = T('panel.role_first');
+    setText(note, hint);
+    // model and colour (for the picture)
+    const m = f && f.model ? modelText(f.model) : '';
+    setText(lookSum, m ? T('look.fold_is', { model: m }) : T('look.fold'));
+    if (A && cat && !pk) {
+      pk = A.picker({ catalog: cat, value: f && f.model ? (f.model.id ? { id: f.model.id } : { mm: f.model.mm, blades: f.model.blades }) : null, colour: (f && f.colour) || 'auto', texts: pickerTexts(),
+        onChange: (v) => { if (v) send('fan_look', v.id ? { fan: id, model: v.id } : { fan: id, model: '', mm: v.mm, blades: v.blades }, { quietly: true }); } });
+      pickers.set(id, pk);
+      pk.el.querySelectorAll('select').forEach((x) => { x.classList.add('input', 'small', 'fb-input'); });
+      colour = inputEl('select');
+      COLOURS.forEach((c) => colour.appendChild(new Option(T(`colour.${c}`), c)));
+      colour.onchange = () => { if (pk.colour) pk.colour(colour.value); send('fan_look', { fan: id, colour: colour.value }, { quietly: true }); };
+      lookNote = el('div', 'fb-look-note');
+      lookBody.append(el('p', 'fb-hint-text', T('look.text')), pk.el, field(T('look.colour'), colour, 'fb-field-colour'), lookNote);
+    }
+    if (colour) {
+      const isModel = !!(f && f.model && f.model.id);
+      setText(colour.options[0], isModel ? T('colour.model') : T('colour.auto'));
+      if (document.activeElement !== colour) colour.value = (f && f.colour) || 'auto';
+      colour.disabled = away;
+      const c = catFan(f && f.model && f.model.id);
+      const offBy = c && f.measured && num(f.max_rpm) && num(c.rpm_max) && Math.abs(f.max_rpm - c.rpm_max) > Math.max(250, 0.3 * c.rpm_max);
+      swap(lookNote, [offBy ? f.max_rpm : 0], () => (offBy ? para(T('roles.model_off', { measured: fmt.number(f.max_rpm), sheet: fmt.number(c.rpm_max) }), 'callout') : []));
+    }
+    // «give back to»: only for an output found on a fixed value that Fanboy may get
+    const b = (setup().before || {})[id];
+    const hasBack = !!(f && b && b.fixed && !ROLES_BIOS.includes(f.role));
+    back.hidden = !hasBack;
+    if (hasBack) swap(backBody, [f.back, b.pct, b.auto ?? null, setup().back_default, away], () => backChoice(f, b));
+  }
+  update();
+  return { el: root, update, destroy() { if (wh) wh.destroy(); } };
+}
+/**
+ * The CPU cooler's block (round 4's rule, the owner 2026-11-15: «Zurück ans BIOS» was «completely in the wrong place»):
+ * who steers it — the BIOS (the default) or Fanboy on the owner's own risk behind the tick; given to him: since when,
+ * and «Back to the BIOS» right here.
+ */
+function cpuBlock(f, again) {
+  const box = el('div', 'fb-cpu');
+  const auto = ((setup().before || {})[f.id] || {}).auto;
+  box.appendChild(el('h4', 'fb-q', T('cpu.who')));
+  if (f.cpu_own) {
+    box.classList.add('fb-cpu-given');
+    box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));
+    box.appendChild(bar(btn(T('cpu.back'), 'btn small', () => send('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }), T('cpu.back_tip'))));
+    return box;
+  }
+  if (!['tach', 'silent', 'unclear'].includes(f.found)) { box.appendChild(para(T('roles.bios_note.cpu'))); return box; }
+  if (auto === null || auto === undefined) { box.append(para(T('roles.bios_note.cpu')), para(T('cpu.no_auto'))); return box; }
+  const asking = cpuAsk.has(f.id);
+  const seg = el('div', 'seg');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', T('cpu.who'));
+  [['bios', !asking], ['fanboy', asking]].forEach(([w, on]) => {
+    const b = btn(T(`cpu.${w}`), '', () => { if (w === 'fanboy') cpuAsk.set(f.id, { tick: false }); else cpuAsk.delete(f.id); again(); });
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    seg.appendChild(b);
+  });
+  box.appendChild(seg);
+  if (!asking) { box.appendChild(para(T('roles.bios_note.cpu'))); return box; }
+  const risk = el('div', 'fb-cpu-risk');
+  ['risk_1', 'risk_2', 'risk_3', 'risk_4'].forEach((k) => risk.appendChild(para(T(`cpu.${k}`, { floor: setup().cpu_floor || 40 }))));
+  const tick = el('input');
+  tick.type = 'checkbox';
+  tick.checked = !!cpuAsk.get(f.id).tick;
+  const go = btn(T('cpu.go'), 'btn', () => send('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: true, cpu_confirm: tick.checked }, { done: () => { cpuAsk.delete(f.id); } }), T('cpu.go_tip'));
+  go.disabled = !tick.checked;
+  tick.onchange = () => { cpuAsk.set(f.id, { tick: tick.checked }); go.disabled = !tick.checked; };
+  const l = el('label', 'fb-check');
+  l.append(tick, el('span', '', T('cpu.confirm')));
+  risk.append(l, bar(go));
+  box.appendChild(risk);
   return box;
 }
-/** A role picked on a card: «nothing attached» is the test's «no» (empty); a role for a fan the test asked about says «yes» first */
-async function setRole(id, f, v) {
-  if (!v) return;
-  cpuAsk.delete(id);              // round 9 (H6): a role click never carries a half-made «Fanboy steers it» along
-  if (v === 'empty') { act('answer', { fan: id, louder: false }, null); return; }
-  if (f && f.found === 'ask') await act('answer', { fan: id, louder: true }, null);
-  const now = setupFan(id) || f || {};
-  act('role', { fan: id, role: v, off_ok: !!now.off_ok && ROLES_OURS.includes(v) }, null);
+function testStep() {
+  if (!bench) bench = benchMake();
+  else bench.update();
+  return bench.el;
 }
 /**
  * «Wo sitzt er?» — the fan's name, typed while he hears it: the same field kept across every drawing (the page redraws
@@ -1843,8 +2403,7 @@ const nameFields = new Map();
 function nameField(id, f, off) {
   let n = nameFields.get(id);
   if (!n) {
-    n = el('input', 'input small');
-    n.type = 'text';
+    n = inputEl('input', 'text');
     n.maxLength = 40;
     n.placeholder = T('assign.where_ph');
     n.dataset.fbKeep = '1';
@@ -1858,8 +2417,8 @@ function nameField(id, f, off) {
       const value = n.value.trim();
       n.dataset.saving = value;
       const j = await Office.api.post(`${ID}.fan_name`, { fan: id, name: value });
-      if (!j.ok) Office.toast(Office.errorText(j.error, ID), true);
-      else { const sf = setupFan(id); if (sf) sf.name = value; }
+      if (!j.ok) { const text = Office.errorText(j.error, ID); Office.toast(text, true); say(T('strip.refused', { why: text })); }
+      else { const sf = setupFan(id); if (sf) sf.name = value; if (bench) bench.update(); }
       if (n.dataset.saving === value) delete n.dataset.saving;
     };
     n.addEventListener('input', () => { clearTimeout(t); t = setTimeout(save, 700); });
@@ -1923,55 +2482,6 @@ async function startStep(kind, ids, b) {
   await act(kind, kind === 'test_up' ? { fans: ids, quiet: quietOn() } : { fans: ids }, b, async () => { await load(true); });
 }
 
-/**
- * Round 4: who steers the CPU cooler — the BIOS (the default) or «Fanboy regelt ihn», only behind a tick that says in
- * plain words what it means; given to him: since when, and back to the BIOS with one click. No mainboard automatic for
- * this output: not offered (it could only be given back to a fixed value).
- */
-function cpuPart(f) {
-  const box = el('div', 'fb-cpu');
-  const auto = ((setup().before || {})[f.id] || {}).auto;
-  if (f.cpu_own) {
-    box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));
-    box.appendChild(bar(button(T('cpu.back'), T('cpu.back_tip'), (b) => act('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }, b))));
-    return box;
-  }
-  if (!cpuAsk.has(f.id)) box.appendChild(para(T('roles.bios_note.cpu')));
-  if (auto === null || auto === undefined) {
-    box.appendChild(para(T('cpu.no_auto')));
-    return box;
-  }
-  const seg = el('div', 'seg');
-  seg.setAttribute('role', 'group');
-  seg.setAttribute('aria-label', T('cpu.who'));
-  const asking = cpuAsk.has(f.id);
-  [['bios', !asking], ['fanboy', asking]].forEach(([w, on]) => {
-    const b = el('button', '', T(`cpu.${w}`));
-    b.type = 'button';
-    b.dataset.own = '1';
-    b.setAttribute('aria-pressed', on ? 'true' : 'false');
-    b.onclick = () => { if (w === 'fanboy') cpuAsk.set(f.id, { tick: false }); else cpuAsk.delete(f.id); drawn = ''; redraw(); };
-    seg.appendChild(b);
-  });
-  box.appendChild(seg);
-  if (asking) {
-    const risk = el('div', 'fb-cpu-risk');
-    ['risk_1', 'risk_2', 'risk_3', 'risk_4'].forEach((k) => risk.appendChild(para(T(`cpu.${k}`, { floor: setup().cpu_floor || 40 }))));
-    const tick = el('input');
-    tick.type = 'checkbox';
-    tick.checked = !!cpuAsk.get(f.id).tick;
-    const go = button(T('cpu.go'), T('cpu.go_tip'), (b) => act('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: true, cpu_confirm: tick.checked }, b,
-      () => { cpuAsk.delete(f.id); }), 'btn');
-    go.disabled = !tick.checked;
-    tick.onchange = () => { cpuAsk.set(f.id, { tick: tick.checked }); go.disabled = !tick.checked; };
-    const l = el('label', 'fb-check');
-    l.append(tick, el('span', '', T('cpu.confirm')));
-    risk.append(l, bar(go));
-    box.appendChild(risk);
-  }
-  return box;
-}
-
 function modelText(m) {
   const c = catFan(m && m.id);
   return c ? `${c.brand} ${c.model}` : m && m.mm ? T('roles.other_fan', { mm: m.mm }) : '';
@@ -2000,8 +2510,8 @@ function backChoice(f, b) {
     r.name = name;
     r.value = v;
     r.checked = cur === v;
-    r.disabled = off || busy || !Office.agent.running;
-    r.onchange = () => act('back', { fan: f.id, back: v }, null);
+    r.disabled = off || !Office.agent.running;
+    r.onchange = () => send('back', { fan: f.id, back: v }, { quietly: true });
     l.append(r, el('span', '', label));
     if (off) l.title = T('back.no_auto');
     box.appendChild(l);
@@ -2612,6 +3122,8 @@ Office.desk({
     if (pic) { pic.destroy(); pic = null; }
     pickers.forEach((p) => p.destroy());
     pickers.clear();
+    if (bench) { bench.destroy(); bench = null; }
+    said = null;
     curves.forEach((c) => c.c.destroy());
     curves.clear();
   },

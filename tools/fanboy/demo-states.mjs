@@ -321,6 +321,34 @@ files['fanboy-ready'] = state({ ite: ite({}, RPM), fans: SET_UP, zones: ZONES, w
 files['fanboy-gone'] = state({ ite: ite({}, RPM), fans: [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'ask' })],
   step: { id: 'a1b2c3d4e5f6', kind: 'test_up', fans: OUTPUTS, status: 'stopped', why: 'page_gone', pid: 4242, start: '123456', current: null, done: [P(1), P(2)], results: {}, progress: null, at: T0 - 20 } });
 
+// ---- the setup thought through as one flow (fanboy-ux, 2026-11-15): step 2's list and panel in each of its moments ----
+// a quiet test running, the fields in use: output 1 is known as the CPU cooler (never stopped again), 2 heard nothing
+// (nothing attached), 3 at full right now — named and given its role while it runs —, 4 to 6 wait and stand meanwhile
+const UX_DONE = { [P(1)]: { found: 'tach', tachs: [1] }, [P(2)]: { found: 'empty', tachs: [] } };
+files['fanboy-uxrun'] = state({ ite: ite({ 1: [128, 1], 2: [0, 1], 3: [255, 0], 4: [0, 1], 5: [0, 1], 6: [0, 1] }, { ...RPM, 4: 0, 5: 0, 6: 0 }),
+  fans: [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler', place: 'rear' }), fan(2, { found: 'empty' }), fan(3, { name: 'Vorn unten', role: 'case' })],
+  who: { who: 'bios', why: 'not_set_up' },
+  step: running('test_up', OUTPUTS, P(3), [P(1), P(2)], UX_DONE, { quiet: true, progress: { id: P(3), phase: 'full', quiet: true, until: T0 + 41 } }) });
+// the restart pause after output 3: everything back as it was, the fans starting again, output 4 next
+files['fanboy-uxpause'] = state({ ite: ite({}, { ...RPM, 4: 310, 5: 420, 6: 380 }),
+  fans: [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler', place: 'rear' }), fan(2, { found: 'empty' }), fan(3, { found: 'silent', name: 'Vorn unten', role: 'case', place: 'front' })],
+  who: { who: 'bios', why: 'not_set_up' },
+  step: running('test_up', OUTPUTS, P(3), [P(1), P(2)], UX_DONE, { quiet: true, progress: { id: P(3), phase: 'pause', until: T0 + 11 } }) });
+// everything tested and assigned (the panel of the disk cage: found, named, its model chosen)
+const UX_FOUND = [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler', place: 'rear' }), fan(2, { found: 'empty' }),
+  fan(3, { found: 'silent', name: 'Vorn unten', role: 'case', place: 'front' }),
+  fan(4, { tachs: [4], found: 'tach', role: 'disks', name: 'Plattenkäfig', place: 'front', model: { id: 'noctua-nf-a12x25-pwm', mm: null, blades: null } }),
+  fan(5, { tachs: [5, 6], found: 'tach', role: 'case', name: 'Vorn', place: 'front', count: 2 }), fan(6, { found: 'empty' })];
+files['fanboy-uxfound'] = state({ ite: ite({}, RPM), fans: UX_FOUND,
+  step: { id: 'a1b2c3d4e5f6', kind: 'test_up', fans: OUTPUTS, status: 'done', why: null, pid: 4242, start: '123456', current: null, done: OUTPUTS, results: {}, progress: null, at: T0 - 30 } });
+// a fan that didn't start again after standing: Fanboy set its output to full for safety — said, with the way back
+files['fanboy-uxsafety'] = state({ ite: ite({ 5: [255, 1] }, { ...RPM, 5: 1440, 6: 1410 }), fans: UX_FOUND.slice(0, 5),
+  safety: { [P(5)]: { why: 'no_restart', at: T0 - 50, before: { value: 128, enable: 1 } } },
+  step: { id: 'a1b2c3d4e5f6', kind: 'test_up', fans: OUTPUTS, status: 'stopped', why: 'no_restart', quiet: true, quiet_stop: { what: 'Vorn', c: null }, pid: 4242, start: '123456', current: null,
+    done: [P(1), P(2), P(3), P(4), P(5)], results: {}, progress: null, at: T0 - 50 } });
+// one output still to test (the picture tool has its start refused: the CPU is warm — the strip says so and keeps it)
+files['fanboy-uxopen'] = state({ ite: ite({}, RPM), fans: UX_FOUND.slice(0, 5) });
+
 // the curve view's history (invented): three days for the disk cage, 30 hours for the case (a zone added later — the page
 // says «recorded only since …»), a point a minute, then kept as the agent keeps it (fanboyHistoryThin(): 12 h of minutes,
 // older ones a 5-minute span carrying its warmest, highest level and rpm). Warm afternoons, cool nights.

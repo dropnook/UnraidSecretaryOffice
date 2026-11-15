@@ -589,12 +589,12 @@ function testFanboyR7CardsKeepSize(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css');
-    $test = substr($js, (int) strpos($js, 'function testCard('), 6000);       // round 8: the test's card (with its assignment)
-    check('fanboy r7 cards: the state line is one element of its own with room for two lines',
-        str_contains($test, "el('div', 'fb-card-line fb-card-state', line)") && str_contains($css, '.fb-card-state{min-height:calc(2 * 1.45em)}'));
-    check('fanboy r7 cards: while a test runs every card keeps its button row — the button off (no card loses or gains a row)',
-        str_contains($test, "} else if (live) {\n    const off = button(found ? T('test.again') : T('test.one'), T('test.wait_tip'), () => {});\n    off.disabled = true;\n    txt.appendChild(bar(off));")
-        && str_contains($test, 'txt.appendChild(assignBox(id, f, live));') && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css'), '.fb-assign-note{min-height:calc(2 * 1.45em)}'));
+    // fanboy-ux (2026-11-15): the cards became a list and one panel built once and patched in place (testFanboyUx) — what
+    // F2 asked for holds there: a row has one height, the panel's sentence keeps room for two lines, its button row stays
+    check('fanboy r7 cards: a row of the list has one height, the panel\'s state sentence room for two lines',
+        preg_match('/\\.fb-item\\{[^}]*height:58px/', $css) === 1 && str_contains($css, '.fb-panel-line{margin:0; font-size:13.5px; line-height:1.45; color:var(--ink2); min-height:calc(2 * 1.45em)}'));
+    check('fanboy r7 cards: while a test runs every panel keeps its button row (its room) and says under it why a button is off',
+        str_contains($css, '.fb-panel-acts{display:flex; gap:8px; flex-wrap:wrap; align-items:center; min-height:34px}') && str_contains($js, "reason = T('panel.busy', { fan: run.id ? fanName(run.id) : '' });"));
     check('fanboy r7 cards: «show me» keeps its width — both labels in one grid cell, the other hidden',
         str_contains($js, "b.append(el('span', mine ? 'fb-show-label fb-show-off' : 'fb-show-label', T('show.button')), on);")
         && str_contains($css, '.fb-show{white-space:nowrap; display:inline-grid}') && str_contains($css, '.fb-show > .fb-show-off{visibility:hidden}'));
@@ -956,10 +956,11 @@ function testFanboyR8FoundNext(): void
 function testFanboyR8Assign(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
-    $card = substr($js, (int) strpos($js, 'function testCard('), 12000);
-    $reach = ["act('role', { fan: id, role: v,", "act('answer', { fan: id, louder: false }", "act('role', { fan: id, role: f.role, count:", "act('role', { fan: id, role: f.role, place:",
-        "act('fan_look', v.id ?", "act('fan_look', { fan: id, colour:", 'more.appendChild(backChoice(f, b));', 'more.appendChild(cpuPart(f));', "Office.api.post(`\${ID}.fan_name`", 'showButton(id, f)'];
-    same('fanboy r8 assign: every action of the old roles step reachable from the test\'s card (role, nothing attached, count, place, model, colour, give back, CPU on own risk, name, show me)',
+    // fanboy-ux (2026-11-15): the card is the output's panel now (panelMake + cpuBlock), its actions queued through send()
+    $card = substr($js, (int) strpos($js, 'function panelMake('), 20000);
+    $reach = ["send('role', { fan: id, role: k,", "send('answer', { fan: id, louder: false })", "send('role', { fan: id, role: f.role, count:", "send('role', { fan: id, role: f.role, place:",
+        "send('fan_look', v.id ?", "send('fan_look', { fan: id, colour:", 'backChoice(f, b)', 'cpuBlock(f, benchUpdate)', 'nameField(id, f,', "send('show', { fan: id,"];
+    same('fanboy r8 assign: every action of the old roles step reachable from the output\'s panel (role, nothing attached, count, place, model, colour, give back, CPU on own risk, name, show me)',
         [], array_values(array_filter($reach, fn ($x) => !str_contains($card, $x))));
     same('fanboy r8 assign: six steps — the old route …/setup/roles opens «Testen und zuordnen»; no roles step left', [true, false, false],
         [str_contains($js, "if (rest === 'roles') rest = 'test';"), str_contains($js, 'function rolesStep('), str_contains($js, "return 'roles'")]);
@@ -1119,14 +1120,17 @@ function testFanboyR9Now(): void
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css');
     check('fanboy r9 now: one line says what runs (full, full with the others standing, pause with seconds, kick, show, back, safety, nothing) — above the test step and the fans list',
-        str_contains($js, "box.appendChild(nowLine());\n  stepEnded(box, s, 'test_up');") && str_contains($js, "s.appendChild(nowLine());")
-        && !array_filter(['now.full', 'now.full_quiet', 'now.pause', 'now.kick', 'now.next', 'now.restore', 'now.safety', 'now.nothing'], fn ($k) => !str_contains($js, "'$k'")));
+        // (fanboy-ux: the test step says it in its strip — stripUpdate(), testFanboyUx; the fans list keeps the line)
+        str_contains($js, '  function stripUpdate() {') && str_contains($js, "s.appendChild(nowLine());")
+        && !array_filter(['now.full', 'now.full_quiet', 'now.pause', 'now.kick', 'now.next', 'now.restore', 'now.safety', 'now.nothing',
+            'strip.test', 'strip.test_quiet', 'strip.pause', 'strip.kick', 'strip.restore', 'strip.safety', 'strip.idle'], fn ($k) => !str_contains($js, "'$k'")));
     check('fanboy r9 now: the card and row at full framed like the office\'s active tiles; «Alles stoppen» beside the line while anything runs',
         str_contains($css, '.fb-card-now, .fb-row-now{border-color:var(--accent); background:var(--accent-soft);') && str_contains($js, "act('stop_all', {}, b,"));
     check('fanboy r9 now: a click that can\'t go through says why (busy, the messenger away) — never silence',
         str_contains($js, "if (busy) { Office.toast(T('busy_wait'), true); return null; }") && str_contains($js, "if (!Office.agent.running) { Office.toast(t('errors.agent_away'), true); return null; }"));
     check('fanboy r9 fields: the cards\' selects and fields in the office\'s field look (input small), full width there',
-        substr_count($js, "el('select', 'input small')") >= 4 && str_contains($js, "n = el('input', 'input small');") && str_contains($css, '.fb-assign .input{width:100%; flex:none}'));
+        // (fanboy-ux: one helper gives every field of the panel that look — inputEl())
+        str_contains($js, "const n = el(tag, 'input small fb-input');") && substr_count($js, "inputEl('select')") >= 3 && str_contains($js, "n = inputEl('input', 'text');") && str_contains($css, '.fb-fields .fb-input{width:100%; flex:none}'));
     $t = fanboyT('r9now');
     try {
         fanboyTDisks($t, 35, null, 33);
@@ -1169,7 +1173,8 @@ function testFanboyR9CpuOwn(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
     check('fanboy r9 cpu: the card says which — «regelt das BIOS» or «regelt Fanboy auf dein Risiko seit …»; a role click forgets a half-made choice',
-        str_contains($js, "note = f.cpu_own ? T('assign.cpu_own', { date: Office.fmt.date(f.cpu_own) }) : T('assign.cpu_bios');") && str_contains($js, 'cpuAsk.delete(id);'));
+        // (fanboy-ux: the panel's note says «regelt das BIOS», the CPU cooler's own block «von Fanboy geregelt … seit» with «Zurück ans BIOS»)
+        str_contains($js, "hint = f.cpu_own ? '' : T('assign.cpu_bios');") && str_contains($js, "box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));") && str_contains($js, 'cpuAsk.delete(id);'));
     $t = fanboyT('r9cpu');
     try {
         fanboyTStore(fanboyTSettings());

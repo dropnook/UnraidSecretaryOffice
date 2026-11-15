@@ -75,11 +75,11 @@
      the value never below the point before it nor above the one after it.
 
    The picker (picker()):
-     opts = { catalog: { fans: [...] }, value: { id } | { mm, blades } (other fan),
+     opts = { catalog: { fans: [...] }, value: { id } | { mm, blades } (other fan), colour (the user's, 'auto'),
               texts: { brand, model, other, choose, size, blades, mm(n) → '120 mm', option(fan) → model's line,
                        facts(fan) → a line about the chosen fan }, onChange(fan) }
      onChange gets { id, brand, model, mm, blades, rpm_min, rpm_max, connector, look } (other fan: id null, brand null,
-     look null). The picker's wheel shows the chosen model's look. */
+     look null). The picker's wheel shows the chosen model's look in the user's colour; picker.colour(c) changes it. */
 (function () {
   'use strict';
   if (window.FanArt) return;
@@ -975,6 +975,7 @@
     void fBrand;
 
     let cur = null;
+    let colour = pick(o.colour, COLOURS, 'auto');      // the user's colour for this fan: the preview shows what the pictures will
     function chosen() {
       if (brandSel.value === OTHER) {
         return { id: null, brand: null, model: null, mm: +sizeSel.value, blades: +bladeSel.value, rpm_min: null, rpm_max: null, connector: null, look: null };
@@ -996,8 +997,8 @@
       cur = chosen();
       facts.textContent = cur ? tx.facts(cur) : '';
       const mx = cur && cur.rpm_max ? cur.rpm_max : 1500;
-      wh.update(cur ? { mm: cur.mm || 120, blades: cur.blades || null, min: cur.rpm_min, max: mx, rpm: Math.round(mx * 0.6), state: 'run', look: cur.look }
-        : { mm: 120, blades: 7, rpm: 0, state: 'unknown', look: null });
+      wh.update(cur ? { mm: cur.mm || 120, blades: cur.blades || null, min: cur.rpm_min, max: mx, rpm: Math.round(mx * 0.6), state: 'run', look: cur.look, colour }
+        : { mm: 120, blades: 7, rpm: 0, state: 'unknown', look: null, colour });
     }
     const changed = () => { look2(); if (typeof o.onChange === 'function') o.onChange(cur); };
     brandSel.addEventListener('change', () => { models(); changed(); });
@@ -1023,7 +1024,7 @@
       look2();
     }
     set(o.value);
-    return { el: root, set, value: () => cur, destroy() { wh.destroy(); } };
+    return { el: root, set, value: () => cur, colour(c) { colour = pick(c, COLOURS, 'auto'); look2(); }, destroy() { wh.destroy(); } };
   }
 
   window.FanArt = { wheel, server, curve, picker, catalog, turns, styles, lookOf, COLOURS, STATES, PLACES, KINDS, FLOWS, SIDES, LOOK_COLOURS, STYLES, SHAPES };
