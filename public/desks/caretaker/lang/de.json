@@ -688,6 +688,7 @@
   "nc.who_sub": "Pro Kollegin und Kollege: wie viel rausgeht, und wann.",
   "nc.office_row": "Das Sekretariat selbst",
   "nc.sends": "schickt: {what}",
+  "nc.note.fanboy": "Ein Lüfter steht, zu warm, ein Fühler meldet nichts, der Lüfter-Chip ist weg: Alarme – die gehen immer sofort.",
   "nc.send.alert": "Alarme",
   "nc.send.warning": "Warnungen",
   "nc.send.normal": "Hinweise",

@@ -688,6 +688,7 @@
   "nc.who_sub": "Per colleague: how much goes out, and when.",
   "nc.office_row": "The office itself",
   "nc.sends": "sends: {what}",
+  "nc.note.fanboy": "A fan that stands, too warm, a sensor that says nothing, the fan chip gone: alerts — they always go at once.",
   "nc.send.alert": "alerts",
   "nc.send.warning": "warnings",
   "nc.send.normal": "notices",

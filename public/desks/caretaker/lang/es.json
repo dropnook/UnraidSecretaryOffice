@@ -688,6 +688,7 @@
   "nc.who_sub": "Para cada colega: cuánto sale, y cuándo.",
   "nc.office_row": "La secretaría misma",
   "nc.sends": "envía: {what}",
+  "nc.note.fanboy": "Un ventilador parado, demasiado calor, un sensor que no dice nada, el chip de los ventiladores desaparecido: alertas — salen siempre al momento.",
   "nc.send.alert": "alertas",
   "nc.send.warning": "advertencias",
   "nc.send.normal": "avisos",
