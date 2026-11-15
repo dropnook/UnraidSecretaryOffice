@@ -118,7 +118,8 @@ function testFanboyGuardCron(): void
 function testFanboyWaz(): void
 {
     $waz = '/bin/bash /usr/local/emhttp/plugins/md12xx.fancontrol/scripts/controller-supervisor.sh';
-    $t = fanboyT('waz', 10, FANBOY_T_ADDR, ['procs' => [1 => '/sbin/init', 4321 => $waz]]);
+    $waz_plg = ['md12xx.fancontrol.plg' => '<PLUGIN/>', 'fanctrlplus.plg' => '<PLUGIN/>'];      // round 7: installed
+    $t = fanboyT('waz', 10, FANBOY_T_ADDR, ['procs' => [1 => '/sbin/init', 4321 => $waz], 'plugins' => fanboyFakeBoard()['plugins'] + ['md12xx.fancontrol.plg' => '<PLUGIN/>']]);
     try {
         $scan = fanboyDetect();
         $tool = array_column($scan['tools'], null, 'id')['md12xx.fancontrol'] ?? [];
@@ -129,7 +130,8 @@ function testFanboyWaz(): void
     } finally {
         fanboyTEnd();
     }
-    $t = fanboyT('waz2', 10, FANBOY_T_ADDR, ['procs' => [1 => '/sbin/init', 4321 => $waz, 4322 => '/bin/bash /usr/local/emhttp/plugins/fanctrlplus/fanctrlplus_loop.sh']]);
+    $t = fanboyT('waz2', 10, FANBOY_T_ADDR, ['procs' => [1 => '/sbin/init', 4321 => $waz, 4322 => '/bin/bash /usr/local/emhttp/plugins/fanctrlplus/fanctrlplus_loop.sh'],
+        'plugins' => fanboyFakeBoard()['plugins'] + $waz_plg]);
     try {
         $scan = fanboyDetect();
         same('fanboy waz: beside FanCtrl Plus — FanCtrl Plus alone holds him back', ['other', ['FanCtrl Plus'], ['fanctrlplus']],

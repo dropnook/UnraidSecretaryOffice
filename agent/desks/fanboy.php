@@ -620,8 +620,55 @@ function fanboyControlState(?array $settings): array
     return $out;
 }
 
-/** Who steers now and why — Fanboy (his zones), or the BIOS / another plugin / the board with the reason */
+/**
+ * Round 7 (F3, the owner's server after another controller was uninstalled): the outputs that stand on a fixed value
+ * someone left (pwmN_enable 1, or 0 «full on») — nobody steers them, not the BIOS. Offered outputs only, those the test
+ * found empty, ignored or inverted left out, one without a mode file unknown. [fixed: [{id, output, pct}], auto: n]
+ */
+function fanboyFixedOutputs(array $scan, ?array $settings): array
+{
+    $fixed = [];
+    $auto = 0;
+    foreach ($scan['chips'] ?? [] as $c) {
+        if (!fanboyOffers($c)) {
+            continue;
+        }
+        foreach ($c['outputs'] as $o) {
+            $id = fanboyFanId($c['name'], $c['address'], $o['n']);
+            if (in_array($settings['fans'][$id]['found'] ?? null, ['empty', 'ignored', 'inverted'], true) || !is_int($o['enable'])) {
+                continue;
+            }
+            if ($o['enable'] >= 2) {
+                $auto++;
+            } else {
+                $fixed[] = ['id' => $id, 'output' => $o['n'], 'pct' => $o['enable'] === 0 ? 100 : (int) $o['pct']];
+            }
+        }
+    }
+    return ['fixed' => $fixed, 'auto' => $auto];
+}
+
+/**
+ * Who steers now and why — Fanboy (his zones), or the BIOS / another plugin / the board with the reason. Round 7 (F3):
+ * the BIOS only where it does — every output with a fan on a fixed value someone left: «nobody» (why «fixed»), some of
+ * them: the BIOS with those listed (`fixed`). Never while a setup step or a show moves an output on purpose.
+ */
 function fanboyWhoNow(array $scan, array $control, ?array $settings): array
+{
+    $who = fanboyWhoBase($scan, $control, $settings);
+    if (($who['who'] ?? '') !== 'bios' || in_array($who['why'] ?? '', ['array_stopped', 'chip_missing', 'chip_gone', 'no_output', 'starting'], true)
+        || fanboyStepRunning() || fanboyShowRunning()) {
+        return $who;
+    }
+    $fx = fanboyFixedOutputs($scan, $settings);
+    if ($fx['fixed'] && !$fx['auto']) {
+        return ['who' => 'nobody', 'why' => 'fixed', 'fixed' => $fx['fixed'], 'was' => $who['why'] ?? null];
+    }
+    return $fx['fixed'] ? $who + ['fixed' => $fx['fixed']] : $who;
+}
+
+/** Who steers by the control and his look (before round 7's look at outputs left on a fixed value) */
+function fanboyWhoBase(array $scan, array $control, ?array $settings): array
 {
     if ($control['running'] && $control['who'] === 'fanboy') {
         return ['who' => 'fanboy', 'why' => $control['alarm'] !== null ? 'alarm' : 'steers', 'zones' => count($control['zones'])];

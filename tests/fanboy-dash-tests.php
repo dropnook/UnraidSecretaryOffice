@@ -231,7 +231,7 @@ function testFanboyDashSource(): void
     $missing = array_values(array_filter(array_unique($k[1]), fn ($key) => !str_ends_with($key, '.') && (!str_starts_with($key, 'fanboy.') || !isset($en[substr($key, 7)]))));
     check('fanboy dash: every text it asks for exists (' . count(array_unique($k[1])) . ')', $missing === [] && count($k[1]) > 15, json_encode($missing));
     $whys = array_filter(array_keys($en), fn ($key) => str_starts_with($key, 'dash.why.'));
-    same('fanboy dash: a short why for each of the control\'s and his look\'s reasons the tile can meet', ['array_stopped', 'chip_missing', 'crashed', 'hand_back', 'hold',
+    same('fanboy dash: a short why for each of the control\'s and his look\'s reasons the tile can meet', ['array_stopped', 'chip_missing', 'crashed', 'fixed', 'hand_back', 'hold',
         'ipmi', 'no_output', 'not_armed', 'not_set_up', 'other', 'released', 'starting', 'stopped'], fanboyTSorted(array_map(fn ($key) => substr($key, 9), $whys)));
     // the refresh: never faster than his state changes (the control every 10 s), only while the page is in view
     $js = substr($src, (int) strpos($src, '<script>'));

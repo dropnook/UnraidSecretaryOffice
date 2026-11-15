@@ -709,6 +709,7 @@ function testFanboyZones(): void
         same('fanboy zones: taken over — armed, the control started', [true, ['fanboy-control']], [fanboyBoardRaw()['armed'], $GLOBALS['fanboyLaunched']]);
         @mkdir("{$t['root']}/boot/config/plugins/fanctrlplus", 0700, true);
         file_put_contents("{$t['root']}/boot/config/plugins/fanctrlplus/fanctrlplus_x.cfg", "service=\"1\"\ncontroller=\"/sys/x/pwm1\"\n");
+        file_put_contents("{$t['root']}/boot/config/plugins/fanctrlplus.plg", "<PLUGIN/>\n");      // round 7: installed
         try {
             fanboyTakeOver();
             $code = 'kept';
@@ -1011,6 +1012,11 @@ function testFanboyState(): void
     $t = fanboyT('state');
     try {
         fanboyTDisks($t, 35, null, 33);
+        // round 7: the outputs in the chip's automatic, as the BIOS leaves them (on a fixed value someone left nobody
+        // steers — testFanboyR7Fixed)
+        foreach ([1, 2, 3, 4, 5, 6] as $n) {
+            file_put_contents("{$t['hw']}/pwm{$n}_enable", "2\n");
+        }
         $settings = fanboyTSettings();
         fanboyTStore($settings);
         $scan = fanboyDetect();

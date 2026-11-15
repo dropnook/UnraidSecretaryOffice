@@ -115,8 +115,10 @@ function showButton(id, f) {
   b.type = 'button';
   b.dataset.own = '1';
   // 4b: while it runs, its own button ends it («Found it — stop»): the same give-back as after the time
-  if (mine) b.append(wave(), el('span', '', T('show.stop')));
-  else b.textContent = T('show.button');
+  // round 7 (F2): both labels in one cell, the one not shown hidden — the button keeps its width when it turns into «stop»
+  const on = el('span', mine ? 'fb-show-label' : 'fb-show-label fb-show-off');
+  on.append(wave(), el('span', '', T('show.stop')));
+  b.append(el('span', mine ? 'fb-show-label fb-show-off' : 'fb-show-label', T('show.button')), on);
   const why = f && ['ignored', 'inverted'].includes(f.found) ? T(`show.off.${f.found}`)
     : situation() === 'other' ? T('show.off.other') : stepRuns() ? T('show.off.step') : showRuns() && !mine ? T('show.off.one') : control().running && control().alarm ? T('show.off.alarm') : '';
   b.title = mine ? T('show.stop_tip') : why || T('show.tip');
@@ -363,6 +365,7 @@ function bubbleText() {
   if (stepRuns()) return step().kind === 'measure' ? T('bubble.measuring') : T('bubble.testing');
   if (w.why === 'chip_missing' || w.why === 'chip_gone') return T(`bubble.${w.why}`);
   if (w.why === 'array_stopped') return T('bubble.array_stopped');
+  if (w.why === 'fixed') return T('bubble.fixed');           // round 7: nobody steers — a fixed value someone left
   const s = situation();
   if (s === 'other') return T('bubble.other', { who: otherNames() });
   if (s === 'driver_missing' || s === 'no_output' || s === 'ipmi') return T(`bubble.${s}`);
@@ -370,6 +373,9 @@ function bubbleText() {
   if (s === 'ok') return T('bubble.ok', { n: counts().outputs || 0 });
   return T('bubble.loading');
 }
+/** Round 7 (F3): the outputs on a fixed value someone left, as the page names them — «Output 1 (50 %), Output 4 (100 %)» */
+const fixedOut = (id) => (who().fixed || []).some((x) => x.id === id);
+const fixedList = (list) => (list || []).map((x) => T('fixed.item', { name: fanName(x.id), pct: x.pct })).join(', ');
 const otherNames = () => ((S().situation || {}).names || []).join(', ') || (who().name || '');
 const plainNow = () => ['alarm', 'chip_missing', 'chip_gone', 'crashed', 'array_stopped'].includes(who().why) || (control().running && control().alarm);
 
@@ -506,8 +512,9 @@ function wheelOf(id, opts) {
     id, label: fanName(id), sub, mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour,
     rpm: st === 'unknown' ? null : shown, state: silent && held ? 'run' : st, place: f.place || (opts && opts.place) || 'front',
     // round 5: the chip went while he steered — his fans sit where he left them (nobody's), the BIOS's stay the BIOS's
-    badge: st === 'bios' ? (stuck ? T('pic.stuck') : T('pic.bios')) : '',
-    title: st === 'bios' ? (stuck ? T('pic.stuck_title') : ROLES_BIOS.includes(f.role) ? T('pic.watched_title') : T('pic.bios_title')) : T('pic.his_title'),
+    // round 7 (F3): its output on a fixed value someone left — nobody's, not the BIOS's
+    badge: st === 'bios' ? (stuck || fixedOut(id) ? T('pic.stuck') : T('pic.bios')) : '',
+    title: st === 'bios' ? (stuck ? T('pic.stuck_title') : fixedOut(id) ? T('pic.fixed_title') : ROLES_BIOS.includes(f.role) ? T('pic.watched_title') : T('pic.bios_title')) : T('pic.his_title'),
   };
 }
 /**
@@ -569,14 +576,15 @@ function picture() {
     const out = (su.fans || []).find((x) => x.chip === c.name && (x.tachs || []).includes(f.n));
     const look = fanLook(out);
     fans.push({ id, label: out && out.name ? out.name : T('fans.row', { n: f.n }), sub: T('pic.rpm', { rpm: fmt.number(f.rpm) }), mm: look.mm, blades: look.blades,
-      min: look.min, max: look.max, colour: look.colour, rpm: f.rpm, state: 'bios', badge: T('pic.bios'), title: T('pic.bios_title'),
+      min: look.min, max: look.max, colour: look.colour, rpm: f.rpm, state: 'bios',
+      badge: who().why === 'fixed' ? T('pic.stuck') : T('pic.bios'), title: who().why === 'fixed' ? T('pic.fixed_title') : T('pic.bios_title'),
       place: (out && out.place) || (fans.length % 2 ? 'rear' : 'front') });
   }));
   const kinds = ['cpu', 'nvme', 'disk', 'ram', 'board'];
   const sources = (su.sources || []).filter((s) => kinds.includes(s.kind))
     .sort((a, b) => kinds.indexOf(a.kind) - kinds.indexOf(b.kind)).filter((s, i, all) => s.kind === 'disk' || all.findIndex((x) => x.kind === s.kind && x.label === s.label) === i)
     .slice(0, 14).map(asSource);
-  return { zones: [{ id: '_all', name: T('pic.all'), note: steers() ? '' : T('pic.all_note'), fans, sources }] };
+  return { zones: [{ id: '_all', name: T('pic.all'), note: steers() ? '' : who().why === 'fixed' ? T('pic.all_note_fixed') : T('pic.all_note'), fans, sources }] };
 }
 function pictureEl() {
   const A = art();
@@ -732,7 +740,7 @@ function serverSection() {
   const s = el('section', 'section');
   const go = el('a', 'btn small', steers() || (setup().zones || []).length ? T('server.change') : T('server.set_up'));
   go.href = `#/${ID}/setup`;
-  s.appendChild(Office.sectionHead(T('server.title'), steers() ? T('server.sub_steers') : T('server.sub'), go, { place: 'server.title' }));
+  s.appendChild(Office.sectionHead(T('server.title'), steers() ? T('server.sub_steers') : who().why === 'fixed' ? T('server.sub_fixed') : T('server.sub'), go, { place: 'server.title' }));
   s.appendChild(pictureEl());
   const notes = notesBox();
   if (notes) s.append(Office.place('notes.title', el('h3', 'fb-head', T('notes.title'))), notes);
@@ -1388,6 +1396,11 @@ function paintBanner() {
   } else if (s === 'no_output') {
     // round 5: in a virtual machine the fans are the host's (a hint only — a VM with a chip passed through steers on)
     box('warn', T('situation.no_output') + (S().vm ? ' ' + T('situation.vm') : ''), { situation: s });
+  } else if (s === 'ok' && w.why === 'fixed') {
+    // round 7 (F3): nobody steers — not the BIOS: the outputs stand on a fixed value someone left (an uninstalled plugin)
+    box('warn', T('situation.fixed', { list: fixedList(w.fixed) }), { situation: 'fixed' });
+  } else if (s === 'ok' && (w.fixed || []).length && !banner.children.length) {
+    box('warn', T('situation.fixed_some', { list: fixedList(w.fixed) }), { situation: 'fixed_some' });
   } else if (s === 'ok' && !banner.children.length) {
     box('', steers() ? T(cpuGiven() ? 'situation.steers_cpu' : 'situation.steers', { n: w.zones || 0 }) : c.armed === false && (setup().zones || []).length ? T('situation.not_armed') : T('situation.ok'), { situation: s });
   }
@@ -1533,15 +1546,21 @@ function testStep() {
     else if (found === 'ask') line = T('test.ask');
     else if (found === 'ignored' || found === 'inverted') line = T(`test.${found}`);     // round 5: never steered
     if (r && r.found === 'busy') line = T('test.busy');
-    txt.appendChild(el('div', 'fb-card-line', line));
+    // round 7 (F2, the owner: «the grid moves under the mouse»): the state's line keeps room for two lines and a card keeps
+    // its button row while a test runs (the button off) — a card changes no height as the test walks through the outputs
+    txt.appendChild(el('div', 'fb-card-line fb-card-state', line));
     if (!live && (found === 'ignored' || found === 'inverted')) txt.appendChild(el('div', 'fb-card-line', T(`test.${found}_hint`)));
-    if (!live && ['ask', 'unclear'].includes(found)) {
+    if (live) {
+      const off = button(found ? T('test.again') : T('test.one'), T('test.wait_tip'), () => {});
+      off.disabled = true;
+      txt.appendChild(bar(off));
+    } else if (['ask', 'unclear'].includes(found)) {
       txt.appendChild(el('div', 'fb-card-line fb-strong', T('test.louder')));
       txt.appendChild(bar(
         button(T('test.yes'), T('test.yes_tip'), (b) => act('answer', { fan: id, louder: true }, b)),
         button(T('test.no'), T('test.no_tip'), (b) => act('answer', { fan: id, louder: false }, b)),
         button(T('test.again'), T('test.again_tip'), (b) => startStep('test_up', [id], b))));
-    } else if (!live) {
+    } else {
       txt.appendChild(bar(button(found ? T('test.again') : T('test.one'), T('test.one_tip'), (b) => startStep('test_up', [id], b))));
     }
     card.appendChild(txt);
@@ -2288,6 +2307,14 @@ function takeStep() {
   if (stepRuns()) why.push(T('take.step_runs'));
   box.appendChild(para(T(cpuGiven() ? 'take.text_cpu' : 'take.text')));
   why.forEach((w) => box.appendChild(para(w, 'callout warn')));
+  // round 7 (F3): his fans whose «before» is a fixed value someone left — said once, plainly, with the restart first
+  const mine = new Set((su.zones || []).flatMap((z) => z.fans || []));
+  const left = [...mine].map((id) => ({ id, b: (su.before || {})[id], f: setupFan(id) })).filter((x) => x.b && (x.b.fixed || x.b.mode === 'full'));
+  if (left.length) {
+    const toFixed = left.filter((x) => ((x.f && x.f.back) || su.back_default) !== 'auto' || x.b.auto === null || x.b.mode === 'full');
+    const list = (toFixed.length ? toFixed : left).map((x) => ({ id: x.id, pct: x.b.mode === 'full' ? 100 : x.b.pct }));
+    box.appendChild(para(T(toFixed.length ? 'take.fixed_before' : 'take.fixed_before_auto', { list: fixedList(list) }), 'callout warn'));
+  }
   const b = button(T('take.go'), T('take.go_tip'), (btn) => {
     Office.dialog({
       title: T('take.confirm_title'),

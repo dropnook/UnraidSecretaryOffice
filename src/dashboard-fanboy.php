@@ -260,10 +260,11 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
         $name = match ($whoId) {
             'bios'  => officeDashT($s, 'fanboy.who.bios'),
             'bmc'   => officeDashT($s, 'fanboy.who.bmc'),
+            'nobody' => officeDashT($s, 'fanboy.who.nobody'),       // round 7: outputs on a fixed value someone left
             default => $str($who['name'] ?? null) !== '' ? $str($who['name']) : $whoId,
         };
         $out['who'] = $name . (isset($s["fanboy.dash.why.$why"]) ? ' · ' . officeDashT($s, "fanboy.dash.why.$why") : '');
-        $out['tone'] = in_array($why, ['crashed', 'chip_missing', 'array_stopped'], true) ? 'orange' : '';
+        $out['tone'] = in_array($why, ['crashed', 'chip_missing', 'array_stopped', 'fixed'], true) ? 'orange' : '';
     }
 
     // the numbers: the control's while it runs (its status), else his last look's — and how old they are

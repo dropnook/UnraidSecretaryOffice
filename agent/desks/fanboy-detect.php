@@ -439,7 +439,10 @@ function fanboyIpmi(array $p): ?array
 
 /**
  * Another controller: FanCtrl Plus (or its fork), Dynamix System Autofan — its settings switched on (service="1") or its
- * loop running.
+ * loop running. Round 7 (F4, a shell whose grep named «fanctrl» and «autofan» made both «running»): a plugin's controller
+ * only while its plugin is installed (its .plg on the flash — settings left behind by an uninstall don't count), and
+ * «running» only by a process's OWN program (its executable, or the script an interpreter runs — fanboyPrograms()),
+ * never by a command line that merely names it (a grep, an editor, a shell's -c).
  *
  * blocks: false for a controller of other fans than the board's outputs (WAZ Cooling Control: shelves, IPMI) — named,
  * never holding Fanboy back (fanboyBlocking()).
@@ -448,11 +451,15 @@ function fanboyIpmi(array $p): ?array
  */
 function fanboyControllers(array $p): array
 {
-    $cmdlines = fanboyCmdlines($p['proc']);
+    $programs = fanboyPrograms($p['proc']);
     $out = [];
     foreach (FANBOY_PLUGINS as $id => $plugin) {
         if (!isset($plugin['controller'])) {
             continue;
+        }
+        $plg = $p['plugins'] . "/$id.plg";
+        if ($plugin['kind'] === 'controller' && (is_link($plg) || !is_file($plg))) {
+            continue;                   // not installed: whatever it left behind steers nothing
         }
         [$folder, $files, $marker] = $plugin['controller'];
         $settings = false;
@@ -465,7 +472,7 @@ function fanboyControllers(array $p): array
                 break;
             }
         }
-        $running = (bool) array_filter($cmdlines, fn ($c) => preg_match($marker, $c) === 1)
+        $running = (bool) array_filter($programs, fn ($c) => preg_match($marker, $c) === 1)
             || (isset($plugin['cron']) && fanboyCronNames($p['crontab'], $plugin['cron']));
         if ($settings || $running) {
             $out[] = ['id' => $id, 'name' => $plugin['name'], 'settings' => $settings, 'running' => $running, 'blocks' => ($plugin['hint_only'] ?? false) !== true];
@@ -493,16 +500,51 @@ function fanboyCronNames(string $crontab, string $re): bool
     return false;
 }
 
-/** Every process's command line (spaces for its NULs), the agent's own left out */
-function fanboyCmdlines(string $proc): array
+/** Interpreters whose program is the script they run (a shell, php, python, perl, node, env) */
+const FANBOY_INTERPRETERS = '/^(env|sh|bash|dash|ash|zsh|busybox|php[0-9.]*(-cli)?|python[0-9.]*|perl[0-9.]*|node|nodejs|ruby)$/D';
+
+/**
+ * A process's own program from its command line (arguments split at NUL): its executable — or, for an interpreter, the
+ * script it runs (the first argument not an option, past further interpreters: «env python3 /x/y»). A shell given code
+ * with -c runs no script: its program is the shell itself (whatever the code names). '' for an empty command line.
+ */
+function fanboyProgram(string $cmdline): string
+{
+    $args = array_values(array_filter(explode("\0", $cmdline), fn ($a) => $a !== ''));
+    if (!$args) {
+        return '';
+    }
+    $prog = $args[0];
+    if (!preg_match(FANBOY_INTERPRETERS, basename($prog))) {
+        return $prog;
+    }
+    for ($i = 1, $n = count($args); $i < $n; $i++) {
+        $a = $args[$i];
+        if ($a === '-c' || $a === '-e' || $a === '-r') {
+            return $prog;               // inline code: no script of its own
+        }
+        if ($a[0] === '-' || str_contains($a, '=')) {
+            continue;                   // an option (php -d x=y …), an env assignment
+        }
+        if (preg_match(FANBOY_INTERPRETERS, basename($a))) {
+            $prog = $a;                 // env → the interpreter it starts
+            continue;
+        }
+        return "$prog $a";
+    }
+    return $prog;
+}
+
+/** Every process's own program (fanboyProgram()), the agent's own process left out */
+function fanboyPrograms(string $proc): array
 {
     $out = [];
     $me = (string) getmypid();
     foreach (array_slice(@scandir($proc) ?: [], 0, FANBOY_PROC_MAX) as $pid) {
         if (ctype_digit($pid) && $pid !== $me) {
             $c = @file_get_contents("$proc/$pid/cmdline", false, null, 0, 1024);
-            if (is_string($c) && $c !== '') {
-                $out[] = str_replace("\0", ' ', $c);
+            if (is_string($c) && ($prog = fanboyProgram($c)) !== '') {
+                $out[] = $prog;
             }
         }
     }

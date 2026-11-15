@@ -274,6 +274,8 @@ files['fanboy-show'] = (() => {
   s.show = { id: 'b1c2d3e4f5a6', fan: P(4), via: 'control', status: 'running', why: null, until: T0 + 14, pid: 4242, start: '123456', ok: null, begun: T0 - 1, at: T0 - 1, tachs: [4] };
   return s;
 })();
+// round 7 (F3): another controller uninstalled, every output left on a fixed 50 % — nobody steers (not the BIOS)
+files['fanboy-fixed'] = state({ ite: ite({}, RPM), who: { who: 'nobody', why: 'fixed', was: 'not_set_up', fixed: [1, 2, 3, 4, 5, 6].map((n) => ({ id: P(n), output: n, pct: 50 })) } });
 // the array stopped while armed: the BIOS runs them
 files['fanboy-array'] = state({ ite: ite({}, RPM), fans: SET_UP, zones: ZONES, armed: true, who: { who: 'bios', why: 'array_stopped' },
   control: { running: false, armed: true, why: 'array_stopped', phase: 'ended', notes: NOTES, time: T0 } });
