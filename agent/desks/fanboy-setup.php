@@ -31,6 +31,8 @@ const FANBOY_READBACK_AFTER = 2.0;      // round 5: a write read back this long 
 const FANBOY_MEASURE_STEPS = [90, 80, 70, 60, 50, 45, 40, 35, 30, 25, 20, 15, 10];
 const FANBOY_SETTLE_MAX = 10.0;         // measure: seconds at most for a value to settle
 const FANBOY_START_WAIT = 4.0;          // measure: seconds a start value gets to make a standing fan turn
+const FANBOY_STOP_LOOK = 15.0;          // round 12: the standstill part — seconds at 0 for the fan to stop (else: a floor it keeps)
+const FANBOY_STOP_START_MAX = 60;       // … the start from standstill looked for up to this percent, then the kick
 const FANBOY_PLACES = ['front', 'rear', 'top', 'bottom', 'side'];
 const FANBOY_COUNT_MAX = 8;             // fans on one connector at most (a hub): the page draws as many wheels
 const FANBOY_ZONES_MAX = 8;
@@ -286,13 +288,15 @@ function fanboyKickStart(array $stuck, array $candidates, array $owner, string $
     } finally {
         fanboyGiveBack($taken, 'kick', $owner);              // exactly the state before — the value it keeps turning at
     }
+    // round 12: judged at the END of the look — right after the kick a fan still coasts down from full (a fan that turns
+    // only at full read «turning» at the first look and was left standing); started = still turning after FANBOY_KICK_LOOK
     $t = ($io['now'])();
     $left = array_keys($byTach);
-    while ($left && ($io['now'])() - $t < FANBOY_KICK_LOOK) {
+    while (($io['now'])() - $t < FANBOY_KICK_LOOK) {
         ($io['sleep'])(0.5);
-        $still = fanboyStuckTachs(array_intersect_key($GLOBALS['fanboyKickBefore'] ?? [], array_flip($left)));
-        $left = array_values(array_intersect($left, $still));
     }
+    $before = array_intersect_key($GLOBALS['fanboyKickBefore'] ?? [], array_flip($left));
+    $left = array_values(array_intersect($left, fanboyStuckTachs($before)));
     // started after the kick: a fan the setup knows remembers it (its card says so; the control starts it above that)
     $learned = [];
     foreach (array_diff(array_keys($byTach), $left) as $tid) {
@@ -783,12 +787,18 @@ function fanboyTakenBack(array $o, int $value, ?array $wrote): bool
  * Measure a fan DOWNWARD (only one given to him, with feedback): full speed, then FANBOY_MEASURE_STEPS down; at a
  * stall measuring stops and the fan goes back up — in 5 % steps from there until it turns (its start value; none by
  * the last steady + 20 %: full speed). Then exactly its state before. Too warm, «stop», the page gone: back at once.
+ * Round 12 ($standstill: a fan that may be let stand — never a CPU cooler or pump): then the standstill part
+ * (fanboyStandstill()), and the restart check of the quiet test after it. $partial: the measurement as far as it got
+ * once the table is complete (the step stores it when the standstill part or the restart check ends the run).
  */
-function fanboyMeasure(array $o, array $tachs, array $owner, array $io, string $boardKey): array
+function fanboyMeasure(array $o, array $tachs, array $owner, array $io, string $boardKey, bool $standstill = false, ?array &$partial = null): array
 {
+    $partial = null;
+    $tachsBefore = $standstill ? fanboyAllTachs() : [];
     if (fanboyTake($o, $owner, $boardKey) === null) {
         return ['result' => 'busy'];
     }
+    $stood = false;
     try {
         fanboySet($o['id'], FANBOY_FULL, $owner);
         [$max, $stall] = fanboySettle($o, $tachs, $io);
@@ -835,11 +845,125 @@ function fanboyMeasure(array $o, array $tachs, array $owner, array $io, string $
             fanboySet($o['id'], FANBOY_FULL, $owner);
             $start ??= min(100, $steady + 20);
         }
-        return ['result' => 'ok', 'table' => $table, 'min_pct' => $steady, 'start_pct' => max($start, $steady), 'max_rpm' => $max,
-                'stalled_at' => $stalledAt];
+        $r = ['result' => 'ok', 'table' => $table, 'min_pct' => $steady, 'start_pct' => max($start, $steady), 'max_rpm' => $max,
+              'stalled_at' => $stalledAt];
+        if (!$standstill) {
+            return $r;
+        }
+        $partial = $r;
+        $stood = true;
+        $stop = fanboyStandstill($o, $tachs, $owner, $io, $steady, $table);
+        if (isset($stop['warm'])) {
+            return ['result' => 'warm', 'warm' => $stop['warm'], 'table' => $table, 'measured' => $r];
+        }
+        $r += $stop;
+        $partial = $r;
+    } catch (Throwable $e) {
+        if ($stood) {
+            fanboySet($o['id'], FANBOY_FULL, $owner);       // stopped in the standstill part: turning first, then back (below)
+        }
+        throw $e;
     } finally {
         fanboyGiveBack([$o['id']], 'step', $owner);
+        // round 12: it stood on purpose — every fan that turned before turns again (the kick, else full + an alert), however
+        // the run ends; the pause is never cut short by a stop (fanboyQuietRestart(), round 9)
+        if ($stood) {
+            fanboyQuietRestart($tachsBefore, [$o['id']], $io, $owner, $boardKey);
+        }
     }
+    return $r;
+}
+
+/**
+ * Round 12 (the owner: «Stillstand wird nicht versucht? Ideal für HDD-Lüfter»): the output to 0 for up to FANBOY_STOP_LOOK
+ * — does the fan stop (stops) or keep a floor (a PWM fan that never stops: floor_rpm)? One that stops: the start from
+ * standstill from $min upward in 5 % steps, each FANBOY_START_WAIT (start_from_stop); none by FANBOY_STOP_START_MAX: the
+ * kick — full for FANBOY_KICK_FOR, then $min + 5 % (kick_start: the value it holds at); still not: stops_safe false (it
+ * must never be let stand). Ends with the fan at full (turning); the caller gives it back. Too warm: full at once, ['warm'].
+ */
+function fanboyStandstill(array $o, array $tachs, array $owner, array $io, int $min, array $table): array
+{
+    $note = fn (array $p) => ($io['note'] ?? fn (array $p) => null)(['table' => $table] + $p);
+    $turns = function () use ($o, $tachs): array {
+        $s = fanboySample($o);
+        $r = array_map(fn ($n) => $s[$n] ?? 0, $tachs);
+        return [min($r) >= 100, (int) round(array_sum($r) / max(1, count($r)))];
+    };
+    $warm = function () use ($o, $owner): ?array {
+        if (($w = fanboyStepWarm(fanboyBoardRaw())) !== null) {
+            fanboySet($o['id'], FANBOY_FULL, $owner);
+        }
+        return $w;
+    };
+    // 1. standstill: 0 for up to FANBOY_STOP_LOOK — two looks under 100 rpm: it stops; else the rpm it keeps
+    $note(['phase' => 'stop_check', 'until' => time() + (int) FANBOY_STOP_LOOK]);
+    fanboySet($o['id'], 0, $owner);
+    $t0 = ($io['now'])();
+    $zero = 0;
+    $rpms = [];
+    while (($io['now'])() - $t0 < FANBOY_STOP_LOOK) {
+        fanboyStepWait($io, 1.0);
+        if (($w = $warm()) !== null) {
+            return ['warm' => $w];
+        }
+        [$turning, $rpm] = $turns();
+        $zero = $turning ? 0 : $zero + 1;
+        $rpms[] = $rpm;
+        if ($zero >= 2) {
+            break;
+        }
+    }
+    if ($zero < 2) {
+        fanboySet($o['id'], FANBOY_FULL, $owner);
+        $last = array_slice($rpms, -3);
+        return ['stops' => false, 'floor_rpm' => $last ? (int) round(array_sum($last) / count($last)) : null, 'start_from_stop' => null, 'kick_start' => null,
+                'stops_safe' => null];
+    }
+    // 2. the start from standstill: $min upward, each value FANBOY_START_WAIT — two looks turning: it starts there
+    for ($p = max(5, $min); $p <= FANBOY_STOP_START_MAX; $p += 5) {
+        $note(['phase' => 'start_find', 'pct' => $p]);
+        fanboySet($o['id'], (int) round($p * 2.55), $owner);
+        $t1 = ($io['now'])();
+        $ok = 0;
+        while (($io['now'])() - $t1 < FANBOY_START_WAIT) {
+            fanboyStepWait($io, 0.5);
+            if (($w = $warm()) !== null) {
+                return ['warm' => $w];
+            }
+            $ok = $turns()[0] ? $ok + 1 : 0;
+            if ($ok >= 2) {
+                fanboySet($o['id'], FANBOY_FULL, $owner);
+                return ['stops' => true, 'floor_rpm' => null, 'start_from_stop' => $p, 'kick_start' => null, 'stops_safe' => true];
+            }
+        }
+    }
+    // 3. the kick: full for FANBOY_KICK_FOR, then $min + 5 — turning there: it starts with the kick
+    $hold = min(100, $min + 5);
+    $note(['phase' => 'kick', 'pct' => $hold]);
+    fanboySet($o['id'], FANBOY_FULL, $owner);
+    $t2 = ($io['now'])();
+    while (($io['now'])() - $t2 < FANBOY_KICK_FOR) {
+        fanboyStepWait($io, 0.5);
+    }
+    fanboySet($o['id'], (int) round($hold * 2.55), $owner);
+    $t3 = ($io['now'])();
+    $ok = 0;
+    $stand = 0;
+    while (($io['now'])() - $t3 < FANBOY_KICK_LOOK) {
+        fanboyStepWait($io, 0.5);
+        if (($w = $warm()) !== null) {
+            return ['warm' => $w];
+        }
+        $turning = $turns()[0];
+        $ok = $turning ? $ok + 1 : 0;
+        $stand = $turning ? 0 : $stand + 1;
+        if ($stand >= 2) {
+            break;                      // it stood again under the kick's value
+        }
+    }
+    fanboySet($o['id'], FANBOY_FULL, $owner);
+    $safe = $stand < 2 && $ok >= 2;
+    return ['stops' => true, 'floor_rpm' => null, 'start_from_stop' => null, 'kick_start' => $safe ? $hold : null, 'stops_safe' => $safe];
 }
 
 /**
@@ -896,8 +1020,22 @@ function fanboyStepRun(array $step, array $io): array
                     $step['results'][$id] = ['result' => 'not_his'];
                     continue;
                 }
-                $r = fanboyMeasure($o, $tachs, $owner, $io, $key);
+                // round 12: the standstill part only for a fan that may be let stand — never a CPU cooler or pump (cpu_own too)
+                $standstill = in_array($f['role'] ?? null, FANBOY_ROLES_OURS, true);
+                $partial = null;
+                try {
+                    $r = fanboyMeasure($o, $tachs, $owner, $io, $key, $standstill, $partial);
+                } catch (Throwable $e) {
+                    if (is_array($partial)) {           // the table is complete: kept, whatever ended the standstill part
+                        fanboyMeasuredStore($id, $partial, $board);
+                        $step['results'][$id] = $partial + ['partial' => true];
+                    }
+                    throw $e;
+                }
                 $step['results'][$id] = $r;
+                if ($r['result'] === 'warm' && is_array($r['measured'] ?? null)) {
+                    fanboyMeasuredStore($id, $r['measured'], $board);         // too warm in the standstill part: the table stays
+                }
                 if ($r['result'] === 'ignored') {
                     fanboyStoreUpdate(function (array $e) use ($id): array {
                         if (is_array($e['fans'][$id] ?? null)) {
@@ -909,15 +1047,7 @@ function fanboyStepRun(array $step, array $io): array
                     }, $board);
                 }
                 if ($r['result'] === 'ok' || $r['result'] === 'no_turn') {
-                    fanboyStoreUpdate(function (array $e) use ($id, $r): array {
-                        if (is_array($e['fans'][$id] ?? null)) {
-                            $e['fans'][$id]['measured'] = $r['result'] === 'ok'
-                                ? ['table' => $r['table'], 'min_pct' => $r['min_pct'], 'start_pct' => $r['start_pct'], 'max_rpm' => $r['max_rpm'], 'at' => time()]
-                                : null;
-                            $e['fans'][$id]['no_turn'] = $r['result'] === 'no_turn';
-                        }
-                        return $e;
-                    }, $board);
+                    fanboyMeasuredStore($id, $r, $board);
                 }
                 if ($r['result'] === 'warm') {
                     $step['warm'] = $r['warm'];          // which source, how warm, its limit — the page says it
@@ -981,6 +1111,28 @@ function fanboyUpStore(string $id, array $o, array $r, array $board, ?string $st
         return in_array($found, ['ignored', 'inverted', 'empty'], true) ? fanboyZonesWithout($e, $id) : $e;
     }, $board);
     return ['found' => $found, 'looked' => $r['found'], 'heard' => $heard] + $r;
+}
+
+/**
+ * A measurement into the store: table, lowest steady value, start value, max rpm, when — round 12: and the standstill
+ * part's keys when it ran (stops, floor_rpm, start_from_stop, kick_start, stops_safe; none: not tried — «unknown»)
+ */
+function fanboyMeasuredStore(string $id, array $r, array $board): void
+{
+    fanboyStoreUpdate(function (array $e) use ($id, $r): array {
+        if (is_array($e['fans'][$id] ?? null)) {
+            $m = null;
+            if (($r['result'] ?? null) === 'ok') {
+                $m = ['table' => $r['table'], 'min_pct' => $r['min_pct'], 'start_pct' => $r['start_pct'], 'max_rpm' => $r['max_rpm'], 'at' => time()];
+                if (array_key_exists('stops', $r)) {
+                    $m += array_intersect_key($r, array_flip(['stops', 'floor_rpm', 'start_from_stop', 'kick_start', 'stops_safe']));
+                }
+            }
+            $e['fans'][$id]['measured'] = $m;
+            $e['fans'][$id]['no_turn'] = ($r['result'] ?? null) === 'no_turn';
+        }
+        return $e;
+    }, $board);
 }
 
 /** The step process: `php agent.php job fanboy-step` — the step RUN_DIR/fanboy/step.json describes, once */

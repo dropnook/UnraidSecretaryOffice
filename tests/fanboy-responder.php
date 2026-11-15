@@ -13,12 +13,14 @@ declare(strict_types=1);
  *                                 'start' => 0–1 (from standing: needs this), 'auto' => rpm in the chip's mode,
  *                                 'lag' => seconds, 'stuck' => true (never turns), 'inverted' => true (more is slower),
  *                                 'auto_dead' => true (the chip's mode does nothing: the value counts, it87 #56),
- *                                 'bios' => true (the BIOS runs it whatever is written: its «auto» rpm)]],
+ *                                 'bios' => true (the BIOS runs it whatever is written: its «auto» rpm),
+ *                                 'floor' => rpm (round 12: below its stall value it keeps this — a PWM fan that never stops),
+ *                                 'full_only' => true (round 12: once it has stood, it turns only at full — never safe to stop)]],
  *            'revert' => [output => enable],       the BIOS puts that output's mode back after every write (round 5)
  *            'full0'  => [output …]]               round 7: the it87 driver reads a fixed 255 back as «full on» (enable 0)
  */
 
-function fanboyFakeRpmTarget(array $f, ?int $value, ?int $enable, int $now): int
+function fanboyFakeRpmTarget(array $f, ?int $value, ?int $enable, int $now, bool $stood = false): int
 {
     if (!empty($f['stuck'])) {
         return 0;
@@ -32,8 +34,11 @@ function fanboyFakeRpmTarget(array $f, ?int $value, ?int $enable, int $now): int
     }
     $stall = (float) ($f['stall'] ?? 0.2);
     $start = (float) ($f['start'] ?? max($stall, 0.3));
-    if ($d < $stall || ($now < 50 && $d < $start)) {
+    if (!empty($f['full_only']) && $stood && $d < 1.0) {
         return 0;
+    }
+    if ($d < $stall || ($now < 50 && $d < $start)) {
+        return is_int($f['floor'] ?? null) && $d < $stall ? $f['floor'] : 0;
     }
     return (int) round(($f['max'] ?? 1800) * (0.2 + 0.8 * $d));
 }
@@ -63,11 +68,14 @@ function fanboyFakeRespond(string $root, array $spec, float $dt): void
             return;
         }
         $now = $read("$dir/fan{$tach}_input") ?? 0;
-        $want = fanboyFakeRpmTarget($f, $read("$dir/pwm$n"), is_file("$dir/pwm{$n}_enable") ? $read("$dir/pwm{$n}_enable") : 1, $now);
+        $want = fanboyFakeRpmTarget($f, $read("$dir/pwm$n"), is_file("$dir/pwm{$n}_enable") ? $read("$dir/pwm{$n}_enable") : 1, $now, is_file("$dir/fan{$tach}_stood"));
         $lag = max(0.01, (float) ($f['lag'] ?? 1.0));
         $next = $now + ($want - $now) * min(1.0, $dt / $lag);
         if (abs($want - $next) < 15) {
             $next = $want;
+        }
+        if (!empty($f['full_only']) && $now >= 50 && $next < 50) {
+            @touch("$dir/fan{$tach}_stood");           // round 12: it stood once — from now on only full makes it turn
         }
         @file_put_contents("$dir/fan{$tach}_input.new", (int) round($next) . "\n");
         @rename("$dir/fan{$tach}_input.new", "$dir/fan{$tach}_input");

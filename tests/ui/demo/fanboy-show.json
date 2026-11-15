@@ -777,7 +777,9 @@
     "max_rpm": null,
     "table": null,
     "no_turn": false,
-    "kick_start": null
+    "kick_start": null,
+    "stand": null,
+    "off_why": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm2",
@@ -804,7 +806,9 @@
     "max_rpm": null,
     "table": null,
     "no_turn": false,
-    "kick_start": null
+    "kick_start": null,
+    "stand": null,
+    "off_why": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm3",
@@ -827,7 +831,9 @@
     "max_rpm": null,
     "table": null,
     "no_turn": false,
-    "kick_start": null
+    "kick_start": null,
+    "stand": null,
+    "off_why": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm4",
@@ -901,7 +907,9 @@
      ]
     ],
     "no_turn": false,
-    "kick_start": null
+    "kick_start": null,
+    "stand": null,
+    "off_why": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm5",
@@ -964,7 +972,9 @@
      ]
     ],
     "no_turn": false,
-    "kick_start": null
+    "kick_start": null,
+    "stand": null,
+    "off_why": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm6",
@@ -987,7 +997,9 @@
     "max_rpm": null,
     "table": null,
     "no_turn": false,
-    "kick_start": null
+    "kick_start": null,
+    "stand": null,
+    "off_why": null
    }
   ],
   "zones": [

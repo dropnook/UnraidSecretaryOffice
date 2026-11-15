@@ -418,15 +418,16 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
             if ($cpu) {
                 $floor = max($floor, FANBOY_CPU_FLOOR);
             }
+            [$offOk, $offWhy, $start] = fanboyStandPlan($f, $m, $hasTach, $cpu, $floor);
             $fans[$id] = [
                 'id' => $id, 'zone' => $z['id'], 'chip' => $f['chip'], 'address' => $f['address'], 'output' => $f['output'],
                 'tachs' => array_values(array_filter(is_array($f['tachs'] ?? null) ? $f['tachs'] : [$f['tach']], 'is_int')),
                 'name' => is_string($f['name'] ?? null) ? $f['name'] : '',
                 'table' => $m['table'] ?? null, 'floor' => $floor,
-                // round 9 (H1): a fan that needed a kick to start at its value before starts above it
-                'start' => max($m !== null && is_numeric($m['start_pct'] ?? null) ? (int) $m['start_pct'] : $floor,
-                    is_int($f['kick_start']['value'] ?? null) ? min(100, (int) ceil($f['kick_start']['value'] / 2.55) + FANBOY_FLOOR_MARGIN) : 0),
-                'off_ok' => !$cpu && ($f['off_ok'] ?? false) === true && $m !== null && $hasTach, 'cpu' => $cpu,
+                // round 9 (H1): a fan that needed a kick to start at its value before starts above it; round 12: from
+                // standstill as measured (fanboyStandPlan())
+                'start' => max($start, is_int($f['kick_start']['value'] ?? null) ? min(100, (int) ceil($f['kick_start']['value'] / 2.55) + FANBOY_FLOOR_MARGIN) : 0),
+                'off_ok' => $offOk, 'off_why' => $offWhy, 'cpu' => $cpu,
                 // «give back» (part 3): the owner's choice for a fan found on a fixed value — 'auto' gives the chip's mode
                 'back' => $cpu ? 'auto' : (in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : FANBOY_BACK_DEFAULT), 'auto' => null,
                 'device' => null, 'pct' => null, 'value' => null, 'changed' => null, 'kick_until' => null, 'trim' => 0.0,
@@ -919,6 +920,34 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
     }
 }
 
+/**
+ * Round 12: «darf stehen» and the start from standing, from the measurement's standstill part. [off_ok in effect, why
+ * not (null | not_measured | measure_again: measured before round 12 | never_stops: a floor it keeps | not_safe: it
+ * doesn't start again), the start value]. Standing allowed only when it stops AND starts again safely; a fan that
+ * stops starts with start_from_stop, else (the kick, or not safe) with full for FANBOY_KICK, then its value.
+ */
+function fanboyStandPlan(array $f, ?array $m, bool $hasTach, bool $cpu, int $floor): array
+{
+    $start = $m !== null && is_numeric($m['start_pct'] ?? null) ? (int) $m['start_pct'] : $floor;
+    if ($m !== null && ($m['stops'] ?? null) === true) {
+        $start = is_int($m['start_from_stop'] ?? null) ? max(1, min(100, $m['start_from_stop'])) : 100;
+    }
+    $why = null;
+    if ($cpu || ($f['off_ok'] ?? false) !== true) {
+        return [false, null, $start];
+    }
+    if ($m === null || !$hasTach) {
+        $why = 'not_measured';
+    } elseif (!array_key_exists('stops', $m)) {
+        $why = 'measure_again';
+    } elseif ($m['stops'] !== true) {
+        $why = 'never_stops';
+    } elseif (($m['stops_safe'] ?? null) !== true) {
+        $why = 'not_safe';
+    }
+    return [$why === null, $why, $start];
+}
+
 /** Writes a fan's percentage when its value changed: from standing, its start value for FANBOY_KICK seconds first */
 function fanboyApply(array &$c, string $id, float $now): void
 {
@@ -1151,7 +1180,9 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
             'warmest' => $z['warmest'], 'asleep' => count(array_filter($z['state'], fn ($s) => $s === 'asleep')),
             'fans' => array_map(fn ($id) => ['id' => $id, 'name' => $c['fans'][$id]['name'], 'output' => $c['fans'][$id]['output'],
                 'pct' => $c['fans'][$id]['taken'] ? $c['fans'][$id]['pct'] : null, 'rpm' => $c['fans'][$id]['rpm'] ?? null,
-                'held' => $c['fans'][$id]['taken'], 'foreign' => $c['fans'][$id]['foreign']], $z['fans'])];
+                'held' => $c['fans'][$id]['taken'], 'foreign' => $c['fans'][$id]['foreign'],
+                // round 12: «darf stehen» chosen but not in effect — why (measure_again, never_stops, not_safe, not_measured)
+                'off_why' => $c['fans'][$id]['off_why'] ?? null], $z['fans'])];
     }
     return [
         'v' => 1, 'pid' => getmypid(), 'time' => time(), 'mono' => fanboyMono(), 'board' => $c['key'],
