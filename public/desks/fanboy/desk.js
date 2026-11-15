@@ -2401,6 +2401,7 @@ Office.places(ID, [
   { kind: 'section', key: 'notes.title', route: `#/${ID}/who` },
   { kind: 'section', key: 'dash.setting', route: `#/${ID}/who` },
   { kind: 'section', key: 'fans.title', route: `#/${ID}/fans` },
+  { kind: 'section', key: 'watch.setting', route: `#/${ID}/fans` },
   { kind: 'section', key: 'sensors.title', route: `#/${ID}/hottest` },
   { kind: 'section', key: 'curves.title', route: `#/${ID}/today` },
   { kind: 'section', key: 'hints.title', route: `#/${ID}/hints` },
