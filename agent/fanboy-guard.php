@@ -55,6 +55,9 @@ function fanboyGuardSay(string $what, array $back): void
     }
 }
 
+const FANBOY_GUARD_LOOKS = 3;          // round 12: looks per cron run while an output stands at 0 (0, 20 and 40 s) …
+const FANBOY_GUARD_AGAIN = 20;         // … seconds apart
+
 function fanboyGuardMain(string $cmd): int
 {
     if (!is_file(fanboyRunDir() . '/journal.json')) {
@@ -65,14 +68,21 @@ function fanboyGuardMain(string $cmd): int
         foreach (fanboyGivenCheck() as $id => $x) {
             logLine("Fanboy: $id not taken back by the mainboard ({$x['rpm']} rpm, {$x['before']} before Fanboy) — set to full speed (the guard's look)");
         }
-        if (!fanboyHeld()) {
-            return 0;
+        // round 12: while an output stands at 0 (a CPU cooler may) the guard looks again every FANBOY_GUARD_AGAIN s within
+        // its minute — with the agent gone too, a dead or hung holder's standing fan is back within about 20 s, not 60
+        for ($look = 0; ; $look++) {
+            if (!fanboyHeld()) {
+                return 0;
+            }
+            $back = fanboyGiveBack(null, 'holder_gone', null, true);
+            if ($back) {
+                fanboyGuardSay('a holder was gone (the guard\'s look)', $back);
+            }
+            if ($look >= FANBOY_GUARD_LOOKS - 1 || !fanboyStandingHeld()) {
+                return 0;
+            }
+            sleep(FANBOY_GUARD_AGAIN);
         }
-        $back = fanboyGiveBack(null, 'holder_gone', null, true);
-        if ($back) {
-            fanboyGuardSay('a holder was gone (the guard\'s look)', $back);
-        }
-        return 0;
     }
     if ($cmd === 'release') {
         $j = fanboyJournal();

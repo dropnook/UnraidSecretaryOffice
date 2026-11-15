@@ -677,6 +677,9 @@
      "blades": null
     },
     "colour": "graphite",
+    "frame": null,
+    "wheel": null,
+    "style": null,
     "back": null,
     "count": 2,
     "found": "tach",
@@ -691,7 +694,11 @@
     "max_rpm": null,
     "table": null,
     "no_turn": false,
-    "kick_start": null
+    "kick_start": null,
+    "stand": null,
+    "off_why": null,
+    "may_stand": false,
+    "cpu_off": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm2",
@@ -704,6 +711,9 @@
      "blades": null
     },
     "colour": "black",
+    "frame": null,
+    "wheel": null,
+    "style": null,
     "back": null,
     "count": 1,
     "found": "silent",
@@ -718,7 +728,11 @@
     "max_rpm": null,
     "table": null,
     "no_turn": false,
-    "kick_start": null
+    "kick_start": null,
+    "stand": null,
+    "off_why": null,
+    "may_stand": false,
+    "cpu_off": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm3",
@@ -727,6 +741,9 @@
     "tachs": [],
     "model": null,
     "colour": null,
+    "frame": null,
+    "wheel": null,
+    "style": null,
     "back": null,
     "count": 1,
     "found": "empty",
@@ -741,7 +758,11 @@
     "max_rpm": null,
     "table": null,
     "no_turn": false,
-    "kick_start": null
+    "kick_start": null,
+    "stand": null,
+    "off_why": null,
+    "may_stand": false,
+    "cpu_off": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm4",
@@ -756,6 +777,9 @@
      "blades": null
     },
     "colour": "graphite",
+    "frame": null,
+    "wheel": null,
+    "style": null,
     "back": null,
     "count": 1,
     "found": "tach",
@@ -815,7 +839,11 @@
      ]
     ],
     "no_turn": false,
-    "kick_start": null
+    "kick_start": null,
+    "stand": null,
+    "off_why": null,
+    "may_stand": false,
+    "cpu_off": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm5",
@@ -831,6 +859,9 @@
      "blades": null
     },
     "colour": "black",
+    "frame": null,
+    "wheel": null,
+    "style": null,
     "back": null,
     "count": 1,
     "found": "tach",
@@ -878,7 +909,11 @@
      ]
     ],
     "no_turn": false,
-    "kick_start": null
+    "kick_start": null,
+    "stand": null,
+    "off_why": null,
+    "may_stand": false,
+    "cpu_off": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm6",
@@ -887,6 +922,9 @@
     "tachs": [],
     "model": null,
     "colour": null,
+    "frame": null,
+    "wheel": null,
+    "style": null,
     "back": null,
     "count": 1,
     "found": "empty",
@@ -901,7 +939,11 @@
     "max_rpm": null,
     "table": null,
     "no_turn": false,
-    "kick_start": null
+    "kick_start": null,
+    "stand": null,
+    "off_why": null,
+    "may_stand": false,
+    "cpu_off": null
    }
   ],
   "zones": [],
