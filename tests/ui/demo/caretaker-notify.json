@@ -44,6 +44,12 @@
     "when": "summary",
     "at": null
    },
+   "fanboy": {
+    "level": "warning",
+    "success": true,
+    "when": "now",
+    "at": null
+   },
    "office": {
     "level": "all",
     "success": true,
@@ -67,6 +73,7 @@
   "watchman",
   "moverelli",
   "jack",
+  "fanboy",
   "office"
  ],
  "sends": {
@@ -94,6 +101,11 @@
    "normal"
   ],
   "jack": [
+   "warning",
+   "normal"
+  ],
+  "fanboy": [
+   "alert",
    "warning",
    "normal"
   ],

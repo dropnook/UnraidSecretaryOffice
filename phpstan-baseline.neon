@@ -522,11 +522,6 @@ parameters:
 			count: 1
 			path: tests/run.php
 
-		-
-			message: '#^Call to function in_array\(\) with arguments ''logs'', array\{''caretaker'', ''backup'', ''snapshot'', ''restore'', ''watchman'', ''moverelli'', ''jack'', ''logs'', \.\.\.\} and true will always evaluate to true\.$#'
-			identifier: function.alreadyNarrowedType
-			count: 1
-			path: tests/run.php
 
 		-
 			message: '#^Call to function in_array\(\) with arguments ''net_router_login'', array\{''login_new_ip'', ''login_failures'', ''smb_user'', ''door_new'', ''door_key_moved'', ''door_refused'', ''net_router_login'', ''net_router_login…'', \.\.\.\} and true will always evaluate to true\.$#'

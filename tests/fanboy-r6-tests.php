@@ -1188,3 +1188,118 @@ function testFanboyR9CpuOwn(): void
         fanboyTEnd();
     }
 }
+
+/**
+ * Round 10: Fanboy in the Team Lead's notification centre — a sender like the others (his row, his settings honoured by
+ * the one gate), but only while his switch is on; his alarms are alerts: never held, never swallowed by the flood guard
+ */
+function testFanboyR10Notify(): void
+{
+    // the lists: the same in bash (notifygate.sh) as in PHP — over every event of his and the others' named ones
+    $gate = OFFICE_DIR . '/backup/lib/notifygate.sh';
+    $bash = fn (string $fn, string $pair): bool => trim((string) shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg($gate) . "; $fn \"\$1\" \"\$2\" && echo y")
+        . ' _ ' . implode(' ', array_map('escapeshellarg', explode(':', $pair, 2))))) === 'y';
+    $his = ['alarm_stands', 'alarm_stands_alone', 'alarm_bios_stands', 'alarm_hot', 'alarm_sensor', 'alarm_chip', 'idle_stands', 'quiet_no_restart', 'not_back',
+            'foreign', 'drift', 'refuses', 'missing', 'missing_stuck', 'crashed', 'back'];
+    $pairs = [...array_map(fn ($e) => "fanboy:$e", $his), 'backup:ok', 'backup:failed', 'backup:refused', 'jack:release_ok', 'office:agent_back', 'watchman:failed'];
+    foreach (['ung_resolves' => 'officeNotifyResolves', 'ung_is_success' => 'officeNotifyIsSuccess', 'ung_fail_same' => 'officeNotifyFailSame'] as $b => $p) {
+        same("fanboy r10 centre: $b (notifygate.sh) says what $p() says",
+            array_values(array_filter($pairs, fn ($x) => $p(...explode(':', $x, 2)))), array_values(array_filter($pairs, fn ($x) => $bash($b, $x))));
+    }
+    same('fanboy r10 centre: «back» (the fan chip there again, he steers) resolves his; no success of his, no run failure', [['fanboy:back'], [], []],
+        [array_values(array_filter($pairs, fn ($x) => str_starts_with($x, 'fanboy:') && officeNotifyResolves(...explode(':', $x, 2)))),
+         array_values(array_filter($pairs, fn ($x) => str_starts_with($x, 'fanboy:') && officeNotifyIsSuccess(...explode(':', $x, 2)))),
+         array_values(array_filter($pairs, fn ($x) => str_starts_with($x, 'fanboy:') && officeNotifyFailSame(...explode(':', $x, 2))))]);
+    // what he sends: every level his senders name — and each event's words there (the notes list them)
+    $src = '';
+    foreach (glob(OFFICE_DIR . '/agent/desks/fanboy*.php') ?: [] as $f) {
+        $src .= (string) file_get_contents($f);
+    }
+    preg_match_all("/fanboyTell(?:Once)?\\([^;]*'(alert|warning|normal)'\\);/", $src, $m);
+    $levels = array_values(array_unique([...$m[1], ...(str_contains($src, "'alert', '', officeNotifyLink('#/fanboy'), 'fanboy', \$key);") ? ['alert'] : [])]));
+    sort($levels);
+    $sends = OFFICE_NOTIFY_SENDS['fanboy'] ?? [];
+    sort($sends);
+    same('fanboy r10 centre: his row says what he sends — alerts, warnings, notices (from his senders)', $sends, $levels);
+    check('fanboy r10 centre: the guard sends nothing (the agent tells what it found)', !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/fanboy-guard.php'), 'officeNotify('));
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/lang/en.json'), true);
+    check('fanboy r10 centre: each event of his has its words', !array_filter($his, fn ($e) => !isset($en["notify.{$e}_subject"], $en["notify.$e"])));
+    same('fanboy r10 centre: his place in the list — after Jack Streamer, before Ms. Logs', [array_search('jack', OFFICE_NOTIFY_DESKS, true) + 1, array_search('logs', OFFICE_NOTIFY_DESKS, true) - 1],
+        [array_search('fanboy', OFFICE_NOTIFY_DESKS, true), array_search('fanboy', OFFICE_NOTIFY_DESKS, true)]);
+
+    // hidden means hidden: no row, no setting — the switch decides (the same rule as fanboyShown())
+    $tmp = hardeningTmp('fanboy-r10nc');
+    foreach (['off', 'on', 'link'] as $k) {
+        @mkdir("$tmp/$k/fanboy", 0700, true);
+    }
+    file_put_contents("$tmp/on/fanboy/show.json", '');
+    file_put_contents("$tmp/elsewhere.json", '');
+    @symlink("$tmp/elsewhere.json", "$tmp/link/fanboy/show.json");
+    same('fanboy r10 centre: the senders — without his switch (or a link) everyone but him, with it everyone',
+        [array_values(array_diff(OFFICE_NOTIFY_DESKS, ['fanboy'])), OFFICE_NOTIFY_DESKS, array_values(array_diff(OFFICE_NOTIFY_DESKS, ['fanboy']))],
+        [officeNotifyDesks("$tmp/off"), officeNotifyDesks("$tmp/on"), officeNotifyDesks("$tmp/link")]);
+    same('fanboy r10 centre: … his desk.json unreadable: hidden (never shown by a mistake), the others there', [false, true],
+        [in_array('fanboy', officeNotifyDesks("$tmp/on", "$tmp/no-web"), true), in_array('office', officeNotifyDesks("$tmp/on", "$tmp/no-web"), true)]);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/desk.js');
+    check('fanboy r10 centre page: a row only for a colleague the page knows and has hired (his name and avatar like the others), his line under it',
+        str_contains($js, "nc.desks.filter((d) => d === 'office' || (Office.desks.has(d) && Office.desks.get(d).hired))")
+        && str_contains($js, "if (Office.has(`\${ID}.nc.note.\${id}`)) main.appendChild(el('div', 'row-detail', T('nc.note.' + id)));"));
+
+    $t = fanboyT('r10nc');
+    $homeWas = getenv('OFFICE_NOTIFY_HOME');
+    $h = "$tmp/home";
+    @mkdir($h, 0700, true);
+    try {
+        $req = fn (array $mine) => ['desks' => ['fanboy' => $mine + ['level' => 'all', 'success' => true, 'when' => 'now', 'at' => null]], 'at' => '08:00',
+                                    'quiet' => ['on' => false, 'from' => '22:00', 'to' => '07:00'], 'all_well' => false];
+        $f = "$tmp/notify.json";
+        $p = officeNotifyPublic();
+        same('fanboy r10 centre: switch off — the page part has no row for him, nothing he sends', [false, false], [in_array('fanboy', $p['desks'], true), isset($p['sends']['fanboy'])]);
+        same('fanboy r10 centre: … a setting for him refused, nothing written', ['bad_request', false], [fanboyR6Refused(fn () => officeNotifySave($req(['when' => 'summary']), $f)), is_file($f)]);
+        file_put_contents(FANBOY_DIR . '/show.json', '{}');
+        $p = officeNotifyPublic();
+        same('fanboy r10 centre: switch on — his row, what he sends', [true, ['alert', 'warning', 'normal']], [in_array('fanboy', $p['desks'], true), $p['sends']['fanboy'] ?? null]);
+        officeNotifySave($req(['when' => 'summary', 'at' => '07:15']), $f);
+        same('fanboy r10 centre: … his setting saved', ['all', 'summary', '07:15'], array_values(array_intersect_key(readJson($f)['desks']['fanboy'] ?? [], array_flip(['level', 'when', 'at']))));
+
+        // the gate honours it: a warning held for his summary, an alert at once — through his own senders
+        putenv("OFFICE_NOTIFY_HOME=$h");
+        touch("$h/agent.json");                          // the messenger at work: he will send the summary
+        officeNotifyCfgKeep(officeNotifySettings(readJson($f) ?? []), $h, null);
+        $calls = fn (): array => array_values(array_filter(explode("\n", (string) @file_get_contents($t['tmp'] . '/notify.log'))));
+        $drops = fn (): array => array_values(array_map(fn ($i) => [$i['event'], $i['level'], $i['fate'], $i['why']], officeNotifyDropsRead($h)));
+        fanboyTellOnce('crashed', 'crashed', [], 'warning');
+        same('fanboy r10 gate: «in the summary» — his warning held, nothing to Unraid', [[['crashed', 'warning', 'held', 'summary']], 0], [$drops(), count($calls())]);
+        fanboyTellOnce('not_back:x', 'not_back', ['fan' => 'Vorn'], 'alert');
+        same('fanboy r10 gate: … his alert at once', [['not_back', 'alert', 'sent', ''], 1], [$drops()[1] ?? null, count($calls())]);
+
+        // the flood guard (right away again): five warnings of his this hour (his cap) — then different alarms within a minute: each goes
+        officeNotifyCfgKeep(officeNotifySettings([]), $h, null);
+        $now = time();
+        for ($i = 1; $i <= NOTIFY_DESK_CAP; $i++) {
+            officeNotifyGuardLine($h, 'sent', 'fanboy', 'warning', "w$i", $now - 60);
+        }
+        $c = ['told' => []];
+        fanboyTell($c, 'alarm:stands:Vorn', 'alarm_stands', ['fan' => 'Vorn', 'zone' => 'Gehäuse'], 'alert');
+        fanboyIdleTell('idle_stands', ['fan' => 'Deckel', 'source' => 'CPU', 'c' => 71]);
+        fanboyTell($c, 'alarm:hot:Gehäuse', 'alarm_hot', ['zone' => 'Gehäuse', 'source' => 'CPU', 'c' => 88], 'alert');
+        $alerts = array_values(array_filter($calls(), fn ($l) => str_contains($l, ' -i alert')));
+        same('fanboy r10 gate: past his cap of warnings, three different alarms within a minute — each one sent', [4, ['sent', 'sent', 'sent']],
+            [count($alerts), array_column(array_slice($drops(), 2), 2)]);
+        fanboyTell($c, 'drift:Vorn', 'drift', ['fan' => 'Vorn', 'rpm' => 500, 'want' => 900], 'warning');
+        same('fanboy r10 gate: … a warning of his past the cap waits (collected, the summary)', ['drift', 'collected', 'flood'], [($d = $drops())[count($d) - 1][0], $d[count($d) - 1][2], $d[count($d) - 1][3]]);
+
+        // «Nur Alarme»: warnings and notices dropped, alerts sent; «back» still resolves his
+        officeNotifyCfgKeep(officeNotifySettings(['desks' => ['fanboy' => ['level' => 'alert']]]), $h, null);
+        $before = count($calls());
+        fanboyTell($c, 'refuses:Vorn', 'refuses', ['fan' => 'Vorn'], 'warning');
+        fanboyTell($c, 'back', 'back', [], 'normal');
+        fanboyTell($c, 'alarm:chip:', 'alarm_chip', [], 'alert');
+        same('fanboy r10 gate: «alerts only» — his warning and notice not sent, his alarm sent', [['refuses', 'dropped'], ['back', 'dropped'], ['alarm_chip', 'sent'], 1],
+            [...array_map(fn ($d) => [$d[0], $d[2]], array_slice($drops(), -3)), count($calls()) - $before]);
+        check('fanboy r10 gate: … and «back» resolved his (a line in the guard)', (bool) array_filter(officeNotifyGuardRead($h), fn ($l) => $l[1] === 'resolved' && $l[2] === 'fanboy'));
+    } finally {
+        putenv($homeWas === false ? 'OFFICE_NOTIFY_HOME' : "OFFICE_NOTIFY_HOME=$homeWas");
+        fanboyTEnd();
+    }
+}
