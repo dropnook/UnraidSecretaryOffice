@@ -976,5 +976,6 @@
   "take.bios_tip": "Auf diese schreibt Fanboy nie — er schaut nur, dass sie drehen",
   "strip.steers": "Fanboy regelt gerade. Testen und Vermessen gehen erst wieder, wenn du die Lüfter zurückgegeben hast (Schritt 6).",
   "strip.other": "Eine andere Lüftersteuerung regelt. Testen und Vermessen gehen erst, wenn nichts anderes mehr regelt.",
-  "take.own_since": "auf dein Risiko seit {date}"
+  "take.own_since": "auf dein Risiko seit {date}",
+  "look.colour_note": "Hat dein Exemplar eine andere Farbe als das übliche (etwa eine schwarze Ausgabe)? Wähl sie hier — das Bild zeigt dann den ganzen Lüfter so."
 }

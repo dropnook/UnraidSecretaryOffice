@@ -1037,8 +1037,8 @@ the last 60 history lines only for a source the file has none for. **The file
   once and patched in place — a look replaces no node under a finger; the zones as a list and one zone's panel; rows to
   read in steps 1 and 6). Step 2's panel: «What is it?» as buttons, name, place, count, the CPU cooler's own block
   («Back to the BIOS» there), two folds named for what they hold (model and colour, «when giving back»); while an
-  output runs «Found — next» / «Heard nothing — next» answer the louder-question (`heard`, sent as `answer` once the
-  verdict is in). Its actions go through `send()` (queued, never dropped; a refusal stays in the strip's second line;
+  output runs «Found — next» / «Heard nothing — next» answer the louder-question (`step_next {fan, heard}`: the agent
+  stores it with the verdict). Its actions go through `send()` (queued, never dropped; a refusal stays in the strip's second line;
   the clicked button carries the wave until the agent answers); selects and text fields via `inputEl()` (office.css
   `.input`). A running step is kept alive by the page (`step_alive` every 15 s, only while a page of his is shown);
   ended by the page gone it says so. Pictures and CPU: `tools/fanboy/desk.mjs` (`--only 'ux-*'` for the setup's

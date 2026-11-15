@@ -976,5 +976,6 @@
   "take.bios_tip": "Fanboy nunca escribe en estos — solo vigila que giren",
   "strip.steers": "Fanboy está regulando ahora. Probar y medir vuelven a funcionar cuando hayas devuelto los ventiladores (paso 6).",
   "strip.other": "Otro control de ventiladores está regulando. Probar y medir funcionan cuando ya nada más regule.",
-  "take.own_since": "por tu cuenta y riesgo desde el {date}"
+  "take.own_since": "por tu cuenta y riesgo desde el {date}",
+  "look.colour_note": "¿Tu ejemplar tiene otro color que el habitual (una edición negra, por ejemplo)? Elígelo aquí — el dibujo muestra entonces todo el ventilador así."
 }

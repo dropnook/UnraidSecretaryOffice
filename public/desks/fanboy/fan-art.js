@@ -27,7 +27,8 @@
               unknown  no feedback (rpm null): stands, dashed frame
               bios     the BIOS controls it: turns as measured (when it reports), dotted frame, badge
        colour: 'auto' | 'black' | 'graphite' | 'grey' | 'white' | 'slate' | 'accent'   the wheel's colour (blades and hub):
-                                                 'auto' = the model's (look) or the neutral one; any other wins over the look
+                                                 'auto' = the model's (look) or the neutral one; any other wins over the look —
+                                                 and paints a model's frame too («my copy is black»); 'accent' the wheel alone
        look: { frame, blades, hub, pads,         the model's own look (fans-catalog.json): colours from LOOK_COLOURS
                style, shape, vanes, rim,         (pads null = none), style from STYLES (the blades' character),
                sticker, sticker_colour }         shape from SHAPES (square with screw holes, round ring, corner pads),
@@ -456,7 +457,11 @@
       const frontKey = look ? `${mm}/${look.vanes}/${sticker ? look.sticker.join('|') : ''}` : '';
       if (fronted !== frontKey) { fronted = frontKey; const n = frontSvg(look, mm, px); front.replaceWith(n); front = n; }
       // the model's colours: named ones (fan-art.css makes each from the office's palette), the wheel's only when it is his
-      const paint = look ? { '--fan-frame': look.frame, '--fan-pad': look.pads, '--fan-tag': look.sticker_colour,
+      // the user's colour on a model says «my copy is another colour than the standard one» (a black edition of a beige
+      // fan): it paints the whole fan — frame, blades and hub —; the model keeps its shape, pads and name. «accent» stays
+      // a mark on the wheel alone (the page's «this one runs now»).
+      const edition = !!(look && colour !== 'auto' && colour !== 'accent');
+      const paint = look ? { '--fan-frame': edition ? null : look.frame, '--fan-pad': look.pads, '--fan-tag': look.sticker_colour,
         '--fan-blade': own ? look.blades : null, '--fan-hub': own ? look.hub : null } : {};
       const paintKey = JSON.stringify(paint);
       if (painted !== paintKey) {

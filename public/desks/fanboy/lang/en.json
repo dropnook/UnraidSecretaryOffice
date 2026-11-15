@@ -976,5 +976,6 @@
   "take.bios_tip": "Fanboy never writes to these — he only watches that they turn",
   "strip.steers": "Fanboy is steering right now. Testing and measuring work again once you have handed the fans back (step 6).",
   "strip.other": "Another fan control is steering. Testing and measuring work once nothing else steers.",
-  "take.own_since": "at your own risk since {date}"
+  "take.own_since": "at your own risk since {date}",
+  "look.colour_note": "Is your copy another colour than the usual one (a black edition, say)? Choose it here — the picture then shows the whole fan that way."
 }
