@@ -746,8 +746,10 @@ function fanboySetupState(array $scan, ?array $settings): array
             // round 9 (H1): it didn't start from standing at this value (0–255) — it needed a kick
             'kick_start' => is_int($f['kick_start']['value'] ?? null) ? $f['kick_start']['value'] : null,
             // round 12: the measurement's standstill part (null: not tried — measured before round 12, or a CPU cooler/pump)
-            'stand' => $m !== null && array_key_exists('stops', $m) ? array_intersect_key($m + ['floor_rpm' => null, 'start_from_stop' => null, 'kick_start' => null, 'stops_safe' => null],
-                array_flip(['stops', 'floor_rpm', 'start_from_stop', 'kick_start', 'stops_safe'])) : null,
+            'stand' => $m !== null && array_key_exists('stops', $m) ? array_intersect_key($m + ['floor_rpm' => null, 'start_from_stop' => null, 'kick_start' => null, 'stops_safe' => null, 'start_tries' => null],
+                array_flip(['stops', 'floor_rpm', 'start_from_stop', 'kick_start', 'stops_safe', 'start_tries'])) : null,
+            // round 12 fix: the standstill part was cut — {why: warm|stopped|page_gone|…, source, c, at} («Stillstand nicht geprüft: CPU 53 °C»)
+            'stand_cut' => $m !== null && !array_key_exists('stops', $m) && is_array($m['stand_cut'] ?? null) ? $m['stand_cut'] : null,
             // … and «darf stehen» chosen but not in effect: why (measure_again, never_stops, not_safe, not_measured)
             'off_why' => ($plan = fanboyStandPlan($f, is_array($m['table'] ?? null) ? $m : null, ($f['found'] ?? null) === 'tach', fanboyCpuOwn($f), 0))[1],
             // … in effect (it may stand), and a CPU cooler's second tick — since when (null: none)

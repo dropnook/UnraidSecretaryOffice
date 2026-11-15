@@ -1572,7 +1572,7 @@ function testFanboyR12Standstill(): void
         same('fanboy r12: a fan that stops and starts from standstill at 35 % — stops, start_from_stop 35, safe; its table as before (down to 10 %)',
             ['done', true, null, 35, null, true, 10], [$step['status'], $m['stops'] ?? null, (array_key_exists('floor_rpm', $m) ? $m['floor_rpm'] : 'x'), $m['start_from_stop'] ?? null, (array_key_exists('kick_start', $m) ? $m['kick_start'] : 'x'), $m['stops_safe'] ?? null, $m['min_pct'] ?? null]);
         same('fanboy r12: … the phases the page shows: the table, «Stillstand wird geprüft», «Anlauf wird gesucht: 10 … 35 %», then the pause (every fan turns again)',
-            ['table', 'stop_check', 'start_find:10', 'start_find:15', 'start_find:20', 'start_find:25', 'start_find:30', 'start_find:35', 'pause'],
+            ['table', 'stop_check', 'start_find:10', 'start_find:15', 'start_find:20', 'start_find:25', 'start_find:30', 'start_find:35', 'start_confirm:35', 'pause'],
             array_values(array_filter($phases, fn ($p) => $p === 'table' || !str_starts_with($p, 'table'))));
         same('fanboy r12: … afterwards exactly as before (128 fixed), turning, nothing held', [[128, 1], true, []], [fanboyTOut($t, 1), fanboyReadInt("{$t['hw']}/fan1_input") > 300, fanboyHeld()]);
 
@@ -1680,8 +1680,8 @@ function testFanboyR12Control(): void
             $seen[1][] = fanboyTOut($t, 1)[0];
             $seen[4][] = fanboyTOut($t, 4)[0];
         }
-        same('fanboy r12 control: warmer — the 35 % fan started at 35 % (89), the kick fan at full (255); both turning at their value then, no «stands»',
-            [true, true, true, true, null], [in_array(89, $seen[1], true), in_array(255, $seen[4], true), fanboyReadInt("{$t['hw']}/fan1_input") > 300,
+        same('fanboy r12 control: warmer — the 35 % fan started 5 % above its start (40 %: 102), the kick fan at full (255); both turning at their value then, no «stands»',
+            [true, true, true, true, null], [in_array(102, $seen[1], true), in_array(255, $seen[4], true), fanboyReadInt("{$t['hw']}/fan1_input") > 300,
                 fanboyReadInt("{$t['hw']}/fan4_input") > 300, $c['alarm']]);
         check('fanboy r12 control: the «stands» clock allows for the start — kicks and a start wait fit in FANBOY_STAND_AFTER',
             FANBOY_KICK * FANBOY_KICK_MAX + FANBOY_START_WAIT <= FANBOY_STAND_AFTER);
@@ -1779,10 +1779,12 @@ function testFanboyR12CpuMeasure(): void
             });
             fanboyR12CpuTemp($t, 28);
             $m = fanboyBoardRaw()['fans'][fanboyTId(2)]['measured'] ?? [];
-            same("fanboy r12 cpu measure: $what while the CPU cooler stands — at once off 0, stopped (warm), back as before, the table kept, the standstill unknown",
-                ['stopped', 'warm', true, [], [128, 1], [], 10, false],
-                [$step['status'], $step['why'], $at !== null, array_values(array_filter($after, fn ($a) => $a[0] > 1.5 && $a[1] === 0)), fanboyTOut($t, 2), fanboyHeld(),
-                    $m['min_pct'] ?? null, array_key_exists('stops', $m)]);
+            // round 12 fix: 70 °C and no reading at once (one look); a rise by the smoothed CPU (median of 10 s: a few looks)
+            $within = $c === 44 ? 6.5 : 1.5;
+            same("fanboy r12 cpu measure: $what while the CPU cooler stands — off 0 within {$within} s, stopped (warm), back as before, the table kept, the standstill unknown and said why",
+                ['stopped', 'warm', true, [], [128, 1], [], 10, false, 'warm'],
+                [$step['status'], $step['why'], $at !== null, array_values(array_filter($after, fn ($a) => $a[0] > $within && $a[1] === 0)), fanboyTOut($t, 2), fanboyHeld(),
+                    $m['min_pct'] ?? null, array_key_exists('stops', $m), $m['stand_cut']['why'] ?? null]);
         }
     } finally {
         fanboyTEnd();
@@ -1828,18 +1830,18 @@ function testFanboyR12CpuControl(): void
         fanboyTRounds($c, $now, $t, $spec, 10);
         same('fanboy r12 cpu control: 43 °C (under «ab») — it stays standing, no alarm', [0, null], [fanboyTOut($t, 2)[0], $c['alarm']]);
         fanboyR12CpuTemp($t, 45);
-        fanboyTRounds($c, $now, $t, $spec, 1);
-        same('fanboy r12 cpu control: 45 °C («ab») — it starts in the very next round, at its floor or more (40 %: 102)', true, fanboyTOut($t, 2)[0] >= 102);
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        same('fanboy r12 cpu control: 45 °C («ab») held — it starts as soon as the smoothed CPU (median of 10 s) is there, at its floor or more (40 %: 102)', true, fanboyTOut($t, 2)[0] >= 102);
         fanboyTRounds($c, $now, $t, $spec, 4);
         same('fanboy r12 cpu control: … and turns (from standing at 40 %: it starts at 35 %)', true, fanboyReadInt("{$t['hw']}/fan2_input") > 300);
         // a break in the cool time starts the 60 s anew
         fanboyR12CpuTemp($t, 30);
         fanboyTRounds($c, $now, $t, $spec, 20);
         fanboyR12CpuTemp($t, 42);
-        fanboyTRounds($c, $now, $t, $spec, 1);
+        fanboyTRounds($c, $now, $t, $spec, 4);
         fanboyR12CpuTemp($t, 30);
         fanboyTRounds($c, $now, $t, $spec, 25);
-        same('fanboy r12 cpu control: 40 s cool, one round at 42 °C, 50 s cool — still turning (60 s without a break needed)', true, fanboyTOut($t, 2)[0] > 0);
+        same('fanboy r12 cpu control: 40 s cool, 8 s at 42 °C (the smoothed CPU over «ab» − 5), 50 s cool — still turning (60 s without a break needed)', true, fanboyTOut($t, 2)[0] > 0);
         fanboyTRounds($c, $now, $t, $spec, 8);
         same('fanboy r12 cpu control: … 66 s without a break — it stands', 0, fanboyTOut($t, 2)[0]);
         fanboyTDisks($t, 36, null, 30);
@@ -1906,7 +1908,7 @@ function testFanboyR12CpuGone(): void
         // 3. hung: there, no beat — 12 s old: with an output at 0 that is hung (10 s), with none it would be alive (30 s)
         $me = fanboyMe('control');
         $stand($me);
-        file_put_contents(fanboyRunDir() . '/beat-' . getmypid(), (string) (hrtime(true) - 12e9));
+        file_put_contents(fanboyRunDir() . '/beat-' . getmypid(), (string) (hrtime(true) - 12_000_000_000));
         $j = fanboyJournal()['outputs'][fanboyTId(2)];
         same('fanboy r12 gone: … hung — a holder 12 s without a beat counts as hung while its output stands at 0 (10 s), as alive while it turns (30 s)',
             ['hung', 'alive'], [fanboyOwnerState($me, null, fanboyStanding($j) ? FANBOY_OWNER_STALE_STANDING : FANBOY_OWNER_STALE), fanboyOwnerState($me)]);
@@ -1992,6 +1994,140 @@ function testFanboyR12Look(): void
                 ...array_map(fn ($k) => array_key_exists($k, $fans[$id] ?? []) ? $fans[$id][$k] : 'x', ['frame', 'wheel', 'style'])]);
         $f = $look(['wheel' => 'white']);
         same('fanboy r12 look: … and a new field saved beside it keeps the old', [13, 'graphite', 'white'], [$f['model']['blades'] ?? null, $f['colour'] ?? null, $f['wheel'] ?? null]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 12 fix (the owner's server: the CPU cooler's standstill part was cut after 2 s by a single reading of 53 °C):
+ * the CPU idles at 38 °C with one reading in twenty at +20 °C — the standstill part completes; a real rise (sustained)
+ * cuts it, and the cut is said (result and measurement: «Stillstand nicht geprüft: CPU …»)
+ */
+function testFanboyR12FixSpikes(): void
+{
+    $t = fanboyT('r12fixspikes');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR12Spec();
+        fanboyTSettle($t, $spec);
+        fanboyR12Store();
+        $n = 0;
+        $step = fanboyR12Measure($t, $spec, 2, function () use ($t, &$n): void {
+            fanboyR12CpuTemp($t, ++$n % 20 === 0 ? 58 : 38);         // one reading in twenty at +20 °C
+        });
+        $m = fanboyBoardRaw()['fans'][fanboyTId(2)]['measured'] ?? [];
+        same('fanboy r12 fix: a spiky CPU (38 °C, every 20th reading 58 °C) — the CPU cooler\'s standstill part completes: it stops, starts at 35 %, safe; nothing cut',
+            ['done', true, 35, true, false], [$step['status'], $m['stops'] ?? null, $m['start_from_stop'] ?? null, $m['stops_safe'] ?? null, isset($m['stand_cut'])]);
+        // a real rise during it (38 → 55 °C held): cut, and said
+        fanboyR12CpuTemp($t, 38);
+        fanboyR12Store();
+        $step = fanboyR12Measure($t, $spec, 2, function () use ($t): void {
+            if ((fanboyStepRead()['progress']['phase'] ?? null) === 'stop_check') {
+                fanboyR12CpuTemp($t, 55);
+            }
+        });
+        fanboyR12CpuTemp($t, 28);
+        $m = fanboyBoardRaw()['fans'][fanboyTId(2)]['measured'] ?? [];
+        $r = $step['results'][fanboyTId(2)] ?? [];
+        same('fanboy r12 fix: … a real rise (55 °C held) cuts it — the step stopped (warm, the CPU), the result and the stored measurement say «not checked: CPU 55 °C»; the table kept',
+            ['stopped', 'warm', 'CPU', ['why' => 'warm', 'source' => 'CPU', 'c' => 55], ['why' => 'warm', 'source' => 'CPU', 'c' => 55], false, 10],
+            [$step['status'], $step['why'], $step['warm']['source'] ?? null, array_map(fn ($v) => is_float($v) ? (int) $v : $v, array_diff_key($r['stand_cut'] ?? [], ['at' => 1])),
+                array_map(fn ($v) => is_float($v) ? (int) $v : $v, array_diff_key($m['stand_cut'] ?? [], ['at' => 1])), array_key_exists('stops', $m), $m['min_pct'] ?? null]);
+        $s = array_column(fanboySetupState(fanboyDetect(), fanboyBoardRaw())['fans'], null, 'id')[fanboyTId(2)];
+        same('fanboy r12 fix: … the setup\'s fan carries it (stand_cut), its stand unknown', ['warm', null], [$s['stand_cut']['why'] ?? null, $s['stand']]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 12 fix: the control with the spiky CPU — the CPU cooler stands after the calm minute and stays standing through
+ * spikes under the hard value (80 °C); a real rise to «ab» starts it as soon as the smoothed CPU is there, a single
+ * reading at the hard value the same round; the state says what it goes by
+ */
+function testFanboyR12FixControl(): void
+{
+    $t = fanboyT('r12fixctl');
+    try {
+        $spec = fanboyR12Spec();
+        fanboyTDisks($t, 30, null, 30);
+        fanboyR12CpuTemp($t, 30);
+        $c = fanboyR12CpuControl($t, $spec);
+        $now = 1000.0;
+        $round = 0;
+        $spiky = function (int $rounds, int $base) use (&$c, &$now, $t, $spec, &$round): array {
+            $out = [];
+            for ($i = 0; $i < $rounds; $i++) {
+                fanboyR12CpuTemp($t, ++$round % 20 === 0 ? $base + 20 : $base);
+                fanboyTRounds($c, $now, $t, $spec, 1);
+                $out[] = fanboyTOut($t, 2)[0];
+            }
+            return $out;
+        };
+        $seen = $spiky(40, 30);
+        same('fanboy r12 fix control: CPU 30 °C with a spike of 50 °C every 20th round — it stands after the calm minute (spikes don\'t restart the clock)',
+            [true, 0], [in_array(102, array_slice($seen, 0, 25), true), end($seen)]);
+        $seen = $spiky(60, 30);
+        same('fanboy r12 fix control: … and stays standing through two minutes of such spikes (under the hard value, 80 °C)', [0], array_values(array_unique($seen)));
+        $fan = fanboyStatus($c)['zones'][0]['fans'][0] ?? [];
+        same('fanboy r12 fix control: the state says what it goes by — smoothed, peak, «ab», the hard value', [30.0, 45.0, 80.0, true],
+            [$fan['cpu_by']['smooth'] ?? null, $fan['cpu_by']['ab'] ?? null, $fan['cpu_by']['hard'] ?? null, is_float($fan['cpu_by']['peak'] ?? null) || is_int($fan['cpu_by']['peak'] ?? null)]);
+        // a real rise: 46 °C held — it starts in the round the smoothed CPU reaches «ab»
+        $at = null;
+        for ($i = 0; $i < 6 && $at === null; $i++) {
+            fanboyR12CpuTemp($t, 46);
+            fanboyTRounds($c, $now, $t, $spec, 1);
+            $by = $c['fans'][fanboyTId(2)]['cpu_by'];
+            if (fanboyTOut($t, 2)[0] > 0) {
+                $at = [$i + 1, $by['smooth'] >= 45];
+            }
+        }
+        same('fanboy r12 fix control: a real rise (46 °C held) — it starts in the round its smoothed CPU reaches «ab» (within 3 rounds)', [true, true],
+            [$at !== null && $at[0] <= 3, $at[1] ?? null]);
+        $spiky(40, 30);
+        same('fanboy r12 fix control: (standing again after the calm minute)', 0, fanboyTOut($t, 2)[0]);
+        fanboyR12CpuTemp($t, 85);
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        same('fanboy r12 fix control: a single reading at the hard value (85 °C ≥ 80) — it starts the same round', true, fanboyTOut($t, 2)[0] >= 102);
+        fanboyR12CpuTemp($t, 30);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyR12CpuTemp($t, 28);
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 12 fix (the owner's case fan on output 5: start_from_stop 10 from one try, yet once it didn't start at 50 %): the
+ * start from standstill confirmed — two more stops and starts at the value found; one fails: 5 % up and confirm again. A
+ * fake fan that starts at its value (34 %) two times out of three: 35 % found, the third try fails → 40 %; tries kept;
+ * the control starts it 5 % above (45 %)
+ */
+function testFanboyR12FixConfirm(): void
+{
+    $t = fanboyT('r12fixconfirm');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR12Spec();
+        $spec['fans'][1]['flaky'] = true;
+        fanboyTSettle($t, $spec);
+        fanboyR12Store();
+        $phases = [];
+        $step = fanboyR12Measure($t, $spec, 1, function () use (&$phases): void {
+            $p = fanboyStepRead()['progress'] ?? null;
+            $k = is_array($p) && in_array($p['phase'] ?? null, ['start_find', 'start_confirm'], true) ? $p['phase'] . ':' . $p['pct'] . (isset($p['try']) ? "/{$p['try']}" : '') : null;
+            if ($k !== null && end($phases) !== $k) {
+                $phases[] = $k;
+            }
+        });
+        $m = fanboyBoardRaw()['fans'][fanboyTId(1)]['measured'] ?? [];
+        same('fanboy r12 fix confirm: found at 35 %, confirmed once, the second confirm fails → 40 %, confirmed twice: start_from_stop 40, 5 tries passed, 1 failed',
+            ['done', 40, ['passed' => 5, 'failed' => 1], true], [$step['status'], $m['start_from_stop'] ?? null, $m['start_tries'] ?? null, $m['stops_safe'] ?? null]);
+        same('fanboy r12 fix confirm: … the phases the page shows', ['start_find:30', 'start_find:35', 'start_confirm:35/1', 'start_confirm:35/2', 'start_find:40', 'start_confirm:40/1', 'start_confirm:40/2'],
+            array_slice($phases, array_search('start_find:30', $phases, true) ?: 0));
+        same('fanboy r12 fix confirm: … back as before, turning', [[128, 1], true], [fanboyTOut($t, 1), fanboyReadInt("{$t['hw']}/fan1_input") > 300]);
+        same('fanboy r12 fix confirm: the control starts a standing fan 5 % above it (45 %)', 45, fanboyStandPlan(['off_ok' => false], $m, true, false, 15)[2]);
     } finally {
         fanboyTEnd();
     }

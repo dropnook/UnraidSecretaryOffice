@@ -15,12 +15,14 @@ declare(strict_types=1);
  *                                 'auto_dead' => true (the chip's mode does nothing: the value counts, it87 #56),
  *                                 'bios' => true (the BIOS runs it whatever is written: its «auto» rpm),
  *                                 'floor' => rpm (round 12: below its stall value it keeps this — a PWM fan that never stops),
- *                                 'full_only' => true (round 12: once it has stood, it turns only at full — never safe to stop)]],
+ *                                 'full_only' => true (round 12: once it has stood, it turns only at full — never safe to stop),
+ *                                 'flaky' => true (round 12 fix: from standing just at its start value — under start + 5 % — it
+ *                                 starts two times out of three; every third try it stays)]],
  *            'revert' => [output => enable],       the BIOS puts that output's mode back after every write (round 5)
  *            'full0'  => [output …]]               round 7: the it87 driver reads a fixed 255 back as «full on» (enable 0)
  */
 
-function fanboyFakeRpmTarget(array $f, ?int $value, ?int $enable, int $now, bool $stood = false): int
+function fanboyFakeRpmTarget(array $f, ?int $value, ?int $enable, int $now, bool $stood = false, ?bool $flakyOk = null): int
 {
     if (!empty($f['stuck'])) {
         return 0;
@@ -36,6 +38,9 @@ function fanboyFakeRpmTarget(array $f, ?int $value, ?int $enable, int $now, bool
     $start = (float) ($f['start'] ?? max($stall, 0.3));
     if (!empty($f['full_only']) && $stood && $d < 1.0) {
         return 0;
+    }
+    if (!empty($f['flaky']) && $now < 50 && $d >= $start && $d < $start + 0.05 && $flakyOk === false) {
+        return 0;                       // this try from standing fails
     }
     if ($d < $stall || ($now < 50 && $d < $start)) {
         return is_int($f['floor'] ?? null) && $d < $stall ? $f['floor'] : 0;
@@ -68,7 +73,25 @@ function fanboyFakeRespond(string $root, array $spec, float $dt): void
             return;
         }
         $now = $read("$dir/fan{$tach}_input") ?? 0;
-        $want = fanboyFakeRpmTarget($f, $read("$dir/pwm$n"), is_file("$dir/pwm{$n}_enable") ? $read("$dir/pwm{$n}_enable") : 1, $now, is_file("$dir/fan{$tach}_stood"));
+        // round 12 fix: a flaky fan — each try from standing just at its start value counted once (a marker while it lasts)
+        $flakyOk = null;
+        if (!empty($f['flaky'])) {
+            $pv = $read("$dir/pwm$n");
+            $dd = max(0, min(255, $pv ?? 0)) / 255;
+            $st = (float) ($f['start'] ?? 0.3);
+            $mark = "$dir/fan{$tach}_try";
+            if ($now < 50 && $dd >= $st && $dd < $st + 0.05) {
+                if (!is_file($mark)) {
+                    $tries = (int) @file_get_contents("$dir/fan{$tach}_tries") + 1;
+                    @file_put_contents("$dir/fan{$tach}_tries", (string) $tries);
+                    @file_put_contents($mark, $tries % 3 === 0 ? 'fail' : 'ok');
+                }
+                $flakyOk = trim((string) @file_get_contents($mark)) === 'ok';
+            } else {
+                @unlink($mark);
+            }
+        }
+        $want = fanboyFakeRpmTarget($f, $read("$dir/pwm$n"), is_file("$dir/pwm{$n}_enable") ? $read("$dir/pwm{$n}_enable") : 1, $now, is_file("$dir/fan{$tach}_stood"), $flakyOk);
         $lag = max(0.01, (float) ($f['lag'] ?? 1.0));
         $next = $now + ($want - $now) * min(1.0, $dt / $lag);
         if (abs($want - $next) < 15) {
