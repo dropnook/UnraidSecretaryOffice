@@ -804,9 +804,8 @@
   "watch.banner": "{fan} stands although {source} is at {c} °C. Fanboy doesn't steer this fan, he only watches — check it.",
   "watch.banner_cool": "{fan} stood while something was warm and hasn't turned since. Fanboy doesn't steer this fan, he only watches — check it.",
   "show.button": "Show me this fan",
-  "show.tip": "This output to 100 % for 5 seconds, then back exactly as it was — listen and look which fan speeds up",
-  "show.running": "at 100 % …",
-  "show.toast": "{fan} runs at 100 % for 5 seconds — then back as it was",
+  "show.tip": "Only this fan to 100 % for up to 15 seconds, then back exactly as it was — listen and look which one speeds up",
+  "show.toast": "{fan} runs at 100 % for up to 15 seconds — then back as it was",
   "show.off.ignored": "This output doesn't obey (the BIOS keeps it) — Fanboy never writes it",
   "show.off.inverted": "This output works the other way round — Fanboy never writes it",
   "show.off.other": "Another fan control steers — switch it off first",
@@ -814,10 +813,14 @@
   "show.off.one": "Another fan is being shown — one at a time",
   "show.off.alarm": "An alarm holds — the fans of its zone are at 100 % already",
   "show.give_back_failed": "After showing {fan}, its output didn't read back as it was before — look at it in the fans list; a restart of Unraid gives it to the BIOS.",
-  "note.show": "{fan} shown at 100 % for 5 seconds",
+  "note.show": "{fan} shown at 100 %",
   "errors.fanboy_show_running": "A fan is being shown right now — one at a time.",
   "errors.fanboy_show_alarm": "An alarm holds — the fans of its zone are at 100 % already. Show it when the alarm is over.",
   "errors.fanboy_show_not": "This output doesn't obey, works the other way round or its driver takes no values — Fanboy never writes it.",
   "hints.poll_add": "Values up to {min} minutes old — I add {add} °C to them in my zones (such a value is a lower bound of the truth).",
-  "zones.poll_add": "So Fanboy adds {add} °C to each disk value."
+  "zones.poll_add": "So Fanboy adds {add} °C to each disk value.",
+  "show.stop": "Found it — stop",
+  "show.stop_tip": "Ends the show now: the fan goes back exactly to what it was",
+  "help.show": "Show me this fan",
+  "help.show_text": "Only this one fan goes to full speed for up to 15 seconds. Every other fan keeps running exactly as it is — Fanboy never stops a fan to make another one audible. Afterwards the fan goes back to exactly what it was (a fan he steers: back to its curve). «Found it — stop» ends it earlier."
 }

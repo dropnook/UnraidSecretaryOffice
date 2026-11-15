@@ -64344,7 +64344,7 @@ function testFanboyHidden(): void
         [$off[0]['desk'] ?? $off[0], $off[0]['actions'] ?? null, $off[0]['fit'] ?? null, $off[0]['checks'] ?? null, $off[1]['desk'] ?? $off[1]]);
     same('fanboy hidden: with the file — the desk on both sides (refresh, report and part 2\'s actions; a fit, checks, his two jobs, a tick)',
         [true, ['refresh', 'report', 'look_now', 'drivers_load', 'drivers_undo', 'test_up', 'measure', 'step_alive', 'step_stop', 'answer', 'role',
-                'zones_propose', 'zones_save', 'dry_run', 'take_over', 'hand_back', 'back', 'fan_look', 'history', 'dashboard', 'watch', 'show'], true, true, ['fanboy-control', 'fanboy-step', 'fanboy-show'], true, true],
+                'zones_propose', 'zones_save', 'dry_run', 'take_over', 'hand_back', 'back', 'fan_look', 'history', 'dashboard', 'watch', 'show', 'show_stop'], true, true, ['fanboy-control', 'fanboy-step', 'fanboy-show'], true, true],
         [$on[0]['desk'] ?? $on[0], $on[0]['actions'] ?? null, $on[0]['fit'] ?? null, $on[0]['checks'] ?? null, $on[0]['jobs'] ?? null, $on[0]['tick'] ?? null, $on[1]['desk'] ?? $on[1]]);
     same('fanboy hidden: … and the other desks the same either way', $on[1]['others'] - 1, $off[1]['others'] ?? null);
     // the repository's own data folder (what every other test sees): no switch, so no Fanboy among the agent's desks
@@ -64793,7 +64793,7 @@ function testFanboyPage(): void
     $acts = array_values(array_unique($acts[1]));
     sort($acts);
     same('fanboy page: the banner between the row and the sections; the page\'s actions through act() — the wizard\'s and part 2\'s',
-        [true, ['answer', 'back', 'dashboard', 'drivers_load', 'drivers_undo', 'dry_run', 'fan_look', 'hand_back', 'look_now', 'role', 'show', 'take_over', 'watch', 'zones_propose', 'zones_save']],
+        [true, ['answer', 'back', 'dashboard', 'drivers_load', 'drivers_undo', 'dry_run', 'fan_look', 'hand_back', 'look_now', 'role', 'show', 'show_stop', 'take_over', 'watch', 'zones_propose', 'zones_save']],
         [str_contains($js, "banner = sw.el.insertBefore(el('div', 'fb-banner'), sw.body)"), $acts]);
     check('fanboy page: in SECTIONS_DESKS', array_key_exists('fanboy', SECTIONS_DESKS));
     // the stub and demo states: the shape of a real look on the fake tree (the click test and the pictures)

@@ -13,14 +13,19 @@ declare(strict_types=1);
  *     zone's curve takes it again (what «as it was» means for a fan he steers); the trim waits meanwhile
  *   · any other output: a process of its own (`php agent.php job fanboy-show`, a session of its own) holds it as a «step»
  *     in the journal, writes 100 %, waits, gives back exactly the state before, reads it back
+ * Only this one output is written: every other fan runs on exactly as it is — Fanboy never stops a fan to make another
+ * one audible (more air never harms, less can). «Found it — stop» (`show_stop {fan}`, 4b) ends it at once: the same
+ * give-back as after the time (the process sees `stop` in the file within 0.2 s; the control in its next round); a stop
+ * without a show of that fan is a quiet no-op.
  * Refused (each with its words): another controller steers, a setup step runs (test or measuring), a show runs, an alarm
  * holds (the control's), the output marked «doesn't obey», «the other way round» or «the driver takes no values».
  *
- *   RUN_DIR/fanboy/show.json   {id, fan, via: step|control, status: starting|running|done|failed, why, at, until, pid, start, ok}
+ *   RUN_DIR/fanboy/show.json   {id, fan, via: step|control, status: starting|running|done|failed, why (stopped: ended by the
+ *                              user), at, until, pid, start, ok, stop: true once asked to end}
  */
 
-const FANBOY_SHOW_FOR = 5.0;            // seconds at 100 %
-const FANBOY_SHOW_STALE = 20;           // seconds: a show still «starting» or «running» after this is over (its process gone)
+const FANBOY_SHOW_FOR = 15.0;           // seconds at 100 % at most (4b, the owner: time to look into the case) — «Found it — stop» ends it earlier
+const FANBOY_SHOW_STALE = 30;           // seconds: a show still «starting» or «running» after this is over (its process gone)
 
 function fanboyShowFile(): string
 {
@@ -106,6 +111,29 @@ function fanboyShowStart(array $r): array
 }
 
 /**
+ * «Found it — stop» (`show_stop {fan}`): the show of that fan asked to end now — whoever shows it gives back as after
+ * the time. No show of that fan running: nothing, quietly (the page may have clicked as it ended).
+ */
+function fanboyShowStop(array $r): array
+{
+    $id = textField($r, 'fan');
+    $s = fanboyShowRead();
+    if ($s !== null && $s['fan'] === $id && in_array($s['status'], ['starting', 'running'], true) && ($s['stop'] ?? false) !== true) {
+        $s['stop'] = true;
+        fanboyShowWrite($s);
+        logLine("Fanboy: «show me this fan» for $id ended early on the user's click («found it»)");
+    }
+    return ['ok' => true, 'show' => fanboyShowRead(), 'state' => fanboyScan()];
+}
+
+/** Was the show asked to end («found it — stop»)? Its file, as written by the action */
+function fanboyShowStopAsked(?string $req): bool
+{
+    $s = readJson(fanboyShowFile());
+    return is_array($s) && ($s['id'] ?? null) === $req && ($s['stop'] ?? false) === true;
+}
+
+/**
  * The show's process: `php agent.php job fanboy-show` — the show RUN_DIR/fanboy/show.json describes, once. $io: the tests'
  * clock and sleep (now, sleep); the real ones otherwise.
  */
@@ -136,6 +164,12 @@ function fanboyShowMain(?array $io = null): int
     fanboyBeat();
     $back = [];
     try {
+        if (fanboyShowStopAsked($show['id'] ?? null)) {
+            $show['status'] = 'done';           // «found it» before it even began: nothing taken, nothing written
+            $show['why'] = 'stopped';
+            $show['stop'] = true;
+            return 0;
+        }
         $o = fanboyOutputs(fanboyDetect(fanboySysRoot() ?: null))[$id] ?? null;
         if ($o === null) {
             $show['status'] = 'failed';
@@ -155,11 +189,20 @@ function fanboyShowMain(?array $io = null): int
         $show['until'] = time() + (int) FANBOY_SHOW_FOR;
         fanboyShowWrite($show);
         $t0 = ($io['now'])();
+        $early = false;
         while (!$stop['now'] && ($io['now'])() - $t0 < FANBOY_SHOW_FOR) {
             ($io['sleep'])(0.2);
             fanboyBeat();
+            if (fanboyShowStopAsked($show['id'] ?? null)) {
+                $early = true;              // «found it — stop»: given back now, exactly as after the time (below)
+                break;
+            }
         }
         $show['status'] = 'done';
+        if ($early) {
+            $show['why'] = 'stopped';
+            $show['stop'] = true;
+        }
     } catch (Throwable $e) {
         $show['status'] = 'failed';
         $show['why'] = 'error';
@@ -185,11 +228,15 @@ function fanboyShowMain(?array $io = null): int
  */
 function fanboyShowControl(array &$c, float $now): ?string
 {
-    if (isset($c['show']) && $now >= $c['show']['until']) {
+    $early = isset($c['show']) && fanboyShowStopAsked($c['show']['req']);
+    if (isset($c['show']) && ($now >= $c['show']['until'] || $early)) {
         $s = readJson(fanboyShowFile());
         if (is_array($s) && ($s['id'] ?? null) === $c['show']['req']) {
             $s['status'] = 'done';
             $s['ok'] = true;
+            if ($early) {
+                $s['why'] = 'stopped';          // «found it — stop»: its curve takes it again now, as after the time
+            }
             fanboyShowWrite($s);
         }
         $id = $c['show']['fan'];
@@ -211,6 +258,12 @@ function fanboyShowControl(array &$c, float $now): ?string
         return null;
     }
     $id = $s['fan'];
+    if (($s['stop'] ?? false) === true) {
+        $s['status'] = 'done';                  // «found it» before the control took it up: nothing written
+        $s['why'] = 'stopped';
+        fanboyShowWrite($s);
+        return null;
+    }
     if (!($c['fans'][$id]['taken'] ?? false) || $c['alarm'] !== null) {
         $s['status'] = 'failed';
         $s['why'] = $c['alarm'] !== null ? 'alarm' : 'busy';

@@ -209,17 +209,47 @@ function testFanboyR6ShowStep(): void
         same('fanboy r6 show: … a second click while it runs is refused', 'fanboy_show_running', fanboyR6Refused(fn () => fanboyShowStart(['fan' => fanboyTId(5)])));
         $clock = 0.0;
         $seen = [];
-        fanboyShowMain(['now' => function () use (&$clock) { return $clock; }, 'sleep' => function (float $s) use (&$clock, &$seen, $t) {
+        // 4b (the owner asked): during a show every OTHER output stays exactly as it is — nothing else is written
+        $others = fn () => array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 5, 6]);
+        $before = $others();
+        $mtimes = fn () => array_map(fn ($n) => [@filemtime("{$t['hw']}/pwm$n"), @filemtime("{$t['hw']}/pwm{$n}_enable")], [1, 2, 3, 5, 6]);
+        clearstatcache();
+        $m0 = $mtimes();
+        $otherChanged = false;
+        fanboyShowMain(['now' => function () use (&$clock) { return $clock; }, 'sleep' => function (float $s) use (&$clock, &$seen, $t, $others, $before, &$otherChanged) {
             $clock += $s;
             $seen[] = fanboyTOut($t, 4);
             $seen[] = fanboyShowRead()['status'] ?? null;
+            $otherChanged = $otherChanged || $others() !== $before;
         }]);
-        same('fanboy r6 show: 100 % (fixed) while it is shown, «running» meanwhile, about 5 s', [[255, 1], 'running', 25],
-            [$seen[0], $seen[1], count($seen) / 2]);
+        same('fanboy r6 show: 100 % (fixed) while it is shown, «running» meanwhile, up to 15 s (4b)', [[255, 1], 'running', true],
+            [$seen[0], $seen[1], abs(count($seen) / 2 - 75) <= 1]);
+        clearstatcache();
+        same('fanboy r6 show: … every other output exactly as it was all along — never stopped, never written (4b)', [false, $before, $m0], [$otherChanged, $others(), $mtimes()]);
         $s = fanboyShowRead();
         $j = fanboyJournal()['outputs'][fanboyTId(4)] ?? [];
         same('fanboy r6 show: … then exactly as before — value 77, the chip\'s own automatic (2) — read back, nobody holds it, the show done', [[77, 2], 'done', true, true, 'show'],
             [fanboyTOut($t, 4), $s['status'], $s['ok'], array_key_exists('owner', $j) && $j['owner'] === null, $j['given']['why'] ?? null]);
+        // 4b: «Found it — stop» — ends it at once, given back exactly as after the time
+        fanboyShowStart(['fan' => fanboyTId(4)]);
+        $clock = 0.0;
+        $n = 0;
+        fanboyShowMain(['now' => function () use (&$clock) { return $clock; }, 'sleep' => function (float $s) use (&$clock, &$n) {
+            $clock += $s;
+            if (++$n === 10) {
+                fanboyShowStop(['fan' => fanboyTId(4)]);
+            }
+        }]);
+        $j = fanboyJournal()['outputs'][fanboyTId(4)] ?? [];
+        same('fanboy r6 show: «Found it — stop» after 2 s — ended in that very look (0.2 s), exactly as before (77, its automatic), read back, said «stopped»',
+            [10, [77, 2], 'done', 'stopped', true, null], [$n, fanboyTOut($t, 4), fanboyShowRead()['status'], fanboyShowRead()['why'], fanboyShowRead()['ok'], $j['owner'] ?? null]);
+        same('fanboy r6 show: a stop for a fan without a show — quietly nothing (no error, the show as it was)', [true, 'done', 'stopped'],
+            (function () { $r = fanboyShowStop(['fan' => fanboyTId(5)]); return [$r['ok'], $r['show']['status'] ?? null, $r['show']['why'] ?? null]; })());
+        fanboyShowStart(['fan' => fanboyTId(4)]);
+        fanboyShowStop(['fan' => fanboyTId(4)]);
+        $clock = 0.0;
+        fanboyShowMain(['now' => function () use (&$clock) { return $clock; }, 'sleep' => function (float $s) use (&$clock) { $clock += $s; }]);
+        same('fanboy r6 show: stopped before it began — nothing taken, nothing written', [[77, 2], 'stopped'], [fanboyTOut($t, 4), fanboyShowRead()['why']]);
         // whatever ends it: an error half-way gives back too
         fanboyShowStart(['fan' => fanboyTId(5)]);
         $clock = 0.0;
@@ -286,12 +316,24 @@ function testFanboyR6ShowControl(): void
         file_put_contents(TESTS_RUN_DIR . '/fanboy/control.pid', getmypid() . ' ' . fanboyProcStart(getmypid()));
         $r = fanboyShowStart(['fan' => fanboyTId(4)]);
         same('fanboy r6 show control: a fan he steers is shown by the control (no process of its own)', ['control', []], [$r['show']['via'], $GLOBALS['fanboyLaunched']]);
+        $others = fn () => array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 5]);
+        $o0 = $others();
         fanboyTRounds($c, $now, $t, $spec, 1);
-        same('fanboy r6 show control: the next round — 100 %, «running», the other fans of its zone as they were', [[255, 1], 'running', fanboyTOut($t, 5)],
-            [fanboyTOut($t, 4), fanboyShowRead()['status'], fanboyTOut($t, 5)]);
-        fanboyTRounds($c, $now, $t, $spec, 4);
-        same('fanboy r6 show control: … after 5 s its curve\'s value again, the show done, noted', [$before, 'done', 'show'],
+        same('fanboy r6 show control: the next round — 100 %, «running», every other fan as it was', [[255, 1], 'running', $o0],
+            [fanboyTOut($t, 4), fanboyShowRead()['status'], $others()]);
+        fanboyTRounds($c, $now, $t, $spec, 6);
+        same('fanboy r6 show control: … still at 100 % after 12 s (up to 15 s, 4b), the others untouched', [[255, 1], 'running', $o0],
+            [fanboyTOut($t, 4), fanboyShowRead()['status'], $others()]);
+        fanboyTRounds($c, $now, $t, $spec, 2);
+        same('fanboy r6 show control: … after 15 s its curve\'s value again, the show done, noted', [$before, 'done', 'show'],
             [fanboyTOut($t, 4), fanboyShowRead()['status'], end($c['notes'])['code'] ?? null]);
+        // 4b: «Found it — stop» — the control ends its show in its next round
+        fanboyShowStart(['fan' => fanboyTId(4)]);
+        fanboyTRounds($c, $now, $t, $spec, 2);
+        fanboyShowStop(['fan' => fanboyTId(4)]);
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        same('fanboy r6 show control: «Found it — stop» — the next round back on its curve, «stopped»', [$before, 'done', 'stopped'],
+            [fanboyTOut($t, 4), fanboyShowRead()['status'], fanboyShowRead()['why']]);
         fanboyLetGo($c, 'end');
     } finally {
         @unlink(TESTS_RUN_DIR . '/fanboy/control.pid');

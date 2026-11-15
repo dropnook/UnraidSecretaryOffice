@@ -114,13 +114,14 @@ function showButton(id, f) {
   const b = el('button', 'btn small plain fb-show');
   b.type = 'button';
   b.dataset.own = '1';
-  if (mine) b.append(wave(), el('span', '', T('show.running')));
+  // 4b: while it runs, its own button ends it («Found it — stop»): the same give-back as after the time
+  if (mine) b.append(wave(), el('span', '', T('show.stop')));
   else b.textContent = T('show.button');
   const why = f && ['ignored', 'inverted'].includes(f.found) ? T(`show.off.${f.found}`)
     : situation() === 'other' ? T('show.off.other') : stepRuns() ? T('show.off.step') : showRuns() && !mine ? T('show.off.one') : control().running && control().alarm ? T('show.off.alarm') : '';
-  b.title = why || T('show.tip');
-  b.disabled = mine || !!why || !state || !Office.agent.running;
-  b.onclick = () => act('show', { fan: id }, b, () => Office.toast(T('show.toast', { fan: fanName(id) })));
+  b.title = mine ? T('show.stop_tip') : why || T('show.tip');
+  b.disabled = (!mine && !!why) || !state || !Office.agent.running;
+  b.onclick = () => (mine ? act('show_stop', { fan: id }, b) : act('show', { fan: id }, b, () => Office.toast(T('show.toast', { fan: fanName(id) }))));
   return b;
 }
 /** A tach input's name as the page says it: the setup's fan on it, else the input's own label, else «Fan input 4» */
@@ -2334,6 +2335,7 @@ function render() {
     [T('help.who'), T('help.who_text')],
     [T('help.picture'), T('help.picture_text')],
     [T('help.outputs'), T('help.outputs_text')],
+    [T('help.show'), T('help.show_text')],
     [T('help.sensors'), T('help.sensors_text')],
     [T('help.curves'), T('help.curves_text')],
     [T('help.report'), T('help.report_text')],
@@ -2409,6 +2411,7 @@ Office.places(ID, [
   { kind: 'help', key: 'help.who', text: 'help.who_text' },
   { kind: 'help', key: 'help.picture', text: 'help.picture_text' },
   { kind: 'help', key: 'help.outputs', text: 'help.outputs_text' },
+  { kind: 'help', key: 'help.show', text: 'help.show_text' },
   { kind: 'help', key: 'help.sensors', text: 'help.sensors_text' },
   { kind: 'help', key: 'help.curves', text: 'help.curves_text' },
   { kind: 'help', key: 'help.report', text: 'help.report_text' },

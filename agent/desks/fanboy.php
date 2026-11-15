@@ -110,6 +110,7 @@ if (fanboyShown()) {
             'watch'         => fn (array $r) => fanboyWatchSet($r),
             // round 6: «show me this fan» — an output to 100 % for 5 s, then back exactly (fanboy-show.php)
             'show'          => fn (array $r) => fanboyShowStart($r),
+            'show_stop'     => fn (array $r) => fanboyShowStop($r),          // 4b: «Found it — stop»
         ],
     ]);
 }
