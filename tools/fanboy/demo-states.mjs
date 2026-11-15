@@ -137,7 +137,8 @@ const leadOf = (kinds) => kinds.reduce((l, k) => (k.near && (!l || k.near.margin
 
 /** A whole state: the look, then who/control/setup/step/drivers as fanboyScan() puts them on top */
 function state(o) {
-  const chips = (o.chips || base.chips.filter((c) => c.name !== CHIP).concat(o.ite ? [o.ite] : [])).sort((a, b) => +a.hwmon.slice(5) - +b.hwmon.slice(5));
+  const chips = (o.chips || base.chips.filter((c) => c.name !== CHIP).concat(o.ite ? [o.ite] : [])).sort((a, b) => +a.hwmon.slice(5) - +b.hwmon.slice(5))
+    .map((c) => ({ ...c, twin: (o.twins || []).includes(c.name) }));          // round 5: a chip with two drivers on it
   // Unraid's limits (round 3): hard disks warn at 45 °C, SSDs at 60 °C — disk2 has its own, lower warning (40 °C) and
   // is over it at 41 °C, cooler in degrees than the NVMe pool at 46 °C, which is far from its SSD limit
   const disks = o.disks || [
@@ -158,7 +159,9 @@ function state(o) {
   const s = {
     v: 1, time: T0, hwmon: true, board: base.board, kernel: '6.18.60-Unraid', unraid: '7.4.0', chips, disks, ipmi: o.ipmi || null,
     controllers: o.controllers || [], drivers_missing: o.drivers_missing || {}, situation: o.situation || { code: 'ok' }, tools: o.tools || TOOLS,
-    suggest: o.suggest || [], board_hint: 'ite', board_maker: base.board_maker || 'Example Boards', acpi_lax: false, names: [],
+    suggest: o.suggest || [], board_hint: 'ite', board_maker: base.board_maker || 'Example Boards', acpi_lax: false,
+    // round 5: Unraid's poll_attributes (its default 1800 s — the hint shows), a virtual machine, chips with two drivers
+    poll: o.poll === undefined ? 1800 : o.poll, vm: !!o.vm, twins: o.twins || [], names: [],
     hints_open: ['no_output', 'driver_missing', 'other', 'ipmi'].includes((o.situation || { code: 'ok' }).code),
     counts: { outputs: offered.reduce((n, c) => n + c.outputs.length, 0), fans: fansAll.length, turning: turning.length, zero: fansAll.filter((f) => f.rpm === 0).length,
       rpm_min: turning.length ? Math.min(...turning) : null, rpm_max: turning.length ? Math.max(...turning) : null, temps: chips.reduce((n, c) => n + c.temps.length, 0) },
@@ -219,6 +222,12 @@ files['fanboy-missing'] = state({ fans: SET_UP, zones: ZONES, armed: true, situa
   drivers_missing: { 'it87-driver': ['it87'] }, tools: TOOLS.map((t) => (t.id === 'it87-driver' ? { ...t, loaded: false } : t)),
   who: { who: 'bios', why: 'chip_missing' },
   control: { running: true, armed: true, why: 'chip_missing', phase: 'wait_chip', missing: { since: T0 - 1200, why: 'missing', told: true }, notes: [...NOTES, { code: 'missing_told', params: {}, at: T0 - 300 }], time: T0 } });
+// round 5: the chip went away while he steered — nobody steers, the fans stay where he left them (not «the BIOS»)
+files['fanboy-chipgone'] = state({ fans: SET_UP, zones: ZONES, armed: true, situation: { code: 'driver_missing', plugins: ['it87-driver'], modules: ['it87'] },
+  drivers_missing: { 'it87-driver': ['it87'] }, tools: TOOLS.map((t) => (t.id === 'it87-driver' ? { ...t, loaded: false } : t)),
+  who: { who: 'nobody', why: 'chip_gone' },
+  control: { running: true, armed: true, who: 'nobody', why: 'chip_gone', phase: 'wait_chip', missing: { since: T0 - 95, why: 'missing', told: false },
+    notes: [...NOTES, { code: 'alarm_chip', params: { fan: 'Plattenkäfig' }, at: T0 - 95 }], time: T0 } });
 // another controller steering: FanCtrl Plus
 files['fanboy-other'] = state({ ite: ite({}, RPM), situation: { code: 'other', who: ['fanctrlplus'], names: ['FanCtrl Plus'] },
   controllers: [{ id: 'fanctrlplus', name: 'FanCtrl Plus', settings: true, running: true, blocks: true }],
@@ -236,6 +245,13 @@ files['fanboy-ipmi'] = state({ situation: { code: 'ipmi' }, ipmi: { bmc: true, m
 // nothing Linux could steer: the hints open
 files['fanboy-nooutput'] = state({ situation: { code: 'no_output' }, suggest: ['it87-driver', 'dynamix.system.temp'],
   tools: TOOLS.map((t) => ({ ...t, installed: false, loaded: t.kind === 'driver' ? false : t.loaded })), who: { who: 'bios', why: 'no_output' } });
+// round 5: a virtual machine without a fan chip (the hint: the fans belong to the host); two drivers on one chip; the test
+// step having found an output the BIOS keeps (doesn't obey) and one that works the other way round
+files['fanboy-vm'] = state({ situation: { code: 'no_output' }, vm: true, suggest: ['it87-driver', 'dynamix.system.temp'],
+  tools: TOOLS.map((t) => ({ ...t, installed: false, loaded: t.kind === 'driver' ? false : t.loaded })), who: { who: 'bios', why: 'no_output' } });
+files['fanboy-twins'] = state({ ite: ite({}, RPM), twins: ['nct6687', 'nct6683'] });
+files['fanboy-obey'] = state({ ite: ite({}, RPM), fans: [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'silent' }), fan(3, { found: 'ignored' }),
+  fan(4, { tachs: [4], found: 'tach' }), fan(5, { tachs: [5, 6], found: 'tach' }), fan(6, { tachs: [], found: 'inverted' })] });
 // the array stopped while armed: the BIOS runs them
 files['fanboy-array'] = state({ ite: ite({}, RPM), fans: SET_UP, zones: ZONES, armed: true, who: { who: 'bios', why: 'array_stopped' },
   control: { running: false, armed: true, why: 'array_stopped', phase: 'ended', notes: NOTES, time: T0 } });

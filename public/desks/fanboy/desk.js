@@ -96,6 +96,7 @@ const has = (k) => Office.has(`${ID}.${k}`);
 const myWhy = (why) => (why && has(`why.${why}`) ? T(`why.${why}`) : '');
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 const steers = () => who().who === 'fanboy';
+const nobody = () => who().who === 'nobody';
 
 /** An output's id parts: chip, address, output number */
 const ID_PARTS = /^(.*):([^:]+):pwm(\d{1,2})$/;
@@ -193,7 +194,8 @@ function labels() {
     if (own(x)) {
       const k = `${x.kind}|${x.label}`;
       seen[k] = (seen[k] || 0) + 1;
-      labelsMap.set(x.id, count[k] > 1 ? T('src.nth', { label: x.label, n: seen[k] }) : x.label);
+      // two of one label: the pool Unraid shows for that NVMe («Composite (cache)»), else a number — as his texts do
+      labelsMap.set(x.id, count[k] > 1 ? (x.pool ? T('src.of', { label: x.label, pool: x.pool }) : T('src.nth', { label: x.label, n: seen[k] })) : x.label);
     } else {
       kindN[x.kind] = (kindN[x.kind] || 0) + 1;
       labelsMap.set(x.id, T('src.sensor', { kind, n: kindN[x.kind] }));
@@ -213,7 +215,7 @@ function stepAtHand() {
   const s = step();
   if (running(s)) return s.kind === 'measure' ? 'measure' : 'test';
   const fans = su.fans || [];
-  const tested = (id) => { const f = fans.find((x) => x.id === id); return f && ['tach', 'silent', 'empty'].includes(f.found); };
+  const tested = (id) => { const f = fans.find((x) => x.id === id); return f && ['tach', 'silent', 'empty', 'ignored', 'inverted'].includes(f.found); };
   if (!(su.outputs || []).every(tested)) return 'test';
   const found = fans.filter((f) => ['tach', 'silent', 'unclear'].includes(f.found));
   if (found.some((f) => !f.role)) return 'roles';
@@ -231,7 +233,7 @@ function load(fresh) {
 function took(j) {
   if (j.ok && j.state) state = j.state;
   // his picture with a red mark while something is wrong at his fans (its alarm variant, as the Night Watchman has one)
-  if (state) Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'crashed'].includes(who().why) ? 'alarm' : '');
+  if (state) Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'chip_gone', 'crashed'].includes(who().why) ? 'alarm' : '');
   if (view) redraw();
   plan();
 }
@@ -320,7 +322,7 @@ function bubbleText() {
   const c = control();
   if (w.who === 'fanboy') return w.why === 'alarm' ? T('bubble.alarm') : T('bubble.steers', { n: w.zones || 0 });
   if (stepRuns()) return step().kind === 'measure' ? T('bubble.measuring') : T('bubble.testing');
-  if (w.why === 'chip_missing') return T('bubble.chip_missing');
+  if (w.why === 'chip_missing' || w.why === 'chip_gone') return T(`bubble.${w.why}`);
   if (w.why === 'array_stopped') return T('bubble.array_stopped');
   const s = situation();
   if (s === 'other') return T('bubble.other', { who: otherNames() });
@@ -330,7 +332,7 @@ function bubbleText() {
   return T('bubble.loading');
 }
 const otherNames = () => ((S().situation || {}).names || []).join(', ') || (who().name || '');
-const plainNow = () => ['alarm', 'chip_missing', 'crashed', 'array_stopped'].includes(who().why) || (control().running && control().alarm);
+const plainNow = () => ['alarm', 'chip_missing', 'chip_gone', 'crashed', 'array_stopped'].includes(who().why) || (control().running && control().alarm);
 
 // ------------------------------------------------------------------ the report for the makers' wish form
 /**
@@ -449,6 +451,7 @@ function wheelOf(id, opts) {
   const rpm = cf && num(cf.rpm) !== null ? cf.rpm : live;
   const held = !!(cf && cf.held && control().running);
   const bios = !held || ROLES_BIOS.includes(f.role);
+  const stuck = nobody() && isOurs(f) && (setup().zones || []).some((z) => (z.fans || []).includes(id));
   const silent = f.found === 'silent';
   const pct = held && num(cf.pct) !== null ? cf.pct : null;
   let st = bios ? 'bios' : 'run';
@@ -463,7 +466,9 @@ function wheelOf(id, opts) {
   return {
     id, label: fanName(id), sub, mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour,
     rpm: st === 'unknown' ? null : shown, state: silent && held ? 'run' : st, place: f.place || (opts && opts.place) || 'front',
-    badge: st === 'bios' ? T('pic.bios') : '', title: st === 'bios' ? (ROLES_BIOS.includes(f.role) ? T('pic.watched_title') : T('pic.bios_title')) : T('pic.his_title'),
+    // round 5: the chip went while he steered — his fans sit where he left them (nobody's), the BIOS's stay the BIOS's
+    badge: st === 'bios' ? (stuck ? T('pic.stuck') : T('pic.bios')) : '',
+    title: st === 'bios' ? (stuck ? T('pic.stuck_title') : ROLES_BIOS.includes(f.role) ? T('pic.watched_title') : T('pic.bios_title')) : T('pic.his_title'),
   };
 }
 /**
@@ -489,7 +494,7 @@ function zoneNote(z, cz) {
       const lvl = num(cz.level) === null ? null : cz.unit === 'rpm' ? T('pic.rpm', { rpm: fmt.number(Math.round(cz.level)) }) : T('value', { pct: Math.round(cz.level) });
       parts.push(lvl ? T('pic.asks', { where: srcLabel({ ...cz.warmest, id: cz.warmest.id }), c: fmt.number(cz.warmest.c), level: lvl }) : T('pic.warmest', { where: srcLabel(cz.warmest), c: fmt.number(cz.warmest.c) }));
     } else parts.push(T('pic.quiet'));
-  } else parts.push(T('pic.bios_now'));
+  } else parts.push(T(nobody() ? 'pic.nobody_now' : 'pic.bios_now'));
   return parts.join(' · ');
 }
 /** The server as the picture shows it: his zones (or, before the setup, what the board shows), the BIOS's fans watched */
@@ -554,8 +559,8 @@ function pictureEl() {
 // ------------------------------------------------------------------ the overview's tiles
 function whoTile(a) {
   const w = who();
-  const value = !state ? '…' : w.who === 'fanboy' ? T('who.fanboy', { n: w.zones || 0 }) : w.who === 'bios' ? T('who.bios') : w.who === 'bmc' ? T('who.bmc') : (w.name || w.who || '…');
-  const alert = ['alarm', 'crashed', 'chip_missing'].includes(w.why);
+  const value = !state ? '…' : w.who === 'fanboy' ? T('who.fanboy', { n: w.zones || 0 }) : w.who === 'bios' ? T('who.bios') : w.who === 'bmc' ? T('who.bmc') : w.who === 'nobody' ? T('who.nobody') : (w.name || w.who || '…');
+  const alert = ['alarm', 'crashed', 'chip_missing', 'chip_gone'].includes(w.why);
   return Office.stat({ label: T('tile.who'), value, sub: state ? myWhy(w.why) : '', alert, ...a });
 }
 function fansTile(a) {
@@ -746,6 +751,7 @@ function outputRole(id) {
   if (cf && cf.held && control().running) return chipOfText('accent', T('out.held', { pct: num(cf.pct) === null ? '–' : cf.pct }), T('out.held_title', { zone: zoneName(cf.zone || zoneOfFan(id)) }));
   if (!f || !f.found) return chipOfText('quiet', T('out.untested'), T('out.untested_title'));
   if (f.found === 'empty') return chipOfText('quiet', T('out.empty'), T('out.empty_title'));
+  if (f.found === 'ignored' || f.found === 'inverted') return chipOfText('warn', T(`out.${f.found}`), T(`out.${f.found}_title`));
   if (f.role && ROLES_BIOS.includes(f.role)) return chipOfText('quiet', T(`role.${f.role}`) + ' · ' + T('out.watched'), T('out.watched_title'));
   if (f.role) return chipOfText('quiet', T(`role.${f.role}`), T('out.his_title'));
   return chipOfText('quiet', T('out.no_role'), T('out.no_role_title'));
@@ -1084,7 +1090,7 @@ function curvesSection() {
     const warm = cz && cz.warmest && num(cz.warmest.c) !== null ? cz.warmest : null;
     card.appendChild(el('p', 'fb-hint-text', warm && control().running
       ? T('curves.line_now', { where: srcLabel(warm), c: fmt.number(warm.c), level: num(cz.level) === null ? '–' : (cz.unit === 'rpm' ? T('pic.rpm', { rpm: fmt.number(Math.round(cz.level)) }) : T('value', { pct: Math.round(cz.level) })) })
-      : T('curves.line_bios')));
+      : T(nobody() ? 'curves.line_nobody' : 'curves.line_bios')));
     const two = el('div', 'fb-curve-two');
     const a = el('figure', 'fb-fig');
     const still = curveStill(z.id, z.unit, warm ? (num(warm.mapped) ?? warm.c) : null);
@@ -1104,7 +1110,7 @@ function curvesSection() {
 // ------------------------------------------------------------------ hints, drivers, the report
 function toolChip(x) {
   if (x.kind === 'controller' && x.id === 'md12xx.fancontrol') return x.active ? chipOfText('quiet', T('hints.st_other_fans'), T('hints.st_other_fans_title')) : chipOfText('quiet', T('hints.st_idle'), T('hints.st_idle_title'));
-  if (x.kind === 'controller') return x.active ? chipOfText('warn', T('hints.st_steering'), T('hints.st_steering_title')) : chipOfText('quiet', T('hints.st_idle'), T('hints.st_idle_title'));
+  if (x.kind === 'controller' || x.kind === 'container') return x.active ? chipOfText('warn', T('hints.st_steering'), T('hints.st_steering_title')) : chipOfText('quiet', T('hints.st_idle'), T('hints.st_idle_title'));
   if (x.kind === 'driver') return x.loaded ? chipOfText('ok', T('hints.st_loaded'), T('hints.st_loaded_title')) : chipOfText('warn', T('hints.st_not_loaded'), T('hints.st_not_loaded_title'));
   return chipOfText('ok', T('hints.st_installed'), T('hints.st_installed_title'));
 }
@@ -1140,6 +1146,23 @@ function hintsSection() {
     meta.append(el('span', 'mono', 'acpi_enforce_resources=lax'),
       S().acpi_lax ? chipOfText('ok', T('hints.acpi_set'), T('hints.acpi_set_title')) : chipOfText('quiet', T('hints.acpi_unset'), T('hints.acpi_unset_title')));
     main.appendChild(meta);
+    r.appendChild(main);
+    list.appendChild(r);
+  }
+  // round 5: how fresh Unraid keeps the disks' temperatures (poll_attributes) — the user changes it, never Fanboy
+  const poll = num(S().poll);
+  if (poll !== null && poll > 300) {
+    const r = el('div', 'row nocheck fb-row');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', T('hints.poll', { min: Math.round(poll / 60) })));
+    main.appendChild(el('div', 'row-detail', T('hints.poll_how')));
+    r.appendChild(main);
+    list.appendChild(r);
+  }
+  if ((S().twins || []).length) {
+    const r = el('div', 'row nocheck fb-row');
+    const main = el('div', 'row-main');
+    main.appendChild(el('div', 'row-name text', T('hints.twins', { chips: S().twins.join(', ') })));
     r.appendChild(main);
     list.appendChild(r);
   }
@@ -1246,20 +1269,22 @@ function paintBanner() {
     const code = c.alarm.code === 'stands' && c.alarm.params && c.alarm.params.alone ? 'stands_alone' : c.alarm.code;
     box('warn', T(`alarm.${code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}) }), { alarm: c.alarm.code });
   }
-  if (['chip_missing', 'crashed'].includes(w.why)) {
+  if (['chip_missing', 'chip_gone', 'crashed'].includes(w.why)) {
     const p = box('warn', T(`control.${w.why}`), { why: w.why });
     p.appendChild(button(T('control.look_now'), T('control.look_now_tip'), (b) => act('look_now', {}, b, () => Office.toast(T('control.looked')))));
   }
   if (w.why === 'array_stopped' || (c.armed && c.why === 'array_stopped')) box('warn', T('control.array_stopped'), { why: 'array_stopped' });
+  if ((S().twins || []).length) box('warn', T('situation.twins', { chips: S().twins.join(', ') }), { situation: 'twins' });
   if (s === 'other') {
     box('warn', T('situation.other', { who: otherNames() }), { situation: s });
-  } else if (s === 'driver_missing') {
+  } else if (s === 'driver_missing' && w.why !== 'chip_gone') {      // round 5: «until then the BIOS» isn't true then — the banner above says it
     box('warn', T('situation.driver_missing', { plugins: (st.plugins || []).join(', '), modules: (st.modules || []).join(', ') }), { situation: s });
   } else if (s === 'ipmi') {
     const p = box('warn', T('situation.ipmi'), { situation: s });
     p.appendChild(reportButton(true));
   } else if (s === 'no_output') {
-    box('warn', T('situation.no_output'), { situation: s });
+    // round 5: in a virtual machine the fans are the host's (a hint only — a VM with a chip passed through steers on)
+    box('warn', T('situation.no_output') + (S().vm ? ' ' + T('situation.vm') : ''), { situation: s });
   } else if (s === 'ok' && !banner.children.length) {
     box('', steers() ? T(cpuGiven() ? 'situation.steers_cpu' : 'situation.steers', { n: w.zones || 0 }) : c.armed === false && (setup().zones || []).length ? T('situation.not_armed') : T('situation.ok'), { situation: s });
   }
@@ -1400,8 +1425,10 @@ function testStep() {
     else if (found === 'empty') line = T('test.empty');
     else if (found === 'unclear') line = T('test.unclear');
     else if (found === 'ask') line = T('test.ask');
+    else if (found === 'ignored' || found === 'inverted') line = T(`test.${found}`);     // round 5: never steered
     if (r && r.found === 'busy') line = T('test.busy');
     txt.appendChild(el('div', 'fb-card-line', line));
+    if (!live && (found === 'ignored' || found === 'inverted')) txt.appendChild(el('div', 'fb-card-line', T(`test.${found}_hint`)));
     if (!live && ['ask', 'unclear'].includes(found)) {
       txt.appendChild(el('div', 'fb-card-line fb-strong', T('test.louder')));
       txt.appendChild(bar(
@@ -1744,7 +1771,7 @@ function zonesStep() {
     button(T('zones.propose'), T('zones.propose_tip'), (b) => act('zones_propose', {}, b, (j) => { zdraft = (j.zones || []).map((z) => ({ ...z, name: z.name || T(`zones.kind.${z.kind}`) })); })),
     zones.length < 8 ? button(T('zones.add'), T('zones.add_tip'), () => changeZones((z) => z.push({ id: freeId(z), name: T('zones.new_name', { n: z.length + 1 }), fans: [], sources: [], unit: 'pct', target: { preset: 'normal' } }))) : null);
   box.appendChild(tools2);
-  box.appendChild(para(T('zones.how_often', { s: setup().round || 2 })));
+  box.appendChild(para(T('zones.how_often', { s: setup().round || 2 }) + (num(S().poll) !== null && S().poll > 300 ? ' ' + T('zones.poll', { min: Math.round(S().poll / 60) }) : '')));
   if (!zones.length) box.appendChild(para(T('zones.empty')));
   const unzoned = ours.filter((f) => !zones.some((z) => (z.fans || []).includes(f.id)));
   if (unzoned.length && zones.length) box.appendChild(para(T('zones.unzoned', { list: unzoned.map((f) => fanName(f.id)).join(', ') })));

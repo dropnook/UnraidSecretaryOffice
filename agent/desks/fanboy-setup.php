@@ -25,6 +25,7 @@ const FANBOY_STEP_MAX = 900.0;          // a step's whole time at most (15 minut
 const FANBOY_UP_BASE = 2.0;             // test up: seconds of baseline
 const FANBOY_UP_FOR = 8.0;              // … seconds at full speed at most
 const FANBOY_UP_SETTLE = 8.0;           // … seconds at most for the fans to calm down before the next output
+const FANBOY_READBACK_AFTER = 2.0;      // round 5: a write read back this long after — changed back: the BIOS keeps it
 const FANBOY_MEASURE_STEPS = [90, 80, 70, 60, 50, 45, 40, 35, 30, 25, 20, 15, 10];
 const FANBOY_SETTLE_MAX = 10.0;         // measure: seconds at most for a value to settle
 const FANBOY_START_WAIT = 4.0;          // measure: seconds a start value gets to make a standing fan turn
@@ -70,7 +71,8 @@ function fanboyStoreUpdate(callable $fn, ?array $board = null): array
         $raw = readJson(fanboyStoreFile()) ?? [];
         $raw['v'] ??= 1;
         $raw['boards'] = is_array($raw['boards'] ?? null) ? $raw['boards'] : [];
-        $entry = is_array($raw['boards'][$key] ?? null) ? $raw['boards'][$key] : [];
+        $entry = is_array($raw['boards'][$key] ?? null) ? $raw['boards'][$key]
+            : (isset($board['chip']) && is_array($raw['boards'][' | '] ?? null) ? $raw['boards'][' | '] : []);     // round 5: the old key « | » read, kept as it was
         $entry['board'] = $board;
         $entry['fans'] = is_array($entry['fans'] ?? null) ? $entry['fans'] : [];
         $entry = $fn($entry);
@@ -177,7 +179,7 @@ function fanboySample(array $o): array
     $dir = fanboyPaths(fanboySysRoot() ?: null)['hwmon'] . '/' . $o['hwmon'];
     $out = [];
     foreach ($o['tachs'] as $n) {
-        $out[$n] = fanboyReadInt("$dir/fan{$n}_input");
+        $out[$n] = fanboySaneRpm(fanboyReadInt("$dir/fan{$n}_input"));
     }
     return $out;
 }
@@ -219,20 +221,43 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey): arra
         }
         $t0 = ($io['now'])();
         $seen = [];
+        $fell = [];
+        $checked = false;
         while (($io['now'])() - $t0 < FANBOY_UP_FOR) {
             fanboyStepWait($io, 0.5);
+            // round 5 (forum 3.2): about 2 s after the write, read it back — a value or mode changed back is the BIOS
+            // taking the connector back: «doesn't obey», never «empty», never steered
+            if (!$checked && ($io['now'])() - $t0 >= FANBOY_READBACK_AFTER) {
+                $checked = true;
+                $now = fanboyOutputNow($o['device'], $o['output']);
+                if ($now !== null && ($now['value'] !== FANBOY_FULL || ($now['enable'] !== null && $now['enable'] !== 1))) {
+                    $taken_back = true;
+                    break;
+                }
+            }
             foreach (fanboySample($o) as $n => $r) {
                 if ($r !== null && $r >= max($base[$n] * 1.15 + 100, 300)) {
                     $seen[$n] = ($seen[$n] ?? 0) + 1;
+                }
+                // round 5 (forum 3.11): full makes it FALL clearly — the output works the other way round
+                if ($r !== null && $base[$n] >= 300 && $r <= $base[$n] * 0.6) {
+                    $fell[$n] = ($fell[$n] ?? 0) + 1;
                 }
             }
             if (($io['now'])() - $t0 >= 4 && $seen && min($seen) >= 2) {
                 break;
             }
+            if (($io['now'])() - $t0 >= 4 && !$seen && $fell && min($fell) >= 2) {
+                break;
+            }
         }
         $follow = array_keys(array_filter($seen, fn ($k) => $k >= 2));
+        $inverted = $follow ? [] : array_keys(array_filter($fell, fn ($k) => $k >= 2));
     } finally {
-        fanboyGiveBack([$o['id']], 'step', $owner);
+        fanboyGiveBack([$o['id']], 'step', $owner);         // at once — an inverted output stopped its fan
+    }
+    if (!empty($taken_back)) {
+        return ['found' => 'ignored', 'tachs' => [], 'base' => $base, 'why' => 'taken_back'];
     }
     // calm again (the next output's baseline must not see this one's run-down)
     $t1 = ($io['now'])();
@@ -247,8 +272,45 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey): arra
         fanboyStepWait($io, 0.5);
     }
     sort($follow);
+    sort($inverted);
+    if ($inverted) {
+        return ['found' => 'inverted', 'tachs' => $inverted, 'base' => $base];
+    }
     $full = ($initial['enable'] ?? null) === 0 || (($initial['enable'] ?? 1) === 1 && ($initial['value'] ?? 0) >= 240);
     return ['found' => $follow ? 'tach' : ($full ? 'unclear' : 'ask'), 'tachs' => $follow, 'base' => $base];
+}
+
+/**
+ * Round 5 (forum 3.2): after a test up — a tach of a chip that turned before and that no output of it moves is a fan
+ * whose connector the BIOS keeps: an output of that chip where nothing followed is «doesn't obey» (`ignored`), not
+ * «did something get louder?» (ask only when nothing turns). $fans: the store's fans; returns them with the change.
+ */
+function fanboyUpIgnored(array $fans, array $results): array
+{
+    $chipOf = fn (string $id) => (string) preg_replace('/:pwm\d+$/D', '', $id);
+    $paired = [];
+    $turning = [];
+    foreach ($fans as $id => $f) {
+        if (is_array($f) && in_array($f['found'] ?? null, ['tach', 'inverted'], true)) {
+            foreach (is_array($f['tachs'] ?? null) ? $f['tachs'] : [] as $n) {
+                $paired[$chipOf((string) $id)][$n] = true;
+            }
+        }
+    }
+    foreach ($results as $id => $r) {
+        foreach (is_array($r['base'] ?? null) ? $r['base'] : [] as $n => $rpm) {
+            if (is_int($rpm) && $rpm >= 200) {
+                $turning[$chipOf((string) $id)][$n] = true;
+            }
+        }
+    }
+    foreach ($fans as $id => $f) {
+        $chip = $chipOf((string) $id);
+        if (is_array($f) && ($f['found'] ?? null) === 'ask' && isset($results[$id]) && array_diff_key($turning[$chip] ?? [], $paired[$chip] ?? [])) {
+            $fans[$id]['found'] = 'ignored';
+        }
+    }
+    return $fans;
 }
 
 /**
@@ -319,6 +381,13 @@ function fanboySettle(array $o, array $tachs, array $io): array
     return [$last ? (int) end($last) : 0, false];
 }
 
+/** Round 5 (forum 3.2): a value written that reads back otherwise a few seconds later — the BIOS took the connector back */
+function fanboyTakenBack(array $o, ?array $wrote): bool
+{
+    $now = fanboyOutputNow($o['device'], $o['output']);
+    return $wrote !== null && $now !== null && ($now['enable'] !== $wrote['enable'] || $now['value'] === null || abs($now['value'] - (int) $wrote['value']) > 3);
+}
+
 /**
  * Measure a fan DOWNWARD (only one given to him, with feedback): full speed, then FANBOY_MEASURE_STEPS down; at a
  * stall measuring stops and the fan goes back up — in 5 % steps from there until it turns (its start value; none by
@@ -343,8 +412,11 @@ function fanboyMeasure(array $o, array $tachs, array $owner, array $io, string $
                 fanboySet($o['id'], FANBOY_FULL, $owner);
                 return ['result' => 'warm', 'warm' => $warm, 'table' => $table];
             }
-            fanboySet($o['id'], (int) round($pct * 2.55), $owner);
+            $wrote = fanboySet($o['id'], (int) round($pct * 2.55), $owner);
             [$rpm, $stall] = fanboySettle($o, $tachs, $io);
+            if (fanboyTakenBack($o, $wrote)) {
+                return ['result' => 'ignored', 'table' => $table];      // round 5: the BIOS took the value back
+            }
             if ($stall) {
                 $stalledAt = $pct;
                 break;
@@ -415,7 +487,8 @@ function fanboyStepRun(array $step, array $io): array
                         $f = ['chip' => $o['chip'], 'address' => $o['address'], 'output' => $o['output'], 'tach' => $r['tachs'][0] ?? null,
                               'tachs' => $r['tachs'], 'found' => $r['found'], 'tested_at' => time()] + $f;
                         $e['fans'][$id] = $f;
-                        return $e;
+                        // round 5: «doesn't obey» and «the other way round» are never steered — out of every zone
+                        return in_array($r['found'], ['ignored', 'inverted'], true) ? fanboyZonesWithout($e, $id) : $e;
                     }, $board);
                 }
             } else {
@@ -427,6 +500,15 @@ function fanboyStepRun(array $step, array $io): array
                 }
                 $r = fanboyMeasure($o, $tachs, $owner, $io, $key);
                 $step['results'][$id] = $r;
+                if ($r['result'] === 'ignored') {
+                    fanboyStoreUpdate(function (array $e) use ($id): array {
+                        if (is_array($e['fans'][$id] ?? null)) {
+                            $e['fans'][$id]['found'] = 'ignored';         // never steered: out of every zone
+                            $e = fanboyZonesWithout($e, $id);
+                        }
+                        return $e;
+                    }, $board);
+                }
                 if ($r['result'] === 'ok' || $r['result'] === 'no_turn') {
                     fanboyStoreUpdate(function (array $e) use ($id, $r): array {
                         if (is_array($e['fans'][$id] ?? null)) {
@@ -445,6 +527,17 @@ function fanboyStepRun(array $step, array $io): array
             }
             $step['done'][] = $id;
             fanboyStepWrite($step);
+        }
+        if ($step['kind'] === 'test_up') {
+            $e = fanboyStoreUpdate(function (array $e) use ($step): array {
+                $e['fans'] = fanboyUpIgnored(is_array($e['fans'] ?? null) ? $e['fans'] : [], $step['results']);
+                return $e;
+            }, $board);
+            foreach ($step['results'] as $id => $r) {
+                if (($r['found'] ?? null) === 'ask' && ($e['fans'][$id]['found'] ?? null) === 'ignored') {
+                    $step['results'][$id]['found'] = 'ignored';
+                }
+            }
         }
         $step['status'] = 'done';
         $step['progress'] = null;

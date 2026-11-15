@@ -28,6 +28,7 @@ define('DATA_DIR', rtrim(getenv('OFFICE_DATA_DIR') ?: officePluginDataDir(), '/'
 define('AGENT_LOG', DATA_DIR . '/agent.log');
 require __DIR__ . '/lib/util.php';
 require __DIR__ . '/desks/fanboy-write.php';
+date_default_timezone_set(fanboyZone());        // the agent's zone (agent.php: agentZone()) — one zone in agent.log
 
 /** A line for the agent's log (only while its folder is there) and the guard's own note in RAM for the agent to pick up */
 function fanboyGuardSay(string $what, array $back): void
@@ -60,6 +61,10 @@ function fanboyGuardMain(string $cmd): int
         return 0;
     }
     if ($cmd === 'watch') {
+        // round 5: a give-back the mainboard didn't take: full speed (the agent tells it when it is there)
+        foreach (fanboyGivenCheck() as $id => $x) {
+            logLine("Fanboy: $id not taken back by the mainboard ({$x['rpm']} rpm, {$x['before']} before Fanboy) — set to full speed (the guard's look)");
+        }
         if (!fanboyHeld()) {
             return 0;
         }

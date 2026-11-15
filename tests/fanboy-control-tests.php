@@ -385,7 +385,7 @@ function testFanboyAlarms(): void
         fanboyTRounds($c, $now, $t, $spec, 6);
         same('fanboy alarms: the parity over its limit (53 ≥ 52 °C) — its zone full at once, no alarm yet', [255, null], [fanboyTOut($t, 4)[0], $c['alarm']]);
         fanboyTRounds($c, $now, $t, $spec, 30);
-        same('fanboy alarms: … a minute at full and still over — alarm «hot», told', ['hot', 'parity'], [$c['alarm']['code'] ?? null, $c['alarm']['params']['source'] ?? null]);
+        same('fanboy alarms: … a minute at full and still over — alarm «hot», told (the parity disk named as the page names it, round 5)', ['hot', 'Parity'], [$c['alarm']['code'] ?? null, $c['alarm']['params']['source'] ?? null]);
         fanboyTDisks($t, 35, null, 33);
         fanboyTRounds($c, $now, $t, $spec, 70);
         same('fanboy alarms: … cool again: over, and the zone well on its way down (round 4 found it stayed at 100 % for good)', [null, true], [$c['alarm'], fanboyTOut($t, 4)[0] < 100]);
@@ -420,7 +420,7 @@ function testFanboyAlarms(): void
         fanboyTRounds($c, $now, $t, $spec, 2);
         exec('rm -rf ' . escapeshellarg("{$t['root']}/sys/class/hwmon/hwmon10") . ' ' . escapeshellarg("{$t['root']}/sys/devices/platform/" . FANBOY_T_ADDR));
         fanboyTRounds($c, $now, $t, $spec, 1);
-        same('fanboy alarms: the chip gone — alarm «chip», nothing held, waiting for it', ['chip', [], 'wait_chip', 'chip_missing'],
+        same('fanboy alarms: the chip gone — alarm «chip», nothing held, waiting for it (round 5: «chip_gone» — the fans stay where he left them)', ['chip', [], 'wait_chip', 'chip_gone'],
             [$c['alarm']['code'] ?? null, fanboyHeld(), $c['phase'], fanboyStatus($c)['why']]);
     } finally {
         fanboyTEnd();

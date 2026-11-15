@@ -53,6 +53,7 @@ const FANBOY_HISTORY_THIN = 300;        // … older ones a point per 5 minutes 
 const FANBOY_HISTORY_SPAN = 259200;     // … up to 3 days; older ones go (a zone removed: its history with them)
 const FANBOY_HISTORY_PERIODS = [1, 3, 6, 12, 24, 72];      // hours the page may ask for
 const FANBOY_HISTORY_KEEP = 600.0;      // the history into the data folder every 10 minutes (RAM every minute)
+const FANBOY_REFUSED_MAX = 3;           // round 5: writes refused in a row before «the driver takes no values»
 const FANBOY_RPM_TRIM_MAX = 15;         // percent an rpm zone's correction moves a fan at most
 // a heat source's own scale by its kind: low = cool (the curve's start), high = needs all the air, limit = alarm
 const FANBOY_SOURCE_DEFAULTS = [
@@ -269,6 +270,69 @@ function fanboyDevKey(string $device): string
     return (string) preg_replace('#/([a-z]+)/\1\d+$#D', '/$1', $device);
 }
 
+/**
+ * Every source's name for a text (notifications, the log) — exactly as the page names it (desk.js srcLabel()/labels()):
+ * a disk «Disk 3» / «Parity» / its pool's name; a sensor its own label, two of the same label told apart by the pool
+ * Unraid shows for that NVMe («Composite (cache)») else by a number («Composite · 2»); one without a label of its own
+ * «Board sensor 3» (its kind and a running number of that kind) — never a chip's id (round 5, the VM run: «it8696_…
+ * @platform/pcspkr#3 says nothing»). $lang: the notification's language.
+ */
+function fanboySourceNames(array $sources, ?string $lang = null): array
+{
+    $t = fn (string $key, array $p = []) => function_exists('officeNotifyText') ? officeNotifyText('fanboy', $key, $p, $lang ?? 'en') : strtr($key, []);
+    $out = [];
+    $count = [];
+    $own = fn (array $x) => !in_array($x['kind'], FANBOY_DISK_KINDS, true) && ($x['label'] ?? '') !== '' && !preg_match('/^[A-Za-z0-9_.-]+ #\d+$/D', $x['label']);
+    foreach ($sources as $x) {
+        if ($own($x)) {
+            $count["{$x['kind']}|{$x['label']}"] = ($count["{$x['kind']}|{$x['label']}"] ?? 0) + 1;
+        }
+    }
+    $seen = [];
+    $kindN = [];
+    foreach ($sources as $x) {
+        if (in_array($x['kind'], FANBOY_DISK_KINDS, true)) {
+            $out[$x['id']] = preg_match('/^disk(\d+)$/D', $x['id'], $m) ? $t('src.disk', ['n' => $m[1]])
+                : (preg_match('/^parity(\d*)$/D', $x['id'], $m) ? ($m[1] !== '' ? $t('src.parity_n', ['n' => $m[1]]) : $t('src.parity')) : $x['id']);
+            continue;
+        }
+        $kind = $t(fanboyKindKey($x['kind']));
+        if ($own($x)) {
+            $k = "{$x['kind']}|{$x['label']}";
+            $seen[$k] = ($seen[$k] ?? 0) + 1;
+            $out[$x['id']] = $count[$k] < 2 ? $x['label']
+                : (($x['pool'] ?? null) !== null ? $t('src.of', ['label' => $x['label'], 'pool' => $x['pool']]) : $t('src.nth', ['label' => $x['label'], 'n' => $seen[$k]]));
+        } else {
+            $kindN[$x['kind']] = ($kindN[$x['kind']] ?? 0) + 1;
+            $out[$x['id']] = $t('src.sensor', ['kind' => $kind, 'n' => $kindN[$x['kind']]]);
+        }
+    }
+    return $out;
+}
+
+/** A kind's word in his language files (each key written out: a test holds every key the code asks for to its file) */
+function fanboyKindKey(string $kind): string
+{
+    return match ($kind) {
+        'cpu' => 'kind.cpu', 'gpu' => 'kind.gpu', 'nvme' => 'kind.nvme', 'ram' => 'kind.ram', 'board' => 'kind.board',
+        'disk' => 'kind.disk', 'ssd' => 'kind.ssd', default => 'kind.other',
+    };
+}
+
+/** The Unraid disk an NVMe chip is (disks.ini's device «nvme0n1» for the chip's «…/nvme/nvme0»): its name, else null */
+function fanboyNvmePool(array $chip, array $disks): ?string
+{
+    if (!preg_match('#/nvme/(nvme\d+)$#D', (string) ($chip['device'] ?? ''), $m)) {
+        return null;
+    }
+    foreach ($disks as $d) {
+        if (preg_match('/^' . preg_quote($m[1], '/') . 'n\d+$/D', (string) ($d['device'] ?? ''))) {
+            return (string) $d['name'];
+        }
+    }
+    return null;
+}
+
 /** Every heat source the server offers now: Unraid's disks (by name) and every hwmon temperature (no drivetemp) */
 function fanboySources(array $scan): array
 {
@@ -283,7 +347,8 @@ function fanboySources(array $scan): array
         }
         foreach ($c['temps'] as $t) {
             $out[] = ['kind' => $c['kind'], 'id' => fanboySourceId($c, $t['n']), 'label' => $t['label'] !== '' ? $t['label'] : $c['name'] . " #{$t['n']}",
-                      'c' => $t['c'], 'asleep' => false, 'chip' => $c['name'], 'hwmon' => $c['hwmon'], 'n' => $t['n']];
+                      'c' => $t['c'], 'asleep' => false, 'chip' => $c['name'], 'hwmon' => $c['hwmon'], 'n' => $t['n'],
+                      'pool' => $c['kind'] === 'nvme' ? fanboyNvmePool($c, $scan['disks'] ?? []) : null];
         }
     }
     return $out;
@@ -449,7 +514,8 @@ function fanboyTachs(?string $hwmon, array $tachs): array
         return [];
     }
     $dir = fanboyPaths(fanboySysRoot() ?: null)['hwmon'] . "/$hwmon";
-    return array_map(fn ($n) => fanboyReadInt("$dir/fan{$n}_input"), $tachs);
+    // round 5 (forum 3.8): 65535 and the like are no speed — no reading (never «stands», never a speed)
+    return array_map(fn ($n) => fanboySaneRpm(fanboyReadInt("$dir/fan{$n}_input")), $tachs);
 }
 
 /** The zones' sources now: [id => {c, asleep, label, kind}] — disks from disks.ini (every 10 s), sensors every round */
@@ -478,16 +544,30 @@ function fanboyReadSources(array &$c, float $now): void
         // where each sensor is this boot (looked up anew every 30 s and while one is missing)
         $chips = fanboyChips($p['hwmon']);
         $where = [];
+        $byName = [];
         foreach ($chips as $chip) {
+            $byName[$chip['name']][] = $chip;
             foreach ($chip['temps'] as $t) {
                 $where[fanboySourceId($chip, $t['n'])] = ['path' => "{$p['hwmon']}/{$chip['hwmon']}/temp{$t['n']}_input", 'label' => $t['label'], 'disk' => $chip['kind'] === 'disk'];
             }
         }
+        // the names a text gives them, as the page does (round 5: never a chip's id), in the notifications' language
+        $names = fanboySourceNames(fanboySources(['chips' => $chips, 'disks' => array_values($c['disks'])]), function_exists('officeNotifyLang') ? officeNotifyLang() : 'en');
         foreach ($c['zones'] as $z) {
             foreach ($z['sources'] as $s) {
                 $w = $where[$s['id']] ?? null;
+                $now_id = $s['id'];
+                // round 5 (the VM run): the chip's address moved — exactly one chip of that name: its sensor there (the id
+                // stored stays as it is: «moved», as the outputs are found again)
+                if ($w === null && preg_match('/^(.+)@.+#(\d+)$/D', $s['id'], $m) && count($byName[$m[1]] ?? []) === 1) {
+                    $now_id = fanboySourceId($byName[$m[1]][0], (int) $m[2]);
+                    $w = $where[$now_id] ?? null;
+                }
                 $c['sources'][$s['id']] = ['kind' => $s['kind'], 'path' => $w !== null && !$w['disk'] ? $w['path'] : null,
-                    'label' => in_array($s['kind'], FANBOY_DISK_KINDS, true) ? $s['id'] : (($w['label'] ?? '') !== '' ? $w['label'] : $s['id'])] + ($c['sources'][$s['id']] ?? []);
+                    // a sensor gone from the chip's list keeps the name it had; one never seen: its kind's word, never its id
+                    'label' => $names[$now_id] ?? $names[$s['id']] ?? $c['sources'][$s['id']]['label']
+                        ?? (function_exists('officeNotifyText') ? officeNotifyText('fanboy', fanboyKindKey($s['kind']), [], function_exists('officeNotifyLang') ? officeNotifyLang() : 'en') : $s['kind'])]
+                    + ($c['sources'][$s['id']] ?? []);
             }
         }
         $c['scan_at'] = $now;
@@ -501,7 +581,7 @@ function fanboyReadSources(array &$c, float $now): void
         } else {
             $raw = $s['path'] === null ? null : fanboyReadInt($s['path']);
             $c['sources'][$id]['asleep'] = false;
-            $c['sources'][$id]['c'] = $raw === null || $raw < -40000 || $raw > 200000 ? null : round($raw / 1000, 1);
+            $c['sources'][$id]['c'] = fanboySaneTemp($raw);
             $c['sources'][$id]['there'] = $s['path'] !== null;
         }
         // since when it says nothing (an asleep disk says nothing on purpose)
@@ -516,10 +596,10 @@ function fanboyReadSources(array &$c, float $now): void
 function fanboyTakeAll(array &$c): void
 {
     foreach ($c['fans'] as $id => $f) {
-        if ($f['taken'] || $f['foreign'] || $f['device'] === null) {
+        if ($f['taken'] || $f['foreign'] || !empty($f['refuses']) || $f['device'] === null) {
             continue;
         }
-        $t = fanboyTake(['id' => $id, 'chip' => $f['chip'], 'address' => $f['address_now'] ?? $f['address'], 'device' => $f['device'], 'output' => $f['output'],
+        $t = fanboyTake(['id' => $id, 'chip' => $f['chip'], 'address' => $f['address_now'] ?? $f['address'], 'device' => $f['device'], 'output' => $f['output'], 'paired' => $f['tachs'],
             'auto' => $f['auto'] ?? null], $c['owner'], $c['key']);
         if ($t !== null) {
             $c['fans'][$id]['taken'] = true;
@@ -619,6 +699,9 @@ function fanboyRound(array &$c, float $now): void
         fanboyFull($c);
         fanboyLetGo($c, 'chip');
         fanboyMissing($c, $now, 'missing');
+        // round 5 (the VM run): the outputs stay on the values he wrote last — nobody can write them, no curve runs; not
+        // «the BIOS has them» (that is only true when the chip was missing from the start, after a boot)
+        $c['missing']['stuck'] = true;
         return;
     }
     fanboyReadSources($c, $now);
@@ -655,11 +738,14 @@ function fanboyRound(array &$c, float $now): void
     // 5. read back after the start: does each measured fan still follow its table?
     if ($c['started'] !== null && $now - $c['started'] >= FANBOY_VERIFY_AFTER) {
         foreach ($c['fans'] as $id => $f) {
-            if (!$f['taken'] || $f['verified'] || $f['table'] === null || $f['rpm'] === null || $f['pct'] === null || $f['kick_until'] !== null) {
+            // round 5 (the VM run): compared at the value written (not the zone's percentage), never while an alarm holds
+            // its zone at full — a fan at full is no news
+            if (!$f['taken'] || $f['verified'] || $f['table'] === null || $f['rpm'] === null || $f['value'] === null || $f['kick_until'] !== null
+                || isset($full[$f['zone']]) || ($f['changed'] !== null && $now - $f['changed'] < 6)) {
                 continue;
             }
             $c['fans'][$id]['verified'] = true;
-            $want = fanboyTableRpm($f['table'], (float) $f['pct']);
+            $want = fanboyTableRpm($f['table'], $f['value'] / 2.55);
             if ($want !== null && abs($f['rpm'] - $want) > max(250, $want * FANBOY_DRIFT)) {
                 $label = fanboyFanLabel($f);
                 fanboyNote($c, 'drift', ['fan' => $label, 'rpm' => $f['rpm'], 'want' => (int) round($want)]);
@@ -753,7 +839,10 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
         if ($z['unit'] === 'rpm' && !$hot) {
             $pct = $f['table'] !== null ? (fanboyTablePct($f['table'], $cur) ?? 100.0) : 100.0;
             // correct until the rpm fits: a fan settled for 6 s, more than 4 % off — a percent a round, ±FANBOY_RPM_TRIM_MAX
-            if ($f['table'] !== null && $f['rpm'] !== null && $f['changed'] !== null && $now - $f['changed'] >= 6 && $cur > 0) {
+            // never while an alarm holds this zone at 100 % (round 5, the VM run: the trim walked down to −15 at full speed
+            // and the zone ran under its curve for 1½ minutes after the alarm)
+            $atFull = isset($c['full_since'][$zid]) && $now - $c['full_since'][$zid] < FANBOY_CLEAR_AFTER;
+            if (!$atFull && $f['table'] !== null && $f['rpm'] !== null && $f['changed'] !== null && $now - $f['changed'] >= 6 && $cur > 0) {
                 $err = ($cur - $f['rpm']) / $cur;
                 if (abs($err) > 0.04) {
                     $c['fans'][$id]['trim'] = max(-FANBOY_RPM_TRIM_MAX, min(FANBOY_RPM_TRIM_MAX, $f['trim'] + ($err > 0 ? 1 : -1)));
@@ -809,7 +898,33 @@ function fanboyApply(array &$c, string $id, float $now): void
     if ($back !== null) {
         $c['fans'][$id]['value'] = $value;
         $c['fans'][$id]['changed'] = $now;
+        $c['fans'][$id]['refused'] = 0;
+    } else {
+        fanboyRefused($c, $id);
     }
+}
+
+/**
+ * Round 5 (forum 3.9): a write the driver refuses (EIO, EACCES — seen after 7.3.3 with nct6687, and with two drivers on
+ * one chip) — before, it was tried again every round, silently, the fan left where it was. FANBOY_REFUSED_MAX in a row:
+ * «the driver takes no values» — that output back to the BIOS as far as it goes, never taken again by this control,
+ * one notification, a note (the report's line).
+ */
+function fanboyRefused(array &$c, string $id): void
+{
+    $f = $c['fans'][$id];
+    if ($f['device'] === null || fanboyOutputFiles($f['device'], $f['output']) === null) {
+        return;                     // gone, not refused: the chip's own path
+    }
+    $c['fans'][$id]['refused'] = ($f['refused'] ?? 0) + 1;
+    if ($c['fans'][$id]['refused'] < FANBOY_REFUSED_MAX) {
+        return;
+    }
+    fanboyLetGo($c, 'refused', [$id]);
+    $c['fans'][$id]['refuses'] = true;
+    $label = fanboyFanLabel($f);
+    fanboyNote($c, 'refuses', ['fan' => $label]);
+    fanboyTell($c, "refuses:$id", 'refuses', ['fan' => $label], 'warning');
 }
 
 /** The zones at 100 % for an alarm now: a reason in the last FANBOY_CLEAR_AFTER seconds — [zone id => true] */
@@ -830,9 +945,13 @@ function fanboyFullZones(array &$c, float $now): array
 function fanboyFullOne(array &$c, string $id): void
 {
     $f = $c['fans'][$id];
-    if ($f['value'] !== FANBOY_FULL && fanboySet($id, FANBOY_FULL, $c['owner']) !== null) {
-        $c['fans'][$id]['value'] = FANBOY_FULL;
-        $c['fans'][$id]['changed'] = null;
+    if ($f['value'] !== FANBOY_FULL) {
+        if (fanboySet($id, FANBOY_FULL, $c['owner']) !== null) {
+            $c['fans'][$id]['value'] = FANBOY_FULL;
+            $c['fans'][$id]['changed'] = null;
+        } else {
+            fanboyRefused($c, $id);
+        }
     }
     $c['fans'][$id]['pct'] = 100;
 }
@@ -861,7 +980,10 @@ function fanboyAlarm(array &$c, float $now, array $reasons): void
             $c['alarm'] = ['code' => $code, 'params' => $what, 'since' => time(), 'mono' => $now];
             fanboyNote($c, "alarm_$code", $what);
         }
-        fanboyTell($c, "alarm:$code", $key, $what, 'alert');
+        // once per thing (round 5: a second fan standing, a second sensor silent is told too — its name in the subject,
+        // so Unraid's duplicate guard of the same subject doesn't swallow it either)
+        $who = (string) ($what['fan'] ?? $what['source'] ?? $what['zone'] ?? '');
+        fanboyTell($c, "alarm:$code:$who", $key, $what, 'alert');
     }
     $c['reasons'] = $reasons;
     if ($reasons) {
@@ -883,7 +1005,8 @@ function fanboyMissing(array &$c, float $now, ?string $why): void
     if (array_filter($c['fans'], fn ($f) => $f['taken'])) {
         fanboyLetGo($c, 'chip');
     }
-    $c['missing'] ??= ['since' => $now, 'why' => $why, 'at' => time()];
+    $c['missing'] ??= ['since' => $now, 'why' => $why, 'at' => time(), 'stuck' => (bool) ($c['stuck_carry'] ?? false)];
+    unset($c['stuck_carry']);
     $c['missing']['why'] = $why;
     $c['phase'] = 'wait_chip';
     $age = $now - $c['missing']['since'];
@@ -895,7 +1018,8 @@ function fanboyMissingTell(array &$c, float $now): void
 {
     if ($c['missing'] !== null && $now - $c['missing']['since'] >= FANBOY_TELL_AFTER && !isset($c['told']['missing'])) {
         fanboyNote($c, 'missing_told', ['minutes' => (int) floor(($now - $c['missing']['since']) / 60)]);
-        fanboyTell($c, 'missing', 'missing', [], 'warning');
+        // gone while he steered: only what is new (still gone, the driver?) — the alert at the moment said the rest
+        fanboyTell($c, 'missing', !empty($c['missing']['stuck']) ? 'missing_stuck' : 'missing', [], 'warning');
     }
 }
 
@@ -973,7 +1097,7 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
     $why = $exitWhy ?? match ($c['phase']) {
         'run' => $c['alarm'] !== null ? 'alarm' : null,
         'hold' => $c['hold'] ?? 'hold',
-        'wait_chip' => 'chip_missing',
+        'wait_chip' => !empty($c['missing']['stuck']) ? 'chip_gone' : 'chip_missing',
         default => 'starting',
     };
     $zones = [];
@@ -988,11 +1112,13 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
     }
     return [
         'v' => 1, 'pid' => getmypid(), 'time' => time(), 'mono' => fanboyMono(), 'board' => $c['key'],
-        'who' => $steering ? 'fanboy' : 'bios', 'why' => $why, 'phase' => $exitWhy !== null ? 'ended' : $c['phase'],
+        // round 5: «nobody» — the chip went while he steered, the fans stay where he left them (neither he nor the BIOS)
+        'who' => $steering ? 'fanboy' : ($exitWhy === null && $c['phase'] === 'wait_chip' && !empty($c['missing']['stuck']) ? 'nobody' : 'bios'), 'why' => $why, 'phase' => $exitWhy !== null ? 'ended' : $c['phase'],
         'zones' => $zones, 'alarm' => $c['alarm'], 'reasons' => array_keys($c['reasons']),
         'missing' => $c['missing'] === null ? null : ['since' => $c['missing']['at'], 'why' => $c['missing']['why'], 'told' => isset($c['told']['missing'])],
         'watch' => array_values(array_map(fn ($w) => ['id' => $w['id'], 'name' => $w['name'], 'role' => $w['role'], 'rpm' => $w['rpm']], $c['watch'])),
         'notes' => $c['notes'],
+        'refuses' => array_keys(array_filter($c['fans'], fn ($f) => !empty($f['refuses']))),     // round 5: the driver takes no values
         // since when each fan (and each watched BIOS fan) stands though it should turn — on the monotonic clock, so a
         // control started again goes on counting instead of starting from nought (three restarts in a row still alarm)
         'stand_since' => array_filter(array_map(fn ($f) => $f['zero_since'], $c['fans']) + array_map(fn ($w) => $w['zero_since'], $c['watch']), fn ($v) => $v !== null),
@@ -1076,7 +1202,8 @@ function fanboyBoardRaw(?array $board = null): ?array
 {
     $board ??= fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']);
     $raw = readJson(fanboyStoreFile());
-    $b = $raw['boards'][fanboyBoardKey($board)] ?? null;
+    // round 5: a board DMI says nothing about was kept under « | » before — read there until written under its new key
+    $b = $raw['boards'][fanboyBoardKey($board)] ?? (isset($board['chip']) ? ($raw['boards'][' | '] ?? null) : null);
     return is_array($b) ? $b : null;
 }
 
@@ -1179,6 +1306,10 @@ function fanboyControlMain(): int
  */
 function fanboyStandCarry(array &$c, ?array $status, float $now): void
 {
+    // round 5: the chip went while the last control steered — the fans still sit where it left them, «nobody» goes on
+    if (($status['why'] ?? null) === 'chip_gone') {
+        $c['stuck_carry'] = true;
+    }
     foreach (is_array($status['stand_since'] ?? null) ? $status['stand_since'] : [] as $id => $since) {
         if (!is_string($id) || !(is_float($since) || is_int($since)) || $since > $now || $now - $since > 600) {
             continue;

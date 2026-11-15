@@ -1,0 +1,1596 @@
+{
+ "v": 1,
+ "time": 1763100000,
+ "hwmon": true,
+ "board": {
+  "vendor": "Example Boards Inc.",
+  "model": "EB-Z100 PRO"
+ },
+ "kernel": "6.18.60-Unraid",
+ "unraid": "7.4.0",
+ "chips": [
+  {
+   "hwmon": "hwmon0",
+   "name": "nvme",
+   "device": "pci0000:00/0000:00:1b.4/0000:82:00.0/nvme/nvme2",
+   "address": "nvme2",
+   "module": "nvme",
+   "kind": "nvme",
+   "outputs": [],
+   "fans": [],
+   "temps": [
+    {
+     "n": 1,
+     "label": "Composite",
+     "c": 29.9
+    },
+    {
+     "n": 2,
+     "label": "Sensor 1",
+     "c": 31.9
+    }
+   ],
+   "twin": false
+  },
+  {
+   "hwmon": "hwmon1",
+   "name": "nvme",
+   "device": "pci0000:00/0000:00:01.0/0000:01:00.0/nvme/nvme1",
+   "address": "nvme1",
+   "module": "nvme",
+   "kind": "nvme",
+   "outputs": [],
+   "fans": [],
+   "temps": [
+    {
+     "n": 1,
+     "label": "Composite",
+     "c": 25.9
+    },
+    {
+     "n": 2,
+     "label": "Sensor 1",
+     "c": 27.9
+    }
+   ],
+   "twin": false
+  },
+  {
+   "hwmon": "hwmon2",
+   "name": "nvme",
+   "device": "pci0000:00/0000:00:06.1/0000:03:00.0/nvme/nvme0",
+   "address": "nvme0",
+   "module": "nvme",
+   "kind": "nvme",
+   "outputs": [],
+   "fans": [],
+   "temps": [
+    {
+     "n": 1,
+     "label": "Composite",
+     "c": 27.9
+    },
+    {
+     "n": 2,
+     "label": "Sensor 1",
+     "c": 29.9
+    }
+   ],
+   "twin": false
+  },
+  {
+   "hwmon": "hwmon3",
+   "name": "acpi_fan",
+   "device": "platform/INTC1042:00/INTC1063:00",
+   "address": "INTC1063:00",
+   "module": null,
+   "kind": "other",
+   "outputs": [],
+   "fans": [
+    {
+     "n": 1,
+     "rpm": null,
+     "label": ""
+    }
+   ],
+   "temps": [],
+   "twin": false
+  },
+  {
+   "hwmon": "hwmon4",
+   "name": "gigabyte_wmi",
+   "device": "platform/PNP0C14:02/wmi_bus/wmi_bus-PNP0C14:02",
+   "address": "wmi_bus-PNP0C14:02",
+   "module": null,
+   "kind": "board",
+   "outputs": [],
+   "fans": [],
+   "temps": [
+    {
+     "n": 1,
+     "label": "",
+     "c": 21
+    },
+    {
+     "n": 2,
+     "label": "",
+     "c": 31
+    },
+    {
+     "n": 3,
+     "label": "",
+     "c": 29
+    },
+    {
+     "n": 4,
+     "label": "",
+     "c": 25
+    },
+    {
+     "n": 5,
+     "label": "",
+     "c": 23
+    },
+    {
+     "n": 6,
+     "label": "",
+     "c": 23
+    }
+   ],
+   "twin": false
+  },
+  {
+   "hwmon": "hwmon5",
+   "name": "spd5118",
+   "device": "pci0000:00/0000:00:1f.4/i2c-0/0-0051",
+   "address": "0-0051",
+   "module": "spd5118",
+   "kind": "ram",
+   "outputs": [],
+   "fans": [],
+   "temps": [
+    {
+     "n": 1,
+     "label": "",
+     "c": 22.8
+    }
+   ],
+   "twin": false
+  },
+  {
+   "hwmon": "hwmon6",
+   "name": "spd5118",
+   "device": "pci0000:00/0000:00:1f.4/i2c-0/0-0053",
+   "address": "0-0053",
+   "module": "spd5118",
+   "kind": "ram",
+   "outputs": [],
+   "fans": [],
+   "temps": [
+    {
+     "n": 1,
+     "label": "",
+     "c": 21.3
+    }
+   ],
+   "twin": false
+  },
+  {
+   "hwmon": "hwmon7",
+   "name": "coretemp",
+   "device": "platform/coretemp.0",
+   "address": "coretemp.0",
+   "module": "coretemp",
+   "kind": "cpu",
+   "outputs": [],
+   "fans": [],
+   "temps": [
+    {
+     "n": 1,
+     "label": "Package id 0",
+     "c": 28
+    },
+    {
+     "n": 2,
+     "label": "Core 0",
+     "c": 26
+    },
+    {
+     "n": 6,
+     "label": "Core 4",
+     "c": 28
+    }
+   ],
+   "twin": false
+  },
+  {
+   "hwmon": "hwmon8",
+   "name": "iwlwifi_1",
+   "device": "virtual/thermal/thermal_zone4",
+   "address": "thermal_zone4",
+   "module": null,
+   "kind": "other",
+   "outputs": [],
+   "fans": [],
+   "temps": [
+    {
+     "n": 1,
+     "label": "",
+     "c": null
+    }
+   ],
+   "twin": false
+  },
+  {
+   "hwmon": "hwmon9",
+   "name": "acpitz",
+   "device": "virtual/thermal/thermal_zone5",
+   "address": "thermal_zone5",
+   "module": null,
+   "kind": "board",
+   "outputs": [],
+   "fans": [],
+   "temps": [
+    {
+     "n": 1,
+     "label": "",
+     "c": 16.8
+    },
+    {
+     "n": 2,
+     "label": "",
+     "c": 27.8
+    }
+   ],
+   "twin": false
+  },
+  {
+   "hwmon": "hwmon10",
+   "name": "it8696_a0060607",
+   "device": "platform/it87.2608",
+   "address": "it87.2608",
+   "module": "it87",
+   "kind": "board",
+   "outputs": [
+    {
+     "n": 1,
+     "value": 128,
+     "pct": 50,
+     "enable": 1,
+     "mode": "manual",
+     "auto": true
+    },
+    {
+     "n": 2,
+     "value": 128,
+     "pct": 50,
+     "enable": 1,
+     "mode": "manual",
+     "auto": true
+    },
+    {
+     "n": 3,
+     "value": 128,
+     "pct": 50,
+     "enable": 1,
+     "mode": "manual",
+     "auto": true
+    },
+    {
+     "n": 4,
+     "value": 128,
+     "pct": 50,
+     "enable": 1,
+     "mode": "manual",
+     "auto": true
+    },
+    {
+     "n": 5,
+     "value": 128,
+     "pct": 50,
+     "enable": 1,
+     "mode": "manual",
+     "auto": true
+    },
+    {
+     "n": 6,
+     "value": 128,
+     "pct": 50,
+     "enable": 1,
+     "mode": "manual",
+     "auto": true
+    }
+   ],
+   "fans": [
+    {
+     "n": 1,
+     "rpm": 1310,
+     "label": ""
+    },
+    {
+     "n": 2,
+     "rpm": 0,
+     "label": ""
+    },
+    {
+     "n": 3,
+     "rpm": 0,
+     "label": ""
+    },
+    {
+     "n": 4,
+     "rpm": 1018,
+     "label": ""
+    },
+    {
+     "n": 5,
+     "rpm": 905,
+     "label": ""
+    },
+    {
+     "n": 6,
+     "rpm": 878,
+     "label": ""
+    }
+   ],
+   "temps": [
+    {
+     "n": 1,
+     "label": "",
+     "c": 21
+    },
+    {
+     "n": 2,
+     "label": "",
+     "c": 31
+    },
+    {
+     "n": 3,
+     "label": "",
+     "c": 28
+    },
+    {
+     "n": 4,
+     "label": "",
+     "c": 25
+    },
+    {
+     "n": 5,
+     "label": "",
+     "c": 23
+    },
+    {
+     "n": 6,
+     "label": "",
+     "c": 23
+    }
+   ],
+   "twin": false
+  }
+ ],
+ "disks": [
+  {
+   "name": "parity",
+   "type": "parity",
+   "rotational": true,
+   "asleep": false,
+   "temp": 38,
+   "warn": 45,
+   "crit": 55
+  },
+  {
+   "name": "disk1",
+   "type": "data",
+   "rotational": true,
+   "asleep": true,
+   "temp": null,
+   "warn": 45,
+   "crit": 55
+  },
+  {
+   "name": "disk2",
+   "type": "data",
+   "rotational": true,
+   "asleep": false,
+   "temp": 41,
+   "warn": 40,
+   "crit": 50
+  },
+  {
+   "name": "cache",
+   "type": "pool",
+   "rotational": false,
+   "asleep": false,
+   "temp": 46,
+   "warn": 60,
+   "crit": 70
+  }
+ ],
+ "ipmi": null,
+ "controllers": [],
+ "drivers_missing": {},
+ "situation": {
+  "code": "ok"
+ },
+ "tools": [
+  {
+   "id": "it87-driver",
+   "name": "ITE IT87 Driver",
+   "author": "ich777",
+   "kind": "driver",
+   "installed": true,
+   "loaded": true,
+   "active": null
+  },
+  {
+   "id": "nct6687-driver",
+   "name": "Nuvoton NCT6687 Driver",
+   "author": "ich777",
+   "kind": "driver",
+   "installed": false,
+   "loaded": false,
+   "active": null
+  },
+  {
+   "id": "dynamix.system.temp",
+   "name": "Dynamix System Temp",
+   "author": "Bergware",
+   "kind": "sensors",
+   "installed": true,
+   "loaded": null,
+   "active": null
+  },
+  {
+   "id": "fanctrlplus",
+   "name": "FanCtrl Plus",
+   "author": "ck9393",
+   "kind": "controller",
+   "installed": false,
+   "loaded": null,
+   "active": false
+  },
+  {
+   "id": "fanctrlplus2",
+   "name": "FanCtrl Plus 2",
+   "author": "ck9393 / andrebrait",
+   "kind": "controller",
+   "installed": false,
+   "loaded": null,
+   "active": false
+  },
+  {
+   "id": "dynamix.system.autofan",
+   "name": "Dynamix System Autofan",
+   "author": "Bergware/gfjardim",
+   "kind": "controller",
+   "installed": false,
+   "loaded": null,
+   "active": false
+  },
+  {
+   "id": "pwm-fan",
+   "name": "PWM Fan",
+   "author": "alturismo",
+   "kind": "controller",
+   "installed": false,
+   "loaded": null,
+   "active": false
+  },
+  {
+   "id": "md12xx.fancontrol",
+   "name": "WAZ Cooling Control",
+   "author": "TheIlluminate92",
+   "kind": "controller",
+   "installed": false,
+   "loaded": null,
+   "active": false
+  }
+ ],
+ "suggest": [],
+ "board_hint": "ite",
+ "board_maker": "Example Boards",
+ "acpi_lax": false,
+ "poll": 1800,
+ "vm": false,
+ "twins": [
+  "nct6687",
+  "nct6683"
+ ],
+ "names": [],
+ "hints_open": false,
+ "counts": {
+  "outputs": 6,
+  "fans": 7,
+  "turning": 4,
+  "zero": 2,
+  "rpm_min": 878,
+  "rpm_max": 1310,
+  "temps": 26
+ },
+ "hottest": {
+  "c": 46,
+  "kind": "disk",
+  "chip": null,
+  "label": "",
+  "n": null,
+  "disk": "cache"
+ },
+ "hottest_kinds": [
+  {
+   "kind": "hdd",
+   "warmest": {
+    "kind": "hdd",
+    "c": 41,
+    "label": "",
+    "disk": "disk2",
+    "chip": null,
+    "n": null,
+    "asleep": false,
+    "warn": 40,
+    "crit": 50
+   },
+   "near": {
+    "kind": "hdd",
+    "c": 41,
+    "label": "",
+    "disk": "disk2",
+    "chip": null,
+    "n": null,
+    "asleep": false,
+    "warn": 40,
+    "crit": 50,
+    "margin": 1,
+    "over": "warn"
+   },
+   "count": 3,
+   "asleep": 1
+  },
+  {
+   "kind": "ssd",
+   "warmest": {
+    "kind": "ssd",
+    "c": 46,
+    "label": "",
+    "disk": "cache",
+    "chip": null,
+    "n": null,
+    "asleep": false,
+    "warn": 60,
+    "crit": 70
+   },
+   "near": {
+    "kind": "ssd",
+    "c": 46,
+    "label": "",
+    "disk": "cache",
+    "chip": null,
+    "n": null,
+    "asleep": false,
+    "warn": 60,
+    "crit": 70,
+    "margin": -14,
+    "over": null
+   },
+   "count": 7,
+   "asleep": 0
+  },
+  {
+   "kind": "cpu",
+   "warmest": {
+    "kind": "cpu",
+    "c": 28,
+    "label": "Package id 0",
+    "disk": null,
+    "chip": "coretemp",
+    "n": 1,
+    "asleep": false,
+    "warn": null,
+    "crit": null
+   },
+   "near": null,
+   "count": 3,
+   "asleep": 0
+  },
+  {
+   "kind": "board",
+   "warmest": {
+    "kind": "board",
+    "c": 31,
+    "label": "",
+    "disk": null,
+    "chip": "gigabyte_wmi",
+    "n": 2,
+    "asleep": false,
+    "warn": null,
+    "crit": null
+   },
+   "near": null,
+   "count": 14,
+   "asleep": 0
+  },
+  {
+   "kind": "ram",
+   "warmest": {
+    "kind": "ram",
+    "c": 22.8,
+    "label": "",
+    "disk": null,
+    "chip": "spd5118",
+    "n": 1,
+    "asleep": false,
+    "warn": null,
+    "crit": null
+   },
+   "near": null,
+   "count": 2,
+   "asleep": 0
+  },
+  {
+   "kind": "other",
+   "warmest": null,
+   "near": null,
+   "count": 1,
+   "asleep": 0
+  }
+ ],
+ "hottest_lead": {
+  "kind": "hdd",
+  "c": 41,
+  "label": "",
+  "disk": "disk2",
+  "chip": null,
+  "n": null,
+  "asleep": false,
+  "warn": 40,
+  "crit": 50,
+  "margin": 1,
+  "over": "warn"
+ },
+ "who": {
+  "who": "bios",
+  "why": "not_set_up"
+ },
+ "control": {
+  "running": false,
+  "armed": false,
+  "who": "bios",
+  "why": null,
+  "zones": [],
+  "alarm": null,
+  "missing": null,
+  "notes": [],
+  "watch": [],
+  "time": null,
+  "guard": null
+ },
+ "setup": {
+  "board": "Example Boards Inc. | EB-Z100 PRO",
+  "others": 0,
+  "fans": [],
+  "zones": [],
+  "armed": false,
+  "outputs": [
+   "it8696_a0060607:it87.2608:pwm1",
+   "it8696_a0060607:it87.2608:pwm2",
+   "it8696_a0060607:it87.2608:pwm3",
+   "it8696_a0060607:it87.2608:pwm4",
+   "it8696_a0060607:it87.2608:pwm5",
+   "it8696_a0060607:it87.2608:pwm6"
+  ],
+  "missing": [],
+  "sources": [
+   {
+    "kind": "disk",
+    "id": "parity",
+    "label": "parity",
+    "c": 38,
+    "asleep": false
+   },
+   {
+    "kind": "disk",
+    "id": "disk1",
+    "label": "disk1",
+    "c": null,
+    "asleep": true
+   },
+   {
+    "kind": "disk",
+    "id": "disk2",
+    "label": "disk2",
+    "c": 41,
+    "asleep": false
+   },
+   {
+    "kind": "ssd",
+    "id": "cache",
+    "label": "cache",
+    "c": 46,
+    "asleep": false
+   },
+   {
+    "kind": "nvme",
+    "id": "nvme@pci0000:00/0000:00:1b.4/0000:82:00.0/nvme#1",
+    "label": "Composite",
+    "c": 29.9,
+    "asleep": false,
+    "chip": "nvme",
+    "hwmon": "hwmon0",
+    "n": 1
+   },
+   {
+    "kind": "nvme",
+    "id": "nvme@pci0000:00/0000:00:1b.4/0000:82:00.0/nvme#2",
+    "label": "Sensor 1",
+    "c": 31.9,
+    "asleep": false,
+    "chip": "nvme",
+    "hwmon": "hwmon0",
+    "n": 2
+   },
+   {
+    "kind": "nvme",
+    "id": "nvme@pci0000:00/0000:00:01.0/0000:01:00.0/nvme#1",
+    "label": "Composite",
+    "c": 25.9,
+    "asleep": false,
+    "chip": "nvme",
+    "hwmon": "hwmon1",
+    "n": 1
+   },
+   {
+    "kind": "nvme",
+    "id": "nvme@pci0000:00/0000:00:01.0/0000:01:00.0/nvme#2",
+    "label": "Sensor 1",
+    "c": 27.9,
+    "asleep": false,
+    "chip": "nvme",
+    "hwmon": "hwmon1",
+    "n": 2
+   },
+   {
+    "kind": "nvme",
+    "id": "nvme@pci0000:00/0000:00:06.1/0000:03:00.0/nvme#1",
+    "label": "Composite",
+    "c": 27.9,
+    "asleep": false,
+    "chip": "nvme",
+    "hwmon": "hwmon2",
+    "n": 1
+   },
+   {
+    "kind": "nvme",
+    "id": "nvme@pci0000:00/0000:00:06.1/0000:03:00.0/nvme#2",
+    "label": "Sensor 1",
+    "c": 29.9,
+    "asleep": false,
+    "chip": "nvme",
+    "hwmon": "hwmon2",
+    "n": 2
+   },
+   {
+    "kind": "board",
+    "id": "gigabyte_wmi@platform/PNP0C14:02/wmi_bus/wmi_bus-PNP0C14:02#1",
+    "label": "gigabyte_wmi #1",
+    "c": 21,
+    "asleep": false,
+    "chip": "gigabyte_wmi",
+    "hwmon": "hwmon4",
+    "n": 1
+   },
+   {
+    "kind": "board",
+    "id": "gigabyte_wmi@platform/PNP0C14:02/wmi_bus/wmi_bus-PNP0C14:02#2",
+    "label": "gigabyte_wmi #2",
+    "c": 31,
+    "asleep": false,
+    "chip": "gigabyte_wmi",
+    "hwmon": "hwmon4",
+    "n": 2
+   },
+   {
+    "kind": "board",
+    "id": "gigabyte_wmi@platform/PNP0C14:02/wmi_bus/wmi_bus-PNP0C14:02#3",
+    "label": "gigabyte_wmi #3",
+    "c": 29,
+    "asleep": false,
+    "chip": "gigabyte_wmi",
+    "hwmon": "hwmon4",
+    "n": 3
+   },
+   {
+    "kind": "board",
+    "id": "gigabyte_wmi@platform/PNP0C14:02/wmi_bus/wmi_bus-PNP0C14:02#4",
+    "label": "gigabyte_wmi #4",
+    "c": 25,
+    "asleep": false,
+    "chip": "gigabyte_wmi",
+    "hwmon": "hwmon4",
+    "n": 4
+   },
+   {
+    "kind": "board",
+    "id": "gigabyte_wmi@platform/PNP0C14:02/wmi_bus/wmi_bus-PNP0C14:02#5",
+    "label": "gigabyte_wmi #5",
+    "c": 23,
+    "asleep": false,
+    "chip": "gigabyte_wmi",
+    "hwmon": "hwmon4",
+    "n": 5
+   },
+   {
+    "kind": "board",
+    "id": "gigabyte_wmi@platform/PNP0C14:02/wmi_bus/wmi_bus-PNP0C14:02#6",
+    "label": "gigabyte_wmi #6",
+    "c": 23,
+    "asleep": false,
+    "chip": "gigabyte_wmi",
+    "hwmon": "hwmon4",
+    "n": 6
+   },
+   {
+    "kind": "ram",
+    "id": "spd5118@pci0000:00/0000:00:1f.4/i2c-0/0-0051#1",
+    "label": "spd5118 #1",
+    "c": 22.8,
+    "asleep": false,
+    "chip": "spd5118",
+    "hwmon": "hwmon5",
+    "n": 1
+   },
+   {
+    "kind": "ram",
+    "id": "spd5118@pci0000:00/0000:00:1f.4/i2c-0/0-0053#1",
+    "label": "spd5118 #1",
+    "c": 21.3,
+    "asleep": false,
+    "chip": "spd5118",
+    "hwmon": "hwmon6",
+    "n": 1
+   },
+   {
+    "kind": "cpu",
+    "id": "coretemp@platform/coretemp.0#1",
+    "label": "Package id 0",
+    "c": 28,
+    "asleep": false,
+    "chip": "coretemp",
+    "hwmon": "hwmon7",
+    "n": 1
+   },
+   {
+    "kind": "cpu",
+    "id": "coretemp@platform/coretemp.0#2",
+    "label": "Core 0",
+    "c": 26,
+    "asleep": false,
+    "chip": "coretemp",
+    "hwmon": "hwmon7",
+    "n": 2
+   },
+   {
+    "kind": "cpu",
+    "id": "coretemp@platform/coretemp.0#6",
+    "label": "Core 4",
+    "c": 28,
+    "asleep": false,
+    "chip": "coretemp",
+    "hwmon": "hwmon7",
+    "n": 6
+   },
+   {
+    "kind": "other",
+    "id": "iwlwifi_1@virtual/thermal/thermal_zone4#1",
+    "label": "iwlwifi_1 #1",
+    "c": null,
+    "asleep": false,
+    "chip": "iwlwifi_1",
+    "hwmon": "hwmon8",
+    "n": 1
+   },
+   {
+    "kind": "board",
+    "id": "acpitz@virtual/thermal/thermal_zone5#1",
+    "label": "acpitz #1",
+    "c": 16.8,
+    "asleep": false,
+    "chip": "acpitz",
+    "hwmon": "hwmon9",
+    "n": 1
+   },
+   {
+    "kind": "board",
+    "id": "acpitz@virtual/thermal/thermal_zone5#2",
+    "label": "acpitz #2",
+    "c": 27.8,
+    "asleep": false,
+    "chip": "acpitz",
+    "hwmon": "hwmon9",
+    "n": 2
+   },
+   {
+    "kind": "board",
+    "id": "it8696_a0060607@platform/it87.2608#1",
+    "label": "it8696_a0060607 #1",
+    "c": 21,
+    "asleep": false,
+    "chip": "it8696_a0060607",
+    "hwmon": "hwmon10",
+    "n": 1
+   },
+   {
+    "kind": "board",
+    "id": "it8696_a0060607@platform/it87.2608#2",
+    "label": "it8696_a0060607 #2",
+    "c": 31,
+    "asleep": false,
+    "chip": "it8696_a0060607",
+    "hwmon": "hwmon10",
+    "n": 2
+   },
+   {
+    "kind": "board",
+    "id": "it8696_a0060607@platform/it87.2608#3",
+    "label": "it8696_a0060607 #3",
+    "c": 28,
+    "asleep": false,
+    "chip": "it8696_a0060607",
+    "hwmon": "hwmon10",
+    "n": 3
+   },
+   {
+    "kind": "board",
+    "id": "it8696_a0060607@platform/it87.2608#4",
+    "label": "it8696_a0060607 #4",
+    "c": 25,
+    "asleep": false,
+    "chip": "it8696_a0060607",
+    "hwmon": "hwmon10",
+    "n": 4
+   },
+   {
+    "kind": "board",
+    "id": "it8696_a0060607@platform/it87.2608#5",
+    "label": "it8696_a0060607 #5",
+    "c": 23,
+    "asleep": false,
+    "chip": "it8696_a0060607",
+    "hwmon": "hwmon10",
+    "n": 5
+   },
+   {
+    "kind": "board",
+    "id": "it8696_a0060607@platform/it87.2608#6",
+    "label": "it8696_a0060607 #6",
+    "c": 23,
+    "asleep": false,
+    "chip": "it8696_a0060607",
+    "hwmon": "hwmon10",
+    "n": 6
+   }
+  ],
+  "curves": {},
+  "before": {
+   "it8696_a0060607:it87.2608:pwm1": {
+    "value": 128,
+    "pct": 50,
+    "enable": 1,
+    "mode": "manual",
+    "fixed": true,
+    "auto": 2,
+    "from": "journal"
+   },
+   "it8696_a0060607:it87.2608:pwm2": {
+    "value": 128,
+    "pct": 50,
+    "enable": 1,
+    "mode": "manual",
+    "fixed": true,
+    "auto": 2,
+    "from": "journal"
+   },
+   "it8696_a0060607:it87.2608:pwm3": {
+    "value": 128,
+    "pct": 50,
+    "enable": 1,
+    "mode": "manual",
+    "fixed": true,
+    "auto": 2,
+    "from": "journal"
+   },
+   "it8696_a0060607:it87.2608:pwm4": {
+    "value": 128,
+    "pct": 50,
+    "enable": 1,
+    "mode": "manual",
+    "fixed": true,
+    "auto": 2,
+    "from": "journal"
+   },
+   "it8696_a0060607:it87.2608:pwm5": {
+    "value": 128,
+    "pct": 50,
+    "enable": 1,
+    "mode": "manual",
+    "fixed": true,
+    "auto": 2,
+    "from": "journal"
+   },
+   "it8696_a0060607:it87.2608:pwm6": {
+    "value": 128,
+    "pct": 50,
+    "enable": 1,
+    "mode": "manual",
+    "fixed": true,
+    "auto": 2,
+    "from": "journal"
+   }
+  },
+  "back_default": "auto",
+  "scales": {
+   "disk": {
+    "low": 35,
+    "high": 45,
+    "limit": 52
+   },
+   "ssd": {
+    "low": 40,
+    "high": 60,
+    "limit": 70
+   },
+   "nvme": {
+    "low": 40,
+    "high": 65,
+    "limit": 75
+   },
+   "cpu": {
+    "low": 45,
+    "high": 80,
+    "limit": 92
+   },
+   "ram": {
+    "low": 40,
+    "high": 60,
+    "limit": 75
+   },
+   "gpu": {
+    "low": 45,
+    "high": 80,
+    "limit": 90
+   },
+   "board": {
+    "low": 35,
+    "high": 55,
+    "limit": 70
+   },
+   "other": {
+    "low": 35,
+    "high": 55,
+    "limit": 75
+   }
+  },
+  "down": {
+   "disk": {
+    "balanced": {
+     "gap": 2,
+     "hold": 0,
+     "step": 1
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 0,
+     "step": 3
+    }
+   },
+   "ssd": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   },
+   "nvme": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   },
+   "ram": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   },
+   "board": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   },
+   "cpu": {
+    "balanced": {
+     "gap": 2.5,
+     "hold": 6,
+     "step": 5
+    },
+    "quick": {
+     "gap": 1.5,
+     "hold": 3,
+     "step": 8
+    }
+   },
+   "gpu": {
+    "balanced": {
+     "gap": 2.5,
+     "hold": 6,
+     "step": 5
+    },
+    "quick": {
+     "gap": 1.5,
+     "hold": 3,
+     "step": 8
+    }
+   },
+   "other": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   }
+  },
+  "round": 2,
+  "cpu_floor": 40,
+  "presets_of": {
+   "disk": {
+    "quiet": [
+     [
+      35,
+      0
+     ],
+     [
+      40,
+      30
+     ],
+     [
+      45,
+      60
+     ],
+     [
+      50,
+      100
+     ]
+    ],
+    "normal": [
+     [
+      35,
+      20
+     ],
+     [
+      40,
+      45
+     ],
+     [
+      45,
+      80
+     ],
+     [
+      48,
+      100
+     ]
+    ],
+    "cool": [
+     [
+      32,
+      35
+     ],
+     [
+      37,
+      65
+     ],
+     [
+      42,
+      100
+     ]
+    ]
+   },
+   "ssd": {
+    "quiet": [
+     [
+      40,
+      0
+     ],
+     [
+      50,
+      30
+     ],
+     [
+      60,
+      60
+     ],
+     [
+      65,
+      100
+     ]
+    ],
+    "normal": [
+     [
+      40,
+      20
+     ],
+     [
+      50,
+      45
+     ],
+     [
+      60,
+      80
+     ],
+     [
+      63,
+      100
+     ]
+    ],
+    "cool": [
+     [
+      37,
+      35
+     ],
+     [
+      47,
+      65
+     ],
+     [
+      57,
+      100
+     ]
+    ]
+   },
+   "nvme": {
+    "quiet": [
+     [
+      40,
+      0
+     ],
+     [
+      52.5,
+      30
+     ],
+     [
+      65,
+      60
+     ],
+     [
+      70,
+      100
+     ]
+    ],
+    "normal": [
+     [
+      40,
+      20
+     ],
+     [
+      52.5,
+      45
+     ],
+     [
+      65,
+      80
+     ],
+     [
+      68,
+      100
+     ]
+    ],
+    "cool": [
+     [
+      37,
+      35
+     ],
+     [
+      49.5,
+      65
+     ],
+     [
+      62,
+      100
+     ]
+    ]
+   },
+   "cpu": {
+    "quiet": [
+     [
+      45,
+      0
+     ],
+     [
+      62.5,
+      30
+     ],
+     [
+      80,
+      60
+     ],
+     [
+      85,
+      100
+     ]
+    ],
+    "normal": [
+     [
+      45,
+      20
+     ],
+     [
+      62.5,
+      45
+     ],
+     [
+      80,
+      80
+     ],
+     [
+      83,
+      100
+     ]
+    ],
+    "cool": [
+     [
+      42,
+      35
+     ],
+     [
+      59.5,
+      65
+     ],
+     [
+      77,
+      100
+     ]
+    ]
+   },
+   "ram": {
+    "quiet": [
+     [
+      40,
+      0
+     ],
+     [
+      50,
+      30
+     ],
+     [
+      60,
+      60
+     ],
+     [
+      65,
+      100
+     ]
+    ],
+    "normal": [
+     [
+      40,
+      20
+     ],
+     [
+      50,
+      45
+     ],
+     [
+      60,
+      80
+     ],
+     [
+      63,
+      100
+     ]
+    ],
+    "cool": [
+     [
+      37,
+      35
+     ],
+     [
+      47,
+      65
+     ],
+     [
+      57,
+      100
+     ]
+    ]
+   },
+   "gpu": {
+    "quiet": [
+     [
+      45,
+      0
+     ],
+     [
+      62.5,
+      30
+     ],
+     [
+      80,
+      60
+     ],
+     [
+      85,
+      100
+     ]
+    ],
+    "normal": [
+     [
+      45,
+      20
+     ],
+     [
+      62.5,
+      45
+     ],
+     [
+      80,
+      80
+     ],
+     [
+      83,
+      100
+     ]
+    ],
+    "cool": [
+     [
+      42,
+      35
+     ],
+     [
+      59.5,
+      65
+     ],
+     [
+      77,
+      100
+     ]
+    ]
+   },
+   "board": {
+    "quiet": [
+     [
+      35,
+      0
+     ],
+     [
+      45,
+      30
+     ],
+     [
+      55,
+      60
+     ],
+     [
+      60,
+      100
+     ]
+    ],
+    "normal": [
+     [
+      35,
+      20
+     ],
+     [
+      45,
+      45
+     ],
+     [
+      55,
+      80
+     ],
+     [
+      58,
+      100
+     ]
+    ],
+    "cool": [
+     [
+      32,
+      35
+     ],
+     [
+      42,
+      65
+     ],
+     [
+      52,
+      100
+     ]
+    ]
+   },
+   "other": {
+    "quiet": [
+     [
+      35,
+      0
+     ],
+     [
+      45,
+      30
+     ],
+     [
+      55,
+      60
+     ],
+     [
+      60,
+      100
+     ]
+    ],
+    "normal": [
+     [
+      35,
+      20
+     ],
+     [
+      45,
+      45
+     ],
+     [
+      55,
+      80
+     ],
+     [
+      58,
+      100
+     ]
+    ],
+    "cool": [
+     [
+      32,
+      35
+     ],
+     [
+      42,
+      65
+     ],
+     [
+      52,
+      100
+     ]
+    ]
+   }
+  }
+ },
+ "step": null,
+ "drivers": {
+  "mine": [],
+  "last": null,
+  "can": true
+ }
+}

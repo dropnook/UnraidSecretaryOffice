@@ -56,6 +56,13 @@ const FANBOY_PLUGINS = [
     'md12xx.fancontrol'      => ['name' => 'WAZ Cooling Control', 'author' => 'TheIlluminate92', 'kind' => 'controller',
                                  'controller' => ['md12xx.fancontrol', '', '#md12xx\.fancontrol/(scripts/(controller|ipmi)-supervisor\.sh|include/(ipmi-)?controller\.php)#'],
                                  'hint_only' => true],
+    // round 5 (forum 3.12): controllers that are no plugin but run in a container — seen by their process (every
+    // container's process is in the host's /proc: what part 1 looks at anyway, never a docker call, never in the round)
+    'coolercontrol'          => ['name' => 'CoolerControl', 'author' => 'Docker', 'kind' => 'container',
+                                 'controller' => ['', '', '#(^|/)coolercontrold(\s|$)#']],
+    'fan2go'                 => ['name' => 'fan2go', 'author' => 'Docker', 'kind' => 'container', 'controller' => ['', '', '#(^|/)fan2go(\s|$)#']],
+    'liquidctl'              => ['name' => 'liquidctl', 'author' => 'Docker', 'kind' => 'container', 'controller' => ['', '', '#(^|/)liquidctl(\s|$)#']],
+    'fanbridge'              => ['name' => 'FanBridge', 'author' => 'Docker', 'kind' => 'container', 'controller' => ['', '', '#fanbridge#i']],
 ];
 // a hint by the board's maker, never a verdict: whose chip such boards mostly carry
 const FANBOY_BOARD_HINTS = ['/gigabyte/i' => ['ite', 'Gigabyte'], '/micro-star|\bmsi\b/i' => ['nuvoton', 'MSI']];
@@ -93,6 +100,8 @@ function fanboyPaths(?string $root = null): array
         'proc'     => "$r/proc",
         'cmdline'  => "$r/proc/cmdline",
         'unraid'   => "$r/etc/unraid-version",
+        'var'      => "$r/var/local/emhttp/var.ini",                   // round 5: poll_attributes (how fresh the disks' temperatures are)
+        'cpuinfo'  => "$r/proc/cpuinfo",
         'ipmitool' => $root === null ? '' : "$r/usr/bin/ipmitool",     // '' = found in the PATH (fanboyIpmiFans())
         'crontab'  => "$r/var/spool/cron/crontabs/root",               // root's crontab (PWM Fan steers from there): read only
         // Unraid's disk temperature limits (read only): ⟦Settings⟧ → ⟦Disk Settings⟧ keeps them in dynamix.cfg [display]
@@ -179,7 +188,7 @@ function fanboyChip(string $hwmon, string $entry): ?array
                 'auto'   => $auto,
             ];
         } elseif (preg_match('/^fan(\d{1,2})_input$/D', $f, $m)) {
-            $fans[(int) $m[1]] = ['n' => (int) $m[1], 'rpm' => fanboyInt("$attr/$f"), 'label' => fanboyLine("$attr/fan{$m[1]}_label")];
+            $fans[(int) $m[1]] = ['n' => (int) $m[1], 'rpm' => fanboySaneRpm(fanboyInt("$attr/$f")), 'label' => fanboyLine("$attr/fan{$m[1]}_label")];
         } elseif (preg_match('/^temp(\d{1,3})_input$/D', $f, $m)) {
             $temps[(int) $m[1]] = ['n' => (int) $m[1], 'label' => fanboyLine("$attr/temp{$m[1]}_label")];
         }
@@ -189,7 +198,7 @@ function fanboyChip(string $hwmon, string $entry): ?array
         // drivetemp asks the disk for its temperature: never read here (a sleeping disk would wake) — Unraid's own
         // disks.ini says it instead
         $raw = $kind === 'disk' ? null : fanboyInt("$attr/temp{$n}_input");
-        $temps[$n]['c'] = $raw === null || $raw < -40000 || $raw > 200000 ? null : round($raw / 1000, 1);
+        $temps[$n]['c'] = fanboySaneTemp($raw);
     }
     ksort($outputs);
     ksort($fans);
@@ -205,6 +214,25 @@ function fanboyChip(string $hwmon, string $entry): ?array
         'fans'    => array_values($fans),
         'temps'   => array_values($temps),
     ];
+}
+
+/** An rpm read as it counts: a sentinel (≥ FANBOY_RPM_SANE) or a negative number is no reading */
+function fanboySaneRpm(?int $rpm): ?int
+{
+    return $rpm === null || $rpm < 0 || $rpm >= FANBOY_RPM_SANE ? null : $rpm;
+}
+
+/**
+ * A temperature read as it counts (°C from millidegrees): 0, −128, 127 and anything at or over 125 °C are what broken
+ * or unwired sensors report (forum 3.8: an NCT6776 CPUTIN reading nonsense) — «says nothing», never «too warm»
+ */
+function fanboySaneTemp(?int $milli): ?float
+{
+    if ($milli === null) {
+        return null;
+    }
+    $c = round($milli / 1000, 1);
+    return $c == 0.0 || $c <= -128.0 || $c >= 125.0 ? null : $c;
 }
 
 /** The chips under the hwmon folder, in its order (hwmon0, hwmon1 … hwmon10) */
@@ -224,9 +252,65 @@ function fanboyChips(string $hwmon): array
 /** The board: DMI's vendor and model (never a serial) — '' each when the board says nothing */
 function fanboyBoard(string $dmi): array
 {
-    $clean = fn (string $s) => preg_match('/^(to be filled by o\.e\.m\.|default string|not applicable|none|n\/a|system manufacturer|system product name)$/i', $s)
+    $clean = fn (string $s) => preg_match('/^(to be filled by o\.e\.m\.|default string|not applicable|none|n\/a|system manufacturer|system product name|o\.e\.m\.|oem)$/i', $s)
         ? '' : str_replace('/', '-', $s);
-    return ['vendor' => $clean(fanboyLine("$dmi/board_vendor")), 'model' => $clean(fanboyLine("$dmi/board_name"))];
+    $board = ['vendor' => $clean(fanboyLine("$dmi/board_vendor")), 'model' => $clean(fanboyLine("$dmi/board_name"))];
+    if ($board['vendor'] === '' && $board['model'] === '') {
+        // round 5 (forum 3.13): DMI says nothing about the board — its product name and its fan chip with the chip's
+        // address tell this one from another (fanboyBoardKey(); the key « | » of before stays readable)
+        $chip = null;
+        foreach (fanboyChips(str_replace('/sys/class/dmi/id', FANBOY_HWMON, $dmi)) as $c) {
+            if (fanboyOffers($c)) {
+                $chip = $c['name'] . '@' . $c['address'];
+                break;
+            }
+        }
+        $board['product'] = $clean(fanboyLine("$dmi/product_name"));
+        $board['chip'] = $chip;
+    }
+    return $board;
+}
+
+/** A virtual machine (round 5, forum 3.16): DMI's system vendor, else the CPU's hypervisor flag — a hint only, never a block */
+function fanboyVm(array $p): bool
+{
+    $vendor = fanboyLine($p['dmi'] . '/sys_vendor');
+    if (preg_match('/qemu|vmware|microsoft corporation|xen|innotek|virtualbox|parallels|bochs|kvm/i', $vendor)) {
+        return true;
+    }
+    $info = is_link($p['cpuinfo']) ? false : @file_get_contents($p['cpuinfo'], false, null, 0, 65536);
+    return is_string($info) && preg_match('/^flags\s*:.*\bhypervisor\b/m', $info) === 1;
+}
+
+/** Unraid's poll_attributes (seconds between its looks at the disks' SMART values — their temperatures too), null: unknown */
+function fanboyPollAttributes(array $p): ?int
+{
+    $v = readCfg($p['var'])['poll_attributes'] ?? null;
+    return is_string($v) && preg_match('/^\d{1,6}$/D', $v) ? (int) $v : null;
+}
+
+/**
+ * Two drivers on one chip (round 5, forum 3.10): nct6683 and nct6687 both loaded, or two hwmon devices with fan inputs
+ * at the same I/O address — such a chip takes no values reliably: no steering of it, a hint. The chips' names.
+ */
+function fanboyTwins(array $p, array $chips): array
+{
+    $loaded = fn (string $m) => is_dir($p['modules'] . "/$m");
+    $both = $loaded('nct6683') && $loaded('nct6687');
+    $at = [];
+    foreach ($chips as $c) {
+        if ($c['fans'] && preg_match('#^platform/[a-z0-9_]+\.(\d+)$#D', $c['device'], $m)) {
+            $at[$m[1]][] = $c['name'];
+        }
+    }
+    $out = [];
+    foreach ($chips as $c) {
+        $port = preg_match('#^platform/[a-z0-9_]+\.(\d+)$#D', $c['device'], $m) ? $m[1] : null;
+        if (($both && in_array($c['module'], ['nct6683', 'nct6687'], true)) || ($port !== null && count($at[$port] ?? []) > 1 && $c['fans'])) {
+            $out[] = $c['name'];
+        }
+    }
+    return array_values(array_unique($out));
 }
 
 /** Unraid's disks from disks.ini (its bookkeeping, no disk asked): name, role, temperature (null asleep or unknown), asleep */
@@ -246,6 +330,7 @@ function fanboyDisks(string $ini, ?array $limits = null): array
             'rotational' => ($d['rotational'] ?? '1') !== '0',
             'asleep'     => $asleep,
             'temp'       => !$asleep && ctype_digit((string) ($d['temp'] ?? '')) ? (int) $d['temp'] : null,
+            'device'     => (string) $d['device'],     // round 5: an NVMe chip's pool by it (nvme0 ↔ nvme0n1) — never shown
         ];
         if ($limits !== null) {
             // Unraid's warning and critical temperature for this disk: its own, else the global one of its kind
@@ -445,7 +530,7 @@ function fanboyDriversMissing(array $p, array $chips): array
 /** A chip whose outputs Fanboy could ever offer: no graphics card's (its own fan stays the card's) */
 function fanboyOffers(array $chip): bool
 {
-    return $chip['outputs'] && $chip['kind'] !== 'gpu';
+    return $chip['outputs'] && $chip['kind'] !== 'gpu' && empty($chip['twin']);
 }
 
 /**
@@ -469,7 +554,7 @@ function fanboyTools(array $p, array $chips, array $controllers): array
             'kind'      => $info['kind'],
             'installed' => !is_link($plg) && is_file($plg),
             'loaded'    => $modules ? (bool) array_filter($modules, fn ($m) => is_dir($p['modules'] . "/$m") || in_array($m, $seen, true)) : null,
-            'active'    => $info['kind'] === 'controller' ? in_array($id, $active, true) : null,
+            'active'    => in_array($info['kind'], ['controller', 'container'], true) ? in_array($id, $active, true) : null,
         ];
     }
     return $out;
@@ -618,6 +703,11 @@ function fanboyDetect(?string $root = null, ?int $now = null): array
 {
     $p = fanboyPaths($root);
     $chips = fanboyChips($p['hwmon']);
+    // round 5: a chip with two drivers on it is no chip to steer (its outputs not offered)
+    $twins = fanboyTwins($p, $chips);
+    foreach ($chips as $i => $c) {
+        $chips[$i]['twin'] = in_array($c['name'], $twins, true);
+    }
     $disks = fanboyDisks($p['disks'], fanboyDiskLimits($p));
     $ipmi = fanboyIpmi($p);
     $controllers = fanboyControllers($p);
@@ -647,6 +737,10 @@ function fanboyDetect(?string $root = null, ?int $now = null): array
         'board_hint'  => $hint,
         'board_maker' => $maker,
         'acpi_lax'    => fanboyAcpiLax($p['cmdline']),
+        // round 5: how fresh Unraid keeps the disks' temperatures (seconds), a virtual machine, chips with two drivers
+        'poll'        => fanboyPollAttributes($p),
+        'vm'          => fanboyVm($p),
+        'twins'       => $twins,
         'names'       => fanboySensorNames($p['plugins'] . '/' . FANBOY_SYSTEMP_CONF, $chips),
         'hints_open'  => in_array($situation['code'], ['no_output', 'driver_missing', 'other', 'ipmi'], true),
         'counts'      => [
