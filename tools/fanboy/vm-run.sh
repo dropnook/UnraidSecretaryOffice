@@ -419,7 +419,7 @@ phase_chip() {
     info "chip gone: the registers (the fans keep what was last written — nothing can be given back)" "before $before; kept by the chip: $(tr '\n' ' ' < "$RIGDIR/regs.txt")"
     check "chip gone: he waits for it" "$( [[ $t != timeout ]] && echo 1 || echo 0)" "after ${t} s: $(jq -c '{who, why, phase, missing, alarm}' "$FB/control.json")"
     # 15 real minutes: one notification; looks every 5 s for 2 min, then every minute, then every 5 minutes
-    sleep $((t0 + 905 - $(date +%s)))
+    sleep $((t0 + 915 - $(date +%s)))         # the 15-minute one is due at 900 s; Unraid writes its file a moment later
     local n15; n15=$(nsince gone)
     check "chip missing 15 min: one notification" "$( [[ $(grep -c . <<<"$n15") == 1 ]] && echo 1 || echo 0)" "${n15:-none}; status $(jq -c '{why, missing}' "$FB/control.json")"
     sleep $((t0 + 1260 - $(date +%s)))         # 21 minutes: a quiet look (every 5 min) seen
@@ -489,7 +489,7 @@ phase_drivers() {
     lsmod | sort > "$OUT/lsmod-before.txt"
     local r; r=$(ask fanboy.drivers_load)
     lsmod | sort > "$OUT/lsmod-after.txt"
-    check "drivers_load: each refuses (no chip on a VM)" "$(jq -r '[.steps[]?.result] | all(. == "no_chip")' <<<"$r" | grep -c true)" "$(jq -c '[.steps[]? | "\(.module) \(.result)"]' <<<"$r") kept $(jq -c .kept <<<"$r")"
+    check "drivers_load: each refuses or brings no output (a VM)" "$(jq -r '[.steps[]?.result] | all(. == "no_chip" or . == "no_output") and (.kept == null)' <<<"$r" | grep -c true)" "$(jq -c '[.steps[]? | "\(.module) \(.result)"]' <<<"$r") kept $(jq -c .kept <<<"$r")"
     check "drivers_load: nothing left loaded" "$(ok diff -q "$OUT/lsmod-before.txt" "$OUT/lsmod-after.txt")" "$(diff "$OUT/lsmod-before.txt" "$OUT/lsmod-after.txt" | grep '^[<>]' | awk '{print $1, $2}' | tr '\n' ' ' | head -c 300)"
     r=$(ask fanboy.drivers_undo)
     lsmod | sort > "$OUT/lsmod-undo.txt"

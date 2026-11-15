@@ -21,7 +21,7 @@ until ssh -o ConnectTimeout=5 $H true 2>/dev/null; do sleep 5; done
 echo "$(date +%T) test3 answers; waiting for emhttp"
 until ssh $H 'test -s /var/local/emhttp/var.ini && pgrep -x emhttpd >/dev/null'; do sleep 3; done
 sleep 10
-ssh $H '/usr/local/sbin/emcmd cmdStart=Start >/dev/null 2>&1; for i in $(seq 150); do grep -q "^fsState=\"Started\"" /var/local/emhttp/var.ini && break; sleep 2; done; grep -E "^(mdState|fsState)=" /var/local/emhttp/var.ini'
+ssh $H '/usr/local/sbin/emcmd "cmdStart=Start&startState=STOPPED&file=" >/dev/null 2>&1; for i in $(seq 150); do grep -q "^fsState=\"Started\"" /var/local/emhttp/var.ini && break; sleep 2; done; grep -E "^(mdState|fsState)=" /var/local/emhttp/var.ini'
 echo "$(date +%T) array started; copying and dev-syncing"
 rsync -a --delete --exclude .git ./ $H:$T/
 ssh $H "bash $T/plugin/dev-sync.sh && mkdir -p /tmp/uso-fanboy-vmrun && date +%s > /tmp/uso-fanboy-vmrun/boot-synced"
