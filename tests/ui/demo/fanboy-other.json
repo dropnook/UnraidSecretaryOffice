@@ -1604,5 +1604,11 @@
   "mine": [],
   "last": null,
   "can": true
+ },
+ "idle": {
+  "on": true,
+  "warm": null,
+  "tachs": {},
+  "time": 1763100000
  }
 }

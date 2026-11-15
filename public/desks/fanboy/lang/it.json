@@ -786,5 +786,21 @@
   "zones.poll": "Qui Unraid le aggiorna solo ogni {min} minuti (vedi i suggerimenti).",
   "situation.vm": "Qui Unraid gira in una macchina virtuale: le ventole appartengono all'host.",
   "situation.twins": "Al chip delle ventole {chips} sono attaccati due driver insieme (p. es. nct6683 e nct6687) — così non accetta i valori in modo affidabile. Fanboy non lo regola finché non ne resta caricato uno solo.",
-  "hints.twins": "Due driver su un chip: {chips} — Fanboy lo lascia stare"
+  "hints.twins": "Due driver su un chip: {chips} — Fanboy lo lascia stare",
+  "notify.idle_stands_subject": "Fanboy: {fan} è fermo anche se fa caldo",
+  "notify.idle_stands": "{fan} non segnala velocità da 2 minuti, anche se {source} è a {c} °C. Fanboy non regola questa ventola, la osserva soltanto. Controllala: la sua pagina mostra quali ventole si fermano solo quando tutto è fresco.",
+  "watch.setting": "Sorvegliare le ventole che non regolo",
+  "watch.setting_sub": "Fanboy ti avvisa quando una ventola che non regola è ferma mentre qualcosa è caldo, anche prima della configurazione. Se una si ferma solo quando tutto è fresco (il «fan stop» del BIOS), se lo annota soltanto. Non scrive mai su queste ventole.",
+  "watch.on": "Sì",
+  "watch.on_title": "Una ventola che non regola, ferma mentre qualcosa è caldo: una notifica dopo 2 minuti",
+  "watch.off": "No",
+  "watch.off_title": "Fanboy sorveglia solo le ventole che regola, e dissipatore della CPU e pompa mentre regola",
+  "watch.stops_cool": "si ferma al fresco",
+  "watch.stops_cool_title": "Era ferma mentre tutto era fresco: il «fan stop» del BIOS o lo 0 % di un altro controllo. Fanboy se lo annota e non segnala nulla; se è ferma mentre qualcosa è caldo, lo segnala.",
+  "watch.stands_warm": "ferma — qualcosa è caldo",
+  "watch.stands_warm_title": "È ferma anche se {source} è a {c} °C. Se è ancora ferma dopo 2 minuti, Fanboy te lo segnala.",
+  "watch.alarm": "ferma — segnalata",
+  "watch.alarm_title": "È ferma anche se qualcosa è caldo; Fanboy ha inviato una notifica. Finisce quando torna a girare.",
+  "watch.banner": "{fan} è ferma anche se {source} è a {c} °C. Fanboy non regola questa ventola, la osserva soltanto: controllala.",
+  "watch.banner_cool": "{fan} era ferma mentre qualcosa era caldo e da allora non gira. Fanboy non regola questa ventola, la osserva soltanto: controllala."
 }

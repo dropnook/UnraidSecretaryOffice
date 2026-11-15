@@ -28,7 +28,8 @@
     "tile.hints",
     "tile.hottest",
     "tile.today",
-    "tile.who"
+    "tile.who",
+    "watch.setting"
   ],
   "texts": [
     "help.curves_text",

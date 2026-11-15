@@ -786,5 +786,21 @@
   "zones.poll": "Unraid frischt sie hier nur alle {min} Minuten auf (siehe Hinweise).",
   "situation.vm": "Unraid läuft hier in einer virtuellen Maschine: Die Lüfter gehören dem Gastgeber.",
   "situation.twins": "Am Lüfter-Chip {chips} hängen zwei Treiber zugleich (z. B. nct6683 und nct6687) — so nimmt er Werte nicht verlässlich an. Fanboy regelt ihn nicht, bis nur noch einer geladen ist.",
-  "hints.twins": "Zwei Treiber am selben Chip: {chips} — Fanboy lässt ihn in Ruhe"
+  "hints.twins": "Zwei Treiber am selben Chip: {chips} — Fanboy lässt ihn in Ruhe",
+  "notify.idle_stands_subject": "Fanboy: {fan} steht, obwohl es warm ist",
+  "notify.idle_stands": "{fan} meldet seit 2 Minuten keine Drehzahl, obwohl {source} {c} °C hat. Fanboy regelt diesen Lüfter nicht, er schaut ihm nur zu. Prüf ihn — auf seiner Seite siehst du, welche Lüfter nur stehen bleiben, wenn alles kühl ist.",
+  "watch.setting": "Lüfter überwachen, die ich nicht regle",
+  "watch.setting_sub": "Fanboy meldet sich, wenn ein Lüfter, den er nicht regelt, steht, während etwas warm ist — auch schon vor dem Einrichten. Bleibt einer nur stehen, wenn alles kühl ist (der «Fan Stop» des BIOS), merkt er sich das bloss. An diese Lüfter schreibt er nie.",
+  "watch.on": "Ein",
+  "watch.on_title": "Ein Lüfter, den er nicht regelt und der steht, während etwas warm ist: nach 2 Minuten eine Meldung",
+  "watch.off": "Aus",
+  "watch.off_title": "Fanboy überwacht nur die Lüfter, die er regelt, und CPU-Kühler und Pumpe, solange er regelt",
+  "watch.stops_cool": "steht bei Kühle",
+  "watch.stops_cool_title": "Er stand, während alles kühl war — der «Fan Stop» des BIOS oder 0 % einer anderen Steuerung. Fanboy merkt es sich und meldet nichts; steht er, während etwas warm ist, meldet er es.",
+  "watch.stands_warm": "steht — etwas ist warm",
+  "watch.stands_warm_title": "Er steht, obwohl {source} {c} °C hat. Steht er nach 2 Minuten noch, meldet Fanboy es.",
+  "watch.alarm": "steht — gemeldet",
+  "watch.alarm_title": "Er steht, obwohl etwas warm ist; Fanboy hat eine Meldung geschickt. Vorbei, sobald er wieder dreht.",
+  "watch.banner": "{fan} steht, obwohl {source} {c} °C hat. Fanboy regelt diesen Lüfter nicht, er schaut nur zu — prüf ihn.",
+  "watch.banner_cool": "{fan} stand, während etwas warm war, und dreht seither nicht. Fanboy regelt diesen Lüfter nicht, er schaut nur zu — prüf ihn."
 }

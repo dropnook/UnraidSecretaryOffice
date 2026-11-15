@@ -414,6 +414,14 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             $standing[] = $name;
         }
     }
+    // round 6: a fan he doesn't steer that stands — told by his watch (his last look's word, the data folder's state)
+    $idle = is_array($state['idle'] ?? null) && ($state['idle']['on'] ?? true) !== false && is_array($state['idle']['tachs'] ?? null) ? $state['idle']['tachs'] : [];
+    foreach ($idle as $x) {
+        if (is_array($x) && ($x['state'] ?? null) === 'alarm' && is_string($x['name'] ?? null) && $x['name'] !== '') {
+            $standing[] = $x['name'];
+            $out['mood'] = 'alarm';
+        }
+    }
     if ($standing && ($alarm === null || !in_array($alarm['code'] ?? null, ['stands', 'bios_stands'], true))) {
         $out['banners'][] = ['red', officeDashT($s, 'fanboy.dash.stands', ['fan' => implode(', ', array_unique($standing))])];
     }

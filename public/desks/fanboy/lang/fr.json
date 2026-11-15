@@ -786,5 +786,21 @@
   "zones.poll": "Ici, Unraid ne les rafraîchit que toutes les {min} minutes (voir les conseils).",
   "situation.vm": "Unraid tourne ici dans une machine virtuelle : les ventilateurs appartiennent à l'hôte.",
   "situation.twins": "Deux pilotes sont attachés en même temps à la puce {chips} (p. ex. nct6683 et nct6687) — elle n'accepte pas les valeurs de façon fiable. Fanboy ne la règle pas tant qu'un seul n'est pas chargé.",
-  "hints.twins": "Deux pilotes sur une puce : {chips} — Fanboy la laisse tranquille"
+  "hints.twins": "Deux pilotes sur une puce : {chips} — Fanboy la laisse tranquille",
+  "notify.idle_stands_subject": "Fanboy : {fan} est à l'arrêt alors qu'il fait chaud",
+  "notify.idle_stands": "{fan} n'indique plus de vitesse depuis 2 minutes alors que {source} est à {c} °C. Fanboy ne pilote pas ce ventilateur, il le surveille seulement. Vérifiez-le — sa page montre quels ventilateurs s'arrêtent seulement quand tout est frais.",
+  "watch.setting": "Surveiller les ventilateurs que je ne pilote pas",
+  "watch.setting_sub": "Fanboy vous prévient quand un ventilateur qu'il ne pilote pas est à l'arrêt alors que quelque chose est chaud — même avant la configuration. S'il ne s'arrête que quand tout est frais (le «fan stop» du BIOS), il le note simplement. Il n'écrit jamais sur ces ventilateurs.",
+  "watch.on": "Oui",
+  "watch.on_title": "Un ventilateur qu'il ne pilote pas, à l'arrêt alors que quelque chose est chaud : une notification après 2 minutes",
+  "watch.off": "Non",
+  "watch.off_title": "Fanboy ne surveille que les ventilateurs qu'il pilote, et le ventirad du CPU et la pompe pendant qu'il pilote",
+  "watch.stops_cool": "s'arrête au frais",
+  "watch.stops_cool_title": "Il était à l'arrêt alors que tout était frais — le «fan stop» du BIOS ou le 0 % d'un autre contrôleur. Fanboy le note et ne dit rien ; à l'arrêt alors que quelque chose est chaud, il le signale.",
+  "watch.stands_warm": "à l'arrêt — quelque chose est chaud",
+  "watch.stands_warm_title": "Il est à l'arrêt alors que {source} est à {c} °C. Toujours à l'arrêt après 2 minutes : Fanboy vous le signale.",
+  "watch.alarm": "à l'arrêt — signalé",
+  "watch.alarm_title": "Il est à l'arrêt alors que quelque chose est chaud ; Fanboy a envoyé une notification. Terminé dès qu'il tourne de nouveau.",
+  "watch.banner": "{fan} est à l'arrêt alors que {source} est à {c} °C. Fanboy ne pilote pas ce ventilateur, il le surveille seulement — vérifiez-le.",
+  "watch.banner_cool": "{fan} était à l'arrêt alors que quelque chose était chaud et ne tourne plus depuis. Fanboy ne pilote pas ce ventilateur, il le surveille seulement — vérifiez-le."
 }

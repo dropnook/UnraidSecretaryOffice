@@ -105,6 +105,8 @@ if (fanboyShown()) {
             'history'       => fn (array $r) => ['ok' => true, 'state' => fanboyHistoryPart(fanboyHistoryHours($r))],
             // his own tile on Unraid's Dashboard: off, speeds, speeds with history (fanboy-dash.php)
             'dashboard'     => fn (array $r) => fanboyDashSet($r),
+            // round 6: «watch fans I don't steer» on or off (fanboy-watch.php)
+            'watch'         => fn (array $r) => fanboyWatchSet($r),
         ],
     ]);
 }
@@ -124,6 +126,7 @@ function fanboyScan(): array
     $state['step'] = fanboyStepRead();
     $state['drivers'] = fanboyDriversState($state['board']);
     $state['dashboard'] = fanboyDashState();            // his Dashboard tile's setting (fanboy-dash.php), its mirror in RAM
+    $state['idle'] = fanboyIdleState();                 // round 6: the fans he doesn't steer, watched (fanboy-watch.php)
     writeAtomic(deskFile('fanboy'), jsonEncode($state));
     return $state;
 }
@@ -414,6 +417,7 @@ function fanboyTick(?float $now = null): void
     fanboyWatch();
     fanboyBackCheck();
     fanboyEnsureControl($now);
+    fanboyIdleTick($now);           // round 6: the fans he doesn't steer, watched (notify only)
 }
 
 /**

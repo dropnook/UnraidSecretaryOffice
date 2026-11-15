@@ -786,5 +786,21 @@
   "zones.poll": "Here Unraid renews them only every {min} minutes (see the hints).",
   "situation.vm": "Unraid runs in a virtual machine here: the fans belong to the host.",
   "situation.twins": "Two drivers sit on the fan chip {chips} at once (e.g. nct6683 and nct6687) — it doesn't take values reliably so. Fanboy doesn't steer it until only one is loaded.",
-  "hints.twins": "Two drivers on one chip: {chips} — Fanboy leaves it alone"
+  "hints.twins": "Two drivers on one chip: {chips} — Fanboy leaves it alone",
+  "notify.idle_stands_subject": "Fanboy: {fan} stands while it is warm",
+  "notify.idle_stands": "{fan} has reported no speed for 2 minutes although {source} is at {c} °C. Fanboy doesn't steer this fan, he only watches it. Check it — his page shows which fans stop only while everything is cool.",
+  "watch.setting": "Watch fans I don't steer",
+  "watch.setting_sub": "Fanboy tells you when a fan he doesn't steer stands while something is warm — before any setup too. A fan that stops only while everything is cool (the BIOS's «fan stop») he just notes. He never writes to these fans.",
+  "watch.on": "On",
+  "watch.on_title": "A fan he doesn't steer that stands while something is warm: a notification after 2 minutes",
+  "watch.off": "Off",
+  "watch.off_title": "Fanboy watches only the fans he steers and the CPU cooler and pump while he steers",
+  "watch.stops_cool": "stops when cool",
+  "watch.stops_cool_title": "It stood while everything was cool — the BIOS's «fan stop» or another controller's 0 %. Fanboy notes it and tells nothing; standing while something is warm he tells.",
+  "watch.stands_warm": "stands — something is warm",
+  "watch.stands_warm_title": "It stands although {source} is at {c} °C. Still standing after 2 minutes: Fanboy tells you.",
+  "watch.alarm": "stands — told",
+  "watch.alarm_title": "It stands although something is warm; Fanboy sent a notification. Over when it turns again.",
+  "watch.banner": "{fan} stands although {source} is at {c} °C. Fanboy doesn't steer this fan, he only watches — check it.",
+  "watch.banner_cool": "{fan} stood while something was warm and hasn't turned since. Fanboy doesn't steer this fan, he only watches — check it."
 }

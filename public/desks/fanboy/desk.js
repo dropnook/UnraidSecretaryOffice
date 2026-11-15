@@ -97,6 +97,20 @@ const myWhy = (why) => (why && has(`why.${why}`) ? T(`why.${why}`) : '');
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 const steers = () => who().who === 'fanboy';
 const nobody = () => who().who === 'nobody';
+/** Round 6: the fans he doesn't steer, watched (the agent's fanboy-watch.php) — a tach input's state by chip, address, number */
+const idle = () => S().idle || { on: true, tachs: {} };
+const idleOf = (chip, address, n) => (idle().tachs || {})[`${chip}@${address}#${n}`] || null;
+/** A tach input's name as the page says it: the setup's fan on it, else the input's own label, else «Fan input 4» */
+function tachName(tid) {
+  const m = /^(.*)@([^@#]+)#(\d{1,2})$/.exec(String(tid || ''));
+  if (!m) return '';
+  const n = +m[3];
+  const f = (setup().fans || []).find((x) => x.chip === m[1] && (x.tachs || []).includes(n) && idParts(x.id) && idParts(x.id).address === m[2]);
+  if (f) return fanName(f.id);
+  const c = chips().find((x) => x.name === m[1] && x.address === m[2]);
+  const input = c && (c.fans || []).find((x) => x.n === n);
+  return (input && input.label) || T('fans.row', { n });
+}
 
 /** An output's id parts: chip, address, output number */
 const ID_PARTS = /^(.*):([^:]+):pwm(\d{1,2})$/;
@@ -233,7 +247,8 @@ function load(fresh) {
 function took(j) {
   if (j.ok && j.state) state = j.state;
   // his picture with a red mark while something is wrong at his fans (its alarm variant, as the Night Watchman has one)
-  if (state) Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'chip_gone', 'crashed'].includes(who().why) ? 'alarm' : '');
+  if (state) Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'chip_gone', 'crashed'].includes(who().why)
+    || (idle().on && Object.values(idle().tachs || {}).some((x) => x && x.state === 'alarm')) ? 'alarm' : '');
   if (view) redraw();
   plan();
 }
@@ -743,6 +758,29 @@ function notesBox() {
   return box;
 }
 
+/**
+ * Round 6: what the watch says about a fan he doesn't steer — it stands though something is warm (told after 2 minutes),
+ * it stops only while everything is cool (learned: the BIOS's «fan stop»); nothing for a fan that turns as it should
+ */
+function watchChip(x) {
+  if (!x || !idle().on) return null;
+  const w = idle().warm || {};
+  if (x.state === 'alarm') return chipOfText('warn', T('watch.alarm'), T('watch.alarm_title'));
+  if (x.state === 'stands_warm') return chipOfText('warn', T('watch.stands_warm'), T('watch.stands_warm_title', { source: warmName(w), c: num(w.c) ?? '' }));
+  if (x.state === 'stops_cool' || (x.quiet_stop && x.state !== 'steered')) return chipOfText('quiet', T('watch.stops_cool'), T('watch.stops_cool_title'));
+  return null;
+}
+/** The warm place the watch names, as the page names heat sources (a disk as Unraid does, a sensor by its label) */
+const warmName = (w) => (w && w.id ? srcLabel((setup().sources || []).find((x) => x.id === w.id) || { kind: w.kind, id: w.id }) || w.name || '' : '');
+/** The watch's word for an output's fan: the first of its tach inputs that has one */
+function watchChipOf(c, f) {
+  for (const n of (f && f.tachs) || []) {
+    const chip = watchChip(idleOf(c.name, c.address, n));
+    if (chip) return chip;
+  }
+  return null;
+}
+
 /** What an output is to him: his (zone), the BIOS's watched, empty, not tested — a label */
 function outputRole(id) {
   const f = setupFan(id);
@@ -791,6 +829,8 @@ function outputRow(c, o) {
   meta.appendChild(chipOfText(mode === 'auto' ? 'ok' : mode === 'unknown' ? 'quiet' : 'accent', T(`mode.${mode}`), T(`mode.${mode}_title`)));
   const rpm = f ? rpmNow(id, f.tachs) : null;
   if (rpm !== null) meta.appendChild(el('span', '', T('pic.rpm', { rpm: fmt.number(rpm) })));
+  const wc = watchChipOf(c, f);
+  if (wc) meta.appendChild(wc);
   const v = el('div', 'fb-value', num(o.pct) === null ? '–' : T('value', { pct: o.pct }));
   v.title = T('value_title', { value: o.value ?? '–' });
   const b = (setup().before || {})[id];
@@ -827,6 +867,8 @@ function fansSection() {
     const meta = el('div', 'row-meta');
     meta.appendChild(chipOfText('quiet', T('fans.input'), T('fans.input_title')));
     if (f.rpm === null || f.rpm === undefined) meta.appendChild(chipOfText('quiet', T('fans.no_value'), T('fans.no_value_title')));
+    const wc = watchChip(idleOf(c.name, c.address, f.n));
+    if (wc) meta.appendChild(wc);
     rest.push(unfoldRow(`tach:${c.address}:${f.n}`, { place: `fan:${c.address}:${f.n}` }, f.label || T('fans.row', { n: f.n }), meta,
       el('div', 'fb-value', f.rpm === null || f.rpm === undefined ? '–' : T('pic.rpm', { rpm: fmt.number(f.rpm) })),
       [[T('tech.chip'), `${c.name} · ${c.address}`], [T('tech.input'), `fan${f.n}_input · ${c.hwmon}`]]));
@@ -840,7 +882,33 @@ function fansSection() {
   s.appendChild(list);
   const more = moreFold('fans-more', rest, T('fans.more', { n: rest.length }), false);
   if (more) s.appendChild(more);
+  s.appendChild(watchChoice());
   return s;
+}
+
+/**
+ * Round 6: «Watch fans I don't steer» — on (the default) or off, office-wide (the agent keeps it: fanboy.watch), never
+ * per browser
+ */
+function watchChoice() {
+  const box = Office.place('watch.setting', el('div', 'fb-dash-choice'));
+  const on = idle().on !== false;
+  const head = el('div', 'fb-dash-text');
+  head.append(el('h3', 'fb-head', T('watch.setting')), el('p', 'fb-hint-text', T('watch.setting_sub')));
+  const seg = el('div', 'seg');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', T('watch.setting'));
+  [['on', true], ['off', false]].forEach(([k, v]) => {
+    const b = el('button', '', T(`watch.${k}`));
+    b.type = 'button';
+    b.title = T(`watch.${k}_title`);
+    b.setAttribute('aria-pressed', String(v === on));
+    b.disabled = !state || !Office.agent.running;
+    b.onclick = () => { if (v !== on) act('watch', { on: v }, b); };
+    seg.appendChild(b);
+  });
+  box.append(head, seg);
+  return box;
 }
 
 /**
@@ -1268,6 +1336,14 @@ function paintBanner() {
     // a standing fan alone in its zone: «… sets it to 100 %» (round 4: the alarm acts per zone)
     const code = c.alarm.code === 'stands' && c.alarm.params && c.alarm.params.alone ? 'stands_alone' : c.alarm.code;
     box('warn', T(`alarm.${code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}) }), { alarm: c.alarm.code });
+  }
+  // round 6: a fan he doesn't steer stands — told (after 2 minutes while something was warm; a CPU cooler or pump at once)
+  if (idle().on) {
+    Object.entries(idle().tachs || {}).filter(([, x]) => x && x.state === 'alarm').forEach(([tid, x]) => {
+      const warm = idle().warm;
+      const fan = tachName(tid) || x.name;
+      box('warn', x.strict ? T('alarm.bios_stands', { fan }) : warm ? T('watch.banner', { fan, source: warmName(warm), c: num(warm.c) ?? '' }) : T('watch.banner_cool', { fan }), { watch: 'stands' });
+    });
   }
   if (['chip_missing', 'chip_gone', 'crashed'].includes(w.why)) {
     const p = box('warn', T(`control.${w.why}`), { why: w.why });
