@@ -66,6 +66,7 @@ const PICTURES = [
   ['setup-page-gone', 'fanboy-gone', 'fanboy/setup/test', null, false],
   ['alarm', 'fanboy-alarm', 'fanboy', null, false],
   ['chip-missing', 'fanboy-missing', 'fanboy', null, false],
+  ['chip-gone', 'fanboy-chipgone', 'fanboy', null, false],
   ['other-controller', 'fanboy-other', 'fanboy', null, false],
   ['waz-beside', 'fanboy-waz', 'fanboy/hints', null, false],
   ['ipmi', 'fanboy-ipmi', 'fanboy', null, false],

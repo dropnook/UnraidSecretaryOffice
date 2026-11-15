@@ -217,6 +217,12 @@ files['fanboy-missing'] = state({ fans: SET_UP, zones: ZONES, armed: true, situa
   drivers_missing: { 'it87-driver': ['it87'] }, tools: TOOLS.map((t) => (t.id === 'it87-driver' ? { ...t, loaded: false } : t)),
   who: { who: 'bios', why: 'chip_missing' },
   control: { running: true, armed: true, why: 'chip_missing', phase: 'wait_chip', missing: { since: T0 - 1200, why: 'missing', told: true }, notes: [...NOTES, { code: 'missing_told', params: {}, at: T0 - 300 }], time: T0 } });
+// round 5: the chip went away while he steered — nobody steers, the fans stay where he left them (not «the BIOS»)
+files['fanboy-chipgone'] = state({ fans: SET_UP, zones: ZONES, armed: true, situation: { code: 'driver_missing', plugins: ['it87-driver'], modules: ['it87'] },
+  drivers_missing: { 'it87-driver': ['it87'] }, tools: TOOLS.map((t) => (t.id === 'it87-driver' ? { ...t, loaded: false } : t)),
+  who: { who: 'nobody', why: 'chip_gone' },
+  control: { running: true, armed: true, who: 'nobody', why: 'chip_gone', phase: 'wait_chip', missing: { since: T0 - 95, why: 'missing', told: false },
+    notes: [...NOTES, { code: 'alarm_chip', params: { fan: 'Plattenkäfig' }, at: T0 - 95 }], time: T0 } });
 // another controller steering: FanCtrl Plus
 files['fanboy-other'] = state({ ite: ite({}, RPM), situation: { code: 'other', who: ['fanctrlplus'], names: ['FanCtrl Plus'] },
   controllers: [{ id: 'fanctrlplus', name: 'FanCtrl Plus', settings: true, running: true, blocks: true }],

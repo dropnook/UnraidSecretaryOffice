@@ -96,6 +96,7 @@ const has = (k) => Office.has(`${ID}.${k}`);
 const myWhy = (why) => (why && has(`why.${why}`) ? T(`why.${why}`) : '');
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 const steers = () => who().who === 'fanboy';
+const nobody = () => who().who === 'nobody';
 
 /** An output's id parts: chip, address, output number */
 const ID_PARTS = /^(.*):([^:]+):pwm(\d{1,2})$/;
@@ -193,7 +194,8 @@ function labels() {
     if (own(x)) {
       const k = `${x.kind}|${x.label}`;
       seen[k] = (seen[k] || 0) + 1;
-      labelsMap.set(x.id, count[k] > 1 ? T('src.nth', { label: x.label, n: seen[k] }) : x.label);
+      // two of one label: the pool Unraid shows for that NVMe («Composite (cache)»), else a number — as his texts do
+      labelsMap.set(x.id, count[k] > 1 ? (x.pool ? T('src.of', { label: x.label, pool: x.pool }) : T('src.nth', { label: x.label, n: seen[k] })) : x.label);
     } else {
       kindN[x.kind] = (kindN[x.kind] || 0) + 1;
       labelsMap.set(x.id, T('src.sensor', { kind, n: kindN[x.kind] }));
@@ -231,7 +233,7 @@ function load(fresh) {
 function took(j) {
   if (j.ok && j.state) state = j.state;
   // his picture with a red mark while something is wrong at his fans (its alarm variant, as the Night Watchman has one)
-  if (state) Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'crashed'].includes(who().why) ? 'alarm' : '');
+  if (state) Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'chip_gone', 'crashed'].includes(who().why) ? 'alarm' : '');
   if (view) redraw();
   plan();
 }
@@ -320,7 +322,7 @@ function bubbleText() {
   const c = control();
   if (w.who === 'fanboy') return w.why === 'alarm' ? T('bubble.alarm') : T('bubble.steers', { n: w.zones || 0 });
   if (stepRuns()) return step().kind === 'measure' ? T('bubble.measuring') : T('bubble.testing');
-  if (w.why === 'chip_missing') return T('bubble.chip_missing');
+  if (w.why === 'chip_missing' || w.why === 'chip_gone') return T(`bubble.${w.why}`);
   if (w.why === 'array_stopped') return T('bubble.array_stopped');
   const s = situation();
   if (s === 'other') return T('bubble.other', { who: otherNames() });
@@ -330,7 +332,7 @@ function bubbleText() {
   return T('bubble.loading');
 }
 const otherNames = () => ((S().situation || {}).names || []).join(', ') || (who().name || '');
-const plainNow = () => ['alarm', 'chip_missing', 'crashed', 'array_stopped'].includes(who().why) || (control().running && control().alarm);
+const plainNow = () => ['alarm', 'chip_missing', 'chip_gone', 'crashed', 'array_stopped'].includes(who().why) || (control().running && control().alarm);
 
 // ------------------------------------------------------------------ the report for the makers' wish form
 /**
@@ -449,6 +451,7 @@ function wheelOf(id, opts) {
   const rpm = cf && num(cf.rpm) !== null ? cf.rpm : live;
   const held = !!(cf && cf.held && control().running);
   const bios = !held || ROLES_BIOS.includes(f.role);
+  const stuck = nobody() && isOurs(f) && (setup().zones || []).some((z) => (z.fans || []).includes(id));
   const silent = f.found === 'silent';
   const pct = held && num(cf.pct) !== null ? cf.pct : null;
   let st = bios ? 'bios' : 'run';
@@ -463,7 +466,9 @@ function wheelOf(id, opts) {
   return {
     id, label: fanName(id), sub, mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour,
     rpm: st === 'unknown' ? null : shown, state: silent && held ? 'run' : st, place: f.place || (opts && opts.place) || 'front',
-    badge: st === 'bios' ? T('pic.bios') : '', title: st === 'bios' ? (ROLES_BIOS.includes(f.role) ? T('pic.watched_title') : T('pic.bios_title')) : T('pic.his_title'),
+    // round 5: the chip went while he steered — his fans sit where he left them (nobody's), the BIOS's stay the BIOS's
+    badge: st === 'bios' ? (stuck ? T('pic.stuck') : T('pic.bios')) : '',
+    title: st === 'bios' ? (stuck ? T('pic.stuck_title') : ROLES_BIOS.includes(f.role) ? T('pic.watched_title') : T('pic.bios_title')) : T('pic.his_title'),
   };
 }
 /**
@@ -489,7 +494,7 @@ function zoneNote(z, cz) {
       const lvl = num(cz.level) === null ? null : cz.unit === 'rpm' ? T('pic.rpm', { rpm: fmt.number(Math.round(cz.level)) }) : T('value', { pct: Math.round(cz.level) });
       parts.push(lvl ? T('pic.asks', { where: srcLabel({ ...cz.warmest, id: cz.warmest.id }), c: fmt.number(cz.warmest.c), level: lvl }) : T('pic.warmest', { where: srcLabel(cz.warmest), c: fmt.number(cz.warmest.c) }));
     } else parts.push(T('pic.quiet'));
-  } else parts.push(T('pic.bios_now'));
+  } else parts.push(T(nobody() ? 'pic.nobody_now' : 'pic.bios_now'));
   return parts.join(' · ');
 }
 /** The server as the picture shows it: his zones (or, before the setup, what the board shows), the BIOS's fans watched */
@@ -554,8 +559,8 @@ function pictureEl() {
 // ------------------------------------------------------------------ the overview's tiles
 function whoTile(a) {
   const w = who();
-  const value = !state ? '…' : w.who === 'fanboy' ? T('who.fanboy', { n: w.zones || 0 }) : w.who === 'bios' ? T('who.bios') : w.who === 'bmc' ? T('who.bmc') : (w.name || w.who || '…');
-  const alert = ['alarm', 'crashed', 'chip_missing'].includes(w.why);
+  const value = !state ? '…' : w.who === 'fanboy' ? T('who.fanboy', { n: w.zones || 0 }) : w.who === 'bios' ? T('who.bios') : w.who === 'bmc' ? T('who.bmc') : w.who === 'nobody' ? T('who.nobody') : (w.name || w.who || '…');
+  const alert = ['alarm', 'crashed', 'chip_missing', 'chip_gone'].includes(w.why);
   return Office.stat({ label: T('tile.who'), value, sub: state ? myWhy(w.why) : '', alert, ...a });
 }
 function fansTile(a) {
@@ -1057,7 +1062,7 @@ function curvesSection() {
     const warm = cz && cz.warmest && num(cz.warmest.c) !== null ? cz.warmest : null;
     card.appendChild(el('p', 'fb-hint-text', warm && control().running
       ? T('curves.line_now', { where: srcLabel(warm), c: fmt.number(warm.c), level: num(cz.level) === null ? '–' : (cz.unit === 'rpm' ? T('pic.rpm', { rpm: fmt.number(Math.round(cz.level)) }) : T('value', { pct: Math.round(cz.level) })) })
-      : T('curves.line_bios')));
+      : T(nobody() ? 'curves.line_nobody' : 'curves.line_bios')));
     const two = el('div', 'fb-curve-two');
     const a = el('figure', 'fb-fig');
     const still = curveStill(z.id, z.unit, warm ? (num(warm.mapped) ?? warm.c) : null);
@@ -1219,14 +1224,14 @@ function paintBanner() {
     const code = c.alarm.code === 'stands' && c.alarm.params && c.alarm.params.alone ? 'stands_alone' : c.alarm.code;
     box('warn', T(`alarm.${code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}) }), { alarm: c.alarm.code });
   }
-  if (['chip_missing', 'crashed'].includes(w.why)) {
+  if (['chip_missing', 'chip_gone', 'crashed'].includes(w.why)) {
     const p = box('warn', T(`control.${w.why}`), { why: w.why });
     p.appendChild(button(T('control.look_now'), T('control.look_now_tip'), (b) => act('look_now', {}, b, () => Office.toast(T('control.looked')))));
   }
   if (w.why === 'array_stopped' || (c.armed && c.why === 'array_stopped')) box('warn', T('control.array_stopped'), { why: 'array_stopped' });
   if (s === 'other') {
     box('warn', T('situation.other', { who: otherNames() }), { situation: s });
-  } else if (s === 'driver_missing') {
+  } else if (s === 'driver_missing' && w.why !== 'chip_gone') {      // round 5: «until then the BIOS» isn't true then — the banner above says it
     box('warn', T('situation.driver_missing', { plugins: (st.plugins || []).join(', '), modules: (st.modules || []).join(', ') }), { situation: s });
   } else if (s === 'ipmi') {
     const p = box('warn', T('situation.ipmi'), { situation: s });

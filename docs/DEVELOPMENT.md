@@ -1002,9 +1002,12 @@ the last 60 history lines only for a source the file has none for. **The file
   low/high mapped onto the zone's, the warmest counts) and a curve (quiet/normal/cool or points, percent or rpm by the
   measured table with a correction); up at once, down a percent a round only 2 °C below; never under a fan's lowest steady
   value («off» only where allowed); alarms (a fan stands — his or a watched CPU cooler/pump —, too warm at full speed, a
-  sensor silent, the chip gone): every output he holds to full, told once; someone else's write: that output given back;
-  the chip missing: looked for every 5 s, then every minute, one notification after 15 minutes, then every 5 minutes,
-  «Look now». **Setup steps** (`fanboy-setup.php`, actions; the wizard's page is part 3): test up (which tach follows; none
+  sensor silent): that zone's fans to 100 % until 2 minutes without a reason, the other zones steer on, told once per fan or
+  sensor (its name in the subject — Unraid drops a second notification of the same subject); someone else's write: that
+  output given back; the chip missing at the start (a boot): the BIOS has them — looked for every 5 s, then every minute,
+  one notification after 15 minutes, then every 5 minutes, «Look now»; the chip gone **while he steers**: nobody steers
+  (`who: nobody`, `chip_gone` — the fans stay on the values he wrote last), one alert at once with what to do, after 15
+  minutes only «still missing». **Setup steps** (`fanboy-setup.php`, actions; the wizard's page is part 3): test up (which tach follows; none
   → «louder?»), roles (CPU cooler, pump, «don't know» stay the BIOS's for good), measure down (his fans with feedback only;
   a stall stops it, the start value found going back up), zones, a dry run, take over / hand back — each step in a process
   of its own, the page's lease (`step_alive`) or everything goes back. **Drivers** (`fanboy-drivers.php`, on the click):
@@ -1026,6 +1029,14 @@ the last 60 history lines only for a source the file has none for. **The file
   without the wizard again. A running step is kept alive by the page (`step_alive` every 15 s, only while a page of his
   is shown) and can be stopped any time; ended by the page gone it says so. Pictures and CPU: `tools/fanboy/desk.mjs`;
   demo states: `tools/fanboy/demo-states.mjs`.
+  **Round 4:** an SSD/NVMe pool member is its own kind `ssd` (not the hard disks' scale); per zone «Temperaturen» per kind
+  (`kinds`: low/high/limit, strict, low < high < limit per source) and the reaction (`react` balanced|quick: up at once,
+  the way down by the leading kind's `FANBOY_DOWN_PROFILES`); the CPU cooler only on the owner's dated, ticked opt-in
+  (`cpu_own`: a CPU temperature in its zone, floor ≥ `FANBOY_CPU_FLOOR`, never off, back to the automatic only).
+  **Round 5:** texts name sources as the page does (`fanboySourceNames()`: «Board sensor 3», «Composite (cache)» — never a
+  chip's id); a chip whose address moved maps the zones' sensors as the outputs (stored ids unchanged); the rpm correction
+  and the «doesn't follow as measured» check wait while an alarm holds the zone at full; the guard logs in the agent's zone
+  (`fanboyZone()` = `agentZone()`). Tests: tests/fanboy-r5-tests.php.
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same

@@ -562,6 +562,9 @@ function fanboyWhoNow(array $scan, array $control, ?array $settings): array
     if ($control['running'] && $control['who'] === 'fanboy') {
         return ['who' => 'fanboy', 'why' => $control['alarm'] !== null ? 'alarm' : 'steers', 'zones' => count($control['zones'])];
     }
+    if ($control['running'] && $control['who'] === 'nobody') {
+        return ['who' => 'nobody', 'why' => 'chip_gone'];      // round 5: the chip went while he steered — the fans stay as they were
+    }
     $who = $scan['who'];
     if ($who['who'] !== 'bios') {
         return $who;                   // another plugin, the board's BMC: as part 1 says

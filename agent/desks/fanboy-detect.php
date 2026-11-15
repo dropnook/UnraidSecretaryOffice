@@ -246,6 +246,7 @@ function fanboyDisks(string $ini, ?array $limits = null): array
             'rotational' => ($d['rotational'] ?? '1') !== '0',
             'asleep'     => $asleep,
             'temp'       => !$asleep && ctype_digit((string) ($d['temp'] ?? '')) ? (int) $d['temp'] : null,
+            'device'     => (string) $d['device'],     // round 5: an NVMe chip's pool by it (nvme0 ↔ nvme0n1) — never shown
         ];
         if ($limits !== null) {
             // Unraid's warning and critical temperature for this disk: its own, else the global one of its kind

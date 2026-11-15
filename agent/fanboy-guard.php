@@ -28,6 +28,7 @@ define('DATA_DIR', rtrim(getenv('OFFICE_DATA_DIR') ?: officePluginDataDir(), '/'
 define('AGENT_LOG', DATA_DIR . '/agent.log');
 require __DIR__ . '/lib/util.php';
 require __DIR__ . '/desks/fanboy-write.php';
+date_default_timezone_set(fanboyZone());        // the agent's zone (agent.php: agentZone()) — one zone in agent.log
 
 /** A line for the agent's log (only while its folder is there) and the guard's own note in RAM for the agent to pick up */
 function fanboyGuardSay(string $what, array $back): void

@@ -33,6 +33,17 @@ declare(strict_types=1);
  * the rest of the agent.
  */
 
+/**
+ * The zone the server's clock runs in — exactly agentZone() of agent/agent.php (glibc's /etc/localtime; a link to a
+ * missing zone file or none: UTC), here for the guard, which loads no more of the agent: its lines in agent.log in the
+ * agent's zone (round 5, the VM run: «23:31:22 the control ended» then «00:31:22 released» in the same second).
+ */
+function fanboyZone(string $link = '/etc/localtime'): string
+{
+    $zone = preg_replace('#^.*/zoneinfo/#', '', (string) @readlink($link));
+    return in_array($zone, timezone_identifiers_list(), true) && is_file($link) ? $zone : 'UTC';
+}
+
 const FANBOY_FULL = 255;
 const FANBOY_OWNER_STALE = 30;          // seconds without a beat: the holder is taken for hung, its outputs given back
 const FANBOY_JOURNAL_MAX = 64;          // outputs in the journal at most (a board has 3–10)
