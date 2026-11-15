@@ -855,6 +855,7 @@
   "bubble.safety": "Ho messo una ventola al 100 % per sicurezza: non è ripartita da sola. «Torna al valore di prima» la rimette com'era.",
   "assign.cpu_bios": "Dissipatore della CPU: lo regola il BIOS; non viene mai fermato mentre si testano altre uscite.",
   "errors.fanboy_cpu_role_first": "Assegna prima alla ventola il ruolo «Dissipatore della CPU», poi scegli chi la regola.",
+  "errors.fanboy_hub_one": "Questo controlla un connettore con più ventole: indica prima quante ne sono collegate.",
   "errors.fanboy_cpu_off_confirm": "Lasciare fermo il dissipatore della CPU richiede una spunta a parte: confermi che la CPU resta senza ventola finché è fresca.",
   "errors.fanboy_off_pump": "Una pompa non si ferma mai.",
   "errors.fanboy_cpu_off_bios": "Questo dissipatore della CPU lo regola il BIOS: Fanboy non lo ferma mai.",

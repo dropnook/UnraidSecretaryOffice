@@ -855,6 +855,7 @@
   "bubble.safety": "I set a fan to 100 % for safety — it didn't start by itself. «Back to the value before» puts it back.",
   "assign.cpu_bios": "CPU cooler — steered by the BIOS; never stopped while other outputs are tested.",
   "errors.fanboy_cpu_role_first": "First give the fan the role «CPU cooler», then choose who steers it.",
+  "errors.fanboy_hub_one": "This looks at a connector with several fans on it — say first how many hang on it.",
   "errors.fanboy_cpu_off_confirm": "Letting the CPU cooler stand needs its own tick: you confirm the CPU then cools without a fan whenever it is cool.",
   "errors.fanboy_off_pump": "A pump never stands still.",
   "errors.fanboy_cpu_off_bios": "The BIOS steers this CPU cooler — Fanboy never stops it.",

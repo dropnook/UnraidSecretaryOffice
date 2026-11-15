@@ -2259,3 +2259,142 @@ function testFanboyR13DevsControl(): void
         fanboyTEnd();
     }
 }
+
+/** Round 14: output 1 as a hub — two fans on a Y-cable, the one that reports (tach 1) measured down to 10 %, starts from standstill at $start */
+function fanboyR14Store(array $more = [], int $start = 35): void
+{
+    $m = ['table' => [[100, 1500], [50, 900], [10, 420]], 'min_pct' => 10, 'start_pct' => 10, 'max_rpm' => 1500, 'at' => 1,
+          'stops' => true, 'floor_rpm' => null, 'start_from_stop' => $start, 'kick_start' => null, 'stops_safe' => true];
+    fanboyR12Store([1 => $m]);
+    fanboyStoreUpdate(function (array $e) use ($more): array {
+        $e['fans'][fanboyTId(1)] = $more + ['count' => 2] + $e['fans'][fanboyTId(1)];
+        return $e;
+    });
+}
+
+/**
+ * Round 14 (the owner: two fans on one Y-cable — two equal, two different?): several fans on one connector not said to
+ * be alike — the floor min + 10 (at least 25 %), the start + 10, «darf stehen» only after the look said all start again
+ */
+function testFanboyR14Plan(): void
+{
+    $t = fanboyT('r14plan');
+    try {
+        fanboyR14Store(['off_ok' => true]);
+        $f = fn () => fanboyBoardRaw()['fans'][fanboyTId(1)];
+        $plan = fn (array $more = []) => array_intersect_key(fanboyFanPlan($more + $f()), array_flip(['floor', 'start', 'off_ok', 'off_why']));
+        same('fanboy r14 plan: one fan — as measured (floor 15 %, start 35 %, may stand)', ['floor' => 15, 'start' => 35, 'off_ok' => true, 'off_why' => null], $plan(['count' => 1]));
+        same('fanboy r14 plan: two fans, «alike» not said — floor 25 % (min + 10, at least 25), start 45 %, may not stand (mixed_hub)',
+            ['floor' => 25, 'start' => 45, 'off_ok' => false, 'off_why' => 'mixed_hub'], $plan());
+        same('fanboy r14 plan: … the same model on every plug (alike) — as measured', ['floor' => 15, 'start' => 35, 'off_ok' => true, 'off_why' => null], $plan(['alike' => true]));
+        same('fanboy r14 plan: … the look said «not all turn» once (+10): floor 35 %; it said all start again (hub_ok): may stand',
+            [35, ['off_ok' => true, 'off_why' => null]], [$plan(['hub_extra' => 10])['floor'], array_intersect_key($plan(['hub_ok' => ['at' => 1]]), array_flip(['off_ok', 'off_why']))]);
+        same('fanboy r14 plan: … a no on the restart: never stand (hub_not_safe)', ['off_ok' => false, 'off_why' => 'hub_not_safe'],
+            array_intersect_key($plan(['hub_ok' => ['at' => 1], 'hub_not_safe' => ['at' => 2]]), array_flip(['off_ok', 'off_why'])));
+        // the role: «alike» saved alone (true, false, null = not said); another count or «alike» forgets what the look found
+        fanboyStoreUpdate(function (array $e): array {
+            $e['fans'][fanboyTId(1)]['hub_ok'] = ['at' => 5];
+            $e['fans'][fanboyTId(1)]['hub_extra'] = 10;
+            return $e;
+        });
+        $role = fn (array $r) => fanboyRole($r + ['fan' => fanboyTId(1), 'role' => 'disks', 'off_ok' => true])['fan'];
+        $r1 = $role(['name' => 'Y']);
+        $r2 = $role(['alike' => false]);
+        same('fanboy r14 role: a name alone keeps «alike» and the look\'s finding; «alike» false said — stored, the finding forgotten',
+            [[null, 5, 10], [false, null, null]], [[$r1['alike'] ?? null, $r1['hub_ok']['at'] ?? null, $r1['hub_extra'] ?? null], [$r2['alike'] ?? null, $r2['hub_ok']['at'] ?? null, $r2['hub_extra'] ?? null]]);
+        same('fanboy r14 role: … null clears it; «alike» only as true/false/null', [false, 'bad_request'],
+            [array_key_exists('alike', $role(['alike' => null])), fanboyR6Refused(fn () => $role(['alike' => 'yes']))]);
+        $s = array_column(fanboySetupState(fanboyDetect(), fanboyBoardRaw())['fans'], null, 'id')[fanboyTId(1)];
+        same('fanboy r14 state: the setup\'s fan — alike, and the hub: mixed, the table one fan\'s, floor and start the control uses, may not stand',
+            [null, ['mixed' => true, 'one_fan_table' => true, 'ok' => null, 'not_safe' => null, 'extra' => 0, 'floor' => 25, 'start' => 45], false, 'mixed_hub'],
+            [$s['alike'], $s['hub'], $s['may_stand'], $s['off_why']]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/** Round 14: a look run on the tests' clock — the user's eye answers from what the silent fan does (stalls under 30 %, starts at 45 %) */
+function fanboyR14Look(array $t, array &$spec, ?callable $each = null): array
+{
+    $silent = true;             // it turns at the BIOS's 128 before
+    $answered = [];
+    $clock = 0.0;
+    $io = fanboyTIo($t, $spec, $clock);
+    $sleep = $io['sleep'];
+    $io['sleep'] = function (float $s) use ($sleep, $t, &$silent, &$answered, &$clock, $each): void {
+        $sleep($s);
+        $d = fanboyTOut($t, 1)[0] / 255;
+        $silent = $silent ? $d >= 0.30 : $d >= 0.45;
+        $p = fanboyStepRead()['progress'] ?? null;
+        $phase = is_array($p) ? ($p['phase'] ?? '') : '';
+        if (in_array($phase, ['hub_turn', 'hub_start'], true) && !isset($answered[$phase]) && fanboyTOut($t, 1)[0] === (int) round($p['pct'] * 2.55)) {
+            $answered[$phase] = $clock;
+            fanboyStepNext(['fan' => fanboyTId(1), 'heard' => $silent && fanboyReadInt("{$t['hw']}/fan1_input") > 100]);
+        }
+        if ($each) {
+            $each($clock, $phase);
+        }
+    };
+    return fanboyStepRun(['id' => 'r14' . mt_rand(), 'kind' => 'hub_look', 'fans' => [fanboyTId(1)]], $io);
+}
+
+/**
+ * Round 14: the look for the eye on the fake hub — at 25 % the silent fan stands («no»: the floor +10); at 35 % all turn,
+ * from standing at 45 % all start again (hub_ok: «darf stehen» may take effect); with a start of 40 % it doesn't (never
+ * stand); too warm → back at once; afterwards exactly as before
+ */
+function testFanboyR14Look(): void
+{
+    $t = fanboyT('r14look');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR12Spec();
+        fanboyTSettle($t, $spec);
+        fanboyR14Store(['off_ok' => true]);
+        $step = fanboyR14Look($t, $spec);
+        same('fanboy r14 look: at its floor (25 %) the silent fan stands — «no»: the floor 10 % higher next time, nothing else; back as before',
+            ['done', 'floor_up', 25, 10, false, [128, 1], []], [$step['status'], $step['results'][fanboyTId(1)]['result'] ?? null, $step['results'][fanboyTId(1)]['floor'] ?? null,
+                fanboyBoardRaw()['fans'][fanboyTId(1)]['hub_extra'] ?? null, isset(fanboyBoardRaw()['fans'][fanboyTId(1)]['hub_ok']), fanboyTOut($t, 1), fanboyHeld()]);
+        $phases = [];
+        $step = fanboyR14Look($t, $spec, function (float $c, string $ph) use (&$phases): void {
+            if ($ph !== '' && end($phases) !== $ph) {
+                $phases[] = $ph;
+            }
+        });
+        $f = fanboyBoardRaw()['fans'][fanboyTId(1)];
+        same('fanboy r14 look: again — at 35 % all turn («yes»), 10 s at 0, at 45 % all start again («yes»): hub_ok; the phases; back as before, turning',
+            ['ok', [35, 45], true, ['hub_turn', 'hub_stop', 'hub_start', 'pause'], [128, 1], true],
+            [$step['results'][fanboyTId(1)]['result'] ?? null, [$step['results'][fanboyTId(1)]['floor'] ?? null, $step['results'][fanboyTId(1)]['start'] ?? null],
+                is_int($f['hub_ok']['at'] ?? null), $phases, fanboyTOut($t, 1), fanboyReadInt("{$t['hw']}/fan1_input") > 300]);
+        same('fanboy r14 look: … now «darf stehen» takes effect (the measured fan stops and starts safely, the margin stays)', ['floor' => 35, 'start' => 45, 'off_ok' => true, 'off_why' => null],
+            array_intersect_key(fanboyFanPlan($f), array_flip(['floor', 'start', 'off_ok', 'off_why'])));
+        // a start from standstill of 30 % measured: the look tries 40 % — the silent fan doesn't start: never stand
+        fanboyR14Store(['off_ok' => true, 'hub_extra' => 10], 30);
+        $step = fanboyR14Look($t, $spec);
+        same('fanboy r14 look: started again at 40 % the silent fan stays — «no»: never stand (hub_not_safe)', ['not_safe', true, 'hub_not_safe'],
+            [$step['results'][fanboyTId(1)]['result'] ?? null, is_int(fanboyBoardRaw()['fans'][fanboyTId(1)]['hub_not_safe']['at'] ?? null), fanboyFanPlan(fanboyBoardRaw()['fans'][fanboyTId(1)])['off_why']]);
+        // too warm while it looks: full at once, back, nothing stored
+        fanboyR14Store(['off_ok' => true]);
+        $cpu = "{$t['root']}/sys/devices/platform/coretemp.0/hwmon/hwmon7/temp1_input";
+        $hot = false;
+        $step = fanboyR14Look($t, $spec, function (float $c, string $ph) use ($cpu, &$hot): void {
+            if (!$hot && $ph === 'hub_turn') {
+                $hot = true;
+                file_put_contents($cpu, "90000\n");
+            }
+        });
+        file_put_contents($cpu, "28000\n");
+        same('fanboy r14 look: too warm (CPU 90 °C) — stopped (warm), back as before, nothing stored', ['stopped', 'warm', [128, 1], [], false],
+            [$step['status'], $step['why'], fanboyTOut($t, 1), fanboyHeld(), isset(fanboyBoardRaw()['fans'][fanboyTId(1)]['hub_extra'])]);
+        // refused: one fan on it; a pump
+        fanboyStoreUpdate(function (array $e): array {
+            $e['fans'][fanboyTId(4)]['role'] = 'pump';
+            $e['fans'][fanboyTId(4)]['count'] = 2;
+            return $e;
+        });
+        same('fanboy r14 look: refused for a connector with one fan, and for a pump', ['fanboy_hub_one', 'fanboy_not_his'],
+            [fanboyR6Refused(fn () => fanboyStepStart('hub_look', [fanboyTId(5)])), fanboyR6Refused(fn () => fanboyStepStart('hub_look', [fanboyTId(4)]))]);
+    } finally {
+        fanboyTEnd();
+    }
+}

@@ -694,7 +694,9 @@
     "stand": null,
     "off_why": null,
     "may_stand": false,
-    "cpu_off": null
+    "cpu_off": null,
+    "alike": null,
+    "hub": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm2",
@@ -724,7 +726,9 @@
     "stand": null,
     "off_why": null,
     "may_stand": false,
-    "cpu_off": null
+    "cpu_off": null,
+    "alike": null,
+    "hub": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm3",
@@ -754,7 +758,9 @@
     "stand": null,
     "off_why": null,
     "may_stand": false,
-    "cpu_off": null
+    "cpu_off": null,
+    "alike": null,
+    "hub": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm4",
@@ -790,7 +796,9 @@
     "stand": null,
     "off_why": null,
     "may_stand": false,
-    "cpu_off": null
+    "cpu_off": null,
+    "alike": null,
+    "hub": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm5",
@@ -823,7 +831,9 @@
     "stand": null,
     "off_why": null,
     "may_stand": false,
-    "cpu_off": null
+    "cpu_off": null,
+    "alike": null,
+    "hub": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm6",
@@ -853,7 +863,9 @@
     "stand": null,
     "off_why": null,
     "may_stand": false,
-    "cpu_off": null
+    "cpu_off": null,
+    "alike": null,
+    "hub": null
    }
   ],
   "zones": [],

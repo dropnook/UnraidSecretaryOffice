@@ -94,6 +94,7 @@ if (fanboyShown()) {
             'step_alive'    => function (array $r): array { fanboyStepAliveTouch(); return ['ok' => true, 'step' => fanboyStepRead()]; },
             'step_stop'     => fn (array $r) => fanboyStepStopAction(),
             'step_next'     => fn (array $r) => fanboyStepNext($r),        // round 8: «Gefunden — weiter»
+            'hub_look'      => fn (array $r) => fanboyHubLookStart($r),     // round 14: several fans on one connector, looked at
             'answer'        => fn (array $r) => fanboyAnswer($r),
             'role'          => fn (array $r) => fanboyRole($r),
             'fan_name'      => fn (array $r) => fanboyFanName($r),         // round 8: «Wo sitzt er?» while testing
@@ -753,9 +754,14 @@ function fanboySetupState(array $scan, ?array $settings): array
             'stand' => $m !== null && array_key_exists('stops', $m) ? array_intersect_key($m + ['floor_rpm' => null, 'start_from_stop' => null, 'kick_start' => null, 'stops_safe' => null],
                 array_flip(['stops', 'floor_rpm', 'start_from_stop', 'kick_start', 'stops_safe'])) : null,
             // … and «darf stehen» chosen but not in effect: why (measure_again, never_stops, not_safe, not_measured)
-            'off_why' => ($plan = fanboyStandPlan($f, is_array($m['table'] ?? null) ? $m : null, ($f['found'] ?? null) === 'tach', fanboyCpuOwn($f), 0))[1],
+            'off_why' => ($plan = fanboyFanPlan($f))['off_why'],
             // … in effect (it may stand), and a CPU cooler's second tick — since when (null: none)
-            'may_stand' => $plan[0], 'cpu_off' => fanboyCpuOwn($f) && is_int($f['cpu_off']['at'] ?? null) ? $f['cpu_off']['at'] : null];
+            'may_stand' => $plan['off_ok'], 'cpu_off' => fanboyCpuOwn($f) && is_int($f['cpu_off']['at'] ?? null) ? $f['cpu_off']['at'] : null,
+            // round 14: several fans on it — the same model or not (null: not said), and what that means for the control
+            'alike' => is_bool($f['alike'] ?? null) ? $f['alike'] : null,
+            'hub' => is_int($f['count'] ?? null) && $f['count'] > 1 ? ['mixed' => ($f['alike'] ?? null) !== true, 'one_fan_table' => true,
+                'ok' => is_int($f['hub_ok']['at'] ?? null) ? $f['hub_ok']['at'] : null, 'not_safe' => is_int($f['hub_not_safe']['at'] ?? null) ? $f['hub_not_safe']['at'] : null,
+                'extra' => is_int($f['hub_extra'] ?? null) ? $f['hub_extra'] : 0, 'floor' => $plan['floor'], 'start' => $plan['start']] : null];
         $r = fanboyResolve($stored, $scan);
         if ($r['path'] === null) {
             $missing[] = ['id' => $id, 'how' => $r['how']];

@@ -855,6 +855,7 @@
   "bubble.safety": "Puse un ventilador al 100 % por seguridad: no arrancó solo. «Volver al valor de antes» lo devuelve.",
   "assign.cpu_bios": "Disipador de la CPU: lo regula la BIOS; nunca se para mientras se prueban otras salidas.",
   "errors.fanboy_cpu_role_first": "Da primero al ventilador el papel «Disipador de la CPU» y luego elige quién lo regula.",
+  "errors.fanboy_hub_one": "Esto revisa un conector con varios ventiladores: indica primero cuántos hay conectados.",
   "errors.fanboy_cpu_off_confirm": "Dejar parado el ventilador de la CPU necesita su propia casilla: confirmas que la CPU va sin ventilador mientras esté fría.",
   "errors.fanboy_off_pump": "Una bomba nunca se detiene.",
   "errors.fanboy_cpu_off_bios": "Este ventilador de la CPU lo regula la BIOS: Fanboy nunca lo detiene.",

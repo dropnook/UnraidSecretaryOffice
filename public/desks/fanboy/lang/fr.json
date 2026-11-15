@@ -855,6 +855,7 @@
   "bubble.safety": "J'ai mis un ventilateur à 100 % par sécurité — il n'est pas reparti tout seul. « Revenir à la valeur d'avant » le remet comme avant.",
   "assign.cpu_bios": "Ventirad du CPU — piloté par le BIOS ; jamais arrêté pendant le test d'autres sorties.",
   "errors.fanboy_cpu_role_first": "Donne d'abord au ventilateur le rôle « Ventirad du CPU », puis choisis qui le pilote.",
+  "errors.fanboy_hub_one": "Ceci regarde un connecteur avec plusieurs ventilateurs : indique d'abord combien y sont branchés.",
   "errors.fanboy_cpu_off_confirm": "Laisser le ventilateur du CPU à l'arrêt demande sa propre case : tu confirmes que le CPU se passe alors de ventilateur tant qu'il est frais.",
   "errors.fanboy_off_pump": "Une pompe ne s'arrête jamais.",
   "errors.fanboy_cpu_off_bios": "C'est le BIOS qui règle ce ventilateur du CPU : Fanboy ne l'arrête jamais.",

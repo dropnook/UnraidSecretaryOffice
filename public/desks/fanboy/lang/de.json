@@ -855,6 +855,7 @@
   "bubble.safety": "Ich habe einen Lüfter zur Sicherheit auf 100 % gestellt — er lief nicht von selbst an. «Zurück auf den Wert von vorher» stellt ihn zurück.",
   "assign.cpu_bios": "CPU-Kühler — regelt das BIOS; wird nie angehalten, wenn andere Ausgänge getestet werden.",
   "errors.fanboy_cpu_role_first": "Gib dem Lüfter zuerst die Rolle «CPU-Kühler», dann wähle, wer ihn regelt.",
+  "errors.fanboy_hub_one": "Das schaut einen Anschluss mit mehreren Lüftern an – gib zuerst an, wie viele daran hängen.",
   "errors.fanboy_cpu_off_confirm": "Den CPU-Kühler stehen lassen braucht ein eigenes Häkchen: Du bestätigst, dass die CPU dann ohne Lüfter auskommt, solange sie kühl ist.",
   "errors.fanboy_off_pump": "Eine Pumpe steht nie still.",
   "errors.fanboy_cpu_off_bios": "Diesen CPU-Kühler regelt das BIOS – Fanboy hält ihn nie an.",

@@ -497,20 +497,15 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 continue;           // a CPU cooler only with a CPU temperature in its zone — else it stays the BIOS's
             }
             $m = is_array($f['measured'] ?? null) && is_array($f['measured']['table'] ?? null) ? $f['measured'] : null;
-            $hasTach = ($f['found'] ?? '') === 'tach';
-            $floor = $m !== null && $hasTach && is_numeric($m['min_pct'] ?? null) ? min(100, (int) $m['min_pct'] + FANBOY_FLOOR_MARGIN) : FANBOY_BLIND_FLOOR;
-            if ($cpu) {
-                $floor = max($floor, FANBOY_CPU_FLOOR);
-            }
-            [$offOk, $offWhy, $start] = fanboyStandPlan($f, $m, $hasTach, $cpu, $floor);
+            ['floor' => $floor, 'start' => $start, 'off_ok' => $offOk, 'off_why' => $offWhy] = fanboyFanPlan($f);
             $fans[$id] = [
                 'id' => $id, 'zone' => $z['id'], 'chip' => $f['chip'], 'address' => $f['address'], 'output' => $f['output'],
                 'tachs' => array_values(array_filter(is_array($f['tachs'] ?? null) ? $f['tachs'] : [$f['tach']], 'is_int')),
                 'name' => is_string($f['name'] ?? null) ? $f['name'] : '',
                 'table' => $m['table'] ?? null, 'floor' => $floor,
                 // round 9 (H1): a fan that needed a kick to start at its value before starts above it; round 12: from
-                // standstill as measured (fanboyStandPlan())
-                'start' => max($start, is_int($f['kick_start']['value'] ?? null) ? min(100, (int) ceil($f['kick_start']['value'] / 2.55) + FANBOY_FLOOR_MARGIN) : 0),
+                // standstill as measured; round 14: a hub's margin (fanboyFanPlan())
+                'start' => $start,
                 'off_ok' => $offOk, 'off_why' => $offWhy, 'cpu' => $cpu,
                 // «give back» (part 3): the owner's choice for a fan found on a fixed value — 'auto' gives the chip's mode
                 'back' => $cpu ? 'auto' : (in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : FANBOY_BACK_DEFAULT), 'auto' => null,
@@ -1045,6 +1040,53 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
             $c['full_since'][$zid] = $now;
         }
     }
+}
+
+const FANBOY_HUB_MARGIN = 10;           // round 14: several fans on one connector, not the same model — the floor and start this much higher
+const FANBOY_HUB_FLOOR_MIN = 25;        // … the floor never under this
+const FANBOY_HUB_EXTRA_MAX = 50;        // … and a «no, not all turn» in the look raises it by the margin again, this much at most
+
+/**
+ * A fan's plan for the control (and the hub look): its floor, its start value from standing, «darf stehen» in effect and
+ * why not — round 4's floor (min + 5, a CPU cooler 40), round 9's kick start, round 12's standstill, round 14's hub margin
+ */
+function fanboyFanPlan(array $f): array
+{
+    $m = is_array($f['measured'] ?? null) && is_array($f['measured']['table'] ?? null) ? $f['measured'] : null;
+    $hasTach = ($f['found'] ?? '') === 'tach';
+    $cpu = fanboyCpuOwn($f);
+    $floor = $m !== null && $hasTach && is_numeric($m['min_pct'] ?? null) ? min(100, (int) $m['min_pct'] + FANBOY_FLOOR_MARGIN) : FANBOY_BLIND_FLOOR;
+    $floor = $cpu ? max($floor, FANBOY_CPU_FLOOR) : $floor;          // as before round 14: the start value's default sees it
+    [$offOk, $offWhy, $start] = fanboyStandPlan($f, $m, $hasTach, $cpu, $floor);
+    [$floor, $start, $hubWhy] = fanboyHubPlan($f, $m, $floor, $start);
+    if ($cpu) {
+        $floor = max($floor, FANBOY_CPU_FLOOR);
+    }
+    if ($offOk && $hubWhy !== null) {
+        [$offOk, $offWhy] = [false, $hubWhy];
+    }
+    $start = max($start, is_int($f['kick_start']['value'] ?? null) ? min(100, (int) ceil($f['kick_start']['value'] / 2.55) + FANBOY_FLOOR_MARGIN) : 0);
+    return ['floor' => $floor, 'start' => $start, 'off_ok' => $offOk, 'off_why' => $offWhy, 'hub' => $hubWhy];
+}
+
+/**
+ * Round 14 (the owner: two fans on one Y-cable — what if they differ?): a connector with several fans (count > 1) not
+ * said to be the same model (`alike` not true) — the table is the one that reports; the others may stall higher and
+ * start later: the floor min_pct + FANBOY_HUB_MARGIN (at least FANBOY_HUB_FLOOR_MIN), plus what the look added
+ * (`hub_extra`), the start value + FANBOY_HUB_MARGIN; «darf stehen» only after the look for the eye said all of them
+ * start again (`hub_ok`) — never after a no (`hub_not_safe`). [floor, start, why «darf stehen» isn't in effect|null]
+ */
+function fanboyHubPlan(array $f, ?array $m, int $floor, int $start): array
+{
+    $count = is_int($f['count'] ?? null) ? $f['count'] : 1;
+    if ($count <= 1 || ($f['alike'] ?? null) === true) {
+        return [$floor, $start, null];
+    }
+    $extra = is_int($f['hub_extra'] ?? null) ? max(0, min(FANBOY_HUB_EXTRA_MAX, $f['hub_extra'])) : 0;
+    $base = $m !== null && is_numeric($m['min_pct'] ?? null) && ($f['found'] ?? '') === 'tach' ? (int) $m['min_pct'] + FANBOY_HUB_MARGIN : $floor;
+    $floor = min(100, max(FANBOY_HUB_FLOOR_MIN, $base) + $extra);
+    $why = is_int($f['hub_not_safe']['at'] ?? null) ? 'hub_not_safe' : (is_int($f['hub_ok']['at'] ?? null) ? null : 'mixed_hub');
+    return [$floor, min(100, $start + FANBOY_HUB_MARGIN), $why];
 }
 
 /**
