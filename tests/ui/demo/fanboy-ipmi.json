@@ -1357,5 +1357,49 @@
   "time": 1763100000
  },
  "show": null,
- "disk_allow": 3
+ "disk_allow": 3,
+ "ipmi_sensors": {
+  "at": 1763099760,
+  "ok": true,
+  "why": null,
+  "reading": false,
+  "fans": [
+   {
+    "name": "FAN1",
+    "rpm": 1400,
+    "status": "ok",
+    "lnr": 300,
+    "lcr": 500,
+    "lnc": 700,
+    "flag": null
+   },
+   {
+    "name": "FAN2",
+    "rpm": 560,
+    "status": "ok",
+    "lnr": 300,
+    "lcr": 500,
+    "lnc": 700,
+    "flag": "near"
+   },
+   {
+    "name": "FAN3",
+    "rpm": null,
+    "status": "na",
+    "lnr": null,
+    "lcr": null,
+    "lnc": null,
+    "flag": null
+   },
+   {
+    "name": "FANA",
+    "rpm": 1100,
+    "status": "ok",
+    "lnr": 300,
+    "lcr": 500,
+    "lnc": 700,
+    "flag": null
+   }
+  ]
+ }
 }

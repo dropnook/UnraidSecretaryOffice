@@ -180,6 +180,8 @@ function state(o) {
     show: o.show || null,                     // round 6: «show me this fan» (fanboyShowRead())
     // round 6: °C his zones add to an old disk value (fanboyPollAllowance(): +1 per started 10 minutes over 300 s, at most 3)
     disk_allow: (() => { const p = o.poll === undefined ? 1800 : o.poll; return p === null || p <= 300 ? 0 : Math.min(3, Math.ceil(p / 600)); })(),
+    // round 6: the BMC's fan thresholds, read only (fanboyIpmiSensors()): null without a BMC or ipmitool
+    ipmi_sensors: o.ipmi_sensors || null,
   };
   return s;
 }
@@ -246,7 +248,13 @@ files['fanboy-waz'] = (() => {
   return s;
 })();
 // a server board: no output Linux shows, a BMC
-files['fanboy-ipmi'] = state({ situation: { code: 'ipmi' }, ipmi: { bmc: true, manufacturer: 10876, product: 2398, firmware: '1.74' }, who: { who: 'bmc', why: 'ipmi' }, suggest: [] });
+files['fanboy-ipmi'] = state({ situation: { code: 'ipmi' }, ipmi: { bmc: true, manufacturer: 10876, product: 2398, firmware: '1.74' }, who: { who: 'bmc', why: 'ipmi' }, suggest: [],
+  // round 6: what `ipmitool sensor` said (invented): FAN2, a quiet one, just over its lower critical — the waves' cause
+  ipmi_sensors: { at: T0 - 240, ok: true, why: null, reading: false, fans: [
+    { name: 'FAN1', rpm: 1400, status: 'ok', lnr: 300, lcr: 500, lnc: 700, flag: null },
+    { name: 'FAN2', rpm: 560, status: 'ok', lnr: 300, lcr: 500, lnc: 700, flag: 'near' },
+    { name: 'FAN3', rpm: null, status: 'na', lnr: null, lcr: null, lnc: null, flag: null },
+    { name: 'FANA', rpm: 1100, status: 'ok', lnr: 300, lcr: 500, lnc: 700, flag: null }] } });
 // nothing Linux could steer: the hints open
 files['fanboy-nooutput'] = state({ situation: { code: 'no_output' }, suggest: ['it87-driver', 'dynamix.system.temp'],
   tools: TOOLS.map((t) => ({ ...t, installed: false, loaded: t.kind === 'driver' ? false : t.loaded })), who: { who: 'bios', why: 'no_output' } });

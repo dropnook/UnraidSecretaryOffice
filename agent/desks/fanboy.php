@@ -79,6 +79,7 @@ if (fanboyShown()) {
             'fanboy-control' => fn (array $a): int => fanboyControlMain(),
             'fanboy-step'    => fn (array $a): int => fanboyStepMain(),
             'fanboy-show'    => fn (array $a): int => fanboyShowMain(),        // round 6: «show me this fan»
+            'fanboy-ipmi'    => fn (array $a): int => fanboyIpmiJob(),         // round 6: the BMC's fan thresholds, read once
         ],
         'actions' => [
             'refresh' => fn (array $r) => ['ok' => true, 'state' => fanboyScan()],
@@ -132,6 +133,7 @@ function fanboyScan(): array
     $state['show'] = fanboyShowRead();                  // round 6: «show me this fan» running or just done
     $state['idle'] = fanboyIdleState();                 // round 6: the fans he doesn't steer, watched (fanboy-watch.php)
     $state['disk_allow'] = fanboyPollAllowance($state['poll'] ?? null);      // round 6: °C the zone logic adds to an old disk value
+    $state['ipmi_sensors'] = fanboyIpmiSensors($state);                       // round 6: the BMC's fan thresholds (read only, fanboy-ipmi.php)
     writeAtomic(deskFile('fanboy'), jsonEncode($state));
     return $state;
 }
@@ -345,6 +347,7 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
             . ', product id ' . ($clean($i['product_id'] ?? '') ?: '?') . ', device id ' . ($clean($i['device_id'] ?? '') ?: '?')
             . ', firmware ' . ($clean($i['firmware_revision'] ?? '') ?: '?') . ', IPMI ' . ($clean($i['ipmi_version'] ?? '') ?: '?');
         $lines[] = 'IPMI fan sensors: ' . ($ipmiFans ? implode(', ', array_map($clean, $ipmiFans)) : 'not read (no ipmitool)');
+        array_push($lines, ...fanboyIpmiReportLines());      // round 6: each fan's speed beside the BMC's lower thresholds
     }
     // round 5 (forum 3.9): outputs whose driver refused every value while he steered (the control's last status)
     $st = readJson(fanboyRunDir() . '/control.json');

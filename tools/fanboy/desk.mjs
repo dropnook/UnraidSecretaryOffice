@@ -95,6 +95,8 @@ const PICTURES = [
   ['r6-4-show', 'fanboy-show', 'fanboy/fans', null, false],
   // round 6: 5 old disk values — the hint says how old and what his zones add
   ['r6-5-old-disks', 'fanboy', 'fanboy/hints', '.fb-hints summary', false],
+  // round 6: 2 the BMC's fan thresholds (read only) on an IPMI board
+  ['r6-2-ipmi', 'fanboy-ipmi', 'fanboy/hints', null, false],
 ].filter((p) => !opt.only || opt.only.includes(p[0]));
 const LOCALES = { de: 'de-CH', en: 'en-US' };
 const faults = [];

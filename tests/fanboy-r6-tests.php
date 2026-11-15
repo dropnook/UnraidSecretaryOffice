@@ -355,3 +355,88 @@ function testFanboyR6OldDisks(): void
         fanboyTEnd();
     }
 }
+
+/** ipmitool's `sensor` table as a Supermicro board prints it (invented values) */
+const FANBOY_R6_SMC = <<<'TXT'
+CPU Temp         | 41.000     | degrees C  | ok    | 0.000     | 0.000     | 0.000     | 90.000    | 95.000    | 95.000
+FAN1             | 1400.000   | RPM        | ok    | 300.000   | 500.000   | 700.000   | 25300.000 | 25400.000 | 25500.000
+FAN2             | 560.000    | RPM        | ok    | 300.000   | 500.000   | 700.000   | 25300.000 | 25400.000 | 25500.000
+FAN3             | na         | RPM        | na    | na        | na        | na        | na        | na        | na
+FANA             | 400.000    | RPM        | cr    | 300.000   | 500.000   | 700.000   | 25300.000 | 25400.000 | 25500.000
+12V              | 12.192     | Volts      | ok    | 10.144    | 10.272    | 10.784    | 12.960    | 13.280    | 13.408
+TXT;
+
+/** … and as an ASRock Rack board (only LCR set, other names) */
+const FANBOY_R6_ASR = <<<'TXT'
+CPU_FAN1         | 900.000    | RPM        | ok    | na        | 300.000   | na        | na        | na        | na
+FRNT_FAN1        | 1200.000   | RPM        | ok    | na        | 100.000   | na        | na        | na        | na
+REAR_FAN1        | 330.000    | RPM        | ok    | na        | 300.000   | na        | na        | na        | na
+MB Temp          | 34.000     | degrees C  | ok    | na        | na        | na        | na        | 80.000    | na
+TXT;
+
+/** A fake ipmitool in the tree: prints $out, exits $exit, sleeps $sleep first; every call (its arguments) noted */
+function fanboyR6Ipmitool(array $t, string $out, int $exit = 0, int $sleep = 0): void
+{
+    @mkdir("{$t['root']}/usr/bin", 0700, true);
+    file_put_contents("{$t['tmp']}/ipmi.out", $out . "\n");
+    file_put_contents("{$t['root']}/usr/bin/ipmitool", "#!/bin/bash\necho \"\$*\" >> " . escapeshellarg("{$t['tmp']}/ipmi.calls") . "\n"
+        . ($sleep ? "sleep $sleep\n" : '') . 'cat ' . escapeshellarg("{$t['tmp']}/ipmi.out") . "\nexit $exit\n");
+    chmod("{$t['root']}/usr/bin/ipmitool", 0755);
+}
+
+/**
+ * Part 2: the BMC's fan thresholds, read only — `ipmitool sensor` (never «thresh», never anything that sets) parsed for
+ * Supermicro's and ASRock Rack's tables, «na» kept as no value, a fan within 20 % of its lower critical flagged; a tool
+ * that hangs is cut off, one that fails says so; read at most once per 10 minutes, by a process of its own, never waited
+ * for; the report carries it
+ */
+function testFanboyR6Ipmi(): void
+{
+    $smc = fanboyIpmiParse(FANBOY_R6_SMC);
+    same('fanboy r6 ipmi: Supermicro\'s table — the fans only (RPM), «na» no value, FAN2 (560 over LCR 500) near, FANA (400) under',
+        [['FAN1', 1400, 300, 500, 700, null], ['FAN2', 560, 300, 500, 700, 'near'], ['FAN3', null, null, null, null, null], ['FANA', 400, 300, 500, 700, 'below']],
+        array_map(fn ($f) => [$f['name'], $f['rpm'], $f['lnr'], $f['lcr'], $f['lnc'], $f['flag']], $smc));
+    same('fanboy r6 ipmi: ASRock Rack\'s table — only LCR set: REAR_FAN1 330 over 300 near, the others fine',
+        [['CPU_FAN1', null], ['FRNT_FAN1', null], ['REAR_FAN1', 'near']], array_map(fn ($f) => [$f['name'], $f['flag']], fanboyIpmiParse(FANBOY_R6_ASR)));
+    same('fanboy r6 ipmi: an odd table (a line with a slash in its name, too few columns) gives nothing', [], fanboyIpmiParse("a/b | 1 | RPM | ok | 1 | 1 | 1 | 1 | 1 | 1\nFAN1 | 100 | RPM\n"));
+    $t = fanboyT('r6ipmi', 10, FANBOY_T_ADDR, ['ipmi' => ['manufacturer_id' => '10876', 'product_id' => '2398', 'firmware_revision' => '1.74']]);
+    try {
+        $scan = fanboyDetect();
+        same('fanboy r6 ipmi: no ipmitool — nothing read, nothing started', [null, []], [fanboyIpmiSensors($scan, 100.0), $GLOBALS['fanboyLaunched']]);
+        fanboyR6Ipmitool($t, FANBOY_R6_SMC);
+        $s = fanboyIpmiSensors($scan, 100.0);
+        same('fanboy r6 ipmi: never read — the reading process started, not waited for (the page: «reading»)', [['fanboy-ipmi'], null, true], [$GLOBALS['fanboyLaunched'], $s['at'], $s['reading']]);
+        fanboyIpmiSensors($scan, 130.0);
+        same('fanboy r6 ipmi: … asked again 30 s later: not started twice', ['fanboy-ipmi'], $GLOBALS['fanboyLaunched']);
+        fanboyIpmiJob();
+        fanboyIpmiJob();
+        $s = fanboyIpmiSensors($scan, 200.0);
+        same('fanboy r6 ipmi: the process read once (`ipmitool sensor`, nothing else) — a second run within 10 minutes reads nothing', [['sensor'], true, 4, false, ['fanboy-ipmi']],
+            [file("{$t['tmp']}/ipmi.calls", FILE_IGNORE_NEW_LINES), $s['ok'], count($s['fans']), $s['reading'], $GLOBALS['fanboyLaunched']]);
+        $report = fanboyReportText($scan, ['FAN1']);
+        check('fanboy r6 ipmi: the report names each fan\'s speed beside its lower thresholds and the flag, no «/» in it',
+            str_contains($report, '  FAN2: 560 rpm (LNR 300, LCR 500, LNC 700) - within 20 percent of its lower critical') && str_contains($report, '  FAN3: no reading (LNR na, LCR na, LNC na)')
+            && !str_contains($report, '/'));
+        // stale after 10 minutes: read again
+        $kept = readJson(fanboyIpmiCacheFile());
+        $kept['at'] -= FANBOY_IPMI_EVERY;
+        file_put_contents(fanboyIpmiCacheFile(), json_encode($kept));
+        fanboyIpmiSensors($scan, 300.0);
+        fanboyR6Ipmitool($t, 'ipmitool: could not open device', 1);
+        fanboyIpmiJob();
+        same('fanboy r6 ipmi: 10 minutes later read again; a tool that fails — said («error»), nothing made up', [['fanboy-ipmi', 'fanboy-ipmi'], false, 'error', []],
+            [$GLOBALS['fanboyLaunched'], readJson(fanboyIpmiCacheFile())['ok'], readJson(fanboyIpmiCacheFile())['why'], readJson(fanboyIpmiCacheFile())['fans']]);
+        fanboyR6Ipmitool($t, FANBOY_R6_SMC, 0, 30);
+        $t0 = hrtime(true);
+        $got = fanboyIpmiRead(1);
+        same('fanboy r6 ipmi: a BMC that hangs — cut off at the timeout (here 1 s), «timeout»', [false, 'timeout', true], [$got['ok'], $got['why'], (hrtime(true) - $t0) / 1e9 < 5]);
+        same('fanboy r6 ipmi: the reading has the hard timeout of 10 s', 10, FANBOY_IPMI_TIMEOUT);
+        // read only: the one command of the file is `ipmitool sensor` — never thresh, never anything that sets
+        $src = (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-ipmi.php'));
+        same('fanboy r6 ipmi: one run([$tool, \'sensor\']) in the file, no argument «thresh», «raw», «set», «event», «reset», «chassis», «mc», «lan», «user» anywhere in it',
+            [1, 1, 0, 0], [substr_count($src, 'run(['), substr_count($src, "run([\$tool, 'sensor']"), preg_match_all('/[\'"](thresh|raw|set|event|reset|chassis|mc|lan|user)[\'"]/', $src), substr_count($src, 'fanboyWriteFile')]);
+        check('fanboy r6 ipmi: the control never reads the BMC (no ipmi in its round)', !str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-control.php'), 'fanboyIpmi'));
+    } finally {
+        fanboyTEnd();
+    }
+}

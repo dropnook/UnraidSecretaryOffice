@@ -819,5 +819,22 @@
   "errors.fanboy_show_alarm": "Hay una alarma: los ventiladores de su zona ya están al 100 %. Muéstralo cuando termine la alarma.",
   "errors.fanboy_show_not": "Esta salida no obedece, funciona al revés o su controlador no acepta valores: Fanboy nunca escribe en ella.",
   "hints.poll_add": "Valores de hasta {min} minutos: en mis zonas les sumo {add} °C (un valor así es un límite inferior).",
-  "zones.poll_add": "Por eso Fanboy suma {add} °C a cada valor de disco."
+  "zones.poll_add": "Por eso Fanboy suma {add} °C a cada valor de disco.",
+  "ipmi.title": "Los umbrales de los ventiladores del BMC",
+  "ipmi.untested": "aún no comprobado en hardware real",
+  "ipmi.untested_title": "Fanboy lee estos valores con ipmitool, solo lectura. Hecho según las tablas de placas Supermicro y ASRock Rack; aún no probado en una real.",
+  "ipmi.waves.1": "El fallo clásico de las placas de servidor: un ventilador lento y silencioso baja del umbral inferior del BMC. El BMC lo da por averiado y pone todos los ventiladores al máximo, el lento vuelve a superar el umbral, el BMC lo suelta, y así en oleadas.",
+  "ipmi.waves.2": "La solución: pon los umbrales inferiores (LNR, LCR, LNC) de ese ventilador por debajo de su velocidad más lenta, en la página web de tu BMC o con ipmitool. Lo haces tú; Fanboy solo lee, nunca cambia nada en el BMC.",
+  "ipmi.lower": "umbrales inferiores: LNR {lnr} · LCR {lcr} · LNC {lnc} rpm",
+  "ipmi.near": "cerca del umbral inferior",
+  "ipmi.near_title": "Su velocidad está a menos del 20 % sobre el umbral crítico inferior (LCR): un poco más lenta y el BMC pone todos los ventiladores al máximo",
+  "ipmi.below": "bajo el umbral inferior",
+  "ipmi.below_title": "Su velocidad está en o por debajo del umbral crítico inferior: el BMC lo da por averiado",
+  "ipmi.reading": "Fanboy pide al BMC sus sensores de ventiladores …",
+  "ipmi.read_at": "Leído {when}, como mucho cada 10 minutos.",
+  "ipmi.failed.timeout": "El BMC no respondió en 10 segundos: Fanboy lo intenta de nuevo en 10 minutos.",
+  "ipmi.failed.error": "ipmitool no pudo leer los sensores del BMC: Fanboy lo intenta de nuevo en 10 minutos.",
+  "ipmi.failed.empty": "El BMC no muestra ningún sensor de ventilador (ninguno en rpm).",
+  "ipmi.failed.no_tool": "ipmitool no está (lo trae un plugin): Fanboy no instala nada.",
+  "ipmi.banner": "{fans}: cerca o por debajo del umbral inferior del BMC, que puede subir y bajar todos los ventiladores en oleadas. Las indicaciones dicen qué ayuda."
 }

@@ -1308,12 +1308,52 @@ function hintsSection() {
   hintParas(body, 'hints.clash');
   body.appendChild(hintHead(T('hints.ipmi_title')));
   hintParas(body, 'hints.ipmi');
+  const ipmi = ipmiBlock();
+  if (ipmi) body.appendChild(Office.place('ipmi.title', ipmi));
   const bar = el('div', 'toolbar');
   bar.appendChild(reportButton(true));
   body.appendChild(bar);
   det.appendChild(body);
   s.appendChild(det);
   return s;
+}
+/**
+ * Round 6, part 2: an IPMI board's fan thresholds, read only — each fan's speed beside the BMC's lower thresholds (LNR,
+ * LCR, LNC), one near or under its lower critical flagged, and the classic fault explained (the BMC spins everything up
+ * and down in waves); the cure is the user's, in the BMC. Not yet checked on real hardware: said.
+ */
+function ipmiBlock() {
+  const x = S().ipmi_sensors;
+  if (!x) return null;
+  const box = el('div', 'fb-ipmi');
+  const head = el('div', 'fb-bar');
+  head.append(el('h3', 'fb-head', T('ipmi.title')), chipOfText('quiet', T('ipmi.untested'), T('ipmi.untested_title')));
+  box.appendChild(head);
+  hintParas(box, 'ipmi.waves');
+  const dash = (v) => (num(v) === null ? '–' : fmt.number(v));
+  if (!x.at) {
+    const p = el('p', 'fb-wait');
+    p.append(wave(), el('span', '', T('ipmi.reading')));
+    box.appendChild(p);
+  } else if (!x.ok) {
+    box.appendChild(el('p', 'fb-hint-text', T(`ipmi.failed.${['timeout', 'error', 'empty', 'no_tool'].includes(x.why) ? x.why : 'error'}`)));
+  } else {
+    const list = el('div', 'box');
+    (x.fans || []).forEach((f) => {
+      const r = el('div', 'row nocheck fb-row');
+      const main = el('div', 'row-main');
+      main.appendChild(el('div', 'row-name text', f.name));
+      const meta = el('div', 'row-meta');
+      meta.appendChild(el('span', '', T('ipmi.lower', { lnr: dash(f.lnr), lcr: dash(f.lcr), lnc: dash(f.lnc) })));
+      if (f.flag === 'below' || f.flag === 'near') meta.appendChild(chipOfText('warn', T(`ipmi.${f.flag}`), T(`ipmi.${f.flag}_title`)));
+      main.appendChild(meta);
+      r.append(main, el('div', 'fb-value', num(f.rpm) === null ? '–' : T('pic.rpm', { rpm: fmt.number(f.rpm) })));
+      list.appendChild(r);
+    });
+    box.appendChild(list);
+  }
+  if (x.at) box.appendChild(el('p', 'fb-hint-text', T('ipmi.read_at', { when: fmt.relative(x.at) })));
+  return box;
 }
 function driversBlock() {
   const d = S().drivers || {};
@@ -1363,6 +1403,9 @@ function paintBanner() {
     const code = c.alarm.code === 'stands' && c.alarm.params && c.alarm.params.alone ? 'stands_alone' : c.alarm.code;
     box('warn', T(`alarm.${code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}) }), { alarm: c.alarm.code });
   }
+  // round 6: an IPMI board's fan near or under the BMC's lower threshold — the cause of the waves (the hints explain)
+  const ipmiNear = ((S().ipmi_sensors || {}).fans || []).filter((f) => f.flag === 'near' || f.flag === 'below');
+  if (ipmiNear.length) box('warn', T('ipmi.banner', { fans: ipmiNear.map((f) => f.name).join(', ') }), { ipmi: 'near' });
   // round 6: a fan he doesn't steer stands — told (after 2 minutes while something was warm; a CPU cooler or pump at once)
   if (idle().on) {
     Object.entries(idle().tachs || {}).filter(([, x]) => x && x.state === 'alarm').forEach(([tid, x]) => {
