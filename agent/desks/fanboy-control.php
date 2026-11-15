@@ -423,7 +423,9 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 'tachs' => array_values(array_filter(is_array($f['tachs'] ?? null) ? $f['tachs'] : [$f['tach']], 'is_int')),
                 'name' => is_string($f['name'] ?? null) ? $f['name'] : '',
                 'table' => $m['table'] ?? null, 'floor' => $floor,
-                'start' => $m !== null && is_numeric($m['start_pct'] ?? null) ? (int) $m['start_pct'] : $floor,
+                // round 9 (H1): a fan that needed a kick to start at its value before starts above it
+                'start' => max($m !== null && is_numeric($m['start_pct'] ?? null) ? (int) $m['start_pct'] : $floor,
+                    is_int($f['kick_start']['value'] ?? null) ? min(100, (int) ceil($f['kick_start']['value'] / 2.55) + FANBOY_FLOOR_MARGIN) : 0),
                 'off_ok' => !$cpu && ($f['off_ok'] ?? false) === true && $m !== null && $hasTach, 'cpu' => $cpu,
                 // «give back» (part 3): the owner's choice for a fan found on a fixed value — 'auto' gives the chip's mode
                 'back' => $cpu ? 'auto' : (in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : FANBOY_BACK_DEFAULT), 'auto' => null,

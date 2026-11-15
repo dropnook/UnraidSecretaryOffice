@@ -686,7 +686,8 @@
     "start_pct": null,
     "max_rpm": null,
     "table": null,
-    "no_turn": false
+    "no_turn": false,
+    "kick_start": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm2",
@@ -708,7 +709,8 @@
     "start_pct": null,
     "max_rpm": null,
     "table": null,
-    "no_turn": false
+    "no_turn": false,
+    "kick_start": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm3",
@@ -730,7 +732,8 @@
     "start_pct": null,
     "max_rpm": null,
     "table": null,
-    "no_turn": false
+    "no_turn": false,
+    "kick_start": null
    }
   ],
   "zones": [],
@@ -1668,11 +1671,10 @@
   "why": null,
   "pid": 4242,
   "start": "123456",
-  "current": null,
+  "current": "it8696_a0060607:it87.2608:pwm3",
   "done": [
    "it8696_a0060607:it87.2608:pwm1",
-   "it8696_a0060607:it87.2608:pwm2",
-   "it8696_a0060607:it87.2608:pwm3"
+   "it8696_a0060607:it87.2608:pwm2"
   ],
   "results": {
    "it8696_a0060607:it87.2608:pwm1": {
@@ -1684,20 +1686,16 @@
    "it8696_a0060607:it87.2608:pwm2": {
     "found": "empty",
     "tachs": []
-   },
-   "it8696_a0060607:it87.2608:pwm3": {
-    "found": "silent",
-    "tachs": []
    }
   },
-  "progress": null,
+  "progress": {
+   "id": "it8696_a0060607:it87.2608:pwm3",
+   "phase": "pause",
+   "until": 1763100011
+  },
   "at": 1763099998,
   "begun": 1763099960,
-  "quiet": true,
-  "pause": {
-   "left": 4,
-   "next": "it8696_a0060607:it87.2608:pwm4"
-  }
+  "quiet": true
  },
  "drivers": {
   "mine": [],
@@ -1711,13 +1709,7 @@
   "time": 1763100000
  },
  "show": null,
- "now": {
-  "stopped": [],
-  "pause": {
-   "left": 4,
-   "next": "it8696_a0060607:it87.2608:pwm4"
-  },
-  "safety": []
- },
+ "safety": {},
+ "restore": null,
  "disk_allow": 3
 }

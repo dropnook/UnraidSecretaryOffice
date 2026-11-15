@@ -686,7 +686,8 @@
     "start_pct": null,
     "max_rpm": null,
     "table": null,
-    "no_turn": false
+    "no_turn": false,
+    "kick_start": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm2",
@@ -708,7 +709,8 @@
     "start_pct": null,
     "max_rpm": null,
     "table": null,
-    "no_turn": false
+    "no_turn": false,
+    "kick_start": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm3",
@@ -730,7 +732,8 @@
     "start_pct": null,
     "max_rpm": null,
     "table": null,
-    "no_turn": false
+    "no_turn": false,
+    "kick_start": null
    }
   ],
   "zones": [],
@@ -1685,7 +1688,12 @@
     "tachs": []
    }
   },
-  "progress": null,
+  "progress": {
+   "id": "it8696_a0060607:it87.2608:pwm3",
+   "phase": "full",
+   "quiet": true,
+   "until": 1763100041
+  },
   "at": 1763099998,
   "begun": 1763099960,
   "quiet": true
@@ -1702,15 +1710,7 @@
   "time": 1763100000
  },
  "show": null,
- "now": {
-  "stopped": [
-   "it8696_a0060607:it87.2608:pwm2",
-   "it8696_a0060607:it87.2608:pwm4",
-   "it8696_a0060607:it87.2608:pwm5",
-   "it8696_a0060607:it87.2608:pwm6"
-  ],
-  "pause": null,
-  "safety": []
- },
+ "safety": {},
+ "restore": null,
  "disk_allow": 3
 }

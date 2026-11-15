@@ -242,11 +242,23 @@ function fanboyShowMain(?array $io = null): int
         $back = fanboyGiveBack([$id, ...$quieted], 'show', $owner);         // exactly the state before, read back — whatever ended it
         // round 8 (G1): every fan that turned before turns again — or its output to full, an alert
         if ($quiet && $quieted) {
+            $final = $show['status'];
             try {
-                fanboyQuietRestart($tachsBefore, $quieted, $io);
+                $show['status'] = 'running';        // round 9 (H3): the pause is part of the show — the page says it, buttons wait
+                $show['phase'] = 'pause';
+                $show['until'] = time() + (int) FANBOY_QUIET_PAUSE;
+                fanboyShowWrite($show);
+                fanboyQuietRestart($tachsBefore, $quieted, $io + ['note' => function (array $p) use (&$show): void {
+                    $show['phase'] = $p['phase'] ?? 'pause';
+                    $show['until'] = $p['until'] ?? null;
+                    fanboyShowWrite($show);
+                }], $owner, fanboyBoardKey($board));
             } catch (FanboyQuietWarm $e) {
                 $show['why'] = 'no_restart';
                 $show['quiet_stop'] = $e->what;
+            } finally {
+                $show['status'] = $final;
+                $show['phase'] = null;
             }
         }
         $show['ok'] = $back ? !in_array(false, array_map(fn ($x) => (bool) ($x['ok'] ?? false), $back), true) : null;     // the quieted ones too
@@ -326,4 +338,143 @@ function fanboyShowFull(array &$c, string $id): void
         $c['fans'][$id]['value'] = FANBOY_FULL;
     }
     $c['fans'][$id]['changed'] = null;
+}
+
+/*
+ * Round 9 (H2, the owner's third test): «Zurück auf den Wert von vorher» — an output Fanboy set to full for safety (a
+ * fan that didn't start again after the quiet test) is put back to its state before (value + mode, the journal's), by a
+ * process of its own (`php agent.php job fanboy-restore`, holder «step»): back, up to FANBOY_KICK_WAIT for its fan to
+ * turn, else a kick (full FANBOY_KICK_FOR, back again, FANBOY_KICK_LOOK to turn); still standing: full again (safety),
+ * said. One at a time; never beside a running setup step or show.
+ *
+ *   RUN_DIR/fanboy/restore.json   {id, fans: [ids], status: starting|running|done|failed, why, at}
+ */
+
+function fanboyRestoreFile(): string
+{
+    return fanboyRunDir() . '/restore.json';
+}
+
+function fanboyRestoreRead(): ?array
+{
+    $s = readJson(fanboyRestoreFile());
+    if (!is_array($s) || !is_array($s['fans'] ?? null) || !is_string($s['status'] ?? null)) {
+        return null;
+    }
+    if (in_array($s['status'], ['starting', 'running'], true) && time() - (int) ($s['at'] ?? 0) > FANBOY_SHOW_STALE) {
+        $s['status'] = 'failed';
+        $s['why'] = 'interrupted';
+    }
+    return $s;
+}
+
+function fanboyRestoreRunning(): bool
+{
+    $s = fanboyRestoreRead();
+    return $s !== null && in_array($s['status'], ['starting', 'running'], true);
+}
+
+function fanboyRestoreWrite(array $s): void
+{
+    @mkdir(fanboyRunDir(), 0700, true);
+    $s['at'] = time();
+    writeAtomic(fanboyRestoreFile(), jsonEncode($s), 0644, 0, 0);
+}
+
+/** The action safety_back {fan} (or {all: true}): the outputs he set to full for safety, back to their state before */
+function fanboyRestoreStart(array $r): array
+{
+    $safety = fanboySafetyFull();
+    $ids = optBool($r, 'all', false) ? array_keys($safety) : [textField($r, 'fan')];
+    $ids = array_values(array_filter($ids, fn ($id) => isset($safety[$id])));
+    if (!$ids) {
+        return ['ok' => true, 'state' => fanboyScan()];        // nothing (any more) at full for safety: quietly nothing
+    }
+    if (fanboyStepRunning()) {
+        throw new Problem('fanboy_step_running');
+    }
+    if (fanboyShowRunning() || fanboyRestoreRunning()) {
+        throw new Problem('fanboy_show_running');
+    }
+    fanboyRestoreWrite(['id' => bin2hex(random_bytes(6)), 'fans' => $ids, 'status' => 'starting', 'why' => null]);
+    fanboyLaunch('fanboy-restore');
+    logLine('Fanboy: «back to the value before» for ' . implode(', ', $ids) . ' on the user\'s click');
+    return ['ok' => true, 'state' => fanboyScan()];
+}
+
+/** The process: each output back, its fan given a kick when it doesn't start by itself. $io: the tests' clock */
+function fanboyRestoreMain(?array $io = null): int
+{
+    @mkdir(fanboyRunDir(), 0700, true);
+    $lock = @fopen(fanboyRunDir() . '/restore.lock', 'c');
+    if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) {
+        return 0;
+    }
+    $job = fanboyRestoreRead();
+    if ($job === null || $job['status'] !== 'starting') {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+        return 0;
+    }
+    $io ??= ['now' => fn (): float => fanboyMono(), 'sleep' => function (float $s): void { usleep((int) round($s * 1e6)); fanboyBeat(); }];
+    $io += ['ok' => fn (): ?string => null, 'note' => fn (array $p) => null];
+    $owner = fanboyMe('step');
+    $board = fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']);
+    $key = fanboyBoardKey($board);
+    fanboyBeat();
+    $job['status'] = 'running';
+    fanboyRestoreWrite($job);
+    try {
+        $outputs = fanboyOutputs(fanboyDetect(fanboySysRoot() ?: null));
+        $settings = fanboyBoardRaw($board) ?? [];
+        $before = [];
+        foreach ($job['fans'] as $id) {
+            $o = $outputs[$id] ?? null;
+            if ($o === null || fanboyTake($o, $owner, $key) === null) {
+                continue;
+            }
+            fanboyGiveBack([$id], 'restore', $owner);         // exactly its state before, read back
+            // the tachs that should turn at it: the setup's pairing, else the journal's
+            $j = fanboyJournal()['outputs'][$id] ?? [];
+            $tachs = is_array($settings['fans'][$id]['tachs'] ?? null) && $settings['fans'][$id]['tachs'] ? $settings['fans'][$id]['tachs'] : (is_array($j['tachs'] ?? null) ? $j['tachs'] : []);
+            foreach ($tachs as $n) {
+                if (is_int($n)) {
+                    $before[fanboyTachId($o['chip'], $o['address'], $n)] = 1000;      // it turned before (it ran at that value)
+                }
+            }
+        }
+        $GLOBALS['fanboyKickBefore'] = $before;
+        $t = ($io['now'])();
+        $stuck = [];
+        while ($before && ($io['now'])() - $t < FANBOY_KICK_WAIT) {
+            ($io['sleep'])(0.5);
+            $stuck = fanboyStuckTachs($before);
+            if (!$stuck) {
+                break;
+            }
+        }
+        if ($stuck) {
+            $stuck = fanboyKickStart($stuck, $job['fans'], $owner, $key, $io);
+        }
+        if ($stuck) {
+            $ids = array_values(array_unique(array_merge(...array_map(fn ($tid) => fanboyTachOutputs($tid, $job['fans'], $settings), $stuck))));
+            fanboyFullNow($ids, 'no_restart');                 // still standing: full again, for safety
+            $job['status'] = 'failed';
+            $job['why'] = 'no_restart';
+            logLine('Fanboy: «back to the value before» — ' . implode(', ', $stuck) . ' still doesn\'t start, not even after a kick: full again');
+        } else {
+            $job['status'] = 'done';
+        }
+    } catch (Throwable $e) {
+        $job['status'] = 'failed';
+        $job['why'] = 'error';
+        logLine('Fanboy: «back to the value before» failed: ' . $e->getMessage());
+    } finally {
+        fanboyGiveBack(null, 'restore', $owner);               // nothing of this process held any more
+        fanboyRestoreWrite($job);
+        @unlink(fanboyRunDir() . '/beat-' . getmypid());
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+    return 0;
 }

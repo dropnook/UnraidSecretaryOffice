@@ -1646,5 +1646,7 @@
   }
  },
  "show": null,
+ "safety": {},
+ "restore": null,
  "disk_allow": 3
 }

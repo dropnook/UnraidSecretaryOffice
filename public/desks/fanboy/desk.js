@@ -283,7 +283,7 @@ function load(fresh) {
   return Office.loadState(ID, { fresh }, took);
 }
 function took(j) {
-  if (j.ok && j.state) state = j.state;
+  if (j.ok && j.state) { state = j.state; tookAt = Date.now(); }
   // his picture with a red mark while something is wrong at his fans (its alarm variant, as the Night Watchman has one)
   if (state) Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'chip_gone', 'crashed'].includes(who().why)
     || (idle().on && Object.values(idle().tachs || {}).some((x) => x && x.state === 'alarm')) ? 'alarm' : '');
@@ -395,7 +395,7 @@ function tilesSig() {
     setupSw ? setupSw.active() : '']);
 }
 /** What the banner above the steps says */
-const bannerSig = () => quiet([stepRuns(), showRuns(), ((S().now || {}).safety || []).length, who(), S().situation, control().running, control().alarm, control().armed, control().why, idle(), S().twins, S().vm, setup().zones && setup().zones.length, cpuGiven()]);
+const bannerSig = () => quiet([stepRuns(), showRuns(), Object.keys(S().safety || {}).length, who(), S().situation, control().running, control().alarm, control().armed, control().why, idle(), S().twins, S().vm, setup().zones && setup().zones.length, cpuGiven()]);
 function overviewSig() {
   return quiet([ready(), !!art(), !!cat, Office.agent.running, busy, state, history && history.zones, period, period > 24 && history72 ? history72.zones : null, sw.active(), (sensorBar && sensorBar.read().words) || []]);
 }
@@ -908,6 +908,13 @@ function outputRow(c, o) {
   const wc = watchChipOf(c, f);
   if (wc) meta.appendChild(wc);
   if (offered(c)) meta.appendChild(showButton(id, f));
+  // round 9 (H2): set to full by him for safety — said here and undone here
+  const sx = safetyOf(id);
+  if (sx) {
+    meta.appendChild(chipOfText('warn', T('safety.chip'), T(sx.why === 'not_back' ? 'safety.not_back' : 'safety.no_restart', { pct: num((sx.before || {}).value) === null ? '–' : Math.round(sx.before.value / 2.55) })));
+    const sb = safetyBlock(id);
+    if (sb) meta.appendChild(sb.lastChild);
+  }
   const v = el('div', 'fb-value', num(o.pct) === null ? '–' : T('value', { pct: o.pct }));
   v.title = T('value_title', { value: o.value ?? '–' });
   const b = (setup().before || {})[id];
@@ -1416,6 +1423,14 @@ function paintBanner() {
     const code = c.alarm.code === 'stands' && c.alarm.params && c.alarm.params.alone ? 'stands_alone' : c.alarm.code;
     box('warn', T(`alarm.${code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}) }), { alarm: c.alarm.code });
   }
+  // round 9 (H2): outputs he set to full for safety — named, undone in one click (each card has its own button too)
+  const safe = page === 'setup' ? [] : Object.keys(S().safety || {});      // (the setup's strip says it and puts them back)
+  if (safe.length) {
+    const p = box('warn', T('safety.banner', { list: safe.map((id) => fanName(id)).join(', ') }), { safety: 'full' });
+    const b = button(T('safety.back_all'), T('safety.back_tip_all'), (btn) => act('safety_back', { fan: safe[0], all: true }, btn));
+    if (stepRuns() || showRuns() || restoreRuns()) { b.disabled = true; b.title = T('safety.wait'); }
+    p.appendChild(b);
+  }
   // round 6: a fan he doesn't steer stands — told (after 2 minutes while something was warm; a CPU cooler or pump at once)
   if (idle().on) {
     Object.entries(idle().tachs || {}).filter(([, x]) => x && x.state === 'alarm').forEach(([tid, x]) => {
@@ -1445,7 +1460,7 @@ function paintBanner() {
     box('warn', T('situation.fixed', { list: fixedList(w.fixed) }), { situation: 'fixed' });
   } else if (s === 'ok' && (w.fixed || []).length && !banner.children.length) {
     box('warn', T('situation.fixed_some', { list: fixedList(w.fixed) }), { situation: 'fixed_some' });
-  } else if (s === 'ok' && !banner.children.length && !(page === 'setup' && (stepRuns() || showRuns() || ((S().now || {}).safety || []).length))) {
+  } else if (s === 'ok' && !banner.children.length && !(page === 'setup' && (stepRuns() || showRuns() || Object.keys(S().safety || {}).length))) {
     // (while the setup holds outputs, «the BIOS steers every fan» would be untrue — the setup's strip says what runs)
     box('', steers() ? T(cpuGiven() ? 'situation.steers_cpu' : 'situation.steers', { n: w.zones || 0 }) : c.armed === false && (setup().zones || []).length ? T('situation.not_armed') : T('situation.ok'), { situation: s });
   }
@@ -1567,39 +1582,49 @@ function detectStep() {
 // ------------------------------------------------------------------ what runs now, said in one place
 /**
  * What the setup holds right now — ONE reading for the strip, the list and the panel (the owner, 2026-11-15: «the GUI
- * doesn't show which one is running»). Round 9's own word for it is `state.now` (which output is at full, which stand,
- * the pause and its seconds, an output set to full for safety); without it (an older agent's first state) the same is
- * read from the step and the show as round 8 has them.
- *   kind  test | show | measure | null     id  the output at hand     quiet  the others stand meanwhile
- *   stopped [ids]   pause {left, next} | null   queue [ids still to come]   safety [{id, why}]   since (page clock, ms)
+ * doesn't show which one is running»), from what round 9's agent says: the step's `progress` {phase: full | pause |
+ * kick, quiet, until}, the show's `phase` and `until`, `safety` (outputs he set to full for safety), `restore` (one going
+ * back to its value from before). An older agent's first state lacks the phases: then the step's `current` is «at full».
+ *   kind  test | show | measure | restore | null     id  the output at hand     quiet  the others stand meanwhile
+ *   stopped [ids]   pause {left, kick, next} | null   queue [ids still to come]   safety [{id, why, before}]
+ *   left  seconds it stays at full at most (the agent's `until`), else null — then `since` (the page's clock, ms)
  */
 function runNow() {
-  const n = S().now || {};
   const s = step(), x = showNow();
-  const r = { kind: null, id: null, quiet: false, stopped: [], pause: null, queue: [], safety: [], since: null };
-  if (showRuns()) { r.kind = 'show'; r.id = x.fan; r.quiet = !!x.quiet; }
+  const r = { kind: null, id: null, quiet: false, stopped: [], pause: null, queue: [], safety: [], since: null, left: null, back: [] };
+  let phase = null, until = null;
+  if (showRuns()) { r.kind = 'show'; r.id = x.fan; r.quiet = !!x.quiet; phase = x.phase || 'full'; until = x.until; }
   else if (running(s)) {
+    const p = s.progress || {};
     r.kind = s.kind === 'measure' ? 'measure' : 'test';
     r.id = s.current || null;
-    r.quiet = !!s.quiet && r.kind === 'test';
+    r.quiet = r.kind === 'test' && !!(p.quiet ?? s.quiet);
     r.queue = (s.fans || []).filter((id) => id !== s.current && !(s.done || []).includes(id));
-  }
-  const p = n.pause || (s && running(s) && s.pause) || null;
-  if (p && r.kind) r.pause = { left: num(p.left), next: p.next || null };
-  if (Array.isArray(n.stopped)) r.stopped = n.stopped.slice();
-  else if (r.quiet && r.id && !r.pause) {
+    if (r.kind === 'test') { phase = p.phase || (r.id ? 'full' : null); until = p.until; }
+  } else if (restoreRuns()) { r.kind = 'restore'; r.back = (restoreNow().fans || []).slice(); }
+  if (phase === 'pause' || phase === 'kick') r.pause = { left: secsTo(until), kick: phase === 'kick', next: r.kind === 'test' ? r.queue[0] || null : null };
+  if (phase === 'full') r.left = secsTo(until);
+  // standing on purpose: every other output the quiet test holds at 0 right now
+  if (r.quiet && r.id && !r.pause) {
     r.stopped = (setup().outputs || []).filter((id) => { const o = outputNow(id); return id !== r.id && o && o.pct === 0 && o.mode === 'manual'; });
   }
-  r.safety = (Array.isArray(n.safety) ? n.safety : []).filter((y) => y && y.id);
-  // since when this output is at full: the page's own clock from the look that first showed it (a hint, not a promise)
-  const key = r.kind && r.id && !r.pause ? `${r.kind}:${(s && s.id) || (x && x.id) || ''}:${r.id}` : '';
+  r.safety = Object.keys(S().safety || {}).map((id) => ({ id, ...S().safety[id] }));
+  // without the agent's `until`: since when this output is at full, by the page's own clock from the look that first showed it
+  const key = r.id && !r.pause && (r.kind === 'test' || r.kind === 'show') ? `${r.kind}:${(s && s.id) || (x && x.id) || ''}:${r.id}` : '';
   if (key !== fullKey) { fullKey = key; fullFrom = key ? Date.now() : 0; }
   r.since = key ? fullFrom : null;
   return r;
 }
 let fullKey = '', fullFrom = 0;
 const FULL_MAX = 60;            // seconds an output stays at full at most (the agent's FANBOY_UP_FOR / FANBOY_SHOW_FOR)
-const safetyOf = (run, id) => run.safety.find((y) => y.id === id) || null;
+/** Seconds until a moment of the agent's clock, counted on from the look that brought it (the page's clock may differ) */
+let tookAt = 0;
+function secsTo(until) {
+  if (num(until) === null || num(S().time) === null) return null;
+  return Math.max(0, Math.ceil(until - (S().time + (Date.now() - tookAt) / 1000)));
+}
+/** The percent an output had before Fanboy set it to full for safety (its tip and its words) */
+const safetyPct = (x) => (num((x.before || {}).value) === null ? '–' : Math.round(x.before.value / 2.55));
 /** What the page said last that must not get lost: a refusal, a click that came too early — until the next action */
 let said = null;                // {text, warn}
 function say(text, warn) {
@@ -1628,7 +1653,7 @@ function send(action, body, opts) {
       said = { text: T('strip.refused', { why: text }), warn: true };
       return null;
     }
-    if (j.state) state = j.state;
+    if (j.state) { state = j.state; tookAt = Date.now(); }
     if (o.done) await o.done(j);
     if (!j.state) await load(true);
     return j;
@@ -1643,10 +1668,7 @@ function send(action, body, opts) {
 }
 /** «Alles stoppen»: whatever the setup holds goes back — a step, a show, the fans standing for a quiet test */
 function stopAll() {
-  if (S().now) return send('stop_all', {}, { done: () => Office.toast(T('strip.stopped_toast')) });
-  if (stepRuns()) return send('step_stop', {}, { done: () => Office.toast(T('step.stopped_toast')) });
-  if (showRuns()) return send('show_stop', { fan: showNow().fan });
-  return null;
+  return send('stop_all', {}, { done: () => Office.toast(T('strip.stopped_toast')) });
 }
 
 // ------------------------------------------------------------------ small parts of the list-and-panel
@@ -1682,7 +1704,7 @@ function wheelNow(id, run) {
   const look = fanLook(f);
   const o = outputNow(id);
   const max = look.max || 2000;
-  const full = (run.id === id && !run.pause && run.kind !== 'measure') || !!safetyOf(run, id);
+  const full = (run.id === id && !run.pause && run.kind !== 'measure') || !!safetyOf(id);
   const plain = !look.look && look.colour === 'auto';
   const base = { mm: look.mm, blades: look.blades, min: look.min, max, look: look.look, colour: full && plain ? 'accent' : look.colour, badge: '' };
   if (full) return { ...base, rpm: max, state: 'run' };
@@ -1716,7 +1738,8 @@ function openWhy(id) {
 function rowLabel(id, run) {
   const f = setupFan(id);
   const found = f ? f.found : null;
-  if (safetyOf(run, id)) return ['warn', T('label.safety'), T('label.safety_tip')];
+  const sx = safetyOf(id);
+  if (sx) return ['warn', T('safety.chip'), T(sx.why === 'not_back' ? 'safety.not_back' : 'safety.no_restart', { pct: safetyPct(sx) })];
   if (run.id === id && !run.pause && run.kind) return ['solid', T('label.now'), T('label.now_tip')];
   if (run.stopped.includes(id)) return ['quiet', T('label.stands'), T('label.stands_tip')];
   if (run.kind === 'test' && run.queue.includes(id)) return ['quiet', T('label.waits'), T('label.waits_tip')];
@@ -1842,7 +1865,7 @@ function benchMake() {
     });
     it.el.setAttribute('aria-pressed', sel === id ? 'true' : 'false');
     it.el.classList.toggle('fb-live', run.id === id && !run.pause && !!run.kind);
-    it.el.classList.toggle('fb-item-warn', !!safetyOf(run, id));
+    it.el.classList.toggle('fb-item-warn', !!safetyOf(id));
     it.el.title = T('list.row_tip', { name: fanName(id) });
   }
 
@@ -1880,9 +1903,12 @@ function benchMake() {
     let mood = 'idle', text = T('strip.idle');
     if (run.pause) {
       mood = 'run';
-      const fan = run.pause.next || (run.kind === 'test' ? run.queue[0] : '') || '';
-      text = run.pause.left !== null ? (fan ? T('strip.pause_next', { s: Math.max(0, Math.ceil(run.pause.left)), fan: fanName(fan) }) : T('strip.pause', { s: Math.max(0, Math.ceil(run.pause.left)) })) : T('strip.pause_plain');
-    } else if (run.kind === 'test' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.test_quiet' : 'strip.test', { fan: fanName(run.id) }); }
+      const fan = run.pause.next || '';
+      const left = run.pause.left;
+      text = run.pause.kick ? (left !== null ? T('strip.kick', { s: left }) : T('strip.pause_plain'))
+        : left !== null ? (fan ? T('strip.pause_next', { s: left, fan: fanName(fan) }) : T('strip.pause', { s: left })) : T('strip.pause_plain');
+    } else if (run.kind === 'restore') { mood = 'run'; text = T('strip.restore', { fan: run.back.map((id) => fanName(id)).join(', ') }); }
+    else if (run.kind === 'test' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.test_quiet' : 'strip.test', { fan: fanName(run.id) }); }
     else if (run.kind === 'show' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.show_quiet' : 'strip.show', { fan: fanName(run.id) }); }
     else if (run.kind === 'measure') { mood = 'run'; text = T('strip.measure', { fan: run.id ? fanName(run.id) : '' }); }
     else if (run.kind) { mood = 'run'; text = T('strip.starting'); }
@@ -1901,10 +1927,14 @@ function benchMake() {
     setText(note, line);
     note.classList.toggle('fb-strip-warn', warn);
     strip.classList.toggle('fb-strip-told', warn);
-    swap(stripActs, [!!run.kind, run.safety.map((y) => y.id), Office.agent.running], () => {
+    swap(stripActs, [run.kind, run.safety.map((y) => y.id), Office.agent.running], () => {
       const out = [];
-      run.safety.forEach((y) => out.push(btn(T('safety.back_named', { fan: fanName(y.id) }), 'btn small', () => send('safety_back', { fan: y.id }, { done: () => Office.toast(T('safety.back_toast', { fan: fanName(y.id) })) }), T('safety.back_tip'))));
-      if (run.kind) out.push(btn(T('strip.stop_all'), 'btn small danger', () => stopAll(), T('strip.stop_all_tip')));
+      // set to full for safety: back to the value before, for all of them at once (each panel has its own button)
+      if (run.safety.length && !run.kind) {
+        out.push(btn(T(run.safety.length > 1 ? 'safety.back_all' : 'safety.back'), 'btn small', () => send('safety_back', { fan: run.safety[0].id, all: true }),
+          run.safety.length > 1 ? T('safety.back_tip_all') : T('safety.back_tip', { pct: safetyPct(run.safety[0]) })));
+      }
+      if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('strip.stop_all'), 'btn small danger', () => stopAll(), T('strip.stop_all_tip')));
       out.forEach((b) => { b.disabled = !Office.agent.running; });
       return out;
     });
@@ -1916,15 +1946,21 @@ function benchMake() {
         + (head && getComputedStyle(head).position === 'sticky' ? head.offsetHeight : 0);
       strip.style.top = `${above}px`;
     }
-    tick();
+    clockUpdate();
   }
   /** Each second while something runs: «for 12 s» and the bar — in place, nothing else moves */
   function tick() {
+    const was = run.pause ? run.pause.left : null;
+    run = runNow();
+    if ((run.pause ? run.pause.left : null) !== was) stripUpdate(); else clockUpdate();
+  }
+  function clockUpdate() {
     const on = !!run.since && (run.kind === 'test' || run.kind === 'show');
     clock.classList.toggle('fb-clock-off', !on);
     if (!on) { setText(since, ''); return; }
-    const secs = Math.min(FULL_MAX, Math.max(0, Math.floor((Date.now() - run.since) / 1000)));
-    setText(since, T('strip.since', { s: secs }));
+    // how long it stays at full at most: the agent's word; without it, since when (the page's clock)
+    const secs = run.left !== null ? FULL_MAX - Math.min(FULL_MAX, run.left) : Math.min(FULL_MAX, Math.max(0, Math.floor((Date.now() - run.since) / 1000)));
+    setText(since, run.left !== null ? T('strip.left', { s: run.left }) : T('strip.since', { s: secs }));
     meterBar.style.width = `${Math.round(100 * secs / FULL_MAX)}%`;
   }
 
@@ -2099,7 +2135,7 @@ function panelMake(id, benchRun, benchUpdate) {
     const away = !Office.agent.running;
     const never = ['ignored', 'inverted'].includes(found);
     const noTest = situation() === 'other' ? T('step.blocked_other') : control().running ? T('step.blocked_steering') : '';
-    const sf = safetyOf(run, id);
+    const sf = safetyOf(id);
     if (wh) wh.update(wheelNow(id, run));
     root.classList.toggle('fb-live', here);
     setText(title, f && f.name ? T('panel.title_named', { n: p ? p.output : '?', name: f.name }) : T('out.name', { n: p ? p.output : '?' }));
@@ -2155,13 +2191,17 @@ function panelMake(id, benchRun, benchUpdate) {
       if (!here) out.forEach((b) => { b.disabled = ['ask', 'unclear'].includes(found) && !run.kind && b !== out[2] ? away : blocked; });
       return out;
     });
-    // set to full for safety: said here, with the way back
+    // set to full for safety: said here, with the way back (a process of its own: back, a kick when it doesn't start)
     safety.hidden = !sf;
     if (sf) {
-      swap(safety, [sf.why || '', away], () => {
-        const b = btn(T('safety.back'), 'btn small', () => send('safety_back', { fan: id }, { done: () => Office.toast(T('safety.back_toast', { fan: fanName(id) })) }), T('safety.back_tip'));
-        b.disabled = away;
-        return [el('p', '', T(has(`safety.why.${sf.why}`) ? `safety.why.${sf.why}` : 'safety.why.other', { fan: fanName(id) })), b];
+      const going = restoreRuns() && (restoreNow().fans || []).includes(id);
+      const waits = !going && (stepRuns() || showRuns() || restoreRuns());
+      swap(safety, [sf.why || '', safetyPct(sf), away, going, waits], () => {
+        const b = btn(T('safety.back'), 'btn small', () => send('safety_back', { fan: id }), T('safety.back_tip', { pct: safetyPct(sf) }));
+        if (going) { b.classList.add('running'); b.replaceChildren(wave(), el('span', '', T('safety.backing'))); }
+        b.disabled = away || going || waits;
+        const text = el('p', '', T(sf.why === 'not_back' ? 'safety.not_back' : 'safety.no_restart', { pct: safetyPct(sf) }));
+        return [text, b, waits ? el('p', 'fb-safety-wait', T('safety.wait')) : null];
       });
     }
     // «Was ist das?»
@@ -2185,6 +2225,7 @@ function panelMake(id, benchRun, benchUpdate) {
     else if (f && (f.role === 'cpu' || f.role === 'pump')) hint = T('assign.never_stopped');
     else if (f && f.role === 'unknown') hint = T('roles.bios_note.unknown');
     else if (!roleSet && p && p.output === 1 && !never) hint = T('roles.cpu_hint');
+    else if (f && num(f.kick_start) !== null) hint = T('assign.kick', { pct: Math.round(f.kick_start / 2.55) });
     else if (f && (f.count || 1) > 1) hint = T('roles.count_note', { n: f.count });
     else if (!roleSet && !never) hint = T('panel.role_first');
     setText(note, hint);

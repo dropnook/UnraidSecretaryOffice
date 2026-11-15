@@ -78,7 +78,7 @@ const TABLE5 = [[100, 1450], [90, 1340], [80, 1220], [70, 1100], [60, 980], [50,
 function fan(n, more) {
   // the keys in fanboySetupState()'s order
   const f = { id: P(n), chip: CHIP, output: n, tachs: [], model: null, colour: null, back: null, count: 1, found: null, role: null, name: '', place: null, off_ok: false,
-    measured: false, cpu_own: null, min_pct: null, start_pct: null, max_rpm: null, table: null, no_turn: false };
+    measured: false, cpu_own: null, min_pct: null, start_pct: null, max_rpm: null, table: null, no_turn: false, kick_start: null };
   return Object.assign(f, more);
 }
 const FANS = {
@@ -178,11 +178,9 @@ function state(o) {
     // round 6: the fans he doesn't steer, watched (fanboyIdleState()): on, nothing standing
     idle: o.idle || { on: true, warm: null, tachs: {}, time: T0 },
     show: o.show || null,                     // round 6: «show me this fan» (fanboyShowRead())
+    safety: o.safety || {},                   // round 9 (H2): outputs he set to full for safety (fanboySafetyFull())
+    restore: o.restore || null,               // round 9 (H2): «back to the value before» running or done
     // round 6: °C his zones add to an old disk value (fanboyPollAllowance(): +1 per started 10 minutes over 300 s, at most 3)
-    // what the setup holds right now (round 9, as the page reads it in runNow()): the output at full, those standing for a
-    // quiet test, the restart pause, an output set to full for safety
-    // (only in the states that show it — the other states keep exactly a look's keys, testFanboyPage)
-    ...(o.now ? { now: { stopped: [], pause: null, safety: [], ...o.now } } : {}),
     disk_allow: (() => { const p = o.poll === undefined ? 1800 : o.poll; return p === null || p <= 300 ? 0 : Math.min(3, Math.ceil(p / 600)); })(),
   };
   return s;
@@ -318,13 +316,13 @@ files['fanboy-gone'] = state({ ite: ite({}, RPM), fans: [fan(1, { tachs: [1], fo
 const UX_DONE = { [P(1)]: { found: 'tach', tachs: [1] }, [P(2)]: { found: 'empty', tachs: [] } };
 files['fanboy-uxrun'] = state({ ite: ite({ 1: [128, 1], 2: [0, 1], 3: [255, 0], 4: [0, 1], 5: [0, 1], 6: [0, 1] }, { ...RPM, 4: 0, 5: 0, 6: 0 }),
   fans: [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler', place: 'rear' }), fan(2, { found: 'empty' }), fan(3, { name: 'Vorn unten', role: 'case' })],
-  who: { who: 'bios', why: 'not_set_up' }, now: { stopped: [P(2), P(4), P(5), P(6)] },
-  step: running('test_up', OUTPUTS, P(3), [P(1), P(2)], UX_DONE, { quiet: true }) });
+  who: { who: 'bios', why: 'not_set_up' },
+  step: running('test_up', OUTPUTS, P(3), [P(1), P(2)], UX_DONE, { quiet: true, progress: { id: P(3), phase: 'full', quiet: true, until: T0 + 41 } }) });
 // the restart pause after output 3: everything back as it was, the fans starting again, output 4 next
 files['fanboy-uxpause'] = state({ ite: ite({}, { ...RPM, 4: 310, 5: 420, 6: 380 }),
   fans: [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler', place: 'rear' }), fan(2, { found: 'empty' }), fan(3, { found: 'silent', name: 'Vorn unten', role: 'case', place: 'front' })],
-  who: { who: 'bios', why: 'not_set_up' }, now: { pause: { left: 4, next: P(4) } },
-  step: running('test_up', OUTPUTS, null, [P(1), P(2), P(3)], { ...UX_DONE, [P(3)]: { found: 'silent', tachs: [] } }, { quiet: true, pause: { left: 4, next: P(4) } }) });
+  who: { who: 'bios', why: 'not_set_up' },
+  step: running('test_up', OUTPUTS, P(3), [P(1), P(2)], UX_DONE, { quiet: true, progress: { id: P(3), phase: 'pause', until: T0 + 11 } }) });
 // everything tested and assigned (the panel of the disk cage: found, named, its model chosen)
 const UX_FOUND = [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler', place: 'rear' }), fan(2, { found: 'empty' }),
   fan(3, { found: 'silent', name: 'Vorn unten', role: 'case', place: 'front' }),
@@ -334,7 +332,7 @@ files['fanboy-uxfound'] = state({ ite: ite({}, RPM), fans: UX_FOUND,
   step: { id: 'a1b2c3d4e5f6', kind: 'test_up', fans: OUTPUTS, status: 'done', why: null, pid: 4242, start: '123456', current: null, done: OUTPUTS, results: {}, progress: null, at: T0 - 30 } });
 // a fan that didn't start again after standing: Fanboy set its output to full for safety — said, with the way back
 files['fanboy-uxsafety'] = state({ ite: ite({ 5: [255, 1] }, { ...RPM, 5: 1440, 6: 1410 }), fans: UX_FOUND.slice(0, 5),
-  now: { safety: [{ id: P(5), why: 'no_restart', at: T0 - 50 }] },
+  safety: { [P(5)]: { why: 'no_restart', at: T0 - 50, before: { value: 128, enable: 1 } } },
   step: { id: 'a1b2c3d4e5f6', kind: 'test_up', fans: OUTPUTS, status: 'stopped', why: 'no_restart', quiet: true, quiet_stop: { what: 'Vorn', c: null }, pid: 4242, start: '123456', current: null,
     done: [P(1), P(2), P(3), P(4), P(5)], results: {}, progress: null, at: T0 - 50 } });
 // one output still to test (the picture tool has its start refused: the CPU is warm — the strip says so and keeps it)

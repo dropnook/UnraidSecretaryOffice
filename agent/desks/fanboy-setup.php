@@ -201,34 +201,123 @@ function fanboyStepNext(array $r): array
     return ['ok' => true, 'step' => fanboyStepRead()];
 }
 
-function fanboyQuietRestart(array $before, array $quieted, array $io): void
+const FANBOY_KICK_WAIT = 5.0;           // round 9: seconds a fan that turned before gets to start again by itself …
+const FANBOY_KICK_FOR = 3.0;            // … then its output to full this long (the kick) …
+const FANBOY_KICK_LOOK = 10.0;          // … and this long to turn after it (still not: full + an alert)
+
+/** The tachs of $before that turned (≥ 200 rpm) and read under 100 now — a sentinel or nothing read is no value, never «stands» */
+function fanboyStuckTachs(array $before): array
 {
+    $now = fanboyAllTachs();
+    return array_keys(array_filter($before, fn ($rpm, $tid) => is_int($rpm) && $rpm >= 200 && is_int($now[$tid] ?? null) && $now[$tid] < 100, ARRAY_FILTER_USE_BOTH));
+}
+
+/** A tach's output(s): the one the setup paired it with, else every one of $candidates on its chip */
+function fanboyTachOutputs(string $tid, array $candidates, ?array $settings): array
+{
+    $chipOf = fn (string $id) => (string) preg_replace('/:pwm\d+$/D', '', $id);
+    [$chip, $n] = explode('#', $tid) + [1 => '0'];
+    $chipKey = str_replace('@', ':', $chip);
+    $paired = array_keys(array_filter(is_array($settings['fans'] ?? null) ? $settings['fans'] : [], fn ($f, $id) => is_array($f)
+        && $chipOf((string) $id) === $chipKey && fanboyFound($f) === 'tach' && in_array((int) $n, is_array($f['tachs'] ?? null) ? $f['tachs'] : [], true), ARRAY_FILTER_USE_BOTH));
+    return $paired ?: array_values(array_filter($candidates, fn ($id) => $chipOf((string) $id) === $chipKey));
+}
+
+/**
+ * Round 9 (H1, the owner's server: a fan that KEEPS turning at 50 % but doesn't START at 50 % — it needs a kick): every
+ * tach that turned before ($before) and still stands → its output to full for FANBOY_KICK_FOR, back exactly to its state
+ * before, FANBOY_KICK_LOOK to turn. Turning: «needs a kick to start» kept for that fan (kick_start: the value it doesn't
+ * start at — a hint for the control's start value). Returns the tachs still standing after the kick.
+ */
+function fanboyKickStart(array $stuck, array $candidates, array $owner, string $boardKey, array $io): array
+{
+    $settings = fanboyBoardRaw() ?? [];
+    $outputs = fanboyOutputs(fanboyDetect(fanboySysRoot() ?: null));
+    $byTach = [];
+    foreach ($stuck as $tid) {
+        $byTach[$tid] = array_values(array_filter(fanboyTachOutputs($tid, $candidates, $settings), fn ($id) => isset($outputs[$id])));
+    }
+    $ids = array_values(array_unique(array_merge(...array_values($byTach) ?: [[]])));
+    if (!$ids) {
+        return $stuck;
+    }
+    ($io['note'] ?? fn (array $p) => null)(['phase' => 'kick', 'until' => time() + (int) (FANBOY_KICK_FOR + FANBOY_KICK_LOOK)]);
+    $taken = [];
+    try {
+        foreach ($ids as $id) {
+            if (fanboyTake($outputs[$id], $owner, $boardKey) !== null && fanboySet($id, FANBOY_FULL, $owner) !== null) {
+                $taken[] = $id;
+            }
+        }
+        fanboyStepWait($io, FANBOY_KICK_FOR);
+    } finally {
+        fanboyGiveBack($taken, 'kick', $owner);              // exactly the state before — the value it keeps turning at
+    }
+    $t = ($io['now'])();
+    $left = array_keys($byTach);
+    while ($left && ($io['now'])() - $t < FANBOY_KICK_LOOK) {
+        fanboyStepWait($io, 0.5);
+        $still = fanboyStuckTachs(array_intersect_key($GLOBALS['fanboyKickBefore'] ?? [], array_flip($left)));
+        $left = array_values(array_intersect($left, $still));
+    }
+    // started after the kick: a fan the setup knows remembers it (its card says so; the control starts it above that)
+    $learned = [];
+    foreach (array_diff(array_keys($byTach), $left) as $tid) {
+        foreach (fanboyTachOutputs($tid, [], $settings) as $id) {
+            $learned[$id] = fanboyJournal()['outputs'][$id]['initial']['value'] ?? null;
+        }
+        logLine("Fanboy: $tid started again only after a kick — it needs one to start from standing");
+    }
+    if ($learned) {
+        fanboyStoreUpdate(function (array $e) use ($learned): array {
+            foreach ($learned as $id => $value) {
+                if (is_array($e['fans'][$id] ?? null)) {
+                    $e['fans'][$id]['kick_start'] = ['at' => time(), 'value' => is_int($value) ? $value : null];
+                }
+            }
+            return $e;
+        });
+    }
+    return $left;
+}
+
+/**
+ * After a quiet phase (everything given back): at least FANBOY_QUIET_PAUSE as before; a fan that turned before and
+ * doesn't turn by FANBOY_KICK_WAIT gets a kick (fanboyKickStart(), round 9); one still standing after it: its output —
+ * the one the setup paired it with, else every output quieted on its chip — to full (unheld, fanboyFullNow(): the page
+ * shows it on the card, «back to the value before» undoes it), an alert naming it, the test stops.
+ */
+function fanboyQuietRestart(array $before, array $quieted, array $io, ?array $owner = null, string $boardKey = ''): void
+{
+    ($io['note'] ?? fn (array $p) => null)(['phase' => 'pause', 'until' => time() + (int) FANBOY_QUIET_PAUSE]);
+    $GLOBALS['fanboyKickBefore'] = $before;
     $t1 = ($io['now'])();
+    $stuck = [];
     while (true) {
-        $now = fanboyAllTachs();
-        $stuck = array_keys(array_filter($before, fn ($rpm, $tid) => is_int($rpm) && $rpm >= 200 && is_int($now[$tid] ?? null) && $now[$tid] < 100, ARRAY_FILTER_USE_BOTH));
-        // (a sentinel or nothing read is «no value», never «stands» — part 1's rule)
+        $stuck = fanboyStuckTachs($before);
         $elapsed = ($io['now'])() - $t1;
         if (!$stuck && $elapsed >= FANBOY_QUIET_PAUSE) {
             return;
         }
-        if ($stuck && $elapsed >= FANBOY_QUIET_RESTART) {
+        if ($stuck && $elapsed >= FANBOY_KICK_WAIT) {
             break;
         }
         fanboyStepWait($io, 0.5);
     }
+    if ($owner !== null) {
+        $stuck = fanboyKickStart($stuck, $quieted, $owner, $boardKey, $io);
+        if (!$stuck) {
+            fanboyStepWait($io, 1.0);
+            return;
+        }
+    }
     $settings = fanboyBoardRaw() ?? [];
-    $chipOf = fn (string $id) => (string) preg_replace('/:pwm\d+$/D', '', $id);
     $full = [];
     $names = fanboyTachNames(fanboyChips(fanboyPaths(fanboySysRoot() ?: null)['hwmon']), $settings);
     foreach ($stuck as $tid) {
-        [$chip, $n] = explode('#', $tid);
-        $chipKey = str_replace('@', ':', $chip);
-        $paired = array_keys(array_filter(is_array($settings['fans'] ?? null) ? $settings['fans'] : [], fn ($f, $id) => is_array($f)
-            && $chipOf((string) $id) === $chipKey && fanboyFound($f) === 'tach' && in_array((int) $n, is_array($f['tachs'] ?? null) ? $f['tachs'] : [], true), ARRAY_FILTER_USE_BOTH));
-        $ids = $paired ?: array_values(array_filter($quieted, fn ($id) => $chipOf($id) === $chipKey));
+        $ids = fanboyTachOutputs($tid, $quieted, $settings);
         $full = array_merge($full, $ids);
-        logLine("Fanboy: after the quiet test {$names[$tid]} didn't turn again — " . ($ids ? implode(', ', $ids) . ' set to full speed' : 'no output of it known'));
+        logLine("Fanboy: after the quiet test {$names[$tid]} didn't turn again, not even after a kick — " . ($ids ? implode(', ', $ids) . ' set to full speed' : 'no output of it known'));
         fanboyTellOnce("no_restart:$tid", 'quiet_no_restart', ['fan' => $names[$tid] ?? $tid], 'alert');
     }
     fanboyFullNow(array_values(array_unique($full)), 'no_restart');
@@ -422,6 +511,8 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool 
         if (fanboySet($o['id'], FANBOY_FULL, $owner) === null) {
             return ['found' => 'busy', 'tachs' => []];
         }
+        // round 9 (H3): what runs now, for the page — this output at full (the others standing in a quiet test)
+        ($io['note'] ?? fn (array $p) => null)(['phase' => 'full', 'quiet' => $quiet, 'until' => time() + (int) FANBOY_UP_FOR]);
         $t0 = ($io['now'])();
         $seen = [];
         $fell = [];
@@ -494,7 +585,7 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool 
     }
     // round 8 (G1): after a quiet phase, the pause — every fan that turned before turns again, or its output to full
     if ($quiet && $quietedAll) {
-        fanboyQuietRestart($tachsBefore, $quietedAll, $io);
+        fanboyQuietRestart($tachsBefore, $quietedAll, $io, $owner, $boardKey);
     }
     sort($follow);
     sort($inverted);
