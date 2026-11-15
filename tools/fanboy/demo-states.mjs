@@ -350,6 +350,16 @@ files['fanboy-uxsafety'] = state({ ite: ite({ 5: [255, 1] }, { ...RPM, 5: 1440, 
 // one output still to test (the picture tool has its start refused: the CPU is warm — the strip says so and keeps it)
 files['fanboy-uxopen'] = state({ ite: ite({}, RPM), fans: UX_FOUND.slice(0, 5) });
 
+// round 12 on the page: the measuring's standstill part running (the disk cage's output at 0 — does it stop?), and its
+// results — the disk cage stands and starts again from 35 %, «Vorn» never stands quite still, the CPU cooler on the
+// owner's risk stands and needs a push (it may stand only behind its own confirmation)
+files['fanboy-uxstop'] = state({ ite: ite({ 4: [0, 1] }, { ...RPM, 4: 260 }), fans: SET_UP.map((f) => (f.output === 5 ? { ...f, measured: false, min_pct: null, start_pct: null, max_rpm: null, table: null } : f)),
+  step: running('measure', [P(4), P(5)], P(4), [], {}, { progress: { id: P(4), table: TABLE4, phase: 'stop_check', until: T0 + 12, next: null } }) });
+const STAND = { 1: { stops: true, floor_rpm: null, start_from_stop: null, kick_start: 30, stops_safe: true }, 4: { stops: true, floor_rpm: null, start_from_stop: 35, kick_start: null, stops_safe: true },
+  5: { stops: false, floor_rpm: 420, start_from_stop: null, kick_start: null, stops_safe: null } };
+files['fanboy-uxstand'] = state({ ite: ite({}, RPM), zones: [...ZONES, CPU_ZONE], who: { who: 'bios', why: 'not_armed' },
+  fans: CPU_OWN.map((f) => (STAND[f.output] ? { ...f, stand: STAND[f.output], off_ok: f.output === 4, may_stand: f.output === 4 } : f)) });
+
 // the curve view's history (invented): three days for the disk cage, 30 hours for the case (a zone added later — the page
 // says «recorded only since …»), a point a minute, then kept as the agent keeps it (fanboyHistoryThin(): 12 h of minutes,
 // older ones a 5-minute span carrying its warmest, highest level and rpm). Warm afternoons, cool nights.
