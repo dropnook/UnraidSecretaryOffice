@@ -203,6 +203,61 @@ function fanboyCurveAt(array $curve, float $t): float
 }
 
 /**
+ * Round 13 (the owner: every kind its own curve): a kind's curve in that kind's own degrees — its own (`zone.curves.<kind>`:
+ * points, or a preset on the kind's «ab»…«volle Drehzahl bei») or, without one, DERIVED from the zone's curve: the zone's
+ * points moved from the zone's scale onto the kind's low…high — the same affine mapping fanboyMapped() made, so a zone
+ * without `curves` asks exactly what it asked before. [points, own]
+ */
+function fanboyKindCurve(array $zone, string $kind): array
+{
+    $kv = fanboyKindValues($zone, $kind);
+    [$kl, $kh] = [(float) $kv['low'], (float) $kv['high']];
+    $own = is_array($zone['curves'] ?? null) ? ($zone['curves'][$kind] ?? null) : null;
+    if (is_array($own)) {
+        $points = $own['points'] ?? null;
+        if (is_array($points) && count($points) >= 2) {
+            usort($points, fn ($a, $b) => $a[0] <=> $b[0]);
+            return [array_map(fn ($p) => [(float) $p[0], (float) $p[1]], $points), true];
+        }
+        if (in_array($own['preset'] ?? null, FANBOY_PRESETS, true)) {
+            return [fanboyPreset($own['preset'], $kl, $kh > $kl ? $kh : $kl + 10), true];
+        }
+    }
+    [$lo, $hi] = fanboyZoneScale($zone);
+    $curve = fanboyZoneCurve($zone);
+    if ($kh <= $kl) {
+        return [$curve, false];
+    }
+    return [array_map(fn ($p) => [$kl + ($p[0] - $lo) * ($kh - $kl) / ($hi - $lo), $p[1]], $curve), false];
+}
+
+/** Round 13: every kind of a zone's sources with its curve as it counts — {kind: {points, own}} (the page, the status) */
+function fanboyZoneKindCurves(array $zone): array
+{
+    $out = [];
+    foreach (is_array($zone['sources'] ?? null) ? $zone['sources'] : [] as $src) {
+        $k = is_array($src) && is_string($src['kind'] ?? null) ? $src['kind'] : null;
+        if ($k !== null && !isset($out[$k])) {
+            [$points, $own] = fanboyKindCurve($zone, $k);
+            $out[$k] = ['points' => $points, 'own' => $own];
+        }
+    }
+    return $out;
+}
+
+/**
+ * Round 13: a source's temperature on its kind's scale — a source with its own «ab»/«voll» is moved from those onto its
+ * kind's (the simplest honest rule: its own values say where on its kind's curve it stands); else as it is
+ */
+function fanboyKindPosition(array $zone, array $source, float $t): float
+{
+    $sv = fanboySourceValues($zone, $source);
+    $kv = fanboyKindValues($zone, $source['kind'] ?? 'other');
+    [$sl, $sh, $kl, $kh] = [(float) $sv['low'], (float) $sv['high'], (float) $kv['low'], (float) $kv['high']];
+    return $sh > $sl && $kh > $kl && ($sl !== $kl || $sh !== $kh) ? $kl + ($t - $sl) * ($kh - $kl) / ($sh - $sl) : $t;
+}
+
+/**
  * A source's temperature on the zone's scale: from its own low/high onto the zone's. A source of the zone's own kind
  * without a scale of its own counts as it is (a disk in a disk zone: 41 °C is 41 °C).
  */
@@ -447,6 +502,8 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 'unit' => ($z['unit'] ?? 'pct') === 'rpm' ? 'rpm' : 'pct',
                 'low' => $z['low'] ?? null, 'high' => $z['high'] ?? null,
                 'kinds' => is_array($z['kinds'] ?? null) ? $z['kinds'] : [],      // round 4: «Temperaturen» per kind
+                'curves' => is_array($z['curves'] ?? null) ? $z['curves'] : [],   // round 13: a curve of its own per kind
+                'by_kind' => [], 'leader' => null,
                 'cur' => null, 'hold_t' => null, 'warmest' => null, 'hot_since' => null, 'level' => null, 'state' => [],
                 'react' => in_array($z['react'] ?? null, FANBOY_REACTS, true) ? $z['react'] : 'balanced', 'below_since' => null,
             ];
@@ -809,6 +866,9 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
     $z = $c['zones'][$zid];
     [$lo, $hi] = fanboyZoneScale($z);
     $warmest = null;
+    $warmestAsk = -INF;
+    $kindCurves = [];
+    $byKind = [];
     $hot = false;
     $states = [];
     foreach ($z['sources'] as $s) {
@@ -832,26 +892,45 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
         }
         $states[$s['id']] = 'ok';
         $m = fanboyMapped($s, (float) $r['c'], $lo, $hi, $z['sources'][0]['kind'] ?? '');
-        if ($warmest === null || $m > $warmest['mapped']) {
-            $warmest = ['id' => $s['id'], 'label' => $r['label'], 'c' => $r['c'], 'mapped' => round($m, 1), 'kind' => $s['kind']]
-                + (isset($r['raw']) && $r['raw'] !== $r['c'] ? ['raw' => $r['raw']] : []);      // round 6: the disk's own value, before the allowance
+        // round 13: what it asks for on its kind's own curve; the zone follows the source that asks the most (the leader)
+        $curveK = $kindCurves[$s['kind']] ??= fanboyKindCurve($z, $s['kind'])[0];
+        $pos = fanboyKindPosition($z, $s, (float) $r['c']);
+        $ask = fanboyCurveAt($curveK, $pos);
+        $w = ['id' => $s['id'], 'label' => $r['label'], 'c' => $r['c'], 'mapped' => round($m, 1), 'kind' => $s['kind'], 'value' => round($ask, 1), 'pos' => $pos]
+            + (isset($r['raw']) && $r['raw'] !== $r['c'] ? ['raw' => $r['raw']] : []);      // round 6: the disk's own value, before the allowance
+        if ($warmest === null || $ask > $warmestAsk || ($ask === $warmestAsk && $m > $warmest['mapped'])) {
+            $warmest = $w;
+            $warmestAsk = $ask;
+        }
+        if (!isset($byKind[$s['kind']]) || $ask > $byKind[$s['kind']]['ask'] || ($ask === $byKind[$s['kind']]['ask'] && $r['c'] > $byKind[$s['kind']]['c'])) {
+            $byKind[$s['kind']] = ['source' => $s['id'], 'label' => $r['label'], 'c' => $r['c'], 'value' => round($ask, 1), 'ask' => $ask];
         }
         if ($r['c'] >= fanboySourceLimit($s)) {
             $hot = true;
             $hotWhat = ['source' => $r['label'], 'c' => $r['c'], 'zone' => $z['name']];
         }
     }
-    $curve = fanboyZoneCurve($z);
-    // nothing warm to go by (all asleep, none): the curve's start — its quiet level
-    $raw = $warmest === null ? $curve[0][1] : fanboyCurveAt($curve, $warmest['mapped']);
+    // nothing warm to go by (all asleep, none): the curve's start — its quiet level (the first kind's, as the zone's was)
+    $raw = $warmest === null ? fanboyKindCurve($z, $z['sources'][0]['kind'] ?? 'disk')[0][0][1] : $warmestAsk;
     if ($z['unit'] === 'pct') {
         $raw = max(0.0, min(100.0, $raw));
     }
     $cur = $z['cur'];
     $t = $warmest['mapped'] ?? $lo;
+    // round 13: with a curve of its own for some kind, the zone's common scale says nothing about who asks more — the way
+    // down then goes by the leader itself: a leader that did not push the level up (the one that did cooled off) lets it
+    // come down at once (by its kind's way), the same leader once it is its kind's gap under where it pushed. Without own
+    // curves: as before (the warmest on the zone's scale against the temperature the level went up at).
+    $ownCurves = !empty($z['curves']);
+    $pos = $warmest['pos'] ?? null;
+    $hold = function () use (&$z, $t, $warmest, $pos): void {
+        $z['hold_t'] = $t;
+        $z['hold_src'] = $warmest['id'] ?? null;
+        $z['hold_pos'] = $pos;
+    };
     if ($hot) {
         $cur = $z['unit'] === 'pct' ? 100.0 : max($raw, $cur ?? $raw);     // over a limit: full now (each fan below)
-        $z['hold_t'] = $t;          // went up at this temperature: the way down starts once it is FANBOY_GAP under it again
+        $hold();                    // went up at this temperature: the way down starts once it is FANBOY_GAP under it again
         $z['hot_since'] ??= $now;
         if ($now - $z['hot_since'] >= FANBOY_HOT_AFTER) {
             $reasons['hot'] = ($hotWhat ?? []) + ['zid' => $zid];
@@ -860,11 +939,14 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
     } else {
         $z['hot_since'] = null;
         $down = fanboyDownProfile($warmest['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']);
+        $cooler = $ownCurves
+            ? (($warmest['id'] ?? null) !== ($z['hold_src'] ?? null) || $pos === null || $pos <= ($z['hold_pos'] ?? $pos) - $down['gap'])
+            : $t <= ($z['hold_t'] ?? $t) - $down['gap'];
         if ($cur === null || $raw >= $cur) {
             $cur = $raw;                                            // up at once
-            $z['hold_t'] = $t;
+            $hold();
             $z['below_since'] = null;
-        } elseif ($t <= ($z['hold_t'] ?? $t) - $down['gap']) {
+        } elseif ($cooler) {
             // down by the leading source's kind: after its hold, its step a round (rpm zones: the same share in rpm)
             $z['below_since'] ??= $now;
             if ($now - $z['below_since'] >= $down['hold']) {
@@ -877,6 +959,12 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
     $z['cur'] = $cur;
     $z['warmest'] = $warmest;
     $z['state'] = $states;
+    // round 13: each kind's warmest source (the one asking the most of its kind) and what it asks for; who leads now
+    $z['by_kind'] = array_map(fn ($k) => array_diff_key($k, ['ask' => 1]), $byKind);
+    if (is_array($z['warmest'])) {
+        unset($z['warmest']['pos']);
+    }
+    $z['leader'] = $warmest === null ? null : ['source' => $warmest['id'], 'kind' => $warmest['kind']];
     $c['zones'][$zid] = $z;
     // each fan's percentage
     foreach ($z['fans'] as $id) {
@@ -1232,6 +1320,8 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
             'full' => isset($c['full_since'][$z['id']]),         // round 4: this zone at 100 % for an alarm
             'react' => $z['react'], 'down' => fanboyDownProfile($z['warmest']['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']),
             'warmest' => $z['warmest'], 'asleep' => count(array_filter($z['state'], fn ($s) => $s === 'asleep')),
+            // round 13: every kind's curve as it counts now (own or derived), its warmest source and what it asks, who leads
+            'curves' => fanboyZoneKindCurves($z), 'by_kind' => ($z['by_kind'] ?? []) ?: new stdClass(), 'leader' => $z['leader'] ?? null,
             'fans' => array_map(fn ($id) => ['id' => $id, 'name' => $c['fans'][$id]['name'], 'output' => $c['fans'][$id]['output'],
                 'pct' => $c['fans'][$id]['taken'] ? $c['fans'][$id]['pct'] : null, 'rpm' => $c['fans'][$id]['rpm'] ?? null,
                 'held' => $c['fans'][$id]['taken'], 'foreign' => $c['fans'][$id]['foreign'],

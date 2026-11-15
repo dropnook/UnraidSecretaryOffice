@@ -1565,29 +1565,19 @@ function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
                 throw new Problem('fanboy_bad_temps', ['source' => $src['id'], 'low' => $e['low'], 'high' => $e['high'], 'limit' => $e['limit']]);
             }
         }
-        $t = $z['target'] ?? ['preset' => 'normal'];
-        if (!is_array($t)) {
-            throw new Problem('fanboy_bad_zones', ['field' => 'target']);
+        $target = fanboyTargetCheck($z['target'] ?? ['preset' => 'normal'], $unit, 'target');
+        // round 13: a curve of its own per kind — only kinds the zone has, each checked as the zone's curve; a kind not
+        // sent stays derived from the zone's curve
+        $curves = [];
+        $rawCurves = $z['curves'] ?? [];
+        if (!is_array($rawCurves) || ($rawCurves !== [] && array_is_list($rawCurves))) {
+            throw new Problem('fanboy_bad_zones', ['field' => 'curves']);
         }
-        if (isset($t['points'])) {
-            if (!is_array($t['points']) || !array_is_list($t['points']) || count($t['points']) < 2 || count($t['points']) > 8) {
-                throw new Problem('fanboy_bad_zones', ['field' => 'points']);
+        foreach ($rawCurves as $kind => $cv) {
+            if (!is_string($kind) || !in_array($kind, array_column($sources, 'kind'), true)) {
+                throw new Problem('fanboy_bad_zones', ['field' => 'curves']);
             }
-            $pts = [];
-            foreach ($t['points'] as $p) {
-                if (!is_array($p) || !array_is_list($p) || count($p) !== 2) {
-                    throw new Problem('fanboy_bad_zones', ['field' => 'points']);
-                }
-                $tc = fanboyNum(['t' => $p[0]], 't', 0, 120);
-                $v = fanboyNum(['v' => $p[1]], 'v', 0, $unit === 'pct' ? 100 : 10000);
-                $pts[] = [$tc, $v];
-            }
-            $target = ['points' => $pts];
-        } else {
-            if (!in_array($t['preset'] ?? null, FANBOY_PRESETS, true) || $unit === 'rpm') {
-                throw new Problem('fanboy_bad_zones', ['field' => 'preset']);
-            }
-            $target = ['preset' => $t['preset']];
+            $curves[$kind] = fanboyTargetCheck($cv, $unit, 'curves');
         }
         // round 4: how he reacts — «balanced» (the default) or «quick»; read strictly, absent = balanced
         $react = $z['react'] ?? 'balanced';
@@ -1596,9 +1586,39 @@ function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
         }
         $out[$z['id']] = ['id' => $z['id'], 'name' => $name, 'fans' => $z['fans'], 'sources' => array_values($sources),
             'target' => $target, 'unit' => $unit, 'low' => fanboyNum($z, 'low', 0, 110), 'high' => fanboyNum($z, 'high', 0, 120), 'react' => $react,
-            'kinds' => $kinds ?: new stdClass()];
+            'kinds' => $kinds ?: new stdClass(), 'curves' => $curves ?: new stdClass()];
     }
     return array_values($out);
+}
+
+/**
+ * A curve as the page sends it — the zone's (`target`) or one kind's (round 13, `curves.<kind>`): 2–8 points [°C 0–120,
+ * value 0–100 % or 0–10000 rpm], or a preset (percent zones only). $field: the refusal's field.
+ */
+function fanboyTargetCheck(mixed $t, string $unit, string $field): array
+{
+    if (!is_array($t)) {
+        throw new Problem('fanboy_bad_zones', ['field' => $field]);
+    }
+    if (isset($t['points'])) {
+        if (!is_array($t['points']) || !array_is_list($t['points']) || count($t['points']) < 2 || count($t['points']) > 8) {
+            throw new Problem('fanboy_bad_zones', ['field' => $field === 'target' ? 'points' : $field]);
+        }
+        $pts = [];
+        foreach ($t['points'] as $p) {
+            if (!is_array($p) || !array_is_list($p) || count($p) !== 2) {
+                throw new Problem('fanboy_bad_zones', ['field' => $field === 'target' ? 'points' : $field]);
+            }
+            $tc = fanboyNum(['t' => $p[0]], 't', 0, 120);
+            $v = fanboyNum(['v' => $p[1]], 'v', 0, $unit === 'pct' ? 100 : 10000);
+            $pts[] = [$tc, $v];
+        }
+        return ['points' => $pts];
+    }
+    if (!in_array($t['preset'] ?? null, FANBOY_PRESETS, true) || $unit === 'rpm') {
+        throw new Problem('fanboy_bad_zones', ['field' => $field === 'target' ? 'preset' : $field]);
+    }
+    return ['preset' => $t['preset']];
 }
 
 function fanboyZonesSave(array $r): array
@@ -1640,6 +1660,8 @@ function fanboyDryRun(): array
         $out[] = ['id' => $zid, 'name' => $z['name'], 'unit' => $z['unit'], 'level' => $z['cur'] === null ? null : round($z['cur'], 1), 'warmest' => $z['warmest'],
             'react' => $z['react'], 'down' => fanboyDownProfile($z['warmest']['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']),
             'asleep' => count(array_filter($z['state'], fn ($s) => $s === 'asleep')), 'quiet' => count(array_filter($z['state'], fn ($s) => $s === 'quiet')),
+            // round 13: as the control: every kind's curve, its warmest source and what it asks for, who leads
+            'curves' => fanboyZoneKindCurves($z), 'by_kind' => ($z['by_kind'] ?? []) ?: new stdClass(), 'leader' => $z['leader'] ?? null,
             'fans' => array_map(function ($id) use ($c) {
                 $f = $c['fans'][$id];
                 $now = $f['device'] !== null ? fanboyOutputNow($f['device'], $f['output']) : null;

@@ -765,8 +765,16 @@ function fanboySetupState(array $scan, ?array $settings): array
     foreach ($zones as $z) {
         if (is_string($z['id'] ?? null)) {
             [$lo, $hi] = fanboyZoneScale($z);
+            // round 13: every kind of its sources with its own curve (or the derived one), on its own scale, and the presets there
+            $kinds = [];
+            foreach (fanboyZoneKindCurves($z) as $k => $kc) {
+                $kv = fanboyKindValues($z, $k);
+                $kl = (float) $kv['low'];
+                $kh = (float) $kv['high'] > $kl ? (float) $kv['high'] : $kl + 10;
+                $kinds[$k] = $kc + ['scale' => [$kl, $kh], 'presets' => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, $kl, $kh), FANBOY_PRESETS))];
+            }
             $curves[$z['id']] = ['points' => fanboyZoneCurve($z), 'scale' => [$lo, $hi],
-                'presets' => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, $lo, $hi), FANBOY_PRESETS))];
+                'presets' => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, $lo, $hi), FANBOY_PRESETS)), 'kinds' => $kinds ?: new stdClass()];
         }
     }
     $before = fanboyBefore($scan);

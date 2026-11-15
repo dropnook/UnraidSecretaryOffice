@@ -1996,3 +1996,151 @@ function testFanboyR12Look(): void
         fanboyTEnd();
     }
 }
+
+/** Round 13: a zone as the control keeps it (only what fanboyZoneRound() reads), and one round of it with these temperatures */
+function fanboyR13Zone(array $z): array
+{
+    return $z + ['id' => 'z', 'name' => 'Z', 'fans' => [], 'unit' => 'pct', 'target' => ['preset' => 'normal'], 'low' => null, 'high' => null, 'kinds' => [],
+        'curves' => [], 'react' => 'balanced', 'cur' => null, 'hold_t' => null, 'warmest' => null, 'hot_since' => null, 'below_since' => null, 'level' => null,
+        'state' => [], 'by_kind' => [], 'leader' => null];
+}
+
+function fanboyR13Round(array &$c, array $temps, float $now): float
+{
+    foreach ($temps as $id => $t) {
+        $c['sources'][$id] = ['kind' => 'x', 'label' => $id, 'c' => $t, 'asleep' => false, 'quiet_since' => null, 'path' => '/x'];
+    }
+    $reasons = [];
+    fanboyZoneRound($c, 'z', $now, $reasons);
+    return (float) $c['zones']['z']['cur'];
+}
+
+/** Round 12's zone computation (before round 13): every source laid onto the zone's scale, the zone's curve at the warmest */
+function fanboyR13Old(array $z, array $temps): float
+{
+    [$lo, $hi] = fanboyZoneScale($z);
+    $best = null;
+    foreach ($z['sources'] as $s) {
+        $s = fanboySourceValues($z, $s);
+        if (isset($temps[$s['id']])) {
+            $m = fanboyMapped($s, (float) $temps[$s['id']], $lo, $hi, $z['sources'][0]['kind'] ?? '');
+            $best = max($best ?? $m, $m);
+        }
+    }
+    $curve = fanboyZoneCurve($z);
+    $raw = $best === null ? $curve[0][1] : fanboyCurveAt($curve, $best);
+    return $z['unit'] === 'pct' ? max(0.0, min(100.0, $raw)) : $raw;
+}
+
+/**
+ * Round 13 (the owner: every kind of heat source its own curve): a zone without `curves` asks exactly what it asked
+ * before — a grid of temperatures over every kind, presets, own points, the zone's own scale, a source's own values, rpm
+ */
+function testFanboyR13Compat(): void
+{
+    $src = fn (string $kind, string $id, array $more = []) => ['kind' => $kind, 'id' => $id] + $more;
+    $zones = [
+        'disk zone, every kind, normal' => ['sources' => [$src('disk', 'd1'), $src('disk', 'd2'), $src('cpu', 'c1'), $src('nvme', 'n1'), $src('ram', 'r1'), $src('ssd', 's1')]],
+        'cpu zone, quiet, a disk in it' => ['sources' => [$src('cpu', 'c1'), $src('disk', 'd1')], 'target' => ['preset' => 'quiet']],
+        'cool, the zone\'s own scale' => ['sources' => [$src('nvme', 'n1'), $src('disk', 'd1')], 'target' => ['preset' => 'cool'], 'low' => 38, 'high' => 58],
+        'own points, a source with its own values' => ['sources' => [$src('disk', 'd1'), $src('cpu', 'c1', ['low' => 50, 'high' => 70]), $src('ram', 'r1')],
+            'target' => ['points' => [[30, 0], [40, 0], [45, 60], [50, 100]]]],
+        'the table «Temperaturen» per kind' => ['sources' => [$src('disk', 'd1'), $src('cpu', 'c1')], 'kinds' => ['cpu' => ['low' => 40, 'high' => 75], 'disk' => ['low' => 33]]],
+        'rpm' => ['sources' => [$src('disk', 'd1'), $src('cpu', 'c1')], 'unit' => 'rpm', 'target' => ['points' => [[30, 600], [45, 1400]]]],
+    ];
+    $off = [];
+    $n = 0;
+    foreach ($zones as $what => $z) {
+        $z = fanboyR13Zone($z);
+        $ids = array_column($z['sources'], 'id');
+        $limit = min(array_map(fn ($s) => fanboySourceLimit(fanboySourceValues($z, $s)), $z['sources']));
+        foreach (range(20, (int) $limit - 1, 3) as $base) {
+            foreach ($ids as $i => $lead) {
+                $temps = [];
+                foreach ($ids as $j => $id) {
+                    $temps[$id] = min($limit - 1, $base + ($id === $lead ? 7 : ($j % 3)));
+                }
+                $c = ['zones' => ['z' => $z], 'sources' => [], 'fans' => [], 'full_since' => []];
+                $new = fanboyR13Round($c, $temps, 0.0);
+                $old = fanboyR13Old($z, $temps);
+                $n++;
+                if (abs($new - $old) > 1e-6) {
+                    $off[] = "$what " . json_encode($temps) . ": old $old, new $new";
+                }
+            }
+        }
+    }
+    same("fanboy r13 compat: a zone without its own curves asks to the percent what it asked before ($n cases over every kind)", [], array_slice($off, 0, 5));
+    $z = fanboyR13Zone(['sources' => [$src('disk', 'd1'), $src('cpu', 'c1')]]);
+    $want = [false, false, [[35, 20], [40, 45], [45, 80], [48, 100]], [[45, 20], [62.5, 45], [80, 80], [90.5, 100]]];
+    $got = [fanboyKindCurve($z, 'disk')[1], fanboyKindCurve($z, 'cpu')[1], fanboyKindCurve($z, 'disk')[0], fanboyKindCurve($z, 'cpu')[0]];
+    check('fanboy r13 compat: … the derived curves — the zone\'s curve on each kind\'s own scale (disk 35…45 → cpu 45…80), flagged not own',
+        $want == $got, json_encode($got));
+}
+
+/** Round 13: one kind with its own curve, the others derived; the highest ask wins; the status says each kind's curve, warmest and ask, and who leads */
+function testFanboyR13Curves(): void
+{
+    $src = fn (string $kind, string $id) => ['kind' => $kind, 'id' => $id];
+    $z = fanboyR13Zone(['sources' => [$src('disk', 'd1'), $src('disk', 'd2'), $src('cpu', 'c1')], 'curves' => ['cpu' => ['points' => [[40, 0], [60, 100]]]]]);
+    $c = ['zones' => ['z' => $z], 'sources' => [], 'fans' => [], 'full_since' => []];
+    $level = fanboyR13Round($c, ['d1' => 36, 'd2' => 40, 'c1' => 50], 0.0);
+    same('fanboy r13: the CPU on its own curve (50 °C: 50 %), the disks on the derived one (40 °C: 45 %) — the highest wins: 50 %, the CPU leads',
+        [50.0, ['source' => 'c1', 'kind' => 'cpu'], ['source' => 'd2', 'c' => 40, 'value' => 45.0], ['source' => 'c1', 'c' => 50, 'value' => 50.0]],
+        [$level, $c['zones']['z']['leader'], array_intersect_key($c['zones']['z']['by_kind']['disk'], array_flip(['source', 'c', 'value'])),
+            array_intersect_key($c['zones']['z']['by_kind']['cpu'], array_flip(['source', 'c', 'value']))]);
+    $c2 = ['zones' => ['z' => $z], 'sources' => [], 'fans' => [], 'full_since' => []];
+    same('fanboy r13: … the disk warmer (44 °C asks 73 %) — the disks lead', [73.0, 'disk'], [round(fanboyR13Round($c2, ['d1' => 44, 'd2' => 40, 'c1' => 50], 0.0)), $c2['zones']['z']['leader']['kind']]);
+    $z2 = fanboyR13Zone(['sources' => [$src('disk', 'd1'), $src('cpu', 'c1')], 'curves' => ['cpu' => ['preset' => 'quiet']]]);
+    same('fanboy r13: a kind\'s own preset lies on its own scale (CPU quiet: 45 °C 0 %, 62.5 °C 30 %, 80 °C 60 %)', [[[45.0, 0], [62.5, 30], [80.0, 60], [85.0, 100]], true],
+        fanboyKindCurve($z2, 'cpu'));
+    // the status the page reads: every kind's curve (own or derived), its warmest and what it asks, the leader
+    $st = ['zones' => [['id' => 'z', 'name' => 'Z', 'unit' => 'pct', 'cur' => 50.0, 'react' => 'balanced', 'warmest' => $c['zones']['z']['warmest'], 'state' => [],
+        'fans' => [], 'sources' => $z['sources'], 'curves' => $z['curves'], 'kinds' => [], 'by_kind' => $c['zones']['z']['by_kind'], 'leader' => $c['zones']['z']['leader']]]];
+    $zs = fanboyZoneKindCurves($z);
+    same('fanboy r13 status: per kind its curve and whether it is its own', [['disk', 'cpu'], false, true], [array_keys($zs), $zs['disk']['own'], $zs['cpu']['own']]);
+    check('fanboy r13 status: the control\'s status and the dry run carry curves, by_kind and leader per zone',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-control.php'), "'curves' => fanboyZoneKindCurves(\$z), 'by_kind' =>")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-setup.php'), "'curves' => fanboyZoneKindCurves(\$z), 'by_kind' =>"), json_encode($st['zones'][0]['leader']));
+
+    // the way down follows the leading kind after a change of leader: the CPU (5 % a round) led high, then cooled — the disks
+    // lead now, and it comes down by the disks' way (1 % a round), not the CPU's
+    $z3 = fanboyR13Zone(['sources' => [$src('cpu', 'c1'), $src('disk', 'd1')], 'curves' => ['cpu' => ['points' => [[40, 0], [60, 100]]]]]);
+    $c3 = ['zones' => ['z' => $z3], 'sources' => [], 'fans' => [], 'full_since' => []];
+    $now = 0.0;
+    fanboyR13Round($c3, ['c1' => 56, 'd1' => 40], $now);           // the CPU asks 80 %, the disk 45 %
+    $levels = [];
+    for ($i = 0; $i < 6; $i++) {
+        $now += 2.0;
+        $levels[] = fanboyR13Round($c3, ['c1' => 30, 'd1' => 40], $now);
+    }
+    same('fanboy r13: the CPU led at 80 %, then cooled — the disk leads (45 %) and the zone comes down by the disks\' way: 1 % a round',
+        ['disk', [79.0, 78.0, 77.0, 76.0, 75.0, 74.0]], [$c3['zones']['z']['leader']['kind'], $levels]);
+}
+
+/** Round 13: own curves refused — a kind the zone doesn't have, too few points, out of bounds, a preset in an rpm zone, a list */
+function testFanboyR13Refused(): void
+{
+    $t = fanboyT('r13ref');
+    try {
+        $settings = fanboyTSettings();
+        $zone = $settings['zones'][0];          // disks, its fan 4, three disk sources
+        $check = function (array $curves, string $unit = 'pct') use ($zone, $settings): string {
+            $z = ['curves' => $curves, 'unit' => $unit] + $zone;
+            if ($unit === 'rpm') {
+                $z['target'] = ['points' => [[30, 600], [45, 1400]]];
+            }
+            return fanboyR6Refused(fn () => fanboyZonesCheck([$z], fanboyDetect(), $settings));
+        };
+        same('fanboy r13 refused: a kind the zone has no source of, one point, 130 °C, a value over 100 %, a preset in an rpm zone, a list instead of kinds',
+            array_fill(0, 6, 'fanboy_bad_zones'),
+            [$check(['cpu' => ['points' => [[40, 0], [60, 100]]]]), $check(['disk' => ['points' => [[40, 0]]]]), $check(['disk' => ['points' => [[40, 0], [130, 100]]]]),
+             $check(['disk' => ['points' => [[40, 0], [60, 101]]]]), $check(['disk' => ['preset' => 'quiet']], 'rpm'), $check([['points' => [[40, 0], [60, 100]]]])]);
+        $ok = fanboyZonesCheck([['curves' => ['disk' => ['points' => [[35, 10], [45, 90]]]]] + $zone], fanboyDetect(), $settings)[0];
+        check('fanboy r13: a good one stored for that kind only (the others stay derived); none sent: none stored',
+            json_decode(json_encode($ok['curves']), true) == ['disk' => ['points' => [[35, 10], [45, 90]]]] && json_encode(fanboyZonesCheck([$zone], fanboyDetect(), $settings)[0]['curves']) === '{}',
+            json_encode($ok['curves']));
+    } finally {
+        fanboyTEnd();
+    }
+}
