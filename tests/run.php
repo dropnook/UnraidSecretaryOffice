@@ -64344,7 +64344,7 @@ function testFanboyHidden(): void
         [$off[0]['desk'] ?? $off[0], $off[0]['actions'] ?? null, $off[0]['fit'] ?? null, $off[0]['checks'] ?? null, $off[1]['desk'] ?? $off[1]]);
     same('fanboy hidden: with the file — the desk on both sides (refresh, report and part 2\'s actions; a fit, checks, his two jobs, a tick)',
         [true, ['refresh', 'report', 'look_now', 'drivers_load', 'drivers_undo', 'test_up', 'measure', 'step_alive', 'step_stop', 'answer', 'role',
-                'zones_propose', 'zones_save', 'dry_run', 'take_over', 'hand_back', 'back', 'fan_look', 'history', 'dashboard', 'watch', 'show'], true, true, ['fanboy-control', 'fanboy-step', 'fanboy-show', 'fanboy-ipmi'], true, true],
+                'zones_propose', 'zones_save', 'dry_run', 'take_over', 'hand_back', 'back', 'fan_look', 'history', 'dashboard', 'watch', 'show'], true, true, ['fanboy-control', 'fanboy-step', 'fanboy-show'], true, true],
         [$on[0]['desk'] ?? $on[0], $on[0]['actions'] ?? null, $on[0]['fit'] ?? null, $on[0]['checks'] ?? null, $on[0]['jobs'] ?? null, $on[0]['tick'] ?? null, $on[1]['desk'] ?? $on[1]]);
     same('fanboy hidden: … and the other desks the same either way', $on[1]['others'] - 1, $off[1]['others'] ?? null);
     // the repository's own data folder (what every other test sees): no switch, so no Fanboy among the agent's desks
@@ -64379,7 +64379,6 @@ function testFanboyNoWrite(): void
         'fanboy-drivers.php'  => ['writeAtomic', 'run', 'unlink'],
         'fanboy-dash.php'     => ['writeAtomic'],                              // his Dashboard tile's setting and its mirror in RAM
         'fanboy-watch.php'    => ['writeAtomic', 'unlink'],                    // round 6: the watch's setting, what it learned, its state in RAM
-        'fanboy-ipmi.php'     => ['writeAtomic', 'run', 'fopen'],               // round 6: `ipmitool sensor` (read only), what it read in RAM, its lock
         'fanboy-show.php'     => ['writeAtomic', 'fopen', 'unlink'],           // round 6: «show me this fan» — its state in RAM, its lock (writes only through the helper)
         'fanboy-write.php'    => ['writeAtomic', 'fopen', 'fwrite', 'unlink'],
         'fanboy-guard.php'    => ['writeAtomic', 'fwrite'],
@@ -64802,7 +64801,7 @@ function testFanboyPage(): void
     $keys = fn (array $a) => array_keys($a);
     foreach (['tests/ui/states/fanboy.json', 'tests/ui/demo/fanboy.json'] as $f) {
         $st = json_decode((string) @file_get_contents(OFFICE_DIR . "/$f"), true);
-        same("fanboy page: $f has a look's keys (part 2's on top), its chips a chip's", [[...$keys($look), 'control', 'setup', 'step', 'drivers', 'idle', 'show', 'disk_allow', 'ipmi_sensors'], $keys($look['chips'][10])],
+        same("fanboy page: $f has a look's keys (part 2's on top), its chips a chip's", [[...$keys($look), 'control', 'setup', 'step', 'drivers', 'idle', 'show', 'disk_allow'], $keys($look['chips'][10])],
             [is_array($st) ? $keys($st) : null, is_array($st['chips'][10] ?? null) ? $keys($st['chips'][10]) : null]);
     }
     // the docs: his entry under «The desks»
@@ -65217,7 +65216,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
           'fanboy' => ['testFanboyHidden', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
                        'testFanboyWrite', 'testFanboyControl', 'testFanboyAlarms', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',
                        'testFanboyProcesses', 'testFanboyDrivers', 'testFanboyStopScripts', 'testFanboyState',
-                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR6Ipmi',
+                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks',
                        'testFanboyDashTile', 'testFanboyDashSource', 'testFanboyDashSetting', 'testFanboyDashHistory'],
           'tools' => ['testReleaseHashes', 'testReleaseState', 'testReleaseClicksRetry', 'testScenarioToolsSafe']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

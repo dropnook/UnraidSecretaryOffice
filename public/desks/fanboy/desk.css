@@ -5,8 +5,6 @@
   .fb-value{font-size:12.5px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap}
   .fb-row .row-meta{flex-wrap:wrap}
   .fb-show{white-space:nowrap}
-  .fb-ipmi .fb-hint-text{margin:6px 0}
-  .fb-ipmi .box{margin:8px 0}
   /* a row's technical detail: the chip, the output's file, the enable number — only here */
   .fb-tech{display:grid; gap:2px; margin-top:6px}
   .fb-tech-line{display:flex; gap:8px; flex-wrap:wrap; font-size:12.5px; color:var(--ink2)}

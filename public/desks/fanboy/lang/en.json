@@ -819,22 +819,5 @@
   "errors.fanboy_show_alarm": "An alarm holds — the fans of its zone are at 100 % already. Show it when the alarm is over.",
   "errors.fanboy_show_not": "This output doesn't obey, works the other way round or its driver takes no values — Fanboy never writes it.",
   "hints.poll_add": "Values up to {min} minutes old — I add {add} °C to them in my zones (such a value is a lower bound of the truth).",
-  "zones.poll_add": "So Fanboy adds {add} °C to each disk value.",
-  "ipmi.title": "The BMC's fan thresholds",
-  "ipmi.untested": "not yet checked on real hardware",
-  "ipmi.untested_title": "Fanboy reads these values with ipmitool, read only. Built after the tables of Supermicro and ASRock Rack boards — not yet tried on a real one.",
-  "ipmi.waves.1": "The classic fault on server boards: a slow, quiet fan drops below the BMC's lower threshold. The BMC takes it for failed and spins every fan to full, the slow one is over the threshold again, the BMC lets go — and so on, in waves.",
-  "ipmi.waves.2": "The cure: set the lower thresholds (LNR, LCR, LNC) of such a fan below its slowest speed — in your BMC's web page or with ipmitool. You do that yourself; Fanboy only reads, he never changes the BMC.",
-  "ipmi.lower": "lower thresholds: LNR {lnr} · LCR {lcr} · LNC {lnc} rpm",
-  "ipmi.near": "near its lower threshold",
-  "ipmi.near_title": "Its speed is within 20 % of its lower critical threshold (LCR) — a little slower and the BMC spins every fan to full",
-  "ipmi.below": "under its lower threshold",
-  "ipmi.below_title": "Its speed is at or under its lower critical threshold — the BMC takes it for failed",
-  "ipmi.reading": "Fanboy asks the BMC for its fan sensors …",
-  "ipmi.read_at": "Read {when} — at most every 10 minutes.",
-  "ipmi.failed.timeout": "The BMC didn't answer within 10 seconds — Fanboy tries again in 10 minutes.",
-  "ipmi.failed.error": "ipmitool couldn't read the BMC's sensors — Fanboy tries again in 10 minutes.",
-  "ipmi.failed.empty": "The BMC lists no fan sensor (none in rpm).",
-  "ipmi.failed.no_tool": "ipmitool isn't there (a plugin brings it) — Fanboy installs nothing.",
-  "ipmi.banner": "{fans}: near or under the BMC's lower threshold — the BMC may spin every fan up and down in waves. The hints say what helps."
+  "zones.poll_add": "So Fanboy adds {add} °C to each disk value."
 }

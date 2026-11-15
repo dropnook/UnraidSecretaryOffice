@@ -819,22 +819,5 @@
   "errors.fanboy_show_alarm": "Ein Alarm läuft — die Lüfter seiner Zone sind schon auf 100 %. Zeig ihn, wenn der Alarm vorbei ist.",
   "errors.fanboy_show_not": "Dieser Ausgang gehorcht nicht, arbeitet verkehrt herum oder sein Treiber nimmt keine Werte an — Fanboy schreibt nie darauf.",
   "hints.poll_add": "Werte bis {min} Minuten alt — ich rechne in meinen Zonen {add} °C dazu (so ein Wert ist eine Untergrenze).",
-  "zones.poll_add": "Darum rechnet Fanboy zu jedem Disk-Wert {add} °C dazu.",
-  "ipmi.title": "Die Lüfter-Schwellen des BMC",
-  "ipmi.untested": "noch nicht an echter Hardware geprüft",
-  "ipmi.untested_title": "Fanboy liest diese Werte mit ipmitool, nur lesend. Gebaut nach den Tabellen von Supermicro- und ASRock-Rack-Boards — an einem echten noch nicht ausprobiert.",
-  "ipmi.waves.1": "Der klassische Fehler auf Server-Mainboards: Ein langsamer, leiser Lüfter fällt unter die untere Schwelle des BMC. Der BMC hält ihn für kaputt und dreht alle Lüfter auf volle Drehzahl, der langsame ist wieder über der Schwelle, der BMC lässt los — und so weiter, in Wellen.",
-  "ipmi.waves.2": "Die Abhilfe: Setz die unteren Schwellen (LNR, LCR, LNC) eines solchen Lüfters unter seine langsamste Drehzahl — auf der Web-Seite deines BMC oder mit ipmitool. Das machst du selbst; Fanboy liest nur, er ändert am BMC nie etwas.",
-  "ipmi.lower": "untere Schwellen: LNR {lnr} · LCR {lcr} · LNC {lnc} U/min",
-  "ipmi.near": "nah an der unteren Schwelle",
-  "ipmi.near_title": "Seine Drehzahl liegt weniger als 20 % über der unteren kritischen Schwelle (LCR) — etwas langsamer, und der BMC dreht alle Lüfter auf volle Drehzahl",
-  "ipmi.below": "unter der unteren Schwelle",
-  "ipmi.below_title": "Seine Drehzahl liegt auf oder unter der unteren kritischen Schwelle — der BMC hält ihn für kaputt",
-  "ipmi.reading": "Fanboy fragt den BMC nach seinen Lüfter-Sensoren …",
-  "ipmi.read_at": "Gelesen {when} — höchstens alle 10 Minuten.",
-  "ipmi.failed.timeout": "Der BMC hat nicht innert 10 Sekunden geantwortet — Fanboy versucht es in 10 Minuten wieder.",
-  "ipmi.failed.error": "ipmitool konnte die Sensoren des BMC nicht lesen — Fanboy versucht es in 10 Minuten wieder.",
-  "ipmi.failed.empty": "Der BMC nennt keinen Lüfter-Sensor (keinen in U/min).",
-  "ipmi.failed.no_tool": "ipmitool ist nicht da (ein Plugin bringt es mit) — Fanboy installiert nichts.",
-  "ipmi.banner": "{fans}: nah an oder unter der unteren Schwelle des BMC — er kann alle Lüfter in Wellen hoch- und herunterdrehen. Die Hinweise sagen, was hilft."
+  "zones.poll_add": "Darum rechnet Fanboy zu jedem Disk-Wert {add} °C dazu."
 }

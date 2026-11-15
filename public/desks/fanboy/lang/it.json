@@ -819,22 +819,5 @@
   "errors.fanboy_show_alarm": "È in corso un allarme: le ventole della sua zona sono già al 100 %. Mostrala quando l'allarme è finito.",
   "errors.fanboy_show_not": "Questa uscita non obbedisce, funziona al contrario o il suo driver non accetta valori: Fanboy non ci scrive mai.",
   "hints.poll_add": "Valori vecchi fino a {min} minuti: nelle mie zone aggiungo {add} °C (un valore così è un limite inferiore).",
-  "zones.poll_add": "Perciò Fanboy aggiunge {add} °C a ogni valore dei dischi.",
-  "ipmi.title": "Le soglie delle ventole del BMC",
-  "ipmi.untested": "non ancora verificato su hardware reale",
-  "ipmi.untested_title": "Fanboy legge questi valori con ipmitool, solo in lettura. Costruito sulle tabelle delle schede Supermicro e ASRock Rack, non ancora provato su una reale.",
-  "ipmi.waves.1": "Il difetto classico delle schede server: una ventola lenta e silenziosa scende sotto la soglia inferiore del BMC. Il BMC la considera guasta e porta tutte le ventole al massimo, quella lenta torna sopra la soglia, il BMC rilascia — e così via, a ondate.",
-  "ipmi.waves.2": "Il rimedio: imposta le soglie inferiori (LNR, LCR, LNC) di una ventola così sotto la sua velocità più bassa, nella pagina web del tuo BMC o con ipmitool. Lo fai tu; Fanboy legge soltanto, non cambia mai nulla nel BMC.",
-  "ipmi.lower": "soglie inferiori: LNR {lnr} · LCR {lcr} · LNC {lnc} giri/min",
-  "ipmi.near": "vicina alla soglia inferiore",
-  "ipmi.near_title": "La sua velocità è entro il 20 % dalla soglia critica inferiore (LCR): un po' più lenta e il BMC porta tutte le ventole al massimo",
-  "ipmi.below": "sotto la soglia inferiore",
-  "ipmi.below_title": "La sua velocità è pari o sotto la soglia critica inferiore: il BMC la considera guasta",
-  "ipmi.reading": "Fanboy chiede al BMC i suoi sensori delle ventole …",
-  "ipmi.read_at": "Letto {when}, al massimo ogni 10 minuti.",
-  "ipmi.failed.timeout": "Il BMC non ha risposto entro 10 secondi: Fanboy riprova tra 10 minuti.",
-  "ipmi.failed.error": "ipmitool non è riuscito a leggere i sensori del BMC: Fanboy riprova tra 10 minuti.",
-  "ipmi.failed.empty": "Il BMC non elenca alcun sensore di ventola (nessuno in giri/min).",
-  "ipmi.failed.no_tool": "ipmitool non c'è (lo porta un plugin): Fanboy non installa nulla.",
-  "ipmi.banner": "{fans}: vicino o sotto la soglia inferiore del BMC, che può far salire e scendere tutte le ventole a ondate. I suggerimenti dicono cosa aiuta."
+  "zones.poll_add": "Perciò Fanboy aggiunge {add} °C a ogni valore dei dischi."
 }

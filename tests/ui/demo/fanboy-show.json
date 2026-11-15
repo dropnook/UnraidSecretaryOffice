@@ -2182,6 +2182,5 @@
    4
   ]
  },
- "disk_allow": 3,
- "ipmi_sensors": null
+ "disk_allow": 3
 }

@@ -1741,6 +1741,5 @@
   "time": 1763100000
  },
  "show": null,
- "disk_allow": 3,
- "ipmi_sensors": null
+ "disk_allow": 3
 }
