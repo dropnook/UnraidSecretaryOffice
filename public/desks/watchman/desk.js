@@ -1537,7 +1537,7 @@ function details(e) {
   const notes = [];
   if (e.group === 'flow' && p.learning) notes.push(T('detail.learning'));
   if (p.office && e.kind.startsWith('cron_file')) notes.push(T('detail.office_cron'));
-  if (e.open) notes.push(T('adopt.' + e.kind));
+  if (e.open) notes.push(T('adopt.' + (e.v === 'net_ips_server_list' ? e.v : e.kind)));     // a block list: its own words (the whole list)
   const by = e.by === 'office' && e.kind === 'partner_paired' ? 'office_partner' : e.by === 'office' && e.kind === 'drill_throwaway' ? 'office_drill' : e.by;
   if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'schedule', 'array', 'unraid', 'plugin', 'back', 'router', 'parity'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));

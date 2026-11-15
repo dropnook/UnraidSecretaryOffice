@@ -30,7 +30,7 @@ declare(strict_types=1);
  * addresses and names only in net_new_device and net_spoof; the «whole LAN» switch adds per-device counts, nothing more).
  *
  * Files: baseline.json `net` (what is normal: senders, devices, the server's own MACs, admins, VPN users, blocked keys,
- * inbound signatures — learned by the first round that sees a router), data/watchman/net.json (positions, per sender
+ * inbound signatures and block lists — learned by the first round that sees a router), data/watchman/net.json (positions, per sender
  * counts and times, detections and dropped events per day, blocked counts, devices' last sight, the LAN counts) —
  * watchnetRound() reads the files outside his book's lock, watchnetCompare() judges inside it.
  */
@@ -44,7 +44,9 @@ const WATCHNET_DEVICES_MAX   = 500;
 const WATCHNET_ADMINS_MAX    = 50;
 const WATCHNET_VPN_MAX       = 50;
 const WATCHNET_BLOCKED_MAX   = 200;
-const WATCHNET_SIGS_MAX      = 200;
+const WATCHNET_SIGS_MAX      = 500;                  // inbound signatures known (single ones; a numbered block list is one family)
+const WATCHNET_FAMS_MAX      = 100;                  // inbound block lists known (families: the signature without « group N»)
+const WATCHNET_SIGHT_STEP    = 86400;                // a known signature's last sight moves on in steps this long (the flash mirror wears)
 const WATCHNET_LAN_MAX       = 500;
 const WATCHNET_DAYS          = 14;                   // per-day counts kept this long
 const WATCHNET_GAP_DAYS      = 7;                    // the usual gap between a sender's lines: the longest of these days
@@ -1203,11 +1205,62 @@ function watchnetScrub(string $s, array $allow): string
 function watchnetBase(mixed $b): array
 {
     $b = is_array($b) ? $b : [];
-    foreach (['senders', 'devices', 'self', 'admins', 'vpn', 'blocked', 'ips_in', 'fail_ips'] as $k) {
+    foreach (['senders', 'devices', 'self', 'admins', 'vpn', 'blocked', 'ips_in', 'ips_in_fam', 'fail_ips'] as $k) {
         $b[$k] = is_array($b[$k] ?? null) ? $b[$k] : [];
     }
     $b['time'] = (int) ($b['time'] ?? 0);
     return $b;
+}
+
+/**
+ * The family of an IPS signature: its name without a trailing « group <number>» — the reputation block lists (ET CINS
+ * «… Poor Reputation IP group 45», ET TOR «Known Tor Exit Node Traffic group 12», ET DROP, ET COMPROMISED …) are split
+ * into hundreds of numbered groups, each with a signature id of its own, and are one thing. Null: no such tail — the
+ * signature is its own (known and keyed by its id, as always).
+ */
+function watchnetSigFamily(string $signature): ?string
+{
+    return preg_match('/^(.*\S) group \d{1,6}$/D', $signature, $m) ? $m[1] : null;
+}
+
+/** The block list an inbound net_ips_server entry is about (its p): the list's entry's family, or one group's from before the families; null: a single signature, or from the server */
+function watchnetIpsFamilyOf(array $p): ?string
+{
+    if (($p['dir'] ?? '') !== 'in') {
+        return null;
+    }
+    return is_string($p['family'] ?? null) && $p['family'] !== '' ? $p['family'] : watchnetSigFamily((string) ($p['signature'] ?? ''));
+}
+
+/**
+ * The inbound block lists already known from before the families (1.x: one entry per group): a family is known when
+ * one of its groups is in the book as an inbound net_ips_server entry the owner noted with «I know, thanks» (his page or
+ * the team lead's; not «serious», not the baseline's taking over), or whose signature id the baseline knows (`ips_in`:
+ * adopted or learned from the router's history). Every round, idempotent — a family put out by the cap comes back while
+ * the book still names it. A book trimmed of those entries names nothing: that family's next hit is told once, as one
+ * entry for the whole list (a known group's hit makes its family known too: watchnetEvent()).
+ */
+function watchnetIpsFamiliesKnown(array &$b, array $book): void
+{
+    foreach ($book as $e) {
+        $p = (array) ($e['p'] ?? []);
+        $fam = ($e['kind'] ?? '') === 'net_ips_server' ? watchnetIpsFamilyOf($p) : null;
+        if ($fam === null || isset($b['ips_in_fam'][$fam])) {
+            continue;
+        }
+        $adopted = !empty($e['noted']) && in_array($e['by'] ?? null, ['page', 'teamlead'], true) && empty($e['serious']);
+        if ($adopted || (is_string($p['sig'] ?? null) && isset($b['ips_in'][$p['sig']]))) {
+            $b['ips_in_fam'][$fam] = (int) ($e['last'] ?? $e['noted'] ?? 0);
+        }
+    }
+}
+
+/** A known signature or family seen again: its last sight moves on (in WATCHNET_SIGHT_STEP steps) — the cap keeps what is still seen */
+function watchnetSighted(array &$list, string $key, int $t): void
+{
+    if ((int) ($list[$key] ?? 0) <= $t - WATCHNET_SIGHT_STEP) {
+        $list[$key] = $t;
+    }
 }
 
 /** net.json in its shape */
@@ -1240,6 +1293,8 @@ function watchnetCompare(?array &$b, array $look, array &$book, array &$ns, arra
     $b = watchnetBase($fresh ? null : $b);
     if ($first) {
         $b['time'] = $now;
+    } else {
+        watchnetIpsFamiliesKnown($b, $book);         // the block lists noted before there were families
     }
     $added = [];
     $today = date('Y-m-d', $now);
@@ -1481,19 +1536,37 @@ function watchnetEvent(array &$b, array &$ns, array &$book, string $sender, arra
             $remote = $in ? $ev['src'] : $ev['dst'];
             $mine = $in ? $ev['dst'] : $ev['src'];
             $ns['days'][date('Y-m-d', $now)]['_det'][$dir] = (int) ($ns['days'][date('Y-m-d', $now)]['_det'][$dir] ?? 0) + 1;
+            $sig = (string) $ev['sig'];
+            $fam = $in ? watchnetSigFamily((string) $ev['signature']) : null;      // inbound only: from the server is told every time
             if ($learn) {
-                if ($in) {
-                    $b['ips_in'][(string) $ev['sig']] = $t;
+                if ($fam !== null) {
+                    $b['ips_in_fam'][$fam] = max((int) ($b['ips_in_fam'][$fam] ?? 0), $t);      // a block list: all its groups
+                } elseif ($in) {
+                    $b['ips_in'][$sig] = max((int) ($b['ips_in'][$sig] ?? 0), $t);
                 }
                 return null;
             }
-            if ($in && isset($b['ips_in'][(string) $ev['sig']])) {
-                return null;                    // inbound, this signature known: counted only
+            if ($in && (isset($b['ips_in'][$sig]) || ($fam !== null && isset($b['ips_in_fam'][$fam])))) {
+                // inbound, this signature or its block list known: counted only, its last sight moved on — and a group
+                // known by its id (noted before there were families) makes its whole list known
+                if (isset($b['ips_in'][$sig])) {
+                    watchnetSighted($b['ips_in'], $sig, $t);
+                }
+                if ($fam !== null) {
+                    watchnetSighted($b['ips_in_fam'], $fam, $t);
+                }
+                return null;
             }
-            return watchmanBump($book, 'net_ips_server', "net_ips_server:{$ev['sig']}:$dir", $t, 1,
-                ['sender' => $sender, 'router' => $router, 'sig' => (string) $ev['sig'], 'signature' => (string) $ev['signature'], 'dir' => $dir,
-                 'remote' => $remote, 'server' => $mine, 'dpt' => $ev['dpt'], 'proto' => (string) $ev['proto'], 'risk' => (string) $ev['risk'],
-                 'evidence' => watchnetEvidence($ev, $allow + ($remote !== null ? [$remote => true] : []))]);
+            $p = ['sender' => $sender, 'router' => $router, 'sig' => $sig, 'signature' => (string) $ev['signature'], 'dir' => $dir,
+                  'remote' => $remote, 'server' => $mine, 'dpt' => $ev['dpt'], 'proto' => (string) $ev['proto'], 'risk' => (string) $ev['risk'],
+                  'evidence' => watchnetEvidence($ev, $allow + ($remote !== null ? [$remote => true] : []))];
+            if ($fam === null) {
+                return watchmanBump($book, 'net_ips_server', "net_ips_server:$sig:$dir", $t, 1, $p);
+            }
+            // a numbered block list: ONE entry for all its groups (the newest group, remote and port in it)
+            $key = "net_ips_server:fam:$fam:in";
+            watchnetIpsFold($book, $fam, $key);
+            return watchmanBump($book, 'net_ips_server', $key, $t, 1, ['family' => $fam] + $p);
         case 'blocked':
             $key = watchnetBlockedKey((string) $ev['dst'], (string) $ev['proto'], $ev['dpt']);
             $bk = is_array($ns['blocked'][$key] ?? null) ? $ns['blocked'][$key] : ['n' => 0, 'first' => $t];
@@ -1917,6 +1990,31 @@ function watchnetTooMuch(array &$book, string $sender, int $skipped, int $now, b
     $book[] = watchmanEntry('watch', $key, $now, ['too_much' => 1, 'skipped' => $skipped, 'sender' => $sender] + ($ros ? ['ros' => 1] : []));
 }
 
+/**
+ * An open entry of one group of this block list from before the families (key by its id): it becomes the list's entry
+ * (key by the family) — counted on there, never told again as new. Only when the list has no open entry of its own.
+ */
+function watchnetIpsFold(array &$book, string $fam, string $key): void
+{
+    $old = null;
+    foreach ($book as $i => $e) {
+        if (($e['kind'] ?? '') !== 'net_ips_server' || !watchmanOpen($e)) {
+            continue;
+        }
+        if (($e['key'] ?? '') === $key) {
+            return;
+        }
+        $p = (array) ($e['p'] ?? []);
+        if ($old === null && !isset($p['family']) && watchnetIpsFamilyOf($p) === $fam) {
+            $old = $i;
+        }
+    }
+    if ($old !== null) {
+        $book[$old]['key'] = $key;
+        $book[$old]['p']['family'] = $fam;
+    }
+}
+
 /** His memory of the network kept small: the lists capped, the days 14, devices by their newest sight */
 function watchnetTidy(array &$b, array &$ns, int $now): void
 {
@@ -1949,7 +2047,9 @@ function watchnetTidy(array &$b, array &$ns, int $now): void
             }
         }
     }
-    foreach (['blocked' => WATCHNET_BLOCKED_MAX, 'ips_in' => WATCHNET_SIGS_MAX] as $k => $max) {
+    // inbound signatures and block lists by their last sight (adoption and learning are sights too; seen again moves it
+    // on): what goes is what wasn't seen for the longest — never one just adopted
+    foreach (['blocked' => WATCHNET_BLOCKED_MAX, 'ips_in' => WATCHNET_SIGS_MAX, 'ips_in_fam' => WATCHNET_FAMS_MAX] as $k => $max) {
         if (count($b[$k]) > $max) {
             arsort($b[$k]);
             $b[$k] = array_slice($b[$k], 0, $max, true);
@@ -1969,8 +2069,9 @@ function watchnetTidy(array &$b, array &$ns, int $now): void
 
 /**
  * «I know, thanks» on a network entry: what becomes normal — the MAC that claims the server's name or address, the
- * admin's address, the VPN user's address, an inbound signature, a blocked destination, an address failing at the
- * router's login (counted from then on); an admin changing settings is known from now on. A new sender, a new device:
+ * admin's address, the VPN user's address, an inbound signature (of a numbered block list: the whole list), a blocked
+ * destination, an address failing at the router's login (counted from then on); an admin changing settings is known
+ * from now on. A new sender, a new device:
  * learned already; a firewall change, an outbound signature, silence, a port's link, an outage, a restart: nothing to
  * learn (an outbound hit is told again — never learned away).
  */
@@ -2012,7 +2113,11 @@ function watchnetAdopt(array &$b, array $e, int $now): void
             }
             break;
         case 'net_ips_server':
-            if (($p['dir'] ?? '') === 'in' && is_string($p['sig'] ?? null)) {
+            // a numbered block list (the list's entry, or one group's from before the families): the whole list
+            $fam = watchnetIpsFamilyOf($p);
+            if ($fam !== null) {
+                $net['ips_in_fam'][$fam] = $now;
+            } elseif (($p['dir'] ?? '') === 'in' && is_string($p['sig'] ?? null)) {
                 $net['ips_in'][$p['sig']] = $now;
             }
             break;
@@ -2051,7 +2156,7 @@ function watchnetText(array $e, ?string $lang = null): array
                                       'router' => $router],
         'net_router_config'       => ['admin' => implode(', ', array_map('strval', (array) ($p['admins'] ?? []))), 'router' => $router, 'date' => (string) ($p['date'] ?? '')],
         'net_vpn_login'           => ['user' => (string) ($p['user'] ?? '?'), 'ip' => (string) ($p['ip'] ?? '') ?: '?', 'router' => $router],
-        'net_ips_server'          => ['signature' => (string) ($p['signature'] ?? '') ?: (string) ($p['sig'] ?? ''), 'remote' => (string) ($p['remote'] ?? '') ?: '?',
+        'net_ips_server'          => ['signature' => watchnetIpsFamilyOf($p) ?? ((string) ($p['signature'] ?? '') ?: (string) ($p['sig'] ?? '')), 'remote' => (string) ($p['remote'] ?? '') ?: '?',
                                       'server' => (string) ($p['server'] ?? ''), 'router' => $router],
         'net_blocked_from_server' => ['dst' => (string) ($p['dst'] ?? ''), 'port' => isset($p['dpt']) ? strtolower((string) ($p['proto'] ?? '')) . '/' . (int) $p['dpt'] : '–',
                                       'server' => (string) ($p['server'] ?? ''), 'router' => $router],
@@ -2083,6 +2188,7 @@ function watchnetEntryVariant(array $e): ?string
         'net_outage'        => ($p['down'] ?? null) !== null ? 'net_outage_open' : null,
         'net_link_down'     => !empty($p['flapping']) ? 'net_link_down_flapping' : null,
         'net_router_reboot' => !empty($p['clean']) ? null : (isset($p['power']) ? 'net_router_reboot_power' : 'net_router_reboot_unclean'),
+        'net_ips_server'    => watchnetIpsFamilyOf($p) !== null ? 'net_ips_server_list' : null,     // a block list: the whole list
         default             => null,
     };
 }

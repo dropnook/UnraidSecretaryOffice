@@ -43522,6 +43522,210 @@ function testWatchmanNet(): void
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
+/**
+ * The router's IPS hits on block lists (UniFi: ET CINS «… Poor Reputation IP group N», ET TOR, ET DROP, ET COMPROMISED —
+ * a list split into hundreds of numbered groups, each its own signature id): one entry per list, «I know, thanks» settles
+ * the whole list, outbound still told every time; the lists noted before there were families known without a click;
+ * the known signatures capped by their last sight; a repeated entry's port stays the port
+ */
+function testWatchmanNetIpsFamilies(): void
+{
+    $now = strtotime('2026-11-10 10:00:00');
+    $server = ['ips' => ['192.0.2.20' => true], 'macs' => [], 'name' => 'tower', 'own' => ['192.0.2.20' => true]];
+    $cins = 'ET CINS Active Threat Intelligence Poor Reputation IP';
+    $tor = 'ET TOR Known Tor Exit Node Traffic';
+    $relay = 'ET TOR Known Tor Relay/Router (Not Exit) Node Traffic';
+    $drop = 'ET DROP Dshield Block Listed Source';
+    $bad = 'ET COMPROMISED Known Compromised or Hostile Host Traffic';
+    // a «Threat Detected and Blocked» line of 10.6.106's shape: inbound (a documentation address to the server) or outbound
+    $hit = function (int $t, string $sig, string $id, int $dpt = 443, bool $out = false): string {
+        [$src, $dst] = $out ? ['192.0.2.20', '198.51.100.9'] : ['198.51.100.' . (7 + $dpt % 50), '192.0.2.20'];
+        return netTestLine($t, netTestCef($t, '201', 'Threat Detected and Blocked', "UNIFIcategory=Security UNIFIsubCategory=Intrusion Prevention UNIFIhost=gateway-1 "
+            . "UNIFIipsSignature=$sig UNIFIipsSignatureId=$id UNIFIrisk=high proto=TCP src=$src spt=40000 dst=$dst dpt=$dpt "
+            . "msg=A network intrusion attempt from $src to $dst was detected and blocked."));
+    };
+    // a round of the gateway's lines through the real reader's tally and judge
+    $round = function (?array &$b, array &$book, array $lines, int $t, bool $learn = false) use ($server): array {
+        $acc = watchnetAcc();
+        foreach ($lines as $l) {
+            watchnetTake($acc, rtrim($l, "\n"), $t, $server);
+        }
+        $acc = ['cur' => null, 'at_end' => false, 'pos' => ['size' => 0], 'learn' => $learn] + $acc;
+        $look = ['state' => 'on', 'cfg' => [], 'own' => [], 'skipped' => 0, 'read' => 0, 'more' => false, 'since' => 0, 'arp' => [], 'senders' => ['192.0.2.1' => $acc]];
+        $ns = [];
+        return watchnetCompare($b, $look, $book, $ns, $server, $t, false);
+    };
+    $ipsOpen = fn (array $book) => array_values(array_filter($book, fn ($e) => $e['kind'] === 'net_ips_server' && watchmanOpen($e)));
+    $note = function (array &$b, array &$book, string $key, int $t, string $by = 'page'): void {
+        foreach ($book as $i => $e) {
+            if ($e['key'] === $key && watchmanOpen($e)) {
+                $whole = ['net' => $b];
+                watchnetAdopt($whole, $e, $t);
+                $b = $whole['net'];
+                $book[$i]['noted'] = $t;
+                $book[$i]['by'] = $by;
+            }
+        }
+    };
+
+    same('ips family: the name without « group N» — only that exact tail; a name without it is its own',
+        [$cins, $relay, null, null, null],
+        [watchnetSigFamily("$cins group 12"), watchnetSigFamily("$relay group 3"), watchnetSigFamily('ET SCAN Suspicious inbound to mySQL port 3306'),
+         watchnetSigFamily("$cins Group 12"), watchnetSigFamily("$cins group 12 extra")]);
+
+    // ---- a numbered block list: one entry, counted on with the newest group
+    $b = watchnetBase(['senders' => ['192.0.2.1' => $now - 86400], 'time' => $now - 86400]);
+    $book = [];
+    $t = $now;
+    $added = $round($b, $book, [$hit($t - 50, "$cins group 12", '2403311', 80), $hit($t - 40, "$cins group 13", '2403312', 443)], $t);
+    $open = $ipsOpen($book);
+    same('ips family: group 12 and group 13 of one list against the server — ONE entry (key by the list), told once, the newest group and port in it',
+        [['net_ips_server'], 1, "net_ips_server:fam:$cins:in", 2, $cins, '2403312', "$cins group 13", 443],
+        [$added, count($open), $open[0]['key'] ?? null, $open[0]['count'] ?? null, $open[0]['p']['family'] ?? null, $open[0]['p']['sig'] ?? null,
+         $open[0]['p']['signature'] ?? null, $open[0]['p']['dpt'] ?? null]);
+    same('ips family: its words — the list by its name, the block-list shape', [$cins, 'net_ips_server_list', 'entry.net_ips_server_list'],
+        [watchmanText($open[0], 'en')['signature'] ?? null, watchmanEntryVariant($open[0]), watchmanEntryKey($open[0])]);
+
+    // ---- «I know, thanks» on it: every group of that list counted only from now on
+    $note($b, $book, "net_ips_server:fam:$cins:in", $t + 10);
+    same('ips family: adopted — the list known (net.ips_in_fam), no group id needed', [true, []], [isset($b['ips_in_fam'][$cins]), $b['ips_in']]);
+    $t += 3600;
+    $added = $round($b, $book, [$hit($t - 50, "$cins group 176", '2403475', 8333), $hit($t - 45, "$cins group 13", '2403312')], $t);
+    same('ips family: group 12 adopted → group 176 and 13 of the list not told, only counted', [[], []], [$added, $ipsOpen($book)]);
+    $added = $round($b, $book, [$hit($t + 10, "$tor group 3", '2520002'), $hit($t + 20, "$tor group 4", '2520003'),
+                                $hit($t + 30, 'ET SCAN Suspicious inbound to mySQL port 3306', '2010937', 3306)], $t + 60);
+    $keys = array_column($ipsOpen($book), 'count', 'key');
+    same('ips family: another list told once (group 4 counts on there); a single signature by its id as before',
+        [['net_ips_server', 'net_ips_server'], ["net_ips_server:fam:$tor:in" => 2, 'net_ips_server:2010937:in' => 1]],
+        [$added, $keys]);
+    $note($b, $book, 'net_ips_server:2010937:in', $t + 70);
+    same('ips family: a single signature adopted by its id (net.ips_in), no list', [true, false],
+        [isset($b['ips_in']['2010937']), isset($b['ips_in_fam']['ET SCAN Suspicious inbound to mySQL port 3306'])]);
+
+    // ---- from the server: told every time, list or not
+    $t += 3600;
+    $added = $round($b, $book, [$hit($t - 50, "$cins group 12", '2403311', 443, true)], $t);
+    $out = array_values(array_filter($ipsOpen($book), fn ($e) => $e['p']['dir'] === 'out'));
+    same('ips family: from the server — told, by its id and direction, never folded into the known list', [['net_ips_server'], 'net_ips_server:2403311:out', false, null],
+        [$added, $out[0]['key'] ?? null, isset($out[0]['p']['family']), watchmanEntryVariant($out[0] ?? [])]);
+    $note($b, $book, 'net_ips_server:2403311:out', $t + 10);
+    $added = $round($b, $book, [$hit($t + 60, "$cins group 12", '2403311', 443, true)], $t + 120);
+    same('ips family: … noted, it is told again the next time (an outbound hit is never learned away)', [['net_ips_server'], false],
+        [$added, isset($b['ips_in']['2403311'])]);
+
+    // ---- a router's history learned: its lists by family, not their hundreds of ids
+    $bl = null;
+    $book2 = [];
+    $round($bl, $book2, [$hit($now - 900, "$drop group 7", '2402006'), $hit($now - 800, 'ET POLICY Telnet attempt', '2001000', 23)], $now, true);
+    same('ips family: the first round learns the list as a family and a single signature by its id', [[$drop], ['2001000']],
+        [array_keys($bl['ips_in_fam'] ?? []), array_map('strval', array_keys($bl['ips_in'] ?? []))]);
+
+    // ---- the update: an old baseline (ids only, no families) and his book of one entry per group
+    $old = ['senders' => ['192.0.2.1' => $now - 30 * 86400], 'devices' => [], 'self' => [], 'admins' => [], 'vpn' => [], 'blocked' => [], 'fail_ips' => [],
+            'ips_in' => ['2403311' => $now - 20 * 86400, '2402006' => $now - 19 * 86400, '2500008' => $now - 18 * 86400, '2522001' => $now - 17 * 86400],
+            'time' => $now - 30 * 86400];
+    $grp = function (string $sig, string $id, ?string $by, bool $serious = false) use ($now): array {
+        $e = watchmanEntry('net_ips_server', "net_ips_server:$id:in", $now - 10 * 86400,
+            ['sender' => '192.0.2.1', 'router' => 'gateway-1', 'sig' => $id, 'signature' => $sig, 'dir' => 'in', 'remote' => '198.51.100.50', 'server' => '192.0.2.20',
+             'dpt' => 443, 'proto' => 'TCP', 'risk' => 'high', 'evidence' => '']);
+        return $by === null ? $e : ['noted' => $now - 9 * 86400, 'by' => $by] + ($serious ? ['serious' => $now - 9 * 86400] : []) + $e;
+    };
+    $book = [$grp("$cins group 12", '2403311', 'page'),                         // adopted on his page
+             $grp("$tor group 5", '2520004', 'teamlead'),                        // adopted through the team lead
+             $grp("$drop group 7", '2402006', 'baseline'),                       // taken over anew — but its id is in the baseline
+             $grp("$relay group 9", '2522008', 'page', true),                    // called serious: no adoption, its id unknown
+             $grp("$bad group 2", '2500001', null)];                             // open, not noted, its id unknown
+    $b = $old;
+    $t = $now;
+    $added = $round($b, $book, [$hit($t - 60, "$cins group 176", '2403475'), $hit($t - 55, "$tor group 99", '2520098'), $hit($t - 50, "$drop group 8", '2402007'),
+                                $hit($t - 45, "$relay group 10", '2522009'), $hit($t - 40, "$bad group 3", '2500002')], $t);
+    $fams = array_keys($b['ips_in_fam']);
+    sort($fams);
+    $relayOpen = array_values(array_filter($ipsOpen($book), fn ($e) => ($e['p']['family'] ?? null) === $relay));
+    $badOpen = array_values(array_filter($ipsOpen($book), fn ($e) => watchnetIpsFamilyOf($e['p']) === $bad));
+    $want = [$cins, $tor, $drop];
+    sort($want);
+    same('ips migration: after the update, without a click — a list with a group noted (his page, the team lead) or a group id the baseline knows is known: its new groups only counted; the serious one\'s list told',
+        [$want, ['net_ips_server']], [$fams, $added]);
+    same('ips migration: a group called serious adopts nothing — the list is told once, as one entry for the whole list', [1, "net_ips_server:fam:$relay:in", 1],
+        [count($relayOpen), $relayOpen[0]['key'] ?? null, $relayOpen[0]['count'] ?? null]);
+    same('ips migration: an open entry of one group (not noted yet) becomes the list\'s entry — counted on there, not told again', [1, "net_ips_server:fam:$bad:in", 2, $bad, '2500002'],
+        [count($badOpen), $badOpen[0]['key'] ?? null, $badOpen[0]['count'] ?? null, $badOpen[0]['p']['family'] ?? null, $badOpen[0]['p']['sig'] ?? null]);
+    same('ips migration: the old group entries read as their list (words and «I know, thanks»)', [$cins, 'net_ips_server_list'],
+        [watchmanText($book[0], 'en')['signature'] ?? null, watchmanEntryVariant($book[0])]);
+    // the book trimmed: only the baseline's ids — a known group's hit makes its list known, the next group then counted
+    $b = $old;
+    $book = [];
+    $added = $round($b, $book, [$hit($t - 30, "$relay group 1", '2522001'), $hit($t - 20, "$relay group 3", '2522002')], $t);
+    same('ips migration: book trimmed — a group known by its id seen again makes its list known; group 3 after it only counted',
+        [[], true], [$added, isset($b['ips_in_fam'][$relay])]);
+    $b = $old;
+    $book = [];
+    $added = $round($b, $book, [$hit($t - 30, "$cins group 200", '2403499'), $hit($t - 20, "$cins group 201", '2403500')], $t);
+    same('ips migration: book trimmed and no known group seen yet — the list told ONCE (one entry for all its groups)', [['net_ips_server'], 1],
+        [$added, count($ipsOpen($book))]);
+
+    // ---- the cap: by last sight (adopted, learned, seen again) — the newest adoption stays, what wasn't seen longest goes
+    $b = watchnetBase(['senders' => ['192.0.2.1' => $now - 86400], 'time' => $now - 86400]);
+    foreach (range(1, WATCHNET_SIGS_MAX) as $i) {
+        $b['ips_in']["9$i"] = $now - 40 * 86400 + $i * 3600;          // «91» the oldest
+    }
+    $book = [];
+    $t = $now;
+    $round($b, $book, [$hit($t - 30, 'ET SCAN Single Signature One', '91', 22)], $t);
+    $seen = $b['ips_in']['91'] ?? null;
+    $round($b, $book, [$hit($t + 600, 'ET SCAN Single Signature One', '91', 22)], $t + 900);
+    same('ips cap: a known signature seen again — its last sight moves on (by the day only: the flash mirror wears), nothing told', [$t - 30, $t - 30, []],
+        [$seen, $b['ips_in']['91'] ?? null, $ipsOpen($book)]);
+    $e = watchmanEntry('net_ips_server', 'net_ips_server:7777:in', $t, ['sig' => '7777', 'signature' => 'ET SCAN New One', 'dir' => 'in']);
+    $whole = ['net' => $b];
+    watchnetAdopt($whole, $e, $t + 60);
+    $b = $whole['net'];
+    $ns = watchnetState(null);
+    watchnetTidy($b, $ns, $t + 60);
+    same('ips cap: full — the one not seen for the longest goes; the newest adoption and the one seen again stay',
+        [WATCHNET_SIGS_MAX, false, true, true, true], [count($b['ips_in']), isset($b['ips_in']['92']), isset($b['ips_in']['7777']), isset($b['ips_in']['91']), isset($b['ips_in']['93'])]);
+    $added = $round($b, $book, [$hit($t + 120, 'ET SCAN New One', '7777', 22), $hit($t + 130, 'ET SCAN Single Signature One', '91', 22)], $t + 180);
+    same('ips cap: … neither of them told again', [], $added);
+
+    // ---- the port stays the port (watchmanMerge added up every number: 8 hits on 8333 read «66664»)
+    $b = watchnetBase(['senders' => ['192.0.2.1' => $now - 86400], 'time' => $now - 86400]);
+    $book = [];
+    $lines = [];
+    foreach (range(1, 8) as $i) {
+        $lines[] = $hit($now - 100 + $i, "$cins group $i", (string) (2403300 + $i), 8333);
+    }
+    $round($b, $book, $lines, $now);
+    $open = $ipsOpen($book);
+    same('ips port: 8 hits of a list on 8333 — count 8, port 8333 (not 66664)', [8, 8333], [$open[0]['count'] ?? null, $open[0]['p']['dpt'] ?? null]);
+    $book = [];
+    foreach (range(1, 8) as $i) {
+        watchmanBump($book, 'net_ips_server', 'net_ips_server:2010937:in', $now + $i, 1, ['sig' => '2010937', 'dir' => 'in', 'dpt' => 80, 'remote' => '198.51.100.7']);
+        watchmanBump($book, 'login_failures', 'login_failures:198.51.100.8', $now + $i, 5, ['ip' => '198.51.100.8', 'users' => [], 'services' => ['ssh'], 'unknown' => 1]);
+    }
+    $by = array_column($book, null, 'kind');
+    same('ips port: watchmanMerge — a port stays the port after 8 repeats (not 640); a count in p (names unknown) still adds up',
+        [80, 8, 8, 40], [$by['net_ips_server']['p']['dpt'] ?? null, $by['net_ips_server']['count'] ?? null, $by['login_failures']['p']['unknown'] ?? null, $by['login_failures']['count'] ?? null]);
+
+    // ---- the words
+    $gaps = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+        $l = langFile(OFFICE_WEB . "/desks/watchman/lang/$lang.json");
+        foreach (['entry.net_ips_server_list', 'adopt.net_ips_server_list'] as $k) {
+            if (!isset($l[$k])) {
+                $gaps[] = "$lang $k";
+            }
+        }
+        $s = officeNotifyText('watchman', 'entry.net_ips_server_list', ['n' => 1] + watchmanText($open[0], $lang), $lang);
+        if ($s === '' || str_contains($s, '{') || !str_contains($s, $cins)) {
+            $gaps[] = "$lang: $s";
+        }
+    }
+    same('ips words: the list\'s entry and «I know, thanks» in all five languages, the list by its name', [], $gaps);
+    check('ips words: the page shows the list\'s «I know, thanks» on a block list\'s entry',
+        str_contains((string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js'), "T('adopt.' + (e.v === 'net_ips_server_list' ? e.v : e.kind))"));
+}
+
 /** The type of the first fixture line holding $needle (after $from, a marker), for testWatchmanNetMikrotik() */
 function netTestRos(array $lines, string $needle, int $now, string $from = ''): array
 {
@@ -65000,7 +65204,7 @@ function testScenarioToolsSafe(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],

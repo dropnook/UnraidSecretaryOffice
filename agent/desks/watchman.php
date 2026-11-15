@@ -859,6 +859,7 @@ function watchmanMirrorKeep(string $dir): void
  * syslog on from the night's place: nothing told twice, nothing lost.
  */
 const WATCH_BUMP_KINDS = ['login_new_ip', 'login_failures', 'log_cleared', 'door_key_moved', 'door_refused'];     // entries that count up (watchmanBump()); the others hold a state
+const WATCH_MERGE_COUNTS = ['unknown', 'held'];      // the numbers in an entry's p that are counts (watchmanMerge() adds them up); every other number is a value
 
 /** Where the night shift reads: what lies in the pool or needs the array is left out (missing parts: not looked at) */
 function watchmanNightPaths(): array
@@ -1779,13 +1780,16 @@ function watchmanBump(array &$book, string $kind, string $key, int $time, int $a
     return $kind;
 }
 
-/** Lists joined (at most WATCH_LIST_MAX), counts added, the rest from $b */
+/**
+ * Lists joined (at most WATCH_LIST_MAX), counts (WATCH_MERGE_COUNTS) added, the rest from $b — a port, an id, a time is
+ * a value, never a count: summed it was nonsense (an IPS hit on port 80 eight times read «port 640»)
+ */
 function watchmanMerge(array $a, array $b): array
 {
     foreach ($b as $k => $v) {
         if (is_array($v)) {
             $a[$k] = array_slice(array_values(array_unique(array_merge((array) ($a[$k] ?? []), $v))), 0, WATCH_LIST_MAX);
-        } elseif (is_int($v) && is_int($a[$k] ?? null)) {
+        } elseif (is_int($v) && is_int($a[$k] ?? null) && in_array($k, WATCH_MERGE_COUNTS, true)) {
             $a[$k] += $v;
         } else {
             $a[$k] = $v;
