@@ -108,6 +108,9 @@ const FANBOY_ROLES_OURS = ['case', 'disks', 'ram', 'nvme', 'other'];
 const FANBOY_CPU_FLOOR = 40;
 const FANBOY_CPU_STAND_GAP = 5.0;       // round 12: a CPU cooler may stop only with the CPU this far under its «ab» …
 const FANBOY_CPU_STAND_AFTER = 60.0;    // … for this long without a break (it starts again at once at «ab»)
+const FANBOY_START_ABOVE = 5;           // round 12 fix: a standing fan starts this much above its measured start from standstill
+const FANBOY_CPU_SMOOTH = 10.0;         // round 12 fix (the owner's CPU: single readings 50–67 °C every half minute at 38 °C idle):
+                                        // the CPU judged by the median of its readings of the last 10 s — one spike moves it not
 
 /** A CPU cooler the owner gave Fanboy, confirmed and dated */
 function fanboyCpuOwn(array $f): bool
@@ -1099,7 +1102,8 @@ function fanboyStandPlan(array $f, ?array $m, bool $hasTach, bool $cpu, int $flo
 {
     $start = $m !== null && is_numeric($m['start_pct'] ?? null) ? (int) $m['start_pct'] : $floor;
     if ($m !== null && ($m['stops'] ?? null) === true) {
-        $start = is_int($m['start_from_stop'] ?? null) ? max(1, min(100, $m['start_from_stop'])) : 100;
+        // round 12 fix: a little above the value its measuring confirmed (a fan that sometimes starts badly)
+        $start = is_int($m['start_from_stop'] ?? null) ? max(1, min(100, $m['start_from_stop'] + FANBOY_START_ABOVE)) : 100;
     }
     $why = null;
     if (($f['off_ok'] ?? false) !== true) {
@@ -1126,6 +1130,23 @@ function fanboyStandPlan(array $f, ?array $m, bool $hasTach, bool $cpu, int $flo
  * it stops only after the CPU was FANBOY_CPU_STAND_GAP °C under «ab» for FANBOY_CPU_STAND_AFTER s without a break; in
  * between it stays as it is.
  */
+/**
+ * Round 12 fix: a CPU's readings over the last FANBOY_CPU_SMOOTH s ($hist: [[time, °C]…], kept by the caller) — the
+ * median (a single spike doesn't move it) and the peak. $c null: no reading this time (not added).
+ */
+function fanboyCpuSmooth(array &$hist, ?float $c, float $now): array
+{
+    if ($c !== null) {
+        $hist[] = [$now, $c];
+    }
+    $hist = array_values(array_filter($hist, fn ($h) => $now - $h[0] < FANBOY_CPU_SMOOTH));
+    $v = array_column($hist, 1);
+    sort($v);
+    $n = count($v);
+    $median = $n === 0 ? null : ($n % 2 === 1 ? $v[intdiv($n, 2)] : ($v[$n / 2 - 1] + $v[$n / 2]) / 2);
+    return ['smooth' => $median === null ? null : round($median, 1), 'peak' => $n ? max($v) : null, 'now' => $c];
+}
+
 function fanboyCpuStand(array &$c, array $z, string $id, float $now, bool $alarm): bool
 {
     $ab = null;
@@ -1141,17 +1162,24 @@ function fanboyCpuStand(array &$c, array $z, string $id, float $now, bool $alarm
             $missing = $missing || !$ok;
             $cpuC = $ok ? max($cpuC ?? (float) $r['c'], (float) $r['c']) : $cpuC;
         }
-        if ($ok && (float) $r['c'] >= (float) $s['low']) {
+        // another source asks for air (the CPU itself goes by its smoothed value, below)
+        if ($ok && $s['kind'] !== 'cpu' && (float) $r['c'] >= (float) $s['low']) {
             $ask = true;
         }
     }
     $ab ??= (float) FANBOY_SOURCE_DEFAULTS['cpu']['low'];
+    // round 12 fix: the CPU by its smoothed value (median of 10 s, a reading every round) — and at once on any single
+    // reading at its «volle Drehzahl bei» (the hard value; the zone's CPU kind, default 80 °C) or a missing one
+    $hard = (float) fanboyKindValues($z, 'cpu')['high'];
     $f = &$c['fans'][$id];
+    $f['cpu_hist'] ??= [];
+    $sm = fanboyCpuSmooth($f['cpu_hist'], $missing ? null : $cpuC, $now);
     $f['stand_at'] = $ab;
-    if ($ask || $missing || $cpuC === null) {
+    $f['cpu_by'] = ['smooth' => $sm['smooth'], 'peak' => $sm['peak'], 'now' => $missing ? null : $cpuC, 'ab' => $ab, 'hard' => $hard];
+    if ($ask || $missing || $cpuC === null || $cpuC >= $hard || $sm['smooth'] === null || $sm['smooth'] >= $ab) {
         $f['cool_since'] = null;
         $f['standing'] = false;
-    } elseif ($cpuC <= $ab - FANBOY_CPU_STAND_GAP) {
+    } elseif ($sm['smooth'] <= $ab - FANBOY_CPU_STAND_GAP) {
         $f['cool_since'] ??= $now;
         if ($now - $f['cool_since'] >= FANBOY_CPU_STAND_AFTER) {
             $f['standing'] = true;
@@ -1402,7 +1430,9 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
                 // cpu_off_confirm); in effect: may_stand, standing since when, a CPU cooler's «starts again at» °C
                 'off_why' => $c['fans'][$id]['off_why'] ?? null, 'may_stand' => ($c['fans'][$id]['off_ok'] ?? false) === true,
                 'stand_since' => $c['fans'][$id]['stand_since'] ?? null,
-                'starts_at' => ($c['fans'][$id]['cpu'] ?? false) && ($c['fans'][$id]['off_ok'] ?? false) ? ($c['fans'][$id]['stand_at'] ?? (float) FANBOY_SOURCE_DEFAULTS['cpu']['low']) : null], $z['fans'])];
+                'starts_at' => ($c['fans'][$id]['cpu'] ?? false) && ($c['fans'][$id]['off_ok'] ?? false) ? ($c['fans'][$id]['stand_at'] ?? (float) FANBOY_SOURCE_DEFAULTS['cpu']['low']) : null,
+                // round 12 fix: what a CPU cooler that may stand goes by — {smooth, peak, now, ab, hard} °C («CPU geglättet 39 °C, Spitze 53 °C»)
+                'cpu_by' => $c['fans'][$id]['cpu_by'] ?? null], $z['fans'])];
     }
     return [
         'v' => 1, 'pid' => getmypid(), 'time' => time(), 'mono' => fanboyMono(), 'board' => $c['key'],

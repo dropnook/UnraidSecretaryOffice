@@ -225,14 +225,28 @@ if (opt.callouts) {
       const { ctx, page, tag } = await open(state, route, { scale: 1 });
       await page.evaluate(() => { const on = document.querySelector('#sso-desk button.stat[aria-pressed=true]'); if (on) on.click(); });
       await page.waitForTimeout(500);
-      const texts = await page.evaluate(() => [...document.querySelectorAll('#sso-desk .callout')].map((c) => c.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean));
+      const callouts = () => page.evaluate(() => [...document.querySelectorAll('#sso-desk .callout')].filter((c) => c.getClientRects().length)
+        .map((c) => c.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean));
+      const texts = await callouts();
       const twice = [...new Set(texts.filter((x, i) => texts.indexOf(x) !== i))];
       for (const x of twice) faults.push(`${tag}: the same callout twice on the page shown whole — «${x.slice(0, 90)}»`);
+      // … and after a visit to his other page and back (2026-11-15, the owner's server: a banner made anew at every visit
+      // left the old one standing — the same red text twice): never two visible banners with the same text
+      const other = route === 'fanboy' ? '#/fanboy/setup' : '#/fanboy';
+      for (const hash of [other, `#/${route}`, other, `#/${route}`]) {
+        await page.evaluate((h) => { location.hash = h; }, hash);
+        await page.waitForTimeout(700);
+      }
+      const back = await callouts();
+      const again = [...new Set(back.filter((x, i) => back.indexOf(x) !== i))];
+      for (const x of again) faults.push(`${tag}: the same callout twice after a visit to the other page and back — «${x.slice(0, 90)}»`);
+      const banners = await page.evaluate(() => document.querySelectorAll('#sso-desk .fb-banner').length);
+      if (banners !== 1) faults.push(`${tag}: ${banners} banner elements on the page (exactly one, moved — never made anew)`);
       pages++;
       await ctx.close();
     }
   }
-  console.log(`fanboy desk: callouts — ${pages} pages shown whole (${states.length} demo states × 2 routes), ${faults.filter((f) => f.includes('callout twice')).length} with a text twice`);
+  console.log(`fanboy desk: callouts — ${pages} pages shown whole and again after the other page and back (${states.length} demo states × 2 routes), ${faults.filter((f) => f.includes('callout twice') || f.includes('banner elements')).length} with a text twice`);
 }
 
 // ------------------------------------------------------------------ the overview's picture as an animated PNG (as look.mjs)
