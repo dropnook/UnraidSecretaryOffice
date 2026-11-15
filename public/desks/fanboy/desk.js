@@ -2633,12 +2633,12 @@ function measurePanel(id, api) {
   const pict = el('div', 'fb-panel-wheel');
   if (wh) pict.appendChild(wh.el);
   const title = el('h3', 'fb-panel-title');
-  const under = el('p', 'fb-panel-under');
+  const small = el('p', 'fb-panel-under');
   const line = el('p', 'fb-panel-line');
   const acts = el('div', 'fb-panel-acts');
   const why = el('p', 'fb-panel-why');
   const headText = el('div', 'fb-panel-headtext');
-  headText.append(title, under, line, acts, why);
+  headText.append(title, small, line, acts, why);
   const head = el('div', 'fb-panel-head');
   head.append(pict, headText);
   const table = el('div', 'fb-measure-table');
@@ -2657,7 +2657,7 @@ function measurePanel(id, api) {
     if (wh) wh.update({ mm: look.mm, blades: look.blades, min: look.min, max: look.max || 2000, look: look.look, colour: under && !look.look && look.colour === 'auto' ? 'accent' : look.colour, rpm: rpm ?? 0, state: 'run' });
     root.classList.toggle('fb-live', under);
     setText(title, fanName(id));
-    setText(under, underName(id, f.role === 'cpu' ? T(f.cpu_own ? 'label.cpu_own' : 'label.cpu_bios') : ''));
+    setText(small, underName(id, f.role === 'cpu' ? T(f.cpu_own ? 'label.cpu_own' : 'label.cpu_bios') : ''));
     const queued = run.kind === 'measure' && !under && run.queue.includes(id);
     const r = s && s.kind === 'measure' && s.results ? s.results[id] : null;
     let text = T('measure.not_yet');
