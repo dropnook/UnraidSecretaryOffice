@@ -356,6 +356,10 @@ function fanboyTake(array $fan, array $owner, string $boardKey = ''): ?array
             }
         }
         $o['owner'] = $owner;
+        // round 9 (H2): a fan he set to full for safety is his again — that state ends here (it is given back anew later)
+        if (is_array($o['given'] ?? null) && isset($o['given']['full'])) {
+            unset($o['given']['full']);
+        }
         $auto = $fan['auto'] ?? null;
         $o['back'] = is_int($auto) && $auto >= 2 && $auto <= 9 && ($o['initial']['enable'] ?? null) === 1
             ? ['value' => $o['initial']['value'] ?? null, 'enable' => $auto] : null;
@@ -451,6 +455,29 @@ function fanboyFullNow(array $ids, string $why): array
         }
         return [$done ? $j : null, $done];
     }) ?? [];
+}
+
+/**
+ * Round 9 (H2): the outputs Fanboy himself set to full for safety and nobody holds since — a fan that didn't start again
+ * after the quiet test (no_restart), one the mainboard didn't take back (round 5's give-back check) — while they still read
+ * full: [id => {why, at, before: {value, enable}}]. Read only.
+ */
+function fanboySafetyFull(): array
+{
+    $out = [];
+    foreach (fanboyJournal()['outputs'] as $id => $o) {
+        $full = is_array($o['given'] ?? null) && is_array($o['given']['full'] ?? null) ? $o['given']['full'] : null;
+        if ($full === null || is_array($o['owner'] ?? null) || ($full['ok'] ?? true) === false) {
+            continue;
+        }
+        $now = fanboyOutputNow($o['device'], $o['output']);
+        if ($now === null || !fanboyObeys(FANBOY_FULL, $now)) {
+            continue;                   // changed since (someone else, a restart): the state is over
+        }
+        $out[$id] = ['why' => is_string($full['why'] ?? null) ? $full['why'] : 'not_back', 'at' => is_int($full['at'] ?? null) ? $full['at'] : null,
+            'before' => ['value' => $o['initial']['value'] ?? null, 'enable' => $o['initial']['enable'] ?? null]];
+    }
+    return $out;
 }
 
 /** Writes a value to an output this holder has (pct of 255 already turned into 0–255), read back into «expect» */

@@ -686,7 +686,8 @@
     "start_pct": null,
     "max_rpm": null,
     "table": null,
-    "no_turn": false
+    "no_turn": false,
+    "kick_start": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm2",
@@ -708,7 +709,8 @@
     "start_pct": null,
     "max_rpm": null,
     "table": null,
-    "no_turn": false
+    "no_turn": false,
+    "kick_start": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm3",
@@ -730,7 +732,8 @@
     "start_pct": null,
     "max_rpm": null,
     "table": null,
-    "no_turn": false
+    "no_turn": false,
+    "kick_start": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm4",
@@ -754,7 +757,8 @@
     "start_pct": null,
     "max_rpm": null,
     "table": null,
-    "no_turn": false
+    "no_turn": false,
+    "kick_start": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm5",
@@ -779,7 +783,8 @@
     "start_pct": null,
     "max_rpm": null,
     "table": null,
-    "no_turn": false
+    "no_turn": false,
+    "kick_start": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm6",
@@ -801,7 +806,8 @@
     "start_pct": null,
     "max_rpm": null,
     "table": null,
-    "no_turn": false
+    "no_turn": false,
+    "kick_start": null
    }
   ],
   "zones": [],
@@ -1737,5 +1743,7 @@
   "time": 1763100000
  },
  "show": null,
+ "safety": {},
+ "restore": null,
  "disk_allow": 3
 }

@@ -858,5 +858,16 @@
   "role.left": "No probar — dejarlo con la BIOS",
   "test.left": "Sin probar — se queda con la BIOS",
   "step.v.tested": "{n} de {m} probadas",
-  "step.v.assigned": "{n} asignadas"
+  "step.v.assigned": "{n} asignadas",
+  "safety.no_restart": "Fanboy lo puso al 100 % por seguridad: no volvió a arrancar solo tras pararse (antes: {pct} %).",
+  "safety.not_back": "Fanboy lo puso al 100 % por seguridad: la placa no lo retomó tras devolverlo (antes: {pct} %).",
+  "safety.chip": "100 % por seguridad",
+  "safety.back": "Volver al valor de antes",
+  "safety.back_tip": "Otra vez al {pct} % como antes: si no arranca solo, recibe un breve empujón",
+  "safety.back_all": "Todos al valor de antes",
+  "safety.back_tip_all": "Cada uno a su valor de antes: el que no arranque solo recibe un breve empujón",
+  "safety.backing": "volviendo …",
+  "safety.wait": "Solo cuando no haya nada más en marcha (una prueba, una demostración)",
+  "safety.banner": "Fanboy puso {list} al 100 % por seguridad: no volvió a arrancar solo tras pararse. Volver al valor de antes: aquí o en su tarjeta.",
+  "assign.kick": "Necesita un empujón para arrancar: al {pct} % sigue girando, pero no arranca ahí desde parado."
 }

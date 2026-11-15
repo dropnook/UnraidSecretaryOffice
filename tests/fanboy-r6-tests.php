@@ -1011,3 +1011,100 @@ function testFanboyR8Assign(): void
         fanboyTEnd();
     }
 }
+
+// ===================================================================== round 9: the owner's third test on the real server
+
+/**
+ * H1: a fan that KEEPS turning at its value before (50 %) but doesn't START at it — after the quiet phase it stood; now it
+ * gets a kick (full 3 s, back, 10 s to turn) before any verdict: it turns, nothing to full, the test goes on, and its card
+ * learns «needs a kick to start»; one that never starts: full + alert as before
+ */
+function testFanboyR9Kick(): void
+{
+    $t = fanboyT('r9kick');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        fanboyTStore($settings);
+        $spec = fanboyR8Spec();
+        $spec['fans'][4]['start'] = 0.6;            // the disk cage's fan: turns on at 50 %, starts only at 60 %
+        fanboyTSettle($t, $spec);
+        check('fanboy r9 kick: the disk cage turns at its 50 % before the test', fanboyAllTachs()[fanboyTachId(FANBOY_T_CHIP, FANBOY_T_ADDR, 4)] > 500);
+        [$step] = fanboyR8Run($t, $spec, [1, 2], true, function (float $clock) use ($t): void {
+            if ($clock >= 12 && fanboyTOut($t, 1)[0] === 255 && fanboyTOut($t, 2)[0] === 0) {
+                fanboyStepNext(['fan' => fanboyTId(1)]);
+            }
+        });
+        same('fanboy r9 kick: it didn\'t start by itself after the quiet phase — kicked, it turns: no «no_restart», nothing at full, the run done, output 4 back at 128 and turning',
+            ['done', null, [128, 1], true, []], [$step['status'], $step['why'], fanboyTOut($t, 4), fanboyAllTachs()[fanboyTachId(FANBOY_T_CHIP, FANBOY_T_ADDR, 4)] > 500, array_keys(fanboySafetyFull())]);
+        same('fanboy r9 kick: … «needs a kick to start» kept for the disk cage (the value it doesn\'t start at)', 128, fanboyBoardRaw()['fans'][fanboyTId(4)]['kick_start']['value'] ?? null);
+        check('fanboy r9 kick: … no alert', !in_array('Fanboy: Cage didn\'t turn again', fanboyR5Subjects($t), true));
+        // one that never starts again: kicked, still standing — full and an alert, the test stops
+        [$step] = fanboyR8Run($t, $spec, [1], true, function () use ($t, &$spec): void {
+            if (fanboyTOut($t, 4)[0] === 0) {
+                $spec['fans'][4]['stuck'] = true;
+            }
+        });
+        same('fanboy r9 kick: a fan that doesn\'t start even after the kick — full, an alert, the test stopped', ['no_restart', 255, true],
+            [$step['why'], fanboyTOut($t, 4)[0], in_array('Fanboy: Cage didn\'t turn again', fanboyR5Subjects($t), true)]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * H2: a fan Fanboy set to full for safety is visible as such (his state: why, the state before; never «a fixed value someone
+ * left») and undone by «Zurück auf den Wert von vorher» — back to the state before, a kick when it doesn't start; the state
+ * ends there (and when he takes the output); a fan that still doesn't start: full again, said
+ */
+function testFanboyR9Safety(): void
+{
+    $t = fanboyT('r9safe');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        fanboyTStore($settings);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        [$step] = fanboyR8Run($t, $spec, [1], true, function () use ($t, &$spec): void {
+            if (fanboyTOut($t, 4)[0] === 0) {
+                $spec['fans'][4]['stuck'] = true;
+            }
+        });
+        $state = fanboyScan();
+        same('fanboy r9 safety: output 4 at full for safety — in his state (why «no_restart», its value before 128); not counted as «left by someone»',
+            ['no_restart', 128, false], [$state['safety'][fanboyTId(4)]['why'] ?? null, $state['safety'][fanboyTId(4)]['before']['value'] ?? null,
+                in_array(fanboyTId(4), array_column($state['who']['fixed'] ?? [], 'id'), true)]);
+        // the fan works again but needs a kick: «back to the value before» — back at 128, kicked, turning, the state over
+        unset($spec['fans'][4]['stuck']);
+        $spec['fans'][4]['start'] = 0.6;
+        fanboyTSettle($t, $spec);                      // at full it turns
+        fanboyRestoreStart(['fan' => fanboyTId(4)]);
+        same('fanboy r9 safety: the click starts its own process', ['fanboy-restore'], array_values(array_unique(array_filter($GLOBALS['fanboyLaunched'], fn ($j) => $j === 'fanboy-restore'))));
+        $clock = 0.0;
+        fanboyRestoreMain(fanboyTIo($t, $spec, $clock));
+        fanboyTSettle($t, $spec, 3);
+        same('fanboy r9 safety: «back to the value before» — output 4 at 128 again (a fixed value), turning after its kick, the state over, nothing held',
+            ['done', [128, 1], true, [], []], [fanboyRestoreRead()['status'] ?? null, fanboyTOut($t, 4), fanboyAllTachs()[fanboyTachId(FANBOY_T_CHIP, FANBOY_T_ADDR, 4)] > 500,
+                array_keys(fanboySafetyFull()), fanboyHeld()]);
+        // a fan that still doesn't start: full again, said
+        fanboyFullNow([fanboyTId(4)], 'no_restart');
+        $spec['fans'][4]['stuck'] = true;
+        fanboyTSettle($t, $spec);
+        fanboyRestoreStart(['fan' => fanboyTId(4)]);
+        $clock = 0.0;
+        fanboyRestoreMain(fanboyTIo($t, $spec, $clock));
+        same('fanboy r9 safety: still standing after the kick — full again for safety, the job says so', ['failed', 'no_restart', 255, [fanboyTId(4)]],
+            [fanboyRestoreRead()['status'], fanboyRestoreRead()['why'], fanboyTOut($t, 4)[0], array_keys(fanboySafetyFull())]);
+        // he takes it (a test, the control): the state ends
+        $o = fanboyOutputs(fanboyDetect())[fanboyTId(4)];
+        fanboyTake($o, fanboyMe('step'));
+        fanboyGiveBack([fanboyTId(4)], 'test', fanboyMe('step'));
+        same('fanboy r9 safety: taken by him again — the safety state is over', [], array_keys(fanboySafetyFull()));
+        same('fanboy r9 safety: «back» for an output not at full for safety — quietly nothing', true, fanboyRestoreStart(['fan' => fanboyTId(2)])['ok']);
+    } finally {
+        fanboyTEnd();
+    }
+}

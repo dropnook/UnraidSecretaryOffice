@@ -858,5 +858,16 @@
   "role.left": "Nicht testen — beim BIOS lassen",
   "test.left": "Nicht getestet — bleibt beim BIOS",
   "step.v.tested": "{n} von {m} getestet",
-  "step.v.assigned": "{n} zugeordnet"
+  "step.v.assigned": "{n} zugeordnet",
+  "safety.no_restart": "Fanboy hat ihn zur Sicherheit auf 100 % gestellt — er lief nach dem Anhalten nicht von selbst an (vorher {pct} %).",
+  "safety.not_back": "Fanboy hat ihn zur Sicherheit auf 100 % gestellt — das Mainboard hat ihn nach dem Zurückgeben nicht übernommen (vorher {pct} %).",
+  "safety.chip": "zur Sicherheit 100 %",
+  "safety.back": "Zurück auf den Wert von vorher",
+  "safety.back_tip": "Wieder auf {pct} % wie vorher — läuft er nicht von selbst an, bekommt er einen kurzen Schubs",
+  "safety.back_all": "Alle zurück auf den Wert von vorher",
+  "safety.back_tip_all": "Jeder zurück auf seinen Wert von vorher — wer nicht von selbst anläuft, bekommt einen kurzen Schubs",
+  "safety.backing": "geht zurück …",
+  "safety.wait": "Erst wenn nichts anderes mehr läuft (ein Test, ein Zeigen)",
+  "safety.banner": "Fanboy hat {list} zur Sicherheit auf 100 % gestellt — er lief nach dem Anhalten nicht von selbst an. Zurück auf den Wert von vorher: hier oder auf seiner Karte.",
+  "assign.kick": "Braucht einen Schubs zum Anlaufen: Bei {pct} % läuft er weiter, startet dort aber nicht aus dem Stand."
 }

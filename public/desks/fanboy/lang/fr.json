@@ -858,5 +858,16 @@
   "role.left": "Ne pas tester — laisser au BIOS",
   "test.left": "Pas testée — reste au BIOS",
   "step.v.tested": "{n} sur {m} testées",
-  "step.v.assigned": "{n} attribuées"
+  "step.v.assigned": "{n} attribuées",
+  "safety.no_restart": "Fanboy l'a mis à 100 % par sécurité — il n'est pas reparti tout seul après l'arrêt (avant : {pct} %).",
+  "safety.not_back": "Fanboy l'a mis à 100 % par sécurité — la carte mère ne l'a pas repris après qu'il l'a rendu (avant : {pct} %).",
+  "safety.chip": "100 % par sécurité",
+  "safety.back": "Revenir à la valeur d'avant",
+  "safety.back_tip": "De nouveau à {pct} % comme avant — s'il ne démarre pas tout seul, il reçoit une courte impulsion",
+  "safety.back_all": "Tous à la valeur d'avant",
+  "safety.back_tip_all": "Chacun à sa valeur d'avant — celui qui ne démarre pas tout seul reçoit une courte impulsion",
+  "safety.backing": "revient …",
+  "safety.wait": "Seulement quand rien d'autre ne tourne (un test, une démonstration)",
+  "safety.banner": "Fanboy a mis {list} à 100 % par sécurité — il n'est pas reparti tout seul après l'arrêt. Revenir à la valeur d'avant : ici, ou sur sa carte.",
+  "assign.kick": "A besoin d'une impulsion pour démarrer : à {pct} % il continue de tourner, mais n'y démarre pas à l'arrêt."
 }
