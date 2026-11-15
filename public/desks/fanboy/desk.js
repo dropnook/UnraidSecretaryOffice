@@ -221,7 +221,10 @@ function fanLook(f) {
   const measured = f && f.measured;
   const max = measured && num(f.max_rpm) ? f.max_rpm : c && num(c.rpm_max) ? c.rpm_max : null;
   const min = measured && num(f.min_pct) ? tableRpm(f.table, f.min_pct) : c && num(c.rpm_min) ? c.rpm_min : null;
-  return { mm: (c && c.mm) || m.mm || 120, blades: (c && c.blades) || m.blades || 7, min, max, colour: (f && f.colour) || 'auto' };
+  // the model's own look (fan-art.js draws its colours, blades and frame); a model whose maker doesn't say how many blades
+  // gets its blade style's own number there (blades null)
+  return { mm: (c && c.mm) || m.mm || 120, blades: (c && c.blades) || (c && c.look ? null : m.blades || 7), min, max,
+    colour: (f && f.colour) || 'auto', look: (c && c.look) || null };
 }
 /** A fan's name for the page: the one given, else «Output 4» */
 function fanName(id) {
@@ -545,7 +548,7 @@ function wheelOf(id, opts) {
   // a silent fan of his: no tach to show its speed — the percentage he gives it hints at it
   const shown = silent && held && pct !== null && look.max ? look.max * pct / 100 : silent && held && pct !== null ? 2000 * pct / 100 : rpm;
   return {
-    id, label: fanName(id), sub, mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour,
+    id, label: fanName(id), sub, mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour, look: look.look,
     rpm: st === 'unknown' ? null : shown, state: silent && held ? 'run' : st, place: f.place || (opts && opts.place) || 'front',
     // round 5: the chip went while he steered — his fans sit where he left them (nobody's), the BIOS's stay the BIOS's
     // round 7 (F3): its output on a fixed value someone left — nobody's, not the BIOS's
@@ -612,7 +615,7 @@ function picture() {
     const out = (su.fans || []).find((x) => x.chip === c.name && (x.tachs || []).includes(f.n));
     const look = fanLook(out);
     fans.push({ id, label: out && out.name ? out.name : T('fans.row', { n: f.n }), sub: T('pic.rpm', { rpm: fmt.number(f.rpm) }), mm: look.mm, blades: look.blades,
-      min: look.min, max: look.max, colour: look.colour, rpm: f.rpm, state: 'bios',
+      min: look.min, max: look.max, colour: look.colour, look: look.look, rpm: f.rpm, state: 'bios',
       badge: who().why === 'fixed' ? T('pic.stuck') : T('pic.bios'), title: who().why === 'fixed' ? T('pic.fixed_title') : T('pic.bios_title'),
       place: (out && out.place) || (fans.length % 2 ? 'rear' : 'front') });
   }));
@@ -1916,7 +1919,7 @@ function measureStep() {
     const card = Office.place(`measure:${f.id}`, el('div', 'fb-card' + (under ? ' fb-card-now' : '')));
     const look = fanLook(f);
     const o = outputNow(f.id);
-    card.appendChild(cardWheel({ rpm: rpmNow(f.id, f.tachs), mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: under ? 'accent' : look.colour }));
+    card.appendChild(cardWheel({ rpm: rpmNow(f.id, f.tachs), mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: under ? 'accent' : look.colour, look: look.look }));
     const txt = el('div', 'fb-card-text');
     txt.appendChild(el('div', 'fb-card-name', fanName(f.id)));
     const r = s && s.kind === 'measure' && s.results ? s.results[f.id] : null;
@@ -2044,7 +2047,7 @@ function zoneCard(z, i, zones, ours) {
     const f = setupFan(id) || { id };
     const row = el('div', 'fb-zone-fan');
     const look = fanLook(f);
-    row.appendChild(cardWheel({ rpm: rpmNow(id, f.tachs), mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour, px: 40, state: f.found === 'silent' ? 'unknown' : 'run' }));
+    row.appendChild(cardWheel({ rpm: rpmNow(id, f.tachs), mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour, look: look.look, px: 40, state: f.found === 'silent' ? 'unknown' : 'run' }));
     row.appendChild(el('span', 'fb-zone-fan-name', fanName(id)));
     const move = el('select');
     move.setAttribute('aria-label', T('zones.move', { fan: fanName(id) }));
@@ -2309,7 +2312,7 @@ function curvePart(z, i) {
     if (cv) cv.c.destroy();
     const c = A.curve({
       points: pts.map((p) => ({ t: p[0], v: p[1] })), unit: rpmUnit ? 'rpm' : 'percent', tMin, tMax, vMin: 0, vMax, floor: floor ?? undefined,
-      now: nowC ?? undefined, fan: { mm: look.mm, blades: look.blades, min: look.min, max: look.max || 2000, colour: look.colour },
+      now: nowC ?? undefined, fan: { mm: look.mm, blades: look.blades, min: look.min, max: look.max || 2000, colour: look.colour, look: look.look },
       rpmAt: lead.measured ? (v) => (v <= 0 ? 0 : tableRpm(lead.table, v)) : undefined,
       texts: {
         axisT: T('curve.axis_t'), axisV: rpmUnit ? T('curve.axis_rpm') : T('curve.axis_pct'), tickT: (x) => `${x}°`, tickV: (v) => (rpmUnit ? fmt.number(v) : `${v} %`),

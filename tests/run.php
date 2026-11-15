@@ -64832,8 +64832,25 @@ function testFanboyLook(): void
     check('fanboy look: fans-catalog.json is JSON with v 1 and a list of fans', is_array($cat) && ($cat['v'] ?? null) === 1 && array_is_list($cat['fans'] ?? null));
     $fans = is_array($cat) && is_array($cat['fans'] ?? null) ? $cat['fans'] : [];
     check('fanboy look: the catalogue holds the usual fans (40 … 60 of them)', count($fans) >= 40 && count($fans) <= 60, (string) count($fans));
-    $keys = ['id', 'brand', 'model', 'mm', 'rpm_min', 'rpm_max', 'blades', 'connector'];
+    $keys = ['id', 'brand', 'model', 'mm', 'rpm_min', 'rpm_max', 'blades', 'connector', 'look'];
     $intOrNull = fn ($v, int $lo, int $hi) => $v === null || (is_int($v) && $v >= $lo && $v <= $hi);
+    // a model's look (2026-11-15): its colours by name, its blades' character, its frame, its name as plain text on the hub
+    $lookColours = ['black', 'charcoal', 'graphite', 'grey', 'silver', 'white', 'beige', 'brown', 'frost'];
+    $lookKeys = ['frame', 'blades', 'hub', 'pads', 'style', 'shape', 'vanes', 'rim', 'sticker', 'sticker_colour'];
+    $lookOk = function ($l, array $f) use ($lookColours, $lookKeys): bool {
+        if (!is_array($l) || array_keys($l) !== $lookKeys) {
+            return false;
+        }
+        $lines = is_string($l['sticker']) ? explode("\n", $l['sticker']) : [];
+        return in_array($l['frame'], $lookColours, true) && in_array($l['blades'], $lookColours, true) && in_array($l['hub'], $lookColours, true)
+            && ($l['pads'] === null || in_array($l['pads'], $lookColours, true)) && ($l['pads'] === null) === ($l['shape'] !== 'pads')
+            && in_array($l['style'], ['swept-narrow', 'swept-wide', 'broad', 'straight', 'sickle'], true)
+            && in_array($l['shape'], ['square', 'ring', 'pads'], true) && is_int($l['vanes']) && $l['vanes'] >= 0 && $l['vanes'] <= 15
+            && is_bool($l['rim']) && in_array($l['sticker_colour'], $lookColours, true)
+            // the sticker: the model's name as plain text, 1-3 short lines, never the maker's name (no brand mark)
+            && count($lines) >= 1 && count($lines) <= 3 && !array_filter($lines, fn ($x) => trim($x) === '' || mb_strlen($x) > 10 || preg_match('~[<>&]~', $x))
+            && stripos(str_replace("\n", ' ', $l['sticker']), (string) $f['brand']) === false;
+    };
     $bad = [];
     foreach ($fans as $i => $f) {
         $id = is_array($f) && is_string($f['id'] ?? null) ? $f['id'] : "#$i";
@@ -64844,12 +64861,16 @@ function testFanboyLook(): void
             && is_int($f['mm']) && $f['mm'] >= 40 && $f['mm'] <= 200
             && $intOrNull($f['rpm_max'], 100, 12000) && $intOrNull($f['rpm_min'], 0, 12000)
             && ($f['rpm_min'] === null || $f['rpm_max'] === null || $f['rpm_min'] < $f['rpm_max'])
-            && $intOrNull($f['blades'], 3, 15) && in_array($f['connector'], [null, '3-pin', '4-pin'], true);
+            && $intOrNull($f['blades'], 3, 15) && in_array($f['connector'], [null, '3-pin', '4-pin'], true) && $lookOk($f['look'], $f);
         if (!$ok) {
             $bad[] = $id;
         }
     }
-    same('fanboy look: every fan in exactly the shape (id, brand, model, mm 40-200, rpm min < max or null, blades, connector)', [], $bad);
+    same('fanboy look: every fan in exactly the shape (id, brand, model, mm 40-200, rpm min < max or null, blades, connector, look: its colours, blade style, frame, pads only with the pads frame, the model\'s name as plain text)', [], $bad);
+    $looks = array_column($fans, 'look');
+    check('fanboy look: the catalogue tells the models apart — beige and brown Noctuas, grey redux ones, black ones, see-through blades; every blade style used, guide vanes and closed wheels where the maker has them',
+        count(array_unique(array_column($looks, 'frame'))) >= 4 && in_array('frost', array_column($looks, 'blades'), true)
+        && count(array_unique(array_column($looks, 'style'))) === 5 && array_filter(array_column($looks, 'vanes')) && array_filter(array_column($looks, 'rim')));
     $ids = array_column($fans, 'id');
     same('fanboy look: no id twice', [], array_values(array_unique(array_diff_assoc($ids, array_unique($ids)))));
     $names = array_map(fn ($f) => mb_strtolower(($f['brand'] ?? '') . ' ' . ($f['model'] ?? '')), $fans);
@@ -64878,6 +64899,8 @@ function testFanboyLook(): void
     }
     same('fanboy look: every fan\'s page named in tools/fanboy/fans-catalog.sources.md, on its maker\'s own site', [], $noPage);
     same('fanboy look: … and no row there for a fan the catalogue doesn\'t have', [], array_values(array_diff(array_keys($rows), $ids)));
+    preg_match_all('~^\| ([a-z0-9-]+) \| look \| ~m', $src, $lookRows);
+    same('fanboy look: every fan\'s look explained in the sources file (a «look» row each, its colours and blades from where)', [], array_values(array_diff($ids, $lookRows[1])));
 
     // the package: public/ goes in whole (the three files with it), tools/ never
     $build = (string) file_get_contents(OFFICE_DIR . '/plugin/build.sh');
@@ -64917,6 +64940,10 @@ function testFanboyLook(): void
     same('fanboy look: fan-art.css — every variable it uses is the office\'s, Unraid\'s palette or its own', [],
         array_values(array_unique(array_filter(array_diff($used[1], $defined[1]), fn ($v) => !$palette($v)))));
     check('fanboy look: fan-art.css — a size of its own under 640 px (phone) for the zone and the curve', substr_count($bare, '@media (max-width:640px)') >= 2);
+    same('fanboy look: fan-art.css — every look colour made from the palette (--fan-k-<name>)', [], array_values(array_filter($lookColours, fn ($c) => !preg_match("/--fan-k-$c:var\\(--|--fan-k-$c:color-mix\\(/", $bare))));
+    check('fanboy look: a model\'s frame keeps an outline in the text\'s colour (a black fan on the black theme, a white one on the white), its gaps a shade of its frame, and the states stay over its colours',
+        str_contains($bare, '.fan-look{--fan-line:color-mix(in srgb, var(--ink) 45%, transparent)}') && str_contains($bare, '.fan-look{--fan-well:color-mix(in srgb, var(--fan-frame) 50%, var(--bg))}')
+        && str_contains($bare, '.fan-s-stopped .fan-box{box-shadow:0 0 0 2px var(--danger)}') && str_contains($bare, '.fan-s-unknown .fan-rotor, .fan-s-unknown .fan-frame, .fan-s-unknown .fan-front{opacity:.5}'));
 
     // the components: no words of their own, nothing outside #sso, the house rules
     $js = (string) file_get_contents("$dir/fan-art.js");
@@ -64931,6 +64958,10 @@ function testFanboyLook(): void
     check('fanboy look: fan-art.js — never into body, no role=button, no scrollIntoView, no bare details',
         !str_contains($js, 'document.body') && !str_contains($js, 'role="button"') && !str_contains($js, "'button')") && !str_contains($js, 'scrollIntoView(')
         && !str_contains($js, "el('details'"));
+    check('fanboy look: a model\'s look is drawn by the wheel itself — named colours only (no picture, no mark), the user\'s colour wins over the model\'s wheel, the name on the hub only from 72 px, the sticker standing still',
+        !preg_match("~svg\\('(image|use|foreignObject)'|xlink|url\\(~", $js) && str_contains($js, "const own = !!(look && colour === 'auto');")
+        && str_contains($js, "root.style.setProperty(v, `var(--fan-k-\${paint[v]})`)") && str_contains($js, 'const STICKER_PX = 72;')
+        && str_contains($js, "box.append(frame, rotor, front, arc, badge);"));
     check('fanboy look: the wheel turns by a transform only, its air and the zone\'s by transform and opacity; all paused off screen and in a hidden tab, still with reduced motion',
         str_contains($js, "loop(rotor, [{ transform: 'rotate(0turn)' }, { transform: 'rotate(1turn)' }], 0)")
         && str_contains($js, "const frames = [{ transform: tr(axis, a), opacity: 0 }, ...mid, { transform: tr(axis, b), opacity: 0 }];") && str_contains($js, 'stream(m, air, ') && str_contains($js, 'stream(m, layer, ')
@@ -64963,6 +64994,9 @@ console.log(JSON.stringify({
   zero: t(0, 300, 1500), none: t(null, 300, 1500), min: r(t(300, 300, 1500)), max: r(t(1500, 300, 1500)), over: t(9000, 300, 1500),
   mid: r(t(900, 300, 1500)), eased: t(900, 300, 1500) - t(300, 300, 1500) > t(1500, 300, 1500) - t(900, 300, 1500), below: r(t(150, 300, 1500)), unknown: r(t(2000, null, null)), rising: curve.every((v, i) => !i || v >= curve[i - 1]),
   keys: [window.FanArt.COLOURS.length, window.FanArt.STATES.join(','), window.FanArt.KINDS.length, window.FanArt.FLOWS.join(',')],
+  lookKeys: [window.FanArt.LOOK_COLOURS.join(','), window.FanArt.STYLES.join(','), window.FanArt.SHAPES.join(',')],
+  look: [window.FanArt.lookOf(null), window.FanArt.lookOf({ frame: 'beige', blades: 'brown', pads: 'brown', style: 'sickle', shape: 'pads', vanes: 11, rim: true, sticker: 'NF-\nF12', sticker_colour: 'brown' }),
+    window.FanArt.lookOf({ frame: '#ff0000', blades: 'red', style: 'logo', shape: 'star', vanes: 99, rim: 'yes', sticker: '<b>', sticker_colour: 'gold' })],
 }));
 JS);
     $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg("$dir/fan-art.js") . ' 2>&1'), true);
@@ -64971,6 +65005,11 @@ JS);
     same('fanboy look: … an unknown range is 20 % … 100 % of 2000 rpm, faster never turns slower, the slow half differs more than the fast one',
         [1.1, true, true], [$o['unknown'] ?? null, $o['rising'] ?? null, $o['eased'] ?? null]);
     same('fanboy look: the keys a caller may pass (colours, states, kinds, flows)', [7, 'run,stopped,unknown,bios', 7, 'in,out'], $o['keys'] ?? null);
+    same('fanboy look: … and a look may use (the catalogue\'s own lists)', [implode(',', $lookColours), 'swept-narrow,swept-wide,broad,straight,sickle', 'square,ring,pads'], $o['lookKeys'] ?? null);
+    same('fanboy look: a look as the wheel takes it — none stays none (the neutral wheel), a model\'s kept (the hub in the blades\' colour when not given), unknown names and shapes dropped',
+        [null, ['frame' => 'beige', 'blades' => 'brown', 'hub' => 'brown', 'pads' => 'brown', 'style' => 'sickle', 'shape' => 'pads', 'vanes' => 11, 'rim' => true, 'sticker' => ['NF-', 'F12'], 'sticker_colour' => 'brown'],
+            ['frame' => null, 'blades' => null, 'hub' => null, 'pads' => null, 'style' => '', 'shape' => 'square', 'vanes' => 15, 'rim' => false, 'sticker' => ['<b>'], 'sticker_colour' => 'black']],
+        $o['look'] ?? null);
 }
 
 /**

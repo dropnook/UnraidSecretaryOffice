@@ -5,6 +5,7 @@
 (function () {
   'use strict';
   const q = new URLSearchParams(location.search);
+  if (q.get('only') === 'looks') return;            // demo-looks.js draws that page
   const root = document.getElementById('fl-demo');
   const nf = new Intl.NumberFormat('en-US');
   const rpmText = (n) => `${nf.format(Math.round(n))} rpm`;
