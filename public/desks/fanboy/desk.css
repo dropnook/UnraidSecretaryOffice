@@ -153,8 +153,9 @@
   /* ---- the setup's list and panel (step 2 «Testen und zuordnen»; the same parts for every step that runs something) ----
      Built once and patched in place: every part keeps its room whatever it says, so nothing moves while a test runs. */
   .fb-bench{display:flex; flex-direction:column; gap:12px; min-width:0}
-  .fb-input{max-width:100%; flex:none}
-  .fb-fold .fan-pick select{width:100%}
+  /* (office.css gives .input.small a flex-basis of 180px for its filter rows — in a column that would be a height) */
+  .input.small.fb-input{max-width:100%; flex:0 0 auto}
+  .fb-fold .fan-pick select.fb-input{width:100%}
   select.fb-input{padding-right:22px}
   /* the strip: what runs now (line 1), the last refusal or how a run ended (line 2), «Stop everything» — two lines high
      from the start; it stays at the top of the window while something runs */

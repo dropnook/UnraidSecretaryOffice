@@ -688,6 +688,7 @@
   "nc.who_sub": "Pour chaque collègue : combien part, et quand.",
   "nc.office_row": "Le secrétariat lui-même",
   "nc.sends": "envoie : {what}",
+  "nc.note.fanboy": "Un ventilateur à l'arrêt, trop chaud, un capteur qui ne dit rien, la puce des ventilateurs disparue : des alertes — elles partent toujours tout de suite.",
   "nc.send.alert": "alertes",
   "nc.send.warning": "avertissements",
   "nc.send.normal": "informations",

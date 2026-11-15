@@ -740,6 +740,8 @@ function ncWhoBox() {
     const main = el('div', 'row-main');
     main.appendChild(id === 'office' ? el('span', 'chip', T('nc.office_row')) : deskChip(id));
     main.appendChild(ncEl('div', 'row-meta', el('span', '', T('nc.sends', { what: sends.map((l) => T('nc.send.' + l)).join(', ') }))));
+    // a colleague's own line, when he has one (Fanboy: which of his are alerts — they always go)
+    if (Office.has(`${ID}.nc.note.${id}`)) main.appendChild(el('div', 'row-detail', T('nc.note.' + id)));
     const col = (nc.collecting || {})[id];
     if (col) main.appendChild(ncTip(el('div', 'row-detail', T('nc.collecting', { time: ncTime(col.since), n: col.n })), 'nc.tip.flood'));
     // four slots in every row — «successes too», threshold, when, time — an empty one held by an invisible stand-in of

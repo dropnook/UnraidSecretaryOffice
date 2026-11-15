@@ -54,8 +54,9 @@ ung_rank() { case "$1" in alert) echo 2 ;; warning) echo 1 ;; *) echo 0 ;; esac;
 
 # ung_is_success <desk> <event> - a success (OFFICE_NOTIFY_SUCCESS in notifycenter.php): the desk's «auch Erfolge»
 ung_is_success() { case "$1:$2" in backup:ok|jack:release_ok) return 0 ;; esac; return 1; }
-# ung_resolves <desk> <event> - it resolves what that desk said went wrong (OFFICE_NOTIFY_RESOLVES): a success, the agent back
-ung_resolves() { case "$1:$2" in backup:ok|jack:release_ok|office:agent_back) return 0 ;; esac; return 1; }
+# ung_resolves <desk> <event> - it resolves what that desk said went wrong (OFFICE_NOTIFY_RESOLVES): a success, the agent back,
+# Fanboy's fan chip back
+ung_resolves() { case "$1:$2" in backup:ok|jack:release_ok|fanboy:back|office:agent_back) return 0 ;; esac; return 1; }
 
 # ung_fail_same <desk> <event> - a run's failure, folded when the very same one comes again (OFFICE_NOTIFY_FAIL_SAME)
 ung_fail_same() { case "$1:$2" in backup:failed|backup:refused) return 0 ;; esac; return 1; }

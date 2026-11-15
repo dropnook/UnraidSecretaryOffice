@@ -43,17 +43,18 @@ const NOTIFY_SUMMARY_LINES = 20;      // lines of a summary's long text, then «
 const NOTIFY_SILENT_MAX   = 60 * 86400;   // «Still bis …» at most two months ahead
 
 // the characters who send, in the page's order — `office` the office itself (scripts/agent.sh: the agent away, back)
-const OFFICE_NOTIFY_DESKS = ['caretaker', 'backup', 'snapshot', 'restore', 'watchman', 'moverelli', 'jack', 'logs', 'office'];
+// (`fanboy` only while his switch is on: officeNotifyDesks())
+const OFFICE_NOTIFY_DESKS = ['caretaker', 'backup', 'snapshot', 'restore', 'watchman', 'moverelli', 'jack', 'fanboy', 'logs', 'office'];
 // what each of them sends (the page says it; a desk without alerts shows «Nur Alarme» as «Aus»)
 const OFFICE_NOTIFY_SENDS = [
     'caretaker' => ['warning'], 'backup' => ['alert', 'warning', 'normal'], 'snapshot' => ['warning'], 'restore' => ['warning'],
     'watchman'  => ['alert', 'warning', 'normal'], 'moverelli' => ['warning', 'normal'], 'jack' => ['warning', 'normal'],
-    'logs'      => ['warning'], 'office' => ['alert', 'normal'],
+    'fanboy'    => ['alert', 'warning', 'normal'], 'logs' => ['warning'], 'office' => ['alert', 'normal'],
 ];
 // successes: the desk's «auch Erfolge» (ung_is_success in notifygate.sh)
 const OFFICE_NOTIFY_SUCCESS  = ['backup' => ['ok'], 'jack' => ['release_ok']];
-// what resolves the desk's «the same» (ung_resolves): a success, the agent back
-const OFFICE_NOTIFY_RESOLVES = ['backup' => ['ok'], 'jack' => ['release_ok'], 'office' => ['agent_back']];
+// what resolves the desk's «the same» (ung_resolves): a success, the agent back, Fanboy's fan chip back (he steers again)
+const OFFICE_NOTIFY_RESOLVES = ['backup' => ['ok'], 'jack' => ['release_ok'], 'fanboy' => ['back'], 'office' => ['agent_back']];
 // a run's failure: the very same one again within NOTIFY_FAILED_SAME is counted (ung_fail_same)
 const OFFICE_NOTIFY_FAIL_SAME = ['backup' => ['failed', 'refused']];
 const OFFICE_NOTIFY_LEVELS   = ['all', 'warning', 'alert'];
@@ -74,6 +75,34 @@ function officeNotifyHome(): ?string
 }
 
 // ===================================================================== the settings
+
+/**
+ * The senders here now: OFFICE_NOTIFY_DESKS without a desk that isn't out yet and whose switch is off (desk.json
+ * "switch": "<name>.json", only Fanboy so far) — no row on the page, no setting taken for him. The same rule as
+ * fanboyShown() and src/desks.php officeDeskSwitchedOn(): only a plain file switches on; his desk.json unreadable: hidden.
+ *
+ * @return list<string>
+ */
+function officeNotifyDesks(?string $data = null, ?string $web = null): array
+{
+    $out = [];
+    foreach (OFFICE_NOTIFY_DESKS as $id) {
+        $meta = $id === 'office' ? [] : readJson(($web ?? OFFICE_WEB) . "/desks/$id/desk.json");
+        if (!is_array($meta)) {
+            continue;
+        }
+        if (array_key_exists('switch', $meta)) {
+            $s = $meta['switch'];
+            $f = ($data ?? DATA_DIR) . "/$id/" . (is_string($s) ? $s : '');
+            if (!is_string($s) || !preg_match('/^[a-z0-9_-]{1,32}\.json$/D', $s) || is_link($f) || !is_file($f)) {
+                continue;
+            }
+        }
+        $out[] = $id;
+    }
+    return $out;
+}
+
 
 /** One desk's settings, each field checked (anything else: its default — the same as before the centre) */
 function officeNotifyDeskSettings(mixed $d): array
@@ -769,8 +798,8 @@ function officeNotifyPublic(?int $now = null): array
     }
     return [
         'settings'   => array_intersect_key($s, array_flip(['at', 'desks', 'quiet', 'silent_until', 'all_well'])),
-        'desks'      => OFFICE_NOTIFY_DESKS,
-        'sends'      => OFFICE_NOTIFY_SENDS,
+        'desks'      => $here = officeNotifyDesks(),
+        'sends'      => array_intersect_key(OFFICE_NOTIFY_SENDS, array_flip($here)),
         'success'    => array_keys(OFFICE_NOTIFY_SUCCESS),
         'available'  => is_executable(OFFICE_NOTIFY_BIN),
         'waiting'    => $waiting,
@@ -826,8 +855,9 @@ function officeNotifySave(array $r, ?string $file = null): array
     }
     $old = (!is_link($file) ? readJson($file) : null) ?? [];
     $new = officeNotifySettings($old);
+    $here = officeNotifyDesks();
     foreach ($desks as $id => $d) {
-        if (!in_array($id, OFFICE_NOTIFY_DESKS, true) || !is_array($d) || !in_array($d['level'] ?? null, OFFICE_NOTIFY_LEVELS, true)
+        if (!in_array($id, $here, true) || !is_array($d) || !in_array($d['level'] ?? null, OFFICE_NOTIFY_LEVELS, true)
             || !is_bool($d['success'] ?? null) || !in_array($d['when'] ?? null, ['now', 'summary'], true)) {
             throw new Problem('bad_request');
         }
