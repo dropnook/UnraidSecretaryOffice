@@ -115,6 +115,7 @@ if (fanboyShown()) {
             'show'          => fn (array $r) => fanboyShowStart($r),
             'show_stop'     => fn (array $r) => fanboyShowStop($r),          // 4b: «Found it — stop»
             'safety_back'   => fn (array $r) => fanboyRestoreStart($r),      // round 9 (H2): «Zurück auf den Wert von vorher»
+            'stop_all'      => fn (array $r) => fanboyStopAll(),             // round 9 (H4): «Alles stoppen»
         ],
     ]);
 }
@@ -442,6 +443,7 @@ function fanboyTick(?float $now = null): void
     fanboyBackCheck();
     fanboyEnsureControl($now);
     fanboyIdleTick($now);           // round 6: the fans he doesn't steer, watched (notify only)
+    fanboyStopAllTick();            // round 9 (H4): «Alles stoppen» — the safety fulls back once nothing else runs
 }
 
 /**

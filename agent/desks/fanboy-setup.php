@@ -249,14 +249,14 @@ function fanboyKickStart(array $stuck, array $candidates, array $owner, string $
                 $taken[] = $id;
             }
         }
-        fanboyStepWait($io, FANBOY_KICK_FOR);
+        ($io['sleep'])(FANBOY_KICK_FOR);         // never cut short by a stop: a kick ends by itself
     } finally {
         fanboyGiveBack($taken, 'kick', $owner);              // exactly the state before — the value it keeps turning at
     }
     $t = ($io['now'])();
     $left = array_keys($byTach);
     while ($left && ($io['now'])() - $t < FANBOY_KICK_LOOK) {
-        fanboyStepWait($io, 0.5);
+        ($io['sleep'])(0.5);
         $still = fanboyStuckTachs(array_intersect_key($GLOBALS['fanboyKickBefore'] ?? [], array_flip($left)));
         $left = array_values(array_intersect($left, $still));
     }
@@ -302,12 +302,12 @@ function fanboyQuietRestart(array $before, array $quieted, array $io, ?array $ow
         if ($stuck && $elapsed >= FANBOY_KICK_WAIT) {
             break;
         }
-        fanboyStepWait($io, 0.5);
+        ($io['sleep'])(0.5);                    // round 9: the pause is never cut short by a stop — every fan must turn again
     }
     if ($owner !== null) {
         $stuck = fanboyKickStart($stuck, $quieted, $owner, $boardKey, $io);
         if (!$stuck) {
-            fanboyStepWait($io, 1.0);
+            ($io['sleep'])(1.0);
             return;
         }
     }
@@ -565,6 +565,18 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool 
         }
         $follow = array_keys(array_filter($seen, fn ($k) => $k >= 2));
         $inverted = $follow ? [] : array_keys(array_filter($fell, fn ($k) => $k >= 2));
+    } catch (Throwable $e) {
+        // round 9: stopped half-way (Abbrechen, the page gone, too warm, an error): everything back at once (below), and
+        // still every fan that stood must turn again — the kick, else full + alert — before the stop goes on
+        fanboyGiveBack([$o['id'], ...$quieted], 'step', $owner);
+        if ($quiet && $quietedAll) {
+            try {
+                fanboyQuietRestart($tachsBefore, $quietedAll, $io, $owner, $boardKey);
+            } catch (FanboyQuietWarm $r) {
+                throw $r;                       // a fan that didn't start again says more than why the test stopped
+            }
+        }
+        throw $e;
     } finally {
         fanboyGiveBack([$o['id'], ...$quieted], 'step', $owner);      // at once — an inverted output stopped its fan; the quieted ones
     }
@@ -961,6 +973,45 @@ function fanboyStepStart(string $kind, array $ids, bool $quiet = false): array
     return ['ok' => true, 'step' => $step];
 }
 
+/**
+ * Round 9 (H4): «Alles stoppen» — a running setup step and a show asked to end (each gives everything back itself, with
+ * the kick for a fan that doesn't start), and every output he set to full for safety back to its state before as soon as
+ * nothing else runs (the agent's tick starts that: RUN_DIR/fanboy/stop-all)
+ */
+function fanboyStopAll(): array
+{
+    fanboyStepStopAction();
+    $show = fanboyShowRead();
+    if ($show !== null && in_array($show['status'], ['starting', 'running'], true)) {
+        fanboyShowStop(['fan' => $show['fan']]);
+    }
+    @mkdir(fanboyRunDir(), 0700, true);
+    writeAtomic(fanboyRunDir() . '/stop-all', (string) time(), 0600, 0, 0);
+    fanboyStopAllTick();
+    logLine('Fanboy: «stop everything» on the user\'s click');
+    return ['ok' => true, 'state' => fanboyScan()];
+}
+
+/** The tick's half of «Alles stoppen»: once nothing of the setup runs, the safety fulls back (one launch), the mark gone */
+function fanboyStopAllTick(): void
+{
+    $f = fanboyRunDir() . '/stop-all';
+    if (!is_file($f)) {
+        return;
+    }
+    if (time() - (int) @file_get_contents($f) > 300) {
+        @unlink($f);                    // 5 minutes: it was meant for then, not for later
+        return;
+    }
+    if (fanboyStepRunning() || fanboyShowRunning() || fanboyRestoreRunning()) {
+        return;
+    }
+    @unlink($f);
+    if (fanboySafetyFull()) {
+        fanboyRestoreStart(['all' => true, 'fan' => '']);
+    }
+}
+
 /** «Stop»: the step's process asked to end (it gives everything back itself; the guard does when it can't) */
 function fanboyStepStopAction(): array
 {
@@ -1081,6 +1132,11 @@ function fanboyRole(array $r): array
     $e = fanboyStoreUpdate(function (array $e) use ($id, $role, $name, $place, $offOk, $count, $cpuOwn, $outputs, $hasName, $hasPlace): array {
         $e = fanboyFanEnsure($e, $id, $outputs);
         $f = $e['fans'][$id];
+        // round 9 (H6): «Fanboy steers the CPU cooler» never in the same click that makes it the CPU cooler — first the role,
+        // then the own-risk choice with its tick
+        if ($cpuOwn === true && ($f['role'] ?? null) !== 'cpu') {
+            throw new Problem('fanboy_cpu_role_first');
+        }
         if (!in_array(fanboyFound($f), [null, 'ask', 'tach', 'silent', 'unclear'], true)) {
             throw new Problem('fanboy_no_output', ['fan' => $id]);
         }

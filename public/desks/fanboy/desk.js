@@ -168,13 +168,70 @@ function showButton(id, f) {
   on.append(wave(), el('span', '', T('show.stop')));
   b.append(el('span', mine ? 'fb-show-label fb-show-off' : 'fb-show-label', T('show.button')), on);
   const why = f && ['ignored', 'inverted'].includes(f.found) ? T(`show.off.${f.found}`)
-    : situation() === 'other' ? T('show.off.other') : stepRuns() ? T('show.off.step') : showRuns() && !mine ? T('show.off.one') : control().running && control().alarm ? T('show.off.alarm') : '';
+    : situation() === 'other' ? T('show.off.other') : stepRuns() ? T('show.off.step') : showRuns() && !mine ? T('show.off.one') : control().running && control().alarm ? T('show.off.alarm')
+      : restoreRuns() ? T('safety.wait') : '';
+  // round 9 (H3): in the show's pause its own button waits too (everything is back already; the fans start again)
+  if (mine && ['pause', 'kick'].includes(x.phase)) { on.replaceChildren(wave(), el('span', '', T('show.pausing'))); b.disabled = true; b.title = T('now.pause_tip'); b.onclick = null; return b; }
   b.title = mine ? T('show.stop_tip') : why || T('show.tip');
   b.disabled = (!mine && !!why) || !state || !Office.agent.running;
   // round 8: the quiet switch counts for a show too — only while he doesn't steer (his control never stops another fan)
   b.onclick = () => (mine ? act('show_stop', { fan: id }, b)
     : act('show', { fan: id, quiet: quietOn() && !control().running }, b, () => Office.toast(T('show.toast', { fan: fanName(id) }))));
   return b;
+}
+/** Seconds left until a server time (the state's own clock, moved on by the page's since it came) */
+const secsTo = (until) => (num(until) === null ? null : Math.max(0, Math.round(until - ((S().time || 0) + (Date.now() - stateAt) / 1000))));
+/**
+ * Round 9 (H3, the owner: «one turns at 100 %, the page doesn't show which»): what goes on now, in one line — a test's output
+ * at full (the others standing), the pause (the fans starting again, «noch n s»), a kick, a show, «back to the value
+ * before», an output at full for safety — or «nothing runs». With «Alles stoppen» (H4) while anything of his holds or
+ * changed an output.
+ */
+function nowLine() {
+  const s = step();
+  const x = showNow();
+  const p = (running(s) && s.progress) || {};
+  let text = T('now.nothing');
+  let busyNow = false;
+  if (running(s) && s.kind === 'test_up') {
+    busyNow = true;
+    const fan = fanName(s.current || '');
+    if (p.phase === 'pause') text = T('now.pause', { s: secsTo(p.until) ?? 5 });
+    else if (p.phase === 'kick') text = T('now.kick', { s: secsTo(p.until) ?? 13 });
+    else if (p.phase === 'full' && s.current) text = T(p.quiet ? 'now.full_quiet' : 'now.full', { fan });
+    else text = T('now.next', { fan });
+  } else if (running(s) && s.kind === 'measure') {
+    busyNow = true;
+    text = T('now.measure', { fan: fanName(s.current || '') });
+  } else if (showRuns()) {
+    busyNow = true;
+    if (x.phase === 'pause') text = T('now.pause', { s: secsTo(x.until) ?? 5 });
+    else if (x.phase === 'kick') text = T('now.kick', { s: secsTo(x.until) ?? 13 });
+    else text = T(x.quiet ? 'now.full_quiet' : 'now.full', { fan: fanName(x.fan) });
+  } else if (restoreRuns()) {
+    busyNow = true;
+    text = T('now.restore', { fan: (restoreNow().fans || []).map((id) => fanName(id)).join(', ') });
+  } else if (Object.keys(S().safety || {}).length) {
+    busyNow = true;
+    text = T('now.safety', { fan: Object.keys(S().safety).map((id) => fanName(id)).join(', ') });
+  }
+  const box = el('div', 'fb-now' + (busyNow ? ' fb-now-on' : ''));
+  box.dataset.now = busyNow ? 'on' : 'off';
+  if (busyNow) box.appendChild(wave());
+  box.appendChild(el('span', 'fb-now-text', text));
+  if (busyNow) {
+    const stop = button(T('stop_all'), T('stop_all_tip'), (b) => act('stop_all', {}, b, () => Office.toast(T('stop_all_toast'))), 'btn small danger');
+    box.appendChild(stop);
+  }
+  return box;
+}
+/** Is the output at full because of him right now (a test's, a show's, a safety full)? — its card and row framed */
+function atFullNow(id) {
+  const s = step();
+  if (running(s) && s.kind === 'test_up' && s.current === id && (s.progress || {}).phase === 'full') return true;
+  const x = showNow();
+  if (showRuns() && x.fan === id && !['pause', 'kick'].includes(x.phase)) return true;
+  return !!safetyOf(id);
 }
 /** A tach input's name as the page says it: the setup's fan on it, else the input's own label, else «Fan input 4» */
 function tachName(tid) {
@@ -324,8 +381,9 @@ function stepAtHand() {
 function load(fresh) {
   return Office.loadState(ID, { fresh }, took);
 }
+let stateAt = 0;                // when the state came (the page's clock) — «noch n s» counts from the server's time then
 function took(j) {
-  if (j.ok && j.state) state = j.state;
+  if (j.ok && j.state) { state = j.state; stateAt = Date.now(); }
   // his picture with a red mark while something is wrong at his fans (its alarm variant, as the Night Watchman has one)
   if (state) Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'chip_gone', 'crashed'].includes(who().why)
     || (idle().on && Object.values(idle().tachs || {}).some((x) => x && x.state === 'alarm')) ? 'alarm' : '');
@@ -424,6 +482,9 @@ function bubbleText() {
   const c = control();
   if (w.who === 'fanboy') return w.why === 'alarm' ? T('bubble.alarm') : T('bubble.steers', { n: w.zones || 0 });
   if (stepRuns()) return step().kind === 'measure' ? T('bubble.measuring') : T('bubble.testing');
+  // round 9 (H4): while he shows a fan or one stands at full for safety — and that «Alles stoppen» brings everything back
+  if (showRuns()) return T('bubble.showing');
+  if (Object.keys(S().safety || {}).length) return T('bubble.safety');
   if (w.why === 'chip_missing' || w.why === 'chip_gone') return T(`bubble.${w.why}`);
   if (w.why === 'array_stopped') return T('bubble.array_stopped');
   if (w.why === 'fixed') return T('bubble.fixed');           // round 7: nobody steers — a fixed value someone left
@@ -527,7 +588,9 @@ function button(text, tip, onClick, cls) {
 }
 /** An action of his from the page: the button waits, the new state drawn, a problem said plainly */
 async function act(action, body, b, done) {
-  if (busy || !Office.agent.running) return null;
+  // round 9 (H3): a click that can't go through now says why — never silence
+  if (busy) { Office.toast(T('busy_wait'), true); return null; }
+  if (!Office.agent.running) { Office.toast(t('errors.agent_away'), true); return null; }
   busy = true;
   if (b) b.disabled = true;
   await Office.freshState(ID);
@@ -935,13 +998,15 @@ function outputRow(c, o) {
   const v = el('div', 'fb-value', num(o.pct) === null ? '–' : T('value', { pct: o.pct }));
   v.title = T('value_title', { value: o.value ?? '–' });
   const b = (setup().before || {})[id];
-  return unfoldRow(`out:${id}`, { place: `out:${c.address}:${o.n}` }, f && f.name ? f.name : T('out.name', { n: o.n }), meta, v, [
+  const row = unfoldRow(`out:${id}`, { place: `out:${c.address}:${o.n}` }, f && f.name ? f.name : T('out.name', { n: o.n }), meta, v, [
     [T('tech.chip'), `${c.name} · ${c.address}${c.module ? ' · ' + c.module : ''}`],
     [T('tech.output'), `pwm${o.n} · ${c.hwmon}`],
     [T('tech.mode'), `pwm${o.n}_enable = ${o.enable ?? '–'} · ${o.value ?? '–'} / 255`],
     [T('tech.tachs'), f && (f.tachs || []).length ? f.tachs.map((n) => `fan${n}_input`).join(', ') : '–'],
     [T('tech.before'), b ? `${b.enable ?? '–'} · ${b.value ?? '–'} / 255` : '–'],
   ]);
+  if (atFullNow(id)) row.classList.add('fb-row-now');         // round 9 (H3): at full because of him — framed
+  return row;
 }
 /**
  * Fans and outputs: first the outputs he steers, then those the BIOS keeps with a fan on them (and those not tested yet:
@@ -950,6 +1015,8 @@ function outputRow(c, o) {
 function fansSection() {
   const s = el('section', 'section');
   s.appendChild(Office.sectionHead(T('fans.title'), steers() ? T('fans.sub_steers') : T('fans.sub'), { place: 'fans.title' }));
+  // round 9 (H3): a show, a pause, a safety full — said above the list, with «Alles stoppen»
+  if (showRuns() || restoreRuns() || stepRuns() || Object.keys(S().safety || {}).length) s.appendChild(nowLine());
   const his = [], bios = [], rest = [];
   chips().filter((c) => c.outputs.length).forEach((c) => c.outputs.forEach((o) => {
     const id = `${c.name}:${c.address}:pwm${o.n}`;
@@ -1602,6 +1669,7 @@ function testStep() {
   const s = step();
   const live = running(s) && s.kind === 'test_up';
   if (blocked(box)) return box;
+  box.appendChild(nowLine());
   stepEnded(box, s, 'test_up');
   box.appendChild(quietChoice());
   const list = el('div', 'fb-cards fb-cards-wide');
@@ -1624,10 +1692,12 @@ function testCard(id, s, live) {
   const under = live && s.current === id;
   const o = outputNow(id);
   const p = idParts(id);
-  const card = Office.place(`test:${id}`, el('div', 'fb-card fb-card-test' + (under || safetyOf(id) ? ' fb-card-now' : '')));
+  const card = Office.place(`test:${id}`, el('div', 'fb-card fb-card-test' + (atFullNow(id) || under ? ' fb-card-now' : '')));
   // the output under test turns faster: its wheel shows what the output gets now (full while tested)
-  card.appendChild(cardWheel({ rpm: o && num(o.pct) !== null ? 2000 * o.pct / 100 : 0, min: 400, max: 2000, state: under ? 'run' : 'bios', mm: 120,
-    colour: under ? 'accent' : 'auto' }));
+  // round 9 (H3): the wheel of the output at full turns fast in the accent; a stopped one (0 %) stands
+  const hot = under || atFullNow(id);
+  card.appendChild(cardWheel({ rpm: o && num(o.pct) !== null ? 2000 * o.pct / 100 : 0, min: 400, max: 2000, state: hot ? 'run' : 'bios', mm: 120,
+    colour: hot ? 'accent' : 'auto' }));
   const txt = el('div', 'fb-card-text');
   const rpm = f && f.found === 'tach' ? rpmNow(id, f.tachs) : null;
   txt.appendChild(el('div', 'fb-card-name', T('out.name', { n: p ? p.output : '?' }) + (rpm !== null ? ` · ${T('pic.rpm', { rpm: fmt.number(rpm) })}` : '')));
@@ -1682,7 +1752,7 @@ function assignBox(id, f, live) {
   const found = f ? f.found : null;
   const off = !state || !Office.agent.running || ['ignored', 'inverted'].includes(found);
   const field = (label, input) => { const l = el('label', 'fb-field'); l.append(el('span', 'fb-field-label', label), input); return l; };
-  const role = el('select');
+  const role = el('select', 'input small');          // round 9 (H5): the office's field look (Unraid's own is white on dark)
   role.appendChild(new Option(T('roles.choose'), ''));
   const g1 = el('optgroup');
   g1.label = T('roles.his');
@@ -1695,7 +1765,7 @@ function assignBox(id, f, live) {
   role.value = found === 'empty' ? 'empty' : (f && f.role) || '';
   role.disabled = off;
   role.onchange = () => setRole(id, f, role.value);
-  const count = el('select');
+  const count = el('select', 'input small');
   for (let n = 1; n <= 8; n++) count.appendChild(new Option(String(n), String(n)));
   count.value = String((f && f.count) || 1);
   count.disabled = off || !(f && f.role);
@@ -1709,7 +1779,8 @@ function assignBox(id, f, live) {
   const p = idParts(id);
   const r = f && f.role;
   let note = '';
-  if (r === 'cpu' || r === 'pump') note = T('assign.never_stopped');
+  if (r === 'cpu') note = f.cpu_own ? T('assign.cpu_own', { date: Office.fmt.date(f.cpu_own) }) : T('assign.cpu_bios');
+  else if (r === 'pump') note = T('assign.never_stopped');
   else if (f && num(f.kick_start) !== null) note = T('assign.kick', { pct: Math.round(f.kick_start / 2.55) });
   else if (r && ROLES_BIOS.includes(r)) note = T(`roles.bios_note.${r}`);
   else if (!r && p && p.output === 1 && ['tach', 'silent'].includes(found)) note = T('roles.cpu_hint');
@@ -1718,7 +1789,7 @@ function assignBox(id, f, live) {
   // what the roles step offered beyond that, behind a small unfold
   const more = keepFold(el('details', 'fb-assign-more'), `assign:${id}`, false);
   more.appendChild(el('summary', '', T('assign.more')));
-  const place = el('select');
+  const place = el('select', 'input small');
   place.appendChild(new Option(T('roles.place_any'), ''));
   PLACES.forEach((pl) => place.appendChild(new Option(T(`place.${pl}`), pl)));
   place.value = (f && f.place) || '';
@@ -1736,7 +1807,7 @@ function assignBox(id, f, live) {
     const det = keepFold(el('details', 'fb-model'), `model:${id}`, false);
     det.appendChild(el('summary', '', f && f.model ? T('roles.model_is', { model: modelText(f.model) }) : T('roles.model')));
     det.appendChild(pk.el);
-    const colour = el('select');
+    const colour = el('select', 'input small');
     COLOURS.forEach((c) => colour.appendChild(new Option(T(`colour.${c}`), c)));
     colour.value = (f && f.colour) || 'auto';
     colour.onchange = () => act('fan_look', { fan: id, colour: colour.value }, null);
@@ -1757,6 +1828,7 @@ function assignBox(id, f, live) {
 /** A role picked on a card: «nothing attached» is the test's «no» (empty); a role for a fan the test asked about says «yes» first */
 async function setRole(id, f, v) {
   if (!v) return;
+  cpuAsk.delete(id);              // round 9 (H6): a role click never carries a half-made «Fanboy steers it» along
   if (v === 'empty') { act('answer', { fan: id, louder: false }, null); return; }
   if (f && f.found === 'ask') await act('answer', { fan: id, louder: true }, null);
   const now = setupFan(id) || f || {};
@@ -1771,7 +1843,7 @@ const nameFields = new Map();
 function nameField(id, f, off) {
   let n = nameFields.get(id);
   if (!n) {
-    n = el('input');
+    n = el('input', 'input small');
     n.type = 'text';
     n.maxLength = 40;
     n.placeholder = T('assign.where_ph');
