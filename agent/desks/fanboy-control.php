@@ -101,13 +101,14 @@ const FANBOY_ROLES_OURS = ['case', 'disks', 'ram', 'nvme', 'other'];
 /*
  * The CPU cooler on the owner's own risk (round 4): role «cpu» plus a stored, dated confirmation (`cpu_own` {at}) — only
  * then is it his. Safeguards: its zone must hold a CPU temperature (else it stays the BIOS's), a floor of its own
- * (never under FANBOY_CPU_FLOOR, nor under the lowest steady value measured + margin), never «off», given back to the
+ * (never under FANBOY_CPU_FLOOR, nor under the lowest steady value measured + margin) whenever it turns — round 12: it
+ * may stand only with its own second tick, where its curve asks for nothing (fanboyCpuStand()) — given back to the
  * mainboard's automatic only (no automatic for the output: no opt-in). The alarm, the reaction, three control deaths:
  * as for every fan of his. Pumps never.
  */
 const FANBOY_CPU_FLOOR = 40;
-const FANBOY_CPU_STAND_GAP = 5.0;       // round 12: a CPU cooler may stop only with the CPU this far under its «ab» …
-const FANBOY_CPU_STAND_AFTER = 60.0;    // … for this long without a break (it starts again at once at «ab»)
+const FANBOY_CPU_STAND_GAP = 5.0;       // round 12: a CPU cooler may stop only with the smoothed CPU this far under where its curve leaves 0 …
+const FANBOY_CPU_STAND_AFTER = 60.0;    // … for this long without a break (it starts again when the smoothed CPU is back there)
 const FANBOY_START_ABOVE = 5;           // round 12 fix: a standing fan starts this much above its measured start from standstill
 const FANBOY_CPU_SMOOTH = 10.0;         // round 12 fix (the owner's CPU: single readings 50–67 °C every half minute at 38 °C idle):
                                         // the CPU judged by the median of its readings of the last 10 s — one spike moves it not
@@ -424,6 +425,11 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 $floor = max($floor, FANBOY_CPU_FLOOR);
             }
             [$offOk, $offWhy, $start] = fanboyStandPlan($f, $m, $hasTach, $cpu, $floor);
+            // round 12 correction (the owner: «bis 60 Grad darf der Lüfter stehen bleiben» — his curve, not a second
+            // threshold): «darf stehen» only where its curve can ask for nothing
+            if ($offOk && fanboyCurveStart($cpu ? fanboyCpuCurve($z) : fanboyZoneCurve($z))['never_zero']) {
+                [$offOk, $offWhy] = [false, 'curve_never_zero'];
+            }
             $fans[$id] = [
                 'id' => $id, 'zone' => $z['id'], 'chip' => $f['chip'], 'address' => $f['address'], 'output' => $f['output'],
                 'tachs' => array_values(array_filter(is_array($f['tachs'] ?? null) ? $f['tachs'] : [$f['tach']], 'is_int')),
@@ -964,12 +970,126 @@ function fanboyStandPlan(array $f, ?array $m, bool $hasTach, bool $cpu, int $flo
 }
 
 /**
- * Round 12 (the owner: «klar dürfen CPU-Lüfter auch ganz anhalten, wenn der User das möchte»): does a CPU cooler of his
- * stand this round? It turns at once when the CPU reaches its «ab» (its kind's low in the zone, default 45 °C), when any
- * source of its zone asks for air (at or over its own «ab»), when a CPU reading is missing, or in an alarm/over a limit;
- * it stops only after the CPU was FANBOY_CPU_STAND_GAP °C under «ab» for FANBOY_CPU_STAND_AFTER s without a break; in
- * between it stays as it is.
+ * Round 12 correction: where a curve leaves 0 — the last temperature at which it asks for nothing (< 0.5) before it asks
+ * for something. never_zero: it asks for something even at its lowest end (a fan on it never stands); start null and not
+ * never_zero: it never asks for anything (all its points under 0.5).
  */
+function fanboyCurveStart(array $curve): array
+{
+    if ($curve === [] || $curve[0][1] >= 0.5) {
+        return ['start' => null, 'never_zero' => $curve !== []];
+    }
+    for ($i = 0, $n = count($curve); $i + 1 < $n; $i++) {
+        if ($curve[$i][1] < 0.5 && $curve[$i + 1][1] >= 0.5) {
+            return ['start' => (float) $curve[$i][0], 'never_zero' => false];
+        }
+    }
+    return ['start' => null, 'never_zero' => false];
+}
+
+/** Round 12 correction: the temperature at which a curve first reaches its highest value (100 % as drawn) — the hard value */
+function fanboyCurveFull(array $curve): ?float
+{
+    if ($curve === []) {
+        return null;
+    }
+    $max = max(array_column($curve, 1));
+    foreach ($curve as $p) {
+        if ($p[1] >= $max - 0.5) {
+            return (float) $p[0];
+        }
+    }
+    return null;
+}
+
+/**
+ * Round 12 correction: the CPU's curve in its own degrees — the zone's curve moved from the zone's scale onto the CPU
+ * kind's «ab»…«volle Drehzahl bei» (the mapping the control makes for a CPU source; in a CPU zone the curve as drawn)
+ */
+function fanboyCpuCurve(array $z): array
+{
+    $curve = fanboyZoneCurve($z);
+    [$lo, $hi] = fanboyZoneScale($z);
+    $kv = fanboyKindValues($z, 'cpu');
+    [$kl, $kh] = [(float) $kv['low'], (float) $kv['high']];
+    if (($z['sources'][0]['kind'] ?? null) === 'cpu' && !is_numeric($z['low'] ?? null) && !is_numeric($z['high'] ?? null)) {
+        return $curve;
+    }
+    return $kh > $kl ? array_map(fn ($p) => [$kl + ($p[0] - $lo) * ($kh - $kl) / ($hi - $lo), $p[1]], $curve) : $curve;
+}
+
+/** Round 12 correction: what a source asks for on its zone's curve at a temperature (the zone round's own mapping) */
+function fanboySourceAsk(array $z, array $s, float $t): float
+{
+    [$lo, $hi] = fanboyZoneScale($z);
+    return fanboyCurveAt(fanboyZoneCurve($z), fanboyMapped(fanboySourceValues($z, $s), $t, $lo, $hi, $z['sources'][0]['kind'] ?? ''));
+}
+
+/**
+ * Round 12 correction: a fan's curve as the control really applies it — 0 where it may stand and the curve asks for
+ * nothing, else at least its floor: [[°C, %]…] (two points at one temperature: a step), on the curve's own degrees
+ */
+function fanboyEffectiveCurve(array $curve, float $floor, bool $offOk, ?float $standBelow = null): array
+{
+    if ($curve === []) {
+        return [];
+    }
+    // where it stands: a case fan where the curve asks for nothing (< 0.5 %, the control's rule), a CPU cooler under the
+    // temperature at which its curve leaves 0 ($standBelow — fanboyCpuStand() starts it there)
+    $stands = fn (float $t) => $offOk && ($standBelow !== null ? $t < $standBelow : fanboyCurveAt($curve, $t) < 0.5);
+    $f = fn (float $t) => $stands($t) ? 0.0 : max(fanboyCurveAt($curve, $t), $floor);
+    $ts = array_column($curve, 0);
+    if ($standBelow !== null) {
+        $ts[] = $standBelow;
+    }
+    for ($i = 0; $i + 1 < count($curve); $i++) {
+        [[$t0, $v0], [$t1, $v1]] = [$curve[$i], $curve[$i + 1]];
+        foreach ($standBelow !== null ? [$floor] : [$floor, 0.5] as $level) {
+            if ($t1 > $t0 && ($v0 - $level) * ($v1 - $level) < 0) {
+                $ts[] = $t0 + ($level - $v0) * ($t1 - $t0) / ($v1 - $v0);
+            }
+        }
+    }
+    sort($ts);
+    $out = [];
+    foreach (array_unique(array_map(fn ($t) => round($t, 2), $ts)) as $t) {
+        [$l, $r] = [round($f($t - 1e-6), 1), round($f($t + 1e-6), 1)];
+        $out[] = [$t, $l];
+        if ($r !== $l) {
+            $out[] = [$t, $r];
+        }
+    }
+    return $out;
+}
+
+/**
+ * Round 12 correction: if he is not there — what this output goes back to (as the journal keeps it for THIS output: the
+ * chip's automatic or the value found, read back) and within how many seconds at most each way it is given back (upper
+ * bounds from the constants that drive it; testFanboyR12CpuGone shows each way works). The output standing at 0 now: the
+ * shorter «hung» and the guard's 20-s looks apply.
+ */
+function fanboyFallback(?array $o, array $f): ?array
+{
+    if ($o === null) {
+        return null;
+    }
+    $to = is_array($o['back'] ?? null) ? $o['back'] : (is_array($o['initial'] ?? null) ? $o['initial'] : null);
+    $standing = ($f['value'] ?? null) === 0;
+    $tick = defined('FANBOY_TICK_EVERY') ? (int) constant('FANBOY_TICK_EVERY') : 5;
+    return [
+        'to' => $to === null ? null : ['value' => $to['value'] ?? null, 'enable' => $to['enable'] ?? null, 'auto' => is_int($to['enable'] ?? null) && $to['enable'] >= 2],
+        'within' => [
+            'stopped'       => 0,                       // the control ends (stop, hand back, a hold): it gives back itself
+            'control_dead'  => $tick,                   // killed hard: the agent's tick
+            'control_hung'  => ($standing ? FANBOY_OWNER_STALE_STANDING : FANBOY_OWNER_STALE) + $tick,
+            'agent_restart' => null,                    // the control runs on (a process of its own): nothing is given back
+            'agent_stop'    => 3,                       // agent.sh stop/restart/update → the guard's release (TERM, 3 s)
+            'guard_only'    => $standing ? 20 + FANBOY_OWNER_STALE_STANDING : 60 + FANBOY_OWNER_STALE,     // the agent gone too
+        ],
+        'check' => FANBOY_BACK_CHECK,                   // seconds after a give-back: a fan clearly slower than before → full
+    ];
+}
+
 /**
  * Round 12 fix: a CPU's readings over the last FANBOY_CPU_SMOOTH s ($hist: [[time, °C]…], kept by the caller) — the
  * median (a single spike doesn't move it) and the peak. $c null: no reading this time (not added).
@@ -987,39 +1107,44 @@ function fanboyCpuSmooth(array &$hist, ?float $c, float $now): array
     return ['smooth' => $median === null ? null : round($median, 1), 'peak' => $n ? max($v) : null, 'now' => $c];
 }
 
+/**
+ * Round 12, corrected (the owner drew his CPU curve 0 % up to 62 °C: «bis 60 Grad darf der Lüfter stehen bleiben» — no
+ * second threshold): does a CPU cooler of his that may stand stand this round? By its curve (fanboyCpuCurve()) and the
+ * smoothed CPU (median of 10 s, fanboyCpuSmooth()): it turns when the smoothed CPU reaches where the curve leaves 0
+ * (starts_at), at once on any single reading at the hard value (where the curve reaches its 100 %), when a reading is
+ * missing, when another source of its zone asks for air on the curve, in an alarm or over a limit; it may stop after the
+ * smoothed CPU was 5 °C under starts_at for 60 s (spikes under the hard value don't break that minute).
+ */
 function fanboyCpuStand(array &$c, array $z, string $id, float $now, bool $alarm): bool
 {
-    $ab = null;
     $cpuC = null;
     $missing = false;
     $ask = $alarm;
     foreach ($z['sources'] as $s) {
-        $s = fanboySourceValues($z, $s);
         $r = $c['sources'][$s['id']] ?? null;
         $ok = $r !== null && !$r['asleep'] && $r['c'] !== null;
         if ($s['kind'] === 'cpu') {
-            $ab = $ab === null ? (float) $s['low'] : min($ab, (float) $s['low']);
             $missing = $missing || !$ok;
             $cpuC = $ok ? max($cpuC ?? (float) $r['c'], (float) $r['c']) : $cpuC;
-        }
-        // another source asks for air (the CPU itself goes by its smoothed value, below)
-        if ($ok && $s['kind'] !== 'cpu' && (float) $r['c'] >= (float) $s['low']) {
-            $ask = true;
+        } elseif ($ok && fanboySourceAsk($z, $s, (float) $r['c']) >= 0.5) {
+            $ask = true;                // another source asks for air on the curve
         }
     }
-    $ab ??= (float) FANBOY_SOURCE_DEFAULTS['cpu']['low'];
-    // round 12 fix: the CPU by its smoothed value (median of 10 s, a reading every round) — and at once on any single
-    // reading at its «volle Drehzahl bei» (the hard value; the zone's CPU kind, default 80 °C) or a missing one
-    $hard = (float) fanboyKindValues($z, 'cpu')['high'];
+    $curve = fanboyCpuCurve($z);
+    $cs = fanboyCurveStart($curve);
+    $start = $cs['start'];
+    $hard = fanboyCurveFull($curve) ?? (float) fanboyKindValues($z, 'cpu')['high'];
     $f = &$c['fans'][$id];
     $f['cpu_hist'] ??= [];
     $sm = fanboyCpuSmooth($f['cpu_hist'], $missing ? null : $cpuC, $now);
-    $f['stand_at'] = $ab;
-    $f['cpu_by'] = ['smooth' => $sm['smooth'], 'peak' => $sm['peak'], 'now' => $missing ? null : $cpuC, 'ab' => $ab, 'hard' => $hard];
-    if ($ask || $missing || $cpuC === null || $cpuC >= $hard || $sm['smooth'] === null || $sm['smooth'] >= $ab) {
+    $f['stand_at'] = $start;
+    $f['cpu_by'] = ['smooth' => $sm['smooth'], 'peak' => $sm['peak'], 'now' => $missing ? null : $cpuC, 'starts_at' => $start,
+        'stops_below' => $start === null ? null : $start - FANBOY_CPU_STAND_GAP, 'hard' => $hard, 'window' => FANBOY_CPU_SMOOTH,
+        'cool' => FANBOY_CPU_STAND_AFTER];
+    if ($ask || $missing || $cpuC === null || $cs['never_zero'] || $cpuC >= $hard || $sm['smooth'] === null || ($start !== null && $sm['smooth'] >= $start)) {
         $f['cool_since'] = null;
         $f['standing'] = false;
-    } elseif ($sm['smooth'] <= $ab - FANBOY_CPU_STAND_GAP) {
+    } elseif ($start === null || $sm['smooth'] <= $start - FANBOY_CPU_STAND_GAP) {
         $f['cool_since'] ??= $now;
         if ($now - $f['cool_since'] >= FANBOY_CPU_STAND_AFTER) {
             $f['standing'] = true;
@@ -1255,6 +1380,7 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
         default => 'starting',
     };
     $zones = [];
+    $journal = function_exists('fanboyJournal') ? fanboyJournal()['outputs'] : [];
     foreach ($c['zones'] as $z) {
         $zones[] = ['id' => $z['id'], 'name' => $z['name'], 'unit' => $z['unit'], 'level' => $z['cur'] === null ? null : round($z['cur'], 1),
             'full' => isset($c['full_since'][$z['id']]),         // round 4: this zone at 100 % for an alarm
@@ -1267,9 +1393,19 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
                 // cpu_off_confirm); in effect: may_stand, standing since when, a CPU cooler's «starts again at» °C
                 'off_why' => $c['fans'][$id]['off_why'] ?? null, 'may_stand' => ($c['fans'][$id]['off_ok'] ?? false) === true,
                 'stand_since' => $c['fans'][$id]['stand_since'] ?? null,
-                'starts_at' => ($c['fans'][$id]['cpu'] ?? false) && ($c['fans'][$id]['off_ok'] ?? false) ? ($c['fans'][$id]['stand_at'] ?? (float) FANBOY_SOURCE_DEFAULTS['cpu']['low']) : null,
-                // round 12 fix: what a CPU cooler that may stand goes by — {smooth, peak, now, ab, hard} °C («CPU geglättet 39 °C, Spitze 53 °C»)
-                'cpu_by' => $c['fans'][$id]['cpu_by'] ?? null], $z['fans'])];
+                // round 12 correction: a CPU cooler that may stand — from its curve: where it starts (°C), under what it may
+                // stop, the hard single-reading value, the smoothing window (s) — and what it goes by now (cpu_by)
+                'starts_at' => ($cs = ($c['fans'][$id]['cpu'] ?? false) && ($c['fans'][$id]['off_ok'] ?? false) ? fanboyCurveStart(fanboyCpuCurve($z)) : null)['start'] ?? null,
+                'stops_below' => isset($cs['start']) ? $cs['start'] - FANBOY_CPU_STAND_GAP : null,
+                'hard' => $cs !== null ? (fanboyCurveFull(fanboyCpuCurve($z)) ?? (float) fanboyKindValues($z, 'cpu')['high']) : null,
+                'window' => $cs !== null ? FANBOY_CPU_SMOOTH : null,
+                'cpu_by' => $c['fans'][$id]['cpu_by'] ?? null,
+                // the curve as the control applies it to this fan (stand, floor): {kind: its degrees, points}; rpm zones: null
+                'curve' => $z['unit'] !== 'pct' ? null : (($c['fans'][$id]['cpu'] ?? false)
+                    ? ['kind' => 'cpu', 'points' => fanboyEffectiveCurve(fanboyCpuCurve($z), (float) $c['fans'][$id]['floor'], ($c['fans'][$id]['off_ok'] ?? false) === true,
+                        fanboyCurveStart(fanboyCpuCurve($z))['start'])]
+                    : ['kind' => $z['sources'][0]['kind'] ?? 'disk', 'points' => fanboyEffectiveCurve(fanboyZoneCurve($z), (float) $c['fans'][$id]['floor'], ($c['fans'][$id]['off_ok'] ?? false) === true)]),
+                'fallback' => fanboyFallback($journal[$id] ?? null, $c['fans'][$id])], $z['fans'])];
     }
     return [
         'v' => 1, 'pid' => getmypid(), 'time' => time(), 'mono' => fanboyMono(), 'board' => $c['key'],
