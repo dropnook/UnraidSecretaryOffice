@@ -24,8 +24,8 @@ declare(strict_types=1);
  *                              user), at, until, pid, start, ok, stop: true once asked to end}
  */
 
-const FANBOY_SHOW_FOR = 15.0;           // seconds at 100 % at most (4b, the owner: time to look into the case) — «Found it — stop» ends it earlier
-const FANBOY_SHOW_STALE = 30;           // seconds: a show still «starting» or «running» after this is over (its process gone)
+const FANBOY_SHOW_FOR = 60.0;           // seconds at 100 % at most (round 8, the owner: up to a minute) — «Found it — stop» ends it earlier
+const FANBOY_SHOW_STALE = 90;           // seconds: a show still «starting» or «running» after this is over (its process gone)
 
 function fanboyShowFile(): string
 {
@@ -91,7 +91,7 @@ function fanboyShowStart(array $r): array
     }
     $f = (fanboyBoardRaw($scan['board']) ?? [])['fans'][$id] ?? null;
     $refuses = $controlRuns && is_array($status['refuses'] ?? null) && in_array($id, $status['refuses'], true);
-    if ((is_array($f) && in_array($f['found'] ?? null, ['ignored', 'inverted'], true)) || $refuses) {
+    if (in_array(fanboyFound($f), ['ignored', 'inverted'], true) || $refuses) {
         throw new Problem('fanboy_show_not');
     }
     $owner = fanboyJournal()['outputs'][$id]['owner'] ?? null;
@@ -99,8 +99,14 @@ function fanboyShowStart(array $r): array
     if (!$byControl && is_array($owner) && fanboyOwnerState($owner) !== 'dead') {
         throw new Problem('fanboy_busy');               // someone of his holds it (a give-back on its way): a moment later
     }
+    // round 8 (G1): «stop the other fans meanwhile» — only while he doesn't steer (his control running, a show never stops
+    // another fan), never while anything is warm
+    $quiet = optBool($r, 'quiet', false) && !$controlRuns;
+    if ($quiet && ($warm = fanboyQuietWarm()) !== null) {
+        throw new Problem('fanboy_quiet_warm', ['what' => $warm['what'], 'c' => (int) round($warm['c'] ?? 0)]);
+    }
     $show = ['id' => bin2hex(random_bytes(6)), 'fan' => $id, 'via' => $byControl ? 'control' : 'step', 'status' => 'starting', 'why' => null,
-        'until' => null, 'pid' => null, 'start' => null, 'ok' => null, 'begun' => time(),
+        'until' => null, 'pid' => null, 'start' => null, 'ok' => null, 'begun' => time(), 'quiet' => $quiet,
         'tachs' => is_array($f) ? array_values(array_filter(is_array($f['tachs'] ?? null) ? $f['tachs'] : [], 'is_int')) : []];
     fanboyShowWrite($show);
     if (!$byControl) {
@@ -157,7 +163,11 @@ function fanboyShowMain(?array $io = null): int
             pcntl_signal($sig, function () use (&$stop) { $stop['now'] = true; });
         }
     }
-    $io ??= ['now' => fn (): float => fanboyMono(), 'sleep' => function (float $s): void { usleep((int) round($s * 1e6)); }];
+    $io ??= ['now' => fn (): float => fanboyMono(), 'sleep' => function (float $s): void { usleep((int) round($s * 1e6)); fanboyBeat(); }];
+    $io += ['ok' => fn (): ?string => null];
+    $quiet = ($show['quiet'] ?? false) === true;
+    $quieted = [];
+    $tachsBefore = [];
     $owner = fanboyMe('step');
     $id = $show['fan'];
     $board = fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']);
@@ -183,6 +193,16 @@ function fanboyShowMain(?array $io = null): int
             $show['why'] = 'busy';
             return 0;
         }
+        // round 8 (G1): the others stopped meanwhile — the same guards as the quiet test (too warm: everything back)
+        $cpuStart = null;
+        if ($quiet) {
+            if (($warm = fanboyQuietWarm()) !== null) {
+                throw new FanboyQuietWarm($warm);
+            }
+            $tachsBefore = fanboyAllTachs();
+            $cpuStart = fanboyCpuNow(fanboyChips(fanboyPaths(fanboySysRoot() ?: null)['hwmon']));
+            $quieted = fanboyQuietStop(fanboyQuietOthers($id, fanboyOutputs(fanboyDetect(fanboySysRoot() ?: null)), fanboyBoardRaw($board)), $owner, fanboyBoardKey($board));
+        }
         $show['pid'] = $owner['pid'];
         $show['start'] = $owner['start'];
         $show['status'] = 'running';
@@ -190,9 +210,16 @@ function fanboyShowMain(?array $io = null): int
         fanboyShowWrite($show);
         $t0 = ($io['now'])();
         $early = false;
+        $looked = $t0;
         while (!$stop['now'] && ($io['now'])() - $t0 < FANBOY_SHOW_FOR) {
             ($io['sleep'])(0.2);
             fanboyBeat();
+            if ($quiet && ($io['now'])() - $looked >= 0.9) {
+                $looked = ($io['now'])();
+                if (($warm = fanboyQuietWarm($cpuStart ?? -INF)) !== null) {
+                    throw new FanboyQuietWarm($warm);
+                }
+            }
             if (fanboyShowStopAsked($show['id'] ?? null)) {
                 $early = true;              // «found it — stop»: given back now, exactly as after the time (below)
                 break;
@@ -203,14 +230,27 @@ function fanboyShowMain(?array $io = null): int
             $show['why'] = 'stopped';
             $show['stop'] = true;
         }
+    } catch (FanboyQuietWarm $e) {
+        $show['status'] = 'done';                   // round 8: too warm with the others stopped — everything back at once
+        $show['why'] = 'quiet_warm';
+        $show['quiet_stop'] = $e->what;
     } catch (Throwable $e) {
         $show['status'] = 'failed';
         $show['why'] = 'error';
         logLine('Fanboy: «show me this fan» failed: ' . $e->getMessage());
     } finally {
-        $back = fanboyGiveBack([$id], 'show', $owner);         // exactly the state before, read back — whatever ended it
-        $show['ok'] = $back ? (bool) ($back[$id]['ok'] ?? false) : null;
-        if ($back && !($back[$id]['ok'] ?? false)) {
+        $back = fanboyGiveBack([$id, ...$quieted], 'show', $owner);         // exactly the state before, read back — whatever ended it
+        // round 8 (G1): every fan that turned before turns again — or its output to full, an alert
+        if ($quiet && $quieted) {
+            try {
+                fanboyQuietRestart($tachsBefore, $quieted, $io);
+            } catch (FanboyQuietWarm $e) {
+                $show['why'] = 'no_restart';
+                $show['quiet_stop'] = $e->what;
+            }
+        }
+        $show['ok'] = $back ? !in_array(false, array_map(fn ($x) => (bool) ($x['ok'] ?? false), $back), true) : null;     // the quieted ones too
+        if ($back && !$show['ok']) {
             $show['why'] = 'give_back';
         }
         fanboyShowWrite($show);

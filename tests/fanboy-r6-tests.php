@@ -222,8 +222,8 @@ function testFanboyR6ShowStep(): void
             $seen[] = fanboyShowRead()['status'] ?? null;
             $otherChanged = $otherChanged || $others() !== $before;
         }]);
-        same('fanboy r6 show: 100 % (fixed) while it is shown, «running» meanwhile, up to 15 s (4b)', [[255, 1], 'running', true],
-            [$seen[0], $seen[1], abs(count($seen) / 2 - 75) <= 1]);
+        same('fanboy r6 show: 100 % (fixed) while it is shown, «running» meanwhile, up to a minute (round 8)', [[255, 1], 'running', true],
+            [$seen[0], $seen[1], abs(count($seen) / 2 - FANBOY_SHOW_FOR / 0.2) <= 1]);
         clearstatcache();
         same('fanboy r6 show: … every other output exactly as it was all along — never stopped, never written (4b)', [false, $before, $m0], [$otherChanged, $others(), $mtimes()]);
         $s = fanboyShowRead();
@@ -272,6 +272,7 @@ function testFanboyR6ShowRefused(): void
         $settings = fanboyTSettings();
         $settings['armed'] = false;
         $settings['fans'][fanboyTId(3)]['found'] = 'ignored';
+        $settings['fans'][fanboyTId(3)]['why'] = 'taken_back';         // round 8: an «ignored» counts with its reason
         $settings['fans'][fanboyTId(6)] = ['chip' => FANBOY_T_CHIP, 'address' => FANBOY_T_ADDR, 'output' => 6, 'tach' => null, 'tachs' => [], 'found' => 'inverted'];
         fanboyTStore($settings);
         $show = fn (int $n) => fanboyR6Refused(fn () => fanboyShowStart(['fan' => fanboyTId($n)]));
@@ -322,11 +323,11 @@ function testFanboyR6ShowControl(): void
         fanboyTRounds($c, $now, $t, $spec, 1);
         same('fanboy r6 show control: the next round — 100 %, «running», every other fan as it was', [[255, 1], 'running', $o0],
             [fanboyTOut($t, 4), fanboyShowRead()['status'], $others()]);
-        fanboyTRounds($c, $now, $t, $spec, 6);
-        same('fanboy r6 show control: … still at 100 % after 12 s (up to 15 s, 4b), the others untouched', [[255, 1], 'running', $o0],
+        fanboyTRounds($c, $now, $t, $spec, (int) (FANBOY_SHOW_FOR / FANBOY_ROUND) - 2);
+        same('fanboy r6 show control: … still at 100 % shortly before the minute (round 8), the others untouched', [[255, 1], 'running', $o0],
             [fanboyTOut($t, 4), fanboyShowRead()['status'], $others()]);
         fanboyTRounds($c, $now, $t, $spec, 2);
-        same('fanboy r6 show control: … after 15 s its curve\'s value again, the show done, noted', [$before, 'done', 'show'],
+        same('fanboy r6 show control: … after the minute its curve\'s value again, the show done, noted', [$before, 'done', 'show'],
             [fanboyTOut($t, 4), fanboyShowRead()['status'], end($c['notes'])['code'] ?? null]);
         // 4b: «Found it — stop» — the control ends its show in its next round
         fanboyShowStart(['fan' => fanboyTId(4)]);
@@ -588,11 +589,12 @@ function testFanboyR7CardsKeepSize(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css');
-    $test = substr($js, (int) strpos($js, 'function testStep()'), 4000);
+    $test = substr($js, (int) strpos($js, 'function testCard('), 6000);       // round 8: the test's card (with its assignment)
     check('fanboy r7 cards: the state line is one element of its own with room for two lines',
         str_contains($test, "el('div', 'fb-card-line fb-card-state', line)") && str_contains($css, '.fb-card-state{min-height:calc(2 * 1.45em)}'));
     check('fanboy r7 cards: while a test runs every card keeps its button row — the button off (no card loses or gains a row)',
-        str_contains($test, "if (live) {\n      const off = button(found ? T('test.again') : T('test.one'), T('test.wait_tip'), () => {});\n      off.disabled = true;\n      txt.appendChild(bar(off));"));
+        str_contains($test, "} else if (live) {\n    const off = button(found ? T('test.again') : T('test.one'), T('test.wait_tip'), () => {});\n    off.disabled = true;\n    txt.appendChild(bar(off));")
+        && str_contains($test, 'txt.appendChild(assignBox(id, f, live));') && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css'), '.fb-assign-note{min-height:calc(2 * 1.45em)}'));
     check('fanboy r7 cards: «show me» keeps its width — both labels in one grid cell, the other hidden',
         str_contains($js, "b.append(el('span', mine ? 'fb-show-label fb-show-off' : 'fb-show-label', T('show.button')), on);")
         && str_contains($css, '.fb-show{white-space:nowrap; display:inline-grid}') && str_contains($css, '.fb-show > .fb-show-off{visibility:hidden}'));
@@ -630,9 +632,381 @@ function testFanboyR7TestLongEnough(): void
             . ' — at least FANBOY_UP_FOR (' . FANBOY_UP_FOR . ' s) less a look', count($quiet) === 3 && min($loud) >= FANBOY_UP_FOR - 0.5, json_encode($loud));
         $tach = array_map(fn ($id) => $atFull[(int) substr($id, -1)] ?? 0, array_keys(array_filter($found, fn ($f) => $f === 'tach')));
         check('fanboy r7 long enough: outputs a tach follows (' . count($tach) . ') at full ' . implode(', ', array_map(fn ($x) => round($x, 1) . ' s', $tach))
-            . ' (≥ 4 s); the six outputs took ' . round($clock) . ' s on the tests\' clock (one silent output ≈ ' . round(FANBOY_UP_BASE + FANBOY_UP_FOR) . ' s + its calm-down)',
-            count($tach) === 3 && min($tach) >= 4 - 0.5 && $clock < 6 * (FANBOY_UP_BASE + FANBOY_UP_FOR + FANBOY_UP_SETTLE));
+            . ' (≥ 8 s since round 8\'s G2); the six outputs took ' . round($clock) . ' s on the tests\' clock (one silent output ≈ ' . round(FANBOY_UP_BASE + FANBOY_UP_FOR) . ' s + its calm-down)',
+            count($tach) === 3 && min($tach) >= FANBOY_UP_FOR - 0.5 && $clock < 6 * (FANBOY_UP_BASE + FANBOY_UP_FOR + FANBOY_UP_SETTLE));
         same('fanboy r7 long enough: … every output given back as it was', [[128, 1], [128, 1], [128, 1], [128, 1], [128, 1], [128, 1]], array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]));
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+// ===================================================================== round 8: the owner's second test on real hardware
+
+/** The owner's board: output 1 → tach 1, 2 and 3 nothing on them (tachs read 0), 4 → 4, 5 → 5, 6 → 6 — every fan lagging */
+function fanboyR8Spec(float $lag = 1.0): array
+{
+    $f = fn (int $out, int $max) => ['output' => $out, 'max' => $max, 'stall' => 0.15, 'start' => 0.25, 'lag' => $lag];
+    return ['hwmon' => 'hwmon10', 'full0' => [1, 2, 3, 4, 5, 6], 'fans' => [1 => $f(1, 1906), 4 => $f(4, 1800), 5 => $f(5, 1800), 6 => $f(6, 1800)]];
+}
+
+/**
+ * G3: «ignored» by round 5's second rule (a turning tach no output moves) was judged with the outputs not yet tested —
+ * tested one by one in the owner's order, outputs 2 and 3 (nothing on them) became «the BIOS keeps it» because the fans
+ * of 4–6 turned unpaired. Judged now only once every output of the chip has a verdict; an «ignored» saved without its
+ * reason before this fix counts as not tested.
+ */
+function testFanboyR8IgnoredLate(): void
+{
+    $t = fanboyT('r8late');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        file_put_contents("{$t['hw']}/fan2_input", "0\n");
+        file_put_contents("{$t['hw']}/fan3_input", "0\n");
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        $found = [];
+        foreach ([1, 2, 3, 4, 5, 6] as $n) {           // the owner's clicks: each card's «test» in turn
+            $clock = 0.0;
+            $step = fanboyStepRun(['id' => "r8l$n", 'kind' => 'test_up', 'fans' => [fanboyTId($n)]], fanboyTIo($t, $spec, $clock));
+            $found[$n] = $step['results'][fanboyTId($n)]['found'];
+        }
+        same('fanboy r8 late: tested one by one — 1 tach, 2 and 3 nothing followed («louder?», not «the BIOS keeps it»), 4/5/6 their tachs',
+            [1 => 'tach', 2 => 'ask', 3 => 'ask', 4 => 'tach', 5 => 'tach', 6 => 'tach'], $found);
+        same('fanboy r8 late: … so saved', ['ask', 'ask'], [fanboyBoardRaw()['fans'][fanboyTId(2)]['found'], fanboyBoardRaw()['fans'][fanboyTId(3)]['found']]);
+        // the rule itself still holds once every output was tried: a fan turning that no output moves
+        $all = fanboyUpIgnored(['a:x:pwm1' => ['found' => 'tach', 'tachs' => [1]], 'a:x:pwm2' => ['found' => 'ask']], ['a:x:pwm2' => ['base' => [1 => 900, 3 => 1200]]], ['a:x:pwm1', 'a:x:pwm2']);
+        $early = fanboyUpIgnored(['a:x:pwm1' => ['found' => 'tach', 'tachs' => [1]], 'a:x:pwm2' => ['found' => 'ask']], ['a:x:pwm2' => ['base' => [1 => 900, 3 => 1200]]], ['a:x:pwm1', 'a:x:pwm2', 'a:x:pwm3']);
+        same('fanboy r8 late: every output tried, tach 3 claimed by none — «ignored» (why «unpaired»); an output still untested — no verdict yet',
+            [['ignored', 'unpaired'], 'ask'], [[$all['a:x:pwm2']['found'], $all['a:x:pwm2']['why'] ?? null], $early['a:x:pwm2']['found']]);
+        // an «ignored» saved before this fix (no reason) shows as not tested; a taken-back one stays
+        $settings = fanboyBoardRaw();
+        $settings['fans'][fanboyTId(2)]['found'] = 'ignored';
+        unset($settings['fans'][fanboyTId(2)]['why']);
+        $settings['fans'][fanboyTId(3)]['found'] = 'ignored';
+        $settings['fans'][fanboyTId(3)]['why'] = 'taken_back';
+        fanboyTStore($settings);
+        $fans = array_column(fanboyScan()['setup']['fans'], 'found', 'id');
+        same('fanboy r8 late: an old «ignored» without its reason — not tested (the page offers the test); «taken back» stays «ignored»', [null, 'ignored'],
+            [$fans[fanboyTId(2)], $fans[fanboyTId(3)]]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/** G2: also with a tach following at once, the output stays at full for FANBOY_UP_FOR (a lagging fan is up and heard) */
+function testFanboyR8FullLongEnough(): void
+{
+    $t = fanboyT('r8long');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR8Spec(3.0);              // a fan that takes its time (the owner's: 1328 → 1906 rpm over ~5 s)
+        fanboyTSettle($t, $spec);
+        $clock = 0.0;
+        $full = 0.0;
+        $io = fanboyTIo($t, $spec, $clock);
+        $sleep = $io['sleep'];
+        $io['sleep'] = function (float $s) use ($sleep, $t, &$full): void {
+            if (fanboyTOut($t, 1)[0] === 255) {
+                $full += $s;
+            }
+            $sleep($s);
+        };
+        $step = fanboyStepRun(['id' => 'r8long', 'kind' => 'test_up', 'fans' => [fanboyTId(1)]], $io);
+        same('fanboy r8 long: tach 1 follows — still at full the whole ' . FANBOY_UP_FOR . ' s (here ' . $full . ' s), found, given back', [true, 'tach', [128, 1]],
+            [$full >= FANBOY_UP_FOR - 0.5, $step['results'][fanboyTId(1)]['found'], fanboyTOut($t, 1)]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/** The fake coretemp's package temperature (°C) */
+function fanboyR8Cpu(array $t, float $c): void
+{
+    file_put_contents(glob("{$t['root']}/sys/devices/platform/coretemp.0/hwmon/hwmon*/temp1_input")[0], (int) round($c * 1000) . "\n");
+}
+
+/** A quiet (or not) test step on the tests' clock; $each(clock) after every look: the test's own eyes */
+function fanboyR8Run(array $t, array &$spec, array $outs, bool $quiet, ?callable $each = null, ?float $stopAt = null): array
+{
+    $clock = 0.0;
+    $io = fanboyTIo($t, $spec, $clock, $stopAt);
+    $sleep = $io['sleep'];
+    $io['sleep'] = function (float $s) use ($sleep, $each, &$clock): void {
+        $sleep($s);
+        if ($each) {
+            $each($clock);
+        }
+    };
+    $step = fanboyStepRun(['id' => 'r8q' . mt_rand(), 'kind' => 'test_up', 'fans' => array_map('fanboyTId', $outs), 'quiet' => $quiet], $io);
+    return [$step, $clock];
+}
+
+/**
+ * G1 (the owner's decision, the one exception to «never down»): the quiet test — while output 1 is tested, every other
+ * output stands (a fixed 0), output 1 at full the whole 10 s; afterwards everything exactly as before (value + mode), a
+ * pause of at least 5 s with everything running before the next output; with the switch off no other output is written
+ */
+function testFanboyR8Quiet(): void
+{
+    $t = fanboyT('r8quiet');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        file_put_contents("{$t['hw']}/pwm6_enable", "2\n");             // one in the chip's own automatic: back to it exactly
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        $before = array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]);
+        $log = [];
+        [$step, $clock] = fanboyR8Run($t, $spec, [1, 4], true, function (float $clock) use ($t, &$log): void {
+            $log[] = [$clock, array_map(fn ($n) => fanboyTOut($t, $n)[0], [1, 2, 3, 4, 5, 6])];
+        });
+        $quiet1 = array_values(array_filter($log, fn ($l) => $l[1][0] === 255 && $l[1][1] === 0));
+        same('fanboy r8 quiet: no click — output 1 at full the whole minute while 2–6 stand (a fixed 0), found tach 1; then on by itself to output 4',
+            ['done', 'tach', 'tach', true, true], [$step['status'], $step['results'][fanboyTId(1)]['found'], $step['results'][fanboyTId(4)]['found'],
+                count($quiet1) * 0.5 >= FANBOY_UP_FOR - 0.5, (bool) array_filter($log, fn ($l) => $l[1][3] === 255 && $l[1][0] === 0 && $l[1][4] === 0)]);
+        same('fanboy r8 quiet: … afterwards every output exactly as before — value and mode (output 6 in its automatic again), nothing held',
+            [$before, []], [array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
+        // the pause between the two: everything as before for at least 5 s
+        $end1 = max(array_column($quiet1, 0));
+        $start2 = min(array_column(array_filter($log, fn ($l) => $l[1][3] === 255 && $l[1][0] === 0), 0));
+        $between = array_filter($log, fn ($l) => $l[0] > $end1 && $l[0] < $start2);
+        check('fanboy r8 quiet: between two outputs at least ' . FANBOY_QUIET_PAUSE . ' s with every output as before (here ' . ($start2 - $end1) . ' s)',
+            $start2 - $end1 >= FANBOY_QUIET_PAUSE && $between && !array_filter($between, fn ($l) => in_array(0, $l[1], true) || in_array(255, $l[1], true)));
+        // the switch off: no other output written — values, modes and the files' times as they were
+        clearstatcache();
+        $m0 = array_map(fn ($n) => @filemtime("{$t['hw']}/pwm$n") . '/' . @filemtime("{$t['hw']}/pwm{$n}_enable"), [2, 3, 4, 5, 6]);
+        $others = false;
+        fanboyR8Run($t, $spec, [1], false, function () use ($t, &$others, $before): void {
+            $others = $others || array_map(fn ($n) => fanboyTOut($t, $n), [2, 3, 4, 5, 6]) !== array_slice($before, 1);
+        });
+        clearstatcache();
+        same('fanboy r8 quiet: the switch off — no other output written, not for a moment (values, modes, file times)', [false, $m0],
+            [$others, array_map(fn ($n) => @filemtime("{$t['hw']}/pwm$n") . '/' . @filemtime("{$t['hw']}/pwm{$n}_enable"), [2, 3, 4, 5, 6])]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * G1 guards: never started while warm (the CPU at 70 °C); a CPU rising during the quiet phase (20 °C over its start, or
+ * 80 °C) — everything back at once, the test stops naming it; a CPU cooler (its role) is never stopped; an output that
+ * doesn't take 0 is no error
+ */
+function testFanboyR8QuietGuards(): void
+{
+    $t = fanboyT('r8guard');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        $before = array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]);
+        fanboyR8Cpu($t, 72);
+        same('fanboy r8 guards: the CPU at 72 °C — the quiet test refused (its words name the CPU); without the switch it may start',
+            ['fanboy_quiet_warm', ''], [fanboyR6Refused(fn () => fanboyStepStart('test_up', [fanboyTId(1)], true)),
+                fanboyR6Refused(function () { fanboyStepStart('test_up', [fanboyTId(1)], false); @unlink(fanboyStepFile()); })]);
+        fanboyR8Cpu($t, 40);
+        // the CPU climbs 25 °C during the quiet phase: everything back at once
+        $at = null;
+        [$step] = fanboyR8Run($t, $spec, [1, 4], true, function (float $clock) use ($t, &$at): void {
+            if ($clock >= 6.0 && $at === null && fanboyTOut($t, 2)[0] === 0) {
+                fanboyR8Cpu($t, 65);
+                $at = $clock;
+            }
+        });
+        same('fanboy r8 guards: the CPU 25 °C up during the quiet phase — stopped («quiet_warm», the CPU named, 65 °C), every output exactly as before, nothing held, output 4 never tried',
+            ['stopped', 'quiet_warm', 'CPU', 65.0, $before, [], false], [$step['status'], $step['why'], $step['quiet_stop']['what'] ?? null, $step['quiet_stop']['c'] ?? null,
+                array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld(), isset($step['results'][fanboyTId(4)])]);
+        fanboyR8Cpu($t, 40);
+        // a CPU cooler (its role, once known) is never stopped; an output that doesn't take 0 goes on
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        $settings['fans'][fanboyTId(4)]['role'] = 'cpu';
+        fanboyTStore($settings);
+        $spec['revert'] = [5 => 1];
+        $low = [];
+        [$step] = fanboyR8Run($t, $spec, [1], true, function () use ($t, &$low): void {
+            $low[] = [fanboyTOut($t, 4)[0], fanboyTOut($t, 2)[0]];
+        });
+        same('fanboy r8 guards: the CPU cooler (role) runs on as it is the whole time; the others stand; the test done', [true, true, 'done'],
+            [!in_array(0, array_column($low, 0), true), in_array(0, array_column($low, 1), true), $step['status']]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * G1: a fan that turned before and doesn't turn again after the quiet phase — its output (the one the setup paired it
+ * with) to full and staying there, an alert naming it, the test stops; the step dying, hanging or the page going away
+ * gives every quieted output back through the existing ways
+ */
+function testFanboyR8QuietSafety(): void
+{
+    $t = fanboyT('r8safe');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        fanboyTStore($settings);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        // the disk cage's fan (output 4, tach 4) stops while it stands — and doesn't start again
+        [$step] = fanboyR8Run($t, $spec, [1, 2], true, function () use ($t, &$spec): void {
+            if (fanboyTOut($t, 4)[0] === 0) {
+                $spec['fans'][4]['stuck'] = true;
+            }
+        });
+        same('fanboy r8 safety: a fan that doesn\'t turn again — its output (4, paired with tach 4) to full and kept there, the test stopped naming it, output 2 never tried',
+            ['stopped', 'no_restart', 255, false, true], [$step['status'], $step['why'], fanboyTOut($t, 4)[0], isset($step['results'][fanboyTId(2)]),
+                str_contains($step['quiet_stop']['what'] ?? '', 'Cage')]);
+        check('fanboy r8 safety: … an alert naming it', in_array('Fanboy: Cage didn\'t turn again', fanboyR5Subjects($t), true));
+        unset($spec['fans'][4]['stuck']);
+        file_put_contents("{$t['hw']}/pwm4", "128\n");
+        fanboyTSettle($t, $spec);
+        // the page gone (45 s rule) in the middle of a quiet phase: every quieted output back
+        $before = array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]);
+        [$step] = fanboyR8Run($t, $spec, [1], true, null, 6.0);
+        same('fanboy r8 safety: the page gone during the quiet phase — stopped, every output back exactly, nothing held',
+            ['stopped', 'page_gone', $before, []], [$step['status'], $step['why'], array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
+        // a step that died (killed hard) or hangs, holding the quieted outputs: the agent's look gives them back
+        $outs = fanboyOutputs(fanboyDetect());
+        foreach (['dead' => ['kind' => 'step', 'pid' => 999999, 'start' => '1', 'since' => time()], 'hung' => fanboyMe('step')] as $how => $owner) {
+            $held = fanboyQuietStop(fanboyQuietOthers(fanboyTId(1), $outs, fanboyBoardRaw()), $owner, FANBOY_T_KEY);
+            if ($how === 'hung') {
+                file_put_contents(fanboyRunDir() . '/beat-' . getmypid(), (string) (hrtime(true) - 60e9));      // its beat 60 s old
+            }
+            $quietNow = array_map(fn ($n) => fanboyTOut($t, $n)[0], [2, 3, 4, 5, 6]);
+            $back = fanboyWatch();
+            same("fanboy r8 safety: a step $how while it held the others at 0 (" . implode(',', $quietNow) . ') — the agent\'s look gives every one back exactly',
+                [count($held), $before, []], [count($back), array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
+        }
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 8 (the owner: up to a minute, the user ends it): «Gefunden — weiter» ends the output under test early — the
+ * others back at once, the output once the looks agreed (or 8 s), the usual pause, then the next; «Abbrechen» ends the
+ * whole run with everything back; the guard still stops a quiet phase at its 40th second
+ */
+function testFanboyR8FoundNext(): void
+{
+    $t = fanboyT('r8next');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        $before = array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]);
+        $log = [];
+        $clicked = null;
+        [$step, $clock] = fanboyR8Run($t, $spec, [1, 4], true, function (float $clock) use ($t, &$log, &$clicked): void {
+            $log[] = [$clock, array_map(fn ($n) => fanboyTOut($t, $n)[0], [1, 2, 3, 4, 5, 6])];
+            if ($clicked === null && $clock >= 12.0 && fanboyTOut($t, 1)[0] === 255) {
+                $clicked = $clock;
+                fanboyStepNext(['fan' => fanboyTId(1)]);
+            }
+        });
+        $after = array_values(array_filter($log, fn ($l) => $l[0] > $clicked));
+        $othersBack = min(array_column(array_filter($after, fn ($l) => $l[1][1] !== 0), 0)) - $clicked;
+        $oneBack = min(array_column(array_filter($after, fn ($l) => $l[1][0] !== 255), 0)) - $clicked;
+        same('fanboy r8 next: «Gefunden — weiter» at 12 s — the others back with the next look, output 1 at once (its looks had agreed), found tach 1; output 4 next, the run done',
+            [true, true, 'tach', 'tach', 'done'], [$othersBack <= 0.5, $oneBack <= 1.0, $step['results'][fanboyTId(1)]['found'], $step['results'][fanboyTId(4)]['found'], $step['status']]);
+        same('fanboy r8 next: … every output exactly as before, nothing held', [$before, []], [array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
+        // a click before two looks agreed (a slow fan): the others back at once, the output on until they agree or 8 s
+        $slow = fanboyR8Spec(6.0);
+        $log = [];
+        $clicked = null;
+        fanboyR8Run($t, $slow, [1], true, function (float $clock) use ($t, &$log, &$clicked): void {
+            $log[] = [$clock, array_map(fn ($n) => fanboyTOut($t, $n)[0], [1, 2, 3, 4, 5, 6])];
+            if ($clicked === null && fanboyTOut($t, 1)[0] === 255 && fanboyTOut($t, 2)[0] === 0) {
+                $clicked = $clock;
+                fanboyStepNext(['fan' => fanboyTId(1)]);
+            }
+        });
+        $full = array_column(array_filter($log, fn ($l) => $l[1][0] === 255), 0);
+        $held = max($full) - min($full);
+        check("fanboy r8 next: clicked at the first look of a slow fan — the others back at once, output 1 at full on until its looks agreed or 8 s (here $held s)",
+            $held >= 1.0 && $held <= FANBOY_UP_MIN + 0.5 && !array_filter($log, fn ($l) => $l[0] > $clicked + 0.5 && $l[1][1] === 0));
+        same('fanboy r8 next: a «found» for an output not under test — quietly nothing', [true, null], (function () { $r = fanboyStepNext(['fan' => fanboyTId(3)]); return [$r['ok'], is_file(fanboyStepNextFile()) ? 'x' : null]; })());
+        // «Abbrechen» (the step asked to stop) half-way through a quiet phase: the whole run ends, everything back at once
+        [$step] = fanboyR8Run($t, $spec, [1, 4], true, null, 30.0);
+        same('fanboy r8 next: «Abbrechen» at 30 s — the run ended, output 4 never tried, every output exactly as before', ['stopped', false, $before, []],
+            [$step['status'], isset($step['results'][fanboyTId(4)]), array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
+        // the guard at the 40th second of a quiet phase
+        $at = null;
+        [$step] = fanboyR8Run($t, $spec, [1], true, function (float $clock) use ($t, &$at): void {
+            if ($at === null && $clock >= 42.0 && fanboyTOut($t, 2)[0] === 0) {
+                fanboyR8Cpu($t, 81);
+                $at = $clock;
+            }
+        });
+        fanboyR8Cpu($t, 28);
+        same('fanboy r8 next: the CPU at 81 °C in the 40th second of the quiet phase — everything back at once, the test stopped naming it', ['quiet_warm', 81.0, $before, []],
+            [$step['why'], $step['quiet_stop']['c'] ?? null, array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 8 (the owner: test and assign in ONE step): what the roles step did is on the test's card — name, role (incl.
+ * «nothing attached», «leave it with the BIOS»), count, place, model, colour, «give back to», the CPU cooler on own risk —
+ * saved at once, before or WHILE the output is tested; a save during a running test leaves every output as the test has
+ * it; a CPU cooler or pump named during the run is not stopped by the following quiet phases; six steps everywhere
+ */
+function testFanboyR8Assign(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $card = substr($js, (int) strpos($js, 'function testCard('), 12000);
+    $reach = ["act('role', { fan: id, role: v,", "act('answer', { fan: id, louder: false }", "act('role', { fan: id, role: f.role, count:", "act('role', { fan: id, role: f.role, place:",
+        "act('fan_look', v.id ?", "act('fan_look', { fan: id, colour:", 'more.appendChild(backChoice(f, b));', 'more.appendChild(cpuPart(f));', "Office.api.post(`\${ID}.fan_name`", 'showButton(id, f)'];
+    same('fanboy r8 assign: every action of the old roles step reachable from the test\'s card (role, nothing attached, count, place, model, colour, give back, CPU on own risk, name, show me)',
+        [], array_values(array_filter($reach, fn ($x) => !str_contains($card, $x))));
+    same('fanboy r8 assign: six steps — the old route …/setup/roles opens «Testen und zuordnen»; no roles step left', [true, false, false],
+        [str_contains($js, "if (rest === 'roles') rest = 'test';"), str_contains($js, 'function rolesStep('), str_contains($js, "return 'roles'")]);
+    foreach (['de' => '6', 'en' => '6', 'it' => '6', 'fr' => '6', 'es' => '6'] as $l => $n) {
+        $j = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$l.json"), true);
+        check("fanboy r8 assign: $l — the steps counted as six (blocked: step $n), the roles step's keys gone", str_contains($j['step.blocked_steering'], $n) && !isset($j['step.roles']));
+    }
+    $t = fanboyT('r8assign');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        // before the test: a name, a role, «nothing attached», a look — each for an output not tested yet
+        fanboyFanName(['fan' => fanboyTId(2), 'name' => 'Deckel hinten']);
+        fanboyRole(['fan' => fanboyTId(5), 'role' => 'case']);
+        fanboyAnswer(['fan' => fanboyTId(3), 'louder' => false]);
+        fanboyFanLook(['fan' => fanboyTId(5), 'colour' => 'white']);
+        $f = fanboyBoardRaw()['fans'];
+        same('fanboy r8 assign: before any test — a name, a role, «nothing attached», a colour saved', ['Deckel hinten', 'case', 'empty', 'white'],
+            [$f[fanboyTId(2)]['name'] ?? null, $f[fanboyTId(5)]['role'] ?? null, $f[fanboyTId(3)]['found'] ?? null, $f[fanboyTId(5)]['colour'] ?? null]);
+        same('fanboy r8 assign: … a name without the field — refused (nothing turned off by a missing key)', 'missing_field', fanboyR6Refused(fn () => fanboyFanName(['fan' => fanboyTId(2)])));
+        // during the quiet test of output 1: its name and role typed while it runs, output 4 called the CPU cooler
+        $outsDuring = null;
+        $low4 = [];
+        [$step] = fanboyR8Run($t, $spec, [1, 5], true, function (float $clock) use ($t, &$outsDuring, &$low4): void {
+            if ($outsDuring === null && fanboyTOut($t, 1)[0] === 255 && $clock >= 6) {
+                $outsDuring = array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]);
+                fanboyFanName(['fan' => fanboyTId(1), 'name' => 'Hinten oben']);
+                fanboyRole(['fan' => fanboyTId(1), 'role' => 'case', 'count' => 2]);
+                fanboyRole(['fan' => fanboyTId(4), 'role' => 'cpu']);
+                $after = array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]);
+                $outsDuring = $outsDuring === $after;
+            }
+            if (fanboyTOut($t, 5)[0] === 255) {
+                $low4[] = fanboyTOut($t, 4)[0];
+            }
+        });
+        $f = fanboyBoardRaw()['fans'];
+        same('fanboy r8 assign: saved while output 1 was under test — no output touched by the saves, the test went on (tach 1), name, role and count kept through its verdict',
+            [true, 'tach', 'Hinten oben', 'case', 2], [$outsDuring, $step['results'][fanboyTId(1)]['found'], $f[fanboyTId(1)]['name'] ?? null, $f[fanboyTId(1)]['role'] ?? null, $f[fanboyTId(1)]['count'] ?? null]);
+        check('fanboy r8 assign: output 4 called the CPU cooler during the run — the next quiet phase (output 5) leaves it running', $low4 && !in_array(0, $low4, true));
+        $fans = array_column(fanboyScan()['setup']['fans'], null, 'id');
+        same('fanboy r8 assign: the page\'s state shows what was saved on the cards (names, roles)', ['Hinten oben', 'Deckel hinten', 'case', 'cpu'],
+            [$fans[fanboyTId(1)]['name'], $fans[fanboyTId(2)]['name'], $fans[fanboyTId(5)]['role'], $fans[fanboyTId(4)]['role']]);
+        // what never takes a role: an output found empty, one the BIOS keeps
+        same('fanboy r8 assign: no role for «nothing attached» or an output not there', ['fanboy_no_output', 'fanboy_no_output'],
+            [fanboyR6Refused(fn () => fanboyRole(['fan' => fanboyTId(3), 'role' => 'case'])), fanboyR6Refused(fn () => fanboyFanName(['fan' => fanboyTId(9), 'name' => 'x']))]);
     } finally {
         fanboyTEnd();
     }

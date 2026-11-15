@@ -143,10 +143,20 @@
   .fb-temps-note{font-size:12px; color:var(--muted); min-width:10em}
   .fb-own{align-items:flex-end}
   .fb-dry-zone{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); padding:8px 12px}
+  /* round 8: «Testen und zuordnen» — what a fan is, on its test card; fixed room from the start (F2: no card grows mid-test) */
+  .fb-assign{display:flex; flex-direction:column; gap:6px; margin-top:4px; padding-top:8px; border-top:1px solid var(--line)}
+  .fb-assign-row{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; align-items:end}
+  .fb-field-inline{flex-direction:row; align-items:center; gap:8px}
+  .fb-field-inline select{width:auto}
+  .fb-assign-row select, .fb-assign-row input{width:100%}
+  .fb-assign-note{min-height:calc(2 * 1.45em)}
+  .fb-assign-more > summary{cursor:pointer; color:var(--accent); font-size:12.5px}
+  .fb-assign-more[open]{display:flex; flex-direction:column; gap:8px}
   @media (max-width:640px){
     .fb-curve-two{grid-template-columns:1fr}
     .fb-cards, .fb-cards-wide{grid-template-columns:1fr}
     .fb-tech-k{min-width:0}
     .fb-card{gap:8px}
+    .fb-assign-row{grid-template-columns:minmax(0,1fr)}
   }
 }

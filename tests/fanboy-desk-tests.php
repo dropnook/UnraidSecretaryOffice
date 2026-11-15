@@ -232,7 +232,8 @@ function testFanboyFanLook(): void
 function testFanboyDesk(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
-    same('fanboy desk: the wizard\'s steps in part 2\'s order', "const STEPS = ['detect', 'test', 'roles', 'measure', 'zones', 'dry', 'take'];",
+    // round 8 (the owner): the test and the roles in one step — six steps
+    same('fanboy desk: the wizard\'s steps in part 2\'s order', "const STEPS = ['detect', 'test', 'measure', 'zones', 'dry', 'take'];",
         preg_match('/^const STEPS = .*$/m', $js, $m) ? $m[0] : null);
     preg_match('/const ALIVE_MS = (\d+);/', $js, $a);
     check('fanboy desk: a running step kept alive — step_alive every ALIVE_MS (≤ 20 s, well inside the 45 s lease), only while a page of his is shown, stopped when it goes',
@@ -242,7 +243,7 @@ function testFanboyDesk(): void
     check('fanboy desk: a step can be stopped any time (step_stop beside every running step)', str_contains($js, "Office.api.post(`\${ID}.step_stop`, {})")
         && substr_count($js, "box.appendChild(runningLine(s, ") === 2);
     $at = substr($js, (int) strpos($js, 'function stepAtHand()'), 1400);
-    $order = array_map(fn ($k) => strpos($at, "return '$k'"), ['detect', 'test', 'roles', 'measure', 'zones']);
+    $order = array_map(fn ($k) => strpos($at, "return '$k'"), ['detect', 'test', 'measure', 'zones']);
     check('fanboy desk: the step at hand — the first not done, in the wizard\'s order', !in_array(false, $order, true) && $order === array_values(array_unique($order)) && $order == array_values(fanboyTSorted($order)));
     check('fanboy desk: the honest return — a step ended by the page gone or interrupted said plainly on both pages',
         str_contains($js, "['page_gone', 'interrupted'].includes(s2.why)") && str_contains($js, "function stepEnded("));
@@ -261,7 +262,7 @@ function testFanboyDesk(): void
     check('fanboy desk: the long lists — first what counts, the rest behind one fold each (keepFold: kept while the page lives, never per browser), the filter over both',
         str_contains($js, "moreFold('sensors-more', rest, T('sensors.more', { n: rest.length }), f.words.length > 0)") && str_contains($js, "moreFold('fans-more', rest, T('fans.more', { n: rest.length }), false)")
         && str_contains($js, "const det = keepFold(el('details', 'fb-more'), filtering ? `\${key}:filtered` : key, !!filtering);")
-        && preg_match_all('/Office\.store\(\'([^\']+)\'/', $js, $kept) >= 1 && array_unique($kept[1]) === ['fanboy.period'] && str_contains($js, 'bar.done(fits.length, all.length, sw.note());'));
+        && preg_match_all('/Office\.store\(\'([^\']+)\'/', $js, $kept) >= 1 && array_values(array_unique($kept[1])) === ['fanboy.period', 'fanboy.quiet']       /* round 8: the quiet test's switch, a choice */ && str_contains($js, 'bar.done(fits.length, all.length, sw.note());'));
     // the demo states: the setup's keys as a real look on the fake tree has them
     $t = fanboyT('deskstate');
     try {
@@ -455,7 +456,7 @@ function testFanboyCount(): void
         $l[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true);
     }
     check('fanboy count: the page — «How many fans on it?» sent with the role, as many wheels in the picture sharing one speed, the tile counting connectors',
-        str_contains($js, "count: Number(count.value) }") && str_contains($js, 'fans: (z.fans || []).flatMap((id) => wheelsOf(id)),')
+        str_contains($js, "count: Number(count.value)") && str_contains($js, 'fans: (z.fans || []).flatMap((id) => wheelsOf(id)),')
         && str_contains($js, "T('fans.reporting', { n: turning })") && !str_contains($js, "'fans.turning'"));
     same('fanboy count: «connectors report a speed» in five languages as a plural; the hints say what a Y-cable or hub hides', [true, true, true, true, true],
         array_map(fn ($c) => is_array($l[$c]['fans.reporting'] ?? null) && isset($l[$c]['hints.hub.1'], $l[$c]['hints.hub.2']), array_keys($l)));

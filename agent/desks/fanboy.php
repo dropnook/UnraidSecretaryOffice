@@ -88,12 +88,14 @@ if (fanboyShown()) {
             'look_now'      => fn (array $r) => fanboyLookNow(),
             'drivers_load'  => fn (array $r) => fanboyDriversLoad() + ['state' => fanboyScan()],
             'drivers_undo'  => fn (array $r) => fanboyDriversUndo() + ['state' => fanboyScan()],
-            'test_up'       => fn (array $r) => fanboyStepStart('test_up', idList($r, 'fans')),
+            'test_up'       => fn (array $r) => fanboyStepStart('test_up', idList($r, 'fans'), optBool($r, 'quiet', false)),     // round 8: quiet
             'measure'       => fn (array $r) => fanboyStepStart('measure', idList($r, 'fans')),
             'step_alive'    => function (array $r): array { fanboyStepAliveTouch(); return ['ok' => true, 'step' => fanboyStepRead()]; },
             'step_stop'     => fn (array $r) => fanboyStepStopAction(),
+            'step_next'     => fn (array $r) => fanboyStepNext($r),        // round 8: «Gefunden — weiter»
             'answer'        => fn (array $r) => fanboyAnswer($r),
             'role'          => fn (array $r) => fanboyRole($r),
+            'fan_name'      => fn (array $r) => fanboyFanName($r),         // round 8: «Wo sitzt er?» while testing
             'zones_propose' => fn (array $r) => ['ok' => true, 'zones' => fanboyZonesPropose($scan = fanboyDetect(), fanboyBoardRaw($scan['board']) ?? [])],
             'zones_save'    => fn (array $r) => fanboyZonesSave($r),
             'dry_run'       => fn (array $r) => fanboyDryRun(),
@@ -165,6 +167,17 @@ function fanboyBoardKey(array $board): string
 function fanboyFanId(string $chip, string $address, int $output): string
 {
     return "$chip:$address:pwm$output";
+}
+
+/**
+ * A fan's test verdict as it counts — round 8 (G3): «ignored» saved before the round-8 fix without its reason (taken_back:
+ * the BIOS took a write back; unpaired: judged over every output of the chip) may have come from the early judgement —
+ * it counts as not yet tested (a retest asks nothing more than the click). null: not tested.
+ */
+function fanboyFound(mixed $f): ?string
+{
+    $found = is_array($f) && is_string($f['found'] ?? null) ? $f['found'] : null;
+    return $found === 'ignored' && !in_array($f['why'] ?? null, ['taken_back', 'unpaired'], true) ? null : $found;
 }
 
 /** One stored fan in exactly its shape, else null (never repaired, never removed) */
@@ -635,7 +648,7 @@ function fanboyFixedOutputs(array $scan, ?array $settings): array
         }
         foreach ($c['outputs'] as $o) {
             $id = fanboyFanId($c['name'], $c['address'], $o['n']);
-            if (in_array($settings['fans'][$id]['found'] ?? null, ['empty', 'ignored', 'inverted'], true) || !is_int($o['enable'])) {
+            if (in_array(fanboyFound($settings['fans'][$id] ?? null), ['empty', 'ignored', 'inverted'], true) || !is_int($o['enable'])) {
                 continue;
             }
             if ($o['enable'] >= 2) {
@@ -712,7 +725,7 @@ function fanboySetupState(array $scan, ?array $settings): array
             'back' => in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : null,
             // round 3: fans on this one connector (the user says; one speed for all of them) — none stored: one
             'count' => is_int($f['count'] ?? null) && $f['count'] >= 1 && $f['count'] <= FANBOY_COUNT_MAX ? $f['count'] : 1,
-            'found' => is_string($f['found'] ?? null) ? $f['found'] : null, 'role' => is_string($f['role'] ?? null) ? $f['role'] : null,
+            'found' => fanboyFound($f), 'role' => is_string($f['role'] ?? null) ? $f['role'] : null,
             'name' => is_string($f['name'] ?? null) ? $f['name'] : '', 'place' => is_string($f['place'] ?? null) ? $f['place'] : null,
             'off_ok' => ($f['off_ok'] ?? false) === true, 'measured' => $m !== null,
             // round 4: a CPU cooler given to him on the owner's risk — since when (null: the BIOS's)
