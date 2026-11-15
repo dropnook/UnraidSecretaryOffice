@@ -50,7 +50,9 @@ let view = null;
 let page = '';                  // '' overview · 'setup'
 let timer = null;
 let alive = null;               // the step's lease while a step runs and a page of his is shown
-let banner = null;
+// ONE banner element for his page, moved to the page shown (2026-11-15: a banner made anew at every visit left the old one
+// standing beside it — the same red text twice)
+const banner = el('div', 'fb-banner');
 let busy = false;
 let drawn = '';                 // the setup page's last drawing (its signature): a look that changes nothing of it draws nothing
 let sensorBar = null;
@@ -156,7 +158,7 @@ function showButton(id, f) {
   b.disabled = (!mine && !!why) || !state || !Office.agent.running;
   // round 8: the quiet switch counts for a show too — only while he doesn't steer (his control never stops another fan)
   b.onclick = () => (mine ? act('show_stop', { fan: id }, b)
-    : act('show', { fan: id, quiet: quietOn() && !control().running }, b, () => Office.toast(T('show.toast', { fan: fanName(id) }))));
+    : act('show', { fan: id, quiet: quietOn() && !control().running }, b, () => Office.toast(T('show.toast', { fan: fanSay(id) }))));
   return b;
 }
 /** Seconds left until a server time (the state's own clock, moved on by the page's since it came) */
@@ -247,6 +249,15 @@ function fanName(id) {
   const p = idParts(id);
   return f && f.name ? f.name : T('out.name', { n: p ? p.output : '?' });
 }
+/** «Output 4» — the connector's own name; it never disappears (he needs it to find the connector) */
+const outName = (id) => T('out.name', { n: (idParts(id) || {}).output ?? '?' });
+/** A fan in a sentence, a tip or a list: «Hinten rechts (Ausgang 4)» once it has a name, else «Ausgang 4» */
+function fanSay(id) {
+  const f = setupFan(id);
+  return f && f.name ? T('fan.say', { name: f.name, out: outName(id) }) : outName(id);
+}
+/** The small line under a fan's bold name: its output (only when a name is the title), then whatever else belongs there */
+const underName = (id, ...more) => [(setupFan(id) || {}).name ? outName(id) : '', ...more].filter(Boolean).join(' · ');
 /** A heat source's name: Unraid's disks as Unraid names them (Disk 1, Parity), a sensor by its label */
 function srcLabel(s) {
   if (!s) return '';
@@ -319,7 +330,7 @@ function load(fresh) {
 }
 let stateAt = 0;                // when the state came (the page's clock) — «noch n s» counts from the server's time then
 function took(j) {
-  if (j.ok && j.state) { state = j.state; stateAt = Date.now(); }
+  if (j.ok && j.state) { state = j.state; stateAt = Date.now(); sawRun(); }
   // his picture with a red mark while something is wrong at his fans (its alarm variant, as the Night Watchman has one)
   if (state) Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'chip_gone', 'crashed'].includes(who().why)
     || (idle().on && Object.values(idle().tachs || {}).some((x) => x && x.state === 'alarm')) ? 'alarm' : '');
@@ -331,7 +342,7 @@ function plan() {
   clearTimeout(timer);
   timer = null;
   if (!view) { stopAlive(); return; }
-  timer = setTimeout(() => load(false), stepRuns() || showRuns() ? LOOK_STEP_MS : LOOK_MS);
+  timer = setTimeout(() => load(false), expectNow() ? 1000 : stepRuns() || showRuns() || restoreRuns() ? LOOK_STEP_MS : LOOK_MS);
   if (page === '' && Date.now() - histAt > 60000) loadHistory();        // the history: a look a minute (the part's refresh_after)
   if (stepRuns()) startAlive(); else stopAlive();
 }
@@ -457,7 +468,7 @@ function bubbleText() {
 }
 /** Round 7 (F3): the outputs on a fixed value someone left, as the page names them — «Output 1 (50 %), Output 4 (100 %)» */
 const fixedOut = (id) => (who().fixed || []).some((x) => x.id === id);
-const fixedList = (list) => (list || []).map((x) => T('fixed.item', { name: fanName(x.id), pct: x.pct })).join(', ');
+const fixedList = (list) => (list || []).map((x) => T('fixed.item', { name: fanSay(x.id), pct: x.pct })).join(', ');
 const otherNames = () => ((S().situation || {}).names || []).join(', ') || (who().name || '');
 const plainNow = () => ['alarm', 'chip_missing', 'chip_gone', 'crashed', 'array_stopped'].includes(who().why) || (control().running && control().alarm);
 
@@ -595,7 +606,7 @@ function wheelOf(id, opts) {
   // a silent fan of his: no tach to show its speed — the percentage he gives it hints at it
   const shown = silent && held && pct !== null && look.max ? look.max * pct / 100 : silent && held && pct !== null ? 2000 * pct / 100 : rpm;
   return {
-    id, label: fanName(id), sub, mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour, look: look.look,
+    id, label: fanName(id), sub: underName(id, sub), mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour, look: look.look,
     rpm: st === 'unknown' ? null : shown, state: silent && held ? 'run' : st, place: f.place || (opts && opts.place) || 'front',
     // round 5: the chip went while he steered — his fans sit where he left them (nobody's), the BIOS's stay the BIOS's
     // round 7 (F3): its output on a fixed value someone left — nobody's, not the BIOS's
@@ -945,6 +956,7 @@ function outputRow(c, o) {
   else meta.appendChild(outputRole(id));
   const mode = o.mode || 'unknown';
   meta.appendChild(chipOfText(mode === 'auto' ? 'ok' : mode === 'unknown' ? 'quiet' : 'accent', T(`mode.${mode}`), T(`mode.${mode}_title`)));
+  if (f && f.name) meta.appendChild(el('span', 'fb-row-out', T('out.name', { n: o.n })));       // named: its output stays, small
   const rpm = f ? rpmNow(id, f.tachs) : null;
   if (rpm !== null) meta.appendChild(el('span', '', T('pic.rpm', { rpm: fmt.number(rpm) })));
   const wc = watchChipOf(c, f);
@@ -1454,7 +1466,6 @@ function driversBlock() {
 // ------------------------------------------------------------------ above the tiles: what holds now, plainly
 /** The situation and the control's word: the alarm, the chip missing (with «Look now»), another controller, array stopped */
 function paintBanner() {
-  if (!banner) return;
   banner.replaceChildren();
   if (!state) return;
   const c = control();
@@ -1470,7 +1481,7 @@ function paintBanner() {
   // round 9 (H2): outputs he set to full for safety — named, undone in one click (each card has its own button too)
   const safe = page === 'setup' ? [] : Object.keys(S().safety || {});      // (the setup's strip says it and puts them back)
   if (safe.length) {
-    const p = box('warn', T('safety.banner', { list: safe.map((id) => fanName(id)).join(', ') }), { safety: 'full' });
+    const p = box('warn', T('safety.banner', { list: safe.map((id) => fanSay(id)).join(', ') }), { safety: 'full' });
     const b = button(T('safety.back_all'), T('safety.back_tip_all'), (btn) => act('safety_back', { fan: safe[0], all: true }, btn));
     if (stepRuns() || showRuns() || restoreRuns()) { b.disabled = true; b.title = T('safety.wait'); }
     p.appendChild(b);
@@ -1510,12 +1521,12 @@ function paintBanner() {
   }
   // round 6: a show whose give-back didn't read back as before (the fan may sit at 100 %)
   const sh = page === 'setup' ? null : showNow();        // the setup page's strip says how a show or a step ended
-  if (sh && sh.status !== 'running' && sh.status !== 'starting' && sh.why === 'give_back') box('warn', T('show.give_back_failed', { fan: fanName(sh.fan) }), { show: 'give_back' });
-  if (sh && sh.status !== 'running' && sh.status !== 'starting' && ['quiet_warm', 'no_restart'].includes(sh.why) && sh.quiet_stop) {
+  if (sh && freshEnd(sh) && sh.status !== 'running' && sh.status !== 'starting' && sh.why === 'give_back') box('warn', T('show.give_back_failed', { fan: fanSay(sh.fan) }), { show: 'give_back' });
+  if (sh && freshEnd(sh) && sh.status !== 'running' && sh.status !== 'starting' && sh.why === 'quiet_warm' && sh.quiet_stop) {
     box('warn', T(`show.${sh.why}`, { what: sh.quiet_stop.what || '', c: num(sh.quiet_stop.c) === null ? '' : fmt.number(sh.quiet_stop.c) }), { show: sh.why });
   }
   const s2 = step();
-  if (s2 && s2.status === 'stopped' && ['page_gone', 'interrupted'].includes(s2.why) && page === '') {
+  if (s2 && freshEnd(s2) && s2.status === 'stopped' && ['page_gone', 'interrupted'].includes(s2.why) && page === '') {
     box('warn', T(`step.ended.${s2.why}`), { step: s2.why });
   }
 }
@@ -1707,7 +1718,7 @@ function send(action, body, opts) {
       said = { text: T('strip.refused', { why: text }), warn: true };
       return null;
     }
-    if (j.state) { state = j.state; stateAt = Date.now(); }
+    if (j.state) { state = j.state; stateAt = Date.now(); sawRun(); }
     if (o.done) await o.done(j);
     if (!j.state) await load(true);
     return j;
@@ -1723,6 +1734,7 @@ function send(action, body, opts) {
 }
 /** «Alles stoppen»: whatever the setup holds goes back — a step, a show, the fans standing for a quiet test */
 function stopAll() {
+  expect({ note: T('strip.stopping'), done: () => !runNow().kind });
   return send('stop_all', {}, { done: () => Office.toast(T('stop_all_toast')) });
 }
 
@@ -1737,6 +1749,33 @@ function btn(text, cls, on, tip) {
   if (tip) b.title = tip;
   b.onclick = () => { clicked = b; on(b); clicked = null; };
   return b;
+}
+/**
+ * A button that can't act right now is never dead (the owner, 2026-11-15: «GUI ist tot, ich kann nicht klicken»): it
+ * looks set back and a click on it says why — as the toast and in the strip. Nothing of his setup is silently disabled.
+ */
+function offBtn(b, reason) {
+  b.classList.add('fb-off');
+  b.setAttribute('aria-disabled', 'true');
+  b.title = reason;
+  b.onclick = () => { Office.toast(reason, true); say(reason); };
+  return b;
+}
+/**
+ * The page waits for the agent to do what was asked (a test to begin, an output to end, everything to stop): it says so
+ * with the wave — in the strip from the click until the state shows it (the owner saw a still page for seconds and took
+ * it for dead). {now} replaces the strip's first line, {note} its second; over when done() holds, a refusal comes, or 25 s.
+ */
+let expecting = null;
+function expect(e) {
+  said = null;                    // a new action: what was said before is over
+  expecting = { ...e, until: Date.now() + 25000 };
+  patch();
+  plan();
+}
+function expectNow() {
+  if (expecting && (expecting.done() || Date.now() > expecting.until || (said && said.warn))) expecting = null;
+  return expecting;
 }
 /**
  * A click answers within a blink (the owner clicks fast; the agent may take a second): the clicked button itself carries
@@ -1815,8 +1854,9 @@ function rowLabel(id, run) {
   if (found === 'ignored' || found === 'inverted') return ['warn', T(`out.${found}`), T(`out.${found}_title`)];
   if (found === 'empty') return ['quiet', T('label.empty'), T('label.empty_tip')];
   if (found === 'ask' || found === 'unclear') return ['warn', T('label.ask'), T('label.ask_tip')];
-  if (f && f.role && found) return [ROLES_BIOS.includes(f.role) && !f.cpu_own ? 'quiet' : 'accent', T(`role.${f.role}`), isOurs(f) ? T('label.his_tip') : T('label.bios_tip')];
-  if (found) return ['outline', T('label.what'), T('label.what_tip')];
+  if (f && f.role === 'cpu' && found) return f.cpu_own ? ['warn', T('label.cpu_own'), T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })] : ['quiet', T('label.cpu_bios'), T('roles.bios_note.cpu')];
+  if (f && f.role && found) return [ROLES_BIOS.includes(f.role) ? 'quiet' : 'accent', T(`role.${f.role}`), isOurs(f) ? T('label.his_tip') : T('label.bios_tip')];
+  if (found) return ['warn', T('label.what'), T('label.what_tip')];
   if (leftAlone(f)) return ['quiet', T('label.left'), T('label.left_tip')];
   return ['quiet', T('label.untested'), T('label.untested_tip')];
 }
@@ -1864,28 +1904,34 @@ function stripMake() {
       const fan = run.pause.next || '';
       const left = run.pause.left;
       text = run.pause.kick ? (left !== null ? T('strip.kick', { s: left }) : T('strip.pause_plain'))
-        : left !== null ? (fan ? T('strip.pause_next', { s: left, fan: fanName(fan) }) : T('strip.pause', { s: left })) : T('strip.pause_plain');
-    } else if (run.kind === 'restore') { mood = 'run'; text = T('strip.restore', { fan: run.back.map((id) => fanName(id)).join(', ') }); }
-    else if (run.kind === 'test' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.test_quiet' : 'strip.test', { fan: fanName(run.id) }); }
-    else if (run.kind === 'show' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.show_quiet' : 'strip.show', { fan: fanName(run.id) }); }
+        : left !== null ? (fan ? T('strip.pause_next', { s: left, fan: fanSay(fan) }) : T('strip.pause', { s: left })) : T('strip.pause_plain');
+    } else if (run.kind === 'restore') { mood = 'run'; text = T('strip.restore', { fan: run.back.map((id) => fanSay(id)).join(', ') }); }
+    else if (run.kind === 'test' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.test_quiet' : 'strip.test', { fan: fanSay(run.id) }); }
+    else if (run.kind === 'show' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.show_quiet' : 'strip.show', { fan: fanSay(run.id) }); }
     else if (run.kind === 'measure' && run.id) {
       const o = outputNow(run.id);
-      text = T('strip.measure', { fan: fanName(run.id), pct: o && num(o.pct) !== null ? o.pct : '–' });
+      text = T('strip.measure', { fan: fanSay(run.id), pct: o && num(o.pct) !== null ? o.pct : '–' });
       mood = 'run';
     } else if (run.kind) { mood = 'run'; text = T('strip.starting'); }
-    else if (run.safety.length) { mood = 'warn'; text = T('strip.safety', { n: run.safety.length, list: run.safety.map((y) => fanName(y.id)).join(', ') }); }
+    else if (!Office.agent.running) { mood = 'warn'; text = T('strip.away'); }
+    else if (run.safety.length) { mood = 'warn'; text = T('strip.safety', { n: run.safety.length, list: run.safety.map((y) => fanSay(y.id)).join(', ') }); }
     else if (page === 'setup' && situation() === 'other') text = T('strip.other');
     else if (page === 'setup' && control().running) text = T('strip.steers');
-    root.dataset.mood = mood;
-    root.classList.toggle('running', mood === 'run');       // office.css shows the wave inside .running
+    // waiting for the agent to do what was asked: said with the wave from the click on
+    const ex = expectNow();
+    if (ex && ex.now && mood !== 'run') { mood = 'run'; text = ex.now; }
+    const waits = !!ex || sends > 0;
+    root.dataset.mood = mood === 'idle' && waits ? 'run' : mood;
+    root.classList.toggle('running', mood === 'run' || waits);       // office.css shows the wave inside .running
     setText(now, text);
     // line 2: what was refused or said last; else how the last run ended; else what to know while it runs
     let line = '', warn = false;
     if (said) { line = said.text; warn = said.warn; }
-    else if (!run.kind && endedText(s) && !(s.why === 'no_restart' && run.safety.length)) { line = endedText(s); warn = true; }     // (line 1 says the safety-full itself)
+    else if (ex && ex.note) line = ex.note;
+    else if (sends > 0) line = T('busy_wait');
+    else if (!run.kind && endedText(s)) { line = endedText(s); warn = true; }
     else if (!run.kind && showEndedText()) { line = showEndedText(); warn = true; }
     else if (run.kind === 'test' || run.kind === 'measure') line = T('strip.keep_open');
-    else if (sends > 0) line = T('busy_wait');
     setText(note, line);
     note.classList.toggle('fb-strip-warn', warn);
     root.classList.toggle('fb-strip-told', warn);
@@ -1897,7 +1943,7 @@ function stripMake() {
           run.safety.length > 1 ? T('safety.back_tip_all') : T('safety.back_tip', { pct: safetyPct(run.safety[0]) })));
       }
       if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('stop_all'), 'btn small danger', () => stopAll(), T('stop_all_tip')));
-      out.forEach((b) => { b.disabled = !Office.agent.running; });
+      if (!Office.agent.running) out.forEach((b) => offBtn(b, T('strip.away')));
       return out;
     });
     root.classList.toggle('fb-strip-stuck', !!run.kind);
@@ -1932,7 +1978,7 @@ function stripMake() {
   return { el: root, update, destroy() { clearInterval(ticker); ticker = null; } };
 }
 /** Is there anything the strip must say on the overview (where it shows only then)? */
-const stripNeeded = () => { const r = runNow(); return !!r.kind || r.safety.length > 0 || !!said; };
+const stripNeeded = () => { const r = runNow(); return !!r.kind || r.safety.length > 0 || !!said || !!expectNow() || sends > 0; };
 
 // ------------------------------------------------------------------ the list and the panel (every step that has rows)
 /**
@@ -2024,7 +2070,7 @@ function listPanel(o) {
     two.classList.toggle('fb-two-none', !ids.length);
     const n = o.next(api, run);
     swap(nextText, ['t', n.sig], n.text);
-    swap(nextActs, ['a', n.sig, Office.agent.running], () => { const out = n.acts(); out.forEach((b) => { if (!b.dataset.go) b.disabled = b.disabled || !Office.agent.running; }); return out; });
+    swap(nextActs, ['a', n.sig, Office.agent.running], () => { const out = n.acts(); if (!Office.agent.running) out.forEach((b) => { if (!b.dataset.go) offBtn(b, T('strip.away')); }); return out; });
   }
   update();
   return {
@@ -2092,10 +2138,8 @@ function benchMake() {
     follow: (run) => (run.kind === 'test' || run.kind === 'show' ? run.id : ''),
     row(id, run) {
       const f = setupFan(id);
-      const p = idParts(id);
       const rpm = f && f.found === 'tach' ? rpmNow(id, f.tachs) : null;
-      return { name: T('out.name', { n: p ? p.output : '?' }), title: fanName(id),
-        sub: [f && f.name ? f.name : '', rpm !== null ? T('pic.rpm', { rpm: fmt.number(rpm) }) : ''].filter(Boolean).join(' · '),
+      return { name: fanName(id), title: fanSay(id), sub: underName(id, rpm !== null ? T('pic.rpm', { rpm: fmt.number(rpm) }) : ''),
         label: rowLabel(id, run), wheel: wheelNow(id, run), live: run.id === id && !run.pause && (run.kind === 'test' || run.kind === 'show'), warn: !!safetyOf(id) };
     },
     panel: (id, api) => panelMake(id, api.now, api.update),
@@ -2109,7 +2153,7 @@ function benchMake() {
       return {
         sig: [tested, outs().length, roles, open, !!run.kind, noTest, selOpen],
         text: () => nextLines(`${T('step.v.tested', { n: tested, m: outs().length })} · ${T('step.v.assigned', { n: roles })}`,
-          open.map(([id, w]) => [id, T('out.name', { n: (idParts(id) || {}).output }), T(`next.open_${w}`)]), api, T('next.all_done')),
+          open.map(([id, w]) => [id, T('next.item', { fan: fanSay(id), why: T({ test: 'label.untested', ask: 'label.ask', role: 'label.what' }[w]) }), T(`next.open_${w}`)]), api, T('next.all_done')),
         acts: () => {
           const out = [];
           // the ONE primary button: the panel's own «Start the test» while its output is untested; else here
@@ -2135,24 +2179,40 @@ function benchMake() {
 /** Start the test for these outputs, in the board's order — the quiet switch as it stands */
 function startTest(ids) {
   if (!ids.length) return null;
+  expect({ now: T('strip.starting'), done: () => !!runNow().kind });
   return send('test_up', { fans: ids, quiet: quietOn() }, { fresh: true });
 }
+/**
+ * A run's ending is said only while it is news (the owner's server, 2026-11-15: an hour-old «did not start again» greeted
+ * him in red after a page load): the run was seen running on this page, or it ended within the last minute and a half
+ */
+const ranHere = new Set();
+const FRESH_S = 90;
+function sawRun() {
+  const s = step(), x = showNow();
+  if (running(s) && s.id) ranHere.add(s.id);
+  if (showRuns() && x.id) ranHere.add(x.id);
+}
+const freshEnd = (x) => !!x && ((!!x.id && ranHere.has(x.id)) || (num(S().time) !== null && num(x.at) !== null && S().time - x.at <= FRESH_S));
 /** How the last test or measuring ended, when it didn't simply finish: the page gone, stopped, too warm, a fan that didn't start again */
 function endedText(s) {
-  if (!s || !['test_up', 'measure'].includes(s.kind) || running(s) || !['stopped', 'failed'].includes(s.status)) return '';
+  if (!s || !['test_up', 'measure'].includes(s.kind) || running(s) || !['stopped', 'failed'].includes(s.status) || !freshEnd(s)) return '';
   const why = s.status === 'failed' ? 'error' : s.why || 'stopped';
+  // «did not start again — set to 100 %» is never claimed from a past run: while an output stands at 100 % the strip's first
+  // line and its panel say so from `safety`; once it is back there is nothing to claim
+  if (why === 'no_restart') return '';
   // too warm while measuring: which source, how warm, its limit (round 4: by its own kind — an NVMe pool's 50 °C stops nothing)
   if (why === 'warm' && s.warm && s.warm.source) {
     return T('step.ended.warm_what', { where: srcLabel({ kind: s.warm.kind === 'disk' || s.warm.kind === 'ssd' ? s.warm.kind : 'other', id: s.warm.source, label: s.warm.source }), c: fmt.number(s.warm.c), limit: fmt.number(s.warm.limit) });
   }
-  if (['quiet_warm', 'no_restart'].includes(why) && s.quiet_stop) return T(`step.ended.${why}`, { what: s.quiet_stop.what || '', c: num(s.quiet_stop.c) === null ? '' : fmt.number(s.quiet_stop.c) });
+  if (why === 'quiet_warm' && s.quiet_stop) return T(`step.ended.${why}`, { what: s.quiet_stop.what || '', c: num(s.quiet_stop.c) === null ? '' : fmt.number(s.quiet_stop.c) });
   return has(`step.ended.${why}`) ? T(`step.ended.${why}`) : T('step.ended.stopped');
 }
 function showEndedText() {
   const sh = showNow();
-  if (!sh || showRuns()) return '';
-  if (sh.why === 'give_back') return T('show.give_back_failed', { fan: fanName(sh.fan) });
-  if (['quiet_warm', 'no_restart'].includes(sh.why) && sh.quiet_stop) return T(`show.${sh.why}`, { what: sh.quiet_stop.what || '', c: num(sh.quiet_stop.c) === null ? '' : fmt.number(sh.quiet_stop.c) });
+  if (!sh || showRuns() || !freshEnd(sh)) return '';
+  if (sh.why === 'give_back') return T('show.give_back_failed', { fan: fanSay(sh.fan) });
+  if (sh.why === 'quiet_warm' && sh.quiet_stop) return T(`show.${sh.why}`, { what: sh.quiet_stop.what || '', c: num(sh.quiet_stop.c) === null ? '' : fmt.number(sh.quiet_stop.c) });
   return '';
 }
 
@@ -2171,11 +2231,12 @@ function panelMake(id, benchRun, benchUpdate) {
   const pict = el('div', 'fb-panel-wheel');
   if (wh) pict.appendChild(wh.el);
   const title = el('h3', 'fb-panel-title');
+  const under = el('p', 'fb-panel-under');
   const line = el('p', 'fb-panel-line');
   const acts = el('div', 'fb-panel-acts');
   const why = el('p', 'fb-panel-why');
   const headText = el('div', 'fb-panel-headtext');
-  headText.append(title, line, acts, why);
+  headText.append(title, under, line, acts, why);
   const head = el('div', 'fb-panel-head');
   head.append(pict, headText);
   const safety = el('div', 'callout warn fb-safety');
@@ -2207,10 +2268,12 @@ function panelMake(id, benchRun, benchUpdate) {
   const place = inputEl('select');
   place.appendChild(new Option(T('roles.place_any'), ''));
   PLACES.forEach((pl) => place.appendChild(new Option(T(`place.${pl}`), pl)));
-  place.onchange = () => { const f = setupFan(id); if (f && f.role) send('role', { fan: id, role: f.role, place: place.value, off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true }); };
+  // place and count can be filled at any time (the agent takes them only with a role: kept here and sent with it)
+  let wantPlace = null, wantCount = null;
+  place.onchange = () => { const f = setupFan(id); if (f && f.role) send('role', { fan: id, role: f.role, place: place.value, off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true }); else { wantPlace = place.value; update(); } };
   const count = inputEl('select');
   for (let n = 1; n <= 8; n++) count.appendChild(new Option(String(n), String(n)));
-  count.onchange = () => { const f = setupFan(id); if (f && f.role) send('role', { fan: id, role: f.role, count: Number(count.value), off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true }); };
+  count.onchange = () => { const f = setupFan(id); if (f && f.role) send('role', { fan: id, role: f.role, count: Number(count.value), off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true }); else { wantCount = Number(count.value); update(); } };
   fields.append(field(T('fields.name'), name, 'fb-field-name'), field(T('fields.place'), place), field(T('roles.count'), count, 'fb-field-count'));
   const note = el('p', 'fb-panel-note');
   // the folds
@@ -2232,9 +2295,11 @@ function panelMake(id, benchRun, benchUpdate) {
     picked = k;
     roleBtns.forEach((b, r) => b.setAttribute('aria-pressed', r === k ? 'true' : 'false'));
     const settle = () => { picked = null; update(); };
+    if (f && f.found === 'empty' && k !== 'empty') { picked = null; update(); Office.toast(T('panel.empty_note'), true); say(T('panel.empty_note')); return; }      // nothing attached by its test: said, not sent
     if (k === 'empty') { send('answer', { fan: id, louder: false }).then(settle); return; }
     if (f && ['ask', 'unclear'].includes(f.found) && benchRun().id !== id) send('answer', { fan: id, louder: true }, { quietly: true });
-    send('role', { fan: id, role: k, off_ok: !!(f && f.off_ok) && ROLES_OURS.includes(k) }).then(settle);
+    const extra = { ...(wantPlace !== null ? { place: wantPlace } : {}), ...(wantCount !== null ? { count: wantCount } : {}) };
+    send('role', { fan: id, role: k, off_ok: !!(f && f.off_ok) && ROLES_OURS.includes(k), ...extra }).then((j) => { if (j) { wantPlace = null; wantCount = null; } settle(); });
   }
 
   function update() {
@@ -2248,7 +2313,9 @@ function panelMake(id, benchRun, benchUpdate) {
     const sf = safetyOf(id);
     if (wh) wh.update(wheelNow(id, run));
     root.classList.toggle('fb-live', here);
-    setText(title, f && f.name ? T('panel.title_named', { n: p ? p.output : '?', name: f.name }) : T('out.name', { n: p ? p.output : '?' }));
+    // the name is the title once he gave one; the output stays under it (he needs it to find the connector)
+    setText(title, fanName(id));
+    setText(under, f && f.name ? outName(id) : '');
     // what it does right now, in a sentence
     const rpm = f && found === 'tach' ? rpmNow(id, f.tachs) : null;
     let text = foundLine(f);
@@ -2269,20 +2336,24 @@ function panelMake(id, benchRun, benchUpdate) {
     let reason = '';
     if (queued) reason = T('panel.queued');
     else if (!here && run.pause) reason = T('panel.pause');
-    else if (!here && run.kind) reason = T('panel.busy', { fan: run.id ? fanName(run.id) : '' });
+    else if (!here && run.kind) reason = T('panel.busy', { fan: run.id ? fanSay(run.id) : '' });
     else if (!run.kind && noTest) reason = noTest;
     else if (!run.kind && never) reason = T(`test.${found}_hint`);
     else if (away) reason = T('strip.away');
     setText(why, reason);
-    swap(acts, [here, run.kind, more, found, leftAlone(f), !!noTest, away, open.length, open[0] === id, !!sf, queued], () => {
+    const ex = expectNow();
+    const ending = here && !!ex && ex.ending === id;       // «weiter» clicked: the agent is ending this output
+    swap(acts, [here, run.kind, more, found, leftAlone(f), !!noTest, away, open.length, open[0] === id, !!sf, queued, reason, ending], () => {
       const out = [];
+      if (ending) { const w = el('span', 'fb-wait running'); w.append(wave(), el('span', '', T('strip.ending'))); return [w]; }
       if (queued) return out;                  // its turn comes in this run: nothing to start here (the strip has «Stop everything»)
       const blocked = !!run.kind || !!noTest || away;
       if (here && run.kind === 'show') {
         out.push(btn(T('show.stop'), 'btn', () => send('show_stop', { fan: id }), T('show.stop_tip')));
       } else if (here) {
-        out.push(btn(T(more ? 'test.found_next' : 'test.found_done'), 'btn', () => send('step_next', { fan: id, heard: true }), T('test.found_next_tip')));
-        out.push(btn(T(more ? 'test.none_next' : 'test.none_done'), 'btn small plain', () => send('step_next', { fan: id, heard: false }), T('test.none_tip')));
+        const next = (heard) => { expect({ note: T('strip.ending'), ending: id, done: () => { const r = runNow(); return r.id !== id || !!r.pause || !r.kind; } }); send('step_next', { fan: id, heard }); };
+        out.push(btn(T(more ? 'test.found_next' : 'test.found_done'), 'btn', () => next(true), T('test.found_next_tip')));
+        out.push(btn(T(more ? 'test.none_next' : 'test.none_done'), 'btn small plain', () => next(false), T('test.none_tip')));
         out.push(btn(T('test.abort'), 'btn small plain', () => send('step_stop', {}, { done: () => Office.toast(T('step.stopped_toast')) }), T('test.abort_tip')));
       } else if (['ask', 'unclear'].includes(found) && !run.kind) {
         out.push(btn(T('ask.yes'), 'btn small', () => send('answer', { fan: id, louder: true }), T('test.yes_tip')));
@@ -2295,10 +2366,11 @@ function panelMake(id, benchRun, benchUpdate) {
         if (open.length > 1) out.push(btn(T('test.only'), 'btn small plain', () => startTest([id]), T('test.one_tip')));
       } else {
         out.push(btn(leftAlone(f) ? T('test.start_one') : T('test.again_long'), 'btn small plain', () => startTest([id]), T('test.one_tip')));
-        if (['tach', 'silent'].includes(found)) out.push(btn(T('show.button'), 'btn small plain', () => send('show', { fan: id, quiet: quietOn() && !control().running }, { fresh: true }), T('show.tip')));
+        if (['tach', 'silent'].includes(found)) out.push(btn(T('show.button'), 'btn small plain', () => { expect({ now: T('strip.starting_show', { fan: fanSay(id) }), done: () => !!runNow().kind }); send('show', { fan: id, quiet: quietOn() && !control().running }, { fresh: true }); }, T('show.tip')));
       }
-      // answering the question writes no output: only the messenger away turns it off; a test or a show needs the way free
-      if (!here) out.forEach((b) => { b.disabled = ['ask', 'unclear'].includes(found) && !run.kind && b !== out[2] ? away : blocked; });
+      // answering the question writes no output: only the messenger away sets it back; a test or a show needs the way free.
+      // Set back, never dead: a click says why.
+      if (!here) out.forEach((b) => { const no = ['ask', 'unclear'].includes(found) && !run.kind && b !== out[2] ? away : blocked; if (no) offBtn(b, reason || T('strip.away')); });
       return out;
     });
     // set to full for safety: said here, with the way back (a process of its own: back, a kick when it doesn't start)
@@ -2308,8 +2380,8 @@ function panelMake(id, benchRun, benchUpdate) {
       const waits = !going && (stepRuns() || showRuns() || restoreRuns());
       swap(safety, [sf.why || '', safetyPct(sf), away, going, waits], () => {
         const b = btn(T('safety.back'), 'btn small', () => send('safety_back', { fan: id }), T('safety.back_tip', { pct: safetyPct(sf) }));
-        if (going) { b.classList.add('running'); b.replaceChildren(wave(), el('span', '', T('safety.backing'))); }
-        b.disabled = away || going || waits;
+        if (going) { b.classList.add('running'); b.replaceChildren(wave(), el('span', '', T('safety.backing'))); b.disabled = true; }
+        else if (away || waits) offBtn(b, away ? T('strip.away') : T('safety.wait'));
         const text = el('p', '', T(sf.why === 'not_back' ? 'safety.not_back' : 'safety.no_restart', { pct: safetyPct(sf) }));
         return [text, b, waits ? el('p', 'fb-safety-wait', T('safety.wait')) : null];
       });
@@ -2318,20 +2390,23 @@ function panelMake(id, benchRun, benchUpdate) {
     const cur = picked || (found === 'empty' ? 'empty' : (f && f.role) || '');
     roleBtns.forEach((b, k) => {
       b.setAttribute('aria-pressed', k === cur ? 'true' : 'false');
-      b.disabled = away || never || (found === 'empty' && k !== 'empty');
+      b.disabled = away;
       if (k === 'unknown') setText(b, !found && !run.kind ? T('role.left') : T('role.unknown'));
     });
     // the CPU cooler: who steers it — right under the question, never behind a fold
     const isCpu = !!f && f.role === 'cpu';
     swap(cpu, [isCpu, isCpu && f.cpu_own, isCpu && found, cpuAsk.has(id), (cpuAsk.get(id) || {}).tick, away, ((setup().before || {})[id] || {}).auto ?? null], () => (isCpu ? cpuBlock(f, benchUpdate) : []));
     // the fields
-    nameField(id, f, away || never);
+    // an output Fanboy never touches (it doesn't obey, or works the other way round): nothing to say about a fan there
+    what.hidden = fields.hidden = look.hidden = never;
+    nameField(id, f, away);
     const roleSet = !!(f && f.role);
-    place.disabled = count.disabled = away || never || !roleSet;
-    if (document.activeElement !== place) place.value = (f && f.place) || '';
-    if (document.activeElement !== count) count.value = String((f && f.count) || 1);
+    place.disabled = count.disabled = away;
+    if (document.activeElement !== place) place.value = roleSet ? f.place || '' : wantPlace || '';
+    if (document.activeElement !== count) count.value = String(roleSet ? f.count || 1 : wantCount || 1);
     let hint = '';
-    if (found === 'empty') hint = T('panel.empty_note');
+    if (!roleSet && !never && found !== 'empty' && (wantPlace !== null || wantCount !== null)) hint = T('panel.kept');
+    else if (found === 'empty') hint = T('panel.empty_note');
     else if (f && f.role === 'cpu') hint = f.cpu_own ? '' : T('assign.cpu_bios');        // (given to Fanboy: its block above says since when)
     else if (f && f.role === 'pump') hint = T('assign.never_stopped');
     else if (f && f.role === 'unknown') hint = T('roles.bios_note.unknown');
@@ -2365,7 +2440,7 @@ function panelMake(id, benchRun, benchUpdate) {
     }
     // «give back to»: only for an output found on a fixed value that Fanboy may get
     const b = (setup().before || {})[id];
-    const hasBack = !!(f && b && b.fixed && !ROLES_BIOS.includes(f.role));
+    const hasBack = !!(f && b && b.fixed && !ROLES_BIOS.includes(f.role)) && !never;
     back.hidden = !hasBack;
     if (hasBack) swap(backBody, [f.back, b.pct, b.auto ?? null, setup().back_default, away], () => backChoice(f, b));
   }
@@ -2406,8 +2481,10 @@ function cpuBlock(f, again) {
   tick.type = 'checkbox';
   tick.checked = !!cpuAsk.get(f.id).tick;
   const go = btn(T('cpu.go'), 'btn', () => send('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: true, cpu_confirm: tick.checked }, { done: () => { cpuAsk.delete(f.id); } }), T('cpu.go_tip'));
-  go.disabled = !tick.checked;
-  tick.onchange = () => { cpuAsk.set(f.id, { tick: tick.checked }); go.disabled = !tick.checked; };
+  const goes = go.onclick;
+  const arm = () => { go.classList.toggle('fb-off', !tick.checked); go.onclick = tick.checked ? goes : () => { Office.toast(T('errors.fanboy_cpu_confirm'), true); say(T('errors.fanboy_cpu_confirm')); }; };
+  arm();
+  tick.onchange = () => { cpuAsk.set(f.id, { tick: tick.checked }); arm(); };
   const l = el('label', 'fb-check');
   l.append(tick, el('span', '', T('cpu.confirm')));
   risk.append(l, bar(go));
@@ -2476,17 +2553,16 @@ function backChoice(f, b) {
   const noAuto = b.auto === null || b.auto === undefined;
   let cur = f.back || setup().back_default || '';
   if (cur === 'auto' && noAuto) cur = 'fixed';           // no automatic on this chip: the fixed value stays (said below)
-  [['auto', noAuto ? T('back.auto_none') : T('back.auto'), noAuto], ['fixed', T('back.fixed', { pct: b.pct ?? '–' }), false]].forEach(([v, label, off]) => {
+  [['auto', T('back.auto'), noAuto], ['fixed', T('back.fixed', { pct: b.pct ?? '–' }), false]].filter(([, , gone]) => !gone).forEach(([v, label]) => {
     const l = el('label', 'fb-radio');
     const r = el('input');
     r.type = 'radio';
     r.name = name;
     r.value = v;
     r.checked = cur === v;
-    r.disabled = off || !Office.agent.running;
+    r.disabled = !Office.agent.running;
     r.onchange = () => send('back', { fan: f.id, back: v }, { quietly: true });
     l.append(r, el('span', '', label));
-    if (off) l.title = T('back.no_auto');
     box.appendChild(l);
   });
   if (noAuto) box.appendChild(para(T('back.no_auto_note', { pct: b.pct ?? '–' }), 'fb-strong'));
@@ -2505,6 +2581,7 @@ const measured = () => (setup().fans || []).filter((f) => isOurs(f) && f.found =
 const toMeasure = () => measured().filter((id) => { const f = setupFan(id); return !f.measured && !f.no_turn; });
 function startMeasure(ids) {
   if (!ids.length) return null;
+  expect({ now: T('strip.starting_measure'), done: () => !!runNow().kind });
   return send('measure', { fans: ids }, { fresh: true });
 }
 function measureMake() {
@@ -2524,7 +2601,8 @@ function measureMake() {
           : f.no_turn ? ['warn', T('label.no_turn'), T('measure.no_turn')]
             : f.measured ? ['accent', T('label.measured'), T('measure.done', { min: f.min_pct, start: f.start_pct, max: fmt.number(f.max_rpm || 0) })]
               : ['quiet', T('label.unmeasured'), T('measure.not_yet')];
-      return { name: fanName(id), sub: [has(`role.${f.role}`) ? T(`role.${f.role}`) : '', rpm !== null ? T('pic.rpm', { rpm: fmt.number(rpm) }) : ''].filter(Boolean).join(' · '), label, live: under,
+      return { name: fanName(id), title: fanSay(id), label, live: under,
+        sub: underName(id, f.role === 'cpu' ? T(f.cpu_own ? 'label.cpu_own' : 'label.cpu_bios') : has(`role.${f.role}`) ? T(`role.${f.role}`) : '', rpm !== null ? T('pic.rpm', { rpm: fmt.number(rpm) }) : ''),
         wheel: { mm: look.mm, blades: look.blades, min: look.min, max: look.max || 2000, look: look.look, colour: under && !look.look && look.colour === 'auto' ? 'accent' : look.colour, rpm: rpm ?? 0, state: 'run' } };
     },
     panel: (id, api) => measurePanel(id, api),
@@ -2534,7 +2612,7 @@ function measureMake() {
       const selOpen = open.includes(api.sel());
       return {
         sig: [all, open, !!run.kind, noRun, selOpen],
-        text: () => (all.length ? nextLines(T('step.v.measured', { n: all.length - open.length, m: all.length }), open.map((id) => [id, fanName(id), T('measure.not_yet')]), api, T('next.measured_all')) : []),
+        text: () => (all.length ? nextLines(T('step.v.measured', { n: all.length - open.length, m: all.length }), open.map((id) => [id, fanSay(id), T('measure.not_yet')]), api, T('next.measured_all')) : []),
         acts: () => {
           const out = [];
           if (open.length && !selOpen && !run.kind && !noRun) out.push(btn(open.length > 1 ? T('measure.all') : T('measure.rest'), 'btn', () => startMeasure(open), T('measure.all_tip')));
@@ -2555,11 +2633,12 @@ function measurePanel(id, api) {
   const pict = el('div', 'fb-panel-wheel');
   if (wh) pict.appendChild(wh.el);
   const title = el('h3', 'fb-panel-title');
+  const under = el('p', 'fb-panel-under');
   const line = el('p', 'fb-panel-line');
   const acts = el('div', 'fb-panel-acts');
   const why = el('p', 'fb-panel-why');
   const headText = el('div', 'fb-panel-headtext');
-  headText.append(title, line, acts, why);
+  headText.append(title, under, line, acts, why);
   const head = el('div', 'fb-panel-head');
   head.append(pict, headText);
   const table = el('div', 'fb-measure-table');
@@ -2578,6 +2657,7 @@ function measurePanel(id, api) {
     if (wh) wh.update({ mm: look.mm, blades: look.blades, min: look.min, max: look.max || 2000, look: look.look, colour: under && !look.look && look.colour === 'auto' ? 'accent' : look.colour, rpm: rpm ?? 0, state: 'run' });
     root.classList.toggle('fb-live', under);
     setText(title, fanName(id));
+    setText(under, underName(id, f.role === 'cpu' ? T(f.cpu_own ? 'label.cpu_own' : 'label.cpu_bios') : ''));
     const queued = run.kind === 'measure' && !under && run.queue.includes(id);
     const r = s && s.kind === 'measure' && s.results ? s.results[id] : null;
     let text = T('measure.not_yet');
@@ -2590,12 +2670,12 @@ function measurePanel(id, api) {
     setText(line, text);
     let reason = '';
     if (queued) reason = T('panel.queued_measure');
-    else if (!under && run.kind) reason = T('panel.busy_measure', { fan: run.id ? fanName(run.id) : '' });
+    else if (!under && run.kind) reason = T('panel.busy_measure', { fan: run.id ? fanSay(run.id) : '' });
     else if (!run.kind && noRun) reason = noRun;
     else if (away) reason = T('strip.away');
     setText(why, reason);
     const open = toMeasure();
-    swap(acts, [under, run.kind, queued, !!f.measured, !!f.no_turn, !!noRun, away, open, open[0] === id], () => {
+    swap(acts, [under, run.kind, queued, !!f.measured, !!f.no_turn, !!noRun, away, open, open[0] === id, reason], () => {
       const out = [];
       if (under) out.push(btn(T('test.abort'), 'btn small plain', () => stopAll(), T('step.stop_tip')));
       else if (queued) return out;
@@ -2605,7 +2685,7 @@ function measurePanel(id, api) {
         out.push(btn(open.length > 1 ? T('measure.all') : T('measure.one'), 'btn', () => startMeasure(open.length > 1 ? rest : [id]), open.length > 1 ? T('measure.all_tip') : T('measure.one_tip')));
         if (open.length > 1) out.push(btn(T('measure.only'), 'btn small plain', () => startMeasure([id]), T('measure.one_tip')));
       } else out.push(btn(T('measure.again'), 'btn small plain', () => startMeasure([id]), T('measure.one_tip')));
-      if (!under) out.forEach((b) => { b.disabled = !!run.kind || !!noRun || away; });
+      if (!under && (run.kind || noRun || away)) out.forEach((b) => offBtn(b, reason || T('strip.away')));
       return out;
     });
     // the table as it is measured (the running fan's as it grows), its room kept from the start
@@ -2699,7 +2779,7 @@ function zonesStep() {
       list.appendChild(b);
     });
     side.append(list, bar(add(), propose()));
-    if (unzoned.length) side.appendChild(para(T('zones.unzoned', { list: unzoned.map((f) => fanName(f.id)).join(', ') })));
+    if (unzoned.length) side.appendChild(para(T('zones.unzoned', { list: unzoned.map((f) => fanSay(f.id)).join(', ') })));
     const slot = el('div', 'fb-panel-slot');
     const i = zones.findIndex((z) => z.id === zsel);
     if (i >= 0) slot.appendChild(zoneCard(zones[i], i, zones, ours));
@@ -2760,20 +2840,35 @@ function zoneCard(z, i, zones, ours) {
     const row = el('div', 'fb-zone-fan');
     const look = fanLook(f);
     row.appendChild(cardWheel({ rpm: rpmNow(id, f.tachs), mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour, look: look.look, px: 40, state: f.found === 'silent' ? 'unknown' : 'run' }));
-    row.appendChild(el('span', 'fb-zone-fan-name', fanName(id)));
+    const nm = el('span', 'fb-zone-fan-name', fanName(id));
+    const un = underName(id, f.role === 'cpu' ? T(f.cpu_own ? 'label.cpu_own' : 'label.cpu_bios') : '');
+    if (un) nm.appendChild(el('span', 'fb-zone-fan-out', un));
+    row.appendChild(nm);
     const move = inputEl('select');
-    move.setAttribute('aria-label', T('zones.move', { fan: fanName(id) }));
+    move.setAttribute('aria-label', T('zones.move', { fan: fanSay(id) }));
     zones.forEach((x, k) => move.appendChild(new Option(x.name || x.id, String(k))));
     move.value = String(i);
     move.onchange = () => changeZones((all) => { all[i].fans = all[i].fans.filter((x) => x !== id); all[+move.value].fans.push(id); });
     row.appendChild(move);
-    if (f.measured) {
+    const no = standWhy(f);
+    if (no) row.appendChild(el('span', 'fb-stand-no', no));
+    else {
       const l = el('label', 'fb-check');
       const c = el('input');
       c.type = 'checkbox';
       c.checked = !!f.off_ok;
-      c.disabled = busy || !Office.agent.running;
-      c.onchange = () => act('role', { fan: id, role: f.role, name: f.name || '', place: f.place || '', off_ok: c.checked }, null);
+      const save = (extra) => act('role', { fan: id, role: f.role, name: f.name || '', place: f.place || '', off_ok: c.checked, ...(extra || {}) }, null);
+      c.onchange = () => {
+        if (f.role !== 'cpu' || !c.checked) { save(); return; }
+        // the CPU cooler on the owner's risk may stand only behind its own plain confirmation
+        const from = kindValues(z, 'cpu').low;
+        c.checked = false;
+        Office.dialog({
+          title: T('zones.cpu_stand_title'),
+          body: T('zones.cpu_stand_text', { c: from }),
+          buttons: [{ text: t('common.cancel') }, { text: T('zones.cpu_stand_go'), kind: '', act: async () => { c.checked = true; await save({ cpu_off_confirm: true }); return true; } }],
+        });
+      };
       l.append(c, el('span', '', T('zones.off_ok')));
       l.title = T('zones.off_ok_tip');
       row.appendChild(l);
@@ -2784,7 +2879,7 @@ function zoneCard(z, i, zones, ours) {
   if (free.length) {
     const add = inputEl('select');
     add.appendChild(new Option(T('zones.add_fan'), ''));
-    free.forEach((f) => add.appendChild(new Option(fanName(f.id), f.id)));
+    free.forEach((f) => add.appendChild(new Option(fanSay(f.id), f.id)));
     add.onchange = () => { if (add.value) changeZones((all) => { all[i].fans.push(add.value); }); };
     fl.appendChild(add);
   }
@@ -2825,6 +2920,20 @@ function zoneCard(z, i, zones, ours) {
   fine.appendChild(tempsPart(z, i));
   card.appendChild(fine);
   return card;
+}
+/**
+ * Why a fan may NOT stand still, in words — '' when «may stand still» can be offered. Never a box that can't be: a fan
+ * without feedback or not measured yet, one that proved it doesn't stop or doesn't start again safely (the measuring's
+ * word, `stops_safe`), a CPU cooler the BIOS steers; the CPU cooler on the owner's risk only once it proved both.
+ */
+function standWhy(f) {
+  if (!f) return T('zones.stand_measure');
+  if (f.role === 'pump' || (f.role === 'cpu' && !f.cpu_own)) return T('zones.stand_never');
+  if (f.found !== 'tach') return T('zones.stand_silent');
+  if (!f.measured) return T('zones.stand_measure');
+  if (f.stops_safe === false) return T('zones.stand_unsafe');
+  if (f.role === 'cpu' && f.stops_safe !== true) return T('zones.stand_cpu');
+  return '';
 }
 /** A source's kind as the zone counts it (from the server's look: a pool not rotating is «ssd») */
 const srcKind = (id) => ((setup().sources || []).find((x) => x.id === id) || {}).kind || 'other';
@@ -2965,6 +3074,12 @@ function reactPart(z, i) {
   ways.forEach((names, w) => box.appendChild(el('p', 'fb-hint-text', `${names.join(', ')}: ${w}`)));
   return box;
 }
+/** A choice that can't be: the control goes back to what holds, and the reason is said in words (toast and strip) */
+function snapBack(select, value, reason) {
+  select.value = value;
+  Office.toast(reason, true);
+  say(reason);
+}
 /** The zone's curve: quiet, normal, cool — or its own, dragged; percent, or rpm where every fan is measured */
 function curvePart(z, i) {
   const box = el('div', 'fb-curve-part');
@@ -2981,27 +3096,25 @@ function curvePart(z, i) {
   ['quiet', 'normal', 'cool'].forEach((p) => choose.appendChild(new Option(T(`preset.${p}`), p)));
   choose.appendChild(new Option(T('curve.own'), 'own'));
   choose.value = own ? 'own' : tgt.preset || 'normal';
-  choose.disabled = z.unit === 'rpm';
-  choose.onchange = () => changeZones((all) => {
+  choose.onchange = () => (z.unit === 'rpm' && choose.value !== 'own' ? snapBack(choose, 'own', T('zones.preset_pct')) : changeZones((all) => {
     if (choose.value === 'own') {
       const base = presets ? presets[(all[i].target && all[i].target.preset) || 'normal'] : [[30, 20], [45, 80]];
       all[i].target = { points: base.map((p) => [Math.round(p[0]), Math.round(p[1])]) };
     } else all[i].target = { preset: choose.value };
     curves.delete(z.id);
-  });
+  }));
   const unit = inputEl('select');
   unit.appendChild(new Option(T('zones.unit_pct'), 'pct'));
   unit.appendChild(new Option(T('zones.unit_rpm'), 'rpm'));
   unit.value = z.unit === 'rpm' ? 'rpm' : 'pct';
-  unit.disabled = !rpmOk && z.unit !== 'rpm';
   unit.title = rpmOk ? T('zones.unit_tip') : T('zones.unit_off');
-  unit.onchange = () => changeZones((all) => {
+  unit.onchange = () => (unit.value === 'rpm' && !rpmOk ? snapBack(unit, 'pct', T('zones.unit_off')) : changeZones((all) => {
     all[i].unit = unit.value;
     const maxR = Math.min(...fans.map((f) => f.max_rpm || 2000));
     const base = Array.isArray(all[i].target.points) ? all[i].target.points : presets ? presets[all[i].target.preset || 'normal'] : [[30, 20], [45, 80]];
     all[i].target = { points: base.map((p) => [Math.round(p[0]), unit.value === 'rpm' ? Math.round(maxR * p[1] / 100 / 10) * 10 : Math.min(100, Math.round(100 * p[1] / maxR))]) };
     curves.delete(z.id);
-  });
+  }));
   const f2 = (label, input) => { const l = el('label', 'fb-field'); l.append(el('span', 'fb-field-label', label), input); return l; };
   box.appendChild(el('div', 'fb-row-fields'));
   box.lastChild.append(f2(T('zones.target'), choose), f2(T('zones.unit'), unit));
@@ -3086,7 +3199,7 @@ function dryStep() {
     (z.fans || []).forEach((f) => {
       const tr = el('tr');
       const nowT = f.now ? (f.now.enable === 1 ? T('dry.now_fixed', { pct: Math.round((f.now.value || 0) / 2.55) }) : f.now.enable === 0 ? T('mode.full') : T('dry.now_auto')) : '–';
-      tr.append(el('td', '', fanName(f.id)), el('td', 'fb-strong', num(f.pct) === null ? '–' : T('dry.would_pct', { pct: f.pct })), el('td', '', nowT));
+      tr.append(el('td', '', fanSay(f.id)), el('td', 'fb-strong', num(f.pct) === null ? '–' : T('dry.would_pct', { pct: f.pct })), el('td', '', nowT));
       tb.appendChild(tr);
     });
     const wrap = el('div', 'fb-table-wrap');
@@ -3109,14 +3222,14 @@ function takeStep() {
   const list = el('div', 'fb-list fb-list-read');
   (su.zones || []).forEach((z) => {
     const tgt = z.target || {};
-    list.appendChild(readRow(null, z.name || z.id, (z.fans || []).map((id) => fanName(id)).join(', ') || T('zones.no_fan'),
+    list.appendChild(readRow(null, z.name || z.id, (z.fans || []).map((id) => fanSay(id)).join(', ') || T('zones.no_fan'),
       chipOfText('accent', T('take.his'), T(on ? 'take.his_tip_on' : 'take.his_tip')), chipOfText('quiet', tgt.points ? T('curve.own') : T(`preset.${has(`preset.${tgt.preset}`) ? tgt.preset : 'normal'}`), T('zones.curve'))));
   });
   const bios = (su.fans || []).filter((f) => ['tach', 'silent'].includes(f.found) && !(su.zones || []).some((z) => (z.fans || []).includes(f.id)));
-  if (bios.length) list.appendChild(readRow(null, T('take.bios_row'), bios.map((f) => fanName(f.id)).join(', '), chipOfText('quiet', T('pic.bios'), T('take.bios_tip'))));
+  if (bios.length) list.appendChild(readRow(null, T('take.bios_row'), bios.map((f) => fanSay(f.id)).join(', '), chipOfText('quiet', T('pic.bios'), T('take.bios_tip'))));
   (su.fans || []).filter((f) => f.role === 'cpu' && f.cpu_own).forEach((f) => {
     const back = btn(T('cpu.back'), 'btn small', () => send('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }), T('cpu.back_tip'));
-    list.appendChild(readRow(null, fanName(f.id), T('take.own_since', { date: Office.fmt.date(f.cpu_own) }), null, back));
+    list.appendChild(readRow(null, fanName(f.id), underName(f.id, T('role.cpu'), T('take.own_since', { date: Office.fmt.date(f.cpu_own) })), null, back));
   });
   if (list.children.length) box.appendChild(list);
   if (on) {
@@ -3145,7 +3258,7 @@ function takeStep() {
       buttons: [{ text: t('common.cancel') }, { text: T('take.go'), kind: '', act: async () => { await act('take_over', {}, b2, () => Office.toast(T('take.done_toast'))); return true; } }],
     });
   }, 'btn');
-  b.disabled = b.disabled || why.length > 0;
+  if (why.length) offBtn(b, why[0]);
   const lines = [para(T(cpuGiven() ? 'take.text_cpu' : 'take.text'))];
   if (c.why === 'hand_back' || c.why === 'stopped') lines.push(para(T('take.given_back')));
   box.appendChild(nextBar(lines, b));
@@ -3177,7 +3290,7 @@ function render() {
       [T('help.later'), T('help.later_text')]]);
     const ssw = setupSwitcher();
     view.replaceChildren(head, help, ssw.el);
-    if (!banner || banner.parentNode !== ssw.el) banner = ssw.el.insertBefore(el('div', 'fb-banner'), ssw.body);
+    if (banner.parentNode !== ssw.el || banner.nextSibling !== ssw.body) ssw.el.insertBefore(banner, ssw.body);
     paintBanner();
     if (state) {
       if (!strip) strip = stripMake();
@@ -3198,7 +3311,7 @@ function render() {
     [T('help.report'), T('help.report_text')],
   ]);
   view.replaceChildren(head, help, sw.el);
-  if (!banner || banner.parentNode !== sw.el) banner = sw.el.insertBefore(el('div', 'fb-banner'), sw.body);
+  if (banner.parentNode !== sw.el) sw.el.insertBefore(banner, sw.body);
   paintBanner();
   // what runs now (a show, a test left running, an output at 100 % for safety) — said above the sections, with «Stop everything»
   if (state && stripNeeded()) {
@@ -3215,7 +3328,6 @@ Office.desk({
     view = root;
     page = Office.pageFrom(PAGES(), sub) === 'setup' ? 'setup' : '';
     drawn = '';
-    banner = null;
     warmFrom = Date.now();
     // still waiting for something after WARM_MS: draw without it (ready() is in the signature — no redraw when it was there)
     setTimeout(() => { if (view === root) redraw(); }, WARM_MS + 100);

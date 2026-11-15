@@ -247,7 +247,7 @@ function testFanboyDesk(): void
     $order = array_map(fn ($k) => strpos($at, "return '$k'"), ['detect', 'test', 'measure', 'zones']);
     check('fanboy desk: the step at hand — the first not done, in the wizard\'s order', !in_array(false, $order, true) && $order === array_values(array_unique($order)) && $order == array_values(fanboyTSorted($order)));
     check('fanboy desk: the honest return — a step ended by the page gone or interrupted said plainly on both pages',
-        str_contains($js, "['page_gone', 'interrupted'].includes(s2.why)") && str_contains($js, 'function endedText(s) {') && str_contains($js, "else if (!run.kind && endedText(s) &&"));
+        str_contains($js, "['page_gone', 'interrupted'].includes(s2.why)") && str_contains($js, 'function endedText(s) {') && str_contains($js, "else if (!run.kind && endedText(s)) { line = endedText(s); warn = true; }"));
     check('fanboy desk: fan-art.js loaded once beside desk.js (it brings fan-art.css), the picture kept across looks (update, never a new one)',
         str_contains($js, "fan-art.js\${q || '?'}") && str_contains($js, 'window.FanArt.styles();') && str_contains($js, 'if (!pic) pic = A.server(p, { texts, px: ') && str_contains($js, 'else pic.update(p);'));
     check('fanboy desk: two pages (overview, setup) — never more', str_contains($js, "const PAGES = () => [{ id: '', text: t('common.page_overview') }, { id: 'setup', text: T('page.setup') }];"));
@@ -321,18 +321,47 @@ function testFanboyUx(): void
     check('fanboy ux: nothing jumps — the strip two lines high from the start, a row one height, the panel\'s sentence, buttons and reason each with their own room',
         preg_match('/\.fb-strip\{[^}]*min-height:66px/', $css) === 1 && str_contains($css, '.fb-strip-note{margin:0; font-size:12.5px; line-height:1.45; color:var(--muted); min-height:1.45em}')
         && preg_match('/\.fb-item\{[^}]*\n?[^}]*height:58px/', $css) === 1 && str_contains($css, 'min-height:calc(2 * 1.45em)}') && str_contains($css, '.fb-panel-acts{display:flex; gap:8px; flex-wrap:wrap; align-items:center; min-height:34px}')
-        && str_contains($css, '.fb-panel-why{margin:0; font-size:12.5px; line-height:1.45; color:var(--muted); min-height:1.45em}'));
+        && str_contains($css, '.fb-panel-why{margin:0; font-size:13px; line-height:1.45; color:var(--ink); min-height:1.45em}'));
     check('fanboy ux: the output that runs is framed like the office\'s active tile (a ring and a glow from the accent), in the list and on its panel',
         str_contains($css, ".fb-live{position:relative; border-color:var(--accent);\n    box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 18px 2px color-mix(in srgb, var(--accent) 38%, transparent)}")
         && str_contains($js, "it.el.classList.toggle('fb-live', !!r.live);") && str_contains($js, "live: run.id === id && !run.pause && (run.kind === 'test' || run.kind === 'show'),") && str_contains($js, "root.classList.toggle('fb-live', here);"));
     $panel = substr($js, (int) strpos($js, 'function panelMake('), 16000);
     check('fanboy ux: while an output runs the user answers on its panel — «found» or «heard nothing» (the later question «did it get louder?» only after a minute nobody answered), «cancel»',
         // (round 11: the answer travels with «weiter» and the agent stores it with the verdict — the page sends nothing later)
-        str_contains($panel, "send('step_next', { fan: id, heard: true })") && str_contains($panel, "send('step_next', { fan: id, heard: false })")
+        str_contains($panel, "send('step_next', { fan: id, heard });") && str_contains($panel, '() => next(true),') && str_contains($panel, '() => next(false),')
         && !str_contains($js, 'settleHeard') && str_contains($panel, "btn(T('ask.yes'), 'btn small', () => send('answer', { fan: id, louder: true }),"));
-    check('fanboy ux: a button that can\'t act is off and the line under the buttons says why (another output runs, the pause, another controller, he steers, the messenger away)',
-        str_contains($panel, "reason = T('panel.busy', { fan: run.id ? fanName(run.id) : '' });") && str_contains($panel, "reason = T('panel.pause');") && str_contains($panel, 'else if (!run.kind && noTest) reason = noTest;')
-        && str_contains($panel, "else if (away) reason = T('strip.away');") && str_contains($panel, 'setText(why, reason);'));
+    check('fanboy ux: a button that can\'t act is never dead — set back, and a click says why (toast and strip); the line under the buttons says it too (another output runs, the pause, another controller, he steers, the messenger away)',
+        str_contains($panel, "reason = T('panel.busy', { fan: run.id ? fanSay(run.id) : '' });") && str_contains($panel, "reason = T('panel.pause');") && str_contains($panel, 'else if (!run.kind && noTest) reason = noTest;')
+        && str_contains($panel, "else if (away) reason = T('strip.away');") && str_contains($panel, 'setText(why, reason);')
+        && str_contains($js, "b.onclick = () => { Office.toast(reason, true); say(reason); };") && str_contains($panel, "if (no) offBtn(b, reason || T('strip.away'));")
+        && !preg_match('/\b(place|count)\.disabled = [^;]*roleSet/', $js) && str_contains($js, 'if (why.length) offBtn(b, why[0]);'));
+    check('fanboy ux: where he sits and how many can be filled at any time — kept on the page and sent with the role once he picks it',
+        str_contains($panel, 'else { wantPlace = place.value; update(); }') && str_contains($panel, 'else { wantCount = Number(count.value); update(); }')
+        && str_contains($panel, "const extra = { ...(wantPlace !== null ? { place: wantPlace } : {}), ...(wantCount !== null ? { count: wantCount } : {}) };") && str_contains($panel, "hint = T('panel.kept');"));
+    check('fanboy ux: waiting is seen — the wave in the strip from the click until the state shows it (a test beginning, an output ending, everything stopping, a show beginning), a quicker look meanwhile',
+        str_contains($js, "expect({ now: T('strip.starting'), done: () => !!runNow().kind });") && str_contains($js, "expect({ note: T('strip.stopping'), done: () => !runNow().kind });")
+        && str_contains($js, "expect({ note: T('strip.ending'), ending: id, done: () => { const r = runNow(); return r.id !== id || !!r.pause || !r.kind; } });")
+        && str_contains($js, "root.classList.toggle('running', mood === 'run' || waits);") && str_contains($js, 'timer = setTimeout(() => load(false), expectNow() ? 1000 :'));
+    check('fanboy ux: ONE banner element for the page, moved to the page shown — a second one can\'t exist (the same red text stood twice on the owner\'s server)',
+        substr_count($js, "el('div', 'fb-banner')") === 1 && !preg_match('/banner = (null|sw\.el|ssw\.el)/', $js) && str_contains($js, 'if (banner.parentNode !== ssw.el || banner.nextSibling !== ssw.body) ssw.el.insertBefore(banner, ssw.body);'));
+    $tool = (string) file_get_contents(OFFICE_DIR . '/tools/fanboy/desk.mjs');
+    check('fanboy ux: the picture tool looks for a callout text twice in every demo state — also after a visit to the other page and back — and for exactly one banner element',
+        str_contains($tool, 'the same callout twice after a visit to the other page and back') && str_contains($tool, "if (banners !== 1) faults.push("));
+    check('fanboy ux: how a run ended is said only while it is news (seen running on this page, or within 90 s) — and «set to 100 %» never from a past run (only `safety` says an output stands at 100 %)',
+        str_contains($js, 'const freshEnd = (x) => !!x && ((!!x.id && ranHere.has(x.id)) || (num(S().time) !== null && num(x.at) !== null && S().time - x.at <= FRESH_S));')
+        && str_contains($js, "|| !freshEnd(s)) return '';") && str_contains($js, "if (why === 'no_restart') return '';") && str_contains($js, "if (!sh || showRuns() || !freshEnd(sh)) return '';")
+        && !preg_match("/'no_restart'\]\.includes\(sh\.why\)/", $js));
+    check('fanboy ux: once a fan has a name the name is the title and its output the small line under it — in rows, panels, the strip, tips and lists («Name (Output 4)» in a sentence); the output never disappears',
+        str_contains($js, "return f && f.name ? T('fan.say', { name: f.name, out: outName(id) }) : outName(id);") && str_contains($js, "setText(under, f && f.name ? outName(id) : '');")
+        && str_contains($js, "return { name: fanName(id), title: fanSay(id), sub: underName(id,") && str_contains($js, "T(run.quiet ? 'strip.test_quiet' : 'strip.test', { fan: fanSay(run.id) })")
+        && str_contains($js, "id, label: fanName(id), sub: underName(id, sub), mm: look.mm,"));
+    $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/lang/de.json'), true);
+    check('fanboy ux: the trail\'s words are the same in the list and the next bar (not tested · question open · role missing · the role · nothing attached); the CPU cooler says who steers it',
+        str_contains($js, "T('next.item', { fan: fanSay(id), why: T({ test: 'label.untested', ask: 'label.ask', role: 'label.what' }[w]) })")
+        && str_contains($js, "return f.cpu_own ? ['warn', T('label.cpu_own'),") && $de['label.ask'] === 'Frage offen' && $de['label.what'] === 'Rolle fehlt' && $de['label.untested'] === 'nicht getestet');
+    check('fanboy ux: «may stand still» is offered only where it can be — else the words why stand in its place; the CPU cooler on own risk only behind its own confirmation; a choice that can\'t be snaps back with its reason',
+        str_contains($js, 'const no = standWhy(f);') && str_contains($js, "if (no) row.appendChild(el('span', 'fb-stand-no', no));") && str_contains($js, 'await save({ cpu_off_confirm: true });')
+        && str_contains($js, "if (f.role === 'pump' || (f.role === 'cpu' && !f.cpu_own)) return T('zones.stand_never');") && str_contains($js, "snapBack(unit, 'pct', T('zones.unit_off'))") && str_contains($js, "snapBack(choose, 'own', T('zones.preset_pct'))"));
     check('fanboy ux: set to full for safety — said on the output\'s panel and in the strip, each with the way back',
         str_contains($panel, "btn(T('safety.back'), 'btn small', () => send('safety_back', { fan: id }), T('safety.back_tip', { pct: safetyPct(sf) }));") && str_contains($strip, "send('safety_back', { fan: run.safety[0].id, all: true })")
         && str_contains($js, "if (sx) return ['warn', T('safety.chip'),") && str_contains($panel, "waits ? el('p', 'fb-safety-wait', T('safety.wait')) : null"));
