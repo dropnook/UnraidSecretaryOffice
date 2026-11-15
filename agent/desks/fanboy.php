@@ -458,6 +458,7 @@ function fanboyTick(?float $now = null): void
 function fanboyBackCheck(?int $wall = null): array
 {
     $full = fanboyGivenCheck($wall);
+    fanboyAutoSeenKeep();
     if (!$full) {
         return [];
     }
@@ -468,6 +469,47 @@ function fanboyBackCheck(?int $wall = null): array
         fanboyTellOnce("not_back:$id", 'not_back', ['fan' => $name], 'alert');
     }
     return $full;
+}
+
+/**
+ * Round 12 correction: «darf stehen» for the setup's fan as the control will take it — the stand plan, and its zone's
+ * curve must be able to ask for nothing (curve_never_zero). [in effect, why not]
+ */
+function fanboyFanStandState(array $f, ?array $settings): array
+{
+    // the fan's plan (round 14: a hub's margin; round 12: the standstill part) — and its zone's curve must be able to ask
+    // for nothing (fanboyCurveNeverZero())
+    $p = fanboyFanPlan($f);
+    if ($p['off_ok']) {
+        foreach (is_array($settings['zones'] ?? null) ? $settings['zones'] : [] as $z) {
+            if (is_array($z) && in_array($f['id'] ?? null, is_array($z['fans'] ?? null) ? $z['fans'] : [], true) && fanboyCurveNeverZero($z, fanboyCpuOwn($f))) {
+                return [false, 'curve_never_zero'];
+            }
+        }
+    }
+    return [$p['off_ok'], $p['off_why']];
+}
+
+/**
+ * Round 12 correction: a give-back to the chip's automatic SEEN to work (fanboyGivenCheck(): read back as automatic, the
+ * fan turning) — kept per board in the store as `auto_back_seen {at, output}`, the newest. Never set by anything else.
+ */
+function fanboyAutoSeenKeep(): void
+{
+    $seen = null;
+    foreach (fanboyJournal()['outputs'] as $id => $o) {
+        $at = is_array($o['given'] ?? null) && is_int($o['given']['auto_ok'] ?? null) ? $o['given']['auto_ok'] : null;
+        if ($at !== null && ($seen === null || $at > $seen['at'])) {
+            $seen = ['at' => $at, 'output' => (string) $id];
+        }
+    }
+    if ($seen === null || ((fanboyBoardRaw() ?? [])['auto_back_seen']['at'] ?? 0) >= $seen['at']) {
+        return;
+    }
+    fanboyStoreUpdate(function (array $e) use ($seen): array {
+        $e['auto_back_seen'] = $seen;
+        return $e;
+    });
 }
 
 /** Holders gone (killed hard) or hung: their outputs back with the BIOS, said in the log */
@@ -756,14 +798,14 @@ function fanboySetupState(array $scan, ?array $settings): array
             // round 12 fix: the standstill part was cut — {why: warm|stopped|page_gone|…, source, c, at} («Stillstand nicht geprüft: CPU 53 °C»)
             'stand_cut' => $m !== null && !array_key_exists('stops', $m) && is_array($m['stand_cut'] ?? null) ? $m['stand_cut'] : null,
             // … and «darf stehen» chosen but not in effect: why (measure_again, never_stops, not_safe, not_measured)
-            'off_why' => ($plan = fanboyFanPlan($f))['off_why'],
+            'off_why' => ($stand = fanboyFanStandState(['id' => $id] + $f, $settings))[1],
             // … in effect (it may stand), and a CPU cooler's second tick — since when (null: none)
-            'may_stand' => $plan['off_ok'], 'cpu_off' => fanboyCpuOwn($f) && is_int($f['cpu_off']['at'] ?? null) ? $f['cpu_off']['at'] : null,
+            'may_stand' => $stand[0], 'cpu_off' => fanboyCpuOwn($f) && is_int($f['cpu_off']['at'] ?? null) ? $f['cpu_off']['at'] : null,
             // round 14: several fans on it — the same model or not (null: not said), and what that means for the control
             'alike' => is_bool($f['alike'] ?? null) ? $f['alike'] : null,
             'hub' => is_int($f['count'] ?? null) && $f['count'] > 1 ? ['mixed' => ($f['alike'] ?? null) !== true, 'one_fan_table' => true,
                 'ok' => is_int($f['hub_ok']['at'] ?? null) ? $f['hub_ok']['at'] : null, 'not_safe' => is_int($f['hub_not_safe']['at'] ?? null) ? $f['hub_not_safe']['at'] : null,
-                'extra' => is_int($f['hub_extra'] ?? null) ? $f['hub_extra'] : 0, 'floor' => $plan['floor'], 'start' => $plan['start']] : null];
+                'extra' => is_int($f['hub_extra'] ?? null) ? $f['hub_extra'] : 0, 'floor' => ($plan = fanboyFanPlan($f))['floor'], 'start' => $plan['start']] : null];
         $r = fanboyResolve($stored, $scan);
         if ($r['path'] === null) {
             $missing[] = ['id' => $id, 'how' => $r['how']];
@@ -791,6 +833,8 @@ function fanboySetupState(array $scan, ?array $settings): array
     }
     $before = fanboyBefore($scan);
     return [
+        // round 12 correction: has a give-back to the chip's automatic been SEEN to work on this board? {at, output}|null
+        'auto_back_seen' => is_array($settings['auto_back_seen'] ?? null) && is_int($settings['auto_back_seen']['at'] ?? null) ? $settings['auto_back_seen'] : null,
         'board' => $key, 'others' => count(array_diff(array_keys($store['boards']), [$key])),
         'fans' => $fans, 'zones' => $zones, 'armed' => ($settings['armed'] ?? false) === true,
         'outputs' => array_keys(fanboyOutputs($scan)), 'missing' => $missing, 'sources' => fanboySources($scan),
