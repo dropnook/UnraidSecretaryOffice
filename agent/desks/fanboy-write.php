@@ -143,6 +143,22 @@ function fanboyOutputNow(string $device, int $output): ?array
 }
 
 /**
+ * Round 7 (the owner's Z890, it8696 on it87): does an output read back as a fixed value $value written — the value
+ * within 3 (chips round) and the mode 1 (a fixed value), or 0 when the value is full: the it87 driver reports full speed
+ * as pwmN_enable 0 («full on») right after a fixed 255 — what was asked, not a take-back. «Taken back» is only a value
+ * that changed or the chip's own automatic (≥ 2); a 0 for less than full is someone else's «full on», not ours.
+ * No enable file (null): the value alone. $now null (the output gone): never obeys.
+ */
+function fanboyObeys(int $value, ?array $now): bool
+{
+    if ($now === null || !is_int($now['value'] ?? null) || abs($now['value'] - $value) > 3) {
+        return false;
+    }
+    $e = $now['enable'] ?? null;
+    return $e === null || $e === 1 || ($e === 0 && $value >= FANBOY_FULL - 3);
+}
+
+/**
  * Sets an output to a fixed value: pwmN_enable 1 first (when it isn't), then the value — and reads both back. The
  * read-back is what counts as «expect» (a chip may round the value). Null: not written (gone, refused).
  */
@@ -196,6 +212,9 @@ function fanboyWriteState(string $device, int $output, array $initial): array
         }
         $now = ['value' => fanboyReadInt($pwm), 'enable' => $enable === null ? null : fanboyReadInt($enable)];
         $ok = ($e === null || $now['enable'] === $e) && (!($e === null || $e === 1) || $v === null || ($now['value'] !== null && abs($now['value'] - $v) <= 3));
+        if (!$ok && $e === 1 && $v !== null) {
+            $ok = fanboyObeys($v, $now);        // round 7: a fixed full reads back as «full on» (enable 0) on it87 — as it was
+        }
     } while (!$ok && ++$tries < 2);
     return ['ok' => $ok, 'why' => $ok ? null : 'read_back', 'now' => $now];
 }
@@ -482,7 +501,11 @@ function fanboyForeign(array $owner): array
             continue;
         }
         $now = fanboyOutputNow($o['device'], $o['output']);
-        if ($now !== null && ($now['enable'] !== $o['expect']['enable'] || $now['value'] !== $o['expect']['value'])) {
+        // round 7: what was written still holds when it reads back as that fixed value — a full 255 reading «full on»
+        // (enable 0, the it87 way) is ours, not someone else's
+        $wrote = $o['expect']['value'] ?? null;
+        $same = $now !== null && $now['enable'] === $o['expect']['enable'] && $now['value'] === $wrote;
+        if ($now !== null && !$same && !(is_int($wrote) && ($o['expect']['enable'] ?? null) !== null && $o['expect']['enable'] <= 1 && fanboyObeys($wrote, $now))) {
             $out[$id] = ['expect' => $o['expect'], 'now' => $now];
         }
     }

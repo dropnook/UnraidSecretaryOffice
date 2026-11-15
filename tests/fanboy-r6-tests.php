@@ -397,3 +397,104 @@ function testFanboyR6OldDisks(): void
         fanboyTEnd();
     }
 }
+
+// ===================================================================== round 7: the owner's first test on real hardware
+
+/** The fake board with the it87 «full on» read-back on every output (a fixed 255 reads enable 0) */
+function fanboyR7Spec(array $change = []): array
+{
+    $spec = fanboyTSpec(10, $change);
+    $spec['full0'] = [1, 2, 3, 4, 5, 6];
+    return $spec;
+}
+
+/**
+ * F1 (Gigabyte Z890, it8696 on it87): after a fixed 255 the driver reads the mode back as 0 («full on») — the test step
+ * took that for «the BIOS took it back», so every output came out «ignored» after 2 s at full. Now a fixed full reading
+ * «full on» obeys: the outputs are found (tach, hub, ask), each at full long enough; given back exactly. A real take-back
+ * (the chip's automatic, a value changed) is still «ignored».
+ */
+function testFanboyR7FullOnObeys(): void
+{
+    $t = fanboyT('r7full');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        $run = function (array $spec, array $outs) use ($t, $settings): array {
+            fanboyTStore($settings);
+            @unlink(TESTS_RUN_DIR . '/fanboy/journal.json');
+            fanboyTSettle($t, $spec);
+            $clock = 0.0;
+            $step = fanboyStepRun(['id' => 'r7' . mt_rand(), 'kind' => 'test_up', 'fans' => array_map('fanboyTId', $outs)], fanboyTIo($t, $spec, $clock));
+            return [array_map(fn ($r) => [$r['found'], $r['tachs']], $step['results']), $clock];
+        };
+        [$found] = $run(fanboyR7Spec(), [1, 2, 4, 5]);
+        same('fanboy r7 full on: a chip reading a fixed 255 back as mode 0 — the outputs obey: tach 1, «louder?», tach 4, the hub 5+6 (none «ignored»)',
+            [fanboyTId(1) => ['tach', [1]], fanboyTId(2) => ['ask', []], fanboyTId(4) => ['tach', [4]], fanboyTId(5) => ['tach', [5, 6]]], $found);
+        same('fanboy r7 full on: … each given back exactly (128, a fixed value — the mode 1 written again), nothing held',
+            [[128, 1], [128, 1], [128, 1], [128, 1], []], [fanboyTOut($t, 1), fanboyTOut($t, 2), fanboyTOut($t, 4), fanboyTOut($t, 5), fanboyHeld()]);
+        // a real take-back is still one: the chip's automatic, or a value that changed
+        $spec = fanboyR7Spec([4 => ['auto' => 1100]]);
+        $spec['revert'] = [4 => 2];
+        file_put_contents("{$t['hw']}/pwm4_enable", "2\n");
+        same('fanboy r7 full on: … the mode going to the chip\'s automatic (2) is still «ignored»', [fanboyTId(4) => ['ignored', []]], $run($spec, [4])[0]);
+        file_put_contents("{$t['hw']}/pwm4_enable", "1\n");
+        same('fanboy r7 full on: the rule — 255 reading 255/0 or 255/1 obeys, 254/0 too (chips round); 255/2, 200/1 and 128/0 for 128 don\'t',
+            [true, true, true, false, false, false, true, false],
+            [fanboyObeys(255, ['value' => 255, 'enable' => 0]), fanboyObeys(255, ['value' => 255, 'enable' => 1]), fanboyObeys(255, ['value' => 254, 'enable' => 0]),
+             fanboyObeys(255, ['value' => 255, 'enable' => 2]), fanboyObeys(255, ['value' => 200, 'enable' => 1]), fanboyObeys(128, ['value' => 128, 'enable' => 0]),
+             fanboyObeys(128, ['value' => 129, 'enable' => null]), fanboyObeys(128, null)]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * F1: the control on such a chip — a zone at full for an alarm reads «full on» (mode 0): no «someone else changed a
+ * fan», and when the alarm is over it comes down again (mode 1 written again); a give-back of a fixed full reads back as
+ * it was; a real foreign write is still one
+ */
+function testFanboyR7ControlFullOn(): void
+{
+    $t = fanboyT('r7ctl');
+    try {
+        fanboyTDisks($t, 35, 33, 34);
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);
+        $spec = fanboyR7Spec();
+        fanboyTSettle($t, $spec);
+        fanboyBeat();
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 6);
+        // the case zone's RAM sensor says nothing: that zone to full for the alarm
+        $ram = glob("{$t['root']}/sys/devices/pci0000:00/0000:00:1f.4/i2c-0/0-0051/hwmon/hwmon*/temp1_input")[0];
+        rename($ram, "$ram.away");
+        fanboyTRounds($c, $now, $t, $spec, 25);
+        same('fanboy r7 control: the case zone at full for an alarm — the chip reads «full on» (255/0), no foreign change noted, nothing given back',
+            ['sensor', [255, 0], [], true], [$c['alarm']['code'] ?? null, fanboyTOut($t, 5), array_values(array_filter(array_column($c['notes'], 'code'), fn ($x) => $x === 'foreign')),
+                $c['fans'][fanboyTId(5)]['taken']]);
+        rename("$ram.away", $ram);
+        fanboyTRounds($c, $now, $t, $spec, 90);
+        $out = fanboyTOut($t, 5);
+        same('fanboy r7 control: … the alarm over — it comes down again (a fixed value, mode 1 written again)', [null, 1, true], [$c['alarm'], $out[1], $out[0] < 255]);
+        // someone else really writes: still told
+        file_put_contents("{$t['hw']}/pwm4", "60\n");
+        fanboyTRounds($c, $now, $t, $spec, 2);
+        same('fanboy r7 control: a real foreign write (a value changed) is still told', true, in_array('foreign', array_column($c['notes'], 'code'), true));
+        fanboyLetGo($c, 'end');
+        // a give-back to a fixed full: reads «full on» — as it was, not «NOT read back»
+        file_put_contents("{$t['hw']}/pwm6", "255\n");
+        file_put_contents("{$t['hw']}/pwm6_enable", "1\n");
+        $o = fanboyOutputs(fanboyDetect())[fanboyTId(6)];
+        $me = fanboyMe('step');
+        fanboyTake($o, $me);
+        fanboySet(fanboyTId(6), 100, $me);
+        $back = fanboyGiveBack([fanboyTId(6)], 'test', $me);
+        fanboyFakeRespond($t['root'], $spec, 0.5);
+        same('fanboy r7 control: giving back a fixed 255 on such a chip — read back as it was (ok), then «full on»', [true, [255, 0]], [$back[fanboyTId(6)]['ok'] ?? null, fanboyTOut($t, 6)]);
+    } finally {
+        fanboyTEnd();
+    }
+}

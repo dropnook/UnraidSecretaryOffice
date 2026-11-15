@@ -14,7 +14,8 @@ declare(strict_types=1);
  *                                 'lag' => seconds, 'stuck' => true (never turns), 'inverted' => true (more is slower),
  *                                 'auto_dead' => true (the chip's mode does nothing: the value counts, it87 #56),
  *                                 'bios' => true (the BIOS runs it whatever is written: its «auto» rpm)]],
- *            'revert' => [output => enable]]       the BIOS puts that output's mode back after every write (round 5)
+ *            'revert' => [output => enable],       the BIOS puts that output's mode back after every write (round 5)
+ *            'full0'  => [output …]]               round 7: the it87 driver reads a fixed 255 back as «full on» (enable 0)
  */
 
 function fanboyFakeRpmTarget(array $f, ?int $value, ?int $enable, int $now): int
@@ -44,6 +45,12 @@ function fanboyFakeRespond(string $root, array $spec, float $dt): void
     foreach ($spec['revert'] ?? [] as $n => $enable) {
         if (is_file("$dir/pwm{$n}_enable") && trim((string) @file_get_contents("$dir/pwm{$n}_enable")) !== (string) $enable) {
             @file_put_contents("$dir/pwm{$n}_enable", "$enable\n");
+        }
+    }
+    // round 7 (the owner's Z890): a fixed full reads back as pwmN_enable 0 — what the it87 driver shows for «full on»
+    foreach ($spec['full0'] ?? [] as $n) {
+        if (trim((string) @file_get_contents("$dir/pwm$n")) === '255' && trim((string) @file_get_contents("$dir/pwm{$n}_enable")) === '1') {
+            @file_put_contents("$dir/pwm{$n}_enable", "0\n");
         }
     }
     foreach ($spec['fans'] as $tach => $f) {

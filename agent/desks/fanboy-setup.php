@@ -230,7 +230,9 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey): arra
             if (!$checked && ($io['now'])() - $t0 >= FANBOY_READBACK_AFTER) {
                 $checked = true;
                 $now = fanboyOutputNow($o['device'], $o['output']);
-                if ($now !== null && ($now['value'] !== FANBOY_FULL || ($now['enable'] !== null && $now['enable'] !== 1))) {
+                // round 7: «full on» (enable 0 with 255 — the it87 driver's read-back of a fixed full) obeys; only a
+                // value that changed or the chip's automatic is taken back
+                if ($now !== null && !fanboyObeys(FANBOY_FULL, $now)) {
                     $taken_back = true;
                     break;
                 }
@@ -382,11 +384,14 @@ function fanboySettle(array $o, array $tachs, array $io): array
     return [$last ? (int) end($last) : 0, false];
 }
 
-/** Round 5 (forum 3.2): a value written that reads back otherwise a few seconds later — the BIOS took the connector back */
-function fanboyTakenBack(array $o, ?array $wrote): bool
+/**
+ * Round 5 (forum 3.2): a value written that reads back otherwise a few seconds later — the BIOS took the connector back.
+ * Round 7: judged by fanboyObeys() against the value asked ($value): «full on» after a fixed 255 is no take-back.
+ */
+function fanboyTakenBack(array $o, int $value, ?array $wrote): bool
 {
     $now = fanboyOutputNow($o['device'], $o['output']);
-    return $wrote !== null && $now !== null && ($now['enable'] !== $wrote['enable'] || $now['value'] === null || abs($now['value'] - (int) $wrote['value']) > 3);
+    return $wrote !== null && $now !== null && !fanboyObeys($value, $now);
 }
 
 /**
@@ -415,7 +420,7 @@ function fanboyMeasure(array $o, array $tachs, array $owner, array $io, string $
             }
             $wrote = fanboySet($o['id'], (int) round($pct * 2.55), $owner);
             [$rpm, $stall] = fanboySettle($o, $tachs, $io);
-            if (fanboyTakenBack($o, $wrote)) {
+            if (fanboyTakenBack($o, (int) round($pct * 2.55), $wrote)) {
                 return ['result' => 'ignored', 'table' => $table];      // round 5: the BIOS took the value back
             }
             if ($stall) {
