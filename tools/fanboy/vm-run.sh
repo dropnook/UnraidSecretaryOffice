@@ -161,6 +161,11 @@ phase_setup() {
     # 35 % is value 89 = 34.9 % for the rig's fan: it starts at the next step, 40 %
     check "measure: disk cage pwm4 (stalls < 25 %, starts at 35 % → 40 %, 1500 rpm)" "$( [[ $m4 == '"ok",25,40,20,'* ]] && near "${m4##*,}" 1500 && echo 1 || echo 0)" "$m4"
     check "measure: rear pwm5 (no stall down to 10 %, 1000 rpm)" "$( [[ $m5 == '"ok",10,10,,'* ]] && near "${m5##*,}" 1000 && echo 1 || echo 0)" "$m5"
+    # finding 1 of the first night (2026-11-15): test3's NVMe cache reads 50 °C in disks.ini — the warmth check must hold
+    # an SSD/NVMe pool to its own kind's limit, not the HDD's 47 °C (without PATCH_WARM this is the real code's check)
+    local warm; warm=$(sj after-measure '[.step.results[]? | select(.result == "warm") | .warm] | join(", ")')
+    check "measure: an NVMe pool at 50 °C doesn't stop it «warm»$( [[ ${PATCH_WARM:-0} == 1 ]] && echo ' (PATCHED on test3)')" \
+        "$( [[ -z $warm && $(sj after-measure .step.status) == done ]] && echo 1 || echo 0)" "status $(sj after-measure .step.status) $(sj after-measure .step.why); warm: ${warm:-none}; disks.ini pools: $(awk -F'"' '/^name=/{n=$2} /^rotational=/{r=$2} /^temp=/{if (r == "0") printf "%s %s °C (rotational 0) ", n, $2}' /var/local/emhttp/disks.ini)"
     info "measure: time and tables" "$(sj after-measure .step.status) in ${t} s; pwm4 table $(sj after-measure ".step.results[\"$(F 4)\"].table | tostring")"
     check "measure: every output back exactly" "$( [[ $(regs) == "$before" ]] && echo 1 || echo 0)" "before: $before · after: $(regs)"
     # the page gone: no step_alive — the step must stop after 45 s and give the outputs back
@@ -176,7 +181,11 @@ phase_setup() {
     check "lease: outputs back" "$( [[ $back == "$before" ]] && echo 1 || echo 0)" "$back"
     check "lease: the stored measurement kept" "$( [[ $(sj after-lease ".setup.fans[] | select(.id == \"$(F 5)\") | .table | tostring") == "$m5before" && $m5before != null ]] && echo 1 || echo 0)" "table ${m5before:0:120}"
     ask fanboy.zones_propose > "$OUT/zones-propose.json"
-    info "zones_propose" "$(jq -c '[.zones[] | {id, fans: [.fans[] | split(":") | last], sources: [.sources[].id]}]' "$OUT/zones-propose.json")"
+    info "zones_propose" "$(jq -c '[.zones[] | {id, fans: [.fans[] | split(":") | last], sources: [.sources[] | "\(.id) (\(.kind))"]}]' "$OUT/zones-propose.json")"
+    # the same finding, its second half: the proposal must not put SSD/NVMe pool disks on the HDD scale (kind «disk»)
+    local ssd; ssd=$(awk -F'"' '/^name=/{n=$2} /^rotational=/{if ($2 == "0") print n}' /var/local/emhttp/disks.ini | sort -u | tr '\n' ' ')
+    local onhdd; onhdd=$(jq -r --arg s "$ssd" '[.zones[]? | .sources[]? | select(.kind == "disk") | .id | select(. as $id | $s | split(" ") | any(. == $id))] | join(" ")' "$OUT/zones-propose.json")
+    check "zones_propose: SSD/NVMe pools not on the HDD scale" "$( [[ -z $onhdd ]] && echo 1 || echo 0)" "pools that don't rotate: ${ssd:-none}; proposed as kind «disk»: ${onhdd:-none}"
     r=$(ask fanboy.zones_save "$(ZONES)")
     check "zones_save: three zones (preset, own curve, rpm)" "$(jq -r '(.zones | length) == 3' <<<"$r" | grep -c true)" "$(jq -c '[.zones[]? | {id, unit, target, n: (.sources | length)}]' <<<"$r") ${r:0:120}"
     before=$(regs)
