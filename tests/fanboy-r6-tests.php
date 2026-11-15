@@ -1952,3 +1952,47 @@ function testFanboyR12CpuGone(): void
         fanboyTEnd();
     }
 }
+
+/**
+ * Round 12 (the owner): a fan's look — the model only proposes; frame colour, wheel colour, blade style and the blades'
+ * number are the user's. Each field saves alone (not sent: unchanged), '' or null clears one; shapes checked; old data read
+ */
+function testFanboyR12Look(): void
+{
+    $t = fanboyT('r12look');
+    try {
+        fanboyR12Store();
+        $id = fanboyTId(4);
+        $look = fn (array $r) => fanboyFanLook($r + ['fan' => $id])['fan'];
+        $look(['model' => 'noctua-nf-a12x25-pwm']);
+        $look(['blades' => 9]);
+        $look(['frame' => 'black']);
+        $look(['wheel' => 'accent-blue']);
+        $f = $look(['style' => 'sickle']);
+        same('fanboy r12 look: each field alone — the model, the blades (with a model: stored, its own), frame, wheel, style; none sent changes another',
+            [['id' => 'noctua-nf-a12x25-pwm', 'mm' => null, 'blades' => 9], 'black', 'accent-blue', 'sickle'], [$f['model'] ?? null, $f['frame'] ?? null, $f['wheel'] ?? null, $f['style'] ?? null]);
+        $f = $look(['frame' => '', 'wheel' => null]);
+        same('fanboy r12 look: \'\' or null clears one, the others stay', [false, false, 'sickle', 9], [isset($f['frame']), isset($f['wheel']), $f['style'] ?? null, $f['model']['blades'] ?? null]);
+        $bad = [];
+        foreach ([['frame' => 'Black'], ['wheel' => str_repeat('a', 25)], ['style' => 'a b'], ['style' => 5], ['blades' => 4], ['blades' => 12]] as $r) {
+            $bad[] = fanboyR6Refused(fn () => $look($r));
+        }
+        same('fanboy r12 look: bad shapes refused (fanboy_bad_look) — capitals, too long, a space, not text, 4 or 12 blades', array_fill(0, 6, 'fanboy_bad_look'), $bad);
+        // old data: a model with its blades and one colour (before round 12) — still read; the state carries the new keys
+        fanboyStoreUpdate(function (array $e) use ($id): array {
+            $e['fans'][$id]['model'] = ['id' => 'arctic-p14-pwm-pst', 'mm' => 140, 'blades' => 13];
+            $e['fans'][$id]['colour'] = 'graphite';
+            unset($e['fans'][$id]['frame'], $e['fans'][$id]['wheel'], $e['fans'][$id]['style']);
+            $e['fans'][$id . 'x'] = 'not a fan';
+            return $e;
+        });
+        $fans = array_column(fanboySetupState(fanboyDetect(), fanboyBoardRaw())['fans'], null, 'id');
+        same('fanboy r12 look: old data read as it is (model, 13 blades, one colour), the new keys null; the state\'s fan has them',
+            [['id' => 'arctic-p14-pwm-pst', 'mm' => 140, 'blades' => 13], 'graphite', null, null, null], [$fans[$id]['model'] ?? null, $fans[$id]['colour'] ?? null,
+                ...array_map(fn ($k) => array_key_exists($k, $fans[$id] ?? []) ? $fans[$id][$k] : 'x', ['frame', 'wheel', 'style'])]);
+        $f = $look(['wheel' => 'white']);
+        same('fanboy r12 look: … and a new field saved beside it keeps the old', [13, 'graphite', 'white'], [$f['model']['blades'] ?? null, $f['colour'] ?? null, $f['wheel'] ?? null]);
+    } finally {
+        fanboyTEnd();
+    }
+}

@@ -52,6 +52,9 @@ const FANBOY_BACKS = ['auto', 'fixed'];
 // nct6775 and w83627ehf: 5 Smart Fan IV; f71882fg: 2) — the kernel's hwmon documentation of each driver
 const FANBOY_AUTO_MODES = ['it87' => 2, 'nct6775' => 5, 'w83627ehf' => 5, 'f71882fg' => 2];
 const FANBOY_COLOURS = ['auto', 'black', 'graphite', 'grey', 'white', 'slate', 'accent'];
+const FANBOY_LOOK_KEY_RE = '/^[a-z0-9-]{1,24}$/D';      // round 12: the frame's and wheel's colour, the blades' style (the page's keys)
+const FANBOY_BLADES_MIN = 5;            // round 12: blades the user may give a fan
+const FANBOY_BLADES_MAX = 11;
 const FANBOY_GUARD_CRON = '/boot/config/plugins/unraid-secretary-office/fanboy-guard.cron';
 
 class FanboyStepStop extends RuntimeException
@@ -1785,25 +1788,52 @@ function fanboyFanLook(array $r): array
     }
     $mm = optInt($r, 'mm', 0);
     $blades = optInt($r, 'blades', 0);
-    if (($mm !== 0 && ($mm < 40 || $mm > 200)) || ($blades !== 0 && ($blades < 3 || $blades > 15))) {
+    if ($mm !== 0 && ($mm < 40 || $mm > 200)) {
         throw new Problem('fanboy_bad_look', ['field' => 'size']);
+    }
+    if ($blades !== 0 && ($blades < FANBOY_BLADES_MIN || $blades > FANBOY_BLADES_MAX)) {
+        throw new Problem('fanboy_bad_look', ['field' => 'blades']);
     }
     $colour = optText($r, 'colour');
     if ($colour !== '' && !in_array($colour, FANBOY_COLOURS, true)) {
         throw new Problem('fanboy_bad_look', ['field' => 'colour']);
     }
+    // round 12 (the owner): the model only proposes — the frame's colour, the wheel's colour and the blades' style are
+    // the user's, each a key of the page's lists (the agent checks the shape only); '' or null clears one
+    $own = [];
+    foreach (['frame', 'wheel', 'style'] as $k) {
+        if (array_key_exists($k, $r)) {
+            $v = $r[$k];
+            if ($v !== null && (!is_string($v) || ($v !== '' && !preg_match(FANBOY_LOOK_KEY_RE, $v)))) {
+                throw new Problem('fanboy_bad_look', ['field' => $k]);
+            }
+            $own[$k] = $v === '' ? null : $v;
+        }
+    }
     $outputs = fanboyOutputs(fanboyDetect());
-    $e = fanboyStoreUpdate(function (array $e) use ($id, $model, $mm, $blades, $colour, $r, $outputs): array {
+    $e = fanboyStoreUpdate(function (array $e) use ($id, $model, $mm, $blades, $colour, $r, $outputs, $own): array {
         $e = fanboyFanEnsure($e, $id, $outputs);           // round 8: on the test's card, before or while it is tested too
         $f = $e['fans'][$id];
         if (!in_array(fanboyFound($f), [null, 'ask', 'tach', 'silent', 'unclear'], true)) {
             throw new Problem('fanboy_no_output', ['fan' => $id]);
         }
-        if (array_key_exists('model', $r) || array_key_exists('mm', $r) || array_key_exists('blades', $r)) {
-            $f['model'] = ['id' => $model !== '' ? $model : null, 'mm' => $mm ?: null, 'blades' => $blades ?: null];
+        // round 12: each field saves alone (not sent: as it was) — the blades' number with a model too (it overrides the model's)
+        $was = is_array($f['model'] ?? null) ? $f['model'] : ['id' => null, 'mm' => null, 'blades' => null];
+        foreach (['model' => ['id', $model !== '' ? $model : null], 'mm' => ['mm', $mm ?: null], 'blades' => ['blades', $blades ?: null]] as $field => [$key, $value]) {
+            if (array_key_exists($field, $r)) {
+                $was[$key] = $value;
+                $f['model'] = $was;
+            }
         }
         if ($colour !== '') {
             $f['colour'] = $colour;
+        }
+        foreach ($own as $k => $v) {
+            if ($v === null) {
+                unset($f[$k]);
+            } else {
+                $f[$k] = $v;
+            }
         }
         $e['fans'][$id] = $f;
         return $e;

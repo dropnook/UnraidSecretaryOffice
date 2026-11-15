@@ -77,7 +77,7 @@ const TABLE5 = [[100, 1450], [90, 1340], [80, 1220], [70, 1100], [60, 980], [50,
 /** His fans as the store keeps them, at a step of the setup */
 function fan(n, more) {
   // the keys in fanboySetupState()'s order
-  const f = { id: P(n), chip: CHIP, output: n, tachs: [], model: null, colour: null, back: null, count: 1, found: null, role: null, name: '', place: null, off_ok: false,
+  const f = { id: P(n), chip: CHIP, output: n, tachs: [], model: null, colour: null, frame: null, wheel: null, style: null, back: null, count: 1, found: null, role: null, name: '', place: null, off_ok: false,
     measured: false, cpu_own: null, min_pct: null, start_pct: null, max_rpm: null, table: null, no_turn: false, kick_start: null, stand: null, off_why: null, may_stand: false, cpu_off: null };
   return Object.assign(f, more);
 }

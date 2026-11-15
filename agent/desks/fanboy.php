@@ -730,6 +730,10 @@ function fanboySetupState(array $scan, ?array $settings): array
             'model' => $model === null ? null : ['id' => is_string($model['id'] ?? null) ? $model['id'] : null, 'mm' => is_int($model['mm'] ?? null) ? $model['mm'] : null,
                 'blades' => is_int($model['blades'] ?? null) ? $model['blades'] : null],
             'colour' => is_string($f['colour'] ?? null) && in_array($f['colour'], FANBOY_COLOURS, true) ? $f['colour'] : null,
+            // round 12: the user's own look — frame and wheel colour, blade style (the page's keys; an old `colour` stays as it is)
+            'frame' => is_string($f['frame'] ?? null) && preg_match(FANBOY_LOOK_KEY_RE, $f['frame']) ? $f['frame'] : null,
+            'wheel' => is_string($f['wheel'] ?? null) && preg_match(FANBOY_LOOK_KEY_RE, $f['wheel']) ? $f['wheel'] : null,
+            'style' => is_string($f['style'] ?? null) && preg_match(FANBOY_LOOK_KEY_RE, $f['style']) ? $f['style'] : null,
             'back' => in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : null,
             // round 3: fans on this one connector (the user says; one speed for all of them) — none stored: one
             'count' => is_int($f['count'] ?? null) && $f['count'] >= 1 && $f['count'] <= FANBOY_COUNT_MAX ? $f['count'] : 1,
