@@ -94,22 +94,11 @@
   /* the setup: steps, cards, fields */
   .fb-step-body{display:flex; flex-direction:column; gap:10px}
   .fb-bar{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
-  .fb-cards{display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:10px}
-  .fb-cards-wide{grid-template-columns:repeat(auto-fill, minmax(340px, 1fr))}
-  .fb-card{display:flex; gap:12px; align-items:flex-start; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); padding:10px 12px; min-width:0}
   /* round 9 (H3, the owner): the card (and the row) whose output is at full because of him — framed like the office's
      active tiles (office.css .tile-on): a ring and a glow from the accent */
-  .fb-card-now, .fb-row-now{border-color:var(--accent); background:var(--accent-soft);
+  .fb-row-now{border-color:var(--accent); background:var(--accent-soft);
     box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 18px 2px color-mix(in srgb, var(--accent) 38%, transparent)}
   .fb-row-now{position:relative; z-index:1}
-  .fb-now{display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 12px; margin:0 0 12px; border:1px solid var(--line); border-radius:var(--radius);
-    background:var(--surface); font-size:13.5px; color:var(--ink2)}
-  .fb-now-on{border-color:var(--accent); color:var(--ink)}
-  .fb-now-text{flex:1 1 220px; min-width:0}
-  .fb-safety{display:flex; flex-direction:column; gap:6px}
-  .fb-card-text, .fb-form{display:flex; flex-direction:column; gap:6px; min-width:0; flex:1}
-  .fb-card-name{font-size:13.5px; font-weight:600; color:var(--ink)}
-  .fb-card-line{font-size:13px; color:var(--ink2); line-height:1.45}
   .fb-wheel-wait{display:inline-block; width:64px; height:64px; flex:none}
   .fb-field{display:flex; flex-direction:column; gap:2px; min-width:0}
   .fb-field-label{font-size:12px; color:var(--muted)}
@@ -120,14 +109,11 @@
   .fb-back{border:1px solid var(--line2); border-radius:var(--radius); padding:8px 10px; margin:0; display:flex; flex-direction:column; gap:6px; min-width:0}
   .fb-back legend{font-size:12.5px; font-weight:600; color:var(--ink); padding:0 4px}
   .fb-radio, .fb-check{display:flex; gap:6px; align-items:center; font-size:13px; color:var(--ink)}
-  .fb-running-box{display:flex; flex-direction:column; gap:4px}
-  .fb-running{display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:13px; color:var(--ink)}
   .fb-table-wrap{overflow-x:auto; max-width:100%}
   .fb-table{border-collapse:collapse; font-size:12.5px; color:var(--ink2); font-variant-numeric:tabular-nums}
   .fb-table th{font-weight:600; color:var(--muted); text-align:left; padding:2px 10px 2px 0}
   .fb-table td{padding:2px 10px 2px 0; border-top:1px solid var(--line)}
   /* the zones: a card each, fans moved by their select, heat sources as toggles */
-  .fb-zone-card{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); padding:10px 12px; display:flex; flex-direction:column; gap:4px; min-width:0}
   .fb-zone-head{display:flex; gap:8px; align-items:center}
   .fb-zone-head input{font-size:14px; font-weight:600; flex:1}
   .fb-zone-fans{display:flex; flex-direction:column; gap:6px}
@@ -140,7 +126,6 @@
   .fb-src.on{border-color:var(--accent); background:var(--accent-soft); color:var(--accent-ink); font-weight:600}
   .fb-curve-part{display:flex; flex-direction:column; gap:6px}
   .fb-curve-edit{max-width:760px}
-  .fb-unsaved{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
   /* round 4: the zone's temperatures per kind, a source's own values, the reaction */
   .fb-temps, .fb-react{display:flex; flex-direction:column; gap:6px}
   .fb-cpu{display:flex; flex-direction:column; gap:6px}
@@ -149,7 +134,6 @@
   .fb-num{width:5.5em; max-width:100%}
   .fb-temps-note{font-size:12px; color:var(--muted); min-width:10em}
   .fb-own{align-items:flex-end}
-  .fb-dry-zone{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); padding:8px 12px}
   /* ---- the setup's list and panel (step 2 «Testen und zuordnen»; the same parts for every step that runs something) ----
      Built once and patched in place: every part keeps its room whatever it says, so nothing moves while a test runs. */
   .fb-bench{display:flex; flex-direction:column; gap:12px; min-width:0}
@@ -201,6 +185,25 @@
   .fb-item-label{display:flex; justify-content:flex-end; min-width:0}
   .fb-item-label .chip{display:inline-flex; align-items:center; gap:5px; white-space:nowrap; max-width:150px; overflow:hidden; text-overflow:ellipsis}
   .fb-item-label .chip .spin{transform:scale(.7); margin:0 -3px}
+  /* a row without a wheel (a zone), and a row only to read (no hover, no hand: nothing happens on a click) */
+  .fb-item-plain{grid-template-columns:minmax(0, 1fr) auto}
+  div.fb-item-read{cursor:default}
+  div.fb-item-read:hover{background:var(--surface)}
+  .fb-item-read .fb-item-label{gap:6px; align-items:center; flex-wrap:wrap}
+  .fb-list-read{display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:6px}
+  .fb-lp{display:flex; flex-direction:column; gap:12px; min-width:0}
+  .fb-two-none{grid-template-columns:minmax(0, 1fr)}
+  .fb-two-none .fb-list{display:none}
+  /* step 3: the table as it grows keeps its room from the start (a fan has up to a dozen steps) */
+  .fb-measure-table{min-height:290px; padding-top:12px; border-top:1px solid var(--line)}
+  /* step 4: the zones' list with its two buttons, the panel of the zone at hand */
+  .fb-zone-side{display:flex; flex-direction:column; gap:10px; min-width:0}
+  .fb-zone{gap:6px}
+  .fb-react .seg, .fb-cpu .seg{align-self:flex-start}
+  .fb-zone-head .fb-input{flex:1 1 auto; font-size:14px; font-weight:600}
+  .fb-zone-start{align-items:flex-start; gap:8px}
+  .fb-dry{display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:12px}
+  .fb-dry-zone{gap:6px}
   /* the output that runs now: framed like the office's active tile (office.css .tile-on — a ring and a glow from the accent) */
   .fb-live{position:relative; border-color:var(--accent);
     box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 18px 2px color-mix(in srgb, var(--accent) 38%, transparent)}
@@ -236,6 +239,9 @@
   .fb-cpu{border:1px solid var(--line2); border-radius:var(--radius); padding:10px 12px; align-items:flex-start}
   .fb-cpu.fb-cpu-given{border-color:var(--warn); background:var(--warn-soft)}
   .fb-cpu-slot:empty{display:none}
+  /* a clicked button carries the wave until the agent has answered (a click answers within a blink) */
+  .fb-working{display:inline-flex; align-items:center; gap:6px}
+  .fb-working > .spin{transform:scale(.75); margin:0 -2px}
   /* what is still open, and the way on */
   .fb-next{display:flex; align-items:center; justify-content:space-between; gap:10px 16px; flex-wrap:wrap; padding-top:10px; border-top:1px solid var(--line); min-height:46px}
   .fb-next-text{display:flex; flex-direction:column; gap:2px; font-size:13px; color:var(--ink2); min-width:0}
@@ -246,7 +252,9 @@
     /* narrow: the list as a grid of small tiles above the panel */
     .fb-two{grid-template-columns:minmax(0, 1fr)}
     .fb-list{display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:6px}
+    .fb-list-read{grid-template-columns:repeat(auto-fill, minmax(260px, 1fr))}
     .fb-item{grid-template-columns:32px minmax(0, 1fr); grid-template-rows:auto auto; height:76px; gap:2px 8px; padding:6px 8px}
+    .fb-item-plain{grid-template-columns:minmax(0, 1fr)}
     .fb-item-wheel{width:32px; height:32px; grid-row:1}
     .fb-item-wheel .fan-wheel{--fan-px:32px !important}
     .fb-item-label{grid-column:1 / -1; justify-content:flex-start}
@@ -256,9 +264,7 @@
   }
   @media (max-width:640px){
     .fb-curve-two{grid-template-columns:1fr}
-    .fb-cards, .fb-cards-wide{grid-template-columns:1fr}
     .fb-tech-k{min-width:0}
-    .fb-card{gap:8px}
     .fb-panel{padding:12px}
     .fb-panel-head{grid-template-columns:84px minmax(0, 1fr); gap:12px}
     .fb-panel-wheel{width:84px; height:84px}
@@ -268,7 +274,8 @@
     .fb-field-name{grid-column:1 / -1}
     .fb-strip-side{margin-left:0; width:100%}
     .fb-strip-clock{flex:1 1 150px}
-    .fb-list{grid-template-columns:repeat(auto-fill, minmax(104px, 1fr))}
+    /* a phone: two tiles a row — «Output 12» and its name stay readable */
+    .fb-list{grid-template-columns:repeat(2, minmax(0, 1fr))}
     .fb-pick{padding:7px 13px}
   }
 }

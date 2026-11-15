@@ -1121,11 +1121,11 @@ function testFanboyR9Now(): void
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css');
     check('fanboy r9 now: one line says what runs (full, full with the others standing, pause with seconds, kick, show, back, safety, nothing) — above the test step and the fans list',
         // (fanboy-ux: the test step says it in its strip — stripUpdate(), testFanboyUx; the fans list keeps the line)
-        str_contains($js, '  function stripUpdate() {') && str_contains($js, "s.appendChild(nowLine());")
-        && !array_filter(['now.full', 'now.full_quiet', 'now.pause', 'now.kick', 'now.next', 'now.restore', 'now.safety', 'now.nothing',
-            'strip.test', 'strip.test_quiet', 'strip.pause', 'strip.kick', 'strip.restore', 'strip.safety', 'strip.idle'], fn ($k) => !str_contains($js, "'$k'")));
+        str_contains($js, 'function stripMake() {') && str_contains($js, 'sw.el.insertBefore(strip.el, sw.body);')
+        && !array_filter(['strip.test', 'strip.test_quiet', 'strip.show', 'strip.show_quiet', 'strip.pause', 'strip.pause_next', 'strip.kick', 'strip.restore', 'strip.measure', 'strip.safety', 'strip.idle'], fn ($k) => !str_contains($js, "'$k'")));
     check('fanboy r9 now: the card and row at full framed like the office\'s active tiles; «Alles stoppen» beside the line while anything runs',
-        str_contains($css, '.fb-card-now, .fb-row-now{border-color:var(--accent); background:var(--accent-soft);') && str_contains($js, "act('stop_all', {}, b,"));
+        str_contains($css, '.fb-row-now{border-color:var(--accent); background:var(--accent-soft);') && str_contains($css, '.fb-live{position:relative; border-color:var(--accent);')
+        && str_contains($js, "return send('stop_all', {}, { done: () => Office.toast(T('stop_all_toast')) });"));
     check('fanboy r9 now: a click that can\'t go through says why (busy, the messenger away) — never silence',
         str_contains($js, "if (busy) { Office.toast(T('busy_wait'), true); return null; }") && str_contains($js, "if (!Office.agent.running) { Office.toast(t('errors.agent_away'), true); return null; }"));
     check('fanboy r9 fields: the cards\' selects and fields in the office\'s field look (input small), full width there',

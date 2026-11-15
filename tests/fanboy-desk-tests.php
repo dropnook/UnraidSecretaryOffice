@@ -240,13 +240,14 @@ function testFanboyDesk(): void
         isset($a[1]) && (int) $a[1] <= 20000 && (int) $a[1] < FANBOY_STEP_LEASE * 1000
         && str_contains($js, "Office.api.post(`\${ID}.step_alive`, {})") && str_contains($js, 'alive = setInterval(beat, ALIVE_MS);')
         && str_contains($js, "if (!view || !stepRuns() || !Office.agent.running) return;") && preg_match('/unmount\(\) \{[^}]*stopAlive\(\);/s', $js) === 1);
-    check('fanboy desk: a step can be stopped any time (step_stop beside the measuring; the test\'s strip has «Stop everything» and its panel «Cancel»)', str_contains($js, "Office.api.post(`\${ID}.step_stop`, {})")
-        && substr_count($js, "box.appendChild(runningLine(s, ") === 1 && str_contains($js, "send('step_stop', {}, { done: () => Office.toast(T('step.stopped_toast')) })") && str_contains($js, "btn(T('stop_all'), 'btn small danger', () => stopAll(),"));
+    check('fanboy desk: a step can be stopped any time — the strip\'s «Stop everything» while a test, a show or the measuring runs, «Cancel» on the running row\'s panel',
+        str_contains($js, "if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('stop_all'), 'btn small danger', () => stopAll(), T('stop_all_tip')));")
+        && str_contains($js, "send('step_stop', {}, { done: () => Office.toast(T('step.stopped_toast')) })") && str_contains($js, "if (under) out.push(btn(T('test.abort'), 'btn small plain', () => stopAll(), T('step.stop_tip')));"));
     $at = substr($js, (int) strpos($js, 'function stepAtHand()'), 1400);
     $order = array_map(fn ($k) => strpos($at, "return '$k'"), ['detect', 'test', 'measure', 'zones']);
     check('fanboy desk: the step at hand — the first not done, in the wizard\'s order', !in_array(false, $order, true) && $order === array_values(array_unique($order)) && $order == array_values(fanboyTSorted($order)));
     check('fanboy desk: the honest return — a step ended by the page gone or interrupted said plainly on both pages',
-        str_contains($js, "['page_gone', 'interrupted'].includes(s2.why)") && str_contains($js, "function stepEnded("));
+        str_contains($js, "['page_gone', 'interrupted'].includes(s2.why)") && str_contains($js, 'function endedText(s) {') && str_contains($js, "else if (!run.kind && endedText(s) &&"));
     check('fanboy desk: fan-art.js loaded once beside desk.js (it brings fan-art.css), the picture kept across looks (update, never a new one)',
         str_contains($js, "fan-art.js\${q || '?'}") && str_contains($js, 'window.FanArt.styles();') && str_contains($js, 'if (!pic) pic = A.server(p, { texts, px: ') && str_contains($js, 'else pic.update(p);'));
     check('fanboy desk: two pages (overview, setup) — never more', str_contains($js, "const PAGES = () => [{ id: '', text: t('common.page_overview') }, { id: 'setup', text: T('page.setup') }];"));
@@ -301,25 +302,29 @@ function testFanboyUx(): void
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css');
     check('fanboy ux: step 2 built once and patched in place — the frame drawn anew only when it changed, a look updates the list and the panel where they stand',
         str_contains($js, "function testStep() {\n  if (!bench) bench = benchMake();\n  else bench.update();\n  return bench.el;\n}")
+        && str_contains($js, "function measureStep() {\n  if (!mbench) mbench = measureMake();\n  else mbench.update();\n  return mbench.el;\n}")
         && str_contains($js, "if (f !== drawn) { drawn = f; tilesDrawn = tilesSig(); bannerDrawn = bannerSig(); paint(); return; }")
-        && str_contains($js, 'if (bench && bench.el.isConnected) bench.update();') && str_contains($js, "const rest = active === 'test' ? null : [busy, su.fans,")
-        && preg_match('/unmount\(\) \{.*?if \(bench\) \{ bench\.destroy\(\); bench = null; \}/s', $js) === 1);
+        && str_contains($js, "[bench, mbench].forEach((b) => { if (b && b.el.isConnected) b.update(); });") && str_contains($js, "const rest = ['test', 'measure'].includes(active) ? null : [busy, su.fans,")
+        && preg_match('/unmount\(\) \{.*?\[bench, mbench, strip\]\.forEach\(\(b\) => \{ if \(b\) b\.destroy\(\); \}\);\s+bench = mbench = strip = null;/s', $js) === 1);
     $send = substr($js, (int) strpos($js, 'function send(action, body, opts) {'), 1500);
     check('fanboy ux: no click is dropped — the bench\'s actions queue behind each other (no busy gate), a refusal is said in the strip and stays (and as the toast)',
         !str_contains($send, 'if (busy') && str_contains($send, 'const job = sending.then(async () => {') && str_contains($send, "said = { text: T('strip.refused', { why: text }), warn: true };")
         && str_contains($send, 'Office.toast(text, true);') && str_contains($js, "else if (sends > 0) line = T('busy_wait');"));
-    $strip = substr($js, (int) strpos($js, '  function stripUpdate() {'), 4200);
+    $strip = substr($js, (int) strpos($js, 'function stripMake() {'), 6500);
     $says = ['strip.idle', 'strip.pause_next', 'strip.pause', 'strip.kick', 'strip.restore', 'strip.test_quiet', 'strip.test', 'strip.show_quiet', 'strip.show', 'strip.measure', 'strip.starting', 'strip.safety', 'strip.keep_open'];
     same('fanboy ux: the strip says what runs at every moment (nothing, a test with the others standing or not, the pause with its seconds, «show me», measuring, safety-full) — and «Stop everything» while anything runs',
         [[], true, true], [array_values(array_filter($says, fn ($k) => !str_contains($strip, "'$k'"))), str_contains($strip, "if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('stop_all'), 'btn small danger', () => stopAll(), T('stop_all_tip')));"),
-            str_contains($strip, "strip.classList.toggle('fb-strip-stuck', !!run.kind);") && str_contains($css, '.fb-strip-stuck{position:sticky;')]);
+            str_contains($strip, "root.classList.toggle('fb-strip-stuck', !!run.kind);") && str_contains($css, '.fb-strip-stuck{position:sticky;')]);
+    check('fanboy ux: ONE strip for the page — above every step of the setup, on the overview while it has something to say (a show, a test left running, a safety full)',
+        str_contains($js, "if (!strip) strip = stripMake();\n      ssw.el.insertBefore(strip.el, ssw.body);") && str_contains($js, "if (state && stripNeeded()) {\n    if (!strip) strip = stripMake();\n    sw.el.insertBefore(strip.el, sw.body);")
+        && !str_contains($js, 'function nowLine('));
     check('fanboy ux: nothing jumps — the strip two lines high from the start, a row one height, the panel\'s sentence, buttons and reason each with their own room',
         preg_match('/\.fb-strip\{[^}]*min-height:66px/', $css) === 1 && str_contains($css, '.fb-strip-note{margin:0; font-size:12.5px; line-height:1.45; color:var(--muted); min-height:1.45em}')
         && preg_match('/\.fb-item\{[^}]*\n?[^}]*height:58px/', $css) === 1 && str_contains($css, 'min-height:calc(2 * 1.45em)}') && str_contains($css, '.fb-panel-acts{display:flex; gap:8px; flex-wrap:wrap; align-items:center; min-height:34px}')
         && str_contains($css, '.fb-panel-why{margin:0; font-size:12.5px; line-height:1.45; color:var(--muted); min-height:1.45em}'));
     check('fanboy ux: the output that runs is framed like the office\'s active tile (a ring and a glow from the accent), in the list and on its panel',
         str_contains($css, ".fb-live{position:relative; border-color:var(--accent);\n    box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 18px 2px color-mix(in srgb, var(--accent) 38%, transparent)}")
-        && str_contains($js, "it.el.classList.toggle('fb-live', run.id === id && !run.pause && !!run.kind);") && str_contains($js, "root.classList.toggle('fb-live', here);"));
+        && str_contains($js, "it.el.classList.toggle('fb-live', !!r.live);") && str_contains($js, "live: run.id === id && !run.pause && (run.kind === 'test' || run.kind === 'show'),") && str_contains($js, "root.classList.toggle('fb-live', here);"));
     $panel = substr($js, (int) strpos($js, 'function panelMake('), 16000);
     check('fanboy ux: while an output runs the user answers on its panel — «found» or «heard nothing» (the later question «did it get louder?» only after a minute nobody answered), «cancel»',
         str_contains($panel, "heard.set(id, true); send('step_next', { fan: id });") && str_contains($panel, "heard.set(id, false); send('step_next', { fan: id });")
@@ -351,6 +356,9 @@ function testFanboyUx(): void
     same('fanboy ux: the keys the page builds by name are there in all five languages', array_fill_keys(array_keys($l), []), array_map(fn ($s) => array_values(array_filter($need, fn ($k) => !isset($s[$k]))), $l));
     same('fanboy ux: the three honest hints at the quiet switch (de): not every board stops fully, the CPU cooler stands too until it is known, Fanboy stops when something gets warm',
         [true, true, true], [str_contains($l['de']['quiet.hint_1'], 'Nicht jedes Mainboard'), str_contains($l['de']['quiet.hint_2'], 'CPU-Kühler'), str_contains($l['de']['quiet.hint_3'], 'warm')]);
+    check('fanboy ux: the same parts on every step — steps 2 and 3 on listPanel() (list, one panel, next bar), the zones as a list and one zone\'s panel, rows to read in steps 1 and 6, each step\'s next bar with ONE primary button',
+        substr_count($js, 'listPanel({') === 2 && str_contains($js, "const b = el('button', 'fb-item fb-item-plain');") && substr_count($js, 'readRow(') >= 4 && substr_count($js, 'nextBar(') >= 6
+        && str_contains($js, "out.push(goButton('measure', !open.length && !run.kind));") && str_contains($js, "out.push(goButton('zones', !open.length && !run.kind));"));
     same('fanboy ux: a demo state for each moment of step 2', [], array_values(array_filter(['fanboy-uxrun', 'fanboy-uxpause', 'fanboy-uxfound', 'fanboy-uxsafety', 'fanboy-uxopen'],
         fn ($n) => !is_file(OFFICE_DIR . "/tests/ui/demo/$n.json"))));
 }
@@ -584,7 +592,7 @@ function testFanboyRound3Words(): void
         $l[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true);
     }
     same('fanboy round 3: the banner\'s texts once — another controller only in the banner; a step that can\'t run says its own short line',
-        [1, 0, 3], [substr_count($js, "T('situation.other'"), substr_count($js, "T('step.steering')"), substr_count($js, "T('step.blocked_other')")]);
+        [1, 0, 2], [substr_count($js, "T('situation.other'"), substr_count($js, "T('step.steering')"), substr_count($js, "T('step.blocked_other')")]);
     check('fanboy round 3: the owner\'s words — «Deaktiviere die anderen Lüftersteuerungen bitte zuerst.», «Please switch off the other fan controls first.»',
         str_ends_with($l['de']['hints.clash.1'], 'Deaktiviere die anderen Lüftersteuerungen bitte zuerst.') && str_ends_with($l['en']['hints.clash.1'], 'Please switch off the other fan controls first.'));
     $clumsy = [];

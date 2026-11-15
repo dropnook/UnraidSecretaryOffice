@@ -56,10 +56,10 @@ const PICTURES = [
   ['setup-4-measure-running', 'fanboy-measure', 'fanboy/setup/measure', null, true],
   ['setup-5-zones', 'fanboy-ready', 'fanboy/setup/zones', null, true],
   // round 4: the CPU cooler «Fanboy regelt ihn» behind its tick; given to him (its zone, since when); the zones' degrees and reaction
-  ['setup-2-test-assign-cpu', 'fanboy-roles', 'fanboy/setup/test', ['.fb-card-test:first-child .fb-assign-more summary', '.fb-cpu .seg button:nth-child(2)', '.fb-cpu-risk input[type=checkbox]'], false],
+  ['setup-2-test-assign-cpu', 'fanboy-roles', 'fanboy/setup/test', ['.fb-item[data-row$=pwm1]', '.fb-cpu .seg button:nth-child(2)', '.fb-cpu-risk input[type=checkbox]'], false],
   ['setup-5-zones-cpu', 'fanboy-cpu', 'fanboy/setup/zones', null, false],
   ['overview-cpu', 'fanboy-cpu', 'fanboy/fans', null, false],
-  ['setup-6-dry', 'fanboy-ready', 'fanboy/setup/dry', '.fb-step[data-step=dry] .fb-bar .btn', true],
+  ['setup-6-dry', 'fanboy-ready', 'fanboy/setup/dry', '.fb-step[data-step=dry] .btn', true],
   ['setup-7-take', 'fanboy-ready', 'fanboy/setup/take', null, true],
   ['setup-armed', 'fanboy', 'fanboy/setup/take', null, false],
   ['setup-whole', 'fanboy-roles', 'fanboy/setup', null, false],
@@ -117,8 +117,20 @@ const PICTURES = [
   ['ux-2-1-before', 'fanboy-fresh', 'fanboy/setup/test', null, false],
   ['ux-2-2-running', 'fanboy-uxrun', 'fanboy/setup/test', null, false],
   ['ux-2-3-pause', 'fanboy-uxpause', 'fanboy/setup/test', null, false],
-  ['ux-2-4-assigned', 'fanboy-uxfound', 'fanboy/setup/test', ['.fb-item[data-fan$=pwm4]', '.fb-panel[data-fan$=pwm4] .fb-fold summary'], false],
+  ['ux-2-4-assigned', 'fanboy-uxfound', 'fanboy/setup/test', ['.fb-item[data-row$=pwm4]', '.fb-panel[data-fan$=pwm4] .fb-fold summary'], false],
   ['ux-2-5-safety', 'fanboy-uxsafety', 'fanboy/setup/test', null, false],
+  // … and the other steps in the same parts: rows to read, the measuring (idle and running), the zones (none yet, two), the
+  // dry run (before and after), take over and handed over; the overview while a show runs
+  ['ux-1-detect', 'fanboy-fresh', 'fanboy/setup/detect', null, false],
+  ['ux-3-1-measure', 'fanboy-uxfound', 'fanboy/setup/measure', null, false],
+  ['ux-3-2-measuring', 'fanboy-measure', 'fanboy/setup/measure', null, false],
+  ['ux-4-1-zones-none', 'fanboy-zones', 'fanboy/setup/zones', null, false],
+  ['ux-4-2-zones', 'fanboy-ready', 'fanboy/setup/zones', null, false],
+  ['ux-5-1-dry', 'fanboy-ready', 'fanboy/setup/dry', null, false],
+  ['ux-5-2-dry-seen', 'fanboy-ready', 'fanboy/setup/dry', '.fb-step[data-step=dry] .btn', false],
+  ['ux-6-1-take', 'fanboy-ready', 'fanboy/setup/take', null, false],
+  ['ux-6-2-steers', 'fanboy-cpu', 'fanboy/setup/take', null, false],
+  ['ux-0-overview-show', 'fanboy-show', 'fanboy/fans', null, false],
   ['ux-2-6-refused', 'fanboy-uxopen', 'fanboy/setup/test', '.fb-panel-acts .btn', false,
     { post: { 'fanboy.test_up': { ok: false, error: { key: 'fanboy_quiet_warm', params: { what: 'CPU', c: 72 } } } }, settle: 7000 }],      // (the toast gone: the strip keeps the refusal)
 ].filter((p) => !opt.only || opt.only.some((o) => p[0] === o || (o.endsWith('*') && p[0].startsWith(o.slice(0, -1)))));

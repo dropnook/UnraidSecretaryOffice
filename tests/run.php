@@ -64794,13 +64794,13 @@ function testFanboyPage(): void
     $acts = array_values(array_unique($acts[1]));
     sort($acts);
     same('fanboy page: the banner between the row and the sections; the page\'s actions through act() — the wizard\'s and part 2\'s',
-        [true, ['dashboard', 'drivers_load', 'drivers_undo', 'dry_run', 'hand_back', 'look_now', 'role', 'safety_back', 'show', 'show_stop', 'stop_all', 'take_over', 'watch', 'zones_propose', 'zones_save']],
+        [true, ['dashboard', 'drivers_load', 'drivers_undo', 'dry_run', 'hand_back', 'look_now', 'role', 'safety_back', 'show', 'show_stop', 'take_over', 'watch', 'zones_propose', 'zones_save']],
         [str_contains($js, "banner = sw.el.insertBefore(el('div', 'fb-banner'), sw.body)"), $acts]);
     // step 2's list and panel: its actions queued through send() (no click dropped, a refusal said in the strip)
     preg_match_all("/send\\('([a-z_]+)'/", $js, $sends);
     $sends = array_values(array_unique($sends[1]));
     sort($sends);
-    same('fanboy page: the test-and-assign step\'s actions through send()', ['answer', 'back', 'fan_look', 'role', 'safety_back', 'show', 'show_stop', 'step_next', 'step_stop', 'stop_all', 'test_up'], $sends);
+    same('fanboy page: the testing\'s and the measuring\'s actions through send()', ['answer', 'back', 'fan_look', 'measure', 'role', 'safety_back', 'show', 'show_stop', 'step_next', 'step_stop', 'stop_all', 'test_up'], $sends);
     check('fanboy page: in SECTIONS_DESKS', array_key_exists('fanboy', SECTIONS_DESKS));
     // the stub and demo states: the shape of a real look on the fake tree (the click test and the pictures)
     $look = fanboyDetect(fanboyFakeTree(hardeningTmp('fanboy-page'), fanboyFakeBoard()));
