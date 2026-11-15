@@ -354,7 +354,11 @@ function testFanboyUx(): void
     check('fanboy ux: once a fan has a name the name is the title and its output the small line under it — in rows, panels, the strip, tips and lists («Name (Output 4)» in a sentence); the output never disappears',
         str_contains($js, "return f && f.name ? T('fan.say', { name: f.name, out: outName(id) }) : outName(id);") && str_contains($js, "setText(under, f && f.name ? outName(id) : '');")
         && str_contains($js, "return { name: fanName(id), title: fanSay(id), sub: underName(id,") && str_contains($js, "T(run.quiet ? 'strip.test_quiet' : 'strip.test', { fan: fanSay(run.id) })")
-        && str_contains($js, "id, label: fanName(id), sub: underName(id, sub), mm: look.mm,"));
+        && str_contains($js, "id, label: fanName(id), sub: underName(id, cf && cf.stand_since && held ?"));
+    check('fanboy ux: round 12 on the page — the measuring\'s standstill phases in the strip and on the fan\'s panel, what it found in a sentence, «may stand still» by the measuring\'s proof (the agent\'s `stand`), chosen-but-not-in-effect said beside the box',
+        str_contains($js, "r.part = { phase: p.phase, pct: num(p.pct), left: secsTo(p.until) };") && str_contains($js, "T(`strip.m.\${pt.phase}`, { fan: fanSay(run.id), pct: pt.pct ?? '–' })")
+        && str_contains($js, 'function standLine(f) {') && str_contains($js, "if (!st) return T('zones.stand_again');") && str_contains($js, "if (st.stops_safe !== true) return T('zones.stand_unsafe');")
+        && str_contains($js, "if (f.off_ok && f.off_why && has(`off_why.\${f.off_why}`))") && str_contains($js, "body: T('zones.cpu_stand_text', { c: from, c5: from - 5 }),"));
     $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/lang/de.json'), true);
     check('fanboy ux: the trail\'s words are the same in the list and the next bar (not tested · question open · role missing · the role · nothing attached); the CPU cooler says who steers it',
         str_contains($js, "T('next.item', { fan: fanSay(id), why: T({ test: 'label.untested', ask: 'label.ask', role: 'label.what' }[w]) })")

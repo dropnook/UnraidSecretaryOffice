@@ -606,7 +606,7 @@ function wheelOf(id, opts) {
   // a silent fan of his: no tach to show its speed — the percentage he gives it hints at it
   const shown = silent && held && pct !== null && look.max ? look.max * pct / 100 : silent && held && pct !== null ? 2000 * pct / 100 : rpm;
   return {
-    id, label: fanName(id), sub: underName(id, sub), mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour, look: look.look,
+    id, label: fanName(id), sub: underName(id, cf && cf.stand_since && held ? (num(cf.starts_at) !== null ? T('pic.stands_until', { c: fmt.number(cf.starts_at) }) : T('pic.stands_ok')) : sub), mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour, look: look.look,
     rpm: st === 'unknown' ? null : shown, state: silent && held ? 'run' : st, place: f.place || (opts && opts.place) || 'front',
     // round 5: the chip went while he steered — his fans sit where he left them (nobody's), the BIOS's stay the BIOS's
     // round 7 (F3): its output on a fixed value someone left — nobody's, not the BIOS's
@@ -1654,7 +1654,7 @@ function detectStep() {
  */
 function runNow() {
   const s = step(), x = showNow();
-  const r = { kind: null, id: null, quiet: false, stopped: [], pause: null, queue: [], safety: [], since: null, left: null, back: [] };
+  const r = { kind: null, id: null, quiet: false, stopped: [], pause: null, queue: [], safety: [], since: null, left: null, back: [], part: null };
   let phase = null, until = null;
   if (showRuns()) { r.kind = 'show'; r.id = x.fan; r.quiet = !!x.quiet; phase = x.phase || 'full'; until = x.until; }
   else if (running(s)) {
@@ -1664,9 +1664,13 @@ function runNow() {
     r.quiet = r.kind === 'test' && !!(p.quiet ?? s.quiet);
     r.queue = (s.fans || []).filter((id) => id !== s.current && !(s.done || []).includes(id));
     if (r.kind === 'test') { phase = p.phase || (r.id ? 'full' : null); until = p.until; }
+    // round 12: the measuring's standstill part — the output at 0 (does it stop?), the start value looked for, the kick,
+    // and the restart pause with its own kick (a kick without a percentage)
+    if (r.kind === 'measure' && (p.phase === 'pause' || (p.phase === 'kick' && num(p.pct) === null))) { phase = p.phase; until = p.until; }
+    else if (r.kind === 'measure' && ['stop_check', 'start_find', 'kick'].includes(p.phase)) r.part = { phase: p.phase, pct: num(p.pct), left: secsTo(p.until) };
   } else if (restoreRuns()) { r.kind = 'restore'; r.back = (restoreNow().fans || []).slice(); }
   // (round 11: the step says which output follows the pause — null on the last; an older state: the first still to come)
-  const after = r.kind === 'test' ? ((s.progress || {}).next !== undefined ? s.progress.next : r.queue[0] || null) : null;
+  const after = r.kind === 'test' || r.kind === 'measure' ? ((s.progress || {}).next !== undefined ? s.progress.next : r.kind === 'test' ? r.queue[0] || null : null) : null;
   if (phase === 'pause' || phase === 'kick') r.pause = { left: secsTo(until), kick: phase === 'kick', next: after || null };
   if (phase === 'full') r.left = secsTo(until);
   // standing on purpose: every other output the quiet test holds at 0 right now
@@ -1893,10 +1897,12 @@ function stripMake() {
   root.append(main, side);
   let run = runNow();
   let ticker = null;
+  let part = null;                // the seconds of the measuring's standstill look, as last said
 
   function update() {
     if (!state) return;
     run = runNow();
+    part = run.part ? run.part.left : null;
     const s = step();
     let mood = 'idle', text = T('strip.idle');
     if (run.pause) {
@@ -1910,7 +1916,10 @@ function stripMake() {
     else if (run.kind === 'show' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.show_quiet' : 'strip.show', { fan: fanSay(run.id) }); }
     else if (run.kind === 'measure' && run.id) {
       const o = outputNow(run.id);
-      text = T('strip.measure', { fan: fanSay(run.id), pct: o && num(o.pct) !== null ? o.pct : '–' });
+      const pt = run.part;
+      text = !pt ? T('strip.measure', { fan: fanSay(run.id), pct: o && num(o.pct) !== null ? o.pct : '–' })
+        : pt.phase === 'stop_check' ? (pt.left !== null ? T('strip.m.stop_check_s', { fan: fanSay(run.id), s: pt.left }) : T('strip.m.stop_check', { fan: fanSay(run.id) }))
+          : T(`strip.m.${pt.phase}`, { fan: fanSay(run.id), pct: pt.pct ?? '–' });
       mood = 'run';
     } else if (run.kind) { mood = 'run'; text = T('strip.starting'); }
     else if (!Office.agent.running) { mood = 'warn'; text = T('strip.away'); }
@@ -1963,7 +1972,9 @@ function stripMake() {
   function tick() {
     const was = run.pause ? run.pause.left : null;
     run = runNow();
-    if ((run.pause ? run.pause.left : null) !== was) update(); else clockUpdate();
+    const partWas = part;
+    part = run.part ? run.part.left : null;
+    if ((run.pause ? run.pause.left : null) !== was || part !== partWas) update(); else clockUpdate();
   }
   function clockUpdate() {
     const on = !!run.since && (run.kind === 'test' || run.kind === 'show');
@@ -2625,6 +2636,19 @@ function measureMake() {
   lp.el.classList.add('fb-measure');
   return lp;
 }
+/**
+ * What the measuring's standstill part found about a fan (round 12), in a sentence — '' when it wasn't tried (a fan
+ * measured before, or the measuring ended before that part)
+ */
+function standLine(f) {
+  const st = f && f.stand;
+  if (!st) return '';
+  if (st.stops === false) return T('stand.floor', { rpm: num(st.floor_rpm) === null ? '–' : fmt.number(st.floor_rpm) });
+  if (st.stops_safe === false) return T('stand.unsafe');
+  if (num(st.start_from_stop) !== null) return T('stand.starts', { pct: st.start_from_stop });
+  if (num(st.kick_start) !== null) return T('stand.kick', { pct: st.kick_start });
+  return T('stand.stops');
+}
 function measurePanel(id, api) {
   const root = Office.place(`measure:${id}`, el('div', 'fb-panel'));
   root.dataset.fan = id;
@@ -2661,7 +2685,8 @@ function measurePanel(id, api) {
     const queued = run.kind === 'measure' && !under && run.queue.includes(id);
     const r = s && s.kind === 'measure' && s.results ? s.results[id] : null;
     let text = T('measure.not_yet');
-    if (under) text = T('measure.now', { pct: o && num(o.pct) !== null ? o.pct : '–' });
+    if (under && run.part) text = T(`measure.p.${run.part.phase}`, { pct: run.part.pct ?? '–' });
+    else if (under) text = T('measure.now', { pct: o && num(o.pct) !== null ? o.pct : '–' });
     else if (queued) text = T('test.waiting');
     else if (f.no_turn) text = T('measure.no_turn');
     else if (f.measured) text = T('measure.done', { min: f.min_pct, start: f.start_pct, max: fmt.number(f.max_rpm || 0) });
@@ -2691,7 +2716,8 @@ function measurePanel(id, api) {
     // the table as it is measured (the running fan's as it grows), its room kept from the start
     const rows = under && s.progress && s.progress.id === id && Array.isArray(s.progress.table) ? s.progress.table : f.table;
     swap(table, [rows || null, under ? null : [f.min_pct, f.start_pct]], () => (Array.isArray(rows) && rows.length ? tableEl(rows, under ? null : f) : para(T('measure.table_none'))));
-    setText(note, num(f.kick_start) !== null ? T('assign.kick', { pct: Math.round(f.kick_start / 2.55) }) : '');
+    // what the standstill part found; a fan measured before it existed says what a new measuring would add
+    setText(note, under ? '' : standLine(f) || (f.measured && !f.stand ? T('stand.unknown') : num(f.kick_start) !== null ? T('assign.kick', { pct: Math.round(f.kick_start / 2.55) }) : ''));
   }
   update();
   return { el: root, update, destroy() { if (wh) wh.destroy(); } };
@@ -2865,13 +2891,15 @@ function zoneCard(z, i, zones, ours) {
         c.checked = false;
         Office.dialog({
           title: T('zones.cpu_stand_title'),
-          body: T('zones.cpu_stand_text', { c: from }),
+          body: T('zones.cpu_stand_text', { c: from, c5: from - 5 }),
           buttons: [{ text: t('common.cancel') }, { text: T('zones.cpu_stand_go'), kind: '', act: async () => { c.checked = true; await save({ cpu_off_confirm: true }); return true; } }],
         });
       };
       l.append(c, el('span', '', T('zones.off_ok')));
       l.title = T('zones.off_ok_tip');
       row.appendChild(l);
+      // chosen but not in effect: said beside the box (the agent's word)
+      if (f.off_ok && f.off_why && has(`off_why.${f.off_why}`)) row.appendChild(el('span', 'fb-stand-no', T(`off_why.${f.off_why}`)));
     }
     fl.appendChild(row);
   });
@@ -2923,16 +2951,19 @@ function zoneCard(z, i, zones, ours) {
 }
 /**
  * Why a fan may NOT stand still, in words — '' when «may stand still» can be offered. Never a box that can't be: a fan
- * without feedback or not measured yet, one that proved it doesn't stop or doesn't start again safely (the measuring's
- * word, `stops_safe`), a CPU cooler the BIOS steers; the CPU cooler on the owner's risk only once it proved both.
+ * without feedback or not measured yet (or measured before round 12: no standstill tried), one that proved it keeps
+ * turning at 0 % or doesn't start again safely (`stand` from the measuring), a pump, a CPU cooler the BIOS steers. The
+ * CPU cooler on the owner's risk is offered like any fan that proved both — behind its own confirmation.
  */
 function standWhy(f) {
   if (!f) return T('zones.stand_measure');
   if (f.role === 'pump' || (f.role === 'cpu' && !f.cpu_own)) return T('zones.stand_never');
   if (f.found !== 'tach') return T('zones.stand_silent');
   if (!f.measured) return T('zones.stand_measure');
-  if (f.stops_safe === false) return T('zones.stand_unsafe');
-  if (f.role === 'cpu' && f.stops_safe !== true) return T('zones.stand_cpu');
+  const st = f.stand;
+  if (!st) return T('zones.stand_again');                       // measured before the standstill was part of it
+  if (st.stops === false) return T('zones.stand_floor', { rpm: num(st.floor_rpm) === null ? '–' : fmt.number(st.floor_rpm) });
+  if (st.stops_safe !== true) return T('zones.stand_unsafe');
   return '';
 }
 /** A source's kind as the zone counts it (from the server's look: a pool not rotating is «ssd») */

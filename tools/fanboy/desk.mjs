@@ -125,6 +125,10 @@ const PICTURES = [
   ['ux-1-detect', 'fanboy-fresh', 'fanboy/setup/detect', null, false],
   ['ux-3-1-measure', 'fanboy-uxfound', 'fanboy/setup/measure', null, false],
   ['ux-3-2-measuring', 'fanboy-measure', 'fanboy/setup/measure', null, false],
+  // round 12: the standstill part of the measuring, what it found, and «may stand still» by that proof (the CPU cooler's zone)
+  ['ux-3-3-stopcheck', 'fanboy-uxstop', 'fanboy/setup/measure', null, false],
+  ['ux-3-4-stand', 'fanboy-uxstand', 'fanboy/setup/measure', '.fb-item[data-row$=pwm5]', false],
+  ['ux-4-3-zones-stand', 'fanboy-uxstand', 'fanboy/setup/zones', '.fb-item[data-row=cpu]', false],
   ['ux-4-1-zones-none', 'fanboy-zones', 'fanboy/setup/zones', null, false],
   ['ux-4-2-zones', 'fanboy-ready', 'fanboy/setup/zones', null, false],
   ['ux-5-1-dry', 'fanboy-ready', 'fanboy/setup/dry', null, false],
