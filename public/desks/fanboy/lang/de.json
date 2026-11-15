@@ -1,6 +1,6 @@
 {
   "name": "Fanboy",
-  "role": "Der grösste Fan seiner Lüfter — hält Festplatten und Gehäuse kühl, ganz nach euren Wünschen",
+  "role": "Der grösste Fan seiner Lüfter — hält Festplatten und Gehäuse kühl, ganz nach deinen Wünschen",
   "fit.yes": "Regelt die Lüfter nach dem, was wirklich warm wird — und vergisst seine Einstellungen nie",
   "fit.other": "{who} regelt hier die Lüfter — er würde schauen, es sagen und nichts steuern, solange es läuft",
   "fit.no_output": "Er findet hier keinen Lüfter-Ausgang, den Linux steuern kann — er würde das ehrlich sagen und könnte den Entwicklern einen Bericht schicken",
