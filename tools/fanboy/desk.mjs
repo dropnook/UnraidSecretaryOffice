@@ -118,6 +118,7 @@ const PICTURES = [
   ['ux-2-2-running', 'fanboy-uxrun', 'fanboy/setup/test', null, false],
   ['ux-2-3-pause', 'fanboy-uxpause', 'fanboy/setup/test', null, false],
   ['ux-2-4-assigned', 'fanboy-uxfound', 'fanboy/setup/test', ['.fb-item[data-row$=pwm4]', '.fb-panel[data-fan$=pwm4] .fb-fold summary'], false],
+  ['ux-2-7-colour', 'fanboy-uxfound', 'fanboy/setup/test', ['.fb-item[data-row$=pwm5]', '.fb-panel[data-fan$=pwm5] .fb-fold summary'], false],      // «Farbe: Schwarz» on a beige model
   ['ux-2-5-safety', 'fanboy-uxsafety', 'fanboy/setup/test', null, false],
   // … and the other steps in the same parts: rows to read, the measuring (idle and running), the zones (none yet, two), the
   // dry run (before and after), take over and handed over; the overview while a show runs

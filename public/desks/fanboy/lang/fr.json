@@ -972,5 +972,6 @@
   "take.bios_tip": "Fanboy n'écrit jamais sur ceux-ci — il veille seulement à ce qu'ils tournent",
   "strip.steers": "Fanboy règle en ce moment. Tester et mesurer redeviennent possibles une fois les ventilateurs rendus (étape 6).",
   "strip.other": "Une autre commande de ventilateurs règle. Tester et mesurer marchent dès que rien d'autre ne règle.",
-  "take.own_since": "à tes risques depuis le {date}"
+  "take.own_since": "à tes risques depuis le {date}",
+  "look.colour_note": "Ton exemplaire a une autre couleur que l'habituelle (une édition noire, par exemple) ? Choisis-la ici — l'image montre alors tout le ventilateur ainsi."
 }

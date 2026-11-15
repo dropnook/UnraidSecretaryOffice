@@ -327,8 +327,9 @@ function testFanboyUx(): void
         && str_contains($js, "it.el.classList.toggle('fb-live', !!r.live);") && str_contains($js, "live: run.id === id && !run.pause && (run.kind === 'test' || run.kind === 'show'),") && str_contains($js, "root.classList.toggle('fb-live', here);"));
     $panel = substr($js, (int) strpos($js, 'function panelMake('), 16000);
     check('fanboy ux: while an output runs the user answers on its panel — «found» or «heard nothing» (the later question «did it get louder?» only after a minute nobody answered), «cancel»',
-        str_contains($panel, "heard.set(id, true); send('step_next', { fan: id });") && str_contains($panel, "heard.set(id, false); send('step_next', { fan: id });")
-        && str_contains($js, "if (['ask', 'unclear'].includes(f.found)) send('answer', { fan: id, louder: v }, { quietly: true });") && str_contains($panel, "btn(T('ask.yes'), 'btn small', () => send('answer', { fan: id, louder: true }),"));
+        // (round 11: the answer travels with «weiter» and the agent stores it with the verdict — the page sends nothing later)
+        str_contains($panel, "send('step_next', { fan: id, heard: true })") && str_contains($panel, "send('step_next', { fan: id, heard: false })")
+        && !str_contains($js, 'settleHeard') && str_contains($panel, "btn(T('ask.yes'), 'btn small', () => send('answer', { fan: id, louder: true }),"));
     check('fanboy ux: a button that can\'t act is off and the line under the buttons says why (another output runs, the pause, another controller, he steers, the messenger away)',
         str_contains($panel, "reason = T('panel.busy', { fan: run.id ? fanName(run.id) : '' });") && str_contains($panel, "reason = T('panel.pause');") && str_contains($panel, 'else if (!run.kind && noTest) reason = noTest;')
         && str_contains($panel, "else if (away) reason = T('strip.away');") && str_contains($panel, 'setText(why, reason);'));
@@ -359,6 +360,16 @@ function testFanboyUx(): void
     check('fanboy ux: the same parts on every step — steps 2 and 3 on listPanel() (list, one panel, next bar), the zones as a list and one zone\'s panel, rows to read in steps 1 and 6, each step\'s next bar with ONE primary button',
         substr_count($js, 'listPanel({') === 2 && str_contains($js, "const b = el('button', 'fb-item fb-item-plain');") && substr_count($js, 'readRow(') >= 4 && substr_count($js, 'nextBar(') >= 6
         && str_contains($js, "out.push(goButton('measure', !open.length && !run.kind));") && str_contains($js, "out.push(goButton('zones', !open.length && !run.kind));"));
+    check('fanboy ux: a click answers within a blink — the clicked button carries the wave until the agent has answered (send() and act()), a picked role is pressed at once',
+        str_contains($js, "b.onclick = () => { clicked = b; on(b); clicked = null; };") && str_contains($js, 'const done = working(clicked);') && str_contains($js, 'const worked = working(b);')
+        && str_contains($js, "roleBtns.forEach((b, r) => b.setAttribute('aria-pressed', r === k ? 'true' : 'false'));") && str_contains($js, "const cur = picked || (found === 'empty' ? 'empty' : (f && f.role) || '');"));
+    $art = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.js');
+    check('fanboy ux: the colour beside a model is honest — «like the model» by default, any other paints the whole fan (frame, blades, hub: «my copy is black»), the preview shows it at once',
+        str_contains($art, "const edition = !!(look && colour !== 'auto' && colour !== 'accent');") && str_contains($art, "'--fan-frame': edition ? null : look.frame,")
+        && str_contains($art, "colour(c) { colour = pick(c, COLOURS, 'auto'); look2(); }") && str_contains($js, "colour.onchange = () => { if (pk.colour) pk.colour(colour.value); send('fan_look', { fan: id, colour: colour.value }, { quietly: true }); };")
+        && str_contains($js, "setText(colour.options[0], isModel ? T('colour.model') : T('colour.auto'));"));
+    check('fanboy ux: no text of the page speaks of a «card» or of «More» any more (de, en)', !preg_match('/\bKarte\b|«Mehr»/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de'])))
+        && !preg_match('/(?<!graphics )\bcards?\b|«More»/i', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['en']))));
     same('fanboy ux: a demo state for each moment of step 2', [], array_values(array_filter(['fanboy-uxrun', 'fanboy-uxpause', 'fanboy-uxfound', 'fanboy-uxsafety', 'fanboy-uxopen'],
         fn ($n) => !is_file(OFFICE_DIR . "/tests/ui/demo/$n.json"))));
 }

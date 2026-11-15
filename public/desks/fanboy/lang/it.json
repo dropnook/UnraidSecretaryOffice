@@ -972,5 +972,6 @@
   "take.bios_tip": "Su queste Fanboy non scrive mai — guarda solo che girino",
   "strip.steers": "Fanboy sta regolando. Test e misura tornano possibili quando avrai restituito le ventole (passo 6).",
   "strip.other": "Un altro controllo delle ventole sta regolando. Test e misura funzionano quando nient'altro regola più.",
-  "take.own_since": "a tuo rischio dal {date}"
+  "take.own_since": "a tuo rischio dal {date}",
+  "look.colour_note": "Il tuo esemplare ha un colore diverso dal solito (per esempio un'edizione nera)? Sceglilo qui — il disegno mostra allora tutta la ventola così."
 }
