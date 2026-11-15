@@ -1906,7 +1906,7 @@ function testFanboyR12CpuGone(): void
         // 3. hung: there, no beat — 12 s old: with an output at 0 that is hung (10 s), with none it would be alive (30 s)
         $me = fanboyMe('control');
         $stand($me);
-        file_put_contents(fanboyRunDir() . '/beat-' . getmypid(), (string) (hrtime(true) - 12e9));
+        file_put_contents(fanboyRunDir() . '/beat-' . getmypid(), (string) (hrtime(true) - 12_000_000_000));
         $j = fanboyJournal()['outputs'][fanboyTId(2)];
         same('fanboy r12 gone: … hung — a holder 12 s without a beat counts as hung while its output stands at 0 (10 s), as alive while it turns (30 s)',
             ['hung', 'alive'], [fanboyOwnerState($me, null, fanboyStanding($j) ? FANBOY_OWNER_STALE_STANDING : FANBOY_OWNER_STALE), fanboyOwnerState($me)]);
