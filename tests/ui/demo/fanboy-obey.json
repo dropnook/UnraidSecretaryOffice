@@ -1729,5 +1729,13 @@
   "mine": [],
   "last": null,
   "can": true
- }
+ },
+ "idle": {
+  "on": true,
+  "warm": null,
+  "tachs": {},
+  "time": 1763100000
+ },
+ "show": null,
+ "disk_allow": 3
 }

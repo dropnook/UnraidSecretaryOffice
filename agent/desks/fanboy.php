@@ -78,6 +78,7 @@ if (fanboyShown()) {
         'jobs'    => [
             'fanboy-control' => fn (array $a): int => fanboyControlMain(),
             'fanboy-step'    => fn (array $a): int => fanboyStepMain(),
+            'fanboy-show'    => fn (array $a): int => fanboyShowMain(),        // round 6: «show me this fan»
         ],
         'actions' => [
             'refresh' => fn (array $r) => ['ok' => true, 'state' => fanboyScan()],
@@ -105,6 +106,10 @@ if (fanboyShown()) {
             'history'       => fn (array $r) => ['ok' => true, 'state' => fanboyHistoryPart(fanboyHistoryHours($r))],
             // his own tile on Unraid's Dashboard: off, speeds, speeds with history (fanboy-dash.php)
             'dashboard'     => fn (array $r) => fanboyDashSet($r),
+            // round 6: «watch fans I don't steer» on or off (fanboy-watch.php)
+            'watch'         => fn (array $r) => fanboyWatchSet($r),
+            // round 6: «show me this fan» — an output to 100 % for 5 s, then back exactly (fanboy-show.php)
+            'show'          => fn (array $r) => fanboyShowStart($r),
         ],
     ]);
 }
@@ -124,6 +129,9 @@ function fanboyScan(): array
     $state['step'] = fanboyStepRead();
     $state['drivers'] = fanboyDriversState($state['board']);
     $state['dashboard'] = fanboyDashState();            // his Dashboard tile's setting (fanboy-dash.php), its mirror in RAM
+    $state['show'] = fanboyShowRead();                  // round 6: «show me this fan» running or just done
+    $state['idle'] = fanboyIdleState();                 // round 6: the fans he doesn't steer, watched (fanboy-watch.php)
+    $state['disk_allow'] = fanboyPollAllowance($state['poll'] ?? null);      // round 6: °C the zone logic adds to an old disk value
     writeAtomic(deskFile('fanboy'), jsonEncode($state));
     return $state;
 }
@@ -326,7 +334,8 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
             $lines[] = 'Driver plugin ' . $clean($t['id']) . ': version ' . $clean($m[1]);
         }
     }
-    $lines[] = 'Disk temperatures polled every: ' . (isset($scan['poll']) ? (int) $scan['poll'] . ' s (poll_attributes)' : 'unknown');
+    $lines[] = 'Disk temperatures polled every: ' . (isset($scan['poll']) ? (int) $scan['poll'] . ' s (poll_attributes)' : 'unknown')
+        . (fanboyPollAllowance($scan['poll'] ?? null) > 0 ? '; zone logic adds ' . fanboyPollAllowance($scan['poll']) . ' degrees to disk values' : '');
     $lines[] = 'Virtual machine: ' . (!empty($scan['vm']) ? 'yes' : 'no');
     if (!empty($scan['twins'])) {
         $lines[] = 'Two drivers on one chip: ' . implode(', ', array_map($clean, $scan['twins']));
@@ -414,6 +423,7 @@ function fanboyTick(?float $now = null): void
     fanboyWatch();
     fanboyBackCheck();
     fanboyEnsureControl($now);
+    fanboyIdleTick($now);           // round 6: the fans he doesn't steer, watched (notify only)
 }
 
 /**

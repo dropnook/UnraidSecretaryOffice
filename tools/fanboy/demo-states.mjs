@@ -175,6 +175,11 @@ function state(o) {
     },
     step: o.step || null,
     drivers: o.drivers || { mine: [], last: null, can: true },
+    // round 6: the fans he doesn't steer, watched (fanboyIdleState()): on, nothing standing
+    idle: o.idle || { on: true, warm: null, tachs: {}, time: T0 },
+    show: o.show || null,                     // round 6: «show me this fan» (fanboyShowRead())
+    // round 6: °C his zones add to an old disk value (fanboyPollAllowance(): +1 per started 10 minutes over 300 s, at most 3)
+    disk_allow: (() => { const p = o.poll === undefined ? 1800 : o.poll; return p === null || p <= 300 ? 0 : Math.min(3, Math.ceil(p / 600)); })(),
   };
   return s;
 }
@@ -252,6 +257,23 @@ files['fanboy-vm'] = state({ situation: { code: 'no_output' }, vm: true, suggest
 files['fanboy-twins'] = state({ ite: ite({}, RPM), twins: ['nct6687', 'nct6683'] });
 files['fanboy-obey'] = state({ ite: ite({}, RPM), fans: [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'silent' }), fan(3, { found: 'ignored' }),
   fan(4, { tachs: [4], found: 'tach' }), fan(5, { tachs: [5, 6], found: 'tach' }), fan(6, { tachs: [], found: 'inverted' })] });
+// round 6, part 1: before any setup, every fan watched — fan input 4 stood 2 minutes while disk2 is over its warning
+// (told), fan input 5 stands since a moment, fan input 6 turns and was seen stopping while everything was cool (learned)
+const T = (n) => `${CHIP}@${ADDR}#${n}`;
+files['fanboy-watch'] = state({ ite: ite({}, { ...RPM, 4: 0, 5: 0 }),
+  idle: { on: true, time: T0, warm: { id: 'disk2', kind: 'disk', c: 41, warn: 40, name: 'Disk 2' }, tachs: {
+    [T(1)]: { state: 'turning', quiet_stop: null, since: null, name: 'Fan input 1', strict: false },
+    [T(2)]: { state: 'never', quiet_stop: null, since: null, name: 'Fan input 2', strict: false },
+    [T(3)]: { state: 'never', quiet_stop: null, since: null, name: 'Fan input 3', strict: false },
+    [T(4)]: { state: 'alarm', quiet_stop: null, since: T0 - 180, name: 'Fan input 4', strict: false },
+    [T(5)]: { state: 'stands_warm', quiet_stop: null, since: T0 - 40, name: 'Fan input 5', strict: false },
+    [T(6)]: { state: 'turning', quiet_stop: T0 - 86400, since: null, name: 'Fan input 6', strict: false } } } });
+// round 6, part 4: «show me this fan» — the disk cage shown by the control (100 % for 5 s, then its curve again)
+files['fanboy-show'] = (() => {
+  const s = steering({ pwm: { 4: [255, 1] }, rpm: { 4: 1590 } });
+  s.show = { id: 'b1c2d3e4f5a6', fan: P(4), via: 'control', status: 'running', why: null, until: T0 + 4, pid: 4242, start: '123456', ok: null, begun: T0 - 1, at: T0 - 1, tachs: [4] };
+  return s;
+})();
 // the array stopped while armed: the BIOS runs them
 files['fanboy-array'] = state({ ite: ite({}, RPM), fans: SET_UP, zones: ZONES, armed: true, who: { who: 'bios', why: 'array_stopped' },
   control: { running: false, armed: true, why: 'array_stopped', phase: 'ended', notes: NOTES, time: T0 } });

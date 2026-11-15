@@ -333,6 +333,39 @@ function fanboyNvmePool(array $chip, array $disks): ?string
     return null;
 }
 
+/*
+ * Round 6, part 5 (the owner, 2026-11-15): Unraid refreshes the disks' temperatures in disks.ini only every
+ * poll_attributes seconds. Above FANBOY_POLL_LIVE a disk's value is a lower bound of the truth: for the zone logic (and
+ * the watch, the measuring's «too warm») it counts FANBOY_POLL_ADD °C more per started FANBOY_POLL_SPAN of the interval,
+ * at most FANBOY_POLL_ADD_MAX. Sleeping disks have no value (unchanged); SSD/NVMe read from hwmon are live (unchanged).
+ */
+const FANBOY_POLL_LIVE = 300;           // seconds: at or under this a disk value counts as it is
+const FANBOY_POLL_SPAN = 600;           // seconds: … per started 10 minutes …
+const FANBOY_POLL_ADD = 1;              // … 1 °C …
+const FANBOY_POLL_ADD_MAX = 3;          // … at most 3 °C
+
+/** The °C a disks.ini value counts more by Unraid's poll_attributes (null: unknown — nothing added) */
+function fanboyPollAllowance(?int $poll): int
+{
+    if ($poll === null || $poll <= FANBOY_POLL_LIVE) {
+        return 0;
+    }
+    return min(FANBOY_POLL_ADD_MAX, FANBOY_POLL_ADD * (int) ceil($poll / FANBOY_POLL_SPAN));
+}
+
+/** Per Unraid disk with a value now (awake): the allowance — [disk name => °C] (sleeping or no value: none) */
+function fanboyDiskAllowance(?int $poll, array $disks): array
+{
+    $add = fanboyPollAllowance($poll);
+    $out = [];
+    foreach ($disks as $d) {
+        if ($add > 0 && !$d['asleep'] && $d['temp'] !== null) {
+            $out[$d['name']] = $add;
+        }
+    }
+    return $out;
+}
+
 /** Every heat source the server offers now: Unraid's disks (by name) and every hwmon temperature (no drivetemp) */
 function fanboySources(array $scan): array
 {
@@ -425,7 +458,7 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
         'key' => $boardKey, 'owner' => $owner, 'phase' => 'start', 'hold' => null, 'fans' => $fans, 'zones' => $zones, 'watch' => $watch,
         'chips' => [], 'sources' => [], 'alarm' => null, 'reasons' => [], 'clear_since' => null, 'told' => [], 'notes' => [], 'full_since' => [],
         'missing' => null, 'started' => null, 'last_hist' => null, 'last_keep' => null, 'hist' => [], 'look_now' => false,
-        'disks_at' => null, 'disks' => [], 'scan_at' => null, 'events' => [],
+        'disks_at' => null, 'disks' => [], 'scan_at' => null, 'events' => [], 'poll' => null, 'allow' => 0,
     ];
 }
 
@@ -528,6 +561,8 @@ function fanboyReadSources(array &$c, float $now): void
             $c['disks'][$d['name']] = $d;
         }
         $c['disks_at'] = $now;
+        $c['poll'] = fanboyPollAttributes($p);
+        $c['allow'] = fanboyPollAllowance($c['poll']);         // round 6: an old disk value counts more (a lower bound)
         // a zone saved before round 4 calls an SSD pool member «disk»: on the SSD's scale and limit from now on
         foreach ($c['zones'] as $zid => $z) {
             foreach ($z['sources'] as $i => $s) {
@@ -576,7 +611,8 @@ function fanboyReadSources(array &$c, float $now): void
         if (in_array($s['kind'], FANBOY_DISK_KINDS, true)) {
             $d = $c['disks'][$id] ?? null;
             $c['sources'][$id]['asleep'] = $d !== null && $d['asleep'];
-            $c['sources'][$id]['c'] = $d['temp'] ?? null;
+            $c['sources'][$id]['raw'] = $d['temp'] ?? null;
+            $c['sources'][$id]['c'] = ($d['temp'] ?? null) === null ? null : $d['temp'] + ($c['allow'] ?? 0);
             $c['sources'][$id]['there'] = $d !== null;
         } else {
             $raw = $s['path'] === null ? null : fanboyReadInt($s['path']);
@@ -725,12 +761,16 @@ function fanboyRound(array &$c, float $now): void
     // a zone with an alarm reason at 100 % until FANBOY_CLEAR_AFTER without one (a fan standing, too warm at full, a
     // sensor silent); every other zone steers on — a watched BIOS fan standing drives nothing (told only)
     $full = fanboyFullZones($c, $now);
+    // round 6: «show me this fan» asked of the control for a fan it holds — 100 % for a few seconds, then its curve again
+    $shown = function_exists('fanboyShowControl') ? fanboyShowControl($c, $now) : null;
     foreach ($c['fans'] as $id => $f) {
         if (!$f['taken']) {
             continue;
         }
         if (isset($full[$f['zone']])) {
             fanboyFullOne($c, $id);
+        } elseif ($id === $shown) {
+            fanboyShowFull($c, $id);
         } elseif ($f['pct'] !== null) {
             fanboyApply($c, $id, $now);
         }
@@ -786,7 +826,8 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
         $states[$s['id']] = 'ok';
         $m = fanboyMapped($s, (float) $r['c'], $lo, $hi, $z['sources'][0]['kind'] ?? '');
         if ($warmest === null || $m > $warmest['mapped']) {
-            $warmest = ['id' => $s['id'], 'label' => $r['label'], 'c' => $r['c'], 'mapped' => round($m, 1), 'kind' => $s['kind']];
+            $warmest = ['id' => $s['id'], 'label' => $r['label'], 'c' => $r['c'], 'mapped' => round($m, 1), 'kind' => $s['kind']]
+                + (isset($r['raw']) && $r['raw'] !== $r['c'] ? ['raw' => $r['raw']] : []);      // round 6: the disk's own value, before the allowance
         }
         if ($r['c'] >= fanboySourceLimit($s)) {
             $hot = true;
@@ -1118,6 +1159,8 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
         'missing' => $c['missing'] === null ? null : ['since' => $c['missing']['at'], 'why' => $c['missing']['why'], 'told' => isset($c['told']['missing'])],
         'watch' => array_values(array_map(fn ($w) => ['id' => $w['id'], 'name' => $w['name'], 'role' => $w['role'], 'rpm' => $w['rpm']], $c['watch'])),
         'notes' => $c['notes'],
+        // round 6: how old Unraid's disk values can be and what the zone logic adds to them (°C)
+        'disk_allow' => ['poll' => $c['poll'] ?? null, 'add' => $c['allow'] ?? 0],
         'refuses' => array_keys(array_filter($c['fans'], fn ($f) => !empty($f['refuses']))),     // round 5: the driver takes no values
         // since when each fan (and each watched BIOS fan) stands though it should turn — on the monotonic clock, so a
         // control started again goes on counting instead of starting from nought (three restarts in a row still alarm)
