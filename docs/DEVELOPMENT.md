@@ -1052,10 +1052,9 @@ the last 60 history lines only for a source the file has none for. **The file
   place is at its warning value for 2 minutes one alert; CPU cooler/pump by round 4's rule; the setting «watch fans I
   don't steer» (`watch`). «Show me this fan» (`fanboy-show.php`, `show`): 100 % for 5 s, then exactly back — the control
   shows a fan it holds, any other a process of its own holds through the journal. Over 300 s of poll_attributes a
-  disks.ini value counts +1 °C per started 10 minutes (≤ +3, `fanboyPollAllowance()`). An IPMI board's fan thresholds
-  read only (`fanboy-ipmi.php`: `ipmitool sensor`, never `thresh`; a process of its own, 10 s timeout, once per 10
-  minutes). NVIDIA cards as sources (`fanboy-gpu.php`: nvidia-smi in a process of its own, never waited for, 3 s timeout;
-  a card gone to a VM is «away», never a zone's only source). Tests: tests/fanboy-r6-tests.php.
+  disks.ini value counts +1 °C per started 10 minutes (≤ +3, `fanboyPollAllowance()`) in the zone logic, the measuring's
+  «too warm» and the watch. IPMI thresholds and NVIDIA temperatures stay out (the owner, 2026-11-15: until a user asks).
+  Tests: tests/fanboy-r6-tests.php.
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same
