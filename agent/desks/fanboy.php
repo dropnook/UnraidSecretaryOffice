@@ -78,6 +78,7 @@ if (fanboyShown()) {
         'jobs'    => [
             'fanboy-control' => fn (array $a): int => fanboyControlMain(),
             'fanboy-step'    => fn (array $a): int => fanboyStepMain(),
+            'fanboy-show'    => fn (array $a): int => fanboyShowMain(),        // round 6: «show me this fan»
         ],
         'actions' => [
             'refresh' => fn (array $r) => ['ok' => true, 'state' => fanboyScan()],
@@ -107,6 +108,8 @@ if (fanboyShown()) {
             'dashboard'     => fn (array $r) => fanboyDashSet($r),
             // round 6: «watch fans I don't steer» on or off (fanboy-watch.php)
             'watch'         => fn (array $r) => fanboyWatchSet($r),
+            // round 6: «show me this fan» — an output to 100 % for 5 s, then back exactly (fanboy-show.php)
+            'show'          => fn (array $r) => fanboyShowStart($r),
         ],
     ]);
 }
@@ -126,6 +129,7 @@ function fanboyScan(): array
     $state['step'] = fanboyStepRead();
     $state['drivers'] = fanboyDriversState($state['board']);
     $state['dashboard'] = fanboyDashState();            // his Dashboard tile's setting (fanboy-dash.php), its mirror in RAM
+    $state['show'] = fanboyShowRead();                  // round 6: «show me this fan» running or just done
     $state['idle'] = fanboyIdleState();                 // round 6: the fans he doesn't steer, watched (fanboy-watch.php)
     writeAtomic(deskFile('fanboy'), jsonEncode($state));
     return $state;

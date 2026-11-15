@@ -802,5 +802,20 @@
   "watch.alarm": "ferma — segnalata",
   "watch.alarm_title": "È ferma anche se qualcosa è caldo; Fanboy ha inviato una notifica. Finisce quando torna a girare.",
   "watch.banner": "{fan} è ferma anche se {source} è a {c} °C. Fanboy non regola questa ventola, la osserva soltanto: controllala.",
-  "watch.banner_cool": "{fan} era ferma mentre qualcosa era caldo e da allora non gira. Fanboy non regola questa ventola, la osserva soltanto: controllala."
+  "watch.banner_cool": "{fan} era ferma mentre qualcosa era caldo e da allora non gira. Fanboy non regola questa ventola, la osserva soltanto: controllala.",
+  "show.button": "Mostrami questa ventola",
+  "show.tip": "Questa uscita al 100 % per 5 secondi, poi di nuovo esattamente com'era: ascolta e guarda quale ventola accelera",
+  "show.running": "al 100 % …",
+  "show.toast": "{fan} gira al 100 % per 5 secondi, poi torna com'era",
+  "show.off.ignored": "Questa uscita non obbedisce (la tiene il BIOS): Fanboy non ci scrive mai",
+  "show.off.inverted": "Questa uscita funziona al contrario: Fanboy non ci scrive mai",
+  "show.off.other": "Regola un altro controllo delle ventole: disattivalo prima",
+  "show.off.step": "È in corso un passo della configurazione: dopo",
+  "show.off.one": "Si sta mostrando un'altra ventola: una alla volta",
+  "show.off.alarm": "È in corso un allarme: le ventole della sua zona sono già al 100 %",
+  "show.give_back_failed": "Dopo averla mostrata, l'uscita di {fan} non risulta com'era prima: guardala nell'elenco delle ventole; un riavvio di Unraid la restituisce al BIOS.",
+  "note.show": "{fan} mostrata al 100 % per 5 secondi",
+  "errors.fanboy_show_running": "Si sta già mostrando una ventola: una alla volta.",
+  "errors.fanboy_show_alarm": "È in corso un allarme: le ventole della sua zona sono già al 100 %. Mostrala quando l'allarme è finito.",
+  "errors.fanboy_show_not": "Questa uscita non obbedisce, funziona al contrario o il suo driver non accetta valori: Fanboy non ci scrive mai."
 }

@@ -100,6 +100,29 @@ const nobody = () => who().who === 'nobody';
 /** Round 6: the fans he doesn't steer, watched (the agent's fanboy-watch.php) — a tach input's state by chip, address, number */
 const idle = () => S().idle || { on: true, tachs: {} };
 const idleOf = (chip, address, n) => (idle().tachs || {})[`${chip}@${address}#${n}`] || null;
+/** Round 6: «show me this fan» — running or just ended (fanboy-show.php) */
+const showNow = () => S().show || null;
+const showRuns = () => { const x = showNow(); return !!x && (x.status === 'starting' || x.status === 'running'); };
+/**
+ * The button «Show me this fan» for an output: 100 % for 5 seconds, then back exactly as it was. Off (with the reason in
+ * its tip) while another controller steers, a setup step or another show runs, an alarm holds, and for an output that
+ * doesn't obey or works the other way round — the agent refuses those too.
+ */
+function showButton(id, f) {
+  const x = showNow();
+  const mine = showRuns() && x.fan === id;
+  const b = el('button', 'btn small plain fb-show');
+  b.type = 'button';
+  b.dataset.own = '1';
+  if (mine) b.append(wave(), el('span', '', T('show.running')));
+  else b.textContent = T('show.button');
+  const why = f && ['ignored', 'inverted'].includes(f.found) ? T(`show.off.${f.found}`)
+    : situation() === 'other' ? T('show.off.other') : stepRuns() ? T('show.off.step') : showRuns() && !mine ? T('show.off.one') : control().running && control().alarm ? T('show.off.alarm') : '';
+  b.title = why || T('show.tip');
+  b.disabled = mine || !!why || !state || !Office.agent.running;
+  b.onclick = () => act('show', { fan: id }, b, () => Office.toast(T('show.toast', { fan: fanName(id) })));
+  return b;
+}
 /** A tach input's name as the page says it: the setup's fan on it, else the input's own label, else «Fan input 4» */
 function tachName(tid) {
   const m = /^(.*)@([^@#]+)#(\d{1,2})$/.exec(String(tid || ''));
@@ -257,7 +280,7 @@ function plan() {
   clearTimeout(timer);
   timer = null;
   if (!view) { stopAlive(); return; }
-  timer = setTimeout(() => load(false), stepRuns() ? LOOK_STEP_MS : LOOK_MS);
+  timer = setTimeout(() => load(false), stepRuns() || showRuns() ? LOOK_STEP_MS : LOOK_MS);
   if (page === '' && Date.now() - histAt > 60000) loadHistory();        // the history: a look a minute (the part's refresh_after)
   if (stepRuns()) startAlive(); else stopAlive();
 }
@@ -324,7 +347,7 @@ const quiet = (v) => JSON.stringify(v, (k, x) => (VOLATILE.has(k) ? undefined : 
 function setupSig() {
   const su = setup();
   return quiet([ready(), !!art(), !!cat, Office.agent.running, busy, who(), situation(), control().running, (control().alarm || {}).code, su.fans, su.zones, su.armed,
-    su.outputs, su.curves, step(), dry, zdraft, setupSw ? setupSw.active() : '']);
+    su.outputs, su.curves, step(), showNow(), dry, zdraft, setupSw ? setupSw.active() : '']);
 }
 function overviewSig() {
   return quiet([ready(), !!art(), !!cat, Office.agent.running, busy, state, history && history.zones, period, period > 24 && history72 ? history72.zones : null, sw.active(), (sensorBar && sensorBar.read().words) || []]);
@@ -397,7 +420,7 @@ function keepFold(det, key, open) {
 }
 /** A row that unfolds its technical detail: the whole row clicks (its own controls not), the name takes Enter and Space */
 function unfoldRow(key, at, name, meta, value, detail) {
-  const row = el('div', 'row unfolds fb-row' + (opened.has(key) ? ' open' : ''));
+  const row = el('div', 'row nocheck unfolds fb-row' + (opened.has(key) ? ' open' : ''));
   const r = at.place ? Office.place(at.place, row) : row;     // a row shown twice (a source in two zones) marks its place once
   const main = el('div', 'row-main');
   const n = el('div', 'row-name link', name);
@@ -831,6 +854,7 @@ function outputRow(c, o) {
   if (rpm !== null) meta.appendChild(el('span', '', T('pic.rpm', { rpm: fmt.number(rpm) })));
   const wc = watchChipOf(c, f);
   if (wc) meta.appendChild(wc);
+  if (offered(c)) meta.appendChild(showButton(id, f));
   const v = el('div', 'fb-value', num(o.pct) === null ? '–' : T('value', { pct: o.pct }));
   v.title = T('value_title', { value: o.value ?? '–' });
   const b = (setup().before || {})[id];
@@ -1364,6 +1388,9 @@ function paintBanner() {
   } else if (s === 'ok' && !banner.children.length) {
     box('', steers() ? T(cpuGiven() ? 'situation.steers_cpu' : 'situation.steers', { n: w.zones || 0 }) : c.armed === false && (setup().zones || []).length ? T('situation.not_armed') : T('situation.ok'), { situation: s });
   }
+  // round 6: a show whose give-back didn't read back as before (the fan may sit at 100 %)
+  const sh = showNow();
+  if (sh && sh.status !== 'running' && sh.status !== 'starting' && sh.why === 'give_back') box('warn', T('show.give_back_failed', { fan: fanName(sh.fan) }), { show: 'give_back' });
   const s2 = step();
   if (s2 && s2.status === 'stopped' && ['page_gone', 'interrupted'].includes(s2.why) && page === '') {
     box('warn', T(`step.ended.${s2.why}`), { step: s2.why });
@@ -1650,6 +1677,10 @@ function roleCard(f) {
   const form = el('div', 'fb-form');
   const head = el('div', 'fb-card-name', T('out.name', { n: f.output }) + (f.found === 'tach' ? ` · ${T('pic.rpm', { rpm: fmt.number(rpmNow(id, f.tachs) ?? 0) })}` : f.found === 'silent' ? ` · ${T('pic.no_tach')}` : ''));
   form.appendChild(head);
+  // round 6: which fan is it? 100 % for 5 seconds, then back as it was
+  const shows = el('div', 'fb-bar');
+  shows.appendChild(showButton(id, f));
+  form.appendChild(shows);
   if (f.output === 1 && !f.role) form.appendChild(para(T('roles.cpu_hint')));
   // the role: his kinds, the BIOS's kinds («don't know» stays the BIOS's)
   const role = el('select');

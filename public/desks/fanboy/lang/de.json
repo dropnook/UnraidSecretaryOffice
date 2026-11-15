@@ -802,5 +802,20 @@
   "watch.alarm": "steht — gemeldet",
   "watch.alarm_title": "Er steht, obwohl etwas warm ist; Fanboy hat eine Meldung geschickt. Vorbei, sobald er wieder dreht.",
   "watch.banner": "{fan} steht, obwohl {source} {c} °C hat. Fanboy regelt diesen Lüfter nicht, er schaut nur zu — prüf ihn.",
-  "watch.banner_cool": "{fan} stand, während etwas warm war, und dreht seither nicht. Fanboy regelt diesen Lüfter nicht, er schaut nur zu — prüf ihn."
+  "watch.banner_cool": "{fan} stand, während etwas warm war, und dreht seither nicht. Fanboy regelt diesen Lüfter nicht, er schaut nur zu — prüf ihn.",
+  "show.button": "Zeig mir diesen Lüfter",
+  "show.tip": "Dieser Ausgang 5 Sekunden auf 100 %, dann genau zurück, wie er war — hör und schau, welcher Lüfter aufdreht",
+  "show.running": "auf 100 % …",
+  "show.toast": "{fan} läuft 5 Sekunden auf 100 % — danach wieder wie vorher",
+  "show.off.ignored": "Dieser Ausgang gehorcht nicht (das BIOS behält ihn) — Fanboy schreibt nie darauf",
+  "show.off.inverted": "Dieser Ausgang arbeitet verkehrt herum — Fanboy schreibt nie darauf",
+  "show.off.other": "Eine andere Lüftersteuerung regelt — deaktiviere sie bitte zuerst",
+  "show.off.step": "Ein Schritt des Einrichtens läuft — danach",
+  "show.off.one": "Gerade wird ein anderer Lüfter gezeigt — einer nach dem anderen",
+  "show.off.alarm": "Ein Alarm läuft — die Lüfter seiner Zone sind schon auf 100 %",
+  "show.give_back_failed": "Nach dem Zeigen las sich der Ausgang von {fan} nicht wie vorher zurück — schau ihn in der Lüfterliste an; ein Neustart von Unraid gibt ihn ans BIOS.",
+  "note.show": "{fan} 5 Sekunden auf 100 % gezeigt",
+  "errors.fanboy_show_running": "Gerade wird ein Lüfter gezeigt — einer nach dem anderen.",
+  "errors.fanboy_show_alarm": "Ein Alarm läuft — die Lüfter seiner Zone sind schon auf 100 %. Zeig ihn, wenn der Alarm vorbei ist.",
+  "errors.fanboy_show_not": "Dieser Ausgang gehorcht nicht, arbeitet verkehrt herum oder sein Treiber nimmt keine Werte an — Fanboy schreibt nie darauf."
 }

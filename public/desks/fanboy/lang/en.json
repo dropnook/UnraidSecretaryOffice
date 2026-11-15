@@ -802,5 +802,20 @@
   "watch.alarm": "stands — told",
   "watch.alarm_title": "It stands although something is warm; Fanboy sent a notification. Over when it turns again.",
   "watch.banner": "{fan} stands although {source} is at {c} °C. Fanboy doesn't steer this fan, he only watches — check it.",
-  "watch.banner_cool": "{fan} stood while something was warm and hasn't turned since. Fanboy doesn't steer this fan, he only watches — check it."
+  "watch.banner_cool": "{fan} stood while something was warm and hasn't turned since. Fanboy doesn't steer this fan, he only watches — check it.",
+  "show.button": "Show me this fan",
+  "show.tip": "This output to 100 % for 5 seconds, then back exactly as it was — listen and look which fan speeds up",
+  "show.running": "at 100 % …",
+  "show.toast": "{fan} runs at 100 % for 5 seconds — then back as it was",
+  "show.off.ignored": "This output doesn't obey (the BIOS keeps it) — Fanboy never writes it",
+  "show.off.inverted": "This output works the other way round — Fanboy never writes it",
+  "show.off.other": "Another fan control steers — switch it off first",
+  "show.off.step": "A setup step is running — afterwards",
+  "show.off.one": "Another fan is being shown — one at a time",
+  "show.off.alarm": "An alarm holds — the fans of its zone are at 100 % already",
+  "show.give_back_failed": "After showing {fan}, its output didn't read back as it was before — look at it in the fans list; a restart of Unraid gives it to the BIOS.",
+  "note.show": "{fan} shown at 100 % for 5 seconds",
+  "errors.fanboy_show_running": "A fan is being shown right now — one at a time.",
+  "errors.fanboy_show_alarm": "An alarm holds — the fans of its zone are at 100 % already. Show it when the alarm is over.",
+  "errors.fanboy_show_not": "This output doesn't obey, works the other way round or its driver takes no values — Fanboy never writes it."
 }

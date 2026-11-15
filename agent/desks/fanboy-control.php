@@ -725,12 +725,16 @@ function fanboyRound(array &$c, float $now): void
     // a zone with an alarm reason at 100 % until FANBOY_CLEAR_AFTER without one (a fan standing, too warm at full, a
     // sensor silent); every other zone steers on — a watched BIOS fan standing drives nothing (told only)
     $full = fanboyFullZones($c, $now);
+    // round 6: «show me this fan» asked of the control for a fan it holds — 100 % for a few seconds, then its curve again
+    $shown = function_exists('fanboyShowControl') ? fanboyShowControl($c, $now) : null;
     foreach ($c['fans'] as $id => $f) {
         if (!$f['taken']) {
             continue;
         }
         if (isset($full[$f['zone']])) {
             fanboyFullOne($c, $id);
+        } elseif ($id === $shown) {
+            fanboyShowFull($c, $id);
         } elseif ($f['pct'] !== null) {
             fanboyApply($c, $id, $now);
         }

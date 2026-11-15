@@ -802,5 +802,20 @@
   "watch.alarm": "à l'arrêt — signalé",
   "watch.alarm_title": "Il est à l'arrêt alors que quelque chose est chaud ; Fanboy a envoyé une notification. Terminé dès qu'il tourne de nouveau.",
   "watch.banner": "{fan} est à l'arrêt alors que {source} est à {c} °C. Fanboy ne pilote pas ce ventilateur, il le surveille seulement — vérifiez-le.",
-  "watch.banner_cool": "{fan} était à l'arrêt alors que quelque chose était chaud et ne tourne plus depuis. Fanboy ne pilote pas ce ventilateur, il le surveille seulement — vérifiez-le."
+  "watch.banner_cool": "{fan} était à l'arrêt alors que quelque chose était chaud et ne tourne plus depuis. Fanboy ne pilote pas ce ventilateur, il le surveille seulement — vérifiez-le.",
+  "show.button": "Montre-moi ce ventilateur",
+  "show.tip": "Cette sortie à 100 % pendant 5 secondes, puis exactement comme avant — écoutez et regardez quel ventilateur accélère",
+  "show.running": "à 100 % …",
+  "show.toast": "{fan} tourne à 100 % pendant 5 secondes — puis revient comme avant",
+  "show.off.ignored": "Cette sortie n'obéit pas (le BIOS la garde) — Fanboy n'y écrit jamais",
+  "show.off.inverted": "Cette sortie fonctionne à l'envers — Fanboy n'y écrit jamais",
+  "show.off.other": "Un autre contrôle des ventilateurs pilote — désactivez-le d'abord",
+  "show.off.step": "Une étape de la configuration est en cours — après",
+  "show.off.one": "Un autre ventilateur est montré — un à la fois",
+  "show.off.alarm": "Une alarme est en cours — les ventilateurs de sa zone sont déjà à 100 %",
+  "show.give_back_failed": "Après l'avoir montré, la sortie de {fan} ne se relit pas comme avant — regardez-la dans la liste des ventilateurs ; un redémarrage d'Unraid la rend au BIOS.",
+  "note.show": "{fan} montré à 100 % pendant 5 secondes",
+  "errors.fanboy_show_running": "Un ventilateur est déjà montré — un à la fois.",
+  "errors.fanboy_show_alarm": "Une alarme est en cours — les ventilateurs de sa zone sont déjà à 100 %. Montrez-le quand l'alarme est terminée.",
+  "errors.fanboy_show_not": "Cette sortie n'obéit pas, fonctionne à l'envers ou son pilote n'accepte aucune valeur — Fanboy n'y écrit jamais."
 }

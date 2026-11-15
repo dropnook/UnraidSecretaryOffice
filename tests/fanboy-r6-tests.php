@@ -179,3 +179,122 @@ function testFanboyR6WarmNow(): void
     same('fanboy r6 warm: a CPU at its kind\'s «full speed at» (80 °C) is warm, named as the page names it', 'cpu',
         fanboyWarmNow([$chip('coretemp', 'cpu', [1 => 81.0])], [], [], 'en')['kind'] ?? null);
 }
+
+/** A Problem's key from a call, '' when it went through */
+function fanboyR6Refused(callable $fn): string
+{
+    try {
+        $fn();
+        return '';
+    } catch (Problem $e) {
+        return (string) strtok($e->getMessage(), ' ');      // the key (its params follow as JSON)
+    }
+}
+
+/**
+ * Part 4: «Show me this fan» for an output nobody of his holds — a process of its own (here in this one, on the tests'
+ * clock): 100 % while it lasts, then exactly the value AND mode before (the chip's own automatic too), read back, the
+ * journal's holder gone; whatever ends it (an error half-way) gives back
+ */
+function testFanboyR6ShowStep(): void
+{
+    $t = fanboyT('r6show');
+    try {
+        fanboyTDisks($t, 35, 33, 34);
+        file_put_contents("{$t['hw']}/pwm4", "77\n");
+        file_put_contents("{$t['hw']}/pwm4_enable", "2\n");
+        $r = fanboyShowStart(['fan' => fanboyTId(4)]);
+        same('fanboy r6 show: the click — a process of its own started, the show «starting» in RAM', [true, ['fanboy-show'], 'step', 'starting'],
+            [$r['ok'], $GLOBALS['fanboyLaunched'], $r['show']['via'], $r['state']['show']['status'] ?? null]);
+        same('fanboy r6 show: … a second click while it runs is refused', 'fanboy_show_running', fanboyR6Refused(fn () => fanboyShowStart(['fan' => fanboyTId(5)])));
+        $clock = 0.0;
+        $seen = [];
+        fanboyShowMain(['now' => function () use (&$clock) { return $clock; }, 'sleep' => function (float $s) use (&$clock, &$seen, $t) {
+            $clock += $s;
+            $seen[] = fanboyTOut($t, 4);
+            $seen[] = fanboyShowRead()['status'] ?? null;
+        }]);
+        same('fanboy r6 show: 100 % (fixed) while it is shown, «running» meanwhile, about 5 s', [[255, 1], 'running', 25],
+            [$seen[0], $seen[1], count($seen) / 2]);
+        $s = fanboyShowRead();
+        $j = fanboyJournal()['outputs'][fanboyTId(4)] ?? [];
+        same('fanboy r6 show: … then exactly as before — value 77, the chip\'s own automatic (2) — read back, nobody holds it, the show done', [[77, 2], 'done', true, true, 'show'],
+            [fanboyTOut($t, 4), $s['status'], $s['ok'], array_key_exists('owner', $j) && $j['owner'] === null, $j['given']['why'] ?? null]);
+        // whatever ends it: an error half-way gives back too
+        fanboyShowStart(['fan' => fanboyTId(5)]);
+        $clock = 0.0;
+        fanboyShowMain(['now' => function () use (&$clock) { return $clock; }, 'sleep' => function (float $s) use (&$clock) {
+            $clock += $s;
+            throw new RuntimeException('test: ended half-way');
+        }]);
+        same('fanboy r6 show: ended half-way by an error — given back exactly (128, fixed), said «failed»', [[128, 1], 'failed', true],
+            [fanboyTOut($t, 5), fanboyShowRead()['status'], fanboyShowRead()['ok']]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/** Part 4: refused with its words — another controller, a step, an alarm, an output that doesn't obey / works the other way round / gone */
+function testFanboyR6ShowRefused(): void
+{
+    $t = fanboyT('r6refuse');
+    try {
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        $settings['fans'][fanboyTId(3)]['found'] = 'ignored';
+        $settings['fans'][fanboyTId(6)] = ['chip' => FANBOY_T_CHIP, 'address' => FANBOY_T_ADDR, 'output' => 6, 'tach' => null, 'tachs' => [], 'found' => 'inverted'];
+        fanboyTStore($settings);
+        $show = fn (int $n) => fanboyR6Refused(fn () => fanboyShowStart(['fan' => fanboyTId($n)]));
+        same('fanboy r6 show refused: «doesn\'t obey», «the other way round», an output not there', ['fanboy_show_not', 'fanboy_show_not', 'fanboy_no_output'],
+            [$show(3), $show(6), fanboyR6Refused(fn () => fanboyShowStart(['fan' => fanboyTId(9)]))]);
+        @mkdir(TESTS_RUN_DIR . '/fanboy', 0700, true);
+        file_put_contents(fanboyStepFile(), json_encode(['kind' => 'measure', 'status' => 'running', 'pid' => getmypid(), 'start' => fanboyProcStart(getmypid()), 'at' => time()]));
+        same('fanboy r6 show refused: while measuring (a setup step runs)', 'fanboy_step_running', $show(4));
+        @unlink(fanboyStepFile());
+        file_put_contents(TESTS_RUN_DIR . '/fanboy/control.pid', getmypid() . ' ' . fanboyProcStart(getmypid()));
+        file_put_contents(fanboyStatusFile(), json_encode(['alarm' => ['code' => 'hot'], 'refuses' => [fanboyTId(2)]]));
+        same('fanboy r6 show refused: during an alarm of the control', 'fanboy_show_alarm', $show(4));
+        file_put_contents(fanboyStatusFile(), json_encode(['alarm' => null, 'refuses' => [fanboyTId(2)]]));
+        same('fanboy r6 show refused: an output whose driver takes no values (the control\'s «refuses»)', 'fanboy_show_not', $show(2));
+        @unlink(TESTS_RUN_DIR . '/fanboy/control.pid');
+        @mkdir("{$t['root']}/boot/config/plugins/fanctrlplus", 0700, true);
+        file_put_contents("{$t['root']}/boot/config/plugins/fanctrlplus/fan1.cfg", "service=\"1\"\n");
+        same('fanboy r6 show refused: another controller steers — its name in the words', ['fanboy_other', []], [$show(4), $GLOBALS['fanboyLaunched']]);
+        same('fanboy r6 show refused: … nothing was started, no output written', [[128, 1], null], [fanboyTOut($t, 4), fanboyShowRead()]);
+    } finally {
+        @unlink(TESTS_RUN_DIR . '/fanboy/control.pid');
+        fanboyTEnd();
+    }
+}
+
+/** Part 4: a fan Fanboy steers — the control shows it (100 % for 5 s, the trim waiting), then its curve takes it again */
+function testFanboyR6ShowControl(): void
+{
+    $t = fanboyT('r6showc');
+    try {
+        fanboyTDisks($t, 35, 33, 34);
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);
+        $spec = fanboyTSpec();
+        fanboyTSettle($t, $spec);
+        fanboyBeat();
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 8);
+        $before = fanboyTOut($t, 4);
+        @mkdir(TESTS_RUN_DIR . '/fanboy', 0700, true);
+        file_put_contents(TESTS_RUN_DIR . '/fanboy/control.pid', getmypid() . ' ' . fanboyProcStart(getmypid()));
+        $r = fanboyShowStart(['fan' => fanboyTId(4)]);
+        same('fanboy r6 show control: a fan he steers is shown by the control (no process of its own)', ['control', []], [$r['show']['via'], $GLOBALS['fanboyLaunched']]);
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        same('fanboy r6 show control: the next round — 100 %, «running», the other fans of its zone as they were', [[255, 1], 'running', fanboyTOut($t, 5)],
+            [fanboyTOut($t, 4), fanboyShowRead()['status'], fanboyTOut($t, 5)]);
+        fanboyTRounds($c, $now, $t, $spec, 4);
+        same('fanboy r6 show control: … after 5 s its curve\'s value again, the show done, noted', [$before, 'done', 'show'],
+            [fanboyTOut($t, 4), fanboyShowRead()['status'], end($c['notes'])['code'] ?? null]);
+        fanboyLetGo($c, 'end');
+    } finally {
+        @unlink(TESTS_RUN_DIR . '/fanboy/control.pid');
+        fanboyTEnd();
+    }
+}
