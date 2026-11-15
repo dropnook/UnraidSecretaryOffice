@@ -100,6 +100,9 @@ const PICTURES = [
   // round 7: F2 the test step's cards keep their size through a test (running, then done)
   ['r7-2-test-running', 'fanboy-test', 'fanboy/setup/test', null, false],
   ['r7-2-test-done', 'fanboy-ask', 'fanboy/setup/test', null, false],
+  // round 8: G1 the quiet test — the switch, and a test running with the other fans standing
+  ['r8-1-quiet-running', 'fanboy-quiet', 'fanboy/setup/test', null, false],
+  ['r8-1-quiet-switch', 'fanboy-ask', 'fanboy/setup/test', '.page-help summary', false],
 ].filter((p) => !opt.only || opt.only.includes(p[0]));
 const LOCALES = { de: 'de-CH', en: 'en-US' };
 const faults = [];

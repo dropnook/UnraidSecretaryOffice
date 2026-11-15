@@ -88,7 +88,7 @@ if (fanboyShown()) {
             'look_now'      => fn (array $r) => fanboyLookNow(),
             'drivers_load'  => fn (array $r) => fanboyDriversLoad() + ['state' => fanboyScan()],
             'drivers_undo'  => fn (array $r) => fanboyDriversUndo() + ['state' => fanboyScan()],
-            'test_up'       => fn (array $r) => fanboyStepStart('test_up', idList($r, 'fans')),
+            'test_up'       => fn (array $r) => fanboyStepStart('test_up', idList($r, 'fans'), optBool($r, 'quiet', false)),     // round 8: quiet
             'measure'       => fn (array $r) => fanboyStepStart('measure', idList($r, 'fans')),
             'step_alive'    => function (array $r): array { fanboyStepAliveTouch(); return ['ok' => true, 'step' => fanboyStepRead()]; },
             'step_stop'     => fn (array $r) => fanboyStepStopAction(),

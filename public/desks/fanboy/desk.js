@@ -100,6 +100,31 @@ const nobody = () => who().who === 'nobody';
 /** Round 6: the fans he doesn't steer, watched (the agent's fanboy-watch.php) — a tach input's state by chip, address, number */
 const idle = () => S().idle || { on: true, tachs: {} };
 const idleOf = (chip, address, n) => (idle().tachs || {})[`${chip}@${address}#${n}`] || null;
+/**
+ * Round 8 (G1, the owner): «stop the other fans meanwhile» — the quiet test: while one output is tested (or shown while
+ * he doesn't steer) the others stand, so only that fan is heard. On by default, remembered per browser (a choice).
+ */
+const quietOn = () => Office.store('fanboy.quiet') !== '0';
+function quietChoice() {
+  const box = Office.place('quiet.setting', el('div', 'fb-dash-choice'));
+  const on = quietOn();
+  const head = el('div', 'fb-dash-text');
+  head.append(el('h3', 'fb-head', T('quiet.setting')), el('p', 'fb-hint-text', T('quiet.note')));
+  const seg = el('div', 'seg');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', T('quiet.setting'));
+  [['on', true], ['off', false]].forEach(([k, v]) => {
+    const b = el('button', '', T(`quiet.${k}`));
+    b.type = 'button';
+    b.title = T(`quiet.${k}_title`);
+    b.setAttribute('aria-pressed', String(v === on));
+    b.disabled = stepRuns();
+    b.onclick = () => { if (v !== on) { Office.store('fanboy.quiet', v ? null : '0'); drawn = ''; redraw(); } };
+    seg.appendChild(b);
+  });
+  box.append(head, seg);
+  return box;
+}
 /** Round 6: «show me this fan» — running or just ended (fanboy-show.php) */
 const showNow = () => S().show || null;
 const showRuns = () => { const x = showNow(); return !!x && (x.status === 'starting' || x.status === 'running'); };
@@ -123,7 +148,9 @@ function showButton(id, f) {
     : situation() === 'other' ? T('show.off.other') : stepRuns() ? T('show.off.step') : showRuns() && !mine ? T('show.off.one') : control().running && control().alarm ? T('show.off.alarm') : '';
   b.title = mine ? T('show.stop_tip') : why || T('show.tip');
   b.disabled = (!mine && !!why) || !state || !Office.agent.running;
-  b.onclick = () => (mine ? act('show_stop', { fan: id }, b) : act('show', { fan: id }, b, () => Office.toast(T('show.toast', { fan: fanName(id) }))));
+  // round 8: the quiet switch counts for a show too — only while he doesn't steer (his control never stops another fan)
+  b.onclick = () => (mine ? act('show_stop', { fan: id }, b)
+    : act('show', { fan: id, quiet: quietOn() && !control().running }, b, () => Office.toast(T('show.toast', { fan: fanName(id) }))));
   return b;
 }
 /** A tach input's name as the page says it: the setup's fan on it, else the input's own label, else «Fan input 4» */
@@ -1407,6 +1434,9 @@ function paintBanner() {
   // round 6: a show whose give-back didn't read back as before (the fan may sit at 100 %)
   const sh = showNow();
   if (sh && sh.status !== 'running' && sh.status !== 'starting' && sh.why === 'give_back') box('warn', T('show.give_back_failed', { fan: fanName(sh.fan) }), { show: 'give_back' });
+  if (sh && sh.status !== 'running' && sh.status !== 'starting' && ['quiet_warm', 'no_restart'].includes(sh.why) && sh.quiet_stop) {
+    box('warn', T(`show.${sh.why}`, { what: sh.quiet_stop.what || '', c: num(sh.quiet_stop.c) === null ? '' : fmt.number(sh.quiet_stop.c) }), { show: sh.why });
+  }
   const s2 = step();
   if (s2 && s2.status === 'stopped' && ['page_gone', 'interrupted'].includes(s2.why) && page === '') {
     box('warn', T(`step.ended.${s2.why}`), { step: s2.why });
@@ -1523,6 +1553,7 @@ function testStep() {
   const live = running(s) && s.kind === 'test_up';
   if (blocked(box)) return box;
   stepEnded(box, s, 'test_up');
+  box.appendChild(quietChoice());
   const list = el('div', 'fb-cards');
   (su.outputs || []).forEach((id) => {
     const f = setupFan(id);
@@ -1568,7 +1599,7 @@ function testStep() {
   });
   box.appendChild(list);
   if (live) {
-    box.appendChild(runningLine(s, T('test.running', { n: (s.done || []).length + 1, m: (s.fans || []).length })));
+    box.appendChild(runningLine(s, T(s.quiet ? 'test.running_quiet' : 'test.running', { n: (s.done || []).length + 1, m: (s.fans || []).length })));
   } else {
     const all = button(T('test.all'), T('test.all_tip'), (b) => startStep('test_up', su.outputs || [], b), 'btn');
     box.appendChild(bar(all, nextButton('test')));
@@ -1602,7 +1633,9 @@ function stepEnded(box, s, kind) {
   // too warm: which source, how warm, its limit (round 4: by its own kind — an NVMe pool's 50 °C stops nothing)
   const w = why === 'warm' && s.warm && s.warm.source ? T('step.ended.warm_what', { where: srcLabel({ kind: s.warm.kind === 'disk' || s.warm.kind === 'ssd' ? s.warm.kind : 'other', id: s.warm.source, label: s.warm.source }),
     c: fmt.number(s.warm.c), limit: fmt.number(s.warm.limit) }) : null;
-  box.appendChild(para(w || (has(`step.ended.${why}`) ? T(`step.ended.${why}`) : T('step.ended.stopped')), 'callout warn'));
+  // round 8: the quiet test stopped for a temperature, or a fan that didn't turn again
+  const q = ['quiet_warm', 'no_restart'].includes(why) && s.quiet_stop ? T(`step.ended.${why}`, { what: s.quiet_stop.what || '', c: num(s.quiet_stop.c) === null ? '' : fmt.number(s.quiet_stop.c) }) : null;
+  box.appendChild(para(w || q || (has(`step.ended.${why}`) ? T(`step.ended.${why}`) : T('step.ended.stopped')), 'callout warn'));
 }
 /**
  * A step can't run now — another controller steers, or Fanboy does: the banner says who and why; the step says only its
@@ -1622,7 +1655,7 @@ function blocked(box) {
 }
 async function startStep(kind, ids, b) {
   if (!ids.length) return;
-  await act(kind, { fans: ids }, b, async () => { await load(true); });
+  await act(kind, kind === 'test_up' ? { fans: ids, quiet: quietOn() } : { fans: ids }, b, async () => { await load(true); });
 }
 
 /**
@@ -2349,7 +2382,8 @@ function render() {
   const { head } = Office.deskHead(Office.desks.get(ID), { bubble: plain ? bubbleText() : Office.withGreeting(ID, bubbleText()), actions,
     pages: { list: PAGES(), current: page } });
   if (page === 'setup') {
-    const help = Office.pageHelp(`${ID}-setup`, [[T('help.setup'), T('help.setup_text')], [T('help.safe'), T('help.safe_text')], [T('help.later'), T('help.later_text')]]);
+    const help = Office.pageHelp(`${ID}-setup`, [[T('help.setup'), T('help.setup_text')], [T('help.safe'), T('help.safe_text')], [T('help.quiet'), T('help.quiet_text')],
+      [T('help.later'), T('help.later_text')]]);
     const ssw = setupSwitcher();
     view.replaceChildren(head, help, ssw.el);
     if (!banner || banner.parentNode !== ssw.el) banner = ssw.el.insertBefore(el('div', 'fb-banner'), ssw.body);
@@ -2444,6 +2478,8 @@ Office.places(ID, [
   { kind: 'help', key: 'help.report', text: 'help.report_text' },
   { kind: 'help', key: 'help.setup', text: 'help.setup_text', ...SETUP_ROUTE },
   { kind: 'help', key: 'help.safe', text: 'help.safe_text', ...SETUP_ROUTE },
+  { kind: 'help', key: 'help.quiet', text: 'help.quiet_text', ...SETUP_ROUTE },
+  { kind: 'setting', key: 'quiet.setting', route: `#/${ID}/setup/test`, crumb: 'page.setup' },
   { kind: 'help', key: 'help.later', text: 'help.later_text', ...SETUP_ROUTE },
   ...STEPS.map((k) => ({ kind: 'step', key: `step.${k}`, ...SETUP_ROUTE, route: `#/${ID}/setup/${k}` })),
   ...STEPS.map((k) => ({ kind: 'tile', key: `step.${k}`, anchor: `setup.tile.${k}`, ...SETUP_ROUTE, route: `#/${ID}/setup/${k}` })),

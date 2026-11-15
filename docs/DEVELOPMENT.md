@@ -1055,6 +1055,15 @@ the last 60 history lines only for a source the file has none for. **The file
   disks.ini value counts +1 °C per started 10 minutes (≤ +3, `fanboyPollAllowance()`) in the zone logic, the measuring's
   «too warm» and the watch. IPMI thresholds and NVIDIA temperatures stay out (the owner, 2026-11-15: until a user asks).
   Tests: tests/fanboy-r6-tests.php.
+  **Round 7** (the owner's Z890, it87): a fixed full that reads back «full on» (enable 0) obeys (`fanboyObeys()`, every
+  read-back); outputs left on a fixed value someone left: «nobody steers» (who `nobody`, why `fixed`); a controller only by
+  its own program and only while its plugin is installed (`fanboyProgram()`). **Round 8:** the test holds full for
+  `FANBOY_UP_FOR` even when a tach follows; round 5's «unpaired → ignored» judged only once every output of the chip has
+  a verdict. **The one exception to «never down»** (the owner, 2026-11-15): the quiet test — with «stop the other fans
+  meanwhile» on, every other output (never a CPU cooler or pump by its role, never one found inverted) stands at a fixed 0
+  while one is tested (10 s) or shown (while he doesn't steer), under temperature guards (refused while anything is warm or
+  the CPU at 70 °C; back at once at 80 °C or 20 °C over its start, or a place at «full speed at»), then everything back
+  exactly and a 5-s pause in which every fan that turned must turn again — else its output to full and an alert.
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same

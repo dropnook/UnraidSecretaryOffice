@@ -48,8 +48,158 @@ const FANBOY_AUTO_MODES = ['it87' => 2, 'nct6775' => 5, 'w83627ehf' => 5, 'f7188
 const FANBOY_COLOURS = ['auto', 'black', 'graphite', 'grey', 'white', 'slate', 'accent'];
 const FANBOY_GUARD_CRON = '/boot/config/plugins/unraid-secretary-office/fanboy-guard.cron';
 
-final class FanboyStepStop extends RuntimeException
+class FanboyStepStop extends RuntimeException
 {
+}
+
+/** Round 8 (G1): the quiet test stopped for a temperature — what, how warm (the step says it) */
+final class FanboyQuietWarm extends FanboyStepStop
+{
+    public function __construct(public readonly array $what, string $why = 'quiet_warm')
+    {
+        parent::__construct($why);
+    }
+}
+
+/*
+ * Round 8 (G1, the owner, 2026-11-15 — the one exception to «never down»): the QUIET test. While one output X is tested
+ * (or shown while he doesn't steer), every other output is stopped so that only X is heard: each taken like any take (its
+ * state before in the journal), a fixed 0 written; X to full for FANBOY_QUIET_FOR the whole time; then every one given
+ * back exactly (value + mode, read back); then at least FANBOY_QUIET_PAUSE with everything as before, in which every tach
+ * that turned before must turn again within FANBOY_QUIET_RESTART — one that doesn't: its output (or, its output unknown,
+ * every output quieted on that chip) to full, an alert, the test stops. Never quieted: X, a CPU cooler or pump (by its
+ * role, once known), an output found inverted, one whose driver takes no values, one without a mode file, one someone
+ * else holds. Guards: refused while anything is warm or the CPU at FANBOY_QUIET_CPU_START; during the quiet phase every
+ * look (≤ 0.5 s): the CPU at FANBOY_QUIET_CPU_STOP or FANBOY_QUIET_CPU_RISE over its start, or any place at its «needs
+ * all the air» → everything back at once, the test stops naming it. A holder that dies or hangs, the page gone (45 s):
+ * the existing ways give every quieted output back (journal holder kind «step»).
+ */
+const FANBOY_QUIET_FOR = 10.0;          // seconds X at full with the others stopped
+const FANBOY_QUIET_PAUSE = 5.0;         // seconds at least with everything as before, between two outputs
+const FANBOY_QUIET_RESTART = 10.0;      // seconds a fan that turned before has to turn again
+const FANBOY_QUIET_CPU_START = 70.0;    // °C: the CPU this warm — no quiet test
+const FANBOY_QUIET_CPU_STOP = 80.0;     // °C: the CPU this warm during it — everything back
+const FANBOY_QUIET_CPU_RISE = 20.0;     // °C over the CPU's value at the quiet phase's start — everything back
+
+/** Every tach input's rpm now: [chip@address#n => rpm|null] (the restart check's before and after) */
+function fanboyAllTachs(): array
+{
+    $out = [];
+    foreach (fanboyChips(fanboyPaths(fanboySysRoot() ?: null)['hwmon']) as $c) {
+        if ($c['kind'] === 'gpu') {
+            continue;
+        }
+        foreach ($c['fans'] as $f) {
+            $out[$c['name'] . '@' . $c['address'] . '#' . $f['n']] = $f['rpm'];
+        }
+    }
+    return $out;
+}
+
+/** The warmest CPU temperature now (°C), null when none says one */
+function fanboyCpuNow(array $chips): ?float
+{
+    $max = null;
+    foreach ($chips as $c) {
+        if ($c['kind'] === 'cpu') {
+            foreach ($c['temps'] as $t) {
+                $max = $t['c'] === null ? $max : max($max ?? $t['c'], $t['c']);
+            }
+        }
+    }
+    return $max;
+}
+
+/**
+ * Is it too warm for the quiet test? $cpuStart null: before it (anything warm, the CPU at FANBOY_QUIET_CPU_START);
+ * a number: during it (the CPU at FANBOY_QUIET_CPU_STOP or FANBOY_QUIET_CPU_RISE over $cpuStart, anything warm).
+ * [what (its name as the page says it), c] — or null
+ */
+function fanboyQuietWarm(?float $cpuStart = null): ?array
+{
+    $p = fanboyPaths(fanboySysRoot() ?: null);
+    $chips = fanboyChips($p['hwmon']);
+    $disks = fanboyDisks($p['disks'], fanboyDiskLimits($p));
+    $cpu = fanboyCpuNow($chips);
+    $lang = function_exists('officeNotifyLang') ? officeNotifyLang() : 'en';
+    $cpuName = fn () => function_exists('officeNotifyText') ? officeNotifyText('fanboy', 'kind.cpu', [], $lang) : 'CPU';
+    if ($cpu !== null && ($cpuStart === null ? $cpu >= FANBOY_QUIET_CPU_START : ($cpu >= FANBOY_QUIET_CPU_STOP || $cpu >= $cpuStart + FANBOY_QUIET_CPU_RISE))) {
+        return ['what' => $cpuName(), 'c' => $cpu];
+    }
+    $warm = fanboyWarmNow($chips, $disks, fanboyDiskAllowance(fanboyPollAttributes($p), $disks), $lang);
+    return $warm === null ? null : ['what' => $warm['name'], 'c' => $warm['c']];
+}
+
+/**
+ * The outputs to stop while $x is tested: every other offered output — not a CPU cooler or pump (their role), not one
+ * found inverted, not one whose driver takes no values (the control's last word), not one without a mode file
+ */
+function fanboyQuietOthers(string $x, array $outputs, ?array $settings): array
+{
+    $refuses = readJson(fanboyStatusFile())['refuses'] ?? [];
+    $out = [];
+    foreach ($outputs as $id => $o) {
+        $f = $settings['fans'][$id] ?? null;
+        if ($id === $x || in_array($f['role'] ?? null, ['cpu', 'pump'], true) || fanboyFound($f) === 'inverted'
+            || (is_array($refuses) && in_array($id, $refuses, true)) || (fanboyOutputNow($o['device'], $o['output'])['enable'] ?? null) === null) {
+            continue;
+        }
+        $out[$id] = $o;
+    }
+    return $out;
+}
+
+/** Stops the others: each taken (its state before in the journal) and set to a fixed 0 — those it couldn't take, left alone */
+function fanboyQuietStop(array $others, array $owner, string $boardKey): array
+{
+    $held = [];
+    foreach ($others as $id => $o) {
+        if (fanboyTake($o, $owner, $boardKey) === null) {
+            continue;                   // someone else holds it: as it is
+        }
+        $held[] = $id;
+        fanboySet($id, 0, $owner);      // an output that doesn't take 0 (a PWM fan that only slows down): no error, no verdict
+    }
+    return $held;
+}
+
+/**
+ * After a quiet phase (everything given back): at least FANBOY_QUIET_PAUSE as before, every tach that turned before
+ * ($before) turning again within FANBOY_QUIET_RESTART. One that doesn't: its output — the one the setup paired it with,
+ * else every output quieted on its chip — to full (unheld, fanboyFullNow()), an alert naming it, the test stops.
+ */
+function fanboyQuietRestart(array $before, array $quieted, array $io): void
+{
+    $t1 = ($io['now'])();
+    while (true) {
+        $now = fanboyAllTachs();
+        $stuck = array_keys(array_filter($before, fn ($rpm, $tid) => is_int($rpm) && $rpm >= 200 && is_int($now[$tid] ?? null) && $now[$tid] < 100, ARRAY_FILTER_USE_BOTH));
+        // (a sentinel or nothing read is «no value», never «stands» — part 1's rule)
+        $elapsed = ($io['now'])() - $t1;
+        if (!$stuck && $elapsed >= FANBOY_QUIET_PAUSE) {
+            return;
+        }
+        if ($stuck && $elapsed >= FANBOY_QUIET_RESTART) {
+            break;
+        }
+        fanboyStepWait($io, 0.5);
+    }
+    $settings = fanboyBoardRaw() ?? [];
+    $chipOf = fn (string $id) => (string) preg_replace('/:pwm\d+$/D', '', $id);
+    $full = [];
+    $names = fanboyTachNames(fanboyChips(fanboyPaths(fanboySysRoot() ?: null)['hwmon']), $settings);
+    foreach ($stuck as $tid) {
+        [$chip, $n] = explode('#', $tid);
+        $chipKey = str_replace('@', ':', $chip);
+        $paired = array_keys(array_filter(is_array($settings['fans'] ?? null) ? $settings['fans'] : [], fn ($f, $id) => is_array($f)
+            && $chipOf((string) $id) === $chipKey && fanboyFound($f) === 'tach' && in_array((int) $n, is_array($f['tachs'] ?? null) ? $f['tachs'] : [], true), ARRAY_FILTER_USE_BOTH));
+        $ids = $paired ?: array_values(array_filter($quieted, fn ($id) => $chipOf($id) === $chipKey));
+        $full = array_merge($full, $ids);
+        logLine("Fanboy: after the quiet test {$names[$tid]} didn't turn again — " . ($ids ? implode(', ', $ids) . ' set to full speed' : 'no output of it known'));
+        fanboyTellOnce("no_restart:$tid", 'quiet_no_restart', ['fan' => $names[$tid] ?? $tid], 'alert');
+    }
+    fanboyFullNow(array_values(array_unique($full)), 'no_restart');
+    throw new FanboyQuietWarm(['what' => implode(', ', array_map(fn ($tid) => $names[$tid] ?? $tid, $stuck)), 'c' => null], 'no_restart');
 }
 
 // ===================================================================== the store, written
@@ -199,8 +349,18 @@ function fanboyStepWait(array $io, float $s): void
  * fans calmed down before the next one. Result: found tach (one or more inputs — a hub), ask (none followed: «did
  * something get louder?»), unclear (it ran at full speed already — up shows nothing), busy (someone holds it).
  */
-function fanboyTestUp(array $o, array $owner, array $io, string $boardKey): array
+function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool $quiet = false): array
 {
+    // round 8 (G1): the quiet test — never while anything is warm; what turned before, for the restart check after
+    $tachsBefore = [];
+    $others = [];
+    if ($quiet) {
+        if (($warm = fanboyQuietWarm()) !== null) {
+            throw new FanboyQuietWarm($warm);
+        }
+        $tachsBefore = fanboyAllTachs();
+        $others = fanboyQuietOthers($o['id'], fanboyOutputs(fanboyDetect(fanboySysRoot() ?: null)), fanboyBoardRaw());
+    }
     $base = [];
     for ($i = 0; $i < 4; $i++) {
         foreach (fanboySample($o) as $n => $r) {
@@ -215,7 +375,13 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey): arra
     }
     $initial = $taken['initial'];
     $follow = [];
+    $quieted = [];
+    $cpuStart = null;
     try {
+        if ($quiet) {
+            $cpuStart = fanboyCpuNow(fanboyChips(fanboyPaths(fanboySysRoot() ?: null)['hwmon']));
+            $quieted = fanboyQuietStop($others, $owner, $boardKey);
+        }
         if (fanboySet($o['id'], FANBOY_FULL, $owner) === null) {
             return ['found' => 'busy', 'tachs' => []];
         }
@@ -223,8 +389,12 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey): arra
         $seen = [];
         $fell = [];
         $checked = false;
-        while (($io['now'])() - $t0 < FANBOY_UP_FOR) {
+        while (($io['now'])() - $t0 < ($quiet ? FANBOY_QUIET_FOR : FANBOY_UP_FOR)) {
             fanboyStepWait($io, 0.5);
+            // round 8 (G1): every look of the quiet phase — too warm: everything back at once (finally), the test stops
+            if ($quiet && ($warm = fanboyQuietWarm($cpuStart ?? -INF)) !== null) {
+                throw new FanboyQuietWarm($warm);
+            }
             // round 5 (forum 3.2): about 2 s after the write, read it back — a value or mode changed back is the BIOS
             // taking the connector back: «doesn't obey», never «empty», never steered
             if (!$checked && ($io['now'])() - $t0 >= FANBOY_READBACK_AFTER) {
@@ -241,8 +411,9 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey): arra
                 if ($r !== null && $r >= max($base[$n] * 1.15 + 100, 300)) {
                     $seen[$n] = ($seen[$n] ?? 0) + 1;
                 }
-                // round 5 (forum 3.11): full makes it FALL clearly — the output works the other way round
-                if ($r !== null && $base[$n] >= 300 && $r <= $base[$n] * 0.6) {
+                // round 5 (forum 3.11): full makes it FALL clearly — the output works the other way round (not judged in the
+                // quiet test: the other fans stopping fall on purpose)
+                if (!$quiet && $r !== null && $base[$n] >= 300 && $r <= $base[$n] * 0.6) {
                     $fell[$n] = ($fell[$n] ?? 0) + 1;
                 }
             }
@@ -256,7 +427,7 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey): arra
         $follow = array_keys(array_filter($seen, fn ($k) => $k >= 2));
         $inverted = $follow ? [] : array_keys(array_filter($fell, fn ($k) => $k >= 2));
     } finally {
-        fanboyGiveBack([$o['id']], 'step', $owner);         // at once — an inverted output stopped its fan
+        fanboyGiveBack([$o['id'], ...$quieted], 'step', $owner);      // at once — an inverted output stopped its fan; the quieted ones
     }
     if (!empty($taken_back)) {
         return ['found' => 'ignored', 'tachs' => [], 'base' => $base, 'why' => 'taken_back'];
@@ -272,6 +443,10 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey): arra
             break;
         }
         fanboyStepWait($io, 0.5);
+    }
+    // round 8 (G1): after a quiet phase, the pause — every fan that turned before turns again, or its output to full
+    if ($quiet && $quieted) {
+        fanboyQuietRestart($tachsBefore, $quieted, $io);
     }
     sort($follow);
     sort($inverted);
@@ -495,7 +670,7 @@ function fanboyStepRun(array $step, array $io): array
             };
             $step['progress'] = null;
             if ($step['kind'] === 'test_up') {
-                $r = fanboyTestUp($o, $owner, $io, $key);
+                $r = fanboyTestUp($o, $owner, $io, $key, ($step['quiet'] ?? false) === true);
                 $step['results'][$id] = $r;
                 if ($r['found'] !== 'busy') {
                     fanboyStoreUpdate(function (array $e) use ($id, $o, $r): array {
@@ -562,6 +737,9 @@ function fanboyStepRun(array $step, array $io): array
     } catch (FanboyStepStop $e) {
         $step['status'] = 'stopped';
         $step['why'] = $e->getMessage();
+        if ($e instanceof FanboyQuietWarm) {
+            $step['quiet_stop'] = $e->what;         // round 8: which temperature (or which fan didn't turn again)
+        }
     } catch (Throwable $e) {
         $step['status'] = 'failed';
         $step['why'] = 'error';
@@ -603,10 +781,17 @@ function fanboyStepMain(): int
 // ===================================================================== the actions
 
 /** A step started: checked, written as «starting», its process launched */
-function fanboyStepStart(string $kind, array $ids): array
+function fanboyStepStart(string $kind, array $ids, bool $quiet = false): array
 {
     if (fanboyStepRunning()) {
         throw new Problem('fanboy_step_running');
+    }
+    if (function_exists('fanboyShowRunning') && fanboyShowRunning()) {
+        throw new Problem('fanboy_show_running');
+    }
+    // round 8 (G1): the quiet test never starts while anything is warm (the CPU at 70 °C, a place at its «full speed at»)
+    if ($kind === 'test_up' && $quiet && ($warm = fanboyQuietWarm()) !== null) {
+        throw new Problem('fanboy_quiet_warm', ['what' => $warm['what'], 'c' => (int) round($warm['c'] ?? 0)]);
     }
     if (fanboyControlPid() !== null) {
         throw new Problem('fanboy_steering');            // hand back first: never a step beside the control
@@ -630,7 +815,7 @@ function fanboyStepStart(string $kind, array $ids): array
         }
     }
     $step = ['id' => bin2hex(random_bytes(6)), 'kind' => $kind, 'fans' => array_values($ids), 'status' => 'starting', 'pid' => null, 'start' => null,
-             'done' => [], 'results' => [], 'why' => null, 'begun' => time()];
+             'done' => [], 'results' => [], 'why' => null, 'begun' => time(), 'quiet' => $kind === 'test_up' && $quiet];
     fanboyStepAliveTouch();
     fanboyStepWrite($step);
     fanboyLaunch('fanboy-step');

@@ -261,7 +261,7 @@ function testFanboyDesk(): void
     check('fanboy desk: the long lists — first what counts, the rest behind one fold each (keepFold: kept while the page lives, never per browser), the filter over both',
         str_contains($js, "moreFold('sensors-more', rest, T('sensors.more', { n: rest.length }), f.words.length > 0)") && str_contains($js, "moreFold('fans-more', rest, T('fans.more', { n: rest.length }), false)")
         && str_contains($js, "const det = keepFold(el('details', 'fb-more'), filtering ? `\${key}:filtered` : key, !!filtering);")
-        && preg_match_all('/Office\.store\(\'([^\']+)\'/', $js, $kept) >= 1 && array_unique($kept[1]) === ['fanboy.period'] && str_contains($js, 'bar.done(fits.length, all.length, sw.note());'));
+        && preg_match_all('/Office\.store\(\'([^\']+)\'/', $js, $kept) >= 1 && array_values(array_unique($kept[1])) === ['fanboy.period', 'fanboy.quiet']       /* round 8: the quiet test's switch, a choice */ && str_contains($js, 'bar.done(fits.length, all.length, sw.note());'));
     // the demo states: the setup's keys as a real look on the fake tree has them
     $t = fanboyT('deskstate');
     try {

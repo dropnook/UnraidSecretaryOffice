@@ -426,6 +426,33 @@ function fanboyGivenCheck(?int $wall = null): array
     }) ?? [];
 }
 
+/**
+ * Round 8 (G1): outputs nobody holds to full speed, fixed — a fan that didn't turn again after the quiet test: its
+ * output stays at full (more air never harms) until Fanboy steers it or Unraid restarts; noted in the journal
+ * (`given.full`, as round 5's give-back check notes it). Returns the outputs written.
+ */
+function fanboyFullNow(array $ids, string $why): array
+{
+    if (!$ids) {
+        return [];
+    }
+    return fanboyLocked(function (array $j) use ($ids, $why): array {
+        $done = [];
+        foreach ($ids as $id) {
+            $o = $j['outputs'][$id] ?? null;
+            if (!is_array($o) || is_array($o['owner'] ?? null)) {
+                continue;
+            }
+            $w = fanboyWriteValue($o['device'], $o['output'], FANBOY_FULL);
+            $j['outputs'][$id]['given'] = (is_array($o['given'] ?? null) ? $o['given'] : ['at' => time(), 'why' => $why, 'ok' => true])
+                + ['checked' => time()];
+            $j['outputs'][$id]['given']['full'] = ['at' => time(), 'why' => $why, 'ok' => $w !== null];
+            $done[] = $id;
+        }
+        return [$done ? $j : null, $done];
+    }) ?? [];
+}
+
 /** Writes a value to an output this holder has (pct of 255 already turned into 0–255), read back into «expect» */
 function fanboySet(string $id, int $value, array $owner): ?array
 {
