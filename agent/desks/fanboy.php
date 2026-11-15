@@ -730,6 +730,10 @@ function fanboySetupState(array $scan, ?array $settings): array
             'model' => $model === null ? null : ['id' => is_string($model['id'] ?? null) ? $model['id'] : null, 'mm' => is_int($model['mm'] ?? null) ? $model['mm'] : null,
                 'blades' => is_int($model['blades'] ?? null) ? $model['blades'] : null],
             'colour' => is_string($f['colour'] ?? null) && in_array($f['colour'], FANBOY_COLOURS, true) ? $f['colour'] : null,
+            // round 12: the user's own look — frame and wheel colour, blade style (the page's keys; an old `colour` stays as it is)
+            'frame' => is_string($f['frame'] ?? null) && preg_match(FANBOY_LOOK_KEY_RE, $f['frame']) ? $f['frame'] : null,
+            'wheel' => is_string($f['wheel'] ?? null) && preg_match(FANBOY_LOOK_KEY_RE, $f['wheel']) ? $f['wheel'] : null,
+            'style' => is_string($f['style'] ?? null) && preg_match(FANBOY_LOOK_KEY_RE, $f['style']) ? $f['style'] : null,
             'back' => in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : null,
             // round 3: fans on this one connector (the user says; one speed for all of them) — none stored: one
             'count' => is_int($f['count'] ?? null) && $f['count'] >= 1 && $f['count'] <= FANBOY_COUNT_MAX ? $f['count'] : 1,
@@ -740,7 +744,14 @@ function fanboySetupState(array $scan, ?array $settings): array
             'cpu_own' => fanboyCpuOwn($f) ? $f['cpu_own']['at'] : null, 'min_pct' => $m['min_pct'] ?? null, 'start_pct' => $m['start_pct'] ?? null,
             'max_rpm' => $m['max_rpm'] ?? null, 'table' => $m['table'] ?? null, 'no_turn' => ($f['no_turn'] ?? false) === true,
             // round 9 (H1): it didn't start from standing at this value (0–255) — it needed a kick
-            'kick_start' => is_int($f['kick_start']['value'] ?? null) ? $f['kick_start']['value'] : null];
+            'kick_start' => is_int($f['kick_start']['value'] ?? null) ? $f['kick_start']['value'] : null,
+            // round 12: the measurement's standstill part (null: not tried — measured before round 12, or a CPU cooler/pump)
+            'stand' => $m !== null && array_key_exists('stops', $m) ? array_intersect_key($m + ['floor_rpm' => null, 'start_from_stop' => null, 'kick_start' => null, 'stops_safe' => null],
+                array_flip(['stops', 'floor_rpm', 'start_from_stop', 'kick_start', 'stops_safe'])) : null,
+            // … and «darf stehen» chosen but not in effect: why (measure_again, never_stops, not_safe, not_measured)
+            'off_why' => ($plan = fanboyStandPlan($f, is_array($m['table'] ?? null) ? $m : null, ($f['found'] ?? null) === 'tach', fanboyCpuOwn($f), 0))[1],
+            // … in effect (it may stand), and a CPU cooler's second tick — since when (null: none)
+            'may_stand' => $plan[0], 'cpu_off' => fanboyCpuOwn($f) && is_int($f['cpu_off']['at'] ?? null) ? $f['cpu_off']['at'] : null];
         $r = fanboyResolve($stored, $scan);
         if ($r['path'] === null) {
             $missing[] = ['id' => $id, 'how' => $r['how']];

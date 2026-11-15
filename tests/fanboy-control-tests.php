@@ -297,6 +297,8 @@ function testFanboyControl(): void
         // «off» allowed for the measured fan: below its floor it may stand — and it starts again with its start value first
         $s2 = $settings;
         $s2['fans'][fanboyTId(4)]['off_ok'] = true;
+        // round 12: standing only for a fan whose measuring found it stops and starts again (here at 30 %)
+        $s2['fans'][fanboyTId(4)]['measured'] += ['stops' => true, 'floor_rpm' => null, 'start_from_stop' => 30, 'kick_start' => null, 'stops_safe' => true];
         $s2['zones'][0]['target'] = ['points' => [[30, 0], [40, 0], [45, 60], [50, 100]]];
         fanboyLetGo($c, 'test');
         $c = fanboyControlNew($s2, FANBOY_T_KEY, fanboyMe('control'));

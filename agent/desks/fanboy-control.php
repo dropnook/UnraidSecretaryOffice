@@ -106,6 +106,8 @@ const FANBOY_ROLES_OURS = ['case', 'disks', 'ram', 'nvme', 'other'];
  * as for every fan of his. Pumps never.
  */
 const FANBOY_CPU_FLOOR = 40;
+const FANBOY_CPU_STAND_GAP = 5.0;       // round 12: a CPU cooler may stop only with the CPU this far under its «ab» …
+const FANBOY_CPU_STAND_AFTER = 60.0;    // … for this long without a break (it starts again at once at «ab»)
 
 /** A CPU cooler the owner gave Fanboy, confirmed and dated */
 function fanboyCpuOwn(array $f): bool
@@ -418,19 +420,22 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
             if ($cpu) {
                 $floor = max($floor, FANBOY_CPU_FLOOR);
             }
+            [$offOk, $offWhy, $start] = fanboyStandPlan($f, $m, $hasTach, $cpu, $floor);
             $fans[$id] = [
                 'id' => $id, 'zone' => $z['id'], 'chip' => $f['chip'], 'address' => $f['address'], 'output' => $f['output'],
                 'tachs' => array_values(array_filter(is_array($f['tachs'] ?? null) ? $f['tachs'] : [$f['tach']], 'is_int')),
                 'name' => is_string($f['name'] ?? null) ? $f['name'] : '',
                 'table' => $m['table'] ?? null, 'floor' => $floor,
-                // round 9 (H1): a fan that needed a kick to start at its value before starts above it
-                'start' => max($m !== null && is_numeric($m['start_pct'] ?? null) ? (int) $m['start_pct'] : $floor,
-                    is_int($f['kick_start']['value'] ?? null) ? min(100, (int) ceil($f['kick_start']['value'] / 2.55) + FANBOY_FLOOR_MARGIN) : 0),
-                'off_ok' => !$cpu && ($f['off_ok'] ?? false) === true && $m !== null && $hasTach, 'cpu' => $cpu,
+                // round 9 (H1): a fan that needed a kick to start at its value before starts above it; round 12: from
+                // standstill as measured (fanboyStandPlan())
+                'start' => max($start, is_int($f['kick_start']['value'] ?? null) ? min(100, (int) ceil($f['kick_start']['value'] / 2.55) + FANBOY_FLOOR_MARGIN) : 0),
+                'off_ok' => $offOk, 'off_why' => $offWhy, 'cpu' => $cpu,
                 // «give back» (part 3): the owner's choice for a fan found on a fixed value — 'auto' gives the chip's mode
                 'back' => $cpu ? 'auto' : (in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : FANBOY_BACK_DEFAULT), 'auto' => null,
                 'device' => null, 'pct' => null, 'value' => null, 'changed' => null, 'kick_until' => null, 'trim' => 0.0,
                 'rpm' => null, 'zero_since' => null, 'kicks' => 0, 'gone' => false, 'foreign' => false, 'taken' => false, 'verified' => false,
+                // round 12: standing on purpose — since when (wall clock), a CPU cooler's cool time and «ab» (°C)
+                'standing' => false, 'stand_since' => null, 'cool_since' => null, 'stand_at' => null,
             ];
             $ids[] = $id;
         }
@@ -896,11 +901,16 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
             $pct = $z['unit'] === 'pct' || $hot ? ($hot ? 100.0 : $cur) : 100.0;
         }
         $pct = max(0.0, min(100.0, $pct));
-        if ($pct < 0.5 && $f['off_ok']) {
+        if ($f['off_ok'] && $f['cpu']) {
+            // round 12: a CPU cooler that may stand — by the CPU itself, read every round, never by the curve's way down
+            $pct = fanboyCpuStand($c, $z, $id, $now, $hot || isset($c['full_since'][$zid])) ? 0.0 : max($pct, (float) $f['floor']);
+        } elseif ($pct < 0.5 && $f['off_ok']) {
             $pct = 0.0;
         } else {
             $pct = max($pct, (float) $f['floor']);
         }
+        // round 12: standing on purpose since when (the page says it)
+        $c['fans'][$id]['stand_since'] = $pct === 0.0 ? ($c['fans'][$id]['stand_since'] ?? time()) : null;
         $c['fans'][$id]['pct'] = (int) round($pct);
         // it stands though it should turn: every one of its tach inputs counted (one fan of two on a hub too). The clock runs
         // ACROSS kicks (2026-11-15: a floor under the start value kicked a blocked fan for ever, each kick resetting the
@@ -917,6 +927,79 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
             $c['full_since'][$zid] = $now;
         }
     }
+}
+
+/**
+ * Round 12: «darf stehen» and the start from standing, from the measurement's standstill part. [off_ok in effect, why
+ * not (null | not_measured | measure_again: measured before round 12 | never_stops: a floor it keeps | not_safe: it
+ * doesn't start again), the start value]. Standing allowed only when it stops AND starts again safely; a fan that
+ * stops starts with start_from_stop, else (the kick, or not safe) with full for FANBOY_KICK, then its value.
+ */
+function fanboyStandPlan(array $f, ?array $m, bool $hasTach, bool $cpu, int $floor): array
+{
+    $start = $m !== null && is_numeric($m['start_pct'] ?? null) ? (int) $m['start_pct'] : $floor;
+    if ($m !== null && ($m['stops'] ?? null) === true) {
+        $start = is_int($m['start_from_stop'] ?? null) ? max(1, min(100, $m['start_from_stop'])) : 100;
+    }
+    $why = null;
+    if (($f['off_ok'] ?? false) !== true) {
+        return [false, null, $start];
+    }
+    if ($cpu && !is_int($f['cpu_off']['at'] ?? null)) {
+        $why = 'cpu_off_confirm';           // round 12: a CPU cooler stands only with its own tick (role … cpu_off_confirm)
+    } elseif ($m === null || !$hasTach) {
+        $why = 'not_measured';
+    } elseif (!array_key_exists('stops', $m)) {
+        $why = 'measure_again';
+    } elseif ($m['stops'] !== true) {
+        $why = 'never_stops';
+    } elseif (($m['stops_safe'] ?? null) !== true) {
+        $why = 'not_safe';
+    }
+    return [$why === null, $why, $start];
+}
+
+/**
+ * Round 12 (the owner: «klar dürfen CPU-Lüfter auch ganz anhalten, wenn der User das möchte»): does a CPU cooler of his
+ * stand this round? It turns at once when the CPU reaches its «ab» (its kind's low in the zone, default 45 °C), when any
+ * source of its zone asks for air (at or over its own «ab»), when a CPU reading is missing, or in an alarm/over a limit;
+ * it stops only after the CPU was FANBOY_CPU_STAND_GAP °C under «ab» for FANBOY_CPU_STAND_AFTER s without a break; in
+ * between it stays as it is.
+ */
+function fanboyCpuStand(array &$c, array $z, string $id, float $now, bool $alarm): bool
+{
+    $ab = null;
+    $cpuC = null;
+    $missing = false;
+    $ask = $alarm;
+    foreach ($z['sources'] as $s) {
+        $s = fanboySourceValues($z, $s);
+        $r = $c['sources'][$s['id']] ?? null;
+        $ok = $r !== null && !$r['asleep'] && $r['c'] !== null;
+        if ($s['kind'] === 'cpu') {
+            $ab = $ab === null ? (float) $s['low'] : min($ab, (float) $s['low']);
+            $missing = $missing || !$ok;
+            $cpuC = $ok ? max($cpuC ?? (float) $r['c'], (float) $r['c']) : $cpuC;
+        }
+        if ($ok && (float) $r['c'] >= (float) $s['low']) {
+            $ask = true;
+        }
+    }
+    $ab ??= (float) FANBOY_SOURCE_DEFAULTS['cpu']['low'];
+    $f = &$c['fans'][$id];
+    $f['stand_at'] = $ab;
+    if ($ask || $missing || $cpuC === null) {
+        $f['cool_since'] = null;
+        $f['standing'] = false;
+    } elseif ($cpuC <= $ab - FANBOY_CPU_STAND_GAP) {
+        $f['cool_since'] ??= $now;
+        if ($now - $f['cool_since'] >= FANBOY_CPU_STAND_AFTER) {
+            $f['standing'] = true;
+        }
+    } else {
+        $f['cool_since'] = null;
+    }
+    return $f['standing'];
 }
 
 /** Writes a fan's percentage when its value changed: from standing, its start value for FANBOY_KICK seconds first */
@@ -1151,7 +1234,12 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
             'warmest' => $z['warmest'], 'asleep' => count(array_filter($z['state'], fn ($s) => $s === 'asleep')),
             'fans' => array_map(fn ($id) => ['id' => $id, 'name' => $c['fans'][$id]['name'], 'output' => $c['fans'][$id]['output'],
                 'pct' => $c['fans'][$id]['taken'] ? $c['fans'][$id]['pct'] : null, 'rpm' => $c['fans'][$id]['rpm'] ?? null,
-                'held' => $c['fans'][$id]['taken'], 'foreign' => $c['fans'][$id]['foreign']], $z['fans'])];
+                'held' => $c['fans'][$id]['taken'], 'foreign' => $c['fans'][$id]['foreign'],
+                // round 12: «darf stehen» chosen but not in effect — why (measure_again, never_stops, not_safe, not_measured,
+                // cpu_off_confirm); in effect: may_stand, standing since when, a CPU cooler's «starts again at» °C
+                'off_why' => $c['fans'][$id]['off_why'] ?? null, 'may_stand' => ($c['fans'][$id]['off_ok'] ?? false) === true,
+                'stand_since' => $c['fans'][$id]['stand_since'] ?? null,
+                'starts_at' => ($c['fans'][$id]['cpu'] ?? false) && ($c['fans'][$id]['off_ok'] ?? false) ? ($c['fans'][$id]['stand_at'] ?? (float) FANBOY_SOURCE_DEFAULTS['cpu']['low']) : null], $z['fans'])];
     }
     return [
         'v' => 1, 'pid' => getmypid(), 'time' => time(), 'mono' => fanboyMono(), 'board' => $c['key'],
