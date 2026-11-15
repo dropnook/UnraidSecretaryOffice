@@ -26,6 +26,8 @@ ASKP="$TREE/tools/scenarios/ask.php"
 # ---------------------------------------------------------------------------------------------------------- helpers
 ts() { date +%H:%M:%S.%2N; }
 say() { echo "$(ts) $*" | tee -a "$OUT/log.txt" >&2; }
+# rask: the same with the state in the answer (ask.php --raw) — the history part's answer IS its state
+rask() { local a=$1 j=${2:-'{}'} r; r=$(php "$ASKP" --raw --wait 90 "$a" "$j" 2>&1); echo "$(ts) rask $a $j → $(jq -c 'del(.state.zones)' <<<"$r" 2>/dev/null | head -c 600)" >> "$OUT/log.txt"; printf '%s\n' "$r"; }
 ask() { local a=$1 j=${2:-'{}'} r; r=$(php "$ASKP" --wait 90 "$a" "$j" 2>&1); echo "$(ts) ask $a $j → ${r:0:3000}" >> "$OUT/log.txt"; printf '%s\n' "$r"; }
 state() { php "$ASKP" --raw fanboy.refresh 2>/dev/null | jq '.state' > "$OUT/state-$1.json"; }
 sj() { jq -r "$2" "$OUT/state-$1.json"; }
@@ -489,8 +491,8 @@ phase_round4() {
     check "cpu_own: refused without the tick, refused for a case fan" "$( [[ $(err "$r") == fanboy_cpu_confirm && $(err "$r2") == fanboy_bad_role ]] && echo 1 || echo 0)" "no cpu_confirm → $(err "$r"); role case → $(err "$r2")"
     r=$(ask fanboy.role "{\"fan\":\"$(F 1)\",\"role\":\"cpu\",\"name\":\"CPU cooler\",\"cpu_own\":true,\"cpu_confirm\":true}")
     check "cpu_own: given, dated" "$(jq -r '.fan.cpu_own.at | type == "number"' <<<"$r" | grep -c true)" "$(jq -c '.fan | {role, cpu_own}' <<<"$r"); pwm1 still $(reg 1)"
-    r=$(ask fanboy.zones_save "$(ZONESX ".zones[2].fans += [\"$(F 1)\"]")")
-    check "cpu_own: refused in a zone without a CPU temperature" "$( [[ $(err "$r") == fanboy_cpu_zone_needs_cpu ]] && echo 1 || echo 0)" "rear + CPU cooler → $(err "$r")"
+    r=$(ask fanboy.zones_save "$(ZONESX ".zones[0].fans += [\"$(F 1)\"]")")
+    check "cpu_own: refused in a zone without a CPU temperature" "$( [[ $(err "$r") == fanboy_cpu_zone_needs_cpu ]] && echo 1 || echo 0)" "disks + CPU cooler → $(err "$r")"
     sampler_start cpu-take 0.5
     r=$(ask fanboy.zones_save "$(ZONESX ".zones[1].fans += [\"$(F 1)\"]")")
     t=$(until_ 30 bash -c "[[ \$(cat $(chipdir)/pwm1_enable) == 1 ]]")
@@ -526,7 +528,7 @@ phase_round4() {
     check "cpu_own: back to the BIOS clears it" "$( [[ $t != timeout && $(reg 1) == */2 && $(fanj cpu-back "$(F 1)" .cpu_own) == null ]] && echo 1 || echo 0)" "after ${t} s pwm1 $(reg 1); cpu_own $(fanj cpu-back "$(F 1)" .cpu_own); the others $(regs)"
     r=$(ask fanboy.zones_save "$(ZONES)"); sleep 4
     # --- the history and its periods (round 3)
-    r=$(ask fanboy.history '{"hours":1}'); r2=$(ask fanboy.history '{"hours":5}'); r3=$(ask fanboy.history '{"hours":"24"}')
+    r=$(rask fanboy.history '{"hours":1}'); r2=$(ask fanboy.history '{"hours":5}'); r3=$(ask fanboy.history '{"hours":"24"}')
     local now; now=$(jq -r .state.now <<<"$r")
     check "history: the period 1 h only the last hour; 5 and \"24\" refused" \
         "$( [[ $(jq -r '.state.hours' <<<"$r") == 1 && $(jq -r --argjson n "$now" '[.state.zones[][] | .[0] < $n - 3600] | any' <<<"$r") == false && $(err "$r2") == fanboy_bad_period && $(err "$r3") == bad_request ]] && echo 1 || echo 0)" \
@@ -537,7 +539,7 @@ phase_round4() {
     local T; T=$(( $(date +%s) / 60 * 60 + 7 ))
     jq -c --argjson T "$T" '.zones.disks = ([[($T - 345600), 99, 99, 9999]] + [range(0; 61) as $i | [($T - 144000 - 3600 + $i * 60), (if $i == 30 then 66 else 40 end), (if $i == 31 then 90 else 30 end), 700]] + .zones.disks)' \
         "$FB/history.json" > "$FB/.vmrun-history" && mv "$FB/.vmrun-history" "$FB/history.json"
-    r=$(ask fanboy.history '{"hours":72}')
+    r=$(rask fanboy.history '{"hours":72}')
     local seeded; seeded=$(jq -c --argjson T "$T" '[.state.zones.disks[] | select(.[0] < $T - 43200)]' <<<"$r")
     check "history: 3 days — minutes older than 12 h folded into 5-minute spans, peaks kept, older than 3 days gone" \
         "$(jq -r --argjson T "$T" 'length >= 12 and length <= 13 and all(.[0] >= $T - 259200) and (map(.[1]) | max) == 66 and (map(.[2]) | max) == 90' <<<"$seeded" | grep -c true)" \
@@ -553,7 +555,7 @@ phase_round4() {
     take; sleep 6
     # --- the Dashboard setting and its tile (reads state files only)
     r=$(ask fanboy.dashboard '{"show":"loud"}'); r2=$(ask fanboy.dashboard '{"show":true}'); r3=$(ask fanboy.dashboard '{}')
-    check "dashboard: odd values refused" "$( [[ $(err "$r") == bad_request && $(err "$r2") == bad_request && $(err "$r3") == bad_request ]] && echo 1 || echo 0)" "loud → $(err "$r"), true → $(err "$r2"), {} → $(err "$r3"); file $(cat "$D/fanboy/dashboard.json" 2>/dev/null || echo none)"
+    check "dashboard: odd values refused" "$( [[ $(err "$r") == bad_request && $(err "$r2") == missing_field && $(err "$r3") == missing_field ]] && echo 1 || echo 0)" "loud → $(err "$r"), true → $(err "$r2"), {} → $(err "$r3"); file $(cat "$D/fanboy/dashboard.json" 2>/dev/null || echo none)"
     local s
     for s in speeds history off; do
         r=$(ask fanboy.dashboard "{\"show\":\"$s\"}")
@@ -653,7 +655,7 @@ phase_drivers() {
     lsmod | sort > "$OUT/lsmod-before.txt"
     local r; r=$(ask fanboy.drivers_load)
     lsmod | sort > "$OUT/lsmod-after.txt"
-    check "drivers_load: each refuses or brings no output (a VM)" "$(jq -r '[.steps[]?.result] | all(. == "no_chip" or . == "no_output") and (.kept == null)' <<<"$r" | grep -c true)" "$(jq -c '[.steps[]? | "\(.module) \(.result)"]' <<<"$r") kept $(jq -c .kept <<<"$r")"
+    check "drivers_load: each refuses or brings no output (a VM)" "$(jq -r '([.steps[]?.result] | all(. == "no_chip" or . == "no_output")) and (.kept == null)' <<<"$r" | grep -c true)" "$(jq -c '[.steps[]? | "\(.module) \(.result)"]' <<<"$r") kept $(jq -c .kept <<<"$r")"
     check "drivers_load: nothing left loaded" "$(ok diff -q "$OUT/lsmod-before.txt" "$OUT/lsmod-after.txt")" "$(diff "$OUT/lsmod-before.txt" "$OUT/lsmod-after.txt" | grep '^[<>]' | awk '{print $1, $2}' | tr '\n' ' ' | head -c 300)"
     r=$(ask fanboy.drivers_undo)
     lsmod | sort > "$OUT/lsmod-undo.txt"
