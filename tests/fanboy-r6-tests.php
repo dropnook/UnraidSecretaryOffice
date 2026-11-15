@@ -589,12 +589,12 @@ function testFanboyR7CardsKeepSize(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css');
-    $test = substr($js, (int) strpos($js, 'function testCard('), 6000);       // round 8: the test's card (with its assignment)
-    check('fanboy r7 cards: the state line is one element of its own with room for two lines',
-        str_contains($test, "el('div', 'fb-card-line fb-card-state', line)") && str_contains($css, '.fb-card-state{min-height:calc(2 * 1.45em)}'));
-    check('fanboy r7 cards: while a test runs every card keeps its button row — the button off (no card loses or gains a row)',
-        str_contains($test, "} else if (live) {\n    const off = button(found ? T('test.again') : T('test.one'), T('test.wait_tip'), () => {});\n    off.disabled = true;\n    txt.appendChild(bar(off));")
-        && str_contains($test, 'txt.appendChild(assignBox(id, f, live));') && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css'), '.fb-assign-note{min-height:calc(2 * 1.45em)}'));
+    // fanboy-ux (2026-11-15): the cards became a list and one panel built once and patched in place (testFanboyUx) — what
+    // F2 asked for holds there: a row has one height, the panel's sentence keeps room for two lines, its button row stays
+    check('fanboy r7 cards: a row of the list has one height, the panel\'s state sentence room for two lines',
+        preg_match('/\\.fb-item\\{[^}]*height:58px/', $css) === 1 && str_contains($css, '.fb-panel-line{margin:0; font-size:13.5px; line-height:1.45; color:var(--ink2); min-height:calc(2 * 1.45em)}'));
+    check('fanboy r7 cards: while a test runs every panel keeps its button row (its room) and says under it why a button is off',
+        str_contains($css, '.fb-panel-acts{display:flex; gap:8px; flex-wrap:wrap; align-items:center; min-height:34px}') && str_contains($js, "reason = T('panel.busy', { fan: run.id ? fanName(run.id) : '' });"));
     check('fanboy r7 cards: «show me» keeps its width — both labels in one grid cell, the other hidden',
         str_contains($js, "b.append(el('span', mine ? 'fb-show-label fb-show-off' : 'fb-show-label', T('show.button')), on);")
         && str_contains($css, '.fb-show{white-space:nowrap; display:inline-grid}') && str_contains($css, '.fb-show > .fb-show-off{visibility:hidden}'));
@@ -956,10 +956,11 @@ function testFanboyR8FoundNext(): void
 function testFanboyR8Assign(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
-    $card = substr($js, (int) strpos($js, 'function testCard('), 12000);
-    $reach = ["act('role', { fan: id, role: v,", "act('answer', { fan: id, louder: false }", "act('role', { fan: id, role: f.role, count:", "act('role', { fan: id, role: f.role, place:",
-        "act('fan_look', v.id ?", "act('fan_look', { fan: id, colour:", 'more.appendChild(backChoice(f, b));', 'more.appendChild(cpuPart(f));', "Office.api.post(`\${ID}.fan_name`", 'showButton(id, f)'];
-    same('fanboy r8 assign: every action of the old roles step reachable from the test\'s card (role, nothing attached, count, place, model, colour, give back, CPU on own risk, name, show me)',
+    // fanboy-ux (2026-11-15): the card is the output's panel now (panelMake + cpuBlock), its actions queued through send()
+    $card = substr($js, (int) strpos($js, 'function panelMake('), 20000);
+    $reach = ["send('role', { fan: id, role: k,", "send('answer', { fan: id, louder: false })", "send('role', { fan: id, role: f.role, count:", "send('role', { fan: id, role: f.role, place:",
+        "send('fan_look', v.id ?", "send('fan_look', { fan: id, colour:", 'backChoice(f, b)', 'cpuBlock(f, benchUpdate)', 'nameField(id, f,', "send('show', { fan: id,"];
+    same('fanboy r8 assign: every action of the old roles step reachable from the output\'s panel (role, nothing attached, count, place, model, colour, give back, CPU on own risk, name, show me)',
         [], array_values(array_filter($reach, fn ($x) => !str_contains($card, $x))));
     same('fanboy r8 assign: six steps — the old route …/setup/roles opens «Testen und zuordnen»; no roles step left', [true, false, false],
         [str_contains($js, "if (rest === 'roles') rest = 'test';"), str_contains($js, 'function rolesStep('), str_contains($js, "return 'roles'")]);

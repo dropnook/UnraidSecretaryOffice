@@ -107,7 +107,16 @@ const PICTURES = [
   ['r8-2-assign-before', 'fanboy-fresh', 'fanboy/setup/test', null, false],
   ['r8-2-assign-during', 'fanboy-quiet', 'fanboy/setup/test', null, false],
   ['r8-2-assign-after', 'fanboy-roles', 'fanboy/setup/test', null, false],
-].filter((p) => !opt.only || opt.only.includes(p[0]));
+  // the setup as one flow (fanboy-ux): step 2's list and panel — before the first test, a quiet test running with the
+  // fields in use, the restart pause, an output found and assigned, one set to full for safety, a refused click
+  ['ux-2-1-before', 'fanboy-fresh', 'fanboy/setup/test', null, false],
+  ['ux-2-2-running', 'fanboy-uxrun', 'fanboy/setup/test', null, false],
+  ['ux-2-3-pause', 'fanboy-uxpause', 'fanboy/setup/test', null, false],
+  ['ux-2-4-assigned', 'fanboy-uxfound', 'fanboy/setup/test', ['.fb-item[data-fan$=pwm4]', '.fb-panel[data-fan$=pwm4] .fb-fold summary'], false],
+  ['ux-2-5-safety', 'fanboy-uxsafety', 'fanboy/setup/test', null, false],
+  ['ux-2-6-refused', 'fanboy-uxopen', 'fanboy/setup/test', '.fb-panel-acts .btn', false,
+    { post: { 'fanboy.test_up': { ok: false, error: { key: 'fanboy_quiet_warm', params: { what: 'CPU', c: 72 } } } }, settle: 7000 }],      // (the toast gone: the strip keeps the refusal)
+].filter((p) => !opt.only || opt.only.some((o) => p[0] === o || (o.endsWith('*') && p[0].startsWith(o.slice(0, -1)))));
 const LOCALES = { de: 'de-CH', en: 'en-US' };
 const faults = [];
 const log = (...a) => { if (opt.v) console.log(...a); };
@@ -117,14 +126,19 @@ fs.mkdirSync(opt.out, { recursive: true });
 const MARK = `--fanboy-desk-run=${process.pid}`;
 const browser = await pw.chromium.launch({ headless: true, executablePath: chrome, args: ['--no-first-run', '--no-default-browser-check', '--font-render-hinting=none', MARK] });
 const harnesses = new Map();
-async function harness(state, lang) {
-  const k = `${state}/${lang}`;
-  if (!harnesses.has(k)) harnesses.set(k, await startHarness({ demo: true, alias: { fanboy: state }, names: lang === 'de' ? null : DEMO_NAMES_EN }));
+async function harness(state, lang, post) {
+  const k = `${state}/${lang}/${post ? JSON.stringify(post) : ''}`;
+  if (!harnesses.has(k)) {
+    const h = await startHarness({ demo: true, alias: { fanboy: state }, names: lang === 'de' ? null : DEMO_NAMES_EN });
+    // a picture's own answer to an action (a refusal to show how the page says it)
+    for (const [action, answer] of Object.entries(post || {})) h.setPost(action, () => answer);
+    harnesses.set(k, h);
+  }
   return harnesses.get(k);
 }
-async function open(state, route, { theme = 'black', lang = 'de', width = 1440, scale = 2, reduce = false, wait = '#sso-desk section' } = {}) {
+async function open(state, route, { theme = 'black', lang = 'de', width = 1440, scale = 2, reduce = false, wait = '#sso-desk section', post = null } = {}) {
   const phone = width < 768;
-  const h = await harness(state, lang);
+  const h = await harness(state, lang, post);
   const ctx = await browser.newContext({ viewport: { width, height: phone ? 844 : 900 }, deviceScaleFactor: scale, isMobile: phone, hasTouch: phone,
     locale: LOCALES[lang], colorScheme: theme === 'white' ? 'light' : 'dark', reducedMotion: reduce ? 'reduce' : 'no-preference' });
   await ctx.addInitScript((l) => { try { localStorage.setItem('office.lang', l); localStorage.removeItem('office.theme'); } catch (e) { /* none */ } }, lang);
@@ -147,11 +161,12 @@ if (opt.shots) {
         : [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'en', width: 390 }];
     for (const l of looks) {
       try {
-        const { ctx, page, tag } = await open(state, route, { ...l, ...(shot && shot.wait ? { wait: shot.wait } : {}) });
+        const { ctx, page, tag } = await open(state, route, { ...l, ...(shot && shot.wait ? { wait: shot.wait } : {}), ...(shot && shot.post ? { post: shot.post } : {}) });
         for (const one of click ? [].concat(click) : []) {        // one selector or several, clicked in turn
           await page.click(one);
           await page.waitForTimeout(900);
         }
+        if (shot && shot.settle) await page.waitForTimeout(shot.settle);
         const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         if (wide > 1) faults.push(`${tag}: the page scrolls sideways by ${wide} px`);
         const file = path.join(opt.out, `${name}-${l.theme}-${l.lang}-${l.width}.png`);
