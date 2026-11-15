@@ -836,13 +836,5 @@
   "ipmi.failed.error": "ipmitool no pudo leer los sensores del BMC: Fanboy lo intenta de nuevo en 10 minutos.",
   "ipmi.failed.empty": "El BMC no muestra ningún sensor de ventilador (ninguno en rpm).",
   "ipmi.failed.no_tool": "ipmitool no está (lo trae un plugin): Fanboy no instala nada.",
-  "ipmi.banner": "{fans}: cerca o por debajo del umbral inferior del BMC, que puede subir y bajar todos los ventiladores en oleadas. Las indicaciones dicen qué ayuda.",
-  "gpu.card": "Tarjeta NVIDIA",
-  "gpu.untested": "aún no comprobado en hardware real",
-  "gpu.untested_title": "Fanboy pregunta a nvidia-smi la temperatura de esta tarjeta, como mucho cada 10 segundos, sin esperarla nunca. Hecho y probado con un sustituto; aún no en una tarjeta real.",
-  "gpu.away": "ausente",
-  "gpu.away_title.vfio": "nvidia-smi ya no muestra esta tarjeta: una tarjeta NVIDIA está ligada a vfio-pci (dada a una VM). Sin alarma: sus zonas siguen con sus otras fuentes de calor.",
-  "gpu.away_title.not_listed": "nvidia-smi ya no muestra esta tarjeta (dada a una VM o retirada). Sin alarma: sus zonas siguen con sus otras fuentes de calor.",
-  "gpu.away_title.no_tool": "nvidia-smi no está o el controlador de NVIDIA no está cargado: esta tarjeta no dice nada ahora. Sus zonas siguen con sus otras fuentes de calor.",
-  "errors.fanboy_gpu_only": "Una tarjeta NVIDIA no puede ser la única fuente de calor de una zona: puede desaparecer (dada a una VM). Añade otra fuente a la zona, un disco o un sensor de la placa."
+  "ipmi.banner": "{fans}: cerca o por debajo del umbral inferior del BMC, que puede subir y bajar todos los ventiladores en oleadas. Las indicaciones dicen qué ayuda."
 }

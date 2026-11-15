@@ -662,7 +662,6 @@
   "name": "FanCtrl Plus",
   "why": "other"
  },
- "gpus": null,
  "control": {
   "running": false,
   "armed": false,

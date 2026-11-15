@@ -836,13 +836,5 @@
   "ipmi.failed.error": "ipmitool konnte die Sensoren des BMC nicht lesen — Fanboy versucht es in 10 Minuten wieder.",
   "ipmi.failed.empty": "Der BMC nennt keinen Lüfter-Sensor (keinen in U/min).",
   "ipmi.failed.no_tool": "ipmitool ist nicht da (ein Plugin bringt es mit) — Fanboy installiert nichts.",
-  "ipmi.banner": "{fans}: nah an oder unter der unteren Schwelle des BMC — er kann alle Lüfter in Wellen hoch- und herunterdrehen. Die Hinweise sagen, was hilft.",
-  "gpu.card": "NVIDIA-Karte",
-  "gpu.untested": "noch nicht an echter Hardware geprüft",
-  "gpu.untested_title": "Fanboy fragt nvidia-smi nach der Temperatur dieser Karte, höchstens alle 10 Sekunden, ohne je darauf zu warten. Gebaut und getestet mit einem Ersatz — an einer echten Karte noch nicht.",
-  "gpu.away": "weg",
-  "gpu.away_title.vfio": "nvidia-smi nennt diese Karte nicht mehr — eine NVIDIA-Karte hängt an vfio-pci (an eine VM gegeben). Kein Alarm: Die Zonen mit ihr regeln mit ihren anderen Wärmequellen weiter.",
-  "gpu.away_title.not_listed": "nvidia-smi nennt diese Karte nicht mehr (an eine VM gegeben oder ausgebaut). Kein Alarm: Die Zonen mit ihr regeln mit ihren anderen Wärmequellen weiter.",
-  "gpu.away_title.no_tool": "nvidia-smi ist nicht da oder der NVIDIA-Treiber nicht geladen — diese Karte sagt gerade nichts. Die Zonen mit ihr regeln mit ihren anderen Wärmequellen weiter.",
-  "errors.fanboy_gpu_only": "Eine NVIDIA-Karte kann nicht die einzige Wärmequelle einer Zone sein — sie kann weg sein (an eine VM gegeben). Gib der Zone noch eine Quelle, eine Disk oder einen Fühler des Mainboards."
+  "ipmi.banner": "{fans}: nah an oder unter der unteren Schwelle des BMC — er kann alle Lüfter in Wellen hoch- und herunterdrehen. Die Hinweise sagen, was hilft."
 }

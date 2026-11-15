@@ -820,10 +820,6 @@ function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
             }
             $sources[$s['id']] = ['kind' => $known[$s['id']]['kind'], 'id' => $s['id'], 'low' => $low, 'high' => $high, 'limit' => $limit];
         }
-        // round 6: NVIDIA cards can go away (handed to a VM) — never a zone's only sources
-        if (!array_filter(array_keys($sources), fn ($id) => !fanboyGpuIs($id))) {
-            throw new Problem('fanboy_gpu_only');
-        }
         // round 4: a CPU cooler given to him only in a zone with a CPU temperature
         if (!in_array('cpu', array_column($sources, 'kind'), true)
             && array_filter($z['fans'], fn ($id) => fanboyCpuOwn($settings['fans'][$id]))) {
@@ -912,13 +908,6 @@ function fanboyDryRun(): array
     }
     [$ok, $why] = fanboyLocate($c, $scan);
     $now = fanboyMono();
-    // round 6: the NVIDIA cards as nvidia-smi said last (his look's file) — a dry run starts nothing
-    $c['gpu_used'] = false;
-    if (is_array($scan['gpus'] ?? null)) {
-        $c['gpu']['cards'] = array_column($scan['gpus']['cards'], null, 'uuid');
-        $c['gpu']['listed'] = array_keys($c['gpu']['cards']);
-        $c['gpu']['answered'] = true;
-    }
     fanboyReadSources($c, $now);
     $out = [];
     foreach ($c['zones'] as $zid => $z) {

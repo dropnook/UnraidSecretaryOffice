@@ -534,7 +534,6 @@
   "who": "nobody",
   "why": "chip_gone"
  },
- "gpus": null,
  "control": {
   "running": true,
   "armed": true,

@@ -97,8 +97,6 @@ const PICTURES = [
   ['r6-5-old-disks', 'fanboy', 'fanboy/hints', '.fb-hints summary', false],
   // round 6: 2 the BMC's fan thresholds (read only) on an IPMI board
   ['r6-2-ipmi', 'fanboy-ipmi', 'fanboy/hints', null, false],
-  // round 6: 3 NVIDIA cards as heat sources (one in a zone, one handed to a VM: away)
-  ['r6-3-gpu', 'fanboy-gpu', 'fanboy/hottest', null, false],
 ].filter((p) => !opt.only || opt.only.includes(p[0]));
 const LOCALES = { de: 'de-CH', en: 'en-US' };
 const faults = [];

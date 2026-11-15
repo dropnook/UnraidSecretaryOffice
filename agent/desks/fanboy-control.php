@@ -384,8 +384,7 @@ function fanboySources(array $scan): array
                       'pool' => $c['kind'] === 'nvme' ? fanboyNvmePool($c, $scan['disks'] ?? []) : null];
         }
     }
-    // round 6: NVIDIA cards (nvidia-smi, fanboy-gpu.php) — kind gpu
-    return function_exists('fanboyGpuSources') ? array_merge($out, fanboyGpuSources($scan['gpus'] ?? null)) : $out;
+    return $out;
 }
 
 // ===================================================================== the service's state
@@ -460,7 +459,6 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
         'chips' => [], 'sources' => [], 'alarm' => null, 'reasons' => [], 'clear_since' => null, 'told' => [], 'notes' => [], 'full_since' => [],
         'missing' => null, 'started' => null, 'last_hist' => null, 'last_keep' => null, 'hist' => [], 'look_now' => false,
         'disks_at' => null, 'disks' => [], 'scan_at' => null, 'events' => [], 'poll' => null, 'allow' => 0,
-        'gpu' => function_exists('fanboyGpuNew') ? fanboyGpuNew() : [], 'gpu_used' => (bool) array_filter($zones, fn ($z) => (bool) array_filter($z['sources'], fn ($s) => str_starts_with($s['id'], 'nvidia@'))),
     ];
 }
 
@@ -577,12 +575,7 @@ function fanboyReadSources(array &$c, float $now): void
             }
         }
     }
-    // round 6: an NVIDIA card's number from nvidia-smi — asked in a process of its own, never waited for (fanboy-gpu.php)
-    if ($c['gpu_used'] && fanboyGpuPoll($c['gpu'], $now)) {
-        fanboyGpuKeep($c['gpu']);
-    }
-    if ($c['scan_at'] === null || $now - $c['scan_at'] >= 30
-        || array_filter($c['sources'], fn ($s) => $s['path'] === null && !in_array($s['kind'], FANBOY_DISK_KINDS, true) && empty($s['nvidia']))) {
+    if ($c['scan_at'] === null || $now - $c['scan_at'] >= 30 || array_filter($c['sources'], fn ($s) => $s['path'] === null && !in_array($s['kind'], FANBOY_DISK_KINDS, true))) {
         // where each sensor is this boot (looked up anew every 30 s and while one is missing)
         $chips = fanboyChips($p['hwmon']);
         $where = [];
@@ -597,13 +590,6 @@ function fanboyReadSources(array &$c, float $now): void
         $names = fanboySourceNames(fanboySources(['chips' => $chips, 'disks' => array_values($c['disks'])]), function_exists('officeNotifyLang') ? officeNotifyLang() : 'en');
         foreach ($c['zones'] as $z) {
             foreach ($z['sources'] as $s) {
-                if (fanboyGpuIs($s['id'])) {
-                    $card = $c['gpu']['cards'][substr($s['id'], strlen(FANBOY_GPU_PREFIX))] ?? null;
-                    $c['sources'][$s['id']] = ['kind' => 'gpu', 'path' => null, 'nvidia' => true,
-                        'label' => $card['name'] ?? $c['sources'][$s['id']]['label'] ?? (function_exists('officeNotifyText') ? officeNotifyText('fanboy', 'kind.gpu', [], function_exists('officeNotifyLang') ? officeNotifyLang() : 'en') : 'GPU')]
-                        + ($c['sources'][$s['id']] ?? []);
-                    continue;
-                }
                 $w = $where[$s['id']] ?? null;
                 $now_id = $s['id'];
                 // round 5 (the VM run): the chip's address moved — exactly one chip of that name: its sensor there (the id
@@ -622,22 +608,6 @@ function fanboyReadSources(array &$c, float $now): void
         $c['scan_at'] = $now;
     }
     foreach ($c['sources'] as $id => $s) {
-        if (!empty($s['nvidia'])) {
-            // listed: its number (null: «[N/A]» or nvidia-smi failing — says nothing); not listed any more after an answer: away
-            $uuid = substr($id, strlen(FANBOY_GPU_PREFIX));
-            $g = $c['gpu'];
-            $listed = $g['listed'] === null || in_array($uuid, $g['listed'], true);
-            $c['sources'][$id]['asleep'] = false;
-            $c['sources'][$id]['away'] = $g['answered'] && !$listed ? (fanboyGpuVfio() ? 'vfio' : 'not_listed') : null;
-            $c['sources'][$id]['c'] = $listed ? ($g['cards'][$uuid]['c'] ?? null) : null;
-            $c['sources'][$id]['there'] = $listed;
-            if (isset($g['cards'][$uuid]['name'])) {
-                $c['sources'][$id]['label'] = $g['cards'][$uuid]['name'];
-            }
-            $quiet = $c['sources'][$id]['c'] === null && $c['sources'][$id]['away'] === null;
-            $c['sources'][$id]['quiet_since'] = $quiet ? ($s['quiet_since'] ?? $now) : null;
-            continue;
-        }
         if (in_array($s['kind'], FANBOY_DISK_KINDS, true)) {
             $d = $c['disks'][$id] ?? null;
             $c['sources'][$id]['asleep'] = $d !== null && $d['asleep'];
@@ -844,13 +814,9 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
             $states[$s['id']] = 'asleep';
             continue;
         }
-        if (!empty($r['away'])) {
-            $states[$s['id']] = 'away';        // round 6: a card handed to a VM — no alarm, the zone goes on with its other sources
-            continue;
-        }
         if ($r['c'] === null) {
             $states[$s['id']] = 'quiet';
-            $after = in_array($s['kind'], FANBOY_DISK_KINDS, true) ? FANBOY_DISK_SENSOR_AFTER : (!empty($r['nvidia']) ? FANBOY_GPU_QUIET_AFTER : FANBOY_SENSOR_AFTER);
+            $after = in_array($s['kind'], FANBOY_DISK_KINDS, true) ? FANBOY_DISK_SENSOR_AFTER : FANBOY_SENSOR_AFTER;
             if ($r['quiet_since'] !== null && $now - $r['quiet_since'] >= $after) {
                 $reasons['sensor'] = ['source' => $r['label'], 'zone' => $z['name'], 'zid' => $zid];
                 $c['full_since'][$zid] = $now;
@@ -1181,7 +1147,6 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
             'full' => isset($c['full_since'][$z['id']]),         // round 4: this zone at 100 % for an alarm
             'react' => $z['react'], 'down' => fanboyDownProfile($z['warmest']['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']),
             'warmest' => $z['warmest'], 'asleep' => count(array_filter($z['state'], fn ($s) => $s === 'asleep')),
-            'away' => count(array_filter($z['state'], fn ($s) => $s === 'away')),      // round 6: NVIDIA cards handed to a VM
             'fans' => array_map(fn ($id) => ['id' => $id, 'name' => $c['fans'][$id]['name'], 'output' => $c['fans'][$id]['output'],
                 'pct' => $c['fans'][$id]['taken'] ? $c['fans'][$id]['pct'] : null, 'rpm' => $c['fans'][$id]['rpm'] ?? null,
                 'held' => $c['fans'][$id]['taken'], 'foreign' => $c['fans'][$id]['foreign']], $z['fans'])];
@@ -1196,7 +1161,6 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
         'notes' => $c['notes'],
         // round 6: how old Unraid's disk values can be and what the zone logic adds to them (°C)
         'disk_allow' => ['poll' => $c['poll'] ?? null, 'add' => $c['allow'] ?? 0],
-        'gpu' => (bool) ($c['gpu_used'] ?? false),          // round 6: this control asks nvidia-smi itself (the tick doesn't)
         'refuses' => array_keys(array_filter($c['fans'], fn ($f) => !empty($f['refuses']))),     // round 5: the driver takes no values
         // since when each fan (and each watched BIOS fan) stands though it should turn — on the monotonic clock, so a
         // control started again goes on counting instead of starting from nought (three restarts in a row still alarm)
@@ -1331,7 +1295,6 @@ function fanboyControlMain(): int
                     $why = fanboyHoldReason($settings);
                     if ($why === null || $why === 'other') {
                         fanboyLetGo($c, 'settings');
-                        fanboyGpuStop($c['gpu']);
                         $hist = $c['hist'];
                         $c = fanboyControlNew($settings ?? [], $key, $owner);
                         $c['hist'] = $hist;
@@ -1362,13 +1325,9 @@ function fanboyControlMain(): int
             $until = $now + FANBOY_ROUND;
             while (!fanboyStopAsked() && fanboyMono() < $until && !is_file("$dir/look-now")) {
                 usleep(200000);
-                if ($c['gpu_used'] && fanboyGpuPoll($c['gpu'], fanboyMono())) {
-                    fanboyGpuKeep($c['gpu']);       // round 6: nvidia-smi's answer taken as soon as it is there (cut off after 3 s)
-                }
             }
         }
     } finally {
-        fanboyGpuStop($c['gpu']);
         $r = fanboyLetGo($c, $exit ?? 'stop');
         $bad = array_keys(array_filter($r, fn ($x) => !$x['ok'] && $x['why'] !== 'gone'));
         fanboyControlLog($c);

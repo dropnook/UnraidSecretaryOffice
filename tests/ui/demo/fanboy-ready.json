@@ -647,7 +647,6 @@
   "who": "bios",
   "why": "not_armed"
  },
- "gpus": null,
  "control": {
   "running": false,
   "armed": false,

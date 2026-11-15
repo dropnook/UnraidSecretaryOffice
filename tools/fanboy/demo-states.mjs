@@ -167,13 +167,10 @@ function state(o) {
       rpm_min: turning.length ? Math.min(...turning) : null, rpm_max: turning.length ? Math.max(...turning) : null, temps: chips.reduce((n, c) => n + c.temps.length, 0) },
     hottest, hottest_kinds: kinds, hottest_lead: leadOf(kinds),
     who: o.who || { who: 'bios', why: offered.length ? 'not_set_up' : 'no_output' },
-    // round 6: NVIDIA cards as nvidia-smi said last (fanboyGpuCards()): null without nvidia-smi
-    gpus: o.gpus || null,
     control: { running: false, armed: !!o.armed, who: 'bios', why: null, zones: [], alarm: null, missing: null, notes: [], watch: [], time: null, guard: null, ...(o.control || {}) },
     setup: {
       board: 'Example Boards Inc. | EB-Z100 PRO', others: 0, fans, zones, armed: !!o.armed, outputs: offered.length ? OUTPUTS : [], missing: [],
-      sources: [...sources(chips, disks), ...((o.gpus && o.gpus.cards) || []).map((g) => ({ kind: 'gpu', id: `nvidia@${g.uuid}`, label: g.name, c: g.c, asleep: false, nvidia: true }))],
-      curves: curves(zones), before: offered.length ? clone(BEFORE) : {}, back_default: 'auto',
+      sources: sources(chips, disks), curves: curves(zones), before: offered.length ? clone(BEFORE) : {}, back_default: 'auto',
       scales: SCALES, down: DOWN, round: 2, cpu_floor: 40, presets_of: PRESETS_OF,
     },
     step: o.step || null,
@@ -207,7 +204,7 @@ function steering(more = {}) {
       fans: [{ id: P(5), name: 'Vorn', output: 5, pct: pc, rpm: rpm[5], held: true, foreign: false }, { id: P(2), name: 'Deckel', output: 2, pct: pc, rpm: null, held: true, foreign: false }] },
   ];
   if (more.zonesNow) zonesNow.push(...more.zonesNow);
-  return state({ ite: itec, fans: fansSet, zones: zonesSet, armed: true, gpus: more.gpus, who: more.who || { who: 'fanboy', why: 'steers', zones: 2 },
+  return state({ ite: itec, fans: fansSet, zones: zonesSet, armed: true, who: more.who || { who: 'fanboy', why: 'steers', zones: 2 },
     control: { running: true, armed: true, who: 'fanboy', why: more.why || null, phase: 'run', zones: zonesNow, alarm: more.alarm || null, notes: more.notes || NOTES,
       watch: more.watch || [{ id: P(1), name: 'CPU-Kühler', role: 'cpu', rpm: rpm[1] }], time: T0 } });
 }
@@ -284,13 +281,6 @@ files['fanboy-show'] = (() => {
   const s = steering({ pwm: { 4: [255, 1] }, rpm: { 4: 1590 } });
   s.show = { id: 'b1c2d3e4f5a6', fan: P(4), via: 'control', status: 'running', why: null, until: T0 + 4, pid: 4242, start: '123456', ok: null, begun: T0 - 1, at: T0 - 1, tachs: [4] };
   return s;
-})();
-// round 6, part 3: two NVIDIA cards — one in the case zone, the other handed to a VM (vfio-pci), so nvidia-smi lists only one
-const GPU_A = 'GPU-5e1f0c2a-0000-4000-8000-0000000000a1', GPU_B = 'GPU-5e1f0c2a-0000-4000-8000-0000000000b2';
-files['fanboy-gpu'] = (() => {
-  const zones = clone(ZONES);
-  zones[1].sources = [...zones[1].sources, { kind: 'gpu', id: `nvidia@${GPU_A}`, low: null, high: null, limit: null }, { kind: 'gpu', id: `nvidia@${GPU_B}`, low: null, high: null, limit: null }];
-  return steering({ zones, gpus: { cards: [{ uuid: GPU_A, name: 'NVIDIA GeForce RTX 3060', c: 52 }], ok: true, why: null, vfio: true, at: T0 - 4 } });
 })();
 // the array stopped while armed: the BIOS runs them
 files['fanboy-array'] = state({ ite: ite({}, RPM), fans: SET_UP, zones: ZONES, armed: true, who: { who: 'bios', why: 'array_stopped' },

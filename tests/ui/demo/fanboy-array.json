@@ -647,7 +647,6 @@
   "who": "bios",
   "why": "array_stopped"
  },
- "gpus": null,
  "control": {
   "running": false,
   "armed": true,

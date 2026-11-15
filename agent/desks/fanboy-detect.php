@@ -758,8 +758,6 @@ function fanboyDetect(?string $root = null, ?int $now = null): array
         'hottest_lead'  => fanboyHottestLead($kinds),
         // who steers the fans now — part 1: never Fanboy (the BIOS; another plugin; a BMC), with the reason
         'who'         => fanboyWho(fanboyBlocking($controllers), $ipmi, $chips),
-        // round 6: NVIDIA cards as nvidia-smi said last (agent/desks/fanboy-gpu.php, a file in RAM) — null: no nvidia-smi
-        'gpus'        => function_exists('fanboyGpuCards') ? fanboyGpuCards() : null,
     ];
 }
 
