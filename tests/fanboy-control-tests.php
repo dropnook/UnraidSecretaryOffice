@@ -330,7 +330,7 @@ function testFanboyControl(): void
         for ($i = 0; $i < FANBOY_HISTORY_MAX + 30; $i++) {
             fanboyHistory($h, 5000.0 + $i * FANBOY_HISTORY_EVERY);
         }
-        same('fanboy control: the history — a point a minute per zone, at most a day of them', [FANBOY_HISTORY_MAX, FANBOY_HISTORY_MAX, 4],
+        same('fanboy control: the history — a point a minute per zone, never more than the bound (round 3: 12 h of minutes, then 5-minute spans)', [FANBOY_HISTORY_MAX, FANBOY_HISTORY_MAX, 4],
             [count($h['hist']['disks']), count($h['hist']['case']), count($h['hist']['disks'][0])]);
         fanboyHistory($h, 5000.0 + (FANBOY_HISTORY_MAX + 30) * FANBOY_HISTORY_EVERY - 10);
         same('fanboy control: … never two in the same minute', FANBOY_HISTORY_MAX, count($h['hist']['disks']));
@@ -355,26 +355,28 @@ function testFanboyAlarms(): void
         $now = 2000.0;
         fanboyTRounds($c, $now, $t, $spec, 3);
 
-        // a fan stands though it should turn (one fan of the hub): after 15 s every output he holds to full, told once
+        // a fan stands though it should turn (one fan of the hub): after 15 s ITS zone at 100 % (round 4, the owner: the hub
+        // and the silent top fan of «Case»), the other zone steers on, told once
         $stuck = fanboyTSpec(10, [6 => ['stuck' => true]]);
         fanboyTRounds($c, $now, $t, $stuck, 4);
         same('fanboy alarms: one fan of the hub stands — not yet (under 15 s)', null, $c['alarm']);
         fanboyTRounds($c, $now, $t, $stuck, 6);
-        same('fanboy alarms: … 15 s — alarm «stands», every output he holds at full speed (255), the CPU cooler not his',
-            ['stands', 'Front', [255, 1], [255, 1], [255, 1], [128, 1]],
+        same('fanboy alarms: … 15 s — alarm «stands», its zone at 100 % (hub and top fan: 255), the disk zone keeps its level, the CPU cooler not his',
+            ['stands', 'Front', [77, 1], [255, 1], [255, 1], [128, 1]],
             [$c['alarm']['code'] ?? null, $c['alarm']['params']['fan'] ?? null, fanboyTOut($t, 4), fanboyTOut($t, 5), fanboyTOut($t, 2), fanboyTOut($t, 1)]);
         fanboyTRounds($c, $now, $t, $stuck, 10);
         same('fanboy alarms: … told once (an alert), however long it stands', 1, count(array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, '-i alert'))));
         fanboyTRounds($c, $now, $t, $spec, 30);
-        same('fanboy alarms: it turns again — still full for 2 minutes', [255, 'stands'], [fanboyTOut($t, 4)[0], $c['alarm']['code'] ?? null]);
+        same('fanboy alarms: it turns again — its zone still at 100 % for 2 minutes', [255, 'stands'], [fanboyTOut($t, 5)[0], $c['alarm']['code'] ?? null]);
         fanboyTRounds($c, $now, $t, $spec, 40);
-        same('fanboy alarms: … then over: the curve again', [null, 77], [$c['alarm'], fanboyTOut($t, 4)[0]]);
+        same('fanboy alarms: … then over: the curve again', [null, 77, 102], [$c['alarm'], fanboyTOut($t, 4)[0], fanboyTOut($t, 5)[0]]);
 
-        // a BIOS fan he only watches stands (the CPU cooler): alarm too, his outputs to full; the cooler itself untouched
+        // a BIOS fan he only watches stands (the CPU cooler): an alarm told — no output of his driven for it (round 4); the
+        // cooler itself untouched
         $cpu = fanboyTSpec(10, [1 => ['stuck' => true]]);
         fanboyTRounds($c, $now, $t, $cpu, 12);
-        same('fanboy alarms: the CPU cooler stands — alarm «bios_stands», his outputs full, the cooler\'s output untouched',
-            ['bios_stands', 255, [128, 1]], [$c['alarm']['code'] ?? null, fanboyTOut($t, 4)[0], fanboyTOut($t, 1)]);
+        same('fanboy alarms: the CPU cooler stands — alarm «bios_stands» told, his zones steer on, the cooler\'s output untouched',
+            ['bios_stands', 77, 102, [128, 1]], [$c['alarm']['code'] ?? null, fanboyTOut($t, 4)[0], fanboyTOut($t, 5)[0], fanboyTOut($t, 1)]);
         fanboyTRounds($c, $now, $t, $spec, 70);
         same('fanboy alarms: … over two minutes after it turns again', null, $c['alarm']);
 
@@ -386,7 +388,7 @@ function testFanboyAlarms(): void
         same('fanboy alarms: … a minute at full and still over — alarm «hot», told', ['hot', 'parity'], [$c['alarm']['code'] ?? null, $c['alarm']['params']['source'] ?? null]);
         fanboyTDisks($t, 35, null, 33);
         fanboyTRounds($c, $now, $t, $spec, 70);
-        same('fanboy alarms: … cool again: over', null, $c['alarm']);
+        same('fanboy alarms: … cool again: over, and the zone well on its way down (round 4 found it stayed at 100 % for good)', [null, true], [$c['alarm'], fanboyTOut($t, 4)[0] < 100]);
 
         // a sensor that says nothing (the NVMe's file gone): 30 s, then alarm «sensor»
         $nv = glob("{$t['root']}/sys/devices/pci0000:00/0000:00:06.1/0000:03:00.0/nvme/*/hwmon/hwmon*/temp1_input")[0];
@@ -394,7 +396,7 @@ function testFanboyAlarms(): void
         fanboyTRounds($c, $now, $t, $spec, 10);
         same('fanboy alarms: the NVMe says nothing — under 30 s: no alarm', null, $c['alarm']);
         fanboyTRounds($c, $now, $t, $spec, 8);
-        same('fanboy alarms: … 30 s — alarm «sensor», every output full', ['sensor', 255, 255], [$c['alarm']['code'] ?? null, fanboyTOut($t, 5)[0], fanboyTOut($t, 4)[0]]);
+        same('fanboy alarms: … 30 s — alarm «sensor», its zone («Case») at 100 %, the disk zone keeps its level', ['sensor', 255, 77], [$c['alarm']['code'] ?? null, fanboyTOut($t, 5)[0], fanboyTOut($t, 4)[0]]);
         rename("$nv.away", $nv);
         fanboyTRounds($c, $now, $t, $spec, 80);
         same('fanboy alarms: … back: over', null, $c['alarm']);
@@ -662,10 +664,12 @@ function testFanboyZones(): void
         fanboyTStore($settings);
         $scan = fanboyDetect();
         $prop = fanboyZonesPropose($scan, $settings);
-        same('fanboy zones: proposed — «disks» (the disk fan, every Unraid disk), «case» (hub and silent fan, NVMe, RAM, board)',
-            [['disks', [fanboyTId(4)], ['parity', 'disk1', 'disk2', 'cache']], ['case', [fanboyTId(2), fanboyTId(5)]]],
+        // round 4: the hard disks in «disks», the NVMe pool (cache: not rotating) in «case» on the SSD's own scale
+        same('fanboy zones: proposed — «disks» (the disk fan, the hard disks), «case» (hub and silent fan, the SSD pool, NVMe, RAM, board)',
+            [['disks', [fanboyTId(4)], ['parity', 'disk1', 'disk2']], ['case', [fanboyTId(2), fanboyTId(5)]]],
             [[$prop[0]['id'], $prop[0]['fans'], array_column($prop[0]['sources'], 'id')], [$prop[1]['id'], array_values(array_diff($prop[1]['fans'], []))]]);
-        check('fanboy zones: … the case zone\'s sources: NVMe, RAM, the board — no CPU, no disk', !array_diff(array_unique(array_column($prop[1]['sources'], 'kind')), ['nvme', 'ram', 'board']));
+        check('fanboy zones: … the case zone\'s sources: the SSD pool, NVMe, RAM, the board — no CPU, no hard disk', !array_diff(array_unique(array_column($prop[1]['sources'], 'kind')), ['ssd', 'nvme', 'ram', 'board'])
+            && in_array('cache', array_column($prop[1]['sources'], 'id'), true));
         $good = [['id' => 'disks', 'name' => 'Disks', 'fans' => [fanboyTId(4)], 'sources' => [['id' => 'parity'], ['id' => 'disk2', 'limit' => 50]], 'unit' => 'pct', 'target' => ['preset' => 'quiet']]];
         same('fanboy zones: a zone checked — the kind from the source, limits kept', [['kind' => 'disk', 'id' => 'disk2', 'low' => null, 'high' => null, 'limit' => 50.0]],
             [fanboyZonesCheck($good, $scan, $settings)[0]['sources'][1]]);
@@ -957,45 +961,6 @@ SH);
         }
     } finally {
         putenv('OFFICE_MODPROBE_BIN');
-        fanboyTEnd();
-    }
-}
-
-// ===================================================================== moving over from FanCtrl Plus
-
-function testFanboyImport(): void
-{
-    $cfg = fn (int $n, string $disks, string $name, string $low = '41') => "custom=\"$name\"\nlabel=\"$name\"\nservice=\"1\"\ncontroller=\"/sys/devices/platform/it87.2624/hwmon/hwmon10/pwm$n\"\n"
-        . "pwm=\"128\"\nmax=\"230\"\nidle=\"100\"\nlow=\"$low\"\nhigh=\"46\"\ninterval=\"1\"\ndisks=\"$disks\"\nsyslog=\"1\"\ncpu_enable=\"0\"\n";
-    $files = [];
-    foreach ([1, 2, 3, 4, 5, 6] as $n) {
-        $files["fanctrlplus/fanctrlplus_Fan$n.cfg"] = $cfg($n, 'ata-EXAMPLE_HDD_SN000001,ata-EXAMPLE_HDD_SN000003', "Fan$n");
-    }
-    $files['fanctrlplus/fanctrlplus_Odd.cfg'] = $cfg(4, 'ata-EXAMPLE_HDD_SN000003,ata-EXAMPLE_HDD_SN999999', 'Odd', '38');
-    $files['fanctrlplus/fanctrlplus_Broken.cfg'] = "custom=\"Broken\"\ncontroller=\"/etc/passwd\"\n";
-    $board = fanboyFakeBoard(12, 'it87.2608');
-    $board['plugins'] = $files + $board['plugins'];
-    $t = fanboyT('import', 12, 'it87.2608', ['plugins' => $board['plugins']]);
-    try {
-        $before = fanboyTreeHash("{$t['root']}/boot");
-        $scan = fanboyDetect();
-        $imp = fanboyImport($scan);
-        same('fanboy import: its files read (8), switched on', [8, true], [$imp['files'], $imp['active']]);
-        same('fanboy import: the six equal files make one zone — every output found by its NUMBER (the path said hwmon10 and it87.2624; now hwmon12, it87.2608)',
-            [array_map(fn ($n) => fanboyTId($n), [1, 2, 3, 4, 5, 6]), ['disk2', 'parity'], ['points' => [[41, 50], [46, 90]]]],
-            [$imp['zones'][0]['fans'], array_column($imp['zones'][0]['sources'], 'id'), $imp['zones'][0]['target']]);
-        same('fanboy import: … another file with other values: a zone of its own; a path that is none and a disk not there: said', [2, ['path', 'disk']],
-            [count($imp['zones']), array_column($imp['unmatched'], 'why')]);
-        check('fanboy import: … never a serial (by-id name) in the proposal', !str_contains(json_encode($imp), 'SN0000') && !str_contains(json_encode($imp), 'SN999999'));
-        same('fanboy import: … nothing written there', $before, fanboyTreeHash("{$t['root']}/boot"));
-        // the proposal fits the zones' check once the fans have their roles (the user's step)
-        $s = fanboyTSettings('it87.2608');
-        $z = $imp['zones'][0];
-        $z['fans'] = [fanboyTId(4)];
-        $z['name'] = 'Disks';
-        same('fanboy import: … a proposed zone passes the zones\' check (with fans given to him)', ['disks', 'parity'],
-            [fanboyZonesCheck([['id' => 'disks'] + $z], $scan, $s)[0]['id'], fanboyZonesCheck([['id' => 'disks'] + $z], $scan, $s)[0]['sources'][1]['id']]);
-    } finally {
         fanboyTEnd();
     }
 }

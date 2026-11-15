@@ -95,6 +95,11 @@ function fanboyPaths(?string $root = null): array
         'unraid'   => "$r/etc/unraid-version",
         'ipmitool' => $root === null ? '' : "$r/usr/bin/ipmitool",     // '' = found in the PATH (fanboyIpmiFans())
         'crontab'  => "$r/var/spool/cron/crontabs/root",               // root's crontab (PWM Fan steers from there): read only
+        // Unraid's disk temperature limits (read only): ⟦Settings⟧ → ⟦Disk Settings⟧ keeps them in dynamix.cfg [display]
+        // (hot/max for hard disks, hotssd/maxssd for SSDs), its defaults in the webGui's default.cfg; a disk's own
+        // (⟦Main⟧ → the disk → hotTemp/maxTemp) stand in disks.ini — the way 7.4's SmartInfo.php reads them
+        'dynamix'  => "$r/boot/config/plugins/dynamix/dynamix.cfg",
+        'dynamix_default' => "$r/usr/local/emhttp/plugins/dynamix/default.cfg",
     ];
 }
 
@@ -225,9 +230,10 @@ function fanboyBoard(string $dmi): array
 }
 
 /** Unraid's disks from disks.ini (its bookkeeping, no disk asked): name, role, temperature (null asleep or unknown), asleep */
-function fanboyDisks(string $ini): array
+function fanboyDisks(string $ini, ?array $limits = null): array
 {
     $out = [];
+    $deg = fn ($v) => is_string($v) && preg_match('/^\d{1,3}$/D', $v) ? (int) $v : null;
     foreach (readCfg($ini, true) as $section => $d) {
         $type = (string) ($d['type'] ?? '');
         if ($type === 'Flash' || ($d['device'] ?? '') === '' || str_starts_with((string) ($d['status'] ?? ''), 'DISK_NP')) {
@@ -241,8 +247,92 @@ function fanboyDisks(string $ini): array
             'asleep'     => $asleep,
             'temp'       => !$asleep && ctype_digit((string) ($d['temp'] ?? '')) ? (int) $d['temp'] : null,
         ];
+        if ($limits !== null) {
+            // Unraid's warning and critical temperature for this disk: its own, else the global one of its kind
+            $ssd = ($d['rotational'] ?? '1') === '0';
+            $out[count($out) - 1] += [
+                'warn' => $deg($d['hotTemp'] ?? null) ?? $limits[$ssd ? 'hotssd' : 'hot'] ?? null,
+                'crit' => $deg($d['maxTemp'] ?? null) ?? $limits[$ssd ? 'maxssd' : 'max'] ?? null,
+            ];
+        }
     }
     return $out;
+}
+
+/**
+ * Unraid's global disk temperature limits, °C: hot/max (hard disks), hotssd/maxssd (SSDs) — dynamix.cfg [display] over
+ * the webGui's defaults; a value not set or not a number: the default's; none at all: null (never a number made up)
+ */
+function fanboyDiskLimits(array $p): array
+{
+    $out = [];
+    foreach ([$p['dynamix_default'], $p['dynamix']] as $f) {
+        $display = is_file($f) && !is_link($f) ? (readCfg($f, true)['display'] ?? []) : [];
+        foreach (['hot', 'max', 'hotssd', 'maxssd'] as $k) {
+            if (is_string($display[$k] ?? null) && preg_match('/^\d{1,3}$/D', $display[$k])) {
+                $out[$k] = (int) $display[$k];
+            }
+        }
+    }
+    return $out + ['hot' => null, 'max' => null, 'hotssd' => null, 'maxssd' => null];
+}
+
+const FANBOY_HOT_KINDS = ['hdd', 'ssd', 'cpu', 'board', 'ram', 'other'];
+/**
+ * The warmest place per kind (round 3, the owner: one «warmest» over hard disks, NVMe and a CPU compares what can't be
+ * compared): hdd (rotating disks), ssd (SSDs, NVMe), cpu, board, ram, other — each its warmest with its value and whose,
+ * the one of the kind nearest to (or over) its limit (`near`, only where a limit is known: Unraid's for disks), how many
+ * sleep. A sleeping disk has no value and counts as asleep, never as cold.
+ */
+function fanboyHottestKinds(array $chips, array $disks): array
+{
+    $cand = [];
+    foreach ($disks as $d) {
+        $cand[] = ['kind' => $d['rotational'] ? 'hdd' : 'ssd', 'c' => $d['temp'], 'label' => '', 'disk' => $d['name'], 'chip' => null, 'n' => null,
+            'asleep' => $d['asleep'], 'warn' => $d['warn'] ?? null, 'crit' => $d['crit'] ?? null];
+    }
+    foreach ($chips as $c) {
+        if ($c['kind'] === 'disk') {
+            continue;                   // drivetemp: never read (Unraid's disks.ini says it)
+        }
+        $kind = match ($c['kind']) { 'nvme' => 'ssd', 'cpu' => 'cpu', 'board' => 'board', 'ram' => 'ram', default => 'other' };
+        foreach ($c['temps'] as $t) {
+            $cand[] = ['kind' => $kind, 'c' => $t['c'], 'label' => $t['label'], 'disk' => null, 'chip' => $c['name'], 'n' => $t['n'], 'asleep' => false, 'warn' => null, 'crit' => null];
+        }
+    }
+    $out = [];
+    foreach (FANBOY_HOT_KINDS as $kind) {
+        $of = array_values(array_filter($cand, fn ($x) => $x['kind'] === $kind));
+        if (!$of) {
+            continue;
+        }
+        $warm = null;
+        $near = null;
+        foreach ($of as $x) {
+            if ($x['c'] !== null && ($warm === null || $x['c'] > $warm['c'])) {
+                $warm = $x;
+            }
+            if ($x['c'] !== null && $x['warn'] !== null && ($near === null || $x['c'] - $x['warn'] > $near['c'] - $near['warn'])) {
+                $near = $x;
+            }
+        }
+        $out[] = ['kind' => $kind, 'warmest' => $warm, 'near' => $near === null ? null : $near + [
+            'margin' => $near['c'] - $near['warn'], 'over' => $near['crit'] !== null && $near['c'] >= $near['crit'] ? 'crit' : ($near['c'] >= $near['warn'] ? 'warn' : null)],
+            'count' => count($of), 'asleep' => count(array_filter($of, fn ($x) => $x['asleep']))];
+    }
+    return $out;
+}
+
+/** Which kind leads: the place nearest to (or over) its limit — null where no limit is known */
+function fanboyHottestLead(array $kinds): ?array
+{
+    $lead = null;
+    foreach ($kinds as $k) {
+        if ($k['near'] !== null && ($lead === null || $k['near']['margin'] > $lead['margin'])) {
+            $lead = $k['near'];
+        }
+    }
+    return $lead;
 }
 
 /** A BMC (an IPMI board): whether there is one, and its ids as the kernel shows them (null: none) */
@@ -528,7 +618,7 @@ function fanboyDetect(?string $root = null, ?int $now = null): array
 {
     $p = fanboyPaths($root);
     $chips = fanboyChips($p['hwmon']);
-    $disks = fanboyDisks($p['disks']);
+    $disks = fanboyDisks($p['disks'], fanboyDiskLimits($p));
     $ipmi = fanboyIpmi($p);
     $controllers = fanboyControllers($p);
     $driversMissing = fanboyDriversMissing($p, $chips);
@@ -569,6 +659,9 @@ function fanboyDetect(?string $root = null, ?int $now = null): array
             'temps'   => array_sum(array_map(fn ($c) => count($c['temps']), $chips)),
         ],
         'hottest'     => fanboyHottest($chips, $disks),
+        // round 3: the warmest per kind and which leads (by its limit, not its number) — `hottest` stays for an older page
+        'hottest_kinds' => $kinds = fanboyHottestKinds($chips, $disks),
+        'hottest_lead'  => fanboyHottestLead($kinds),
         // who steers the fans now — part 1: never Fanboy (the BIOS; another plugin; a BMC), with the reason
         'who'         => fanboyWho(fanboyBlocking($controllers), $ipmi, $chips),
     ];
