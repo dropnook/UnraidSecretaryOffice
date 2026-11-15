@@ -119,7 +119,7 @@ function safetyBlock(id) {
   if (!x) return null;
   const box = el('div', 'fb-safety');
   const pct = num((x.before || {}).value) === null ? '–' : Math.round(x.before.value / 2.55);
-  box.appendChild(el('div', 'fb-card-line fb-strong', T(x.why === 'not_back' ? 'safety.not_back' : 'safety.no_restart', { pct })));
+  box.appendChild(el('div', 'fb-strong', T(x.why === 'not_back' ? 'safety.not_back' : 'safety.no_restart', { pct })));
   const mine = restoreRuns() && (restoreNow().fans || []).includes(id);
   const b = button(T('safety.back'), T('safety.back_tip', { pct }), (btn) => act('safety_back', { fan: id }, btn));
   b.dataset.own = '1';
@@ -161,50 +161,6 @@ function showButton(id, f) {
 }
 /** Seconds left until a server time (the state's own clock, moved on by the page's since it came) */
 const secsTo = (until) => (num(until) === null ? null : Math.max(0, Math.round(until - ((S().time || 0) + (Date.now() - stateAt) / 1000))));
-/**
- * Round 9 (H3, the owner: «one turns at 100 %, the page doesn't show which»): what goes on now, in one line — a test's output
- * at full (the others standing), the pause (the fans starting again, «noch n s»), a kick, a show, «back to the value
- * before», an output at full for safety — or «nothing runs». With «Alles stoppen» (H4) while anything of his holds or
- * changed an output.
- */
-function nowLine() {
-  const s = step();
-  const x = showNow();
-  const p = (running(s) && s.progress) || {};
-  let text = T('now.nothing');
-  let busyNow = false;
-  if (running(s) && s.kind === 'test_up') {
-    busyNow = true;
-    const fan = fanName(s.current || '');
-    if (p.phase === 'pause') text = T('now.pause', { s: secsTo(p.until) ?? 5 });
-    else if (p.phase === 'kick') text = T('now.kick', { s: secsTo(p.until) ?? 13 });
-    else if (p.phase === 'full' && s.current) text = T(p.quiet ? 'now.full_quiet' : 'now.full', { fan });
-    else text = T('now.next', { fan });
-  } else if (running(s) && s.kind === 'measure') {
-    busyNow = true;
-    text = T('now.measure', { fan: fanName(s.current || '') });
-  } else if (showRuns()) {
-    busyNow = true;
-    if (x.phase === 'pause') text = T('now.pause', { s: secsTo(x.until) ?? 5 });
-    else if (x.phase === 'kick') text = T('now.kick', { s: secsTo(x.until) ?? 13 });
-    else text = T(x.quiet ? 'now.full_quiet' : 'now.full', { fan: fanName(x.fan) });
-  } else if (restoreRuns()) {
-    busyNow = true;
-    text = T('now.restore', { fan: (restoreNow().fans || []).map((id) => fanName(id)).join(', ') });
-  } else if (Object.keys(S().safety || {}).length) {
-    busyNow = true;
-    text = T('now.safety', { fan: Object.keys(S().safety).map((id) => fanName(id)).join(', ') });
-  }
-  const box = el('div', 'fb-now' + (busyNow ? ' fb-now-on' : ''));
-  box.dataset.now = busyNow ? 'on' : 'off';
-  if (busyNow) box.appendChild(wave());
-  box.appendChild(el('span', 'fb-now-text', text));
-  if (busyNow) {
-    const stop = button(T('stop_all'), T('stop_all_tip'), (b) => act('stop_all', {}, b, () => Office.toast(T('stop_all_toast'))), 'btn small danger');
-    box.appendChild(stop);
-  }
-  return box;
-}
 /** Is the output at full because of him right now (a test's, a show's, a safety full)? — its card and row framed */
 function atFullNow(id) {
   const s = step();
@@ -439,8 +395,8 @@ function redraw() {
     const f = frameSig();
     if (f !== drawn) { drawn = f; tilesDrawn = tilesSig(); bannerDrawn = bannerSig(); paint(); return; }
     if (tilesSig() !== tilesDrawn) { tilesDrawn = tilesSig(); if (setupSw) setupSw.row(); }
-    if (bannerSig() !== bannerDrawn) { bannerDrawn = bannerSig(); Office.keepInPlace(bench ? bench.el : null, paintBanner); }
-    if (bench && bench.el.isConnected) bench.update();
+    if (bannerSig() !== bannerDrawn) { bannerDrawn = bannerSig(); Office.keepInPlace(strip ? strip.el : null, paintBanner); }
+    patch();
     return;
   }
   const sig = overviewSig();
@@ -465,7 +421,7 @@ const quiet = (v) => JSON.stringify(v, (k, x) => (VOLATILE.has(k) ? undefined : 
 function frameSig() {
   const su = setup();
   const active = setupSw ? setupSw.active() : '';
-  const rest = active === 'test' ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft];
+  const rest = ['test', 'measure'].includes(active) ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft];
   return quiet([ready(), !!art(), !!cat, !!state, Office.agent.running, bubbleText(), plainNow(), situation(), control().running, su.armed, su.outputs, active, rest]);
 }
 /** What the step tiles say */
@@ -587,7 +543,7 @@ function button(text, tip, onClick, cls) {
   const b = el('button', cls || 'btn small', text);
   b.type = 'button';
   if (tip) b.title = tip;
-  b.disabled = busy || !Office.agent.running || noRun;
+  b.disabled = busy || !Office.agent.running;
   b.onclick = () => onClick(b);
   return b;
 }
@@ -597,10 +553,12 @@ async function act(action, body, b, done) {
   if (busy) { Office.toast(T('busy_wait'), true); return null; }
   if (!Office.agent.running) { Office.toast(t('errors.agent_away'), true); return null; }
   busy = true;
+  const worked = working(b);
   if (b) b.disabled = true;
   await Office.freshState(ID);
   const j = await Office.api.post(`${ID}.${action}`, body || {});
   busy = false;
+  worked();
   if (b) b.disabled = false;
   if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); drawn = ''; if (view) redraw(); return null; }
   if (j.state) state = j.state;
@@ -1020,8 +978,6 @@ function outputRow(c, o) {
 function fansSection() {
   const s = el('section', 'section');
   s.appendChild(Office.sectionHead(T('fans.title'), steers() ? T('fans.sub_steers') : T('fans.sub'), { place: 'fans.title' }));
-  // round 9 (H3): a show, a pause, a safety full — said above the list, with «Alles stoppen»
-  if (showRuns() || restoreRuns() || stepRuns() || Object.keys(S().safety || {}).length) s.appendChild(nowLine());
   const his = [], bios = [], rest = [];
   chips().filter((c) => c.outputs.length).forEach((c) => c.outputs.forEach((o) => {
     const id = `${c.name}:${c.address}:pwm${o.n}`;
@@ -1609,20 +1565,9 @@ function stepSection(k) {
   const s = el('section', 'section fb-step');
   s.dataset.step = k;
   s.appendChild(Office.sectionHead(T(`step.${k}`), T(`step.${k}_sub`), { place: `step.${k}` }));
-  noRun = (situation() === 'other' || !!control().running) && ['test', 'measure'].includes(k);      // nothing that writes beside another
   const body = ({ detect: detectStep, test: testStep, measure: measureStep, zones: zonesStep, dry: dryStep, take: takeStep })[k]();
-  noRun = false;
   s.appendChild(body);
   return s;
-}
-/** «Next»: the next step alone */
-function nextButton(k) {
-  const i = STEPS.indexOf(k);
-  if (i < 0 || i >= STEPS.length - 1) return null;
-  const b = el('button', 'btn small plain', T('step.next', { name: T(`step.${STEPS[i + 1]}`) }));
-  b.type = 'button';
-  b.onclick = () => { setupSwitcher().pick(STEPS[i + 1]); drawn = ''; redraw(); };
-  return b;
 }
 const bar = (...nodes) => { const b = el('div', 'toolbar fb-bar'); nodes.filter(Boolean).forEach((n) => b.appendChild(n)); return b; };
 const para = (text, cls) => el('p', cls || 'fb-hint-text', text);
@@ -1633,11 +1578,33 @@ function cardWheel(w) {
   return A.wheel({ px: 64, air: false, ...w }).el;
 }
 
-// 1 — detect
+// 1 — detect: what the board shows (read only) — the same rows as every step, nothing to click but «Next»
+/** A row to read (not a button: nothing happens on a click, so it doesn't look as if) */
+function readRow(wheel, name, sub, label, extra) {
+  const r = el('div', 'fb-item fb-item-read' + (wheel ? '' : ' fb-item-plain'));
+  if (wheel) { const w = el('span', 'fb-item-wheel'); w.appendChild(wheel); r.appendChild(w); }
+  const txt = el('span', 'fb-item-text');
+  txt.append(el('span', 'fb-item-name', name), el('span', 'fb-item-sub', sub || ' '));
+  const lab = el('span', 'fb-item-label');
+  if (label) lab.appendChild(label);
+  if (extra) lab.appendChild(extra);
+  r.append(txt, lab);
+  r.title = sub || '';
+  return r;
+}
+/** The next bar of a step drawn whole: its line(s) left, its button(s) right — one of them the primary one */
+function nextBar(lines, acts) {
+  const next = el('div', 'fb-next');
+  const text = el('div', 'fb-next-text');
+  [].concat(lines).filter(Boolean).forEach((x, i) => text.appendChild(typeof x === 'string' ? el('span', i ? 'fb-next-open' : 'fb-next-count', x) : x));
+  const a = el('div', 'fb-next-acts');
+  [].concat(acts).filter(Boolean).forEach((b) => a.appendChild(b));
+  next.append(text, a);
+  return next;
+}
 function detectStep() {
   const box = el('div', 'fb-step-body');
   const su = setup();
-  const s = situation();
   if (!(su.outputs || []).length) {
     // the banner above says why (never the same text twice on a page); here only that there is nothing to set up
     box.appendChild(para(T('step.nothing')));
@@ -1646,25 +1613,22 @@ function detectStep() {
     box.appendChild(bar(go, reportButton(true)));
     return box;
   }
-  const list = el('div', 'fb-cards');
+  const list = el('div', 'fb-list fb-list-read');
   (su.outputs || []).forEach((id) => {
     const o = outputNow(id);
     const b = (su.before || {})[id] || {};
-    const card = Office.place(`detect:${id}`, el('div', 'fb-card'));
-    card.appendChild(cardWheel({ label: '', rpm: o && num(o.pct) ? 2000 * o.pct / 100 : 0, state: 'bios', mm: 120 }));
-    const txt = el('div', 'fb-card-text');
-    txt.appendChild(el('div', 'fb-card-name', T('out.name', { n: (idParts(id) || {}).output })));
-    txt.appendChild(el('div', 'fb-card-line', o ? T(`detect.mode.${o.mode || 'unknown'}`, { pct: num(o.pct) ?? '–' }) : T('detect.gone')));
-    if (b.fixed) txt.appendChild(el('div', 'fb-card-line fb-strong', T('detect.fixed', { pct: b.pct ?? '–' })));
-    card.appendChild(txt);
-    list.appendChild(card);
+    const mode = o ? o.mode || 'unknown' : 'unknown';
+    const label = !o ? chipOfText('quiet', T('detect.gone'), T('detect.gone'))
+      : chipOfText(mode === 'auto' ? 'ok' : mode === 'unknown' ? 'quiet' : 'warn', T(`mode.${mode}`), b.fixed ? T('detect.fixed', { pct: b.pct ?? '–' }) : T(`mode.${mode}_title`));
+    const A = art();
+    const wheel = A ? A.wheel({ px: 40, air: false, rpm: o && num(o.pct) ? 2000 * o.pct / 100 : 0, max: 2000, state: 'bios', mm: 120 }).el : null;
+    list.appendChild(Office.place(`detect:${id}`, readRow(wheel, T('out.name', { n: (idParts(id) || {}).output }), o ? T(`detect.mode.${mode}`, { pct: num(o.pct) ?? '–' }) : T('detect.gone'), label)));
   });
   box.appendChild(list);
   const fixed = Object.values(su.before || {}).filter((b) => b && b.fixed).length;
-  if (fixed) box.appendChild(para(T('detect.fixed_note', { n: fixed })));
   const tachs = chips().filter(offered).reduce((n, c) => n + (c.fans || []).length, 0);
-  box.appendChild(para(T('detect.summary', { outputs: (su.outputs || []).length, inputs: tachs, sensors: (su.sources || []).length })));
-  box.appendChild(bar(nextButton('detect')));
+  const go = btn(T('step.next', { name: T('step.test') }), 'btn', () => { setupSwitcher().pick('test'); drawn = ''; redraw(); });
+  box.appendChild(nextBar([T('detect.summary', { outputs: (su.outputs || []).length, inputs: tachs, sensors: (su.sources || []).length }), fixed ? T('detect.fixed_note', { n: fixed }) : ''], go));
   return box;
 }
 
@@ -1712,7 +1676,12 @@ const safetyPct = (x) => (num((x.before || {}).value) === null ? '–' : Math.ro
 let said = null;                // {text, warn}
 function say(text, warn) {
   said = text ? { text, warn: warn !== false } : null;
-  if (bench) bench.update();
+  patch();
+}
+/** Everything built once, patched in place: the strip and the list-and-panel of the steps shown */
+function patch() {
+  if (strip && strip.el.isConnected) strip.update();
+  [bench, mbench].forEach((b) => { if (b && b.el.isConnected) b.update(); });
 }
 /**
  * An action from the setup's list-and-panel: never dropped, never silent (the owner: a click «was swallowed»). Clicks
@@ -1723,9 +1692,10 @@ let sending = Promise.resolve();
 let sends = 0;
 function send(action, body, opts) {
   const o = opts || {};
+  const done = working(clicked);
   sends++;
   if (!o.quietly) said = null;
-  if (bench) bench.update();
+  patch();
   const job = sending.then(async () => {
     if (!Office.agent.running) { say(T('strip.away')); return null; }
     if (o.fresh) await Office.freshState(ID);
@@ -1742,6 +1712,7 @@ function send(action, body, opts) {
     return j;
   }).catch(() => null).then((j) => {
     sends--;
+    done();
     if (view) redraw();
     plan();
     return j;
@@ -1763,8 +1734,20 @@ function btn(text, cls, on, tip) {
   b.type = 'button';
   b.dataset.own = '1';
   if (tip) b.title = tip;
-  b.onclick = () => on(b);
+  b.onclick = () => { clicked = b; on(b); clicked = null; };
   return b;
+}
+/**
+ * A click answers within a blink (the owner clicks fast; the agent may take a second): the clicked button itself carries
+ * the wave from the click until the agent has answered — whatever the strip says meanwhile
+ */
+let clicked = null;
+function working(b) {
+  if (!b || !b.isConnected || b.classList.contains('fb-working')) return () => {};
+  const w = wave();
+  b.classList.add('running', 'fb-working');
+  b.prepend(w);
+  return () => { w.remove(); b.classList.remove('running', 'fb-working'); };
 }
 /** Draws a part anew only when what it shows changed (its signature) — buttons and fields under a hand stay the same nodes */
 const sigs = new WeakMap();
@@ -1837,23 +1820,18 @@ function rowLabel(id, run) {
   return ['quiet', T('label.untested'), T('label.untested_tip')];
 }
 
-// ------------------------------------------------------------------ 2 — test and assign: the list and the panel
+// ------------------------------------------------------------------ the strip: what runs now, on both pages
 /**
- * Step 2 as ONE thing built once and patched in place (the owner's three tests, 2026-11-15: cards «jump», a click was
- * swallowed, nothing said what runs): the strip (what runs now, the last refusal, «Stop everything»), the quiet switch
- * with its honest hints, a compact list of every output and ONE panel for the output at hand — its big wheel, what it
- * is doing, its buttons, and everything that says what it is. A look that brings a new state changes words and wheels
- * where they stand: no node under a finger is replaced, no row changes its height, the wheels go on turning.
+ * ONE strip for the whole page, built once and patched in place: line 1 says what the setup holds right now (a test's
+ * output at 100 % with the others standing or not, the pause with its seconds, a kick, «show me», measuring, an output
+ * going back, one at 100 % for safety — or «nothing runs»), line 2 the last refusal or how a run ended, right the clock
+ * of the running output and the buttons «Stop everything» / «Back to the value before». On the setup page it stands
+ * above every step (two lines high from the start — nothing moves when a run begins) and sticks to the top of the
+ * window while anything runs; on the overview it shows only while there is something to say.
  */
-let bench = null;
-let sel = '';                   // the output the panel shows (the user's click; follows the running output unless he types)
-let ranLast = '';               // the output that ran at the last look (the panel follows a NEW one only)
-const heard = new Map();        // output → true («found») | false («heard nothing»): his answer while it ran, for a silent output
-function benchMake() {
-  const root = el('div', 'fb-bench');
-  // the strip
-  const strip = el('div', 'fb-strip');
-  const stripWave = wave();
+let strip = null;
+function stripMake() {
+  const root = el('div', 'fb-strip');
   const now = el('p', 'fb-strip-now');
   const note = el('p', 'fb-strip-note');
   note.setAttribute('role', 'status');
@@ -1861,7 +1839,7 @@ function benchMake() {
   const words = el('div', 'fb-strip-text');
   words.append(now, note);
   const main = el('div', 'fb-strip-main');
-  main.append(stripWave, words);
+  main.append(wave(), words);
   const meterBar = el('span', 'fb-meter-bar');
   const meter = el('div', 'fb-meter');
   meter.appendChild(meterBar);
@@ -1869,9 +1847,220 @@ function benchMake() {
   const side = el('div', 'fb-strip-side');
   const clock = el('div', 'fb-strip-clock');
   clock.append(since, meter);
-  const stripActs = el('div', 'fb-strip-acts');
-  side.append(clock, stripActs);
-  strip.append(main, side);
+  const acts = el('div', 'fb-strip-acts');
+  side.append(clock, acts);
+  root.append(main, side);
+  let run = runNow();
+  let ticker = null;
+
+  function update() {
+    if (!state) return;
+    run = runNow();
+    const s = step();
+    let mood = 'idle', text = T('strip.idle');
+    if (run.pause) {
+      mood = 'run';
+      const fan = run.pause.next || '';
+      const left = run.pause.left;
+      text = run.pause.kick ? (left !== null ? T('strip.kick', { s: left }) : T('strip.pause_plain'))
+        : left !== null ? (fan ? T('strip.pause_next', { s: left, fan: fanName(fan) }) : T('strip.pause', { s: left })) : T('strip.pause_plain');
+    } else if (run.kind === 'restore') { mood = 'run'; text = T('strip.restore', { fan: run.back.map((id) => fanName(id)).join(', ') }); }
+    else if (run.kind === 'test' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.test_quiet' : 'strip.test', { fan: fanName(run.id) }); }
+    else if (run.kind === 'show' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.show_quiet' : 'strip.show', { fan: fanName(run.id) }); }
+    else if (run.kind === 'measure' && run.id) {
+      const o = outputNow(run.id);
+      text = T('strip.measure', { fan: fanName(run.id), pct: o && num(o.pct) !== null ? o.pct : '–' });
+      mood = 'run';
+    } else if (run.kind) { mood = 'run'; text = T('strip.starting'); }
+    else if (run.safety.length) { mood = 'warn'; text = T('strip.safety', { n: run.safety.length, list: run.safety.map((y) => fanName(y.id)).join(', ') }); }
+    else if (page === 'setup' && situation() === 'other') text = T('strip.other');
+    else if (page === 'setup' && control().running) text = T('strip.steers');
+    root.dataset.mood = mood;
+    root.classList.toggle('running', mood === 'run');       // office.css shows the wave inside .running
+    setText(now, text);
+    // line 2: what was refused or said last; else how the last run ended; else what to know while it runs
+    let line = '', warn = false;
+    if (said) { line = said.text; warn = said.warn; }
+    else if (!run.kind && endedText(s) && !(s.why === 'no_restart' && run.safety.length)) { line = endedText(s); warn = true; }     // (line 1 says the safety-full itself)
+    else if (!run.kind && showEndedText()) { line = showEndedText(); warn = true; }
+    else if (run.kind === 'test' || run.kind === 'measure') line = T('strip.keep_open');
+    else if (sends > 0) line = T('busy_wait');
+    setText(note, line);
+    note.classList.toggle('fb-strip-warn', warn);
+    root.classList.toggle('fb-strip-told', warn);
+    swap(acts, [run.kind, run.safety.map((y) => y.id), Office.agent.running], () => {
+      const out = [];
+      // set to full for safety: back to the value before, for all of them at once (each panel has its own button)
+      if (run.safety.length && !run.kind) {
+        out.push(btn(T(run.safety.length > 1 ? 'safety.back_all' : 'safety.back'), 'btn small', () => send('safety_back', { fan: run.safety[0].id, all: true }),
+          run.safety.length > 1 ? T('safety.back_tip_all') : T('safety.back_tip', { pct: safetyPct(run.safety[0]) })));
+      }
+      if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('stop_all'), 'btn small danger', () => stopAll(), T('stop_all_tip')));
+      out.forEach((b) => { b.disabled = !Office.agent.running; });
+      return out;
+    });
+    root.classList.toggle('fb-strip-stuck', !!run.kind);
+    if (run.kind) {
+      // under Unraid's own header, and under the phone's sticky section head where there is one
+      const menu = document.getElementById('menu');
+      const head = view ? view.querySelector('.section-head.sticky') : null;
+      const above = (menu && /^(sticky|fixed)$/.test(getComputedStyle(menu).position) ? menu.offsetHeight : 0)
+        + (head && getComputedStyle(head).position === 'sticky' ? head.offsetHeight : 0);
+      root.style.top = `${above}px`;
+    }
+    clockUpdate();
+    if (run.kind && !ticker) ticker = setInterval(tick, 1000);
+    if (!run.kind && ticker) { clearInterval(ticker); ticker = null; }
+  }
+  /** Each second while something runs: the seconds left and the bar — in place, nothing else moves */
+  function tick() {
+    const was = run.pause ? run.pause.left : null;
+    run = runNow();
+    if ((run.pause ? run.pause.left : null) !== was) update(); else clockUpdate();
+  }
+  function clockUpdate() {
+    const on = !!run.since && (run.kind === 'test' || run.kind === 'show');
+    clock.classList.toggle('fb-clock-off', !on);
+    if (!on) { setText(since, ''); return; }
+    // how long it stays at full at most: the agent's word; without it, since when (the page's clock)
+    const secs = run.left !== null ? FULL_MAX - Math.min(FULL_MAX, run.left) : Math.min(FULL_MAX, Math.max(0, Math.floor((Date.now() - run.since) / 1000)));
+    setText(since, run.left !== null ? T('strip.left', { s: run.left }) : T('strip.since', { s: secs }));
+    meterBar.style.width = `${Math.round(100 * secs / FULL_MAX)}%`;
+  }
+  update();
+  return { el: root, update, destroy() { clearInterval(ticker); ticker = null; } };
+}
+/** Is there anything the strip must say on the overview (where it shows only then)? */
+const stripNeeded = () => { const r = runNow(); return !!r.kind || r.safety.length > 0 || !!said; };
+
+// ------------------------------------------------------------------ the list and the panel (every step that has rows)
+/**
+ * The setup's one way to show several things and work on one of them: a compact list (one row of one height each: a
+ * small wheel, a name, a second line, ONE label) beside ONE panel for the row at hand, and under both the next bar
+ * (what is still open, the one button that leads on). Built once, patched in place: a look changes words and wheels
+ * where they stand. Narrow windows: the list becomes a grid of small tiles above the panel.
+ *   o.ids()            the rows, in order
+ *   o.row(id, run)     {name, sub, label: [chip class, text, tip], wheel: {…} | null, live, warn}
+ *   o.panel(id, api)   → {el, update(), destroy()} — built when first shown, kept (api: now() what runs, sel(), select(id), update())
+ *   o.next(api, run)   → {sig, text: () => [nodes], acts: () => [buttons]}
+ *   o.first(run)       the row to show when none is chosen · o.follow(run) the row a new run moves the panel to
+ */
+function listPanel(o) {
+  const root = el('div', 'fb-lp');
+  const list = el('div', 'fb-list');
+  list.setAttribute('role', 'group');
+  list.setAttribute('aria-label', o.label);
+  const slot = el('div', 'fb-panel-slot');
+  const two = el('div', 'fb-two');
+  two.append(list, slot);
+  const next = el('div', 'fb-next');
+  const nextText = el('div', 'fb-next-text');
+  const nextActs = el('div', 'fb-next-acts');
+  next.append(nextText, nextActs);
+  root.append(two, next);
+  const items = new Map();
+  const panels = new Map();
+  let sel = '';
+  let followed = '';
+  let run = runNow();
+  const api = { now: () => run, sel: () => sel, select: (id) => { if (sel !== id) { sel = id; update(); } }, update: () => update() };
+
+  function item(id) {
+    let it = items.get(id);
+    if (it) return it;
+    const b = el('button', 'fb-item');
+    b.type = 'button';
+    b.dataset.row = id;
+    const A = art();
+    const wh = A && o.wheels !== false ? A.wheel({ px: 40, air: false, rpm: 0 }) : null;
+    const pic2 = el('span', 'fb-item-wheel');
+    if (wh) pic2.appendChild(wh.el);
+    const name = el('span', 'fb-item-name');
+    const sub = el('span', 'fb-item-sub');
+    const txt = el('span', 'fb-item-text');
+    txt.append(name, sub);
+    const lab = el('span', 'fb-item-label');
+    if (wh) b.append(pic2, txt, lab); else { b.classList.add('fb-item-plain'); b.append(txt, lab); }
+    b.onclick = () => api.select(id);
+    it = { el: b, wh, name, sub, lab };
+    items.set(id, it);
+    return it;
+  }
+  function update() {
+    if (!state) return;
+    run = runNow();
+    const ids = o.ids();
+    // the panel follows a newly started run's row — never while he types in the panel's fields
+    const typing = slot.contains(document.activeElement) && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
+    const to = o.follow ? o.follow(run) || '' : '';
+    if (to && to !== followed && ids.includes(to) && !typing) sel = to;
+    followed = to;
+    if (!ids.includes(sel)) sel = [o.first ? o.first(run) : '', ids[0]].find((id) => id && ids.includes(id)) || '';
+    if (list.children.length !== ids.length || ids.some((id, i) => list.children[i] !== item(id).el)) list.replaceChildren(...ids.map((id) => item(id).el));
+    ids.forEach((id) => {
+      const it = item(id);
+      const r = o.row(id, run);
+      if (it.wh && r.wheel) it.wh.update({ ...r.wheel, badge: '' });       // the row's label says «stands»; the small wheel just stands
+      setText(it.name, r.name);
+      setText(it.sub, r.sub || ' ');
+      const [cls, text, tip] = r.label;
+      swap(it.lab, [cls, text, !!r.live], () => {
+        const c = chipOfText(cls, text, tip);
+        if (r.live) { c.classList.add('running'); c.prepend(wave()); }
+        return c;
+      });
+      it.el.setAttribute('aria-pressed', sel === id ? 'true' : 'false');
+      it.el.classList.toggle('fb-live', !!r.live);
+      it.el.classList.toggle('fb-item-warn', !!r.warn);
+      it.el.title = T('list.row_tip', { name: r.title || r.name });
+    });
+    if (sel) {
+      let pn = panels.get(sel);
+      if (!pn) { pn = o.panel(sel, api); panels.set(sel, pn); }
+      if (slot.firstChild !== pn.el) slot.replaceChildren(pn.el);
+      pn.update();
+    } else slot.replaceChildren(para(o.none || T('step.nothing')));
+    two.classList.toggle('fb-two-none', !ids.length);
+    const n = o.next(api, run);
+    swap(nextText, ['t', n.sig], n.text);
+    swap(nextActs, ['a', n.sig, Office.agent.running], () => { const out = n.acts(); out.forEach((b) => { if (!b.dataset.go) b.disabled = b.disabled || !Office.agent.running; }); return out; });
+  }
+  update();
+  return {
+    el: root, update, api,
+    destroy() {
+      items.forEach((it) => { if (it.wh) it.wh.destroy(); });
+      panels.forEach((p) => p.destroy());
+    },
+  };
+}
+/** «Next: <step>» in a next bar: primary once nothing of this step is open */
+function goButton(to, primary) {
+  const b = btn(T('step.next', { name: T(`step.${to}`) }), primary ? 'btn' : 'btn small plain', () => { setupSwitcher().pick(to); drawn = ''; redraw(); });
+  b.dataset.go = '1';
+  return b;
+}
+/** The next bar's first line and, where something is open, its rows by name — a click shows that row */
+function nextLines(count, open, api, done) {
+  const out = [el('span', 'fb-next-count', count)];
+  if (open.length) {
+    const line = el('span', 'fb-next-open', T('next.open'));
+    open.forEach(([id, name, tip]) => line.append(' ', btn(name, 'fb-link', () => api.select(id), tip)));
+    out.push(line);
+  } else if (done) out.push(el('span', 'fb-next-open', done));
+  return out;
+}
+
+// ------------------------------------------------------------------ 2 — test and assign
+/**
+ * Step 2 (the owner's three tests, 2026-11-15: cards «jump», a click was swallowed, nothing said what runs): the quiet
+ * switch with its honest hints, the list of every output and ONE panel for the output at hand — its big wheel, what it
+ * is doing, its buttons, and everything that says what it is.
+ */
+let bench = null;
+const heard = new Map();        // output → true («found») | false («heard nothing»): his answer while it ran, for a silent output
+function benchMake() {
+  const root = el('div', 'fb-bench');
   // the quiet switch and its honest hints
   const quiet = Office.place('quiet.setting', el('div', 'fb-quiet'));
   const qHead = el('div', 'fb-quiet-head');
@@ -1893,214 +2082,53 @@ function benchMake() {
   ['hint_1', 'hint_2', 'hint_3'].forEach((k) => qList.appendChild(el('li', '', T(`quiet.${k}`))));
   const qOff = el('p', 'fb-quiet-off', T('quiet.off_note'));
   quiet.append(qHead, qList, qOff);
-  // the list and the panel
-  const list = el('div', 'fb-list');
-  list.setAttribute('role', 'group');
-  list.setAttribute('aria-label', T('list.label'));
-  const slot = el('div', 'fb-panel-slot');
-  const two = el('div', 'fb-two');
-  two.append(list, slot);
-  // what is still open, and the way on
-  const next = el('div', 'fb-next');
-  const nextText = el('div', 'fb-next-text');
-  const nextActs = el('div', 'fb-next-acts');
-  next.append(nextText, nextActs);
-  root.append(strip, quiet, two, next);
-
-  const items = new Map();      // output → its row
-  const panels = new Map();     // output → its panel (built when first shown, kept: its fields, its picker)
-  let ticker = null;
-  let run = runNow();
-  const benchRun = () => run;
-
-  function item(id) {
-    let it = items.get(id);
-    if (it) return it;
-    const b = el('button', 'fb-item');
-    b.type = 'button';
-    b.dataset.fan = id;
-    const A = art();
-    const wh = A ? A.wheel({ px: 40, air: false, rpm: 0 }) : null;
-    const pic2 = el('span', 'fb-item-wheel');
-    if (wh) pic2.appendChild(wh.el);
-    const name = el('span', 'fb-item-name');
-    const sub = el('span', 'fb-item-sub');
-    const txt = el('span', 'fb-item-text');
-    txt.append(name, sub);
-    const lab = el('span', 'fb-item-label');
-    b.append(pic2, txt, lab);
-    b.onclick = () => { if (sel !== id) { sel = id; update(); } };
-    it = { el: b, wh, name, sub, lab };
-    items.set(id, it);
-    return it;
-  }
-  function itemUpdate(id) {
-    const it = item(id);
-    const f = setupFan(id);
-    const p = idParts(id);
-    if (it.wh) it.wh.update({ ...wheelNow(id, run), badge: '' });       // the row's label says «stands»; the small wheel just stands
-    setText(it.name, T('out.name', { n: p ? p.output : '?' }));
-    const rpm = f && f.found === 'tach' ? rpmNow(id, f.tachs) : null;
-    setText(it.sub, [f && f.name ? f.name : '', rpm !== null ? T('pic.rpm', { rpm: fmt.number(rpm) }) : ''].filter(Boolean).join(' · ') || (f && f.found ? '' : ' '));
-    const [cls, text, tip] = rowLabel(id, run);
-    swap(it.lab, [cls, text, run.id === id && !run.pause], () => {
-      const c = chipOfText(cls, text, tip);
-      if (cls === 'solid') { c.classList.add('running'); c.prepend(wave()); }
-      return c;
-    });
-    it.el.setAttribute('aria-pressed', sel === id ? 'true' : 'false');
-    it.el.classList.toggle('fb-live', run.id === id && !run.pause && !!run.kind);
-    it.el.classList.toggle('fb-item-warn', !!safetyOf(id));
-    it.el.title = T('list.row_tip', { name: fanName(id) });
-  }
-
+  const outs = () => setup().outputs || [];
+  const lp = listPanel({
+    label: T('list.label'),
+    ids: outs,
+    first: (run) => [run.id, (run.safety[0] || {}).id, outs().find((id) => openWhy(id))].find((id) => id && outs().includes(id)) || '',
+    follow: (run) => (run.kind === 'test' || run.kind === 'show' ? run.id : ''),
+    row(id, run) {
+      const f = setupFan(id);
+      const p = idParts(id);
+      const rpm = f && f.found === 'tach' ? rpmNow(id, f.tachs) : null;
+      return { name: T('out.name', { n: p ? p.output : '?' }), title: fanName(id),
+        sub: [f && f.name ? f.name : '', rpm !== null ? T('pic.rpm', { rpm: fmt.number(rpm) }) : ''].filter(Boolean).join(' · '),
+        label: rowLabel(id, run), wheel: wheelNow(id, run), live: run.id === id && !run.pause && (run.kind === 'test' || run.kind === 'show'), warn: !!safetyOf(id) };
+    },
+    panel: (id, api) => panelMake(id, api.now, api.update),
+    next(api, run) {
+      const open = outs().map((id) => [id, openWhy(id)]).filter(([, w]) => w);
+      const toTest = open.filter(([, w]) => w === 'test').map(([id]) => id);
+      const tested = outs().length - toTest.length;
+      const roles = outs().filter((id) => { const f = setupFan(id); return f && (f.role || f.found === 'empty'); }).length;
+      const noTest = !!noTestWhy();
+      const selOpen = openWhy(api.sel()) === 'test';
+      return {
+        sig: [tested, outs().length, roles, open, !!run.kind, noTest, selOpen],
+        text: () => nextLines(`${T('step.v.tested', { n: tested, m: outs().length })} · ${T('step.v.assigned', { n: roles })}`,
+          open.map(([id, w]) => [id, T('out.name', { n: (idParts(id) || {}).output }), T(`next.open_${w}`)]), api, T('next.all_done')),
+        acts: () => {
+          const out = [];
+          // the ONE primary button: the panel's own «Start the test» while its output is untested; else here
+          if (toTest.length && !selOpen && !run.kind && !noTest) out.push(btn(T('next.test_open', { n: toTest.length }), 'btn', () => startTest(toTest), T('test.all_tip')));
+          out.push(goButton('measure', !open.length && !run.kind));
+          return out;
+        },
+      };
+    },
+  });
+  root.append(quiet, lp.el);
   function update() {
-    if (!state) return;
-    run = runNow();
-    const su = setup();
-    const outs = su.outputs || [];
-    // the panel follows a newly started output — never while he types in the panel's fields
-    const typing = slot.contains(document.activeElement) && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
-    if (run.id && run.id !== ranLast && run.kind !== 'measure' && !typing) sel = run.id;
-    ranLast = run.id || '';
-    if (!outs.includes(sel)) sel = [run.id, (run.safety[0] || {}).id, outs.find((id) => openWhy(id)), outs[0]].find((id) => id && outs.includes(id)) || '';
-    stripUpdate();
-    quietUpdate();
-    // the rows: every output, in the board's order (built once; a board never changes its outputs under the page)
-    if (list.children.length !== outs.length || outs.some((id, i) => list.children[i] !== item(id).el)) list.replaceChildren(...outs.map((id) => item(id).el));
-    outs.forEach(itemUpdate);
-    list.classList.toggle('fb-list-many', outs.length > 8);
-    // the panel of the output at hand
-    if (sel) {
-      let pn = panels.get(sel);
-      if (!pn) { pn = panelMake(sel, benchRun, update); panels.set(sel, pn); }
-      if (slot.firstChild !== pn.el) slot.replaceChildren(pn.el);
-      pn.update();
-    } else slot.replaceChildren(para(T('step.nothing')));
-    nextUpdate();
-    if (run.kind && !ticker) ticker = setInterval(tick, 1000);
-    if (!run.kind && ticker) { clearInterval(ticker); ticker = null; }
-  }
-
-  function stripUpdate() {
-    const s = step();
-    const noTest = noTestWhy();
-    let mood = 'idle', text = T('strip.idle');
-    if (run.pause) {
-      mood = 'run';
-      const fan = run.pause.next || '';
-      const left = run.pause.left;
-      text = run.pause.kick ? (left !== null ? T('strip.kick', { s: left }) : T('strip.pause_plain'))
-        : left !== null ? (fan ? T('strip.pause_next', { s: left, fan: fanName(fan) }) : T('strip.pause', { s: left })) : T('strip.pause_plain');
-    } else if (run.kind === 'restore') { mood = 'run'; text = T('strip.restore', { fan: run.back.map((id) => fanName(id)).join(', ') }); }
-    else if (run.kind === 'test' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.test_quiet' : 'strip.test', { fan: fanName(run.id) }); }
-    else if (run.kind === 'show' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.show_quiet' : 'strip.show', { fan: fanName(run.id) }); }
-    else if (run.kind === 'measure') { mood = 'run'; text = T('strip.measure', { fan: run.id ? fanName(run.id) : '' }); }
-    else if (run.kind) { mood = 'run'; text = T('strip.starting'); }
-    else if (run.safety.length) { mood = 'warn'; text = T('strip.safety', { n: run.safety.length, list: run.safety.map((y) => fanName(y.id)).join(', ') }); }
-    else if (noTest) text = noTest;
-    strip.dataset.mood = mood;
-    strip.classList.toggle('running', mood === 'run');       // office.css shows the wave inside .running
-    setText(now, text);
-    // line 2: what was refused or said last; else how the last run ended; else what to know while it runs
-    let line = '', warn = false;
-    if (said) { line = said.text; warn = said.warn; }
-    else if (!run.kind && endedText(s) && !(s.why === 'no_restart' && run.safety.length)) { line = endedText(s); warn = true; }     // (line 1 says the safety-full itself)
-    else if (!run.kind && showEndedText()) { line = showEndedText(); warn = true; }
-    else if (run.kind === 'test' || run.kind === 'measure') line = T('strip.keep_open');
-    else if (sends > 0) line = T('busy_wait');
-    setText(note, line);
-    note.classList.toggle('fb-strip-warn', warn);
-    strip.classList.toggle('fb-strip-told', warn);
-    swap(stripActs, [run.kind, run.safety.map((y) => y.id), Office.agent.running], () => {
-      const out = [];
-      // set to full for safety: back to the value before, for all of them at once (each panel has its own button)
-      if (run.safety.length && !run.kind) {
-        out.push(btn(T(run.safety.length > 1 ? 'safety.back_all' : 'safety.back'), 'btn small', () => send('safety_back', { fan: run.safety[0].id, all: true }),
-          run.safety.length > 1 ? T('safety.back_tip_all') : T('safety.back_tip', { pct: safetyPct(run.safety[0]) })));
-      }
-      if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('stop_all'), 'btn small danger', () => stopAll(), T('stop_all_tip')));
-      out.forEach((b) => { b.disabled = !Office.agent.running; });
-      return out;
-    });
-    strip.classList.toggle('fb-strip-stuck', !!run.kind);
-    if (run.kind) {
-      const menu = document.getElementById('menu');
-      const head = root.closest('section') ? root.closest('section').querySelector('.section-head.sticky') : null;
-      const above = (menu && /^(sticky|fixed)$/.test(getComputedStyle(menu).position) ? menu.offsetHeight : 0)
-        + (head && getComputedStyle(head).position === 'sticky' ? head.offsetHeight : 0);
-      strip.style.top = `${above}px`;
-    }
-    clockUpdate();
-  }
-  /** Each second while something runs: «for 12 s» and the bar — in place, nothing else moves */
-  function tick() {
-    const was = run.pause ? run.pause.left : null;
-    run = runNow();
-    if ((run.pause ? run.pause.left : null) !== was) stripUpdate(); else clockUpdate();
-  }
-  function clockUpdate() {
-    const on = !!run.since && (run.kind === 'test' || run.kind === 'show');
-    clock.classList.toggle('fb-clock-off', !on);
-    if (!on) { setText(since, ''); return; }
-    // how long it stays at full at most: the agent's word; without it, since when (the page's clock)
-    const secs = run.left !== null ? FULL_MAX - Math.min(FULL_MAX, run.left) : Math.min(FULL_MAX, Math.max(0, Math.floor((Date.now() - run.since) / 1000)));
-    setText(since, run.left !== null ? T('strip.left', { s: run.left }) : T('strip.since', { s: secs }));
-    meterBar.style.width = `${Math.round(100 * secs / FULL_MAX)}%`;
-  }
-
-  function quietUpdate() {
     const on = quietOn();
     qBtn.on.setAttribute('aria-pressed', String(on));
     qBtn.off.setAttribute('aria-pressed', String(!on));
     qList.hidden = !on;
     qOff.hidden = on;
+    lp.update();
   }
-
-  function nextUpdate() {
-    const su = setup();
-    const outs = su.outputs || [];
-    const open = outs.map((id) => [id, openWhy(id)]).filter(([, w]) => w);
-    const toTest = open.filter(([, w]) => w === 'test').map(([id]) => id);
-    const tested = outs.length - toTest.length;
-    const roles = outs.filter((id) => { const f = setupFan(id); return f && (f.role || f.found === 'empty'); }).length;
-    swap(nextText, [tested, outs.length, roles, open, sel], () => {
-      const out = [el('span', 'fb-next-count', `${T('step.v.tested', { n: tested, m: outs.length })} · ${T('step.v.assigned', { n: roles })}`)];
-      if (open.length) {
-        const line = el('span', 'fb-next-open', T('next.open'));
-        open.forEach(([id, w]) => {
-          const b = btn(T('out.name', { n: (idParts(id) || {}).output }), 'fb-link', () => { sel = id; update(); }, T(`next.open_${w}`));
-          line.append(' ', b);
-        });
-        out.push(line);
-      } else out.push(el('span', 'fb-next-open', T('next.all_done')));
-      return out;
-    });
-    const noTest = situation() === 'other' || !!control().running;
-    const selOpen = openWhy(sel) === 'test';
-    swap(nextActs, [open.length, toTest.length, !!run.kind, noTest, selOpen, Office.agent.running], () => {
-      const out = [];
-      // the ONE primary button: the panel's own «Start the test» while its output is untested; else here
-      if (toTest.length && !selOpen && !run.kind && !noTest) {
-        out.push(btn(T('next.test_open', { n: toTest.length }), 'btn', () => startTest(toTest), T('test.all_tip')));
-      }
-      const go = btn(T('step.next', { name: T('step.measure') }), open.length || run.kind ? 'btn small plain' : 'btn', () => { setupSwitcher().pick('measure'); drawn = ''; redraw(); });
-      out.push(go);
-      out.forEach((b) => { if (b !== go) b.disabled = !Office.agent.running; });
-      return out;
-    });
-  }
-
   update();
-  return {
-    el: root,
-    update,
-    destroy() {
-      clearInterval(ticker);
-      items.forEach((it) => { if (it.wh) it.wh.destroy(); });
-      panels.forEach((p) => p.destroy());
-    },
-  };
+  return { el: root, update, destroy() { lp.destroy(); } };
 }
 /**
  * His answer while it ran, for an output no tach followed (the two buttons replace the later question «did anything get
@@ -2120,10 +2148,14 @@ function startTest(ids) {
   if (!ids.length) return null;
   return send('test_up', { fans: ids, quiet: quietOn() }, { fresh: true });
 }
-/** How the last test ended, when it didn't simply finish: the page gone, stopped, too warm, a fan that didn't start again */
+/** How the last test or measuring ended, when it didn't simply finish: the page gone, stopped, too warm, a fan that didn't start again */
 function endedText(s) {
-  if (!s || s.kind !== 'test_up' || running(s) || !['stopped', 'failed'].includes(s.status)) return '';
+  if (!s || !['test_up', 'measure'].includes(s.kind) || running(s) || !['stopped', 'failed'].includes(s.status)) return '';
   const why = s.status === 'failed' ? 'error' : s.why || 'stopped';
+  // too warm while measuring: which source, how warm, its limit (round 4: by its own kind — an NVMe pool's 50 °C stops nothing)
+  if (why === 'warm' && s.warm && s.warm.source) {
+    return T('step.ended.warm_what', { where: srcLabel({ kind: s.warm.kind === 'disk' || s.warm.kind === 'ssd' ? s.warm.kind : 'other', id: s.warm.source, label: s.warm.source }), c: fmt.number(s.warm.c), limit: fmt.number(s.warm.limit) });
+  }
   if (['quiet_warm', 'no_restart'].includes(why) && s.quiet_stop) return T(`step.ended.${why}`, { what: s.quiet_stop.what || '', c: num(s.quiet_stop.c) === null ? '' : fmt.number(s.quiet_stop.c) });
   return has(`step.ended.${why}`) ? T(`step.ended.${why}`) : T('step.ended.stopped');
 }
@@ -2204,12 +2236,16 @@ function panelMake(id, benchRun, benchUpdate) {
   root.append(head, safety, what, cpu, fields, note, look, back);
   let pk = null, colour = null, lookNote = null;
 
+  let picked = null;              // the role just clicked, shown pressed until the agent has answered
   function pickRole(k) {
     const f = setupFan(id);
     cpuAsk.delete(id);              // round 9 (H6): a role click never carries a half-made «Fanboy steers it» along
-    if (k === 'empty') { send('answer', { fan: id, louder: false }); return; }
+    picked = k;
+    roleBtns.forEach((b, r) => b.setAttribute('aria-pressed', r === k ? 'true' : 'false'));
+    const settle = () => { picked = null; update(); };
+    if (k === 'empty') { send('answer', { fan: id, louder: false }).then(settle); return; }
     if (f && ['ask', 'unclear'].includes(f.found) && benchRun().id !== id) send('answer', { fan: id, louder: true }, { quietly: true });
-    send('role', { fan: id, role: k, off_ok: !!(f && f.off_ok) && ROLES_OURS.includes(k) });
+    send('role', { fan: id, role: k, off_ok: !!(f && f.off_ok) && ROLES_OURS.includes(k) }).then(settle);
   }
 
   function update() {
@@ -2290,7 +2326,7 @@ function panelMake(id, benchRun, benchUpdate) {
       });
     }
     // «Was ist das?»
-    const cur = found === 'empty' ? 'empty' : (f && f.role) || '';
+    const cur = picked || (found === 'empty' ? 'empty' : (f && f.role) || '');
     roleBtns.forEach((b, k) => {
       b.setAttribute('aria-pressed', k === cur ? 'true' : 'false');
       b.disabled = away || never || (found === 'empty' && k !== 'empty');
@@ -2418,7 +2454,7 @@ function nameField(id, f, off) {
       n.dataset.saving = value;
       const j = await Office.api.post(`${ID}.fan_name`, { fan: id, name: value });
       if (!j.ok) { const text = Office.errorText(j.error, ID); Office.toast(text, true); say(T('strip.refused', { why: text })); }
-      else { const sf = setupFan(id); if (sf) sf.name = value; if (bench) bench.update(); }
+      else { const sf = setupFan(id); if (sf) sf.name = value; patch(); }
       if (n.dataset.saving === value) delete n.dataset.saving;
     };
     n.addEventListener('input', () => { clearTimeout(t); t = setTimeout(save, 700); });
@@ -2430,58 +2466,6 @@ function nameField(id, f, off) {
   n.disabled = off;
   return n;
 }
-/** What the running step does now, the wave, «Stop» — it can always be stopped */
-function runningLine(s, text) {
-  const p = el('div', 'fb-running');
-  p.append(wave(), el('span', '', text));
-  const stop = el('button', 'btn small', T('step.stop'));
-  stop.type = 'button';
-  stop.title = T('step.stop_tip');
-  stop.disabled = !Office.agent.running;
-  stop.onclick = async () => {
-    stop.disabled = true;
-    const j = await Office.api.post(`${ID}.step_stop`, {});
-    if (!j.ok) Office.toast(Office.errorText(j.error, ID), true);
-    else Office.toast(T('step.stopped_toast'));
-    await load(true);
-  };
-  p.appendChild(stop);
-  const wrap = el('div', 'fb-running-box');
-  wrap.append(p, para(T('step.alive_note')));
-  return wrap;
-}
-/** How the last step of this kind ended, honestly: the page gone, stopped, too warm, failed */
-function stepEnded(box, s, kind) {
-  if (!s || s.kind !== kind || running(s) || !['stopped', 'failed'].includes(s.status)) return;
-  const why = s.status === 'failed' ? 'error' : s.why || 'stopped';
-  // too warm: which source, how warm, its limit (round 4: by its own kind — an NVMe pool's 50 °C stops nothing)
-  const w = why === 'warm' && s.warm && s.warm.source ? T('step.ended.warm_what', { where: srcLabel({ kind: s.warm.kind === 'disk' || s.warm.kind === 'ssd' ? s.warm.kind : 'other', id: s.warm.source, label: s.warm.source }),
-    c: fmt.number(s.warm.c), limit: fmt.number(s.warm.limit) }) : null;
-  // round 8: the quiet test stopped for a temperature, or a fan that didn't turn again
-  const q = ['quiet_warm', 'no_restart'].includes(why) && s.quiet_stop ? T(`step.ended.${why}`, { what: s.quiet_stop.what || '', c: num(s.quiet_stop.c) === null ? '' : fmt.number(s.quiet_stop.c) }) : null;
-  box.appendChild(para(w || q || (has(`step.ended.${why}`) ? T(`step.ended.${why}`) : T('step.ended.stopped')), 'callout warn'));
-}
-/**
- * A step can't run now — another controller steers, or Fanboy does: the banner says who and why; the step says only its
- * own short line, its cards stay to read and its buttons are off (noRun) — never the banner's text again
- */
-let noRun = false;
-function blocked(box) {
-  if (situation() === 'other') {
-    box.appendChild(para(T('step.blocked_other'), 'fb-hint-text fb-strong'));
-    return false;
-  }
-  if (control().running) {
-    box.appendChild(para(T('step.blocked_steering'), 'fb-hint-text fb-strong'));        // «Hand back» is the take-over step's
-    return false;
-  }
-  return false;
-}
-async function startStep(kind, ids, b) {
-  if (!ids.length) return;
-  await act(kind, kind === 'test_up' ? { fans: ids, quiet: quietOn() } : { fans: ids }, b, async () => { await load(true); });
-}
-
 function modelText(m) {
   const c = catFan(m && m.id);
   return c ? `${c.brand} ${c.model}` : m && m.mm ? T('roles.other_fan', { mm: m.mm }) : '';
@@ -2521,49 +2505,132 @@ function backChoice(f, b) {
   return box;
 }
 
-// 4 — measure: the table % ↔ rpm as it is measured
-function measureStep() {
-  const box = el('div', 'fb-step-body');
-  const su = setup();
-  const s = step();
-  const live = running(s) && s.kind === 'measure';
-  if (blocked(box)) return box;
-  stepEnded(box, s, 'measure');
-  const ours = (su.fans || []).filter((f) => isOurs(f) && f.found === 'tach');
-  if (!ours.length) {
-    box.appendChild(para(T('measure.none')));
-    box.appendChild(bar(nextButton('measure')));
-    return box;
-  }
-  const list = el('div', 'fb-cards fb-cards-wide');
-  ours.forEach((f) => {
-    const under = live && s.current === f.id;
-    const card = Office.place(`measure:${f.id}`, el('div', 'fb-card' + (under ? ' fb-card-now' : '')));
-    const look = fanLook(f);
-    const o = outputNow(f.id);
-    card.appendChild(cardWheel({ rpm: rpmNow(f.id, f.tachs), mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: under ? 'accent' : look.colour, look: look.look }));
-    const txt = el('div', 'fb-card-text');
-    txt.appendChild(el('div', 'fb-card-name', fanName(f.id)));
-    const r = s && s.kind === 'measure' && s.results ? s.results[f.id] : null;
-    const table = under && s.progress && s.progress.id === f.id ? s.progress.table : f.table;
-    if (under) txt.appendChild(el('div', 'fb-card-line', T('measure.now', { pct: o && num(o.pct) !== null ? o.pct : '–' })));
-    else if (live && (s.fans || []).includes(f.id) && !(s.done || []).includes(f.id)) txt.appendChild(el('div', 'fb-card-line', T('test.waiting')));
-    else if (f.no_turn) txt.appendChild(el('div', 'fb-card-line fb-strong', T('measure.no_turn')));
-    else if (f.measured) txt.appendChild(el('div', 'fb-card-line', T('measure.done', { min: f.min_pct, start: f.start_pct, max: fmt.number(f.max_rpm || 0) })));
-    else txt.appendChild(el('div', 'fb-card-line', T('measure.not_yet')));
-    if (r && r.result === 'warm') txt.appendChild(el('div', 'fb-card-line fb-strong', T('measure.warm')));
-    if (Array.isArray(table) && table.length) txt.appendChild(tableEl(table, under ? null : f));
-    if (!live) txt.appendChild(bar(button(f.measured ? T('measure.again') : T('measure.one'), T('measure.one_tip'), (b) => startStep('measure', [f.id], b))));
-    card.appendChild(txt);
-    list.appendChild(card);
+// ------------------------------------------------------------------ 3 — measure: his fans, each its table % ↔ rpm
+/**
+ * Step 3 in the same parts as step 2: the list of his fans with feedback and ONE panel for the fan at hand — its wheel
+ * turning as it turns now, where the measuring stands, the table as it grows (its room kept from the start). Hands off:
+ * «Measure all» starts it, the strip says which fan and percent, «Stop everything» ends it.
+ */
+let mbench = null;
+const measured = () => (setup().fans || []).filter((f) => isOurs(f) && f.found === 'tach').map((f) => f.id);
+const toMeasure = () => measured().filter((id) => { const f = setupFan(id); return !f.measured && !f.no_turn; });
+function startMeasure(ids) {
+  if (!ids.length) return null;
+  return send('measure', { fans: ids }, { fresh: true });
+}
+function measureMake() {
+  const lp = listPanel({
+    label: T('measure.list'),
+    none: T('measure.none'),
+    ids: measured,
+    first: (run) => (run.kind === 'measure' && run.id) || toMeasure()[0] || '',
+    follow: (run) => (run.kind === 'measure' ? run.id : ''),
+    row(id, run) {
+      const f = setupFan(id) || {};
+      const under = run.kind === 'measure' && run.id === id;
+      const look = fanLook(f);
+      const rpm = rpmNow(id, f.tachs);
+      const label = under ? ['solid', T('label.measuring'), T('label.measuring_tip')]
+        : run.kind === 'measure' && run.queue.includes(id) ? ['quiet', T('label.waits'), T('label.waits_tip')]
+          : f.no_turn ? ['warn', T('label.no_turn'), T('measure.no_turn')]
+            : f.measured ? ['accent', T('label.measured'), T('measure.done', { min: f.min_pct, start: f.start_pct, max: fmt.number(f.max_rpm || 0) })]
+              : ['quiet', T('label.unmeasured'), T('measure.not_yet')];
+      return { name: fanName(id), sub: [has(`role.${f.role}`) ? T(`role.${f.role}`) : '', rpm !== null ? T('pic.rpm', { rpm: fmt.number(rpm) }) : ''].filter(Boolean).join(' · '), label, live: under,
+        wheel: { mm: look.mm, blades: look.blades, min: look.min, max: look.max || 2000, look: look.look, colour: under && !look.look && look.colour === 'auto' ? 'accent' : look.colour, rpm: rpm ?? 0, state: 'run' } };
+    },
+    panel: (id, api) => measurePanel(id, api),
+    next(api, run) {
+      const all = measured(), open = toMeasure();
+      const noRun = !!noTestWhy();
+      const selOpen = open.includes(api.sel());
+      return {
+        sig: [all, open, !!run.kind, noRun, selOpen],
+        text: () => (all.length ? nextLines(T('step.v.measured', { n: all.length - open.length, m: all.length }), open.map((id) => [id, fanName(id), T('measure.not_yet')]), api, T('next.measured_all')) : []),
+        acts: () => {
+          const out = [];
+          if (open.length && !selOpen && !run.kind && !noRun) out.push(btn(open.length > 1 ? T('measure.all') : T('measure.rest'), 'btn', () => startMeasure(open), T('measure.all_tip')));
+          out.push(goButton('zones', !open.length && !run.kind));
+          return out;
+        },
+      };
+    },
   });
-  box.appendChild(list);
-  if (live) box.appendChild(runningLine(s, T('measure.running', { n: (s.done || []).length + 1, m: (s.fans || []).length })));
-  else {
-    const todo = ours.filter((f) => !f.measured).map((f) => f.id);
-    box.appendChild(bar(button(T('measure.all'), T('measure.all_tip'), (b) => startStep('measure', todo.length ? todo : ours.map((f) => f.id), b), 'btn'), nextButton('measure')));
+  lp.el.classList.add('fb-measure');
+  return lp;
+}
+function measurePanel(id, api) {
+  const root = Office.place(`measure:${id}`, el('div', 'fb-panel'));
+  root.dataset.fan = id;
+  const A = art();
+  const wh = A ? A.wheel({ px: 116, air: false, rpm: 0 }) : null;
+  const pict = el('div', 'fb-panel-wheel');
+  if (wh) pict.appendChild(wh.el);
+  const title = el('h3', 'fb-panel-title');
+  const line = el('p', 'fb-panel-line');
+  const acts = el('div', 'fb-panel-acts');
+  const why = el('p', 'fb-panel-why');
+  const headText = el('div', 'fb-panel-headtext');
+  headText.append(title, line, acts, why);
+  const head = el('div', 'fb-panel-head');
+  head.append(pict, headText);
+  const table = el('div', 'fb-measure-table');
+  const note = el('p', 'fb-panel-note');
+  root.append(head, table, note);
+  function update() {
+    const run = api.now();
+    const f = setupFan(id) || { id };
+    const s = step();
+    const under = run.kind === 'measure' && run.id === id;
+    const away = !Office.agent.running;
+    const noRun = noTestWhy();
+    const look = fanLook(f);
+    const o = outputNow(id);
+    const rpm = rpmNow(id, f.tachs);
+    if (wh) wh.update({ mm: look.mm, blades: look.blades, min: look.min, max: look.max || 2000, look: look.look, colour: under && !look.look && look.colour === 'auto' ? 'accent' : look.colour, rpm: rpm ?? 0, state: 'run' });
+    root.classList.toggle('fb-live', under);
+    setText(title, fanName(id));
+    const queued = run.kind === 'measure' && !under && run.queue.includes(id);
+    const r = s && s.kind === 'measure' && s.results ? s.results[id] : null;
+    let text = T('measure.not_yet');
+    if (under) text = T('measure.now', { pct: o && num(o.pct) !== null ? o.pct : '–' });
+    else if (queued) text = T('test.waiting');
+    else if (f.no_turn) text = T('measure.no_turn');
+    else if (f.measured) text = T('measure.done', { min: f.min_pct, start: f.start_pct, max: fmt.number(f.max_rpm || 0) });
+    if (!under && r && r.result === 'warm') text = T('measure.warm');
+    if (rpm !== null && !f.no_turn) text = `${text} · ${T('pic.rpm', { rpm: fmt.number(rpm) })}`;
+    setText(line, text);
+    let reason = '';
+    if (queued) reason = T('panel.queued_measure');
+    else if (!under && run.kind) reason = T('panel.busy_measure', { fan: run.id ? fanName(run.id) : '' });
+    else if (!run.kind && noRun) reason = noRun;
+    else if (away) reason = T('strip.away');
+    setText(why, reason);
+    const open = toMeasure();
+    swap(acts, [under, run.kind, queued, !!f.measured, !!f.no_turn, !!noRun, away, open, open[0] === id], () => {
+      const out = [];
+      if (under) out.push(btn(T('test.abort'), 'btn small plain', () => stopAll(), T('step.stop_tip')));
+      else if (queued) return out;
+      else if (!f.measured && !f.no_turn) {
+        // the primary «Measure all»: every fan not measured yet, this one first
+        const rest = [id, ...open.filter((x) => x !== id)];
+        out.push(btn(open.length > 1 ? T('measure.all') : T('measure.one'), 'btn', () => startMeasure(open.length > 1 ? rest : [id]), open.length > 1 ? T('measure.all_tip') : T('measure.one_tip')));
+        if (open.length > 1) out.push(btn(T('measure.only'), 'btn small plain', () => startMeasure([id]), T('measure.one_tip')));
+      } else out.push(btn(T('measure.again'), 'btn small plain', () => startMeasure([id]), T('measure.one_tip')));
+      if (!under) out.forEach((b) => { b.disabled = !!run.kind || !!noRun || away; });
+      return out;
+    });
+    // the table as it is measured (the running fan's as it grows), its room kept from the start
+    const rows = under && s.progress && s.progress.id === id && Array.isArray(s.progress.table) ? s.progress.table : f.table;
+    swap(table, [rows || null, under ? null : [f.min_pct, f.start_pct]], () => (Array.isArray(rows) && rows.length ? tableEl(rows, under ? null : f) : para(T('measure.table_none'))));
+    setText(note, num(f.kick_start) !== null ? T('assign.kick', { pct: Math.round(f.kick_start / 2.55) }) : '');
   }
-  return box;
+  update();
+  return { el: root, update, destroy() { if (wh) wh.destroy(); } };
+}
+function measureStep() {
+  if (!mbench) mbench = measureMake();
+  else mbench.update();
+  return mbench.el;
 }
 /** The table % ↔ rpm: each step as measured, the lowest steady and the start value named */
 function tableEl(table, f) {
@@ -2599,32 +2666,67 @@ function changeZones(fn) {
   drawn = '';
   redraw();
 }
+let zsel = '';                  // the zone the panel shows
 function zonesStep() {
   const box = el('div', 'fb-step-body');
   const su = setup();
   const ours = (su.fans || []).filter((f) => isOurs(f) && ['tach', 'silent'].includes(f.found));
   if (!ours.length) {
     box.appendChild(para(T('zones.no_fans')));
+    const go = btn(T('step.next', { name: T('step.test') }), 'btn small plain', () => { setupSwitcher().pick('test'); drawn = ''; redraw(); });
+    box.appendChild(bar(go));
     return box;
   }
   const zones = zonesNow();
-  const tools2 = bar(
-    button(T('zones.propose'), T('zones.propose_tip'), (b) => act('zones_propose', {}, b, (j) => { zdraft = (j.zones || []).map((z) => ({ ...z, name: z.name || T(`zones.kind.${z.kind}`) })); })),
-    zones.length < 8 ? button(T('zones.add'), T('zones.add_tip'), () => changeZones((z) => z.push({ id: freeId(z), name: T('zones.new_name', { n: z.length + 1 }), fans: [], sources: [], unit: 'pct', target: { preset: 'normal' } }))) : null);
-  box.appendChild(tools2);
-  box.appendChild(para(T('zones.how_often', { s: setup().round || 2 }) + (num(S().poll) !== null && S().poll > 300 ? ' ' + T('zones.poll', { min: Math.round(S().poll / 60) })
-    + (num(S().disk_allow) > 0 ? ' ' + T('zones.poll_add', { add: S().disk_allow }) : '') : '')));
-  if (!zones.length) box.appendChild(para(T('zones.empty')));
+  const propose = () => button(T('zones.propose'), T('zones.propose_tip'), (b) => act('zones_propose', {}, b, (j) => { zdraft = (j.zones || []).map((z) => ({ ...z, name: z.name || T(`zones.kind.${z.kind}`) })); zsel = ''; }), zones.length ? 'btn small plain' : 'btn');
+  const add = () => (zones.length < 8 ? button(T('zones.add'), T('zones.add_tip'), () => changeZones((z) => { const id = freeId(z); z.push({ id, name: T('zones.new_name', { n: z.length + 1 }), fans: [], sources: [], unit: 'pct', target: { preset: 'normal' } }); zsel = id; }), 'btn small plain') : null);
+  if (!zones.some((z) => z.id === zsel)) zsel = zones.length ? zones[0].id : '';
   const unzoned = ours.filter((f) => !zones.some((z) => (z.fans || []).includes(f.id)));
-  if (unzoned.length && zones.length) box.appendChild(para(T('zones.unzoned', { list: unzoned.map((f) => fanName(f.id)).join(', ') })));
-  zones.forEach((z, i) => box.appendChild(zoneCard(z, i, zones, ours)));
-  if (zdraft) {
-    const save = button(T('zones.save'), T('zones.save_tip'), (b) => act('zones_save', { zones: zdraft.map(cleanZone) }, b, () => { zdraft = null; curves.clear(); dry = null; }), 'btn');
-    const undo = button(T('zones.undo'), T('zones.undo_tip'), () => { zdraft = null; curves.clear(); drawn = ''; redraw(); });
-    const p = el('div', 'fb-unsaved');
-    p.append(el('span', 'chip warn', T('zones.unsaved')), save, undo);
+  if (!zones.length) {
+    // nothing yet: his proposal is the one clear next action
+    const p = el('div', 'fb-panel fb-zone-start');
+    p.append(el('h3', 'fb-panel-title', T('zones.start')), para(T('zones.empty')), bar(propose(), add()));
     box.appendChild(p);
-  } else box.appendChild(bar(nextButton('zones')));
+  } else {
+    const two = el('div', 'fb-two');
+    const side = el('div', 'fb-zone-side');
+    const list = el('div', 'fb-list');
+    list.setAttribute('role', 'group');
+    list.setAttribute('aria-label', T('step.zones'));
+    zones.forEach((z) => {
+      const b = el('button', 'fb-item fb-item-plain');
+      b.type = 'button';
+      b.dataset.row = z.id;
+      b.setAttribute('aria-pressed', z.id === zsel ? 'true' : 'false');
+      const txt = el('span', 'fb-item-text');
+      txt.append(el('span', 'fb-item-name', z.name || z.id), el('span', 'fb-item-sub', T('zones.row', { fans: (z.fans || []).length, sources: (z.sources || []).length })));
+      const lab = el('span', 'fb-item-label');
+      const tgt = z.target || {};
+      const empty = !(z.fans || []).length || !(z.sources || []).length;
+      lab.appendChild(empty ? chipOfText('warn', T('zones.incomplete'), T('zones.incomplete_tip')) : chipOfText('quiet', tgt.points ? T('curve.own') : T(`preset.${has(`preset.${tgt.preset}`) ? tgt.preset : 'normal'}`), T('zones.curve')));
+      b.append(txt, lab);
+      b.title = T('list.row_tip', { name: z.name || z.id });
+      b.onclick = () => { if (zsel !== z.id) { zsel = z.id; drawn = ''; redraw(); } };
+      list.appendChild(b);
+    });
+    side.append(list, bar(add(), propose()));
+    if (unzoned.length) side.appendChild(para(T('zones.unzoned', { list: unzoned.map((f) => fanName(f.id)).join(', ') })));
+    const slot = el('div', 'fb-panel-slot');
+    const i = zones.findIndex((z) => z.id === zsel);
+    if (i >= 0) slot.appendChild(zoneCard(zones[i], i, zones, ours));
+    two.append(side, slot);
+    box.appendChild(two);
+  }
+  const how = T('zones.how_often', { s: setup().round || 2 }) + (num(S().poll) !== null && S().poll > 300 ? ' ' + T('zones.poll', { min: Math.round(S().poll / 60) })
+    + (num(S().disk_allow) > 0 ? ' ' + T('zones.poll_add', { add: S().disk_allow }) : '') : '');
+  if (zdraft) {
+    // changed here, not kept yet: «Save» is the one button of the moment
+    const save = button(T('zones.save'), T('zones.save_tip'), (b) => act('zones_save', { zones: zdraft.map(cleanZone) }, b, () => { zdraft = null; curves.clear(); dry = null; }), 'btn');
+    const undo = button(T('zones.undo'), T('zones.undo_tip'), () => { zdraft = null; curves.clear(); drawn = ''; redraw(); }, 'btn small plain');
+    const mark = el('span', 'fb-next-count');
+    mark.appendChild(chipOfText('warn', T('zones.unsaved'), T('zones.save_tip')));
+    box.append(para(how), nextBar([mark], [save, undo]));
+  } else box.append(para(how), nextBar([zones.length ? T('step.v.zones', { n: zones.length }) : ''], zones.length ? goButton('dry', true) : null));
   return box;
 }
 const freeId = (z) => { for (let i = 1; ; i++) { const id = `zone${i}`; if (!z.some((x) => x.id === id)) return id; } };
@@ -2647,10 +2749,9 @@ function cleanZone(z) {
   return out;
 }
 function zoneCard(z, i, zones, ours) {
-  const card = Office.place(`zone:${z.id}`, el('div', 'fb-zone-card'));
+  const card = Office.place(`zone:${z.id}`, el('div', 'fb-panel fb-zone'));
   const head = el('div', 'fb-zone-head');
-  const name = el('input');
-  name.type = 'text';
+  const name = inputEl('input', 'text');
   name.maxLength = 40;
   name.value = z.name || '';
   name.setAttribute('aria-label', T('zones.name'));
@@ -2671,7 +2772,7 @@ function zoneCard(z, i, zones, ours) {
     const look = fanLook(f);
     row.appendChild(cardWheel({ rpm: rpmNow(id, f.tachs), mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour, look: look.look, px: 40, state: f.found === 'silent' ? 'unknown' : 'run' }));
     row.appendChild(el('span', 'fb-zone-fan-name', fanName(id)));
-    const move = el('select');
+    const move = inputEl('select');
     move.setAttribute('aria-label', T('zones.move', { fan: fanName(id) }));
     zones.forEach((x, k) => move.appendChild(new Option(x.name || x.id, String(k))));
     move.value = String(i);
@@ -2692,7 +2793,7 @@ function zoneCard(z, i, zones, ours) {
   });
   const free = ours.filter((f) => !zones.some((x) => (x.fans || []).includes(f.id)));
   if (free.length) {
-    const add = el('select');
+    const add = inputEl('select');
     add.appendChild(new Option(T('zones.add_fan'), ''));
     free.forEach((f) => add.appendChild(new Option(fanName(f.id), f.id)));
     add.onchange = () => { if (add.value) changeZones((all) => { all[i].fans.push(add.value); }); };
@@ -2727,9 +2828,13 @@ function zoneCard(z, i, zones, ours) {
     srcBox.appendChild(g);
   });
   card.appendChild(srcBox);
-  card.appendChild(tempsPart(z, i));
-  card.appendChild(reactPart(z, i));
   card.appendChild(curvePart(z, i));
+  card.appendChild(reactPart(z, i));
+  // the degrees per kind: his proposal is right for most — behind a fold named for what it holds
+  const fine = keepFold(el('details', 'fb-fold'), `temps:${z.id}`, false);
+  fine.appendChild(el('summary', '', T('temps.fold')));
+  fine.appendChild(tempsPart(z, i));
+  card.appendChild(fine);
   return card;
 }
 /** A source's kind as the zone counts it (from the server's look: a pool not rotating is «ssd») */
@@ -2757,7 +2862,6 @@ function kindValues(z, kind) {
  */
 function tempsPart(z, i) {
   const box = el('div', 'fb-temps');
-  box.appendChild(el('h4', 'fb-sub', T('temps.title')));
   const kinds = zoneKinds(z);
   if (!kinds.length) return box;
   box.appendChild(para(kinds.length > 1 ? T('temps.mixed', { kind: T(`kind.${kinds[0]}`) }) : T('temps.single')));
@@ -2766,12 +2870,11 @@ function tempsPart(z, i) {
   h.append(el('th', '', T('temps.kind')), el('th', '', T('temps.low')), el('th', '', T('temps.high')), el('th', '', T('temps.limit')), el('th', '', ''));
   tb.appendChild(h);
   const field = (val, def, set, label) => {
-    const n = el('input');
-    n.type = 'number';
+    const n = inputEl('input', 'number');
     n.step = '1';
     n.value = String(val);
     n.placeholder = String(def);
-    n.className = 'fb-num';
+    n.classList.add('fb-num');
     n.setAttribute('aria-label', label);
     n.onchange = () => set(n.value === '' ? null : Number(n.value));
     return n;
@@ -2830,7 +2933,7 @@ function tempsPart(z, i) {
     row.appendChild(rm);
     box.appendChild(row);
   });
-  const pick = el('select');
+  const pick = inputEl('select');
   pick.appendChild(new Option(T('temps.own_add'), ''));
   (z.sources || []).filter((y) => !own.includes(y)).forEach((y) => pick.appendChild(new Option(srcLabel(src.get(y.id) || { id: y.id, kind: srcKind(y.id) }), y.id)));
   pick.onchange = () => {
@@ -2885,7 +2988,7 @@ function curvePart(z, i) {
   // the presets on the zone's own scale: its first kind's «ab» … «volle Drehzahl bei» (round 4: the degrees are settable)
   const kv = kindValues(z, kind);
   const presets = presetsOn(kv.low, kv.high);
-  const choose = el('select');
+  const choose = inputEl('select');
   ['quiet', 'normal', 'cool'].forEach((p) => choose.appendChild(new Option(T(`preset.${p}`), p)));
   choose.appendChild(new Option(T('curve.own'), 'own'));
   choose.value = own ? 'own' : tgt.preset || 'normal';
@@ -2897,7 +3000,7 @@ function curvePart(z, i) {
     } else all[i].target = { preset: choose.value };
     curves.delete(z.id);
   });
-  const unit = el('select');
+  const unit = inputEl('select');
   unit.appendChild(new Option(T('zones.unit_pct'), 'pct'));
   unit.appendChild(new Option(T('zones.unit_rpm'), 'rpm'));
   unit.value = z.unit === 'rpm' ? 'rpm' : 'pct';
@@ -2962,81 +3065,101 @@ function curvePart(z, i) {
   return box;
 }
 
-// 6 — dry run
+// 5 — dry run: what he would set right now, beside what each output has — nothing is written
 function dryStep() {
   const box = el('div', 'fb-step-body');
   if (!(setup().zones || []).length) {
     box.appendChild(para(T('dry.no_zones')));
+    box.appendChild(bar(btn(T('step.next', { name: T('step.zones') }), 'btn small plain', () => { setupSwitcher().pick('zones'); drawn = ''; redraw(); })));
     return box;
   }
-  const run = button(dry ? T('dry.again') : T('dry.run'), T('dry.run_tip'), (b) => act('dry_run', {}, b, (j) => { dry = j.dry || null; }), 'btn');
-  box.appendChild(bar(run));
-  if (dry) {
-    if (!dry.found) box.appendChild(para(T('dry.not_found', { why: dry.why || '' }), 'callout warn'));
-    (dry.zones || []).forEach((z) => {
-      const card = el('div', 'fb-dry-zone');
-      card.appendChild(el('h4', 'fb-sub', z.name));
-      const w = z.warmest && num(z.warmest.c) !== null ? T('dry.warmest', { where: srcLabel(z.warmest), c: fmt.number(z.warmest.c) }) : T('dry.nothing');
-      card.appendChild(para(`${w}${z.asleep ? ' · ' + T('dry.asleep', { n: z.asleep }) : ''}`));
-      // how he reacts here, in words (round 4): up at once, down by the leading kind's profile
-      const lead = z.warmest && z.warmest.kind ? z.warmest.kind : 'disk';
-      card.appendChild(para(T('dry.react', { react: T(`react.${z.react === 'quick' ? 'quick' : 'balanced'}`), how: downWords(lead, z.react) })));
-      const tb = el('table', 'fb-table');
-      const h = el('tr');
-      h.append(el('th', '', T('dry.fan')), el('th', '', T('dry.would')), el('th', '', T('dry.now')));
-      tb.appendChild(h);
-      (z.fans || []).forEach((f) => {
-        const tr = el('tr');
-        const nowT = f.now ? (f.now.enable === 1 ? T('dry.now_fixed', { pct: Math.round((f.now.value || 0) / 2.55) }) : f.now.enable === 0 ? T('mode.full') : T('dry.now_auto')) : '–';
-        tr.append(el('td', '', fanName(f.id)), el('td', 'fb-strong', num(f.pct) === null ? '–' : T('dry.would_pct', { pct: f.pct })), el('td', '', nowT));
-        tb.appendChild(tr);
-      });
-      const wrap = el('div', 'fb-table-wrap');
-      wrap.appendChild(tb);
-      card.appendChild(wrap);
-      box.appendChild(card);
-    });
-    box.appendChild(para(T('dry.nothing_written')));
-    box.appendChild(bar(nextButton('dry')));
+  const tryIt = (cls) => button(dry ? T('dry.again') : T('dry.run'), T('dry.run_tip'), (b) => act('dry_run', {}, b, (j) => { dry = j.dry || null; }), cls);
+  if (!dry) {
+    const p = el('div', 'fb-panel fb-zone-start');
+    p.append(el('h3', 'fb-panel-title', T('dry.start')), para(T('dry.start_text')), bar(tryIt('btn')));
+    box.appendChild(p);
+    return box;
   }
+  if (!dry.found) box.appendChild(para(T('dry.not_found', { why: dry.why || '' }), 'callout warn'));
+  const grid = el('div', 'fb-dry');
+  (dry.zones || []).forEach((z) => {
+    const card = el('div', 'fb-panel fb-dry-zone');
+    card.appendChild(el('h3', 'fb-panel-title', z.name));
+    const w = z.warmest && num(z.warmest.c) !== null ? T('dry.warmest', { where: srcLabel(z.warmest), c: fmt.number(z.warmest.c) }) : T('dry.nothing');
+    card.appendChild(para(`${w}${z.asleep ? ' · ' + T('dry.asleep', { n: z.asleep }) : ''}`));
+    // how he reacts here, in words (round 4): up at once, down by the leading kind's profile
+    const lead = z.warmest && z.warmest.kind ? z.warmest.kind : 'disk';
+    card.appendChild(para(T('dry.react', { react: T(`react.${z.react === 'quick' ? 'quick' : 'balanced'}`), how: downWords(lead, z.react) })));
+    const tb = el('table', 'fb-table');
+    const h = el('tr');
+    h.append(el('th', '', T('dry.fan')), el('th', '', T('dry.would')), el('th', '', T('dry.now')));
+    tb.appendChild(h);
+    (z.fans || []).forEach((f) => {
+      const tr = el('tr');
+      const nowT = f.now ? (f.now.enable === 1 ? T('dry.now_fixed', { pct: Math.round((f.now.value || 0) / 2.55) }) : f.now.enable === 0 ? T('mode.full') : T('dry.now_auto')) : '–';
+      tr.append(el('td', '', fanName(f.id)), el('td', 'fb-strong', num(f.pct) === null ? '–' : T('dry.would_pct', { pct: f.pct })), el('td', '', nowT));
+      tb.appendChild(tr);
+    });
+    const wrap = el('div', 'fb-table-wrap');
+    wrap.appendChild(tb);
+    card.appendChild(wrap);
+    grid.appendChild(card);
+  });
+  box.appendChild(grid);
+  box.appendChild(nextBar([T('step.v.seen_long'), T('dry.nothing_written')], [goButton('take', true), tryIt('btn small plain')]));
   return box;
 }
 
-// 7 — take over / hand back
+// 6 — take over / hand back: what he gets, what stays with the BIOS — then the one button
 function takeStep() {
   const box = el('div', 'fb-step-body');
   const su = setup();
   const c = control();
-  if (steers() || su.armed) {
-    box.appendChild(para(steers() ? T('take.steers', { n: who().zones || 0 }) : myWhy(who().why) || T('take.armed'), steers() ? 'callout' : 'callout warn'));
-    box.appendChild(para(T('take.hand_back_text')));
-    box.appendChild(bar(button(T('take.hand_back'), T('take.hand_back_tip'), (b) => handBack(b), 'btn')));
+  const on = steers() || su.armed;
+  // who gets what, as rows to read: his zones with their fans; the BIOS's own; the CPU cooler on the owner's risk with its way back
+  const list = el('div', 'fb-list fb-list-read');
+  (su.zones || []).forEach((z) => {
+    const tgt = z.target || {};
+    list.appendChild(readRow(null, z.name || z.id, (z.fans || []).map((id) => fanName(id)).join(', ') || T('zones.no_fan'),
+      chipOfText('accent', T('take.his'), T(on ? 'take.his_tip_on' : 'take.his_tip')), chipOfText('quiet', tgt.points ? T('curve.own') : T(`preset.${has(`preset.${tgt.preset}`) ? tgt.preset : 'normal'}`), T('zones.curve'))));
+  });
+  const bios = (su.fans || []).filter((f) => ['tach', 'silent'].includes(f.found) && !(su.zones || []).some((z) => (z.fans || []).includes(f.id)));
+  if (bios.length) list.appendChild(readRow(null, T('take.bios_row'), bios.map((f) => fanName(f.id)).join(', '), chipOfText('quiet', T('pic.bios'), T('take.bios_tip'))));
+  (su.fans || []).filter((f) => f.role === 'cpu' && f.cpu_own).forEach((f) => {
+    const back = btn(T('cpu.back'), 'btn small', () => send('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }), T('cpu.back_tip'));
+    list.appendChild(readRow(null, fanName(f.id), T('take.own_since', { date: Office.fmt.date(f.cpu_own) }), null, back));
+  });
+  if (list.children.length) box.appendChild(list);
+  if (on) {
+    // (steering: the banner above says so; armed but not steering — the array stopped, the chip missing — said here)
+    if (!steers()) box.appendChild(para(myWhy(who().why) || T('take.armed'), 'callout warn'));
+    box.appendChild(nextBar([para(T('take.hand_back_text'))], button(T('take.hand_back'), T('take.hand_back_tip'), (b) => handBack(b), 'btn')));
     return box;
   }
   const why = [];
   if (situation() === 'other') why.push(T('step.blocked_other'));
   if (!(su.zones || []).length) why.push(T('take.no_zones'));
   if (stepRuns()) why.push(T('take.step_runs'));
-  box.appendChild(para(T(cpuGiven() ? 'take.text_cpu' : 'take.text')));
   why.forEach((w) => box.appendChild(para(w, 'callout warn')));
   // round 7 (F3): his fans whose «before» is a fixed value someone left — said once, plainly, with the restart first
   const mine = new Set((su.zones || []).flatMap((z) => z.fans || []));
   const left = [...mine].map((id) => ({ id, b: (su.before || {})[id], f: setupFan(id) })).filter((x) => x.b && (x.b.fixed || x.b.mode === 'full'));
   if (left.length) {
     const toFixed = left.filter((x) => ((x.f && x.f.back) || su.back_default) !== 'auto' || x.b.auto === null || x.b.mode === 'full');
-    const list = (toFixed.length ? toFixed : left).map((x) => ({ id: x.id, pct: x.b.mode === 'full' ? 100 : x.b.pct }));
-    box.appendChild(para(T(toFixed.length ? 'take.fixed_before' : 'take.fixed_before_auto', { list: fixedList(list) }), 'callout warn'));
+    const names = (toFixed.length ? toFixed : left).map((x) => ({ id: x.id, pct: x.b.mode === 'full' ? 100 : x.b.pct }));
+    box.appendChild(para(T(toFixed.length ? 'take.fixed_before' : 'take.fixed_before_auto', { list: fixedList(names) }), 'callout warn'));
   }
-  const b = button(T('take.go'), T('take.go_tip'), (btn) => {
+  const b = button(T('take.go'), T('take.go_tip'), (b2) => {
     Office.dialog({
       title: T('take.confirm_title'),
       body: T('take.confirm', { n: (su.zones || []).length }),
-      buttons: [{ text: t('common.cancel') }, { text: T('take.go'), kind: '', act: async () => { await act('take_over', {}, btn, () => Office.toast(T('take.done_toast'))); return true; } }],
+      buttons: [{ text: t('common.cancel') }, { text: T('take.go'), kind: '', act: async () => { await act('take_over', {}, b2, () => Office.toast(T('take.done_toast'))); return true; } }],
     });
   }, 'btn');
   b.disabled = b.disabled || why.length > 0;
-  box.appendChild(bar(b));
-  if (c.why === 'hand_back' || c.why === 'stopped') box.appendChild(para(T('take.given_back')));
+  const lines = [para(T(cpuGiven() ? 'take.text_cpu' : 'take.text'))];
+  if (c.why === 'hand_back' || c.why === 'stopped') lines.push(para(T('take.given_back')));
+  box.appendChild(nextBar(lines, b));
   return box;
 }
 function handBack(b) {
@@ -3067,7 +3190,12 @@ function render() {
     view.replaceChildren(head, help, ssw.el);
     if (!banner || banner.parentNode !== ssw.el) banner = ssw.el.insertBefore(el('div', 'fb-banner'), ssw.body);
     paintBanner();
-    if (state) ssw.render();
+    if (state) {
+      if (!strip) strip = stripMake();
+      ssw.el.insertBefore(strip.el, ssw.body);
+      strip.update();
+      ssw.render();
+    }
     else ssw.body.replaceChildren(waiting());
     return;
   }
@@ -3083,6 +3211,12 @@ function render() {
   view.replaceChildren(head, help, sw.el);
   if (!banner || banner.parentNode !== sw.el) banner = sw.el.insertBefore(el('div', 'fb-banner'), sw.body);
   paintBanner();
+  // what runs now (a show, a test left running, an output at 100 % for safety) — said above the sections, with «Stop everything»
+  if (state && stripNeeded()) {
+    if (!strip) strip = stripMake();
+    sw.el.insertBefore(strip.el, sw.body);
+    strip.update();
+  } else if (strip && strip.el.parentNode) strip.el.remove();
   sw.render();
 }
 
@@ -3122,7 +3256,8 @@ Office.desk({
     if (pic) { pic.destroy(); pic = null; }
     pickers.forEach((p) => p.destroy());
     pickers.clear();
-    if (bench) { bench.destroy(); bench = null; }
+    [bench, mbench, strip].forEach((b) => { if (b) b.destroy(); });
+    bench = mbench = strip = null;
     said = null;
     curves.forEach((c) => c.c.destroy());
     curves.clear();

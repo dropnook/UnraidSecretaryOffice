@@ -1026,12 +1026,23 @@ the last 60 history lines only for a source the file has none for. **The file
   case, fans turning by their speed, the warmest framed, sleeping disks marked, the BIOS's own watched — one picture kept
   across looks, speeds glide), «Fans» (outputs and tach inputs; a row unfolds the technical detail — the only place for
   `pwmN`, `hwmonN`, chip names), «Warmest spot» (sensors), «Today» (each zone's curve with «now» and its last 6 hours:
-  the part `history`, desk.json `"parts"`), «Hints». The setup's seven steps as tiles in part 2's order (detect, test,
-  roles with the catalogue picker and «give back», measure with the table as it grows — `step.progress` —, zones with
-  the curve editor, dry run, take over / hand back); any step opens alone, so a curve, a zone or a fan's model changes
-  without the wizard again. A running step is kept alive by the page (`step_alive` every 15 s, only while a page of his
-  is shown) and can be stopped any time; ended by the page gone it says so. Pictures and CPU: `tools/fanboy/desk.mjs`;
-  demo states: `tools/fanboy/demo-states.mjs`.
+  the part `history`, desk.json `"parts"`), «Hints». The setup's six steps as tiles (detect, test and assign, measure,
+  zones, dry run, take over / hand back); any step opens alone, so a curve, a zone or a fan's model changes without the
+  wizard again. **Every step is built from the same parts** (2026-11-15, the owner's tests on real hardware — cards
+  jumped, a click was swallowed, nothing said what runs): ONE strip for the page (`stripMake()`: what runs now from
+  `runNow()` — the step's `progress` phase full | pause | kick with its seconds, a show, the measuring, an output going
+  back, one at 100 % for safety —, the last refusal, «Stop everything» = `stop_all`, «Back to the value before» =
+  `safety_back`; above every step, sticky while anything runs, on the overview while it has something to say), a list of
+  rows beside ONE panel for the row at hand and a next bar with one primary button (`listPanel()`: steps 2 and 3, built
+  once and patched in place — a look replaces no node under a finger; the zones as a list and one zone's panel; rows to
+  read in steps 1 and 6). Step 2's panel: «What is it?» as buttons, name, place, count, the CPU cooler's own block
+  («Back to the BIOS» there), two folds named for what they hold (model and colour, «when giving back»); while an
+  output runs «Found — next» / «Heard nothing — next» answer the louder-question (`heard`, sent as `answer` once the
+  verdict is in). Its actions go through `send()` (queued, never dropped; a refusal stays in the strip's second line;
+  the clicked button carries the wave until the agent answers); selects and text fields via `inputEl()` (office.css
+  `.input`). A running step is kept alive by the page (`step_alive` every 15 s, only while a page of his is shown);
+  ended by the page gone it says so. Pictures and CPU: `tools/fanboy/desk.mjs` (`--only 'ux-*'` for the setup's
+  states); demo states: `tools/fanboy/demo-states.mjs`.
   **Round 4:** an SSD/NVMe pool member is its own kind `ssd` (not the hard disks' scale); per zone «Temperaturen» per kind
   (`kinds`: low/high/limit, strict, low < high < limit per source) and the reaction (`react` balanced|quick: up at once,
   the way down by the leading kind's `FANBOY_DOWN_PROFILES`); the CPU cooler only on the owner's dated, ticked opt-in
