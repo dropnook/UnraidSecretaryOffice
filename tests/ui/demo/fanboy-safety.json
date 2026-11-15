@@ -692,6 +692,7 @@
     "no_turn": false,
     "kick_start": null,
     "stand": null,
+    "stand_cut": null,
     "off_why": null,
     "may_stand": false,
     "cpu_off": null
@@ -725,6 +726,7 @@
     "no_turn": false,
     "kick_start": null,
     "stand": null,
+    "stand_cut": null,
     "off_why": null,
     "may_stand": false,
     "cpu_off": null
