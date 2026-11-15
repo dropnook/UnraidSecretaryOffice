@@ -1308,3 +1308,209 @@ function testFanboyR10Notify(): void
         fanboyTEnd();
     }
 }
+
+/** Round 11: a test run of outputs $outs; at $clickAt (on its clock, while output $fan is at full) «weiter» with $req */
+function fanboyR11Run(array $t, array &$spec, array $outs, ?float $clickAt, array $req, ?float $stopAt = null, ?callable $each = null): array
+{
+    $clicked = false;
+    return fanboyR8Run($t, $spec, $outs, false, function (float $clock) use ($t, $clickAt, $req, &$clicked, $each): void {
+        $n = (int) substr((string) $req['fan'], -1);
+        if (!$clicked && $clickAt !== null && $clock >= $clickAt && fanboyTOut($t, $n)[0] === 255) {
+            $clicked = true;
+            fanboyStepNext($req);
+        }
+        if ($each) {
+            $each($clock);
+        }
+    }, $stopAt)[0];
+}
+
+function fanboyR11Board(array $t): void
+{
+    file_put_contents("{$t['hw']}/fan2_input", "0\n");          // outputs 2 and 3: nothing attached that the chip could read
+    file_put_contents("{$t['hw']}/fan3_input", "0\n");
+}
+
+/**
+ * Round 11 (the owner lost two answers: the page waited for the verdict, then sent `answer`): `step_next {fan, heard}`
+ * carries the answer and the step stores it WITH the verdict — a tach that followed wins; no tach: heard → a fan without
+ * feedback, not heard → nothing attached, no `heard` → as before (ask); what the user entered meanwhile stays
+ */
+function testFanboyR11Heard(): void
+{
+    $t = fanboyT('r11heard');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        fanboyR11Board($t);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        $got = [];
+        foreach ([1 => 'tach', 2 => 'none'] as $n => $kind) {
+            foreach (['true' => true, 'false' => false, 'absent' => null] as $k => $heard) {
+                $req = ['fan' => fanboyTId($n)] + ($heard === null ? [] : ['heard' => $heard]);
+                fanboyStoreUpdate(function (array $e) use ($n): array {
+                    unset($e['fans'][fanboyTId($n)]);          // each case on its own (never tested yet)
+                    return $e;
+                });
+                $named = false;
+                $step = fanboyR11Run($t, $spec, [$n], 12.0, $req, null, function (float $clock) use ($n, &$named): void {
+                    if (!$named && $clock >= 5.0) {
+                        $named = true;          // entered while it runs: the name and a role
+                        fanboyFanName(['fan' => fanboyTId($n), 'name' => "Vorn $n"]);
+                        fanboyRole(['fan' => fanboyTId($n), 'role' => 'case', 'count' => 2]);
+                    }
+                });
+                $f = fanboyBoardRaw()['fans'][fanboyTId($n)] ?? [];
+                $r = $step['results'][fanboyTId($n)] ?? [];
+                $got["$kind/$k"] = [$f['found'] ?? null, $r['found'] ?? null, $r['looked'] ?? null, array_key_exists('heard', $r) ? $r['heard'] : 'x', $f['name'] ?? null, $f['role'] ?? null, $f['count'] ?? null,
+                    is_int($f['tested_at'] ?? null)];
+            }
+        }
+        same('fanboy r11 heard: tach × heard true/false/absent — «tach» always (the answer ignored); no tach — silent, empty, ask (as before); name, role, count kept',
+            ['tach/true' => ['tach', 'tach', 'tach', true, 'Vorn 1', 'case', 2, true], 'tach/false' => ['tach', 'tach', 'tach', false, 'Vorn 1', 'case', 2, true],
+             'tach/absent' => ['tach', 'tach', 'tach', null, 'Vorn 1', 'case', 2, true],
+             'none/true' => ['silent', 'silent', 'ask', true, 'Vorn 2', 'case', 2, true], 'none/false' => ['empty', 'empty', 'ask', false, 'Vorn 2', 'case', 2, true],
+             'none/absent' => ['ask', 'ask', 'ask', null, 'Vorn 2', 'case', 2, true]], $got);
+        same('fanboy r11 heard: «heard» only true or false — a string refused', 'bad_request', fanboyR6Refused(fn () => fanboyStepNext(['fan' => fanboyTId(2), 'heard' => 'yes'])));
+
+        // nothing attached: out of every zone, as `answer {louder: false}`
+        fanboyStoreUpdate(function (array $e): array {
+            $e['zones'] = [['id' => 'z1', 'name' => 'Gehäuse', 'fans' => [fanboyTId(1), fanboyTId(2)], 'sources' => []]];
+            return $e;
+        });
+        fanboyR11Run($t, $spec, [2], 12.0, ['fan' => fanboyTId(2), 'heard' => false]);
+        same('fanboy r11 heard: «nothing heard» — out of its zone, as the answer «no» does', [fanboyTId(1)], fanboyBoardRaw()['zones'][0]['fans'] ?? null);
+
+        // the click in the pause after its full phase (the quiet test; the page still showed the buttons): never lost
+        $done = false;
+        [$step] = fanboyR8Run($t, $spec, [2], true, function () use (&$done): void {
+            if (!$done && (fanboyStepRead()['progress']['phase'] ?? null) === 'pause') {
+                $done = true;
+                fanboyStepNext(['fan' => fanboyTId(2), 'heard' => true]);
+            }
+        });
+        same('fanboy r11 heard: «found» clicked in the pause after it — stored with its verdict (silent), the file gone', ['silent', 'silent', false],
+            [fanboyBoardRaw()['fans'][fanboyTId(2)]['found'] ?? null, $step['results'][fanboyTId(2)]['found'] ?? null, is_file(fanboyStepNextFile())]);
+        // … and after the run: the answer for an output this step ended is stored at once
+        fanboyR11Run($t, $spec, [2], null, ['fan' => fanboyTId(2)]);
+        fanboyStepNext(['fan' => fanboyTId(2), 'heard' => false]);
+        same('fanboy r11 heard: a late «nothing heard» for an output the step already ended — stored at once (empty)', 'empty', fanboyBoardRaw()['fans'][fanboyTId(2)]['found'] ?? null);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 11: a run the user ends always leaves a verdict for the output that was at full long enough — stopped, the page
+ * gone, too warm — what the looks saw so far («tach», else «ask»), with tested_at; the owner's output 3 kept an old
+ * «ignored» of round 7 after a 54-second run that ended in a stop
+ */
+function testFanboyR11StopVerdict(): void
+{
+    $t = fanboyT('r11stop');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        fanboyR11Board($t);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        // the owner's store: output 3 «ignored» without a reason (before round 8), tested long ago
+        fanboyStoreUpdate(function (array $e): array {
+            $e['fans'][fanboyTId(3)] = ['chip' => FANBOY_T_CHIP, 'address' => FANBOY_T_ADDR, 'output' => 3, 'tach' => null, 'tachs' => [], 'found' => 'ignored', 'tested_at' => 1000];
+            return $e;
+        });
+        $step = fanboyR11Run($t, $spec, [3, 4], null, ['fan' => fanboyTId(3)], 56.0);
+        $f = fanboyBoardRaw()['fans'][fanboyTId(3)] ?? [];
+        same('fanboy r11 stop: stopped after 54 s at full — output 3 keeps what its looks saw (ask) with a new tested_at; output 4 never tried',
+            ['stopped', 'ask', true, true, false], [$step['status'], $f['found'] ?? null, ($f['tested_at'] ?? 0) > 1000, ($step['results'][fanboyTId(3)]['partial'] ?? false) === true,
+                isset($step['results'][fanboyTId(4)])]);
+        $step = fanboyR11Run($t, $spec, [1], null, ['fan' => fanboyTId(1)], 20.0);
+        same('fanboy r11 stop: … a tach that followed before the stop — «tach»', ['stopped', 'tach', [1]],
+            [$step['status'], fanboyBoardRaw()['fans'][fanboyTId(1)]['found'] ?? null, fanboyBoardRaw()['fans'][fanboyTId(1)]['tachs'] ?? null]);
+        $step = fanboyR11Run($t, $spec, [2], 12.0, ['fan' => fanboyTId(2), 'heard' => true], 13.0);
+        same('fanboy r11 stop: «found — next» and the stop at once — its answer stored with it (silent)', 'silent', fanboyBoardRaw()['fans'][fanboyTId(2)]['found'] ?? null);
+        fanboyStoreUpdate(function (array $e): array {
+            $e['fans'][fanboyTId(5)] = ['chip' => FANBOY_T_CHIP, 'address' => FANBOY_T_ADDR, 'output' => 5, 'tach' => null, 'tachs' => [], 'found' => 'ignored', 'tested_at' => 1000];
+            return $e;
+        });
+        $step = fanboyR11Run($t, $spec, [5], null, ['fan' => fanboyTId(5)], 6.0);
+        same('fanboy r11 stop: stopped before the looks\' minimum at full — no verdict (the old one stays)', ['stopped', 'ignored', 1000, false],
+            [$step['status'], fanboyBoardRaw()['fans'][fanboyTId(5)]['found'] ?? null, fanboyBoardRaw()['fans'][fanboyTId(5)]['tested_at'] ?? null, isset($step['results'][fanboyTId(5)])]);
+        same('fanboy r11 stop: … every output exactly as before, nothing held, no «weiter» left', [[128, 1], [128, 1], [128, 1], [], false],
+            [fanboyTOut($t, 1), fanboyTOut($t, 3), fanboyTOut($t, 5), fanboyHeld(), is_file(fanboyStepNextFile())]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 11: RUN_DIR/fanboy/step.next — the owner's server kept one after a run (the last output's id). Tied to the step's
+ * id: a left-over file (round 8's plain id, or another step's) never ends the next run's first output early; gone when a
+ * step starts and ends
+ */
+function testFanboyR11StaleNext(): void
+{
+    $t = fanboyT('r11stale');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        fanboyR11Board($t);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        foreach (['round 8\'s plain id' => fanboyTId(1), 'another step\'s' => jsonEncode(['step' => 'old', 'fan' => fanboyTId(1), 'heard' => false])] as $what => $content) {
+            @mkdir(fanboyRunDir(), 0700, true);
+            file_put_contents(fanboyStepNextFile(), $content);
+            $log = [];
+            $step = fanboyR11Run($t, $spec, [1], null, ['fan' => fanboyTId(1)], null, function (float $clock) use ($t, &$log): void {
+                $log[] = [$clock, fanboyTOut($t, 1)[0]];
+            });
+            $full = array_column(array_filter($log, fn ($l) => $l[1] === 255), 0);
+            same("fanboy r11 stale: a left-over step.next ($what) — output 1 still the whole minute at full, found tach, the file gone",
+                [true, 'tach', false], [$full && max($full) - min($full) >= FANBOY_UP_FOR - 1.0, $step['results'][fanboyTId(1)]['found'] ?? null, is_file(fanboyStepNextFile())]);
+        }
+        // a «weiter» for this step and output: the file carries the step's id
+        fanboyR11Run($t, $spec, [2], 10.0, ['fan' => fanboyTId(2), 'heard' => true], null, function (float $clock): void {
+            static $seen = false;
+            if (!$seen && is_file(fanboyStepNextFile())) {
+                $seen = true;
+                $j = readJson(fanboyStepNextFile());
+                same('fanboy r11 stale: «weiter» written as {step, fan, heard} — the running step\'s id', [fanboyStepRead()['id'] ?? 'x', fanboyTId(2), true],
+                    [$j['step'] ?? null, $j['fan'] ?? null, $j['heard'] ?? null]);
+            }
+        });
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/** Round 11: progress.next — in the pause after an output (the quiet test) the output that follows, null after the last */
+function testFanboyR11ProgressNext(): void
+{
+    $t = fanboyT('r11next');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        $pauses = [];
+        $other = [];
+        [$step] = fanboyR8Run($t, $spec, [1, 4], true, function () use (&$pauses, &$other): void {
+            $p = fanboyStepRead()['progress'] ?? null;
+            if (is_array($p) && ($p['phase'] ?? null) === 'pause') {
+                $pauses[$p['id']] = array_key_exists('next', $p) ? $p['next'] : 'missing';
+            } elseif (is_array($p)) {
+                $other[] = array_key_exists('next', $p) ? $p['next'] : 'missing';
+            }
+        });
+        same('fanboy r11 next: in the pause after output 1 the next is output 4; after output 4 (the last) none; outside a pause null',
+            ['done', [fanboyTId(1) => fanboyTId(4), fanboyTId(4) => null], [null]], [$step['status'], $pauses, array_values(array_unique($other))]);
+        // stopped in the middle of the quiet phase: the pause that still comes names no next (the run ends)
+        $pauses = [];
+        fanboyR8Run($t, $spec, [1, 4], true, function () use (&$pauses): void {
+            $p = fanboyStepRead()['progress'] ?? null;
+            if (is_array($p) && ($p['phase'] ?? null) === 'pause') {
+                $pauses[$p['id']] = $p['next'] ?? null;
+            }
+        }, 30.0);
+        same('fanboy r11 next: stopped at 30 s — its pause names no next output', [fanboyTId(1) => null], $pauses);
+    } finally {
+        fanboyTEnd();
+    }
+}

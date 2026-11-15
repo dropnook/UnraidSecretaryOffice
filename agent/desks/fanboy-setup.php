@@ -172,31 +172,64 @@ function fanboyQuietStop(array $others, array $owner, string $boardKey): array
 /**
  * Round 8 (the owner): «Gefunden — weiter» — the user found the fan under test: the step's current output ends early
  * (the others back at once, the output itself once the looks agreed or FANBOY_UP_MIN passed). RUN_DIR/fanboy/step.next
- * holds the output's id; read (and removed) by the step, written by the action `step_next {fan}`.
+ * holds {step, fan, heard}; read (and removed) by the step, written by the action `step_next {fan, heard?}`.
+ * Round 11: tied to the step's id (a left-over file — the owner's server kept one after a run — never ends another run's
+ * output) and removed when a step starts and ends; `heard` is the user's answer, stored with the verdict (fanboyHeard()).
  */
 function fanboyStepNextFile(): string
 {
     return fanboyRunDir() . '/step.next';
 }
 
-function fanboyStepNextAsked(string $id): bool
+/**
+ * «Weiter» asked for output $id of step $stepId (null: any step — the tests' own runs): null when not; else {heard:
+ * bool|null}, the file removed. A file of another shape (round 8's plain id), another step or another output: not asked.
+ */
+function fanboyStepNextAsked(string $id, ?string $stepId = null): ?array
 {
     $f = fanboyStepNextFile();
-    if (!is_file($f) || trim((string) @file_get_contents($f, false, null, 0, 128)) !== $id) {
-        return false;
+    $j = is_file($f) && !is_link($f) ? readJson($f) : null;
+    if (!is_array($j) || ($j['fan'] ?? null) !== $id || !is_string($j['step'] ?? null) || ($stepId !== null && $j['step'] !== $stepId)) {
+        return null;
     }
     @unlink($f);
-    return true;
+    return ['heard' => is_bool($j['heard'] ?? null) ? $j['heard'] : null];
 }
 
-/** The action: only for the output a running test has under test now — anything else quietly nothing */
+/**
+ * Round 11: a verdict with the user's answer, applied as `answer` does — only where no tach followed (ask, unclear: a tach
+ * that followed always wins); heard true: a fan without feedback (silent), false: nothing attached (empty)
+ */
+function fanboyHeard(string $found, ?bool $heard): string
+{
+    return $heard === null || !in_array($found, ['ask', 'unclear'], true) ? $found : ($heard ? 'silent' : 'empty');
+}
+
+/**
+ * The action: for the output a running test has under test now — «weiter» and the answer for the step; for an output
+ * this step already ended (its verdict stored — the click came during the settling or the pause after it) the answer is
+ * stored at once (round 11: never lost); anything else quietly nothing
+ */
 function fanboyStepNext(array $r): array
 {
     $id = textField($r, 'fan');
+    $heard = ($r['heard'] ?? null) === null ? null : boolField($r, 'heard');      // round 11: optional; absent = as before
     $s = fanboyStepRead();
-    if ($s !== null && $s['kind'] === 'test_up' && in_array($s['status'], ['starting', 'running'], true) && ($s['current'] ?? null) === $id) {
+    if ($s !== null && $s['kind'] === 'test_up' && is_array($s['results'][$id] ?? null)) {
+        if ($heard !== null) {
+            fanboyStoreUpdate(function (array $e) use ($id, $heard): array {
+                $f = $e['fans'][$id] ?? null;
+                if (is_array($f) && ($found = fanboyFound($f)) !== null && fanboyHeard($found, $heard) !== $found) {
+                    $e['fans'][$id]['found'] = fanboyHeard($found, $heard);
+                    $e['fans'][$id]['why'] = null;
+                    return $heard ? $e : fanboyZonesWithout($e, $id);
+                }
+                return $e;
+            });
+        }
+    } elseif ($s !== null && $s['kind'] === 'test_up' && in_array($s['status'], ['starting', 'running'], true) && ($s['current'] ?? null) === $id) {
         @mkdir(fanboyRunDir(), 0700, true);
-        writeAtomic(fanboyStepNextFile(), $id, 0600, 0, 0);
+        writeAtomic(fanboyStepNextFile(), jsonEncode(['step' => (string) ($s['id'] ?? ''), 'fan' => $id, 'heard' => $heard]), 0600, 0, 0);
     }
     return ['ok' => true, 'step' => fanboyStepRead()];
 }
@@ -471,8 +504,9 @@ function fanboyStepWait(array $io, float $s): void
  * fans calmed down before the next one. Result: found tach (one or more inputs — a hub), ask (none followed: «did
  * something get louder?»), unclear (it ran at full speed already — up shows nothing), busy (someone holds it).
  */
-function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool $quiet = false): array
+function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool $quiet = false, ?array &$partial = null): array
 {
+    $partial = null;
     // round 8 (G1): the quiet test — never while anything is warm; what turned before, for the restart check after
     $tachsBefore = [];
     $others = [];
@@ -501,7 +535,9 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool 
     $quietedAll = [];
     $cpuStart = null;
     $next = false;
-    @unlink(fanboyStepNextFile());          // a «found» meant for an earlier output counts for none
+    $heard = null;                          // round 11: the user's answer with «weiter» (step.next is tied to step and output)
+    $io0 = $io;
+    $stepId = is_string($io['step_id'] ?? null) ? $io['step_id'] : null;
     try {
         if ($quiet) {
             $cpuStart = fanboyCpuNow(fanboyChips(fanboyPaths(fanboySysRoot() ?: null)['hwmon']));
@@ -520,8 +556,9 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool 
         while (($io['now'])() - $t0 < FANBOY_UP_FOR) {
             fanboyStepWait($io, 0.5);
             // round 8: «found — next»: the others back at once; this one once the looks agreed (or FANBOY_UP_MIN)
-            if (!$next && fanboyStepNextAsked($o['id'])) {
+            if (!$next && ($asked = fanboyStepNextAsked($o['id'], $stepId)) !== null) {
                 $next = true;
+                $heard = $asked['heard'];
                 if ($quieted) {
                     fanboyGiveBack($quieted, 'step', $owner);
                     $quieted = [];
@@ -566,9 +603,19 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool 
         $follow = array_keys(array_filter($seen, fn ($k) => $k >= 2));
         $inverted = $follow ? [] : array_keys(array_filter($fell, fn ($k) => $k >= 2));
     } catch (Throwable $e) {
+        // round 11: ended half-way after the looks' minimum at full — what they saw so far is its verdict (stored by the step)
+        if (isset($t0) && ($io['now'])() - $t0 >= FANBOY_UP_MIN) {
+            $seenNow = array_keys(array_filter($seen ?? [], fn ($k) => $k >= 2));
+            sort($seenNow);
+            $wasFull = ($initial['enable'] ?? null) === 0 || (($initial['enable'] ?? 1) === 1 && ($initial['value'] ?? 0) >= 240);
+            $partial = ['found' => $seenNow ? 'tach' : ($wasFull ? 'unclear' : 'ask'), 'tachs' => $seenNow, 'base' => $base, 'heard' => $heard, 'partial' => true];
+        }
         // round 9: stopped half-way (Abbrechen, the page gone, too warm, an error): everything back at once (below), and
         // still every fan that stood must turn again — the kick, else full + alert — before the stop goes on
         fanboyGiveBack([$o['id'], ...$quieted], 'step', $owner);
+        if ($quiet && $quietedAll) {
+            $io['note'] = fn (array $p) => ($io0['note'] ?? fn (array $p) => null)($p + ['last' => true]);      // the run ends: no next
+        }
         if ($quiet && $quietedAll) {
             try {
                 fanboyQuietRestart($tachsBefore, $quietedAll, $io, $owner, $boardKey);
@@ -581,8 +628,16 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool 
         fanboyGiveBack([$o['id'], ...$quieted], 'step', $owner);      // at once — an inverted output stopped its fan; the quieted ones
     }
     if (!empty($taken_back)) {
-        return ['found' => 'ignored', 'tachs' => [], 'base' => $base, 'why' => 'taken_back'];
+        return ['found' => 'ignored', 'tachs' => [], 'base' => $base, 'why' => 'taken_back', 'heard' => $heard];
     }
+    sort($follow);
+    sort($inverted);
+    $full = ($initial['enable'] ?? null) === 0 || (($initial['enable'] ?? 1) === 1 && ($initial['value'] ?? 0) >= 240);
+    $result = $inverted ? ['found' => 'inverted', 'tachs' => $inverted, 'base' => $base]
+        : ['found' => $follow ? 'tach' : ($full ? 'unclear' : 'ask'), 'tachs' => $follow, 'base' => $base];
+    $result['heard'] = $heard;
+    // round 11: the looks are done — a stop while it settles or in the pause (a fan that doesn't start again) keeps it
+    $partial = $result;
     // calm again (the next output's baseline must not see this one's run-down)
     $t1 = ($io['now'])();
     while (($io['now'])() - $t1 < FANBOY_UP_SETTLE) {
@@ -599,13 +654,7 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool 
     if ($quiet && $quietedAll) {
         fanboyQuietRestart($tachsBefore, $quietedAll, $io, $owner, $boardKey);
     }
-    sort($follow);
-    sort($inverted);
-    if ($inverted) {
-        return ['found' => 'inverted', 'tachs' => $inverted, 'base' => $base];
-    }
-    $full = ($initial['enable'] ?? null) === 0 || (($initial['enable'] ?? 1) === 1 && ($initial['value'] ?? 0) >= 240);
-    return ['found' => $follow ? 'tach' : ($full ? 'unclear' : 'ask'), 'tachs' => $follow, 'base' => $base];
+    return $result;
 }
 
 /**
@@ -803,6 +852,8 @@ function fanboyStepRun(array $step, array $io): array
     $board = fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']);
     $key = fanboyBoardKey($board);
     $step = ['status' => 'running', 'pid' => $owner['pid'], 'start' => $owner['start'], 'done' => [], 'results' => [], 'why' => null] + $step;
+    @unlink(fanboyStepNextFile());          // round 11: nothing of an earlier step counts here
+    $io['step_id'] = is_string($step['id'] ?? null) ? $step['id'] : null;
     fanboyStepWrite($step);
     try {
         foreach ($step['fans'] as $id) {
@@ -815,24 +866,29 @@ function fanboyStepRun(array $step, array $io): array
                 continue;
             }
             // what a step says while it works (the measure's table so far) into the step's state, for the page
+            // round 11: in the pause after it, `next` — the output that follows (null on the last, or when the run ends)
             $io['note'] = function (array $p) use (&$step, $id): void {
-                $step['progress'] = ['id' => $id] + $p;
+                $i = array_search($id, $step['fans'], true);
+                $next = ($p['phase'] ?? null) === 'pause' && empty($p['last']) && is_int($i) ? ($step['fans'][$i + 1] ?? null) : null;
+                unset($p['last']);
+                $step['progress'] = ['id' => $id] + $p + ['next' => $next];
                 fanboyStepWrite($step);
             };
             $step['progress'] = null;
             if ($step['kind'] === 'test_up') {
-                $r = fanboyTestUp($o, $owner, $io, $key, ($step['quiet'] ?? false) === true);
-                $step['results'][$id] = $r;
-                if ($r['found'] !== 'busy') {
-                    fanboyStoreUpdate(function (array $e) use ($id, $o, $r): array {
-                        $f = is_array($e['fans'][$id] ?? null) ? $e['fans'][$id] : [];
-                        $f = ['chip' => $o['chip'], 'address' => $o['address'], 'output' => $o['output'], 'tach' => $r['tachs'][0] ?? null,
-                              'tachs' => $r['tachs'], 'found' => $r['found'], 'why' => $r['why'] ?? null, 'tested_at' => time()] + $f;
-                        $e['fans'][$id] = $f;
-                        // round 5: «doesn't obey» and «the other way round» are never steered — out of every zone
-                        return in_array($r['found'], ['ignored', 'inverted'], true) ? fanboyZonesWithout($e, $id) : $e;
-                    }, $board);
+                $partial = null;
+                try {
+                    $r = fanboyTestUp($o, $owner, $io, $key, ($step['quiet'] ?? false) === true, $partial);
+                } catch (Throwable $e) {
+                    // round 11: however it ended — a stop, the page gone, too warm, a fan that didn't start again — an output
+                    // that was at full long enough keeps what its looks saw (never nothing), then the stop goes on
+                    if (is_array($partial)) {
+                        $step['results'][$id] = fanboyUpStore($id, $o, $partial, $board, $io['step_id']);
+                        $step['done'][] = $id;
+                    }
+                    throw $e;
                 }
+                $step['results'][$id] = $r['found'] === 'busy' ? $r : fanboyUpStore($id, $o, $r, $board, $io['step_id']);
             } else {
                 $f = fanboyBoardRaw($board)['fans'][$id] ?? null;
                 $tachs = is_array($f) ? array_values(array_filter(is_array($f['tachs'] ?? null) ? $f['tachs'] : [], 'is_int')) : [];
@@ -897,12 +953,34 @@ function fanboyStepRun(array $step, array $io): array
         logLine('Fanboy: the step failed: ' . $e->getMessage());
     } finally {
         $back = fanboyGiveBack(null, 'step', $owner);       // nothing of this step held any more, whatever ended it
+        @unlink(fanboyStepNextFile());                      // round 11: never left for the next run
         $step['current'] = null;
         fanboyStepWrite($step);
         logLine("Fanboy: setup step {$step['kind']} {$step['status']}" . ($step['why'] ? " ({$step['why']})" : '') . ' — ' . count($step['done']) . ' of ' . count($step['fans'])
             . ' outputs' . ($back ? ', ' . count($back) . ' given back at the end' : ''));
     }
     return $step;
+}
+
+/**
+ * A test's verdict into the store (round 11: with the user's answer in the same write — a «weiter» that came while it
+ * settled or paused is read here too): what the looks saw, `heard` applied (fanboyHeard()), `tested_at`; name, role,
+ * place, count entered meanwhile stay. The result for the step's state: found as stored, `looked` what the looks said.
+ */
+function fanboyUpStore(string $id, array $o, array $r, array $board, ?string $stepId): array
+{
+    $late = fanboyStepNextAsked($id, $stepId);
+    $heard = is_bool($r['heard'] ?? null) ? $r['heard'] : (is_bool($late['heard'] ?? null) ? $late['heard'] : null);
+    $found = fanboyHeard($r['found'], $heard);
+    fanboyStoreUpdate(function (array $e) use ($id, $o, $r, $found): array {
+        $f = is_array($e['fans'][$id] ?? null) ? $e['fans'][$id] : [];
+        $f = ['chip' => $o['chip'], 'address' => $o['address'], 'output' => $o['output'], 'tach' => $r['tachs'][0] ?? null,
+              'tachs' => $r['tachs'], 'found' => $found, 'why' => $r['why'] ?? null, 'tested_at' => time()] + $f;
+        $e['fans'][$id] = $f;
+        // round 5: «doesn't obey» and «the other way round» are never steered — out of every zone; round 11: nor «nothing attached»
+        return in_array($found, ['ignored', 'inverted', 'empty'], true) ? fanboyZonesWithout($e, $id) : $e;
+    }, $board);
+    return ['found' => $found, 'looked' => $r['found'], 'heard' => $heard] + $r;
 }
 
 /** The step process: `php agent.php job fanboy-step` — the step RUN_DIR/fanboy/step.json describes, once */
