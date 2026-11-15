@@ -833,5 +833,6 @@
   "dash.why.fixed": "left on a fixed value",
   "pic.fixed_title": "Nobody steers this fan — its output stands on a fixed value someone left",
   "pic.all_note_fixed": "Before the setup: every fan that turns — nobody steers them (a fixed value someone left)",
-  "server.sub_fixed": "Your fans and what they cool, as a picture. Every wheel turns about as fast as its fan; right now nobody steers them — they stand on a fixed value."
+  "server.sub_fixed": "Your fans and what they cool, as a picture. Every wheel turns about as fast as its fan; right now nobody steers them — they stand on a fixed value.",
+  "test.wait_tip": "A test is running — once it is through, each output can be tested on its own"
 }

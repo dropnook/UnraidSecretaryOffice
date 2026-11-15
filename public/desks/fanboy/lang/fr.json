@@ -833,5 +833,6 @@
   "dash.why.fixed": "laissées sur une valeur fixe",
   "pic.fixed_title": "Personne ne pilote ce ventilateur — sa sortie reste sur une valeur fixe laissée par quelqu'un",
   "pic.all_note_fixed": "Avant la configuration : chaque ventilateur qui tourne — personne ne les pilote (une valeur fixe laissée par quelqu'un)",
-  "server.sub_fixed": "Vos ventilateurs et ce qu'ils refroidissent, en image. Chaque roue tourne à peu près comme son ventilateur ; pour l'instant personne ne les pilote — ils restent sur une valeur fixe."
+  "server.sub_fixed": "Vos ventilateurs et ce qu'ils refroidissent, en image. Chaque roue tourne à peu près comme son ventilateur ; pour l'instant personne ne les pilote — ils restent sur une valeur fixe.",
+  "test.wait_tip": "Un test est en cours — une fois terminé, chaque sortie peut être testée seule"
 }

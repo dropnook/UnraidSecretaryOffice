@@ -833,5 +833,6 @@
   "dash.why.fixed": "dejadas en un valor fijo",
   "pic.fixed_title": "Nadie regula este ventilador: su salida se queda en un valor fijo que alguien dejó",
   "pic.all_note_fixed": "Antes de configurar: cada ventilador que gira; nadie los regula (un valor fijo que alguien dejó)",
-  "server.sub_fixed": "Tus ventiladores y lo que enfrían, como imagen. Cada rueda gira más o menos como su ventilador; ahora nadie los regula: se quedan en un valor fijo."
+  "server.sub_fixed": "Tus ventiladores y lo que enfrían, como imagen. Cada rueda gira más o menos como su ventilador; ahora nadie los regula: se quedan en un valor fijo.",
+  "test.wait_tip": "Hay una prueba en marcha: cuando termine, puedes probar cada salida por separado"
 }

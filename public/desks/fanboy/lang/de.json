@@ -833,5 +833,6 @@
   "dash.why.fixed": "auf einem festen Wert stehen gelassen",
   "pic.fixed_title": "Niemand regelt diesen Lüfter — sein Ausgang steht auf einem festen Wert, den jemand hinterlassen hat",
   "pic.all_note_fixed": "Vor der Einrichtung: jeder Lüfter, der dreht — niemand regelt sie (ein fester Wert, den jemand hinterlassen hat)",
-  "server.sub_fixed": "Deine Lüfter und was sie kühlen, als Bild. Jedes Rad dreht ungefähr so schnell wie sein Lüfter; gerade regelt sie niemand — sie stehen auf einem festen Wert."
+  "server.sub_fixed": "Deine Lüfter und was sie kühlen, als Bild. Jedes Rad dreht ungefähr so schnell wie sein Lüfter; gerade regelt sie niemand — sie stehen auf einem festen Wert.",
+  "test.wait_tip": "Ein Test läuft — wenn er durch ist, kannst du jeden Ausgang einzeln testen"
 }

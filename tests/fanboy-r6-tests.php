@@ -578,3 +578,62 @@ function testFanboyR7NotAController(): void
         $look($shells + [5001 => '/bin/bash /usr/local/emhttp/plugins/fanctrlplus/scripts/fanctrlplus_loop.sh pwm1',
             5002 => '/usr/bin/php /usr/local/emhttp/plugins/dynamix.system.autofan/scripts/autofan', 5003 => '/usr/bin/python3 /usr/bin/liquidctl status'], $installed));
 }
+
+/**
+ * F2 (the owner: «the grid moves under the mouse» during a test): a test card keeps its size while the test walks through
+ * the outputs — its state line has room for two lines, its button row stays (off) while a test runs; «show me» keeps its
+ * width when it turns into «Found it — stop» (both labels in one cell). Pictures: shots r7-2-test-before/after-*.
+ */
+function testFanboyR7CardsKeepSize(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css');
+    $test = substr($js, (int) strpos($js, 'function testStep()'), 4000);
+    check('fanboy r7 cards: the state line is one element of its own with room for two lines',
+        str_contains($test, "el('div', 'fb-card-line fb-card-state', line)") && str_contains($css, '.fb-card-state{min-height:calc(2 * 1.45em)}'));
+    check('fanboy r7 cards: while a test runs every card keeps its button row — the button off (no card loses or gains a row)',
+        str_contains($test, "if (live) {\n      const off = button(found ? T('test.again') : T('test.one'), T('test.wait_tip'), () => {});\n      off.disabled = true;\n      txt.appendChild(bar(off));"));
+    check('fanboy r7 cards: «show me» keeps its width — both labels in one grid cell, the other hidden',
+        str_contains($js, "b.append(el('span', mine ? 'fb-show-label fb-show-off' : 'fb-show-label', T('show.button')), on);")
+        && str_contains($css, '.fb-show{white-space:nowrap; display:inline-grid}') && str_contains($css, '.fb-show > .fb-show-off{visibility:hidden}'));
+}
+
+/**
+ * F5: after F1, a full test of the six outputs on the it87 «full on» chip — an output where no tach follows stays at
+ * full for FANBOY_UP_FOR (8 s: long enough to hear which fan it is), one with a tach at least 4 s; how long one output and
+ * all six take (on the tests' clock, the fake fans' lag 1 s) is said in the check's words
+ */
+function testFanboyR7TestLongEnough(): void
+{
+    $t = fanboyT('r7long');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR7Spec();
+        fanboyTSettle($t, $spec);
+        $clock = 0.0;
+        $atFull = [];
+        $io = fanboyTIo($t, $spec, $clock);
+        $sleep = $io['sleep'];
+        $io['sleep'] = function (float $s) use ($sleep, $t, &$atFull): void {
+            foreach ([1, 2, 3, 4, 5, 6] as $n) {
+                if (fanboyTOut($t, $n)[0] === 255) {
+                    $atFull[$n] = ($atFull[$n] ?? 0) + $s;
+                }
+            }
+            $sleep($s);
+        };
+        $step = fanboyStepRun(['id' => 'r7long', 'kind' => 'test_up', 'fans' => array_map('fanboyTId', [1, 2, 3, 4, 5, 6])], $io);
+        $found = array_map(fn ($r) => $r['found'], $step['results']);
+        $quiet = array_filter($found, fn ($f) => $f === 'ask');
+        $loud = array_map(fn ($id) => $atFull[(int) substr($id, -1)] ?? 0, array_keys($quiet));
+        check('fanboy r7 long enough: outputs where no tach follows (' . count($quiet) . ') each at full for ' . implode(', ', array_map(fn ($x) => round($x, 1) . ' s', $loud))
+            . ' — at least FANBOY_UP_FOR (' . FANBOY_UP_FOR . ' s) less a look', count($quiet) === 3 && min($loud) >= FANBOY_UP_FOR - 0.5, json_encode($loud));
+        $tach = array_map(fn ($id) => $atFull[(int) substr($id, -1)] ?? 0, array_keys(array_filter($found, fn ($f) => $f === 'tach')));
+        check('fanboy r7 long enough: outputs a tach follows (' . count($tach) . ') at full ' . implode(', ', array_map(fn ($x) => round($x, 1) . ' s', $tach))
+            . ' (≥ 4 s); the six outputs took ' . round($clock) . ' s on the tests\' clock (one silent output ≈ ' . round(FANBOY_UP_BASE + FANBOY_UP_FOR) . ' s + its calm-down)',
+            count($tach) === 3 && min($tach) >= 4 - 0.5 && $clock < 6 * (FANBOY_UP_BASE + FANBOY_UP_FOR + FANBOY_UP_SETTLE));
+        same('fanboy r7 long enough: … every output given back as it was', [[128, 1], [128, 1], [128, 1], [128, 1], [128, 1], [128, 1]], array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]));
+    } finally {
+        fanboyTEnd();
+    }
+}

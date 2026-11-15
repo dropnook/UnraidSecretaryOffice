@@ -833,5 +833,6 @@
   "dash.why.fixed": "lasciate su un valore fisso",
   "pic.fixed_title": "Nessuno regola questa ventola: la sua uscita resta su un valore fisso lasciato da qualcuno",
   "pic.all_note_fixed": "Prima della configurazione: ogni ventola che gira, nessuno le regola (un valore fisso lasciato da qualcuno)",
-  "server.sub_fixed": "Le tue ventole e ciò che raffreddano, come immagine. Ogni ruota gira circa come la sua ventola; adesso non le regola nessuno: restano su un valore fisso."
+  "server.sub_fixed": "Le tue ventole e ciò che raffreddano, come immagine. Ogni ruota gira circa come la sua ventola; adesso non le regola nessuno: restano su un valore fisso.",
+  "test.wait_tip": "È in corso un test: quando è finito puoi testare ogni uscita da sola"
 }

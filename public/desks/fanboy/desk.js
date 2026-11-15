@@ -115,8 +115,10 @@ function showButton(id, f) {
   b.type = 'button';
   b.dataset.own = '1';
   // 4b: while it runs, its own button ends it («Found it — stop»): the same give-back as after the time
-  if (mine) b.append(wave(), el('span', '', T('show.stop')));
-  else b.textContent = T('show.button');
+  // round 7 (F2): both labels in one cell, the one not shown hidden — the button keeps its width when it turns into «stop»
+  const on = el('span', mine ? 'fb-show-label' : 'fb-show-label fb-show-off');
+  on.append(wave(), el('span', '', T('show.stop')));
+  b.append(el('span', mine ? 'fb-show-label fb-show-off' : 'fb-show-label', T('show.button')), on);
   const why = f && ['ignored', 'inverted'].includes(f.found) ? T(`show.off.${f.found}`)
     : situation() === 'other' ? T('show.off.other') : stepRuns() ? T('show.off.step') : showRuns() && !mine ? T('show.off.one') : control().running && control().alarm ? T('show.off.alarm') : '';
   b.title = mine ? T('show.stop_tip') : why || T('show.tip');
@@ -1544,15 +1546,21 @@ function testStep() {
     else if (found === 'ask') line = T('test.ask');
     else if (found === 'ignored' || found === 'inverted') line = T(`test.${found}`);     // round 5: never steered
     if (r && r.found === 'busy') line = T('test.busy');
-    txt.appendChild(el('div', 'fb-card-line', line));
+    // round 7 (F2, the owner: «the grid moves under the mouse»): the state's line keeps room for two lines and a card keeps
+    // its button row while a test runs (the button off) — a card changes no height as the test walks through the outputs
+    txt.appendChild(el('div', 'fb-card-line fb-card-state', line));
     if (!live && (found === 'ignored' || found === 'inverted')) txt.appendChild(el('div', 'fb-card-line', T(`test.${found}_hint`)));
-    if (!live && ['ask', 'unclear'].includes(found)) {
+    if (live) {
+      const off = button(found ? T('test.again') : T('test.one'), T('test.wait_tip'), () => {});
+      off.disabled = true;
+      txt.appendChild(bar(off));
+    } else if (['ask', 'unclear'].includes(found)) {
       txt.appendChild(el('div', 'fb-card-line fb-strong', T('test.louder')));
       txt.appendChild(bar(
         button(T('test.yes'), T('test.yes_tip'), (b) => act('answer', { fan: id, louder: true }, b)),
         button(T('test.no'), T('test.no_tip'), (b) => act('answer', { fan: id, louder: false }, b)),
         button(T('test.again'), T('test.again_tip'), (b) => startStep('test_up', [id], b))));
-    } else if (!live) {
+    } else {
       txt.appendChild(bar(button(found ? T('test.again') : T('test.one'), T('test.one_tip'), (b) => startStep('test_up', [id], b))));
     }
     card.appendChild(txt);
