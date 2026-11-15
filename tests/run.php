@@ -64136,7 +64136,7 @@ function testFanboyHidden(): void
         [false, [], false, false, false],
         [$off[0]['desk'] ?? $off[0], $off[0]['actions'] ?? null, $off[0]['fit'] ?? null, $off[0]['checks'] ?? null, $off[1]['desk'] ?? $off[1]]);
     same('fanboy hidden: with the file — the desk on both sides (refresh, report and part 2\'s actions; a fit, checks, his two jobs, a tick)',
-        [true, ['refresh', 'report', 'look_now', 'drivers_load', 'drivers_undo', 'import', 'test_up', 'measure', 'step_alive', 'step_stop', 'answer', 'role',
+        [true, ['refresh', 'report', 'look_now', 'drivers_load', 'drivers_undo', 'test_up', 'measure', 'step_alive', 'step_stop', 'answer', 'role',
                 'zones_propose', 'zones_save', 'dry_run', 'take_over', 'hand_back', 'back', 'fan_look', 'history'], true, true, ['fanboy-control', 'fanboy-step'], true, true],
         [$on[0]['desk'] ?? $on[0], $on[0]['actions'] ?? null, $on[0]['fit'] ?? null, $on[0]['checks'] ?? null, $on[0]['jobs'] ?? null, $on[0]['tick'] ?? null, $on[1]['desk'] ?? $on[1]]);
     same('fanboy hidden: … and the other desks the same either way', $on[1]['others'] - 1, $off[1]['others'] ?? null);
@@ -64166,7 +64166,6 @@ function testFanboyNoWrite(): void
     $allowed = [
         'fanboy.php'          => ['writeAtomic', 'run', 'proc_open'],
         'fanboy-detect.php'   => [],
-        'fanboy-import.php'   => [],
         'fanboy-control.php'  => ['writeAtomic', 'fopen', 'unlink'],
         'fanboy-setup.php'    => ['writeAtomic', 'fopen', 'unlink', 'run'],      // part 3: update_cron for the guard's line (fanboyGuardCron())
         'fanboy-drivers.php'  => ['writeAtomic', 'run', 'unlink'],
@@ -64216,8 +64215,7 @@ function testFanboyNoWrite(): void
     $scan = fanboyDetect($root);
     fanboyReportText($scan);
     fanboyResolve(['chip' => 'it8696_a0060607', 'address' => 'it87.2608', 'output' => 1, 'tach' => 1], $scan, "$root/sys/class/hwmon");
-    fanboyImport($scan, "$root/boot/config/plugins");
-    same('fanboy no write: four looks, a report, a resolve and an import leave every file of the tree as it was', $before, fanboyTreeHash($root));
+    same('fanboy no write: four looks, a report and a resolve leave every file of the tree as it was', $before, fanboyTreeHash($root));
 }
 
 function testFanboyDetect(): void
@@ -64589,7 +64587,7 @@ function testFanboyPage(): void
     $keys = fn (array $a) => array_keys($a);
     foreach (['tests/ui/states/fanboy.json', 'tests/ui/demo/fanboy.json'] as $f) {
         $st = json_decode((string) @file_get_contents(OFFICE_DIR . "/$f"), true);
-        same("fanboy page: $f has a look's keys (part 2's on top), its chips a chip's", [[...$keys($look), 'control', 'setup', 'step', 'drivers', 'import'], $keys($look['chips'][10])],
+        same("fanboy page: $f has a look's keys (part 2's on top), its chips a chip's", [[...$keys($look), 'control', 'setup', 'step', 'drivers'], $keys($look['chips'][10])],
             [is_array($st) ? $keys($st) : null, is_array($st['chips'][10] ?? null) ? $keys($st['chips'][10]) : null]);
     }
     // the docs: his entry under «The desks»
@@ -65003,8 +65001,8 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
           'fanboy' => ['testFanboyHidden', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
                        'testFanboyWrite', 'testFanboyControl', 'testFanboyAlarms', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',
-                       'testFanboyProcesses', 'testFanboyDrivers', 'testFanboyImport', 'testFanboyStopScripts', 'testFanboyState',
-                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyDeskWords'],
+                       'testFanboyProcesses', 'testFanboyDrivers', 'testFanboyStopScripts', 'testFanboyState',
+                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror'],
           'tools' => ['testReleaseHashes', 'testReleaseState', 'testReleaseClicksRetry', 'testScenarioToolsSafe']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

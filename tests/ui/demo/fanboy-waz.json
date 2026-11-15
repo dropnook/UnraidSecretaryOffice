@@ -363,28 +363,36 @@
    "type": "parity",
    "rotational": true,
    "asleep": false,
-   "temp": 38
+   "temp": 38,
+   "warn": 45,
+   "crit": 55
   },
   {
    "name": "disk1",
    "type": "data",
    "rotational": true,
    "asleep": true,
-   "temp": null
+   "temp": null,
+   "warn": 45,
+   "crit": 55
   },
   {
    "name": "disk2",
    "type": "data",
    "rotational": true,
    "asleep": false,
-   "temp": 36
+   "temp": 41,
+   "warn": 40,
+   "crit": 50
   },
   {
    "name": "cache",
    "type": "pool",
    "rotational": false,
    "asleep": false,
-   "temp": 40
+   "temp": 46,
+   "warn": 60,
+   "crit": 70
   }
  ],
  "ipmi": null,
@@ -491,12 +499,143 @@
   "temps": 26
  },
  "hottest": {
-  "c": 40,
+  "c": 46,
   "kind": "disk",
   "chip": null,
   "label": "",
   "n": null,
   "disk": "cache"
+ },
+ "hottest_kinds": [
+  {
+   "kind": "hdd",
+   "warmest": {
+    "kind": "hdd",
+    "c": 41,
+    "label": "",
+    "disk": "disk2",
+    "chip": null,
+    "n": null,
+    "asleep": false,
+    "warn": 40,
+    "crit": 50
+   },
+   "near": {
+    "kind": "hdd",
+    "c": 41,
+    "label": "",
+    "disk": "disk2",
+    "chip": null,
+    "n": null,
+    "asleep": false,
+    "warn": 40,
+    "crit": 50,
+    "margin": 1,
+    "over": "warn"
+   },
+   "count": 3,
+   "asleep": 1
+  },
+  {
+   "kind": "ssd",
+   "warmest": {
+    "kind": "ssd",
+    "c": 46,
+    "label": "",
+    "disk": "cache",
+    "chip": null,
+    "n": null,
+    "asleep": false,
+    "warn": 60,
+    "crit": 70
+   },
+   "near": {
+    "kind": "ssd",
+    "c": 46,
+    "label": "",
+    "disk": "cache",
+    "chip": null,
+    "n": null,
+    "asleep": false,
+    "warn": 60,
+    "crit": 70,
+    "margin": -14,
+    "over": null
+   },
+   "count": 7,
+   "asleep": 0
+  },
+  {
+   "kind": "cpu",
+   "warmest": {
+    "kind": "cpu",
+    "c": 28,
+    "label": "Package id 0",
+    "disk": null,
+    "chip": "coretemp",
+    "n": 1,
+    "asleep": false,
+    "warn": null,
+    "crit": null
+   },
+   "near": null,
+   "count": 3,
+   "asleep": 0
+  },
+  {
+   "kind": "board",
+   "warmest": {
+    "kind": "board",
+    "c": 31,
+    "label": "",
+    "disk": null,
+    "chip": "gigabyte_wmi",
+    "n": 2,
+    "asleep": false,
+    "warn": null,
+    "crit": null
+   },
+   "near": null,
+   "count": 14,
+   "asleep": 0
+  },
+  {
+   "kind": "ram",
+   "warmest": {
+    "kind": "ram",
+    "c": 22.8,
+    "label": "",
+    "disk": null,
+    "chip": "spd5118",
+    "n": 1,
+    "asleep": false,
+    "warn": null,
+    "crit": null
+   },
+   "near": null,
+   "count": 2,
+   "asleep": 0
+  },
+  {
+   "kind": "other",
+   "warmest": null,
+   "near": null,
+   "count": 1,
+   "asleep": 0
+  }
+ ],
+ "hottest_lead": {
+  "kind": "hdd",
+  "c": 41,
+  "label": "",
+  "disk": "disk2",
+  "chip": null,
+  "n": null,
+  "asleep": false,
+  "warn": 40,
+  "crit": 50,
+  "margin": 1,
+  "over": "warn"
  },
  "who": {
   "who": "fanboy",
@@ -514,11 +653,12 @@
     "name": "Plattenkäfig",
     "unit": "pct",
     "level": 42,
+    "full": false,
     "warmest": {
-     "id": "parity",
-     "label": "parity",
-     "c": 38,
-     "mapped": 38,
+     "id": "disk2",
+     "label": "disk2",
+     "c": 41,
+     "mapped": 41,
      "kind": "disk"
     },
     "asleep": 1,
@@ -539,6 +679,7 @@
     "name": "Gehäuse",
     "unit": "pct",
     "level": 40,
+    "full": false,
     "warmest": {
      "id": "nvme@pci0000:00/0000:00:06.1/0000:03:00.0/nvme#1",
      "label": "Composite",
@@ -617,12 +758,14 @@
     },
     "colour": "graphite",
     "back": null,
+    "count": 2,
     "found": "tach",
     "role": "cpu",
     "name": "CPU-Kühler",
     "place": "rear",
     "off_ok": false,
     "measured": false,
+    "cpu_own": null,
     "min_pct": null,
     "start_pct": null,
     "max_rpm": null,
@@ -641,12 +784,14 @@
     },
     "colour": "black",
     "back": null,
+    "count": 1,
     "found": "silent",
     "role": "case",
     "name": "Deckel",
     "place": "top",
     "off_ok": false,
     "measured": false,
+    "cpu_own": null,
     "min_pct": null,
     "start_pct": null,
     "max_rpm": null,
@@ -661,12 +806,14 @@
     "model": null,
     "colour": null,
     "back": null,
+    "count": 1,
     "found": "empty",
     "role": null,
     "name": "",
     "place": null,
     "off_ok": false,
     "measured": false,
+    "cpu_own": null,
     "min_pct": null,
     "start_pct": null,
     "max_rpm": null,
@@ -687,12 +834,14 @@
     },
     "colour": "graphite",
     "back": null,
+    "count": 1,
     "found": "tach",
     "role": "disks",
     "name": "Plattenkäfig",
     "place": "front",
     "off_ok": false,
     "measured": true,
+    "cpu_own": null,
     "min_pct": 25,
     "start_pct": 30,
     "max_rpm": 1600,
@@ -759,12 +908,14 @@
     },
     "colour": "black",
     "back": null,
+    "count": 1,
     "found": "tach",
     "role": "case",
     "name": "Vorn",
     "place": "front",
     "off_ok": false,
     "measured": true,
+    "cpu_own": null,
     "min_pct": 30,
     "start_pct": 35,
     "max_rpm": 1450,
@@ -812,12 +963,14 @@
     "model": null,
     "colour": null,
     "back": null,
+    "count": 1,
     "found": "empty",
     "role": null,
     "name": "",
     "place": null,
     "off_ok": false,
     "measured": false,
+    "cpu_own": null,
     "min_pct": null,
     "start_pct": null,
     "max_rpm": null,
@@ -860,7 +1013,13 @@
       "high": null,
       "limit": null
      }
-    ]
+    ],
+    "react": "balanced",
+    "kinds": {
+     "disk": {
+      "high": 44
+     }
+    }
    },
    {
     "id": "case",
@@ -905,9 +1064,16 @@
       "id": "spd5118@pci0000:00/0000:00:1f.4/i2c-0/0-0051#1",
       "low": null,
       "high": null,
-      "limit": null
+      "limit": 70
      }
-    ]
+    ],
+    "react": "quick",
+    "kinds": {
+     "nvme": {
+      "low": 38,
+      "high": 60
+     }
+    }
    }
   ],
   "armed": true,
@@ -939,14 +1105,14 @@
     "kind": "disk",
     "id": "disk2",
     "label": "disk2",
-    "c": 36,
+    "c": 41,
     "asleep": false
    },
    {
-    "kind": "disk",
+    "kind": "ssd",
     "id": "cache",
     "label": "cache",
-    "c": 40,
+    "c": 46,
     "asleep": false
    },
    {
@@ -1218,21 +1384,21 @@
       20
      ],
      [
-      40,
+      39.5,
       45
      ],
      [
-      45,
+      44,
       80
      ],
      [
-      48,
+      47,
       100
      ]
     ],
     "scale": [
      35,
-     45
+     44
     ],
     "presets": {
      "quiet": [
@@ -1241,15 +1407,15 @@
        0
       ],
       [
-       40,
+       39.5,
        30
       ],
       [
-       45,
+       44,
        60
       ],
       [
-       50,
+       49,
        100
       ]
      ],
@@ -1259,15 +1425,15 @@
        20
       ],
       [
-       40,
+       39.5,
        45
       ],
       [
-       45,
+       44,
        80
       ],
       [
-       48,
+       47,
        100
       ]
      ],
@@ -1277,11 +1443,11 @@
        35
       ],
       [
-       37,
+       36.5,
        65
       ],
       [
-       42,
+       41,
        100
       ]
      ]
@@ -1307,57 +1473,57 @@
      ]
     ],
     "scale": [
-     40,
-     65
+     38,
+     60
     ],
     "presets": {
      "quiet": [
       [
-       40,
+       38,
        0
       ],
       [
-       52.5,
+       49,
        30
       ],
       [
-       65,
+       60,
        60
       ],
       [
-       70,
+       65,
        100
       ]
      ],
      "normal": [
       [
-       40,
+       38,
        20
       ],
       [
-       52.5,
+       49,
        45
       ],
       [
-       65,
+       60,
        80
       ],
       [
-       68,
+       63,
        100
       ]
      ],
      "cool": [
       [
-       37,
+       35,
        35
       ],
       [
-       49.5,
+       46,
        65
       ],
       [
-       62,
+       57,
        100
       ]
      ]
@@ -1427,6 +1593,11 @@
     "high": 45,
     "limit": 52
    },
+   "ssd": {
+    "low": 40,
+    "high": 60,
+    "limit": 70
+   },
    "nvme": {
     "low": 40,
     "high": 65,
@@ -1458,6 +1629,106 @@
     "limit": 75
    }
   },
+  "down": {
+   "disk": {
+    "balanced": {
+     "gap": 2,
+     "hold": 0,
+     "step": 1
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 0,
+     "step": 3
+    }
+   },
+   "ssd": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   },
+   "nvme": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   },
+   "ram": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   },
+   "board": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   },
+   "cpu": {
+    "balanced": {
+     "gap": 2.5,
+     "hold": 6,
+     "step": 5
+    },
+    "quick": {
+     "gap": 1.5,
+     "hold": 3,
+     "step": 8
+    }
+   },
+   "gpu": {
+    "balanced": {
+     "gap": 2.5,
+     "hold": 6,
+     "step": 5
+    },
+    "quick": {
+     "gap": 1.5,
+     "hold": 3,
+     "step": 8
+    }
+   },
+   "other": {
+    "balanced": {
+     "gap": 2,
+     "hold": 4,
+     "step": 2
+    },
+    "quick": {
+     "gap": 1,
+     "hold": 2,
+     "step": 4
+    }
+   }
+  },
+  "round": 2,
+  "cpu_floor": 40,
   "presets_of": {
    "disk": {
     "quiet": [
@@ -1507,6 +1778,58 @@
      ],
      [
       42,
+      100
+     ]
+    ]
+   },
+   "ssd": {
+    "quiet": [
+     [
+      40,
+      0
+     ],
+     [
+      50,
+      30
+     ],
+     [
+      60,
+      60
+     ],
+     [
+      65,
+      100
+     ]
+    ],
+    "normal": [
+     [
+      40,
+      20
+     ],
+     [
+      50,
+      45
+     ],
+     [
+      60,
+      80
+     ],
+     [
+      63,
+      100
+     ]
+    ],
+    "cool": [
+     [
+      37,
+      35
+     ],
+     [
+      47,
+      65
+     ],
+     [
+      57,
       100
      ]
     ]
@@ -1830,6 +2153,5 @@
   "mine": [],
   "last": null,
   "can": true
- },
- "import": null
+ }
 }

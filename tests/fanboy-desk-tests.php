@@ -152,11 +152,11 @@ function testFanboyHistoryPart(): void
         @mkdir(fanboyRunDir(), 0700, true);
         file_put_contents(fanboyRunDir() . '/history.json', json_encode(['v' => 1, 'board' => FANBOY_T_KEY, 'every' => 60,
             'zones' => ['disks' => [[1763100000, 38.5, 42, 1018], ['bad'], [1763100060, 39.5, 44, 1040]]]]));
-        $h = fanboyHistoryPart();
-        same('fanboy history: the points of this board (one not in shape left out), a point a minute, its own `now`', [[[1763100000, 38.5, 42, 1018], [1763100060, 39.5, 44, 1040]], 60, true],
-            [$h['zones']['disks'] ?? null, $h['every'], is_int($h['now']) && $h['now'] === $h['time']]);
+        $h = fanboyHistoryPart(24, 1763100100);
+        same('fanboy history: the points of this board (one not in shape left out), a point a minute, its own `now`', [[[1763100000, 38.5, 42, 1018], [1763100060, 39.5, 44, 1040]], 60, 1763100100, 24],
+            [$h['zones']['disks'] ?? null, $h['every'], $h['now'], $h['hours']]);
         file_put_contents(fanboyRunDir() . '/history.json', json_encode(['v' => 1, 'board' => 'Other | Board', 'zones' => ['x' => [[1, 2, 3, 4]]]]));
-        same('fanboy history: another board\'s history — nothing (an empty object for the page)', '{}', json_encode(fanboyHistoryPart()['zones']));
+        same('fanboy history: another board\'s history — nothing (an empty object for the page)', '{}', json_encode(fanboyHistoryPart(24, 1763100100)['zones']));
     } finally {
         fanboyTEnd();
     }
@@ -259,7 +259,7 @@ function testFanboyDesk(): void
     check('fanboy desk: the long lists — first what counts, the rest behind one fold each (keepFold: kept while the page lives, never per browser), the filter over both',
         str_contains($js, "moreFold('sensors-more', rest, T('sensors.more', { n: rest.length }), f.words.length > 0)") && str_contains($js, "moreFold('fans-more', rest, T('fans.more', { n: rest.length }), false)")
         && str_contains($js, "const det = keepFold(el('details', 'fb-more'), filtering ? `\${key}:filtered` : key, !!filtering);")
-        && !preg_match('/Office\.store\(/', $js) && str_contains($js, 'bar.done(fits.length, all.length, sw.note());'));
+        && preg_match_all('/Office\.store\(\'([^\']+)\'/', $js, $kept) >= 1 && array_unique($kept[1]) === ['fanboy.period'] && str_contains($js, 'bar.done(fits.length, all.length, sw.note());'));
     // the demo states: the setup's keys as a real look on the fake tree has them
     $t = fanboyT('deskstate');
     try {
@@ -329,4 +329,612 @@ function testFanboyDeskWords(): void
     same('fanboy words: the folds\' counts are plurals in all five', [true, true, true, true, true],
         array_map(fn ($c) => is_array($l[$c]['sensors.more'] ?? null) && is_array($l[$c]['fans.more'] ?? null), array_keys($l)));
     check('fanboy words: his bubbles may cheer (the setup\'s and the steering\'s)', str_contains($l['en']['bubble.testing'], '!') && str_contains($l['de']['bubble.ready'], '!'));
+}
+
+/**
+ * Round 3 (the owner): 3 days of history, small and bounded — the last 12 hours a point a minute, older ones a 5-minute
+ * span carrying its warmest, highest level and rpm (a peak never disappears), nothing older than 3 days, at most
+ * FANBOY_HISTORY_MAX a zone; through a restart (the data folder's copy), an older file read as it is, a zone removed
+ * gone after 3 days; the page asks for a period (hours, read strictly) — all on the tests' clock
+ */
+function testFanboyHistoryThin(): void
+{
+    $w0 = 1763100000;
+    $minutes = fn (int $from, int $to, int $wall) => array_map(fn ($m) => [$wall - $m * 60, 30.0 + ($m % 7), 20 + ($m % 5), 600 + $m % 3], range($from, $to));
+    $pts = $minutes(4 * 24 * 60, 0, $w0);                       // 4 days of minutes, oldest first … newest last
+    $pts = array_reverse($pts);
+    $pts[] = [$w0 - 40 * 3600 + 17, 51.5, 97, 1590];             // a peak in the older part, between two minutes
+    usort($pts, fn ($a, $b) => $a[0] <=> $b[0]);
+    $kept = fanboyHistoryThin($pts, $w0);
+    $recent = array_filter($kept, fn ($p) => $p[0] >= $w0 - FANBOY_HISTORY_FULL);
+    $older = array_filter($kept, fn ($p) => $p[0] < $w0 - FANBOY_HISTORY_FULL);
+    same('fanboy history thin: 12 h of minutes as they are, 60 h of 5-minute spans, nothing older than 3 days — at most the bound', [721, 720, true, true],
+        [count($recent), count($older), min(array_column($kept, 0)) >= $w0 - FANBOY_HISTORY_SPAN, count($kept) <= FANBOY_HISTORY_MAX]);
+    $span = array_values(array_filter($older, fn ($p) => intdiv($p[0], 300) === intdiv($w0 - 40 * 3600 + 17, 300)))[0] ?? null;
+    same('fanboy history thin: the peak survives in its span — warmest 51.5 °C, level 97 %, 1590 rpm', [51.5, 97, 1590], [$span[1] ?? null, $span[2] ?? null, $span[3] ?? null]);
+    same('fanboy history thin: once more changes nothing (a span stays a span)', $kept, fanboyHistoryThin($kept, $w0));
+    same('fanboy history thin: a point not in shape left out (3 values, a string time, nulls kept as null)', [[$w0, null, null, 400]],
+        fanboyHistoryThin([[$w0, 30, 20], ['x', 30, 20, 400], [$w0, null, null, 400]], $w0));
+    $t = fanboyT('historythin');
+    try {
+        // the control a minute at a time on the tests' clock for 3 days and a half: bounded, a zone removed lets go
+        $c = fanboyControlNew(fanboyTSettings(), FANBOY_T_KEY, fanboyMe('control'));
+        $c['hist']['gone'] = [[$w0 - 3600, 40.0, 50, 900]];       // a zone no longer in the settings
+        $mono = 0.0;
+        for ($m = 0; $m <= 84 * 60; $m++) {
+            fanboyHistory($c, $mono, $w0 + $m * 60);
+            $mono += 60.0;
+        }
+        same('fanboy history thin: the control for 3½ days — each zone 12 h of minutes + 60 h of spans (1441, within the bound), the removed zone gone after 3 days',
+            [1441, 1441, true, false], [count($c['hist']['disks']), count($c['hist']['case']), count($c['hist']['disks']) <= FANBOY_HISTORY_MAX, isset($c['hist']['gone'])]);
+        // a restart: the data folder's copy read back as kept
+        @mkdir(fanboyRunDir(), 0700, true);
+        fanboyHistoryKeep($c, true);
+        @unlink(fanboyRunDir() . '/history.json');
+        $wall = $w0 + 84 * 60 * 60;
+        same('fanboy history thin: after a restart (RAM gone) the data folder\'s copy — the same points', $c['hist'], fanboyHistoryLoad(FANBOY_T_KEY, $wall));
+        // an older file (a day of minutes, today's shape before round 3): read as it is, thinned on reading
+        file_put_contents(FANBOY_DIR . '/history.json', json_encode(['v' => 1, 'board' => FANBOY_T_KEY, 'every' => 60,
+            'zones' => ['disks' => array_reverse($minutes(1439, 0, $wall))]]));
+        $old = fanboyHistoryLoad(FANBOY_T_KEY, $wall);
+        same('fanboy history thin: an older file — a day of minutes: 12 h as they are, the older 12 h in 5-minute spans', [721, 144],
+            [count(array_filter($old['disks'], fn ($p) => $p[0] >= $wall - FANBOY_HISTORY_FULL)), count(array_filter($old['disks'], fn ($p) => $p[0] < $wall - FANBOY_HISTORY_FULL))]);
+        // the page's period: only its points go out
+        $p1 = fanboyHistoryPart(1, $wall);
+        same('fanboy history thin: the period asked for — 1 h: 61 points, every one inside the hour', [1, 61, true],
+            [$p1['hours'], count($p1['zones']['disks']), min(array_column($p1['zones']['disks'], 0)) >= $wall - 3600]);
+        $codes = [];
+        foreach ([[], ['hours' => 72], ['hours' => '72'], ['hours' => 5], ['hours' => 0], ['hours' => 72.0]] as $r) {
+            try {
+                $codes[] = fanboyHistoryHours($r);
+            } catch (Problem $e) {
+                $codes[] = $e->key;
+            }
+        }
+        same('fanboy history thin: the period read strictly — none: a day (the part); 72; text, a period not kept, 0, a float: refused',
+            [24, 72, 'bad_request', 'fanboy_bad_period', 'bad_request', 'bad_request'], $codes);
+    } finally {
+        fanboyTEnd();
+    }
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    check('fanboy history thin: the page — one period for every zone (1 h … 3 days, default 6 h), remembered per browser (a choice), 3 days asked for on their own',
+        str_contains($js, 'const PERIODS = [1, 3, 6, 12, 24, 72];') && str_contains($js, 'const PERIOD_DEFAULT = 6;') && str_contains($js, "Office.store('fanboy.period'")
+        && str_contains($js, "Office.api.post(`\${ID}.history`, { hours: 72 })") && str_contains($js, "T('curves.since', { time: durationText(now - shown[0][0]) })"));
+}
+
+/** His picture: a case fan seen from the front (avatar.svg), its alarm variant, packed with the desk */
+function testFanboyAvatar(): void
+{
+    $dir = OFFICE_WEB . '/desks/fanboy';
+    $a = (string) @file_get_contents("$dir/avatar.svg");
+    $b = (string) @file_get_contents("$dir/avatar-alarm.svg");
+    check('fanboy avatar: avatar.svg — 64×64 like every desk\'s, a title saying what it shows, four corner holes, a hub, no text, no link, no script',
+        str_contains($a, 'viewBox="0 0 64 64" width="64" height="64"') && str_contains($a, '<title>Fanboy: a case fan seen from the front</title>')
+        && substr_count($a, '<circle cx="12.5"') + substr_count($a, '<circle cx="51.5"') === 4 && !preg_match('/<text|<a\b|<script|href=|on[a-z]+=/i', $a));
+    check('fanboy avatar: avatar-alarm.svg — the same fan with the red mark (as the Night Watchman\'s alert), set while an alarm, a missing chip or a stopped control holds',
+        str_starts_with(str_replace('an alarm at his fans', 'a case fan seen from the front', $b), rtrim(str_replace('</svg>', '', $a))) && str_contains($b, 'fill="#D9453B"')
+        && str_contains((string) file_get_contents("$dir/desk.js"), "Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'crashed'].includes(who().why) ? 'alarm' : '');"));
+    $build = (string) file_get_contents(OFFICE_DIR . '/plugin/build.sh');
+    check('fanboy avatar: the package takes public/ whole (build.sh), so both drawings ship; the emoji in desk.json stays the fallback',
+        (bool) preg_match('/\bpublic\b/', $build) && (json_decode((string) file_get_contents("$dir/desk.json"), true)['icon'] ?? '') === '🌀');
+}
+
+/** Several fans on one connector (round 3): how many, said in the roles step — stored, read strictly; the words count connectors */
+function testFanboyCount(): void
+{
+    $t = fanboyT('count');
+    try {
+        fanboyTStore(fanboyTSettings());
+        $id = fanboyTId(1);
+        same('fanboy count: none stored — one fan on the connector', 1, array_column(fanboySetupState(fanboyDetect(), fanboyBoardRaw())['fans'], 'count', 'id')[$id]);
+        fanboyRole(['fan' => $id, 'role' => 'cpu', 'name' => 'CPU', 'count' => 2]);
+        fanboyRole(['fan' => $id, 'role' => 'cpu', 'name' => 'CPU cooler']);
+        same('fanboy count: two fans on the CPU cooler\'s connector — kept when the role is saved again without it', [2, 'CPU cooler'],
+            [fanboyBoardRaw()['fans'][$id]['count'] ?? null, fanboyBoardRaw()['fans'][$id]['name'] ?? null]);
+        $codes = [];
+        foreach ([['count' => '2'], ['count' => 0], ['count' => 9], ['count' => 2.0]] as $r) {
+            try {
+                fanboyRole(['fan' => $id, 'role' => 'cpu'] + $r);
+                $codes[] = 'kept';
+            } catch (Problem $p) {
+                $codes[] = $p->key;
+            }
+        }
+        same('fanboy count: read strictly — text, 0, 9, a float refused', ['bad_request', 'bad_request', 'fanboy_bad_count', 'bad_request'], $codes);
+        same('fanboy count: the setup\'s state carries it (the picture draws as many wheels)', 2, array_column(fanboySetupState(fanboyDetect(), fanboyBoardRaw())['fans'], 'count', 'id')[$id]);
+    } finally {
+        fanboyTEnd();
+    }
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $l = [];
+    foreach (['en', 'de', 'fr', 'it', 'es'] as $c) {
+        $l[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true);
+    }
+    check('fanboy count: the page — «How many fans on it?» sent with the role, as many wheels in the picture sharing one speed, the tile counting connectors',
+        str_contains($js, "count: Number(count.value) }") && str_contains($js, 'fans: (z.fans || []).flatMap((id) => wheelsOf(id)),')
+        && str_contains($js, "T('fans.reporting', { n: turning })") && !str_contains($js, "'fans.turning'"));
+    same('fanboy count: «connectors report a speed» in five languages as a plural; the hints say what a Y-cable or hub hides', [true, true, true, true, true],
+        array_map(fn ($c) => is_array($l[$c]['fans.reporting'] ?? null) && isset($l[$c]['hints.hub.1'], $l[$c]['hints.hub.2']), array_keys($l)));
+    check('fanboy count: «4 Anschlüsse melden Drehzahl»', ($l['de']['fans.reporting']['other'] ?? '') === '{n} Anschlüsse melden Drehzahl');
+}
+
+/**
+ * The warmest spots per kind (round 3): hard disks and SSD/NVMe apart, Unraid's limits (a disk's own, else the global one
+ * of its kind — dynamix.cfg over the webGui's defaults; read only), the lead by its limit, a sleeping disk asleep, no
+ * limit made up
+ */
+function testFanboyHottestKinds(): void
+{
+    $ini = fn (array $d) => implode('', array_map(fn ($x) => "[{$x[0]}]\nname=\"{$x[0]}\"\ntype=\"{$x[1]}\"\ndevice=\"{$x[2]}\"\nid=\"EXAMPLE_" . strtoupper($x[0]) . "\"\ntemp=\"{$x[3]}\"\n"
+        . 'spundown="' . ($x[3] === '*' ? 1 : 0) . "\"\nrotational=\"{$x[4]}\"\nstatus=\"DISK_OK\"\n" . ($x[5] ?? ''), $d));
+    $t = fanboyT('hotkinds', 10, FANBOY_T_ADDR, ['files' => [
+        'usr/local/emhttp/plugins/dynamix/default.cfg' => "[display]\nhot=\"45\"\nmax=\"55\"\nhotssd=\"60\"\nmaxssd=\"70\"\n",
+        'boot/config/plugins/dynamix/dynamix.cfg' => "[display]\ntheme=\"black\"\nhot=\"42\"\nmaxssd=\"\"\n"]]);
+    try {
+        file_put_contents("{$t['root']}/var/local/emhttp/disks.ini", $ini([['parity', 'Parity', 'sdb', '41', '1'], ['disk1', 'Data', 'sdc', '*', '1'],
+            ['disk2', 'Data', 'sdd', '39', '1', "hotTemp=\"38\"\nmaxTemp=\"48\"\n"], ['cache', 'Cache', 'nvme0n1', '50', '0']]));
+        same('fanboy hottest: Unraid\'s limits — the user\'s global HDD warning (42) over the default, the rest the defaults (an empty value: the default)',
+            ['hot' => 42, 'max' => 55, 'hotssd' => 60, 'maxssd' => 70], fanboyDiskLimits(fanboyPaths()));
+        $s = fanboyDetect();
+        same('fanboy hottest: each disk\'s limits — its own (disk2: 38/48), else the global of its kind (HDD 42/55, SSD 60/70)',
+            [['parity', 42, 55], ['disk1', 42, 55], ['disk2', 38, 48], ['cache', 60, 70]], array_map(fn ($d) => [$d['name'], $d['warn'], $d['crit']], $s['disks']));
+        $k = array_column($s['hottest_kinds'], null, 'kind');
+        same('fanboy hottest: per kind — HDD the warmest of the rotating ones (parity 41 °C, one asleep), SSD/NVMe apart (the NVMe pool 50 °C)',
+            [['parity', 41, 1], ['cache', 50]], [[$k['hdd']['warmest']['disk'], $k['hdd']['warmest']['c'], $k['hdd']['asleep']], [$k['ssd']['warmest']['disk'], $k['ssd']['warmest']['c']]]);
+        same('fanboy hottest: the lead — not the hottest number but the one over its limit: disk2 at 39 °C over its own 38; the NVMe at 50 far from 60',
+            [39, 'disk2', 38, 1, 'warn'], array_values(array_intersect_key($s['hottest_lead'], array_flip(['disk', 'c', 'warn', 'margin', 'over']))));
+        same('fanboy hottest: the CPU, the board, the RAM — shown, never judged (no limit made up)', [null, null, null], [$k['cpu']['near'], $k['board']['near'], $k['ram']['near']]);
+        same('fanboy hottest: the old `hottest` stays (an older page reads it)', 50.0, (float) $s['hottest']['c']);
+        // every hard disk asleep: the kind says so, never cold
+        file_put_contents("{$t['root']}/var/local/emhttp/disks.ini", $ini([['parity', 'Parity', 'sdb', '*', '1'], ['disk1', 'Data', 'sdc', '*', '1']]));
+        $k = array_column(fanboyDetect()['hottest_kinds'], null, 'kind');
+        same('fanboy hottest: all hard disks asleep — no warmest, two asleep, nothing near a limit', [null, 2, null], [$k['hdd']['warmest'], $k['hdd']['asleep'], $k['hdd']['near']]);
+        // no limits known (no dynamix files): no judgement at all
+        unlink("{$t['root']}/usr/local/emhttp/plugins/dynamix/default.cfg");
+        unlink("{$t['root']}/boot/config/plugins/dynamix/dynamix.cfg");
+        file_put_contents("{$t['root']}/var/local/emhttp/disks.ini", $ini([['parity', 'Parity', 'sdb', '47', '1']]));
+        $s = fanboyDetect();
+        same('fanboy hottest: no limit known anywhere — the disk\'s value, no warning made up, no lead', [47, null, null], [$s['hottest_kinds'][0]['warmest']['c'], $s['disks'][0]['warn'], $s['hottest_lead']]);
+    } finally {
+        fanboyTEnd();
+    }
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/lang/en.json'), true);
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    check('fanboy hottest: the tile — plural, the lead by its limit (Unraid\'s or the user\'s), «All calm» without colour when nothing is near',
+        $en['tile.hottest'] === 'Warmest spots' && str_contains($js, 'return lead && lead.c - lead.limit >= -LEAD_NEAR ? lead : null;')
+        && str_contains($js, "if (!lead) return Office.stat({ label: T('tile.hottest'), value: T('hottest.calm'), sub: kinds.slice(0, 4).map(line), ...a });"));
+}
+
+/** Round 3: no text twice on a page, the plain line to switch the others off, the FanCtrl Plus import gone */
+function testFanboyRound3Words(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $l = [];
+    foreach (['en', 'de', 'fr', 'it', 'es'] as $c) {
+        $l[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true);
+    }
+    same('fanboy round 3: the banner\'s texts once — another controller only in the banner; a step that can\'t run says its own short line',
+        [1, 0, 2], [substr_count($js, "T('situation.other'"), substr_count($js, "T('step.steering')"), substr_count($js, "T('step.blocked_other')")]);
+    check('fanboy round 3: the owner\'s words — «Deaktiviere die anderen Lüftersteuerungen bitte zuerst.», «Please switch off the other fan controls first.»',
+        str_ends_with($l['de']['hints.clash.1'], 'Deaktiviere die anderen Lüftersteuerungen bitte zuerst.') && str_ends_with($l['en']['hints.clash.1'], 'Please switch off the other fan controls first.'));
+    $clumsy = [];
+    foreach ($l as $c => $strings) {
+        foreach ($strings as $k => $v) {
+            if (preg_match('/selbst aus|switch it off yourself|arrête-le toi-même|désactive-le d\'abord toi-même|lo spegni tu|lo apagas tú/i', implode(' ', (array) $v))) {
+                $clumsy[] = "$c:$k";
+            }
+        }
+    }
+    same('fanboy round 3: the clumsy «you switch it off yourself» nowhere any more', [], $clumsy);
+    $agent = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy.php');
+    $keys = array_filter(array_keys($l['en']), fn ($k) => str_starts_with($k, 'import.') || str_starts_with($k, 'zones.import'));
+    check('fanboy round 3: the FanCtrl Plus import gone — no action, no file, no part of the state, no strings, nothing on the page',
+        !is_file(OFFICE_DIR . '/agent/desks/fanboy-import.php') && !str_contains($agent, "'import'") && !str_contains($agent, 'fanboyImport') && !$keys
+        && !preg_match('/\bimport(Block|AsZones)\b|S\(\)\.import/', $js));
+}
+
+/**
+ * Round 4, safety (2026-11-15, found by the real agent on a test VM): a blocked fan whose floor lies under its start value
+ * (measured lowest 25 % → floor 30 %, start 40 %) was kicked to 40 % and back for ever, each kick resetting the «stands»
+ * clock — no alarm. The suite missed it: every stands test ran with floor ≥ start (the hub unmeasured: floor = start
+ * = 40 %; the disk fan floor 30 = start 30), so no kick happened. Now: the clock runs across kicks, two kicks at most.
+ */
+function testFanboyStandsKick(): void
+{
+    $t = fanboyT('standskick');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        $settings['fans'][fanboyTId(4)]['measured']['start_pct'] = 40;       // floor 25 + 5 = 30 < start 40
+        fanboyTStore($settings);
+        $spec = fanboyTSpec();
+        fanboyTSettle($t, $spec);
+        fanboyBeat();
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        same('fanboy stands kick: the case the suite never had — the disk fan\'s floor under its start value', [30, 40], [$c['fans'][fanboyTId(4)]['floor'], $c['fans'][fanboyTId(4)]['start']]);
+        $now = 3000.0;
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        $stuck = fanboyTSpec(10, [4 => ['stuck' => true]]);
+        $written = [];
+        $alarmAt = null;
+        for ($i = 0; $i < 40 && $alarmAt === null; $i++) {
+            fanboyTRounds($c, $now, $t, $stuck, 1);
+            $written[] = fanboyTOut($t, 4)[0];
+            if ($c['alarm'] !== null) {
+                $alarmAt = $i * FANBOY_ROUND;
+            }
+        }
+        $kicks = 0;
+        for ($i = 1; $i < count($written); $i++) {
+            $kicks += $written[$i] === 102 && $written[$i - 1] !== 102 ? 1 : 0;      // 40 % = 102
+        }
+        check('fanboy stands kick: blocked — alarm «stands» within FANBOY_STAND_AFTER and a margin (' . ($alarmAt ?? 'never') . ' s)',
+            $alarmAt !== null && $alarmAt <= FANBOY_STAND_AFTER + 2 * FANBOY_ROUND && ($c['alarm']['code'] ?? null) === 'stands');
+        same('fanboy stands kick: … kicked twice at most (no flapping 30 % ↔ 40 % in what was written), then full speed', [true, 255],
+            [$kicks <= FANBOY_KICK_MAX, fanboyTOut($t, 4)[0]]);
+        fanboyTRounds($c, $now, $t, $stuck, 20);
+        same('fanboy stands kick: … exactly one notification however long it stands', 1, count(array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, '-i alert'))));
+        check('fanboy stands kick: … in the words for a fan alone in its zone («… sets it to 100 % until it reports its speed again»)',
+            (bool) array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, 'sets it to 100 % until it reports its speed again')));
+        same('fanboy stands kick: … the other zone («Case») keeps steering by its curve during the alarm', [102, 102], [fanboyTOut($t, 5)[0], fanboyTOut($t, 2)[0]]);
+        // freed: it turns — the alarm clears after FANBOY_CLEAR_AFTER, the curve again
+        fanboyTRounds($c, $now, $t, $spec, (int) ceil(FANBOY_CLEAR_AFTER / FANBOY_ROUND) - 2);
+        same('fanboy stands kick: freed — still in alarm before FANBOY_CLEAR_AFTER', 'stands', $c['alarm']['code'] ?? null);
+        fanboyTRounds($c, $now, $t, $spec, 6);
+        same('fanboy stands kick: … then over, the kicks counted from nought again', [null, 0], [$c['alarm'], $c['fans'][fanboyTId(4)]['kicks']]);
+        fanboyLetGo($c, 'end');
+
+        // a control started again three times while the fan stays blocked: the clock goes on, the third one alarms
+        $rounds = (int) ceil(8 / FANBOY_ROUND);          // 8 s each: alone never 15 s, carried the third passes it
+        $alarmed = [];
+        for ($k = 0; $k < 3; $k++) {
+            $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+            fanboyStandCarry($c, readJson(fanboyStatusFile()), $now);
+            fanboyTRounds($c, $now, $t, $stuck, $rounds);
+            fanboyStatusWrite(fanboyStatus($c));
+            $alarmed[] = $c['alarm']['code'] ?? null;
+            fanboyLetGo($c, 'restart');
+        }
+        same('fanboy stands kick: three restarts of 8 s each with the fan blocked — the clock carried, the third alarms', [null, null, 'stands'], $alarmed);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/** disks.ini for the round-4 kind tests: [name, type, device, temp ('*' asleep), rotational] */
+function fanboyTDisksKinds(array $t, array $disks): void
+{
+    file_put_contents("{$t['root']}/var/local/emhttp/disks.ini", implode('', array_map(fn ($x) => "[{$x[0]}]\nname=\"{$x[0]}\"\ntype=\"{$x[1]}\"\ndevice=\"{$x[2]}\"\n"
+        . 'id="EXAMPLE_' . strtoupper($x[0]) . "\"\ntemp=\"{$x[3]}\"\nspundown=\"" . ($x[3] === '*' ? 1 : 0) . "\"\nrotational=\"{$x[4]}\"\nstatus=\"DISK_OK\"\n", $disks)));
+}
+
+/**
+ * Round 4 (the real agent on a test VM): an NVMe pool at an ordinary 50 °C stopped every measuring as «warm» — every
+ * disk was held to the hard disks' 52 − 5 °C. Now each source by its own kind and limit (a zone's own once set), and
+ * the step says which source, how warm and the limit.
+ */
+function testFanboyNvmeWarm(): void
+{
+    $t = fanboyT('nvmewarm');
+    try {
+        fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '35', '1'], ['disk1', 'Data', 'sdc', '*', '1'], ['cache', 'Cache', 'nvme0n1', '50', '0']]);
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        unset($settings['fans'][fanboyTId(4)]['measured']);
+        fanboyTStore($settings);
+        same('fanboy nvme warm: the NVMe pool at 50 °C, the hard disks at 35 — nothing too warm (the SSD\'s limit 70)', null, fanboyStepWarm($settings));
+        $spec = fanboyTSpec();
+        fanboyTSettle($t, $spec);
+        $clock = 0.0;
+        $step = fanboyStepRun(['id' => 'n1', 'kind' => 'measure', 'fans' => [fanboyTId(4)]], fanboyTIo($t, $spec, $clock));
+        same('fanboy nvme warm: … measuring runs through: a table, a lowest steady value', ['done', 'ok', 20],
+            [$step['status'], $step['results'][fanboyTId(4)]['result'] ?? null, $step['results'][fanboyTId(4)]['min_pct'] ?? null]);
+        // the user's own, lower limit for the pool in a zone: it counts — and the step says which, how warm, the limit
+        $s2 = $settings;
+        $s2['zones'][1]['sources'][] = ['kind' => 'ssd', 'id' => 'cache', 'limit' => 52];
+        fanboyTStore($s2);
+        same('fanboy nvme warm: a zone\'s own limit for the pool (52) — too warm at 50 (52 − 5)', ['source' => 'cache', 'kind' => 'ssd', 'c' => 50.0, 'limit' => 52.0], fanboyStepWarm($s2));
+        $clock = 0.0;
+        $step = fanboyStepRun(['id' => 'n2', 'kind' => 'measure', 'fans' => [fanboyTId(4)]], fanboyTIo($t, $spec, $clock));
+        same('fanboy nvme warm: … the step stops «warm» and names it', ['stopped', 'warm', 'cache', 50.0, 52.0, [128, 1]],
+            [$step['status'], $step['why'], $step['warm']['source'] ?? null, $step['warm']['c'] ?? null, $step['warm']['limit'] ?? null, fanboyTOut($t, 4)]);
+        fanboyTStore($settings);
+        fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '35', '1'], ['cache', 'Cache', 'nvme0n1', '66', '0']]);
+        same('fanboy nvme warm: the pool at 66 °C — close to the SSD limit (70 − 5)', ['cache', 'ssd', 70.0], array_values(array_intersect_key(fanboyStepWarm($settings) ?? [], array_flip(['source', 'kind', 'limit']))));
+        fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '48', '1'], ['cache', 'Cache', 'nvme0n1', '50', '0']]);
+        same('fanboy nvme warm: a hard disk at 48 °C — its own kind\'s limit (52 − 5)', ['parity', 'disk', 52.0], array_values(array_intersect_key(fanboyStepWarm($settings) ?? [], array_flip(['source', 'kind', 'limit']))));
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/** Round 4: the zones proposed by kind — hard disks on their scale, an SSD/NVMe pool in the case zone; at rest no zone at full */
+function testFanboyProposeKinds(): void
+{
+    $t = fanboyT('proposekinds');
+    try {
+        fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '35', '1'], ['disk1', 'Data', 'sdc', '35', '1'], ['cache', 'Cache', 'nvme0n1', '50', '0']]);
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        unset($settings['zones']);
+        fanboyTStore($settings);
+        $scan = fanboyDetect();
+        $zones = fanboyZonesPropose($scan, fanboyBoardRaw());
+        $by = array_column($zones, null, 'id');
+        same('fanboy propose kinds: the disk zone — the hard disks only; the pool (SSD/NVMe) in the case zone as «ssd»', [['parity', 'disk1'], ['ssd', 'cache']],
+            [array_column($by['disks']['sources'], 'id'), array_values(array_filter(array_map(fn ($s) => $s['id'] === 'cache' ? [$s['kind'], $s['id']] : null, $by['case']['sources'])))[0] ?? null]);
+        fanboyZonesSave(['zones' => array_map(fn ($z) => ['id' => $z['id'], 'name' => $z['id'], 'fans' => $z['fans'], 'sources' => array_map(fn ($s) => ['id' => $s['id']], $z['sources']),
+            'unit' => 'pct', 'target' => ['preset' => 'normal']], $zones)]);
+        $dry = fanboyDryRun()['dry'];
+        $levels = array_column($dry['zones'], 'level', 'id');
+        check('fanboy propose kinds: at rest (disks 35 °C, the pool 50 °C) no zone asks for full speed (' . json_encode($levels) . ')',
+            count($levels) === 2 && max($levels) < 80);
+        same('fanboy propose kinds: … the case zone led by the pool on the SSD\'s own scale', 'cache', array_column($dry['zones'], 'warmest', 'id')['case']['id'] ?? null);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 4 (the owner): how he reacts — up at once always; the way down by the kind that leads the zone. A CPU zone: a
+ * spike up at once, back down after a hold of 6 s at about 5 % a round, never a snap, no hunting with a spiky CPU;
+ * «quick» shortens hold and gap. A disk zone as before (no hold, 1 % a round — part 2's tests unchanged).
+ */
+function testFanboyReact(): void
+{
+    $t = fanboyT('react');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $cpuSrc = 'coretemp@platform/coretemp.0#1';
+        $cpuFile = "{$t['root']}/sys/devices/platform/coretemp.0/hwmon/hwmon7/temp1_input";
+        $settings = fanboyTSettings();
+        $settings['zones'] = [['id' => 'cpuz', 'name' => 'CPU zone', 'fans' => [fanboyTId(5)], 'unit' => 'pct', 'target' => ['preset' => 'normal'],
+            'sources' => [['kind' => 'cpu', 'id' => $cpuSrc]]]];
+        fanboyTStore($settings);
+        $spec = fanboyTSpec();
+        fanboyTSettle($t, $spec);
+        same('fanboy react: a zone saved without a choice reacts «balanced»; the CPU profile — gap 2.5 °C, hold 6 s, 5 % a round',
+            ['balanced', ['gap' => 2.5, 'hold' => 6.0, 'step' => 5.0]], [fanboyControlNew($settings, FANBOY_T_KEY, ['pid' => 0])['zones']['cpuz']['react'], fanboyDownProfile('cpu', 'balanced')]);
+        fanboyBeat();
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 5000.0;
+        file_put_contents($cpuFile, "45000\n");
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        $rest = $c['zones']['cpuz']['cur'];
+        file_put_contents($cpuFile, "80000\n");
+        fanboyTRounds($c, $now, $t, $spec, 1);
+        same('fanboy react: a CPU spike to 80 °C — up at once (one round: 20 % → 80 %)', [20.0, 80.0], [round($rest, 1), round($c['zones']['cpuz']['cur'], 1)]);
+        file_put_contents($cpuFile, "45000\n");
+        $levels = [];
+        for ($i = 0; $i < 14; $i++) {
+            fanboyTRounds($c, $now, $t, $spec, 1);
+            $levels[] = (int) round($c['zones']['cpuz']['cur']);
+        }
+        same('fanboy react: … cooled — held for 6 s (3 rounds), then down about 5 % a round, never a snap, back at rest within ~20 s',
+            [80, 80, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25], $levels);
+        // a spiky CPU around 60 °C: up at once to the highest, never down again inside the gap — no hunting
+        fanboyTRounds($c, $now, $t, $spec, 10);
+        $written = [];
+        foreach ([60000, 61500, 59500, 61500, 59500, 61000, 59600, 61500, 60000, 59500] as $mc) {
+            file_put_contents($cpuFile, "$mc\n");
+            fanboyTRounds($c, $now, $t, $spec, 1);
+            $written[] = fanboyTOut($t, 5)[0];
+        }
+        $changes = 0;
+        for ($i = 1; $i < count($written); $i++) {
+            $changes += $written[$i] !== $written[$i - 1] ? 1 : 0;
+        }
+        check('fanboy react: … a spiky CPU (59.5 ↔ 61.5 °C) — the fan up once, then steady: no hunting (' . implode(',', $written) . ')', $changes <= 1);
+        // «quick»: the hold halved (3 s), steps of 8 %
+        fanboyLetGo($c, 'end');
+        $settings['zones'][0]['react'] = 'quick';
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        file_put_contents($cpuFile, "80000\n");
+        fanboyTRounds($c, $now, $t, $spec, 2);
+        file_put_contents($cpuFile, "45000\n");
+        $levels = [];
+        for ($i = 0; $i < 4; $i++) {
+            fanboyTRounds($c, $now, $t, $spec, 1);
+            $levels[] = (int) round($c['zones']['cpuz']['cur']);
+        }
+        same('fanboy react: «Sofort reagieren» — held 3 s (2 rounds), then 8 % a round', [80, 80, 72, 64], $levels);
+        fanboyLetGo($c, 'end');
+        $codes = [];
+        foreach (['fast', 1, null] as $r) {
+            try {
+                $z = ['id' => 'cpuz', 'name' => 'CPU zone', 'fans' => [fanboyTId(5)], 'sources' => [['id' => $cpuSrc]], 'unit' => 'pct', 'target' => ['preset' => 'normal']];
+                if ($r !== null) {
+                    $z['react'] = $r;
+                }
+                $codes[] = fanboyZonesCheck([$z], fanboyDetect(), $settings)[0]['react'];
+            } catch (Problem $p) {
+                $codes[] = $p->key . ':' . ($p->params['field'] ?? '');
+            }
+        }
+        same('fanboy react: read strictly — an unknown word and a number refused, none: «balanced»', ['fanboy_bad_zones:react', 'fanboy_bad_zones:react', 'balanced'], $codes);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 4 (the owner): the degrees settable per zone — «ab», «volle Drehzahl bei», «Grenze» per kind the zone has, a
+ * source's own values over its kind's; read strictly (numbers only, the kind's sane bounds, only kinds present),
+ * low < high < limit for every source with the defaults filling the gaps; a limit under today's temperature is allowed
+ * (the page says it). The control steers by them.
+ */
+function testFanboyTemps(): void
+{
+    $t = fanboyT('temps');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $cpuSrc = 'coretemp@platform/coretemp.0#1';
+        file_put_contents("{$t['root']}/sys/devices/platform/coretemp.0/hwmon/hwmon7/temp1_input", "60000\n");
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        fanboyTStore($settings);
+        $scan = fanboyDetect();
+        $zone = fn (array $kinds, array $src = []) => ['id' => 'cpuz', 'name' => 'CPU zone', 'fans' => [fanboyTId(5)], 'unit' => 'pct',
+            'target' => ['preset' => 'normal'], 'sources' => [['id' => $cpuSrc] + $src], 'kinds' => $kinds];
+        $try = function (array $z) use ($scan, $settings) {
+            try {
+                return fanboyZonesCheck([$z], $scan, $settings)[0]['kinds'];
+            } catch (Problem $p) {
+                return $p->key . ':' . ($p->params['field'] ?? $p->params['source'] ?? '');
+            }
+        };
+        same('fanboy temps: the CPU\'s own degrees kept; none sent — an empty object (the defaults)',
+            ['{"cpu":{"low":50,"high":70,"limit":90}}', '{}'],
+            [json_encode($try($zone(['cpu' => ['low' => 50, 'high' => 70, 'limit' => 90]]))), json_encode($try($zone([])))]);
+        same('fanboy temps: refused — a kind the zone hasn\'t, a list, a text number, beyond the kind\'s bounds, low over high, a source\'s own low over its kind\'s high',
+            ['fanboy_bad_zones:kinds', 'fanboy_bad_zones:kinds', 'fanboy_bad_zones:low', 'fanboy_bad_zones:limit', 'fanboy_bad_temps:' . $cpuSrc, 'fanboy_bad_temps:' . $cpuSrc],
+            [$try($zone(['disk' => ['low' => 30]])), $try($zone([['low' => 30]])), $try($zone(['cpu' => ['low' => '50']])), $try($zone(['cpu' => ['limit' => 130]])),
+                $try($zone(['cpu' => ['low' => 80, 'high' => 70]])), $try($zone(['cpu' => ['high' => 60]], ['low' => 65]))]);
+        same('fanboy temps: a limit under today\'s 60 °C is allowed (the page says «liegt schon darüber»)', ['cpu' => ['low' => 40.0, 'high' => 50.0, 'limit' => 55.0]],
+            $try($zone(['cpu' => ['low' => 40, 'high' => 50, 'limit' => 55]])));
+        // the control steers by them: the same 60 °C — on the defaults (45…80) part way, with «volle Drehzahl bei» 58 at full
+        $level = function (array $kinds) use ($zone) {
+            fanboyZonesSave(['zones' => [$zone($kinds)]]);
+            return array_column(fanboyDryRun()['dry']['zones'], 'level', 'id')['cpuz'] ?? null;
+        };
+        $plain = $level([]);
+        $own = $level(['cpu' => ['low' => 40, 'high' => 58]]);
+        check("fanboy temps: CPU at 60 °C — on the defaults part way ($plain %), «volle Drehzahl bei» 58 °C: higher ($own %)", $plain < 80 && $own > $plain);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 4 (the owner): the CPU cooler «Fanboy regelt ihn» — only with the stored, dated, ticked confirmation; never
+ * written without it. Its zone must hold a CPU temperature; a floor of its own (40 %, never «off»); given back to the
+ * mainboard's automatic only; its standing drives its zone to 100 %; the reaction not forced; pumps never; said in the
+ * report without names.
+ */
+function testFanboyCpuOwn(): void
+{
+    $t = fanboyT('cpuown');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $cpuSrc = 'coretemp@platform/coretemp.0#1';
+        file_put_contents("{$t['root']}/sys/devices/platform/coretemp.0/hwmon/hwmon7/temp1_input", "40000\n");
+        $cpuId = fanboyTId(1);
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        $cpuZone = ['id' => 'cpuz', 'name' => 'CPU zone', 'fans' => [$cpuId], 'unit' => 'pct', 'target' => ['preset' => 'quiet'], 'sources' => [['kind' => 'cpu', 'id' => $cpuSrc]]];
+        fanboyTStore($settings);
+        $spec = fanboyTSpec();
+        fanboyTSettle($t, $spec);
+        // without the confirmation: never his — refused in a zone, never written by the control even if a zone names it
+        $codes = [];
+        foreach ([['cpu_own' => true], ['cpu_own' => true, 'cpu_confirm' => false], ['cpu_own' => 'yes', 'cpu_confirm' => true]] as $r) {
+            try {
+                fanboyRole(['fan' => $cpuId, 'role' => 'cpu', 'name' => 'CPU'] + $r);
+                $codes[] = 'stored';
+            } catch (Problem $p) {
+                $codes[] = $p->key;
+            }
+        }
+        try {
+            fanboyRole(['fan' => fanboyTId(5), 'role' => 'pump', 'cpu_own' => true, 'cpu_confirm' => true]);
+            $codes[] = 'stored';
+        } catch (Problem $p) {
+            $codes[] = $p->key;
+        }
+        same('fanboy cpu own: refused — no tick, the tick false, a text for yes, a pump', ['fanboy_cpu_confirm', 'fanboy_cpu_confirm', 'bad_request', 'fanboy_bad_role'], $codes);
+        same('fanboy cpu own: … nothing stored', null, fanboyBoardRaw()['fans'][$cpuId]['cpu_own'] ?? null);
+        try {
+            fanboyZonesCheck([$cpuZone], fanboyDetect(), fanboyBoardRaw());
+            $code = 'accepted';
+        } catch (Problem $p) {
+            $code = $p->key . ':' . ($p->params['field'] ?? '');
+        }
+        same('fanboy cpu own: without the confirmation the CPU cooler in a zone is refused', 'fanboy_bad_zones:fans', $code);
+        $hand = $settings;
+        $hand['zones'][] = $cpuZone;
+        fanboyBeat();
+        $c = fanboyControlNew($hand, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 4);
+        same('fanboy cpu own: … a zone written by hand naming it: never written without the confirmation (still the BIOS\'s 128, fixed), watched',
+            [false, [128, 1], true], [isset($c['fans'][$cpuId]), fanboyTOut($t, 1), isset($c['watch'][$cpuId])]);
+        fanboyLetGo($c, 'end');
+
+        // with the tick: stored with its date; shown in the setup's state and the report (no names)
+        $before = time();
+        fanboyRole(['fan' => $cpuId, 'role' => 'cpu', 'name' => 'CPU', 'cpu_own' => true, 'cpu_confirm' => true]);
+        $at = fanboyBoardRaw()['fans'][$cpuId]['cpu_own']['at'] ?? null;
+        check('fanboy cpu own: the tick — stored with its date', is_int($at) && $at >= $before);
+        fanboyRole(['fan' => $cpuId, 'role' => 'cpu', 'name' => 'CPU cooler']);
+        same('fanboy cpu own: … a role saved again without the choice keeps it (and its date)', $at, fanboyBoardRaw()['fans'][$cpuId]['cpu_own']['at'] ?? null);
+        $scan = fanboyDetect();
+        $st = array_column(fanboySetupState($scan, fanboyBoardRaw())['fans'], 'cpu_own', 'id');
+        same('fanboy cpu own: … in the setup\'s state: since when; the cases fans none', [$at, null], [$st[$cpuId], $st[fanboyTId(5)]]);
+        $report = fanboyReportText($scan);
+        check('fanboy cpu own: … the report says it, without names', str_contains($report, 'CPU cooler: steered by Fanboy on the owner\'s own risk since ' . gmdate('Y-m-d', $at))
+            && !str_contains($report, 'CPU cooler]'));
+        // a zone: only with a CPU temperature; proposed as a zone of its own on the CPU's temperatures
+        $codes = [];
+        foreach ([['kind' => 'disk', 'id' => 'parity'], ['kind' => 'cpu', 'id' => $cpuSrc]] as $src) {
+            try {
+                $codes[] = fanboyZonesCheck([['sources' => [$src]] + $cpuZone], $scan, fanboyBoardRaw())[0]['fans'];
+            } catch (Problem $p) {
+                $codes[] = $p->key;
+            }
+        }
+        same('fanboy cpu own: its zone needs a CPU temperature — refused with the disks only, taken with the CPU', ['fanboy_cpu_zone_needs_cpu', [$cpuId]], $codes);
+        $prop = array_column(fanboyZonesPropose($scan, fanboyBoardRaw()), null, 'id');
+        same('fanboy cpu own: … proposed: a zone «cpu» with it and the CPU\'s temperatures only', [[$cpuId], ['cpu']],
+            [$prop['cpu']['fans'] ?? null, array_values(array_unique(array_column($prop['cpu']['sources'] ?? [], 'kind')))]);
+
+        // the control: his now — a floor of 40 % at a cool CPU on «quiet» (0 %), never off (even «off» stored), balanced
+        $settings = fanboyBoardRaw();
+        $settings['fans'][$cpuId]['off_ok'] = true;
+        $settings['fans'][$cpuId]['back'] = 'fixed';
+        $settings['fans'][$cpuId]['measured'] = ['table' => [[100, 1800], [50, 900], [20, 360]], 'min_pct' => 20, 'start_pct' => 25, 'max_rpm' => 1800, 'at' => 1];
+        $settings['zones'][] = $cpuZone;
+        fanboyTStore($settings);
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        same('fanboy cpu own: in the control — his, floor 40 % (measured 20 + 5 is less), never off, given back to the automatic, balanced, not watched',
+            [true, 40, false, 'auto', 'balanced', false],
+            [isset($c['fans'][$cpuId]), $c['fans'][$cpuId]['floor'] ?? null, $c['fans'][$cpuId]['off_ok'] ?? null, $c['fans'][$cpuId]['back'] ?? null, $c['zones']['cpuz']['react'] ?? null, isset($c['watch'][$cpuId])]);
+        fanboyTRounds($c, $now, $t, $spec, 4);
+        same('fanboy cpu own: … CPU 40 °C on «quiet»: 40 % (102), never under', 102, fanboyTOut($t, 1)[0]);
+        $level = fanboyTOut($t, 4)[0];
+        // it stands: ITS zone at 100 % (it alone: itself), the other zones steer on
+        $stuck = fanboyTSpec(10, [1 => ['stuck' => true]]);
+        fanboyTRounds($c, $now, $t, $stuck, 10);
+        same('fanboy cpu own: it stands — alarm «stands» (alone in its zone), the cooler at 100 %, the disk zone keeps its level',
+            ['stands', true, [255, 1], $level], [$c['alarm']['code'] ?? null, $c['alarm']['params']['alone'] ?? null, fanboyTOut($t, 1), fanboyTOut($t, 4)[0]]);
+        fanboyTRounds($c, $now, $t, $spec, 80);
+        fanboyLetGo($c, 'end');
+        same('fanboy cpu own: given back — to the mainboard\'s automatic (mode 2), never a fixed value, though «fixed» was stored', 2, fanboyTOut($t, 1)[1]);
+        // the zone without a CPU temperature (written by hand): it stays the BIOS's
+        $settings['zones'][2]['sources'] = [['kind' => 'disk', 'id' => 'parity']];
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        same('fanboy cpu own: its zone written by hand without a CPU temperature — not taken, watched', [false, true], [isset($c['fans'][$cpuId]), isset($c['watch'][$cpuId])]);
+        // back to the BIOS: the choice gone, out of every zone
+        fanboyRole(['fan' => $cpuId, 'role' => 'cpu', 'name' => 'CPU', 'cpu_own' => false]);
+        $raw = fanboyBoardRaw();
+        same('fanboy cpu own: «Zurück ans BIOS» — the confirmation gone, out of every zone', [null, false],
+            [$raw['fans'][$cpuId]['cpu_own'] ?? null, in_array($cpuId, array_merge(...array_map(fn ($z) => $z['fans'], $raw['zones'])), true)]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/** Round 4: the page draws the presets on a zone's own degrees — its presetsOn() is exactly fanboyPreset() */
+function testFanboyPresetsMirror(): void
+{
+    $php = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-control.php');
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
+    preg_match_all("/'(quiet|cool)'\s*=>\s*(\[\[.*?\]\]),|default\s*=>\s*(\[\[.*?\]\]),/", $php, $m, PREG_SET_ORDER);
+    $arms = [];
+    foreach ($m as $x) {
+        $arms[$x[1] !== '' ? $x[1] : 'normal'] = str_replace('$', '', $x[2] !== '' ? $x[2] : $x[3]);
+    }
+    same('fanboy presets mirror: fanboyPreset() has quiet, normal, cool', ['quiet', 'cool', 'normal'], array_keys($arms));
+    foreach ($arms as $p => $pts) {
+        check("fanboy presets mirror: desk.js presetsOn() draws «{$p}» as the agent steers it ($pts)", str_contains($js, "$p: $pts"));
+    }
 }

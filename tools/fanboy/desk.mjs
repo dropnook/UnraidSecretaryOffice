@@ -5,7 +5,8 @@
 // situations, an animated picture of the overview with its fans turning, and its CPU — measured as tools/fanboy/look.mjs
 // measures the pictures alone (Chrome's main thread and all its processes, 8 s, median of 3). Dev-only.
 //
-//   node tools/fanboy/desk.mjs [--out <folder>] [--no-shots] [--no-cpu] [--no-movie] [--only <name>,…] [-v]
+//   node tools/fanboy/desk.mjs [--out <folder>] [--no-shots] [--no-cpu] [--no-movie] [--no-callouts] [--only <name>,…] [-v]
+//   --callouts (default on): every demo state, both routes shown whole — fails when a callout's text stands twice
 // Fails (exit 1) on a console error, a page error or a horizontal scroll. Exit 3: playwright-core or Chrome missing.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -19,13 +20,14 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 const require = createRequire(import.meta.url);
 const args = process.argv.slice(2);
-const opt = { out: path.join(process.env.USO_SHOTS || path.join(os.homedir(), 'uso-shots'), 'fanboy-desk'), shots: true, cpu: true, movie: true, only: null, v: false };
+const opt = { out: path.join(process.env.USO_SHOTS || path.join(os.homedir(), 'uso-shots'), 'fanboy-desk'), shots: true, cpu: true, movie: true, callouts: true, only: null, v: false };
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--out') opt.out = path.resolve(args[++i]);
   else if (a === '--no-shots') opt.shots = false;
   else if (a === '--no-cpu') opt.cpu = false;
   else if (a === '--no-movie') opt.movie = false;
+  else if (a === '--no-callouts') opt.callouts = false;
   else if (a === '--only') opt.only = args[++i].split(',');
   else if (a === '-v') opt.v = true;
   else { console.log(`fanboy desk: unknown argument ${a}`); process.exit(2); }
@@ -53,6 +55,10 @@ const PICTURES = [
   ['setup-3-roles', 'fanboy-roles', 'fanboy/setup/roles', null, true],
   ['setup-4-measure-running', 'fanboy-measure', 'fanboy/setup/measure', null, true],
   ['setup-5-zones', 'fanboy-ready', 'fanboy/setup/zones', null, true],
+  // round 4: the CPU cooler «Fanboy regelt ihn» behind its tick; given to him (its zone, since when); the zones' degrees and reaction
+  ['setup-3-roles-cpu', 'fanboy-roles', 'fanboy/setup/roles', ['.fb-cpu .seg button:nth-child(2)', '.fb-cpu-risk input[type=checkbox]'], false],
+  ['setup-5-zones-cpu', 'fanboy-cpu', 'fanboy/setup/zones', null, false],
+  ['overview-cpu', 'fanboy-cpu', 'fanboy/fans', null, false],
   ['setup-6-dry', 'fanboy-ready', 'fanboy/setup/dry', '.fb-step[data-step=dry] .fb-bar .btn', true],
   ['setup-7-take', 'fanboy-ready', 'fanboy/setup/take', null, true],
   ['setup-armed', 'fanboy', 'fanboy/setup/take', null, false],
@@ -66,6 +72,18 @@ const PICTURES = [
   ['no-output', 'fanboy-nooutput', 'fanboy', null, false],
   ['array-stopped', 'fanboy-array', 'fanboy', null, false],
   ['curves', 'fanboy', 'fanboy/today', null, false],
+  // round 3: the history's period (the segmented choice above the curves)
+  ['curves-1h', 'fanboy', 'fanboy/today', '.fb-period button:nth-child(1)', false],
+  ['curves-12h', 'fanboy', 'fanboy/today', '.fb-period button:nth-child(4)', false],
+  ['curves-3d', 'fanboy', 'fanboy/today', '.fb-period button:nth-child(6)', false],
+  // his picture (avatar.svg; avatar-alarm.svg while something is wrong): the tab row and his head, the reception's card
+  ['avatar-head', 'fanboy', 'fanboy', null, 'both', { until: '.deskhead' }],
+  // round 3: the tile row (connectors, the warmest spots per kind), the setup shown whole with another controller steering
+  ['tiles', 'fanboy', 'fanboy', null, 'both', { until: '[data-sections-body]', before: true }],
+  ['tiles-nozones', 'fanboy-fresh', 'fanboy', null, false, { until: '[data-sections-body]', before: true }],
+  ['setup-whole-other', 'fanboy-other', 'fanboy/setup', null, 'both', { whole: true }],
+  ['avatar-alarm-head', 'fanboy-alarm', 'fanboy', null, 'both', { until: '.deskhead' }],
+  ['avatar-reception', 'fanboy', '', null, 'both', { clip: '.desk-card[data-desk=fanboy]', wait: '.desk-card[data-desk=fanboy]' }],
   ['fans', 'fanboy', 'fanboy/fans', null, false],
 ].filter((p) => !opt.only || opt.only.includes(p[0]));
 const LOCALES = { de: 'de-CH', en: 'en-US' };
@@ -82,7 +100,7 @@ async function harness(state, lang) {
   if (!harnesses.has(k)) harnesses.set(k, await startHarness({ demo: true, alias: { fanboy: state }, names: lang === 'de' ? null : DEMO_NAMES_EN }));
   return harnesses.get(k);
 }
-async function open(state, route, { theme = 'black', lang = 'de', width = 1440, scale = 2, reduce = false } = {}) {
+async function open(state, route, { theme = 'black', lang = 'de', width = 1440, scale = 2, reduce = false, wait = '#sso-desk section' } = {}) {
   const phone = width < 768;
   const h = await harness(state, lang);
   const ctx = await browser.newContext({ viewport: { width, height: phone ? 844 : 900 }, deviceScaleFactor: scale, isMobile: phone, hasTouch: phone,
@@ -94,27 +112,37 @@ async function open(state, route, { theme = 'black', lang = 'de', width = 1440, 
   page.on('pageerror', (e) => faults.push(`${tag}: ${String(e.message).slice(0, 200)}`));
   page.on('dialog', (d) => d.dismiss().catch(() => {}));
   await page.goto(`${h.url}?theme=${theme}#/${route}`, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.Office && window.FanArt && document.querySelector('#sso-desk section'), null, { timeout: 15000 });
+  await page.waitForFunction((w) => window.Office && window.FanArt && document.querySelector(w), wait, { timeout: 15000 });
   await page.evaluate(async () => { await document.fonts.ready; });
   await page.waitForTimeout(1500);       // the catalogue in, the speeds glided in
   return { ctx, page, tag };
 }
 
 if (opt.shots) {
-  for (const [name, state, route, click, every] of PICTURES) {
-    const looks = every ? ['black', 'white'].flatMap((theme) => ['de', 'en'].flatMap((lang) => [1440, 390].map((width) => ({ theme, lang, width }))))
-      : [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'en', width: 390 }];
+  for (const [name, state, route, click, every, shot] of PICTURES) {
+    const looks = every === 'both' ? [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'de', width: 1440 }, { theme: 'black', lang: 'en', width: 390 }, { theme: 'white', lang: 'en', width: 390 }]
+      : every ? ['black', 'white'].flatMap((theme) => ['de', 'en'].flatMap((lang) => [1440, 390].map((width) => ({ theme, lang, width }))))
+        : [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'en', width: 390 }];
     for (const l of looks) {
       try {
-        const { ctx, page, tag } = await open(state, route, l);
-        if (click) {
-          await page.click(click);
+        const { ctx, page, tag } = await open(state, route, { ...l, ...(shot && shot.wait ? { wait: shot.wait } : {}) });
+        for (const one of click ? [].concat(click) : []) {        // one selector or several, clicked in turn
+          await page.click(one);
           await page.waitForTimeout(900);
         }
         const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         if (wide > 1) faults.push(`${tag}: the page scrolls sideways by ${wide} px`);
         const file = path.join(opt.out, `${name}-${l.theme}-${l.lang}-${l.width}.png`);
-        await page.screenshot({ path: file, fullPage: true, animations: 'allow', caret: 'hide' });
+        if (shot && shot.whole) {
+          // the page shown whole: the tile the page opened with clicked off again
+          await page.evaluate(() => { const on = document.querySelector('#sso-desk button.stat[aria-pressed=true]'); if (on) on.click(); });
+          await page.waitForTimeout(700);
+        }
+        if (shot && shot.until) {
+          const box = await page.locator(shot.until).first().boundingBox();
+          await page.screenshot({ path: file, clip: { x: 0, y: 0, width: l.width, height: Math.ceil(shot.before ? box.y : box.y + box.height + 12) } });
+        } else if (shot && shot.clip) await page.locator(shot.clip).first().screenshot({ path: file });
+        else await page.screenshot({ path: file, fullPage: true, animations: 'allow', caret: 'hide' });
         log(file);
         if (name === 'overview') await page.locator('.fb-server').screenshot({ path: path.join(opt.out, `overview-picture-${l.theme}-${l.lang}-${l.width}.png`) });
         await ctx.close();
@@ -129,6 +157,27 @@ if (opt.shots) {
   const still = await page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length);
   if (still) faults.push(`reduced motion: ${still} animations still running`);
   await ctx.close();
+}
+
+// ------------------------------------------------------------------ no text twice: every demo state, both pages shown whole
+// (round 3, the owner: with another controller the setup page said the same warning three times) — every callout's text
+// once on a page, never again in a step
+if (opt.callouts) {
+  const states = fs.readdirSync(path.join(REPO, 'tests', 'ui', 'demo')).filter((f) => /^fanboy(-[a-z]+)?\.json$/.test(f) && f !== 'fanboy-history.json').map((f) => f.replace(/\.json$/, ''));
+  let pages = 0;
+  for (const state of states) {
+    for (const route of ['fanboy', 'fanboy/setup']) {
+      const { ctx, page, tag } = await open(state, route, { scale: 1 });
+      await page.evaluate(() => { const on = document.querySelector('#sso-desk button.stat[aria-pressed=true]'); if (on) on.click(); });
+      await page.waitForTimeout(500);
+      const texts = await page.evaluate(() => [...document.querySelectorAll('#sso-desk .callout')].map((c) => c.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean));
+      const twice = [...new Set(texts.filter((x, i) => texts.indexOf(x) !== i))];
+      for (const x of twice) faults.push(`${tag}: the same callout twice on the page shown whole — «${x.slice(0, 90)}»`);
+      pages++;
+      await ctx.close();
+    }
+  }
+  console.log(`fanboy desk: callouts — ${pages} pages shown whole (${states.length} demo states × 2 routes), ${faults.filter((f) => f.includes('callout twice')).length} with a text twice`);
 }
 
 // ------------------------------------------------------------------ the overview's picture as an animated PNG (as look.mjs)
