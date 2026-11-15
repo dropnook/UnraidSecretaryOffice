@@ -52,11 +52,11 @@ const PICTURES = [
   ['setup-1-detect', 'fanboy-fresh', 'fanboy/setup/detect', null, true],
   ['setup-2-test-running', 'fanboy-test', 'fanboy/setup/test', null, true],
   ['setup-2-test-louder', 'fanboy-ask', 'fanboy/setup/test', null, true],
-  ['setup-3-roles', 'fanboy-roles', 'fanboy/setup/roles', null, true],
+  ['setup-2-test-assign', 'fanboy-roles', 'fanboy/setup/test', null, true],
   ['setup-4-measure-running', 'fanboy-measure', 'fanboy/setup/measure', null, true],
   ['setup-5-zones', 'fanboy-ready', 'fanboy/setup/zones', null, true],
   // round 4: the CPU cooler «Fanboy regelt ihn» behind its tick; given to him (its zone, since when); the zones' degrees and reaction
-  ['setup-3-roles-cpu', 'fanboy-roles', 'fanboy/setup/roles', ['.fb-cpu .seg button:nth-child(2)', '.fb-cpu-risk input[type=checkbox]'], false],
+  ['setup-2-test-assign-cpu', 'fanboy-roles', 'fanboy/setup/test', ['.fb-card-test:first-child .fb-assign-more summary', '.fb-cpu .seg button:nth-child(2)', '.fb-cpu-risk input[type=checkbox]'], false],
   ['setup-5-zones-cpu', 'fanboy-cpu', 'fanboy/setup/zones', null, false],
   ['overview-cpu', 'fanboy-cpu', 'fanboy/fans', null, false],
   ['setup-6-dry', 'fanboy-ready', 'fanboy/setup/dry', '.fb-step[data-step=dry] .fb-bar .btn', true],
@@ -103,6 +103,10 @@ const PICTURES = [
   // round 8: G1 the quiet test — the switch, and a test running with the other fans standing
   ['r8-1-quiet-running', 'fanboy-quiet', 'fanboy/setup/test', null, false],
   ['r8-1-quiet-switch', 'fanboy-ask', 'fanboy/setup/test', '.page-help summary', false],
+  // round 8: «Testen und zuordnen» — before, during (fields in use, «Gefunden — weiter»), after
+  ['r8-2-assign-before', 'fanboy-fresh', 'fanboy/setup/test', null, false],
+  ['r8-2-assign-during', 'fanboy-quiet', 'fanboy/setup/test', null, false],
+  ['r8-2-assign-after', 'fanboy-roles', 'fanboy/setup/test', null, false],
 ].filter((p) => !opt.only || opt.only.includes(p[0]));
 const LOCALES = { de: 'de-CH', en: 'en-US' };
 const faults = [];

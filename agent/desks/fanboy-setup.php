@@ -882,12 +882,54 @@ function fanboyStepStopAction(): array
 }
 
 /** «Did something get louder?» — yes: a fan without feedback; no: the connector is empty (it stays the BIOS's, hidden) */
+/**
+ * Round 8 (the owner: test and assign in ONE step): an offered output's entry in the store, made when it has none yet —
+ * so its name, role or «nothing attached» can be saved before or while it is tested ($outputs: what is there now)
+ */
+function fanboyFanEnsure(array $e, string $id, array $outputs): array
+{
+    if (!is_array($e['fans'][$id] ?? null)) {
+        $o = $outputs[$id] ?? null;
+        if ($o === null) {
+            throw new Problem('fanboy_no_output', ['fan' => $id]);
+        }
+        $e['fans'][$id] = ['chip' => $o['chip'], 'address' => $o['address'], 'output' => $o['output'], 'tach' => null, 'tachs' => []];
+    }
+    return $e;
+}
+
+/** Round 8: «Wo sitzt er?» — a fan's name alone, saved at once (any offered output, tested or not, during its test too) */
+function fanboyFanName(array $r): array
+{
+    $id = textField($r, 'fan');
+    if (!array_key_exists('name', $r)) {
+        throw new Problem('missing_field', ['field' => 'name']);       // an empty name clears it; none sent changes nothing
+    }
+    $name = trim((string) preg_replace('/[\x00-\x1f\x7f]+/u', ' ', optText($r, 'name')));
+    if (mb_strlen($name) > 40) {
+        throw new Problem('fanboy_bad_name');
+    }
+    $outputs = fanboyOutputs(fanboyDetect());
+    $e = fanboyStoreUpdate(function (array $e) use ($id, $name, $outputs): array {
+        $e = fanboyFanEnsure($e, $id, $outputs);
+        $e['fans'][$id]['name'] = $name;
+        return $e;
+    });
+    return ['ok' => true, 'fan' => $e['fans'][$id]];
+}
+
 function fanboyAnswer(array $r): array
 {
     $id = textField($r, 'fan');
     $louder = boolField($r, 'louder');
-    $e = fanboyStoreUpdate(function (array $e) use ($id, $louder): array {
-        if (!is_array($e['fans'][$id] ?? null) || !in_array($e['fans'][$id]['found'] ?? null, ['ask', 'silent', 'empty', 'unclear'], true)) {
+    $outputs = fanboyOutputs(fanboyDetect());
+    $e = fanboyStoreUpdate(function (array $e) use ($id, $louder, $outputs): array {
+        // round 8: «nothing attached» may be said before the test too (the merged step's role choice)
+        if (!$louder && !is_array($e['fans'][$id] ?? null)) {
+            $e = fanboyFanEnsure($e, $id, $outputs);
+        }
+        $found = fanboyFound($e['fans'][$id] ?? null);
+        if (!is_array($e['fans'][$id] ?? null) || !(in_array($found, ['ask', 'silent', 'empty', 'unclear'], true) || ($found === null && !$louder))) {
             throw new Problem('fanboy_no_output', ['fan' => $id]);
         }
         $e['fans'][$id]['found'] = $louder ? 'silent' : 'empty';
@@ -940,9 +982,15 @@ function fanboyRole(array $r): array
             throw new Problem('fanboy_cpu_no_auto');        // nothing to give it back to but a fixed value: it stays the BIOS's
         }
     }
-    $e = fanboyStoreUpdate(function (array $e) use ($id, $role, $name, $place, $offOk, $count, $cpuOwn): array {
-        $f = $e['fans'][$id] ?? null;
-        if (!is_array($f) || !in_array($f['found'] ?? null, ['tach', 'silent', 'unclear'], true)) {
+    // round 8 (the owner: test and assign in one step): a role may be given before or while the output is tested — not to
+    // one found empty, «doesn't obey» or «the other way round»; name and place only when sent (each field saves alone)
+    $outputs = fanboyOutputs(fanboyDetect());
+    $hasName = array_key_exists('name', $r);
+    $hasPlace = array_key_exists('place', $r);
+    $e = fanboyStoreUpdate(function (array $e) use ($id, $role, $name, $place, $offOk, $count, $cpuOwn, $outputs, $hasName, $hasPlace): array {
+        $e = fanboyFanEnsure($e, $id, $outputs);
+        $f = $e['fans'][$id];
+        if (!in_array(fanboyFound($f), [null, 'ask', 'tach', 'silent', 'unclear'], true)) {
             throw new Problem('fanboy_no_output', ['fan' => $id]);
         }
         if ($role !== 'cpu' || $cpuOwn === false) {
@@ -954,8 +1002,12 @@ function fanboyRole(array $r): array
             throw new Problem('fanboy_off_needs_measure');        // «off» only for a fan measured with feedback
         }
         $f['role'] = $role;
-        $f['name'] = $name;
-        $f['place'] = $place !== '' ? $place : null;
+        if ($hasName) {
+            $f['name'] = $name;
+        }
+        if ($hasPlace) {
+            $f['place'] = $place !== '' ? $place : null;
+        }
         $f['off_ok'] = $offOk && in_array($role, FANBOY_ROLES_OURS, true);
         if ($count !== null) {
             $f['count'] = $count;
@@ -1297,10 +1349,9 @@ function fanboyBack(array $r): array
     if ($back === 'auto' && $before['auto'] === null) {
         throw new Problem('fanboy_no_auto');            // the chip has no automatic mode for this output
     }
-    $e = fanboyStoreUpdate(function (array $e) use ($id, $back): array {
-        if (!is_array($e['fans'][$id] ?? null)) {
-            throw new Problem('fanboy_no_output', ['fan' => $id]);
-        }
+    $outputs = fanboyOutputs($scan);
+    $e = fanboyStoreUpdate(function (array $e) use ($id, $back, $outputs): array {
+        $e = fanboyFanEnsure($e, $id, $outputs);           // round 8: on the test's card, before it is tested too
         $e['fans'][$id]['back'] = $back;
         return $e;
     }, $scan['board']);
@@ -1327,9 +1378,11 @@ function fanboyFanLook(array $r): array
     if ($colour !== '' && !in_array($colour, FANBOY_COLOURS, true)) {
         throw new Problem('fanboy_bad_look', ['field' => 'colour']);
     }
-    $e = fanboyStoreUpdate(function (array $e) use ($id, $model, $mm, $blades, $colour, $r): array {
-        $f = $e['fans'][$id] ?? null;
-        if (!is_array($f) || !in_array($f['found'] ?? null, ['tach', 'silent', 'unclear'], true)) {
+    $outputs = fanboyOutputs(fanboyDetect());
+    $e = fanboyStoreUpdate(function (array $e) use ($id, $model, $mm, $blades, $colour, $r, $outputs): array {
+        $e = fanboyFanEnsure($e, $id, $outputs);           // round 8: on the test's card, before or while it is tested too
+        $f = $e['fans'][$id];
+        if (!in_array(fanboyFound($f), [null, 'ask', 'tach', 'silent', 'unclear'], true)) {
             throw new Problem('fanboy_no_output', ['fan' => $id]);
         }
         if (array_key_exists('model', $r) || array_key_exists('mm', $r) || array_key_exists('blades', $r)) {

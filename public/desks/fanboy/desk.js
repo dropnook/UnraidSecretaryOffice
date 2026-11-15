@@ -4,7 +4,7 @@
      with their air, the heat sources between them, the warmest framed, sleeping disks marked — fed by every look, the
      speeds gliding), the fans and outputs, the heat sources, the curves with «now» and what happened lately, the hints
      (why it's tricky, drivers, the report for the makers);
-   · the setup (the wizard), each step a tile in the order of part 2's steps: detect → test each output upward → roles
+   · the setup (the wizard), each step a tile in the order of part 2's steps: detect → test each output upward and assign it (round 8: roles on its card)
      (the catalogue picker, name, place, «give back to») → measure → zones (his proposal, the curve to
      drag) → dry run → «Take over». Nothing changes for good before «Take over»; a step that writes (test, measure) runs
      only while this page keeps it alive (step_alive): a closed tab or a reload gives every output back after 45 s, and
@@ -41,7 +41,8 @@ const cpuGiven = () => (setup().fans || []).some((f) => f.role === 'cpu' && f.cp
 const cpuAsk = new Map();       // fan id → {tick} while the owner is choosing «Fanboy regelt ihn» (kept over drawings)
 const PLACES = ['front', 'rear', 'top', 'bottom', 'side'];
 const COLOURS = ['auto', 'black', 'graphite', 'grey', 'white', 'slate', 'accent'];
-const STEPS = ['detect', 'test', 'roles', 'measure', 'zones', 'dry', 'take'];
+// round 8 (the owner): «Testen und zuordnen» — the test and the roles in ONE step (the old route …/setup/roles opens it)
+const STEPS = ['detect', 'test', 'measure', 'zones', 'dry', 'take'];
 
 let state = null;
 let history = null;             // the part `history`: {every, zones: {id: [[time, °C, %, rpm]…]}}
@@ -275,17 +276,18 @@ const srcLimit = (s) => {
   return num(s.limit) ?? (d ? d.limit : null);
 };
 
-/** The step at hand: the first not done (detect, test, roles, measure, zones, dry, take) */
+/** The step at hand: the first not done (detect, test and assign, measure, zones, dry, take) */
 function stepAtHand() {
   const su = setup();
   if (!(su.outputs || []).length) return 'detect';
   const s = step();
   if (running(s)) return s.kind === 'measure' ? 'measure' : 'test';
   const fans = su.fans || [];
-  const tested = (id) => { const f = fans.find((x) => x.id === id); return f && ['tach', 'silent', 'empty', 'ignored', 'inverted'].includes(f.found); };
+  // round 8: every output tested or deliberately left with the BIOS, and each with a fan given its role — one step
+  const tested = (id) => { const f = fans.find((x) => x.id === id); return f && (['tach', 'silent', 'empty', 'ignored', 'inverted'].includes(f.found) || leftAlone(f)); };
   if (!(su.outputs || []).every(tested)) return 'test';
   const found = fans.filter((f) => ['tach', 'silent', 'unclear'].includes(f.found));
-  if (found.some((f) => !f.role)) return 'roles';
+  if (found.some((f) => !f.role)) return 'test';
   const toMeasure = found.filter((f) => isOurs(f) && f.found === 'tach');
   if (toMeasure.some((f) => !f.measured && !f.no_turn)) return 'measure';
   if (!(su.zones || []).length) return 'zones';
@@ -370,7 +372,14 @@ function redraw() {
   const sig = page === 'setup' ? setupSig() : overviewSig();
   if (sig === drawn) return;
   drawn = sig;
+  // round 8: a field he is typing in (a fan's name while its test runs) keeps its focus and caret through the drawing
+  const a = document.activeElement;
+  const keep = a && a.dataset && a.dataset.fbKeep ? [a, a.selectionStart, a.selectionEnd] : null;
   Office.keepInPlace(null, render);
+  if (keep && keep[0].isConnected && document.activeElement !== keep[0]) {
+    keep[0].focus({ preventScroll: true });
+    try { keep[0].setSelectionRange(keep[1], keep[2]); } catch (e) { /* not a text field */ }
+  }
 }
 const VOLATILE = new Set(['time', 'at', 'since', 'begun', 'mono', 'now', 'tested_at']);
 const quiet = (v) => JSON.stringify(v, (k, x) => (VOLATILE.has(k) ? undefined : x));
@@ -1471,10 +1480,11 @@ function stepTile(k, i, a) {
   const sub = [];
   if (k === 'detect') { value = T('step.v.outputs', { n: (su.outputs || []).length }); }
   if (k === 'test') {
-    const done = (su.outputs || []).filter((id) => { const f = fans.find((x) => x.id === id); return f && f.found; }).length;
-    value = running(s) && s.kind === 'test_up' ? T('step.v.running') : T('step.v.of', { n: done, m: (su.outputs || []).length });
+    // round 8: «4 von 6 getestet · 3 zugeordnet»
+    const done = (su.outputs || []).filter((id) => { const f = fans.find((x) => x.id === id); return f && (f.found || leftAlone(f)); }).length;
+    value = running(s) && s.kind === 'test_up' ? T('step.v.running') : T('step.v.tested', { n: done, m: (su.outputs || []).length });
+    sub.push(T('step.v.assigned', { n: (su.outputs || []).filter((id) => { const f = fans.find((x) => x.id === id); return f && (f.role || f.found === 'empty'); }).length }));
   }
-  if (k === 'roles') value = found.length ? T('step.v.of', { n: found.filter((f) => f.role).length, m: found.length }) : '–';
   if (k === 'measure') value = running(s) && s.kind === 'measure' ? T('step.v.running') : ours.length ? T('step.v.of', { n: ours.filter((f) => f.measured || f.no_turn).length, m: ours.length }) : '–';
   if (k === 'zones') value = (su.zones || []).length ? T('step.v.zones', { n: su.zones.length }) : '–';
   if (k === 'dry') value = dry ? T('step.v.seen') : '–';
@@ -1487,7 +1497,7 @@ function stepSection(k) {
   s.dataset.step = k;
   s.appendChild(Office.sectionHead(T(`step.${k}`), T(`step.${k}_sub`), { place: `step.${k}` }));
   noRun = (situation() === 'other' || !!control().running) && ['test', 'measure'].includes(k);      // nothing that writes beside another
-  const body = ({ detect: detectStep, test: testStep, roles: rolesStep, measure: measureStep, zones: zonesStep, dry: dryStep, take: takeStep })[k]();
+  const body = ({ detect: detectStep, test: testStep, measure: measureStep, zones: zonesStep, dry: dryStep, take: takeStep })[k]();
   noRun = false;
   s.appendChild(body);
   return s;
@@ -1554,62 +1564,197 @@ function testStep() {
   if (blocked(box)) return box;
   stepEnded(box, s, 'test_up');
   box.appendChild(quietChoice());
-  const list = el('div', 'fb-cards');
-  (su.outputs || []).forEach((id) => {
-    const f = setupFan(id);
-    const r = s && s.kind === 'test_up' && s.results ? s.results[id] : null;
-    const under = live && s.current === id;
-    const o = outputNow(id);
-    const card = Office.place(`test:${id}`, el('div', 'fb-card' + (under ? ' fb-card-now' : '')));
-    // the output under test turns faster: its wheel shows what the output gets now (full while tested)
-    card.appendChild(cardWheel({ rpm: o && num(o.pct) !== null ? 2000 * o.pct / 100 : 0, min: 400, max: 2000, state: under ? 'run' : 'bios', mm: 120,
-      colour: under ? 'accent' : 'auto' }));
-    const txt = el('div', 'fb-card-text');
-    txt.appendChild(el('div', 'fb-card-name', fanName(id)));
-    const found = f ? f.found : null;
-    let line = T('test.not_yet');
-    if (under) line = T('test.now');
-    else if (live && (s.fans || []).includes(id) && !(s.done || []).includes(id)) line = T('test.waiting');
-    else if (found === 'tach') line = (f.tachs || []).length > 1 ? T('test.hub', { list: f.tachs.join(', ') }) : T('test.tach', { n: (f.tachs || [])[0] });
-    else if (found === 'silent') line = T('test.silent');
-    else if (found === 'empty') line = T('test.empty');
-    else if (found === 'unclear') line = T('test.unclear');
-    else if (found === 'ask') line = T('test.ask');
-    else if (found === 'ignored' || found === 'inverted') line = T(`test.${found}`);     // round 5: never steered
-    if (r && r.found === 'busy') line = T('test.busy');
-    // round 7 (F2, the owner: «the grid moves under the mouse»): the state's line keeps room for two lines and a card keeps
-    // its button row while a test runs (the button off) — a card changes no height as the test walks through the outputs
-    txt.appendChild(el('div', 'fb-card-line fb-card-state', line));
-    if (!live && (found === 'ignored' || found === 'inverted')) txt.appendChild(el('div', 'fb-card-line', T(`test.${found}_hint`)));
-    if (live && under) {
-      // round 8 (the owner): up to a minute at full — he ends it when he has found the fan, or ends the whole run
-      txt.appendChild(bar(
-        button(T('test.found_next'), T('test.found_next_tip'), (b) => act('step_next', { fan: id }, b)),
-        button(T('test.abort'), T('test.abort_tip'), (b) => act('step_stop', {}, b, () => Office.toast(T('step.stopped_toast'))))));
-    } else if (live) {
-      const off = button(found ? T('test.again') : T('test.one'), T('test.wait_tip'), () => {});
-      off.disabled = true;
-      txt.appendChild(bar(off));
-    } else if (['ask', 'unclear'].includes(found)) {
-      txt.appendChild(el('div', 'fb-card-line fb-strong', T('test.louder')));
-      txt.appendChild(bar(
-        button(T('test.yes'), T('test.yes_tip'), (b) => act('answer', { fan: id, louder: true }, b)),
-        button(T('test.no'), T('test.no_tip'), (b) => act('answer', { fan: id, louder: false }, b)),
-        button(T('test.again'), T('test.again_tip'), (b) => startStep('test_up', [id], b))));
-    } else {
-      txt.appendChild(bar(button(found ? T('test.again') : T('test.one'), T('test.one_tip'), (b) => startStep('test_up', [id], b))));
-    }
-    card.appendChild(txt);
-    list.appendChild(card);
-  });
+  const list = el('div', 'fb-cards fb-cards-wide');
+  (su.outputs || []).forEach((id) => list.appendChild(testCard(id, s, live)));
   box.appendChild(list);
   if (live) {
     box.appendChild(runningLine(s, T(s.quiet ? 'test.running_quiet' : 'test.running', { n: (s.done || []).length + 1, m: (s.fans || []).length })));
   } else {
-    const all = button(T('test.all'), T('test.all_tip'), (b) => startStep('test_up', su.outputs || [], b), 'btn');
+    const all = button(T('test.all'), T('test.all_tip'), (b) => startStep('test_up', (su.outputs || []).filter((id) => !leftAlone(setupFan(id))), b), 'btn');
     box.appendChild(bar(all, nextButton('test')));
   }
   return box;
+}
+/** An output the user left with the BIOS without testing it («don't test — leave it with the BIOS»: role «unknown», no verdict) */
+const leftAlone = (f) => !!f && !f.found && f.role === 'unknown';
+/** One output's card: its test (state, buttons) and — round 8 — everything that says what it is (assignBox) */
+function testCard(id, s, live) {
+  const f = setupFan(id);
+  const r = s && s.kind === 'test_up' && s.results ? s.results[id] : null;
+  const under = live && s.current === id;
+  const o = outputNow(id);
+  const p = idParts(id);
+  const card = Office.place(`test:${id}`, el('div', 'fb-card fb-card-test' + (under ? ' fb-card-now' : '')));
+  // the output under test turns faster: its wheel shows what the output gets now (full while tested)
+  card.appendChild(cardWheel({ rpm: o && num(o.pct) !== null ? 2000 * o.pct / 100 : 0, min: 400, max: 2000, state: under ? 'run' : 'bios', mm: 120,
+    colour: under ? 'accent' : 'auto' }));
+  const txt = el('div', 'fb-card-text');
+  const rpm = f && f.found === 'tach' ? rpmNow(id, f.tachs) : null;
+  txt.appendChild(el('div', 'fb-card-name', T('out.name', { n: p ? p.output : '?' }) + (rpm !== null ? ` · ${T('pic.rpm', { rpm: fmt.number(rpm) })}` : '')));
+  const found = f ? f.found : null;
+  let line = leftAlone(f) ? T('test.left') : T('test.not_yet');
+  if (under) line = T('test.now');
+  else if (live && (s.fans || []).includes(id) && !(s.done || []).includes(id)) line = T('test.waiting');
+  else if (found === 'tach') line = (f.tachs || []).length > 1 ? T('test.hub', { list: f.tachs.join(', ') }) : T('test.tach', { n: (f.tachs || [])[0] });
+  else if (found === 'silent') line = T('test.silent');
+  else if (found === 'empty') line = T('test.empty');
+  else if (found === 'unclear') line = T('test.unclear');
+  else if (found === 'ask') line = T('test.ask');
+  else if (found === 'ignored' || found === 'inverted') line = T(`test.${found}`);     // round 5: never steered
+  if (r && r.found === 'busy') line = T('test.busy');
+  // round 7 (F2): the state's line keeps room for two lines and a card keeps its button row while a test runs (the button
+  // off) — a card changes no height as the test walks through the outputs
+  txt.appendChild(el('div', 'fb-card-line fb-card-state', line));
+  if (!live && (found === 'ignored' || found === 'inverted')) txt.appendChild(el('div', 'fb-card-line', T(`test.${found}_hint`)));
+  if (live && under) {
+    // round 8 (the owner): up to a minute at full — he ends it when he has found the fan, or ends the whole run
+    txt.appendChild(bar(
+      button(T('test.found_next'), T('test.found_next_tip'), (b) => act('step_next', { fan: id }, b)),
+      button(T('test.abort'), T('test.abort_tip'), (b) => act('step_stop', {}, b, () => Office.toast(T('step.stopped_toast'))))));
+  } else if (live) {
+    const off = button(found ? T('test.again') : T('test.one'), T('test.wait_tip'), () => {});
+    off.disabled = true;
+    txt.appendChild(bar(off));
+  } else if (['ask', 'unclear'].includes(found)) {
+    txt.appendChild(el('div', 'fb-card-line fb-strong', T('test.louder')));
+    txt.appendChild(bar(
+      button(T('test.yes'), T('test.yes_tip'), (b) => act('answer', { fan: id, louder: true }, b)),
+      button(T('test.no'), T('test.no_tip'), (b) => act('answer', { fan: id, louder: false }, b)),
+      button(T('test.again'), T('test.again_tip'), (b) => startStep('test_up', [id], b))));
+  } else {
+    txt.appendChild(bar(button(found ? T('test.again') : T('test.one'), T('test.one_tip'), (b) => startStep('test_up', [id], b)),
+      ['tach', 'silent', 'unclear'].includes(found) ? showButton(id, f) : null));
+  }
+  txt.appendChild(assignBox(id, f, live));
+  card.appendChild(txt);
+  return card;
+}
+/**
+ * Round 8 (the owner: test and assign in ONE step — he labels a fan the moment he hears it): what the roles step held,
+ * on the output's card — the role (incl. «nothing attached» and «leave it with the BIOS»), «Wo sitzt er?» (its name), how
+ * many fans on the connector; behind «More» its place, model and colour, «give back to», the CPU cooler on own risk. Every
+ * field saves at once and works during a test too (the same actions and checks as before). Room fixed from the start.
+ */
+function assignBox(id, f, live) {
+  const box = el('div', 'fb-assign');
+  const found = f ? f.found : null;
+  const off = !state || !Office.agent.running || ['ignored', 'inverted'].includes(found);
+  const field = (label, input) => { const l = el('label', 'fb-field'); l.append(el('span', 'fb-field-label', label), input); return l; };
+  const role = el('select');
+  role.appendChild(new Option(T('roles.choose'), ''));
+  const g1 = el('optgroup');
+  g1.label = T('roles.his');
+  ROLES_OURS.forEach((r) => g1.appendChild(new Option(T(`role.${r}`), r)));
+  const g2 = el('optgroup');
+  g2.label = T('roles.bios');
+  ROLES_BIOS.forEach((r) => g2.appendChild(new Option(r === 'unknown' && !found ? T('role.left') : T(`role.${r}`), r)));
+  g2.appendChild(new Option(T('role.empty'), 'empty'));
+  role.append(g1, g2);
+  role.value = found === 'empty' ? 'empty' : (f && f.role) || '';
+  role.disabled = off;
+  role.onchange = () => setRole(id, f, role.value);
+  const count = el('select');
+  for (let n = 1; n <= 8; n++) count.appendChild(new Option(String(n), String(n)));
+  count.value = String((f && f.count) || 1);
+  count.disabled = off || !(f && f.role);
+  count.onchange = () => act('role', { fan: id, role: f.role, count: Number(count.value), off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, null);
+  const row = el('div', 'fb-assign-row');
+  row.append(field(T('roles.role'), role), field(T('assign.where'), nameField(id, f, off)));
+  const countRow = el('label', 'fb-field fb-field-inline');
+  countRow.append(el('span', 'fb-field-label', T('roles.count')), count);
+  box.append(row, countRow);
+  // one note with room for two lines: never stopped (a CPU cooler or pump), its BIOS role, the proposal for output 1, a hub
+  const p = idParts(id);
+  const r = f && f.role;
+  let note = '';
+  if (r === 'cpu' || r === 'pump') note = T('assign.never_stopped');
+  else if (r && ROLES_BIOS.includes(r)) note = T(`roles.bios_note.${r}`);
+  else if (!r && p && p.output === 1 && ['tach', 'silent'].includes(found)) note = T('roles.cpu_hint');
+  else if (f && (f.count || 1) > 1) note = T('roles.count_note', { n: f.count });
+  box.appendChild(el('div', 'fb-card-line fb-assign-note', note));
+  // what the roles step offered beyond that, behind a small unfold
+  const more = keepFold(el('details', 'fb-assign-more'), `assign:${id}`, false);
+  more.appendChild(el('summary', '', T('assign.more')));
+  const place = el('select');
+  place.appendChild(new Option(T('roles.place_any'), ''));
+  PLACES.forEach((pl) => place.appendChild(new Option(T(`place.${pl}`), pl)));
+  place.value = (f && f.place) || '';
+  place.disabled = off || !(f && f.role);
+  place.onchange = () => act('role', { fan: id, role: f.role, place: place.value, off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, null);
+  more.appendChild(field(T('roles.place'), place));
+  const A = art();
+  if (A && cat && !off) {
+    let pk = pickers.get(id);
+    if (!pk) {
+      pk = A.picker({ catalog: cat, value: f && f.model ? (f.model.id ? { id: f.model.id } : { mm: f.model.mm, blades: f.model.blades }) : null, texts: pickerTexts(),
+        onChange: (v) => { if (!v) return; act('fan_look', v.id ? { fan: id, model: v.id } : { fan: id, model: '', mm: v.mm, blades: v.blades }, null); } });
+      pickers.set(id, pk);
+    }
+    const det = keepFold(el('details', 'fb-model'), `model:${id}`, false);
+    det.appendChild(el('summary', '', f && f.model ? T('roles.model_is', { model: modelText(f.model) }) : T('roles.model')));
+    det.appendChild(pk.el);
+    const colour = el('select');
+    COLOURS.forEach((c) => colour.appendChild(new Option(T(`colour.${c}`), c)));
+    colour.value = (f && f.colour) || 'auto';
+    colour.onchange = () => act('fan_look', { fan: id, colour: colour.value }, null);
+    det.appendChild(field(T('roles.colour'), colour));
+    const c = catFan(f && f.model && f.model.id);
+    if (c && f.measured && num(f.max_rpm) && num(c.rpm_max) && Math.abs(f.max_rpm - c.rpm_max) > Math.max(250, 0.3 * c.rpm_max)) {
+      det.appendChild(para(T('roles.model_off', { measured: fmt.number(f.max_rpm), sheet: fmt.number(c.rpm_max) }), 'callout'));
+    }
+    more.appendChild(det);
+  }
+  // «give back to» for a fan found on a fixed value someone else set; the CPU cooler on the owner's own risk
+  const b = (setup().before || {})[id];
+  if (f && b && b.fixed && !ROLES_BIOS.includes(f.role)) more.appendChild(backChoice(f, b));
+  if (f && f.role === 'cpu' && ['tach', 'silent', 'unclear'].includes(found)) more.appendChild(cpuPart(f));
+  box.appendChild(more);
+  return box;
+}
+/** A role picked on a card: «nothing attached» is the test's «no» (empty); a role for a fan the test asked about says «yes» first */
+async function setRole(id, f, v) {
+  if (!v) return;
+  if (v === 'empty') { act('answer', { fan: id, louder: false }, null); return; }
+  if (f && f.found === 'ask') await act('answer', { fan: id, louder: true }, null);
+  const now = setupFan(id) || f || {};
+  act('role', { fan: id, role: v, off_ok: !!now.off_ok && ROLES_OURS.includes(v) }, null);
+}
+/**
+ * «Wo sitzt er?» — the fan's name, typed while he hears it: the same field kept across every drawing (the page redraws
+ * every 2 s while a test runs — focus and what is typed stay), saved at once (a moment after the last key; never through
+ * the page's busy gate, so a test's own buttons stay free)
+ */
+const nameFields = new Map();
+function nameField(id, f, off) {
+  let n = nameFields.get(id);
+  if (!n) {
+    n = el('input');
+    n.type = 'text';
+    n.maxLength = 40;
+    n.placeholder = T('assign.where_ph');
+    n.dataset.fbKeep = '1';
+    n.dataset.own = '1';
+    n.value = (f && f.name) || '';
+    let t = null;
+    const save = async () => {
+      clearTimeout(t);
+      t = null;
+      if (!Office.agent.running) return;
+      const value = n.value.trim();
+      n.dataset.saving = value;
+      const j = await Office.api.post(`${ID}.fan_name`, { fan: id, name: value });
+      if (!j.ok) Office.toast(Office.errorText(j.error, ID), true);
+      else { const sf = setupFan(id); if (sf) sf.name = value; }
+      if (n.dataset.saving === value) delete n.dataset.saving;
+    };
+    n.addEventListener('input', () => { clearTimeout(t); t = setTimeout(save, 700); });
+    n.addEventListener('change', save);
+    nameFields.set(id, n);
+  } else if (document.activeElement !== n && !n.dataset.saving && f && typeof f.name === 'string' && n.value !== f.name) {
+    n.value = f.name;                // changed elsewhere (another browser): as saved, unless he is typing here
+  }
+  n.disabled = off;
+  return n;
 }
 /** What the running step does now, the wave, «Stop» — it can always be stopped */
 function runningLine(s, text) {
@@ -1712,102 +1857,6 @@ function cpuPart(f) {
   return box;
 }
 
-// 3 — roles: what each fan is, its name, place, model, colour, «give back to»
-function rolesStep() {
-  const box = el('div', 'fb-step-body');
-  const su = setup();
-  const found = (su.fans || []).filter((f) => ['tach', 'silent', 'unclear'].includes(f.found));
-  if (!found.length) {
-    box.appendChild(para(T('roles.none')));
-    return box;
-  }
-  const list = el('div', 'fb-cards fb-cards-wide');
-  found.forEach((f) => list.appendChild(roleCard(f)));
-  box.appendChild(list);
-  box.appendChild(bar(nextButton('roles')));
-  return box;
-}
-function roleCard(f) {
-  const id = f.id;
-  const su = setup();
-  const card = Office.place(`role:${id}`, el('div', 'fb-card fb-card-role'));
-  const look = fanLook(f);
-  card.appendChild(cardWheel({ rpm: rpmNow(id, f.tachs), mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour,
-    state: f.found === 'silent' ? 'unknown' : 'run' }));
-  const form = el('div', 'fb-form');
-  const head = el('div', 'fb-card-name', T('out.name', { n: f.output }) + (f.found === 'tach' ? ` · ${T('pic.rpm', { rpm: fmt.number(rpmNow(id, f.tachs) ?? 0) })}` : f.found === 'silent' ? ` · ${T('pic.no_tach')}` : ''));
-  form.appendChild(head);
-  // round 6: which fan is it? 100 % for 5 seconds, then back as it was
-  const shows = el('div', 'fb-bar');
-  shows.appendChild(showButton(id, f));
-  form.appendChild(shows);
-  if (f.output === 1 && !f.role) form.appendChild(para(T('roles.cpu_hint')));
-  // the role: his kinds, the BIOS's kinds («don't know» stays the BIOS's)
-  const role = el('select');
-  role.appendChild(new Option(T('roles.choose'), ''));
-  const g1 = el('optgroup');
-  g1.label = T('roles.his');
-  ROLES_OURS.forEach((r) => g1.appendChild(new Option(T(`role.${r}`), r)));
-  const g2 = el('optgroup');
-  g2.label = T('roles.bios');
-  ROLES_BIOS.forEach((r) => g2.appendChild(new Option(T(`role.${r}`), r)));
-  role.append(g1, g2);
-  role.value = f.role || '';
-  const name = el('input');
-  name.type = 'text';
-  name.maxLength = 40;
-  name.value = f.name || '';
-  name.placeholder = T('roles.name_ph');
-  const place = el('select');
-  place.appendChild(new Option(T('roles.place_any'), ''));
-  PLACES.forEach((p) => place.appendChild(new Option(T(`place.${p}`), p)));
-  place.value = f.place || '';
-  // round 3: how many fans hang on this connector (a Y-cable, a hub) — one speed for all of them
-  const count = el('select');
-  for (let n = 1; n <= 8; n++) count.appendChild(new Option(String(n), String(n)));
-  count.value = String(f.count || 1);
-  const save = () => {
-    if (!role.value) return;
-    act('role', { fan: id, role: role.value, name: name.value.trim(), place: place.value, off_ok: !!f.off_ok && ROLES_OURS.includes(role.value), count: Number(count.value) }, null);
-  };
-  count.onchange = save;
-  role.onchange = save;
-  place.onchange = save;
-  name.onchange = save;
-  const field = (label, input) => { const l = el('label', 'fb-field'); l.append(el('span', 'fb-field-label', label), input); return l; };
-  form.append(field(T('roles.role'), role), field(T('roles.name'), name), field(T('roles.place'), place), field(T('roles.count'), count));
-  if ((f.count || 1) > 1) form.appendChild(para(T('roles.count_note', { n: f.count })));
-  if (f.role === 'cpu') form.appendChild(cpuPart(f));
-  else if (ROLES_BIOS.includes(f.role)) form.appendChild(para(T(`roles.bios_note.${f.role}`)));
-  // the model from the catalogue, or «other fan» by size; the wheel's colour
-  const A = art();
-  if (A && cat) {
-    let pk = pickers.get(id);
-    if (!pk) {
-      pk = A.picker({ catalog: cat, value: f.model ? (f.model.id ? { id: f.model.id } : { mm: f.model.mm, blades: f.model.blades }) : null, texts: pickerTexts(),
-        onChange: (v) => { if (!v) return; act('fan_look', v.id ? { fan: id, model: v.id } : { fan: id, model: '', mm: v.mm, blades: v.blades }, null); } });
-      pickers.set(id, pk);
-    }
-    const det = keepFold(el('details', 'fb-model'), `model:${id}`, !f.model);
-    det.appendChild(el('summary', '', f.model ? T('roles.model_is', { model: modelText(f.model) }) : T('roles.model')));
-    det.appendChild(pk.el);
-    const colour = el('select');
-    COLOURS.forEach((c) => colour.appendChild(new Option(T(`colour.${c}`), c)));
-    colour.value = f.colour || 'auto';
-    colour.onchange = () => act('fan_look', { fan: id, colour: colour.value }, null);
-    det.appendChild(field(T('roles.colour'), colour));
-    const c = catFan(f.model && f.model.id);
-    if (c && f.measured && num(f.max_rpm) && num(c.rpm_max) && Math.abs(f.max_rpm - c.rpm_max) > Math.max(250, 0.3 * c.rpm_max)) {
-      det.appendChild(para(T('roles.model_off', { measured: fmt.number(f.max_rpm), sheet: fmt.number(c.rpm_max) }), 'callout'));
-    }
-    form.appendChild(det);
-  } else form.appendChild(waiting());
-  // «give back to» for a fan found on a fixed value someone else set
-  const b = (su.before || {})[id];
-  if (b && b.fixed && !ROLES_BIOS.includes(f.role)) form.appendChild(backChoice(f, b));
-  card.appendChild(form);
-  return card;
-}
 function modelText(m) {
   const c = catFan(m && m.id);
   return c ? `${c.brand} ${c.model}` : m && m.mm ? T('roles.other_fan', { mm: m.mm }) : '';
@@ -2424,7 +2473,8 @@ Office.desk({
     setTimeout(() => { if (view === root) redraw(); }, WARM_MS + 100);
     if (page === 'setup') {
       // #/fanboy/setup/<step> picks that step like a click; else the step at hand once his state is in (never kept)
-      const rest = String(sub || '').split('/').slice(1).join('/');
+      let rest = String(sub || '').split('/').slice(1).join('/');
+      if (rest === 'roles') rest = 'test';         // round 8: the roles step lives in «Testen und zuordnen» now
       const picked = setupSwitcher().mount(rest);
       if (picked) Office.subroute('setup');
       render();

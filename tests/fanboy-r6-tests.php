@@ -589,11 +589,12 @@ function testFanboyR7CardsKeepSize(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css');
-    $test = substr($js, (int) strpos($js, 'function testStep()'), 4000);
+    $test = substr($js, (int) strpos($js, 'function testCard('), 6000);       // round 8: the test's card (with its assignment)
     check('fanboy r7 cards: the state line is one element of its own with room for two lines',
         str_contains($test, "el('div', 'fb-card-line fb-card-state', line)") && str_contains($css, '.fb-card-state{min-height:calc(2 * 1.45em)}'));
     check('fanboy r7 cards: while a test runs every card keeps its button row — the button off (no card loses or gains a row)',
-        str_contains($test, "if (live) {\n      const off = button(found ? T('test.again') : T('test.one'), T('test.wait_tip'), () => {});\n      off.disabled = true;\n      txt.appendChild(bar(off));"));
+        str_contains($test, "} else if (live) {\n    const off = button(found ? T('test.again') : T('test.one'), T('test.wait_tip'), () => {});\n    off.disabled = true;\n    txt.appendChild(bar(off));")
+        && str_contains($test, 'txt.appendChild(assignBox(id, f, live));') && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css'), '.fb-assign-note{min-height:calc(2 * 1.45em)}'));
     check('fanboy r7 cards: «show me» keeps its width — both labels in one grid cell, the other hidden',
         str_contains($js, "b.append(el('span', mine ? 'fb-show-label fb-show-off' : 'fb-show-label', T('show.button')), on);")
         && str_contains($css, '.fb-show{white-space:nowrap; display:inline-grid}') && str_contains($css, '.fb-show > .fb-show-off{visibility:hidden}'));
@@ -941,6 +942,71 @@ function testFanboyR8FoundNext(): void
         fanboyR8Cpu($t, 28);
         same('fanboy r8 next: the CPU at 81 °C in the 40th second of the quiet phase — everything back at once, the test stopped naming it', ['quiet_warm', 81.0, $before, []],
             [$step['why'], $step['quiet_stop']['c'] ?? null, array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 8 (the owner: test and assign in ONE step): what the roles step did is on the test's card — name, role (incl.
+ * «nothing attached», «leave it with the BIOS»), count, place, model, colour, «give back to», the CPU cooler on own risk —
+ * saved at once, before or WHILE the output is tested; a save during a running test leaves every output as the test has
+ * it; a CPU cooler or pump named during the run is not stopped by the following quiet phases; six steps everywhere
+ */
+function testFanboyR8Assign(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $card = substr($js, (int) strpos($js, 'function testCard('), 12000);
+    $reach = ["act('role', { fan: id, role: v,", "act('answer', { fan: id, louder: false }", "act('role', { fan: id, role: f.role, count:", "act('role', { fan: id, role: f.role, place:",
+        "act('fan_look', v.id ?", "act('fan_look', { fan: id, colour:", 'more.appendChild(backChoice(f, b));', 'more.appendChild(cpuPart(f));', "Office.api.post(`\${ID}.fan_name`", 'showButton(id, f)'];
+    same('fanboy r8 assign: every action of the old roles step reachable from the test\'s card (role, nothing attached, count, place, model, colour, give back, CPU on own risk, name, show me)',
+        [], array_values(array_filter($reach, fn ($x) => !str_contains($card, $x))));
+    same('fanboy r8 assign: six steps — the old route …/setup/roles opens «Testen und zuordnen»; no roles step left', [true, false, false],
+        [str_contains($js, "if (rest === 'roles') rest = 'test';"), str_contains($js, 'function rolesStep('), str_contains($js, "return 'roles'")]);
+    foreach (['de' => '6', 'en' => '6', 'it' => '6', 'fr' => '6', 'es' => '6'] as $l => $n) {
+        $j = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$l.json"), true);
+        check("fanboy r8 assign: $l — the steps counted as six (blocked: step $n), the roles step's keys gone", str_contains($j['step.blocked_steering'], $n) && !isset($j['step.roles']));
+    }
+    $t = fanboyT('r8assign');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        // before the test: a name, a role, «nothing attached», a look — each for an output not tested yet
+        fanboyFanName(['fan' => fanboyTId(2), 'name' => 'Deckel hinten']);
+        fanboyRole(['fan' => fanboyTId(5), 'role' => 'case']);
+        fanboyAnswer(['fan' => fanboyTId(3), 'louder' => false]);
+        fanboyFanLook(['fan' => fanboyTId(5), 'colour' => 'white']);
+        $f = fanboyBoardRaw()['fans'];
+        same('fanboy r8 assign: before any test — a name, a role, «nothing attached», a colour saved', ['Deckel hinten', 'case', 'empty', 'white'],
+            [$f[fanboyTId(2)]['name'] ?? null, $f[fanboyTId(5)]['role'] ?? null, $f[fanboyTId(3)]['found'] ?? null, $f[fanboyTId(5)]['colour'] ?? null]);
+        same('fanboy r8 assign: … a name without the field — refused (nothing turned off by a missing key)', 'missing_field', fanboyR6Refused(fn () => fanboyFanName(['fan' => fanboyTId(2)])));
+        // during the quiet test of output 1: its name and role typed while it runs, output 4 called the CPU cooler
+        $outsDuring = null;
+        $low4 = [];
+        [$step] = fanboyR8Run($t, $spec, [1, 5], true, function (float $clock) use ($t, &$outsDuring, &$low4): void {
+            if ($outsDuring === null && fanboyTOut($t, 1)[0] === 255 && $clock >= 6) {
+                $outsDuring = array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]);
+                fanboyFanName(['fan' => fanboyTId(1), 'name' => 'Hinten oben']);
+                fanboyRole(['fan' => fanboyTId(1), 'role' => 'case', 'count' => 2]);
+                fanboyRole(['fan' => fanboyTId(4), 'role' => 'cpu']);
+                $after = array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]);
+                $outsDuring = $outsDuring === $after;
+            }
+            if (fanboyTOut($t, 5)[0] === 255) {
+                $low4[] = fanboyTOut($t, 4)[0];
+            }
+        });
+        $f = fanboyBoardRaw()['fans'];
+        same('fanboy r8 assign: saved while output 1 was under test — no output touched by the saves, the test went on (tach 1), name, role and count kept through its verdict',
+            [true, 'tach', 'Hinten oben', 'case', 2], [$outsDuring, $step['results'][fanboyTId(1)]['found'], $f[fanboyTId(1)]['name'] ?? null, $f[fanboyTId(1)]['role'] ?? null, $f[fanboyTId(1)]['count'] ?? null]);
+        check('fanboy r8 assign: output 4 called the CPU cooler during the run — the next quiet phase (output 5) leaves it running', $low4 && !in_array(0, $low4, true));
+        $fans = array_column(fanboyScan()['setup']['fans'], null, 'id');
+        same('fanboy r8 assign: the page\'s state shows what was saved on the cards (names, roles)', ['Hinten oben', 'Deckel hinten', 'case', 'cpu'],
+            [$fans[fanboyTId(1)]['name'], $fans[fanboyTId(2)]['name'], $fans[fanboyTId(5)]['role'], $fans[fanboyTId(4)]['role']]);
+        // what never takes a role: an output found empty, one the BIOS keeps
+        same('fanboy r8 assign: no role for «nothing attached» or an output not there', ['fanboy_no_output', 'fanboy_no_output'],
+            [fanboyR6Refused(fn () => fanboyRole(['fan' => fanboyTId(3), 'role' => 'case'])), fanboyR6Refused(fn () => fanboyFanName(['fan' => fanboyTId(9), 'name' => 'x']))]);
     } finally {
         fanboyTEnd();
     }

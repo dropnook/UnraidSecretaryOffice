@@ -292,7 +292,9 @@ files['fanboy-ask'] = state({ ite: ite({}, RPM), fans: [fan(1, { tachs: [1], fou
   step: { id: 'a1b2c3d4e5f6', kind: 'test_up', fans: OUTPUTS, status: 'done', why: null, pid: 4242, start: '123456', current: null, done: OUTPUTS, results: {}, progress: null, at: T0 - 30 } });
 // round 8 (G1): the quiet test running — output 3 at full, the others standing meanwhile
 files['fanboy-quiet'] = state({ ite: ite({ 1: [0, 1], 2: [0, 1], 3: [255, 0], 4: [0, 1], 5: [0, 1], 6: [0, 1] }, { ...RPM, 1: 0, 4: 0, 5: 0, 6: 0 }),
-  fans: [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'ask' })], who: { who: 'bios', why: 'not_set_up' },
+  // round 8: assigned while testing — output 1 the CPU cooler, 2 «Deckel hinten», 3 (under test now) named as he hears it
+  fans: [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler' }), fan(2, { found: 'ask', name: 'Deckel hinten' }), fan(3, { name: 'Vorn unten', role: 'case' })],
+  who: { who: 'bios', why: 'not_set_up' },
   step: running('test_up', OUTPUTS, P(3), [P(1), P(2)], { [P(1)]: { found: 'tach', tachs: [1] }, [P(2)]: { found: 'ask', tachs: [] } }, { quiet: true }) });
 const tested = [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'silent' }), fan(3, { found: 'empty' }), fan(4, { tachs: [4], found: 'tach' }),
   fan(5, { tachs: [5, 6], found: 'tach' }), fan(6, { found: 'empty' })];
