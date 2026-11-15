@@ -1581,7 +1581,12 @@ function testStep() {
     // its button row while a test runs (the button off) — a card changes no height as the test walks through the outputs
     txt.appendChild(el('div', 'fb-card-line fb-card-state', line));
     if (!live && (found === 'ignored' || found === 'inverted')) txt.appendChild(el('div', 'fb-card-line', T(`test.${found}_hint`)));
-    if (live) {
+    if (live && under) {
+      // round 8 (the owner): up to a minute at full — he ends it when he has found the fan, or ends the whole run
+      txt.appendChild(bar(
+        button(T('test.found_next'), T('test.found_next_tip'), (b) => act('step_next', { fan: id }, b)),
+        button(T('test.abort'), T('test.abort_tip'), (b) => act('step_stop', {}, b, () => Office.toast(T('step.stopped_toast'))))));
+    } else if (live) {
       const off = button(found ? T('test.again') : T('test.one'), T('test.wait_tip'), () => {});
       off.disabled = true;
       txt.appendChild(bar(off));

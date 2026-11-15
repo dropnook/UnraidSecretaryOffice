@@ -24,8 +24,8 @@ declare(strict_types=1);
  *                              user), at, until, pid, start, ok, stop: true once asked to end}
  */
 
-const FANBOY_SHOW_FOR = 15.0;           // seconds at 100 % at most (4b, the owner: time to look into the case) — «Found it — stop» ends it earlier
-const FANBOY_SHOW_STALE = 30;           // seconds: a show still «starting» or «running» after this is over (its process gone)
+const FANBOY_SHOW_FOR = 60.0;           // seconds at 100 % at most (round 8, the owner: up to a minute) — «Found it — stop» ends it earlier
+const FANBOY_SHOW_STALE = 90;           // seconds: a show still «starting» or «running» after this is over (its process gone)
 
 function fanboyShowFile(): string
 {

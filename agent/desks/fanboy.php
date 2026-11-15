@@ -92,6 +92,7 @@ if (fanboyShown()) {
             'measure'       => fn (array $r) => fanboyStepStart('measure', idList($r, 'fans')),
             'step_alive'    => function (array $r): array { fanboyStepAliveTouch(); return ['ok' => true, 'step' => fanboyStepRead()]; },
             'step_stop'     => fn (array $r) => fanboyStepStopAction(),
+            'step_next'     => fn (array $r) => fanboyStepNext($r),        // round 8: «Gefunden — weiter»
             'answer'        => fn (array $r) => fanboyAnswer($r),
             'role'          => fn (array $r) => fanboyRole($r),
             'zones_propose' => fn (array $r) => ['ok' => true, 'zones' => fanboyZonesPropose($scan = fanboyDetect(), fanboyBoardRaw($scan['board']) ?? [])],

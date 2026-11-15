@@ -222,8 +222,8 @@ function testFanboyR6ShowStep(): void
             $seen[] = fanboyShowRead()['status'] ?? null;
             $otherChanged = $otherChanged || $others() !== $before;
         }]);
-        same('fanboy r6 show: 100 % (fixed) while it is shown, «running» meanwhile, up to 15 s (4b)', [[255, 1], 'running', true],
-            [$seen[0], $seen[1], abs(count($seen) / 2 - 75) <= 1]);
+        same('fanboy r6 show: 100 % (fixed) while it is shown, «running» meanwhile, up to a minute (round 8)', [[255, 1], 'running', true],
+            [$seen[0], $seen[1], abs(count($seen) / 2 - FANBOY_SHOW_FOR / 0.2) <= 1]);
         clearstatcache();
         same('fanboy r6 show: … every other output exactly as it was all along — never stopped, never written (4b)', [false, $before, $m0], [$otherChanged, $others(), $mtimes()]);
         $s = fanboyShowRead();
@@ -323,11 +323,11 @@ function testFanboyR6ShowControl(): void
         fanboyTRounds($c, $now, $t, $spec, 1);
         same('fanboy r6 show control: the next round — 100 %, «running», every other fan as it was', [[255, 1], 'running', $o0],
             [fanboyTOut($t, 4), fanboyShowRead()['status'], $others()]);
-        fanboyTRounds($c, $now, $t, $spec, 6);
-        same('fanboy r6 show control: … still at 100 % after 12 s (up to 15 s, 4b), the others untouched', [[255, 1], 'running', $o0],
+        fanboyTRounds($c, $now, $t, $spec, (int) (FANBOY_SHOW_FOR / FANBOY_ROUND) - 2);
+        same('fanboy r6 show control: … still at 100 % shortly before the minute (round 8), the others untouched', [[255, 1], 'running', $o0],
             [fanboyTOut($t, 4), fanboyShowRead()['status'], $others()]);
         fanboyTRounds($c, $now, $t, $spec, 2);
-        same('fanboy r6 show control: … after 15 s its curve\'s value again, the show done, noted', [$before, 'done', 'show'],
+        same('fanboy r6 show control: … after the minute its curve\'s value again, the show done, noted', [$before, 'done', 'show'],
             [fanboyTOut($t, 4), fanboyShowRead()['status'], end($c['notes'])['code'] ?? null]);
         // 4b: «Found it — stop» — the control ends its show in its next round
         fanboyShowStart(['fan' => fanboyTId(4)]);
@@ -759,9 +759,9 @@ function testFanboyR8Quiet(): void
             $log[] = [$clock, array_map(fn ($n) => fanboyTOut($t, $n)[0], [1, 2, 3, 4, 5, 6])];
         });
         $quiet1 = array_values(array_filter($log, fn ($l) => $l[1][0] === 255 && $l[1][1] === 0));
-        same('fanboy r8 quiet: output 1 at full the whole 10 s while 2–6 stand (a fixed 0) — found tach 1; then output 4 the same way',
+        same('fanboy r8 quiet: no click — output 1 at full the whole minute while 2–6 stand (a fixed 0), found tach 1; then on by itself to output 4',
             ['done', 'tach', 'tach', true, true], [$step['status'], $step['results'][fanboyTId(1)]['found'], $step['results'][fanboyTId(4)]['found'],
-                count($quiet1) * 0.5 >= FANBOY_QUIET_FOR - 0.5, (bool) array_filter($log, fn ($l) => $l[1][3] === 255 && $l[1][0] === 0 && $l[1][4] === 0)]);
+                count($quiet1) * 0.5 >= FANBOY_UP_FOR - 0.5, (bool) array_filter($log, fn ($l) => $l[1][3] === 255 && $l[1][0] === 0 && $l[1][4] === 0)]);
         same('fanboy r8 quiet: … afterwards every output exactly as before — value and mode (output 6 in its automatic again), nothing held',
             [$before, []], [array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
         // the pause between the two: everything as before for at least 5 s
@@ -877,6 +877,70 @@ function testFanboyR8QuietSafety(): void
             same("fanboy r8 safety: a step $how while it held the others at 0 (" . implode(',', $quietNow) . ') — the agent\'s look gives every one back exactly',
                 [count($held), $before, []], [count($back), array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
         }
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 8 (the owner: up to a minute, the user ends it): «Gefunden — weiter» ends the output under test early — the
+ * others back at once, the output once the looks agreed (or 8 s), the usual pause, then the next; «Abbrechen» ends the
+ * whole run with everything back; the guard still stops a quiet phase at its 40th second
+ */
+function testFanboyR8FoundNext(): void
+{
+    $t = fanboyT('r8next');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        $before = array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]);
+        $log = [];
+        $clicked = null;
+        [$step, $clock] = fanboyR8Run($t, $spec, [1, 4], true, function (float $clock) use ($t, &$log, &$clicked): void {
+            $log[] = [$clock, array_map(fn ($n) => fanboyTOut($t, $n)[0], [1, 2, 3, 4, 5, 6])];
+            if ($clicked === null && $clock >= 12.0 && fanboyTOut($t, 1)[0] === 255) {
+                $clicked = $clock;
+                fanboyStepNext(['fan' => fanboyTId(1)]);
+            }
+        });
+        $after = array_values(array_filter($log, fn ($l) => $l[0] > $clicked));
+        $othersBack = min(array_column(array_filter($after, fn ($l) => $l[1][1] !== 0), 0)) - $clicked;
+        $oneBack = min(array_column(array_filter($after, fn ($l) => $l[1][0] !== 255), 0)) - $clicked;
+        same('fanboy r8 next: «Gefunden — weiter» at 12 s — the others back with the next look, output 1 at once (its looks had agreed), found tach 1; output 4 next, the run done',
+            [true, true, 'tach', 'tach', 'done'], [$othersBack <= 0.5, $oneBack <= 1.0, $step['results'][fanboyTId(1)]['found'], $step['results'][fanboyTId(4)]['found'], $step['status']]);
+        same('fanboy r8 next: … every output exactly as before, nothing held', [$before, []], [array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
+        // a click before two looks agreed (a slow fan): the others back at once, the output on until they agree or 8 s
+        $slow = fanboyR8Spec(6.0);
+        $log = [];
+        $clicked = null;
+        fanboyR8Run($t, $slow, [1], true, function (float $clock) use ($t, &$log, &$clicked): void {
+            $log[] = [$clock, array_map(fn ($n) => fanboyTOut($t, $n)[0], [1, 2, 3, 4, 5, 6])];
+            if ($clicked === null && fanboyTOut($t, 1)[0] === 255 && fanboyTOut($t, 2)[0] === 0) {
+                $clicked = $clock;
+                fanboyStepNext(['fan' => fanboyTId(1)]);
+            }
+        });
+        $full = array_column(array_filter($log, fn ($l) => $l[1][0] === 255), 0);
+        $held = max($full) - min($full);
+        check("fanboy r8 next: clicked at the first look of a slow fan — the others back at once, output 1 at full on until its looks agreed or 8 s (here $held s)",
+            $held >= 1.0 && $held <= FANBOY_UP_MIN + 0.5 && !array_filter($log, fn ($l) => $l[0] > $clicked + 0.5 && $l[1][1] === 0));
+        same('fanboy r8 next: a «found» for an output not under test — quietly nothing', [true, null], (function () { $r = fanboyStepNext(['fan' => fanboyTId(3)]); return [$r['ok'], is_file(fanboyStepNextFile()) ? 'x' : null]; })());
+        // «Abbrechen» (the step asked to stop) half-way through a quiet phase: the whole run ends, everything back at once
+        [$step] = fanboyR8Run($t, $spec, [1, 4], true, null, 30.0);
+        same('fanboy r8 next: «Abbrechen» at 30 s — the run ended, output 4 never tried, every output exactly as before', ['stopped', false, $before, []],
+            [$step['status'], isset($step['results'][fanboyTId(4)]), array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
+        // the guard at the 40th second of a quiet phase
+        $at = null;
+        [$step] = fanboyR8Run($t, $spec, [1], true, function (float $clock) use ($t, &$at): void {
+            if ($at === null && $clock >= 42.0 && fanboyTOut($t, 2)[0] === 0) {
+                fanboyR8Cpu($t, 81);
+                $at = $clock;
+            }
+        });
+        fanboyR8Cpu($t, 28);
+        same('fanboy r8 next: the CPU at 81 °C in the 40th second of the quiet phase — everything back at once, the test stopped naming it', ['quiet_warm', 81.0, $before, []],
+            [$step['why'], $step['quiet_stop']['c'] ?? null, array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
     } finally {
         fanboyTEnd();
     }
