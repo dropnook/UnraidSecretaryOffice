@@ -323,7 +323,6 @@ function took(j) {
   // his picture with a red mark while something is wrong at his fans (its alarm variant, as the Night Watchman has one)
   if (state) Office.setDeskMood(ID, (control().running && control().alarm) || ['chip_missing', 'chip_gone', 'crashed'].includes(who().why)
     || (idle().on && Object.values(idle().tachs || {}).some((x) => x && x.state === 'alarm')) ? 'alarm' : '');
-  if (view && page === 'setup') settleHeard();
   if (view) redraw();
   plan();
 }
@@ -1655,7 +1654,9 @@ function runNow() {
     r.queue = (s.fans || []).filter((id) => id !== s.current && !(s.done || []).includes(id));
     if (r.kind === 'test') { phase = p.phase || (r.id ? 'full' : null); until = p.until; }
   } else if (restoreRuns()) { r.kind = 'restore'; r.back = (restoreNow().fans || []).slice(); }
-  if (phase === 'pause' || phase === 'kick') r.pause = { left: secsTo(until), kick: phase === 'kick', next: r.kind === 'test' ? r.queue[0] || null : null };
+  // (round 11: the step says which output follows the pause — null on the last; an older state: the first still to come)
+  const after = r.kind === 'test' ? ((s.progress || {}).next !== undefined ? s.progress.next : r.queue[0] || null) : null;
+  if (phase === 'pause' || phase === 'kick') r.pause = { left: secsTo(until), kick: phase === 'kick', next: after || null };
   if (phase === 'full') r.left = secsTo(until);
   // standing on purpose: every other output the quiet test holds at 0 right now
   if (r.quiet && r.id && !r.pause) {
@@ -2055,10 +2056,11 @@ function nextLines(count, open, api, done) {
 /**
  * Step 2 (the owner's three tests, 2026-11-15: cards «jump», a click was swallowed, nothing said what runs): the quiet
  * switch with its honest hints, the list of every output and ONE panel for the output at hand — its big wheel, what it
- * is doing, its buttons, and everything that says what it is.
+ * is doing, its buttons, and everything that says what it is. While an output runs its panel answers «did you hear it?»
+ * with the two buttons «found» / «heard nothing»: the answer travels with `step_next {fan, heard}` and the agent stores
+ * it with the verdict (round 11) — no tach + found → a fan without feedback, no tach + nothing heard → nothing attached.
  */
 let bench = null;
-const heard = new Map();        // output → true («found») | false («heard nothing»): his answer while it ran, for a silent output
 function benchMake() {
   const root = el('div', 'fb-bench');
   // the quiet switch and its honest hints
@@ -2129,19 +2131,6 @@ function benchMake() {
   }
   update();
   return { el: root, update, destroy() { lp.destroy(); } };
-}
-/**
- * His answer while it ran, for an output no tach followed (the two buttons replace the later question «did anything get
- * louder?»): «found» → a fan without feedback, «heard nothing» → nothing attached. Sent once its verdict is in.
- */
-function settleHeard() {
-  const run = runNow();
-  heard.forEach((v, id) => {
-    const f = setupFan(id);
-    if ((run.id === id && !run.pause) || !f || !f.found) return;     // still at full, or no verdict yet
-    heard.delete(id);
-    if (['ask', 'unclear'].includes(f.found)) send('answer', { fan: id, louder: v }, { quietly: true });
-  });
 }
 /** Start the test for these outputs, in the board's order — the quiet switch as it stands */
 function startTest(ids) {
@@ -2292,8 +2281,8 @@ function panelMake(id, benchRun, benchUpdate) {
       if (here && run.kind === 'show') {
         out.push(btn(T('show.stop'), 'btn', () => send('show_stop', { fan: id }), T('show.stop_tip')));
       } else if (here) {
-        out.push(btn(T(more ? 'test.found_next' : 'test.found_done'), 'btn', () => { heard.set(id, true); send('step_next', { fan: id }); }, T('test.found_next_tip')));
-        out.push(btn(T(more ? 'test.none_next' : 'test.none_done'), 'btn small plain', () => { heard.set(id, false); send('step_next', { fan: id }); }, T('test.none_tip')));
+        out.push(btn(T(more ? 'test.found_next' : 'test.found_done'), 'btn', () => send('step_next', { fan: id, heard: true }), T('test.found_next_tip')));
+        out.push(btn(T(more ? 'test.none_next' : 'test.none_done'), 'btn small plain', () => send('step_next', { fan: id, heard: false }), T('test.none_tip')));
         out.push(btn(T('test.abort'), 'btn small plain', () => send('step_stop', {}, { done: () => Office.toast(T('step.stopped_toast')) }), T('test.abort_tip')));
       } else if (['ask', 'unclear'].includes(found) && !run.kind) {
         out.push(btn(T('ask.yes'), 'btn small', () => send('answer', { fan: id, louder: true }), T('test.yes_tip')));

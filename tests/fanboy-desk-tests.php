@@ -327,8 +327,9 @@ function testFanboyUx(): void
         && str_contains($js, "it.el.classList.toggle('fb-live', !!r.live);") && str_contains($js, "live: run.id === id && !run.pause && (run.kind === 'test' || run.kind === 'show'),") && str_contains($js, "root.classList.toggle('fb-live', here);"));
     $panel = substr($js, (int) strpos($js, 'function panelMake('), 16000);
     check('fanboy ux: while an output runs the user answers on its panel — «found» or «heard nothing» (the later question «did it get louder?» only after a minute nobody answered), «cancel»',
-        str_contains($panel, "heard.set(id, true); send('step_next', { fan: id });") && str_contains($panel, "heard.set(id, false); send('step_next', { fan: id });")
-        && str_contains($js, "if (['ask', 'unclear'].includes(f.found)) send('answer', { fan: id, louder: v }, { quietly: true });") && str_contains($panel, "btn(T('ask.yes'), 'btn small', () => send('answer', { fan: id, louder: true }),"));
+        // (round 11: the answer travels with «weiter» and the agent stores it with the verdict — the page sends nothing later)
+        str_contains($panel, "send('step_next', { fan: id, heard: true })") && str_contains($panel, "send('step_next', { fan: id, heard: false })")
+        && !str_contains($js, 'settleHeard') && str_contains($panel, "btn(T('ask.yes'), 'btn small', () => send('answer', { fan: id, louder: true }),"));
     check('fanboy ux: a button that can\'t act is off and the line under the buttons says why (another output runs, the pause, another controller, he steers, the messenger away)',
         str_contains($panel, "reason = T('panel.busy', { fan: run.id ? fanName(run.id) : '' });") && str_contains($panel, "reason = T('panel.pause');") && str_contains($panel, 'else if (!run.kind && noTest) reason = noTest;')
         && str_contains($panel, "else if (away) reason = T('strip.away');") && str_contains($panel, 'setText(why, reason);'));

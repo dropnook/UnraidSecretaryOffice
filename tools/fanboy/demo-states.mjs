@@ -333,7 +333,7 @@ files['fanboy-uxrun'] = state({ ite: ite({ 1: [128, 1], 2: [0, 1], 3: [255, 0], 
 files['fanboy-uxpause'] = state({ ite: ite({}, { ...RPM, 4: 310, 5: 420, 6: 380 }),
   fans: [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler', place: 'rear' }), fan(2, { found: 'empty' }), fan(3, { found: 'silent', name: 'Vorn unten', role: 'case', place: 'front' })],
   who: { who: 'bios', why: 'not_set_up' },
-  step: running('test_up', OUTPUTS, P(3), [P(1), P(2)], UX_DONE, { quiet: true, progress: { id: P(3), phase: 'pause', until: T0 + 11 } }) });
+  step: running('test_up', OUTPUTS, P(3), [P(1), P(2)], UX_DONE, { quiet: true, progress: { id: P(3), phase: 'pause', until: T0 + 11, next: P(4) } }) });
 // everything tested and assigned (the panel of the disk cage: found, named, its model chosen)
 const UX_FOUND = [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler', place: 'rear' }), fan(2, { found: 'empty' }),
   fan(3, { found: 'silent', name: 'Vorn unten', role: 'case', place: 'front' }),
