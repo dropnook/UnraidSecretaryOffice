@@ -722,7 +722,6 @@
   "errors.fanboy_cpu_confirm": "Setz zuerst das Häkchen: Fanboy regelt den CPU-Kühler nur mit deiner Bestätigung.",
   "errors.fanboy_cpu_no_auto": "Dieser Ausgang hat keine Automatik des Mainboards — der CPU-Kühler bleibt beim BIOS.",
   "errors.fanboy_cpu_zone_needs_cpu": "Eine Zone mit dem CPU-Kühler braucht eine CPU-Temperatur als Wärmequelle.",
-  "curve.floor_cpu": "nie darunter ({pct} %)",
   "situation.steers_cpu": {
     "one": "Fanboy regelt die Lüfter, die du ihm gegeben hast, in {n} Zone — den CPU-Kühler auf dein Risiko mit. Pumpen und alles andere bleiben beim BIOS.",
     "other": "Fanboy regelt die Lüfter, die du ihm gegeben hast, in {n} Zonen — den CPU-Kühler auf dein Risiko mit. Pumpen und alles andere bleiben beim BIOS."
@@ -989,7 +988,6 @@
   "zones.stand_measure": "darf stehen: erst vermessen",
   "zones.stand_unsafe": "steht nie — läuft nicht sicher wieder an",
   "zones.cpu_stand_title": "Den CPU-Kühler stehen lassen?",
-  "zones.cpu_stand_text": "Er darf ganz anhalten, solange die CPU kühl ist — die CPU muss dann ohne Lüfter auskommen. Er läuft sofort wieder an ab {c} °C und hält erst wieder an, wenn die CPU eine Minute lang unter {c5} °C war. Fällt Fanboy aus, übernimmt die Automatik des Mainboards — spätestens nach etwa 30 Sekunden. Hängt der ganze Server, bleibt er stehen, und die CPU schützt sich selbst (sie wird langsamer oder schaltet ab).",
   "zones.cpu_stand_go": "Ja, er darf stehen — auf mein Risiko",
   "zones.preset_pct": "Leise, normal und kühl gibt es nur in Prozent — stell zuerst «In» auf Prozent.",
   "strip.m.stop_check": "Stillstand wird geprüft: {fan} steht auf 0 % — hält er an?",
@@ -1013,5 +1011,14 @@
   "off_why.not_measured": "gilt noch nicht: erst vermessen",
   "off_why.cpu_off_confirm": "gilt noch nicht: Deine Bestätigung fehlt",
   "pic.stands_until": "steht (er darf) · läuft ab {c} °C wieder an",
-  "pic.stands_ok": "steht — er darf"
+  "pic.stands_ok": "steht — er darf",
+  "curve.says_stand": "Steht bis {t} °C. Darüber läuft er mit mindestens {floor} %.",
+  "curve.says_floor": "Läuft nie unter {floor} % — auch dort, wo die Kurve weniger verlangt.",
+  "curve.says_full": "Voll ab {t} °C.",
+  "curve.says_cpu": "Solange er läuft, bekommt er mindestens {floor} %. Wann er steht, bestimmt die CPU-Temperatur, nicht diese Kurve.",
+  "curve.floor_min": "nie unter {pct} %",
+  "cpustand.what": "Er darf ganz anhalten, solange die CPU kühl ist — die CPU muss dann ohne Lüfter auskommen.",
+  "cpustand.starts": "Im Moment läuft er wieder an ab {c} °C.",
+  "cpustand.starts_later": "Ab welcher Temperatur er wieder anläuft, zeigt der Überblick bei diesem Lüfter, sobald Fanboy regelt.",
+  "cpustand.gone_unknown": "Was mit ihm geschieht, wenn Fanboy ausfällt, ist auf deinem Mainboard noch nicht geprüft."
 }

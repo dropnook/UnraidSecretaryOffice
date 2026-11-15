@@ -722,7 +722,6 @@
   "errors.fanboy_cpu_confirm": "Prima spunta la casella: Fanboy regola il dissipatore della CPU solo con la tua conferma.",
   "errors.fanboy_cpu_no_auto": "Questa uscita non ha un automatico della scheda madre — il dissipatore della CPU resta al BIOS.",
   "errors.fanboy_cpu_zone_needs_cpu": "Una zona con il dissipatore della CPU ha bisogno di una temperatura della CPU come fonte di calore.",
-  "curve.floor_cpu": "mai sotto ({pct} %)",
   "situation.steers_cpu": {
     "one": "Fanboy regola le ventole che gli hai affidato, in {n} zona — anche il dissipatore della CPU, a tuo rischio. Le pompe e tutto il resto restano al BIOS.",
     "other": "Fanboy regola le ventole che gli hai affidato, in {n} zone — anche il dissipatore della CPU, a tuo rischio. Le pompe e tutto il resto restano al BIOS."
@@ -989,7 +988,6 @@
   "zones.stand_measure": "può fermarsi: prima va misurata",
   "zones.stand_unsafe": "non si ferma mai — non riparte in modo sicuro",
   "zones.cpu_stand_title": "Lasciar fermare il dissipatore della CPU?",
-  "zones.cpu_stand_text": "Può fermarsi del tutto finché la CPU è fresca — la CPU deve allora fare a meno della ventola. Riparte subito da {c} °C e si ferma di nuovo solo dopo che la CPU è stata sotto {c5} °C per un minuto. Se Fanboy viene meno, subentra l'automatismo della scheda madre — al più tardi dopo circa 30 secondi. Se tutto il server si blocca, resta fermo e la CPU si protegge da sola (rallenta o si spegne).",
   "zones.cpu_stand_go": "Sì, può fermarsi — a mio rischio",
   "zones.preset_pct": "Silenzioso, normale e fresco esistono solo in percentuale — imposta prima «In» su percentuale.",
   "strip.m.stop_check": "Verifica dell'arresto: {fan} è allo 0 % — si ferma?",
@@ -1013,5 +1011,14 @@
   "off_why.not_measured": "non ancora attivo: prima va misurata",
   "off_why.cpu_off_confirm": "non ancora attivo: manca la tua conferma",
   "pic.stands_until": "ferma (può) · riparte da {c} °C",
-  "pic.stands_ok": "ferma — può"
+  "pic.stands_ok": "ferma — può",
+  "curve.says_stand": "Sta ferma fino a {t} °C. Sopra gira almeno al {floor} %.",
+  "curve.says_floor": "Non gira mai sotto il {floor} % — anche dove la curva chiede meno.",
+  "curve.says_full": "Al massimo da {t} °C.",
+  "curve.says_cpu": "Finché gira riceve almeno il {floor} %. Quando sta fermo lo decide la temperatura della CPU, non questa curva.",
+  "curve.floor_min": "mai sotto il {pct} %",
+  "cpustand.what": "Può fermarsi del tutto finché la CPU è fresca — la CPU deve allora fare a meno della ventola.",
+  "cpustand.starts": "In questo momento riparte da {c} °C.",
+  "cpustand.starts_later": "Da quale temperatura riparte lo mostra la panoramica presso questa ventola, appena Fanboy regola.",
+  "cpustand.gone_unknown": "Che cosa gli succede se Fanboy viene meno non è ancora stato verificato sulla tua scheda madre."
 }
