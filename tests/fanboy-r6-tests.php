@@ -594,7 +594,7 @@ function testFanboyR7CardsKeepSize(): void
     check('fanboy r7 cards: a row of the list has one height, the panel\'s state sentence room for two lines',
         preg_match('/\\.fb-item\\{[^}]*height:58px/', $css) === 1 && str_contains($css, '.fb-panel-line{margin:0; font-size:13.5px; line-height:1.45; color:var(--ink2); min-height:calc(2 * 1.45em)}'));
     check('fanboy r7 cards: while a test runs every panel keeps its button row (its room) and says under it why a button is off',
-        str_contains($css, '.fb-panel-acts{display:flex; gap:8px; flex-wrap:wrap; align-items:center; min-height:34px}') && str_contains($js, "reason = T('panel.busy', { fan: run.id ? fanName(run.id) : '' });"));
+        str_contains($css, '.fb-panel-acts{display:flex; gap:8px; flex-wrap:wrap; align-items:center; min-height:34px}') && str_contains($js, "reason = T('panel.busy', { fan: run.id ? fanSay(run.id) : '' });"));
     check('fanboy r7 cards: «show me» keeps its width — both labels in one grid cell, the other hidden',
         str_contains($js, "b.append(el('span', mine ? 'fb-show-label fb-show-off' : 'fb-show-label', T('show.button')), on);")
         && str_contains($css, '.fb-show{white-space:nowrap; display:inline-grid}') && str_contains($css, '.fb-show > .fb-show-off{visibility:hidden}'));

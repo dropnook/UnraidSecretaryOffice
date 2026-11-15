@@ -217,7 +217,7 @@
   .fb-panel-title{margin:0; font-size:17px; font-weight:650; color:var(--ink); overflow-wrap:anywhere}
   .fb-panel-line{margin:0; font-size:13.5px; line-height:1.45; color:var(--ink2); min-height:calc(2 * 1.45em)}
   .fb-panel-acts{display:flex; gap:8px; flex-wrap:wrap; align-items:center; min-height:34px}
-  .fb-panel-why{margin:0; font-size:12.5px; line-height:1.45; color:var(--muted); min-height:1.45em}
+  .fb-panel-why{margin:0; font-size:13px; line-height:1.45; color:var(--ink); min-height:1.45em}
   .fb-safety{margin:0; display:flex; gap:10px 14px; align-items:center; flex-wrap:wrap}
   .fb-safety > p{margin:0; flex:1 1 260px}
   .fb-safety > .fb-safety-wait{flex:1 1 100%; font-size:12.5px; color:var(--muted)}
@@ -232,13 +232,22 @@
   .fb-pick:disabled{opacity:.45; cursor:default}
   .fb-fields{display:grid; grid-template-columns:minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap:10px; align-items:end}
   .fb-fields .fb-input{width:100%; flex:none}
-  .fb-panel-note{margin:0; font-size:12.5px; line-height:1.45; color:var(--muted); min-height:1.45em}
+  .fb-panel-note{margin:0; font-size:13px; line-height:1.45; color:var(--ink2); min-height:1.45em}
   .fb-fold > summary{cursor:pointer; color:var(--accent-ink); font-size:13px; padding:2px 0}
   .fb-fold-body{display:flex; flex-direction:column; gap:8px; margin-top:8px}
   .fb-field-colour{max-width:240px}
   .fb-cpu{border:1px solid var(--line2); border-radius:var(--radius); padding:10px 12px; align-items:flex-start}
   .fb-cpu.fb-cpu-given{border-color:var(--warn); background:var(--warn-soft)}
   .fb-cpu-slot:empty{display:none}
+  /* a button that can't act right now: set back, never dead — a click says why (desk.js offBtn) */
+  .fb-off{opacity:.55}
+  /* the output under a fan's name (the name is the title once he gave one) */
+  .fb-panel-under{margin:-4px 0 0; font-size:12.5px; color:var(--muted); min-height:1.3em}
+  .fb-zone-fan-name{display:flex; flex-direction:column}
+  .fb-zone-fan-out{font-size:12px; font-weight:400; color:var(--muted)}
+  .fb-row-out{color:var(--muted)}
+  .fb-stand-no{font-size:12.5px; color:var(--ink2)}
+  .fb-panel-acts > .fb-wait{margin:0; font-size:13.5px; color:var(--ink)}
   /* a clicked button carries the wave until the agent has answered (a click answers within a blink) */
   .fb-working{display:inline-flex; align-items:center; gap:6px}
   .fb-working > .spin{transform:scale(.75); margin:0 -2px}
