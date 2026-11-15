@@ -228,9 +228,6 @@ function fanboyGpuTick(float $now): void
 {
     $g = &$GLOBALS['fanboyGpu'];
     $g ??= fanboyGpuNew();
-    if (!is_resource($g['proc']) && $now < $g['next']) {
-        return;                     // nothing running, not yet time: no file read at all (this runs every agent tick)
-    }
     $wanted = ($GLOBALS['fanboyGpuWanted'] ?? -INF) > $now;
     if (!is_resource($g['proc']) && (!$wanted || (fanboyControlPid() !== null && (readJson(fanboyStatusFile())['gpu'] ?? false) === true))) {
         return;
