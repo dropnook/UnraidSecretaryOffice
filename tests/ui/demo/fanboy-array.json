@@ -2105,5 +2105,15 @@
  "show": null,
  "safety": {},
  "restore": null,
+ "now": {
+  "what": "none",
+  "phase": null,
+  "output": null,
+  "full": [],
+  "stopped": [],
+  "until": null,
+  "remaining": null,
+  "safety": []
+ },
  "disk_allow": 3
 }

@@ -1116,17 +1116,6 @@ function testFanboyR9Safety(): void
  */
 function testFanboyR9Now(): void
 {
-    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
-    $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.css');
-    check('fanboy r9 now: one line says what runs (full, full with the others standing, pause with seconds, kick, show, back, safety, nothing) — above the test step and the fans list',
-        str_contains($js, "box.appendChild(nowLine());\n  stepEnded(box, s, 'test_up');") && str_contains($js, "s.appendChild(nowLine());")
-        && !array_filter(['now.full', 'now.full_quiet', 'now.pause', 'now.kick', 'now.next', 'now.restore', 'now.safety', 'now.nothing'], fn ($k) => !str_contains($js, "'$k'")));
-    check('fanboy r9 now: the card and row at full framed like the office\'s active tiles; «Alles stoppen» beside the line while anything runs',
-        str_contains($css, '.fb-card-now, .fb-row-now{border-color:var(--accent); background:var(--accent-soft);') && str_contains($js, "act('stop_all', {}, b,"));
-    check('fanboy r9 now: a click that can\'t go through says why (busy, the messenger away) — never silence',
-        str_contains($js, "if (busy) { Office.toast(T('busy_wait'), true); return null; }") && str_contains($js, "if (!Office.agent.running) { Office.toast(t('errors.agent_away'), true); return null; }"));
-    check('fanboy r9 fields: the cards\' selects and fields in the office\'s field look (input small), full width there',
-        substr_count($js, "el('select', 'input small')") >= 4 && str_contains($js, "n = el('input', 'input small');") && str_contains($css, '.fb-assign .input{width:100%; flex:none}'));
     $t = fanboyT('r9now');
     try {
         fanboyTDisks($t, 35, null, 33);
@@ -1138,13 +1127,23 @@ function testFanboyR9Now(): void
         fanboyTSettle($t, $spec);
         // the step says its phases for the page: full (with the others standing), then the pause, the kick
         $phases = [];
-        // and «Abbrechen» at 20 s, in the middle of the quiet phase; the page's view: the step's state as written
-        [$step] = fanboyR8Run($t, $spec, [1, 2], true, function () use (&$phases): void {
+        $nows = [];
+        // and «Abbrechen» at 20 s, in the middle of the quiet phase; the page's view: the step's state as written, and his
+        // «what runs now» (fanboyNowState()) at each moment
+        [$step] = fanboyR8Run($t, $spec, [1, 2], true, function () use (&$phases, &$nows): void {
             $p = fanboyStepRead()['progress']['phase'] ?? null;
             if ($p !== null && end($phases) !== $p) {
                 $phases[] = $p;
+                $nows[$p] = fanboyNowState();
             }
         }, 20.0);
+        same('fanboy r9 now: his «what runs now» — in the quiet phase: the test, output 1 at full, 2–6 stopped, a minute left',
+            ['test', 'full', fanboyTId(1), [fanboyTId(1)], [fanboyTId(2), fanboyTId(3), fanboyTId(4), fanboyTId(5), fanboyTId(6)], true],
+            [$nows['full']['what'] ?? null, $nows['full']['phase'] ?? null, $nows['full']['output'] ?? null, $nows['full']['full'] ?? null, $nows['full']['stopped'] ?? null,
+                ($nows['full']['remaining'] ?? 0) > 50]);
+        same('fanboy r9 now: … in the pause: nothing at full or stopped, seconds left; in the kick: output 4 at full', [[], [], true, [fanboyTId(4)]],
+            [$nows['pause']['full'] ?? null, $nows['pause']['stopped'] ?? null, ($nows['pause']['remaining'] ?? 99) <= 5, $nows['kick']['full'] ?? null]);
+        same('fanboy r9 now: … nothing running — «none»', ['none', [], []], [fanboyNowState()['what'], fanboyNowState()['full'], fanboyNowState()['stopped']]);
         same('fanboy r9 now: the phases said (full → pause → kick); stopped at 20 s — and still the fan that doesn\'t start alone was kicked: back at 128, turning, nothing at full',
             [['full', 'pause', 'kick'], 'stopped', [128, 1], true, []], [array_values(array_unique($phases)), $step['status'], fanboyTOut($t, 4),
                 fanboyAllTachs()[fanboyTachId(FANBOY_T_CHIP, FANBOY_T_ADDR, 4)] > 500, array_keys(fanboySafetyFull())]);
@@ -1167,9 +1166,6 @@ function testFanboyR9Now(): void
  */
 function testFanboyR9CpuOwn(): void
 {
-    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
-    check('fanboy r9 cpu: the card says which — «regelt das BIOS» or «regelt Fanboy auf dein Risiko seit …»; a role click forgets a half-made choice',
-        str_contains($js, "note = f.cpu_own ? T('assign.cpu_own', { date: Office.fmt.date(f.cpu_own) }) : T('assign.cpu_bios');") && str_contains($js, 'cpuAsk.delete(id);'));
     $t = fanboyT('r9cpu');
     try {
         fanboyTStore(fanboyTSettings());

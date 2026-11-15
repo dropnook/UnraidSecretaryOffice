@@ -1660,5 +1660,17 @@
   }
  },
  "restore": null,
+ "now": {
+  "what": "none",
+  "phase": null,
+  "output": null,
+  "full": [],
+  "stopped": [],
+  "until": null,
+  "remaining": null,
+  "safety": [
+   "it8696_a0060607:it87.2608:pwm5"
+  ]
+ },
  "disk_allow": 3
 }

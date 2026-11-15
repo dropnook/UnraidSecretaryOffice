@@ -138,6 +138,7 @@ function fanboyScan(): array
     $state['show'] = fanboyShowRead();                  // round 6: «show me this fan» running or just done
     $state['safety'] = fanboySafetyFull() ?: new stdClass();     // round 9 (H2): outputs he set to full for safety
     $state['restore'] = fanboyRestoreRead();            // round 9 (H2): «back to the value before» running or just done
+    $state['now'] = fanboyNowState();                   // round 9 (H3): what of his runs now — for the page, at every moment
     $state['idle'] = fanboyIdleState();                 // round 6: the fans he doesn't steer, watched (fanboy-watch.php)
     $state['disk_allow'] = fanboyPollAllowance($state['poll'] ?? null);      // round 6: °C the zone logic adds to an old disk value
     writeAtomic(deskFile('fanboy'), jsonEncode($state));
@@ -769,6 +770,60 @@ function fanboySetupState(array $scan, ?array $settings): array
         'scales' => FANBOY_SOURCE_DEFAULTS, 'down' => FANBOY_DOWN_PROFILES, 'round' => FANBOY_ROUND, 'cpu_floor' => FANBOY_CPU_FLOOR, 'presets_of' => array_combine(array_keys(FANBOY_SOURCE_DEFAULTS),
             array_map(fn ($d) => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, (float) $d['low'], (float) $d['high']), FANBOY_PRESETS)), FANBOY_SOURCE_DEFAULTS)),
     ];
+}
+
+/**
+ * Round 9 (H3, the owner: «one turns at 100 %, the page doesn't show which»): what of his setup runs now, at every moment —
+ *   what: test | measure | show | restore | safety | none
+ *   phase: full (an output at full) | pause (everything back, the fans starting again) | kick (a fan that didn't start gets
+ *          its short full) | start (a test between two outputs: its baseline) | measure | restore | null
+ *   output: the output under test / shown / measured (null) · full: outputs at full because of him now (the one under test or
+ *   shown, a kick's, every safety full) · stopped: outputs he holds at 0 right now (the quiet phase) · until / remaining: the
+ *   phase's end (server time) and the seconds left (null: no end known) · safety: the safety fulls (fanboySafetyFull())
+ * Read only, from the step's, show's and restore's files and the journal; $wall: the tests' clock.
+ */
+function fanboyNowState(?int $wall = null): array
+{
+    $wall ??= time();
+    $safety = array_keys(fanboySafetyFull());
+    $out = ['what' => 'none', 'phase' => null, 'output' => null, 'full' => [], 'stopped' => [], 'until' => null, 'remaining' => null, 'safety' => $safety];
+    $s = fanboyStepRead();
+    $x = fanboyShowRead($wall);
+    $r = fanboyRestoreRead();
+    $ids = fn ($v) => array_values(array_filter(is_array($v) ? $v : [], 'is_string'));
+    if ($s !== null && in_array($s['status'], ['starting', 'running'], true)) {
+        $p = is_array($s['progress'] ?? null) ? $s['progress'] : [];
+        $out['what'] = $s['kind'] === 'measure' ? 'measure' : 'test';
+        $out['output'] = is_string($s['current'] ?? null) ? $s['current'] : null;
+        $out['phase'] = $s['kind'] === 'measure' ? 'measure' : (is_string($p['phase'] ?? null) && ($p['id'] ?? null) === $out['output'] ? $p['phase'] : 'start');
+        if ($out['phase'] === 'full') {
+            $out['full'] = $out['output'] !== null ? [$out['output']] : [];
+            $out['stopped'] = $ids($p['quieted'] ?? []);
+        } elseif ($out['phase'] === 'kick') {
+            $out['full'] = $ids($p['kicked'] ?? []);
+        }
+        $out['until'] = is_int($p['until'] ?? null) ? $p['until'] : null;
+    } elseif ($x !== null && in_array($x['status'], ['starting', 'running'], true)) {
+        $out['what'] = 'show';
+        $out['output'] = $x['fan'];
+        $out['phase'] = is_string($x['phase'] ?? null) ? $x['phase'] : ($x['status'] === 'starting' ? 'start' : 'full');
+        if ($out['phase'] === 'full') {
+            $out['full'] = [$x['fan']];
+            $out['stopped'] = $ids($x['quieted'] ?? []);
+        } elseif ($out['phase'] === 'kick') {
+            $out['full'] = $ids($x['kicked'] ?? []);
+        }
+        $out['until'] = is_int($x['until'] ?? null) ? $x['until'] : null;
+    } elseif ($r !== null && in_array($r['status'], ['starting', 'running'], true)) {
+        $out['what'] = 'restore';
+        $out['phase'] = 'restore';
+        $out['output'] = $ids($r['fans'])[0] ?? null;
+    } elseif ($safety) {
+        $out['what'] = 'safety';
+    }
+    $out['full'] = array_values(array_unique(array_merge($out['full'], $safety)));
+    $out['remaining'] = $out['until'] !== null ? max(0, $out['until'] - $wall) : null;
+    return $out;
 }
 
 /**

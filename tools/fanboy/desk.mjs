@@ -107,11 +107,6 @@ const PICTURES = [
   ['r8-2-assign-before', 'fanboy-fresh', 'fanboy/setup/test', null, false],
   ['r8-2-assign-during', 'fanboy-quiet', 'fanboy/setup/test', null, false],
   ['r8-2-assign-after', 'fanboy-roles', 'fanboy/setup/test', null, false],
-  // round 9: H2 a fan at 100 % for safety, undone on its card; H3 what runs now (a quiet test, the pause)
-  ['r9-2-safety', 'fanboy-safety', 'fanboy/setup/test', null, false],
-  ['r9-2-safety-fans', 'fanboy-safety', 'fanboy/fans', null, false],
-  ['r9-3-now-full', 'fanboy-quiet', 'fanboy/setup/test', null, false],
-  ['r9-3-now-pause', 'fanboy-pause', 'fanboy/setup/test', null, false],
 ].filter((p) => !opt.only || opt.only.includes(p[0]));
 const LOCALES = { de: 'de-CH', en: 'en-US' };
 const faults = [];

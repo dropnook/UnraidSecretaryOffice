@@ -241,7 +241,7 @@ function fanboyKickStart(array $stuck, array $candidates, array $owner, string $
     if (!$ids) {
         return $stuck;
     }
-    ($io['note'] ?? fn (array $p) => null)(['phase' => 'kick', 'until' => time() + (int) (FANBOY_KICK_FOR + FANBOY_KICK_LOOK)]);
+    ($io['note'] ?? fn (array $p) => null)(['phase' => 'kick', 'until' => time() + (int) (FANBOY_KICK_FOR + FANBOY_KICK_LOOK), 'kicked' => $ids]);
     $taken = [];
     try {
         foreach ($ids as $id) {
@@ -512,7 +512,7 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool 
             return ['found' => 'busy', 'tachs' => []];
         }
         // round 9 (H3): what runs now, for the page — this output at full (the others standing in a quiet test)
-        ($io['note'] ?? fn (array $p) => null)(['phase' => 'full', 'quiet' => $quiet, 'until' => time() + (int) FANBOY_UP_FOR]);
+        ($io['note'] ?? fn (array $p) => null)(['phase' => 'full', 'quiet' => $quiet, 'until' => time() + (int) FANBOY_UP_FOR, 'quieted' => $quieted]);
         $t0 = ($io['now'])();
         $seen = [];
         $fell = [];

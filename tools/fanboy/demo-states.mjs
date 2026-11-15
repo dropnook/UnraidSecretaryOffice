@@ -180,6 +180,8 @@ function state(o) {
     show: o.show || null,                     // round 6: «show me this fan» (fanboyShowRead())
     safety: o.safety || {},                   // round 9 (H2): outputs he set to full for safety (fanboySafetyFull())
     restore: o.restore || null,               // round 9 (H2): «back to the value before» running or done
+    // round 9 (H3): what of his runs now (fanboyNowState())
+    now: o.now || { what: 'none', phase: null, output: null, full: [], stopped: [], until: null, remaining: null, safety: Object.keys(o.safety || {}) },
     // round 6: °C his zones add to an old disk value (fanboyPollAllowance(): +1 per started 10 minutes over 300 s, at most 3)
     disk_allow: (() => { const p = o.poll === undefined ? 1800 : o.poll; return p === null || p <= 300 ? 0 : Math.min(3, Math.ceil(p / 600)); })(),
   };

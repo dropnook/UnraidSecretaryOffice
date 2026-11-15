@@ -206,6 +206,8 @@ function fanboyShowMain(?array $io = null): int
         $show['pid'] = $owner['pid'];
         $show['start'] = $owner['start'];
         $show['status'] = 'running';
+        $show['phase'] = 'full';
+        $show['quieted'] = $quieted;            // round 9 (H3): the outputs it stopped meanwhile, for the page
         $show['until'] = time() + (int) FANBOY_SHOW_FOR;
         fanboyShowWrite($show);
         $t0 = ($io['now'])();
@@ -248,9 +250,11 @@ function fanboyShowMain(?array $io = null): int
                 $show['phase'] = 'pause';
                 $show['until'] = time() + (int) FANBOY_QUIET_PAUSE;
                 fanboyShowWrite($show);
+                $show['quieted'] = [];
                 fanboyQuietRestart($tachsBefore, $quieted, $io + ['note' => function (array $p) use (&$show): void {
                     $show['phase'] = $p['phase'] ?? 'pause';
                     $show['until'] = $p['until'] ?? null;
+                    $show['kicked'] = $p['kicked'] ?? [];
                     fanboyShowWrite($show);
                 }], $owner, fanboyBoardKey($board));
             } catch (FanboyQuietWarm $e) {
