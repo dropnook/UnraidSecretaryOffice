@@ -64130,7 +64130,9 @@ function testFanboyHints(): void
     same('fanboy hints: the plugins he knows — the names and authors of Community Applications',
         ['it87-driver' => ['ITE IT87 Driver', 'ich777'], 'nct6687-driver' => ['Nuvoton NCT6687 Driver', 'ich777'], 'dynamix.system.temp' => ['Dynamix System Temp', 'Bergware'],
          'fanctrlplus' => ['FanCtrl Plus', 'ck9393'], 'fanctrlplus2' => ['FanCtrl Plus 2', 'ck9393 / andrebrait'], 'dynamix.system.autofan' => ['Dynamix System Autofan', 'Bergware/gfjardim'],
-         'pwm-fan' => ['PWM Fan', 'alturismo'], 'md12xx.fancontrol' => ['WAZ Cooling Control', 'TheIlluminate92']],
+         'pwm-fan' => ['PWM Fan', 'alturismo'], 'md12xx.fancontrol' => ['WAZ Cooling Control', 'TheIlluminate92'],
+         // round 5 (forum 3.12): controllers in containers, seen by their process — no plugin, «Docker» as their source
+         'coolercontrol' => ['CoolerControl', 'Docker'], 'fan2go' => ['fan2go', 'Docker'], 'liquidctl' => ['liquidctl', 'Docker'], 'fanbridge' => ['FanBridge', 'Docker']],
         array_map(fn ($p) => [$p['name'], $p['author']], FANBOY_PLUGINS));
 
     // what is there: on the fake board the ITE driver (installed, loaded) and System Temp; nothing else
@@ -64138,7 +64140,8 @@ function testFanboyHints(): void
     $s = $look($board);
     same('fanboy hints: what is there — ITE driver installed and loaded, System Temp installed, the rest not; [installed, loaded, active]',
         ['it87-driver' => [true, true, null], 'nct6687-driver' => [false, false, null], 'dynamix.system.temp' => [true, null, null], 'fanctrlplus' => [false, null, false],
-         'fanctrlplus2' => [false, null, false], 'dynamix.system.autofan' => [false, null, false], 'pwm-fan' => [false, null, false], 'md12xx.fancontrol' => [false, null, false]], $by($s));
+         'fanctrlplus2' => [false, null, false], 'dynamix.system.autofan' => [false, null, false], 'pwm-fan' => [false, null, false], 'md12xx.fancontrol' => [false, null, false],
+         'coolercontrol' => [false, null, false], 'fan2go' => [false, null, false], 'liquidctl' => [false, null, false], 'fanbridge' => [false, null, false]], $by($s));
     same('fanboy hints: ok — nothing suggested, the fold closed, the start option not set', [[], false, false], [$s['suggest'], $s['hints_open'], $s['acpi_lax']]);
     // the owner's kind of server: both plugins there and FanCtrl Plus steering
     $owner = $board;

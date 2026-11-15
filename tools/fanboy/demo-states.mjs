@@ -137,7 +137,8 @@ const leadOf = (kinds) => kinds.reduce((l, k) => (k.near && (!l || k.near.margin
 
 /** A whole state: the look, then who/control/setup/step/drivers as fanboyScan() puts them on top */
 function state(o) {
-  const chips = (o.chips || base.chips.filter((c) => c.name !== CHIP).concat(o.ite ? [o.ite] : [])).sort((a, b) => +a.hwmon.slice(5) - +b.hwmon.slice(5));
+  const chips = (o.chips || base.chips.filter((c) => c.name !== CHIP).concat(o.ite ? [o.ite] : [])).sort((a, b) => +a.hwmon.slice(5) - +b.hwmon.slice(5))
+    .map((c) => ({ ...c, twin: (o.twins || []).includes(c.name) }));          // round 5: a chip with two drivers on it
   // Unraid's limits (round 3): hard disks warn at 45 °C, SSDs at 60 °C — disk2 has its own, lower warning (40 °C) and
   // is over it at 41 °C, cooler in degrees than the NVMe pool at 46 °C, which is far from its SSD limit
   const disks = o.disks || [
@@ -158,10 +159,10 @@ function state(o) {
   const s = {
     v: 1, time: T0, hwmon: true, board: base.board, kernel: '6.18.60-Unraid', unraid: '7.4.0', chips, disks, ipmi: o.ipmi || null,
     controllers: o.controllers || [], drivers_missing: o.drivers_missing || {}, situation: o.situation || { code: 'ok' }, tools: o.tools || TOOLS,
-    suggest: o.suggest || [], board_hint: 'ite', board_maker: base.board_maker || 'Example Boards', acpi_lax: false, names: [],
-    hints_open: ['no_output', 'driver_missing', 'other', 'ipmi'].includes((o.situation || { code: 'ok' }).code),
+    suggest: o.suggest || [], board_hint: 'ite', board_maker: base.board_maker || 'Example Boards', acpi_lax: false,
     // round 5: Unraid's poll_attributes (its default 1800 s — the hint shows), a virtual machine, chips with two drivers
-    poll: o.poll === undefined ? 1800 : o.poll, vm: !!o.vm, twins: o.twins || [],
+    poll: o.poll === undefined ? 1800 : o.poll, vm: !!o.vm, twins: o.twins || [], names: [],
+    hints_open: ['no_output', 'driver_missing', 'other', 'ipmi'].includes((o.situation || { code: 'ok' }).code),
     counts: { outputs: offered.reduce((n, c) => n + c.outputs.length, 0), fans: fansAll.length, turning: turning.length, zero: fansAll.filter((f) => f.rpm === 0).length,
       rpm_min: turning.length ? Math.min(...turning) : null, rpm_max: turning.length ? Math.max(...turning) : null, temps: chips.reduce((n, c) => n + c.temps.length, 0) },
     hottest, hottest_kinds: kinds, hottest_lead: leadOf(kinds),

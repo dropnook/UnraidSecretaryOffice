@@ -29,7 +29,8 @@
      "label": "Sensor 1",
      "c": 31.9
     }
-   ]
+   ],
+   "twin": false
   },
   {
    "hwmon": "hwmon1",
@@ -51,7 +52,8 @@
      "label": "Sensor 1",
      "c": 27.9
     }
-   ]
+   ],
+   "twin": false
   },
   {
    "hwmon": "hwmon2",
@@ -73,7 +75,8 @@
      "label": "Sensor 1",
      "c": 29.9
     }
-   ]
+   ],
+   "twin": false
   },
   {
    "hwmon": "hwmon3",
@@ -90,7 +93,8 @@
      "label": ""
     }
    ],
-   "temps": []
+   "temps": [],
+   "twin": false
   },
   {
    "hwmon": "hwmon4",
@@ -132,7 +136,8 @@
      "label": "",
      "c": 23
     }
-   ]
+   ],
+   "twin": false
   },
   {
    "hwmon": "hwmon5",
@@ -149,7 +154,8 @@
      "label": "",
      "c": 22.8
     }
-   ]
+   ],
+   "twin": false
   },
   {
    "hwmon": "hwmon6",
@@ -166,7 +172,8 @@
      "label": "",
      "c": 21.3
     }
-   ]
+   ],
+   "twin": false
   },
   {
    "hwmon": "hwmon7",
@@ -193,7 +200,8 @@
      "label": "Core 4",
      "c": 28
     }
-   ]
+   ],
+   "twin": false
   },
   {
    "hwmon": "hwmon8",
@@ -210,7 +218,8 @@
      "label": "",
      "c": null
     }
-   ]
+   ],
+   "twin": false
   },
   {
    "hwmon": "hwmon9",
@@ -232,7 +241,8 @@
      "label": "",
      "c": 27.8
     }
-   ]
+   ],
+   "twin": false
   },
   {
    "hwmon": "hwmon10",
@@ -354,7 +364,8 @@
      "label": "",
      "c": 23
     }
-   ]
+   ],
+   "twin": false
   }
  ],
  "disks": [
@@ -493,11 +504,11 @@
  "board_hint": "ite",
  "board_maker": "Example Boards",
  "acpi_lax": false,
- "names": [],
- "hints_open": true,
  "poll": 1800,
  "vm": false,
  "twins": [],
+ "names": [],
+ "hints_open": true,
  "counts": {
   "outputs": 6,
   "fans": 7,
