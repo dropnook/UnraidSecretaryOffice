@@ -18,7 +18,18 @@
 'use strict';
 
 const ID = 'fanboy';
-const T = Office.scope(ID);
+const T0 = Office.scope(ID);
+// The agent's own times in every sentence that names one (2026-11-16, the sentence audit; the state's `setup.times`):
+// how long an output stays at full at most (test, show), the page's lease, the minutes until he tells. An older agent
+// without them: the constants mirrored here (a test compares them with the agent's).
+const TIMES = { up_for: 60, show_for: 60, lease: 45, tell_after: 900, idle_warm_after: 120, poll_live: 300 };
+function timesNow() {
+  try { return { ...TIMES, ...(state.setup.times || {}) }; } catch (e) { return TIMES; }     // (before the first state: the mirror)
+}
+const T = (k, p) => {
+  const tm = timesNow();
+  return T0(k, { up_s: tm.up_for, show_s: tm.show_for, lease_s: tm.lease, tell_min: Math.round(tm.tell_after / 60), idle_min: Math.round(tm.idle_warm_after / 60), ...(p || {}) });
+};
 const { el, fmt } = Office;
 const LOOK_MS = 5000;           // a new look while a page of his is shown (the agent's look is a few file reads)
 const LOOK_STEP_MS = 2000;      // … while a setup step runs: the table grows, the wheel under test speeds up
@@ -1543,7 +1554,12 @@ function paintBanner() {
     });
   }
   if (['chip_missing', 'chip_gone', 'crashed'].includes(w.why)) {
-    const p = box('warn', T(`control.${w.why}`), { why: w.why });
+    // (crashed: when he starts it again and when not any more — the state's times and restarts; an older agent: no numbers)
+    const tm = setup().times || {}, rs = setup().restarts || null;
+    const crashNums = w.why === 'crashed' && rs && num(rs.max) !== null && num(rs.window) !== null && num(tm.crash_pause) !== null;
+    const p = box('warn', crashNums ? T(rs.given_up ? 'control.crashed_given_up' : 'control.crashed_n', { pause: tm.crash_pause, max: rs.max, window: Math.round(rs.window / 60) }) : T(`control.${w.why}`), { why: w.why });
+    if (crashNums) p.dataset.nums = JSON.stringify([{ v: rs.max, from: ['setup', 'restarts', 'max'] }, { v: Math.round(rs.window / 60), from: ['setup', 'restarts', 'window'], via: 'mins' },
+      ...(rs.given_up ? [] : [{ v: tm.crash_pause, from: ['setup', 'times', 'crash_pause'] }])]);
     p.appendChild(button(T('control.look_now'), T('control.look_now_tip'), (b) => act('look_now', {}, b, () => Office.toast(T('control.looked')))));
   }
   if (w.why === 'array_stopped' || (c.armed && c.why === 'array_stopped')) box('warn', T('control.array_stopped'), { why: 'array_stopped' });
@@ -1736,7 +1752,8 @@ function runNow() {
   return r;
 }
 let fullKey = '', fullFrom = 0;
-const FULL_MAX = 60;            // seconds an output stays at full at most (the agent's FANBOY_UP_FOR / FANBOY_SHOW_FOR)
+/** Seconds an output stays at full at most: the state's times (the agent's FANBOY_UP_FOR for a test, FANBOY_SHOW_FOR for «show me») */
+const fullMax = (run) => (run && run.kind === 'show' ? timesNow().show_for : timesNow().up_for);
 /** The percent an output had before Fanboy set it to full for safety (its tip and its words) */
 const safetyPct = (x) => (num((x.before || {}).value) === null ? '–' : Math.round(x.before.value / 2.55));
 /** What the page said last that must not get lost: a refusal, a click that came too early — until the next action */
@@ -2033,9 +2050,10 @@ function stripMake() {
     clock.classList.toggle('fb-clock-off', !on);
     if (!on) { setText(since, ''); return; }
     // how long it stays at full at most: the agent's word; without it, since when (the page's clock)
-    const secs = run.left !== null ? FULL_MAX - Math.min(FULL_MAX, run.left) : Math.min(FULL_MAX, Math.max(0, Math.floor((Date.now() - run.since) / 1000)));
-    setText(since, run.left !== null ? T('strip.left', { s: run.left }) : T('strip.since', { s: secs }));
-    meterBar.style.width = `${Math.round(100 * secs / FULL_MAX)}%`;
+    const most = fullMax(run);
+    const secs = run.left !== null ? most - Math.min(most, run.left) : Math.min(most, Math.max(0, Math.floor((Date.now() - run.since) / 1000)));
+    setText(since, run.left !== null ? T('strip.left', { s: run.left }) : T('strip.since', { s: secs, max: most }));
+    meterBar.style.width = `${Math.round(100 * secs / most)}%`;
   }
   update();
   return { el: root, update, destroy() { clearInterval(ticker); ticker = null; } };
@@ -2335,7 +2353,7 @@ function panelMake(id, benchRun, benchUpdate) {
   let wantPlace = null, wantCount = null;
   place.onchange = () => { const f = setupFan(id); if (f && f.role) send('role', { fan: id, role: f.role, place: place.value, off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true }); else { wantPlace = place.value; update(); } };
   const count = inputEl('select');
-  for (let n = 1; n <= 8; n++) count.appendChild(new Option(String(n), String(n)));
+  for (let n = 1; n <= (num((setup().limits || {}).count_max) ?? 8); n++) count.appendChild(new Option(String(n), String(n)));
   count.onchange = () => { const f = setupFan(id); if (f && f.role) send('role', { fan: id, role: f.role, count: Number(count.value), off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true }); else { wantCount = Number(count.value); update(); } };
   fields.append(field(T('fields.name'), name, 'fb-field-name'), field(T('fields.place'), place), field(T('roles.count'), count, 'fb-field-count'));
   // round 14: several fans on this connector — are they the same model? (yes: the measured table counts for all; no or
@@ -2993,7 +3011,7 @@ function zonesStep() {
   }
   const zones = zonesNow();
   const propose = () => button(T('zones.propose'), T('zones.propose_tip'), (b) => act('zones_propose', {}, b, (j) => { zdraft = (j.zones || []).map((z) => ({ ...z, name: z.name || T(`zones.kind.${z.kind}`) })); zsel = ''; }), zones.length ? 'btn plain' : 'btn');
-  const add = () => (zones.length < 8 ? button(T('zones.add'), T('zones.add_tip'), () => changeZones((z) => { const id = freeId(z); z.push({ id, name: T('zones.new_name', { n: z.length + 1 }), fans: [], sources: [], unit: 'pct', target: { preset: 'normal' } }); zsel = id; }), 'btn plain') : null);
+  const add = () => (zones.length < (num((setup().limits || {}).zones_max) ?? 8) ? button(T('zones.add'), T('zones.add_tip'), () => changeZones((z) => { const id = freeId(z); z.push({ id, name: T('zones.new_name', { n: z.length + 1 }), fans: [], sources: [], unit: 'pct', target: { preset: 'normal' } }); zsel = id; }), 'btn plain') : null);
   if (!zones.some((z) => z.id === zsel)) zsel = zones.length ? zones[0].id : '';
   const unzoned = ours.filter((f) => !zones.some((z) => (z.fans || []).includes(f.id)));
   if (!zones.length) {
@@ -3040,7 +3058,7 @@ function zonesStep() {
     two.append(side, slot);
     box.appendChild(two);
   }
-  const how = T('zones.how_often', { s: setup().round || 2 }) + (num(S().poll) !== null && S().poll > 300 ? ' ' + T('zones.poll', { min: Math.round(S().poll / 60) })
+  const how = T('zones.how_often', { s: setup().round || 2 }) + (num(S().poll) !== null && S().poll > timesNow().poll_live ? ' ' + T('zones.poll', { min: Math.round(S().poll / 60) })
     + (num(S().disk_allow) > 0 ? ' ' + T('zones.poll_add', { add: S().disk_allow }) : '') : '');
   if (zdraft) {
     // changed here, not kept yet: «Save» is the one button of the moment
@@ -3070,8 +3088,11 @@ const srcSay = (x) => `${srcLabel(x)}${num(x.c) !== null ? ` (${T('temp', { c: f
 function uncoveredBox(loose, ...more) {
   // (a calm hint, not an alarm — the owner's four sleeping disks outside the array; the banner warns once the net acts)
   const p = el('div', 'callout fb-callout fb-uncovered');
-  const text = el('p', '', T('zones.uncovered', { list: loose.map(srcSay).join(', ') }));
-  text.dataset.nums = JSON.stringify(loose.filter((x) => num(x.c) !== null).map((x) => ({ v: Math.round(x.c), from: ['setup', 'sources', `=${x.id}`, 'c'], via: 'round' })));
+  // (the level the net holds the fans at: the state's times.net.warm_pct — an older agent without it: no number)
+  const pct = num(((setup().times || {}).net || {}).warm_pct);
+  const text = el('p', '', T(pct === null ? 'zones.uncovered' : 'zones.uncovered_pct', { list: loose.map(srcSay).join(', '), pct }));
+  text.dataset.nums = JSON.stringify([...loose.filter((x) => num(x.c) !== null).map((x) => ({ v: Math.round(x.c), from: ['setup', 'sources', `=${x.id}`, 'c'], via: 'round' })),
+    ...(pct === null ? [] : [{ v: pct, from: ['setup', 'times', 'net', 'warm_pct'] }])]);
   p.appendChild(text);
   const acts = more.filter(Boolean);
   if (acts.length) p.appendChild(bar(...acts));
