@@ -492,7 +492,7 @@
   "zones.src_in": "Prendre dans cette zone",
   "zones.src_out": "Retirer de cette zone",
   "zones.curve": "Courbe",
-  "zones.curve_sub": "Tire un point, ou donne-lui le focus et utilise les flèches. La roue tourne comme le ventilateur tournerait à cette température.",
+  "zones.curve_sub": "Tire un point, donne-lui le focus et utilise les flèches, ou tape ses valeurs ci-dessous. La roue tourne comme le ventilateur tournerait à cette température.",
   "zones.target": "Objectif",
   "zones.unit": "En",
   "zones.unit_pct": "Pour cent",
@@ -1049,5 +1049,14 @@
   "net.on": "Une source de chaleur hors des zones est chaude : {source} {c} °C — tous les ventilateurs que Fanboy règle tournent à {level} % au moins.",
   "note.net": "Hors des zones, {source} était chaude à {c} °C — les ventilateurs tournaient plus vite",
   "note.net_over": "{source} est de nouveau fraîche — les ventilateurs suivent de nouveau leurs zones",
-  "zones.uncovered_into": "Ajouter à «{zone}» :"
+  "zones.uncovered_into": "Ajouter à «{zone}» :",
+  "curve.label_pct": "{t} °C · {v} %",
+  "curve.label_rpm": "{t} °C · {v} tr/min",
+  "curve.field": "Point {i}",
+  "curve.field_t": "Point {i} : température en °C",
+  "curve.field_v_pct": "Point {i} : vitesse en pour cent",
+  "curve.field_v_rpm": "Point {i} : vitesse en tr/min",
+  "curve.unit_c": "°C",
+  "curve.unit_pct": "%",
+  "curve.unit_rpm": "tr/min"
 }

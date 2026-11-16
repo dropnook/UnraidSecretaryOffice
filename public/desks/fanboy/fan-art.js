@@ -685,7 +685,8 @@
     const tMin = num(o.tMin, 20), tMax = num(o.tMax, 80);
     const vStep = rpm ? 10 : 1;
     const tx = Object.assign({ axisT: '', axisV: '', tickT: (t) => String(t), tickV: (v) => String(v),
-      point: () => '', value: (t, v) => `${t} ${v}`, readout: () => '', floor: '', now: '' }, o.texts || {});
+      point: () => '', value: (t, v) => `${t} ${v}`, readout: () => '', floor: '', now: '',
+      label: null, field: (i) => String(i + 1), fieldT: () => '', fieldV: () => '', unitT: '', unitV: '' }, o.texts || {});
     let pts = [];
     let W = 600, H = 300;
 
@@ -744,8 +745,13 @@
     const ends = svg('g', { class: 'fan-curve-ends' });
     const marks = svg('g', { class: 'fan-curve-marks' });
     const cross = svg('line', { class: 'fan-curve-cross', y1: PT, y2: H - PB, visibility: 'hidden' });
+    const labels = svg('g', { class: 'fan-curve-labels' });
     const dots = svg('g', { class: 'fan-curve-dots' });
-    s.append(grid, area, line, eff, ends, marks, cross, dots);
+    s.append(grid, area, line, eff, ends, marks, cross, labels, dots);
+    // each point typed exactly (o.fields): a row per point under the chart — its degrees and its value as numbers
+    const fieldsBox = o.fields ? el('div', 'fan-curve-fields') : null;
+    if (fieldsBox) root.appendChild(fieldsBox);
+    let active = -1;                // the point dragged, focused or under the pointer: its label always shows
 
     function mark(cls, x1, y1, x2, y2, label, lx, ly, anchor) {
       marks.appendChild(svg('line', { class: cls, x1, y1, x2, y2 }));
@@ -761,7 +767,13 @@
       marks.replaceChildren();
       s.setAttribute('viewBox', `0 0 ${W} ${H}`);
       cross.setAttribute('y2', H - PB);
-      const every = W < 420 ? 20 : 10;        // every 10 °C, on a phone every 20 °C; five steps of the value
+      // the degrees as fine as their numbers have room (a disk's 25–55 °C: every 5 °C; a wide scale or a phone: 10 or 20),
+      // and a small tick for every single degree where a degree is wide enough to aim at
+      const perDeg = (W - PL - PR) / (tMax - tMin);
+      const every = [1, 2, 5, 10, 20].find((n) => n * perDeg >= 42) || 20;
+      if (every > 1 && perDeg >= 5) {
+        for (let t = Math.ceil(tMin); t <= tMax; t++) grid.appendChild(svg('line', { class: 'fan-curve-minor', x1: x(t), x2: x(t), y1: H - PB, y2: H - PB + (t % 5 === 0 ? 6 : 3) }));
+      }
       for (let t = Math.ceil(tMin / every) * every; t <= tMax; t += every) {
         grid.appendChild(svg('line', { x1: x(t), x2: x(t), y1: PT, y2: H - PB }));
         const lb = svg('text', { x: x(t), y: H - PB + 18, 'text-anchor': 'middle' });
@@ -820,7 +832,89 @@
         g.setAttribute('aria-valuetext', tx.value(p.t, p.v));
       });
       while (dots.children.length > pts.length) dots.lastChild.remove();
+      labelsPaint();
+      fieldsPaint();
       show(shownT != null ? shownT : pts[Math.floor(pts.length / 2)].t);
+    }
+    /**
+     * Each point's exact values beside it («43 °C · 31 %», texts.label): always where there is room (a label that would
+     * lie on another is left out — the active point's never), above the point, under it at the chart's top; while a
+     * point is dragged its label stands well clear of the finger
+     */
+    function labelsPaint() {
+      labels.replaceChildren();
+      if (typeof tx.label !== 'function') return;
+      const hit = (p, q) => p.l < q.r && p.r > q.l && p.t < q.b && p.b > q.t;
+      const dotsAt = pts.map((p) => ({ l: x(p.t) - 10, r: x(p.t) + 10, t: y(p.v) - 10, b: y(p.v) + 10 }));
+      const taken = [];
+      const order = pts.map((p, i) => i).sort((a, b) => (a === active ? -1 : b === active ? 1 : a - b));
+      for (const i of order) {
+        const p = pts[i], text = tx.label(p.t, p.v);
+        const w = text.length * 6.7 + 12, h = 18;
+        const px = x(p.t), py = y(p.v), held = !!drag && drag.i === i;
+        const at = (l, t) => ({ l, r: l + w, t, b: t + h });
+        // a curve only rises: up-left of a point and down-right of it nothing of the line lies — there first; then
+        // above, then under it. While dragged: the same sides, well clear of the finger.
+        const far = held ? 22 : 0;
+        const places = [at(px - 10 - far - w, py - 6 - far - h), at(px + 10 + far, py + 6 + far), at(clamp(px - w / 2, PL, W - PR - w), py - 16 - 2 * far - h),
+          at(px + 10 + far, py - 6 - far - h), at(clamp(px - w / 2, PL, W - PR - w), py + 14 + far)]
+          .filter((k) => k.l >= PL - 2 && k.r <= W - PR + 2 && k.t >= 0 && k.b <= H - PB);
+        const free = places.find((k) => !taken.some((q) => hit(k, { l: q.l - 4, r: q.r + 4, t: q.t - 2, b: q.b + 2 })) && !dotsAt.some((q, j) => j !== i && hit(k, q)));
+        const box = free || (i === active ? places[0] : null);
+        if (!box) continue;
+        taken.push(box);
+        const g = svg('g', { class: `fan-curve-label${i === active ? ' on' : ''}` });
+        const words = svg('text', { x: box.l + w / 2, y: box.t + 13, 'text-anchor': 'middle' });
+        words.textContent = text;
+        g.append(svg('rect', { x: box.l, y: box.t, width: w, height: h, rx: 4 }), words);
+        labels.appendChild(g);
+      }
+    }
+    const activate = (i) => { if (i !== active) { active = i; labelsPaint(); } };
+    /** the points as numbers to type: built once per point, a field he is typing in is never overwritten */
+    function fieldsPaint() {
+      if (!fieldsBox) return;
+      while (fieldsBox.children.length > pts.length) fieldsBox.lastChild.remove();
+      pts.forEach((p, i) => {
+        let row = fieldsBox.children[i];
+        if (!row) {
+          row = el('div', 'fan-curve-field');
+          const mk = (which) => {
+            const inp = document.createElement('input');
+            inp.type = 'number';
+            inp.inputMode = 'numeric';
+            inp.className = 'fan-curve-input';
+            inp.step = which === 't' ? 1 : vStep;
+            inp.min = which === 't' ? tMin : vMin;
+            inp.max = which === 't' ? tMax : vMax;
+            inp.dataset.axis = which;
+            inp.setAttribute('aria-label', which === 't' ? tx.fieldT(i) : tx.fieldV(i));
+            inp.addEventListener('focus', () => { const k = +row.dataset.i; if (pts[k]) { shownT = pts[k].t; show(shownT); activate(k); } });
+            inp.addEventListener('blur', () => activate(-1));
+            inp.addEventListener('change', () => {
+              const k = +row.dataset.i, q = pts[k];
+              if (!q) return;
+              const n = inp.value.trim() === '' ? NaN : Number(inp.value);
+              if (Number.isFinite(n)) pts[k] = which === 't' ? fit(k, n, q.v) : fit(k, q.t, n);
+              inp.value = String(which === 't' ? pts[k].t : pts[k].v);       // as it counts: whole, between its neighbours
+              shownT = pts[k].t;
+              paint();
+              // (after the focus has moved on: a page that draws itself anew on a change keeps the field he went to)
+              setTimeout(() => emit(o.onChange), 0);
+            });
+            if (typeof o.onField === 'function') o.onField(inp, which);
+            return inp;
+          };
+          row.append(el('span', 'fan-curve-field-name', ''), mk('t'), el('span', 'fan-curve-unit', tx.unitT), mk('v'), el('span', 'fan-curve-unit', tx.unitV));
+          fieldsBox.appendChild(row);
+        }
+        row.dataset.i = i;
+        row.firstChild.textContent = tx.field(i, pts.length);
+        row.querySelectorAll('input').forEach((inp) => {
+          const want = String(inp.dataset.axis === 't' ? p.t : p.v);
+          if (document.activeElement !== inp && inp.value !== want) inp.value = want;
+        });
+      });
     }
     const emit = (fn) => { if (typeof fn === 'function') fn(copy()); };
 
@@ -836,19 +930,23 @@
       ev.preventDefault();
       const i = +g.dataset.i;
       drag = { i, was: copy(), id: ev.pointerId };
+      active = i;
+      labelsPaint();
       g.focus({ preventScroll: true });
       root.classList.add('fan-dragging');
       try { s.setPointerCapture(ev.pointerId); } catch (e) { /* a pointer already gone */ }
     });
     s.addEventListener('pointermove', (ev) => {
       const { px, py } = at(ev);
-      const t = clamp(tAt(px), tMin, tMax);
+      const t = clamp(Math.round(tAt(px)), tMin, tMax);      // whole degrees: what the readout says is what the mark shows
       if (drag) {
         pts[drag.i] = fit(drag.i, tAt(px), vAt(py));
         shownT = pts[drag.i].t;
         paint();
         emit(o.onInput);
       } else {
+        const over = ev.target.closest && ev.target.closest('.fan-curve-pt');
+        activate(over ? +over.dataset.i : -1);
         shownT = t;
         show(t);
       }
@@ -868,6 +966,8 @@
     s.addEventListener('pointercancel', () => end(false));
     s.addEventListener('pointerleave', () => {
       if (drag) return;
+      const f = document.activeElement && document.activeElement.closest ? document.activeElement.closest('.fan-curve-pt') : null;
+      active = f && s.contains(f) ? +f.dataset.i : -1;
       cross.setAttribute('visibility', 'hidden');
       shownT = typeof o.now === 'number' ? o.now : null;
       paint();
@@ -921,8 +1021,9 @@
     });
     s.addEventListener('focusin', (ev) => {
       const g = ev.target.closest && ev.target.closest('.fan-curve-pt');
-      if (g && pts[+g.dataset.i]) { shownT = pts[+g.dataset.i].t; show(shownT); }
+      if (g && pts[+g.dataset.i]) { shownT = pts[+g.dataset.i].t; show(shownT); activate(+g.dataset.i); }
     });
+    s.addEventListener('focusout', () => { if (!drag) activate(-1); });
 
     /** the chart follows its width (a phone, a narrow column): drawn anew at the size it is shown */
     function fitSize() {

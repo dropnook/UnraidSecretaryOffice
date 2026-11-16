@@ -492,7 +492,7 @@
   "zones.src_in": "Metti in questa zona",
   "zones.src_out": "Togli da questa zona",
   "zones.curve": "Curva",
-  "zones.curve_sub": "Trascina un punto, oppure selezionalo e usa le frecce. La girante gira come girerebbe la ventola a quella temperatura.",
+  "zones.curve_sub": "Trascina un punto, selezionalo e usa le frecce, oppure scrivi i suoi valori qui sotto. La girante gira come girerebbe la ventola a quella temperatura.",
   "zones.target": "Obiettivo",
   "zones.unit": "In",
   "zones.unit_pct": "Percento",
@@ -1049,5 +1049,14 @@
   "net.on": "Una fonte di calore fuori dalle zone è calda: {source} {c} °C — tutte le ventole che Fanboy regola girano almeno al {level} %.",
   "note.net": "Fuori dalle zone, {source} era calda con {c} °C — le ventole giravano più forte",
   "note.net_over": "{source} è di nuovo fresca — le ventole seguono di nuovo le loro zone",
-  "zones.uncovered_into": "Aggiungi a «{zone}»:"
+  "zones.uncovered_into": "Aggiungi a «{zone}»:",
+  "curve.label_pct": "{t} °C · {v} %",
+  "curve.label_rpm": "{t} °C · {v} giri/min",
+  "curve.field": "Punto {i}",
+  "curve.field_t": "Punto {i}: temperatura in °C",
+  "curve.field_v_pct": "Punto {i}: giri in percento",
+  "curve.field_v_rpm": "Punto {i}: giri al minuto",
+  "curve.unit_c": "°C",
+  "curve.unit_pct": "%",
+  "curve.unit_rpm": "giri/min"
 }
