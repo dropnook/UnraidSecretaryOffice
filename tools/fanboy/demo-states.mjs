@@ -48,7 +48,9 @@ function ite(outs, rpms) {
 const devKey = (d) => d.replace(/\/([a-z]+)\/\1\d+$/, '/$1');
 /** Every heat source as fanboySources() lists them */
 function sources(chips, disks) {
-  const out = disks.map((d) => ({ kind: d.rotational === false ? 'ssd' : 'disk', id: d.name, label: d.name, c: d.temp, asleep: d.asleep }));
+  // (round 13b: a disk outside array and pools carries its group, the Unassigned Devices plugin's name or none, its size, «in use»)
+  const out = disks.map((d) => ({ kind: d.rotational === false ? 'ssd' : 'disk', id: d.name, label: d.type === 'unassigned' ? d.label || '' : d.name, c: d.temp, asleep: d.asleep,
+    ...(d.type === 'unassigned' ? { group: 'unassigned', name: d.label || null, size: d.size || 0, in_use: !!d.in_use } : {}) }));
   for (const c of chips) {
     if (c.kind === 'disk') continue;
     for (const t of c.temps) out.push({ kind: c.kind, id: `${c.name}@${devKey(c.device)}#${t.n}`, label: t.label || `${c.name} #${t.n}`, c: t.c, asleep: false, chip: c.name, hwmon: c.hwmon, n: t.n });
@@ -306,6 +308,19 @@ files['fanboy-steering'] = steering();
 files['fanboy-cpu'] = steering({ fans: CPU_OWN, zones: [...ZONES, CPU_ZONE], watch: [], who: { who: 'fanboy', why: 'steers', zones: 3 }, pwm: { 1: [102, 1] },
   zonesNow: [{ id: 'cpu', name: 'CPU', unit: 'pct', level: 40, full: false, warmest: { id: CPU_SRC('Package id 0'), label: 'Package id 0', c: CORE.temps.find((t) => t.label === 'Package id 0').c, mapped: CORE.temps.find((t) => t.label === 'Package id 0').c, kind: 'cpu' }, asleep: 0,
     fans: [{ id: P(1), name: 'CPU-Kühler', output: 1, pct: 40, rpm: 740, held: true, foreign: false }] }], rpm: { 1: 740 } });
+// round 13b: disks outside array and pools (devs.ini) — one the Unassigned Devices plugin names, two alike without a
+// name (one asleep, one a VM uses while Unraid shows no temperature); the named one is a heat source of the disk cage
+const DISKS_UD = [
+  { name: 'parity', type: 'parity', rotational: true, asleep: false, temp: 38, warn: 45, crit: 55 },
+  { name: 'disk1', type: 'data', rotational: true, asleep: true, temp: null, warn: 45, crit: 55 },
+  { name: 'disk2', type: 'data', rotational: true, asleep: false, temp: 41, warn: 40, crit: 50 },
+  { name: 'cache', type: 'pool', rotational: false, asleep: false, temp: 46, warn: 60, crit: 70 },
+  { name: 'ud-3f9a6c21d07e', type: 'unassigned', rotational: true, asleep: false, temp: 36, device: 'sdx', label: 'Familienfilme', size: 16000900608000, in_use: false, warn: 45, crit: 55 },
+  { name: 'ud-a41b77e09c52', type: 'unassigned', rotational: true, asleep: true, temp: null, device: 'sdy', label: null, size: 14000519643136, in_use: false, warn: 45, crit: 55 },
+  { name: 'ud-5d2e80f1b6a3', type: 'unassigned', rotational: true, asleep: false, temp: null, device: 'sdz', label: null, size: 14000519643136, in_use: true, warn: 45, crit: 55 },
+];
+files['fanboy-uxdevs'] = state({ ite: ite({}, RPM), fans: SET_UP, disks: DISKS_UD, who: { who: 'bios', why: 'not_armed' },
+  zones: [{ ...ZONES[0], sources: [...ZONES[0].sources, { kind: 'disk', id: 'ud-3f9a6c21d07e', low: null, high: null, limit: null }, { kind: 'disk', id: 'ud-5d2e80f1b6a3', low: null, high: null, limit: null }] }, ZONES[1]] });
 // round 12 fix, the net: the SSD of the pool is in no zone and warm — every fan he steers at 60 % or more, said in the banner and under «Zuletzt»
 {
   const st = steering({ pwm: { 2: [153, 1], 4: [153, 1], 5: [153, 1] }, rpm: { 4: 1240, 5: 1090 }, notes: [...NOTES, { code: 'net', params: { source: 'cache', c: 61 }, at: T0 - 90 }] });

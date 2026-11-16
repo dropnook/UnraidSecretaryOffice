@@ -552,6 +552,20 @@ function testFanboyUx(): void
             str_contains($l['de']['errors.fanboy_bad_count'], 'Zwischen 1 und ' . FANBOY_COUNT_MAX) && str_contains($l['en']['errors.fanboy_bad_count'], (string) FANBOY_COUNT_MAX),
             str_contains($l['de']['strip.since'], 'höchstens ' . (int) (FANBOY_UP_FOR / 60) . ' Minute')]);
     same('fanboy ux audit: the spans the history offers are the agent\'s', FANBOY_HISTORY_PERIODS, preg_match('/const PERIODS = \[([^\]]+)\];/', $js, $m) ? array_map('intval', explode(',', $m[1])) : []);
+    // round 13b on the page: the disks outside array and pools
+    $devs = json_decode((string) file_get_contents(dirname(__DIR__) . '/tests/ui/demo/fanboy-uxdevs.json'), true);
+    check('fanboy ux r13b: disks outside array and pools are a group of their own among a zone\'s heat sources («Nicht zugewiesen / an VMs»), named by the plugin\'s name or «Nicht zugewiesen · size» — never by their id',
+        str_contains($js, "[...kinds.slice(0, 2), 'unassigned', ...kinds.slice(2)].forEach((k) => {") && str_contains($js, "if (/^ud-/.test(s.id)) return udLabel(s.id);")
+        && str_contains($js, "T('src.unassigned_n', { size, n: alike.findIndex((y) => y.id === id) + 1 }) : T('src.unassigned', { size });")
+        && ($l['de']['src_group.unassigned'] ?? '') === 'Nicht zugewiesen / an VMs');
+    check('fanboy ux r13b: a disk in use without a temperature says so («in Gebrauch, Temperatur unbekannt») — among the heat sources, in the sensors\' list, in sentences; the help says what Unraid cannot see',
+        str_contains($js, "const srcReads = (x) => (num(x.c) !== null ? T('temp', { c: fmt.number(x.c) }) : x.in_use ? T('src.in_use') : x.asleep ? T('pic.asleep') : '');")
+        && str_contains($js, "if (x.in_use) meta.appendChild(chipOfText('warn', T('src.in_use'), T('src.in_use_title')));") && ($l['de']['src.in_use'] ?? '') === 'in Gebrauch, Temperatur unbekannt'
+        && str_contains((string) ($l['de']['help.vm_disks_text'] ?? ''), 'als Ganzes an eine VM durchgereicht'));
+    $udSrc = array_values(array_filter($devs['setup']['sources'] ?? [], fn ($x) => ($x['group'] ?? null) === 'unassigned'));
+    check('fanboy ux r13b: the demo state carries such disks as the agent lists them (group, name|null, size, in_use) and no serial',
+        count($udSrc) === 3 && array_keys($udSrc[0]) === ['kind', 'id', 'label', 'c', 'asleep', 'group', 'name', 'size', 'in_use'] && $udSrc[2]['in_use'] === true && $udSrc[1]['name'] === null
+        && count(array_filter($udSrc, fn ($x) => !preg_match('/^ud-[0-9a-f]{12}$/D', $x['id']))) === 0);
     check('fanboy ux: no text of the page speaks of a «card» or of «More» any more (de, en)', !preg_match('/\bKarte\b|«Mehr»/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de'])))
         && !preg_match('/(?<!graphics )\bcards?\b|«More»/i', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['en']))));
     // the owner, 2026-11-15: «kein AI-Slop, der nicht stimmt» — no sentence names a number the state doesn't give

@@ -1081,5 +1081,11 @@
   "curve.follows": "Los ventiladores siguen ahora: {kind} · {source} {c} °C → {value}",
   "zones.curve_no_source": "Dale primero a la zona una fuente de calor — después su curva aparece aquí.",
   "why.alarm_watch": "Alarma: un ventilador de la BIOS está parado",
-  "bubble.alarm_watch": "Un ventilador que regula la BIOS está parado — ahí solo puedo mirar. Échale un vistazo, por favor."
+  "bubble.alarm_watch": "Un ventilador que regula la BIOS está parado — ahí solo puedo mirar. Échale un vistazo, por favor.",
+  "src_group.unassigned": "Sin asignar / usados por VM",
+  "src_group.unassigned_tip": "Discos fuera del array y de los pools, tal como los lista Unraid. Los discos de un controlador pasado entero a una VM Unraid no los ve — por eso Fanboy no puede tomarlos como fuentes de calor.",
+  "src.in_use": "en uso, temperatura desconocida",
+  "src.in_use_title": "En este disco se lee o se escribe, pero Unraid no muestra su temperatura. En una zona cuenta como un sensor que no indica nada: al cabo de un rato la zona pasa al 100 % con una alarma.",
+  "help.vm_disks": "Discos de una VM",
+  "help.vm_disks_text": "Los discos fuera del array y de los pools aparecen como «Sin asignar / usados por VM» y pueden ser fuentes de calor de una zona. Los discos de un controlador pasado entero a una VM Unraid no los ve — por eso Fanboy no puede tomarlos como fuentes de calor."
 }

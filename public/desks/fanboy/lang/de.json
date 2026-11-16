@@ -1081,5 +1081,11 @@
   "curve.follows": "Die Lüfter folgen gerade: {kind} · {source} {c} °C → {value}",
   "zones.curve_no_source": "Gib der Zone zuerst eine Wärmequelle — dann zeigt sich hier ihre Kurve.",
   "why.alarm_watch": "Alarm: ein Lüfter beim BIOS steht",
-  "bubble.alarm_watch": "Ein Lüfter, den das BIOS regelt, steht — bei dem kann ich nur zuschauen. Schau bitte nach."
+  "bubble.alarm_watch": "Ein Lüfter, den das BIOS regelt, steht — bei dem kann ich nur zuschauen. Schau bitte nach.",
+  "src_group.unassigned": "Nicht zugewiesen / an VMs",
+  "src_group.unassigned_tip": "Disks ausserhalb von Array und Pools, wie Unraid sie aufführt. Disks an einem Controller, der als Ganzes an eine VM durchgereicht ist, sieht Unraid nicht — Fanboy kann sie deshalb nicht als Wärmequelle nehmen.",
+  "src.in_use": "in Gebrauch, Temperatur unbekannt",
+  "src.in_use_title": "Auf dieser Disk wird gelesen oder geschrieben, aber Unraid zeigt keine Temperatur für sie. In einer Zone zählt sie wie ein Fühler, der nichts meldet: Nach einer Weile geht die Zone mit einem Alarm auf 100 %.",
+  "help.vm_disks": "Disks einer VM",
+  "help.vm_disks_text": "Disks ausserhalb von Array und Pools erscheinen als «Nicht zugewiesen / an VMs» und können Wärmequellen einer Zone sein. Disks an einem Controller, der als Ganzes an eine VM durchgereicht ist, sieht Unraid nicht — Fanboy kann sie deshalb nicht als Wärmequelle nehmen."
 }

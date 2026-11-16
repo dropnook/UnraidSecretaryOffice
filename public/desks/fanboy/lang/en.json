@@ -1081,5 +1081,11 @@
   "curve.follows": "The fans follow right now: {kind} · {source} {c} °C → {value}",
   "zones.curve_no_source": "Give the zone a heat source first — then its curve shows here.",
   "why.alarm_watch": "Alarm: a fan the BIOS steers stands",
-  "bubble.alarm_watch": "A fan the BIOS steers stands — I can only watch that one. Please have a look."
+  "bubble.alarm_watch": "A fan the BIOS steers stands — I can only watch that one. Please have a look.",
+  "src_group.unassigned": "Unassigned / used by VMs",
+  "src_group.unassigned_tip": "Disks outside the array and the pools, as Unraid lists them. Disks on a controller passed to a VM as a whole Unraid does not see — Fanboy cannot take those as heat sources.",
+  "src.in_use": "in use, temperature unknown",
+  "src.in_use_title": "This disk is being read or written, but Unraid shows no temperature for it. In a zone it counts like a sensor that says nothing: after a while the zone goes to 100 % with an alarm.",
+  "help.vm_disks": "Disks of a VM",
+  "help.vm_disks_text": "Disks outside the array and the pools show as «Unassigned / used by VMs» and can be heat sources of a zone. Disks on a controller passed to a VM as a whole Unraid does not see — Fanboy cannot take those as heat sources."
 }

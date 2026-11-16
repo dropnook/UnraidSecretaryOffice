@@ -1081,5 +1081,11 @@
   "curve.follows": "Le ventole seguono ora: {kind} · {source} {c} °C → {value}",
   "zones.curve_no_source": "Dai prima alla zona una fonte di calore — poi la sua curva appare qui.",
   "why.alarm_watch": "Allarme: una ventola del BIOS è ferma",
-  "bubble.alarm_watch": "Una ventola regolata dal BIOS è ferma — lì posso solo guardare. Dai un’occhiata, per favore."
+  "bubble.alarm_watch": "Una ventola regolata dal BIOS è ferma — lì posso solo guardare. Dai un’occhiata, per favore.",
+  "src_group.unassigned": "Non assegnati / usati da VM",
+  "src_group.unassigned_tip": "Dischi fuori dall’array e dai pool, come li elenca Unraid. I dischi su un controller passato per intero a una VM Unraid non li vede — Fanboy non può quindi usarli come fonti di calore.",
+  "src.in_use": "in uso, temperatura sconosciuta",
+  "src.in_use_title": "Su questo disco si legge o si scrive, ma Unraid non ne mostra la temperatura. In una zona conta come un sensore che non segnala nulla: dopo un po’ la zona va al 100 % con un allarme.",
+  "help.vm_disks": "Dischi di una VM",
+  "help.vm_disks_text": "I dischi fuori dall’array e dai pool compaiono come «Non assegnati / usati da VM» e possono essere fonti di calore di una zona. I dischi su un controller passato per intero a una VM Unraid non li vede — Fanboy non può quindi usarli come fonti di calore."
 }

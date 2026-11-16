@@ -284,11 +284,29 @@ function srcLabel(s) {
     if (m) return T('src.disk', { n: m[1] });
     const p = /^parity(\d*)$/.exec(s.id);
     if (p) return p[1] ? T('src.parity_n', { n: p[1] }) : T('src.parity');
+    if (/^ud-/.test(s.id)) return udLabel(s.id);
     return s.id;
   }
   const named = labels().get(s.id);
   return named || s.label || T(`kind.${has(`kind.${s.kind}`) ? s.kind : 'other'}`);
 }
+/**
+ * A disk outside the array and the pools (round 13b; the agent's fanboySourceNames()): the Unassigned Devices plugin's
+ * name for it, else «Nicht zugewiesen · 14.6 TB» — numbered when several without a name are the same size; never its id
+ */
+const udSize = (b) => (b / 1e12 >= 1 ? `${fmt.number(b / 1e12, b / 1e12 >= 10 ? 1 : 2)} TB` : `${fmt.number(b / 1e9)} GB`);
+function udLabel(id) {
+  const all = (setup().sources || []).filter((x) => x.group === 'unassigned');
+  const x = all.find((y) => y.id === id) || {};
+  const d = (S().disks || []).find((y) => y.name === id) || {};
+  const name = (typeof x.name === 'string' && x.name) || (typeof d.label === 'string' && d.label) || '';
+  if (name) return name;
+  const size = udSize(num(x.size) ?? num(d.size) ?? 0);
+  const alike = all.filter((y) => !y.name && udSize(num(y.size) ?? 0) === size);
+  return alike.length > 1 && alike.some((y) => y.id === id) ? T('src.unassigned_n', { size, n: alike.findIndex((y) => y.id === id) + 1 }) : T('src.unassigned', { size });
+}
+/** What a heat source reads, said after its name: its degrees, «asleep», or — a disk a VM uses while Unraid sees no temperature — «in use, temperature unknown» */
+const srcReads = (x) => (num(x.c) !== null ? T('temp', { c: fmt.number(x.c) }) : x.in_use ? T('src.in_use') : x.asleep ? T('pic.asleep') : '');
 /**
  * Every sensor's name for the page, once per look: its own label, numbered when several of a kind share it («Composite ·
  * 2» for the second NVMe); one without a label of its own (the agent names it by its chip, «spd5118 #1») by its kind and
@@ -663,7 +681,7 @@ function picture() {
   const su = setup();
   const src = new Map((su.sources || []).map((s) => [s.id, s]));
   const asSource = (s) => ({ id: s.id, label: srcLabel(s), kind: s.kind === 'ssd' ? 'nvme' : s.kind, temp: num(s.c), asleep: !!s.asleep, limit: srcLimit(s),
-    title: s.asleep ? T('pic.asleep_title') : '' });
+    title: s.in_use ? T('src.in_use_title') : s.asleep ? T('pic.asleep_title') : '' });
   const zones = [];
   const zonesNow = new Map((control().zones || []).map((z) => [z.id, z]));
   (su.zones || []).forEach((z) => {
@@ -1081,7 +1099,7 @@ function sensorRows() {
     out.push({ id: sid, name: sid ? srcLabel(src.find((y) => y.id === sid)) : x.label || T('sensors.row', { n: x.n }), label: x.label, chip: c, kind: c.kind, c: x.c,
       key: `${c.address}:${x.n}`, feature: `temp${x.n}` });
   }));
-  (S().disks || []).forEach((d) => out.push({ id: d.name, name: srcLabel({ kind: 'disk', id: d.name }), chip: null, kind: 'disk', c: d.temp, asleep: d.asleep, key: `disk:${d.name}`, disk: d.name,
+  (S().disks || []).forEach((d) => out.push({ id: d.name, name: srcLabel({ kind: 'disk', id: d.name }), chip: null, kind: 'disk', c: d.temp, asleep: d.asleep, in_use: d.in_use === true, key: `disk:${d.name}`, disk: d.name,
     rot: d.rotational !== false, warn: num(d.warn), crit: num(d.crit) }));
   out.forEach((x) => { x.zones = x.id ? (setup().zones || []).filter((z) => (z.sources || []).some((y) => y.id === x.id)) : []; });
   return out;
@@ -1112,7 +1130,8 @@ function sensorRow(x, place) {
   const n = x.chip ? nameOf(x.chip, x.feature) : null;
   if (n && n.label) meta.appendChild(chipOfText('quiet', `«${n.label}»`, T('hints.names')));
   if (n && n.ignore) meta.appendChild(chipOfText('quiet', T('hints.names_hidden'), T('hints.names')));
-  if (x.asleep) meta.appendChild(chipOfText('quiet', T('sensors.asleep'), T('sensors.asleep_title')));
+  if (x.in_use) meta.appendChild(chipOfText('warn', T('src.in_use'), T('src.in_use_title')));
+  else if (x.asleep) meta.appendChild(chipOfText('quiet', T('sensors.asleep'), T('sensors.asleep_title')));
   else if (x.c === null || x.c === undefined) meta.appendChild(chipOfText('quiet', T('sensors.no_value'), T('sensors.no_value_title')));
   if (inAlarm(x)) meta.appendChild(chipOfText('warn', T('sensors.too_warm'), T('sensors.too_warm_title')));
   x.zones.forEach((z) => meta.appendChild(chipOfText('accent', z.name, T('sensors.in_zone'))));
@@ -2967,7 +2986,7 @@ function uncoveredNow(zones) {
   return all.filter((x) => NET_KINDS.includes(x.kind) && !inZones.has(x.id));
 }
 /** A heat source said in a sentence: its name and what it reads now (asleep: said, never a number) */
-const srcSay = (x) => `${srcLabel(x)}${num(x.c) !== null ? ` (${T('temp', { c: fmt.number(Math.round(x.c)) })})` : x.asleep ? ` (${T('pic.asleep')})` : ''}`;
+const srcSay = (x) => `${srcLabel(x)}${num(x.c) !== null ? ` (${T('temp', { c: fmt.number(Math.round(x.c)) })})` : x.in_use ? ` (${T('src.in_use')})` : x.asleep ? ` (${T('pic.asleep')})` : ''}`;
 /** «These heat sources are in no zone: …» — the sentence, its numbers marked for the check, and what the caller adds */
 function uncoveredBox(loose, ...more) {
   const p = el('div', 'callout warn fb-callout fb-uncovered');
@@ -3081,14 +3100,17 @@ function zoneCard(z, i, zones, ours) {
   const kinds = ['disk', 'ssd', 'nvme', 'cpu', 'ram', 'board', 'gpu', 'other'];
   const srcBox = el('div', 'fb-sources');
   const inZone = new Set((z.sources || []).map((s) => s.id));
-  kinds.forEach((k) => {
-    const list = (setup().sources || []).filter((s) => (s.kind === k) || (k === 'other' && !kinds.slice(0, -1).includes(s.kind)));
+  // round 13b: the disks outside array and pools (a VM's, or not assigned) are a group of their own, after the SSDs
+  [...kinds.slice(0, 2), 'unassigned', ...kinds.slice(2)].forEach((k) => {
+    const loose2 = (s) => s.group === 'unassigned';
+    const list = (setup().sources || []).filter((s) => (k === 'unassigned' ? loose2(s) : !loose2(s) && ((s.kind === k) || (k === 'other' && !kinds.slice(0, -1).includes(s.kind)))));
     if (!list.length) return;
     const g = el('div', 'fb-src-group');
-    g.appendChild(el('span', 'fb-src-kind', T(`kind.${k}`)));
+    g.appendChild(el('span', 'fb-src-kind', k === 'unassigned' ? T('src_group.unassigned') : T(`kind.${k}`)));
+    if (k === 'unassigned') g.title = T('src_group.unassigned_tip');
     list.forEach((s) => {
       const on = inZone.has(s.id);
-      const b2 = el('button', 'fb-src' + (on ? ' on' : ''), `${srcLabel(s)}${num(s.c) !== null ? ' · ' + T('temp', { c: fmt.number(s.c) }) : s.asleep ? ' · ' + T('pic.asleep') : ''}`);
+      const b2 = el('button', 'fb-src' + (on ? ' on' : ''), [srcLabel(s), srcReads(s)].filter(Boolean).join(' · '));
       b2.type = 'button';
       b2.setAttribute('aria-pressed', on ? 'true' : 'false');
       b2.dataset.own = '1';
@@ -3714,7 +3736,7 @@ function render() {
     pages: { list: PAGES(), current: page } });
   if (page === 'setup') {
     const help = Office.pageHelp(`${ID}-setup`, [[T('help.setup'), T('help.setup_text')], [T('help.safe'), T('help.safe_text')], [T('help.quiet'), T('help.quiet_text')],
-      [T('help.later'), T('help.later_text')]]);
+      [T('help.later'), T('help.later_text')], [T('help.vm_disks'), T('help.vm_disks_text')]]);
     const ssw = setupSwitcher();
     view.replaceChildren(head, help, ssw.el);
     if (banner.parentNode !== ssw.el || banner.nextSibling !== ssw.body) ssw.el.insertBefore(banner, ssw.body);
