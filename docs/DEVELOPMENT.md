@@ -1036,7 +1036,7 @@ the last 60 history lines only for a source the file has none for. **The file
   rows beside ONE panel for the row at hand and a next bar with one primary button (`listPanel()`: steps 2 and 3, built
   once and patched in place — a look replaces no node under a finger; the zones as a list and one zone's panel; rows to
   read in steps 1 and 6). Step 2's panel: «What is it?» as buttons, name, place, count, the CPU cooler's own block
-  («Back to the BIOS» there), two folds named for what they hold (model and colour, «when giving back»); while an
+  («Back to the BIOS» there), two folds named for what they hold (the look, «when giving back»); while an
   output runs «Found — next» / «Heard nothing — next» answer the louder-question (`step_next {fan, heard}`: the agent
   stores it with the verdict). Its actions go through `send()` (queued, never dropped; a refusal stays in the strip's second line;
   the clicked button carries the wave until the agent answers); selects and text fields via `inputEl()` (office.css
@@ -1048,8 +1048,17 @@ the last 60 history lines only for a source the file has none for. **The file
   meanwhile); how a run ended is said only while it is news (`freshEnd()`), and an output «at 100 % for safety» only
   from the state's `safety`; a fan's name is its title once given, its output the small line under it (`fanName()`,
   `outName()`, `fanSay()` = «Name (Output 4)» in sentences). A running step is kept alive by the page (`step_alive` every 15 s, only while a page of his is shown);
-  ended by the page gone it says so. Pictures and CPU: `tools/fanboy/desk.mjs` (`--only 'ux-*'` for the setup's
-  states); demo states: `tools/fanboy/demo-states.mjs`.
+  ended by the page gone it says so. **A fan's look** (2026-11-16): the model only proposes (`cat.look`); frame colour,
+  blades' colour, blade shape and number of blades are the user's, each saved alone (`fan_look` frame | wheel | style |
+  blades) and composed in `fanLook()`; the page's lists `LOOK_COLOURS` / `LOOK_STYLES` equal fan-art.js's (a test
+  compares). **Heat sources no zone covers** (the agent's net): the zones step and «take over» say them from the
+  state's `uncovered` (on an unsaved draft the same rule, `NET_KINDS` = `FANBOY_NET_KINDS`), `take_over` carries
+  `uncovered_ok` only after the dialog's yes; the banner says `control.net`. **The curve** (`fan-art.js curve()`): each
+  point's exact values as a label and as typed fields (`fields`, `texts.label`), a tick per degree. **No sentence of the
+  page states a number or a behaviour that is not the state's or a tested agent path's**: sentences with numbers carry
+  `data-nums` (value + the state's path), compared with the demo state by `tools/fanboy/desk.mjs` (`--no-nums` skips).
+  Pictures and CPU: `tools/fanboy/desk.mjs` (`--only 'ux-*'` for the setup's states); demo states:
+  `tools/fanboy/demo-states.mjs`.
   **Round 4:** an SSD/NVMe pool member is its own kind `ssd` (not the hard disks' scale); per zone «Temperaturen» per kind
   (`kinds`: low/high/limit, strict, low < high < limit per source) and the reaction (`react` balanced|quick: up at once,
   the way down by the leading kind's `FANBOY_DOWN_PROFILES`); the CPU cooler only on the owner's dated, ticked opt-in
