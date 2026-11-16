@@ -1134,5 +1134,6 @@
   "bubble.hub_look": "Look closely: I ask you whether every fan on this connector does it. «Stop everything» puts every fan back at once.",
   "zones.hub_same": "They are the same fans",
   "zones.hub_same_tip": "The same model on every plug of this connector: what was measured counts for all of them, and he may stand like any measured fan",
-  "zones.hub_look_tip": "Opens step 3 at this fan: there Fanboy shows you whether all fans on the connector start again"
+  "zones.hub_look_tip": "Opens step 3 at this fan: there Fanboy shows you whether all fans on the connector start again",
+  "src.unassigned_name": "Unassigned · {name}"
 }

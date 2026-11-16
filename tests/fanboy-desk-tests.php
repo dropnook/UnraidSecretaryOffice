@@ -556,7 +556,7 @@ function testFanboyUx(): void
     $devs = json_decode((string) file_get_contents(dirname(__DIR__) . '/tests/ui/demo/fanboy-uxdevs.json'), true);
     check('fanboy ux r13b: disks outside array and pools are a group of their own among a zone\'s heat sources («Nicht zugewiesen / an VMs»), named by the plugin\'s name or «Nicht zugewiesen · size» — never by their id',
         str_contains($js, "[...kinds.slice(0, 2), 'unassigned', ...kinds.slice(2)].forEach((k) => {") && str_contains($js, "if (/^ud-/.test(s.id)) return udLabel(s.id);")
-        && str_contains($js, "T('src.unassigned_n', { size, n: alike.findIndex((y) => y.id === id) + 1 }) : T('src.unassigned', { size });")
+        && str_contains($js, "return nth ? T('src.unassigned_n', { size, n: nth }) : T('src.unassigned', { size });")
         && ($l['de']['src_group.unassigned'] ?? '') === 'Nicht zugewiesen / an VMs');
     check('fanboy ux r13b: a disk in use without a temperature says so («in Gebrauch, Temperatur unbekannt») — among the heat sources, in the sensors\' list, in sentences; the help says what Unraid cannot see',
         str_contains($js, "const srcReads = (x) => (num(x.c) !== null ? T('temp', { c: fmt.number(x.c) }) : x.in_use ? T('src.in_use') : x.asleep ? T('pic.asleep') : '');")
@@ -599,6 +599,9 @@ function testFanboyUx(): void
     check('fanboy ux r14: where the zones say a hub fan may not stand yet, the way out is right there — «Es sind gleiche Lüfter» (role {alike: true}) or «Mit den Augen prüfen» (step 3 opened at this fan, which the list also follows while the look runs)',
         str_contains($js, "if (f.hub && f.hub.mixed && !f.hub.ok && !f.hub.not_safe && no === T('zones.stand_hub')) {") && str_contains($js, "act('role', { fan: id, role: f.role, alike: true, off_ok: !!f.off_ok }, null)")
         && str_contains($js, "setupSwitcher().pick('measure'); drawn = ''; redraw(); if (mbench) mbench.select(id);") && str_contains($js, "follow: (run) => (run.kind === 'measure' || run.kind === 'hub' ? run.id : ''),"));
+    check('fanboy ux uncovered: a calm hint, not an alarm (never the warn look); an unassigned disk with a name like «dev1» says what it is outside its group («Nicht zugewiesen · dev1»)',
+        str_contains($js, "const p = el('div', 'callout fb-callout fb-uncovered');") && !str_contains($js, "'callout warn fb-callout fb-uncovered'")
+        && str_contains($js, "if (name) return bare ? name : T('src.unassigned_name', { name });") && ($l['de']['src.unassigned_name'] ?? '') === 'Nicht zugewiesen · {name}');
     check('fanboy ux: no text of the page speaks of a «card» or of «More» any more (de, en)', !preg_match('/\bKarte\b|«Mehr»/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de'])))
         && !preg_match('/(?<!graphics )\bcards?\b|«More»/i', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['en']))));
     // the owner, 2026-11-15: «kein AI-Slop, der nicht stimmt» — no sentence names a number the state doesn't give

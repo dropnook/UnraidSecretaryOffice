@@ -134,6 +134,9 @@ const PICTURES = [
   ['ux-4-2-zones', 'fanboy-ready', 'fanboy/setup/zones', null, false],
   ['ux-4-4-zones-kinds', 'fanboy-steering', 'fanboy/setup/zones', '.fb-item[data-row=case]', false],       // round 13: one chart, a curve per kind, who leads
   ['ux-4-5-zones-devs', 'fanboy-uxdevs', 'fanboy/setup/zones', null, false],                               // round 13b: «Nicht zugewiesen / an VMs», «in Gebrauch, Temperatur unbekannt»
+  ['ux-4-6-zones-hub', 'fanboy-uxhub', 'fanboy/setup/zones', '.fb-item[data-row=case]', false],           // round 14: «darf stehen» waits — the way out right there
+  ['ux-4-7-zones-loose', 'fanboy-uxloose', 'fanboy/setup/zones', null, false],                             // four sleeping disks outside array and pools, in no zone: a calm hint
+  ['ux-5-3-take-loose', 'fanboy-uxloose', 'fanboy/setup/take', null, false, { settle: 1500 }],
   ['ux-2-8-alike', 'fanboy-uxhub', 'fanboy/setup/test', '.fb-item[data-row$=pwm5]', false],                // round 14: «Gleiche Lüfter an allen Steckern?»
   ['ux-3-5-hub', 'fanboy-uxhub', 'fanboy/setup/measure', '.fb-item[data-row$=pwm5]', false],               // … the margin in words, «Mit den Augen prüfen»
   ['ux-3-6-hub-look', 'fanboy-uxhublook', 'fanboy/setup/measure', '.fb-item[data-row$=pwm5]', false],      // … the look running: «Drehen alle Lüfter bei 40 %?»
