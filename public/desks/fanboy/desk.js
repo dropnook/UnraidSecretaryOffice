@@ -3324,6 +3324,7 @@ function zonePts(z) {
   return presetsOn(kv.low, kv.high)[tgt.preset || 'normal'];
 }
 /** The zone's curve: quiet, normal, cool — or its own, dragged; percent, or rpm where every fan is measured */
+let curveFocus = null;           // the curve's typed field he is in while its chart is built anew (zone, point, axis)
 function curvePart(z, i) {
   const box = el('div', 'fb-curve-part');
   box.appendChild(el('h4', 'fb-sub', T('zones.curve')));
@@ -3392,12 +3393,22 @@ function curvePart(z, i) {
         axisT: T('curve.axis_t'), axisV: rpmUnit ? T('curve.axis_rpm') : T('curve.axis_pct'), tickT: (x) => `${x}°`, tickV: (v) => (rpmUnit ? fmt.number(v) : `${v} %`),
         point: (k, n) => T('curve.point', { i: k + 1, n }), value: (x, v) => (rpmUnit ? T('curve.value_rpm', { t: x, v: fmt.number(v) }) : T('curve.value_pct', { t: x, v })),
         readout: (x, v, r) => T('curve.readout', { t: x, v: rpmUnit ? T('pic.rpm', { rpm: fmt.number(v) }) : T('value', { pct: Math.round(v) }), rpm: fmt.number(Math.round(r || 0)) }),
-        floor: rpmUnit ? T('curve.floor') : T('curve.floor_min', { pct: floorPct }), now: nowC !== null ? T('curves.now', { c: fmt.number(nowC) }) : '',
+        // the live mark with the degrees as they are read (a tenth where the sensor gives one), never rounded away
+        floor: rpmUnit ? T('curve.floor') : T('curve.floor_min', { pct: floorPct }), now: nowC !== null ? T('curves.now', { c: fmt.number(nowC, Number.isInteger(nowC) ? 0 : 1) }) : '',
+        // exact degrees (2026-11-16, the owner): every point says its values beside it and can be typed below the chart
+        label: (x, v) => (rpmUnit ? T('curve.label_rpm', { t: x, v: fmt.number(v) }) : T('curve.label_pct', { t: x, v })),
+        field: (k) => T('curve.field', { i: k + 1 }), fieldT: (k) => T('curve.field_t', { i: k + 1 }), fieldV: (k) => T(rpmUnit ? 'curve.field_v_rpm' : 'curve.field_v_pct', { i: k + 1 }),
+        unitT: T('curve.unit_c'), unitV: T(rpmUnit ? 'curve.unit_rpm' : 'curve.unit_pct'),
       },
+      fields: true,
+      onField: (inp) => { inp.classList.add('input', 'small', 'fb-input'); inp.dataset.fbKeep = '1'; },
       // dragging a preset makes it the zone's own curve; kept on the page until «Save»
       onChange: (p) => {
         const zs = zonesNow();
         if (!zs[i]) return;
+        // (a typed point may move the chart's scale, and the chart is then built anew: the field he went on to is remembered)
+        const a = document.activeElement;
+        curveFocus = a && a.dataset && a.dataset.axis && c.el.contains(a) ? { zone: z.id, i: a.closest('.fan-curve-field').dataset.i, axis: a.dataset.axis } : null;
         zs[i].target = { points: p.map((x) => [x.t, x.v]) };
         zdraft = zs;
         cv.key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|true||${floor}|${stands}|${kv.low}|${kv.high}`;
@@ -3407,7 +3418,12 @@ function curvePart(z, i) {
     });
     cv = { c, key };
     curves.set(z.id, cv);
+    if (curveFocus && curveFocus.zone === z.id) {
+      const want = curveFocus;
+      setTimeout(() => { const inp = c.el.querySelector(`.fan-curve-field[data-i="${want.i}"] input[data-axis="${want.axis}"]`); if (inp && inp.isConnected) { inp.focus({ preventScroll: true }); inp.select(); } }, 0);
+    }
   }
+  curveFocus = null;
   cv.c.el.classList.add('fb-curve-edit');
   box.appendChild(cv.c.el);
   if (!rpmUnit) {

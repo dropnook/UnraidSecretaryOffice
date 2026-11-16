@@ -492,7 +492,7 @@
   "zones.src_in": "Take into this zone",
   "zones.src_out": "Take out of this zone",
   "zones.curve": "Curve",
-  "zones.curve_sub": "Drag a point, or focus it and use the arrow keys. The wheel turns as the fan would at that temperature.",
+  "zones.curve_sub": "Drag a point, focus it and use the arrow keys, or type its values below. The wheel turns as the fan would at that temperature.",
   "zones.target": "Target",
   "zones.unit": "In",
   "zones.unit_pct": "Percent",
@@ -1049,5 +1049,14 @@
   "net.on": "A heat source outside the zones is warm: {source} {c} °C — every fan Fanboy steers runs at {level} % or more.",
   "note.net": "Outside the zones, {source} was warm at {c} °C — the fans ran faster",
   "note.net_over": "{source} is cool again — the fans follow their zones again",
-  "zones.uncovered_into": "Add to «{zone}»:"
+  "zones.uncovered_into": "Add to «{zone}»:",
+  "curve.label_pct": "{t} °C · {v} %",
+  "curve.label_rpm": "{t} °C · {v} rpm",
+  "curve.field": "Point {i}",
+  "curve.field_t": "Point {i}: temperature in °C",
+  "curve.field_v_pct": "Point {i}: speed in percent",
+  "curve.field_v_rpm": "Point {i}: speed in rpm",
+  "curve.unit_c": "°C",
+  "curve.unit_pct": "%",
+  "curve.unit_rpm": "rpm"
 }

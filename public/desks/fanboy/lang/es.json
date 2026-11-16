@@ -492,7 +492,7 @@
   "zones.src_in": "Meter en esta zona",
   "zones.src_out": "Sacar de esta zona",
   "zones.curve": "Curva",
-  "zones.curve_sub": "Arrastra un punto, o selecciónalo y usa las flechas. La rueda gira como giraría el ventilador a esa temperatura.",
+  "zones.curve_sub": "Arrastra un punto, selecciónalo y usa las flechas, o escribe sus valores abajo. La rueda gira como giraría el ventilador a esa temperatura.",
   "zones.target": "Objetivo",
   "zones.unit": "En",
   "zones.unit_pct": "Porcentaje",
@@ -1049,5 +1049,14 @@
   "net.on": "Una fuente de calor fuera de las zonas está caliente: {source} {c} °C — todos los ventiladores que Fanboy regula giran al {level} % como mínimo.",
   "note.net": "Fuera de las zonas, {source} estaba caliente con {c} °C — los ventiladores giraban más rápido",
   "note.net_over": "{source} vuelve a estar fresca — los ventiladores siguen de nuevo sus zonas",
-  "zones.uncovered_into": "Añadir a «{zone}»:"
+  "zones.uncovered_into": "Añadir a «{zone}»:",
+  "curve.label_pct": "{t} °C · {v} %",
+  "curve.label_rpm": "{t} °C · {v} rpm",
+  "curve.field": "Punto {i}",
+  "curve.field_t": "Punto {i}: temperatura en °C",
+  "curve.field_v_pct": "Punto {i}: revoluciones en porcentaje",
+  "curve.field_v_rpm": "Punto {i}: revoluciones por minuto",
+  "curve.unit_c": "°C",
+  "curve.unit_pct": "%",
+  "curve.unit_rpm": "rpm"
 }

@@ -492,7 +492,7 @@
   "zones.src_in": "In diese Zone nehmen",
   "zones.src_out": "Aus dieser Zone nehmen",
   "zones.curve": "Kurve",
-  "zones.curve_sub": "Zieh einen Punkt, oder fokussier ihn und nimm die Pfeiltasten. Das Rad dreht, wie der Lüfter bei dieser Temperatur drehen würde.",
+  "zones.curve_sub": "Zieh einen Punkt, fokussier ihn und nimm die Pfeiltasten, oder tipp seine Werte unten ein. Das Rad dreht, wie der Lüfter bei dieser Temperatur drehen würde.",
   "zones.target": "Ziel",
   "zones.unit": "In",
   "zones.unit_pct": "Prozent",
@@ -1049,5 +1049,14 @@
   "net.on": "Eine Wärmequelle ausserhalb der Zonen ist warm: {source} {c} °C — alle Lüfter, die Fanboy regelt, drehen mit mindestens {level} %.",
   "note.net": "Ausserhalb der Zonen war {source} mit {c} °C warm — die Lüfter drehten schneller",
   "note.net_over": "{source} ist wieder kühl — die Lüfter folgen wieder ihren Zonen",
-  "zones.uncovered_into": "In «{zone}» aufnehmen:"
+  "zones.uncovered_into": "In «{zone}» aufnehmen:",
+  "curve.label_pct": "{t} °C · {v} %",
+  "curve.label_rpm": "{t} °C · {v} U/min",
+  "curve.field": "Punkt {i}",
+  "curve.field_t": "Punkt {i}: Temperatur in °C",
+  "curve.field_v_pct": "Punkt {i}: Drehzahl in Prozent",
+  "curve.field_v_rpm": "Punkt {i}: Drehzahl in U/min",
+  "curve.unit_c": "°C",
+  "curve.unit_pct": "%",
+  "curve.unit_rpm": "U/min"
 }

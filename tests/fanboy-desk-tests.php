@@ -462,6 +462,21 @@ function testFanboyUx(): void
     check('fanboy ux net: the notes «net» and «net_over» have their words (the agent\'s params: source, c); the demo state shows the net as the agent reports it',
         str_contains((string) ($l['de']['note.net'] ?? ''), '{source}') && str_contains((string) ($l['de']['note.net'] ?? ''), '{c}') && str_contains((string) ($l['de']['note.net_over'] ?? ''), '{source}')
         && array_keys($demoNet['control']['net'] ?? []) === ['level', 'since', 'source', 'clearing'] && array_keys($demoNet['control']['net']['source']) === ['id', 'label', 'kind', 'c', 'warm', 'limit']);
+    // exact degrees on the curve (2026-11-16, the owner): each point says its values, the scale is fine enough to aim, every point can be typed
+    check('fanboy ux curve: every point carries its exact values beside it («43 °C · 31 %») — where there is room, the active one always; never on another point, clear of the finger while dragged',
+        str_contains($art, 'function labelsPaint() {') && str_contains($art, "const box = free || (i === active ? places[0] : null);") && str_contains($art, "const far = held ? 22 : 0;")
+        && str_contains($art, "!dotsAt.some((q, j) => j !== i && hit(k, q))") && str_contains($js, "label: (x, v) => (rpmUnit ? T('curve.label_rpm', { t: x, v: fmt.number(v) }) : T('curve.label_pct', { t: x, v })),")
+        && ($l['de']['curve.label_pct'] ?? '') === '{t} °C · {v} %');
+    check('fanboy ux curve: the degrees\' scale is as fine as its numbers have room (5 °C on a disk\'s scale), with a tick for every single degree; the pointer reads whole degrees',
+        str_contains($art, "const every = [1, 2, 5, 10, 20].find((n) => n * perDeg >= 42) || 20;") && str_contains($art, "class: 'fan-curve-minor'")
+        && str_contains($art, "const t = clamp(Math.round(tAt(px)), tMin, tMax);"));
+    check('fanboy ux curve: each point can be typed (degrees and value) — whole numbers, kept between its neighbours, shown as it counts; a field he is typing in is never overwritten and keeps the focus through the page\'s redraw',
+        str_contains($art, "if (Number.isFinite(n)) pts[k] = which === 't' ? fit(k, n, q.v) : fit(k, q.t, n);") && str_contains($art, "inp.value = String(which === 't' ? pts[k].t : pts[k].v);")
+        && str_contains($art, "if (document.activeElement !== inp && inp.value !== want) inp.value = want;") && str_contains($art, "setTimeout(() => emit(o.onChange), 0);")
+        && str_contains($js, "fields: true,") && str_contains($js, "onField: (inp) => { inp.classList.add('input', 'small', 'fb-input'); inp.dataset.fbKeep = '1'; },")
+        && str_contains($js, "curveFocus = a && a.dataset && a.dataset.axis && c.el.contains(a) ?"));
+    check('fanboy ux curve: the live mark says the degrees as they are read (a tenth where the sensor gives one)',
+        str_contains($js, "T('curves.now', { c: fmt.number(nowC, Number.isInteger(nowC) ? 0 : 1) })"));
     check('fanboy ux: no text of the page speaks of a «card» or of «More» any more (de, en)', !preg_match('/\bKarte\b|«Mehr»/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de'])))
         && !preg_match('/(?<!graphics )\bcards?\b|«More»/i', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['en']))));
     // the owner, 2026-11-15: «kein AI-Slop, der nicht stimmt» — no sentence names a number the state doesn't give
