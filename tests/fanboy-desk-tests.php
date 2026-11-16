@@ -547,7 +547,7 @@ function testFanboyUx(): void
     // «a point a minute», the look's minute) stays tied to the agent's constant here
     $timesJs = preg_match('/const TIMES = \{([^}]+)\};/', $js, $m) ? $m[1] : '';
     $mirror = [];
-    foreach (['up_for' => FANBOY_UP_FOR, 'show_for' => FANBOY_SHOW_FOR, 'lease' => FANBOY_STEP_LEASE, 'tell_after' => FANBOY_TELL_AFTER, 'idle_warm_after' => FANBOY_IDLE_WARM_AFTER, 'poll_live' => FANBOY_POLL_LIVE] as $k => $v) {
+    foreach (['up_for' => FANBOY_UP_FOR, 'show_for' => FANBOY_SHOW_FOR, 'lease' => FANBOY_STEP_LEASE, 'tell_after' => FANBOY_TELL_AFTER, 'idle_warm_after' => FANBOY_IDLE_WARM_AFTER, 'poll_live' => FANBOY_POLL_LIVE, 'clear_after' => FANBOY_CLEAR_AFTER] as $k => $v) {
         if (!preg_match('/\b' . $k . ': ' . (int) $v . '\b/', $timesJs)) {
             $mirror[] = $k;
         }
@@ -946,8 +946,8 @@ function testFanboyStandsKick(): void
             [$kicks <= FANBOY_KICK_MAX, fanboyTOut($t, 4)[0]]);
         fanboyTRounds($c, $now, $t, $stuck, 20);
         same('fanboy stands kick: … exactly one notification however long it stands', 1, count(array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, '-i alert'))));
-        check('fanboy stands kick: … in the words for a fan alone in its zone («… sets it to 100 % until it turns again and 2 more minutes have passed without an alarm reason»)',
-            (bool) array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, 'sets it to 100 % until it turns again and ' . (int) round(FANBOY_CLEAR_AFTER / 60) . ' more minutes have passed without an alarm reason')));
+        check('fanboy stands kick: … in the words for a fan alone in its zone («… sets it to 100 % until it turns again, and then for 2 more minutes»)',
+            (bool) array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, 'sets it to 100 % until it turns again, and then for ' . (int) round(FANBOY_CLEAR_AFTER / 60) . ' more minutes')));
         same('fanboy stands kick: … the other zone («Case») keeps steering by its curve during the alarm', [102, 102], [fanboyTOut($t, 5)[0], fanboyTOut($t, 2)[0]]);
         // freed: it turns — the alarm clears after FANBOY_CLEAR_AFTER, the curve again
         fanboyTRounds($c, $now, $t, $spec, (int) ceil(FANBOY_CLEAR_AFTER / FANBOY_ROUND) - 2);

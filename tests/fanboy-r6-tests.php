@@ -2987,7 +2987,7 @@ function testFanboyTimes(): void
         && str_contains($src, "['pause' => (int) FANBOY_CRASH_PAUSE, 'max' => FANBOY_CRASH_MAX, 'window' => (int) round(FANBOY_CRASH_WINDOW / 60)]")
         && str_contains($src, "finding('fanboy_alarm', 'recommended', \$running ? !\$alarm : null, ['min' => (int) round(FANBOY_CLEAR_AFTER / 60)]"));
     $holes = [];
-    $need = ['notify.alarm_stands' => '{min}', 'notify.alarm_stands_alone' => '{min}', 'notify.alarm_sensor' => '{min}', 'notify.missing' => '{min}', 'notify.missing_stuck' => '{min}',
+    $need = ['alarm.stands' => '{min}', 'alarm.stands_alone' => '{min}', 'alarm.sensor' => '{min}', 'notify.alarm_stands' => '{min}', 'notify.alarm_stands_alone' => '{min}', 'notify.alarm_sensor' => '{min}', 'notify.missing' => '{min}', 'notify.missing_stuck' => '{min}',
         'notify.idle_stands' => '{min}', 'notify.net_warm' => '{pct}', 'notify.crashed' => '{window}', 'check.fanboy_alarm_how' => '{min}', 'errors.fanboy_bad_name' => '{max}', 'errors.fanboy_bad_count' => '{max}'];
     foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
         $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$code.json"), true);
@@ -2998,6 +2998,15 @@ function testFanboyTimes(): void
         }
     }
     same('fanboy times: … and the words take them (no number written in)', [], $holes);
+    // 2026-11-16 (the owner): the alarm sentences «… bis er wieder dreht, und danach noch {min} Minuten» — the page's banner and
+    // the Dashboard tile take the minutes from the state's times.clear_after (an older agent: their mirrors, equal to the constant)
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $dash = (string) file_get_contents(OFFICE_DIR . '/src/dashboard-fanboy.php');
+    check('fanboy times: the alarm banner on his page and on the Dashboard tile name the minutes from the state\'s times.clear_after',
+        str_contains($js, "min: Math.round(timesNow().clear_after / 60) }), { alarm: c.alarm.code });")
+        && str_contains($dash, "(\$setup['times']['clear_after'] ?? null) : null) ?? FANBOY_DASH_CLEAR_AFTER;")
+        && str_contains($dash, "\$params['min'] = (string) (int) round(\$clear / 60);")
+        && str_contains($dash, 'const FANBOY_DASH_CLEAR_AFTER = ' . (int) FANBOY_CLEAR_AFTER . ';'));
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/lang/en.json'), true);
     check('fanboy times: the texts say what the code does — no «gave it back to the BIOS» (it gives back as set: the state before or the automatic), no «a restart gives them to the BIOS» as a fact, no 100 % for an alarm in general, no «never writes» for an output a quiet test stops',
         !str_contains($en['notify.foreign'], 'back to the BIOS') && !str_contains($en['notify.refuses'], 'back to the BIOS') && !str_contains($en['notify.crashed'], 'as it was before him')
