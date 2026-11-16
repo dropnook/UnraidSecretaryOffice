@@ -20,10 +20,9 @@ declare(strict_types=1);
  *   An agent restarting itself in place touches none of it: the control runs in a session of its own, the agent finds
  *   it again by its pid file (no flap).
  *
- * HIDDEN until the owner lets him out: desk.json "switch": "show.json" — the desk exists only where
- * <data folder>/fanboy/show.json lies (a plain file, any content, never a link). Without it: no desk() here (no action,
- * no fit, no check), and the web side (src/desks.php officeDeskSwitchedOn()) shows no tile, no route, no hiring. Letting
- * him out for everyone = removing the "switch" key from desk.json.
+ * A desk like the others (2026-11-16, the owner lets him out): listed, hired only on the user's click, steering nothing
+ * until his setup is done and the user hands the fans to him. The switch file of his hidden time
+ * (<data folder>/fanboy/show.json) means nothing any more — left where it lies, never read.
  *
  * The store (part 2 adds setup and control on top; keep this shape, add keys):
  *   <data folder>/fanboy/settings.json
@@ -43,83 +42,56 @@ const FANBOY_STORE = 'settings.json';
 const FANBOY_REPORT_MAX = 3500;                  // bytes: the wish form's text takes 4096, the user's words go above it
 const FANBOY_IPMI_FANS_MAX = 24;
 
-/** The switch file's name (desk.json "switch"), null once he is out for everyone */
-function fanboySwitchName(?string $web = null): ?string
-{
-    $s = readJson(($web ?? OFFICE_WEB) . '/desks/fanboy/desk.json')['switch'] ?? null;
-    return is_string($s) && preg_match('/^[a-z0-9_-]{1,32}\.json$/D', $s) ? $s : null;
-}
-
-/**
- * Is the desk there? Out for everyone (no "switch" in desk.json) — or the switch file lies in his data folder: a plain
- * file, never a link. The same rule as src/desks.php officeDeskSwitchedOn() (testFanboyHidden compares them).
- */
-function fanboyShown(?string $dataDir = null, ?string $web = null): bool
-{
-    $meta = readJson(($web ?? OFFICE_WEB) . '/desks/fanboy/desk.json');
-    if ($meta === null) {
-        return false;                   // his desk.json not readable: hidden (never shown by a mistake)
-    }
-    if (!array_key_exists('switch', $meta)) {
-        return true;
-    }
-    $s = fanboySwitchName($web);
-    $f = ($dataDir ?? DATA_DIR) . "/fanboy/$s";
-    return $s !== null && !is_link($f) && is_file($f);
-}
-
-if (fanboyShown()) {
-    desk('fanboy', [
-        'fit'     => fn (): array => fanboyFit(fanboyDetect()),
-        'start'   => fn () => fanboyStart(),
-        'tick'    => fn () => fanboyTick(),
-        'checks'  => fn (): array => fanboyChecks(fanboyBoardRaw(), readJson(fanboyStatusFile())),
-        'metrics' => fn (): array => fanboyMetrics(readJson(fanboyStatusFile()), fanboyControlPid() !== null),
-        'jobs'    => [
-            'fanboy-control' => fn (array $a): int => fanboyControlMain(),
-            'fanboy-step'    => fn (array $a): int => fanboyStepMain(),
-            'fanboy-show'    => fn (array $a): int => fanboyShowMain(),        // round 6: «show me this fan»
-            'fanboy-restore' => fn (array $a): int => fanboyRestoreMain(),     // round 9 (H2): a safety full undone, with a kick
-        ],
-        'actions' => [
-            'refresh' => fn (array $r) => ['ok' => true, 'state' => fanboyScan()],
-            // the text for the wish form: shown to the user in the form before anything goes (read only, like refresh)
-            'report'  => fn (array $r) => ['ok' => true, 'report' => fanboyReportText($scan = fanboyDetect(), fanboyIpmiFans($scan))],
-            // part 2: steering
-            'look_now'      => fn (array $r) => fanboyLookNow(),
-            'drivers_load'  => fn (array $r) => fanboyDriversLoad() + ['state' => fanboyScan()],
-            'drivers_undo'  => fn (array $r) => fanboyDriversUndo() + ['state' => fanboyScan()],
-            'test_up'       => fn (array $r) => fanboyStepStart('test_up', idList($r, 'fans'), optBool($r, 'quiet', false)),     // round 8: quiet
-            'measure'       => fn (array $r) => fanboyStepStart('measure', idList($r, 'fans')),
-            'step_alive'    => function (array $r): array { fanboyStepAliveTouch(); return ['ok' => true, 'step' => fanboyStepRead()]; },
-            'step_stop'     => fn (array $r) => fanboyStepStopAction(),
-            'step_next'     => fn (array $r) => fanboyStepNext($r),        // round 8: «Gefunden — weiter»
-            'hub_look'      => fn (array $r) => fanboyHubLookStart($r),     // round 14: several fans on one connector, looked at
-            'answer'        => fn (array $r) => fanboyAnswer($r),
-            'role'          => fn (array $r) => fanboyRole($r),
-            'fan_name'      => fn (array $r) => fanboyFanName($r),         // round 8: «Wo sitzt er?» while testing
-            'zones_propose' => fn (array $r) => ['ok' => true, 'zones' => fanboyZonesPropose($scan = fanboyDetect(), fanboyBoardRaw($scan['board']) ?? [])],
-            'zones_save'    => fn (array $r) => fanboyZonesSave($r),
-            'dry_run'       => fn (array $r) => fanboyDryRun(),
-            'take_over'     => fn (array $r) => fanboyTakeOver($r) + ['state' => fanboyScan()],       // round 12 fix: uncovered_ok
-            'hand_back'     => fn (array $r) => fanboyHandBack() + ['state' => fanboyScan()],
-            // part 3: the page's own small actions — «give back to» for a fan found on a fixed value, a fan's look
-            // (model, size, colour: pictures only), the history part for the curve view (read only)
-            'back'          => fn (array $r) => fanboyBack($r),
-            'fan_look'      => fn (array $r) => fanboyFanLook($r),
-            'history'       => fn (array $r) => ['ok' => true, 'state' => fanboyHistoryPart(fanboyHistoryHours($r))],
-            // his own tile on Unraid's Dashboard: off, speeds, speeds with history (fanboy-dash.php)
-            'dashboard'     => fn (array $r) => fanboyDashSet($r),
-            // round 6: «watch fans I don't steer» on or off (fanboy-watch.php)
-            'watch'         => fn (array $r) => fanboyWatchSet($r),
-            // round 6: «show me this fan» — an output to 100 % for 5 s, then back exactly (fanboy-show.php)
-            'show'          => fn (array $r) => fanboyShowStart($r),
-            'show_stop'     => fn (array $r) => fanboyShowStop($r),          // 4b: «Found it — stop»
-            'safety_back'   => fn (array $r) => fanboyRestoreStart($r),      // round 9 (H2): «Zurück auf den Wert von vorher»
-            'stop_all'      => fn (array $r) => fanboyStopAll(),             // round 9 (H4): «Alles stoppen»
-        ],
-    ]);
-}
+desk('fanboy', [
+    'fit'     => fn (): array => fanboyFit(fanboyDetect()),
+    'start'   => fn () => fanboyStart(),
+    'tick'    => fn () => fanboyTick(),
+    'checks'  => fn (): array => fanboyChecks(fanboyBoardRaw(), readJson(fanboyStatusFile())),
+    'metrics' => fn (): array => fanboyMetrics(readJson(fanboyStatusFile()), fanboyControlPid() !== null),
+    'jobs'    => [
+        'fanboy-control' => fn (array $a): int => fanboyControlMain(),
+        'fanboy-step'    => fn (array $a): int => fanboyStepMain(),
+        'fanboy-show'    => fn (array $a): int => fanboyShowMain(),        // round 6: «show me this fan»
+        'fanboy-restore' => fn (array $a): int => fanboyRestoreMain(),     // round 9 (H2): a safety full undone, with a kick
+    ],
+    'actions' => [
+        'refresh' => fn (array $r) => ['ok' => true, 'state' => fanboyScan()],
+        // the text for the wish form: shown to the user in the form before anything goes (read only, like refresh)
+        'report'  => fn (array $r) => ['ok' => true, 'report' => fanboyReportText($scan = fanboyDetect(), fanboyIpmiFans($scan))],
+        // part 2: steering
+        'look_now'      => fn (array $r) => fanboyLookNow(),
+        'drivers_load'  => fn (array $r) => fanboyDriversLoad() + ['state' => fanboyScan()],
+        'drivers_undo'  => fn (array $r) => fanboyDriversUndo() + ['state' => fanboyScan()],
+        'test_up'       => fn (array $r) => fanboyStepStart('test_up', idList($r, 'fans'), optBool($r, 'quiet', false)),     // round 8: quiet
+        'measure'       => fn (array $r) => fanboyStepStart('measure', idList($r, 'fans')),
+        'step_alive'    => function (array $r): array { fanboyStepAliveTouch(); return ['ok' => true, 'step' => fanboyStepRead()]; },
+        'step_stop'     => fn (array $r) => fanboyStepStopAction(),
+        'step_next'     => fn (array $r) => fanboyStepNext($r),        // round 8: «Gefunden — weiter»
+        'hub_look'      => fn (array $r) => fanboyHubLookStart($r),     // round 14: several fans on one connector, looked at
+        'answer'        => fn (array $r) => fanboyAnswer($r),
+        'role'          => fn (array $r) => fanboyRole($r),
+        'fan_name'      => fn (array $r) => fanboyFanName($r),         // round 8: «Wo sitzt er?» while testing
+        'zones_propose' => fn (array $r) => ['ok' => true, 'zones' => fanboyZonesPropose($scan = fanboyDetect(), fanboyBoardRaw($scan['board']) ?? [])],
+        'zones_save'    => fn (array $r) => fanboyZonesSave($r),
+        'dry_run'       => fn (array $r) => fanboyDryRun(),
+        'take_over'     => fn (array $r) => fanboyTakeOver($r) + ['state' => fanboyScan()],       // round 12 fix: uncovered_ok
+        'hand_back'     => fn (array $r) => fanboyHandBack() + ['state' => fanboyScan()],
+        // part 3: the page's own small actions — «give back to» for a fan found on a fixed value, a fan's look
+        // (model, size, colour: pictures only), the history part for the curve view (read only)
+        'back'          => fn (array $r) => fanboyBack($r),
+        'fan_look'      => fn (array $r) => fanboyFanLook($r),
+        'history'       => fn (array $r) => ['ok' => true, 'state' => fanboyHistoryPart(fanboyHistoryHours($r))],
+        // his own tile on Unraid's Dashboard: off, speeds, speeds with history (fanboy-dash.php)
+        'dashboard'     => fn (array $r) => fanboyDashSet($r),
+        // round 6: «watch fans I don't steer» on or off (fanboy-watch.php)
+        'watch'         => fn (array $r) => fanboyWatchSet($r),
+        // round 6: «show me this fan» — an output to 100 % for 5 s, then back exactly (fanboy-show.php)
+        'show'          => fn (array $r) => fanboyShowStart($r),
+        'show_stop'     => fn (array $r) => fanboyShowStop($r),          // 4b: «Found it — stop»
+        'safety_back'   => fn (array $r) => fanboyRestoreStart($r),      // round 9 (H2): «Zurück auf den Wert von vorher»
+        'stop_all'      => fn (array $r) => fanboyStopAll(),             // round 9 (H4): «Alles stoppen»
+    ],
+]);
 
 /**
  * A new look, kept as his state (data/fanboy.json): part 1's look, and on top who steers now and why (the control's

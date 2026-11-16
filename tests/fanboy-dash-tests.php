@@ -55,13 +55,13 @@ function fanboyDashKey(array $o, string $key): mixed
     return array_key_exists($key, $o) ? $o[$key] : 'x';
 }
 
-/** A demo state of tests/ui/demo as his data folder has it: switched on, hired, the setting as given */
-function fanboyDashFiles(string $demo, mixed $show = 'speeds', bool $hired = true, bool $shown = true): array
+/** A demo state of tests/ui/demo as his data folder has it: hired, the setting as given ($oldSwitch: his hidden time's file too) */
+function fanboyDashFiles(string $demo, mixed $show = 'speeds', bool $hired = true, bool $oldSwitch = false): array
 {
     $files = ['fanboy.json' => (string) file_get_contents(OFFICE_DIR . "/tests/ui/demo/$demo.json"),
               'office/staff.json' => ['hired' => $hired ? ['fanboy' => 1, 'backup' => 1] : ['backup' => 1]]];
-    if ($shown) {
-        $files['fanboy/show.json'] = '{}';
+    if ($oldSwitch) {
+        $files['fanboy/show.json'] = '{}';      // means nothing since 2026-11-16
     }
     if ($show !== null) {
         $files['fanboy/dashboard.json'] = is_string($show) && str_starts_with($show, '{') ? $show : ['v' => 1, 'show' => $show];
@@ -69,7 +69,7 @@ function fanboyDashFiles(string $demo, mixed $show = 'speeds', bool $hired = tru
     return $files;
 }
 
-/** The tile: there only while he is shown, hired and switched on; what it says for each demo state */
+/** The tile: there only while he is hired and it is picked (default «Off»); what it says for each demo state */
 function testFanboyDashTile(): void
 {
     $t0 = 1763100000;                   // the demo states' time
@@ -77,8 +77,8 @@ function testFanboyDashTile(): void
 
     // when it is there at all
     $cases = [
-        'hidden (no switch file)'  => fanboyDashFiles('fanboy', 'speeds', true, false),
         'not hired'                => fanboyDashFiles('fanboy', 'speeds', false),
+        'not hired, his old switch file there' => fanboyDashFiles('fanboy', 'speeds', false, true),
         'switched off'             => fanboyDashFiles('fanboy', 'off'),
         'no setting (the default)' => fanboyDashFiles('fanboy', null),
         'an odd setting'           => fanboyDashFiles('fanboy', '{"v":1,"show":"on"}'),
@@ -90,9 +90,9 @@ function testFanboyDashTile(): void
         $o = fanboyDashWeb($files, [], $now);
         $got[$what] = [fanboyDashKey($o, 'gate'), $o['tile'] ?? 'x', $o['err']];
     }
-    same('fanboy dash: no tile — hidden, not hired, switched off, no setting, an odd one, a broken file', array_fill_keys(array_keys($cases), [null, '', '']), $got);
+    same('fanboy dash: no tile — not hired (his old switch file changes nothing), switched off, no setting, an odd one, a broken file', array_fill_keys(array_keys($cases), [null, '', '']), $got);
     $o = fanboyDashWeb(fanboyDashFiles('fanboy', 'history'), [], $now);
-    same('fanboy dash: «speeds with history» — the tile there', ['history', true], [$o['gate'] ?? null, str_contains((string) ($o['tile'] ?? ''), 'id="db-sso-fanboy"')]);
+    same('fanboy dash: hired, «speeds with history», no switch file — the tile there', ['history', true], [$o['gate'] ?? null, str_contains((string) ($o['tile'] ?? ''), 'id="db-sso-fanboy"')]);
 
     // steering two zones: who, one row per zone (not per fan), the fans unfolding, the watched CPU cooler
     $o = fanboyDashWeb(fanboyDashFiles('fanboy'), [], $now);

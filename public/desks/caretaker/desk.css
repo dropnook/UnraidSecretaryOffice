@@ -77,4 +77,11 @@ pre.code.ct-pblock{user-select:all; max-height:30vh; word-break:break-all}
 pre.code.ct-nc-preview{white-space:pre-wrap; word-break:break-word; max-height:40vh; overflow:auto; margin-top:8px}
 @media (max-width:640px){ .row.ct-nc-row{grid-template-columns:minmax(0,1fr)} .ct-nc-ctl{justify-content:flex-start}
   .ct-nc-set{grid-template-columns:minmax(0,1fr); justify-items:start} .ct-nc-ctl.ct-nc-set > .ct-nc-slot{display:none} }
+/* «New in the office: …» (newcomerCard()): the newcomer's picture, two sentences, two buttons — calm, once */
+.callout.ct-newcomer{display:flex; gap:12px; align-items:flex-start; color:var(--ink)}
+.callout.ct-newcomer .avatar{flex:0 0 auto; width:42px; height:42px}
+.ct-newcomer-text{display:flex; flex-direction:column; gap:4px; min-width:0}
+.ct-newcomer-text p{margin:0}
+.ct-newcomer-actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:4px}
+.desk-card .callout.ct-newcomer{margin:8px 0}
 }

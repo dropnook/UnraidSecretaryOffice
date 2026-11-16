@@ -131,8 +131,61 @@ const fitText = (s) => {
   return Office.has(key) ? Office.t(key, s.params || {}) : T('fit.' + (s.ok ? 'yes' : 'no'), { name: Office.t(`${s.id}.name`) });
 };
 
+/**
+ * A new character for everyone, told once after an update (2026-11-16, the agent's caretakerNewcomersStart()): the cards
+ * still to show — told, not put away, not hired (hired from anywhere: gone at once here, for good at the agent's next look)
+ */
+function newcomers() {
+  return ((state && state.newcomers) || []).filter((x) => x && Office.desks.has(x.id) && !Office.desks.get(x.id).hired && Office.has(`${ID}.newcomer.${x.id}`));
+}
+const newcomerLine = () => {
+  const n = newcomers();
+  return n.length ? T('bubble.newcomer', { name: n.map((x) => Office.t(`${x.id}.name`)).join(', ') }) + ' ' : '';
+};
+
+/** «New in the office: …» — two sentences in his words, a button to his row in the team (with «Hire»), one to put it away */
+function newcomerCard(x) {
+  const name = Office.t(`${x.id}.name`);
+  const card = el('div', 'callout ct-newcomer');
+  card.dataset.newcomer = x.id;
+  card.append(Office.avatar(x.id, true));
+  const text = el('div', 'ct-newcomer-text');
+  text.append(el('strong', '', T('newcomer.title', { name })), el('p', '', T(`newcomer.${x.id}`, { name })));
+  const acts = el('div', 'ct-newcomer-actions');
+  const go = el('button', 'btn small', T('newcomer.go'));
+  go.type = 'button';
+  go.onclick = () => { Office.go(`#/${ID}/team`); Office.reveal(`staff:${x.id}`); };
+  const away = el('button', 'btn small plain', T('newcomer.away'));
+  away.type = 'button';
+  away.title = T('newcomer.away_title', { name });
+  away.disabled = !Office.agent.running;
+  away.onclick = () => newcomerAway(x, away);
+  acts.append(go, away);
+  text.appendChild(acts);
+  card.appendChild(text);
+  return card;
+}
+
+async function newcomerAway(x, b) {
+  b.disabled = true;
+  await Office.freshState(ID);
+  const j = await Office.api.post(`${ID}.newcomer_away`, { desk: x.id });
+  if (!j.ok) {
+    Office.toast(Office.errorText(j.error, ID), true);
+    b.disabled = false;
+    return;
+  }
+  state = j.state;
+  document.querySelectorAll(`#sso [data-newcomer="${x.id}"]`).forEach((c) => c.remove());
+  if (view) Office.keepInPlace(null, render);
+  mood();
+}
+
 function bubbleText() {
   if (!state) return T('bubble.loading');
+  return newcomerLine() + bubbleRest();
+}
+function bubbleRest() {
   if (alone()) return T('bubble.alone');
   const g = groups();
   const unchecked = g.unchecked.length ? ' ' + T('bubble.unchecked', { n: g.unchecked.length }) : '';
@@ -181,6 +234,9 @@ function render() {
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
   root.appendChild(sw.el);          // the row and under it the chosen section — or, nothing chosen, all of them
   sw.render();
+  // «New in the office: …» under the row of tiles, over the sections (CLAUDE.md «Tiles»: the tiles come first)
+  sw.el.querySelectorAll(':scope > .ct-newcomer').forEach((c) => c.remove());      // the row stays across renders: one card each
+  newcomers().forEach((x) => sw.el.insertBefore(newcomerCard(x), sw.body));
   root.appendChild(el('p', 'role', T('checked_at', { when: fmt.relative(state.time) })));
   // «n of m fit» over the points still open and those noted (what is in place is filtered too, but doesn't make the bar come)
   const { g, fit } = lists();
@@ -1188,16 +1244,17 @@ Office.desk({
   supporterChanged() { if (view) Office.keepInPlace(null, render); },     // a key entered or removed, his ask answered
   async reception() {
     if (!state) await load(false);
+    const note = newcomers().length ? newcomerCard(newcomers()[0]) : null;      // one card at the reception, the first
     if (alone()) {
       const could = staff().filter((x) => x.ok).map((x) => Office.t(`${x.id}.name`));
-      return { bubble: T('bubble.alone_short'), facts: could.length ? [T('fact.could_come', { names: could.join(', ') })] : [] };
+      return { bubble: newcomerLine() + T('bubble.alone_short'), facts: could.length ? [T('fact.could_come', { names: could.join(', ') })] : [], note };
     }
     const g = groups();
     const facts = [];
     g.todo.slice(0, 3).forEach((f) => facts.push(text(f)));
     if (g.todo.length > 3) facts.push(T('fact.more', { n: g.todo.length - 3 }));
     if (!g.todo.length) facts.push(T('fact.done', { n: g.done.length }));
-    return { bubble: bubbleText(), facts };
+    return { bubble: bubbleText(), facts, note };
   },
 });
 

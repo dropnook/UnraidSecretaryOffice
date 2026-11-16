@@ -885,5 +885,11 @@
   "errors.usonet_joined": "This server is in the USO network already.",
   "errors.usonet_busy": "Joining or leaving is under way — wait a moment.",
   "errors.usonet_flash": "The office couldn't write on the flash.",
-  "errors.usonet_checksum": "The helper downloaded isn't the one this version of the office trusts — removed, not run."
+  "errors.usonet_checksum": "The helper downloaded isn't the one this version of the office trusts — removed, not run.",
+  "newcomer.title": "New in the office: {name}",
+  "bubble.newcomer": "New in the office: {name} can be hired now.",
+  "newcomer.fanboy": "He runs your fans by what actually gets warm. Until you have set him up and handed him the fans he runs nothing — you can hire him in my team.",
+  "newcomer.go": "Go to hiring",
+  "newcomer.away": "Put away",
+  "newcomer.away_title": "The card won't come back — you can hire {name} in the team any time."
 }

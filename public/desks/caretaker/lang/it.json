@@ -885,5 +885,11 @@
   "errors.usonet_joined": "Questo server è già nella rete USO.",
   "errors.usonet_busy": "Un ingresso o un'uscita è in corso — aspetta un momento.",
   "errors.usonet_flash": "La segreteria non è riuscita a scrivere sull'unità flash.",
-  "errors.usonet_checksum": "L'aiutante scaricato non è quello di cui si fida questa versione della segreteria — rimosso, non eseguito."
+  "errors.usonet_checksum": "L'aiutante scaricato non è quello di cui si fida questa versione della segreteria — rimosso, non eseguito.",
+  "newcomer.title": "Nuovo in segreteria: {name}",
+  "bubble.newcomer": "Nuovo in segreteria: ora puoi assumere {name}.",
+  "newcomer.fanboy": "Regola le tue ventole in base a ciò che si scalda davvero. Finché non l'hai configurato e non gli hai affidato le ventole non regola nulla — puoi assumerlo nel mio team.",
+  "newcomer.go": "Vai ad assumere",
+  "newcomer.away": "Metti via",
+  "newcomer.away_title": "La scheda non tornerà — puoi assumere {name} nel team quando vuoi."
 }

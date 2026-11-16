@@ -1775,15 +1775,12 @@ function fanboyHistoryLoad(string $board, ?int $wall = null): array
 
 /**
  * Why the control may not steer now — the one place that decides (the process every 10 s, the agent's tick):
- *   array_stopped · hidden · not_hired · not_set_up · not_armed (exit) — other (stay, give back, look again)
+ *   array_stopped · not_hired · not_set_up · not_armed (exit) — other (stay, give back, look again)
  */
 function fanboyHoldReason(?array $settings): ?string
 {
     if (function_exists('arrayRunning') && !arrayRunning(fanboyVarIni())) {
         return 'array_stopped';
-    }
-    if (!fanboyShown()) {
-        return 'hidden';
     }
     if (!in_array('fanboy', staffHired(), true)) {
         return 'not_hired';

@@ -13,7 +13,7 @@
    Warnings and the alarm stay plain; his bubbles may cheer. No internal name (outputs' file names, the chip's number this
    boot) outside the technical detail a row unfolds. His pictures come from fan-art.js beside this file (loaded once;
    it brings its own fan-art.css: only this page needs it, desk.css stays small for every office page).
-   Hidden until the owner lets him out (desk.json "switch"): without the switch file the office has no such desk. */
+   A desk like the others since 2026-11-16: listed, hired on a click, steering nothing until set up and handed over. */
 (() => {
 'use strict';
 

@@ -163,7 +163,6 @@
   "why.hand_back": "Rendus",
   "why.hold": "Il se retient pour l'instant",
   "why.not_hired": "Il n'est pas engagé",
-  "why.hidden": "Il n'est pas visible ici",
   "situation.steers": {
     "one": "Fanboy règle les ventilateurs que tu lui as confiés, dans {n} zone. Le ventirad du CPU, les pompes et tout le reste restent au BIOS.",
     "other": "Fanboy règle les ventilateurs que tu lui as confiés, dans {n} zones. Le ventirad du CPU, les pompes et tout le reste restent au BIOS."

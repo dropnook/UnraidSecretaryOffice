@@ -93,7 +93,7 @@ function history(state, at) {
   }
   return { v: 1, board: state.setup.board, every: 60, zones };
 }
-const ON = { 'fanboy/show.json': '{}', 'office/staff.json': { hired: { fanboy: 1 } }, 'fanboy/dashboard.json': { v: 1, show: 'speeds' } };
+const ON = { 'office/staff.json': { hired: { fanboy: 1 } }, 'fanboy/dashboard.json': { v: 1, show: 'speeds' } };
 const WITH = { ...ON, 'fanboy/dashboard.json': { v: 1, show: 'history' } };
 const looked = (name, at) => lookedAt(demo(name), at);
 // name → [data folder files (null: none — the array stopped), RAM files, a zone to unfold, all combinations]

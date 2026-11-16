@@ -84,7 +84,7 @@ function testFanboyR6WatchLearn(): void
                 is_int($idle['tachs'][fanboyR6TachId(4)]['quiet_stop']), $idle['warm']['name'] ?? null]);
         // the Dashboard tile: a fan that stands, said plainly
         $o = fanboyDashWeb(['fanboy.json' => ['idle' => $idle, 'time' => $wall, 'setup' => ['board' => FANBOY_T_KEY]], 'office/staff.json' => ['hired' => ['fanboy' => 1]],
-            'fanboy/show.json' => '{}', 'fanboy/dashboard.json' => ['v' => 1, 'show' => 'speeds']], [], $wall);
+            'fanboy/dashboard.json' => ['v' => 1, 'show' => 'speeds']], [], $wall);
         check('fanboy r6 watch: the Dashboard tile says «A fan stands: Fan input 4» and shows his alarm picture (' . json_encode($o['model']['banners'] ?? $o) . ')',
             in_array(['red', 'A fan stands: Fan input 4'], $o['model']['banners'] ?? [], true) && ($o['model']['mood'] ?? '') === 'alarm');
     } finally {
@@ -540,7 +540,7 @@ function testFanboyR7Fixed(): void
         @unlink(fanboyStepFile());
         // the Dashboard tile: «Nobody · left on a fixed value», orange
         $state = ['who' => ['who' => 'nobody', 'why' => 'fixed', 'fixed' => [['id' => fanboyTId(4), 'output' => 4, 'pct' => 50]]], 'time' => time(), 'setup' => ['board' => FANBOY_T_KEY]];
-        $o = fanboyDashWeb(['fanboy.json' => $state, 'office/staff.json' => ['hired' => ['fanboy' => 1]], 'fanboy/show.json' => '{}', 'fanboy/dashboard.json' => ['v' => 1, 'show' => 'speeds']], [], time());
+        $o = fanboyDashWeb(['fanboy.json' => $state, 'office/staff.json' => ['hired' => ['fanboy' => 1]], 'fanboy/dashboard.json' => ['v' => 1, 'show' => 'speeds']], [], time());
         same('fanboy r7 fixed: the Dashboard tile — «Nobody · left on a fixed value», orange', ['Nobody · left on a fixed value', 'orange'], [$o['model']['who'] ?? $o, $o['model']['tone'] ?? null]);
     } finally {
         fanboyTEnd();
@@ -1232,19 +1232,11 @@ function testFanboyR10Notify(): void
     same('fanboy r10 centre: his place in the list — after Jack Streamer, before Ms. Logs', [array_search('jack', OFFICE_NOTIFY_DESKS, true) + 1, array_search('logs', OFFICE_NOTIFY_DESKS, true) - 1],
         [array_search('fanboy', OFFICE_NOTIFY_DESKS, true), array_search('fanboy', OFFICE_NOTIFY_DESKS, true)]);
 
-    // hidden means hidden: no row, no setting — the switch decides (the same rule as fanboyShown())
+    // 2026-11-16 (he is out for everyone): a sender like the others — no switch decides; a desk without its desk.json: no row
     $tmp = hardeningTmp('fanboy-r10nc');
-    foreach (['off', 'on', 'link'] as $k) {
-        @mkdir("$tmp/$k/fanboy", 0700, true);
-    }
-    file_put_contents("$tmp/on/fanboy/show.json", '');
-    file_put_contents("$tmp/elsewhere.json", '');
-    @symlink("$tmp/elsewhere.json", "$tmp/link/fanboy/show.json");
-    same('fanboy r10 centre: the senders — without his switch (or a link) everyone but him, with it everyone',
-        [array_values(array_diff(OFFICE_NOTIFY_DESKS, ['fanboy'])), OFFICE_NOTIFY_DESKS, array_values(array_diff(OFFICE_NOTIFY_DESKS, ['fanboy']))],
-        [officeNotifyDesks("$tmp/off"), officeNotifyDesks("$tmp/on"), officeNotifyDesks("$tmp/link")]);
-    same('fanboy r10 centre: … his desk.json unreadable: hidden (never shown by a mistake), the others there', [false, true],
-        [in_array('fanboy', officeNotifyDesks("$tmp/on", "$tmp/no-web"), true), in_array('office', officeNotifyDesks("$tmp/on", "$tmp/no-web"), true)]);
+    same('fanboy r10 centre: the senders — everyone, him too', OFFICE_NOTIFY_DESKS, officeNotifyDesks());
+    same('fanboy r10 centre: … a desk.json not there (another web folder): no row for it, the office\'s own there', [false, true],
+        [in_array('fanboy', officeNotifyDesks("$tmp/no-web"), true), in_array('office', officeNotifyDesks("$tmp/no-web"), true)]);
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/caretaker/desk.js');
     check('fanboy r10 centre page: a row only for a colleague the page knows and has hired (his name and avatar like the others), his line under it',
         str_contains($js, "nc.desks.filter((d) => d === 'office' || (Office.desks.has(d) && Office.desks.get(d).hired))")
@@ -1259,11 +1251,7 @@ function testFanboyR10Notify(): void
                                     'quiet' => ['on' => false, 'from' => '22:00', 'to' => '07:00'], 'all_well' => false];
         $f = "$tmp/notify.json";
         $p = officeNotifyPublic();
-        same('fanboy r10 centre: switch off — the page part has no row for him, nothing he sends', [false, false], [in_array('fanboy', $p['desks'], true), isset($p['sends']['fanboy'])]);
-        same('fanboy r10 centre: … a setting for him refused, nothing written', ['bad_request', false], [fanboyR6Refused(fn () => officeNotifySave($req(['when' => 'summary']), $f)), is_file($f)]);
-        file_put_contents(FANBOY_DIR . '/show.json', '{}');
-        $p = officeNotifyPublic();
-        same('fanboy r10 centre: switch on — his row, what he sends', [true, ['alert', 'warning', 'normal']], [in_array('fanboy', $p['desks'], true), $p['sends']['fanboy'] ?? null]);
+        same('fanboy r10 centre: his row, what he sends (no switch file in his data folder)', [true, ['alert', 'warning', 'normal']], [in_array('fanboy', $p['desks'], true), $p['sends']['fanboy'] ?? null]);
         officeNotifySave($req(['when' => 'summary', 'at' => '07:15']), $f);
         same('fanboy r10 centre: … his setting saved', ['all', 'summary', '07:15'], array_values(array_intersect_key(readJson($f)['desks']['fanboy'] ?? [], array_flip(['level', 'when', 'at']))));
 

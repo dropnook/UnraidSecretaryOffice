@@ -771,11 +771,10 @@ function testFanboyProcesses(): void
     $procs = [];
     try {
         fanboyTDisks($t, 35, null, 33);
-        // a data folder of the processes' own: he is shown and hired there, his settings armed
+        // a data folder of the processes' own: he is hired there, his settings armed
         $data = "{$t['tmp']}/data";
         @mkdir("$data/fanboy", 0700, true);
         @mkdir("$data/office", 0700, true);
-        file_put_contents("$data/fanboy/show.json", '');
         file_put_contents("$data/office/staff.json", json_encode(['hired' => ['fanboy' => ['at' => 1]]]));
         file_put_contents("$data/fanboy/settings.json", json_encode(['v' => 1, 'boards' => [FANBOY_T_KEY => fanboyTSettings()]], JSON_UNESCAPED_SLASHES));
         file_put_contents("{$t['tmp']}/spec.json", json_encode(fanboyTSpec()));

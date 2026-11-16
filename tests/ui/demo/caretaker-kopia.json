@@ -429,6 +429,7 @@
   ]
  },
  "staff": {
+  "fanboy": {"hired": true, "ok": true, "why": "yes", "params": []},
   "advisor": {
    "hired": true,
    "ok": true,

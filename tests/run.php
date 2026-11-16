@@ -32288,7 +32288,6 @@ function testStaffOrder(): void
     symlink(OFFICE_DIR . '/public/desks', "$tmp/plugin/desks");
     symlink(OFFICE_DIR . '/public/lang', "$tmp/plugin/lang");
     mkdir("$tmp/data/office", 0700, true);
-    testsSwitchesOn("$tmp/data");      // every desk of the repository, those behind a switch too (Fanboy)
     $file = "$tmp/data/office/staff.json";
     file_put_contents($file, json_encode(['hired' => ['backup' => 5, 'whereabouts' => 7, 'logs' => 8], 'order' => ['logs', 'whereabouts', 'backup']]));
     $web = "$tmp/web.php";
@@ -32338,7 +32337,6 @@ function testStaffOrder(): void
         array_values(array_filter(scandir("$tmp/data/office") ?: [], fn ($n) => str_ends_with($n, '.tmp')))]);
     // without data/office (the agent makes it): said, nothing written
     mkdir("$tmp/none", 0700);
-    testsSwitchesOn("$tmp/none");
     [$out, $raw] = $webRun([['office.staff_order', ['order' => ['backup']]]], "$tmp/none");
     same('staff order web: no data/office — office_storage, nothing written', ['office_storage', $default, []], [$out[1]['error'] ?? $raw, $out[0] ?? null, array_values(array_diff(scandir("$tmp/none") ?: [], ['.', '..', 'fanboy']))]);
     hardeningRm($tmp);
@@ -34616,8 +34614,7 @@ function testSearchPlaces(): void
             symlink("$pub/$d", "$tmp/plugin/$d");
         }
         mkdir("$tmp/data/office", 0700, true);
-        testsSwitchesOn("$tmp/data");      // every desk of the repository, those behind a switch too (Fanboy)
-        mkdir("$tmp/run", 0700);
+            mkdir("$tmp/run", 0700);
         file_put_contents("$tmp/web.php", '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; require '
             . var_export("$tmp/plugin/src/api.php", true) . '; api_main();');
         $ask = function (string $query, ?string $accept = 'gzip') use ($cgi, $tmp): array {
@@ -35379,8 +35376,7 @@ function testSearchGuides(): void
             symlink("$pub/$d", "$tmp/plugin/$d");
         }
         mkdir("$tmp/data/office", 0700, true);
-        testsSwitchesOn("$tmp/data");      // every desk of the repository, those behind a switch too (Fanboy)
-        mkdir("$tmp/run", 0700);
+            mkdir("$tmp/run", 0700);
         file_put_contents("$tmp/web.php", '<?php require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; require '
             . var_export("$tmp/plugin/src/api.php", true) . '; api_main();');
         $ask = function (string $query) use ($cgi, $tmp): array {
@@ -46307,10 +46303,8 @@ function testReport(): void
     same('report: Ms. Protocolli\'s comparing keeps its <path>', 'moved <path> to "<path>"', logsNormalizePaths('moved /mnt/user/Media/a.mkv to "/x/y z.mkv"'));
 
     // the label map: every desk, every logLine() of a desk starts with one of its labels
-    // a desk behind its switch (desk.json "switch", Fanboy) isn't among this run's desks — its label counts all the same
-    $switched = array_map(fn ($f) => basename(dirname($f)), array_filter(glob(OFFICE_WEB . '/desks/*/desk.json') ?: [], fn ($f) => is_string((readJson($f) ?? [])['switch'] ?? null)));
-    same('report: a label for every desk (and the office)', [], array_values(array_diff(array_merge(['office'], array_keys(desks()), $switched), array_keys(REPORT_LOG_LABELS))));
-    same('report: … and none for a desk that isn\'t', [], array_values(array_diff(array_keys(REPORT_LOG_LABELS), array_merge(['office'], array_keys(desks()), $switched))));
+    same('report: a label for every desk (and the office)', [], array_values(array_diff(array_merge(['office'], array_keys(desks())), array_keys(REPORT_LOG_LABELS))));
+    same('report: … and none for a desk that isn\'t', [], array_values(array_diff(array_keys(REPORT_LOG_LABELS), array_merge(['office'], array_keys(desks())))));
     $files = [];
     foreach (glob(OFFICE_DIR . '/agent/desks/*.php') ?: [] as $f) {
         $files[$f] = explode('-', basename($f, '.php'))[0];
@@ -64274,22 +64268,6 @@ function fanboyTreeHash(string $dir): string
     return md5(serialize($out));
 }
 
-/**
- * A test's data folder that shows every desk of the repository: the switch file of each desk not out for everyone yet
- * (desk.json "switch", src/desks.php officeDeskSwitchedOn()) laid into it — for the tests that compare the web side's
- * answer with every desk.json
- */
-function testsSwitchesOn(string $data): void
-{
-    foreach (glob(OFFICE_WEB . '/desks/*/desk.json') ?: [] as $f) {
-        $s = json_decode((string) file_get_contents($f), true)['switch'] ?? null;
-        if (is_string($s)) {
-            @mkdir($data . '/' . basename(dirname($f)), 0700, true);
-            file_put_contents($data . '/' . basename(dirname($f)) . "/$s", '');
-        }
-    }
-}
-
 // part 2 (steering): its tests and the fans that answer in files of their own
 require __DIR__ . '/fanboy-responder.php';
 require __DIR__ . '/fanboy-control-tests.php';
@@ -64297,17 +64275,24 @@ require __DIR__ . '/fanboy-desk-tests.php';
 require __DIR__ . '/fanboy-dash-tests.php';
 require __DIR__ . '/fanboy-r5-tests.php';
 require __DIR__ . '/fanboy-r6-tests.php';
+require __DIR__ . '/caretaker-newcomer-tests.php';
 
-function testFanboyHidden(): void
+/**
+ * 2026-11-16 (the owner lets him out): Fanboy is a desk like the others — listed, hireable, not hired by default, steering
+ * nothing until set up and handed over. The switch file of his hidden time (<data folder>/fanboy/show.json) means nothing:
+ * the office is the same with it, without it, as a link or a folder.
+ */
+function testFanboyPublic(): void
 {
-    $tmp = hardeningTmp('fanboy-hidden');
+    $tmp = hardeningTmp('fanboy-public');
     $meta = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.json'), true);
-    same('fanboy hidden: desk.json carries the switch (show.json) — he is not out for everyone yet', 'show.json', $meta['switch'] ?? null);
-    same('fanboy hidden: the agent reads the same name', 'show.json', fanboySwitchName());
+    $switched = array_values(array_filter(glob(OFFICE_WEB . '/desks/*/desk.json') ?: [], fn ($f) => array_key_exists('switch', (array) json_decode((string) file_get_contents($f), true))));
+    same('fanboy public: his desk.json carries no switch — and no desk does (the switch is gone from the web side, the agent and the notification centre)',
+        [false, [], false, false, false],
+        [array_key_exists('switch', (array) $meta), $switched, str_contains((string) file_get_contents(OFFICE_DIR . '/src/desks.php'), "'switch'"),
+         str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/notifycenter.php'), "'switch'"), function_exists('fanboyShown')]);
 
-    // the agent's rule and the web side's: no file · a plain file · a link · a folder — the same answers
-    require_once OFFICE_DIR . '/src/desks.php';
-    $cases = [];
+    // the data folders: nothing · his old switch file · a link · a folder — each side the same everywhere
     @mkdir("$tmp/none/fanboy", 0700, true);
     @mkdir("$tmp/file/fanboy", 0700, true);
     file_put_contents("$tmp/file/fanboy/show.json", '');
@@ -64315,42 +64300,47 @@ function testFanboyHidden(): void
     file_put_contents("$tmp/elsewhere.json", '{}');
     symlink("$tmp/elsewhere.json", "$tmp/link/fanboy/show.json");
     @mkdir("$tmp/folder/fanboy/show.json", 0700, true);
-    foreach (['none', 'file', 'link', 'folder'] as $k) {
-        $cases[$k] = [fanboyShown("$tmp/$k"), officeDeskSwitchedOn('fanboy', 'show.json', "$tmp/$k")];
-    }
-    same('fanboy hidden: [agent, web] — only a plain file switches him on; nothing, a link, a folder: hidden',
-        ['none' => [false, false], 'file' => [true, true], 'link' => [false, false], 'folder' => [false, false]], $cases);
-    same('fanboy hidden: a switch that isn\'t a plain «<name>.json» never counts (web)', [false, false, false],
-        [officeDeskSwitchedOn('fanboy', '../file/fanboy/show.json', "$tmp/file"), officeDeskSwitchedOn('fanboy', true, "$tmp/file"), officeDeskSwitchedOn('fanboy', 'show', "$tmp/file")]);
-    same('fanboy hidden: the agent without a readable desk.json — hidden, even with the file (never shown by a mistake)', false, fanboyShown("$tmp/file", "$tmp/no-web"));
-
-    // the whole office, as each side sees it with a data folder without and with the file (a php of its own each)
     $run = function (string $code, string $data): array {
         $p = proc_open([PHP_BINARY, '-r', $code], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
-            ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'PATH' => getenv('PATH')]);
+            ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'OFFICE_WEB' => OFFICE_WEB, 'PATH' => getenv('PATH')]);
         $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
         proc_close($p);
         return preg_match('/\{"desk":.*\}/', $out, $m) ? json_decode($m[0], true) : ['raw' => $out];
     };
     $agent = 'define("AGENT_LIBRARY_ONLY", 1); define("OFFICE_WEB", ' . var_export(OFFICE_WEB, true) . '); require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . ';'
         . ' $d = desks()["fanboy"] ?? null; echo json_encode(["desk" => $d !== null, "actions" => $d ? array_keys($d["actions"]) : [], "fit" => $d && $d["fit"] !== null,'
-        . ' "checks" => $d && $d["checks"] !== null, "jobs" => $d ? array_keys($d["jobs"] ?? []) : [], "tick" => $d && $d["tick"] !== null]);';
-    $web = 'require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; $d = officeDesksIn(' . var_export(OFFICE_WEB, true) . ', OFFICE_DATA);'
-        . ' echo json_encode(["desk" => isset($d["fanboy"]), "others" => count($d), "staff" => array_values(array_filter(array_keys($d), fn ($i) => $i === "fanboy"))]);';
-    $off = [$run($agent, "$tmp/none"), $run($web, "$tmp/none")];
-    $on = [$run($agent, "$tmp/file"), $run($web, "$tmp/file")];
-    same('fanboy hidden: without the file — no desk on the agent (no action, no fit, no check, no job, no tick), none on the web side (no tile, route, hiring, strings)',
-        [false, [], false, false, false],
-        [$off[0]['desk'] ?? $off[0], $off[0]['actions'] ?? null, $off[0]['fit'] ?? null, $off[0]['checks'] ?? null, $off[1]['desk'] ?? $off[1]]);
-    same('fanboy hidden: with the file — the desk on both sides (refresh, report and part 2\'s actions; a fit, checks, his two jobs, a tick)',
-        [true, ['refresh', 'report', 'look_now', 'drivers_load', 'drivers_undo', 'test_up', 'measure', 'step_alive', 'step_stop', 'step_next', 'hub_look', 'answer', 'role', 'fan_name',
-                'zones_propose', 'zones_save', 'dry_run', 'take_over', 'hand_back', 'back', 'fan_look', 'history', 'dashboard', 'watch', 'show', 'show_stop', 'safety_back', 'stop_all'], true, true, ['fanboy-control', 'fanboy-step', 'fanboy-show', 'fanboy-restore'], true, true],
-        [$on[0]['desk'] ?? $on[0], $on[0]['actions'] ?? null, $on[0]['fit'] ?? null, $on[0]['checks'] ?? null, $on[0]['jobs'] ?? null, $on[0]['tick'] ?? null, $on[1]['desk'] ?? $on[1]]);
-    same('fanboy hidden: … and the other desks the same either way', $on[1]['others'] - 1, $off[1]['others'] ?? null);
-    // the repository's own data folder (what every other test sees): no switch, so no Fanboy among the agent's desks
-    check('fanboy hidden: in this run (no switch in the tests\' data folder) the agent has no desk fanboy', !isset(desks()['fanboy']));
+        . ' "checks" => $d && $d["checks"] !== null, "jobs" => $d ? array_keys($d["jobs"] ?? []) : [], "tick" => $d && $d["tick"] !== null,'
+        . ' "hired" => in_array("fanboy", staffHired(), true), "notify" => in_array("fanboy", officeNotifyDesks(), true)]);';
+    // the web side as the plugin lays it out (src/ beside desks/, lang/, assets/)
+    @mkdir("$tmp/plugin/src", 0700, true);
+    foreach (glob(OFFICE_DIR . '/src/*.php') ?: [] as $f) {
+        copy($f, "$tmp/plugin/src/" . basename($f));
+    }
+    foreach (['assets', 'desks', 'lang'] as $d) {
+        @symlink(OFFICE_WEB . "/$d", "$tmp/plugin/$d");
+    }
+    $web = 'require ' . var_export("$tmp/plugin/src/bootstrap.php", true) . '; require_once ' . var_export("$tmp/plugin/src/staff.php", true) . ';'
+        . ' $d = officeDesks(); echo json_encode(["desk" => isset($d["fanboy"]), "others" => count($d), "hired" => isset(officeHired()["fanboy"])]);';
+    $seen = [];
+    foreach (['none', 'file', 'link', 'folder'] as $k) {
+        $seen[$k] = [$run($agent, "$tmp/$k"), $run($web, "$tmp/$k")];
+    }
+    // hired only on a click: the same office with him in staff.json — hired on both sides
+    @mkdir("$tmp/hired/office", 0700, true);
+    file_put_contents("$tmp/hired/office/staff.json", json_encode(['hired' => ['fanboy' => 1]]));
+    $hired = [$run($agent, "$tmp/hired"), $run($web, "$tmp/hired")];
+    same('fanboy public: … hired once staff.json says so (agent, web) — «not hired» above is the default, not a blind spot', [true, true], [$hired[0]['hired'] ?? $hired[0], $hired[1]['hired'] ?? $hired[1]]);
+    $actions = ['refresh', 'report', 'look_now', 'drivers_load', 'drivers_undo', 'test_up', 'measure', 'step_alive', 'step_stop', 'step_next', 'hub_look', 'answer', 'role', 'fan_name',
+                'zones_propose', 'zones_save', 'dry_run', 'take_over', 'hand_back', 'back', 'fan_look', 'history', 'dashboard', 'watch', 'show', 'show_stop', 'safety_back', 'stop_all'];
+    same('fanboy public: the desk on both sides without any file (refresh, report and part 2\'s actions; a fit, checks, his four jobs, a tick), a sender of the notification centre — and not hired',
+        [true, $actions, true, true, ['fanboy-control', 'fanboy-step', 'fanboy-show', 'fanboy-restore'], true, false, true, true, false],
+        [$seen['none'][0]['desk'] ?? $seen['none'][0], $seen['none'][0]['actions'] ?? null, $seen['none'][0]['fit'] ?? null, $seen['none'][0]['checks'] ?? null, $seen['none'][0]['jobs'] ?? null,
+         $seen['none'][0]['tick'] ?? null, $seen['none'][0]['hired'] ?? null, $seen['none'][0]['notify'] ?? null, $seen['none'][1]['desk'] ?? $seen['none'][1], $seen['none'][1]['hired'] ?? null]);
+    same('fanboy public: his old switch file means nothing — a plain file, a link, a folder: the office the same as without it (agent, web, the other desks)',
+        ['file' => $seen['none'], 'link' => $seen['none'], 'folder' => $seen['none']], ['file' => $seen['file'], 'link' => $seen['link'], 'folder' => $seen['folder']]);
+    check('fanboy public: in this run the agent has the desk fanboy (the tests\' data folder: not hired)', isset(desks()['fanboy']));
     // nothing else names him: no job, no Dashboard, no core code — but agent.sh: its stop gives his fans back and its cron
-    // line looks every minute (agent/fanboy-guard.php), whether he is shown or not (a fan is never left where he left it)
+    // line looks every minute (agent/fanboy-guard.php), hired or not (a fan is never left where he left it)
     $elsewhere = [];
     foreach (array_merge(glob(OFFICE_DIR . '/plugin/*') ?: [], glob(OFFICE_DIR . '/plugin/scripts/*') ?: [], glob(OFFICE_DIR . '/plugin/event/*') ?: [],
                          glob(OFFICE_DIR . '/agent/lib/*.php') ?: [], [OFFICE_DIR . '/agent/agent.php', OFFICE_WEB . '/assets/core.js', OFFICE_DIR . '/src/dashboard.php']) as $f) {
@@ -64358,8 +64348,8 @@ function testFanboyHidden(): void
             $elsewhere[] = substr($f, strlen(OFFICE_DIR) + 1);
         }
     }
-    // … and the Dashboard page: his own tile, there only while his desk is (testFanboyDashTile)
-    same('fanboy hidden: no core file or job names him — only agent.sh (the release at every stop), the .plg\'s removal (his guard\'s cron file, there only while armed), his log label (lib/report.php), the Dashboard page\'s second tile and the notification centre\'s senders (lib/notifycenter.php: his row only while his switch is on, officeNotifyDesks())',
+    // … and the Dashboard page: his own tile, there only while he is hired and it is picked (testFanboyDashTile)
+    same('fanboy public: no core file or job names him — only agent.sh (the release at every stop), the .plg\'s removal (his guard\'s cron file, there only while armed), his log label (lib/report.php), the Dashboard page\'s second tile and the notification centre\'s senders (lib/notifycenter.php)',
         ['plugin/SecretaryOfficeDashboard.page', 'plugin/unraid-secretary-office.plg', 'plugin/scripts/agent.sh', 'agent/lib/notifycenter.php', 'agent/lib/report.php'], $elsewhere);
 }
 
@@ -64812,7 +64802,7 @@ function testFanboyPage(): void
     }
     // the docs: his entry under «The desks»
     $dev = (string) file_get_contents(OFFICE_DIR . '/docs/DEVELOPMENT.md');
-    check('fanboy page: docs/DEVELOPMENT.md has his entry (the switch, nothing written to a fan)', str_contains($dev, '**`fanboy` — Fanboy**') && str_contains($dev, 'show.json'));
+    check('fanboy page: docs/DEVELOPMENT.md has his entry (a desk like the others, nothing written to a fan)', str_contains($dev, '**`fanboy` — Fanboy**') && str_contains($dev, 'listed, hired only on the user\'s click, steering nothing until his setup is done'));
     // the name the same in all five languages
     $names = [];
     foreach (['en', 'de', 'fr', 'it', 'es'] as $c) {
@@ -65258,7 +65248,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
           'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
-          'fanboy' => ['testFanboyHidden', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
+          'fanboy' => ['testFanboyPublic', 'testCaretakerNewcomers', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
                        'testFanboyWrite', 'testFanboyControl', 'testFanboyAlarms', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',
                        'testFanboyProcesses', 'testFanboyDrivers', 'testFanboyStopScripts', 'testFanboyState',
                        'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyUx', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR7FullOnObeys', 'testFanboyR7ControlFullOn', 'testFanboyR7Fixed', 'testFanboyR7NotAController', 'testFanboyR7CardsKeepSize', 'testFanboyR7TestLongEnough', 'testFanboyR8IgnoredLate', 'testFanboyR8FullLongEnough', 'testFanboyR8Quiet', 'testFanboyR8QuietGuards', 'testFanboyR8QuietSafety', 'testFanboyR8FoundNext', 'testFanboyR8Assign', 'testFanboyR9Kick', 'testFanboyR9Safety', 'testFanboyR9Now', 'testFanboyR9CpuOwn', 'testFanboyR10Notify', 'testFanboyR11Heard', 'testFanboyR11StopVerdict', 'testFanboyR11StaleNext', 'testFanboyR11ProgressNext', 'testFanboyR12Standstill', 'testFanboyR12Warm', 'testFanboyR12Control', 'testFanboyR12CpuRole', 'testFanboyR12CpuMeasure', 'testFanboyR12CpuControl', 'testFanboyR12CpuGone', 'testFanboyR12FixSpikes', 'testFanboyR12FixControl', 'testFanboyR12FixConfirm', 'testFanboyNetDrift', 'testFanboyNet', 'testFanboyNetTakeOver', 'testFanboyR12Curve', 'testFanboyR12CurveEffective', 'testFanboyR12AutoSeen', 'testFanboyR12Look', 'testFanboyR13Compat', 'testFanboyR13Curves', 'testFanboyR13Refused', 'testFanboyR13Devs', 'testFanboyR13DevsControl', 'testFanboyR14Plan', 'testFanboyR14Look', 'testFanboySetupFanPlan', 'testFanboyDashHours', 'testFanboyTimes', 'testFanboySsdSleeps', 'testFanboyCpuFloorCurve',

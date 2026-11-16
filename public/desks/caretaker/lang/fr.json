@@ -885,5 +885,11 @@
   "errors.usonet_joined": "Ce serveur est déjà dans le réseau USO.",
   "errors.usonet_busy": "Une entrée ou une sortie est en cours — attends un instant.",
   "errors.usonet_flash": "Le secrétariat n'a pas pu écrire sur la flash.",
-  "errors.usonet_checksum": "L'assistant téléchargé n'est pas celui auquel cette version du secrétariat fait confiance — supprimé, pas lancé."
+  "errors.usonet_checksum": "L'assistant téléchargé n'est pas celui auquel cette version du secrétariat fait confiance — supprimé, pas lancé.",
+  "newcomer.title": "Nouveau au secrétariat : {name}",
+  "bubble.newcomer": "Nouveau au secrétariat : tu peux maintenant embaucher {name}.",
+  "newcomer.fanboy": "Il règle tes ventilateurs selon ce qui chauffe vraiment. Tant que tu ne l'as pas configuré et ne lui as pas confié les ventilateurs, il ne règle rien — tu peux l'embaucher dans mon équipe.",
+  "newcomer.go": "Aller embaucher",
+  "newcomer.away": "Ranger",
+  "newcomer.away_title": "La carte ne reviendra pas — tu peux embaucher {name} dans l'équipe quand tu veux."
 }
