@@ -277,7 +277,7 @@ function fanboyIdleWatch(?float $now = null, ?int $wall = null, ?array $allow = 
                     if ($x['state'] === 'alarm' && $x['told'] === null) {
                         $x['told'] = $wall;
                         logLine("Fanboy: {$names[$id]} stands although {$warm['name']} is at {$warm['c']} °C — told (he doesn't steer it)");
-                        fanboyIdleTell('idle_stands', ['fan' => $names[$id], 'source' => $warm['name'], 'c' => fanboyIdleDeg($warm['c'])]);
+                        fanboyIdleTell('idle_stands', ['fan' => $names[$id], 'source' => $warm['name'], 'c' => fanboyIdleDeg($warm['c']), 'min' => (int) round(FANBOY_IDLE_WARM_AFTER / 60)]);
                     }
                 }
                 if ($x['told'] !== null && $x['state'] !== 'alarm') {

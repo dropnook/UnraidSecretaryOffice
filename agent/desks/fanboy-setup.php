@@ -38,6 +38,7 @@ const FANBOY_STOP_CPU_RISE = 15.0;      // … or when the CPU rose this much du
                                         // rise by the smoothed CPU (round 12 fix: fanboyCpuGuard()), the 70 °C by any reading
 const FANBOY_START_CONFIRM = 2;         // round 12 fix: a start from standstill found is tried this many times more
 const FANBOY_PLACES = ['front', 'rear', 'top', 'bottom', 'side'];
+const FANBOY_NAME_MAX = 40;             // characters of a fan's name at most
 const FANBOY_COUNT_MAX = 8;             // fans on one connector at most (a hub): the page draws as many wheels
 const FANBOY_ZONES_MAX = 8;
 const FANBOY_SOURCES_MAX = 32;
@@ -1378,8 +1379,8 @@ function fanboyFanName(array $r): array
         throw new Problem('missing_field', ['field' => 'name']);       // an empty name clears it; none sent changes nothing
     }
     $name = trim((string) preg_replace('/[\x00-\x1f\x7f]+/u', ' ', optText($r, 'name')));
-    if (mb_strlen($name) > 40) {
-        throw new Problem('fanboy_bad_name');
+    if (mb_strlen($name) > FANBOY_NAME_MAX) {
+        throw new Problem('fanboy_bad_name', ['max' => FANBOY_NAME_MAX]);
     }
     $outputs = fanboyOutputs(fanboyDetect());
     $e = fanboyStoreUpdate(function (array $e) use ($id, $name, $outputs): array {
@@ -1426,8 +1427,8 @@ function fanboyRole(array $r): array
         throw new Problem('fanboy_bad_role');
     }
     $name = trim((string) preg_replace('/[\x00-\x1f\x7f]+/u', ' ', optText($r, 'name')));
-    if (mb_strlen($name) > 40) {
-        throw new Problem('fanboy_bad_name');
+    if (mb_strlen($name) > FANBOY_NAME_MAX) {
+        throw new Problem('fanboy_bad_name', ['max' => FANBOY_NAME_MAX]);
     }
     $place = optText($r, 'place');
     if ($place !== '' && !in_array($place, FANBOY_PLACES, true)) {
@@ -1439,7 +1440,7 @@ function fanboyRole(array $r): array
     // round 3: how many fans hang on this one connector (a Y-cable, a hub) — 1 … 8; not sent: as it was
     $count = optInt($r, 'count', null, 1);
     if ($count !== null && $count > FANBOY_COUNT_MAX) {
-        throw new Problem('fanboy_bad_count');
+        throw new Problem('fanboy_bad_count', ['max' => FANBOY_COUNT_MAX]);
     }
     $cpuOwn = array_key_exists('cpu_own', $r) ? optBool($r, 'cpu_own') : null;
     if ($cpuOwn === true && $role !== 'cpu') {

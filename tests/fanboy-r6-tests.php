@@ -871,7 +871,7 @@ function testFanboyR8QuietSafety(): void
         foreach (['dead' => ['kind' => 'step', 'pid' => 999999, 'start' => '1', 'since' => time()], 'hung' => fanboyMe('step')] as $how => $owner) {
             $held = fanboyQuietStop(fanboyQuietOthers(fanboyTId(1), $outs, fanboyBoardRaw()), $owner, FANBOY_T_KEY);
             if ($how === 'hung') {
-                file_put_contents(fanboyRunDir() . '/beat-' . getmypid(), (string) (hrtime(true) - 60e9));      // its beat 60 s old
+                file_put_contents(fanboyRunDir() . '/beat-' . getmypid(), (string) (hrtime(true) - 60_000_000_000));      // its beat 60 s old (an integer: a float prints as 2.8E+14 on a server up for days)
             }
             $quietNow = array_map(fn ($n) => fanboyTOut($t, $n)[0], [2, 3, 4, 5, 6]);
             $back = fanboyWatch();
@@ -1909,10 +1909,14 @@ function testFanboyR12CpuGone(): void
         // 3. hung: there, no beat — 12 s old: with an output at 0 that is hung (10 s), with none it would be alive (30 s)
         $me = fanboyMe('control');
         $stand($me);
-        file_put_contents(fanboyRunDir() . '/beat-' . getmypid(), (string) (hrtime(true) - 12_000_000_000));
+        // judged on the test's own clock: «now» is the beat + 12 s exactly (never the machine's — a loaded server took longer
+        // between writing and reading, and the 30-s side read «hung», 2026-11-16)
+        $b = hrtime(true) - 12_000_000_000;
+        file_put_contents(fanboyRunDir() . '/beat-' . getmypid(), (string) $b);
+        $at = $b / 1e9 + 12.0;
         $j = fanboyJournal()['outputs'][fanboyTId(2)];
         same('fanboy r12 gone: … hung — a holder 12 s without a beat counts as hung while its output stands at 0 (10 s), as alive while it turns (30 s)',
-            ['hung', 'alive'], [fanboyOwnerState($me, null, fanboyStanding($j) ? FANBOY_OWNER_STALE_STANDING : FANBOY_OWNER_STALE), fanboyOwnerState($me)]);
+            ['hung', 'alive'], [fanboyOwnerState($me, $at, fanboyStanding($j) ? FANBOY_OWNER_STALE_STANDING : FANBOY_OWNER_STALE), fanboyOwnerState($me, $at)]);
         fanboyBeat();
         fanboyGiveBack([fanboyTId(2)], 'test', null);
         // 4. the agent gone too: the guard's look (the cron line) gives it back; with nothing standing any more it ends at once
@@ -2440,4 +2444,74 @@ function testFanboyNetTakeOver(): void
     } finally {
         fanboyTEnd();
     }
+}
+
+/**
+ * The page's sentence audit (2026-11-16): every number a sentence states comes from the state — `setup.times`, `limits`,
+ * `restarts` — each tied here to its constant; the demo states give the same; the refusals and notifications carry
+ * their numbers as params, and the texts that said what the code doesn't do say what it does
+ */
+function testFanboyTimes(): void
+{
+    $t = fanboyT('times');
+    try {
+        $s = fanboySetupState(fanboyDetect(), fanboyBoardRaw());
+        $want = ['clear_after' => FANBOY_CLEAR_AFTER, 'up_for' => FANBOY_UP_FOR, 'up_min' => FANBOY_UP_MIN, 'show_for' => FANBOY_SHOW_FOR, 'lease' => FANBOY_STEP_LEASE,
+            'tell_after' => FANBOY_TELL_AFTER, 'idle_warm_after' => FANBOY_IDLE_WARM_AFTER, 'stand_after' => FANBOY_STAND_AFTER, 'history_every' => FANBOY_HISTORY_EVERY,
+            'history_periods' => FANBOY_HISTORY_PERIODS, 'poll_live' => FANBOY_POLL_LIVE, 'crash_pause' => FANBOY_CRASH_PAUSE, 'crash_window' => FANBOY_CRASH_WINDOW,
+            'crash_max' => FANBOY_CRASH_MAX, 'net' => ['warm_pct' => FANBOY_NET_WARM_PCT, 'hot_pct' => FANBOY_NET_HOT_PCT, 'gap' => FANBOY_NET_GAP, 'clear' => FANBOY_NET_CLEAR]];
+        check('fanboy times: setup.times — each from its constant', $s['times'] == $want, json_encode($s['times']));
+        same('fanboy times: setup.limits — the name\'s and a connector\'s maximum, zones and sources at most',
+            ['name_max' => FANBOY_NAME_MAX, 'count_max' => FANBOY_COUNT_MAX, 'zones_max' => FANBOY_ZONES_MAX, 'sources_max' => FANBOY_SOURCES_MAX], $s['limits']);
+        $demo = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy.json'), true)['setup'] ?? [];
+        check('fanboy times: … the demo states give the same numbers (the page\'s pictures)', ($demo['times'] ?? null) == $want && ($demo['limits'] ?? null) == $s['limits'], json_encode($demo['times'] ?? null));
+        $was = $GLOBALS['fanboyCrashes'] ?? null;
+        $now = fanboyMono();
+        $GLOBALS['fanboyCrashes'] = [$now - 60, $now - 30];
+        $two = fanboySetupState(fanboyDetect(), fanboyBoardRaw())['restarts'];
+        $GLOBALS['fanboyCrashes'][] = $now - 5;
+        $three = fanboySetupState(fanboyDetect(), fanboyBoardRaw())['restarts'];
+        $GLOBALS['fanboyCrashes'] = [$now - FANBOY_CRASH_WINDOW - 10, $now - FANBOY_CRASH_WINDOW - 5, $now - FANBOY_CRASH_WINDOW - 1];
+        $old = fanboySetupState(fanboyDetect(), fanboyBoardRaw())['restarts'];
+        $GLOBALS['fanboyCrashes'] = $was;
+        same('fanboy times: setup.restarts — two deaths in the window: started again; the third: given up (not by itself any more); deaths outside the window don\'t count',
+            [[2, false], [3, true], [0, false]], [[$two['deaths'], $two['given_up']], [$three['deaths'], $three['given_up']], [$old['deaths'], $old['given_up']]]);
+        same('fanboy times: the refusals carry their numbers — a name too long ({max}), too many fans on a connector ({max})',
+            ['fanboy_bad_name', 'fanboy_bad_count'], [fanboyR6Refused(fn () => fanboyFanName(['fan' => fanboyTId(1), 'name' => str_repeat('a', FANBOY_NAME_MAX + 1)])),
+                fanboyR6Refused(fn () => fanboyRole(['fan' => fanboyTId(5), 'role' => 'case', 'count' => FANBOY_COUNT_MAX + 1]))]);
+        try {
+            fanboyFanName(['fan' => fanboyTId(1), 'name' => str_repeat('a', FANBOY_NAME_MAX + 1)]);
+        } catch (Problem $p) {
+            same('fanboy times: … the name\'s maximum as a param', ['max' => FANBOY_NAME_MAX], $p->params);
+        }
+    } finally {
+        fanboyTEnd();
+    }
+    // the words: each number a placeholder fed from its constant, in all five languages
+    $src = '';
+    foreach (glob(OFFICE_DIR . '/agent/desks/fanboy*.php') ?: [] as $f) {
+        $src .= (string) file_get_contents($f);
+    }
+    check('fanboy times: the alarms, the chip missing, the watch, the net, the crash and the check pass their numbers from their constants',
+        str_contains($src, "\$what + ['min' => (int) round(FANBOY_CLEAR_AFTER / 60)]") && str_contains($src, "['min' => (int) round(FANBOY_TELL_AFTER / 60)]")
+        && str_contains($src, "'min' => (int) round(FANBOY_IDLE_WARM_AFTER / 60)") && str_contains($src, "'pct' => FANBOY_NET_WARM_PCT")
+        && str_contains($src, "['pause' => (int) FANBOY_CRASH_PAUSE, 'max' => FANBOY_CRASH_MAX, 'window' => (int) round(FANBOY_CRASH_WINDOW / 60)]")
+        && str_contains($src, "finding('fanboy_alarm', 'recommended', \$running ? !\$alarm : null, ['min' => (int) round(FANBOY_CLEAR_AFTER / 60)]"));
+    $holes = [];
+    $need = ['notify.alarm_stands' => '{min}', 'notify.alarm_stands_alone' => '{min}', 'notify.alarm_sensor' => '{min}', 'notify.missing' => '{min}', 'notify.missing_stuck' => '{min}',
+        'notify.idle_stands' => '{min}', 'notify.net_warm' => '{pct}', 'notify.crashed' => '{window}', 'check.fanboy_alarm_how' => '{min}', 'errors.fanboy_bad_name' => '{max}', 'errors.fanboy_bad_count' => '{max}'];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$code.json"), true);
+        foreach ($need as $k => $ph) {
+            if (!str_contains((string) ($l[$k] ?? ''), $ph) || preg_match('/\b(15|2|60|40|8)\s?(min|Min|%|Zeichen|characters)/u', (string) ($l[$k] ?? ''))) {
+                $holes[] = "$code $k";
+            }
+        }
+    }
+    same('fanboy times: … and the words take them (no number written in)', [], $holes);
+    $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/lang/en.json'), true);
+    check('fanboy times: the texts say what the code does — no «gave it back to the BIOS» (it gives back as set: the state before or the automatic), no «a restart gives them to the BIOS» as a fact, no 100 % for an alarm in general, no «never writes» for an output a quiet test stops',
+        !str_contains($en['notify.foreign'], 'back to the BIOS') && !str_contains($en['notify.refuses'], 'back to the BIOS') && !str_contains($en['notify.crashed'], 'as it was before him')
+        && str_contains($en['notify.alarm_chip'], 'not checked') && str_contains($en['notify.not_back'], 'not checked') && !str_contains($en['errors.fanboy_show_alarm'], '100 %')
+        && !str_contains($en['errors.fanboy_show_not'], 'never writes') && str_contains($en['check.fanboy_alarm_how'], 'Fanboy only watches it'));
 }

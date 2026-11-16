@@ -234,8 +234,10 @@ function testFanboyWrite(): void
         $w = fanboyGiveBack(null, 'holder_gone', null, true);
         same('fanboy write: a holder gone — its output given back by the watch (128, fixed), said as «dead»', [[$id], 'dead', [128, 1]],
             [array_keys($w), $w[$id]['holder'] ?? null, fanboyTOut($t, 4)]);
-        file_put_contents(fanboyRunDir() . '/beat-' . $me['pid'], (string) (hrtime(true) - 40e9));
-        same('fanboy write: a holder without a beat for 40 s — hung', 'hung', fanboyOwnerState($me));
+        $b = hrtime(true) - 40_000_000_000;         // an integer (a float prints as 2.8E+14 on a server up for days: no beat at all)
+        file_put_contents(fanboyRunDir() . '/beat-' . $me['pid'], (string) $b);
+        same('fanboy write: a holder without a beat for 40 s — hung; with one 20 s old — alive (the test\'s own clock)', ['hung', 'alive'],
+            [fanboyOwnerState($me, $b / 1e9 + 40.0), fanboyOwnerState($me, $b / 1e9 + 20.0)]);
         fanboyBeat();
 
         // another boot: the journal is no journal (the BIOS set everything anew)
@@ -813,7 +815,7 @@ function testFanboyProcesses(): void
         // 3. hung: there, but no beat for 40 s — ended for good, then given back
         $pid = $start();
         posix_kill((int) $pid, SIGSTOP);
-        file_put_contents(fanboyRunDir() . "/beat-$pid", (string) (hrtime(true) - 40e9));
+        file_put_contents(fanboyRunDir() . "/beat-$pid", (string) (hrtime(true) - 40_000_000_000));     // an integer (see above)
         fanboyTGuard($t, $data, 'watch');
         $gone = fanboyTWait(fn () => !is_dir("/proc/$pid") || str_contains((string) @file_get_contents("/proc/$pid/stat"), ') Z'), 5);
         same('fanboy procs: hung (stopped, no beat for 40 s) — ended for good, every output back', [true, [128, 1], []], [$gone, fanboyTOut($t, 4), fanboyHeld()]);
