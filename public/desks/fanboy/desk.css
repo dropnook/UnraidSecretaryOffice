@@ -43,6 +43,12 @@
   .fb-kindstate{display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center}
   .fb-kindstate > p{margin:0}
   .fb-curve-follows{font-weight:600; font-variant-numeric:tabular-nums}
+  /* round 14, several fans on one connector: whose table it is, the margin, the look for the eye with its question */
+  .fb-hub{display:flex; flex-direction:column; gap:6px; margin-top:14px; padding:12px 14px; border:1px solid var(--line2); border-radius:var(--radius); background:var(--surface)}
+  .fb-hub[hidden]{display:none}
+  .fb-hub > p, .fb-hub > h4{margin:0}
+  .fb-hub-ask{font-weight:600; font-size:15px; padding-top:6px}
+  .fb-alike{align-items:center}
   /* heat sources in no zone: the sentence, then (in the zones step) «add to «zone»:» and one button per source */
   .fb-uncovered > .fb-bar{align-items:center}
   .fb-uncovered .fb-what-label{color:inherit}

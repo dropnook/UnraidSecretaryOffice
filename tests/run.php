@@ -64800,7 +64800,7 @@ function testFanboyPage(): void
     preg_match_all("/send\\('([a-z_]+)'/", $js, $sends);
     $sends = array_values(array_unique($sends[1]));
     sort($sends);
-    same('fanboy page: the testing\'s and the measuring\'s actions through send()', ['answer', 'back', 'fan_look', 'measure', 'role', 'safety_back', 'show', 'show_stop', 'step_next', 'step_stop', 'stop_all', 'test_up'], $sends);
+    same('fanboy page: the testing\'s and the measuring\'s actions through send()', ['answer', 'back', 'fan_look', 'hub_look', 'measure', 'role', 'safety_back', 'show', 'show_stop', 'step_next', 'step_stop', 'stop_all', 'test_up'], $sends);
     check('fanboy page: in SECTIONS_DESKS', array_key_exists('fanboy', SECTIONS_DESKS));
     // the stub and demo states: the shape of a real look on the fake tree (the click test and the pictures)
     $look = fanboyDetect(fanboyFakeTree(hardeningTmp('fanboy-page'), fanboyFakeBoard()));

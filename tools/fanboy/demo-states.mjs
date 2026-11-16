@@ -463,6 +463,12 @@ files['fanboy-uxsafety'] = state({ ite: ite({ 5: [255, 1] }, { ...RPM, 5: 1440, 
 // one output still to test (the picture tool has its start refused: the CPU is warm — the strip says so and keeps it)
 files['fanboy-uxopen'] = state({ ite: ite({}, RPM), fans: UX_FOUND.slice(0, 5) });
 
+// round 14: two unlike fans on «Vorn»'s connector — Fanboy keeps them higher (the hub's floor and start), «darf stehen»
+// waits for the look for the eye; and that look running: «do all fans turn at 40 %?»
+const HUB = SET_UP.map((f) => (f.output === 5 ? { ...f, count: 2, alike: false, stand: { stops: true, floor_rpm: null, start_from_stop: 35, kick_start: null, stops_safe: true }, off_ok: true, off_why: 'mixed_hub', may_stand: false } : f));
+files['fanboy-uxhub'] = state({ ite: ite({}, RPM), fans: HUB, zones: ZONES, who: { who: 'bios', why: 'not_armed' } });
+files['fanboy-uxhublook'] = state({ ite: ite({ 5: [102, 1] }, { ...RPM, 5: 610 }), fans: HUB, zones: ZONES, who: { who: 'bios', why: 'not_armed' },
+  step: running('hub_look', [P(5)], P(5), [], {}, { progress: { phase: 'hub_turn', pct: 40, until: T0 + 48 } }) });
 // round 12 on the page: the measuring's standstill part running (the disk cage's output at 0 — does it stop?), and its
 // results — the disk cage stands and starts again from 35 %, «Vorn» never stands quite still, the CPU cooler on the
 // owner's risk stands and needs a push (it may stand only behind its own confirmation)

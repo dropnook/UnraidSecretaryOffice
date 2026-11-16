@@ -371,7 +371,7 @@ function testFanboyUx(): void
         && str_contains($js, "if (sx) return ['warn', T('safety.chip'),") && str_contains($panel, "waits ? el('p', 'fb-safety-wait', T('safety.wait')) : null"));
     $cpu = substr($js, (int) strpos($js, 'function cpuBlock('), 2600);
     check('fanboy ux: the CPU cooler\'s block stands right under «What is it?» (never behind a fold) — given to Fanboy: since when, and «Back to the BIOS» there',
-        str_contains($panel, 'root.append(head, safety, what, cpu, fields, note, look, back);') && str_contains($cpu, "box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));")
+        str_contains($panel, 'root.append(head, safety, what, cpu, fields, alike, hubSays, note, look, back);') && str_contains($cpu, "box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));")
         && str_contains($cpu, "btn(T('cpu.back'), 'btn', () => send('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }),") && str_contains($cpu, "cpu_own: true, cpu_confirm: tick.checked }"));
     check('fanboy ux: selects and text fields in the office\'s field look (office.css .input — never the browser\'s white box)',
         str_contains($js, "const n = el(tag, 'input small fb-input');") && str_contains($js, "n = inputEl('input', 'text');") && str_contains($panel, "const place = inputEl('select');")
@@ -566,6 +566,36 @@ function testFanboyUx(): void
     check('fanboy ux r13b: the demo state carries such disks as the agent lists them (group, name|null, size, in_use) and no serial',
         count($udSrc) === 3 && array_keys($udSrc[0]) === ['kind', 'id', 'label', 'c', 'asleep', 'group', 'name', 'size', 'in_use'] && $udSrc[2]['in_use'] === true && $udSrc[1]['name'] === null
         && count(array_filter($udSrc, fn ($x) => !preg_match('/^ud-[0-9a-f]{12}$/D', $x['id']))) === 0);
+    // round 14 on the page: several fans on one connector
+    check('fanboy ux r14: step 2 asks «Gleiche Lüfter an allen Steckern?» once a connector has several fans (the state\'s hub) — yes / no, different / don\'t know, saved alone with the role',
+        str_contains($js, "[['yes', true], ['no', false], ['unknown', null]].forEach(([k, v]) => {") && str_contains($js, "send('role', { fan: id, role: f.role, alike: v, off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true });")
+        && str_contains($js, "const hub = roleSet && !never && f.hub ? f.hub : null;") && ($l['de']['hub.alike'] ?? '') === 'Gleiche Lüfter an allen Steckern?');
+    check('fanboy ux r14: the margin for unlike fans is said in the agent\'s own numbers (hub.floor, hub.start — marked for the numbers check), whose table it is too',
+        substr_count($js, "{ v: hub.floor, from: ['setup', 'fans', `=\${id}`, 'hub', 'floor'] }, { v: hub.start, from: ['setup', 'fans', `=\${id}`, 'hub', 'start'] }") === 2
+        && str_contains((string) ($l['de']['hub.mixed'] ?? ''), 'Minimum {floor} %, Anlauf {start} %') && str_contains((string) ($l['de']['hub.table'] ?? ''), 'der seine Drehzahl meldet'));
+    check('fanboy ux r14: «Mit den Augen prüfen» runs the agent\'s hub_look; its questions (do all turn, all stand, do all start again) are answered in the fan\'s panel with step_next {heard}; the strip and the bubble say the look, not a test',
+        str_contains($js, "send('hub_look', { fan: id });") && str_contains($js, "btn(T('hub.yes'), 'btn', () => send('step_next', { fan: id, heard: true }), T('hub.yes_tip'))")
+        && str_contains($js, "btn(T('hub.no'), 'btn plain', () => send('step_next', { fan: id, heard: false }), T('hub.no_tip'))") && str_contains($js, "const answer = part && part.phase !== 'hub_stop';")
+        && str_contains($js, "r.kind = s.kind === 'measure' ? 'measure' : s.kind === 'hub_look' ? 'hub' : 'test';") && str_contains($js, "T(`strip.h.\${run.part.phase}`,")
+        && str_contains($js, "step().kind === 'hub_look' ? T('bubble.hub_look')"));
+    $hubKeys = [];
+    foreach (['hub_turn', 'hub_stop', 'hub_start'] as $ph) {
+        foreach (["hub.ask.$ph", "strip.h.$ph"] as $k) {
+            if (!is_string($l['de'][$k] ?? null)) {
+                $hubKeys[] = $k;
+            }
+        }
+    }
+    foreach (['ok', 'floor_up', 'not_safe', 'no_answer', 'warm'] as $res) {
+        if (!is_string($l['de']["hub.result.$res"] ?? null)) {
+            $hubKeys[] = "hub.result.$res";
+        }
+    }
+    same('fanboy ux r14: every phase of the look and every result has its words; «no answer within a minute» is the agent\'s minute', [[], 60.0, true],
+        [$hubKeys, FANBOY_HUB_LOOK_FOR, str_contains($l['de']['hub.result.no_answer'], 'innert einer Minute')]);
+    check('fanboy ux r14: what the look found is the state\'s (hub.ok, hub.not_safe, hub.extra); «darf stehen» waits for it (zones: the reason; the agent\'s off_why mixed_hub / hub_not_safe in words)',
+        str_contains($js, "out.push(para(hub.not_safe ? T('hub.not_safe') : hub.ok ? T('hub.ok') : T('hub.unchecked')));") && str_contains($js, "if (f.hub && f.hub.mixed && f.hub.not_safe) return T('zones.stand_hub_no');")
+        && str_contains($js, "if (f.hub && f.hub.mixed && !f.hub.ok) return T('zones.stand_hub');") && isset($l['de']['off_why.mixed_hub'], $l['de']['off_why.hub_not_safe']));
     check('fanboy ux: no text of the page speaks of a «card» or of «More» any more (de, en)', !preg_match('/\bKarte\b|«Mehr»/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de'])))
         && !preg_match('/(?<!graphics )\bcards?\b|«More»/i', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['en']))));
     // the owner, 2026-11-15: «kein AI-Slop, der nicht stimmt» — no sentence names a number the state doesn't give

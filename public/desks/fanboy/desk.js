@@ -488,7 +488,7 @@ function bubbleText() {
   const w = who();
   const c = control();
   if (w.who === 'fanboy') return w.why === 'alarm' ? T(alarmFull() ? 'bubble.alarm' : 'bubble.alarm_watch') : T('bubble.steers', { n: w.zones || 0 });
-  if (stepRuns()) return step().kind === 'measure' ? T('bubble.measuring') : T('bubble.testing');
+  if (stepRuns()) return step().kind === 'measure' ? T('bubble.measuring') : step().kind === 'hub_look' ? T('bubble.hub_look') : T('bubble.testing');
   // round 9 (H4): while he shows a fan or one stands at full for safety — and that «Alles stoppen» brings everything back
   if (showRuns()) return T('bubble.showing');
   if (Object.keys(S().safety || {}).length) return T('bubble.safety');
@@ -1703,7 +1703,7 @@ function runNow() {
   if (showRuns()) { r.kind = 'show'; r.id = x.fan; r.quiet = !!x.quiet; phase = x.phase || 'full'; until = x.until; }
   else if (running(s)) {
     const p = s.progress || {};
-    r.kind = s.kind === 'measure' ? 'measure' : 'test';
+    r.kind = s.kind === 'measure' ? 'measure' : s.kind === 'hub_look' ? 'hub' : 'test';
     r.id = s.current || null;
     r.quiet = r.kind === 'test' && !!(p.quiet ?? s.quiet);
     r.queue = (s.fans || []).filter((id) => id !== s.current && !(s.done || []).includes(id));
@@ -1712,6 +1712,10 @@ function runNow() {
     // and the restart pause with its own kick (a kick without a percentage)
     if (r.kind === 'measure' && (p.phase === 'pause' || (p.phase === 'kick' && num(p.pct) === null))) { phase = p.phase; until = p.until; }
     else if (r.kind === 'measure' && ['stop_check', 'start_find', 'kick'].includes(p.phase)) r.part = { phase: p.phase, pct: num(p.pct), left: secsTo(p.until) };
+    // round 14, the look for the eye at several fans on one connector: do all turn (hub_turn), all stand (hub_stop), do
+    // all start again (hub_start) — then the restart pause as after every step
+    if (r.kind === 'hub' && ['hub_turn', 'hub_stop', 'hub_start'].includes(p.phase)) r.part = { phase: p.phase, pct: num(p.pct), left: secsTo(p.until) };
+    else if (r.kind === 'hub') { phase = p.phase === 'kick' ? 'kick' : 'pause'; until = p.until; }
   } else if (restoreRuns()) { r.kind = 'restore'; r.back = (restoreNow().fans || []).slice(); }
   // (round 11: the step says which output follows the pause — null on the last; an older state: the first still to come)
   const after = r.kind === 'test' || r.kind === 'measure' ? ((s.progress || {}).next !== undefined ? s.progress.next : r.kind === 'test' ? r.queue[0] || null : null) : null;
@@ -1956,6 +1960,7 @@ function stripMake() {
       text = run.pause.kick ? (left !== null ? T('strip.kick', { s: left }) : T('strip.pause_plain'))
         : left !== null ? (fan ? T('strip.pause_next', { s: left, fan: fanSay(fan) }) : T('strip.pause', { s: left })) : T('strip.pause_plain');
     } else if (run.kind === 'restore') { mood = 'run'; text = T('strip.restore', { fan: run.back.map((id) => fanSay(id)).join(', ') }); }
+    else if (run.kind === 'hub' && run.id) { mood = 'run'; text = run.part ? T(`strip.h.${run.part.phase}`, { fan: fanSay(run.id), pct: run.part.pct ?? '–' }) : T('strip.h.look', { fan: fanSay(run.id) }); }
     else if (run.kind === 'test' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.test_quiet' : 'strip.test', { fan: fanSay(run.id) }); }
     else if (run.kind === 'show' && run.id) { mood = 'run'; text = T(run.quiet ? 'strip.show_quiet' : 'strip.show', { fan: fanSay(run.id) }); }
     else if (run.kind === 'measure' && run.id) {
@@ -2330,6 +2335,19 @@ function panelMake(id, benchRun, benchUpdate) {
   for (let n = 1; n <= 8; n++) count.appendChild(new Option(String(n), String(n)));
   count.onchange = () => { const f = setupFan(id); if (f && f.role) send('role', { fan: id, role: f.role, count: Number(count.value), off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true }); else { wantCount = Number(count.value); update(); } };
   fields.append(field(T('fields.name'), name, 'fb-field-name'), field(T('fields.place'), place), field(T('roles.count'), count, 'fb-field-count'));
+  // round 14: several fans on this connector — are they the same model? (yes: the measured table counts for all; no or
+  // not said: Fanboy keeps them a little higher, the agent's `hub`)
+  const alike = el('div', 'fb-what-row fb-alike');
+  alike.hidden = true;
+  const alikeBtns = new Map();
+  const alikeBox = el('div', 'fb-what-picks');
+  [['yes', true], ['no', false], ['unknown', null]].forEach(([k, v]) => {
+    const b = btn(T(`hub.alike_${k}`), 'fb-pick', () => { const f = setupFan(id); if (f && f.role) send('role', { fan: id, role: f.role, alike: v, off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true }); }, T(`hub.alike_${k}_tip`));
+    alikeBtns.set(k, b);
+    alikeBox.appendChild(b);
+  });
+  alike.append(el('span', 'fb-what-label', T('hub.alike')), alikeBox);
+  const hubSays = el('p', 'fb-panel-note');
   const note = el('p', 'fb-panel-note');
   // the folds
   const look = keepFold(el('details', 'fb-fold'), `look:${id}`, false);
@@ -2340,7 +2358,7 @@ function panelMake(id, benchRun, benchUpdate) {
   const backSum = el('summary', '', T('back.fold'));
   const backBody = el('div', 'fb-fold-body');
   back.append(backSum, backBody);
-  root.append(head, safety, what, cpu, fields, note, look, back);
+  root.append(head, safety, what, cpu, fields, alike, hubSays, note, look, back);
   let pk = null, lookUI = null;
   /**
    * «Aussehen (fürs Bild)»: maker and model only PROPOSE (the model's typical look fills the four controls); the frame's
@@ -2568,6 +2586,15 @@ function panelMake(id, benchRun, benchUpdate) {
     place.disabled = count.disabled = away;
     if (document.activeElement !== place) place.value = roleSet ? f.place || '' : wantPlace || '';
     if (document.activeElement !== count) count.value = String(roleSet ? f.count || 1 : wantCount || 1);
+    // several fans on the connector (the state's `hub`): the question, and what it means in the agent's own numbers
+    const hub = roleSet && !never && f.hub ? f.hub : null;
+    alike.hidden = !hub;
+    const said2 = hub ? (f.alike === true ? 'yes' : f.alike === false ? 'no' : 'unknown') : '';
+    alikeBtns.forEach((b, k) => { b.setAttribute('aria-pressed', k === said2 ? 'true' : 'false'); b.disabled = away; });
+    const ours2 = hub && ROLES_OURS.includes(f.role) || (hub && f.role === 'cpu' && !!f.cpu_own);
+    setText(hubSays, !hub ? '' : !ours2 ? '' : hub.mixed ? T('hub.mixed', { floor: hub.floor, start: hub.start }) : T('hub.same'));
+    hubSays.hidden = !hubSays.textContent;
+    hubSays.dataset.nums = JSON.stringify(hub && ours2 && hub.mixed ? [{ v: hub.floor, from: ['setup', 'fans', `=${id}`, 'hub', 'floor'] }, { v: hub.start, from: ['setup', 'fans', `=${id}`, 'hub', 'start'] }] : []);
     let hint = '';
     if (!roleSet && !never && found !== 'empty' && (wantPlace !== null || wantCount !== null)) hint = T('panel.kept');
     else if (found === 'empty') hint = T('panel.empty_note');
@@ -2802,7 +2829,8 @@ function measurePanel(id, api) {
   head.append(pict, headText);
   const table = el('div', 'fb-measure-table');
   const note = el('p', 'fb-panel-note');
-  root.append(head, table, note);
+  const hubBox = el('div', 'fb-hub');
+  root.append(head, table, note, hubBox);
   function update() {
     const run = api.now();
     const f = setupFan(id) || { id };
@@ -2829,14 +2857,17 @@ function measurePanel(id, api) {
     if (rpm !== null && !f.no_turn) text = `${text} · ${T('pic.rpm', { rpm: fmt.number(rpm) })}`;
     setText(line, text);
     let reason = '';
+    const looking = run.kind === 'hub' && run.id === id;         // (round 14: its own block below asks and answers)
     if (queued) reason = T('panel.queued_measure');
-    else if (!under && run.kind) reason = T('panel.busy_measure', { fan: run.id ? fanSay(run.id) : '' });
+    else if (looking) reason = '';
+    else if (!under && run.kind) reason = T(run.kind === 'hub' ? 'panel.busy_hub' : 'panel.busy_measure', { fan: run.id ? fanSay(run.id) : '' });
     else if (!run.kind && noRun) reason = noRun;
     else if (away) reason = T('strip.away');
     setText(why, reason);
     const open = toMeasure();
-    swap(acts, [under, run.kind, queued, !!f.measured, !!f.no_turn, !!noRun, away, open, open[0] === id, reason], () => {
+    swap(acts, [under, run.kind, queued, !!f.measured, !!f.no_turn, !!noRun, away, open, open[0] === id, reason, looking], () => {
       const out = [];
+      if (looking) return out;
       if (under) out.push(btn(T('test.abort'), 'btn plain', () => stopAll(), T('step.stop_tip')));
       else if (queued) return out;
       else if (!f.measured && !f.no_turn) {
@@ -2858,6 +2889,51 @@ function measurePanel(id, api) {
     note.dataset.nums = JSON.stringify(nums.filter(([, v]) => num(v) !== null).map(([k, v]) => ({ v, from: ['setup', 'fans', `=${id}`, 'stand', k] })));
     line.dataset.nums = JSON.stringify(!under && !queued && !f.no_turn && f.measured ? [{ v: f.min_pct, from: ['setup', 'fans', `=${id}`, 'min_pct'] }, { v: f.start_pct, from: ['setup', 'fans', `=${id}`, 'start_pct'] },
       { v: f.max_rpm, from: ['setup', 'fans', `=${id}`, 'max_rpm'] }] : []);
+    hubPart(f, run, s, away, noRun);
+  }
+  /**
+   * Round 14, several fans on this connector (the state's `hub`): whose table this is, the margin Fanboy keeps for
+   * unlike fans (the agent's floor and start), and the look for the eye — «Mit den Augen prüfen» runs the agent's
+   * `hub_look`; its three questions are answered here («Ja, alle» / «Nein» = step_next {heard}). What it found is the
+   * state's (`hub.ok`, `hub.not_safe`, `hub.extra`), never the page's guess.
+   */
+  function hubPart(f, run, s, away, noRun) {
+    const hub = f.hub || null;
+    const looking = run.kind === 'hub' && run.id === id;
+    const part = looking ? run.part : null;
+    const res = !looking && s && s.kind === 'hub_look' && s.results && s.results[id] && freshEnd(s) ? s.results[id] : null;
+    const busy = !looking && (run.kind || noRun || away) ? (run.kind ? T(run.kind === 'hub' ? 'panel.busy_hub' : 'panel.busy_measure', { fan: run.id ? fanSay(run.id) : '' }) : noRun || T('strip.away')) : '';
+    hubBox.hidden = !hub;
+    hubBox.classList.toggle('fb-live', looking);
+    swap(hubBox, [hub, looking, part && [part.phase, part.pct], run.pause && looking, res, busy, f.found, f.role, f.cpu_own], () => {
+      if (!hub) return [];
+      const out = [el('h4', 'fb-sub', T('hub.title', { n: f.count || 2 })), para(T('hub.table'))];
+      if (!hub.mixed) { out.push(para(T('hub.same'))); return out; }
+      const margin = para(T('hub.mixed', { floor: hub.floor, start: hub.start }));
+      margin.dataset.nums = JSON.stringify([{ v: hub.floor, from: ['setup', 'fans', `=${id}`, 'hub', 'floor'] }, { v: hub.start, from: ['setup', 'fans', `=${id}`, 'hub', 'start'] }]);
+      out.push(margin);
+      if (num(hub.extra) > 0) { const up = para(T('hub.extra', { extra: hub.extra })); up.dataset.nums = JSON.stringify([{ v: hub.extra, from: ['setup', 'fans', `=${id}`, 'hub', 'extra'] }]); out.push(up); }
+      if (looking) {
+        // the question of the moment, and its two answers
+        const asks = part ? T(`hub.ask.${part.phase}`, { pct: part.pct ?? '–' }) : T('hub.ask.pause');
+        out.push(el('p', 'fb-hub-ask', asks));
+        const answer = part && part.phase !== 'hub_stop';
+        out.push(bar(answer ? btn(T('hub.yes'), 'btn', () => send('step_next', { fan: id, heard: true }), T('hub.yes_tip')) : null,
+          answer ? btn(T('hub.no'), 'btn plain', () => send('step_next', { fan: id, heard: false }), T('hub.no_tip')) : null,
+          btn(T('test.abort'), 'btn plain', () => stopAll(), T('step.stop_tip'))));
+        return out;
+      }
+      out.push(para(hub.not_safe ? T('hub.not_safe') : hub.ok ? T('hub.ok') : T('hub.unchecked')));
+      if (res && has(`hub.result.${res.result}`)) out.push(para(T(`hub.result.${res.result}`, { floor: num(res.floor) ?? '–' }), 'callout'));
+      // the look: for one of his with rpm feedback (the agent refuses any other)
+      const his = ROLES_OURS.includes(f.role) || (f.role === 'cpu' && !!f.cpu_own);
+      if (his && f.found === 'tach') {
+        const b = btn(T(hub.ok || hub.not_safe ? 'hub.look_again' : 'hub.look'), hub.ok || hub.not_safe ? 'btn plain' : 'btn', () => { expect({ now: T('hub.starting'), done: () => !!runNow().kind }); send('hub_look', { fan: id }); }, T('hub.look_tip'));
+        if (busy) offBtn(b, busy);
+        out.push(bar(b));
+      } else out.push(para(T(his ? 'hub.look_silent' : 'hub.look_bios')));
+      return out;
+    });
   }
   update();
   return { el: root, update, destroy() { if (wh) wh.destroy(); } };
@@ -3165,6 +3241,9 @@ function standWhy(f) {
   if (!st) return T('zones.stand_again');                       // measured before the standstill was part of it
   if (st.stops === false) return T('zones.stand_floor', { rpm: num(st.floor_rpm) === null ? '–' : fmt.number(st.floor_rpm) });
   if (st.stops_safe !== true) return T('zones.stand_unsafe');
+  // round 14: several unlike fans on the connector — only once the look for the eye said all of them start again
+  if (f.hub && f.hub.mixed && f.hub.not_safe) return T('zones.stand_hub_no');
+  if (f.hub && f.hub.mixed && !f.hub.ok) return T('zones.stand_hub');
   return '';
 }
 /** A source's kind as the zone counts it (from the server's look: a pool not rotating is «ssd») */
