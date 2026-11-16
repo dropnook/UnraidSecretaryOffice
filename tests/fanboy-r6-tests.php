@@ -2441,3 +2441,55 @@ function testFanboyNetTakeOver(): void
         fanboyTEnd();
     }
 }
+
+/**
+ * The Dashboard tile's span (2026-11-16, the owner: «durchklicken»): fanboy.dashboard {show?, hours?} — each alone, hours
+ * one of 1 · 3 · 6 · 12 · 24 · 72, kept with the tile's setting and its mirror; the tile draws its curves for that span
+ * and its label is a button to the next span (after 72 back to 1), its tip saying so
+ */
+function testFanboyDashHours(): void
+{
+    $t = fanboyT('dashhours');
+    try {
+        fanboyDashSet(['show' => 'history']);
+        $a = fanboyDashSet(['hours' => 24]);
+        same('fanboy dash hours: hours alone — kept, the setting «with history» stays, the mirror carries both', [24, 'history', ['v' => 1, 'show' => 'history', 'hours' => 24]],
+            [$a['hours'], fanboyDashRead(), (function () { $m = json_decode((string) @file_get_contents(fanboyRunDir() . '/dash.json'), true); return is_array($m) ? ['v' => $m['v'], 'show' => in_array('fanboy', staffHired(), true) ? $m['show'] : 'history', 'hours' => $m['hours']] : null; })()]);
+        fanboyDashSet(['show' => 'speeds']);
+        same('fanboy dash hours: show alone — the span stays', [24, 'speeds'], [fanboyDashHours(), fanboyDashRead()]);
+        $bad = [];
+        foreach ([['hours' => 5], ['hours' => '6'], ['hours' => 6.0], ['hours' => 0], ['hours' => 100], ['hours' => null], ['hours' => 6, 'show' => 'loud']] as $r) {
+            $bad[] = fanboyR6Refused(fn () => fanboyDashSet($r));
+        }
+        same('fanboy dash hours: refused — 5, a string, a float, 0, 100, null; a good span with a bad show', array_fill(0, 7, 'bad_request'), $bad);
+        same('fanboy dash hours: … nothing changed', [24, 'speeds'], [fanboyDashHours(), fanboyDashRead()]);
+        file_put_contents(fanboyDashFile(), '{"v":1,"show":"history","hours":7}');
+        same('fanboy dash hours: an odd value stored reads as 6', 6, fanboyDashHours());
+    } finally {
+        fanboyTEnd();
+    }
+    // the tile per span: points 30 min, 2 h, 5 h, 10 h, 20 h and 48 h old — each span shows the ones inside it
+    $now = 1763100020;
+    $state = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy.json'), true);
+    $board = $state['setup']['board'];
+    $pts = array_map(fn ($ago) => [$now - $ago, 40, 50, 800], [1800, 7200, 18000, 36000, 72000, 172800]);
+    $seen = [];
+    foreach ([1 => 3, 3 => 6, 6 => 12, 12 => 24, 24 => 72, 72 => 1] as $hours => $next) {
+        $files = fanboyDashFiles('fanboy', 'history');
+        $files['fanboy/dashboard.json'] = ['v' => 1, 'show' => 'history', 'hours' => $hours];
+        $o = fanboyDashWeb($files, ['fanboy/history.json' => ['v' => 1, 'board' => $board, 'zones' => ['disks' => $pts]]], $now);
+        $spans = $o['hist']['disks'] ?? [];
+        $rows = (string) ($o['rows'] ?? '');
+        $seen[$hours] = [count(array_filter($spans, fn ($p) => $p !== [null, null])),
+            str_contains($rows, 'class="sso-fb-span" data-hours="' . $next . '" title="Change the span — next: last ' . $next . ' h">Last ' . $hours . ' h</button>')];
+    }
+    same('fanboy dash hours: the tile per span — the spans with points inside it (1 h: 1 … 24 h: 5; 72 h: 5, its spans are 3 h and the 30-min and 2-h points share one), the label a button to the next span (72 → 1) with its tip',
+        [1 => [1, true], 3 => [2, true], 6 => [3, true], 12 => [4, true], 24 => [5, true], 72 => [5, true]], $seen);
+    $tile = (string) ($o['tile'] ?? '');
+    check('fanboy dash hours: a click posts fanboy.dashboard {hours} with Unraid\'s csrf token and X-Office, never toggles the zone, then the rows anew',
+        str_contains($tile, 'closest("#sso-fb-dash .sso-fb-span")') && str_contains($tile, 'e.preventDefault();e.stopPropagation();') && str_contains($tile, 'hd["X-CSRF-Token"]=csrf_token')
+        && str_contains($tile, '"X-Office":"1"') && str_contains($tile, 'a:"fanboy.dashboard",hours:parseInt(t.getAttribute("data-hours"),10)') && str_contains($tile, '.then(function(){load();})'));
+    check('fanboy dash hours: the curve at the tile\'s width — the row a flex row of its own, the curve a full-width line under it, the label styled as a link',
+        str_contains($tile, '.sso-fb-zone summary{display:block;') && str_contains($tile, '.sso-fb-row{display:flex;') && str_contains($tile, '.sso-fb-graph{display:flex;flex-direction:column;gap:2px;width:100%;')
+        && str_contains($tile, '.sso-fb-span{background:none;border:0;') && str_contains($tile, 'cursor:pointer'));
+}

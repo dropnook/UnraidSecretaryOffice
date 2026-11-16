@@ -100,6 +100,8 @@ const looked = (name, at) => lookedAt(demo(name), at);
 const SCENES = [
   ['steering', { ...ON, 'fanboy.json': lookedAt(demo('fanboy'), NOW - 4) }, {}, 'case', true],
   ['history', { ...WITH, 'fanboy.json': looked('fanboy', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy', NOW - 4), NOW - 30) }, null, true],
+  // 2026-11-16: the span clicked through to 24 h (the label a button to the next span)
+  ['history-24h', { ...WITH, 'fanboy/dashboard.json': { v: 1, show: 'history', hours: 24 }, 'fanboy.json': looked('fanboy', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy', NOW - 4), NOW - 30) }, null, false],
   ['cpu-history', { ...WITH, 'fanboy.json': looked('fanboy-cpu', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy-cpu', NOW - 4), NOW - 30) }, 'cpu', false],
   ['alarm-history', { ...WITH, 'fanboy.json': looked('fanboy-alarm', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy-alarm', NOW - 4), NOW - 30) }, null, false],
   ['alarm', { ...ON, 'fanboy.json': lookedAt(demo('fanboy-alarm'), NOW - 4) }, {}, null, false],

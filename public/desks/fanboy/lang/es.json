@@ -613,6 +613,7 @@
   "dash.stands": "Un ventilador está parado: {fan}",
   "dash.stale": "Últimos valores: {when} — su página trae los nuevos",
   "dash.curve": "Últimas {h} h",
+  "dash.span_tip": "Cambiar el periodo — el siguiente: últimas {next} h",
   "dash.curve_temp": "{lo}–{hi} °C",
   "dash.curve_temp_one": "{c} °C",
   "dash.curve_level": "nivel {lo}–{hi} %",
