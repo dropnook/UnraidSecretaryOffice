@@ -363,3 +363,31 @@ function fanboyIdleTick(?float $now = null): void
     }
     fanboyIdleWatch($now);
 }
+
+const FANBOY_DEV_STAT_KEEP = 300;       // round 13b: seconds a disk's I/O counters are compared over (RAM: devstat.json)
+
+/**
+ * Round 13b: is a disk in use? Its kernel I/O counters (/sys/block/<dev>/stat — the kernel's bookkeeping, no disk asked):
+ * requests in flight now, or reads/writes completed changed since the last look (kept in RAM, devstat.json, at most
+ * FANBOY_DEV_STAT_KEEP s old). The first look knows only «in flight».
+ */
+function fanboyDevInUse(string $stat, string $dev): bool
+{
+    $raw = is_file($stat) && !is_link($stat) ? (string) @file_get_contents($stat, false, null, 0, 512) : '';
+    $f = preg_split('/\s+/', trim($raw)) ?: [];
+    if (count($f) < 9 || !ctype_digit($f[0]) || !ctype_digit($f[4]) || !ctype_digit($f[8])) {
+        return false;
+    }
+    $io = $f[0] . ':' . $f[4];
+    $memo = function_exists('fanboyRunDir') ? fanboyRunDir() . '/devstat.json' : null;
+    $seen = $memo !== null ? (readJson($memo) ?? []) : [];
+    $was = is_array($seen[$dev] ?? null) ? $seen[$dev] : null;
+    $moved = $was !== null && ($was['io'] ?? null) !== $io && time() - (int) ($was['at'] ?? 0) <= FANBOY_DEV_STAT_KEEP;
+    if ($memo !== null && ($was === null || ($was['io'] ?? null) !== $io || time() - (int) ($was['at'] ?? 0) > 60)) {
+        $seen[$dev] = ['io' => $io, 'at' => time(), 'moved' => $moved ? time() : ($was['moved'] ?? null)];
+        @mkdir(dirname($memo), 0700, true);
+        writeAtomic($memo, jsonEncode($seen), 0600, 0, 0);
+    }
+    $recently = is_int($was['moved'] ?? null) && time() - $was['moved'] <= FANBOY_DEV_STAT_KEEP;
+    return (int) $f[8] > 0 || $moved || $recently;
+}

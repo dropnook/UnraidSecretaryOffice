@@ -94,6 +94,7 @@ if (fanboyShown()) {
             'step_alive'    => function (array $r): array { fanboyStepAliveTouch(); return ['ok' => true, 'step' => fanboyStepRead()]; },
             'step_stop'     => fn (array $r) => fanboyStepStopAction(),
             'step_next'     => fn (array $r) => fanboyStepNext($r),        // round 8: «Gefunden — weiter»
+            'hub_look'      => fn (array $r) => fanboyHubLookStart($r),     // round 14: several fans on one connector, looked at
             'answer'        => fn (array $r) => fanboyAnswer($r),
             'role'          => fn (array $r) => fanboyRole($r),
             'fan_name'      => fn (array $r) => fanboyFanName($r),         // round 8: «Wo sitzt er?» while testing
@@ -337,7 +338,11 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
     ksort($kinds);
     $lines[] = 'Sensor kinds: ' . ($kinds ? implode(', ', array_map(fn ($k, $n) => "$k $n", array_keys($kinds), $kinds)) : 'none');
     $disks = $scan['disks'] ?? [];
-    $lines[] = 'Unraid disks: ' . count($disks) . ' (' . count(array_filter($disks, fn ($d) => $d['rotational'])) . ' rotating)';
+    $un = array_filter($disks, fn ($d) => ($d['type'] ?? '') === 'unassigned');
+    $lines[] = 'Unraid disks: ' . (count($disks) - count($un)) . ' (' . count(array_filter($disks, fn ($d) => $d['rotational'] && ($d['type'] ?? '') !== 'unassigned')) . ' rotating)';
+    // round 13b: outside array and pools (devs.ini) — counts only, never an id
+    $lines[] = 'Disks outside array and pools: ' . count($un) . ($un ? ' (' . count(array_filter($un, fn ($d) => $d['rotational'])) . ' rotating, '
+        . count(array_filter($un, fn ($d) => $d['asleep'])) . ' asleep, ' . count(array_filter($un, fn ($d) => !empty($d['in_use']))) . ' in use without a temperature)' : '');
     foreach ($scan['controllers'] ?? [] as $x) {
         $lines[] = 'Other controller: ' . $clean($x['id']) . ' (settings ' . ($x['settings'] ? 'on' : 'off') . ', loop ' . ($x['running'] ? 'running' : 'not running') . ')';
     }
@@ -470,18 +475,50 @@ function fanboyBackCheck(?int $wall = null): array
  * Round 12 correction: «darf stehen» for the setup's fan as the control will take it — the stand plan, and its zone's
  * curve must be able to ask for nothing (curve_never_zero). [in effect, why not]
  */
-function fanboyFanStandState(array $f, ?array $m, ?array $settings): array
+function fanboyFanStandState(array $f, ?array $settings): array
 {
-    [$ok, $why] = fanboyStandPlan($f, is_array($m['table'] ?? null) ? $m : null, ($f['found'] ?? null) === 'tach', fanboyCpuOwn($f), 0);
-    if ($ok) {
+    // the fan's plan (round 14: a hub's margin; round 12: the standstill part) — and its zone's curve must be able to ask
+    // for nothing (fanboyCurveNeverZero())
+    $p = fanboyFanPlan($f);
+    if ($p['off_ok']) {
         foreach (is_array($settings['zones'] ?? null) ? $settings['zones'] : [] as $z) {
-            if (is_array($z) && in_array($f['id'] ?? null, is_array($z['fans'] ?? null) ? $z['fans'] : [], true)
-                && fanboyCurveStart(fanboyCpuOwn($f) ? fanboyCpuCurve($z) : fanboyZoneCurve($z))['never_zero']) {
+            if (is_array($z) && in_array($f['id'] ?? null, is_array($z['fans'] ?? null) ? $z['fans'] : [], true) && fanboyCurveNeverZero($z, fanboyCpuOwn($f))) {
                 return [false, 'curve_never_zero'];
             }
         }
     }
-    return [$ok, $why];
+    return [$p['off_ok'], $p['off_why']];
+}
+
+/**
+ * For the setup's fan, as numbers (the page shows these, mirrors nothing): `floor` (the control's floor for it), `start`
+ * (its start from standing; null outside a zone), `curve` (fanboyFanCurve(): null outside a zone or in an rpm zone) and
+ * `fallback` — what it goes back to if he is not there: the journal's state for this output when he took it this boot
+ * (from: journal), else what a take would keep (from: planned — the state found now, or the chip's automatic where «give
+ * back» says so and the chip has one), and the seconds for each way while it turns and while it stands at 0.
+ */
+function fanboySetupFanPlan(string $id, array $f, array $ctl, ?array $before, ?array $journal): array
+{
+    $fan = $ctl['fans'][$id] ?? null;
+    $z = $fan !== null ? ($ctl['zones'][$fan['zone']] ?? null) : null;
+    $o = $journal;
+    $from = 'journal';
+    if (!is_array($o) || !is_array($o['initial'] ?? null)) {
+        $from = 'planned';
+        $choice = fanboyCpuOwn($f) ? 'auto' : (in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : FANBOY_BACK_DEFAULT);
+        $initial = $before === null ? null : ['value' => $before['value'], 'enable' => $before['enable']];
+        $o = $initial === null ? null : ['initial' => $initial,
+            'back' => $choice === 'auto' && is_int($before['auto'] ?? null) && ($before['enable'] ?? null) === 1 ? ['value' => $before['value'], 'enable' => $before['auto']] : null];
+    }
+    $turning = fanboyFallback($o, ['value' => null]);
+    $standing = fanboyFallback($o, ['value' => 0]);
+    return [
+        'floor' => $fan['floor'] ?? (fanboyFanOurs($f) ? fanboyFloorOf($f) : null),
+        'start' => $fan['start'] ?? null,
+        'curve' => $fan !== null && $z !== null ? fanboyFanCurve($z, $fan) : null,
+        'fallback' => $turning === null ? null : ['from' => $from, 'to' => $turning['to'], 'within' => $turning['within'],
+            'within_standing' => $standing['within'] ?? null, 'check' => $turning['check']],
+    ];
 }
 
 /**
@@ -759,6 +796,9 @@ function fanboySetupState(array $scan, ?array $settings): array
 {
     $fans = [];
     $missing = [];
+    $ctl = fanboyControlNew($settings ?? [], '', ['pid' => 0]);         // what the control would make of these settings
+    $before = fanboyBefore($scan);
+    $journal = fanboyJournal()['outputs'];
     foreach (is_array($settings['fans'] ?? null) ? $settings['fans'] : [] as $id => $f) {
         $stored = fanboyStoredFan($f);
         if (!is_string($id) || $stored === null) {
@@ -792,9 +832,17 @@ function fanboySetupState(array $scan, ?array $settings): array
             // round 12 fix: the standstill part was cut — {why: warm|stopped|page_gone|…, source, c, at} («Stillstand nicht geprüft: CPU 53 °C»)
             'stand_cut' => $m !== null && !array_key_exists('stops', $m) && is_array($m['stand_cut'] ?? null) ? $m['stand_cut'] : null,
             // … and «darf stehen» chosen but not in effect: why (measure_again, never_stops, not_safe, not_measured)
-            'off_why' => ($plan = fanboyFanStandState(['id' => $id] + $f, $m, $settings))[1],
+            // the floor, the start from standing and the curve as the control applies them (null outside a zone, the curve
+            // also in rpm zones), and what it falls back to (fanboySetupFanPlan())
+            ...fanboySetupFanPlan($id, $f, $ctl, $before[$id] ?? null, $journal[$id] ?? null),
+            'off_why' => ($stand = fanboyFanStandState(['id' => $id] + $f, $settings))[1],
             // … in effect (it may stand), and a CPU cooler's second tick — since when (null: none)
-            'may_stand' => $plan[0], 'cpu_off' => fanboyCpuOwn($f) && is_int($f['cpu_off']['at'] ?? null) ? $f['cpu_off']['at'] : null];
+            'may_stand' => $stand[0], 'cpu_off' => fanboyCpuOwn($f) && is_int($f['cpu_off']['at'] ?? null) ? $f['cpu_off']['at'] : null,
+            // round 14: several fans on it — the same model or not (null: not said), and what that means for the control
+            'alike' => is_bool($f['alike'] ?? null) ? $f['alike'] : null,
+            'hub' => is_int($f['count'] ?? null) && $f['count'] > 1 ? ['mixed' => ($f['alike'] ?? null) !== true, 'one_fan_table' => true,
+                'ok' => is_int($f['hub_ok']['at'] ?? null) ? $f['hub_ok']['at'] : null, 'not_safe' => is_int($f['hub_not_safe']['at'] ?? null) ? $f['hub_not_safe']['at'] : null,
+                'extra' => is_int($f['hub_extra'] ?? null) ? $f['hub_extra'] : 0, 'floor' => ($plan = fanboyFanPlan($f))['floor'], 'start' => $plan['start']] : null];
         $r = fanboyResolve($stored, $scan);
         if ($r['path'] === null) {
             $missing[] = ['id' => $id, 'how' => $r['how']];
@@ -808,11 +856,18 @@ function fanboySetupState(array $scan, ?array $settings): array
     foreach ($zones as $z) {
         if (is_string($z['id'] ?? null)) {
             [$lo, $hi] = fanboyZoneScale($z);
+            // round 13: every kind of its sources with its own curve (or the derived one), on its own scale, and the presets there
+            $kinds = [];
+            foreach (fanboyZoneKindCurves($z) as $k => $kc) {
+                $kv = fanboyKindValues($z, $k);
+                $kl = (float) $kv['low'];
+                $kh = (float) $kv['high'] > $kl ? (float) $kv['high'] : $kl + 10;
+                $kinds[$k] = $kc + ['scale' => [$kl, $kh], 'presets' => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, $kl, $kh), FANBOY_PRESETS))];
+            }
             $curves[$z['id']] = ['points' => fanboyZoneCurve($z), 'scale' => [$lo, $hi],
-                'presets' => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, $lo, $hi), FANBOY_PRESETS))];
+                'presets' => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, $lo, $hi), FANBOY_PRESETS)), 'kinds' => $kinds ?: new stdClass()];
         }
     }
-    $before = fanboyBefore($scan);
     return [
         // round 12 correction: has a give-back to the chip's automatic been SEEN to work on this board? {at, output}|null
         'auto_back_seen' => is_array($settings['auto_back_seen'] ?? null) && is_int($settings['auto_back_seen']['at'] ?? null) ? $settings['auto_back_seen'] : null,

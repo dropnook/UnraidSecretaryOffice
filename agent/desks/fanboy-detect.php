@@ -313,8 +313,18 @@ function fanboyTwins(array $p, array $chips): array
     return array_values(array_unique($out));
 }
 
-/** Unraid's disks from disks.ini (its bookkeeping, no disk asked): name, role, temperature (null asleep or unknown), asleep */
+/**
+ * Unraid's disks from disks.ini (its bookkeeping, no disk asked): name, role, temperature (null asleep or unknown), asleep.
+ * Round 13b (the owner: «hier fehlen doch Festplatten»): and the disks outside array and pools from devs.ini beside it
+ * (fanboyDevDisks(): a VM's disks, unassigned ones) — the same rules, RAM only.
+ */
 function fanboyDisks(string $ini, ?array $limits = null): array
+{
+    return array_merge(fanboyArrayDisks($ini, $limits), fanboyDevDisks($ini, $limits));
+}
+
+/** The disks of array and pools (disks.ini) */
+function fanboyArrayDisks(string $ini, ?array $limits = null): array
 {
     $out = [];
     $deg = fn ($v) => is_string($v) && preg_match('/^\d{1,3}$/D', $v) ? (int) $v : null;
@@ -339,6 +349,66 @@ function fanboyDisks(string $ini, ?array $limits = null): array
                 'warn' => $deg($d['hotTemp'] ?? null) ?? $limits[$ssd ? 'hotssd' : 'hot'] ?? null,
                 'crit' => $deg($d['maxTemp'] ?? null) ?? $limits[$ssd ? 'maxssd' : 'max'] ?? null,
             ];
+        }
+    }
+    return $out;
+}
+
+
+/**
+ * A stable id for a disk outside array and pools from devs.ini's `id` (model and serial — never shown, never stored):
+ * «ud-» and 12 hex of its hash; sdX moves between boots, the id doesn't
+ */
+function fanboyDevId(string $id): string
+{
+    return 'ud-' . substr(hash('sha256', "fanboy-dev:$id"), 0, 12);
+}
+
+/**
+ * Round 13b: Unraid's disks outside array and pools — /var/local/emhttp/devs.ini beside disks.ini (RAM, written by
+ * emhttp; never a command, never a disk asked or woken). Each in fanboyArrayDisks()'s shape, type «unassigned», name =
+ * fanboyDevId(), plus `label` (the Unassigned Devices plugin's own name for it, when it has one: its
+ * /var/state/unassigned.devices/disk_names.json, {sdX: name}, read only and optional), `size` (bytes), `in_use`.
+ * Asleep when emhttp says spun down or there is no temperature — unless its I/O counters in sysfs moved (fanboyDevInUse():
+ * a VM may use a disk Unraid takes for spun down): then not asleep, no temperature, in_use (a zone takes it like a
+ * sensor that says nothing). An NVMe here is left out: its own sensor (the nvme chip) says its temperature already.
+ */
+function fanboyDevDisks(string $ini, ?array $limits = null): array
+{
+    $devs = dirname($ini) . '/devs.ini';
+    if (!is_file($devs) || is_link($devs)) {
+        return [];
+    }
+    // the tree around it (the tests' fake one, or the host's): only when disks.ini lies where Unraid keeps it
+    $root = str_ends_with($ini, '/var/local/emhttp/disks.ini') ? substr($ini, 0, -strlen('/var/local/emhttp/disks.ini')) : null;
+    $ud = $root === null ? null : "$root/var/state/unassigned.devices/disk_names.json";
+    $names = $ud !== null && is_file($ud) && !is_link($ud) && (int) @filesize($ud) <= 65536 ? (readJson($ud) ?? []) : [];
+    $deg = fn ($v) => is_string($v) && preg_match('/^\d{1,3}$/D', $v) ? (int) $v : null;
+    $out = [];
+    foreach (readCfg($devs, true) as $d) {
+        $dev = (string) ($d['device'] ?? '');
+        $id = (string) ($d['id'] ?? '');
+        if (!preg_match('/^[a-z][a-z0-9]{0,15}$/D', $dev) || $id === '' || str_starts_with($dev, 'nvme')) {
+            continue;
+        }
+        $rot = ($d['rotational'] ?? '1') !== '0';
+        $temp = ctype_digit((string) ($d['temp'] ?? '')) ? (int) $d['temp'] : null;
+        $down = ($d['spundown'] ?? '0') === '1' || $temp === null;
+        // the I/O counters' memory lives with the watch (fanboy-watch.php: this file writes nothing)
+        $inUse = $root !== null && function_exists('fanboyDevInUse') && fanboyDevInUse("$root/sys/block/$dev/stat", $dev);
+        $asleep = $down && !$inUse;
+        // the plugin's name for it: a short printable text, never the id (a name that is the serial says nothing anyway)
+        $label = is_string($names[$dev] ?? null) ? trim((string) preg_replace('/[\x00-\x1f\x7f]+/u', ' ', $names[$dev])) : '';
+        $label = $label !== '' && mb_strlen($label) <= 40 && !str_contains($id, $label) ? $label : null;
+        $sectors = ctype_digit((string) ($d['sectors'] ?? '')) ? (int) $d['sectors'] : 0;
+        $sector = ctype_digit((string) ($d['sector_size'] ?? '')) ? (int) $d['sector_size'] : 512;
+        $out[] = [
+            'name' => fanboyDevId($id), 'type' => 'unassigned', 'rotational' => $rot, 'asleep' => $asleep,
+            'temp' => !$down ? $temp : null, 'device' => $dev, 'label' => $label, 'size' => $sectors * $sector, 'in_use' => $inUse && $down,
+        ];
+        if ($limits !== null) {
+            $out[count($out) - 1] += ['warn' => $deg($d['hotTemp'] ?? null) ?? $limits[$rot ? 'hot' : 'hotssd'] ?? null,
+                                      'crit' => $deg($d['maxTemp'] ?? null) ?? $limits[$rot ? 'max' : 'maxssd'] ?? null];
         }
     }
     return $out;
