@@ -169,7 +169,7 @@ function state(o) {
     who: o.who || { who: 'bios', why: offered.length ? 'not_set_up' : 'no_output' },
     control: { running: false, armed: !!o.armed, who: 'bios', why: null, zones: [], alarm: null, missing: null, notes: [], watch: [], time: null, guard: null, ...(o.control || {}) },
     setup: {
-      auto_back_seen: null, board: 'Example Boards Inc. | EB-Z100 PRO', others: 0, fans, zones, armed: !!o.armed, outputs: offered.length ? OUTPUTS : [], missing: [],
+      auto_back_seen: null, uncovered: [], board: 'Example Boards Inc. | EB-Z100 PRO', others: 0, fans, zones, armed: !!o.armed, outputs: offered.length ? OUTPUTS : [], missing: [],
       sources: sources(chips, disks), curves: curves(zones), before: offered.length ? clone(BEFORE) : {}, back_default: 'auto',
       scales: SCALES, down: DOWN, round: 2, cpu_floor: 40, presets_of: PRESETS_OF,
     },
