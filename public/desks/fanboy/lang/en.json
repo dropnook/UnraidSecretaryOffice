@@ -163,7 +163,6 @@
   "why.hand_back": "Handed back",
   "why.hold": "He holds back for now",
   "why.not_hired": "He isn't hired",
-  "why.hidden": "He isn't shown here",
   "situation.steers": {
     "one": "Fanboy steers the fans you gave him, in {n} zone. The CPU cooler, pumps and everything else stay with the BIOS.",
     "other": "Fanboy steers the fans you gave him, in {n} zones. The CPU cooler, pumps and everything else stay with the BIOS."

@@ -960,11 +960,10 @@ the last 60 history lines only for a source the file has none for. **The file
   newest backup snapshot into a fresh `<share>/.uso-drill-<id>` on an awake pool or disk, compares it, and puts that folder into
   Ms. Dustdevil's storeroom of the share through her helpers (`drillScratchAway()`; she finds it by `drillTrashRoots()`), with
   the verified copy's name, size and sha256 (journal `made[].files`, manifest `drill`) — so it empties itself after 7 days.
-* **`fanboy` — Fanboy** (the building services, his fans' biggest fan; the same name in all five languages). **Hidden until the
-  owner lets him out:** desk.json `"switch": "show.json"` — the desk exists only where `<data folder>/fanboy/show.json` lies
-  (a plain file, any content, never a link; `src/desks.php officeDeskSwitchedOn()`, agent `fanboyShown()` — the same rule,
-  his desk.json unreadable = hidden): without it no tile, route, hiring, strings, `desk()`, action or fit. Out for everyone =
-  remove the key. **One file writes fan outputs: `agent/desks/fanboy-write.php`**, only through `fanboyWriteFile()` (a
+* **`fanboy` — Fanboy** (the building services, his fans' biggest fan; the same name in all five languages). **A desk like the
+  others** (since 2026-11-16; until then hidden behind a switch file, `<data folder>/fanboy/show.json`, which is now never
+  read): listed, hired only on the user's click, steering nothing until his setup is done and the user hands the fans to him;
+  his Dashboard tile «Off» until the user picks it. **One file writes fan outputs: `agent/desks/fanboy-write.php`**, only through `fanboyWriteFile()` (a
   `pwmN`/`pwmN_enable` directly in a hwmonN of the hwmon root, there already, really under /sys/devices — `testFanboyNoWrite`
   holds every other file of his to its own few write calls). His look
   (`agent/desks/fanboy-detect.php`, read only, a few ms): `/sys/class/hwmon` (chips by name + device path **without hwmonN**,

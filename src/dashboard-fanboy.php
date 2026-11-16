@@ -4,7 +4,7 @@ declare(strict_types=1);
 /*
  * Fanboy's own tile on Unraid's Dashboard (SecretaryOfficeDashboard.page puts it into $mytiles under a key of its own:
  * Unraid's content manager moves and hides it apart from the office's tile — it knows a tile by its title, «Fanboy» in
- * every language). It exists only while his desk is there (the switch file), he is hired and his setting «Show on the
+ * every language). It exists only while he is hired and his setting «Show on the
  * Dashboard» (<data folder>/fanboy/dashboard.json, set by the agent's fanboy.dashboard) is not off.
  *
  * It reads state files only, like the office's tile: his state (data/fanboy.json, written at every look of his page)
@@ -58,14 +58,14 @@ function officeFanboyDashShow(?string $data = null): string
 }
 
 /**
- * Should the tile be there, and with what? null: no tile. The data folder there: his desk shown, hired, the setting;
+ * Should the tile be there, and with what? null: no tile. The data folder there: hired, the setting;
  * not there (the array stopped): the agent's mirror in RAM, exactly in its shape.
  */
 function officeFanboyDashGate(): ?string
 {
     if (is_dir(OFFICE_DATA)) {
         if (!isset(officeHired()['fanboy'])) {
-            return null;                // hidden (no switch file: no such desk) or not hired
+            return null;                // not hired
         }
         $show = officeFanboyDashShow();
         return $show === 'off' ? null : $show;
@@ -76,8 +76,8 @@ function officeFanboyDashGate(): ?string
 }
 
 /**
- * The office's strings with his — read from his own language files when the office doesn't list his desk right now (the
- * data folder away: his switch file can't be seen)
+ * The office's strings with his — read from his own language files when the office's strings don't carry his (the data
+ * folder away)
  */
 function officeFanboyDashStrings(string $lang): array
 {

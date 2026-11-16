@@ -163,7 +163,6 @@
   "why.hand_back": "Zurückgegeben",
   "why.hold": "Er hält sich gerade zurück",
   "why.not_hired": "Er ist nicht angestellt",
-  "why.hidden": "Er ist hier nicht sichtbar",
   "situation.steers": {
     "one": "Fanboy regelt die Lüfter, die du ihm gegeben hast, in {n} Zone. CPU-Kühler, Pumpen und alles andere bleiben beim BIOS.",
     "other": "Fanboy regelt die Lüfter, die du ihm gegeben hast, in {n} Zonen. CPU-Kühler, Pumpen und alles andere bleiben beim BIOS."

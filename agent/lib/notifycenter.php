@@ -43,7 +43,6 @@ const NOTIFY_SUMMARY_LINES = 20;      // lines of a summary's long text, then «
 const NOTIFY_SILENT_MAX   = 60 * 86400;   // «Still bis …» at most two months ahead
 
 // the characters who send, in the page's order — `office` the office itself (scripts/agent.sh: the agent away, back)
-// (`fanboy` only while his switch is on: officeNotifyDesks())
 const OFFICE_NOTIFY_DESKS = ['caretaker', 'backup', 'snapshot', 'restore', 'watchman', 'moverelli', 'jack', 'fanboy', 'logs', 'office'];
 // what each of them sends (the page says it; a desk without alerts shows «Nur Alarme» as «Aus»)
 const OFFICE_NOTIFY_SENDS = [
@@ -77,26 +76,19 @@ function officeNotifyHome(): ?string
 // ===================================================================== the settings
 
 /**
- * The senders here now: OFFICE_NOTIFY_DESKS without a desk that isn't out yet and whose switch is off (desk.json
- * "switch": "<name>.json", only Fanboy so far) — no row on the page, no setting taken for him. The same rule as
- * fanboyShown() and src/desks.php officeDeskSwitchedOn(): only a plain file switches on; his desk.json unreadable: hidden.
+ * The senders here now: OFFICE_NOTIFY_DESKS whose desk.json this office has (a desk without one: no row on the page, no
+ * setting taken for it). Fanboy's switch file of his hidden time (<data folder>/fanboy/show.json) means nothing since
+ * 2026-11-16: he is a sender like the others.
  *
  * @return list<string>
  */
-function officeNotifyDesks(?string $data = null, ?string $web = null): array
+function officeNotifyDesks(?string $web = null): array
 {
     $out = [];
     foreach (OFFICE_NOTIFY_DESKS as $id) {
         $meta = $id === 'office' ? [] : readJson(($web ?? OFFICE_WEB) . "/desks/$id/desk.json");
         if (!is_array($meta)) {
             continue;
-        }
-        if (array_key_exists('switch', $meta)) {
-            $s = $meta['switch'];
-            $f = ($data ?? DATA_DIR) . "/$id/" . (is_string($s) ? $s : '');
-            if (!is_string($s) || !preg_match('/^[a-z0-9_-]{1,32}\.json$/D', $s) || is_link($f) || !is_file($f)) {
-                continue;
-            }
         }
         $out[] = $id;
     }

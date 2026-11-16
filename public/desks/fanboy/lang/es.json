@@ -163,7 +163,6 @@
   "why.hand_back": "Devueltos",
   "why.hold": "Por ahora se contiene",
   "why.not_hired": "No está contratado",
-  "why.hidden": "Aquí no se muestra",
   "situation.steers": {
     "one": "Fanboy regula los ventiladores que le diste, en {n} zona. El disipador de la CPU, las bombas y todo lo demás siguen con la BIOS.",
     "other": "Fanboy regula los ventiladores que le diste, en {n} zonas. El disipador de la CPU, las bombas y todo lo demás siguen con la BIOS."
