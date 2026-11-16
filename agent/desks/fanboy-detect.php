@@ -323,6 +323,20 @@ function fanboyDisks(string $ini, ?array $limits = null): array
     return array_merge(fanboyArrayDisks($ini, $limits), fanboyDevDisks($ini, $limits));
 }
 
+/**
+ * Fanboy's own rule for a disk as a heat source (2026-11-16, the owner's first night: his pool's two SSDs went to standby
+ * after 30 idle minutes — Unraid: spundown="1", temp="*" — and the office's «only a rotating disk sleeps» made them silent
+ * sensors: two false alarms, the zone at 100 % for ten minutes each): Unraid says spun down and gives no temperature →
+ * asleep (no demand, no alarm), rotating or not; a rotating disk spun down counts as asleep as before. A silent sensor is
+ * only a disk Unraid calls awake (spundown="0") without a temperature. The office-wide diskAsleep() (wake-ups, every other
+ * desk) stays as it is.
+ */
+function fanboyDiskSleeps(array $d): bool
+{
+    $down = ($d['spundown'] ?? '0') === '1';
+    return $down && (($d['rotational'] ?? '1') !== '0' || !ctype_digit((string) ($d['temp'] ?? '')));
+}
+
 /** The disks of array and pools (disks.ini) */
 function fanboyArrayDisks(string $ini, ?array $limits = null): array
 {
@@ -333,7 +347,7 @@ function fanboyArrayDisks(string $ini, ?array $limits = null): array
         if ($type === 'Flash' || ($d['device'] ?? '') === '' || str_starts_with((string) ($d['status'] ?? ''), 'DISK_NP')) {
             continue;
         }
-        $asleep = diskAsleep($d);
+        $asleep = fanboyDiskSleeps($d);
         $out[] = [
             'name'       => (string) ($d['name'] ?? $section),
             'type'       => $type === 'Parity' ? 'parity' : ($type === 'Data' ? 'data' : 'pool'),
@@ -393,7 +407,9 @@ function fanboyDevDisks(string $ini, ?array $limits = null): array
         }
         $rot = ($d['rotational'] ?? '1') !== '0';
         $temp = ctype_digit((string) ($d['temp'] ?? '')) ? (int) $d['temp'] : null;
-        $down = ($d['spundown'] ?? '0') === '1' || $temp === null;
+        // the same rule as the array's (fanboyDiskSleeps()): spun down and no temperature → asleep; awake without one → a
+        // silent sensor (no temperature, not asleep)
+        $down = fanboyDiskSleeps($d);
         // the I/O counters' memory lives with the watch (fanboy-watch.php: this file writes nothing)
         $inUse = $root !== null && function_exists('fanboyDevInUse') && fanboyDevInUse("$root/sys/block/$dev/stat", $dev);
         $asleep = $down && !$inUse;
