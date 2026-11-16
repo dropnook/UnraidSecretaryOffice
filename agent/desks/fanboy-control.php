@@ -494,10 +494,7 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
             }
             $m = is_array($f['measured'] ?? null) && is_array($f['measured']['table'] ?? null) ? $f['measured'] : null;
             $hasTach = ($f['found'] ?? '') === 'tach';
-            $floor = $m !== null && $hasTach && is_numeric($m['min_pct'] ?? null) ? min(100, (int) $m['min_pct'] + FANBOY_FLOOR_MARGIN) : FANBOY_BLIND_FLOOR;
-            if ($cpu) {
-                $floor = max($floor, FANBOY_CPU_FLOOR);
-            }
+            $floor = fanboyFloorOf($f);
             [$offOk, $offWhy, $start] = fanboyStandPlan($f, $m, $hasTach, $cpu, $floor);
             // round 12 correction (the owner: «bis 60 Grad darf der Lüfter stehen bleiben» — his curve, not a second
             // threshold): «darf stehen» only where its curve can ask for nothing
@@ -1188,6 +1185,31 @@ function fanboyEffectiveCurve(array $curve, float $floor, bool $offOk, ?float $s
  * bounds from the constants that drive it; testFanboyR12CpuGone shows each way works). The output standing at 0 now: the
  * shorter «hung» and the guard's 20-s looks apply.
  */
+/** A fan's floor (round 4): the lowest steady value measured + FANBOY_FLOOR_MARGIN, else FANBOY_BLIND_FLOOR; a CPU cooler of his never under FANBOY_CPU_FLOOR */
+function fanboyFloorOf(array $f): int
+{
+    $m = is_array($f['measured'] ?? null) && is_array($f['measured']['table'] ?? null) ? $f['measured'] : null;
+    $floor = $m !== null && ($f['found'] ?? '') === 'tach' && is_numeric($m['min_pct'] ?? null) ? min(100, (int) $m['min_pct'] + FANBOY_FLOOR_MARGIN) : FANBOY_BLIND_FLOOR;
+    return fanboyCpuOwn($f) ? max($floor, FANBOY_CPU_FLOOR) : $floor;
+}
+
+/**
+ * The curve as the control applies it to one of its fans ($fan: the control's fan — cpu, floor, off_ok) in zone $z:
+ * {kind: the degrees it is in, points} (fanboyEffectiveCurve()); an rpm zone: null
+ */
+function fanboyFanCurve(array $z, array $fan): ?array
+{
+    if (($z['unit'] ?? 'pct') !== 'pct') {
+        return null;
+    }
+    $off = ($fan['off_ok'] ?? false) === true;
+    if ($fan['cpu'] ?? false) {
+        $curve = fanboyCpuCurve($z);
+        return ['kind' => 'cpu', 'points' => fanboyEffectiveCurve($curve, (float) $fan['floor'], $off, fanboyCurveStart($curve)['start'])];
+    }
+    return ['kind' => $z['sources'][0]['kind'] ?? 'disk', 'points' => fanboyEffectiveCurve(fanboyZoneCurve($z), (float) $fan['floor'], $off)];
+}
+
 function fanboyFallback(?array $o, array $f): ?array
 {
     if ($o === null) {
@@ -1521,10 +1543,7 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
                 'window' => $cs !== null ? FANBOY_CPU_SMOOTH : null,
                 'cpu_by' => $c['fans'][$id]['cpu_by'] ?? null,
                 // the curve as the control applies it to this fan (stand, floor): {kind: its degrees, points}; rpm zones: null
-                'curve' => $z['unit'] !== 'pct' ? null : (($c['fans'][$id]['cpu'] ?? false)
-                    ? ['kind' => 'cpu', 'points' => fanboyEffectiveCurve(fanboyCpuCurve($z), (float) $c['fans'][$id]['floor'], ($c['fans'][$id]['off_ok'] ?? false) === true,
-                        fanboyCurveStart(fanboyCpuCurve($z))['start'])]
-                    : ['kind' => $z['sources'][0]['kind'] ?? 'disk', 'points' => fanboyEffectiveCurve(fanboyZoneCurve($z), (float) $c['fans'][$id]['floor'], ($c['fans'][$id]['off_ok'] ?? false) === true)]),
+                'curve' => fanboyFanCurve($z, $c['fans'][$id]),
                 'fallback' => fanboyFallback($journal[$id] ?? null, $c['fans'][$id])], $z['fans'])];
     }
     return [

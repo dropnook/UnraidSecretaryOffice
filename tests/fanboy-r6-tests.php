@@ -2443,6 +2443,42 @@ function testFanboyNetTakeOver(): void
 }
 
 /**
+ * For the page worker (he mirrored the floor on the page): the setup's fan carries the numbers the control uses — its
+ * floor, its start from standing, the curve as applied (equal to the control's status) and the fallback (planned before
+ * a take, the journal's after it); a fan in no zone: its floor, no curve
+ */
+function testFanboySetupFanPlan(): void
+{
+    $t = fanboyT('setupplan');
+    try {
+        $spec = fanboyR12Spec();
+        fanboyTDisks($t, 30, null, 30);
+        fanboyR12CpuTemp($t, 40);
+        $c = fanboyR12CurveControl($t, $spec);
+        $fans = fn () => array_column(fanboySetupState(fanboyDetect(), fanboyBoardRaw())['fans'], null, 'id');
+        $f = $fans()[fanboyTId(2)];
+        same('fanboy setup plan: the CPU cooler — floor 40 % (round 4), start 40 % (35 + 5), the curve as the control applies it', [40, 40, true],
+            [$f['floor'], $f['start'], $f['curve'] == fanboyFanCurve($c['zones']['cpu'], $c['fans'][fanboyTId(2)])]);
+        same('fanboy setup plan: … before a take — the fallback planned: the chip\'s automatic for a CPU cooler of his, seconds while it turns and while it stands',
+            ['planned', 5, 35, 15, 90, 30], [$f['fallback']['from'] ?? null, $f['fallback']['within']['control_dead'] ?? null, $f['fallback']['within']['control_hung'] ?? null,
+                $f['fallback']['within_standing']['control_hung'] ?? null, $f['fallback']['within']['guard_only'] ?? null, $f['fallback']['within_standing']['guard_only'] ?? null]);
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        $f = $fans()[fanboyTId(2)];
+        $st = fanboyStatus($c)['zones'][0]['fans'][0];
+        same('fanboy setup plan: … after the take — from the journal, the same as the control\'s status says', ['journal', $st['fallback']['to'], $st['curve']],
+            [$f['fallback']['from'] ?? null, $f['fallback']['to'] ?? null, $f['curve']]);
+        $other = $fans()[fanboyTId(4)];
+        same('fanboy setup plan: a fan of his in no zone, not measured — its floor (40 %, the one for a fan not measured), no start, no curve', [FANBOY_BLIND_FLOOR, null, null],
+            [$other['floor'], $other['start'], $other['curve']]);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyR12CpuTemp($t, 28);
+        fanboyTEnd();
+    }
+}
+
+/**
  * The Dashboard tile's span (2026-11-16, the owner: «durchklicken»): fanboy.dashboard {show?, hours?} — each alone, hours
  * one of 1 · 3 · 6 · 12 · 24 · 72, kept with the tile's setting and its mirror; the tile draws its curves for that span
  * and its label is a button to the next span (after 72 back to 1), its tip saying so
