@@ -885,7 +885,7 @@
     "kick_start": null,
     "stand": null,
     "stand_cut": null,
-    "floor": null,
+    "floor": 40,
     "start": null,
     "curve": null,
     "fallback": null,

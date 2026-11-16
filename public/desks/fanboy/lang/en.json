@@ -1062,5 +1062,22 @@
   "curve.field_v_rpm": "Point {i}: speed in rpm",
   "curve.unit_c": "°C",
   "curve.unit_pct": "%",
-  "curve.unit_rpm": "rpm"
+  "curve.unit_rpm": "rpm",
+  "curve.says_stand_all": "This curve asks for nothing up to {t} °C. He stands only while no kind of the zone asks for anything — otherwise he runs at {floor} % or more.",
+  "curve.says_never_zero_kind": "The curve for {kind} asks for 0 % nowhere — while one of those heat sources is awake he does not stand. He runs at {floor} % or more.",
+  "curve.says_cpu_else": "The CPU cooler stands only by the CPU’s curve. For this kind he runs at {floor} % or more.",
+  "curve.kinds": "Kinds of heat sources",
+  "curve.kind_own": "own curve",
+  "curve.kind_zone": "follows the zone",
+  "curve.kind_now": "{c} °C → {value}",
+  "curve.leads": "leads now",
+  "curve.leads_tip": "Of all heat sources in this zone, one of this kind asks for the most right now — the fans follow it.",
+  "curve.kind_tip": "Show the curve for {kind} in front",
+  "curve.mark": "{kind} {c} °C",
+  "curve.kind_own_text": "{kind} has a curve of its own in this zone.",
+  "curve.kind_zone_text": "{kind} follows the zone’s target, on its own degrees. Drag a point and it gets a curve of its own.",
+  "curve.kind_follow": "Follow the zone again",
+  "curve.kind_follow_tip": "Drops this kind’s own curve: it follows the zone’s target again. Kept only with «Save the zones».",
+  "curve.follows": "The fans follow right now: {kind} · {source} {c} °C → {value}",
+  "zones.curve_no_source": "Give the zone a heat source first — then its curve shows here."
 }

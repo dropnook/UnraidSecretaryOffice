@@ -465,7 +465,7 @@ function testFanboyUx(): void
     // exact degrees on the curve (2026-11-16, the owner): each point says its values, the scale is fine enough to aim, every point can be typed
     check('fanboy ux curve: every point carries its exact values beside it («43 °C · 31 %») — where there is room, the active one always; never on another point, clear of the finger while dragged',
         str_contains($art, 'function labelsPaint() {') && str_contains($art, "const box = free || (i === active ? places[0] : null);") && str_contains($art, "const far = held ? 22 : 0;")
-        && str_contains($art, "!dotsAt.some((q, j) => j !== i && hit(k, q))") && str_contains($js, "label: (x, v) => (rpmUnit ? T('curve.label_rpm', { t: x, v: fmt.number(v) }) : T('curve.label_pct', { t: x, v })),")
+        && str_contains($art, "!dotsAt.some((q, j) => j !== i && hit(k, q))") && str_contains($js, "label: (x, v) => (rpmUnit ? T('curve.label_rpm', { t: degrees(x), v: fmt.number(v) }) : T('curve.label_pct', { t: degrees(x),")
         && ($l['de']['curve.label_pct'] ?? '') === '{t} °C · {v} %');
     check('fanboy ux curve: the degrees\' scale is as fine as its numbers have room (5 °C on a disk\'s scale), with a tick for every single degree; the pointer reads whole degrees',
         str_contains($art, "const every = [1, 2, 5, 10, 20].find((n) => n * perDeg >= 42) || 20;") && str_contains($art, "class: 'fan-curve-minor'")
@@ -476,7 +476,55 @@ function testFanboyUx(): void
         && str_contains($js, "fields: true,") && str_contains($js, "onField: (inp) => { inp.classList.add('input', 'small', 'fb-input'); inp.dataset.fbKeep = '1'; },")
         && str_contains($js, "curveFocus = a && a.dataset && a.dataset.axis && c.el.contains(a) ?"));
     check('fanboy ux curve: the live mark says the degrees as they are read (a tenth where the sensor gives one)',
-        str_contains($js, "T('curves.now', { c: fmt.number(nowC, Number.isInteger(nowC) ? 0 : 1) })"));
+        str_contains($js, "nowText: nowC !== null ? T('curves.now', { c: degrees(nowC) }) : ''"));
+    // round 13 on the page: ONE chart per zone, a curve per kind of its heat sources
+    $block = preg_match('~// >>> kind curves.*?\n(.*?)// <<< kind curves~s', $js, $m) ? $m[1] : '';
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    $zonesFor = [
+        ['id' => 'a', 'unit' => 'pct', 'target' => ['preset' => 'normal'], 'sources' => [['id' => 'disk1', 'kind' => 'disk'], ['id' => 'n1', 'kind' => 'nvme'], ['id' => 'c1', 'kind' => 'cpu']], 'kinds' => ['disk' => ['high' => 44]]],
+        ['id' => 'b', 'unit' => 'pct', 'target' => ['points' => [[30, 25], [40, 40], [50, 70], [60, 100]]], 'sources' => [['id' => 'n1', 'kind' => 'nvme'], ['id' => 'r1', 'kind' => 'ram']], 'kinds' => ['nvme' => ['low' => 38, 'high' => 60]]],
+        ['id' => 'c', 'unit' => 'pct', 'target' => ['preset' => 'quiet'], 'low' => 30, 'high' => 50, 'sources' => [['id' => 'c1', 'kind' => 'cpu'], ['id' => 'disk1', 'kind' => 'disk']],
+            'curves' => ['disk' => ['points' => [[40, 10], [30, 0], [50, 100]]], 'cpu' => ['preset' => 'cool']]],
+        ['id' => 'd', 'unit' => 'pct', 'target' => ['preset' => 'cool'], 'sources' => [['id' => 's1', 'kind' => 'ssd'], ['id' => 'o1', 'kind' => 'other']], 'kinds' => ['other' => ['low' => 50, 'high' => 50]]],
+    ];
+    if ($block === '') {
+        check('fanboy ux r13: the page\'s block «kind curves» is there', false);
+    } elseif ($node === '') {
+        skip('fanboy ux r13: the page\'s kind curves against the agent\'s (needs node)');
+    } else {
+        $want = [];
+        foreach ($zonesFor as $z) {
+            foreach (array_values(array_unique(array_column($z['sources'], 'kind'))) as $k) {
+                [$points, $own] = fanboyKindCurve($z, $k);
+                $want[$z['id'] . ':' . $k] = ['points' => array_map(fn ($p) => [round($p[0], 6), round($p[1], 6)], $points), 'own' => $own];
+            }
+        }
+        $tmp = sys_get_temp_dir() . '/uso-fanboy-kc-' . getmypid() . '.js';
+        file_put_contents($tmp, $block . "\nconst zones = " . json_encode($zonesFor) . ";\nconst scales = " . json_encode(array_map(fn ($d) => ['low' => $d['low'], 'high' => $d['high']], FANBOY_SOURCE_DEFAULTS)) . ";\n"
+            . "const out = {};\nconst r = (x) => Math.round(x * 1e6) / 1e6;\nfor (const z of zones) for (const k of [...new Set(z.sources.map((x) => x.kind))]) { const c = kindCurveOf(z, k, scales); out[z.id + ':' + k] = { points: c.points.map((p) => [r(p[0]), r(p[1])]), own: c.own }; }\nconsole.log(JSON.stringify(out));\n");
+        $got = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg($tmp) . ' 2>&1'), true);
+        @unlink($tmp);
+        same('fanboy ux r13: the page works out each kind\'s curve exactly as the agent (own points, own preset, derived from the zone\'s preset or points, the zone\'s own scale, a kind without a span)',
+            json_decode((string) json_encode($want), true), $got);
+    }
+    check('fanboy ux r13: one chart per zone — the kind in front with its handles, the other kinds\' curves faded behind it, one scale of degrees for all',
+        str_contains($js, "const others = all.filter((x) => x.k !== K).map((x) => ({ points: x.pts.map((p) => ({ t: p[0], v: p[1] })) }));") && str_contains($js, "const temps = all.flatMap((x) => x.pts.map((p) => p[0]));")
+        && str_contains($art, "othersG.appendChild(svg('polyline', { class: 'fan-curve-other', points: xy.join(' ') }));") && str_contains($js, "b.onclick = () => { if (kindSel.get(z.id) !== k) { kindSel.set(z.id, k); drawn = ''; redraw(); } };"));
+    check('fanboy ux r13: a changed curve is that kind\'s own (with one kind: the zone\'s); «Wieder der Zone folgen» drops it; saving sends only the own curves of kinds the zone still has',
+        str_contains($js, "if (multi || ownK) zs[i].curves = { ...(zs[i].curves || {}), [K]: { points: own2 } };") && str_contains($js, "else zs[i].target = { points: own2 };")
+        && str_contains($js, "const rest = { ...(zs[i].curves || {}) }; delete rest[K]; zs[i].curves = rest;") && str_contains($js, "if (!has2.includes(k) || !v) return;") && str_contains($js, "if (Object.keys(own).length) out.curves = own;"));
+    check('fanboy ux r13: what each kind asks for and which one the fans follow comes from the control\'s state (by_kind, leader) — marked for the numbers check, never worked out on the page',
+        str_contains($js, "const byKind = (cz && cz.by_kind) || {};") && str_contains($js, "const leadKind = cz && cz.leader && kinds.includes(cz.leader.kind) ? cz.leader.kind : null;")
+        && str_contains($js, "follows.dataset.nums = JSON.stringify([{ v: led.c, from: ['control', 'zones', `=\${z.id}`, 'by_kind', leadKind, 'c'] },")
+        && str_contains((string) ($l['de']['curve.follows'] ?? ''), 'Die Lüfter folgen gerade: {kind} · {source} {c} °C → {value}'));
+    check('fanboy ux r13: a curve is shown exactly as it counts (a derived point at 39.5 °C stays 39.5) and becomes whole numbers only once he changes it',
+        str_contains($art, ".map((p) => ({ t: clamp(p.t, tMin, tMax), v: clamp(p.v, vMin, vMax) }))") && str_contains($art, "function whole() {") && substr_count($art, 'whole();') >= 4
+        && str_contains($js, "const degrees = (c) => fmt.number(c, Number.isInteger(c) ? 0 : 1);"));
+    check('fanboy ux r13: several kinds — a fan stands only while no kind asks (a kind whose curve never reaches 0 is named); the CPU cooler on own risk goes by the CPU\'s curve alone',
+        str_contains($js, "const neverKind = !isCpu && multi ? kinds.find((k) => curveRule(curveOf(k).points).start === null) : null;") && str_contains($js, "const cpuElse = isCpu && K !== 'cpu';")
+        && str_contains($js, "return kindCurveOf(zoneKinded(z), 'cpu', setup().scales || {}).points;"));
+    check('fanboy ux: a fan\'s floor is the agent\'s own number where the state has it (the setup\'s plan: the hub\'s margin included), the mirrored rule only for an older agent',
+        str_contains($js, "if (f && num(f.floor) !== null) return f.floor;"));
     check('fanboy ux: no text of the page speaks of a «card» or of «More» any more (de, en)', !preg_match('/\bKarte\b|«Mehr»/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de'])))
         && !preg_match('/(?<!graphics )\bcards?\b|«More»/i', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['en']))));
     // the owner, 2026-11-15: «kein AI-Slop, der nicht stimmt» — no sentence names a number the state doesn't give
@@ -497,8 +545,8 @@ function testFanboyUx(): void
     preg_match('/const FANBOY_BLIND_FLOOR = (\d+);/', $control, $abf);
     same('fanboy ux: the page\'s floors are the control\'s (lowest steady value + margin, the blind floor)', [$afm[1] ?? null, $abf[1] ?? null], [$fm[1] ?? '', $bf[1] ?? '']);
     check('fanboy ux: the curve chart draws what the control applies for the zone\'s first fan — its floor, and standing only where it may and the curve asks for nothing — and says it in a sentence of those numbers',
-        str_contains($js, "apply: rpmUnit ? undefined : (v) => (stands && v < 0.5 ? 0 : Math.max(v, floorPct)),") && str_contains($js, "const stands = !!lead.off_ok && !standWhy(lead);")
-        && str_contains($js, "const says = para(curveWords(pts, floorPct, stands, isCpu), 'fb-curve-says');") && str_contains($art, "const applied = (v) => (typeof o.apply === 'function' ? o.apply(v) : v);")
+        str_contains($js, "apply: rpmUnit ? undefined : (v) => (stands && v < 0.5 ? 0 : Math.max(v, floorPct)),") && str_contains($js, "const stands = !!lead.off_ok && !standWhy(lead) && !cpuElse;")
+        && str_contains($js, "const says = para(curveWords(pts, floorPct, stands, isCpu, {") && str_contains($art, "const applied = (v) => (typeof o.apply === 'function' ? o.apply(v) : v);")
         && str_contains($art, "line.setAttribute('class', 'fan-curve-line fan-curve-wish');"));
     check('fanboy ux: sentences that take numbers from the state are marked (data-nums) and the picture tool compares each with the demo state it shows',
         substr_count($js, '.dataset.nums = JSON.stringify(') >= 3 && str_contains($tool, "if (want !== x.v) faults.push(") && str_contains($tool, 'is not in its sentence'));

@@ -2982,6 +2982,15 @@ function cleanZone(z) {
     target: z.target && Array.isArray(z.target.points) ? { points: z.target.points.map((p) => [Math.round(p[0]), Math.round(p[1])]) } : { preset: (z.target && z.target.preset) || 'normal' } };
   if (num(z.low) !== null) out.low = z.low;
   if (num(z.high) !== null) out.high = z.high;
+  // round 13: the kinds' own curves — only those of kinds the zone still has a source of (the rest stay derived)
+  const has2 = zoneKinds(z);
+  const own = {};
+  Object.entries(z.curves || {}).forEach(([k, v]) => {
+    if (!has2.includes(k) || !v) return;
+    if (Array.isArray(v.points) && v.points.length >= 2) own[k] = { points: v.points.map((p) => [Math.round(p[0]), Math.round(p[1])]) };
+    else if (KC_PRESETS.includes(v.preset) && out.unit === 'pct') own[k] = { preset: v.preset };
+  });
+  if (Object.keys(own).length) out.curves = own;
   out.react = z.react === 'quick' ? 'quick' : 'balanced';
   // the table «Temperaturen»: only what the user set (numbers), per kind the zone has
   const kinds = {};
@@ -3283,6 +3292,8 @@ function snapBack(select, value, reason) {
 const FLOOR_MARGIN = 5;
 const BLIND_FLOOR = 40;
 function fanFloor(f) {
+  // the agent's own number where the state has it (the setup's plan per fan: the hub's margin, the CPU cooler's floor included)
+  if (f && num(f.floor) !== null) return f.floor;
   const base = f && f.measured && f.found === 'tach' && num(f.min_pct) !== null ? Math.min(100, f.min_pct + FLOOR_MARGIN) : BLIND_FLOOR;
   return f && f.role === 'cpu' && f.cpu_own ? Math.max(base, setup().cpu_floor || 40) : base;
 }
@@ -3290,16 +3301,23 @@ function fanFloor(f) {
  * What the curve means for the zone's first fan, in one sentence built from its numbers only: where it stands (only a
  * fan that may stand, and only where the curve asks for nothing), the least it ever gets, from where it runs at full
  */
-function curveWords(pts, floor, stands, cpu) {
+function curveWords(pts, floor, stands, cpu, more) {
   const out = [];
   const r = curveRule(pts);
-  if (stands && r.start !== null) out.push(T('curve.says_stand', { t: r.start, floor }));
+  const m = more || {};
+  // several kinds in the zone (round 13; fanboyCurveNeverZero()): a fan that isn't the CPU cooler stands only while no
+  // kind asks for anything — a kind whose curve never reaches 0 keeps it running while one of its sources is awake;
+  // the CPU cooler on his risk goes by the CPU's curve alone
+  if (m.cpuElse) out.push(T('curve.says_cpu_else', { floor }));
+  else if (stands && m.neverKind) out.push(T('curve.says_never_zero_kind', { kind: m.neverKind, floor }));
+  else if (stands && m.multi && r.start !== null) out.push(T('curve.says_stand_all', { t: r.start, floor }));
+  else if (stands && r.start !== null) out.push(T('curve.says_stand', { t: r.start, floor }));
   else if (stands) out.push(T('curve.says_never_zero', { floor }));
   else out.push(T('curve.says_floor', { floor }));
   const full = pts.find((p) => p[1] >= 100);
   if (full) out.push(T('curve.says_full', { t: full[0] }));
   // a CPU cooler that stands: when it may stop again and when one reading alone starts it (the control's rule)
-  if (cpu && stands && r.start !== null) out.push(T('curve.says_cpu', { below: r.start - CPU_STAND_GAP, cool: CPU_STAND_AFTER, hard: r.hard }));
+  if (cpu && stands && !m.cpuElse && r.start !== null) out.push(T('curve.says_cpu', { below: r.start - CPU_STAND_GAP, cool: CPU_STAND_AFTER, hard: r.hard }));
   return out.join(' ');
 }
 // the CPU cooler's standstill by its curve (agent/desks/fanboy-control.php: FANBOY_CPU_STAND_GAP, FANBOY_CPU_STAND_AFTER,
@@ -3315,34 +3333,94 @@ function curveRule(pts) {
   const top = Math.max(...pts.map((p) => p[1]));
   return { start: zeros.length ? zeros[zeros.length - 1][0] : null, hard: (pts.find((p) => p[1] >= top) || [null])[0] };
 }
-/** A zone's curve points as they stand on the page: its own, or the preset on its first kind's scale */
+/** The CPU's curve of a zone as it stands on the page, in the CPU's own degrees (round 13: fanboyCpuCurve() — the CPU kind's own curve or the one derived from the zone's) */
 function zonePts(z) {
-  const tgt = z.target || { preset: 'normal' };
-  if (Array.isArray(tgt.points)) return tgt.points;
-  const kind = (z.sources && z.sources[0] && z.sources[0].kind) || ((setup().sources || []).find((x) => (z.sources || []).some((y) => y.id === x.id)) || {}).kind || 'disk';
-  const kv = kindValues(z, kind);
-  return presetsOn(kv.low, kv.high)[tgt.preset || 'normal'];
+  return kindCurveOf(zoneKinded(z), 'cpu', setup().scales || {}).points;
 }
 /** The zone's curve: quiet, normal, cool — or its own, dragged; percent, or rpm where every fan is measured */
+// >>> kind curves (pure — a test runs this block in node against the agent's fanboyKindCurve())
+// Round 13: every kind of a zone's heat sources has its curve, in its own degrees: its own (points, or a preset on the
+// kind's «ab» … «volle Drehzahl bei»), else the zone's curve moved from the zone's scale onto the kind's.
+const KC_PRESETS = ['quiet', 'normal', 'cool'];
+const kcNum = (v) => typeof v === 'number' && Number.isFinite(v);
+function kcValues(zone, kind, scales) {
+  const d = (scales || {})[kind] || (scales || {}).other || { low: 35, high: 55 };
+  const own = (zone.kinds || {})[kind] || {};
+  return { low: kcNum(own.low) ? own.low : d.low, high: kcNum(own.high) ? own.high : d.high };
+}
+function kcPreset(preset, lo, hi) {
+  const mid = (lo + hi) / 2;
+  if (preset === 'quiet') return [[lo, 0], [mid, 30], [hi, 60], [hi + 5, 100]];
+  if (preset === 'cool') return [[lo - 3, 35], [mid - 3, 65], [hi - 3, 100]];
+  return [[lo, 20], [mid, 45], [hi, 80], [hi + 3, 100]];
+}
+function kcZoneScale(zone, scales) {
+  const kind = (zone.sources && zone.sources[0] && zone.sources[0].kind) || 'disk';
+  const d = kcValues(zone, kind, scales);
+  const lo = kcNum(zone.low) ? zone.low : d.low, hi = kcNum(zone.high) ? zone.high : d.high;
+  return [lo, hi > lo ? hi : lo + 10];
+}
+function kcSorted(points) { return points.map((p) => [Number(p[0]), Number(p[1])]).sort((a, b) => a[0] - b[0]); }
+function kcZoneCurve(zone, scales) {
+  const points = zone.target && zone.target.points;
+  if (Array.isArray(points) && points.length >= 2) return kcSorted(points);
+  const [lo, hi] = kcZoneScale(zone, scales);
+  return kcPreset(zone.target && KC_PRESETS.includes(zone.target.preset) ? zone.target.preset : 'normal', lo, hi);
+}
+function kindCurveOf(zone, kind, scales) {
+  const kv = kcValues(zone, kind, scales);
+  const kl = kv.low, kh = kv.high;
+  const own = zone.curves && typeof zone.curves === 'object' ? zone.curves[kind] : null;
+  if (own && typeof own === 'object') {
+    if (Array.isArray(own.points) && own.points.length >= 2) return { points: kcSorted(own.points), own: true };
+    if (KC_PRESETS.includes(own.preset)) return { points: kcPreset(own.preset, kl, kh > kl ? kh : kl + 10), own: true };
+  }
+  const [lo, hi] = kcZoneScale(zone, scales);
+  const curve = kcZoneCurve(zone, scales);
+  if (kh <= kl) return { points: curve, own: false };
+  return { points: curve.map((p) => [kl + (p[0] - lo) * (kh - kl) / (hi - lo), p[1]]), own: false };
+}
+// <<< kind curves
+/** A zone with each source's kind on it (as the agent stores zones) — what the block above reads */
+const zoneKinded = (z) => ({ ...z, sources: (z.sources || []).map((x) => ({ ...x, kind: x.kind || srcKind(x.id) })) });
+/** Degrees as they are: whole, or with their tenth (a preset's middle point may lie at 39.5 °C) */
+const degrees = (c) => fmt.number(c, Number.isInteger(c) ? 0 : 1);
 let curveFocus = null;           // the curve's typed field he is in while its chart is built anew (zone, point, axis)
+const kindSel = new Map();      // zone id → the kind whose curve is in front
+/**
+ * A zone's curves, ONE chart (round 13, the owner: «eine Grafik pro Zone, eine Kurve pro Art»): the zone's «Ziel» counts
+ * for every kind of its heat sources, each on its own degrees; dragging a kind's curve makes it that kind's own. The
+ * kind picked is in front with its handles, the others faded behind it; while he steers, a dot on each curve says where
+ * that kind's warmest source stands and what it asks for, and one line says which of them the fans follow right now —
+ * all from the control's state (by_kind, leader).
+ */
 function curvePart(z, i) {
   const box = el('div', 'fb-curve-part');
   box.appendChild(el('h4', 'fb-sub', T('zones.curve')));
   const fans = (z.fans || []).map(setupFan).filter(Boolean);
   const rpmOk = fans.length > 0 && fans.every((f) => f.found === 'tach' && f.measured);
   const tgt = z.target || { preset: 'normal' };
-  const own = Array.isArray(tgt.points);
-  const kind = (z.sources && z.sources[0] && z.sources[0].kind) || ((setup().sources || []).find((s) => (z.sources || []).some((x) => x.id === s.id)) || {}).kind || 'disk';
+  const zoneOwn = Array.isArray(tgt.points);
+  const scales = setup().scales || {};
+  const zk = zoneKinded(z);
   // the presets on the zone's own scale: its first kind's «ab» … «volle Drehzahl bei» (round 4: the degrees are settable)
-  const kv = kindValues(z, kind);
-  const presets = presetsOn(kv.low, kv.high);
+  const [zLo, zHi] = kcZoneScale(zk, scales);
+  const presets = presetsOn(zLo, zHi);
+  const kinds = zoneKinds(z);
+  const multi = kinds.length > 1;
+  const cz = (control().zones || []).find((x) => x.id === z.id);
+  const byKind = (cz && cz.by_kind) || {};
+  const leadKind = cz && cz.leader && kinds.includes(cz.leader.kind) ? cz.leader.kind : null;
+  let K = kindSel.get(z.id);
+  if (!kinds.includes(K)) K = leadKind || kinds[0] || 'disk';
+  const ownK = !!(z.curves && z.curves[K]);
   const choose = inputEl('select');
   ['quiet', 'normal', 'cool'].forEach((p) => choose.appendChild(new Option(T(`preset.${p}`), p)));
   choose.appendChild(new Option(T('curve.own'), 'own'));
-  choose.value = own ? 'own' : tgt.preset || 'normal';
+  choose.value = zoneOwn ? 'own' : tgt.preset || 'normal';
   choose.onchange = () => (z.unit === 'rpm' && choose.value !== 'own' ? snapBack(choose, 'own', T('zones.preset_pct')) : changeZones((all) => {
     if (choose.value === 'own') {
-      const base = presets ? presets[(all[i].target && all[i].target.preset) || 'normal'] : [[30, 20], [45, 80]];
+      const base = presets[(all[i].target && all[i].target.preset) || 'normal'];
       all[i].target = { points: base.map((p) => [Math.round(p[0]), Math.round(p[1])]) };
     } else all[i].target = { preset: choose.value };
     curves.delete(z.id);
@@ -3353,65 +3431,110 @@ function curvePart(z, i) {
   unit.value = z.unit === 'rpm' ? 'rpm' : 'pct';
   unit.title = rpmOk ? T('zones.unit_tip') : T('zones.unit_off');
   unit.onchange = () => (unit.value === 'rpm' && !rpmOk ? snapBack(unit, 'pct', T('zones.unit_off')) : changeZones((all) => {
-    all[i].unit = unit.value;
     const maxR = Math.min(...fans.map((f) => f.max_rpm || 2000));
-    const base = Array.isArray(all[i].target.points) ? all[i].target.points : presets ? presets[all[i].target.preset || 'normal'] : [[30, 20], [45, 80]];
-    all[i].target = { points: base.map((p) => [Math.round(p[0]), unit.value === 'rpm' ? Math.round(maxR * p[1] / 100 / 10) * 10 : Math.min(100, Math.round(100 * p[1] / maxR))]) };
+    const turn = (pts2) => pts2.map((p) => [Math.round(p[0]), unit.value === 'rpm' ? Math.round(maxR * p[1] / 100 / 10) * 10 : Math.min(100, Math.round(100 * p[1] / maxR))]);
+    // every curve of the zone goes into the other unit: the zone's and each kind's own (as points — presets are percent)
+    const was = zoneKinded(all[i]);
+    const own2 = {};
+    Object.keys(all[i].curves || {}).forEach((k) => { own2[k] = { points: turn(kindCurveOf(was, k, scales).points) }; });
+    all[i].target = { points: turn(kcZoneCurve(was, scales)) };
+    all[i].curves = own2;
+    all[i].unit = unit.value;
     curves.delete(z.id);
   }));
   const f2 = (label, input) => { const l = el('label', 'fb-field'); l.append(el('span', 'fb-field-label', label), input); return l; };
   box.appendChild(el('div', 'fb-row-fields'));
   box.lastChild.append(f2(T('zones.target'), choose), f2(T('zones.unit'), unit));
-  const pts = own ? tgt.points : presets ? presets[tgt.preset || 'normal'] : null;
   const A = art();
-  if (!A || !pts) { box.appendChild(waiting()); return box; }
+  if (!A || !kinds.length) { box.appendChild(kinds.length ? waiting() : para(T('zones.curve_no_source'))); return box; }
+  const rpmUnit = z.unit === 'rpm';
+  // each kind's curve as it counts; with several kinds: which one is in front (a click), which follows the zone, which is its own
+  const curveOf = (k) => kindCurveOf(zk, k, scales);
+  const front = curveOf(K);
+  const pts = front.points;
+  const asks = (k) => (byKind[k] && num(byKind[k].c) !== null && num(byKind[k].value) !== null ? byKind[k] : null);
+  const valueSay = (v) => (rpmUnit ? T('pic.rpm', { rpm: fmt.number(Math.round(v)) }) : T('value', { pct: Math.round(v) }));
+  if (multi) {
+    const row = el('div', 'fb-kindrow');
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', T('curve.kinds'));
+    kinds.forEach((k) => {
+      const kc = curveOf(k);
+      const b = el('button', 'fb-kindpick');
+      b.type = 'button';
+      b.dataset.kind = k;
+      b.setAttribute('aria-pressed', k === K ? 'true' : 'false');
+      const now2 = asks(k);
+      const sub = el('span', 'fb-kindpick-sub', [T(kc.own ? 'curve.kind_own' : 'curve.kind_zone'), now2 ? T('curve.kind_now', { c: degrees(now2.c), value: valueSay(now2.value) }) : ''].filter(Boolean).join(' · '));
+      if (now2) sub.dataset.nums = JSON.stringify([{ v: now2.c, from: ['control', 'zones', `=${z.id}`, 'by_kind', k, 'c'] }, { v: Math.round(now2.value), from: ['control', 'zones', `=${z.id}`, 'by_kind', k, 'value'], via: 'round' }]);
+      const head = el('span', 'fb-kindpick-name', T(`kind.${has(`kind.${k}`) ? k : 'other'}`));
+      b.append(head, sub);
+      if (k === leadKind) b.appendChild(chipOfText('accent', T('curve.leads'), T('curve.leads_tip')));
+      b.title = T('curve.kind_tip', { kind: T(`kind.${has(`kind.${k}`) ? k : 'other'}`) });
+      b.onclick = () => { if (kindSel.get(z.id) !== k) { kindSel.set(z.id, k); drawn = ''; redraw(); } };
+      row.appendChild(b);
+    });
+    box.appendChild(row);
+  }
   const lead = fans[0] || {};
   const look = fanLook(lead);
-  const rpmUnit = z.unit === 'rpm';
   const vMax = rpmUnit ? Math.max(...fans.map((f) => f.max_rpm || 0), 500) : 100;
-  const temps = pts.map((p) => p[0]);
+  // one chart, one scale of degrees for all of the zone's curves
+  const all = kinds.map((k) => ({ k, pts: curveOf(k).points }));
+  const temps = all.flatMap((x) => x.pts.map((p) => p[0]));
   const tMin = Math.max(0, Math.floor((Math.min(...temps) - 10) / 5) * 5), tMax = Math.ceil((Math.max(...temps) + 10) / 5) * 5;
   // the chart shows what the control really applies for the zone's first fan (2026-11-15: a curve along 0 % under a line
   // «never under 40 %» contradicted itself): it stands only where it may and the curve asks for nothing, else it never
   // gets less than its floor — the same rule for a CPU cooler on the owner's risk (round 12 correction: the curve decides).
   const isCpu = lead.role === 'cpu' && !!lead.cpu_own;
   const floorPct = fanFloor(lead);
-  const stands = !!lead.off_ok && !standWhy(lead);
+  // (the CPU cooler on his risk stands by the CPU's curve alone — on another kind's curve it never does)
+  const cpuElse = isCpu && K !== 'cpu';
+  const stands = !!lead.off_ok && !standWhy(lead) && !cpuElse;
+  const neverKind = !isCpu && multi ? kinds.find((k) => curveRule(curveOf(k).points).start === null) : null;
   const floor = rpmUnit ? (lead.table ? tableRpm(lead.table, floorPct) : null) : floorPct;
-  const cz = (control().zones || []).find((x) => x.id === z.id);
-  const nowC = cz && cz.warmest ? num(cz.warmest.mapped) ?? num(cz.warmest.c) : null;
-  const key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|${own}|${own ? '' : tgt.preset}|${floor}|${stands}|${kv.low}|${kv.high}`;
+  const others = all.filter((x) => x.k !== K).map((x) => ({ points: x.pts.map((p) => ({ t: p[0], v: p[1] })) }));
+  // live (the control's state): the front kind's «now» line, a dot on every curve where its kind's source stands
+  const mine = asks(K);
+  const nowC = mine ? mine.c : !multi && cz && cz.warmest ? num(cz.warmest.mapped) ?? num(cz.warmest.c) : null;
+  const marks = kinds.map((k) => ({ k, a: asks(k) })).filter((x) => x.a).map((x) => ({ t: x.a.c, v: x.a.value, lead: x.k === leadKind,
+    text: multi ? T('curve.mark', { kind: T(`kind.${has(`kind.${x.k}`) ? x.k : 'other'}`), c: degrees(x.a.c) }) : '' }));
+  const liveNow = { now: nowC ?? undefined, nowText: nowC !== null ? T('curves.now', { c: degrees(nowC) }) : '', marks, others };
+  const shape = JSON.stringify([all.map((x) => [x.k, x.k === K ? 0 : x.pts]), front.own, zoneOwn ? '' : tgt.preset]);
+  const key = `${z.id}|${K}|${rpmUnit}|${tMin}|${tMax}|${vMax}|${floor}|${stands}|${shape}`;
   let cv = curves.get(z.id);
   if (!cv || cv.key !== key) {
     if (cv) cv.c.destroy();
     const c = A.curve({
       points: pts.map((p) => ({ t: p[0], v: p[1] })), unit: rpmUnit ? 'rpm' : 'percent', tMin, tMax, vMin: 0, vMax, floor: floor ?? undefined,
-      now: nowC ?? undefined, fan: { mm: look.mm, blades: look.blades, min: look.min, max: look.max || 2000, colour: look.colour, look: look.look },
+      now: liveNow.now, others, marks, fan: { mm: look.mm, blades: look.blades, min: look.min, max: look.max || 2000, colour: look.colour, look: look.look },
       rpmAt: lead.measured ? (v) => (v <= 0 ? 0 : tableRpm(lead.table, v)) : undefined,
       apply: rpmUnit ? undefined : (v) => (stands && v < 0.5 ? 0 : Math.max(v, floorPct)),
       texts: {
         axisT: T('curve.axis_t'), axisV: rpmUnit ? T('curve.axis_rpm') : T('curve.axis_pct'), tickT: (x) => `${x}°`, tickV: (v) => (rpmUnit ? fmt.number(v) : `${v} %`),
-        point: (k, n) => T('curve.point', { i: k + 1, n }), value: (x, v) => (rpmUnit ? T('curve.value_rpm', { t: x, v: fmt.number(v) }) : T('curve.value_pct', { t: x, v })),
+        point: (k, n) => T('curve.point', { i: k + 1, n }), value: (x, v) => (rpmUnit ? T('curve.value_rpm', { t: degrees(x), v: fmt.number(v) }) : T('curve.value_pct', { t: degrees(x), v })),
         readout: (x, v, r) => T('curve.readout', { t: x, v: rpmUnit ? T('pic.rpm', { rpm: fmt.number(v) }) : T('value', { pct: Math.round(v) }), rpm: fmt.number(Math.round(r || 0)) }),
         // the live mark with the degrees as they are read (a tenth where the sensor gives one), never rounded away
-        floor: rpmUnit ? T('curve.floor') : T('curve.floor_min', { pct: floorPct }), now: nowC !== null ? T('curves.now', { c: fmt.number(nowC, Number.isInteger(nowC) ? 0 : 1) }) : '',
+        floor: rpmUnit ? T('curve.floor') : T('curve.floor_min', { pct: floorPct }), now: liveNow.nowText,
         // exact degrees (2026-11-16, the owner): every point says its values beside it and can be typed below the chart
-        label: (x, v) => (rpmUnit ? T('curve.label_rpm', { t: x, v: fmt.number(v) }) : T('curve.label_pct', { t: x, v })),
+        label: (x, v) => (rpmUnit ? T('curve.label_rpm', { t: degrees(x), v: fmt.number(v) }) : T('curve.label_pct', { t: degrees(x), v: fmt.number(v, Number.isInteger(v) ? 0 : 1) })),
         field: (k) => T('curve.field', { i: k + 1 }), fieldT: (k) => T('curve.field_t', { i: k + 1 }), fieldV: (k) => T(rpmUnit ? 'curve.field_v_rpm' : 'curve.field_v_pct', { i: k + 1 }),
         unitT: T('curve.unit_c'), unitV: T(rpmUnit ? 'curve.unit_rpm' : 'curve.unit_pct'),
       },
       fields: true,
       onField: (inp) => { inp.classList.add('input', 'small', 'fb-input'); inp.dataset.fbKeep = '1'; },
-      // dragging a preset makes it the zone's own curve; kept on the page until «Save»
+      // a changed curve is his own: with several kinds this kind's (the others keep following the zone), with one kind
+      // the zone's — kept on the page until «Save»
       onChange: (p) => {
         const zs = zonesNow();
         if (!zs[i]) return;
         // (a typed point may move the chart's scale, and the chart is then built anew: the field he went on to is remembered)
         const a = document.activeElement;
         curveFocus = a && a.dataset && a.dataset.axis && c.el.contains(a) ? { zone: z.id, i: a.closest('.fan-curve-field').dataset.i, axis: a.dataset.axis } : null;
-        zs[i].target = { points: p.map((x) => [x.t, x.v]) };
+        const own2 = p.map((x) => [x.t, x.v]);
+        if (multi || ownK) zs[i].curves = { ...(zs[i].curves || {}), [K]: { points: own2 } };
+        else zs[i].target = { points: own2 };
         zdraft = zs;
-        cv.key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|true||${floor}|${stands}|${kv.low}|${kv.high}`;
         drawn = '';
         redraw();
       },
@@ -3422,12 +3545,28 @@ function curvePart(z, i) {
       const want = curveFocus;
       setTimeout(() => { const inp = c.el.querySelector(`.fan-curve-field[data-i="${want.i}"] input[data-axis="${want.axis}"]`); if (inp && inp.isConnected) { inp.focus({ preventScroll: true }); inp.select(); } }, 0);
     }
-  }
+  } else cv.c.live(liveNow);
   curveFocus = null;
   cv.c.el.classList.add('fb-curve-edit');
   box.appendChild(cv.c.el);
+  if (multi) {
+    // this kind's curve: its own, or the zone's on its degrees — and the one click back
+    const state2 = el('div', 'fb-kindstate');
+    state2.appendChild(para(T(front.own ? 'curve.kind_own_text' : 'curve.kind_zone_text', { kind: T(`kind.${has(`kind.${K}`) ? K : 'other'}`) })));
+    if (ownK) state2.appendChild(btn(T('curve.kind_follow'), 'btn plain', () => changeZones((zs) => { const rest = { ...(zs[i].curves || {}) }; delete rest[K]; zs[i].curves = rest; curves.delete(z.id); }), T('curve.kind_follow_tip')));
+    box.appendChild(state2);
+  }
+  // which kind the fans follow right now — the control's own answer (leader, by_kind), never worked out on the page
+  const led = leadKind ? asks(leadKind) : null;
+  if (led) {
+    const known = (setup().sources || []).find((x) => x.id === led.source);
+    const follows = para(T('curve.follows', { kind: T(`kind.${has(`kind.${leadKind}`) ? leadKind : 'other'}`), source: known ? srcLabel(known) : led.label || '', c: degrees(led.c), value: valueSay(led.value) }), 'fb-curve-follows');
+    follows.dataset.nums = JSON.stringify([{ v: led.c, from: ['control', 'zones', `=${z.id}`, 'by_kind', leadKind, 'c'] }, { v: Math.round(led.value), from: ['control', 'zones', `=${z.id}`, 'by_kind', leadKind, 'value'], via: 'round' }]);
+    box.appendChild(follows);
+  }
   if (!rpmUnit) {
-    const says = para(curveWords(pts, floorPct, stands, isCpu), 'fb-curve-says');
+    const says = para(curveWords(pts, floorPct, stands, isCpu, { multi: multi && !isCpu, cpuElse: cpuElse && !!lead.off_ok && !standWhy(lead),
+      neverKind: neverKind ? T(`kind.${has(`kind.${neverKind}`) ? neverKind : 'other'}`) : '' }), 'fb-curve-says');
     says.dataset.nums = JSON.stringify([{ v: floorPct, from: ['setup', 'fans', `=${lead.id}`], via: 'floor' }]);
     box.appendChild(says);
   }

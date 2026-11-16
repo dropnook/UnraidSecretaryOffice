@@ -1062,5 +1062,22 @@
   "curve.field_v_rpm": "Punto {i}: revoluciones por minuto",
   "curve.unit_c": "°C",
   "curve.unit_pct": "%",
-  "curve.unit_rpm": "rpm"
+  "curve.unit_rpm": "rpm",
+  "curve.says_stand_all": "Esta curva no pide nada hasta {t} °C. Solo está parado mientras ningún tipo de la zona pida algo — si no, gira al {floor} % como mínimo.",
+  "curve.says_never_zero_kind": "La curva para {kind} no pide el 0 % en ninguna parte — mientras una de esas fuentes de calor esté despierta, no se para. Gira al {floor} % como mínimo.",
+  "curve.says_cpu_else": "El disipador de la CPU solo se para según la curva de la CPU. Para este tipo gira al {floor} % como mínimo.",
+  "curve.kinds": "Tipos de fuentes de calor",
+  "curve.kind_own": "curva propia",
+  "curve.kind_zone": "sigue la zona",
+  "curve.kind_now": "{c} °C → {value}",
+  "curve.leads": "manda ahora",
+  "curve.leads_tip": "De todas las fuentes de calor de esta zona, una de este tipo es la que más pide ahora — los ventiladores la siguen.",
+  "curve.kind_tip": "Traer al frente la curva para {kind}",
+  "curve.mark": "{kind} {c} °C",
+  "curve.kind_own_text": "{kind} tiene una curva propia en esta zona.",
+  "curve.kind_zone_text": "{kind} sigue el objetivo de la zona, en sus propios grados. Arrastra un punto y tendrá una curva propia.",
+  "curve.kind_follow": "Volver a seguir la zona",
+  "curve.kind_follow_tip": "Descarta la curva propia de este tipo: vuelve a seguir el objetivo de la zona. Solo vale con «Guardar las zonas».",
+  "curve.follows": "Los ventiladores siguen ahora: {kind} · {source} {c} °C → {value}",
+  "zones.curve_no_source": "Dale primero a la zona una fuente de calor — después su curva aparece aquí."
 }

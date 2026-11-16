@@ -1062,5 +1062,22 @@
   "curve.field_v_rpm": "Punkt {i}: Drehzahl in U/min",
   "curve.unit_c": "°C",
   "curve.unit_pct": "%",
-  "curve.unit_rpm": "U/min"
+  "curve.unit_rpm": "U/min",
+  "curve.says_stand_all": "Diese Kurve verlangt bis {t} °C nichts. Er steht nur, solange keine Art der Zone etwas verlangt — sonst läuft er mit mindestens {floor} %.",
+  "curve.says_never_zero_kind": "Die Kurve für {kind} verlangt nirgends 0 % — solange eine solche Wärmequelle wach ist, steht er nicht. Er läuft mit mindestens {floor} %.",
+  "curve.says_cpu_else": "Der CPU-Kühler steht nur nach der Kurve der CPU. Für diese Art läuft er mit mindestens {floor} %.",
+  "curve.kinds": "Arten von Wärmequellen",
+  "curve.kind_own": "eigene Kurve",
+  "curve.kind_zone": "folgt der Zone",
+  "curve.kind_now": "{c} °C → {value}",
+  "curve.leads": "führt gerade",
+  "curve.leads_tip": "Von allen Wärmequellen dieser Zone verlangt gerade eine dieser Art am meisten — nach ihr richten sich die Lüfter.",
+  "curve.kind_tip": "Die Kurve für {kind} nach vorn holen",
+  "curve.mark": "{kind} {c} °C",
+  "curve.kind_own_text": "{kind} hat in dieser Zone eine eigene Kurve.",
+  "curve.kind_zone_text": "{kind} folgt dem Ziel der Zone, auf seinen eigenen Graden. Zieh einen Punkt, und es bekommt eine eigene Kurve.",
+  "curve.kind_follow": "Wieder der Zone folgen",
+  "curve.kind_follow_tip": "Verwirft die eigene Kurve dieser Art: Sie folgt wieder dem Ziel der Zone. Gilt erst mit «Zonen speichern».",
+  "curve.follows": "Die Lüfter folgen gerade: {kind} · {source} {c} °C → {value}",
+  "zones.curve_no_source": "Gib der Zone zuerst eine Wärmequelle — dann zeigt sich hier ihre Kurve."
 }

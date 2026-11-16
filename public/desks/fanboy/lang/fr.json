@@ -1062,5 +1062,22 @@
   "curve.field_v_rpm": "Point {i} : vitesse en tr/min",
   "curve.unit_c": "°C",
   "curve.unit_pct": "%",
-  "curve.unit_rpm": "tr/min"
+  "curve.unit_rpm": "tr/min",
+  "curve.says_stand_all": "Cette courbe ne demande rien jusqu’à {t} °C. Il ne reste à l’arrêt que tant qu’aucun type de la zone ne demande quelque chose — sinon il tourne à {floor} % au moins.",
+  "curve.says_never_zero_kind": "La courbe pour {kind} ne demande 0 % nulle part — tant qu’une de ces sources de chaleur est éveillée, il ne reste pas à l’arrêt. Il tourne à {floor} % au moins.",
+  "curve.says_cpu_else": "Le refroidisseur du CPU ne reste à l’arrêt que selon la courbe du CPU. Pour ce type il tourne à {floor} % au moins.",
+  "curve.kinds": "Types de sources de chaleur",
+  "curve.kind_own": "courbe propre",
+  "curve.kind_zone": "suit la zone",
+  "curve.kind_now": "{c} °C → {value}",
+  "curve.leads": "mène en ce moment",
+  "curve.leads_tip": "De toutes les sources de chaleur de cette zone, une de ce type demande le plus en ce moment — les ventilateurs la suivent.",
+  "curve.kind_tip": "Mettre la courbe pour {kind} au premier plan",
+  "curve.mark": "{kind} {c} °C",
+  "curve.kind_own_text": "{kind} a sa propre courbe dans cette zone.",
+  "curve.kind_zone_text": "{kind} suit la cible de la zone, sur ses propres degrés. Tire un point et il aura sa propre courbe.",
+  "curve.kind_follow": "Suivre de nouveau la zone",
+  "curve.kind_follow_tip": "Abandonne la courbe propre de ce type : il suit de nouveau la cible de la zone. Ne vaut qu’avec «Enregistrer les zones».",
+  "curve.follows": "Les ventilateurs suivent en ce moment : {kind} · {source} {c} °C → {value}",
+  "zones.curve_no_source": "Donne d’abord une source de chaleur à la zone — sa courbe s’affiche ensuite ici."
 }

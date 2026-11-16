@@ -103,14 +103,71 @@ const ZONES = [
   { id: 'case', name: 'Gehäuse', fans: [P(5), P(2)], unit: 'pct', target: { points: [[30, 25], [40, 40], [50, 70], [60, 100]] }, low: null, high: null,
     sources: [{ kind: 'nvme', id: NVME, low: null, high: null, limit: null }, { kind: 'ram', id: RAM, low: null, high: null, limit: 70 }], react: 'quick', kinds: { nvme: { low: 38, high: 60 } } },
 ];
+/** fanboyKindValues(), fanboyZoneScale(), fanboyZoneCurve(), fanboyKindCurve() of agent/desks/fanboy-control.php (round 13), for the invented data */
+function kindValues(z, k) {
+  const own = (z.kinds || {})[k] || {};
+  const d = DEFAULTS[k] || DEFAULTS.other;
+  return { low: own.low ?? d[0], high: own.high ?? d[1] };
+}
+function zoneScale(z) {
+  const d = kindValues(z, z.sources[0] ? z.sources[0].kind : 'disk');
+  const lo = z.low ?? d.low, hi = z.high ?? d.high;
+  return [lo, hi > lo ? hi : lo + 10];
+}
+const zoneCurve = (z) => (z.target.points ? z.target.points.map((p) => [p[0], p[1]]).sort((a, b) => a[0] - b[0]) : preset(z.target.preset, ...zoneScale(z)));
+function kindCurve(z, k) {
+  const kv = kindValues(z, k), own = (z.curves || {})[k];
+  if (own && own.points) return { points: own.points.map((p) => [p[0], p[1]]).sort((a, b) => a[0] - b[0]), own: true };
+  if (own && own.preset) return { points: preset(own.preset, kv.low, kv.high > kv.low ? kv.high : kv.low + 10), own: true };
+  const [lo, hi] = zoneScale(z), curve = zoneCurve(z);
+  return { points: kv.high <= kv.low ? curve : curve.map((p) => [kv.low + (p[0] - lo) * (kv.high - kv.low) / (hi - lo), p[1]]), own: false };
+}
+const zoneKinds = (z) => [...new Set(z.sources.map((x) => x.kind))];
+function curveAt(pts, t) {
+  if (t <= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++) if (t <= pts[i][0]) return pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * (t - pts[i - 1][0]) / (pts[i][0] - pts[i - 1][0]);
+  return pts[pts.length - 1][1];
+}
 function curves(zones) {
   const out = {};
   for (const z of zones) {
-    const k = z.sources[0] ? z.sources[0].kind : 'disk';
-    const own = (z.kinds || {})[k] || {};
-    const lo = own.low ?? DEFAULTS[k][0], hi = own.high ?? DEFAULTS[k][1];     // fanboyZoneScale: the first kind's degrees, the zone's own
-    out[z.id] = { points: z.target.points || preset(z.target.preset, lo, hi), scale: [lo, hi], presets: presets(lo, hi) };
+    const [lo, hi] = zoneScale(z);
+    const kinds = {};
+    for (const k of zoneKinds(z)) {
+      const kv = kindValues(z, k), kh = kv.high > kv.low ? kv.high : kv.low + 10;
+      kinds[k] = { ...kindCurve(z, k), scale: [kv.low, kh], presets: presets(kv.low, kh) };
+    }
+    out[z.id] = { points: zoneCurve(z), scale: [lo, hi], presets: presets(lo, hi), kinds };
   }
+  return out;
+}
+/**
+ * fanboyFanPlan() of agent/desks/fanboy-control.php for the invented fans: the floor (lowest steady + 5, blind 40, a CPU
+ * cooler of his 40 at least; several unlike fans on one connector: lowest steady + 10, 25 at least, plus what the look
+ * added) and the start value — what the setup state carries per fan of his (`floor`, `start`, `hub`)
+ */
+function plan(f) {
+  const tach = f.found === 'tach', m = f.measured && f.table;
+  const cpu = f.role === 'cpu' && !!f.cpu_own;
+  let floor = m && tach && typeof f.min_pct === 'number' ? Math.min(100, f.min_pct + 5) : 40;
+  if (cpu) floor = Math.max(floor, 40);
+  let start = m && typeof f.start_pct === 'number' ? f.start_pct : floor;
+  if (m && f.stand && f.stand.stops === true) start = typeof f.stand.start_from_stop === 'number' ? Math.min(100, f.stand.start_from_stop + 5) : 100;
+  const hub = (f.count || 1) > 1 && f.alike !== true;
+  if (hub) {
+    const extra = f.hub_extra || 0;
+    floor = Math.min(100, Math.max(25, m && tach && typeof f.min_pct === 'number' ? f.min_pct + 10 : floor) + extra);
+    start = Math.min(100, start + 10);
+  }
+  if (cpu) floor = Math.max(floor, 40);
+  return { floor, start };
+}
+const ours = (f) => ['tach', 'silent'].includes(f.found) && !!f.role && !['pump', 'unknown', 'empty'].includes(f.role) && (f.role !== 'cpu' || !!f.cpu_own);
+function withPlan(f) {
+  const p = plan(f);
+  const out = { ...f, floor: ours(f) ? p.floor : null };
+  out.hub = (f.count || 1) > 1 ? { mixed: f.alike !== true, one_fan_table: true, ok: (f.hub && f.hub.ok) || null, not_safe: (f.hub && f.hub.not_safe) || null, extra: f.hub_extra || 0, floor: p.floor, start: p.start } : null;
+  delete out.hub_extra;
   return out;
 }
 const OUTPUTS = [1, 2, 3, 4, 5, 6].map(P);
@@ -155,7 +212,7 @@ function state(o) {
   const fansAll = chips.flatMap((c) => c.fans);
   const turning = fansAll.map((f) => f.rpm).filter((r) => typeof r === 'number' && r > 0);
   const offered = chips.filter((c) => c.outputs.length && c.kind !== 'gpu');
-  const fans = (o.fans || []).map((f) => clone(f));
+  const fans = (o.fans || []).map((f) => withPlan(clone(f)));
   const zones = clone(o.zones || []);
   let hottest = null;
   for (const c of chips) for (const t of c.temps) if (t.c !== null && (!hottest || t.c > hottest.c)) hottest = { c: t.c, kind: c.kind, chip: c.name, label: t.label, n: t.n, disk: null };
@@ -190,6 +247,28 @@ function state(o) {
     // round 6: °C his zones add to an old disk value (fanboyPollAllowance(): +1 per started 10 minutes over 300 s, at most 3)
     disk_allow: (() => { const p = o.poll === undefined ? 1800 : o.poll; return p === null || p <= 300 ? 0 : Math.min(3, Math.ceil(p / 600)); })(),
   };
+  // round 13: while he steers, each zone says its kinds' curves, what each kind's warmest source asks for (by_kind) and
+  // who leads — worked out from the invented temperatures by the control's rule (the highest ask wins)
+  for (const cz of s.control.running ? s.control.zones : []) {
+    const z = zones.find((x) => x.id === cz.id);
+    if (!z) continue;
+    cz.curves = Object.fromEntries(zoneKinds(z).map((k) => [k, kindCurve(z, k)]));
+    cz.by_kind = {};
+    for (const k of zoneKinds(z)) {
+      const asks = z.sources.filter((x) => x.kind === k).map((x) => s.setup.sources.find((y) => y.id === x.id)).filter((x) => x && !x.asleep && typeof x.c === 'number')
+        .map((x) => ({ source: x.id, label: x.label, c: x.c, value: Math.round(curveAt(cz.curves[k].points, x.c) * 10) / 10 })).sort((a, b) => b.value - a.value || b.c - a.c);
+      if (asks.length) cz.by_kind[k] = asks[0];
+    }
+    const top = Object.entries(cz.by_kind).sort((a, b) => b[1].value - a[1].value)[0];
+    cz.leader = top ? { source: top[1].source, kind: top[0] } : null;
+    cz.in_use = [];
+    if (top && !cz.full) {
+      // (the invented level follows what the leader asks, never under each fan's floor)
+      cz.level = Math.round(top[1].value);
+      cz.warmest = { ...cz.warmest, id: top[1].source, label: top[1].label, c: top[1].c, mapped: top[1].c, kind: top[0], value: top[1].value };
+      cz.fans.forEach((f) => { const sf = fans.find((x) => x.id === f.id); f.pct = Math.max(cz.level, sf && typeof sf.floor === 'number' ? sf.floor : 40); });
+    }
+  }
   return s;
 }
 
