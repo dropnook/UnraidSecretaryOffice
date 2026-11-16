@@ -2347,7 +2347,7 @@ function panelMake(id, benchRun, benchUpdate) {
     alikeBox.appendChild(b);
   });
   alike.append(el('span', 'fb-what-label', T('hub.alike')), alikeBox);
-  const hubSays = el('p', 'fb-panel-note');
+  const hubSays = el('p', 'fb-hub-says');
   const note = el('p', 'fb-panel-note');
   // the folds
   const look = keepFold(el('details', 'fb-fold'), `look:${id}`, false);

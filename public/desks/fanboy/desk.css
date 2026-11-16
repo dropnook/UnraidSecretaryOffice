@@ -49,6 +49,7 @@
   .fb-hub > p, .fb-hub > h4{margin:0}
   .fb-hub-ask{font-weight:600; font-size:15px; padding-top:6px}
   .fb-alike{align-items:center}
+  .fb-hub-says{margin:0; font-size:13px; line-height:1.45; color:var(--ink2)}
   /* heat sources in no zone: the sentence, then (in the zones step) «add to «zone»:» and one button per source */
   .fb-uncovered > .fb-bar{align-items:center}
   .fb-uncovered .fb-what-label{color:inherit}
