@@ -1906,7 +1906,32 @@ function fanboyDryRun(): array
 }
 
 /** «Take over»: armed — the control starts now (zones there, no other controller, no step running) */
-function fanboyTakeOver(): array
+/**
+ * Round 12 fix (the owner's SSD pool and NVMe pools were in no zone): the disks, SSDs and NVMe he knows that none of the
+ * zones has (FANBOY_NET_KINDS — the net watches the same) with their names and temperatures ([] when every one is in a zone)
+ */
+function fanboyUncovered(array $scan, ?array $settings): array
+{
+    $in = [];
+    foreach (is_array($settings['zones'] ?? null) ? $settings['zones'] : [] as $z) {
+        foreach (is_array($z['sources'] ?? null) ? $z['sources'] : [] as $src) {
+            if (is_array($src) && is_string($src['id'] ?? null)) {
+                $in[$src['id']] = true;
+            }
+        }
+    }
+    $sources = fanboySources($scan);
+    $names = fanboySourceNames($sources, function_exists('officeNotifyLang') ? officeNotifyLang() : 'en');
+    $out = [];
+    foreach ($sources as $src) {
+        if (!isset($in[$src['id']]) && in_array($src['kind'], FANBOY_NET_KINDS, true)) {
+            $out[] = ['kind' => $src['kind'], 'id' => $src['id'], 'name' => $names[$src['id']] ?? $src['id'], 'c' => $src['c'], 'asleep' => $src['asleep']];
+        }
+    }
+    return $out;
+}
+
+function fanboyTakeOver(array $r = []): array
 {
     $scan = fanboyDetect();
     if ($scan['situation']['code'] === 'other') {
@@ -1916,8 +1941,14 @@ function fanboyTakeOver(): array
         throw new Problem('fanboy_step_running');
     }
     $settings = fanboyBoardRaw($scan['board']) ?? [];
-    if (!fanboyControlNew($settings, '', ['pid' => 0])['zones']) {
+    $plan = fanboyControlNew($settings, '', ['pid' => 0]);
+    if (!$plan['zones']) {
         throw new Problem('fanboy_no_zones');
+    }
+    // round 12 fix: fans that may stand while heat sources are in no zone — only with an explicit yes
+    $uncovered = fanboyUncovered($scan, $settings);
+    if ($uncovered && array_filter($plan['fans'], fn ($f) => $f['off_ok'] === true) && !optBool($r, 'uncovered_ok', false)) {
+        throw new Problem('fanboy_uncovered', ['sources' => implode(', ', array_column($uncovered, 'name'))]);
     }
     fanboyStoreUpdate(function (array $e): array {
         $e['armed'] = true;

@@ -101,7 +101,7 @@ if (fanboyShown()) {
             'zones_propose' => fn (array $r) => ['ok' => true, 'zones' => fanboyZonesPropose($scan = fanboyDetect(), fanboyBoardRaw($scan['board']) ?? [])],
             'zones_save'    => fn (array $r) => fanboyZonesSave($r),
             'dry_run'       => fn (array $r) => fanboyDryRun(),
-            'take_over'     => fn (array $r) => fanboyTakeOver() + ['state' => fanboyScan()],
+            'take_over'     => fn (array $r) => fanboyTakeOver($r) + ['state' => fanboyScan()],       // round 12 fix: uncovered_ok
             'hand_back'     => fn (array $r) => fanboyHandBack() + ['state' => fanboyScan()],
             // part 3: the page's own small actions — «give back to» for a fan found on a fixed value, a fan's look
             // (model, size, colour: pictures only), the history part for the curve view (read only)
@@ -835,6 +835,8 @@ function fanboySetupState(array $scan, ?array $settings): array
     return [
         // round 12 correction: has a give-back to the chip's automatic been SEEN to work on this board? {at, output}|null
         'auto_back_seen' => is_array($settings['auto_back_seen'] ?? null) && is_int($settings['auto_back_seen']['at'] ?? null) ? $settings['auto_back_seen'] : null,
+        // round 12 fix: the heat sources in no zone — [{kind, id, name, c, asleep}] (the zones step and «take over» warn)
+        'uncovered' => fanboyUncovered($scan, $settings),
         'board' => $key, 'others' => count(array_diff(array_keys($store['boards']), [$key])),
         'fans' => $fans, 'zones' => $zones, 'armed' => ($settings['armed'] ?? false) === true,
         'outputs' => array_keys(fanboyOutputs($scan)), 'missing' => $missing, 'sources' => fanboySources($scan),

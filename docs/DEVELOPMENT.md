@@ -1026,8 +1026,8 @@ the last 60 history lines only for a source the file has none for. **The file
   case, fans turning by their speed, the warmest framed, sleeping disks marked, the BIOS's own watched — one picture kept
   across looks, speeds glide), «Fans» (outputs and tach inputs; a row unfolds the technical detail — the only place for
   `pwmN`, `hwmonN`, chip names), «Warmest spot» (sensors), «Today» (each zone's curve with «now» and its last 6 hours:
-  the part `history`, desk.json `"parts"`), «Hints». The setup's six steps as tiles (detect, test and assign, measure,
-  zones, dry run, take over / hand back); any step opens alone, so a curve, a zone or a fan's model changes without the
+  the part `history`, desk.json `"parts"`), «Hints». The setup's five steps as tiles (detect, test and assign, measure,
+  zones, take over / hand back — the dry run is a preview inside it, 2026-11-16); any step opens alone, so a curve, a zone or a fan's model changes without the
   wizard again. **Every step is built from the same parts** (2026-11-15, the owner's tests on real hardware — cards
   jumped, a click was swallowed, nothing said what runs): ONE strip for the page (`stripMake()`: what runs now from
   `runNow()` — the step's `progress` phase full | pause | kick with its seconds, a show, the measuring, an output going
@@ -1040,7 +1040,14 @@ the last 60 history lines only for a source the file has none for. **The file
   output runs «Found — next» / «Heard nothing — next» answer the louder-question (`step_next {fan, heard}`: the agent
   stores it with the verdict). Its actions go through `send()` (queued, never dropped; a refusal stays in the strip's second line;
   the clicked button carries the wave until the agent answers); selects and text fields via `inputEl()` (office.css
-  `.input`). A running step is kept alive by the page (`step_alive` every 15 s, only while a page of his is shown);
+  `.input`). From the owner's live test (2026-11-15): ONE banner element for the page, moved to the page shown (a banner
+  made anew at every visit stood twice); no control of the setup is silently disabled — a button that can't act is set
+  back and a click says why (`offBtn()`), a choice the page can't take snaps back with its reason (`snapBack()`), «may
+  stand still» is a box only where the measuring proved it (`standWhy()` from the fan's `stand`), else the words why;
+  waiting is seen (`expect()`: the wave in the strip from the click until the state shows it, a look every second
+  meanwhile); how a run ended is said only while it is news (`freshEnd()`), and an output «at 100 % for safety» only
+  from the state's `safety`; a fan's name is its title once given, its output the small line under it (`fanName()`,
+  `outName()`, `fanSay()` = «Name (Output 4)» in sentences). A running step is kept alive by the page (`step_alive` every 15 s, only while a page of his is shown);
   ended by the page gone it says so. Pictures and CPU: `tools/fanboy/desk.mjs` (`--only 'ux-*'` for the setup's
   states); demo states: `tools/fanboy/demo-states.mjs`.
   **Round 4:** an SSD/NVMe pool member is its own kind `ssd` (not the hard disks' scale); per zone «Temperaturen» per kind

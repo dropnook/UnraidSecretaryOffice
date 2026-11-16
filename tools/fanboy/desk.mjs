@@ -7,6 +7,7 @@
 //
 //   node tools/fanboy/desk.mjs [--out <folder>] [--no-shots] [--no-cpu] [--no-movie] [--no-callouts] [--only <name>,…] [-v]
 //   --callouts (default on): every demo state, both routes shown whole — fails when a callout's text stands twice
+//   --nums (default on; --no-nums): the steps' sentences that take numbers from the state, each compared with the demo state shown
 // Fails (exit 1) on a console error, a page error or a horizontal scroll. Exit 3: playwright-core or Chrome missing.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -20,7 +21,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 const require = createRequire(import.meta.url);
 const args = process.argv.slice(2);
-const opt = { out: path.join(process.env.USO_SHOTS || path.join(os.homedir(), 'uso-shots'), 'fanboy-desk'), shots: true, cpu: true, movie: true, callouts: true, only: null, v: false };
+const opt = { out: path.join(process.env.USO_SHOTS || path.join(os.homedir(), 'uso-shots'), 'fanboy-desk'), shots: true, cpu: true, movie: true, callouts: true, nums: true, only: null, v: false };
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--out') opt.out = path.resolve(args[++i]);
@@ -28,6 +29,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--no-cpu') opt.cpu = false;
   else if (a === '--no-movie') opt.movie = false;
   else if (a === '--no-callouts') opt.callouts = false;
+  else if (a === '--no-nums') opt.nums = false;
   else if (a === '--only') opt.only = args[++i].split(',');
   else if (a === '-v') opt.v = true;
   else { console.log(`fanboy desk: unknown argument ${a}`); process.exit(2); }
@@ -59,7 +61,6 @@ const PICTURES = [
   ['setup-2-test-assign-cpu', 'fanboy-roles', 'fanboy/setup/test', ['.fb-item[data-row$=pwm1]', '.fb-cpu .seg button:nth-child(2)', '.fb-cpu-risk input[type=checkbox]'], false],
   ['setup-5-zones-cpu', 'fanboy-cpu', 'fanboy/setup/zones', null, false],
   ['overview-cpu', 'fanboy-cpu', 'fanboy/fans', null, false],
-  ['setup-6-dry', 'fanboy-ready', 'fanboy/setup/dry', '.fb-step[data-step=dry] .btn', true],
   ['setup-7-take', 'fanboy-ready', 'fanboy/setup/take', null, true],
   ['setup-armed', 'fanboy', 'fanboy/setup/take', null, false],
   ['setup-whole', 'fanboy-roles', 'fanboy/setup', null, false],
@@ -125,12 +126,14 @@ const PICTURES = [
   ['ux-1-detect', 'fanboy-fresh', 'fanboy/setup/detect', null, false],
   ['ux-3-1-measure', 'fanboy-uxfound', 'fanboy/setup/measure', null, false],
   ['ux-3-2-measuring', 'fanboy-measure', 'fanboy/setup/measure', null, false],
+  // round 12: the standstill part of the measuring, what it found, and «may stand still» by that proof (the CPU cooler's zone)
+  ['ux-3-3-stopcheck', 'fanboy-uxstop', 'fanboy/setup/measure', null, false],
+  ['ux-3-4-stand', 'fanboy-uxstand', 'fanboy/setup/measure', '.fb-item[data-row$=pwm5]', false],
+  ['ux-4-3-zones-stand', 'fanboy-uxstand', 'fanboy/setup/zones', '.fb-item[data-row=cpu]', false],
   ['ux-4-1-zones-none', 'fanboy-zones', 'fanboy/setup/zones', null, false],
   ['ux-4-2-zones', 'fanboy-ready', 'fanboy/setup/zones', null, false],
-  ['ux-5-1-dry', 'fanboy-ready', 'fanboy/setup/dry', null, false],
-  ['ux-5-2-dry-seen', 'fanboy-ready', 'fanboy/setup/dry', '.fb-step[data-step=dry] .btn', false],
-  ['ux-6-1-take', 'fanboy-ready', 'fanboy/setup/take', null, false],
-  ['ux-6-2-steers', 'fanboy-cpu', 'fanboy/setup/take', null, false],
+  ['ux-5-1-take', 'fanboy-ready', 'fanboy/setup/take', null, false, { settle: 1500 }],       // with «Das würde ich jetzt setzen» (the dry run's answer)
+  ['ux-5-2-steers', 'fanboy-cpu', 'fanboy/setup/take', null, false],
   ['ux-0-overview-show', 'fanboy-show', 'fanboy/fans', null, false],
   ['ux-2-6-refused', 'fanboy-uxopen', 'fanboy/setup/test', '.fb-panel-acts .btn', false,
     { post: { 'fanboy.test_up': { ok: false, error: { key: 'fanboy_quiet_warm', params: { what: 'CPU', c: 72 } } } }, settle: 7000 }],      // (the toast gone: the strip keeps the refusal)
@@ -217,8 +220,9 @@ if (opt.shots) {
 // ------------------------------------------------------------------ no text twice: every demo state, both pages shown whole
 // (round 3, the owner: with another controller the setup page said the same warning three times) — every callout's text
 // once on a page, never again in a step
+const demoStates = fs.readdirSync(path.join(REPO, 'tests', 'ui', 'demo')).filter((f) => /^fanboy(-[a-z]+)?\.json$/.test(f) && f !== 'fanboy-history.json').map((f) => f.replace(/\.json$/, ''));
 if (opt.callouts) {
-  const states = fs.readdirSync(path.join(REPO, 'tests', 'ui', 'demo')).filter((f) => /^fanboy(-[a-z]+)?\.json$/.test(f) && f !== 'fanboy-history.json').map((f) => f.replace(/\.json$/, ''));
+  const states = demoStates;
   let pages = 0;
   for (const state of states) {
     for (const route of ['fanboy', 'fanboy/setup']) {
@@ -247,6 +251,40 @@ if (opt.callouts) {
     }
   }
   console.log(`fanboy desk: callouts — ${pages} pages shown whole and again after the other page and back (${states.length} demo states × 2 routes), ${faults.filter((f) => f.includes('callout twice') || f.includes('banner elements')).length} with a text twice`);
+}
+if (opt.nums) {
+  let numbers = 0;
+  const states = demoStates;
+  // every number a sentence of his page takes from the state equals the state's value at that moment (2026-11-15, the
+  // owner: a confirmation named degrees and seconds nobody had checked): elements carry data-nums = [{v, from: [path…],
+  // via?}] — a path part «=<id>» picks the entry with that id; `via` names how the page derives it (as the agent does)
+  const VIA = { floor: (f) => { const b = f.measured && f.found === 'tach' && typeof f.min_pct === 'number' ? Math.min(100, f.min_pct + 5) : 40; return f.role === 'cpu' && f.cpu_own ? Math.max(b, 40) : b; },
+    pct255: (v) => Math.round(v / 2.55) };
+  for (const state of states) {
+    const demo = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'demo', `${state}.json`), 'utf8'));
+    if (!((demo.setup || {}).fans || []).some((f) => f.measured) && !((demo.setup || {}).zones || []).length) continue;
+    for (const route of ['fanboy/setup/measure', 'fanboy/setup/zones']) {
+      const { ctx, page, tag } = await open(state, route, { scale: 1 });
+      // every row once: each panel's sentences
+      const rows = await page.locator('#sso-desk .fb-item:not(.fb-item-read)').count();
+      for (let k = 0; k < Math.max(1, rows); k++) {
+        if (rows) { await page.locator('#sso-desk .fb-item:not(.fb-item-read)').nth(k).click(); await page.waitForTimeout(350); }
+        const marked = await page.evaluate(() => [...document.querySelectorAll('#sso-desk [data-nums]')].filter((n) => n.getClientRects().length).map((n) => ({ text: n.textContent, nums: n.dataset.nums })));
+        for (const m of marked) {
+          for (const x of JSON.parse(m.nums || '[]')) {
+            let at = demo;
+            for (const part of x.from) at = at == null ? at : String(part).startsWith('=') ? (Array.isArray(at) ? at.find((e) => e && e.id === String(part).slice(1)) : undefined) : at[part];
+            const want = x.via ? VIA[x.via](at) : at;
+            numbers++;
+            if (want !== x.v) faults.push(`${tag}: a sentence shows ${x.v} where the state has ${JSON.stringify(want)} (${x.from.join('/')}) — «${m.text.slice(0, 80)}»`);
+            else if (!m.text.replace(/[^0-9]/g, '').includes(String(x.v).replace(/[^0-9]/g, ''))) faults.push(`${tag}: the state's ${x.v} (${x.from.join('/')}) is not in its sentence — «${m.text.slice(0, 80)}»`);
+          }
+        }
+      }
+      await ctx.close();
+    }
+  }
+  console.log(`fanboy desk: ${numbers} numbers in marked sentences compared with the state (${faults.filter((f) => f.includes('where the state has') || f.includes('is not in its sentence')).length} wrong)`);
 }
 
 // ------------------------------------------------------------------ the overview's picture as an animated PNG (as look.mjs)
