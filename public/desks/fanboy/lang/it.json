@@ -1131,5 +1131,8 @@
   "off_why.mixed_hub": "non vale ancora: prima controlla a occhio se tutte ripartono",
   "off_why.hub_not_safe": "non vale: non tutte ripartono",
   "panel.busy_hub": "In questo momento {fan} viene controllata a occhio — dopo si può.",
-  "bubble.hub_look": "Guarda bene: ti chiedo se ogni ventola su questo connettore lo fa. «Ferma tutto» riporta subito ogni ventola com’era."
+  "bubble.hub_look": "Guarda bene: ti chiedo se ogni ventola su questo connettore lo fa. «Ferma tutto» riporta subito ogni ventola com’era.",
+  "zones.hub_same": "Sono ventole uguali",
+  "zones.hub_same_tip": "Lo stesso modello su ogni spina di questo connettore: ciò che è stato misurato vale per tutte, e può stare ferma come ogni ventola misurata",
+  "zones.hub_look_tip": "Apre il passo 3 su questa ventola: lì Fanboy ti mostra se tutte le ventole del connettore ripartono"
 }

@@ -2347,7 +2347,7 @@ function panelMake(id, benchRun, benchUpdate) {
     alikeBox.appendChild(b);
   });
   alike.append(el('span', 'fb-what-label', T('hub.alike')), alikeBox);
-  const hubSays = el('p', 'fb-panel-note');
+  const hubSays = el('p', 'fb-hub-says');
   const note = el('p', 'fb-panel-note');
   // the folds
   const look = keepFold(el('details', 'fb-fold'), `look:${id}`, false);
@@ -2762,8 +2762,8 @@ function measureMake() {
     label: T('measure.list'),
     none: T('measure.none'),
     ids: measured,
-    first: (run) => (run.kind === 'measure' && run.id) || toMeasure()[0] || '',
-    follow: (run) => (run.kind === 'measure' ? run.id : ''),
+    first: (run) => ((run.kind === 'measure' || run.kind === 'hub') && run.id) || toMeasure()[0] || '',
+    follow: (run) => (run.kind === 'measure' || run.kind === 'hub' ? run.id : ''),
     row(id, run) {
       const f = setupFan(id) || {};
       const under = run.kind === 'measure' && run.id === id;
@@ -3135,8 +3135,15 @@ function zoneCard(z, i, zones, ours) {
     move.onchange = () => changeZones((all) => { all[i].fans = all[i].fans.filter((x) => x !== id); all[+move.value].fans.push(id); });
     row.appendChild(move);
     const no = standWhy(f);
-    if (no) row.appendChild(el('span', 'fb-stand-no', no));
-    else {
+    if (no) {
+      row.appendChild(el('span', 'fb-stand-no', no));
+      // round 14, the way out right here: several fans on its connector and nobody said they are the same — say so, or
+      // let Fanboy show them (the look for the eye in step 3, opened at this fan)
+      if (f.hub && f.hub.mixed && !f.hub.ok && !f.hub.not_safe && no === T('zones.stand_hub')) {
+        row.appendChild(btn(T('zones.hub_same'), 'btn plain', () => act('role', { fan: id, role: f.role, alike: true, off_ok: !!f.off_ok }, null), T('zones.hub_same_tip')));
+        row.appendChild(btn(T('hub.look'), 'btn plain', () => { setupSwitcher().pick('measure'); drawn = ''; redraw(); if (mbench) mbench.select(id); }, T('zones.hub_look_tip')));
+      }
+    } else {
       const l = el('label', 'fb-check');
       const c = el('input');
       c.type = 'checkbox';

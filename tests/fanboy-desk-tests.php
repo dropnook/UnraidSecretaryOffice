@@ -364,7 +364,7 @@ function testFanboyUx(): void
         str_contains($js, "T('next.item', { fan: fanSay(id), why: T({ test: 'label.untested', ask: 'label.ask', role: 'label.what' }[w]) })")
         && str_contains($js, "return f.cpu_own ? ['warn', T('label.cpu_own'),") && $de['label.ask'] === 'Frage offen' && $de['label.what'] === 'Rolle fehlt' && $de['label.untested'] === 'nicht getestet');
     check('fanboy ux: «may stand still» is offered only where it can be — else the words why stand in its place; the CPU cooler on own risk only behind its own confirmation; a choice that can\'t be snaps back with its reason',
-        str_contains($js, 'const no = standWhy(f);') && str_contains($js, "if (no) row.appendChild(el('span', 'fb-stand-no', no));") && str_contains($js, 'await save({ cpu_off_confirm: true });')
+        str_contains($js, 'const no = standWhy(f);') && str_contains($js, "row.appendChild(el('span', 'fb-stand-no', no));") && str_contains($js, 'await save({ cpu_off_confirm: true });')
         && str_contains($js, "if (f.role === 'pump' || (f.role === 'cpu' && !f.cpu_own)) return T('zones.stand_never');") && str_contains($js, "snapBack(unit, 'pct', T('zones.unit_off'))") && str_contains($js, "snapBack(choose, 'own', T('zones.preset_pct'))"));
     check('fanboy ux: set to full for safety — said on the output\'s panel and in the strip, each with the way back',
         str_contains($panel, "btn(T('safety.back'), 'btn', () => send('safety_back', { fan: id }), T('safety.back_tip', { pct: safetyPct(sf) }));") && str_contains($strip, "send('safety_back', { fan: run.safety[0].id, all: true })")
@@ -596,6 +596,9 @@ function testFanboyUx(): void
     check('fanboy ux r14: what the look found is the state\'s (hub.ok, hub.not_safe, hub.extra); «darf stehen» waits for it (zones: the reason; the agent\'s off_why mixed_hub / hub_not_safe in words)',
         str_contains($js, "out.push(para(hub.not_safe ? T('hub.not_safe') : hub.ok ? T('hub.ok') : T('hub.unchecked')));") && str_contains($js, "if (f.hub && f.hub.mixed && f.hub.not_safe) return T('zones.stand_hub_no');")
         && str_contains($js, "if (f.hub && f.hub.mixed && !f.hub.ok) return T('zones.stand_hub');") && isset($l['de']['off_why.mixed_hub'], $l['de']['off_why.hub_not_safe']));
+    check('fanboy ux r14: where the zones say a hub fan may not stand yet, the way out is right there — «Es sind gleiche Lüfter» (role {alike: true}) or «Mit den Augen prüfen» (step 3 opened at this fan, which the list also follows while the look runs)',
+        str_contains($js, "if (f.hub && f.hub.mixed && !f.hub.ok && !f.hub.not_safe && no === T('zones.stand_hub')) {") && str_contains($js, "act('role', { fan: id, role: f.role, alike: true, off_ok: !!f.off_ok }, null)")
+        && str_contains($js, "setupSwitcher().pick('measure'); drawn = ''; redraw(); if (mbench) mbench.select(id);") && str_contains($js, "follow: (run) => (run.kind === 'measure' || run.kind === 'hub' ? run.id : ''),"));
     check('fanboy ux: no text of the page speaks of a «card» or of «More» any more (de, en)', !preg_match('/\bKarte\b|«Mehr»/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de'])))
         && !preg_match('/(?<!graphics )\bcards?\b|«More»/i', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['en']))));
     // the owner, 2026-11-15: «kein AI-Slop, der nicht stimmt» — no sentence names a number the state doesn't give

@@ -1131,5 +1131,8 @@
   "off_why.mixed_hub": "pas encore en vigueur : vérifie d’abord à l’œil si tous redémarrent",
   "off_why.hub_not_safe": "pas en vigueur : tous ne redémarrent pas",
   "panel.busy_hub": "En ce moment {fan} est vérifié à l’œil — ce sera possible ensuite.",
-  "bubble.hub_look": "Regarde bien : je te demande si chaque ventilateur de ce connecteur suit. « Tout arrêter » remet chaque ventilateur aussitôt."
+  "bubble.hub_look": "Regarde bien : je te demande si chaque ventilateur de ce connecteur suit. « Tout arrêter » remet chaque ventilateur aussitôt.",
+  "zones.hub_same": "Ce sont les mêmes ventilateurs",
+  "zones.hub_same_tip": "Le même modèle sur chaque prise de ce connecteur : ce qui a été mesuré vaut pour tous, et il peut rester à l’arrêt comme tout ventilateur mesuré",
+  "zones.hub_look_tip": "Ouvre l’étape 3 sur ce ventilateur : Fanboy t’y montre si tous les ventilateurs du connecteur redémarrent"
 }
