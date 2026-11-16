@@ -1131,5 +1131,8 @@
   "off_why.mixed_hub": "aún no vale: primero comprueba a ojo si todos vuelven a arrancar",
   "off_why.hub_not_safe": "no vale: no todos vuelven a arrancar",
   "panel.busy_hub": "Ahora mismo se comprueba {fan} a ojo — después se puede.",
-  "bubble.hub_look": "Mira bien: te pregunto si cada ventilador de este conector lo hace. «Parar todo» devuelve cada ventilador enseguida."
+  "bubble.hub_look": "Mira bien: te pregunto si cada ventilador de este conector lo hace. «Parar todo» devuelve cada ventilador enseguida.",
+  "zones.hub_same": "Son ventiladores iguales",
+  "zones.hub_same_tip": "El mismo modelo en cada conector de esta salida: lo medido vale para todos, y puede estar parado como cualquier ventilador medido",
+  "zones.hub_look_tip": "Abre el paso 3 en este ventilador: ahí Fanboy te muestra si todos los ventiladores del conector vuelven a arrancar"
 }

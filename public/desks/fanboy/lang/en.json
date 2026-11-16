@@ -1131,5 +1131,8 @@
   "off_why.mixed_hub": "not in effect yet: first check with your eyes whether all fans start again",
   "off_why.hub_not_safe": "not in effect: not all fans start again",
   "panel.busy_hub": "Right now {fan} is being checked with your eyes — this works afterwards.",
-  "bubble.hub_look": "Look closely: I ask you whether every fan on this connector does it. «Stop everything» puts every fan back at once."
+  "bubble.hub_look": "Look closely: I ask you whether every fan on this connector does it. «Stop everything» puts every fan back at once.",
+  "zones.hub_same": "They are the same fans",
+  "zones.hub_same_tip": "The same model on every plug of this connector: what was measured counts for all of them, and he may stand like any measured fan",
+  "zones.hub_look_tip": "Opens step 3 at this fan: there Fanboy shows you whether all fans on the connector start again"
 }
