@@ -101,12 +101,12 @@ const FANBOY_ROLES_OURS = ['case', 'disks', 'ram', 'nvme', 'other'];
 /*
  * The CPU cooler on the owner's own risk (round 4): role «cpu» plus a stored, dated confirmation (`cpu_own` {at}) — only
  * then is it his. Safeguards: its zone must hold a CPU temperature (else it stays the BIOS's), a floor of its own
- * (never under FANBOY_CPU_FLOOR, nor under the lowest steady value measured + margin) whenever it turns — round 12: it
+ * (2026-11-16, the owner: «gemäss eingestellter Kurve» — the same floor rule as every fan of his: the lowest steady value
+ * measured + margin, unmeasured the blind floor; round 4's fixed 40 % is gone) whenever it turns — round 12: it
  * may stand only with its own second tick, where its curve asks for nothing (fanboyCpuStand()) — given back to the
  * mainboard's automatic only (no automatic for the output: no opt-in). The alarm, the reaction, three control deaths:
  * as for every fan of his. Pumps never.
  */
-const FANBOY_CPU_FLOOR = 40;
 const FANBOY_CPU_STAND_GAP = 5.0;       // round 12: a CPU cooler may stop only with the smoothed CPU this far under where its curve leaves 0 …
 const FANBOY_CPU_STAND_AFTER = 60.0;    // … for this long without a break (it starts again when the smoothed CPU is back there)
 const FANBOY_START_ABOVE = 5;           // round 12 fix: a standing fan starts this much above its measured start from standstill
@@ -1185,12 +1185,8 @@ function fanboyFanPlan(array $f): array
     $hasTach = ($f['found'] ?? '') === 'tach';
     $cpu = fanboyCpuOwn($f);
     $floor = $m !== null && $hasTach && is_numeric($m['min_pct'] ?? null) ? min(100, (int) $m['min_pct'] + FANBOY_FLOOR_MARGIN) : FANBOY_BLIND_FLOOR;
-    $floor = $cpu ? max($floor, FANBOY_CPU_FLOOR) : $floor;          // as before round 14: the start value's default sees it
     [$offOk, $offWhy, $start] = fanboyStandPlan($f, $m, $hasTach, $cpu, $floor);
     [$floor, $start, $hubWhy] = fanboyHubPlan($f, $m, $floor, $start);
-    if ($cpu) {
-        $floor = max($floor, FANBOY_CPU_FLOOR);
-    }
     if ($offOk && $hubWhy !== null) {
         [$offOk, $offWhy] = [false, $hubWhy];
     }
@@ -1351,7 +1347,7 @@ function fanboyEffectiveCurve(array $curve, float $floor, bool $offOk, ?float $s
  * bounds from the constants that drive it; testFanboyR12CpuGone shows each way works). The output standing at 0 now: the
  * shorter «hung» and the guard's 20-s looks apply.
  */
-/** A fan's floor as the control uses it (fanboyFanPlan(): round 4's floor, a CPU cooler's 40 %, round 14's hub margin) */
+/** A fan's floor as the control uses it (fanboyFanPlan(): round 4's floor — a CPU cooler's the same —, round 14's hub margin) */
 function fanboyFloorOf(array $f): int
 {
     return (int) fanboyFanPlan($f)['floor'];

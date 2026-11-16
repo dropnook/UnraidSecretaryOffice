@@ -2121,7 +2121,6 @@
    }
   },
   "round": 2,
-  "cpu_floor": 40,
   "presets_of": {
    "disk": {
     "quiet": [

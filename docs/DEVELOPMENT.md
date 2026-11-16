@@ -1071,7 +1071,7 @@ the last 60 history lines only for a source the file has none for. **The file
   **Round 4:** an SSD/NVMe pool member is its own kind `ssd` (not the hard disks' scale); per zone «Temperaturen» per kind
   (`kinds`: low/high/limit, strict, low < high < limit per source) and the reaction (`react` balanced|quick: up at once,
   the way down by the leading kind's `FANBOY_DOWN_PROFILES`); the CPU cooler only on the owner's dated, ticked opt-in
-  (`cpu_own`: a CPU temperature in its zone, floor ≥ `FANBOY_CPU_FLOOR`, never off, back to the automatic only).
+  (`cpu_own`: a CPU temperature in its zone, the floor of every fan of his — measured lowest + margin, unmeasured the blind floor —; its curve decides when it stands, back to the automatic only).
   **Round 5:** texts name sources as the page does (`fanboySourceNames()`: «Board sensor 3», «Composite (cache)» — never a
   chip's id); a chip whose address moved maps the zones' sensors as the outputs (stored ids unchanged); the rpm correction
   and the «doesn't follow as measured» check wait while an alarm holds the zone at full; the guard logs in the agent's zone

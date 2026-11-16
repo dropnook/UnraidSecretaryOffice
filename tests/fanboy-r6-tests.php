@@ -1810,7 +1810,7 @@ function fanboyR12CpuControl(array $t, array $spec): array
 /**
  * Round 12: the control with a CPU cooler that may stand — it stops only after the CPU was 5 °C under its «ab» (45 °C)
  * for 60 s without a break; it starts at once (the next round) at «ab», when another source asks for air, or with no
- * CPU reading; when it turns, round 4's floor (40 %)
+ * CPU reading; when it turns, at least its floor (measured lowest + 5, as every fan of his)
  */
 function testFanboyR12CpuControl(): void
 {
@@ -1822,7 +1822,7 @@ function testFanboyR12CpuControl(): void
         $c = fanboyR12CpuControl($t, $spec);
         $now = 1000.0;
         fanboyTRounds($c, $now, $t, $spec, 28);
-        same('fanboy r12 cpu control: cool (30 °C, 15 under «ab») — turning at its floor (40 %) for the first 56 s', [102, null], [fanboyTOut($t, 2)[0], $c['alarm']]);
+        same('fanboy r12 cpu control: cool (30 °C, 15 under «ab») — turning at its floor (15 %: measured 10 + 5) for the first 56 s', [38, null], [fanboyTOut($t, 2)[0], $c['alarm']]);
         fanboyTRounds($c, $now, $t, $spec, 4);
         $fan = fn () => fanboyStatus($c)['zones'][0]['fans'][0] ?? [];
         same('fanboy r12 cpu control: … after 60 s cool without a break — it stands (0); the state: may stand, since when, starts again at 45 °C',
@@ -1832,7 +1832,7 @@ function testFanboyR12CpuControl(): void
         same('fanboy r12 cpu control: 43 °C (under «ab») — it stays standing, no alarm', [0, null], [fanboyTOut($t, 2)[0], $c['alarm']]);
         fanboyR12CpuTemp($t, 45);
         fanboyTRounds($c, $now, $t, $spec, 3);
-        same('fanboy r12 cpu control: 45 °C («ab») held — it starts as soon as the smoothed CPU (median of 10 s) is there, at its floor or more (40 %: 102)', true, fanboyTOut($t, 2)[0] >= 102);
+        same('fanboy r12 cpu control: 45 °C («ab») held — it starts as soon as the smoothed CPU (median of 10 s) is there, kicked at its start (40 %: 102)', true, fanboyTOut($t, 2)[0] >= 102);
         fanboyTRounds($c, $now, $t, $spec, 4);
         same('fanboy r12 cpu control: … and turns (from standing at 40 %: it starts at 35 %)', true, fanboyReadInt("{$t['hw']}/fan2_input") > 300);
         // a break in the cool time starts the 60 s anew
@@ -2072,7 +2072,7 @@ function testFanboyR12FixControl(): void
         };
         $seen = $spiky(40, 30);
         same('fanboy r12 fix control: CPU 30 °C with a spike of 50 °C every 20th round — it stands after the calm minute (spikes don\'t restart the clock)',
-            [true, 0], [in_array(102, array_slice($seen, 0, 25), true), end($seen)]);
+            [true, 0], [in_array(38, array_slice($seen, 0, 25), true), end($seen)]);
         $seen = $spiky(60, 30);
         same('fanboy r12 fix control: … and stays standing through two minutes of such spikes (under the hard value, 80 °C)', [0], array_values(array_unique($seen)));
         $fan = fanboyStatus($c)['zones'][0]['fans'][0] ?? [];
@@ -2212,7 +2212,7 @@ function testFanboyR12Curve(): void
 
 /**
  * Round 12 correction: the curve in the status is the one the control applies — a rising sweep of the CPU over his
- * curve: what is written equals the effective curve (0 where it stands, at least the floor 40 % where it turns)
+ * curve: what is written equals the effective curve (0 where it stands, at least its measured floor where it turns)
  */
 function testFanboyR12CurveEffective(): void
 {
@@ -2225,12 +2225,12 @@ function testFanboyR12CurveEffective(): void
         $now = 1000.0;
         fanboyTRounds($c, $now, $t, $spec, 32);         // standing after the calm minute
         $eff = fanboyStatus($c)['zones'][0]['fans'][0]['curve'] ?? [];
-        check('fanboy r12 curve effective: the status — 0 % up to 62 °C, then at least the floor 40 % (until the curve passes it, 69.6 °C), 100 % at 81',
-            ['cpu', [[30, 0], [62, 0], [62, 40], [69.6, 40], [81, 100]]] == [$eff['kind'] ?? null, $eff['points'] ?? null], json_encode($eff));
+        check('fanboy r12 curve effective: the status — 0 % up to 62 °C, then at least its floor 15 % (until the curve passes it, 64.85 °C), 100 % at 81',
+            ['cpu', [[30, 0], [62, 0], [62, 15], [64.85, 15], [81, 100]]] == [$eff['kind'] ?? null, $eff['points'] ?? null], json_encode($eff));
         $off = [];
         foreach ([45, 52, 58, 61, 63, 66, 69, 71, 74, 77, 80] as $deg) {
             fanboyR12CpuTemp($t, $deg);
-            fanboyTRounds($c, $now, $t, $spec, 4);
+            fanboyTRounds($c, $now, $t, $spec, 7);         // the smoothing and a start's kick (at its start value) passed
             $want = (int) round(fanboyCurveAt($eff['points'], (float) $deg) * 2.55);
             if (abs(fanboyTOut($t, 2)[0] - $want) > 2) {
                 $off[] = "$deg °C: wrote " . fanboyTOut($t, 2)[0] . ", the status says $want";
@@ -2862,7 +2862,7 @@ function testFanboySetupFanPlan(): void
         $c = fanboyR12CurveControl($t, $spec);
         $fans = fn () => array_column(fanboySetupState(fanboyDetect(), fanboyBoardRaw())['fans'], null, 'id');
         $f = $fans()[fanboyTId(2)];
-        same('fanboy setup plan: the CPU cooler — floor 40 % (round 4), start 40 % (35 + 5), the curve as the control applies it', [40, 40, true],
+        same('fanboy setup plan: the CPU cooler — floor 15 % (measured 10 + 5, as every fan of his), start 40 % (35 + 5), the curve as the control applies it', [15, 40, true],
             [$f['floor'], $f['start'], $f['curve'] == fanboyFanCurve($c['zones']['cpu'], $c['fans'][fanboyTId(2)])]);
         same('fanboy setup plan: … before a take — the fallback planned: the chip\'s automatic for a CPU cooler of his, seconds while it turns and while it stands',
             ['planned', 5, 35, 15, 90, 30], [$f['fallback']['from'] ?? null, $f['fallback']['within']['control_dead'] ?? null, $f['fallback']['within']['control_hung'] ?? null,
@@ -3056,6 +3056,47 @@ function testFanboySsdSleeps(): void
         same('fanboy ssd: a rotating disk spun down — asleep as before; the NVMe sensors (hwmon) never asleep', [true, true, []],
             [$hdd, $nvme !== [], array_values(array_filter($nvme, fn ($x) => $x['asleep']))]);
     } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * 2026-11-16 (the owner: «nein, gemäss eingestellter Kurve»): a CPU cooler of his has no fixed 40 % — his curve (0 % up to
+ * 62 °C, 40 % at 77, 100 % at 81) with a cooler measured down to 10 %: it stands below 62, turns with its measured floor
+ * (15 %) until the curve asks more, then the curve; a rising sweep writes exactly the status's curve, never under 15 % while it turns
+ */
+function testFanboyCpuFloorCurve(): void
+{
+    $t = fanboyT('cpufloorcurve');
+    try {
+        $spec = fanboyR12Spec();
+        fanboyTDisks($t, 30, null, 30);
+        fanboyR12CpuTemp($t, 40);
+        $c = fanboyR12CurveControl($t, $spec, [[30, 0], [62, 0], [77, 40], [81, 100]]);
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 32);
+        $eff = fanboyStatus($c)['zones'][0]['fans'][0]['curve'] ?? [];
+        check('fanboy cpu floor: the status — 0 % up to 62 °C, then its measured floor 15 % until the curve passes it (67.63 °C), 40 % at 77, 100 % at 81',
+            ['cpu', 15, [[30, 0], [62, 0], [62, 15], [67.63, 15], [77, 40], [81, 100]]] == [$eff['kind'] ?? null, $c['fans'][fanboyTId(2)]['floor'], $eff['points'] ?? null], json_encode($eff));
+        $off = [];
+        $low = [];
+        foreach ([50, 58, 61, 63, 65, 67, 69, 72, 75, 77, 79, 81, 84] as $deg) {
+            fanboyR12CpuTemp($t, $deg);
+            fanboyTRounds($c, $now, $t, $spec, 7);         // the smoothing and a start's kick passed
+            $v = fanboyTOut($t, 2)[0];
+            $want = (int) round(fanboyCurveAt($eff['points'], (float) $deg) * 2.55);
+            if (abs($v - $want) > 2) {
+                $off[] = "$deg °C: wrote $v, the status says $want";
+            }
+            if ($v > 0 && $v < (int) round(15 * 2.55)) {
+                $low[] = "$deg °C: $v";
+            }
+        }
+        same('fanboy cpu floor: a rising sweep 50…84 °C — what the control writes is the status\'s curve (± rounding)', [], $off);
+        same('fanboy cpu floor: … never under its measured floor (15 %) while it turns', [], $low);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyR12CpuTemp($t, 28);
         fanboyTEnd();
     }
 }

@@ -908,7 +908,7 @@ function fanboySetupState(array $scan, ?array $settings): array
         // part 3: the curves, each output's state before Fanboy, «give back» still open, the defaults the page shows
         'curves' => $curves ?: new stdClass(), 'before' => $before ?: new stdClass(),
         'back_default' => FANBOY_BACK_DEFAULT,
-        'scales' => FANBOY_SOURCE_DEFAULTS, 'down' => FANBOY_DOWN_PROFILES, 'round' => FANBOY_ROUND, 'cpu_floor' => FANBOY_CPU_FLOOR, 'presets_of' => array_combine(array_keys(FANBOY_SOURCE_DEFAULTS),
+        'scales' => FANBOY_SOURCE_DEFAULTS, 'down' => FANBOY_DOWN_PROFILES, 'round' => FANBOY_ROUND, 'presets_of' => array_combine(array_keys(FANBOY_SOURCE_DEFAULTS),
             array_map(fn ($d) => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, (float) $d['low'], (float) $d['high']), FANBOY_PRESETS)), FANBOY_SOURCE_DEFAULTS)),
         // 2026-11-16 (the page's sentence audit): every number a sentence of the page states, from the code (testFanboyTimes)
         'times' => fanboyTimes(), 'limits' => ['name_max' => FANBOY_NAME_MAX, 'count_max' => FANBOY_COUNT_MAX, 'zones_max' => FANBOY_ZONES_MAX, 'sources_max' => FANBOY_SOURCES_MAX],
