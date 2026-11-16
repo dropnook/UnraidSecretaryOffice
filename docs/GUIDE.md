@@ -21,6 +21,7 @@ Each desk is one person with one job. Hire only the ones your server needs.
 | 🧹 | **Ms. Dustdevil** | Shows how full everything is and clears away what nobody uses, into a storeroom first. |
 | 📝 | **Ms. Protocolli** | Reads every log, counts errors and warnings, says who woke your disks. |
 | 💼 | **The Consultant** | Installs the tools the office relies on with you, a preview first. |
+| 🌀 | **Fanboy** | Steers the fans in zones by what really gets warm, and gives them back when he stops. |
 
 **Hiring and letting go:**
 
@@ -260,6 +261,8 @@ List, dry run and real run from her page or on her own schedule. She takes over 
 Every ZFS, btrfs and VM snapshot on the server, in one place.
 
 - Create, rename, hold, and delete with an estimate of the space freed.
+- Before a ZFS rename she unmounts its snapshot mounts. If something still holds one, she says what and leaves the
+  name as it is (on Unraid 7.4 a rename then could stop the server).
 - Schedules with a simple retention that only ever clears away her own snapshots.
 - Her tour never wakes a disk. *Tour, reading them too* reads sleeping disks as well and says whether they woke.
 - Entries a deleted VM leaves in Unraid's snapshot list go into the storeroom once nothing of them is left on disk.
@@ -331,6 +334,24 @@ She reads every log out loud: Unraid's, the office's, the plugins', every User S
   over SMB or NFS, the mover, a task. Per disk how often today and in 7 days. She never wakes a disk.
 - **/var/log:** from 80 % she says which file fills it and who writes it. At 90 % she sends one notification.
 - **Schedule:** her tour on its own, off until you set it.
+
+### Fanboy
+
+His fans' biggest fan: he steers the fans on the mainboard's fan connectors by what really gets warm.
+
+- **Setup in five steps:** he finds the outputs Linux can steer; *Test and assign* runs one fan at full for up to a
+  minute (the others can stand meanwhile) so you hear it and give it a name and a role; he measures each fan, its
+  standstill and start too; you put fans and heat sources into zones; *Take over* hands them to him.
+- **A curve per kind of heat source** in a zone: HDD, SSD/NVMe, CPU, board, RAM. Disks outside the array and pools
+  count too. A sleeping disk is never woken.
+- A fan may stand still only when the measuring saw it start again. The CPU cooler and pumps stay with the BIOS,
+  unless you give him the cooler at your own risk.
+- **Alarms per zone:** a fan of his that stands, too warm at full, a sensor that says nothing: that zone goes to 100 %.
+  He also watches the fans he doesn't steer and tells you when one stands while something is warm.
+- *Hand back* gives every fan back at once, to the mainboard's automatic or to its value from before. So does his stop.
+  A fan that turns clearly slower after he gave it back goes to 100 %, and he tells you.
+- His own Dashboard tile, off until you switch it on.
+- Boards that steer their fans over IPMI aren't supported yet: his page says so and sends a wish with his report.
 
 ### The Consultant
 
@@ -442,6 +463,7 @@ What needs you while the office is closed goes to Unraid's notifications, as *Un
 - A drill that couldn't prove a restore, a schedule's problem.
 - A new point on the Team Lead's list after half an hour.
 - The Night Watchman's new entries, a parity check after an unclean stop.
+- Fanboy's alarms: a fan that stands, too warm, a silent sensor, the fan chip gone.
 - The messenger silent for ten minutes.
 
 They come in the language you last used the office in.

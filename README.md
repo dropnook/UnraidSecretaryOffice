@@ -6,11 +6,11 @@
 </h1>
 
 A whole team supports you in running your Unraid server, right in Unraid's web UI: backups and restore, snapshots, a
-media cache for Emby, Jellyfin and Plex, a smart mover, a night watchman and every log in one place.
+media cache for Emby, Jellyfin and Plex, a smart mover, a night watchman, fan control and every log in one place.
 
 [Product page](https://uso.dropnook.app) · [Full guide](docs/GUIDE.md)
 
-<a name="team"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-dark.webp"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-light.webp" alt="The team: the Team Lead, Mr. Backupsy, Mr. Restori, Ms. Snapshotini, Jack Streamer, Ms. Moverelli, the Night Watchman, Ms. Dustdevil, Ms. Protocolli and the Consultant"></picture></a>
+<a name="team"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-dark.webp"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/team-light.webp" alt="The team: the Team Lead, Mr. Backupsy, Mr. Restori, Ms. Snapshotini, Jack Streamer, Ms. Moverelli, the Night Watchman, Ms. Dustdevil, Ms. Protocolli, the Consultant and Fanboy"></picture></a>
 
 Start with the Team Lead. He looks at your server and suggests whom to hire.
 
@@ -40,6 +40,15 @@ A round every five minutes; he only reads. What is unusual goes into his watch b
 new plugin, far more data pulled than usual, a new device on the LAN — and your router's log, if you like.
 
 <a name="watchman-book"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-light.png" alt="The watch book"></picture></a>
+
+## Fanboy, the fan control
+
+He steers your fans by what really gets warm. You hear and name each fan, he measures it, and then runs zones with a
+curve per kind of heat source: disks, SSDs, CPU, board. A fan stands still only where he has seen it start again;
+the ones he doesn't steer, he watches. Stopped, he gives every fan back. Boards that steer their fans over IPMI aren't
+supported yet.
+
+<a name="fanboy"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/fanboy-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/fanboy-light.png" alt="Fanboy: two zones, each fan with its speed, the warmest spot of each zone framed"></picture></a>
 
 Also on the team: Ms. Snapshotini, Ms. Dustdevil, Ms. Protocolli and the Consultant. Five languages, Unraid's themes,
 search with ⌘K, on the phone too. **[The full guide](docs/GUIDE.md)** walks through every desk.
