@@ -1026,8 +1026,8 @@ the last 60 history lines only for a source the file has none for. **The file
   case, fans turning by their speed, the warmest framed, sleeping disks marked, the BIOS's own watched — one picture kept
   across looks, speeds glide), «Fans» (outputs and tach inputs; a row unfolds the technical detail — the only place for
   `pwmN`, `hwmonN`, chip names), «Warmest spot» (sensors), «Today» (each zone's curve with «now» and its last 6 hours:
-  the part `history`, desk.json `"parts"`), «Hints». The setup's six steps as tiles (detect, test and assign, measure,
-  zones, dry run, take over / hand back); any step opens alone, so a curve, a zone or a fan's model changes without the
+  the part `history`, desk.json `"parts"`), «Hints». The setup's five steps as tiles (detect, test and assign, measure,
+  zones, take over / hand back — the dry run is a preview inside it, 2026-11-16); any step opens alone, so a curve, a zone or a fan's model changes without the
   wizard again. **Every step is built from the same parts** (2026-11-15, the owner's tests on real hardware — cards
   jumped, a click was swallowed, nothing said what runs): ONE strip for the page (`stripMake()`: what runs now from
   `runNow()` — the step's `progress` phase full | pause | kick with its seconds, a show, the measuring, an output going
