@@ -3004,3 +3004,58 @@ function testFanboyTimes(): void
         && str_contains($en['notify.alarm_chip'], 'not checked') && str_contains($en['notify.not_back'], 'not checked') && !str_contains($en['errors.fanboy_show_alarm'], '100 %')
         && !str_contains($en['errors.fanboy_show_not'], 'never writes') && str_contains($en['check.fanboy_alarm_how'], 'Fanboy only watches it'));
 }
+
+/** The owner's HDD cage: six array disks and his pool's two SSDs («mother», «mother2»), the SSDs as Unraid reports them */
+function fanboySsdDisks(array $t, string $down, string $temp): void
+{
+    $d = fn (string $name, string $type, string $dev, string $c, string $sd, string $rot) => "[$name]\nname=\"$name\"\ntype=\"$type\"\ndevice=\"$dev\"\nid=\"EXAMPLE_" . strtoupper($name) . "\"\ntemp=\"$c\"\nspundown=\"$sd\"\nrotational=\"$rot\"\nspindownDelay=\"-1\"\nstatus=\"DISK_OK\"\n";
+    $ini = $d('parity', 'Parity', 'sdb', '33', '0', '1');
+    foreach ([1, 2, 3, 4, 5] as $i) {
+        $ini .= $d("disk$i", 'Data', 'sd' . chr(99 + $i), '33', '0', '1');
+    }
+    $ini .= $d('mother', 'Cache', 'sdi', $temp, $down, '0') . $d('mother2', 'Cache', 'sdj', $temp, $down, '0');
+    file_put_contents("{$t['root']}/var/local/emhttp/disks.ini", $ini);
+}
+
+/**
+ * 2026-11-16 (the owner's first night: «alarm_sensor (source mother, zone HDD-Käfig)» twice, the zone at 100 % for ten minutes
+ * each): an SSD Unraid has put into standby (spundown 1, no temperature) is asleep for Fanboy — no demand, no alarm, over an
+ * hour; the same SSD awake without a temperature is a sensor that says nothing (the alarm as before); an NVMe from hwmon as
+ * before; the office's own diskAsleep() unchanged
+ */
+function testFanboySsdSleeps(): void
+{
+    $t = fanboyT('ssdsleep');
+    try {
+        $spec = fanboyR12Spec();
+        fanboySsdDisks($t, '1', '*');
+        $s = fanboyNetSettings();
+        $s['zones'][1]['sources'][] = ['kind' => 'ssd', 'id' => 'mother'];
+        $s['zones'][1]['sources'][] = ['kind' => 'ssd', 'id' => 'mother2'];
+        fanboyTStore($s);
+        fanboyTSettle($t, $spec);
+        $by = array_column(fanboyDisks(fanboyPaths()['disks']), null, 'name');
+        same('fanboy ssd: Unraid\'s standby for an SSD (spundown 1, temp «*») — asleep for Fanboy, no temperature; the office\'s diskAsleep() still says awake (wake-ups: unchanged)',
+            [true, null, false], [$by['mother']['asleep'], $by['mother']['temp'], diskAsleep(['spundown' => '1', 'rotational' => '0'])]);
+        $src = array_column(fanboySources(['disks' => array_values($by), 'chips' => []]), null, 'id');
+        same('fanboy ssd: … the setup\'s source list says it sleeps', [true, true], [$src['mother']['asleep'], $src['mother2']['asleep']]);
+        $c = fanboyControlNew($s, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 1800);
+        same('fanboy ssd: an hour with both SSDs in standby — no alarm, the zone not at full, both «asleep»', [null, false, 'asleep', 'asleep'],
+            [$c['alarm'], isset($c['full_since']['hdd']), $c['zones']['hdd']['state']['mother'] ?? null, $c['zones']['hdd']['state']['mother2'] ?? null]);
+        // awake (spundown 0) without a temperature: a sensor that says nothing — the alarm as before, after its wait
+        fanboySsdDisks($t, '0', '*');
+        fanboyTRounds($c, $now, $t, $spec, (int) ceil((FANBOY_DISK_SENSOR_AFTER + 30) / FANBOY_ROUND));
+        same('fanboy ssd: the same SSD awake without a temperature — a silent sensor: the «sensor» alarm, the zone at full', ['sensor', true],
+            [$c['alarm']['code'] ?? null, isset($c['full_since']['hdd'])]);
+        fanboyLetGo($c, 'end');
+        // a rotating disk spun down: asleep as before; an NVMe from hwmon: never «asleep» (its own sensor)
+        $hdd = fanboyDiskSleeps(['spundown' => '1', 'rotational' => '1', 'temp' => '*']);
+        $nvme = array_values(array_filter(fanboySources(fanboyDetect()), fn ($x) => $x['kind'] === 'nvme'));
+        same('fanboy ssd: a rotating disk spun down — asleep as before; the NVMe sensors (hwmon) never asleep', [true, true, []],
+            [$hdd, $nvme !== [], array_values(array_filter($nvme, fn ($x) => $x['asleep']))]);
+    } finally {
+        fanboyTEnd();
+    }
+}
