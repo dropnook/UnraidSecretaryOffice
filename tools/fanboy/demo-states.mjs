@@ -324,6 +324,9 @@ const DISKS_UD = [
   { name: 'ud-a41b77e09c52', type: 'unassigned', rotational: true, asleep: true, temp: null, device: 'sdy', label: null, size: 14000519643136, in_use: false, warn: 45, crit: 55 },
   { name: 'ud-5d2e80f1b6a3', type: 'unassigned', rotational: true, asleep: false, temp: null, device: 'sdz', label: null, size: 14000519643136, in_use: true, warn: 45, crit: 55 },
 ];
+// … and as the owner's server shows them: four such disks with Unraid's own names, all asleep, none in a zone
+files['fanboy-uxloose'] = state({ ite: ite({}, RPM), fans: SET_UP, zones: ZONES, who: { who: 'bios', why: 'not_armed' },
+  disks: [...DISKS_UD.slice(0, 3), ...[1, 2, 3, 4].map((n) => ({ name: `ud-${'7c1e9a0b3d5f'.slice(n)}${'42a6'.slice(0, n)}`, type: 'unassigned', rotational: true, asleep: true, temp: null, device: `sd${'wxyz'[n - 1]}`, label: `dev${n}`, size: 14000519643136, in_use: false, warn: 45, crit: 55 }))] });
 files['fanboy-uxdevs'] = state({ ite: ite({}, RPM), fans: SET_UP, disks: DISKS_UD, who: { who: 'bios', why: 'not_armed' },
   zones: [{ ...ZONES[0], sources: [...ZONES[0].sources, { kind: 'disk', id: 'ud-3f9a6c21d07e', low: null, high: null, limit: null }, { kind: 'disk', id: 'ud-5d2e80f1b6a3', low: null, high: null, limit: null }] }, ZONES[1]] });
 // round 12 fix, the net: the SSD of the pool is in no zone and warm — every fan he steers at 60 % or more, said in the banner and under «Zuletzt»

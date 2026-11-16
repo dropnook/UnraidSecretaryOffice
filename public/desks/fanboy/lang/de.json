@@ -1134,5 +1134,6 @@
   "bubble.hub_look": "Schau genau hin: Ich frage dich, ob jeder Lüfter an diesem Anschluss mitmacht. «Alles stoppen» bringt jeden Lüfter sofort zurück.",
   "zones.hub_same": "Es sind gleiche Lüfter",
   "zones.hub_same_tip": "Dasselbe Modell an jedem Stecker dieses Anschlusses: Was vermessen ist, gilt für alle, und er darf stehen wie jeder vermessene Lüfter",
-  "zones.hub_look_tip": "Öffnet Schritt 3 bei diesem Lüfter: Dort zeigt dir Fanboy, ob alle Lüfter am Anschluss wieder anlaufen"
+  "zones.hub_look_tip": "Öffnet Schritt 3 bei diesem Lüfter: Dort zeigt dir Fanboy, ob alle Lüfter am Anschluss wieder anlaufen",
+  "src.unassigned_name": "Nicht zugewiesen · {name}"
 }

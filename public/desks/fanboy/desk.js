@@ -295,15 +295,18 @@ function srcLabel(s) {
  * name for it, else «Nicht zugewiesen · 14.6 TB» — numbered when several without a name are the same size; never its id
  */
 const udSize = (b) => (b / 1e12 >= 1 ? `${fmt.number(b / 1e12, b / 1e12 >= 10 ? 1 : 2)} TB` : `${fmt.number(b / 1e9)} GB`);
-function udLabel(id) {
+function udLabel(id, bare) {
   const all = (setup().sources || []).filter((x) => x.group === 'unassigned');
   const x = all.find((y) => y.id === id) || {};
   const d = (S().disks || []).find((y) => y.name === id) || {};
+  // (a name like «dev1» says little on its own: outside its group — a sentence, the sensors' list — it says what it is)
   const name = (typeof x.name === 'string' && x.name) || (typeof d.label === 'string' && d.label) || '';
-  if (name) return name;
+  if (name) return bare ? name : T('src.unassigned_name', { name });
   const size = udSize(num(x.size) ?? num(d.size) ?? 0);
   const alike = all.filter((y) => !y.name && udSize(num(y.size) ?? 0) === size);
-  return alike.length > 1 && alike.some((y) => y.id === id) ? T('src.unassigned_n', { size, n: alike.findIndex((y) => y.id === id) + 1 }) : T('src.unassigned', { size });
+  const nth = alike.length > 1 && alike.some((y) => y.id === id) ? alike.findIndex((y) => y.id === id) + 1 : 0;
+  if (bare) return nth ? T('src.nth', { label: size, n: nth }) : size;
+  return nth ? T('src.unassigned_n', { size, n: nth }) : T('src.unassigned', { size });
 }
 /** What a heat source reads, said after its name: its degrees, «asleep», or — a disk a VM uses while Unraid sees no temperature — «in use, temperature unknown» */
 const srcReads = (x) => (num(x.c) !== null ? T('temp', { c: fmt.number(x.c) }) : x.in_use ? T('src.in_use') : x.asleep ? T('pic.asleep') : '');
@@ -3065,7 +3068,8 @@ function uncoveredNow(zones) {
 const srcSay = (x) => `${srcLabel(x)}${num(x.c) !== null ? ` (${T('temp', { c: fmt.number(Math.round(x.c)) })})` : x.in_use ? ` (${T('src.in_use')})` : x.asleep ? ` (${T('pic.asleep')})` : ''}`;
 /** «These heat sources are in no zone: …» — the sentence, its numbers marked for the check, and what the caller adds */
 function uncoveredBox(loose, ...more) {
-  const p = el('div', 'callout warn fb-callout fb-uncovered');
+  // (a calm hint, not an alarm — the owner's four sleeping disks outside the array; the banner warns once the net acts)
+  const p = el('div', 'callout fb-callout fb-uncovered');
   const text = el('p', '', T('zones.uncovered', { list: loose.map(srcSay).join(', ') }));
   text.dataset.nums = JSON.stringify(loose.filter((x) => num(x.c) !== null).map((x) => ({ v: Math.round(x.c), from: ['setup', 'sources', `=${x.id}`, 'c'], via: 'round' })));
   p.appendChild(text);
@@ -3193,7 +3197,7 @@ function zoneCard(z, i, zones, ours) {
     if (k === 'unassigned') g.title = T('src_group.unassigned_tip');
     list.forEach((s) => {
       const on = inZone.has(s.id);
-      const b2 = el('button', 'fb-src' + (on ? ' on' : ''), [srcLabel(s), srcReads(s)].filter(Boolean).join(' · '));
+      const b2 = el('button', 'fb-src' + (on ? ' on' : ''), [k === 'unassigned' ? udLabel(s.id, true) : srcLabel(s), srcReads(s)].filter(Boolean).join(' · '));
       b2.type = 'button';
       b2.setAttribute('aria-pressed', on ? 'true' : 'false');
       b2.dataset.own = '1';

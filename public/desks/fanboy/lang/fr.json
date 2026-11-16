@@ -1134,5 +1134,6 @@
   "bubble.hub_look": "Regarde bien : je te demande si chaque ventilateur de ce connecteur suit. « Tout arrêter » remet chaque ventilateur aussitôt.",
   "zones.hub_same": "Ce sont les mêmes ventilateurs",
   "zones.hub_same_tip": "Le même modèle sur chaque prise de ce connecteur : ce qui a été mesuré vaut pour tous, et il peut rester à l’arrêt comme tout ventilateur mesuré",
-  "zones.hub_look_tip": "Ouvre l’étape 3 sur ce ventilateur : Fanboy t’y montre si tous les ventilateurs du connecteur redémarrent"
+  "zones.hub_look_tip": "Ouvre l’étape 3 sur ce ventilateur : Fanboy t’y montre si tous les ventilateurs du connecteur redémarrent",
+  "src.unassigned_name": "Non attribué · {name}"
 }
