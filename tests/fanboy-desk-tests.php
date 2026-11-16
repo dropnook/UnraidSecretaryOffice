@@ -1179,7 +1179,7 @@ function testFanboyTemps(): void
 
 /**
  * Round 4 (the owner): the CPU cooler «Fanboy regelt ihn» — only with the stored, dated, ticked confirmation; never
- * written without it. Its zone must hold a CPU temperature; a floor of its own (40 %, never «off»); given back to the
+ * written without it. Its zone must hold a CPU temperature; a floor of its own (since 2026-11-16 the rule of every fan: measured lowest + 5); given back to the
  * mainboard's automatic only; its standing drives its zone to 100 %; the reaction not forced; pumps never; said in the
  * report without names.
  */
@@ -1259,7 +1259,7 @@ function testFanboyCpuOwn(): void
         same('fanboy cpu own: … proposed: a zone «cpu» with it and the CPU\'s temperatures only', [[$cpuId], ['cpu']],
             [$prop['cpu']['fans'] ?? null, array_values(array_unique(array_column($prop['cpu']['sources'] ?? [], 'kind')))]);
 
-        // the control: his now — a floor of 40 % at a cool CPU on «quiet» (0 %), never off (even «off» stored), balanced
+        // the control: his now — its measured floor (25 %) at a cool CPU on «quiet» (0 %), never off (even «off» stored), balanced
         $settings = fanboyBoardRaw();
         $settings['fans'][$cpuId]['off_ok'] = true;
         $settings['fans'][$cpuId]['back'] = 'fixed';
@@ -1267,11 +1267,12 @@ function testFanboyCpuOwn(): void
         $settings['zones'][] = $cpuZone;
         fanboyTStore($settings);
         $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
-        same('fanboy cpu own: in the control — his, floor 40 % (measured 20 + 5 is less), never off, given back to the automatic, balanced, not watched',
-            [true, 40, false, 'auto', 'balanced', false],
+        // 2026-11-16 (the owner: «gemäss eingestellter Kurve»): the same floor rule as every fan of his — round 4's 40 % is gone
+        same('fanboy cpu own: in the control — his, floor 25 % (measured 20 + 5, as for every fan of his), never off, given back to the automatic, balanced, not watched',
+            [true, 25, false, 'auto', 'balanced', false],
             [isset($c['fans'][$cpuId]), $c['fans'][$cpuId]['floor'] ?? null, $c['fans'][$cpuId]['off_ok'] ?? null, $c['fans'][$cpuId]['back'] ?? null, $c['zones']['cpuz']['react'] ?? null, isset($c['watch'][$cpuId])]);
         fanboyTRounds($c, $now, $t, $spec, 4);
-        same('fanboy cpu own: … CPU 40 °C on «quiet»: 40 % (102), never under', 102, fanboyTOut($t, 1)[0]);
+        same('fanboy cpu own: … CPU 40 °C on «quiet»: its floor 25 % (64), never under', 64, fanboyTOut($t, 1)[0]);
         $level = fanboyTOut($t, 4)[0];
         // it stands: ITS zone at 100 % (it alone: itself), the other zones steer on
         $stuck = fanboyTSpec(10, [1 => ['stuck' => true]]);

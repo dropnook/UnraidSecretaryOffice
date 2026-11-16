@@ -2670,7 +2670,8 @@ function cpuBlock(f, again) {
   box.appendChild(seg);
   if (!asking) { box.appendChild(para(T('roles.bios_note.cpu'))); return box; }
   const risk = el('div', 'fb-cpu-risk');
-  ['risk_1', 'risk_2', 'risk_3', 'risk_4'].forEach((k) => risk.appendChild(para(T(`cpu.${k}`, { floor: setup().cpu_floor || 40 }))));
+  // the floor it would get: its own (the measured lowest steady value + 5, unmeasured the blind floor) — the agent's number
+  ['risk_1', 'risk_2', 'risk_3', 'risk_4'].forEach((k) => risk.appendChild(para(T(`cpu.${k}`, { floor: fanFloor(f) }))));
   const tick = el('input');
   tick.type = 'checkbox';
   tick.checked = !!cpuAsk.get(f.id).tick;
@@ -3424,15 +3425,15 @@ function snapBack(select, value, reason) {
   say(reason);
 }
 // the control's floors (agent/desks/fanboy-control.php FANBOY_FLOOR_MARGIN, FANBOY_BLIND_FLOOR — a test compares them): a
-// measured fan with feedback never under its lowest steady value + 5, any other never under 40 %, a CPU cooler never
-// under the state's cpu_floor
+// measured fan with feedback never under its lowest steady value + 5, any other never under 40 % — a CPU cooler of his
+// the same (2026-11-16, the owner: «gemäss eingestellter Kurve»)
 const FLOOR_MARGIN = 5;
 const BLIND_FLOOR = 40;
 function fanFloor(f) {
   // the agent's own number where the state has it (the setup's plan per fan: the hub's margin, the CPU cooler's floor included)
   if (f && num(f.floor) !== null) return f.floor;
   const base = f && f.measured && f.found === 'tach' && num(f.min_pct) !== null ? Math.min(100, f.min_pct + FLOOR_MARGIN) : BLIND_FLOOR;
-  return f && f.role === 'cpu' && f.cpu_own ? Math.max(base, setup().cpu_floor || 40) : base;
+  return base;
 }
 /**
  * What the curve means for the zone's first fan, in one sentence built from its numbers only: where it stands (only a
