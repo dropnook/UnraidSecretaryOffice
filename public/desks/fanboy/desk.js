@@ -6,7 +6,7 @@
      (why it's tricky, drivers, the report for the makers);
    · the setup (the wizard), each step a tile in the order of part 2's steps: detect → test each output upward and assign it (round 8: roles on its card)
      (the catalogue picker, name, place, «give back to») → measure → zones (his proposal, the curve to
-     drag) → dry run → «Take over». Nothing changes for good before «Take over»; a step that writes (test, measure) runs
+     drag) → «Take over» (with what he would set right now). Nothing changes for good before «Take over»; a step that writes (test, measure) runs
      only while this page keeps it alive (step_alive): a closed tab or a reload gives every output back after 45 s, and
      the page says so when it comes back. Any step can be opened alone later — a curve, a zone, a fan's model change
      without the whole wizard again.
@@ -42,7 +42,8 @@ const cpuAsk = new Map();       // fan id → {tick} while the owner is choosing
 const PLACES = ['front', 'rear', 'top', 'bottom', 'side'];
 const COLOURS = ['auto', 'black', 'graphite', 'grey', 'white', 'slate', 'accent'];
 // round 8 (the owner): «Testen und zuordnen» — the test and the roles in ONE step (the old route …/setup/roles opens it)
-const STEPS = ['detect', 'test', 'measure', 'zones', 'dry', 'take'];
+// 2026-11-16 (the owner): no dry-run step — five steps; what he would set now is a preview inside «take over»
+const STEPS = ['detect', 'test', 'measure', 'zones', 'take'];
 
 let state = null;
 let history = null;             // the part `history`: {every, zones: {id: [[time, °C, %, rpm]…]}}
@@ -305,7 +306,7 @@ const srcLimit = (s) => {
   return num(s.limit) ?? (d ? d.limit : null);
 };
 
-/** The step at hand: the first not done (detect, test and assign, measure, zones, dry, take) */
+/** The step at hand: the first not done (detect, test and assign, measure, zones, take) */
 function stepAtHand() {
   const su = setup();
   if (!(su.outputs || []).length) return 'detect';
@@ -321,7 +322,7 @@ function stepAtHand() {
   if (toMeasure.some((f) => !f.measured && !f.no_turn)) return 'measure';
   if (!(su.zones || []).length) return 'zones';
   if (su.armed) return 'take';
-  return dry ? 'take' : 'dry';
+  return 'take';
 }
 
 // ------------------------------------------------------------------ loading
@@ -1566,7 +1567,6 @@ function stepTile(k, i, a) {
   }
   if (k === 'measure') value = running(s) && s.kind === 'measure' ? T('step.v.running') : ours.length ? T('step.v.of', { n: ours.filter((f) => f.measured || f.no_turn).length, m: ours.length }) : '–';
   if (k === 'zones') value = (su.zones || []).length ? T('step.v.zones', { n: su.zones.length }) : '–';
-  if (k === 'dry') value = dry ? T('step.v.seen') : '–';
   if (k === 'take') value = steers() ? T('who.fanboy', { n: who().zones || 0 }) : su.armed ? T('step.v.armed') : T('who.bios');
   if (here && !(k === 'take' && (steers() || su.armed))) sub.push(T('step.here'));
   return Office.stat({ label: T('step.n', { n: i + 1, name: T(`step.${k}`) }), value, sub, alert: k === 'take' && control().running && !!control().alarm, ...a });
@@ -1575,7 +1575,7 @@ function stepSection(k) {
   const s = el('section', 'section fb-step');
   s.dataset.step = k;
   s.appendChild(Office.sectionHead(T(`step.${k}`), T(`step.${k}_sub`), { place: `step.${k}` }));
-  const body = ({ detect: detectStep, test: testStep, measure: measureStep, zones: zonesStep, dry: dryStep, take: takeStep })[k]();
+  const body = ({ detect: detectStep, test: testStep, measure: measureStep, zones: zonesStep, take: takeStep })[k]();
   s.appendChild(body);
   return s;
 }
@@ -2821,12 +2821,12 @@ function zonesStep() {
     + (num(S().disk_allow) > 0 ? ' ' + T('zones.poll_add', { add: S().disk_allow }) : '') : '');
   if (zdraft) {
     // changed here, not kept yet: «Save» is the one button of the moment
-    const save = button(T('zones.save'), T('zones.save_tip'), (b) => act('zones_save', { zones: zdraft.map(cleanZone) }, b, () => { zdraft = null; curves.clear(); dry = null; }), 'btn');
+    const save = button(T('zones.save'), T('zones.save_tip'), (b) => act('zones_save', { zones: zdraft.map(cleanZone) }, b, () => { zdraft = null; curves.clear(); dry = null; dryFor = ''; }), 'btn');
     const undo = button(T('zones.undo'), T('zones.undo_tip'), () => { zdraft = null; curves.clear(); drawn = ''; redraw(); }, 'btn plain');
     const mark = el('span', 'fb-next-count');
     mark.appendChild(chipOfText('warn', T('zones.unsaved'), T('zones.save_tip')));
     box.append(para(how), nextBar([mark], [save, undo]));
-  } else box.append(para(how), nextBar([zones.length ? T('step.v.zones', { n: zones.length }) : ''], zones.length ? goButton('dry', true) : null));
+  } else box.append(para(how), nextBar([zones.length ? T('step.v.zones', { n: zones.length }) : ''], zones.length ? goButton('take', true) : null));
   return box;
 }
 const freeId = (z) => { for (let i = 1; ; i++) { const id = `zone${i}`; if (!z.some((x) => x.id === id)) return id; } };
@@ -2895,7 +2895,7 @@ function zoneCard(z, i, zones, ours) {
         c.checked = false;
         Office.dialog({
           title: T('zones.cpu_stand_title'),
-          body: cpuStandWords(f),
+          body: cpuStandWords(f, z),
           buttons: [{ text: t('common.cancel') }, { text: T('zones.cpu_stand_go'), kind: '', act: async () => { c.checked = true; await save({ cpu_off_confirm: true }); return true; } }],
         });
       };
@@ -2956,14 +2956,18 @@ function zoneCard(z, i, zones, ours) {
 /**
  * What he agrees to when the CPU cooler may stand — built from the state only (the owner, 2026-11-15: «kein AI-Slop, der
  * nicht stimmt»): no temperature and no seconds the state doesn't give. From which temperature it runs again is said
- * only where the control reports it (`starts_at`); what happens when Fanboy fails only where the board proved it.
+ * comes from his curve by the control's own rule (curveRule() — fanboyCurveStart(), the 5 °C and the minute are the
+ * agent's constants); what happens when Fanboy fails only as far as the board proved it (`auto_back_seen`).
  */
-function cpuStandWords(f) {
-  const cf = controlFan(f.id);
+function cpuStandWords(f, z) {
+  const r = curveRule(zonePts(z));
   const out = [T('cpustand.what')];
-  out.push(cf && control().running && num(cf.starts_at) !== null ? T('cpustand.starts', { c: fmt.number(cf.starts_at) }) : T('cpustand.starts_later'));
-  out.push(T('cpustand.gone_unknown'));
-  out.push(T('cpu.risk_3'));
+  out.push(r.start !== null ? T('cpustand.curve', { start: r.start, hard: r.hard, below: r.start - CPU_STAND_GAP, cool: CPU_STAND_AFTER }) : T('cpustand.never_zero'));
+  // what he falls back to when Fanboy fails: the mainboard's automatic (round 4's rule for this cooler) — and whether that
+  // automatic has ever been SEEN to take a fan back on this board (the state's auto_back_seen), nothing more
+  const seen = setup().auto_back_seen;
+  out.push(seen && num(seen.at) !== null ? T('cpustand.gone_seen', { date: Office.fmt.date(seen.at) }) : T('cpustand.gone_unseen'));
+  out.push(T('cpustand.hang'));
   return out.join(' ');
 }
 /**
@@ -3143,13 +3147,36 @@ function fanFloor(f) {
  */
 function curveWords(pts, floor, stands, cpu) {
   const out = [];
-  const lastZero = stands ? pts.filter((p) => p[1] < 0.5).pop() : null;
-  if (cpu) out.push(T('curve.says_cpu', { floor }));
-  else if (lastZero) out.push(T('curve.says_stand', { t: lastZero[0], floor }));
+  const r = curveRule(pts);
+  if (stands && r.start !== null) out.push(T('curve.says_stand', { t: r.start, floor }));
+  else if (stands) out.push(T('curve.says_never_zero', { floor }));
   else out.push(T('curve.says_floor', { floor }));
   const full = pts.find((p) => p[1] >= 100);
   if (full) out.push(T('curve.says_full', { t: full[0] }));
+  // a CPU cooler that stands: when it may stop again and when one reading alone starts it (the control's rule)
+  if (cpu && stands && r.start !== null) out.push(T('curve.says_cpu', { below: r.start - CPU_STAND_GAP, cool: CPU_STAND_AFTER, hard: r.hard }));
   return out.join(' ');
+}
+// the CPU cooler's standstill by its curve (agent/desks/fanboy-control.php: FANBOY_CPU_STAND_GAP, FANBOY_CPU_STAND_AFTER,
+// fanboyCurveStart() — a test compares the constants; testFanboyR12Curve shows the rule)
+const CPU_STAND_GAP = 5;
+const CPU_STAND_AFTER = 60;
+/**
+ * What a curve means for standing, as the control reads it: `start` — the last temperature at which it asks for nothing
+ * before it rises (null: it never asks for nothing) —, `hard` — where it first reaches its highest value
+ */
+function curveRule(pts) {
+  const zeros = pts.filter((p, i) => p[1] < 0.5 && pts.slice(i + 1).some((q) => q[1] >= 0.5));
+  const top = Math.max(...pts.map((p) => p[1]));
+  return { start: zeros.length ? zeros[zeros.length - 1][0] : null, hard: (pts.find((p) => p[1] >= top) || [null])[0] };
+}
+/** A zone's curve points as they stand on the page: its own, or the preset on its first kind's scale */
+function zonePts(z) {
+  const tgt = z.target || { preset: 'normal' };
+  if (Array.isArray(tgt.points)) return tgt.points;
+  const kind = (z.sources && z.sources[0] && z.sources[0].kind) || ((setup().sources || []).find((x) => (z.sources || []).some((y) => y.id === x.id)) || {}).kind || 'disk';
+  const kv = kindValues(z, kind);
+  return presetsOn(kv.low, kv.high)[tgt.preset || 'normal'];
 }
 /** The zone's curve: quiet, normal, cool — or its own, dragged; percent, or rpm where every fan is measured */
 function curvePart(z, i) {
@@ -3200,11 +3227,10 @@ function curvePart(z, i) {
   const tMin = Math.max(0, Math.floor((Math.min(...temps) - 10) / 5) * 5), tMax = Math.ceil((Math.max(...temps) + 10) / 5) * 5;
   // the chart shows what the control really applies for the zone's first fan (2026-11-15: a curve along 0 % under a line
   // «never under 40 %» contradicted itself): it stands only where it may and the curve asks for nothing, else it never
-  // gets less than its floor. A CPU cooler that may stand is stopped by the CPU's own temperature (round 12), not by the
-  // curve — so its curve shows the floor only and the sentence says so.
+  // gets less than its floor — the same rule for a CPU cooler on the owner's risk (round 12 correction: the curve decides).
   const isCpu = lead.role === 'cpu' && !!lead.cpu_own;
   const floorPct = fanFloor(lead);
-  const stands = !!lead.off_ok && !standWhy(lead) && !isCpu;
+  const stands = !!lead.off_ok && !standWhy(lead);
   const floor = rpmUnit ? (lead.table ? tableRpm(lead.table, floorPct) : null) : floorPct;
   const cz = (control().zones || []).find((x) => x.id === z.id);
   const nowC = cz && cz.warmest ? num(cz.warmest.mapped) ?? num(cz.warmest.c) : null;
@@ -3240,7 +3266,7 @@ function curvePart(z, i) {
   cv.c.el.classList.add('fb-curve-edit');
   box.appendChild(cv.c.el);
   if (!rpmUnit) {
-    const says = para(curveWords(pts, floorPct, stands, isCpu && !!lead.off_ok), 'fb-curve-says');
+    const says = para(curveWords(pts, floorPct, stands, isCpu), 'fb-curve-says');
     says.dataset.nums = JSON.stringify([{ v: floorPct, from: ['setup', 'fans', `=${lead.id}`], via: 'floor' }]);
     box.appendChild(says);
   }
@@ -3248,52 +3274,60 @@ function curvePart(z, i) {
   return box;
 }
 
-// 5 — dry run: what he would set right now, beside what each output has — nothing is written
-function dryStep() {
-  const box = el('div', 'fb-step-body');
-  if (!(setup().zones || []).length) {
-    box.appendChild(para(T('dry.no_zones')));
-    box.appendChild(bar(btn(T('step.next', { name: T('step.zones') }), 'btn plain', () => { setupSwitcher().pick('zones'); drawn = ''; redraw(); })));
-    return box;
-  }
-  const tryIt = (cls) => button(dry ? T('dry.again') : T('dry.run'), T('dry.run_tip'), (b) => act('dry_run', {}, b, (j) => { dry = j.dry || null; }), cls);
+/**
+ * «Das würde ich jetzt setzen» — what the dry run shows (the agent's dry_run: the control's own round, nothing written),
+ * compact, inside «take over»: per zone the warmest source, per fan what he would set beside what the output has now.
+ * Asked for by the step itself, once per zones as saved; «Neu rechnen» asks again.
+ */
+let dryFor = '';                // the zones the preview was asked for (their signature)
+let dryAsking = false;
+function dryAsk(force) {
+  const sig = JSON.stringify([setup().zones, (setup().fans || []).map((f) => [f.id, f.off_ok, f.role])]);
+  if (dryAsking || !Office.agent.running || (!force && dryFor === sig)) return;
+  dryFor = sig;
+  dryAsking = true;
+  Office.api.post(`${ID}.dry_run`, {}).then((j) => {
+    dryAsking = false;
+    dry = j.ok ? j.dry || null : null;
+    if (!j.ok) say(T('strip.refused', { why: Office.errorText(j.error, ID) }));
+    drawn = '';
+    if (view) redraw();
+  });
+}
+function dryPreview() {
+  const box = el('div', 'fb-preview');
+  const head = el('div', 'fb-preview-head');
+  head.append(el('h4', 'fb-q', T('dry.title')), btn(T('dry.again'), 'btn plain', () => dryAsk(true), T('dry.run_tip')));
+  box.appendChild(head);
   if (!dry) {
-    const p = el('div', 'fb-panel fb-zone-start');
-    p.append(el('h3', 'fb-panel-title', T('dry.start')), para(T('dry.start_text')), bar(tryIt('btn')));
+    const p = el('p', 'fb-wait running');
+    p.append(wave(), el('span', '', T('dry.asking')));
     box.appendChild(p);
     return box;
   }
   if (!dry.found) box.appendChild(para(T('dry.not_found', { why: dry.why || '' }), 'callout warn'));
-  const grid = el('div', 'fb-dry');
+  const tb = el('table', 'fb-table fb-preview-table');
+  const h = el('tr');
+  h.append(el('th', '', T('dry.zone')), el('th', '', T('dry.fan')), el('th', '', T('dry.would')), el('th', '', T('dry.now')));
+  tb.appendChild(h);
   (dry.zones || []).forEach((z) => {
-    const card = el('div', 'fb-panel fb-dry-zone');
-    card.appendChild(el('h3', 'fb-panel-title', z.name));
     const w = z.warmest && num(z.warmest.c) !== null ? T('dry.warmest', { where: srcLabel(z.warmest), c: fmt.number(z.warmest.c) }) : T('dry.nothing');
-    card.appendChild(para(`${w}${z.asleep ? ' · ' + T('dry.asleep', { n: z.asleep }) : ''}`));
-    // how he reacts here, in words (round 4): up at once, down by the leading kind's profile
-    const lead = z.warmest && z.warmest.kind ? z.warmest.kind : 'disk';
-    card.appendChild(para(T('dry.react', { react: T(`react.${z.react === 'quick' ? 'quick' : 'balanced'}`), how: downWords(lead, z.react) })));
-    const tb = el('table', 'fb-table');
-    const h = el('tr');
-    h.append(el('th', '', T('dry.fan')), el('th', '', T('dry.would')), el('th', '', T('dry.now')));
-    tb.appendChild(h);
-    (z.fans || []).forEach((f) => {
+    (z.fans || []).forEach((f, k) => {
       const tr = el('tr');
       const nowT = f.now ? (f.now.enable === 1 ? T('dry.now_fixed', { pct: Math.round((f.now.value || 0) / 2.55) }) : f.now.enable === 0 ? T('mode.full') : T('dry.now_auto')) : '–';
-      tr.append(el('td', '', fanSay(f.id)), el('td', 'fb-strong', num(f.pct) === null ? '–' : T('dry.would_pct', { pct: f.pct })), el('td', '', nowT));
+      const zc = el('td', '');
+      if (!k) zc.append(el('span', 'fb-strong', z.name), el('span', 'fb-preview-sub', `${w}${z.asleep ? ' · ' + T('dry.asleep', { n: z.asleep }) : ''}`));
+      tr.append(zc, el('td', '', fanSay(f.id)), el('td', 'fb-strong', num(f.pct) === null ? '–' : T('dry.would_pct', { pct: f.pct })), el('td', '', nowT));
       tb.appendChild(tr);
     });
-    const wrap = el('div', 'fb-table-wrap');
-    wrap.appendChild(tb);
-    card.appendChild(wrap);
-    grid.appendChild(card);
   });
-  box.appendChild(grid);
-  box.appendChild(nextBar([T('step.v.seen_long'), T('dry.nothing_written')], [goButton('take', true), tryIt('btn plain')]));
+  const wrap = el('div', 'fb-table-wrap');
+  wrap.appendChild(tb);
+  box.append(wrap, para(T('dry.nothing_written')));
   return box;
 }
 
-// 6 — take over / hand back: what he gets, what stays with the BIOS — then the one button
+// 5 — take over / hand back: what he gets, what stays with the BIOS, what he would set right now — then the one button
 function takeStep() {
   const box = el('div', 'fb-step-body');
   const su = setup();
@@ -3340,6 +3374,8 @@ function takeStep() {
     });
   }, 'btn');
   if (why.length) offBtn(b, why[0]);
+  // what he would set right now, before the button (the dry run's answer; it reads only)
+  if ((su.zones || []).length && situation() !== 'other') { dryAsk(false); box.appendChild(dryPreview()); }
   const lines = [para(T(cpuGiven() ? 'take.text_cpu' : 'take.text'))];
   if (c.why === 'hand_back' || c.why === 'stopped') lines.push(para(T('take.given_back')));
   box.appendChild(nextBar(lines, b));
@@ -3416,6 +3452,7 @@ Office.desk({
       // #/fanboy/setup/<step> picks that step like a click; else the step at hand once his state is in (never kept)
       let rest = String(sub || '').split('/').slice(1).join('/');
       if (rest === 'roles') rest = 'test';         // round 8: the roles step lives in «Testen und zuordnen» now
+      if (rest === 'dry') rest = 'take';           // 2026-11-16: the dry run is a preview inside «take over»
       const picked = setupSwitcher().mount(rest);
       if (picked) Office.subroute('setup');
       render();

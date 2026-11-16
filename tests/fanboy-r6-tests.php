@@ -964,7 +964,7 @@ function testFanboyR8Assign(): void
         [], array_values(array_filter($reach, fn ($x) => !str_contains($card, $x))));
     same('fanboy r8 assign: six steps — the old route …/setup/roles opens «Testen und zuordnen»; no roles step left', [true, false, false],
         [str_contains($js, "if (rest === 'roles') rest = 'test';"), str_contains($js, 'function rolesStep('), str_contains($js, "return 'roles'")]);
-    foreach (['de' => '6', 'en' => '6', 'it' => '6', 'fr' => '6', 'es' => '6'] as $l => $n) {
+    foreach (['de' => '5', 'en' => '5', 'it' => '5', 'fr' => '5', 'es' => '5'] as $l => $n) {       // five since 2026-11-16 (no dry-run step)
         $j = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$l.json"), true);
         check("fanboy r8 assign: $l — the steps counted as six (blocked: step $n), the roles step's keys gone", str_contains($j['step.blocked_steering'], $n) && !isset($j['step.roles']));
     }

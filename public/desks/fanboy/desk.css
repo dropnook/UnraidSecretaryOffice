@@ -202,8 +202,11 @@
   .fb-react .seg, .fb-cpu .seg{align-self:flex-start}
   .fb-zone-head .fb-input{flex:1 1 auto; font-size:14px; font-weight:600}
   .fb-zone-start{align-items:flex-start; gap:8px}
-  .fb-dry{display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:12px}
-  .fb-dry-zone{gap:6px}
+  /* «take over»: what he would set right now — a compact table, the zone's name once with its warmest source under it */
+  .fb-preview{display:flex; flex-direction:column; gap:8px; padding:12px 14px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface)}
+  .fb-preview-head{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap}
+  .fb-preview-table td{vertical-align:top; padding:4px 14px 4px 0}
+  .fb-preview-sub{display:block; font-size:12px; font-weight:400; color:var(--muted)}
   /* the output that runs now: framed like the office's active tile (office.css .tile-on — a ring and a glow from the accent) */
   .fb-live{position:relative; border-color:var(--accent);
     box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 18px 2px color-mix(in srgb, var(--accent) 38%, transparent)}

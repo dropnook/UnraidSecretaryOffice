@@ -233,7 +233,7 @@ function testFanboyDesk(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
     // round 8 (the owner): the test and the roles in one step — six steps
-    same('fanboy desk: the wizard\'s steps in part 2\'s order', "const STEPS = ['detect', 'test', 'measure', 'zones', 'dry', 'take'];",
+    same('fanboy desk: the wizard\'s steps in part 2\'s order (five since 2026-11-16: the dry run is a preview inside «take over»)', "const STEPS = ['detect', 'test', 'measure', 'zones', 'take'];",
         preg_match('/^const STEPS = .*$/m', $js, $m) ? $m[0] : null);
     preg_match('/const ALIVE_MS = (\d+);/', $js, $a);
     check('fanboy desk: a running step kept alive — step_alive every ALIVE_MS (≤ 20 s, well inside the 45 s lease), only while a page of his is shown, stopped when it goes',
@@ -358,7 +358,7 @@ function testFanboyUx(): void
     check('fanboy ux: round 12 on the page — the measuring\'s standstill phases in the strip and on the fan\'s panel, what it found in a sentence, «may stand still» by the measuring\'s proof (the agent\'s `stand`), chosen-but-not-in-effect said beside the box',
         str_contains($js, "r.part = { phase: p.phase, pct: num(p.pct), left: secsTo(p.until) };") && str_contains($js, "T(`strip.m.\${pt.phase}`, { fan: fanSay(run.id), pct: pt.pct ?? '–' })")
         && str_contains($js, 'function standLine(f) {') && str_contains($js, "if (!st) return T('zones.stand_again');") && str_contains($js, "if (st.stops_safe !== true) return T('zones.stand_unsafe');")
-        && str_contains($js, "if (f.off_ok && f.off_why && has(`off_why.\${f.off_why}`))") && str_contains($js, 'body: cpuStandWords(f),'));
+        && str_contains($js, "if (f.off_ok && f.off_why && has(`off_why.\${f.off_why}`))") && str_contains($js, 'body: cpuStandWords(f, z),'));
     $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/lang/de.json'), true);
     check('fanboy ux: the trail\'s words are the same in the list and the next bar (not tested · question open · role missing · the role · nothing attached); the CPU cooler says who steers it',
         str_contains($js, "T('next.item', { fan: fanSay(id), why: T({ test: 'label.untested', ask: 'label.ask', role: 'label.what' }[w]) })")
@@ -404,9 +404,16 @@ function testFanboyUx(): void
     check('fanboy ux: no text of the page speaks of a «card» or of «More» any more (de, en)', !preg_match('/\bKarte\b|«Mehr»/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de'])))
         && !preg_match('/(?<!graphics )\bcards?\b|«More»/i', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['en']))));
     // the owner, 2026-11-15: «kein AI-Slop, der nicht stimmt» — no sentence names a number the state doesn't give
-    check('fanboy ux: the CPU cooler\'s «may stand» confirmation is built from the state only — no temperature unless the control reports it (starts_at), no seconds, no claim about the mainboard\'s automatic',
-        str_contains($js, "out.push(cf && control().running && num(cf.starts_at) !== null ? T('cpustand.starts', { c: fmt.number(cf.starts_at) }) : T('cpustand.starts_later'));")
-        && str_contains($js, "out.push(T('cpustand.gone_unknown'));") && !isset($de['zones.cpu_stand_text']) && !preg_match('/\d/', $de['cpustand.what'] . $de['cpustand.starts_later'] . $de['cpustand.gone_unknown']));
+    check('fanboy ux: the CPU cooler\'s «may stand» confirmation is built from his curve by the control\'s rule and from the state — the degrees are the curve\'s, the 5 °C and the minute the agent\'s constants; that the mainboard\'s automatic takes over only where the board showed it (auto_back_seen); no sentence carries a number of its own',
+        str_contains($js, "out.push(r.start !== null ? T('cpustand.curve', { start: r.start, hard: r.hard, below: r.start - CPU_STAND_GAP, cool: CPU_STAND_AFTER }) : T('cpustand.never_zero'));")
+        && str_contains($js, "out.push(seen && num(seen.at) !== null ? T('cpustand.gone_seen', { date: Office.fmt.date(seen.at) }) : T('cpustand.gone_unseen'));") && !isset($de['zones.cpu_stand_text'])
+        && !preg_match('/\d/', preg_replace('/\{\w+\}/', '', $de['cpustand.what'] . $de['cpustand.curve'] . $de['cpustand.gone_seen'] . $de['cpustand.gone_unseen'] . $de['cpustand.hang'] . $de['curve.says_cpu'])));
+    $ctl = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-control.php');
+    preg_match('/const CPU_STAND_GAP = (\d+);/', $js, $pg);
+    preg_match('/const CPU_STAND_AFTER = (\d+);/', $js, $pa);
+    preg_match('/const FANBOY_CPU_STAND_GAP = ([\d.]+);/', $ctl, $ag);
+    preg_match('/const FANBOY_CPU_STAND_AFTER = ([\d.]+);/', $ctl, $aa);
+    same('fanboy ux: the page\'s numbers for the CPU cooler\'s standstill are the control\'s (5 °C under its start, a minute)', [(float) ($ag[1] ?? -1), (float) ($aa[1] ?? -1)], [(float) ($pg[1] ?? -2), (float) ($pa[1] ?? -2)]);
     $control = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-control.php');
     preg_match('/const FLOOR_MARGIN = (\d+);/', $js, $fm);
     preg_match('/const BLIND_FLOOR = (\d+);/', $js, $bf);
@@ -414,13 +421,16 @@ function testFanboyUx(): void
     preg_match('/const FANBOY_BLIND_FLOOR = (\d+);/', $control, $abf);
     same('fanboy ux: the page\'s floors are the control\'s (lowest steady value + margin, the blind floor)', [$afm[1] ?? null, $abf[1] ?? null], [$fm[1] ?? '', $bf[1] ?? '']);
     check('fanboy ux: the curve chart draws what the control applies for the zone\'s first fan — its floor, and standing only where it may and the curve asks for nothing — and says it in a sentence of those numbers',
-        str_contains($js, "apply: rpmUnit ? undefined : (v) => (stands && v < 0.5 ? 0 : Math.max(v, floorPct)),") && str_contains($js, "const stands = !!lead.off_ok && !standWhy(lead) && !isCpu;")
-        && str_contains($js, "const says = para(curveWords(pts, floorPct, stands, isCpu && !!lead.off_ok), 'fb-curve-says');") && str_contains($art, "const applied = (v) => (typeof o.apply === 'function' ? o.apply(v) : v);")
+        str_contains($js, "apply: rpmUnit ? undefined : (v) => (stands && v < 0.5 ? 0 : Math.max(v, floorPct)),") && str_contains($js, "const stands = !!lead.off_ok && !standWhy(lead);")
+        && str_contains($js, "const says = para(curveWords(pts, floorPct, stands, isCpu), 'fb-curve-says');") && str_contains($art, "const applied = (v) => (typeof o.apply === 'function' ? o.apply(v) : v);")
         && str_contains($art, "line.setAttribute('class', 'fan-curve-line fan-curve-wish');"));
     check('fanboy ux: sentences that take numbers from the state are marked (data-nums) and the picture tool compares each with the demo state it shows',
         substr_count($js, '.dataset.nums = JSON.stringify(') >= 3 && str_contains($tool, "if (want !== x.v) faults.push(") && str_contains($tool, 'is not in its sentence'));
     check('fanboy ux: one button size per row — every button of the setup is the office\'s .btn (the fill tells primary from secondary); no «small» beside a full one',
         !preg_match('/btn small/', substr($js, (int) strpos($js, 'function stripMake() {'), (int) strpos($js, '// ------------------------------------------------------------------ the page') - (int) strpos($js, 'function stripMake() {'))));
+    check('fanboy ux: five steps — no dry-run step; what he would set right now is asked for by «take over» itself (dry_run reads only) and shown compact before the button; the old route …/setup/dry lands there',
+        !str_contains($js, 'function dryStep(') && str_contains($js, "if (rest === 'dry') rest = 'take';") && str_contains($js, "dryAsk(false); box.appendChild(dryPreview());")
+        && str_contains($js, "Office.api.post(`\${ID}.dry_run`, {}).then((j) => {") && !isset($de['step.dry']) && str_contains($de['help.setup_text'], 'Fünf Schritte') && str_contains($de['step.blocked_steering'], 'Schritt 5'));
     same('fanboy ux: a demo state for each moment of step 2', [], array_values(array_filter(['fanboy-uxrun', 'fanboy-uxpause', 'fanboy-uxfound', 'fanboy-uxsafety', 'fanboy-uxopen'],
         fn ($n) => !is_file(OFFICE_DIR . "/tests/ui/demo/$n.json"))));
 }
