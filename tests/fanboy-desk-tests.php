@@ -445,14 +445,14 @@ function testFanboyUx(): void
     check('fanboy ux uncovered: for the kept zones the list is the agent\'s (setup.uncovered); the zones step says it above the zones with one click per source into the zone shown',
         str_contains($js, "if (!zdraft || !zones) return (setup().uncovered || []).map(") && str_contains($js, "return all.filter((x) => NET_KINDS.includes(x.kind) && !inZones.has(x.id));")
         && str_contains($js, "const loose = uncoveredNow(zones);") && str_contains($js, "...loose.map((x) => btn(srcLabel(x), 'btn plain', () => into([x.id]), T('zones.uncovered_in_tip'))),")
-        && str_contains($js, "const text = el('p', '', T('zones.uncovered', { list: loose.map(srcSay).join(', ') }));"));
+        && str_contains($js, "const text = el('p', '', T(pct === null ? 'zones.uncovered' : 'zones.uncovered_pct', { list: loose.map(srcSay).join(', '), pct }));"));
     check('fanboy ux uncovered: at «Übernehmen» the same list; where a fan of his may stand (the state\'s may_stand) the dialog asks plainly and only that yes sends uncovered_ok',
         str_contains($js, "const loose = (su.zones || []).length ? uncoveredNow() : [];") && str_contains($js, "const standing = (su.fans || []).filter((f) => f.may_stand === true && mine.has(f.id));")
         && str_contains($js, "const sure = loose.length && standing.length;") && str_contains($js, "await act('take_over', sure ? { uncovered_ok: true } : {}, b2,")
         && str_contains($js, "T(sure ? 'take.uncovered_go' : 'take.go')") && substr_count($js, 'uncovered_ok') === 1);
     check('fanboy ux uncovered: the sentence claims no number of its own — the temperatures are the state\'s (marked for the numbers check), the net\'s levels are not named',
         !preg_match('/\d/', (string) ($l['de']['zones.uncovered'] ?? '1')) && !preg_match('/\d/', (string) ($l['de']['take.uncovered_confirm'] ?? '1'))
-        && str_contains($js, "map((x) => ({ v: Math.round(x.c), from: ['setup', 'sources', `=\${x.id}`, 'c'], via: 'round' })));"));
+        && str_contains($js, "map((x) => ({ v: Math.round(x.c), from: ['setup', 'sources', `=\${x.id}`, 'c'], via: 'round' })),"));
     check('fanboy ux net: while the net holds the fans up, the banner says which source, how warm and the level — all three from control.net',
         str_contains($js, "const net = c.running && c.net && c.net.source && num(c.net.level) !== null ? c.net : null;")
         && str_contains($js, "p.dataset.nums = JSON.stringify([{ v: net.level, from: ['control', 'net', 'level'] },")
@@ -542,16 +542,36 @@ function testFanboyUx(): void
         !preg_match('/Ein Neustart von Unraid gibt/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de']))) && !str_contains($l['de']['note.foreign'], 'ans BIOS') && !str_contains($l['de']['out.foreign_title'], 'ans BIOS'));
     check('fanboy ux audit: he «installs nothing; loads a driver only on your click»; the detect step «only reads»; System Temp\'s names are shown, not proposed',
         str_contains($l['de']['hints.sub'], 'nur auf deinen Klick') && str_contains($l['de']['step.detect_sub'], 'Dieser Schritt liest nur') && !str_contains($l['de']['hints.names_count'], 'schlägt'));
-    same('fanboy ux audit: the literal numbers left in the texts are the agent\'s — a minute at full (test, show; the page\'s FULL_MAX), 45 s lease, 15 min without the chip, 2 min standing while warm, a point a minute, 8 fans on a connector',
-        [60.0, 60.0, true, true, true, true, true, true, true],
-        [FANBOY_UP_FOR, FANBOY_SHOW_FOR, str_contains($js, 'const FULL_MAX = ' . (int) FANBOY_UP_FOR . ';'),
-            str_contains($l['de']['help.safe_text'], 'nach ' . (int) FANBOY_STEP_LEASE . ' Sekunden') && str_contains($l['de']['strip.keep_open'], 'nach ' . (int) FANBOY_STEP_LEASE . ' Sekunden') && str_contains($l['en']['strip.keep_open'], (string) (int) FANBOY_STEP_LEASE),
-            str_starts_with($l['de']['note.missing_told'], (int) (FANBOY_TELL_AFTER / 60) . ' Minuten') && str_contains($l['en']['note.missing_told'], (string) (int) (FANBOY_TELL_AFTER / 60)),
-            str_contains($l['de']['watch.on_title'], 'nach ' . (int) (FANBOY_IDLE_WARM_AFTER / 60) . ' Minuten') && str_contains($l['de']['watch.stands_warm_title'], 'nach ' . (int) (FANBOY_IDLE_WARM_AFTER / 60) . ' Minuten'),
+    // 2026-11-16 (task/fanboy-truth2: the state's times / limits / restarts): the sentences take their times from the state — the
+    // page's wrapper T() adds them to every text; what is left as a literal (the help texts the search shows without params,
+    // «a point a minute», the look's minute) stays tied to the agent's constant here
+    $timesJs = preg_match('/const TIMES = \{([^}]+)\};/', $js, $m) ? $m[1] : '';
+    $mirror = [];
+    foreach (['up_for' => FANBOY_UP_FOR, 'show_for' => FANBOY_SHOW_FOR, 'lease' => FANBOY_STEP_LEASE, 'tell_after' => FANBOY_TELL_AFTER, 'idle_warm_after' => FANBOY_IDLE_WARM_AFTER, 'poll_live' => FANBOY_POLL_LIVE] as $k => $v) {
+        if (!preg_match('/\b' . $k . ': ' . (int) $v . '\b/', $timesJs)) {
+            $mirror[] = $k;
+        }
+    }
+    same('fanboy ux audit: the page\'s mirror of the agent\'s times (for an agent that doesn\'t send them yet) equals the agent\'s constants', [], $mirror);
+    check('fanboy ux audit: every sentence that names a time takes it from the state\'s times — a test and «show me» at full, the page\'s lease in the strip, the minutes until he tells (no literal left there)',
+        str_contains($js, "try { return { ...TIMES, ...(state.setup.times || {}) }; } catch (e) { return TIMES; }")
+        && str_contains($js, "return T0(k, { up_s: tm.up_for, show_s: tm.show_for, lease_s: tm.lease, tell_min: Math.round(tm.tell_after / 60), idle_min: Math.round(tm.idle_warm_after / 60), ...(p || {}) });")
+        && str_contains($l['de']['step.test_sub'], 'bis zu {up_s} Sekunden') && str_contains($l['de']['show.tip'], 'bis zu {show_s} Sekunden') && str_contains($l['de']['strip.keep_open'], 'nach {lease_s} Sekunden')
+        && str_starts_with($l['de']['note.missing_told'], '{tell_min} Minuten') && str_contains($l['de']['watch.on_title'], 'nach {idle_min} Minuten') && str_contains($l['de']['strip.since'], 'höchstens {max} s')
+        && str_contains($js, "T('strip.since', { s: secs, max: most })") && !preg_match('/\d/', str_replace('100 %', '', implode(' ', [$l['de']['step.test_sub'], $l['de']['strip.keep_open'], $l['de']['watch.on_title'], $l['de']['note.missing_told']]))));
+    same('fanboy ux audit: the literals left are the agent\'s — the help texts (shown by the search without params): a minute at full, the 45 s lease; a point a minute; a name\'s and a connector\'s maximum come with the refusal',
+        [60.0, 60.0, true, true, true],
+        [FANBOY_UP_FOR, FANBOY_SHOW_FOR,
+            str_contains($l['de']['help.safe_text'], 'nach ' . (int) FANBOY_STEP_LEASE . ' Sekunden') && str_contains($l['de']['help.quiet_text'], 'bis zu einer Minute') && str_contains($l['de']['help.show_text'], 'bis zu einer Minute'),
             FANBOY_HISTORY_EVERY === 60.0 && str_contains($l['de']['curves.history_none'], 'einem Punkt pro Minute'),
-            // 2026-11-16 (task/fanboy-truth2): the maximum comes with the refusal (Problem params {max} = FANBOY_COUNT_MAX, testFanboyTimes)
-            str_contains($l['de']['errors.fanboy_bad_count'], 'Zwischen 1 und {max}') && str_contains($l['en']['errors.fanboy_bad_count'], '{max}'),
-            str_contains($l['de']['strip.since'], 'höchstens ' . (int) (FANBOY_UP_FOR / 60) . ' Minute')]);
+            str_contains($l['de']['errors.fanboy_bad_count'], 'Zwischen 1 und {max}') && str_contains($l['en']['errors.fanboy_bad_count'], '{max}') && str_contains($l['de']['errors.fanboy_bad_name'], '{max}')]);
+    check('fanboy ux audit: the limits the page offers are the state\'s (fans on a connector, zones); the crashed control says when it is started again and when not any more from the state\'s times and restarts — «given up» has its own words',
+        str_contains($js, "n <= (num((setup().limits || {}).count_max) ?? 8)") && str_contains($js, "zones.length < (num((setup().limits || {}).zones_max) ?? 8)")
+        && str_contains($js, "T(rs.given_up ? 'control.crashed_given_up' : 'control.crashed_n', { pause: tm.crash_pause, max: rs.max, window: Math.round(rs.window / 60) })")
+        && isset($l['de']['control.crashed_given_up'], $l['de']['control.crashed_n']) && FANBOY_COUNT_MAX === 8);
+    check('fanboy ux uncovered: the level the net holds the fans at is said from the state (times.net.warm_pct), marked for the numbers check; without the key: no number',
+        str_contains($js, "T(pct === null ? 'zones.uncovered' : 'zones.uncovered_pct', { list: loose.map(srcSay).join(', '), pct })") && str_contains($js, "[{ v: pct, from: ['setup', 'times', 'net', 'warm_pct'] }]")
+        && str_contains($l['de']['zones.uncovered_pct'], 'mindestens {pct} %'));
     same('fanboy ux audit: the spans the history offers are the agent\'s', FANBOY_HISTORY_PERIODS, preg_match('/const PERIODS = \[([^\]]+)\];/', $js, $m) ? array_map('intval', explode(',', $m[1])) : []);
     // round 13b on the page: the disks outside array and pools
     $devs = json_decode((string) file_get_contents(dirname(__DIR__) . '/tests/ui/demo/fanboy-uxdevs.json'), true);
