@@ -2441,3 +2441,492 @@ function testFanboyNetTakeOver(): void
         fanboyTEnd();
     }
 }
+
+/** Round 13: a zone as the control keeps it (only what fanboyZoneRound() reads), and one round of it with these temperatures */
+function fanboyR13Zone(array $z): array
+{
+    return $z + ['id' => 'z', 'name' => 'Z', 'fans' => [], 'unit' => 'pct', 'target' => ['preset' => 'normal'], 'low' => null, 'high' => null, 'kinds' => [],
+        'curves' => [], 'react' => 'balanced', 'cur' => null, 'hold_t' => null, 'warmest' => null, 'hot_since' => null, 'below_since' => null, 'level' => null,
+        'state' => [], 'by_kind' => [], 'leader' => null];
+}
+
+function fanboyR13Round(array &$c, array $temps, float $now): float
+{
+    foreach ($temps as $id => $t) {
+        $c['sources'][$id] = ['kind' => 'x', 'label' => $id, 'c' => $t, 'asleep' => false, 'quiet_since' => null, 'path' => '/x'];
+    }
+    $reasons = [];
+    fanboyZoneRound($c, 'z', $now, $reasons);
+    return (float) $c['zones']['z']['cur'];
+}
+
+/** Round 12's zone computation (before round 13): every source laid onto the zone's scale, the zone's curve at the warmest */
+function fanboyR13Old(array $z, array $temps): float
+{
+    [$lo, $hi] = fanboyZoneScale($z);
+    $best = null;
+    foreach ($z['sources'] as $s) {
+        $s = fanboySourceValues($z, $s);
+        if (isset($temps[$s['id']])) {
+            $m = fanboyMapped($s, (float) $temps[$s['id']], $lo, $hi, $z['sources'][0]['kind'] ?? '');
+            $best = max($best ?? $m, $m);
+        }
+    }
+    $curve = fanboyZoneCurve($z);
+    $raw = $best === null ? $curve[0][1] : fanboyCurveAt($curve, $best);
+    return $z['unit'] === 'pct' ? max(0.0, min(100.0, $raw)) : $raw;
+}
+
+/**
+ * Round 13 (the owner: every kind of heat source its own curve): a zone without `curves` asks exactly what it asked
+ * before — a grid of temperatures over every kind, presets, own points, the zone's own scale, a source's own values, rpm
+ */
+function testFanboyR13Compat(): void
+{
+    $src = fn (string $kind, string $id, array $more = []) => ['kind' => $kind, 'id' => $id] + $more;
+    $zones = [
+        'disk zone, every kind, normal' => ['sources' => [$src('disk', 'd1'), $src('disk', 'd2'), $src('cpu', 'c1'), $src('nvme', 'n1'), $src('ram', 'r1'), $src('ssd', 's1')]],
+        'cpu zone, quiet, a disk in it' => ['sources' => [$src('cpu', 'c1'), $src('disk', 'd1')], 'target' => ['preset' => 'quiet']],
+        'cool, the zone\'s own scale' => ['sources' => [$src('nvme', 'n1'), $src('disk', 'd1')], 'target' => ['preset' => 'cool'], 'low' => 38, 'high' => 58],
+        'own points, a source with its own values' => ['sources' => [$src('disk', 'd1'), $src('cpu', 'c1', ['low' => 50, 'high' => 70]), $src('ram', 'r1')],
+            'target' => ['points' => [[30, 0], [40, 0], [45, 60], [50, 100]]]],
+        'the table «Temperaturen» per kind' => ['sources' => [$src('disk', 'd1'), $src('cpu', 'c1')], 'kinds' => ['cpu' => ['low' => 40, 'high' => 75], 'disk' => ['low' => 33]]],
+        'rpm' => ['sources' => [$src('disk', 'd1'), $src('cpu', 'c1')], 'unit' => 'rpm', 'target' => ['points' => [[30, 600], [45, 1400]]]],
+    ];
+    $off = [];
+    $n = 0;
+    foreach ($zones as $what => $z) {
+        $z = fanboyR13Zone($z);
+        $ids = array_column($z['sources'], 'id');
+        $limit = min(array_map(fn ($s) => fanboySourceLimit(fanboySourceValues($z, $s)), $z['sources']));
+        foreach (range(20, (int) $limit - 1, 3) as $base) {
+            foreach ($ids as $i => $lead) {
+                $temps = [];
+                foreach ($ids as $j => $id) {
+                    $temps[$id] = min($limit - 1, $base + ($id === $lead ? 7 : ($j % 3)));
+                }
+                $c = ['zones' => ['z' => $z], 'sources' => [], 'fans' => [], 'full_since' => []];
+                $new = fanboyR13Round($c, $temps, 0.0);
+                $old = fanboyR13Old($z, $temps);
+                $n++;
+                if (abs($new - $old) > 1e-6) {
+                    $off[] = "$what " . json_encode($temps) . ": old $old, new $new";
+                }
+            }
+        }
+    }
+    same("fanboy r13 compat: a zone without its own curves asks to the percent what it asked before ($n cases over every kind)", [], array_slice($off, 0, 5));
+    $z = fanboyR13Zone(['sources' => [$src('disk', 'd1'), $src('cpu', 'c1')]]);
+    $want = [false, false, [[35, 20], [40, 45], [45, 80], [48, 100]], [[45, 20], [62.5, 45], [80, 80], [90.5, 100]]];
+    $got = [fanboyKindCurve($z, 'disk')[1], fanboyKindCurve($z, 'cpu')[1], fanboyKindCurve($z, 'disk')[0], fanboyKindCurve($z, 'cpu')[0]];
+    check('fanboy r13 compat: … the derived curves — the zone\'s curve on each kind\'s own scale (disk 35…45 → cpu 45…80), flagged not own',
+        $want == $got, json_encode($got));
+}
+
+/** Round 13: one kind with its own curve, the others derived; the highest ask wins; the status says each kind's curve, warmest and ask, and who leads */
+function testFanboyR13Curves(): void
+{
+    $src = fn (string $kind, string $id) => ['kind' => $kind, 'id' => $id];
+    $z = fanboyR13Zone(['sources' => [$src('disk', 'd1'), $src('disk', 'd2'), $src('cpu', 'c1')], 'curves' => ['cpu' => ['points' => [[40, 0], [60, 100]]]]]);
+    $c = ['zones' => ['z' => $z], 'sources' => [], 'fans' => [], 'full_since' => []];
+    $level = fanboyR13Round($c, ['d1' => 36, 'd2' => 40, 'c1' => 50], 0.0);
+    same('fanboy r13: the CPU on its own curve (50 °C: 50 %), the disks on the derived one (40 °C: 45 %) — the highest wins: 50 %, the CPU leads',
+        [50.0, ['source' => 'c1', 'kind' => 'cpu'], ['source' => 'd2', 'c' => 40, 'value' => 45.0], ['source' => 'c1', 'c' => 50, 'value' => 50.0]],
+        [$level, $c['zones']['z']['leader'], array_intersect_key($c['zones']['z']['by_kind']['disk'], array_flip(['source', 'c', 'value'])),
+            array_intersect_key($c['zones']['z']['by_kind']['cpu'], array_flip(['source', 'c', 'value']))]);
+    $c2 = ['zones' => ['z' => $z], 'sources' => [], 'fans' => [], 'full_since' => []];
+    same('fanboy r13: … the disk warmer (44 °C asks 73 %) — the disks lead', [73.0, 'disk'], [round(fanboyR13Round($c2, ['d1' => 44, 'd2' => 40, 'c1' => 50], 0.0)), $c2['zones']['z']['leader']['kind']]);
+    $z2 = fanboyR13Zone(['sources' => [$src('disk', 'd1'), $src('cpu', 'c1')], 'curves' => ['cpu' => ['preset' => 'quiet']]]);
+    same('fanboy r13: a kind\'s own preset lies on its own scale (CPU quiet: 45 °C 0 %, 62.5 °C 30 %, 80 °C 60 %)', [[[45.0, 0], [62.5, 30], [80.0, 60], [85.0, 100]], true],
+        fanboyKindCurve($z2, 'cpu'));
+    // the status the page reads: every kind's curve (own or derived), its warmest and what it asks, the leader
+    $st = ['zones' => [['id' => 'z', 'name' => 'Z', 'unit' => 'pct', 'cur' => 50.0, 'react' => 'balanced', 'warmest' => $c['zones']['z']['warmest'], 'state' => [],
+        'fans' => [], 'sources' => $z['sources'], 'curves' => $z['curves'], 'kinds' => [], 'by_kind' => $c['zones']['z']['by_kind'], 'leader' => $c['zones']['z']['leader']]]];
+    $zs = fanboyZoneKindCurves($z);
+    same('fanboy r13 status: per kind its curve and whether it is its own', [['disk', 'cpu'], false, true], [array_keys($zs), $zs['disk']['own'], $zs['cpu']['own']]);
+    check('fanboy r13 status: the control\'s status and the dry run carry curves, by_kind and leader per zone',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-control.php'), "'curves' => fanboyZoneKindCurves(\$z), 'by_kind' =>")
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-setup.php'), "'curves' => fanboyZoneKindCurves(\$z), 'by_kind' =>"), json_encode($st['zones'][0]['leader']));
+
+    // the way down follows the leading kind after a change of leader: the CPU (5 % a round) led high, then cooled — the disks
+    // lead now, and it comes down by the disks' way (1 % a round), not the CPU's
+    $z3 = fanboyR13Zone(['sources' => [$src('cpu', 'c1'), $src('disk', 'd1')], 'curves' => ['cpu' => ['points' => [[40, 0], [60, 100]]]]]);
+    $c3 = ['zones' => ['z' => $z3], 'sources' => [], 'fans' => [], 'full_since' => []];
+    $now = 0.0;
+    fanboyR13Round($c3, ['c1' => 56, 'd1' => 40], $now);           // the CPU asks 80 %, the disk 45 %
+    $levels = [];
+    for ($i = 0; $i < 6; $i++) {
+        $now += 2.0;
+        $levels[] = fanboyR13Round($c3, ['c1' => 30, 'd1' => 40], $now);
+    }
+    same('fanboy r13: the CPU led at 80 %, then cooled — the disk leads (45 %) and the zone comes down by the disks\' way: 1 % a round',
+        ['disk', [79.0, 78.0, 77.0, 76.0, 75.0, 74.0]], [$c3['zones']['z']['leader']['kind'], $levels]);
+}
+
+/** Round 13: own curves refused — a kind the zone doesn't have, too few points, out of bounds, a preset in an rpm zone, a list */
+function testFanboyR13Refused(): void
+{
+    $t = fanboyT('r13ref');
+    try {
+        $settings = fanboyTSettings();
+        $zone = $settings['zones'][0];          // disks, its fan 4, three disk sources
+        $check = function (array $curves, string $unit = 'pct') use ($zone, $settings): string {
+            $z = ['curves' => $curves, 'unit' => $unit] + $zone;
+            if ($unit === 'rpm') {
+                $z['target'] = ['points' => [[30, 600], [45, 1400]]];
+            }
+            return fanboyR6Refused(fn () => fanboyZonesCheck([$z], fanboyDetect(), $settings));
+        };
+        same('fanboy r13 refused: a kind the zone has no source of, one point, 130 °C, a value over 100 %, a preset in an rpm zone, a list instead of kinds',
+            array_fill(0, 6, 'fanboy_bad_zones'),
+            [$check(['cpu' => ['points' => [[40, 0], [60, 100]]]]), $check(['disk' => ['points' => [[40, 0]]]]), $check(['disk' => ['points' => [[40, 0], [130, 100]]]]),
+             $check(['disk' => ['points' => [[40, 0], [60, 101]]]]), $check(['disk' => ['preset' => 'quiet']], 'rpm'), $check([['points' => [[40, 0], [60, 100]]]])]);
+        $ok = fanboyZonesCheck([['curves' => ['disk' => ['points' => [[35, 10], [45, 90]]]]] + $zone], fanboyDetect(), $settings)[0];
+        check('fanboy r13: a good one stored for that kind only (the others stay derived); none sent: none stored',
+            json_decode(json_encode($ok['curves']), true) == ['disk' => ['points' => [[35, 10], [45, 90]]]] && json_encode(fanboyZonesCheck([$zone], fanboyDetect(), $settings)[0]['curves']) === '{}',
+            json_encode($ok['curves']));
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/** Round 13b: devs.ini on the fake board — the disks outside array and pools (ids carry serials that must never leak) */
+function fanboyDevsFixture(array $t): void
+{
+    $dev = fn (int $n, string $device, string $id, string $rot, string $down, string $temp, string $sectors) =>
+        "[\"dev$n\"]\nname=\"dev$n\"\nid=\"$id\"\ndevice=\"$device\"\nsectors=\"$sectors\"\nsector_size=\"512\"\nrotational=\"$rot\"\nspundown=\"$down\"\ntemp=\"$temp\"\nnumReads=\"0\"\nnumWrites=\"0\"\nnumErrors=\"0\"\n";
+    $big = '27344764928';           // 14.0 TB
+    file_put_contents("{$t['root']}/var/local/emhttp/devs.ini",
+        $dev(1, 'sdf', 'EXAMPLE_HDD_14TB_SERIALAAA111', '1', '0', '34', $big)
+        . $dev(2, 'sdg', 'EXAMPLE_HDD_14TB_SERIALBBB222', '1', '1', '*', $big)
+        . $dev(3, 'sdh', 'EXAMPLE_HDD_14TB_SERIALCCC333', '1', '1', '*', $big)
+        . $dev(4, 'sdi', 'EXAMPLE_SSD_1TB_SERIALDDD444', '0', '0', '31', '1953525168')
+        . $dev(5, 'nvme1n1', 'EXAMPLE_NVME_SERIALEEE555', '0', '0', '40', '1953525168'));
+    @mkdir("{$t['root']}/var/state/unassigned.devices", 0700, true);
+    file_put_contents("{$t['root']}/var/state/unassigned.devices/disk_names.json", json_encode(['sdi' => 'Scratch', 'EXAMPLE_GONE_SERIALFFF666' => 'Old']));
+    foreach (['sdf' => 1000, 'sdg' => 2000, 'sdh' => 3000, 'sdi' => 4000] as $d => $io) {
+        @mkdir("{$t['root']}/sys/block/$d", 0700, true);
+        fanboyDevsIo($t, $d, $io);
+    }
+}
+
+function fanboyDevsIo(array $t, string $dev, int $reads, int $inFlight = 0): void
+{
+    file_put_contents("{$t['root']}/sys/block/$dev/stat", sprintf("%8d %8d %8d %8d %8d %8d %8d %8d %8d %8d %8d\n", $reads, 0, $reads * 8, 10, 50, 0, 400, 5, $inFlight, 20, 15));
+}
+
+/**
+ * Round 13b (the owner: «hier fehlen doch Festplatten — es hat ja auch Festplatten an VMs oder nicht zugewiesene»): the
+ * disks outside array and pools from devs.ini — awake with a temperature, asleep, in use without one (its I/O counters
+ * moved), an SSD, three alike, an NVMe left to its own sensor; a stable id that carries no serial; the plugin's name
+ */
+function testFanboyR13Devs(): void
+{
+    $t = fanboyT('r13devs');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        fanboyDevsFixture($t);
+        @unlink(fanboyRunDir() . '/devstat.json');
+        $p = fanboyPaths();
+        fanboyDisks($p['disks']);                       // the first look: the counters noted
+        fanboyDevsIo($t, 'sdh', 3500);                  // a VM reads from sdh while Unraid takes it for spun down
+        $un = array_values(array_filter(fanboyDisks($p['disks'], fanboyDiskLimits($p)), fn ($d) => $d['type'] === 'unassigned'));
+        $by = array_column($un, null, 'device');
+        same('fanboy r13 devs: four disks outside array and pools (the NVMe left to its own sensor) — awake 34 °C, asleep, in use without a temperature, an SSD',
+            [['sdf', 'sdg', 'sdh', 'sdi'], [false, 34, false], [true, null, false], [false, null, true], [false, 31, false, false]],
+            [array_column($un, 'device'), [$by['sdf']['asleep'], $by['sdf']['temp'], $by['sdf']['in_use']], [$by['sdg']['asleep'], $by['sdg']['temp'], $by['sdg']['in_use']],
+             [$by['sdh']['asleep'], $by['sdh']['temp'], $by['sdh']['in_use']], [$by['sdi']['asleep'], $by['sdi']['temp'], $by['sdi']['in_use'], $by['sdi']['rotational']]]);
+        same('fanboy r13 devs: a stable id from devs.ini\'s id (hashed: «ud-» + 12 hex), the same on every look; the plugin\'s name for the SSD',
+            [true, fanboyDevId('EXAMPLE_HDD_14TB_SERIALAAA111'), 'Scratch', null], [(bool) preg_match('/^ud-[0-9a-f]{12}$/D', $by['sdf']['name']), $by['sdf']['name'], $by['sdi']['label'], $by['sdf']['label']]);
+        $sources = array_values(array_filter(fanboySources(['disks' => fanboyDisks($p['disks']), 'chips' => []]), fn ($s) => ($s['group'] ?? null) === 'unassigned'));
+        $names = fanboySourceNames($sources, 'de');
+        same('fanboy r13 devs: their own group; the names — the plugin\'s, else «Nicht zugewiesen · 14,0 TB» with a number when alike; kinds disk/ssd',
+            [['Nicht zugewiesen · 14,0 TB (1)', 'Nicht zugewiesen · 14,0 TB (2)', 'Nicht zugewiesen · 14,0 TB (3)', 'Scratch'], ['disk', 'disk', 'disk', 'ssd']],
+            [array_values(array_map(fn ($s) => $names[$s['id']], $sources)), array_column($sources, 'kind')]);
+        // nothing of a serial anywhere: the page's state, the setup's sources, the report, the RAM notes
+        $state = jsonEncode(fanboyScan());
+        $report = fanboyReportText($scan = fanboyDetect(), fanboyIpmiFans($scan));
+        $ram = (string) @file_get_contents(fanboyRunDir() . '/devstat.json');
+        same('fanboy r13 devs: no serial (nor the id) in the page\'s state, the report or the RAM notes', [false, false, false],
+            [(bool) preg_match('/SERIAL|EXAMPLE_HDD/', $state), (bool) preg_match('/SERIAL|EXAMPLE_HDD/', $report), (bool) preg_match('/SERIAL|EXAMPLE_HDD/', $ram)]);
+        check('fanboy r13 devs: … the report counts them', str_contains($report, 'Disks outside array and pools: 4 (3 rotating, 1 asleep, 1 in use without a temperature)'), $report);
+        // the zones' proposal: the rotating ones where the array's disks go
+        $settings = fanboyTSettings();
+        $zones = fanboyZonesPropose(fanboyDetect(), $settings);
+        $disksZone = array_column(array_values(array_filter($zones, fn ($z) => $z['id'] === 'disks'))[0]['sources'] ?? [], 'id');
+        same('fanboy r13 devs: the proposal puts the rotating ones into the disks zone (the SSD not)', [true, true, true, false],
+            [in_array($by['sdf']['name'], $disksZone, true), in_array($by['sdg']['name'], $disksZone, true), in_array($by['sdh']['name'], $disksZone, true), in_array($by['sdi']['name'], $disksZone, true)]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * Round 13b: the control with disks outside array and pools in a zone — one awake counts (with part 5's allowance), one
+ * asleep asks nothing, one in use without a temperature is said («in_use») and taken like a sensor that says nothing:
+ * after its wait the zone at full (the safer way)
+ */
+function testFanboyR13DevsControl(): void
+{
+    $t = fanboyT('r13devsctl');
+    try {
+        fanboyTDisks($t, 30, null, 30);
+        fanboyDevsFixture($t);
+        @unlink(fanboyRunDir() . '/devstat.json');
+        $spec = fanboyTSpec();
+        $p = fanboyPaths();
+        fanboyDisks($p['disks']);
+        $ids = array_column(array_values(array_filter(fanboyDisks($p['disks']), fn ($d) => $d['type'] === 'unassigned')), 'name', 'device');
+        $settings = fanboyTSettings();
+        $settings['zones'] = [['id' => 'disks', 'name' => 'Disks', 'fans' => [fanboyTId(4)], 'unit' => 'pct', 'target' => ['preset' => 'normal'],
+            'sources' => [['kind' => 'disk', 'id' => 'parity'], ['kind' => 'disk', 'id' => $ids['sdf']], ['kind' => 'disk', 'id' => $ids['sdg']]]]];
+        fanboyTStore($settings);
+        fanboyTSettle($t, $spec);
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        $z = $c['zones']['disks'];
+        same('fanboy r13 devs control: the awake one (34 °C) leads over parity (30), the asleep one asks nothing', [$ids['sdf'], 34, 'asleep'],
+            [$z['warmest']['id'] ?? null, $z['warmest']['c'] ?? null, $z['state'][$ids['sdg']] ?? null]);
+        // sdg is used by a VM now: its counters move, Unraid still says spun down — in use, no temperature
+        $settings['zones'][0]['sources'][] = ['kind' => 'disk', 'id' => $ids['sdh']];
+        fanboyLetGo($c, 'test');
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        for ($i = 0; $i < 70; $i++) {
+            fanboyDevsIo($t, 'sdh', 3000 + $i * 50);
+            fanboyTRounds($c, $now, $t, $spec, 1);
+        }
+        $st = fanboyStatus($c)['zones'][0];
+        same('fanboy r13 devs control: a disk in use without a temperature — said («in_use»), and after its wait (120 s) the zone at full with the sensor alarm',
+            [[$ids['sdh']], true, 'sensor', 255], [$st['in_use'] ?? null, $st['full'] ?? null, $c['alarm']['code'] ?? null, fanboyTOut($t, 4)[0]]);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/** Round 14: output 1 as a hub — two fans on a Y-cable, the one that reports (tach 1) measured down to 10 %, starts from standstill at $start */
+function fanboyR14Store(array $more = [], int $start = 35): void
+{
+    $m = ['table' => [[100, 1500], [50, 900], [10, 420]], 'min_pct' => 10, 'start_pct' => 10, 'max_rpm' => 1500, 'at' => 1,
+          'stops' => true, 'floor_rpm' => null, 'start_from_stop' => $start, 'kick_start' => null, 'stops_safe' => true];
+    fanboyR12Store([1 => $m]);
+    fanboyStoreUpdate(function (array $e) use ($more): array {
+        $e['fans'][fanboyTId(1)] = $more + ['count' => 2] + $e['fans'][fanboyTId(1)];
+        return $e;
+    });
+}
+
+/**
+ * Round 14 (the owner: two fans on one Y-cable — two equal, two different?): several fans on one connector not said to
+ * be alike — the floor min + 10 (at least 25 %), the start + 10, «darf stehen» only after the look said all start again
+ */
+function testFanboyR14Plan(): void
+{
+    $t = fanboyT('r14plan');
+    try {
+        fanboyR14Store(['off_ok' => true]);
+        $f = fn () => fanboyBoardRaw()['fans'][fanboyTId(1)];
+        $plan = fn (array $more = []) => array_intersect_key(fanboyFanPlan($more + $f()), array_flip(['floor', 'start', 'off_ok', 'off_why']));
+        same('fanboy r14 plan: one fan — as measured (floor 15 %, start 40 %: 5 % over its start from standstill, may stand)', ['floor' => 15, 'start' => 40, 'off_ok' => true, 'off_why' => null], $plan(['count' => 1]));
+        same('fanboy r14 plan: two fans, «alike» not said — floor 25 % (min + 10, at least 25), start 50 %, may not stand (mixed_hub)',
+            ['floor' => 25, 'start' => 50, 'off_ok' => false, 'off_why' => 'mixed_hub'], $plan());
+        same('fanboy r14 plan: … the same model on every plug (alike) — as measured', ['floor' => 15, 'start' => 40, 'off_ok' => true, 'off_why' => null], $plan(['alike' => true]));
+        same('fanboy r14 plan: … the look said «not all turn» once (+10): floor 35 %; it said all start again (hub_ok): may stand',
+            [35, ['off_ok' => true, 'off_why' => null]], [$plan(['hub_extra' => 10])['floor'], array_intersect_key($plan(['hub_ok' => ['at' => 1]]), array_flip(['off_ok', 'off_why']))]);
+        same('fanboy r14 plan: … a no on the restart: never stand (hub_not_safe)', ['off_ok' => false, 'off_why' => 'hub_not_safe'],
+            array_intersect_key($plan(['hub_ok' => ['at' => 1], 'hub_not_safe' => ['at' => 2]]), array_flip(['off_ok', 'off_why'])));
+        // the role: «alike» saved alone (true, false, null = not said); another count or «alike» forgets what the look found
+        fanboyStoreUpdate(function (array $e): array {
+            $e['fans'][fanboyTId(1)]['hub_ok'] = ['at' => 5];
+            $e['fans'][fanboyTId(1)]['hub_extra'] = 10;
+            return $e;
+        });
+        $role = fn (array $r) => fanboyRole($r + ['fan' => fanboyTId(1), 'role' => 'disks', 'off_ok' => true])['fan'];
+        $r1 = $role(['name' => 'Y']);
+        $r2 = $role(['alike' => false]);
+        same('fanboy r14 role: a name alone keeps «alike» and the look\'s finding; «alike» false said — stored, the finding forgotten',
+            [[null, 5, 10], [false, null, null]], [[$r1['alike'] ?? null, $r1['hub_ok']['at'] ?? null, $r1['hub_extra'] ?? null], [$r2['alike'] ?? null, $r2['hub_ok']['at'] ?? null, $r2['hub_extra'] ?? null]]);
+        same('fanboy r14 role: … null clears it; «alike» only as true/false/null', [false, 'bad_request'],
+            [array_key_exists('alike', $role(['alike' => null])), fanboyR6Refused(fn () => $role(['alike' => 'yes']))]);
+        $s = array_column(fanboySetupState(fanboyDetect(), fanboyBoardRaw())['fans'], null, 'id')[fanboyTId(1)];
+        same('fanboy r14 state: the setup\'s fan — alike, and the hub: mixed, the table one fan\'s, floor and start the control uses, may not stand',
+            [null, ['mixed' => true, 'one_fan_table' => true, 'ok' => null, 'not_safe' => null, 'extra' => 0, 'floor' => 25, 'start' => 50], false, 'mixed_hub'],
+            [$s['alike'], $s['hub'], $s['may_stand'], $s['off_why']]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/** Round 14: a look run on the tests' clock — the user's eye answers from what the silent fan does (stalls under 30 %, starts at 45 %) */
+function fanboyR14Look(array $t, array &$spec, ?callable $each = null): array
+{
+    $silent = true;             // it turns at the BIOS's 128 before
+    $answered = [];
+    $clock = 0.0;
+    $io = fanboyTIo($t, $spec, $clock);
+    $sleep = $io['sleep'];
+    $io['sleep'] = function (float $s) use ($sleep, $t, &$silent, &$answered, &$clock, $each): void {
+        $sleep($s);
+        $d = fanboyTOut($t, 1)[0] / 255;
+        $silent = $silent ? $d >= 0.30 : $d >= 0.45;
+        $p = fanboyStepRead()['progress'] ?? null;
+        $phase = is_array($p) ? ($p['phase'] ?? '') : '';
+        if (in_array($phase, ['hub_turn', 'hub_start'], true) && !isset($answered[$phase]) && fanboyTOut($t, 1)[0] === (int) round($p['pct'] * 2.55)) {
+            $answered[$phase] = $clock;
+            fanboyStepNext(['fan' => fanboyTId(1), 'heard' => $silent && fanboyReadInt("{$t['hw']}/fan1_input") > 100]);
+        }
+        if ($each) {
+            $each($clock, $phase);
+        }
+    };
+    return fanboyStepRun(['id' => 'r14' . mt_rand(), 'kind' => 'hub_look', 'fans' => [fanboyTId(1)]], $io);
+}
+
+/**
+ * Round 14: the look for the eye on the fake hub — at 25 % the silent fan stands («no»: the floor +10); at 35 % all turn,
+ * from standing at 45 % all start again (hub_ok: «darf stehen» may take effect); with a start of 40 % it doesn't (never
+ * stand); too warm → back at once; afterwards exactly as before
+ */
+function testFanboyR14Look(): void
+{
+    $t = fanboyT('r14look');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR12Spec();
+        fanboyTSettle($t, $spec);
+        fanboyR14Store(['off_ok' => true]);
+        $step = fanboyR14Look($t, $spec);
+        same('fanboy r14 look: at its floor (25 %) the silent fan stands — «no»: the floor 10 % higher next time, nothing else; back as before',
+            ['done', 'floor_up', 25, 10, false, [128, 1], []], [$step['status'], $step['results'][fanboyTId(1)]['result'] ?? null, $step['results'][fanboyTId(1)]['floor'] ?? null,
+                fanboyBoardRaw()['fans'][fanboyTId(1)]['hub_extra'] ?? null, isset(fanboyBoardRaw()['fans'][fanboyTId(1)]['hub_ok']), fanboyTOut($t, 1), fanboyHeld()]);
+        $phases = [];
+        $step = fanboyR14Look($t, $spec, function (float $c, string $ph) use (&$phases): void {
+            if ($ph !== '' && end($phases) !== $ph) {
+                $phases[] = $ph;
+            }
+        });
+        $f = fanboyBoardRaw()['fans'][fanboyTId(1)];
+        same('fanboy r14 look: again — at 35 % all turn («yes»), 10 s at 0, at 50 % all start again («yes»): hub_ok; the phases; back as before, turning',
+            ['ok', [35, 50], true, ['hub_turn', 'hub_stop', 'hub_start', 'pause'], [128, 1], true],
+            [$step['results'][fanboyTId(1)]['result'] ?? null, [$step['results'][fanboyTId(1)]['floor'] ?? null, $step['results'][fanboyTId(1)]['start'] ?? null],
+                is_int($f['hub_ok']['at'] ?? null), $phases, fanboyTOut($t, 1), fanboyReadInt("{$t['hw']}/fan1_input") > 300]);
+        same('fanboy r14 look: … now «darf stehen» takes effect (the measured fan stops and starts safely, the margin stays)', ['floor' => 35, 'start' => 50, 'off_ok' => true, 'off_why' => null],
+            array_intersect_key(fanboyFanPlan($f), array_flip(['floor', 'start', 'off_ok', 'off_why'])));
+        // a start from standstill of 25 % measured: the look tries 40 % (+ 5 + 10) — the silent fan doesn't start: never stand
+        fanboyR14Store(['off_ok' => true, 'hub_extra' => 10], 25);
+        $step = fanboyR14Look($t, $spec);
+        same('fanboy r14 look: started again at 40 % the silent fan stays — «no»: never stand (hub_not_safe)', ['not_safe', true, 'hub_not_safe'],
+            [$step['results'][fanboyTId(1)]['result'] ?? null, is_int(fanboyBoardRaw()['fans'][fanboyTId(1)]['hub_not_safe']['at'] ?? null), fanboyFanPlan(fanboyBoardRaw()['fans'][fanboyTId(1)])['off_why']]);
+        // too warm while it looks: full at once, back, nothing stored
+        fanboyR14Store(['off_ok' => true]);
+        $cpu = "{$t['root']}/sys/devices/platform/coretemp.0/hwmon/hwmon7/temp1_input";
+        $hot = false;
+        $step = fanboyR14Look($t, $spec, function (float $c, string $ph) use ($cpu, &$hot): void {
+            if (!$hot && $ph === 'hub_turn') {
+                $hot = true;
+                file_put_contents($cpu, "90000\n");
+            }
+        });
+        file_put_contents($cpu, "28000\n");
+        same('fanboy r14 look: too warm (CPU 90 °C) — stopped (warm), back as before, nothing stored', ['stopped', 'warm', [128, 1], [], false],
+            [$step['status'], $step['why'], fanboyTOut($t, 1), fanboyHeld(), isset(fanboyBoardRaw()['fans'][fanboyTId(1)]['hub_extra'])]);
+        // refused: one fan on it; a pump
+        fanboyStoreUpdate(function (array $e): array {
+            $e['fans'][fanboyTId(4)]['role'] = 'pump';
+            $e['fans'][fanboyTId(4)]['count'] = 2;
+            return $e;
+        });
+        same('fanboy r14 look: refused for a connector with one fan, and for a pump', ['fanboy_hub_one', 'fanboy_not_his'],
+            [fanboyR6Refused(fn () => fanboyStepStart('hub_look', [fanboyTId(5)])), fanboyR6Refused(fn () => fanboyStepStart('hub_look', [fanboyTId(4)]))]);
+    } finally {
+        fanboyTEnd();
+    }
+}
+/**
+ * For the page worker (he mirrored the floor on the page): the setup's fan carries the numbers the control uses — its
+ * floor, its start from standing, the curve as applied (equal to the control's status) and the fallback (planned before
+ * a take, the journal's after it); a fan in no zone: its floor, no curve
+ */
+function testFanboySetupFanPlan(): void
+{
+    $t = fanboyT('setupplan');
+    try {
+        $spec = fanboyR12Spec();
+        fanboyTDisks($t, 30, null, 30);
+        fanboyR12CpuTemp($t, 40);
+        $c = fanboyR12CurveControl($t, $spec);
+        $fans = fn () => array_column(fanboySetupState(fanboyDetect(), fanboyBoardRaw())['fans'], null, 'id');
+        $f = $fans()[fanboyTId(2)];
+        same('fanboy setup plan: the CPU cooler — floor 40 % (round 4), start 40 % (35 + 5), the curve as the control applies it', [40, 40, true],
+            [$f['floor'], $f['start'], $f['curve'] == fanboyFanCurve($c['zones']['cpu'], $c['fans'][fanboyTId(2)])]);
+        same('fanboy setup plan: … before a take — the fallback planned: the chip\'s automatic for a CPU cooler of his, seconds while it turns and while it stands',
+            ['planned', 5, 35, 15, 90, 30], [$f['fallback']['from'] ?? null, $f['fallback']['within']['control_dead'] ?? null, $f['fallback']['within']['control_hung'] ?? null,
+                $f['fallback']['within_standing']['control_hung'] ?? null, $f['fallback']['within']['guard_only'] ?? null, $f['fallback']['within_standing']['guard_only'] ?? null]);
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        $f = $fans()[fanboyTId(2)];
+        $st = fanboyStatus($c)['zones'][0]['fans'][0];
+        same('fanboy setup plan: … after the take — from the journal, the same as the control\'s status says', ['journal', $st['fallback']['to'], $st['curve']],
+            [$f['fallback']['from'] ?? null, $f['fallback']['to'] ?? null, $f['curve']]);
+        $other = $fans()[fanboyTId(4)];
+        same('fanboy setup plan: a fan of his in no zone, not measured — its floor (40 %, the one for a fan not measured), no start, no curve', [FANBOY_BLIND_FLOOR, null, null],
+            [$other['floor'], $other['start'], $other['curve']]);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyR12CpuTemp($t, 28);
+        fanboyTEnd();
+    }
+}
+
+/**
+ * The Dashboard tile's span (2026-11-16, the owner: «durchklicken»): fanboy.dashboard {show?, hours?} — each alone, hours
+ * one of 1 · 3 · 6 · 12 · 24 · 72, kept with the tile's setting and its mirror; the tile draws its curves for that span
+ * and its label is a button to the next span (after 72 back to 1), its tip saying so
+ */
+function testFanboyDashHours(): void
+{
+    $t = fanboyT('dashhours');
+    try {
+        fanboyDashSet(['show' => 'history']);
+        $a = fanboyDashSet(['hours' => 24]);
+        same('fanboy dash hours: hours alone — kept, the setting «with history» stays, the mirror carries both', [24, 'history', ['v' => 1, 'show' => 'history', 'hours' => 24]],
+            [$a['hours'], fanboyDashRead(), (function () { $m = json_decode((string) @file_get_contents(fanboyRunDir() . '/dash.json'), true); return is_array($m) ? ['v' => $m['v'], 'show' => in_array('fanboy', staffHired(), true) ? $m['show'] : 'history', 'hours' => $m['hours']] : null; })()]);
+        fanboyDashSet(['show' => 'speeds']);
+        same('fanboy dash hours: show alone — the span stays', [24, 'speeds'], [fanboyDashHours(), fanboyDashRead()]);
+        $bad = [];
+        foreach ([['hours' => 5], ['hours' => '6'], ['hours' => 6.0], ['hours' => 0], ['hours' => 100], ['hours' => null], ['hours' => 6, 'show' => 'loud']] as $r) {
+            $bad[] = fanboyR6Refused(fn () => fanboyDashSet($r));
+        }
+        same('fanboy dash hours: refused — 5, a string, a float, 0, 100, null; a good span with a bad show', array_fill(0, 7, 'bad_request'), $bad);
+        same('fanboy dash hours: … nothing changed', [24, 'speeds'], [fanboyDashHours(), fanboyDashRead()]);
+        file_put_contents(fanboyDashFile(), '{"v":1,"show":"history","hours":7}');
+        same('fanboy dash hours: an odd value stored reads as 6', 6, fanboyDashHours());
+    } finally {
+        fanboyTEnd();
+    }
+    // the tile per span: points 30 min, 2 h, 5 h, 10 h, 20 h and 48 h old — each span shows the ones inside it
+    $now = 1763100020;
+    $state = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy.json'), true);
+    $board = $state['setup']['board'];
+    $pts = array_map(fn ($ago) => [$now - $ago, 40, 50, 800], [1800, 7200, 18000, 36000, 72000, 172800]);
+    $seen = [];
+    foreach ([1 => 3, 3 => 6, 6 => 12, 12 => 24, 24 => 72, 72 => 1] as $hours => $next) {
+        $files = fanboyDashFiles('fanboy', 'history');
+        $files['fanboy/dashboard.json'] = ['v' => 1, 'show' => 'history', 'hours' => $hours];
+        $o = fanboyDashWeb($files, ['fanboy/history.json' => ['v' => 1, 'board' => $board, 'zones' => ['disks' => $pts]]], $now);
+        $spans = $o['hist']['disks'] ?? [];
+        $rows = (string) ($o['rows'] ?? '');
+        $seen[$hours] = [count(array_filter($spans, fn ($p) => $p !== [null, null])),
+            str_contains($rows, 'class="sso-fb-span" data-hours="' . $next . '" title="Change the span — next: last ' . $next . ' h">Last ' . $hours . ' h</button>')];
+    }
+    same('fanboy dash hours: the tile per span — the spans with points inside it (1 h: 1 … 24 h: 5; 72 h: 5, its spans are 3 h and the 30-min and 2-h points share one), the label a button to the next span (72 → 1) with its tip',
+        [1 => [1, true], 3 => [2, true], 6 => [3, true], 12 => [4, true], 24 => [5, true], 72 => [5, true]], $seen);
+    $tile = (string) ($o['tile'] ?? '');
+    check('fanboy dash hours: a click posts fanboy.dashboard {hours} with Unraid\'s csrf token and X-Office, never toggles the zone, then the rows anew',
+        str_contains($tile, 'closest("#sso-fb-dash .sso-fb-span")') && str_contains($tile, 'e.preventDefault();e.stopPropagation();') && str_contains($tile, 'hd["X-CSRF-Token"]=csrf_token')
+        && str_contains($tile, '"X-Office":"1"') && str_contains($tile, 'a:"fanboy.dashboard",hours:parseInt(t.getAttribute("data-hours"),10)') && str_contains($tile, '.then(function(){load();})'));
+    check('fanboy dash hours: the curve at the tile\'s width — the row a flex row of its own, the curve a full-width line under it, the label styled as a link',
+        str_contains($tile, '.sso-fb-zone summary{display:block;') && str_contains($tile, '.sso-fb-row{display:flex;') && str_contains($tile, '.sso-fb-graph{display:flex;flex-direction:column;gap:2px;width:100%;')
+        && str_contains($tile, '.sso-fb-span{background:none;border:0;') && str_contains($tile, 'cursor:pointer'));
+}

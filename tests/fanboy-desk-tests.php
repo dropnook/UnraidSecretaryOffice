@@ -371,7 +371,7 @@ function testFanboyUx(): void
         && str_contains($js, "if (sx) return ['warn', T('safety.chip'),") && str_contains($panel, "waits ? el('p', 'fb-safety-wait', T('safety.wait')) : null"));
     $cpu = substr($js, (int) strpos($js, 'function cpuBlock('), 2600);
     check('fanboy ux: the CPU cooler\'s block stands right under «What is it?» (never behind a fold) — given to Fanboy: since when, and «Back to the BIOS» there',
-        str_contains($panel, 'root.append(head, safety, what, cpu, fields, note, look, back);') && str_contains($cpu, "box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));")
+        str_contains($panel, 'root.append(head, safety, what, cpu, fields, alike, hubSays, note, look, back);') && str_contains($cpu, "box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));")
         && str_contains($cpu, "btn(T('cpu.back'), 'btn', () => send('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }),") && str_contains($cpu, "cpu_own: true, cpu_confirm: tick.checked }"));
     check('fanboy ux: selects and text fields in the office\'s field look (office.css .input — never the browser\'s white box)',
         str_contains($js, "const n = el(tag, 'input small fb-input');") && str_contains($js, "n = inputEl('input', 'text');") && str_contains($panel, "const place = inputEl('select');")
@@ -465,7 +465,7 @@ function testFanboyUx(): void
     // exact degrees on the curve (2026-11-16, the owner): each point says its values, the scale is fine enough to aim, every point can be typed
     check('fanboy ux curve: every point carries its exact values beside it («43 °C · 31 %») — where there is room, the active one always; never on another point, clear of the finger while dragged',
         str_contains($art, 'function labelsPaint() {') && str_contains($art, "const box = free || (i === active ? places[0] : null);") && str_contains($art, "const far = held ? 22 : 0;")
-        && str_contains($art, "!dotsAt.some((q, j) => j !== i && hit(k, q))") && str_contains($js, "label: (x, v) => (rpmUnit ? T('curve.label_rpm', { t: x, v: fmt.number(v) }) : T('curve.label_pct', { t: x, v })),")
+        && str_contains($art, "!dotsAt.some((q, j) => j !== i && hit(k, q))") && str_contains($js, "label: (x, v) => (rpmUnit ? T('curve.label_rpm', { t: degrees(x), v: fmt.number(v) }) : T('curve.label_pct', { t: degrees(x),")
         && ($l['de']['curve.label_pct'] ?? '') === '{t} °C · {v} %');
     check('fanboy ux curve: the degrees\' scale is as fine as its numbers have room (5 °C on a disk\'s scale), with a tick for every single degree; the pointer reads whole degrees',
         str_contains($art, "const every = [1, 2, 5, 10, 20].find((n) => n * perDeg >= 42) || 20;") && str_contains($art, "class: 'fan-curve-minor'")
@@ -476,7 +476,126 @@ function testFanboyUx(): void
         && str_contains($js, "fields: true,") && str_contains($js, "onField: (inp) => { inp.classList.add('input', 'small', 'fb-input'); inp.dataset.fbKeep = '1'; },")
         && str_contains($js, "curveFocus = a && a.dataset && a.dataset.axis && c.el.contains(a) ?"));
     check('fanboy ux curve: the live mark says the degrees as they are read (a tenth where the sensor gives one)',
-        str_contains($js, "T('curves.now', { c: fmt.number(nowC, Number.isInteger(nowC) ? 0 : 1) })"));
+        str_contains($js, "nowText: nowC !== null ? T('curves.now', { c: degrees(nowC) }) : ''"));
+    // round 13 on the page: ONE chart per zone, a curve per kind of its heat sources
+    $block = preg_match('~// >>> kind curves.*?\n(.*?)// <<< kind curves~s', $js, $m) ? $m[1] : '';
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    $zonesFor = [
+        ['id' => 'a', 'unit' => 'pct', 'target' => ['preset' => 'normal'], 'sources' => [['id' => 'disk1', 'kind' => 'disk'], ['id' => 'n1', 'kind' => 'nvme'], ['id' => 'c1', 'kind' => 'cpu']], 'kinds' => ['disk' => ['high' => 44]]],
+        ['id' => 'b', 'unit' => 'pct', 'target' => ['points' => [[30, 25], [40, 40], [50, 70], [60, 100]]], 'sources' => [['id' => 'n1', 'kind' => 'nvme'], ['id' => 'r1', 'kind' => 'ram']], 'kinds' => ['nvme' => ['low' => 38, 'high' => 60]]],
+        ['id' => 'c', 'unit' => 'pct', 'target' => ['preset' => 'quiet'], 'low' => 30, 'high' => 50, 'sources' => [['id' => 'c1', 'kind' => 'cpu'], ['id' => 'disk1', 'kind' => 'disk']],
+            'curves' => ['disk' => ['points' => [[40, 10], [30, 0], [50, 100]]], 'cpu' => ['preset' => 'cool']]],
+        ['id' => 'd', 'unit' => 'pct', 'target' => ['preset' => 'cool'], 'sources' => [['id' => 's1', 'kind' => 'ssd'], ['id' => 'o1', 'kind' => 'other']], 'kinds' => ['other' => ['low' => 50, 'high' => 50]]],
+    ];
+    if ($block === '') {
+        check('fanboy ux r13: the page\'s block «kind curves» is there', false);
+    } elseif ($node === '') {
+        skip('fanboy ux r13: the page\'s kind curves against the agent\'s (needs node)');
+    } else {
+        $want = [];
+        foreach ($zonesFor as $z) {
+            foreach (array_values(array_unique(array_column($z['sources'], 'kind'))) as $k) {
+                [$points, $own] = fanboyKindCurve($z, $k);
+                $want[$z['id'] . ':' . $k] = ['points' => array_map(fn ($p) => [round($p[0], 6), round($p[1], 6)], $points), 'own' => $own];
+            }
+        }
+        $tmp = sys_get_temp_dir() . '/uso-fanboy-kc-' . getmypid() . '.js';
+        file_put_contents($tmp, $block . "\nconst zones = " . json_encode($zonesFor) . ";\nconst scales = " . json_encode(array_map(fn ($d) => ['low' => $d['low'], 'high' => $d['high']], FANBOY_SOURCE_DEFAULTS)) . ";\n"
+            . "const out = {};\nconst r = (x) => Math.round(x * 1e6) / 1e6;\nfor (const z of zones) for (const k of [...new Set(z.sources.map((x) => x.kind))]) { const c = kindCurveOf(z, k, scales); out[z.id + ':' + k] = { points: c.points.map((p) => [r(p[0]), r(p[1])]), own: c.own }; }\nconsole.log(JSON.stringify(out));\n");
+        $got = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg($tmp) . ' 2>&1'), true);
+        @unlink($tmp);
+        same('fanboy ux r13: the page works out each kind\'s curve exactly as the agent (own points, own preset, derived from the zone\'s preset or points, the zone\'s own scale, a kind without a span)',
+            json_decode((string) json_encode($want), true), $got);
+    }
+    check('fanboy ux r13: one chart per zone — the kind in front with its handles, the other kinds\' curves faded behind it, one scale of degrees for all',
+        str_contains($js, "const others = all.filter((x) => x.k !== K).map((x) => ({ points: x.pts.map((p) => ({ t: p[0], v: p[1] })) }));") && str_contains($js, "const temps = all.flatMap((x) => x.pts.map((p) => p[0]));")
+        && str_contains($art, "othersG.appendChild(svg('polyline', { class: 'fan-curve-other', points: xy.join(' ') }));") && str_contains($js, "b.onclick = () => { if (kindSel.get(z.id) !== k) { kindSel.set(z.id, k); drawn = ''; redraw(); } };"));
+    check('fanboy ux r13: a changed curve is that kind\'s own (with one kind: the zone\'s); «Wieder der Zone folgen» drops it; saving sends only the own curves of kinds the zone still has',
+        str_contains($js, "if (multi || ownK) zs[i].curves = { ...(zs[i].curves || {}), [K]: { points: own2 } };") && str_contains($js, "else zs[i].target = { points: own2 };")
+        && str_contains($js, "const rest = { ...(zs[i].curves || {}) }; delete rest[K]; zs[i].curves = rest;") && str_contains($js, "if (!has2.includes(k) || !v) return;") && str_contains($js, "if (Object.keys(own).length) out.curves = own;"));
+    check('fanboy ux r13: what each kind asks for and which one the fans follow comes from the control\'s state (by_kind, leader) — marked for the numbers check, never worked out on the page',
+        str_contains($js, "const byKind = (cz && cz.by_kind) || {};") && str_contains($js, "const leadKind = cz && cz.leader && kinds.includes(cz.leader.kind) ? cz.leader.kind : null;")
+        && str_contains($js, "follows.dataset.nums = JSON.stringify([{ v: led.c, from: ['control', 'zones', `=\${z.id}`, 'by_kind', leadKind, 'c'] },")
+        && str_contains((string) ($l['de']['curve.follows'] ?? ''), 'Die Lüfter folgen gerade: {kind} · {source} {c} °C → {value}'));
+    check('fanboy ux r13: a curve is shown exactly as it counts (a derived point at 39.5 °C stays 39.5) and becomes whole numbers only once he changes it',
+        str_contains($art, ".map((p) => ({ t: clamp(p.t, tMin, tMax), v: clamp(p.v, vMin, vMax) }))") && str_contains($art, "function whole() {") && substr_count($art, 'whole();') >= 4
+        && str_contains($js, "const degrees = (c) => fmt.number(c, Number.isInteger(c) ? 0 : 1);"));
+    check('fanboy ux r13: several kinds — a fan stands only while no kind asks (a kind whose curve never reaches 0 is named); the CPU cooler on own risk goes by the CPU\'s curve alone',
+        str_contains($js, "const neverKind = !isCpu && multi ? kinds.find((k) => curveRule(curveOf(k).points).start === null) : null;") && str_contains($js, "const cpuElse = isCpu && K !== 'cpu';")
+        && str_contains($js, "return kindCurveOf(zoneKinded(z), 'cpu', setup().scales || {}).points;"));
+    check('fanboy ux: a fan\'s floor is the agent\'s own number where the state has it (the setup\'s plan: the hub\'s margin included), the mirrored rule only for an older agent',
+        str_contains($js, "if (f && num(f.floor) !== null) return f.floor;"));
+    // the sentence audit (2026-11-16; side-session notes «fanboy-ux-sentence-audit.md»): what was wrong is worded as the agent
+    // does it, and every literal number left in a text is tied to the agent's constant here — change one, and this fails
+    check('fanboy ux audit: «a zone stands at 100 %» only while one does — the alarm for a fan the BIOS steers has its own words (tile, bubble); «show me» during an alarm claims no 100 %',
+        str_contains($js, "const alarmFull = () => (control().zones || []).some((z) => z.full === true);") && str_contains($js, "T(alarmFull() ? 'bubble.alarm' : 'bubble.alarm_watch')")
+        && isset($l['de']['why.alarm_watch'], $l['de']['bubble.alarm_watch']) && !str_contains($l['de']['show.off.alarm'], '100') && !str_contains($l['de']['errors.fanboy_show_alarm'], '100'));
+    check('fanboy ux audit: the chip alarm does not say the BIOS steers (nobody does: «chip_gone»)', !str_contains($l['de']['alarm.chip'], 'BIOS') && !str_contains($l['en']['alarm.chip'], 'BIOS'));
+    $exact = array_filter(['step.take_sub', 'take.hand_back_tip', 'take.hand_back_confirm', 'take.hand_back_text', 'take.given_back', 'why.stopped', 'why.hand_back', 'why.crashed', 'control.crashed'],
+        fn ($k) => (bool) preg_match('/genau so|wie (er )?vor ihm/u', (string) ($l['de'][$k] ?? '')));
+    same('fanboy ux audit: «hand back» is never «exactly as before» — a fixed value goes to the board\'s automatic by default (FANBOY_BACK_DEFAULT), the texts name both ways', [[], 'auto', false],
+        [array_values($exact), FANBOY_BACK_DEFAULT, str_contains(implode(' ', (array) $l['de']['take.confirm']), 'genau so')]);
+    check('fanboy ux audit: the CPU cooler is not «always with the BIOS» nor «never off» (cpu_own, cpu_off_confirm); an «unknown» output is «not steered», never «never touched / never written to»',
+        !str_contains($l['de']['cpu.risk_4'], 'schaltet ihn nie aus') && !str_contains($l['de']['help.who_text'], 'CPU-Kühler und Pumpen bleiben immer') && !str_contains($l['de']['hints.bios.2'], 'Der CPU-Kühler und eine Pumpe bleiben')
+        && !preg_match('/fasst ihn nie an|schreibt (Fanboy )?nie/u', implode(' ', [$l['de']['roles.bios_note.unknown'], $l['de']['take.bios_tip'], $l['de']['label.bios_tip'], $l['de']['show.off.ignored'], $l['de']['errors.fanboy_show_not']])));
+    check('fanboy ux audit: a restart of Unraid «usually» lets the BIOS steer again (the board\'s doing, nothing Fanboy can prove); a foreign change is given back «as it was before him», not «to the BIOS»',
+        !preg_match('/Ein Neustart von Unraid gibt/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de']))) && !str_contains($l['de']['note.foreign'], 'ans BIOS') && !str_contains($l['de']['out.foreign_title'], 'ans BIOS'));
+    check('fanboy ux audit: he «installs nothing; loads a driver only on your click»; the detect step «only reads»; System Temp\'s names are shown, not proposed',
+        str_contains($l['de']['hints.sub'], 'nur auf deinen Klick') && str_contains($l['de']['step.detect_sub'], 'Dieser Schritt liest nur') && !str_contains($l['de']['hints.names_count'], 'schlägt'));
+    same('fanboy ux audit: the literal numbers left in the texts are the agent\'s — a minute at full (test, show; the page\'s FULL_MAX), 45 s lease, 15 min without the chip, 2 min standing while warm, a point a minute, 8 fans on a connector',
+        [60.0, 60.0, true, true, true, true, true, true, true],
+        [FANBOY_UP_FOR, FANBOY_SHOW_FOR, str_contains($js, 'const FULL_MAX = ' . (int) FANBOY_UP_FOR . ';'),
+            str_contains($l['de']['help.safe_text'], 'nach ' . (int) FANBOY_STEP_LEASE . ' Sekunden') && str_contains($l['de']['strip.keep_open'], 'nach ' . (int) FANBOY_STEP_LEASE . ' Sekunden') && str_contains($l['en']['strip.keep_open'], (string) (int) FANBOY_STEP_LEASE),
+            str_starts_with($l['de']['note.missing_told'], (int) (FANBOY_TELL_AFTER / 60) . ' Minuten') && str_contains($l['en']['note.missing_told'], (string) (int) (FANBOY_TELL_AFTER / 60)),
+            str_contains($l['de']['watch.on_title'], 'nach ' . (int) (FANBOY_IDLE_WARM_AFTER / 60) . ' Minuten') && str_contains($l['de']['watch.stands_warm_title'], 'nach ' . (int) (FANBOY_IDLE_WARM_AFTER / 60) . ' Minuten'),
+            FANBOY_HISTORY_EVERY === 60.0 && str_contains($l['de']['curves.history_none'], 'einem Punkt pro Minute'),
+            str_contains($l['de']['errors.fanboy_bad_count'], 'Zwischen 1 und ' . FANBOY_COUNT_MAX) && str_contains($l['en']['errors.fanboy_bad_count'], (string) FANBOY_COUNT_MAX),
+            str_contains($l['de']['strip.since'], 'höchstens ' . (int) (FANBOY_UP_FOR / 60) . ' Minute')]);
+    same('fanboy ux audit: the spans the history offers are the agent\'s', FANBOY_HISTORY_PERIODS, preg_match('/const PERIODS = \[([^\]]+)\];/', $js, $m) ? array_map('intval', explode(',', $m[1])) : []);
+    // round 13b on the page: the disks outside array and pools
+    $devs = json_decode((string) file_get_contents(dirname(__DIR__) . '/tests/ui/demo/fanboy-uxdevs.json'), true);
+    check('fanboy ux r13b: disks outside array and pools are a group of their own among a zone\'s heat sources («Nicht zugewiesen / an VMs»), named by the plugin\'s name or «Nicht zugewiesen · size» — never by their id',
+        str_contains($js, "[...kinds.slice(0, 2), 'unassigned', ...kinds.slice(2)].forEach((k) => {") && str_contains($js, "if (/^ud-/.test(s.id)) return udLabel(s.id);")
+        && str_contains($js, "T('src.unassigned_n', { size, n: alike.findIndex((y) => y.id === id) + 1 }) : T('src.unassigned', { size });")
+        && ($l['de']['src_group.unassigned'] ?? '') === 'Nicht zugewiesen / an VMs');
+    check('fanboy ux r13b: a disk in use without a temperature says so («in Gebrauch, Temperatur unbekannt») — among the heat sources, in the sensors\' list, in sentences; the help says what Unraid cannot see',
+        str_contains($js, "const srcReads = (x) => (num(x.c) !== null ? T('temp', { c: fmt.number(x.c) }) : x.in_use ? T('src.in_use') : x.asleep ? T('pic.asleep') : '');")
+        && str_contains($js, "if (x.in_use) meta.appendChild(chipOfText('warn', T('src.in_use'), T('src.in_use_title')));") && ($l['de']['src.in_use'] ?? '') === 'in Gebrauch, Temperatur unbekannt'
+        && str_contains((string) ($l['de']['help.vm_disks_text'] ?? ''), 'als Ganzes an eine VM durchgereicht'));
+    $udSrc = array_values(array_filter($devs['setup']['sources'] ?? [], fn ($x) => ($x['group'] ?? null) === 'unassigned'));
+    check('fanboy ux r13b: the demo state carries such disks as the agent lists them (group, name|null, size, in_use) and no serial',
+        count($udSrc) === 3 && array_keys($udSrc[0]) === ['kind', 'id', 'label', 'c', 'asleep', 'group', 'name', 'size', 'in_use'] && $udSrc[2]['in_use'] === true && $udSrc[1]['name'] === null
+        && count(array_filter($udSrc, fn ($x) => !preg_match('/^ud-[0-9a-f]{12}$/D', $x['id']))) === 0);
+    // round 14 on the page: several fans on one connector
+    check('fanboy ux r14: step 2 asks «Gleiche Lüfter an allen Steckern?» once a connector has several fans (the state\'s hub) — yes / no, different / don\'t know, saved alone with the role',
+        str_contains($js, "[['yes', true], ['no', false], ['unknown', null]].forEach(([k, v]) => {") && str_contains($js, "send('role', { fan: id, role: f.role, alike: v, off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true });")
+        && str_contains($js, "const hub = roleSet && !never && f.hub ? f.hub : null;") && ($l['de']['hub.alike'] ?? '') === 'Gleiche Lüfter an allen Steckern?');
+    check('fanboy ux r14: the margin for unlike fans is said in the agent\'s own numbers (hub.floor, hub.start — marked for the numbers check), whose table it is too',
+        substr_count($js, "{ v: hub.floor, from: ['setup', 'fans', `=\${id}`, 'hub', 'floor'] }, { v: hub.start, from: ['setup', 'fans', `=\${id}`, 'hub', 'start'] }") === 2
+        && str_contains((string) ($l['de']['hub.mixed'] ?? ''), 'Minimum {floor} %, Anlauf {start} %') && str_contains((string) ($l['de']['hub.table'] ?? ''), 'der seine Drehzahl meldet'));
+    check('fanboy ux r14: «Mit den Augen prüfen» runs the agent\'s hub_look; its questions (do all turn, all stand, do all start again) are answered in the fan\'s panel with step_next {heard}; the strip and the bubble say the look, not a test',
+        str_contains($js, "send('hub_look', { fan: id });") && str_contains($js, "btn(T('hub.yes'), 'btn', () => send('step_next', { fan: id, heard: true }), T('hub.yes_tip'))")
+        && str_contains($js, "btn(T('hub.no'), 'btn plain', () => send('step_next', { fan: id, heard: false }), T('hub.no_tip'))") && str_contains($js, "const answer = part && part.phase !== 'hub_stop';")
+        && str_contains($js, "r.kind = s.kind === 'measure' ? 'measure' : s.kind === 'hub_look' ? 'hub' : 'test';") && str_contains($js, "T(`strip.h.\${run.part.phase}`,")
+        && str_contains($js, "step().kind === 'hub_look' ? T('bubble.hub_look')"));
+    $hubKeys = [];
+    foreach (['hub_turn', 'hub_stop', 'hub_start'] as $ph) {
+        foreach (["hub.ask.$ph", "strip.h.$ph"] as $k) {
+            if (!is_string($l['de'][$k] ?? null)) {
+                $hubKeys[] = $k;
+            }
+        }
+    }
+    foreach (['ok', 'floor_up', 'not_safe', 'no_answer', 'warm'] as $res) {
+        if (!is_string($l['de']["hub.result.$res"] ?? null)) {
+            $hubKeys[] = "hub.result.$res";
+        }
+    }
+    same('fanboy ux r14: every phase of the look and every result has its words; «no answer within a minute» is the agent\'s minute', [[], 60.0, true],
+        [$hubKeys, FANBOY_HUB_LOOK_FOR, str_contains($l['de']['hub.result.no_answer'], 'innert einer Minute')]);
+    check('fanboy ux r14: what the look found is the state\'s (hub.ok, hub.not_safe, hub.extra); «darf stehen» waits for it (zones: the reason; the agent\'s off_why mixed_hub / hub_not_safe in words)',
+        str_contains($js, "out.push(para(hub.not_safe ? T('hub.not_safe') : hub.ok ? T('hub.ok') : T('hub.unchecked')));") && str_contains($js, "if (f.hub && f.hub.mixed && f.hub.not_safe) return T('zones.stand_hub_no');")
+        && str_contains($js, "if (f.hub && f.hub.mixed && !f.hub.ok) return T('zones.stand_hub');") && isset($l['de']['off_why.mixed_hub'], $l['de']['off_why.hub_not_safe']));
     check('fanboy ux: no text of the page speaks of a «card» or of «More» any more (de, en)', !preg_match('/\bKarte\b|«Mehr»/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de'])))
         && !preg_match('/(?<!graphics )\bcards?\b|«More»/i', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['en']))));
     // the owner, 2026-11-15: «kein AI-Slop, der nicht stimmt» — no sentence names a number the state doesn't give
@@ -497,8 +616,8 @@ function testFanboyUx(): void
     preg_match('/const FANBOY_BLIND_FLOOR = (\d+);/', $control, $abf);
     same('fanboy ux: the page\'s floors are the control\'s (lowest steady value + margin, the blind floor)', [$afm[1] ?? null, $abf[1] ?? null], [$fm[1] ?? '', $bf[1] ?? '']);
     check('fanboy ux: the curve chart draws what the control applies for the zone\'s first fan — its floor, and standing only where it may and the curve asks for nothing — and says it in a sentence of those numbers',
-        str_contains($js, "apply: rpmUnit ? undefined : (v) => (stands && v < 0.5 ? 0 : Math.max(v, floorPct)),") && str_contains($js, "const stands = !!lead.off_ok && !standWhy(lead);")
-        && str_contains($js, "const says = para(curveWords(pts, floorPct, stands, isCpu), 'fb-curve-says');") && str_contains($art, "const applied = (v) => (typeof o.apply === 'function' ? o.apply(v) : v);")
+        str_contains($js, "apply: rpmUnit ? undefined : (v) => (stands && v < 0.5 ? 0 : Math.max(v, floorPct)),") && str_contains($js, "const stands = !!lead.off_ok && !standWhy(lead) && !cpuElse;")
+        && str_contains($js, "const says = para(curveWords(pts, floorPct, stands, isCpu, {") && str_contains($art, "const applied = (v) => (typeof o.apply === 'function' ? o.apply(v) : v);")
         && str_contains($art, "line.setAttribute('class', 'fan-curve-line fan-curve-wish');"));
     check('fanboy ux: sentences that take numbers from the state are marked (data-nums) and the picture tool compares each with the demo state it shows',
         substr_count($js, '.dataset.nums = JSON.stringify(') >= 3 && str_contains($tool, "if (want !== x.v) faults.push(") && str_contains($tool, 'is not in its sentence'));

@@ -724,6 +724,17 @@
       return { t, v };
     }
     const copy = () => pts.map((p) => ({ t: p.t, v: p.v }));
+    /**
+     * A curve is shown exactly as given (a preset's middle point may lie at 39.5 °C); once he changes it, it is his in
+     * whole degrees and whole steps — every point, so what he sees is what is kept
+     */
+    function whole() {
+      pts = pts.map((p) => ({ t: snapT(p.t), v: snapV(p.v) }));
+      for (let i = 1; i < pts.length; i++) {
+        if (pts[i].t <= pts[i - 1].t) pts[i].t = Math.min(tMax, pts[i - 1].t + 1);
+        if (pts[i].v < pts[i - 1].v) pts[i].v = pts[i - 1].v;
+      }
+    }
 
     const root = el('div', 'fan-curve');
     const chart = el('div', 'fan-curve-chart');
@@ -747,7 +758,9 @@
     const cross = svg('line', { class: 'fan-curve-cross', y1: PT, y2: H - PB, visibility: 'hidden' });
     const labels = svg('g', { class: 'fan-curve-labels' });
     const dots = svg('g', { class: 'fan-curve-dots' });
-    s.append(grid, area, line, eff, ends, marks, cross, labels, dots);
+    const othersG = svg('g', { class: 'fan-curve-others' });       // o.others: the other curves of the same chart, faded
+    const live = svg('g', { class: 'fan-curve-live' });            // o.marks: where each of them stands right now
+    s.append(grid, othersG, area, line, eff, ends, marks, live, cross, labels, dots);
     // each point typed exactly (o.fields): a row per point under the chart — its degrees and its value as numbers
     const fieldsBox = o.fields ? el('div', 'fan-curve-fields') : null;
     if (fieldsBox) root.appendChild(fieldsBox);
@@ -792,6 +805,35 @@
         const right = x(o.now) > W * 0.7;      // near the right edge its words go to the left of the mark
         mark('fan-curve-now', x(o.now), PT, x(o.now), H - PB, tx.now, x(o.now) + (right ? -5 : 5), PT + 12, right ? 'end' : 'start');
       }
+      // where each curve of the chart stands now (o.marks: {t, v, text, lead}): a dot on its curve with its words, the leading one bold
+      live.replaceChildren();
+      for (const m of Array.isArray(o.marks) ? o.marks : []) {
+        if (typeof m.t !== 'number' || typeof m.v !== 'number' || m.t < tMin || m.t > tMax) continue;
+        const mx = x(m.t), my = y(clamp(m.v, vMin, vMax));
+        const g = svg('g', { class: `fan-curve-mark${m.lead ? ' lead' : ''}` });
+        g.appendChild(svg('circle', { cx: mx, cy: my, r: m.lead ? 5 : 4 }));
+        // (its words as the dot's tooltip: beside the dot they would lie on the points' own labels)
+        if (m.text) { const tip = svg('title', {}); tip.textContent = m.text; g.appendChild(tip); }
+        live.appendChild(g);
+      }
+    }
+    /** a curve given as points [{t, v}] read at a temperature (flat beyond its ends) — the other curves of the chart */
+    function readAt(list, t) {
+      if (t <= list[0].t) return list[0].v;
+      for (let i = 1; i < list.length; i++) {
+        if (t <= list[i].t) { const a = list[i - 1], b = list[i]; return a.v + (b.v - a.v) * (t - a.t) / ((b.t - a.t) || 1); }
+      }
+      return list[list.length - 1].v;
+    }
+    function othersPaint() {
+      othersG.replaceChildren();
+      for (const other of Array.isArray(o.others) ? o.others : []) {
+        const list = (Array.isArray(other.points) ? other.points : []).filter((p) => p && typeof p.t === 'number' && typeof p.v === 'number').sort((a, b) => a.t - b.t);
+        if (list.length < 2) continue;
+        const xy = [];
+        for (let t = tMin; t <= tMax + 1e-6; t += 0.25) xy.push(`${x(t).toFixed(1)},${y(clamp(applied(readAt(list, t)), vMin, vMax)).toFixed(1)}`);
+        othersG.appendChild(svg('polyline', { class: 'fan-curve-other', points: xy.join(' ') }));
+      }
     }
     /** the value as the control applies it (o.apply: the fan's floor, its standstill) — the truth the chart draws bold */
     const applied = (v) => (typeof o.apply === 'function' ? o.apply(v) : v);
@@ -832,6 +874,7 @@
         g.setAttribute('aria-valuetext', tx.value(p.t, p.v));
       });
       while (dots.children.length > pts.length) dots.lastChild.remove();
+      othersPaint();
       labelsPaint();
       fieldsPaint();
       show(shownT != null ? shownT : pts[Math.floor(pts.length / 2)].t);
@@ -892,8 +935,10 @@
             inp.addEventListener('focus', () => { const k = +row.dataset.i; if (pts[k]) { shownT = pts[k].t; show(shownT); activate(k); } });
             inp.addEventListener('blur', () => activate(-1));
             inp.addEventListener('change', () => {
-              const k = +row.dataset.i, q = pts[k];
-              if (!q) return;
+              const k = +row.dataset.i;
+              if (!pts[k]) return;
+              whole();
+              const q = pts[k];
               const n = inp.value.trim() === '' ? NaN : Number(inp.value);
               if (Number.isFinite(n)) pts[k] = which === 't' ? fit(k, n, q.v) : fit(k, q.t, n);
               inp.value = String(which === 't' ? pts[k].t : pts[k].v);       // as it counts: whole, between its neighbours
@@ -911,7 +956,7 @@
         row.dataset.i = i;
         row.firstChild.textContent = tx.field(i, pts.length);
         row.querySelectorAll('input').forEach((inp) => {
-          const want = String(inp.dataset.axis === 't' ? p.t : p.v);
+          const want = String(Math.round((inp.dataset.axis === 't' ? p.t : p.v) * 10) / 10);      // (a derived curve's point may lie between degrees)
           if (document.activeElement !== inp && inp.value !== want) inp.value = want;
         });
       });
@@ -930,6 +975,7 @@
       ev.preventDefault();
       const i = +g.dataset.i;
       drag = { i, was: copy(), id: ev.pointerId };
+      whole();
       active = i;
       labelsPaint();
       g.focus({ preventScroll: true });
@@ -976,6 +1022,7 @@
       if (ev.target.closest && ev.target.closest('.fan-curve-pt')) return;
       const { px, py } = at(ev);
       const t = snapT(tAt(px));
+      whole();
       if (pts.some((p) => p.t === t)) return;
       let i = pts.findIndex((p) => p.t > t);
       if (i < 0) i = pts.length;
@@ -987,6 +1034,8 @@
     s.addEventListener('keydown', (ev) => {
       const g = ev.target.closest && ev.target.closest('.fan-curve-pt');
       if (!g) return;
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Delete', 'Backspace', '+', 'Insert'].includes(ev.key)) return;
+      whole();
       const i = +g.dataset.i, p = pts[i], big = ev.shiftKey ? 5 : 1;
       let t = p.t, v = p.v;
       if (ev.key === 'ArrowLeft') t -= big;
@@ -1041,7 +1090,7 @@
     function set(points) {
       const list = (Array.isArray(points) ? points : [])
         .filter((p) => p && typeof p.t === 'number' && typeof p.v === 'number')
-        .map((p) => ({ t: snapT(p.t), v: snapV(p.v) }))
+        .map((p) => ({ t: clamp(p.t, tMin, tMax), v: clamp(p.v, vMin, vMax) }))      // as given: whole only once he changes it (whole())
         .sort((a, b) => a.t - b.t);
       pts = [];
       for (const p of list) {
@@ -1052,7 +1101,23 @@
       paint();
     }
     set(o.points);
-    return { el: root, set, points: copy, valueAt, destroy() { wh.destroy(); if (watch) watch.disconnect(); } };
+    /** what moves while the page is open: the «now» mark, the other curves, where each stands — drawn anew, the points untouched */
+    function liveSet(more) {
+      const m = more || {};
+      if ('now' in m) o.now = m.now;
+      if ('nowText' in m) tx.now = m.nowText || '';
+      if ('marks' in m) o.marks = m.marks;
+      if ('others' in m) o.others = m.others;
+      frame();
+      if (!pts.length) return;
+      othersPaint();
+      // (nobody pointing at the chart or holding a point: the readout follows «now»)
+      if (!drag && active === -1 && cross.getAttribute('visibility') === 'hidden') {
+        shownT = typeof o.now === 'number' ? o.now : null;
+        show(shownT != null ? shownT : pts[Math.floor(pts.length / 2)].t);
+      }
+    }
+    return { el: root, set, points: copy, valueAt, live: liveSet, destroy() { wh.destroy(); if (watch) watch.disconnect(); } };
   }
 
   // ------------------------------------------------------------------------------------------- the catalogue

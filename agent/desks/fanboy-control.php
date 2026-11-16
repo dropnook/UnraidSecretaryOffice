@@ -207,6 +207,61 @@ function fanboyCurveAt(array $curve, float $t): float
 }
 
 /**
+ * Round 13 (the owner: every kind its own curve): a kind's curve in that kind's own degrees — its own (`zone.curves.<kind>`:
+ * points, or a preset on the kind's «ab»…«volle Drehzahl bei») or, without one, DERIVED from the zone's curve: the zone's
+ * points moved from the zone's scale onto the kind's low…high — the same affine mapping fanboyMapped() made, so a zone
+ * without `curves` asks exactly what it asked before. [points, own]
+ */
+function fanboyKindCurve(array $zone, string $kind): array
+{
+    $kv = fanboyKindValues($zone, $kind);
+    [$kl, $kh] = [(float) $kv['low'], (float) $kv['high']];
+    $own = is_array($zone['curves'] ?? null) ? ($zone['curves'][$kind] ?? null) : null;
+    if (is_array($own)) {
+        $points = $own['points'] ?? null;
+        if (is_array($points) && count($points) >= 2) {
+            usort($points, fn ($a, $b) => $a[0] <=> $b[0]);
+            return [array_map(fn ($p) => [(float) $p[0], (float) $p[1]], $points), true];
+        }
+        if (in_array($own['preset'] ?? null, FANBOY_PRESETS, true)) {
+            return [fanboyPreset($own['preset'], $kl, $kh > $kl ? $kh : $kl + 10), true];
+        }
+    }
+    [$lo, $hi] = fanboyZoneScale($zone);
+    $curve = fanboyZoneCurve($zone);
+    if ($kh <= $kl) {
+        return [$curve, false];
+    }
+    return [array_map(fn ($p) => [$kl + ($p[0] - $lo) * ($kh - $kl) / ($hi - $lo), $p[1]], $curve), false];
+}
+
+/** Round 13: every kind of a zone's sources with its curve as it counts — {kind: {points, own}} (the page, the status) */
+function fanboyZoneKindCurves(array $zone): array
+{
+    $out = [];
+    foreach (is_array($zone['sources'] ?? null) ? $zone['sources'] : [] as $src) {
+        $k = is_array($src) && is_string($src['kind'] ?? null) ? $src['kind'] : null;
+        if ($k !== null && !isset($out[$k])) {
+            [$points, $own] = fanboyKindCurve($zone, $k);
+            $out[$k] = ['points' => $points, 'own' => $own];
+        }
+    }
+    return $out;
+}
+
+/**
+ * Round 13: a source's temperature on its kind's scale — a source with its own «ab»/«voll» is moved from those onto its
+ * kind's (the simplest honest rule: its own values say where on its kind's curve it stands); else as it is
+ */
+function fanboyKindPosition(array $zone, array $source, float $t): float
+{
+    $sv = fanboySourceValues($zone, $source);
+    $kv = fanboyKindValues($zone, $source['kind'] ?? 'other');
+    [$sl, $sh, $kl, $kh] = [(float) $sv['low'], (float) $sv['high'], (float) $kv['low'], (float) $kv['high']];
+    return $sh > $sl && $kh > $kl && ($sl !== $kl || $sh !== $kh) ? $kl + ($t - $sl) * ($kh - $kl) / ($sh - $sl) : $t;
+}
+
+/**
  * A source's temperature on the zone's scale: from its own low/high onto the zone's. A source of the zone's own kind
  * without a scale of its own counts as it is (a disk in a disk zone: 41 °C is 41 °C).
  */
@@ -370,7 +425,30 @@ function fanboySourceNames(array $sources, ?string $lang = null): array
     }
     $seen = [];
     $kindN = [];
+    // round 13b: the disks outside array and pools — the plugin's name, else «Nicht zugewiesen · 14,6 TB» (a number when alike)
+    $size = function (int $b) use ($lang): string {
+        $tb = $b / 1e12;
+        $txt = $tb >= 1 ? number_format($tb, $tb >= 10 ? 1 : 2, ($lang ?? 'en') === 'en' ? '.' : ',', '') . ' TB' : number_format($b / 1e9, 0, '.', '') . ' GB';
+        return $txt;
+    };
+    $alike = [];
     foreach ($sources as $x) {
+        if (($x['group'] ?? null) === 'unassigned' && !is_string($x['name'] ?? null)) {
+            $alike[$size((int) ($x['size'] ?? 0))] = ($alike[$size((int) ($x['size'] ?? 0))] ?? 0) + 1;
+        }
+    }
+    $alikeN = [];
+    foreach ($sources as $x) {
+        if (($x['group'] ?? null) === 'unassigned') {
+            if (is_string($x['name'] ?? null) && $x['name'] !== '') {
+                $out[$x['id']] = $x['name'];
+                continue;
+            }
+            $sz = $size((int) ($x['size'] ?? 0));
+            $alikeN[$sz] = ($alikeN[$sz] ?? 0) + 1;
+            $out[$x['id']] = $alike[$sz] > 1 ? $t('src.unassigned_n', ['size' => $sz, 'n' => $alikeN[$sz]]) : $t('src.unassigned', ['size' => $sz]);
+            continue;
+        }
         if (in_array($x['kind'], FANBOY_DISK_KINDS, true)) {
             $out[$x['id']] = preg_match('/^disk(\d+)$/D', $x['id'], $m) ? $t('src.disk', ['n' => $m[1]])
                 : (preg_match('/^parity(\d*)$/D', $x['id'], $m) ? ($m[1] !== '' ? $t('src.parity_n', ['n' => $m[1]]) : $t('src.parity')) : $x['id']);
@@ -452,7 +530,11 @@ function fanboySources(array $scan): array
     $out = [];
     foreach ($scan['disks'] ?? [] as $d) {
         // a rotating disk is «disk», an SSD/NVMe pool member «ssd»: their temperatures mean different things (round 4)
-        $out[] = ['kind' => ($d['rotational'] ?? true) ? 'disk' : 'ssd', 'id' => $d['name'], 'label' => $d['name'], 'c' => $d['temp'], 'asleep' => $d['asleep']];
+        $out[] = ['kind' => ($d['rotational'] ?? true) ? 'disk' : 'ssd', 'id' => $d['name'], 'label' => ($d['type'] ?? '') === 'unassigned' ? (string) ($d['label'] ?? '') : $d['name'],
+                  'c' => $d['temp'], 'asleep' => $d['asleep']]
+            // round 13b: a disk outside array and pools (devs.ini) — its own group on the page, the Unassigned Devices
+            // plugin's name for it (or none: the page says «not assigned · size»), in use without a temperature
+            + (($d['type'] ?? '') === 'unassigned' ? ['group' => 'unassigned', 'name' => $d['label'] ?? null, 'size' => $d['size'] ?? 0, 'in_use' => $d['in_use'] ?? false] : []);
     }
     foreach ($scan['chips'] ?? [] as $c) {
         if ($c['kind'] === 'disk') {
@@ -493,15 +575,10 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 continue;           // a CPU cooler only with a CPU temperature in its zone — else it stays the BIOS's
             }
             $m = is_array($f['measured'] ?? null) && is_array($f['measured']['table'] ?? null) ? $f['measured'] : null;
-            $hasTach = ($f['found'] ?? '') === 'tach';
-            $floor = $m !== null && $hasTach && is_numeric($m['min_pct'] ?? null) ? min(100, (int) $m['min_pct'] + FANBOY_FLOOR_MARGIN) : FANBOY_BLIND_FLOOR;
-            if ($cpu) {
-                $floor = max($floor, FANBOY_CPU_FLOOR);
-            }
-            [$offOk, $offWhy, $start] = fanboyStandPlan($f, $m, $hasTach, $cpu, $floor);
+            ['floor' => $floor, 'start' => $start, 'off_ok' => $offOk, 'off_why' => $offWhy] = fanboyFanPlan($f);
             // round 12 correction (the owner: «bis 60 Grad darf der Lüfter stehen bleiben» — his curve, not a second
             // threshold): «darf stehen» only where its curve can ask for nothing
-            if ($offOk && fanboyCurveStart($cpu ? fanboyCpuCurve($z) : fanboyZoneCurve($z))['never_zero']) {
+            if ($offOk && fanboyCurveNeverZero($z, $cpu)) {
                 [$offOk, $offWhy] = [false, 'curve_never_zero'];
             }
             $fans[$id] = [
@@ -510,8 +587,8 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 'name' => is_string($f['name'] ?? null) ? $f['name'] : '',
                 'table' => $m['table'] ?? null, 'floor' => $floor,
                 // round 9 (H1): a fan that needed a kick to start at its value before starts above it; round 12: from
-                // standstill as measured (fanboyStandPlan())
-                'start' => max($start, is_int($f['kick_start']['value'] ?? null) ? min(100, (int) ceil($f['kick_start']['value'] / 2.55) + FANBOY_FLOOR_MARGIN) : 0),
+                // standstill as measured; round 14: a hub's margin (fanboyFanPlan())
+                'start' => $start,
                 'off_ok' => $offOk, 'off_why' => $offWhy, 'cpu' => $cpu,
                 // «give back» (part 3): the owner's choice for a fan found on a fixed value — 'auto' gives the chip's mode
                 'back' => $cpu ? 'auto' : (in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : FANBOY_BACK_DEFAULT), 'auto' => null,
@@ -530,6 +607,8 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 'unit' => ($z['unit'] ?? 'pct') === 'rpm' ? 'rpm' : 'pct',
                 'low' => $z['low'] ?? null, 'high' => $z['high'] ?? null,
                 'kinds' => is_array($z['kinds'] ?? null) ? $z['kinds'] : [],      // round 4: «Temperaturen» per kind
+                'curves' => is_array($z['curves'] ?? null) ? $z['curves'] : [],   // round 13: a curve of its own per kind
+                'by_kind' => [], 'leader' => null,
                 'cur' => null, 'hold_t' => null, 'warmest' => null, 'hot_since' => null, 'level' => null, 'state' => [],
                 'react' => in_array($z['react'] ?? null, FANBOY_REACTS, true) ? $z['react'] : 'balanced', 'below_since' => null,
             ];
@@ -734,6 +813,7 @@ function fanboyReadSources(array &$c, float $now): void
             $c['sources'][$id]['raw'] = $d['temp'] ?? null;
             $c['sources'][$id]['c'] = ($d['temp'] ?? null) === null ? null : $d['temp'] + ($c['allow'] ?? 0);
             $c['sources'][$id]['there'] = $d !== null;
+            $c['sources'][$id]['in_use'] = ($d['in_use'] ?? false) === true;       // round 13b: in use, no temperature
         } else {
             $raw = $s['path'] === null ? null : fanboyReadInt($s['path']);
             $c['sources'][$id]['asleep'] = false;
@@ -938,6 +1018,9 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
     $z = $c['zones'][$zid];
     [$lo, $hi] = fanboyZoneScale($z);
     $warmest = null;
+    $warmestAsk = -INF;
+    $kindCurves = [];
+    $byKind = [];
     $hot = false;
     $states = [];
     foreach ($z['sources'] as $s) {
@@ -951,7 +1034,9 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
             continue;
         }
         if ($r['c'] === null) {
-            $states[$s['id']] = 'quiet';
+            // round 13b: a disk outside array and pools in use without a temperature (a VM's) — said so, and taken like a
+            // sensor that says nothing: past its wait the zone at full (the safer way)
+            $states[$s['id']] = !empty($r['in_use']) ? 'in_use' : 'quiet';
             $after = in_array($s['kind'], FANBOY_DISK_KINDS, true) ? FANBOY_DISK_SENSOR_AFTER : FANBOY_SENSOR_AFTER;
             if ($r['quiet_since'] !== null && $now - $r['quiet_since'] >= $after) {
                 $reasons['sensor'] = ['source' => $r['label'], 'zone' => $z['name'], 'zid' => $zid];
@@ -961,26 +1046,45 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
         }
         $states[$s['id']] = 'ok';
         $m = fanboyMapped($s, (float) $r['c'], $lo, $hi, $z['sources'][0]['kind'] ?? '');
-        if ($warmest === null || $m > $warmest['mapped']) {
-            $warmest = ['id' => $s['id'], 'label' => $r['label'], 'c' => $r['c'], 'mapped' => round($m, 1), 'kind' => $s['kind']]
-                + (isset($r['raw']) && $r['raw'] !== $r['c'] ? ['raw' => $r['raw']] : []);      // round 6: the disk's own value, before the allowance
+        // round 13: what it asks for on its kind's own curve; the zone follows the source that asks the most (the leader)
+        $curveK = $kindCurves[$s['kind']] ??= fanboyKindCurve($z, $s['kind'])[0];
+        $pos = fanboyKindPosition($z, $s, (float) $r['c']);
+        $ask = fanboyCurveAt($curveK, $pos);
+        $w = ['id' => $s['id'], 'label' => $r['label'], 'c' => $r['c'], 'mapped' => round($m, 1), 'kind' => $s['kind'], 'value' => round($ask, 1), 'pos' => $pos]
+            + (isset($r['raw']) && $r['raw'] !== $r['c'] ? ['raw' => $r['raw']] : []);      // round 6: the disk's own value, before the allowance
+        if ($warmest === null || $ask > $warmestAsk || ($ask === $warmestAsk && $m > $warmest['mapped'])) {
+            $warmest = $w;
+            $warmestAsk = $ask;
+        }
+        if (!isset($byKind[$s['kind']]) || $ask > $byKind[$s['kind']]['ask'] || ($ask === $byKind[$s['kind']]['ask'] && $r['c'] > $byKind[$s['kind']]['c'])) {
+            $byKind[$s['kind']] = ['source' => $s['id'], 'label' => $r['label'], 'c' => $r['c'], 'value' => round($ask, 1), 'ask' => $ask];
         }
         if ($r['c'] >= fanboySourceLimit($s)) {
             $hot = true;
             $hotWhat = ['source' => $r['label'], 'c' => $r['c'], 'zone' => $z['name']];
         }
     }
-    $curve = fanboyZoneCurve($z);
-    // nothing warm to go by (all asleep, none): the curve's start — its quiet level
-    $raw = $warmest === null ? $curve[0][1] : fanboyCurveAt($curve, $warmest['mapped']);
+    // nothing warm to go by (all asleep, none): the curve's start — its quiet level (the first kind's, as the zone's was)
+    $raw = $warmest === null ? fanboyKindCurve($z, $z['sources'][0]['kind'] ?? 'disk')[0][0][1] : $warmestAsk;
     if ($z['unit'] === 'pct') {
         $raw = max(0.0, min(100.0, $raw));
     }
     $cur = $z['cur'];
     $t = $warmest['mapped'] ?? $lo;
+    // round 13: with a curve of its own for some kind, the zone's common scale says nothing about who asks more — the way
+    // down then goes by the leader itself: a leader that did not push the level up (the one that did cooled off) lets it
+    // come down at once (by its kind's way), the same leader once it is its kind's gap under where it pushed. Without own
+    // curves: as before (the warmest on the zone's scale against the temperature the level went up at).
+    $ownCurves = !empty($z['curves']);
+    $pos = $warmest['pos'] ?? null;
+    $hold = function () use (&$z, $t, $warmest, $pos): void {
+        $z['hold_t'] = $t;
+        $z['hold_src'] = $warmest['id'] ?? null;
+        $z['hold_pos'] = $pos;
+    };
     if ($hot) {
         $cur = $z['unit'] === 'pct' ? 100.0 : max($raw, $cur ?? $raw);     // over a limit: full now (each fan below)
-        $z['hold_t'] = $t;          // went up at this temperature: the way down starts once it is FANBOY_GAP under it again
+        $hold();                    // went up at this temperature: the way down starts once it is FANBOY_GAP under it again
         $z['hot_since'] ??= $now;
         if ($now - $z['hot_since'] >= FANBOY_HOT_AFTER) {
             $reasons['hot'] = ($hotWhat ?? []) + ['zid' => $zid];
@@ -989,11 +1093,14 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
     } else {
         $z['hot_since'] = null;
         $down = fanboyDownProfile($warmest['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']);
+        $cooler = $ownCurves
+            ? (($warmest['id'] ?? null) !== ($z['hold_src'] ?? null) || $pos === null || $pos <= ($z['hold_pos'] ?? $pos) - $down['gap'])
+            : $t <= ($z['hold_t'] ?? $t) - $down['gap'];
         if ($cur === null || $raw >= $cur) {
             $cur = $raw;                                            // up at once
-            $z['hold_t'] = $t;
+            $hold();
             $z['below_since'] = null;
-        } elseif ($t <= ($z['hold_t'] ?? $t) - $down['gap']) {
+        } elseif ($cooler) {
             // down by the leading source's kind: after its hold, its step a round (rpm zones: the same share in rpm)
             $z['below_since'] ??= $now;
             if ($now - $z['below_since'] >= $down['hold']) {
@@ -1006,6 +1113,12 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
     $z['cur'] = $cur;
     $z['warmest'] = $warmest;
     $z['state'] = $states;
+    // round 13: each kind's warmest source (the one asking the most of its kind) and what it asks for; who leads now
+    $z['by_kind'] = array_map(fn ($k) => array_diff_key($k, ['ask' => 1]), $byKind);
+    if (is_array($z['warmest'])) {
+        unset($z['warmest']['pos']);
+    }
+    $z['leader'] = $warmest === null ? null : ['source' => $warmest['id'], 'kind' => $warmest['kind']];
     $c['zones'][$zid] = $z;
     // each fan's percentage
     foreach ($z['fans'] as $id) {
@@ -1056,6 +1169,53 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
             $c['full_since'][$zid] = $now;
         }
     }
+}
+
+const FANBOY_HUB_MARGIN = 10;           // round 14: several fans on one connector, not the same model — the floor and start this much higher
+const FANBOY_HUB_FLOOR_MIN = 25;        // … the floor never under this
+const FANBOY_HUB_EXTRA_MAX = 50;        // … and a «no, not all turn» in the look raises it by the margin again, this much at most
+
+/**
+ * A fan's plan for the control (and the hub look): its floor, its start value from standing, «darf stehen» in effect and
+ * why not — round 4's floor (min + 5, a CPU cooler 40), round 9's kick start, round 12's standstill, round 14's hub margin
+ */
+function fanboyFanPlan(array $f): array
+{
+    $m = is_array($f['measured'] ?? null) && is_array($f['measured']['table'] ?? null) ? $f['measured'] : null;
+    $hasTach = ($f['found'] ?? '') === 'tach';
+    $cpu = fanboyCpuOwn($f);
+    $floor = $m !== null && $hasTach && is_numeric($m['min_pct'] ?? null) ? min(100, (int) $m['min_pct'] + FANBOY_FLOOR_MARGIN) : FANBOY_BLIND_FLOOR;
+    $floor = $cpu ? max($floor, FANBOY_CPU_FLOOR) : $floor;          // as before round 14: the start value's default sees it
+    [$offOk, $offWhy, $start] = fanboyStandPlan($f, $m, $hasTach, $cpu, $floor);
+    [$floor, $start, $hubWhy] = fanboyHubPlan($f, $m, $floor, $start);
+    if ($cpu) {
+        $floor = max($floor, FANBOY_CPU_FLOOR);
+    }
+    if ($offOk && $hubWhy !== null) {
+        [$offOk, $offWhy] = [false, $hubWhy];
+    }
+    $start = max($start, is_int($f['kick_start']['value'] ?? null) ? min(100, (int) ceil($f['kick_start']['value'] / 2.55) + FANBOY_FLOOR_MARGIN) : 0);
+    return ['floor' => $floor, 'start' => $start, 'off_ok' => $offOk, 'off_why' => $offWhy, 'hub' => $hubWhy];
+}
+
+/**
+ * Round 14 (the owner: two fans on one Y-cable — what if they differ?): a connector with several fans (count > 1) not
+ * said to be the same model (`alike` not true) — the table is the one that reports; the others may stall higher and
+ * start later: the floor min_pct + FANBOY_HUB_MARGIN (at least FANBOY_HUB_FLOOR_MIN), plus what the look added
+ * (`hub_extra`), the start value + FANBOY_HUB_MARGIN; «darf stehen» only after the look for the eye said all of them
+ * start again (`hub_ok`) — never after a no (`hub_not_safe`). [floor, start, why «darf stehen» isn't in effect|null]
+ */
+function fanboyHubPlan(array $f, ?array $m, int $floor, int $start): array
+{
+    $count = is_int($f['count'] ?? null) ? $f['count'] : 1;
+    if ($count <= 1 || ($f['alike'] ?? null) === true) {
+        return [$floor, $start, null];
+    }
+    $extra = is_int($f['hub_extra'] ?? null) ? max(0, min(FANBOY_HUB_EXTRA_MAX, $f['hub_extra'])) : 0;
+    $base = $m !== null && is_numeric($m['min_pct'] ?? null) && ($f['found'] ?? '') === 'tach' ? (int) $m['min_pct'] + FANBOY_HUB_MARGIN : $floor;
+    $floor = min(100, max(FANBOY_HUB_FLOOR_MIN, $base) + $extra);
+    $why = is_int($f['hub_not_safe']['at'] ?? null) ? 'hub_not_safe' : (is_int($f['hub_ok']['at'] ?? null) ? null : 'mixed_hub');
+    return [$floor, min(100, $start + FANBOY_HUB_MARGIN), $why];
 }
 
 /**
@@ -1122,27 +1282,30 @@ function fanboyCurveFull(array $curve): ?float
     return null;
 }
 
-/**
- * Round 12 correction: the CPU's curve in its own degrees — the zone's curve moved from the zone's scale onto the CPU
- * kind's «ab»…«volle Drehzahl bei» (the mapping the control makes for a CPU source; in a CPU zone the curve as drawn)
- */
+/** Round 12 correction, with round 13: the CPU's curve in its own degrees — the CPU kind's own curve or the one derived */
 function fanboyCpuCurve(array $z): array
 {
-    $curve = fanboyZoneCurve($z);
-    [$lo, $hi] = fanboyZoneScale($z);
-    $kv = fanboyKindValues($z, 'cpu');
-    [$kl, $kh] = [(float) $kv['low'], (float) $kv['high']];
-    if (($z['sources'][0]['kind'] ?? null) === 'cpu' && !is_numeric($z['low'] ?? null) && !is_numeric($z['high'] ?? null)) {
-        return $curve;
-    }
-    return $kh > $kl ? array_map(fn ($p) => [$kl + ($p[0] - $lo) * ($kh - $kl) / ($hi - $lo), $p[1]], $curve) : $curve;
+    return fanboyKindCurve($z, 'cpu')[0];
 }
 
-/** Round 12 correction: what a source asks for on its zone's curve at a temperature (the zone round's own mapping) */
+/** Round 12 correction, with round 13: what a source asks for at a temperature — on its kind's curve, from where it stands on it */
 function fanboySourceAsk(array $z, array $s, float $t): float
 {
-    [$lo, $hi] = fanboyZoneScale($z);
-    return fanboyCurveAt(fanboyZoneCurve($z), fanboyMapped(fanboySourceValues($z, $s), $t, $lo, $hi, $z['sources'][0]['kind'] ?? ''));
+    return fanboyCurveAt(fanboyKindCurve($z, $s['kind'] ?? 'other')[0], fanboyKindPosition($z, $s, $t));
+}
+
+/**
+ * Round 12 correction: can this zone's curve ask for nothing for this fan? A CPU cooler: its CPU curve; another fan: the
+ * zone asks for nothing only when every kind of its sources does (round 13: a kind whose curve never reaches 0 asks as
+ * long as a source of it is awake — never zero only when every kind's curve never reaches 0)
+ */
+function fanboyCurveNeverZero(array $z, bool $cpu): bool
+{
+    if ($cpu) {
+        return fanboyCurveStart(fanboyCpuCurve($z))['never_zero'];
+    }
+    $kinds = array_values(array_unique(array_filter(array_map(fn ($s) => is_array($s) ? ($s['kind'] ?? null) : null, is_array($z['sources'] ?? null) ? $z['sources'] : []), 'is_string')));
+    return $kinds !== [] && !array_filter($kinds, fn ($k) => !fanboyCurveStart(fanboyKindCurve($z, $k)[0])['never_zero']);
 }
 
 /**
@@ -1188,6 +1351,30 @@ function fanboyEffectiveCurve(array $curve, float $floor, bool $offOk, ?float $s
  * bounds from the constants that drive it; testFanboyR12CpuGone shows each way works). The output standing at 0 now: the
  * shorter «hung» and the guard's 20-s looks apply.
  */
+/** A fan's floor as the control uses it (fanboyFanPlan(): round 4's floor, a CPU cooler's 40 %, round 14's hub margin) */
+function fanboyFloorOf(array $f): int
+{
+    return (int) fanboyFanPlan($f)['floor'];
+}
+
+/**
+ * The curve as the control applies it to one of its fans ($fan: the control's fan — cpu, floor, off_ok) in zone $z:
+ * {kind: the degrees it is in, points} (fanboyEffectiveCurve()); an rpm zone: null
+ */
+function fanboyFanCurve(array $z, array $fan): ?array
+{
+    if (($z['unit'] ?? 'pct') !== 'pct') {
+        return null;
+    }
+    $off = ($fan['off_ok'] ?? false) === true;
+    if ($fan['cpu'] ?? false) {
+        $curve = fanboyCpuCurve($z);
+        return ['kind' => 'cpu', 'points' => fanboyEffectiveCurve($curve, (float) $fan['floor'], $off, fanboyCurveStart($curve)['start'])];
+    }
+    $kind = $z['sources'][0]['kind'] ?? 'disk';
+    return ['kind' => $kind, 'points' => fanboyEffectiveCurve(fanboyKindCurve($z, $kind)[0], (float) $fan['floor'], $off)];
+}
+
 function fanboyFallback(?array $o, array $f): ?array
 {
     if ($o === null) {
@@ -1506,6 +1693,9 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
             'full' => isset($c['full_since'][$z['id']]),         // round 4: this zone at 100 % for an alarm
             'react' => $z['react'], 'down' => fanboyDownProfile($z['warmest']['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']),
             'warmest' => $z['warmest'], 'asleep' => count(array_filter($z['state'], fn ($s) => $s === 'asleep')),
+            'in_use' => array_keys(array_filter($z['state'], fn ($s) => $s === 'in_use')),        // round 13b: in use, temperature unknown
+            // round 13: every kind's curve as it counts now (own or derived), its warmest source and what it asks, who leads
+            'curves' => fanboyZoneKindCurves($z), 'by_kind' => ($z['by_kind'] ?? []) ?: new stdClass(), 'leader' => $z['leader'] ?? null,
             'fans' => array_map(fn ($id) => ['id' => $id, 'name' => $c['fans'][$id]['name'], 'output' => $c['fans'][$id]['output'],
                 'pct' => $c['fans'][$id]['taken'] ? $c['fans'][$id]['pct'] : null, 'rpm' => $c['fans'][$id]['rpm'] ?? null,
                 'held' => $c['fans'][$id]['taken'], 'foreign' => $c['fans'][$id]['foreign'],
@@ -1521,10 +1711,10 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
                 'window' => $cs !== null ? FANBOY_CPU_SMOOTH : null,
                 'cpu_by' => $c['fans'][$id]['cpu_by'] ?? null,
                 // the curve as the control applies it to this fan (stand, floor): {kind: its degrees, points}; rpm zones: null
-                'curve' => $z['unit'] !== 'pct' ? null : (($c['fans'][$id]['cpu'] ?? false)
-                    ? ['kind' => 'cpu', 'points' => fanboyEffectiveCurve(fanboyCpuCurve($z), (float) $c['fans'][$id]['floor'], ($c['fans'][$id]['off_ok'] ?? false) === true,
-                        fanboyCurveStart(fanboyCpuCurve($z))['start'])]
-                    : ['kind' => $z['sources'][0]['kind'] ?? 'disk', 'points' => fanboyEffectiveCurve(fanboyZoneCurve($z), (float) $c['fans'][$id]['floor'], ($c['fans'][$id]['off_ok'] ?? false) === true)]),
+                'curve' => fanboyFanCurve($z, $c['fans'][$id]),
+                // round 13: every kind of the zone — the fan follows the highest of these (it stands only where all of them are 0)
+                'curves' => $z['unit'] !== 'pct' ? null : array_map(fn ($kc) => fanboyEffectiveCurve($kc['points'], (float) $c['fans'][$id]['floor'], ($c['fans'][$id]['off_ok'] ?? false) === true),
+                    fanboyZoneKindCurves($z)),
                 'fallback' => fanboyFallback($journal[$id] ?? null, $c['fans'][$id])], $z['fans'])];
     }
     return [

@@ -101,7 +101,7 @@ function testFanboyDashTile(): void
     same('fanboy dash: steering — the web side without a word', '', $o['err']);
     same('fanboy dash: steering — who, no banner, nothing stale, the two zones (warmest, level, speed), the CPU cooler watched',
         ['Fanboy · 2 zones', 'green', [], null,
-         [['Plattenkäfig', 'warmest: Disk 2 at 41 °C', '42 %', '1018 rpm', 1], ['Gehäuse', 'warmest: Composite at 28 °C', '40 %', '905 rpm', 2]],
+         [['Plattenkäfig', 'warmest: Disk 2 at 41 °C', '57 %', '1018 rpm', 1], ['Gehäuse', 'warmest: Composite at 28 °C', '25 %', '905 rpm', 2]],      // (the demo's levels follow its curves since round 13's demo data)
          [['CPU-Kühler', '1310 rpm']]],
         [$m['who'] ?? null, $m['tone'] ?? null, $m['banners'] ?? null, fanboyDashKey($m, 'stale'),
          array_map(fn ($z) => [$z['name'], $z['warmest'], $z['level'], $z['speed'], count($z['fans'])], $m['zones'] ?? []), $m['watch'] ?? null]);
@@ -121,8 +121,8 @@ function testFanboyDashTile(): void
         [[['red', 'Alarm: Vorn reports no speed although it should turn. Fanboy sets it and the other fans of its zone to 100 % until it reports its speed again.']], true],
         [$m['banners'] ?? null, strpos((string) ($o['rows'] ?? ''), 'sso-fb-banner red-text') < strpos((string) ($o['rows'] ?? ''), '<details')]);
     $rows = (string) ($o['rows'] ?? '');
-    same('fanboy dash: alarm — where it is: the case zone «alarm — at 100 %» in red and open, the disk cage steers on (42 %); the fan that stands marked on its row',
-        [['42 %', 'alarm — at 100 %'], [false, true], true, true, true, false],
+    same('fanboy dash: alarm — where it is: the case zone «alarm — at 100 %» in red and open, the disk cage steers on (57 %); the fan that stands marked on its row',
+        [['57 %', 'alarm — at 100 %'], [false, true], true, true, true, false],
         [array_column($m['zones'] ?? [], 'level'), array_column($m['zones'] ?? [], 'full'), str_contains($rows, '<b class="red-text">alarm — at 100 %</b>'),
          str_contains($rows, '<div class="sso-fb-fan red-text"><span>Vorn</span><span>0 rpm · should turn · 100 %</span>'), str_contains($rows, 'data-zone="case" open>'),
          str_contains($rows, 'data-zone="disks" open>')]);
@@ -212,8 +212,9 @@ function testFanboyDashSource(): void
     same('fanboy dash: no read but his files — no hwmon, no disk, no agent, no command (is_dir of the data folder, is_file of his picture)',
         ['is_dir', 'is_file'], array_values(array_unique($m[1])));
     preg_match_all('/officeReadJson\(([^;]+?)\)(?:;| \?\?|\[| :|,)/', $code, $r);
-    same('fanboy dash: the files it reads — his setting, the mirror in RAM, his strings (the data folder away), his state, the control\'s status',
-        ["(\$data ?? OFFICE_DATA) . '/fanboy/dashboard.json'", "officeRunDir() . '/fanboy/dash.json'", 'OFFICE_PUBLIC . "/desks/fanboy/lang/$code.json"',
+    same('fanboy dash: the files it reads — the span (his setting, else the mirror), his setting, the mirror in RAM, his strings (the data folder away), his state, the control\'s status',
+        ["OFFICE_DATA . '/fanboy/dashboard.json'", "officeRunDir() . '/fanboy/dash.json'",
+         "(\$data ?? OFFICE_DATA) . '/fanboy/dashboard.json'", "officeRunDir() . '/fanboy/dash.json'", 'OFFICE_PUBLIC . "/desks/fanboy/lang/$code.json"',
          '$f', "OFFICE_DATA . '/fanboy.json'", "officeRunDir() . '/fanboy/control.json'"],
         array_map('trim', $r[1]));
     check('fanboy dash: … the one read through $f — the control\'s history, RAM first, else the data folder\'s copy',
@@ -269,7 +270,7 @@ function testFanboyDashSetting(): void
         $hired = in_array('fanboy', staffHired(), true);
         $kept = json_decode((string) file_get_contents(fanboyDashFile()), true);
         same('fanboy dash setting: «speeds with history» kept, a key it doesn\'t know kept, his state carries it, the mirror in RAM',
-            [true, 'history', 'history', ['x' => 1], 'history', ['v' => 1, 'show' => $hired ? 'history' : 'off'], 0600],
+            [true, 'history', 'history', ['x' => 1], 'history', ['v' => 1, 'show' => $hired ? 'history' : 'off', 'hours' => 6], 0600],
             [$a['ok'], $a['show'], $kept['show'] ?? null, $kept['later'] ?? null, $a['state']['dashboard'] ?? null,
              json_decode((string) @file_get_contents(fanboyRunDir() . '/dash.json'), true), fileperms(fanboyDashFile()) & 0777]);
         same('fanboy dash setting: his settings (settings.json) untouched — the control takes every fan anew when they change', $store, @filemtime(fanboyStoreFile()));
@@ -281,9 +282,9 @@ function testFanboyDashSetting(): void
             $read[] = fanboyDashRead();
         }
         same('fanboy dash setting: read tolerantly — a word not known, a number, another shape, a broken file: off; a file without its v still counts', ['off', 'off', 'off', 'off', 'history'], $read);
-        same('fanboy dash setting: not hired — the mirror off (the tile goes with him)', ['history', ['v' => 1, 'show' => 'off']],
+        same('fanboy dash setting: not hired — the mirror off (the tile goes with him)', ['history', ['v' => 1, 'show' => 'off', 'hours' => 6]],
             [fanboyDashState(false), json_decode((string) @file_get_contents(fanboyRunDir() . '/dash.json'), true)]);
-        same('fanboy dash setting: hired again — the mirror on', ['v' => 1, 'show' => 'history'], (fn () => [fanboyDashState(true), json_decode((string) @file_get_contents(fanboyRunDir() . '/dash.json'), true)][1])());
+        same('fanboy dash setting: hired again — the mirror on', ['v' => 1, 'show' => 'history', 'hours' => 6], (fn () => [fanboyDashState(true), json_decode((string) @file_get_contents(fanboyRunDir() . '/dash.json'), true)][1])());
         // the page: one choice of three under the server picture, sent as the action wants it
         $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
         check('fanboy dash setting: his page — three choices (off by default), the agent\'s action, office-wide (never per browser)',
@@ -325,7 +326,7 @@ function testFanboyDashHistory(): void
     same('fanboy dash history: each span its warmest °C and highest level (a peak never disappears)', json_decode(json_encode($want), true), $h['disks'] ?? null);
     check('fanboy dash history: the rows — a curve per zone (inline SVG, no script, no link), its caption, small enough for the page (only spans, never the file)',
         substr_count($rows, '<svg class="sso-fb-curve"') === 2 && !preg_match('/<script|href="[^"]*svg|\son[a-z]+=/i', substr($rows, (int) strpos($rows, '<svg')))
-        && str_contains($rows, '<span>Last 6 h</span>') && str_contains($rows, 'class="sso-fb-key-temp">') && str_contains($rows, 'class="sso-fb-key-lvl">level ')
+        && str_contains($rows, 'class="sso-fb-span" data-hours="12" title="Change the span — next: last 12 h">Last 6 h</button>') && str_contains($rows, 'class="sso-fb-key-temp">') && str_contains($rows, 'class="sso-fb-key-lvl">level ')
         && strlen($rows) < strlen($raw) / 10 && strlen($rows) < 12000, strlen($rows) . ' of ' . strlen($raw) . ': ' . $rows);
     $cap = $o['de']['zones'][0]['curve'] ?? [];
     check('fanboy dash history: the caption in German — the decimal comma never, whole degrees and %', (bool) preg_match('/^\d+–\d+ °C$|^\d+ °C$/u', (string) ($cap['temp'] ?? ''))

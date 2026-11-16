@@ -236,7 +236,7 @@ function fanboyStepNext(array $r): array
                 return $e;
             });
         }
-    } elseif ($s !== null && $s['kind'] === 'test_up' && in_array($s['status'], ['starting', 'running'], true) && ($s['current'] ?? null) === $id) {
+    } elseif ($s !== null && in_array($s['kind'], ['test_up', 'hub_look'], true) && in_array($s['status'], ['starting', 'running'], true) && ($s['current'] ?? null) === $id) {
         @mkdir(fanboyRunDir(), 0700, true);
         writeAtomic(fanboyStepNextFile(), jsonEncode(['step' => (string) ($s['id'] ?? ''), 'fan' => $id, 'heard' => $heard]), 0600, 0, 0);
     }
@@ -1092,7 +1092,20 @@ function fanboyStepRun(array $step, array $io): array
                 fanboyStepWrite($step);
             };
             $step['progress'] = null;
-            if ($step['kind'] === 'test_up') {
+            if ($step['kind'] === 'hub_look') {
+                $f = fanboyBoardRaw($board)['fans'][$id] ?? null;
+                if (!is_array($f) || !fanboyFanOurs($f) || ($f['found'] ?? null) !== 'tach') {
+                    $step['results'][$id] = ['result' => 'not_his'];
+                    continue;
+                }
+                $r = fanboyHubLook($o, $f, $owner, $io, $key, $io['step_id']);
+                $step['results'][$id] = $r;
+                fanboyHubStore($id, $r, $board);
+                if ($r['result'] === 'warm') {
+                    $step['warm'] = $r['warm'];
+                    throw new FanboyStepStop('warm');
+                }
+            } elseif ($step['kind'] === 'test_up') {
                 $partial = null;
                 try {
                     $r = fanboyTestUp($o, $owner, $io, $key, ($step['quiet'] ?? false) === true, $partial);
@@ -1235,6 +1248,121 @@ function fanboyMeasuredStore(string $id, array $r, array $board): void
     }, $board);
 }
 
+const FANBOY_HUB_LOOK_FOR = 60.0;       // round 14: the look for the eye — each question held up to a minute …
+const FANBOY_HUB_STAND = 10.0;          // … and this long at 0 before «do all of them start again?»
+
+/**
+ * Round 14: the look for the eye at a connector with several fans (one reports, the others are only seen): the output at
+ * the floor the control would use, held until the user answers «drehen alle?» (`step_next {fan, heard}` — heard true:
+ * all turn) or a minute passed; then 0 for FANBOY_HUB_STAND s and the start value the control would use, held until
+ * «laufen alle wieder an?» is answered. Guards as the quiet test's: too warm (and a CPU cooler's own: 70 °C, +15 °C, no
+ * reading) → full at once, back. Afterwards exactly as before, with the restart check (the kick, else full + an alert).
+ * Result: ok (both yes) · floor_up (not all turn) · not_safe (not all start again) · no_answer · warm · busy.
+ */
+function fanboyHubLook(array $o, array $f, array $owner, array $io, string $boardKey, ?string $stepId): array
+{
+    $plan = fanboyFanPlan(['alike' => false] + $f);          // the hub's margin, whatever «alike» says
+    [$floor, $start] = [(int) $plan['floor'], (int) $plan['start']];
+    $before = fanboyAllTachs();
+    if (fanboyTake($o, $owner, $boardKey) === null) {
+        return ['result' => 'busy'];
+    }
+    // a CPU cooler under cpu_own: its own guard, smoothed (round 12 fix: fanboyCpuGuard())
+    $cpuGuard = fanboyCpuOwn($f) ? fanboyCpuGuard($io) : null;
+    $warm = function () use ($o, $owner, $cpuGuard): ?array {
+        $w = fanboyStepWarm(fanboyBoardRaw()) ?? ($cpuGuard !== null ? $cpuGuard() : null);
+        if ($w !== null) {
+            fanboySet($o['id'], FANBOY_FULL, $owner);
+        }
+        return $w;
+    };
+    $note = fn (array $p) => ($io['note'] ?? fn (array $p) => null)($p);
+    // one question: the value held until the answer (true/false), a minute without one (null), too warm (['warm' => …])
+    $ask = function (string $phase, int $pct) use ($o, $owner, $io, $note, $warm, $stepId): mixed {
+        $note(['phase' => $phase, 'pct' => $pct, 'until' => time() + (int) FANBOY_HUB_LOOK_FOR]);
+        fanboySet($o['id'], (int) round($pct * 2.55), $owner);
+        $t0 = ($io['now'])();
+        while (($io['now'])() - $t0 < FANBOY_HUB_LOOK_FOR) {
+            fanboyStepWait($io, 0.5);
+            if (($w = $warm()) !== null) {
+                return ['warm' => $w];
+            }
+            $a = fanboyStepNextAsked($o['id'], $stepId);
+            if ($a !== null && is_bool($a['heard'])) {
+                return $a['heard'];
+            }
+        }
+        return null;
+    };
+    $out = ['floor' => $floor, 'start' => $start];
+    $stood = false;
+    try {
+        $turn = $ask('hub_turn', $floor);
+        if (is_array($turn)) {
+            return ['result' => 'warm', 'warm' => $turn['warm']] + $out;
+        }
+        if ($turn !== true) {
+            return ['result' => $turn === false ? 'floor_up' : 'no_answer'] + $out;
+        }
+        $note(['phase' => 'hub_stop', 'until' => time() + (int) FANBOY_HUB_STAND]);
+        $stood = true;
+        fanboySet($o['id'], 0, $owner);
+        $t1 = ($io['now'])();
+        while (($io['now'])() - $t1 < FANBOY_HUB_STAND) {
+            fanboyStepWait($io, 0.5);
+            if (($w = $warm()) !== null) {
+                return ['result' => 'warm', 'warm' => $w] + $out;
+            }
+        }
+        $restart = $ask('hub_start', $start);
+        if (is_array($restart)) {
+            return ['result' => 'warm', 'warm' => $restart['warm']] + $out;
+        }
+        fanboySet($o['id'], FANBOY_FULL, $owner);
+        return ['result' => $restart === true ? 'ok' : ($restart === false ? 'not_safe' : 'no_answer')] + $out;
+    } catch (Throwable $e) {
+        fanboySet($o['id'], FANBOY_FULL, $owner);
+        throw $e;
+    } finally {
+        fanboyGiveBack([$o['id']], 'step', $owner);
+        if ($stood) {
+            fanboyQuietRestart($before, [$o['id']], $io, $owner, $boardKey);
+        }
+    }
+}
+
+/** Round 14: the action `hub_look {fan}` — the look for the eye as a setup step (the page answers with step_next {fan, heard}) */
+function fanboyHubLookStart(array $r): array
+{
+    return fanboyStepStart('hub_look', [textField($r, 'fan')]);
+}
+
+/** Round 14: what the look found, into the store — ok: hub_ok; floor_up: the floor a margin higher; not_safe: never stand */
+function fanboyHubStore(string $id, array $r, array $board): void
+{
+    if (!in_array($r['result'] ?? null, ['ok', 'floor_up', 'not_safe'], true)) {
+        return;
+    }
+    fanboyStoreUpdate(function (array $e) use ($id, $r): array {
+        if (!is_array($e['fans'][$id] ?? null)) {
+            return $e;
+        }
+        $f = $e['fans'][$id];
+        if ($r['result'] === 'ok') {
+            $f['hub_ok'] = ['at' => time()];
+            unset($f['hub_not_safe']);
+        } elseif ($r['result'] === 'floor_up') {
+            $f['hub_extra'] = min(FANBOY_HUB_EXTRA_MAX, (is_int($f['hub_extra'] ?? null) ? $f['hub_extra'] : 0) + FANBOY_HUB_MARGIN);
+            unset($f['hub_ok']);
+        } else {
+            $f['hub_not_safe'] = ['at' => time()];
+            unset($f['hub_ok']);
+        }
+        $e['fans'][$id] = $f;
+        return $e;
+    }, $board);
+}
+
 /** The step process: `php agent.php job fanboy-step` — the step RUN_DIR/fanboy/step.json describes, once */
 function fanboyStepMain(): int
 {
@@ -1243,7 +1371,7 @@ function fanboyStepMain(): int
         return 0;
     }
     $step = readJson(fanboyStepFile());
-    if (!is_array($step) || ($step['status'] ?? '') !== 'starting' || !in_array($step['kind'] ?? '', ['test_up', 'measure'], true) || !is_array($step['fans'] ?? null)) {
+    if (!is_array($step) || ($step['status'] ?? '') !== 'starting' || !in_array($step['kind'] ?? '', ['test_up', 'measure', 'hub_look'], true) || !is_array($step['fans'] ?? null)) {
         return 0;
     }
     $stop = ['now' => false];
@@ -1293,6 +1421,14 @@ function fanboyStepStart(string $kind, array $ids, bool $quiet = false): array
         }
         if ($kind === 'test_up' && is_array($f) && in_array($f['role'] ?? null, FANBOY_ROLES_BIOS, true) && ($f['role'] ?? null) !== 'unknown' && !fanboyCpuOwn($f)) {
             throw new Problem('fanboy_not_his', ['fan' => $id]);        // a known CPU cooler or pump: no more tests
+        }
+        // round 14: the look for the eye — one of his (a CPU cooler only under cpu_own, never a pump) with several fans
+        // on it and a tach (the restart check needs one)
+        if ($kind === 'hub_look' && (!is_array($f) || !fanboyFanOurs($f) || ($f['found'] ?? null) !== 'tach')) {
+            throw new Problem('fanboy_not_his', ['fan' => $id]);
+        }
+        if ($kind === 'hub_look' && (!is_int($f['count'] ?? null) || $f['count'] < 2 || count($ids) !== 1)) {
+            throw new Problem('fanboy_hub_one');
         }
     }
     $step = ['id' => bin2hex(random_bytes(6)), 'kind' => $kind, 'fans' => array_values($ids), 'status' => 'starting', 'pid' => null, 'start' => null,
@@ -1438,6 +1574,9 @@ function fanboyRole(array $r): array
     $cpuOffConfirm = optBool($r, 'cpu_off_confirm', false);
     // round 3: how many fans hang on this one connector (a Y-cable, a hub) — 1 … 8; not sent: as it was
     $count = optInt($r, 'count', null, 1);
+    // round 14: several fans on it the same model? true / false (different or unknown) / null (not said); not sent: as it was
+    $hasAlike = array_key_exists('alike', $r);
+    $alike = $hasAlike && $r['alike'] !== null ? boolField($r, 'alike') : null;
     if ($count !== null && $count > FANBOY_COUNT_MAX) {
         throw new Problem('fanboy_bad_count');
     }
@@ -1461,7 +1600,7 @@ function fanboyRole(array $r): array
     $outputs = fanboyOutputs(fanboyDetect());
     $hasName = array_key_exists('name', $r);
     $hasPlace = array_key_exists('place', $r);
-    $e = fanboyStoreUpdate(function (array $e) use ($id, $role, $name, $place, $offOk, $count, $cpuOwn, $outputs, $hasName, $hasPlace, $cpuOffConfirm): array {
+    $e = fanboyStoreUpdate(function (array $e) use ($id, $role, $name, $place, $offOk, $count, $cpuOwn, $outputs, $hasName, $hasPlace, $cpuOffConfirm, $hasAlike, $alike): array {
         $e = fanboyFanEnsure($e, $id, $outputs);
         $f = $e['fans'][$id];
         // round 9 (H6): «Fanboy steers the CPU cooler» never in the same click that makes it the CPU cooler — first the role,
@@ -1508,8 +1647,20 @@ function fanboyRole(array $r): array
             $f['place'] = $place !== '' ? $place : null;
         }
         $f['off_ok'] = $offOk && (in_array($role, FANBOY_ROLES_OURS, true) || $cpuOff);
+        // round 14: another number of fans on it, or another «alike»: what the look for the eye found counts no more
+        $hubChanged = ($count !== null && $count !== (is_int($f['count'] ?? null) ? $f['count'] : 1)) || ($hasAlike && $alike !== ($f['alike'] ?? null));
         if ($count !== null) {
             $f['count'] = $count;
+        }
+        if ($hasAlike) {
+            if ($alike === null) {
+                unset($f['alike']);
+            } else {
+                $f['alike'] = $alike;
+            }
+        }
+        if ($hubChanged) {
+            unset($f['hub_ok'], $f['hub_not_safe'], $f['hub_extra']);
         }
         $e['fans'][$id] = $f;
         return in_array($role, FANBOY_ROLES_BIOS, true) && !fanboyCpuOwn($f) ? fanboyZonesWithout($e, $id) : $e;
@@ -1647,29 +1798,19 @@ function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
                 throw new Problem('fanboy_bad_temps', ['source' => $src['id'], 'low' => $e['low'], 'high' => $e['high'], 'limit' => $e['limit']]);
             }
         }
-        $t = $z['target'] ?? ['preset' => 'normal'];
-        if (!is_array($t)) {
-            throw new Problem('fanboy_bad_zones', ['field' => 'target']);
+        $target = fanboyTargetCheck($z['target'] ?? ['preset' => 'normal'], $unit, 'target');
+        // round 13: a curve of its own per kind — only kinds the zone has, each checked as the zone's curve; a kind not
+        // sent stays derived from the zone's curve
+        $curves = [];
+        $rawCurves = $z['curves'] ?? [];
+        if (!is_array($rawCurves) || ($rawCurves !== [] && array_is_list($rawCurves))) {
+            throw new Problem('fanboy_bad_zones', ['field' => 'curves']);
         }
-        if (isset($t['points'])) {
-            if (!is_array($t['points']) || !array_is_list($t['points']) || count($t['points']) < 2 || count($t['points']) > 8) {
-                throw new Problem('fanboy_bad_zones', ['field' => 'points']);
+        foreach ($rawCurves as $kind => $cv) {
+            if (!is_string($kind) || !in_array($kind, array_column($sources, 'kind'), true)) {
+                throw new Problem('fanboy_bad_zones', ['field' => 'curves']);
             }
-            $pts = [];
-            foreach ($t['points'] as $p) {
-                if (!is_array($p) || !array_is_list($p) || count($p) !== 2) {
-                    throw new Problem('fanboy_bad_zones', ['field' => 'points']);
-                }
-                $tc = fanboyNum(['t' => $p[0]], 't', 0, 120);
-                $v = fanboyNum(['v' => $p[1]], 'v', 0, $unit === 'pct' ? 100 : 10000);
-                $pts[] = [$tc, $v];
-            }
-            $target = ['points' => $pts];
-        } else {
-            if (!in_array($t['preset'] ?? null, FANBOY_PRESETS, true) || $unit === 'rpm') {
-                throw new Problem('fanboy_bad_zones', ['field' => 'preset']);
-            }
-            $target = ['preset' => $t['preset']];
+            $curves[$kind] = fanboyTargetCheck($cv, $unit, 'curves');
         }
         // round 4: how he reacts — «balanced» (the default) or «quick»; read strictly, absent = balanced
         $react = $z['react'] ?? 'balanced';
@@ -1678,9 +1819,39 @@ function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
         }
         $out[$z['id']] = ['id' => $z['id'], 'name' => $name, 'fans' => $z['fans'], 'sources' => array_values($sources),
             'target' => $target, 'unit' => $unit, 'low' => fanboyNum($z, 'low', 0, 110), 'high' => fanboyNum($z, 'high', 0, 120), 'react' => $react,
-            'kinds' => $kinds ?: new stdClass()];
+            'kinds' => $kinds ?: new stdClass(), 'curves' => $curves ?: new stdClass()];
     }
     return array_values($out);
+}
+
+/**
+ * A curve as the page sends it — the zone's (`target`) or one kind's (round 13, `curves.<kind>`): 2–8 points [°C 0–120,
+ * value 0–100 % or 0–10000 rpm], or a preset (percent zones only). $field: the refusal's field.
+ */
+function fanboyTargetCheck(mixed $t, string $unit, string $field): array
+{
+    if (!is_array($t)) {
+        throw new Problem('fanboy_bad_zones', ['field' => $field]);
+    }
+    if (isset($t['points'])) {
+        if (!is_array($t['points']) || !array_is_list($t['points']) || count($t['points']) < 2 || count($t['points']) > 8) {
+            throw new Problem('fanboy_bad_zones', ['field' => $field === 'target' ? 'points' : $field]);
+        }
+        $pts = [];
+        foreach ($t['points'] as $p) {
+            if (!is_array($p) || !array_is_list($p) || count($p) !== 2) {
+                throw new Problem('fanboy_bad_zones', ['field' => $field === 'target' ? 'points' : $field]);
+            }
+            $tc = fanboyNum(['t' => $p[0]], 't', 0, 120);
+            $v = fanboyNum(['v' => $p[1]], 'v', 0, $unit === 'pct' ? 100 : 10000);
+            $pts[] = [$tc, $v];
+        }
+        return ['points' => $pts];
+    }
+    if (!in_array($t['preset'] ?? null, FANBOY_PRESETS, true) || $unit === 'rpm') {
+        throw new Problem('fanboy_bad_zones', ['field' => $field === 'target' ? 'preset' : $field]);
+    }
+    return ['preset' => $t['preset']];
 }
 
 function fanboyZonesSave(array $r): array
@@ -1722,6 +1893,8 @@ function fanboyDryRun(): array
         $out[] = ['id' => $zid, 'name' => $z['name'], 'unit' => $z['unit'], 'level' => $z['cur'] === null ? null : round($z['cur'], 1), 'warmest' => $z['warmest'],
             'react' => $z['react'], 'down' => fanboyDownProfile($z['warmest']['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']),
             'asleep' => count(array_filter($z['state'], fn ($s) => $s === 'asleep')), 'quiet' => count(array_filter($z['state'], fn ($s) => $s === 'quiet')),
+            // round 13: as the control: every kind's curve, its warmest source and what it asks for, who leads
+            'curves' => fanboyZoneKindCurves($z), 'by_kind' => ($z['by_kind'] ?? []) ?: new stdClass(), 'leader' => $z['leader'] ?? null,
             'fans' => array_map(function ($id) use ($c) {
                 $f = $c['fans'][$id];
                 $now = $f['device'] !== null ? fanboyOutputNow($f['device'], $f['output']) : null;

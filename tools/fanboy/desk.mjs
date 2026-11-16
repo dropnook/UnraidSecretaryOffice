@@ -119,7 +119,7 @@ const PICTURES = [
   ['ux-2-2-running', 'fanboy-uxrun', 'fanboy/setup/test', null, false],
   ['ux-2-3-pause', 'fanboy-uxpause', 'fanboy/setup/test', null, false],
   ['ux-2-4-assigned', 'fanboy-uxfound', 'fanboy/setup/test', ['.fb-item[data-row$=pwm4]', '.fb-panel[data-fan$=pwm4] .fb-fold summary'], false],
-  ['ux-2-7-colour', 'fanboy-uxfound', 'fanboy/setup/test', ['.fb-item[data-row$=pwm5]', '.fb-panel[data-fan$=pwm5] .fb-fold summary'], false],      // «Farbe: Schwarz» on a beige model
+  ['ux-2-7-look', 'fanboy-uxfound', 'fanboy/setup/test', ['.fb-item[data-row$=pwm5]', '.fb-panel[data-fan$=pwm5] .fb-fold summary'], false],      // «Aussehen (fürs Bild)»: a black copy of a beige model — «Von dir angepasst»
   ['ux-2-5-safety', 'fanboy-uxsafety', 'fanboy/setup/test', null, false],
   // … and the other steps in the same parts: rows to read, the measuring (idle and running), the zones (none yet, two), the
   // dry run (before and after), take over and handed over; the overview while a show runs
@@ -135,6 +135,7 @@ const PICTURES = [
   ['ux-5-1-take', 'fanboy-ready', 'fanboy/setup/take', null, false, { settle: 1500 }],       // with «Das würde ich jetzt setzen» (the dry run's answer)
   ['ux-5-2-steers', 'fanboy-cpu', 'fanboy/setup/take', null, false],
   ['ux-0-overview-show', 'fanboy-show', 'fanboy/fans', null, false],
+  ['ux-0-net', 'fanboy-uxnet', 'fanboy', null, false],                 // the net: a heat source in no zone is warm — said in the banner and under «Zuletzt»
   ['ux-2-6-refused', 'fanboy-uxopen', 'fanboy/setup/test', '.fb-panel-acts .btn', false,
     { post: { 'fanboy.test_up': { ok: false, error: { key: 'fanboy_quiet_warm', params: { what: 'CPU', c: 72 } } } }, settle: 7000 }],      // (the toast gone: the strip keeps the refusal)
 ].filter((p) => !opt.only || opt.only.some((o) => p[0] === o || (o.endsWith('*') && p[0].startsWith(o.slice(0, -1)))));
@@ -258,7 +259,7 @@ if (opt.nums) {
   // every number a sentence of his page takes from the state equals the state's value at that moment (2026-11-15, the
   // owner: a confirmation named degrees and seconds nobody had checked): elements carry data-nums = [{v, from: [path…],
   // via?}] — a path part «=<id>» picks the entry with that id; `via` names how the page derives it (as the agent does)
-  const VIA = { floor: (f) => { const b = f.measured && f.found === 'tach' && typeof f.min_pct === 'number' ? Math.min(100, f.min_pct + 5) : 40; return f.role === 'cpu' && f.cpu_own ? Math.max(b, 40) : b; },
+  const VIA = { floor: (f) => { if (typeof f.floor === 'number') return f.floor; const b = f.measured && f.found === 'tach' && typeof f.min_pct === 'number' ? Math.min(100, f.min_pct + 5) : 40; return f.role === 'cpu' && f.cpu_own ? Math.max(b, 40) : b; },
     pct255: (v) => Math.round(v / 2.55), round: (v) => Math.round(v) };
   for (const state of states) {
     const demo = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'demo', `${state}.json`), 'utf8'));

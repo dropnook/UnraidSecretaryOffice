@@ -31,6 +31,24 @@
   .fb-banner:empty{display:none}
   .fb-callout{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
   .fb-callout > p{margin:0; flex:1 1 280px}
+  /* round 13, one chart per zone: the kinds of its heat sources as a row of buttons (which curve is in front), each with
+     «own curve» / «follows the zone» and, while he steers, what its warmest source asks for */
+  .fb-kindrow{display:flex; flex-wrap:wrap; gap:8px; margin:4px 0 2px}
+  .fb-kindpick{font:inherit; display:flex; flex-direction:column; align-items:flex-start; gap:2px; min-width:120px; padding:7px 12px; text-align:left; cursor:pointer;
+    border:1px solid var(--line2); border-radius:var(--radius); background:var(--surface2); color:var(--ink)}
+  .fb-kindpick:hover{border-color:var(--accent)}
+  .fb-kindpick[aria-pressed=true]{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent)}
+  .fb-kindpick-name{font-weight:600; font-size:13px}
+  .fb-kindpick-sub{font-size:12px; color:var(--ink2); font-variant-numeric:tabular-nums}
+  .fb-kindstate{display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center}
+  .fb-kindstate > p{margin:0}
+  .fb-curve-follows{font-weight:600; font-variant-numeric:tabular-nums}
+  /* round 14, several fans on one connector: whose table it is, the margin, the look for the eye with its question */
+  .fb-hub{display:flex; flex-direction:column; gap:6px; margin-top:14px; padding:12px 14px; border:1px solid var(--line2); border-radius:var(--radius); background:var(--surface)}
+  .fb-hub[hidden]{display:none}
+  .fb-hub > p, .fb-hub > h4{margin:0}
+  .fb-hub-ask{font-weight:600; font-size:15px; padding-top:6px}
+  .fb-alike{align-items:center}
   /* heat sources in no zone: the sentence, then (in the zones step) «add to «zone»:» and one button per source */
   .fb-uncovered > .fb-bar{align-items:center}
   .fb-uncovered .fb-what-label{color:inherit}
@@ -143,6 +161,8 @@
   /* (office.css gives .input.small a flex-basis of 180px for its filter rows — in a column that would be a height) */
   .input.small.fb-input{max-width:100%; flex:0 0 auto}
   .fb-fold .fan-pick select.fb-input{width:100%}
+  /* (a point's typed degrees and value under the chart: room for «39.5» and the browser's little arrows) */
+  .input.small.fb-input.fan-curve-input{width:84px}
   select.fb-input{padding-right:22px}
   /* the strip: what runs now (line 1), the last refusal or how a run ended (line 2), «Stop everything» — two lines high
      from the start; it stays at the top of the window while something runs */

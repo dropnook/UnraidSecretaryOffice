@@ -658,14 +658,15 @@
     "id": "disks",
     "name": "Plattenkäfig",
     "unit": "pct",
-    "level": 42,
+    "level": 57,
     "full": false,
     "warmest": {
      "id": "disk2",
      "label": "disk2",
      "c": 41,
      "mapped": 41,
-     "kind": "disk"
+     "kind": "disk",
+     "value": 56.7
     },
     "asleep": 1,
     "fans": [
@@ -673,12 +674,48 @@
       "id": "it8696_a0060607:it87.2608:pwm4",
       "name": "Plattenkäfig",
       "output": 4,
-      "pct": 42,
+      "pct": 57,
       "rpm": 1018,
       "held": true,
       "foreign": false
      }
-    ]
+    ],
+    "curves": {
+     "disk": {
+      "points": [
+       [
+        35,
+        20
+       ],
+       [
+        39.5,
+        45
+       ],
+       [
+        44,
+        80
+       ],
+       [
+        47,
+        100
+       ]
+      ],
+      "own": false
+     }
+    },
+    "by_kind": {
+     "disk": {
+      "source": "disk2",
+      "label": "disk2",
+      "c": 41,
+      "value": 56.7
+     }
+    },
+    "leader": {
+     "source": "disk2",
+     "kind": "disk"
+    },
+    "in_use": []
    },
    {
     "id": "case",
@@ -713,7 +750,70 @@
       "held": true,
       "foreign": false
      }
-    ]
+    ],
+    "curves": {
+     "nvme": {
+      "points": [
+       [
+        30,
+        25
+       ],
+       [
+        40,
+        40
+       ],
+       [
+        50,
+        70
+       ],
+       [
+        60,
+        100
+       ]
+      ],
+      "own": false
+     },
+     "ram": {
+      "points": [
+       [
+        32.72727272727273,
+        25
+       ],
+       [
+        41.81818181818182,
+        40
+       ],
+       [
+        50.90909090909091,
+        70
+       ],
+       [
+        60,
+        100
+       ]
+      ],
+      "own": false
+     }
+    },
+    "by_kind": {
+     "nvme": {
+      "source": "nvme@pci0000:00/0000:00:06.1/0000:03:00.0/nvme#1",
+      "label": "Composite",
+      "c": 27.9,
+      "value": 25
+     },
+     "ram": {
+      "source": "spd5118@pci0000:00/0000:00:1f.4/i2c-0/0-0051#1",
+      "label": "spd5118 #1",
+      "c": 22.8,
+      "value": 25
+     }
+    },
+    "leader": {
+     "source": "nvme@pci0000:00/0000:00:06.1/0000:03:00.0/nvme#1",
+     "kind": "nvme"
+    },
+    "in_use": []
    }
   ],
   "alarm": {
@@ -883,9 +983,23 @@
     "kick_start": null,
     "stand": null,
     "stand_cut": null,
+    "floor": null,
+    "start": null,
+    "curve": null,
+    "fallback": null,
     "off_why": null,
     "may_stand": false,
-    "cpu_off": null
+    "cpu_off": null,
+    "alike": null,
+    "hub": {
+     "mixed": true,
+     "one_fan_table": true,
+     "ok": null,
+     "not_safe": null,
+     "extra": 0,
+     "floor": 40,
+     "start": 50
+    }
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm2",
@@ -918,9 +1032,15 @@
     "kick_start": null,
     "stand": null,
     "stand_cut": null,
+    "floor": 40,
+    "start": null,
+    "curve": null,
+    "fallback": null,
     "off_why": null,
     "may_stand": false,
-    "cpu_off": null
+    "cpu_off": null,
+    "alike": null,
+    "hub": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm3",
@@ -949,9 +1069,15 @@
     "kick_start": null,
     "stand": null,
     "stand_cut": null,
+    "floor": null,
+    "start": null,
+    "curve": null,
+    "fallback": null,
     "off_why": null,
     "may_stand": false,
-    "cpu_off": null
+    "cpu_off": null,
+    "alike": null,
+    "hub": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm4",
@@ -1031,9 +1157,15 @@
     "kick_start": null,
     "stand": null,
     "stand_cut": null,
+    "floor": 30,
+    "start": null,
+    "curve": null,
+    "fallback": null,
     "off_why": null,
     "may_stand": false,
-    "cpu_off": null
+    "cpu_off": null,
+    "alike": null,
+    "hub": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm5",
@@ -1102,9 +1234,15 @@
     "kick_start": null,
     "stand": null,
     "stand_cut": null,
+    "floor": 35,
+    "start": null,
+    "curve": null,
+    "fallback": null,
     "off_why": null,
     "may_stand": false,
-    "cpu_off": null
+    "cpu_off": null,
+    "alike": null,
+    "hub": null
    },
    {
     "id": "it8696_a0060607:it87.2608:pwm6",
@@ -1133,9 +1271,15 @@
     "kick_start": null,
     "stand": null,
     "stand_cut": null,
+    "floor": null,
+    "start": null,
+    "curve": null,
+    "fallback": null,
     "off_why": null,
     "may_stand": false,
-    "cpu_off": null
+    "cpu_off": null,
+    "alike": null,
+    "hub": null
    }
   ],
   "zones": [
@@ -1611,6 +1755,85 @@
        100
       ]
      ]
+    },
+    "kinds": {
+     "disk": {
+      "points": [
+       [
+        35,
+        20
+       ],
+       [
+        39.5,
+        45
+       ],
+       [
+        44,
+        80
+       ],
+       [
+        47,
+        100
+       ]
+      ],
+      "own": false,
+      "scale": [
+       35,
+       44
+      ],
+      "presets": {
+       "quiet": [
+        [
+         35,
+         0
+        ],
+        [
+         39.5,
+         30
+        ],
+        [
+         44,
+         60
+        ],
+        [
+         49,
+         100
+        ]
+       ],
+       "normal": [
+        [
+         35,
+         20
+        ],
+        [
+         39.5,
+         45
+        ],
+        [
+         44,
+         80
+        ],
+        [
+         47,
+         100
+        ]
+       ],
+       "cool": [
+        [
+         32,
+         35
+        ],
+        [
+         36.5,
+         65
+        ],
+        [
+         41,
+         100
+        ]
+       ]
+      }
+     }
     }
    },
    "case": {
@@ -1687,6 +1910,162 @@
        100
       ]
      ]
+    },
+    "kinds": {
+     "nvme": {
+      "points": [
+       [
+        30,
+        25
+       ],
+       [
+        40,
+        40
+       ],
+       [
+        50,
+        70
+       ],
+       [
+        60,
+        100
+       ]
+      ],
+      "own": false,
+      "scale": [
+       38,
+       60
+      ],
+      "presets": {
+       "quiet": [
+        [
+         38,
+         0
+        ],
+        [
+         49,
+         30
+        ],
+        [
+         60,
+         60
+        ],
+        [
+         65,
+         100
+        ]
+       ],
+       "normal": [
+        [
+         38,
+         20
+        ],
+        [
+         49,
+         45
+        ],
+        [
+         60,
+         80
+        ],
+        [
+         63,
+         100
+        ]
+       ],
+       "cool": [
+        [
+         35,
+         35
+        ],
+        [
+         46,
+         65
+        ],
+        [
+         57,
+         100
+        ]
+       ]
+      }
+     },
+     "ram": {
+      "points": [
+       [
+        32.72727272727273,
+        25
+       ],
+       [
+        41.81818181818182,
+        40
+       ],
+       [
+        50.90909090909091,
+        70
+       ],
+       [
+        60,
+        100
+       ]
+      ],
+      "own": false,
+      "scale": [
+       40,
+       60
+      ],
+      "presets": {
+       "quiet": [
+        [
+         40,
+         0
+        ],
+        [
+         50,
+         30
+        ],
+        [
+         60,
+         60
+        ],
+        [
+         65,
+         100
+        ]
+       ],
+       "normal": [
+        [
+         40,
+         20
+        ],
+        [
+         50,
+         45
+        ],
+        [
+         60,
+         80
+        ],
+        [
+         63,
+         100
+        ]
+       ],
+       "cool": [
+        [
+         37,
+         35
+        ],
+        [
+         47,
+         65
+        ],
+        [
+         57,
+         100
+        ]
+       ]
+      }
+     }
     }
    }
   },
