@@ -22,7 +22,7 @@ const T0 = Office.scope(ID);
 // The agent's own times in every sentence that names one (2026-11-16, the sentence audit; the state's `setup.times`):
 // how long an output stays at full at most (test, show), the page's lease, the minutes until he tells. An older agent
 // without them: the constants mirrored here (a test compares them with the agent's).
-const TIMES = { up_for: 60, show_for: 60, lease: 45, tell_after: 900, idle_warm_after: 120, poll_live: 300 };
+const TIMES = { up_for: 60, show_for: 60, lease: 45, tell_after: 900, idle_warm_after: 120, poll_live: 300, clear_after: 120 };
 function timesNow() {
   try { return { ...TIMES, ...(state.setup.times || {}) }; } catch (e) { return TIMES; }     // (before the first state: the mirror)
 }
@@ -1527,7 +1527,9 @@ function paintBanner() {
   if (c.running && c.alarm && has(`alarm.${c.alarm.code}`)) {
     // a standing fan alone in its zone: «… sets it to 100 %» (round 4: the alarm acts per zone)
     const code = c.alarm.code === 'stands' && c.alarm.params && c.alarm.params.alone ? 'stands_alone' : c.alarm.code;
-    box('warn', T(`alarm.${code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}) }), { alarm: c.alarm.code });
+    // 2026-11-16 (the owner): «… bis er wieder dreht, und danach noch {min} Minuten» — the minutes the zone stays at full
+    // after the reason ended (the state's times.clear_after)
+    box('warn', T(`alarm.${code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}), min: Math.round(timesNow().clear_after / 60) }), { alarm: c.alarm.code });
   }
   // round 12 fix, the net: a heat source in none of his zones is warm — every fan he steers at least at the net's level
   // (both numbers and the source from the control's state: control.net)

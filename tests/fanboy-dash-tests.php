@@ -118,7 +118,7 @@ function testFanboyDashTile(): void
     $o = fanboyDashWeb(fanboyDashFiles('fanboy-alarm'), [], $now);
     $m = $o['model'] ?? [];
     same('fanboy dash: alarm — red, first, the owner\'s words (round 4: the fan and the other fans of its zone at 100 %); no second «stands» line for the same fan',
-        [[['red', 'Alarm: Vorn reports no speed although it should turn. Fanboy sets it and the other fans of its zone to 100 % until it reports its speed again.']], true],
+        [[['red', 'Alarm: Vorn reports no speed although it should turn. Fanboy sets it and the other fans of its zone to 100 % until it turns again, and then for 2 more minutes.']], true],
         [$m['banners'] ?? null, strpos((string) ($o['rows'] ?? ''), 'sso-fb-banner red-text') < strpos((string) ($o['rows'] ?? ''), '<details')]);
     $rows = (string) ($o['rows'] ?? '');
     same('fanboy dash: alarm — where it is: the case zone «alarm — at 100 %» in red and open, the disk cage steers on (57 %); the fan that stands marked on its row',
@@ -131,8 +131,26 @@ function testFanboyDashTile(): void
          str_contains($rows, 'data-mood="alarm"')]);
     $alone = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy-alarm.json'), true);
     $alone['control']['alarm']['params']['alone'] = true;
-    same('fanboy dash: alarm — a fan alone in its zone: the owner\'s words for it alone', 'Alarm: Vorn reports no speed although it should turn. Fanboy sets it to 100 % until it reports its speed again.',
+    same('fanboy dash: alarm — a fan alone in its zone: the owner\'s words for it alone', 'Alarm: Vorn reports no speed although it should turn. Fanboy sets it to 100 % until it turns again, and then for 2 more minutes.',
         fanboyDashWeb(['fanboy.json' => $alone] + fanboyDashFiles('fanboy'), [], $now)['model']['banners'][0][1] ?? null);
+    // 2026-11-16 (the owner): «… bis er wieder dreht, und danach noch {min} Minuten» — the number is the state's times.clear_after;
+    // an agent without it: the tile's mirror (equal to the agent's constant)
+    $five = $alone;
+    $five['setup']['times']['clear_after'] = 300;
+    $o5 = fanboyDashWeb(['fanboy.json' => $five] + fanboyDashFiles('fanboy'), [], $now);
+    $none = $alone;
+    unset($none['setup']['times']);
+    $o0 = fanboyDashWeb(['fanboy.json' => $none] + fanboyDashFiles('fanboy'), [], $now);
+    $sensor = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy-alarm.json'), true);
+    $sensor['control']['alarm'] = ['code' => 'sensor', 'params' => ['source' => 'Disk 2', 'zone' => 'Plattenkäfig'], 'since' => $now - 30];
+    $os = fanboyDashWeb(['fanboy.json' => $sensor] + fanboyDashFiles('fanboy'), [], $now);
+    same('fanboy dash: alarm — the minutes from the state (300 s: 5; none sent: the mirror\'s 2); a silent sensor «until it reports again, and then for 2 more minutes»; German «bis er wieder dreht, und danach noch 5 Minuten»',
+        [true, true, 'Alarm: Disk 2 reports nothing. Fanboy sets the fans of «Plattenkäfig» to 100 % until it reports again, and then for 2 more minutes.', true, (int) FANBOY_CLEAR_AFTER],
+        [str_ends_with((string) ($o5['model']['banners'][0][1] ?? ''), 'until it turns again, and then for 5 more minutes.'),
+         str_ends_with((string) ($o0['model']['banners'][0][1] ?? ''), 'until it turns again, and then for 2 more minutes.'),
+         $os['model']['banners'][0][1] ?? null,
+         str_ends_with((string) ($o5['de']['banners'][0][1] ?? ''), 'bis er wieder dreht, und danach noch 5 Minuten.'),
+         preg_match('/const FANBOY_DASH_CLEAR_AFTER = (\d+);/', (string) file_get_contents(OFFICE_DIR . '/src/dashboard-fanboy.php'), $mm) ? (int) $mm[1] : null]);
     $state = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy.json'), true);
     $state['control']['zones'][1]['fans'][0]['rpm'] = 0;
     $o = fanboyDashWeb(['fanboy.json' => $state] + fanboyDashFiles('fanboy'), [], $now);

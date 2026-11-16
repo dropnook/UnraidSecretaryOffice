@@ -29,6 +29,8 @@ const FANBOY_DASH_FANS = 6;             // fans of a zone unfolded at most
 const FANBOY_DASH_SHOWS = ['off', 'speeds', 'history'];
 const FANBOY_DASH_HOURS = 6;            // «with history»: the last hours a zone's curve shows (the default) …
 const FANBOY_DASH_POINTS = 24;          // … in this many spans, every span its warmest °C and highest level
+const FANBOY_DASH_CLEAR_AFTER = 120;   // seconds the zone stays at full after an alarm's reason ended — an agent without
+                                        // the state's times.clear_after: this mirror (a test compares it with FANBOY_CLEAR_AFTER)
 const FANBOY_DASH_SPANS_WEB = [1, 3, 6, 12, 24, 72];   // 2026-11-16 (the owner: «durchklicken»): the spans a click goes through — fanboy-dash.php's
 
 /**
@@ -306,6 +308,9 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
         $params = array_map(static fn ($v) => is_string($v) || is_int($v) || is_float($v) ? (string) $v : '', $raw);
         // round 4 (the owner's words): a fan that stands — it and the other fans of its zone at 100 %; alone in its zone: it
         $key = $alarm['code'] === 'stands' && ($raw['alone'] ?? false) === true ? 'stands_alone' : $alarm['code'];
+        // 2026-11-16 (the owner): «… bis er wieder dreht, und danach noch {min} Minuten» — from the state's times
+        $clear = $int(is_array($setup['times'] ?? null) ? ($setup['times']['clear_after'] ?? null) : null) ?? FANBOY_DASH_CLEAR_AFTER;
+        $params['min'] = (string) (int) round($clear / 60);
         $out['banners'][] = ['red', officeDashT($s, "fanboy.alarm.$key", $params + ['fan' => '', 'source' => '', 'c' => '', 'zone' => ''])];
     }
     if (in_array($why, ['chip_missing', 'crashed'], true) || ($runs && $phase === 'wait_chip')) {
