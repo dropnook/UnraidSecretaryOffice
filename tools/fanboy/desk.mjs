@@ -259,7 +259,7 @@ if (opt.nums) {
   // owner: a confirmation named degrees and seconds nobody had checked): elements carry data-nums = [{v, from: [path…],
   // via?}] — a path part «=<id>» picks the entry with that id; `via` names how the page derives it (as the agent does)
   const VIA = { floor: (f) => { const b = f.measured && f.found === 'tach' && typeof f.min_pct === 'number' ? Math.min(100, f.min_pct + 5) : 40; return f.role === 'cpu' && f.cpu_own ? Math.max(b, 40) : b; },
-    pct255: (v) => Math.round(v / 2.55) };
+    pct255: (v) => Math.round(v / 2.55), round: (v) => Math.round(v) };
   for (const state of states) {
     const demo = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'demo', `${state}.json`), 'utf8'));
     if (!((demo.setup || {}).fans || []).some((f) => f.measured) && !((demo.setup || {}).zones || []).length) continue;

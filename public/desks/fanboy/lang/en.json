@@ -1040,5 +1040,14 @@
   "style.swept-wide": "wide, swept",
   "style.broad": "broad",
   "style.straight": "straight",
-  "style.sickle": "sickle-shaped"
+  "style.sickle": "sickle-shaped",
+  "zones.uncovered": "These heat sources are in no zone: {list}. No fan follows them — only when one of them gets too warm does Fanboy let the fans he steers run faster.",
+  "zones.uncovered_all": "All of them",
+  "zones.uncovered_in_tip": "Adds the heat source to the zone shown here. Kept only with «Save the zones».",
+  "take.uncovered_confirm": "In no zone: {sources}. Allowed to stand: {fans}. While these fans stand, no fan follows these heat sources — only when one of them gets too warm does Fanboy let the fans he steers run faster. Take over like this?",
+  "take.uncovered_go": "Take over like this",
+  "net.on": "A heat source outside the zones is warm: {source} {c} °C — every fan Fanboy steers runs at {level} % or more.",
+  "note.net": "Outside the zones, {source} was warm at {c} °C — the fans ran faster",
+  "note.net_over": "{source} is cool again — the fans follow their zones again",
+  "zones.uncovered_into": "Add to «{zone}»:"
 }

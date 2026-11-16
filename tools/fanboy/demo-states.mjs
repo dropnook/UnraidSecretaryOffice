@@ -55,6 +55,11 @@ function sources(chips, disks) {
   }
   return out;
 }
+/** The heat sources no zone has, as fanboyUncovered() lists them: disks, SSDs and NVMe (FANBOY_NET_KINDS) in none of the zones */
+function uncovered(zones, all) {
+  const inZones = new Set((zones || []).flatMap((z) => (z.sources || []).map((x) => x.id)));
+  return all.filter((x) => ['disk', 'ssd', 'nvme'].includes(x.kind) && !inZones.has(x.id)).map((x) => ({ kind: x.kind, id: x.id, name: x.label, c: x.c, asleep: x.asleep }));
+}
 const DEFAULTS = { disk: [35, 45, 52], ssd: [40, 60, 70], nvme: [40, 65, 75], cpu: [45, 80, 92], ram: [40, 60, 75], gpu: [45, 80, 90], board: [35, 55, 70], other: [35, 55, 75] };
 const SCALES = Object.fromEntries(Object.entries(DEFAULTS).map(([k, [low, high, limit]]) => [k, { low, high, limit }]));
 function preset(p, lo, hi) {
@@ -167,9 +172,11 @@ function state(o) {
       rpm_min: turning.length ? Math.min(...turning) : null, rpm_max: turning.length ? Math.max(...turning) : null, temps: chips.reduce((n, c) => n + c.temps.length, 0) },
     hottest, hottest_kinds: kinds, hottest_lead: leadOf(kinds),
     who: o.who || { who: 'bios', why: offered.length ? 'not_set_up' : 'no_output' },
-    control: { running: false, armed: !!o.armed, who: 'bios', why: null, zones: [], alarm: null, missing: null, notes: [], watch: [], time: null, guard: null, ...(o.control || {}) },
+    control: { running: false, armed: !!o.armed, who: 'bios', why: null, zones: [], alarm: null, missing: null, notes: [], watch: [], time: null, guard: null,
+      // round 12 fix, the net: while he steers, the heat sources in none of his zones (what the net watches); the net itself off
+      loose: o.control && o.control.running ? uncovered(zones, sources(chips, disks)).filter((u) => !u.asleep).map((u) => ({ id: u.id, kind: u.kind, label: u.name, c: u.c })) : [], net: null, ...(o.control || {}) },
     setup: {
-      auto_back_seen: null, uncovered: [], board: 'Example Boards Inc. | EB-Z100 PRO', others: 0, fans, zones, armed: !!o.armed, outputs: offered.length ? OUTPUTS : [], missing: [],
+      auto_back_seen: null, uncovered: uncovered(zones, sources(chips, disks)), board: 'Example Boards Inc. | EB-Z100 PRO', others: 0, fans, zones, armed: !!o.armed, outputs: offered.length ? OUTPUTS : [], missing: [],
       sources: sources(chips, disks), curves: curves(zones), before: offered.length ? clone(BEFORE) : {}, back_default: 'auto',
       scales: SCALES, down: DOWN, round: 2, cpu_floor: 40, presets_of: PRESETS_OF,
     },
@@ -220,6 +227,18 @@ files['fanboy-steering'] = steering();
 files['fanboy-cpu'] = steering({ fans: CPU_OWN, zones: [...ZONES, CPU_ZONE], watch: [], who: { who: 'fanboy', why: 'steers', zones: 3 }, pwm: { 1: [102, 1] },
   zonesNow: [{ id: 'cpu', name: 'CPU', unit: 'pct', level: 40, full: false, warmest: { id: CPU_SRC('Package id 0'), label: 'Package id 0', c: CORE.temps.find((t) => t.label === 'Package id 0').c, mapped: CORE.temps.find((t) => t.label === 'Package id 0').c, kind: 'cpu' }, asleep: 0,
     fans: [{ id: P(1), name: 'CPU-Kühler', output: 1, pct: 40, rpm: 740, held: true, foreign: false }] }], rpm: { 1: 740 } });
+// round 12 fix, the net: the SSD of the pool is in no zone and warm — every fan he steers at 60 % or more, said in the banner and under «Zuletzt»
+{
+  const st = steering({ pwm: { 2: [153, 1], 4: [153, 1], 5: [153, 1] }, rpm: { 4: 1240, 5: 1090 }, notes: [...NOTES, { code: 'net', params: { source: 'cache', c: 61 }, at: T0 - 90 }] });
+  const cache = st.setup.sources.find((x) => x.id === 'cache');
+  cache.c = 61;
+  st.disks.forEach((d) => { if (d.name === 'cache') d.temp = 61; });
+  st.setup.uncovered.forEach((u) => { if (u.id === 'cache') u.c = 61; });
+  st.control.loose.forEach((u) => { if (u.id === 'cache') u.c = 61; });
+  st.control.zones.forEach((z) => { z.level = Math.max(z.level, 60); z.fans.forEach((f) => { f.pct = Math.max(f.pct, 60); }); });
+  st.control.net = { level: 60, since: T0 - 90, source: { id: 'cache', label: 'cache', kind: 'ssd', c: 61, warm: 60, limit: 70 }, clearing: false };
+  files['fanboy-uxnet'] = st;
+}
 // the alarm acts where it is (round 4): the case zone at 100 %, the disk cage steers on
 files['fanboy-alarm'] = steering({ rpm: { 5: 0, 6: 0 }, who: { who: 'fanboy', why: 'alarm', zones: 2 }, why: 'alarm', caseFull: true,
   alarm: { code: 'stands', params: { fan: 'Vorn', zone: 'Gehäuse', zid: 'case', alone: false }, since: T0 - 40 },

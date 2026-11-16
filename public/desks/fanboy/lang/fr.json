@@ -1040,5 +1040,14 @@
   "style.swept-wide": "larges, courbées",
   "style.broad": "larges",
   "style.straight": "droites",
-  "style.sickle": "en faucille"
+  "style.sickle": "en faucille",
+  "zones.uncovered": "Ces sources de chaleur ne sont dans aucune zone : {list}. Aucun ventilateur ne les suit — seulement quand l’une d’elles devient trop chaude, Fanboy fait tourner plus vite les ventilateurs qu’il règle.",
+  "zones.uncovered_all": "Toutes",
+  "zones.uncovered_in_tip": "Ajoute la source de chaleur à la zone affichée ici. Ne vaut qu’avec «Enregistrer les zones».",
+  "take.uncovered_confirm": "Dans aucune zone : {sources}. Peuvent rester à l’arrêt : {fans}. Tant que ces ventilateurs sont à l’arrêt, aucun ventilateur ne suit ces sources de chaleur — seulement quand l’une d’elles devient trop chaude, Fanboy fait tourner plus vite les ventilateurs qu’il règle. Prendre la main ainsi ?",
+  "take.uncovered_go": "Prendre la main ainsi",
+  "net.on": "Une source de chaleur hors des zones est chaude : {source} {c} °C — tous les ventilateurs que Fanboy règle tournent à {level} % au moins.",
+  "note.net": "Hors des zones, {source} était chaude à {c} °C — les ventilateurs tournaient plus vite",
+  "note.net_over": "{source} est de nouveau fraîche — les ventilateurs suivent de nouveau leurs zones",
+  "zones.uncovered_into": "Ajouter à «{zone}» :"
 }

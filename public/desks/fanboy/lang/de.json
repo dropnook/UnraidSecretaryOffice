@@ -1040,5 +1040,14 @@
   "style.swept-wide": "breit geschwungen",
   "style.broad": "breit",
   "style.straight": "gerade",
-  "style.sickle": "sichelförmig"
+  "style.sickle": "sichelförmig",
+  "zones.uncovered": "Diese Wärmequellen sind in keiner Zone: {list}. Kein Lüfter richtet sich nach ihnen — erst wenn eine davon zu warm wird, lässt Fanboy die Lüfter, die er regelt, schneller drehen.",
+  "zones.uncovered_all": "Alle",
+  "zones.uncovered_in_tip": "Nimmt die Wärmequelle in die Zone auf, die hier gezeigt ist. Gilt erst mit «Zonen speichern».",
+  "take.uncovered_confirm": "In keiner Zone: {sources}. Stehen dürfen: {fans}. Solange diese Lüfter stehen, richtet sich kein Lüfter nach diesen Wärmequellen — erst wenn eine davon zu warm wird, lässt Fanboy die Lüfter, die er regelt, schneller drehen. So übernehmen?",
+  "take.uncovered_go": "So übernehmen",
+  "net.on": "Eine Wärmequelle ausserhalb der Zonen ist warm: {source} {c} °C — alle Lüfter, die Fanboy regelt, drehen mit mindestens {level} %.",
+  "note.net": "Ausserhalb der Zonen war {source} mit {c} °C warm — die Lüfter drehten schneller",
+  "note.net_over": "{source} ist wieder kühl — die Lüfter folgen wieder ihren Zonen",
+  "zones.uncovered_into": "In «{zone}» aufnehmen:"
 }

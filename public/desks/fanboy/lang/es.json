@@ -1040,5 +1040,14 @@
   "style.swept-wide": "anchas, curvadas",
   "style.broad": "anchas",
   "style.straight": "rectas",
-  "style.sickle": "en forma de hoz"
+  "style.sickle": "en forma de hoz",
+  "zones.uncovered": "Estas fuentes de calor no están en ninguna zona: {list}. Ningún ventilador las sigue — solo cuando una de ellas se calienta demasiado, Fanboy hace girar más rápido los ventiladores que regula.",
+  "zones.uncovered_all": "Todas",
+  "zones.uncovered_in_tip": "Añade la fuente de calor a la zona que se muestra aquí. Solo vale con «Guardar las zonas».",
+  "take.uncovered_confirm": "En ninguna zona: {sources}. Pueden estar parados: {fans}. Mientras estos ventiladores estén parados, ningún ventilador sigue estas fuentes de calor — solo cuando una de ellas se calienta demasiado, Fanboy hace girar más rápido los ventiladores que regula. ¿Tomar el control así?",
+  "take.uncovered_go": "Tomar el control así",
+  "net.on": "Una fuente de calor fuera de las zonas está caliente: {source} {c} °C — todos los ventiladores que Fanboy regula giran al {level} % como mínimo.",
+  "note.net": "Fuera de las zonas, {source} estaba caliente con {c} °C — los ventiladores giraban más rápido",
+  "note.net_over": "{source} vuelve a estar fresca — los ventiladores siguen de nuevo sus zonas",
+  "zones.uncovered_into": "Añadir a «{zone}»:"
 }

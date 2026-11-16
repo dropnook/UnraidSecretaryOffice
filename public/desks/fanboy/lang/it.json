@@ -1040,5 +1040,14 @@
   "style.swept-wide": "larghe, curve",
   "style.broad": "larghe",
   "style.straight": "dritte",
-  "style.sickle": "a falce"
+  "style.sickle": "a falce",
+  "zones.uncovered": "Queste fonti di calore non sono in nessuna zona: {list}. Nessuna ventola le segue — solo quando una di esse diventa troppo calda, Fanboy fa girare più forte le ventole che regola.",
+  "zones.uncovered_all": "Tutte",
+  "zones.uncovered_in_tip": "Aggiunge la fonte di calore alla zona mostrata qui. Vale solo con «Salva le zone».",
+  "take.uncovered_confirm": "In nessuna zona: {sources}. Possono stare ferme: {fans}. Finché queste ventole sono ferme, nessuna ventola segue queste fonti di calore — solo quando una di esse diventa troppo calda, Fanboy fa girare più forte le ventole che regola. Prendere il controllo così?",
+  "take.uncovered_go": "Prendi il controllo così",
+  "net.on": "Una fonte di calore fuori dalle zone è calda: {source} {c} °C — tutte le ventole che Fanboy regola girano almeno al {level} %.",
+  "note.net": "Fuori dalle zone, {source} era calda con {c} °C — le ventole giravano più forte",
+  "note.net_over": "{source} è di nuovo fresca — le ventole seguono di nuovo le loro zone",
+  "zones.uncovered_into": "Aggiungi a «{zone}»:"
 }

@@ -439,6 +439,29 @@ function testFanboyUx(): void
         str_contains($js, "preview: false, texts: pickerTexts(),") && str_contains($art, "if (o.preview === false) look.append(facts); else look.append(wh.el, facts);")
         && str_contains($art, "fBlades.hidden = !other || o.preview === false;")
         && str_contains($js, "swap(note, [offBy ? f0.max_rpm : 0], () => (offBy ? para(T('roles.model_off', { measured: fmt.number(f0.max_rpm), sheet: fmt.number(c.rpm_max) }), 'callout') : []));"));
+    // round 12 fix, the net: heat sources no zone covers — said in the zones step and at «Übernehmen», the net's state in the banner
+    same('fanboy ux uncovered: while he changes zones the page uses the agent\'s rule on the draft — the kinds the net watches', FANBOY_NET_KINDS,
+        preg_match("/const NET_KINDS = \\[([^\\]]+)\\];/", $js, $m) ? array_map(fn ($x) => trim($x, " '"), explode(',', $m[1])) : []);
+    check('fanboy ux uncovered: for the kept zones the list is the agent\'s (setup.uncovered); the zones step says it above the zones with one click per source into the zone shown',
+        str_contains($js, "if (!zdraft || !zones) return (setup().uncovered || []).map(") && str_contains($js, "return all.filter((x) => NET_KINDS.includes(x.kind) && !inZones.has(x.id));")
+        && str_contains($js, "const loose = uncoveredNow(zones);") && str_contains($js, "...loose.map((x) => btn(srcLabel(x), 'btn plain', () => into([x.id]), T('zones.uncovered_in_tip'))),")
+        && str_contains($js, "const text = el('p', '', T('zones.uncovered', { list: loose.map(srcSay).join(', ') }));"));
+    check('fanboy ux uncovered: at «Übernehmen» the same list; where a fan of his may stand (the state\'s may_stand) the dialog asks plainly and only that yes sends uncovered_ok',
+        str_contains($js, "const loose = (su.zones || []).length ? uncoveredNow() : [];") && str_contains($js, "const standing = (su.fans || []).filter((f) => f.may_stand === true && mine.has(f.id));")
+        && str_contains($js, "const sure = loose.length && standing.length;") && str_contains($js, "await act('take_over', sure ? { uncovered_ok: true } : {}, b2,")
+        && str_contains($js, "T(sure ? 'take.uncovered_go' : 'take.go')") && substr_count($js, 'uncovered_ok') === 1);
+    check('fanboy ux uncovered: the sentence claims no number of its own — the temperatures are the state\'s (marked for the numbers check), the net\'s levels are not named',
+        !preg_match('/\d/', (string) ($l['de']['zones.uncovered'] ?? '1')) && !preg_match('/\d/', (string) ($l['de']['take.uncovered_confirm'] ?? '1'))
+        && str_contains($js, "map((x) => ({ v: Math.round(x.c), from: ['setup', 'sources', `=\${x.id}`, 'c'], via: 'round' })));"));
+    check('fanboy ux net: while the net holds the fans up, the banner says which source, how warm and the level — all three from control.net',
+        str_contains($js, "const net = c.running && c.net && c.net.source && num(c.net.level) !== null ? c.net : null;")
+        && str_contains($js, "p.dataset.nums = JSON.stringify([{ v: net.level, from: ['control', 'net', 'level'] },")
+        && str_contains((string) ($l['de']['net.on'] ?? ''), '{source} {c} °C') && str_contains((string) ($l['de']['net.on'] ?? ''), '{level} %')
+        && str_contains($js, "control().net ? [control().net.level, control().net.source] : 0"));
+    $demoNet = json_decode((string) file_get_contents(dirname(__DIR__) . '/tests/ui/demo/fanboy-uxnet.json'), true);
+    check('fanboy ux net: the notes «net» and «net_over» have their words (the agent\'s params: source, c); the demo state shows the net as the agent reports it',
+        str_contains((string) ($l['de']['note.net'] ?? ''), '{source}') && str_contains((string) ($l['de']['note.net'] ?? ''), '{c}') && str_contains((string) ($l['de']['note.net_over'] ?? ''), '{source}')
+        && array_keys($demoNet['control']['net'] ?? []) === ['level', 'since', 'source', 'clearing'] && array_keys($demoNet['control']['net']['source']) === ['id', 'label', 'kind', 'c', 'warm', 'limit']);
     check('fanboy ux: no text of the page speaks of a «card» or of «More» any more (de, en)', !preg_match('/\bKarte\b|«Mehr»/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de'])))
         && !preg_match('/(?<!graphics )\bcards?\b|«More»/i', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['en']))));
     // the owner, 2026-11-15: «kein AI-Slop, der nicht stimmt» — no sentence names a number the state doesn't give

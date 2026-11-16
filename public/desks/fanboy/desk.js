@@ -455,7 +455,7 @@ function tilesSig() {
     setupSw ? setupSw.active() : '']);
 }
 /** What the banner above the steps says */
-const bannerSig = () => quiet([stepRuns(), showRuns(), Object.keys(S().safety || {}).length, who(), S().situation, control().running, control().alarm, control().armed, control().why, idle(), S().twins, S().vm, setup().zones && setup().zones.length, cpuGiven()]);
+const bannerSig = () => quiet([stepRuns(), showRuns(), Object.keys(S().safety || {}).length, who(), S().situation, control().running, control().alarm, control().net ? [control().net.level, control().net.source] : 0, control().armed, control().why, idle(), S().twins, S().vm, setup().zones && setup().zones.length, cpuGiven()]);
 function overviewSig() {
   return quiet([ready(), !!art(), !!cat, Office.agent.running, busy, state, history && history.zones, period, period > 24 && history72 ? history72.zones : null, sw.active(), (sensorBar && sensorBar.read().words) || []]);
 }
@@ -1491,6 +1491,14 @@ function paintBanner() {
     // a standing fan alone in its zone: «… sets it to 100 %» (round 4: the alarm acts per zone)
     const code = c.alarm.code === 'stands' && c.alarm.params && c.alarm.params.alone ? 'stands_alone' : c.alarm.code;
     box('warn', T(`alarm.${code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}) }), { alarm: c.alarm.code });
+  }
+  // round 12 fix, the net: a heat source in none of his zones is warm — every fan he steers at least at the net's level
+  // (both numbers and the source from the control's state: control.net)
+  const net = c.running && c.net && c.net.source && num(c.net.level) !== null ? c.net : null;
+  if (net) {
+    const known = (setup().sources || []).find((x) => x.id === net.source.id);
+    const p = box('warn', T('net.on', { source: known ? srcLabel(known) : net.source.label || '', c: num(net.source.c) === null ? '–' : fmt.number(Math.round(net.source.c)), level: net.level }), { net: String(net.level) });
+    p.dataset.nums = JSON.stringify([{ v: net.level, from: ['control', 'net', 'level'] }, ...(num(net.source.c) === null ? [] : [{ v: Math.round(net.source.c), from: ['control', 'net', 'source', 'c'], via: 'round' }])]);
   }
   // round 9 (H2): outputs he set to full for safety — named, undone in one click (each card has its own button too)
   const safe = page === 'setup' ? [] : Object.keys(S().safety || {});      // (the setup's strip says it and puts them back)
@@ -2918,6 +2926,15 @@ function zonesStep() {
     const slot = el('div', 'fb-panel-slot');
     const i = zones.findIndex((z) => z.id === zsel);
     if (i >= 0) slot.appendChild(zoneCard(zones[i], i, zones, ours));
+    // heat sources in none of the zones: said above the zones, each one click into the zone shown (kept with «Save» like every change here)
+    const loose = uncoveredNow(zones);
+    if (loose.length) {
+      const zn = i >= 0 ? zones[i].name || zones[i].id : '';
+      const into = (ids) => changeZones((all) => { const z = all.find((x) => x.id === zsel); if (z) z.sources = [...(z.sources || []), ...ids.filter((sid) => !(z.sources || []).some((y) => y.id === sid)).map((sid) => ({ id: sid, kind: srcKind(sid) }))]; });
+      box.appendChild(uncoveredBox(loose, ...(i >= 0 ? [el('span', 'fb-what-label', T('zones.uncovered_into', { zone: zn })),
+        ...loose.map((x) => btn(srcLabel(x), 'btn plain', () => into([x.id]), T('zones.uncovered_in_tip'))),
+        loose.length > 1 ? btn(T('zones.uncovered_all'), 'btn plain', () => into(loose.map((x) => x.id)), T('zones.uncovered_in_tip')) : null] : [])));
+    }
     two.append(side, slot);
     box.appendChild(two);
   }
@@ -2932,6 +2949,30 @@ function zonesStep() {
     box.append(para(how), nextBar([mark], [save, undo]));
   } else box.append(para(how), nextBar([zones.length ? T('step.v.zones', { n: zones.length }) : ''], zones.length ? goButton('take', true) : null));
   return box;
+}
+/**
+ * The heat sources no zone has (round 12 fix, the agent's net): for the kept zones the agent's own list (setup.uncovered);
+ * while he changes zones here, the same rule on what is drawn — the kinds the net watches (FANBOY_NET_KINDS, a test
+ * compares) that are in none of these zones
+ */
+const NET_KINDS = ['disk', 'ssd', 'nvme'];
+function uncoveredNow(zones) {
+  const all = setup().sources || [];
+  if (!zdraft || !zones) return (setup().uncovered || []).map((u) => all.find((x) => x.id === u.id) || { id: u.id, kind: u.kind, label: u.name, c: u.c, asleep: u.asleep });
+  const inZones = new Set(zones.flatMap((z) => (z.sources || []).map((x) => x.id)));
+  return all.filter((x) => NET_KINDS.includes(x.kind) && !inZones.has(x.id));
+}
+/** A heat source said in a sentence: its name and what it reads now (asleep: said, never a number) */
+const srcSay = (x) => `${srcLabel(x)}${num(x.c) !== null ? ` (${T('temp', { c: fmt.number(Math.round(x.c)) })})` : x.asleep ? ` (${T('pic.asleep')})` : ''}`;
+/** «These heat sources are in no zone: …» — the sentence, its numbers marked for the check, and what the caller adds */
+function uncoveredBox(loose, ...more) {
+  const p = el('div', 'callout warn fb-callout fb-uncovered');
+  const text = el('p', '', T('zones.uncovered', { list: loose.map(srcSay).join(', ') }));
+  text.dataset.nums = JSON.stringify(loose.filter((x) => num(x.c) !== null).map((x) => ({ v: Math.round(x.c), from: ['setup', 'sources', `=${x.id}`, 'c'], via: 'round' })));
+  p.appendChild(text);
+  const acts = more.filter(Boolean);
+  if (acts.length) p.appendChild(bar(...acts));
+  return p;
 }
 const freeId = (z) => { for (let i = 1; ; i++) { const id = `zone${i}`; if (!z.some((x) => x.id === id)) return id; } };
 /** Only what zones_save reads: numbers as numbers, nothing of the page's own */
@@ -3470,11 +3511,17 @@ function takeStep() {
     const names = (toFixed.length ? toFixed : left).map((x) => ({ id: x.id, pct: x.b.mode === 'full' ? 100 : x.b.pct }));
     box.appendChild(para(T(toFixed.length ? 'take.fixed_before' : 'take.fixed_before_auto', { list: fixedList(names) }), 'callout warn'));
   }
+  // round 12 fix: heat sources in no zone — said here too; where a fan of his may stand, taking over needs his plain yes
+  // (the agent refuses without it: fanboy_uncovered)
+  const loose = (su.zones || []).length ? uncoveredNow() : [];
+  const standing = (su.fans || []).filter((f) => f.may_stand === true && mine.has(f.id));
+  if (loose.length) box.appendChild(uncoveredBox(loose, goButton('zones', false)));
   const b = button(T('take.go'), T('take.go_tip'), (b2) => {
+    const sure = loose.length && standing.length;
     Office.dialog({
       title: T('take.confirm_title'),
-      body: T('take.confirm', { n: (su.zones || []).length }),
-      buttons: [{ text: t('common.cancel') }, { text: T('take.go'), kind: '', act: async () => { await act('take_over', {}, b2, () => Office.toast(T('take.done_toast'))); return true; } }],
+      body: sure ? T('take.uncovered_confirm', { sources: loose.map((x) => srcLabel(x)).join(', '), fans: standing.map((f) => fanSay(f.id)).join(', ') }) : T('take.confirm', { n: (su.zones || []).length }),
+      buttons: [{ text: t('common.cancel') }, { text: T(sure ? 'take.uncovered_go' : 'take.go'), kind: '', act: async () => { await act('take_over', sure ? { uncovered_ok: true } : {}, b2, () => Office.toast(T('take.done_toast'))); return true; } }],
     });
   }, 'btn');
   if (why.length) offBtn(b, why[0]);
