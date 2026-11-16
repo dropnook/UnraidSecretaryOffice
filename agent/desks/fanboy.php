@@ -599,7 +599,7 @@ function fanboyEnsureControl(float $now): void
         $status['why'] = 'crashed';
         $status['phase'] = 'ended';
         fanboyStatusWrite($status);
-        fanboyTellOnce('crashed', 'crashed', [], 'warning');
+        fanboyTellOnce('crashed', 'crashed', ['pause' => (int) FANBOY_CRASH_PAUSE, 'max' => FANBOY_CRASH_MAX, 'window' => (int) round(FANBOY_CRASH_WINDOW / 60)], 'warning');
     }
     $crashes = array_values(array_filter($crashes, fn ($t) => $now - $t < FANBOY_CRASH_WINDOW));
     if (count($crashes) >= FANBOY_CRASH_MAX || ($crashes && $now - end($crashes) < FANBOY_CRASH_PAUSE)
@@ -608,6 +608,35 @@ function fanboyEnsureControl(float $now): void
     }
     $GLOBALS['fanboyLaunchedAt'] = $now;
     fanboyLaunch('fanboy-control');
+}
+
+/**
+ * The seconds (and percents) the page's sentences state, each from its constant — one place (the setup's state `times`):
+ * clear_after (an alarm's zone stays at full after its reason), up_for / up_min (a test's full phase), show_for, lease (the
+ * page's sign of life), tell_after (the chip missing → told), idle_warm_after (a watched fan standing while warm → told),
+ * stand_after (a fan of his at 0 rpm → stands), history_every, history_periods (h), poll_live (a disk value counts as it
+ * is up to this poll), crash_pause / crash_window / crash_max, net (the net for the sources in no zone)
+ */
+function fanboyTimes(): array
+{
+    return [
+        'clear_after' => (int) FANBOY_CLEAR_AFTER, 'up_for' => (int) FANBOY_UP_FOR, 'up_min' => (int) FANBOY_UP_MIN, 'show_for' => (int) FANBOY_SHOW_FOR,
+        'lease' => (int) FANBOY_STEP_LEASE, 'tell_after' => (int) FANBOY_TELL_AFTER, 'idle_warm_after' => (int) FANBOY_IDLE_WARM_AFTER,
+        'stand_after' => (int) FANBOY_STAND_AFTER, 'history_every' => (int) FANBOY_HISTORY_EVERY, 'history_periods' => FANBOY_HISTORY_PERIODS,
+        'poll_live' => FANBOY_POLL_LIVE, 'crash_pause' => (int) FANBOY_CRASH_PAUSE, 'crash_window' => (int) FANBOY_CRASH_WINDOW, 'crash_max' => FANBOY_CRASH_MAX,
+        'net' => ['warm_pct' => FANBOY_NET_WARM_PCT, 'hot_pct' => FANBOY_NET_HOT_PCT, 'gap' => FANBOY_NET_GAP, 'clear' => (int) FANBOY_NET_CLEAR],
+    ];
+}
+
+/**
+ * The control's deaths within FANBOY_CRASH_WINDOW as the agent counts them (fanboyEnsureControl()): {deaths, max, window,
+ * given_up} — given_up: FANBOY_CRASH_MAX reached, the agent doesn't start it again by itself (the BIOS keeps the fans)
+ */
+function fanboyRestarts(?float $now = null): array
+{
+    $now ??= fanboyMono();
+    $deaths = count(array_filter($GLOBALS['fanboyCrashes'] ?? [], fn ($t) => is_float($t) || is_int($t) ? $now - $t < FANBOY_CRASH_WINDOW : false));
+    return ['deaths' => $deaths, 'max' => FANBOY_CRASH_MAX, 'window' => (int) FANBOY_CRASH_WINDOW, 'given_up' => $deaths >= FANBOY_CRASH_MAX];
 }
 
 /** One notification from the agent's side, once until fanboyUntellOnce() — the marks in RAM (a restart in place keeps them) */
@@ -881,6 +910,10 @@ function fanboySetupState(array $scan, ?array $settings): array
         'back_default' => FANBOY_BACK_DEFAULT,
         'scales' => FANBOY_SOURCE_DEFAULTS, 'down' => FANBOY_DOWN_PROFILES, 'round' => FANBOY_ROUND, 'cpu_floor' => FANBOY_CPU_FLOOR, 'presets_of' => array_combine(array_keys(FANBOY_SOURCE_DEFAULTS),
             array_map(fn ($d) => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, (float) $d['low'], (float) $d['high']), FANBOY_PRESETS)), FANBOY_SOURCE_DEFAULTS)),
+        // 2026-11-16 (the page's sentence audit): every number a sentence of the page states, from the code (testFanboyTimes)
+        'times' => fanboyTimes(), 'limits' => ['name_max' => FANBOY_NAME_MAX, 'count_max' => FANBOY_COUNT_MAX, 'zones_max' => FANBOY_ZONES_MAX, 'sources_max' => FANBOY_SOURCES_MAX],
+        // the control's deaths in a row (the agent's memory): `given_up` — not started again by itself any more
+        'restarts' => fanboyRestarts(),
     ];
 }
 
@@ -899,7 +932,7 @@ function fanboyChecks(?array $settings, ?array $status): array
     $alarm = $running && is_array($status['alarm'] ?? null);
     return [
         finding('fanboy_steers', 'recommended', $steers ? true : ($starting ? null : false), [], '#/fanboy'),
-        finding('fanboy_alarm', 'recommended', $running ? !$alarm : null, [], '#/fanboy'),
+        finding('fanboy_alarm', 'recommended', $running ? !$alarm : null, ['min' => (int) round(FANBOY_CLEAR_AFTER / 60)], '#/fanboy'),
     ];
 }
 
