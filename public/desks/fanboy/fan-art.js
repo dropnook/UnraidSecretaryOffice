@@ -79,6 +79,7 @@
 
    The picker (picker()):
      opts = { catalog: { fans: [...] }, value: { id } | { mm, blades } (other fan), colour (the user's, 'auto'),
+              preview: false — no wheel and no blades' number of the picker's own (the caller draws the fan and has that control),
               texts: { brand, model, other, choose, size, blades, mm(n) → '120 mm', option(fan) → model's line,
                        facts(fan) → a line about the chosen fan }, onChange(fan) }
      onChange gets { id, brand, model, mm, blades, rpm_min, rpm_max, connector, look } (other fan: id null, brand null,
@@ -987,8 +988,9 @@
     for (let n = 5; n <= 11; n++) bladeSel.appendChild(opt(n, String(n)));
     const facts = el('p', 'fan-pick-facts');
     const look = el('div', 'fan-pick-look');
+    // o.preview === false: the caller shows the fan itself (its own colours and blades on top of the model's) — the facts only
     const wh = wheel({ mm: 120, blades: 7, rpm: 0, px: 120, air: false });
-    look.append(wh.el, facts);
+    if (o.preview === false) look.append(facts); else look.append(wh.el, facts);
     root.append(form, look);
     void fBrand;
 
@@ -1011,7 +1013,8 @@
     function look2() {
       const other = brandSel.value === OTHER;
       fModel.hidden = other || !brandSel.value;
-      fSize.hidden = fBlades.hidden = !other;
+      fSize.hidden = !other;
+      fBlades.hidden = !other || o.preview === false;   // the caller has its own control for the blades' number
       cur = chosen();
       facts.textContent = cur ? tx.facts(cur) : '';
       const mx = cur && cur.rpm_max ? cur.rpm_max : 1500;
@@ -1045,5 +1048,5 @@
     return { el: root, set, value: () => cur, colour(c) { colour = pick(c, COLOURS, 'auto'); look2(); }, destroy() { wh.destroy(); } };
   }
 
-  window.FanArt = { wheel, server, curve, picker, catalog, turns, styles, lookOf, COLOURS, STATES, PLACES, KINDS, FLOWS, SIDES, LOOK_COLOURS, STYLES, SHAPES };
+  window.FanArt = { wheel, server, curve, picker, catalog, turns, styles, lookOf, COLOURS, STATES, PLACES, KINDS, FLOWS, SIDES, LOOK_COLOURS, STYLES, SHAPES, STYLE_BLADES };
 })();
