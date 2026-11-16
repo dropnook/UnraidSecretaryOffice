@@ -691,11 +691,84 @@
   "notes": [],
   "watch": [],
   "time": null,
-  "guard": null
+  "guard": null,
+  "loose": [],
+  "net": null
  },
  "setup": {
   "auto_back_seen": null,
-  "uncovered": [],
+  "uncovered": [
+   {
+    "kind": "disk",
+    "id": "parity",
+    "name": "parity",
+    "c": 38,
+    "asleep": false
+   },
+   {
+    "kind": "disk",
+    "id": "disk1",
+    "name": "disk1",
+    "c": null,
+    "asleep": true
+   },
+   {
+    "kind": "disk",
+    "id": "disk2",
+    "name": "disk2",
+    "c": 41,
+    "asleep": false
+   },
+   {
+    "kind": "ssd",
+    "id": "cache",
+    "name": "cache",
+    "c": 46,
+    "asleep": false
+   },
+   {
+    "kind": "nvme",
+    "id": "nvme@pci0000:00/0000:00:1b.4/0000:82:00.0/nvme#1",
+    "name": "Composite",
+    "c": 29.9,
+    "asleep": false
+   },
+   {
+    "kind": "nvme",
+    "id": "nvme@pci0000:00/0000:00:1b.4/0000:82:00.0/nvme#2",
+    "name": "Sensor 1",
+    "c": 31.9,
+    "asleep": false
+   },
+   {
+    "kind": "nvme",
+    "id": "nvme@pci0000:00/0000:00:01.0/0000:01:00.0/nvme#1",
+    "name": "Composite",
+    "c": 25.9,
+    "asleep": false
+   },
+   {
+    "kind": "nvme",
+    "id": "nvme@pci0000:00/0000:00:01.0/0000:01:00.0/nvme#2",
+    "name": "Sensor 1",
+    "c": 27.9,
+    "asleep": false
+   },
+   {
+    "kind": "nvme",
+    "id": "nvme@pci0000:00/0000:00:06.1/0000:03:00.0/nvme#1",
+    "name": "Composite",
+    "c": 27.9,
+    "asleep": false
+   },
+   {
+    "kind": "nvme",
+    "id": "nvme@pci0000:00/0000:00:06.1/0000:03:00.0/nvme#2",
+    "name": "Sensor 1",
+    "c": 29.9,
+    "asleep": false
+   }
+  ],
   "board": "Example Boards Inc. | EB-Z100 PRO",
   "others": 0,
   "fans": [],

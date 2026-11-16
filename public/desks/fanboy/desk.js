@@ -40,7 +40,12 @@ const isOurs = (f) => !!f && (ROLES_OURS.includes(f.role) || (f.role === 'cpu' &
 const cpuGiven = () => (setup().fans || []).some((f) => f.role === 'cpu' && f.cpu_own);
 const cpuAsk = new Map();       // fan id → {tick} while the owner is choosing «Fanboy regelt ihn» (kept over drawings)
 const PLACES = ['front', 'rear', 'top', 'bottom', 'side'];
-const COLOURS = ['auto', 'black', 'graphite', 'grey', 'white', 'slate', 'accent'];
+// a fan's look (2026-11-16, the owner: «Farbe soll für Lüfter-Blätter und Lüfter-Gehäuse separat gewählt werden können,
+// ebenfalls Art und Anzahl der Blätter. Modellauswahl macht nur typischen Vorschlag»): the page owns these lists, the
+// agent stores the keys (fan_look frame, wheel, style, blades) — fan-art.js knows how to draw each
+const LOOK_COLOURS = ['black', 'charcoal', 'graphite', 'grey', 'silver', 'white', 'beige', 'brown', 'frost'];
+const LOOK_STYLES = ['swept-narrow', 'swept-wide', 'broad', 'straight', 'sickle'];
+const NEUTRAL_LOOK = { frame: 'charcoal', blades: 'grey', hub: 'graphite', pads: null, style: 'swept-wide', shape: 'square', vanes: 0, rim: false, sticker: null, sticker_colour: 'black' };
 // round 8 (the owner): «Testen und zuordnen» — the test and the roles in ONE step (the old route …/setup/roles opens it)
 // 2026-11-16 (the owner): no dry-run step — five steps; what he would set now is a preview inside «take over»
 const STEPS = ['detect', 'test', 'measure', 'zones', 'take'];
@@ -239,10 +244,18 @@ function fanLook(f) {
   const measured = f && f.measured;
   const max = measured && num(f.max_rpm) ? f.max_rpm : c && num(c.rpm_max) ? c.rpm_max : null;
   const min = measured && num(f.min_pct) ? tableRpm(f.table, f.min_pct) : c && num(c.rpm_min) ? c.rpm_min : null;
-  // the model's own look (fan-art.js draws its colours, blades and frame); a model whose maker doesn't say how many blades
-  // gets its blade style's own number there (blades null)
-  return { mm: (c && c.mm) || m.mm || 120, blades: (c && c.blades) || (c && c.look ? null : m.blades || 7), min, max,
-    colour: (f && f.colour) || 'auto', look: (c && c.look) || null };
+  // the model proposes (its catalogue look); the frame's colour, the wheel's colour and the blades' kind are his where he
+  // chose them. The one «colour» of before round 12 counts for frame and wheel. Nothing chosen and no model: the neutral wheel.
+  const base = (c && c.look) || null;
+  const old = f && LOOK_COLOURS.includes(f.colour) ? f.colour : null;
+  const frame = (f && LOOK_COLOURS.includes(f.frame) ? f.frame : null) || old;
+  const wheel = (f && LOOK_COLOURS.includes(f.wheel) ? f.wheel : null) || old;
+  const style = f && LOOK_STYLES.includes(f.style) ? f.style : null;
+  const look = frame || wheel || style ? { ...(base || NEUTRAL_LOOK), ...(frame ? { frame } : {}), ...(wheel ? { blades: wheel, hub: wheel } : {}), ...(style ? { style } : {}) } : base;
+  // the blades' number: his, else the model's (a model whose maker doesn't say gets its blade kind's own number in fan-art.js)
+  const blades = num(m.blades) ?? ((c && c.blades) || (look ? null : 7));
+  return { mm: (c && c.mm) || m.mm || 120, blades, min, max, colour: 'auto', look, base,
+    own: { frame: !!frame, wheel: !!wheel, style: !!style, blades: !!c && num(m.blades) !== null } };
 }
 /** A fan's name for the page: the one given, else «Output 4» */
 function fanName(id) {
@@ -442,7 +455,7 @@ function tilesSig() {
     setupSw ? setupSw.active() : '']);
 }
 /** What the banner above the steps says */
-const bannerSig = () => quiet([stepRuns(), showRuns(), Object.keys(S().safety || {}).length, who(), S().situation, control().running, control().alarm, control().armed, control().why, idle(), S().twins, S().vm, setup().zones && setup().zones.length, cpuGiven()]);
+const bannerSig = () => quiet([stepRuns(), showRuns(), Object.keys(S().safety || {}).length, who(), S().situation, control().running, control().alarm, control().net ? [control().net.level, control().net.source] : 0, control().armed, control().why, idle(), S().twins, S().vm, setup().zones && setup().zones.length, cpuGiven()]);
 function overviewSig() {
   return quiet([ready(), !!art(), !!cat, Office.agent.running, busy, state, history && history.zones, period, period > 24 && history72 ? history72.zones : null, sw.active(), (sensorBar && sensorBar.read().words) || []]);
 }
@@ -1479,6 +1492,14 @@ function paintBanner() {
     const code = c.alarm.code === 'stands' && c.alarm.params && c.alarm.params.alone ? 'stands_alone' : c.alarm.code;
     box('warn', T(`alarm.${code}`, { fan: '', source: '', c: '', zone: '', ...(c.alarm.params || {}) }), { alarm: c.alarm.code });
   }
+  // round 12 fix, the net: a heat source in none of his zones is warm — every fan he steers at least at the net's level
+  // (both numbers and the source from the control's state: control.net)
+  const net = c.running && c.net && c.net.source && num(c.net.level) !== null ? c.net : null;
+  if (net) {
+    const known = (setup().sources || []).find((x) => x.id === net.source.id);
+    const p = box('warn', T('net.on', { source: known ? srcLabel(known) : net.source.label || '', c: num(net.source.c) === null ? '–' : fmt.number(Math.round(net.source.c)), level: net.level }), { net: String(net.level) });
+    p.dataset.nums = JSON.stringify([{ v: net.level, from: ['control', 'net', 'level'] }, ...(num(net.source.c) === null ? [] : [{ v: Math.round(net.source.c), from: ['control', 'net', 'source', 'c'], via: 'round' }])]);
+  }
   // round 9 (H2): outputs he set to full for safety — named, undone in one click (each card has its own button too)
   const safe = page === 'setup' ? [] : Object.keys(S().safety || {});      // (the setup's strip says it and puts them back)
   if (safe.length) {
@@ -2297,7 +2318,116 @@ function panelMake(id, benchRun, benchUpdate) {
   const backBody = el('div', 'fb-fold-body');
   back.append(backSum, backBody);
   root.append(head, safety, what, cpu, fields, note, look, back);
-  let pk = null, colour = null, lookNote = null;
+  let pk = null, lookUI = null;
+  /**
+   * «Aussehen (fürs Bild)»: maker and model only PROPOSE (the model's typical look fills the four controls); the frame's
+   * colour, the wheel's colour, the blades' kind and their number are his, each saved alone and shown at once in the
+   * preview. Another model proposes anew (one click back); «Zurück zum Vorschlag» resets the four to the model's.
+   */
+  function lookMake() {
+    const want = {};                // what he just chose, shown before the agent has stored it
+    let undo = null;                // his four values before another model proposed anew
+    const prev = A.wheel({ px: 120, air: false, rpm: 0 });
+    const prevBox = el('div', 'fb-look-prev');
+    prevBox.appendChild(prev.el);
+    const fNow = () => setupFan(id) || { id };
+    pk = A.picker({ catalog: cat, value: fNow().model ? (fNow().model.id ? { id: fNow().model.id } : { mm: fNow().model.mm, blades: fNow().model.blades }) : null, preview: false, texts: pickerTexts(),
+      onChange: (v) => {
+        if (!v) return;
+        const f = fNow();
+        const L = fanLook(f);
+        if (!v.id) { send('fan_look', { fan: id, model: '', mm: v.mm }, { quietly: true }).then(paint); return; }   // «another fan»: its size here, the rest below
+        // a model proposes its typical look: the four controls take it (his own choices are kept for one click back)
+        const before = L.own.frame || L.own.wheel || L.own.style || L.own.blades ? { model: f.model || null, frame: f.frame || '', wheel: f.wheel || '', style: f.style || '', blades: (f.model && f.model.blades) || 0 } : null;
+        send('fan_look', { fan: id, model: v.id, frame: '', wheel: '', style: '', blades: 0, colour: 'auto' }, { quietly: true }).then((j) => { undo = j ? before : null; paint(); });
+      } });
+    pickers.set(id, pk);
+    pk.el.querySelectorAll('select').forEach((x) => { x.classList.add('input', 'small', 'fb-input'); });
+    const top = el('div', 'fb-look-top');
+    top.append(pk.el, prevBox);
+    const says = el('div', 'fb-look-says');
+    const set = (key, value) => {
+      const f0 = fNow();
+      const body = { fan: id, [key]: value };
+      // the one colour of before round 12 lives on as the frame's and the wheel's (whichever he isn't choosing just now)
+      const old = LOOK_COLOURS.includes(f0.colour) ? f0.colour : null;
+      if (old) {
+        body.colour = 'auto';
+        if (key !== 'frame' && !f0.frame) body.frame = old;
+        if (key !== 'wheel' && !f0.wheel) body.wheel = old;
+      }
+      want[key] = value;
+      paint();
+      send('fan_look', body, { quietly: true }).then(() => { delete want[key]; paint(); });
+    };
+    const rowOf = (label, body) => { const r = el('div', 'fb-look-row'); r.append(el('span', 'fb-what-label', label), body); return r; };
+    const swatches = (key) => {
+      const box = el('div', 'fb-swatches fan-k');
+      box.setAttribute('role', 'group');
+      const btns = LOOK_COLOURS.map((name) => {
+        const b = btn('', 'fb-swatch', () => set(key, name), T(`colour.${name}`));
+        b.setAttribute('aria-label', T(`colour.${name}`));
+        b.style.background = `var(--fan-k-${name})`;
+        box.appendChild(b);
+        return [name, b];
+      });
+      return { el: box, show: (v, off) => btns.forEach(([name, b]) => { b.setAttribute('aria-pressed', name === v ? 'true' : 'false'); b.disabled = off; }) };
+    };
+    const frame = swatches('frame'), wheel = swatches('wheel');
+    const kinds = el('div', 'fb-kinds');
+    const kindBtns = LOOK_STYLES.map((st) => {
+      const b = btn('', 'fb-kind', () => set('style', st), T(`style.${st}`));
+      const w = A.wheel({ px: 38, air: false, rpm: 0 });
+      b.append(w.el, el('span', '', T(`style.${st}`)));
+      kinds.appendChild(b);
+      return [st, b, w];
+    });
+    const count = el('div', 'seg');
+    count.setAttribute('role', 'group');
+    count.setAttribute('aria-label', T('look.blades'));
+    const countBtns = [5, 6, 7, 8, 9, 10, 11].map((n) => { const b = btn(String(n), '', () => set('blades', n)); count.appendChild(b); return [n, b]; });
+    const rows = el('div', 'fb-look-rows');
+    rows.append(rowOf(T('look.frame'), frame.el), rowOf(T('look.wheel'), wheel.el), rowOf(T('look.style'), kinds), rowOf(T('look.blades'), count));
+    const note = el('div', 'fb-look-note');
+    lookBody.append(el('p', 'fb-hint-text', T('look.text')), top, says, rows, note);
+    let off = false;
+    function paint() {
+      const f0 = fNow();
+      // as chosen a moment ago, before the agent has answered
+      const f = { ...f0, frame: want.frame ?? f0.frame, wheel: want.wheel ?? f0.wheel, style: want.style ?? f0.style,
+        model: { ...(f0.model || { id: null, mm: null }), blades: want.blades ?? (f0.model || {}).blades ?? null } };
+      const L = fanLook(f);
+      const c = catFan(f.model && f.model.id);
+      const shown = L.look || NEUTRAL_LOOK;
+      const n = L.blades || A.STYLE_BLADES[shown.style] || 7;
+      prev.update({ mm: L.mm, blades: L.blades, min: L.min, max: L.max || 1500, rpm: Math.round((L.max || 1500) * 0.6), state: 'run', look: L.look, colour: 'auto' });
+      frame.show(L.look ? shown.frame : null, off);
+      wheel.show(L.look ? shown.blades : null, off);
+      kindBtns.forEach(([st, b, w]) => {
+        b.setAttribute('aria-pressed', L.look && shown.style === st ? 'true' : 'false');
+        b.disabled = off;
+        w.update({ mm: 120, blades: A.STYLE_BLADES[st] || 7, look: { ...shown, style: st, sticker: null, vanes: 0 }, rpm: 0, state: 'run', colour: 'auto' });
+      });
+      countBtns.forEach(([k, b]) => { b.setAttribute('aria-pressed', k === n ? 'true' : 'false'); b.disabled = off; });
+      const mine = L.own.frame || L.own.wheel || L.own.style || L.own.blades;
+      swap(says, [!!c, c && c.id, mine, !!undo, off], () => {
+        const out = [];
+        if (c) out.push(chipOfText(mine ? 'accent' : 'quiet', mine ? T('look.changed') : T('look.proposal'), mine ? T('look.changed_tip') : T('look.proposal_tip')));
+        if (c && mine) out.push(btn(T('look.reset'), 'btn plain', () => { undo = null; send('fan_look', { fan: id, frame: '', wheel: '', style: '', blades: 0, colour: 'auto' }, { quietly: true }); }, T('look.reset_tip')));
+        if (undo) {
+          out.push(el('span', 'fb-look-took', T('look.took', { model: modelText({ id: c && c.id }) })));
+          const u = undo;
+          out.push(btn(T('look.undo'), 'btn plain', () => { undo = null; send('fan_look', { fan: id, model: (u.model && u.model.id) || '', frame: u.frame, wheel: u.wheel, style: u.style, blades: u.blades }, { quietly: true }).then(() => { const g = fNow(); pk.set(g.model ? (g.model.id ? { id: g.model.id } : { mm: g.model.mm, blades: g.model.blades }) : null); paint(); }); }, T('look.undo_tip')));
+        }
+        if (off) out.forEach((x) => { if (x.tagName === 'BUTTON') x.disabled = true; });
+        return out;
+      });
+      const offBy = c && f0.measured && num(f0.max_rpm) && num(c.rpm_max) && Math.abs(f0.max_rpm - c.rpm_max) > Math.max(250, 0.3 * c.rpm_max);
+      swap(note, [offBy ? f0.max_rpm : 0], () => (offBy ? para(T('roles.model_off', { measured: fmt.number(f0.max_rpm), sheet: fmt.number(c.rpm_max) }), 'callout') : []));
+    }
+    paint();
+    return { update(f, away) { off = !!away; paint(); }, destroy() { prev.destroy(); kindBtns.forEach(([, , w]) => w.destroy()); } };
+  }
 
   let picked = null;              // the role just clicked, shown pressed until the agent has answered
   function pickRole(k) {
@@ -2429,26 +2559,8 @@ function panelMake(id, benchRun, benchUpdate) {
     // model and colour (for the picture)
     const m = f && f.model ? modelText(f.model) : '';
     setText(lookSum, m ? T('look.fold_is', { model: m }) : T('look.fold'));
-    if (A && cat && !pk) {
-      pk = A.picker({ catalog: cat, value: f && f.model ? (f.model.id ? { id: f.model.id } : { mm: f.model.mm, blades: f.model.blades }) : null, colour: (f && f.colour) || 'auto', texts: pickerTexts(),
-        onChange: (v) => { if (v) send('fan_look', v.id ? { fan: id, model: v.id } : { fan: id, model: '', mm: v.mm, blades: v.blades }, { quietly: true }); } });
-      pickers.set(id, pk);
-      pk.el.querySelectorAll('select').forEach((x) => { x.classList.add('input', 'small', 'fb-input'); });
-      colour = inputEl('select');
-      COLOURS.forEach((c) => colour.appendChild(new Option(T(`colour.${c}`), c)));
-      colour.onchange = () => { if (pk.colour) pk.colour(colour.value); send('fan_look', { fan: id, colour: colour.value }, { quietly: true }); };
-      lookNote = el('div', 'fb-look-note');
-      lookBody.append(el('p', 'fb-hint-text', T('look.text')), pk.el, field(T('look.colour'), colour, 'fb-field-colour'), el('p', 'fb-hint-text', T('look.colour_note')), lookNote);
-    }
-    if (colour) {
-      const isModel = !!(f && f.model && f.model.id);
-      setText(colour.options[0], isModel ? T('colour.model') : T('colour.auto'));
-      if (document.activeElement !== colour) colour.value = (f && f.colour) || 'auto';
-      colour.disabled = away;
-      const c = catFan(f && f.model && f.model.id);
-      const offBy = c && f.measured && num(f.max_rpm) && num(c.rpm_max) && Math.abs(f.max_rpm - c.rpm_max) > Math.max(250, 0.3 * c.rpm_max);
-      swap(lookNote, [offBy ? f.max_rpm : 0], () => (offBy ? para(T('roles.model_off', { measured: fmt.number(f.max_rpm), sheet: fmt.number(c.rpm_max) }), 'callout') : []));
-    }
+    if (A && cat && !lookUI) lookUI = lookMake();
+    if (lookUI) lookUI.update(f, away);
     // «give back to»: only for an output found on a fixed value that Fanboy may get
     const b = (setup().before || {})[id];
     const hasBack = !!(f && b && b.fixed && !ROLES_BIOS.includes(f.role)) && !never;
@@ -2456,7 +2568,7 @@ function panelMake(id, benchRun, benchUpdate) {
     if (hasBack) swap(backBody, [f.back, b.pct, b.auto ?? null, setup().back_default, away], () => backChoice(f, b));
   }
   update();
-  return { el: root, update, destroy() { if (wh) wh.destroy(); } };
+  return { el: root, update, destroy() { if (wh) wh.destroy(); if (lookUI) lookUI.destroy(); } };
 }
 /**
  * The CPU cooler's block (round 4's rule, the owner 2026-11-15: «Zurück ans BIOS» was «completely in the wrong place»):
@@ -2814,6 +2926,15 @@ function zonesStep() {
     const slot = el('div', 'fb-panel-slot');
     const i = zones.findIndex((z) => z.id === zsel);
     if (i >= 0) slot.appendChild(zoneCard(zones[i], i, zones, ours));
+    // heat sources in none of the zones: said above the zones, each one click into the zone shown (kept with «Save» like every change here)
+    const loose = uncoveredNow(zones);
+    if (loose.length) {
+      const zn = i >= 0 ? zones[i].name || zones[i].id : '';
+      const into = (ids) => changeZones((all) => { const z = all.find((x) => x.id === zsel); if (z) z.sources = [...(z.sources || []), ...ids.filter((sid) => !(z.sources || []).some((y) => y.id === sid)).map((sid) => ({ id: sid, kind: srcKind(sid) }))]; });
+      box.appendChild(uncoveredBox(loose, ...(i >= 0 ? [el('span', 'fb-what-label', T('zones.uncovered_into', { zone: zn })),
+        ...loose.map((x) => btn(srcLabel(x), 'btn plain', () => into([x.id]), T('zones.uncovered_in_tip'))),
+        loose.length > 1 ? btn(T('zones.uncovered_all'), 'btn plain', () => into(loose.map((x) => x.id)), T('zones.uncovered_in_tip')) : null] : [])));
+    }
     two.append(side, slot);
     box.appendChild(two);
   }
@@ -2828,6 +2949,30 @@ function zonesStep() {
     box.append(para(how), nextBar([mark], [save, undo]));
   } else box.append(para(how), nextBar([zones.length ? T('step.v.zones', { n: zones.length }) : ''], zones.length ? goButton('take', true) : null));
   return box;
+}
+/**
+ * The heat sources no zone has (round 12 fix, the agent's net): for the kept zones the agent's own list (setup.uncovered);
+ * while he changes zones here, the same rule on what is drawn — the kinds the net watches (FANBOY_NET_KINDS, a test
+ * compares) that are in none of these zones
+ */
+const NET_KINDS = ['disk', 'ssd', 'nvme'];
+function uncoveredNow(zones) {
+  const all = setup().sources || [];
+  if (!zdraft || !zones) return (setup().uncovered || []).map((u) => all.find((x) => x.id === u.id) || { id: u.id, kind: u.kind, label: u.name, c: u.c, asleep: u.asleep });
+  const inZones = new Set(zones.flatMap((z) => (z.sources || []).map((x) => x.id)));
+  return all.filter((x) => NET_KINDS.includes(x.kind) && !inZones.has(x.id));
+}
+/** A heat source said in a sentence: its name and what it reads now (asleep: said, never a number) */
+const srcSay = (x) => `${srcLabel(x)}${num(x.c) !== null ? ` (${T('temp', { c: fmt.number(Math.round(x.c)) })})` : x.asleep ? ` (${T('pic.asleep')})` : ''}`;
+/** «These heat sources are in no zone: …» — the sentence, its numbers marked for the check, and what the caller adds */
+function uncoveredBox(loose, ...more) {
+  const p = el('div', 'callout warn fb-callout fb-uncovered');
+  const text = el('p', '', T('zones.uncovered', { list: loose.map(srcSay).join(', ') }));
+  text.dataset.nums = JSON.stringify(loose.filter((x) => num(x.c) !== null).map((x) => ({ v: Math.round(x.c), from: ['setup', 'sources', `=${x.id}`, 'c'], via: 'round' })));
+  p.appendChild(text);
+  const acts = more.filter(Boolean);
+  if (acts.length) p.appendChild(bar(...acts));
+  return p;
 }
 const freeId = (z) => { for (let i = 1; ; i++) { const id = `zone${i}`; if (!z.some((x) => x.id === id)) return id; } };
 /** Only what zones_save reads: numbers as numbers, nothing of the page's own */
@@ -3366,11 +3511,17 @@ function takeStep() {
     const names = (toFixed.length ? toFixed : left).map((x) => ({ id: x.id, pct: x.b.mode === 'full' ? 100 : x.b.pct }));
     box.appendChild(para(T(toFixed.length ? 'take.fixed_before' : 'take.fixed_before_auto', { list: fixedList(names) }), 'callout warn'));
   }
+  // round 12 fix: heat sources in no zone — said here too; where a fan of his may stand, taking over needs his plain yes
+  // (the agent refuses without it: fanboy_uncovered)
+  const loose = (su.zones || []).length ? uncoveredNow() : [];
+  const standing = (su.fans || []).filter((f) => f.may_stand === true && mine.has(f.id));
+  if (loose.length) box.appendChild(uncoveredBox(loose, goButton('zones', false)));
   const b = button(T('take.go'), T('take.go_tip'), (b2) => {
+    const sure = loose.length && standing.length;
     Office.dialog({
       title: T('take.confirm_title'),
-      body: T('take.confirm', { n: (su.zones || []).length }),
-      buttons: [{ text: t('common.cancel') }, { text: T('take.go'), kind: '', act: async () => { await act('take_over', {}, b2, () => Office.toast(T('take.done_toast'))); return true; } }],
+      body: sure ? T('take.uncovered_confirm', { sources: loose.map((x) => srcLabel(x)).join(', '), fans: standing.map((f) => fanSay(f.id)).join(', ') }) : T('take.confirm', { n: (su.zones || []).length }),
+      buttons: [{ text: t('common.cancel') }, { text: T(sure ? 'take.uncovered_go' : 'take.go'), kind: '', act: async () => { await act('take_over', sure ? { uncovered_ok: true } : {}, b2, () => Office.toast(T('take.done_toast'))); return true; } }],
     });
   }, 'btn');
   if (why.length) offBtn(b, why[0]);

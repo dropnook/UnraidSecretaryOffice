@@ -325,7 +325,7 @@ function testFanboyUx(): void
     check('fanboy ux: the output that runs is framed like the office\'s active tile (a ring and a glow from the accent), in the list and on its panel',
         str_contains($css, ".fb-live{position:relative; border-color:var(--accent);\n    box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 18px 2px color-mix(in srgb, var(--accent) 38%, transparent)}")
         && str_contains($js, "it.el.classList.toggle('fb-live', !!r.live);") && str_contains($js, "live: run.id === id && !run.pause && (run.kind === 'test' || run.kind === 'show'),") && str_contains($js, "root.classList.toggle('fb-live', here);"));
-    $panel = substr($js, (int) strpos($js, 'function panelMake('), 16000);
+    $panel = substr($js, $at = (int) strpos($js, 'function panelMake('), (int) strpos($js, 'function cpuBlock(') - $at);   // the whole panel, however long
     check('fanboy ux: while an output runs the user answers on its panel — «found» or «heard nothing» (the later question «did it get louder?» only after a minute nobody answered), «cancel»',
         // (round 11: the answer travels with «weiter» and the agent stores it with the verdict — the page sends nothing later)
         str_contains($panel, "send('step_next', { fan: id, heard });") && str_contains($panel, '() => next(true),') && str_contains($panel, '() => next(false),')
@@ -397,10 +397,71 @@ function testFanboyUx(): void
         str_contains($js, "b.onclick = () => { clicked = b; on(b); clicked = null; };") && str_contains($js, 'const done = working(clicked);') && str_contains($js, 'const worked = working(b);')
         && str_contains($js, "roleBtns.forEach((b, r) => b.setAttribute('aria-pressed', r === k ? 'true' : 'false'));") && str_contains($js, "const cur = picked || (found === 'empty' ? 'empty' : (f && f.role) || '');"));
     $art = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.js');
-    check('fanboy ux: the colour beside a model is honest — «like the model» by default, any other paints the whole fan (frame, blades, hub: «my copy is black»), the preview shows it at once',
-        str_contains($art, "const edition = !!(look && colour !== 'auto' && colour !== 'accent');") && str_contains($art, "'--fan-frame': edition ? null : look.frame,")
-        && str_contains($art, "colour(c) { colour = pick(c, COLOURS, 'auto'); look2(); }") && str_contains($js, "colour.onchange = () => { if (pk.colour) pk.colour(colour.value); send('fan_look', { fan: id, colour: colour.value }, { quietly: true }); };")
-        && str_contains($js, "setText(colour.options[0], isModel ? T('colour.model') : T('colour.auto'));"));
+    // round 12, the look's four controls (the owner: «Farbe soll für Lüfter-Blätter und Lüfter-Gehäuse separat gewählt werden können,
+    // ebenfalls Art und Anzahl der Blätter. Modellauswahl macht nur typischen Vorschlag»)
+    check('fanboy ux look: the fold is «Aussehen (fürs Bild)» with four controls of his own — frame colour, blades\' colour, blade shape, number of blades — beside the model',
+        str_contains($js, "rows.append(rowOf(T('look.frame'), frame.el), rowOf(T('look.wheel'), wheel.el), rowOf(T('look.style'), kinds), rowOf(T('look.blades'), count));")
+        && str_contains($js, "const frame = swatches('frame'), wheel = swatches('wheel');") && str_contains($js, "const countBtns = [5, 6, 7, 8, 9, 10, 11].map(")
+        && ($l['de']['look.fold'] ?? '') === 'Aussehen (fürs Bild)' && !str_contains($js, "inputEl('select');\n      COLOURS"));
+    check('fanboy ux look: colours are swatches painted with the wheel\'s own colour tokens (named in title and aria-label), blade shapes are buttons with a tiny drawn sample and a plain name',
+        str_contains($js, "b.style.background = `var(--fan-k-\${name})`;") && str_contains($js, "b.setAttribute('aria-label', T(`colour.\${name}`));")
+        && str_contains($js, "const w = A.wheel({ px: 38, air: false, rpm: 0 });") && str_contains($js, "b.append(w.el, el('span', '', T(`style.\${st}`)));")
+        && str_contains((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.css'), '.fan-wheel, .fan-k{'));
+    $pageList = fn (string $name): array => preg_match("/const $name = \\[([^\\]]+)\\];/", $js, $m) ? array_map(fn ($x) => trim($x, " '"), explode(',', $m[1])) : [];
+    $artList = fn (string $name): array => preg_match("/const $name = \\[([^\\]]+)\\];/", $art, $m) ? array_map(fn ($x) => trim($x, " '"), explode(',', $m[1])) : [];
+    same('fanboy ux look: the page offers exactly the colours the wheel can paint', $artList('LOOK_COLOURS'), $pageList('LOOK_COLOURS'));
+    same('fanboy ux look: … and exactly the blade shapes it can draw', $artList('STYLES'), $pageList('LOOK_STYLES'));
+    $missing = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        foreach (array_merge(array_map(fn ($c) => "colour.$c", $pageList('LOOK_COLOURS')), array_map(fn ($c) => "style.$c", $pageList('LOOK_STYLES'))) as $key) {
+            if (!is_string($l[$code][$key] ?? null) || $l[$code][$key] === '') {
+                $missing[] = "$code:$key";
+            }
+        }
+    }
+    same('fanboy ux look: every colour and every blade shape has its plain name in all five languages', [], $missing);
+    check('fanboy ux look: the agent stores these keys as the page sends them (frame, wheel, style: a key of the page\'s lists; the blades\' number 5–11)',
+        count(array_filter(array_merge($pageList('LOOK_COLOURS'), $pageList('LOOK_STYLES')), fn ($k) => !preg_match(FANBOY_LOOK_KEY_RE, $k))) === 0
+        && FANBOY_BLADES_MIN === 5 && FANBOY_BLADES_MAX === 11);
+    check('fanboy ux look: the model only proposes — its look is the base, his frame, blades\' colour, shape and number lie on top; the one colour of before counts for frame and blades',
+        str_contains($js, "const look = frame || wheel || style ? { ...(base || NEUTRAL_LOOK), ...(frame ? { frame } : {}), ...(wheel ? { blades: wheel, hub: wheel } : {}), ...(style ? { style } : {}) } : base;")
+        && str_contains($js, "const old = f && LOOK_COLOURS.includes(f.colour) ? f.colour : null;") && str_contains($js, "const blades = num(m.blades) ?? ((c && c.blades) || (look ? null : 7));"));
+    check('fanboy ux look: each control saves alone and shows at once (before the agent answered); the old one colour is carried over as frame and blades, never lost by another click',
+        str_contains($js, "const body = { fan: id, [key]: value };") && str_contains($js, "if (key !== 'frame' && !f0.frame) body.frame = old;") && str_contains($js, "if (key !== 'wheel' && !f0.wheel) body.wheel = old;")
+        && str_contains($js, "want[key] = value;\n      paint();\n      send('fan_look', body, { quietly: true }).then(() => { delete want[key]; paint(); });"));
+    check('fanboy ux look: another model proposes anew (his four go, one click brings them and the model back); «Zurück zum Vorschlag» resets the four; the chip says which it is',
+        str_contains($js, "send('fan_look', { fan: id, model: v.id, frame: '', wheel: '', style: '', blades: 0, colour: 'auto' }, { quietly: true }).then((j) => { undo = j ? before : null; paint(); });")
+        && str_contains($js, "send('fan_look', { fan: id, model: (u.model && u.model.id) || '', frame: u.frame, wheel: u.wheel, style: u.style, blades: u.blades }, { quietly: true })")
+        && str_contains($js, "btn(T('look.reset'), 'btn plain', () => { undo = null; send('fan_look', { fan: id, frame: '', wheel: '', style: '', blades: 0, colour: 'auto' }, { quietly: true }); }, T('look.reset_tip'))")
+        && str_contains($js, "chipOfText(mine ? 'accent' : 'quiet', mine ? T('look.changed') : T('look.proposal'),")
+        && ($l['de']['look.proposal'] ?? '') === 'Vorschlag für dieses Modell' && ($l['de']['look.reset'] ?? '') === 'Zurück zum Vorschlag');
+    check('fanboy ux look: the picker shows the model\'s facts only (no wheel, no blades\' number of its own), the fold\'s one preview is the fan as it will be drawn; measured far from the data sheet is still said',
+        str_contains($js, "preview: false, texts: pickerTexts(),") && str_contains($art, "if (o.preview === false) look.append(facts); else look.append(wh.el, facts);")
+        && str_contains($art, "fBlades.hidden = !other || o.preview === false;")
+        && str_contains($js, "swap(note, [offBy ? f0.max_rpm : 0], () => (offBy ? para(T('roles.model_off', { measured: fmt.number(f0.max_rpm), sheet: fmt.number(c.rpm_max) }), 'callout') : []));"));
+    // round 12 fix, the net: heat sources no zone covers — said in the zones step and at «Übernehmen», the net's state in the banner
+    same('fanboy ux uncovered: while he changes zones the page uses the agent\'s rule on the draft — the kinds the net watches', FANBOY_NET_KINDS,
+        preg_match("/const NET_KINDS = \\[([^\\]]+)\\];/", $js, $m) ? array_map(fn ($x) => trim($x, " '"), explode(',', $m[1])) : []);
+    check('fanboy ux uncovered: for the kept zones the list is the agent\'s (setup.uncovered); the zones step says it above the zones with one click per source into the zone shown',
+        str_contains($js, "if (!zdraft || !zones) return (setup().uncovered || []).map(") && str_contains($js, "return all.filter((x) => NET_KINDS.includes(x.kind) && !inZones.has(x.id));")
+        && str_contains($js, "const loose = uncoveredNow(zones);") && str_contains($js, "...loose.map((x) => btn(srcLabel(x), 'btn plain', () => into([x.id]), T('zones.uncovered_in_tip'))),")
+        && str_contains($js, "const text = el('p', '', T('zones.uncovered', { list: loose.map(srcSay).join(', ') }));"));
+    check('fanboy ux uncovered: at «Übernehmen» the same list; where a fan of his may stand (the state\'s may_stand) the dialog asks plainly and only that yes sends uncovered_ok',
+        str_contains($js, "const loose = (su.zones || []).length ? uncoveredNow() : [];") && str_contains($js, "const standing = (su.fans || []).filter((f) => f.may_stand === true && mine.has(f.id));")
+        && str_contains($js, "const sure = loose.length && standing.length;") && str_contains($js, "await act('take_over', sure ? { uncovered_ok: true } : {}, b2,")
+        && str_contains($js, "T(sure ? 'take.uncovered_go' : 'take.go')") && substr_count($js, 'uncovered_ok') === 1);
+    check('fanboy ux uncovered: the sentence claims no number of its own — the temperatures are the state\'s (marked for the numbers check), the net\'s levels are not named',
+        !preg_match('/\d/', (string) ($l['de']['zones.uncovered'] ?? '1')) && !preg_match('/\d/', (string) ($l['de']['take.uncovered_confirm'] ?? '1'))
+        && str_contains($js, "map((x) => ({ v: Math.round(x.c), from: ['setup', 'sources', `=\${x.id}`, 'c'], via: 'round' })));"));
+    check('fanboy ux net: while the net holds the fans up, the banner says which source, how warm and the level — all three from control.net',
+        str_contains($js, "const net = c.running && c.net && c.net.source && num(c.net.level) !== null ? c.net : null;")
+        && str_contains($js, "p.dataset.nums = JSON.stringify([{ v: net.level, from: ['control', 'net', 'level'] },")
+        && str_contains((string) ($l['de']['net.on'] ?? ''), '{source} {c} °C') && str_contains((string) ($l['de']['net.on'] ?? ''), '{level} %')
+        && str_contains($js, "control().net ? [control().net.level, control().net.source] : 0"));
+    $demoNet = json_decode((string) file_get_contents(dirname(__DIR__) . '/tests/ui/demo/fanboy-uxnet.json'), true);
+    check('fanboy ux net: the notes «net» and «net_over» have their words (the agent\'s params: source, c); the demo state shows the net as the agent reports it',
+        str_contains((string) ($l['de']['note.net'] ?? ''), '{source}') && str_contains((string) ($l['de']['note.net'] ?? ''), '{c}') && str_contains((string) ($l['de']['note.net_over'] ?? ''), '{source}')
+        && array_keys($demoNet['control']['net'] ?? []) === ['level', 'since', 'source', 'clearing'] && array_keys($demoNet['control']['net']['source']) === ['id', 'label', 'kind', 'c', 'warm', 'limit']);
     check('fanboy ux: no text of the page speaks of a «card» or of «More» any more (de, en)', !preg_match('/\bKarte\b|«Mehr»/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de'])))
         && !preg_match('/(?<!graphics )\bcards?\b|«More»/i', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['en']))));
     // the owner, 2026-11-15: «kein AI-Slop, der nicht stimmt» — no sentence names a number the state doesn't give

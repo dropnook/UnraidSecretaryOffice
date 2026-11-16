@@ -29,7 +29,7 @@
 .fan-c-accent{--fan-blade:var(--accent); --fan-edge:color-mix(in srgb, var(--accent) 70%, var(--ink)); --fan-hub2:var(--accent-soft)}
 /* a model's look (the catalogue's look): fan-art.js sets --fan-frame, --fan-blade, --fan-hub, --fan-pad and --fan-tag to one of
    these names, each made from Unraid's palette — the same in every theme, as the real fan is */
-.fan-wheel{
+.fan-wheel, .fan-k{
   --fan-k-black:var(--gray-800); --fan-k-charcoal:var(--gray-700); --fan-k-graphite:var(--gray-600); --fan-k-grey:var(--gray-500);
   --fan-k-silver:var(--gray-300); --fan-k-white:var(--white);
   --fan-k-beige:color-mix(in srgb, var(--orange-100) 70%, var(--gray-400));

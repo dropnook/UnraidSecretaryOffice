@@ -957,9 +957,9 @@ function testFanboyR8Assign(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
     // fanboy-ux (2026-11-15): the card is the output's panel now (panelMake + cpuBlock), its actions queued through send()
-    $card = substr($js, (int) strpos($js, 'function panelMake('), 20000);
+    $card = substr($js, $at = (int) strpos($js, 'function panelMake('), (int) strpos($js, 'function measurePanel(') - $at);   // the panel and its CPU block
     $reach = ["send('role', { fan: id, role: k,", "send('answer', { fan: id, louder: false })", "send('role', { fan: id, role: f.role, count:", "send('role', { fan: id, role: f.role, place:",
-        "send('fan_look', v.id ?", "send('fan_look', { fan: id, colour:", 'backChoice(f, b)', 'cpuBlock(f, benchUpdate)', 'nameField(id, f,', "send('show', { fan: id,"];
+        "send('fan_look', { fan: id, model: v.id,", "send('fan_look', body,", 'backChoice(f, b)', 'cpuBlock(f, benchUpdate)', 'nameField(id, f,', "send('show', { fan: id,"];
     same('fanboy r8 assign: every action of the old roles step reachable from the output\'s panel (role, nothing attached, count, place, model, colour, give back, CPU on own risk, name, show me)',
         [], array_values(array_filter($reach, fn ($x) => !str_contains($card, $x))));
     same('fanboy r8 assign: six steps — the old route …/setup/roles opens «Testen und zuordnen»; no roles step left', [true, false, false],

@@ -31,6 +31,9 @@
   .fb-banner:empty{display:none}
   .fb-callout{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
   .fb-callout > p{margin:0; flex:1 1 280px}
+  /* heat sources in no zone: the sentence, then (in the zones step) «add to «zone»:» and one button per source */
+  .fb-uncovered > .fb-bar{align-items:center}
+  .fb-uncovered .fb-what-label{color:inherit}
   /* the server picture — the hero of the page (owner, round 2): his zones two by two across the page's width, the BIOS's
      own group narrow beside them; bigger walls, chips and air than fan-art.css's defaults (only here) */
   .fb-server.fan-server{margin-top:6px; gap:16px; grid-template-columns:repeat(var(--fb-cols, 2), minmax(0, 1fr));
@@ -238,6 +241,30 @@
   .fb-panel-note{margin:0; font-size:13px; line-height:1.45; color:var(--ink2); min-height:1.45em}
   .fb-fold > summary{cursor:pointer; color:var(--accent-ink); font-size:13px; padding:2px 0}
   .fb-fold-body{display:flex; flex-direction:column; gap:8px; margin-top:8px}
+  /* «Aussehen (fürs Bild)»: the model proposes (picker left, the fan as it will be drawn right), then four controls of his
+     own — frame colour, wheel colour (swatches made of the wheel's own colour tokens), the blades' shape (each a tiny
+     drawn sample) and their number */
+  .fb-look-top{display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; min-width:0}
+  .fb-look-top > .fan-pick{flex:1 1 260px}
+  .fb-look-prev{flex:0 0 auto; width:120px; height:120px}
+  .fb-look-says{display:flex; flex-wrap:wrap; gap:8px; align-items:center; min-height:34px}
+  .fb-look-took{font-size:13px; color:var(--ink2)}
+  .fb-look-rows{display:flex; flex-direction:column; gap:10px; min-width:0}
+  .fb-look-row{display:flex; flex-direction:column; gap:4px; min-width:0}
+  .fb-swatches{display:flex; flex-wrap:wrap; gap:8px}
+  .fb-swatch{width:30px; height:30px; padding:0; border-radius:50%; border:1px solid var(--line2); cursor:pointer; box-shadow:inset 0 0 0 2px var(--surface)}
+  .fb-swatch:hover:not(:disabled){border-color:var(--accent)}
+  .fb-swatch[aria-pressed=true]{border-color:var(--accent); box-shadow:inset 0 0 0 2px var(--surface), 0 0 0 2px var(--accent)}
+  .fb-swatch:disabled, .fb-kind:disabled{opacity:.45; cursor:default}
+  .fb-kinds{display:flex; flex-wrap:wrap; gap:8px}
+  .fb-kind{font:inherit; font-size:12.5px; line-height:1.25; display:flex; flex-direction:column; align-items:center; gap:4px; width:92px; padding:6px 4px;
+    border:1px solid var(--line2); border-radius:var(--radius); background:var(--surface2); color:var(--ink); cursor:pointer; text-align:center}
+  .fb-kind > .fan-wheel{width:38px; height:38px; flex:0 0 auto}
+  .fb-kind:hover:not(:disabled){border-color:var(--accent)}
+  .fb-kind[aria-pressed=true]{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); font-weight:600}
+  .fb-look-row > .seg{align-self:flex-start}
+  /* a click here shows at once (the pressed ring, the preview) — the wave inside these small buttons would only push things around */
+  .fb-swatch .spin, .fb-kind .spin, .fb-look-row .seg .spin{display:none}
   .fb-field-colour{max-width:240px}
   .fb-cpu{border:1px solid var(--line2); border-radius:var(--radius); padding:10px 12px; align-items:flex-start}
   .fb-cpu.fb-cpu-given{border-color:var(--warn); background:var(--warn-soft)}
