@@ -549,7 +549,8 @@ function testFanboyUx(): void
             str_starts_with($l['de']['note.missing_told'], (int) (FANBOY_TELL_AFTER / 60) . ' Minuten') && str_contains($l['en']['note.missing_told'], (string) (int) (FANBOY_TELL_AFTER / 60)),
             str_contains($l['de']['watch.on_title'], 'nach ' . (int) (FANBOY_IDLE_WARM_AFTER / 60) . ' Minuten') && str_contains($l['de']['watch.stands_warm_title'], 'nach ' . (int) (FANBOY_IDLE_WARM_AFTER / 60) . ' Minuten'),
             FANBOY_HISTORY_EVERY === 60.0 && str_contains($l['de']['curves.history_none'], 'einem Punkt pro Minute'),
-            str_contains($l['de']['errors.fanboy_bad_count'], 'Zwischen 1 und ' . FANBOY_COUNT_MAX) && str_contains($l['en']['errors.fanboy_bad_count'], (string) FANBOY_COUNT_MAX),
+            // 2026-11-16 (task/fanboy-truth2): the maximum comes with the refusal (Problem params {max} = FANBOY_COUNT_MAX, testFanboyTimes)
+            str_contains($l['de']['errors.fanboy_bad_count'], 'Zwischen 1 und {max}') && str_contains($l['en']['errors.fanboy_bad_count'], '{max}'),
             str_contains($l['de']['strip.since'], 'höchstens ' . (int) (FANBOY_UP_FOR / 60) . ' Minute')]);
     same('fanboy ux audit: the spans the history offers are the agent\'s', FANBOY_HISTORY_PERIODS, preg_match('/const PERIODS = \[([^\]]+)\];/', $js, $m) ? array_map('intval', explode(',', $m[1])) : []);
     // round 13b on the page: the disks outside array and pools
@@ -925,8 +926,8 @@ function testFanboyStandsKick(): void
             [$kicks <= FANBOY_KICK_MAX, fanboyTOut($t, 4)[0]]);
         fanboyTRounds($c, $now, $t, $stuck, 20);
         same('fanboy stands kick: … exactly one notification however long it stands', 1, count(array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, '-i alert'))));
-        check('fanboy stands kick: … in the words for a fan alone in its zone («… sets it to 100 % until it reports its speed again»)',
-            (bool) array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, 'sets it to 100 % until it reports its speed again')));
+        check('fanboy stands kick: … in the words for a fan alone in its zone («… sets it to 100 % until it turns again and 2 more minutes have passed without an alarm reason»)',
+            (bool) array_filter(fanboyTNotified($t), fn ($l) => str_contains($l, 'sets it to 100 % until it turns again and ' . (int) round(FANBOY_CLEAR_AFTER / 60) . ' more minutes have passed without an alarm reason')));
         same('fanboy stands kick: … the other zone («Case») keeps steering by its curve during the alarm', [102, 102], [fanboyTOut($t, 5)[0], fanboyTOut($t, 2)[0]]);
         // freed: it turns — the alarm clears after FANBOY_CLEAR_AFTER, the curve again
         fanboyTRounds($c, $now, $t, $spec, (int) ceil(FANBOY_CLEAR_AFTER / FANBOY_ROUND) - 2);

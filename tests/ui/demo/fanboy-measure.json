@@ -1911,6 +1911,47 @@
      ]
     ]
    }
+  },
+  "times": {
+   "clear_after": 120,
+   "up_for": 60,
+   "up_min": 8,
+   "show_for": 60,
+   "lease": 45,
+   "tell_after": 900,
+   "idle_warm_after": 120,
+   "stand_after": 15,
+   "history_every": 60,
+   "history_periods": [
+    1,
+    3,
+    6,
+    12,
+    24,
+    72
+   ],
+   "poll_live": 300,
+   "crash_pause": 30,
+   "crash_window": 1800,
+   "crash_max": 3,
+   "net": {
+    "warm_pct": 60,
+    "hot_pct": 100,
+    "gap": 5,
+    "clear": 120
+   }
+  },
+  "limits": {
+   "name_max": 40,
+   "count_max": 8,
+   "zones_max": 8,
+   "sources_max": 32
+  },
+  "restarts": {
+   "deaths": 0,
+   "max": 3,
+   "window": 1800,
+   "given_up": false
   }
  },
  "step": {

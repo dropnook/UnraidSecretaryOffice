@@ -325,7 +325,7 @@ function fanboyNet(array &$c, float $now): int
         $c['net'] = ['level' => max($level, $n['level'] ?? 0), 'since' => $n['since'] ?? time(), 'source' => $worst, 'below_since' => null];
         if ($first) {
             fanboyNote($c, 'net', ['source' => $worst['label'], 'c' => (int) round($worst['c'])]);
-            fanboyTell($c, 'net', 'net_warm', ['source' => $worst['label'], 'c' => (int) round($worst['c'])], 'warning');
+            fanboyTell($c, 'net', 'net_warm', ['source' => $worst['label'], 'c' => (int) round($worst['c']), 'pct' => FANBOY_NET_WARM_PCT], 'warning');
         }
         if ($level >= FANBOY_NET_HOT_PCT) {
             fanboyTell($c, 'net_hot', 'net_hot', ['source' => $worst['label'], 'c' => (int) round($worst['c'])], 'alert');
@@ -1569,7 +1569,8 @@ function fanboyAlarm(array &$c, float $now, array $reasons): void
         // once per thing (round 5: a second fan standing, a second sensor silent is told too — its name in the subject,
         // so Unraid's duplicate guard of the same subject doesn't swallow it either)
         $who = (string) ($what['fan'] ?? $what['source'] ?? $what['zone'] ?? '');
-        fanboyTell($c, "alarm:$code:$who", $key, $what, 'alert');
+        // the numbers the words say, from the code (the zone stays at full FANBOY_CLEAR_AFTER after the reason ended)
+        fanboyTell($c, "alarm:$code:$who", $key, $what + ['min' => (int) round(FANBOY_CLEAR_AFTER / 60)], 'alert');
     }
     $c['reasons'] = $reasons;
     if ($reasons) {
@@ -1605,7 +1606,7 @@ function fanboyMissingTell(array &$c, float $now): void
     if ($c['missing'] !== null && $now - $c['missing']['since'] >= FANBOY_TELL_AFTER && !isset($c['told']['missing'])) {
         fanboyNote($c, 'missing_told', ['minutes' => (int) floor(($now - $c['missing']['since']) / 60)]);
         // gone while he steered: only what is new (still gone, the driver?) — the alert at the moment said the rest
-        fanboyTell($c, 'missing', !empty($c['missing']['stuck']) ? 'missing_stuck' : 'missing', [], 'warning');
+        fanboyTell($c, 'missing', !empty($c['missing']['stuck']) ? 'missing_stuck' : 'missing', ['min' => (int) round(FANBOY_TELL_AFTER / 60)], 'warning');
     }
 }
 

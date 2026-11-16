@@ -238,6 +238,11 @@ function state(o) {
       auto_back_seen: null, uncovered: uncovered(zones, sources(chips, disks)), board: 'Example Boards Inc. | EB-Z100 PRO', others: 0, fans, zones, armed: !!o.armed, outputs: offered.length ? OUTPUTS : [], missing: [],
       sources: sources(chips, disks), curves: curves(zones), before: offered.length ? clone(BEFORE) : {}, back_default: 'auto',
       scales: SCALES, down: DOWN, round: 2, cpu_floor: 40, presets_of: PRESETS_OF,
+      // the numbers the page's sentences state, as the agent's setup state gives them (fanboyTimes(); testFanboyTimes ties both)
+      times: { clear_after: 120, up_for: 60, up_min: 8, show_for: 60, lease: 45, tell_after: 900, idle_warm_after: 120, stand_after: 15, history_every: 60,
+        history_periods: [1, 3, 6, 12, 24, 72], poll_live: 300, crash_pause: 30, crash_window: 1800, crash_max: 3, net: { warm_pct: 60, hot_pct: 100, gap: 5, clear: 120 } },
+      limits: { name_max: 40, count_max: 8, zones_max: 8, sources_max: 32 },
+      restarts: { deaths: 0, max: 3, window: 1800, given_up: false },
     },
     step: o.step || null,
     drivers: o.drivers || { mine: [], last: null, can: true },
