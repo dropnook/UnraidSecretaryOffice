@@ -241,8 +241,8 @@ function testFanboyDesk(): void
         && str_contains($js, "Office.api.post(`\${ID}.step_alive`, {})") && str_contains($js, 'alive = setInterval(beat, ALIVE_MS);')
         && str_contains($js, "if (!view || !stepRuns() || !Office.agent.running) return;") && preg_match('/unmount\(\) \{[^}]*stopAlive\(\);/s', $js) === 1);
     check('fanboy desk: a step can be stopped any time — the strip\'s «Stop everything» while a test, a show or the measuring runs, «Cancel» on the running row\'s panel',
-        str_contains($js, "if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('stop_all'), 'btn small danger', () => stopAll(), T('stop_all_tip')));")
-        && str_contains($js, "send('step_stop', {}, { done: () => Office.toast(T('step.stopped_toast')) })") && str_contains($js, "if (under) out.push(btn(T('test.abort'), 'btn small plain', () => stopAll(), T('step.stop_tip')));"));
+        str_contains($js, "if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('stop_all'), 'btn danger', () => stopAll(), T('stop_all_tip')));")
+        && str_contains($js, "send('step_stop', {}, { done: () => Office.toast(T('step.stopped_toast')) })") && str_contains($js, "if (under) out.push(btn(T('test.abort'), 'btn plain', () => stopAll(), T('step.stop_tip')));"));
     $at = substr($js, (int) strpos($js, 'function stepAtHand()'), 1400);
     $order = array_map(fn ($k) => strpos($at, "return '$k'"), ['detect', 'test', 'measure', 'zones']);
     check('fanboy desk: the step at hand — the first not done, in the wizard\'s order', !in_array(false, $order, true) && $order === array_values(array_unique($order)) && $order == array_values(fanboyTSorted($order)));
@@ -313,7 +313,7 @@ function testFanboyUx(): void
     $strip = substr($js, (int) strpos($js, 'function stripMake() {'), 6500);
     $says = ['strip.idle', 'strip.pause_next', 'strip.pause', 'strip.kick', 'strip.restore', 'strip.test_quiet', 'strip.test', 'strip.show_quiet', 'strip.show', 'strip.measure', 'strip.starting', 'strip.safety', 'strip.keep_open'];
     same('fanboy ux: the strip says what runs at every moment (nothing, a test with the others standing or not, the pause with its seconds, «show me», measuring, safety-full) — and «Stop everything» while anything runs',
-        [[], true, true], [array_values(array_filter($says, fn ($k) => !str_contains($strip, "'$k'"))), str_contains($strip, "if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('stop_all'), 'btn small danger', () => stopAll(), T('stop_all_tip')));"),
+        [[], true, true], [array_values(array_filter($says, fn ($k) => !str_contains($strip, "'$k'"))), str_contains($strip, "if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('stop_all'), 'btn danger', () => stopAll(), T('stop_all_tip')));"),
             str_contains($strip, "root.classList.toggle('fb-strip-stuck', !!run.kind);") && str_contains($css, '.fb-strip-stuck{position:sticky;')]);
     check('fanboy ux: ONE strip for the page — above every step of the setup, on the overview while it has something to say (a show, a test left running, a safety full)',
         str_contains($js, "if (!strip) strip = stripMake();\n      ssw.el.insertBefore(strip.el, ssw.body);") && str_contains($js, "if (state && stripNeeded()) {\n    if (!strip) strip = stripMake();\n    sw.el.insertBefore(strip.el, sw.body);")
@@ -329,7 +329,7 @@ function testFanboyUx(): void
     check('fanboy ux: while an output runs the user answers on its panel — «found» or «heard nothing» (the later question «did it get louder?» only after a minute nobody answered), «cancel»',
         // (round 11: the answer travels with «weiter» and the agent stores it with the verdict — the page sends nothing later)
         str_contains($panel, "send('step_next', { fan: id, heard });") && str_contains($panel, '() => next(true),') && str_contains($panel, '() => next(false),')
-        && !str_contains($js, 'settleHeard') && str_contains($panel, "btn(T('ask.yes'), 'btn small', () => send('answer', { fan: id, louder: true }),"));
+        && !str_contains($js, 'settleHeard') && str_contains($panel, "btn(T('ask.yes'), 'btn', () => send('answer', { fan: id, louder: true }),"));
     check('fanboy ux: a button that can\'t act is never dead — set back, and a click says why (toast and strip); the line under the buttons says it too (another output runs, the pause, another controller, he steers, the messenger away)',
         str_contains($panel, "reason = T('panel.busy', { fan: run.id ? fanSay(run.id) : '' });") && str_contains($panel, "reason = T('panel.pause');") && str_contains($panel, 'else if (!run.kind && noTest) reason = noTest;')
         && str_contains($panel, "else if (away) reason = T('strip.away');") && str_contains($panel, 'setText(why, reason);')
@@ -358,7 +358,7 @@ function testFanboyUx(): void
     check('fanboy ux: round 12 on the page — the measuring\'s standstill phases in the strip and on the fan\'s panel, what it found in a sentence, «may stand still» by the measuring\'s proof (the agent\'s `stand`), chosen-but-not-in-effect said beside the box',
         str_contains($js, "r.part = { phase: p.phase, pct: num(p.pct), left: secsTo(p.until) };") && str_contains($js, "T(`strip.m.\${pt.phase}`, { fan: fanSay(run.id), pct: pt.pct ?? '–' })")
         && str_contains($js, 'function standLine(f) {') && str_contains($js, "if (!st) return T('zones.stand_again');") && str_contains($js, "if (st.stops_safe !== true) return T('zones.stand_unsafe');")
-        && str_contains($js, "if (f.off_ok && f.off_why && has(`off_why.\${f.off_why}`))") && str_contains($js, "body: T('zones.cpu_stand_text', { c: from, c5: from - 5 }),"));
+        && str_contains($js, "if (f.off_ok && f.off_why && has(`off_why.\${f.off_why}`))") && str_contains($js, 'body: cpuStandWords(f),'));
     $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/lang/de.json'), true);
     check('fanboy ux: the trail\'s words are the same in the list and the next bar (not tested · question open · role missing · the role · nothing attached); the CPU cooler says who steers it',
         str_contains($js, "T('next.item', { fan: fanSay(id), why: T({ test: 'label.untested', ask: 'label.ask', role: 'label.what' }[w]) })")
@@ -367,12 +367,12 @@ function testFanboyUx(): void
         str_contains($js, 'const no = standWhy(f);') && str_contains($js, "if (no) row.appendChild(el('span', 'fb-stand-no', no));") && str_contains($js, 'await save({ cpu_off_confirm: true });')
         && str_contains($js, "if (f.role === 'pump' || (f.role === 'cpu' && !f.cpu_own)) return T('zones.stand_never');") && str_contains($js, "snapBack(unit, 'pct', T('zones.unit_off'))") && str_contains($js, "snapBack(choose, 'own', T('zones.preset_pct'))"));
     check('fanboy ux: set to full for safety — said on the output\'s panel and in the strip, each with the way back',
-        str_contains($panel, "btn(T('safety.back'), 'btn small', () => send('safety_back', { fan: id }), T('safety.back_tip', { pct: safetyPct(sf) }));") && str_contains($strip, "send('safety_back', { fan: run.safety[0].id, all: true })")
+        str_contains($panel, "btn(T('safety.back'), 'btn', () => send('safety_back', { fan: id }), T('safety.back_tip', { pct: safetyPct(sf) }));") && str_contains($strip, "send('safety_back', { fan: run.safety[0].id, all: true })")
         && str_contains($js, "if (sx) return ['warn', T('safety.chip'),") && str_contains($panel, "waits ? el('p', 'fb-safety-wait', T('safety.wait')) : null"));
     $cpu = substr($js, (int) strpos($js, 'function cpuBlock('), 2600);
     check('fanboy ux: the CPU cooler\'s block stands right under «What is it?» (never behind a fold) — given to Fanboy: since when, and «Back to the BIOS» there',
         str_contains($panel, 'root.append(head, safety, what, cpu, fields, note, look, back);') && str_contains($cpu, "box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));")
-        && str_contains($cpu, "btn(T('cpu.back'), 'btn small', () => send('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }),") && str_contains($cpu, "cpu_own: true, cpu_confirm: tick.checked }"));
+        && str_contains($cpu, "btn(T('cpu.back'), 'btn', () => send('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }),") && str_contains($cpu, "cpu_own: true, cpu_confirm: tick.checked }"));
     check('fanboy ux: selects and text fields in the office\'s field look (office.css .input — never the browser\'s white box)',
         str_contains($js, "const n = el(tag, 'input small fb-input');") && str_contains($js, "n = inputEl('input', 'text');") && str_contains($panel, "const place = inputEl('select');")
         && str_contains($panel, "pk.el.querySelectorAll('select').forEach((x) => { x.classList.add('input', 'small', 'fb-input'); });"));
@@ -403,6 +403,24 @@ function testFanboyUx(): void
         && str_contains($js, "setText(colour.options[0], isModel ? T('colour.model') : T('colour.auto'));"));
     check('fanboy ux: no text of the page speaks of a «card» or of «More» any more (de, en)', !preg_match('/\bKarte\b|«Mehr»/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de'])))
         && !preg_match('/(?<!graphics )\bcards?\b|«More»/i', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['en']))));
+    // the owner, 2026-11-15: «kein AI-Slop, der nicht stimmt» — no sentence names a number the state doesn't give
+    check('fanboy ux: the CPU cooler\'s «may stand» confirmation is built from the state only — no temperature unless the control reports it (starts_at), no seconds, no claim about the mainboard\'s automatic',
+        str_contains($js, "out.push(cf && control().running && num(cf.starts_at) !== null ? T('cpustand.starts', { c: fmt.number(cf.starts_at) }) : T('cpustand.starts_later'));")
+        && str_contains($js, "out.push(T('cpustand.gone_unknown'));") && !isset($de['zones.cpu_stand_text']) && !preg_match('/\d/', $de['cpustand.what'] . $de['cpustand.starts_later'] . $de['cpustand.gone_unknown']));
+    $control = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-control.php');
+    preg_match('/const FLOOR_MARGIN = (\d+);/', $js, $fm);
+    preg_match('/const BLIND_FLOOR = (\d+);/', $js, $bf);
+    preg_match('/const FANBOY_FLOOR_MARGIN = (\d+);/', $control, $afm);
+    preg_match('/const FANBOY_BLIND_FLOOR = (\d+);/', $control, $abf);
+    same('fanboy ux: the page\'s floors are the control\'s (lowest steady value + margin, the blind floor)', [$afm[1] ?? null, $abf[1] ?? null], [$fm[1] ?? '', $bf[1] ?? '']);
+    check('fanboy ux: the curve chart draws what the control applies for the zone\'s first fan — its floor, and standing only where it may and the curve asks for nothing — and says it in a sentence of those numbers',
+        str_contains($js, "apply: rpmUnit ? undefined : (v) => (stands && v < 0.5 ? 0 : Math.max(v, floorPct)),") && str_contains($js, "const stands = !!lead.off_ok && !standWhy(lead) && !isCpu;")
+        && str_contains($js, "const says = para(curveWords(pts, floorPct, stands, isCpu && !!lead.off_ok), 'fb-curve-says');") && str_contains($art, "const applied = (v) => (typeof o.apply === 'function' ? o.apply(v) : v);")
+        && str_contains($art, "line.setAttribute('class', 'fan-curve-line fan-curve-wish');"));
+    check('fanboy ux: sentences that take numbers from the state are marked (data-nums) and the picture tool compares each with the demo state it shows',
+        substr_count($js, '.dataset.nums = JSON.stringify(') >= 3 && str_contains($tool, "if (want !== x.v) faults.push(") && str_contains($tool, 'is not in its sentence'));
+    check('fanboy ux: one button size per row — every button of the setup is the office\'s .btn (the fill tells primary from secondary); no «small» beside a full one',
+        !preg_match('/btn small/', substr($js, (int) strpos($js, 'function stripMake() {'), (int) strpos($js, '// ------------------------------------------------------------------ the page') - (int) strpos($js, 'function stripMake() {'))));
     same('fanboy ux: a demo state for each moment of step 2', [], array_values(array_filter(['fanboy-uxrun', 'fanboy-uxpause', 'fanboy-uxfound', 'fanboy-uxsafety', 'fanboy-uxopen'],
         fn ($n) => !is_file(OFFICE_DIR . "/tests/ui/demo/$n.json"))));
 }

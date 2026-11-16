@@ -726,7 +726,6 @@
   "errors.fanboy_cpu_confirm": "Marca primero la casilla: Fanboy solo regula el disipador de la CPU con tu confirmación.",
   "errors.fanboy_cpu_no_auto": "Esta salida no tiene un automático de la placa base — el disipador de la CPU se queda con la BIOS.",
   "errors.fanboy_cpu_zone_needs_cpu": "Una zona con el disipador de la CPU necesita una temperatura de la CPU como fuente de calor.",
-  "curve.floor_cpu": "nunca por debajo ({pct} %)",
   "situation.steers_cpu": {
     "one": "Fanboy regula los ventiladores que le diste, en {n} zona — también el disipador de la CPU, bajo tu riesgo. Las bombas y todo lo demás siguen con la BIOS.",
     "other": "Fanboy regula los ventiladores que le diste, en {n} zonas — también el disipador de la CPU, bajo tu riesgo. Las bombas y todo lo demás siguen con la BIOS."
@@ -994,7 +993,6 @@
   "zones.stand_measure": "puede pararse: mídelo primero",
   "zones.stand_unsafe": "nunca se para — no vuelve a arrancar con seguridad",
   "zones.cpu_stand_title": "¿Dejar que el disipador de la CPU se pare?",
-  "zones.cpu_stand_text": "Puede pararse del todo mientras la CPU esté fría — la CPU tiene entonces que arreglarse sin ventilador. Vuelve a arrancar al instante desde {c} °C y solo se para de nuevo cuando la CPU ha estado un minuto por debajo de {c5} °C. Si Fanboy falla, toma el relevo el automatismo de la placa base — como muy tarde tras unos 30 segundos. Si todo el servidor se cuelga, se queda parado y la CPU se protege sola (va más lenta o se apaga).",
   "zones.cpu_stand_go": "Sí, puede pararse — por mi cuenta y riesgo",
   "zones.preset_pct": "Silencioso, normal y fresco solo existen en porcentaje — pon primero «En» en porcentaje.",
   "strip.m.stop_check": "Comprobando la parada: {fan} está al 0 % — ¿se para?",
@@ -1018,5 +1016,14 @@
   "off_why.not_measured": "aún no vale: mídelo primero",
   "off_why.cpu_off_confirm": "aún no vale: falta tu confirmación",
   "pic.stands_until": "parado (puede) · vuelve a arrancar desde {c} °C",
-  "pic.stands_ok": "parado — puede"
+  "pic.stands_ok": "parado — puede",
+  "curve.says_stand": "Parado hasta {t} °C. Por encima gira al menos al {floor} %.",
+  "curve.says_floor": "Nunca gira por debajo del {floor} % — también donde la curva pide menos.",
+  "curve.says_full": "Al máximo desde {t} °C.",
+  "curve.says_cpu": "Mientras gira recibe al menos el {floor} %. Cuándo se para lo decide la temperatura de la CPU, no esta curva.",
+  "curve.floor_min": "nunca por debajo del {pct} %",
+  "cpustand.what": "Puede pararse del todo mientras la CPU esté fría — la CPU tiene entonces que arreglarse sin ventilador.",
+  "cpustand.starts": "Ahora mismo vuelve a arrancar desde {c} °C.",
+  "cpustand.starts_later": "Desde qué temperatura vuelve a arrancar lo muestra el resumen en este ventilador en cuanto Fanboy regule.",
+  "cpustand.gone_unknown": "Qué le pasa si Fanboy falla aún no se ha comprobado en tu placa base."
 }

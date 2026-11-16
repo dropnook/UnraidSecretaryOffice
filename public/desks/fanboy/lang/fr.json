@@ -726,7 +726,6 @@
   "errors.fanboy_cpu_confirm": "Coche d'abord la case : Fanboy ne règle le ventirad du CPU qu'avec ta confirmation.",
   "errors.fanboy_cpu_no_auto": "Cette sortie n'a pas d'automatique de la carte mère — le ventirad du CPU reste au BIOS.",
   "errors.fanboy_cpu_zone_needs_cpu": "Une zone avec le ventirad du CPU a besoin d'une température du CPU comme source de chaleur.",
-  "curve.floor_cpu": "jamais en dessous ({pct} %)",
   "situation.steers_cpu": {
     "one": "Fanboy règle les ventilateurs que tu lui as confiés, dans {n} zone — le ventirad du CPU aussi, à tes risques. Les pompes et tout le reste restent au BIOS.",
     "other": "Fanboy règle les ventilateurs que tu lui as confiés, dans {n} zones — le ventirad du CPU aussi, à tes risques. Les pompes et tout le reste restent au BIOS."
@@ -994,7 +993,6 @@
   "zones.stand_measure": "peut s'arrêter : mesure-le d'abord",
   "zones.stand_unsafe": "ne s'arrête jamais — il ne redémarre pas sûrement",
   "zones.cpu_stand_title": "Laisser le refroidisseur du CPU s'arrêter ?",
-  "zones.cpu_stand_text": "Il peut s'arrêter complètement tant que le CPU est frais — le CPU doit alors se passer de ventilateur. Il repart aussitôt dès {c} °C et ne s'arrête de nouveau qu'après une minute sous {c5} °C. Si Fanboy fait défaut, l'automatisme de la carte mère prend le relais — au plus tard après environ 30 secondes. Si tout le serveur se fige, il reste à l'arrêt et le CPU se protège lui-même (il ralentit ou s'éteint).",
   "zones.cpu_stand_go": "Oui, il peut s'arrêter — à mes risques",
   "zones.preset_pct": "Silencieux, normal et frais n'existent qu'en pourcentage — règle d'abord « En » sur pourcentage.",
   "strip.m.stop_check": "Vérification de l'arrêt : {fan} est à 0 % — s'arrête-t-il ?",
@@ -1018,5 +1016,14 @@
   "off_why.not_measured": "pas encore actif : mesure-le d'abord",
   "off_why.cpu_off_confirm": "pas encore actif : ta confirmation manque",
   "pic.stands_until": "à l'arrêt (il peut) · repart dès {c} °C",
-  "pic.stands_ok": "à l'arrêt — il peut"
+  "pic.stands_ok": "à l'arrêt — il peut",
+  "curve.says_stand": "À l'arrêt jusqu'à {t} °C. Au-dessus, il tourne à au moins {floor} %.",
+  "curve.says_floor": "Ne tourne jamais sous {floor} % — même là où la courbe demande moins.",
+  "curve.says_full": "À fond dès {t} °C.",
+  "curve.says_cpu": "Tant qu'il tourne, il reçoit au moins {floor} %. Quand il s'arrête, c'est la température du CPU qui en décide, pas cette courbe.",
+  "curve.floor_min": "jamais sous {pct} %",
+  "cpustand.what": "Il peut s'arrêter complètement tant que le CPU est frais — le CPU doit alors se passer de ventilateur.",
+  "cpustand.starts": "En ce moment, il repart dès {c} °C.",
+  "cpustand.starts_later": "À partir de quelle température il repart, la vue d'ensemble le montre à ce ventilateur dès que Fanboy règle.",
+  "cpustand.gone_unknown": "Ce qui lui arrive si Fanboy fait défaut n'a pas encore été vérifié sur ta carte mère."
 }

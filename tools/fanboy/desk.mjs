@@ -223,7 +223,7 @@ if (opt.shots) {
 // once on a page, never again in a step
 if (opt.callouts) {
   const states = fs.readdirSync(path.join(REPO, 'tests', 'ui', 'demo')).filter((f) => /^fanboy(-[a-z]+)?\.json$/.test(f) && f !== 'fanboy-history.json').map((f) => f.replace(/\.json$/, ''));
-  let pages = 0;
+  let pages = 0, numbers = 0;
   for (const state of states) {
     for (const route of ['fanboy', 'fanboy/setup']) {
       const { ctx, page, tag } = await open(state, route, { scale: 1 });
@@ -244,6 +244,23 @@ if (opt.callouts) {
       const back = await callouts();
       const again = [...new Set(back.filter((x, i) => back.indexOf(x) !== i))];
       for (const x of again) faults.push(`${tag}: the same callout twice after a visit to the other page and back — «${x.slice(0, 90)}»`);
+      // every number a sentence of his page takes from the state equals the state's value at that moment (2026-11-15, the
+      // owner: a confirmation named degrees and seconds nobody had checked): elements carry data-nums = [{v, from: [path…],
+      // via?}] — a path part «=<id>» picks the entry with that id; `via` names how the page derives it (as the agent does)
+      const VIA = { floor: (f) => { const b = f.measured && f.found === 'tach' && typeof f.min_pct === 'number' ? Math.min(100, f.min_pct + 5) : 40; return f.role === 'cpu' && f.cpu_own ? Math.max(b, 40) : b; },
+        pct255: (v) => Math.round(v / 2.55) };
+      const demo = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'demo', `${state}.json`), 'utf8'));
+      const marked = await page.evaluate(() => [...document.querySelectorAll('#sso-desk [data-nums]')].filter((n) => n.getClientRects().length).map((n) => ({ text: n.textContent, nums: n.dataset.nums })));
+      for (const m of marked) {
+        for (const x of JSON.parse(m.nums || '[]')) {
+          let at = demo;
+          for (const part of x.from) at = at == null ? at : String(part).startsWith('=') ? (Array.isArray(at) ? at.find((e) => e && e.id === String(part).slice(1)) : undefined) : at[part];
+          const want = x.via ? VIA[x.via](at) : at;
+          numbers++;
+          if (want !== x.v) faults.push(`${tag}: a sentence shows ${x.v} where the state has ${JSON.stringify(want)} (${x.from.join('/')}) — «${m.text.slice(0, 80)}»`);
+          else if (!m.text.replace(/[^0-9]/g, '').includes(String(x.v).replace(/[^0-9]/g, ''))) faults.push(`${tag}: the state's ${x.v} (${x.from.join('/')}) is not in its sentence — «${m.text.slice(0, 80)}»`);
+        }
+      }
       const banners = await page.evaluate(() => document.querySelectorAll('#sso-desk .fb-banner').length);
       if (banners !== 1) faults.push(`${tag}: ${banners} banner elements on the page (exactly one, moved — never made anew)`);
       pages++;
@@ -251,6 +268,7 @@ if (opt.callouts) {
     }
   }
   console.log(`fanboy desk: callouts — ${pages} pages shown whole and again after the other page and back (${states.length} demo states × 2 routes), ${faults.filter((f) => f.includes('callout twice') || f.includes('banner elements')).length} with a text twice`);
+  console.log(`fanboy desk: ${numbers} numbers in marked sentences compared with the state (${faults.filter((f) => f.includes('where the state has') || f.includes('is not in its sentence')).length} wrong)`);
 }
 
 // ------------------------------------------------------------------ the overview's picture as an animated PNG (as look.mjs)

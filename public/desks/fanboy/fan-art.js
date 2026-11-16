@@ -68,6 +68,8 @@
               tMin 20, tMax 80, vMin 0, vMax 100 (rpm: the fan's max), floor (lowest stable value, a dashed line),
               now (the zone's temperature now, a mark), fan: a wheel's fan (mm, blades, min, max, colour, look),
               rpmAt(percent) → rpm (the fan's measured table; else percent of max, never under min),
+              apply(v) → the value as the control applies it (the fan's floor, its standstill): drawn bold and filled,
+              the points' own line thin where he drags (none: the points are the truth),
               texts: { axisT, axisV, tickT(t), tickV(v), point(i, n) → aria label, value(t, v) → aria value text,
                        readout(t, v, rpm) → the line beside the wheel, floor, now },
               onInput(points) while dragging, onChange(points) when a change is done }
@@ -737,11 +739,12 @@
     const grid = svg('g', { class: 'fan-curve-grid' });
     const area = svg('path', { class: 'fan-curve-area' });
     const line = svg('polyline', { class: 'fan-curve-line' });
+    const eff = svg('polyline', { class: 'fan-curve-eff' });
     const ends = svg('g', { class: 'fan-curve-ends' });
     const marks = svg('g', { class: 'fan-curve-marks' });
     const cross = svg('line', { class: 'fan-curve-cross', y1: PT, y2: H - PB, visibility: 'hidden' });
     const dots = svg('g', { class: 'fan-curve-dots' });
-    s.append(grid, area, line, ends, marks, cross, dots);
+    s.append(grid, area, line, eff, ends, marks, cross, dots);
 
     function mark(cls, x1, y1, x2, y2, label, lx, ly, anchor) {
       marks.appendChild(svg('line', { class: cls, x1, y1, x2, y2 }));
@@ -777,9 +780,11 @@
         mark('fan-curve-now', x(o.now), PT, x(o.now), H - PB, tx.now, x(o.now) + (right ? -5 : 5), PT + 12, right ? 'end' : 'start');
       }
     }
+    /** the value as the control applies it (o.apply: the fan's floor, its standstill) — the truth the chart draws bold */
+    const applied = (v) => (typeof o.apply === 'function' ? o.apply(v) : v);
     let shownT = typeof o.now === 'number' ? o.now : null;
     function show(t) {
-      const v = valueAt(t), r = Math.round(rpmOf(v));
+      const v = applied(valueAt(t)), r = Math.round(rpmOf(v));
       wh.update({ rpm: r, state: r > 0 ? 'run' : 'stopped' });
       read.textContent = tx.readout(Math.round(t), rpm ? Math.round(v) : Math.round(v), r);
     }
@@ -787,7 +792,15 @@
       const xy = pts.map((p) => `${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`);
       line.setAttribute('points', xy.join(' '));
       const first = pts[0], last = pts[pts.length - 1];
-      area.setAttribute('d', `M${PL},${H - PB} L${PL},${y(first.v)} L${xy.join(' L')} L${W - PR},${y(last.v)} L${W - PR},${H - PB}Z`);
+      if (typeof o.apply === 'function') {
+        // what the fan really gets: the curve after its floor and its standstill, a step where it starts — drawn bold and
+        // filled; the points' own line stays, thin, where he drags
+        const exy = [];
+        for (let t = tMin; t <= tMax + 1e-6; t += 0.25) exy.push(`${x(t).toFixed(1)},${y(applied(valueAt(t))).toFixed(1)}`);
+        eff.setAttribute('points', exy.join(' '));
+        line.setAttribute('class', 'fan-curve-line fan-curve-wish');
+        area.setAttribute('d', `M${PL},${H - PB} L${exy.join(' L')} L${W - PR},${H - PB}Z`);
+      } else area.setAttribute('d', `M${PL},${H - PB} L${PL},${y(first.v)} L${xy.join(' L')} L${W - PR},${y(last.v)} L${W - PR},${H - PB}Z`);
       ends.replaceChildren(svg('line', { x1: PL, x2: x(first.t), y1: y(first.v), y2: y(first.v) }),
         svg('line', { x1: x(last.t), x2: W - PR, y1: y(last.v), y2: y(last.v) }));
       pts.forEach((p, i) => {

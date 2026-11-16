@@ -726,7 +726,6 @@
   "errors.fanboy_cpu_confirm": "Tick the box first: Fanboy steers the CPU cooler only with your confirmation.",
   "errors.fanboy_cpu_no_auto": "This output has no mainboard automatic — the CPU cooler stays with the BIOS.",
   "errors.fanboy_cpu_zone_needs_cpu": "A zone with the CPU cooler needs a CPU temperature as a heat source.",
-  "curve.floor_cpu": "never under ({pct} %)",
   "situation.steers_cpu": {
     "one": "Fanboy steers the fans you gave him, in {n} zone — the CPU cooler too, at your risk. Pumps and everything else stay with the BIOS.",
     "other": "Fanboy steers the fans you gave him, in {n} zones — the CPU cooler too, at your risk. Pumps and everything else stay with the BIOS."
@@ -994,7 +993,6 @@
   "zones.stand_measure": "may stand still: measure it first",
   "zones.stand_unsafe": "never stands — it doesn't start again safely",
   "zones.cpu_stand_title": "Let the CPU cooler stand still?",
-  "zones.cpu_stand_text": "It may stop completely while the CPU is cool — the CPU then has to do without a fan. It starts again at once from {c} °C and only stops again after the CPU was under {c5} °C for a minute. If Fanboy fails, the mainboard's automatic takes over — after about 30 seconds at the latest. If the whole server hangs, it stays standing and the CPU protects itself (it gets slower or switches off).",
   "zones.cpu_stand_go": "Yes, it may stand — at my own risk",
   "zones.preset_pct": "Quiet, normal and cool exist only in percent — set «In» to percent first.",
   "strip.m.stop_check": "Checking the standstill: {fan} is at 0 % — does it stop?",
@@ -1018,5 +1016,14 @@
   "off_why.not_measured": "not in effect: measure it first",
   "off_why.cpu_off_confirm": "not in effect: your confirmation is missing",
   "pic.stands_until": "stands (it may) · runs again from {c} °C",
-  "pic.stands_ok": "stands — it may"
+  "pic.stands_ok": "stands — it may",
+  "curve.says_stand": "Stands still up to {t} °C. Above that it runs with at least {floor} %.",
+  "curve.says_floor": "Never runs under {floor} % — also where the curve asks for less.",
+  "curve.says_full": "Full speed from {t} °C.",
+  "curve.says_cpu": "While it runs it gets at least {floor} %. When it stands is decided by the CPU's temperature, not by this curve.",
+  "curve.floor_min": "never under {pct} %",
+  "cpustand.what": "It may stop completely while the CPU is cool — the CPU then has to do without a fan.",
+  "cpustand.starts": "Right now it starts again from {c} °C.",
+  "cpustand.starts_later": "From which temperature it starts again is shown in the overview at this fan once Fanboy steers.",
+  "cpustand.gone_unknown": "What happens to it when Fanboy fails has not been checked on your mainboard yet."
 }

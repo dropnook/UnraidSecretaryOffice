@@ -1747,7 +1747,7 @@ function stopAll() {
 const noTestWhy = () => (situation() === 'other' ? T('step.blocked_other') : control().running ? T('step.blocked_steering') : '');
 /** A button of the bench: its click queued (send), off only with its reason said beside it — never by a silent gate */
 function btn(text, cls, on, tip) {
-  const b = el('button', cls === undefined ? 'btn small plain' : cls, text);
+  const b = el('button', cls === undefined ? 'btn plain' : cls, text);
   b.type = 'button';
   b.dataset.own = '1';
   if (tip) b.title = tip;
@@ -1948,10 +1948,10 @@ function stripMake() {
       const out = [];
       // set to full for safety: back to the value before, for all of them at once (each panel has its own button)
       if (run.safety.length && !run.kind) {
-        out.push(btn(T(run.safety.length > 1 ? 'safety.back_all' : 'safety.back'), 'btn small', () => send('safety_back', { fan: run.safety[0].id, all: true }),
+        out.push(btn(T(run.safety.length > 1 ? 'safety.back_all' : 'safety.back'), 'btn', () => send('safety_back', { fan: run.safety[0].id, all: true }),
           run.safety.length > 1 ? T('safety.back_tip_all') : T('safety.back_tip', { pct: safetyPct(run.safety[0]) })));
       }
-      if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('stop_all'), 'btn small danger', () => stopAll(), T('stop_all_tip')));
+      if (['test', 'show', 'measure'].includes(run.kind)) out.push(btn(T('stop_all'), 'btn danger', () => stopAll(), T('stop_all_tip')));
       if (!Office.agent.running) out.forEach((b) => offBtn(b, T('strip.away')));
       return out;
     });
@@ -2094,7 +2094,7 @@ function listPanel(o) {
 }
 /** «Next: <step>» in a next bar: primary once nothing of this step is open */
 function goButton(to, primary) {
-  const b = btn(T('step.next', { name: T(`step.${to}`) }), primary ? 'btn' : 'btn small plain', () => { setupSwitcher().pick(to); drawn = ''; redraw(); });
+  const b = btn(T('step.next', { name: T(`step.${to}`) }), primary ? 'btn' : 'btn plain', () => { setupSwitcher().pick(to); drawn = ''; redraw(); });
   b.dataset.go = '1';
   return b;
 }
@@ -2364,20 +2364,20 @@ function panelMake(id, benchRun, benchUpdate) {
       } else if (here) {
         const next = (heard) => { expect({ note: T('strip.ending'), ending: id, done: () => { const r = runNow(); return r.id !== id || !!r.pause || !r.kind; } }); send('step_next', { fan: id, heard }); };
         out.push(btn(T(more ? 'test.found_next' : 'test.found_done'), 'btn', () => next(true), T('test.found_next_tip')));
-        out.push(btn(T(more ? 'test.none_next' : 'test.none_done'), 'btn small plain', () => next(false), T('test.none_tip')));
-        out.push(btn(T('test.abort'), 'btn small plain', () => send('step_stop', {}, { done: () => Office.toast(T('step.stopped_toast')) }), T('test.abort_tip')));
+        out.push(btn(T(more ? 'test.none_next' : 'test.none_done'), 'btn plain', () => next(false), T('test.none_tip')));
+        out.push(btn(T('test.abort'), 'btn plain', () => send('step_stop', {}, { done: () => Office.toast(T('step.stopped_toast')) }), T('test.abort_tip')));
       } else if (['ask', 'unclear'].includes(found) && !run.kind) {
-        out.push(btn(T('ask.yes'), 'btn small', () => send('answer', { fan: id, louder: true }), T('test.yes_tip')));
-        out.push(btn(T('ask.no'), 'btn small', () => send('answer', { fan: id, louder: false }), T('test.no_tip')));
-        out.push(btn(T('test.again_long'), 'btn small plain', () => startTest([id]), T('test.again_tip')));
+        out.push(btn(T('ask.yes'), 'btn', () => send('answer', { fan: id, louder: true }), T('test.yes_tip')));
+        out.push(btn(T('ask.no'), 'btn', () => send('answer', { fan: id, louder: false }), T('test.no_tip')));
+        out.push(btn(T('test.again_long'), 'btn plain', () => startTest([id]), T('test.again_tip')));
       } else if (!found && !leftAlone(f)) {
         // untested: the primary «Start the test» runs every open output in the board's order, this one first
         const rest = [id, ...open.filter((x) => x !== id)];
         out.push(btn(open.length > 1 ? T('test.start') : T('test.start_one'), 'btn', () => startTest(open.length > 1 ? rest : [id]), open.length > 1 ? T('test.all_tip') : T('test.one_tip')));
-        if (open.length > 1) out.push(btn(T('test.only'), 'btn small plain', () => startTest([id]), T('test.one_tip')));
+        if (open.length > 1) out.push(btn(T('test.only'), 'btn plain', () => startTest([id]), T('test.one_tip')));
       } else {
-        out.push(btn(leftAlone(f) ? T('test.start_one') : T('test.again_long'), 'btn small plain', () => startTest([id]), T('test.one_tip')));
-        if (['tach', 'silent'].includes(found)) out.push(btn(T('show.button'), 'btn small plain', () => { expect({ now: T('strip.starting_show', { fan: fanSay(id) }), done: () => !!runNow().kind }); send('show', { fan: id, quiet: quietOn() && !control().running }, { fresh: true }); }, T('show.tip')));
+        out.push(btn(leftAlone(f) ? T('test.start_one') : T('test.again_long'), 'btn plain', () => startTest([id]), T('test.one_tip')));
+        if (['tach', 'silent'].includes(found)) out.push(btn(T('show.button'), 'btn plain', () => { expect({ now: T('strip.starting_show', { fan: fanSay(id) }), done: () => !!runNow().kind }); send('show', { fan: id, quiet: quietOn() && !control().running }, { fresh: true }); }, T('show.tip')));
       }
       // answering the question writes no output: only the messenger away sets it back; a test or a show needs the way free.
       // Set back, never dead: a click says why.
@@ -2390,7 +2390,7 @@ function panelMake(id, benchRun, benchUpdate) {
       const going = restoreRuns() && (restoreNow().fans || []).includes(id);
       const waits = !going && (stepRuns() || showRuns() || restoreRuns());
       swap(safety, [sf.why || '', safetyPct(sf), away, going, waits], () => {
-        const b = btn(T('safety.back'), 'btn small', () => send('safety_back', { fan: id }), T('safety.back_tip', { pct: safetyPct(sf) }));
+        const b = btn(T('safety.back'), 'btn', () => send('safety_back', { fan: id }), T('safety.back_tip', { pct: safetyPct(sf) }));
         if (going) { b.classList.add('running'); b.replaceChildren(wave(), el('span', '', T('safety.backing'))); b.disabled = true; }
         else if (away || waits) offBtn(b, away ? T('strip.away') : T('safety.wait'));
         const text = el('p', '', T(sf.why === 'not_back' ? 'safety.not_back' : 'safety.no_restart', { pct: safetyPct(sf) }));
@@ -2470,7 +2470,7 @@ function cpuBlock(f, again) {
   if (f.cpu_own) {
     box.classList.add('fb-cpu-given');
     box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));
-    box.appendChild(bar(btn(T('cpu.back'), 'btn small', () => send('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }), T('cpu.back_tip'))));
+    box.appendChild(bar(btn(T('cpu.back'), 'btn', () => send('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }), T('cpu.back_tip'))));
     return box;
   }
   if (!['tach', 'silent', 'unclear'].includes(f.found)) { box.appendChild(para(T('roles.bios_note.cpu'))); return box; }
@@ -2702,14 +2702,14 @@ function measurePanel(id, api) {
     const open = toMeasure();
     swap(acts, [under, run.kind, queued, !!f.measured, !!f.no_turn, !!noRun, away, open, open[0] === id, reason], () => {
       const out = [];
-      if (under) out.push(btn(T('test.abort'), 'btn small plain', () => stopAll(), T('step.stop_tip')));
+      if (under) out.push(btn(T('test.abort'), 'btn plain', () => stopAll(), T('step.stop_tip')));
       else if (queued) return out;
       else if (!f.measured && !f.no_turn) {
         // the primary «Measure all»: every fan not measured yet, this one first
         const rest = [id, ...open.filter((x) => x !== id)];
         out.push(btn(open.length > 1 ? T('measure.all') : T('measure.one'), 'btn', () => startMeasure(open.length > 1 ? rest : [id]), open.length > 1 ? T('measure.all_tip') : T('measure.one_tip')));
-        if (open.length > 1) out.push(btn(T('measure.only'), 'btn small plain', () => startMeasure([id]), T('measure.one_tip')));
-      } else out.push(btn(T('measure.again'), 'btn small plain', () => startMeasure([id]), T('measure.one_tip')));
+        if (open.length > 1) out.push(btn(T('measure.only'), 'btn plain', () => startMeasure([id]), T('measure.one_tip')));
+      } else out.push(btn(T('measure.again'), 'btn plain', () => startMeasure([id]), T('measure.one_tip')));
       if (!under && (run.kind || noRun || away)) out.forEach((b) => offBtn(b, reason || T('strip.away')));
       return out;
     });
@@ -2718,6 +2718,11 @@ function measurePanel(id, api) {
     swap(table, [rows || null, under ? null : [f.min_pct, f.start_pct]], () => (Array.isArray(rows) && rows.length ? tableEl(rows, under ? null : f) : para(T('measure.table_none'))));
     // what the standstill part found; a fan measured before it existed says what a new measuring would add
     setText(note, under ? '' : standLine(f) || (f.measured && !f.stand ? T('stand.unknown') : num(f.kick_start) !== null ? T('assign.kick', { pct: Math.round(f.kick_start / 2.55) }) : ''));
+    const st = f.stand || {};
+    const nums = under ? [] : st.stops === false ? [['floor_rpm', st.floor_rpm]] : st.stops_safe === false ? [] : num(st.start_from_stop) !== null ? [['start_from_stop', st.start_from_stop]] : num(st.kick_start) !== null ? [['kick_start', st.kick_start]] : [];
+    note.dataset.nums = JSON.stringify(nums.filter(([, v]) => num(v) !== null).map(([k, v]) => ({ v, from: ['setup', 'fans', `=${id}`, 'stand', k] })));
+    line.dataset.nums = JSON.stringify(!under && !queued && !f.no_turn && f.measured ? [{ v: f.min_pct, from: ['setup', 'fans', `=${id}`, 'min_pct'] }, { v: f.start_pct, from: ['setup', 'fans', `=${id}`, 'start_pct'] },
+      { v: f.max_rpm, from: ['setup', 'fans', `=${id}`, 'max_rpm'] }] : []);
   }
   update();
   return { el: root, update, destroy() { if (wh) wh.destroy(); } };
@@ -2768,13 +2773,13 @@ function zonesStep() {
   const ours = (su.fans || []).filter((f) => isOurs(f) && ['tach', 'silent'].includes(f.found));
   if (!ours.length) {
     box.appendChild(para(T('zones.no_fans')));
-    const go = btn(T('step.next', { name: T('step.test') }), 'btn small plain', () => { setupSwitcher().pick('test'); drawn = ''; redraw(); });
+    const go = btn(T('step.next', { name: T('step.test') }), 'btn plain', () => { setupSwitcher().pick('test'); drawn = ''; redraw(); });
     box.appendChild(bar(go));
     return box;
   }
   const zones = zonesNow();
-  const propose = () => button(T('zones.propose'), T('zones.propose_tip'), (b) => act('zones_propose', {}, b, (j) => { zdraft = (j.zones || []).map((z) => ({ ...z, name: z.name || T(`zones.kind.${z.kind}`) })); zsel = ''; }), zones.length ? 'btn small plain' : 'btn');
-  const add = () => (zones.length < 8 ? button(T('zones.add'), T('zones.add_tip'), () => changeZones((z) => { const id = freeId(z); z.push({ id, name: T('zones.new_name', { n: z.length + 1 }), fans: [], sources: [], unit: 'pct', target: { preset: 'normal' } }); zsel = id; }), 'btn small plain') : null);
+  const propose = () => button(T('zones.propose'), T('zones.propose_tip'), (b) => act('zones_propose', {}, b, (j) => { zdraft = (j.zones || []).map((z) => ({ ...z, name: z.name || T(`zones.kind.${z.kind}`) })); zsel = ''; }), zones.length ? 'btn plain' : 'btn');
+  const add = () => (zones.length < 8 ? button(T('zones.add'), T('zones.add_tip'), () => changeZones((z) => { const id = freeId(z); z.push({ id, name: T('zones.new_name', { n: z.length + 1 }), fans: [], sources: [], unit: 'pct', target: { preset: 'normal' } }); zsel = id; }), 'btn plain') : null);
   if (!zones.some((z) => z.id === zsel)) zsel = zones.length ? zones[0].id : '';
   const unzoned = ours.filter((f) => !zones.some((z) => (z.fans || []).includes(f.id)));
   if (!zones.length) {
@@ -2817,7 +2822,7 @@ function zonesStep() {
   if (zdraft) {
     // changed here, not kept yet: «Save» is the one button of the moment
     const save = button(T('zones.save'), T('zones.save_tip'), (b) => act('zones_save', { zones: zdraft.map(cleanZone) }, b, () => { zdraft = null; curves.clear(); dry = null; }), 'btn');
-    const undo = button(T('zones.undo'), T('zones.undo_tip'), () => { zdraft = null; curves.clear(); drawn = ''; redraw(); }, 'btn small plain');
+    const undo = button(T('zones.undo'), T('zones.undo_tip'), () => { zdraft = null; curves.clear(); drawn = ''; redraw(); }, 'btn plain');
     const mark = el('span', 'fb-next-count');
     mark.appendChild(chipOfText('warn', T('zones.unsaved'), T('zones.save_tip')));
     box.append(para(how), nextBar([mark], [save, undo]));
@@ -2852,7 +2857,7 @@ function zoneCard(z, i, zones, ours) {
   name.setAttribute('aria-label', T('zones.name'));
   name.onchange = () => changeZones((all) => { all[i].name = name.value; });
   head.appendChild(name);
-  const rm = el('button', 'btn small plain', T('zones.remove'));
+  const rm = el('button', 'btn plain', T('zones.remove'));
   rm.type = 'button';
   rm.title = T('zones.remove_tip');
   rm.onclick = () => changeZones((all) => { all.splice(i, 1); });
@@ -2887,11 +2892,10 @@ function zoneCard(z, i, zones, ours) {
       c.onchange = () => {
         if (f.role !== 'cpu' || !c.checked) { save(); return; }
         // the CPU cooler on the owner's risk may stand only behind its own plain confirmation
-        const from = kindValues(z, 'cpu').low;
         c.checked = false;
         Office.dialog({
           title: T('zones.cpu_stand_title'),
-          body: T('zones.cpu_stand_text', { c: from, c5: from - 5 }),
+          body: cpuStandWords(f),
           buttons: [{ text: t('common.cancel') }, { text: T('zones.cpu_stand_go'), kind: '', act: async () => { c.checked = true; await save({ cpu_off_confirm: true }); return true; } }],
         });
       };
@@ -2948,6 +2952,19 @@ function zoneCard(z, i, zones, ours) {
   fine.appendChild(tempsPart(z, i));
   card.appendChild(fine);
   return card;
+}
+/**
+ * What he agrees to when the CPU cooler may stand — built from the state only (the owner, 2026-11-15: «kein AI-Slop, der
+ * nicht stimmt»): no temperature and no seconds the state doesn't give. From which temperature it runs again is said
+ * only where the control reports it (`starts_at`); what happens when Fanboy fails only where the board proved it.
+ */
+function cpuStandWords(f) {
+  const cf = controlFan(f.id);
+  const out = [T('cpustand.what')];
+  out.push(cf && control().running && num(cf.starts_at) !== null ? T('cpustand.starts', { c: fmt.number(cf.starts_at) }) : T('cpustand.starts_later'));
+  out.push(T('cpustand.gone_unknown'));
+  out.push(T('cpu.risk_3'));
+  return out.join(' ');
 }
 /**
  * Why a fan may NOT stand still, in words — '' when «may stand still» can be offered. Never a box that can't be: a fan
@@ -3056,7 +3073,7 @@ function tempsPart(z, i) {
       }), `${srcLabel(src.get(y.id) || { id: y.id, kind: k })} · ${T(`temps.${f}`)}`));
       row.appendChild(l);
     });
-    const rm = el('button', 'btn small plain', T('temps.own_remove'));
+    const rm = el('button', 'btn plain', T('temps.own_remove'));
     rm.type = 'button';
     rm.onclick = () => changeZones((all) => { const s2 = all[i].sources.find((q) => q.id === y.id); ['low', 'high', 'limit'].forEach((f) => delete s2[f]); });
     row.appendChild(rm);
@@ -3069,7 +3086,7 @@ function tempsPart(z, i) {
     if (!pick.value) return;
     changeZones((all) => { const s2 = all[i].sources.find((q) => q.id === pick.value); const v = kindValues(all[i], srcKind(pick.value)); s2.low = v.low; s2.high = v.high; s2.limit = v.limit; });
   };
-  const back = el('button', 'btn small plain', T('temps.reset'));
+  const back = el('button', 'btn plain', T('temps.reset'));
   back.type = 'button';
   back.onclick = () => changeZones((all) => { all[i].kinds = {}; all[i].sources.forEach((q) => { delete q.low; delete q.high; delete q.limit; }); curves.delete(z.id); });
   box.appendChild(bar(pick, back));
@@ -3110,6 +3127,29 @@ function snapBack(select, value, reason) {
   select.value = value;
   Office.toast(reason, true);
   say(reason);
+}
+// the control's floors (agent/desks/fanboy-control.php FANBOY_FLOOR_MARGIN, FANBOY_BLIND_FLOOR — a test compares them): a
+// measured fan with feedback never under its lowest steady value + 5, any other never under 40 %, a CPU cooler never
+// under the state's cpu_floor
+const FLOOR_MARGIN = 5;
+const BLIND_FLOOR = 40;
+function fanFloor(f) {
+  const base = f && f.measured && f.found === 'tach' && num(f.min_pct) !== null ? Math.min(100, f.min_pct + FLOOR_MARGIN) : BLIND_FLOOR;
+  return f && f.role === 'cpu' && f.cpu_own ? Math.max(base, setup().cpu_floor || 40) : base;
+}
+/**
+ * What the curve means for the zone's first fan, in one sentence built from its numbers only: where it stands (only a
+ * fan that may stand, and only where the curve asks for nothing), the least it ever gets, from where it runs at full
+ */
+function curveWords(pts, floor, stands, cpu) {
+  const out = [];
+  const lastZero = stands ? pts.filter((p) => p[1] < 0.5).pop() : null;
+  if (cpu) out.push(T('curve.says_cpu', { floor }));
+  else if (lastZero) out.push(T('curve.says_stand', { t: lastZero[0], floor }));
+  else out.push(T('curve.says_floor', { floor }));
+  const full = pts.find((p) => p[1] >= 100);
+  if (full) out.push(T('curve.says_full', { t: full[0] }));
+  return out.join(' ');
 }
 /** The zone's curve: quiet, normal, cool — or its own, dragged; percent, or rpm where every fan is measured */
 function curvePart(z, i) {
@@ -3158,13 +3198,17 @@ function curvePart(z, i) {
   const vMax = rpmUnit ? Math.max(...fans.map((f) => f.max_rpm || 0), 500) : 100;
   const temps = pts.map((p) => p[0]);
   const tMin = Math.max(0, Math.floor((Math.min(...temps) - 10) / 5) * 5), tMax = Math.ceil((Math.max(...temps) + 10) / 5) * 5;
-  // round 4: a CPU cooler given to him never under its own floor (cpu_floor) — that line instead of the lowest steady value
-  const cpuFloor = lead.role === 'cpu' && lead.cpu_own ? Math.max(setup().cpu_floor || 40, num(lead.min_pct) ?? 0) : null;
-  const floorPct = cpuFloor ?? (lead.measured && num(lead.min_pct) !== null ? lead.min_pct : null);
-  const floor = floorPct === null ? null : rpmUnit ? (lead.table ? tableRpm(lead.table, floorPct) : null) : floorPct;
+  // the chart shows what the control really applies for the zone's first fan (2026-11-15: a curve along 0 % under a line
+  // «never under 40 %» contradicted itself): it stands only where it may and the curve asks for nothing, else it never
+  // gets less than its floor. A CPU cooler that may stand is stopped by the CPU's own temperature (round 12), not by the
+  // curve — so its curve shows the floor only and the sentence says so.
+  const isCpu = lead.role === 'cpu' && !!lead.cpu_own;
+  const floorPct = fanFloor(lead);
+  const stands = !!lead.off_ok && !standWhy(lead) && !isCpu;
+  const floor = rpmUnit ? (lead.table ? tableRpm(lead.table, floorPct) : null) : floorPct;
   const cz = (control().zones || []).find((x) => x.id === z.id);
   const nowC = cz && cz.warmest ? num(cz.warmest.mapped) ?? num(cz.warmest.c) : null;
-  const key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|${own}|${own ? '' : tgt.preset}|${floor}|${kv.low}|${kv.high}`;
+  const key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|${own}|${own ? '' : tgt.preset}|${floor}|${stands}|${kv.low}|${kv.high}`;
   let cv = curves.get(z.id);
   if (!cv || cv.key !== key) {
     if (cv) cv.c.destroy();
@@ -3172,11 +3216,12 @@ function curvePart(z, i) {
       points: pts.map((p) => ({ t: p[0], v: p[1] })), unit: rpmUnit ? 'rpm' : 'percent', tMin, tMax, vMin: 0, vMax, floor: floor ?? undefined,
       now: nowC ?? undefined, fan: { mm: look.mm, blades: look.blades, min: look.min, max: look.max || 2000, colour: look.colour, look: look.look },
       rpmAt: lead.measured ? (v) => (v <= 0 ? 0 : tableRpm(lead.table, v)) : undefined,
+      apply: rpmUnit ? undefined : (v) => (stands && v < 0.5 ? 0 : Math.max(v, floorPct)),
       texts: {
         axisT: T('curve.axis_t'), axisV: rpmUnit ? T('curve.axis_rpm') : T('curve.axis_pct'), tickT: (x) => `${x}°`, tickV: (v) => (rpmUnit ? fmt.number(v) : `${v} %`),
         point: (k, n) => T('curve.point', { i: k + 1, n }), value: (x, v) => (rpmUnit ? T('curve.value_rpm', { t: x, v: fmt.number(v) }) : T('curve.value_pct', { t: x, v })),
         readout: (x, v, r) => T('curve.readout', { t: x, v: rpmUnit ? T('pic.rpm', { rpm: fmt.number(v) }) : T('value', { pct: Math.round(v) }), rpm: fmt.number(Math.round(r || 0)) }),
-        floor: cpuFloor !== null ? T('curve.floor_cpu', { pct: cpuFloor }) : T('curve.floor'), now: nowC !== null ? T('curves.now', { c: fmt.number(nowC) }) : '',
+        floor: rpmUnit ? T('curve.floor') : T('curve.floor_min', { pct: floorPct }), now: nowC !== null ? T('curves.now', { c: fmt.number(nowC) }) : '',
       },
       // dragging a preset makes it the zone's own curve; kept on the page until «Save»
       onChange: (p) => {
@@ -3184,7 +3229,7 @@ function curvePart(z, i) {
         if (!zs[i]) return;
         zs[i].target = { points: p.map((x) => [x.t, x.v]) };
         zdraft = zs;
-        cv.key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|true||${floor}|${kv.low}|${kv.high}`;
+        cv.key = `${z.id}|${rpmUnit}|${tMin}|${tMax}|${vMax}|true||${floor}|${stands}|${kv.low}|${kv.high}`;
         drawn = '';
         redraw();
       },
@@ -3194,6 +3239,11 @@ function curvePart(z, i) {
   }
   cv.c.el.classList.add('fb-curve-edit');
   box.appendChild(cv.c.el);
+  if (!rpmUnit) {
+    const says = para(curveWords(pts, floorPct, stands, isCpu && !!lead.off_ok), 'fb-curve-says');
+    says.dataset.nums = JSON.stringify([{ v: floorPct, from: ['setup', 'fans', `=${lead.id}`], via: 'floor' }]);
+    box.appendChild(says);
+  }
   box.appendChild(para(T('zones.curve_sub')));
   return box;
 }
@@ -3203,7 +3253,7 @@ function dryStep() {
   const box = el('div', 'fb-step-body');
   if (!(setup().zones || []).length) {
     box.appendChild(para(T('dry.no_zones')));
-    box.appendChild(bar(btn(T('step.next', { name: T('step.zones') }), 'btn small plain', () => { setupSwitcher().pick('zones'); drawn = ''; redraw(); })));
+    box.appendChild(bar(btn(T('step.next', { name: T('step.zones') }), 'btn plain', () => { setupSwitcher().pick('zones'); drawn = ''; redraw(); })));
     return box;
   }
   const tryIt = (cls) => button(dry ? T('dry.again') : T('dry.run'), T('dry.run_tip'), (b) => act('dry_run', {}, b, (j) => { dry = j.dry || null; }), cls);
@@ -3239,7 +3289,7 @@ function dryStep() {
     grid.appendChild(card);
   });
   box.appendChild(grid);
-  box.appendChild(nextBar([T('step.v.seen_long'), T('dry.nothing_written')], [goButton('take', true), tryIt('btn small plain')]));
+  box.appendChild(nextBar([T('step.v.seen_long'), T('dry.nothing_written')], [goButton('take', true), tryIt('btn plain')]));
   return box;
 }
 
@@ -3259,7 +3309,7 @@ function takeStep() {
   const bios = (su.fans || []).filter((f) => ['tach', 'silent'].includes(f.found) && !(su.zones || []).some((z) => (z.fans || []).includes(f.id)));
   if (bios.length) list.appendChild(readRow(null, T('take.bios_row'), bios.map((f) => fanSay(f.id)).join(', '), chipOfText('quiet', T('pic.bios'), T('take.bios_tip'))));
   (su.fans || []).filter((f) => f.role === 'cpu' && f.cpu_own).forEach((f) => {
-    const back = btn(T('cpu.back'), 'btn small', () => send('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }), T('cpu.back_tip'));
+    const back = btn(T('cpu.back'), 'btn', () => send('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }), T('cpu.back_tip'));
     list.appendChild(readRow(null, fanName(f.id), underName(f.id, T('role.cpu'), T('take.own_since', { date: Office.fmt.date(f.cpu_own) })), null, back));
   });
   if (list.children.length) box.appendChild(list);
