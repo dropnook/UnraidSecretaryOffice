@@ -1054,7 +1054,16 @@ the last 60 history lines only for a source the file has none for. **The file
   compares). **Heat sources no zone covers** (the agent's net): the zones step and «take over» say them from the
   state's `uncovered` (on an unsaved draft the same rule, `NET_KINDS` = `FANBOY_NET_KINDS`), `take_over` carries
   `uncovered_ok` only after the dialog's yes; the banner says `control.net`. **The curve** (`fan-art.js curve()`): each
-  point's exact values as a label and as typed fields (`fields`, `texts.label`), a tick per degree. **No sentence of the
+  point's exact values as a label and as typed fields (`fields`, `texts.label`), a tick per degree; a given curve is
+  drawn exactly and becomes whole numbers once changed (`whole()`). **One chart per zone, a curve per kind** (round 13):
+  the zone keeps its target; a kind follows it on its own degrees or has its own points (`zone.curves[kind]`, written
+  on the first drag); the page's rule is the block «kind curves» in desk.js (`kindCurveOf()` = `fanboyKindCurve()`, a
+  test runs both in node and compares); the other kinds' curves are faded (`others`), where each stands and who leads
+  comes from the control's `by_kind` / `leader` (`live()`). **Disks outside array and pools** (round 13b): their own
+  group among a zone's sources, named by `udLabel()` (never the id), «in use, temperature unknown» from `in_use`.
+  **Several fans on one connector** (round 14): step 2 asks `alike`; the margin is the state's `hub.floor` / `hub.start`;
+  step 3's block runs `hub_look` and answers its phases (`hub_turn`, `hub_stop`, `hub_start`) with `step_next {heard}`
+  (`runNow().kind === 'hub'`). **No sentence of the
   page states a number or a behaviour that is not the state's or a tested agent path's**: sentences with numbers carry
   `data-nums` (value + the state's path), compared with the demo state by `tools/fanboy/desk.mjs` (`--no-nums` skips).
   Pictures and CPU: `tools/fanboy/desk.mjs` (`--only 'ux-*'` for the setup's states); demo states:
