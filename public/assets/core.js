@@ -7,7 +7,7 @@
      id          folder name under public/desks/
      mount(root, sub)   render into root; sub is the rest of the URL hash
      unmount()          optional, when another desk is shown
-     reception()        optional, async: { bubble, facts[] } for the reception
+     reception()        optional, async: { bubble, facts[], note? } for the reception (note: an element under the facts)
      poll()             optional, called every minute while the desk is shown
      started()          optional, once after the page started (any desk shown)
    Its strings live in public/desks/<id>/lang/<code>.json and are reached as
@@ -3525,6 +3525,7 @@ async function reception(root) {
         if (r && r.bubble) bubble.append(r.bubble);
         else bubble.textContent = t('office.no_news');
         (r && r.facts || []).forEach((f) => facts.appendChild(el('li', '', f)));
+        if (r && r.note instanceof Element) card.insertBefore(r.note, foot);
         // the cards show what the desks kept (never a look just for the reception): an old one says when it was
         const asof = receptionAsOf(desk.id);
         if (asof) facts.appendChild(asof);

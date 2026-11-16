@@ -885,5 +885,11 @@
   "errors.usonet_joined": "Dieser Server ist schon im USO-Netz.",
   "errors.usonet_busy": "Ein Beitritt oder Verlassen läuft gerade — warte einen Moment.",
   "errors.usonet_flash": "Das Sekretariat konnte nicht auf den Flash schreiben.",
-  "errors.usonet_checksum": "Der heruntergeladene Helfer ist nicht der, dem diese Version des Sekretariats vertraut — entfernt, nicht gestartet."
+  "errors.usonet_checksum": "Der heruntergeladene Helfer ist nicht der, dem diese Version des Sekretariats vertraut — entfernt, nicht gestartet.",
+  "newcomer.title": "Neu im Sekretariat: {name}",
+  "bubble.newcomer": "Neu im Sekretariat: {name} kann jetzt eingestellt werden.",
+  "newcomer.fanboy": "Er regelt deine Lüfter nach dem, was wirklich warm wird. Bis du ihn eingerichtet und ihm die Lüfter übergeben hast, regelt er nichts — einstellen kannst du ihn bei mir im Team.",
+  "newcomer.go": "Zum Einstellen",
+  "newcomer.away": "Weglegen",
+  "newcomer.away_title": "Die Karte kommt nicht wieder — einstellen kannst du {name} jederzeit im Team."
 }

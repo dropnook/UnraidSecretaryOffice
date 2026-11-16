@@ -23,6 +23,10 @@ declare(strict_types=1);
  */
 
 const CARETAKER_UNRAID_MIN    = '6.12';
+// a new character for everyone (2026-11-16, the owner: «eine einmalige Nachricht vom Teamchef … nur 1x, nach einem Update,
+// falls jemand das Plugin schon hatte»): desk id => the last released version in which he was NOT there for everyone.
+// An office that ran that version (or an older one) here and now runs a newer one is told once — caretakerNewcomersStart()
+const CARETAKER_NEWCOMERS     = ['fanboy' => '1.94.0'];
 const CARETAKER_TOUR_EVERY    = 1800;      // without a browser (it asks every 5 minutes while open): a tour every 30 minutes …
 const CARETAKER_TOUR_AFTER    = 600;       // … but not in the first 10 minutes after the agent started (the array settles)
 const CARETAKER_NOTIFY_SETTLE = 1800;      // something new to do is told once it has stayed red this long (not a passing state)
@@ -45,7 +49,7 @@ const CARETAKER_API_QUERY     = '{"query":"{ isSSOEnabled }"}';    // a question
 require_once dirname(__DIR__) . '/lib/partner.php';
 
 desk('caretaker', [
-    'start'   => fn () => caretakerScan(),
+    'start'   => function () { caretakerNewcomersStart(); caretakerScan(); },
     'tick'    => fn () => caretakerTick(),
     'actions' => [
         'refresh'       => fn (array $r) => ['ok' => true, 'state' => caretakerScan()],
@@ -60,6 +64,8 @@ desk('caretaker', [
         // Unraid's standard shares (system) on the user's click — only those missing and never there (lib/firsthome.php)
         'shares_make'   => fn (array $r) => caretakerSharesMake(idList($r, 'shares')),
         'ack'           => fn (array $r) => caretakerAck($r['sig'] ?? null, true),
+        // the card «New in the office: …» put away for good (caretakerNewcomersStart())
+        'newcomer_away' => fn (array $r) => caretakerNewcomerAway(textField($r, 'desk')),
         'unack'         => fn (array $r) => caretakerAck($r['sig'] ?? null, false),
         // the pairing (since 1.60 the Team Lead only pairs: the levels in Mr. Backupsy's setup say what goes, the door
         // takes any unit up to the quota); after each of them his cards anew at once (caretakerPartnerDone())
@@ -145,6 +151,7 @@ function caretakerScan(bool $checkUpdate = false): array
         'notify'      => caretakerNotifyPublic($notify),
         'partners'    => caretakerPartners(),
         'usonet'      => caretakerUsonet(),
+        'newcomers'   => caretakerNewcomersOpen($hired),
     ];
     writeAtomic(deskFile('caretaker'), jsonEncode($state));
     $GLOBALS['ctLastScan'] = time();
@@ -366,6 +373,125 @@ function caretakerNotifySend(array $items, string $lang): bool
         'caretaker',
         'todo',
     );
+}
+
+// ===================================================================== a new character: told once after an update
+
+/*
+ * data/caretaker/newcomers.json — what he told about whom (only the agent writes it; unknown keys kept):
+ *   {"v": 1, "desks": {"<id>": {"told": <time>|null, "from": "<version>", "sent": bool, "away": <time>|null,
+ *                                "why": "hired"|"put_away"|"hired_before"}}}
+ * An entry is never removed: whatever it says, nobody is told about that desk again (a restart, a later update, a
+ * downgrade and back — the older office keeps the file as it is). Only a data folder brought back from before the
+ * entry existed lacks it: then that office is told once more, unless he is hired there.
+ */
+function caretakerNewcomersFile(?string $dir = null): string
+{
+    return ($dir ?? DATA_DIR) . '/caretaker/newcomers.json';
+}
+
+/** The file's entries in exactly their shape (anything else: left out here, kept in the file) */
+function caretakerNewcomersRead(?string $dir = null): array
+{
+    $out = [];
+    foreach ((array) ((readJson(caretakerNewcomersFile($dir)) ?? [])['desks'] ?? []) as $id => $e) {
+        if (is_string($id) && preg_match('/^[a-z][a-z0-9_-]{0,31}$/D', $id) && is_array($e)) {
+            $out[$id] = $e;
+        }
+    }
+    return $out;
+}
+
+/** One entry written (the others and keys this office doesn't know kept) */
+function caretakerNewcomerKeep(string $id, array $entry, ?string $dir = null): void
+{
+    $file = readJson(caretakerNewcomersFile($dir)) ?? [];
+    $desks = is_array($file['desks'] ?? null) ? $file['desks'] : [];
+    $desks[$id] = $entry + (is_array($desks[$id] ?? null) ? $desks[$id] : []);
+    caretakerWrite(caretakerNewcomersFile($dir), ['v' => 1, 'desks' => $desks] + $file);
+}
+
+/**
+ * At his start (after the data folder's version step, lib/migrate.php): for each newcomer not in the file — this office
+ * newer than the last version without him, and the data folder's history (office.json updated_from) shows that version or
+ * an older one ran here — told once: the entry first, then ONE notification of the lowest level through the centre's
+ * gate (his own: the user's settings for the Team Lead apply). A fresh install has no such history: never told (the
+ * newcomer is simply among those to hire). Already hired (he was hired before, e.g. behind his old switch): nothing told,
+ * the entry says so. Returns the ids told now.
+ *
+ * @return list<string>
+ */
+function caretakerNewcomersStart(?string $dir = null, string $version = AGENT_VERSION, ?int $now = null): array
+{
+    $now ??= time();
+    $known = caretakerNewcomersRead($dir);
+    $history = array_column(officeMarkRead($dir)['updated_from'] ?? [], 'version');
+    $told = [];
+    foreach (CARETAKER_NEWCOMERS as $id => $before) {
+        if (isset($known[$id]) || !isset(desks()[$id]) || version_compare($version, $before, '<=')) {
+            continue;
+        }
+        $was = array_values(array_filter($history, fn ($v) => version_compare($v, $before, '<=')));
+        if (!$was) {
+            continue;                   // no office here before him (a fresh install, or one that came after him)
+        }
+        $from = $was[count($was) - 1];
+        if (in_array($id, staffHired($dir === null ? null : "$dir/office/staff.json"), true)) {
+            caretakerNewcomerKeep($id, ['told' => null, 'from' => $from, 'sent' => false, 'away' => $now, 'why' => 'hired_before'], $dir);
+            continue;
+        }
+        caretakerNewcomerKeep($id, ['told' => $now, 'from' => $from, 'sent' => false, 'away' => null], $dir);
+        $lang = officeNotifyLang();
+        $name = officeNotifyText($id, 'name', [], $lang) ?: $id;
+        $sent = officeNotify(
+            officeNotifyText('caretaker', 'newcomer.title', ['name' => $name], $lang),
+            officeNotifyText('caretaker', "newcomer.$id", ['name' => $name], $lang),
+            'normal',
+            '',
+            officeNotifyLink('#/caretaker/team'),
+            'caretaker',
+            'newcomer',
+        );
+        caretakerNewcomerKeep($id, ['sent' => $sent], $dir);
+        logLine("Caretaker: a new colleague for everyone since $from — $id introduced once (" . ($sent ? 'a notification went to the gate' : 'no notification could be sent') . ')');
+        $told[] = $id;
+    }
+    return $told;
+}
+
+/**
+ * The cards still to show: told, not put away, not hired. One hired now: put away for good (he stays away when let go
+ * later). [{id, since}]
+ *
+ * @return list<array{id: string, since: int}>
+ */
+function caretakerNewcomersOpen(array $hired, ?string $dir = null, ?int $now = null): array
+{
+    $open = [];
+    foreach (caretakerNewcomersRead($dir) as $id => $e) {
+        if (!is_int($e['told'] ?? null) || ($e['away'] ?? null) !== null || !isset(CARETAKER_NEWCOMERS[$id])) {
+            continue;
+        }
+        if (in_array($id, $hired, true)) {
+            caretakerNewcomerKeep($id, ['away' => $now ?? time(), 'why' => 'hired'], $dir);
+            continue;
+        }
+        $open[] = ['id' => $id, 'since' => $e['told']];
+    }
+    return $open;
+}
+
+/** «Put away»: the card of $id gone for good */
+function caretakerNewcomerAway(string $id): array
+{
+    $e = caretakerNewcomersRead()[$id] ?? null;
+    if (!is_array($e) || !is_int($e['told'] ?? null)) {
+        throw new Problem('bad_request');
+    }
+    if (($e['away'] ?? null) === null) {
+        caretakerNewcomerKeep($id, ['away' => time(), 'why' => 'put_away']);
+    }
+    return ['ok' => true, 'state' => caretakerScan()];
 }
 
 /** A file of his own in data/caretaker (notify.json, acks.json) */

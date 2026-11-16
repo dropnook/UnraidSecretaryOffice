@@ -885,5 +885,11 @@
   "errors.usonet_joined": "Este servidor ya está en la red USO.",
   "errors.usonet_busy": "Hay una unión o una salida en curso — espera un momento.",
   "errors.usonet_flash": "La secretaría no pudo escribir en el flash.",
-  "errors.usonet_checksum": "El ayudante descargado no es el que esta versión de la secretaría acepta — eliminado, no ejecutado."
+  "errors.usonet_checksum": "El ayudante descargado no es el que esta versión de la secretaría acepta — eliminado, no ejecutado.",
+  "newcomer.title": "Nuevo en la secretaría: {name}",
+  "bubble.newcomer": "Nuevo en la secretaría: ya puedes contratar a {name}.",
+  "newcomer.fanboy": "Regula tus ventiladores según lo que de verdad se calienta. Hasta que lo configures y le entregues los ventiladores no regula nada — puedes contratarlo en mi equipo.",
+  "newcomer.go": "Ir a contratar",
+  "newcomer.away": "Quitar",
+  "newcomer.away_title": "La tarjeta no volverá — puedes contratar a {name} en el equipo cuando quieras."
 }

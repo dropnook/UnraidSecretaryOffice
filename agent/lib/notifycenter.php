@@ -46,7 +46,7 @@ const NOTIFY_SILENT_MAX   = 60 * 86400;   // «Still bis …» at most two month
 const OFFICE_NOTIFY_DESKS = ['caretaker', 'backup', 'snapshot', 'restore', 'watchman', 'moverelli', 'jack', 'fanboy', 'logs', 'office'];
 // what each of them sends (the page says it; a desk without alerts shows «Nur Alarme» as «Aus»)
 const OFFICE_NOTIFY_SENDS = [
-    'caretaker' => ['warning'], 'backup' => ['alert', 'warning', 'normal'], 'snapshot' => ['warning'], 'restore' => ['warning'],
+    'caretaker' => ['warning', 'normal'], 'backup' => ['alert', 'warning', 'normal'], 'snapshot' => ['warning'], 'restore' => ['warning'],
     'watchman'  => ['alert', 'warning', 'normal'], 'moverelli' => ['warning', 'normal'], 'jack' => ['warning', 'normal'],
     'fanboy'    => ['alert', 'warning', 'normal'], 'logs' => ['warning'], 'office' => ['alert', 'normal'],
 ];
