@@ -525,6 +525,33 @@ function testFanboyUx(): void
         && str_contains($js, "return kindCurveOf(zoneKinded(z), 'cpu', setup().scales || {}).points;"));
     check('fanboy ux: a fan\'s floor is the agent\'s own number where the state has it (the setup\'s plan: the hub\'s margin included), the mirrored rule only for an older agent',
         str_contains($js, "if (f && num(f.floor) !== null) return f.floor;"));
+    // the sentence audit (2026-11-16; side-session notes «fanboy-ux-sentence-audit.md»): what was wrong is worded as the agent
+    // does it, and every literal number left in a text is tied to the agent's constant here — change one, and this fails
+    check('fanboy ux audit: «a zone stands at 100 %» only while one does — the alarm for a fan the BIOS steers has its own words (tile, bubble); «show me» during an alarm claims no 100 %',
+        str_contains($js, "const alarmFull = () => (control().zones || []).some((z) => z.full === true);") && str_contains($js, "T(alarmFull() ? 'bubble.alarm' : 'bubble.alarm_watch')")
+        && isset($l['de']['why.alarm_watch'], $l['de']['bubble.alarm_watch']) && !str_contains($l['de']['show.off.alarm'], '100') && !str_contains($l['de']['errors.fanboy_show_alarm'], '100'));
+    check('fanboy ux audit: the chip alarm does not say the BIOS steers (nobody does: «chip_gone»)', !str_contains($l['de']['alarm.chip'], 'BIOS') && !str_contains($l['en']['alarm.chip'], 'BIOS'));
+    $exact = array_filter(['step.take_sub', 'take.hand_back_tip', 'take.hand_back_confirm', 'take.hand_back_text', 'take.given_back', 'why.stopped', 'why.hand_back', 'why.crashed', 'control.crashed'],
+        fn ($k) => (bool) preg_match('/genau so|wie (er )?vor ihm/u', (string) ($l['de'][$k] ?? '')));
+    same('fanboy ux audit: «hand back» is never «exactly as before» — a fixed value goes to the board\'s automatic by default (FANBOY_BACK_DEFAULT), the texts name both ways', [[], 'auto', false],
+        [array_values($exact), FANBOY_BACK_DEFAULT, str_contains(implode(' ', (array) $l['de']['take.confirm']), 'genau so')]);
+    check('fanboy ux audit: the CPU cooler is not «always with the BIOS» nor «never off» (cpu_own, cpu_off_confirm); an «unknown» output is «not steered», never «never touched / never written to»',
+        !str_contains($l['de']['cpu.risk_4'], 'schaltet ihn nie aus') && !str_contains($l['de']['help.who_text'], 'CPU-Kühler und Pumpen bleiben immer') && !str_contains($l['de']['hints.bios.2'], 'Der CPU-Kühler und eine Pumpe bleiben')
+        && !preg_match('/fasst ihn nie an|schreibt (Fanboy )?nie/u', implode(' ', [$l['de']['roles.bios_note.unknown'], $l['de']['take.bios_tip'], $l['de']['label.bios_tip'], $l['de']['show.off.ignored'], $l['de']['errors.fanboy_show_not']])));
+    check('fanboy ux audit: a restart of Unraid «usually» lets the BIOS steer again (the board\'s doing, nothing Fanboy can prove); a foreign change is given back «as it was before him», not «to the BIOS»',
+        !preg_match('/Ein Neustart von Unraid gibt/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de']))) && !str_contains($l['de']['note.foreign'], 'ans BIOS') && !str_contains($l['de']['out.foreign_title'], 'ans BIOS'));
+    check('fanboy ux audit: he «installs nothing; loads a driver only on your click»; the detect step «only reads»; System Temp\'s names are shown, not proposed',
+        str_contains($l['de']['hints.sub'], 'nur auf deinen Klick') && str_contains($l['de']['step.detect_sub'], 'Dieser Schritt liest nur') && !str_contains($l['de']['hints.names_count'], 'schlägt'));
+    same('fanboy ux audit: the literal numbers left in the texts are the agent\'s — a minute at full (test, show; the page\'s FULL_MAX), 45 s lease, 15 min without the chip, 2 min standing while warm, a point a minute, 8 fans on a connector',
+        [60.0, 60.0, true, true, true, true, true, true, true],
+        [FANBOY_UP_FOR, FANBOY_SHOW_FOR, str_contains($js, 'const FULL_MAX = ' . (int) FANBOY_UP_FOR . ';'),
+            str_contains($l['de']['help.safe_text'], 'nach ' . (int) FANBOY_STEP_LEASE . ' Sekunden') && str_contains($l['de']['strip.keep_open'], 'nach ' . (int) FANBOY_STEP_LEASE . ' Sekunden') && str_contains($l['en']['strip.keep_open'], (string) (int) FANBOY_STEP_LEASE),
+            str_starts_with($l['de']['note.missing_told'], (int) (FANBOY_TELL_AFTER / 60) . ' Minuten') && str_contains($l['en']['note.missing_told'], (string) (int) (FANBOY_TELL_AFTER / 60)),
+            str_contains($l['de']['watch.on_title'], 'nach ' . (int) (FANBOY_IDLE_WARM_AFTER / 60) . ' Minuten') && str_contains($l['de']['watch.stands_warm_title'], 'nach ' . (int) (FANBOY_IDLE_WARM_AFTER / 60) . ' Minuten'),
+            FANBOY_HISTORY_EVERY === 60.0 && str_contains($l['de']['curves.history_none'], 'einem Punkt pro Minute'),
+            str_contains($l['de']['errors.fanboy_bad_count'], 'Zwischen 1 und ' . FANBOY_COUNT_MAX) && str_contains($l['en']['errors.fanboy_bad_count'], (string) FANBOY_COUNT_MAX),
+            str_contains($l['de']['strip.since'], 'höchstens ' . (int) (FANBOY_UP_FOR / 60) . ' Minute')]);
+    same('fanboy ux audit: the spans the history offers are the agent\'s', FANBOY_HISTORY_PERIODS, preg_match('/const PERIODS = \[([^\]]+)\];/', $js, $m) ? array_map('intval', explode(',', $m[1])) : []);
     check('fanboy ux: no text of the page speaks of a «card» or of «More» any more (de, en)', !preg_match('/\bKarte\b|«Mehr»/u', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['de'])))
         && !preg_match('/(?<!graphics )\bcards?\b|«More»/i', implode(' ', array_map(fn ($v) => implode(' ', (array) $v), $l['en']))));
     // the owner, 2026-11-15: «kein AI-Slop, der nicht stimmt» — no sentence names a number the state doesn't give

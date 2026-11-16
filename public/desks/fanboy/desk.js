@@ -102,7 +102,11 @@ const running = (s) => !!s && (s.status === 'starting' || s.status === 'running'
 const stepRuns = () => running(step());
 const offered = (c) => c.outputs.length > 0 && c.kind !== 'gpu';
 const has = (k) => Office.has(`${ID}.${k}`);
-const myWhy = (why) => (why && has(`why.${why}`) ? T(`why.${why}`) : '');
+// (the sentence audit, 2026-11-16: «a zone stands at 100 %» is said only while one does — the alarm for a fan the BIOS
+// steers, `bios_stands`, puts no zone to full: his zones steer on, he only watches that fan)
+const alarmFull = () => (control().zones || []).some((z) => z.full === true);
+const whyKey = (why) => (why === 'alarm' && !alarmFull() ? 'alarm_watch' : why);
+const myWhy = (why) => (why && has(`why.${whyKey(why)}`) ? T(`why.${whyKey(why)}`) : '');
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 const steers = () => who().who === 'fanboy';
 const nobody = () => who().who === 'nobody';
@@ -465,7 +469,7 @@ function bubbleText() {
   if (!state) return T('bubble.loading');
   const w = who();
   const c = control();
-  if (w.who === 'fanboy') return w.why === 'alarm' ? T('bubble.alarm') : T('bubble.steers', { n: w.zones || 0 });
+  if (w.who === 'fanboy') return w.why === 'alarm' ? T(alarmFull() ? 'bubble.alarm' : 'bubble.alarm_watch') : T('bubble.steers', { n: w.zones || 0 });
   if (stepRuns()) return step().kind === 'measure' ? T('bubble.measuring') : T('bubble.testing');
   // round 9 (H4): while he shows a fan or one stands at full for safety — and that «Alles stoppen» brings everything back
   if (showRuns()) return T('bubble.showing');
