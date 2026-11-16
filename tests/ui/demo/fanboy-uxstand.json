@@ -725,6 +725,10 @@
      "stops_safe": true
     },
     "stand_cut": null,
+    "floor": null,
+    "start": null,
+    "curve": null,
+    "fallback": null,
     "off_why": null,
     "may_stand": false,
     "cpu_off": null
@@ -760,6 +764,10 @@
     "kick_start": null,
     "stand": null,
     "stand_cut": null,
+    "floor": null,
+    "start": null,
+    "curve": null,
+    "fallback": null,
     "off_why": null,
     "may_stand": false,
     "cpu_off": null
@@ -791,6 +799,10 @@
     "kick_start": null,
     "stand": null,
     "stand_cut": null,
+    "floor": null,
+    "start": null,
+    "curve": null,
+    "fallback": null,
     "off_why": null,
     "may_stand": false,
     "cpu_off": null
@@ -879,6 +891,10 @@
      "stops_safe": true
     },
     "stand_cut": null,
+    "floor": null,
+    "start": null,
+    "curve": null,
+    "fallback": null,
     "off_why": null,
     "may_stand": true,
     "cpu_off": null
@@ -956,6 +972,10 @@
      "stops_safe": null
     },
     "stand_cut": null,
+    "floor": null,
+    "start": null,
+    "curve": null,
+    "fallback": null,
     "off_why": null,
     "may_stand": false,
     "cpu_off": null
@@ -987,6 +1007,10 @@
     "kick_start": null,
     "stand": null,
     "stand_cut": null,
+    "floor": null,
+    "start": null,
+    "curve": null,
+    "fallback": null,
     "off_why": null,
     "may_stand": false,
     "cpu_off": null
