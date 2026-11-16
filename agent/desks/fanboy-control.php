@@ -1351,6 +1351,30 @@ function fanboyEffectiveCurve(array $curve, float $floor, bool $offOk, ?float $s
  * bounds from the constants that drive it; testFanboyR12CpuGone shows each way works). The output standing at 0 now: the
  * shorter «hung» and the guard's 20-s looks apply.
  */
+/** A fan's floor as the control uses it (fanboyFanPlan(): round 4's floor, a CPU cooler's 40 %, round 14's hub margin) */
+function fanboyFloorOf(array $f): int
+{
+    return (int) fanboyFanPlan($f)['floor'];
+}
+
+/**
+ * The curve as the control applies it to one of its fans ($fan: the control's fan — cpu, floor, off_ok) in zone $z:
+ * {kind: the degrees it is in, points} (fanboyEffectiveCurve()); an rpm zone: null
+ */
+function fanboyFanCurve(array $z, array $fan): ?array
+{
+    if (($z['unit'] ?? 'pct') !== 'pct') {
+        return null;
+    }
+    $off = ($fan['off_ok'] ?? false) === true;
+    if ($fan['cpu'] ?? false) {
+        $curve = fanboyCpuCurve($z);
+        return ['kind' => 'cpu', 'points' => fanboyEffectiveCurve($curve, (float) $fan['floor'], $off, fanboyCurveStart($curve)['start'])];
+    }
+    $kind = $z['sources'][0]['kind'] ?? 'disk';
+    return ['kind' => $kind, 'points' => fanboyEffectiveCurve(fanboyKindCurve($z, $kind)[0], (float) $fan['floor'], $off)];
+}
+
 function fanboyFallback(?array $o, array $f): ?array
 {
     if ($o === null) {
@@ -1687,10 +1711,7 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
                 'window' => $cs !== null ? FANBOY_CPU_SMOOTH : null,
                 'cpu_by' => $c['fans'][$id]['cpu_by'] ?? null,
                 // the curve as the control applies it to this fan (stand, floor): {kind: its degrees, points}; rpm zones: null
-                'curve' => $z['unit'] !== 'pct' ? null : (($c['fans'][$id]['cpu'] ?? false)
-                    ? ['kind' => 'cpu', 'points' => fanboyEffectiveCurve(fanboyCpuCurve($z), (float) $c['fans'][$id]['floor'], ($c['fans'][$id]['off_ok'] ?? false) === true,
-                        fanboyCurveStart(fanboyCpuCurve($z))['start'])]
-                    : ['kind' => $z['sources'][0]['kind'] ?? 'disk', 'points' => fanboyEffectiveCurve(fanboyKindCurve($z, $z['sources'][0]['kind'] ?? 'disk')[0], (float) $c['fans'][$id]['floor'], ($c['fans'][$id]['off_ok'] ?? false) === true)]),
+                'curve' => fanboyFanCurve($z, $c['fans'][$id]),
                 // round 13: every kind of the zone — the fan follows the highest of these (it stands only where all of them are 0)
                 'curves' => $z['unit'] !== 'pct' ? null : array_map(fn ($kc) => fanboyEffectiveCurve($kc['points'], (float) $c['fans'][$id]['floor'], ($c['fans'][$id]['off_ok'] ?? false) === true),
                     fanboyZoneKindCurves($z)),

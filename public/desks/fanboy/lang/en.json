@@ -610,6 +610,7 @@
   "dash.stands": "A fan stands: {fan}",
   "dash.stale": "As of {when} — his page brings new numbers",
   "dash.curve": "Last {h} h",
+  "dash.span_tip": "Change the span — next: last {next} h",
   "dash.curve_temp": "{lo}–{hi} °C",
   "dash.curve_temp_one": "{c} °C",
   "dash.curve_level": "level {lo}–{hi} %",

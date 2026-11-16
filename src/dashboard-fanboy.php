@@ -27,8 +27,27 @@ const FANBOY_DASH_FRESH = 60;           // seconds: the control writes every 10 
 const FANBOY_DASH_ZONES = 4;            // rows at most, the rest «+ n more» (a link to his page)
 const FANBOY_DASH_FANS = 6;             // fans of a zone unfolded at most
 const FANBOY_DASH_SHOWS = ['off', 'speeds', 'history'];
-const FANBOY_DASH_HOURS = 6;            // «with history»: the last hours a zone's curve shows …
-const FANBOY_DASH_POINTS = 24;          // … in this many spans (15 minutes each), every span its warmest °C and highest level
+const FANBOY_DASH_HOURS = 6;            // «with history»: the last hours a zone's curve shows (the default) …
+const FANBOY_DASH_POINTS = 24;          // … in this many spans, every span its warmest °C and highest level
+const FANBOY_DASH_SPANS_WEB = [1, 3, 6, 12, 24, 72];   // 2026-11-16 (the owner: «durchklicken»): the spans a click goes through — fanboy-dash.php's
+
+/**
+ * The span of «with history» as the office keeps it (dashboard.json `hours`; the data folder away: the mirror in RAM) —
+ * one of the six, else FANBOY_DASH_HOURS
+ */
+function officeFanboyDashHours(): int
+{
+    $j = is_dir(OFFICE_DATA) ? officeReadJson(OFFICE_DATA . '/fanboy/dashboard.json') : officeReadJson(officeRunDir() . '/fanboy/dash.json');
+    $h = $j['hours'] ?? null;
+    return is_int($h) && in_array($h, FANBOY_DASH_SPANS_WEB, true) ? $h : FANBOY_DASH_HOURS;
+}
+
+/** The span a click on the tile's label goes to: the next of the six, after the last the first */
+function officeFanboyDashNextHours(int $h): int
+{
+    $i = array_search($h, FANBOY_DASH_SPANS_WEB, true);
+    return FANBOY_DASH_SPANS_WEB[$i === false ? 0 : ($i + 1) % count(FANBOY_DASH_SPANS_WEB)];
+}
 
 /** The setting as stored: «off» unless the file says exactly one of the others (missing, broken, odd: off) */
 function officeFanboyDashShow(?string $data = null): string
@@ -118,8 +137,9 @@ function officeFanboyDashSpeed(array $s, array $rpms): string
  *
  * @return array<string, list<array{0:?float,1:?float}>>
  */
-function officeFanboyDashHistory(string $board, int $now): array
+function officeFanboyDashHistory(string $board, int $now, ?int $hours = null): array
 {
+    $hours ??= officeFanboyDashHours();
     $file = null;
     foreach ([officeRunDir() . '/fanboy/history.json', is_dir(OFFICE_DATA) ? OFFICE_DATA . '/fanboy/history.json' : ''] as $f) {
         $j = $f === '' ? null : officeReadJson($f);
@@ -129,8 +149,8 @@ function officeFanboyDashHistory(string $board, int $now): array
         }
     }
     $num = static fn (mixed $v): ?float => is_int($v) || is_float($v) ? (float) $v : null;
-    $from = $now - FANBOY_DASH_HOURS * 3600;
-    $span = intdiv(FANBOY_DASH_HOURS * 3600, FANBOY_DASH_POINTS);
+    $from = $now - $hours * 3600;
+    $span = intdiv($hours * 3600, FANBOY_DASH_POINTS);
     $out = [];
     foreach ($file['zones'] ?? [] as $zid => $pts) {
         if (!is_string($zid) || !is_array($pts)) {
@@ -487,7 +507,8 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
     $state = is_dir(OFFICE_DATA) ? officeReadJson(OFFICE_DATA . '/fanboy.json') : null;
     $status = officeReadJson(officeRunDir() . '/fanboy/control.json');
     $board = is_string($state['setup']['board'] ?? null) ? $state['setup']['board'] : (is_string($status['board'] ?? null) ? $status['board'] : '');
-    $hist = $show === 'history' ? officeFanboyDashHistory($board, $now) : null;
+    $hours = officeFanboyDashHours();
+    $hist = $show === 'history' ? officeFanboyDashHistory($board, $now, $hours) : null;
     $m = officeFanboyDashModel($s, $state, $status, $lang, $now, $hist);
     $url = officeMenuUrl(officeMenuPlace()) . '#/fanboy';
     $out = '<div class="sso-fb-who' . ($m['tone'] !== '' ? ' ' . $m['tone'] . '-text' : '') . '" data-steers="' . ($m['steers'] ? '1' : '0') . '" data-mood="'
@@ -502,14 +523,19 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
     foreach ($m['zones'] as $z) {
         $curve = '';
         if ($z['curve'] !== null) {
-            $curve = '<span class="sso-fb-graph">' . $z['curve']['svg'] . '<small><span>' . $h(officeDashT($s, 'fanboy.dash.curve', ['h' => FANBOY_DASH_HOURS])) . '</span>'
+            // the span's label is a button: a click goes to the next span (1 · 3 · 6 · 12 · 24 · 72 h), the same for everyone
+            $next = officeFanboyDashNextHours($hours);
+            $curve = '<span class="sso-fb-graph">' . $z['curve']['svg'] . '<small><button type="button" class="sso-fb-span" data-hours="' . $next . '" title="'
+                . $h(officeDashT($s, 'fanboy.dash.span_tip', ['next' => $next])) . '">' . $h(officeDashT($s, 'fanboy.dash.curve', ['h' => $hours])) . '</button>'
                 . ($z['curve']['temp'] !== '' ? '<span class="sso-fb-key-temp">' . $h($z['curve']['temp']) . '</span>' : '')
                 . ($z['curve']['level'] !== '' ? '<span class="sso-fb-key-lvl">' . $h($z['curve']['level']) . '</span>' : '') . '</small></span>';
         }
+        // the row (name, level) in a flex row of its own, the curve under it at the tile's width — a <summary> itself isn't
+        // laid out as flex by every browser (the owner saw the curve squeezed to the right, about 40 px)
         $out .= '<details class="sso-fb-zone' . $dim . '" data-zone="' . $h($z['id']) . '"' . ($z['stands'] || $z['full'] ? ' open' : '') . '><summary>'
-            . '<span class="sso-fb-name">' . $h($z['name']) . '<small>' . $h($z['warmest']) . '</small></span>'
+            . '<span class="sso-fb-row"><span class="sso-fb-name">' . $h($z['name']) . '<small>' . $h($z['warmest']) . '</small></span>'
             . '<span class="sso-fb-val"><b' . ($z['full'] ? ' class="red-text"' : '') . '>' . $h($z['level']) . '</b><small' . ($z['stands'] ? ' class="red-text"' : '') . '>'
-            . $h($z['speed']) . '</small></span>' . $curve . '</summary>';
+            . $h($z['speed']) . '</small></span></span>' . $curve . '</summary>';
         foreach ($z['fans'] as [$name, $text, $stands]) {
             $out .= '<div class="sso-fb-fan' . ($stands ? ' red-text' : '') . '"><span>' . $h($name) . '</span><span>' . $h($text) . '</span></div>';
         }
@@ -584,9 +610,14 @@ function officeFanboyDashTile(): string
         . '#db-sso-fanboy .sso-fb-stale{padding:6px 0;opacity:.8;font-style:italic;border-top:1px solid var(--table-border-color,rgba(128,128,128,.25))}'
         . '#db-sso-fanboy .sso-fb-old{opacity:.6}'
         . '#db-sso-fanboy .sso-fb-zone{border-top:1px solid var(--table-border-color,rgba(128,128,128,.25))}'
-        . '#db-sso-fanboy .sso-fb-zone summary{display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer;list-style:none}'
+        . '#db-sso-fanboy .sso-fb-zone summary{display:block;padding:6px 0;cursor:pointer;list-style:none}'
+        . '#db-sso-fanboy .sso-fb-row{display:flex;align-items:center;gap:10px;width:100%}'
         . '#db-sso-fanboy .sso-fb-zone summary::-webkit-details-marker{display:none}'
         . '#db-sso-fanboy .sso-fb-zone summary:hover .sso-fb-name{text-decoration:underline}'
+        // the span's label: looks like what it does (a link's colour, dotted, a pointer), its tip says the next span
+        . '#db-sso-fanboy .sso-fb-span{background:none;border:0;padding:0;margin:0;font:inherit;color:var(--sso-fb-link,var(--link-text-color));cursor:pointer;'
+        . 'text-decoration:underline dotted;text-underline-offset:2px;text-transform:none;letter-spacing:normal;min-width:0;min-height:0;height:auto;line-height:inherit;box-shadow:none}'
+        . '#db-sso-fanboy .sso-fb-span:hover,#db-sso-fanboy .sso-fb-span:focus-visible{text-decoration-style:solid}'
         . '#db-sso-fanboy .sso-fb-name{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}'
         . '#db-sso-fanboy small{opacity:.7;font-size:.92em}'
         . '#db-sso-fanboy .sso-fb-val{margin-left:auto;display:flex;flex-direction:column;text-align:right;white-space:nowrap}'
@@ -599,8 +630,7 @@ function officeFanboyDashTile(): string
         . '#db-sso-fanboy .sso-fb-watch span:last-child{margin-left:auto;text-align:right}'
         // «with history»: the curve under the zone's row, the level shaded in the text's colour, the warmest °C as a line in
         // Unraid's orange (on the light themes a darker step: ≥ 3:1 for a line, and never mistaken for the alarm's red)
-        . '#db-sso-fanboy .sso-fb-zone summary{flex-wrap:wrap}'
-        . '#db-sso-fanboy .sso-fb-graph{flex:1 0 100%;display:flex;flex-direction:column;gap:2px;min-width:0}'
+        . '#db-sso-fanboy .sso-fb-graph{display:flex;flex-direction:column;gap:2px;width:100%;min-width:0;margin-top:4px}'
         . '#db-sso-fanboy .sso-fb-curve{display:block;width:100%;height:38px;overflow:visible}'
         . '#db-sso-fanboy .sso-fb-lvl{fill:currentColor;opacity:.14;stroke:none}'
         . '#db-sso-fanboy .sso-fb-lvl-line{fill:none;stroke:currentColor;stroke-opacity:.5;stroke-width:1;vector-effect:non-scaling-stroke}'
@@ -628,5 +658,12 @@ function officeFanboyDashTile(): string
         . 'var open=[].map.call(b.querySelectorAll("details[open]"),function(d){return d.getAttribute("data-zone");});b.innerHTML=j.html;'
         . '[].forEach.call(b.querySelectorAll("details"),function(d){if(open.indexOf(d.getAttribute("data-zone"))>=0)d.open=true;});mood();}again();})'
         . '.catch(function(){again();});}'
+        // a click on the span's label: the next span for the office (fanboy.dashboard {hours}), then the rows anew — never
+        // unfolds or folds the zone it sits in
+        . 'document.addEventListener("click",function(e){var t=e.target&&e.target.closest?e.target.closest("#sso-fb-dash .sso-fb-span"):null;if(!t)return;'
+        . 'e.preventDefault();e.stopPropagation();if(t.disabled)return;t.disabled=true;var hd={"Content-Type":"application/json","X-Office":"1"};'
+        . 'if(typeof csrf_token!=="undefined")hd["X-CSRF-Token"]=csrf_token;'
+        . 'fetch(' . json_encode('/plugins/' . OFFICE_PLUGIN . '/api.php') . ',{method:"POST",headers:hd,body:JSON.stringify({a:"fanboy.dashboard",hours:parseInt(t.getAttribute("data-hours"),10)})})'
+        . '.then(function(){load();}).catch(function(){t.disabled=false;});},true);'
         . 'again();document.addEventListener("visibilitychange",function(){if(!document.hidden)load();});})();</script>';
 }

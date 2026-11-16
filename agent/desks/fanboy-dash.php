@@ -4,15 +4,19 @@ declare(strict_types=1);
 /*
  * Fanboy's setting «Show on the Dashboard» (his own tile on Unraid's Dashboard, src/dashboard-fanboy.php): off (the
  * default), speeds, speeds with history. Office-wide, kept in his data folder beside his settings:
- *   <data folder>/fanboy/dashboard.json   {"v": 1, "show": "off|speeds|history", "at": <time>}
+ *   <data folder>/fanboy/dashboard.json   {"v": 1, "show": "off|speeds|history", "hours": 1|3|6|12|24|72, "at": <time>}
+ * `hours` (2026-11-16, the owner: «durchklicken»): the span of «with history»'s curves, clicked through on the tile itself,
+ * the same six as his page's history; none or another value: 6.
  * Not in settings.json on purpose: the control takes every fan anew when that file changes (a display choice must
  * never make the fans hiccup). Read tolerantly — no file, a broken one, an odd value: off; a writer keeps keys it
  * doesn't know.
- * The mirror in RAM (RUN_DIR/fanboy/dash.json {v: 1, show}) is what the tile reads while the data folder isn't there
+ * The mirror in RAM (RUN_DIR/fanboy/dash.json {v: 1, show, hours}) is what the tile reads while the data folder isn't there
  * (the array stopped): written with every look of his and every change of the setting, «off» while he isn't hired.
  */
 
 const FANBOY_DASH_CHOICES = ['off', 'speeds', 'history'];
+const FANBOY_DASH_SPANS = [1, 3, 6, 12, 24, 72];        // the tile's history spans (hours) — the page's history's six
+const FANBOY_DASH_SPAN_DEFAULT = 6;
 
 function fanboyDashFile(): string
 {
@@ -26,36 +30,56 @@ function fanboyDashRead(?string $file = null): string
     return is_string($show) && in_array($show, FANBOY_DASH_CHOICES, true) ? $show : 'off';
 }
 
-/** The action fanboy.dashboard {show}: the field read strictly (a string, one of the three), kept, the mirror with it */
+/** The span as stored: one of the six, else 6 */
+function fanboyDashHours(?string $file = null): int
+{
+    $h = (readJson($file ?? fanboyDashFile()) ?? [])['hours'] ?? null;
+    return is_int($h) && in_array($h, FANBOY_DASH_SPANS, true) ? $h : FANBOY_DASH_SPAN_DEFAULT;
+}
+
+/**
+ * The action fanboy.dashboard {show?, hours?}: each field alone (not sent: as it was), at least one; read strictly — show
+ * a string of the three, hours an integer of the six — kept, the mirror with it
+ */
 function fanboyDashSet(array $r): array
 {
-    $show = textField($r, 'show');
-    if (!in_array($show, FANBOY_DASH_CHOICES, true)) {
+    $hasHours = array_key_exists('hours', $r);
+    $show = $hasHours && !array_key_exists('show', $r) ? null : textField($r, 'show');
+    if ($show !== null && !in_array($show, FANBOY_DASH_CHOICES, true)) {
+        throw new Problem('bad_request');
+    }
+    $hours = $hasHours ? $r['hours'] : null;
+    if ($hasHours && (!is_int($hours) || !in_array($hours, FANBOY_DASH_SPANS, true))) {
         throw new Problem('bad_request');
     }
     $raw = readJson(fanboyDashFile()) ?? [];
     $raw['v'] = is_int($raw['v'] ?? null) ? $raw['v'] : 1;
-    $raw['show'] = $show;
+    if ($show !== null) {
+        $raw['show'] = $show;
+    }
+    if ($hours !== null) {
+        $raw['hours'] = $hours;
+    }
     $raw['at'] = time();
     @mkdir(FANBOY_DIR, 0700, true);
     writeAtomic(fanboyDashFile(), jsonEncode($raw), 0600);
-    fanboyDashMirror($show);
-    return ['ok' => true, 'show' => $show, 'state' => fanboyScan()];
+    fanboyDashMirror(fanboyDashRead(), fanboyDashHours());
+    return ['ok' => true, 'show' => fanboyDashRead(), 'hours' => fanboyDashHours(), 'state' => fanboyScan()];
 }
 
 /** For his state (every look): the setting, and the mirror in RAM kept with it — off while he isn't hired */
 function fanboyDashState(?bool $hired = null): string
 {
     $show = fanboyDashRead();
-    fanboyDashMirror(($hired ?? in_array('fanboy', staffHired(), true)) ? $show : 'off');
+    fanboyDashMirror(($hired ?? in_array('fanboy', staffHired(), true)) ? $show : 'off', fanboyDashHours());
     return $show;
 }
 
 /** The mirror in RAM, written only when it changes */
-function fanboyDashMirror(string $show): void
+function fanboyDashMirror(string $show, int $hours = FANBOY_DASH_SPAN_DEFAULT): void
 {
     $file = fanboyRunDir() . '/dash.json';
-    $j = jsonEncode(['v' => 1, 'show' => $show]);
+    $j = jsonEncode(['v' => 1, 'show' => $show, 'hours' => $hours]);
     if (@file_get_contents($file) === $j) {
         return;
     }

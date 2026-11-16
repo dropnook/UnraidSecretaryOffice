@@ -610,6 +610,7 @@
   "dash.stands": "Ein Lüfter steht: {fan}",
   "dash.stale": "Stand {when} — neue Werte bringt seine Seite",
   "dash.curve": "Letzte {h} h",
+  "dash.span_tip": "Zeitraum wechseln – als Nächstes: letzte {next} h",
   "dash.curve_temp": "{lo}–{hi} °C",
   "dash.curve_temp_one": "{c} °C",
   "dash.curve_level": "Stufe {lo}–{hi} %",

@@ -610,6 +610,7 @@
   "dash.stands": "Una ventola è ferma: {fan}",
   "dash.stale": "Ultimi valori: {when} — quelli nuovi li porta la sua pagina",
   "dash.curve": "Ultime {h} h",
+  "dash.span_tip": "Cambia l'intervallo — il prossimo: ultime {next} h",
   "dash.curve_temp": "{lo}–{hi} °C",
   "dash.curve_temp_one": "{c} °C",
   "dash.curve_level": "livello {lo}–{hi} %",
