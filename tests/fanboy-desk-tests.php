@@ -256,8 +256,8 @@ function testFanboyDesk(): void
     check('fanboy desk: no logo, no picture of a maker — their names as text only', !preg_match('/<img|\.png|\.svg|logo/i', $js));
     // round 2 (owner): the picture the hero, the lists short, the sections in reading order
     preg_match_all("/\{ id: '([a-z]+)', key: 'tile\.[a-z]+', place: 'tile\.[a-z]+', tile: [a-zA-Z]+, section: \(\) => ([a-zA-Z]+)\(\) \}/", $js, $tiles);
-    same('fanboy desk: tile order = section order — the picture, today\'s curves, the fans, the heat sources, the hints',
-        [['who', 'today', 'fans', 'hottest', 'hints'], ['serverSection', 'curvesSection', 'fansSection', 'sensorsSection', 'hintsSection']], [$tiles[1], $tiles[2]]);
+    same('fanboy desk: tile order = section order — what is now (the picture, the fans), what was (each zone\'s history), every sensor',
+        [['now', 'history', 'sensors'], ['nowSection', 'historySection', 'sensorsSection']], [$tiles[1], $tiles[2]]);
     preg_match('/const PIC_PX = (\d+);/', $js, $px);
     check('fanboy desk: the server picture\'s wheels big (fan-art\'s default 46)', (int) ($px[1] ?? 0) >= 72);
     check('fanboy desk: the long lists — first what counts, the rest behind one fold each (keepFold: kept while the page lives, never per browser), the filter over both',
@@ -379,7 +379,7 @@ function testFanboyUx(): void
     check('fanboy ux: the wheels — fast at full, standing while Fanboy holds them («stands» on the big one), else as the fan turns',
         str_contains($js, "if (full) return { ...base, rpm: max, state: 'run' };") && str_contains($js, "if (run.stopped.includes(id)) return { ...base, rpm: 0, state: 'run', badge: T('wheel.stands') };"));
     check('fanboy ux: while the setup holds outputs the page never says «the BIOS steers every fan»',
-        str_contains($js, "!(page === 'setup' && (stepRuns() || showRuns() || Object.keys(S().safety || {}).length))"));
+        str_contains($js, "page === 'setup' && !(stepRuns() || showRuns() || Object.keys(S().safety || {}).length)"));
     $l = [];
     foreach (['en', 'de', 'fr', 'it', 'es'] as $c) {
         $l[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true);
@@ -824,7 +824,7 @@ function testFanboyCount(): void
     }
     check('fanboy count: the page — «How many fans on it?» sent with the role, as many wheels in the picture sharing one speed, the tile counting connectors',
         str_contains($js, "count: Number(count.value)") && str_contains($js, 'fans: (z.fans || []).flatMap((id) => wheelsOf(id)),')
-        && str_contains($js, "T('fans.reporting', { n: turning })") && !str_contains($js, "'fans.turning'"));
+        && str_contains($js, "if (Number(c.turning)) out.push(T('now.fans', { n: Number(c.turning),") && !str_contains($js, "'fans.turning'"));
     same('fanboy count: «connectors report a speed» in five languages as a plural; the hints say what a Y-cable or hub hides', [true, true, true, true, true],
         array_map(fn ($c) => is_array($l[$c]['fans.reporting'] ?? null) && isset($l[$c]['hints.hub.1'], $l[$c]['hints.hub.2']), array_keys($l)));
     check('fanboy count: «4 Anschlüsse melden Drehzahl»', ($l['de']['fans.reporting']['other'] ?? '') === '{n} Anschlüsse melden Drehzahl');
@@ -872,9 +872,10 @@ function testFanboyHottestKinds(): void
     }
     $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/lang/en.json'), true);
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
-    check('fanboy hottest: the tile — plural, the lead by its limit (Unraid\'s or the user\'s), «All calm» without colour when nothing is near',
-        $en['tile.hottest'] === 'Warmest spots' && str_contains($js, 'return lead && lead.c - lead.limit >= -LEAD_NEAR ? lead : null;')
-        && str_contains($js, "if (!lead) return Office.stat({ label: T('tile.hottest'), value: T('hottest.calm'), sub: kinds.slice(0, 4).map(line), ...a });"));
+    // 2026-11-17: the tile «Warmest spots» went; its lead (the place nearest to its limit) is a line of the tile «Now»
+    check('fanboy hottest: the tile «Now» — the lead by its limit (Unraid\'s or the user\'s), in colour once over it, nothing when nothing is near',
+        $en['tile.now'] === 'Now' && str_contains($js, 'return lead && lead.c - lead.limit >= -LEAD_NEAR ? lead : null;')
+        && str_contains($js, 'const hot = state ? hottestWords() : null;') && str_contains($js, "|| fans.stands || !!(hot && hot.over);"));
 }
 
 /** Round 3: no text twice on a page, the plain line to switch the others off, the FanCtrl Plus import gone */
@@ -1310,4 +1311,72 @@ function testFanboyPresetsMirror(): void
     foreach ($arms as $p => $pts) {
         check("fanboy presets mirror: desk.js presetsOn() draws «{$p}» as the agent steers it ($pts)", str_contains($js, "$p: $pts"));
     }
+}
+
+/**
+ * 2026-11-17 (fanboy-overview): the overview is what is and what was, nothing to set up — three tiles («Now», «History»,
+ * «Sensors»), the old routes landing on them, no button on it that changes a fan or a setting; the hints under the
+ * setup's first step, the settings a tile of the setup; the search and the Dashboard tile's links follow
+ */
+function testFanboyOverview(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $places = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/places.json'), true);
+    $l = [];
+    foreach (['en', 'de', 'fr', 'it', 'es'] as $c) {
+        $l[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true);
+    }
+    $at = fn (string $from, int $len) => substr($js, (int) strpos($js, $from), $len);
+    preg_match_all("/\{ id: '([a-z]+)', key: 'tile\.[a-z]+'/", $js, $tiles);
+    same('fanboy overview: three tiles — now, history, sensors', ['now', 'history', 'sensors'], $tiles[1]);
+    same('fanboy overview: the old routes land on the new tiles (who, fans, hottest → now; today → history)',
+        1, preg_match("/const OLD_TILES = \{ who: 'now', fans: 'now', hottest: 'now', today: 'history' \};/", $js));
+    check('fanboy overview: … the old «hints» route opens the setup\'s first step; the tiles\' sub-routes go through the map',
+        str_contains($js, "if (String(sub || '') === 'hints') sub = 'setup/detect';") && str_contains($js, "sw.mount(OLD_TILES[String(sub || '')] || sub);"));
+    // nothing on the overview that changes anything: its sections' builders hold no act(), send(), btn() or button()
+    $fn = function (string $name) use ($js): string {          // a function's body, up to its closing brace at the line's start
+        $i = strpos($js, "function $name(");
+        return $i === false ? '' : substr($js, $i, (int) strpos($js, "\n}\n", $i) - $i);
+    };
+    $ov = $fn('nowSection') . $fn('notSteeringLine') . $fn('fansPart') . $fn('outputRow') . $fn('historySection');
+    check('fanboy overview: «Now», its fans list and «History» hold no action — no act(), send(), button() or btn()',
+        !preg_match('/\b(act|send|button|btn)\(/', $ov), $ov);
+    check('fanboy overview: no «Show me this fan», no «Change setup», no settings on the overview',
+        !str_contains($js, 'function showButton(') && !isset($l['en']['server.change']) && !str_contains($ov, 'dashChoice') && !str_contains($ov, 'watchChoice')
+        && !str_contains($ov, 'T(\'show.button\')') && !str_contains($ov, "setup/zones"));
+    check('fanboy overview: what stays is state — the banner (alarm, net, nobody/fixed, safety with its way back), the strip while something runs',
+        str_contains($js, "if (banner.parentNode !== sw.el) sw.el.insertBefore(banner, sw.body);") && str_contains($js, "T('safety.banner'")
+        && str_contains($js, "if (state && stripNeeded()) {") && str_contains($js, "T('net.on'"));
+    check('fanboy overview: «Fanboy steers … in n zones» only in the setup; not steering: one plain line in «Now» with the way to the setup',
+        str_contains($js, "} else if (s === 'ok' && !banner.children.length && page === 'setup' &&") && str_contains($js, "const go = el('a', 'fb-now-go', T('page.setup'));")
+        && str_contains($js, "go.href = `#/\${ID}/setup`;") && str_contains($js, "if (!state || steers() || who().who !== 'bios' || situation() !== 'ok' || who().why === 'fixed'"));
+    // the setup: the hints under the first step, the settings a tile after the steps
+    check('fanboy overview: the hints under the setup\'s first step; the settings (Dashboard, watching) a tile of the setup',
+        substr_count($js, 'box.appendChild(hintsBlock());') === 2 && !str_contains($js, 'function hintsSection(')
+        && str_contains($js, "{ id: 'settings', key: 'settings.title', place: 'setup.tile.settings', tile: settingsTile, section: () => settingsSection() }")
+        && str_contains($js, "wants: (sub) => STEPS.includes(sub) || sub === 'settings',") && str_contains($js, 's.append(dashChoice(), watchChoice());'));
+    // the search: every place where it is now; places.json the same keys as Office.places()
+    $pl = $at('Office.places(ID, [', 4000);
+    preg_match_all("/key: '([a-z0-9_.]+)'/", $pl, $keys);
+    preg_match_all("/text: '([a-z0-9_.]+)'/", $pl, $texts);
+    $want = array_values(array_unique([...$keys[1], 'tile.now', 'tile.history', 'tile.sensors', ...array_map(fn ($k) => "step.$k", ['detect', 'test', 'measure', 'zones', 'take'])]));
+    sort($want);
+    $tx = array_values(array_unique($texts[1]));
+    sort($tx);
+    same('fanboy overview: places.json lists the keys Office.places() names (and the tiles\')', [$want, $tx], [$places['keys'] ?? null, $places['texts'] ?? null]);
+    same('fanboy overview: no place on an old route', 0, preg_match('~#/\$\{ID\}/(who|today|fans|hottest|hints)`~', $js));
+    check('fanboy overview: the hints\' and the settings\' places open the setup',
+        str_contains($pl, "{ kind: 'section', key: 'hints.title', ...SETUP_ROUTE, route: `#/\${ID}/setup/detect` }")
+        && str_contains($pl, "{ kind: 'setting', key: 'dash.setting', ...SETUP_ROUTE, route: `#/\${ID}/setup/settings` }")
+        && str_contains($pl, "{ kind: 'setting', key: 'watch.setting', ...SETUP_ROUTE, route: `#/\${ID}/setup/settings` }")
+        && str_contains($pl, "{ kind: 'help', key: 'help.show', text: 'help.show_text', ...SETUP_ROUTE },"));
+    // words: the old tiles' names gone in all five, the new ones there
+    same('fanboy overview: the old tiles\' words gone, the new ones in all five', [[], []], [
+        array_values(array_filter(['tile.who', 'tile.today', 'tile.fans', 'tile.hottest', 'tile.hints', 'server.title'], fn ($k) => isset($l['en'][$k]) || isset($l['de'][$k]))),
+        array_values(array_filter(['tile.now', 'tile.history', 'tile.sensors', 'now.title', 'settings.title', 'now.not_set_up', 'now.not_armed'], fn ($k) => count(array_filter($l, fn ($x) => isset($x[$k]))) !== 5))]);
+    same('fanboy overview: German — «Aktuell», «Verlauf», «Fühler», «Einstellungen»', ['Aktuell', 'Verlauf', 'Fühler', 'Einstellungen'],
+        [$l['de']['tile.now'], $l['de']['tile.history'], $l['de']['tile.sensors'], $l['de']['settings.title']]);
+    // the Dashboard tile's links: the overview's tile «Now»
+    $dash = (string) file_get_contents(OFFICE_DIR . '/src/dashboard-fanboy.php');
+    check('fanboy overview: the Dashboard tile links «Now», never an old route', substr_count($dash, "\$h(\$url . '/now')") === 2 && !preg_match("~'/(who|fans|today|hottest|hints)'~", $dash));
 }

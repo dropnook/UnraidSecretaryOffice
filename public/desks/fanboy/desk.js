@@ -137,51 +137,9 @@ const quietOn = () => Office.store('fanboy.quiet') !== '0';
 const safetyOf = (id) => (S().safety || {})[id] || null;
 const restoreNow = () => S().restore || null;
 const restoreRuns = () => { const x = restoreNow(); return !!x && (x.status === 'starting' || x.status === 'running'); };
-function safetyBlock(id) {
-  const x = safetyOf(id);
-  if (!x) return null;
-  const box = el('div', 'fb-safety');
-  const pct = num((x.before || {}).value) === null ? '–' : Math.round(x.before.value / 2.55);
-  box.appendChild(el('div', 'fb-strong', T(x.why === 'not_back' ? 'safety.not_back' : 'safety.no_restart', { pct })));
-  const mine = restoreRuns() && (restoreNow().fans || []).includes(id);
-  const b = button(T('safety.back'), T('safety.back_tip', { pct }), (btn) => act('safety_back', { fan: id }, btn));
-  b.dataset.own = '1';
-  if (mine) { b.replaceChildren(wave(), el('span', '', T('safety.backing'))); b.disabled = true; }
-  else if (stepRuns() || showRuns() || restoreRuns()) { b.disabled = true; b.title = T('safety.wait'); }
-  box.appendChild(bar(b));
-  return box;
-}
 /** Round 6: «show me this fan» — running or just ended (fanboy-show.php) */
 const showNow = () => S().show || null;
 const showRuns = () => { const x = showNow(); return !!x && (x.status === 'starting' || x.status === 'running'); };
-/**
- * The button «Show me this fan» for an output: 100 % for 5 seconds, then back exactly as it was. Off (with the reason in
- * its tip) while another controller steers, a setup step or another show runs, an alarm holds, and for an output that
- * doesn't obey or works the other way round — the agent refuses those too.
- */
-function showButton(id, f) {
-  const x = showNow();
-  const mine = showRuns() && x.fan === id;
-  const b = el('button', 'btn small plain fb-show');
-  b.type = 'button';
-  b.dataset.own = '1';
-  // 4b: while it runs, its own button ends it («Found it — stop»): the same give-back as after the time
-  // round 7 (F2): both labels in one cell, the one not shown hidden — the button keeps its width when it turns into «stop»
-  const on = el('span', mine ? 'fb-show-label' : 'fb-show-label fb-show-off');
-  on.append(wave(), el('span', '', T('show.stop')));
-  b.append(el('span', mine ? 'fb-show-label fb-show-off' : 'fb-show-label', T('show.button')), on);
-  const why = f && ['ignored', 'inverted'].includes(f.found) ? T(`show.off.${f.found}`)
-    : situation() === 'other' ? T('show.off.other') : stepRuns() ? T('show.off.step') : showRuns() && !mine ? T('show.off.one') : control().running && control().alarm ? T('show.off.alarm')
-      : restoreRuns() ? T('safety.wait') : '';
-  // round 9 (H3): in the show's pause its own button waits too (everything is back already; the fans start again)
-  if (mine && ['pause', 'kick'].includes(x.phase)) { on.replaceChildren(wave(), el('span', '', T('show.pausing'))); b.disabled = true; b.title = T('now.pause_tip'); b.onclick = null; return b; }
-  b.title = mine ? T('show.stop_tip') : why || T('show.tip');
-  b.disabled = (!mine && !!why) || !state || !Office.agent.running;
-  // round 8: the quiet switch counts for a show too — only while he doesn't steer (his control never stops another fan)
-  b.onclick = () => (mine ? act('show_stop', { fan: id }, b)
-    : act('show', { fan: id, quiet: quietOn() && !control().running }, b, () => Office.toast(T('show.toast', { fan: fanSay(id) }))));
-  return b;
-}
 /** Seconds left until a server time (the state's own clock, moved on by the page's since it came) */
 const secsTo = (until) => (num(until) === null ? null : Math.max(0, Math.round(until - ((S().time || 0) + (Date.now() - stateAt) / 1000))));
 /** Is the output at full because of him right now (a test's, a show's, a safety full)? — its card and row framed */
@@ -419,7 +377,7 @@ function loadHistory() {
   Office.loadState(ID, { part: 'history' }, (j) => {
     historyTried = true;
     if (j.ok && j.part) history = j.part;
-    if (view && page === '' && sw.active() !== 'hints') redraw();
+    if (view && page === '' && sw.active() !== 'sensors') redraw();
   });
   if (period > 24) loadLong();
 }
@@ -481,13 +439,14 @@ const quiet = (v) => JSON.stringify(v, (k, x) => (VOLATILE.has(k) ? undefined : 
 function frameSig() {
   const su = setup();
   const active = setupSw ? setupSw.active() : '';
-  const rest = ['test', 'measure'].includes(active) ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft];
+  const rest = ['test', 'measure'].includes(active) ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft, S().dashboard, idle().on, S().tools, S().suggest, S().drivers, S().hints_open];
   return quiet([ready(), !!art(), !!cat, !!state, Office.agent.running, bubbleText(), plainNow(), situation(), control().running, su.armed, su.outputs, active, rest]);
 }
 /** What the step tiles say */
 function tilesSig() {
   const su = setup(), s = step();
   return quiet([(su.fans || []).map((f) => [f.id, f.found, f.role, f.measured, f.no_turn, f.cpu_own]), (su.zones || []).length, s && [s.kind, s.status], !!dry, who(), su.armed, (control().alarm || {}).code,
+    S().dashboard, idle().on, S().suggest, S().hints_open,
     setupSw ? setupSw.active() : '']);
 }
 /** What the banner above the steps says */
@@ -751,23 +710,65 @@ function pictureEl() {
 }
 
 // ------------------------------------------------------------------ the overview's tiles
-function whoTile(a) {
+// 2026-11-17 (the owner: the overview = what is and what was, nothing to set up): three tiles — «Aktuell» (who steers,
+// each zone's level and the source that leads it, the fans with their speed, the warmest spots near a limit), «Verlauf»
+// (each zone's history with a marker), «Fühler» (every temperature). The hints and the settings live in the setup.
+/** A zone's level as the page says it: «31 %» or «890 rpm» */
+const levelText = (cz) => (num(cz.level) === null ? '–' : cz.unit === 'rpm' ? T('pic.rpm', { rpm: fmt.number(Math.round(cz.level)) }) : T('value', { pct: Math.round(cz.level) }));
+/** What the zones' fans report: «409–672 rpm», a fan standing — the old tile «Fans»' line */
+function fansLine() {
+  const c = counts();
+  const out = [];
+  if (Number(c.turning)) out.push(T('now.fans', { n: Number(c.turning), range: c.rpm_min === c.rpm_max ? T('pic.rpm', { rpm: fmt.number(c.rpm_min) }) : T('fans.range', { min: fmt.number(c.rpm_min), max: fmt.number(c.rpm_max) }) }));
+  const stands = control().running && control().alarm && ['stands', 'bios_stands'].includes(control().alarm.code);
+  if (stands) out.push(T('fans.stands'));
+  else if (Number(c.zero)) out.push(T('fans.zero', { n: Number(c.zero) }));
+  return { lines: out, stands: !!stands };
+}
+/** The warmest spot nearest to its limit, in words — the old tile «Warmest spots»' lead; null: nothing near a limit */
+function hottestWords() {
+  const lead = hottestLead();
+  if (!lead) return null;
+  const over = lead.c >= lead.limit;
+  const how = over ? (lead.unraid ? T('hottest.over_unraid', { limit: fmt.number(lead.limit) }) : T('hottest.over_own', { limit: fmt.number(lead.limit) }))
+    : (lead.unraid ? T('hottest.near_unraid', { d: fmt.number(lead.limit - lead.c), limit: fmt.number(lead.limit) }) : T('hottest.near_own', { d: fmt.number(lead.limit - lead.c), limit: fmt.number(lead.limit) }));
+  return { text: `${T('hottest.lead', { kind: T(`hk.${lead.kind}`), whose: lead.whose, c: fmt.number(lead.c) })} — ${how}`, over };
+}
+/** «Aktuell»: who steers; each zone's level and its leading source; the fans' speeds; a warm spot near its limit */
+function nowTile(a) {
   const w = who();
   const value = !state ? '…' : w.who === 'fanboy' ? T('who.fanboy', { n: w.zones || 0 }) : w.who === 'bios' ? T('who.bios') : w.who === 'bmc' ? T('who.bmc') : w.who === 'nobody' ? T('who.nobody') : (w.name || w.who || '…');
-  const alert = ['alarm', 'crashed', 'chip_missing', 'chip_gone'].includes(w.why);
-  return Office.stat({ label: T('tile.who'), value, sub: state ? myWhy(w.why) : '', alert, ...a });
-}
-function fansTile(a) {
-  const c = counts();
-  const all = Number(c.fans) || 0;
-  const turning = Number(c.turning) || 0;
-  const zero = Number(c.zero) || 0;
   const sub = [];
-  if (turning) sub.push(T('fans.range', { min: fmt.number(c.rpm_min), max: fmt.number(c.rpm_max) }));
-  const stands = control().running && control().alarm && ['stands', 'bios_stands'].includes(control().alarm.code);
-  if (stands) sub.push(T('fans.stands'));
-  else if (zero) sub.push(T('fans.zero', { n: zero }));
-  return Office.stat({ label: T('tile.fans'), value: !state ? '…' : all ? T('fans.reporting', { n: turning }) : T('fans.none'), sub, alert: !!stands, ...a });
+  if (state && steers() && control().running) {
+    const names = new Map((setup().zones || []).map((z) => [z.id, z.name || z.id]));
+    (control().zones || []).slice(0, 3).forEach((cz) => {
+      const lead = cz.warmest && num(cz.warmest.c) !== null ? T('now.lead', { where: srcLabel(cz.warmest), c: fmt.number(cz.warmest.c) }) : T('pic.quiet');
+      sub.push(T('now.zone', { zone: names.get(cz.id) || cz.name || cz.id, level: cz.full ? T('pic.full') : levelText(cz), lead }));
+    });
+  } else if (state && myWhy(w.why)) sub.push(myWhy(w.why));
+  const fans = state ? fansLine() : { lines: [], stands: false };
+  sub.push(...fans.lines);
+  const hot = state ? hottestWords() : null;
+  if (hot) sub.push(hot.text);
+  const alert = ['alarm', 'crashed', 'chip_missing', 'chip_gone'].includes(w.why) || fans.stands || !!(hot && hot.over);
+  return Office.stat({ label: T('tile.now'), value, sub, alert, ...a });
+}
+/** «Verlauf»: today's warmest and how long his fans ran above their quiet level (the old tile «Today»'s numbers) */
+function historyTile(a) {
+  const d = today();
+  const value = !state ? '…' : d ? T('hist.today_max', { c: fmt.number(d.max) }) : (setup().zones || []).length ? T('today.none') : T('today.not_set_up');
+  const sub = d ? [T('today.above', { time: durationText(d.above) })] : [];
+  return Office.stat({ label: T('tile.history'), value, sub, ...a });
+}
+/** «Fühler»: how many temperatures, the warmest of all, those over a limit */
+function sensorsTile(a) {
+  const all = state ? sensorRows() : [];
+  const hot = all.filter(inAlarm);
+  const h = S().hottest;
+  const sub = [];
+  if (hot.length) sub.push(T('sensors.n_warm', { n: hot.length }));
+  if (h && num(h.c) !== null) sub.push(T('sensors.warmest', { c: fmt.number(h.c) }));
+  return Office.stat({ label: T('tile.sensors'), value: !state ? '…' : all.length ? T('sensors.n', { n: all.length }) : T('hottest.none'), sub, alert: hot.length > 0, ...a });
 }
 /** Whose a place is, in words: «HDD · Disk 3», «SSD/NVMe · Composite · 2» */
 function hotWhose(x) {
@@ -797,44 +798,6 @@ function hottestLead() {
 function hotKind(x) {
   if (x.kind === 'disk') { const d = (S().disks || []).find((y) => y.name === x.id); return d && d.rotational === false ? 'ssd' : 'hdd'; }
   return { nvme: 'ssd', ssd: 'ssd', cpu: 'cpu', board: 'board', ram: 'ram' }[x.kind] || 'other';
-}
-/**
- * «Warmest spots»: the warmest of each kind (a hard disk's 44 °C and an NVMe's are not the same thing); the place nearest
- * to its limit leads, in colour once over it; nothing near a limit: the kinds side by side, calmly
- */
-function hottestTile(a) {
-  const kinds = (S().hottest_kinds || []).filter((k) => k.warmest || k.asleep);
-  if (!state || !kinds.length) {
-    const h = S().hottest;
-    return Office.stat({ label: T('tile.hottest'), value: !state ? '…' : h ? T('temp', { c: fmt.number(h.c) }) : T('hottest.none'), ...a });
-  }
-  // «HDD · Disk 3 · 41 °C»; a name that says its kind already («Mainboard-Fühler 2») without the kind in front
-  const line = (k) => {
-    if (!k.warmest) return T('hottest.kind_asleep', { kind: T(`hk.${k.kind}`) });
-    const whose = hotWhose(k.warmest);
-    const c = fmt.number(k.warmest.c);
-    return whose.toLowerCase().startsWith(T(`hk.${k.kind}`).toLowerCase()) ? T('hottest.whose_line', { whose, c }) : T('hottest.kind_line', { kind: T(`hk.${k.kind}`), whose, c });
-  };
-  const lead = hottestLead();
-  if (!lead) return Office.stat({ label: T('tile.hottest'), value: T('hottest.calm'), sub: kinds.slice(0, 4).map(line), ...a });
-  const over = lead.c >= lead.limit;
-  const how = over ? (lead.unraid ? T('hottest.over_unraid', { limit: fmt.number(lead.limit) }) : T('hottest.over_own', { limit: fmt.number(lead.limit) }))
-    : (lead.unraid ? T('hottest.near_unraid', { d: fmt.number(lead.limit - lead.c), limit: fmt.number(lead.limit) }) : T('hottest.near_own', { d: fmt.number(lead.limit - lead.c), limit: fmt.number(lead.limit) }));
-  return Office.stat({ label: T('tile.hottest'), value: T('hottest.lead', { kind: T(`hk.${lead.kind}`), whose: lead.whose, c: fmt.number(lead.c) }),
-    sub: [how, ...kinds.filter((k) => k.kind !== lead.kind).slice(0, 3).map(line)], alert: over, ...a });
-}
-/** «Today»: the highest temperature of the day and how long his fans ran above their quiet level */
-function todayTile(a) {
-  const d = today();
-  const value = !state ? '…' : d ? T('temp', { c: fmt.number(d.max) }) : (setup().zones || []).length ? T('today.none') : T('today.not_set_up');
-  const sub = d ? [T('today.above', { time: durationText(d.above) })] : [];
-  return Office.stat({ label: T('tile.today'), value, sub, ...a });
-}
-function hintsTile(a) {
-  const n = Array.isArray(S().suggest) ? S().suggest.length : 0;
-  const there = tools().filter((x) => x.installed).length;
-  const value = !state ? '…' : n ? T('hints.fits', { n }) : S().hints_open ? T('hints.read') : T('hints.why');
-  return Office.stat({ label: T('tile.hints'), value, sub: state ? T('hints.there', { n: there }) : '', alert: !!S().hints_open, ...a });
 }
 function today() {
   const zs = history && history.zones ? history.zones : null;
@@ -873,25 +836,41 @@ const sw = Office.sections({
   grid: 'stats',
   default: '',
   tiles: () => [
-    // the order reads as the page does: the picture, what happened today (the curves), the fans, the heat sources, hints
-    { id: 'who', key: 'tile.who', place: 'tile.who', tile: whoTile, section: () => serverSection() },
-    { id: 'today', key: 'tile.today', place: 'tile.today', tile: todayTile, section: () => curvesSection() },
-    { id: 'fans', key: 'tile.fans', place: 'tile.fans', tile: fansTile, section: () => fansSection() },
-    { id: 'hottest', key: 'tile.hottest', place: 'tile.hottest', tile: hottestTile, section: () => sensorsSection() },
-    { id: 'hints', key: 'tile.hints', place: 'tile.hints', tile: hintsTile, section: () => hintsSection() },
+    // the order reads as the page does: what is now (the picture, the fans), what was (each zone's history), every sensor
+    { id: 'now', key: 'tile.now', place: 'tile.now', tile: nowTile, section: () => nowSection() },
+    { id: 'history', key: 'tile.history', place: 'tile.history', tile: historyTile, section: () => historySection() },
+    { id: 'sensors', key: 'tile.sensors', place: 'tile.sensors', tile: sensorsTile, section: () => sensorsSection() },
   ],
 });
+/** The overview's routes before 2026-11-17: where each lands now (the hints: the setup's first step) */
+const OLD_TILES = { who: 'now', fans: 'now', hottest: 'now', today: 'history' };
 
 // ------------------------------------------------------------------ the overview's sections
-function serverSection() {
-  const s = el('section', 'section');
-  const go = el('a', 'btn small', steers() || (setup().zones || []).length ? T('server.change') : T('server.set_up'));
+/**
+ * Not set up or not steering: ONE plain line saying so, with the way to «Einrichten» — the banner says the cases that
+ * need words of their own (nobody, a fixed value, another controller, a driver missing, the alarm)
+ */
+function notSteeringLine() {
+  if (!state || steers() || who().who !== 'bios' || situation() !== 'ok' || who().why === 'fixed' || (who().fixed || []).length) return null;
+  const zones = (setup().zones || []).length;
+  const p = el('p', 'fb-now-line');
+  p.dataset.now = zones ? 'not_armed' : 'not_set_up';
+  p.appendChild(el('span', '', T(zones && setup().armed === false ? 'now.not_armed' : zones ? 'now.bios' : 'now.not_set_up')));
+  const go = el('a', 'fb-now-go', T('page.setup'));
   go.href = `#/${ID}/setup`;
-  s.appendChild(Office.sectionHead(T('server.title'), steers() ? T('server.sub_steers') : who().why === 'fixed' ? T('server.sub_fixed') : T('server.sub'), go, { place: 'server.title' }));
+  p.append(' ', go);
+  return p;
+}
+/** «Aktuell»: the picture of the server, the fans he steers and watches (rows to read), what happened lately */
+function nowSection() {
+  const s = el('section', 'section');
+  s.appendChild(Office.sectionHead(T('now.title'), steers() ? T('server.sub_steers') : who().why === 'fixed' ? T('server.sub_fixed') : T('server.sub'), { place: 'now.title' }));
+  const line = notSteeringLine();
+  if (line) s.appendChild(line);
   s.appendChild(pictureEl());
+  s.appendChild(fansPart());
   const notes = notesBox();
   if (notes) s.append(Office.place('notes.title', el('h3', 'fb-head', T('notes.title'))), notes);
-  s.appendChild(dashChoice());
   return s;
 }
 
@@ -1011,14 +990,10 @@ function outputRow(c, o) {
   if (rpm !== null) meta.appendChild(el('span', '', T('pic.rpm', { rpm: fmt.number(rpm) })));
   const wc = watchChipOf(c, f);
   if (wc) meta.appendChild(wc);
-  if (offered(c)) meta.appendChild(showButton(id, f));
-  // round 9 (H2): set to full by him for safety — said here and undone here
+  // round 9 (H2): set to full by him for safety — said here (the banner and the strip above put it back: the overview's
+  // rows change nothing, 2026-11-17)
   const sx = safetyOf(id);
-  if (sx) {
-    meta.appendChild(chipOfText('warn', T('safety.chip'), T(sx.why === 'not_back' ? 'safety.not_back' : 'safety.no_restart', { pct: num((sx.before || {}).value) === null ? '–' : Math.round(sx.before.value / 2.55) })));
-    const sb = safetyBlock(id);
-    if (sb) meta.appendChild(sb.lastChild);
-  }
+  if (sx) meta.appendChild(chipOfText('warn', T('safety.chip'), T(sx.why === 'not_back' ? 'safety.not_back' : 'safety.no_restart', { pct: num((sx.before || {}).value) === null ? '–' : Math.round(sx.before.value / 2.55) })));
   const v = el('div', 'fb-value', num(o.pct) === null ? '–' : T('value', { pct: o.pct }));
   v.title = T('value_title', { value: o.value ?? '–' });
   const b = (setup().before || {})[id];
@@ -1036,9 +1011,9 @@ function outputRow(c, o) {
  * Fans and outputs: first the outputs he steers, then those the BIOS keeps with a fan on them (and those not tested yet:
  * a fan may be on them); empty outputs, a graphics card's and the bare tach inputs behind one fold
  */
-function fansSection() {
-  const s = el('section', 'section');
-  s.appendChild(Office.sectionHead(T('fans.title'), steers() ? T('fans.sub_steers') : T('fans.sub'), { place: 'fans.title' }));
+function fansPart() {
+  const s = el('div', 'fb-fans');
+  s.append(Office.place('fans.title', el('h3', 'fb-head', T('fans.title'))), el('p', 'fb-hint-text', steers() ? T('fans.sub_steers') : T('fans.sub')));
   const his = [], bios = [], rest = [];
   chips().filter((c) => c.outputs.length).forEach((c) => c.outputs.forEach((o) => {
     const id = `${c.name}:${c.address}:pwm${o.n}`;
@@ -1072,7 +1047,6 @@ function fansSection() {
   s.appendChild(list);
   const more = moreFold('fans-more', rest, T('fans.more', { n: rest.length }), false);
   if (more) s.appendChild(more);
-  s.appendChild(watchChoice());
   return s;
 }
 
@@ -1205,35 +1179,6 @@ function svg(tag, attrs, text) {
   if (text !== undefined) n.textContent = text;
   return n;
 }
-/**
- * A zone's curve, still: temperature → level, «now» marked, the lowest steady level dashed — drawn here (cheap, no
- * dragging: that is the setup's zones step)
- */
-function curveStill(zid, unit, nowC) {
-  const c = (setup().curves || {})[zid];
-  if (!c || !Array.isArray(c.points) || c.points.length < 2) return null;
-  const pts = c.points.map((p) => [p[0], p[1]]);
-  const [lo, hi] = c.scale || [pts[0][0], pts[pts.length - 1][0]];
-  const tMin = Math.floor(Math.min(lo - 10, pts[0][0] - 2) / 5) * 5, tMax = Math.ceil(Math.max(hi + 10, pts[pts.length - 1][0] + 2) / 5) * 5;
-  const vMax = unit === 'rpm' ? Math.max(...pts.map((p) => p[1]), 1) * 1.1 : 100;
-  const W = 320, H = 150, L = 34, R = 8, Tp = 8, B = 22;
-  const x = (tc) => L + (Math.min(tMax, Math.max(tMin, tc)) - tMin) / (tMax - tMin) * (W - L - R);
-  const y = (v) => Tp + (1 - v / vMax) * (H - Tp - B);
-  const s = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'fb-chart', role: 'img', 'aria-label': T('curves.curve_label') });
-  for (let v = 0; v <= vMax; v += unit === 'rpm' ? Math.ceil(vMax / 4 / 100) * 100 : 25) {
-    s.appendChild(svg('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), class: 'fb-grid' }));
-    s.appendChild(svg('text', { x: L - 4, y: y(v) + 3, class: 'fb-tick', 'text-anchor': 'end' }, unit === 'rpm' ? fmt.number(v) : `${v}`));
-  }
-  for (let tc = tMin; tc <= tMax; tc += 10) s.appendChild(svg('text', { x: x(tc), y: H - 6, class: 'fb-tick', 'text-anchor': 'middle' }, `${tc}°`));
-  const line = [[tMin, pts[0][1]], ...pts, [tMax, pts[pts.length - 1][1]]].map((p) => `${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');
-  s.appendChild(svg('polyline', { points: line, class: 'fb-curve-line' }));
-  if (num(nowC) !== null) {
-    s.appendChild(svg('line', { x1: x(nowC), x2: x(nowC), y1: Tp, y2: H - B, class: 'fb-now' }));
-    s.appendChild(svg('text', { x: Math.min(W - R - 2, x(nowC) + 4), y: Tp + 10, class: 'fb-tick fb-now-text', 'text-anchor': x(nowC) > W * 0.7 ? 'end' : 'start' },
-      T('curves.now', { c: fmt.number(nowC) })));
-  }
-  return s;
-}
 /** A time axis's ticks for the period: every so long, at round local hours; labelled «−2 h», «14:00» or «Mo 12:00» */
 function timeTicks(from, now) {
   const step = { 1: 900, 3: 3600, 6: 7200, 12: 10800, 24: 21600, 72: 43200 }[period] || 7200;
@@ -1327,11 +1272,13 @@ function periodChoice() {
   });
   return box;
 }
-function curvesSection() {
+/**
+ * «Verlauf»: per zone one chart over the chosen period — the temperature of the source that led and the zone's level.
+ * The curve itself (temperature → level) is the setup's (step «Zonen»): what was, not what is set, belongs here.
+ */
+function historySection() {
   const s = el('section', 'section');
-  const go = el('a', 'btn small', T('curves.change'));
-  go.href = `#/${ID}/setup/zones`;
-  s.appendChild(Office.sectionHead(T('curves.title'), T('curves.sub'), (setup().zones || []).length ? go : null, { place: 'curves.title' }));
+  s.appendChild(Office.sectionHead(T('curves.title'), T('curves.sub'), { place: 'curves.title' }));
   const zones = setup().zones || [];
   if (!zones.length) {
     s.appendChild(el('p', 'empty', T('curves.none')));
@@ -1348,18 +1295,12 @@ function curvesSection() {
     card.appendChild(el('h3', 'fb-head', z.name || z.id));
     const warm = cz && cz.warmest && num(cz.warmest.c) !== null ? cz.warmest : null;
     card.appendChild(el('p', 'fb-hint-text', warm && control().running
-      ? T('curves.line_now', { where: srcLabel(warm), c: fmt.number(warm.c), level: num(cz.level) === null ? '–' : (cz.unit === 'rpm' ? T('pic.rpm', { rpm: fmt.number(Math.round(cz.level)) }) : T('value', { pct: Math.round(cz.level) })) })
+      ? T('curves.line_now', { where: srcLabel(warm), c: fmt.number(warm.c), level: levelText(cz) })
       : T(nobody() ? 'curves.line_nobody' : 'curves.line_bios')));
-    const two = el('div', 'fb-curve-two');
-    const a = el('figure', 'fb-fig');
-    const still = curveStill(z.id, z.unit, warm ? (num(warm.mapped) ?? warm.c) : null);
-    if (still) a.appendChild(still);
-    a.appendChild(el('figcaption', '', T('curves.curve_caption')));
     const b = el('figure', 'fb-fig');
     b.append(historyChart(z.id), el('figcaption', 'fb-legend', ''));
     b.lastChild.append(el('span', 'fb-key fb-key-t', T('curves.key_temp')), el('span', 'fb-key fb-key-l', T('curves.key_level')));
-    two.append(a, b);
-    card.appendChild(two);
+    card.appendChild(b);
     grid.appendChild(card);
   });
   s.appendChild(grid);
@@ -1377,9 +1318,13 @@ const hintHead = (text) => el('h3', 'fb-head', text);
 function hintParas(box, prefix) {
   for (let i = 1; has(`${prefix}.${i}`); i++) box.appendChild(el('p', 'fb-hint-text', T(`${prefix}.${i}`)));
 }
-function hintsSection() {
-  const s = el('section', 'section');
-  s.appendChild(Office.sectionHead(T('hints.title'), T('hints.sub'), { place: 'hints.title' }));
+/**
+ * «Why is this tricky?» — in the setup's first step since 2026-11-17 (what helps before anything is set up: the plugins
+ * found, a driver to load, the board's quirks); a heading of the step, its fold open by itself unless the situation is ok
+ */
+function hintsBlock() {
+  const s = el('div', 'fb-hints-part');
+  s.append(Office.place('hints.title', el('h3', 'fb-head', T('hints.title'))), el('p', 'fb-hint-text', T('hints.sub')));
   const det = keepFold(el('details', 'fb-hints'), 'hints', !!S().hints_open);
   det.appendChild(el('summary', '', T('hints.fold')));
   const body = el('div', 'fb-hints-body');
@@ -1581,8 +1526,9 @@ function paintBanner() {
     box('warn', T('situation.fixed', { list: fixedList(w.fixed) }), { situation: 'fixed' });
   } else if (s === 'ok' && (w.fixed || []).length && !banner.children.length) {
     box('warn', T('situation.fixed_some', { list: fixedList(w.fixed) }), { situation: 'fixed_some' });
-  } else if (s === 'ok' && !banner.children.length && !(page === 'setup' && (stepRuns() || showRuns() || Object.keys(S().safety || {}).length))) {
-    // (while the setup holds outputs, «the BIOS steers every fan» would be untrue — the setup's strip says what runs)
+  } else if (s === 'ok' && !banner.children.length && page === 'setup' && !(stepRuns() || showRuns() || Object.keys(S().safety || {}).length)) {
+    // only in the setup (2026-11-17: the overview's «Aktuell» says who steers, and when nobody does, one plain line there);
+    // while the setup holds outputs, «the BIOS steers every fan» would be untrue — the setup's strip says what runs
     box('', steers() ? T(cpuGiven() ? 'situation.steers_cpu' : 'situation.steers', { n: w.zones || 0 }) : c.armed === false && (setup().zones || []).length ? T('situation.not_armed') : T('situation.ok'), { situation: s });
   }
   // round 6: a show whose give-back didn't read back as before (the fan may sit at 100 %)
@@ -1607,11 +1553,24 @@ function setupSwitcher() {
     bodyId: 'fb-setup-steps',
     grid: 'stats fb-steps',
     default: '',
-    tiles: () => (state ? STEPS.map((k, i) => ({ id: k, key: `step.${k}`, place: `setup.tile.${k}`, tile: (a) => stepTile(k, i, a), section: () => stepSection(k) })) : []),
-    wants: (sub) => STEPS.includes(sub),
+    tiles: () => (state ? [...STEPS.map((k, i) => ({ id: k, key: `step.${k}`, place: `setup.tile.${k}`, tile: (a) => stepTile(k, i, a), section: () => stepSection(k) })),
+      // 2026-11-17: the office-wide settings, from the overview — a small section under the steps
+      { id: 'settings', key: 'settings.title', place: 'setup.tile.settings', tile: settingsTile, section: () => settingsSection() }] : []),
+    wants: (sub) => STEPS.includes(sub) || sub === 'settings',
     onPick: () => { drawn = ''; },
   });
   return setupSw;
+}
+/** «Settings»: the Dashboard tile and the watch, each as it stands */
+function settingsTile(a) {
+  const dash = DASH_SHOWS.includes(S().dashboard) ? S().dashboard : 'off';
+  return Office.stat({ label: T('settings.title'), value: T('settings.dash', { show: T(`dash.show.${dash}`) }), sub: [T(idle().on !== false ? 'settings.watch_on' : 'settings.watch_off')], ...a });
+}
+function settingsSection() {
+  const s = el('section', 'section');
+  s.appendChild(Office.sectionHead(T('settings.title'), T('settings.sub'), { place: 'settings.title' }));
+  s.append(dashChoice(), watchChoice());
+  return s;
 }
 /** A step's tile: its number and name, what stands (done, open, running) */
 function stepTile(k, i, a) {
@@ -1623,7 +1582,12 @@ function stepTile(k, i, a) {
   const s = step();
   let value = '';
   const sub = [];
-  if (k === 'detect') { value = T('step.v.outputs', { n: (su.outputs || []).length }); }
+  if (k === 'detect') {
+    value = T('step.v.outputs', { n: (su.outputs || []).length });
+    const n = Array.isArray(S().suggest) ? S().suggest.length : 0;          // the hints' summary (the tile «Hints» until 2026-11-17)
+    if (n) sub.push(T('hints.fits', { n }));
+    else if (S().hints_open) sub.push(T('hints.read'));
+  }
   if (k === 'test') {
     // round 8: «4 von 6 getestet · 3 zugeordnet»
     const done = (su.outputs || []).filter((id) => { const f = fans.find((x) => x.id === id); return f && (f.found || leftAlone(f)); }).length;
@@ -1634,7 +1598,7 @@ function stepTile(k, i, a) {
   if (k === 'zones') value = (su.zones || []).length ? T('step.v.zones', { n: su.zones.length }) : '–';
   if (k === 'take') value = steers() ? T('who.fanboy', { n: who().zones || 0 }) : su.armed ? T('step.v.armed') : T('who.bios');
   if (here && !(k === 'take' && (steers() || su.armed))) sub.push(T('step.here'));
-  return Office.stat({ label: T('step.n', { n: i + 1, name: T(`step.${k}`) }), value, sub, alert: k === 'take' && control().running && !!control().alarm, ...a });
+  return Office.stat({ label: T('step.n', { n: i + 1, name: T(`step.${k}`) }), value, sub, alert: (k === 'take' && control().running && !!control().alarm) || (k === 'detect' && !!S().hints_open), ...a });
 }
 function stepSection(k) {
   const s = el('section', 'section fb-step');
@@ -1683,9 +1647,8 @@ function detectStep() {
   if (!(su.outputs || []).length) {
     // the banner above says why (never the same text twice on a page); here only that there is nothing to set up
     box.appendChild(para(T('step.nothing')));
-    const go = el('a', 'btn small', T('detect.hints'));
-    go.href = `#/${ID}/hints`;
-    box.appendChild(bar(go, reportButton(true)));
+    box.appendChild(bar(reportButton(true)));
+    box.appendChild(hintsBlock());
     return box;
   }
   const list = el('div', 'fb-list fb-list-read');
@@ -1704,6 +1667,7 @@ function detectStep() {
   const tachs = chips().filter(offered).reduce((n, c) => n + (c.fans || []).length, 0);
   const go = btn(T('step.next', { name: T('step.test') }), 'btn', () => { setupSwitcher().pick('test'); drawn = ''; redraw(); });
   box.appendChild(nextBar([T('detect.summary', { outputs: (su.outputs || []).length, inputs: tachs, sensors: (su.sources || []).length }), fixed ? T('detect.fixed_note', { n: fixed }) : ''], go));
+  box.appendChild(hintsBlock());
   return box;
 }
 
@@ -3850,7 +3814,7 @@ function render() {
     pages: { list: PAGES(), current: page } });
   if (page === 'setup') {
     const help = Office.pageHelp(`${ID}-setup`, [[T('help.setup'), T('help.setup_text')], [T('help.safe'), T('help.safe_text')], [T('help.quiet'), T('help.quiet_text')],
-      [T('help.later'), T('help.later_text')], [T('help.vm_disks'), T('help.vm_disks_text')]]);
+      [T('help.show'), T('help.show_text')], [T('help.later'), T('help.later_text')], [T('help.vm_disks'), T('help.vm_disks_text')]]);
     const ssw = setupSwitcher();
     view.replaceChildren(head, help, ssw.el);
     if (banner.parentNode !== ssw.el || banner.nextSibling !== ssw.body) ssw.el.insertBefore(banner, ssw.body);
@@ -3868,7 +3832,6 @@ function render() {
     [T('help.who'), T('help.who_text')],
     [T('help.picture'), T('help.picture_text')],
     [T('help.outputs'), T('help.outputs_text')],
-    [T('help.show'), T('help.show_text')],
     [T('help.sensors'), T('help.sensors_text')],
     [T('help.curves'), T('help.curves_text')],
     [T('help.report'), T('help.report_text')],
@@ -3889,6 +3852,7 @@ Office.desk({
   id: ID,
   async mount(root, sub) {
     view = root;
+    if (String(sub || '') === 'hints') sub = 'setup/detect';      // the tile «Hints» until 2026-11-17: the setup's first step
     page = Office.pageFrom(PAGES(), sub) === 'setup' ? 'setup' : '';
     drawn = '';
     warmFrom = Date.now();
@@ -3908,7 +3872,7 @@ Office.desk({
       return;
     }
     sensorsBar().reset();
-    sw.mount(sub);
+    sw.mount(OLD_TILES[String(sub || '')] || sub);       // the old tiles' routes land on the new ones
     render();
     load(false);
     loadHistory();
@@ -3934,7 +3898,7 @@ Office.desk({
     const facts = [];
     const c = counts();
     if (c.fans) facts.push(T('fans.reporting', { n: c.turning || 0 }));
-    if (S().hottest) facts.push(`${T('tile.hottest')}: ${T('temp', { c: fmt.number(S().hottest.c) })}`);
+    if (S().hottest) facts.push(T('sensors.warmest', { c: fmt.number(S().hottest.c) }));
     return { bubble: bubbleText(), facts };
   },
 });
@@ -3942,29 +3906,31 @@ Office.desk({
 // his places for the search (places.json beside desk.json lists the same keys)
 const SETUP_ROUTE = { route: `#/${ID}/setup`, crumb: 'page.setup' };
 Office.places(ID, [
-  { kind: 'section', key: 'server.title', route: `#/${ID}/who` },
-  { kind: 'section', key: 'notes.title', route: `#/${ID}/who` },
-  { kind: 'section', key: 'dash.setting', route: `#/${ID}/who` },
-  { kind: 'section', key: 'fans.title', route: `#/${ID}/fans` },
-  { kind: 'section', key: 'watch.setting', route: `#/${ID}/fans` },
-  { kind: 'section', key: 'sensors.title', route: `#/${ID}/hottest` },
-  { kind: 'section', key: 'curves.title', route: `#/${ID}/today` },
-  { kind: 'section', key: 'hints.title', route: `#/${ID}/hints` },
-  { kind: 'section', key: 'drivers.title', route: `#/${ID}/hints` },
+  { kind: 'section', key: 'now.title', route: `#/${ID}/now` },
+  { kind: 'section', key: 'fans.title', route: `#/${ID}/now` },
+  { kind: 'section', key: 'notes.title', route: `#/${ID}/now` },
+  { kind: 'section', key: 'curves.title', route: `#/${ID}/history` },
+  { kind: 'section', key: 'sensors.title', route: `#/${ID}/sensors` },
+  { kind: 'section', key: 'hints.title', ...SETUP_ROUTE, route: `#/${ID}/setup/detect` },
+  { kind: 'section', key: 'drivers.title', ...SETUP_ROUTE, route: `#/${ID}/setup/detect` },
+  { kind: 'section', key: 'settings.title', ...SETUP_ROUTE, route: `#/${ID}/setup/settings` },
+  { kind: 'setting', key: 'dash.setting', ...SETUP_ROUTE, route: `#/${ID}/setup/settings` },
+  { kind: 'setting', key: 'watch.setting', ...SETUP_ROUTE, route: `#/${ID}/setup/settings` },
   { kind: 'help', key: 'help.who', text: 'help.who_text' },
   { kind: 'help', key: 'help.picture', text: 'help.picture_text' },
   { kind: 'help', key: 'help.outputs', text: 'help.outputs_text' },
-  { kind: 'help', key: 'help.show', text: 'help.show_text' },
   { kind: 'help', key: 'help.sensors', text: 'help.sensors_text' },
   { kind: 'help', key: 'help.curves', text: 'help.curves_text' },
   { kind: 'help', key: 'help.report', text: 'help.report_text' },
   { kind: 'help', key: 'help.setup', text: 'help.setup_text', ...SETUP_ROUTE },
   { kind: 'help', key: 'help.safe', text: 'help.safe_text', ...SETUP_ROUTE },
   { kind: 'help', key: 'help.quiet', text: 'help.quiet_text', ...SETUP_ROUTE },
+  { kind: 'help', key: 'help.show', text: 'help.show_text', ...SETUP_ROUTE },
   { kind: 'setting', key: 'quiet.setting', route: `#/${ID}/setup/test`, crumb: 'page.setup' },
   { kind: 'help', key: 'help.later', text: 'help.later_text', ...SETUP_ROUTE },
   ...STEPS.map((k) => ({ kind: 'step', key: `step.${k}`, ...SETUP_ROUTE, route: `#/${ID}/setup/${k}` })),
   ...STEPS.map((k) => ({ kind: 'tile', key: `step.${k}`, anchor: `setup.tile.${k}`, ...SETUP_ROUTE, route: `#/${ID}/setup/${k}` })),
+  { kind: 'tile', key: 'settings.title', anchor: 'setup.tile.settings', ...SETUP_ROUTE, route: `#/${ID}/setup/settings` },
   ...sw.places(),
 ]);
 // what his look holds worth finding: each output, tach input, sensor and zone (his words — never a path)
@@ -3974,12 +3940,12 @@ Office.placesFrom(ID, (s) => {
   const su = s.setup || {};
   const named = new Map((su.fans || []).map((f) => [f.id, f.name]));
   s.chips.forEach((c) => {
-    (c.outputs || []).forEach((o) => out.push({ text: named.get(`${c.name}:${c.address}:pwm${o.n}`) || T('out.name', { n: o.n }), sub: T('fans.title'), route: `#/${ID}/fans`, anchor: `out:${c.address}:${o.n}` }));
-    (c.temps || []).forEach((x) => out.push({ text: x.label || T('sensors.row', { n: x.n }), sub: `${T('sensors.title')} · ${T(`kind.${c.kind}`)}`, route: `#/${ID}/hottest`, anchor: `temp:${c.address}:${x.n}` }));
+    (c.outputs || []).forEach((o) => out.push({ text: named.get(`${c.name}:${c.address}:pwm${o.n}`) || T('out.name', { n: o.n }), sub: T('fans.title'), route: `#/${ID}/now`, anchor: `out:${c.address}:${o.n}` }));
+    (c.temps || []).forEach((x) => out.push({ text: x.label || T('sensors.row', { n: x.n }), sub: `${T('sensors.title')} · ${T(`kind.${c.kind}`)}`, route: `#/${ID}/sensors`, anchor: `temp:${c.address}:${x.n}` }));
   });
-  (s.disks || []).forEach((d) => out.push({ text: srcLabel({ kind: 'disk', id: d.name }), sub: `${T('sensors.title')} · ${T('kind.disk')}`, route: `#/${ID}/hottest`, anchor: `temp:disk:${d.name}` }));
-  (s.tools || []).filter((x) => x.installed || x.active).forEach((x) => out.push({ text: x.name, sub: `${T('hints.there_title')} · ${x.author}`, route: `#/${ID}/hints`, anchor: `plugin:${x.id}` }));
-  (su.zones || []).forEach((z) => out.push({ text: z.name || z.id, sub: T('curves.title'), route: `#/${ID}/today`, anchor: `curve:${z.id}` }));
+  (s.disks || []).forEach((d) => out.push({ text: srcLabel({ kind: 'disk', id: d.name }), sub: `${T('sensors.title')} · ${T('kind.disk')}`, route: `#/${ID}/sensors`, anchor: `temp:disk:${d.name}` }));
+  (s.tools || []).filter((x) => x.installed || x.active).forEach((x) => out.push({ text: x.name, sub: `${T('hints.there_title')} · ${x.author}`, route: `#/${ID}/setup/detect`, anchor: `plugin:${x.id}` }));
+  (su.zones || []).forEach((z) => out.push({ text: z.name || z.id, sub: T('curves.title'), route: `#/${ID}/history`, anchor: `curve:${z.id}` }));
   return out.slice(0, 200);
 });
 })();

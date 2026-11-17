@@ -307,7 +307,7 @@ function testFanboyDashSetting(): void
         $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
         check('fanboy dash setting: his page — three choices (off by default), the agent\'s action, office-wide (never per browser)',
             str_contains($js, "const DASH_SHOWS = ['off', 'speeds', 'history'];") && str_contains($js, "act('dashboard', { show: k }, b)")
-            && str_contains($js, ": 'off';") && !preg_match('/Office\.store\([^)]*dash/', $js) && str_contains($js, 's.appendChild(dashChoice());'), '');
+            && str_contains($js, ": 'off';") && !preg_match('/Office\.store\([^)]*dash/', $js) && str_contains($js, 's.append(dashChoice(), watchChoice());'), '');
     } finally {
         fanboyTEnd();
     }

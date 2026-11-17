@@ -64756,10 +64756,12 @@ function testFanboyHints(): void
     fanboyDetect($root);
     same('fanboy hints: … sensors.conf read, never written', [$md5, $mtime], [md5_file($conf), filemtime($conf)]);
 
-    // the page: the fourth tile and its fold-out section (open by itself in those situations), the ⟦Apps⟧ link, no install
+    // the page: the hints under the setup's first step (2026-11-17: the setup's, not the overview's), their fold open by
+    // itself in those situations, the step's tile saying what fits; the ⟦Apps⟧ link, no install
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
-    check('fanboy hints page: the tile «Hints» with its section; the fold kept (keepFold) and open by itself when hints_open',
-        str_contains($js, "{ id: 'hints', key: 'tile.hints', place: 'tile.hints', tile: hintsTile, section: () => hintsSection() }")
+    check('fanboy hints page: in the setup\'s first step (both of its cases), the tile «1 · Detect» saying what fits; the fold kept (keepFold) and open by itself when hints_open',
+        substr_count($js, 'box.appendChild(hintsBlock());') === 2 && str_contains($js, "if (n) sub.push(T('hints.fits', { n }));")
+        && str_contains($js, "(k === 'detect' && !!S().hints_open)") && !str_contains($js, "id: 'hints'")
         && str_contains($js, "keepFold(el('details', 'fb-hints'), 'hints', !!S().hints_open)"));
     check('fanboy hints page: what fits by the agent\'s list only, each found in ⟦Apps⟧ by its name (a link, nothing installed), the wish button there',
         str_contains($js, "(S().suggest || []).map((id) => tools().find((x) => x.id === id))") && str_contains($js, "Office.safeHref('/Apps')")
@@ -64772,19 +64774,17 @@ function testFanboyHints(): void
 function testFanboyPage(): void
 {
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
-    // part 3: the overview's five tiles, each its section (who → the server picture, fans, hottest → sensors, today → the
-    // curves, hints); the setup's seven steps on a switcher of their own
-    check('fanboy page: on the section switcher — five tiles, each its section',
-        str_contains($js, 'const sw = Office.sections({') && str_contains($js, "{ id: 'who', key: 'tile.who', place: 'tile.who', tile: whoTile, section: () => serverSection() }")
-        && str_contains($js, "{ id: 'fans', key: 'tile.fans', place: 'tile.fans', tile: fansTile, section: () => fansSection() }")
-        && str_contains($js, "{ id: 'hottest', key: 'tile.hottest', place: 'tile.hottest', tile: hottestTile, section: () => sensorsSection() }")
-        && str_contains($js, "{ id: 'today', key: 'tile.today', place: 'tile.today', tile: todayTile, section: () => curvesSection() }")
-        && str_contains($js, "{ id: 'hints', key: 'tile.hints', place: 'tile.hints', tile: hintsTile, section: () => hintsSection() }"));
+    // part 3: the overview's three tiles (2026-11-17), each its section (now → the server picture and the fans, history →
+    // each zone's chart with its marker, sensors); the setup's steps and its settings on a switcher of their own
+    check('fanboy page: on the section switcher — three tiles, each its section',
+        str_contains($js, 'const sw = Office.sections({') && str_contains($js, "{ id: 'now', key: 'tile.now', place: 'tile.now', tile: nowTile, section: () => nowSection() }")
+        && str_contains($js, "{ id: 'history', key: 'tile.history', place: 'tile.history', tile: historyTile, section: () => historySection() }")
+        && str_contains($js, "{ id: 'sensors', key: 'tile.sensors', place: 'tile.sensors', tile: sensorsTile, section: () => sensorsSection() }"));
     preg_match_all("/act\\('([a-z_]+)'/", $js, $acts);
     $acts = array_values(array_unique($acts[1]));
     sort($acts);
     same('fanboy page: the banner between the row and the sections; the page\'s actions through act() — the wizard\'s and part 2\'s',
-        [true, ['dashboard', 'drivers_load', 'drivers_undo', 'hand_back', 'look_now', 'role', 'safety_back', 'show', 'show_stop', 'take_over', 'watch', 'zones_propose', 'zones_save']],
+        [true, ['dashboard', 'drivers_load', 'drivers_undo', 'hand_back', 'look_now', 'role', 'safety_back', 'take_over', 'watch', 'zones_propose', 'zones_save']],
         [str_contains($js, "const banner = el('div', 'fb-banner');") && str_contains($js, 'if (banner.parentNode !== sw.el) sw.el.insertBefore(banner, sw.body);'), $acts]);
     // step 2's list and panel: its actions queued through send() (no click dropped, a refusal said in the strip)
     preg_match_all("/send\\('([a-z_]+)'/", $js, $sends);
@@ -65251,7 +65251,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
           'fanboy' => ['testFanboyPublic', 'testCaretakerNewcomers', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
                        'testFanboyWrite', 'testFanboyControl', 'testFanboyAlarms', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',
                        'testFanboyProcesses', 'testFanboyDrivers', 'testFanboyStopScripts', 'testFanboyState',
-                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyUx', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR7FullOnObeys', 'testFanboyR7ControlFullOn', 'testFanboyR7Fixed', 'testFanboyR7NotAController', 'testFanboyR7CardsKeepSize', 'testFanboyR7TestLongEnough', 'testFanboyR8IgnoredLate', 'testFanboyR8FullLongEnough', 'testFanboyR8Quiet', 'testFanboyR8QuietGuards', 'testFanboyR8QuietSafety', 'testFanboyR8FoundNext', 'testFanboyR8Assign', 'testFanboyR9Kick', 'testFanboyR9Safety', 'testFanboyR9Now', 'testFanboyR9CpuOwn', 'testFanboyR10Notify', 'testFanboyR11Heard', 'testFanboyR11StopVerdict', 'testFanboyR11StaleNext', 'testFanboyR11ProgressNext', 'testFanboyR12Standstill', 'testFanboyR12Warm', 'testFanboyR12Control', 'testFanboyR12CpuRole', 'testFanboyR12CpuMeasure', 'testFanboyR12CpuControl', 'testFanboyR12CpuGone', 'testFanboyR12FixSpikes', 'testFanboyR12FixControl', 'testFanboyR12FixConfirm', 'testFanboyNetDrift', 'testFanboyNet', 'testFanboyNetTakeOver', 'testFanboyR12Curve', 'testFanboyR12CurveEffective', 'testFanboyR12AutoSeen', 'testFanboyR12Look', 'testFanboyR13Compat', 'testFanboyR13Curves', 'testFanboyR13Refused', 'testFanboyR13Devs', 'testFanboyR13DevsControl', 'testFanboyR14Plan', 'testFanboyR14Look', 'testFanboySetupFanPlan', 'testFanboyDashHours', 'testFanboyTimes', 'testFanboySsdSleeps', 'testFanboyCpuFloorCurve',
+                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyUx', 'testFanboyOverview', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR7FullOnObeys', 'testFanboyR7ControlFullOn', 'testFanboyR7Fixed', 'testFanboyR7NotAController', 'testFanboyR7CardsKeepSize', 'testFanboyR7TestLongEnough', 'testFanboyR8IgnoredLate', 'testFanboyR8FullLongEnough', 'testFanboyR8Quiet', 'testFanboyR8QuietGuards', 'testFanboyR8QuietSafety', 'testFanboyR8FoundNext', 'testFanboyR8Assign', 'testFanboyR9Kick', 'testFanboyR9Safety', 'testFanboyR9Now', 'testFanboyR9CpuOwn', 'testFanboyR10Notify', 'testFanboyR11Heard', 'testFanboyR11StopVerdict', 'testFanboyR11StaleNext', 'testFanboyR11ProgressNext', 'testFanboyR12Standstill', 'testFanboyR12Warm', 'testFanboyR12Control', 'testFanboyR12CpuRole', 'testFanboyR12CpuMeasure', 'testFanboyR12CpuControl', 'testFanboyR12CpuGone', 'testFanboyR12FixSpikes', 'testFanboyR12FixControl', 'testFanboyR12FixConfirm', 'testFanboyNetDrift', 'testFanboyNet', 'testFanboyNetTakeOver', 'testFanboyR12Curve', 'testFanboyR12CurveEffective', 'testFanboyR12AutoSeen', 'testFanboyR12Look', 'testFanboyR13Compat', 'testFanboyR13Curves', 'testFanboyR13Refused', 'testFanboyR13Devs', 'testFanboyR13DevsControl', 'testFanboyR14Plan', 'testFanboyR14Look', 'testFanboySetupFanPlan', 'testFanboyDashHours', 'testFanboyTimes', 'testFanboySsdSleeps', 'testFanboyCpuFloorCurve',
                        'testFanboyDashTile', 'testFanboyDashSource', 'testFanboyDashSetting', 'testFanboyDashHistory'],
           'tools' => ['testReleaseHashes', 'testReleaseState', 'testReleaseClicksRetry', 'testScenarioToolsSafe']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
