@@ -1021,13 +1021,26 @@ the last 60 history lines only for a source the file has none for. **The file
   2026-11-14: `FANBOY_BACK_DEFAULT`), «this fixed value» the other choice in the setup (`back` action); a chip without an
   automatic: the fixed value, said on the page. Only the control's take carries it into the journal (`back`); a setup
   step always goes back exactly. **Part 3, the page** (desk.js + `fan-art.js`/`fan-art.css` beside it, loaded by desk.js
-  — only his page needs them): two pages. The overview's tiles «Who steers» (the server picture: zones as pieces of a
-  case, fans turning by their speed, the warmest framed, sleeping disks marked, the BIOS's own watched — one picture kept
-  across looks, speeds glide), «Fans» (outputs and tach inputs; a row unfolds the technical detail — the only place for
-  `pwmN`, `hwmonN`, chip names), «Warmest spot» (sensors), «Today» (each zone's curve with «now» and its last 6 hours:
-  the part `history`, desk.json `"parts"`), «Hints». The setup's five steps as tiles (detect, test and assign, measure,
-  zones, take over / hand back — the dry run is a preview inside it, 2026-11-16); any step opens alone, so a curve, a zone or a fan's model changes without the
-  wizard again. **Every step is built from the same parts** (2026-11-15, the owner's tests on real hardware — cards
+  — only his page needs them): two pages. **The overview is what is and what was — nothing on it changes a fan or a
+  setting** (2026-11-17): «Now» (who steers, each zone's level and the source leading it, the fans' speeds, a warm spot
+  near its limit; its section the server picture — zones as pieces of a case, fans turning by their speed, the warmest
+  framed, sleeping disks marked, the BIOS's own watched, one picture kept across looks —, the fans and outputs as rows to
+  read (a row unfolds the technical detail — the only place for `pwmN`, `hwmonN`, chip names), what happened lately; not
+  steering: one plain line with the way to the setup), «History» (per zone one chart of the chosen period: the leading
+  source's °C and the level; a marker — pointer, tap, arrow keys — at one moment in every zone's chart, its readout
+  above the chart from the history point: time, level, rpm, the source that led by name, «warmest spot» for points
+  without one; the part `history`, desk.json `"parts"`), «Sensors». Old routes land there (`who`, `fans`, `hottest` →
+  `now`, `today` → `history`, `hints` → the setup's first step). What stays on it is state: the banner (alarm, the net,
+  nobody / a fixed value, safety with its way back), the strip while something runs. The setup's five steps as tiles
+  (detect — with «Why is this tricky?», drivers and BIOS hints under it —, test and assign, measure, zones, take over /
+  hand back — the dry run is a preview inside it, 2026-11-16) and a sixth tile «Settings» (the Dashboard tile, watching
+  the fans he doesn't steer); any step opens alone, so a curve, a zone or a fan's model changes without the wizard again.
+  **A history point names the source that led** (2026-11-17): in RAM `[time, °C, level, rpm, source id]` (the fifth only
+  when one led; a 5-minute span keeps the leader of its warmest moment), on file and in the part points of four as
+  before with `src` (the ids once) and `leads` (per zone an index a point) beside them (`fanboyHistoryPack()` /
+  `fanboyHistoryUnpack()`) — an older reader takes the points as they are. The Dashboard tile's curves carry the same
+  marker: per span its words in the markup (`data-m`), the times from `data-from`/`data-span`, a script on the tile's
+  own box only (no request, nothing while the pointer is elsewhere). **Every step is built from the same parts** (2026-11-15, the owner's tests on real hardware — cards
   jumped, a click was swallowed, nothing said what runs): ONE strip for the page (`stripMake()`: what runs now from
   `runNow()` — the step's `progress` phase full | pause | kick with its seconds, a show, the measuring, an output going
   back, one at 100 % for safety —, the last refusal, «Stop everything» = `stop_all`, «Back to the value before» =

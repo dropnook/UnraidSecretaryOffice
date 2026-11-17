@@ -325,27 +325,55 @@ function testFanboyDashHistory(): void
     $state = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy.json'), true);
     $board = $state['setup']['board'];
     $days = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/post/fanboy.history.json'), true)['state']['zones'];
-    $file = ['v' => 1, 'board' => $board, 'every' => 60, 'zones' => $days];
+    $part = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/post/fanboy.history.json'), true)['state'];
+    $file = ['v' => 1, 'board' => $board, 'every' => 60, 'zones' => $days, 'src' => $part['src'], 'leads' => $part['leads']];
     $raw = json_encode($file);
 
     $o = fanboyDashWeb(fanboyDashFiles('fanboy', 'history'), ['fanboy/history.json' => $file], $now);
     $rows = (string) ($o['rows'] ?? '');
     $h = $o['hist'] ?? [];
-    same('fanboy dash history: three days in RAM — per zone 24 spans of the last 6 hours, nothing more', [['case', 'disks'], [24, 24]],
+    same('fanboy dash history: three days in RAM — per zone 24 spans of the last 6 hours, nothing more', [['case', 'cpu', 'disks'], [24, 24, 24]],
         [fanboyTSorted(array_keys($h)), array_map('count', array_values($h))]);
-    // each span its peaks: the same as folding the raw points by hand
-    $want = array_fill(0, 24, [null, null]);
-    foreach ($days['disks'] as $p) {
+    // each span its peaks: the same as folding the raw points by hand — and who led at its warmest moment (2026-11-17)
+    $want = array_fill(0, 24, [null, null, null, null]);
+    foreach ($days['disks'] as $i => $p) {
         if ($p[0] > $now - 21600 && $p[0] <= $now) {
             $k = intdiv($p[0] - ($now - 21600) - 1, 900);
-            $want[$k] = [max((float) $p[1], $want[$k][0] ?? (float) $p[1]), max((float) $p[2], $want[$k][1] ?? (float) $p[2])];
+            $lead = $part['src'][$part['leads']['disks'][$i]] ?? null;
+            $want[$k] = [max((float) $p[1], $want[$k][0] ?? (float) $p[1]), max((float) $p[2], $want[$k][1] ?? (float) $p[2]), max($p[3], $want[$k][2] ?? $p[3]),
+                (float) $p[1] >= ($want[$k][0] ?? -1e9) ? $lead : $want[$k][3]];
         }
     }
-    same('fanboy dash history: each span its warmest °C and highest level (a peak never disappears)', json_decode(json_encode($want), true), $h['disks'] ?? null);
+    same('fanboy dash history: each span its warmest °C, highest level and rpm (a peak never disappears), the source that led at its warmest moment',
+        json_decode(json_encode($want), true), $h['disks'] ?? null);
+    check('fanboy dash history: … the demo\'s leaders are in it', count(array_filter(array_column($h['disks'] ?? [], 3))) >= 20);
     check('fanboy dash history: the rows — a curve per zone (inline SVG, no script, no link), its caption, small enough for the page (only spans, never the file)',
         substr_count($rows, '<svg class="sso-fb-curve"') === 2 && !preg_match('/<script|href="[^"]*svg|\son[a-z]+=/i', substr($rows, (int) strpos($rows, '<svg')))
         && str_contains($rows, 'class="sso-fb-span" data-hours="12" title="Change the span — next: last 12 h">Last 6 h</button>') && str_contains($rows, 'class="sso-fb-key-temp">') && str_contains($rows, 'class="sso-fb-key-lvl">level ')
-        && strlen($rows) < strlen($raw) / 10 && strlen($rows) < 12000, strlen($rows) . ' of ' . strlen($raw) . ': ' . $rows);
+        && strlen($rows) < strlen($raw) / 10 && strlen($rows) < 16000, strlen($rows) . ' of ' . strlen($raw) . ': ' . $rows);
+    // the marker (2026-11-17): a span's words each — the level, the fans' speed, who led with the °C — in the markup, read
+    // by the tile's script on the pointer alone; its times from data-from/data-span; the line in the SVG
+    preg_match_all('/<span class="sso-fb-graph" data-from="(\d+)" data-span="(\d+)" data-m="([^"]*)">/', $rows, $g);
+    $marks = json_decode(html_entity_decode($g[3][0] ?? '', ENT_QUOTES), true);
+    $k = 23;
+    $sp = $h['disks'][$k];
+    $where = 'Disk ' . substr((string) $sp[3], 4);
+    same('fanboy dash history: the marker\'s data — per zone the window\'s start and its span, 24 words, the last span\'s as the history has it',
+        [[(string) ($now - 21600), (string) ($now - 21600)], ['900', '900'], 24, sprintf('%d %% · %d rpm · %s at %s °C', $sp[1], $sp[2], $where, rtrim(rtrim(number_format($sp[0], 1, '.', ''), '0'), '.'))],
+        [$g[1], $g[2], count($marks ?? []), $marks[$k] ?? null]);
+    check('fanboy dash history: … a line to mark in each curve, a readout in each caption, hidden until the pointer is on the curve',
+        substr_count($rows, '<line class="sso-fb-mark" x1="0" x2="0" y1="0" y2="36"/></svg>') === 2 && substr_count($rows, '<small><span class="sso-fb-read"></span>') === 2);
+    $tileSrc = (string) ($o['tile'] ?? '');
+    $script = substr($tileSrc, (int) strpos($tileSrc, '<script>'));
+    check('fanboy dash history: the marker\'s script — only on the tile\'s own box (nothing runs with the pointer elsewhere), no request, no timer of its own',
+        str_contains($script, 'var bx=box();if(bx){bx.addEventListener("pointermove",mark);bx.addEventListener("pointerdown",mark);')
+        && !preg_match('/(document|window)\.addEventListener\("pointer/', $script) && substr_count($script, 'fetch(') === 2 && substr_count($script, 'setTimeout(') === 1
+        && str_contains($tileSrc, '#db-sso-fanboy .sso-fb-mark{display:none;') && str_contains($tileSrc, '#db-sso-fanboy .sso-fb-on small>*{display:none}'), '');
+    // the spans without leaders (an older agent's file): «warmest spot»
+    $o2 = fanboyDashWeb(fanboyDashFiles('fanboy', 'history'), ['fanboy/history.json' => ['v' => 1, 'board' => $board, 'every' => 60, 'zones' => $days]], $now);
+    $m2 = $o2['model']['zones'][0]['curve']['marks'] ?? [];
+    check('fanboy dash history: a file without leaders (an older agent) — the same curve, the marker says «warmest spot»',
+        ($o2['model']['zones'][0]['curve']['svg'] ?? 0) === ($o['model']['zones'][0]['curve']['svg'] ?? 1) && str_contains((string) ($m2[23] ?? ''), ' · warmest spot at '), json_encode($m2[23] ?? null));
     $cap = $o['de']['zones'][0]['curve'] ?? [];
     check('fanboy dash history: the caption in German — the decimal comma never, whole degrees and %', (bool) preg_match('/^\d+–\d+ °C$|^\d+ °C$/u', (string) ($cap['temp'] ?? ''))
         && (bool) preg_match('/^Stufe \d+(–\d+)? %$/u', (string) ($cap['level'] ?? '')), json_encode($cap));
@@ -358,8 +386,8 @@ function testFanboyDashHistory(): void
     $o = fanboyDashWeb(fanboyDashFiles('fanboy', 'history'), ['fanboy/history.json' => ['v' => 1, 'board' => $board, 'zones' => ['disks' => $pts]]], $now);
     $d = $o['hist']['disks'] ?? [];
     same('fanboy dash history: points read in exactly the shape the control keeps — what fanboyHistoryThin() drops, dropped (a value not a number: null); outside the 6 hours: not in a span',
-        json_decode(json_encode([[$from - 100, $from + 100, $from + 300, $from + 1000, $from + 9000, $from + 20000, $from + 20950, $now + 100], [30.0, 40.0], [31.0, 41.0], [35.0, 50.0], [34.5, 47.0], 19]), true),
-        [$keptThin, $d[0] ?? null, $d[1] ?? null, $d[9] ?? null, $d[23] ?? null, count(array_filter($d, fn ($p) => $p === [null, null]))]);
+        json_decode(json_encode([[$from - 100, $from + 100, $from + 300, $from + 1000, $from + 9000, $from + 20000, $from + 20950, $now + 100], [30.0, 40.0, 600, null], [31.0, 41.0, 610, null], [35.0, 50.0, 700, null], [34.5, 47.0, 660, null], 19]), true),
+        [$keptThin, $d[0] ?? null, $d[1] ?? null, $d[9] ?? null, $d[23] ?? null, count(array_filter($d, fn ($p) => $p === [null, null, null, null]))]);
     $svg = (string) ($o['model']['zones'][0]['curve']['svg'] ?? '');
     same('fanboy dash history: gaps stay gaps — three pieces of level, two temperature lines and a dot', [3, 2, 1, 3],
         [substr_count($svg, 'class="sso-fb-lvl"'), substr_count($svg, 'class="sso-fb-temp"'), substr_count($svg, 'class="sso-fb-dot"'), substr_count($svg, 'class="sso-fb-lvl-line"')]);
@@ -376,7 +404,7 @@ function testFanboyDashHistory(): void
         $got[] = [array_keys($x['hist'] ?? []), $x['model']['no_curve'] ?? null];
     }
     same('fanboy dash history: RAM\'s · the data folder\'s · another board\'s in RAM: the data folder\'s · another board\'s only: none · broken · another v: none',
-        [[['disks', 'case'], false], [['disks'], false], [['disks'], false], [[], true], [[], true], [[], true]], $got);
+        [[['disks', 'case', 'cpu'], false], [['disks'], false], [['disks'], false], [[], true], [[], true], [[], true]], $got);
     $x = fanboyDashWeb(fanboyDashFiles('fanboy', 'history'), [], $now);
     check('fanboy dash history: no history yet — one plain line, no empty curves', ($x['model']['no_curve'] ?? null) === true
         && str_contains((string) ($x['rows'] ?? ''), 'No curve yet — Fanboy records one while he steers.') && !str_contains((string) ($x['rows'] ?? ''), '<svg'), (string) ($x['rows'] ?? ''));

@@ -324,7 +324,7 @@
   "curve.readout": "À {t} °C : {v} · environ {rpm} tr/min",
   "curve.floor": "vitesse stable la plus basse",
   "curves.title": "Historique",
-  "curves.sub": "Par zone la période choisie : la température de l'endroit qui menait et la vitesse qu'il a donnée.",
+  "curves.sub": "Par zone la période choisie : la température de l'endroit qui menait (ligne) et la vitesse qu'il a donnée (surface). Pointe un graphique pour lire un moment dans toutes les zones.",
   "curves.none": "Pas encore de zone — la configuration les crée.",
   "curves.line_now": "Maintenant : {where} à {c} °C → {level}",
   "curves.line_bios": "Le BIOS règle les ventilateurs de cette zone en ce moment.",
@@ -332,7 +332,7 @@
   "curves.now_short": "maint.",
   "curves.history_label": "L'historique ({period}) : le point le plus chaud et la vitesse",
   "curves.history_none": "Pas encore d'historique — il se remplit d'un point par minute tant qu'il règle.",
-  "curves.key_temp": "point le plus chaud (°C)",
+  "curves.key_temp": "endroit qui menait (°C)",
   "curves.key_level": "vitesse (%)",
   "hints.st_other_fans": "règle d'autres ventilateurs",
   "hints.st_other_fans_title": "Il règle des ventilateurs de baies de disques et IPMI, pas les sorties de la carte mère — Fanboy règle à côté",
@@ -537,7 +537,7 @@
   "help.picture": "L'image",
   "help.picture_text": "Chaque zone comme une partie du boîtier : ses ventilateurs dans les parois par où l'air entre et sort, les sources de chaleur entre eux. Une roue tourne à peu près aussi vite que son ventilateur ; rouge : il est arrêté alors qu'il devrait tourner ; en pointillés : pas de retour de vitesse ; « BIOS » : le BIOS le règle. « Réduire les animations » dans ton système : des roues immobiles avec un arc pour la vitesse.",
   "help.curves": "Historique",
-  "help.curves_text": "Par zone la période choisie : la température de l'endroit qui menait et la vitesse qu'il a donnée. La courbe elle-même se règle dans la configuration, étape « Zones ».",
+  "help.curves_text": "Par zone la période choisie : la température de l'endroit qui menait (ligne) et la vitesse qu'il a donnée (surface). Pointe un graphique, touche-le ou avance avec les flèches : une ligne marque le moment dans le graphique de chaque zone, et au-dessus de chacun figurent l'heure, le niveau, la vitesse des ventilateurs et l'endroit qui menait avec sa température (« point le plus chaud » pour les moments enregistrés avant qu'il en note le nom). La courbe elle-même se règle dans la configuration, étape « Zones ».",
   "help.setup": "La configuration",
   "help.setup_text": "Cinq étapes l'une après l'autre : détecter, tester et attribuer, mesurer, zones, prendre en main. Chaque tuile ouvre son étape seule ; la page entière les montre toutes, et dessous les réglages (sa tuile dans le Dashboard, les ventilateurs qu'il ne fait que surveiller). Chaque étape est construite de la même façon : en haut la bande qui dit ce qui tourne en ce moment (avec « Tout arrêter »), à gauche la liste, à droite le champ de la ligne choisie, en bas ce qui reste à faire et le seul bouton qui fait avancer. Pourquoi les ventilateurs sont délicats, les pilotes et le BIOS : sous la première étape.",
   "help.safe": "Rien pour de bon",
@@ -1142,5 +1142,9 @@
   "settings.sub": "Valable pour tout le secrétariat, pas seulement ce navigateur : sa tuile dans le Dashboard d'Unraid et les ventilateurs qu'il ne fait que surveiller.",
   "settings.dash": "Dashboard : {show}",
   "settings.watch_on": "surveiller les autres ventilateurs : oui",
-  "settings.watch_off": "surveiller les autres ventilateurs : non"
+  "settings.watch_off": "surveiller les autres ventilateurs : non",
+  "hist.lead": "{where} à {c} °C",
+  "hist.lead_none": "point le plus chaud à {c} °C",
+  "hist.read_hint": "Pointe un graphique (ou touche-le) pour lire un moment — dans toutes les zones à la fois ; les flèches déplacent le repère.",
+  "hist.read_none": "{time} : rien d'enregistré"
 }

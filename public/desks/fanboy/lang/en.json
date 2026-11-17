@@ -324,7 +324,7 @@
   "curve.readout": "At {t} °C: {v} · about {rpm} rpm",
   "curve.floor": "lowest steady speed",
   "curves.title": "History",
-  "curves.sub": "Per zone the chosen period: the temperature of the place that led and the speed he gave.",
+  "curves.sub": "Per zone the chosen period: the temperature of the place that led (line) and the speed he gave (shaded). Point at a chart to read a moment in every zone.",
   "curves.none": "No zone yet — the setup makes them.",
   "curves.line_now": "Now: {where} at {c} °C → {level}",
   "curves.line_bios": "The BIOS runs this zone's fans right now.",
@@ -332,7 +332,7 @@
   "curves.now_short": "now",
   "curves.history_label": "The history ({period}): the warmest spot and the speed",
   "curves.history_none": "No history yet — it fills a point a minute while he steers.",
-  "curves.key_temp": "warmest spot (°C)",
+  "curves.key_temp": "the place that led (°C)",
   "curves.key_level": "speed (%)",
   "hints.st_other_fans": "steers other fans",
   "hints.st_other_fans_title": "It steers shelf and IPMI fans, not the board's outputs — Fanboy steers beside it",
@@ -537,7 +537,7 @@
   "help.picture": "The picture",
   "help.picture_text": "Each zone as a piece of the case: its fans in the walls where the air comes in and goes out, the heat sources between them. A wheel turns about as fast as its fan; red: it stands although it should turn; dashed: no speed feedback; «BIOS»: the BIOS runs it. Reduced motion in your system: still wheels with an arc for the speed.",
   "help.curves": "History",
-  "help.curves_text": "Per zone the chosen period: the temperature of the place that led and the speed he gave. A curve's shape is set in the setup, step «Zones».",
+  "help.curves_text": "Per zone the chosen period: the temperature of the place that led (a line) and the speed he gave (shaded). Point at a chart, tap it or move with the arrow keys: a line marks the moment in every zone's chart, and above each chart stand its time, the level, the fans' speed and which place led with its temperature («warmest spot» for moments recorded before he kept its name). A curve's shape is set in the setup, step «Zones».",
   "help.setup": "The setup",
   "help.setup_text": "Five steps, one after the other: detect, test and assign, measure, zones, take over. Each tile opens its step alone; the whole page shows all of them, and under them the settings (his Dashboard tile, the fans he only watches). Every step is built alike: on top the strip that says what runs right now (with «Stop everything»), left the list, right the field for the row you chose, at the bottom what is still open and the one button that leads on. Why fans are tricky, drivers and the BIOS: under the first step.",
   "help.safe": "Nothing for good",
@@ -1142,5 +1142,9 @@
   "settings.sub": "For the whole office, not just this browser: his tile on Unraid's Dashboard and the fans he only watches.",
   "settings.dash": "Dashboard: {show}",
   "settings.watch_on": "watching other fans: on",
-  "settings.watch_off": "watching other fans: off"
+  "settings.watch_off": "watching other fans: off",
+  "hist.lead": "{where} at {c} °C",
+  "hist.lead_none": "warmest spot at {c} °C",
+  "hist.read_hint": "Point at a chart (or tap it) to read a moment — in every zone at once; arrow keys move the marker.",
+  "hist.read_none": "{time}: nothing recorded"
 }

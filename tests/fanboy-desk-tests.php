@@ -1376,7 +1376,102 @@ function testFanboyOverview(): void
         array_values(array_filter(['tile.now', 'tile.history', 'tile.sensors', 'now.title', 'settings.title', 'now.not_set_up', 'now.not_armed'], fn ($k) => count(array_filter($l, fn ($x) => isset($x[$k]))) !== 5))]);
     same('fanboy overview: German — «Aktuell», «Verlauf», «Fühler», «Einstellungen»', ['Aktuell', 'Verlauf', 'Fühler', 'Einstellungen'],
         [$l['de']['tile.now'], $l['de']['tile.history'], $l['de']['tile.sensors'], $l['de']['settings.title']]);
+    // «History»'s marker: one moment for every zone's chart, by the pointer, a tap or the arrow keys; its readout above the
+    // chart, each number marked with the history point it comes from (tools/fanboy/desk.mjs compares them with the part)
+    $chart = $fn('historyChart');
+    check('fanboy overview: the marker — one moment for all zones (markAll), the chart under the pointer exactly at its point, the others at theirs nearest to it',
+        str_contains($js, 'function markAll(t) {') && str_contains($js, 'charts.forEach((c) => c.show(t));') && str_contains($chart, 'markAll(i < 0 ? null : shown[i][0]);')
+        && str_contains($chart, "at = p && Math.abs(p[0] - t) <= MARK_NEAR(p, now, full) ? i : -1;"));
+    check('fanboy overview: … pointer (mouse: gone when it leaves), touch (a tap beside the charts lets go), keyboard (arrows, Page, Home/End, Escape)',
+        str_contains($chart, "s.addEventListener('pointermove', fromPointer);") && str_contains($chart, "if (e.pointerType === 'mouse') markAll(null);")
+        && str_contains($js, "if (markAt !== null && !(e.target.closest && e.target.closest('.fb-hist-chart'))) markAll(null);")
+        && str_contains($chart, "tabindex: '0'") && str_contains($chart, "{ ArrowLeft: -1, ArrowRight: 1, PageUp: -10, PageDown: 10 }[e.key]") && str_contains($chart, "if (e.key === 'Escape') { markAll(null); return; }"));
+    check('fanboy overview: … the readout above the chart, never on it; its numbers marked from the history point; the source that led by name, «warmest spot» without one',
+        str_contains($chart, 'box.append(read, s);') && str_contains($chart, "from: ['@hist', 'zones', zid, q[5], k]") && str_contains($chart, 'if (q[4]) read.dataset.lead = q[4];')
+        && str_contains($js, "return x ? T('hist.lead', { where: srcLabel(x), c: degrees(c) }) : T('hist.lead_none', { c: degrees(c) });")
+        && str_contains($js, "const leads = h && h.leads && Array.isArray(h.leads[zid]) && h.leads[zid].length === pts.length ? h.leads[zid] : null;"));
+    check('fanboy overview: … no marker: the chart as it is with a line saying how; another period: none marked',
+        str_contains($chart, "read.textContent = t === null ? T('hist.read_hint') : T('hist.read_none', { time: fmt.time(t) });") && str_contains($js, "markAt = null;                // another period: no moment marked"));
     // the Dashboard tile's links: the overview's tile «Now»
     $dash = (string) file_get_contents(OFFICE_DIR . '/src/dashboard-fanboy.php');
     check('fanboy overview: the Dashboard tile links «Now», never an old route', substr_count($dash, "\$h(\$url . '/now')") === 2 && !preg_match("~'/(who|fans|today|hottest|hints)'~", $dash));
+}
+
+/**
+ * 2026-11-17 (fanboy-overview): a history point says which source led — the fifth value in RAM [time, °C, level, rpm,
+ * source id]; a 5-minute span keeps the leader of its warmest moment; the files and the page's part keep points of four
+ * (every older reader takes them) with the leaders beside them (`src` once each, `leads` per zone a point); bounded as
+ * before — 3 days of three zones with long source ids, the leaders cost a small part of the file
+ */
+function testFanboyHistoryLeads(): void
+{
+    $w0 = 1763100000;
+    $old = $w0 - 20 * 3600;                         // in the 5-minute spans
+    $k = intdiv($old, 300) * 300;
+    $pts = [[$k + 10, 40.2, 30, 800, 'parity'], [$k + 70, 44.5, 20, 700, 'disk2'], [$k + 130, 42.5, 50, 900, 'disk1'],
+            [$k + 310, 41.3, 30, 800, 'disk1'], [$k + 370, 41.3, 31, 810, 'parity'],             // a tie: the later one's
+            [$k + 610, 39.2, 30, 800], [$k + 670, 39.5, 30, 800, 'disk3'],                     // no leader, then one
+            [$w0 - 60, 41.5, 57, 1018, 'disk2'], [$w0, 41.25, 57, 1018]];                      // minutes as they are
+    $kept = fanboyHistoryThin($pts, $w0);
+    same('fanboy history leads: a span keeps the leader of its warmest moment (a tie: the later one), its peaks as before; minutes as they are, with or without one',
+        [[$k + 130, 44.5, 50, 900, 'disk2'], [$k + 370, 41.3, 31, 810, 'parity'], [$k + 670, 39.5, 30, 800, 'disk3'], [$w0 - 60, 41.5, 57, 1018, 'disk2'], [$w0, 41.25, 57, 1018]], $kept);
+    same('fanboy history leads: thinned once more — nothing changes', $kept, fanboyHistoryThin($kept, $w0));
+    same('fanboy history leads: a fifth that is no source id (a number, empty, a control character, too long) — the point left out', [[$w0, 41.0, 57, 1018, 'disk2']],
+        fanboyHistoryThin([[$w0, 41.0, 57, 1018, 7], [$w0, 41.0, 57, 1018, ''], [$w0, 41.0, 57, 1018, "disk\n2"], [$w0, 41.0, 57, 1018, str_repeat('x', 201)], [$w0, 41.0, 57, 1018, 'disk2']], $w0));
+    // the shape on file: points of four, the leaders beside them — and back
+    $hist = ['disks' => $kept, 'case' => [[$w0, 27.9, 25, 905]]];
+    $pack = fanboyHistoryPack($hist);
+    same('fanboy history leads: packed — every point of four (an older reader\'s shape), each id once, an entry a point (null: none), a zone without a leader without the list',
+        [[4], ['disk2', 'parity', 'disk3'], [0, 1, 2, 0, null], false],
+        [array_values(array_unique(array_map('count', [...$pack['zones']['disks'], ...$pack['zones']['case']]))), $pack['src'], $pack['leads']['disks'], isset($pack['leads']['case'])]);
+    same('fanboy history leads: unpacked — the same points', $hist, fanboyHistoryUnpack(json_decode(json_encode($pack), true)));
+    $bad = json_decode(json_encode($pack), true);
+    $bad['leads']['disks'] = [0, 1];                                   // not an entry a point
+    $bad2 = json_decode(json_encode($pack), true);
+    $bad2['leads']['disks'] = [9, 'x', 1, 0, null];                     // an index out of `src`, a word
+    same('fanboy history leads: leaders that don\'t fit the points exactly — the points without them; an index not in `src` or not a number — that point without one',
+        [array_map(fn ($p) => array_slice($p, 0, 4), $kept), [array_slice($kept[0], 0, 4), array_slice($kept[1], 0, 4), [...array_slice($kept[2], 0, 4), 'parity'], [...array_slice($kept[3], 0, 4), 'disk2'], $kept[4]]],
+        [fanboyHistoryUnpack($bad)['disks'], fanboyHistoryUnpack($bad2)['disks']]);
+    $t = fanboyT('historyleads');
+    try {
+        // the control: the warmest's id with every point; no warmest (all asleep): none
+        $c = fanboyControlNew(fanboyTSettings(), FANBOY_T_KEY, fanboyMe('control'));
+        $zids = array_keys($c['zones']);
+        $c['zones'][$zids[0]]['warmest'] = ['id' => 'disk2', 'label' => 'disk2', 'c' => 41.5, 'kind' => 'disk'];
+        $c['zones'][$zids[1]]['warmest'] = null;
+        fanboyHistory($c, 0.0, $w0);
+        same('fanboy history leads: the control — the warmest\'s id the fifth value; a zone with nothing warm: four', ['disk2', 4],
+            [end($c['hist'][$zids[0]])[4] ?? null, count(end($c['hist'][$zids[1]]))]);
+        // kept and read back: the file in the older shape plus the two keys; RAM gone, the data folder's copy the same
+        @mkdir(fanboyRunDir(), 0700, true);
+        fanboyHistoryKeep($c, true);
+        $file = json_decode((string) file_get_contents(FANBOY_DIR . '/history.json'), true);
+        same('fanboy history leads: on file — points of four, `src`, `leads`; read back the same', [[4], ['disk2'], true],
+            [array_values(array_unique(array_map('count', array_merge(...array_values($file['zones']))))), $file['src'], $c['hist'] == fanboyHistoryLoad(FANBOY_T_KEY, $w0)]);
+        $part = fanboyHistoryPart(1, $w0);
+        same('fanboy history leads: the page\'s part — the same packing', [[$w0, 41.5, null, null], ['disk2'], [0]],
+            [$part['zones'][$zids[0]][0] ?? null, $part['src'], $part['leads'][$zids[0]] ?? null]);
+        // the size: 3 days, three zones, the leader changing among 30 long ids — bounded as before, the leaders a small part
+        $ids = array_map(fn ($i) => "it8696_a0060607@platform/it87.2608/very/long/device/path#$i", range(1, 30));
+        $c['zones'] = array_slice($c['zones'], 0, 1, true) + ['z2' => $c['zones'][$zids[0]], 'z3' => $c['zones'][$zids[0]]];
+        $c['zones']['z2']['id'] = 'z2';
+        $c['zones']['z3']['id'] = 'z3';
+        $c['hist'] = [];
+        $c['last_hist'] = null;
+        foreach (array_keys($c['zones']) as $zid) {
+            $c['zones'][$zid]['fans'] = [];
+        }
+        for ($m = 0; $m <= 72 * 60; $m++) {
+            foreach (array_keys($c['zones']) as $n => $zid) {
+                $c['zones'][$zid]['warmest'] = ['id' => $ids[intdiv($m, 37 + $n) % 30], 'c' => 30.0 + ($m % 97) / 10];
+            }
+            fanboyHistory($c, $m * 60.0, $w0 + $m * 60);
+        }
+        $with = strlen(jsonEncode(['v' => 1, 'board' => FANBOY_T_KEY, 'every' => FANBOY_HISTORY_EVERY] + fanboyHistoryPack($c['hist'])));
+        $plain = strlen(jsonEncode(['v' => 1, 'board' => FANBOY_T_KEY, 'every' => FANBOY_HISTORY_EVERY, 'zones' => array_map(fn ($z) => array_map(fn ($p) => array_slice($p, 0, 4), $z), $c['hist'])]));
+        same('fanboy history leads: 3 days × 3 zones — each zone within the bound, the file under 200 KB, the leaders under a fifth of it', [true, true, true],
+            [max(array_map('count', $c['hist'])) <= FANBOY_HISTORY_MAX, $with < 200000, ($with - $plain) < $with / 5], "with leaders $with bytes, without $plain");
+    } finally {
+        fanboyTEnd();
+    }
 }

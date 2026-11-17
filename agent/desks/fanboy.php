@@ -389,9 +389,10 @@ function fanboyHistoryPart(int $hours = 24, ?int $wall = null): array
             $zones[$zid] = $in;
         }
     }
-    // `now`: the moment the points are read against (the page draws «the last hours» back from it, never the browser's clock)
+    // `now`: the moment the points are read against (the page draws «the last hours» back from it, never the browser's clock);
+    // the points of four as before, who led beside them (`src`, `leads`: fanboyHistoryPack())
     return ['v' => 1, 'time' => $t, 'now' => $t, 'hours' => $hours, 'every' => (int) FANBOY_HISTORY_EVERY, 'thin' => FANBOY_HISTORY_THIN,
-        'full' => FANBOY_HISTORY_FULL, 'zones' => $zones ?: new stdClass()];
+        'full' => FANBOY_HISTORY_FULL] + fanboyHistoryPack($zones);
 }
 
 /** The period the page asks for — hours, one of FANBOY_HISTORY_PERIODS (read strictly); none: a day (the part's look) */

@@ -1199,24 +1199,55 @@ function timeTicks(from, now) {
   }
   return out;
 }
-/** The zone's chosen period: the warmest temperature and the level — a point a minute, older ones a 5-minute span each */
+/**
+ * A zone's points as the part brings them: [time, °C, level %, rpm, the source that led] — the part keeps points of four
+ * and who led beside them (`src`, `leads`: the agent's fanboyHistoryPack(); an older agent: none, the fifth null)
+ */
+function histPoints(h, zid) {
+  const pts = (h && h.zones && h.zones[zid]) || [];
+  const src = Array.isArray(h && h.src) ? h.src : [];
+  const leads = h && h.leads && Array.isArray(h.leads[zid]) && h.leads[zid].length === pts.length ? h.leads[zid] : null;
+  return pts.map((p, i) => (Array.isArray(p) && p.length === 4 ? [...p, leads && Number.isInteger(leads[i]) && typeof src[leads[i]] === 'string' ? src[leads[i]] : null, i] : null)).filter(Boolean);
+}
+/** The source that led, as the page names it (a source no longer in the setup, or none recorded: «the warmest spot») */
+function leadText(id, c) {
+  const x = id ? (setup().sources || []).find((y) => y.id === id) : null;
+  return x ? T('hist.lead', { where: srcLabel(x), c: degrees(c) }) : T('hist.lead_none', { c: degrees(c) });
+}
+/** A moment of the history as the marker says it: «14:35 · 31 % · 890 rpm · Disk 2 41 °C» (each part only when recorded) */
+function markWords(p) {
+  let when = fmt.time(p[0]);
+  if (period > 24) { try { when = `${new Intl.DateTimeFormat(Office.locale || Office.lang || 'en', { weekday: 'short' }).format(new Date(p[0] * 1000))} ${when}`; } catch (e) { /* the time alone */ } }
+  return [when, num(p[2]) === null ? '' : T('value', { pct: p[2] }), num(p[3]) === null ? '' : T('pic.rpm', { rpm: fmt.number(p[3]) }), num(p[1]) === null ? '' : leadText(p[4], p[1])].filter(Boolean).join(' · ');
+}
+// the marker (2026-11-17): one moment for every zone's chart at once — the pointer, a tap or the arrow keys pick it
+let markAt = null;                  // the moment marked (the history's clock), null: none
+let markFocus = '';                 // the zone whose chart has the keyboard (kept through a redraw)
+const charts = new Map();           // zone id → its chart's marker {pts, show(t), el}
+const MARK_NEAR = (p, now, full) => (p[0] < now - full ? 900 : 180);      // as far from a point as its line reaches (the gap rule)
+function markAll(t) {
+  markAt = t;
+  charts.forEach((c) => c.show(t));
+}
+/** The zone's chosen period: the temperature of the source that led and the level — a point a minute, older ones a 5-minute span each */
 function historyChart(zid) {
   const h = historyNow();
-  const pts = ((h && h.zones && h.zones[zid]) || []).filter((p) => Array.isArray(p) && p.length === 4);
+  if (!h) { const p = el('p', 'fb-wait'); p.append(wave(), el('span', '', T('curves.history_loading'))); return p; }
   const now = histNow(h);
   const want = now - period * 3600;
-  const shown = pts.filter((p) => p[0] >= want);
-  if (!h) { const p = el('p', 'fb-wait'); p.append(wave(), el('span', '', T('curves.history_loading'))); return p; }
+  const shown = histPoints(h, zid).filter((p) => p[0] >= want);
   if (shown.length < 2) return el('p', 'fb-hint-text', T('curves.history_none'));
   // less than the period: the chart shows what there is, the caption says since when
   const from = Math.max(want, shown[0][0] - 60);
-  const W = 320, H = 150, L = 34, R = 34, Tp = 8, B = 22;
+  // one chart a row, all zones under each other (one moment marked lines up in all of them): wide on a desktop, narrow on a phone
+  const W = window.matchMedia && window.matchMedia('(max-width:640px)').matches ? 400 : 1000, H = 190, L = 36, R = 40, Tp = 10, B = 22;
   const temps = shown.map((p) => p[1]).filter((v) => num(v) !== null);
   const tLo = Math.floor((Math.min(...temps, 30) - 2) / 5) * 5, tHi = Math.ceil((Math.max(...temps, 40) + 2) / 5) * 5;
   const x = (ts) => L + (ts - from) / ((now - from) || 1) * (W - L - R);
   const yT = (c) => Tp + (1 - (c - tLo) / (tHi - tLo)) * (H - Tp - B);
   const yL = (v) => Tp + (1 - v / 100) * (H - Tp - B);
-  const s = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'fb-chart', role: 'img', 'aria-label': T('curves.history_label', { period: T(`curves.p${period}`) }) });
+  const s = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'fb-chart fb-hist-chart', role: 'img', tabindex: '0',
+    'aria-label': T('curves.history_label', { period: T(`curves.p${period}`) }), 'aria-describedby': `fb-read-${zid}` });
   for (let c = tLo; c <= tHi; c += Math.max(5, Math.round((tHi - tLo) / 4 / 5) * 5)) {
     s.appendChild(svg('line', { x1: L, x2: W - R, y1: yT(c), y2: yT(c), class: 'fb-grid' }));
     s.appendChild(svg('text', { x: L - 4, y: yT(c) + 3, class: 'fb-tick fb-t', 'text-anchor': 'end' }, `${c}°`));
@@ -1225,30 +1256,104 @@ function historyChart(zid) {
   const ticks = timeTicks(from, now).filter(([t]) => t >= from - 1);
   const room = (W - L - R) / Math.max(1, ticks.length);
   ticks.forEach(([t, label], i) => {
-    if (room < 34 && i % 2) return;                 // narrow: every other label
+    if (room < 44 && i % 2) return;                 // narrow: every other label
     s.appendChild(svg('line', { x1: x(t), x2: x(t), y1: H - B, y2: H - B + 3, class: 'fb-grid' }));
     s.appendChild(svg('text', { x: Math.min(W - R, Math.max(L, x(t))), y: H - 6, class: 'fb-tick', 'text-anchor': 'middle' }, label));
   });
   const full = num(h.full) || 43200;
-  const path = (ys) => {
-    let d = '', pen = false, last = null;
+  const runs = (ys) => {
+    // a gap in the record breaks the line: more than 3 minutes among the minutes, 15 among the 5-minute spans
+    const out = [];
+    let cur = [], last = null;
     shown.forEach((p) => {
       const v = ys(p);
-      // a gap in the record breaks the line: more than 3 minutes among the minutes, 15 among the 5-minute spans
-      if (v === null || (last !== null && p[0] - last > (p[0] < now - full ? 900 : 180))) { pen = false; }
-      if (v !== null) { d += `${pen ? 'L' : 'M'}${x(p[0]).toFixed(1)} ${v.toFixed(1)}`; pen = true; }
+      if (v === null || (last !== null && p[0] - last > (p[0] < now - full ? 900 : 180))) { if (cur.length) out.push(cur); cur = []; }
+      if (v !== null) cur.push([x(p[0]), v]);
       last = p[0];
     });
-    return d;
+    if (cur.length) out.push(cur);
+    return out;
   };
-  s.appendChild(svg('path', { d: path((p) => (num(p[2]) === null ? null : yL(p[2]))), class: 'fb-level-line' }));
-  s.appendChild(svg('path', { d: path((p) => (num(p[1]) === null ? null : yT(p[1]))), class: 'fb-temp-line' }));
-  if (shown[0][0] > want + 600) {
-    const box = el('div', 'fb-history');
-    box.append(s, el('p', 'fb-since', T('curves.since', { time: durationText(now - shown[0][0]) })));
-    return box;
-  }
-  return s;
+  const line = (run) => run.map(([a, b], i) => `${i ? 'L' : 'M'}${a.toFixed(1)} ${b.toFixed(1)}`).join('');
+  const lvl = runs((p) => (num(p[2]) === null ? null : yL(p[2])));
+  // the level shaded (an area), its edge a thin line; the temperature a line of its own on top
+  s.appendChild(svg('path', { d: lvl.map((r) => `${line(r)}L${r[r.length - 1][0].toFixed(1)} ${yL(0).toFixed(1)}L${r[0][0].toFixed(1)} ${yL(0).toFixed(1)}Z`).join(''), class: 'fb-level-area' }));
+  s.appendChild(svg('path', { d: lvl.map(line).join(''), class: 'fb-level-line' }));
+  s.appendChild(svg('path', { d: runs((p) => (num(p[1]) === null ? null : yT(p[1]))).map(line).join(''), class: 'fb-temp-line' }));
+  // the marker: a line at the moment, a dot on each curve (drawn only while a moment is marked)
+  const mark = svg('g', { class: 'fb-mark' });
+  const mLine = svg('line', { y1: Tp, y2: H - B, class: 'fb-mark-line' });
+  const mT = svg('circle', { r: 4, class: 'fb-mark-t' });
+  const mL = svg('circle', { r: 3.5, class: 'fb-mark-l' });
+  mark.append(mLine, mT, mL);
+  mark.style.display = 'none';
+  s.appendChild(mark);
+  // the readout above the chart, never on it: the moment's words, else how to get them
+  const read = el('p', 'fb-hist-read');
+  read.id = `fb-read-${zid}`;
+  read.setAttribute('aria-live', 'polite');
+  const nearest = (t) => {
+    let best = -1;
+    shown.forEach((p, i) => { if (best < 0 || Math.abs(p[0] - t) < Math.abs(shown[best][0] - t)) best = i; });
+    return best;
+  };
+  let at = -1;
+  const show = (t) => {
+    const i = t === null ? -1 : nearest(t);
+    const p = i < 0 ? null : shown[i];
+    at = p && Math.abs(p[0] - t) <= MARK_NEAR(p, now, full) ? i : -1;
+    delete read.dataset.nums;
+    delete read.dataset.lead;
+    delete read.dataset.at;
+    if (at < 0) {
+      mark.style.display = 'none';
+      read.classList.toggle('fb-hist-read-off', t === null);
+      read.textContent = t === null ? T('hist.read_hint') : T('hist.read_none', { time: fmt.time(t) });
+      return;
+    }
+    const q = shown[at];
+    mark.style.display = '';
+    mLine.setAttribute('x1', x(q[0]).toFixed(1));
+    mLine.setAttribute('x2', x(q[0]).toFixed(1));
+    [[mT, num(q[1]) === null ? null : yT(q[1])], [mL, num(q[2]) === null ? null : yL(q[2])]].forEach(([dot, y]) => {
+      dot.style.display = y === null ? 'none' : '';
+      if (y !== null) { dot.setAttribute('cx', x(q[0]).toFixed(1)); dot.setAttribute('cy', y.toFixed(1)); }
+    });
+    read.classList.remove('fb-hist-read-off');
+    read.textContent = markWords(q);
+    // the numbers said, each from the history point under the marker (tools/fanboy/desk.mjs compares them with the part)
+    read.dataset.at = String(q[0]);
+    read.dataset.nums = JSON.stringify([[1, 'c'], [2, 'pct'], [3, 'rpm']].filter(([k]) => num(q[k]) !== null).map(([k]) => ({ v: q[k], from: ['@hist', 'zones', zid, q[5], k] })));
+    if (q[4]) read.dataset.lead = q[4];
+  };
+  const fromPointer = (e) => {
+    const r = s.getBoundingClientRect();
+    const vx = (e.clientX - r.left) / (r.width || 1) * W;
+    const t = from + (Math.max(L, Math.min(W - R, vx)) - L) / (W - L - R) * (now - from);
+    const i = nearest(t);
+    markAll(i < 0 ? null : shown[i][0]);               // the chart under the pointer: exactly its point; the others: theirs nearest to it
+  };
+  s.addEventListener('pointermove', fromPointer);
+  s.addEventListener('pointerdown', fromPointer);
+  s.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') markAll(null); });
+  s.addEventListener('keydown', (e) => {
+    const step = { ArrowLeft: -1, ArrowRight: 1, PageUp: -10, PageDown: 10 }[e.key];
+    if (e.key === 'Escape') { markAll(null); return; }
+    if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); markAll(shown[e.key === 'Home' ? 0 : shown.length - 1][0]); return; }
+    if (!step) return;
+    e.preventDefault();
+    const i = at < 0 ? shown.length - 1 : Math.max(0, Math.min(shown.length - 1, at + step * (e.shiftKey ? 10 : 1)));
+    markAll(shown[i][0]);
+  });
+  s.addEventListener('focus', () => { markFocus = zid; });
+  // a chart drawn anew loses the focus without the user moving it — only a real move lets go
+  s.addEventListener('blur', () => setTimeout(() => { if (s.isConnected && markFocus === zid) markFocus = ''; }, 0));
+  charts.set(zid, { el: s, show });
+  show(markAt);
+  const box = el('div', 'fb-history');
+  box.append(read, s);
+  if (shown[0][0] > want + 600) box.appendChild(el('p', 'fb-since', T('curves.since', { time: durationText(now - shown[0][0]) })));
+  return box;
 }
 /** The period's choice: one for every zone (office.css .seg) */
 function periodChoice() {
@@ -1263,6 +1368,7 @@ function periodChoice() {
     b.onclick = () => {
       if (p === period) return;
       period = p;
+      markAt = null;                // another period: no moment marked
       Office.store('fanboy.period', p === PERIOD_DEFAULT ? null : String(p));
       if (p > 24) { longAt = 0; loadLong(); }
       drawn = '';
@@ -1289,6 +1395,9 @@ function historySection() {
   s.appendChild(pick);
   const grid = el('div', 'fb-curves');
   const now = new Map((control().zones || []).map((z) => [z.id, z]));
+  charts.clear();
+  // a touch marks until a touch beside the charts (a phone has no «the pointer left»)
+  s.addEventListener('pointerdown', (e) => { if (markAt !== null && !(e.target.closest && e.target.closest('.fb-hist-chart'))) markAll(null); });
   zones.forEach((z) => {
     const cz = now.get(z.id);
     const card = Office.place(`curve:${z.id}`, el('div', 'fb-curve-card'));
@@ -1304,6 +1413,8 @@ function historySection() {
     grid.appendChild(card);
   });
   s.appendChild(grid);
+  const back = markFocus && charts.get(markFocus);
+  if (back) setTimeout(() => { if (back.el.isConnected && document.activeElement !== back.el) back.el.focus({ preventScroll: true }); }, 0);
   return s;
 }
 
@@ -3890,6 +4001,9 @@ Office.desk({
     said = null;
     curves.forEach((c) => c.c.destroy());
     curves.clear();
+    charts.clear();
+    markAt = null;
+    markFocus = '';
   },
   agentChanged() { if (view) redraw(); },            // the messenger's word with every answer: drawn only when it changed something (its state is in the signature)
   async reception() {
