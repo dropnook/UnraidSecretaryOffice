@@ -91,7 +91,9 @@ function history(state, at) {
       Math.max(0, Math.min(100, p[2] + dl)), p[3]]);
     if (live.full) zones[z.id][zones[z.id].length - 1][2] = 100;          // an alarm here: its last minute at 100 %
   }
-  return { v: 1, board: state.setup.board, every: 60, zones };
+  // who led beside the points, as fanboyHistoryPack() writes it (a borrowed shape: none — «warmest spot»)
+  const leads = Object.fromEntries(Object.keys(zones).filter((z) => days.zones[z] && days.leads && days.leads[z]).map((z) => [z, days.leads[z]]));
+  return { v: 1, board: state.setup.board, every: 60, zones, src: days.src || [], leads };
 }
 const ON = { 'office/staff.json': { hired: { fanboy: 1 } }, 'fanboy/dashboard.json': { v: 1, show: 'speeds' } };
 const WITH = { ...ON, 'fanboy/dashboard.json': { v: 1, show: 'history' } };
@@ -111,6 +113,8 @@ const SCENES = [
   ['array-stopped', null, { 'fanboy/dash.json': { v: 1, show: 'speeds' }, 'fanboy/control.json': { phase: 'ended', why: 'array_stopped', who: 'bios', time: NOW - 900, zones: [] } }, null, false],
   ['stale', { ...ON, 'fanboy.json': lookedAt(demo('fanboy-ready'), NOW - 8400) }, {}, null, false],
   ['many', { ...ON, 'fanboy.json': many() }, {}, 'z0', false],
+  // 2026-11-17: the marker — the pointer on the CPU zone's curve (a phone: a tap), its line and its words in place of the caption
+  ['history-marker', { ...WITH, 'fanboy.json': looked('fanboy-cpu', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy-cpu', NOW - 4), NOW - 30) }, null, 'marker', { marker: 0.6 }],
 ].filter((s) => !opt.only || opt.only.includes(s[0]));
 const ALL = [];
 for (const theme of ['black', 'white']) for (const lang of ['de', 'en']) for (const width of [1440, 390]) ALL.push({ theme, lang, width });
@@ -177,12 +181,12 @@ const browser = await pw.chromium.launch({ executablePath: chrome, headless: tru
 const failed = [];
 let taken = 0;
 try {
-  for (const [name, files, run, open, every] of SCENES) {
+  for (const [name, files, run, open, every, how] of SCENES) {
     const tiles = { de: tile(name, files, run, 'de'), en: tile(name, files, run, 'en') };
-    for (const c of every ? ALL : SOME) {
+    for (const c of every === 'marker' ? [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'en', width: 390 }] : every ? ALL : SOME) {
       const file = path.join(tmp, `${name}-${c.theme}-${c.lang}.html`);
       fs.writeFileSync(file, page(c.theme, tiles[c.lang]));
-      const ctx = await browser.newContext({ viewport: { width: c.width, height: 700 }, deviceScaleFactor: 2, locale: c.lang });
+      const ctx = await browser.newContext({ viewport: { width: c.width, height: how && how.marker ? 1400 : 700 }, deviceScaleFactor: 2, locale: c.lang, hasTouch: c.width < 768 });
       const p = await ctx.newPage();
       const errors = [];
       p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -193,7 +197,31 @@ try {
       const wide = await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
       const box = await p.evaluate(() => { const r = document.querySelector('#db-sso-fanboy').getBoundingClientRect(); return { h: r.height, w: r.width }; });
       const out = path.join(opt.out, `${name}-${c.theme}-${c.lang}-${c.width}.png`);
-      await p.screenshot({ path: out, fullPage: true });
+      if (how && how.marker) {
+        // the pointer (a phone: a tap) at a share of the first curve: the readout equals the span's words from the server
+        // with its times; the caption hidden meanwhile; away from the curve the caption back
+        const curve = p.locator('#db-sso-fanboy .sso-fb-curve').last();
+        const b = await curve.boundingBox();
+        if (c.width < 768) await p.touchscreen.tap(b.x + b.width * how.marker, b.y + b.height / 2);
+        else await p.mouse.move(b.x + b.width * how.marker, b.y + b.height / 2);
+        await p.waitForTimeout(200);
+        const got = await p.evaluate((share) => {
+          const g = [...document.querySelectorAll('#db-sso-fanboy .sso-fb-graph')].pop();
+          const m = JSON.parse(g.getAttribute('data-m'));
+          const i = Math.round(share * (m.length - 1));
+          return { on: g.classList.contains('sso-fb-on'), read: g.querySelector('.sso-fb-read').textContent, want: m[i], caption: getComputedStyle(g.querySelector('.sso-fb-span')).display,
+            line: g.querySelector('.sso-fb-mark').getAttribute('x1'), x: (i * 120 / (m.length - 1)).toFixed(1) };
+        }, how.marker);
+        if (!got.on || !got.read.endsWith(` · ${got.want === null ? '–' : got.want}`) || got.caption !== 'none' || got.line !== got.x) failed.push(`${path.basename(out)}: the marker — ${JSON.stringify(got)}`);
+        if (opt.v) console.log(`marker: ${got.read}`);
+        await p.screenshot({ path: out, fullPage: false, clip: await p.locator('#db-sso-fanboy').boundingBox().then((r) => ({ x: 0, y: 0, width: c.width, height: Math.ceil(r.y + r.height + 16) })) });
+        if (c.width >= 768) {
+          await p.mouse.move(2, 2);
+          await p.waitForTimeout(150);
+          const back = await p.evaluate(() => { const g = [...document.querySelectorAll('#db-sso-fanboy .sso-fb-graph')].pop(); return !g.classList.contains('sso-fb-on') && getComputedStyle(g.querySelector('.sso-fb-span')).display !== 'none'; });
+          if (!back) failed.push(`${path.basename(out)}: the pointer gone — the marker stays`);
+        }
+      } else await p.screenshot({ path: out, fullPage: true });
       taken++;
       if (opt.v) console.log(`${path.basename(out)}  tile ${Math.round(box.w)}×${Math.round(box.h)}`);
       if (errors.length || wide) failed.push(`${path.basename(out)}: ${wide ? 'horizontal scroll ' : ''}${errors.join(' | ')}`);
@@ -246,7 +274,7 @@ try {
   }
   fs.writeFileSync(path.join(opt.out, 'contrast.txt'), contrast.join('\n') + '\n');
 
-  // the setting on his page (the office's harness, tests/ui/harness.mjs): «Show on the Dashboard» under the server picture
+  // the setting on his page (the office's harness, tests/ui/harness.mjs): «Show on the Dashboard» in the setup's settings
   if (!opt.only || opt.only.includes('setting')) {
     const { startHarness, DEMO_NAMES_EN } = await import(path.join(REPO, 'tests', 'ui', 'harness.mjs'));
     for (const c of [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'en', width: 390 }]) {
@@ -258,7 +286,7 @@ try {
       const errors = [];
       p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
       p.on('pageerror', (e) => errors.push(String(e)));
-      await p.goto(`${h.url}?theme=${c.theme}#/fanboy/now`, { waitUntil: 'load' });
+      await p.goto(`${h.url}?theme=${c.theme}#/fanboy/setup/settings`, { waitUntil: 'load' });
       await p.waitForSelector('#sso .fb-dash-choice', { timeout: 15000 });
       await p.evaluate(async () => { await document.fonts.ready; });
       const el = await p.$('#sso .fb-dash-choice');

@@ -147,7 +147,7 @@ const PICTURES = [
   // 2026-11-17 the overview rebuilt (fanboy-overview): three tiles, «Verlauf» with its marker, the setup's hints and settings
   ['ov-1-overview', 'fanboy-steering', 'fanboy', null, false, { whole: true }],
   ['ov-2-now', 'fanboy-steering', 'fanboy/now', null, false],
-  ['ov-3-history', 'fanboy-history3', 'fanboy/history', null, false, { marker: true }],
+  ['ov-3-history', 'fanboy-cpu', 'fanboy/history', null, false, { marker: 0.62 }],
   ['ov-4-setup-hints', 'fanboy-waz', 'fanboy/setup/detect', '.fb-hints summary', false],
   ['ov-5-setup-settings', 'fanboy-steering', 'fanboy/setup/settings', null, false],
   ['ov-6-not-set-up', 'fanboy-fresh', 'fanboy/now', null, false],
@@ -191,6 +191,20 @@ async function open(state, route, { theme = 'black', lang = 'de', width = 1440, 
   return { ctx, page, tag };
 }
 
+/** The history's marker at a share of the first chart's width: the mouse there (a phone: a tap) */
+async function markAtShare(page, share, touch) {
+  // the window as tall as the page first: a whole-page picture then resizes nothing (a resize under the mouse is «the
+  // pointer left» — the marker would go)
+  const tall = await page.evaluate(() => document.documentElement.scrollHeight);
+  await page.setViewportSize({ width: page.viewportSize().width, height: tall });
+  await page.waitForTimeout(300);
+  const chart = page.locator('#sso-desk .fb-hist-chart').first();
+  const b = await chart.boundingBox();
+  if (touch) await page.touchscreen.tap(b.x + b.width * share, b.y + b.height / 2);
+  else await page.mouse.move(b.x + b.width * share, b.y + b.height / 2);
+  await page.waitForTimeout(300);
+  log('marker:', await page.evaluate(() => [...document.querySelectorAll('#sso-desk .fb-hist-read')].map((n) => n.textContent)));
+}
 if (opt.shots) {
   for (const [name, state, route, click, every, shot] of PICTURES) {
     const looks = every === 'both' ? [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'de', width: 1440 }, { theme: 'black', lang: 'en', width: 390 }, { theme: 'white', lang: 'en', width: 390 }]
@@ -204,6 +218,7 @@ if (opt.shots) {
           await page.waitForTimeout(900);
         }
         if (shot && shot.settle) await page.waitForTimeout(shot.settle);
+        if (shot && shot.marker) await markAtShare(page, shot.marker, l.width < 768);
         const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
         if (wide > 1) faults.push(`${tag}: the page scrolls sideways by ${wide} px`);
         const file = path.join(opt.out, `${name}-${l.theme}-${l.lang}-${l.width}.png`);
@@ -216,7 +231,7 @@ if (opt.shots) {
           const box = await page.locator(shot.until).first().boundingBox();
           await page.screenshot({ path: file, clip: { x: 0, y: 0, width: l.width, height: Math.ceil(shot.before ? box.y : box.y + box.height + 12) } });
         } else if (shot && shot.clip) await page.locator(shot.clip).first().screenshot({ path: file });
-        else await page.screenshot({ path: file, fullPage: true, animations: 'allow', caret: 'hide' });
+        else await page.screenshot({ path: file, fullPage: !(shot && shot.marker), animations: 'allow', caret: 'hide' });      // (the marker: the window is the page already — a whole-page picture would resize it under the mouse)
         log(file);
         if (name === 'overview') await page.locator('.fb-server').screenshot({ path: path.join(opt.out, `overview-picture-${l.theme}-${l.lang}-${l.width}.png`) });
         await ctx.close();
@@ -300,7 +315,44 @@ if (opt.nums) {
       await ctx.close();
     }
   }
-  console.log(`fanboy desk: ${numbers} numbers in marked sentences compared with the state (${faults.filter((f) => f.includes('where the state has') || f.includes('is not in its sentence')).length} wrong)`);
+  // 2026-11-17: «Verlauf»'s marker — at fixed pointer positions, each zone's readout equals the history point under it
+  // (the part the harness served: a day; 3 days from the action's answer), the source that led its id, every zone at
+  // the same moment (within a point's reach)
+  let marks = 0;
+  const day = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'demo', 'fanboy-history.json'), 'utf8'));
+  const three = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'demo', 'post', 'fanboy.history.json'), 'utf8')).state;
+  for (const state of ['fanboy', 'fanboy-cpu']) {
+    for (const [pick, hist] of [[null, day], ['.fb-period button:nth-child(6)', three]]) {
+      for (const width of [1440, 390]) {
+        const { ctx, page, tag } = await open(state, 'fanboy/history', { scale: 1, width });
+        if (pick) { await page.click(pick); await page.waitForTimeout(1200); }
+        for (const share of [0.05, 0.37, 0.62, 0.995]) {
+          await markAtShare(page, share, width < 768);
+          const read = await page.evaluate(() => [...document.querySelectorAll('#sso-desk .fb-hist-read')].map((n) => ({ text: n.textContent, nums: n.dataset.nums || '', lead: n.dataset.lead || '', at: Number(n.dataset.at || 0) })));
+          const ats = read.filter((r) => r.nums).map((r) => r.at);
+          if (!ats.length) faults.push(`${tag} ${share}: the marker shows no point`);
+          if (ats.length && Math.max(...ats) - Math.min(...ats) > 900) faults.push(`${tag} ${share}: the zones' readouts are at different moments (${ats.join(', ')})`);
+          for (const r of read.filter((x) => x.nums)) {
+            const nums = JSON.parse(r.nums);
+            for (const x of nums) {
+              const [, , zid, i, k] = x.from;
+              const want = (((hist.zones || {})[zid] || [])[i] || [])[k];
+              marks++;
+              if (want !== x.v) faults.push(`${tag} ${share}: the marker shows ${x.v} where the history has ${JSON.stringify(want)} (${zid} #${i} [${k}]) — «${r.text}»`);
+              else if (!r.text.replace(/[^0-9]/g, '').includes(String(x.v).replace(/[^0-9]/g, ''))) faults.push(`${tag} ${share}: the history's ${x.v} is not in the readout — «${r.text}»`);
+            }
+            const [, , zid, i] = (nums[0] || {}).from || [];
+            const li = ((hist.leads || {})[zid] || [])[i];
+            const lead = Number.isInteger(li) ? hist.src[li] : '';
+            marks++;
+            if (lead !== r.lead) faults.push(`${tag} ${share}: the readout names ${r.lead || 'no source'} where the history has ${lead || 'none'} (${zid} #${i}) — «${r.text}»`);
+          }
+        }
+        await ctx.close();
+      }
+    }
+  }
+  console.log(`fanboy desk: ${numbers} numbers in marked sentences compared with the state, ${marks} of the history's marker with the history (${faults.filter((f) => f.includes('where the state has') || f.includes('is not in its sentence') || f.includes('where the history has') || f.includes('the marker') || f.includes('the readout')).length} wrong)`);
 }
 
 // ------------------------------------------------------------------ the overview's picture as an animated PNG (as look.mjs)

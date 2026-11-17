@@ -487,33 +487,50 @@ const STAND = { 1: { stops: true, floor_rpm: null, start_from_stop: null, kick_s
 files['fanboy-uxstand'] = state({ ite: ite({}, RPM), zones: [...ZONES, CPU_ZONE], who: { who: 'bios', why: 'not_armed' },
   fans: CPU_OWN.map((f) => (STAND[f.output] ? { ...f, stand: STAND[f.output], off_ok: f.output === 4, may_stand: f.output === 4 } : f)) });
 
-// the curve view's history (invented): three days for the disk cage, 30 hours for the case (a zone added later — the page
-// says «recorded only since …»), a point a minute, then kept as the agent keeps it (fanboyHistoryThin(): 12 h of minutes,
-// older ones a 5-minute span carrying its warmest, highest level and rpm). Warm afternoons, cool nights.
+// the curve view's history (invented): three days for the disk cage and the CPU, 30 hours for the case (a zone added later
+// — the page says «recorded only since …»), a point a minute, then kept as the agent keeps it (fanboyHistoryThin(): 12 h
+// of minutes, older ones a 5-minute span carrying its warmest, highest level and rpm, and who led at the warmest
+// moment). Warm afternoons, cool nights. 2026-11-17: each point names the source that led (the fifth value); the disk
+// cage's points older than two days carry none — recorded before the agent kept it (the page says «wärmste Stelle»).
 function thin(pts, wall) {
   const full = [], spans = new Map();
   for (const p of pts) {
     if (p[0] < wall - 259200) continue;
     if (p[0] >= wall - 43200) { full.push(p); continue; }
     const k = Math.floor(p[0] / 300), b = spans.get(k);
-    spans.set(k, b ? [Math.max(b[0], p[0]), Math.max(b[1], p[1]), Math.max(b[2], p[2]), Math.max(b[3], p[3])] : p);
+    const peak = b && b[1] > p[1] ? b : p;
+    spans.set(k, b ? [Math.max(b[0], p[0]), Math.max(b[1], p[1]), Math.max(b[2], p[2]), Math.max(b[3], p[3]), ...(peak.length > 4 ? [peak[4]] : [])] : p);
   }
   return [...[...spans.keys()].sort((a, b) => a - b).map((k) => spans.get(k)), ...full].slice(-1460);
 }
-const raw = { disks: [], case: [] };
+/** fanboyHistoryPack(): points of four, the leaders beside them (src once each, leads per zone a point) */
+function pack(zones) {
+  const src = [], leads = {}, out = {};
+  for (const [z, pts] of Object.entries(zones)) {
+    out[z] = pts.map((p) => p.slice(0, 4));
+    const l = pts.map((p) => (p.length > 4 ? (src.includes(p[4]) ? src.indexOf(p[4]) : src.push(p[4]) - 1) : null));
+    if (l.some((x) => x !== null)) leads[z] = l;
+  }
+  return { zones: out, src, leads };
+}
+const raw = { disks: [], case: [], cpu: [] };
 for (let m = 72 * 60; m >= 0; m--) {
   const t = T0 - m * 60;
   const day = Math.sin(((t / 3600 + 1) % 24 - 9) / 24 * 2 * Math.PI);        // warmest mid-afternoon
   const dc = Math.round((34.5 + 4 * day + Math.sin(m / 9) * 0.6 + (m % 977 === 0 ? 3 : 0)) * 10) / 10;
   const cc = Math.round((26 + 3.5 * day + Math.sin(m / 7) * 0.8) * 10) / 10;
+  const uc = Math.round((44 + 6 * day + Math.sin(m / 5) * 3 + ((m + 150) % 311 < 6 ? 14 : 0)) * 10) / 10;       // the CPU: short busy bursts
   const dl = Math.max(20, Math.min(100, Math.round(20 + (dc - 35) / 5 * 25)));
   const cl = Math.max(25, Math.min(100, Math.round(25 + (cc - 30) * 1.5)));
-  raw.disks.push([t, dc, dl, Math.round(tableRpm(TABLE4, dl))]);
-  if (m <= 30 * 60) raw.case.push([t, cc, cl, Math.round(tableRpm(TABLE5, cl))]);
+  const ul = Math.max(30, Math.min(100, Math.round(30 + (uc - 45) * 2.5)));
+  const dLead = m > 48 * 60 ? [] : [dc >= 35 ? 'disk2' : 'parity'];
+  raw.disks.push([t, dc, dl, Math.round(tableRpm(TABLE4, dl)), ...dLead]);
+  if (m <= 30 * 60) raw.case.push([t, cc, cl, Math.round(tableRpm(TABLE5, cl)), Math.sin(m / 50) > 0.6 ? RAM : NVME]);
+  raw.cpu.push([t, uc, ul, Math.round(740 + (ul - 40) * 9), CPU_SRC((m + 150) % 311 < 6 ? 'Core 4' : 'Package id 0')]);
 }
-const kept = { disks: thin(raw.disks, T0), case: thin(raw.case, T0) };
+const kept = { disks: thin(raw.disks, T0), case: thin(raw.case, T0), cpu: thin(raw.cpu, T0) };
 const window = (h) => Object.fromEntries(Object.entries(kept).map(([z, pts]) => [z, pts.filter((p) => p[0] >= T0 - h * 3600)]));
-const histOf = (h) => ({ v: 1, time: T0, now: T0, hours: h, every: 60, thin: 300, full: 43200, zones: window(h) });
+const histOf = (h) => ({ v: 1, time: T0, now: T0, hours: h, every: 60, thin: 300, full: 43200, ...pack(window(h)) });
 const hist = histOf(24);
 function tableRpm(table, pct) {
   const pts = table.slice().sort((a, b) => a[0] - b[0]);

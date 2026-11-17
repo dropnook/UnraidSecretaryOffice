@@ -287,7 +287,7 @@
     "other": "{n} Minuten"
   },
   "dur.h_min": "{h} h {m} min",
-  "server.sub": "Deine Lüfter und was sie kühlen, als Bild. Jedes Rad dreht ungefähr so schnell wie sein Lüfter; noch regelt das BIOS jeden.",
+  "server.sub": "Deine Lüfter und was sie kühlen, als Bild. Jedes Rad dreht ungefähr so schnell wie sein Lüfter.",
   "server.sub_steers": "Seine Zonen als Teile des Gehäuses: Die Lüfter drehen ungefähr so schnell wie in echt, die Luft zieht von vorn nach hinten, die wärmste Stelle jeder Zone ist umrahmt. Schlafende Disks sind nur markiert — er weckt sie nie.",
   "pic.bios": "BIOS",
   "pic.bios_title": "Das BIOS regelt diesen Lüfter",
@@ -324,7 +324,7 @@
   "curve.readout": "Bei {t} °C: {v} · etwa {rpm} U/min",
   "curve.floor": "tiefste stabile Drehzahl",
   "curves.title": "Verlauf",
-  "curves.sub": "Pro Zone der gewählte Zeitraum: die Temperatur der Stelle, die führte, und die Drehzahl, die er gab.",
+  "curves.sub": "Pro Zone der gewählte Zeitraum: die Temperatur der Stelle, die führte (Linie), und die Drehzahl, die er gab (Fläche). Zeig auf eine Kurve, um einen Moment in allen Zonen abzulesen.",
   "curves.none": "Noch keine Zone — die Einrichtung legt sie an.",
   "curves.line_now": "Jetzt: {where} mit {c} °C → {level}",
   "curves.line_bios": "Die Lüfter dieser Zone regelt gerade das BIOS.",
@@ -332,7 +332,7 @@
   "curves.now_short": "jetzt",
   "curves.history_label": "Der Verlauf ({period}): die wärmste Stelle und die Drehzahl",
   "curves.history_none": "Noch kein Verlauf — er füllt sich mit einem Punkt pro Minute, solange er regelt.",
-  "curves.key_temp": "wärmste Stelle (°C)",
+  "curves.key_temp": "Stelle, die führte (°C)",
   "curves.key_level": "Drehzahl (%)",
   "hints.st_other_fans": "regelt andere Lüfter",
   "hints.st_other_fans_title": "Es regelt Lüfter von Disk-Gehäusen und über IPMI, nicht die Ausgänge des Mainboards — Fanboy regelt daneben",
@@ -537,7 +537,7 @@
   "help.picture": "Das Bild",
   "help.picture_text": "Jede Zone als Teil des Gehäuses: ihre Lüfter in den Wänden, wo die Luft hinein- und hinausgeht, die Wärmequellen dazwischen. Ein Rad dreht ungefähr so schnell wie sein Lüfter; rot: Er steht, obwohl er drehen sollte; gestrichelt: keine Drehzahl-Rückmeldung; «BIOS»: das BIOS regelt ihn. «Weniger Bewegung» in deinem System: ruhige Räder mit einem Bogen für die Drehzahl.",
   "help.curves": "Verlauf",
-  "help.curves_text": "Pro Zone der gewählte Zeitraum: die Temperatur der Stelle, die führte, und die Drehzahl, die er gab. Die Kurve selbst stellst du in der Einrichtung ein, Schritt «Zonen».",
+  "help.curves_text": "Pro Zone der gewählte Zeitraum: die Temperatur der Stelle, die führte (Linie), und die Drehzahl, die er gab (Fläche). Zeig auf eine Kurve, tippe darauf oder geh mit den Pfeiltasten: Eine Linie markiert den Moment in jeder Zone, und über jeder Kurve stehen die Zeit, die Drehzahl in Prozent, die Drehzahl der Lüfter und welche Stelle mit welcher Temperatur führte («wärmste Stelle» bei Momenten, bevor er ihren Namen aufschrieb). Die Kurve selbst stellst du in der Einrichtung ein, Schritt «Zonen».",
   "help.setup": "Die Einrichtung",
   "help.setup_text": "Fünf Schritte nacheinander: erkennen, testen und zuordnen, vermessen, Zonen, übernehmen. Jede Kachel öffnet ihren Schritt allein; die ganze Seite zeigt alle, darunter die Einstellungen (seine Kachel im Dashboard, die Lüfter, die er nur überwacht). Jeder Schritt ist gleich gebaut: oben der Streifen, der sagt, was gerade läuft (mit «Alles stoppen»), links die Liste, rechts das Feld zur gewählten Zeile, unten, was noch offen ist, und der eine Knopf, der weiterführt. Warum Lüfter knifflig sind, Treiber und das BIOS: unter dem ersten Schritt.",
   "help.safe": "Nichts für immer",
@@ -1142,5 +1142,9 @@
   "settings.sub": "Gilt fürs ganze Sekretariat, nicht nur für diesen Browser: seine Kachel in Unraids Dashboard und die Lüfter, die er nur überwacht.",
   "settings.dash": "Dashboard: {show}",
   "settings.watch_on": "andere Lüfter überwachen: ein",
-  "settings.watch_off": "andere Lüfter überwachen: aus"
+  "settings.watch_off": "andere Lüfter überwachen: aus",
+  "hist.lead": "{where} mit {c} °C",
+  "hist.lead_none": "wärmste Stelle mit {c} °C",
+  "hist.read_hint": "Zeig auf eine Kurve (oder tippe darauf), um einen Moment abzulesen — in allen Zonen zugleich; die Pfeiltasten verschieben die Markierung.",
+  "hist.read_none": "{time}: nichts aufgezeichnet"
 }

@@ -134,10 +134,12 @@ function officeFanboyDashSpeed(array $s, array $rpms): string
 /**
  * The curves of «with history»: per zone the last FANBOY_DASH_HOURS hours of the control's history (RAM first, else the
  * data folder's copy; only this board's, only points in exactly their shape [time, °C|null, level %|null, rpm|null] as
- * fanboyHistoryThin() keeps them), folded into FANBOY_DASH_POINTS spans — each its warmest °C and highest level (a peak
- * never disappears), null where nothing was recorded. A zone without a point in the window: none.
+ * fanboyHistoryThin() keeps them, who led beside them as fanboyHistoryPack() writes it: `src`, `leads`), folded into
+ * FANBOY_DASH_POINTS spans — each its warmest °C, highest level and rpm (a peak never disappears) and the source that led
+ * at its warmest moment (2026-11-17, the marker's readout), null where nothing was recorded. A zone without a point in
+ * the window: none.
  *
- * @return array<string, list<array{0:?float,1:?float}>>
+ * @return array<string, list<array{0:?float,1:?float,2:?int,3:?string}>>
  */
 function officeFanboyDashHistory(string $board, int $now, ?int $hours = null): array
 {
@@ -153,20 +155,28 @@ function officeFanboyDashHistory(string $board, int $now, ?int $hours = null): a
     $num = static fn (mixed $v): ?float => is_int($v) || is_float($v) ? (float) $v : null;
     $from = $now - $hours * 3600;
     $span = intdiv($hours * 3600, FANBOY_DASH_POINTS);
+    $src = is_array($file['src'] ?? null) && array_is_list($file['src']) ? $file['src'] : [];
     $out = [];
     foreach ($file['zones'] ?? [] as $zid => $pts) {
         if (!is_string($zid) || !is_array($pts)) {
             continue;
         }
-        $spans = array_fill(0, FANBOY_DASH_POINTS, [null, null]);
+        // who led: an entry a point, the index into `src` — only when it fits the points exactly
+        $leads = $file['leads'][$zid] ?? null;
+        $leads = is_array($leads) && array_is_list($leads) && array_is_list($pts) && count($leads) === count($pts) ? $leads : [];
+        $spans = array_fill(0, FANBOY_DASH_POINTS, [null, null, null, null]);
         $any = false;
-        foreach ($pts as $p) {
+        foreach ($pts as $i => $p) {
             if (!is_array($p) || !array_is_list($p) || count($p) !== 4 || !is_int($p[0]) || $p[0] <= $from || $p[0] > $now) {
                 continue;
             }
             $k = min(FANBOY_DASH_POINTS - 1, intdiv($p[0] - $from - 1, $span));
-            [$c, $l] = [$num($p[1]), $num($p[2])];
-            $spans[$k] = [$c === null ? $spans[$k][0] : max($c, $spans[$k][0] ?? $c), $l === null ? $spans[$k][1] : max($l, $spans[$k][1] ?? $l)];
+            [$c, $l, $r] = [$num($p[1]), $num($p[2]), is_int($p[3]) ? $p[3] : null];
+            $lead = is_int($leads[$i] ?? null) && is_string($src[$leads[$i]] ?? null) ? $src[$leads[$i]] : null;
+            $b = $spans[$k];
+            // the leader of the span's warmest moment (a tie: the later one's)
+            $peak = $c !== null && ($b[0] === null || $c >= $b[0]);
+            $spans[$k] = [$c === null ? $b[0] : max($c, $b[0] ?? $c), $l === null ? $b[1] : max($l, $b[1] ?? $l), $r === null ? $b[2] : max($r, $b[2] ?? $r), $peak ? $lead : $b[3]];
             $any = $any || $c !== null || $l !== null;
         }
         if ($any) {
@@ -179,12 +189,15 @@ function officeFanboyDashHistory(string $board, int $now, ?int $hours = null): a
 /**
  * A zone's curve as inline SVG (no script, no link; colours from the tile's tokens), two bands so the lines never lie on
  * each other: the warmest °C on top as a line on its own scale (at least 10 °C high), the level below as a shaded area on
- * 0–100 %; a gap where nothing was recorded. Plus its caption.
+ * 0–100 %; a gap where nothing was recorded. Plus its caption, and per span the marker's words (2026-11-17: the level, the
+ * fans' speed, the source that led with its temperature — «warmest spot» where none was recorded; null: nothing there),
+ * the marker's line in the SVG, shown only while the pointer is on the curve.
  *
- * @param list<array{0:?float,1:?float}> $spans
- * @return array{svg:string, temp:string, level:string}
+ * @param list<array{0:?float,1:?float,2?:?int,3?:?string}> $spans
+ * @param list<array> $sources the setup's heat sources (his state's setup.sources), for the leaders' names
+ * @return array{svg:string, temp:string, level:string, marks:list<?string>}
  */
-function officeFanboyDashCurve(array $s, array $spans, string $lang): array
+function officeFanboyDashCurve(array $s, array $spans, string $lang, array $sources = []): array
 {
     [$w, $h, $split] = [120, 36, 17];           // the temperature in 1…15, the level in 17…36
     $temps = array_values(array_filter(array_column($spans, 0), 'is_float'));
@@ -235,8 +248,31 @@ function officeFanboyDashCurve(array $s, array $spans, string $lang): array
         [$a, $b] = $range($levels, 0);
         $level = $a === $b ? officeDashT($s, 'fanboy.dash.curve_level_one', ['pct' => $a]) : officeDashT($s, 'fanboy.dash.curve_level', ['lo' => $a, 'hi' => $b]);
     }
-    return ['svg' => '<svg class="sso-fb-curve" viewBox="0 0 ' . $w . ' ' . $h . '" preserveAspectRatio="none" aria-hidden="true" focusable="false">' . $svg . '</svg>',
-        'temp' => $temp, 'level' => $level];
+    $byId = [];
+    foreach ($sources as $x) {
+        if (is_array($x) && is_string($x['id'] ?? null)) {
+            $byId[$x['id']] = $x;
+        }
+    }
+    $deg = static fn (float $c): string => officeFanboyDashNum($c, $lang, floor($c) === $c ? 0 : 1);
+    $marks = array_map(static function (array $p) use ($s, $byId, $deg): ?string {
+        $parts = [];
+        if (is_float($p[1] ?? null)) {
+            $parts[] = officeDashT($s, 'fanboy.value', ['pct' => (int) round($p[1])]);
+        }
+        if (is_int($p[2] ?? null)) {
+            $parts[] = officeDashT($s, 'fanboy.pic.rpm', ['rpm' => $p[2]]);
+        }
+        if (is_float($p[0] ?? null)) {
+            $lead = is_string($p[3] ?? null) && isset($byId[$p[3]]) ? $byId[$p[3]] : null;
+            $parts[] = $lead !== null ? officeDashT($s, 'fanboy.hist.lead', ['where' => officeFanboyDashSource($s, $lead), 'c' => $deg($p[0])])
+                : officeDashT($s, 'fanboy.hist.lead_none', ['c' => $deg($p[0])]);
+        }
+        return $parts ? implode(' · ', $parts) : null;
+    }, $spans);
+    return ['svg' => '<svg class="sso-fb-curve" viewBox="0 0 ' . $w . ' ' . $h . '" preserveAspectRatio="none" aria-hidden="true" focusable="false">' . $svg
+        . '<line class="sso-fb-mark" x1="0" x2="0" y1="0" y2="' . $h . '"/></svg>',
+        'temp' => $temp, 'level' => $level, 'marks' => $marks];
 }
 
 /**
@@ -414,7 +450,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             'stands'  => in_array(true, array_column($fans, 2), true),
             'fans'    => array_slice($fans, 0, FANBOY_DASH_FANS),
             'fans_more' => max(0, count($fans) - FANBOY_DASH_FANS),
-            'curve'   => $hist !== null && isset($hist[$id]) ? officeFanboyDashCurve($s, $hist[$id], $lang) : null,
+            'curve'   => $hist !== null && isset($hist[$id]) ? officeFanboyDashCurve($s, $hist[$id], $lang, is_array($setup['sources'] ?? null) ? $setup['sources'] : []) : null,
         ];
     }
     $out['more'] = max(0, count($out['zones']) - FANBOY_DASH_ZONES);
@@ -530,7 +566,9 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
         if ($z['curve'] !== null) {
             // the span's label is a button: a click goes to the next span (1 · 3 · 6 · 12 · 24 · 72 h), the same for everyone
             $next = officeFanboyDashNextHours($hours);
-            $curve = '<span class="sso-fb-graph">' . $z['curve']['svg'] . '<small><button type="button" class="sso-fb-span" data-hours="' . $next . '" title="'
+            // the marker's words a span each (the times the tile's script adds: the browser's clock and language)
+            $curve = '<span class="sso-fb-graph" data-from="' . ($now - $hours * 3600) . '" data-span="' . intdiv($hours * 3600, FANBOY_DASH_POINTS) . '" data-m="'
+                . $h((string) json_encode($z['curve']['marks'], JSON_UNESCAPED_UNICODE)) . '">' . $z['curve']['svg'] . '<small><span class="sso-fb-read"></span><button type="button" class="sso-fb-span" data-hours="' . $next . '" title="'
                 . $h(officeDashT($s, 'fanboy.dash.span_tip', ['next' => $next])) . '">' . $h(officeDashT($s, 'fanboy.dash.curve', ['h' => $hours])) . '</button>'
                 . ($z['curve']['temp'] !== '' ? '<span class="sso-fb-key-temp">' . $h($z['curve']['temp']) . '</span>' : '')
                 . ($z['curve']['level'] !== '' ? '<span class="sso-fb-key-lvl">' . $h($z['curve']['level']) . '</span>' : '') . '</small></span>';
@@ -643,6 +681,13 @@ function officeFanboyDashTile(): string
         . '#db-sso-fanboy .sso-fb-dot{fill:var(--sso-fb-curve,var(--orange-300))}'
         . '#db-sso-fanboy .sso-fb-graph small{display:flex;flex-wrap:wrap;gap:2px 12px}'
         . '#db-sso-fanboy .sso-fb-key-temp::before{content:"";display:inline-block;width:12px;height:2px;margin-right:5px;vertical-align:middle;background:var(--sso-fb-curve,var(--orange-300))}'
+        // the marker (2026-11-17): its line on the curve and its words in place of the caption — only while the pointer is on it
+        . '#db-sso-fanboy .sso-fb-curve{touch-action:pan-y}'
+        . '#db-sso-fanboy .sso-fb-mark{display:none;stroke:currentColor;stroke-opacity:.8;stroke-width:1;vector-effect:non-scaling-stroke}'
+        . '#db-sso-fanboy .sso-fb-on .sso-fb-mark{display:inline}'
+        . '#db-sso-fanboy .sso-fb-read{display:none;font-variant-numeric:tabular-nums}'
+        . '#db-sso-fanboy .sso-fb-on small>*{display:none}'
+        . '#db-sso-fanboy .sso-fb-on small>.sso-fb-read{display:inline}'
         . '#db-sso-fanboy .sso-fb-key-lvl::before{content:"";display:inline-block;width:10px;height:8px;margin-right:5px;vertical-align:middle;background:currentColor;opacity:.3}'
         . '</style>'
         // the rows again as the office's tile does it (the language chosen in the office, else the browser's): every
@@ -670,5 +715,19 @@ function officeFanboyDashTile(): string
         . 'if(typeof csrf_token!=="undefined")hd["X-CSRF-Token"]=csrf_token;'
         . 'fetch(' . json_encode('/plugins/' . OFFICE_PLUGIN . '/api.php') . ',{method:"POST",headers:hd,body:JSON.stringify({a:"fanboy.dashboard",hours:parseInt(t.getAttribute("data-hours"),10)})})'
         . '.then(function(){load();}).catch(function(){t.disabled=false;});},true);'
+        // the marker: on the tile's own box (it stays when the rows come anew) — nothing runs while the pointer is elsewhere;
+        // the span under the pointer: a line there and its words (the server's) with its times (the browser's) in place
+        // of the caption; a tap on the curve marks without unfolding the zone, a tap beside it lets go
+        . 'var on=null,touch=false;function off(){if(on){on.classList.remove("sso-fb-on");on=null;}}'
+        . 'function hm(t){return new Date(t*1000).toLocaleTimeString(own||"en",{hour:"2-digit",minute:"2-digit"});}'
+        . 'function mark(e){var v=e.target&&e.target.closest?e.target.closest(".sso-fb-curve"):null,g=v&&v.parentNode;if(!g||!g.hasAttribute("data-m")){off();return;}'
+        . 'var m;try{m=g.m||(g.m=JSON.parse(g.getAttribute("data-m")));}catch(x){return;}var n=m.length,r=v.getBoundingClientRect();if(n<2||!r.width)return;'
+        . 'var i=Math.max(0,Math.min(n-1,Math.round((e.clientX-r.left)/r.width*(n-1)))),f=+g.getAttribute("data-from"),s=+g.getAttribute("data-span"),a=f+i*s,'
+        . 'w=(s*n>=86400?new Date(a*1000).toLocaleDateString(own||"en",{weekday:"short"})+" ":"")+hm(a)+"–"+hm(a+s),l=v.querySelector(".sso-fb-mark"),x=(i*120/(n-1)).toFixed(1);'
+        . 'if(l){l.setAttribute("x1",x);l.setAttribute("x2",x);}var t=g.querySelector(".sso-fb-read");if(t)t.textContent=w+" · "+(m[i]===null?"–":m[i]);'
+        . 'if(on!==g){off();on=g;g.classList.add("sso-fb-on");}if(e.type==="pointerdown")touch=e.pointerType!=="mouse";}'
+        . 'var bx=box();if(bx){bx.addEventListener("pointermove",mark);bx.addEventListener("pointerdown",mark);'
+        . 'bx.addEventListener("pointerleave",function(e){if(e.pointerType==="mouse")off();});'
+        . 'bx.addEventListener("click",function(e){if(touch&&e.target.closest&&e.target.closest(".sso-fb-curve")){e.preventDefault();}touch=false;},true);}'
         . 'again();document.addEventListener("visibilitychange",function(){if(!document.hidden)load();});})();</script>';
 }

@@ -1607,9 +1607,10 @@ function fanboyMissingTell(array &$c, float $now): void
 }
 
 /**
- * A point a minute per zone: [time, warmest °C, level %, rpm]; then every zone's history thinned and bounded
- * (fanboyHistoryThin()) — a zone no longer there keeps its points until they are 3 days old, then goes. $wall: the tests'
- * clock (unix seconds), else now.
+ * A point a minute per zone: [time, warmest °C, level %, rpm, the warmest's source id] (2026-11-17: the fifth, the source
+ * that led then — only when one did; the files keep points of four, the ids beside them: fanboyHistoryPack()); then every
+ * zone's history thinned and bounded (fanboyHistoryThin()) — a zone no longer there keeps its points until they are 3 days
+ * old, then goes. $wall: the tests' clock (unix seconds), else now.
  */
 function fanboyHistory(array &$c, float $now, ?int $wall = null): void
 {
@@ -1622,7 +1623,11 @@ function fanboyHistory(array &$c, float $now, ?int $wall = null): void
         $fans = array_filter(array_map(fn ($id) => $c['fans'][$id], $z['fans']), fn ($f) => $f['taken']);
         $rpms = array_filter(array_column($fans, 'rpm'), 'is_int');
         $pcts = array_filter(array_column($fans, 'pct'), 'is_int');
-        $c['hist'][$zid][] = [$wall, $z['warmest']['c'] ?? null, $pcts ? (int) round(array_sum($pcts) / count($pcts)) : null, $rpms ? (int) round(array_sum($rpms) / count($rpms)) : null];
+        $p = [$wall, $z['warmest']['c'] ?? null, $pcts ? (int) round(array_sum($pcts) / count($pcts)) : null, $rpms ? (int) round(array_sum($rpms) / count($rpms)) : null];
+        if (fanboyHistoryLead($z['warmest']['id'] ?? null)) {
+            $p[] = $z['warmest']['id'];
+        }
+        $c['hist'][$zid][] = $p;
     }
     foreach ($c['hist'] as $zid => $pts) {
         $c['hist'][$zid] = fanboyHistoryThin($pts, $wall);
@@ -1638,28 +1643,42 @@ function fanboyMaxOf(mixed $a, mixed $b): mixed
     return $a === null ? $b : ($b === null ? $a : max($a, $b));
 }
 
+/** A history point's leader: a heat source's id as the setup names it (one line, not empty, bounded) */
+function fanboyHistoryLead(mixed $v): bool
+{
+    return is_string($v) && $v !== '' && strlen($v) <= 200 && preg_match('/[\x00-\x1f\x7f]/', $v) !== 1;
+}
+
 /**
  * One zone's history kept small: points of the last 12 hours as they are (a minute each), older ones folded into
- * 5-minute spans — the span's latest time, its warmest temperature, its highest level and rpm (a peak never disappears) —,
- * nothing older than 3 days, at most FANBOY_HISTORY_MAX points. Only points in exactly their shape; a span folded once
- * stays as it is (idempotent: run it every minute, on a file of today's shape or an older one).
+ * 5-minute spans — the span's latest time, its warmest temperature, its highest level and rpm (a peak never disappears),
+ * and the source that led at the warmest moment (2026-11-17) —, nothing older than 3 days, at most FANBOY_HISTORY_MAX
+ * points. Only points in exactly their shape (four values, or five with a leader); a span folded once stays as it is
+ * (idempotent: run it every minute, on a file of today's shape or an older one).
  */
 function fanboyHistoryThin(array $pts, int $wall): array
 {
     $num = fn ($v) => is_int($v) || is_float($v) ? $v : null;
     $full = $spans = [];
     foreach ($pts as $p) {
-        if (!is_array($p) || !array_is_list($p) || count($p) !== 4 || !is_int($p[0]) || $p[0] < $wall - FANBOY_HISTORY_SPAN) {
+        if (!is_array($p) || !array_is_list($p) || !(count($p) === 4 || (count($p) === 5 && fanboyHistoryLead($p[4])))
+            || !is_int($p[0]) || $p[0] < $wall - FANBOY_HISTORY_SPAN) {
             continue;
         }
-        $p = [$p[0], $num($p[1]), $num($p[2]), $num($p[3])];
+        $p = [$p[0], $num($p[1]), $num($p[2]), $num($p[3]), ...(isset($p[4]) ? [$p[4]] : [])];
         if ($p[0] >= $wall - FANBOY_HISTORY_FULL) {
             $full[] = $p;
             continue;
         }
         $k = intdiv($p[0], FANBOY_HISTORY_THIN);
         $b = $spans[$k] ?? null;
-        $spans[$k] = $b === null ? $p : [max($b[0], $p[0]), fanboyMaxOf($b[1], $p[1]), fanboyMaxOf($b[2], $p[2]), fanboyMaxOf($b[3], $p[3])];
+        if ($b === null) {
+            $spans[$k] = $p;
+            continue;
+        }
+        // the leader of the span's warmest moment (a tie: the later one's)
+        $peak = $p[1] !== null && ($b[1] === null || $p[1] >= $b[1]) ? $p : $b;
+        $spans[$k] = [max($b[0], $p[0]), fanboyMaxOf($b[1], $p[1]), fanboyMaxOf($b[2], $p[2]), fanboyMaxOf($b[3], $p[3]), ...(isset($peak[4]) ? [$peak[4]] : [])];
     }
     ksort($spans);
     usort($full, fn ($a, $b) => $a[0] <=> $b[0]);
@@ -1740,10 +1759,54 @@ function fanboyStatusWrite(array $status): void
     writeAtomic(fanboyStatusFile(), jsonEncode($status), 0644, 0, 0);
 }
 
+/**
+ * The history as a file or the page's part holds it (2026-11-17): points of four [time, °C, level, rpm] — the shape every
+ * older reader takes —, the leaders beside them: `src` the source ids once each, `leads` per zone one entry a point (the
+ * index into `src`, null where none led). A reader that doesn't know the two keys reads the points as before.
+ *
+ * @return array{zones: array<string, list<array>>|stdClass, src: list<string>, leads: array<string, list<?int>>|stdClass}
+ */
+function fanboyHistoryPack(array $hist): array
+{
+    $zones = $leads = [];
+    $src = [];
+    foreach ($hist as $zid => $pts) {
+        $zones[$zid] = [];
+        $l = [];
+        foreach ($pts as $p) {
+            $zones[$zid][] = array_slice($p, 0, 4);
+            $l[] = isset($p[4]) ? ($src[$p[4]] ??= count($src)) : null;
+        }
+        if (array_filter($l, 'is_int')) {
+            $leads[$zid] = $l;
+        }
+    }
+    return ['zones' => $zones ?: new stdClass(), 'src' => array_keys($src), 'leads' => $leads ?: new stdClass()];
+}
+
+/** Back from fanboyHistoryPack(): a zone's points with their leaders — only where `leads` and `src` fit them exactly */
+function fanboyHistoryUnpack(array $j): array
+{
+    $src = is_array($j['src'] ?? null) && array_is_list($j['src']) ? $j['src'] : [];
+    $out = [];
+    foreach (is_array($j['zones'] ?? null) ? $j['zones'] : [] as $zid => $pts) {
+        if (!is_string($zid) || !is_array($pts)) {
+            continue;
+        }
+        $l = $j['leads'][$zid] ?? null;
+        $fits = is_array($l) && array_is_list($l) && array_is_list($pts) && count($l) === count($pts);
+        foreach ($pts as $i => $p) {
+            $at = $fits && is_int($l[$i]) ? ($src[$l[$i]] ?? null) : null;
+            $out[$zid][] = is_array($p) && count($p) === 4 && fanboyHistoryLead($at) ? [...$p, $at] : $p;
+        }
+    }
+    return $out;
+}
+
 /** The history kept: RAM every minute, the data folder every 10 minutes and at the end */
 function fanboyHistoryKeep(array $c, bool $toData): void
 {
-    $j = jsonEncode(['v' => 1, 'board' => $c['key'], 'every' => FANBOY_HISTORY_EVERY, 'zones' => $c['hist']]);
+    $j = jsonEncode(['v' => 1, 'board' => $c['key'], 'every' => FANBOY_HISTORY_EVERY] + fanboyHistoryPack($c['hist']));
     writeAtomic(fanboyRunDir() . '/history.json', $j, 0644, 0, 0);
     if ($toData && defined('FANBOY_DIR') && is_dir(FANBOY_DIR)) {
         writeAtomic(FANBOY_DIR . '/history.json', $j);
@@ -1760,8 +1823,8 @@ function fanboyHistoryLoad(string $board, ?int $wall = null): array
         $j = $f === '' ? null : readJson($f);
         if (is_array($j) && ($j['board'] ?? null) === $board && is_array($j['zones'] ?? null)) {
             $out = [];
-            foreach ($j['zones'] as $zid => $pts) {
-                if (is_string($zid) && is_array($pts) && ($kept = fanboyHistoryThin($pts, $wall ?? time()))) {
+            foreach (fanboyHistoryUnpack($j) as $zid => $pts) {
+                if (($kept = fanboyHistoryThin($pts, $wall ?? time()))) {
                     $out[$zid] = $kept;
                 }
             }

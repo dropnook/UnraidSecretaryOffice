@@ -2910,7 +2910,7 @@ function testFanboyDashHours(): void
         $o = fanboyDashWeb($files, ['fanboy/history.json' => ['v' => 1, 'board' => $board, 'zones' => ['disks' => $pts]]], $now);
         $spans = $o['hist']['disks'] ?? [];
         $rows = (string) ($o['rows'] ?? '');
-        $seen[$hours] = [count(array_filter($spans, fn ($p) => $p !== [null, null])),
+        $seen[$hours] = [count(array_filter($spans, fn ($p) => $p !== [null, null, null, null])),
             str_contains($rows, 'class="sso-fb-span" data-hours="' . $next . '" title="Change the span — next: last ' . $next . ' h">Last ' . $hours . ' h</button>')];
     }
     same('fanboy dash hours: the tile per span — the spans with points inside it (1 h: 1 … 24 h: 5; 72 h: 5, its spans are 3 h and the 30-min and 2-h points share one), the label a button to the next span (72 → 1) with its tip',

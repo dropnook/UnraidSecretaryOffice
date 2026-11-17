@@ -287,7 +287,7 @@
     "other": "{n} minuti"
   },
   "dur.h_min": "{h} h {m} min",
-  "server.sub": "Le tue ventole e ciò che raffreddano, in un'immagine. Ogni girante gira più o meno veloce come la sua ventola; per ora il BIOS le regola tutte.",
+  "server.sub": "Le tue ventole e ciò che raffreddano, in un'immagine. Ogni girante gira più o meno veloce come la sua ventola.",
   "server.sub_steers": "Le sue zone come parti del case: le ventole girano più o meno come in realtà, l'aria va dal davanti al retro, il punto più caldo di ogni zona è incorniciato. I dischi addormentati sono solo segnati — non li sveglia mai.",
   "pic.bios": "BIOS",
   "pic.bios_title": "Il BIOS regola questa ventola",
@@ -324,7 +324,7 @@
   "curve.readout": "A {t} °C: {v} · circa {rpm} giri/min",
   "curve.floor": "velocità stabile più bassa",
   "curves.title": "Andamento",
-  "curves.sub": "Per zona il periodo scelto: la temperatura del punto che guidava e la velocità che ha dato.",
+  "curves.sub": "Per zona il periodo scelto: la temperatura del punto che guidava (linea) e la velocità che ha dato (area). Punta su un grafico per leggere un momento in tutte le zone.",
   "curves.none": "Ancora nessuna zona — le crea la configurazione.",
   "curves.line_now": "Adesso: {where} a {c} °C → {level}",
   "curves.line_bios": "Le ventole di questa zona ora le regola il BIOS.",
@@ -332,7 +332,7 @@
   "curves.now_short": "adesso",
   "curves.history_label": "L'andamento ({period}): il punto più caldo e la velocità",
   "curves.history_none": "Ancora nessun andamento — si riempie di un punto al minuto mentre regola.",
-  "curves.key_temp": "punto più caldo (°C)",
+  "curves.key_temp": "punto che guidava (°C)",
   "curves.key_level": "velocità (%)",
   "hints.st_other_fans": "regola altre ventole",
   "hints.st_other_fans_title": "Regola ventole di contenitori di dischi e IPMI, non le uscite della scheda madre — Fanboy regola accanto",
@@ -537,7 +537,7 @@
   "help.picture": "L'immagine",
   "help.picture_text": "Ogni zona come una parte del case: le sue ventole nelle pareti da cui l'aria entra ed esce, le fonti di calore in mezzo. Una girante gira più o meno veloce come la sua ventola; rosso: è ferma anche se dovrebbe girare; tratteggiato: nessun ritorno di velocità; «BIOS»: la regola il BIOS. «Riduci movimento» nel tuo sistema: giranti ferme con un arco per la velocità.",
   "help.curves": "Andamento",
-  "help.curves_text": "Per zona il periodo scelto: la temperatura del punto che guidava e la velocità che ha dato. La curva stessa si imposta nella configurazione, passo «Zone».",
+  "help.curves_text": "Per zona il periodo scelto: la temperatura del punto che guidava (linea) e la velocità che ha dato (area). Punta su un grafico, toccalo o muoviti con i tasti freccia: una linea segna il momento nel grafico di ogni zona, e sopra ciascuno stanno l'ora, il livello, la velocità delle ventole e quale punto guidava con la sua temperatura («punto più caldo» per i momenti registrati prima che ne annotasse il nome). La curva stessa si imposta nella configurazione, passo «Zone».",
   "help.setup": "La configurazione",
   "help.setup_text": "Cinque passi uno dopo l'altro: riconoscere, provare e assegnare, misurare, zone, affida a lui. Ogni riquadro apre il suo passo da solo; la pagina intera li mostra tutti, e sotto le impostazioni (il suo riquadro nella Dashboard, le ventole che sorveglia soltanto). Ogni passo è fatto allo stesso modo: in alto la striscia che dice che cosa gira adesso (con «Ferma tutto»), a sinistra l'elenco, a destra il campo della riga scelta, in basso ciò che è ancora da fare e l'unico pulsante che porta avanti. Perché le ventole sono complicate, i driver e il BIOS: sotto il primo passo.",
   "help.safe": "Niente per sempre",
@@ -1142,5 +1142,9 @@
   "settings.sub": "Vale per tutta la segreteria, non solo per questo browser: il suo riquadro nella Dashboard di Unraid e le ventole che sorveglia soltanto.",
   "settings.dash": "Dashboard: {show}",
   "settings.watch_on": "sorvegliare altre ventole: sì",
-  "settings.watch_off": "sorvegliare altre ventole: no"
+  "settings.watch_off": "sorvegliare altre ventole: no",
+  "hist.lead": "{where} a {c} °C",
+  "hist.lead_none": "punto più caldo a {c} °C",
+  "hist.read_hint": "Punta su un grafico (o toccalo) per leggere un momento — in tutte le zone insieme; i tasti freccia spostano il segno.",
+  "hist.read_none": "{time}: niente registrato"
 }
