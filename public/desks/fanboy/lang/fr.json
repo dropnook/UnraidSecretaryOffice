@@ -287,7 +287,7 @@
     "other": "{n} minutes"
   },
   "dur.h_min": "{h} h {m} min",
-  "server.sub": "Tes ventilateurs et ce qu'ils refroidissent, en image. Chaque roue tourne à peu près aussi vite que son ventilateur ; pour l'instant le BIOS les règle tous.",
+  "server.sub": "Tes ventilateurs et ce qu'ils refroidissent, en image. Chaque roue tourne à peu près aussi vite que son ventilateur.",
   "server.sub_steers": "Ses zones comme des parties du boîtier : les ventilateurs tournent à peu près comme en vrai, l'air va de l'avant vers l'arrière, le point le plus chaud de chaque zone est encadré. Les disques endormis sont seulement marqués — il ne les réveille jamais.",
   "pic.bios": "BIOS",
   "pic.bios_title": "Le BIOS règle ce ventilateur",

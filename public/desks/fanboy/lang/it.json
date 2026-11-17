@@ -287,7 +287,7 @@
     "other": "{n} minuti"
   },
   "dur.h_min": "{h} h {m} min",
-  "server.sub": "Le tue ventole e ciò che raffreddano, in un'immagine. Ogni girante gira più o meno veloce come la sua ventola; per ora il BIOS le regola tutte.",
+  "server.sub": "Le tue ventole e ciò che raffreddano, in un'immagine. Ogni girante gira più o meno veloce come la sua ventola.",
   "server.sub_steers": "Le sue zone come parti del case: le ventole girano più o meno come in realtà, l'aria va dal davanti al retro, il punto più caldo di ogni zona è incorniciato. I dischi addormentati sono solo segnati — non li sveglia mai.",
   "pic.bios": "BIOS",
   "pic.bios_title": "Il BIOS regola questa ventola",

@@ -287,7 +287,7 @@
     "other": "{n} minutos"
   },
   "dur.h_min": "{h} h {m} min",
-  "server.sub": "Tus ventiladores y lo que enfrían, en una imagen. Cada rueda gira más o menos tan rápido como su ventilador; por ahora la BIOS los regula todos.",
+  "server.sub": "Tus ventiladores y lo que enfrían, en una imagen. Cada rueda gira más o menos tan rápido como su ventilador.",
   "server.sub_steers": "Sus zonas como partes de la caja: los ventiladores giran más o menos como en realidad, el aire va de delante hacia atrás, el punto más caliente de cada zona va enmarcado. Los discos dormidos solo se marcan — nunca los despierta.",
   "pic.bios": "BIOS",
   "pic.bios_title": "La BIOS regula este ventilador",

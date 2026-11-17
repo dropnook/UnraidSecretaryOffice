@@ -864,6 +864,7 @@ function notSteeringLine() {
 /** «Aktuell»: the picture of the server, the fans he steers and watches (rows to read), what happened lately */
 function nowSection() {
   const s = el('section', 'section');
+  // (who steers is said once: in the plain line below or the banner — the head only how to read the picture)
   s.appendChild(Office.sectionHead(T('now.title'), steers() ? T('server.sub_steers') : who().why === 'fixed' ? T('server.sub_fixed') : T('server.sub'), { place: 'now.title' }));
   const line = notSteeringLine();
   if (line) s.appendChild(line);

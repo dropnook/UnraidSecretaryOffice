@@ -287,7 +287,7 @@
     "other": "{n} Minuten"
   },
   "dur.h_min": "{h} h {m} min",
-  "server.sub": "Deine Lüfter und was sie kühlen, als Bild. Jedes Rad dreht ungefähr so schnell wie sein Lüfter; noch regelt das BIOS jeden.",
+  "server.sub": "Deine Lüfter und was sie kühlen, als Bild. Jedes Rad dreht ungefähr so schnell wie sein Lüfter.",
   "server.sub_steers": "Seine Zonen als Teile des Gehäuses: Die Lüfter drehen ungefähr so schnell wie in echt, die Luft zieht von vorn nach hinten, die wärmste Stelle jeder Zone ist umrahmt. Schlafende Disks sind nur markiert — er weckt sie nie.",
   "pic.bios": "BIOS",
   "pic.bios_title": "Das BIOS regelt diesen Lüfter",

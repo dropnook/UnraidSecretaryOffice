@@ -287,7 +287,7 @@
     "other": "{n} minutes"
   },
   "dur.h_min": "{h} h {m} min",
-  "server.sub": "Your fans and what they cool, as a picture. Each wheel turns roughly as fast as its fan; the BIOS runs every one of them for now.",
+  "server.sub": "Your fans and what they cool, as a picture. Each wheel turns roughly as fast as its fan.",
   "server.sub_steers": "His zones as pieces of the case: the fans turn about as fast as they really do, the air goes from the front through to the back, the warmest spot of each zone is framed. Sleeping disks are only marked — he never wakes them.",
   "pic.bios": "BIOS",
   "pic.bios_title": "The BIOS runs this fan",
