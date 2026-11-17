@@ -60,7 +60,7 @@ const PICTURES = [
   // round 4: the CPU cooler «Fanboy regelt ihn» behind its tick; given to him (its zone, since when); the zones' degrees and reaction
   ['setup-2-test-assign-cpu', 'fanboy-roles', 'fanboy/setup/test', ['.fb-item[data-row$=pwm1]', '.fb-cpu .seg button:nth-child(2)', '.fb-cpu-risk input[type=checkbox]'], false],
   ['setup-5-zones-cpu', 'fanboy-cpu', 'fanboy/setup/zones', null, false],
-  ['overview-cpu', 'fanboy-cpu', 'fanboy/fans', null, false],
+  ['overview-cpu', 'fanboy-cpu', 'fanboy/now', null, false],
   ['setup-7-take', 'fanboy-ready', 'fanboy/setup/take', null, true],
   ['setup-armed', 'fanboy', 'fanboy/setup/take', null, false],
   ['setup-whole', 'fanboy-roles', 'fanboy/setup', null, false],
@@ -72,15 +72,15 @@ const PICTURES = [
   ['two-drivers', 'fanboy-twins', 'fanboy', null, false],
   ['setup-2-test-obeys', 'fanboy-obey', 'fanboy/setup/test', null, false],
   ['other-controller', 'fanboy-other', 'fanboy', null, false],
-  ['waz-beside', 'fanboy-waz', 'fanboy/hints', null, false],
+  ['waz-beside', 'fanboy-waz', 'fanboy/setup/detect', null, false],
   ['ipmi', 'fanboy-ipmi', 'fanboy', null, false],
   ['no-output', 'fanboy-nooutput', 'fanboy', null, false],
   ['array-stopped', 'fanboy-array', 'fanboy', null, false],
-  ['curves', 'fanboy', 'fanboy/today', null, false],
+  ['curves', 'fanboy', 'fanboy/history', null, false],
   // round 3: the history's period (the segmented choice above the curves)
-  ['curves-1h', 'fanboy', 'fanboy/today', '.fb-period button:nth-child(1)', false],
-  ['curves-12h', 'fanboy', 'fanboy/today', '.fb-period button:nth-child(4)', false],
-  ['curves-3d', 'fanboy', 'fanboy/today', '.fb-period button:nth-child(6)', false],
+  ['curves-1h', 'fanboy', 'fanboy/history', '.fb-period button:nth-child(1)', false],
+  ['curves-12h', 'fanboy', 'fanboy/history', '.fb-period button:nth-child(4)', false],
+  ['curves-3d', 'fanboy', 'fanboy/history', '.fb-period button:nth-child(6)', false],
   // his picture (avatar.svg; avatar-alarm.svg while something is wrong): the tab row and his head, the reception's card
   ['avatar-head', 'fanboy', 'fanboy', null, 'both', { until: '.deskhead' }],
   // round 3: the tile row (connectors, the warmest spots per kind), the setup shown whole with another controller steering
@@ -89,13 +89,13 @@ const PICTURES = [
   ['setup-whole-other', 'fanboy-other', 'fanboy/setup', null, 'both', { whole: true }],
   ['avatar-alarm-head', 'fanboy-alarm', 'fanboy', null, 'both', { until: '.deskhead' }],
   ['avatar-reception', 'fanboy', '', null, 'both', { clip: '.desk-card[data-desk=fanboy]', wait: '.desk-card[data-desk=fanboy]' }],
-  ['fans', 'fanboy', 'fanboy/fans', null, false],
+  ['fans', 'fanboy', 'fanboy/now', null, false],
   // round 6: 1 the fans he doesn't steer, watched (before any setup)
-  ['r6-1-watch', 'fanboy-watch', 'fanboy/fans', '.fb-more summary', false],
+  ['r6-1-watch', 'fanboy-watch', 'fanboy/now', '.fb-more summary', false],
   // round 6: 4 «show me this fan» — a button per output (here the disk cage shown right now)
-  ['r6-4-show', 'fanboy-show', 'fanboy/fans', '.page-help summary', false],
+  ['r6-4-show', 'fanboy-show', 'fanboy/now', '.page-help summary', false],
   // round 6: 5 old disk values — the hint says how old and what his zones add
-  ['r6-5-old-disks', 'fanboy', 'fanboy/hints', '.fb-hints summary', false],
+  ['r6-5-old-disks', 'fanboy', 'fanboy/setup/detect', '.fb-hints summary', false],
   // round 7: F3 nobody steers — outputs left on a fixed value
   ['r7-3-fixed', 'fanboy-fixed', 'fanboy', null, false],
   // round 7: F2 the test step's cards keep their size through a test (running, then done)
@@ -110,7 +110,7 @@ const PICTURES = [
   ['r8-2-assign-after', 'fanboy-roles', 'fanboy/setup/test', null, false],
   // round 9: H2 a fan at 100 % for safety, undone on its card; H3 what runs now (a quiet test, the pause)
   ['r9-2-safety', 'fanboy-safety', 'fanboy/setup/test', null, false],
-  ['r9-2-safety-fans', 'fanboy-safety', 'fanboy/fans', null, false],
+  ['r9-2-safety-fans', 'fanboy-safety', 'fanboy/now', null, false],
   ['r9-3-now-full', 'fanboy-quiet', 'fanboy/setup/test', null, false],
   ['r9-3-now-pause', 'fanboy-pause', 'fanboy/setup/test', null, false],
   // the setup as one flow (fanboy-ux): step 2's list and panel — before the first test, a quiet test running with the
@@ -142,8 +142,15 @@ const PICTURES = [
   ['ux-3-6-hub-look', 'fanboy-uxhublook', 'fanboy/setup/measure', '.fb-item[data-row$=pwm5]', false],      // … the look running: «Drehen alle Lüfter bei 40 %?»
   ['ux-5-1-take', 'fanboy-ready', 'fanboy/setup/take', null, false, { settle: 1500 }],       // with «Das würde ich jetzt setzen» (the dry run's answer)
   ['ux-5-2-steers', 'fanboy-cpu', 'fanboy/setup/take', null, false],
-  ['ux-0-overview-show', 'fanboy-show', 'fanboy/fans', null, false],
+  ['ux-0-overview-show', 'fanboy-show', 'fanboy/now', null, false],
   ['ux-0-net', 'fanboy-uxnet', 'fanboy', null, false],                 // the net: a heat source in no zone is warm — said in the banner and under «Zuletzt»
+  // 2026-11-17 the overview rebuilt (fanboy-overview): three tiles, «Verlauf» with its marker, the setup's hints and settings
+  ['ov-1-overview', 'fanboy-steering', 'fanboy', null, false, { whole: true }],
+  ['ov-2-now', 'fanboy-steering', 'fanboy/now', null, false],
+  ['ov-3-history', 'fanboy-history3', 'fanboy/history', null, false, { marker: true }],
+  ['ov-4-setup-hints', 'fanboy-waz', 'fanboy/setup/detect', '.fb-hints summary', false],
+  ['ov-5-setup-settings', 'fanboy-steering', 'fanboy/setup/settings', null, false],
+  ['ov-6-not-set-up', 'fanboy-fresh', 'fanboy/now', null, false],
   ['ux-2-6-refused', 'fanboy-uxopen', 'fanboy/setup/test', '.fb-panel-acts .btn', false,
     { post: { 'fanboy.test_up': { ok: false, error: { key: 'fanboy_quiet_warm', params: { what: 'CPU', c: 72 } } } }, settle: 7000 }],      // (the toast gone: the strip keeps the refusal)
 ].filter((p) => !opt.only || opt.only.some((o) => p[0] === o || (o.endsWith('*') && p[0].startsWith(o.slice(0, -1)))));
@@ -219,7 +226,7 @@ if (opt.shots) {
     }
   }
   // reduced motion: still wheels with their arcs
-  const { ctx, page } = await open('fanboy', 'fanboy/who', { reduce: true });
+  const { ctx, page } = await open('fanboy', 'fanboy/now', { reduce: true });
   await page.screenshot({ path: path.join(opt.out, 'overview-still-black-de-1440.png'), fullPage: true });
   const still = await page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length);
   if (still) faults.push(`reduced motion: ${still} animations still running`);
@@ -339,7 +346,7 @@ function apng(frames, fps) {
 }
 if (opt.movie) {
   const fps = 25, n = 75;
-  const { ctx, page } = await open('fanboy', 'fanboy/who', { scale: 1, width: 1200 });
+  const { ctx, page } = await open('fanboy', 'fanboy/now', { scale: 1, width: 1200 });
   const box = await page.locator('.fb-server').boundingBox();
   await page.evaluate(() => {
     window.fbFrames = document.getAnimations().map((a) => ({ a, t: a.currentTime, r: a.playState === 'running' ? a.playbackRate : 0 }));
@@ -384,9 +391,9 @@ async function measure(state, route, reduce, secs) {
 }
 if (opt.cpu) {
   // the page polls the agent every 5 s (here the harness): each look draws the page again and glides the speeds
-  const looks = [['fanboy', 'fanboy/hints', false, 'baseline: his page without the picture (the hints)'],
+  const looks = [['fanboy', 'fanboy/setup/detect', false, 'baseline: his page without the picture (the hints)'],
     ['fanboy', 'fanboy', false, 'the overview: picture, fans, sensors, curves'],
-    ['fanboy', 'fanboy/who', false, 'the server picture alone (tile «Who steers»)'],
+    ['fanboy', 'fanboy/now', false, 'the server picture alone (tile «Now»)'],
     ['fanboy', 'fanboy', true, 'the overview, reduced motion (still wheels)'],
     ['fanboy-ready', 'fanboy/setup/zones', false, 'the setup\'s zones step (curve editors)']];
   const got = looks.map(() => []);

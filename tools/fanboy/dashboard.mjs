@@ -258,7 +258,7 @@ try {
       const errors = [];
       p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
       p.on('pageerror', (e) => errors.push(String(e)));
-      await p.goto(`${h.url}?theme=${c.theme}#/fanboy/who`, { waitUntil: 'load' });
+      await p.goto(`${h.url}?theme=${c.theme}#/fanboy/now`, { waitUntil: 'load' });
       await p.waitForSelector('#sso .fb-dash-choice', { timeout: 15000 });
       await p.evaluate(async () => { await document.fonts.ready; });
       const el = await p.$('#sso .fb-dash-choice');

@@ -545,7 +545,7 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
             $out .= '<div class="sso-fb-fan' . ($stands ? ' red-text' : '') . '"><span>' . $h($name) . '</span><span>' . $h($text) . '</span></div>';
         }
         if ($z['fans_more'] > 0) {
-            $out .= '<a class="sso-fb-more" href="' . $h($url . '/fans') . '">' . $h(officeDashT($s, 'fanboy.dash.fans_more', ['n' => $z['fans_more']])) . '</a>';
+            $out .= '<a class="sso-fb-more" href="' . $h($url . '/now') . '">' . $h(officeDashT($s, 'fanboy.dash.fans_more', ['n' => $z['fans_more']])) . '</a>';
         }
         $out .= '</details>';
     }
@@ -553,7 +553,7 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
         $out .= '<div class="sso-fb-line sso-fb-nocurve' . $dim . '"><span>' . $h(officeDashT($s, 'fanboy.dash.curve_none')) . '</span></div>';
     }
     if ($m['more'] > 0) {
-        $out .= '<a class="sso-fb-more" href="' . $h($url . '/who') . '">' . $h(officeDashT($s, 'fanboy.dash.zones_more', ['n' => $m['more']])) . '</a>';
+        $out .= '<a class="sso-fb-more" href="' . $h($url . '/now') . '">' . $h(officeDashT($s, 'fanboy.dash.zones_more', ['n' => $m['more']])) . '</a>';
     }
     if ($m['before'] !== null) {
         $out .= '<div class="sso-fb-line' . $dim . '"><span>' . $h($m['before']) . '</span>'

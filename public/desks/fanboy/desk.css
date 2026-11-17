@@ -4,9 +4,6 @@
      phone too (office.css hides .figures there) */
   .fb-value{font-size:12.5px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap}
   .fb-row .row-meta{flex-wrap:wrap}
-  .fb-show{white-space:nowrap; display:inline-grid}
-  .fb-show > .fb-show-label{grid-area:1 / 1; display:inline-flex; align-items:center; justify-content:center; gap:6px}
-  .fb-show > .fb-show-off{visibility:hidden}
   /* a row's technical detail: the chip, the output's file, the enable number — only here */
   .fb-tech{display:grid; gap:2px; margin-top:6px}
   .fb-tech-line{display:flex; gap:8px; flex-wrap:wrap; font-size:12.5px; color:var(--ink2)}
@@ -95,9 +92,16 @@
   .fb-more > .box{margin-top:6px}
   /* the curves and lately */
   .fb-curves{display:grid; gap:14px}
+  /* the overview's «Aktuell» (2026-11-17): one plain line when he doesn't steer, the fans under the picture */
+  .fb-now-line{margin:0 0 10px; font-size:14px}
+  .fb-now-go{white-space:nowrap}
+  .fb-fans{margin-top:16px}
+  .fb-fans > .fb-hint-text{margin:0 0 8px}
+  /* the setup's first step: the hints under its list */
+  .fb-hints-part{margin-top:18px; padding-top:12px; border-top:1px solid var(--line)}
+  .fb-hints-part > .fb-hint-text{margin:0 0 6px}
   .fb-curve-card{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); padding:10px 12px}
   .fb-curve-card .fb-head{margin-top:0}
-  .fb-curve-two{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:8px}
   .fb-fig{margin:0; min-width:0}
   .fb-fig figcaption{font-size:12px; color:var(--muted); margin-top:2px}
   .fb-chart{display:block; width:100%; height:auto; max-height:190px}
@@ -323,7 +327,6 @@
     .fb-quiet-hints, .fb-quiet-off{min-height:0}
   }
   @media (max-width:640px){
-    .fb-curve-two{grid-template-columns:1fr}
     .fb-tech-k{min-width:0}
     .fb-panel{padding:12px}
     .fb-panel-head{grid-template-columns:84px minmax(0, 1fr); gap:12px}
