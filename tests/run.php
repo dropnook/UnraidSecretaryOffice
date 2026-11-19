@@ -40643,6 +40643,15 @@ function testRestoreDrill(): void
     rename("$tmp/kopia/away", "$tmp/kopia/" . $o('f:k2/db/pg.sql.gz'));
     $e1 = $kdenv(['kopia' => null]);
     same('drill Kopia dump: Kopia not reachable — not checked', ['not_checked', 'kopia_unavailable'], array_values(array_intersect_key(drillDoKopiaDump($kdj, 0, $e1), ['state' => 1, 'code' => 1])));
+    // the drill's folder in RAM lies on /run (128 MB, shared with Docker — 2026-11-19): a dump larger than the room left there is never fetched
+    $e1 = $kdenv();
+    $egress = $kdj['egress'];
+    $GLOBALS['drill']['ram_room'] = strlen($kdump) - 1;
+    $r = drillDoKopiaDump($kdj, 0, $e1);
+    unset($GLOBALS['drill']['ram_room']);
+    same('drill Kopia dump: larger than the room left on /run — not checked (the next drill tries again), only the manifest read, nothing in RAM',
+        ['not_checked', 'dump_no_ram_folder', 0, strlen($kmani), []], [$r['state'], $r['code'], $r['params']['room_mb'] ?? null, $kdj['egress'] - $egress,
+         glob("$tmp/run/drill/{$kdj['id']}-0-*") ?: []]);
     // a crash left one in RAM: the cleanup takes exactly the drill's own file there
     $left = drillRamFile($kdj['id'], 3, 'db/x.sql.gz');
     file_put_contents($left, 'x');
