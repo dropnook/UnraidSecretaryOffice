@@ -46669,7 +46669,7 @@ function testReportDiagnostics(): void
     $finish($launched[0], $files);
     $a = reportDiagAnswer(['token' => $tok], $ctx + ['now' => $now + 9]);
     same('report diagnostics: ready — the office\'s clean zip: its size, the files (sorted), no hash for the page; Unraid\'s zip and its copy in /boot/logs gone',
-        [true, 'ready', filesize("$d/$name.clean.zip"), 3, ["$name/config/ident.cfg", "$name/logs/syslog.txt", "$name/system/vars.txt"], false, []],
+        [true, 'ready', filesize("$d/$name.clean.zip"), 4, ['unraid-secretary-office/run-dir.txt', "$name/config/ident.cfg", "$name/logs/syslog.txt", "$name/system/vars.txt"], false, []],
         [$a['ok'], $a['state'], $a['bytes'] ?? null, $a['count'] ?? null, $a['files'] ?? null, isset($a['sha256']), array_merge(glob("$tmp/bootlogs/*") ?: [], glob("$d/$name.zip") ?: [])]);
 
     // the send: the report first, then the zip
@@ -46957,8 +46957,9 @@ function testReportDiagScrub(): void
     foreach (['192.168.1.20', 'fd12::5', 'WD-WCC7K0AAAAAA', 'write cache: enabled', '/mnt/user', '/dev/sdc1', 'UnraidSecretaryOffice.cfg'] as $k) {
         check("report diagnostics pass: «{$k}» kept (the home network, serials, the rest)", str_contains($all, $k));
     }
+    check('report diagnostics pass: the office\'s own numbers of its RAM folder beside them (testRunDirReport)', str_contains($clean['unraid-secretary-office/run-dir.txt'] ?? '', 'Agent starts in the last hour:'));
     same('report diagnostics pass: the files\' names — masks to placeholders, the device\'s slot, the office\'s folder in front', [
-        "$name/config/super.dat", "$name/logs/syslog.txt", "$name/qemu/", "$name/shares/UnraidSecretaryOffice.cfg", "$name/shares/shareDisks.txt", "$name/shares/‹share-1›.cfg",
+        'unraid-secretary-office/run-dir.txt', "$name/config/super.dat", "$name/logs/syslog.txt", "$name/qemu/", "$name/shares/UnraidSecretaryOffice.cfg", "$name/shares/shareDisks.txt", "$name/shares/‹share-1›.cfg",
         "$name/smart/WDC_WD40EFRX-68N32N0_WD-WCC7K0AAAAAA-20261021-1200 ‹pool-1›-2 (sdc).txt", "$name/system/df.txt", "$name/system/vars.txt"],
         (function (array $k): array { sort($k, SORT_STRING); return $k; })(array_keys($clean)));
     same('report diagnostics pass: the syslog line by line — the layout kept, below a share nothing', [
