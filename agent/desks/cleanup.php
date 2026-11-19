@@ -3829,6 +3829,11 @@ function clTrashMigrateRename(string $old, string $new, ?array $mount, ?callable
             return 'failed';
         }
         $to = dirname($ds) . '/' . basename($new);
+        // every mount of its snapshots down first (zfsRenameFree(): the OpenZFS 2.4.4 panic) — what holds one keeps the old folder
+        if ($left = zfsRenameFree($ds, 'Ms. Dustdevil')) {
+            logLine("Dustdevil could not move $old over to $new: snapshots of $ds are still mounted at " . implode(', ', array_column($left, 'path')) . ' — the old folder stays in use');
+            return 'failed';
+        }
         [$exit, , $err] = $zfs(['rename', $ds, $to]);
         if ($exit !== 0) {
             logLine("Dustdevil could not move $old over to $new: zfs rename $ds: " . trim((string) $err) . ' — the old folder stays in use');
@@ -4687,9 +4692,22 @@ function clLabel(array $e): string
     };
 }
 
+/**
+ * Before her zfs rename: every mount of the dataset's snapshots (and of those inside it) down — zfsRenameFree(), the
+ * OpenZFS 2.4.4 panic; what still holds one refuses it, saying who (`rename_held_container`, `rename_held`)
+ */
+function clZfsRenameFree(string $ds): void
+{
+    if ($left = zfsRenameFree($ds, 'Ms. Dustdevil')) {
+        $held = zfsRenameHeld($ds, $left);
+        throw new Problem($held['key'], $held['params']);
+    }
+}
+
 /** zfs rename (its snapshots go along); the empty folder ZFS may leave at the old mountpoint goes too */
 function clZfsRename(string $from, string $to, string $oldPath): void
 {
+    clZfsRenameFree($from);
     [$exit, , $err] = run(['zfs', 'rename', $from, $to], 120);
     if ($exit !== 0) {
         throw new Problem('cleanup_move_failed', ['path' => $from, 'detail' => trim($err)]);
@@ -4822,6 +4840,7 @@ function clRestore(array $ids): array
                 }
                 clIconPutBack($run['path'] . '/' . $it['as'], ['from' => $it['from']] + $entry);
             } elseif ($zfs !== null) {
+                clZfsRenameFree($zfs);
                 [$exit, , $err] = run(['zfs', 'rename', $zfs, $it['dataset']], 120);
                 if ($exit !== 0) {
                     throw new Problem('cleanup_move_failed', ['path' => $it['from'], 'detail' => trim($err)]);

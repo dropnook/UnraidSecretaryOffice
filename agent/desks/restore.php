@@ -81,6 +81,7 @@ require_once __DIR__ . '/restore-dataset.php';      // «Make it a dataset of it
 require_once __DIR__ . '/restore-paths.php';        // 1.72: every share, one path out of Kopia, Kopia's packages as earlier versions
 require_once __DIR__ . '/restore-browse.php';       // files and folders at any depth of a moment, local or kept for a partner (matrix gap 4)
 require_once __DIR__ . '/restore-libvirt.php';      // all of libvirt.img back from its archive, the VM service off (matrix gap 7)
+require_once __DIR__ . '/restore-mounts.php';       // a ZFS snapshot read through a mount of the office's own, never .zfs (the 7.4.0 panic)
 
 function rsSizesFile(): string
 {
@@ -125,6 +126,11 @@ desk('restore', [
             logLine('Mr. Restori: the drill\'s sweeper: ' . $e->getMessage());
         }
         try {
+            rsSnapReadSweep();      // snapshot mounts a killed job or the agent before left (restore-mounts.php)
+        } catch (Throwable $e) {
+            logLine('Mr. Restori: the snapshot mounts\' sweeper: ' . $e->getMessage());
+        }
+        try {
             rspRemount();           // what he pulled from a partner: mounted again (read-only) at every agent start
         } catch (Throwable $e) {
             logLine('Mr. Restori: mounting what was pulled: ' . $e->getMessage());
@@ -137,6 +143,8 @@ desk('restore', [
         drillTick();
         rspTick();
         rsStaleTick();          // a job of his gone silent: one warning, never more
+        rsSnapReadTick();       // snapshot mounts a killed job left: taken down (once a minute, a look at a RAM folder)
+        rsSnapReadRelease();    // a look's mounts never kept between rounds
     },
     'checks'  => fn (): array => array_merge(drillChecks(), rsStaleChecks()),
     'metrics' => fn (): array => drillMetrics(),
@@ -571,6 +579,7 @@ function rsLocate(string $path, array &$ctx, bool $snaps = true): array
     }
     $places = rsLocateIn($sp, $ctx, $snaps);
     rsHoldsFlush();
+    rsSnapReadRelease();            // the looks' mounts of the office's own (rsHoldsIn) taken down again
     return $places;
 }
 
@@ -684,14 +693,18 @@ function rsLocateIn(array $sp, array &$ctx, bool $snaps): array
     return $places;
 }
 
-/** Is a path in a snapshot there (a file, a folder, a link)? — a ZFS snapshot is mounted by the look, read-only */
-function rsHolds(string $path): bool
+/**
+ * Is a path in a snapshot there (a file, a folder, a link)? $real: where it is read (a ZFS snapshot under a mount of the
+ * office's own, rsSnapReal()); $path the place as his lists name it (tests: the looks counted by it)
+ */
+function rsHolds(string $path, ?string $real = null): bool
 {
     if (isset($GLOBALS['rs']['holds_look'])) {
         return ($GLOBALS['rs']['holds_look'])($path);          // tests: the looks counted
     }
-    clearstatcache(true, $path);
-    return file_exists($path) || is_link($path);
+    $real ??= $path;
+    clearstatcache(true, $real);
+    return file_exists($real) || is_link($real);
 }
 
 /**
@@ -699,7 +712,7 @@ function rsHolds(string $path): bool
  * down to the path's folder — review 1.81.0, S1: the way to a folder inside a dataset was never lstat'ed)? A ZFS
  * snapshot never changes, so the answer is remembered per snapshot and path ($key: <dataset>@<snapshot>|<the path>,
  * data/restore/holds.json — additive, read with a default): every snapshot is touched once (S2: every look into
- * .zfs/snapshot/<name>/… automounts it; on Unraid 7.4.0-rc.2 that churn panicked the kernel). $key null: looked at,
+ * .zfs/snapshot/<name>/… automounts it; the look goes through a mount of the office's own instead, rsSnapReal()). $key null: looked at,
  * not remembered (btrfs: a folder, no automount).
  */
 function rsHoldsIn(?string $key, string $top, string $path): bool
@@ -708,7 +721,20 @@ function rsHoldsIn(?string $key, string $top, string $path): bool
     if ($key !== null && is_bool($holds['holds'][$key] ?? null)) {
         return $holds['holds'][$key];
     }
-    $v = rsHolds($path) && !rsLinkBelow($top, dirname($path));
+    // a ZFS snapshot looked into through a read-only mount of the office's own, never its automount (restore-mounts.php:
+    // a look at a renamed snapshot through .zfs panicked Unraid 7.4.0); a btrfs moment's folder as it is
+    [$realTop, $real] = [$top, $path];
+    if (!isset($GLOBALS['rs']['holds_look']) && under($path, $top)) {
+        $realTop = rsSnapReal($top);
+        if ($realTop === null) {
+            return false;               // can't be looked into now (its pool asleep, the snapshot gone): no answer remembered
+        }
+        $real = $realTop . substr($path, strlen($top));
+    }
+    $v = rsHolds($path, $real) && !rsLinkBelow($realTop, dirname($real));
+    if ($realTop !== $top) {
+        rsSnapReadRelease();            // one snapshot mounted at a time: a look of up to RS_SNAPS_LOOK of them never piles up
+    }
     if ($key !== null) {
         $holds['holds'][$key] = $v;
         $holds['dirty'] = true;
@@ -859,11 +885,16 @@ function rsMomentHolds(array &$moments, bool $whole): void
         }
         $mo['holds'] = [];
         foreach ($mo['parts'] as $base => $part) {
-            clearstatcache(true, $part['path']);
-            if ($whole ? rsDirHasEntries($part['path']) : (file_exists($part['path']) || is_link($part['path']))) {
+            $real = rsSnapReal((string) $part['path']);           // a ZFS snapshot: under a mount of the office's own
+            if ($real === null) {
+                continue;
+            }
+            clearstatcache(true, $real);
+            if ($whole ? rsDirHasEntries($real) : (file_exists($real) || is_link($real))) {
                 $mo['holds'][] = (string) $base;
             }
         }
+        rsSnapReadRelease();
     }
     unset($mo);
 }
@@ -880,7 +911,9 @@ function rsMomentEntries(array $moment, array $roots = [], array $guard = []): a
     $names = $left = $office = [];
     $count = 0;
     foreach ($moment['parts'] as $base => $part) {
-        foreach (@scandir($part['path'], SCANDIR_SORT_ASCENDING) ?: [] as $n) {
+        // a ZFS snapshot read under a mount of the office's own (restore-mounts.php), let go after this part
+        $real = rsSnapReal((string) $part['path'], 'entries');
+        foreach ($real !== null ? (@scandir($real, SCANDIR_SORT_ASCENDING) ?: []) : [] as $n) {
             if ($n === '.' || $n === '..' || $n === '.zfs' || $n === RS_STOREROOM || $n === OFFICE_STOREROOM_OLD || preg_match(RS_OWN_LEFTOVER, $n)) {
                 continue;
             }
@@ -902,12 +935,13 @@ function rsMomentEntries(array $moment, array $roots = [], array $guard = []): a
                 if (count($names) >= RS_ENTRIES_MAX * 4) {
                     continue;                      // counted, not listed
                 }
-                $names[$n] = ['kind' => is_dir("{$part['path']}/$n") && !is_link("{$part['path']}/$n") ? 'dir' : 'file', 'bases' => []];
+                $names[$n] = ['kind' => is_dir("$real/$n") && !is_link("$real/$n") ? 'dir' : 'file', 'bases' => []];
             }
             if (isset($names[$n])) {
                 $names[$n]['bases'][] = (string) $base;
             }
         }
+        rsSnapReadRelease('entries');
     }
     uksort($names, 'strnatcasecmp');
     $left = array_keys($left);
@@ -973,8 +1007,9 @@ function rsItemSources(array $moment, array $places, string $kopiaSub = ''): arr
         foreach ($p['asleep'] ? [] : $p['snaps'] as $s) {
             if (rsMomentKey($s) === $moment['key']) {
                 $covered[] = $p['base'];
-                clearstatcache(true, $s['path']);
-                if (file_exists($s['path']) || is_link($s['path'])) {
+                $real = rsSnapReal((string) $s['path']);          // a ZFS snapshot: under a mount of the office's own
+                clearstatcache();
+                if ($real !== null && (file_exists($real) || is_link($real))) {
                     $sources[] = ['base' => $p['base'], 'path' => $s['path'], 'snap' => ($p['fs'] ?? '') === 'zfs' && str_contains((string) $s['id'], '@') ? (string) $s['id'] : null,
                                   'top' => $s['top'] ?? null];
                 }
@@ -997,8 +1032,9 @@ function rsMomentItem(array $moment, string $sub): array
     $out = [];
     foreach ($moment['parts'] as $base => $part) {
         $p = $part['path'] . $sub;
-        clearstatcache(true, $p);
-        if (file_exists($p) || is_link($p)) {
+        $real = rsSnapReal($p);                                   // a ZFS snapshot: under a mount of the office's own
+        clearstatcache();
+        if ($real !== null && (file_exists($real) || is_link($real))) {
             $out[] = ['base' => (string) $base, 'path' => $p, 'snap' => $base !== 'kopia' && str_contains((string) $part['snap'], '@') ? (string) $part['snap'] : null, 'top' => $part['top'] ?? null];
         }
     }
@@ -1928,11 +1964,15 @@ function rsVersionList(array $place, string $kind, string $id, string $currentRu
     foreach (array_merge($place['places'], [['snaps' => array_map(fn ($x) => $x + ['partner_path' => true], rspPlaceSnaps())]], [['snaps' => $kopia]]) as $p) {
         foreach ($p['snaps'] as $s) {
             $dir = !empty($s['kopia']) ? $s['path'] : "{$s['path']}/{$kind}s/$id";
-            $m = is_file("$dir/manifest.json") ? readJson("$dir/manifest.json") : null;
+            // a ZFS snapshot's package read under a mount of the office's own, one at a time (restore-mounts.php)
+            $real = rsSnapReal((string) $dir);
+            $m = $real !== null && is_file("$real/manifest.json") ? readJson("$real/manifest.json") : null;
             if (!$m) {
+                rsSnapReadRelease();
                 continue;
             }
-            $pkg = $kind === 'app' ? rsAppPackage($m, $id, $dir) : rsVmPackage($m, $id, $dir);
+            $pkg = rsSnapReadBack($kind === 'app' ? rsAppPackage($m, $id, (string) $real) : rsVmPackage($m, $id, (string) $real), [(string) $real => $dir]);
+            rsSnapReadRelease();
             // the same package as a newer state (nothing new was written that night) is listed once
             $key = $pkg['run'] . ':' . implode(',', array_map(fn ($f) => $f['path'] . '@' . $f['run'], $pkg['files']));
             if (isset($seen[$key]) && empty($s['kopia'])) {
@@ -2449,7 +2489,20 @@ function rsPlan(array $r): array
 {
     $kind = textField($r, 'kind');
     $stamp = rsStampOf($r);
-    $plan = match ($kind) {
+    // an earlier version's package is read under a mount of the office's own (rsPlanVersion(), tag `plan`): what the plan
+    // names in it named again as his lists do (the snapshot's .zfs folder; the job mounts it again), then let go
+    try {
+        $plan = rsPlanKind($kind, $r, $stamp);
+        $plan = rsSnapReadBack($plan, rsSnapReadBackMap());
+    } finally {
+        rsSnapReadRelease('plan');
+    }
+    return rsPlanSeal($plan, $stamp);
+}
+
+function rsPlanKind(string $kind, array $r, string $stamp): array
+{
+    return match ($kind) {
         'db'      => rsPlanDb($r, $stamp),
         'sqlite'  => rsPlanSqlite($r, $stamp),
         'files'   => rsPlanFiles($r, $stamp),
@@ -2464,7 +2517,6 @@ function rsPlan(array $r): array
         'libvirt' => rsPlanLibvirt($r, $stamp),
         default   => throw new Problem('unknown_target', ['target' => $kind]),
     };
-    return rsPlanSeal($plan, $stamp);
 }
 
 /** Who else holds the lock, and the token over what will be done */
@@ -2514,9 +2566,11 @@ function rsPlanVersion(array $r, array $place, string $kind, array $current): ar
     }
     foreach (rsVersionList($place, $kind, $current['id'], $current['run']) as $v) {
         if ($v['snap'] === $want) {
-            $m = readJson("{$v['path']}/manifest.json");
+            // in a ZFS snapshot: read under a mount of the office's own while the plan is made (rsPlan() names it back)
+            $dir = rsSnapReal((string) $v['path'], 'plan');
+            $m = $dir !== null ? readJson("$dir/manifest.json") : null;
             if ($m) {
-                return [$kind === 'app' ? rsAppPackage($m, $current['id'], $v['path']) : rsVmPackage($m, $current['id'], $v['path']), $v];
+                return [$kind === 'app' ? rsAppPackage($m, $current['id'], $dir) : rsVmPackage($m, $current['id'], $dir), $v];
             }
         }
     }
@@ -3036,8 +3090,9 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
             $known = $known && $b !== null;
             $bytes += (int) $b;
         }
+        $first = $src ? rsSnapReal((string) $src[0]['path']) : null;     // a ZFS snapshot: under a mount of the office's own
         $infos[$n] = ['places' => $ip, 'sources' => $src, 'covered' => $covered, 'live' => $live, 'content' => $content,
-                      'kind' => $src && (!is_dir($src[0]['path']) || is_link($src[0]['path'])) ? 'file' : 'dir', 'bytes' => $known ? $bytes : null];
+                      'kind' => $first !== null && (!is_dir($first) || is_link($first)) ? 'file' : 'dir', 'bytes' => $known ? $bytes : null];
     }
     if ($whole) {
         $plan['options']['entries'] = array_map(fn ($n) => ['name' => $n, 'kind' => $infos[$n]['kind'], 'bases' => array_column($infos[$n]['sources'], 'base'),
@@ -3306,7 +3361,7 @@ function rsPlanFilesFor(string $path, string $momentId, string $mode, bool $wake
  */
 function rsSizeOf(array $sizes, string $path): ?array
 {
-    $s = $sizes[$path] ?? null;
+    $s = $sizes[(string) rsSnapReadBack($path, rsSnapReadBackMap())] ?? null;      // measured by the snapshot's own path
     return is_array($s) && array_key_exists('apparent', $s) && is_int($s['bytes'] ?? null) ? $s : null;
 }
 
@@ -4258,6 +4313,7 @@ function rsJob(array $args): int
         rsArrayStopSignal();
     }
     drillMarker('restore', $id);          // agent.sh's drill_release ends it at the array stop (its lock file lies on the pool)
+    rsSnapReadSweep();                    // snapshot mounts a killed job left (restore-mounts.php)
     $j['result'] = 'running';
     $j['started'] = time();
     $j['pid'] = getmypid();
@@ -4363,6 +4419,29 @@ function rsStepLine(array $s): string
 }
 
 function rsStep(array &$j, int $i): array
+{
+    // what the step reads out of a ZFS snapshot (`.zfs/snapshot/<name>/…` as planned) is read under a read-only mount of
+    // the office's own, held while the step runs (restore-mounts.php: never the automount); its pool asleep or the
+    // snapshot gone: «gone», nothing done. The journal and the result keep the snapshot's paths as planned.
+    $planned = $j['steps'][$i];
+    $j['steps'][$i] = rsSnapReadStep($planned, $back, $gone);
+    if ($gone !== null) {
+        $j['steps'][$i] = $planned;
+        rsSnapReadRelease('job');
+        return rsFail('gone', ['path' => $gone]);
+    }
+    try {
+        $res = rsStepDo($j, $i);
+    } finally {
+        if ($back) {
+            $j['steps'][$i] = rsSnapReadBack($j['steps'][$i], $back);
+        }
+        rsSnapReadRelease('job');
+    }
+    return $back ? rsSnapReadBack($res, $back) : $res;
+}
+
+function rsStepDo(array &$j, int $i): array
 {
     $s = $j['steps'][$i];
     return match ($s['do']) {
@@ -4471,6 +4550,26 @@ function rsRun(array $j, array $cmd, int $timeout = 120): array
         rsLog($j['id'], "  $short -> exit $exit" . (trim($err) !== '' ? ': ' . mb_substr(trim($err), 0, 2000) : ''));
     }
     return [$exit, $out, $err];
+}
+
+/**
+ * A zfs rename of his (a dataset with its snapshots and the datasets inside it): every mount of those snapshots taken down
+ * first — zfsRenameFree() (agent/lib/mounts.php: a rename while one is still listed for its automount can make the next look
+ * at it panic Unraid 7.4.0's kernel); what still holds one refuses it, said with who holds it. [exit, out, err, that refusal
+ * as the step's failure — or null]
+ *
+ * @return array{0: int, 1: string, 2: string, 3: ?array}
+ */
+function rsZfsRename(array $j, string $zfs, string $from, string $to, int $timeout): array
+{
+    $left = zfsRenameFree($from, 'Mr. Restori');
+    if ($left) {
+        $held = zfsRenameHeld($from, $left);
+        rsLog($j['id'], "  zfs rename $from refused: its snapshots are still mounted at " . implode(', ', array_column($left, 'path')));
+        return [1, '', 'still mounted: ' . implode(', ', array_column($left, 'path')), rsFail($held['key'], $held['params'])];
+    }
+    [$exit, $out, $err] = rsRun($j, [$zfs, 'rename', $from, $to], $timeout);
+    return [$exit, $out, $err, null];
 }
 
 function rsFail(string $note, array $params = [], string $detail = ''): array
@@ -5203,7 +5302,10 @@ function rsDoAside(array &$j, array $s): array
         return rsFail('exists', ['path' => $to]);
     }
     if ($isDs) {
-        [$exit, , $err] = rsRun($j, ['zfs', 'rename', $ds, $tds], 300);
+        [$exit, , $err, $held] = rsZfsRename($j, 'zfs', $ds, $tds, 300);
+        if ($held) {
+            return $held;
+        }
         if ($exit !== 0) {
             return rsFail('rename_failed', ['path' => $from], trim($err));
         }
@@ -5242,7 +5344,10 @@ function rsDoMove(array &$j, array $s): array
         return rsFail('exists', ['path' => $to]);
     }
     if ($isDs) {
-        [$exit, , $err] = rsRun($j, ['zfs', 'rename', $fds, $tds], 300);
+        [$exit, , $err, $held] = rsZfsRename($j, 'zfs', $fds, $tds, 300);
+        if ($held) {
+            return $held;
+        }
         if ($exit !== 0) {
             return rsFail('rename_failed', ['path' => $from], trim($err));
         }
@@ -5787,6 +5892,7 @@ function rsSizes(): array
 /** Measures a path in the background (du in the agent's tick) — only paths a plan checked */
 function rsDuQueue(string $path): void
 {
+    $path = (string) rsSnapReadBack($path, rsSnapReadBackMap());     // a snapshot's path as his lists name it
     $du = &$GLOBALS['rs']['du'];
     if (isset($du['running'][$path]) || in_array($path, $du['queue'], true)) {
         return;
@@ -5818,7 +5924,13 @@ function rsDuTick(): void
     }
     $changed = null;
     $open = function (string $path, bool $apparent): mixed {
-        $process = proc_open(rsDuCommand($path, $apparent), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/');
+        // a ZFS snapshot's folder measured under a mount of the office's own (held until both runs ended), never its
+        // automount (restore-mounts.php); its pool asleep or the snapshot gone: not measured
+        $real = rsSnapReal($path, 'du');
+        if ($real === null) {
+            return null;
+        }
+        $process = proc_open(rsDuCommand($real, $apparent), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/');
         if (!is_resource($process)) {
             return null;
         }
@@ -5846,6 +5958,11 @@ function rsDuTick(): void
         $alloc = empty($job['apparent']) ? $bytes : $job['bytes'];
         $changed[$path] = ['bytes' => $alloc, 'apparent' => empty($job['apparent']) ? null : $bytes, 'at' => time(), 'seconds' => time() - $job['since']];
         unset($du['running'][$path]);
+        $snapOf = fn (string $p): ?string => is_array($w = rsSnapReadWhich($p, [])) ? $w['snapshot'] : null;
+        $snap = $snapOf((string) $path);
+        if ($snap !== null && !array_filter(array_keys($du['running']), fn ($p) => $snapOf((string) $p) === $snap)) {
+            rsSnapReadLetGo((string) $path, 'du');        // no other measuring in that snapshot: its mount let go
+        }
     }
     while (count($du['running']) < RS_DU_PARALLEL && $du['queue']) {
         $path = array_shift($du['queue']);

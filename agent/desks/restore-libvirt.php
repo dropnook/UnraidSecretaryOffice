@@ -148,7 +148,7 @@ function rsPlanLibvirtFor(array $server, string $img, string $stamp, array $ctx,
         $plan['blockers'][] = ['key' => $on === 'attached' ? 'restore_libvirt_attached' : 'restore_libvirt_service_on', 'params' => ['path' => $img]];
     }
     // the image's share asleep: never woken for this
-    $asleep = array_values(array_map(fn ($p) => (string) $p['base'], array_filter(rsLocate(dirname($img), $ctx), fn ($p) => $p['asleep'])));
+    $asleep = array_values(array_map(fn ($p) => (string) $p['base'], array_filter(rsLocate(dirname($img), $ctx, false), fn ($p) => $p['asleep'])));
     if ($asleep) {
         $plan['blockers'][] = ['key' => 'restore_libvirt_asleep', 'params' => ['base' => implode(', ', $asleep)]];
         return $plan;

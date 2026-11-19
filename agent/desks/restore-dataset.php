@@ -590,13 +590,19 @@ function mfDoAside(array &$j, array $s): array
     if (($zfs[$s['dataset']] ?? null) !== $s['path'] || $kids || isset($zfs[$s['to']]) || file_exists((string) $s['aside'])) {
         return rsFail('mf_aside_failed', ['path' => $s['path']]);
     }
-    [$exit, , $err] = rsRun($j, ['zfs', 'rename', (string) $s['dataset'], (string) $s['to']], 120);
+    [$exit, , $err, $held] = rsZfsRename($j, 'zfs', (string) $s['dataset'], (string) $s['to'], 120);
+    if ($held) {
+        return $held;
+    }
     if ($exit !== 0) {
         return rsFail('mf_aside_failed', ['path' => $s['path']], trim($err));
     }
     // back into its place at once (a failure here leaves nothing for mfRollback() to do) - when that fails too, said where it is
     $back = function (string $note) use (&$j, $s): array {
-        [$exit, , $err] = rsRun($j, ['zfs', 'rename', (string) $s['to'], (string) $s['dataset']], 120);
+        [$exit, , $err, $held] = rsZfsRename($j, 'zfs', (string) $s['to'], (string) $s['dataset'], 120);
+        if ($held) {
+            return $held;
+        }
         if ($exit === 0 && isset($GLOBALS['md']['zfs'])) {
             $GLOBALS['md']['zfs'][$s['dataset']] = (string) $s['path'];
             unset($GLOBALS['md']['zfs'][$s['to']]);
@@ -677,7 +683,7 @@ function mfRollback(array &$j): void
         clearstatcache();
         $ok = false;
         if (!file_exists($path)) {
-            [$exit, , $err] = rsRun($j, ['zfs', 'rename', (string) $a['to'], (string) $a['dataset']], 120);
+            [$exit, , $err] = rsZfsRename($j, 'zfs', (string) $a['to'], (string) $a['dataset'], 120);
             if ($exit === 0 && isset($GLOBALS['md']['zfs'])) {
                 $GLOBALS['md']['zfs'][$a['dataset']] = $path;
                 unset($GLOBALS['md']['zfs'][$a['to']]);

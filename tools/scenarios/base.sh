@@ -587,8 +587,49 @@ if command -v zfs >/dev/null 2>&1; then
     n=$(grep -c . <<<"$snaps")
     if [[ -n $snaps ]]; then
         log "$n snapshot(s) @uso-backup-*/@uso-plan-* → @uso-aside-$STAMP-…"
+        # OpenZFS 2.4.4 (Unraid 7.4.0): a snapshot renamed while the kernel still lists it for its automount (kept alive by
+        # another mount: a container's copy, a mount by hand) panics the kernel at the next look under the new name (Tower
+        # 2026-11-14; docs/DEVELOPMENT.md «Snapshot automounts»). So first every mount of these snapshots goes, in every mount
+        # namespace (the host first: copies that only propagated from it go with it): automounts there (umount, through
+        # nsenter in another namespace), the office's own under /mnt/addons/UnraidSecretaryOffice; one still mounted after
+        # that is not renamed (a warning, counted).
+        base_snap_mounts() {            # "<pid>\t<mountpoint>\t<snapshot>" of the snapshots in $1, each namespace once
+            local p ns seen=' '
+            for p in 1 $(ls /proc | grep -E '^[0-9]+$' | sort -n); do
+                ns=$(readlink "/proc/$p/ns/mnt" 2>/dev/null) || continue
+                [[ $seen == *" $ns "* ]] && continue
+                seen+="$ns "
+                awk -v pid="$p" 'NR == FNR { want[$0] = 1; next }
+                    { for (i = 7; i <= NF && $i != "-"; i++); if ($(i + 1) == "zfs" && ($(i + 2) in want)) { gsub(/\\040/, " ", $5); print pid "\t" $5 "\t" $(i + 2) } }' \
+                    "$1" "/proc/$p/mountinfo" 2>/dev/null
+            done
+        }
+        snapfile=$(mktemp)
+        printf '%s\n' "$snaps" >"$snapfile"
+        held=
+        if ((!dry)); then
+            for pass in host others; do
+                while IFS=$'\t' read -r pid mnt src; do
+                    [[ -n $pid ]] || continue
+                    [[ $pass == host ]] && [[ $pid != 1 ]] && continue
+                    if [[ $mnt == */.zfs/snapshot/"${src#*@}" ]]; then
+                        if [[ $pid == 1 ]]; then umount "$mnt"; else nsenter --mount="/proc/$pid/ns/mnt" umount "$mnt"; fi \
+                            && log "unmounted $src at $mnt$([[ $pid == 1 ]] || echo " (namespace of pid $pid)")"
+                    elif [[ $pid == 1 && $mnt == /mnt/addons/UnraidSecretaryOffice/* ]]; then
+                        umount "$mnt" && log "unmounted $src at $mnt (the office's own)"
+                    fi
+                done < <(base_snap_mounts "$snapfile")
+            done
+            held=$(base_snap_mounts "$snapfile" | awk -F'\t' '{ print $3 }' | sort -u)
+        fi
+        rm -f "$snapfile"
         while read -r s; do
             ((dry)) && continue
+            if grep -qxF -- "$s" <<<"$held"; then
+                warn "not renamed: $s is still mounted ($(base_snap_mounts <(echo "$s") | awk -F'\t' '{ print $2 " (pid " $1 ")" }' | paste -sd' ' -))"
+                fails=$((fails + 1))
+                continue
+            fi
             zfs rename "$s" "${s%@*}@uso-aside-$STAMP-${s#*@}" || { warn "could not rename $s"; fails=$((fails + 1)); }
         done <<<"$snaps"
         ((dry)) && log "would rename them: $(head -3 <<<"$snaps" | tr '\n' ' ')…"

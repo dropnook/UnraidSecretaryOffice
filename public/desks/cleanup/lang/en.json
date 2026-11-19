@@ -394,6 +394,8 @@
   "errors.cleanup_trash_failed": "Could not create the storeroom folder {path}.",
   "errors.cleanup_target_exists": "{path} already exists.",
   "errors.cleanup_move_failed": "Could not move {path}: {detail}",
+  "errors.rename_held": "I didn't rename {name}: a snapshot of it is still mounted at {path} and I couldn't unmount it — something still uses it. Close that and try again — renamed now, it could make the server stop (a ZFS fault in Unraid 7.4).",
+  "errors.rename_held_container": "I didn't rename {name}: a snapshot of it is still mounted inside the container {container}. Stop the container and try again — renamed now, it could make the server stop (a ZFS fault in Unraid 7.4).",
   "errors.cleanup_no_way_back": "{name} can't be put back — there's no record of where it came from.",
   "errors.cleanup_no_home": "{path} doesn't exist any more.",
   "errors.cleanup_vm_back": "There is a VM called {name} again — its snapshot list stays in the storeroom (the new VM would take over the old entries). Empty it, or put it back once that VM is gone.",

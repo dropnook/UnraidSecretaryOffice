@@ -394,6 +394,8 @@
   "errors.cleanup_trash_failed": "No se pudo crear la carpeta del trastero {path}.",
   "errors.cleanup_target_exists": "{path} ya existe.",
   "errors.cleanup_move_failed": "No se pudo mover {path}: {detail}",
+  "errors.rename_held": "No he renombrado {name}: una instantánea suya sigue montada en {path} y no pude desmontarla — algo la sigue usando. Ciérralo e inténtalo de nuevo — renombrado ahora, el servidor podría bloquearse (un fallo de ZFS en Unraid 7.4).",
+  "errors.rename_held_container": "No he renombrado {name}: una instantánea suya sigue montada dentro del contenedor {container}. Detén el contenedor e inténtalo de nuevo — renombrado ahora, el servidor podría bloquearse (un fallo de ZFS en Unraid 7.4).",
   "errors.cleanup_no_way_back": "{name} no se puede devolver a su sitio — no hay constancia de dónde venía.",
   "errors.cleanup_no_home": "{path} ya no existe.",
   "errors.cleanup_vm_back": "Vuelve a haber una VM llamada {name} — su lista de instantáneas se queda en el trastero (la nueva VM se quedaría con las entradas antiguas). Vacíala, o devuélvela cuando esa VM ya no exista.",
