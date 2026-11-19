@@ -151,6 +151,8 @@
   "note.weak_text": "Seulement mentionné dans des caches, l'historique du shell ou des installateurs de plugins : {names}. Ça seul ne veut pas dire que quelque chose l'utilise.",
   "note.fresh": "modifié récemment",
   "note.fresh_text": "Quelque chose a été écrit ici dans les {days} derniers jours — peut-être que quelque chose l'utilise encore.",
+  "note.flash_partial": "flash fouillée en partie",
+  "note.flash_partial_text": "Ma recherche sur la flash s'est arrêtée à sa limite — un fichier du reste pourrait nommer ce dossier. C'est pourquoi il est seulement « À vérifier ».",
   "why.backup": "sauvegarde en cours",
   "why.backup_text": "Pendant qu'une sauvegarde tourne, je laisse tout où c'est.",
   "why.docker_down": "Docker ne répond pas",
@@ -242,6 +244,7 @@
   "appdata.mounters": "Montent tout le partage, ce qui ne dit rien sur les dossiers pris un par un (ignorés) : {names}",
   "appdata.checking": "Je cherche encore les mentions sur la flash — les dossiers pourront être rangés une fois que ce sera fait.",
   "appdata.searched": "Clé flash fouillée {when}.",
+  "appdata.searched_partial": "Clé flash fouillée {when} — mais seulement en partie : la recherche s'est arrêtée à sa limite. Ce que seul le reste nomme peut encore servir, donc pour l'instant rien ici n'est « Personne n'en a besoin ». Dites-le-nous : ⋯ → « Signaler un problème ou un souhait… ».",
   "park.button": "Au débarras…",
   "park.title": {
     "one": "Ranger {n} chose ?",
@@ -373,7 +376,7 @@
   "help.trash_text": "Rien n'est supprimé tout de suite : ce que tu ranges, je le renomme seulement, dans le dossier caché .UnraidSecretaryOffice-trash sur le même disque. « Remettre en place » l'annule ; seul « Vider » supprime définitivement. Les volumes de Docker, je les copie plutôt, à côté des données de Docker. Il y faut donc leur taille libre une fois de plus.",
   "help.templates_text": "Reste : ni conteneur ni image. Inutilisé : pas de conteneur, mais l'image est encore là. Doublon : un fichier plus ancien avec le même <Name>. Un modèle dont le conteneur existe est utilisé.",
   "help.stacks_text": "Rapprochées des conteneurs par nom de projet, comme le Compose Manager les nomme. Chemins et images viennent de docker compose config, avec le .env. Une stack avec des conteneurs est arrêtée (compose down) avant d'être rangée ; les volumes nommés restent.",
-  "help.appdata_text": "Un dossier est utilisé quand un conteneur, un modèle, une stack, un fichier compose, une VM ou un fichier sur la flash le nomme. Un conteneur qui monte tout le partage ne compte pas.",
+  "help.appdata_text": "Un dossier est utilisé quand un conteneur, un modèle, une stack, un fichier compose, une VM ou un fichier sur la flash le nomme. Un conteneur qui monte tout le partage ne compte pas. Sur la flash, je lis les fichiers de réglages jusqu'à 1 Mo — les journaux et les listes plus longues sont laissés de côté.",
   "help.check": "À vérifier",
   "help.check_text": "Rien ne l'utilise, mais : quelque chose porte le même nom, il n'est mentionné que dans des caches ou l'historique du shell, ou quelque chose y a été écrit dans les 30 derniers jours.",
   "help.sizes": "Tailles",
@@ -596,6 +599,7 @@
   "strays.where": "Unraid ne lit les modèles que dans {dir}. Je cherche aussi des my-*.xml égarés sur la flash et les pools (pas l'array, pour que rien ne se réveille).",
   "strays.searching": "Je cherche des modèles égarés…",
   "strays.searched": "Modèles égarés recherchés {when}.",
+  "strays.partial": "La recherche s'est arrêtée à sa limite — il peut y avoir plus de modèles égarés que ceux listés ici.",
   "strays.skipped": {
     "one": "{n} fichier dans une sauvegarde laissé de côté — les sauvegardes gardent des copies exprès.",
     "other": "{n} fichiers dans des sauvegardes laissés de côté — les sauvegardes gardent des copies exprès."

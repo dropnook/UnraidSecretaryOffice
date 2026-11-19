@@ -151,6 +151,8 @@
   "note.weak_text": "Only mentioned in caches, the shell history or plugin installers: {names}. That alone doesn't mean anything uses it.",
   "note.fresh": "changed recently",
   "note.fresh_text": "Something was written here in the last {days} days — maybe something still uses it.",
+  "note.flash_partial": "flash only partly searched",
+  "note.flash_partial_text": "My search of the flash stopped at its limit — a file in the rest may name this folder. That is why it is only «Please check».",
   "why.backup": "backup running",
   "why.backup_text": "While a backup runs, I leave everything where it is.",
   "why.docker_down": "Docker doesn't answer",
@@ -242,6 +244,7 @@
   "appdata.mounters": "Mount the whole share, which says nothing about single folders (ignored): {names}",
   "appdata.checking": "Still searching the flash for mentions — folders can be put away once that is done.",
   "appdata.searched": "Searched the flash {when}.",
+  "appdata.searched_partial": "Searched the flash {when} — but only in part: the search stopped at its limit. What only the rest names may still be in use, so for now nothing here is «Nobody needs these». Please tell us: ⋯ → «Report a problem or a wish…».",
   "park.button": "Into the storeroom…",
   "park.title": {
     "one": "Put 1 thing away?",
@@ -373,7 +376,7 @@
   "help.trash_text": "Nothing is deleted right away: what you put away I only rename, into the hidden folder .UnraidSecretaryOffice-trash on the same disk. «Put back» undoes it; only «Empty» deletes for good. Docker's volumes I copy instead, beside Docker's data. For that, their size must be free there once more.",
   "help.templates_text": "Leftover: no container and no image. Unused: no container, but the image is still there. Duplicate: an older file with the same <Name>. A template whose container exists is in use.",
   "help.stacks_text": "Matched with the containers by project name, the way the Compose Manager names them. Paths and images come from docker compose config, with the .env. A stack with containers is stopped (compose down) before it is put away; named volumes stay.",
-  "help.appdata_text": "A folder is in use when a container, a template, a stack, a compose file, a VM or a file on the flash names it. A container that mounts the whole share doesn't count.",
+  "help.appdata_text": "A folder is in use when a container, a template, a stack, a compose file, a VM or a file on the flash names it. A container that mounts the whole share doesn't count. On the flash I read settings files of up to 1 MB — logs and longer lists are left out.",
   "help.check": "Please check",
   "help.check_text": "Nothing uses it, but: something has the same name, it is only mentioned in caches or the shell history, or something was written there in the last 30 days.",
   "help.sizes": "Sizes",
@@ -596,6 +599,7 @@
   "strays.where": "Unraid reads templates only from {dir}. I also look for stray my-*.xml on the flash and the pools (not the array, so nothing wakes up).",
   "strays.searching": "Looking for stray templates…",
   "strays.searched": "Looked for stray templates {when}.",
+  "strays.partial": "The search stopped at its limit — there may be more stray templates than listed here.",
   "strays.skipped": {
     "one": "1 file in a backup left out — backups keep copies on purpose.",
     "other": "{n} files in backups left out — backups keep copies on purpose."
