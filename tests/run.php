@@ -64953,7 +64953,8 @@ function testRunDirAudit(): void
     same('run dir audit: each line a pattern, its bound and its remover (a pid line names the pid as its first group)', [], $bad);
     // the RAM folder on /run is for small state only: a line over RUNDIR_SMALL (or without a bound) says why it is there all the same — and no new one comes unseen
     $large = $nobound = [];
-    foreach (RUNDIR_FILES as $k => $what) {
+    $table = (array) json_decode((string) json_encode(RUNDIR_FILES), true);      // as data: a line may lack what the rule asks
+    foreach ($table as $k => $what) {
         if (!array_key_exists('max', $what) || ($what['max'] !== null && !is_int($what['max']))) {
             $nobound[] = $k;
         } elseif ($what['max'] === null || $what['max'] > RUNDIR_SMALL) {
@@ -64972,14 +64973,148 @@ function testRunDirAudit(): void
     same('run dir audit: what is not bounded yet is said so (and only that)', ['jack-shadow'], $notes);
 }
 
+/**
+ * run()/runAll(): a command's output is capped (RUN_OUT_MAX, a caller may ask for less or more) — a cut is never exit 0;
+ * and a large output is read in linear time (until 2026-11-19 a leftover reference copied the whole buffer at each append:
+ * 40 MB took 20 s)
+ */
+function testRunDirRunCap(): void
+{
+    [$code, $out, $err] = run(['yes', str_repeat('x', 99)], 30, 1 << 20);
+    same('run cap: a command printing forever — stopped at the limit, cut, never exit 0, said on stderr', [RUN_CUT_EXIT, 1 << 20, true],
+        [$code, strlen($out), str_contains($err, 'output cut at 1 MB')]);
+    [$code, $out] = run(['sh', '-c', 'yes e >&2'], 30, 1 << 20);
+    same('run cap: stderr too', RUN_CUT_EXIT, $code);
+    $t = hrtime(true);
+    [$code, $out] = run(['head', '-c', (string) (30 << 20), '/dev/zero'], 60);
+    $s = (hrtime(true) - $t) / 1e9;
+    same('run cap: 30 MB within the default — whole, exit 0', [0, 30 << 20], [$code, strlen($out)]);
+    check('run cap: … read in linear time (seconds, not tens of them)', $s < 8, sprintf('%.1f s', $s));
+    unset($out);
+    same('run cap: the default 32 MB, a cut exits 125', [32 << 20, 125], [RUN_OUT_MAX, RUN_CUT_EXIT]);
+    [$code] = run(['head', '-c', (string) ((32 << 20) + 1), '/dev/zero'], 60);
+    same('run cap: one byte over the default — cut', RUN_CUT_EXIT, $code);
+}
+
+/**
+ * Ms. Dustdevil after the fix, where nothing was wrong (the owner, 2026-11-20: «funktioniert sie danach noch
+ * zuverlässig?»): on a normal flash what her reader gets — per file the share and first level each name, and whether it is
+ * only a weak mention — is the same from 1.94's search (grep -roI, every occurrence) and from 1.94.1's
+ */
+function testCleanupJobSameResult(): void
+{
+    $tmp = hardeningTmp('cl-same');
+    $f = "$tmp/config";
+    $put = function (string $rel, string $text) use ($f): void {
+        @mkdir(dirname("$f/$rel"), 0700, true);
+        file_put_contents("$f/$rel", $text);
+    };
+    $put('plugins/dockerMan/templates-user/my-plex.xml', "<Config Name=\"Config\" Target=\"/config\" Mode=\"rw\">/mnt/user/appdata/plex</Config>\n<Config Name=\"Media\">/mnt/user/Media/</Config>\n<Config Name=\"Transcode\">/mnt/cache/appdata/plex/transcode</Config>\n");
+    $put('plugins/dockerMan/templates-user/my-db.xml', "<Config Target=\"/var/lib/mysql\">/mnt/cache/appdata/mariadb</Config>\n<Config>/mnt/cache/appdata/mariadb</Config>\n");
+    $put('plugins/user.scripts/scripts/sync/script', "#!/bin/bash\nrsync -a /mnt/user/Familienfilme/ /mnt/disk2/backup/Familienfilme/\ncp '/mnt/user/appdata/old-tool/x.conf' /tmp\n");
+    $put('plugins/compose.manager/projects/stack/docker-compose.yml', "volumes:\n  - /mnt/user/appdata/stack:/data\n  - \"/mnt/cache/appdata/stack-db\":/db\n");
+    $put('go', "#!/bin/bash\n/usr/local/sbin/emhttp &\nmount --bind /mnt/user/system/x /mnt/addons/x\n");
+    $put('shares/appdata.cfg', "shareUseCache=\"only\"\nshareCachePool=\"cache\"\n");
+    $put('plugins/history/history.txt', "ls /mnt/user/appdata/leftover\n");
+    $put('plugins/some.plugin/some.plugin.cfg', "path=/mnt/user/appdata/some,other=/mnt/disk1/Media/Familienserien/Staffel 1\n");
+    [, $old] = run(['grep', '-roI', '--exclude-dir=' . CL_TRASH, '--exclude-dir=' . CL_TRASH_OLD, '--exclude-dir=' . CL_LEGACY, '-e', '/mnt/[^"<>[:space:]]*', $f], 60);
+    $oldLines = [];
+    foreach (explode("\n", $old) as $line) {         // 1.94's clJobDone(), as it was
+        $at = strpos($line, ':/mnt/');
+        if ($at !== false) {
+            $oldLines[] = [substr($line, 0, $at), rtrim(preg_replace('/:.*$/', '', substr($line, $at + 1)), '/\'),;')];
+        }
+    }
+    // the same pipeline the job runs, read the job's way
+    $GLOBALS['clJobs'] = ['queue' => [], 'running' => []];
+    $look = $GLOBALS['runDir'] ?? null;
+    $GLOBALS['runDir'] = ['over' => false, 'tight' => false, 'at' => time()];
+    $raw = $GLOBALS['clRaw'] ?? null;
+    unset($GLOBALS['clRaw']);
+    $job = clJobStart(['key' => 'flash', 'type' => 'flash', 'pipeline' => clFlashSearch($f), 'timeout' => 60, 'first' => true]);
+    for ($i = 0; $i < 200 && $job; $i++) {
+        clJobPull($job);
+        $alive = array_filter($job['procs'], fn ($p) => proc_get_status($p)['running']);
+        if (!$alive) {
+            clJobPull($job, true);
+            break;
+        }
+        usleep(20000);
+    }
+    foreach ($job['procs'] ?? [] as $p) {
+        proc_close($p);
+    }
+    [$text] = clJobRead($job ?? []);
+    $newLines = [];
+    foreach (explode("\n", $text) as $line) {
+        $at = strpos($line, ':/mnt/');
+        if ($at !== false) {
+            $newLines[] = [substr($line, 0, $at), rtrim(preg_replace('/:.*$/', '', substr($line, $at + 1)), '/\'),;')];
+        }
+    }
+    $GLOBALS['runDir'] = $look;
+    if ($raw !== null) {
+        $GLOBALS['clRaw'] = $raw;
+    }
+    $reads = function (array $lines, array $bulky) use ($f): array {
+        $out = [];
+        foreach ($lines as [$file, $p]) {
+            if (preg_match('#^/mnt/([^/]+)/([^/]+)(?:/([^/]+))?#', rtrim($p, '/'), $m)) {
+                $rel = substr($file, strlen($f) + 1);
+                $out["$rel → {$m[1]}/{$m[2]}/" . ($m[3] ?? '')] = (bool) preg_match(CL_WEAK, $rel) || in_array($file, $bulky, true);
+            }
+        }
+        ksort($out);
+        return $out;
+    };
+    $bulky = array_values(array_filter(array_unique(array_column($newLines, 0)), 'clFlashBulky'));
+    $a = $reads($oldLines, []);
+    $b = $reads($newLines, $bulky);
+    check('cleanup same result: the fixture names enough (templates, a user script, a stack, the go file, a plugin\'s settings, the history)', count($a) >= 12, (string) count($a));
+    same('cleanup same result: on a normal flash her reader gets the same from 1.94\'s search and from 1.94.1\'s — each name, each weak mention', $a, $b);
+    check('cleanup same result: … with fewer lines (each place once per file)', count($newLines) < count($oldLines), count($newLines) . ' < ' . count($oldLines));
+}
+
+/** A report's diagnostics carry the numbers of this fault class: the RAM folder by pattern (never a name the office didn't choose), the room, the agent's starts */
+function testRunDirReport(): void
+{
+    same('run dir report: names by pattern — fixed ones as they are, the rest as patterns, anything else «other»',
+        ['agent.json', 'agent.pid', 'cleanup-*-*.out', 'jack-headers.*', 'job-*.minute', '*.sh', 'notify-in', 'other', 'other'],
+        array_map('runDirLabel', ['agent.json', 'agent.pid', 'cleanup-4194001-' . md5('x') . '.out', 'jack-headers.123', 'job-backup.minute', 'partner-look.sh',
+                                  'notify-in', 'Familienfilme-2019.txt', 'secret-name']));
+    $real = $GLOBALS['runDirReal'] ?? null;
+    $tmp = hardeningTmp('rundir-report');
+    mkdir("$tmp/run");
+    foreach ([1, 2, 3] as $i) {
+        file_put_contents("$tmp/run/cleanup-" . (4194000 + $i) . '-' . md5("k$i") . '.out', str_repeat('x', 1 << 20));
+    }
+    file_put_contents("$tmp/run/agent.json", '{}');
+    file_put_contents("$tmp/run/Familienfilme-2019.txt", 'x');
+    $now = strtotime('2026-11-20 12:00:00');
+    file_put_contents("$tmp/agent.log", implode("\n", ['2026-11-20 10:30:00  Agent started (v1.94.0, PID 1, desks: cleanup)', '2026-11-20 11:10:00  Agent started (v1.94.0, PID 2, desks: cleanup)',
+        '2026-11-20 11:40:00  Dustdevil searched the flash', '2026-11-20 11:50:00  Agent started (v1.94.0, PID 3, desks: cleanup)']) . "\n");
+    $GLOBALS['runDirReal'] = "$tmp/run";
+    try {
+        $text = runDirReportText($now, "$tmp/agent.log");
+    } finally {
+        $GLOBALS['runDirReal'] = $real;
+    }
+    check('run dir report: the size, the room, the largest by pattern first, the starts of the last hour; no name the office didn\'t choose',
+        (bool) preg_match('/^The office\'s RAM folder: 3\.\d MB in 5 entries/', $text) && str_contains($text, 'Room where it lies: ')
+        && str_contains($text, "  cleanup-*-*.out: 3 entries, 3.0 MB\n") && strpos($text, 'cleanup-*-*.out') < strpos($text, 'agent.json')
+        && str_contains($text, 'other: 1 entry') && !str_contains($text, 'Familienfilme') && str_contains($text, 'Agent starts in the last hour: 2'), $text);
+    check('run dir report: the cleaned diagnostics get it as a file of their own', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/report.php'),
+        "\$zip->addFromString('unraid-secretary-office/run-dir.txt', runDirReportText(\$ctx['now'] ?? null));"));
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
-          'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
+          'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
           'tools' => ['testReleaseHashes', 'testReleaseState', 'testReleaseClicksRetry', 'testScenarioToolsSafe']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

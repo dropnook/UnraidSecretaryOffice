@@ -474,3 +474,74 @@ function runDirMetrics(): array
     }
     return $out;
 }
+
+/**
+ * A name in the RAM folder as a report may say it: a fixed name of RUNDIR_FILES as it is (agent.json), one with a part the
+ * server or a process decides by its pattern (cleanup-*.out, jack-headers.*), anything else «other» — never a name the
+ * office didn't choose
+ */
+function runDirLabel(string $name): string
+{
+    foreach (RUNDIR_FILES as $pattern => $what) {
+        if (str_contains($pattern, '/') || !preg_match('#^(?:' . $pattern . ')$#D', $name)) {
+            continue;
+        }
+        if (preg_match('/^[A-Za-z0-9_.-]+$/D', str_replace('\.', '.', $pattern))) {
+            return $name;                                   // a plain name
+        }
+        foreach (explode('|', $pattern) as $alt) {
+            if (preg_match('#^(?:' . $alt . ')$#D', $name)) {
+                $glob = (string) preg_replace(['/\(\?:[^)]*\)\??/', '/\(\\\\d\+\)|\\\\d\+|\\\\d\{\d+\}/', '/\[[^\]]*\](?:\{\d+(?:,\d*)?\}|\+|\*)?/'], '*', $alt);
+                return preg_match('/^[A-Za-z0-9_.*-]+$/D', $g = str_replace('\.', '.', $glob)) ? (string) preg_replace('/\*+/', '*', $g) : 'other';
+            }
+        }
+    }
+    return 'other';
+}
+
+/**
+ * The numbers of this fault class for a report's diagnostics (2026-11-20): the RAM folder's size, the room on /run, its
+ * largest entries by pattern, how often the agent started in the last hour (its log). Cheap: one walk (≤ RUNDIR_WALK_MAX),
+ * statfs, the log's last 256 KB.
+ */
+function runDirReportText(?int $now = null, ?string $log = null): string
+{
+    $now ??= time();
+    $dir = runDirReal();
+    $root = @lstat($dir);
+    $groups = [];
+    foreach ($root ? (@scandir($dir) ?: []) : [] as $name) {
+        if ($name === '.' || $name === '..') {
+            continue;
+        }
+        $st = @lstat("$dir/$name");
+        if ($st === false) {
+            continue;
+        }
+        $b = (int) $st['blocks'] * 512;
+        if (($st['mode'] & 0170000) === 0040000 && $st['dev'] === $root['dev']) {
+            $b = runDirSize("$dir/$name")[0] + $b;
+        }
+        $label = runDirLabel($name);
+        $groups[$label] = [($groups[$label][0] ?? 0) + 1, ($groups[$label][1] ?? 0) + $b];
+    }
+    uasort($groups, fn ($a, $b) => $b[1] <=> $a[1]);
+    [$bytes, $count] = runDirSize($dir);
+    $free = @disk_free_space($dir);
+    $total = @disk_total_space($dir);
+    $starts = 0;
+    $log ??= AGENT_LOG;
+    $tail = (string) @file_get_contents($log, false, null, max(0, (int) @filesize($log) - (256 << 10)));
+    foreach (explode("\n", $tail) as $line) {
+        if (str_contains($line, '  Agent started (v') && ($t = strtotime(substr($line, 0, 19))) !== false && $t >= $now - 3600) {
+            $starts++;
+        }
+    }
+    $out = sprintf("The office's RAM folder: %.1f MB in %d entries%s\n", $bytes / 1048576, $count, $dir !== RUN_DIR ? ' (a link to a folder elsewhere)' : '');
+    $out .= $free !== false && $total !== false ? sprintf("Room where it lies: %.1f MB free of %.0f MB\n", $free / 1048576, $total / 1048576) : "Room where it lies: not known\n";
+    foreach (array_slice($groups, 0, 6, true) as $label => [$n, $b]) {
+        $out .= sprintf("  %s: %d %s, %.1f MB\n", $label, $n, $n === 1 ? 'entry' : 'entries', $b / 1048576);
+    }
+    return $out . sprintf("Agent starts in the last hour: %d\n", $starts);
+}
+

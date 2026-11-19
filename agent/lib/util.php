@@ -197,13 +197,22 @@ function bin(string $name): ?string
     return $cache[$name];
 }
 
+/*
+ * What runAll() keeps of one command's stdout and of its stderr at most (2026-11-19: nothing capped it — a command whose
+ * output the server's content decides could take the agent past PHP's 256 MB). Past it the command is stopped, the output
+ * cut there and the exit is RUN_CUT_EXIT: never 0, so a cut list is never taken for a whole one. A caller that really
+ * needs more says so ($max).
+ */
+const RUN_OUT_MAX  = 32 << 20;
+const RUN_CUT_EXIT = 125;
+
 /**
  * Starts all commands at once (no shell involved) and waits for all of them.
  *
  * @param array<int|string, list<string>> $commands
  * @return array<int|string, array{0:int, 1:string, 2:string}>  exit code, stdout, stderr
  */
-function runAll(array $commands, int $timeout = 120): array
+function runAll(array $commands, int $timeout = 120, int $max = RUN_OUT_MAX): array
 {
     $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'LC_ALL' => 'C', 'HOME' => '/root'];
     $running = [];
@@ -232,6 +241,7 @@ function runAll(array $commands, int $timeout = 120): array
                 }
             }
         }
+        unset($r);              // else it holds the last command's buffers: every append below copied them whole (quadratic)
         if ($read) {
             $w = $e = null;
             @stream_select($read, $w, $e, 0, 200000);
@@ -245,19 +255,26 @@ function runAll(array $commands, int $timeout = 120): array
                     }
                 }
             }
+            $cut = strlen($running[$key][1]) > $max || strlen($running[$key][2]) > $max;
             $done = feof($running[$key]['pipes'][1]) && feof($running[$key]['pipes'][2]);
-            $killed = !$done && hrtime(true) > $deadline;
-            if (!$done && !$killed) {
+            $killed = !$done && !$cut && hrtime(true) > $deadline;
+            if (!$done && !$killed && !$cut) {
                 continue;
             }
-            if ($killed) {
+            if ($killed || ($cut && !$done)) {
                 proc_terminate($running[$key]['process'], 9);
+            }
+            if ($killed) {
                 $running[$key][2] .= "\naborted after {$timeout} s";
+            }
+            if ($cut) {
+                $running[$key][1] = substr($running[$key][1], 0, $max);
+                $running[$key][2] = substr($running[$key][2], 0, $max) . sprintf("\noutput cut at %d MB", intdiv($max, 1 << 20));
             }
             fclose($running[$key]['pipes'][1]);
             fclose($running[$key]['pipes'][2]);
             $code = proc_close($running[$key]['process']);
-            $results[$key] = [$killed ? 124 : $code, $running[$key][1], $running[$key][2]];
+            $results[$key] = [$cut ? RUN_CUT_EXIT : ($killed ? 124 : $code), $running[$key][1], $running[$key][2]];
             unset($running[$key]);
         }
     }
@@ -265,9 +282,9 @@ function runAll(array $commands, int $timeout = 120): array
 }
 
 /** @return array{0:int, 1:string, 2:string} */
-function run(array $command, int $timeout = 120): array
+function run(array $command, int $timeout = 120, int $max = RUN_OUT_MAX): array
 {
-    return runAll([$command], $timeout)[0];
+    return runAll([$command], $timeout, $max)[0];
 }
 
 /** @return list<list<string>> tab-separated lines */
