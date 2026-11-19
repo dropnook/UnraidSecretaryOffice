@@ -24,7 +24,7 @@ declare(strict_types=1);
  * its line here (testRunDirAudit fails without it).
  */
 
-const RUNDIR_BUDGET    = 8 << 20;      // the office's whole RAM folder: the bounded writers below need < 3 MB at their worst
+const RUNDIR_BUDGET    = 8 << 20;      // the office's own small state there (without a report being made): normally a few hundred KB
 const RUNDIR_FS_FLOOR  = 8 << 20;      // free space left on /run below which the office's optional writers wait
 const RUNDIR_LOOK_EVERY = 60;          // seconds between looks (from the agent's minute)
 const RUNDIR_TMP_AGE   = 600;          // a temporary file of writeAtomic() older than this was left by a process that died
@@ -32,71 +32,132 @@ const RUNDIR_WALK_MAX  = 5000;         // entries counted at most: more in the o
 const RUNDIR_TMP_NAME  = '/^\..+\.[0-9a-f]{12}\.tmp$/D';    // writeNewFile(): "<dir>/.<name>.<12 hex>.tmp"
 
 /*
- * Everything the office writes into RUN_DIR (the audit of 2026-11-19): the path below it as a pattern — a name, or
- * «folder/name» for what one of its folders holds that the sweep looks after —, 'bound' what keeps its size small, 'gone'
- * who removes it. Some say how runDirSweep() removes what is left: 'pid' (the pattern's first group is the pid of the
- * process that made it: removed once no process has that pid; this agent's own unless a live job holds it), 'age'
- * (removed once older than that many seconds). 'own' => false: what the user brings for a report (his pictures, Unraid's
- * diagnostics) — bounded, not counted against the office's budget. testRunDirAudit fails for a writer whose name has no
- * line here.
+ * Everything the office writes into RUN_DIR (the audit of 2026-11-19), and the rule: **the RAM folder on /run is for small
+ * state only** — pids, locks, heartbeats, status of a bounded size. Nothing whose size the server's content decides goes
+ * there (that goes to officeTmpDir(), capped, or is read through a pipe). Each line: the path below RUN_DIR as a pattern (a
+ * name, or «folder/name» for what one of its folders holds that the sweep looks after), 'max' the most it can hold in
+ * bytes, 'bound' what keeps it there, 'gone' who removes it. 'max' over RUNDIR_SMALL only with 'large' (why it is there
+ * all the same — testRunDirAudit names these, so no new one comes without a word). runDirSweep(): 'pid' (the first group is
+ * the pid of the process that made it: removed once no process has it), 'age' (removed once older than that many seconds),
+ * 'legacy' (written by 1.94 or earlier, by nobody now: removed whenever found). 'own' => false: what the user brings for a
+ * report — not counted against the office's budget.
  */
+const RUNDIR_SMALL = 1 << 20;
 const RUNDIR_FILES = [
     // the agent, its supervisor and the night shift
     'agent\.pid|supervisor\.pid|nightshift-supervisor\.pid|nightshift\.lock|stopping|nightshift-stopping'
-        => ['bound' => 'a pid or nothing', 'gone' => 'stays (locks) / agent.sh at a stop'],
-    'agent\.json'                 => ['bound' => 'the heartbeat: a few fields', 'gone' => 'rewritten every 20 s'],
-    'doorbell'                    => ['bound' => 'a FIFO: holds nothing', 'gone' => 'doorbellClose()'],
-    'nightshift'                  => ['bound' => 'his book and state: the mirror\'s caps (book 500, hosts 200, ips 500); nightshift.log 256 KB + .1', 'gone' => 'the handover at array start (WATCH_NIGHT_FILES); the rest is rewritten'],
-    'watch-down|watch-told|array-events(?:\.tmp)?|job-[a-z-]+\.minute|backup-recover\.sh' => ['bound' => 'a time, a line, 50 lines (array-events)', 'gone' => 'rewritten (agent.sh, job.sh)'],
+        => ['max' => 64, 'bound' => 'a pid or nothing', 'gone' => 'stays (locks) / agent.sh at a stop'],
+    'agent\.json'                 => ['max' => 4096, 'bound' => 'the heartbeat: a few fields', 'gone' => 'rewritten every 20 s'],
+    'doorbell'                    => ['max' => 0, 'bound' => 'a FIFO: holds nothing', 'gone' => 'doorbellClose()'],
+    'nightshift'                  => ['max' => 1 << 20, 'bound' => 'his book and state: the mirror\'s caps (book 500, hosts 200, ips 500); nightshift.log 256 KB + .1', 'gone' => 'the handover at array start (WATCH_NIGHT_FILES); the rest is rewritten'],
+    'watch-down|watch-told|array-events(?:\.tmp)?|job-[a-z-]+\.minute|backup-recover\.sh' => ['max' => 8192, 'bound' => 'a time, a line, 50 lines (array-events)', 'gone' => 'rewritten (agent.sh, job.sh)'],
     // schedules and jobs through atd
-    'at-requeue\.sh|at-requeued\.json' => ['bound' => 'one at job\'s script; the jobs queued anew', 'gone' => 'right after at; entries leave with their job'],
-    '[a-z-]+\.sh'                 => ['bound' => 'one job\'s script (hostLaunch(): a fixed set of names)', 'gone' => 'overwritten at its next launch'],
+    'at-requeue\.sh|at-requeued\.json' => ['max' => 65536, 'bound' => 'one at job\'s script (≤ 64 KB read); the jobs queued anew', 'gone' => 'right after at; entries leave with their job'],
+    '[a-z-]+\.sh'                 => ['max' => 16384, 'bound' => 'one job\'s script (hostLaunch(): a fixed set of names)', 'gone' => 'overwritten at its next launch'],
     // notifications (lib/house.php, lib/notifycenter.php, backup/lib/notifygate.sh)
-    'notify\.second|notify\.lang|notify\.cfg|notify\.lock|notify-held\.json' => ['bound' => 'a stamp, a language, the settings (≤ 16 KB), the held queue', 'gone' => 'rewritten'],
-    'notify-guard'                => ['bound' => 'NOTIFY_GUARD_MAX 3000 lines, the last 40 h kept at a rotation', 'gone' => 'rotated by its writers'],
-    'notify-guard\.(\d+)\.tmp'     => ['bound' => 'the guard', 'gone' => 'mv by the bash sender; runDirSweep() once it is gone', 'pid' => true],
-    'notify-in'                   => ['bound' => 'at most NOTIFY_DROPS_MAX decisions (the writers stop there), message and description 4 KB each', 'gone' => 'officeNotifyTick() once a minute'],
-    'notify-in/\.\d{16}-[0-9a-z]+\.tmp' => ['bound' => 'one decision', 'gone' => 'mv by ung_drop; runDirSweep() after 10 min', 'age' => RUNDIR_TMP_AGE],
+    'notify\.second|notify\.lang|notify\.cfg|notify\.lock|notify-held\.json' => ['max' => 262144, 'bound' => 'a stamp, a language, the settings (≤ 16 KB), the held queue', 'gone' => 'rewritten'],
+    'notify-guard'                => ['max' => 262144, 'bound' => 'NOTIFY_GUARD_MAX 3000 lines of ~45 B, the last 40 h kept at a rotation', 'gone' => 'rotated by its writers'],
+    'notify-guard\.(\d+)\.tmp'     => ['max' => 262144, 'bound' => 'the guard', 'gone' => 'mv by the bash sender; runDirSweep() once it is gone', 'pid' => true],
+    'notify-in'                   => ['max' => 500 * 9 * 1024, 'large' => 'the decisions waiting for the agent: NOTIFY_DROPS_MAX 500 (the writers stop there) × message and description 4 KB each; usually a few KB', 'bound' => 'NOTIFY_DROPS_MAX', 'gone' => 'officeNotifyTick() once a minute'],
+    'notify-in/\.\d{16}-[0-9a-z]+\.tmp' => ['max' => 9216, 'bound' => 'one decision', 'gone' => 'mv by ung_drop; runDirSweep() after 10 min', 'age' => RUNDIR_TMP_AGE],
     // the web side's inbox, reports (src/api.php, lib/report.php)
-    'inbox'                       => ['bound' => 'secrets 8 × 4 KB, pictures for a report ≤ 6 × 2 MB', 'gone' => 'taken by the agent; pictures after 15 min', 'own' => false],
-    'inbox/[0-9a-f]{32}\.image'   => ['bound' => 'REPORT_IMG_IN_MAX', 'gone' => 'reportImagesTake(); runDirSweep() after API_IMAGE_TTL', 'age' => 900, 'own' => false],
-    'inbox/\.[0-9a-f]{16}\.tmp'   => ['bound' => 'a home request', 'gone' => 'rename; runDirSweep() after 10 min', 'age' => RUNDIR_TMP_AGE],
-    'report'                      => ['bound' => 'a preview\'s pictures ≤ REPORT_IMG_RAM_MAX 16 MB, Unraid\'s diagnostics (its own size) and the clean copy ≤ 10 MB', 'gone' => 'the send, the close, reportTidy() once a minute after REPORT_TOKEN_TTL', 'own' => false],
-    'report-inbox\.json|home\.json|caretaker\.rescan' => ['bound' => 'a few fields', 'gone' => 'rewritten / taken'],
-    'claim\.[0-9a-f]{12}\.curl'    => ['bound' => 'curl\'s config with the supporter claim (a secret)', 'gone' => 'right after curl; runDirSweep() after 10 min', 'age' => RUNDIR_TMP_AGE],
+    'inbox'                       => ['max' => 13 << 20, 'large' => 'the web side may write only into RUN_DIR (CLAUDE.md): secrets 8 × 4 KB, a report\'s pictures ≤ 6 × 2 MB for minutes — follow-up: the pictures elsewhere', 'bound' => 'API_IMAGES_WAITING × REPORT_IMG_IN_MAX', 'gone' => 'taken by the agent; pictures after 15 min', 'own' => false],
+    'inbox/[0-9a-f]{32}\.image'   => ['max' => 2 << 20, 'large' => 'one picture of a report (see inbox)', 'bound' => 'REPORT_IMG_IN_MAX', 'gone' => 'reportImagesTake(); runDirSweep() after API_IMAGE_TTL', 'age' => 900, 'own' => false],
+    'inbox/\.[0-9a-f]{16}\.tmp'   => ['max' => 4096, 'bound' => 'a home request', 'gone' => 'rename; runDirSweep() after 10 min', 'age' => RUNDIR_TMP_AGE],
+    'report'                      => ['max' => 40 << 20, 'large' => 'a report being made: its pictures ≤ REPORT_IMG_RAM_MAX 16 MB, Unraid\'s diagnostics (their own size) and the clean copy ≤ 10 MB, for the minutes of a preview — follow-up: to officeTmpDir()', 'bound' => 'REPORT_IMG_RAM_MAX, REPORT_DIAG', 'gone' => 'the send, the close, reportTidy() once a minute after REPORT_TOKEN_TTL', 'own' => false],
+    'report-inbox\.json|home\.json|caretaker\.rescan' => ['max' => 65536, 'bound' => 'a few fields; the welcome\'s list of shares', 'gone' => 'rewritten / taken'],
+    'claim\.[0-9a-f]{12}\.curl'    => ['max' => 4096, 'bound' => 'curl\'s config with the supporter claim (a secret)', 'gone' => 'right after curl; runDirSweep() after 10 min', 'age' => RUNDIR_TMP_AGE],
     // locks and small state of the desks
     'look-[a-z0-9_.-]+\.lock|snapshot-plans\.lock|backup-wait\.lock|movers-start\.lock|jack-[a-z]+-wait\.(?:lock|json)|watchman-(?:round|book)-[0-9a-f]{8}\.lock'
-        => ['bound' => 'empty, or a pid', 'gone' => 'stay (locks); the wait record at its end'],
-    'cleanup-tour\.due|logs-tour\.due' => ['bound' => 'a time', 'gone' => 'read and removed'],
+        => ['max' => 4096, 'bound' => 'empty, or a pid', 'gone' => 'stay (locks); the wait record at its end'],
+    'cleanup-tour\.due|logs-tour\.due' => ['max' => 64, 'bound' => 'a time', 'gone' => 'read and removed'],
     'backup-(?:silent|partner-rate|upload|rough|queued|abort)\.json|backup-queued\.cancel|moverelli-silent\.json'
-        => ['bound' => '≤ 80 samples, the looks of one run, one size per Kopia source', 'gone' => 'rewritten per run'],
-    'watchman-mirror\.json|watchman-hold\.json|watchman-flow-[0-9a-f]{8}\.json' => ['bound' => 'the mirror\'s caps; ≤ 5 per thing; ≤ WATCH_FLOW_CONNS 5000 connections', 'gone' => 'rewritten'],
-    'watchman-round\.err|watchman-hold\.err|logs-tour\.err' => ['bound' => 'one run\'s stderr (a child of the agent, no warnings on Unraid\'s php.ini, a run ends after WATCH_MAX_RUN)', 'gone' => 'truncated at the next run'],
-    'logs-flood\.json|logs-flood-catch\.json|logs-wakes\.json|logs-wake-names\.json' => ['bound' => '11 × 300 files; LOGS_WAKE_MAX 1000', 'gone' => 'rewritten / at its end'],
-    'templates'                   => ['bound' => 'the catalog\'s templates the Consultant prepared', 'gone' => 'rewritten'],
-    'advisor-plugin\.(?:json|out|done)' => ['bound' => 'one plugin install\'s output (Unraid\'s installer)', 'gone' => 'at the next install'],
-    // Ms. Dustdevil (cleanup.php)
-    'cleanup-(\d+)-[0-9a-f]{32}\.out' => ['bound' => 'CL_JOB_OUT_MAX + 1 (head -c in clJobStart())', 'gone' => 'clJobsTick() when the job ends; runDirSweep() when its agent is gone', 'pid' => true],
-    'cleanup-icons-check'         => ['bound' => 'CL_ICON_BATCH × CL_ICON_MAX', 'gone' => 'clIconTidy() when the job ends; runDirSweep() when no icons job runs'],
-    'cleanup-icons-(\d+)'          => ['bound' => 'the pictures one click picked × CL_ICON_MAX', 'gone' => 'clIconTidy() in the same action; runDirSweep() when its agent is gone', 'pid' => true],
+        => ['max' => 262144, 'bound' => '≤ 80 samples, the looks of one run, one size per Kopia source', 'gone' => 'rewritten per run'],
+    'watchman-mirror\.json|watchman-hold\.json|watchman-flow-[0-9a-f]{8}\.json' => ['max' => 1 << 20, 'bound' => 'the mirror\'s caps; ≤ 5 per thing; ≤ WATCH_FLOW_CONNS 5000 connections', 'gone' => 'rewritten'],
+    'watchman-round\.err|watchman-hold\.err|logs-tour\.err' => ['max' => 65536, 'bound' => 'one run\'s stderr: a fatal error\'s lines (a child of the agent; warnings never reach stderr on Unraid\'s php.ini)', 'gone' => 'truncated at the next run'],
+    'logs-flood\.json|logs-flood-catch\.json|logs-wakes\.json|logs-wake-names\.json' => ['max' => 1 << 20, 'bound' => '11 × 300 files; LOGS_WAKE_MAX 1000', 'gone' => 'rewritten / at its end'],
+    'templates'                   => ['max' => 1 << 20, 'bound' => 'the catalog\'s templates the Consultant prepared (a few KB each)', 'gone' => 'rewritten'],
+    'advisor-plugin(?:\.(?:json|out|done))?' => ['max' => 262144, 'bound' => 'one plugin install\'s output (Unraid\'s installer: its lines, read back to the last 32 KB)', 'gone' => 'at the next install'],
+    // what 1.94 and earlier wrote there and nobody writes now: removed whenever found (a server in 1.94's crash loop comes out of it by itself)
+    'cleanup-\d+-[0-9a-f]{32}\.out' => ['max' => 0, 'bound' => 'none in 1.94 (the cause of 2026-11-19); no longer written: her jobs read through a pipe', 'gone' => 'runDirSweep() at once', 'legacy' => true],
+    'cleanup-icons-(?:check|\d+)'  => ['max' => 0, 'bound' => 'no longer written: the pictures are checked in officeTmpDir()', 'gone' => 'runDirSweep() at once', 'legacy' => true],
+    'drill'                       => ['max' => 0, 'bound' => 'no longer written: the drill\'s dumps lie in officeTmpDir()', 'gone' => 'runDirSweep() at once', 'legacy' => true],
     // Jack Streamer (jack*.php, mediacache/)
-    'jack-headers\.(\d+)'          => ['bound' => 'one request\'s headers (his API key)', 'gone' => 'right after curl; runDirSweep() once its process is gone', 'pid' => true],
-    'gather-[a-z]+\.ini\.[0-9a-f]{12}\.tmp' => ['bound' => 'one gather\'s settings', 'gone' => 'after the run; runDirSweep() after 2 days', 'age' => 2 * 86400],
-    'jack-import-trial\.[0-9a-f]{8}' => ['bound' => 'one settings file', 'gone' => 'at once; runDirSweep() after 10 min', 'age' => RUNDIR_TMP_AGE],
+    'jack-headers\.(\d+)'          => ['max' => 4096, 'bound' => 'one request\'s headers (his API key)', 'gone' => 'right after curl; runDirSweep() once its process is gone', 'pid' => true],
+    'gather-[a-z]+\.ini\.[0-9a-f]{12}\.tmp' => ['max' => 16384, 'bound' => 'one gather\'s settings', 'gone' => 'after the run; runDirSweep() after 2 days', 'age' => 2 * 86400],
+    'jack-import-trial\.[0-9a-f]{8}' => ['max' => 65536, 'bound' => 'one settings file', 'gone' => 'at once; runDirSweep() after 10 min', 'age' => RUNDIR_TMP_AGE],
     'jack-progress\.json|jack-progress-speed\.json|jack-watching\.json|jack-live-status\.(?:json|tmp)|jack-structure-run\.json'
-        => ['bound' => 'the queue (JACK_RUN_QUEUE_MAX), ≤ 200 samples, ≤ 20 sessions', 'gone' => 'jackProgressClear() at a run\'s start and end'],
-    'jack-progress\.json\.(\d+)\.tmp' => ['bound' => 'the progress', 'gone' => 'os.replace; runDirSweep() once Python is gone', 'pid' => true],
-    'jack-shadow'                 => ['bound' => 'NOT bounded by the office: the media servers\' answers for the library (only with the support flag) — open', 'gone' => 'at the end of the run'],
+        => ['max' => 1 << 20, 'bound' => 'the queue (JACK_RUN_QUEUE_MAX), ≤ 200 samples, ≤ 20 sessions', 'gone' => 'jackProgressClear() at a run\'s start and end'],
+    'jack-progress\.json\.(\d+)\.tmp' => ['max' => 1 << 20, 'bound' => 'the progress', 'gone' => 'os.replace; runDirSweep() once Python is gone', 'pid' => true],
+    'jack-shadow'                 => ['max' => null, 'large' => 'NOT bounded by the office: the media servers\' answers for the library (only with the support flag) — open: to officeTmpDir() or the data folder', 'bound' => 'NOT bounded — open', 'gone' => 'at the end of the run'],
     // Mr. Restori (restore*.php)
-    'restore-peek-[a-z0-9-]+|libvirt-restore-[0-9-]+' => ['bound' => 'a mount point (what it shows is a snapshot or an image on a pool: never walked)', 'gone' => 'after the look / the restore'],
-    'restore-partner\.want|restore-partner-look\.pid|drill\.open|restore\.open|letgo\.open' => ['bound' => 'a line or nothing', 'gone' => 'at its end; agent.sh at an array stop'],
-    'drill'                       => ['bound' => 'one dump from Kopia, never more than the room left on /run less RUNDIR_FS_FLOOR (drillRamRoom())', 'gone' => 'right after its play; drillCleanup()'],
+    'restore-peek-[a-z0-9-]+|libvirt-restore-[0-9-]+' => ['max' => 0, 'bound' => 'a mount point (what it shows is a snapshot or an image on a pool: never walked)', 'gone' => 'after the look / the restore'],
+    'restore-partner\.want|restore-partner-look\.pid|drill\.open|restore\.open|letgo\.open' => ['max' => 256, 'bound' => 'a line or nothing', 'gone' => 'at its end; agent.sh at an array stop'],
     // the partner door, the USO network, the fan desk
-    'partner'                     => ['bound' => 'locks (empty), records of a few fields, door.log 1 MB + .1, refused ≤ 200', 'gone' => 'at unpair; agent.sh at an array stop'],
-    'partner/door-(\d+)\.json'     => ['bound' => 'one record', 'gone' => 'the door at its end; runDirSweep() once it is gone', 'pid' => true],
-    'usonet'                      => ['bound' => 'usonet.log and helper.log ≤ 256 KB each (usonet.sh trim_log every minute), status per tailnet peer', 'gone' => 'leave'],
-    'fan[b]oy'                    => ['bound' => 'the fan desk\'s journal and state (its own audit; the desk keeps its name out of core files)', 'gone' => 'the fan desk'],
+    'partner'                     => ['max' => 3 << 20, 'large' => 'the door\'s own log while the array is stopped (no data folder then): door.log 1 MB + .1; locks, records of a few fields', 'bound' => 'PARTNER_RECORD_MAX', 'gone' => 'at unpair; agent.sh at an array stop'],
+    'partner/door-(\d+)\.json'     => ['max' => 4096, 'bound' => 'one record', 'gone' => 'the door at its end; runDirSweep() once it is gone', 'pid' => true],
+    'usonet'                      => ['max' => 1 << 20, 'bound' => 'usonet.log and helper.log ≤ 256 KB each (usonet.sh trim_log every minute), status per tailnet peer', 'gone' => 'leave'],
+    'fan[b]oy'                    => ['max' => 1 << 20, 'bound' => 'the fan desk\'s journal and state (its own audit; the desk keeps its name out of core files)', 'gone' => 'the fan desk'],
 ];
+
+/*
+ * Where a job that really needs a file of a size the server decides puts it — never the RAM folder on /run (small state
+ * only): a private folder under /tmp (rootfs: RAM too, but not shared with Docker's runtime state), 0700, the office's own,
+ * emptied at every agent start, never through a link (officeTmpEnsure()). Ms. Dustdevil's picture checks, Mr. Restori's
+ * dumps from Kopia during a drill. Tests: OFFICE_TMP_DIR.
+ */
+function officeTmpDir(): string
+{
+    return rtrim(getenv('OFFICE_TMP_DIR') ?: '/tmp/unraid-secretary-office', '/');
+}
+
+/**
+ * The private folder made sure: a real folder of ours (root) that no one else may read or write — anything else in its
+ * place (a link, a file, someone else's folder) renamed aside, never followed. $clean: emptied (the agent's start: nothing
+ * of an agent before is still used). The folder, or null when it can't be had.
+ */
+function officeTmpEnsure(bool $clean = false, ?string $dir = null): ?string
+{
+    $dir ??= officeTmpDir();
+    clearstatcache(true, $dir);
+    $st = @lstat($dir);
+    $mine = function_exists('posix_geteuid') ? posix_geteuid() : 0;
+    if ($st !== false && (($st['mode'] & 0170000) !== 0040000 || (int) $st['uid'] !== $mine || ($st['mode'] & 0077))) {
+        runDirAside($dir);
+        $st = false;
+    }
+    if ($st === false) {
+        $old = umask(0077);
+        $made = @mkdir($dir, 0700);
+        umask($old);
+        $st = $made ? @lstat($dir) : false;
+        if ($st === false || ($st['mode'] & 0170000) !== 0040000) {
+            return null;
+        }
+    }
+    if ($clean) {
+        officeTmpEmpty($dir);
+    }
+    return $dir;
+}
+
+/** Everything in the private folder removed, depth first — links themselves only, never what they point to */
+function officeTmpEmpty(string $dir, int $depth = 0): void
+{
+    foreach (@scandir($dir) ?: [] as $name) {
+        if ($name === '.' || $name === '..') {
+            continue;
+        }
+        $path = "$dir/$name";
+        $st = @lstat($path);
+        if ($st !== false && ($st['mode'] & 0170000) === 0040000 && $depth < 6) {
+            officeTmpEmpty($path, $depth + 1);
+            @rmdir($path);
+        } elseif ($st !== false) {
+            @unlink($path);
+        }
+    }
+}
 
 /** The folder's real place once runDirEnsure() looked (a link a user made: where it points), else RUN_DIR */
 function runDirReal(): string
@@ -180,10 +241,10 @@ function runDirPidAlive(int $pid): bool
     return $pid > 0 && is_dir("/proc/$pid");
 }
 
-/** The RAM files of this agent's live jobs (Ms. Dustdevil's background work: the only per-pid writer that runs on) */
+/** The RAM files this agent's own live work holds under a per-pid name (none since her jobs read through a pipe) */
 function runDirLive(): array
 {
-    return array_values(array_filter(array_column($GLOBALS['clJobs']['running'] ?? [], 'out')));
+    return [];
 }
 
 /**
@@ -206,7 +267,6 @@ function runDirSweep(?array $live = null, ?string $dir = null, ?int $now = null)
         return [];
     }
     $me = getmypid();
-    $iconsBusy = isset($GLOBALS['clJobs']['running']['icons']);
     $lists = ['' => @scandir($dir) ?: []];
     foreach ($lists[''] as $name) {
         $st = $name[0] === '.' ? false : @lstat("$dir/$name");
@@ -233,16 +293,16 @@ function runDirSweep(?array $live = null, ?string $dir = null, ?int $now = null)
                 continue;
             }
             foreach (RUNDIR_FILES as $pattern => $what) {
-                if (empty($what['pid']) && empty($what['age']) && $pattern !== 'cleanup-icons-check') {
+                if (empty($what['pid']) && empty($what['age']) && empty($what['legacy'])) {
                     continue;
                 }
                 if (!preg_match('#^(?:' . $pattern . ')$#D', $rel, $m)) {
                     continue;
                 }
                 $left = match (true) {
-                    !empty($what['pid']) => (int) $m[1] === $me ? !isset($live[$name]) : !runDirPidAlive((int) $m[1]),
-                    !empty($what['age']) => $now - (int) $st['mtime'] > $what['age'],
-                    default              => !$iconsBusy,
+                    !empty($what['legacy']) => true,
+                    !empty($what['pid'])    => (int) $m[1] === $me ? !isset($live[$name]) : !runDirPidAlive((int) $m[1]),
+                    default                 => $now - (int) $st['mtime'] > (int) $what['age'],
                 };
                 if ($left && runDirRemove("$dir/$rel", $type)) {
                     $gone[] = $rel;

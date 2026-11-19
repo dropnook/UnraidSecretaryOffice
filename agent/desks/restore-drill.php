@@ -1862,15 +1862,21 @@ function drillKopiaPackageDir(array &$j, array &$env, string $root, string $sour
     return null;
 }
 
-/** The drill's own folder in RAM (a dump from Kopia lies there while it is played): root only */
+/**
+ * The drill's own folder in RAM (a dump from Kopia lies there while it is played): root only — in the office's private
+ * folder under /tmp, never the RAM folder on /run (small state only, 2026-11-19; lib/rundir.php)
+ */
 function drillRamDir(): string
 {
-    return ($GLOBALS['drill']['run_dir'] ?? RUN_DIR) . '/drill';
+    if (!isset($GLOBALS['drill']['run_dir'])) {
+        officeTmpEnsure();
+    }
+    return ($GLOBALS['drill']['run_dir'] ?? officeTmpDir()) . '/drill';
 }
 
 /**
- * How much a dump from Kopia may take in the drill's folder in RAM: the free room where it lies less RUNDIR_FS_FLOOR (that
- * folder is on Unraid's /run, 128 MB shared with Docker — 2026-11-19: a dump of the drill's own RAM budget would fill it);
+ * How much a dump from Kopia may take in the drill's folder in RAM: the free room where it lies less RUNDIR_FS_FLOOR (the
+ * private folder under /tmp: RAM too — never filled to the last byte; up to 1.94 it was /run, 128 MB shared with Docker);
  * the tests' own in $GLOBALS['drill']['ram_room']
  */
 function drillRamRoom(): int

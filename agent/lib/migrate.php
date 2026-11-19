@@ -85,9 +85,9 @@ function officeMigrateSteps(): array
         // the Team Lead's notification centre (lib/notifycenter.php): the switches it takes over (his own, the Night
         // Watchman's, Mr. Backupsy's «Notify on success») become its starting values; their keys stay
         ['id' => 'notify-center', 'version' => '1.68.0', 'run' => fn (string $dir, string $to): string => officeMigrateNotifyCenter($dir)],
-        // Ms. Dustdevil's cache up to 1.94 kept every /mnt mention of the flash (2026-11-19: 13 MB for 10 MB of text, read at
+        // Ms. Dustdevil's cache up to 1.94.0 kept every /mnt mention of the flash (2026-11-19: 13 MB for 10 MB of text, read at
         // every look): the flash search's part goes (she searches again, now bounded); the file before kept beside it
-        ['id' => 'cleanup-flash-cache', 'version' => '1.95.0', 'run' => fn (string $dir, string $to): string => officeMigrateCleanupCache($dir, $to)],
+        ['id' => 'cleanup-flash-cache', 'version' => '1.94.1', 'run' => fn (string $dir, string $to): string => officeMigrateCleanupCache($dir, $to)],
     ];
 }
 
