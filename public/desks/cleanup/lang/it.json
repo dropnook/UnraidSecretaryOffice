@@ -151,6 +151,8 @@
   "note.weak_text": "Solo menzionata in cache, nella cronologia della shell o negli installer dei plugin: {names}. Questo da solo non vuol dire che qualcosa la usi.",
   "note.fresh": "modificata di recente",
   "note.fresh_text": "Qui è stato scritto qualcosa negli ultimi {days} giorni — forse qualcosa la usa ancora.",
+  "note.flash_partial": "flash esaminata solo in parte",
+  "note.flash_partial_text": "La mia ricerca sull'unità flash si è fermata al suo limite — un file nel resto potrebbe nominare questa cartella. Per questo è solo «Da controllare».",
   "why.backup": "backup in corso",
   "why.backup_text": "Finché è in corso un backup, lascio tutto dov'è.",
   "why.docker_down": "Docker non risponde",
@@ -242,6 +244,7 @@
   "appdata.mounters": "Montano l'intera condivisione, il che non dice niente sulle singole cartelle (non contati): {names}",
   "appdata.checking": "Sto ancora cercando menzioni sull'unità flash — dopo si potranno mettere via le cartelle.",
   "appdata.searched": "Unità flash esaminata {when}.",
+  "appdata.searched_partial": "Unità flash esaminata {when} — ma solo in parte: la ricerca si è fermata al suo limite. Ciò che nomina solo il resto può essere ancora in uso, quindi per ora qui niente è «Non servono a nessuno». Per favore diccelo: ⋯ → «Segnala un problema o un desiderio…».",
   "park.button": "Nel ripostiglio…",
   "park.title": {
     "one": "Mettere via 1 cosa?",
@@ -373,7 +376,7 @@
   "help.trash_text": "Niente viene eliminato subito: ciò che metti via lo rinomino soltanto, nella cartella nascosta .UnraidSecretaryOffice-trash sullo stesso disco. «Rimetti a posto» lo annulla; solo «Svuota» elimina definitivamente. I volumi di Docker invece li copio, accanto ai dati di Docker. Per questo lì serve di nuovo spazio libero pari alla loro dimensione.",
   "help.templates_text": "Residuo: nessun contenitore e nessuna immagine. Inutilizzato: nessun contenitore, ma l'immagine c'è ancora. Duplicato: un file più vecchio con lo stesso <Name>. Un template il cui contenitore esiste è in uso.",
   "help.stacks_text": "Abbinati ai contenitori tramite il nome del progetto, come li chiama il Compose Manager. Percorsi e immagini vengono da docker compose config, con il .env. Uno stack con contenitori viene fermato (compose down) prima di essere messo via; i volumi con nome restano.",
-  "help.appdata_text": "Una cartella è in uso quando la nomina un contenitore, un template, uno stack, un file Compose, una VM o un file sull'unità flash. Un contenitore che monta l'intera condivisione non conta.",
+  "help.appdata_text": "Una cartella è in uso quando la nomina un contenitore, un template, uno stack, un file Compose, una VM o un file sull'unità flash. Un contenitore che monta l'intera condivisione non conta. Sull'unità flash leggo i file di impostazioni fino a 1 MB — log ed elenchi più lunghi restano fuori.",
   "help.check": "Da controllare",
   "help.check_text": "Niente la usa, ma: qualcosa si chiama allo stesso modo, è solo menzionata in cache o nella cronologia della shell, oppure lì è stato scritto qualcosa negli ultimi 30 giorni.",
   "help.sizes": "Dimensioni",
@@ -596,6 +599,7 @@
   "strays.where": "Unraid legge i template solo da {dir}. Cerco anche i my-*.xml smarriti sull'unità flash e sui pool (non sull'array, così non si sveglia niente).",
   "strays.searching": "Cerco i template smarriti…",
   "strays.searched": "Template smarriti cercati {when}.",
+  "strays.partial": "La ricerca si è fermata al suo limite — potrebbero esserci più template smarriti di quelli elencati qui.",
   "strays.skipped": {
     "one": "1 file in un backup lasciato fuori — i backup contengono copie apposta.",
     "other": "{n} file in backup lasciati fuori — i backup contengono copie apposta."

@@ -216,6 +216,7 @@ function metricsOffice(int $now, int $dropped): array
         metricsGauge('uso_office_agent_started_timestamp_seconds', 'When the office\'s agent started', (int) ($GLOBALS['started'] ?? $now)),
         metricsGauge('uso_metrics_written_timestamp_seconds', 'When the office last wrote its numbers (once a minute)', $now),
         metricsGauge('uso_metrics_dropped_families', 'Metric families left out to stay under the size cap of ' . METRICS_MAX_BYTES . ' bytes', $dropped),
+        ...(function_exists('runDirMetrics') ? runDirMetrics() : []),     // its RAM folder and the room on /run (lib/rundir.php)
     ];
 }
 

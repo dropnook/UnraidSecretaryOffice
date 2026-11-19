@@ -879,6 +879,7 @@
   "drill.code.docker_off": "Docker non è in funzione — non si è potuto creare nessun contenitore usa e getta",
   "drill.code.too_big_for_ram": "troppo grande per la RAM che posso usare (servono {need}, consentiti {budget})",
   "drill.code.dump_no_room": "la copia non si è potuta riversare: il database usa e getta aveva bisogno di più spazio di quanto l'esercitazione possa prendere nella RAM ({ram_mb} MB) — il dump in sé è integro (letto per intero)",
+  "drill.code.dump_no_ram_folder": "la copia da Kopia non è stata presa: serve più spazio di quanto ne abbia ancora la cartella in RAM della segreteria ({room_mb} MB liberi per lei su /run di Unraid, che serve anche a Docker) — non controllata; il backup in sé non è toccato",
   "drill.code.budget": "tempo finito — la prossima volta",
   "drill.code.throwaway_failed": "il contenitore usa e getta non si è avviato",
   "drill.code.not_ready": "il database usa e getta non ha risposto",

@@ -151,6 +151,8 @@
   "note.weak_text": "Solo mencionada en cachés, el historial del shell o instaladores de plugins: {names}. Eso por sí solo no significa que algo la use.",
   "note.fresh": "modificada hace poco",
   "note.fresh_text": "Se ha escrito algo aquí en los últimos {days} días — quizá algo todavía la usa.",
+  "note.flash_partial": "flash revisado solo en parte",
+  "note.flash_partial_text": "Mi búsqueda en el flash se detuvo en su límite — un archivo del resto podría nombrar esta carpeta. Por eso solo está en «Revísalo, por favor».",
   "why.backup": "copia en curso",
   "why.backup_text": "Mientras se hace una copia de seguridad, lo dejo todo donde está.",
   "why.docker_down": "Docker no responde",
@@ -242,6 +244,7 @@
   "appdata.mounters": "Montan el recurso compartido entero, lo que no dice nada de carpetas sueltas (ignorados): {names}",
   "appdata.checking": "Todavía estoy buscando menciones en el flash — las carpetas se podrán guardar cuando termine.",
   "appdata.searched": "Memoria flash revisada {when}.",
+  "appdata.searched_partial": "Memoria flash revisada {when} — pero solo en parte: la búsqueda se detuvo en su límite. Lo que solo nombra el resto puede seguir en uso, así que por ahora nada aquí es «Nadie las necesita». Cuéntanoslo: ⋯ → «Contar un problema o un deseo…».",
   "park.button": "Al trastero…",
   "park.title": {
     "one": "¿Guardar 1 cosa?",
@@ -373,7 +376,7 @@
   "help.trash_text": "Nada se borra enseguida: lo que guardas solo lo renombro, a la carpeta oculta .UnraidSecretaryOffice-trash en el mismo disco. «Devolver a su sitio» lo deshace; solo «Vaciar» borra para siempre. Los volúmenes de Docker, en cambio, los copio junto a los datos de Docker. Para eso, su tamaño debe estar libre allí una vez más.",
   "help.templates_text": "Resto: ni contenedor ni imagen. Sin usar: sin contenedor, pero la imagen sigue ahí. Duplicado: un archivo más antiguo con el mismo <Name>. Una plantilla cuyo contenedor existe está en uso.",
   "help.stacks_text": "Se emparejan con los contenedores por nombre de proyecto, como los nombra el Compose Manager. Rutas e imágenes vienen de docker compose config, con el .env. Una stack con contenedores se detiene (compose down) antes de guardarla; los volúmenes con nombre se quedan.",
-  "help.appdata_text": "Una carpeta está en uso cuando la nombra un contenedor, una plantilla, una stack, un archivo compose, una VM o un archivo del flash. Un contenedor que monta el recurso compartido entero no cuenta.",
+  "help.appdata_text": "Una carpeta está en uso cuando la nombra un contenedor, una plantilla, una stack, un archivo compose, una VM o un archivo del flash. Un contenedor que monta el recurso compartido entero no cuenta. En el flash leo los archivos de ajustes de hasta 1 MB — los registros y las listas más largas quedan fuera.",
   "help.check": "Revísalo, por favor",
   "help.check_text": "Nada la usa, pero: algo tiene el mismo nombre, solo se menciona en cachés o en el historial del shell, o se escribió algo ahí en los últimos 30 días.",
   "help.sizes": "Tamaños",
@@ -596,6 +599,7 @@
   "strays.where": "Unraid solo lee plantillas de {dir}. También busco my-*.xml extraviados en el flash y en los pools (no en el array, para que no se despierte nada).",
   "strays.searching": "Buscando plantillas extraviadas…",
   "strays.searched": "Plantillas extraviadas buscadas {when}.",
+  "strays.partial": "La búsqueda se detuvo en su límite — puede haber más plantillas extraviadas de las que se listan aquí.",
   "strays.skipped": {
     "one": "1 archivo dentro de una copia de seguridad omitido — las copias de seguridad guardan copias a propósito.",
     "other": "{n} archivos dentro de copias de seguridad omitidos — las copias de seguridad guardan copias a propósito."

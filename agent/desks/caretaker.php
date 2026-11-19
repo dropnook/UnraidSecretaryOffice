@@ -628,6 +628,8 @@ function caretakerChecks(): array
     // the data folder and the one above it: root's alone (review 2026-10-15) - the command shown, never run
     $trust = officeDataTrust(DATA_DIR, officeHomeIsOwn(DATA_DIR_USER));
     $out[] = finding('data_trust', 'recommended', $trust['ok'], ['paths' => implode(', ', $trust['paths']), 'cmd' => $trust['cmd']]);
+    // the office's RAM folder small, and room left on /run where it lies (lib/rundir.php: /run is shared with Docker)
+    array_push($out, ...runDirChecks());
     // Unraid's standard shares (lib/firsthome.php): system holds Docker's image and libvirt's — without it neither Docker
     // nor Kopia runs. A new one he offers to create (his card's button); one that was there and is gone: said, never made
     $std = homeMissing();

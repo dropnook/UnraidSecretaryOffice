@@ -151,6 +151,8 @@
   "note.weak_text": "Nur in Caches, der Shell-History oder Plugin-Installern erwähnt: {names}. Das allein heisst nicht, dass ihn etwas benutzt.",
   "note.fresh": "kürzlich geändert",
   "note.fresh_text": "Hier wurde in den letzten {days} Tagen etwas geschrieben — vielleicht benutzt ihn noch etwas.",
+  "note.flash_partial": "Flash nur zum Teil durchsucht",
+  "note.flash_partial_text": "Meine Suche auf dem Flash hat an ihrer Grenze aufgehört — eine Datei im Rest könnte diesen Ordner nennen. Darum steht er nur unter «Bitte prüfen».",
   "why.backup": "Backup läuft",
   "why.backup_text": "Solange ein Backup läuft, lasse ich alles, wo es ist.",
   "why.docker_down": "Docker antwortet nicht",
@@ -242,6 +244,7 @@
   "appdata.mounters": "Mounten den ganzen Share, das sagt nichts über einzelne Ordner (nicht gezählt): {names}",
   "appdata.checking": "Ich suche noch auf dem Flash nach Erwähnungen — danach lassen sich Ordner wegstellen.",
   "appdata.searched": "Flash durchsucht {when}.",
+  "appdata.searched_partial": "Flash durchsucht {when} — aber nur zum Teil: Die Suche hat an ihrer Grenze aufgehört. Was nur der Rest nennt, kann noch gebraucht werden, darum ist hier vorerst nichts «Braucht niemand». Bitte sag es uns: ⋯ → «Problem oder Wunsch mitteilen…».",
   "park.button": "In die Abstellkammer…",
   "park.title": {
     "one": "1 Sache wegstellen?",
@@ -373,7 +376,7 @@
   "help.trash_text": "Nichts wird sofort gelöscht: Was du wegstellst, benenne ich nur um, in den versteckten Ordner .UnraidSecretaryOffice-trash auf derselben Disk. «Zurücklegen» macht es rückgängig, erst «Leeren» löscht endgültig. Dockers Volumes kopiere ich stattdessen neben Dockers Daten. Dafür muss ihre Grösse dort noch einmal frei sein.",
   "help.templates_text": "Altlast: kein Container und kein Image. Ungenutzt: kein Container, aber das Image ist noch da. Duplikat: eine ältere Datei mit demselben <Name>. Ein Template, dessen Container existiert, ist in Betrieb.",
   "help.stacks_text": "Mit den Containern über den Projektnamen abgeglichen, so wie der Compose Manager sie benennt. Pfade und Images kommen aus docker compose config, mit der .env. Ein Stack mit Containern wird vor dem Wegstellen gestoppt (compose down); Named Volumes bleiben.",
-  "help.appdata_text": "Ein Ordner ist in Betrieb, wenn ihn ein Container, ein Template, ein Stack, eine Compose-Datei, eine VM oder eine Datei auf dem Flash nennt. Ein Container, der den ganzen Share mountet, zählt nicht.",
+  "help.appdata_text": "Ein Ordner ist in Betrieb, wenn ihn ein Container, ein Template, ein Stack, eine Compose-Datei, eine VM oder eine Datei auf dem Flash nennt. Ein Container, der den ganzen Share mountet, zählt nicht. Auf dem Flash lese ich Einstellungsdateien bis 1 MB — Logs und längere Listen lasse ich aus.",
   "help.check": "Bitte prüfen",
   "help.check_text": "Nichts benutzt ihn, aber: etwas heisst gleich, er wird nur in Caches oder der Shell-History erwähnt, oder dort wurde in den letzten 30 Tagen etwas geschrieben.",
   "help.sizes": "Grössen",
@@ -596,6 +599,7 @@
   "strays.where": "Unraid liest Templates nur aus {dir}. Ich suche auch verirrte my-*.xml auf dem Flash und auf den Pools (nicht im Array, damit nichts aufwacht).",
   "strays.searching": "Ich suche verirrte Templates…",
   "strays.searched": "Verirrte Templates gesucht {when}.",
+  "strays.partial": "Die Suche hat an ihrer Grenze aufgehört — es kann mehr verirrte Templates geben als hier stehen.",
   "strays.skipped": {
     "one": "1 Datei in einem Backup ausgelassen — Backups enthalten Kopien mit Absicht.",
     "other": "{n} Dateien in Backups ausgelassen — Backups enthalten Kopien mit Absicht."

@@ -1723,6 +1723,11 @@ function drillDoKopiaDump(array &$j, int $i, array &$env): array
     if ($size !== null && $size > $env['kopia_left']) {
         return ['state' => 'not_checked', 'code' => 'budget'] + $out;
     }
+    $room = drillRamRoom();
+    $noRoom = ['state' => 'not_checked', 'code' => 'dump_no_ram_folder', 'params' => $out['params'] + ['container' => $s['container'], 'room_mb' => intdiv($room, 1 << 20)]] + $out;
+    if ($size !== null && $size > $room) {
+        return $noRoom;                                 // never fetched: the backup itself untouched, the next drill tries again
+    }
     $file = drillRamFile($j['id'], $i, (string) $s['file']);
     if ($file === null) {
         return ['state' => 'not_checked', 'code' => 'kopia_unavailable', 'params' => $out['params'] + ['name' => (string) $k['container']]] + $out;
@@ -1738,16 +1743,21 @@ function drillDoKopiaDump(array &$j, int $i, array &$env): array
         $hash = hash_init('sha256');
         $got = 0;
         $full = false;
+        $over = false;
         [$exit, , $err] = drillExec($j, drillKopiaCmd($k['container'], $env['uid'], $j['id'], ['show', $entry['obj']]), max(30, drillKopiaLeft($env)),
-            $size !== null ? $size + 1 : $env['kopia_left'], function (string $data) use ($h, $hash, &$got, &$full): void {
+            min($size !== null ? $size + 1 : $env['kopia_left'], $room + 1), function (string $data) use ($h, $hash, &$got, &$full, &$over, $room): void {
                 hash_update($hash, $data);
                 $got += strlen($data);
-                $full = $full || @fwrite($h, $data) !== strlen($data);
+                $over = $over || $got > $room;          // never more than the room on /run: the rest isn't written
+                $full = $full || $over || @fwrite($h, $data) !== strlen($data);
             });
         fclose($h);
         $j['egress'] = (int) ($j['egress'] ?? 0) + $got;
         $env['kopia_left'] -= $got;
         $out['params']['bytes'] = $got;
+        if ($over) {
+            return $noRoom;
+        }
         if ($full) {
             // RAM ran out under the file itself: the drill's room, not the backup
             return ['state' => 'not_checked', 'code' => 'dump_no_room', 'level' => 1, 'params' => ['container' => $s['container'],
@@ -1856,6 +1866,20 @@ function drillKopiaPackageDir(array &$j, array &$env, string $root, string $sour
 function drillRamDir(): string
 {
     return ($GLOBALS['drill']['run_dir'] ?? RUN_DIR) . '/drill';
+}
+
+/**
+ * How much a dump from Kopia may take in the drill's folder in RAM: the free room where it lies less RUNDIR_FS_FLOOR (that
+ * folder is on Unraid's /run, 128 MB shared with Docker — 2026-11-19: a dump of the drill's own RAM budget would fill it);
+ * the tests' own in $GLOBALS['drill']['ram_room']
+ */
+function drillRamRoom(): int
+{
+    if (isset($GLOBALS['drill']['ram_room'])) {
+        return (int) $GLOBALS['drill']['ram_room'];
+    }
+    $free = @disk_free_space(is_dir(drillRamDir()) ? drillRamDir() : dirname(drillRamDir()));
+    return $free === false ? 0 : max(0, (int) $free - RUNDIR_FS_FLOOR);
 }
 
 /** Where a dump from Kopia lies while it is played: <RAM>/drill/<id>-<step>-<name> — null when that folder can't be had */
