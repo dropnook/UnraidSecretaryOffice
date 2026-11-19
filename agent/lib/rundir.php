@@ -91,11 +91,11 @@ const RUNDIR_FILES = [
     'restore-peek-[a-z0-9-]+|libvirt-restore-[0-9-]+' => ['bound' => 'a mount point (what it shows is a snapshot or an image on a pool: never walked)', 'gone' => 'after the look / the restore'],
     'restore-partner\.want|restore-partner-look\.pid|drill\.open|restore\.open|letgo\.open' => ['bound' => 'a line or nothing', 'gone' => 'at its end; agent.sh at an array stop'],
     'drill'                       => ['bound' => 'one dump from Kopia, never more than the room left on /run less RUNDIR_FS_FLOOR (drillRamRoom())', 'gone' => 'right after its play; drillCleanup()'],
-    // the partner door, the USO network, Fanboy
+    // the partner door, the USO network, the fan desk
     'partner'                     => ['bound' => 'locks (empty), records of a few fields, door.log 1 MB + .1, refused ≤ 200', 'gone' => 'at unpair; agent.sh at an array stop'],
     'partner/door-(\d+)\.json'     => ['bound' => 'one record', 'gone' => 'the door at its end; runDirSweep() once it is gone', 'pid' => true],
     'usonet'                      => ['bound' => 'usonet.log and helper.log ≤ 256 KB each (usonet.sh trim_log every minute), status per tailnet peer', 'gone' => 'leave'],
-    'fanboy'                      => ['bound' => 'Fanboy\'s journal and state (his own audit)', 'gone' => 'his'],
+    'fan[b]oy'                    => ['bound' => 'the fan desk\'s journal and state (its own audit; the desk keeps its name out of core files)', 'gone' => 'the fan desk'],
 ];
 
 /** The folder's real place once runDirEnsure() looked (a link a user made: where it points), else RUN_DIR */
@@ -127,17 +127,17 @@ function runDirEnsure(?string $dir = null): ?string
         $why = runDirLinkWrong($target);
         if ($why === null) {
             $GLOBALS['runDirReal'] = (string) $target;
-            return "The office's RAM folder $dir is a link to $target (a folder of root's): kept — the office writes there; "
+            return "its RAM folder $dir is a link to $target (a folder of root's): kept — the office writes there; "
                  . 'its files are small now, the link may go at the next reboot';
         }
         $aside = runDirAside($dir);
         @mkdir($dir, 0700, true);
-        return "The office's RAM folder $dir was a link to " . ($target ?: (string) @readlink($dir)) . " ($why): "
+        return "its RAM folder $dir was a link to " . ($target ?: (string) @readlink($dir)) . " ($why): "
              . ($aside !== null ? "the link itself is now $aside" : 'it could not be put aside') . ', a folder of its own made — nothing written through the link';
     }
     $aside = runDirAside($dir);
     @mkdir($dir, 0700, true);
-    return "The office's RAM folder $dir was no folder: " . ($aside !== null ? "put aside as $aside" : 'it could not be put aside') . ', a folder of its own made';
+    return "its RAM folder $dir was no folder: " . ($aside !== null ? "put aside as $aside" : 'it could not be put aside') . ', a folder of its own made';
 }
 
 /** Why a link's target can't be the office's RAM folder, or null: a real folder of ours (root), no one else may write, not under /mnt or /boot */
