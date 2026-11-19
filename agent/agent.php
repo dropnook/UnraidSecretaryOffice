@@ -571,7 +571,7 @@ function setUp(): void
     }
     logLine('Agent started (v' . AGENT_VERSION . ', PID ' . getmypid() . ', desks: ' . implode(', ', array_keys(desks())) . ')');
     if (!empty($GLOBALS['runDirSaid'])) {
-        logLine($GLOBALS['runDirSaid']);
+        logLine('Office: ' . $GLOBALS['runDirSaid']);
         $GLOBALS['runDirSaid'] = null;
     }
     // what an agent before this one left in RAM (a crash, a restart in place keeps the pid: no job of this one runs yet)
