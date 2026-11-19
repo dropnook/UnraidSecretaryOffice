@@ -91,9 +91,11 @@ first pool and the first array disk), a container (Docker only), fake notificati
 the quiet state and red on its violation; undoes all and checks INV-LEFTOVER on itself. `office-smoke-refresh.sh` is the
 toy scenario: the three desks' fresh looks, standard checks.
 
-## Before a release and every night (wave 3)
+## Before a release and every week (wave 3)
 
-* **Release step 6b** (`tools/release.sh`, between the click test and the suite): `prerelease.sh --since v<last>` maps
+* **Release step 6b** (`tools/release.sh`, beside the click test and the suite since 2026-11-14 - the three run at the
+  same time, each in its own block of the log; green with the same inputs in an earlier run of the version: taken, not
+  run again): `prerelease.sh --since v<last>` maps
   the files changed since the last tag to desks (the table in its head: a desk's files → it, `backup/` → backup and
   restore, `mediacache/`/`gather/` → jack, `smartmover/` → moverelli, shared code, the web side, the plugin, office
   strings and the scenario helpers → all; docs and tests → none) and runs their scenarios of **`quick.list`** — the
@@ -103,11 +105,13 @@ toy scenario: the three desks' fresh looks, standard checks.
   `--dry` lists the desks, the scenarios and the estimate without Tower (`USO_RELEASE_DIFF=<file>`: an invented diff);
   `--no-scenarios` skips it with a loud line; the step's time stands in the release's last lines.
   By hand: `bash tools/scenarios/prerelease.sh --dry` (or `--only <name>` for a real run of the step).
-* **The nightly** (`nightly.sh`, launchd `uso-scenarios-nightly.plist` at 02:30 — written, installed only by the
-  coordinator with the owner's OK; the install lines are in the plist): origin/main in its own detached worktree
+* **The weekly full run** (`nightly.sh` - the name stays; launchd `uso-scenarios-nightly.plist`, **Saturday 20:00** —
+  written, installed only by the coordinator with the owner's OK; the install lines are in the plist): every scenario
+  (171 in about 11 h on 2026-11-14, the reds' rerun about 1 h more), so once a week, not every night; origin/main in its own detached worktree
   (`~/Claude/UnraidSecretaryOffice-worktrees/nightly`), `run.sh tower --all --dev-sync`, every red one once more (red,
-  then green = **flaky**, listed apart), `scenarios/<date>/nightly.md` + `nightly.tsv` with the diff to the night before
-  (new reds, fixed, flaky flips, new and gone scenarios). `--dry` says what it would do.
+  then green = **flaky**, listed apart), `scenarios/<date>/nightly.md` + `nightly.tsv` with the diff to the run before
+  (new reds, fixed, flaky flips, new and gone scenarios). `--dry` says what it would do. By hand:
+  `bash tools/scenarios/nightly.sh` (it writes into `scenarios/<date>/nightly.log`, not the terminal).
 * **Who has Tower** (`tower-lock.sh`): the Mac's lock `scenarios/.tower.lock` (its owner's pid; a dead owner's is taken
   over) and no `run-local.sh` of another run on Tower (three looks) — a release waits 30 min for it, the nightly 2 h,
   then each gives up (exit 4). A worker's run.sh takes no Mac lock; the look on Tower sees it.
@@ -215,8 +219,9 @@ Mac-side step).
 **RS-* (the restore dialog)** waits while the plan's sizes are measured in the background, as the dialog's «Restore»
 does (desk.js ready(): `!sizes.measuring`) — the preview asked again every 2 s; a start while measuring skipped the room
 check (batch D, R9: 1.5 GB copied into a pool with 1 GiB free).
-**MV-STOP-AFTER-FILE share=<share>** waits for a file of that share in flight (her plan may take other shares
-first: up to 5 min); M1-stop uses it. **SH-PREFER-ARRAY-FILES** puts its files in a folder per disk
+**MV-STOP-AFTER-FILE share=<share> [file=<name>]** waits for a file of that share in flight (her plan may take other
+shares first: up to 5 min) - with file=, for that file by name (M15: other files of media may lie on the pool after an
+earlier scenario, 2026-11-14); M1-stop uses it. **SH-PREFER-ARRAY-FILES** puts its files in a folder per disk
 (`sh-paf-d1` on disk1, `sh-paf-d2` on disk2 — the same path on two disks would be duplicates Unraid never moves); its
 undo takes them from wherever a run put them; M1-run uses it again.
 **INV-TICK** (checks.sh overrides lib.sh's): the gaps between the pulses the sampler saw, and at the end the
@@ -320,8 +325,9 @@ each page-only cell red on its older release, green on main — the same as the 
 scenario and its older release in two runs (one name per run: the second wipes the first's evidence before the
 Mac-side step).
 
-**MV-STOP-AFTER-FILE share=<share>** waits for a file of that share in flight (her plan may take other shares
-first: up to 5 min); M1-stop uses it. **SH-PREFER-ARRAY-FILES** puts its files in a folder per disk
+**MV-STOP-AFTER-FILE share=<share> [file=<name>]** waits for a file of that share in flight (her plan may take other
+shares first: up to 5 min) - with file=, for that file by name (M15: other files of media may lie on the pool after an
+earlier scenario, 2026-11-14); M1-stop uses it. **SH-PREFER-ARRAY-FILES** puts its files in a folder per disk
 (`sh-paf-d1` on disk1, `sh-paf-d2` on disk2 — the same path on two disks would be duplicates Unraid never moves); its
 undo takes them from wherever a run put them; M1-run uses it again.
 **INV-TICK** (checks.sh overrides lib.sh's): the gaps between the pulses the sampler saw, and at the end the

@@ -727,15 +727,19 @@ flow_mv_run_sched() {
     job_wait moverelli 600
 }
 
-# MV-STOP-AFTER-FILE [share=]: a real run, then «Stop after this file» (desk.js ~1233 act('stop') = stop {}) once a file
-# moves — with share=, once a file of that share moves (her plan may take other shares first: up to 5 min for it)
+# MV-STOP-AFTER-FILE [share=] [file=]: a real run, then «Stop after this file» (desk.js ~1233 act('stop') = stop {}) once
+# a file moves — with share=, once a file of that share moves (her plan may take other shares first: up to 5 min for it);
+# with file=, once the file whose path ends in /<file> moves (other files of the share may go first - 2026-11-14 in the
+# full run, M15: an earlier scenario had left the base's films on the pool, one of them was in flight at the stop)
 flow_mv_stop_after_file() {
     _fl_args "$@" || return 1
-    local rc share=${FL[share]:-}
+    local rc share=${FL[share]:-} file=${FL[file]:-}
     touch "$KEEP/.mv-touched"
     local t0; t0=$(( $(date +%s) - 1 ))
     ask moverelli.start_run '{"mode":"run"}' >/dev/null || return 1
-    if [[ -n $share ]]; then
+    if [[ -n $file ]]; then
+        wait_for 300 "$file on its way in this run" _mv_moving "$t0" "$share" "$file" || return 1
+    elif [[ -n $share ]]; then
         wait_for 300 "a file of $share on its way in this run" _mv_moving "$t0" "$share" || return 1
     else
         wait_for 120 "a file of this run on its way" _mv_moving "$t0" || return 1
@@ -755,11 +759,12 @@ flow_mv_night_stop() { flow_mv_stop_after_file "$@"; }
 # a file in flight: her live progress (moverelli.progress) names one
 # [since]: only a run started then or later (the previous run's last progress still names its file the moment the new
 # run's pid exists - batch A, 2026-10-18); [share]: a file of that share
-_mv_moving() {
+_mv_moving() {   # <since> [share] [file]: her progress names a file in flight (of that share; ending in /<file>)
     _mv_at_work || return 1
     php "$SC_DIR/ask.php" --wait 20 --raw moverelli.progress '{}' 2>/dev/null |
-        jq -e --argjson t "${1:-0}" --arg s "${2:-}" '.state.progress | select(((.started // 0) | tonumber) >= $t)
-            | select($s == "" or (.share // "") == $s) | .file // empty | select(. != "")' >/dev/null
+        jq -e --argjson t "${1:-0}" --arg s "${2:-}" --arg f "${3:-}" '.state.progress | select(((.started // 0) | tonumber) >= $t)
+            | select($s == "" or (.share // "") == $s) | .file // empty | select(. != "")
+            | select($f == "" or endswith("/" + $f) or . == $f)' >/dev/null
 }
 
 # MV-SCHEDULE cron=…|cron=: her schedule dialog (desk.js ~1779 schedule {cron})

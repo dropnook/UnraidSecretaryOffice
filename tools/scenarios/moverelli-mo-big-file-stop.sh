@@ -1,6 +1,6 @@
 #!/bin/bash
-# Cell M15 of matrix.md: one big file (SH-BIG-FILE: 8 GiB in media on the pool — media has no age rule — the only file
-# of media, so the one on its way when the stop comes; six 1 MB files in photos, the share she does after media — ZFS
+# Cell M15 of matrix.md: one big file (SH-BIG-FILE: 8 GiB in media on the pool — media has no age rule — the stop waits
+# for it by name, so it is the one on its way when the stop comes, whatever else of media lies on the pool; six 1 MB files in photos, the share she does after media — ZFS
 # lists a folder in hash order, so in media's own folder they could go before it) and «Stop after this file» from her run's card (MV-NIGHT-STOP) while the big file
 # is on its way: that file arrives whole (size = the original's, no .partial), no further one is begun, her history says
 # «stopped» by the user; while it moved her live progress named it and its bytes done (file_bytes — what the card's rate
@@ -27,7 +27,7 @@ md=/mnt/cache/appdata/UnraidSecretaryOffice/data/moverelli
 mv_look_progress "$KEEP/progress.jsonl" 0.2 & ppid=$!
 mv_look_array "$KEEP/array.jsonl" '/mnt/disk*/media/uso-wip-f-m15/a-big.bin*' '/mnt/disk*/photos/uso-wip-f-m15' 'z-small-*.bin' \
     "$md/office-stop.json" "$md/night-stop.json" & apid=$!
-flow MV-STOP-AFTER-FILE share=media
+flow MV-STOP-AFTER-FILE share=media file=a-big.bin     # by name: media's other files (another scenario's leftovers) may go first
 mv_look_stop "$ppid" "$apid"
 evidence "$KEEP/array.jsonl" >/dev/null
 evidence "$KEEP/progress.jsonl" >/dev/null
