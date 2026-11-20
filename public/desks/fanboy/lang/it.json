@@ -478,6 +478,8 @@
   "place.top": "Sopra",
   "place.bottom": "Sotto",
   "place.side": "Lato",
+  "place.cpu": "Sulla CPU",
+  "place.inside": "Dentro il case",
   "colour.black": "Nero",
   "colour.graphite": "Grafite",
   "colour.grey": "Grigio",

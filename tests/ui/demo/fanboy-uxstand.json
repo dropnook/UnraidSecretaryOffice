@@ -732,7 +732,7 @@
     "found": "tach",
     "role": "cpu",
     "name": "CPU-Kühler",
-    "place": "rear",
+    "place": "cpu",
     "off_ok": false,
     "measured": true,
     "cpu_own": 1762841400,

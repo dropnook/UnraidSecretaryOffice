@@ -51,7 +51,24 @@ const ROLES_BIOS = ['cpu', 'pump', 'unknown'];
 const isOurs = (f) => !!f && (ROLES_OURS.includes(f.role) || (f.role === 'cpu' && !!f.cpu_own));
 const cpuGiven = () => (setup().fans || []).some((f) => f.role === 'cpu' && f.cpu_own);
 const cpuAsk = new Map();       // fan id → {tick} while the owner is choosing «Fanboy regelt ihn» (kept over drawings)
-const PLACES = ['front', 'rear', 'top', 'bottom', 'side'];
+const PLACES = ['front', 'rear', 'top', 'bottom', 'side', 'cpu', 'inside'];
+/**
+ * The places offered for a role, the likeliest first (2026-11-20, the owner: «on the CPU» or «in the case» missing): a CPU
+ * cooler's fan on the CPU (or its radiator on a wall); a pump, a RAM or NVMe fan inside; the case's and the disk cage's on
+ * a wall. «On the CPU» only for a CPU cooler or a fan not told yet; a place stored before stays offered whatever the role.
+ */
+const PLACES_OF = {
+  cpu: ['cpu', 'top', 'front', 'rear', 'inside', 'bottom', 'side'],
+  pump: ['inside', 'top', 'front', 'rear', 'bottom', 'side'],
+  ram: ['inside', 'front', 'rear', 'top', 'bottom', 'side'],
+  nvme: ['inside', 'front', 'rear', 'top', 'bottom', 'side'],
+  disks: ['front', 'side', 'bottom', 'top', 'rear', 'inside'],
+  case: ['front', 'rear', 'top', 'bottom', 'side', 'inside'],
+};
+const placesFor = (role, stored) => {
+  const list = PLACES_OF[role] || PLACES;
+  return stored && PLACES.includes(stored) && !list.includes(stored) ? [...list, stored] : list;
+};
 // a fan's look (2026-11-16, the owner: «Farbe soll für Lüfter-Blätter und Lüfter-Gehäuse separat gewählt werden können,
 // ebenfalls Art und Anzahl der Blätter. Modellauswahl macht nur typischen Vorschlag»): the page owns these lists, the
 // agent stores the keys (fan_look frame, wheel, style, blades) — fan-art.js knows how to draw each
@@ -2626,8 +2643,11 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
   const field = (label, input, cls) => { const l = el('label', `fb-field ${cls || ''}`); l.append(el('span', 'fb-field-label', label), input); return l; };
   const name = nameField(id, setupFan(id), false);
   const place = inputEl('select');
-  place.appendChild(new Option(T('roles.place_any'), ''));
-  PLACES.forEach((pl) => place.appendChild(new Option(T(`place.${pl}`), pl)));
+  /** the options for this fan's role (placesFor()) — built anew only when they change, never while he is in the field */
+  const placeOptions = (role, stored) => {
+    if (document.activeElement === place) return;
+    swap(place, ['p', placesFor(role, stored)], () => [new Option(T('roles.place_any'), ''), ...placesFor(role, stored).map((pl) => new Option(T(`place.${pl}`), pl))]);
+  };
   // place and count can be filled at any time (the agent takes them only with a role: kept here and sent with it)
   let wantPlace = null, wantCount = null;
   place.onchange = () => { const f = setupFan(id); if (f && f.role) send('role', { fan: id, role: f.role, place: place.value, off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true }); else { wantPlace = place.value; update(); } };
@@ -2649,9 +2669,10 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
   alike.append(el('span', 'fb-what-label', T('hub.alike')), alikeBox);
   const hubSays = el('p', 'fb-hub-says');
   const note = el('p', 'fb-panel-note');
-  // the folds
-  const look = keepFold(el('details', 'fb-fold'), `look:${id}`, false);
-  const lookSum = el('summary', '');
+  // the look (for the picture): shown open on the setup tab, never folded (2026-11-20, the owner: «the manual fan icon set-up
+  // shall always be open; folding isn't needed on the set-up page») — «give back to» stays a fold
+  const look = el('section', 'fb-look-open');
+  const lookSum = el('h4', 'fb-q');
   const lookBody = el('div', 'fb-fold-body');
   look.append(lookSum, lookBody);
   const back = keepFold(el('details', 'fb-fold'), `back:${id}`, false);
@@ -2886,6 +2907,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     nameField(id, f, away);
     const roleSet = !!(f && f.role);
     place.disabled = count.disabled = away;
+    placeOptions(cur === 'empty' ? '' : cur, roleSet ? f.place : wantPlace);
     if (document.activeElement !== place) place.value = roleSet ? f.place || '' : wantPlace || '';
     if (document.activeElement !== count) count.value = String(roleSet ? f.count || 1 : wantCount || 1);
     // several fans on the connector (the state's `hub`): the question, and what it means in the agent's own numbers

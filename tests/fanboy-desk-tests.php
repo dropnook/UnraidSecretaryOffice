@@ -1764,3 +1764,61 @@ function testFanboySetupWaits(): void
         fanboyTEnd();
     }
 }
+
+/**
+ * 2026-11-20 (the owner: «“On the CPU” or “in the case” is missing» in «Wo sitzt er?»): two places on no wall — on the CPU,
+ * inside the case — stored like the walls (additive: the walls keep their meaning); the page offers per role the places
+ * that fit, the likeliest first (a CPU cooler: on the CPU); the server picture draws them among the heat sources, their
+ * air going on to the rear, never deciding the zone's air. And the look (for the picture) on the setup tab: open, no fold.
+ */
+function testFanboySetupPlaces(): void
+{
+    $t = fanboyT('places');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        $clock = 0.0;
+        fanboyStepRun(['id' => 'pl1', 'kind' => 'test_up', 'fans' => [fanboyTId(1), fanboyTId(4)]], fanboyTIo($t, $spec, $clock, null, 10.0));
+        fanboyRole(['fan' => fanboyTId(1), 'role' => 'cpu', 'name' => 'CPU', 'place' => 'cpu']);
+        fanboyRole(['fan' => fanboyTId(4), 'role' => 'ram', 'name' => 'RAM', 'place' => 'inside']);
+        $fans = fanboyBoardRaw()['fans'];
+        same('fanboy places: «on the CPU» and «inside the case» stored like a wall', ['cpu', 'inside'], [$fans[fanboyTId(1)]['place'] ?? null, $fans[fanboyTId(4)]['place'] ?? null]);
+        fanboyRole(['fan' => fanboyTId(4), 'role' => 'case', 'place' => 'rear']);
+        same('fanboy places: … a wall again, as before', 'rear', fanboyBoardRaw()['fans'][fanboyTId(4)]['place'] ?? null);
+        try {
+            fanboyRole(['fan' => fanboyTId(4), 'role' => 'case', 'place' => 'middle']);
+            $key = 'kept';
+        } catch (Problem $p) {
+            $key = $p->key;
+        }
+        same('fanboy places: a place nobody knows still refused', 'fanboy_bad_place', $key);
+        same('fanboy places: the agent\'s places — the five walls as before, then the two on no wall', ['front', 'rear', 'top', 'bottom', 'side', 'cpu', 'inside'], FANBOY_PLACES);
+    } finally {
+        fanboyTEnd();
+    }
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
+    $art = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/fan-art.js');
+    $css = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.css');
+    $l = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $l[$code] = json_decode((string) file_get_contents(OFFICE_DIR . "/public/desks/fanboy/lang/$code.json"), true);
+    }
+    check('fanboy places: the page knows the same places as the agent and fan-art.js, each with its words in all five languages',
+        str_contains($js, "const PLACES = ['front', 'rear', 'top', 'bottom', 'side', 'cpu', 'inside'];") && str_contains($art, "const PLACES = ['front', 'rear', 'top', 'bottom', 'side', 'cpu', 'inside'];")
+        && count(array_filter($l, fn ($x) => is_string($x['place.cpu'] ?? null) && is_string($x['place.inside'] ?? null))) === 5
+        && $l['de']['place.cpu'] === 'Auf der CPU' && $l['de']['place.inside'] === 'Im Gehäuse');
+    check('fanboy places: per role the places that fit — a CPU cooler «on the CPU» first, a pump, RAM and NVMe fan «inside» first, the case and the disk cage a wall first, «on the CPU» never for them; a stored place stays offered; the options built anew only when they change, never under his hand',
+        str_contains($js, "cpu: ['cpu', 'top', 'front', 'rear', 'inside', 'bottom', 'side'],") && str_contains($js, "pump: ['inside', 'top', 'front', 'rear', 'bottom', 'side'],")
+        && str_contains($js, "case: ['front', 'rear', 'top', 'bottom', 'side', 'inside'],") && str_contains($js, "disks: ['front', 'side', 'bottom', 'top', 'rear', 'inside'],")
+        && str_contains($js, "return stored && PLACES.includes(stored) && !list.includes(stored) ? [...list, stored] : list;")
+        && str_contains($js, "if (document.activeElement === place) return;") && str_contains($js, "placeOptions(cur === 'empty' ? '' : cur, roleSet ? f.place : wantPlace);"));
+    check('fanboy places: the picture — a fan on the CPU or inside among the heat sources (on no wall), its air toward the rear, not counted for the zone\'s way',
+        str_contains($art, "const INSIDE = ['cpu', 'inside'];") && str_contains($art, "if (INSIDE.includes(place)) continue;")
+        && str_contains($art, "const side = inside ? wall.rear : wall[place];") && str_contains($art, "(inside ? inner : sides[side]).appendChild(w.el);")
+        && str_contains($art, "if (inner.childElementCount) mid.appendChild(inner);"));
+    check('fanboy look open: on the setup tab the look (maker, model, colours, blades) is a section shown open under its heading — no fold, no kept fold state; «give back to» stays a fold',
+        str_contains($js, "const look = el('section', 'fb-look-open');") && str_contains($js, "const lookSum = el('h4', 'fb-q');")
+        && !str_contains($js, "keepFold(el('details', 'fb-fold'), `look:\${id}`") && str_contains($js, "const back = keepFold(el('details', 'fb-fold'), `back:\${id}`, false);")
+        && str_contains($css, '.fb-look-open{'));
+}

@@ -12,7 +12,8 @@
 //              ending, output 4 at full, new speeds — the panel stays output 1's, the running one is a click away;
 //   - reading  as «found», but he only clicked output 1's row (no field): the panel stays his all the same.
 // Also: the running output's panel says it waits for his answer (no «moves on»), and the strip counts down to the pause,
-// not to a next output. Dev-only.
+// not to a next output; the places offered per role (a CPU cooler «on the CPU» first), the look's picker open on the
+// setup tab, a CPU cooler on the CPU drawn among its zone's heat sources. Dev-only.
 //
 //   node tools/fanboy/setup-live.mjs [--width 1440|375] [-v]
 // Exit 1 on a failed check, 3: playwright-core or Chrome missing.
@@ -174,6 +175,48 @@ try {
       await ctx.close();
       if (h.close) await h.close();
     }
+  }
+  // ------------------------------------------------ the places and the look (2026-11-20, the owner's points 3 and 4)
+  for (const width of opt.widths) {
+    const h = await startHarness({ demo: true, alias: { fanboy: 'fanboy-uxfound' } });
+    const ctx = await browser.newContext({ viewport: { width, height: 900 }, isMobile: width < 768, hasTouch: width < 768, colorScheme: 'dark' });
+    await ctx.addInitScript(() => { try { localStorage.setItem('office.lang', 'en'); } catch (e) { /* none */ } });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(`${h.url}?theme=black#/fanboy/setup/test`, { waitUntil: 'load' });
+    await page.waitForSelector('#sso .fb-panel', { timeout: 15000 });
+    await page.waitForTimeout(800);
+    const panelOf = (n) => page.evaluate((k) => {
+      const p = document.querySelector(`#sso .fb-panel[data-fan$="pwm${k}"]`);
+      const sel = p && p.querySelector('.fb-fields select');
+      const look = p && p.querySelector('.fb-look-open');
+      return { opts: sel ? [...sel.options].map((o) => o.value) : [], open: !!look && look.offsetHeight > 0 && !!look.querySelector('.fan-pick'), fold: !!(p && p.querySelector('details.fb-fold .fan-pick')) };
+    }, n);
+    await page.click('#sso .fb-item[data-row$="pwm1"]');
+    await page.waitForTimeout(300);
+    const cpu = await panelOf(1);
+    check(`${width} places: the CPU cooler offers «on the CPU» first`, cpu.opts[1] === 'cpu' && cpu.opts.includes('inside'), JSON.stringify(cpu.opts));
+    check(`${width} look: the look's picker shown open, in no fold`, cpu.open && !cpu.fold, JSON.stringify(cpu));
+    await page.click('#sso .fb-item[data-row$="pwm4"]');
+    await page.waitForTimeout(300);
+    const cage = await panelOf(4);
+    check(`${width} places: the disk cage a wall first, never «on the CPU», «inside» offered`, cage.opts[1] === 'front' && !cage.opts.includes('cpu') && cage.opts.includes('inside'), JSON.stringify(cage.opts));
+    check(`${width} places: no error`, !errors.length, errors.join(' | '));
+    await ctx.close();
+    if (h.close) await h.close();
+    // the picture: a CPU cooler on the CPU sits among the heat sources of its zone
+    const h2 = await startHarness({ demo: true, alias: { fanboy: 'fanboy-cpu' } });
+    const ctx2 = await browser.newContext({ viewport: { width, height: 900 }, isMobile: width < 768, hasTouch: width < 768, colorScheme: 'dark' });
+    const page2 = await ctx2.newPage();
+    await page2.goto(`${h2.url}?theme=black#/fanboy`, { waitUntil: 'load' });
+    await page2.waitForSelector('#sso .fan-server .fan-zone', { timeout: 15000 });
+    await page2.waitForTimeout(800);
+    const inner = await page2.evaluate(() => [...document.querySelectorAll('#sso .fan-server .fan-zone')].map((z) => ({ id: z.dataset.id, inner: z.querySelectorAll('.fan-heat .fan-inner .fan-wheel').length })));
+    check(`${width} picture: the CPU zone's cooler drawn among its heat sources`, inner.some((z) => z.id === 'cpu' && z.inner >= 1) && inner.filter((z) => z.id !== 'cpu').every((z) => z.inner === 0), JSON.stringify(inner));
+    check(`${width} picture: no horizontal scroll`, !(await page2.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), '');
+    await ctx2.close();
+    if (h2.close) await h2.close();
   }
 } finally {
   await browser.close();

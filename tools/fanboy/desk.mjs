@@ -130,8 +130,8 @@ const PICTURES = [
   ['ux-2-1-before', 'fanboy-fresh', 'fanboy/setup/test', null, false],
   ['ux-2-2-running', 'fanboy-uxrun', 'fanboy/setup/test', null, false],
   ['ux-2-3-pause', 'fanboy-uxpause', 'fanboy/setup/test', null, false],
-  ['ux-2-4-assigned', 'fanboy-uxfound', 'fanboy/setup/test', ['.fb-item[data-row$=pwm4]', '.fb-panel[data-fan$=pwm4] .fb-fold summary'], false],
-  ['ux-2-7-look', 'fanboy-uxfound', 'fanboy/setup/test', ['.fb-item[data-row$=pwm5]', '.fb-panel[data-fan$=pwm5] .fb-fold summary'], false],      // «Aussehen (fürs Bild)»: a black copy of a beige model — «Von dir angepasst»
+  ['ux-2-4-assigned', 'fanboy-uxfound', 'fanboy/setup/test', ['.fb-item[data-row$=pwm4]'], false],
+  ['ux-2-7-look', 'fanboy-uxfound', 'fanboy/setup/test', ['.fb-item[data-row$=pwm5]'], false],      // «Aussehen (fürs Bild)»: a black copy of a beige model — «Von dir angepasst»
   ['ux-2-5-safety', 'fanboy-uxsafety', 'fanboy/setup/test', null, false],
   // … and the other steps in the same parts: rows to read, the measuring (idle and running), the zones (none yet, two), the
   // dry run (before and after), take over and handed over; the overview while a show runs

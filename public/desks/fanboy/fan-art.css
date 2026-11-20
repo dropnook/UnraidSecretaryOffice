@@ -133,6 +133,7 @@
 .fan-wall-top{grid-area:top}
 .fan-wall-bottom{grid-area:bottom}
 .fan-heat{grid-area:heat; position:relative; z-index:1; display:flex; flex-wrap:wrap; align-content:center; justify-content:center; gap:6px; min-width:0; padding:2px 0}
+.fan-inner{display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:8px 14px; width:100%; padding:2px 0 4px}   /* fans on the CPU or inside the case: among the heat sources */
 .fan-flow{position:absolute; inset:4px; z-index:0; overflow:hidden; pointer-events:none}     /* no rounded clip, no mask: either would repaint every frame */
 .fan-flow-x .fan-streak{left:0; top:var(--fan-at); width:20%; height:2px; background:linear-gradient(to right, transparent, var(--fan-flow) 50%, transparent)}
 .fan-flow-y .fan-streak{top:0; left:var(--fan-at); height:20%; width:2px; background:linear-gradient(to bottom, transparent, var(--fan-flow) 50%, transparent)}

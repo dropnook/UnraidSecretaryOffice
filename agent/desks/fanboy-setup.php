@@ -43,7 +43,9 @@ const FANBOY_STOP_CPU_MAX = 70.0;       // round 12, a CPU cooler's standstill p
 const FANBOY_STOP_CPU_RISE = 15.0;      // … or when the CPU rose this much during it (a missing reading: at once too) — the
                                         // rise by the smoothed CPU (round 12 fix: fanboyCpuGuard()), the 70 °C by any reading
 const FANBOY_START_CONFIRM = 2;         // round 12 fix: a start from standstill found is tried this many times more
-const FANBOY_PLACES = ['front', 'rear', 'top', 'bottom', 'side'];
+// where a fan sits: a wall of the case — or (2026-11-20, the owner: «on the CPU» or «in the case» missing) on the CPU (a
+// CPU cooler's fan) or inside the case, on no wall (a RAM or NVMe fan, a pump's); additive, the walls keep their meaning
+const FANBOY_PLACES = ['front', 'rear', 'top', 'bottom', 'side', 'cpu', 'inside'];
 const FANBOY_NAME_MAX = 40;             // characters of a fan's name at most
 const FANBOY_COUNT_MAX = 8;             // fans on one connector at most (a hub): the page draws as many wheels
 const FANBOY_ZONES_MAX = 8;

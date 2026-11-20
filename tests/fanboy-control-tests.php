@@ -592,7 +592,7 @@ function testFanboySteps(): void
         fanboyRole(['fan' => $ids[3], 'role' => 'disks', 'name' => 'Cage', 'place' => 'front']);
         fanboyRole(['fan' => $ids[4], 'role' => 'case', 'name' => 'Front', 'place' => 'front']);
         $refused = [];
-        foreach ([['fan' => $ids[3], 'role' => 'boss'], ['fan' => $ids[3], 'role' => 'case', 'place' => 'inside'], ['fan' => $ids[3], 'role' => 'case', 'off_ok' => true],
+        foreach ([['fan' => $ids[3], 'role' => 'boss'], ['fan' => $ids[3], 'role' => 'case', 'place' => 'middle'], ['fan' => $ids[3], 'role' => 'case', 'off_ok' => true],
                   ['fan' => $ids[2], 'role' => 'case'], ['fan' => $ids[3], 'role' => 'case', 'name' => str_repeat('x', 41)]] as $r) {
             try {
                 fanboyRole($r);

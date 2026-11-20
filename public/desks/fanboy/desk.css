@@ -204,7 +204,7 @@
   .fb-bench{display:flex; flex-direction:column; gap:12px; min-width:0}
   /* (office.css gives .input.small a flex-basis of 180px for its filter rows — in a column that would be a height) */
   .input.small.fb-input{max-width:100%; flex:0 0 auto}
-  .fb-fold .fan-pick select.fb-input{width:100%}
+  .fb-fold .fan-pick select.fb-input, .fb-look-open .fan-pick select.fb-input{width:100%}
   /* (a point's typed degrees and value under the chart: room for «39.5» and the browser's little arrows) */
   .input.small.fb-input.fan-curve-input{width:84px}
   select.fb-input{padding-right:22px}
@@ -305,6 +305,7 @@
   .fb-panel-note{margin:0; font-size:13px; line-height:1.45; color:var(--ink2); min-height:1.45em}
   .fb-fold > summary{cursor:pointer; color:var(--accent-ink); font-size:13px; padding:2px 0}
   .fb-fold-body{display:flex; flex-direction:column; gap:8px; margin-top:8px}
+  .fb-look-open{border-top:1px solid var(--line); padding-top:12px}
   /* «Aussehen (fürs Bild)»: the model proposes (picker left, the fan as it will be drawn right), then four controls of his
      own — frame colour, wheel colour (swatches made of the wheel's own colour tokens), the blades' shape (each a tiny
      drawn sample) and their number */

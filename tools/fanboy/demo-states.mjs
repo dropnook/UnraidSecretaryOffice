@@ -315,7 +315,8 @@ function steering(more = {}) {
 }
 const fresh = () => state({ ite: ite({}, RPM) });
 // round 4: the CPU cooler given to Fanboy on the owner's risk (ticked 3 days ago), in a zone of its own on the CPU's temperatures
-const CPU_OWN = SET_UP.map((f) => (f.output === 1 ? { ...f, cpu_own: T0 - 3 * 86400 + 600, measured: true, min_pct: 20, start_pct: 25, max_rpm: 1800,
+// (2026-11-20: its fans sit on the CPU — the picture draws them among the heat sources, on no wall)
+const CPU_OWN = SET_UP.map((f) => (f.output === 1 ? { ...f, place: 'cpu', cpu_own: T0 - 3 * 86400 + 600, measured: true, min_pct: 20, start_pct: 25, max_rpm: 1800,
   table: [[100, 1800], [80, 1460], [60, 1100], [40, 740], [20, 380]] } : f));
 const CPU_ZONE = { id: 'cpu', name: 'CPU', fans: [P(1)], unit: 'pct', target: { preset: 'normal' }, low: null, high: null,
   sources: ['Package id 0', 'Core 0', 'Core 4'].map((l) => ({ kind: 'cpu', id: CPU_SRC(l), low: null, high: null, limit: null })), react: 'balanced', kinds: { cpu: { high: 75 } } };
