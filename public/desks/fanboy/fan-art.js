@@ -73,6 +73,8 @@
          warmest: source id                      optional; else the warmest temp of the zone (asleep and null left out)
        }, …] }
      opts.texts: { temp(t) → '41 °C', asleep → 'asleep', warmest → 'warmest', none → 'no heat source' }; opts.px: the wheels' size (46);
+                 opts.sized: true — each wheel by its fan's size around px (a 120 mm one px, an 80 mm one smaller, a 140 mm
+                 one bigger: sizedPx()); off by default (a proposal, 2026-11-20 — no page uses it yet)
                  opts.air: false — no air at all (the zones' and the fans')
 
    The curve editor (curve()):
@@ -162,6 +164,8 @@
   // ------------------------------------------------------------------------------------------------ the wheel
   /** Pixels for a fan of this size: a 200 mm fan bigger than an 80 mm one, but not 2.5 times */
   const pxOf = (mm) => Math.round(28 + 0.3 * mm);
+  /** … and around a given size (the server picture's opts.sized): 120 mm = px, 80 mm 0.8 px, 140 mm 1.1 px, 200 mm 1.4 px */
+  const sizedPx = (px, mm) => Math.round(px * pxOf(clamp(num(mm, 120), 40, 200)) / pxOf(120));
 
   /**
    * The blades' character (a model's look.style), each blade from the hub to the rim: w its width at the hub and wt at the
@@ -705,7 +709,7 @@
           const place = pick(fan.place, PLACES, 'front');
           const inside = INSIDE.includes(place);
           const side = inside ? wall.rear : wall[place];
-          const look = Object.assign({ px }, fan, { side, flow: inside ? 'out' : flowAt(fan, place), caption: inside || side !== 'right' ? 'right' : 'left' },
+          const look = Object.assign({ px: o.sized ? sizedPx(px, fan.mm) : px }, fan, { side, flow: inside ? 'out' : flowAt(fan, place), caption: inside || side !== 'right' ? 'right' : 'left' },
             o.air === false ? { air: false } : {});
           let w = wheels.get(key);
           if (w && w.el.fanWheel) w.update(look); else w = wheel(look);

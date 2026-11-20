@@ -9,7 +9,8 @@
 // throwaway profile, at 1440 and 375 px: the overview before the set-up (the BIOS's turning wheels), the overview while
 // he steers, the set-up tab with a test running (the mouse resting on a row's chip), the zone editor (the wheels beside
 // the curve). For each:
-//   - also with the picture pushed to the window's right edge (the harness pads the page; Unraid's layout may not);
+//   - also with the picture pushed to the window's right edge (the harness pads the page; Unraid's layout may not), and
+//     there with every wheel mirrored as a reverse-blade fan's (fan-art.css's own rule);
 //   - every animated part of his pictures has its clipping box inside the picture (the wheel's .fan-spin, the streaks'
 //     .fan-air, the zone's .fan-flow) — fails on code where something turns unclipped, wherever the page's edges are;
 //   - every animation stepped through 60 moments of its turn: the page's scrollWidth and scrollHeight stay;
@@ -112,12 +113,16 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // (the harness pads the page, so its edges are never near a wheel; Unraid's own layout and a window's width can put
   // one there — «at the edge» pushes the picture's right wall to the window's edge and ends the page under it)
   const EDGE = '#sso .fan-server{margin-right:-28px} #sso .section:not(:first-child){display:none}';
+  const REVERSED = (fs.readFileSync(path.join(REPO, 'public', 'desks', 'fanboy', 'fan-art.css'), 'utf8').match(/\.fan-reverse \.fan-spin\{[^}]+\}/) || [''])[0]
+    .replace('.fan-reverse .fan-spin', '#sso .fan-wheel .fan-spin');
   const SCENES = [
     ['overview before the set-up', 'fanboy-fresh', 'fanboy', '#sso .fan-server .fan-wheel', null],
     ['overview, the picture at the window\'s edge', 'fanboy-fresh', 'fanboy', '#sso .fan-server .fan-wheel', null, EDGE],
     ['overview while he steers', 'fanboy', 'fanboy', '#sso .fan-server .fan-wheel', null],
     ['set-up, a test running', 'fanboy-uxrun', 'fanboy/setup/test', '#sso .fb-panel .fan-wheel', '#sso .fb-item .chip'],
     ['zone editor', 'fanboy-ready', 'fanboy/setup/zones', '#sso .fan-wheel', null],
+    // 2026-11-20 (reverse blades): every wheel's turning box mirrored as fan-art.css mirrors a reverse fan's, at the edge
+    ['overview at the edge, every wheel a reverse-blade one', 'fanboy', 'fanboy', '#sso .fan-server .fan-wheel', null, `${EDGE} ${REVERSED}`],
   ];
   const browser = await pw.chromium.launch({ executablePath: chrome, headless: true, args: ['--no-first-run'] });
   try {

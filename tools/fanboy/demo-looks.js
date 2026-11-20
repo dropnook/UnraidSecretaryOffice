@@ -65,6 +65,22 @@
         const look = Object.assign({}, p12.look, { frame: c, blades: c, hub: c, sticker_colour: c });
         crow.appendChild(FanArt.wheel(wheelOf(p12, { look, label: names[c] || c, sub: '', px: 96 })).el);
       }
+      // a proposal (not on any page yet): one zone with an 80, a 120 and a 140 mm fan — as today (all the same size) and by size
+      const sz = part(de ? 'Vorschlag: Grössen im Zonenbild' : 'Proposal: sizes in the zone picture',
+        de ? 'Oben wie heute (jeder Lüfter gleich gross), unten nach Grösse: 80 mm kleiner, 140 mm grösser.' : 'Above as today (every fan the same size), below by size: 80 mm smaller, 140 mm bigger.', 'fl-sizes');
+      const zfan = (id, more) => { const f = Object.assign(wheelOf(by(id)), more); delete f.px; delete f.air; return f; };      // as the page passes them: no size of their own
+      const zone = { id: 'case', name: de ? 'Gehäuse' : 'Case', note: '42 %', fans: [
+        zfan('noctua-nf-a8-pwm', { id: 'a', label: 'NF-A8', sub: '80 mm', place: 'front', rpm: 1300 }),
+        zfan('arctic-p12-pwm-pst', { id: 'b', label: 'P12', sub: '120 mm', place: 'front', rpm: 900 }),
+        zfan('noctua-nf-a14-pwm', { id: 'c', label: 'NF-A14', sub: '140 mm', place: 'rear', rpm: 800 })],
+      sources: [{ id: 'cpu', label: 'CPU', kind: 'cpu', temp: 52, limit: 85 }, { id: 'd1', label: de ? 'Disk 1' : 'Disk 1', kind: 'disk', temp: 37, limit: 45 }] };
+      const texts = { temp: (t) => `${t} °C`, asleep: 'asleep', warmest: 'warmest', none: '–' };
+      for (const sized of [false, true]) {
+        const z = FanArt.server({ zones: [Object.assign({}, zone, { id: sized ? 'sized' : 'today' })] }, { px: 46, sized, texts });
+        z.el.style.maxWidth = '640px';
+        z.el.style.marginBottom = '12px';
+        sz.appendChild(z.el);
+      }
       document.documentElement.dataset.looks = String(fans.length);
       return;
     }
