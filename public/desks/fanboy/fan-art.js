@@ -115,10 +115,11 @@
   const LOOK_COLOURS = ['black', 'charcoal', 'graphite', 'grey', 'silver', 'white', 'beige', 'brown', 'frost', 'red', 'orange', 'yellow', 'green', 'blue', 'purple'];
   const DARK = ['black', 'charcoal', 'graphite', 'grey', 'brown', 'red', 'green', 'blue', 'purple'];   // a sticker of these carries light letters
   const STYLES = ['swept-narrow', 'swept-wide', 'broad', 'short-broad', 'straight', 'sickle', 'sickle-wide'];
-  const SHAPES = ['square', 'ring', 'pads', 'corner'];
+  const SHAPES = ['square', 'ring', 'pads', 'corner', 'block'];
   // what covers the hub (2026-11-20, a maker's signature, drawn at every size): a flat badge (sticker), a badge with a light
-  // ring round it (ring), a metal medallion (metal), a lit, frosted centre (glow), a square plate (plate)
-  const HUB_KINDS = ['sticker', 'ring', 'metal', 'glow', 'plate'];
+  // ring round it (ring), a metal medallion (metal), a lit, frosted centre (glow), a square plate (plate), a plain cap with
+  // a small light centre (dot), a cap with four lobes at its edge (lobed); look.accent: the ring's or the centre's colour
+  const HUB_KINDS = ['sticker', 'ring', 'metal', 'glow', 'plate', 'dot', 'lobed'];
   let uid = 0;                     // each picture's own gradients: ids unique on the page (their colours are its own)
   const STICKER_PX = 72;           // the model's name on the hub only where the wheel is at least this big
   const GLIDE_MS = 900;            // a new speed glides in over this long, never a jump
@@ -305,7 +306,7 @@
     if (ring) return s;
     for (const [x, y] of CORNERS) {
       if (shape === 'pads') s.appendChild(svg('path', { class: 'fan-pad', 'fill-rule': 'evenodd', d: padPath(x, y) + hole(x, y, SCREW) }));
-      if (shape === 'corner') s.appendChild(svg('path', { class: 'fan-pad', 'fill-rule': 'evenodd', d: cornerPath(x, y) + hole(x, y, SCREW) }));
+      if (shape === 'corner' || shape === 'block') s.appendChild(svg('path', { class: 'fan-pad', 'fill-rule': 'evenodd', d: cornerPath(x, y, shape === 'block' ? 28 : 19) + hole(x, y, SCREW) }));
       s.appendChild(svg('circle', { class: 'fan-screw', cx: x, cy: y, r: SCREW }));
     }
     return s;
@@ -319,10 +320,9 @@
     return `M${p(9, 0)}H${(cx + sx * a).toFixed(2)}Q${p(a - 1, 6)} ${p(10.5, 10.5)}Q${p(6, a - 1)} ${p(0, a)}V${(cy + sy * 9).toFixed(2)}A9 9 0 0 ${sx === sy ? 1 : 0} ${p(9, 0)}Z`;
   }
   /** A corner piece: a triangle over the frame's corner, its long side cut straight across toward the opening (NF-A14) */
-  function cornerPath(x, y) {
+  function cornerPath(x, y, a) {                                           // a: its reach along each side (block: a big solid one)
     const sx = x < 50 ? 1 : -1, sy = y < 50 ? 1 : -1;
     const cx = x < 50 ? 1 : 99, cy = y < 50 ? 1 : 99;
-    const a = 19;                                                            // its reach along each side
     const p = (dx, dy) => `${(cx + sx * dx).toFixed(2)} ${(cy + sy * dy).toFixed(2)}`;
     return `M${p(10, 0)}H${(cx + sx * a).toFixed(2)}L${p(0, a)}V${(cy + sy * 10).toFixed(2)}A10 10 0 0 ${sx === sy ? 1 : 0} ${p(10, 0)}Z`;
   }
@@ -360,8 +360,17 @@
         s.appendChild(disc);
         if (kind === 'metal') for (const k of [0.72, 0.42]) s.appendChild(svg('circle', { class: 'fan-badge-line', cx: 50, cy: 50, r: (r * k).toFixed(2) }));
       } else {
+        if (kind === 'lobed') {
+          // four lobes at the cap's edge, on the diagonals (Phanteks' cap), under the disc
+          for (const a of [45, 135, 225, 315]) {
+            const [x, y] = pt(r * 1.0, a);
+            s.appendChild(svg('circle', { class: 'fan-badge-disc', cx: (50 + x).toFixed(2), cy: (50 + y).toFixed(2), r: (r * 0.34).toFixed(2) }));
+          }
+        }
         s.appendChild(svg('circle', { class: 'fan-badge-disc', cx: 50, cy: 50, r: r.toFixed(2) }));
         if (kind === 'ring') s.appendChild(svg('circle', { class: 'fan-badge-ring', cx: 50, cy: 50, r: (r * 0.86).toFixed(2) }));
+        // the light centre where no name is written on the cap (the name takes its place)
+        if (kind === 'dot' && !stickerShown(look, px)) s.appendChild(svg('circle', { class: 'fan-badge-dot', cx: 50, cy: 50, r: (r * 0.42).toFixed(2) }));
       }
       // a soft shine on the upper left (the light stays where it is: this layer doesn't turn)
       s.appendChild(svg('ellipse', { class: 'fan-shine', cx: (50 - rh * 0.32).toFixed(2), cy: (50 - rh * 0.42).toFixed(2), rx: (rh * 0.42).toFixed(2), ry: (rh * 0.2).toFixed(2),
@@ -395,7 +404,7 @@
       shape: pick(l.shape, SHAPES, 'square'), vanes: clamp(Math.round(num(l.vanes, 0)), 0, 15), rim: l.rim === true,
       sticker: sticker && sticker.length ? sticker : null, sticker_colour: pick(l.sticker_colour, LOOK_COLOURS, 'black'),
       hub_size: typeof l.hub_size === 'number' && isFinite(l.hub_size) ? clamp(l.hub_size, 0.2, 0.6) : null,
-      struts: clamp(Math.round(num(l.struts, 0)), 0, 24), reverse: l.reverse === true, hub_kind: pick(l.hub_kind, HUB_KINDS, 'sticker') };
+      struts: clamp(Math.round(num(l.struts, 0)), 0, 24), reverse: l.reverse === true, hub_kind: pick(l.hub_kind, HUB_KINDS, 'sticker'), accent: pick(l.accent, LOOK_COLOURS, null) };
   }
 
   /** The still picture's speed (reduced motion): an arc round the opening, its length the speed */
@@ -606,12 +615,12 @@
       // fan): it paints the whole fan — frame, blades and hub —; the model keeps its shape, pads and name. «accent» stays
       // a mark on the wheel alone (the page's «this one runs now»).
       const edition = !!(look && colour !== 'auto' && colour !== 'accent');
-      const paint = look ? { '--fan-frame': edition ? null : look.frame, '--fan-pad': look.pads, '--fan-tag': look.sticker_colour,
+      const paint = look ? { '--fan-frame': edition ? null : look.frame, '--fan-pad': look.pads, '--fan-tag': look.sticker_colour, '--fan-accent': look.accent,
         '--fan-blade': own ? look.blades : null, '--fan-hub': own ? look.hub : null } : {};
       const paintKey = JSON.stringify(paint) + (look ? look.hub_kind : '');
       if (painted !== paintKey) {
         painted = paintKey;
-        for (const v of ['--fan-frame', '--fan-pad', '--fan-tag', '--fan-blade', '--fan-hub']) {
+        for (const v of ['--fan-frame', '--fan-pad', '--fan-tag', '--fan-accent', '--fan-blade', '--fan-hub']) {
           if (paint[v]) root.style.setProperty(v, `var(--fan-k-${paint[v]})`); else root.style.removeProperty(v);
         }
         if (look) root.style.setProperty('--fan-tag-ink', DARK.includes(look.sticker_colour) && !['metal', 'glow'].includes(look.hub_kind) ? 'var(--gray-100)' : 'var(--gray-800)');

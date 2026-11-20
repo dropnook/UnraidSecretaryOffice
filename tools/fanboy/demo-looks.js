@@ -57,7 +57,8 @@
       for (const px of [120, 46, 40, 28]) {
         const row = el('div', 'fl-wheels');
         sm.appendChild(row);
-        for (const id of ['noctua-nf-a8-pwm', 'noctua-nf-a14-pwm', 'noctua-nf-a14x25-g2-pwm', 'arctic-p12-pwm-pst', 'lian-li-uni-fan-sl-v2-120', 'thermalright-tl-c12c']) {
+        for (const id of ['noctua-nf-a8-pwm', 'noctua-nf-a14-pwm', 'noctua-nf-a14x25-g2-pwm', 'arctic-p12-pwm-pst', 'lian-li-uni-fan-sl-v2-120', 'thermalright-tl-c12c',
+          'be-quiet-silent-wings-4-120mm-pwm', 'corsair-af120-elite', 'phanteks-m25g2-120', 'silverstone-air-penetrator-184i-pro']) {
           row.appendChild(FanArt.wheel(wheelOf(by(id), px < 120 ? { px, label: '', sub: '', title: '' } : { px })).el);
         }
       }

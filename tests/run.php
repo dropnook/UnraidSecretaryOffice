@@ -65755,7 +65755,7 @@ function testFanboyLook(): void
     // 2026-11-20 (the owner: «zu wenig Angleichung an das Originalprodukt»): the hub's size, the struts, reverse blades
     $lookColours = ['black', 'charcoal', 'graphite', 'grey', 'silver', 'white', 'beige', 'brown', 'frost', 'red', 'orange', 'yellow', 'green', 'blue', 'purple'];
     $styles = ['swept-narrow', 'swept-wide', 'broad', 'short-broad', 'straight', 'sickle', 'sickle-wide'];
-    $lookKeys = ['frame', 'blades', 'hub', 'pads', 'style', 'shape', 'vanes', 'rim', 'sticker', 'sticker_colour', 'hub_size', 'struts', 'reverse', 'hub_kind'];
+    $lookKeys = ['frame', 'blades', 'hub', 'pads', 'style', 'shape', 'vanes', 'rim', 'sticker', 'sticker_colour', 'hub_size', 'struts', 'reverse', 'hub_kind', 'accent'];
     $lookOk = function ($l, array $f) use ($lookColours, $lookKeys, $styles): bool {
         if (!is_array($l) || array_keys($l) !== $lookKeys) {
             return false;
@@ -65765,11 +65765,11 @@ function testFanboyLook(): void
         }
         $lines = is_string($l['sticker']) ? explode("\n", $l['sticker']) : [];
         return in_array($l['frame'], $lookColours, true) && in_array($l['blades'], $lookColours, true) && in_array($l['hub'], $lookColours, true)
-            && ($l['pads'] === null || in_array($l['pads'], $lookColours, true)) && ($l['pads'] === null) === !in_array($l['shape'], ['pads', 'corner'], true)
+            && ($l['pads'] === null || in_array($l['pads'], $lookColours, true)) && ($l['pads'] === null) === !in_array($l['shape'], ['pads', 'corner', 'block'], true)
             && in_array($l['style'], $styles, true)
-            && in_array($l['shape'], ['square', 'ring', 'pads', 'corner'], true) && is_int($l['vanes']) && $l['vanes'] >= 0 && $l['vanes'] <= 15
+            && in_array($l['shape'], ['square', 'ring', 'pads', 'corner', 'block'], true) && is_int($l['vanes']) && $l['vanes'] >= 0 && $l['vanes'] <= 15
             && ($l['hub_size'] === null || ((is_float($l['hub_size']) || is_int($l['hub_size'])) && $l['hub_size'] >= 0.2 && $l['hub_size'] <= 0.6))
-            && is_int($l['struts']) && $l['struts'] >= 0 && $l['struts'] <= 24 && is_bool($l['reverse']) && in_array($l['hub_kind'], ['sticker', 'ring', 'metal', 'glow', 'plate'], true)
+            && is_int($l['struts']) && $l['struts'] >= 0 && $l['struts'] <= 24 && is_bool($l['reverse']) && in_array($l['hub_kind'], ['sticker', 'ring', 'metal', 'glow', 'plate', 'dot', 'lobed'], true) && ($l['accent'] === null || in_array($l['accent'], $lookColours, true))
             && is_bool($l['rim']) && in_array($l['sticker_colour'], $lookColours, true)
             // the sticker: the model's name as plain text, 1-3 short lines, never the maker's name (no brand mark)
             && count($lines) >= 1 && count($lines) <= 3 && !array_filter($lines, fn ($x) => trim($x) === '' || mb_strlen($x) > 10 || preg_match('~[<>&]~', $x))
@@ -65956,15 +65956,15 @@ JS);
     same('fanboy look: … an unknown range is 20 % … 100 % of 2000 rpm, faster never turns slower, the slow half differs more than the fast one',
         [1.1, true, true], [$o['unknown'] ?? null, $o['rising'] ?? null, $o['eased'] ?? null]);
     same('fanboy look: the keys a caller may pass (colours, states, kinds, flows)', [7, 'run,stopped,unknown,bios,empty', 7, 'in,out'], $o['keys'] ?? null);
-    same('fanboy look: … and a look may use (the catalogue\'s own lists)', [implode(',', $lookColours), implode(',', $styles), 'square,ring,pads,corner'], $o['lookKeys'] ?? null);
+    same('fanboy look: … and a look may use (the catalogue\'s own lists)', [implode(',', $lookColours), implode(',', $styles), 'square,ring,pads,corner,block'], $o['lookKeys'] ?? null);
     same('fanboy look: a look as the wheel takes it — none stays none (the neutral wheel), a model\'s kept (the hub in the blades\' colour when not given), unknown names and shapes dropped',
         [null, ['frame' => 'beige', 'blades' => 'brown', 'hub' => 'brown', 'pads' => 'brown', 'style' => 'sickle', 'shape' => 'pads', 'vanes' => 11, 'rim' => true, 'sticker' => ['NF-', 'F12'], 'sticker_colour' => 'brown',
-            'hub_size' => null, 'struts' => 0, 'reverse' => false, 'hub_kind' => 'sticker'],
+            'hub_size' => null, 'struts' => 0, 'reverse' => false, 'hub_kind' => 'sticker', 'accent' => null],
             ['frame' => null, 'blades' => null, 'hub' => null, 'pads' => null, 'style' => '', 'shape' => 'square', 'vanes' => 15, 'rim' => false, 'sticker' => ['<b>'], 'sticker_colour' => 'black',
-            'hub_size' => 0.6, 'struts' => 0, 'reverse' => false, 'hub_kind' => 'sticker'],
+            'hub_size' => 0.6, 'struts' => 0, 'reverse' => false, 'hub_kind' => 'sticker', 'accent' => null],
             // «reverse» alone: the neutral wheel (the wheel takes the reverse itself); the new colours, shape and style kept
             null, ['frame' => 'red', 'blades' => 'blue', 'hub' => 'blue', 'pads' => 'green', 'style' => 'sickle-wide', 'shape' => 'corner', 'vanes' => 0, 'rim' => false, 'sticker' => null, 'sticker_colour' => 'black',
-            'hub_size' => 0.3, 'struts' => 4, 'reverse' => true, 'hub_kind' => 'metal']],
+            'hub_size' => 0.3, 'struts' => 4, 'reverse' => true, 'hub_kind' => 'metal', 'accent' => null]],
         $o['look'] ?? null);
 }
 

@@ -286,6 +286,13 @@ Silent Wings 4 120 mm a very large hub (0.5); Fractal's Dynamic 3 pages are the 
 AF and RS frames have solid corner blocks; SilverStone's AP184i shows a rear grille of many ribs (20 thin struts). All of
 it a likeness for the picture, never a fact on the page.
 
+Pushed further for the black makers (2026-11-20, the owner: «stärker unterscheiden»), drawn by us from their photos, no
+logos: **be quiet!** a badge with a thin orange ring (`ring`, `accent: orange` — the orange lettering on its stickers);
+**Corsair** AF/RS large solid corner blocks (`block`, a shade lighter to show their form) and a plain cap with a light
+centre (`dot`, the place of its grey emblem); **Phanteks** a cap with four lobes at its edge (`lobed`, the M25 G2's cap, drawn
+mid grey so its lobes show — the real cap is black); **SilverStone** a large hub, long sickle
+blades and its rear grille shown (lighter ribs).
+
 ## Generic sizes (2026-11-20)
 
 The owner: «für jede Marke min. 1 80er 120er 140er 200er wäre nice, auch wenn Design zwischen Grösse geraten ist». Where a
