@@ -39503,6 +39503,10 @@ function testPartnerStart(): void
         [array_column($o1['steps'] ?? [], 'do'), $o1['blockers'] ?? null, array_key_exists('conflict', $o1['options'] ?? []) ? $o1['options']['conflict'] : 'x', $o1['options']['package'] ?? null, $o1['options']['found'] ?? null,
          array_values(array_intersect(array_column($o1['notes'] ?? [], 'key'), ['note.partner_start_into', 'note.partner_start_into_stays', 'note.partner_start_package', 'note.partner_start_copy_only'])),
          $o1['target']['vm'] ?? null], json_encode($o1));
+    same('partner start of one VM: the record names the VM, where it came to and from whom — not the share',
+        [['kind' => 'vm', 'name' => 'NewVM', 'to' => "$u3/appdata/NewVM"], 'NewVM ← homeserver'], [$o1['target']['one'] ?? null, $o1['what'] ?? null]);
+    same('partner start: … a VM\'s own unit likewise; a start from a share\'s row names no one VM', [['kind' => 'vm', 'name' => 'Debian_VM'], false],
+        [array_intersect_key($plan(['unit' => 'vm:Debian_VM', 'snap' => 'uso-backup-20261007-0200', 'beside' => true])['target']['one'] ?? [], ['kind' => 1, 'name' => 1]), isset($i1['target']['one'])]);
     same('partner start of one VM: … the copy of its folder alone into its place, then its start; room for that folder only', ["$mntP/NewVM", "$u3/appdata/NewVM", 'vm', true, 10 + 2000, ['after.partner_start_vm', 'after.partner_start_keep']],
         [$byDo($o1, 'copy')[0]['from'] ?? null, $byDo($o1, 'copy')[0]['to'] ?? null, $byDo($o1, 'start_from')[0]['kind'] ?? null, $byDo($o1, 'start_from')[0]['define'] ?? null, $o1['sizes']['need'] ?? null, array_column($o1['after'] ?? [], 'key')]);
     $o2 = $one('Present');

@@ -1810,6 +1810,9 @@ function rsPlanPartnerStart(array $r, string $stamp): array
         }
         $vmStep = ['do' => 'start_from', 'kind' => 'vm', 'name' => $vm, 'define' => $define, 'define_why' => $why, 'partner' => $name, 'mount' => $mnt, 'libvirt' => rspLibvirt(), 'templates' => rspTemplates()];
     }
+    if ($to !== null && in_array($kind, ['vm', 'app'], true)) {
+        $plan['target']['one'] = ['kind' => $kind, 'name' => $label, 'to' => $to];
+    }
     if ($to !== null) {
         $skip = $only !== null ? array_values(array_diff(array_column($plan['options']['found'], 'folder'), $only)) : [];
         $steps[] = ['do' => 'copy', 'from' => $mnt, 'to' => $to, 'into_empty' => true, 'replaces' => true, 'putback_to' => "$to.putback-{T}", 'partner' => $name]
@@ -2022,6 +2025,9 @@ function rspPlanOne(array &$plan, array &$steps, array $a): array
     }
     $pk['define'] = $start['define'] ?? null;
     $plan['options']['package'] = $pk;
+    // the record names what came back and where to (2026-11-20, the owner: «VM <name> ← <partner>», not the share)
+    $plan['target']['one'] = ['kind' => $f['kind'], 'name' => $f['name'], 'to' => $dest];
+    $plan['what'] = "{$f['name']} ← {$a['partner']}";
     $steps[] = ['do' => 'copy', 'from' => "{$a['mnt']}/$folder", 'to' => $dest, 'into_empty' => true, 'replaces' => true, 'putback_to' => "$dest.putback-{T}",
                 'partner' => $a['partner'], 'tops' => [$a['mnt']], 'within' => "{$a['user']}/{$a['share']}"];
     $steps[] = $start;

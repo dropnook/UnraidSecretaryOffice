@@ -973,7 +973,10 @@ the last 60 history lines only for a source the file has none for. **The file
   it is (no gzip, no copy), never through the mailbox; the dialog says first that it holds the licence key and the password
   hashes. Single files of the flash are never restored — download and copy by hand (`testFlashDownload`). «Kept for
   <partner>» names the apps and VMs inside each copy: read by his look job once per moment (`rspKeptPeek()`), never in a
-  tick, never on a pool asleep; its list has a filter bar of its own per partner (words, kind, «only with apps or VMs»).
+  tick, never on a pool asleep; its list has a filter bar of its own per partner (words, kind, «only with apps or VMs»),
+  so has «At <partner>» (words, kind); «Restored» (`journalBarRows()`): words, the kind of record as the bar's pick, how it
+  ended as a second pick of the desk's own (a `part` of the note line). A start of one app or VM carries `target.one`
+  {kind, name, to}: its record reads «VM <name> ← <partner>» (`journalOne()` reads older records of one too).
   «Start here…» of a share's copy into a share that holds data (`rspPlanInto()`, 2026-11-20): only the ticked apps' and
   VMs' own folders that are absent or empty come — a `copy` each from the read-only copy (`within` the share, its undo
   aside) and a `start_from` of that folder alone; nothing else of the share (no loose file of its root, no unticked
