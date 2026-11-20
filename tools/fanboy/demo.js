@@ -48,7 +48,11 @@
   if (q.get('only') === 'movie') {
     row.replaceChildren();
     for (const w of wheels) w.x.destroy();
-    const three = [['Slow', 340], ['Medium', 800], ['Fast', 1500]].map(([label, rpm]) => FanArt.wheel({ label, sub: rpmText(rpm), mm: 120, blades: 7, min: 300, max: 1500, rpm, colour: 'graphite' }));
+    // a model's look (the NF-A14x25 G2's, as fans-catalog.json has it): its struts behind show while it turns slowly and
+    // fade out faster (2026-11-20, the owner: dizzy struts)
+    const G2 = { frame: 'beige', blades: 'brown', hub: 'brown', pads: 'brown', style: 'sickle-wide', shape: 'corner', vanes: 0, rim: false, sticker: 'A14x25\nG2',
+      sticker_colour: 'brown', hub_size: 0.35, struts: 4, reverse: false, hub_kind: 'sticker', accent: null };
+    const three = [['Slow', 340], ['Medium', 800], ['Fast', 1500]].map(([label, rpm]) => FanArt.wheel({ label, sub: rpmText(rpm), mm: 140, blades: 9, min: 300, max: 1500, rpm, look: G2, px: 110 }));
     for (const x of three) row.appendChild(x.el);
     s1.querySelector('.fl-note').remove();
     const z = FanArt.server({ zones: [{ id: 'cage', name: 'Disk cage', fans: [

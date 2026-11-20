@@ -117,6 +117,14 @@ function testFanboyLookKeys(): void
     check('fanboy look keys: the overview draws each wheel by its fan\'s size; the Dashboard tile scales the symbol inside its fixed box',
         str_contains($js, "PIC_PX_PHONE : PIC_PX, sized: true });") && str_contains($dash, "'f.px=Math.min(' . FANBOY_DASH_SYM_PX . ',Math.round(' . FANBOY_DASH_SYM_PX . '*(28+0.3*(+f.mm||120))/70));")
         && str_contains($dash, 'sso-fb-sym{flex:none;display:flex;align-items:center;justify-content:center;width:'));
+    // 2026-11-20 (the owner: struts behind turning blades make one dizzy): turning more than slowly, the struts (and a
+    // grille) fade out and the blades' shading calms; a step with a gap, so a speed near the line never flickers it
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.css');
+    check('fanboy look keys: the struts fade out once the wheel turns more than slowly (FAST_ON 0.42 / FAST_OFF 0.32 turns a second, a gap), the shading calms; standing, slow and with reduced motion the full drawing',
+        str_contains($art, 'const FAST_ON = 0.42, FAST_OFF = 0.32;') && str_contains($art, 'fast = fast ? rate > FAST_OFF : rate > FAST_ON;')
+        && str_contains($art, "root.classList.toggle('fan-fast', fast);") && str_contains($css, '.fan-fast:not(.fan-still) .fan-struts{opacity:0}')
+        && str_contains($css, '.fan-struts{transition:opacity .35s ease-out}') && str_contains($css, '.fan-fast:not(.fan-still) .fan-gb-0{')
+        && str_contains($css, '.fan-frame{overflow:hidden}'));
     $agent = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-setup.php');
     check('fanboy look keys: the panel\'s one save passes the reverse key on to the look',
         str_contains($agent, "array_flip(['model', 'mm', 'blades', 'frame', 'wheel', 'style', 'colour', 'reverse'])"));
