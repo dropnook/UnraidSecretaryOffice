@@ -246,6 +246,16 @@ function testFanboyChipRead(): void
     mkdir("{$t['chiproot']}/dev/port");
     same('fanboy chip read: /dev/port that can\'t be opened — no_open, kept so', 'no_open', fanboyChipRead()['chip']['result']);
     fanboyTEnd();
+    // a link where /dev/port should be: never opened (nor followed)
+    $t = fanboyChipTree('link', ['drop' => ['dev/port']]);
+    file_put_contents("{$t['tmp']}/elsewhere", str_repeat("\xff", 0x100));
+    symlink("{$t['tmp']}/elsewhere", "{$t['chiproot']}/dev/port");
+    same('fanboy chip read: /dev/port a link — not opened (no_open), the file behind it untouched', ['no_open', str_repeat("\xff", 0x100)],
+        [fanboyChipRead()['chip']['result'], file_get_contents("{$t['tmp']}/elsewhere")]);
+    fanboyTEnd();
+    // the real one must be a character device: a plain file at the real path is refused (only the tests' tree takes one)
+    check('fanboy chip read: outside the tests\' tree only a character device is opened', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-chipid.php'),
+        "if (is_link(\$path) || (fanboySysRoot() === '' ? @filetype(\$path) !== 'char' : !is_file(\$path))) {"));
 
     // the real mechanics on a plain file standing for /dev/port: the whole sequence, nothing found (a file answers what
     // was written last — 0xff stays 0xff only where nothing was written); only the four bytes touched; and on Linux

@@ -173,6 +173,11 @@ function fanboySioScan(array $io): array
 /** /dev/port (the tests' tree: a regular file in its dev/) — byte by byte, PHP's buffers off: one read() of ONE port per in */
 function fanboyPortOpen(string $path): ?array
 {
+    // never through a link; the real one must be the kernel's character device (the tests' tree: a plain file)
+    clearstatcache();
+    if (is_link($path) || (fanboySysRoot() === '' ? @filetype($path) !== 'char' : !is_file($path))) {
+        return null;
+    }
     $f = @fopen($path, 'r+b');
     if ($f === false) {
         return null;
