@@ -85,7 +85,46 @@ function officeMigrateSteps(): array
         // the Team Lead's notification centre (lib/notifycenter.php): the switches it takes over (his own, the Night
         // Watchman's, Mr. Backupsy's «Notify on success») become its starting values; their keys stay
         ['id' => 'notify-center', 'version' => '1.68.0', 'run' => fn (string $dir, string $to): string => officeMigrateNotifyCenter($dir)],
+        // Ms. Dustdevil's cache up to 1.94.0 kept every /mnt mention of the flash (2026-11-19: 13 MB for 10 MB of text, read at
+        // every look): the flash search's part goes (she searches again, now bounded); the file before kept beside it
+        ['id' => 'cleanup-flash-cache', 'version' => '1.94.1', 'run' => fn (string $dir, string $to): string => officeMigrateCleanupCache($dir, $to)],
     ];
+}
+
+const OFFICE_MIGRATE_CL_CACHE      = 'cleanup/cache.json';
+const OFFICE_MIGRATE_CL_CACHE_SLIM = 1 << 20;       // smaller than this: nothing to change
+const OFFICE_MIGRATE_CL_CACHE_READ = 64 << 20;      // larger than this isn't read at all (put aside: she starts a new one)
+
+/**
+ * Step `cleanup-flash-cache`: a cache.json of Ms. Dustdevil's over OFFICE_MIGRATE_CL_CACHE_SLIM loses its 'flash' part
+ * (the next search makes it anew, bounded); one too large to read is put aside whole. Only a plain file (never through
+ * a link); the file before is renamed aside (<name>.before-<version>), never deleted.
+ */
+function officeMigrateCleanupCache(string $dir, string $to): string
+{
+    $file = "$dir/" . OFFICE_MIGRATE_CL_CACHE;
+    clearstatcache(true, $file);
+    $st = @lstat($file);
+    if ($st === false || ($st['mode'] & 0170000) !== 0100000) {
+        return 'nothing to change' . ($st !== false ? ' (no plain file)' : '');
+    }
+    if ($st['size'] < OFFICE_MIGRATE_CL_CACHE_SLIM) {
+        return sprintf('nothing to change (%d KB)', intdiv((int) $st['size'], 1024));
+    }
+    $data = $st['size'] <= OFFICE_MIGRATE_CL_CACHE_READ ? json_decode((string) @file_get_contents($file), true) : null;
+    $aside = officeMigrateAside($file, $to);
+    if ($aside === null) {
+        throw new RuntimeException("$file could not be put aside");
+    }
+    if (!is_array($data)) {
+        return sprintf('%s (%.1f MB) put aside as %s — too large or no JSON: she starts a new one', OFFICE_MIGRATE_CL_CACHE, $st['size'] / 1048576, basename($aside));
+    }
+    $lines = count((array) ($data['flash']['lines'] ?? []));
+    unset($data['flash']);
+    writeAtomic($file, jsonEncode($data));
+    clearstatcache(true, $file);
+    return sprintf('%s %.1f MB → %.1f MB (the flash search\'s %d mentions go; she searches again), the file before kept as %s',
+                   OFFICE_MIGRATE_CL_CACHE, $st['size'] / 1048576, (int) @filesize($file) / 1048576, $lines, basename($aside));
 }
 
 // Ms. Whereabouts' files (up to 1.30) => Ms. Dustdevil's (agent/lib/where.php WHERE_FILE, WHERE_SIZES_FILE) — names of

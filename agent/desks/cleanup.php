@@ -117,6 +117,18 @@ const CL_FRESH_DAYS   = 30;                        // a folder changed since the
 const CL_MEASURE_TTL  = 6 * 3600;                  // a candidate's measurement must be this fresh to be put away
 const CL_FLASH_TTL    = 1800;                      // search the flash again after this
 const CL_PARALLEL     = 2;                         // background jobs at once (purges don't wait)
+/*
+ * What one background job's output the agent keeps at most (2026-11-19, a user's /run full: 1.94 wrote the flash search's
+ * every /mnt mention into the RAM folder — ~1.2 × the text, 128 MB in 0.4 s —, clJobDone() then ran out of memory, the
+ * agent died before removing the file, and each restart under a new pid left one more). Now the last command's output
+ * comes through a pipe (clJobStart(), clJobPull()): no file anywhere; past this the job is stopped and its result partial.
+ * A job may ask for less ('max'), never more.
+ */
+const CL_JOB_OUT_MAX  = 512 * 1024;
+const CL_FLASH_FILE_MAX = 1024 * 1024;              // a file on the flash larger than this …
+const CL_FLASH_BULKY    = ['*.log', '*.log.*', 'syslog*'];   // … or a log: what it names is only «mentioned» (never in use, never unused)
+const CL_FLASH_PER_FILE = 200;                      // distinct places one file may name (share and first level); more = partial
+const CL_ICON_BATCH     = 4;                        // pictures checked per job: at most this × CL_ICON_MAX in the private folder at once
 const CL_LOCK_LOOK    = 5;                         // seconds between looks at the engine's lock from tick
 const CL_FOLDER_LIMIT = 2000;
 // Docker's volumes: Docker can't rename them, so what they hold is copied into the storeroom beside Docker's data first
@@ -556,8 +568,7 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         clIconQueue($raw['icons'], $deep);
     }
     if ($hired && time() - (int) ($cache['flash']['at'] ?? 0) > CL_FLASH_TTL) {
-        clJobAdd('flash', 'flash', [['grep', '-roI', '--exclude-dir=' . CL_TRASH, '--exclude-dir=' . CL_TRASH_OLD, '--exclude-dir=' . CL_LEGACY,
-                                     '-e', '/mnt/[^"<>[:space:]]*', CL_FLASH]], 300, true);
+        clJobAdd('flash', 'flash', clFlashSearch(CL_FLASH), 300, true);
     }
     if ($hired && ($deep || time() - (int) ($cache['strays']['at'] ?? 0) > CL_STRAY_TTL)) {
         // stray templates: the flash, and the pools only three levels deep (<share>/<folder>/my-*.xml — deeper
@@ -2067,7 +2078,7 @@ function clIconFetchResults(string $out, array $urls, string $dir): array
 /** The fetched pictures' folder in RAM, gone again */
 function clIconTidy(string $dir): void
 {
-    if (str_starts_with($dir, RUN_DIR . '/cleanup-icons')) {
+    if (str_starts_with($dir, officeTmpDir() . '/cleanup-icons')) {
         array_map('unlink', glob("$dir/*.png") ?: []);
         @rmdir($dir);
     }
@@ -2091,8 +2102,11 @@ function clIconQueue(array $icons, bool $again): void
         }
     }
     if ($urls) {
-        $urls = array_slice(array_keys($urls), 0, 40);
-        $dir = RUN_DIR . '/cleanup-icons-check';
+        $urls = array_slice(array_keys($urls), 0, CL_ICON_BATCH);     // the rest right after (clJobDone())
+        if (officeTmpEnsure() === null) {
+            return;                                  // no private folder for the pictures: checked another time
+        }
+        $dir = officeTmpDir() . '/cleanup-icons-check';     // never the RAM folder on /run (lib/rundir.php)
         clJobAdd('icons', 'icons', [clIconFetchCommand($urls, $dir)], 120, true, ['urls' => $urls, 'dir' => $dir]);
     }
 }
@@ -2996,7 +3010,8 @@ function clBuild(): array
         'restore_newer' => clRestoreNewer($raw['at'] ?? null, clBackupBusy()),     // a restore finished since: the page looks again
         'templates' => ['dir' => CL_TEMPLATES, 'list' => array_merge($templates, $raw['strays']),
                         'strays_at' => $cache['strays']['at'] ?? null, 'strays_searching' => $pending('strays:flash') || $pending('strays:pools'),
-                        'strays_skipped' => $cache['strays']['skipped'] ?? 0, 'strays_skipped_dirs' => $cache['strays']['skipped_dirs'] ?? []],
+                        'strays_skipped' => $cache['strays']['skipped'] ?? 0, 'strays_skipped_dirs' => $cache['strays']['skipped_dirs'] ?? [],
+                        'strays_partial' => !empty($cache['strays']['partial'])],
         'stacks'    => ['root' => $raw['stacks']['root'], 'exists' => $raw['stacks']['exists'], 'list' => $stacks],
         'scripts'   => $raw['scripts'] + ['dir' => CL_US_SCRIPTS],
         'flash'     => $raw['flash'] ?? ['dir' => clShareCfgDir(), 'known' => false, 'list' => []],
@@ -3008,6 +3023,8 @@ function clBuild(): array
             'mounters' => $mounters,
             'complete' => $complete,
             'flash_at' => $flash['at'] ?? null,
+            'flash_partial' => $searched && !($flash['ok'] ?? true),      // stopped at its limit or its time: «unused» is only «check»
+            'flash_bulky' => count((array) ($flash['bulky'] ?? [])),       // logs and long lists on the flash: what they name only «mentioned»
             'list'     => $folders,
         ],
         'vms'       => [
@@ -3017,6 +3034,7 @@ function clBuild(): array
             'domains'  => ['share' => $raw['domains']['share'], 'places' => array_values($raw['domains']['places']), 'asleep' => $raw['domains']['asleep']],
             'isos'     => ['share' => $raw['isos']['share'], 'places' => array_values($raw['isos']['places']), 'asleep' => $raw['isos']['asleep']],
             'complete' => $vmComplete,
+            'flash_partial' => $searched && !($flash['ok'] ?? true),
             'list'     => $vmItems,
         ],
         'leftovers' => ['restores' => (int) ($raw['leftovers']['restores'] ?? 0), 'asleep' => $raw['leftovers']['asleep'] ?? [], 'list' => $leftovers],
@@ -3070,12 +3088,13 @@ function clRefList(array $raw, ?array $flash): array
             $refs[] = [$p, 'vm', $v['name'], false];
         }
     }
+    $bulky = array_flip((array) ($flash['bulky'] ?? []));
     foreach ($flash['lines'] ?? [] as [$file, $p]) {
         if (under($file, CL_TEMPLATES) || under($file, $raw['stacks']['root'])) {
             continue;                                  // counted above, with their names
         }
         $rel = substr($file, strlen(CL_FLASH) + 1);
-        $refs[] = [$p, 'flash', $rel, (bool) preg_match(CL_WEAK, $rel)];
+        $refs[] = [$p, 'flash', $rel, (bool) preg_match(CL_WEAK, $rel) || isset($bulky[$file])];
     }
     return $refs;
 }
@@ -3170,6 +3189,10 @@ function clFolderEntries(array $list, array $tops, array $named, string $kind, b
         if (!$strong && $m['measured'] && $m['newest'] > $now - CL_FRESH_DAYS * 86400) {
             $notes[] = ['why' => 'fresh', 'days' => intdiv($now - $m['newest'], 86400)];
         }
+        $partial = !$strong && $complete && !(($cache['flash'] ?? [])['ok'] ?? true);
+        if ($partial) {
+            $notes[] = ['why' => 'flash_partial'];             // the rest of the flash may name it: never «unused»
+        }
         $category = !$known ? 'unknown' : ($strong ? 'used' : ($notes ? 'check' : 'unused'));
 
         $why = null;
@@ -3179,6 +3202,8 @@ function clFolderEntries(array $list, array $tops, array $named, string $kind, b
             $why = 'dataset';
         } elseif (!$complete) {
             $why = 'checking';
+        } elseif ($partial) {
+            $why = 'flash_partial';             // not fully checked: offered on no ground the search couldn't see (put away refused)
         } elseif ($m['measuring']) {
             $why = 'measuring';
         } elseif ($category !== 'used' && (!$m['measured'] || $m['at'] < $now - CL_MEASURE_TTL)) {
@@ -4446,6 +4471,7 @@ function clParkCheck(array $e, bool $force): void
             'dataset'       => new Problem('cleanup_dataset', $p),
             'own_fs'        => new Problem('cleanup_own_fs', $p),
             'checking'      => new Problem('cleanup_checking', $p),
+            'flash_partial' => new Problem('cleanup_flash_partial', $p),
             'vm_off'        => new Problem('cleanup_vm_off', $p),
             'in_unraid'     => new Problem('cleanup_in_unraid', $p),
             'vm_left'       => new Problem('cleanup_vm_left', $p + ['left' => implode(', ', array_map(fn ($x) => $x['zfs'] ?? $x['file'] ?? '', $e['left'] ?? []))]),
@@ -5608,7 +5634,8 @@ function clIconsApply(array $items): array
     }
 
     $web = array_values(array_unique(array_filter(array_column([...$todo, ...$stackTodo], 'pick'), fn ($u) => is_string($u) && !str_starts_with($u, 'file://'))));
-    $dir = RUN_DIR . '/cleanup-icons-' . getmypid();
+    officeTmpEnsure();
+    $dir = officeTmpDir() . '/cleanup-icons-' . getmypid();     // the private folder under /tmp, never /run (lib/rundir.php)
     $got = [];
     if ($web) {
         [, $out] = hostNet(clIconFetchCommand($web, $dir), 60);
@@ -6517,7 +6544,36 @@ function clMeasureQueue(string $path, int $ttl): void
     ], 3600);
 }
 
-/** $first: purges and the flash search don't wait behind measurements; $extra goes along to clJobDone() */
+/**
+ * The flash search's pipeline: every text file of the flash (binary ones skipped by grep, the storerooms never), every
+ * mention of /mnt cut to what clTopRefs() reads — /mnt/<disk or user>/<share>/<first level> — and each one once per file,
+ * at most CL_FLASH_PER_FILE per file (a file over that gets a line «#cut:<file>»: the search is partial). A mirrored
+ * syslog or a mover's list of a million episodes is a few lines here, not a million — nothing is left out, nothing grows.
+ */
+function clFlashSearch(string $root): array
+{
+    $awk = '{ i = index($0, ":/mnt/"); if (!i) next; f = substr($0, 1, i - 1); m = substr($0, i + 1); j = index(m, ":"); if (j) m = substr(m, 1, j - 1);'
+         . ' n = split(m, p, "/"); k = "/" p[2]; for (x = 3; x <= n && x <= 5; x++) k = k "/" p[x];'
+         . ' if ((f, k) in s) next; if (c[f] >= per) { if (!(f in cut)) { cut[f] = 1; print "#cut:" f } next } s[f, k] = 1; c[f]++; print f ":" k }';
+    return [
+        ['grep', '-roIH', '--exclude-dir=' . CL_TRASH, '--exclude-dir=' . CL_TRASH_OLD, '--exclude-dir=' . CL_LEGACY, '-e', '/mnt/[^"<>[:space:]]*', '--', $root],
+        ['awk', '-v', 'per=' . CL_FLASH_PER_FILE, $awk],
+    ];
+}
+
+/** A file on the flash whose mentions are only «mentioned»: a log, or larger than a settings file gets (CL_FLASH_FILE_MAX) */
+function clFlashBulky(string $file): bool
+{
+    foreach (CL_FLASH_BULKY as $glob) {
+        if (fnmatch($glob, basename($file), FNM_CASEFOLD)) {
+            return true;
+        }
+    }
+    clearstatcache(true, $file);
+    return (int) @filesize($file) > CL_FLASH_FILE_MAX;
+}
+
+/** $first: purges and the flash search don't wait behind measurements; $extra goes along to clJobDone() ('max': fewer bytes than CL_JOB_OUT_MAX) */
 function clJobAdd(string $key, string $type, array $pipeline, int $timeout, bool $first = false, array $extra = []): void
 {
     $jobs = &$GLOBALS['clJobs'];
@@ -6536,6 +6592,8 @@ function clJobsTick(): void
     }
     $changed = false;
     foreach ($jobs['running'] as $key => $job) {
+        $cut = clJobPull($jobs['running'][$key]);          // what it printed so far, never more than its limit
+        $job = $jobs['running'][$key];
         $alive = false;
         foreach ($job['procs'] as $i => $p) {
             if ($job['exit'][$i] !== null) {
@@ -6548,26 +6606,40 @@ function clJobsTick(): void
                 $jobs['running'][$key]['exit'][$i] = $st['exitcode'];
             }
         }
-        $killed = $alive && $job['timeout'] && time() - $job['since'] > $job['timeout'];
-        if ($alive && !$killed) {
+        $killed = $alive && !$cut && $job['timeout'] && time() - $job['since'] > $job['timeout'];
+        if ($alive && !$killed && !$cut) {
             continue;
         }
         foreach ($job['procs'] as $p) {
-            if ($killed) {
-                proc_terminate($p, 9);
+            if ($killed || $cut) {
+                proc_terminate($p, 9);              // at its limit or its time: the whole pipeline stops
             }
+        }
+        if (!$killed && !$cut) {
+            clJobPull($jobs['running'][$key], true);       // the rest it left in the pipe
+        }
+        @fclose($jobs['running'][$key]['pipe']);
+        foreach ($job['procs'] as $p) {
             proc_close($p);
         }
         clJobDone($jobs['running'][$key], $killed);
-        @unlink($job['out']);
         unset($jobs['running'][$key]);
         $changed = true;
+    }
+    if (!empty($GLOBALS['clIconNext'])) {
+        unset($GLOBALS['clIconNext']);
+        if (!empty($GLOBALS['clRaw']['icons']) && runDirRoom()) {
+            clIconQueue($GLOBALS['clRaw']['icons'], false);       // the next CL_ICON_BATCH, if any are left
+        }
     }
     $limit = CL_PARALLEL;
     foreach ($jobs['queue'] as $key => $job) {
         $busy = count(array_filter($jobs['running'], fn ($j) => !$j['first']));
         if (!$job['first'] && $busy >= $limit) {
             continue;
+        }
+        if ($job['type'] !== 'purge' && !runDirRoom()) {
+            continue;                                // the RAM folder is over its budget or /run nearly full: waits (lib/rundir.php)
         }
         unset($jobs['queue'][$key]);
         $started = clJobStart($job);
@@ -6585,19 +6657,28 @@ function clJobsTick(): void
     }
 }
 
-/** Starts a pipeline (no shell): each command's output goes into the next one, the last one's into a file in RAM */
+/** How many bytes of a job's output the agent keeps: its own 'max', never more than CL_JOB_OUT_MAX */
+function clJobMax(array $job): int
+{
+    return max(1, min(CL_JOB_OUT_MAX, (int) ($job['max'] ?? CL_JOB_OUT_MAX)));
+}
+
+/**
+ * Starts a pipeline (no shell): each command's output goes into the next one, the last one's into a pipe the agent reads
+ * from its tick (clJobPull()) — no file anywhere, in RAM or elsewhere (2026-11-19: 1.94 wrote it into the RAM folder on
+ * /run, a user's filled it). The agent keeps at most clJobMax() bytes; a job that prints more is stopped there.
+ */
 function clJobStart(array $job): ?array
 {
-    @mkdir(RUN_DIR, 0700, true);
-    $out = RUN_DIR . '/cleanup-' . getmypid() . '-' . md5($job['key']) . '.out';
     $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'LC_ALL' => 'C', 'HOME' => '/root'];
     $procs = [];
     $in = ['file', '/dev/null', 'r'];
     $n = count($job['pipeline']);
+    $pipe = null;
     foreach ($job['pipeline'] as $i => $cmd) {
         $last = $i === $n - 1;
         $pipes = [];
-        $p = @proc_open($cmd, [0 => $in, 1 => $last ? ['file', $out, 'w'] : ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/', $env);
+        $p = @proc_open($cmd, [0 => $in, 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/', $env);
         if (is_resource($in)) {
             fclose($in);                         // the next command has it now
         }
@@ -6610,28 +6691,96 @@ function clJobStart(array $job): ?array
             return null;
         }
         $procs[] = $p;
+        if ($last) {
+            $pipe = $pipes[1];
+            stream_set_blocking($pipe, false);
+        }
         $in = $last ? null : $pipes[1];
     }
-    return $job + ['procs' => $procs, 'exit' => array_fill(0, $n, null), 'out' => $out, 'since' => time()];
+    return $job + ['procs' => $procs, 'exit' => array_fill(0, $n, null), 'pipe' => $pipe, 'buf' => '', 'cut' => false, 'since' => time()];
+}
+
+/**
+ * What a running job printed since the last look, into its buffer — never more than clJobMax() + 1 bytes kept; true when it
+ * printed more (it is stopped then). $rest: after its end, what is still in the pipe up to its end (a second at most).
+ */
+function clJobPull(array &$job, bool $rest = false): bool
+{
+    $max = clJobMax($job);
+    $pipe = $job['pipe'] ?? null;
+    if (!is_resource($pipe)) {
+        return (bool) ($job['cut'] ?? false);
+    }
+    $waits = $rest ? 20 : 0;                         // after its end: at most 20 × 50 ms for the last bytes (never blocks the tick)
+    while (!$job['cut']) {
+        $chunk = @fread($pipe, 65536);
+        if ($chunk === false || $chunk === '') {
+            if ($waits-- <= 0 || feof($pipe)) {
+                break;
+            }
+            $r = [$pipe];
+            $w = $e = null;
+            @stream_select($r, $w, $e, 0, 50000);
+            continue;
+        }
+        $job['buf'] .= $chunk;
+        if (strlen($job['buf']) > $max) {
+            $job['buf'] = substr($job['buf'], 0, $max + 1);
+            $job['cut'] = true;
+        }
+    }
+    return $job['cut'];
+}
+
+/**
+ * A finished job's output: [text, cut] — never more than clJobMax() bytes; cut: the job printed more and was stopped
+ * there (the text ends at its last whole line)
+ */
+function clJobRead(array $job): array
+{
+    $max = clJobMax($job);
+    $text = (string) ($job['buf'] ?? '');
+    if (empty($job['cut']) && strlen($text) <= $max) {
+        return [$text, false];
+    }
+    $text = substr($text, 0, $max);
+    $nl = strrpos($text, "\n");
+    return [$nl === false ? '' : substr($text, 0, $nl + 1), true];
 }
 
 function clJobDone(array $job, bool $killed): void
 {
     $cache = clCache();
     $key = $job['key'];
-    $text = (string) @file_get_contents($job['out']);
+    [$text, $cut] = clJobRead($job);
     $took = time() - $job['since'];
+    if ($cut) {
+        logLine(sprintf('Dustdevil stopped %s at its limit of %d KB (the result is partial)', $key, intdiv(clJobMax($job), 1024)));
+    }
     if ($job['type'] === 'flash') {
         $lines = [];
+        $over = 0;
         foreach (explode("\n", $text) as $line) {
+            if (str_starts_with($line, '#cut:')) {
+                $over++;                                        // a file naming more places than CL_FLASH_PER_FILE
+                continue;
+            }
             $at = strpos($line, ':/mnt/');
             if ($at !== false) {
                 $lines[] = [substr($line, 0, $at), rtrim(preg_replace('/:.*$/', '', substr($line, $at + 1)), '/\'),;')];
             }
         }
-        // grep: 0 found, 1 nothing found, 2 some files unreadable — all fine as long as it wasn't stopped
-        $cache['flash'] = ['at' => time(), 'ok' => !$killed, 'lines' => $lines];
-        logLine(sprintf('Dustdevil searched the flash: %d mentions of /mnt in %d s%s', count($lines), $took, $killed ? ' (stopped, too slow)' : ''));
+        // grep: 0 found, 1 nothing found, 2 some files unreadable — all fine as long as it wasn't stopped or cut
+        $why = $killed ? 'time' : ($cut ? 'limit' : ($over ? 'file' : null));
+        $bulky = [];
+        foreach (array_unique(array_column($lines, 0)) as $file) {
+            if (clFlashBulky($file)) {
+                $bulky[] = $file;                           // a log, a long list: «mentioned» there, never «in use»
+            }
+        }
+        $cache['flash'] = ['at' => time(), 'ok' => $why === null, 'partial' => $why, 'lines' => $lines, 'bulky' => $bulky];
+        logLine(sprintf('Dustdevil searched the flash: %d mentions of /mnt in %d s%s', count($lines), $took,
+                        ['time' => ' (stopped, too slow: partial)', 'limit' => ' (partial: limit reached)', 'file' => " (partial: $over files name too many places)"][$why] ?? ''));
     } elseif ($job['type'] === 'measure') {
         $path = substr($key, 8);
         $rows = explode("\n", trim($text));
@@ -6645,7 +6794,7 @@ function clJobDone(array $job, bool $killed): void
                 }
             }
             $cache['sizes'][$path] = ['at' => time(), 'files' => (int) $head[0], 'bytes' => (int) $head[1], 'newest' => (int) $head[2],
-                                      'top' => $top, 'partial' => $killed || ($job['exit'][0] ?? 0) !== 0, 'seconds' => $took];
+                                      'top' => $top, 'partial' => $killed || $cut || ($job['exit'][0] ?? 0) !== 0, 'seconds' => $took];
         } else {
             $cache['sizes'][$path] = ['at' => time(), 'error' => true];
         }
@@ -6665,8 +6814,9 @@ function clJobDone(array $job, bool $killed): void
         }
         // two searches (flash, pools): each keeps its own findings, together they are the list
         $which = substr($key, 7);
-        $cache['strays']['found'][$which] = ['paths' => $paths, 'skipped' => $skipped];
+        $cache['strays']['found'][$which] = ['paths' => $paths, 'skipped' => $skipped, 'partial' => $killed || $cut];
         $all = array_values($cache['strays']['found']);
+        $cache['strays']['partial'] = in_array(true, array_column($all, 'partial'), true);
         $skippedAll = array_merge(...array_column($all, 'skipped'));
         $cache['strays']['at'] = time();
         $cache['strays']['paths'] = array_values(array_unique(array_merge(...array_column($all, 'paths'))));
@@ -6700,6 +6850,7 @@ function clJobDone(array $job, bool $killed): void
         }
         clIconTidy($job['dir']);
         logLine(sprintf('Dustdevil checked %d pictures: %d load (%d s)', count($job['urls']), $good, $took));
+        $GLOBALS['clIconNext'] = true;                  // the next few right after this one (clJobsTick(), once saved)
     } elseif ($job['type'] === 'purge') {
         $path = substr($key, 6);
         if (file_exists($path)) {

@@ -879,6 +879,7 @@
   "drill.code.docker_off": "Docker ne tourne pas — aucun conteneur jetable n'a pu être créé",
   "drill.code.too_big_for_ram": "trop grand pour la RAM que je peux utiliser ({need} nécessaires, {budget} permis)",
   "drill.code.dump_no_room": "la copie n'a pas pu être rejouée : la base de données jetable avait besoin de plus de place que l'exercice ne peut en prendre en RAM ({ram_mb} Mo) — le dump lui-même est intact (lu en entier)",
+  "drill.code.dump_no_ram_folder": "la copie depuis Kopia n'a pas été récupérée : elle demande plus de place qu'il n'en reste au dossier en RAM du secrétariat ({room_mb} Mo libres pour lui sur le /run d'Unraid, dont Docker a besoin aussi) — non vérifiée ; la sauvegarde elle-même n'est pas touchée",
   "drill.code.budget": "plus de temps — la prochaine fois",
   "drill.code.throwaway_failed": "le conteneur jetable n'a pas démarré",
   "drill.code.not_ready": "la base de données jetable n'a pas répondu",

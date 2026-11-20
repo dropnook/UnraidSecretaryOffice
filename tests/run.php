@@ -85,6 +85,7 @@ putenv('OFFICE_DATA_DIR=' . dirname(__DIR__) . '/data');
 define('TESTS_RUN_DIR', sys_get_temp_dir() . '/office-tests-run-' . getmypid());
 @mkdir(TESTS_RUN_DIR, 0700, true);
 putenv('OFFICE_RUN_DIR=' . TESTS_RUN_DIR);
+putenv('OFFICE_TMP_DIR=' . TESTS_RUN_DIR . '/private-tmp');     // the office's private folder under /tmp: the tests' own too
 // Unraid's emcmd (it sends emhttpd a form — Jack Emby's «Switch the mover schedule off…») is never run by a test: any call
 // that names no stand-in of its own finds nothing here and is refused (jack-mover.php)
 putenv('OFFICE_EMCMD_BIN=' . TESTS_RUN_DIR . '/no-emcmd');
@@ -40642,6 +40643,15 @@ function testRestoreDrill(): void
     rename("$tmp/kopia/away", "$tmp/kopia/" . $o('f:k2/db/pg.sql.gz'));
     $e1 = $kdenv(['kopia' => null]);
     same('drill Kopia dump: Kopia not reachable — not checked', ['not_checked', 'kopia_unavailable'], array_values(array_intersect_key(drillDoKopiaDump($kdj, 0, $e1), ['state' => 1, 'code' => 1])));
+    // the drill's folder in RAM lies on /run (128 MB, shared with Docker — 2026-11-19): a dump larger than the room left there is never fetched
+    $e1 = $kdenv();
+    $egress = $kdj['egress'];
+    $GLOBALS['drill']['ram_room'] = strlen($kdump) - 1;
+    $r = drillDoKopiaDump($kdj, 0, $e1);
+    unset($GLOBALS['drill']['ram_room']);
+    same('drill Kopia dump: larger than the room left on /run — not checked (the next drill tries again), only the manifest read, nothing in RAM',
+        ['not_checked', 'dump_no_ram_folder', 0, strlen($kmani), []], [$r['state'], $r['code'], $r['params']['room_mb'] ?? null, $kdj['egress'] - $egress,
+         glob("$tmp/run/drill/{$kdj['id']}-0-*") ?: []]);
     // a crash left one in RAM: the cleanup takes exactly the drill's own file there
     $left = drillRamFile($kdj['id'], 3, 'db/x.sql.gz');
     file_put_contents($left, 'x');
@@ -46659,7 +46669,7 @@ function testReportDiagnostics(): void
     $finish($launched[0], $files);
     $a = reportDiagAnswer(['token' => $tok], $ctx + ['now' => $now + 9]);
     same('report diagnostics: ready — the office\'s clean zip: its size, the files (sorted), no hash for the page; Unraid\'s zip and its copy in /boot/logs gone',
-        [true, 'ready', filesize("$d/$name.clean.zip"), 3, ["$name/config/ident.cfg", "$name/logs/syslog.txt", "$name/system/vars.txt"], false, []],
+        [true, 'ready', filesize("$d/$name.clean.zip"), 4, ['unraid-secretary-office/run-dir.txt', "$name/config/ident.cfg", "$name/logs/syslog.txt", "$name/system/vars.txt"], false, []],
         [$a['ok'], $a['state'], $a['bytes'] ?? null, $a['count'] ?? null, $a['files'] ?? null, isset($a['sha256']), array_merge(glob("$tmp/bootlogs/*") ?: [], glob("$d/$name.zip") ?: [])]);
 
     // the send: the report first, then the zip
@@ -46947,8 +46957,9 @@ function testReportDiagScrub(): void
     foreach (['192.168.1.20', 'fd12::5', 'WD-WCC7K0AAAAAA', 'write cache: enabled', '/mnt/user', '/dev/sdc1', 'UnraidSecretaryOffice.cfg'] as $k) {
         check("report diagnostics pass: «{$k}» kept (the home network, serials, the rest)", str_contains($all, $k));
     }
+    check('report diagnostics pass: the office\'s own numbers of its RAM folder beside them (testRunDirReport)', str_contains($clean['unraid-secretary-office/run-dir.txt'] ?? '', 'Agent starts in the last hour:'));
     same('report diagnostics pass: the files\' names — masks to placeholders, the device\'s slot, the office\'s folder in front', [
-        "$name/config/super.dat", "$name/logs/syslog.txt", "$name/qemu/", "$name/shares/UnraidSecretaryOffice.cfg", "$name/shares/shareDisks.txt", "$name/shares/‹share-1›.cfg",
+        'unraid-secretary-office/run-dir.txt', "$name/config/super.dat", "$name/logs/syslog.txt", "$name/qemu/", "$name/shares/UnraidSecretaryOffice.cfg", "$name/shares/shareDisks.txt", "$name/shares/‹share-1›.cfg",
         "$name/smart/WDC_WD40EFRX-68N32N0_WD-WCC7K0AAAAAA-20261021-1200 ‹pool-1›-2 (sdc).txt", "$name/system/df.txt", "$name/system/vars.txt"],
         (function (array $k): array { sort($k, SORT_STRING); return $k; })(array_keys($clean)));
     same('report diagnostics pass: the syslog line by line — the layout kept, below a share nothing', [
@@ -64328,14 +64339,783 @@ function testScenarioToolsSafe(): void
     check('the full run\'s plist: weekly (a Weekday in its StartCalendarInterval)', (bool) preg_match('#<key>StartCalendarInterval</key>\s*<dict>\s*<key>Weekday</key>\s*<integer>[0-7]</integer>#', $plist));
 }
 
+/*
+ * The office's RAM folder (2026-11-19, a user's /run full: Ms. Dustdevil's flash search wrote ~1.2 × the flash's text
+ * that names /mnt into RUN_DIR — 128 MB in 0.4 s on Tower —, clJobDone() then ran out of memory and every restart under
+ * a new pid left one more file). Her background jobs: never more than their limit in RAM, the result partial when it
+ * was reached; the flash search keeps what its reader uses.
+ */
+function testCleanupJobCap(): void
+{
+    $saved = $GLOBALS['clJobs'] ?? null;
+    $look = $GLOBALS['runDir'] ?? null;
+    $raw = $GLOBALS['clRaw'] ?? null;
+    $memo = $GLOBALS['clCache'] ?? null;
+    unset($GLOBALS['clRaw']);                       // no page state written by these jobs
+    $GLOBALS['runDir'] = ['over' => false, 'tight' => false, 'at' => time()];
+    // runs a queued job to its end the agent's way (clJobsTick()): the most it kept in memory meanwhile, and whether anything appeared in RAM_DIR
+    $inRun = array_values(array_diff(scandir(RUN_DIR) ?: [], ['.', '..']));
+    $newInRun = [];
+    $sorted = function (array $a): array {
+        sort($a);
+        return $a;
+    };
+    $run = function (string $key) use ($inRun, &$newInRun): ?int {
+        $seen = 0;
+        for ($i = 0; $i < 400; $i++) {
+            $job = $GLOBALS['clJobs']['running'][$key] ?? null;
+            $seen = max($seen, $job ? strlen($job['buf']) : 0);
+            $newInRun = array_merge($newInRun, array_diff(scandir(RUN_DIR) ?: [], ['.', '..'], $inRun));
+            if (!$job && !isset($GLOBALS['clJobs']['queue'][$key])) {
+                return $seen;
+            }
+            usleep(50000);
+            clJobsTick();
+        }
+        return null;
+    };
+    $GLOBALS['clJobs'] = ['queue' => [], 'running' => []];
+    $log = AGENT_LOG;
+    $at = is_file($log) ? (int) filesize($log) : 0;
+    // a job that would print forever: read through a pipe, stopped at its limit, whatever it is
+    $job = clJobStart(['key' => 'test:direct', 'type' => 'test', 'pipeline' => [['yes', str_repeat('x', 99)]], 'timeout' => 60, 'first' => true, 'max' => 64 * 1024]);
+    for ($i = 0; $i < 200 && $job && !clJobPull($job); $i++) {
+        usleep(20000);
+    }
+    same('cleanup job cap: a job printing forever — the agent keeps exactly its limit + 1 byte, then it is cut', [true, 64 * 1024 + 1],
+        [(bool) ($job['cut'] ?? false), strlen((string) ($job['buf'] ?? ''))]);
+    foreach ($job['procs'] ?? [] as $p) {
+        proc_terminate($p, 9);
+        proc_close($p);
+    }
+    clJobAdd('test:never', 'test', [['yes', str_repeat('x', 99)]], 60, true, ['max' => 64 * 1024]);
+    clJobsTick();
+    $seen = $run('test:never');
+    same('cleanup job cap: … and the agent\'s way (its tick) stops it there and ends the job', [true, []], [$seen !== null, array_keys($GLOBALS['clJobs']['running'])]);
+    same('cleanup job cap: nothing written into the RAM folder (no file at all: a pipe)', [], array_values(array_unique($newInRun)));
+    if (is_dir(DATA_DIR)) {
+        check('cleanup job cap: said in the log', str_contains(substr((string) file_get_contents($log), $at), 'Dustdevil stopped test:never at its limit of 64 KB (the result is partial)'));
+    }
+    $tmp = hardeningTmp('cl-flash');
+    $three = str_repeat(str_repeat('z', 99) . "\n", 3);
+    same('cleanup job cap: read back over the limit — cut, ending at its last whole line', [str_repeat(str_repeat('z', 99) . "\n", 2), true],
+        clJobRead(['buf' => $three, 'max' => 250, 'cut' => true]));
+    same('cleanup job cap: read back within the limit — all of it', [$three, false], clJobRead(['buf' => $three, 'max' => 300, 'cut' => false]));
+    same('cleanup job cap: a job may ask for less, never more', [CL_JOB_OUT_MAX, 4096, CL_JOB_OUT_MAX],
+        [clJobMax(['max' => 1 << 30]), clJobMax(['max' => 4096]), clJobMax([])]);
+    same('cleanup job cap: small — 512 KB per job', 512 << 10, CL_JOB_OUT_MAX);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
+    check('cleanup job cap: every job\'s last command into a pipe, read only through clJobPull() (the cap), clJobDone() only through clJobRead()',
+        str_contains($src, "1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']") && str_contains($src, '[$text, $cut] = clJobRead($job);')
+        && !str_contains($src, "['file', \$out, 'w']") && substr_count($src, "file_get_contents(\$job['out']") === 0);
+
+    // the flash search on a flash with a long list and a log: what clTopRefs() reads, each once per file
+    $flash = "$tmp/config";
+    mkdir("$flash/plugins/dockerMan/templates-user", 0700, true);
+    mkdir("$flash/plugins/somemover", 0700, true);
+    mkdir("$flash/" . CL_TRASH, 0700, true);
+    mkdir("$flash/plugins/user.scripts/scripts/nightly", 0700, true);
+    file_put_contents("$flash/plugins/dockerMan/templates-user/my-app.xml", "<Config>/mnt/user/appdata/app/config</Config>\n<Config>/mnt/cache/appdata/app/db</Config>\n");
+    file_put_contents("$flash/plugins/user.scripts/scripts/nightly/script", "rsync -a /mnt/user/appdata/old-app: /mnt/disk1/Familienfilme/2019/clip.mkv\n");
+    file_put_contents("$flash/" . CL_TRASH . '/x.cfg', "/mnt/user/appdata/parked\n");
+    $list = '';
+    for ($i = 0; $i < 9000; $i++) {
+        $list .= sprintf("/mnt/cache/Media/Familienserien/Staffel %02d/Folge %05d.mkv\n", $i % 20, $i);
+    }
+    file_put_contents("$flash/plugins/somemover/files.list", $list);                                 // < 1 MB: read, one line
+    file_put_contents("$flash/plugins/somemover/big.list", str_repeat("/mnt/user/appdata/bigone/x\n", 50000));   // > 1 MB: left out
+    file_put_contents("$flash/plugins/somemover/mover.log", "/mnt/user/appdata/inlog/x\n");               // a log: left out
+    $many = '';
+    for ($i = 0; $i < CL_FLASH_PER_FILE + 5; $i++) {
+        $many .= "/mnt/user/appdata/app$i/x\n";
+    }
+    $cacheFile = clCacheFile();
+    $before = is_file($cacheFile) ? file_get_contents($cacheFile) : null;
+    try {
+        $GLOBALS['clJobs'] = ['queue' => [], 'running' => []];
+        clJobAdd('flash', 'flash', clFlashSearch($flash), 60, true);
+        $seen = $run('flash');
+        $got = clCache()['flash'] ?? [];
+        $lines = array_map(fn ($l) => substr($l[0], strlen($flash) + 1) . ' ' . $l[1], $got['lines'] ?? []);
+        sort($lines);
+        same('cleanup flash search: each place once per file, cut to share and first level; every file read (a log, a file over 1 MB too), never the storeroom', [
+            'plugins/dockerMan/templates-user/my-app.xml /mnt/cache/appdata/app',
+            'plugins/dockerMan/templates-user/my-app.xml /mnt/user/appdata/app',
+            'plugins/somemover/big.list /mnt/user/appdata/bigone',
+            'plugins/somemover/files.list /mnt/cache/Media/Familienserien',
+            'plugins/somemover/mover.log /mnt/user/appdata/inlog',
+            'plugins/user.scripts/scripts/nightly/script /mnt/disk1/Familienfilme/2019',
+            'plugins/user.scripts/scripts/nightly/script /mnt/user/appdata/old-app',
+        ], $lines);
+        same('cleanup flash search: complete; the log and the file over 1 MB are the «bulky» ones (what they name: only mentioned)',
+            [true, true, null, ['plugins/somemover/big.list', 'plugins/somemover/mover.log']],
+            [$got['ok'] ?? null, array_key_exists('partial', $got), $got['partial'] ?? null, $sorted(array_map(fn ($f) => substr($f, strlen($flash) + 1), $got['bulky'] ?? []))]);
+        check('cleanup flash search: a few hundred bytes kept for 9000 lines of a list', $seen !== null && $seen < 2048, (string) $seen);
+
+        file_put_contents("$flash/plugins/somemover/many.cfg", $many);
+        clJobAdd('flash', 'flash', clFlashSearch($flash), 60, true);
+        $run('flash');
+        $got = clCache()['flash'] ?? [];
+        same('cleanup flash search: a file naming more than CL_FLASH_PER_FILE places — partial, said why; its first ones kept', [false, 'file', CL_FLASH_PER_FILE],
+            [$got['ok'] ?? null, $got['partial'] ?? null, count(array_filter($got['lines'] ?? [], fn ($l) => str_ends_with($l[0], 'many.cfg')))]);
+        // stopped at the job's limit: partial too
+        clJobAdd('flash', 'flash', clFlashSearch($flash), 60, true, ['max' => 200]);
+        $run('flash');
+        $got = clCache()['flash'] ?? [];
+        same('cleanup flash search: stopped at its limit — partial («limit»)', [false, 'limit'], [$got['ok'] ?? null, $got['partial'] ?? null]);
+
+        // a partial search: nothing is «unused» (the rest may name it) — «check» with the note, and the page is told
+        $old = time() - 90 * 86400;
+        $folders = [['name' => 'quiet', 'parts' => [['root' => 'cache', 'path' => '/mnt/cache/appdata/quiet', 'dataset' => null, 'zfs' => false, 'mtime' => $old]]]];
+        $sizes = ['sizes' => ['/mnt/cache/appdata/quiet' => ['at' => time(), 'files' => 1, 'bytes' => 4096, 'newest' => $old, 'top' => []]]];
+        $whole = clFolderEntries($folders, [], [], 'appdata', true, true, $sizes + ['flash' => ['at' => time(), 'ok' => true, 'lines' => []]], fn () => false)[0];
+        $part = clFolderEntries($folders, [], [], 'appdata', true, true, $sizes + ['flash' => ['at' => time(), 'ok' => false, 'partial' => 'limit', 'lines' => []]], fn () => false)[0];
+        same('cleanup partial flash: complete search — unused (a candidate); partial — «Please check», not fully checked, said why', [['unused', [], null], ['check', ['flash_partial'], 'flash_partial']],
+            [[$whole['category'], array_column($whole['notes'], 'why'), $whole['why']], [$part['category'], array_column($part['notes'], 'why'), $part['why']]]);
+        $refused = null;
+        try {
+            clParkCheck($part, false);
+        } catch (Problem $e) {
+            $refused = $e->toArray()['key'] ?? null;
+        }
+        same('cleanup partial flash: put away on that ground — refused, in her words', 'cleanup_flash_partial', $refused);
+        // what a log or a list over 1 MB names: «mentioned» (Please check), never in use and never unused; a settings file's: in use
+        $GLOBALS['clCtx']['roots'] = ($GLOBALS['clCtx']['roots'] ?? []) + ['cache' => ['kind' => 'pool']];
+        $rawMin = ['docker' => ['containers' => []], 'templates' => [], 'stacks' => ['list' => [], 'root' => '/boot/config/plugins/compose.manager/projects'], 'compose' => [], 'vms' => ['vms' => []]];
+        $named = function (string $file, bool $bulky) use ($rawMin, $folders, $sizes): array {
+            $f = ['at' => time(), 'ok' => true, 'lines' => [["/boot/config/$file", '/mnt/cache/appdata/quiet']], 'bulky' => $bulky ? ["/boot/config/$file"] : []];
+            [$tops] = clTopRefs(clRefList($rawMin, $f), 'appdata');
+            $e = clFolderEntries($folders, $tops, [], 'appdata', true, true, $sizes + ['flash' => $f], fn () => false)[0];
+            return [$e['category'], array_column($e['notes'], 'why')];
+        };
+        same('cleanup flash: named in a settings file — in use; only in a log or a long list — «Please check» (mentioned), never unused',
+            [['used', []], ['check', ['weak']]], [$named('plugins/x/x.cfg', false), $named('plugins/x/mover.log', true)]);
+        $js = (string) file_get_contents(OFFICE_WEB . '/desks/cleanup/desk.js');
+        check('cleanup partial flash: the page says so (appdata and VMs), the note has its words, stray templates too',
+            str_contains($js, "a.flash_at && a.flash_partial") && str_contains($js, 'v.flash_partial') && str_contains($js, "n.why === 'flash_partial'")
+            && str_contains($js, 't.strays_partial') && str_contains($src, "'flash_partial' => \$searched && !(\$flash['ok'] ?? true)"));
+        $en = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/cleanup/lang/en.json'), true);
+        same('cleanup flash search: the help says what counts only as mentioned (a log, a file over 1 MB) — as the code does', [1 << 20, true, ['*.log', '*.log.*', 'syslog*'], true, true],
+            [CL_FLASH_FILE_MAX, str_contains($en['help.appdata_text'], 'What a log or a file over 1 MB on the flash names only counts as mentioned'), CL_FLASH_BULKY,
+             clFlashBulky("$flash/plugins/somemover/mover.log"), !clFlashBulky("$flash/plugins/dockerMan/templates-user/my-app.xml")]);
+    } finally {
+        if ($before === null) {
+            @unlink($cacheFile);
+        } else {
+            file_put_contents($cacheFile, $before);
+        }
+        $GLOBALS['clCache'] = $memo;
+        if ($memo === null) {
+            unset($GLOBALS['clCache']);
+        }
+        if ($raw !== null) {
+            $GLOBALS['clRaw'] = $raw;
+        }
+        $GLOBALS['clJobs'] = $saved ?? ['queue' => [], 'running' => []];
+        $GLOBALS['runDir'] = $look;
+    }
+}
+
+/** What processes that are gone left in the RAM folder: removed — only ours, only plain files, never through a link */
+function testRunDirLeftovers(): void
+{
+    $tmp = hardeningTmp('rundir-left');
+    $dir = "$tmp/run";
+    mkdir("$dir/fanboy", 0700, true);
+    mkdir("$dir/drill", 0700, true);
+    mkdir("$tmp/outside", 0700);
+    $md5 = md5('flash');
+    for ($dead = 4194001; is_dir("/proc/$dead") || is_dir('/proc/' . ($dead + 1)); $dead += 2) {
+        // two pids in a row without a process (above the usual range)
+    }
+    $other = proc_open([PHP_BINARY, '-r', 'sleep(20);'], [], $pipes);
+    $otherPid = proc_get_status($other)['pid'];
+    usleep(200000);
+    $me = getmypid();
+    $files = [
+        // 1.94's: nobody writes these now — whoever made them, gone at once
+        "cleanup-$dead-$md5.out" => 'x', "cleanup-$me-$md5.out" => 'mine', "cleanup-$otherPid-$md5.out" => 'another agent\'s', 'drill/x-0-pg.sql.gz' => 'dump',
+        // a pid in the name: gone once that process is
+        "jack-headers.$dead" => 'X-Emby-Token: k', "jack-headers.$otherPid" => 'X-Emby-Token: k', "partner/door-$dead.json" => '{}',
+        // the rest: kept, or by age
+        'agent.json' => '{}', 'notify.second' => '1', '.agent.json.0123456789ab.tmp' => 'old', '.notify.second.ba9876543210.tmp' => 'new',
+        'fanboy/.state.json.0123456789ab.tmp' => 'old', 'cleanup-12-zz.out' => 'not our pattern', 'claim.0123456789ab.curl' => 'old secret',
+    ];
+    @mkdir("$dir/partner", 0700);
+    foreach ($files as $name => $c) {
+        file_put_contents("$dir/$name", $c);
+    }
+    $now = time();
+    foreach (['.agent.json.0123456789ab.tmp', 'fanboy/.state.json.0123456789ab.tmp', 'claim.0123456789ab.curl'] as $old) {
+        touch("$dir/$old", $now - 3600);
+    }
+    mkdir("$dir/cleanup-icons-$dead");
+    file_put_contents("$dir/cleanup-icons-$dead/0.png", 'png');
+    mkdir("$dir/cleanup-icons-check");
+    file_put_contents("$dir/cleanup-icons-check/0.png", 'png');
+    file_put_contents("$tmp/outside/keep.out", 'not ours');
+    symlink("$tmp/outside/keep.out", "$dir/cleanup-" . ($dead + 1) . "-$md5.out");     // a link with our name: left, never followed
+    mkdir("$tmp/outside/icons");
+    file_put_contents("$tmp/outside/icons/0.png", 'png');
+    symlink("$tmp/outside/icons", "$dir/cleanup-icons-" . ($dead + 1));
+    $gone = runDirSweep([], $dir, $now);
+    $left = array_values(array_diff(scandir($dir) ?: [], ['.', '..']));
+    proc_terminate($other);
+    proc_close($other);
+    $sorted = function (array $a): array {
+        sort($a);
+        return $a;
+    };
+    same('run dir leftovers: 1.94\'s job output and pictures (any pid, this one\'s too), its drill folder; a gone process\'s headers and door record; old temporary files and an old claim — removed', $sorted([
+        "cleanup-$dead-$md5.out", "cleanup-$me-$md5.out", "cleanup-$otherPid-$md5.out", "cleanup-icons-$dead", 'cleanup-icons-check', 'drill',
+        "jack-headers.$dead", "partner/door-$dead.json", '.agent.json.0123456789ab.tmp', 'fanboy/.state.json.0123456789ab.tmp', 'claim.0123456789ab.curl']), $sorted($gone));
+    same('run dir leftovers: kept — a running process\'s headers, the heartbeat, a new temporary file, names not ours, links', $sorted([
+        '.notify.second.ba9876543210.tmp', 'agent.json', 'cleanup-' . ($dead + 1) . "-$md5.out", "cleanup-icons-" . ($dead + 1), 'cleanup-12-zz.out', 'fanboy',
+        "jack-headers.$otherPid", 'notify.second', 'partner']), $sorted($left));
+    same('run dir leftovers: nothing removed through a link', [true, true], [is_file("$tmp/outside/keep.out"), is_file("$tmp/outside/icons/0.png")]);
+    $agent = (string) file_get_contents(OFFICE_DIR . '/agent/agent.php');
+    check('run dir leftovers: the agent sweeps at its start (before the desks start), empties its private folder, and looks once a minute',
+        str_contains($agent, 'if ($gone = runDirSweep([]))') && strpos($agent, 'runDirSweep([])') < strpos($agent, "if (\$desk['start'])")
+        && strpos($agent, 'officeTmpEnsure(true);') < strpos($agent, "if (\$desk['start'])") && str_contains($agent, "runDirLook();               // the RAM folder's size"));
+
+    // the private folder under /tmp: made 0700; someone else's or a link in its place put aside, never followed; emptied at the start
+    $p = "$tmp/ptmp";
+    same('run dir private: made, 0700', [$p, '0700'], [officeTmpEnsure(false, $p), substr(sprintf('%o', fileperms($p)), -4)]);
+    mkdir("$p/cleanup-icons-check");
+    file_put_contents("$p/cleanup-icons-check/0.png", 'png');
+    symlink("$tmp/outside", "$p/a-link");
+    same('run dir private: emptied at the start — a link removed itself, never what it points to', [[], true], [array_values(array_diff(scandir(officeTmpEnsure(true, $p)) ?: [], ['.', '..'])), is_file("$tmp/outside/keep.out")]);
+    rmdir($p);
+    symlink("$tmp/outside", $p);
+    same('run dir private: a link in its place — aside, a folder of its own made, nothing touched behind it', [true, false, true], [is_dir((string) officeTmpEnsure(true, $p)), is_link($p), is_file("$tmp/outside/keep.out")]);
+    chmod($p, 0777);
+    officeTmpEnsure(false, $p);
+    same('run dir private: one others could write — aside, made anew', '0700', substr(sprintf('%o', fileperms($p)), -4));
+    $cl = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
+    check('run dir private: her pictures are checked there, the drill\'s dumps lie there — never in the RAM folder',
+        str_contains($cl, "\$dir = officeTmpDir() . '/cleanup-icons-check';") && str_contains($cl, "\$dir = officeTmpDir() . '/cleanup-icons-' . getmypid();")
+        && !str_contains($cl, "RUN_DIR . '/cleanup-icons") && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-drill.php'), "?? officeTmpDir()) . '/drill'"));
+
+    // the update from 1.94: her cache with every mention of the flash — slimmed once, the file before kept beside it
+    $data = "$tmp/data";
+    mkdir("$data/cleanup", 0700, true);
+    $lines = [];
+    for ($i = 0; $i < 30000; $i++) {
+        $lines[] = ['/boot/config/plugins/x/list', "/mnt/cache/Media/Familienserien/Folge $i.mkv"];
+    }
+    file_put_contents("$data/cleanup/cache.json", json_encode(['flash' => ['at' => 1, 'ok' => true, 'lines' => $lines], 'sizes' => ['/mnt/x' => ['at' => 1]], 'other' => 'kept']));
+    $said = officeMigrateCleanupCache($data, '1.94.1');
+    same('run dir migrate: the flash search\'s part gone, the rest kept, the file before beside it', [['sizes' => ['/mnt/x' => ['at' => 1]], 'other' => 'kept'], true, true],
+        [json_decode((string) file_get_contents("$data/cleanup/cache.json"), true), is_file("$data/cleanup/cache.json.before-1.94.1"), str_contains($said, '30000 mentions go')]);
+    check('run dir migrate: the second time changes nothing', str_starts_with(officeMigrateCleanupCache($data, '1.94.1'), 'nothing to change'));
+    $step = array_values(array_filter(officeMigrateSteps(), fn ($st) => $st['id'] === 'cleanup-flash-cache'))[0] ?? [];
+    same('run dir migrate: a step of its own, of 1.94.1', '1.94.1', $step['version'] ?? null);
+}
+
+/**
+ * A server in 1.94's crash loop (2026-11-19): the RAM folder holds three 40-MB outputs of agents that died, the flash
+ * would make 1.94's search print ~60 MB. The start sweeps them before any job runs, the search runs complete and small
+ * (read through a pipe, never a file), the agent keeps a few MB of memory — in a process of its own, the agent's way.
+ */
+function testRunDirCrashLoop(): void
+{
+    $tmp = hardeningTmp('rundir-crash');
+    $run = "$tmp/run";
+    mkdir($run, 0700);
+    mkdir("$tmp/data/cleanup", 0700, true);
+    for ($dead = 4194001; is_dir("/proc/$dead") || is_dir('/proc/' . ($dead + 1)) || is_dir('/proc/' . ($dead + 2)); $dead += 3) {
+        // three pids in a row without a process
+    }
+    $block = str_repeat("/boot/config/plugins/syslog/syslog.txt:/mnt/disk1/Media/Familienfilme/Clip 000123.mkv\n", 12000);   // ~1 MB
+    foreach ([0, 1, 2] as $i) {
+        $h = fopen("$run/cleanup-" . ($dead + $i) . '-' . md5("flash$i") . '.out', 'w');
+        for ($k = 0; $k < 40; $k++) {
+            fwrite($h, substr($block, 0, 1 << 20));
+        }
+        fclose($h);
+    }
+    // the flash: a mirrored syslog and a mover's list, ~50 MB of text that names /mnt (1.94's search: ~60 MB out)
+    $flash = "$tmp/flash";
+    mkdir("$flash/plugins/syslog", 0700, true);
+    mkdir("$flash/plugins/somemover", 0700, true);
+    mkdir("$flash/plugins/dockerMan/templates-user", 0700, true);
+    file_put_contents("$flash/plugins/dockerMan/templates-user/my-app.xml", "<Config>/mnt/user/appdata/app/config</Config>\n");
+    $h = fopen("$flash/plugins/syslog/syslog.txt", 'w');
+    $chunk = '';
+    for ($i = 0; $i < 20000; $i++) {
+        $chunk .= sprintf("Nov 19 03:%02d:%02d Tower shfs: copy_file: /mnt/disk%d/Media/Familienfilme/Clip %06d.mkv /mnt/cache/Media/Familienfilme/Clip %06d.mkv (28)\n", $i % 60, $i % 60, $i % 8 + 1, $i, $i);
+    }
+    for ($k = 0; $k < 9; $k++) {
+        fwrite($h, $chunk);
+    }
+    fclose($h);
+    $h = fopen("$flash/plugins/somemover/mover-files.list", 'w');
+    for ($k = 0; $k < 400000; $k++) {
+        fwrite($h, sprintf("/mnt/cache/Media/Familienserien/Staffel %02d/Folge %06d.mkv\n", $k % 20, $k));
+    }
+    fclose($h);
+    clearstatcache();
+    $text = (int) filesize("$flash/plugins/syslog/syslog.txt") + (int) filesize("$flash/plugins/somemover/mover-files.list");
+    $script = "$tmp/start.php";
+    file_put_contents($script, <<<'PHP'
+<?php
+// the agent's start for its RAM folder (setUp(): runDirEnsure(), runDirSweep([]), runDirLook()), then the flash search the agent's way
+define('AGENT_LIBRARY_ONLY', 1);
+define('OFFICE_WEB', $argv[1] . '/public');
+require $argv[1] . '/agent/agent.php';
+$said = runDirEnsure();
+$swept = runDirSweep([]);
+runDirLook(true);
+clearstatcache();
+$after = runDirSize(RUN_DIR)[0];
+$GLOBALS['clJobs'] = ['queue' => [], 'running' => []];
+memory_reset_peak_usage();
+$base = memory_get_usage(true);
+clJobAdd('flash', 'flash', clFlashSearch($argv[2]), 300, true);
+$seen = 0;
+for ($i = 0; $i < 6000 && ($GLOBALS['clJobs']['running'] || $GLOBALS['clJobs']['queue']); $i++) {
+    clJobsTick();
+    clearstatcache();
+    $seen = max($seen, runDirSize(RUN_DIR)[0]);
+    usleep(50000);
+}
+$f = clCache()['flash'] ?? [];
+echo json_encode(['swept' => count($swept), 'after' => $after, 'seen' => $seen, 'ok' => $f['ok'] ?? null, 'partial' => array_key_exists('partial', $f) ? $f['partial'] : 'x', 'lines' => count($f['lines'] ?? []),
+    'bulky' => count($f['bulky'] ?? []), 'peak' => memory_get_peak_usage(true) - $base]), "\n";
+PHP);
+    $p = proc_open([PHP_BINARY, $script, OFFICE_DIR, $flash], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, '/',
+        ['OFFICE_RUN_DIR' => $run, 'OFFICE_DATA_DIR' => "$tmp/data", 'OFFICE_TMP_DIR' => "$tmp/ptmp", 'PATH' => getenv('PATH'), 'TZ' => getenv('TZ')]);
+    $out = stream_get_contents($pipes[1]);
+    $err = stream_get_contents($pipes[2]);
+    $code = proc_close($p);
+    $r = json_decode(trim((string) $out), true) ?? [];
+    check('run dir crash loop: the fixture is what 1.94 choked on (~50 MB of flash text naming /mnt; three 40-MB leftovers)', $text > 45 << 20, (string) $text);
+    same('run dir crash loop: the start ran without a fatal error', [0, ''], [$code, trim(preg_replace('/^PHP Warning.*$/m', '', (string) $err))]);
+    same('run dir crash loop: the three leftovers gone before any job ran; the folder small afterwards and while the search ran (nothing written there)',
+        [3, true, true], [$r['swept'] ?? null, ($r['after'] ?? PHP_INT_MAX) < 64 << 10, ($r['seen'] ?? PHP_INT_MAX) < 64 << 10]);
+    same('run dir crash loop: the search complete — every file read, each place once per file; the syslog and the list only «mentioned»',
+        [true, null, 2], [$r['ok'] ?? null, array_key_exists('partial', $r) ? $r['partial'] : 'x', $r['bulky'] ?? null]);
+    check('run dir crash loop: a handful of lines (not millions), a few MB of memory at most', ($r['lines'] ?? 99) <= 12 && ($r['peak'] ?? PHP_INT_MAX) < 16 << 20, json_encode($r));
+}
+
+/** RUN_DIR itself: a real folder; a link a user made to a folder of root's kept (his way out of a full /run); anything else put aside, never followed */
+function testRunDirLink(): void
+{
+    $real = $GLOBALS['runDirReal'] ?? null;
+    $tmp = hardeningTmp('rundir-link');
+    try {
+        same('run dir link: missing — made', [null, true], [runDirEnsure("$tmp/a"), is_dir("$tmp/a") && !is_link("$tmp/a")]);
+        same('run dir link: a real folder — nothing to say', null, runDirEnsure("$tmp/a"));
+        mkdir("$tmp/moved", 0700);
+        file_put_contents("$tmp/moved/agent.json", '{}');
+        symlink("$tmp/moved", "$tmp/b");
+        $said = (string) runDirEnsure("$tmp/b");
+        same('run dir link: to a folder of root\'s that only root writes — kept, the office writes there, said', [true, realpath("$tmp/moved"), true],
+            [is_link("$tmp/b"), runDirReal(), str_contains($said, 'kept')]);
+        mkdir("$tmp/open", 0777);
+        chmod("$tmp/open", 0777);
+        file_put_contents("$tmp/open/theirs", 'x');
+        symlink("$tmp/open", "$tmp/c");
+        $said = (string) runDirEnsure("$tmp/c");
+        $aside = glob("$tmp/c.aside-*") ?: [];
+        same('run dir link: to a folder others may write — the link itself aside, a folder of its own made, nothing touched behind it',
+            [true, false, 1, true, true, "$tmp/c"], [is_dir("$tmp/c"), is_link("$tmp/c"), count($aside), is_link($aside[0] ?? ''), is_file("$tmp/open/theirs"), runDirReal()]);
+        check('run dir link: … said why', str_contains($said, 'others may write there') && str_contains($said, 'nothing written through the link'), $said);
+        symlink("$tmp/nowhere", "$tmp/d");
+        $said = (string) runDirEnsure("$tmp/d");
+        same('run dir link: pointing nowhere — aside, a folder made, said', [true, false, true], [is_dir("$tmp/d"), is_link("$tmp/d"), str_contains($said, 'it points nowhere')]);
+        file_put_contents("$tmp/e", 'a file');
+        $said = (string) runDirEnsure("$tmp/e");
+        same('run dir link: a file in its place — aside, a folder made', [true, true], [is_dir("$tmp/e"), str_contains($said, 'was no folder')]);
+        same('run dir link: never on a disk or the flash (the array could not stop)', [true, true],
+            [str_contains((string) runDirLinkWrong('/mnt'), 'array'), runDirLinkWrong(false) !== null]);
+        $agent = (string) file_get_contents(OFFICE_DIR . '/agent/agent.php');
+        check('run dir link: the agent and the night shift look before they write there', strpos($agent, "\$GLOBALS['runDirSaid'] = runDirEnsure();") < strpos($agent, '$lock = fopen(PID_FILE')
+            && strpos($agent, 'runDirEnsure();                 // never through') < strpos($agent, '$lock = @fopen(WATCH_NIGHT_LOCK'));
+    } finally {
+        $GLOBALS['runDirReal'] = $real;
+    }
+}
+
+/** The budget: the folder's size and the room where it lies, once a minute; over it her optional work waits, the Team Lead says so, metrics tell */
+function testRunDirBudget(): void
+{
+    $real = $GLOBALS['runDirReal'] ?? null;
+    $look = $GLOBALS['runDir'] ?? null;
+    $jobs = $GLOBALS['clJobs'] ?? null;
+    $tmp = hardeningTmp('rundir-budget');
+    $GLOBALS['runDirReal'] = $tmp;
+    $GLOBALS['runDir'] = null;
+    $roomy = fn (string $d): array => [100 << 20, 128 << 20];
+    $full = fn (string $d): array => [2 << 20, 128 << 20];
+    $log = AGENT_LOG;
+    $at = is_file($log) ? (int) filesize($log) : 0;
+    try {
+        file_put_contents("$tmp/agent.json", '{}');
+        $l = runDirLook(true, 1000, $roomy);
+        same('run dir budget: small — room for her work, both checks fine', [false, false, true, [true, true]],
+            [$l['over'], $l['tight'], runDirRoom(), array_column(runDirChecks(), 'ok')]);
+        same('run dir budget: once a minute, not every tick', 1000, runDirLook(false, 1030, $full)['at']);
+        $fh = fopen("$tmp/cleanup-1-" . md5('x') . '.out.big', 'w');
+        fwrite($fh, str_repeat('y', RUNDIR_BUDGET + (512 << 10)));
+        fclose($fh);
+        $l = runDirLook(false, 1061, $roomy);
+        $checks = array_column(runDirChecks(), null, 'id');
+        same('run dir budget: over it — her optional work waits, the Team Lead\'s check says how big and what', [true, false, false, 9, 8],
+            [$l['over'], runDirRoom(), $checks['run_dir']['ok'], $checks['run_dir']['params']['size'], $checks['run_dir']['params']['budget']]);
+        check('run dir budget: … naming the biggest', str_contains($checks['run_dir']['params']['names'], '.out.big'), $checks['run_dir']['params']['names']);
+        $GLOBALS['clJobs'] = ['queue' => [], 'running' => []];
+        clJobAdd('measure:/x', 'measure', [['true']], 60);
+        clJobAdd('purge:/nothing', 'purge', [['true']], 0, true);
+        clJobsTick();
+        same('run dir budget: … a measurement waits in the queue, a purge (writes nothing) goes', [['measure:/x'], ['purge:/nothing']],
+            [array_keys($GLOBALS['clJobs']['queue']), array_keys($GLOBALS['clJobs']['running'])]);
+        foreach ($GLOBALS['clJobs']['running'] as $j) {
+            @fclose($j['pipe']);
+            foreach ($j['procs'] as $p) {
+                proc_close($p);
+            }
+        }
+        runDirLook(false, 1122, $roomy);
+        unlink("$tmp/cleanup-1-" . md5('x') . '.out.big');
+        $l = runDirLook(false, 1183, $full);
+        $checks = array_column(runDirChecks(), null, 'id');
+        same('run dir budget: small again, but /run nearly full (not the office\'s doing) — waits too, said with the office\'s part', [false, true, false, true, 2, 128, 1],
+            [$l['over'], $l['tight'], runDirRoom(), $checks['run_dir']['ok'], $checks['run_full']['params']['free'], $checks['run_full']['params']['total'], $checks['run_full']['params']['office']]);
+        $l = runDirLook(false, 1244, $roomy);
+        check('run dir budget: room again', runDirRoom());
+        if (is_dir(DATA_DIR)) {
+            $said = substr((string) file_get_contents($log), $at);
+            same('run dir budget: said once when it starts and once when it ends (not every minute)', [1, 1, 1, 1],
+                [substr_count($said, 'Office: its RAM folder ' . $tmp . ' holds'), substr_count($said, 'Office: its RAM folder is small again'),
+                 substr_count($said, 'Office: only 2.0 MB free'), substr_count($said, 'Office: there is room again')]);
+        }
+        $m = implode("\n", array_map(fn ($f) => json_encode($f), runDirMetrics()));
+        check('run dir budget: metrics — the folder\'s bytes and the free room', str_contains($m, 'uso_office_run_dir_bytes') && str_contains($m, 'uso_office_run_fs_free_bytes'));
+        check('run dir budget: the office\'s metrics carry them', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/metrics.php'), 'runDirMetrics()'));
+        check('run dir budget: the Team Lead\'s checks carry them', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/caretaker.php'), 'array_push($out, ...runDirChecks());'));
+        foreach (['de', 'en', 'it', 'fr', 'es'] as $lang) {
+            $t = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/caretaker/lang/$lang.json"), true);
+            check("run dir budget: the checks' words ($lang)", isset($t['check.run_dir'], $t['check.run_dir_how'], $t['check.run_full'], $t['check.run_full_how']));
+        }
+        same('run dir budget: 8 MB for the office\'s own small state (her jobs write nothing there now)', 8 << 20, RUNDIR_BUDGET);
+    } finally {
+        $GLOBALS['runDirReal'] = $real;
+        $GLOBALS['runDir'] = $look;
+        $GLOBALS['clJobs'] = $jobs ?? ['queue' => [], 'running' => []];
+    }
+}
+
+/**
+ * Every writer into the office's RAM folder has its line in RUNDIR_FILES (agent/lib/rundir.php): what bounds it, who
+ * removes it (2026-11-19, /run full). Found in the code: `RUN_DIR . '/<name>'`, `officeRunDir() . '/<name>'`, a variable
+ * set from one of them (`$run = RUN_DIR …` then "$run/<name>" or $run . '/<name>'), and in the scripts a variable set to
+ * the folder (`RUN=/var/run/…`, `/var/run/$PLUGIN/usonet`) or the folder written out. A name with a variable part counts by
+ * its fixed start; a name that is a variable alone is allowed only where it is listed here.
+ */
+function testRunDirAudit(): void
+{
+    $dynamic = ['agent/lib/house.php' => 'hostLaunch(): <job>.sh of HOST_LAUNCH_JOBS', 'agent/desks/restore-drill.php' => 'drillMarker(): <kind>.open, kind drill|restore'];
+    $keys = array_keys(RUNDIR_FILES);
+    $first = fn (string $key): string => explode('/', $key, 2)[0];
+    // a pattern's alternatives at the top level, and the fixed start of each («cleanup-(\d+)…» → «cleanup-»)
+    $alts = function (string $key) use ($first): array {
+        $k = $first($key);
+        $out = [''];
+        $depth = 0;
+        for ($i = 0, $n = strlen($k); $i < $n; $i++) {
+            $c = $k[$i];
+            if ($c === '\\') {
+                $out[count($out) - 1] .= $c . ($k[++$i] ?? '');
+                continue;
+            }
+            $depth += $c === '(' ? 1 : ($c === ')' ? -1 : 0);
+            if ($c === '|' && $depth === 0) {
+                $out[] = '';
+                continue;
+            }
+            $out[count($out) - 1] .= $c;
+        }
+        return $out;
+    };
+    $start = function (string $alt): string {
+        $out = '';
+        for ($i = 0, $n = strlen($alt); $i < $n; $i++) {
+            if ($alt[$i] === '\\' && ($alt[$i + 1] ?? '') === '.') {
+                $out .= '.';
+                $i++;
+                continue;
+            }
+            if (strpbrk($alt[$i], '\\([*+?{.') !== false) {
+                break;
+            }
+            $out .= $alt[$i];
+        }
+        return $out;
+    };
+    $known = function (string $lit, bool $whole) use ($keys, $first, $alts, $start): bool {
+        $name = explode('/', $lit, 2)[0];
+        $whole = $whole || str_contains($lit, '/');
+        foreach ($keys as $k) {
+            if ($whole && preg_match('#^(?:' . $first($k) . ')$#D', $name)) {
+                return true;
+            }
+            foreach ($alts($k) as $alt) {
+                $p = $start($alt);
+                // a fixed start: the name's (with a variable part) or the name itself (a check like str_starts_with(…, RUN_DIR . '/cleanup-icons'))
+                if ($p !== '' && $name !== '' && (str_starts_with($p, $name) || (!$whole && str_starts_with($name, $p)))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    $missing = $dyn = [];
+    $files = array_merge(glob(OFFICE_DIR . '/agent/*.php') ?: [], glob(OFFICE_DIR . '/agent/*/*.php') ?: [], glob(OFFICE_DIR . '/src/*.php') ?: [],
+                         glob(OFFICE_DIR . '/public/*.php') ?: []);
+    foreach ($files as $f) {
+        $rel = substr($f, strlen(OFFICE_DIR) + 1);
+        if ($rel === 'agent/lib/rundir.php') {
+            continue;                                   // the table itself: it only looks and removes what the lines allow
+        }
+        $src = (string) file_get_contents($f);
+        // the folder itself, and variables set from it in this file
+        $roots = ['RUN_DIR\)?', 'officeRunDir\(\)'];
+        if (preg_match_all('/(\$\w+)\s*\??\?=\s*(?:\(?\s*\$GLOBALS\[[^\]]+\](?:\[[^\]]+\])*\s*\?\?\s*)?(?:RUN_DIR|officeRunDir\(\))\s*;/', $src, $vm)) {
+            foreach (array_unique($vm[1]) as $v) {
+                $roots[] = preg_quote($v, '/');
+            }
+        }
+        $root = '(?:' . implode('|', $roots) . ')';
+        foreach ([['/' . $root . '\s*\.\s*([\'"])\/([^\'"]*)\1(?:\s*\.\s*([A-Z][A-Z0-9_]+)\b)?(\s*\.)?/', 2, 4, 3], ['/"' . $root . '\/([^"]*)"/', 1, null, null]] as [$re, $g, $more, $const]) {
+            if (!preg_match_all($re, $src, $m, PREG_OFFSET_CAPTURE)) {
+                continue;
+            }
+            foreach ($m[$g] as $i => [$lit, $at]) {
+                $line = substr_count(substr($src, 0, $at), "\n") + 1;
+                $named = $const !== null ? (string) ($m[$const][$i][0] ?? '') : '';
+                if ($lit === '' && $named !== '' && defined($named)) {
+                    $lit = (string) constant($named);          // RUN_DIR . '/' . A_CONSTANT: its value
+                }
+                $cut = strcspn($lit, '${');
+                $whole = $cut === strlen($lit) && ($more === null || ($m[$more][$i][1] ?? -1) < 0);
+                $lit = substr($lit, 0, $cut);
+                if ($lit === '' || $lit === '.') {
+                    $dyn[$rel] = true;
+                    continue;
+                }
+                if (!$known($lit, $whole)) {
+                    $missing[] = "$rel:$line $lit" . ($whole ? '' : '…');
+                }
+            }
+        }
+    }
+    $scripts = array_merge(glob(OFFICE_DIR . '/plugin/scripts/*.sh') ?: [], glob(OFFICE_DIR . '/plugin/event/*') ?: [], glob(OFFICE_DIR . '/plugin/*.plg') ?: [],
+                           glob(OFFICE_DIR . '/backup/*.sh') ?: [], glob(OFFICE_DIR . '/backup/lib/*.sh') ?: []);
+    foreach ($scripts as $f) {
+        $rel = substr($f, strlen(OFFICE_DIR) + 1);
+        $src = (string) preg_replace('/^\s*#.*$/m', '', (string) file_get_contents($f));      // comments say, they don't write
+        $vars = [];
+        if (preg_match_all('/^\s*(?:local\s+|readonly\s+|export\s+)?([A-Za-z_]\w*)=["\']?(?:\$\{\w+:-)?\/var\/run\/(?:unraid-secretary-office|\$PLUGIN|\$name)(\/[\w.-]+)?/m', $src, $vm, PREG_SET_ORDER)) {
+            foreach ($vm as $v) {
+                $vars[$v[1]] = ltrim($v[2] ?? '', '/');
+            }
+        }
+        $res = ['/\/var\/run\/unraid-secretary-office\/([\w.<>$-]+)/' => ''];
+        foreach ($vars as $v => $sub) {
+            $res['/\$\{?' . $v . '\}?\/([\w.<>${}-]+)/'] = $sub;
+        }
+        foreach ($res as $re => $sub) {
+            preg_match_all($re, $src, $m, PREG_OFFSET_CAPTURE);
+            foreach ($m[1] as [$lit, $at]) {
+                $line = substr_count(substr($src, 0, $at), "\n") + 1;
+                $cut = strcspn($lit, '${');
+                $whole = $cut === strlen($lit);
+                $lit = ($sub !== '' ? "$sub/" : '') . substr($lit, 0, $cut);
+                if ($lit === '') {
+                    $dyn[$rel] = true;
+                    continue;
+                }
+                if (!$known($lit, $whole)) {
+                    $missing[] = "$rel:$line $lit" . ($whole ? '' : '…');
+                }
+            }
+        }
+    }
+    same('run dir audit: every name written into the RAM folder has its line in RUNDIR_FILES (what bounds it, who removes it)', [], array_values(array_unique($missing)));
+    same('run dir audit: a name that is only a variable — only where it is listed', [], array_values(array_diff(array_keys($dyn), array_keys($dynamic))));
+    $bad = [];
+    foreach (RUNDIR_FILES as $k => $what) {
+        if (@preg_match('#^(?:' . $k . ')$#D', '') === false || trim($what['bound']) === '' || trim($what['gone']) === ''
+            || (!empty($what['pid']) && !str_contains($k, '(\d+)'))) {
+            $bad[] = $k;
+        }
+    }
+    same('run dir audit: each line a pattern, its bound and its remover (a pid line names the pid as its first group)', [], $bad);
+    // the RAM folder on /run is for small state only: a line over RUNDIR_SMALL (or without a bound) says why it is there all the same — and no new one comes unseen
+    $large = $nobound = [];
+    $table = (array) json_decode((string) json_encode(RUNDIR_FILES), true);      // as data: a line may lack what the rule asks
+    foreach ($table as $k => $what) {
+        if (!array_key_exists('max', $what) || ($what['max'] !== null && !is_int($what['max']))) {
+            $nobound[] = $k;
+        } elseif ($what['max'] === null || $what['max'] > RUNDIR_SMALL) {
+            $large[] = $k . (trim((string) ($what['large'] ?? '')) === '' ? ' (no reason)' : '');
+        }
+    }
+    same('run dir audit: every line says the most it holds, in bytes', [], $nobound);
+    same('run dir audit: over 1 MB only these, each with its reason (the report\'s pictures and diagnostics, the door\'s log while the array is stopped, waiting notifications, the support flag\'s shadow)',
+        ['notify-in', 'inbox', 'inbox/[0-9a-f]{32}\.image', 'report', 'jack-shadow', 'partner'], $large);
+    $notes = [];
+    foreach (RUNDIR_FILES as $k => $what) {
+        if (str_starts_with($what['bound'], 'NOT bounded')) {
+            $notes[] = $k;
+        }
+    }
+    same('run dir audit: what is not bounded yet is said so (and only that)', ['jack-shadow'], $notes);
+}
+
+/**
+ * run()/runAll(): a command's output is capped (RUN_OUT_MAX, a caller may ask for less or more) — a cut is never exit 0;
+ * and a large output is read in linear time (until 2026-11-19 a leftover reference copied the whole buffer at each append:
+ * 40 MB took 20 s)
+ */
+function testRunDirRunCap(): void
+{
+    [$code, $out, $err] = run(['yes', str_repeat('x', 99)], 30, 1 << 20);
+    same('run cap: a command printing forever — stopped at the limit, cut, never exit 0, said on stderr', [RUN_CUT_EXIT, 1 << 20, true],
+        [$code, strlen($out), str_contains($err, 'output cut at 1 MB')]);
+    [$code, $out] = run(['sh', '-c', 'yes e >&2'], 30, 1 << 20);
+    same('run cap: stderr too', RUN_CUT_EXIT, $code);
+    $t = hrtime(true);
+    [$code, $out] = run(['head', '-c', (string) (30 << 20), '/dev/zero'], 60);
+    $s = (hrtime(true) - $t) / 1e9;
+    same('run cap: 30 MB within the default — whole, exit 0', [0, 30 << 20], [$code, strlen($out)]);
+    check('run cap: … read in linear time (seconds, not tens of them)', $s < 8, sprintf('%.1f s', $s));
+    unset($out);
+    same('run cap: the default 32 MB, a cut exits 125', [32 << 20, 125], [RUN_OUT_MAX, RUN_CUT_EXIT]);
+    [$code] = run(['head', '-c', (string) ((32 << 20) + 1), '/dev/zero'], 60);
+    same('run cap: one byte over the default — cut', RUN_CUT_EXIT, $code);
+}
+
+/**
+ * Ms. Dustdevil after the fix, where nothing was wrong (the owner, 2026-11-20: «funktioniert sie danach noch
+ * zuverlässig?»): on a normal flash what her reader gets — per file the share and first level each name, and whether it is
+ * only a weak mention — is the same from 1.94's search (grep -roI, every occurrence) and from 1.94.1's
+ */
+function testCleanupJobSameResult(): void
+{
+    $tmp = hardeningTmp('cl-same');
+    $f = "$tmp/config";
+    $put = function (string $rel, string $text) use ($f): void {
+        @mkdir(dirname("$f/$rel"), 0700, true);
+        file_put_contents("$f/$rel", $text);
+    };
+    $put('plugins/dockerMan/templates-user/my-plex.xml', "<Config Name=\"Config\" Target=\"/config\" Mode=\"rw\">/mnt/user/appdata/plex</Config>\n<Config Name=\"Media\">/mnt/user/Media/</Config>\n<Config Name=\"Transcode\">/mnt/cache/appdata/plex/transcode</Config>\n");
+    $put('plugins/dockerMan/templates-user/my-db.xml', "<Config Target=\"/var/lib/mysql\">/mnt/cache/appdata/mariadb</Config>\n<Config>/mnt/cache/appdata/mariadb</Config>\n");
+    $put('plugins/user.scripts/scripts/sync/script', "#!/bin/bash\nrsync -a /mnt/user/Familienfilme/ /mnt/disk2/backup/Familienfilme/\ncp '/mnt/user/appdata/old-tool/x.conf' /tmp\n");
+    $put('plugins/compose.manager/projects/stack/docker-compose.yml', "volumes:\n  - /mnt/user/appdata/stack:/data\n  - \"/mnt/cache/appdata/stack-db\":/db\n");
+    $put('go', "#!/bin/bash\n/usr/local/sbin/emhttp &\nmount --bind /mnt/user/system/x /mnt/addons/x\n");
+    $put('shares/appdata.cfg', "shareUseCache=\"only\"\nshareCachePool=\"cache\"\n");
+    $put('plugins/history/history.txt', "ls /mnt/user/appdata/leftover\n");
+    $put('plugins/some.plugin/some.plugin.cfg', "path=/mnt/user/appdata/some,other=/mnt/disk1/Media/Familienserien/Staffel 1\n");
+    [, $old] = run(['grep', '-roI', '--exclude-dir=' . CL_TRASH, '--exclude-dir=' . CL_TRASH_OLD, '--exclude-dir=' . CL_LEGACY, '-e', '/mnt/[^"<>[:space:]]*', $f], 60);
+    $oldLines = [];
+    foreach (explode("\n", $old) as $line) {         // 1.94's clJobDone(), as it was
+        $at = strpos($line, ':/mnt/');
+        if ($at !== false) {
+            $oldLines[] = [substr($line, 0, $at), rtrim(preg_replace('/:.*$/', '', substr($line, $at + 1)), '/\'),;')];
+        }
+    }
+    // the same pipeline the job runs, read the job's way
+    $GLOBALS['clJobs'] = ['queue' => [], 'running' => []];
+    $look = $GLOBALS['runDir'] ?? null;
+    $GLOBALS['runDir'] = ['over' => false, 'tight' => false, 'at' => time()];
+    $raw = $GLOBALS['clRaw'] ?? null;
+    unset($GLOBALS['clRaw']);
+    $job = clJobStart(['key' => 'flash', 'type' => 'flash', 'pipeline' => clFlashSearch($f), 'timeout' => 60, 'first' => true]);
+    for ($i = 0; $i < 200 && $job; $i++) {
+        clJobPull($job);
+        $alive = array_filter($job['procs'], fn ($p) => proc_get_status($p)['running']);
+        if (!$alive) {
+            clJobPull($job, true);
+            break;
+        }
+        usleep(20000);
+    }
+    foreach ($job['procs'] ?? [] as $p) {
+        proc_close($p);
+    }
+    [$text] = clJobRead($job ?? []);
+    $newLines = [];
+    foreach (explode("\n", $text) as $line) {
+        $at = strpos($line, ':/mnt/');
+        if ($at !== false) {
+            $newLines[] = [substr($line, 0, $at), rtrim(preg_replace('/:.*$/', '', substr($line, $at + 1)), '/\'),;')];
+        }
+    }
+    $GLOBALS['runDir'] = $look;
+    if ($raw !== null) {
+        $GLOBALS['clRaw'] = $raw;
+    }
+    $reads = function (array $lines, array $bulky) use ($f): array {
+        $out = [];
+        foreach ($lines as [$file, $p]) {
+            if (preg_match('#^/mnt/([^/]+)/([^/]+)(?:/([^/]+))?#', rtrim($p, '/'), $m)) {
+                $rel = substr($file, strlen($f) + 1);
+                $out["$rel → {$m[1]}/{$m[2]}/" . ($m[3] ?? '')] = (bool) preg_match(CL_WEAK, $rel) || in_array($file, $bulky, true);
+            }
+        }
+        ksort($out);
+        return $out;
+    };
+    $bulky = array_values(array_filter(array_unique(array_column($newLines, 0)), 'clFlashBulky'));
+    $a = $reads($oldLines, []);
+    $b = $reads($newLines, $bulky);
+    check('cleanup same result: the fixture names enough (templates, a user script, a stack, the go file, a plugin\'s settings, the history)', count($a) >= 12, (string) count($a));
+    same('cleanup same result: on a normal flash her reader gets the same from 1.94\'s search and from 1.94.1\'s — each name, each weak mention', $a, $b);
+    check('cleanup same result: … with fewer lines (each place once per file)', count($newLines) < count($oldLines), count($newLines) . ' < ' . count($oldLines));
+}
+
+/** A report's diagnostics carry the numbers of this fault class: the RAM folder by pattern (never a name the office didn't choose), the room, the agent's starts */
+function testRunDirReport(): void
+{
+    same('run dir report: names by pattern — fixed ones as they are, the rest as patterns, anything else «other»',
+        ['agent.json', 'agent.pid', 'cleanup-*-*.out', 'jack-headers.*', 'job-*.minute', '*.sh', 'notify-in', 'other', 'other'],
+        array_map('runDirLabel', ['agent.json', 'agent.pid', 'cleanup-4194001-' . md5('x') . '.out', 'jack-headers.123', 'job-backup.minute', 'partner-look.sh',
+                                  'notify-in', 'Familienfilme-2019.txt', 'secret-name']));
+    $real = $GLOBALS['runDirReal'] ?? null;
+    $tmp = hardeningTmp('rundir-report');
+    mkdir("$tmp/run");
+    foreach ([1, 2, 3] as $i) {
+        file_put_contents("$tmp/run/cleanup-" . (4194000 + $i) . '-' . md5("k$i") . '.out', str_repeat('x', 1 << 20));
+    }
+    file_put_contents("$tmp/run/agent.json", '{}');
+    file_put_contents("$tmp/run/Familienfilme-2019.txt", 'x');
+    $now = strtotime('2026-11-20 12:00:00');
+    file_put_contents("$tmp/agent.log", implode("\n", ['2026-11-20 10:30:00  Agent started (v1.94.0, PID 1, desks: cleanup)', '2026-11-20 11:10:00  Agent started (v1.94.0, PID 2, desks: cleanup)',
+        '2026-11-20 11:40:00  Dustdevil searched the flash', '2026-11-20 11:50:00  Agent started (v1.94.0, PID 3, desks: cleanup)']) . "\n");
+    $GLOBALS['runDirReal'] = "$tmp/run";
+    try {
+        $text = runDirReportText($now, "$tmp/agent.log");
+    } finally {
+        $GLOBALS['runDirReal'] = $real;
+    }
+    check('run dir report: the size, the room, the largest by pattern first, the starts of the last hour; no name the office didn\'t choose',
+        (bool) preg_match('/^The office\'s RAM folder: 3\.\d MB in 5 entries/', $text) && str_contains($text, 'Room where it lies: ')
+        && str_contains($text, "  cleanup-*-*.out: 3 entries, 3.0 MB\n") && strpos($text, 'cleanup-*-*.out') < strpos($text, 'agent.json')
+        && str_contains($text, 'other: 1 entry') && !str_contains($text, 'Familienfilme') && str_contains($text, 'Agent starts in the last hour: 2'), $text);
+    check('run dir report: the cleaned diagnostics get it as a file of their own', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/report.php'),
+        "\$zip->addFromString('unraid-secretary-office/run-dir.txt', runDirReportText(\$ctx['now'] ?? null));"));
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus'],
-          'hardening' => ['testRequestTypes', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
+          'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
           'tools' => ['testReleaseHashes', 'testReleaseState', 'testReleaseClicksRetry', 'testScenarioToolsSafe']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of

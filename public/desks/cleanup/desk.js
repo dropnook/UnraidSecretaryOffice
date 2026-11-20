@@ -214,6 +214,7 @@ const noteText = (n) => ({
   same_name: () => T('note.same_name_text'),
   weak: () => T('note.weak_text', { names: n.names.join(', ') }),
   fresh: () => T('note.fresh_text', { days: 30 }),
+  flash_partial: () => T('note.flash_partial_text'),
   named_by: () => T('note.named_by_text', { names: n.names.map((x) => x.name).join(', ') }),
   stack: () => (n.exists ? T('note.stack_text', { name: n.name }) : T('note.stack_gone_text', { name: n.name })),
 })[n.why]();
@@ -223,6 +224,7 @@ function noteChips(e) {
     if (n.why === 'same_name') return chip(T('note.same_name', { icon: KIND_ICONS[n.kind] || '•', name: n.name }), 'warn', noteText(n));
     if (n.why === 'weak') return chip(T('note.weak'), 'warn', noteText(n));
     if (n.why === 'fresh') return chip(T('note.fresh'), 'warn', noteText(n));
+    if (n.why === 'flash_partial') return chip(T('note.flash_partial'), 'warn', noteText(n));
     if (n.why === 'named_by') return chip(T('note.named_by', { n: n.names.length }), e.category === 'used' ? 'quiet' : 'warn', noteText(n));
     return chip(`🧩 ${n.name}`, n.exists ? 'warn' : 'quiet', noteText(n));
   });
@@ -644,6 +646,7 @@ function templatesInfo() {
   box.appendChild(el('p', 'role', T('strays.where', { dir: t.dir })));
   if (t.strays_searching) box.appendChild(el('p', 'role', '⏳ ' + T('strays.searching')));
   else if (t.strays_at) box.appendChild(el('p', 'role', T('strays.searched', { when: fmt.relative(t.strays_at) })));
+  if (!t.strays_searching && t.strays_partial) box.appendChild(el('p', 'callout', T('strays.partial')));
   if (t.strays_skipped) {
     const p = el('p', 'role', T('strays.skipped', { n: t.strays_skipped }));
     p.title = t.strays_skipped_dirs.join('\n');
@@ -658,6 +661,7 @@ function appdataInfo() {
   box.appendChild(el('p', 'role', T('share_where', { share: a.share, places: a.places.map((p) => p.path).join(', ') || '–' })));
   if (a.mounters.length) box.appendChild(el('p', 'role', T('appdata.mounters', { names: a.mounters.join(', ') })));
   if (!a.complete && state.docker.ok) box.appendChild(el('p', 'role', '⏳ ' + T('appdata.checking')));
+  else if (a.flash_at && a.flash_partial) box.appendChild(el('p', 'callout', T('appdata.searched_partial', { when: fmt.relative(a.flash_at) })));
   else if (a.flash_at) box.appendChild(el('p', 'role', T('appdata.searched', { when: fmt.relative(a.flash_at) })));
   if (a.asleep.length) box.appendChild(asleepCallout(a.asleep));
   return box;
@@ -671,6 +675,7 @@ function vmsInfo() {
   box.appendChild(el('p', 'role', T('share_where', { share: v.domains.share, places: v.domains.places.map((p) => p.path).join(', ') || '–' })));
   box.appendChild(el('p', 'role', T('vms.isos', { share: v.isos.share, places: v.isos.places.map((p) => p.path).join(', ') || '–' })));
   if (!v.complete) box.appendChild(el('p', 'role', '⏳ ' + T('appdata.checking')));
+  else if (v.flash_partial && state.appdata.flash_at) box.appendChild(el('p', 'callout', T('appdata.searched_partial', { when: fmt.relative(state.appdata.flash_at) })));
   const asleep = [...new Set([...v.domains.asleep, ...v.isos.asleep])];
   if (asleep.length) box.appendChild(asleepCallout(asleep));
   return box;
