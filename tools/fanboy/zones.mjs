@@ -10,6 +10,7 @@
 //     open stays open when the page draws itself anew (a chip clicked: the zone changes and the page redraws);
 //   - with several kinds the line's curve word brings that kind's card in front; a zone without any source is open,
 //     with the line that it needs one, and stays open while the first are chosen;
+//   - the curve card: a goal per kind, presets locked, his own curve kept; under 100 % where «Quiet» reaches it: a calm line;
 //   - no horizontal scroll at 375 px, no console or page error.
 // Dev-only.
 //
@@ -185,7 +186,7 @@ try {
       const inputs = [...b.querySelectorAll('.fan-curve-field input')];
       return { goal: b.querySelector('.fb-row-fields select').value, pts: inputs.map((i) => Number(i.value)), ro: inputs.every((i) => i.readOnly),
         wheel: !!b.querySelector('.fan-curve .fan-wheel'), read: (b.querySelector('.fan-curve-read') || {}).textContent || '', hint: (b.querySelector('.fb-curve-hint') || {}).textContent || '',
-        width: inputs.length ? Math.round(inputs[0].getBoundingClientRect().width) : 0, off: (b.querySelector('.fb-never-off') || {}).textContent || '' };
+        width: inputs.length ? Math.round(inputs[0].getBoundingClientRect().width) : 0, off: (b.querySelector('.fb-never-off') || {}).textContent || '', under: (b.querySelector('.fb-curve-under') || {}).textContent || '' };
     }, part);
     const goal = async (v) => { await page.selectOption(`${part} .fb-row-fields select >> nth=0`, v); await page.waitForTimeout(300); };
     let k = await card();
@@ -219,6 +220,21 @@ try {
     await goal('own');
     k = await card();
     check('curve card: «Own curve» again — exactly his last own curve (47 °C)', JSON.stringify(k.pts) === '[47,0,55,100]', JSON.stringify(k));
+    check('curve card: … at 100 % where «Quiet» is (55 °C) — no hint', !k.under, k.under);
+    // 2026-11-20 (the owner): his own curve under 100 % where «Quiet» reaches it — one calm line with the numbers, gone again
+    const second = `${part} .fan-curve-field input[data-axis="t"] >> nth=1`;
+    await page.fill(second, '60');
+    await page.press(second, 'Tab');
+    await page.waitForTimeout(400);
+    k = await card();
+    const want = EN['curve.under_quiet'].replace('{c}', '55').replace('{pct}', '62');
+    check('curve card: … the second point at 60 °C — at 55 °C only 62 %: «Quiet would be at 100 % there», a calm line (no callout)', k.under === want
+      && !(await page.$(`${part} .fb-curve-under.callout`)), JSON.stringify([k.under, want]));
+    await page.fill(second, '55');
+    await page.press(second, 'Tab');
+    await page.waitForTimeout(400);
+    k = await card();
+    check('curve card: … back at 55 °C — the hint gone', !k.under && JSON.stringify(k.pts) === '[47,0,55,100]', JSON.stringify(k));
     await goal('normal');
     await page.click(`#sso .fb-next .btn:not(.plain):has-text("${EN['zones.save']}")`);
     await page.waitForTimeout(800);

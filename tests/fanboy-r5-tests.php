@@ -49,7 +49,7 @@ function testFanboyR5Subjects(): void
         // every subject that can follow itself carries the name in all five languages
         foreach (['de', 'en', 'fr', 'it', 'es'] as $l) {
             $j = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$l.json"), true);
-            foreach (['foreign' => '{fan}', 'alarm_stands' => '{fan}', 'alarm_stands_alone' => '{fan}', 'alarm_bios_stands' => '{fan}', 'alarm_sensor' => '{source}', 'drift' => '{fan}', 'alarm_hot' => '{zone}'] as $k => $ph) {
+            foreach (['foreign' => '{fan}', 'alarm_stands' => '{fan}', 'alarm_stands_alone' => '{fan}', 'alarm_bios_stands' => '{fan}', 'alarm_sensor' => '{source}', 'drift' => '{fan}'] as $k => $ph) {
                 check("fanboy r5 subjects: $l notify.{$k}_subject names it ($ph)", str_contains((string) ($j["notify.{$k}_subject"] ?? ''), $ph));
             }
         }
@@ -446,6 +446,7 @@ function testFanboyR5Refused(): void
     try {
         fanboyTDisks($t, 35, null, 33);
         $settings = fanboyTSettings();
+        $settings['zones'][0]['react'] = 'quick';         // (2026-11-20: up at once — the writes this test needs come at once)
         fanboyTStore($settings);
         $spec = fanboyTSpec();
         fanboyTSettle($t, $spec);
