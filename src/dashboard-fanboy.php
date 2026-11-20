@@ -693,6 +693,8 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
     $artRow = static fn (?array $a, string $name, string $text, bool $red): string => '<div class="sso-fb-fan sso-fb-fan-art' . ($red ? ' red-text' : '') . '">'
         . '<span class="sso-fb-sym"' . ($a !== null ? ' data-fan="' . $h((string) json_encode($a, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . '" title="' . $h($a['title']) . '"' : '') . '></span>'
         . '<span class="sso-fb-fname">' . $h($name) . '</span><span class="sso-fb-fval">' . $h($text) . '</span></div>';
+    // «+ n more fans» (a link to his page's «Now»), the same in both layouts
+    $fansMore = static fn (int $n): string => $n > 0 ? '<a class="sso-fb-more" href="' . $h($url . '/now') . '">' . $h(officeDashT($s, 'fanboy.dash.fans_more', ['n' => $n])) . '</a>' : '';
     foreach ($m['zones'] as $z) {
         if ($m['art']) {
             // «speeds» with the fans the user set up: the zone's line (name, warmest spot, level), its fans always under it,
@@ -704,10 +706,7 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
             foreach ($z['fans'] as $i => [$name, $text, $stands]) {
                 $out .= $artRow($z['art'][$i] ?? null, $name, $text, $stands);
             }
-            if ($z['fans_more'] > 0) {
-                $out .= '<a class="sso-fb-more" href="' . $h($url . '/now') . '">' . $h(officeDashT($s, 'fanboy.dash.fans_more', ['n' => $z['fans_more']])) . '</a>';
-            }
-            $out .= '</div>';
+            $out .= $fansMore($z['fans_more']) . '</div>';
             continue;
         }
         $curve = '';
@@ -730,10 +729,7 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
         foreach ($z['fans'] as [$name, $text, $stands]) {
             $out .= '<div class="sso-fb-fan' . ($stands ? ' red-text' : '') . '"><span>' . $h($name) . '</span><span>' . $h($text) . '</span></div>';
         }
-        if ($z['fans_more'] > 0) {
-            $out .= '<a class="sso-fb-more" href="' . $h($url . '/now') . '">' . $h(officeDashT($s, 'fanboy.dash.fans_more', ['n' => $z['fans_more']])) . '</a>';
-        }
-        $out .= '</details>';
+        $out .= $fansMore($z['fans_more']) . '</details>';
     }
     if ($m['no_curve']) {
         $out .= '<div class="sso-fb-line sso-fb-nocurve' . $dim . '"><span>' . $h(officeDashT($s, 'fanboy.dash.curve_none')) . '</span></div>';
