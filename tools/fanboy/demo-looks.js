@@ -31,7 +31,7 @@
     const de = q.get('lang') === 'de';
     const nameOf = (f) => f.model || (de ? `${f.mm} mm (typisch)` : `${f.mm} mm (typical)`);
     const wheelOf = (f, more) => Object.assign({ label: nameOf(f), sub: `${f.brand} · ${f.mm} mm`, mm: f.mm, blades: f.blades,
-      rpm: 1100, look: f.look, px: 120, air: false, title: `${f.brand} ${nameOf(f)}` }, more || {});
+      rpm: 1100, look: f.look, px: 120, air: false, title: `${f.brand} ${nameOf(f)}`, cls: f.generic ? 'fl-generic' : '' }, more || {});
 
     // ?only=looks&pair: the owner's example (2026-11-20) — the NF-A8 beside the NF-A14 at the picker's size and large, each
     // also as a reverse-blade fan (blades mirrored, turning the other way); then the colours a user may choose
@@ -51,6 +51,15 @@
         const row = el('div', 'fl-wheels');
         pr.appendChild(row);
         for (const id of ['noctua-nf-a8-pwm', 'noctua-nf-a14-pwm', 'noctua-nf-a14x25-g2-pwm']) row.appendChild(FanArt.wheel(wheelOf(by(id), { px })).el);
+      }
+      // the sizes the pages draw them at: the picker 120 px, the zone 46, a list row 40, the Dashboard tile 28
+      const sm = part(de ? 'In den Grössen der Seiten' : 'At the pages\' sizes', de ? 'Bildauswahl 120 px · Zone 46 px · Listenzeile 40 px · Dashboard 28 px' : 'picker 120 px · zone 46 px · list row 40 px · Dashboard 28 px', 'fl-small');
+      for (const px of [120, 46, 40, 28]) {
+        const row = el('div', 'fl-wheels');
+        sm.appendChild(row);
+        for (const id of ['noctua-nf-a8-pwm', 'noctua-nf-a14-pwm', 'noctua-nf-a14x25-g2-pwm', 'arctic-p12-pwm-pst', 'lian-li-uni-fan-sl-v2-120', 'thermalright-tl-c12c']) {
+          row.appendChild(FanArt.wheel(wheelOf(by(id), px < 120 ? { px, label: '', sub: '', title: '' } : { px })).el);
+        }
       }
       const rv = part(W.rev, W.revNote, 'fl-reverse');
       const rrow = el('div', 'fl-wheels');

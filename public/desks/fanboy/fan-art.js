@@ -369,7 +369,8 @@
       const lines = stickerShown(look, px) ? look.sticker : null;
       if (lines) {
         const long = Math.max(...lines.map((l) => l.length));
-        const size = Math.min(2 * r * 0.9 / (long * 0.56), 2 * r * 0.78 / (lines.length * 1.02), 9);
+        const room = kind === 'plate' ? r * 0.7 : r;          // the square plate is narrower than the round badge
+        const size = Math.min(2 * room * 0.9 / (long * 0.56), 2 * room * 0.78 / (lines.length * 1.02), 9);
         const t = svg('text', { class: 'fan-sticker-text', x: 50, 'text-anchor': 'middle', 'font-size': size.toFixed(2) });
         lines.forEach((l, i) => {
           const span = svg('tspan', { x: 50, y: (50 + (i - (lines.length - 1) / 2) * size * 1.02 + size * 0.36).toFixed(2) });

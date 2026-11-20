@@ -133,9 +133,9 @@ if (opt.looks) {
       const cs = getComputedStyle(w);
       return { look: w.classList.contains('fan-look-wheel'), frame: cs.getPropertyValue('--fan-frame').trim(), blade: cs.getPropertyValue('--fan-blade').trim(),
         tag: [...w.querySelectorAll('.fan-sticker-text tspan')].map((t) => t.textContent).join(' '), label: w.querySelector('.fan-label').textContent,
-        fill: getComputedStyle(w.querySelector('.fan-housing')).fill };
+        fill: getComputedStyle(w.querySelector('.fan-housing')).fill, generic: w.classList.contains('fl-generic') };
     }));
-    const bad = sheet.filter((x) => !x.look || !x.frame.startsWith('var(--fan-k-') && !/^(rgb|color|#)/.test(x.frame) || !x.tag);
+    const bad = sheet.filter((x) => !x.look || !x.frame.startsWith('var(--fan-k-') && !/^(rgb|color|#)/.test(x.frame) || !x.tag && !x.generic);
     if (bad.length) faults.push(`looks ${theme}: ${bad.length} models without their look or name: ${bad.slice(0, 4).map((x) => x.label).join(', ')}`);
     const fills = new Set(sheet.map((x) => x.fill));
     if (fills.size < 4) faults.push(`looks ${theme}: only ${fills.size} frame colours over the sheet`);
