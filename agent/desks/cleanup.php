@@ -5007,6 +5007,18 @@ function clRestoreForget(array $run, array $it): void
 }
 
 /**
+ * A run emptied for good (its purge job ended, its folder gone): out of her last look, so the state clJobsTick() writes next
+ * lists her storeroom as it is on disk. No look follows a purge (the tick stays cheap) — without this the run stayed «being
+ * emptied» until her next tour, wherever it lay (a pool, the flash; left out or not). $path: the run's «<stamp>.purging».
+ */
+function clTrashEmptied(string $path): void
+{
+    if (isset($GLOBALS['clRaw']['trash']) && is_array($GLOBALS['clRaw']['trash'])) {
+        $GLOBALS['clRaw']['trash'] = array_values(array_filter($GLOBALS['clRaw']['trash'], fn ($run) => ($run['path'] ?? null) !== $path));
+    }
+}
+
+/**
  * Empties trash runs for good (in the background); for stacks also their images, if asked — and their named volumes,
  * which go into the storeroom beside Docker's data first (copied, like the Docker room's), where Docker allows it
  */
@@ -6926,6 +6938,7 @@ function clJobDone(array $job, bool $killed): void
         } else {
             logLine("Dustdevil emptied $path ($took s)");
             @rmdir(dirname($path));                // the trash root, if that was the last run
+            clTrashEmptied($path);
         }
     }
     // forget measurements of what is gone

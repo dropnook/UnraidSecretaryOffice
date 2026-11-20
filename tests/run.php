@@ -28761,6 +28761,105 @@ function testCleanupStoreroomDisks(): void
 }
 
 /**
+ * Emptying her storeroom ends with the list as it is on disk (2026-11-20, a real server: everything left out, «Empty the
+ * storeroom» — six runs stayed «being emptied» although gone): no look follows a purge, so the run emptied leaves her last
+ * look (clTrashEmptied()) and the state written next lists none of it — on a pool share and on the flash, whatever the
+ * user left out. «Put back» from a left-out place works and ends with a fresh list. The real purge jobs (rm -rf) run on a
+ * fake tree; her last look is what clTrashRuns() reads there (clBuild() hands its runs on as they are).
+ */
+function testCleanupPurgeEnds(): void
+{
+    $tmp = hardeningTmp('cl-purge-ends');
+    $mnt = "$tmp/mnt";
+    $flash = "$tmp/boot/config/" . CL_TRASH;              // the flash's storeroom (CL_FLASH is fixed: given as a root of its own)
+    $GLOBALS['clMnt'] = $mnt;
+    $GLOBALS['officeSkipFile'] = "$tmp/skip-places.json";
+    officeSkipSave(['shares' => ['media', 'appdata'], 'pools' => ['cache'], 'array' => true]);
+    same('purge ends: everything left out (the same paths under /mnt would be: share, pool, array)', ['share', 'pool', 'array'],
+        [officeSkipWhy('/mnt/user/media/x'), officeSkipWhy('/mnt/cache/other/x'), officeSkipWhy('/mnt/disk1/other/x')]);
+    $put = function (string $root, string $stamp, string $name, string $from) {
+        $run = "$root/$stamp";
+        @mkdir("$run/appdata/$name/config", 0755, true);
+        file_put_contents("$run/appdata/$name/config/settings.db", 'db');
+        file_put_contents("$run/manifest.json", json_encode(['written_by' => 'Unraid Secretary Office (Ms. Dustdevil)', 'version' => 1, 'time' => 1788264000,
+            'items' => [['kind' => 'appdata', 'name' => $name, 'label' => $name, 'from' => $from, 'as' => "appdata/$name"]]]));
+        return $run;
+    };
+    $pool = "$mnt/cache/media/" . CL_TRASH;
+    @mkdir("$mnt/cache/media", 0755, true);
+    $onPool = $put($pool, '20260901-120000', 'old-app', "$mnt/cache/media/old-app");
+    $onFlash = $put($flash, '20260902-120000', 'flash-app', "$mnt/cache/media/flash-app");
+    $kept = $put($pool, '20260903-120000', 'back-app', "$mnt/cache/media/back-app");
+    $GLOBALS['clCtx'] = ['roots' => ['cache' => ['fs' => 'btrfs', 'kind' => 'pool']], 'asleep' => ['cache' => false]];
+    $look = fn (): array => array_values(array_filter(clTrashRuns([], ['ok' => false], [$flash]), fn ($r) => str_starts_with($r['path'], $tmp)));
+    $GLOBALS['clScanStub'] = fn () => ['templates' => ['list' => []], 'stacks' => ['list' => [], 'root' => "$tmp/none"], 'scripts' => ['list' => []],
+        'appdata' => ['list' => []], 'vms' => ['list' => []], 'leftovers' => ['list' => []], 'partners' => ['list' => []], 'backup_running' => false,
+        'flash' => ['list' => []], 'trash' => ['runs' => $look()]];
+    $paths = fn (array $runs): array => array_map(fn ($r) => [substr($r['path'], strlen($tmp)), $r['purging']], $runs);
+    same('purge ends: her storerooms in a left-out place stay listed (pool share, flash, the one kept)',
+        [['/boot/config/' . CL_TRASH . '/20260902-120000', false], ['/mnt/cache/media/' . CL_TRASH . '/20260901-120000', false], ['/mnt/cache/media/' . CL_TRASH . '/20260903-120000', false]],
+        (function () use ($paths, $look) { $p = $paths($look()); sort($p); return $p; })());
+
+    // «Empty»: renamed to .purging at once, emptied in the background — her look then (as clScan() leaves it) lists them «being emptied»
+    $keepJobs = $GLOBALS['clJobs'] ?? null;
+    $keepRaw = $GLOBALS['clRaw'] ?? null;
+    $GLOBALS['clJobs'] = ['queue' => [], 'running' => []];
+    $r = clPurge([$onPool, $onFlash], false, false);
+    $queued = array_keys($GLOBALS['clJobs']['queue']);
+    sort($queued);
+    same('purge ends: both runs emptied in the background (renamed, queued)', [[true, true], false, false, ['purge:' . $onFlash . '.purging', 'purge:' . $onPool . '.purging']],
+        [array_column($r['results'], 'ok'), is_dir($onPool), is_dir($onFlash), $queued]);
+    $GLOBALS['clRaw'] = ['trash' => $look()];
+    same('purge ends: … her look meanwhile: both «being emptied», the other one not', 2, count(array_filter($GLOBALS['clRaw']['trash'], fn ($x) => $x['purging'])));
+    foreach ($GLOBALS['clJobs']['queue'] as $key => $job) {
+        $job = clJobStart($job);
+        for ($i = 0; $i < 250 && $job; $i++) {
+            clJobPull($job);
+            if (!array_filter($job['procs'], fn ($p) => proc_get_status($p)['running'])) {
+                clJobPull($job, true);
+                break;
+            }
+            usleep(20000);
+        }
+        @fclose($job['pipe']);
+        foreach ($job['procs'] as $p) {
+            proc_close($p);
+        }
+        clJobDone($job, false);
+    }
+    $raw = $GLOBALS['clRaw']['trash'];
+    same('purge ends: the folders gone (the flash\'s storeroom with its last run), her look lists only the run still there, nothing «being emptied»',
+        [false, false, false, [['/mnt/cache/media/' . CL_TRASH . '/20260903-120000', false]]],
+        [file_exists("$onPool.purging"), file_exists("$onFlash.purging"), is_dir($flash), $paths($raw)]);
+    same('purge ends: … and so does the list read anew from disk', $paths($look()), $paths($raw));
+    check('purge ends: clBuild() hands her look\'s runs on as they are (what the page shows)',
+        str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php'), "    foreach (\$raw['trash'] as \$run) {\n        \$size = \$cache['sizes'][\$run['path']] ?? null;"));
+
+    // «Put back» from a left-out place: done, and the answer's list is fresh (the run gone with its last item)
+    $back = clRestore(["$kept|appdata/back-app"]);
+    same('put back from a left-out place: done, the answer\'s list without the run', [true, 'db', []],
+        [$back['results'][0]['ok'] ?? null, @file_get_contents("$mnt/cache/media/back-app/config/settings.db"), $back['state']['trash']['runs'] ?? null]);
+    // neither emptying nor putting back asks the list (her storeroom stays usable wherever it lies)
+    $code = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
+    $body = function (string $fn) use ($code): string {
+        $at = strpos($code, "\nfunction $fn(");
+        return $at === false ? '' : substr($code, $at, (strpos($code, "\n}\n", $at) ?: $at) - $at);
+    };
+    same('purge ends: emptying, its end and putting back never ask what is left out', [[false, false], [false, false], [false, false]],
+        array_map(fn ($fn) => [$body($fn) === '', str_contains($body($fn), 'officeSkip')], ['clPurge', 'clTrashEmptied', 'clRestore']));
+
+    $GLOBALS['clJobs'] = $keepJobs ?? ['queue' => [], 'running' => []];
+    if ($keepRaw !== null) {
+        $GLOBALS['clRaw'] = $keepRaw;
+    } else {
+        unset($GLOBALS['clRaw']);
+    }
+    unset($GLOBALS['clScanStub'], $GLOBALS['clMnt'], $GLOBALS['officeSkipFile']);
+    $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
+    hardeningRm($tmp);
+}
+
+/**
  * Ms. Snapshotini's record of what she removed (data/snapshot/deletes.jsonl, root only) and how the night
  * watchman reads it: it beats her lines in the office's log, which the web server's user may write — those
  * count only until the record is there.
@@ -66940,7 +67039,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
-          'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
+          'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testCleanupPurgeEnds', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
           'fanboy' => ['testFanboyPublic', 'testFanboyMetrics', 'testCaretakerNewcomers', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
                        'testFanboyWrite', 'testFanboyControl', 'testFanboyAlarms', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',
