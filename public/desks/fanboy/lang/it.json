@@ -1038,7 +1038,7 @@
   "zones.row": "{fans} ventole · {sources} fonti di calore",
   "zones.incomplete": "incompleta",
   "zones.incomplete_tip": "Una zona ha bisogno di almeno una ventola e una fonte di calore",
-  "temps.fold": "Regola le temperature in dettaglio (la sua proposta di solito va bene)",
+  "temps.fold": "Regola le temperature in dettaglio",
   "take.his": "Fanboy",
   "take.his_tip": "Fanboy regola le ventole di questa zona appena gli lasci prendere il controllo",
   "take.his_tip_on": "Fanboy regola le ventole di questa zona",

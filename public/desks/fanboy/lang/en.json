@@ -1038,7 +1038,7 @@
   "zones.row": "{fans} fans · {sources} heat sources",
   "zones.incomplete": "incomplete",
   "zones.incomplete_tip": "A zone needs at least one fan and one heat source",
-  "temps.fold": "Set the temperatures finely (his proposal fits most)",
+  "temps.fold": "Set the temperatures finely",
   "take.his": "Fanboy",
   "take.his_tip": "Fanboy steers this zone's fans once you let him take over",
   "take.his_tip_on": "Fanboy steers this zone's fans",

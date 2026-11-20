@@ -1038,7 +1038,7 @@
   "zones.row": "{fans} ventiladores · {sources} fuentes de calor",
   "zones.incomplete": "incompleta",
   "zones.incomplete_tip": "Una zona necesita al menos un ventilador y una fuente de calor",
-  "temps.fold": "Ajustar las temperaturas al detalle (su propuesta suele encajar)",
+  "temps.fold": "Ajustar las temperaturas al detalle",
   "take.his": "Fanboy",
   "take.his_tip": "Fanboy regula los ventiladores de esta zona en cuanto le dejes tomar el mando",
   "take.his_tip_on": "Fanboy regula los ventiladores de esta zona",

@@ -1038,7 +1038,7 @@
   "zones.row": "{fans} Lüfter · {sources} Wärmequellen",
   "zones.incomplete": "unvollständig",
   "zones.incomplete_tip": "Eine Zone braucht mindestens einen Lüfter und eine Wärmequelle",
-  "temps.fold": "Temperaturen fein einstellen (sein Vorschlag passt meist)",
+  "temps.fold": "Temperaturen fein einstellen",
   "take.his": "Fanboy",
   "take.his_tip": "Fanboy regelt die Lüfter dieser Zone, sobald du ihn übernehmen lässt",
   "take.his_tip_on": "Fanboy regelt die Lüfter dieser Zone",
