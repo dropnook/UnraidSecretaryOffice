@@ -39402,10 +39402,101 @@ function testPartnerStart(): void
         str_contains($psrc2, "if (!\$n['with'] || !\$n['exists'] || !\$n['kept'] || \$onlyFolder) {") && str_contains($psrc2, "'note.partner_share_has_data'"));
     check('partner start 1.60.1: the dialog - the share to create, «Look again», «only the app\'s own folder», «bring it along»',
         str_contains((string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js'), 'if (needs.length) box.appendChild(needsField(needs, plan, ask, change));'));
+    // ---- 2026-11-20 (the owner: «the SAP VM straight into domains — domains is here, of course; the VM isn't»): a share that
+    // holds data here — only the ticked apps' and VMs' own folders that aren't here come, each set up from the copy; nothing
+    // else of the share (no loose file of its root, no unticked folder); a folder that is here stays, a VM defined here is refused
+    $u3 = "$tmp/U3";
+    exec('rm -rf ' . escapeshellarg($u3));
+    @mkdir("$u3/appdata/Present", 0755, true);
+    @mkdir("$u3/appdata/kochbuch", 0755, true);             // an empty folder here: filled, as an empty share is
+    file_put_contents("$u3/appdata/Present/mine.img", 'mine');
+    file_put_contents("$u3/appdata/notes.txt", 'mine');
+    $intoPre = '$GLOBALS["rs"]["user_root"] = ' . var_export($u3, true) . '; $GLOBALS["rs"]["vm_states"] = ["Other" => "shut off", "Taken" => "shut off"];'
+        . ' $GLOBALS["rs"]["peek"] = fn ($s) => ["NewVM" => ["kind" => "vm", "name" => "NewVM", "dirs" => [], "needs" => []], "Present" => ["kind" => "vm", "name" => "Present", "dirs" => [], "needs" => []],'
+        . ' "Taken" => ["kind" => "vm", "name" => "Taken", "dirs" => [], "needs" => []], "kochbuch" => ["kind" => "app", "name" => "kochbuch", "dirs" => [], "needs" => []],'
+        . ' "Unticked" => ["kind" => "vm", "name" => "Unticked", "dirs" => [], "needs" => []]];'
+        . ' $GLOBALS["rs"]["peek_sizes"] = fn ($s, $f) => array_fill_keys($f, 1000); $GLOBALS["rs"]["ratios"] = fn ($s) => [$s[0] => 2.0];'
+        . ' $GLOBALS["rs"]["share_free"] = fn ($sh) => ["pool" => "cache", "free" => 1 << 40];';
+    $stI = $at(8000);
+    $mntI = "$tmp/B/restored/homeserver-share-appdata-$stI";
+    $into = fn (string $more = '', string $only = '["NewVM", "Present", "Taken", "kochbuch"]') => $as($intoPre . $more
+        . ' return rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "only" => ' . $only . ', "stamp" => "' . $stI . '"]);');
+    $i1 = $into();
+    $byDo = fn (array $p, string $do) => array_values(array_filter($p['steps'] ?? [], fn ($x) => $x['do'] === $do));
+    same('partner start into a share with data: each ticked one said — a new VM comes, a folder that is here stays, a VM defined here is refused, an empty folder is filled; the unticked one not at all',
+        [['NewVM', 'comes'], ['Present', 'exists'], ['Taken', 'vm_defined'], ['kochbuch', 'comes'], ['Unticked', null]],
+        array_map(fn ($f) => [$f['folder'], $f['here'] ?? null], $i1['options']['found'] ?? []), json_encode($i1));
+    same('partner start into a share with data: … nothing blocks; the copy, then per coming folder its copy and its start — never the share as a whole',
+        [[], ['pull_local', 'mount', 'copy', 'start_from', 'copy', 'start_from'], "$u3/appdata"],
+        [$i1['blockers'] ?? null, array_column($i1['steps'] ?? [], 'do'), $i1['options']['into'] ?? null]);
+    $c1 = $byDo($i1, 'copy');
+    $f1 = $byDo($i1, 'start_from');
+    same('partner start into a share with data: … each copy from the folder in the copy into its own folder, filled only where nothing is, inside the share, its undo aside',
+        [["$mntI/NewVM", "$u3/appdata/NewVM", true, true, "$u3/appdata"], ["$mntI/kochbuch", "$u3/appdata/kochbuch", true, true, "$u3/appdata"]],
+        array_map(fn ($c) => [$c['from'], $c['to'], $c['into_empty'], $c['replaces'], $c['within']], $c1));
+    same('partner start into a share with data: … the VM set up from its folder alone (defined), the app\'s template from its folder alone',
+        [['vm', 'NewVM', "$u3/appdata/NewVM", true], ['app', 'kochbuch', "$u3/appdata/kochbuch", null]],
+        array_map(fn ($x) => [$x['kind'], $x['name'], $x['to'], $x['define'] ?? null], $f1));
+    same('partner start into a share with data: … what stays is named before the start (a warning note, the ways out offered), what comes and stays in the record',
+        [['Present, Taken'], 'share', ['after.partner_start_into', 'after.partner_start_into_stayed'], ['NewVM', 'kochbuch'], ['Present', 'Taken']],
+        [array_column(array_column(array_values(array_filter($i1['notes'] ?? [], fn ($n) => $n['key'] === 'note.partner_start_into_stays')), 'params'), 'names'),
+         $i1['options']['conflict']['kind'] ?? null, array_values(array_intersect(array_column($i1['after'] ?? [], 'key'), ['after.partner_start_into', 'after.partner_start_into_stayed'])),
+         $i1['target']['came'] ?? null, $i1['target']['stayed'] ?? null]);
+    same('partner start into a share with data: … room for what really comes (measured in the copy, uncompressed), not for the whole share', 10 + 2 * 1000 * 2, $i1['sizes']['need'] ?? null);
+    $i2 = $into('', '["Present", "Taken"]');
+    same('partner start into a share with data: none of the ticked can come — blocked, named, the ways out as before',
+        ['restore_partner_start_none', 'Present, Taken', 'share', 0], [$i2['blockers'][0]['key'] ?? null, $i2['blockers'][0]['params']['names'] ?? null, $i2['options']['conflict']['kind'] ?? null, count($byDo($i2, 'copy'))]);
+    $i3 = $into(' $GLOBALS["rs"]["peek_sizes"] = fn ($s, $f) => null;');
+    same('partner start into a share with data: not measurable — the whole share counted, said', [10 + 10, true],
+        [$i3['sizes']['need'] ?? null, in_array('note.partner_start_into_unmeasured', array_column($i3['notes'] ?? [], 'key'), true)]);
+    $i4 = $into(' $GLOBALS["rs"]["share_free"] = fn ($sh) => ["pool" => "cache", "free" => 100];');
+    same('partner start into a share with data: no room where the share puts it — blocked', 'restore_no_space', $i4['blockers'][0]['key'] ?? null);
+    $i5 = $into(' $GLOBALS["rs"]["vm_states"] = null;');
+    same('partner start into a share with data: the VM service off — the disks come, the definition said for later',
+        [['NewVM', 'Taken'], [false, false], true],
+        [array_column(array_filter($byDo($i5, 'start_from'), fn ($x) => $x['kind'] === 'vm'), 'name'), array_column(array_filter($byDo($i5, 'start_from'), fn ($x) => $x['kind'] === 'vm'), 'define'),
+         in_array('note.partner_start_vm_service_off', array_column($i5['notes'] ?? [], 'key'), true)]);
+    @mkdir("$tmp/U4/appdata", 0755, true);
+    $i6 = $as(str_replace(var_export($u3, true), var_export("$tmp/U4", true), $intoPre)
+        . ' return rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "only" => ["NewVM"], "stamp" => "' . $stI . '"]);');
+    same('partner start: an empty share — as before: the whole share comes (the unticked folders left out), no word of «into»',
+        [['pull_local', 'mount', 'copy', 'start_from'], "$tmp/U4/appdata", null, []],
+        [array_column($i6['steps'] ?? [], 'do'), $byDo($i6, 'copy')[0]['to'] ?? null, $i6['options']['into'] ?? null, $i6['blockers'] ?? null]);
+    // the job: the copy's content as the mount would show it — two VMs, the partner's own Present, a loose file at its root,
+    // an app's package, an unticked VM
+    foreach (['NewVM', 'Taken', 'Unticked'] as $v) {
+        @mkdir("$mntI/$v/" . RSP_INSIDE, 0755, true);
+        file_put_contents("$mntI/$v/vdisk1.img", "disk of $v");
+        file_put_contents("$mntI/$v/" . RSP_INSIDE . "/$v.xml", "<domain><name>$v</name><devices><disk type='file'><source file='/mnt/user/appdata/$v/vdisk1.img'/></disk></devices></domain>");
+        file_put_contents("$mntI/$v/" . RSP_INSIDE . '/manifest.json', json_encode(['kind' => 'vm', 'name' => $v, 'xml' => "$v.xml", 'uuid' => '', 'files' => [['path' => "$v.xml", 'what' => 'xml']]]));
+    }
+    @mkdir("$mntI/Present", 0755, true);
+    file_put_contents("$mntI/Present/theirs.img", 'theirs');
+    file_put_contents("$mntI/loose.txt", 'theirs');
+    @mkdir("$mntI/kochbuch/" . RSP_INSIDE, 0755, true);
+    file_put_contents("$mntI/kochbuch/data.db", 'recipes');
+    file_put_contents("$mntI/kochbuch/" . RSP_INSIDE . '/my-kochbuch.xml', '<Container><Name>kochbuch</Name></Container>');
+    file_put_contents("$mntI/kochbuch/" . RSP_INSIDE . '/manifest.json', json_encode(['kind' => 'app', 'name' => 'kochbuch', 'containers' => [], 'files' => []]));
+    @unlink("$B[bin]/virsh.log");
+    $jI = $as($intoPre . ' $p = rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "only" => ["NewVM", "Present", "Taken", "kochbuch"], "stamp" => "' . $stI . '"]);'
+        . ' $jid = rsLaunch($p, false); rsJob([$jid]); return rsJournal($jid);');
+    same('partner start into a share with data, the job: the new VM\'s folder and the app\'s folder came, the VM defined, the app\'s template put',
+        ['ok', true, 'disk of NewVM', true, true, true],
+        [$jI['result'] ?? null, is_file("$u3/appdata/NewVM/vdisk1.img"), @file_get_contents("$u3/appdata/NewVM/vdisk1.img"), is_file("$u3/appdata/kochbuch/data.db"),
+         (bool) preg_grep('/^define .*NewVM\.xml$/', $virsh()), is_file("$tpl/my-kochbuch.xml")], json_encode($jI));
+    same('partner start into a share with data, the job: … nothing else — what was here unchanged, the folder that is here untouched, no loose file, nothing of the refused or unticked VM',
+        ['mine', 'mine', false, false, false, false, false],
+        [@file_get_contents("$u3/appdata/notes.txt"), @file_get_contents("$u3/appdata/Present/mine.img"), file_exists("$u3/appdata/Present/theirs.img"), file_exists("$u3/appdata/loose.txt"),
+         file_exists("$u3/appdata/Taken"), file_exists("$u3/appdata/Unticked"), (bool) preg_grep('/Taken|Unticked/', $virsh())]);
+    same('partner start into a share with data, the job: … each copy\'s undo puts its folder aside, never deletes it', [['aside'], ['aside']],
+        array_map(fn ($x) => array_column($x['undo'] ?? [], 'do'), array_values(array_filter($jI['steps'] ?? [], fn ($x) => $x['do'] === 'copy'))));
+    exec('rm -rf ' . escapeshellarg($u3) . ' ' . escapeshellarg("$tmp/U4"));
+    @unlink("$tpl/my-kochbuch.xml");
+
     $rsrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore.php');
     check('partner start 1.60.1: the copy leaves the unticked folders out (rsync --exclude=/<folder>/)', str_contains($rsrc, "'--exclude=/' . \$x . '/'"));
     $rjs = (string) file_get_contents(OFFICE_WEB . '/desks/restore/desk.js');
-    check('partner start 1.60.1: the dialog shows the ticks (foundField), a change re-plans with `only`', str_contains($rjs, 'if (found.length) box.appendChild(foundField(found, change));')
+    check('partner start 1.60.1: the dialog shows the ticks (foundField), a change re-plans with `only`', str_contains($rjs, 'if (found.length) box.appendChild(foundField(found, change, ask.beside ? null : plan.options.into || null));')
         && str_contains($rjs, "change({ only: [...f.querySelectorAll('input[type=checkbox]')]"));
     $psrc = (string) file_get_contents(OFFICE_DIR . '/agent/desks/restore-partner.php');
     check('partner start 1.60.1: an app unit (engine 2.45) goes back into <share>/<folder> as its package names it, never over data, then its template or stack',
@@ -39416,7 +39507,8 @@ function testPartnerStart(): void
               'note.partner_start_copy', 'note.partner_start_package', 'note.partner_start_foreign', 'note.partner_start_vm_exists', 'note.partner_start_vm_service_off', 'note.partner_start_empty', 'note.partner_start_beside', 'note.partner_start_copy_only',
               'after.partner_start_vm', 'after.partner_start_vm_by_hand', 'after.partner_start_share', 'after.partner_start_copy_only', 'after.partner_start_keep',
               'errors.restore_partner_share_needed', 'errors.restore_partner_start_exists', 'sn.start_no_package', 'sn.start_vm', 'sn.start_vm_exists', 'sn.start_vm_service_off', 'sn.start_vm_in_copy', 'sn.start_app', 'sn.start_app_none',
-              'jk.partner_start', 'j.start_putback_hint', 'aside.started'] as $k) {
+              'jk.partner_start', 'j.start_putback_hint', 'aside.started', 'rd.found_into', 'rd.found_here.comes', 'rd.found_here.exists', 'rd.found_here.vm_defined', 'rd.found_here.odd',
+              'errors.restore_partner_start_none', 'note.partner_start_into', 'note.partner_start_into_stays', 'note.partner_start_into_unmeasured', 'after.partner_start_into', 'after.partner_start_into_stayed'] as $k) {
         check("partner start: the string $k", isset($en[$k]), $k);
     }
     check('partner start: the texts never call it the partner\'s pool — it is the pool the copy lies on, on this server',
