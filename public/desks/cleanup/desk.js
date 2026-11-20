@@ -2326,7 +2326,7 @@ const skipCount = () => { const k = skipList(); return k.shares.length + k.pools
  * once her look knows the list (an older agent's look doesn't: then nothing is drawn).
  */
 function skipLine() {
-  const b = el('button', 'clw-skip');
+  const b = Office.place('skip.line', el('button', 'clw-skip'));       // a place of the search (the setting, Office.places())
   b.type = 'button';
   const fill = () => {
     const n = skipCount();
@@ -2341,6 +2341,9 @@ function skipLine() {
   b.fill = fill;
   return b;
 }
+
+/** The search: is the line drawn? Her look not known yet: listed (as her rooms are); an older agent's look has no list */
+const skipShown = () => !state || !!state.skip;
 
 /** What is left out, in words: «the array, pool fast, share Media» */
 function skipSummary() {
@@ -4040,13 +4043,18 @@ function plugins(body) {
   body.appendChild(box);
 }
 
+/** A share's words for the search when its row carries the chip (skipChip()): «left out» finds the shares left out, else '' */
+const skipItemWords = (skip) => (!skip || !(skip.whole || (Array.isArray(skip.on) && skip.on.length)) ? ''
+  : skip.whole ? T('skip.chip') : `${T('skip.chip_part')} ${T('skip.chip')}`);
+
 /** What a look holds for the search (core.js «items», the part «where»): the containers, the disks, the appdata folders */
 function items(s) {
   if (!s || !Array.isArray(s.shares)) return [];
   const out = [];
   s.shares.forEach((x) => out.push({ text: x.name, sub: x.storage ? `${T('where.section.shares')} · ${storageText(x.storage)}` : T('where.section.shares'),
     route: `#/${ID}/where/shares`, anchor: 'share:' + x.name,
-    words: [x.comment, x.storage && x.storage.exclusive ? 'exclusive ' + T('where.exclusive') : '', x.smb && x.smb.timemachine_limit ? 'Time Machine' : ''].filter(Boolean).join(' ') }));
+    words: [x.comment, x.storage && x.storage.exclusive ? 'exclusive ' + T('where.exclusive') : '', x.smb && x.smb.timemachine_limit ? 'Time Machine' : '',
+      skipItemWords(x.skip)].filter(Boolean).join(' ') }));
   (s.containers || []).forEach((c) => out.push({ text: c.name, sub: `${T('where.section.docker')} · ${c.state === 'running' ? T('where.state.running') : c.state}`,
     route: `#/${ID}/where/docker`, anchor: 'container:' + c.name, words: c.image }));
   const order = ['Parity', 'Data', 'Cache', 'Boot', 'Unassigned'];
@@ -5429,7 +5437,7 @@ function spaceMore() {
 }
 
 return {
-  build, load, render, tour, bubble, reception, helpItems, sleeping, items, findings, skipLine, skipList,
+  build, load, render, tour, bubble, reception, helpItems, sleeping, items, findings, skipLine, skipShown, skipList,
   arrayWord: () => T('where.array'),
   /** her tiles as places of the search (#/cleanup/where/<tile>; «Where things are» only while she knows places) */
   places: () => TILES.map((id) => ({ kind: 'tile', key: tileKey(id), route: `#/${ID}/where/${id}`, anchor: `where.${id}`, part: 'part.where',
@@ -5462,6 +5470,8 @@ Office.places(ID, [
   { kind: 'section', key: 'where.now', route: '#/cleanup/where' },
   { kind: 'section', key: 'where.adv.title', route: '#/cleanup/where/advice' },
   ...Where.places(),
+  // «Leave places out…» under the wake switch (in her head, on both pages): the line, its dialog's words as its text
+  { kind: 'setting', key: 'skip.title', route: '#/cleanup/where', anchor: 'skip.line', text: 'skip.intro', shown: () => Where.skipShown() },
   { kind: 'section', key: 'part.tidy', route: '#/cleanup/tidy' },
   { kind: 'section', key: 'rooms', route: '#/cleanup/tidy' },
   // a room only while she shows its tile (visible(): VMs with the VM service, Docker's rooms with Docker, what partners

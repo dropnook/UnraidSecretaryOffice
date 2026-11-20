@@ -35406,7 +35406,8 @@ const out = { registry: {}, marks: {} };
 })().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
 JS);
     $queries = ['before' => ['Partn', 'Partnr', 'Pratner', 'Partner offices', 'Accueil', 'Empfang', 'xq'],
-                'after' => ['Partner offices', 'secretariats partenaires', 'Sécrétariats', 'Accueil', 'Empfang', 'Reception', 'recepcion', 'Recepción', 'größe', 'GRÖSSE', 'grosse', 'tem', 'Tean']];
+                'after' => ['Partner offices', 'secretariats partenaires', 'Sécrétariats', 'Accueil', 'Empfang', 'Reception', 'recepcion', 'Recepción', 'größe', 'GRÖSSE', 'grosse', 'tem', 'Tean',
+                           'Orte auslassen', 'Leave places out', 'scanne']];
     file_put_contents("$tmp/queries.json", json_encode($queries));
     $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", "$pub/assets/core.js", "$pub/desks", "$tmp/config.json",
         "$tmp/strings.json", "$tmp/words.json", "$tmp/queries.json"])) . ' 2>&1');
@@ -35529,6 +35530,11 @@ JS);
     foreach (['Accueil', 'Empfang', 'Reception', 'recepcion', 'Recepción'] as $q) {
         same("search page: «{$q}» — five languages, the same place first", ':office.reception', $r['after'][$q][0] ?? null);
     }
+    // «leave places out» (1.95.0): the line under her wake switch, by its name in any language, and by its dialog's words
+    foreach (['Orte auslassen', 'Leave places out'] as $q) {
+        same("search page: «{$q}» finds Ms. Dustdevil's «leave places out» first", 'cleanup:skip.title', $r['after'][$q][0] ?? null);
+    }
+    check('search page: … and by its dialog\'s words («scanne»)', in_array('cleanup:skip.title', $r['after']['scanne'], true), json_encode($r['after']['scanne']));
     check('search page: ß, umlauts and case are one (größe = GRÖSSE = grosse: «Grössen»)', in_array('cleanup:help.sizes', $r['after']['größe'], true)
         && $r['after']['größe'] === $r['after']['GRÖSSE'] && $r['after']['größe'] === $r['after']['grosse'], json_encode([$r['after']['größe'], $r['after']['grosse']]));
     check('search page: a typing error from four letters on («Tean»: the team), none below («tem»)', in_array('caretaker:team', $r['after']['Tean'], true)
@@ -35675,7 +35681,11 @@ function testSearchItems(): void
         'moverelli' => ['time' => 1000, 'configured' => true, 'shares' => [['share' => 'media', 'state' => 'moves', 'mode' => 'yes', 'from' => 'cache', 'to' => 'array']],
             'history' => [['mode' => 'run', 'started' => 900, 'result' => 'ok', 'by' => 'schedule']]],
     ];
-    $parts = ['cleanup/where' => ['time' => 1000, 'shares' => [['name' => 'Media', 'comment' => '', 'storage' => ['primary' => 'cache', 'secondary' => null, 'exclusive' => true], 'smb' => ['timemachine_limit' => 0]]],
+    // «leave places out» (1.95.0): Fotos left out as a whole, Filme partly (its pool fast), Media not — an older look has no skip at all
+    $parts = ['cleanup/where' => ['time' => 1000, 'shares' => [['name' => 'Media', 'comment' => '', 'storage' => ['primary' => 'cache', 'secondary' => null, 'exclusive' => true], 'smb' => ['timemachine_limit' => 0],
+            'skip' => ['whole' => false, 'on' => [], 'measurable' => true]],
+        ['name' => 'Fotos', 'comment' => '', 'skip' => ['whole' => true, 'on' => [], 'measurable' => false]],
+        ['name' => 'Filme', 'comment' => '', 'skip' => ['whole' => false, 'on' => ['fast'], 'measurable' => false]]],
         'folders' => [['share' => 'appdata', 'appdata' => true, 'base' => '/mnt/user/appdata', 'folders' => [['name' => 'plex', 'real' => '/mnt/cache/appdata/plex', 'path' => '/mnt/user/appdata/plex', 'used_by' => []]]]],
         'containers' => [['name' => 'plex', 'image' => 'lscr.io/linuxserver/plex', 'state' => 'running', 'networks' => [], 'ports' => [], 'mounts' => [['source' => '/mnt/user/appdata/plex', 'dest' => '/config']], 'managed' => 'template']],
         'health' => ['devices' => [['name' => 'Disk 1', 'device' => 'sdb', 'type' => 'Data', 'roles' => [], 'serial' => 'WD-WX12345678']]]]];
@@ -35767,7 +35777,7 @@ const out = {};
   O.placesTook('restore', FX.drill, 'drill');
   // the ranking
   out.find = {};
-  for (const q of ['Partner offices', 'tean', 'kopia', O.t('advisor.missing'), 'nextcloud', 'telnet', 'Windows11', 'my-plex', 'Wohnzimmer', 'ct-17', 'plex', 'Unassigned', 'Databases'])
+  for (const q of ['Partner offices', 'tean', 'kopia', O.t('advisor.missing'), 'nextcloud', 'telnet', 'Windows11', 'my-plex', 'Wohnzimmer', 'ct-17', 'plex', 'Unassigned', 'Databases', 'left out'])
     out.find[q] = brief(O.search.find(q));
   out.first = O.search.find('Wohnzimmer')[0] || null;
   if (out.first) delete out.first.act;
@@ -35896,7 +35906,7 @@ JS);
         array_map(fn ($e) => [$e['anchor'], $e['route']], $r['items']['snapshot'] ?? []));
     $c = $r['items']['cleanup'] ?? [];
     check('search items cleanup: what she would clear away (capped at 120), not what is in use; «Where is what»: shares, containers, disks, appdata folders',
-        count($c) === 120 + 4 && in_array('share:Media', $anchors('cleanup'), true) && in_array('item:tpl:my-plex.xml', $anchors('cleanup'), true) && in_array('item:ad:oldapp', $anchors('cleanup'), true)
+        count($c) === 120 + 6 && in_array('share:Media', $anchors('cleanup'), true) && in_array('item:tpl:my-plex.xml', $anchors('cleanup'), true) && in_array('item:ad:oldapp', $anchors('cleanup'), true)
         && !in_array('item:ad:plex', $anchors('cleanup'), true) && in_array('container:plex', $anchors('cleanup'), true) && in_array('disk:sdb', $anchors('cleanup'), true)
         && in_array('folder:/mnt/cache/appdata/plex', $anchors('cleanup'), true), json_encode([count($c), array_slice($anchors('cleanup'), -4)]));
     $media = array_values(array_filter($c, fn ($e) => $e['anchor'] === 'share:Media'))[0] ?? [];
@@ -35912,6 +35922,7 @@ JS);
 
     // the ranking
     $f = $r['find'];
+    $sorted0 = function (array $a): array { sort($a); return $a; };
     same('search items: a place met word by word comes first, the items after it', 'caretaker:section:partner.title', $f['Partner offices'][0] ?? null);
     check('search items: … an item that is met too follows', in_array('caretaker:item:partner:a1b2c3d4', $f['Partner offices'], true), json_encode($f['Partner offices']));
     check('search items: an item met as typed comes before typing errors (they drop out: «tean» — the watchman\'s containers, not «The team»)',
@@ -35925,6 +35936,8 @@ JS);
               ['Unassigned', 'watchman:item:watch:plugins'], ['Databases', 'restore:item:db:nextcloud:apps/nextcloud/db/mariadb-nextcloud.sql.gz']] as [$q, $want]) {
         check("search items: «{$q}» finds $want", in_array($want, $f[$q], true), json_encode($f[$q]));
     }
+    same('search items: «left out» finds the shares her rows chip so (whole and partly), not the others',
+        ['cleanup:item:share:Filme', 'cleanup:item:share:Fotos'], $sorted0(array_values(array_filter($f['left out'], fn ($x) => str_starts_with($x, 'cleanup:item:share:')))));
     check('search items: «Databases» — the tile and the section first, then the items', str_starts_with($f['Databases'][0] ?? '', 'restore:') && !str_contains($f['Databases'][0] ?? '', ':item:'),
         json_encode($f['Databases']));
     $one = $r['first'] ?? [];
