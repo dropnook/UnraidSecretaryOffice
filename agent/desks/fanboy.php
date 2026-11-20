@@ -903,6 +903,9 @@ function fanboySetupState(array $scan, ?array $settings): array
         'board' => $key, 'others' => count(array_diff(array_keys($store['boards']), [$key])),
         'fans' => $fans, 'zones' => $zones, 'armed' => ($settings['armed'] ?? false) === true,
         'outputs' => array_keys(fanboyOutputs($scan)), 'missing' => $missing, 'sources' => fanboySources($scan),
+        // 2026-11-20: what a quiet test would hold still (fanboyQuietOthers(): only outputs with a role of his) — the page
+        // names them before the test; the one under test runs, of course
+        'quiet_hold' => function_exists('fanboyQuietOthers') ? array_keys(fanboyQuietOthers('', fanboyOutputs($scan), $settings)) : [],
         // part 3: the curves, each output's state before Fanboy, «give back» still open, the defaults the page shows
         'curves' => $curves ?: new stdClass(), 'before' => $before ?: new stdClass(),
         'back_default' => FANBOY_BACK_DEFAULT,

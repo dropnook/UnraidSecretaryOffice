@@ -726,9 +726,25 @@ function fanboyR8Cpu(array $t, float $c): void
     file_put_contents(glob("{$t['root']}/sys/devices/platform/coretemp.0/hwmon/hwmon*/temp1_input")[0], (int) round($c * 1000) . "\n");
 }
 
-/** A quiet (or not) test step on the tests' clock; $each(clock) after every look: the test's own eyes */
-function fanboyR8Run(array $t, array &$spec, array $outs, bool $quiet, ?callable $each = null, ?float $stopAt = null): array
+/**
+ * A quiet (or not) test step on the tests' clock; $each(clock) after every look: the test's own eyes. $told (2026-11-20):
+ * a quiet test holds still only outputs whose role is his — every output without a role is told «case fan» first, as the
+ * user would have said it (false: as stored — testFanboyQuietRoles)
+ */
+function fanboyR8Run(array $t, array &$spec, array $outs, bool $quiet, ?callable $each = null, ?float $stopAt = null, bool $told = true): array
 {
+    if ($quiet && $told) {
+        $fans = fanboyBoardRaw()['fans'] ?? [];
+        foreach (array_keys(fanboyOutputs(fanboyDetect(fanboySysRoot() ?: null))) as $id) {
+            if (!is_string($fans[$id]['role'] ?? null) || $fans[$id]['role'] === '') {
+                try {
+                    fanboyRole(['fan' => $id, 'role' => 'case']);
+                } catch (Problem $p) {
+                    // (one that takes no role — found empty, the BIOS keeps it: the quiet test leaves it anyway)
+                }
+            }
+        }
+    }
     $clock = 0.0;
     $io = fanboyTIo($t, $spec, $clock, $stopAt);
     $sleep = $io['sleep'];

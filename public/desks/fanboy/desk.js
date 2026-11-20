@@ -2498,7 +2498,10 @@ function benchMake() {
   const qList = el('ul', 'fb-quiet-hints');
   ['hint_1', 'hint_2', 'hint_3'].forEach((k) => qList.appendChild(el('li', '', T(`quiet.${k}`))));
   const qOff = el('p', 'fb-quiet-off', T('quiet.off_note'));
-  quiet.append(qHead, qList, qOff);
+  // 2026-11-20 (the owner's second run): what a quiet test holds still, named before it starts — the agent's own list
+  // (`quiet_hold`: only outputs with a role of his; never the CPU cooler, a pump or one without a role)
+  const qHold = el('p', 'fb-quiet-hold');
+  quiet.append(qHead, qList, qHold, qOff);
   const outs = () => setup().outputs || [];
   const lp = listPanel({
     label: T('list.label'),
@@ -2540,6 +2543,10 @@ function benchMake() {
     qBtn.off.setAttribute('aria-pressed', String(!on));
     qList.hidden = !on;
     qOff.hidden = on;
+    const hold = (setup().quiet_hold || []).filter((id) => outs().includes(id));
+    qHold.hidden = !on;
+    // said for the test to come: while one runs it stays as it was (a name typed meanwhile never rewraps it above his field)
+    if (!runNow().kind || !qHold.textContent) setText(qHold, hold.length ? T('quiet.holds', { n: hold.length, list: hold.map((id) => fanSay(id)).join(', ') }) : T('quiet.holds_none'));
     lp.update();
   }
   update();

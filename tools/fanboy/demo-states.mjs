@@ -245,7 +245,9 @@ function state(o) {
       loose: o.control && o.control.running ? uncovered(zones, sources(chips, disks)).filter((u) => !u.asleep).map((u) => ({ id: u.id, kind: u.kind, label: u.name, c: u.c })) : [], net: null, ...(o.control || {}) },
     setup: {
       auto_back_seen: null, uncovered: uncovered(zones, sources(chips, disks)), board: 'Example Boards Inc. | EB-Z100 PRO', others: 0, fans, zones, armed: !!o.armed, outputs: offered.length ? OUTPUTS : [], missing: [],
-      sources: sources(chips, disks), curves: curves(zones), before: offered.length ? clone(BEFORE) : {}, back_default: 'auto',
+      sources: sources(chips, disks),
+      // what a quiet test would hold still: only outputs whose role is his (the agent's fanboyQuietOthers())
+      quiet_hold: offered.length ? fans.filter((f) => ['case', 'disks', 'ram', 'nvme', 'other'].includes(f.role) && f.found !== 'inverted').map((f) => f.id) : [], curves: curves(zones), before: offered.length ? clone(BEFORE) : {}, back_default: 'auto',
       scales: SCALES, down: DOWN, round: 2, presets_of: PRESETS_OF,
       // the numbers the page's sentences state, as the agent's setup state gives them (fanboyTimes(); testFanboyTimes ties both)
       times: { clear_after: 120, up_hold: 600, up_hold_quiet: 180, up_min: 8, show_for: 60, lease: 45, tell_after: 900, idle_warm_after: 120, stand_after: 15, history_every: 60,

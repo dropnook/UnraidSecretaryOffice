@@ -872,7 +872,7 @@
   "show.quiet_warm": "La demostración terminó antes: {what} estaba a {c} °C con los demás ventiladores parados. Cada ventilador volvió a como estaba.",
   "show.no_restart": "{what} no volvió a girar tras parar los demás ventiladores. Fanboy puso su salida a toda velocidad y envió una notificación: revisa ese ventilador.",
   "help.quiet": "Parar los demás ventiladores",
-  "help.quiet_text": "La única excepción a «nunca hacia abajo»: mientras se prueba una salida (hasta que respondas, como mucho tres minutos), cada otro ventilador se pone al 0 % para que solo se oiga ese; también el disipador de la CPU mientras no se conozca su rol, nunca un disipador o una bomba con su rol. No todas las placas y ventiladores se paran del todo; algunos siguen a su velocidad mínima. No empieza mientras algo esté caliente y lo devuelve todo enseguida si la CPU sube o un punto se calienta; después cada ventilador debe volver a girar, si no su salida va a toda velocidad y recibes una notificación. No: no se toca ningún otro ventilador.",
+  "help.quiet_text": "La única excepción a «nunca hacia abajo»: mientras se prueba una salida (hasta que respondas, como mucho tres minutos), cada otro ventilador del que has dicho qué es se pone al 0 % para que solo se oiga ese; nunca el disipador de la CPU, una bomba o un ventilador sin rol. No todas las placas y ventiladores se paran del todo; algunos siguen a su velocidad mínima. No empieza mientras algo esté caliente y lo devuelve todo enseguida si la CPU sube o un punto se calienta; después cada ventilador debe volver a girar, si no su salida va a toda velocidad y recibes una notificación. No: no se toca ningún otro ventilador.",
   "errors.fanboy_quiet_warm": "Ahora no con los demás ventiladores parados: {what} está a {c} °C. Inténtalo cuando se haya enfriado, o con «Parar mientras los demás ventiladores» en No.",
   "notify.quiet_no_restart_subject": "Fanboy: {fan} no volvió a girar",
   "notify.quiet_no_restart": "{fan} giraba antes de la prueba con los demás ventiladores parados y después no volvió a girar. Fanboy puso su salida a toda velocidad y detuvo la prueba: revisa ese ventilador.",
@@ -932,8 +932,13 @@
   "strip.refused": "No ha funcionado: {why}",
   "strip.away": "El mensajero no está ahora mismo — esto vuelve a funcionar cuando regrese.",
   "quiet.hint_1": "No todas las placas base paran del todo un ventilador — algunos siguen girando despacio.",
-  "quiet.hint_2": "El disipador de la CPU también se para, hasta que digas qué salida es. A partir de ahí Fanboy no lo para nunca más.",
+  "quiet.hint_2": "Solo se paran los ventiladores de los que has dicho qué son: nunca el disipador de la CPU, una bomba o un ventilador sin rol.",
   "quiet.hint_3": "Si algo se calienta, Fanboy interrumpe y todos vuelven a girar al instante.",
+  "quiet.holds": {
+    "one": "Mientras se prueba una salida, este ventilador se para: {list}.",
+    "other": "Mientras se prueba una salida, estos {n} ventiladores se paran: {list}."
+  },
+  "quiet.holds_none": "En esta pasada no se para ningún ventilador: Fanboy solo para los ventiladores de los que has dicho qué son (nunca el disipador de la CPU ni una bomba). Una vez dicho, «Probar otra vez» en una salida es más silencioso.",
   "quiet.off_note": "Los demás ventiladores siguen como antes — Fanboy no escribe en ninguna otra salida.",
   "list.label": "Las salidas de la placa base",
   "list.row_tip": "Mostrar {name}",

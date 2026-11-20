@@ -87,8 +87,8 @@ final class FanboyQuietWarm extends FanboyStepStop
  * state before in the journal), a fixed 0 written; X to full until the user answers (at most FANBOY_UP_HOLD_QUIET); then every one given
  * back exactly (value + mode, read back); then at least FANBOY_QUIET_PAUSE with everything as before, in which every tach
  * that turned before must turn again within FANBOY_QUIET_RESTART — one that doesn't: its output (or, its output unknown,
- * every output quieted on that chip) to full, an alert, the test stops. Never quieted: X, a CPU cooler or pump (by its
- * role, once known), an output found inverted, one whose driver takes no values, one without a mode file, one someone
+ * every output quieted on that chip) to full, an alert, the test stops. Quieted only: an output whose role is known and
+ * one of his (fanboyQuietOthers() — never one without a role, never a CPU cooler or pump); never X, an output found inverted, one whose driver takes no values, one without a mode file, one someone
  * else holds. Guards: refused while anything is warm or the CPU at FANBOY_QUIET_CPU_START; during the quiet phase every
  * look (≤ 0.5 s): the CPU at FANBOY_QUIET_CPU_STOP or FANBOY_QUIET_CPU_RISE over its start, or any place at its «needs
  * all the air» → everything back at once, the test stops naming it. A holder that dies or hangs, the page gone (45 s):
@@ -150,8 +150,12 @@ function fanboyQuietWarm(?float $cpuStart = null): ?array
 }
 
 /**
- * The outputs to stop while $x is tested: every other offered output — not a CPU cooler or pump (their role), not one
- * found inverted, not one whose driver takes no values (the control's last word), not one without a mode file
+ * The outputs to stop while $x is tested: only those whose role is KNOWN and one of his (case, disks, RAM, NVMe, other —
+ * FANBOY_ROLES_OURS). 2026-11-20 (the owner's second run: his CPU cooler, tested but not named yet, stood with every other
+ * fan while an empty output was tested): an output without a role could be the CPU cooler or a pump — it is left as the
+ * board has it; a CPU cooler (also one given to him), a pump, «don't know» never. Nor one found inverted, one whose driver
+ * takes no values (the control's last word), one without a mode file. So the first pass, before any role is said, holds
+ * nothing still (the page says so); the quiet test helps from «test again» once the others are told.
  */
 function fanboyQuietOthers(string $x, array $outputs, ?array $settings): array
 {
@@ -159,7 +163,7 @@ function fanboyQuietOthers(string $x, array $outputs, ?array $settings): array
     $out = [];
     foreach ($outputs as $id => $o) {
         $f = $settings['fans'][$id] ?? null;
-        if ($id === $x || in_array($f['role'] ?? null, ['cpu', 'pump'], true) || fanboyFound($f) === 'inverted'
+        if ($id === $x || !is_array($f) || !in_array($f['role'] ?? null, FANBOY_ROLES_OURS, true) || fanboyFound($f) === 'inverted'
             || (is_array($refuses) && in_array($id, $refuses, true)) || (fanboyOutputNow($o['device'], $o['output'])['enable'] ?? null) === null) {
             continue;
         }
