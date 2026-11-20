@@ -226,6 +226,37 @@ function testFanboyChipRead(): void
         [$j['chip']['result'], $emu->log, md5_file($port)]);
     fanboyTEnd();
 
+    // the rule wider than the hint (the coordinator's review): raw DMI lines naming Gigabyte or Aorus, Gigabyte's WMI
+    // driver, no maker named at all — each: not one byte at the (fake) port, the result, the next step
+    $skips = [
+        'system vendor GIGA-BYTE' => [['board' => ['Example Boards Inc.', 'X1'], 'dmi_extra' => ['sys_vendor' => 'GIGA-BYTE TECHNOLOGY CO., LTD.']], 'maker'],
+        'product name AORUS' => [['board' => ['Example Boards Inc.', 'X1'], 'dmi_extra' => ['product_name' => 'AORUS MASTER']], 'maker'],
+        'board name Z890 AORUS ELITE' => [['board' => ['Example Boards Inc.', 'Z890 AORUS ELITE']], 'maker'],
+        'board vendor «Giga Byte»' => [['board' => ['Giga Byte', 'X1']], 'maker'],
+        'gigabyte_wmi loaded' => [['modules' => ['gigabyte_wmi']], 'maker'],
+        'a hwmon chip gigabyte_wmi (no module)' => [['chips' => [[4, 'gigabyte_wmi', 'platform/PNP0C14:02/wmi_bus/wmi_bus-PNP0C14:02', null, 'temps' => [1 => [21000, '']]]]], 'maker'],
+        'no maker: placeholders' => [['board' => ['To be filled by O.E.M.', 'Default string'], 'dmi_extra' => ['sys_vendor' => 'Default string']], 'no_maker'],
+        'no maker: empty' => [['board' => ['', 'X1']], 'no_maker'],
+        'only the system vendor named' => [['board' => ['', 'X1'], 'dmi_extra' => ['sys_vendor' => 'Example Systems']], 'read'],
+    ];
+    $got = $want = [];
+    foreach ($skips as $what => [$spec, $code]) {
+        $t = fanboyChipTree('skip-' . md5($what), $spec);
+        $port = "{$t['chiproot']}/dev/port";
+        $md5 = md5_file($port);
+        [$io, $emu] = fanboyChipEmu([['port' => 0x2e, 'family' => 'ite', 'id' => 0x8696]]);
+        $j = fanboyChipRead($io);
+        $st = fanboyChipState(fanboyDetect(fanboySysRoot()));
+        $got[$what] = [$j['chip']['result'], $code === 'read' ? $emu->log !== [] : $emu->log === [] && md5_file($port) === $md5,
+            $code === 'maker' ? [$st['need'], $st['plugin']['id'] ?? null, $st['chip']['family'] ?? null] : ($code === 'no_maker' ? [$st['need'], $st['can'], $st['blocked']] : null)];
+        $want[$what] = [$code, true, $code === 'maker' ? ['plugin', 'it87-driver', true] : ($code === 'no_maker' ? ['blocked', false, 'no_maker'] : null)];
+        fanboyTEnd();
+    }
+    same('fanboy chip read: never read where any raw DMI line names Gigabyte or Aorus, Gigabyte\'s WMI is there, or no maker is named — not one byte; the ITE plugin next (maker), the button not offered and the click kept as not read (no maker); a named system vendor is enough to read',
+        $want, $got);
+    same('fanboy chip read: … the report says why it was never read', ['Fan chip: not read (board maker: never read)', 'Fan chip: not read (no board maker named: never read)'],
+        [fanboyChipReportLine(['kept' => null, 'blocked' => 'maker']), fanboyChipReportLine(['kept' => null, 'blocked' => 'no_maker'])]);
+
     // the action through the tests' tree: a fake chip, kept per board, logged
     $t = fanboyChipTree('read');
     [$io] = fanboyChipEmu([['port' => 0x2e, 'family' => 'ite', 'id' => 0x8696]]);
@@ -425,14 +456,15 @@ function testFanboyChipState(): void
         && str_contains($js, "act('chip_read', {}, b,") && str_contains($js, "Office.api.post(`\${ID}.chip_report`, {})") && substr_count($js, "Office.safeHref('/Apps')") === 3);
     check('fanboy chip page: on the overview a way to the hints (the set-up\'s first step); a board never read says why (its maker) and goes on to the plugin; «Load drivers» found nothing → the same plugin by name with ⟦Apps⟧; the picture says no fan shows without the driver',
         str_contains($js, "a.href = `#/\${ID}/setup/detect`;") && str_contains($js, "if (page !== 'setup') {")
-        && str_contains($js, "if (c.chip && c.chip.family) say('chip.blocked.maker', { maker: S().board_maker || '' });")
+        && str_contains($js, "if (c.chip && c.chip.family) say('chip.blocked.maker');") && str_contains($js, "|| c.blocked === 'no_maker') {")
+        && str_contains($en['chip.blocked.maker'], 'such boards carry') && !str_contains($en['chip.blocked.maker'], '{maker}')
         && str_contains($js, "T('drivers.none_next', { plugin: hp.name, author: hp.author })") && str_contains($js, "situation() === 'no_output' ? T('pic.all_note_none')")
         && !str_contains($en['situation.no_output'], 'below'));
     $missing = [];
     foreach (['unraid', 'plugin', 'plugin_read', 'newer', 'read_only', 'unknown', 'nothing', 'held'] as $n) {
         if (!isset($en["chip.need.$n"])) { $missing[] = "chip.need.$n"; }
     }
-    foreach (['maker', 'no_port', 'locked', 'held', 'no_open', 'io'] as $n) {
+    foreach (['maker', 'no_maker', 'no_port', 'locked', 'held', 'no_open', 'io'] as $n) {
         if (!isset($en["chip.blocked.$n"])) { $missing[] = "chip.blocked.$n"; }
     }
     foreach (['chip', 'driver', 'plugin', 'board'] as $n) {

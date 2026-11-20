@@ -41,10 +41,14 @@ const FANBOY_SIO_FAMILIES = ['open', 'smsc', 'winbond', 'ite'];
 // IT8792E/IT8795E, IT87952E): opened by ITE's key here, they are NOT sent the exit — as the kernel never sends it to
 // them in its runtime access (superio_exit(ioreg, has_noconf()))
 const FANBOY_SIO_NOEXIT = [0x8790, 0x8733, 0x8695];
-// boards whose maker's hint is one of these are never read at all (2026-11-20, the coordinator's review): Gigabyte
-// boards carry ITE chips, often two, and it87.c warns that touching the first while the second (IT8792E) is out of
-// configuration mode upsets the LPC bus — no list of such boards can be kept current, so not one byte on them
-const FANBOY_SIO_SKIP_HINTS = ['ite'];
+// boards never read at all (2026-11-20, the coordinator's review): Gigabyte boards carry ITE chips, often two, and
+// it87.c warns that touching the first while the second (IT8792E) is out of configuration mode upsets the LPC bus — no
+// list of such boards can be kept current, so not one byte on them. Wider than the board hint (fanboyChipSkip()): any of
+// the raw DMI lines below names Gigabyte or its brand Aorus, or Gigabyte's own WMI driver is there. it87.c (6.18.60) and
+// frankcrawford/it87 name no other maker for this (their DMI tables: Gigabyte boards that ignore the ACPI conflict, an
+// nVIDIA board skipping a pwm, an ASUS board with an IT8655E — none about configuration mode)
+const FANBOY_SIO_SKIP_RE = '/giga[\s-]?byte|aorus/i';
+const FANBOY_SIO_SKIP_DMI = ['board_vendor', 'sys_vendor', 'product_name', 'board_name'];
 
 /*
  * The chips. ids: the id as read (0x20 high, 0x21 low) after `mask`; `key`: the family that opens it (a chip found
@@ -234,12 +238,37 @@ function fanboyLockedDown(?array $p = null): bool
     return preg_match('/\[(integrity|confidentiality)\]/', $s) === 1;
 }
 
-/** Why a read can't be made now ('' = it can): maker (a Gigabyte board) · no_port · locked · held (a driver loaded) */
+/**
+ * Boards never read: 'maker' — a raw DMI line (board or system vendor, product or board name) names Gigabyte or Aorus,
+ * or Gigabyte's WMI driver is loaded or shows its hwmon chip; 'no_maker' — neither the board's nor the system's vendor
+ * says who made it (empty or a placeholder): it could be such a board. '' — none of that.
+ */
+function fanboyChipSkip(array $p): string
+{
+    foreach (FANBOY_SIO_SKIP_DMI as $f) {
+        if (preg_match(FANBOY_SIO_SKIP_RE, fanboyLine("{$p['dmi']}/$f"))) {
+            return 'maker';
+        }
+    }
+    if (is_dir($p['modules'] . '/gigabyte_wmi')) {
+        return 'maker';
+    }
+    foreach (glob($p['hwmon'] . '/hwmon[0-9]*/name') ?: [] as $f) {
+        if (fanboyLine($f) === 'gigabyte_wmi') {
+            return 'maker';
+        }
+    }
+    $named = array_filter(['board_vendor', 'sys_vendor'], fn ($f) => ($v = fanboyLine("{$p['dmi']}/$f")) !== '' && !preg_match(FANBOY_DMI_PLACEHOLDER, $v));
+    return $named ? '' : 'no_maker';
+}
+
+/** Why a read can't be made now ('' = it can): maker (a Gigabyte board) · no_maker · no_port · locked · held (a driver loaded) */
 function fanboyChipBlocked(?array $p = null): string
 {
     $p ??= fanboyPaths();
-    if (in_array(fanboyBoardHint(fanboyBoard($p['dmi']))[0], FANBOY_SIO_SKIP_HINTS, true)) {
-        return 'maker';
+    $skip = fanboyChipSkip($p);
+    if ($skip !== '') {
+        return $skip;
     }
     $port = fanboyPortPath();
     if (!file_exists($port)) {
@@ -491,7 +520,8 @@ function fanboyChipReportLine(array $state): string
 {
     $k = $state['kept'] ?? null;
     if ($k === null) {
-        return 'Fan chip: not read' . (($state['blocked'] ?? '') === 'maker' ? ' (board maker: never read)' : '');
+        return 'Fan chip: not read' . match ($state['blocked'] ?? '') {
+            'maker' => ' (board maker: never read)', 'no_maker' => ' (no board maker named: never read)', default => '' };
     }
     if ($k['result'] !== 'read') {
         return 'Fan chip: not read (' . $k['result'] . ($k['modules'] ? ', ' . implode(' ', $k['modules']) . ' loaded' : '') . ')';

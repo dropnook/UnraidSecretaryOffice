@@ -1649,7 +1649,7 @@ function chipPart() {
   } else {
     if (chipKnown() && c.chip.id) say('chip.found');
     // a board never read (its maker: Gigabyte) — why, and what its maker's boards carry; else the chip's need
-    if (c.chip && c.chip.family) say('chip.blocked.maker', { maker: S().board_maker || '' });
+    if (c.chip && c.chip.family) say('chip.blocked.maker');
     else say(`chip.need.${need}${need === 'plugin' && c.chip && c.chip.unraid === 'read' ? '_read' : ''}`);
     if (need === 'unraid' && !((S().drivers || {}).mine || []).length && (S().drivers || {}).can !== false) {
       bar.appendChild(button(T('drivers.load'), T('drivers.load_tip'), (b) => act('drivers_load', {}, b, (j) => Office.toast(j.kept ? T('drivers.kept_toast', { module: j.kept }) : T('drivers.none_toast'), !j.kept))));
@@ -1675,7 +1675,7 @@ function chipPart() {
     box.appendChild(p);
     box.appendChild(el('p', 'fb-hint-text', T(words.some((w) => w.kind === 'plugin') ? 'chip.words_where' : 'chip.words_where_forum')));
   }
-  if (['unknown', 'nothing', 'read_only', 'newer'].includes(need)) {
+  if (['unknown', 'nothing', 'read_only', 'newer'].includes(need) || c.blocked === 'no_maker') {
     say('chip.report_text');
     const b = el('button', 'btn small', T('chip.report'));
     b.type = 'button';

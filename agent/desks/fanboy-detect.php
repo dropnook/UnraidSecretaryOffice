@@ -70,6 +70,8 @@ const FANBOY_PLUGINS = [
 // ids, nct6775-platform.c's ASRock case)
 const FANBOY_BOARD_HINTS = ['/gigabyte/i' => ['ite', 'Gigabyte'], '/micro-star|\bmsi\b/i' => ['nuvoton', 'MSI'],
                             '/asustek|\basus\b/i' => ['nuvoton_asus', 'ASUS'], '/asrock/i' => ['nuvoton_any', 'ASRock']];
+// what a board's DMI says when its maker filled nothing in (fanboyBoard(); the fan chip's read: «no maker named»)
+const FANBOY_DMI_PLACEHOLDER = '/^(to be filled by o\.e\.m\.|default string|not applicable|none|n\/a|system manufacturer|system product name|o\.e\.m\.|oem)$/i';
 const FANBOY_SYSTEMP_CONF = 'dynamix.system.temp/sensors.conf';      // under the plugins folder: read, never written
 const FANBOY_NAMES_MAX = 200;
 const FANBOY_PROC_MAX = 4096;                                // processes looked at for another controller's loop
@@ -257,7 +259,7 @@ function fanboyChips(string $hwmon): array
 /** The board: DMI's vendor and model (never a serial) — '' each when the board says nothing */
 function fanboyBoard(string $dmi): array
 {
-    $clean = fn (string $s) => preg_match('/^(to be filled by o\.e\.m\.|default string|not applicable|none|n\/a|system manufacturer|system product name|o\.e\.m\.|oem)$/i', $s)
+    $clean = fn (string $s) => preg_match(FANBOY_DMI_PLACEHOLDER, $s)
         ? '' : str_replace('/', '-', $s);
     $board = ['vendor' => $clean(fanboyLine("$dmi/board_vendor")), 'model' => $clean(fanboyLine("$dmi/board_name"))];
     if ($board['vendor'] === '' && $board['model'] === '') {
