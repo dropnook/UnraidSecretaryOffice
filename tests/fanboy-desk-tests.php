@@ -1504,7 +1504,8 @@ function testFanboyZoneSources(): void
         str_contains($fn, "sum.dataset.nums = JSON.stringify([{ v: warm.c, from: ['setup', 'sources', `=\${warm.id}`, 'c'] }]);"), $fn);
     check('fanboy zone sources: the curve a kind follows in the curve cards\' words; several kinds: a button bringing that kind\'s card in front — no aria-expanded (it opens nothing)',
         str_contains($fn, "T(z.curves && z.curves[c] ? 'curve.kind_own' : 'curve.kind_zone')") && str_contains($fn, 'kindSel.set(z.id, ck[0]);')
-        && str_contains($fn, ".fb-kindpick[data-kind=\"\${ck[0]}\"]") && str_contains($js, 'box.dataset.zone = z.id;') && substr_count($fn, 'aria-expanded') === 1, $fn);
+        && str_contains($fn, ".fb-kindpick[data-kind=\"\${ck[0]}\"]") && str_contains($js, 'box.dataset.zone = z.id;') && substr_count($fn, 'aria-expanded') === 2 && !str_contains($fn, "go.setAttribute('aria-expanded'")
+        && str_contains($fn, "b.scrollIntoView({ block: 'center' });     /* reveal */"), $fn);
     $en = langFile(OFFICE_WEB . '/desks/fanboy/lang/en.json');
     $keys = ['zones.sources_first', 'zones.src_none', 'zones.src_chosen', 'zones.src_some_asleep', 'zones.src_all_asleep', 'zones.src_no_temp', 'zones.src_change', 'zones.src_hide'];
     same('fanboy zone sources: its words (five languages: testStrings), the counts plurals', [true, true, true, true],

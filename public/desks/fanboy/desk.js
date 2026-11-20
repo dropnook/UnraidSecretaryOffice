@@ -3371,7 +3371,9 @@ function zoneSources(z, i) {
           requestAnimationFrame(() => {
             const pick = [...document.querySelectorAll('#sso .fb-curve-part')].find((x) => x.dataset.zone === z.id);
             const b = pick && pick.querySelector(`.fb-kindpick[data-kind="${ck[0]}"]`);
-            if (b) { b.scrollIntoView({ block: 'center' }); b.focus({ preventScroll: true }); }
+            if (!b) return;
+            b.scrollIntoView({ block: 'center' });     /* reveal */ // the kind's curve card the heat sources' line asked for
+            b.focus({ preventScroll: true });
           });
         };
         line.appendChild(go);
