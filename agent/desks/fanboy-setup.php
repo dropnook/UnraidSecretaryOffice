@@ -1711,7 +1711,7 @@ function fanboyRole(array $r): array
  * fans: the same model?), off_ok, and `look` {model, mm, blades, frame, wheel, style, colour} when he chose one (optional).
  * Each part checked and stored as its own action does it (fanboyAnswer(), fanboyFanLook(), fanboyRole()); the look and the
  * role are checked before the first write, so a refused field stores nothing. A tested output where no tach followed
- * (ask, unclear) given a role: «I heard it» first, as the page's role click did.
+ * (ask, unclear — or found empty, he changed his mind) given a role: «I heard it» first, as the page's role click did.
  */
 function fanboyFanSave(array $r): array
 {
@@ -1735,8 +1735,10 @@ function fanboyFanSave(array $r): array
     if ($place !== '' && !in_array($place, FANBOY_PLACES, true)) {
         throw new Problem('fanboy_bad_place');
     }
+    // no tach followed (ask, unclear) — or «nothing attached» said before and now a fan after all (2026-11-20: he may change
+    // his mind in the panel): «I heard it» first, a fan without feedback
     $found = fanboyFound(fanboyBoardRaw()['fans'][$id] ?? null);
-    if (in_array($found, ['ask', 'unclear'], true)) {
+    if (in_array($found, ['ask', 'unclear', 'empty'], true)) {
         fanboyAnswer(['fan' => $id, 'louder' => true]);
     }
     if (is_array($look)) {

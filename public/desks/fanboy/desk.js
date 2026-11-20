@@ -1960,7 +1960,8 @@ function detectStep() {
     const label = !o ? chipOfText('quiet', T('detect.gone'), T('detect.gone'))
       : chipOfText(mode === 'auto' ? 'ok' : mode === 'unknown' ? 'quiet' : 'warn', T(`mode.${mode}`), b.fixed ? T('detect.fixed', { pct: b.pct ?? '–' }) : T(`mode.${mode}_title`));
     const A = art();
-    const wheel = A ? A.wheel({ px: 40, air: false, rpm: o && num(o.pct) ? 2000 * o.pct / 100 : 0, max: 2000, state: 'bios', mm: 120 }).el : null;
+    const empty = (setupFan(id) || {}).found === 'empty';
+    const wheel = A ? A.wheel({ px: 40, air: false, rpm: o && num(o.pct) && !empty ? 2000 * o.pct / 100 : 0, max: 2000, state: empty ? 'empty' : 'bios', mm: 120 }).el : null;
     list.appendChild(Office.place(`detect:${id}`, readRow(wheel, T('out.name', { n: (idParts(id) || {}).output }), o ? T(`detect.mode.${mode}`, { pct: num(o.pct) ?? '–' }) : T('detect.gone'), label)));
   });
   box.appendChild(list);
@@ -2165,6 +2166,8 @@ function inputEl(tag, type) {
 /** A wheel for an output as it is right now: fast = at full, standing = stopped by Fanboy, else as its fan turns */
 function wheelNow(id, run) {
   const f = setupFan(id);
+  // 2026-11-20 (the owner: «nothing attached» showed a fan): an empty connector — its dotted frame, no fan
+  if (f && f.found === 'empty' && run.id !== id) return { state: 'empty', rpm: 0, badge: '' };
   const look = fanLook(f);
   const o = outputNow(id);
   const max = look.max || 2000;
@@ -2838,7 +2841,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
   function pickRole(k) {
     const f = setupFan(id);
     cpuAsk.delete(id);              // round 9 (H6): a role click never carries a half-made «Fanboy steers it» along
-    if (f && f.found === 'empty' && k !== 'empty') { Office.toast(T('panel.empty_note'), true); say(T('panel.empty_note')); return; }      // nothing attached by its test: said, not kept
+    // (an output found empty may be told a fan after all: «I heard it» — saved as a fan without feedback, fan_save)
     draft.role = k;
     update();
   }
@@ -2869,7 +2872,11 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     const never = ['ignored', 'inverted'].includes(found);
     const noTest = noTestWhy();
     const sf = safetyOf(id);
-    if (wh) wh.update(wheelNow(id, run));
+    // «Nichts angeschlossen» (stored, or chosen now for an output where no tach followed): the empty connector
+    const noFan = (draft.role ?? (found === 'empty' ? 'empty' : '')) === 'empty' && found !== 'tach';
+    // (found empty, a fan chosen now: one without feedback — what «Speichern» will make it)
+    const fanAfterAll = found === 'empty' && !!draft.role && draft.role !== 'empty';
+    if (wh) wh.update(noFan && !here ? { state: 'empty', rpm: 0, badge: '' } : fanAfterAll && !here ? { state: 'unknown', rpm: null, badge: '' } : wheelNow(id, run));
     root.classList.toggle('fb-live', here);
     // the name is the title once he gave one; the output stays under it (he needs it to find the connector)
     setText(title, fanName(id));
@@ -2959,7 +2966,9 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     swap(cpu, [isCpu, isCpu && f.cpu_own, isCpu && found, cpuAsk.has(id), (cpuAsk.get(id) || {}).tick, away, ((setup().before || {})[id] || {}).auto ?? null], () => (isCpu ? cpuBlock(f, benchUpdate) : []));
     // the fields
     // an output Fanboy never touches (it doesn't obey, or works the other way round): nothing to say about a fan there
-    what.hidden = fields.hidden = look.hidden = never;
+    // and nothing attached: nothing to say about a fan — «Was ist das?» stays (he may change his mind; what he typed stays)
+    what.hidden = never;
+    fields.hidden = look.hidden = never || cur === 'empty';
     nameField(id, f, away);
     const roleSet = !!(f && f.role);
     place.disabled = count.disabled = away;
@@ -2968,7 +2977,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     if (document.activeElement !== place) place.value = placeNow;
     if (document.activeElement !== count) count.value = String(draft.count ?? ((f && f.count) || 1));
     // several fans on the connector (the state's `hub`): the question, and what it means in the agent's own numbers
-    const hub = roleSet && !never && f.hub ? f.hub : null;
+    const hub = roleSet && !never && cur !== 'empty' && f.hub ? f.hub : null;
     alike.hidden = !hub;
     const alikeNow = draft.alike !== undefined ? draft.alike : f && f.alike;
     const said2 = hub ? (alikeNow === true ? 'yes' : alikeNow === false ? 'no' : 'unknown') : '';
@@ -2978,7 +2987,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     hubSays.hidden = !hubSays.textContent;
     hubSays.dataset.nums = JSON.stringify(hub && ours2 && hub.mixed ? [{ v: hub.floor, from: ['setup', 'fans', `=${id}`, 'hub', 'floor'] }, { v: hub.start, from: ['setup', 'fans', `=${id}`, 'hub', 'start'] }] : []);
     let hint = '';
-    if (found === 'empty') hint = T('panel.empty_note');
+    if (cur === 'empty') hint = T('panel.empty_note');
     else if (cur === 'cpu') hint = f && f.cpu_own ? '' : T('assign.cpu_bios');        // (given to Fanboy: its block above says since when)
     else if (cur === 'pump') hint = T('assign.never_stopped');
     else if (cur === 'unknown') hint = T('roles.bios_note.unknown');
@@ -3003,7 +3012,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     const nextId = nextToTest(id);
     swap(saveBar, [here, tested, found, role, dirty(), nextId, away, nextId ? fanSay(nextId) : ''], () => {
       if (here || never || !(tested || found === 'empty')) return [];
-      if (found === 'empty') return nextId ? [btn(T('save.empty_next', { fan: fanSay(nextId) }), 'btn', () => testNext(nextId), T('save.next_tip', { fan: fanSay(nextId) }))] : [];
+      if (found === 'empty' && cur === 'empty') return nextId ? [btn(T('save.empty_next', { fan: fanSay(nextId) }), 'btn', () => testNext(nextId), T('save.next_tip', { fan: fanSay(nextId) }))] : [];
       const b = btn(nextId ? T('save.next', { fan: fanSay(nextId) }) : T('save.only'), 'btn', () => save(nextId), nextId ? T('save.next_tip', { fan: fanSay(nextId) }) : T('save.tip'));
       if (!role && cur !== 'empty') offBtn(b, T('save.role_first'));
       else if (away) offBtn(b, T('strip.away'));

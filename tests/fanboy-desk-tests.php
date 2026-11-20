@@ -591,7 +591,7 @@ function testFanboyUx(): void
     // round 14 on the page: several fans on one connector
     check('fanboy ux r14: step 2 asks «Gleiche Lüfter an allen Steckern?» once a connector has several fans (the state\'s hub) — yes / no, different / don\'t know, saved alone with the role',
         str_contains($js, "[['yes', true], ['no', false], ['unknown', null]].forEach(([k, v]) => {") && str_contains($js, "const b = btn(T(`hub.alike_\${k}`), 'fb-pick', () => { draft.alike = v; update(); }, T(`hub.alike_\${k}_tip`));")
-        && str_contains($js, "const hub = roleSet && !never && f.hub ? f.hub : null;") && ($l['de']['hub.alike'] ?? '') === 'Gleiche Lüfter an allen Steckern?');
+        && str_contains($js, "const hub = roleSet && !never && cur !== 'empty' && f.hub ? f.hub : null;") && ($l['de']['hub.alike'] ?? '') === 'Gleiche Lüfter an allen Steckern?');
     check('fanboy ux r14: the margin for unlike fans is said in the agent\'s own numbers (hub.floor, hub.start — marked for the numbers check), whose table it is too',
         substr_count($js, "{ v: hub.floor, from: ['setup', 'fans', `=\${id}`, 'hub', 'floor'] }, { v: hub.start, from: ['setup', 'fans', `=\${id}`, 'hub', 'start'] }") === 2
         && str_contains((string) ($l['de']['hub.mixed'] ?? ''), 'Minimum {floor} %, Anlauf {start} %') && str_contains((string) ($l['de']['hub.table'] ?? ''), 'der seine Drehzahl meldet'));
@@ -1934,4 +1934,41 @@ function testFanboySetupFlow(): void
         && str_contains($panel, "const b = btn(nextId ? T('save.next', { fan: fanSay(nextId) }) : T('save.only'), 'btn', () => save(nextId),")
         && str_contains($panel, "return nextId ? [btn(T('save.empty_next', { fan: fanSay(nextId) }), 'btn', () => testNext(nextId),")
         && $l['save.next'] === 'Speichern und weiter zu {fan}' && str_contains($l['quiet.hint_2'], 'auch der CPU-Kühler und eine Pumpe'));
+}
+
+/**
+ * 2026-11-20 (the owner: «wenn nichts angeschlossen ist wäre anstelle des Lüfter-Icons vielleicht ein Fragezeichen oder
+ * nichts»): an output with nothing attached is drawn as an empty connector — the dotted frame, no fan, no turning, no air
+ * (fan-art.js state `empty`) — in the panel, its row and step 1's list; its panel drops the fan's fields and look, keeps
+ * «Was ist das?»; a role chosen again brings them back, and saved it is a fan without feedback after all
+ */
+function testFanboyEmptyOutput(): void
+{
+    $t = fanboyT('emptyout');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        fanboyR8Run($t, $spec, [2], false);
+        fanboyFanSave(['fan' => fanboyTId(2), 'role' => 'empty']);
+        same('fanboy empty: output 2, no tach, «nothing attached» saved — found empty', 'empty', fanboyBoardRaw()['fans'][fanboyTId(2)]['found'] ?? null);
+        fanboyFanSave(['fan' => fanboyTId(2), 'role' => 'case', 'name' => 'Hinten oben']);
+        $f = fanboyBoardRaw()['fans'][fanboyTId(2)];
+        same('fanboy empty: … he changed his mind — a case fan after all, saved as a fan without feedback, with its name', ['silent', 'case', 'Hinten oben'],
+            [$f['found'] ?? null, $f['role'] ?? null, $f['name'] ?? null]);
+    } finally {
+        fanboyTEnd();
+    }
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
+    $art = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/fan-art.js');
+    $css = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/fan-art.css');
+    check('fanboy empty: fan-art.js knows the empty connector — the dotted frame alone, nothing turns, no air',
+        str_contains($art, "const STATES = ['run', 'stopped', 'unknown', 'bios', 'empty'];") && str_contains($art, "f.air === false || state === 'empty' ? null")
+        && str_contains($art, "state === 'stopped' || state === 'unknown' || state === 'empty' ? 0") && str_contains($css, '.fan-s-empty .fan-box{outline:1.5px dotted var(--muted)')
+        && str_contains($css, '.fan-s-empty .fan-frame, .fan-s-empty .fan-spin, .fan-s-empty .fan-front, .fan-s-empty .fan-arc{visibility:hidden}'));
+    check('fanboy empty: the page draws it so — the panel and its row (wheelNow), step 1\'s list; the panel without the fan\'s fields and look while «nothing attached» is chosen, «Was ist das?» kept',
+        str_contains($js, "if (f && f.found === 'empty' && run.id !== id) return { state: 'empty', rpm: 0, badge: '' };")
+        && str_contains($js, "state: empty ? 'empty' : 'bios', mm: 120 }")
+        && str_contains($js, "what.hidden = never;\n    fields.hidden = look.hidden = never || cur === 'empty';")
+        && str_contains($js, "if (cur === 'empty') hint = T('panel.empty_note');"));
 }

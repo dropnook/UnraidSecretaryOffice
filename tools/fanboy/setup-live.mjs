@@ -217,6 +217,51 @@ try {
     await ctx.close();
     if (h.close) await h.close();
   }
+  // ------------------------------------------------ nothing attached: no fan drawn, no fan's fields (2026-11-20)
+  for (const width of opt.widths) {
+    const h = await startHarness({ demo: true, alias: { fanboy: 'fanboy-uxfound' } });
+    const ctx = await browser.newContext({ viewport: { width, height: 900 }, isMobile: width < 768, hasTouch: width < 768, colorScheme: 'dark' });
+    await ctx.addInitScript(() => { try { localStorage.setItem('office.lang', 'en'); } catch (e) { /* none */ } });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(`${h.url}?theme=black#/fanboy/setup/test`, { waitUntil: 'load' });
+    await page.waitForSelector('#sso .fb-panel', { timeout: 15000 });
+    await page.waitForTimeout(800);
+    await page.click('#sso .fb-item[data-row$="pwm2"]');
+    await page.waitForTimeout(400);
+    const look = () => page.evaluate(() => {
+      const p = document.querySelector('#sso .fb-panel-slot .fb-panel');
+      const seen = (sel) => { const n = p.querySelector(sel); return !!n && !n.hidden && n.offsetHeight > 0; };
+      return { big: p.querySelector('.fb-panel-wheel .fan-wheel').className, row: document.querySelector('#sso .fb-item[data-row$="pwm2"] .fan-wheel').className,
+        what: seen('.fb-what'), fields: seen('.fb-fields'), look: seen('.fb-look-open'), note: p.querySelector('.fb-panel-note').textContent,
+        name: (p.querySelector('.fb-field-name input') || {}).value };
+    });
+    const a = await look();
+    check(`${width} empty: output 2 (nothing attached) — the panel's picture and its row show the empty connector, no fan`, /fan-s-empty/.test(a.big) && /fan-s-empty/.test(a.row), JSON.stringify(a));
+    check(`${width} empty: … «What is it?» stays, the fan's fields and its look go, the sentence says nothing hangs here`, a.what && !a.fields && !a.look && a.note === EN['panel.empty_note'], JSON.stringify(a));
+    await page.click(`#sso .fb-panel-slot .fb-what button:has-text("${EN['role.case']}")`);
+    await page.waitForTimeout(300);
+    await page.fill('#sso .fb-panel-slot .fb-field-name input', 'Rear top');
+    const b = await look();
+    check(`${width} empty: changed his mind (a case fan) — the fields and the look come back`, b.fields && b.look && !/fan-s-empty/.test(b.big), JSON.stringify(b));
+    await page.click(`#sso .fb-panel-slot .fb-what button:has-text("${EN['role.empty']}")`);
+    await page.waitForTimeout(300);
+    const c = await look();
+    await page.click(`#sso .fb-panel-slot .fb-what button:has-text("${EN['role.case']}")`);
+    await page.waitForTimeout(300);
+    const d = await look();
+    check(`${width} empty: «nothing attached» again hides them, a role again brings them back with what he typed`, !c.fields && /fan-s-empty/.test(c.big) && d.fields && d.name === 'Rear top', JSON.stringify([c, d]));
+    // step 1's list: the empty connector too
+    await page.goto(`${h.url}?theme=black#/fanboy/setup/detect`, { waitUntil: 'load' });
+    await page.waitForTimeout(1500);
+    const det = await page.evaluate(() => [...document.querySelectorAll('#sso [data-place^="detect:"]')].map((r) => [r.dataset.place.slice(-4), /fan-s-empty/.test((r.querySelector('.fan-wheel') || {}).className || '')]));
+    check(`${width} empty: step 1's list draws outputs 2 and 6 (nothing attached) as the empty connector, the others as fans`,
+      det.length === 6 && det.every(([k, e]) => e === (k === 'pwm2' || k === 'pwm6')), JSON.stringify(det));
+    check(`${width} empty: no error`, !errors.length, errors.join(' | '));
+    await ctx.close();
+    if (h.close) await h.close();
+  }
   // ------------------------------------------------ the places and the look (2026-11-20, the owner's points 3 and 4)
   for (const width of opt.widths) {
     const h = await startHarness({ demo: true, alias: { fanboy: 'fanboy-uxfound' } });
