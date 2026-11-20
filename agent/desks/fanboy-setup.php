@@ -1669,7 +1669,10 @@ function fanboyRole(array $r): array
     if ($place !== '' && !in_array($place, FANBOY_PLACES, true)) {
         throw new Problem('fanboy_bad_place');
     }
-    $offOk = optBool($r, 'off_ok', false);
+    // 2026-11-20 (the owner: a fan's look changed later must never lose a setting): «darf stehen» changes only when sent —
+    // a request without off_ok keeps what is stored (a missing key never means «off»); a stored tick the new role no
+    // longer allows goes quietly, a sent one is refused as before
+    $sentOff = array_key_exists('off_ok', $r) ? optBool($r, 'off_ok') : null;
     // round 12 (the owner, 2026-11-15): a CPU cooler he steers may stand — only with its own tick, apart from cpu_confirm
     $cpuOffConfirm = optBool($r, 'cpu_off_confirm', false);
     // round 3: how many fans hang on this one connector (a Y-cable, a hub) — 1 … 8; not sent: as it was
@@ -1700,7 +1703,7 @@ function fanboyRole(array $r): array
     $outputs = fanboyOutputs(fanboyDetect());
     $hasName = array_key_exists('name', $r);
     $hasPlace = array_key_exists('place', $r);
-    $e = fanboyStoreUpdate(function (array $e) use ($id, $role, $name, $place, $offOk, $count, $cpuOwn, $outputs, $hasName, $hasPlace, $cpuOffConfirm, $hasAlike, $alike): array {
+    $e = fanboyStoreUpdate(function (array $e) use ($id, $role, $name, $place, $sentOff, $count, $cpuOwn, $outputs, $hasName, $hasPlace, $cpuOffConfirm, $hasAlike, $alike): array {
         $e = fanboyFanEnsure($e, $id, $outputs);
         $f = $e['fans'][$id];
         // round 9 (H6): «Fanboy steers the CPU cooler» never in the same click that makes it the CPU cooler — first the role,
@@ -1716,23 +1719,25 @@ function fanboyRole(array $r): array
         } elseif ($cpuOwn === true && !fanboyCpuOwn($f)) {
             $f['cpu_own'] = ['at' => time()];
         }
+        $sent = $sentOff === true;
+        $offOk = $sentOff ?? (($f['off_ok'] ?? false) === true);
         if ($offOk && $role === 'pump') {
-            throw new Problem('fanboy_off_pump');                 // a pump never stands
+            $offOk = $sent ? throw new Problem('fanboy_off_pump') : false;              // a pump never stands
         }
         if ($offOk && $role === 'cpu' && !fanboyCpuOwn($f)) {
-            throw new Problem('fanboy_cpu_off_bios');             // a CPU cooler the BIOS steers is not his to stop
+            $offOk = $sent ? throw new Problem('fanboy_cpu_off_bios') : false;          // a CPU cooler the BIOS steers is not his to stop
         }
         if ($offOk && !is_array($f['measured'] ?? null)) {
-            throw new Problem('fanboy_off_needs_measure');        // «off» only for a fan measured with feedback
+            $offOk = $sent ? throw new Problem('fanboy_off_needs_measure') : false;     // «off» only for a fan measured with feedback
         }
         // round 12: a CPU cooler may stand only when its measuring found it stops and starts again safely, and with the
         // second tick (kept with its time, like cpu_own — another field's save keeps it)
         $cpuOff = $offOk && $role === 'cpu' && fanboyCpuOwn($f);
         if ($cpuOff && ($f['measured']['stops_safe'] ?? null) !== true) {
-            throw new Problem('fanboy_off_not_safe');
+            $cpuOff = $offOk = $sent ? throw new Problem('fanboy_off_not_safe') : false;
         }
         if ($cpuOff && !$cpuOffConfirm && !is_int($f['cpu_off']['at'] ?? null)) {
-            throw new Problem('fanboy_cpu_off_confirm');
+            $cpuOff = $offOk = $sent ? throw new Problem('fanboy_cpu_off_confirm') : false;
         }
         if ($cpuOff) {
             $f['cpu_off'] = is_int($f['cpu_off']['at'] ?? null) ? $f['cpu_off'] : ['at' => time()];

@@ -3328,3 +3328,76 @@ function testFanboyCpuFloorCurve(): void
         fanboyTEnd();
     }
 }
+
+/**
+ * 2026-11-20 (the owner: «die grafiken kann man auch immer nachträglich ändern gell, ohne dass die einstellungen verloren
+ * gehen der eigentlichen lüfter und zonen etc.»): on a finished set-up with Fanboy steering, changing ONLY a fan's look
+ * through step 2's panel («Speichern», fan_save with the same role) leaves everything else as it was — role, name, place,
+ * count/alike and the hub's findings, measured, off_ok, cpu_own, cpu_off, the zones and their curves — and hands no
+ * output back, restarts nothing. The CPU cooler he gave to Fanboy with «darf stehen» keeps its tick: the panel sends no
+ * off_ok (it doesn't show it), and a request without it keeps what is stored (a missing key never means «off»).
+ */
+function testFanboyLookKeeps(): void
+{
+    $t = fanboyT('lookkeeps');
+    try {
+        $spec = fanboyR12Spec();
+        fanboyNetDisks($t, 35, 33);
+        fanboyR12CpuTemp($t, 40);
+        $s = fanboyNetSettings();
+        $cpu = fanboyTId(2);
+        $s['fans'][$cpu] += ['off_ok' => true, 'cpu_off' => ['at' => 1700000100], 'place' => 'cpu', 'count' => 1];
+        $s['fans'][$cpu]['measured']['start_secs'] = 7.5;
+        $s['fans'][fanboyTId(4)] = ['name' => 'Cage front', 'place' => 'front', 'count' => 2, 'alike' => true, 'hub_ok' => ['at' => 1700000200],
+            'model' => ['id' => 'example-120', 'mm' => 120, 'blades' => 7], 'colour' => 'black'] + $s['fans'][fanboyTId(4)];
+        $s['zones'][1]['curves'] = ['disk' => ['preset' => 'quiet', 'own' => [[47, 0], [55, 100]]]];
+        $s['zones'][1]['react'] = 'quick';
+        $s['zones'][0]['curves'] = ['cpu' => ['points' => [[30, 0], [62, 0], [81, 100]]]];
+        fanboyTStore($s);
+        fanboyTSettle($t, $spec);
+        fanboyBeat();
+        $c = fanboyControlNew($s, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        fanboyTRounds($c, $now, $t, $spec, 10);
+        $before = fanboyBoardRaw();
+        $taken = array_map(fn ($f) => [$f['taken'], $f['value']], $c['fans']);
+        $look = ['model', 'colour', 'frame', 'wheel', 'style', 'reverse'];
+        $strip = function (array $e) use ($look): array {
+            foreach ($e['fans'] as $id => $f) {
+                $e['fans'][$id] = array_diff_key($f, array_flip($look));
+            }
+            return $e;
+        };
+        same('fanboy look keeps: the set-up as stored — the CPU cooler his, «darf stehen» confirmed', [true, true, 1700000100], [fanboyCpuOwn($before['fans'][$cpu]),
+            $before['fans'][$cpu]['off_ok'] ?? null, $before['fans'][$cpu]['cpu_off']['at'] ?? null]);
+        // the panel's «Speichern» with only the look changed, as desk.js builds it (an untouched draft: fan, role, look)
+        $GLOBALS['fanboyLaunched'] = [];
+        foreach ([$cpu => ['model' => 'example-92', 'colour' => 'white', 'reverse' => true], fanboyTId(4) => ['model' => 'example-140', 'frame' => 'grey', 'style' => 'sickle', 'reverse' => false]] as $id => $l) {
+            fanboyFanSave(['fan' => $id, 'role' => $before['fans'][$id]['role'], 'look' => $l]);
+        }
+        $after = fanboyBoardRaw();
+        same('fanboy look keeps: the looks saved', [['example-92', 'white', true], ['example-140', 'grey', 'sickle', false]],
+            [[$after['fans'][$cpu]['model']['id'] ?? null, $after['fans'][$cpu]['colour'] ?? null, $after['fans'][$cpu]['reverse'] ?? null],
+             [$after['fans'][fanboyTId(4)]['model']['id'] ?? null, $after['fans'][fanboyTId(4)]['frame'] ?? null, $after['fans'][fanboyTId(4)]['style'] ?? null, $after['fans'][fanboyTId(4)]['reverse'] ?? null]]);
+        same('fanboy look keeps: … everything else byte for byte — roles, names, places, count/alike, the hub\'s finding, measured (start_secs too), off_ok, cpu_own, cpu_off, the zones and their curves',
+            json_encode($strip($before)), json_encode($strip($after)));
+        // the control takes the new settings as on the page's save: nothing handed back, nothing started anew
+        fanboyControlReload($c, $after, FANBOY_T_KEY, fanboyMe('control'));
+        fanboyTRounds($c, $now, $t, $spec, 3);
+        same('fanboy look keeps: … the control reloads — every fan still held at its value, the CPU cooler may still stand, nothing launched',
+            [$taken, true, []], [array_map(fn ($f) => [$f['taken'], $f['value']], $c['fans']), $c['fans'][$cpu]['off_ok'], $GLOBALS['fanboyLaunched']]);
+        // a request without off_ok keeps the stored tick; an explicit false is his choice
+        fanboyRole(['fan' => $cpu, 'role' => 'cpu', 'name' => 'CPU']);
+        same('fanboy look keeps: a role save without off_ok — the CPU cooler\'s «darf stehen» kept', [true, 1700000100], [fanboyBoardRaw()['fans'][$cpu]['off_ok'] ?? null, fanboyBoardRaw()['fans'][$cpu]['cpu_off']['at'] ?? null]);
+        fanboyRole(['fan' => $cpu, 'role' => 'cpu', 'off_ok' => false]);
+        same('fanboy look keeps: … off_ok false sent — taken away (his choice)', [false, null], [fanboyBoardRaw()['fans'][$cpu]['off_ok'] ?? null, fanboyBoardRaw()['fans'][$cpu]['cpu_off'] ?? null]);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyR12CpuTemp($t, 28);
+        fanboyTEnd();
+    }
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
+    $save = substr($js, (int) strpos($js, '  function save(nextId) {'), 900);
+    check('fanboy look keeps: the panel\'s «Speichern» sends only what its draft changed beside fan and role — never an off_ok it doesn\'t show',
+        str_contains($save, 'const body = { fan: id, role };') && !str_contains($save, 'off_ok'));
+}
