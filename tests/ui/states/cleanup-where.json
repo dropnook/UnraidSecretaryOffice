@@ -187,7 +187,8 @@
      "rest": "kopia"
     }
    ],
-   "backup": "local"
+   "backup": "local",
+   "skip": null
   },
   {
    "name": "domains",
@@ -250,7 +251,8 @@
      "rest": "uso-mikrotik-lab/vdisks/lab-old.img"
     }
    ],
-   "backup": "local"
+   "backup": "local",
+   "skip": null
   },
   {
    "name": "isos",
@@ -288,7 +290,8 @@
    },
    "has_cfg": true,
    "used_by": [],
-   "backup": "local"
+   "backup": "local",
+   "skip": null
   },
   {
    "name": "media",
@@ -337,7 +340,8 @@
      "rest": ""
     }
    ],
-   "backup": "local"
+   "backup": "local",
+   "skip": null
   },
   {
    "name": "nextcloud",
@@ -387,7 +391,8 @@
      "rest": ""
     }
    ],
-   "backup": "local"
+   "backup": "local",
+   "skip": null
   },
   {
    "name": "photos",
@@ -436,7 +441,8 @@
      "rest": ""
     }
    ],
-   "backup": "local"
+   "backup": "local",
+   "skip": null
   },
   {
    "name": "speedtest",
@@ -474,7 +480,8 @@
    },
    "has_cfg": false,
    "used_by": [],
-   "backup": "local"
+   "backup": "local",
+   "skip": null
   },
   {
    "name": "syslog",
@@ -515,7 +522,8 @@
    },
    "has_cfg": true,
    "used_by": [],
-   "backup": "none"
+   "backup": "none",
+   "skip": null
   },
   {
    "name": "system",
@@ -556,7 +564,8 @@
    },
    "has_cfg": true,
    "used_by": [],
-   "backup": "none"
+   "backup": "none",
+   "skip": null
   },
   {
    "name": "UnraidSecretaryOffice",
@@ -612,7 +621,8 @@
      "rest": "restore/kopia"
     }
    ],
-   "backup": "local"
+   "backup": "local",
+   "skip": null
   }
  ],
  "appdata": "appdata",
@@ -1894,7 +1904,8 @@
      ],
      "nvme": [],
      "problems": []
-    }
+    },
+    "skipped": false
    },
    {
     "name": "disk1",
@@ -1987,7 +1998,8 @@
      ],
      "nvme": [],
      "problems": []
-    }
+    },
+    "skipped": false
    },
    {
     "name": "disk2",
@@ -2080,7 +2092,8 @@
      ],
      "nvme": [],
      "problems": []
-    }
+    },
+    "skipped": false
    },
    {
     "name": "big",
@@ -2109,7 +2122,8 @@
      "attributes": [],
      "nvme": [],
      "problems": []
-    }
+    },
+    "skipped": false
    },
    {
     "name": "cache",
@@ -2202,7 +2216,8 @@
      ],
      "nvme": [],
      "problems": []
-    }
+    },
+    "skipped": false
    },
    {
     "name": "cache2",
@@ -2295,7 +2310,8 @@
      ],
      "nvme": [],
      "problems": []
-    }
+    },
+    "skipped": false
    },
    {
     "name": "flash",
@@ -2324,7 +2340,8 @@
      "attributes": [],
      "nvme": [],
      "problems": []
-    }
+    },
+    "skipped": false
    }
   ],
   "parity": {
@@ -2828,5 +2845,15 @@
    "containers": 916406272,
    "tip": null
   }
+ },
+ "skip": {
+  "shares": [],
+  "pools": [],
+  "array": false,
+  "pools_known": [
+   "big",
+   "cache"
+  ],
+  "array_disks": 2
  }
 }

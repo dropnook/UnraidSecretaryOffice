@@ -623,14 +623,20 @@ function spaceBuild(array $raw): array
                 $devices[$devIdx[$root]]['maybe'][] = $name;
             }
         }
-        $du = $sizes[$s['measure']] ?? null;
+        $skip = $s['skip'] ?? null;          // left out by the user (skipplaces.php): never «empty», never a du of what it crosses
+        $du = $skip !== null && empty($skip['measurable']) ? null : ($sizes[$s['measure']] ?? null);
         $duOk = is_array($du) && is_int($du['bytes'] ?? null);
         $known = array_filter($parts, fn ($p) => $p['bytes'] !== null);
-        $complete = !$missing && !$st['unknown'];
-        if (!$on && !$st['unknown']) {
+        $complete = !$missing && !$st['unknown'] && ($skip === null || !$skip['on']);
+        if (!empty($skip['whole'])) {
+            // the whole share: what ZFS says of it without a look (its dataset on its pool), else nothing — «left out»
+            [$bytes, $source] = is_int($s['size']['bytes'] ?? null) ? [(int) $s['size']['bytes'], 'zfs'] : [null, 'skipped'];
+        } elseif (!$on && !$st['unknown'] && ($skip === null || !$skip['on'])) {
             [$bytes, $source] = [0, 'empty'];                     // no folder on any disk or pool: nothing there
         } elseif ($known && $complete) {
             [$bytes, $source] = [array_sum(array_column($known, 'bytes')), 'zfs'];
+        } elseif ($duOk && $skip !== null && $skip['on']) {
+            [$bytes, $source] = [(int) $du['bytes'], 'part'];   // at least: what is left of it, walked on its one pool
         } elseif ($duOk) {
             [$bytes, $source] = [(int) $du['bytes'], 'du'];
         } elseif ($known) {
@@ -669,7 +675,8 @@ function spaceBuild(array $raw): array
             'snaps'     => $known ? array_sum(array_column($known, 'snaps')) : null,
             'source'    => $source,
             'at'        => $source === 'du' ? ($du['at'] ?? null) : null,
-            'unmeasured' => $source === 'part' ? array_values(array_merge($missing, $st['unknown'])) : [],
+            'unmeasured' => $source === 'part' ? array_values(array_unique(array_merge($missing, $st['unknown'], $skip['on'] ?? []))) : [],
+            'skip'      => $skip,                       // null, or {whole, on, measurable} (waShareSkip())
             'top'       => array_slice($top, 0, SPACE_TOP_FOLDERS),
         ];
     }

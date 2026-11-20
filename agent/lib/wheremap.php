@@ -487,12 +487,14 @@ function whereMapJob(array $args): int
 
 // ===================================================================== the queue
 
-/** @return array<string, string> measure path → share, from her last tour */
+/** @return array<string, string> measure path → share, from her last tour — never one the user left out (skipplaces.php) */
 function whereMapShares(): array
 {
     $out = [];
     foreach ($GLOBALS['where']['shares'] ?? [] as $s) {
-        $out[$s['measure']] = $s['name'];
+        if (($s['skip'] ?? null) === null || !empty($s['skip']['measurable'])) {
+            $out[$s['measure']] = $s['name'];
+        }
     }
     return $out;
 }
@@ -528,7 +530,7 @@ function whereMapAsk(array $paths): array
     $shares = whereMapShares();
     foreach ($paths as $path) {
         if (!isset($shares[$path])) {
-            throw new Problem('unknown_target', ['target' => $path]);
+            throw whereSkippedPath($path) ?? new Problem('unknown_target', ['target' => $path]);
         }
     }
     foreach ($paths as $path) {
@@ -604,6 +606,10 @@ function whereMapTick(): void
         $share = $jobs['queue'][$path];
         unset($jobs['queue'][$path]);
         $changed = true;
+        if (!isset(whereMapShares()[$path])) {
+            whereMapSave($maps, $failed);           // left out since it was asked for (skipplaces.php), or gone: never walked
+            return;
+        }
         $pipes = [];
         $process = proc_open(whereMapCommand($share, $path), [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/');
         if (is_resource($process)) {

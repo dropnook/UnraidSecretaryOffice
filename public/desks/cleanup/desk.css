@@ -112,6 +112,17 @@
 .clw-wake-box{display:inline-flex; flex-direction:column; align-items:flex-start; gap:4px}
 .clw-wake-note{display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:12px; color:var(--muted); max-width:300px}
 .clw-wake-note[hidden]{display:none}
+/* «leave these places out» (agent/lib/skipplaces.php): one quiet line under the wake switch, the list in a dialog */
+.clw-skip{background:none; border:0; padding:0; font:inherit; font-size:12.5px; color:var(--muted); text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; text-align:left}
+.clw-skip:hover:not(:disabled){color:var(--ink)}
+.clw-skip.on{color:var(--accent-ink)}
+.clw-skip:disabled{cursor:default; opacity:.6}
+.clw-skip[hidden]{display:none}
+.clw-skip-box > p{margin:0 0 12px}
+.clw-skip-box > p.clw-skip-note{margin:4px 0 0; font-size:12.5px; color:var(--muted)}
+.clw-skip-group{border:0; padding:0; margin:0 0 14px; min-width:0; display:flex; flex-direction:column; gap:6px}
+.clw-skip-group legend{font-weight:650; padding:0; margin-bottom:6px}
+.clw-skip-group .switch{display:flex; align-items:center; gap:8px; flex-wrap:wrap; overflow-wrap:anywhere}
 /* «Storage» on «Where is what» (2026-11-04): bars, sparklines, the shares' treemap, the details table — inline SVG,
    colours only as tokens: used = --data (Ms. Moverelli's «what never moves»), her split with her colours, snapshots a
    darker mix, free the surface; the shares in three families (pool: the accent, the array: the ink, both: between) */

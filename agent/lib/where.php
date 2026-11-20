@@ -167,6 +167,7 @@ function whereScan(bool $awake = false): array
         'notices'     => waNotices(),
         'locations'   => waLocations($vms, $cron),
         'advice'      => waAdvice($shares, $roots, $asleep, $vms, $containers),
+        'skip'        => whereSkipState(),
     ];
     $state['duration_ms'] = (int) round((microtime(true) - $t0) * 1000);
     $GLOBALS['where'] = $state;
@@ -194,8 +195,12 @@ function waBackup(string $path): array
 function waWakeDisks(): array
 {
     $commands = [];
+    $pools = officeSkipPoolNames();
     foreach (readCfg('/var/local/emhttp/disks.ini', true) as $section => $d) {
         $dev = $d['device'] ?? '';
+        if (officeDiskSkipped((string) ($d['name'] ?? $section), $pools)) {
+            continue;                   // it holds only places the user left out: nothing to look at there
+        }
         if (diskAsleep($d) && preg_match('/^[a-z0-9]+$/', $dev) && file_exists("/dev/$dev")) {     // an SSD in standby needs no waking
             $commands[(string) ($d['name'] ?? $section)] = ['dd', "if=/dev/$dev", 'of=/dev/null', 'bs=4096', 'count=1', 'iflag=direct'];
         }
@@ -300,7 +305,7 @@ function waShareOfPath(string $path, array $roots): ?array
  * $ini/$dir/$mnt/$var: the tests' stand-ins.
  */
 function waShares(array $roots, array $asleep, array $datasets, array $consumers, string $ini = WA_SHARES_INI, string $dir = WA_SHARES_DIR,
-                  string $mnt = '/mnt', string $var = WA_VAR_INI): array
+                  string $mnt = '/mnt', string $var = WA_VAR_INI, ?array $skipList = null): array
 {
     $iniFile = $ini;
     $ini = readCfg($iniFile, true);
@@ -312,6 +317,7 @@ function waShares(array $roots, array $asleep, array $datasets, array $consumers
     natcasesort($names);
 
     $shares = [];
+    $skipList ??= officeSkipList();
     foreach ($names as $name) {
         $cfg = readCfg($dir . "/$name.cfg");
         $stale = !isset($ini[$name]) && !officeShareExists($name, $iniFile, $mnt, $var);
@@ -332,12 +338,20 @@ function waShares(array $roots, array $asleep, array $datasets, array $consumers
         $onPools = [];
         $onDisks = [];
         $unknown = [];
-        foreach ($roots as $root => $r) {
+        // «leave these places out» (agent/lib/skipplaces.php): a share on the list is not looked for anywhere; a left-out
+        // pool or the array (every disk) is not looked into — neither here nor asleep, never woken for it (waShareSkip())
+        $whole = officeShareSkipped((string) $name, $skipList);
+        $hidden = [];
+        foreach ($whole ? [] : $roots as $root => $r) {
+            if (officeRootSkipped((string) $root, $skipList)) {
+                $hidden[] = (string) $root;
+                continue;
+            }
             if ($asleep[$root] ?? false) {
                 $unknown[] = $root;
                 continue;
             }
-            if (is_dir("/mnt/$root/$name")) {
+            if (is_dir("$mnt/$root/$name")) {
                 if ($r['kind'] === 'disk') {
                     $onDisks[] = $root;
                 } else {
@@ -362,6 +376,7 @@ function waShares(array $roots, array $asleep, array $datasets, array $consumers
             }
         }
 
+        $skip = waShareSkip((string) $name, $whole, $hidden, $roots, $primary, $secondary, $exclusive, $onPools, $onDisks, $unknown, $mnt);
         $shares[] = [
             'name'     => $name,
             'comment'  => $cfg['shareComment'] ?? $i['comment'] ?? '',
@@ -386,7 +401,8 @@ function waShares(array $roots, array $asleep, array $datasets, array $consumers
                 'missing'   => $stale || ($primary !== 'array' && !isset($roots[$primary])),
             ],
             'size'     => $dataset ? ['bytes' => $datasets[$dataset]['used'], 'source' => 'zfs'] : null,
-            'measure'  => $real ?? $userPath,
+            'measure'  => $skip['measure'] ?? $real ?? $userPath,
+            'skip'     => $skip === null ? null : array_diff_key($skip, ['measure' => 1]),
             'smb'      => [
                 'export'   => $cfg['shareExport'] ?? '-',
                 'security' => $cfg['shareSecurity'] ?? 'public',
@@ -407,6 +423,44 @@ function waShares(array $roots, array $asleep, array $datasets, array $consumers
     return $shares;
 }
 
+/**
+ * What «leave these places out» means for one share (waShares()): null — nothing of it is left out (as before 1.95.0);
+ * else `whole` (the share is on the list: not looked for anywhere), `on` (the left-out places it lies on or is set to:
+ * pools by name, «array» once for the array — what the page names as «partly left out»), `measurable` (a du or a map may
+ * walk what is left of it) and `measure` (the path they walk instead of /mnt/user/<share>, which would cross the left-out
+ * part: its one pool still looked at — null: none or more than one, not measured, «at least» what ZFS knows).
+ * A left-out disk may hold any share's leftovers (as a sleeping one: 1.85.0) — not an exclusive share's, whose
+ * /mnt/user path is its pool.
+ *
+ * @param list<string> $hidden the left-out roots (pools, array disks) among $roots
+ */
+function waShareSkip(string $name, bool $whole, array $hidden, array $roots, string $primary, ?string $secondary, bool $exclusive, array $onPools,
+                     array $onDisks, array $unknown, string $mnt = '/mnt'): ?array
+{
+    if ($whole) {
+        return ['whole' => true, 'on' => [], 'measurable' => false, 'measure' => null];
+    }
+    $on = [];
+    $crossed = false;
+    foreach ($hidden as $root) {
+        if (($roots[$root]['kind'] ?? '') === 'disk') {
+            $crossed = $crossed || !$exclusive;
+            if (in_array('array', [$primary, $secondary], true) && !in_array('array', $on, true)) {
+                $on[] = 'array';
+            }
+        } elseif ($root === $primary || $root === $secondary) {
+            $on[] = $root;
+            $crossed = true;
+        }
+    }
+    if (!$crossed) {
+        return null;
+    }
+    // what is left to walk: one awake pool and nothing on a disk (a sleeping one may still hold some: not measured either)
+    $one = count($onPools) === 1 && !$onDisks && !$unknown ? "$mnt/{$onPools[0]}/$name" : null;
+    return ['whole' => false, 'on' => $on, 'measurable' => $one !== null, 'measure' => $one];
+}
+
 /** The share Docker keeps its app data in (Settings → Docker) */
 function waAppdataShare(): ?string
 {
@@ -423,8 +477,9 @@ function waFolders(array $shares, array $roots, array $asleep, array $datasets, 
     $result = [];
     foreach ($shares as $share) {
         $st = $share['storage'];
-        if ($st['use_cache'] !== 'only' || $st['primary'] === 'array' || ($asleep[$st['primary']] ?? false)) {
-            continue;
+        if ($st['use_cache'] !== 'only' || $st['primary'] === 'array' || ($asleep[$st['primary']] ?? false)
+            || !empty($share['skip']) || officeRootSkipped((string) $st['primary'])) {
+            continue;                   // … or left out by the user (skipplaces.php): its folders aren't listed
         }
         $base = $st['real'] ?? "/mnt/{$st['primary']}/{$share['name']}";
         $entries = @scandir($base);
@@ -1745,8 +1800,8 @@ function waExclusive(array $shares, array $roots, array $asleep, array $shareCfg
         $name = (string) $s['name'];          // a numeric share name comes out of array_keys() as an int
         $st = $s['storage'] ?? [];
         $pool = (string) ($st['primary'] ?? 'array');
-        if (!empty($st['exclusive']) || !empty($st['missing']) || ($roots[$pool]['kind'] ?? '') !== 'pool') {
-            continue;
+        if (!empty($st['exclusive']) || !empty($st['missing']) || ($roots[$pool]['kind'] ?? '') !== 'pool' || !empty($s['skip'])) {
+            continue;                   // a share left out (wholly or partly) isn't looked at enough to advise on it
         }
         $onPool = in_array($pool, $st['pools'] ?? [], true);
         $where = array_values(array_diff(array_merge($st['pools'] ?? [], $st['disks'] ?? []), [$pool]));
@@ -1854,6 +1909,7 @@ function waHealth(): array
     $paritySlots = 0;
     $parityPresent = 0;
     $disksIni = readCfg('/var/local/emhttp/disks.ini', true);
+    $skipPools = officeSkipPoolNames();
     $building = waBuilding($var, $disksIni);                 // the array disk a resync builds right now (parity, a rebuild, a clear)
     $sources = [['array', $disksIni], ['unassigned', readCfg('/var/local/emhttp/devs.ini', true)]];
     foreach ($sources as [$origin, $entries]) {
@@ -1892,6 +1948,7 @@ function waHealth(): array
                 'name'       => $name,
                 'roles'      => [],
                 'origin'     => $origin,
+                'skipped'    => $origin === 'array' && officeDiskSkipped((string) $name, $skipPools),   // holds only left-out places: never woken for a tour
                 'type'       => $type,
                 'device'     => $dev,
                 'id'         => $id,
@@ -2222,6 +2279,20 @@ function waSystem(array $containers, array $vms, array $scripts, array $backupSc
     ];
 }
 
+/**
+ * «Leave these places out» as her page shows it: the list (skipplaces.php) and what the dialog offers beside the shares —
+ * the pools Unraid knows (also one whose disks sleep or that isn't mounted), whether there is an array at all.
+ */
+function whereSkipState(): array
+{
+    $list = officeSkipList();
+    $disks = 0;
+    foreach (readCfg(disksIniFile(), true) as $section => $d) {
+        $disks += ($d['type'] ?? '') === 'Data' || preg_match('/^disk\d+$/D', (string) ($d['name'] ?? $section)) ? 1 : 0;
+    }
+    return $list + ['pools_known' => officeSkipPoolNames(), 'array_disks' => $disks];
+}
+
 // ===================================================================== sizes (du in the background)
 
 function whereSizesFile(): string
@@ -2239,13 +2310,15 @@ function whereSizes(): array
     ];
 }
 
-/** Paths that may be measured: shares and folders from the last tour */
+/** Paths that may be measured: shares and folders from the last tour — never a left-out one (skipplaces.php) */
 function whereMeasurable(): array
 {
     $allowed = [];
     $state = $GLOBALS['where'] ?? [];
     foreach ($state['shares'] ?? [] as $s) {
-        $allowed[$s['measure']] = true;
+        if (($s['skip'] ?? null) === null || !empty($s['skip']['measurable'])) {
+            $allowed[$s['measure']] = true;
+        }
     }
     foreach ($state['folders'] ?? [] as $f) {
         foreach ($f['folders'] as $folder) {
@@ -2255,12 +2328,26 @@ function whereMeasurable(): array
     return $allowed;
 }
 
+/**
+ * A path the page asked for that lies in a place the user left out: the Problem saying so (`place_skipped`, the share's
+ * name) — null when it isn't one (then it is unknown). The last tour's shares know their measure paths and their skip.
+ */
+function whereSkippedPath(string $path): ?Problem
+{
+    foreach ($GLOBALS['where']['shares'] ?? [] as $s) {
+        if (($s['skip'] ?? null) !== null && ($s['measure'] === $path || str_starts_with($path, "/mnt/user/{$s['name']}/"))) {
+            return new Problem('place_skipped', ['place' => (string) $s['name']]);
+        }
+    }
+    return officeSkipWhy($path) !== null ? new Problem('place_skipped', ['place' => $path]) : null;
+}
+
 function whereMeasure(array $paths): array
 {
     $allowed = whereMeasurable();
     foreach ($paths as $path) {
         if (!isset($allowed[$path])) {
-            throw new Problem('unknown_target', ['target' => $path]);
+            throw whereSkippedPath($path) ?? new Problem('unknown_target', ['target' => $path]);
         }
     }
     foreach ($paths as $path) {
@@ -2294,8 +2381,13 @@ function whereJobsTick(): void
         unset($jobs['running'][$path]);
         logLine(sprintf('Measured %s: %s in %d s', $path, $bytes === null ? '?' : number_format($bytes), time() - $job['since']));
     }
+    $allowed = $jobs['queue'] ? whereMeasurable() : [];
     while (count($jobs['running']) < WA_DU_PARALLEL && $jobs['queue']) {
         $path = array_shift($jobs['queue']);
+        if (!isset($allowed[$path])) {
+            $changed ??= [];            // left out since it was asked for (or gone from the tour): never walked
+            continue;
+        }
         $pipes = [];
         $process = proc_open(['nice', '-n', '10', 'du', '-s', '-B1', '-x', $path],
             [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/');

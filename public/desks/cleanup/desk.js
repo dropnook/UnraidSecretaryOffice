@@ -315,7 +315,9 @@ function build(root, page) {
   // nothing until «Tour» and was off again afterwards, said only in its tip); «Tour» beside it is the one button
   const wakeNote = el('span', 'clw-wake-note', T('where.wake_once'));
   const wakeBox = el('span', 'clw-wake-box');
-  wakeBox.append(v.wakeLabel, wakeNote);
+  // «leave these places out» (agent/lib/skipplaces.php), right under the wake switch: the list a click opens
+  v.skip = Where.skipLine();
+  wakeBox.append(v.wakeLabel, wakeNote, v.skip);
   v.wakeSync = () => { wakeNote.hidden = !v.wake.checked || v.wakeLabel.hidden; };
   v.wake.onchange = v.wakeSync;
   const head = Office.deskHead({ id: ID, icon: Office.desks.get(ID).icon },
@@ -348,6 +350,7 @@ function build(root, page) {
     search: (text) => setQuery(text),
     // a finding's link while «Tidying up» is shown: «Where is what» with that corner open, the link's words in its bar
     away: (route, words, anchor) => { pendingWords = words === undefined ? null : words; Office.go(route); Office.reveal(anchor); },
+    tidy: (s) => { if (s && s.appdata) setState(s); },       // «leave places out» saved: her rooms as she looked again
   });
 
   if (page === 'where') {
@@ -424,6 +427,7 @@ function renderBubble() {
   if (w && w.more) view.bubble.append(' ', w.more);
   // the wake switch says how many disks sleep (array and pools — what the tour would wake)
   const sleeping = Where.sleeping();
+  view.skip.fill();
   view.wakeText.textContent = sleeping ? T('where.wake_n', { n: sleeping }) : T('where.wake');
   view.wakeLabel.hidden = !sleeping && !view.wake.checked;
   view.wakeSync();
@@ -664,7 +668,23 @@ function appdataInfo() {
   else if (a.flash_at && a.flash_partial) box.appendChild(el('p', 'callout', T('appdata.searched_partial', { when: fmt.relative(a.flash_at) })));
   else if (a.flash_at) box.appendChild(el('p', 'role', T('appdata.searched', { when: fmt.relative(a.flash_at) })));
   if (a.asleep.length) box.appendChild(asleepCallout(a.asleep));
+  const sk = roomSkipped(a);
+  if (sk) box.appendChild(sk);
   return box;
+}
+
+/**
+ * A room's share left out by the user (agent/lib/skipplaces.php; an older agent's state has no `skipped`): the whole share —
+ * nothing of it looked at, nothing offered; a left-out place it lies on — that part not looked at
+ */
+function roomSkipped(place) {
+  const sk = place && place.skipped;
+  if (!sk) return null;
+  const names = sk === 'share' ? [] : sk.map((p) => (p === 'array' ? Where.arrayWord() : p));
+  // nothing of it left to look at (an array share, the array left out) — or only a part not looked at
+  const all = !place.places.length && !place.asleep.length;
+  return el('p', 'callout', sk === 'share' ? T('skip.room_share', { share: place.share })
+    : T(all ? 'skip.room_all' : 'skip.room_part', { share: place.share, list: names.join(', ') }));
 }
 
 function vmsInfo() {
@@ -678,6 +698,7 @@ function vmsInfo() {
   else if (v.flash_partial && state.appdata.flash_at) box.appendChild(el('p', 'callout', T('appdata.searched_partial', { when: fmt.relative(state.appdata.flash_at) })));
   const asleep = [...new Set([...v.domains.asleep, ...v.isos.asleep])];
   if (asleep.length) box.appendChild(asleepCallout(asleep));
+  for (const x of [v.domains, v.isos]) { const sk = roomSkipped(x); if (sk) box.appendChild(sk); }
   return box;
 }
 
@@ -2176,7 +2197,7 @@ let sizeTimer = null;
 const placesOpen = new Set(String(Office.store(STORE + 'place') || '').split(',').filter(Boolean));
 let shown = [];          // rows of the corner being drawn that can unfold: { open(), set(bool) }
 // the page's: the bubble and the wake switch anew; set the filter; go to «Where is what» from her other page
-let hooks = { changed: () => {}, search: () => {}, away: () => {} };
+let hooks = { changed: () => {}, search: () => {}, away: () => {}, tidy: () => {} };
 // the bar over the corners (core.js Office.filterBar, built once): its words (and «only what needs a look») filter the
 // corners shown — the chosen one, or every corner while no tile is chosen; never kept
 let bar = null;
@@ -2270,12 +2291,115 @@ function sizeInfo(path, zfs) {
 function sizeFigures(info) {
   const box = el('div', 'figures');
   if (info.bytes !== undefined) {
-    box.append(el('b', '', fmt.size(info.bytes)), el('span', '', info.how === 'zfs' ? 'ZFS' : T('where.measured')));
+    box.append(el('b', '', (info.how === 'part' ? '≥ ' : '') + fmt.size(info.bytes)), el('span', '', info.how === 'zfs' ? 'ZFS' : info.how === 'part' ? T('skip.at_least') : T('where.measured')));
     box.title = info.how === 'du' ? T('where.measured_at', { when: fmt.relative(info.at) }) + (info.partial ? ' · ' + T('where.measured_partial') : '') : T('where.zfs_size');
   } else if (info.how === 'running' || info.how === 'queued') {
     box.append(el('b', '', '…'), el('span', '', info.how === 'running' ? T('where.measuring') : T('where.queued')));
   }
   return box;
+}
+
+// ------------------------------------------------------------------ «leave these places out» (agent/lib/skipplaces.php)
+/** A share's chip: left out as a whole, or partly (the places named in its tip); none when nothing of it is */
+function skipChip(skip, rest) {
+  if (!skip || (!skip.whole && !skip.on.length)) return null;     // on: [] — a pool share walked on its pool only: nothing to say
+  const part = T('skip.chip_part_title', { list: skip.on.map(skipPlaceName).join(', ') || T('where.array') });
+  // rest: the places of it still looked at — none: all of it lies on what was left out (an array share, the array left out)
+  return skip.whole ? chip(T('skip.chip'), 'quiet', T('skip.chip_title')) : chip(T(rest ? 'skip.chip_part' : 'skip.chip'), 'quiet', part);
+}
+const skipPlaceName = (p) => (p === 'array' ? T('where.array') : p);
+const skipWords = (skip) => (skip.whole ? T('skip.chip_title') : T('skip.chip_part_title', { list: skip.on.map(skipPlaceName).join(', ') || T('where.array') }));
+/** In place of a size: «left out» — never 0, never «not measured» */
+function skipFigures() {
+  const box = el('div', 'figures');
+  box.append(el('b', '', '–'), el('span', '', T('skip.left_out')));
+  box.title = T('skip.chip_title');
+  return box;
+}
+
+/** The list as her last look knows it: {shares, pools, array, pools_known, array_disks} — an older agent's look has none */
+const skipList = () => (state && state.skip ? state.skip : { shares: [], pools: [], array: false, pools_known: [], array_disks: 0 });
+const skipCount = () => { const k = skipList(); return k.shares.length + k.pools.length + (k.array ? 1 : 0); };
+
+/**
+ * The head's line under «wake N sleeping disks»: «Leave places out…», or what is left out — a click opens the list. Only
+ * once her look knows the list (an older agent's look doesn't: then nothing is drawn).
+ */
+function skipLine() {
+  const b = el('button', 'clw-skip');
+  b.type = 'button';
+  const fill = () => {
+    const n = skipCount();
+    b.hidden = !state || !state.skip;
+    b.textContent = n ? T('skip.line_n', { n }) : T('skip.line');
+    b.title = n ? skipSummary() : T('skip.line_title');
+    b.classList.toggle('on', n > 0);
+    b.disabled = !Office.agent.running;
+  };
+  b.onclick = () => skipDialog();
+  fill();
+  b.fill = fill;
+  return b;
+}
+
+/** What is left out, in words: «the array, pool fast, share Media» */
+function skipSummary() {
+  const k = skipList();
+  return [...(k.array ? [T('where.array')] : []), ...k.pools.map((p) => T('skip.pool_named', { name: p })), ...k.shares.map((x) => T('skip.share_named', { name: x }))].join(', ');
+}
+
+/** The list: the array (one switch), each pool Unraid knows, each share — and a name no longer there, to take it off */
+function skipDialog() {
+  const k = skipList();
+  const body = el('div', 'clw-skip-box');
+  body.appendChild(el('p', '', T('skip.intro')));
+  const boxes = [];
+  const group = (title, names, on, kind, note) => {
+    const g = el('fieldset', 'clw-skip-group');
+    if (title) g.appendChild(el('legend', '', title));
+    if (note) g.appendChild(el('p', 'hint', note));
+    for (const x of names) {
+      const label = el('label', 'switch');
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.checked = on(x.name);
+      cb.dataset.kind = kind;
+      cb.dataset.name = x.name;
+      label.append(cb, el('span', '', x.text));
+      if (x.gone) label.appendChild(chip(T('skip.gone'), 'warn', T('skip.gone_title')));
+      boxes.push(cb);
+      g.appendChild(label);
+    }
+    body.appendChild(g);
+  };
+  if (k.array_disks > 0 || k.array) {
+    group(null, [{ name: 'array', text: T('skip.array_text', { n: k.array_disks }) }], () => k.array, 'array', null);     // its line says it all
+  }
+  const pools = [...new Set([...k.pools_known, ...k.pools])];
+  if (pools.length) {
+    group(T('skip.pools'), pools.map((p) => ({ name: p, text: p, gone: !k.pools_known.includes(p) })), (n) => k.pools.includes(n), 'pool', null);
+  }
+  const shares = state.shares.map((x) => x.name);
+  const all = [...new Set([...shares, ...k.shares])].sort((a, b) => a.localeCompare(b, Office.lang, { sensitivity: 'base' }));
+  group(T('skip.shares'), all.map((x) => ({ name: x, text: x, gone: !shares.includes(x) })), (n) => k.shares.includes(n), 'share', null);
+  body.appendChild(el('p', 'clw-skip-note', T('skip.what')));
+  Office.dialog({
+    title: T('skip.title'),
+    body,
+    buttons: [{ text: Office.t('common.cancel') }, { text: T('skip.save'), kind: '', act: async () => {
+      const pick = (kind) => boxes.filter((b) => b.dataset.kind === kind && b.checked).map((b) => b.dataset.name);
+      const j = await Office.api.post(`${ID}.skip_set`, { shares: pick('share'), pools: pick('pool'), array: pick('array').length > 0 });
+      if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); return false; }
+      if (j.where && Array.isArray(j.where.shares)) state = j.where;
+      if (j.space && Array.isArray(j.space.pools)) space = j.space;
+      await loadSizes();
+      if (view) render();
+      hooks.tidy(j.state);
+      hooks.changed();
+      Office.toast(T('skip.saved'));
+      return true;
+    } }],
+  });
 }
 
 function usedByChips(list, max = 4) {
@@ -2788,7 +2912,7 @@ function render() {
 }
 
 /** Only what the tour wakes: array and pool disks (an unassigned one, e.g. a spare parity disk, stays out) */
-const sleeping = () => (state && state.health ? state.health.devices.filter((d) => d.asleep && d.origin !== 'unassigned').length : 0);
+const sleeping = () => (state && state.health ? state.health.devices.filter((d) => d.asleep && d.origin !== 'unassigned' && !d.skipped).length : 0);   // never one holding only left-out places
 
 /** The tour of «Where is what»: her look at the whole server — with «wake» every sleeping disk first */
 async function tour(wake) {
@@ -3305,7 +3429,7 @@ function shares(body) {
   for (const s of list) {
     const st = s.storage;
     const info = sizeInfo(s.measure, s.size);
-    const wakes = st.primary === 'array' || st.secondary === 'array';
+    const wakes = (st.primary === 'array' || st.secondary === 'array') && !(s.skip && s.skip.on.includes('array'));
     box.appendChild(row({
       key: 'share:' + s.name,
       name: s.name,
@@ -3318,8 +3442,9 @@ function shares(body) {
         s.smb.timemachine_limit ? chip('Time Machine', 'quiet') : null,
         ...usedByChips(s.used_by),
         !s.has_cfg ? chip(T('where.no_cfg'), 'warn', T('where.no_cfg_title')) : null,
+        skipChip(s.skip, st.pools.length + st.disks.length),
       ],
-      figures: sizeFigures(info),
+      figures: s.skip && info.how === 'none' ? skipFigures() : sizeFigures(s.skip && s.skip.on.length && info.how === 'du' ? { ...info, how: 'part' } : info),
       detail: () => kv([
         [T('where.path'), `/mnt/user/${s.name}`, true],
         [T('where.real_path'), st.real, true],
@@ -3327,6 +3452,7 @@ function shares(body) {
         [T('where.use_cache'), T('where.cache.' + st.use_cache) + ` (${st.use_cache})`],
         [T('where.found_on'), [...st.pools, ...st.disks]],
         [T('where.unknown_on'), st.unknown.length ? `${st.unknown.join(', ')} — ${T('where.asleep_unknown')}` : null],
+        [T('skip.left_out'), s.skip && (s.skip.whole || s.skip.on.length) ? skipWords(s.skip) : null],
         [T('where.include'), st.include],
         [T('where.exclude'), st.exclude],
         ['SMB', s.smb.export === '-' ? T('where.not_exported') : `${T('where.security.' + s.smb.security)} · ${T('where.read')}: ${s.smb.read.join(', ') || '–'} · ${T('where.write')}: ${s.smb.write.join(', ') || '–'}`],
@@ -3334,7 +3460,8 @@ function shares(body) {
         [T('where.used_by'), s.used_by.length ? lines(s.used_by.map((u) => `${kindIcon(u.kind)} ${u.name}: ${u.path}${u.detail ? ' → ' + u.detail : ''}`)) : T('where.nobody')],
       ]),
       menu: () => [
-        { text: info.bytes !== undefined && info.how === 'zfs' ? T('where.size_known') : T('where.measure.one'), act: () => measure([s.measure], wakes), disabled: info.how === 'zfs' || !Office.agent.running },
+        { text: s.skip && !s.skip.measurable && (s.skip.whole || s.skip.on.length) ? T('skip.left_out') : info.bytes !== undefined && info.how === 'zfs' ? T('where.size_known') : T('where.measure.one'),
+          act: () => measure([s.measure], wakes), disabled: info.how === 'zfs' || !Office.agent.running || !skipMeasurable(s) },
         { text: Office.t('common.copy_path'), act: () => Office.copy(`/mnt/user/${s.name}`) },
       ],
     }));
@@ -3987,12 +4114,15 @@ function spaceTotals() {
  * right now (the figure shown stays what it was until the du is in).
  */
 function shareBytes(s) {
+  // left out by the user (agent/lib/skipplaces.php): the whole share — what ZFS knows without a look, else «left out»;
+  // partly — a du walked only what is left of it: «at least»
+  if (skipAll(s)) return s.bytes !== null && s.bytes !== undefined ? { bytes: s.bytes, how: 'zfs', measuring: false } : { bytes: null, how: 'skipped', measuring: false };
   const measuring = sizes.running.includes(s.measure) || sizes.queue.includes(s.measure);
   const m = sizes.sizes[s.measure];
   const du = m && m.bytes !== null && m.bytes !== undefined ? { bytes: m.bytes, how: 'du', at: m.at, measuring } : null;
   const own = s.bytes !== null && s.bytes !== undefined ? { bytes: s.bytes, how: s.source, at: s.at, measuring } : null;
   if (own && (own.how === 'zfs' || own.how === 'empty')) return own;
-  if (du && (!own || own.how !== 'du' || (du.at || 0) >= (own.at || 0))) return du;
+  if (du && (!own || own.how !== 'du' || (du.at || 0) >= (own.at || 0))) return s.skip && s.skip.on.length ? { ...du, how: 'part' } : du;
   if (own) return own;
   return { bytes: null, how: measuring ? 'measuring' : null, measuring };
 }
@@ -4133,7 +4263,8 @@ function spaceBars() {
     const size = p.managed ? p.managed.size : p.size;
     const used = p.managed ? p.managed.used : p.used;
     box.appendChild(barRow({ key: 'pool:' + p.name, name: p.name, size, used, warn: p.warn, crit: p.crit, segs: poolSegs(p), note,
-      chips: [fsChip(p.fs), layout ? chip(layout, 'quiet', T('where.space.layout_tip')) : null, ssdChip(members), p.asleep ? asleepChip() : null],
+      chips: [fsChip(p.fs), layout ? chip(layout, 'quiet', T('where.space.layout_tip')) : null, ssdChip(members), p.asleep ? asleepChip() : null,
+        skipList().pools.includes(p.name) ? chip(T('skip.chip'), 'quiet', T('skip.root_title')) : null],
       spark: sparkline('pool:' + p.name) }));
   }
   const a = space.array;
@@ -4143,12 +4274,14 @@ function spaceBars() {
     const parity = space.devices.filter((d) => d.role === 'parity');
     box.appendChild(barRow({ key: 'array', name: T('where.space.array'), size: a.size, used: a.used, segs,
       warn: null, crit: null, note: T('where.space.array_note', { disks: nOf('disks', a.disks), parity: parity.length ? parity.map((d) => `${d.name} ${fmt.size(d.disk_size)}`).join(', ') : T('where.space.no_parity') }),
-      chips: [ssdChip(data), a.asleep ? chip(T('where.space.n_asleep', { n: a.asleep }), 'quiet', T('where.space.asleep_tip')) : null], spark: sparkline('array') }));
+      chips: [ssdChip(data), a.asleep ? chip(T('where.space.n_asleep', { n: a.asleep }), 'quiet', T('where.space.asleep_tip')) : null,
+        skipList().array ? chip(T('skip.chip'), 'quiet', T('skip.root_title')) : null], spark: sparkline('array') }));
     for (const d of data) {
       const level = spaceLevel(d.fill, d.warn, d.crit);
       box.appendChild(barRow({ key: 'disk:' + d.name, name: d.name, size: d.size, used: d.used, warn: d.warn, crit: d.crit, small: true,
         segs: [{ k: 'data', bytes: d.used, label: T('where.space.seg.data'), cls: level ? 'cl-space-is-' + level : '' }],
-        note: d.shares.length ? T('where.space.on_disk', { list: d.shares.join(', ') }) : d.maybe.length ? T('where.space.maybe_disk', { list: d.maybe.join(', ') }) : '',
+        // the array left out: what lies on its disks isn't looked at — said instead of «shares on it» (skipplaces.php)
+        note: skipList().array ? T('skip.root_title') : d.shares.length ? T('where.space.on_disk', { list: d.shares.join(', ') }) : d.maybe.length ? T('where.space.maybe_disk', { list: d.maybe.join(', ') }) : '',
         chips: [fsChip(d.fs), d.asleep ? asleepChip() : null], spark: sparkline('disk:' + d.name) }));
     }
   }
@@ -4222,7 +4355,7 @@ function shareLine(s) {
   const b = shareBytes(s);
   const box = el('div', 'cl-space-tminfo');
   const where = s.parts.map((p) => `${p.root}${p.bytes !== null ? ' ' + fmt.size(p.bytes) : ''}`).concat(s.unknown.map((r) => `${r} (${T('where.space.asleep')})`));
-  const how = b.measuring ? T('where.space.measuring') : b.bytes === null ? T('where.space.unmeasured')
+  const how = b.how === 'skipped' ? T('skip.left_out') : b.measuring ? T('where.space.measuring') : b.bytes === null ? T('where.space.unmeasured')
     : b.how === 'du' ? T('where.measured_at', { when: fmt.relative(b.at) }) : b.how === 'part' ? T('where.space.at_least', { list: s.unmeasured.join(', ') })
     : b.how === 'empty' ? T('where.space.empty') : 'ZFS';
   box.append(el('b', '', s.name), ` · ${b.bytes !== null ? fmt.size(b.bytes) : '–'} · ${how}`);
@@ -4236,8 +4369,9 @@ function shareLine(s) {
 
 /** The shares by what is known of their size: those with a rectangle, those a du or scan still has to measure, the empty ones */
 function spaceLists() {
-  const all = space.shares.map((s) => ({ s, b: shareBytes(s) }));
+  const all = space.shares.filter((s) => !skipAll(s)).map((s) => ({ s, b: shareBytes(s) }));
   return {
+    skipped: space.shares.filter(skipAll),          // left out by the user: named in one line, never a rectangle or «not measured»
     sized: all.filter((x) => x.b.bytes > 0).sort((p, q) => q.b.bytes - p.b.bytes),
     unmeasured: all.filter((x) => x.b.bytes === null || x.b.how === 'part'),   // none, or only the parts ZFS knows: a du gets the rest
     empty: all.filter((x) => x.b.bytes === 0),
@@ -4317,7 +4451,7 @@ function spaceUnmeasured(unmeasured) {
     c.addEventListener('keydown', (e) => { if (e.key === 'Enter') { mapPointer = 'mouse'; go(); } });
     un.appendChild(c);
   }
-  const can = unmeasured.filter((x) => !x.b.measuring && !mapScanning(x.s));
+  const can = unmeasured.filter((x) => !x.b.measuring && !mapScanning(x.s) && skipMeasurable(x.s));
   if (can.length) {
     const btn = el('button', 'btn small', T('where.space.measure', { n: can.length }));
     btn.type = 'button';
@@ -4358,7 +4492,11 @@ function mapTook(part) {
   scans = { queue: part.queue || [], running: part.running || [], maps: part.maps || {}, failed: part.failed || {} };
 }
 const mapScanning = (s) => scans.running.includes(s.measure) || scans.queue.includes(s.measure);
-const mapWakes = (s) => !!(s.unknown.length || s.primary === 'array' || s.secondary === 'array');
+const mapWakes = (s) => !!(s.unknown.length || ((s.primary === 'array' || s.secondary === 'array') && !(s.skip && s.skip.on.includes('array'))));
+/** Nothing of it is looked at: the share left out itself, or every place it lies on (the array-only share with the array) */
+const skipAll = (s) => !!(s.skip && (s.skip.whole || (s.skip.on.length && !s.parts.length)));
+/** A du or a scan may walk it: nothing of it left out, or what is left of it lies on one pool (agent: waShareSkip()) */
+const skipMeasurable = (s) => !s.skip || !!s.skip.measurable;
 const mapByAge = () => Office.store(STORE + 'map_colour') === 'age';
 const mapFolder = (n) => !n.k && !n.isRest;
 const mapFile = (n) => !n.isRest && !mapFolder(n);
@@ -4392,7 +4530,7 @@ function mapScan(s, open) {
 }
 
 /** What «Scan all…» can queue: no share on its way already, none without a folder anywhere (the agent would refuse the list) */
-const mapCanScan = () => space.shares.filter((s) => !s.missing && !mapScanning(s) && shareBytes(s).bytes !== 0);
+const mapCanScan = () => space.shares.filter((s) => !s.missing && !mapScanning(s) && shareBytes(s).bytes !== 0 && skipMeasurable(s));
 
 /** Every share at one click: asked once which shares wake which disks; nothing to ask on a server of pools only */
 function mapScanAll(list) {
@@ -4471,7 +4609,7 @@ function mapOtherAsked(e) {
 function mapGo(s) {
   spacePinned = spacePicked = s.name;
   if (scans.maps[s.name]) { mapEnter(s); return; }
-  if (s.missing || mapScanning(s) || !Office.agent.running) { mapRedraw(); return; }
+  if (s.missing || mapScanning(s) || !Office.agent.running || !skipMeasurable(s)) { mapRedraw(); return; }
   mapScan(s, true);
 }
 
@@ -5054,13 +5192,14 @@ function mapParts() {
     line.appendChild(el('span', '', mapScannedWords(v.map)));
     return [mapShareBar(), line, spaceStage(info), info, mapLegend()];
   }
-  const { sized, unmeasured, empty } = spaceLists();
+  const { sized, unmeasured, empty, skipped } = spaceLists();
   const shown = space.shares.find((s) => s.name === spacePicked);
   const bytes = sized.reduce((a, x) => a + x.b.bytes, 0);
   info.appendChild(shown ? shareLine(shown) : el('span', 'cl-space-tmhint', sized.length ? T('where.space.tm_label', { n: sized.length, size: fmt.size(bytes) }) : ''));
   const parts = [mapTopBar(), spaceStage(info), info, spaceLegend(sized)];
   if (unmeasured.length) parts.push(spaceUnmeasured(unmeasured));
   if (empty.length) parts.push(el('p', 'cl-space-note', T('where.space.empty_list', { list: empty.map((x) => x.s.name).join(', ') })));
+  if (skipped.length) parts.push(el('p', 'cl-space-note', T('skip.space_list', { list: skipped.map((s) => (s.bytes !== null && s.bytes !== undefined ? `${s.name} (${fmt.size(s.bytes)})` : s.name)).join(', ') })));
   return parts;
 }
 
@@ -5290,7 +5429,8 @@ function spaceMore() {
 }
 
 return {
-  build, load, render, tour, bubble, reception, helpItems, sleeping, items, findings,
+  build, load, render, tour, bubble, reception, helpItems, sleeping, items, findings, skipLine, skipList,
+  arrayWord: () => T('where.array'),
   /** her tiles as places of the search (#/cleanup/where/<tile>; «Where things are» only while she knows places) */
   places: () => TILES.map((id) => ({ kind: 'tile', key: tileKey(id), route: `#/${ID}/where/${id}`, anchor: `where.${id}`, part: 'part.where',
     ...(id === 'places' ? { shown: () => !state || !!state.locations } : {}) })),
