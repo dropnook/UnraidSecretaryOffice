@@ -2154,6 +2154,47 @@ function keptPackageRow(p, u, x, snap) {
   return r;
 }
 
+/** A kept unit's kind (the bar's pick): share, vm, app or place */
+const keptKind = (u) => (u.unit === 'place' ? 'place' : String(u.unit).split(':')[0]);
+/** The apps and VMs a share's newest moment carries, each a row of its own under it */
+const keptPkgs = (u) => (u.snaps[0] && Array.isArray(u.inside) && String(u.unit).startsWith('share:') ? u.inside.filter((x) => x.folder) : []);
+
+/**
+ * The bar over «Kept for <partner>» (one per partner, like the Apps, VMs and Databases bars): the words (the unit's name,
+ * the apps and VMs inside, its chips' words), the kind as its pick, «only with apps or VMs». A unit fits by its own words
+ * or by an app or VM inside — then only those rows of it stand under it. Each [{u, pkgs}].
+ */
+function keptBarRows(s, p) {
+  const key = 'kept:' + p.id;
+  if (!listBars.has(key)) {
+    listBars.set(key, Office.filterBar({
+      key: 'restore.list.kept',
+      label: T('kept.filter_label'),
+      select: { label: T('kept.kind_label'), all: T('kept.kind_all') },
+      only: { text: T('kept.only_inside'), hint: T('kept.only_inside_hint') },
+      onChange: () => { if (view) sw.render(); },
+    }));
+  }
+  const b = listBars.get(key);
+  const kinds = ['share', 'vm', 'app', 'place'].map((k) => [k, T('kept.kind.' + k), p.units.filter((u) => keptKind(u) === k).length]).filter((k) => k[2] > 0);
+  b.options(kinds);
+  const f = b.read();
+  if (p.units.length) s.appendChild(b.el);
+  const carries = (u) => keptKind(u) === 'vm' || keptKind(u) === 'app' || (Array.isArray(u.inside) && u.inside.length > 0);
+  const out = [];
+  p.units.forEach((u) => {
+    if ((f.pick && keptKind(u) !== f.pick) || (f.only && !carries(u))) return;
+    const pkgs = keptPkgs(u);
+    const own = [unitLabel(u.unit), u.unit, u.new ? T('kept.new') : '', u.stale ? T('kept.stale') : '', u.newest ? date(u.newest) : ''];
+    if (Office.fits(f.words, own.concat(Array.isArray(u.inside) ? u.inside.map(insideName) : []))) {
+      // by its own words: all of it; else by what it carries: only those
+      out.push({ u, pkgs: Office.fits(f.words, own) ? pkgs : pkgs.filter((x) => Office.fits(f.words, [insideName(x), x.folder])) });
+    }
+  });
+  b.done(out.length, p.units.length, { onlyAvail: p.units.some(carries) });
+  return out;
+}
+
 /**
  * «Kept for <partner>»: what this office keeps of a partner (the door's datasets on this server's pool — never mounted,
  * never changed), per unit its moments; the way back for the partner (a new server pulls through the Team Lead's
@@ -2168,7 +2209,9 @@ function keptSection(p) {
   if (p.used_bytes) s.appendChild(el('p', 'role', p.quota_gb ? T('kept.room', { used: fmt.size(p.used_bytes), quota: fmt.size(p.quota_gb * 1024 ** 3), pool: p.pool }) : T('kept.room_free', { used: fmt.size(p.used_bytes), pool: p.pool })));
   const box = el('div', 'box');
   if (!p.units.length) box.appendChild(el('p', 'empty', T('kept.none', { name: p.name })));
-  p.units.forEach((u) => {
+  const fits = keptBarRows(s, p);
+  if (p.units.length && !fits.length) box.appendChild(noFit());
+  fits.forEach(({ u, pkgs }) => {
     const meta = el('div', 'row-meta');
     meta.appendChild(u.n ? chip(T('pt.moments', { n: u.n }), '', T('kept.moments_hint', { name: p.name })) : chip(T('kept.none_short'), 'quiet'));
     if (u.newest) meta.appendChild(el('span', '', T('pt.newest_at', { when: date(u.newest) })));
@@ -2179,7 +2222,7 @@ function keptSection(p) {
     box.appendChild(unfoldingRow(`kept:${p.id}:${u.unit}`, unitLabel(u.unit), meta, () => keptMoments(p, u)));
     // what a share's copy carries, each app and VM a row of its own under it, «Start here…» on its newest moment
     const newest = u.snaps[0];
-    if (newest && Array.isArray(u.inside) && String(u.unit).startsWith('share:')) u.inside.filter((x) => x.folder).forEach((x) => box.appendChild(keptPackageRow(p, u, x, newest)));
+    if (newest) pkgs.forEach((x) => box.appendChild(keptPackageRow(p, u, x, newest)));
   });
   s.appendChild(box);
   return s;
