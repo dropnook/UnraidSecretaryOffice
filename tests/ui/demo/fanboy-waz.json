@@ -2726,6 +2726,34 @@
   "last": null,
   "can": true
  },
+ "chip": {
+  "kept": null,
+  "can": true,
+  "blocked": "",
+  "loaded": [],
+  "need": "not_read",
+  "chip": null,
+  "plugin": null,
+  "restart": false,
+  "words": [
+   {
+    "w": "ITE",
+    "kind": "chip"
+   },
+   {
+    "w": "it87",
+    "kind": "driver"
+   },
+   {
+    "w": "ITE IT87 Driver",
+    "kind": "plugin"
+   },
+   {
+    "w": "Example Boards EB-Z100 PRO",
+    "kind": "board"
+   }
+  ]
+ },
  "idle": {
   "on": true,
   "warm": null,

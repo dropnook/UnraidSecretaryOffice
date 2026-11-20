@@ -64,8 +64,12 @@ const FANBOY_PLUGINS = [
     'liquidctl'              => ['name' => 'liquidctl', 'author' => 'Docker', 'kind' => 'container', 'controller' => ['', '', '#(^|/)liquidctl(\s|$)#']],
     'fanbridge'              => ['name' => 'FanBridge', 'author' => 'Docker', 'kind' => 'container', 'controller' => ['', '', '#fanbridge#i']],
 ];
-// a hint by the board's maker, never a verdict: whose chip such boards mostly carry
-const FANBOY_BOARD_HINTS = ['/gigabyte/i' => ['ite', 'Gigabyte'], '/micro-star|\bmsi\b/i' => ['nuvoton', 'MSI']];
+// a hint by the board's maker, never a verdict: whose chip such boards mostly carry. 2026-11-20 (fan chip id) two more,
+// each from the kernel's own lists: ASUS — Nuvoton NCT67xx, Unraid's nct6775, for some 300 boards through the board's
+// WMI (nct6775-platform.c asus_wmi_boards[], asus_msi_boards[]); ASRock — Nuvoton (nct6683.c's five ASRock customer
+// ids, nct6775-platform.c's ASRock case)
+const FANBOY_BOARD_HINTS = ['/gigabyte/i' => ['ite', 'Gigabyte'], '/micro-star|\bmsi\b/i' => ['nuvoton', 'MSI'],
+                            '/asustek|\basus\b/i' => ['nuvoton_asus', 'ASUS'], '/asrock/i' => ['nuvoton_any', 'ASRock']];
 const FANBOY_SYSTEMP_CONF = 'dynamix.system.temp/sensors.conf';      // under the plugins folder: read, never written
 const FANBOY_NAMES_MAX = 200;
 const FANBOY_PROC_MAX = 4096;                                // processes looked at for another controller's loop
@@ -98,6 +102,7 @@ function fanboyPaths(?string $root = null): array
         'plugins'  => "$r/boot/config/plugins",
         'modules'  => "$r/sys/module",
         'proc'     => "$r/proc",
+        'lockdown' => "$r/sys/kernel/security/lockdown",              // the fan chip's read (fanboy-chipid.php): locked down → none
         'cmdline'  => "$r/proc/cmdline",
         'unraid'   => "$r/etc/unraid-version",
         'var'      => "$r/var/local/emhttp/var.ini",                   // round 5: poll_attributes (how fresh the disks' temperatures are)

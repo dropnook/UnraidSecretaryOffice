@@ -64,6 +64,8 @@ desk('fanboy', [
         'look_now'      => fn (array $r) => fanboyLookNow(),
         'drivers_load'  => fn (array $r) => fanboyDriversLoad() + ['state' => fanboyScan()],
         'drivers_undo'  => fn (array $r) => fanboyDriversUndo() + ['state' => fanboyScan()],
+        'chip_read'     => fn (array $r) => fanboyChipRead() + ['state' => fanboyScan()],      // 2026-11-20: the fan chip's id, on the click only
+        'chip_report'   => fn (array $r) => ['ok' => true, 'report' => fanboyChipReportText(fanboyDetect())],      // read only: the chip's id and the board's name
         'test_up'       => fn (array $r) => fanboyStepStart('test_up', idList($r, 'fans'), optBool($r, 'quiet', false)),     // round 8: quiet
         'measure'       => fn (array $r) => fanboyStepStart('measure', idList($r, 'fans')),
         'step_alive'    => function (array $r): array { fanboyStepAliveTouch(); return ['ok' => true, 'step' => fanboyStepRead()]; },
@@ -109,6 +111,7 @@ function fanboyScan(): array
     $state['setup'] = fanboySetupState($state, $settings);
     $state['step'] = fanboyStepRead();
     $state['drivers'] = fanboyDriversState($state['board']);
+    $state['chip'] = fanboyChipState($state);           // the fan chip's id read on a click (fanboy-chipid.php): what it needs
     $state['dashboard'] = fanboyDashState();            // his Dashboard tile's setting (fanboy-dash.php), its mirror in RAM
     $state['show'] = fanboyShowRead();                  // round 6: «show me this fan» running or just done
     $state['safety'] = fanboySafetyFull() ?: new stdClass();     // round 9 (H2): outputs he set to full for safety
@@ -123,6 +126,14 @@ function fanboyScan(): array
 function fanboyFit(array $scan): array
 {
     $code = $scan['situation']['code'];
+    if ($code === 'no_output') {
+        // the fan chip read on a click (fanboy-chipid.php): named, and what it needs — the Team Lead says the same
+        $chip = fanboyChipState($scan);
+        if (($chip['chip']['name'] ?? null) !== null && in_array($chip['need'], ['unraid', 'plugin'], true)) {
+            return fit(true, 'no_output_' . $chip['need'], ['chip' => $chip['chip']['maker'] . ' ' . $chip['chip']['name'],
+                'module' => (string) $chip['chip']['module'], 'plugin' => (string) ($chip['plugin']['name'] ?? ''), 'author' => (string) ($chip['plugin']['author'] ?? '')]);
+        }
+    }
     return fit(true, $code === 'ok' ? 'yes' : $code, $code === 'other' ? ['who' => implode(', ', $scan['situation']['names'] ?? [])] : []);
 }
 
@@ -324,6 +335,8 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
     $lines[] = 'Plugins: ' . ($there ? implode(', ', array_map(fn ($t) => $clean($t['name']) . ' installed'
         . ($t['loaded'] === null ? '' : ($t['loaded'] ? ' (module loaded)' : ' (module not loaded)')) . ($t['active'] ? ' (steering)' : ''), $there)) : 'none of those Fanboy knows');
     $lines[] = 'Start option acpi_enforce_resources=lax: ' . (!empty($scan['acpi_lax']) ? 'set' : 'not set');
+    // 2026-11-20: the fan chip's id as read on the user's click (ports, id, the family whose key opened it) — no serial
+    $lines[] = $clean(fanboyChipReportLine(is_array($scan['chip'] ?? null) ? $scan['chip'] : fanboyChipState($scan)));
     // round 5 (forum 3.18): the driver plugins' versions (a regression was findable only by them), how fresh the disks'
     // temperatures are, a virtual machine, two drivers on one chip
     foreach ($there as $t) {

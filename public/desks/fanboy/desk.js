@@ -439,7 +439,7 @@ const quiet = (v) => JSON.stringify(v, (k, x) => (VOLATILE.has(k) ? undefined : 
 function frameSig() {
   const su = setup();
   const active = setupSw ? setupSw.active() : '';
-  const rest = ['test', 'measure'].includes(active) ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft, S().dashboard, idle().on, S().tools, S().suggest, S().drivers, S().hints_open];
+  const rest = ['test', 'measure'].includes(active) ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft, S().dashboard, idle().on, S().tools, S().suggest, S().drivers, S().hints_open, S().chip];
   return quiet([ready(), !!art(), !!cat, !!state, Office.agent.running, bubbleText(), plainNow(), situation(), control().running, su.armed, su.outputs, active, rest]);
 }
 /** What the step tiles say */
@@ -450,7 +450,7 @@ function tilesSig() {
     setupSw ? setupSw.active() : '']);
 }
 /** What the banner above the steps says */
-const bannerSig = () => quiet([stepRuns(), showRuns(), Object.keys(S().safety || {}).length, who(), S().situation, control().running, control().alarm, control().net ? [control().net.level, control().net.source] : 0, control().armed, control().why, idle(), S().twins, S().vm, setup().zones && setup().zones.length, cpuGiven()]);
+const bannerSig = () => quiet([stepRuns(), showRuns(), Object.keys(S().safety || {}).length, who(), S().situation, control().running, control().alarm, control().net ? [control().net.level, control().net.source] : 0, control().armed, control().why, idle(), S().twins, S().vm, setup().zones && setup().zones.length, cpuGiven(), S().chip, busy]);
 function overviewSig() {
   return quiet([ready(), !!art(), !!cat, Office.agent.running, busy, state, history && history.zones, period, period > 24 && history72 ? history72.zones : null, sw.active(), (sensorBar && sensorBar.read().words) || []]);
 }
@@ -470,6 +470,8 @@ function bubbleText() {
   if (w.why === 'fixed') return T('bubble.fixed');           // round 7: nobody steers — a fixed value someone left
   const s = situation();
   if (s === 'other') return T('bubble.other', { who: otherNames() });
+  // 2026-11-20: the fan chip read on a click — named, and what it needs (the Team Lead's line says the same)
+  if (s === 'no_output' && chipKnown() && ['unraid', 'plugin'].includes(chipNow().need)) return T(`bubble.no_output_${chipNow().need}`, chipParams());
   if (s === 'driver_missing' || s === 'no_output' || s === 'ipmi') return T(`bubble.${s}`);
   if (s === 'ok' && c.armed === false && (setup().zones || []).length) return T('bubble.ready');
   if (s === 'ok') return T('bubble.ok', { n: counts().outputs || 0 });
@@ -1601,6 +1603,88 @@ function hintsBlock() {
   s.appendChild(det);
   return s;
 }
+// ------------------------------------------------------------------ the fan chip: which one, and what it needs
+/*
+ * 2026-11-20: the agent reads the chip's id on a click only (fanboy.chip_read, fanboy-chipid.php) and says from its
+ * table what it needs (S().chip.need); the page names it, says it in one sentence and gives the next step: Unraid's own
+ * driver (the «Look for drivers» click), a plugin (⟦Apps⟧ and its exact name), or the report so the table can grow.
+ * The words to search for oneself are always there (the owner's minimum).
+ */
+const chipNow = () => S().chip || {};
+const chipKnown = () => !!(chipNow().chip && chipNow().chip.name);
+function chipParams() {
+  const c = chipNow().chip || {}, p = chipNow().plugin || {};
+  const mods = (((chipNow().kept || {}).modules || []).length ? chipNow().kept.modules : chipNow().loaded || []).join(', ');
+  return { chip: c.name ? `${c.maker} ${c.name}` : '', id: c.id || '', port: c.port || '', module: c.module || '', since: c.since || '',
+    plugin: p.name || '', author: p.author || '', modules: mods };
+}
+function chipReadButton(again) {
+  return button(T(again ? 'chip.read_again' : 'chip.read'), T('chip.read_tip'), (b) => act('chip_read', {}, b, (j) => {
+    const k = (j && j.chip) || {};
+    const n = (k.ports || []).filter((x) => x.id).length;
+    Office.toast(k.result === 'read' ? (n ? T('chip.read_toast') : T('chip.none_toast')) : T('chip.not_read_toast'), k.result !== 'read');
+  }));
+}
+async function sendChipReport(b) {
+  if (!Office.agent.running) return;
+  b.disabled = true;
+  const j = await Office.api.post(`${ID}.chip_report`, {});
+  b.disabled = false;
+  if (!j.ok || typeof j.report !== 'string') { Office.toast(Office.errorText(j.error, ID), true); return; }
+  Office.storeJson('report.draft', { kind: 'wish', desk: ID, title: T('chip.report_title'), text: `${T('chip.report_wish')}\n\n\n${j.report}` });
+  Office.reportDialog(ID);
+}
+function chipPart() {
+  const c = chipNow();
+  const box = el('div', 'fb-chip');
+  box.appendChild(el('p', 'fb-chip-head', T('chip.title')));
+  const say = (key, extra) => box.appendChild(el('p', 'fb-hint-text', T(key, { ...chipParams(), ...(extra || {}) })));
+  const bar = el('div', 'toolbar');
+  const need = c.need || 'not_read';
+  if (need === 'not_read') {
+    if (c.can) { say('chip.not_read'); bar.appendChild(chipReadButton()); } else say(`chip.blocked.${has(`chip.blocked.${c.blocked}`) ? c.blocked : 'no_open'}`);
+  } else if (need === 'blocked') {
+    say(`chip.blocked.${has(`chip.blocked.${(c.kept || {}).result}`) ? c.kept.result : 'no_open'}`);
+  } else {
+    if (chipKnown() && c.chip.id) say('chip.found');
+    say(`chip.need.${need}${need === 'plugin' && c.chip && c.chip.unraid === 'read' ? '_read' : ''}`);
+    if (need === 'unraid' && !((S().drivers || {}).mine || []).length && (S().drivers || {}).can !== false) {
+      bar.appendChild(button(T('drivers.load'), T('drivers.load_tip'), (b) => act('drivers_load', {}, b, (j) => Office.toast(j.kept ? T('drivers.kept_toast', { module: j.kept }) : T('drivers.none_toast'), !j.kept))));
+    }
+    if (need === 'plugin' && c.plugin) {
+      say('chip.plugin_how');
+      say(c.restart ? 'chip.plugin_restart' : 'chip.plugin_after');
+      const go = el('a', 'btn small', T('hints.apps'));
+      const href = Office.safeHref('/Apps');
+      if (href) go.href = href;
+      go.title = T('hints.apps_title');
+      bar.appendChild(go);
+    }
+  }
+  const words = c.words || [];
+  if (words.length) {
+    const p = el('p', 'fb-hint-text fb-chip-words');
+    p.appendChild(document.createTextNode(T(!c.chip && S().board_hint ? 'chip.words_hint' : 'chip.words') + ' '));
+    words.forEach((w, i) => {
+      if (i) p.appendChild(document.createTextNode(' · '));
+      p.appendChild(chipOfText('quiet', w.w, T(`chip.word.${has(`chip.word.${w.kind}`) ? w.kind : 'chip'}`)));
+    });
+    box.appendChild(p);
+    box.appendChild(el('p', 'fb-hint-text', T(words.some((w) => w.kind === 'plugin') ? 'chip.words_where' : 'chip.words_where_forum')));
+  }
+  if (['unknown', 'nothing', 'read_only', 'newer'].includes(need)) {
+    say('chip.report_text');
+    const b = el('button', 'btn small', T('chip.report'));
+    b.type = 'button';
+    b.title = T('chip.report_tip');
+    b.disabled = !Office.agent.running || !state;
+    b.onclick = () => sendChipReport(b);
+    bar.appendChild(b);
+  }
+  if (c.kept && c.can) bar.appendChild(chipReadButton(true));
+  if (bar.children.length) box.appendChild(bar);
+  return box;
+}
 function driversBlock() {
   const d = S().drivers || {};
   const mine = d.mine || [];
@@ -1694,7 +1778,8 @@ function paintBanner() {
     p.appendChild(reportButton(true));
   } else if (s === 'no_output') {
     // round 5: in a virtual machine the fans are the host's (a hint only — a VM with a chip passed through steers on)
-    box('warn', T('situation.no_output') + (S().vm ? ' ' + T('situation.vm') : ''), { situation: s });
+    const p = box('warn', T('situation.no_output') + (S().vm ? ' ' + T('situation.vm') : ''), { situation: s });
+    if (S().chip) p.appendChild(chipPart());       // 2026-11-20: which fan chip, what it needs
   } else if (s === 'ok' && w.why === 'fixed') {
     // round 7 (F3): nobody steers — not the BIOS: the outputs stand on a fixed value someone left (an uninstalled plugin)
     box('warn', T('situation.fixed', { list: fixedList(w.fixed) }), { situation: 'fixed' });
