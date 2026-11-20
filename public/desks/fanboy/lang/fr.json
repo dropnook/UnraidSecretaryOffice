@@ -1133,7 +1133,7 @@
   "look.undo": "Annuler",
   "look.undo_tip": "Remet le modèle et tes choix d’avant.",
   "look.reverse": "Pales inversées",
-  "look.reverse_tip": "Un ventilateur à pales inversées a des pales en miroir qui tournent dans l’autre sens. Chaque image de ce ventilateur le montre ainsi. Seulement pour l’image — le pilotage ne change pas.",
+  "look.reverse_tip": "Un ventilateur à pales inversées souffle dans l’autre sens à travers son cadre et tourne comme d’habitude. Chaque image de ce ventilateur montre ses pales en miroir. Seulement pour l’image — le pilotage ne change pas.",
   "look.reverse_model": "Ce modèle a des pales inversées d’origine.",
   "colour.charcoal": "Anthracite",
   "colour.silver": "Argent",

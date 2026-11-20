@@ -265,6 +265,16 @@ seven wide blades on Noctua's own photos.
 | lian-li-uni-fan-tl-120-reverse-blade | shape | 9 blades; sickle-wide, hub 0.35, struts 0, corner, reverse | blades: photo: https://lian-li.com/wp-content/uploads/2023/12/unfan_tl_rb_12_001_c.jpg; Look: static front photo; blade gaps faint, spacing fits 9 blades (same count as the normal TL); no struts visible. Connection: slide-in daisy chain with POGO extension cable, 'UNI FAN Controller Cable x 1 (P-7P)'; 'The controller is required to use the fans' and 'UNI FAN TL series fans without the controller will not be functional' (controller in triple pack or sold separately; needs PCIe power + 9-pin USB). Controller takes the board's PWM: '5V ARGB / 4 PIN PWM Cable - Required for motherboard sync function'. Page: 'the fan speed of TL120 Reverse reaches the maximum ceiling at approximately 80%'. 0 rpm in spec, lowest running speed 200. 124x120x28 mm. Colours: black, white. Same page as TL, separate model name and SKUs 12RTL1B/1W, 12RTL3B/3W. Spec page: https://lian-li.com/product/uni-fan-tl/ |
 | lian-li-uni-fan-p28 | shape | 9 blades; sickle-wide, hub 0.4, struts 4, pads | blades: photo: https://lian-li.com/wp-content/uploads/2023/05/p28-01.jpg; Look: static front photo; 9 blades counted (ring sampling); blades narrow at hub widening to broad curved tips (could read as swept-wide); struts only glimpsed through blade gaps (about 1, 4, 7, 10 o'clock) - 4 is uncertain; corner pads per page 'RUBBER PADS' (frame colour). No ARGB (optional side ARGB strips sold separately). Connection: slide-in daisy chain, 'Only 1 cable is needed for a cluster of fans and can connect directly to the motherboard or fan speed controller'; spec lists only 'Adaptor Cable' - 4-pin PWM not stated in the text (only the tag 'PWM fan'). Triple pack has a magnetic button controller with modes L 300~1300 / M 300~2200 / H 300~2600 rpm; page does not say the controller takes the board's PWM. Speed '300 - 2600 RPM(+-50)', no 0-rpm. 120x120x28 mm, 6-year warranty. Colours: black, white. No reverse-blade version, no 140 mm. Spec page: https://lian-li.com/product/uni-fan-p28/ |
 
+## Reverse blade (2026-11-20)
+
+`reverse: true` only on models the maker sells as «Reverse Blade» (Lian Li's three, named so on lian-li.com). How such a
+fan looks and turns, from the maker: «Just to be clear: reverse fans do not spin in the opposite direction to standard
+fans. They spin normally, but the blades are inverted, so air is pulled in through the "back" and exhausted out the
+"front."» (Corsair, https://www.corsair.com/us/en/explorer/diy-builder/fans/corsair-rs-r-argb-vs-lx-r-reverse-fans-whats-the-difference/);
+Corsair's RS120-R frame arrows: counter-clockwise seen from the open side, like a normal fan, the air toward the viewer
+(https://d1q3zw97enxzq2.cloudfront.net/images/RS120-R_Fan_Direction.width-2160.png). So the picture mirrors the blades
+and keeps the turning direction; the air streaks keep the fan's in/out flow (how it is mounted).
+
 ## Signatures (2026-11-20)
 
 The owner: «sonst macht es ja kaum Sinn wenn zwischen den Marken keine klar anderen Grafiken kommen». Besides blades, hub,

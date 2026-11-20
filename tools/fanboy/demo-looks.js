@@ -39,10 +39,10 @@
       // the words of these parts in German with &lang=de (the owner's pictures), else English
       const de = q.get('lang') === 'de';
       const W = de ? { pair: 'NF-A8 PWM neben NF-A14 PWM und NF-A14x25 G2', pairNote: 'Derselbe Hersteller, 80 und 140 mm: jedes nach seinem Modell gezeichnet — Blätter, Nabe, Rahmen und Ecken, dahinter die Streben.',
-        rev: 'Reverse-Blade', revNote: 'Links der übliche Lüfter, rechts dasselbe Modell mit «Reverse-Blade»: die Blätter gespiegelt, sie drehen andersherum.', usual: 'üblich', reverse: 'Reverse-Blade',
+        rev: 'Reverse-Blade', revNote: 'Links der übliche Lüfter, rechts dasselbe Modell mit «Reverse-Blade»: die Blätter gespiegelt, er dreht gleich herum (der Hersteller: «they spin normally, but the blades are inverted»).', usual: 'üblich', reverse: 'Reverse-Blade',
         col: 'Die Farben', colNote: 'Rahmen und Blätter in jeder wählbaren Farbe (dasselbe Modell, Arctic P12 PWM PST).' }
         : { pair: 'NF-A8 PWM beside NF-A14 PWM and NF-A14x25 G2', pairNote: 'The same maker, 80 and 140 mm: drawn after each model — blades, hub, frame and corners, the struts behind.',
-          rev: 'Reverse blade', revNote: 'Left the usual fan, right the same model with «reverse blade» ticked: its blades mirrored, turning the other way.', usual: 'usual', reverse: 'reverse blade',
+          rev: 'Reverse blade', revNote: 'Left the usual fan, right the same model with «reverse blade» ticked: its blades mirrored, turning the same way (the maker: «they spin normally, but the blades are inverted»).', usual: 'usual', reverse: 'reverse blade',
           col: 'The colours', colNote: 'Frame and blades in each colour a user may choose (the same model, Arctic P12 PWM PST).' };
       const names = de ? { black: 'Schwarz', charcoal: 'Anthrazit', graphite: 'Graphit', grey: 'Grau', silver: 'Silber', white: 'Weiss', beige: 'Beige', brown: 'Braun', frost: 'Durchsichtig',
         red: 'Rot', orange: 'Orange', yellow: 'Gelb', green: 'Grün', blue: 'Blau', purple: 'Violett' } : {};

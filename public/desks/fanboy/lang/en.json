@@ -1133,7 +1133,7 @@
   "look.undo": "Undo",
   "look.undo_tip": "Puts back the model and your own choices from before.",
   "look.reverse": "Reverse blade",
-  "look.reverse_tip": "A reverse-blade fan has mirrored blades that turn the other way. Every picture of this fan shows it so. Only for the picture — the control doesn’t change.",
+  "look.reverse_tip": "A reverse-blade fan has inverted blades: it blows the other way through its frame and turns as usual. Every picture of this fan shows its blades mirrored. Only for the picture — the control doesn’t change.",
   "look.reverse_model": "This model is a reverse-blade fan as made.",
   "colour.charcoal": "Charcoal",
   "colour.silver": "Silver",

@@ -1133,7 +1133,7 @@
   "look.undo": "Annulla",
   "look.undo_tip": "Ripristina il modello e le tue scelte di prima.",
   "look.reverse": "Pale inverse",
-  "look.reverse_tip": "Una ventola a pale inverse ha le pale specchiate che girano nell’altro senso. Ogni immagine di questa ventola la mostra così. Solo per l’immagine — il controllo non cambia.",
+  "look.reverse_tip": "Una ventola a pale inverse soffia nell’altro senso attraverso il telaio e gira come al solito. Ogni immagine di questa ventola mostra le pale specchiate. Solo per l’immagine — il controllo non cambia.",
   "look.reverse_model": "Questo modello ha le pale inverse di fabbrica.",
   "colour.charcoal": "Antracite",
   "colour.silver": "Argento",

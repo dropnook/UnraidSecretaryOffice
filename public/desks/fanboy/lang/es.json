@@ -1133,7 +1133,7 @@
   "look.undo": "Deshacer",
   "look.undo_tip": "Vuelve a poner el modelo y tus elecciones de antes.",
   "look.reverse": "Aspas invertidas",
-  "look.reverse_tip": "Un ventilador de aspas invertidas tiene las aspas en espejo y gira al revés. Cada imagen de este ventilador lo muestra así. Solo para la imagen: el control no cambia.",
+  "look.reverse_tip": "Un ventilador de aspas invertidas sopla en el otro sentido a través de su marco y gira como siempre. Cada imagen de este ventilador muestra sus aspas en espejo. Solo para la imagen: el control no cambia.",
   "look.reverse_model": "Este modelo viene con aspas invertidas de fábrica.",
   "colour.charcoal": "Antracita",
   "colour.silver": "Plata",

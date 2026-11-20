@@ -36,18 +36,18 @@
                hub_size, struts, reverse }       in the corners, triangular corner pieces), hub_size: the hub's share of
                                                  the blades' radius (null: from the size), struts: the motor's struts seen
                                                  behind the blades (0 none), reverse: a reverse-blade fan — its blades
-                                                 mirrored, turning the other way (see «reverse» below),
+                                                 mirrored, turning as usual (see «reverse» below),
                                                  vanes: fixed guide vanes in front (0 = none), rim: true = a closed wheel
                                                  (a ring round the blade tips), sticker: the model's name as
                                                  plain text on the hub (lines split by «\n», on a sticker of
                                                  sticker_colour; only where the wheel is drawn ≥ 72 px) — optional,
                                                  none = the neutral wheel («other fan»)
-       reverse: true | false                     a reverse-blade fan (wins over look.reverse; 2026-11-20, the owner): the
-                                                 wheel drawn mirrored and turning the other way. Seen from the open side a
-                                                 usual fan's blade tips lean counter-clockwise and it turns that way (the
-                                                 makers' photos); a reverse one is its mirror image. Its air keeps the
-                                                 flow it is given: in or out of the case is how it is mounted, which
-                                                 the blades alone don't tell
+       reverse: true | false                     a reverse-blade fan (wins over look.reverse; 2026-11-20, the owner): its
+                                                 blades drawn mirrored, the wheel turning the same way. Seen from the open
+                                                 side a usual fan's blade tips lean counter-clockwise and it turns that
+                                                 way (the makers' photos, Noctua's arrow); a reverse one «spins normally,
+                                                 but the blades are inverted» (Corsair). Its air keeps the flow it is
+                                                 given: in or out of the case is how it is mounted
        place: 'front' | 'rear' | 'top' | 'bottom' | 'side' | 'cpu' | 'inside'   (server picture only: the wall of its zone
                                                  it sits in — cpu and inside: on no wall, among the heat sources)
        flow: 'in' | 'out'                        the air: streaks coming to the wheel or leaving it, more and quicker the
@@ -233,7 +233,7 @@
    * trailing edge (the same blade drawn once at 0° and turned: one gradient fits all); the hub domed — a centred gradient,
    * the same at every angle. The browser draws it once into the turning layer: no repaint while it turns.
    */
-  function rotorSvg(mm, blades, style, sticker, rim, size) {
+  function rotorSvg(mm, blades, style, sticker, rim, size, reverse) {
     const s = svg('svg', { viewBox: '-50 -50 100 100', 'aria-hidden': 'true', focusable: 'false' });
     const id = `fan-g${++uid}`;
     const defs = svg('defs');
@@ -241,7 +241,9 @@
       grad('radialGradient', `${id}h`, { r: 0.5 }, [[0, 'fan-gh-0'], [0.65, 'fan-gh-1'], [1, 'fan-gh-2']]));
     s.appendChild(defs);
     const rt = 48.5, rh = rt * hubShare(mm, sticker, size);
-    const g = svg('g', { class: 'fan-blades' });
+    // reverse blades: mirrored, inside the turning part — it keeps its direction (Corsair: «they spin normally, but the
+    // blades are inverted»)
+    const g = svg('g', reverse ? { class: 'fan-blades', transform: 'scale(-1 1)' } : { class: 'fan-blades' });
     const d = bladePath(0, blades, rh - 1, rt, style);
     for (let i = 0; i < blades; i++) {
       const b = svg('path', { d, transform: `rotate(${(i * 360 / blades).toFixed(3)})` });
@@ -587,9 +589,9 @@
       const sticker = stickerShown(look, px);
       const rim = !!(look && look.rim);
       const size = look ? look.hub_size : null;
-      if (drawn !== `${mm}/${blades}/${style}/${sticker}/${rim}/${size}`) {      // the shape only when it changed: the turning goes on
-        drawn = `${mm}/${blades}/${style}/${sticker}/${rim}/${size}`;
-        rotor.replaceChildren(rotorSvg(mm, blades, style, sticker, rim, size));
+      if (drawn !== `${mm}/${blades}/${style}/${sticker}/${rim}/${size}/${reverse}`) {      // the shape only when it changed: the turning goes on
+        drawn = `${mm}/${blades}/${style}/${sticker}/${rim}/${size}/${reverse}`;
+        rotor.replaceChildren(rotorSvg(mm, blades, style, sticker, rim, size, reverse));
         rotor.style.inset = (50 - openOf(mm)).toFixed(2) + '%';         // the blades fill the opening (a small fan's is narrower)
       }
       const shape = look ? look.shape : 'square';
@@ -615,8 +617,7 @@
         else root.style.removeProperty('--fan-tag-ink');
       }
       if (!m.parts.some((p) => p.rotor)) {
-        // counter-clockwise, as a usual fan turns seen from its open side; a reverse one's box is mirrored (fan-art.css): the
-        // same animation then turns it clockwise — no second animation, nothing more for the compositor
+        // counter-clockwise, as a fan turns seen from its open side — a reverse-blade one too (only its blades are mirrored)
         m.parts.unshift({ rotor: true, a: loop(rotor, [{ transform: 'rotate(0turn)' }, { transform: 'rotate(-1turn)' }], 0), k: 1, on: () => true });
       }
       // the air: on the side given (default: right, or left for air coming in), none with air: false

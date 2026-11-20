@@ -2853,7 +2853,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     count.setAttribute('role', 'group');
     count.setAttribute('aria-label', T('look.blades'));
     const countBtns = [5, 6, 7, 8, 9, 10, 11].map((n) => { const b = btn(String(n), '', () => set('blades', n)); count.appendChild(b); return [n, b]; });
-    // «Reverse-Blade» (2026-11-20, the owner): the blades mirrored and turning the other way, in every picture of this fan
+    // «Reverse-Blade» (2026-11-20, the owner): the blades mirrored (the wheel turns as usual), in every picture of this fan
     const rev = el('input');
     rev.type = 'checkbox';
     rev.onchange = () => set('reverse', rev.checked);

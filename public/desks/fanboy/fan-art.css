@@ -90,8 +90,6 @@
 /* the turning part: an element of its own, turned by a transform only (the browser's compositor does the work) */
 .fan-spin{position:absolute; inset:0; overflow:hidden; overflow:clip}    /* clips the turning square's corners (square: a rounded clip repaints every frame) */
 .fan-rotor{position:absolute; inset:2.5%; will-change:transform; transform-origin:50% 50%}
-/* a reverse-blade fan: its turning box mirrored — the blades mirrored and the same animation turning the other way */
-.fan-reverse .fan-spin{transform:scaleX(-1)}
 .fan-rotor svg{display:block; width:100%; height:100%}
 .fan-blades path{fill:var(--fan-blade); stroke:var(--fan-edge); stroke-width:.7; stroke-linejoin:round}
 .fan-hub{fill:var(--fan-hub); stroke:var(--fan-edge); stroke-width:.7}

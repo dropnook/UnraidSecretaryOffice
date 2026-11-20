@@ -108,8 +108,10 @@ function testFanboyLookKeys(): void
         str_contains($agent, "array_flip(['model', 'mm', 'blades', 'frame', 'wheel', 'style', 'colour', 'reverse'])"));
     // drawn: the reverse fan's turning box mirrored — the blades mirrored and the one animation turning the other way
     $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.css');
-    check('fanboy look keys: a reverse fan — its turning box mirrored by the stylesheet (no second animation), the fan\'s own word over the model\'s',
-        str_contains($css, '.fan-reverse .fan-spin{transform:scaleX(-1)}') && str_contains($art, "(reverse ? ' fan-reverse' : '')")
+    // Corsair: «reverse fans do not spin in the opposite direction … the blades are inverted» — mirrored blades, the same turn
+    check('fanboy look keys: a reverse fan — its blades mirrored inside the turning part, the wheel turning the same way (one animation for all, no mirrored box), the fan\'s own word over the model\'s',
+        str_contains($art, "const g = svg('g', reverse ? { class: 'fan-blades', transform: 'scale(-1 1)' } : { class: 'fan-blades' });")
+        && str_contains($art, "rotorSvg(mm, blades, style, sticker, rim, size, reverse)") && !str_contains($css, 'scaleX(-1)') && str_contains($art, "(reverse ? ' fan-reverse' : '')")
         && str_contains($art, "const reverse = typeof f.reverse === 'boolean' ? f.reverse : !!(f.look && typeof f.look === 'object' && f.look.reverse === true);"));
     if ($node === '') {
         check('fanboy look keys: node is missing here - the blades\' drawing skipped', true);

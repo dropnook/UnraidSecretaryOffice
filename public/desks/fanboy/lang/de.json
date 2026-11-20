@@ -1133,7 +1133,7 @@
   "look.undo": "Rückgängig",
   "look.undo_tip": "Stellt das Modell und deine eigenen Angaben von vorher wieder her.",
   "look.reverse": "Reverse-Blade",
-  "look.reverse_tip": "Bei einem Reverse-Blade-Lüfter sind die Blätter gespiegelt und drehen andersherum. Jedes Bild dieses Lüfters zeigt ihn so. Nur fürs Bild — an der Steuerung ändert sich nichts.",
+  "look.reverse_tip": "Ein Reverse-Blade-Lüfter hat umgedrehte Blätter: Er bläst andersherum durch seinen Rahmen und dreht wie gewohnt. Jedes Bild dieses Lüfters zeigt seine Blätter gespiegelt. Nur fürs Bild — an der Steuerung ändert sich nichts.",
   "look.reverse_model": "Dieses Modell ist ab Werk ein Reverse-Blade-Lüfter.",
   "colour.charcoal": "Anthrazit",
   "colour.silver": "Silber",
