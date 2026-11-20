@@ -21761,8 +21761,9 @@ function testWatchmanGone(): void
 
 /**
  * «Acknowledge — this was serious»: the entry closes, nothing of it becomes normal, it goes into his history of serious
- * incidents (with a one-line note), and for WATCH_SERIOUS_DAYS the same kind from the same source is louder — told at
- * once (not held back by the hour's quiet), kept open against the team lead's note and his own noting.
+ * incidents (with a one-line note), and as long as it is there (2026-11-20, the owner: no end) the same kind from the same
+ * source is louder — told at once and as important (not held back by the hour's quiet), kept open against the team lead's
+ * note and his own noting. The list's file both ways across the update: `until` is still written for 1.94's reader.
  */
 function testWatchmanSerious(): void
 {
@@ -21822,8 +21823,8 @@ function testWatchmanSerious(): void
         [$r['ok'], watchmanOpen($e), $e['noted'], $e['by'], $e['serious'] ?? null]);
     same('serious: nothing of it becomes normal — the address stays unknown', false, isset($d['baseline']['ips']['10.9.8.7']));
     $inc = watchmanIncidents($data);
-    same('serious: in his history — what, when, the note as one line, louder for WATCH_SERIOUS_DAYS',
-        [1, $login['id'], 'login_new_ip', 'login_new_ip:10.9.8.7', 'Changed the root password and blocked it at the router', $now + 700 + WATCH_SERIOUS_DAYS * 86400],
+    same('serious: in his history — what, when, the note as one line; `until` 30 days on, for an office of 1.94 (its reader needs it)',
+        [1, $login['id'], 'login_new_ip', 'login_new_ip:10.9.8.7', 'Changed the root password and blocked it at the router', $now + 700 + WATCH_SERIOUS_OLD_DAYS * 86400],
         [count($inc), $inc[0]['id'], $inc[0]['kind'], $inc[0]['key'], $inc[0]['note'], $inc[0]['until']]);
     try {
         watchmanSerious($login['id'], '', $data, $now + 701, false);
@@ -21864,9 +21865,10 @@ function testWatchmanSerious(): void
     $s = watchmanPageState($data, $now + 1500, false);
     $byId = array_column($s['book'], null, 'id');
     same('serious page: entries marked', [true, false, true], [$byId[$login['id']]['serious'], $byId[$login['id']]['again'], $byId[$again['id']]['again']]);
-    same('serious page: the history with the note, louder, came back once', [1, 'login_new_ip', '10.9.8.7', true, 1, 'Changed the root password and blocked it at the router', WATCH_SERIOUS_DAYS],
+    same('serious page: the history with the note, louder, came back once — no number of days for the page any more',
+        [1, 'login_new_ip', '10.9.8.7', true, 1, 'Changed the root password and blocked it at the router', false],
         [count($s['incidents']), $s['incidents'][0]['kind'], $s['incidents'][0]['t']['ip'], $s['incidents'][0]['louder'], $s['incidents'][0]['again'],
-         $s['incidents'][0]['note'], $s['limits']['serious_days']]);
+         $s['incidents'][0]['note'], array_key_exists('serious_days', $s['limits'])]);
 
     // his own noting: an entry he would note by himself is kept open while louder; the round's old entries untouched
     $inc = watchmanIncidents($data);
@@ -21877,8 +21879,10 @@ function testWatchmanSerious(): void
     same('serious: noted by himself — open again while louder; what was there before or noted by the page stays', [1, null, true, false, $now],
         [watchmanSeriousAgain($b2, ['w0000000002' => 0], $inc, $now + 2000), $b2[0]['noted'], $b2[0]['important'], isset($b2[1]['again']), $b2[2]['noted']]);
     $b3 = $book;
-    same('serious: after WATCH_SERIOUS_DAYS as usual again', [0, $now],
-        [watchmanSeriousAgain($b3, [], $inc, $inc[0]['until'] + 1), $b3[0]['noted']]);
+    same('serious: no end — past the `until` an older office went by, and a year on, the same is still louder', [1, null, true],
+        [watchmanSeriousAgain($b3, ['w0000000002' => 0], $inc, $inc[0]['until'] + 365 * 86400), $b3[0]['noted'], $b3[0]['important']]);
+    $s = watchmanPageState($data, $inc[0]['until'] + 365 * 86400, false);
+    same('serious page: a year on, still louder', [true], array_column($s['incidents'], 'louder'));
 
     // his history read only in exactly its shape (a file by hand, an older or newer office's)
     file_put_contents("$data/incidents.json", json_encode(['v' => 1, 'incidents' => [
@@ -21886,8 +21890,52 @@ function testWatchmanSerious(): void
         ['id' => 'w0000000009', 'kind' => 'no_such_kind', 'key' => 'k', 'time' => 1, 'at' => 1, 'until' => 2, 'p' => []],
         ['id' => 'w000000000a', 'kind' => 'container_new', 'key' => 'container:x', 'time' => 1, 'at' => '1', 'until' => 2, 'p' => []],
         'nonsense',
-        ['id' => 'w000000000b', 'kind' => 'container_new', 'key' => 'container:x', 'time' => 1, 'at' => 1, 'until' => 2, 'p' => ['name' => 'x'], 'more' => 1]]]));
-    same('serious: only incidents in exactly their shape', ['w000000000b'], array_column(watchmanIncidents($data), 'id'));
+        ['id' => 'w000000000b', 'kind' => 'container_new', 'key' => 'container:x', 'time' => 1, 'at' => 1, 'until' => 2, 'p' => ['name' => 'x'], 'more' => 1],
+        ['id' => 'w000000000c', 'kind' => 'container_new', 'key' => 'container:y', 'time' => 1, 'at' => 1, 'p' => ['name' => 'y']],            // without until: a later office's
+        ['id' => 'w000000000d', 'kind' => 'container_new', 'key' => 'container:z', 'time' => 1, 'at' => 1, 'until' => '2', 'p' => []]]]));      // until, but no number
+    same('serious: only incidents in exactly their shape (`until` a number or not there)', ['w000000000b', 'w000000000c'], array_column(watchmanIncidents($data), 'id'));
+
+    // the update, one way: a list 1.94 wrote (`until` 30 days on, here long over) — read as it is, and louder, since the
+    // incident is on the list (incidents recorded before the change count, their 30 days over or not)
+    $old = ['id' => 'w0000000e01', 'kind' => 'login_new_ip', 'key' => 'login_new_ip:10.9.8.9', 'time' => $now - 90 * 86400, 'last' => $now - 90 * 86400, 'count' => 1,
+            'p' => ['ip' => '10.9.8.9'], 'at' => $now - 89 * 86400, 'until' => $now - 59 * 86400, 'note' => 'from 1.94'];
+    file_put_contents("$data/incidents.json", json_encode(['v' => 1, 'incidents' => [$old]]));
+    $b4 = [['id' => 'w0000000e02', 'kind' => 'login_new_ip', 'key' => 'login_new_ip:10.9.8.9', 'noted' => $now, 'by' => 'office']];
+    same('serious update: a list of 1.94 with its 30 days over — read, still louder (the page says so)', [['w0000000e01'], 1, true, [true]],
+        [array_column(watchmanIncidents($data), 'id'), watchmanSeriousAgain($b4, [], watchmanIncidents($data), $now), $b4[0]['important'],
+         array_column(watchmanPageState($data, $now, false)['incidents'], 'louder')]);
+    // … and an entry of a newer shape in the list stays when one more is recorded (the writer keeps what it doesn't know)
+    $raw = json_decode((string) file_get_contents("$data/incidents.json"), true);
+    $raw['incidents'][] = ['id' => 'w0000000e03', 'kind' => 'some_newer_kind', 'key' => 'x', 'time' => 1, 'at' => 1, 'p' => []];
+    $raw['newer'] = ['kept' => true];
+    file_put_contents("$data/incidents.json", json_encode($raw));
+    file_put_contents($paths['syslog'], $line($now + 1600, 'webgui: Successful login user root from 10.9.8.20'), FILE_APPEND);
+    watchmanRound($paths, $data, 1000, $now + 1700, $docker, true, $acks);
+    $new = array_values(array_filter($openOf('login_new_ip'), fn ($e) => $e['key'] === 'login_new_ip:10.9.8.20'))[0] ?? null;
+    watchmanSerious((string) ($new['id'] ?? 'w0000000000'), 'second', $data, $now + 1800, false);
+    $raw = json_decode((string) file_get_contents("$data/incidents.json"), true);
+    same('serious update: recording one more keeps what it doesn\'t know — the old one, the newer shape, the file\'s other keys', [['w0000000e01', 'w0000000e03', $new['id'] ?? '?'], ['kept' => true], 1],
+        [array_column($raw['incidents'], 'id'), $raw['newer'] ?? null, $raw['v'] ?? null]);
+    // the other way: what 1.94.1's reader (its watchmanIncidents() and watchmanSeriousAgain(), as they are in v1.94.1,
+    // copied here) makes of the file this office wrote — every entry of ours in its shape (an int `until`), louder for
+    // its 30 days from `until` as 1.94 always did, after them as usual
+    $old194 = function (string $dir, int $at): array {
+        $out = $hot = [];
+        foreach ((array) (readJson("$dir/incidents.json")['incidents'] ?? []) as $x) {
+            if (is_array($x) && is_string($x['id'] ?? null) && preg_match(WATCH_ID, $x['id']) && is_string($x['kind'] ?? null) && isset(WATCH_KINDS[$x['kind']])
+                && is_string($x['key'] ?? null) && is_int($x['at'] ?? null) && is_int($x['until'] ?? null) && is_int($x['time'] ?? null)
+                && is_array($x['p'] ?? null) && is_string($x['note'] ?? '')) {
+                $out[] = $x['id'];
+                if ($x['until'] > $at) {
+                    $hot[] = $x['id'];
+                }
+            }
+        }
+        return [$out, $hot];
+    };
+    same('serious update: 1.94.1 reads the file this office wrote — ours in its shape, louder for 30 days from the record, then as before',
+        [[['w0000000e01', $new['id'] ?? '?'], [$new['id'] ?? '?']], [['w0000000e01', $new['id'] ?? '?'], []]],
+        [$old194($data, $now + 1800 + 86400), $old194($data, $now + 1800 + WATCH_SERIOUS_OLD_DAYS * 86400 + 1)]);
     @unlink("$data/incidents.json");
     same('serious: no history yet — none, and the page says so', [[], []], [watchmanIncidents($data), watchmanPageState($data, $now, false)['incidents']]);
 

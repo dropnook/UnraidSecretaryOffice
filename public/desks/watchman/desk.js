@@ -130,14 +130,14 @@ async function ack(e, b) {
 
 /**
  * «This was a real incident…»: closes the entry as a real incident (nothing of it becomes normal), with an optional
- * one-line note; it goes into his history of serious incidents and the same from the same source is louder for a while.
+ * one-line note; it goes into his history of serious incidents and, while it is there, the same from the same source is
+ * reported at once and as important.
  * The dialog says what follows and offers «I know, thanks» ($ab, the row's button) as the other answer.
  */
 function seriousAck(e, b, ab) {
-  const days = seriousDays();
   const box = el('div');
   box.appendChild(el('p', 'wm-serious-what', entryName(e)));
-  box.appendChild(el('p', 'role', T('serious_text', { days })));
+  box.appendChild(el('p', 'role', T('serious_text')));
   const f = el('div', 'field');
   const label = el('label', '', T('serious_note'));
   const note = el('input', 'input');
@@ -175,7 +175,7 @@ function seriousAck(e, b, ab) {
 }
 
 /**
- * «Not serious after all…» on a row of his list of serious incidents: it leaves the list, the louder time ends, and it
+ * «Not serious after all…» on a row of his list of serious incidents: it leaves the list, the same is reported as usual again, and it
  * ends as «I know, thanks» would have left it — also what came back louder since from the same source
  */
 async function seriousUndo(shown, b) {
@@ -207,11 +207,9 @@ async function seriousUndo(shown, b) {
   if (b) b.blur();
 }
 
-/** How long the same is louder after a serious incident (days; the agent's WATCH_SERIOUS_DAYS) */
-const seriousDays = () => Number(state && state.limits && state.limits.serious_days) || 30;
-
-/** His serious incidents still louder now (they count in «How secure does it stand?») */
-const louderCount = () => ((state && state.incidents) || []).filter((x) => x && x.louder).length;
+/** His serious incidents: each makes the same from the same source reported at once and as important while it is on the
+ * list (no end since 2026-11-20 — they count in «How secure does it stand?») */
+const louderCount = () => ((state && state.incidents) || []).filter(Boolean).length;
 
 /** «All n: I know, thanks» on a row that folds several entries: those of it still open, in one request (ack_some) */
 async function ackSome(list, b, key) {
@@ -310,7 +308,7 @@ function render() {
     [T('help.posture'), T('help.posture_text')],
     [T('help.book'), T('help.book_text', { keep: lim.keep || 500, days: lim.days || 90 })],
     [T('ack'), T('help.ack_text')],
-    [T('help.serious'), T('help.serious_text', { days: seriousDays() })],
+    [T('help.serious'), T('help.serious_text')],
     [T('help.normal'), T('help.normal_text')],
     [T('round_now'), T('help.round_text')],
     [T('help.logins'), T('help.logins_text', { burst: lim.burst || 5, minutes: Math.round((lim.window || 600) / 60) })],
@@ -423,22 +421,21 @@ function postureTile(a) {
     sub: [known ? T('tile.posture_known', { n: known }) : '', louder ? T('tile.posture_incidents', { n: louder }) : ''].filter(Boolean).join(' · '), ...a });
 }
 
-/** «Serious incidents»: how many he keeps in his history, how many are still louder */
+/** «Serious incidents»: how many he keeps in his history (each one watched more closely while it is there) */
 function incidentsTile(a) {
   const list = (state && state.incidents) || [];
   const louder = louderCount();
   return Office.stat({ label: T('tile.incidents'), alert: !!louder,
-    value: list.length ? T('tile.incidents_n', { n: list.length }) : T('tile.incidents_none'),
-    sub: louder ? T('tile.incidents_louder', { n: louder }) : '', ...a });
+    value: list.length ? T('tile.incidents_n', { n: list.length }) : T('tile.incidents_none'), ...a });
 }
 
 /**
- * His history of serious incidents (newest first): what it was, when it came, when you acknowledged it, your note, until
- * when the same from the same source is louder and how often it came back since
+ * His history of serious incidents (newest first): what it was, when it came, when you acknowledged it, your note, that the
+ * same from the same source is reported at once while it is listed, and how often it came back since
  */
 function incidentsSection() {
   const s = el('section', 'section wm-incidents');
-  s.appendChild(Office.sectionHead(T('incidents.title'), T('incidents.sub', { days: seriousDays() }), { place: 'incidents.title' }));
+  s.appendChild(Office.sectionHead(T('incidents.title'), T('incidents.sub'), { place: 'incidents.title' }));
   const list = (state && state.incidents) || [];
   if (!list.length) {
     s.appendChild(el('p', 'role wm-incidents-none', T('incidents.none')));
@@ -456,8 +453,7 @@ function incidentRow(x) {
   const main = el('div', 'row-main');
   main.appendChild(el('div', 'row-name text', entryName(x)));
   const meta = el('div', 'row-meta');
-  meta.appendChild(x.louder ? chip(T('incidents.louder_until', { date: fmt.date(x.until) }), 'warn', T('incidents.louder_until_title'))
-    : chip(T('incidents.over'), 'quiet', T('incidents.over_title')));
+  meta.appendChild(chip(T('incidents.louder'), 'warn', T('incidents.louder_title')));
   meta.appendChild(chip(T('group.' + x.group), '', T('group_title.' + x.group)));
   const tech = attackLink(x.attack);
   if (tech) meta.appendChild(tech);
@@ -1051,7 +1047,7 @@ function entryRow(e, owner) {
     if (!watch) {
       const sb = el('button', 'btn small plain wm-serious', T('serious'));
       sb.type = 'button';
-      sb.title = T('serious_title', { days: seriousDays() });
+      sb.title = T('serious_title');
       sb.disabled = !Office.agent.running;
       sb.onclick = () => seriousAck(e, sb, b);
       acts.appendChild(sb);
