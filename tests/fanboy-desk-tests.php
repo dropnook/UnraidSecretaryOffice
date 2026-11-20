@@ -1055,9 +1055,8 @@ function testFanboyProposeKinds(): void
 }
 
 /**
- * Round 4 (the owner): how he reacts — up at once always; the way down by the kind that leads the zone. A CPU zone: a
- * spike up at once, back down after a hold of 6 s at about 5 % a round, never a snap, no hunting with a spiky CPU;
- * «quick» shortens hold and gap. A disk zone as before (no hold, 1 % a round — part 2's tests unchanged).
+ * How he reacts, by the kind that leads the zone (round 4; 2026-11-20 the owner: «Langsam» / «Schnell reagieren»). Langsam
+ * (stored «balanced»): a CPU up 4 % a round, down 3 °C under the highest after 30 s at 2 % a round, no hunting with a spiky CPU. Schnell (quick): round 4's way — up at once, a short hold, bigger steps.
  */
 function testFanboyReact(): void
 {
@@ -1073,8 +1072,8 @@ function testFanboyReact(): void
         fanboyTStore($settings);
         $spec = fanboyTSpec();
         fanboyTSettle($t, $spec);
-        same('fanboy react: a zone saved without a choice reacts «balanced»; the CPU profile — gap 2.5 °C, hold 6 s, 5 % a round',
-            ['balanced', ['gap' => 2.5, 'hold' => 6.0, 'step' => 5.0]], [fanboyControlNew($settings, FANBOY_T_KEY, ['pid' => 0])['zones']['cpuz']['react'], fanboyDownProfile('cpu', 'balanced')]);
+        same('fanboy react: a zone saved without a choice reacts «Langsam» (stored «balanced»); the CPU\'s — up 4 % a round, down 3 °C under the highest, after 30 s, 2 % a round',
+            ['balanced', ['up' => 4.0, 'gap' => 3.0, 'hold' => 30.0, 'step' => 2.0]], [fanboyControlNew($settings, FANBOY_T_KEY, ['pid' => 0])['zones']['cpuz']['react'], fanboyDownProfile('cpu', 'balanced')]);
         fanboyBeat();
         $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
         $now = 5000.0;
@@ -1082,18 +1081,23 @@ function testFanboyReact(): void
         fanboyTRounds($c, $now, $t, $spec, 3);
         $rest = $c['zones']['cpuz']['cur'];
         file_put_contents($cpuFile, "80000\n");
-        fanboyTRounds($c, $now, $t, $spec, 1);
-        same('fanboy react: a CPU spike to 80 °C — up at once (one round: 20 % → 80 %)', [20.0, 80.0], [round($rest, 1), round($c['zones']['cpuz']['cur'], 1)]);
-        file_put_contents($cpuFile, "45000\n");
         $levels = [];
-        for ($i = 0; $i < 14; $i++) {
+        for ($i = 0; $i < 16; $i++) {
             fanboyTRounds($c, $now, $t, $spec, 1);
             $levels[] = (int) round($c['zones']['cpuz']['cur']);
         }
-        same('fanboy react: … cooled — held for 6 s (3 rounds), then down about 5 % a round, never a snap, back at rest within ~20 s',
-            [80, 80, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25], $levels);
-        // a spiky CPU around 60 °C: up at once to the highest, never down again inside the gap — no hunting
-        fanboyTRounds($c, $now, $t, $spec, 10);
+        same('fanboy react: Langsam — a CPU at 80 °C (the curve: 80 %) — up 4 % a round from 20 %, there after 15 rounds (30 s), not beyond',
+            [20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 80], [(int) round($rest), ...$levels]);
+        file_put_contents($cpuFile, "45000\n");
+        $levels = [];
+        for ($i = 0; $i < 18; $i++) {
+            fanboyTRounds($c, $now, $t, $spec, 1);
+            $levels[] = (int) round($c['zones']['cpuz']['cur']);
+        }
+        same('fanboy react: … cooled to 45 °C — held for 30 s (15 rounds), then down 2 % a round', [...array_fill(0, 15, 80), 78, 76, 74], $levels);
+        // a spiky CPU around 60 °C: never down again inside the 3 °C — no hunting
+        file_put_contents($cpuFile, "61500\n");
+        fanboyTRounds($c, $now, $t, $spec, 70);
         $written = [];
         foreach ([60000, 61500, 59500, 61500, 59500, 61000, 59600, 61500, 60000, 59500] as $mc) {
             file_put_contents($cpuFile, "$mc\n");
@@ -1104,7 +1108,7 @@ function testFanboyReact(): void
         for ($i = 1; $i < count($written); $i++) {
             $changes += $written[$i] !== $written[$i - 1] ? 1 : 0;
         }
-        check('fanboy react: … a spiky CPU (59.5 ↔ 61.5 °C) — the fan up once, then steady: no hunting (' . implode(',', $written) . ')', $changes <= 1);
+        check('fanboy react: … a spiky CPU (59.5 ↔ 61.5 °C) — the fan steady: no hunting (' . implode(',', $written) . ')', $changes <= 1);
         // «quick»: the hold halved (3 s), steps of 8 %
         fanboyLetGo($c, 'end');
         $settings['zones'][0]['react'] = 'quick';
@@ -1117,7 +1121,7 @@ function testFanboyReact(): void
             fanboyTRounds($c, $now, $t, $spec, 1);
             $levels[] = (int) round($c['zones']['cpuz']['cur']);
         }
-        same('fanboy react: «Sofort reagieren» — held 3 s (2 rounds), then 8 % a round', [80, 80, 72, 64], $levels);
+        same('fanboy react: «Schnell reagieren» — up at once, held 3 s (2 rounds), then 8 % a round', [80, 80, 72, 64], $levels);
         fanboyLetGo($c, 'end');
         $codes = [];
         foreach (['fast', 1, null] as $r) {
@@ -2188,6 +2192,21 @@ function testFanboyKindGoal(): void
             $key = $p->key;
         }
         same('fanboy kind goal: a kept curve of one point — refused as any curve', 'fanboy_bad_zones', $key);
+        // 2026-11-20 (the owner: «Wir brauchen also im Grunde keine Grenze»): a flat own curve, a disk far over the disks'
+        // old limit (55 °C) — the curve's value, and no alarm
+        $settings = fanboyTSettings();
+        $settings['zones'][0]['curves'] = ['disk' => ['points' => [[30, 40], [70, 40]]]];
+        fanboyTStore($settings);
+        $spec = fanboyTSpec();
+        fanboyTSettle($t, $spec);
+        fanboyBeat();
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 7000.0;
+        fanboyTDisks($t, 62, null, 33);
+        fanboyTRounds($c, $now, $t, $spec, 60);
+        same('fanboy kind goal: no limit — the parity at 62 °C on a flat own curve of 40 %: the zone at 40 % (102), no alarm after two minutes',
+            [40.0, 102, null], [round($c['zones']['disks']['cur'], 1), fanboyTOut($t, 4)[0], $c['alarm']]);
+        fanboyLetGo($c, 'end');
     } finally {
         fanboyTEnd();
     }

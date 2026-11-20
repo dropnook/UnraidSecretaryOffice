@@ -799,7 +799,8 @@ function fanboyStepWarm(?array $settings = null, ?array &$seen = null): ?array
     $check = function (string $id, string $kind, string $label, ?float $c) use (&$seen): ?array {
         $seen[$label] = $c;
         $limit = (float) (FANBOY_SOURCE_DEFAULTS[$kind] ?? FANBOY_SOURCE_DEFAULTS['other'])['limit'];
-        return $c !== null && $c >= $limit - 5 ? ['source' => $label, 'kind' => $kind, 'c' => $c, 'limit' => $limit] : null;
+        // `below`: Fanboy's threshold for measuring as the page names it (2026-11-20: no «Grenze» on the page any more)
+        return $c !== null && $c >= $limit - 5 ? ['source' => $label, 'kind' => $kind, 'c' => $c, 'limit' => $limit, 'below' => $limit - 5] : null;
     };
     foreach (fanboyChips($p['hwmon']) as $chip) {
         if (in_array($chip['kind'], ['cpu', 'nvme'], true)) {
@@ -932,7 +933,7 @@ function fanboyMeasure(array $o, array $tachs, array $owner, array $io, string $
             // its table kept, it never stands; the measuring goes on with the next output (2026-11-20, the owner)
             $w = $stop['warm'];
             $cut = ['why' => $w['why'] ?? 'warm', 'source' => $w['source'] ?? null, 'kind' => $w['kind'] ?? null, 'c' => $w['c'] ?? null,
-                    'from' => $w['from'] ?? null, 'limit' => $w['limit'] ?? null, 'stood' => $w['stood'] ?? null, 'at' => time()];
+                    'from' => $w['from'] ?? null, 'limit' => $w['limit'] ?? null, 'below' => $w['below'] ?? null, 'stood' => $w['stood'] ?? null, 'at' => time()];
             return ['result' => 'stand_cut', 'table' => $table, 'measured' => $r + ['stand_cut' => $cut], 'stand_cut' => $cut];
         }
         $r += $stop;

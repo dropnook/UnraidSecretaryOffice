@@ -1910,6 +1910,85 @@ async function staleJob(browser) {
   res.ms = Date.now() - t0;
   return res;
 }
+// ------------------------------------------------------------------ the bar over «Kept for <partner>» (2026-11-20)
+// A partner whose copies this office keeps, twelve units: the bar stands over its list like over Apps, VMs and Databases;
+// nothing chosen = every unit; a word narrows (a VM inside a share's copy: the share stays with only that row under it);
+// the kind's pick; «only with apps or VMs»; «Show all» brings everything back. Both themes, both widths.
+async function keptFilter(browser) {
+  const res = { route: 'restore', theme: 'kept filter', width: 0, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => res.fails.push(what);
+  const h = await startHarness({});
+  const now = Math.floor(Date.now() / 1000);
+  const base = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', 'restore.json'), 'utf8'));
+  const id = 'c0ffee12';
+  const snap = (n) => ({ name: `uso-backup-20261120-0${n}00`, creation: now - n * 3600, used: 262144, referenced: 1 << 30 });
+  const unit = (u, inside) => ({ unit: u, dataset: `cache/UnraidSecretaryOffice-partners/${id}/${u.replace(':', '-')}`, snap: snap(1).name, time: now - 3600, new: false, stale: false,
+    snaps: [snap(1), snap(2)], n: 2, newest: now - 3600, bytes: 1 << 30, inside });
+  const units = [unit('place', null), unit('share:domains', [{ folder: 'Lernspiele', kind: 'vm', name: 'Lernspiele' }, { folder: 'Bastelrechner', kind: 'vm', name: 'Bastelrechner' }]),
+    unit('share:appdata', [{ folder: 'fotoalbum', kind: 'app', name: 'fotoalbum' }]), unit('vm:Hausaufgaben', [{ folder: '', kind: 'vm', name: 'Hausaufgaben' }]),
+    unit('app:rezepte', [{ folder: '', kind: 'app', name: 'rezepte' }]),
+    ...['Familienfilme', 'Familienserien', 'Familienfotos', 'Schulsachen', 'Steuern', 'Musik', 'Vorlagen'].map((n) => unit('share:' + n, []))];
+  const kept = [{ id, name: 'Grosseltern', pool: 'cache', asleep: false, used_bytes: 12 << 30, quota_gb: 0, time: now - 3600, units }];
+  try {
+    for (const theme of ['dark', 'light']) {
+      for (const width of [1440, 375]) {
+        const at = `${theme} ${width}`;
+        const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
+        await ctx.addInitScript((t) => { try { localStorage.setItem('office.theme', t); } catch (e) { /* none */ } }, theme);
+        const page = await ctx.newPage();
+        const errors = [];
+        page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+        h.setState('restore', { ...base, kept });
+        await page.goto(`${h.url}#/restore/kept:${id}`, { waitUntil: 'load' });
+        const sel = `.section:has([data-key^="kept:${id}:"])`;
+        const there = await page.waitForSelector(`${sel} .filterbar input.filter-words`, { timeout: 15000 }).then(() => true, () => false);
+        res.tested++;
+        if (!there) { fail(`${at}: no filter bar over «Kept for Grosseltern»`); await ctx.close(); continue; }
+        const look = () => page.evaluate((s) => {
+          const box = document.querySelector(s);
+          return { units: [...box.querySelectorAll('[data-key]')].map((r) => r.dataset.key.split(':').slice(2).join(':')),
+            pkgs: [...box.querySelectorAll('.rs-kept-pkg .row-name')].map((r) => r.textContent), note: !box.querySelector('.filter-note').hidden };
+        }, sel);
+        let v = await look();
+        res.tested++;
+        if (v.units.length !== 12 || v.pkgs.length !== 3 || v.note) fail(`${at}: nothing chosen, not every unit (${JSON.stringify(v)})`);
+        await page.fill(`${sel} input.filter-words`, 'lernspiele');
+        await page.waitForTimeout(300);
+        v = await look();
+        res.tested++;
+        if (v.units.join() !== 'share:domains' || v.pkgs.join() !== 'VM Lernspiele' || !v.note) fail(`${at}: a VM inside a share's copy by its name (${JSON.stringify(v)})`);
+        await page.fill(`${sel} input.filter-words`, '');
+        await page.selectOption(`${sel} select.filter-pick`, 'vm');
+        await page.waitForTimeout(300);
+        v = await look();
+        res.tested++;
+        if (v.units.join() !== 'vm:Hausaufgaben') fail(`${at}: the kind's pick «VMs» (${JSON.stringify(v)})`);
+        await page.selectOption(`${sel} select.filter-pick`, '');
+        await page.click(`${sel} label.filter-only`);
+        await page.waitForTimeout(300);
+        v = await look();
+        res.tested++;
+        if (v.units.join() !== 'share:domains,share:appdata,vm:Hausaufgaben,app:rezepte') fail(`${at}: «only with apps or VMs» (${JSON.stringify(v)})`);
+        await page.click(`${sel} .filter-all`);
+        await page.waitForTimeout(300);
+        v = await look();
+        res.tested++;
+        if (v.units.length !== 12 || v.note) fail(`${at}: «Show all» (${JSON.stringify(v)})`);
+        const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+        res.tested++;
+        if (wide) fail(`${at}: the page scrolls sideways`);
+        for (const e of [...new Set(errors)]) fail(`${at}: ${e}`);
+        await ctx.close();
+      }
+    }
+  } catch (e) {
+    fail(String(e.message || e).split('\n')[0].slice(0, 200));
+  }
+  await h.close();
+  res.ms = Date.now() - t0;
+  return res;
+}
 const walks = opt.states ? [] : WALK.filter((d) => !opt.only || routes.includes(d));
 results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d))));
 if (!opt.states && (!opt.only || routes.includes('cleanup/where'))) results.push(await cleanupMap(browser));
@@ -1922,6 +2001,7 @@ if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(awa
 if (!opt.states && (!opt.only || routes.includes('backup'))) results.push(await partnerStreams(browser));
 if (!opt.states && (!opt.only || routes.includes('snapshot'))) results.push(await busyMark(browser));
 if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await staleJob(browser));
+if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await keptFilter(browser));
 await browser.close();
 await harness.close();
 

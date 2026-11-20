@@ -83,10 +83,12 @@ function preset(p, kind) {
 }
 const presets = (kind) => ({ quiet: preset('quiet', kind), normal: preset('normal', kind), cool: preset('cool', kind) });
 const PRESETS_OF = Object.fromEntries(Object.keys(DEFAULTS).map((k) => [k, presets(k)]));
-// FANBOY_DOWN_PROFILES of agent/desks/fanboy-control.php (round 4): the way down per kind, balanced or quick
-const DP = (b, q) => ({ balanced: { gap: b[0], hold: b[1], step: b[2] }, quick: { gap: q[0], hold: q[1], step: q[2] } });
-const MID = DP([2, 4, 2], [1, 2, 4]);
-const DOWN = { disk: DP([2, 0, 1], [1, 0, 3]), ssd: MID, nvme: MID, ram: MID, board: MID, cpu: DP([2.5, 6, 5], [1.5, 3, 8]), gpu: DP([2.5, 6, 5], [1.5, 3, 8]), other: MID };
+// FANBOY_DOWN_PROFILES of agent/desks/fanboy-control.php (2026-11-20): how a kind reacts — «Langsam» (stored balanced: up
+// 2 % a round, CPU/GPU 4; down 3 °C under the highest, after 30 s, 1 % a round, CPU/GPU 2) or «Schnell» (quick: up at once)
+const DP = (b, q) => ({ balanced: { up: b[0], gap: b[1], hold: b[2], step: b[3] }, quick: { up: null, gap: q[0], hold: q[1], step: q[2] } });
+const SLOW = [2, 3, 30, 1], SLOW_CPU = [4, 3, 30, 2];
+const MID = DP(SLOW, [1, 2, 4]);
+const DOWN = { disk: DP(SLOW, [1, 0, 3]), ssd: MID, nvme: MID, ram: MID, board: MID, cpu: DP(SLOW_CPU, [1.5, 3, 8]), gpu: DP(SLOW_CPU, [1.5, 3, 8]), other: MID };
 
 const NVME = `nvme@${devKey(base.chips.find((c) => c.address === 'nvme0').device)}#1`;
 const RAM = `spd5118@pci0000:00/0000:00:1f.4/i2c-0/0-0051#1`;
@@ -299,7 +301,7 @@ function state(o) {
 const all = (pick) => [1, 2, 3, 4, 5, 6].map((n) => FANS[n]).filter((f) => !pick || pick.includes(f.output));
 const SET_UP = Object.values(FANS);
 const RPM = { 1: 1310, 2: 0, 3: 0, 4: 1018, 5: 905, 6: 878 };
-const NOTES = [{ code: 'chip_back', params: { minutes: 3 }, at: T0 - 5400 }, { code: 'alarm_over', params: { code: 'hot' }, at: T0 - 2400 }];
+const NOTES = [{ code: 'chip_back', params: { minutes: 3 }, at: T0 - 5400 }, { code: 'alarm_over', params: { code: 'sensor' }, at: T0 - 2400 }];
 function steering(more = {}) {
   const zonesSet = more.zones || ZONES, fansSet = more.fans || SET_UP;
   const rpm = { ...RPM, ...(more.rpm || {}) };
