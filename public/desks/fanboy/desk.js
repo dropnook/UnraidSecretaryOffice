@@ -362,6 +362,7 @@ function took(j) {
     || (idle().on && Object.values(idle().tachs || {}).some((x) => x && x.state === 'alarm')) ? 'alarm' : '');
   if (view) redraw();
   plan();
+  startPending();
 }
 /** The next look, and the step's lease while one runs */
 function plan() {
@@ -2300,7 +2301,7 @@ function stripMake() {
     swap(acts, [run.kind, run.safety.map((y) => y.id), Office.agent.running, rest], () => {
       const out = [];
       // paused for want of an answer: on with the outputs still open (each waits for the answer again)
-      if (rest.length) out.push(btn(T('test.resume'), 'btn', () => startTest(rest), T('test.resume_tip', { n: rest.length })));
+      if (rest.length) out.push(btn(T('test.resume'), 'btn', () => startTest([rest[0]]), T('test.one_tip')));
       // set to full for safety: back to the value before, for all of them at once (each panel has its own button)
       if (run.safety.length && !run.kind) {
         out.push(btn(T(run.safety.length > 1 ? 'safety.back_all' : 'safety.back'), 'btn', () => send('safety_back', { fan: run.safety[0].id, all: true }),
@@ -2526,7 +2527,7 @@ function benchMake() {
         acts: () => {
           const out = [];
           // the ONE primary button: the panel's own «Start the test» while its output is untested; else here
-          if (toTest.length && !selOpen && !run.kind && !noTest) out.push(btn(T('next.test_open', { n: toTest.length }), 'btn', () => startTest(toTest), T('test.all_tip')));
+          if (toTest.length && !selOpen && !run.kind && !noTest) out.push(btn(T('next.test_first', { fan: fanSay(toTest[0]) }), 'btn', () => startTest([toTest[0]]), T('test.one_tip')));
           out.push(goButton('measure', !open.length && !run.kind));
           return out;
         },
@@ -2545,8 +2546,31 @@ function benchMake() {
   update();
   return { el: root, update, destroy() { lp.destroy(); } };
 }
-/** Start the test for these outputs, in the board's order — the quiet switch as it stands */
-function startTest(ids) {
+/**
+ * Start the test of ONE output (2026-11-20, the owner: «first test output 1, label it and so on, save at the end; then on
+ * to output two») — the quiet switch as it stands; the next one starts only on «Speichern und weiter»
+ */
+/** The output to test after $id: the next one not tested yet in the board's order, else the first still open */
+function nextToTest(id) {
+  const outs = setup().outputs || [];
+  const open = outs.filter((x) => x !== id && openWhy(x) === 'test');
+  return open.find((x) => outs.indexOf(x) > outs.indexOf(id)) || open[0] || '';
+}
+/** «… und weiter»: the next output's test on this click — once the one before has ended (its fans back) */
+let pendingNext = '';
+function testNext(id) {
+  pendingNext = id;
+  expect({ now: T('strip.next_waits', { fan: fanSay(id) }), done: () => !pendingNext || !!runNow().kind });
+  startPending();
+}
+function startPending() {
+  if (!pendingNext || runNow().kind || sends > 0 || !Office.agent.running) return;
+  const n = pendingNext;
+  pendingNext = '';
+  if (openWhy(n) === 'test') startTest([n]);
+}
+function startTest(list) {
+  const ids = list.slice(0, 1);
   if (!ids.length) return null;
   expect({ now: T('strip.starting'), done: () => !!runNow().kind });
   return send('test_up', { fans: ids, quiet: quietOn() }, { fresh: true });
@@ -2641,19 +2665,21 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
   // its name, where it sits, how many
   const fields = el('div', 'fb-fields');
   const field = (label, input, cls) => { const l = el('label', `fb-field ${cls || ''}`); l.append(el('span', 'fb-field-label', label), input); return l; };
-  const name = nameField(id, setupFan(id), false);
+  // 2026-11-20 (the owner: one output, one pass, one save): what he chooses here is his draft — nothing is sent while he
+  // fills it in; «Speichern und weiter» sends it in one request (fan_save) and starts the next output's test
+  let draft = {};
+  const dirty = () => Object.keys(draft).length > 0;
+  const name = nameField(id, setupFan(id), false, (v) => { draft.name = v; update(); });
   const place = inputEl('select');
   /** the options for this fan's role (placesFor()) — built anew only when they change, never while he is in the field */
   const placeOptions = (role, stored) => {
     if (document.activeElement === place) return;
     swap(place, ['p', placesFor(role, stored)], () => [new Option(T('roles.place_any'), ''), ...placesFor(role, stored).map((pl) => new Option(T(`place.${pl}`), pl))]);
   };
-  // place and count can be filled at any time (the agent takes them only with a role: kept here and sent with it)
-  let wantPlace = null, wantCount = null;
-  place.onchange = () => { const f = setupFan(id); if (f && f.role) send('role', { fan: id, role: f.role, place: place.value, off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true }); else { wantPlace = place.value; update(); } };
+  place.onchange = () => { draft.place = place.value; update(); };
   const count = inputEl('select');
   for (let n = 1; n <= (num((setup().limits || {}).count_max) ?? 8); n++) count.appendChild(new Option(String(n), String(n)));
-  count.onchange = () => { const f = setupFan(id); if (f && f.role) send('role', { fan: id, role: f.role, count: Number(count.value), off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true }); else { wantCount = Number(count.value); update(); } };
+  count.onchange = () => { draft.count = Number(count.value); update(); };
   fields.append(field(T('fields.name'), name, 'fb-field-name'), field(T('fields.place'), place), field(T('roles.count'), count, 'fb-field-count'));
   // round 14: several fans on this connector — are they the same model? (yes: the measured table counts for all; no or
   // not said: Fanboy keeps them a little higher, the agent's `hub`)
@@ -2662,7 +2688,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
   const alikeBtns = new Map();
   const alikeBox = el('div', 'fb-what-picks');
   [['yes', true], ['no', false], ['unknown', null]].forEach(([k, v]) => {
-    const b = btn(T(`hub.alike_${k}`), 'fb-pick', () => { const f = setupFan(id); if (f && f.role) send('role', { fan: id, role: f.role, alike: v, off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true }); }, T(`hub.alike_${k}_tip`));
+    const b = btn(T(`hub.alike_${k}`), 'fb-pick', () => { draft.alike = v; update(); }, T(`hub.alike_${k}_tip`));
     alikeBtns.set(k, b);
     alikeBox.appendChild(b);
   });
@@ -2679,7 +2705,9 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
   const backSum = el('summary', '', T('back.fold'));
   const backBody = el('div', 'fb-fold-body');
   back.append(backSum, backBody);
-  root.append(head, safety, what, cpu, fields, alike, hubSays, note, look, back);
+  // «Speichern und weiter zu Ausgang N+1» — the one button that sends this output's details (and starts the next test)
+  const saveBar = el('div', 'fb-panel-save');
+  root.append(head, safety, what, cpu, fields, alike, hubSays, note, look, back, saveBar);
   let pk = null, lookUI = null;
   /**
    * «Aussehen (fürs Bild)»: maker and model only PROPOSE (the model's typical look fills the four controls); the frame's
@@ -2693,34 +2721,45 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     const prevBox = el('div', 'fb-look-prev');
     prevBox.appendChild(prev.el);
     const fNow = () => setupFan(id) || { id };
+    /** the fan as he has chosen it so far: the stored look with his draft on top ('' and 0: «not his own») */
+    const chosen = () => {
+      const f0 = fNow();
+      const pick = (k) => (want[k] !== undefined ? want[k] || null : f0[k]);
+      const m0 = f0.model || { id: null, mm: null, blades: null };
+      const m = want.model ? { ...m0, id: want.model.id, mm: want.model.mm } : m0;
+      return { ...f0, frame: pick('frame'), wheel: pick('wheel'), style: pick('style'), model: { ...m, blades: want.blades !== undefined ? want.blades || null : m.blades ?? null } };
+    };
     pk = A.picker({ catalog: cat, value: fNow().model ? (fNow().model.id ? { id: fNow().model.id } : { mm: fNow().model.mm, blades: fNow().model.blades }) : null, preview: false, texts: pickerTexts(),
       onChange: (v) => {
         if (!v) return;
-        const f = fNow();
+        const f = chosen();
         const L = fanLook(f);
-        if (!v.id) { send('fan_look', { fan: id, model: '', mm: v.mm }, { quietly: true }).then(paint); return; }   // «another fan»: its size here, the rest below
+        if (!v.id) { want.model = { id: null, mm: v.mm }; keep({ model: '', mm: v.mm }); return; }   // «another fan»: its size here, the rest below
         // a model proposes its typical look: the four controls take it (his own choices are kept for one click back)
         const before = L.own.frame || L.own.wheel || L.own.style || L.own.blades ? { model: f.model || null, frame: f.frame || '', wheel: f.wheel || '', style: f.style || '', blades: (f.model && f.model.blades) || 0 } : null;
-        send('fan_look', { fan: id, model: v.id, frame: '', wheel: '', style: '', blades: 0, colour: 'auto' }, { quietly: true }).then((j) => { undo = j ? before : null; paint(); });
+        Object.assign(want, { model: { id: v.id, mm: null }, frame: '', wheel: '', style: '', blades: 0 });
+        undo = before;
+        keep({ model: v.id, frame: '', wheel: '', style: '', blades: 0, colour: 'auto' });
       } });
     pickers.set(id, pk);
     pk.el.querySelectorAll('select').forEach((x) => { x.classList.add('input', 'small', 'fb-input'); });
     const top = el('div', 'fb-look-top');
     top.append(pk.el, prevBox);
     const says = el('div', 'fb-look-says');
+    /** 2026-11-20: a choice goes into the output's draft (sent with «Speichern», never on its own) and shows at once */
+    const keep = (fields) => { draft.look = { ...(draft.look || {}), ...fields }; paint(); update(); };
     const set = (key, value) => {
       const f0 = fNow();
-      const body = { fan: id, [key]: value };
+      const body = { [key]: value };
       // the one colour of before round 12 lives on as the frame's and the wheel's (whichever he isn't choosing just now)
       const old = LOOK_COLOURS.includes(f0.colour) ? f0.colour : null;
       if (old) {
         body.colour = 'auto';
-        if (key !== 'frame' && !f0.frame) body.frame = old;
-        if (key !== 'wheel' && !f0.wheel) body.wheel = old;
+        if (key !== 'frame' && !f0.frame) { body.frame = old; want.frame = old; }
+        if (key !== 'wheel' && !f0.wheel) { body.wheel = old; want.wheel = old; }
       }
       want[key] = value;
-      paint();
-      send('fan_look', body, { quietly: true }).then(() => { delete want[key]; paint(); });
+      keep(body);
     };
     const rowOf = (label, body) => { const r = el('div', 'fb-look-row'); r.append(el('span', 'fb-what-label', label), body); return r; };
     const swatches = (key) => {
@@ -2755,9 +2794,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     let off = false;
     function paint() {
       const f0 = fNow();
-      // as chosen a moment ago, before the agent has answered
-      const f = { ...f0, frame: want.frame ?? f0.frame, wheel: want.wheel ?? f0.wheel, style: want.style ?? f0.style,
-        model: { ...(f0.model || { id: null, mm: null }), blades: want.blades ?? (f0.model || {}).blades ?? null } };
+      const f = chosen();
       const L = fanLook(f);
       const c = catFan(f.model && f.model.id);
       const shown = L.look || NEUTRAL_LOOK;
@@ -2775,11 +2812,16 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
       swap(says, [!!c, c && c.id, mine, !!undo, off], () => {
         const out = [];
         if (c) out.push(chipOfText(mine ? 'accent' : 'quiet', mine ? T('look.changed') : T('look.proposal'), mine ? T('look.changed_tip') : T('look.proposal_tip')));
-        if (c && mine) out.push(btn(T('look.reset'), 'btn plain', () => { undo = null; send('fan_look', { fan: id, frame: '', wheel: '', style: '', blades: 0, colour: 'auto' }, { quietly: true }); }, T('look.reset_tip')));
+        if (c && mine) out.push(btn(T('look.reset'), 'btn plain', () => { undo = null; Object.assign(want, { frame: '', wheel: '', style: '', blades: 0 }); keep({ frame: '', wheel: '', style: '', blades: 0, colour: 'auto' }); }, T('look.reset_tip')));
         if (undo) {
           out.push(el('span', 'fb-look-took', T('look.took', { model: modelText({ id: c && c.id }) })));
           const u = undo;
-          out.push(btn(T('look.undo'), 'btn plain', () => { undo = null; send('fan_look', { fan: id, model: (u.model && u.model.id) || '', frame: u.frame, wheel: u.wheel, style: u.style, blades: u.blades }, { quietly: true }).then(() => { const g = fNow(); pk.set(g.model ? (g.model.id ? { id: g.model.id } : { mm: g.model.mm, blades: g.model.blades }) : null); paint(); }); }, T('look.undo_tip')));
+          out.push(btn(T('look.undo'), 'btn plain', () => {
+            undo = null;
+            Object.assign(want, { model: u.model ? { id: u.model.id || null, mm: u.model.mm || null } : { id: null, mm: null }, frame: u.frame, wheel: u.wheel, style: u.style, blades: u.blades });
+            pk.set(u.model ? (u.model.id ? { id: u.model.id } : { mm: u.model.mm, blades: u.model.blades }) : null);
+            keep({ model: (u.model && u.model.id) || '', frame: u.frame, wheel: u.wheel, style: u.style, blades: u.blades });
+          }, T('look.undo_tip')));
         }
         if (off) out.forEach((x) => { if (x.tagName === 'BUTTON') x.disabled = true; });
         return out;
@@ -2788,21 +2830,34 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
       swap(note, [offBy ? f0.max_rpm : 0], () => (offBy ? para(T('roles.model_off', { measured: fmt.number(f0.max_rpm), sheet: fmt.number(c.rpm_max) }), 'callout') : []));
     }
     paint();
-    return { update(f, away) { off = !!away; paint(); }, destroy() { prev.destroy(); kindBtns.forEach(([, , w]) => w.destroy()); } };
+    return { update(f, away) { off = !!away; paint(); }, saved() { Object.keys(want).forEach((k) => delete want[k]); undo = null; paint(); },
+      destroy() { prev.destroy(); kindBtns.forEach(([, , w]) => w.destroy()); } };
   }
 
-  let picked = null;              // the role just clicked, shown pressed until the agent has answered
+  /** «Was ist das?» — into the draft (2026-11-20: sent with «Speichern», never on the click) */
   function pickRole(k) {
     const f = setupFan(id);
     cpuAsk.delete(id);              // round 9 (H6): a role click never carries a half-made «Fanboy steers it» along
-    picked = k;
-    roleBtns.forEach((b, r) => b.setAttribute('aria-pressed', r === k ? 'true' : 'false'));
-    const settle = () => { picked = null; update(); };
-    if (f && f.found === 'empty' && k !== 'empty') { picked = null; update(); Office.toast(T('panel.empty_note'), true); say(T('panel.empty_note')); return; }      // nothing attached by its test: said, not sent
-    if (k === 'empty') { send('answer', { fan: id, louder: false }).then(settle); return; }
-    if (f && ['ask', 'unclear'].includes(f.found) && benchRun().id !== id) send('answer', { fan: id, louder: true }, { quietly: true });
-    const extra = { ...(wantPlace !== null ? { place: wantPlace } : {}), ...(wantCount !== null ? { count: wantCount } : {}) };
-    send('role', { fan: id, role: k, off_ok: !!(f && f.off_ok) && ROLES_OURS.includes(k), ...extra }).then((j) => { if (j) { wantPlace = null; wantCount = null; } settle(); });
+    if (f && f.found === 'empty' && k !== 'empty') { Office.toast(T('panel.empty_note'), true); say(T('panel.empty_note')); return; }      // nothing attached by its test: said, not kept
+    draft.role = k;
+    update();
+  }
+  /** «Speichern (und weiter)»: the draft in ONE request (fan_save); then the next output's test, on this click */
+  function save(nextId) {
+    const f0 = setupFan(id) || {};
+    const role = draft.role ?? f0.role;
+    const body = { fan: id, role, name: (draft.name ?? f0.name ?? '').trim(), place: draft.place ?? f0.place ?? '', count: draft.count ?? f0.count ?? 1,
+      off_ok: !!f0.off_ok && ROLES_OURS.includes(role) };
+    if (draft.alike !== undefined) body.alike = draft.alike;
+    if (draft.look) body.look = draft.look;
+    send('fan_save', body).then((j) => {
+      if (!j) return;
+      draft = {};
+      delete name.dataset.dirty;
+      if (lookUI) lookUI.saved();
+      update();
+      if (nextId) testNext(nextId);
+    });
   }
 
   function update() {
@@ -2868,10 +2923,8 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
         out.push(btn(T('ask.no'), 'btn', () => send('answer', { fan: id, louder: false }), T('test.no_tip')));
         out.push(btn(T('test.again_long'), 'btn plain', () => startTest([id]), T('test.again_tip')));
       } else if (!found && !leftAlone(f)) {
-        // untested: the primary «Start the test» runs every open output in the board's order, this one first
-        const rest = [id, ...open.filter((x) => x !== id)];
-        out.push(btn(open.length > 1 ? T('test.start') : T('test.start_one'), 'btn', () => startTest(open.length > 1 ? rest : [id]), open.length > 1 ? T('test.all_tip') : T('test.one_tip')));
-        if (open.length > 1) out.push(btn(T('test.only'), 'btn plain', () => startTest([id]), T('test.one_tip')));
+        // untested: «Diesen Ausgang testen» — this one only (2026-11-20: one output, one pass, one save)
+        out.push(btn(T('test.start_one'), 'btn', () => startTest([id]), T('test.one_tip')));
       } else {
         if (showOnly) out.push(btn(T('show.button'), 'btn plain', () => { expect({ now: T('strip.starting_show', { fan: fanSay(id) }), done: () => !!runNow().kind }); send('show', { fan: id, quiet: false }, { fresh: true }); }, T('show.tip')));
         else out.push(btn(leftAlone(f) ? T('test.start_one') : T('test.again_long'), 'btn plain', () => startTest([id]), T('test.one_tip')));
@@ -2895,7 +2948,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
       });
     }
     // «Was ist das?»
-    const cur = picked || (found === 'empty' ? 'empty' : (f && f.role) || '');
+    const cur = draft.role ?? (found === 'empty' ? 'empty' : (f && f.role) || '');
     roleBtns.forEach((b, k) => {
       b.setAttribute('aria-pressed', k === cur ? 'true' : 'false');
       b.disabled = away;
@@ -2910,28 +2963,29 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     nameField(id, f, away);
     const roleSet = !!(f && f.role);
     place.disabled = count.disabled = away;
-    placeOptions(cur === 'empty' ? '' : cur, roleSet ? f.place : wantPlace);
-    if (document.activeElement !== place) place.value = roleSet ? f.place || '' : wantPlace || '';
-    if (document.activeElement !== count) count.value = String(roleSet ? f.count || 1 : wantCount || 1);
+    const placeNow = draft.place ?? ((f && f.place) || '');
+    placeOptions(cur === 'empty' ? '' : cur, placeNow);
+    if (document.activeElement !== place) place.value = placeNow;
+    if (document.activeElement !== count) count.value = String(draft.count ?? ((f && f.count) || 1));
     // several fans on the connector (the state's `hub`): the question, and what it means in the agent's own numbers
     const hub = roleSet && !never && f.hub ? f.hub : null;
     alike.hidden = !hub;
-    const said2 = hub ? (f.alike === true ? 'yes' : f.alike === false ? 'no' : 'unknown') : '';
+    const alikeNow = draft.alike !== undefined ? draft.alike : f && f.alike;
+    const said2 = hub ? (alikeNow === true ? 'yes' : alikeNow === false ? 'no' : 'unknown') : '';
     alikeBtns.forEach((b, k) => { b.setAttribute('aria-pressed', k === said2 ? 'true' : 'false'); b.disabled = away; });
     const ours2 = hub && ROLES_OURS.includes(f.role) || (hub && f.role === 'cpu' && !!f.cpu_own);
     setText(hubSays, !hub ? '' : !ours2 ? '' : hub.mixed ? T('hub.mixed', { floor: hub.floor, start: hub.start }) : T('hub.same'));
     hubSays.hidden = !hubSays.textContent;
     hubSays.dataset.nums = JSON.stringify(hub && ours2 && hub.mixed ? [{ v: hub.floor, from: ['setup', 'fans', `=${id}`, 'hub', 'floor'] }, { v: hub.start, from: ['setup', 'fans', `=${id}`, 'hub', 'start'] }] : []);
     let hint = '';
-    if (!roleSet && !never && found !== 'empty' && (wantPlace !== null || wantCount !== null)) hint = T('panel.kept');
-    else if (found === 'empty') hint = T('panel.empty_note');
-    else if (f && f.role === 'cpu') hint = f.cpu_own ? '' : T('assign.cpu_bios');        // (given to Fanboy: its block above says since when)
-    else if (f && f.role === 'pump') hint = T('assign.never_stopped');
-    else if (f && f.role === 'unknown') hint = T('roles.bios_note.unknown');
-    else if (!roleSet && p && p.output === 1 && !never) hint = T('roles.cpu_hint');
+    if (found === 'empty') hint = T('panel.empty_note');
+    else if (cur === 'cpu') hint = f && f.cpu_own ? '' : T('assign.cpu_bios');        // (given to Fanboy: its block above says since when)
+    else if (cur === 'pump') hint = T('assign.never_stopped');
+    else if (cur === 'unknown') hint = T('roles.bios_note.unknown');
+    else if (!cur && p && p.output === 1 && !never) hint = T('roles.cpu_hint');
     else if (f && num(f.kick_start) !== null) hint = T('assign.kick', { pct: Math.round(f.kick_start / 2.55) });
     else if (f && (f.count || 1) > 1) hint = T('roles.count_note', { n: f.count });
-    else if (!roleSet && !never) hint = T('panel.role_first');
+    else if (!cur && !never) hint = T('save.role_first');
     setText(note, hint);
     // model and colour (for the picture)
     const m = f && f.model ? modelText(f.model) : '';
@@ -2943,6 +2997,18 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     const hasBack = !!(f && b && b.fixed && !ROLES_BIOS.includes(f.role)) && !never;
     back.hidden = !hasBack;
     if (hasBack) swap(backBody, [f.back, b.pct, b.auto ?? null, setup().back_default, away], () => backChoice(f, b));
+    // the save: for an output its test has answered (not while it runs); «nothing attached»: on to the next in one click
+    const tested = ['tach', 'silent', 'ask', 'unclear'].includes(found);
+    const role = cur && cur !== 'empty' ? cur : '';
+    const nextId = nextToTest(id);
+    swap(saveBar, [here, tested, found, role, dirty(), nextId, away, nextId ? fanSay(nextId) : ''], () => {
+      if (here || never || !(tested || found === 'empty')) return [];
+      if (found === 'empty') return nextId ? [btn(T('save.empty_next', { fan: fanSay(nextId) }), 'btn', () => testNext(nextId), T('save.next_tip', { fan: fanSay(nextId) }))] : [];
+      const b = btn(nextId ? T('save.next', { fan: fanSay(nextId) }) : T('save.only'), 'btn', () => save(nextId), nextId ? T('save.next_tip', { fan: fanSay(nextId) }) : T('save.tip'));
+      if (!role && cur !== 'empty') offBtn(b, T('save.role_first'));
+      else if (away) offBtn(b, T('strip.away'));
+      return [b, dirty() ? el('span', 'fb-save-dirty', T('save.unsaved')) : null];
+    });
   }
   update();
   return { el: root, update, destroy() { if (wh) wh.destroy(); if (lookUI) lookUI.destroy(); } };
@@ -3003,7 +3069,7 @@ function testStep() {
  * the page's busy gate, so a test's own buttons stay free)
  */
 const nameFields = new Map();
-function nameField(id, f, off) {
+function nameField(id, f, off, onType) {
   let n = nameFields.get(id);
   if (!n) {
     n = inputEl('input', 'text');
@@ -3012,23 +3078,12 @@ function nameField(id, f, off) {
     n.dataset.fbKeep = '1';
     n.dataset.own = '1';
     n.value = (f && f.name) || '';
-    let t = null;
-    const save = async () => {
-      clearTimeout(t);
-      t = null;
-      if (!Office.agent.running) return;
-      const value = n.value.trim();
-      n.dataset.saving = value;
-      const j = await Office.api.post(`${ID}.fan_name`, { fan: id, name: value });
-      if (!j.ok) { const text = Office.errorText(j.error, ID); Office.toast(text, true); say(T('strip.refused', { why: text })); }
-      else { const sf = setupFan(id); if (sf) sf.name = value; patch(); }
-      if (n.dataset.saving === value) delete n.dataset.saving;
-    };
-    n.addEventListener('input', () => { clearTimeout(t); t = setTimeout(save, 700); });
-    n.addEventListener('change', save);
+    // 2026-11-20 (the owner: «save at the end, not at every click»): typing goes into the output's draft — sent only with
+    // «Speichern» (fan_save), never on its own
+    n.addEventListener('input', () => { n.dataset.dirty = '1'; if (onType) onType(n.value); });
     nameFields.set(id, n);
-  } else if (document.activeElement !== n && !n.dataset.saving && f && typeof f.name === 'string' && n.value !== f.name) {
-    n.value = f.name;                // changed elsewhere (another browser): as saved, unless he is typing here
+  } else if (document.activeElement !== n && !n.dataset.dirty && f && typeof f.name === 'string' && n.value !== f.name) {
+    n.value = f.name;                // changed elsewhere (another browser): as saved, unless he has typed here
   }
   n.disabled = off;
   return n;
