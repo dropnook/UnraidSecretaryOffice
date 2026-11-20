@@ -328,7 +328,7 @@ if (opt.nums) {
         if (pick) { await page.click(pick); await page.waitForTimeout(1200); }
         for (const share of [0.05, 0.37, 0.62, 0.995]) {
           await markAtShare(page, share, width < 768);
-          const read = await page.evaluate(() => [...document.querySelectorAll('#sso-desk .fb-hist-read')].map((n) => ({ text: n.textContent, nums: n.dataset.nums || '', lead: n.dataset.lead || '', at: Number(n.dataset.at || 0) })));
+          const read = await page.evaluate(() => [...document.querySelectorAll('#sso-desk .fb-hist-read')].map((n) => ({ text: n.textContent, nums: n.dataset.nums || '', lead: n.dataset.lead || '', at: Number(n.dataset.at || 0), curves: n.dataset.curves || '' })));
           const ats = read.filter((r) => r.nums).map((r) => r.at);
           if (!ats.length) faults.push(`${tag} ${share}: the marker shows no point`);
           if (ats.length && Math.max(...ats) - Math.min(...ats) > 900) faults.push(`${tag} ${share}: the zones' readouts are at different moments (${ats.join(', ')})`);
@@ -346,6 +346,19 @@ if (opt.nums) {
             const lead = Number.isInteger(li) ? hist.src[li] : '';
             marks++;
             if (lead !== r.lead) faults.push(`${tag} ${share}: the readout names ${r.lead || 'no source'} where the history has ${lead || 'none'} (${zid} #${i}) — «${r.text}»`);
+            // 2026-11-20: a zone of several curves — each curve's value the row under the marker has, said in the readout
+            const cv = (hist.curves || {})[zid];
+            if (cv) {
+              const said = JSON.parse(r.curves || '[]');
+              if (!said.length) faults.push(`${tag} ${share}: the readout of ${zid} says no curve — «${r.text}»`);
+              for (const [k, v, j] of said) {
+                const row = Math.floor((r.at - cv.t0) / cv.every);        // the span the moment lies in
+                const want = !cv.v[row] ? undefined : cv.v[row][cv.kinds.indexOf(k)];
+                marks++;
+                if (want !== v) faults.push(`${tag} ${share}: the readout says ${k} ${v} where the history's span has ${JSON.stringify(want)} (${zid}) — «${r.text}»`);
+                else if (!r.text.includes(String(v))) faults.push(`${tag} ${share}: ${k} ${v} is not in the readout — «${r.text}»`);
+              }
+            }
           }
         }
         await ctx.close();

@@ -1475,3 +1475,141 @@ function testFanboyHistoryLeads(): void
         fanboyTEnd();
     }
 }
+
+/**
+ * 2026-11-20 (the owner: a zone of several curves — «how close was the second one?»): a zone of two or more curves
+ * records where each curve stood (its kind's warmest source, whole °C), a row per 5-minute span with each curve's peak,
+ * 3 days at most — beside the points: the points, `src` and `leads` stay exactly as before (an older reader loses nothing),
+ * `curves` is a key of its own; a zone of one curve records nothing new. An older file is read as before. The Dashboard
+ * tile's reader ignores the key. The worst case the setup allows (8 zones × 8 kinds, 3 days, long source ids) is measured.
+ */
+function testFanboyHistoryCurves(): void
+{
+    $w0 = intdiv(1763100000, 300) * 300;
+    $t = fanboyT('historycurves');
+    try {
+        $c = fanboyControlNew(fanboyTSettings(), FANBOY_T_KEY, fanboyMe('control'));
+        same('fanboy history curves: the test board — «disks» one curve (disk), «case» two (nvme, ram)', [['disk'], ['nvme', 'ram']],
+            [array_keys(fanboyZoneKindCurves($c['zones']['disks'])), array_keys(fanboyZoneKindCurves($c['zones']['case']))]);
+        $at = function (float $nvme, ?float $ram, float $disk) use (&$c): void {
+            $c['zones']['case']['by_kind'] = ['nvme' => ['source' => FANBOY_T_NVME, 'c' => $nvme]] + ($ram === null ? [] : ['ram' => ['source' => 'ram1', 'c' => $ram]]);
+            $c['zones']['case']['warmest'] = ['id' => FANBOY_T_NVME, 'c' => $nvme];
+            $c['zones']['disks']['by_kind'] = ['disk' => ['source' => 'disk2', 'c' => $disk]];
+            $c['zones']['disks']['warmest'] = ['id' => 'disk2', 'c' => $disk];
+        };
+        // two spans: 41.4 / 44.6 / 43 in the first (the peak, rounded), RAM asleep in the second
+        foreach ([[0, 41.4, 30.2], [60, 44.6, 31.0], [120, 43.0, 29.4], [300, 40.0, null], [360, 39.0, null]] as [$dt, $nv, $ram]) {
+            $at($nv, $ram, 35.0);
+            fanboyHistory($c, (float) $dt, $w0 + $dt);
+        }
+        same('fanboy history curves: two curves — a row per 5 minutes, each curve\'s peak in whole °C, null where its sources slept; one curve: nothing new',
+            [['case'], ['nvme', 'ram'], [$w0 => [45, 31], $w0 + 300 => [40, null]]],
+            [array_keys($c['curves']), $c['curves']['case']['kinds'], $c['curves']['case']['rows']]);
+        same('fanboy history curves: the points as before (a point a minute, the leader the fifth)', [5, [$w0 + 360, 39.0, null, null, FANBOY_T_NVME]],
+            [count($c['hist']['case']), end($c['hist']['case'])]);
+        // several curves: a kind added later goes to the end, earlier rows keep their order
+        $c['zones']['case']['sources'][] = ['kind' => 'cpu', 'id' => 'coretemp@x#1'];
+        $c['zones']['case']['by_kind']['cpu'] = ['source' => 'coretemp@x#1', 'c' => 61.0];
+        $c['zones']['case']['by_kind']['ram'] = ['source' => 'ram1', 'c' => 33.0];
+        fanboyHistory($c, 600.0, $w0 + 600);
+        same('fanboy history curves: a third curve added — at the end; the earlier rows as they were', [['nvme', 'ram', 'cpu'], [45, 31], [39, 33, 61]],
+            [$c['curves']['case']['kinds'], $c['curves']['case']['rows'][$w0], $c['curves']['case']['rows'][$w0 + 600]]);
+
+        // the file: points, src and leads exactly as without the new key (an older reader's view), `curves` beside them
+        $with = fanboyHistoryPack($c['hist'], $c['curves']);
+        $without = fanboyHistoryPack($c['hist']);
+        same('fanboy history curves: packed — zones, src, leads the same as without; the curves a key of their own (kinds, the span, its start, a row per span)',
+            [$without, ['kinds' => ['nvme', 'ram', 'cpu'], 'every' => FANBOY_HISTORY_CURVE, 't0' => $w0, 'v' => [[45, 31], [40, null], [39, 33, 61]]]],
+            [array_diff_key($with, ['curves' => 1]), $with['curves']['case']]);
+        $back = fanboyHistoryCurvesUnpack(json_decode(jsonEncode($with), true), $w0 + 600);
+        same('fanboy history curves: read back the same', $c['curves'], $back);
+        same('fanboy history curves: no zone of several curves — the file without the key (as before)', false, isset(fanboyHistoryPack($c['hist'], [])['curves']));
+        // only in exactly its shape
+        $j = json_decode(jsonEncode($with), true);
+        $bad = [];
+        foreach (['kind' => ['kinds' => ['nvme', 'fan']], 'twice' => ['kinds' => ['nvme', 'nvme']], 'every' => ['every' => 60], 't0' => ['t0' => $w0 + 1],
+                  'row' => ['v' => [[45, 31, 1, 2]]], 'word' => ['v' => [[45, '31']]], 'float' => ['v' => [[45.5, 31]]], 'many' => ['v' => array_fill(0, FANBOY_HISTORY_CURVE_MAX + 1, null)]] as $what => $change) {
+            $x = $j;
+            $x['curves']['case'] = $change + $x['curves']['case'];
+            if (fanboyHistoryCurvesUnpack($x, $w0 + 600) !== []) {
+                $bad[] = $what;
+            }
+        }
+        same('fanboy history curves: a zone\'s line not in exactly its shape (an unknown or doubled kind, another span, a start off the span, a row too long, a word, a fraction, too many rows) — left out', [], $bad);
+        same('fanboy history curves: rows older than 3 days — left out', [], fanboyHistoryCurvesUnpack($j, $w0 + 600 + FANBOY_HISTORY_SPAN + 300));
+
+        // kept and loaded: RAM, then the data folder's copy; an older office's file (no key) read as before
+        @mkdir(fanboyRunDir(), 0700, true);
+        fanboyHistoryKeep($c, true);
+        $loaded = fanboyHistoryLoad(FANBOY_T_KEY, $w0 + 600, $curves);
+        same('fanboy history curves: kept and loaded — the points as before (35.0 comes back as 35: compared as numbers), the curves back', [true, $c['curves']], [$loaded == $c['hist'], $curves]);
+        $file = json_decode((string) file_get_contents(FANBOY_DIR . '/history.json'), true);
+        unset($file['curves']);
+        file_put_contents(FANBOY_DIR . '/history.json', json_encode($file));
+        @unlink(fanboyRunDir() . '/history.json');
+        same('fanboy history curves: an older office\'s file (no key) — the points as before, no curves (they begin with the update)', [true, []],
+            [fanboyHistoryLoad(FANBOY_T_KEY, $w0 + 600, $curves) == $c['hist'], $curves]);
+        fanboyHistoryKeep($c, true);
+
+        // the page's part: the curves that reach into the period, beside the points
+        $part = fanboyHistoryPart(1, $w0 + 600);
+        same('fanboy history curves: the page\'s part — the curves beside the points', [['nvme', 'ram', 'cpu'], 3], [$part['curves']['case']['kinds'] ?? null, count($part['curves']['case']['v'] ?? [])]);
+
+        // a settings reload keeps them
+        $owner = $c['owner'];
+        fanboyControlReload($c, fanboyTSettings(), FANBOY_T_KEY, $owner);
+        same('fanboy history curves: a settings save keeps them', ['nvme', 'ram', 'cpu'], $c['curves']['case']['kinds'] ?? null);
+
+        // the Dashboard tile's reader (src/dashboard-fanboy.php, another worker's file): the same with the key as without
+        $dash = function (array $file) use ($t): string {
+            $dir = "{$t['tmp']}/dashrun";
+            @mkdir("$dir/fanboy", 0700, true);
+            file_put_contents("$dir/fanboy/history.json", json_encode($file));
+            $code = 'define("OFFICE_IN_UNRAID", true); require ' . var_export(OFFICE_DIR . '/src/bootstrap.php', true) . '; require_once ' . var_export(OFFICE_DIR . '/src/page.php', true) . ';'
+                . ' require_once ' . var_export(OFFICE_DIR . '/src/dashboard.php', true) . '; require_once ' . var_export(OFFICE_DIR . '/src/dashboard-fanboy.php', true) . ';'
+                . ' echo json_encode(officeFanboyDashHistory(' . var_export(FANBOY_T_KEY, true) . ', ' . ($GLOBALS['fbcNow'] ?? 0) . ', 24));';
+            $p = proc_open([PHP_BINARY, '-r', $code], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null,
+                ['OFFICE_RUN_DIR' => $dir, 'OFFICE_DATA_DIR' => "{$t['tmp']}/no-data", 'PATH' => getenv('PATH')]);
+            $out = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+            proc_close($p);
+            return $out;
+        };
+        $GLOBALS['fbcNow'] = $w0 + 600;
+        $f = json_decode((string) file_get_contents(fanboyRunDir() . '/history.json'), true);
+        $plain = $f;
+        unset($plain['curves']);
+        $a = $dash($f);
+        same('fanboy history curves: the Dashboard tile\'s reader — the same with the curves as without (it keeps the leader\'s line)', [true, $dash($plain)],
+            [isset($f['curves']) && str_starts_with($a, '{'), $a]);
+        unset($GLOBALS['fbcNow']);
+
+        // the size (the owner: «does it fill /run with very many fans and curves?»): the worst case the setup allows —
+        // FANBOY_ZONES_MAX zones, each with every kind (8 curves), 3 days, the leader changing among 64 long source ids
+        $kinds = array_keys(FANBOY_KIND_BOUNDS);
+        $ids = array_map(fn ($i) => "it8696_a0060607@platform/it87.2608/very/long/device/path#$i", range(1, 64));
+        $zone = $c['zones']['case'];
+        $zone['fans'] = [];
+        $zone['sources'] = array_map(fn ($k) => ['kind' => $k, 'id' => "$k-1"], $kinds);
+        $c['zones'] = [];
+        for ($z = 1; $z <= FANBOY_ZONES_MAX; $z++) {
+            $c['zones']["zone-$z"] = ['id' => "zone-$z"] + $zone;
+        }
+        [$c['hist'], $c['curves'], $c['last_hist']] = [[], [], null];
+        for ($m = 0; $m <= 72 * 60 + 30; $m++) {
+            foreach (array_keys($c['zones']) as $n => $zid) {
+                $c['zones'][$zid]['warmest'] = ['id' => $ids[intdiv($m, 37 + $n) % 64], 'c' => 30.0 + ($m % 97) / 10];
+                $c['zones'][$zid]['by_kind'] = array_combine($kinds, array_map(fn ($i) => ['c' => 100.0 + $i - ($m % 70)], array_keys($kinds)));
+            }
+            fanboyHistory($c, $m * 60.0, $w0 + $m * 60);
+        }
+        $base = strlen(jsonEncode(['v' => 1, 'board' => FANBOY_T_KEY, 'every' => FANBOY_HISTORY_EVERY] + fanboyHistoryPack($c['hist'])));
+        $all = strlen(jsonEncode(['v' => 1, 'board' => FANBOY_T_KEY, 'every' => FANBOY_HISTORY_EVERY] + fanboyHistoryPack($c['hist'], $c['curves'])));
+        $rows = max(array_map(fn ($h) => count($h['rows']), $c['curves']));
+        same('fanboy history curves: the worst case — 8 zones × 8 curves × 3 days: rows bounded, the file under 600 KB (the fan desk\'s RAM line is 1 MB), the leader\'s line as before',
+            [true, true, true], [$rows <= FANBOY_HISTORY_CURVE_MAX, $all < 600 * 1024, max(array_map('count', $c['hist'])) <= FANBOY_HISTORY_MAX],
+            "points and leaders $base bytes, with the curves $all bytes, rows per zone $rows");
+        fwrite(STDERR, "fanboy history curves: worst case — points and leaders $base bytes, with the curves $all bytes, rows per zone $rows\n");
+    } finally {
+        fanboyTEnd();
+    }
+}

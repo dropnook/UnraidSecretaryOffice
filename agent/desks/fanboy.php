@@ -385,16 +385,20 @@ function fanboyHistoryPart(int $hours = 24, ?int $wall = null): array
     $t = $wall ?? time();
     $key = fanboyBoardKey(fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']));
     $zones = [];
-    foreach (fanboyHistoryLoad($key, $t) as $zid => $pts) {
+    foreach (fanboyHistoryLoad($key, $t, $curves) as $zid => $pts) {
         $in = array_values(array_filter($pts, fn ($p) => $p[0] >= $t - $hours * 3600));
         if ($in) {
             $zones[$zid] = $in;
         }
     }
+    // each curve's line (2026-11-20): the spans that reach into the period (one before its start: the line comes in from the edge)
+    foreach ($curves as $zid => $h) {
+        $curves[$zid]['rows'] = array_filter($h['rows'], fn ($at) => $at > $t - $hours * 3600 - 2 * FANBOY_HISTORY_CURVE, ARRAY_FILTER_USE_KEY);
+    }
     // `now`: the moment the points are read against (the page draws «the last hours» back from it, never the browser's clock);
-    // the points of four as before, who led beside them (`src`, `leads`: fanboyHistoryPack())
+    // the points of four as before, who led beside them (`src`, `leads`), each curve's line (`curves`: fanboyHistoryPack())
     return ['v' => 1, 'time' => $t, 'now' => $t, 'hours' => $hours, 'every' => (int) FANBOY_HISTORY_EVERY, 'thin' => FANBOY_HISTORY_THIN,
-        'full' => FANBOY_HISTORY_FULL] + fanboyHistoryPack($zones);
+        'full' => FANBOY_HISTORY_FULL] + fanboyHistoryPack($zones, array_filter($curves, fn ($h) => $h['rows'] !== []));
 }
 
 /** The period the page asks for — hours, one of FANBOY_HISTORY_PERIODS (read strictly); none: a day (the part's look) */
