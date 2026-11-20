@@ -36,7 +36,9 @@ const FANBOY_UP_SETTLE = 8.0;           // … seconds at most for the fans to c
 const FANBOY_READBACK_AFTER = 2.0;      // round 5: a write read back this long after — changed back: the BIOS keeps it
 const FANBOY_MEASURE_STEPS = [90, 80, 70, 60, 50, 45, 40, 35, 30, 25, 20, 15, 10];
 const FANBOY_SETTLE_MAX = 10.0;         // measure: seconds at most for a value to settle
-const FANBOY_START_WAIT = 4.0;          // measure: seconds a start value gets to make a standing fan turn
+const FANBOY_START_WAIT = 12.0;         // measure: seconds a start value gets to make a standing fan turn (2026-11-20: 4 → 12 —
+                                        // the owner's fan with a soft start passed 12 and failed 10 times at 4 s; a quick fan
+                                        // still passes as soon as two looks turn, so it costs nothing more)
 const FANBOY_STOP_LOOK = 15.0;          // round 12: the standstill part — seconds at 0 for the fan to stop (else: a floor it keeps)
 const FANBOY_STOP_START_MAX = 60;       // … the start from standstill looked for up to this percent, then the kick
 // (a CPU cooler's standstill part: the same guard as every fan's, fanboyStepWarm() — 2026-11-20, the owner: «die CPU
@@ -465,6 +467,23 @@ function fanboyWarmOff(array $io): bool
     return ($io['warm_ok'] ?? false) === true;
 }
 
+/**
+ * The longest one fan's measuring can take, in seconds, from the constants (2026-11-20, the owner: «ein Hinweis, wie lange
+ * es dauert, pro Lüfter»; the page says it rounded up to minutes): the table — full and every step at its settle maximum,
+ * the start after a stall (at most 5 values, each FANBOY_START_WAIT); the standstill part — the stop look, every start value
+ * up to FANBOY_STOP_START_MAX each with its confirmations (stop again, start again), the kick and its look; the restart
+ * check after it (the pause, the wait, a kick and its look). The larger of with and without the standstill part (with).
+ */
+function fanboyMeasureMaxSecs(): int
+{
+    $table = FANBOY_SETTLE_MAX * (1 + count(FANBOY_MEASURE_STEPS)) + 5 * FANBOY_START_WAIT;
+    $values = intdiv(FANBOY_STOP_START_MAX - 5, 5) + 1;
+    $stand = FANBOY_STOP_LOOK + $values * (FANBOY_START_WAIT + FANBOY_START_CONFIRM * (FANBOY_STOP_LOOK + FANBOY_START_WAIT))
+        + FANBOY_KICK_FOR + FANBOY_KICK_LOOK;
+    $restart = FANBOY_QUIET_PAUSE + FANBOY_QUIET_RESTART + FANBOY_KICK_WAIT + FANBOY_KICK_FOR + FANBOY_KICK_LOOK;
+    return (int) ceil($table + $stand + $restart);
+}
+
 /** The page's sign of life while a step runs (step_alive, every start of a step) */
 function fanboyStepAliveTouch(): void
 {
@@ -502,6 +521,11 @@ function fanboyStepIo(array &$stop, float $max = FANBOY_STEP_MAX): array
  */
 function fanboyStepMax(array $step): float
 {
+    $n = count(is_array($step['fans'] ?? null) ? $step['fans'] : []);
+    if (($step['kind'] ?? null) === 'measure') {
+        // 2026-11-20: a fan may take up to fanboyMeasureMaxSecs() — the step's bound grows with its fans as the test's does
+        return max(FANBOY_STEP_MAX, $n * (fanboyMeasureMaxSecs() + FANBOY_UP_STEP_EXTRA));
+    }
     if (($step['kind'] ?? null) !== 'test_up') {
         return FANBOY_STEP_MAX;
     }
@@ -991,8 +1015,10 @@ function fanboyStandstill(array $o, array $tachs, array $owner, array $io, int $
         return ['stops' => false, 'floor_rpm' => $last ? (int) round(array_sum($last) / count($last)) : null, 'start_from_stop' => null, 'kick_start' => null,
                 'stops_safe' => null];
     }
-    // one start from standing at $p: FANBOY_START_WAIT for two looks turning — true, false, or ['warm' => …]
-    $tryStart = function (int $p) use ($o, $owner, $io, $warm, $turns): bool|array {
+    // one start from standing at $p: FANBOY_START_WAIT for two looks turning — the seconds it took (a pass), false, or
+    // ['warm' => …] (2026-11-20: the longest pass kept — start_secs)
+    $secs = [];
+    $tryStart = function (int $p) use ($o, $owner, $io, $warm, $turns): float|bool|array {
         fanboySet($o['id'], (int) round($p * 2.55), $owner);
         $t1 = ($io['now'])();
         $ok = 0;
@@ -1003,7 +1029,7 @@ function fanboyStandstill(array $o, array $tachs, array $owner, array $io, int $
             }
             $ok = $turns()[0] ? $ok + 1 : 0;
             if ($ok >= 2) {
-                return true;
+                return round(($io['now'])() - $t1, 1);
             }
         }
         return false;
@@ -1033,6 +1059,10 @@ function fanboyStandstill(array $o, array $tachs, array $owner, array $io, int $
     for ($p = max(5, $min); $p <= FANBOY_STOP_START_MAX; $p += 5) {
         $note(['phase' => 'start_find', 'pct' => $p]);
         $r = $tryStart($p);
+        if (is_float($r)) {
+            $secs[] = $r;
+            $r = true;
+        }
         if (is_array($r)) {
             return $r;
         }
@@ -1045,6 +1075,10 @@ function fanboyStandstill(array $o, array $tachs, array $owner, array $io, int $
             $note(['phase' => 'start_confirm', 'pct' => $p, 'try' => $i, 'of' => FANBOY_START_CONFIRM]);
             $st = $stopAgain();
             $r = is_array($st) ? $st : $tryStart($p);
+            if (is_float($r)) {
+                $secs[] = $r;
+                $r = true;
+            }
             if (is_array($r)) {
                 return $r;
             }
@@ -1058,7 +1092,7 @@ function fanboyStandstill(array $o, array $tachs, array $owner, array $io, int $
         if ($sure) {
             fanboySet($o['id'], FANBOY_FULL, $owner);
             return ['stops' => true, 'floor_rpm' => null, 'start_from_stop' => $p, 'kick_start' => null, 'stops_safe' => true,
-                    'start_tries' => ['passed' => $passed, 'failed' => $failed]];
+                    'start_tries' => ['passed' => $passed, 'failed' => $failed], 'start_secs' => fanboyLongest($secs)];
         }
     }
     // 3. the kick: full for FANBOY_KICK_FOR, then $min + 5 — turning there: it starts with the kick
@@ -1088,7 +1122,13 @@ function fanboyStandstill(array $o, array $tachs, array $owner, array $io, int $
     fanboySet($o['id'], FANBOY_FULL, $owner);
     $safe = $stand < 2 && $ok >= 2;
     return ['stops' => true, 'floor_rpm' => null, 'start_from_stop' => null, 'kick_start' => $safe ? $hold : null, 'stops_safe' => $safe,
-            'start_tries' => ['passed' => $passed, 'failed' => $failed]];
+            'start_tries' => ['passed' => $passed, 'failed' => $failed], 'start_secs' => fanboyLongest($secs)];
+}
+
+/** The longest of some times (s), or null for none */
+function fanboyLongest(array $secs): ?float
+{
+    return $secs ? (float) max($secs) : null;
 }
 
 /**
@@ -1288,7 +1328,7 @@ function fanboyMeasuredStore(string $id, array $r, array $board): void
             if (($r['result'] ?? null) === 'ok') {
                 $m = ['table' => $r['table'], 'min_pct' => $r['min_pct'], 'start_pct' => $r['start_pct'], 'max_rpm' => $r['max_rpm'], 'at' => time()];
                 if (array_key_exists('stops', $r)) {
-                    $m += array_intersect_key($r, array_flip(['stops', 'floor_rpm', 'start_from_stop', 'kick_start', 'stops_safe', 'start_tries']));
+                    $m += array_intersect_key($r, array_flip(['stops', 'floor_rpm', 'start_from_stop', 'kick_start', 'stops_safe', 'start_tries', 'start_secs']));
                 } elseif (is_array($r['stand_cut'] ?? null)) {
                     $m['stand_cut'] = $r['stand_cut'];          // round 12 fix: the standstill part was cut — why, by what
                     if (in_array($r['stand_cut']['why'] ?? null, ['warm', 'no_reading'], true)) {

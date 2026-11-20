@@ -619,7 +619,7 @@ function fanboyEnsureControl(float $now): void
 function fanboyTimes(): array
 {
     return [
-        'clear_after' => (int) FANBOY_CLEAR_AFTER, 'up_hold' => (int) FANBOY_UP_HOLD, 'up_hold_quiet' => (int) FANBOY_UP_HOLD_QUIET, 'up_min' => (int) FANBOY_UP_MIN, 'show_for' => (int) FANBOY_SHOW_FOR,
+        'clear_after' => (int) FANBOY_CLEAR_AFTER, 'up_hold' => (int) FANBOY_UP_HOLD, 'up_hold_quiet' => (int) FANBOY_UP_HOLD_QUIET, 'measure_max' => fanboyMeasureMaxSecs(), 'up_min' => (int) FANBOY_UP_MIN, 'show_for' => (int) FANBOY_SHOW_FOR,
         'lease' => (int) FANBOY_STEP_LEASE, 'tell_after' => (int) FANBOY_TELL_AFTER, 'idle_warm_after' => (int) FANBOY_IDLE_WARM_AFTER,
         'stand_after' => (int) FANBOY_STAND_AFTER, 'history_every' => (int) FANBOY_HISTORY_EVERY, 'history_periods' => FANBOY_HISTORY_PERIODS,
         'poll_live' => FANBOY_POLL_LIVE, 'crash_pause' => (int) FANBOY_CRASH_PAUSE, 'crash_window' => (int) FANBOY_CRASH_WINDOW, 'crash_max' => FANBOY_CRASH_MAX,
@@ -855,8 +855,8 @@ function fanboySetupState(array $scan, ?array $settings): array
             // round 9 (H1): it didn't start from standing at this value (0–255) — it needed a kick
             'kick_start' => is_int($f['kick_start']['value'] ?? null) ? $f['kick_start']['value'] : null,
             // round 12: the measurement's standstill part (null: not tried — measured before round 12, or a CPU cooler/pump)
-            'stand' => $m !== null && array_key_exists('stops', $m) ? array_intersect_key($m + ['floor_rpm' => null, 'start_from_stop' => null, 'kick_start' => null, 'stops_safe' => null, 'start_tries' => null],
-                array_flip(['stops', 'floor_rpm', 'start_from_stop', 'kick_start', 'stops_safe', 'start_tries'])) : null,
+            'stand' => $m !== null && array_key_exists('stops', $m) ? array_intersect_key($m + ['floor_rpm' => null, 'start_from_stop' => null, 'kick_start' => null, 'stops_safe' => null, 'start_tries' => null, 'start_secs' => null],
+                array_flip(['stops', 'floor_rpm', 'start_from_stop', 'kick_start', 'stops_safe', 'start_tries', 'start_secs'])) : null,
             // round 12 fix: the standstill part was cut — {why: warm|stopped|page_gone|…, source, c, at} («Stillstand nicht geprüft: CPU 53 °C»)
             'stand_cut' => $m !== null && !array_key_exists('stops', $m) && is_array($m['stand_cut'] ?? null) ? $m['stand_cut'] : null,
             // … and «darf stehen» chosen but not in effect: why (measure_again, never_stops, not_safe, not_measured)

@@ -93,6 +93,19 @@ function fanboyFakeRespond(string $root, array $spec, float $dt): void
             }
         }
         $want = fanboyFakeRpmTarget($f, $read("$dir/pwm$n"), is_file("$dir/pwm{$n}_enable") ? $read("$dir/pwm{$n}_enable") : 1, $now, is_file("$dir/fan{$tach}_stood"), $flakyOk);
+        // 2026-11-20: a soft start — a standing fan turns only after 'soft' seconds at a value that starts it
+        if (isset($f['soft'])) {
+            $mark = "$dir/fan{$tach}_soft";
+            if ($now < 50 && $want > 0) {
+                $waited = (float) @file_get_contents($mark) + $dt;
+                @file_put_contents($mark, (string) $waited);
+                if ($waited < (float) $f['soft']) {
+                    $want = 0;
+                }
+            } else {
+                @unlink($mark);
+            }
+        }
         // a fan running down coasts (nothing drives it down): 'lag_down' when given, else the same lag both ways
         $lag = max(0.01, (float) ($want < $now && isset($f['lag_down']) ? $f['lag_down'] : ($f['lag'] ?? 1.0)));
         $next = $now + ($want - $now) * min(1.0, $dt / $lag);
