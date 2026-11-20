@@ -104,7 +104,9 @@ function fanboyTSettings(string $address = FANBOY_T_ADDR, array $more = []): arr
             fanboyTId(5, $address) => $fan(5, ['tach' => 5, 'tachs' => [5, 6], 'found' => 'tach', 'role' => 'case', 'name' => 'Front']),
         ],
         'zones' => [
-            ['id' => 'disks', 'name' => 'Disks', 'fans' => [fanboyTId(4, $address)], 'unit' => 'pct', 'target' => ['preset' => 'normal'],
+            // (2026-11-20: the presets changed — the tests of the control keep the curve they were written on as the zone's own:
+            // round 4's «normal» on the old disk scale 35…45 °C)
+            ['id' => 'disks', 'name' => 'Disks', 'fans' => [fanboyTId(4, $address)], 'unit' => 'pct', 'target' => ['points' => [[35, 20], [40, 45], [45, 80], [48, 100]]],
              'sources' => [['kind' => 'disk', 'id' => 'parity'], ['kind' => 'disk', 'id' => 'disk1'], ['kind' => 'disk', 'id' => 'disk2']]],
             ['id' => 'case', 'name' => 'Case', 'fans' => [fanboyTId(5, $address), fanboyTId(2, $address)], 'unit' => 'pct', 'target' => ['preset' => 'quiet'],
              'sources' => [['kind' => 'nvme', 'id' => $nvme], ['kind' => 'ram', 'id' => 'spd5118@pci0000:00/0000:00:1f.4/i2c-0/0-0051#1']]],
@@ -385,9 +387,9 @@ function testFanboyAlarms(): void
         same('fanboy alarms: … over two minutes after it turns again', null, $c['alarm']);
 
         // over a limit: full at once; at full for a minute and still over: alarm «hot»
-        fanboyTDisks($t, 53, null, 33);
+        fanboyTDisks($t, 56, null, 33);
         fanboyTRounds($c, $now, $t, $spec, 6);
-        same('fanboy alarms: the parity over its limit (53 ≥ 52 °C) — its zone full at once, no alarm yet', [255, null], [fanboyTOut($t, 4)[0], $c['alarm']]);
+        same('fanboy alarms: the parity over its limit (56 ≥ 55 °C, the disk\'s limit since 2026-11-20) — its zone full at once, no alarm yet', [255, null], [fanboyTOut($t, 4)[0], $c['alarm']]);
         fanboyTRounds($c, $now, $t, $spec, 30);
         same('fanboy alarms: … a minute at full and still over — alarm «hot», told (the parity disk named as the page names it, round 5)', ['hot', 'Parity'], [$c['alarm']['code'] ?? null, $c['alarm']['params']['source'] ?? null]);
         fanboyTDisks($t, 35, null, 33);
@@ -683,7 +685,7 @@ function testFanboyZones(): void
         check('fanboy zones: … the case zone\'s sources: the SSD pool, NVMe, RAM, the board — no CPU, no hard disk', !array_diff(array_unique(array_column($prop[1]['sources'], 'kind')), ['ssd', 'nvme', 'ram', 'board'])
             && in_array('cache', array_column($prop[1]['sources'], 'id'), true));
         $good = [['id' => 'disks', 'name' => 'Disks', 'fans' => [fanboyTId(4)], 'sources' => [['id' => 'parity'], ['id' => 'disk2', 'limit' => 50]], 'unit' => 'pct', 'target' => ['preset' => 'quiet']]];
-        same('fanboy zones: a zone checked — the kind from the source, limits kept', [['kind' => 'disk', 'id' => 'disk2', 'low' => null, 'high' => null, 'limit' => 50.0]],
+        same('fanboy zones: a zone checked — the kind from the source; a source\'s own limit not kept (2026-11-20: each kind\'s own)', [['kind' => 'disk', 'id' => 'disk2', 'low' => null, 'high' => null, 'limit' => null]],
             [fanboyZonesCheck($good, $scan, $settings)[0]['sources'][1]]);
         $bad = [
             'id'      => [['id' => 'Disks!'] + $good[0]],
@@ -691,7 +693,7 @@ function testFanboyZones(): void
             'twice'   => [$good[0], ['id' => 'two', 'name' => 'Two'] + $good[0]],
             'source'  => [['sources' => [['id' => 'disk9']]] + $good[0]],
             'drivetemp' => [['sources' => [['id' => 'drivetemp@x#1']]] + $good[0]],
-            'string'  => [['sources' => [['id' => 'parity', 'limit' => '50']]] + $good[0]],
+            'string'  => [['target' => ['points' => [[30, '20'], [50, 100]]]] + $good[0]],
             'points'  => [['target' => ['points' => [[40, 50]]]] + $good[0]],
             'rpm'     => [['unit' => 'rpm', 'target' => ['points' => [[30, 800], [50, 1500]]], 'fans' => [fanboyTId(5)]] + $good[0]],
             'preset'  => [['target' => ['preset' => 'loud']] + $good[0]],

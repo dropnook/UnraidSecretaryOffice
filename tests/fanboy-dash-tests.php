@@ -101,7 +101,7 @@ function testFanboyDashTile(): void
     same('fanboy dash: steering — the web side without a word', '', $o['err']);
     same('fanboy dash: steering — who, no banner, nothing stale, the two zones (warmest, level, speed), the CPU cooler watched',
         ['Fanboy · 2 zones', 'green', [], null,
-         [['Plattenkäfig', 'warmest: Disk 2 at 41 °C', '57 %', '1018 rpm', 1], ['Gehäuse', 'warmest: Composite at 28 °C', '25 %', '905 rpm', 2]],      // (the demo's levels follow its curves since round 13's demo data)
+         [['Plattenkäfig', 'warmest: Disk 2 at 41 °C', '10 %', '1018 rpm', 1], ['Gehäuse', 'warmest: Composite at 28 °C', '25 %', '905 rpm', 2]],      // (the demo's levels follow its curves since round 13's demo data)
          [['CPU-Kühler', '1310 rpm']]],
         [$m['who'] ?? null, $m['tone'] ?? null, $m['banners'] ?? null, fanboyDashKey($m, 'stale'),
          array_map(fn ($z) => [$z['name'], $z['warmest'], $z['level'], $z['speed'], count($z['fans'])], $m['zones'] ?? []), $m['watch'] ?? null]);
@@ -127,8 +127,8 @@ function testFanboyDashTile(): void
     // the zones that fold (no fan with a look or a name): the alarm's zone open
     $o = fanboyDashWeb(['fanboy.json' => fanboyDashPlain(json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy-alarm.json'), true))] + fanboyDashFiles('fanboy'), [], $now);
     $rows = (string) ($o['rows'] ?? '');
-    same('fanboy dash: alarm — where it is: the case zone «alarm — at 100 %» in red and open, the disk cage steers on (57 %); the fan that stands marked on its row',
-        [['57 %', 'alarm — at 100 %'], [false, true], true, true, true, false],
+    same('fanboy dash: alarm — where it is: the case zone «alarm — at 100 %» in red and open, the disk cage steers on (10 %: Disk 2 at 41 °C on its Normal, 40→50 °C); the fan that stands marked on its row',
+        [['10 %', 'alarm — at 100 %'], [false, true], true, true, true, false],
         [array_column($m['zones'] ?? [], 'level'), array_column($m['zones'] ?? [], 'full'), str_contains($rows, '<b class="red-text">alarm — at 100 %</b>'),
          str_contains($rows, '<div class="sso-fb-fan red-text"><span>Output 5</span><span>0 rpm · should turn · 100 %</span>'), str_contains($rows, 'data-zone="case" open>'),
          str_contains($rows, 'data-zone="disks" open>')]);

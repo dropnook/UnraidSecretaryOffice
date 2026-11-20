@@ -74,10 +74,12 @@
               the points' own line thin where he drags (none: the points are the truth),
               texts: { axisT, axisV, tickT(t), tickV(v), point(i, n) → aria label, value(t, v) → aria value text,
                        readout(t, v, rpm) → the line beside the wheel, floor, now },
-              onInput(points) while dragging, onChange(points) when a change is done }
-     Keyboard on a point: ←/→ temperature, ↑/↓ value (Shift ×5), + adds a point after it, Delete removes it (≥ 2 stay).
-     Double click on the chart adds a point there. Points keep their order: the temperature between its neighbours,
-     the value never below the point before it nor above the one after it.
+              onInput(points) while dragging, onChange(points) when a change is done,
+              wheel: false — no wheel beside the chart: the readout is a line of text under it (2026-11-20, the owner),
+              locked: true — the points are shown, not moved: no drag, no point added, the typed fields read only }
+     A point is dragged, or typed in the fields under the chart (the keyboard's way). Double click on the chart adds a
+     point there. Points keep their order: the temperature between its neighbours, the value never below the point
+     before it nor above the one after it.
 
    The picker (picker()):
      opts = { catalog: { fans: [...] }, value: { id } | { mm, blades } (other fan), colour (the user's, 'auto'),
@@ -755,9 +757,13 @@
     read.setAttribute('aria-live', 'polite');
     const s = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'fan-curve-svg' });   // its size set by fitSize()
     chart.appendChild(s);
-    const wh = wheel(Object.assign({}, fan, { px: num(fan.px, 96), rpm: 0, state: 'run', air: false }));
-    side.append(wh.el, read);
+    const wh = o.wheel === false ? null : wheel(Object.assign({}, fan, { px: num(fan.px, 96), rpm: 0, state: 'run', air: false }));
+    if (wh) side.append(wh.el, read); else side.append(read);
     root.append(chart, side);
+    if (!wh) root.classList.add('fan-curve-nowheel');
+    if (rpm) root.classList.add('fan-curve-rpm');
+    const locked = o.locked === true;
+    if (locked) root.classList.add('fan-curve-locked');
     if (tx.axisT) chart.appendChild(el('span', 'fan-curve-axis fan-curve-axis-t', tx.axisT));
     if (tx.axisV) chart.appendChild(el('span', 'fan-curve-axis fan-curve-axis-v', tx.axisV));
 
@@ -852,7 +858,7 @@
     let shownT = typeof o.now === 'number' ? o.now : null;
     function show(t) {
       const v = applied(valueAt(t)), r = Math.round(rpmOf(v));
-      wh.update({ rpm: r, state: r > 0 ? 'run' : 'stopped' });
+      if (wh) wh.update({ rpm: r, state: r > 0 ? 'run' : 'stopped' });
       read.textContent = tx.readout(Math.round(t), rpm ? Math.round(v) : Math.round(v), r);
     }
     function paint() {
@@ -873,17 +879,14 @@
       pts.forEach((p, i) => {
         let g = dots.children[i];
         if (!g) {
-          g = svg('g', { class: 'fan-curve-pt', tabindex: '0', role: 'slider' });
+          g = svg('g', { class: 'fan-curve-pt', role: 'img' });
           g.append(svg('circle', { class: 'fan-curve-hit', r: 18 }), svg('circle', { class: 'fan-curve-dot', r: 7 }));
           dots.appendChild(g);
         }
         g.dataset.i = i;
         g.setAttribute('transform', `translate(${x(p.t).toFixed(1)} ${y(p.v).toFixed(1)})`);
         g.setAttribute('aria-label', tx.point(i, pts.length));
-        g.setAttribute('aria-valuemin', vMin);
-        g.setAttribute('aria-valuemax', vMax);
-        g.setAttribute('aria-valuenow', p.v);
-        g.setAttribute('aria-valuetext', tx.value(p.t, p.v));
+        g.setAttribute('aria-description', tx.value(p.t, p.v));
       });
       while (dots.children.length > pts.length) dots.lastChild.remove();
       othersPaint();
@@ -943,6 +946,7 @@
             inp.min = which === 't' ? tMin : vMin;
             inp.max = which === 't' ? tMax : vMax;
             inp.dataset.axis = which;
+            if (locked) { inp.readOnly = true; inp.tabIndex = -1; }
             inp.setAttribute('aria-label', which === 't' ? tx.fieldT(i) : tx.fieldV(i));
             inp.addEventListener('focus', () => { const k = +row.dataset.i; if (pts[k]) { shownT = pts[k].t; show(shownT); activate(k); } });
             inp.addEventListener('blur', () => activate(-1));
@@ -983,7 +987,7 @@
     let drag = null;
     s.addEventListener('pointerdown', (ev) => {
       const g = ev.target.closest && ev.target.closest('.fan-curve-pt');
-      if (!g) return;
+      if (!g || locked) return;
       ev.preventDefault();
       const i = +g.dataset.i;
       drag = { i, was: copy(), id: ev.pointerId };
@@ -1031,7 +1035,7 @@
       paint();
     });
     s.addEventListener('dblclick', (ev) => {
-      if (ev.target.closest && ev.target.closest('.fan-curve-pt')) return;
+      if (locked || (ev.target.closest && ev.target.closest('.fan-curve-pt'))) return;
       const { px, py } = at(ev);
       const t = snapT(tAt(px));
       whole();
@@ -1040,43 +1044,6 @@
       if (i < 0) i = pts.length;
       pts.splice(i, 0, { t, v: snapV(vAt(py)) });
       pts[i] = fit(i, pts[i].t, pts[i].v);
-      paint();
-      emit(o.onChange);
-    });
-    s.addEventListener('keydown', (ev) => {
-      const g = ev.target.closest && ev.target.closest('.fan-curve-pt');
-      if (!g) return;
-      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Delete', 'Backspace', '+', 'Insert'].includes(ev.key)) return;
-      whole();
-      const i = +g.dataset.i, p = pts[i], big = ev.shiftKey ? 5 : 1;
-      let t = p.t, v = p.v;
-      if (ev.key === 'ArrowLeft') t -= big;
-      else if (ev.key === 'ArrowRight') t += big;
-      else if (ev.key === 'ArrowUp') v += big * vStep;
-      else if (ev.key === 'ArrowDown') v -= big * vStep;
-      else if ((ev.key === 'Delete' || ev.key === 'Backspace') && pts.length > 2) {
-        ev.preventDefault();
-        pts.splice(i, 1);
-        paint();
-        emit(o.onChange);
-        const n = dots.children[Math.min(i, pts.length - 1)];
-        if (n) n.focus();
-        return;
-      } else if (ev.key === '+' || ev.key === 'Insert') {
-        const b = pts[i + 1];
-        const nt = b ? Math.round((p.t + b.t) / 2) : Math.min(tMax, p.t + 5);
-        if (nt === p.t || (b && nt === b.t)) return;
-        ev.preventDefault();
-        pts.splice(i + 1, 0, { t: nt, v: b ? snapV((p.v + b.v) / 2) : p.v });
-        pts[i + 1] = fit(i + 1, pts[i + 1].t, pts[i + 1].v);
-        paint();
-        emit(o.onChange);
-        dots.children[i + 1].focus();
-        return;
-      } else return;
-      ev.preventDefault();
-      pts[i] = fit(i, t, v);
-      shownT = pts[i].t;
       paint();
       emit(o.onChange);
     });
@@ -1129,7 +1096,7 @@
         show(shownT != null ? shownT : pts[Math.floor(pts.length / 2)].t);
       }
     }
-    return { el: root, set, points: copy, valueAt, live: liveSet, destroy() { wh.destroy(); if (watch) watch.disconnect(); } };
+    return { el: root, set, points: copy, valueAt, live: liveSet, destroy() { if (wh) wh.destroy(); if (watch) watch.disconnect(); } };
   }
 
   // ------------------------------------------------------------------------------------------- the catalogue

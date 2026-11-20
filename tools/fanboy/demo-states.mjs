@@ -71,14 +71,18 @@ function uncovered(zones, all) {
   const inZones = new Set((zones || []).flatMap((z) => (z.sources || []).map((x) => x.id)));
   return all.filter((x) => ['disk', 'ssd', 'nvme'].includes(x.kind) && !inZones.has(x.id)).map((x) => ({ kind: x.kind, id: x.id, name: x.label, c: x.c, asleep: x.asleep }));
 }
-const DEFAULTS = { disk: [35, 45, 52], ssd: [40, 60, 80], nvme: [40, 65, 80], cpu: [45, 80, 92], ram: [40, 60, 75], gpu: [45, 80, 90], board: [35, 55, 70], other: [35, 55, 75] };
-const SCALES = Object.fromEntries(Object.entries(DEFAULTS).map(([k, [low, high, limit]]) => [k, { low, high, limit }]));
-function preset(p, lo, hi) {
-  const mid = (lo + hi) / 2;
-  return { quiet: [[lo, 0], [mid, 30], [hi, 60], [hi + 5, 100]], cool: [[lo - 3, 35], [mid - 3, 65], [hi - 3, 100]] }[p] || [[lo, 20], [mid, 45], [hi, 80], [hi + 3, 100]];
+// FANBOY_SOURCE_DEFAULTS of agent/desks/fanboy-control.php (2026-11-20, the owner's table): [low, high, limit, step]
+const DEFAULTS = { disk: [40, 50, 55, 5], ssd: [50, 70, 80, 10], nvme: [50, 70, 80, 10], cpu: [50, 80, 92, 10], ram: [50, 70, 75, 5], gpu: [50, 80, 90, 10], board: [45, 65, 70, 5], other: [50, 70, 75, 5] };
+const SCALES = Object.fromEntries(Object.entries(DEFAULTS).map(([k, [low, high, limit, step]]) => [k, { low, high, limit, step }]));
+/** fanboyKindPreset(): a preset on a kind's own scale — Normal low→high, Leise warmer by the step (≤ limit), Kühl cooler */
+function preset(p, kind) {
+  const [lo, hi, limit, step] = DEFAULTS[kind] || DEFAULTS.other;
+  if (p === 'quiet') return [[lo + step, 0], [Math.max(lo + step + 1, Math.min(hi + step, limit)), 100]];
+  if (p === 'cool') return [[lo - step, 0], [hi - step, 100]];
+  return [[lo, 0], [hi, 100]];
 }
-const presets = (lo, hi) => ({ quiet: preset('quiet', lo, hi), normal: preset('normal', lo, hi), cool: preset('cool', lo, hi) });
-const PRESETS_OF = Object.fromEntries(Object.entries(DEFAULTS).map(([k, [lo, hi]]) => [k, presets(lo, hi)]));
+const presets = (kind) => ({ quiet: preset('quiet', kind), normal: preset('normal', kind), cool: preset('cool', kind) });
+const PRESETS_OF = Object.fromEntries(Object.keys(DEFAULTS).map((k) => [k, presets(k)]));
 // FANBOY_DOWN_PROFILES of agent/desks/fanboy-control.php (round 4): the way down per kind, balanced or quick
 const DP = (b, q) => ({ balanced: { gap: b[0], hold: b[1], step: b[2] }, quick: { gap: q[0], hold: q[1], step: q[2] } });
 const MID = DP([2, 4, 2], [1, 2, 4]);
@@ -116,20 +120,20 @@ const ZONES = [
 ];
 /** fanboyKindValues(), fanboyZoneScale(), fanboyZoneCurve(), fanboyKindCurve() of agent/desks/fanboy-control.php (round 13), for the invented data */
 function kindValues(z, k) {
-  const own = (z.kinds || {})[k] || {};
   const d = DEFAULTS[k] || DEFAULTS.other;
-  return { low: own.low ?? d[0], high: own.high ?? d[1] };
+  return { low: d[0], high: d[1] };          // (a zone's or a source's own values: not read any more, 2026-11-20)
 }
+const firstKind = (z) => (z.sources[0] ? z.sources[0].kind : 'disk');
 function zoneScale(z) {
-  const d = kindValues(z, z.sources[0] ? z.sources[0].kind : 'disk');
-  const lo = z.low ?? d.low, hi = z.high ?? d.high;
-  return [lo, hi > lo ? hi : lo + 10];
+  const d = kindValues(z, firstKind(z));
+  return [d.low, d.high > d.low ? d.high : d.low + 10];
 }
-const zoneCurve = (z) => (z.target.points ? z.target.points.map((p) => [p[0], p[1]]).sort((a, b) => a[0] - b[0]) : preset(z.target.preset, ...zoneScale(z)));
+const zoneCurve = (z) => (z.target.points ? z.target.points.map((p) => [p[0], p[1]]).sort((a, b) => a[0] - b[0]) : preset(z.target.preset, firstKind(z)));
 function kindCurve(z, k) {
   const kv = kindValues(z, k), own = (z.curves || {})[k];
   if (own && own.points) return { points: own.points.map((p) => [p[0], p[1]]).sort((a, b) => a[0] - b[0]), own: true };
-  if (own && own.preset) return { points: preset(own.preset, kv.low, kv.high > kv.low ? kv.high : kv.low + 10), own: true };
+  if (own && own.preset) return { points: preset(own.preset, k), own: true };
+  if (!z.target.points) return { points: preset(z.target.preset || 'normal', k), own: false };
   const [lo, hi] = zoneScale(z), curve = zoneCurve(z);
   return { points: kv.high <= kv.low ? curve : curve.map((p) => [kv.low + (p[0] - lo) * (kv.high - kv.low) / (hi - lo), p[1]]), own: false };
 }
@@ -146,9 +150,9 @@ function curves(zones) {
     const kinds = {};
     for (const k of zoneKinds(z)) {
       const kv = kindValues(z, k), kh = kv.high > kv.low ? kv.high : kv.low + 10;
-      kinds[k] = { ...kindCurve(z, k), scale: [kv.low, kh], presets: presets(kv.low, kh) };
+      kinds[k] = { ...kindCurve(z, k), scale: [kv.low, kh], presets: presets(k) };
     }
-    out[z.id] = { points: zoneCurve(z), scale: [lo, hi], presets: presets(lo, hi), kinds };
+    out[z.id] = { points: zoneCurve(z), scale: [lo, hi], presets: presets(firstKind(z)), kinds };
   }
   return out;
 }

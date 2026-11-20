@@ -890,10 +890,10 @@ function fanboySetupState(array $scan, ?array $settings): array
                 $kv = fanboyKindValues($z, $k);
                 $kl = (float) $kv['low'];
                 $kh = (float) $kv['high'] > $kl ? (float) $kv['high'] : $kl + 10;
-                $kinds[$k] = $kc + ['scale' => [$kl, $kh], 'presets' => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, $kl, $kh), FANBOY_PRESETS))];
+                $kinds[$k] = $kc + ['scale' => [$kl, $kh], 'presets' => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyKindPreset($p, $k), FANBOY_PRESETS))];
             }
             $curves[$z['id']] = ['points' => fanboyZoneCurve($z), 'scale' => [$lo, $hi],
-                'presets' => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, $lo, $hi), FANBOY_PRESETS)), 'kinds' => $kinds ?: new stdClass()];
+                'presets' => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyKindPreset($p, $z['sources'][0]['kind'] ?? 'disk'), FANBOY_PRESETS)), 'kinds' => $kinds ?: new stdClass()];
         }
     }
     return [
@@ -908,7 +908,7 @@ function fanboySetupState(array $scan, ?array $settings): array
         'curves' => $curves ?: new stdClass(), 'before' => $before ?: new stdClass(),
         'back_default' => FANBOY_BACK_DEFAULT,
         'scales' => FANBOY_SOURCE_DEFAULTS, 'down' => FANBOY_DOWN_PROFILES, 'round' => FANBOY_ROUND, 'presets_of' => array_combine(array_keys(FANBOY_SOURCE_DEFAULTS),
-            array_map(fn ($d) => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyPreset($p, (float) $d['low'], (float) $d['high']), FANBOY_PRESETS)), FANBOY_SOURCE_DEFAULTS)),
+            array_map(fn ($k) => array_combine(FANBOY_PRESETS, array_map(fn ($p) => fanboyKindPreset($p, $k), FANBOY_PRESETS)), array_keys(FANBOY_SOURCE_DEFAULTS))),
         // 2026-11-16 (the page's sentence audit): every number a sentence of the page states, from the code (testFanboyTimes)
         'times' => fanboyTimes(), 'limits' => ['name_max' => FANBOY_NAME_MAX, 'count_max' => FANBOY_COUNT_MAX, 'zones_max' => FANBOY_ZONES_MAX, 'sources_max' => FANBOY_SOURCES_MAX],
         // the control's deaths in a row (the agent's memory): `given_up` — not started again by itself any more

@@ -501,7 +501,7 @@ function testFanboyUx(): void
             }
         }
         $tmp = sys_get_temp_dir() . '/uso-fanboy-kc-' . getmypid() . '.js';
-        file_put_contents($tmp, $block . "\nconst zones = " . json_encode($zonesFor) . ";\nconst scales = " . json_encode(array_map(fn ($d) => ['low' => $d['low'], 'high' => $d['high']], FANBOY_SOURCE_DEFAULTS)) . ";\n"
+        file_put_contents($tmp, $block . "\nconst zones = " . json_encode($zonesFor) . ";\nconst scales = " . json_encode(FANBOY_SOURCE_DEFAULTS) . ";\n"
             . "const out = {};\nconst r = (x) => Math.round(x * 1e6) / 1e6;\nfor (const z of zones) for (const k of [...new Set(z.sources.map((x) => x.kind))]) { const c = kindCurveOf(z, k, scales); out[z.id + ':' + k] = { points: c.points.map((p) => [r(p[0]), r(p[1])]), own: c.own }; }\nconsole.log(JSON.stringify(out));\n");
         $got = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg($tmp) . ' 2>&1'), true);
         @unlink($tmp);
@@ -511,15 +511,18 @@ function testFanboyUx(): void
     check('fanboy ux r13: one chart per zone — the kind in front with its handles, the other kinds\' curves faded behind it, one scale of degrees for all',
         str_contains($js, "const others = all.filter((x) => x.k !== K).map((x) => ({ points: x.pts.map((p) => ({ t: p[0], v: p[1] })) }));") && str_contains($js, "const temps = all.flatMap((x) => x.pts.map((p) => p[0]));")
         && str_contains($art, "othersG.appendChild(svg('polyline', { class: 'fan-curve-other', points: xy.join(' ') }));") && str_contains($js, "b.onclick = () => { if (kindSel.get(z.id) !== k) { kindSel.set(z.id, k); drawn = ''; redraw(); } };"));
-    check('fanboy ux r13: a changed curve is that kind\'s own (with one kind: the zone\'s); «Wieder der Zone folgen» drops it; saving sends only the own curves of kinds the zone still has',
-        str_contains($js, "if (multi || ownK) zs[i].curves = { ...(zs[i].curves || {}), [K]: { points: own2 } };") && str_contains($js, "else zs[i].target = { points: own2 };")
-        && str_contains($js, "const rest = { ...(zs[i].curves || {}) }; delete rest[K]; zs[i].curves = rest;") && str_contains($js, "if (!has2.includes(k) || !v) return;") && str_contains($js, "if (Object.keys(own).length) out.curves = own;"));
+    // 2026-11-20 (the owner: «immer pro Wärmequelle»): the goal per kind — a preset locked, «Eigene Kurve» his last own one
+    check('fanboy ux r13: the goal is the kind\'s — a preset\'s points locked; a change is that kind\'s own curve; «Eigene Kurve» brings back his kept one (else the curve shown); a preset keeps it beside; saving writes every kind\'s choice; no «Wieder der Zone folgen»',
+        str_contains($js, "const locked = !rpmUnit && choice !== 'own';") && str_contains($js, "wheel: false, locked,")
+        && str_contains($js, "zs[i].curves = { ...(zs[i].curves || {}), [K]: { points: p.map((x) => [x.t, x.v]) } };")
+        && str_contains($js, "if (choose.value === 'own') cv[K] = { points: kept || now };") && str_contains($js, "else cv[K] = { preset: choose.value, ...(was === 'own' ? { own: now } : kept ? { own: kept } : {}) };")
+        && str_contains($js, "curves2[k] = { preset: choice, ...(kept ? { own: round(kept) } : {}) };") && !str_contains($js, "T('curve.kind_follow')"));
     check('fanboy ux r13: what each kind asks for and which one the fans follow comes from the control\'s state (by_kind, leader) — marked for the numbers check, never worked out on the page',
         str_contains($js, "const byKind = (cz && cz.by_kind) || {};") && str_contains($js, "const leadKind = cz && cz.leader && kinds.includes(cz.leader.kind) ? cz.leader.kind : null;")
         && str_contains($js, "follows.dataset.nums = JSON.stringify([{ v: led.c, from: ['control', 'zones', `=\${z.id}`, 'by_kind', leadKind, 'c'] },")
         && str_contains((string) ($l['de']['curve.follows'] ?? ''), 'Die Lüfter folgen gerade: {kind} · {source} {c} °C → {value}'));
     check('fanboy ux r13: a curve is shown exactly as it counts (a derived point at 39.5 °C stays 39.5) and becomes whole numbers only once he changes it',
-        str_contains($art, ".map((p) => ({ t: clamp(p.t, tMin, tMax), v: clamp(p.v, vMin, vMax) }))") && str_contains($art, "function whole() {") && substr_count($art, 'whole();') >= 4
+        str_contains($art, ".map((p) => ({ t: clamp(p.t, tMin, tMax), v: clamp(p.v, vMin, vMax) }))") && str_contains($art, "function whole() {") && substr_count($art, 'whole();') >= 3
         && str_contains($js, "const degrees = (c) => fmt.number(c, Number.isInteger(c) ? 0 : 1);"));
     check('fanboy ux r13: several kinds — a fan stands only while no kind asks (a kind whose curve never reaches 0 is named); the CPU cooler on own risk goes by the CPU\'s curve alone',
         str_contains($js, "const neverKind = !isCpu && multi ? kinds.find((k) => curveRule(curveOf(k).points).start === null) : null;") && str_contains($js, "const cpuElse = isCpu && K !== 'cpu';")
@@ -996,27 +999,29 @@ function testFanboyNvmeWarm(): void
         $settings['armed'] = false;
         unset($settings['fans'][fanboyTId(4)]['measured']);
         fanboyTStore($settings);
-        same('fanboy nvme warm: the NVMe pool at 50 °C, the hard disks at 35 — nothing too warm (the SSD\'s limit 70)', null, fanboyStepWarm($settings));
+        same('fanboy nvme warm: the NVMe pool at 50 °C, the hard disks at 35 — nothing too warm (the SSD\'s limit 80)', null, fanboyStepWarm($settings));
         $spec = fanboyTSpec();
         fanboyTSettle($t, $spec);
         $clock = 0.0;
         $step = fanboyStepRun(['id' => 'n1', 'kind' => 'measure', 'fans' => [fanboyTId(4)]], fanboyTIo($t, $spec, $clock));
         same('fanboy nvme warm: … measuring runs through: a table, a lowest steady value', ['done', 'ok', 20],
             [$step['status'], $step['results'][fanboyTId(4)]['result'] ?? null, $step['results'][fanboyTId(4)]['min_pct'] ?? null]);
-        // the user's own, lower limit for the pool in a zone: it counts — and the step says which, how warm, the limit
+        // an earlier set-up's own, lower limit for the pool in a zone (52): not read any more (2026-11-20) — the SSD's own 80
         $s2 = $settings;
         $s2['zones'][1]['sources'][] = ['kind' => 'ssd', 'id' => 'cache', 'limit' => 52];
         fanboyTStore($s2);
-        same('fanboy nvme warm: a zone\'s own limit for the pool (52) — too warm at 50 (52 − 5)', ['source' => 'cache', 'kind' => 'ssd', 'c' => 50.0, 'limit' => 52.0], fanboyStepWarm($s2));
+        same('fanboy nvme warm: an earlier set-up\'s own limit for the pool (52) — not read: at 50 nothing too warm', null, fanboyStepWarm($s2));
+        // the pool at 76 °C (80 − 5): too warm — the step stops «warm» and names it
+        fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '35', '1'], ['cache', 'Cache', 'nvme0n1', '76', '0']]);
         $clock = 0.0;
         $step = fanboyStepRun(['id' => 'n2', 'kind' => 'measure', 'fans' => [fanboyTId(4)]], fanboyTIo($t, $spec, $clock));
-        same('fanboy nvme warm: … the step stops «warm» and names it', ['stopped', 'warm', 'cache', 50.0, 52.0, [128, 1]],
+        same('fanboy nvme warm: … at 76 °C the step stops «warm» and names it', ['stopped', 'warm', 'cache', 76.0, 80.0, [128, 1]],
             [$step['status'], $step['why'], $step['warm']['source'] ?? null, $step['warm']['c'] ?? null, $step['warm']['limit'] ?? null, fanboyTOut($t, 4)]);
         fanboyTStore($settings);
         fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '35', '1'], ['cache', 'Cache', 'nvme0n1', '76', '0']]);
         same('fanboy nvme warm: the pool at 76 °C — close to the SSD limit (80 − 5, since 2026-11-20)', ['cache', 'ssd', 80.0], array_values(array_intersect_key(fanboyStepWarm($settings) ?? [], array_flip(['source', 'kind', 'limit']))));
-        fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '48', '1'], ['cache', 'Cache', 'nvme0n1', '50', '0']]);
-        same('fanboy nvme warm: a hard disk at 48 °C — its own kind\'s limit (52 − 5)', ['parity', 'disk', 52.0], array_values(array_intersect_key(fanboyStepWarm($settings) ?? [], array_flip(['source', 'kind', 'limit']))));
+        fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '51', '1'], ['cache', 'Cache', 'nvme0n1', '50', '0']]);
+        same('fanboy nvme warm: a hard disk at 51 °C — its own kind\'s limit (55 − 5)', ['parity', 'disk', 55.0], array_values(array_intersect_key(fanboyStepWarm($settings) ?? [], array_flip(['source', 'kind', 'limit']))));
     } finally {
         fanboyTEnd();
     }
@@ -1062,7 +1067,8 @@ function testFanboyReact(): void
         $cpuSrc = 'coretemp@platform/coretemp.0#1';
         $cpuFile = "{$t['root']}/sys/devices/platform/coretemp.0/hwmon/hwmon7/temp1_input";
         $settings = fanboyTSettings();
-        $settings['zones'] = [['id' => 'cpuz', 'name' => 'CPU zone', 'fans' => [fanboyTId(5)], 'unit' => 'pct', 'target' => ['preset' => 'normal'],
+        // (2026-11-20: the presets changed — the curve this test was written on, round 4's CPU «normal», as the zone's own)
+        $settings['zones'] = [['id' => 'cpuz', 'name' => 'CPU zone', 'fans' => [fanboyTId(5)], 'unit' => 'pct', 'target' => ['points' => [[45, 20], [62.5, 45], [80, 80], [83, 100]]],
             'sources' => [['kind' => 'cpu', 'id' => $cpuSrc]]]];
         fanboyTStore($settings);
         $spec = fanboyTSpec();
@@ -1132,10 +1138,10 @@ function testFanboyReact(): void
 }
 
 /**
- * Round 4 (the owner): the degrees settable per zone — «ab», «volle Drehzahl bei», «Grenze» per kind the zone has, a
- * source's own values over its kind's; read strictly (numbers only, the kind's sane bounds, only kinds present),
- * low < high < limit for every source with the defaults filling the gaps; a limit under today's temperature is allowed
- * (the page says it). The control steers by them.
+ * Round 4 (the owner) gave each zone «Temperaturen» per kind and a source values of its own; 2026-11-20 (the owner: «ganzer
+ * Bereich kann weg, weil man oben jede Wärmequelle einstellen kann und auch muss» — and the single source «auch weg»):
+ * each kind's low, high and limit are its own (FANBOY_SOURCE_DEFAULTS). What an earlier set-up stored there is not read
+ * (the control steers as without it) and not kept by the next save; an older page sending it is not refused.
  */
 function testFanboyTemps(): void
 {
@@ -1147,33 +1153,25 @@ function testFanboyTemps(): void
         $settings = fanboyTSettings();
         $settings['armed'] = false;
         fanboyTStore($settings);
-        $scan = fanboyDetect();
         $zone = fn (array $kinds, array $src = []) => ['id' => 'cpuz', 'name' => 'CPU zone', 'fans' => [fanboyTId(5)], 'unit' => 'pct',
             'target' => ['preset' => 'normal'], 'sources' => [['id' => $cpuSrc] + $src], 'kinds' => $kinds];
-        $try = function (array $z) use ($scan, $settings) {
-            try {
-                return fanboyZonesCheck([$z], $scan, $settings)[0]['kinds'];
-            } catch (Problem $p) {
-                return $p->key . ':' . ($p->params['field'] ?? $p->params['source'] ?? '');
-            }
-        };
-        same('fanboy temps: the CPU\'s own degrees kept; none sent — an empty object (the defaults)',
-            ['{"cpu":{"low":50,"high":70,"limit":90}}', '{}'],
-            [json_encode($try($zone(['cpu' => ['low' => 50, 'high' => 70, 'limit' => 90]]))), json_encode($try($zone([])))]);
-        same('fanboy temps: refused — a kind the zone hasn\'t, a list, a text number, beyond the kind\'s bounds, low over high, a source\'s own low over its kind\'s high',
-            ['fanboy_bad_zones:kinds', 'fanboy_bad_zones:kinds', 'fanboy_bad_zones:low', 'fanboy_bad_zones:limit', 'fanboy_bad_temps:' . $cpuSrc, 'fanboy_bad_temps:' . $cpuSrc],
-            [$try($zone(['disk' => ['low' => 30]])), $try($zone([['low' => 30]])), $try($zone(['cpu' => ['low' => '50']])), $try($zone(['cpu' => ['limit' => 130]])),
-                $try($zone(['cpu' => ['low' => 80, 'high' => 70]])), $try($zone(['cpu' => ['high' => 60]], ['low' => 65]))]);
-        same('fanboy temps: a limit under today\'s 60 °C is allowed (the page says «liegt schon darüber»)', ['cpu' => ['low' => 40.0, 'high' => 50.0, 'limit' => 55.0]],
-            $try($zone(['cpu' => ['low' => 40, 'high' => 50, 'limit' => 55]])));
-        // the control steers by them: the same 60 °C — on the defaults (45…80) part way, with «volle Drehzahl bei» 58 at full
-        $level = function (array $kinds) use ($zone) {
-            fanboyZonesSave(['zones' => [$zone($kinds)]]);
+        $saved = fanboyZonesCheck([$zone(['cpu' => ['low' => 40, 'high' => 58, 'limit' => 70]], ['low' => 30, 'high' => 50, 'limit' => 60])], fanboyDetect(), $settings)[0];
+        same('fanboy temps: an older page\'s «Temperaturen» and a source\'s own values — not refused, not kept (the shape stays empty)',
+            ['{}', null, null, null], [json_encode($saved['kinds']), $saved['sources'][0]['low'], $saved['sources'][0]['high'], $saved['sources'][0]['limit']]);
+        // stored by an earlier set-up (written straight into the store): the control steers as without them
+        $level = function (array $kinds, array $src = []) use ($zone, $settings) {
+            $s = $settings;
+            $z = $zone($kinds, $src);
+            $z['sources'][0]['kind'] = 'cpu';
+            $s['zones'] = [$z];
+            fanboyTStore($s);
             return array_column(fanboyDryRun()['dry']['zones'], 'level', 'id')['cpuz'] ?? null;
         };
-        $plain = $level([]);
-        $own = $level(['cpu' => ['low' => 40, 'high' => 58]]);
-        check("fanboy temps: CPU at 60 °C — on the defaults part way ($plain %), «volle Drehzahl bei» 58 °C: higher ($own %)", $plain < 80 && $own > $plain);
+        same('fanboy temps: an earlier set-up\'s values (CPU «volle Drehzahl bei» 58, the source\'s own 30…50) steer nothing — the CPU at 60 °C asks what Normal asks on the CPU\'s own scale (50…80: 33.3 %)',
+            [33.3, 33.3, 33.3], [round((float) $level([]), 1), round((float) $level(['cpu' => ['low' => 40, 'high' => 58]]), 1), round((float) $level([], ['low' => 30, 'high' => 50, 'limit' => 55]), 1)]);
+        same('fanboy temps: the limits are the kinds\' own — disk 55, SSD and NVMe 80, CPU 92, GPU 90, RAM 75, board 70, other 75',
+            ['disk' => 55, 'ssd' => 80, 'nvme' => 80, 'cpu' => 92, 'gpu' => 90, 'ram' => 75, 'board' => 70, 'other' => 75],
+            array_map(fn ($k) => FANBOY_SOURCE_DEFAULTS[$k]['limit'], array_combine(['disk', 'ssd', 'nvme', 'cpu', 'gpu', 'ram', 'board', 'other'], ['disk', 'ssd', 'nvme', 'cpu', 'gpu', 'ram', 'board', 'other'])));
     } finally {
         fanboyTEnd();
     }
@@ -1298,20 +1296,43 @@ function testFanboyCpuOwn(): void
     }
 }
 
-/** Round 4: the page draws the presets on a zone's own degrees — its presetsOn() is exactly fanboyPreset() */
+/**
+ * Round 4: the page draws the presets as the agent steers them — 2026-11-20 (the owner's table): each kind's own, Normal
+ * from low to high, Leise shifted warmer by the step (its 100 % never above the limit), Kühl cooler; every one 0 → 100 %,
+ * Kühl < Normal < Leise in degrees at every percent (testFanboyR13 runs the page's block against the agent's in node)
+ */
 function testFanboyPresetsMirror(): void
 {
     $php = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-control.php');
     $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
-    preg_match_all("/'(quiet|cool)'\s*=>\s*(\[\[.*?\]\]),|default\s*=>\s*(\[\[.*?\]\]),/", $php, $m, PREG_SET_ORDER);
-    $arms = [];
-    foreach ($m as $x) {
-        $arms[$x[1] !== '' ? $x[1] : 'normal'] = str_replace('$', '', $x[2] !== '' ? $x[2] : $x[3]);
+    check('fanboy presets mirror: fanboyPreset() and the page\'s kcPreset() — the same three straight lines',
+        str_contains($php, "'quiet' => [[\$lo + \$step, 0], [max(\$lo + \$step + 1, min(\$hi + \$step, \$limit ?? INF)), 100]],")
+        && str_contains($php, "'cool'  => [[\$lo - \$step, 0], [\$hi - \$step, 100]],") && str_contains($php, "default => [[\$lo, 0], [\$hi, 100]],")
+        && str_contains($js, "if (preset === 'quiet') return [[lo + step, 0], [Math.max(lo + step + 1, Math.min(h + step, kcNum(limit) ? limit : Infinity)), 100]];")
+        && str_contains($js, "if (preset === 'cool') return [[lo - step, 0], [h - step, 100]];") && str_contains($js, "return [[lo, 0], [h, 100]];"));
+    $table = ['disk' => [[35, 45], [40, 50], [45, 55]], 'ssd' => [[40, 60], [50, 70], [60, 80]], 'nvme' => [[40, 60], [50, 70], [60, 80]], 'cpu' => [[40, 70], [50, 80], [60, 90]],
+        'gpu' => [[40, 70], [50, 80], [60, 90]], 'ram' => [[45, 65], [50, 70], [55, 75]], 'board' => [[40, 60], [45, 65], [50, 70]], 'other' => [[45, 65], [50, 70], [55, 75]]];
+    $got = [];
+    $bad = [];
+    foreach (array_keys($table) as $k) {
+        $c = fanboyKindPreset('cool', $k);
+        $n = fanboyKindPreset('normal', $k);
+        $q = fanboyKindPreset('quiet', $k);
+        $got[$k] = [[$c[0][0], end($c)[0]], [$n[0][0], end($n)[0]], [$q[0][0], end($q)[0]]];
+        foreach ([$c, $n, $q] as $pts) {
+            if ($pts[0][1] !== 0 || end($pts)[1] !== 100 || end($pts)[0] > FANBOY_SOURCE_DEFAULTS[$k]['limit']) {
+                $bad[] = "$k ends";
+            }
+        }
+        for ($pct = 0; $pct <= 100; $pct += 5) {       // the temperature where each reaches $pct: Kühl < Normal < Leise
+            $at = fn (array $p) => $p[0][0] + ($p[1][0] - $p[0][0]) * $pct / 100;
+            if (!($at($c) < $at($n) && $at($n) < $at($q))) {
+                $bad[] = "$k at $pct %";
+            }
+        }
     }
-    same('fanboy presets mirror: fanboyPreset() has quiet, normal, cool', ['quiet', 'cool', 'normal'], array_keys($arms));
-    foreach ($arms as $p => $pts) {
-        check("fanboy presets mirror: desk.js presetsOn() draws «{$p}» as the agent steers it ($pts)", str_contains($js, "$p: $pts"));
-    }
+    same('fanboy presets mirror: the owner\'s table — per kind Kühl, Normal, Leise from 0 % to 100 % (°C)', $table, array_map(fn ($r) => array_map(fn ($p) => array_map('intval', $p), $r), $got));
+    same('fanboy presets mirror: … every preset 0 → 100 %, never past the kind\'s limit, Kühl < Normal < Leise at every percent', [], $bad);
 }
 
 /**
@@ -1641,8 +1662,8 @@ function testFanboyZoneSources(): void
         && str_contains($fn, "warm ? T('zones.src_some_asleep', { n: asleep }) : T('zones.src_all_asleep', { n: asleep })"), $fn);
     check('fanboy zone sources: the warmest\'s temperature marked for the number check (tools/fanboy/desk.mjs --nums)',
         str_contains($fn, "sum.dataset.nums = JSON.stringify([{ v: warm.c, from: ['setup', 'sources', `=\${warm.id}`, 'c'] }]);"), $fn);
-    check('fanboy zone sources: the curve a kind follows in the curve cards\' words; several kinds: a button bringing that kind\'s card in front — no aria-expanded (it opens nothing)',
-        str_contains($fn, "T(z.curves && z.curves[c] ? 'curve.kind_own' : 'curve.kind_zone')") && str_contains($fn, 'kindSel.set(z.id, ck[0]);')
+    check('fanboy zone sources: the goal a kind has in the curve cards\' words (2026-11-20: Leise, Normal, Kühl, Eigene Kurve); several kinds: a button bringing that kind\'s card in front — no aria-expanded (it opens nothing)',
+        str_contains($fn, "choiceName(kindChoice(z, c))") && str_contains($fn, 'kindSel.set(z.id, ck[0]);')
         && str_contains($fn, ".fb-kindpick[data-kind=\"\${ck[0]}\"]") && str_contains($js, 'box.dataset.zone = z.id;') && substr_count($fn, 'aria-expanded') === 2 && !str_contains($fn, "go.setAttribute('aria-expanded'")
         && str_contains($fn, "b.scrollIntoView({ block: 'center' });     /* reveal */"), $fn);
     $en = langFile(OFFICE_WEB . '/desks/fanboy/lang/en.json');
@@ -2138,4 +2159,36 @@ function testFanboyStartWait(): void
     check('fanboy start wait: the page — «bis zu {measure_min} Minuten pro Lüfter» from the state\'s measure_max (rounded up), «Lüfter i von n» while it runs, the start time in the fan\'s facts',
         str_contains($js, 'measure_min: Math.ceil(tm.measure_max / 60),') && str_contains($l['step.measure_sub'], 'pro Lüfter bis zu {measure_min} Minuten')
         && str_contains($js, "setText(since, T('strip.of', { i, n }));") && str_contains($js, "T('stand.start_secs', { s: fmt.number(st.start_secs) })"));
+}
+
+/**
+ * 2026-11-20 (the owner: «immer pro Wärmequelle»; «wenn man seine eigene Kurve mal hat … damit die eigene Einstellung immer
+ * dem letzten Stand entspricht»): a kind's goal is its own — a preset may keep his last own curve beside it (`own`),
+ * stored with the save and back on the next look, steering nothing while the preset is chosen
+ */
+function testFanboyKindGoal(): void
+{
+    $t = fanboyT('kindgoal');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        $settings['armed'] = false;
+        fanboyTStore($settings);
+        $z = ['id' => 'disks', 'name' => 'Disks', 'fans' => [fanboyTId(4)], 'unit' => 'pct', 'target' => ['preset' => 'normal'],
+            'sources' => [['id' => 'parity'], ['id' => 'disk1']], 'curves' => ['disk' => ['preset' => 'quiet', 'own' => [[47, 0], [55, 100]]]]];
+        fanboyZonesSave(['zones' => [$z]]);
+        $kept = fanboyBoardRaw()['zones'][0]['curves']['disk'] ?? null;
+        same('fanboy kind goal: saved — the disk\'s goal Leise with his own curve kept beside it, as stored', ['preset' => 'quiet', 'own' => [[47, 0], [55, 100]]], $kept);
+        same('fanboy kind goal: … the control steers by Leise (45 °C 0 %, 55 °C 100 %), never by the kept curve', [[45.0, 0], [55.0, 100]],
+            fanboyKindCurve(fanboyBoardRaw()['zones'][0], 'disk')[0]);
+        try {
+            fanboyZonesSave(['zones' => [['curves' => ['disk' => ['preset' => 'quiet', 'own' => [[47, 0]]]]] + $z]]);
+            $key = 'kept';
+        } catch (Problem $p) {
+            $key = $p->key;
+        }
+        same('fanboy kind goal: a kept curve of one point — refused as any curve', 'fanboy_bad_zones', $key);
+    } finally {
+        fanboyTEnd();
+    }
 }

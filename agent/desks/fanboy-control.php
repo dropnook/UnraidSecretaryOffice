@@ -58,18 +58,19 @@ const FANBOY_HISTORY_CURVE_MAX = 865;   // … its rows at most: 3 days of spans
 const FANBOY_HISTORY_KEEP = 600.0;      // the history into the data folder every 10 minutes (RAM every minute)
 const FANBOY_REFUSED_MAX = 3;           // round 5: writes refused in a row before «the driver takes no values»
 const FANBOY_RPM_TRIM_MAX = 15;         // percent an rpm zone's correction moves a fan at most
-// a heat source's own scale by its kind: low = cool (the curve's start), high = needs all the air, limit = alarm
+// a heat source's scale by its kind: low = where «Normal» starts (0 %), high = where it reaches 100 %, limit = alarm (and the
+// measuring's guard at limit − 5), step = how far «Leise» lies warmer and «Kühl» cooler (2026-11-20, the owner: «die
+// Vorgaben leise / normal / kühl besser voneinander abgrenzen für alle Wärmequellen-Kategorien» — his table). Fixed: no
+// zone and no source has values of its own any more (fanboyKindValues()); an SSD or NVMe of Unraid's is «ssd» (disks.ini)
 const FANBOY_SOURCE_DEFAULTS = [
-    'disk'  => ['low' => 35, 'high' => 45, 'limit' => 52],      // a hard disk (rotating)
-    // an SSD or NVMe of Unraid's (disks.ini, not rotating) — round 4; their limits 80 °C since 2026-11-20 (the owner:
-    // «NVMe-SSD auch easy bis 80») — a set-up keeps the limits it stored
-    'ssd'   => ['low' => 40, 'high' => 60, 'limit' => 80],
-    'nvme'  => ['low' => 40, 'high' => 65, 'limit' => 80],
-    'cpu'   => ['low' => 45, 'high' => 80, 'limit' => 92],
-    'ram'   => ['low' => 40, 'high' => 60, 'limit' => 75],
-    'gpu'   => ['low' => 45, 'high' => 80, 'limit' => 90],
-    'board' => ['low' => 35, 'high' => 55, 'limit' => 70],
-    'other' => ['low' => 35, 'high' => 55, 'limit' => 75],
+    'disk'  => ['low' => 40, 'high' => 50, 'limit' => 55, 'step' => 5],      // a hard disk (rotating)
+    'ssd'   => ['low' => 50, 'high' => 70, 'limit' => 80, 'step' => 10],
+    'nvme'  => ['low' => 50, 'high' => 70, 'limit' => 80, 'step' => 10],
+    'cpu'   => ['low' => 50, 'high' => 80, 'limit' => 92, 'step' => 10],
+    'ram'   => ['low' => 50, 'high' => 70, 'limit' => 75, 'step' => 5],
+    'gpu'   => ['low' => 50, 'high' => 80, 'limit' => 90, 'step' => 10],
+    'board' => ['low' => 45, 'high' => 65, 'limit' => 70, 'step' => 5],
+    'other' => ['low' => 50, 'high' => 70, 'limit' => 75, 'step' => 5],
 ];
 const FANBOY_PRESETS = ['quiet', 'normal', 'cool'];
 /*
@@ -133,54 +134,54 @@ const FANBOY_ALARMS = ['stands', 'bios_stands', 'hot', 'sensor', 'chip'];
 
 // ===================================================================== curves and sources (pure)
 
-/** A zone's own scale: low/high of its first source's kind (or the zone's own) */
+/** A zone's scale: low/high of its first source's kind (2026-11-20: a zone has no values of its own any more) */
 function fanboyZoneScale(array $zone): array
 {
-    $kind = $zone['sources'][0]['kind'] ?? 'disk';
-    // round 4: the user's values for this kind in this zone (the table «Temperaturen») before the kind's defaults
-    $d = fanboyKindValues($zone, $kind);
-    $lo = is_numeric($zone['low'] ?? null) ? (float) $zone['low'] : (float) $d['low'];
-    $hi = is_numeric($zone['high'] ?? null) ? (float) $zone['high'] : (float) $d['high'];
-    return [$lo, $hi > $lo ? $hi : $lo + 10];
+    $d = fanboyKindValues($zone, $zone['sources'][0]['kind'] ?? 'disk');
+    return [(float) $d['low'], (float) $d['high'] > (float) $d['low'] ? (float) $d['high'] : (float) $d['low'] + 10];
 }
 
 /**
- * A kind's «ab» (low), «volle Drehzahl bei» (high) and «Grenze» (limit) in a zone: what the user set in its table
- * (`kinds`, round 4) over the kind's defaults — only numbers in shape, each on its own
+ * A kind's «ab» (low), «100 % bei» (high), limit and step: the kind's own (FANBOY_SOURCE_DEFAULTS). 2026-11-20 (the owner:
+ * «ganzer Bereich kann weg, weil man oben jede Wärmequelle einstellen kann und auch muss»): the table «Temperaturen» and
+ * a single source's values are gone from the page — what an earlier set-up stored there (`kinds`, a source's
+ * low/high/limit) is not read any more: what the page can't show never steers. $zone is kept for the callers.
  */
 function fanboyKindValues(array $zone, string $kind): array
 {
-    $d = FANBOY_SOURCE_DEFAULTS[$kind] ?? FANBOY_SOURCE_DEFAULTS['other'];
-    $own = is_array($zone['kinds'][$kind] ?? null) ? $zone['kinds'][$kind] : [];
-    foreach (['low', 'high', 'limit'] as $k) {
-        if (is_int($own[$k] ?? null) || is_float($own[$k] ?? null)) {
-            $d[$k] = $own[$k];
-        }
-    }
-    return $d;
+    return FANBOY_SOURCE_DEFAULTS[$kind] ?? FANBOY_SOURCE_DEFAULTS['other'];
 }
 
-/** A source with its effective low/high/limit: its own, else its zone's for its kind, else the kind's defaults */
+/** A source with its kind's low/high/limit (a value of its own an earlier set-up stored is not read — fanboyKindValues()) */
 function fanboySourceValues(array $zone, array $source): array
 {
     $k = fanboyKindValues($zone, $source['kind'] ?? 'other');
     foreach (['low', 'high', 'limit'] as $f) {
-        if (!is_numeric($source[$f] ?? null)) {
-            $source[$f] = $k[$f];
-        }
+        $source[$f] = $k[$f];
     }
     return $source;
 }
 
-/** A preset as points on the zone's scale (percent) */
-function fanboyPreset(string $preset, float $lo, float $hi): array
+/**
+ * A preset as points (percent) on a kind's scale (2026-11-20, the owner's table): every preset from 0 % to 100 % —
+ * «Normal» from low to high, «Leise» the same shifted warmer by the kind's step (its 100 % never above the limit), «Kühl»
+ * shifted cooler by it. A straight line between (a fan that may not stand keeps its floor: fanboyEffectiveCurve()).
+ */
+function fanboyPreset(string $preset, float $lo, float $hi, float $step = 5.0, ?float $limit = null): array
 {
-    $mid = ($lo + $hi) / 2;
+    $hi = $hi > $lo ? $hi : $lo + 10;
     return match ($preset) {
-        'quiet' => [[$lo, 0], [$mid, 30], [$hi, 60], [$hi + 5, 100]],
-        'cool'  => [[$lo - 3, 35], [$mid - 3, 65], [$hi - 3, 100]],
-        default => [[$lo, 20], [$mid, 45], [$hi, 80], [$hi + 3, 100]],
+        'quiet' => [[$lo + $step, 0], [max($lo + $step + 1, min($hi + $step, $limit ?? INF)), 100]],
+        'cool'  => [[$lo - $step, 0], [$hi - $step, 100]],
+        default => [[$lo, 0], [$hi, 100]],
     };
+}
+
+/** A preset on a kind's own scale (its low, high, step and limit) */
+function fanboyKindPreset(string $preset, string $kind): array
+{
+    $d = FANBOY_SOURCE_DEFAULTS[$kind] ?? FANBOY_SOURCE_DEFAULTS['other'];
+    return fanboyPreset($preset, (float) $d['low'], (float) $d['high'], (float) $d['step'], (float) $d['limit']);
 }
 
 /** The zone's curve: its own points, else its preset (normal) — [[°C, percent|rpm]…] sorted */
@@ -191,8 +192,7 @@ function fanboyZoneCurve(array $zone): array
         usort($points, fn ($a, $b) => $a[0] <=> $b[0]);
         return array_map(fn ($p) => [(float) $p[0], (float) $p[1]], $points);
     }
-    [$lo, $hi] = fanboyZoneScale($zone);
-    return fanboyPreset(in_array($zone['target']['preset'] ?? null, FANBOY_PRESETS, true) ? $zone['target']['preset'] : 'normal', $lo, $hi);
+    return fanboyKindPreset(in_array($zone['target']['preset'] ?? null, FANBOY_PRESETS, true) ? $zone['target']['preset'] : 'normal', $zone['sources'][0]['kind'] ?? 'disk');
 }
 
 /** The curve at a temperature: linear between its points, flat beyond the ends */
@@ -212,10 +212,10 @@ function fanboyCurveAt(array $curve, float $t): float
 }
 
 /**
- * Round 13 (the owner: every kind its own curve): a kind's curve in that kind's own degrees — its own (`zone.curves.<kind>`:
- * points, or a preset on the kind's «ab»…«volle Drehzahl bei») or, without one, DERIVED from the zone's curve: the zone's
- * points moved from the zone's scale onto the kind's low…high — the same affine mapping fanboyMapped() made, so a zone
- * without `curves` asks exactly what it asked before. [points, own]
+ * Round 13 (the owner: every kind its own curve), 2026-11-20 (the goal is chosen per kind): a kind's curve in that kind's
+ * own degrees — its choice (`zone.curves.<kind>`: points — «Eigene Kurve» —, or a preset on the kind's own scale; a kept
+ * own curve beside a preset, `own`, steers nothing) or, without one, the zone's: its preset on the kind's own scale, its
+ * points moved from the zone's scale onto the kind's (an earlier set-up's). [points, own]
  */
 function fanboyKindCurve(array $zone, string $kind): array
 {
@@ -229,8 +229,12 @@ function fanboyKindCurve(array $zone, string $kind): array
             return [array_map(fn ($p) => [(float) $p[0], (float) $p[1]], $points), true];
         }
         if (in_array($own['preset'] ?? null, FANBOY_PRESETS, true)) {
-            return [fanboyPreset($own['preset'], $kl, $kh > $kl ? $kh : $kl + 10), true];
+            return [fanboyKindPreset($own['preset'], $kind), true];
         }
+    }
+    $zp = $zone['target']['points'] ?? null;
+    if (!(is_array($zp) && count($zp) >= 2)) {
+        return [fanboyKindPreset(in_array($zone['target']['preset'] ?? null, FANBOY_PRESETS, true) ? $zone['target']['preset'] : 'normal', $kind), false];
     }
     [$lo, $hi] = fanboyZoneScale($zone);
     $curve = fanboyZoneCurve($zone);
@@ -260,10 +264,7 @@ function fanboyZoneKindCurves(array $zone): array
  */
 function fanboyKindPosition(array $zone, array $source, float $t): float
 {
-    $sv = fanboySourceValues($zone, $source);
-    $kv = fanboyKindValues($zone, $source['kind'] ?? 'other');
-    [$sl, $sh, $kl, $kh] = [(float) $sv['low'], (float) $sv['high'], (float) $kv['low'], (float) $kv['high']];
-    return $sh > $sl && $kh > $kl && ($sl !== $kl || $sh !== $kh) ? $kl + ($t - $sl) * ($kh - $kl) / ($sh - $sl) : $t;
+    return $t;          // 2026-11-20: no source has a scale of its own any more — its temperature is where it stands
 }
 
 /**
@@ -272,18 +273,18 @@ function fanboyKindPosition(array $zone, array $source, float $t): float
  */
 function fanboyMapped(array $source, float $t, float $lo, float $hi, string $zoneKind = ''): float
 {
-    if ($source['kind'] === $zoneKind && !is_numeric($source['low'] ?? null) && !is_numeric($source['high'] ?? null)) {
+    if ($source['kind'] === $zoneKind) {
         return $t;
     }
     $d = FANBOY_SOURCE_DEFAULTS[$source['kind']] ?? FANBOY_SOURCE_DEFAULTS['other'];
-    $sl = is_numeric($source['low'] ?? null) ? (float) $source['low'] : (float) $d['low'];
-    $sh = is_numeric($source['high'] ?? null) ? (float) $source['high'] : (float) $d['high'];
-    return $sh > $sl ? $lo + ($t - $sl) * ($hi - $lo) / ($sh - $sl) : $t;
+    $sl = (float) $d['low'];
+    $span = (float) $d['high'] - $sl;
+    return $span > 0 ? $lo + ($t - $sl) * ($hi - $lo) / $span : $t;
 }
 
 function fanboySourceLimit(array $source): float
 {
-    return is_numeric($source['limit'] ?? null) ? (float) $source['limit'] : (float) (FANBOY_SOURCE_DEFAULTS[$source['kind']] ?? FANBOY_SOURCE_DEFAULTS['other'])['limit'];
+    return (float) (FANBOY_SOURCE_DEFAULTS[$source['kind']] ?? FANBOY_SOURCE_DEFAULTS['other'])['limit'];      // (its own: not read, 2026-11-20)
 }
 
 /** A measured fan's table [[pct, rpm]…]: the rpm at a percentage (linear), and the percentage for an rpm */
