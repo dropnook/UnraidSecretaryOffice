@@ -20,6 +20,11 @@
 .rs-need{margin:6px 0 0 10px}
 .rs-need > .role{margin:2px 0 0 2px; font-size:12.5px}
 .rs-needs{margin-top:6px}
+/* «Start here…» into a share holding data: what happens to each ticked app or VM (comes / stays as it is / refused) */
+.rs-found-what{min-width:0; overflow-wrap:anywhere}
+.rs-found-here{font-size:12.5px}
+.rs-found-comes{color:var(--ink2)}
+.rs-found-stays{color:var(--warn-ink)}
 .rs-needs .rs-need{margin-left:0}
 .rs-chips{display:inline-flex; flex-wrap:wrap; gap:4px}
 .rs-files{display:flex; flex-direction:column; gap:3px; margin:4px 0 6px}

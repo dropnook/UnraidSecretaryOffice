@@ -112,7 +112,12 @@ How he works:
 **The flash** has a tile of its own: when its archive was made, how big it is, where it is kept.
 *Download…* hands you the archive after a dialog that says what it holds (the licence key, password hashes).
 
-**Kept for <partner>** shows what this server keeps of a partner office. Each app or VM in it can be started here.
+**Kept for <partner>** shows what this server keeps of a partner office, with a filter bar like every list (words, kind, «only with
+apps or VMs»). Each app or VM in it can be started here. *Start here…* first makes an independent copy on the same pool. Then:
+into a share that is missing nothing goes (you create it under Shares first); into an empty share the whole copy comes; into a
+share that already holds data only the ticked apps and VMs come, each into its own folder where there is none yet, and nothing
+else of the share. The dialog says per app or VM whether it comes, or stays out because its folder or a VM of that name is
+already here.
 
 <a name="restore-shares"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-shares-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-shares-light.png" alt="Mr. Restori&#x27;s tiles — apps, VMs, shares, databases, the partner offices, the flash, offsite, the drill — and his shares: each with its local snapshots, its copy at a partner and the app that uses it"></picture></a>
 

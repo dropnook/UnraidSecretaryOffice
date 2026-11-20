@@ -2656,7 +2656,7 @@ function startOptions(box, plan, ask, change, close) {
   // when one would do this here at all: this server takes over a partner that is gone (else: a new server pulls)
   box.appendChild(el('p', 'callout', T('rd.start_when', { name: (plan.target && plan.target.partner) || '' })));
   const found = plan.options.found || [];
-  if (found.length) box.appendChild(foundField(found, change));
+  if (found.length) box.appendChild(foundField(found, change, ask.beside ? null : plan.options.into || null));
   const needs = plan.options.needs || [];
   if (needs.length) box.appendChild(needsField(needs, plan, ask, change));
   const c = plan.options.conflict;
@@ -2715,11 +2715,13 @@ function needsField(needs, plan, ask, change) {
 
 /**
  * A share's copy from a partner (1.60.1): the apps and VMs its packages name, each with a tick (all by default) — only
- * the ticked ones are brought back (`only`, their folder names); the files of the share come whole as before
+ * the ticked ones are brought back (`only`, their folder names). Into a share that is absent or empty the rest of the
+ * share comes whole as before; into one holding data (`into`, 2026-11-20: rspPlanInto) nothing else of it — each ticked
+ * one says what happens to it: comes to <share>/<folder>, or is here already and stays, or is refused
  */
-function foundField(found, change) {
+function foundField(found, change, into) {
   const f = el('div', 'field rs-found');
-  f.appendChild(el('div', 'field-title', T('rd.found')));
+  f.appendChild(el('div', 'field-title', into ? T('rd.found_into', { path: into }) : T('rd.found')));
   const tick = () => change({ only: [...f.querySelectorAll('input[type=checkbox]')].filter((x) => x.checked).map((x) => x.value) });
   found.forEach((x) => {
     const l = el('label', 'check');
@@ -2728,7 +2730,13 @@ function foundField(found, change) {
     cb.value = x.folder;
     cb.checked = x.on !== false;
     cb.onchange = tick;
-    l.append(cb, ' ', T(x.kind === 'vm' ? 'pt.unit_vm' : 'pt.unit_app', { name: x.name }), x.name !== x.folder ? ` (${x.folder})` : '');
+    // its name and, into a share holding data, what happens to it here — one text that wraps as a whole beside the tick
+    // (only while ticked: an unticked one stays out anyway)
+    const what = el('span', 'rs-found-what', T(x.kind === 'vm' ? 'pt.unit_vm' : 'pt.unit_app', { name: x.name }) + (x.name !== x.folder ? ` (${x.folder})` : ''));
+    if (into && x.on !== false && x.here) {
+      what.append(' — ', el('span', `rs-found-here ${x.here === 'comes' ? 'rs-found-comes' : 'rs-found-stays'}`, T('rd.found_here.' + x.here, { path: x.to || '', name: x.name })));
+    }
+    l.append(cb, ' ', what);
     f.appendChild(l);
   });
   return f;

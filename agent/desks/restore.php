@@ -5467,7 +5467,7 @@ function rsDoCopy(array &$j, int $i): array
     // --sparse: a VM disk's holes stay holes (without it a 108 GB vdisk holding 16 GB is written out in full on XFS or
     // btrfs); a local copy is a whole-file copy, so it always works — never together with --inplace
     // 1.60.1: a partner's share copy with only some of its apps chosen - the folders of the others left out (`skip`)
-    $skip = array_map(fn ($x) => '--exclude=/' . $x . '/', array_values(array_filter((array) ($s['skip'] ?? []), fn ($x) => is_string($x) && preg_match(RS_NAME_PATTERN, $x))));
+    $skip = array_map(fn ($x) => '--exclude=/' . $x . '/', array_values(array_filter((array) ($s['skip'] ?? []), fn ($x) => is_string($x) && preg_match(RSP_FOLDER_RE, $x))));
     // a partner's content (a kept moment's pick, `foreign`; anything from a pull's mount): its nosuid,nodev mount keeps
     // device nodes and set-uid files harmless — rsync as root would make them again in the share (review 1.81.0, N1):
     // no devices or specials, the s bits dropped
