@@ -75,6 +75,18 @@ const PICTURES = [
   ['waz-beside', 'fanboy-waz', 'fanboy/setup/detect', null, false],
   ['ipmi', 'fanboy-ipmi', 'fanboy', null, false],
   ['no-output', 'fanboy-nooutput', 'fanboy', null, false],
+  // 2026-11-20: the fan chip read in «no output» — a chip that needs a driver plugin, one Unraid's own driver should
+  // steer, one nobody knows yet, one that couldn't be asked (every theme and language, 1440 and 375)
+  ['chip-plugin', 'fanboy-chipplugin', 'fanboy', null, true, { widths: [1440, 375] }],
+  ['chip-unraid', 'fanboy-chipunraid', 'fanboy', null, true, { widths: [1440, 375] }],
+  ['chip-unknown', 'fanboy-chipunknown', 'fanboy', null, true, { widths: [1440, 375] }],
+  ['chip-noread', 'fanboy-chipnoread', 'fanboy', null, true, { widths: [1440, 375] }],
+  // … and the owner's kind of board (its maker's hint ITE, never read): the overview, the set-up, its «What fits here»,
+  // «Load drivers yourself» after none of Unraid's own found a chip
+  ['owner-overview', 'fanboy-nooutput', 'fanboy', null, true, { widths: [1440, 375] }],
+  ['owner-setup', 'fanboy-nooutput', 'fanboy/setup/detect', null, true, { widths: [1440, 375] }],
+  ['owner-fits', 'fanboy-nooutput', 'fanboy/setup/detect', null, true, { widths: [1440, 375], clip: '.fb-hints' }],
+  ['owner-nodriver', 'fanboy-nodriver', 'fanboy/setup/detect', null, true, { widths: [1440, 375], clip: '.fb-drivers' }],
   ['array-stopped', 'fanboy-array', 'fanboy', null, false],
   ['curves', 'fanboy', 'fanboy/history', null, false],
   // round 3: the history's period (the segmented choice above the curves)
@@ -208,7 +220,7 @@ async function markAtShare(page, share, touch) {
 if (opt.shots) {
   for (const [name, state, route, click, every, shot] of PICTURES) {
     const looks = every === 'both' ? [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'de', width: 1440 }, { theme: 'black', lang: 'en', width: 390 }, { theme: 'white', lang: 'en', width: 390 }]
-      : every ? ['black', 'white'].flatMap((theme) => ['de', 'en'].flatMap((lang) => [1440, 390].map((width) => ({ theme, lang, width }))))
+      : every ? ['black', 'white'].flatMap((theme) => ['de', 'en'].flatMap((lang) => ((shot && shot.widths) || [1440, 390]).map((width) => ({ theme, lang, width }))))
         : [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'en', width: 390 }];
     for (const l of looks) {
       try {

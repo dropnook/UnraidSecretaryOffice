@@ -28,6 +28,12 @@
   .fb-banner:empty{display:none}
   .fb-callout{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
   .fb-callout > p{margin:0; flex:1 1 280px}
+  /* the fan chip in «no output» (2026-11-20): its own block under the callout's sentence, the words as quiet chips */
+  .fb-chip{flex:1 1 100%; display:flex; flex-direction:column; gap:6px; padding-top:8px; border-top:1px solid var(--line); min-width:0}
+  .fb-chip-head{margin:0; font-size:13px; font-weight:600; color:var(--ink)}
+  .fb-chip-words{display:flex; flex-wrap:wrap; align-items:center; gap:4px}
+  .fb-chip-words .chip{max-width:100%; overflow-wrap:anywhere}
+  .fb-chip > .toolbar{margin:2px 0 0}
   /* round 13, one chart per zone: the kinds of its heat sources as a row of buttons (which curve is in front), each with
      «own curve» / «follows the zone» and, while he steers, what its warmest source asks for */
   .fb-kindrow{display:flex; flex-wrap:wrap; gap:8px; margin:4px 0 2px}
