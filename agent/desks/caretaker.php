@@ -26,7 +26,7 @@ const CARETAKER_UNRAID_MIN    = '6.12';
 // a new character for everyone (2026-11-16, the owner: «eine einmalige Nachricht vom Teamchef … nur 1x, nach einem Update,
 // falls jemand das Plugin schon hatte»): desk id => the last released version in which he was NOT there for everyone.
 // An office that ran that version (or an older one) here and now runs a newer one is told once — caretakerNewcomersStart()
-const CARETAKER_NEWCOMERS     = ['fanboy' => '1.94.0'];
+const CARETAKER_NEWCOMERS     = ['fanboy' => '1.94.1'];     // 1.94.1 (2026-11-20, the /run fix) went out without him too
 const CARETAKER_TOUR_EVERY    = 1800;      // without a browser (it asks every 5 minutes while open): a tour every 30 minutes …
 const CARETAKER_TOUR_AFTER    = 600;       // … but not in the first 10 minutes after the agent started (the array settles)
 const CARETAKER_NOTIFY_SETTLE = 1800;      // something new to do is told once it has stayed red this long (not a passing state)

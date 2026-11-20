@@ -31,7 +31,7 @@ function testCaretakerNewcomers(): void
         return $d;
     };
     try {
-        same('newcomers: Fanboy is the one so far — the last released version without him for everyone: 1.94.0', ['fanboy' => '1.94.0'], CARETAKER_NEWCOMERS);
+        same('newcomers: Fanboy is the one so far — the last released version without him for everyone: 1.94.1 (the fix release of 2026-11-20 went out without him too)', ['fanboy' => '1.94.1'], CARETAKER_NEWCOMERS);
         putenv("OFFICE_NOTIFY_HOME=$h");
         touch("$h/agent.json");
         officeNotifyCfgKeep(officeNotifySettings([]), $h, null);
@@ -100,6 +100,11 @@ function testCaretakerNewcomers(): void
             && str_contains($js, 'return { bubble: bubbleText(), facts, note };') && str_contains($js, 'return newcomerLine() + bubbleRest();')
             && str_contains((string) file_get_contents(OFFICE_WEB . '/assets/core.js'), 'if (r && r.note instanceof Element) card.insertBefore(r.note, foot);'));
         same('newcomers: the centre lists his notices', ['normal', 'warning'], (function () { $s = OFFICE_NOTIFY_SENDS['caretaker']; sort($s); return $s; })());
+        // an office that began with the last release without him (a fresh install of 1.94.1, never 1.94.0) and updates: told too
+        $fix = $folder('fix', [(string) $before], ['backup' => 1]);
+        same('newcomers: an office that only ever ran the last release without him — told once at the update, from that version (the notice itself: the gate holds a second one of the same words in this test)',
+            [['fanboy'], (string) $before, 3000, []],
+            [caretakerNewcomersStart($fix, $next, 3000), caretakerNewcomersRead($fix)['fanboy']['from'] ?? null, caretakerNewcomersRead($fix)['fanboy']['told'] ?? null, caretakerNewcomersStart($fix, $next, 3100)]);
     } finally {
         putenv($homeWas === false ? 'OFFICE_NOTIFY_HOME' : "OFFICE_NOTIFY_HOME=$homeWas");
         fanboyTEnd();
