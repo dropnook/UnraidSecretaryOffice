@@ -158,6 +158,8 @@
    * disc). Below min down to 0 in proportion, above max stays 1.1. Unknown range: 20 % … 100 % of 2000 rpm.
    */
   const SLOW = 0.12, FAST = 1.1, EASE = 0.6;
+  // above this many turns a second the struts behind fade out (and back below FAST_OFF): a third of the way up
+  const FAST_ON = 0.42, FAST_OFF = 0.32;
   function turns(rpm, min, max) {
     if (!(typeof rpm === 'number' && rpm > 0)) return 0;
     const hi = num(max, 0) > 0 ? max : 2000;
@@ -574,6 +576,7 @@
     box.append(frame, spin, front, arc, badge);
     root.append(box, cap);
     let drawn = '', aired = '', framed = '', fronted = '', painted = '';
+    let fast = false;                // turning more than slowly: the struts behind go (see FAST_ON)
     const m = mover(root);
     const w = { el: root, mover: m };
     root.fanWheel = w;
@@ -648,7 +651,14 @@
       const share = clamp(rpm / max, 0, 1);
       arc.lastChild.setAttribute('stroke-dasharray', `${(share * 100).toFixed(1)} 100`);
       arc.lastChild.setAttribute('visibility', share > 0 ? 'visible' : 'hidden');     // a round cap would leave a dot at 0
-      m.glide(turns(rpm, f.min, f.max));
+      // 2026-11-20 (the owner, watching his fans: «die Hintergrundstreben … stören, aber nur wenn sie drehen, weil einem dann
+      // schwindlig wird»): once the wheel turns more than slowly, what stands behind the blades (struts, a grille) fades
+      // out and the blades' shading calms to an even tone; standing or slow, the full drawing. A step with a gap
+      // (FAST_ON / FAST_OFF) so a speed near the line never flickers it; the speed the picture turns at, not the rpm.
+      const rate = turns(rpm, f.min, f.max);
+      fast = fast ? rate > FAST_OFF : rate > FAST_ON;
+      root.classList.toggle('fan-fast', fast);
+      m.glide(rate);
       return w;
     };
     w.destroy = () => { m.destroy(); root.fanWheel = null; };
