@@ -2356,6 +2356,145 @@ function testFanboyNetDrift(): void
 }
 
 /**
+ * 2026-11-17 (the owner: «Hinten links folgt nicht mehr wie vermessen», a minute after he saved a zone's curve; the fan
+ * was fine): a settings save while the control steers used to hand every output to the mainboard and take it again after
+ * the round's look at the hardware — the board ran the fans its own way meanwhile, and the one look after a start (12 s
+ * on) found a fan still running down from the board's speed. Now a reload keeps the fans that stay (no hand-over, their
+ * values, their check), gives back only those that leave; and «doesn't follow» needs the fan off its table for
+ * FANBOY_DRIFT_FOR at one value — a fan running down after a start is no drift, a fan really off its table still is.
+ * The fake fans: the board's automatic runs them at full, they spin up in a second and coast down slowly (lag_down).
+ */
+function testFanboyReloadDrift(): void
+{
+    $t = fanboyT('reloaddrift');
+    try {
+        $spec = fanboyR12Spec();
+        foreach ([4, 5] as $o) {
+            $spec['fans'][$o] = ['output' => $o, 'max' => 2824, 'stall' => 0.08, 'start' => 0.25, 'lag' => 1.0, 'lag_down' => 8.0, 'auto' => 2824];
+        }
+        // his rear fans as measured (the fake's own curve: 2824 rpm × (0.2 + 0.8 × value)), both «darf stehen», back to the automatic
+        $m = ['table' => [[100, 2824], [50, 1694], [20, 1017], [10, 790]], 'min_pct' => 14, 'start_pct' => 14, 'max_rpm' => 2824, 'at' => 1,
+              'stops' => true, 'floor_rpm' => null, 'start_from_stop' => 26, 'kick_start' => null, 'stops_safe' => true];
+        $fan = fn (int $o, string $name) => ['chip' => FANBOY_T_CHIP, 'address' => FANBOY_T_ADDR, 'output' => $o, 'tach' => $o, 'tachs' => [$o], 'found' => 'tach',
+            'name' => $name, 'back' => 'auto', 'measured' => $m, 'role' => 'case', 'off_ok' => true];
+        $settings = fn (array $pts, array $fans = []) => ['board' => ['vendor' => 'Example Boards Inc.', 'model' => 'EB-Z100 PRO'], 'armed' => true,
+            'fans' => $fans + [fanboyTId(4) => $fan(4, 'Rear left'), fanboyTId(5) => $fan(5, 'Rear right')],
+            'zones' => [['id' => 'hdd', 'name' => 'Disks', 'fans' => [fanboyTId(4), fanboyTId(5)], 'unit' => 'pct', 'react' => 'balanced', 'target' => ['points' => $pts],
+                'sources' => array_map(fn ($x) => ['kind' => 'disk', 'id' => $x], ['parity', 'disk1', 'disk2', 'disk3', 'disk4', 'disk5'])]]];
+        $old = $settings([[30, 0], [40, 0], [45, 60], [50, 100]]);
+        $new = $settings([[39, 0], [43, 31], [46, 61], [47, 100]]);         // his curve after the save
+        fanboyNetDisks($t, 41, 30);
+        fanboyTStore($old);
+        foreach ([4, 5] as $o) {
+            file_put_contents("{$t['hw']}/pwm{$o}_enable", "2\n");          // the mainboard's automatic before the control
+        }
+        fanboyTSettle($t, $spec, 30);
+        $drifts = fn (array $c) => array_values(array_filter($c['notes'], fn ($n) => $n['code'] === 'drift'));
+        // off its table at a look: what the one look after a start compared (rpm against the table at the value written)
+        $off = function (array $f): bool {
+            $want = $f['value'] === null || $f['rpm'] === null ? null : fanboyTableRpm($f['table'], $f['value'] / 2.55);
+            return $want !== null && abs($f['rpm'] - $want) > max(250, $want * FANBOY_DRIFT);
+        };
+        $run = function (array &$c, float &$now, int $rounds, array $spec, ?float &$firstLook = null, ?bool &$offThen = null) use ($t, $off): void {
+            for ($i = 0; $i < $rounds; $i++) {
+                fanboyRound($c, $now);
+                $f = $c['fans'][fanboyTId(4)];
+                if ($firstLook === null && $c['started'] !== null && $now - $c['started'] >= FANBOY_VERIFY_AFTER && $f['changed'] !== null && $now - $f['changed'] >= FANBOY_SETTLE_MAX) {
+                    [$firstLook, $offThen] = [$now, $off($f)];
+                }
+                fanboyFakeRespond($t['root'], $spec, FANBOY_ROUND);
+                $now += FANBOY_ROUND;
+            }
+        };
+
+        // the start: the board had them at full; written 19 % (his floor), they coast down — off their table at the first look
+        $owner = fanboyMe('control');
+        $c = fanboyControlNew($old, FANBOY_T_KEY, $owner);
+        $now = 1000.0;
+        $look = $offAtLook = null;
+        $run($c, $now, 60, $spec, $look, $offAtLook);
+        same('fanboy reload: the start from the board\'s full speed — at the first look 12 s on still running down (the one look said «doesn\'t follow»), now no drift',
+            [true, [], 48, true], [$offAtLook, $drifts($c), $c['fans'][fanboyTId(4)]['value'], $c['fans'][fanboyTId(4)]['verified']]);
+
+        // the old way of a save, done by hand with the control's own steps: every output to the board, taken anew after the
+        // round's look at the hardware (1.5 s of the board meanwhile) — at the look 12 s on the fan is off its table again:
+        // the warning of 2026-11-17
+        $o = $c;
+        fanboyLetGo($o, 'settings');
+        $o = ['hist' => $o['hist']] + fanboyControlNew($new, FANBOY_T_KEY, $owner);
+        fanboyFakeRespond($t['root'], $spec, 1.5);
+        $look = $offAtLook = null;
+        $nowOld = $now;
+        $run($o, $nowOld, 10, $spec, $look, $offAtLook);
+        same('fanboy reload: the old way (all handed to the board and taken again) — the look 12 s after the save finds the fan off its table',
+            [true, 'run'], [$offAtLook, $o['phase']]);
+        fanboyLetGo($o, 'end');
+        $c = fanboyControlNew($old, FANBOY_T_KEY, $owner);
+        fanboyTSettle($t, $spec, 30);
+        $run($c, $now, 60, $spec);
+        same('fanboy reload: … steering again on the old settings (the set-up for the save), no drift', [[], true, 48], [$drifts($c), $c['fans'][fanboyTId(4)]['verified'], $c['fans'][fanboyTId(4)]['value']]);
+
+        // the save now: nothing handed over — the outputs as written, the journal's holder the same, nothing given back
+        $j = fanboyJournal()['outputs'];
+        $level = $c['zones']['hdd']['cur'];
+        fanboyTStore($new);
+        fanboyControlReload($c, $new, FANBOY_T_KEY, $owner);
+        fanboyFakeRespond($t['root'], $spec, 1.5);                         // the round's look at the hardware
+        $j2 = fanboyJournal()['outputs'];
+        $given = [$j[fanboyTId(4)]['given'], $j[fanboyTId(5)]['given']];     // the last give-back before (the set-up's), as it was
+        same('fanboy reload: the save while he steers — the outputs stay as written (19 %, fixed), the same holder, nothing given back, its check kept, the zone\'s level kept',
+            [[48, 1], [48, 1], $j[fanboyTId(4)]['owner'], $given, true, $level],
+            [fanboyTOut($t, 4), fanboyTOut($t, 5), $j2[fanboyTId(4)]['owner'], [$j2[fanboyTId(4)]['given'], $j2[fanboyTId(5)]['given']],
+             $c['fans'][fanboyTId(4)]['verified'], $c['zones']['hdd']['cur']]);
+        $run($c, $now, 30, $spec);
+        foreach ([1, 2, 3] as $i) {
+            fanboyControlReload($c, $i % 2 ? $old : $new, FANBOY_T_KEY, $owner);
+            fanboyFakeRespond($t['root'], $spec, 1.5);
+            $run($c, $now, 10, $spec);
+        }
+        same('fanboy reload: … and saved three times more — the new curve steers, no drift, nothing given back',
+            [[], 48, 48, $given], [$drifts($c), $c['fans'][fanboyTId(4)]['value'], $c['fans'][fanboyTId(5)]['value'],
+             [fanboyJournal()['outputs'][fanboyTId(4)]['given'], fanboyJournal()['outputs'][fanboyTId(5)]['given']]]);
+
+        // a fan that leaves (his role now the mainboard's): given back, alone; one measured anew is looked at again
+        $leave = $settings([[39, 0], [43, 31], [46, 61], [47, 100]], [fanboyTId(5) => ['role' => 'unknown'] + $fan(5, 'Rear right'),
+            fanboyTId(4) => ['measured' => ['table' => [[100, 2824], [50, 1694], [20, 1017], [10, 789]], 'at' => 2] + $m] + $fan(4, 'Rear left')]);
+        fanboyControlReload($c, $leave, FANBOY_T_KEY, $owner);
+        $j = fanboyJournal()['outputs'];
+        same('fanboy reload: a fan that leaves is given back (to the board\'s automatic, why «settings»), the other stays; measured anew: its check again',
+            [false, 'settings', 2, true, false, [48, 1]],
+            [isset($c['fans'][fanboyTId(5)]), $j[fanboyTId(5)]['given']['why'] ?? null, fanboyTOut($t, 5)[1], $c['fans'][fanboyTId(4)]['taken'], $c['fans'][fanboyTId(4)]['verified'], fanboyTOut($t, 4)]);
+        $run($c, $now, 20, $spec);
+        same('fanboy reload: … looked at again, it follows', [[], true], [$drifts($c), $c['fans'][fanboyTId(4)]['verified']]);
+        fanboyLetGo($c, 'end');
+
+        // a fan that really doesn't follow its table (its fake turns at 60 % of the rpm measured), at 19 % already when the
+        // control starts: still said — once, only after it stayed off for FANBOY_DRIFT_FOR at one value
+        $slow = $spec;
+        $slow['fans'][4]['max'] = 1700;
+        foreach ([4, 5] as $o) {
+            file_put_contents("{$t['hw']}/pwm$o", "48\n");
+            file_put_contents("{$t['hw']}/pwm{$o}_enable", "1\n");
+        }
+        fanboyTSettle($t, $slow, 30);
+        $c = fanboyControlNew($new, FANBOY_T_KEY, $owner);
+        $look = $offAtLook = $first = null;
+        for ($i = 0; $i < 40; $i++) {
+            $run($c, $now, 1, $slow, $look, $offAtLook);
+            $first ??= $drifts($c) ? $now - FANBOY_ROUND - $c['started'] : null;
+        }
+        $d = $drifts($c);
+        same('fanboy reload: a fan really off its table — off at the first look, said once (its name, the rpm against the table)', [true, 1, 'Rear left', 596, 990],
+            [$offAtLook, count($d), $d[0]['params']['fan'] ?? null, $d[0]['params']['rpm'] ?? null, $d[0]['params']['want'] ?? null]);
+        check('fanboy reload: … said FANBOY_DRIFT_FOR after the first look, not before (' . var_export($first, true) . ' s after the start)',
+            $first !== null && $look !== null && $first >= $look - $c['started'] + FANBOY_DRIFT_FOR && $first <= $look - $c['started'] + FANBOY_DRIFT_FOR + FANBOY_ROUND);
+        fanboyLetGo($c, 'end');
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
  * Round 12 fix (his SSD pool and NVMe in no zone, 33 → 50 °C with every fan standing): the setup says which sources are
  * in no zone; the control's net — at a source's «volle Drehzahl bei» (SSD 60 °C) every fan he steers ≥ 60 % (standing ones
  * start), at its limit (70) 100 %, one notification, over after 2 minutes 5 °C under; a sleeping disk never counts

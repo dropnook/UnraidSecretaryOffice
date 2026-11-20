@@ -2564,6 +2564,28 @@ function watchmanOfficeNoteSchedule(array &$book, string $file, int $now, array 
     $book[] = $e;
 }
 
+/**
+ * A line the office writes for itself into a cron file of its own (watchmanOwnCron()): ONE line in the book per file,
+ * noted by himself (`by` office_cron) — never open, never told; the file there again (a guard written at every «take
+ * over») only refreshes it. An entry already there about that file (open or noted, written by an older version) stays
+ * as it is: the book is history.
+ */
+function watchmanOfficeNoteOwnCron(array &$book, string $file, int $now, array $p): void
+{
+    foreach ($book as $i => $e) {
+        if (($e['key'] ?? '') === "cron_file:$file" && ($e['by'] ?? null) === 'office_cron') {
+            $book[$i]['p'] = $p;
+            $book[$i]['last'] = $now;
+            $book[$i]['count'] = (int) ($e['count'] ?? 1) + 1;
+            return;
+        }
+    }
+    $e = watchmanEntry('cron_file', "cron_file:$file", $now, $p);
+    $e['noted'] = $now;
+    $e['by'] = 'office_cron';
+    $book[] = $e;
+}
+
 /** The office's own doing: a line in the book, noted by himself (`by` office) — never open, never told */
 function watchmanOfficeNote(array &$book, string $kind, string $key, int $now, array $p): void
 {
@@ -4597,13 +4619,42 @@ function watchmanSyslogAround(string $syslog, int $t, int $now, string $pattern 
 /** The USO network's one cron line, exactly as scripts/usonet.sh writes it (CRON_LINE there; testUsoNetScript compares) */
 const WATCH_USONET_CRON = '* * * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/usonet.sh check > /dev/null 2>&1';
 
+/** The agent's watch from outside, exactly as scripts/agent.sh writes it into agent-watch.cron (WATCH_LINE there; testWatchmanOwnCron compares) */
+const WATCH_AGENT_CRON = '*/5 * * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh watch > /dev/null 2>&1';
+
+/**
+ * The cron files the office writes for itself in its flash folder beside its schedules' file — "<file>" => exactly its
+ * job lines (whitespace as watchmanCronJobs() leaves it): the USO network's look, the agent's watch, and what a desk
+ * says it writes (desk(…, ['cron' => …]), util.php) — he never needs to know which desk. A file name not in exactly
+ * a cron file's shape, the schedules' own file, or a line not in a job line's shape is left out (never «own» by mistake).
+ *
+ * @return array<string, list<string>>
+ */
+function watchmanOwnCron(): array
+{
+    $own = ['usonet.cron' => [WATCH_USONET_CRON], 'agent-watch.cron' => [WATCH_AGENT_CRON]];
+    foreach (desks() as $desk) {
+        $said = is_callable($desk['cron'] ?? null) ? ($desk['cron'])() : null;
+        foreach (is_array($said) ? $said : [] as $file => $lines) {
+            if (!is_string($file) || !preg_match('/^[a-z0-9][a-z0-9-]{0,60}\.cron$/D', $file) || $file === OFFICE_PLUGIN . '.cron' || isset($own[$file]) || !is_array($lines)) {
+                continue;
+            }
+            $own[$file] = array_values(array_filter(array_map(fn ($l) => is_string($l) ? trim((string) preg_replace('/\s+/', ' ', $l)) : '', $lines),
+                fn ($l) => $l !== '' && $l[0] !== '#' && preg_match(WATCH_CRON_LINE, $l) === 1));
+        }
+    }
+    return $own;
+}
+
 /** The plugins' cron files on the flash: "<plugin>/<file>" => size, time, fingerprint, its lines (hash => short) — the
- *  office's schedules and the USO network's line carry `own`: those lines, exactly as the office writes them */
-function watchmanCronFiles(array $paths, array $prev): ?array
+ *  office's schedules and its own other files (watchmanOwnCron()) carry `own`: those lines, exactly as the office writes
+ *  them; `kind` says which of the office's files it is (schedules | own) */
+function watchmanCronFiles(array $paths, array $prev, ?array $ownCron = null): ?array
 {
     if (!isset($paths['cron_files'])) {
         return null;
     }
+    $ownCron ??= watchmanOwnCron();
     $out = [];
     foreach (glob($paths['cron_files'] . '/*/*.cron') ?: [] as $file) {
         $name = basename(dirname($file)) . '/' . basename($file);
@@ -4612,9 +4663,11 @@ function watchmanCronFiles(array $paths, array $prev): ?array
             continue;
         }
         $p = $prev[$name] ?? null;
-        $usonet = $name === OFFICE_PLUGIN . '/usonet.cron';         // the USO network's look every minute (scripts/usonet.sh)
-        $office = $name === OFFICE_PLUGIN . '/' . OFFICE_PLUGIN . '.cron' || $usonet;
-        if (watchmanSameFile($p, $st) && is_array($p['lines'] ?? null) && (!$office || is_array($p['own'] ?? null))) {
+        $inOffice = basename(dirname($file)) === OFFICE_PLUGIN;
+        $sched = $inOffice && basename($file) === OFFICE_PLUGIN . '.cron';          // officeJobSetSchedule()'s file
+        $exact = $inOffice && !$sched ? ($ownCron[basename($file)] ?? null) : null;  // a file of its own: exactly these lines
+        $office = $sched ? 'schedules' : ($exact !== null ? 'own' : null);
+        if (watchmanSameFile($p, $st) && is_array($p['lines'] ?? null) && ($office === null || (is_array($p['own'] ?? null) && ($p['kind'] ?? null) === $office))) {
             $out[$name] = $p;
             continue;
         }
@@ -4622,12 +4675,12 @@ function watchmanCronFiles(array $paths, array $prev): ?array
         $lines = $own = [];
         foreach (array_slice(watchmanCronJobs($text), 0, WATCH_SCHED_MAX) as $l) {
             $lines[watchmanHash($l)] = watchmanCronShort($l);
-            if ($office && ($usonet ? trim($l) === WATCH_USONET_CRON : watchmanOfficeCronLine($l))) {
+            if ($office !== null && ($sched ? watchmanOfficeCronLine($l) : in_array(trim($l), $exact, true))) {
                 $own[] = watchmanHash($l);
             }
         }
         $out[$name] = ['m' => (int) $st['mtime'], 'c' => (int) $st['ctime'], 's' => (int) $st['size'], 'h' => watchmanHash($text), 'lines' => $lines]
-                    + ($office ? ['own' => $own] : []);
+                    + ($office !== null ? ['own' => $own, 'kind' => $office] : []);
     }
     ksort($out);
     return $out;
@@ -5040,15 +5093,24 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
                     continue;
                 }
                 $plugin = (string) strtok((string) $name, '/');
-                if ($plugin === OFFICE_PLUGIN && !array_diff_key($new, array_flip((array) ($f['own'] ?? [])))) {
-                    // the office's own schedule, exactly as it writes it (a time changed on a desk's page): noted by himself
+                $ours = $plugin === OFFICE_PLUGIN ? ($f['kind'] ?? (is_array($f['own'] ?? null) ? 'schedules' : null)) : null;     // a look of 1.94 has no kind
+                if ($ours !== null && !array_diff_key($new, array_flip((array) ($f['own'] ?? [])))) {
                     $known['files'][$name] = watchmanCronFileKnown($k, $f, $now);
-                    watchmanOfficeNoteSchedule($book, (string) $name, $now, ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null, 'office' => true] + watchmanJobs($new));
+                    if ($ours === 'own') {
+                        // a line the office writes for itself (the USO network's look, the agent's watch, a desk's guard):
+                        // one line in the book per file, noted by himself, never open, never told — again only refreshed
+                        watchmanOfficeNoteOwnCron($book, (string) $name, $now, ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null, 'office_file' => true] + watchmanJobs($new));
+                    } else {
+                        // the office's own schedule, exactly as it writes it (a time changed on a desk's page): noted by himself
+                        watchmanOfficeNoteSchedule($book, (string) $name, $now, ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null, 'office' => true] + watchmanJobs($new));
+                    }
                     continue;
                 }
                 $kind = $plugin === 'dynamix' || isset($installed[$plugin]) ? 'cron_file' : 'cron_file_foreign';
+                // which of the office's files (its schedules, one of its own) — another file in its folder is neither
                 $added[] = watchmanSet($book, $kind, "$kind:$name", $now,
-                    ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null, 'office' => $plugin === OFFICE_PLUGIN] + watchmanJobs($new) + ['_f' => $f['h']]);
+                    ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null] + ($ours === 'schedules' ? ['office' => true] : ($ours === 'own' ? ['office_file' => true] : []))
+                    + watchmanJobs($new) + ['_f' => $f['h']]);
             }
             // a file gone is normal — known a while still (WATCH_FORGET), so one that comes back as it was is no news
             foreach ($known['files'] as $name => $k) {
@@ -5165,8 +5227,11 @@ function watchmanCronFileClose(array &$book, array $known, array $files, int $no
 {
     foreach ($book as $i => $e) {
         $name = (string) ($e['p']['file'] ?? '');
+        // an entry about a line the office writes itself (an older version's news before it knew the line: 1.95's first
+        // «Take over») stays as it was — the book is history, «as it was again» would be no truth about it
+        $ownLines = ($files[$name]['kind'] ?? null) === 'own' && ($h = (array) ($e['p']['_h'] ?? [])) && !array_diff($h, (array) ($files[$name]['own'] ?? []));
         if (in_array($e['kind'] ?? '', ['cron_file', 'cron_file_foreign'], true) && watchmanOpen($e) && isset($files[$name], $known[$name]['h'])
-            && empty($known[$name]['gone']) && $known[$name]['h'] === $files[$name]['h']) {
+            && empty($known[$name]['gone']) && $known[$name]['h'] === $files[$name]['h'] && !$ownLines) {
             $book[$i]['noted'] = $now;
             $book[$i]['by'] = 'back';
         }

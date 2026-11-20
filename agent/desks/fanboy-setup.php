@@ -2135,6 +2135,15 @@ function fanboyGuardCronFile(): string
 }
 
 /**
+ * The guard's one job line, exactly as fanboyGuardCron() writes it — what his desk tells the night watchman is the
+ * office's own (desk(…, ['cron' => …]) in fanboy.php): that line in that file is never news, any other line there is
+ */
+function fanboyGuardCronLine(): string
+{
+    return "* * * * * grep -qs '\"owner\":{' " . fanboyRunDir() . '/journal.json && php ' . OFFICE_DIR . '/agent/fanboy-guard.php watch > /dev/null 2>&1';
+}
+
+/**
  * The guard's cron line (agent/fanboy-guard.php watch, every minute, only when the journal names a holder): there only
  * while Fanboy is armed — written at «Take over», gone at «Hand back», put right at every agent start. Unarmed nothing
  * of his holds an output but a setup step, and a step gives back by itself (its lease ends 45 s after the page is gone),
@@ -2143,8 +2152,7 @@ function fanboyGuardCronFile(): string
 function fanboyGuardCron(bool $on): void
 {
     $file = fanboyGuardCronFile();
-    $line = "# Unraid Secretary Office - Fanboy's guard, only while he steers (written by the agent)\n"
-        . "* * * * * grep -qs '\"owner\":{' " . fanboyRunDir() . '/journal.json && php ' . OFFICE_DIR . "/agent/fanboy-guard.php watch > /dev/null 2>&1\n";
+    $line = "# Unraid Secretary Office - Fanboy's guard, only while he steers (written by the agent)\n" . fanboyGuardCronLine() . "\n";
     $there = !is_link($file) && is_file($file);
     if ($on ? $there && @file_get_contents($file) === $line : !$there) {
         return;

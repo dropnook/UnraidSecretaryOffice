@@ -36,10 +36,14 @@ final class Problem extends RuntimeException
  *   metrics  fn(): list<array>                    its numbers for Prometheus, once a
  *                                                 minute from the agent's loop (from state
  *                                                 files only) — see lib/metrics.php
+ *   cron     fn(): array<string, list<string>>    the cron files it writes itself into the
+ *                                                 plugin's flash folder (beside the schedules'
+ *                                                 file), each with exactly its job lines: the
+ *                                                 night watchman knows them as the office's own
  */
 function desk(string $id, array $definition): void
 {
-    $GLOBALS['desks'][$id] = $definition + ['actions' => [], 'start' => null, 'tick' => null, 'checks' => null, 'fit' => null, 'metrics' => null];
+    $GLOBALS['desks'][$id] = $definition + ['actions' => [], 'start' => null, 'tick' => null, 'checks' => null, 'fit' => null, 'metrics' => null, 'cron' => null];
 }
 
 function desks(): array

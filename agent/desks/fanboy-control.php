@@ -41,6 +41,7 @@ const FANBOY_DISK_SENSOR_AFTER = 120.0; // seconds an awake disk has no temperat
 const FANBOY_CLEAR_AFTER = 120.0;       // seconds without any alarm reason before the alarm is over
 const FANBOY_VERIFY_AFTER = 12.0;       // seconds after the start: the rpm read back against the table
 const FANBOY_DRIFT = 0.30;              // a measured fan off its table by more than this (and 250 rpm): said
+const FANBOY_DRIFT_FOR = 30.0;          // … for this long at one value (a fan running down from a faster speed is no drift)
 const FANBOY_LOOK_FAST = 5.0;           // the chip missing: a look every 5 s …
 const FANBOY_LOOK_FAST_FOR = 120.0;     // … for two minutes,
 const FANBOY_LOOK_SLOW = 60.0;          // then every minute
@@ -874,6 +875,7 @@ function fanboyRound(array &$c, float $now): void
             fanboyLetGo($c, 'hold');
         }
         $c['phase'] = 'hold';
+        $c['started'] = null;
         return;
     }
     // 1. the outputs: found (again)?
@@ -898,10 +900,12 @@ function fanboyRound(array &$c, float $now): void
         }
         $c['missing'] = null;
         $c['phase'] = 'run';
-        $c['started'] = $now;
         $c['scan_at'] = null;
+        $c['started'] ??= $now;
         foreach ($c['fans'] as $id => $f) {
-            $c['fans'][$id]['verified'] = false;
+            if (!$f['taken']) {
+                $c['fans'][$id]['verified'] = false;        // a fan held across a settings reload keeps its check (fanboyControlReload())
+            }
         }
     }
     fanboyTakeAll($c);
@@ -998,11 +1002,22 @@ function fanboyRound(array &$c, float $now): void
                 || $f['value'] === 0 || ($f['stand_since'] ?? null) !== null
                 || isset($full[$f['zone']]) || ($f['changed'] !== null && $now - $f['changed'] < FANBOY_SETTLE_MAX)
                 || !fanboyTableCovers($f['table'], $f['value'] / 2.55)) {
+                $c['fans'][$id]['drift_since'] = null;
                 continue;
             }
-            $c['fans'][$id]['verified'] = true;
             $want = fanboyTableRpm($f['table'], $f['value'] / 2.55);
-            if ($want !== null && abs($f['rpm'] - $want) > max(250, $want * FANBOY_DRIFT)) {
+            if ($want === null || abs($f['rpm'] - $want) <= max(250, $want * FANBOY_DRIFT)) {
+                $c['fans'][$id]['verified'] = true;
+                $c['fans'][$id]['drift_since'] = null;
+                continue;
+            }
+            // 2026-11-17: off its table at one look is no proof — a fan the mainboard ran faster a moment before (a start,
+            // a hand-over) still runs down after the settle time. Said only when it stays off at the same value for
+            // FANBOY_DRIFT_FOR (every look of it off; any write, kick, stand or alarm between starts the clock again)
+            $c['fans'][$id]['drift_since'] ??= $now;
+            if ($now - $c['fans'][$id]['drift_since'] >= FANBOY_DRIFT_FOR) {
+                $c['fans'][$id]['verified'] = true;
+                $c['fans'][$id]['drift_since'] = null;
                 $label = fanboyFanLabel($f);
                 fanboyNote($c, 'drift', ['fan' => $label, 'rpm' => $f['rpm'], 'want' => (int) round($want)]);
                 fanboyTell($c, "drift:$id", 'drift', ['fan' => $label, 'rpm' => $f['rpm'], 'want' => (int) round($want)], 'warning');
@@ -1592,6 +1607,7 @@ function fanboyMissing(array &$c, float $now, ?string $why): void
     unset($c['stuck_carry']);
     $c['missing']['why'] = $why;
     $c['phase'] = 'wait_chip';
+    $c['started'] = null;
     $age = $now - $c['missing']['since'];
     $c['missing']['next'] = $now + ($age < FANBOY_LOOK_FAST_FOR ? FANBOY_LOOK_FAST : ($age < FANBOY_TELL_AFTER ? FANBOY_LOOK_SLOW : FANBOY_LOOK_QUIET));
     fanboyMissingTell($c, $now);
@@ -1920,10 +1936,7 @@ function fanboyControlMain(): int
                     $settings = fanboyBoardRaw($board);
                     $why = fanboyHoldReason($settings);
                     if ($why === null || $why === 'other') {
-                        fanboyLetGo($c, 'settings');
-                        $hist = $c['hist'];
-                        $c = fanboyControlNew($settings ?? [], $key, $owner);
-                        $c['hist'] = $hist;
+                        fanboyControlReload($c, $settings ?? [], $key, $owner);
                     }
                 } else {
                     $why = fanboyHoldReason($settings);
@@ -1967,6 +1980,61 @@ function fanboyControlMain(): int
         fclose($lock);
     }
     return 0;
+}
+
+/**
+ * The settings changed while the control runs (a zone, a curve, a role saved on the page): taken anew — WITHOUT handing
+ * the fans that stay over to the mainboard. 2026-11-17 (the owner, «Hinten links folgt nicht mehr wie vermessen» a minute
+ * after saving a curve): the reload used to give every output back and take it again a round later — between the two the
+ * mainboard ran the fans its own way for as long as the round's look at the hardware took, the round's clock was read
+ * before that look, and the check after a start («does each fan follow its table?», once, 12 s on) found a fan still
+ * running down from the mainboard's speed. A fan that stays (same output, same give-back) keeps what the control holds
+ * and wrote (value, its time, a kick, standing, its check already done unless its table changed); a zone that stays keeps
+ * its level and the way down from it; the alarm and what was told go on. Only fans that leave are given back.
+ */
+function fanboyControlReload(array &$c, array $settings, string $key, array $owner): void
+{
+    $new = fanboyControlNew($settings, $key, $owner);
+    $leave = [];
+    foreach ($c['fans'] as $id => $f) {
+        $n = $new['fans'][$id] ?? null;
+        if ($f['taken'] && ($n === null || $n['chip'] !== $f['chip'] || $n['address'] !== $f['address'] || $n['output'] !== $f['output'] || $n['back'] !== $f['back'])) {
+            $leave[] = $id;
+        }
+    }
+    if ($leave) {
+        fanboyLetGo($c, 'settings', $leave);
+    }
+    foreach ($new['fans'] as $id => $n) {
+        $f = $c['fans'][$id] ?? null;
+        if ($f === null || !$f['taken']) {
+            continue;               // not held now: taken by the next round as at a start
+        }
+        foreach (['device', 'address_now', 'hwmon', 'auto', 'taken', 'value', 'changed', 'pct', 'kick_until', 'kicks', 'rpm', 'rpms', 'zero_since',
+                  'standing', 'stand_since', 'cool_since', 'stand_at', 'refused', 'trim', 'drift_since', 'cpu_hist'] as $k) {
+            if (array_key_exists($k, $f)) {
+                $new['fans'][$id][$k] = $f[$k];
+            }
+        }
+        $new['fans'][$id]['verified'] = $f['verified'] && $n['table'] === $f['table'];     // measured anew: looked at again
+    }
+    foreach ($new['zones'] as $zid => $z) {
+        $o = $c['zones'][$zid] ?? null;
+        if ($o === null || $o['unit'] !== $z['unit']) {
+            continue;
+        }
+        foreach (['cur', 'hold_t', 'hold_src', 'hold_pos', 'below_since', 'hot_since', 'warmest', 'leader', 'by_kind', 'state'] as $k) {
+            if (array_key_exists($k, $o)) {
+                $new['zones'][$zid][$k] = $o[$k];
+            }
+        }
+    }
+    foreach (['hist', 'alarm', 'reasons', 'clear_since', 'told', 'notes', 'full_since', 'started', 'last_hist', 'last_keep'] as $k) {
+        if (array_key_exists($k, $c)) {
+            $new[$k] = $c[$k];
+        }
+    }
+    $c = $new;
 }
 
 /**

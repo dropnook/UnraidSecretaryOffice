@@ -1112,6 +1112,11 @@ the last 60 history lines only for a source the file has none for. **The file
   while one is tested (10 s) or shown (while he doesn't steer), under temperature guards (refused while anything is warm or
   the CPU at 70 °C; back at once at 80 °C or 20 °C over its start, or a place at «full speed at»), then everything back
   exactly and a 5-s pause in which every fan that turned must turn again — else its output to full and an alert.
+  **Settings saved while he steers** (2026-11-20, `fanboyControlReload()`): never a hand-over to the mainboard for the
+  fans that stay — they keep their values, kicks, standing and their check; only fans that leave are given back. «Doesn't
+  follow as measured» only after a fan stayed off its table at one value for `FANBOY_DRIFT_FOR` (a fan running down from
+  the board's speed after a start is no drift). His guard's cron line is the office's own to the Night Watchman through
+  his desk's `cron` (`desk(…, ['cron' => …])`, util.php) — the watchman never names him.
 * **`caretaker` — The Team Lead** (id stays `caretaker`). Hires, fires (no «Hire» while a needed colleague can't come),
   suggests, collects all checks, reports new red findings once. «I know, thanks» puts aside recommended findings and hints —
   **never musts**; his notification history (`notify-log.json`) shows a counted decision's `times` and, for a run's very same
