@@ -474,6 +474,26 @@
   "zones.sources_sub": "Clicca per aggiungerne o toglierne una. Conta la più calda; un disco addormentato conta come addormentato, mai come freddo.",
   "zones.src_in": "Metti in questa zona",
   "zones.src_out": "Togli da questa zona",
+  "zones.sources_first": "Ancora nessuna fonte di calore — scegline almeno una; fino ad allora la curva della zona non fa nulla.",
+  "zones.src_none": {
+    "one": "nessuna scelta · {n} disponibile",
+    "other": "nessuna scelta · {n} disponibili"
+  },
+  "zones.src_chosen": {
+    "one": "{n} scelta",
+    "other": "{n} scelte"
+  },
+  "zones.src_some_asleep": {
+    "one": "{n} dorme",
+    "other": "{n} dormono"
+  },
+  "zones.src_all_asleep": {
+    "one": "dorme",
+    "other": "tutte e {n} dormono"
+  },
+  "zones.src_no_temp": "nessuna temperatura al momento",
+  "zones.src_change": "Cambia",
+  "zones.src_hide": "Chiudi",
   "zones.curve": "Curva",
   "zones.curve_sub": "Trascina un punto, selezionalo e usa le frecce, oppure scrivi i suoi valori qui sotto. La girante gira come girerebbe la ventola a quella temperatura.",
   "zones.target": "Obiettivo",

@@ -474,6 +474,26 @@
   "zones.sources_sub": "Clique pour en ajouter ou en retirer une. La plus chaude compte ; un disque endormi compte comme endormi, jamais comme froid.",
   "zones.src_in": "Prendre dans cette zone",
   "zones.src_out": "Retirer de cette zone",
+  "zones.sources_first": "Pas encore de source de chaleur — choisis-en au moins une ; d’ici là, la courbe de la zone ne fait rien.",
+  "zones.src_none": {
+    "one": "aucune choisie · {n} disponible",
+    "other": "aucune choisie · {n} disponibles"
+  },
+  "zones.src_chosen": {
+    "one": "{n} choisie",
+    "other": "{n} choisies"
+  },
+  "zones.src_some_asleep": {
+    "one": "{n} endormie",
+    "other": "{n} endormies"
+  },
+  "zones.src_all_asleep": {
+    "one": "{n} endormie",
+    "other": "les {n} endormies"
+  },
+  "zones.src_no_temp": "pas de température pour l’instant",
+  "zones.src_change": "Modifier",
+  "zones.src_hide": "Replier",
   "zones.curve": "Courbe",
   "zones.curve_sub": "Tire un point, donne-lui le focus et utilise les flèches, ou tape ses valeurs ci-dessous. La roue tourne comme le ventilateur tournerait à cette température.",
   "zones.target": "Objectif",

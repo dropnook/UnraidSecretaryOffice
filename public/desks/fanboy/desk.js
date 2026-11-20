@@ -3281,36 +3281,10 @@ function zoneCard(z, i, zones, ours) {
   }
   if (!(z.fans || []).length) fl.appendChild(para(T('zones.no_fan')));
   card.appendChild(fl);
-  // its heat sources: any the server shows (a source may count in several zones), the warmest counts
+  // its heat sources: any the server shows (a source may count in several zones), the warmest counts — one block per kind
   card.appendChild(el('h4', 'fb-sub', T('zones.sources')));
   card.appendChild(para(T('zones.sources_sub')));
-  const kinds = ['disk', 'ssd', 'nvme', 'cpu', 'ram', 'board', 'gpu', 'other'];
-  const srcBox = el('div', 'fb-sources');
-  const inZone = new Set((z.sources || []).map((s) => s.id));
-  // round 13b: the disks outside array and pools (a VM's, or not assigned) are a group of their own, after the SSDs
-  [...kinds.slice(0, 2), 'unassigned', ...kinds.slice(2)].forEach((k) => {
-    const loose2 = (s) => s.group === 'unassigned';
-    const list = (setup().sources || []).filter((s) => (k === 'unassigned' ? loose2(s) : !loose2(s) && ((s.kind === k) || (k === 'other' && !kinds.slice(0, -1).includes(s.kind)))));
-    if (!list.length) return;
-    const g = el('div', 'fb-src-group');
-    g.appendChild(el('span', 'fb-src-kind', k === 'unassigned' ? T('src_group.unassigned') : T(`kind.${k}`)));
-    if (k === 'unassigned') g.title = T('src_group.unassigned_tip');
-    list.forEach((s) => {
-      const on = inZone.has(s.id);
-      const b2 = el('button', 'fb-src' + (on ? ' on' : ''), [k === 'unassigned' ? udLabel(s.id, true) : srcLabel(s), srcReads(s)].filter(Boolean).join(' · '));
-      b2.type = 'button';
-      b2.setAttribute('aria-pressed', on ? 'true' : 'false');
-      b2.dataset.own = '1';
-      b2.title = on ? T('zones.src_out') : T('zones.src_in');
-      b2.onclick = () => changeZones((all) => {
-        const has2 = all[i].sources.some((x) => x.id === s.id);
-        all[i].sources = has2 ? all[i].sources.filter((x) => x.id !== s.id) : [...all[i].sources, { id: s.id, kind: s.kind }];
-      });
-      g.appendChild(b2);
-    });
-    srcBox.appendChild(g);
-  });
-  card.appendChild(srcBox);
+  card.appendChild(zoneSources(z, i));
   card.appendChild(curvePart(z, i));
   card.appendChild(reactPart(z, i));
   // the degrees per kind: his proposal is right for most — behind a fold named for what it holds
@@ -3319,6 +3293,108 @@ function zoneCard(z, i, zones, ours) {
   fine.appendChild(tempsPart(z, i));
   card.appendChild(fine);
   return card;
+}
+/**
+ * A zone's heat sources (2026-11-20, the owner: about 70 on his server pushed the curve far down): one block per kind,
+ * each folded to one line — the kind, how many are chosen, the warmest of them (a sleeping disk says asleep, never a
+ * temperature), the curve it follows (the curve cards' words; with several kinds a click shows that kind's card in
+ * front) — and a control that unfolds the kind's chips in place. A zone without any source shows them all open (and
+ * keeps them open while the first are chosen). Folded or open is the user's view of this page (`folds`), never stored.
+ */
+function zoneSources(z, i) {
+  const box = el('div', 'fb-sources');
+  const kinds = ['disk', 'ssd', 'nvme', 'cpu', 'ram', 'board', 'gpu', 'other'];
+  const inZone = new Set((z.sources || []).map((s) => s.id));
+  const none = !inZone.size;
+  if (none) box.appendChild(para(T('zones.sources_first'), 'fb-hint-text fb-src-first'));
+  const multi = zoneKinds(z).length > 1;
+  const loose2 = (s) => s.group === 'unassigned';
+  const kindName = (k) => (k === 'unassigned' ? T('src_group.unassigned') : T(`kind.${has(`kind.${k}`) ? k : 'other'}`));
+  // round 13b: the disks outside array and pools (a VM's, or not assigned) are a group of their own, after the SSDs
+  [...kinds.slice(0, 2), 'unassigned', ...kinds.slice(2)].forEach((k) => {
+    const list = (setup().sources || []).filter((s) => (k === 'unassigned' ? loose2(s) : !loose2(s) && ((s.kind === k) || (k === 'other' && !kinds.slice(0, -1).includes(s.kind)))));
+    if (!list.length) return;
+    const chosen = list.filter((s) => inZone.has(s.id));
+    const key = `src:${z.id}:${k}`;
+    if (none && !folds.has(key)) folds.set(key, true);
+    const open = folds.get(key) === true;
+    const block = el('div', 'fb-src-block' + (chosen.length ? ' fb-src-has' : ''));
+    block.dataset.kind = k;
+    if (k === 'unassigned') block.title = T('src_group.unassigned_tip');
+    const line = el('div', 'fb-src-line');
+    const tog = el('button', 'fb-src-toggle');
+    tog.type = 'button';
+    const chips = el('div', 'fb-src-chips');
+    chips.id = `fb-src-${z.id}-${k}`;
+    chips.hidden = !open;
+    tog.setAttribute('aria-controls', chips.id);
+    tog.setAttribute('aria-expanded', open ? 'true' : 'false');
+    // the summary: how many, the warmest of them (asleep and «in use» have no temperature: never the warmest, never cold)
+    const label = (s) => (k === 'unassigned' ? udLabel(s.id, true) : srcLabel(s));
+    const warm = chosen.filter((s) => num(s.c) !== null).sort((a, b) => b.c - a.c)[0] || null;
+    const asleep = chosen.filter((s) => num(s.c) === null && s.asleep).length;
+    const sum = el('span', 'fb-src-sum');
+    if (!chosen.length) sum.textContent = T('zones.src_none', { n: list.length });
+    else {
+      const parts = [T('zones.src_chosen', { n: chosen.length })];
+      if (warm) {
+        parts.push(T('pic.warmest', { where: label(warm), c: degrees(warm.c) }));
+        sum.dataset.nums = JSON.stringify([{ v: warm.c, from: ['setup', 'sources', `=${warm.id}`, 'c'] }]);
+      }
+      if (asleep) parts.push(warm ? T('zones.src_some_asleep', { n: asleep }) : T('zones.src_all_asleep', { n: asleep }));
+      if (!warm && !asleep) parts.push(T('zones.src_no_temp'));
+      sum.textContent = parts.join(' · ');
+    }
+    const doing = el('span', 'fb-src-act', T(open ? 'zones.src_hide' : 'zones.src_change'));
+    tog.append(el('span', 'fb-src-name', kindName(k)), sum, doing);
+    tog.onclick = () => Office.keepInPlace(tog, () => {
+      const now = chips.hidden;
+      chips.hidden = !now;
+      folds.set(key, now);
+      tog.setAttribute('aria-expanded', now ? 'true' : 'false');
+      doing.textContent = T(now ? 'zones.src_hide' : 'zones.src_change');
+    });
+    line.appendChild(tog);
+    // the curve its chosen sources follow, in the curve cards' words; with several kinds a link to that kind's card
+    if (chosen.length) {
+      const ck = [...new Set(chosen.map((s) => srcKind(s.id)))];
+      const says = [...new Set(ck.map((c) => T(z.curves && z.curves[c] ? 'curve.kind_own' : 'curve.kind_zone')))];
+      const text = says.length === 1 ? says[0] : ck.map((c) => `${kindName(c)}: ${T(z.curves && z.curves[c] ? 'curve.kind_own' : 'curve.kind_zone')}`).join(' · ');
+      if (multi) {
+        const go = el('button', 'fb-src-curve', text);
+        go.type = 'button';
+        go.title = T('curve.kind_tip', { kind: kindName(ck[0]) });
+        go.onclick = () => {
+          kindSel.set(z.id, ck[0]);
+          drawn = '';
+          redraw();
+          requestAnimationFrame(() => {
+            const pick = [...document.querySelectorAll('#sso .fb-curve-part')].find((x) => x.dataset.zone === z.id);
+            const b = pick && pick.querySelector(`.fb-kindpick[data-kind="${ck[0]}"]`);
+            if (b) { b.scrollIntoView({ block: 'center' }); b.focus({ preventScroll: true }); }
+          });
+        };
+        line.appendChild(go);
+      } else line.appendChild(el('span', 'fb-src-curve-text', text));
+    }
+    block.appendChild(line);
+    list.forEach((s) => {
+      const on = inZone.has(s.id);
+      const b2 = el('button', 'fb-src' + (on ? ' on' : ''), [label(s), srcReads(s)].filter(Boolean).join(' · '));
+      b2.type = 'button';
+      b2.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b2.dataset.own = '1';
+      b2.title = on ? T('zones.src_out') : T('zones.src_in');
+      b2.onclick = () => changeZones((all) => {
+        const has2 = all[i].sources.some((x) => x.id === s.id);
+        all[i].sources = has2 ? all[i].sources.filter((x) => x.id !== s.id) : [...all[i].sources, { id: s.id, kind: s.kind }];
+      });
+      chips.appendChild(b2);
+    });
+    block.appendChild(chips);
+    box.appendChild(block);
+  });
+  return box;
 }
 /**
  * What he agrees to when the CPU cooler may stand — built from the state only (the owner, 2026-11-15: «kein AI-Slop, der
@@ -3612,6 +3688,7 @@ const kindSel = new Map();      // zone id → the kind whose curve is in front
  */
 function curvePart(z, i) {
   const box = el('div', 'fb-curve-part');
+  box.dataset.zone = z.id;          // a kind's line among the heat sources finds its card here
   box.appendChild(el('h4', 'fb-sub', T('zones.curve')));
   const fans = (z.fans || []).map(setupFan).filter(Boolean);
   const rpmOk = fans.length > 0 && fans.every((f) => f.found === 'tach' && f.measured);

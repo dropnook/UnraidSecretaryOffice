@@ -486,6 +486,35 @@ const STAND = { 1: { stops: true, floor_rpm: null, start_from_stop: null, kick_s
   5: { stops: false, floor_rpm: 420, start_from_stop: null, kick_start: null, stops_safe: null } };
 files['fanboy-uxstand'] = state({ ite: ite({}, RPM), zones: [...ZONES, CPU_ZONE], who: { who: 'bios', why: 'not_armed' },
   fans: CPU_OWN.map((f) => (STAND[f.output] ? { ...f, stand: STAND[f.output], off_ok: f.output === 4, may_stand: f.output === 4 } : f)) });
+// 2026-11-20 (the owner: about 70 heat sources pushed the curve far down): a big server — 30 disks (some asleep), two cache
+// SSDs, two unassigned disks, the NVMe sensors, every CPU core, four DIMMs, the board's sensors, a graphics card: 70 heat
+// sources. The disk cage takes 27 disks, the case NVMe and RAM (RAM on a curve of its own), a third zone has nothing yet.
+files['fanboy-uxmany'] = (() => {
+  const st = clone(files['fanboy-ready']);
+  const su = st.setup;
+  const asleep = (n) => [1, 5, 9, 14, 17, 22].includes(n);
+  for (let n = 3; n <= 28; n++) {
+    const c = asleep(n) ? null : 30 + ((n * 7) % 13);
+    su.sources.push({ kind: 'disk', id: `disk${n}`, label: `disk${n}`, c, asleep: asleep(n) });
+    st.disks.push({ name: `disk${n}`, type: 'data', rotational: true, asleep: asleep(n), temp: c, warn: 45, crit: 55 });
+  }
+  su.sources.push({ kind: 'disk', id: 'parity2', label: 'parity2', c: 37, asleep: false });
+  st.disks.push({ name: 'parity2', type: 'parity', rotational: true, asleep: false, temp: 37, warn: 45, crit: 55 });
+  su.sources.push({ kind: 'ssd', id: 'cache2', label: 'cache2', c: 43, asleep: false });
+  st.disks.push({ name: 'cache2', type: 'cache', rotational: false, asleep: false, temp: 43, warn: 55, crit: 65 });
+  for (const [id, name, c] of [['dev1', 'Sicherung', 33], ['dev2', 'Spiele-VM', null]]) {
+    su.sources.push({ kind: 'disk', id, label: name, c, asleep: c === null, group: 'unassigned', name, size: 4000787030016, in_use: false });
+    st.disks.push({ name: id, type: 'unassigned', label: name, rotational: true, asleep: c === null, temp: c, size: 4000787030016 });
+  }
+  for (const n of [3, 4, 5, 7, 8, 9]) su.sources.push({ kind: 'cpu', id: `coretemp@platform/coretemp.0#${n}`, label: `Core ${n - 2}`, c: 25 + (n % 5), asleep: false, chip: 'coretemp', hwmon: 'hwmon7', n });
+  for (const a of ['0-0050', '0-0052']) su.sources.push({ kind: 'ram', id: `spd5118@pci0000:00/0000:00:1f.4/i2c-0/${a}#1`, label: 'spd5118 #1', c: 23.4, asleep: false, chip: 'spd5118', hwmon: 'hwmon11', n: 1 });
+  su.sources.push({ kind: 'gpu', id: 'amdgpu@pci0000:00/0000:00:03.1/0000:0a:00.0#1', label: 'edge', c: 34, asleep: false, chip: 'amdgpu', hwmon: 'hwmon12', n: 1 });
+  const disks = su.sources.filter((x) => x.kind === 'disk' && !x.group && !['disk27', 'disk28'].includes(x.id));
+  su.zones[0].sources = disks.map((x) => ({ kind: 'disk', id: x.id, low: null, high: null, limit: null }));
+  su.zones[1].curves = { ram: { points: [[40, 25], [55, 60], [65, 100]] } };
+  su.zones.push({ id: 'zone3', name: 'Zone 3', fans: [], sources: [], unit: 'pct', target: { preset: 'normal' }, low: null, high: null, react: 'balanced' });
+  return st;
+})();
 
 // the curve view's history (invented): three days for the disk cage and the CPU, 30 hours for the case (a zone added later
 // — the page says «recorded only since …»), a point a minute, then kept as the agent keeps it (fanboyHistoryThin(): 12 h
