@@ -112,6 +112,11 @@ function testFanboyLookKeys(): void
         str_contains($js, "rev.onchange = () => set('reverse', rev.checked);") && str_contains($js, "keep({ model: v.id, frame: '', wheel: '', style: '', blades: 0, reverse: null, colour: 'auto' });")
         && str_contains($js, "keep({ frame: '', wheel: '', style: '', blades: 0, reverse: null, colour: 'auto' });") && str_contains($js, 'blades: u.blades, reverse: u.reverse });')
         && str_contains($js, "if (reverse !== null && (look || reverse)) look = { ...(look || {}), reverse };"));
+    // sizes (2026-11-20, the owner: «ja einschalten»): the overview's picture by the fans' sizes; the tile's symbols too,
+    // inside their box (140 mm and up fill it, smaller ones less) — the rows never move
+    check('fanboy look keys: the overview draws each wheel by its fan\'s size; the Dashboard tile scales the symbol inside its fixed box',
+        str_contains($js, "PIC_PX_PHONE : PIC_PX, sized: true });") && str_contains($dash, "'f.px=Math.min(' . FANBOY_DASH_SYM_PX . ',Math.round(' . FANBOY_DASH_SYM_PX . '*(28+0.3*(+f.mm||120))/70));")
+        && str_contains($dash, 'sso-fb-sym{flex:none;display:flex;align-items:center;justify-content:center;width:'));
     $agent = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-setup.php');
     check('fanboy look keys: the panel\'s one save passes the reverse key on to the look',
         str_contains($agent, "array_flip(['model', 'mm', 'blades', 'frame', 'wheel', 'style', 'colour', 'reverse'])"));

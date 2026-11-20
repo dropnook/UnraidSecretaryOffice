@@ -735,7 +735,8 @@ function pictureEl() {
   const texts = { temp: (c) => T('temp', { c: fmt.number(c) }), asleep: T('pic.asleep'), warmest: T('pic.warmest_mark'), none: T('pic.none') };
   // the hero of the page: big wheels (their colour and blades seen), his zones filling the row two by two, the BIOS's
   // own group narrow beside them (desk.css .fb-server); a phone: one column, the wheels a little smaller
-  if (!pic) pic = A.server(p, { texts, px: window.matchMedia && window.matchMedia('(max-width:640px)').matches ? PIC_PX_PHONE : PIC_PX });
+  // each wheel by its fan's size around px (2026-11-20, the owner: «ja einschalten»): an 80 mm one smaller, a 140 mm one bigger
+  if (!pic) pic = A.server(p, { texts, px: window.matchMedia && window.matchMedia('(max-width:640px)').matches ? PIC_PX_PHONE : PIC_PX, sized: true });
   else pic.update(p);
   const mine = p.zones.filter((z) => z.id !== '_bios').length;
   pic.el.classList.add('fb-server');

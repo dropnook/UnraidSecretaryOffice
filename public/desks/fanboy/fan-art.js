@@ -74,7 +74,7 @@
        }, …] }
      opts.texts: { temp(t) → '41 °C', asleep → 'asleep', warmest → 'warmest', none → 'no heat source' }; opts.px: the wheels' size (46);
                  opts.sized: true — each wheel by its fan's size around px (a 120 mm one px, an 80 mm one smaller, a 140 mm
-                 one bigger: sizedPx()); off by default (a proposal, 2026-11-20 — no page uses it yet)
+                 one bigger: sizedPx()); off by default — the overview's picture has it on (2026-11-20, the owner)
                  opts.air: false — no air at all (the zones' and the fans')
 
    The curve editor (curve()):

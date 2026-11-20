@@ -115,7 +115,7 @@ function officeFanboyDashLook(array $f, array $cat): array
     $look = $frame !== null || $wheel !== null || $style !== null
         ? array_merge($base ?? FANBOY_DASH_NEUTRAL_LOOK, $frame !== null ? ['frame' => $frame] : [], $wheel !== null ? ['blades' => $wheel, 'hub' => $wheel] : [], $style !== null ? ['style' => $style] : [])
         : $base;
-    // 2026-11-20: a reverse-blade fan — the user's tick over the model's (fan-art.js mirrors the blades and turns them the other way)
+    // 2026-11-20: a reverse-blade fan — the user's tick over the model's (fan-art.js mirrors its blades; it turns as usual)
     if (is_bool($f['reverse'] ?? null) && ($look !== null || $f['reverse'])) {
         $look = array_merge($look ?? [], ['reverse' => $f['reverse']]);
     }
@@ -882,7 +882,7 @@ function officeFanboyDashTile(): string
         . '--accent:color-mix(in srgb,var(--orange-500) 82%,var(--text-color));--accent-soft:color-mix(in srgb,var(--orange-500) 16%,var(--mild-background-color));'
         . '--danger:color-mix(in srgb,var(--red-800) 78%,var(--text-color));--danger-ink:color-mix(in srgb,var(--red-800) 55%,var(--text-color))}'
         . '#db-sso-fanboy .sso-fb-fan-art{align-items:center;padding:3px 0 3px 10px}'
-        . '#db-sso-fanboy .sso-fb-fan-art .sso-fb-sym{flex:none;display:block;width:' . FANBOY_DASH_SYM_PX . 'px;height:' . FANBOY_DASH_SYM_PX . 'px;overflow:visible}'
+        . '#db-sso-fanboy .sso-fb-fan-art .sso-fb-sym{flex:none;display:flex;align-items:center;justify-content:center;width:' . FANBOY_DASH_SYM_PX . 'px;height:' . FANBOY_DASH_SYM_PX . 'px;overflow:visible}'
         . '#db-sso-fanboy .sso-fb-fan-art .fan-wheel{display:block;--fan-px:' . FANBOY_DASH_SYM_PX . 'px}'
         . '#db-sso-fanboy .sso-fb-fan-art .fan-cap{display:none}'
         . '#db-sso-fanboy .sso-fb-fan-art .sso-fb-fname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
@@ -910,7 +910,9 @@ function officeFanboyDashTile(): string
         . 'function syms(){var b=box(),l=b?b.querySelectorAll(".sso-fb-sym[data-fan]"):[],old=wheels,seen={};if(!l.length&&!Object.keys(old).length)return;'
         . 'if(!window.FanArt){if(!asked&&l.length){asked=true;var x=document.createElement("script");x.src=art;x.onload=syms;document.head.appendChild(x);}return;}'
         . 'wheels={};[].forEach.call(l,function(n){var f;try{f=JSON.parse(n.getAttribute("data-fan"));}catch(e){return;}var k=f.id+"#"+(seen[f.id]=(seen[f.id]||0)+1);'
-        . 'f.px=' . FANBOY_DASH_SYM_PX . ';f.air=false;f.colour="auto";f.title="";var w=old[k];if(w){delete old[k];w.update(f);}else{w=window.FanArt.wheel(f);}n.appendChild(w.el);wheels[k]=w;});'
+        // by the fan's size (2026-11-20, the owner: «ja einschalten»): 140 mm and up fill the box, an 80 mm one is smaller
+        // (fan-art.js's pxOf()) — the box keeps its size, the rows don't move
+        . 'f.px=Math.min(' . FANBOY_DASH_SYM_PX . ',Math.round(' . FANBOY_DASH_SYM_PX . '*(28+0.3*(+f.mm||120))/70));f.air=false;f.colour="auto";f.title="";var w=old[k];if(w){delete old[k];w.update(f);}else{w=window.FanArt.wheel(f);}n.appendChild(w.el);wheels[k]=w;});'
         . 'for(var k in old)old[k].destroy();}'
         . 'function mood(){var w=box()&&box().querySelector(".sso-fb-who"),i=document.querySelector("#db-sso-fanboy img.sso-fb-logo"),m=w&&w.getAttribute("data-mood")==="alarm"&&pics.alarm?"alarm":"";'
         . 'if(i&&pics[m]&&i.getAttribute("src")!==pics[m])i.setAttribute("src",pics[m]);}'
