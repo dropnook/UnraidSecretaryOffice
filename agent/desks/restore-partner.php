@@ -1401,6 +1401,39 @@ function rspPeek(string $snapshot, ?bool &$read = null): array
 }
 
 /**
+ * A VM package's disks as its XML names them (2026-11-20): {device disk|cdrom|floppy, path, in} — `in`: a plain file of
+ * that name lies in the VM's own folder of the copy (rspRewriteXml() points the definition there); else the file lies
+ * elsewhere at the partner and doesn't come with the folder. Read only as a plain file, at most 1 MB, 16 disks.
+ *
+ * @return list<array{device:string, path:string, in:bool}>
+ */
+function rspPeekDisks(string $dir, string $sub, string $inside, string $xml): array
+{
+    $rel = "$inside/$xml";
+    if ($xml === '' || str_contains($xml, '/') || !rspPlainFile($dir, $rel) || (int) @filesize("$dir/$rel") > (1 << 20)) {
+        return [];
+    }
+    $doc = new DOMDocument();
+    if (!@$doc->loadXML((string) @file_get_contents("$dir/$rel", false, null, 0, 1 << 20), LIBXML_NONET)) {
+        return [];
+    }
+    $out = [];
+    foreach ((new DOMXPath($doc))->query('/domain/devices/disk') ?: [] as $n) {
+        if (!$n instanceof DOMElement || count($out) >= 16) {
+            continue;
+        }
+        $src = $n->getElementsByTagName('source')->item(0);
+        $path = $src instanceof DOMElement ? ($src->getAttribute('file') ?: $src->getAttribute('dev')) : '';
+        if ($path === '' || !str_starts_with($path, '/') || str_contains($path, "\0")) {
+            continue;
+        }
+        $device = in_array($n->getAttribute('device'), ['cdrom', 'floppy'], true) ? $n->getAttribute('device') : 'disk';
+        $out[] = ['device' => $device, 'path' => $path, 'in' => rspPlainFile($dir, ($sub === '' ? '' : "$sub/") . basename($path))];
+    }
+    return $out;
+}
+
+/**
  * What a mounted copy carries (rspPeek()): its own .uso-backup and those of its folders one level down. The copy is the
  * partner's word (review 1.72.0, H5): only regular files reached without a link are read — a link may lead anywhere on
  * this server (/proc/kmsg, a device), a FIFO would wait for ever.
@@ -1415,7 +1448,8 @@ function rspPeekDir(string $dir): array
         if (is_array($m) && in_array($m['kind'] ?? '', ['app', 'vm'], true)) {
             $out[$sub] = ['kind' => $m['kind'], 'name' => rsStr($m['name'] ?? '') ?: ($sub === '' ? basename($dir) : $sub),
                 'dirs' => array_values(array_filter((array) ($m['dirs'] ?? []), fn ($d) => is_string($d) && preg_match('#^[^/]+/[^/]+$#D', $d))),
-                'needs' => rspNeeds("$dir/$inside", $dir)];
+                'needs' => rspNeeds("$dir/$inside", $dir)]
+                + ($m['kind'] === 'vm' ? ['disks' => rspPeekDisks($dir, $sub, $inside, rsStr($m['xml'] ?? ''))] : []);
         }
     }
     return $out;
@@ -1637,6 +1671,16 @@ function rsPlanPartnerStart(array $r, string $stamp): array
             }
         }
     }
+    // 2026-11-20 (the owner: «I don't want to restore domains but the VM»): started from an app's or VM's own row (`pkg`,
+    // its folder) — that app or VM is what comes back; its share is only where it lands (rspPlanOne)
+    $pkg = $kind === 'share' ? optText($r, 'pkg') : '';
+    $one = null;
+    foreach ($pkg !== '' ? $plan['options']['found'] : [] as $f) {
+        $one = $f['folder'] === $pkg ? $f : $one;
+    }
+    if ($pkg !== '' && $one === null) {
+        throw new Problem('unknown_target', ['target' => "$id $unit $pkg"]);
+    }
     // 1. the independent copy on the same pool, mounted read-only like a pull
     $pool = $kept['pool'];
     $parent = "$pool/" . RSP_PARENT;
@@ -1669,9 +1713,13 @@ function rsPlanPartnerStart(array $r, string $stamp): array
             return $plan;
         }
         $state = rspFolderState("$user/$share");
-        if ($state === 'data' && !$beside) {
+        if ($one !== null) {
+            $plan['options']['found'] = [];
+            $into = rspPlanOne($plan, $steps, ['user' => $user, 'share' => $share, 'mnt' => $mnt, 'partner' => $name, 'snapshot' => "{$u['dataset']}@$snap",
+                                               'bytes' => $bytes, 'beside' => $beside, 'f' => $one, 'peek' => $peek[$one['folder']] ?? []]);
+        } elseif ($state === 'data' && !$beside) {
             // 2026-11-20: into the share as it is — only the ticked apps' and VMs' own folders that aren't here
-            $into = rspPlanInto($plan, $steps, ['user' => $user, 'share' => $share, 'mnt' => $mnt, 'partner' => $name, 'snapshot' => "{$u['dataset']}@$snap", 'bytes' => $bytes]);
+            $into = rspPlanInto($plan, $steps, ['user' => $user, 'share' => $share, 'mnt' => $mnt, 'partner' => $name, 'snapshot' => "{$u['dataset']}@$snap", 'bytes' => $bytes, 'peek' => $peek]);
         } elseif ($state === 'data') {
             $plan['options']['conflict'] = ['path' => "$user/$share", 'kind' => 'share', 'beside_as' => null];
             $plan['notes'][] = ['key' => 'note.partner_start_copy_only', 'params' => ['path' => "$user/$share", 'name' => $name]];
@@ -1803,7 +1851,9 @@ function rsPlanPartnerStart(array $r, string $stamp): array
         $need += 2 * $sb;
     }
     $plan['steps'] = $steps;
-    $plan['notes'][] = ['key' => 'note.partner_start_package', 'params' => ['name' => $name]];
+    if ($one === null) {
+        $plan['notes'][] = ['key' => 'note.partner_start_package', 'params' => ['name' => $name]];
+    }
     // review 2026-10-15 F5: a partner's templates and Compose files go in place as they are — what they ask of this server
     // (--privileged, host paths, the Docker socket) Unraid's form and the Compose tool show before anything starts; said here
     if (array_filter($steps, fn ($s) => ($s['do'] ?? '') === 'start_from' && in_array($s['kind'] ?? '', ['app', 'share', 'look'], true))) {
@@ -1840,7 +1890,7 @@ const RSP_FOLDER_RE = '/^[A-Za-z0-9][A-Za-z0-9 _.@+-]{0,127}$/D';
  * by name; none can come = blocked, the ways out as before (cancel, only the copy). What comes is measured inside the
  * read-only copy (rspPeekSizes); not measurable: the whole share counted, said. Returns ['need' => bytes].
  *
- * @param array{user:string, share:string, mnt:string, partner:string, snapshot:string, bytes:int} $a
+ * @param array{user:string, share:string, mnt:string, partner:string, snapshot:string, bytes:int, peek:array} $a
  */
 function rspPlanInto(array &$plan, array &$steps, array $a): array
 {
@@ -1887,13 +1937,18 @@ function rspPlanInto(array &$plan, array &$steps, array $a): array
         $start = ['do' => 'start_from', 'kind' => $f['kind'], 'name' => $f['name'], 'to' => $f['to'], 'mount' => $a['mnt'], 'partner' => $a['partner'],
                   'libvirt' => rspLibvirt(), 'templates' => rspTemplates()];
         if ($f['kind'] === 'vm') {
-            $start += ['define' => is_array($states), 'define_why' => is_array($states) ? null : 'start_vm_service_off'];
+            $start += rspDefineWhy($states, $a['peek'][$f['folder']]['disks'] ?? []);
             if (!is_array($states)) {
                 $vmsOff[] = $f['name'];
             }
         }
         $steps[] = $start;
         $plan['aside'][] = ['what' => 'started', 'from' => "{$a['partner']}: {$f['name']}", 'to' => $f['to']];
+    }
+    foreach ($plan['options']['found'] as $k => $f) {
+        if (($f['here'] ?? null) === 'comes' && $f['kind'] === 'vm') {
+            $plan['options']['found'][$k]['outside'] = rspOutside($a['peek'][$f['folder']]['disks'] ?? []);
+        }
     }
     if ($vmsOff) {
         $plan['notes'][] = ['key' => 'note.partner_start_vm_service_off', 'params' => ['name' => implode(', ', $vmsOff)], 'warn' => true];
@@ -1910,6 +1965,101 @@ function rspPlanInto(array &$plan, array &$steps, array $a): array
     }
     $ratio = rsSnapRatios([$a['snapshot']])[$a['snapshot']] ?? 1.0;
     return ['need' => (int) ceil(array_sum($sizes) * $ratio)];
+}
+
+/**
+ * «Start here…» of ONE app or VM of a share's copy, from its own row (2026-11-20, the owner: «I don't want to restore
+ * domains, I want the VM»): that app or VM is what comes back — its folder from the independent copy into
+ * <share>/<folder> and it set up from there (`copy` + `start_from` of that folder alone: the VM's definition from the
+ * .uso-backup in its folder — engine 2.44 writes it there, so the share's copy alone carries it and the backup place
+ * isn't needed; an app's template or stack). The share is only where it lands: whatever else it holds is no topic.
+ * What is a topic: its own folder here with content (refused; «beside as <folder>.from-<partner>» on the user's
+ * choice), a VM of that name defined here (refused: never a second one), a folder name he doesn't make (refused);
+ * each in one sentence by name. A disk of the VM's XML outside its folder doesn't come: named by path — an ISO: taken
+ * from here when it is here, else the drive stays empty; a disk image: the VM's folder comes, its definition isn't
+ * made (it would point at whatever lies at that path here, or at nothing). Returns ['need' => bytes].
+ *
+ * @param array{user:string, share:string, mnt:string, partner:string, snapshot:string, bytes:int, beside:bool, f:array, peek:array} $a
+ */
+function rspPlanOne(array &$plan, array &$steps, array $a): array
+{
+    $f = $a['f'];
+    $folder = (string) $f['folder'];
+    $dest = "{$a['user']}/{$a['share']}/$folder";
+    $states = array_key_exists('vm_states', $GLOBALS['rs'] ?? []) ? $GLOBALS['rs']['vm_states'] : rsVmStates();
+    $besideAs = "$dest.from-" . preg_replace('/[^A-Za-z0-9_.-]/', '_', $a['partner']);
+    $why = !preg_match(RSP_FOLDER_RE, $folder) ? 'odd'
+        : ($f['kind'] === 'vm' && is_array($states) && isset($states[$f['name']]) ? 'vm_defined'
+        : (rspFolderState($dest) === 'data' ? 'exists' : null));
+    $plan['target'][$f['kind']] = $f['name'];
+    $plan['target']['name'] = $f['name'];
+    $pk = ['folder' => $folder, 'kind' => $f['kind'], 'name' => $f['name'], 'to' => $dest, 'here' => $why ?? 'comes', 'outside' => []];
+    if ($why === 'exists' && $a['beside']) {
+        $dest = $besideAs;
+        $why = rspFolderState($dest) === 'absent' ? null : 'beside_taken';
+        $pk['to'] = $dest;
+        $pk['here'] = $why ?? 'beside';
+    }
+    if ($why !== null) {
+        $plan['options']['package'] = $pk;
+        $plan['options']['conflict'] = ['path' => $pk['to'], 'kind' => 'one', 'why' => $why, 'beside_as' => $why === 'exists' ? $besideAs : null];
+        $plan['blockers'][] = ['key' => 'restore_partner_one_' . ($why === 'beside_taken' ? 'exists' : $why), 'params' => ['path' => $pk['to'], 'name' => $f['name']]];
+        return ['need' => 0];
+    }
+    $start = ['do' => 'start_from', 'kind' => $f['kind'], 'name' => $f['name'], 'to' => $dest, 'mount' => $a['mnt'], 'partner' => $a['partner'],
+              'libvirt' => rspLibvirt(), 'templates' => rspTemplates()];
+    if ($f['kind'] === 'vm') {
+        $pk['outside'] = rspOutside($a['peek']['disks'] ?? []);
+        $start += rspDefineWhy($states, $a['peek']['disks'] ?? []);
+        if (!is_array($states)) {
+            $plan['notes'][] = ['key' => 'note.partner_start_vm_service_off', 'params' => ['name' => $f['name']], 'warn' => true];
+        }
+        $plan['after'][] = ($start['define_why'] ?? null) === 'start_vm_disk_outside'
+            ? ['key' => 'after.partner_start_vm_disk_outside', 'params' => ['name' => $f['name'], 'path' => $dest, 'disk' => $start['define_disk']]]
+            : ['key' => $start['define'] ? 'after.partner_start_vm' : 'after.partner_start_vm_by_hand', 'params' => ['name' => $f['name'], 'path' => $dest]];
+    } else {
+        $plan['after'][] = ['key' => 'after.partner_start_app', 'params' => ['name' => $f['name'], 'path' => $dest]];
+    }
+    $pk['define'] = $start['define'] ?? null;
+    $plan['options']['package'] = $pk;
+    $steps[] = ['do' => 'copy', 'from' => "{$a['mnt']}/$folder", 'to' => $dest, 'into_empty' => true, 'replaces' => true, 'putback_to' => "$dest.putback-{T}",
+                'partner' => $a['partner'], 'tops' => [$a['mnt']], 'within' => "{$a['user']}/{$a['share']}"];
+    $steps[] = $start;
+    $plan['aside'][] = ['what' => 'started', 'from' => "{$a['partner']}: {$f['name']}", 'to' => $dest];
+    $sizes = rspPeekSizes($a['snapshot'], [$folder]);
+    if ($sizes === null) {
+        $plan['notes'][] = ['key' => 'note.partner_start_into_unmeasured', 'params' => ['bytes' => $a['bytes']]];
+        return ['need' => $a['bytes']];
+    }
+    $ratio = rsSnapRatios([$a['snapshot']])[$a['snapshot']] ?? 1.0;
+    return ['need' => (int) ceil(array_sum($sizes) * $ratio)];
+}
+
+/** A VM's disks outside its own folder (rspPeekDisks()), each whether that path is on this server: {device, path, here} */
+function rspOutside(array $disks): array
+{
+    $out = [];
+    foreach ($disks as $d) {
+        if (is_array($d) && empty($d['in']) && is_string($d['path'] ?? null)) {
+            clearstatcache(true, $d['path']);
+            $out[] = ['device' => (string) ($d['device'] ?? 'disk'), 'path' => $d['path'], 'here' => file_exists($d['path'])];
+        }
+    }
+    return $out;
+}
+
+/** Whether a VM from a copy is defined: the VM service on, and no disk image of it outside its folder (it wouldn't come) */
+function rspDefineWhy(?array $states, array $disks): array
+{
+    if (!is_array($states)) {
+        return ['define' => false, 'define_why' => 'start_vm_service_off'];
+    }
+    foreach (rspOutside($disks) as $d) {
+        if ($d['device'] === 'disk') {
+            return ['define' => false, 'define_why' => 'start_vm_disk_outside', 'define_disk' => $d['path']];
+        }
+    }
+    return ['define' => true, 'define_why' => null];
 }
 
 /**
@@ -2724,7 +2874,7 @@ function rsDoStartFrom(array &$j, int $i): array
             return ['state' => 'warning', 'note' => 'start_vm_in_copy', 'params' => ['name' => rsStr($m['name'] ?? ''), 'path' => "$base/" . RSP_INSIDE]];
         }
         if (empty($s['define'])) {
-            return ['state' => 'warning', 'note' => (string) ($s['define_why'] ?? 'start_vm_exists'), 'params' => ['name' => $name, 'path' => "$base/" . RSP_INSIDE]];
+            return ['state' => 'warning', 'note' => (string) ($s['define_why'] ?? 'start_vm_exists'), 'params' => ['name' => $name, 'path' => "$base/" . RSP_INSIDE, 'disk' => (string) ($s['define_disk'] ?? '')]];
         }
         $r = rspStartVm($j, $i, $m, $base, $lv, $states, $undo);
         if ($r['state'] === 'failed') {

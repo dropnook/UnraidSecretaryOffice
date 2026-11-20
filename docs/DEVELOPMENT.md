@@ -980,7 +980,13 @@ the last 60 history lines only for a source the file has none for. **The file
   folder); a folder that is here stays, a VM of that name defined here is refused (its disks don't come either), each
   named in the dialog (`options.found[].here`) and the record (`after`, `target.came`/`stayed`); none can come = blocked,
   the ways out as before. The room is checked for what comes (measured in the copy, `rspPeekSizes()`; not measurable:
-  the whole share, said), where the share puts it (`rspShareFree()`). Its share step (`sharefile`) brings one small file from the
+  the whole share, said as an upper bound), where the share puts it (`rspShareFree()`). From an app's or VM's own row
+  (`pkg`, `rspPlanOne()`) that one alone comes, whatever the share holds: its folder (`copy`) and its set-up
+  (`start_from` of that folder; the VM's definition from the `.uso-backup` in its folder — engine 2.44 writes it there, so
+  the share's copy alone carries it; a VM folder without one isn't listed at all). Refused by name only for its folder
+  here with content (beside as `<folder>.from-<partner>` on a click) or a VM of that name defined here; its XML's disks
+  outside its folder (`rspPeekDisks()`) are said by path — an ISO taken from here when it is here, a disk image means the
+  folder comes but the VM isn't defined (`start_vm_disk_outside`). Its share step (`sharefile`) brings one small file from the
   newest backup snapshot into a fresh `<share>/.uso-drill-<id>` on an awake pool or disk, compares it, and puts that folder into
   Ms. Dustdevil's storeroom of the share through her helpers (`drillScratchAway()`; she finds it by `drillTrashRoots()`), with
   the verified copy's name, size and sha256 (journal `made[].files`, manifest `drill`) — so it empties itself after 7 days.

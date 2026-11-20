@@ -2148,7 +2148,8 @@ function keptPackageRow(p, u, x, snap) {
   main.appendChild(meta);
   r.appendChild(main);
   const right = el('div', 'rs-right');
-  right.appendChild(restoreButton(T('kept.start'), { kind: 'partner_start', pair: p.id, unit: u.unit, snap: snap.name, only: [x.folder] },
+  // `pkg`: this app or VM is what comes back (rspPlanOne), its share only where it lands; `only` for an older agent
+  right.appendChild(restoreButton(T('kept.start'), { kind: 'partner_start', pair: p.id, unit: u.unit, snap: snap.name, only: [x.folder], pkg: x.folder },
     T('rd.title.partner_start', { what: insideName(x), name: p.name, when: date(snap.creation) })));
   r.appendChild(right);
   return r;
@@ -2366,7 +2367,8 @@ function stepText(s) {
   if (s.do === 'pull' && s.resume) key = 'pull_resume';
   if (s.do === 'kopia' && s.path) key = 'kopia_path';
   if (s.do === 'pull' || s.do === 'pull_local') return T('step.' + key, { ...nice(s), unit: unitLabel(s.unit) });
-  if (s.do === 'start_from') return T('step.start_from_' + (s.kind === 'vm' ? 'vm' : s.kind === 'look' ? 'look' : 'share'), nice(s));
+  // a VM not defined (said why in the plan), one app's folder (2026-11-20): their own words; an older step as before
+  if (s.do === 'start_from') return T('step.start_from_' + (s.kind === 'vm' ? (s.define === false ? 'vm_keep' : 'vm') : s.kind === 'look' ? 'look' : s.kind === 'app' && s.to ? 'app' : 'share'), nice(s));
   return T('step.' + key, nice(s));
 }
 
@@ -2382,7 +2384,8 @@ function listBlock(title, items) {
 /** What a restore will do: where from, the steps, what goes aside where, what stops how long, sizes, what to know */
 function previewView(p, sizes) {
   const box = el('div', 'rs-preview');
-  (p.blockers || []).forEach((b) => box.appendChild(el('p', 'callout warn', problemText(b))));
+  // one app's or VM's own conflict is said above, with its ways out right under it (oneOptions)
+  (p.blockers || []).filter((b) => !oneSaid(p, b)).forEach((b) => box.appendChild(el('p', 'callout warn', problemText(b))));
   if (p.share_now && p.share_now.state === 'missing') oldSettingsLines(p.share_now).forEach((x) => box.appendChild(x));
   if (p.moment) box.appendChild(momentView(p.moment));
   if (p.source) {
@@ -2655,6 +2658,7 @@ function startOptions(box, plan, ask, change, close) {
   box.innerHTML = '';
   // when one would do this here at all: this server takes over a partner that is gone (else: a new server pulls)
   box.appendChild(el('p', 'callout', T('rd.start_when', { name: (plan.target && plan.target.partner) || '' })));
+  if (plan.options.package) { oneOptions(box, plan, ask, change, close); return; }
   const found = plan.options.found || [];
   if (found.length) box.appendChild(foundField(found, change, ask.beside ? null : plan.options.into || null));
   const needs = plan.options.needs || [];
@@ -2676,6 +2680,38 @@ function startOptions(box, plan, ask, change, close) {
   row.append(cancel, ' ', beside);
   p.appendChild(row);
   box.appendChild(p);
+}
+
+/** A blocker of one app's or VM's own start that its options already say (the preview leaves it out) */
+const oneSaid = (plan, b) => !!(plan.options && plan.options.package) && /^restore_partner_one_/.test(b.key || '');
+
+/**
+ * «Start here…» of ONE app or VM from its own row (rspPlanOne): one sentence where it comes to and that it is set up —
+ * nothing about its share. A VM's disks outside its folder each said by path. Only a real conflict (its folder here with
+ * content, a VM of that name defined here) gets its ways out: «Cancel — I'll tidy up first», and beside as
+ * <folder>.from-<partner> where that helps (a folder here, no VM of that name); the blocker above says it by name
+ */
+function oneOptions(box, plan, ask, change, close) {
+  const o = plan.options.package;
+  const c = plan.options.conflict;
+  const needs = plan.options.needs || [];
+  if (needs.length) box.appendChild(needsField(needs, plan, ask, change));
+  if (o.here === 'comes' || o.here === 'beside') {
+    const line = el('p', 'rs-one');
+    line.append(T(o.here === 'beside' ? 'rd.one_beside_on' : o.kind === 'app' ? 'rd.one_app' : o.define === false ? 'rd.one_vm_files' : 'rd.one_vm', { name: o.name, path: o.to }));
+    if (o.here === 'beside') line.append(' ', button(T('rd.start_back'), 'small plain', () => change({ beside: false })));
+    box.appendChild(line);
+    (o.outside || []).forEach((d) => box.appendChild(el('p', d.device === 'disk' ? 'callout warn rs-one-disk' : 'role rs-one-disk',
+      T(d.device === 'disk' ? 'rd.one_disk_outside' : d.here ? 'rd.one_media_here' : 'rd.one_media_missing', { path: d.path }))));
+    return;
+  }
+  // the conflict in one sentence by name, its ways out right under it (a name he doesn't make: the sentence alone)
+  (plan.blockers || []).filter((b) => oneSaid(plan, b)).forEach((b) => box.appendChild(el('p', 'callout warn', problemText(b))));
+  if (!c || (c.why !== 'exists' && c.why !== 'vm_defined')) return;
+  const row = el('div', 'rs-act rs-start-conflict');
+  row.appendChild(button(T('rd.start_cancel'), 'small plain', () => close()));
+  if (c.beside_as) row.append(' ', button(T('rd.one_beside', { name: c.beside_as.split('/').pop() }), 'small', () => change({ beside: true })));
+  box.appendChild(row);
 }
 
 /**
@@ -2735,6 +2771,8 @@ function foundField(found, change, into) {
     const what = el('span', 'rs-found-what', T(x.kind === 'vm' ? 'pt.unit_vm' : 'pt.unit_app', { name: x.name }) + (x.name !== x.folder ? ` (${x.folder})` : ''));
     if (into && x.on !== false && x.here) {
       what.append(' — ', el('span', `rs-found-here ${x.here === 'comes' ? 'rs-found-comes' : 'rs-found-stays'}`, T('rd.found_here.' + x.here, { path: x.to || '', name: x.name })));
+      (x.outside || []).forEach((d) => what.append(el('span', `rs-found-disk ${d.device === 'disk' ? 'rs-found-stays' : 'rs-found-comes'}`,
+        T(d.device === 'disk' ? 'rd.one_disk_outside' : d.here ? 'rd.one_media_here' : 'rd.one_media_missing', { path: d.path }))));
     }
     l.append(cb, ' ', what);
     f.appendChild(l);

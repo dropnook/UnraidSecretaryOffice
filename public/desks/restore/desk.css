@@ -25,6 +25,9 @@
 .rs-found-here{font-size:12.5px}
 .rs-found-comes{color:var(--ink2)}
 .rs-found-stays{color:var(--warn-ink)}
+.rs-found-disk{display:block; font-size:12.5px}
+.rs-one{margin:4px 0 8px; color:var(--ink); overflow-wrap:anywhere}
+.rs-one-disk{overflow-wrap:anywhere}
 .rs-needs .rs-need{margin-left:0}
 .rs-chips{display:inline-flex; flex-wrap:wrap; gap:4px}
 .rs-files{display:flex; flex-direction:column; gap:3px; margin:4px 0 6px}
