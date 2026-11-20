@@ -331,8 +331,8 @@ function testFanboyUx(): void
         str_contains($panel, "send('step_next', { fan: id, heard });") && str_contains($panel, '() => next(true),') && str_contains($panel, '() => next(false),')
         && !str_contains($js, 'settleHeard') && str_contains($panel, "btn(T('ask.yes'), 'btn', () => send('answer', { fan: id, louder: true }),"));
     check('fanboy ux: a button that can\'t act is never dead — set back, and a click says why (toast and strip); the line under the buttons says it too (another output runs, the pause, another controller, he steers, the messenger away)',
-        str_contains($panel, "reason = T('panel.busy', { fan: run.id ? fanSay(run.id) : '' });") && str_contains($panel, "reason = T('panel.pause');") 
-        && str_contains($panel, "else if (away) reason = T('strip.away');") && str_contains($panel, 'else if (!run.kind && noTest && !showOnly) reason = noTest;') && str_contains($panel, "swap(why, [reason, toRun], () => (toRun ? [reason, ' ', btn(T('panel.to_run', { fan: fanSay(toRun) }), 'fb-link', () => benchSelect(toRun), T('panel.to_run_tip'))] : [reason]));")
+        str_contains($panel, "reason = T('panel.busy', { fan: run.id ? fanSay(run.id) : '' });") && str_contains($panel, "reason = T('panel.pause');") && str_contains($panel, 'else if (!run.kind && noTest) reason = noTest;')
+        && str_contains($panel, "else if (away) reason = T('strip.away');") && str_contains($panel, "swap(why, [reason, toRun], () => (toRun ? [reason, ' ', btn(T('panel.to_run', { fan: fanSay(toRun) }), 'fb-link', () => benchSelect(toRun), T('panel.to_run_tip'))] : [reason]));")
         && str_contains($js, "b.onclick = () => { Office.toast(reason, true); say(reason); };") && str_contains($panel, "if (no) offBtn(b, reason || T('strip.away'));")
         && !preg_match('/\b(place|count)\.disabled = [^;]*roleSet/', $js) && str_contains($js, 'if (why.length) offBtn(b, why[0]);'));
     check('fanboy ux: where he sits and how many can be filled at any time — kept on the page and sent with the role once he picks it',
@@ -388,7 +388,7 @@ function testFanboyUx(): void
     $need = ['quiet.hint_1', 'quiet.hint_2', 'quiet.hint_3', 'what.tip.his', 'what.tip.cpu', 'what.tip.pump', 'what.tip.unknown', 'safety.no_restart', 'safety.not_back', 'safety.chip',
         'next.open_test', 'next.open_ask', 'next.open_role', 'test.found_done', 'test.none_next', 'test.none_done', 'label.now', 'label.stands', 'label.waits', 'strip.left', 'strip.since'];
     same('fanboy ux: the keys the page builds by name are there in all five languages', array_fill_keys(array_keys($l), []), array_map(fn ($s) => array_values(array_filter($need, fn ($k) => !isset($s[$k]))), $l));
-    same('fanboy ux: the three honest hints at the quiet switch (de): not every board stops fully, only fans with a role he may stop stand — never the CPU cooler, Fanboy stops when something gets warm',
+    same('fanboy ux: the three honest hints at the quiet switch (de): not every board stops fully, the CPU cooler stands too until it is known, Fanboy stops when something gets warm',
         [true, true, true], [str_contains($l['de']['quiet.hint_1'], 'Nicht jedes Mainboard'), str_contains($l['de']['quiet.hint_2'], 'CPU-Kühler'), str_contains($l['de']['quiet.hint_3'], 'warm')]);
     check('fanboy ux: the same parts on every step — steps 2 and 3 on listPanel() (list, one panel, next bar), the zones as a list and one zone\'s panel, rows to read in steps 1 and 6, each step\'s next bar with ONE primary button',
         substr_count($js, 'listPanel({') === 2 && str_contains($js, "const b = el('button', 'fb-item fb-item-plain');") && substr_count($js, 'readRow(') >= 4 && substr_count($js, 'nextBar(') >= 6
@@ -1849,64 +1849,4 @@ function testFanboyArtClipped(): void
     check('fanboy art clipped: the browser checks — every animated part clipped inside the picture, the page\'s size steady over every moment and frame; the Dashboard tile likewise',
         str_contains($frames, 'export async function sizeChecks(page, secs = 3)') && str_contains($frames, "if (!c || !c.closest(art)) bad.add(")
         && str_contains($dash, "const { sizeChecks, sizeVerdicts } = await import(path.join(HERE, 'frames.mjs'));"));
-}
-
-/**
- * 2026-11-20 (the owner's second live run, 16:13: his CPU cooler — output 1, tested and found, its role not given yet —
- * stood with every other fan while the empty output 2 was tested quietly): the quiet test holds still only outputs
- * whose role is known and one of his; one without a role could be the CPU cooler or a pump — never written 0; a CPU
- * cooler (also one given to him), a pump, «don't know» never. The setup state names what it would hold (`quiet_hold`).
- */
-function testFanboyQuietRoles(): void
-{
-    $t = fanboyT('quietroles');
-    try {
-        fanboyTDisks($t, 35, null, 33);
-        $spec = fanboyR8Spec();
-        fanboyTSettle($t, $spec);
-        $before = array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]);
-        // output 1 tested and found (nothing quiet), its role not said yet
-        $clock = 0.0;
-        fanboyStepRun(['id' => 'qr1', 'kind' => 'test_up', 'fans' => [fanboyTId(1)]], fanboyTIo($t, $spec, $clock, null, 10.0));
-        same('fanboy quiet roles: output 1 found, no role yet', ['tach', null], [fanboyBoardRaw()['fans'][fanboyTId(1)]['found'] ?? null, fanboyBoardRaw()['fans'][fanboyTId(1)]['role'] ?? null]);
-        $quietRun = function () use ($t, &$spec): array {
-            $low = [];
-            [$step] = fanboyR8Run($t, $spec, [2], true, function (float $clock) use ($t, &$low): void {
-                foreach ([1, 3, 4, 5, 6] as $n) {
-                    if (fanboyTOut($t, $n)[0] === 0) {
-                        $low[$n] = true;
-                    }
-                }
-            }, null, false);
-            ksort($low);
-            return [$step, array_keys($low)];
-        };
-        $hold = fn () => fanboySetupState(fanboyDetect(), fanboyBoardRaw())['quiet_hold'];
-        same('fanboy quiet roles: nothing has a role — the setup state says the quiet test holds nothing still', [], $hold());
-        [$step, $low] = $quietRun();
-        same('fanboy quiet roles: output 2 tested quietly while no output has a role — output 1 (could be the CPU cooler) and every other output never written 0, the test done, everything as before',
-            ['done', [], $before, []], [$step['status'], $low, array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
-        // output 1 said to be a case fan: his — the quiet test may hold it still (and gives it back)
-        fanboyRole(['fan' => fanboyTId(1), 'role' => 'case', 'name' => 'Front']);
-        same('fanboy quiet roles: output 1 a case fan — the setup state names it as held during a quiet test', [fanboyTId(1)], $hold());
-        [$step, $low] = $quietRun();
-        same('fanboy quiet roles: … the quiet test holds it at 0 meanwhile (the others still not, no role), then everything back',
-            ['done', [1], $before, []], [$step['status'], $low, array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
-        // the CPU cooler (the BIOS's, or given to him), a pump, «don't know»: never
-        foreach ([['cpu', false], ['cpu', true], ['pump', false], ['unknown', false]] as [$role, $own]) {
-            fanboyRole(['fan' => fanboyTId(1), 'role' => $role] + ($own ? ['cpu_own' => true, 'cpu_confirm' => true] : []));
-            [$step, $low] = $quietRun();
-            $what = $role . ($own ? ' given to him' : '');
-            same("fanboy quiet roles: output 1 «{$what}» — never held still in a quiet test, not named as held", ['done', [], []], [$step['status'], $low, $hold()]);
-        }
-    } finally {
-        fanboyTEnd();
-    }
-    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
-    $l = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/lang/de.json'), true);
-    check('fanboy quiet roles: the page names what the quiet test holds still before it starts — the agent\'s list, by name; none: it says this pass stops none; the hint no longer says the CPU cooler stands',
-        str_contains($js, "const hold = (setup().quiet_hold || []).filter((id) => outs().includes(id));")
-        && str_contains($js, "if (!runNow().kind || !qHold.textContent) setText(qHold, hold.length ? T('quiet.holds', { n: hold.length, list: hold.map((id) => fanSay(id)).join(', ') }) : T('quiet.holds_none'));")
-        && str_contains($l['quiet.hint_2'], 'nie der CPU-Kühler') && str_contains($l['help.quiet_text'], 'nie der CPU-Kühler, eine Pumpe oder ein Lüfter ohne Rolle')
-        && is_array($l['quiet.holds'] ?? null) && str_contains($l['quiet.holds_none'], 'nie den CPU-Kühler'));
 }

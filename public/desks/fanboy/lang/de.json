@@ -872,7 +872,7 @@
   "show.quiet_warm": "Das Zeigen hat früher aufgehört: {what} hatte {c} °C, während die anderen Lüfter standen. Jeder Lüfter ist zurück, wie er war.",
   "show.no_restart": "{what} ist nach dem Anhalten nicht wieder angelaufen. Fanboy hat seinen Ausgang auf volle Drehzahl gestellt und eine Meldung geschickt — schau dir diesen Lüfter an.",
   "help.quiet": "Andere Lüfter dabei anhalten",
-  "help.quiet_text": "Die eine Ausnahme von «nie nach unten»: Während ein Ausgang getestet wird (bis du antwortest, höchstens drei Minuten), wird jeder andere Lüfter, von dem du gesagt hast, was er ist, auf 0 % gestellt, damit nur dieser zu hören ist — nie der CPU-Kühler, eine Pumpe oder ein Lüfter ohne Rolle. Nicht jedes Mainboard und jeder Lüfter hält ganz an; manche laufen auf ihrer kleinsten Drehzahl weiter. Er beginnt nicht, solange etwas warm ist, und bringt sofort alles zurück, wenn die CPU steigt oder eine Stelle warm wird; danach muss jeder Lüfter wieder drehen, sonst geht sein Ausgang auf volle Drehzahl und du bekommst eine Meldung. Aus: Kein anderer Lüfter wird angefasst.",
+  "help.quiet_text": "Die eine Ausnahme von «nie nach unten»: Während ein Ausgang getestet wird (bis du antwortest, höchstens drei Minuten), wird jeder andere Lüfter auf 0 % gestellt, damit nur dieser zu hören ist — auch der CPU-Kühler, bis seine Rolle bekannt ist; ein Kühler oder eine Pumpe mit ihrer Rolle nie. Nicht jedes Mainboard und jeder Lüfter hält ganz an; manche laufen auf ihrer kleinsten Drehzahl weiter. Er beginnt nicht, solange etwas warm ist, und bringt sofort alles zurück, wenn die CPU steigt oder eine Stelle warm wird; danach muss jeder Lüfter wieder drehen, sonst geht sein Ausgang auf volle Drehzahl und du bekommst eine Meldung. Aus: Kein anderer Lüfter wird angefasst.",
   "errors.fanboy_quiet_warm": "Jetzt nicht mit angehaltenen anderen Lüftern: {what} hat {c} °C. Versuch es wieder, wenn es abgekühlt ist, oder mit «Andere Lüfter dabei anhalten» aus.",
   "notify.quiet_no_restart_subject": "Fanboy: {fan} ist nicht wieder angelaufen",
   "notify.quiet_no_restart": "{fan} drehte vor dem Test mit angehaltenen anderen Lüftern und ist danach nicht wieder angelaufen. Fanboy hat seinen Ausgang auf volle Drehzahl gestellt und den Test abgebrochen — prüf diesen Lüfter.",
@@ -932,13 +932,8 @@
   "strip.refused": "Das ging nicht: {why}",
   "strip.away": "Der Hausbote ist gerade nicht da — das geht erst, wenn er wieder da ist.",
   "quiet.hint_1": "Nicht jedes Mainboard hält ganz an — manche Lüfter laufen dann leise weiter.",
-  "quiet.hint_2": "Es stehen nur Lüfter, von denen du gesagt hast, was sie sind — nie der CPU-Kühler, eine Pumpe oder ein Lüfter ohne Rolle.",
+  "quiet.hint_2": "Auch der CPU-Kühler steht, bis du gesagt hast, welcher Ausgang er ist. Danach hält Fanboy ihn nie mehr an.",
   "quiet.hint_3": "Wird etwas warm, bricht Fanboy ab und alle laufen sofort wieder.",
-  "quiet.holds": {
-    "one": "Während ein Ausgang getestet wird, steht dieser Lüfter: {list}.",
-    "other": "Während ein Ausgang getestet wird, stehen diese {n} Lüfter: {list}."
-  },
-  "quiet.holds_none": "In diesem Durchgang steht kein Lüfter: Fanboy hält nur Lüfter an, von denen du gesagt hast, was sie sind (nie den CPU-Kühler oder eine Pumpe). Sobald du das gesagt hast, ist «Nochmal testen» an einem Ausgang leiser.",
   "quiet.off_note": "Die anderen Lüfter laufen weiter wie vorher — Fanboy schreibt auf keinen anderen Ausgang.",
   "list.label": "Die Ausgänge des Mainboards",
   "list.row_tip": "{name} zeigen",

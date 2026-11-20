@@ -872,7 +872,7 @@
   "show.quiet_warm": "La dimostrazione si è fermata prima: {what} era a {c} °C con le altre ventole ferme. Ogni ventola è tornata com'era.",
   "show.no_restart": "{what} non è ripartita dopo la sosta delle altre ventole. Fanboy ha messo la sua uscita al massimo e ha inviato una notifica: controlla quella ventola.",
   "help.quiet": "Fermare intanto le altre ventole",
-  "help.quiet_text": "L'unica eccezione a «mai verso il basso»: mentre si testa un'uscita (finché non rispondi, al massimo tre minuti), ogni altra ventola di cui hai detto che cosa è viene messa a 0 %, così si sente solo quella; mai il dissipatore della CPU, una pompa o una ventola senza ruolo. Non tutte le schede e ventole si fermano del tutto; alcune restano alla velocità minima. Non inizia finché qualcosa è caldo e rimette subito tutto com'era se la CPU sale o un punto si scalda; dopo, ogni ventola deve ripartire, altrimenti la sua uscita va al massimo e ricevi una notifica. No: nessun'altra ventola viene toccata.",
+  "help.quiet_text": "L'unica eccezione a «mai verso il basso»: mentre si testa un'uscita (finché non rispondi, al massimo tre minuti), ogni altra ventola viene messa a 0 %, così si sente solo quella; anche il dissipatore della CPU finché il suo ruolo non è noto, mai un dissipatore o una pompa con il loro ruolo. Non tutte le schede e ventole si fermano del tutto; alcune restano alla velocità minima. Non inizia finché qualcosa è caldo e rimette subito tutto com'era se la CPU sale o un punto si scalda; dopo, ogni ventola deve ripartire, altrimenti la sua uscita va al massimo e ricevi una notifica. No: nessun'altra ventola viene toccata.",
   "errors.fanboy_quiet_warm": "Non ora con le altre ventole ferme: {what} è a {c} °C. Riprova quando si è raffreddato, oppure con «Fermare intanto le altre ventole» disattivato.",
   "notify.quiet_no_restart_subject": "Fanboy: {fan} non è ripartita",
   "notify.quiet_no_restart": "{fan} girava prima del test con le altre ventole ferme e dopo non è ripartita. Fanboy ha messo la sua uscita al massimo e ha interrotto il test: controlla quella ventola.",
@@ -932,13 +932,8 @@
   "strip.refused": "Non è andata: {why}",
   "strip.away": "Il fattorino non c'è in questo momento — funziona di nuovo quando torna.",
   "quiet.hint_1": "Non tutte le schede madri fermano del tutto una ventola — alcune continuano a girare piano.",
-  "quiet.hint_2": "Si fermano solo le ventole di cui hai detto che cosa sono: mai il dissipatore della CPU, una pompa o una ventola senza ruolo.",
+  "quiet.hint_2": "Anche il dissipatore della CPU sta fermo, finché non hai detto quale uscita è. Da quel momento Fanboy non lo ferma più.",
   "quiet.hint_3": "Se qualcosa si scalda, Fanboy interrompe e tutte ripartono subito.",
-  "quiet.holds": {
-    "one": "Mentre si testa un'uscita, questa ventola resta ferma: {list}.",
-    "other": "Mentre si testa un'uscita, queste {n} ventole restano ferme: {list}."
-  },
-  "quiet.holds_none": "In questo giro non si ferma nessuna ventola: Fanboy ferma solo le ventole di cui hai detto che cosa sono (mai il dissipatore della CPU né una pompa). Una volta detto, «Testa di nuovo» su un'uscita è più silenzioso.",
   "quiet.off_note": "Le altre ventole continuano come prima — Fanboy non scrive su nessun'altra uscita.",
   "list.label": "Le uscite della scheda madre",
   "list.row_tip": "Mostra {name}",

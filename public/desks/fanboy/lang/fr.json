@@ -872,7 +872,7 @@
   "show.quiet_warm": "La démonstration s'est arrêtée plus tôt : {what} était à {c} °C alors que les autres ventilateurs étaient arrêtés. Chaque ventilateur est revenu comme avant.",
   "show.no_restart": "{what} n'est pas reparti après l'arrêt des autres ventilateurs. Fanboy a mis sa sortie à pleine vitesse et envoyé une notification — regarde ce ventilateur.",
   "help.quiet": "Arrêter les autres ventilateurs",
-  "help.quiet_text": "La seule exception à « jamais vers le bas » : pendant le test d'une sortie (jusqu'à ta réponse, trois minutes au plus), chaque autre ventilateur dont tu as dit ce qu'il est est mis à 0 % pour qu'on n'entende que celui-là — jamais le ventirad du CPU, une pompe ou un ventilateur sans rôle. Toutes les cartes et tous les ventilateurs ne s'arrêtent pas complètement ; certains gardent leur vitesse la plus basse. Il ne commence pas tant que quelque chose est chaud et remet tout aussitôt si le CPU monte ou si un endroit chauffe ; ensuite chaque ventilateur doit redémarrer, sinon sa sortie passe à pleine vitesse et tu reçois une notification. Non : aucun autre ventilateur n'est touché.",
+  "help.quiet_text": "La seule exception à « jamais vers le bas » : pendant le test d'une sortie (jusqu'à ta réponse, trois minutes au plus), chaque autre ventilateur est mis à 0 % pour qu'on n'entende que celui-là — le ventirad du CPU aussi tant que son rôle n'est pas connu ; un ventirad ou une pompe avec leur rôle, jamais. Toutes les cartes et tous les ventilateurs ne s'arrêtent pas complètement ; certains gardent leur vitesse la plus basse. Il ne commence pas tant que quelque chose est chaud et remet tout aussitôt si le CPU monte ou si un endroit chauffe ; ensuite chaque ventilateur doit redémarrer, sinon sa sortie passe à pleine vitesse et tu reçois une notification. Non : aucun autre ventilateur n'est touché.",
   "errors.fanboy_quiet_warm": "Pas maintenant avec les autres ventilateurs arrêtés : {what} est à {c} °C. Réessaie quand cela aura refroidi, ou avec « Arrêter les autres ventilateurs » sur Non.",
   "notify.quiet_no_restart_subject": "Fanboy : {fan} n'est pas reparti",
   "notify.quiet_no_restart": "{fan} tournait avant le test avec les autres ventilateurs arrêtés et n'est pas reparti ensuite. Fanboy a mis sa sortie à pleine vitesse et interrompu le test — vérifie ce ventilateur.",
@@ -932,13 +932,8 @@
   "strip.refused": "Ça n'a pas marché : {why}",
   "strip.away": "Le coursier n'est pas là en ce moment — ça remarchera dès son retour.",
   "quiet.hint_1": "Toutes les cartes mères n'arrêtent pas complètement un ventilateur — certains continuent alors doucement.",
-  "quiet.hint_2": "Seuls s'arrêtent les ventilateurs dont tu as dit ce qu'ils sont — jamais le ventirad du CPU, une pompe ou un ventilateur sans rôle.",
+  "quiet.hint_2": "Le refroidisseur du CPU s'arrête aussi, tant que tu n'as pas dit quelle sortie c'est. Ensuite, Fanboy ne l'arrête plus jamais.",
   "quiet.hint_3": "Si quelque chose chauffe, Fanboy arrête le test et tous repartent aussitôt.",
-  "quiet.holds": {
-    "one": "Pendant le test d'une sortie, {n} ventilateur s'arrête : {list}.",
-    "other": "Pendant le test d'une sortie, ces {n} ventilateurs s'arrêtent : {list}."
-  },
-  "quiet.holds_none": "Dans ce passage, aucun ventilateur ne s'arrête : Fanboy n'arrête que ceux dont tu as dit ce qu'ils sont (jamais le ventirad du CPU ni une pompe). Une fois que tu l'as dit, « Tester à nouveau » sur une sortie est plus silencieux.",
   "quiet.off_note": "Les autres ventilateurs continuent comme avant — Fanboy n'écrit sur aucune autre sortie.",
   "list.label": "Les sorties de la carte mère",
   "list.row_tip": "Afficher {name}",

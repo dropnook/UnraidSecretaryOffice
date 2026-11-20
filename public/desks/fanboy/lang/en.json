@@ -872,7 +872,7 @@
   "show.quiet_warm": "Showing stopped early: {what} was at {c} °C with the other fans standing. Every fan is back as it was.",
   "show.no_restart": "{what} didn't turn again after the other fans stood. Fanboy set its output to full speed and sent a notification — look at that fan.",
   "help.quiet": "Stop the other fans meanwhile",
-  "help.quiet_text": "The one exception to «never down»: while one output is tested (until you answer, three minutes at most), every other fan whose role you have said is set to 0 % so only that one is heard — never the CPU cooler, a pump or a fan without a role. Not every board or fan stops completely; some keep their lowest speed. He doesn't start while anything is warm and brings everything back at once when the CPU rises or a place gets warm; afterwards every fan must turn again, or its output goes to full and you get a notification. Off: no other fan is touched.",
+  "help.quiet_text": "The one exception to «never down»: while one output is tested (until you answer, three minutes at most), every other fan is set to 0 % so only that one is heard — the CPU cooler too until its role is known; a cooler or pump with its role never. Not every board or fan stops completely; some keep their lowest speed. He doesn't start while anything is warm and brings everything back at once when the CPU rises or a place gets warm; afterwards every fan must turn again, or its output goes to full and you get a notification. Off: no other fan is touched.",
   "errors.fanboy_quiet_warm": "Not with the other fans stopped right now: {what} is at {c} °C. Try again when it has cooled down, or with «stop the other fans» off.",
   "notify.quiet_no_restart_subject": "Fanboy: {fan} didn't turn again",
   "notify.quiet_no_restart": "{fan} turned before the test with the other fans stopped and didn't turn again afterwards. Fanboy set its output to full speed and stopped the test — check that fan.",
@@ -932,13 +932,8 @@
   "strip.refused": "That didn't work: {why}",
   "strip.away": "The messenger isn't here right now — this works again once he is back.",
   "quiet.hint_1": "Not every mainboard stops a fan completely — some fans then go on quietly.",
-  "quiet.hint_2": "Only fans whose role you have said stand still — never the CPU cooler, a pump or a fan you haven't named yet.",
+  "quiet.hint_2": "The CPU cooler stands still too, until you have said which output it is. From then on Fanboy never stops it again.",
   "quiet.hint_3": "If anything gets warm, Fanboy stops the test and all fans run again at once.",
-  "quiet.holds": {
-    "one": "While an output is tested, this fan stands: {list}.",
-    "other": "While an output is tested, these {n} fans stand: {list}."
-  },
-  "quiet.holds_none": "No fan stands in this pass: Fanboy stops only fans whose role you have said (never the CPU cooler or a pump). Once you have said what they are, «Test again» on one output is quieter.",
   "quiet.off_note": "The other fans go on as before — Fanboy writes to no other output.",
   "list.label": "The mainboard's outputs",
   "list.row_tip": "Show {name}",

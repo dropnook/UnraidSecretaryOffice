@@ -235,7 +235,6 @@
   .fb-quiet-head{display:flex; flex-direction:column; gap:6px; align-items:flex-start}
   .fb-quiet-head .fb-head{margin:0}
   .fb-quiet-hints{margin:0; padding-left:18px; font-size:12.5px; line-height:1.5; color:var(--ink2); min-height:4.5em}
-  .fb-quiet-hold{margin:6px 0 0; font-size:13px; line-height:1.45; color:var(--ink)}
   .fb-quiet-off{margin:0; font-size:12.5px; line-height:1.5; color:var(--ink2); min-height:4.5em}
   /* the list of every output (left) and the panel of the one at hand (right) */
   .fb-two{display:grid; grid-template-columns:minmax(280px, 360px) minmax(0, 1fr); gap:12px; align-items:start}
