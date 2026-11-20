@@ -543,7 +543,7 @@
   "zones.add_fan": "Ajouter un ventilateur…",
   "zones.no_fan": "Pas encore de ventilateur dans cette zone.",
   "zones.sources": "Sources de chaleur",
-  "zones.sources_sub": "Clique pour en ajouter ou en retirer une. La plus chaude compte ; un disque endormi compte comme endormi, jamais comme froid. Selon les pilotes installés, certaines sondes peuvent apparaître plusieurs fois.",
+  "zones.sources_sub": "Clique pour en ajouter ou en retirer une. La plus chaude compte ; un disque endormi compte comme endormi, jamais comme froid. Selon les pilotes installés, certaines sondes peuvent apparaître plusieurs fois ou manquer.",
   "zones.src_in": "Prendre dans cette zone",
   "zones.src_out": "Retirer de cette zone",
   "zones.sources_first": "Pas encore de source de chaleur — choisis-en au moins une ; d’ici là, la courbe de la zone ne fait rien.",

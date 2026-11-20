@@ -543,7 +543,7 @@
   "zones.add_fan": "Añadir un ventilador…",
   "zones.no_fan": "Aún ningún ventilador en esta zona.",
   "zones.sources": "Fuentes de calor",
-  "zones.sources_sub": "Haz clic para añadir o quitar una. Cuenta la más caliente; un disco dormido cuenta como dormido, nunca como frío. Según los controladores instalados, algunos sensores pueden aparecer más de una vez.",
+  "zones.sources_sub": "Haz clic para añadir o quitar una. Cuenta la más caliente; un disco dormido cuenta como dormido, nunca como frío. Según los controladores instalados, algunos sensores pueden aparecer más de una vez o faltar.",
   "zones.src_in": "Meter en esta zona",
   "zones.src_out": "Sacar de esta zona",
   "zones.sources_first": "Todavía ninguna fuente de calor — elige al menos una; hasta entonces la curva de la zona no hace nada.",

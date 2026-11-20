@@ -543,7 +543,7 @@
   "zones.add_fan": "Lüfter dazu…",
   "zones.no_fan": "Noch kein Lüfter in dieser Zone.",
   "zones.sources": "Wärmequellen",
-  "zones.sources_sub": "Klick, um eine dazu- oder wegzunehmen. Es zählt die wärmste; eine schlafende Disk zählt als schlafend, nie als kalt. Je nach installierten Treibern können gewisse Fühler mehrfach erscheinen.",
+  "zones.sources_sub": "Klick, um eine dazu- oder wegzunehmen. Es zählt die wärmste; eine schlafende Disk zählt als schlafend, nie als kalt. Je nach installierten Treibern können gewisse Fühler mehrfach erscheinen oder fehlen.",
   "zones.src_in": "In diese Zone nehmen",
   "zones.src_out": "Aus dieser Zone nehmen",
   "zones.sources_first": "Noch keine Wärmequelle — wähle mindestens eine; bis dahin bewirkt die Kurve der Zone nichts.",
