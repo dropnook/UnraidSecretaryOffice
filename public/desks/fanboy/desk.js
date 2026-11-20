@@ -23,13 +23,13 @@ const T0 = Office.scope(ID);
 // how long an output stays at full at most (a test without an answer — 2026-11-20: it waits for the answer, up to its
 // ceiling, shorter in the quiet test —, a show), the page's lease, the minutes until he tells. An older agent without
 // them: the constants mirrored here (a test compares them with the agent's).
-const TIMES = { up_hold: 600, up_hold_quiet: 180, show_for: 60, lease: 45, tell_after: 900, idle_warm_after: 120, poll_live: 300, clear_after: 120 };
+const TIMES = { up_hold: 600, up_hold_quiet: 180, measure_max: 1053, show_for: 60, lease: 45, tell_after: 900, idle_warm_after: 120, poll_live: 300, clear_after: 120 };
 function timesNow() {
   try { return { ...TIMES, ...(state.setup.times || {}) }; } catch (e) { return TIMES; }     // (before the first state: the mirror)
 }
 const T = (k, p) => {
   const tm = timesNow();
-  return T0(k, { hold_min: Math.round(tm.up_hold / 60), hold_quiet_min: Math.round(tm.up_hold_quiet / 60), show_s: tm.show_for, lease_s: tm.lease, tell_min: Math.round(tm.tell_after / 60), idle_min: Math.round(tm.idle_warm_after / 60), ...(p || {}) });
+  return T0(k, { hold_min: Math.round(tm.up_hold / 60), hold_quiet_min: Math.round(tm.up_hold_quiet / 60), measure_min: Math.ceil(tm.measure_max / 60), show_s: tm.show_for, lease_s: tm.lease, tell_min: Math.round(tm.tell_after / 60), idle_min: Math.round(tm.idle_warm_after / 60), ...(p || {}) });
 };
 const { el, fmt } = Office;
 const LOOK_MS = 5000;           // a new look while a page of his is shown (the agent's look is a few file reads)
@@ -2378,6 +2378,15 @@ function stripMake() {
     if ((run.pause ? run.pause.left : null) !== was || part !== partWas) update(); else clockUpdate();
   }
   function clockUpdate() {
+    // 2026-11-20: while measuring several fans, which of them («Lüfter 2 von 3»)
+    const ms = run.kind === 'measure' ? step() : null;
+    if (ms && (ms.fans || []).length > 1) {
+      const n = ms.fans.length, i = Math.min(n, (ms.done || []).length + 1);
+      clock.classList.remove('fb-clock-off');
+      setText(since, T('strip.of', { i, n }));
+      meterBar.style.width = `${Math.round(100 * (i - 1) / n)}%`;
+      return;
+    }
     const on = !!run.since && (run.kind === 'test' || run.kind === 'show');
     clock.classList.toggle('fb-clock-off', !on);
     if (!on) { setText(since, ''); return; }
@@ -3245,7 +3254,9 @@ function standLine(f) {
   if (!st) return f && f.stand_cut ? cutLine(f.stand_cut) : '';
   if (st.stops === false) return T('stand.floor', { rpm: num(st.floor_rpm) === null ? '–' : fmt.number(st.floor_rpm) });
   if (st.stops_safe === false) return T('stand.unsafe');
-  if (num(st.start_from_stop) !== null) return T('stand.starts', { pct: st.start_from_stop });
+  // 2026-11-20: how long it took from standing (the longest of its tries), where measured
+  const secs = num(st.start_secs) !== null ? ` · ${T('stand.start_secs', { s: fmt.number(st.start_secs) })}` : '';
+  if (num(st.start_from_stop) !== null) return T('stand.starts', { pct: st.start_from_stop }) + secs;
   if (num(st.kick_start) !== null) return T('stand.kick', { pct: st.kick_start });
   return T('stand.stops');
 }

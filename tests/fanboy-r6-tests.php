@@ -1676,8 +1676,10 @@ function testFanboyR12Control(): void
         same('fanboy r12 control: warmer — the 35 % fan started 5 % above its start (40 %: 102), the kick fan at full (255); both turning at their value then, no «stands»',
             [true, true, true, true, null], [in_array(102, $seen[1], true), in_array(255, $seen[4], true), fanboyReadInt("{$t['hw']}/fan1_input") > 300,
                 fanboyReadInt("{$t['hw']}/fan4_input") > 300, $c['alarm']]);
-        check('fanboy r12 control: the «stands» clock allows for the start — kicks and a start wait fit in FANBOY_STAND_AFTER',
-            FANBOY_KICK * FANBOY_KICK_MAX + FANBOY_START_WAIT <= FANBOY_STAND_AFTER);
+        // (2026-11-20: the measuring's start wait is 12 s now — its own; whether the control's «stands» clock should allow for a
+        // fan's measured start time is an open question to the owner, not built: the control's own numbers here)
+        check('fanboy r12 control: the «stands» clock allows for the control\'s kicks — FANBOY_KICK × FANBOY_KICK_MAX fit in FANBOY_STAND_AFTER',
+            FANBOY_KICK * FANBOY_KICK_MAX <= FANBOY_STAND_AFTER);
         fanboyLetGo($c, 'end');
     } finally {
         fanboyTEnd();
@@ -3121,7 +3123,7 @@ function testFanboyTimes(): void
     $t = fanboyT('times');
     try {
         $s = fanboySetupState(fanboyDetect(), fanboyBoardRaw());
-        $want = ['clear_after' => FANBOY_CLEAR_AFTER, 'up_hold' => FANBOY_UP_HOLD, 'up_hold_quiet' => FANBOY_UP_HOLD_QUIET, 'up_min' => FANBOY_UP_MIN, 'show_for' => FANBOY_SHOW_FOR, 'lease' => FANBOY_STEP_LEASE,
+        $want = ['clear_after' => FANBOY_CLEAR_AFTER, 'up_hold' => FANBOY_UP_HOLD, 'up_hold_quiet' => FANBOY_UP_HOLD_QUIET, 'measure_max' => fanboyMeasureMaxSecs(), 'up_min' => FANBOY_UP_MIN, 'show_for' => FANBOY_SHOW_FOR, 'lease' => FANBOY_STEP_LEASE,
             'tell_after' => FANBOY_TELL_AFTER, 'idle_warm_after' => FANBOY_IDLE_WARM_AFTER, 'stand_after' => FANBOY_STAND_AFTER, 'history_every' => FANBOY_HISTORY_EVERY,
             'history_periods' => FANBOY_HISTORY_PERIODS, 'poll_live' => FANBOY_POLL_LIVE, 'crash_pause' => FANBOY_CRASH_PAUSE, 'crash_window' => FANBOY_CRASH_WINDOW,
             'crash_max' => FANBOY_CRASH_MAX, 'net' => ['warm_pct' => FANBOY_NET_WARM_PCT, 'hot_pct' => FANBOY_NET_HOT_PCT, 'gap' => FANBOY_NET_GAP, 'clear' => FANBOY_NET_CLEAR]];
