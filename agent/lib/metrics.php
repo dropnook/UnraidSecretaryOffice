@@ -28,8 +28,12 @@ declare(strict_types=1);
  * rename (writeAtomic(): ".uso_x.prom.<random>.tmp" — never "*.prom"), so the
  * collector never reads half a file. All files together stay under
  * METRICS_MAX_BYTES: per-item series (the families with the most samples) go
- * first, said once in the agent log. Files of desks that were let go or no
- * longer report are removed.
+ * first, said once in the agent log. The room is looked at before each write
+ * too (metricsRoomNeed()): the folder's file system is small and not the
+ * office's alone, so at least METRICS_ROOM_FLOOR stays free there — with
+ * less, families go in the same order, said once; with too little for even
+ * the office's own file nothing is written (and the office's files go).
+ * Files of desks that were let go or no longer report are removed.
  *
  * OFFICE_METRICS_DIR in the environment points somewhere else (the tests).
  */
@@ -37,7 +41,15 @@ declare(strict_types=1);
 const METRICS_HOST_DIR    = '/mnt/addons/UnraidSecretaryOffice/metrics';
 const METRICS_HOST_BASE   = '/mnt/addons';          // Unassigned Devices' tmpfs; without it a plain folder the office makes
 const METRICS_EVERY       = 60;                     // seconds between two writes
-const METRICS_MAX_BYTES   = 16384;                  // all files together (the tmpfs has 1 MB, shared)
+const METRICS_MAX_BYTES   = 49152;                  // all files together (the tmpfs has 1 MB, shared; 16 KB before 1.95.0)
+/*
+ * Free space kept for the others where the folder lies: a quarter of Unassigned Devices' 1 MB tmpfs, five times the
+ * most the office writes there (METRICS_MAX_BYTES), so the office never takes its last room; the backup engine's mount
+ * points and Unassigned Devices' own need little but must always find some. A plain folder on Unraid's rootfs (RAM, GBs)
+ * never comes near it.
+ */
+const METRICS_ROOM_FLOOR  = 262144;
+const METRICS_PAGE        = 4096;                   // a tmpfs keeps whole pages: a file of 100 bytes takes 4 KB
 const METRICS_MAX_SAMPLES = 500;                    // per family, before the size cap even looks
 const METRICS_FRESH       = 300;                    // seconds: older files mean the agent stopped writing
 const METRICS_NAME        = '/^[a-zA-Z_][a-zA-Z0-9_]*$/D';
@@ -161,7 +173,7 @@ function metricsMakeBase(string $base): void
  *
  * @return array{files: array<string,int>, dropped: list<string>}|null  file => bytes, families left out; null: not written
  */
-function metricsWrite(int $now, ?array $areas = null, ?string $dir = null): ?array
+function metricsWrite(int $now, ?array $areas = null, ?string $dir = null, ?callable $free = null): ?array
 {
     $dir ??= metricsDir();
     if (!metricsEnsureDir($dir)) {
@@ -171,19 +183,44 @@ function metricsWrite(int $now, ?array $areas = null, ?string $dir = null): ?arr
     $areas = metricsClean([METRICS_OFFICE => metricsOffice($now, 0)] + ($areas ?? metricsCollect()));
     $office = metricsRender($areas[METRICS_OFFICE] ?? []);
     unset($areas[METRICS_OFFICE]);
-    // the office's own file is never cut; room for a longer number of families left out
-    [$texts, $dropped] = metricsFit($areas, METRICS_MAX_BYTES - strlen($office) - 8);
+    // the room: what is free where the folder lies, what our files there take now (they are replaced)
+    $room = metricsRoom($dir, $free);
+    $budget = METRICS_MAX_BYTES - strlen($office) - 8;    // the office's own file is never cut; room for a longer number of families left out
+    $fits = $room === null ? null : fn (array $texts): bool => metricsRoomNeed([METRICS_OFFICE => $office . str_repeat(' ', 8)] + $texts, $room['old']) <= $room['spare'];
+    [$texts, $dropped] = metricsFit($areas, $budget, $fits);
+    $bySize = $fits === null ? count($dropped) : count(metricsFit($areas, $budget)[1]);   // the same order: the first ones went for the size
     if ($dropped) {
         $office = metricsRender(metricsClean([METRICS_OFFICE => metricsOffice($now, count($dropped))])[METRICS_OFFICE] ?? []);
     }
     $texts = [METRICS_OFFICE => $office] + $texts;
+    $written = $room === null || metricsRoomNeed([METRICS_OFFICE => $office], $room['old']) <= $room['spare'];
 
-    $new = array_diff($dropped, array_keys($GLOBALS['metricsDropped'] ?? []));
-    if ($new) {
-        logLine(sprintf('Metrics: over %d KB — left out %s', intdiv(METRICS_MAX_BYTES, 1024), implode(', ', $new)));
+    $why = array_fill_keys(array_slice($dropped, 0, $bySize), 'size') + array_fill_keys(array_slice($dropped, $bySize), 'room');
+    $was = $GLOBALS['metricsDropped'] ?? [];
+    $new = ['size' => [], 'room' => []];
+    foreach ($why as $name => $reason) {
+        if (($was[$name] ?? null) !== $reason) {
+            $new[$reason][] = $name;
+        }
     }
-    $GLOBALS['metricsDropped'] = array_fill_keys($dropped, true);
+    if ($new['size']) {
+        logLine(sprintf('Metrics: over %d KB — left out %s', intdiv(METRICS_MAX_BYTES, 1024), implode(', ', $new['size'])));
+    }
+    if ($new['room'] && $room !== null) {
+        logLine(sprintf('Metrics: only %s free in %s (%d KB stay for others) — left out %s',
+                        metricsKb($room['free']), $dir, intdiv(METRICS_ROOM_FLOOR, 1024), implode(', ', $new['room'])));
+    }
+    $GLOBALS['metricsDropped'] = $why;
+    $GLOBALS['metricsLeftOut'] = ['size' => $bySize, 'room' => count($dropped) - $bySize, 'written' => $written, 'free' => $room['free'] ?? null];
 
+    if (!$written) {
+        // not even the office's own file has room: nothing written, ours removed (an old number would look fresh)
+        metricsNote('room', sprintf('Metrics: only %s free in %s (%d KB stay for others) — the office\'s numbers are not written',
+                                    metricsKb((int) $room['free']), $dir, intdiv(METRICS_ROOM_FLOOR, 1024)));
+        metricsTidy($dir, [], $now);
+        return ['files' => [], 'dropped' => $dropped];
+    }
+    metricsNoteClear('room');
     $files = [];
     foreach ($texts as $area => $text) {
         $file = "uso_$area.prom";
@@ -193,6 +230,72 @@ function metricsWrite(int $now, ?array $areas = null, ?string $dir = null): ?arr
     metricsTidy($dir, $files, $now);
     metricsNoteClear('write');
     return ['files' => $files, 'dropped' => $dropped];
+}
+
+/**
+ * The room where the folder lies: free bytes (statfs; $free: the tests' stand-in, path => bytes|null), the sizes of our
+ * files there now, and what the office may add at most (spare: free − METRICS_ROOM_FLOOR). Null when it can't be told
+ * (no answer, or a file system that reports no size, like ramfs): then only the size cap counts.
+ *
+ * @return array{free:int, spare:int, old:array<string,int>}|null
+ */
+function metricsRoom(string $dir, ?callable $free = null): ?array
+{
+    if ($free) {
+        $bytes = $free($dir);
+    } else {
+        $total = @disk_total_space($dir);
+        $bytes = is_float($total) && $total > 0 ? @disk_free_space($dir) : null;
+    }
+    if (!is_int($bytes) && !is_float($bytes)) {
+        return null;
+    }
+    $old = [];
+    clearstatcache();
+    foreach (@scandir($dir) ?: [] as $name) {
+        $st = preg_match(METRICS_FILE, $name) ? @lstat("$dir/$name") : false;
+        if ($st && ($st['mode'] & 0170000) === 0100000) {
+            $old[$name] = (int) $st['size'];
+        }
+    }
+    return ['free' => (int) $bytes, 'spare' => (int) $bytes - METRICS_ROOM_FLOOR, 'old' => $old];
+}
+
+/**
+ * What a write of $texts (area => text) needs beyond what the folder holds now, at its peak, in whole pages: the files
+ * are replaced one by one, each through a temporary file beside the old one — so every file counts with the larger of
+ * its old and new size, and the biggest new one once more (its temporary file while the old one is still there).
+ *
+ * @param array<string,int> $old  file => bytes now
+ */
+function metricsRoomNeed(array $texts, array $old): int
+{
+    $pages = fn (int $bytes): int => intdiv($bytes + METRICS_PAGE - 1, METRICS_PAGE) * METRICS_PAGE;
+    $grow = $big = 0;
+    foreach ($texts as $area => $text) {
+        $n = $pages(strlen($text));
+        $grow += max(0, $n - $pages($old["uso_$area.prom"] ?? 0));
+        $big = max($big, $n);
+    }
+    return $grow + $big;
+}
+
+/** Bytes as the log says them: «180 KB», «0 KB» */
+function metricsKb(int $bytes): string
+{
+    return intdiv(max(0, $bytes), 1024) . ' KB';
+}
+
+/**
+ * What the last write left out, for the team lead: families for the size cap and for the room, whether the office's
+ * numbers were written at all, and the free bytes where they lie (null: not told). Null before the first write (or in
+ * another process).
+ *
+ * @return array{size:int, room:int, written:bool, free:?int}|null
+ */
+function metricsLeftOut(): ?array
+{
+    return $GLOBALS['metricsLeftOut'] ?? null;
 }
 
 /** Our files nobody wrote this round (a desk let go, a hook that stopped reporting) and temporary files left by a crash */
@@ -215,7 +318,7 @@ function metricsOffice(int $now, int $dropped): array
         metricsGauge('uso_office_info', 'The office\'s agent (1 while it writes these numbers), by its version', [[['version' => AGENT_VERSION], 1]]),
         metricsGauge('uso_office_agent_started_timestamp_seconds', 'When the office\'s agent started', (int) ($GLOBALS['started'] ?? $now)),
         metricsGauge('uso_metrics_written_timestamp_seconds', 'When the office last wrote its numbers (once a minute)', $now),
-        metricsGauge('uso_metrics_dropped_families', 'Metric families left out to stay under the size cap of ' . METRICS_MAX_BYTES . ' bytes', $dropped),
+        metricsGauge('uso_metrics_dropped_families', 'Metric families left out to stay under the size cap of ' . METRICS_MAX_BYTES . ' bytes or to keep ' . METRICS_ROOM_FLOOR . ' bytes free where the files lie', $dropped),
         ...(function_exists('runDirMetrics') ? runDirMetrics() : []),     // its RAM folder and the room on /run (lib/rundir.php)
     ];
 }
@@ -368,18 +471,20 @@ function metricsRender(array $families): string
 }
 
 /**
- * All areas within $budget bytes: while too big, the family with the most
+ * All areas within $budget bytes (and, given $fits, as long as it says no
+ * for area => text): while too big, the family with the most
  * series (per-item ones: package sizes, per pool …) goes first; when only
- * single numbers are left, the biggest area as a whole.
+ * single numbers are left, the biggest area as a whole. The order never
+ * depends on the budget: a smaller one leaves out more of the same list.
  *
  * @return array{0: array<string,string>, 1: list<string>}  area => text, the names left out
  */
-function metricsFit(array $areas, int $budget): array
+function metricsFit(array $areas, int $budget, ?callable $fits = null): array
 {
     $dropped = [];
     while (true) {
         $texts = array_filter(array_map('metricsRender', $areas), 'strlen');
-        if (!$texts || array_sum(array_map('strlen', $texts)) <= $budget) {
+        if (!$texts || (array_sum(array_map('strlen', $texts)) <= $budget && ($fits === null || $fits($texts)))) {
             return [$texts, $dropped];
         }
         $pick = null;

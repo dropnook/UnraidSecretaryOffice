@@ -43,6 +43,12 @@
     },
     {
       "type": "panel",
+      "id": "state-timeline",
+      "name": "State timeline",
+      "version": ""
+    },
+    {
+      "type": "panel",
       "id": "timeseries",
       "name": "Time series",
       "version": ""
@@ -64,7 +70,7 @@
       }
     ]
   },
-  "description": "The Unraid Secretary Office's own numbers (Mr. Backupsy, Ms. Snapshotini, the team lead, the night watchman …) and a few of the server's, through the Node Exporter's textfile collector.",
+  "description": "The Unraid Secretary Office's own numbers (Mr. Backupsy, Ms. Snapshotini, the team lead, the night watchman, Fanboy …) and a few of the server's, through the Node Exporter's textfile collector.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -378,8 +384,8 @@
     },
     {
       "type": "stat",
-      "title": "USO left out (size cap)",
-      "description": "Metric families the Unraid Secretary Office left out to stay under its size cap (16 KB — the folder lives in a 1 MB RAM disk shared with the backup's mount points). The agent log names them.",
+      "title": "USO left out (size or room)",
+      "description": "Metric families the Unraid Secretary Office left out: to stay under its size cap (48 KB), or to keep 256 KB free where the files lie (the folder lives in RAM — with Unassigned Devices in its 1 MB RAM disk, shared with the backup's mount points). The agent log names them.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -3166,6 +3172,598 @@
     },
     {
       "type": "row",
+      "title": "Fanboy — fans",
+      "id": 54,
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 99
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Who steers the fans",
+      "description": "Fanboy steers the fans he was given, or the BIOS does (before he took over, while he holds back, after he let go). Empty where Fanboy doesn't work.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "A",
+          "expr": "max(uso_fanboy_steering{instance=~\"$instance\"})",
+          "legendFormat": "__auto",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "Fanboy",
+                  "color": "green",
+                  "index": 0
+                },
+                "0": {
+                  "text": "the BIOS",
+                  "color": "blue",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 100
+      },
+      "id": 55
+    },
+    {
+      "type": "stat",
+      "title": "Fan alarm",
+      "description": "An alarm at Fanboy's fans: a fan stands, too warm at full speed, a sensor silent, the chip gone. His page says which.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "A",
+          "expr": "max(uso_fanboy_alarm{instance=~\"$instance\"})",
+          "legendFormat": "__auto",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "none",
+                  "color": "green",
+                  "index": 0
+                },
+                "1": {
+                  "text": "alarm",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 100
+      },
+      "id": 56
+    },
+    {
+      "type": "stat",
+      "title": "Warmest place per zone",
+      "description": "Each zone's warmest heat source now — the place that leads its fans.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "A",
+          "expr": "max by (zone, name) (uso_fanboy_zone_temperature_celsius{instance=~\"$instance\",zone=~\"$zone\"})",
+          "legendFormat": "{{name}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 100
+      },
+      "id": 57
+    },
+    {
+      "type": "state-timeline",
+      "title": "When he steered, when an alarm stood",
+      "description": "Who steered the fans (Fanboy or the BIOS) and when an alarm stood, over time.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "A",
+          "expr": "max(uso_fanboy_steering{instance=~\"$instance\"})",
+          "legendFormat": "who steers",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "B",
+          "expr": "max(uso_fanboy_alarm{instance=~\"$instance\"})",
+          "legendFormat": "alarm",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 80,
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "who steers"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "1": {
+                        "text": "Fanboy",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "0": {
+                        "text": "the BIOS",
+                        "color": "blue",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "alarm"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "1": {
+                        "text": "alarm",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "0": {
+                        "text": "none",
+                        "color": "transparent",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showValue": "never",
+        "rowHeight": 0.8,
+        "mergeValues": true,
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 104
+      },
+      "id": 58
+    },
+    {
+      "type": "timeseries",
+      "title": "${zone:text}: warmest place and level",
+      "description": "The zone's warmest heat source (the place that leads, °C, left) and the level Fanboy gave its fans (%, right; zones steered by percent, only while he steers). One panel per zone.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "repeat": "zone",
+      "repeatDirection": "h",
+      "maxPerRow": 2,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "A",
+          "expr": "max by (zone, name) (uso_fanboy_zone_temperature_celsius{instance=~\"$instance\",zone=~\"$zone\"})",
+          "legendFormat": "warmest place",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "B",
+          "expr": "max by (zone, name) (uso_fanboy_zone_level_percent{instance=~\"$instance\",zone=~\"$zone\"})",
+          "legendFormat": "level",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": false
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 110
+      },
+      "id": 59
+    },
+    {
+      "type": "timeseries",
+      "title": "Fan speeds",
+      "description": "Each fan Fanboy steers, by its name, in revolutions per minute.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "A",
+          "expr": "max by (zone, output, name) (uso_fanboy_fan_rpm{instance=~\"$instance\",zone=~\"$zone\"})",
+          "legendFormat": "{{name}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "rotrpm",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 118
+      },
+      "id": 60
+    },
+    {
+      "type": "row",
       "title": "The server (Node Exporter)",
       "id": 43,
       "collapsed": false,
@@ -3174,7 +3772,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 99
+        "y": 126
       }
     },
     {
@@ -3252,7 +3850,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 100
+        "y": 127
       },
       "id": 44
     },
@@ -3331,7 +3929,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 100
+        "y": 127
       },
       "id": 45
     },
@@ -3404,7 +4002,7 @@
         "h": 8,
         "w": 4,
         "x": 16,
-        "y": 100
+        "y": 127
       },
       "id": 46
     },
@@ -3477,7 +4075,7 @@
         "h": 8,
         "w": 4,
         "x": 20,
-        "y": 100
+        "y": 127
       },
       "id": 47
     },
@@ -3556,7 +4154,7 @@
         "h": 8,
         "w": 16,
         "x": 0,
-        "y": 108
+        "y": 135
       },
       "id": 48
     },
@@ -3620,7 +4218,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 108
+        "y": 135
       },
       "id": 49
     }
@@ -3656,6 +4254,31 @@
         "current": {},
         "options": [],
         "description": "The Node Exporter (the Unraid server) whose numbers are shown"
+      },
+      {
+        "name": "zone",
+        "label": "Fan zone",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "query_result(max by (zone, name) (uso_fanboy_zone_temperature_celsius{instance=~\"$instance\"}))",
+        "query": {
+          "query": "query_result(max by (zone, name) (uso_fanboy_zone_temperature_celsius{instance=~\"$instance\"}))",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery",
+          "qryType": 3
+        },
+        "refresh": 2,
+        "regex": "/name=\"(?<text>[^\"]*)\".*zone=\"(?<value>[^\"]*)\"/",
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "hide": 0,
+        "current": {},
+        "options": [],
+        "description": "Fanboy's zones (one panel each); empty where Fanboy doesn't work"
       }
     ]
   },
