@@ -26631,10 +26631,10 @@ function testMetrics(): void
 
     // the room: the folder's file system is small and shared — at least METRICS_ROOM_FLOOR stays free (a stand-in statfs,
     // through OFFICE_METRICS_DIR as the agent finds its folder); whole pages, the biggest new file twice for a moment
-    same('metrics room: pages, every file at its larger size, the biggest new one once more', [4096 + 8192 + 8192, 4096 + 8192, 8192],
-        [metricsRoomNeed(['office' => str_repeat('a', 100), 'backup' => str_repeat('b', 5000)], []),
-         metricsRoomNeed(['office' => str_repeat('a', 100), 'backup' => str_repeat('b', 5000)], ['uso_office.prom' => 900, 'uso_backup.prom' => 7000]),
-         metricsRoomNeed(['office' => str_repeat('a', 100), 'backup' => str_repeat('b', 5000)], ['uso_office.prom' => 900, 'uso_backup.prom' => 9000])]);
+    same('metrics room: pages, every file at its larger size, the biggest new one once more', [4096 + 8192 + 8192, 8192, 4096 + 12288],
+        [metricsRoomNeed(['office' => str_repeat('a', 100), 'backup' => str_repeat('b', 5000)], []),                                          // nothing there yet
+         metricsRoomNeed(['office' => str_repeat('a', 100), 'backup' => str_repeat('b', 5000)], ['uso_office.prom' => 900, 'uso_backup.prom' => 7000]),  // the same pages
+         metricsRoomNeed(['office' => str_repeat('a', 100), 'backup' => str_repeat('b', 9000)], ['uso_office.prom' => 900, 'uso_backup.prom' => 5000])]); // one page more
     $roomDir = hardeningTmp('metrics-room') . '/metrics';
     mkdir($roomDir, 0755);
     putenv("OFFICE_METRICS_DIR=$roomDir");
@@ -26644,6 +26644,8 @@ function testMetrics(): void
     $pkgs = array_map(fn ($i) => [['kind' => 'app', 'name' => str_repeat('p', 40) . "-$i"], $i], range(1, 300));   // ~22 KB
     $room = fn () => ['backup' => [$g('uso_backup_running', [[[], 0]]), $g('uso_backup_package_bytes', $pkgs)],
                       'snapshot' => [$g('uso_snapshot_snapshots', [[['pool' => 'cache'], 3]])]];
+    @mkdir(DATA_DIR, 0755, true);           // the log lives there (a run of only this test may come first)
+    clearstatcache();
     $logAt = (int) @filesize(AGENT_LOG);
     $said = fn (string $what) => substr_count((string) @file_get_contents(AGENT_LOG, false, null, $logAt), $what);
     $r = metricsWrite($now, $room(), null, $statfs);
