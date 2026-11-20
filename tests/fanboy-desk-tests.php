@@ -1515,3 +1515,25 @@ function testFanboyZoneSources(): void
         [69, [28, 2, 0], ['points' => [[40, 25], [55, 60], [65, 100]]]],
         [count($demo['setup']['sources'] ?? []), array_map(fn ($z) => count($z['sources']), $demo['setup']['zones'] ?? []), $demo['setup']['zones'][1]['curves']['ram'] ?? null]);
 }
+
+/**
+ * A CPU cooler given to him (round 4, `cpu_own`) is his on every picture of his page (2026-11-20, the owner: «the tile is
+ * right, his page is wrong»): drawn solid with «Fanboy runs this fan», never the BIOS's dotted frame or «The BIOS steers
+ * it»; the outputs' list never calls it «watched». The other CPU coolers and pumps stay the BIOS's.
+ */
+function testFanboyCpuOwnWheel(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $start = (int) strpos($js, 'function wheelOf(id, opts) {');
+    $fn = substr($js, $start, (int) strpos($js, "\n}\n", $start) - $start);
+    check('fanboy cpu own wheel: wheelOf() — a fan of the BIOS is one he doesn\'t hold or one of the BIOS\'s roles that isn\'t his (isOurs: a CPU cooler given to him is)',
+        str_contains($fn, 'const watched = ROLES_BIOS.includes(f.role) && !isOurs(f);') && str_contains($fn, 'const bios = !held || watched;')
+        && str_contains($fn, ": watched ? T('pic.watched_title') : T('pic.bios_title')) : T('pic.his_title'),") && !str_contains($fn, '!held || ROLES_BIOS.includes(f.role)'), $fn);
+    check('fanboy cpu own wheel: the outputs\' list — «watched» only for the BIOS\'s own', str_contains($js,
+        "if (f.role && ROLES_BIOS.includes(f.role) && !isOurs(f)) return chipOfText('quiet', T(`role.\${f.role}`) + ' · ' + T('out.watched'), T('out.watched_title'));"), '');
+    check('fanboy cpu own wheel: isOurs() — his roles, or a CPU cooler given to him', str_contains($js, "const isOurs = (f) => !!f && (ROLES_OURS.includes(f.role) || (f.role === 'cpu' && !!f.cpu_own));"), '');
+    $demo = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy-cpu.json'), true);
+    $cpu = array_values(array_filter($demo['setup']['fans'] ?? [], fn ($f) => ($f['role'] ?? null) === 'cpu'))[0] ?? [];
+    same('fanboy cpu own wheel: the demo that shows it (fanboy-cpu) — a CPU cooler given to him, held by his control', [true, true],
+        [is_int($cpu['cpu_own'] ?? null), (bool) array_filter(array_merge(...array_column($demo['control']['zones'] ?? [], 'fans')), fn ($f) => ($f['id'] ?? '') === ($cpu['id'] ?? '-') && ($f['held'] ?? false) === true)]);
+}

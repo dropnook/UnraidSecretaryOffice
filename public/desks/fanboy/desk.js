@@ -601,7 +601,10 @@ function wheelOf(id, opts) {
   const live = rpmNow(id, f.tachs);
   const rpm = cf && num(cf.rpm) !== null ? cf.rpm : live;
   const held = !!(cf && cf.held && control().running);
-  const bios = !held || ROLES_BIOS.includes(f.role);
+  // a fan of the BIOS: one he doesn't hold, or one of the BIOS's roles — never a CPU cooler given to him (round 4, `cpu_own`:
+  // his, drawn solid, «Fanboy runs this fan»; 2026-11-20, the owner: «the tile is right, his page is wrong»)
+  const watched = ROLES_BIOS.includes(f.role) && !isOurs(f);
+  const bios = !held || watched;
   const stuck = nobody() && isOurs(f) && (setup().zones || []).some((z) => (z.fans || []).includes(id));
   const silent = f.found === 'silent';
   const pct = held && num(cf.pct) !== null ? cf.pct : null;
@@ -620,7 +623,7 @@ function wheelOf(id, opts) {
     // round 5: the chip went while he steered — his fans sit where he left them (nobody's), the BIOS's stay the BIOS's
     // round 7 (F3): its output on a fixed value someone left — nobody's, not the BIOS's
     badge: st === 'bios' ? (stuck || fixedOut(id) ? T('pic.stuck') : T('pic.bios')) : '',
-    title: st === 'bios' ? (stuck ? T('pic.stuck_title') : fixedOut(id) ? T('pic.fixed_title') : ROLES_BIOS.includes(f.role) ? T('pic.watched_title') : T('pic.bios_title')) : T('pic.his_title'),
+    title: st === 'bios' ? (stuck ? T('pic.stuck_title') : fixedOut(id) ? T('pic.fixed_title') : watched ? T('pic.watched_title') : T('pic.bios_title')) : T('pic.his_title'),
   };
 }
 /**
@@ -949,7 +952,7 @@ function outputRole(id) {
   if (!f || !f.found) return chipOfText('quiet', T('out.untested'), T('out.untested_title'));
   if (f.found === 'empty') return chipOfText('quiet', T('out.empty'), T('out.empty_title'));
   if (f.found === 'ignored' || f.found === 'inverted') return chipOfText('warn', T(`out.${f.found}`), T(`out.${f.found}_title`));
-  if (f.role && ROLES_BIOS.includes(f.role)) return chipOfText('quiet', T(`role.${f.role}`) + ' · ' + T('out.watched'), T('out.watched_title'));
+  if (f.role && ROLES_BIOS.includes(f.role) && !isOurs(f)) return chipOfText('quiet', T(`role.${f.role}`) + ' · ' + T('out.watched'), T('out.watched_title'));
   if (f.role) return chipOfText('quiet', T(`role.${f.role}`), T('out.his_title'));
   return chipOfText('quiet', T('out.no_role'), T('out.no_role_title'));
 }
