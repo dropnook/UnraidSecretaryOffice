@@ -1017,11 +1017,13 @@ the last 60 history lines only for a source the file has none for. **The file
   in a session of its own (`setsid -f`): an agent restarting in place never touches it. It steers only while the array is
   started, he is hired, shown, set up and armed («take over»), and no known controller runs (FanCtrl Plus, its fork,
   Dynamix System Autofan, PWM Fan — WAZ Cooling Control steers shelf and IPMI fans: named as a hint only, `'hint_only'`, `fanboyBlocking()`); outputs looked up anew at every start through the identity;
-  zones (fans + heat sources: disks only from disks.ini — asleep is asleep, never cold —, hwmon sensors; each source's own
-  low/high mapped onto the zone's, the warmest counts) and a curve (quiet/normal/cool or points, percent or rpm by the
-  measured table with a correction); up at once, down a percent a round only 2 °C below; never under a fan's lowest steady
-  value («off» only where allowed); alarms (a fan stands — his or a watched CPU cooler/pump —, too warm at full speed, a
-  sensor silent): that zone's fans to 100 % until 2 minutes without a reason, the other zones steer on, told once per fan or
+  zones (fans + heat sources: disks only from disks.ini — asleep is asleep, never cold —, hwmon sensors) with a goal per
+  kind of heat source (quiet/normal/cool from one table per kind, `FANBOY_SOURCE_DEFAULTS`, or the owner's own points;
+  percent or rpm by the measured table with a correction); the source asking the most leads; **the curve decides alone —
+  no limit puts a zone to full** (2026-11-20); how it reacts (`FANBOY_DOWN_PROFILES`): «slowly» (stored `balanced`: up 2 %
+  a round, CPU/GPU 4; down 3 °C under the highest, after 30 s, 1 % a round, CPU/GPU 2) or «quickly» (`quick`: up at once,
+  the kind's short way down); never under a fan's lowest steady value («off» only where allowed); alarms (a fan stands —
+  his or a watched CPU cooler/pump —, a sensor silent): that zone's fans to 100 % until 2 minutes without a reason, the other zones steer on, told once per fan or
   sensor (its name in the subject — Unraid drops a second notification of the same subject); someone else's write: that
   output given back; the chip missing at the start (a boot): the BIOS has them — looked for every 5 s, then every minute,
   one notification after 15 minutes, then every 5 minutes, «Look now»; the chip gone **while he steers**: nobody steers
@@ -1039,8 +1041,8 @@ the last 60 history lines only for a source the file has none for. **The file
   automatic: the fixed value, said on the page. Only the control's take carries it into the journal (`back`); a setup
   step always goes back exactly. **Part 3, the page** (desk.js + `fan-art.js`/`fan-art.css` beside it, loaded by desk.js
   — only his page needs them): two pages. **The overview is what is and what was — nothing on it changes a fan or a
-  setting** (2026-11-17): «Now» (who steers, each zone's level and the source leading it, the fans' speeds, a warm spot
-  near its limit; its section the server picture — zones as pieces of a case, fans turning by their speed, the warmest
+  setting** (2026-11-17): «Now» (who steers, each zone's level and the source leading it, the fans' speeds, a disk near
+  Unraid's warning; its section the server picture — zones as pieces of a case, fans turning by their speed, the warmest
   framed, sleeping disks marked, the BIOS's own watched, one picture kept across looks —, the fans and outputs as rows to
   read (a row unfolds the technical detail — the only place for `pwmN`, `hwmonN`, chip names), what happened lately; not
   steering: one plain line with the way to the setup), «History» (per zone one chart of the chosen period: the leading

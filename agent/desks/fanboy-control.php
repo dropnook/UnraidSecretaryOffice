@@ -35,7 +35,6 @@ const FANBOY_BLIND_FLOOR = 40;          // percent at least for a fan without rp
 const FANBOY_KICK = 4.0;                // seconds at the start value when a fan starts from standing
 const FANBOY_KICK_MAX = 2;              // kicks from standing without the fan turning — then no more: it stands (the alarm)
 const FANBOY_STAND_AFTER = 15.0;        // seconds at 0 rpm while it should turn: it stands
-const FANBOY_HOT_AFTER = 60.0;          // seconds over a limit at full speed: alarm
 const FANBOY_SENSOR_AFTER = 30.0;       // seconds a sensor says nothing: alarm
 const FANBOY_DISK_SENSOR_AFTER = 120.0; // seconds an awake disk has no temperature in disks.ini: alarm
 const FANBOY_CLEAR_AFTER = 120.0;       // seconds without any alarm reason before the alarm is over
@@ -74,28 +73,28 @@ const FANBOY_SOURCE_DEFAULTS = [
 ];
 const FANBOY_PRESETS = ['quiet', 'normal', 'cool'];
 /*
- * The way down per kind (round 4, the owner): up is immediate always; down waits until the leading source is `gap` °C
- * under the temperature it went up at, holds `hold` seconds more, then steps `step` % a round (FANBOY_ROUND, 2 s). Disks
- * slow as ever (no hold, 1 % a round); a CPU or GPU quick but never a snap (6 s, then about 5 % a round, a gap wide
- * enough that a spiky CPU doesn't make the fan hunt); NVMe/SSD, RAM, board in between. «Sofort reagieren» (quick)
- * shortens hold and gap within the kind's profile and steps faster — it never removes the gap.
+ * How a zone reacts, per kind (2026-11-20, the owner: «Langsam reagieren» / «Schnell reagieren»). Stored as `balanced`
+ * (Langsam, the default — the stored word of «Ausgewogen» kept, so every older version reads it) and `quick` (Schnell).
+ * Schnell: up at once; down once the leading source is `gap` °C under the highest it went up at, after `hold` seconds,
+ * `step` % a round (FANBOY_ROUND, 2 s) — the round-4 profiles unchanged. Langsam: up `up` % a round (CPU/GPU 4, else 2);
+ * down 3 °C under the highest, after 30 s, 1 % a round (CPU/GPU 2).
  */
 const FANBOY_REACTS = ['balanced', 'quick'];
 // what a user may set per kind (°C): «ab», «volle Drehzahl bei», «Grenze» within these, low < high < limit
 const FANBOY_KIND_BOUNDS = ['disk' => [20, 70], 'ssd' => [20, 100], 'nvme' => [20, 100], 'cpu' => [20, 110], 'ram' => [20, 100],
     'gpu' => [20, 110], 'board' => [20, 100], 'other' => [0, 120]];
 const FANBOY_DOWN_PROFILES = [
-    'disk'  => ['balanced' => ['gap' => 2.0, 'hold' => 0.0, 'step' => 1.0], 'quick' => ['gap' => 1.0, 'hold' => 0.0, 'step' => 3.0]],
-    'ssd'   => ['balanced' => ['gap' => 2.0, 'hold' => 4.0, 'step' => 2.0], 'quick' => ['gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
-    'nvme'  => ['balanced' => ['gap' => 2.0, 'hold' => 4.0, 'step' => 2.0], 'quick' => ['gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
-    'ram'   => ['balanced' => ['gap' => 2.0, 'hold' => 4.0, 'step' => 2.0], 'quick' => ['gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
-    'board' => ['balanced' => ['gap' => 2.0, 'hold' => 4.0, 'step' => 2.0], 'quick' => ['gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
-    'cpu'   => ['balanced' => ['gap' => 2.5, 'hold' => 6.0, 'step' => 5.0], 'quick' => ['gap' => 1.5, 'hold' => 3.0, 'step' => 8.0]],
-    'gpu'   => ['balanced' => ['gap' => 2.5, 'hold' => 6.0, 'step' => 5.0], 'quick' => ['gap' => 1.5, 'hold' => 3.0, 'step' => 8.0]],
-    'other' => ['balanced' => ['gap' => 2.0, 'hold' => 4.0, 'step' => 2.0], 'quick' => ['gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
+    'disk'  => ['balanced' => ['up' => 2.0, 'gap' => 3.0, 'hold' => 30.0, 'step' => 1.0], 'quick' => ['up' => null, 'gap' => 1.0, 'hold' => 0.0, 'step' => 3.0]],
+    'ssd'   => ['balanced' => ['up' => 2.0, 'gap' => 3.0, 'hold' => 30.0, 'step' => 1.0], 'quick' => ['up' => null, 'gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
+    'nvme'  => ['balanced' => ['up' => 2.0, 'gap' => 3.0, 'hold' => 30.0, 'step' => 1.0], 'quick' => ['up' => null, 'gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
+    'ram'   => ['balanced' => ['up' => 2.0, 'gap' => 3.0, 'hold' => 30.0, 'step' => 1.0], 'quick' => ['up' => null, 'gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
+    'board' => ['balanced' => ['up' => 2.0, 'gap' => 3.0, 'hold' => 30.0, 'step' => 1.0], 'quick' => ['up' => null, 'gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
+    'cpu'   => ['balanced' => ['up' => 4.0, 'gap' => 3.0, 'hold' => 30.0, 'step' => 2.0], 'quick' => ['up' => null, 'gap' => 1.5, 'hold' => 3.0, 'step' => 8.0]],
+    'gpu'   => ['balanced' => ['up' => 4.0, 'gap' => 3.0, 'hold' => 30.0, 'step' => 2.0], 'quick' => ['up' => null, 'gap' => 1.5, 'hold' => 3.0, 'step' => 8.0]],
+    'other' => ['balanced' => ['up' => 2.0, 'gap' => 3.0, 'hold' => 30.0, 'step' => 1.0], 'quick' => ['up' => null, 'gap' => 1.0, 'hold' => 2.0, 'step' => 4.0]],
 ];
 
-/** The way down for a zone now: the profile of its leading source's kind, balanced or quick */
+/** How a zone reacts now: the profile of its leading source's kind, Langsam (balanced) or Schnell (quick) */
 function fanboyDownProfile(string $kind, string $react): array
 {
     $p = FANBOY_DOWN_PROFILES[$kind] ?? FANBOY_DOWN_PROFILES['other'];
@@ -130,7 +129,7 @@ function fanboyFanOurs(array $f): bool
 {
     return in_array($f['role'] ?? null, FANBOY_ROLES_OURS, true) || fanboyCpuOwn($f);
 }
-const FANBOY_ALARMS = ['stands', 'bios_stands', 'hot', 'sensor', 'chip'];
+const FANBOY_ALARMS = ['stands', 'bios_stands', 'sensor', 'chip'];      // (2026-11-20: «hot» gone — the curve decides alone)
 
 // ===================================================================== curves and sources (pure)
 
@@ -280,11 +279,6 @@ function fanboyMapped(array $source, float $t, float $lo, float $hi, string $zon
     $sl = (float) $d['low'];
     $span = (float) $d['high'] - $sl;
     return $span > 0 ? $lo + ($t - $sl) * ($hi - $lo) / $span : $t;
-}
-
-function fanboySourceLimit(array $source): float
-{
-    return (float) (FANBOY_SOURCE_DEFAULTS[$source['kind']] ?? FANBOY_SOURCE_DEFAULTS['other'])['limit'];      // (its own: not read, 2026-11-20)
 }
 
 /** A measured fan's table [[pct, rpm]…]: the rpm at a percentage (linear), and the percentage for an rpm */
@@ -615,7 +609,7 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 'kinds' => is_array($z['kinds'] ?? null) ? $z['kinds'] : [],      // round 4: «Temperaturen» per kind
                 'curves' => is_array($z['curves'] ?? null) ? $z['curves'] : [],   // round 13: a curve of its own per kind
                 'by_kind' => [], 'leader' => null,
-                'cur' => null, 'hold_t' => null, 'warmest' => null, 'hot_since' => null, 'level' => null, 'state' => [],
+                'cur' => null, 'hold_t' => null, 'warmest' => null, 'level' => null, 'state' => [],
                 'react' => in_array($z['react'] ?? null, FANBOY_REACTS, true) ? $z['react'] : 'balanced', 'below_since' => null,
             ];
         }
@@ -1041,7 +1035,6 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
     $warmestAsk = -INF;
     $kindCurves = [];
     $byKind = [];
-    $hot = false;
     $states = [];
     foreach ($z['sources'] as $s) {
         $s = fanboySourceValues($z, $s);        // its own values, else the zone's for its kind, else the kind's
@@ -1079,10 +1072,6 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
         if (!isset($byKind[$s['kind']]) || $ask > $byKind[$s['kind']]['ask'] || ($ask === $byKind[$s['kind']]['ask'] && $r['c'] > $byKind[$s['kind']]['c'])) {
             $byKind[$s['kind']] = ['source' => $s['id'], 'label' => $r['label'], 'c' => $r['c'], 'value' => round($ask, 1), 'ask' => $ask];
         }
-        if ($r['c'] >= fanboySourceLimit($s)) {
-            $hot = true;
-            $hotWhat = ['source' => $r['label'], 'c' => $r['c'], 'zone' => $z['name']];
-        }
     }
     // nothing warm to go by (all asleep, none): the curve's start — its quiet level (the first kind's, as the zone's was)
     $raw = $warmest === null ? fanboyKindCurve($z, $z['sources'][0]['kind'] ?? 'disk')[0][0][1] : $warmestAsk;
@@ -1102,33 +1091,32 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
         $z['hold_src'] = $warmest['id'] ?? null;
         $z['hold_pos'] = $pos;
     };
-    if ($hot) {
-        $cur = $z['unit'] === 'pct' ? 100.0 : max($raw, $cur ?? $raw);     // over a limit: full now (each fan below)
-        $hold();                    // went up at this temperature: the way down starts once it is FANBOY_GAP under it again
-        $z['hot_since'] ??= $now;
-        if ($now - $z['hot_since'] >= FANBOY_HOT_AFTER) {
-            $reasons['hot'] = ($hotWhat ?? []) + ['zid' => $zid];
-            $c['full_since'][$zid] = $now;
+    // 2026-11-20 (the owner: «Wir brauchen also im Grunde keine Grenze»): the level comes from the kinds' curves alone —
+    // no source «at its limit» puts the zone to full and no alarm hangs on it; what holds the fans at 100 % is an alarm
+    // of a fan or a sensor (stands, sensor, chip) and the net for sources in no zone
+    $down = fanboyDownProfile($warmest['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']);
+    $cooler = $ownCurves
+        ? (($warmest['id'] ?? null) !== ($z['hold_src'] ?? null) || $pos === null || $pos <= ($z['hold_pos'] ?? $pos) - $down['gap'])
+        : $t <= ($z['hold_t'] ?? $t) - $down['gap'];
+    if ($cur === null || $raw >= $cur) {
+        // up: Schnell at once; Langsam `up` % a round (rpm zones: the same share in rpm). The way down goes by the
+        // highest it went up at: Langsam keeps it while the curve still asks more but the source already cools.
+        $up = $down['up'];
+        $cur = $cur === null || $up === null ? $raw
+            : min($raw, $cur + ($z['unit'] === 'pct' ? $up : $up * FANBOY_DOWN_STEP_RPM / FANBOY_DOWN_STEP));
+        $higher = ($warmest['id'] ?? null) !== ($z['hold_src'] ?? null) || ($z['hold_t'] ?? null) === null || $t >= $z['hold_t'];
+        if ($up === null || $higher) {
+            $hold();
+        }
+        $z['below_since'] = null;
+    } elseif ($cooler) {
+        // down by the leading source's kind: after its hold, its step a round (rpm zones: the same share in rpm)
+        $z['below_since'] ??= $now;
+        if ($now - $z['below_since'] >= $down['hold']) {
+            $cur = max($raw, $cur - ($z['unit'] === 'pct' ? $down['step'] : $down['step'] * FANBOY_DOWN_STEP_RPM / FANBOY_DOWN_STEP));
         }
     } else {
-        $z['hot_since'] = null;
-        $down = fanboyDownProfile($warmest['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']);
-        $cooler = $ownCurves
-            ? (($warmest['id'] ?? null) !== ($z['hold_src'] ?? null) || $pos === null || $pos <= ($z['hold_pos'] ?? $pos) - $down['gap'])
-            : $t <= ($z['hold_t'] ?? $t) - $down['gap'];
-        if ($cur === null || $raw >= $cur) {
-            $cur = $raw;                                            // up at once
-            $hold();
-            $z['below_since'] = null;
-        } elseif ($cooler) {
-            // down by the leading source's kind: after its hold, its step a round (rpm zones: the same share in rpm)
-            $z['below_since'] ??= $now;
-            if ($now - $z['below_since'] >= $down['hold']) {
-                $cur = max($raw, $cur - ($z['unit'] === 'pct' ? $down['step'] : $down['step'] * FANBOY_DOWN_STEP_RPM / FANBOY_DOWN_STEP));
-            }
-        } else {
-            $z['below_since'] = null;
-        }
+        $z['below_since'] = null;
     }
     $z['cur'] = $cur;
     $z['warmest'] = $warmest;
@@ -1146,7 +1134,7 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
         if (!$f['taken']) {
             continue;
         }
-        if ($z['unit'] === 'rpm' && !$hot) {
+        if ($z['unit'] === 'rpm') {
             $pct = $f['table'] !== null ? (fanboyTablePct($f['table'], $cur) ?? 100.0) : 100.0;
             // correct until the rpm fits: a fan settled for 6 s, more than 4 % off — a percent a round, ±FANBOY_RPM_TRIM_MAX
             // never while an alarm holds this zone at 100 % (round 5, the VM run: the trim walked down to −15 at full speed
@@ -1160,12 +1148,12 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
             }
             $pct += $c['fans'][$id]['trim'];
         } else {
-            $pct = $z['unit'] === 'pct' || $hot ? ($hot ? 100.0 : $cur) : 100.0;
+            $pct = $cur;
         }
         $pct = max(0.0, min(100.0, $pct));
         if ($f['off_ok'] && $f['cpu']) {
             // round 12: a CPU cooler that may stand — by the CPU itself, read every round, never by the curve's way down
-            $pct = fanboyCpuStand($c, $z, $id, $now, $hot || isset($c['full_since'][$zid])) ? 0.0 : max($pct, (float) $f['floor']);
+            $pct = fanboyCpuStand($c, $z, $id, $now, isset($c['full_since'][$zid])) ? 0.0 : max($pct, (float) $f['floor']);
         } elseif ($pct < 0.5 && $f['off_ok']) {
             $pct = 0.0;
         } else {
@@ -1570,7 +1558,7 @@ function fanboyFull(array &$c): void
 }
 
 /**
- * The alarm: on with the first reason (each reason told once — stands, bios_stands, hot, sensor, chip), over only after
+ * The alarm: on with the first reason (each reason told once — stands, bios_stands, sensor, chip), over only after
  * FANBOY_CLEAR_AFTER seconds without any
  */
 function fanboyAlarm(array &$c, float $now, array $reasons): void

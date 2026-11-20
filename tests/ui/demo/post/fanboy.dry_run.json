@@ -21,8 +21,9 @@
     "quiet": 0,
     "react": "balanced",
     "down": {
-     "gap": 2,
-     "hold": 0,
+     "up": 2,
+     "gap": 3,
+     "hold": 30,
      "step": 1
     },
     "fans": [
@@ -56,6 +57,7 @@
     "quiet": 0,
     "react": "quick",
     "down": {
+     "up": null,
      "gap": 1,
      "hold": 2,
      "step": 4

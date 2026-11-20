@@ -283,7 +283,7 @@ function testFanboyR6ShowRefused(): void
         same('fanboy r6 show refused: while measuring (a setup step runs)', 'fanboy_step_running', $show(4));
         @unlink(fanboyStepFile());
         file_put_contents(TESTS_RUN_DIR . '/fanboy/control.pid', getmypid() . ' ' . fanboyProcStart(getmypid()));
-        file_put_contents(fanboyStatusFile(), json_encode(['alarm' => ['code' => 'hot'], 'refuses' => [fanboyTId(2)]]));
+        file_put_contents(fanboyStatusFile(), json_encode(['alarm' => ['code' => 'sensor'], 'refuses' => [fanboyTId(2)]]));
         same('fanboy r6 show refused: during an alarm of the control', 'fanboy_show_alarm', $show(4));
         file_put_contents(fanboyStatusFile(), json_encode(['alarm' => null, 'refuses' => [fanboyTId(2)]]));
         same('fanboy r6 show refused: an output whose driver takes no values (the control\'s «refuses»)', 'fanboy_show_not', $show(2));
@@ -1207,7 +1207,7 @@ function testFanboyR10Notify(): void
     $gate = OFFICE_DIR . '/backup/lib/notifygate.sh';
     $bash = fn (string $fn, string $pair): bool => trim((string) shell_exec('bash -c ' . escapeshellarg('source ' . escapeshellarg($gate) . "; $fn \"\$1\" \"\$2\" && echo y")
         . ' _ ' . implode(' ', array_map('escapeshellarg', explode(':', $pair, 2))))) === 'y';
-    $his = ['alarm_stands', 'alarm_stands_alone', 'alarm_bios_stands', 'alarm_hot', 'alarm_sensor', 'alarm_chip', 'idle_stands', 'quiet_no_restart', 'not_back',
+    $his = ['alarm_stands', 'alarm_stands_alone', 'alarm_bios_stands', 'alarm_sensor', 'alarm_chip', 'idle_stands', 'quiet_no_restart', 'not_back',
             'foreign', 'drift', 'refuses', 'missing', 'missing_stuck', 'crashed', 'back'];
     $pairs = [...array_map(fn ($e) => "fanboy:$e", $his), 'backup:ok', 'backup:failed', 'backup:refused', 'jack:release_ok', 'office:agent_back', 'watchman:failed'];
     foreach (['ung_resolves' => 'officeNotifyResolves', 'ung_is_success' => 'officeNotifyIsSuccess', 'ung_fail_same' => 'officeNotifyFailSame'] as $b => $p) {
@@ -1278,7 +1278,7 @@ function testFanboyR10Notify(): void
         $c = ['told' => []];
         fanboyTell($c, 'alarm:stands:Vorn', 'alarm_stands', ['fan' => 'Vorn', 'zone' => 'Gehäuse'], 'alert');
         fanboyIdleTell('idle_stands', ['fan' => 'Deckel', 'source' => 'CPU', 'c' => 71]);
-        fanboyTell($c, 'alarm:hot:Gehäuse', 'alarm_hot', ['zone' => 'Gehäuse', 'source' => 'CPU', 'c' => 88], 'alert');
+        fanboyTell($c, 'alarm:sensor:Gehäuse', 'alarm_sensor', ['zone' => 'Gehäuse', 'source' => 'CPU'], 'alert');
         $alerts = array_values(array_filter($calls(), fn ($l) => str_contains($l, ' -i alert')));
         same('fanboy r10 gate: past his cap of warnings, three different alarms within a minute — each one sent', [4, ['sent', 'sent', 'sent']],
             [count($alerts), array_column(array_slice($drops(), 2), 2)]);
@@ -1824,10 +1824,11 @@ function testFanboyR12CpuMeasure(): void
         check('fanboy r12 cpu measure: the round-12 cut at 70 °C or 15 °C over the lowest is gone', !defined('FANBOY_STOP_CPU_MAX') && !defined('FANBOY_STOP_CPU_RISE'));
         $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
         $l = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/lang/de.json'), true);
-        check('fanboy r12 cpu measure: the page says it true — the cut in the cooler\'s panel and the step\'s end line (from … to … °C while it stood; or its limit), the general stop «hatte … °C, seine Grenze ist … °C» (never «nahe an»)',
+        check('fanboy r12 cpu measure: the page says it true — the cut in the cooler\'s panel and the step\'s end line (from … to … °C while it stood; or its limit), the general stop «hatte … °C – Fanboys Schwelle fürs Vermessen ist … °C» (never «nahe an», never «Grenze» since 2026-11-20)',
             str_contains($js, "if (!st) return f && f.stand_cut ? cutLine(f.stand_cut) : '';") && str_contains($js, "if (cut) return T('step.ended.cut', { fan: fanSay(cut.fan), what: cutLine(cut) });")
             && $l['stand.cut_rise'] === 'Stillstand nicht bestanden: {where} stieg von {from} auf {c} °C, während er stand — er bleibt immer am Drehen.'
-            && str_contains($l['step.ended.warm_what'], 'hatte {c} °C, seine Grenze ist {limit} °C') && !str_contains($l['step.ended.warm_what'], 'nahe'));
+            && str_contains($l['step.ended.warm_what'], 'hatte {c} °C – Fanboys Schwelle fürs Vermessen ist {below} °C') && !str_contains($l['step.ended.warm_what'], 'nahe')
+            && !str_contains($l['step.ended.warm_what'] . $l['stand.cut_at'], 'Grenze'));
     } finally {
         fanboyTEnd();
     }
@@ -2391,7 +2392,11 @@ function testFanboyNetDrift(): void
         // a fan that really doesn't follow its table (turning at 60 % of it) at a value its table covers — still said
         $slow = $spec;
         $slow['fans'][4]['max'] = 700;
-        fanboyNetDisks($t, 46, 33);
+        // (2026-11-20: Langsam leaves the fans standing at the end above; this fan needs 70 % to start from standing — 48 °C
+        // asks 84 %, and up at once gives one steady value to compare)
+        fanboyNetDisks($t, 48, 33);
+        $s['zones'] = array_map(fn ($z) => ['react' => 'quick'] + $z, $s['zones']);
+        fanboyTStore($s);
         $c = fanboyControlNew($s, FANBOY_T_KEY, fanboyMe('control'));
         fanboyTRounds($c, $now, $t, $slow, 25);
         same('fanboy net drift: a fan that really runs slower than measured, at a value its table covers — said once', 1,
@@ -2704,19 +2709,19 @@ function testFanboyR13Curves(): void
         str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-control.php'), "'curves' => fanboyZoneKindCurves(\$z), 'by_kind' =>")
         && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-setup.php'), "'curves' => fanboyZoneKindCurves(\$z), 'by_kind' =>"), json_encode($st['zones'][0]['leader']));
 
-    // the way down follows the leading kind after a change of leader: the CPU (5 % a round) led high, then cooled — the disks
-    // lead now, and it comes down by the disks' way (1 % a round), not the CPU's
+    // the way down follows the leading kind after a change of leader: the CPU (Langsam: 2 % a round) led high, then cooled —
+    // the disks lead now, and it comes down by the disks' way (after 30 s, 1 % a round), not the CPU's
     $z3 = fanboyR13Zone(['sources' => [$src('cpu', 'c1'), $src('disk', 'd1')], 'curves' => ['cpu' => ['points' => [[40, 0], [60, 100]]]]]);
     $c3 = ['zones' => ['z' => $z3], 'sources' => [], 'fans' => [], 'full_since' => []];
     $now = 0.0;
     fanboyR13Round($c3, ['c1' => 56, 'd1' => 40], $now);           // the CPU asks 80 %, the disk 45 %
     $levels = [];
-    for ($i = 0; $i < 6; $i++) {
+    for ($i = 0; $i < 21; $i++) {
         $now += 2.0;
         $levels[] = fanboyR13Round($c3, ['c1' => 30, 'd1' => 40], $now);
     }
-    same('fanboy r13: the CPU led at 80 %, then cooled — the disk leads (45 %) and the zone comes down by the disks\' way: 1 % a round',
-        ['disk', [79.0, 78.0, 77.0, 76.0, 75.0, 74.0]], [$c3['zones']['z']['leader']['kind'], $levels]);
+    same('fanboy r13: the CPU led at 80 %, then cooled — the disk leads (45 %) and the zone comes down by the disks\' way: held 30 s, then 1 % a round',
+        ['disk', [...array_fill(0, 15, 80.0), 79.0, 78.0, 77.0, 76.0, 75.0, 74.0]], [$c3['zones']['z']['leader']['kind'], $levels]);
 }
 
 /** Round 13: own curves refused — a kind the zone doesn't have, too few points, out of bounds, a preset in an rpm zone, a list */
@@ -3243,7 +3248,7 @@ function testFanboyCpuFloorCurve(): void
         $low = [];
         foreach ([50, 58, 61, 63, 65, 67, 69, 72, 75, 77, 79, 81, 84] as $deg) {
             fanboyR12CpuTemp($t, $deg);
-            fanboyTRounds($c, $now, $t, $spec, 7);         // the smoothing and a start's kick passed
+            fanboyTRounds($c, $now, $t, $spec, 20);        // the smoothing, a start's kick and Langsam's 4 % a round passed
             $v = fanboyTOut($t, 2)[0];
             $want = (int) round(fanboyCurveAt($eff['points'], (float) $deg) * 2.55);
             if (abs($v - $want) > 2) {
