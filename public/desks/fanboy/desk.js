@@ -23,13 +23,13 @@ const T0 = Office.scope(ID);
 // how long an output stays at full at most (a test without an answer — 2026-11-20: it waits for the answer, up to its
 // ceiling, shorter in the quiet test —, a show), the page's lease, the minutes until he tells. An older agent without
 // them: the constants mirrored here (a test compares them with the agent's).
-const TIMES = { up_hold: 600, up_hold_quiet: 180, measure_max: 1053, show_for: 60, lease: 45, tell_after: 900, idle_warm_after: 120, poll_live: 300, clear_after: 120 };
+const TIMES = { up_hold: 600, up_hold_quiet: 180, measure_max: 1053, measure_usual: 233, show_for: 60, lease: 45, tell_after: 900, idle_warm_after: 120, poll_live: 300, clear_after: 120 };
 function timesNow() {
   try { return { ...TIMES, ...(state.setup.times || {}) }; } catch (e) { return TIMES; }     // (before the first state: the mirror)
 }
 const T = (k, p) => {
   const tm = timesNow();
-  return T0(k, { hold_min: Math.round(tm.up_hold / 60), hold_quiet_min: Math.round(tm.up_hold_quiet / 60), measure_min: Math.ceil(tm.measure_max / 60), show_s: tm.show_for, lease_s: tm.lease, tell_min: Math.round(tm.tell_after / 60), idle_min: Math.round(tm.idle_warm_after / 60), ...(p || {}) });
+  return T0(k, { hold_min: Math.round(tm.up_hold / 60), hold_quiet_min: Math.round(tm.up_hold_quiet / 60), measure_min: Math.ceil(tm.measure_max / 60), measure_usual_min: Math.round(tm.measure_usual / 60), show_s: tm.show_for, lease_s: tm.lease, tell_min: Math.round(tm.tell_after / 60), idle_min: Math.round(tm.idle_warm_after / 60), ...(p || {}) });
 };
 const { el, fmt } = Office;
 const LOOK_MS = 5000;           // a new look while a page of his is shown (the agent's look is a few file reads)

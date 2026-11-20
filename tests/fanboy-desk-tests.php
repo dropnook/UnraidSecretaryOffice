@@ -551,7 +551,7 @@ function testFanboyUx(): void
     // «a point a minute», the look's minute) stays tied to the agent's constant here
     $timesJs = preg_match('/const TIMES = \{([^}]+)\};/', $js, $m) ? $m[1] : '';
     $mirror = [];
-    foreach (['up_hold' => FANBOY_UP_HOLD, 'up_hold_quiet' => FANBOY_UP_HOLD_QUIET, 'measure_max' => fanboyMeasureMaxSecs(), 'show_for' => FANBOY_SHOW_FOR, 'lease' => FANBOY_STEP_LEASE, 'tell_after' => FANBOY_TELL_AFTER, 'idle_warm_after' => FANBOY_IDLE_WARM_AFTER, 'poll_live' => FANBOY_POLL_LIVE, 'clear_after' => FANBOY_CLEAR_AFTER] as $k => $v) {
+    foreach (['up_hold' => FANBOY_UP_HOLD, 'up_hold_quiet' => FANBOY_UP_HOLD_QUIET, 'measure_max' => fanboyMeasureMaxSecs(), 'measure_usual' => fanboyMeasureUsualSecs(), 'show_for' => FANBOY_SHOW_FOR, 'lease' => FANBOY_STEP_LEASE, 'tell_after' => FANBOY_TELL_AFTER, 'idle_warm_after' => FANBOY_IDLE_WARM_AFTER, 'poll_live' => FANBOY_POLL_LIVE, 'clear_after' => FANBOY_CLEAR_AFTER] as $k => $v) {
         if (!preg_match('/\b' . $k . ': ' . (int) $v . '\b/', $timesJs)) {
             $mirror[] = $k;
         }
@@ -559,7 +559,7 @@ function testFanboyUx(): void
     same('fanboy ux audit: the page\'s mirror of the agent\'s times (for an agent that doesn\'t send them yet) equals the agent\'s constants', [], $mirror);
     check('fanboy ux audit: every sentence that names a time takes it from the state\'s times — a test and «show me» at full, the page\'s lease in the strip, the minutes until he tells (no literal left there)',
         str_contains($js, "try { return { ...TIMES, ...(state.setup.times || {}) }; } catch (e) { return TIMES; }")
-        && str_contains($js, "return T0(k, { hold_min: Math.round(tm.up_hold / 60), hold_quiet_min: Math.round(tm.up_hold_quiet / 60), measure_min: Math.ceil(tm.measure_max / 60), show_s: tm.show_for, lease_s: tm.lease, tell_min: Math.round(tm.tell_after / 60), idle_min: Math.round(tm.idle_warm_after / 60), ...(p || {}) });")
+        && str_contains($js, "return T0(k, { hold_min: Math.round(tm.up_hold / 60), hold_quiet_min: Math.round(tm.up_hold_quiet / 60), measure_min: Math.ceil(tm.measure_max / 60), measure_usual_min: Math.round(tm.measure_usual / 60), show_s: tm.show_for, lease_s: tm.lease, tell_min: Math.round(tm.tell_after / 60), idle_min: Math.round(tm.idle_warm_after / 60), ...(p || {}) });")
         && str_contains($l['de']['step.test_sub'], 'nach {hold_min} Minuten ({hold_quiet_min},') && str_contains($l['de']['show.tip'], 'bis zu {show_s} Sekunden') && str_contains($l['de']['strip.keep_open'], 'nach {lease_s} Sekunden')
         && str_starts_with($l['de']['note.missing_told'], '{tell_min} Minuten') && str_contains($l['de']['watch.on_title'], 'nach {idle_min} Minuten') && str_contains($l['de']['strip.since'], 'höchstens {max} s')
         && str_contains($js, "T('strip.since', { s: secs, max: most })") && !preg_match('/\d/', str_replace('100 %', '', implode(' ', [$l['de']['step.test_sub'], $l['de']['strip.keep_open'], $l['de']['watch.on_title'], $l['de']['note.missing_told']]))));
@@ -2128,7 +2128,7 @@ function testFanboyWarmOverride(): void
  * 2026-11-20 (the owner's measuring: a fan with a soft start passed 12 and failed 10 tries from standing at 4 s; «ein
  * Hinweis, wie lange es dauert, pro Lüfter»): a start value gets FANBOY_START_WAIT (12 s) to make a standing fan turn,
  * ending as soon as two looks turn; each pass says how long the fan took, the measurement keeps the longest (start_secs);
- * the page says «up to n minutes per fan» from the agent's own bound (setup.times.measure_max)
+ * the page says «usually about m minutes per fan, at most n» from the agent's own numbers (setup.times.measure_usual, measure_max)
  */
 function testFanboyStartWait(): void
 {
@@ -2151,8 +2151,9 @@ function testFanboyStartWait(): void
         $m = fanboyBoardRaw()['fans'][fanboyTId(1)]['measured'] ?? [];
         same('fanboy start wait: a fan that never starts from standing — every try the full wait, no start value, no start time, it never stands; its table kept; the restart check after it finds it standing (full, an alert) and stops the step',
             ['stopped', 'no_restart', null, null, false, 10], [$step['status'], $step['why'], $m['start_from_stop'] ?? null, $m['start_secs'] ?? null, $m['stops_safe'] ?? null, $m['min_pct'] ?? null], json_encode($m));
-        same('fanboy start wait: 12 s per start value; one fan\'s measuring at most 1053 s (18 minutes), in the state for the page', [12.0, 1053, 1053],
-            [FANBOY_START_WAIT, fanboyMeasureMaxSecs(), fanboySetupState(fanboyDetect(), fanboyBoardRaw())['times']['measure_max'] ?? null]);
+        same('fanboy start wait: 12 s per start value; one fan\'s measuring at most 1053 s (18 minutes), usually 233 s (about 4: without the standstill part), both in the state for the page',
+            [12.0, 1053, 1053, 233, 233], [FANBOY_START_WAIT, fanboyMeasureMaxSecs(), fanboySetupState(fanboyDetect(), fanboyBoardRaw())['times']['measure_max'] ?? null,
+                fanboyMeasureUsualSecs(), fanboySetupState(fanboyDetect(), fanboyBoardRaw())['times']['measure_usual'] ?? null]);
         same('fanboy start wait: a measuring step\'s whole time grows with its fans', [FANBOY_STEP_MAX, 3 * (1053 + FANBOY_UP_STEP_EXTRA)],
             [fanboyStepMax(['kind' => 'hub_look', 'fans' => [1]]), fanboyStepMax(['kind' => 'measure', 'fans' => [1, 2, 3]])]);
     } finally {
@@ -2160,8 +2161,9 @@ function testFanboyStartWait(): void
     }
     $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
     $l = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/lang/de.json'), true);
-    check('fanboy start wait: the page — «bis zu {measure_min} Minuten pro Lüfter» from the state\'s measure_max (rounded up), «Lüfter i von n» while it runs, the start time in the fan\'s facts',
-        str_contains($js, 'measure_min: Math.ceil(tm.measure_max / 60),') && str_contains($l['step.measure_sub'], 'pro Lüfter bis zu {measure_min} Minuten')
+    check('fanboy start wait: the page — «meist etwa {m} Minuten, höchstens {n}» per fan from the state\'s measure_usual (rounded) and measure_max (rounded up), «Lüfter i von n» while it runs, the start time in the fan\'s facts',
+        str_contains($js, 'measure_min: Math.ceil(tm.measure_max / 60),') && str_contains($js, 'measure_usual_min: Math.round(tm.measure_usual / 60),')
+        && str_contains($l['step.measure_sub'], 'Das Vermessen dauert pro Lüfter meist etwa {measure_usual_min} Minuten, höchstens {measure_min}. Lass es durchlaufen.')
         && str_contains($js, "setText(since, T('strip.of', { i, n }));") && str_contains($js, "T('stand.start_secs', { s: fmt.number(st.start_secs) })"));
 }
 
