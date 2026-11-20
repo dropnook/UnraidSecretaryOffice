@@ -581,13 +581,13 @@ function testFanboyDashFans(): void
     $o = $many(false);
     $rows = (string) ($o['rows'] ?? '');
     same('fanboy dash fans: many — four fans with their symbols (the first four of his page), «+ 5 more fans», four zones, «+ 2 more zones»',
-        [['Käfig 1', 'Käfig 2', 'Käfig 3', 'Käfig 4'], 4, 5, 4, 2],
+        [['Käfig 1 · 2 fans on it', 'Käfig 2', 'Käfig 3', 'Käfig 4'], 4, 5, 4, 2],        // (output 1 carries the demo's splitter)
         [array_column($o['model']['zones'][0]['fans'] ?? [], 0), count($o['model']['zones'][0]['art'] ?? []), $o['model']['zones'][0]['fans_more'] ?? null, count($o['model']['zones'] ?? []), $o['model']['more'] ?? null]);
     check('fanboy dash fans: … the rows: 8 symbols (4 + one each in three zones + the watched CPU cooler), both «more» links', substr_count($rows, 'class="sso-fb-sym" data-fan="') === 8
         && str_contains($rows, '+ 5 more fans') && str_contains($rows, '+ 2 more zones'), $rows);
     $o = $many(true);
     same('fanboy dash fans: many, the seventh stands though it should turn — among the four (in his page\'s order), red, its ring',
-        [['Käfig 1', 'Käfig 2', 'Käfig 3', 'Käfig 7'], [false, false, false, true], 'stopped', 5],
+        [['Käfig 1 · 2 fans on it', 'Käfig 2', 'Käfig 3', 'Käfig 7'], [false, false, false, true], 'stopped', 5],
         [array_column($o['model']['zones'][0]['fans'] ?? [], 0), array_column($o['model']['zones'][0]['fans'] ?? [], 2), $o['model']['zones'][0]['art'][3]['state'] ?? null, $o['model']['zones'][0]['fans_more'] ?? null]);
     $o = $many(false, true);
     same('fanboy dash fans: many without looks or names — the folded list as before: the first six, «+ 3 more fans»', [false, 6, 3],
