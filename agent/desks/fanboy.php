@@ -923,7 +923,7 @@ function fanboyMetrics(?array $s, bool $running): array
     }
     $steering = $running && ($s['who'] ?? '') === 'fanboy';
     $zones = array_values(array_filter(is_array($s['zones'] ?? null) ? $s['zones'] : [], fn ($z) => is_array($z) && is_string($z['id'] ?? null)));
-    $level = $temp = $rpm = [];
+    $level = $temp = $rpm = $curve = [];
     foreach ($zones as $z) {
         // the zone's and the fan's names as the page shows them, for a dashboard's legends (an id alone says little)
         $zone = ['zone' => $z['id'], 'name' => is_string($z['name'] ?? null) && $z['name'] !== '' ? $z['name'] : $z['id']];
@@ -932,6 +932,16 @@ function fanboyMetrics(?array $s, bool $running): array
         }
         if (is_numeric($z['warmest']['c'] ?? null)) {
             $temp[] = [$zone, (float) $z['warmest']['c']];
+        }
+        // a zone of two or more curves (one per kind of its sources): each curve's warmest source now, as the history
+        // records it (by_kind; a kind whose sources all sleep has none). One curve: the zone's line above is that curve.
+        // The leader needs no series of its own: the zone's warmest place is the leading curve's source.
+        if (is_array($z['curves'] ?? null) && count($z['curves']) >= 2) {
+            foreach (is_array($z['by_kind'] ?? null) ? $z['by_kind'] : [] as $kind => $b) {
+                if (is_string($kind) && isset(FANBOY_KIND_BOUNDS[$kind]) && is_numeric($b['c'] ?? null)) {
+                    $curve[] = [$zone + ['kind' => $kind], (float) $b['c']];
+                }
+            }
         }
         foreach (is_array($z['fans'] ?? null) ? $z['fans'] : [] as $f) {
             if (is_int($f['rpm'] ?? null) && is_int($f['output'] ?? null)) {
@@ -945,6 +955,7 @@ function fanboyMetrics(?array $s, bool $running): array
         metricsGauge('uso_fanboy_alarm', 'An alarm at Fanboy\'s fans: a fan stands, too warm at full speed, a sensor silent, the chip gone (1)', $running && is_array($s['alarm'] ?? null) ? 1 : 0),
         $level ? metricsGauge('uso_fanboy_zone_level_percent', 'Each zone\'s level, percent (zones steered by percent), by its id and name', $level) : null,
         $temp ? metricsGauge('uso_fanboy_zone_temperature_celsius', 'Each zone\'s warmest heat source (the place that leads), °C, by the zone\'s id and name', $temp) : null,
+        $curve ? metricsGauge('uso_fanboy_curve_temperature_celsius', 'Zones of two or more curves: each curve\'s warmest source (by kind: disk, nvme, cpu …), °C — the one asking the most leads', $curve) : null,
         $rpm ? metricsGauge('uso_fanboy_fan_rpm', 'Each fan Fanboy steers, rpm, by its zone, output and name', $rpm) : null,
     ]));
 }
