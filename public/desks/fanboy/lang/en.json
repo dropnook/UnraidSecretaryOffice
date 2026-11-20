@@ -408,7 +408,7 @@
   "step.v.armed": "taken over",
   "step.detect_sub": "What the mainboard shows: the outputs Linux could steer, and how each stands now. This step only reads.",
   "step.test_sub": "One output after the other: it runs at 100 % until you say whether you heard it — then every fan runs as before again. Then you enter what it is and «Save and go on» starts the next. Without an answer the test pauses after {hold_min} minutes ({hold_quiet_min} while the other fans stand).",
-  "step.measure_sub": "Only his fans with speed feedback: step by step from full down to its lowest steady speed and its start value. Too warm or stopped: everything goes back at once. Measuring takes up to {measure_min} minutes per fan — usually less. Let it run through.",
+  "step.measure_sub": "Only his fans with speed feedback: step by step from full down to its lowest steady speed and its start value. Too warm or stopped: everything goes back at once. Measuring usually takes about {measure_usual_min} minutes per fan, at most {measure_min}. Let it run through.",
   "step.zones_sub": "A zone is fans plus what they cool plus a curve. Move fans and heat sources between zones, choose quiet, normal or cool, or drag your own curve. Saved here, steering only after «Take over».",
   "step.take_sub": "Now he steers the fans you gave him. «Hand back» gives each one back at once: to the mainboard’s automatic or to the value from before, as «When giving back» says.",
   "step.stop_tip": "Stops the step now — every output goes back as it was",

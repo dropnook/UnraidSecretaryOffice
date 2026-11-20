@@ -484,6 +484,18 @@ function fanboyMeasureMaxSecs(): int
     return (int) ceil($table + $stand + $restart);
 }
 
+/**
+ * How long one fan's measuring usually takes, in seconds (2026-11-20, the owner: «meist etwa {m} Minuten, höchstens {n}»):
+ * the table and the restart check of fanboyMeasureMaxSecs() without the standstill part — most of its time goes to the
+ * start values it tries, and most fans find theirs early.
+ */
+function fanboyMeasureUsualSecs(): int
+{
+    $table = FANBOY_SETTLE_MAX * (1 + count(FANBOY_MEASURE_STEPS)) + 5 * FANBOY_START_WAIT;
+    $restart = FANBOY_QUIET_PAUSE + FANBOY_QUIET_RESTART + FANBOY_KICK_WAIT + FANBOY_KICK_FOR + FANBOY_KICK_LOOK;
+    return (int) ceil($table + $restart);
+}
+
 /** The page's sign of life while a step runs (step_alive, every start of a step) */
 function fanboyStepAliveTouch(): void
 {

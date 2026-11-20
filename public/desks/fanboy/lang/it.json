@@ -408,7 +408,7 @@
   "step.v.armed": "affidate",
   "step.detect_sub": "Ciò che mostra la scheda madre: le uscite che Linux potrebbe comandare e come sta ora ciascuna. Questo passo legge soltanto.",
   "step.test_sub": "Un'uscita dopo l'altra: gira al 100 % finché non dici se l'hai sentita, poi tutte le ventole girano di nuovo come prima. Poi inserisci che cos'è e «Salva e passa» avvia la successiva. Senza risposta il test va in pausa dopo {hold_min} minuti ({hold_quiet_min} mentre le altre ventole sono ferme).",
-  "step.measure_sub": "Solo le sue ventole con ritorno di velocità: gradino dopo gradino dal massimo fino alla velocità stabile più bassa e al valore di avvio. Troppo caldo o interrotto: tutto torna subito. La misura dura fino a {measure_min} minuti per ventola — di solito meno. Lasciala arrivare in fondo.",
+  "step.measure_sub": "Solo le sue ventole con ritorno di velocità: gradino dopo gradino dal massimo fino alla velocità stabile più bassa e al valore di avvio. Troppo caldo o interrotto: tutto torna subito. La misura dura di solito circa {measure_usual_min} minuti per ventola, al massimo {measure_min}. Lasciala arrivare in fondo.",
   "step.zones_sub": "Una zona sono ventole, ciò che raffreddano e una curva. Sposta ventole e fonti di calore fra le zone, scegli silenziosa, normale o fresca, o trascina una curva tua. Salvato qui, regolato solo dopo «Affida a lui».",
   "step.take_sub": "Ora regola le ventole che gli hai affidato. «Restituisci» restituisce subito ciascuna: all’automatico della scheda madre o al valore di prima, come indica «Alla restituzione».",
   "step.stop_tip": "Interrompe il passo adesso — ogni uscita torna com'era",

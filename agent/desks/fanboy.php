@@ -619,7 +619,7 @@ function fanboyEnsureControl(float $now): void
 function fanboyTimes(): array
 {
     return [
-        'clear_after' => (int) FANBOY_CLEAR_AFTER, 'up_hold' => (int) FANBOY_UP_HOLD, 'up_hold_quiet' => (int) FANBOY_UP_HOLD_QUIET, 'measure_max' => fanboyMeasureMaxSecs(), 'up_min' => (int) FANBOY_UP_MIN, 'show_for' => (int) FANBOY_SHOW_FOR,
+        'clear_after' => (int) FANBOY_CLEAR_AFTER, 'up_hold' => (int) FANBOY_UP_HOLD, 'up_hold_quiet' => (int) FANBOY_UP_HOLD_QUIET, 'measure_max' => fanboyMeasureMaxSecs(), 'measure_usual' => fanboyMeasureUsualSecs(), 'up_min' => (int) FANBOY_UP_MIN, 'show_for' => (int) FANBOY_SHOW_FOR,
         'lease' => (int) FANBOY_STEP_LEASE, 'tell_after' => (int) FANBOY_TELL_AFTER, 'idle_warm_after' => (int) FANBOY_IDLE_WARM_AFTER,
         'stand_after' => (int) FANBOY_STAND_AFTER, 'history_every' => (int) FANBOY_HISTORY_EVERY, 'history_periods' => FANBOY_HISTORY_PERIODS,
         'poll_live' => FANBOY_POLL_LIVE, 'crash_pause' => (int) FANBOY_CRASH_PAUSE, 'crash_window' => (int) FANBOY_CRASH_WINDOW, 'crash_max' => FANBOY_CRASH_MAX,
