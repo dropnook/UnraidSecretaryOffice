@@ -92,17 +92,31 @@ function testFanboyLookKeys(): void
     $lang = [];
     foreach (['en', 'de', 'fr', 'it', 'es'] as $l) {
         $s = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$l.json"), true) ?: [];
-        foreach (array_merge(array_map(fn ($c) => "colour.$c", $colours), array_map(fn ($c) => "style.$c", $styles), ['look.reverse', 'look.reverse_tip', 'look.reverse_model']) as $k) {
+        foreach (array_merge(array_map(fn ($c) => "colour.$c", $colours), array_map(fn ($c) => "style.$c", $styles), ['look.reverse', 'look.reverse_tip', 'look.reverse_model',
+            'look.gallery', 'look.gallery_tip', 'look.gallery_title', 'look.gallery_size', 'look.gallery_all', 'look.gallery_pick', 'look.gallery_typical', 'look.gallery_now']) as $k) {
             if (!is_string($s[$k] ?? null) || trim($s[$k]) === '') {
                 $lang[] = "$l:$k";
             }
         }
     }
-    same('fanboy look keys: every colour, blade shape and the reverse tick named in all five languages', [], $lang);
+    same('fanboy look keys: every colour, blade shape, the reverse tick and the gallery named in all five languages', [], $lang);
+    // the gallery (2026-11-20, the owner: «das komplette Übersichtsbild als Vorschau öffnen»): the office's dialog (inside
+    // #sso), every catalogue entry by maker, the wheels standing (only the one pointed at turns), a size filter, a click
+    // chooses through the picker's own path; tools/fanboy/gallery.mjs clicks it through
+    check('fanboy look keys: «Alle ansehen…» opens the gallery in the office\'s dialog — every entry by maker, standing wheels (the pointed-at one turns), sizes 80/120/140/200/all, a click chooses as the selects do',
+        str_contains($js, "dlg = Office.dialog({ title: T('look.gallery_title'), body, wide: true, cls: 'fb-gallery-dialog', onClose: () => wheels.forEach((w) => w.destroy()) });")
+        && str_contains($js, "const w = A.wheel({ mm: f.mm, blades: f.blades, look: f.look, px: 64, air: false, rpm: 0, state: 'run' });")
+        && str_contains($js, "const spin = (on) => w.update({ rpm: on ? 1100 : 0 });") && str_contains($js, 'const GALLERY_SIZES = [80, 120, 140, 200];')
+        && str_contains($js, "pk.set({ id: fid });\n      onModel(pk.value());") && !str_contains($js, "document.body.append") && is_file(OFFICE_DIR . '/tools/fanboy/gallery.mjs'));
     check('fanboy look keys: the picker has the «Reverse-Blade» tick (into the draft, sent with «Speichern»); another model, «back to the proposal» and undo set it with the rest',
         str_contains($js, "rev.onchange = () => set('reverse', rev.checked);") && str_contains($js, "keep({ model: v.id, frame: '', wheel: '', style: '', blades: 0, reverse: null, colour: 'auto' });")
         && str_contains($js, "keep({ frame: '', wheel: '', style: '', blades: 0, reverse: null, colour: 'auto' });") && str_contains($js, 'blades: u.blades, reverse: u.reverse });')
         && str_contains($js, "if (reverse !== null && (look || reverse)) look = { ...(look || {}), reverse };"));
+    // sizes (2026-11-20, the owner: «ja einschalten»): the overview's picture by the fans' sizes; the tile's symbols too,
+    // inside their box (140 mm and up fill it, smaller ones less) — the rows never move
+    check('fanboy look keys: the overview draws each wheel by its fan\'s size; the Dashboard tile scales the symbol inside its fixed box',
+        str_contains($js, "PIC_PX_PHONE : PIC_PX, sized: true });") && str_contains($dash, "'f.px=Math.min(' . FANBOY_DASH_SYM_PX . ',Math.round(' . FANBOY_DASH_SYM_PX . '*(28+0.3*(+f.mm||120))/70));")
+        && str_contains($dash, 'sso-fb-sym{flex:none;display:flex;align-items:center;justify-content:center;width:'));
     $agent = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-setup.php');
     check('fanboy look keys: the panel\'s one save passes the reverse key on to the look',
         str_contains($agent, "array_flip(['model', 'mm', 'blades', 'frame', 'wheel', 'style', 'colour', 'reverse'])"));

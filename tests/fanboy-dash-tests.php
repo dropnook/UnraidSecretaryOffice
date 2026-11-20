@@ -636,7 +636,7 @@ function testFanboyDashFans(): void
     $js = substr($src, (int) strpos($src, '<script>'));
     check('fanboy dash fans: the script — fan-art.js once and only for a symbol, FanArt.wheel() without air at the tile\'s size, each wheel kept by its fan (update) and let go (destroy), drawn again after every refresh, no timer of its own',
         str_contains($js, "officeDashAsset('desks/fanboy/fan-art.js')") && str_contains($js, 'if(!asked&&l.length){asked=true;') && str_contains($js, 'f.air=false')
-        && str_contains($js, 'f.px=\' . FANBOY_DASH_SYM_PX . \'') && str_contains($js, 'w.update(f)') && str_contains($js, 'old[k].destroy()') && str_contains($js, 'mood();syms();')
+        && str_contains($js, 'f.px=Math.min(\' . FANBOY_DASH_SYM_PX . \',') && str_contains($js, 'w.update(f)') && str_contains($js, 'old[k].destroy()') && str_contains($js, 'mood();syms();')
         && !str_contains($js, 'setInterval') && !str_contains($js, 'requestAnimationFrame'), $js);
     check('fanboy dash fans: fan-art.js rests where nothing is seen — off screen, a hidden tab, reduced motion — and turns by transform only',
         (bool) preg_match('/const go = m\.seen && !document\.hidden && !reduce\.matches;/', (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.js')), '');

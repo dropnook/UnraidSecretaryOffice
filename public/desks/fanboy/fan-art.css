@@ -34,7 +34,7 @@
   --fan-k-silver:var(--gray-300); --fan-k-white:var(--white);
   --fan-k-beige:color-mix(in srgb, var(--orange-100) 70%, var(--gray-400));
   --fan-k-brown:color-mix(in srgb, var(--orange-800) 30%, var(--gray-700));
-  --fan-k-frost:color-mix(in srgb, var(--white) 55%, transparent);
+  --fan-k-frost:color-mix(in srgb, var(--gray-150) 72%, transparent);      /* milky: a light grey veil on a light page and a dark one alike */
   /* 2026-11-20 (the owner): the bright ones, from Unraid's palette as well */
   --fan-k-red:var(--red-700); --fan-k-orange:var(--orange-500); --fan-k-yellow:var(--yellow-500);
   --fan-k-green:color-mix(in srgb, var(--green-500) 70%, var(--gray-800));
@@ -44,7 +44,7 @@
 }
 /* a model's frame always has an outline in the text's colour: a black fan on the black theme, a white one on the white */
 .fan-look{--fan-line:color-mix(in srgb, var(--ink) 45%, transparent)}
-.fan-look-wheel{--fan-edge:color-mix(in srgb, var(--fan-blade) 60%, var(--ink)); --fan-hub2:color-mix(in srgb, var(--fan-hub) 85%, var(--ink))}
+.fan-look-wheel{--fan-edge:color-mix(in srgb, var(--fan-blade) 45%, var(--ink)); --fan-hub2:color-mix(in srgb, var(--fan-hub) 85%, var(--ink))}
 /* between the blades nothing: the page shows through (2026-11-20, the owner: «dort ist nichts ausser Luft»); a black fan
    on the black theme keeps its blades apart by their shading and edge */
 
@@ -91,7 +91,7 @@
 .fan-spin{position:absolute; inset:0; overflow:hidden; overflow:clip}    /* clips the turning square's corners (square: a rounded clip repaints every frame) */
 .fan-rotor{position:absolute; inset:2.5%; will-change:transform; transform-origin:50% 50%}
 .fan-rotor svg{display:block; width:100%; height:100%}
-.fan-blades path{fill:var(--fan-blade); stroke:var(--fan-edge); stroke-width:.7; stroke-linejoin:round}
+.fan-blades path{fill:var(--fan-blade); stroke:var(--fan-edge); stroke-width:.9; stroke-linejoin:round}   /* the edge keeps light blades apart on a light page */
 .fan-hub{fill:var(--fan-hub); stroke:var(--fan-edge); stroke-width:.7}
 .fan-rim{fill:none; stroke:var(--fan-blade); stroke-width:2.6}
 .fan-look .fan-housing{stroke-width:1.4}
