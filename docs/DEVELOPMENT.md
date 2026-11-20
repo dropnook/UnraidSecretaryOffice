@@ -413,13 +413,19 @@ active, `backup/` is left alone.
 ## Monitoring
 
 Once a minute the agent writes the office's numbers as small text files to `/mnt/addons/UnraidSecretaryOffice/metrics`
-(RAM): `uso_<desk>.prom` per hired desk that reports any, plus `uso_office.prom`, all together at most 16 KB (the
-families with the most series go first, counted in `uso_metrics_dropped_families`). A Node Exporter's textfile
+(RAM): `uso_<desk>.prom` per hired desk that reports any, plus `uso_office.prom`, all together at most 48 KB (the
+families with the most series go first, counted in `uso_metrics_dropped_families`). That folder lies on a small RAM file
+system that is not the office's alone (with Unassigned Devices its 1 MB tmpfs, where the backup engine makes its mount
+points too), so before each write the agent looks at the room there and keeps at least 256 KB free (`METRICS_ROOM_FLOOR`):
+with less, families go in the same order; with too little for even its own file it writes none (and removes its files).
+Each is said once in the agent log («Metrics: over 48 KB — left out …», «Metrics: only … KB free in …»), and the Team
+Lead says it where a Node Exporter or Prometheus runs (`metrics_room`, `metrics_size`). A Node Exporter's textfile
 collector serves them along with its own. What is there: Mr. Backupsy's last run (when it ended, how it went,
 downtime, duration, Kopia sources, package sizes), the last one that went well, a run going on, runs skipped because
 the engine was busy; Ms. Snapshotini's snapshots per pool and her plans; the Team Lead's open points; Mr. Restori's
 last drill; the Night Watchman's findings and the data flow (bytes per file service, written per ZFS share, the
-router's lines per sender); Ms. Protocolli's last tour, MediaCache and Ms. Dustdevil's storeroom — all named `uso_…`.
+router's lines per sender); Ms. Protocolli's last tour, MediaCache and Ms. Dustdevil's storeroom; Fanboy's zones (the
+warmest place, the level), his fans' speeds, who steers and his alarm — all named `uso_…`.
 
 [`monitoring/grafana-dashboard.json`](../monitoring/grafana-dashboard.json) is a ready dashboard (Grafana:
 *Dashboards → New → Import*, choose the Prometheus data source); the Consultant provisions it when he installs

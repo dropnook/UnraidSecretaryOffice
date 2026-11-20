@@ -1312,6 +1312,15 @@ function caretakerMonitoringChecks(): array
     $advisor = in_array('advisor', staffHired(), true) ? '#/advisor' : 'docker';
     $dir = metricsDir();
     $out = [finding('metrics_written', 'recommended', metricsFresh($dir), ['dir' => $dir])];
+    // what the last write left out: for the room where the folder lies (something else fills it), for the size cap (to know)
+    $left = metricsLeftOut();
+    if ($left !== null && $left['free'] !== null) {
+        $out[] = finding('metrics_room', 'recommended', $left['room'] === 0 && $left['written'],
+            ['dir' => $dir, 'free' => intdiv(max(0, $left['free']), 1024), 'floor' => intdiv(METRICS_ROOM_FLOOR, 1024), 'max' => intdiv(METRICS_MAX_BYTES, 1024)]);
+    }
+    if ($left !== null && $left['size'] > 0) {
+        $out[] = finding('metrics_size', 'hint', false, ['n' => $left['size'], 'max' => intdiv(METRICS_MAX_BYTES, 1024)]);
+    }
     if ($node !== null) {
         $out[] = finding('metrics_textfile', 'recommended',
             advisorNodeTextfile($node, $node['kind'] === 'container' ? houseInspect($node['name']) : null), ['name' => $node['name'], 'dir' => METRICS_HOST_DIR], $advisor);

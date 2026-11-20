@@ -26482,6 +26482,63 @@ function metricsParseBack(string $text): array|string
     return $families;
 }
 
+/** Fanboy's numbers for Prometheus (names for the legends) and his row in the Grafana dashboard: every family drawn, one panel per zone */
+function testFanboyMetrics(): void
+{
+    $status = ['who' => 'fanboy', 'alarm' => null, 'zones' => [
+        ['id' => 'z1', 'name' => 'Disk cage', 'unit' => 'pct', 'level' => 57.0, 'warmest' => ['c' => 41.0],
+         'fans' => [['name' => 'Front', 'output' => 4, 'rpm' => 1018], ['name' => '', 'output' => 5, 'rpm' => 900]]],
+        ['id' => 'z2', 'name' => '', 'unit' => 'rpm', 'level' => 1200, 'warmest' => ['c' => 55.5], 'fans' => []],
+    ]];
+    $m = [];
+    foreach (metricsClean(['fanboy' => fanboyMetrics($status, true)])['fanboy'] ?? [] as $f) {
+        $m[$f['name']] = $f['samples'];
+    }
+    same('fanboy metrics: zones by id and name (the id where it has none), level only for a zone by percent',
+        [[[['name' => 'Disk cage', 'zone' => 'z1'], '41'], [['name' => 'z2', 'zone' => 'z2'], '55.5']], [[['name' => 'Disk cage', 'zone' => 'z1'], '57']]],
+        [$m['uso_fanboy_zone_temperature_celsius'] ?? null, $m['uso_fanboy_zone_level_percent'] ?? null]);
+    same('fanboy metrics: fans by zone, output and name (the output where it has none)',
+        [[['name' => 'Front', 'output' => 'pwm4', 'zone' => 'z1'], '1018'], [['name' => 'pwm5', 'output' => 'pwm5', 'zone' => 'z1'], '900']], $m['uso_fanboy_fan_rpm'] ?? null);
+    same('fanboy metrics: steering and the alarm, one series each', [[[[], '1']], [[[], '0']]], [$m['uso_fanboy_steering'] ?? null, $m['uso_fanboy_alarm'] ?? null]);
+
+    $dash = json_decode((string) file_get_contents(OFFICE_DIR . '/monitoring/grafana-dashboard.json'), true) ?: [];
+    $panels = (array) ($dash['panels'] ?? []);
+    $row = array_values(array_filter($panels, fn ($p) => ($p['type'] ?? '') === 'row' && ($p['title'] ?? '') === 'Fanboy — fans'))[0] ?? null;
+    $next = null;
+    foreach ($panels as $p) {
+        if (($p['type'] ?? '') === 'row' && $row && $p['gridPos']['y'] > $row['gridPos']['y'] && ($next === null || $p['gridPos']['y'] < $next)) {
+            $next = $p['gridPos']['y'];
+        }
+    }
+    $mine = array_values(array_filter($panels, fn ($p) => $row && ($p['type'] ?? '') !== 'row' && $p['gridPos']['y'] > $row['gridPos']['y'] && $p['gridPos']['y'] < (int) $next));
+    $exprs = implode(' ', array_map(fn ($p) => implode(' ', array_column((array) ($p['targets'] ?? []), 'expr')), $mine));
+    check('grafana fanboy: a row of his, open like the others (empty where he doesn\'t work)', $row !== null && ($row['collapsed'] ?? null) === false && count($mine) >= 5);
+    foreach (array_keys($m) as $family) {
+        check("grafana fanboy: $family is drawn", str_contains($exprs, $family));
+    }
+    $targets = array_merge(...array_map(fn ($p) => (array) ($p['targets'] ?? []), $mine));
+    check('grafana fanboy: every query on the chosen server, every panel on the dashboard\'s data source',
+        $targets && !array_filter($targets, fn ($t) => !str_contains($t['expr'], 'instance=~"$instance"'))
+        && !array_filter($mine, fn ($p) => ($p['datasource']['uid'] ?? '') !== '${DS_PROMETHEUS}'));
+    $zone = array_values(array_filter((array) ($dash['templating']['list'] ?? []), fn ($v) => ($v['name'] ?? '') === 'zone'))[0] ?? [];
+    $repeat = array_values(array_filter($mine, fn ($p) => ($p['repeat'] ?? null) === 'zone'));
+    same('grafana fanboy: one panel per zone (1 to 6 fit), the zone shown by its name, All where there is none',
+        [1, 2, true, true, '.*', true], [count($repeat), $repeat[0]['maxPerRow'] ?? null, str_contains($repeat[0]['title'] ?? '', '${zone:text}'),
+         $zone['includeAll'] ?? null, $zone['allValue'] ?? null, str_contains($zone['definition'] ?? '', 'instance=~"$instance"')]);
+    $re = (string) ($zone['regex'] ?? '');
+    $series = '{__name__="uso_fanboy_zone_temperature_celsius", instance="tower:9100", job="node", name="Disk cage", zone="z1"} 41 1795000000000';
+    $js = preg_replace(['#^/#', '#/$#', '/\(\?<(\w+)>/'], ['#', '#', '(?P<$1>'], $re);
+    same('grafana fanboy: the zone variable reads id and name from query_result\'s line', ['z1', 'Disk cage'],
+        preg_match((string) $js, $series, $g) ? [$g['value'], $g['text']] : $re);
+    $units = [];
+    foreach ($mine as $p) {
+        $units[$p['id']] = $p['fieldConfig']['defaults']['unit'] ?? null;
+    }
+    check('grafana fanboy: °C, rpm, percent for the level', in_array('celsius', $units, true) && in_array('rotrpm', $units, true) && str_contains(json_encode($mine), '"value":"percent"'));
+    same('grafana fanboy: the state timeline Grafana ships is named among what the dashboard needs', true,
+        in_array('state-timeline', array_column((array) $dash['__requires'], 'id'), true) && (bool) array_filter($mine, fn ($p) => $p['type'] === 'state-timeline'));
+}
+
 /** The office's numbers for Prometheus: the text format, what is left out, the size cap, the files, the desks' hooks */
 function testMetrics(): void
 {
@@ -26543,7 +26600,7 @@ function testMetrics(): void
     file_put_contents("$dir/node_other.prom", "other_tool 1\n");
     file_put_contents("$dir/.uso_backup.prom.0a1b2c3d4e5f.tmp", 'left by a crash');
     touch("$dir/.uso_backup.prom.0a1b2c3d4e5f.tmp", $now - 3600);
-    $big = array_map(fn ($i) => [['kind' => 'app', 'name' => str_repeat('x', 60) . "-$i"], $i], range(1, 400));
+    $big = array_map(fn ($i) => [['kind' => 'app', 'name' => str_repeat('x', 120) . "-$i"], $i], range(1, 400));     // ~62 KB
     $r = metricsWrite($now, ['backup' => [$g('uso_backup_running', [[[], 1]]), $g('uso_backup_package_bytes', $big)],
                              'caretaker' => [$g('uso_caretaker_open_findings', [[['level' => 'required'], 0]])]], $dir);
     $names = array_values(array_filter(scandir($dir) ?: [], fn ($n) => $n[0] !== '.'));
@@ -26564,6 +26621,89 @@ function testMetrics(): void
     @unlink((string) $tmp);
     metricsWrite($now + 60, ['backup' => [$g('uso_backup_running', [[[], 0]])]], $dir);
     check('metrics files: an area that stops reporting loses its file', !file_exists("$dir/uso_caretaker.prom") && is_file("$dir/uso_backup.prom"));
+
+    // 1.95.0: the cap three times the 16 KB before — the owner's 14.6 KB plus ~2.2 KB of package sizes (30 packages) fit
+    same('metrics cap: 48 KB', 49152, METRICS_MAX_BYTES);
+    $thirty = array_map(fn ($i) => [['kind' => $i % 5 ? 'app' : 'vm', 'name' => "package-$i"], 1000000000 + $i], range(1, 30));
+    $filler = array_map(fn ($i) => [['share' => "share-$i"], $i], range(1, 300));      // ~ the rest of a big server's 14.6 KB
+    $r = metricsWrite($now, ['backup' => [$g('uso_backup_package_bytes', $thirty)], 'watchman' => [$g('uso_watchman_share_written_bytes', $filler)]], $dir);
+    check('metrics cap: 30 packages beside ~14 KB more all written', ($r['dropped'] ?? null) === [] && array_sum($r['files']) > 16384, json_encode([$r['dropped'] ?? null, array_sum($r['files'] ?? [])]));
+
+    // the room: the folder's file system is small and shared — at least METRICS_ROOM_FLOOR stays free (a stand-in statfs,
+    // through OFFICE_METRICS_DIR as the agent finds its folder); whole pages, the biggest new file twice for a moment
+    same('metrics room: pages, every file at its larger size, the biggest new one once more', [4096 + 8192 + 8192, 4096 + 8192, 8192],
+        [metricsRoomNeed(['office' => str_repeat('a', 100), 'backup' => str_repeat('b', 5000)], []),
+         metricsRoomNeed(['office' => str_repeat('a', 100), 'backup' => str_repeat('b', 5000)], ['uso_office.prom' => 900, 'uso_backup.prom' => 7000]),
+         metricsRoomNeed(['office' => str_repeat('a', 100), 'backup' => str_repeat('b', 5000)], ['uso_office.prom' => 900, 'uso_backup.prom' => 9000])]);
+    $roomDir = hardeningTmp('metrics-room') . '/metrics';
+    mkdir($roomDir, 0755);
+    putenv("OFFICE_METRICS_DIR=$roomDir");
+    $GLOBALS['metricsDropped'] = [];
+    $free = METRICS_ROOM_FLOOR + (1 << 20);
+    $statfs = function (string $path) use (&$free, $roomDir) { return $path === $roomDir ? $free : false; };
+    $pkgs = array_map(fn ($i) => [['kind' => 'app', 'name' => str_repeat('p', 40) . "-$i"], $i], range(1, 300));   // ~22 KB
+    $room = fn () => ['backup' => [$g('uso_backup_running', [[[], 0]]), $g('uso_backup_package_bytes', $pkgs)],
+                      'snapshot' => [$g('uso_snapshot_snapshots', [[['pool' => 'cache'], 3]])]];
+    $logAt = (int) @filesize(AGENT_LOG);
+    $said = fn (string $what) => substr_count((string) @file_get_contents(AGENT_LOG, false, null, $logAt), $what);
+    $r = metricsWrite($now, $room(), null, $statfs);
+    check('metrics room: plenty — all written, in the folder OFFICE_METRICS_DIR names', ($r['dropped'] ?? null) === [] && is_file("$roomDir/uso_backup.prom") && metricsLeftOut()['room'] === 0);
+    $free = METRICS_ROOM_FLOOR + 16384;      // nearly full: 4 pages to spare
+    $r = metricsWrite($now + 60, $room(), null, $statfs);
+    $kept = array_sum(array_map(fn ($f) => (int) ceil(filesize("$roomDir/$f") / METRICS_PAGE), array_keys($r['files'] ?? [])));
+    check('metrics room: nearly full — the per-item family goes, the single numbers stay', ($r['dropped'] ?? null) === ['uso_backup_package_bytes']
+        && is_file("$roomDir/uso_backup.prom") && is_file("$roomDir/uso_snapshot.prom") && !str_contains((string) file_get_contents("$roomDir/uso_backup.prom"), 'package_bytes'), json_encode($r));
+    check("metrics room: nearly full — what is written fits the 4 pages to spare ($kept pages now)", $kept <= 6 && metricsLeftOut() === ['size' => 0, 'room' => 1, 'written' => true, 'free' => $free]);
+    same('metrics room: the office counts what was left out', '1', metricsParseBack((string) file_get_contents("$roomDir/uso_office.prom"))['uso_metrics_dropped_families']['samples'][0][1] ?? null);
+    metricsWrite($now + 120, $room(), null, $statfs);
+    same('metrics room: said once in the log, in the size line\'s manner', 1,
+        $said('Metrics: only 272 KB free in ' . $roomDir . ' (256 KB stay for others) — left out uso_backup_package_bytes'));
+    $free = METRICS_ROOM_FLOOR + 1000;       // full: not even the office's own file
+    $r = null;
+    try {
+        $r = metricsWrite($now + 180, $room(), null, $statfs);
+    } catch (Throwable $e) {
+        $r = $e->getMessage();
+    }
+    check('metrics room: full — nothing written, the office\'s files gone (no old number looks fresh), no error',
+        is_array($r) && $r['files'] === [] && !array_filter(scandir($roomDir) ?: [], fn ($n) => str_ends_with($n, '.prom')) && metricsLeftOut()['written'] === false, json_encode($r));
+    metricsWrite($now + 240, $room(), null, $statfs);
+    same('metrics room: full — said once (what went, and that nothing was written)', [1, 2], [$said('the office\'s numbers are not written'), $said('Metrics: only 256 KB free')]);
+    $free = METRICS_ROOM_FLOOR + (1 << 20);
+    $r = metricsWrite($now + 300, $room(), null, $statfs);
+    check('metrics room: room again — all back', ($r['dropped'] ?? null) === [] && is_file("$roomDir/uso_office.prom") && metricsFresh($roomDir, $now + 300));
+    $r = metricsWrite($now + 360, $room(), null, fn () => false);
+    check('metrics room: not told — only the size cap counts', ($r['dropped'] ?? null) === [] && metricsLeftOut()['free'] === null);
+
+    // the same on a real small tmpfs (only inside the tests' own mount namespace on the server: the mount ends with the run)
+    if (getenv('OFFICE_TESTS_GUARD') !== false && posix_geteuid() === 0) {
+        $fs = hardeningTmp('metrics-tmpfs');
+        exec('mount -t tmpfs -o size=320k,mode=0755 uso-tests-metrics ' . escapeshellarg($fs) . ' 2>&1', $o, $rc);
+        if ($rc === 0) {
+            try {
+                mkdir("$fs/metrics", 0755);
+                putenv("OFFICE_METRICS_DIR=$fs/metrics");
+                file_put_contents("$fs/filler", str_repeat('f', 32768));          // 320 KB − 32 KB − the floor: 8 pages to spare
+                $GLOBALS['metricsDropped'] = [];
+                $r = metricsWrite($now, $room());
+                $real = disk_free_space($fs);
+                check("metrics tmpfs: nearly full — the per-item family left out, the floor kept ($real bytes free)",
+                    ($r['dropped'] ?? null) === ['uso_backup_package_bytes'] && $real >= METRICS_ROOM_FLOOR, json_encode($r));
+                file_put_contents("$fs/filler", str_repeat('f', 65536 + 8192));
+                $r = metricsWrite($now + 60, $room());
+                check('metrics tmpfs: full — nothing written, nothing failed', is_array($r) && $r['files'] === [] && !is_file("$fs/metrics/uso_office.prom"), json_encode($r));
+                unlink("$fs/filler");
+                $r = metricsWrite($now + 120, $room());
+                check('metrics tmpfs: room again — all written', ($r['dropped'] ?? null) === [] && is_file("$fs/metrics/uso_backup.prom"), json_encode($r));
+            } finally {
+                exec('umount ' . escapeshellarg($fs));
+            }
+        } else {
+            check('metrics tmpfs: a small tmpfs mounted in the tests\' namespace', false, implode(' ', $o));
+        }
+    }
+    putenv('OFFICE_METRICS_DIR');
+    $GLOBALS['metricsDropped'] = [];
 
     // never through a link
     $link = dirname($dir) . '/linked';
@@ -66292,7 +66432,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
           'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
-          'fanboy' => ['testFanboyPublic', 'testCaretakerNewcomers', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
+          'fanboy' => ['testFanboyPublic', 'testFanboyMetrics', 'testCaretakerNewcomers', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
                        'testFanboyWrite', 'testFanboyControl', 'testFanboyAlarms', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',
                        'testFanboyProcesses', 'testFanboyDrivers', 'testFanboyStopScripts', 'testFanboyState',
                        'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyUx', 'testFanboyOverview', 'testFanboyHistoryLeads', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR7FullOnObeys', 'testFanboyR7ControlFullOn', 'testFanboyR7Fixed', 'testFanboyR7NotAController', 'testFanboyR7CardsKeepSize', 'testFanboyR7TestLongEnough', 'testFanboyR8IgnoredLate', 'testFanboyR8FullLongEnough', 'testFanboyR8Quiet', 'testFanboyR8QuietGuards', 'testFanboyR8QuietSafety', 'testFanboyR8FoundNext', 'testFanboyR8Assign', 'testFanboyR9Kick', 'testFanboyR9Safety', 'testFanboyR9Now', 'testFanboyR9CpuOwn', 'testFanboyR10Notify', 'testFanboyR11Heard', 'testFanboyR11StopVerdict', 'testFanboyR11StaleNext', 'testFanboyR11ProgressNext', 'testFanboyR12Standstill', 'testFanboyR12Warm', 'testFanboyR12Control', 'testFanboyR12CpuRole', 'testFanboyR12CpuMeasure', 'testFanboyR12CpuControl', 'testFanboyR12CpuGone', 'testFanboyR12FixSpikes', 'testFanboyR12FixControl', 'testFanboyR12FixConfirm', 'testFanboyNetDrift', 'testFanboyNet', 'testFanboyNetTakeOver', 'testFanboyR12Curve', 'testFanboyR12CurveEffective', 'testFanboyR12AutoSeen', 'testFanboyR12Look', 'testFanboyR13Compat', 'testFanboyR13Curves', 'testFanboyR13Refused', 'testFanboyR13Devs', 'testFanboyR13DevsControl', 'testFanboyR14Plan', 'testFanboyR14Look', 'testFanboySetupFanPlan', 'testFanboyDashHours', 'testFanboyTimes', 'testFanboySsdSleeps', 'testFanboyCpuFloorCurve',
