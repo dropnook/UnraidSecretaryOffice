@@ -81,6 +81,12 @@ const PICTURES = [
   ['chip-unraid', 'fanboy-chipunraid', 'fanboy', null, true, { widths: [1440, 375] }],
   ['chip-unknown', 'fanboy-chipunknown', 'fanboy', null, true, { widths: [1440, 375] }],
   ['chip-noread', 'fanboy-chipnoread', 'fanboy', null, true, { widths: [1440, 375] }],
+  // … and the owner's kind of board (its maker's hint ITE, never read): the overview, the set-up, its «What fits here»,
+  // «Load drivers yourself» after none of Unraid's own found a chip
+  ['owner-overview', 'fanboy-nooutput', 'fanboy', null, true, { widths: [1440, 375] }],
+  ['owner-setup', 'fanboy-nooutput', 'fanboy/setup/detect', null, true, { widths: [1440, 375] }],
+  ['owner-fits', 'fanboy-nooutput', 'fanboy/setup/detect', null, true, { widths: [1440, 375], clip: '.fb-hints' }],
+  ['owner-nodriver', 'fanboy-nodriver', 'fanboy/setup/detect', null, true, { widths: [1440, 375], clip: '.fb-drivers' }],
   ['array-stopped', 'fanboy-array', 'fanboy', null, false],
   ['curves', 'fanboy', 'fanboy/history', null, false],
   // round 3: the history's period (the segmented choice above the curves)

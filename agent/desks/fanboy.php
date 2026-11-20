@@ -112,6 +112,7 @@ function fanboyScan(): array
     $state['step'] = fanboyStepRead();
     $state['drivers'] = fanboyDriversState($state['board']);
     $state['chip'] = fanboyChipState($state);           // the fan chip's id read on a click (fanboy-chipid.php): what it needs
+    $state['suggest'] = fanboyChipSuggest($state['suggest'], $state['chip']);      // what fits, narrowed once the chip is known
     $state['dashboard'] = fanboyDashState();            // his Dashboard tile's setting (fanboy-dash.php), its mirror in RAM
     $state['show'] = fanboyShowRead();                  // round 6: «show me this fan» running or just done
     $state['safety'] = fanboySafetyFull() ?: new stdClass();     // round 9 (H2): outputs he set to full for safety
@@ -129,6 +130,10 @@ function fanboyFit(array $scan): array
     if ($code === 'no_output') {
         // the fan chip read on a click (fanboy-chipid.php): named, and what it needs — the Team Lead says the same
         $chip = fanboyChipState($scan);
+        if (!empty($chip['chip']['family']) && $chip['plugin'] !== null) {
+            // a board never read (Gigabyte): its maker's boards carry ITE — the plugin by name
+            return fit(true, 'no_output_family', ['chip' => (string) $chip['chip']['maker'], 'plugin' => $chip['plugin']['name'], 'author' => $chip['plugin']['author']]);
+        }
         if (($chip['chip']['name'] ?? null) !== null && in_array($chip['need'], ['unraid', 'plugin'], true)) {
             return fit(true, 'no_output_' . $chip['need'], ['chip' => $chip['chip']['maker'] . ' ' . $chip['chip']['name'],
                 'module' => (string) $chip['chip']['module'], 'plugin' => (string) ($chip['plugin']['name'] ?? ''), 'author' => (string) ($chip['plugin']['author'] ?? '')]);

@@ -2732,13 +2732,36 @@
  },
  "chip": {
   "kept": null,
-  "can": true,
-  "blocked": "",
+  "can": false,
+  "blocked": "maker",
   "loaded": [],
-  "need": "not_read",
-  "chip": null,
-  "plugin": null,
+  "need": "plugin",
+  "chip": {
+   "id": null,
+   "port": null,
+   "via": null,
+   "name": null,
+   "family": true,
+   "maker": "ITE",
+   "module": "it87",
+   "unraid": null,
+   "since": null,
+   "plugin_id": "it87-driver",
+   "src": "FANBOY_BOARD_HINTS"
+  },
+  "plugin": {
+   "id": "it87-driver",
+   "name": "ITE IT87 Driver",
+   "author": "ich777",
+   "installed": false
+  },
   "restart": false,
+  "hint_plugin": {
+   "id": "it87-driver",
+   "name": "ITE IT87 Driver",
+   "author": "ich777",
+   "installed": false
+  },
   "words": [
    {
     "w": "ITE",

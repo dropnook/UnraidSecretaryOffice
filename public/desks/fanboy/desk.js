@@ -472,6 +472,7 @@ function bubbleText() {
   if (s === 'other') return T('bubble.other', { who: otherNames() });
   // 2026-11-20: the fan chip read on a click — named, and what it needs (the Team Lead's line says the same)
   if (s === 'no_output' && chipKnown() && ['unraid', 'plugin'].includes(chipNow().need)) return T(`bubble.no_output_${chipNow().need}`, chipParams());
+  if (s === 'no_output' && chipNow().chip && chipNow().chip.family && chipNow().plugin) return T('bubble.no_output_family', chipParams());
   if (s === 'driver_missing' || s === 'no_output' || s === 'ipmi') return T(`bubble.${s}`);
   if (s === 'ok' && c.armed === false && (setup().zones || []).length) return T('bubble.ready');
   if (s === 'ok') return T('bubble.ok', { n: counts().outputs || 0 });
@@ -695,7 +696,7 @@ function picture() {
   const sources = (su.sources || []).filter((s) => kinds.includes(s.kind))
     .sort((a, b) => kinds.indexOf(a.kind) - kinds.indexOf(b.kind)).filter((s, i, all) => s.kind === 'disk' || all.findIndex((x) => x.kind === s.kind && x.label === s.label) === i)
     .slice(0, 14).map(asSource);
-  return { zones: [{ id: '_all', name: T('pic.all'), note: steers() ? '' : who().why === 'fixed' ? T('pic.all_note_fixed') : T('pic.all_note'), fans, sources }] };
+  return { zones: [{ id: '_all', name: T('pic.all'), note: steers() ? '' : who().why === 'fixed' ? T('pic.all_note_fixed') : situation() === 'no_output' ? T('pic.all_note_none') : T('pic.all_note'), fans, sources }] };
 }
 function pictureEl() {
   const A = art();
@@ -1615,7 +1616,7 @@ const chipKnown = () => !!(chipNow().chip && chipNow().chip.name);
 function chipParams() {
   const c = chipNow().chip || {}, p = chipNow().plugin || {};
   const mods = (((chipNow().kept || {}).modules || []).length ? chipNow().kept.modules : chipNow().loaded || []).join(', ');
-  return { chip: c.name ? `${c.maker} ${c.name}` : '', id: c.id || '', port: c.port || '', module: c.module || '', since: c.since || '',
+  return { chip: c.name ? `${c.maker} ${c.name}` : (c.maker || ''), id: c.id || '', port: c.port || '', module: c.module || '', since: c.since || '',
     plugin: p.name || '', author: p.author || '', modules: mods };
 }
 function chipReadButton(again) {
@@ -1647,7 +1648,9 @@ function chipPart() {
     say(`chip.blocked.${has(`chip.blocked.${(c.kept || {}).result}`) ? c.kept.result : 'no_open'}`);
   } else {
     if (chipKnown() && c.chip.id) say('chip.found');
-    say(`chip.need.${need}${need === 'plugin' && c.chip && c.chip.unraid === 'read' ? '_read' : ''}`);
+    // a board never read (its maker: Gigabyte) — why, and what its maker's boards carry; else the chip's need
+    if (c.chip && c.chip.family) say('chip.blocked.maker', { maker: S().board_maker || '' });
+    else say(`chip.need.${need}${need === 'plugin' && c.chip && c.chip.unraid === 'read' ? '_read' : ''}`);
     if (need === 'unraid' && !((S().drivers || {}).mine || []).length && (S().drivers || {}).can !== false) {
       bar.appendChild(button(T('drivers.load'), T('drivers.load_tip'), (b) => act('drivers_load', {}, b, (j) => Office.toast(j.kept ? T('drivers.kept_toast', { module: j.kept }) : T('drivers.none_toast'), !j.kept))));
     }
@@ -1682,6 +1685,13 @@ function chipPart() {
     bar.appendChild(b);
   }
   if (c.kept && c.can) bar.appendChild(chipReadButton(true));
+  // on the overview the hints aren't below: a way to them (the set-up's first step)
+  if (page !== 'setup') {
+    const a = el('a', 'btn small', T('chip.to_hints'));
+    a.href = `#/${ID}/setup/detect`;
+    a.title = T('chip.to_hints_tip');
+    bar.appendChild(a);
+  }
   if (bar.children.length) box.appendChild(bar);
   return box;
 }
@@ -1705,7 +1715,20 @@ function driversBlock() {
     });
     box.appendChild(list);
     if (last.acpi) box.appendChild(el('p', 'callout warn', T('drivers.acpi')));
-    else if (!last.kept) box.appendChild(el('p', 'fb-hint-text', T('drivers.none')));
+    else if (!last.kept) {
+      // none of Unraid's own found a chip: the next step is the plugin (the chip's, else the board maker's hint), by name
+      const hp = chipNow().hint_plugin;
+      box.appendChild(el('p', 'fb-hint-text', hp ? T('drivers.none_next', { plugin: hp.name, author: hp.author }) : T('drivers.none')));
+      if (hp) {
+        const go = el('a', 'btn small', T('hints.apps'));
+        const href = Office.safeHref('/Apps');
+        if (href) go.href = href;
+        go.title = T('hints.apps_title');
+        const bar0 = el('div', 'toolbar');
+        bar0.appendChild(go);
+        box.appendChild(bar0);
+      }
+    }
   }
   if (mine.length) box.appendChild(el('p', 'fb-hint-text', T('drivers.mine', { modules: mine.join(', ') })));
   const bar = el('div', 'toolbar');

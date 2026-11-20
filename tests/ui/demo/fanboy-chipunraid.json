@@ -366,8 +366,8 @@
  "suggest": [
   "dynamix.system.temp"
  ],
- "board_hint": "ite",
- "board_maker": "Example Boards",
+ "board_hint": null,
+ "board_maker": null,
  "acpi_lax": false,
  "poll": 1800,
  "vm": false,
@@ -1498,6 +1498,7 @@
   },
   "plugin": null,
   "restart": false,
+  "hint_plugin": null,
   "words": [
    {
     "w": "Nuvoton NCT6798D",

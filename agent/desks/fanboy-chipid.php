@@ -37,6 +37,14 @@ const FANBOY_SIO_MODULES = ['it87', 'nct6775', 'nct6775_core', 'nct6683', 'nct66
                             'sch56xx_common', 'smsc47m1', 'smsc47b397', 'pc87360', 'pc87427', 'vt1211',
                             'it87_wdt', 'w83627hf_wdt', 'f71808e_wdt', 'gpio_it87', 'gpio_f7188x', 'gpio_winbond'];
 const FANBOY_SIO_FAMILIES = ['open', 'smsc', 'winbond', 'ite'];
+// ITE chips the BIOS keeps in configuration mode (FEAT_NOCONF in it87.c 6.18.60 and frankcrawford/it87: IT8790E,
+// IT8792E/IT8795E, IT87952E): opened by ITE's key here, they are NOT sent the exit — as the kernel never sends it to
+// them in its runtime access (superio_exit(ioreg, has_noconf()))
+const FANBOY_SIO_NOEXIT = [0x8790, 0x8733, 0x8695];
+// boards whose maker's hint is one of these are never read at all (2026-11-20, the coordinator's review): Gigabyte
+// boards carry ITE chips, often two, and it87.c warns that touching the first while the second (IT8792E) is out of
+// configuration mode upsets the LPC bus — no list of such boards can be kept current, so not one byte on them
+const FANBOY_SIO_SKIP_HINTS = ['ite'];
 
 /*
  * The chips. ids: the id as read (0x20 high, 0x21 low) after `mask`; `key`: the family that opens it (a chip found
@@ -155,9 +163,12 @@ function fanboySioScan(array $io): array
                 $out($p, 0x21);
                 $id = ($hi << 8) | $in($p + 1);
             } finally {
-                // a family that opened nothing is closed again as its driver does; one that answered too — except open
-                foreach (fanboySioExit($family, $p) as [$port, $b]) {
-                    $out($port, $b);
+                // a family that opened nothing is closed again as its driver does; one that answered too — except open,
+                // and the ITE chips the BIOS keeps in configuration mode (FANBOY_SIO_NOEXIT): left in it
+                if (!($family === 'ite' && in_array($id, FANBOY_SIO_NOEXIT, true))) {
+                    foreach (fanboySioExit($family, $p) as [$port, $b]) {
+                        $out($port, $b);
+                    }
                 }
             }
             if ($id !== 0x0000 && $id !== 0xffff) {
@@ -223,10 +234,13 @@ function fanboyLockedDown(?array $p = null): bool
     return preg_match('/\[(integrity|confidentiality)\]/', $s) === 1;
 }
 
-/** Why a read can't be made now ('' = it can): no_port · locked · held (a driver loaded) */
+/** Why a read can't be made now ('' = it can): maker (a Gigabyte board) · no_port · locked · held (a driver loaded) */
 function fanboyChipBlocked(?array $p = null): string
 {
     $p ??= fanboyPaths();
+    if (in_array(fanboyBoardHint(fanboyBoard($p['dmi']))[0], FANBOY_SIO_SKIP_HINTS, true)) {
+        return 'maker';
+    }
     $port = fanboyPortPath();
     if (!file_exists($port)) {
         return 'no_port';
@@ -367,6 +381,13 @@ function fanboyChipState(array $scan): array
     } elseif ($kept !== null) {
         $out['need'] = $kept['result'] === 'held' ? 'held' : 'blocked';
     }
+    // a board never read (Gigabyte): what its maker's boards carry is ITE — the ITE plugin's driver should serve them;
+    // once it is loaded, the chip's name stands in hwmon (it8696 …) without any port touched
+    if ($blocked === 'maker' && ($chip === null || $chip['name'] === null)) {
+        $out['need'] = 'plugin';
+        $chip = ['id' => null, 'port' => null, 'via' => null, 'name' => null, 'family' => true, 'maker' => 'ITE', 'module' => 'it87',
+                 'unraid' => null, 'since' => null, 'plugin_id' => 'it87-driver', 'src' => 'FANBOY_BOARD_HINTS (Gigabyte → ITE)'];
+    }
     if ($chip !== null && $chip['name'] !== null) {
         $kernel = (string) ($scan['kernel'] ?? '');
         $out['need'] = match (true) {
@@ -389,6 +410,9 @@ function fanboyChipState(array $scan): array
         $out['plugin'] = ['id' => $id, 'name' => FANBOY_PLUGINS[$id]['name'], 'author' => FANBOY_PLUGINS[$id]['author'], 'installed' => (bool) ($tool['installed'] ?? false)];
         $out['restart'] = $id === 'nct6687-driver' && in_array('nct6683', $loaded, true);
     }
+    // the plugin the board maker's hint points at (for «Load drivers yourself» found nothing): only a driver plugin
+    $hp = FANBOY_HINT_PLUGIN[$scan['board_hint'] ?? ''] ?? null;
+    $out['hint_plugin'] = $out['plugin'] ?? ($hp === null ? null : ['id' => $hp, 'name' => FANBOY_PLUGINS[$hp]['name'], 'author' => FANBOY_PLUGINS[$hp]['author']]);
     $out['words'] = fanboyChipWords($scan, $chip, $out['plugin']);
     return $out;
 }
@@ -407,7 +431,13 @@ function fanboyChipWords(array $scan, ?array $chip, ?array $plugin): array
             $w[] = ['w' => $word, 'kind' => $kind];
         }
     };
-    if ($chip !== null && $chip['name'] !== null) {
+    if ($chip !== null && !empty($chip['family'])) {
+        $add((string) $chip['maker'], 'chip');
+        $add((string) $chip['module'], 'driver');
+        if ($plugin !== null) {
+            $add($plugin['name'], 'plugin');
+        }
+    } elseif ($chip !== null && $chip['name'] !== null) {
         $add(($chip['maker'] ?? '') . ' ' . $chip['name'], 'chip');
         $add((string) $chip['module'], 'driver');
         if ($plugin !== null) {
@@ -437,12 +467,31 @@ const FANBOY_HINT_WORDS = [
     'nuvoton_any'  => [['Nuvoton', 'chip'], ['nct6775', 'driver'], ['nct6683', 'driver'], ['Nuvoton NCT6687 Driver', 'plugin']],
 ];
 
+/** The driver plugin a board maker's hint points at (nuvoton_asus: Unraid's own nct6775 — none; ASRock: not one plugin) */
+const FANBOY_HINT_PLUGIN = ['ite' => 'it87-driver', 'nuvoton' => 'nct6687-driver'];
+
+/**
+ * What fits, once the chip is known (fanboyScan()): the plugin it needs and nothing else; Unraid's own driver — no driver
+ * plugin (Dynamix System Temp may stay: it loads Unraid's drivers); otherwise the look's own list
+ *
+ * @param list<string> $suggest
+ * @return list<string>
+ */
+function fanboyChipSuggest(array $suggest, array $chip): array
+{
+    return match ($chip['need'] ?? '') {
+        'plugin' => ($chip['plugin']['installed'] ?? true) ? [] : [(string) $chip['plugin']['id']],
+        'unraid' => array_values(array_filter($suggest, fn ($id) => (FANBOY_PLUGINS[$id]['kind'] ?? '') !== 'driver')),
+        default  => $suggest,
+    };
+}
+
 /** For the makers' report: one line, ids and names only */
 function fanboyChipReportLine(array $state): string
 {
     $k = $state['kept'] ?? null;
     if ($k === null) {
-        return 'Fan chip: not read';
+        return 'Fan chip: not read' . (($state['blocked'] ?? '') === 'maker' ? ' (board maker: never read)' : '');
     }
     if ($k['result'] !== 'read') {
         return 'Fan chip: not read (' . $k['result'] . ($k['modules'] ? ', ' . implode(' ', $k['modules']) . ' loaded' : '') . ')';

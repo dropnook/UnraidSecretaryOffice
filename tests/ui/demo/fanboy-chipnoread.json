@@ -364,10 +364,10 @@
   }
  ],
  "suggest": [
-  "it87-driver",
+  "nct6687-driver",
   "dynamix.system.temp"
  ],
- "board_hint": "ite",
+ "board_hint": "nuvoton",
  "board_maker": "Example Boards",
  "acpi_lax": false,
  "poll": 1800,
@@ -1472,17 +1472,22 @@
   "chip": null,
   "plugin": null,
   "restart": false,
+  "hint_plugin": {
+   "id": "nct6687-driver",
+   "name": "Nuvoton NCT6687 Driver",
+   "author": "ich777"
+  },
   "words": [
    {
-    "w": "ITE",
+    "w": "Nuvoton NCT6687",
     "kind": "chip"
    },
    {
-    "w": "it87",
+    "w": "nct6687",
     "kind": "driver"
    },
    {
-    "w": "ITE IT87 Driver",
+    "w": "Nuvoton NCT6687 Driver",
     "kind": "plugin"
    },
    {

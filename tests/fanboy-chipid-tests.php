@@ -71,12 +71,12 @@ function fanboyChipEmu(array $chips): array
     return [$io, $emu];
 }
 
-/** A board of the tests without a fan chip driver: CPU and NVMe only, /dev/port a file of 0xff; $spec on top */
+/** A board of the tests without a fan chip driver (a maker without a hint): CPU and NVMe only, /dev/port a file of 0xff; $spec on top */
 function fanboyChipTree(string $name, array $spec = []): array
 {
     $t = fanboyT("chip-$name");
     $base = [
-        'board' => ['Gigabyte Technology Co., Ltd.', 'EB-Z100 PRO'],
+        'board' => ['Example Boards Inc.', 'EB-Z100 PRO'],          // a maker without a hint (Gigabyte boards are never read)
         'chips' => [[0, 'nvme', 'pci0000:00/0000:00:1b.4/0000:82:00.0/nvme/nvme0', 'nvme', 'driver_up' => 2, 'temps' => [1 => [29850, 'Composite']]],
                     [1, 'coretemp', 'platform/coretemp.0', 'coretemp', 'temps' => [1 => [28000, 'Package id 0']]]],
         'files' => ['dev/port' => str_repeat("\xff", 0x100), 'proc/cmdline' => "BOOT_IMAGE=/bzimage\n"],
@@ -202,6 +202,30 @@ function testFanboyChipRead(): void
     }
     same('fanboy chip read: a write that fails after the SMSC key — the exit 0xaa still written, the read stops', [true, [0x2e, 0xaa]], [$threw, end($log)]);
 
+    // the ITE chips the BIOS keeps in configuration mode, opened here by ITE's key: no exit written (it87's FEAT_NOCONF)
+    foreach ([[0x8733, 'IT8792E/IT8795E'], [0x8695, 'IT87952E'], [0x8790, 'IT8790E']] as [$nid, $nname]) {
+        [$io, $emu] = fanboyChipEmu([['port' => 0x4e, 'family' => 'ite', 'id' => $nid]]);
+        $r = fanboySioScan($io);
+        $outs4e = array_values(array_map(fn ($x) => [$x[1], $x[2]], array_filter($emu->log, fn ($x) => $x[0] === 'out' && in_array($x[1], [0x4e, 0x4f], true))));
+        same("fanboy chip read: $nname at 0x4e, opened by ITE's key — found, its exit NOT written (left in configuration mode, as the kernel leaves it)",
+            [[$nid, 'ite'], true, [[0x4e, 0x87], [0x4e, 0x01], [0x4e, 0x55], [0x4e, 0xaa], [0x4e, 0x20], [0x4e, 0x21]]],
+            [[$r[1]['id'], $r[1]['via']], $emu->chips[0]->config, array_slice($outs4e, -6)]);
+    }
+    [$io, $emu] = fanboyChipEmu([['port' => 0x2e, 'family' => 'ite', 'id' => 0x8689]]);
+    fanboySioScan($io);
+    same('fanboy chip read: … another ITE chip (IT8689E) is sent the exit as usual', [false, [[0x2e, 0x02], [0x2f, 0x02]]],
+        [$emu->chips[0]->config, array_values(array_map(fn ($x) => [$x[1], $x[2]], array_slice(array_values(array_filter($emu->log, fn ($x) => $x[0] === 'out' && in_array($x[1], [0x2e, 0x2f], true))), -2)))]);
+
+    // a Gigabyte board: not one byte — even with a fake chip handed in, the port file untouched, kept as «maker»
+    $t = fanboyChipTree('gigabyte', ['board' => ['Gigabyte Technology Co., Ltd.', 'EXAMPLE Z890']]);
+    $port = "{$t['chiproot']}/dev/port";
+    $md5 = md5_file($port);
+    [$io, $emu] = fanboyChipEmu([['port' => 0x2e, 'family' => 'ite', 'id' => 0x8696]]);
+    $j = fanboyChipRead($io);
+    same('fanboy chip read: a Gigabyte board — never read: «maker», nothing written or read at a port, the port file untouched', ['maker', [], $md5],
+        [$j['chip']['result'], $emu->log, md5_file($port)]);
+    fanboyTEnd();
+
     // the action through the tests' tree: a fake chip, kept per board, logged
     $t = fanboyChipTree('read');
     [$io] = fanboyChipEmu([['port' => 0x2e, 'family' => 'ite', 'id' => 0x8696]]);
@@ -323,17 +347,19 @@ function testFanboyChipState(): void
     $w = fn (array $s) => array_map(fn ($x) => "{$x['kind']}:{$x['w']}", $s['words']);
 
     $s = $state('ite', [['port' => 0x2e, 'family' => 'ite', 'id' => 0x8696]]);
-    same('fanboy chip state: IT8696E on a Gigabyte board — no output, needs the it87 plugin (not installed), no restart; the words: chip, driver, plugin, board',
+    same('fanboy chip state: IT8696E (on a board of a maker without a hint) — no output, needs the it87 plugin (not installed), no restart; the words: chip, driver, plugin, board',
         ['no_output', 'plugin', 'IT8696E', ['id' => 'it87-driver', 'name' => 'ITE IT87 Driver', 'author' => 'ich777', 'installed' => false], false,
-         ['chip:ITE IT8696E', 'driver:it87', 'plugin:ITE IT87 Driver', 'board:Gigabyte EB-Z100 PRO']],
+         ['chip:ITE IT8696E', 'driver:it87', 'plugin:ITE IT87 Driver', 'board:Example Boards Inc. EB-Z100 PRO']],
         [$s['situation'], $s['need'], $s['chip']['name'], $s['plugin'], $s['restart'], $w($s)]);
+    same('fanboy chip state: … what fits narrowed to that plugin (no Dynamix System Temp: it loads only Unraid\'s own drivers)', [['it87-driver'], ['it87-driver']],
+        [fanboyChipSuggest(['it87-driver', 'nct6687-driver', 'dynamix.system.temp'], $s), [$s['hint_plugin']['id']]]);
     same('fanboy chip state: … the Team Lead says it too (no_output_plugin with the chip and the plugin)',
         ['no_output_plugin', ['chip' => 'ITE IT8696E', 'module' => 'it87', 'plugin' => 'ITE IT87 Driver', 'author' => 'ich777']], [$s['fit']['why'], $s['fit']['params']]);
 
     $s = $state('nct6798', [['port' => 0x2e, 'family' => 'winbond', 'id' => 0xd42b]], ['board' => ['ASUSTeK COMPUTER INC.', 'EXAMPLE B550-F']]);
-    same('fanboy chip state: NCT6798D — Unraid\'s own nct6775 should steer it (the «Load drivers» click); the Team Lead: no_output_unraid',
-        ['unraid', 'nct6775', null, 'no_output_unraid', ['chip:Nuvoton NCT6798D', 'driver:nct6775', 'board:ASUS EXAMPLE B550-F']],
-        [$s['need'], $s['chip']['module'], $s['plugin'], $s['fit']['why'], $w($s)]);
+    same('fanboy chip state: NCT6798D — Unraid\'s own nct6775 should steer it (the «Load drivers» click); the Team Lead: no_output_unraid; no driver plugin fits',
+        ['unraid', 'nct6775', null, 'no_output_unraid', ['chip:Nuvoton NCT6798D', 'driver:nct6775', 'board:ASUS EXAMPLE B550-F'], ['dynamix.system.temp']],
+        [$s['need'], $s['chip']['module'], $s['plugin'], $s['fit']['why'], $w($s), fanboyChipSuggest(['it87-driver', 'nct6687-driver', 'dynamix.system.temp'], $s)]);
 
     $s = $state('nct6687', [['port' => 0x4e, 'family' => 'winbond', 'id' => 0xd592]], ['board' => ['Micro-Star International Co., Ltd.', 'EXAMPLE B650']]);
     same('fanboy chip state: NCT6687D — Unraid\'s nct6683 only reads it: the nct6687 plugin', ['plugin', 'read', 'nct6687-driver', false], [$s['need'], $s['chip']['unraid'], $s['plugin']['id'], $s['restart']]);
@@ -359,13 +385,22 @@ function testFanboyChipState(): void
     same('fanboy chip state: F81968 — on kernel 6.12 «newer», on 6.18 Unraid\'s own', ['newer', 'unraid'], [$s['need'], $s2['need']]);
 
     $s = $state('unknown', [['port' => 0x2e, 'family' => 'ite', 'id' => 0x8612]]);
-    same('fanboy chip state: an id no row knows — unknown, the id the word to search', ['unknown', '0x8612', null, ['chip:Super-I/O 0x8612', 'board:Gigabyte EB-Z100 PRO']],
+    same('fanboy chip state: an id no row knows — unknown, the id the word to search', ['unknown', '0x8612', null, ['chip:Super-I/O 0x8612', 'board:Example Boards Inc. EB-Z100 PRO']],
         [$s['need'], $s['chip']['id'], $s['chip']['name'], $w($s)]);
     $s = $state('known-first', [['port' => 0x2e, 'family' => 'ite', 'id' => 0x8612], ['port' => 0x4e, 'family' => 'ite', 'id' => 0x8689]]);
     same('fanboy chip state: an unknown chip at 0x2e and a known one at 0x4e — the known one named', ['plugin', 'IT8689E', '0x4e'], [$s['need'], $s['chip']['name'], $s['chip']['port']]);
-    $s = $state('nothing', []);
-    same('fanboy chip state: nothing answered — nothing; the words from the board maker\'s hint (Gigabyte: ITE)',
-        ['nothing', ['chip:ITE', 'driver:it87', 'plugin:ITE IT87 Driver', 'board:Gigabyte EB-Z100 PRO']], [$s['need'], $w($s)]);
+    $s = $state('nothing', [], ['board' => ['Micro-Star International Co., Ltd.', 'EXAMPLE B650']]);
+    same('fanboy chip state: nothing answered on an MSI board — nothing; the words from the board maker\'s hint (Nuvoton), its plugin for «Load drivers» found nothing',
+        ['nothing', ['chip:Nuvoton NCT6687', 'driver:nct6687', 'plugin:Nuvoton NCT6687 Driver', 'board:MSI EXAMPLE B650'], 'nct6687-driver'], [$s['need'], $w($s), $s['hint_plugin']['id']]);
+
+    // a Gigabyte board: never read (not one byte), the ITE plugin by name all the same
+    $s = $state('gigabyte', [false], ['board' => ['Gigabyte Technology Co., Ltd.', 'EXAMPLE Z890']]);
+    same('fanboy chip state: a Gigabyte board — not offered (maker), needs the ITE plugin, the chip a family (ITE), the words, the Team Lead\'s line, what fits only the plugin',
+        [false, 'maker', 'plugin', [true, 'ITE', null], 'it87-driver', ['chip:ITE', 'driver:it87', 'plugin:ITE IT87 Driver', 'board:Gigabyte EXAMPLE Z890'],
+         ['no_output_family', ['chip' => 'ITE', 'plugin' => 'ITE IT87 Driver', 'author' => 'ich777']], ['it87-driver']],
+        [$s['can'], $s['blocked'], $s['need'], [$s['chip']['family'], $s['chip']['maker'], $s['chip']['name']], $s['plugin']['id'], $w($s),
+         [$s['fit']['why'], $s['fit']['params']], fanboyChipSuggest(['it87-driver', 'dynamix.system.temp'], $s)]);
+    same('fanboy chip state: … the report says it was never read, and why', 'Fan chip: not read (board maker: never read)', fanboyChipReportLine($s));
     $s = $state('notread', [false], ['board' => ['ASRock', 'EXAMPLE X570']]);
     same('fanboy chip state: not read yet, an ASRock board — the button offered, the words from the hint (Nuvoton)',
         [true, 'not_read', ['chip:Nuvoton', 'driver:nct6775', 'driver:nct6683', 'plugin:Nuvoton NCT6687 Driver', 'board:ASRock EXAMPLE X570'], 'no_output'],
@@ -387,12 +422,17 @@ function testFanboyChipState(): void
     check('fanboy chip page: in the «no output» callout (overview and setup), the button once, through act(); Unraid\'s driver loaded from there; the plugin via ⟦Apps⟧; the chip report its own action',
         str_contains($js, "if (S().chip) p.appendChild(chipPart());") && substr_count($js, 'chipReadButton(') === 3
         && str_contains($js, "if (need === 'unraid' && !((S().drivers || {}).mine || []).length")
-        && str_contains($js, "act('chip_read', {}, b,") && str_contains($js, "Office.api.post(`\${ID}.chip_report`, {})") && substr_count($js, "Office.safeHref('/Apps')") === 2);
+        && str_contains($js, "act('chip_read', {}, b,") && str_contains($js, "Office.api.post(`\${ID}.chip_report`, {})") && substr_count($js, "Office.safeHref('/Apps')") === 3);
+    check('fanboy chip page: on the overview a way to the hints (the set-up\'s first step); a board never read says why (its maker) and goes on to the plugin; «Load drivers» found nothing → the same plugin by name with ⟦Apps⟧; the picture says no fan shows without the driver',
+        str_contains($js, "a.href = `#/\${ID}/setup/detect`;") && str_contains($js, "if (page !== 'setup') {")
+        && str_contains($js, "if (c.chip && c.chip.family) say('chip.blocked.maker', { maker: S().board_maker || '' });")
+        && str_contains($js, "T('drivers.none_next', { plugin: hp.name, author: hp.author })") && str_contains($js, "situation() === 'no_output' ? T('pic.all_note_none')")
+        && !str_contains($en['situation.no_output'], 'below'));
     $missing = [];
     foreach (['unraid', 'plugin', 'plugin_read', 'newer', 'read_only', 'unknown', 'nothing', 'held'] as $n) {
         if (!isset($en["chip.need.$n"])) { $missing[] = "chip.need.$n"; }
     }
-    foreach (['no_port', 'locked', 'held', 'no_open', 'io'] as $n) {
+    foreach (['maker', 'no_port', 'locked', 'held', 'no_open', 'io'] as $n) {
         if (!isset($en["chip.blocked.$n"])) { $missing[] = "chip.blocked.$n"; }
     }
     foreach (['chip', 'driver', 'plugin', 'board'] as $n) {
@@ -406,13 +446,13 @@ function testFanboyChipState(): void
 
 function testFanboyChipReport(): void
 {
-    $t = fanboyChipTree('report', ['board' => ['Gigabyte Technology Co., Ltd.', 'EB-Z100/PRO']]);
+    $t = fanboyChipTree('report', ['board' => ['Example Boards Inc.', 'EB-Z100/PRO']]);
     [$io] = fanboyChipEmu([['port' => 0x2e, 'family' => 'ite', 'id' => 0x8612]]);
     fanboyChipRead($io);
     $scan = fanboyDetect(fanboySysRoot());
     $text = fanboyChipReportText($scan);
     same('fanboy chip report: five lines — what it is, the board, kernel and Unraid, the situation, the chip (ports, ids, the family\'s key)',
-        ['Fanboy fan chip report v1', 'Board: Gigabyte Technology Co., Ltd. - EB-Z100-PRO', 'Kernel: test · Unraid: 7.3.2', 'Situation: no_output',
+        ['Fanboy fan chip report v1', 'Board: Example Boards Inc. - EB-Z100-PRO', 'Kernel: test · Unraid: 7.3.2', 'Situation: no_output',
          'Fan chip: 0x2e 0x8612 ite, 0x4e nothing, not in the table'], explode("\n", $text));
     check('fanboy chip report: no «/» (the wish form\'s rule), nothing of the server beyond them (no disk, no serial, no hostname, no path)',
         !str_contains($text, '/') && !preg_match('/EXAMPLE_|disk|nvme|serial|hostname|\/mnt|\/boot/i', $text));

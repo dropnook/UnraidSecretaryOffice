@@ -364,11 +364,10 @@
   }
  ],
  "suggest": [
-  "it87-driver",
-  "dynamix.system.temp"
+  "it87-driver"
  ],
- "board_hint": "ite",
- "board_maker": "Example Boards",
+ "board_hint": null,
+ "board_maker": null,
  "acpi_lax": false,
  "poll": 1800,
  "vm": false,
@@ -1504,6 +1503,11 @@
    "installed": false
   },
   "restart": false,
+  "hint_plugin": {
+   "id": "it87-driver",
+   "name": "ITE IT87 Driver",
+   "author": "ich777"
+  },
   "words": [
    {
     "w": "ITE IT8696E",
