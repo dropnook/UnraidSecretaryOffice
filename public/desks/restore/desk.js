@@ -1961,6 +1961,23 @@ function partnerMoments(p, u) {
   return box;
 }
 
+/** The bar over «At <partner>» (one per partner, like «Kept for <partner>»): the words (the unit, its chips), its kind as the pick */
+function partnerBarRows(s, p, noPair) {
+  const key = 'pt:' + p.id;
+  if (!listBars.has(key)) {
+    listBars.set(key, Office.filterBar({ key: 'restore.list.pt', label: T('pt.filter_label'), select: { label: T('kept.kind_label'), all: T('kept.kind_all') },
+      onChange: () => { if (view) sw.render(); } }));
+  }
+  const b = listBars.get(key);
+  b.options(['share', 'vm', 'app', 'place'].map((k) => [k, T('kept.kind.' + k), p.units.filter((u) => keptKind(u) === k).length]).filter((k) => k[2] > 0));
+  const f = b.read();
+  if (p.units.length) s.appendChild(b.el);
+  const out = p.units.filter((u) => (!f.pick || keptKind(u) === f.pick) && Office.fits(f.words, [unitLabel(u.unit), u.unit, u.newest ? date(u.newest) : '',
+    u.snaps.length ? T('pt.moments', { n: u.snaps.length }) : noPair ? T('pt.unknown_now') : u.known ? T('pt.none') : T('pt.unknown')]));
+  b.done(out.length, p.units.length);
+  return out;
+}
+
 /** «At <partner>»: what a partner office keeps of mine — per unit its moments with sizes; «as of …» when it didn't answer */
 function partnerSection(p) {
   const again = button(T('pt.look'), 'small plain', () => partnerLook(p, again));
@@ -1980,7 +1997,9 @@ function partnerSection(p) {
   else s.appendChild(el('p', 'role', T('pt.looked', { when: date(p.looked) })));
   s.appendChild(el('p', 'role', T('pt.beside')));
   const box = el('div', 'box');
-  p.units.forEach((u) => {
+  const fits = partnerBarRows(s, p, noPair);
+  if (p.units.length && !fits.length) box.appendChild(noFit());
+  fits.forEach((u) => {
     const meta = el('div', 'row-meta');
     meta.appendChild(u.snaps.length ? chip(T('pt.moments', { n: u.snaps.length }), '', T('pt.moments_hint', { name: p.name }))
       : chip(noPair ? T('pt.unknown_now') : u.known ? T('pt.none') : T('pt.unknown'), 'quiet', noPair ? T('pt.why.no_pair') : u.why ? T('pt.why.' + u.why) : ''));
@@ -3367,9 +3386,73 @@ function journalSection() {
   // the running one from the job file (fresher than the agent's list)
   const rows = list.slice();
   if (job && !rows.some((r) => r.id === job.id)) rows.unshift({ ...job, can_putback: false, failed: null });
-  rows.forEach((r) => box.appendChild(journalRow(job && job.id === r.id ? { ...r, result: job.result, finished: job.finished } : r)));
+  const shown = rows.map((r) => (job && job.id === r.id ? { ...r, result: job.result, finished: job.finished } : r));
+  const fits = journalBarRows(s, shown);
+  fits.forEach((r) => box.appendChild(journalRow(r)));
+  if (!fits.length) box.appendChild(noFit());
   s.appendChild(box);
   return s;
+}
+
+/** A record's kind for the bar's pick: its kind, files picked in a moment apart */
+const journalKind = (r) => (r.kind === 'files' && r.target && r.target.pick ? 'pick' : r.kind || 'files');
+/** Put back (all of it or with warnings): a state of its own beside its result */
+const journalPutBack = (r) => !!(r.putback && ['ok', 'warnings'].includes(r.putback.result));
+/** A running or queued record counts as «running» for the state's pick */
+const journalState = (r) => (r.result === 'queued' ? 'running' : r.result || 'running');
+/** The state's pick (built once, beside the bar's own pick): its value, '' = every state */
+let journalStatePick = null;
+
+/**
+ * The bar over «Restored» (core.js Office.filterBar, like every list): the words (its title, what it brought and from
+ * where — the partner, the moment, what went aside where), the kind of record as the bar's pick, the state (done, with
+ * warnings, failed, interrupted, not started, running, put back) as a second pick of the desk's own — said in the note
+ * line as a part, its × takes it away, «Show all» too. Both with counts; nothing chosen = every record.
+ */
+function journalBarRows(s, rows) {
+  if (!listBars.has('journal')) {
+    journalStatePick = el('select', 'picker rs-j-state');
+    journalStatePick.setAttribute('aria-label', T('jl.state_label'));
+    journalStatePick.dataset.keep = '1';
+    journalStatePick.onchange = () => Office.keepInPlace(journalStatePick, () => { if (view) sw.render(); });
+    const b = Office.filterBar({
+      key: 'restore.list.journal',
+      label: T('jl.filter_label'),
+      select: { label: T('jl.kind_label'), all: T('jl.kind_all') },
+      onChange: () => { if (view) sw.render(); },
+    });
+    b.el.insertBefore(journalStatePick, b.el.querySelector('.filter-hits'));
+    listBars.set('journal', b);
+  }
+  const b = listBars.get('journal');
+  const pick = journalStatePick;
+  const kinds = [...new Set(rows.map(journalKind))];
+  b.options(kinds.map((k) => [k, T(Office.has(`${ID}.jl.kind.${k}`) ? 'jl.kind.' + k : 'jl.kind.other'), rows.filter((r) => journalKind(r) === k).length]));
+  const states = ['ok', 'warnings', 'failed', 'interrupted', 'refused', 'running'].filter((x) => rows.some((r) => journalState(r) === x));
+  if (rows.some(journalPutBack)) states.push('putback');
+  const stateText = (x) => (x === 'putback' ? T('jl.putback') : T('jr.' + x));
+  const count = (x) => rows.filter((r) => (x === 'putback' ? journalPutBack(r) : journalState(r) === x)).length;
+  const was = pick.value;
+  pick.replaceChildren(new Option(T('jl.state_all'), ''), ...states.map((x) => new Option(`${stateText(x)} (${Office.fmt.number(count(x))})`, x)));
+  pick.value = states.includes(was) ? was : '';
+  const f = b.read();
+  s.appendChild(b.el);
+  const want = pick.value;
+  const out = rows.filter((r) => (!f.pick || journalKind(r) === f.pick) && (!want || (want === 'putback' ? journalPutBack(r) : journalState(r) === want))
+    && Office.fits(f.words, journalWords(r)));
+  // a short list with nothing chosen: the bar keeps quiet (its own controls hide), the state's pick with it
+  pick.hidden = rows.length < Office.FILTER_MIN && !f.words.length && !f.pick && !want;
+  pick.classList.toggle('on', !!want);
+  b.done(out.length, rows.length, { parts: want ? [[stateText(want), () => { pick.value = ''; }]] : [], clear: (what) => { if (what === 'all') pick.value = ''; } });
+  return out;
+}
+
+/** What a record's words are: its title, what it brought, from where (partner, moment, method) and what went aside where */
+function journalWords(r) {
+  const t = r.target || {};
+  const one = journalOne(r);
+  return [journalTitle(r), r.what, T('jr.' + journalState(r)), date(r.started || r.created), t.partner, t.snap, t.unit, t.share, t.vm, t.app, t.name, r.method,
+    one && one.to, ...(r.aside || []).flatMap((a) => [a.from, a.to])].filter((x) => typeof x === 'string' && x !== '');
 }
 
 /** «Working, no need to wait» (CLAUDE.md: the wave): x with the office's wave after it, inside .running — the
@@ -3377,7 +3460,24 @@ function journalSection() {
 const waving = (x) => { const w = el('span', 'running'); w.append(el('span', 'spin'), ' ', ...[].concat(x)); return w; };
 const resultClass = (r) => ({ ok: 'ok', warnings: 'warn', failed: 'danger', refused: 'warn', interrupted: 'danger', running: 'accent', queued: 'quiet' }[r] || '');
 
+/**
+ * «Start here…» of one app or VM (2026-11-20): {kind, name, to} — what came back, named VM-wise. From target.one (an agent
+ * since then); an older record of one from a share's row (its target names the vm or app beside a share unit), or of a
+ * VM's or app's own unit, read from what it has (no `to` then). A start from a share's row: null (the share's title).
+ */
+function journalOne(r) {
+  if (r.kind !== 'partner_start') return null;
+  const t = r.target || {};
+  if (t.one && typeof t.one.name === 'string' && ['vm', 'app'].includes(t.one.kind)) return t.one;
+  const unit = String(t.unit || '');
+  if (/^(vm|app):/.test(unit)) return { kind: unit.slice(0, unit.indexOf(':')), name: unit.slice(unit.indexOf(':') + 1), to: '' };
+  if (unit.startsWith('share:') && (typeof t.vm === 'string' || typeof t.app === 'string')) return { kind: t.vm ? 'vm' : 'app', name: t.vm || t.app, to: '' };
+  return null;
+}
+
 function journalTitle(r) {
+  const one = journalOne(r);
+  if (one) return T(one.kind === 'vm' ? 'jk.partner_start_vm' : 'jk.partner_start_app', { name: one.name, partner: (r.target || {}).partner || '' });
   if (r.kind === 'files' && r.target && r.target.pick) return T('jk.pick', { what: r.what });        // files and folders picked in a moment
   return r.kind === 'putback' ? T('jk.putback', { what: r.what }) : T('jk.' + r.kind, { what: r.what });
 }
@@ -3394,6 +3494,8 @@ function journalRow(r) {
   if (r.putback) meta.appendChild(chip(T('j.put_back', { result: T('jr.' + r.putback.result) }), 'quiet', T('j.put_back_hint')));
   if (r.failed) meta.appendChild(el('span', 'role', T('j.failed_at', { n: r.failed.n })));
   if (r.unlisted) meta.appendChild(chip(T('j.unlisted_chip'), 'warn', T('j.unlisted_chip_tip', { share: r.unlisted.share })));
+  const one = journalOne(r);
+  if (one && one.to) meta.appendChild(el('span', 'rs-j-to', T('j.start_to', { path: one.to })));
   return unfoldingRow('j:' + r.id, journalTitle(r), meta, () => journalDetail(r));
 }
 

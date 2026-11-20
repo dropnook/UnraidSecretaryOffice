@@ -103,7 +103,8 @@ The sources: its package, the local snapshots, the offsite copy (Kopia), a partn
 How he works:
 
 - He starts only when you confirm. One restore at a time, never during a backup.
-- What he replaces goes aside, never deleted. *Put back* in «Restored» undoes a restore, also a failed one.
+- What he replaces goes aside, never deleted. *Put back* in «Restored» undoes a restore, also a failed one. «Restored» has a
+  filter bar like every list: words, the kind of restore, how it ended (done, failed, put back …).
 - He never starts or recreates a container. He says what to click.
 - A restore with no sign of life for 30 minutes is said to hang. He never ends it himself.
 

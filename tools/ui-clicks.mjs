@@ -1989,6 +1989,115 @@ async function keptFilter(browser) {
   res.ms = Date.now() - t0;
   return res;
 }
+// ------------------------------------------------------------------ the bars over «Restored» and «At <partner>» (2026-11-20)
+// Twelve records of several kinds and outcomes: the bar over «Restored» like every list — a word, the kind's pick, the
+// state's pick (said in the note line, its × and «Show all» take it away); one VM started from its own row reads
+// «VM <name> ← <partner>» (an old record too), a start from the share's row keeps the share's title. «At <partner>» with
+// twelve units: its bar, the kind's pick. Both themes, both widths.
+async function journalFilter(browser) {
+  const res = { route: 'restore', theme: 'journal filter', width: 0, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => res.fails.push(what);
+  const h = await startHarness({});
+  const now = Math.floor(Date.now() / 1000);
+  const base = JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', 'restore.json'), 'utf8'));
+  const rec = (n, kind, result, more = {}) => ({ id: `20261120-1${String(n).padStart(5, '0')}-ab${String(n).padStart(2, '0')}`, kind, what: more.what || `thing${n}`, method: null,
+    target: more.target || {}, created: now - n * 3600, started: now - n * 3600, finished: now - n * 3600 + 120, result, reason: null, reason_params: [], failed: null, aside: [],
+    putback_of: null, putback: more.putback || null, can_putback: false, after: [] });
+  const restores = [
+    rec(1, 'partner_start', 'ok', { what: 'domains ← Grandma', target: { unit: 'share:domains', partner: 'Grandma', vm: 'Lernspiele', name: 'Lernspiele' } }),     // an old record of one VM
+    rec(2, 'partner_start', 'ok', { what: 'Bastel ← Grandma', target: { unit: 'share:domains', partner: 'Grandma', one: { kind: 'vm', name: 'Bastel', to: '/mnt/user/domains/Bastel' } } }),
+    rec(3, 'partner_start', 'warnings', { what: 'appdata ← Grandma', target: { unit: 'share:appdata', partner: 'Grandma' } }),
+    rec(4, 'files', 'ok', { what: 'photos' }), rec(5, 'files', 'failed', { what: 'videos' }), rec(6, 'files', 'ok', { what: 'notes', putback: { id: 'x', result: 'ok' } }),
+    rec(7, 'db', 'ok', { what: 'recipes' }), rec(8, 'kopia', 'interrupted', { what: 'school' }), rec(9, 'make_dataset', 'ok', { what: 'appdata/recipes' }),
+    rec(10, 'partner', 'ok', { what: 'appdata ← Grandma' }), rec(11, 'putback', 'ok', { what: 'notes' }), rec(12, 'files', 'refused', { what: 'music' })];
+  const pid = 'f00dfeed';
+  const unit = (u) => ({ unit: u, known: true, snaps: [{ name: 'uso-backup-20261120-0500', creation: now - 3600, referenced: 1 << 30 }], newest: now - 3600 });
+  const partner = { id: pid, name: 'Grandma', kind: 'pair', looked: now - 600, reachable: true, looking: false, why: null,
+    units: ['place', 'vm:Lernspiele', 'vm:Bastel', 'app:recipes', ...['domains', 'appdata', 'photos', 'videos', 'notes', 'school', 'music', 'isos'].map((x) => 'share:' + x)].map(unit) };
+  try {
+    for (const theme of ['dark', 'light']) {
+      for (const width of [1440, 375]) {
+        const at = `${theme} ${width}`;
+        const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
+        await ctx.addInitScript((t) => { try { localStorage.setItem('office.theme', t); } catch (e) { /* none */ } }, theme);
+        const page = await ctx.newPage();
+        const errors = [];
+        page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+        h.setState('restore', { ...base, restores, partners: [partner], running: null });
+        await page.goto(`${h.url}#/restore/journal`, { waitUntil: 'load' });
+        const sel = '.section:has([data-key^="j:"])';
+        const there = await page.waitForSelector(`${sel} .filterbar input.filter-words`, { timeout: 15000 }).then(() => true, () => false);
+        res.tested++;
+        if (!there) { fail(`${at}: no filter bar over «Restored»`); await ctx.close(); continue; }
+        const look = () => page.evaluate((s) => {
+          const box = document.querySelector(s);
+          return { rows: [...box.querySelectorAll('[data-key^="j:"]')].map((r) => r.querySelector('.row-name').textContent), note: !box.querySelector('.filter-note').hidden,
+            to: [...box.querySelectorAll('.rs-j-to')].map((x) => x.textContent) };
+        }, sel);
+        let v = await look();
+        res.tested++;
+        if (v.rows.length !== 12 || v.note) fail(`${at}: nothing chosen, not every record (${JSON.stringify(v)})`);
+        res.tested++;
+        if (v.rows[0] !== 'VM Lernspiele ← Grandma' || v.rows[1] !== 'VM Bastel ← Grandma' || !/appdata ← Grandma/.test(v.rows[2]) || /^VM /.test(v.rows[2])
+          || v.to.join() !== 'to /mnt/user/domains/Bastel') fail(`${at}: a VM started from its own row is named VM-wise, the share's start keeps its title (${JSON.stringify(v)})`);
+        await page.fill(`${sel} input.filter-words`, 'bastel');
+        await page.waitForTimeout(300);
+        v = await look();
+        res.tested++;
+        if (v.rows.join() !== 'VM Bastel ← Grandma' || !v.note) fail(`${at}: a word (${JSON.stringify(v)})`);
+        await page.fill(`${sel} input.filter-words`, '');
+        await page.selectOption(`${sel} select.filter-pick`, 'files');
+        await page.waitForTimeout(300);
+        v = await look();
+        res.tested++;
+        if (v.rows.length !== 4) fail(`${at}: the kind's pick «Folders» (${JSON.stringify(v)})`);
+        await page.selectOption(`${sel} select.filter-pick`, '');
+        await page.selectOption(`${sel} select.rs-j-state`, 'failed');
+        await page.waitForTimeout(300);
+        v = await look();
+        const chips = await page.$$eval(`${sel} .filter-chip`, (c) => c.map((x) => x.textContent));
+        res.tested++;
+        if (v.rows.length !== 1 || !chips.some((c) => /failed/.test(c))) fail(`${at}: the state's pick «failed», said in the note line (${JSON.stringify([v, chips])})`);
+        await page.selectOption(`${sel} select.rs-j-state`, 'putback');
+        await page.waitForTimeout(300);
+        v = await look();
+        res.tested++;
+        if (v.rows.length !== 1) fail(`${at}: the state's pick «put back» (${JSON.stringify(v)})`);
+        await page.click(`${sel} .filter-all`);
+        await page.waitForTimeout(300);
+        v = await look();
+        const stateNow = await page.$eval(`${sel} select.rs-j-state`, (x) => x.value);
+        res.tested++;
+        if (v.rows.length !== 12 || v.note || stateNow !== '') fail(`${at}: «Show all» (${JSON.stringify([v, stateNow])})`);
+        // «At <partner>»
+        await page.goto(`${h.url}#/restore/partner:${pid}`, { waitUntil: 'load' });
+        const psel = `.section:has([data-key^="pt:${pid}:"])`;
+        const pbar = await page.waitForSelector(`${psel} .filterbar input.filter-words`, { timeout: 15000 }).then(() => true, () => false);
+        res.tested++;
+        if (!pbar) fail(`${at}: no filter bar over «At Grandma»`);
+        else {
+          await page.selectOption(`${psel} select.filter-pick`, 'vm');
+          await page.waitForTimeout(300);
+          const units = await page.$$eval(`${psel} [data-key^="pt:${pid}:"]`, (r) => r.map((x) => x.dataset.key.split(':').slice(2).join(':')));
+          res.tested++;
+          if (units.join() !== 'vm:Lernspiele,vm:Bastel') fail(`${at}: «At Grandma», the kind's pick «VMs» (${units.join()})`);
+          await page.selectOption(`${psel} select.filter-pick`, '');
+        }
+        const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+        res.tested++;
+        if (wide) fail(`${at}: the page scrolls sideways`);
+        for (const e of [...new Set(errors)]) fail(`${at}: ${e}`);
+        await ctx.close();
+      }
+    }
+  } catch (e) {
+    fail(String(e.message || e).split('\n')[0].slice(0, 200));
+  }
+  await h.close();
+  res.ms = Date.now() - t0;
+  return res;
+}
 const walks = opt.states ? [] : WALK.filter((d) => !opt.only || routes.includes(d));
 results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d))));
 if (!opt.states && (!opt.only || routes.includes('cleanup/where'))) results.push(await cleanupMap(browser));
@@ -2002,6 +2111,7 @@ if (!opt.states && (!opt.only || routes.includes('backup'))) results.push(await 
 if (!opt.states && (!opt.only || routes.includes('snapshot'))) results.push(await busyMark(browser));
 if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await staleJob(browser));
 if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await keptFilter(browser));
+if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await journalFilter(browser));
 await browser.close();
 await harness.close();
 
