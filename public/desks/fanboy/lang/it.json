@@ -543,7 +543,7 @@
   "zones.add_fan": "Aggiungi una ventola…",
   "zones.no_fan": "Ancora nessuna ventola in questa zona.",
   "zones.sources": "Fonti di calore",
-  "zones.sources_sub": "Clicca per aggiungerne o toglierne una. Conta la più calda; un disco addormentato conta come addormentato, mai come freddo.",
+  "zones.sources_sub": "Clicca per aggiungerne o toglierne una. Conta la più calda; un disco addormentato conta come addormentato, mai come freddo. A seconda dei driver installati, alcuni sensori possono comparire più volte.",
   "zones.src_in": "Metti in questa zona",
   "zones.src_out": "Togli da questa zona",
   "zones.sources_first": "Ancora nessuna fonte di calore — scegline almeno una; fino ad allora la curva della zona non fa nulla.",
