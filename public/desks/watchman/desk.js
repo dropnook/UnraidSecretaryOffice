@@ -1493,7 +1493,8 @@ function details(e) {
   } else if (e.group === 'net') {
     netDetails(e, p, add);
   } else if (e.group === 'sched') {
-    if (p.file) add(T('detail.cron_file'), '/boot/config/plugins/' + p.file + (p.new ? ` (${T('detail.file_new')})` : ''), true);
+    // a plugin's at job names its file in «runs» (a file of the plugin, or /usr/bin/plugin_update_helper — not on the flash)
+    if (p.file && e.kind !== 'at_plugin') add(T('detail.cron_file'), '/boot/config/plugins/' + p.file + (p.new ? ` (${T('detail.file_new')})` : ''), true);
     if (p.plugin) add(T('detail.plugin'), p.plugin);
     const atNum = e.kind.startsWith('at_') && /^[a-zA-Z=][0-9a-f]{13}$/.test(p.job || '') ? parseInt(p.job.slice(1, 6), 16) : null;     // as atq shows it
     if (atNum !== null) add(T('detail.at_number'), String(atNum), true);
@@ -1520,6 +1521,7 @@ function details(e) {
     if (e.kind === 'at_plugin') {
       add(T('detail.when'), fmt.date(p.when));
       add(T('detail.command'), p.file || '?', true);
+      if (p.left) add(T('detail.plugin_removed'), fmt.date(p.left));     // what its removed plugin left (agent: watchmanAtLeftNote())
     }
     if (e.kind === 'notify_agent') {
       add(T('detail.agent'), p.name);
@@ -1536,7 +1538,8 @@ function details(e) {
   else if (p.office_file && e.kind.startsWith('cron_file')) notes.push(T('detail.office_file'));
   if (e.open) notes.push(T('adopt.' + (e.v === 'net_ips_server_list' ? e.v : e.kind)));     // a block list: its own words (the whole list)
   const by = e.by === 'office' && e.kind === 'partner_paired' ? 'office_partner' : e.by === 'office' && e.kind === 'drill_throwaway' ? 'office_drill' : e.by;
-  if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'office_cron', 'schedule', 'array', 'unraid', 'plugin', 'back', 'router', 'parity'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
+  if (e.noted && by === 'plugin' && e.kind === 'at_plugin' && p.left) notes.push(T('noted.plugin_left', { when: fmt.date(p.left) }));     // agent: watchmanAtLeftNote()
+  else if (e.noted) notes.push(T('noted.' + (['teamlead', 'baseline', 'auto', 'office', 'office_partner', 'office_drill', 'office_cron', 'schedule', 'array', 'unraid', 'plugin', 'back', 'router', 'parity'].includes(by) ? by : 'page'), { when: fmt.date(e.noted) }));
   if (e.told) notes.push(T('detail.told', { when: fmt.date(e.told) }));
   else if (e.muted && e.tell) notes.push(T('detail.muted'));
   else if (e.open) notes.push(T(e.tell ? 'detail.not_told' : 'detail.book_only'));

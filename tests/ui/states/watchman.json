@@ -997,6 +997,37 @@
    "night": true
   },
   {
+   "id": "w5a1e7f0c3b",
+   "kind": "at_plugin",
+   "group": "sched",
+   "tell": false,
+   "attack": "T1053.002",
+   "v": "at_plugin_left",
+   "time": 1791440000,
+   "last": 1791530000,
+   "count": 1,
+   "open": false,
+   "t": {
+    "name": "ITE IT87 Driver",
+    "file": "/usr/bin/plugin_update_helper",
+    "when": "2026-10-08 08:13"
+   },
+   "p": {
+    "job": "=0000401c79700",
+    "plugin": "it87-driver",
+    "name": "ITE IT87 Driver",
+    "file": "/usr/bin/plugin_update_helper",
+    "when": 1791440000,
+    "uid": 0,
+    "left": 1791530000
+   },
+   "noted": 1791440000,
+   "by": "plugin",
+   "told": null,
+   "muted": null,
+   "night": false
+  },
+  {
    "id": "w8e9e664fdb",
    "kind": "array_stop",
    "group": "array",
