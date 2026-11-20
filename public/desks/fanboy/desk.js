@@ -2785,8 +2785,8 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
       return { ...f0, frame: pick('frame'), wheel: pick('wheel'), style: pick('style'), reverse: want.reverse !== undefined ? want.reverse : f0.reverse ?? null,
         model: { ...m, blades: want.blades !== undefined ? want.blades || null : m.blades ?? null } };
     };
-    pk = A.picker({ catalog: cat, value: fNow().model ? (fNow().model.id ? { id: fNow().model.id } : { mm: fNow().model.mm, blades: fNow().model.blades }) : null, preview: false, texts: pickerTexts(),
-      onChange: (v) => {
+    /** another model chosen (the selects, or the gallery) */
+    const onModel = (v) => {
         if (!v) return;
         const f = chosen();
         const L = fanLook(f);
@@ -2796,11 +2796,18 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
         Object.assign(want, { model: { id: v.id, mm: null }, frame: '', wheel: '', style: '', blades: 0, reverse: null });
         undo = before;
         keep({ model: v.id, frame: '', wheel: '', style: '', blades: 0, reverse: null, colour: 'auto' });
-      } });
+    };
+    pk = A.picker({ catalog: cat, value: fNow().model ? (fNow().model.id ? { id: fNow().model.id } : { mm: fNow().model.mm, blades: fNow().model.blades }) : null, preview: false, texts: pickerTexts(),
+      onChange: onModel });
     pickers.set(id, pk);
     pk.el.querySelectorAll('select').forEach((x) => { x.classList.add('input', 'small', 'fb-input'); });
+    // «Alle ansehen…» (2026-11-20, the owner): every fan of the catalogue drawn, to see them all before choosing
+    const all = btn(T('look.gallery'), 'btn plain fb-gallery-open', () => lookGallery((pk.value() || {}).id || null, (fid) => {
+      pk.set({ id: fid });
+      onModel(pk.value());
+    }), T('look.gallery_tip'));
     const top = el('div', 'fb-look-top');
-    top.append(pk.el, prevBox);
+    top.append(pk.el, all, prevBox);
     const says = el('div', 'fb-look-says');
     /** 2026-11-20: a choice goes into the output's draft (sent with «Speichern», never on its own) and shows at once */
     const keep = (fields) => { draft.look = { ...(draft.look || {}), ...fields }; paint(); update(); };
@@ -3168,6 +3175,74 @@ function modelText(m) {
 /** A catalogue entry's name: maker and model — a brand's typical look in a size (generic: no model) says so */
 function catName(c) {
   return c.generic ? T('pick.generic', { brand: c.brand, mm: c.mm }) : `${c.brand} ${c.model}`;
+}
+/**
+ * The gallery (2026-11-20, the owner: «das komplette Übersichtsbild als Vorschau öffnen, um alle zu sehen, bevor man über
+ * das Dropdown auswählt»): every catalogue entry drawn, by maker, with its name and size; a size filter; the current one
+ * marked. A click chooses it and closes. The wheels stand still — only the one pointed at turns (86 turning wheels would
+ * be work for nothing).
+ */
+const GALLERY_SIZES = [80, 120, 140, 200];
+let gallerySize = null;              // the filter, kept while the page lives (null: all)
+function lookGallery(current, choose) {
+  const A = window.FanArt;
+  const fans = (cat && Array.isArray(cat.fans) ? cat.fans : []).filter((f) => f && f.id && f.brand && (f.model || f.generic));
+  const wheels = [];
+  const body = el('div', 'fb-gallery');
+  const seg = el('div', 'seg fb-gallery-sizes');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', T('look.gallery_size'));
+  const list = el('div', 'fb-gallery-list');
+  const bar = el('div', 'fb-gallery-bar');            // the filter stays at the top while the list scrolls
+  bar.appendChild(seg);
+  body.append(bar, list);
+  const sizeBtns = [null, ...GALLERY_SIZES].map((mm) => {
+    const b = btn(mm === null ? T('look.gallery_all') : T('pick.mm', { n: mm }), '', () => { gallerySize = mm; paint(); });
+    seg.appendChild(b);
+    return [mm, b];
+  });
+  let dlg = null;
+  const items = [];
+  for (const brand of [...new Set(fans.map((f) => f.brand))].sort((a, b) => a.localeCompare(b))) {
+    const group = el('section', 'fb-gallery-brand');
+    group.appendChild(el('h4', 'fb-gallery-maker', brand));
+    const row = el('div', 'fb-gallery-row');
+    group.appendChild(row);
+    const mine = fans.filter((f) => f.brand === brand).sort((p, q) => p.mm - q.mm || !!p.generic - !!q.generic || (p.model || '').localeCompare(q.model || ''));
+    for (const f of mine) {
+      const name = f.generic ? T('look.gallery_typical') : f.model;
+      const b = el('button', 'fb-gallery-item');
+      b.type = 'button';
+      b.dataset.fan = f.id;
+      b.title = T('look.gallery_pick', { name: catName(f) });
+      b.setAttribute('aria-pressed', f.id === current ? 'true' : 'false');
+      const w = A.wheel({ mm: f.mm, blades: f.blades, look: f.look, px: 64, air: false, rpm: 0, state: 'run' });
+      wheels.push(w);
+      b.append(w.el, el('span', 'fb-gallery-name', name), el('span', 'fb-gallery-mm', T('pick.mm', { n: f.mm })));
+      if (f.id === current) b.appendChild(el('span', 'chip fb-gallery-now', T('look.gallery_now')));
+      // only the one pointed at (or focused) turns
+      const spin = (on) => w.update({ rpm: on ? 1100 : 0 });
+      b.addEventListener('pointerenter', () => spin(true));
+      b.addEventListener('pointerleave', () => spin(false));
+      b.addEventListener('focus', () => spin(true));
+      b.addEventListener('blur', () => spin(false));
+      b.onclick = () => { choose(f.id); if (dlg) dlg.close(); };
+      row.appendChild(b);
+      items.push([f, b, group]);
+    }
+    list.appendChild(group);
+  }
+  function paint() {
+    sizeBtns.forEach(([mm, b]) => b.setAttribute('aria-pressed', mm === gallerySize ? 'true' : 'false'));
+    for (const [f, b] of items) b.hidden = gallerySize !== null && f.mm !== gallerySize;
+    for (const g of list.children) g.hidden = ![...g.querySelectorAll('.fb-gallery-item')].some((b) => !b.hidden);
+  }
+  paint();
+  dlg = Office.dialog({ title: T('look.gallery_title'), body, wide: true, cls: 'fb-gallery-dialog', onClose: () => wheels.forEach((w) => w.destroy()) });
+  // the current one in view: the dialog's own body scrolls to it (never the page)
+  const now = list.querySelector('.fb-gallery-item[aria-pressed=true]:not([hidden])');
+  const box = now && now.closest('#sso-dialog-body');
+  if (box && box.scrollHeight > box.clientHeight) box.scrollTop = Math.max(0, now.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 60);
 }
 function pickerTexts() {
   return {

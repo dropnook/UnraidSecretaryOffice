@@ -320,6 +320,24 @@
      drawn sample) and their number */
   .fb-look-top{display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; min-width:0}
   .fb-look-top > .fan-pick{flex:1 1 260px}
+  .fb-look-top > .fb-gallery-open{align-self:flex-end}
+  /* the gallery (2026-11-20): every catalogue fan by maker, a click chooses — the wheels stand, the one pointed at turns */
+  .fb-gallery{display:flex; flex-direction:column; gap:12px; min-width:0}
+  .fb-gallery-bar{position:sticky; top:-12px; z-index:1; display:flex; padding:12px 0 6px; margin:-12px 0 0; background:var(--surface)}   /* over the dialog body's 12 px top padding */     /* stays while the list scrolls */
+  &.in-unraid .fb-gallery-bar{background:var(--bg)}                                  /* the dialog's own background inside Unraid */
+  .fb-gallery-list{display:flex; flex-direction:column; gap:14px; min-width:0}
+  .fb-gallery-brand[hidden], .fb-gallery-item[hidden]{display:none}
+  .fb-gallery-maker{margin:0 0 6px; font-size:13px; font-weight:600; color:var(--ink)}
+  .fb-gallery-row{display:grid; grid-template-columns:repeat(auto-fill, minmax(104px, 1fr)); gap:8px; min-width:0}
+  .fb-gallery-item{font:inherit; display:flex; flex-direction:column; align-items:center; gap:3px; min-width:0; padding:8px 4px 6px;
+    border:1px solid var(--line); border-radius:var(--radius); background:var(--surface2); color:var(--ink); cursor:pointer; text-align:center}
+  .fb-gallery-item:hover, .fb-gallery-item:focus-visible{border-color:var(--accent)}
+  .fb-gallery-item[aria-pressed=true]{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent)}
+  .fb-gallery-item > .fan-wheel{flex:0 0 auto}
+  .fb-gallery-name{font-size:12px; line-height:1.25; overflow-wrap:anywhere}
+  .fb-gallery-mm{font-size:11.5px; color:var(--muted)}
+  .fb-gallery-now{font-size:11px}
+  @media (max-width:640px){ .fb-gallery-row{grid-template-columns:repeat(auto-fill, minmax(92px, 1fr))} }
   .fb-look-prev{flex:0 0 auto; width:120px; height:120px}
   .fb-look-says{display:flex; flex-wrap:wrap; gap:8px; align-items:center; min-height:34px}
   .fb-look-took{font-size:13px; color:var(--ink2)}
