@@ -125,7 +125,8 @@ if (opt.looks) {
   for (const theme of ['black', 'white']) {
     const { ctx, page } = await open(`?theme=${theme}&only=looks`, { width: 1440, height: 900 });
     const n = await page.waitForSelector('html[data-looks]', { timeout: 8000 }).then(() => page.evaluate(() => +document.documentElement.dataset.looks)).catch(() => 0);
-    if (n !== 60) faults.push(`looks ${theme}: ${n} models drawn, not 60`);
+    const want = JSON.parse(fs.readFileSync(path.join(PUBLIC, 'desks', 'fanboy', 'fans-catalog.json'), 'utf8')).fans.length;
+    if (n !== want) faults.push(`looks ${theme}: ${n} models drawn, not ${want}`);
     await page.waitForTimeout(700);
     // every model of the sheet: its frame and blades painted in its own colours, its name on the hub as text
     const sheet = await page.evaluate(() => [...document.querySelectorAll('#fl-sheet .fan-wheel')].map((w) => {
@@ -357,7 +358,8 @@ if (opt.cpu) {
     ['?theme=black&only=wheels&calm&noair', '12 wheels, no air (the first look)'], ['?theme=black&only=wheels&calm', '12 wheels with their air'],
     ['?theme=black&only=wheels', '12 wheels with air, a new speed every 3 s'],
     ['?theme=black&only=server&calm&noair', 'server picture, no air'], ['?theme=black&only=server&calm', 'server picture with its air'],
-    ['?theme=black&only=server', 'server picture with air, new speeds every 3 s']];
+    ['?theme=black&only=server', 'server picture with air, new speeds every 3 s'],
+    ['?theme=black&only=looks&sheet', 'every catalogue model at 120 px, turning']];
   const got = looks.map(() => []);
   for (let round = 0; round < 3; round++) for (const [i, [q]] of looks.entries()) got[i].push(await measure(q, 8));
   const median = (list, key) => list.map((r) => r[key]).sort((a, b) => a - b)[1];

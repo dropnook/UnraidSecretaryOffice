@@ -32,12 +32,22 @@
                                                  and paints a model's frame too («my copy is black»); 'accent' the wheel alone
        look: { frame, blades, hub, pads,         the model's own look (fans-catalog.json): colours from LOOK_COLOURS
                style, shape, vanes, rim,         (pads null = none), style from STYLES (the blades' character),
-               sticker, sticker_colour }         shape from SHAPES (square with screw holes, round ring, corner pads),
+               sticker, sticker_colour,          shape from SHAPES (square with screw holes, round ring, L-shaped pads
+               hub_size, struts, reverse }       in the corners, triangular corner pieces), hub_size: the hub's share of
+                                                 the blades' radius (null: from the size), struts: the motor's struts seen
+                                                 behind the blades (0 none), reverse: a reverse-blade fan — its blades
+                                                 mirrored, turning the other way (see «reverse» below),
                                                  vanes: fixed guide vanes in front (0 = none), rim: true = a closed wheel
                                                  (a ring round the blade tips), sticker: the model's name as
                                                  plain text on the hub (lines split by «\n», on a sticker of
                                                  sticker_colour; only where the wheel is drawn ≥ 72 px) — optional,
                                                  none = the neutral wheel («other fan»)
+       reverse: true | false                     a reverse-blade fan (wins over look.reverse; 2026-11-20, the owner): the
+                                                 wheel drawn mirrored and turning the other way. Seen from the open side a
+                                                 usual fan's blade tips lean counter-clockwise and it turns that way (the
+                                                 makers' photos); a reverse one is its mirror image. Its air keeps the
+                                                 flow it is given: in or out of the case is how it is mounted, which
+                                                 the blades alone don't tell
        place: 'front' | 'rear' | 'top' | 'bottom' | 'side' | 'cpu' | 'inside'   (server picture only: the wall of its zone
                                                  it sits in — cpu and inside: on no wall, among the heat sources)
        flow: 'in' | 'out'                        the air: streaks coming to the wheel or leaving it, more and quicker the
@@ -99,10 +109,11 @@
   const INSIDE = ['cpu', 'inside'];          // on no wall: drawn among the zone's heat sources, the air passing front to rear
   const KINDS = ['disk', 'nvme', 'cpu', 'ram', 'board', 'gpu', 'other'];
   // a model's look: its colours by name (fan-art.css turns each into the office's palette), its blades' character, its frame
-  const LOOK_COLOURS = ['black', 'charcoal', 'graphite', 'grey', 'silver', 'white', 'beige', 'brown', 'frost'];
-  const DARK = ['black', 'charcoal', 'graphite', 'grey', 'brown'];       // a sticker of these carries light letters
-  const STYLES = ['swept-narrow', 'swept-wide', 'broad', 'straight', 'sickle'];
-  const SHAPES = ['square', 'ring', 'pads'];
+  // 2026-11-20 (the owner: «mehr Farben auch rot grün blau»): red … purple, made from Unraid's palette like the others
+  const LOOK_COLOURS = ['black', 'charcoal', 'graphite', 'grey', 'silver', 'white', 'beige', 'brown', 'frost', 'red', 'orange', 'yellow', 'green', 'blue', 'purple'];
+  const DARK = ['black', 'charcoal', 'graphite', 'grey', 'brown', 'red', 'green', 'blue', 'purple'];   // a sticker of these carries light letters
+  const STYLES = ['swept-narrow', 'swept-wide', 'broad', 'short-broad', 'straight', 'sickle', 'sickle-wide'];
+  const SHAPES = ['square', 'ring', 'pads', 'corner'];
   const STICKER_PX = 72;           // the model's name on the hub only where the wheel is at least this big
   const GLIDE_MS = 900;            // a new speed glides in over this long, never a jump
   const ME = document.currentScript && document.currentScript.src;
@@ -153,42 +164,59 @@
   const pxOf = (mm) => Math.round(28 + 0.3 * mm);
 
   /**
-   * The blades' character (a model's look.style): w the blade's width at the hub and wt at the tip (shares of the step
-   * between two blades), s how far the tip is swept forward (share of the step + degrees), b how much the blade bows.
-   * No style = the neutral wheel as it always was.
+   * The blades' character (a model's look.style), each blade from the hub to the rim: w its width at the hub and wt at the
+   * tip (shares of the step between two blades), s how far its tip leans ahead (share of the step + s0 degrees), p how
+   * late the leading edge bends (1 evenly, 2 mostly at the tip: a sickle), q the same for the trailing edge (above p: the
+   * blade widens toward its tip). Seen from the open side, as the makers' photos show them: the tips lean
+   * counter-clockwise, the way the wheel turns. No style = the neutral wheel.
    */
   const BLADE = {
-    '': { w: 0.55, wt: 0.8, s: 0.42, s0: 8, b: 1.04 },
-    'swept-narrow': { w: 0.4, wt: 0.6, s: 0.62, s0: 10, b: 1.05 },      // many slim blades swept far (Noctua's A-series)
-    'swept-wide': { w: 0.66, wt: 0.94, s: 0.5, s0: 9, b: 1.06 },        // few wide blades, overlapping at the tip (pressure)
-    broad: { w: 0.7, wt: 0.84, s: 0.24, s0: 5, b: 1.02 },               // broad paddles, little sweep
-    straight: { w: 0.48, wt: 0.56, s: 0.1, s0: 2, b: 1.0 },             // plain, nearly straight blades
-    sickle: { w: 0.3, wt: 0.46, s: 0.95, s0: 16, b: 1.1 },              // long slim sickles
+    '': { w: 0.55, wt: 0.8, s: 0.42, s0: 8, p: 1.3, q: 1.3 },
+    'swept-narrow': { w: 0.42, wt: 0.62, s: 0.62, s0: 10, p: 1.5, q: 1.4 },     // many slim blades swept far (Noctua NF-A12x25)
+    'swept-wide': { w: 0.6, wt: 0.86, s: 0.5, s0: 9, p: 1.3, q: 1.2 },         // few wide blades, their tips nearly touching (pressure)
+    broad: { w: 0.7, wt: 0.84, s: 0.24, s0: 5, p: 1.1, q: 1.0 },                // broad paddles, little sweep
+    'short-broad': { w: 0.58, wt: 0.9, s: 0.4, s0: 6, p: 1.7, q: 1.1 },        // short and broad on a big hub, the tip wider (NF-A8)
+    straight: { w: 0.48, wt: 0.56, s: 0.1, s0: 2, p: 1.0, q: 1.0 },             // plain, nearly straight blades
+    sickle: { w: 0.3, wt: 0.42, s: 0.95, s0: 16, p: 1.9, q: 1.9 },              // long slim sickles
+    'sickle-wide': { w: 0.34, wt: 0.74, s: 0.62, s0: 12, p: 1.7, q: 1.35 },     // long sickles widening to a broad tip (NF-A14)
   };
   /** a style's blades where the maker doesn't say how many (the catalogue's blades null) */
-  const STYLE_BLADES = { 'swept-narrow': 9, 'swept-wide': 5, broad: 7, straight: 7, sickle: 7 };
-  /** One blade from the hub (rh) to the tip (rt) at angle a (degrees, 0 = up, clockwise), swept forward */
+  const STYLE_BLADES = { 'swept-narrow': 9, 'swept-wide': 5, broad: 7, 'short-broad': 7, straight: 7, sickle: 7, 'sickle-wide': 9 };
+  const pt = (r, deg) => {
+    const q = (deg - 90) * Math.PI / 180;
+    return [r * Math.cos(q), r * Math.sin(q)];
+  };
+  const xy = ([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`;
+  /** a smooth line through the points (Catmull-Rom as cubic curves): «C…» from the first, which the caller has reached */
+  function through(ps) {
+    let d = '';
+    for (let i = 0; i < ps.length - 1; i++) {
+      const a = ps[Math.max(0, i - 1)], b = ps[i], c = ps[i + 1], e = ps[Math.min(ps.length - 1, i + 2)];
+      d += ` C${xy([b[0] + (c[0] - a[0]) / 6, b[1] + (c[1] - a[1]) / 6])} ${xy([c[0] - (e[0] - b[0]) / 6, c[1] - (e[1] - b[1]) / 6])} ${xy(c)}`;
+    }
+    return d;
+  }
+  const SAMPLES = [0, 0.3, 0.6, 0.82, 1];
+  /** One blade from the hub (rh) to the tip (rt) at angle a (degrees, 0 = up, clockwise), its tip leaning counter-clockwise */
   function bladePath(a, n, rh, rt, style) {
     const step = 360 / n;
     const k = BLADE[style] || BLADE[''];
-    const w = k.w * step, wt = k.wt * step, s = k.s * step + k.s0;
-    const p = (r, deg) => {
-      const q = (deg - 90) * Math.PI / 180;
-      return `${(r * Math.cos(q)).toFixed(2)} ${(r * Math.sin(q)).toFixed(2)}`;
-    };
-    const mid = (rh + rt) / 2;
-    return `M${p(rh, a)} Q${p(mid * k.b, a + s * 0.2)} ${p(rt, a + s)}`
-      + ` A${rt} ${rt} 0 0 1 ${p(rt, a + s + wt)}`
-      + ` Q${p(mid * 0.98, a + w + s * 0.62)} ${p(rh, a + w)}`
-      + ` A${rh} ${rh} 0 0 0 ${p(rh, a)}Z`;
+    const s = k.s * step + k.s0;
+    const r = (u) => rh + (rt - rh) * u;
+    const lead = SAMPLES.map((u) => pt(r(u), a - s * Math.pow(u, k.p)));
+    const trail = SAMPLES.map((u) => pt(r(u), a - s * Math.pow(u, k.q) + step * (k.w + (k.wt - k.w) * u))).reverse();
+    return `M${xy(lead[0])}${through(lead)} A${rt} ${rt} 0 0 1 ${xy(trail[0])}${through(trail)} A${rh} ${rh} 0 0 0 ${xy(lead[0])}Z`;
   }
 
-  /** The hub's share of the blades' radius: a big fan's hub is smaller; a hub with a sticker at least 0.38 */
-  const hubShare = (mm, sticker) => Math.max(clamp(0.42 - mm * 0.0009, 0.24, 0.4), sticker ? 0.38 : 0);
-  /** The turning part: blades and hub, centred on 0 0 (viewBox -50 … 50) */
-  function rotorSvg(mm, blades, style, sticker, rim) {
+  /** The hub's share of the blades' radius: the model's (hub_size), else a big fan's is smaller; with a sticker at least 0.38 */
+  const hubShare = (mm, sticker, size) => (typeof size === 'number' && size > 0 ? clamp(size, 0.2, 0.6)
+    : Math.max(clamp(0.42 - mm * 0.0009, 0.24, 0.4), sticker ? 0.38 : 0));
+  /** The opening's radius (viewBox 0 … 100): a small fan's frame is broader round its opening than a big one's */
+  const openOf = (mm) => 47.5 - clamp((120 - mm) * 0.06, 0, 3);
+  /** The turning part: blades and hub, centred on 0 0 (viewBox -50 … 50, the opening's radius there 50) */
+  function rotorSvg(mm, blades, style, sticker, rim, size) {
     const s = svg('svg', { viewBox: '-50 -50 100 100', 'aria-hidden': 'true', focusable: 'false' });
-    const rt = 48.5, rh = rt * hubShare(mm, sticker);
+    const rt = 48.5, rh = rt * hubShare(mm, sticker, size);
     const g = svg('g', { class: 'fan-blades' });
     for (let i = 0; i < blades; i++) g.appendChild(svg('path', { d: bladePath(i * 360 / blades, blades, rh - 1, rt, style) }));
     s.appendChild(g);
@@ -199,23 +227,34 @@
   }
 
   /**
-   * The housing: a rounded square with the round opening and the four screw holes (square), the same with a pad in each
-   * corner (pads), or only a ring round the opening (ring)
+   * The housing: a rounded square with the round opening and the four screw holes (square), the same with an L-shaped pad
+   * in each corner (pads) or a triangular piece over each corner (corner), or only a ring round the opening (ring). Behind
+   * the blades the motor's struts (struts: how many, from the model) and the opening's lip; a small fan's frame is broader.
    */
-  const OPENING = 'M50 2.5A47.5 47.5 0 1 0 50 97.5A47.5 47.5 0 1 0 50 2.5Z';
   const CORNERS = [[8.5, 8.5], [91.5, 8.5], [8.5, 91.5], [91.5, 91.5]];
-  function frameSvg(shape) {
+  const circle = (r) => `M50 ${(50 - r).toFixed(2)}A${r} ${r} 0 1 0 50 ${(50 + r).toFixed(2)}A${r} ${r} 0 1 0 50 ${(50 - r).toFixed(2)}Z`;
+  function frameSvg(shape, mm, struts, hub) {
     const s = svg('svg', { viewBox: '0 0 100 100', class: 'fan-frame', 'aria-hidden': 'true', focusable: 'false' });
     const ring = shape === 'ring';
+    const open = openOf(mm);
     s.appendChild(svg('path', { class: 'fan-housing', 'fill-rule': 'evenodd',
-      d: (ring ? 'M50 0.5A49.5 49.5 0 1 0 50 99.5A49.5 49.5 0 1 0 50 0.5Z ' : 'M11 1H89A10 10 0 0 1 99 11V89A10 10 0 0 1 89 99H11A10 10 0 0 1 1 89V11A10 10 0 0 1 11 1Z ') + OPENING }));
-    s.appendChild(svg('circle', { class: 'fan-well', cx: 50, cy: 50, r: 47.5 }));
+      d: (ring ? circle(49.5) + ' ' : 'M11 1H89A10 10 0 0 1 99 11V89A10 10 0 0 1 89 99H11A10 10 0 0 1 1 89V11A10 10 0 0 1 11 1Z ') + circle(open) }));
+    s.appendChild(svg('circle', { class: 'fan-well', cx: 50, cy: 50, r: open }));
+    if (struts > 0) {
+      // the struts: straight bars from the motor to the frame, a little off the radius (as most makers build them)
+      const g = svg('g', { class: 'fan-struts' });
+      for (let i = 0; i < struts; i++) {
+        const a = 20 + i * 360 / struts;
+        const [x0, y0] = pt(open * hub * 0.9, a - 6), [x1, y1] = pt(open + 0.5, a + 8);
+        g.appendChild(svg('line', { x1: (50 + x0).toFixed(2), y1: (50 + y0).toFixed(2), x2: (50 + x1).toFixed(2), y2: (50 + y1).toFixed(2) }));
+      }
+      s.appendChild(g);
+    }
+    s.appendChild(svg('circle', { class: 'fan-lip', cx: 50, cy: 50, r: (open - 0.6).toFixed(2) }));
     if (ring) return s;
     for (const [x, y] of CORNERS) {
-      if (shape === 'pads') {
-        // a pad over the corner, cut round by the opening: a rounded square with the screw hole in it
-        s.appendChild(svg('path', { class: 'fan-pad', d: padPath(x, y) }));
-      }
+      if (shape === 'pads') s.appendChild(svg('path', { class: 'fan-pad', d: padPath(x, y) }));
+      if (shape === 'corner') s.appendChild(svg('path', { class: 'fan-pad', d: cornerPath(x, y) }));
       s.appendChild(svg('circle', { class: 'fan-screw', cx: x, cy: y, r: 2.6 }));
     }
     return s;
@@ -228,17 +267,26 @@
     const p = (dx, dy) => `${(cx + sx * dx).toFixed(2)} ${(cy + sy * dy).toFixed(2)}`;
     return `M${p(9, 0)}H${(cx + sx * a).toFixed(2)}Q${p(a - 1, 6)} ${p(10.5, 10.5)}Q${p(6, a - 1)} ${p(0, a)}V${(cy + sy * 9).toFixed(2)}A9 9 0 0 ${sx === sy ? 1 : 0} ${p(9, 0)}Z`;
   }
+  /** A corner piece: a triangle over the frame's corner, its long side cut straight across toward the opening (NF-A14) */
+  function cornerPath(x, y) {
+    const sx = x < 50 ? 1 : -1, sy = y < 50 ? 1 : -1;
+    const cx = x < 50 ? 1 : 99, cy = y < 50 ? 1 : 99;
+    const a = 19;                                                            // its reach along each side
+    const p = (dx, dy) => `${(cx + sx * dx).toFixed(2)} ${(cy + sy * dy).toFixed(2)}`;
+    return `M${p(10, 0)}H${(cx + sx * a).toFixed(2)}L${p(0, a)}V${(cy + sy * 10).toFixed(2)}A10 10 0 0 ${sx === sy ? 1 : 0} ${p(10, 0)}Z`;
+  }
 
   /** What stands still in front of the blades: a model's guide vanes and the sticker with its name (viewBox 0 … 100) */
   function frontSvg(look, mm, px) {
     const s = svg('svg', { viewBox: '0 0 100 100', class: 'fan-front', 'aria-hidden': 'true', focusable: 'false' });
-    const rh = 47.3 * hubShare(mm, stickerShown(look, px));          // the hub in these units (the rotor sits at 2.5 % inset)
+    // the hub in these units: the rotor fills the opening (its viewBox's 48.5 of 50 are the blades' tips)
+    const rh = openOf(mm) * 0.97 * hubShare(mm, stickerShown(look, px), look && look.hub_size);
     if (look && look.vanes) {
       const g = svg('g', { class: 'fan-vanes' });
       for (let i = 0; i < look.vanes; i++) {
         const a = (i * 360 / look.vanes - 90) * Math.PI / 180, b = a - 0.32;
         const at = (r, q) => `${(50 + r * Math.cos(q)).toFixed(2)} ${(50 + r * Math.sin(q)).toFixed(2)}`;
-        g.appendChild(svg('path', { d: `M${at(rh, a)}Q${at((rh + 47) / 2, a - 0.1)} ${at(47, b)}` }));
+        g.appendChild(svg('path', { d: `M${at(rh, a)}Q${at((rh + openOf(mm)) / 2, a - 0.1)} ${at(openOf(mm), b)}` }));
       }
       s.appendChild(g);
     }
@@ -262,13 +310,16 @@
 
   /** A model's look as the wheel may use it: only known names and shapes, null without one (the neutral wheel) */
   function lookOf(l) {
-    if (!l || typeof l !== 'object') return null;
+    // nothing but «reverse» (a fan without a model or colours, mirrored): the neutral wheel
+    if (!l || typeof l !== 'object' || Object.keys(l).every((k) => k === 'reverse')) return null;
     const c = (v) => pick(v, LOOK_COLOURS, null);
     const sticker = typeof l.sticker === 'string' && l.sticker.trim()
       ? l.sticker.split('\n').map((x) => x.trim().slice(0, 10)).filter(Boolean).slice(0, 3) : null;
     return { frame: c(l.frame), blades: c(l.blades), hub: c(l.hub) || c(l.blades), pads: c(l.pads), style: pick(l.style, STYLES, ''),
       shape: pick(l.shape, SHAPES, 'square'), vanes: clamp(Math.round(num(l.vanes, 0)), 0, 15), rim: l.rim === true,
-      sticker: sticker && sticker.length ? sticker : null, sticker_colour: pick(l.sticker_colour, LOOK_COLOURS, 'black') };
+      sticker: sticker && sticker.length ? sticker : null, sticker_colour: pick(l.sticker_colour, LOOK_COLOURS, 'black'),
+      hub_size: typeof l.hub_size === 'number' && isFinite(l.hub_size) ? clamp(l.hub_size, 0.2, 0.6) : null,
+      struts: clamp(Math.round(num(l.struts, 0)), 0, 8), reverse: l.reverse === true };
   }
 
   /** The still picture's speed (reduced motion): an arc round the opening, its length the speed */
@@ -430,7 +481,7 @@
     const cap = el('figcaption', 'fan-cap');
     const label = el('span', 'fan-label'), sub = el('span', 'fan-sub');
     cap.append(label, sub);
-    let frame = frameSvg('square'), front = frontSvg(null, 120, 0);
+    let frame = frameSvg('square', 120, 0, 0.3), front = frontSvg(null, 120, 0);
     // the turning part in a box of its own that clips it (2026-11-20, the owner's recordings: a turning square's corners
     // reached past the wheel and, near a page's edge, made its scrollbars twitch): nothing that turns changes a page's size
     const spin = el('div', 'fan-spin');
@@ -451,22 +502,28 @@
       const state = pick(f.state, STATES, 'run');
       const px = Math.round(num(f.px, pxOf(mm)));
       const colour = pick(f.colour, COLOURS, 'auto');
+      // reverse blades: the fan's own word, else the model's (a look holding only «reverse» counts too)
+      const reverse = typeof f.reverse === 'boolean' ? f.reverse : !!(f.look && typeof f.look === 'object' && f.look.reverse === true);
       const own = !!(look && colour === 'auto');           // the model paints its wheel unless the user chose a colour
       root.className = `fan-wheel fan-c-${colour} fan-s-${state}` + (look ? ' fan-look' : '') + (own ? ' fan-look-wheel' : '')
         + (reduce.matches ? ' fan-still' : '') + (f.caption === 'right' || f.caption === 'left' ? ` fan-cap-${f.caption}` : '')
         + (f.air !== false && f.caption !== 'right' && f.caption !== 'left' ? ` fan-airy-${pick(f.side, SIDES, f.flow === 'in' ? 'left' : 'right')}` : '')
-        + (f.cls ? ' ' + f.cls : '');
+        + (reverse ? ' fan-reverse' : '') + (f.cls ? ' ' + f.cls : '');
       root.style.setProperty('--fan-px', px + 'px');
       const style = look ? look.style : '';
       const sticker = stickerShown(look, px);
       const rim = !!(look && look.rim);
-      if (drawn !== `${mm}/${blades}/${style}/${sticker}/${rim}`) {      // the shape only when it changed: the turning goes on
-        drawn = `${mm}/${blades}/${style}/${sticker}/${rim}`;
-        rotor.replaceChildren(rotorSvg(mm, blades, style, sticker, rim));
+      const size = look ? look.hub_size : null;
+      if (drawn !== `${mm}/${blades}/${style}/${sticker}/${rim}/${size}`) {      // the shape only when it changed: the turning goes on
+        drawn = `${mm}/${blades}/${style}/${sticker}/${rim}/${size}`;
+        rotor.replaceChildren(rotorSvg(mm, blades, style, sticker, rim, size));
+        rotor.style.inset = (50 - openOf(mm)).toFixed(2) + '%';         // the blades fill the opening (a small fan's is narrower)
       }
       const shape = look ? look.shape : 'square';
-      if (framed !== shape) { framed = shape; const n = frameSvg(shape); frame.replaceWith(n); frame = n; }
-      const frontKey = look ? `${mm}/${look.vanes}/${sticker ? look.sticker.join('|') : ''}` : '';
+      const struts = look ? look.struts : 0;
+      const frameKey = `${shape}/${mm}/${struts}/${size}`;
+      if (framed !== frameKey) { framed = frameKey; const n = frameSvg(shape, mm, struts, hubShare(mm, sticker, size)); frame.replaceWith(n); frame = n; }
+      const frontKey = look ? `${mm}/${look.vanes}/${size}/${sticker ? look.sticker.join('|') : ''}` : '';
       if (fronted !== frontKey) { fronted = frontKey; const n = frontSvg(look, mm, px); front.replaceWith(n); front = n; }
       // the model's colours: named ones (fan-art.css makes each from the office's palette), the wheel's only when it is his
       // the user's colour on a model says «my copy is another colour than the standard one» (a black edition of a beige
@@ -485,7 +542,9 @@
         else root.style.removeProperty('--fan-tag-ink');
       }
       if (!m.parts.some((p) => p.rotor)) {
-        m.parts.unshift({ rotor: true, a: loop(rotor, [{ transform: 'rotate(0turn)' }, { transform: 'rotate(1turn)' }], 0), k: 1, on: () => true });
+        // counter-clockwise, as a usual fan turns seen from its open side; a reverse one's box is mirrored (fan-art.css): the
+        // same animation then turns it clockwise — no second animation, nothing more for the compositor
+        m.parts.unshift({ rotor: true, a: loop(rotor, [{ transform: 'rotate(0turn)' }, { transform: 'rotate(-1turn)' }], 0), k: 1, on: () => true });
       }
       // the air: on the side given (default: right, or left for air coming in), none with air: false
       const flow = pick(f.flow, FLOWS, null);

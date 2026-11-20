@@ -35,6 +35,11 @@
   --fan-k-beige:color-mix(in srgb, var(--orange-100) 70%, var(--gray-400));
   --fan-k-brown:color-mix(in srgb, var(--orange-800) 30%, var(--gray-700));
   --fan-k-frost:color-mix(in srgb, var(--white) 55%, transparent);
+  /* 2026-11-20 (the owner): the bright ones, from Unraid's palette as well */
+  --fan-k-red:var(--red-700); --fan-k-orange:var(--orange-500); --fan-k-yellow:var(--yellow-500);
+  --fan-k-green:color-mix(in srgb, var(--green-500) 70%, var(--gray-800));
+  --fan-k-blue:color-mix(in srgb, var(--blue-700) 55%, var(--blue-900));
+  --fan-k-purple:color-mix(in srgb, var(--red-800) 45%, var(--blue-900));
   --fan-pad:transparent; --fan-tag:var(--gray-800); --fan-tag-ink:var(--gray-100);
 }
 /* a model's frame always has an outline in the text's colour: a black fan on the black theme, a white one on the white */
@@ -49,6 +54,9 @@
 .fan-well{fill:var(--fan-well)}
 .fan-screw{fill:var(--fan-well); stroke:var(--fan-line); stroke-width:.6}
 .fan-pad{fill:var(--fan-pad); stroke:var(--fan-line); stroke-width:.6}
+/* behind the blades: the motor's struts and the opening's lip, in the frame's colour */
+.fan-struts line{stroke:var(--fan-frame); stroke-width:3.4; stroke-linecap:round}
+.fan-lip{fill:none; stroke:color-mix(in srgb, var(--fan-frame) 70%, var(--fan-line)); stroke-width:1.2}
 /* what stands still in front of the blades: a model's guide vanes, the sticker with its name (plain text, no mark) */
 .fan-front{position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none}
 .fan-vanes path{fill:none; stroke:var(--fan-frame); stroke-width:1.7; stroke-linecap:round}
@@ -57,6 +65,8 @@
 /* the turning part: an element of its own, turned by a transform only (the browser's compositor does the work) */
 .fan-spin{position:absolute; inset:0; overflow:hidden; overflow:clip}    /* clips the turning square's corners (square: a rounded clip repaints every frame) */
 .fan-rotor{position:absolute; inset:2.5%; will-change:transform; transform-origin:50% 50%}
+/* a reverse-blade fan: its turning box mirrored — the blades mirrored and the same animation turning the other way */
+.fan-reverse .fan-spin{transform:scaleX(-1)}
 .fan-rotor svg{display:block; width:100%; height:100%}
 .fan-blades path{fill:var(--fan-blade); stroke:var(--fan-edge); stroke-width:.7; stroke-linejoin:round}
 .fan-hub{fill:var(--fan-hub); stroke:var(--fan-edge); stroke-width:.7}

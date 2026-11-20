@@ -37,8 +37,9 @@ const FANBOY_DASH_SPANS_WEB = [1, 3, 6, 12, 24, 72];   // 2026-11-16 (the owner:
 const FANBOY_DASH_SYM_PX = 28;          // the symbol's size in the tile (his page: 46 px and more); the sticker shows only from 72
 const FANBOY_DASH_ART_FANS = 4;         // fans of a zone with their symbols at most (the owner, 2026-11-20): one in alarm always
                                         // among them, else his page's order; the rest «+ n more fans» (without symbols: FANBOY_DASH_FANS)
-const FANBOY_DASH_LOOK_COLOURS = ['black', 'charcoal', 'graphite', 'grey', 'silver', 'white', 'beige', 'brown', 'frost'];   // desk.js LOOK_COLOURS
-const FANBOY_DASH_LOOK_STYLES = ['swept-narrow', 'swept-wide', 'broad', 'straight', 'sickle'];                              // desk.js LOOK_STYLES
+const FANBOY_DASH_LOOK_COLOURS = ['black', 'charcoal', 'graphite', 'grey', 'silver', 'white', 'beige', 'brown', 'frost',
+    'red', 'orange', 'yellow', 'green', 'blue', 'purple'];                                                                  // desk.js LOOK_COLOURS
+const FANBOY_DASH_LOOK_STYLES = ['swept-narrow', 'swept-wide', 'broad', 'short-broad', 'straight', 'sickle', 'sickle-wide']; // desk.js LOOK_STYLES
 const FANBOY_DASH_NEUTRAL_LOOK = ['frame' => 'charcoal', 'blades' => 'grey', 'hub' => 'graphite', 'pads' => null, 'style' => 'swept-wide',
     'shape' => 'square', 'vanes' => 0, 'rim' => false, 'sticker' => null, 'sticker_colour' => 'black'];                   // desk.js NEUTRAL_LOOK
 const FANBOY_DASH_ROLES_BIOS = ['cpu', 'pump', 'unknown'];                                                                  // desk.js ROLES_BIOS
@@ -90,8 +91,8 @@ function officeFanboyDashTableRpm(mixed $table, float $pct): ?float
 
 /**
  * How a fan of his setup looks (desk.js fanLook()): size, blades, its range (what he measured before the catalogue), the
- * model's look with what the user chose over it (frame, wheel, blades' kind; the one «colour» of before counts for frame
- * and wheel) — and whether it is the user's own (`own`: a model, a colour, a style or a name given). Keys the wheel of
+ * model's look with what the user chose over it (frame, wheel, blades' kind, reverse blades; the one «colour» of before
+ * counts for frame and wheel) — and whether it is the user's own (`own`: a model, a colour, a style or a name given). Keys the wheel of
  * fan-art.js takes, read with defaults: a setup of an older version draws the neutral wheel.
  *
  * @return array{mm:int, blades:?int, min:?float, max:?float, look:?array, own:bool}
@@ -114,6 +115,10 @@ function officeFanboyDashLook(array $f, array $cat): array
     $look = $frame !== null || $wheel !== null || $style !== null
         ? array_merge($base ?? FANBOY_DASH_NEUTRAL_LOOK, $frame !== null ? ['frame' => $frame] : [], $wheel !== null ? ['blades' => $wheel, 'hub' => $wheel] : [], $style !== null ? ['style' => $style] : [])
         : $base;
+    // 2026-11-20: a reverse-blade fan — the user's tick over the model's (fan-art.js mirrors the blades and turns them the other way)
+    if (is_bool($f['reverse'] ?? null) && ($look !== null || $f['reverse'])) {
+        $look = array_merge($look ?? [], ['reverse' => $f['reverse']]);
+    }
     $blades = is_int($m['blades'] ?? null) ? $m['blades'] : ($c !== null && is_int($c['blades'] ?? null) ? $c['blades'] : ($look !== null ? null : 7));
     $mm = $c !== null && is_int($c['mm'] ?? null) ? $c['mm'] : (is_int($m['mm'] ?? null) ? $m['mm'] : 120);
     $named = is_string($f['name'] ?? null) && trim($f['name']) !== '';

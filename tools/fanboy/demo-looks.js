@@ -31,11 +31,51 @@
     const wheelOf = (f, more) => Object.assign({ label: f.model, sub: `${f.brand} · ${f.mm} mm`, mm: f.mm, blades: f.blades, min: f.rpm_min, max: f.rpm_max,
       rpm: Math.round((f.rpm_max || 1500) * 0.55), look: f.look, px: 120, air: false, title: `${f.brand} ${f.model}` }, more || {});
 
+    // ?only=looks&pair: the owner's example (2026-11-20) — the NF-A8 beside the NF-A14 at the picker's size and large, each
+    // also as a reverse-blade fan (blades mirrored, turning the other way); then the colours a user may choose
+    if (q.has('pair')) {
+      // the words of these parts in German with &lang=de (the owner's pictures), else English
+      const de = q.get('lang') === 'de';
+      const W = de ? { pair: 'NF-A8 PWM neben NF-A14 PWM und NF-A14x25 G2', pairNote: 'Derselbe Hersteller, 80 und 140 mm: jedes nach seinem Modell gezeichnet — Blätter, Nabe, Rahmen und Ecken, dahinter die Streben.',
+        rev: 'Reverse-Blade', revNote: 'Links der übliche Lüfter, rechts dasselbe Modell mit «Reverse-Blade»: die Blätter gespiegelt, sie drehen andersherum.', usual: 'üblich', reverse: 'Reverse-Blade',
+        col: 'Die Farben', colNote: 'Rahmen und Blätter in jeder wählbaren Farbe (dasselbe Modell, Arctic P12 PWM PST).' }
+        : { pair: 'NF-A8 PWM beside NF-A14 PWM and NF-A14x25 G2', pairNote: 'The same maker, 80 and 140 mm: drawn after each model — blades, hub, frame and corners, the struts behind.',
+          rev: 'Reverse blade', revNote: 'Left the usual fan, right the same model with «reverse blade» ticked: its blades mirrored, turning the other way.', usual: 'usual', reverse: 'reverse blade',
+          col: 'The colours', colNote: 'Frame and blades in each colour a user may choose (the same model, Arctic P12 PWM PST).' };
+      const names = de ? { black: 'Schwarz', charcoal: 'Anthrazit', graphite: 'Graphit', grey: 'Grau', silver: 'Silber', white: 'Weiss', beige: 'Beige', brown: 'Braun', frost: 'Durchsichtig',
+        red: 'Rot', orange: 'Orange', yellow: 'Gelb', green: 'Grün', blue: 'Blau', purple: 'Violett' } : {};
+      const pr = part(W.pair, W.pairNote, 'fl-pair');
+      for (const px of [120, 220]) {
+        const row = el('div', 'fl-wheels');
+        pr.appendChild(row);
+        for (const id of ['noctua-nf-a8-pwm', 'noctua-nf-a14-pwm', 'noctua-nf-a14x25-g2-pwm']) row.appendChild(FanArt.wheel(wheelOf(by(id), { px })).el);
+      }
+      const rv = part(W.rev, W.revNote, 'fl-reverse');
+      const rrow = el('div', 'fl-wheels');
+      rv.appendChild(rrow);
+      for (const id of ['noctua-nf-a14x25-g2-pwm', 'arctic-p12-pwm-pst']) {
+        rrow.appendChild(FanArt.wheel(wheelOf(by(id), { px: 160, sub: W.usual })).el);
+        rrow.appendChild(FanArt.wheel(wheelOf(by(id), { px: 160, reverse: true, sub: W.reverse })).el);
+      }
+      const co = part(W.col, W.colNote, 'fl-colours');
+      const crow = el('div', 'fl-wheels');
+      co.appendChild(crow);
+      const p12 = by('arctic-p12-pwm-pst');
+      for (const c of FanArt.LOOK_COLOURS) {
+        const look = Object.assign({}, p12.look, { frame: c, blades: c, hub: c, sticker_colour: c });
+        crow.appendChild(FanArt.wheel(wheelOf(p12, { look, label: names[c] || c, sub: '', px: 96 })).el);
+      }
+      document.documentElement.dataset.looks = String(fans.length);
+      return;
+    }
+
     // the sheet: all models, maker by maker
     const sheet = part(`The catalogue's ${fans.length} models`, 'Each drawn after its model: the frame, the blades\' colour and character, the pads, the name on the hub — plain text, no logo.', 'fl-sheet');
     const grid = el('div', 'fl-wheels fl-sheet');
     sheet.appendChild(grid);
     for (const f of fans) grid.appendChild(FanArt.wheel(wheelOf(f)).el);
+    // ?only=looks&sheet: the sheet alone — every model turning at 120 px (tools/fanboy/look.mjs measures its CPU)
+    if (q.has('sheet')) { document.documentElement.dataset.looks = String(fans.length); return; }
 
     // the states on a beige, a white and a black model, and the user's colour over a model's
     const st = part('States on a model\'s colours', 'Running, standing although it should run (red), no feedback (dashed), the BIOS\'s (dotted) — on a beige, a white and a black fan; last: a model with the colour «accent» chosen, and «other fan».', 'fl-states');
