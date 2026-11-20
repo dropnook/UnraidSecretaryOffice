@@ -1657,7 +1657,7 @@ async function sendChipReport(b) {
 function chipPart() {
   const c = chipNow();
   const box = el('div', 'fb-chip');
-  box.appendChild(el('p', 'fb-chip-head', T('chip.title')));
+  box.appendChild(Office.place('chip.title', el('p', 'fb-chip-head', T('chip.title'))));
   const say = (key, extra) => box.appendChild(el('p', 'fb-hint-text', T(key, { ...chipParams(), ...(extra || {}) })));
   const bar = el('div', 'toolbar');
   const need = c.need || 'not_read';
@@ -2680,7 +2680,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
   const count = inputEl('select');
   for (let n = 1; n <= (num((setup().limits || {}).count_max) ?? 8); n++) count.appendChild(new Option(String(n), String(n)));
   count.onchange = () => { draft.count = Number(count.value); update(); };
-  fields.append(field(T('fields.name'), name, 'fb-field-name'), field(T('fields.place'), place), field(T('roles.count'), count, 'fb-field-count'));
+  fields.append(field(T('fields.name'), name, 'fb-field-name'), Office.place('fields.place', field(T('fields.place'), place)), field(T('roles.count'), count, 'fb-field-count'));
   // round 14: several fans on this connector — are they the same model? (yes: the measured table counts for all; no or
   // not said: Fanboy keeps them a little higher, the agent's `hub`)
   const alike = el('div', 'fb-what-row fb-alike');
@@ -3565,7 +3565,7 @@ function zoneCard(z, i, zones, ours) {
   if (!(z.fans || []).length) fl.appendChild(para(T('zones.no_fan')));
   card.appendChild(fl);
   // its heat sources: any the server shows (a source may count in several zones), the warmest counts — one block per kind
-  card.appendChild(el('h4', 'fb-sub', T('zones.sources')));
+  card.appendChild(Office.place('zones.sources', el('h4', 'fb-sub', T('zones.sources'))));
   card.appendChild(para(T('zones.sources_sub')));
   card.appendChild(zoneSources(z, i));
   card.appendChild(curvePart(z, i));
@@ -4288,6 +4288,7 @@ function render() {
     pages: { list: PAGES(), current: page } });
   if (page === 'setup') {
     const help = Office.pageHelp(`${ID}-setup`, [[T('help.setup'), T('help.setup_text')], [T('help.safe'), T('help.safe_text')], [T('help.quiet'), T('help.quiet_text')],
+      [T('help.flow'), T('help.flow_text')], [T('help.places'), T('help.places_text')], [T('help.chip'), T('help.chip_text')], [T('help.dash'), T('help.dash_text')],
       [T('help.show'), T('help.show_text')], [T('help.later'), T('help.later_text')], [T('help.vm_disks'), T('help.vm_disks_text')]]);
     const ssw = setupSwitcher();
     view.replaceChildren(head, help, ssw.el);
@@ -4403,6 +4404,14 @@ Office.places(ID, [
   { kind: 'help', key: 'help.safe', text: 'help.safe_text', ...SETUP_ROUTE },
   { kind: 'help', key: 'help.quiet', text: 'help.quiet_text', ...SETUP_ROUTE },
   { kind: 'help', key: 'help.show', text: 'help.show_text', ...SETUP_ROUTE },
+  // 2026-11-20: what today's work added — the step as it now works, where a fan sits, the fan chip, the Dashboard tile
+  { kind: 'help', key: 'help.flow', text: 'help.flow_text', ...SETUP_ROUTE },
+  { kind: 'help', key: 'help.places', text: 'help.places_text', ...SETUP_ROUTE },
+  { kind: 'help', key: 'help.chip', text: 'help.chip_text', ...SETUP_ROUTE },
+  { kind: 'help', key: 'help.dash', text: 'help.dash_text', ...SETUP_ROUTE },
+  { kind: 'section', key: 'chip.title', ...SETUP_ROUTE, route: `#/${ID}/setup/detect` },
+  { kind: 'section', key: 'zones.sources', ...SETUP_ROUTE, route: `#/${ID}/setup/zones` },
+  { kind: 'setting', key: 'fields.place', route: `#/${ID}/setup/test`, crumb: 'page.setup' },
   { kind: 'setting', key: 'quiet.setting', route: `#/${ID}/setup/test`, crumb: 'page.setup' },
   { kind: 'help', key: 'help.later', text: 'help.later_text', ...SETUP_ROUTE },
   ...STEPS.map((k) => ({ kind: 'step', key: `step.${k}`, ...SETUP_ROUTE, route: `#/${ID}/setup/${k}` })),
