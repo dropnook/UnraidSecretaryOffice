@@ -3693,6 +3693,40 @@ function kindKept(z, k) {
   const own = z.curves && z.curves[k];
   return own && Array.isArray(own.own) && own.own.length >= 2 ? own.own : null;
 }
+/**
+ * An own curve has four points (2026-11-20, the owner: «hier fehlen noch punkte, 2 sind zu wenig»): one of fewer gets the
+ * missing ones ON its line, so its value at every degree stays what it was — two points: at about a third and two thirds,
+ * three: in the middle of the widest span; each at a whole degree where the line has a whole value (the nearest such), else
+ * the nearest whole degree with its value to a tenth. Four or more: as they are.
+ */
+function fourPoints(points) {
+  const p = (points || []).map((q) => [Number(q[0]), Number(q[1])]).sort((a, b) => a[0] - b[0]);
+  const on = (a, b, t) => a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]);
+  // a whole degree strictly between a and b, not taken, nearest to want — one with a whole value first
+  const pick = (a, b, want, taken) => {
+    let best = null;
+    for (let t = Math.floor(a[0]) + 1; t < b[0]; t++) {
+      if (taken.includes(t)) continue;
+      const v = on(a, b, t);
+      const whole = Math.abs(v - Math.round(v)) < 1e-9;
+      const d = Math.abs(t - want) + (whole ? 0 : 1000);
+      if (!best || d < best.d) best = { t, v: whole ? Math.round(v) : Math.round(v * 10) / 10, d };
+    }
+    return best ? [best.t, best.v] : null;
+  };
+  if (p.length === 2) {
+    const [a, b] = p;
+    const one = pick(a, b, a[0] + (b[0] - a[0]) / 3, []);
+    const two = one && pick(a, b, a[0] + 2 * (b[0] - a[0]) / 3, [one[0]]);
+    return [a, ...[one, two].filter(Boolean).sort((x, y) => x[0] - y[0]), b];
+  }
+  if (p.length === 3) {
+    const i = p[2][0] - p[1][0] > p[1][0] - p[0][0] ? 1 : 0;
+    const add = pick(p[i], p[i + 1], (p[i][0] + p[i + 1][0]) / 2, []);
+    if (add) p.splice(i + 1, 0, add);
+  }
+  return p;
+}
 /** A kind's goal in words: «Leise», «Eigene Kurve» … */
 const choiceName = (c) => (c === 'own' ? T('curve.own') : T(`preset.${c}`));
 function zoneCard(z, i, zones, ours) {
@@ -4150,7 +4184,7 @@ function curvePart(z, i) {
     const kept = kindKept(all[i], K);
     const was = kindChoice(all[i], K);
     const cv = { ...(all[i].curves || {}) };
-    if (choose.value === 'own') cv[K] = { points: kept || now };
+    if (choose.value === 'own') cv[K] = { points: fourPoints(kept || now) };
     else cv[K] = { preset: choose.value, ...(was === 'own' ? { own: now } : kept ? { own: kept } : {}) };
     all[i].curves = cv;
     curves.delete(z.id);
@@ -4177,7 +4211,8 @@ function curvePart(z, i) {
   if (!A || !kinds.length) { box.appendChild(kinds.length ? waiting() : para(T('zones.curve_no_source'))); return box; }
   const curveOf = (k) => kindCurveOf(zk, k, scales);
   const front = curveOf(K);
-  const pts = front.points;
+  // his own curve shows four points at least (a kept one of two — an earlier evening's — gets the missing ones on its line)
+  const pts = rpmUnit || choice === 'own' ? fourPoints(front.points) : front.points;
   const asks = (k) => (byKind[k] && num(byKind[k].c) !== null && num(byKind[k].value) !== null ? byKind[k] : null);
   const valueSay = (v) => (rpmUnit ? T('pic.rpm', { rpm: fmt.number(Math.round(v)) }) : T('value', { pct: Math.round(v) }));
   if (multi) {

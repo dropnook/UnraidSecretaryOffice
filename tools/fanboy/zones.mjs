@@ -249,7 +249,18 @@ try {
     // his own curve: from the curve shown, typed, kept through a preset, back as it was
     await goal('own');
     k = await card();
-    check('curve card: «Own curve» — starts from the curve shown (Leise), the points free', JSON.stringify(k.pts) === '[45,0,55,100]' && !k.ro && k.hint === EN['zones.curve_sub'], JSON.stringify(k));
+    check('curve card: «Own curve» — four points on the curve shown (Leise: 45, 48, 52, 55 °C), the points free, «Point 1 … 4»', JSON.stringify(k.pts) === '[45,0,48,30,52,70,55,100]' && !k.ro && k.hint === EN['zones.curve_sub']
+      && (await page.$$(`${part} .fan-curve-field`)).length === 4, JSON.stringify(k));
+    // 2026-11-20 (the owner: «beim klicken kriegt es einen … rand»): a click on the chart or a point never focuses or frames it
+    const plot = await page.$(`${part} .fan-curve svg`);
+    const pb = plot && await plot.boundingBox();
+    if (pb) await page.mouse.click(pb.x + pb.width * 0.6, pb.y + pb.height * 0.3);
+    const dotB = await (await page.$(`${part} .fan-curve-pt`)).boundingBox();
+    await page.mouse.click(dotB.x + dotB.width / 2, dotB.y + dotB.height / 2);
+    await page.waitForTimeout(200);
+    const foc = await page.evaluate((sel) => { const a = document.activeElement; const c = document.querySelector(sel + ' .fan-curve'); const svg = c.querySelector('svg');
+      return [!!(a && c.contains(a) && a.tagName !== 'INPUT'), getComputedStyle(svg).outlineStyle, svg.hasAttribute('tabindex'), [...c.querySelectorAll('.fan-curve-pt')].some((g) => g.hasAttribute('tabindex'))]; }, part);
+    check('curve card: a click on the chart and on a point — nothing in the chart takes focus, no frame, no tabindex', JSON.stringify(foc) === '[false,"none",false,false]', JSON.stringify(foc));
     const first = `${part} .fan-curve-field input[data-axis="t"] >> nth=0`;
     await page.fill(first, '47');
     await page.press(first, 'Tab');
@@ -259,30 +270,57 @@ try {
     check('curve card: Kühl — 35 °C 0 %, 45 °C 100 %, locked; the line says «Own curve» brings back his last one', JSON.stringify(k.pts) === '[35,0,45,100]' && k.ro && k.hint === EN['curve.locked_kept'], JSON.stringify(k));
     await goal('own');
     k = await card();
-    check('curve card: «Own curve» again — exactly his last own curve (47 °C)', JSON.stringify(k.pts) === '[47,0,55,100]', JSON.stringify(k));
+    check('curve card: «Own curve» again — exactly his last own curve (47 °C)', JSON.stringify(k.pts) === '[47,0,48,30,52,70,55,100]', JSON.stringify(k));
     check('curve card: … at 100 % where «Quiet» is (55 °C) — no hint', !k.under, k.under);
     // 2026-11-20 (the owner): his own curve under 100 % where «Quiet» reaches it — one calm line with the numbers, gone again
-    const second = `${part} .fan-curve-field input[data-axis="t"] >> nth=1`;
+    const second = `${part} .fan-curve-field input[data-axis="t"] >> nth=3`;
     await page.fill(second, '60');
     await page.press(second, 'Tab');
     await page.waitForTimeout(400);
     k = await card();
-    const want = EN['curve.under_quiet'].replace('{c}', '55').replace('{pct}', '62');
-    check('curve card: … the second point at 60 °C — at 55 °C only 62 %: «Quiet would be at 100 % there», a calm line (no callout)', k.under === want
+    const want = EN['curve.under_quiet'].replace('{c}', '55').replace('{pct}', '81');
+    check('curve card: … the last point at 60 °C — at 55 °C only 81 %: «Quiet would be at 100 % there», a calm line (no callout)', k.under === want
       && !(await page.$(`${part} .fb-curve-under.callout`)), JSON.stringify([k.under, want]));
     await page.fill(second, '55');
     await page.press(second, 'Tab');
     await page.waitForTimeout(400);
     k = await card();
-    check('curve card: … back at 55 °C — the hint gone', !k.under && JSON.stringify(k.pts) === '[47,0,55,100]', JSON.stringify(k));
+    check('curve card: … back at 55 °C — the hint gone', !k.under && JSON.stringify(k.pts) === '[47,0,48,30,52,70,55,100]', JSON.stringify(k));
     await goal('normal');
     await page.click(`#sso .fb-next .btn:not(.plain):has-text("${EN['zones.save']}")`);
     await page.waitForTimeout(800);
     const sent = h.posts.filter((x) => x.action === 'fanboy.zones_save').pop();
     const disk = sent && sent.data.zones.find((z) => z.id === 'disks');
     check('curve card: «Save» — the disk\'s goal Normal with his own curve kept beside it; no «Temperaturen», no source values',
-      !!disk && JSON.stringify(disk.curves.disk) === JSON.stringify({ preset: 'normal', own: [[47, 0], [55, 100]] }) && !disk.kinds && disk.sources.every((x) => Object.keys(x).join() === 'id'), JSON.stringify(disk));
+      !!disk && JSON.stringify(disk.curves.disk) === JSON.stringify({ preset: 'normal', own: [[47, 0], [48, 30], [52, 70], [55, 100]] }) && !disk.kinds && disk.sources.every((x) => Object.keys(x).join() === 'id'), JSON.stringify(disk));
     check('curve card: no «Temperaturen» fold, no error', !(await page.$('#sso .fb-temps')) && !errors.length, errors.join(' | '));
+    // a kept own curve of fewer points (the case's RAM: three, an earlier evening's) opens with four on its line
+    await page.click('#sso .fb-zone-side .fb-item[data-row="case"]');
+    await page.waitForTimeout(300);
+    const casePart = '#sso .fb-curve-part[data-zone="case"]';
+    const ramPick = await page.$(`${casePart} .fb-kindpick[data-kind="ram"]`);
+    if (ramPick) { await ramPick.click(); await page.waitForTimeout(300); }
+    const ram = await page.evaluate((sel) => [...document.querySelectorAll(sel + ' .fan-curve-field input')].map((i) => Number(i.value)), casePart);
+    check('curve card: a kept own curve of three points (RAM 40/55/65 °C) opens with four on its line — 46 °C 39 % added, the others as they were',
+      JSON.stringify(ram) === '[40,25,46,39,55,60,65,100]', JSON.stringify(ram));
+    await ctx.close();
+    if (h.close) await h.close();
+  }
+  // ------------------------------------------- the desk's other pictures: a click never frames them (2026-11-20)
+  {
+    const h = await startHarness({ demo: true, names: DEMO_NAMES_EN });
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: 'dark' });
+    await ctx.addInitScript(() => { try { localStorage.setItem('office.lang', 'en'); } catch (e) { /* none */ } });
+    const page = await ctx.newPage();
+    for (const [route, sel] of [['#/fanboy', '#sso .fan-server'], ['#/fanboy/history', '#sso .fb-hist-chart']]) {
+      await page.goto(`${h.url}?theme=black${route}`, { waitUntil: 'load' });
+      await page.waitForSelector(sel, { timeout: 15000 });
+      const b = await (await page.$(sel)).boundingBox();
+      await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+      await page.waitForTimeout(200);
+      const f = await page.evaluate(() => { const a = document.activeElement; return [a.tagName, getComputedStyle(a).outlineStyle]; });
+      check(`pictures: a click on ${sel.replace('#sso ', '')} — no frame (the history chart keeps its keys: focused, but only the keyboard shows the ring)`, f[1] === 'none', JSON.stringify(f));
+    }
     await ctx.close();
     if (h.close) await h.close();
   }
