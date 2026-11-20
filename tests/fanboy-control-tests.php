@@ -537,13 +537,21 @@ function testFanboyBoards(): void
 // ===================================================================== the setup's steps (test up, measure down) on the tests' clock
 
 /** A step's clock, sleep and signs on the tests' clock; the fans answer while it «sleeps»; $stopAt: the page gone then */
-function fanboyTIo(array $t, array &$spec, float &$clock, ?float $stopAt = null): array
+/**
+ * The tests' step io: their clock, the fake fans answering, the page gone at $stopAt — and a user who answers «next»
+ * (nothing said about hearing) after FANBOY_T_ANSWER s at full when no step.next of the test's own came first (a test
+ * stays at full until it is answered since 2026-11-20); $answerAfter null: a user who never answers
+ */
+const FANBOY_T_ANSWER = 60.0;
+function fanboyTIo(array $t, array &$spec, float &$clock, ?float $stopAt = null, ?float $answerAfter = FANBOY_T_ANSWER): array
 {
     return [
-        'now'   => function () use (&$clock): float { return $clock; },
-        'sleep' => function (float $s) use (&$clock, $t, &$spec): void { $clock += $s; fanboyFakeRespond($t['root'], $spec, $s); },
-        'ok'    => function () use (&$clock, $stopAt): ?string { return $stopAt !== null && $clock >= $stopAt ? 'page_gone' : null; },
-        'note'  => fn (array $p) => null,
+        'now'    => function () use (&$clock): float { return $clock; },
+        'sleep'  => function (float $s) use (&$clock, $t, &$spec): void { $clock += $s; fanboyFakeRespond($t['root'], $spec, $s); },
+        'ok'     => function () use (&$clock, $stopAt): ?string { return $stopAt !== null && $clock >= $stopAt ? 'page_gone' : null; },
+        'note'   => fn (array $p) => null,
+        'answer' => fn (string $id, ?string $stepId, float $held): ?array => fanboyStepNextAsked($id, $stepId)
+            ?? ($answerAfter !== null && $held >= $answerAfter ? ['heard' => null] : null),
     ];
 }
 
@@ -584,7 +592,7 @@ function testFanboySteps(): void
         fanboyRole(['fan' => $ids[3], 'role' => 'disks', 'name' => 'Cage', 'place' => 'front']);
         fanboyRole(['fan' => $ids[4], 'role' => 'case', 'name' => 'Front', 'place' => 'front']);
         $refused = [];
-        foreach ([['fan' => $ids[3], 'role' => 'boss'], ['fan' => $ids[3], 'role' => 'case', 'place' => 'inside'], ['fan' => $ids[3], 'role' => 'case', 'off_ok' => true],
+        foreach ([['fan' => $ids[3], 'role' => 'boss'], ['fan' => $ids[3], 'role' => 'case', 'place' => 'middle'], ['fan' => $ids[3], 'role' => 'case', 'off_ok' => true],
                   ['fan' => $ids[2], 'role' => 'case'], ['fan' => $ids[3], 'role' => 'case', 'name' => str_repeat('x', 41)]] as $r) {
             try {
                 fanboyRole($r);

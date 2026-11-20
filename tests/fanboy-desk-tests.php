@@ -332,7 +332,7 @@ function testFanboyUx(): void
         && !str_contains($js, 'settleHeard') && str_contains($panel, "btn(T('ask.yes'), 'btn', () => send('answer', { fan: id, louder: true }),"));
     check('fanboy ux: a button that can\'t act is never dead — set back, and a click says why (toast and strip); the line under the buttons says it too (another output runs, the pause, another controller, he steers, the messenger away)',
         str_contains($panel, "reason = T('panel.busy', { fan: run.id ? fanSay(run.id) : '' });") && str_contains($panel, "reason = T('panel.pause');") && str_contains($panel, 'else if (!run.kind && noTest) reason = noTest;')
-        && str_contains($panel, "else if (away) reason = T('strip.away');") && str_contains($panel, 'setText(why, reason);')
+        && str_contains($panel, "else if (away) reason = T('strip.away');") && str_contains($panel, "swap(why, [reason, toRun], () => (toRun ? [reason, ' ', btn(T('panel.to_run', { fan: fanSay(toRun) }), 'fb-link', () => benchSelect(toRun), T('panel.to_run_tip'))] : [reason]));")
         && str_contains($js, "b.onclick = () => { Office.toast(reason, true); say(reason); };") && str_contains($panel, "if (no) offBtn(b, reason || T('strip.away'));")
         && !preg_match('/\b(place|count)\.disabled = [^;]*roleSet/', $js) && str_contains($js, 'if (why.length) offBtn(b, why[0]);'));
     check('fanboy ux: where he sits and how many can be filled at any time — kept on the page and sent with the role once he picks it',
@@ -547,7 +547,7 @@ function testFanboyUx(): void
     // «a point a minute», the look's minute) stays tied to the agent's constant here
     $timesJs = preg_match('/const TIMES = \{([^}]+)\};/', $js, $m) ? $m[1] : '';
     $mirror = [];
-    foreach (['up_for' => FANBOY_UP_FOR, 'show_for' => FANBOY_SHOW_FOR, 'lease' => FANBOY_STEP_LEASE, 'tell_after' => FANBOY_TELL_AFTER, 'idle_warm_after' => FANBOY_IDLE_WARM_AFTER, 'poll_live' => FANBOY_POLL_LIVE, 'clear_after' => FANBOY_CLEAR_AFTER] as $k => $v) {
+    foreach (['up_hold' => FANBOY_UP_HOLD, 'up_hold_quiet' => FANBOY_UP_HOLD_QUIET, 'show_for' => FANBOY_SHOW_FOR, 'lease' => FANBOY_STEP_LEASE, 'tell_after' => FANBOY_TELL_AFTER, 'idle_warm_after' => FANBOY_IDLE_WARM_AFTER, 'poll_live' => FANBOY_POLL_LIVE, 'clear_after' => FANBOY_CLEAR_AFTER] as $k => $v) {
         if (!preg_match('/\b' . $k . ': ' . (int) $v . '\b/', $timesJs)) {
             $mirror[] = $k;
         }
@@ -555,14 +555,14 @@ function testFanboyUx(): void
     same('fanboy ux audit: the page\'s mirror of the agent\'s times (for an agent that doesn\'t send them yet) equals the agent\'s constants', [], $mirror);
     check('fanboy ux audit: every sentence that names a time takes it from the state\'s times — a test and «show me» at full, the page\'s lease in the strip, the minutes until he tells (no literal left there)',
         str_contains($js, "try { return { ...TIMES, ...(state.setup.times || {}) }; } catch (e) { return TIMES; }")
-        && str_contains($js, "return T0(k, { up_s: tm.up_for, show_s: tm.show_for, lease_s: tm.lease, tell_min: Math.round(tm.tell_after / 60), idle_min: Math.round(tm.idle_warm_after / 60), ...(p || {}) });")
-        && str_contains($l['de']['step.test_sub'], 'bis zu {up_s} Sekunden') && str_contains($l['de']['show.tip'], 'bis zu {show_s} Sekunden') && str_contains($l['de']['strip.keep_open'], 'nach {lease_s} Sekunden')
+        && str_contains($js, "return T0(k, { hold_min: Math.round(tm.up_hold / 60), hold_quiet_min: Math.round(tm.up_hold_quiet / 60), show_s: tm.show_for, lease_s: tm.lease, tell_min: Math.round(tm.tell_after / 60), idle_min: Math.round(tm.idle_warm_after / 60), ...(p || {}) });")
+        && str_contains($l['de']['step.test_sub'], 'nach {hold_min} Minuten ({hold_quiet_min},') && str_contains($l['de']['show.tip'], 'bis zu {show_s} Sekunden') && str_contains($l['de']['strip.keep_open'], 'nach {lease_s} Sekunden')
         && str_starts_with($l['de']['note.missing_told'], '{tell_min} Minuten') && str_contains($l['de']['watch.on_title'], 'nach {idle_min} Minuten') && str_contains($l['de']['strip.since'], 'höchstens {max} s')
         && str_contains($js, "T('strip.since', { s: secs, max: most })") && !preg_match('/\d/', str_replace('100 %', '', implode(' ', [$l['de']['step.test_sub'], $l['de']['strip.keep_open'], $l['de']['watch.on_title'], $l['de']['note.missing_told']]))));
-    same('fanboy ux audit: the literals left are the agent\'s — the help texts (shown by the search without params): a minute at full, the 45 s lease; a point a minute; a name\'s and a connector\'s maximum come with the refusal',
-        [60.0, 60.0, true, true, true],
-        [FANBOY_UP_FOR, FANBOY_SHOW_FOR,
-            str_contains($l['de']['help.safe_text'], 'nach ' . (int) FANBOY_STEP_LEASE . ' Sekunden') && str_contains($l['de']['help.quiet_text'], 'bis zu einer Minute') && str_contains($l['de']['help.show_text'], 'bis zu einer Minute'),
+    same('fanboy ux audit: the literals left are the agent\'s — the help texts (shown by the search without params): a test in the quiet mode three minutes at most without an answer, a show a minute, the 45 s lease; a point a minute; a name\'s and a connector\'s maximum come with the refusal',
+        [180.0, 60.0, true, true, true],
+        [FANBOY_UP_HOLD_QUIET, FANBOY_SHOW_FOR,
+            str_contains($l['de']['help.safe_text'], 'nach ' . (int) FANBOY_STEP_LEASE . ' Sekunden') && str_contains($l['de']['help.quiet_text'], 'höchstens drei Minuten') && str_contains($l['de']['help.show_text'], 'bis zu einer Minute'),
             FANBOY_HISTORY_EVERY === 60.0 && str_contains($l['de']['curves.history_none'], 'einem Punkt pro Minute'),
             str_contains($l['de']['errors.fanboy_bad_count'], 'Zwischen 1 und {max}') && str_contains($l['en']['errors.fanboy_bad_count'], '{max}') && str_contains($l['de']['errors.fanboy_bad_name'], '{max}')]);
     check('fanboy ux audit: the limits the page offers are the state\'s (fans on a connector, zones); the crashed control says when it is started again and when not any more from the state\'s times and restarts — «given up» has its own words',
@@ -1674,4 +1674,179 @@ function testFanboyCpuOwnWheel(): void
     $cpu = array_values(array_filter($demo['setup']['fans'] ?? [], fn ($f) => ($f['role'] ?? null) === 'cpu'))[0] ?? [];
     same('fanboy cpu own wheel: the demo that shows it (fanboy-cpu) — a CPU cooler given to him, held by his control', [true, true],
         [is_int($cpu['cpu_own'] ?? null), (bool) array_filter(array_merge(...array_column($demo['control']['zones'] ?? [], 'fans')), fn ($f) => ($f['id'] ?? '') === ($cpu['id'] ?? '-') && ($f['held'] ?? false) === true)]);
+}
+
+/**
+ * 2026-11-20 (the owner's first set-up: «I was still setting up the CPU, why is he already at output 3?»): an output under
+ * test stays at full until the user answers — no clock moves on to the next one. Unanswered it stops at its ceiling
+ * (FANBOY_UP_HOLD; the quiet test FANBOY_UP_HOLD_QUIET) as `unanswered`: everything back, the next output never started,
+ * what the looks saw kept; the page gone still ends it after the lease; a test's whole time grows with its outputs
+ */
+function testFanboySetupWaits(): void
+{
+    $t = fanboyT('waits');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        $before = array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]);
+        $run = function (bool $quiet, ?float $answerAfter, ?float $stopAt = null) use ($t, &$spec): array {
+            $clock = 0.0;
+            $full = [];
+            $notes = [];
+            $io = fanboyTIo($t, $spec, $clock, $stopAt, $answerAfter);
+            $sleep = $io['sleep'];
+            $io['sleep'] = function (float $s) use ($sleep, $t, &$full, &$clock): void {
+                foreach ([1, 4] as $n) {
+                    if (fanboyTOut($t, $n)[0] === 255) {
+                        $full[$n][] = $clock;
+                    }
+                }
+                $sleep($s);
+            };
+            $step = fanboyStepRun(['id' => 'w' . mt_rand(), 'kind' => 'test_up', 'fans' => [fanboyTId(1), fanboyTId(4)], 'quiet' => $quiet], $io);
+            $span = array_map(fn ($c) => max($c) - min($c), $full);
+            return [$step, $span, $clock, fanboyStepRead()];
+        };
+        // nobody answers, the switch off: output 1 at full up to the ceiling, then the step stops — output 4 never at full
+        [$step, $span, $clock] = $run(false, null);
+        same('fanboy waits: no answer — output 1 at full ' . round($span[1] ?? 0) . ' s (its ceiling ' . FANBOY_UP_HOLD . ' s), the step stopped as «unanswered», output 4 never started, its looks kept (tach 1)',
+            [true, 'stopped', 'unanswered', false, [fanboyTId(1)], 'tach'],
+            [($span[1] ?? 0) >= FANBOY_UP_HOLD - 1.0 && ($span[1] ?? 0) <= FANBOY_UP_HOLD + 1.0, $step['status'], $step['why'], isset($span[4]), $step['done'], $step['results'][fanboyTId(1)]['found'] ?? null]);
+        same('fanboy waits: … every output exactly as before, nothing held', [$before, []], [array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
+        // the quiet test: its own, shorter ceiling — the others stood meanwhile, all back
+        [$step, $span] = $run(true, null);
+        same('fanboy waits: the quiet test unanswered — output 1 at full ' . round($span[1] ?? 0) . ' s (its ceiling ' . FANBOY_UP_HOLD_QUIET . ' s), stopped as «unanswered», output 4 never started; everything back, nothing held',
+            [true, 'stopped', 'unanswered', false, $before, []],
+            [($span[1] ?? 0) >= FANBOY_UP_HOLD_QUIET - 1.0 && ($span[1] ?? 0) <= FANBOY_UP_HOLD_QUIET + 1.0, $step['status'], $step['why'], isset($span[4]),
+                array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
+        // he answers after 100 s (round 8's minute is long gone): until then output 1 is at full and output 4 waits
+        [$step, $span] = $run(true, 100.0);
+        same('fanboy waits: answered after 100 s — output 1 at full until then (' . round($span[1] ?? 0) . ' s), then output 4 (answered the same way), the test done',
+            [true, true, 'done', 'tach', 'tach'],
+            [($span[1] ?? 0) >= 99.0 && ($span[1] ?? 0) <= 101.0, isset($span[4]), $step['status'], $step['results'][fanboyTId(1)]['found'] ?? null, $step['results'][fanboyTId(4)]['found'] ?? null]);
+        // the page gone (no step_alive): still ends it after the lease — everything back
+        [$step, $span] = $run(true, null, 50.0);
+        same('fanboy waits: the page gone at 50 s — stopped as «page_gone», output 4 never started, everything back',
+            ['stopped', 'page_gone', false, $before, []], [$step['status'], $step['why'], isset($span[4]), array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
+        // what the page reads: the output waits for the answer, `until` its ceiling
+        $notes = [];
+        $clock = 0.0;
+        $io = fanboyTIo($t, $spec, $clock, null, 20.0);
+        $o = fanboyOutputs(fanboyDetect(fanboySysRoot() ?: null))[fanboyTId(1)];
+        $io['note'] = function (array $p) use (&$notes): void { $notes[] = $p; };
+        fanboyTestUp($o, fanboyMe('step'), $io, fanboyBoardKey(fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi'])), true);
+        $full = array_values(array_filter($notes, fn ($p) => ($p['phase'] ?? null) === 'full'))[0] ?? [];
+        same('fanboy waits: the step says it — phase full, `waits`, `until` the quiet ceiling from now', ['full', true, true, true],
+            [$full['phase'] ?? null, $full['waits'] ?? null, $full['quiet'] ?? null, abs(($full['until'] ?? 0) - time() - FANBOY_UP_HOLD_QUIET) <= 3]);
+        fanboyGiveBack(null, 'step', fanboyMe('step'));
+        same('fanboy waits: a test\'s whole time — per output its ceiling and ' . FANBOY_UP_STEP_EXTRA . ' s, never under ' . FANBOY_STEP_MAX . ' s; a measuring keeps ' . FANBOY_STEP_MAX . ' s',
+            [6 * (FANBOY_UP_HOLD_QUIET + FANBOY_UP_STEP_EXTRA), 6 * (FANBOY_UP_HOLD + FANBOY_UP_STEP_EXTRA), FANBOY_STEP_MAX, FANBOY_STEP_MAX],
+            [fanboyStepMax(['kind' => 'test_up', 'quiet' => true, 'fans' => range(1, 6)]), fanboyStepMax(['kind' => 'test_up', 'fans' => range(1, 6)]),
+                fanboyStepMax(['kind' => 'test_up', 'quiet' => true, 'fans' => [1]]), fanboyStepMax(['kind' => 'measure', 'fans' => range(1, 6)])]);
+        same('fanboy waits: the ceilings — 10 minutes, 3 in the quiet test; the state tells the page', [600.0, 180.0, 600, 180],
+            [FANBOY_UP_HOLD, FANBOY_UP_HOLD_QUIET, fanboyTimes()['up_hold'], fanboyTimes()['up_hold_quiet']]);
+        // the page: it says the output waits for the answer and when it pauses; the panel he chose stays his (it follows a
+        // run only from the run's own row), the running one a click away; after a pause «Go on testing»; what he is in
+        // stays where it is on the screen (tools/fanboy/setup-live.mjs clicks it through)
+        $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
+        $l = ['en' => json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/lang/en.json'), true)];
+        check('fanboy waits: the page — `waits` read, the strip\'s clock counts to the pause, the follow only from the run\'s own row, the running output a link away, «Go on testing» after a pause, the focused node kept in place',
+            str_contains($js, "r.waits = phase === 'full' && !!p.waits;")
+            && str_contains($js, "setText(since, run.waits && run.left !== null ? T('strip.waits_left', { time: clockText(run.left) })")
+            && str_contains($js, "if (to && to !== followed && ids.includes(to) && !typing && (!followed || !sel || sel === followed)) sel = to;")
+            && str_contains($js, "panel: (id, api) => panelMake(id, api.now, api.update, api.select),")
+            && str_contains($js, "if (why === 'unanswered') { const tm = timesNow(); return T('step.ended.unanswered', { n: Math.round((s.quiet ? tm.up_hold_quiet : tm.up_hold) / 60) }); }")
+            && str_contains($js, "if (rest.length) out.push(btn(T('test.resume'), 'btn', () => startTest(rest), T('test.resume_tip', { n: rest.length })));")
+            && str_contains($js, "if (view && a && a !== document.body && view.contains(a)) Office.keepInPlace(a, go); else go();")
+            && str_contains($l['en']['panel.now'], 'until you answer') && is_file(OFFICE_DIR . '/tools/fanboy/setup-live.mjs'));
+    } finally {
+        fanboyTEnd();
+    }
+}
+
+/**
+ * 2026-11-20 (the owner: «“On the CPU” or “in the case” is missing» in «Wo sitzt er?»): two places on no wall — on the CPU,
+ * inside the case — stored like the walls (additive: the walls keep their meaning); the page offers per role the places
+ * that fit, the likeliest first (a CPU cooler: on the CPU); the server picture draws them among the heat sources, their
+ * air going on to the rear, never deciding the zone's air. And the look (for the picture) on the setup tab: open, no fold.
+ */
+function testFanboySetupPlaces(): void
+{
+    $t = fanboyT('places');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        $clock = 0.0;
+        fanboyStepRun(['id' => 'pl1', 'kind' => 'test_up', 'fans' => [fanboyTId(1), fanboyTId(4)]], fanboyTIo($t, $spec, $clock, null, 10.0));
+        fanboyRole(['fan' => fanboyTId(1), 'role' => 'cpu', 'name' => 'CPU', 'place' => 'cpu']);
+        fanboyRole(['fan' => fanboyTId(4), 'role' => 'ram', 'name' => 'RAM', 'place' => 'inside']);
+        $fans = fanboyBoardRaw()['fans'];
+        same('fanboy places: «on the CPU» and «inside the case» stored like a wall', ['cpu', 'inside'], [$fans[fanboyTId(1)]['place'] ?? null, $fans[fanboyTId(4)]['place'] ?? null]);
+        fanboyRole(['fan' => fanboyTId(4), 'role' => 'case', 'place' => 'rear']);
+        same('fanboy places: … a wall again, as before', 'rear', fanboyBoardRaw()['fans'][fanboyTId(4)]['place'] ?? null);
+        try {
+            fanboyRole(['fan' => fanboyTId(4), 'role' => 'case', 'place' => 'middle']);
+            $key = 'kept';
+        } catch (Problem $p) {
+            $key = $p->key;
+        }
+        same('fanboy places: a place nobody knows still refused', 'fanboy_bad_place', $key);
+        same('fanboy places: the agent\'s places — the five walls as before, then the two on no wall', ['front', 'rear', 'top', 'bottom', 'side', 'cpu', 'inside'], FANBOY_PLACES);
+    } finally {
+        fanboyTEnd();
+    }
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
+    $art = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/fan-art.js');
+    $css = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.css');
+    $l = [];
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $l[$code] = json_decode((string) file_get_contents(OFFICE_DIR . "/public/desks/fanboy/lang/$code.json"), true);
+    }
+    check('fanboy places: the page knows the same places as the agent and fan-art.js, each with its words in all five languages',
+        str_contains($js, "const PLACES = ['front', 'rear', 'top', 'bottom', 'side', 'cpu', 'inside'];") && str_contains($art, "const PLACES = ['front', 'rear', 'top', 'bottom', 'side', 'cpu', 'inside'];")
+        && count(array_filter($l, fn ($x) => is_string($x['place.cpu'] ?? null) && is_string($x['place.inside'] ?? null))) === 5
+        && $l['de']['place.cpu'] === 'Auf der CPU' && $l['de']['place.inside'] === 'Im Gehäuse');
+    check('fanboy places: per role the places that fit — a CPU cooler «on the CPU» first, a pump, RAM and NVMe fan «inside» first, the case and the disk cage a wall first, «on the CPU» never for them; a stored place stays offered; the options built anew only when they change, never under his hand',
+        str_contains($js, "cpu: ['cpu', 'top', 'front', 'rear', 'inside', 'bottom', 'side'],") && str_contains($js, "pump: ['inside', 'top', 'front', 'rear', 'bottom', 'side'],")
+        && str_contains($js, "case: ['front', 'rear', 'top', 'bottom', 'side', 'inside'],") && str_contains($js, "disks: ['front', 'side', 'bottom', 'top', 'rear', 'inside'],")
+        && str_contains($js, "return stored && PLACES.includes(stored) && !list.includes(stored) ? [...list, stored] : list;")
+        && str_contains($js, "if (document.activeElement === place) return;") && str_contains($js, "placeOptions(cur === 'empty' ? '' : cur, roleSet ? f.place : wantPlace);"));
+    check('fanboy places: the picture — a fan on the CPU or inside among the heat sources (on no wall), its air toward the rear, not counted for the zone\'s way',
+        str_contains($art, "const INSIDE = ['cpu', 'inside'];") && str_contains($art, "if (INSIDE.includes(place)) continue;")
+        && str_contains($art, "const side = inside ? wall.rear : wall[place];") && str_contains($art, "(inside ? inner : sides[side]).appendChild(w.el);")
+        && str_contains($art, "if (inner.childElementCount) mid.appendChild(inner);"));
+    // 2026-11-20 (the owner: ««Zeig mir» can go, «Testen» does exactly the same»): never both side by side
+    check('fanboy show or test: a found fan\'s panel offers «test again» — «show me» only while he steers (a test refused until he hands back; the control lifts it and takes it back), then working, not set back; the help says so, the quiet test\'s help no longer speaks of showing',
+        str_contains($js, "const showOnly = control().running && situation() !== 'other' && ['tach', 'silent'].includes(found);")
+        && str_contains($js, "if (showOnly) out.push(btn(T('show.button'), 'btn plain', () => { expect({ now: T('strip.starting_show', { fan: fanSay(id) }), done: () => !!runNow().kind }); send('show', { fan: id, quiet: false }, { fresh: true }); }, T('show.tip')));\n        else out.push(btn(leftAlone(f) ? T('test.start_one') : T('test.again_long'), 'btn plain', () => startTest([id]), T('test.one_tip')));")
+        && str_contains($js, "const blocked = !!run.kind || (!!noTest && !showOnly) || away;") && str_contains($js, "else if (!run.kind && noTest && !showOnly) reason = noTest;")
+        && str_contains($l['de']['help.show_text'], 'Nur solange Fanboy regelt') && str_contains($l['en']['help.show_text'], '«Test again» does the same')
+        && !str_contains($l['de']['help.quiet_text'], 'gezeigt'));
+    check('fanboy look open: on the setup tab the look (maker, model, colours, blades) is a section shown open under its heading — no fold, no kept fold state; «give back to» stays a fold',
+        str_contains($js, "const look = el('section', 'fb-look-open');") && str_contains($js, "const lookSum = el('h4', 'fb-q');")
+        && !str_contains($js, "keepFold(el('details', 'fb-fold'), `look:\${id}`") && str_contains($js, "const back = keepFold(el('details', 'fb-fold'), `back:\${id}`, false);")
+        && str_contains($css, '.fb-look-open{'));
+}
+
+/**
+ * 2026-11-20 (the owner's two recordings: a horizontal scrollbar flashing on the set-up tab, the page's scrollbar
+ * twitching on the overview): whatever fan-art.js turns or lets fly sits in a box of its own that clips it — the
+ * wheel's turning square in .fan-spin, a wheel's streaks in .fan-air, a zone's in .fan-flow — so no frame of an
+ * animation changes a page's size (tools/fanboy/frames.mjs and `dashboard.mjs --frames` check it in a browser)
+ */
+function testFanboyArtClipped(): void
+{
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/fan-art.js');
+    $css = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/fan-art.css');
+    check('fanboy art clipped: the turning part in .fan-spin (square: a rounded clip repaints every frame), a wheel\'s and a zone\'s air clip their streaks',
+        str_contains($js, "const spin = el('div', 'fan-spin');\n    spin.appendChild(rotor);\n    box.append(frame, spin, front, arc, badge);")
+        && str_contains($css, '.fan-spin{position:absolute; inset:0; overflow:hidden; overflow:clip}') && !preg_match('/\.fan-spin\{[^}]*radius/', $css)
+        && preg_match('/\.fan-air\{[^}]*overflow:hidden; overflow:clip/', $css) === 1 && preg_match('/\.fan-flow\{[^}]*overflow:hidden/', $css) === 1);
+    $frames = (string) file_get_contents(OFFICE_DIR . '/tools/fanboy/frames.mjs');
+    $dash = (string) file_get_contents(OFFICE_DIR . '/tools/fanboy/dashboard.mjs');
+    check('fanboy art clipped: the browser checks — every animated part clipped inside the picture, the page\'s size steady over every moment and frame; the Dashboard tile likewise',
+        str_contains($frames, 'export async function sizeChecks(page, secs = 3)') && str_contains($frames, "if (!c || !c.closest(art)) bad.add(")
+        && str_contains($dash, "const { sizeChecks, sizeVerdicts } = await import(path.join(HERE, 'frames.mjs'));"));
 }

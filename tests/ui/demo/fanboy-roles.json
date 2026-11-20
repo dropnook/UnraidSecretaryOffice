@@ -1893,7 +1893,8 @@
   },
   "times": {
    "clear_after": 120,
-   "up_for": 60,
+   "up_hold": 600,
+   "up_hold_quiet": 180,
    "up_min": 8,
    "show_for": 60,
    "lease": 45,

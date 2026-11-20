@@ -609,7 +609,8 @@ function fanboyEnsureControl(float $now): void
 
 /**
  * The seconds (and percents) the page's sentences state, each from its constant — one place (the setup's state `times`):
- * clear_after (an alarm's zone stays at full after its reason), up_for / up_min (a test's full phase), show_for, lease (the
+ * clear_after (an alarm's zone stays at full after its reason), up_hold / up_hold_quiet / up_min (a test's full phase:
+ * its ceilings without an answer, its least), show_for, lease (the
  * page's sign of life), tell_after (the chip missing → told), idle_warm_after (a watched fan standing while warm → told),
  * stand_after (a fan of his at 0 rpm → stands), history_every, history_periods (h), poll_live (a disk value counts as it
  * is up to this poll), crash_pause / crash_window / crash_max, net (the net for the sources in no zone)
@@ -617,7 +618,7 @@ function fanboyEnsureControl(float $now): void
 function fanboyTimes(): array
 {
     return [
-        'clear_after' => (int) FANBOY_CLEAR_AFTER, 'up_for' => (int) FANBOY_UP_FOR, 'up_min' => (int) FANBOY_UP_MIN, 'show_for' => (int) FANBOY_SHOW_FOR,
+        'clear_after' => (int) FANBOY_CLEAR_AFTER, 'up_hold' => (int) FANBOY_UP_HOLD, 'up_hold_quiet' => (int) FANBOY_UP_HOLD_QUIET, 'up_min' => (int) FANBOY_UP_MIN, 'show_for' => (int) FANBOY_SHOW_FOR,
         'lease' => (int) FANBOY_STEP_LEASE, 'tell_after' => (int) FANBOY_TELL_AFTER, 'idle_warm_after' => (int) FANBOY_IDLE_WARM_AFTER,
         'stand_after' => (int) FANBOY_STAND_AFTER, 'history_every' => (int) FANBOY_HISTORY_EVERY, 'history_periods' => FANBOY_HISTORY_PERIODS,
         'poll_live' => FANBOY_POLL_LIVE, 'crash_pause' => (int) FANBOY_CRASH_PAUSE, 'crash_window' => (int) FANBOY_CRASH_WINDOW, 'crash_max' => FANBOY_CRASH_MAX,

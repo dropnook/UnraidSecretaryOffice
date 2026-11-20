@@ -37,7 +37,8 @@
                                                  plain text on the hub (lines split by «\n», on a sticker of
                                                  sticker_colour; only where the wheel is drawn ≥ 72 px) — optional,
                                                  none = the neutral wheel («other fan»)
-       place: 'front' | 'rear' | 'top' | 'bottom' | 'side'     (server picture only: the wall of its zone it sits in)
+       place: 'front' | 'rear' | 'top' | 'bottom' | 'side' | 'cpu' | 'inside'   (server picture only: the wall of its zone
+                                                 it sits in — cpu and inside: on no wall, among the heat sources)
        flow: 'in' | 'out'                        the air: streaks coming to the wheel or leaving it, more and quicker the
                                                  faster it turns, none while it stands, calmer for a BIOS fan. Without a
                                                  flow they just leave it; in the server picture front and bottom fans take
@@ -91,7 +92,8 @@
   const SVG = 'http://www.w3.org/2000/svg';
   const COLOURS = ['auto', 'black', 'graphite', 'grey', 'white', 'slate', 'accent'];
   const STATES = ['run', 'stopped', 'unknown', 'bios'];
-  const PLACES = ['front', 'rear', 'top', 'bottom', 'side'];
+  const PLACES = ['front', 'rear', 'top', 'bottom', 'side', 'cpu', 'inside'];
+  const INSIDE = ['cpu', 'inside'];          // on no wall: drawn among the zone's heat sources, the air passing front to rear
   const KINDS = ['disk', 'nvme', 'cpu', 'ram', 'board', 'gpu', 'other'];
   // a model's look: its colours by name (fan-art.css turns each into the office's palette), its blades' character, its frame
   const LOOK_COLOURS = ['black', 'charcoal', 'graphite', 'grey', 'silver', 'white', 'beige', 'brown', 'frost'];
@@ -426,7 +428,11 @@
     const label = el('span', 'fan-label'), sub = el('span', 'fan-sub');
     cap.append(label, sub);
     let frame = frameSvg('square'), front = frontSvg(null, 120, 0);
-    box.append(frame, rotor, front, arc, badge);
+    // the turning part in a box of its own that clips it (2026-11-20, the owner's recordings: a turning square's corners
+    // reached past the wheel and, near a page's edge, made its scrollbars twitch): nothing that turns changes a page's size
+    const spin = el('div', 'fan-spin');
+    spin.appendChild(rotor);
+    box.append(frame, spin, front, arc, badge);
     root.append(box, cap);
     let drawn = '', aired = '', framed = '', fronted = '', painted = '';
     const m = mover(root);
@@ -532,7 +538,8 @@
   // The zone as a piece of a case: its walls a frame, the fans on the wall they sit in (place), the heat sources between
   // them, the air drifting through from the intake to the exhaust. A fan without flow: front and bottom take air in,
   // rear and top let it out (the usual case). On a phone the zone stands upright: front fans on the top wall, rear ones on
-  // the bottom wall, the air from top to bottom.
+  // the bottom wall, the air from top to bottom. A fan on the CPU or inside the case sits among the heat sources, its air
+  // going on toward the rear; it doesn't decide which way the zone's air goes.
   const narrow = window.matchMedia ? window.matchMedia('(max-width:640px)') : { matches: false };
   const WALL = { wide: { front: 'left', rear: 'right', top: 'top', side: 'top', bottom: 'bottom' },
     tall: { front: 'top', rear: 'bottom', top: 'top', side: 'top', bottom: 'bottom' } };
@@ -542,6 +549,7 @@
     let x = 0, y = 0;
     for (const fan of fans) {
       const place = pick(fan.place, PLACES, 'front');
+      if (INSIDE.includes(place)) continue;
       const [axis, toward] = AXIS[wall[place]];
       const v = flowAt(fan, place) === 'out' ? toward : -toward;
       if (axis === 'x') x += v; else y += v;
@@ -629,18 +637,21 @@
         }
         const mid = el('div', 'fan-heat');
         area.appendChild(mid);
+        const inner = el('div', 'fan-inner');
         fans.forEach((fan, fi) => {
           const key = `${zid}/${fan.id != null ? fan.id : fi}`;
           const place = pick(fan.place, PLACES, 'front');
-          const side = wall[place];
-          const look = Object.assign({ px }, fan, { side, flow: flowAt(fan, place), caption: side === 'right' ? 'left' : 'right' },
+          const inside = INSIDE.includes(place);
+          const side = inside ? wall.rear : wall[place];
+          const look = Object.assign({ px }, fan, { side, flow: inside ? 'out' : flowAt(fan, place), caption: inside || side !== 'right' ? 'right' : 'left' },
             o.air === false ? { air: false } : {});
           let w = wheels.get(key);
           if (w && w.el.fanWheel) w.update(look); else w = wheel(look);
           wheels.delete(key);
           keep.set(key, w);
-          sides[side].appendChild(w.el);
+          (inside ? inner : sides[side]).appendChild(w.el);
         });
+        if (inner.childElementCount) mid.appendChild(inner);
         for (const w of SIDES) {
           if (sides[w].childElementCount) area.classList.add(`fan-has-${w}`); else sides[w].remove();
         }
