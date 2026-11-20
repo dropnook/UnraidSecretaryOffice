@@ -202,9 +202,27 @@ try {
     await page.waitForTimeout(300);
     const cage = await panelOf(4);
     check(`${width} places: the disk cage a wall first, never «on the CPU», «inside» offered`, cage.opts[1] === 'front' && !cage.opts.includes('cpu') && cage.opts.includes('inside'), JSON.stringify(cage.opts));
+    // the owner (point 5): «Zeig mir» and «Nochmal testen» never side by side — before he steers the test alone
+    const acts = (p) => p.evaluate(() => [...document.querySelectorAll('#sso .fb-panel-slot .fb-panel .fb-panel-acts button')].map((b) => [b.textContent, b.classList.contains('fb-off')]));
+    const before = await acts(page);
+    check(`${width} show or test: before he steers a found fan offers «Test again», no «Show me»`, before.some(([t]) => t === EN['test.again_long']) && !before.some(([t]) => t === EN['show.button']), JSON.stringify(before));
     check(`${width} places: no error`, !errors.length, errors.join(' | '));
     await ctx.close();
     if (h.close) await h.close();
+    // … while he steers (a test refused until he hands back): «Show me» alone, and it works
+    const h3 = await startHarness({ demo: true, alias: { fanboy: 'fanboy' } });
+    const ctx3 = await browser.newContext({ viewport: { width, height: 900 }, isMobile: width < 768, hasTouch: width < 768, colorScheme: 'dark' });
+    await ctx3.addInitScript(() => { try { localStorage.setItem('office.lang', 'en'); } catch (e) { /* none */ } });
+    const page3 = await ctx3.newPage();
+    await page3.goto(`${h3.url}?theme=black#/fanboy/setup/test`, { waitUntil: 'load' });
+    await page3.waitForSelector('#sso .fb-panel', { timeout: 15000 });
+    await page3.waitForTimeout(800);
+    await page3.click('#sso .fb-item[data-row$="pwm4"]');
+    await page3.waitForTimeout(300);
+    const steering = await acts(page3);
+    check(`${width} show or test: while he steers a found fan offers «Show me» alone, not set back`, steering.length === 1 && steering[0][0] === EN['show.button'] && !steering[0][1], JSON.stringify(steering));
+    await ctx3.close();
+    if (h3.close) await h3.close();
     // the picture: a CPU cooler on the CPU sits among the heat sources of its zone
     const h2 = await startHarness({ demo: true, alias: { fanboy: 'fanboy-cpu' } });
     const ctx2 = await browser.newContext({ viewport: { width, height: 900 }, isMobile: width < 768, hasTouch: width < 768, colorScheme: 'dark' });

@@ -428,7 +428,11 @@
     const label = el('span', 'fan-label'), sub = el('span', 'fan-sub');
     cap.append(label, sub);
     let frame = frameSvg('square'), front = frontSvg(null, 120, 0);
-    box.append(frame, rotor, front, arc, badge);
+    // the turning part in a box of its own that clips it (2026-11-20, the owner's recordings: a turning square's corners
+    // reached past the wheel and, near a page's edge, made its scrollbars twitch): nothing that turns changes a page's size
+    const spin = el('div', 'fan-spin');
+    spin.appendChild(rotor);
+    box.append(frame, spin, front, arc, badge);
     root.append(box, cap);
     let drawn = '', aired = '', framed = '', fronted = '', painted = '';
     const m = mover(root);

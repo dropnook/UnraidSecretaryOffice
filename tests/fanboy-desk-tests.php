@@ -562,7 +562,7 @@ function testFanboyUx(): void
     same('fanboy ux audit: the literals left are the agent\'s — the help texts (shown by the search without params): a test in the quiet mode three minutes at most without an answer, a show a minute, the 45 s lease; a point a minute; a name\'s and a connector\'s maximum come with the refusal',
         [180.0, 60.0, true, true, true],
         [FANBOY_UP_HOLD_QUIET, FANBOY_SHOW_FOR,
-            str_contains($l['de']['help.safe_text'], 'nach ' . (int) FANBOY_STEP_LEASE . ' Sekunden') && str_contains($l['de']['help.quiet_text'], 'höchstens drei Minuten') && str_contains($l['de']['help.quiet_text'], 'bis zu einer Minute') && str_contains($l['de']['help.show_text'], 'bis zu einer Minute'),
+            str_contains($l['de']['help.safe_text'], 'nach ' . (int) FANBOY_STEP_LEASE . ' Sekunden') && str_contains($l['de']['help.quiet_text'], 'höchstens drei Minuten') && str_contains($l['de']['help.show_text'], 'bis zu einer Minute'),
             FANBOY_HISTORY_EVERY === 60.0 && str_contains($l['de']['curves.history_none'], 'einem Punkt pro Minute'),
             str_contains($l['de']['errors.fanboy_bad_count'], 'Zwischen 1 und {max}') && str_contains($l['en']['errors.fanboy_bad_count'], '{max}') && str_contains($l['de']['errors.fanboy_bad_name'], '{max}')]);
     check('fanboy ux audit: the limits the page offers are the state\'s (fans on a connector, zones); the crashed control says when it is started again and when not any more from the state\'s times and restarts — «given up» has its own words',
@@ -1817,8 +1817,36 @@ function testFanboySetupPlaces(): void
         str_contains($art, "const INSIDE = ['cpu', 'inside'];") && str_contains($art, "if (INSIDE.includes(place)) continue;")
         && str_contains($art, "const side = inside ? wall.rear : wall[place];") && str_contains($art, "(inside ? inner : sides[side]).appendChild(w.el);")
         && str_contains($art, "if (inner.childElementCount) mid.appendChild(inner);"));
+    // 2026-11-20 (the owner: ««Zeig mir» can go, «Testen» does exactly the same»): never both side by side
+    check('fanboy show or test: a found fan\'s panel offers «test again» — «show me» only while he steers (a test refused until he hands back; the control lifts it and takes it back), then working, not set back; the help says so, the quiet test\'s help no longer speaks of showing',
+        str_contains($js, "const showOnly = control().running && situation() !== 'other' && ['tach', 'silent'].includes(found);")
+        && str_contains($js, "if (showOnly) out.push(btn(T('show.button'), 'btn plain', () => { expect({ now: T('strip.starting_show', { fan: fanSay(id) }), done: () => !!runNow().kind }); send('show', { fan: id, quiet: false }, { fresh: true }); }, T('show.tip')));\n        else out.push(btn(leftAlone(f) ? T('test.start_one') : T('test.again_long'), 'btn plain', () => startTest([id]), T('test.one_tip')));")
+        && str_contains($js, "const blocked = !!run.kind || (!!noTest && !showOnly) || away;") && str_contains($js, "else if (!run.kind && noTest && !showOnly) reason = noTest;")
+        && str_contains($l['de']['help.show_text'], 'Nur solange Fanboy regelt') && str_contains($l['en']['help.show_text'], '«Test again» does the same')
+        && !str_contains($l['de']['help.quiet_text'], 'gezeigt'));
     check('fanboy look open: on the setup tab the look (maker, model, colours, blades) is a section shown open under its heading — no fold, no kept fold state; «give back to» stays a fold',
         str_contains($js, "const look = el('section', 'fb-look-open');") && str_contains($js, "const lookSum = el('h4', 'fb-q');")
         && !str_contains($js, "keepFold(el('details', 'fb-fold'), `look:\${id}`") && str_contains($js, "const back = keepFold(el('details', 'fb-fold'), `back:\${id}`, false);")
         && str_contains($css, '.fb-look-open{'));
+}
+
+/**
+ * 2026-11-20 (the owner's two recordings: a horizontal scrollbar flashing on the set-up tab, the page's scrollbar
+ * twitching on the overview): whatever fan-art.js turns or lets fly sits in a box of its own that clips it — the
+ * wheel's turning square in .fan-spin, a wheel's streaks in .fan-air, a zone's in .fan-flow — so no frame of an
+ * animation changes a page's size (tools/fanboy/frames.mjs and `dashboard.mjs --frames` check it in a browser)
+ */
+function testFanboyArtClipped(): void
+{
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/fan-art.js');
+    $css = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/fan-art.css');
+    check('fanboy art clipped: the turning part in .fan-spin (square: a rounded clip repaints every frame), a wheel\'s and a zone\'s air clip their streaks',
+        str_contains($js, "const spin = el('div', 'fan-spin');\n    spin.appendChild(rotor);\n    box.append(frame, spin, front, arc, badge);")
+        && str_contains($css, '.fan-spin{position:absolute; inset:0; overflow:hidden; overflow:clip}') && !preg_match('/\.fan-spin\{[^}]*radius/', $css)
+        && preg_match('/\.fan-air\{[^}]*overflow:hidden; overflow:clip/', $css) === 1 && preg_match('/\.fan-flow\{[^}]*overflow:hidden/', $css) === 1);
+    $frames = (string) file_get_contents(OFFICE_DIR . '/tools/fanboy/frames.mjs');
+    $dash = (string) file_get_contents(OFFICE_DIR . '/tools/fanboy/dashboard.mjs');
+    check('fanboy art clipped: the browser checks — every animated part clipped inside the picture, the page\'s size steady over every moment and frame; the Dashboard tile likewise',
+        str_contains($frames, 'export async function sizeChecks(page, secs = 3)') && str_contains($frames, "if (!c || !c.closest(art)) bad.add(")
+        && str_contains($dash, "const { sizeChecks, sizeVerdicts } = await import(path.join(HERE, 'frames.mjs'));"));
 }

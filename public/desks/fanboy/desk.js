@@ -2836,11 +2836,14 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     const open = (setup().outputs || []).filter((x) => openWhy(x) === 'test');
     const more = run.kind === 'test' && run.queue.length > 0;
     const queued = run.kind === 'test' && !here && (run.queue.includes(id) || (run.pause && run.pause.next === id));
+    // 2026-11-20 (the owner: ««Zeig mir» can go, «Testen» does exactly the same»): a found fan gets «test again» — and only
+    // while he steers (a test refused until he hands back) «show me» instead: the control lifts it to 100 % and takes it back
+    const showOnly = control().running && situation() !== 'other' && ['tach', 'silent'].includes(found);
     let reason = '';
     if (queued) reason = T('panel.queued');
     else if (!here && run.pause) reason = T('panel.pause');
     else if (!here && run.kind) reason = T('panel.busy', { fan: run.id ? fanSay(run.id) : '' });
-    else if (!run.kind && noTest) reason = noTest;
+    else if (!run.kind && noTest && !showOnly) reason = noTest;
     else if (!run.kind && never) reason = T(`test.${found}_hint`);
     else if (away) reason = T('strip.away');
     // the running output a click away (2026-11-20: the panel he chose stays his while the test goes on — its answer is there)
@@ -2852,7 +2855,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
       const out = [];
       if (ending) { const w = el('span', 'fb-wait running'); w.append(wave(), el('span', '', T('strip.ending'))); return [w]; }
       if (queued) return out;                  // its turn comes in this run: nothing to start here (the strip has «Stop everything»)
-      const blocked = !!run.kind || !!noTest || away;
+      const blocked = !!run.kind || (!!noTest && !showOnly) || away;
       if (here && run.kind === 'show') {
         out.push(btn(T('show.stop'), 'btn', () => send('show_stop', { fan: id }), T('show.stop_tip')));
       } else if (here) {
@@ -2870,8 +2873,8 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
         out.push(btn(open.length > 1 ? T('test.start') : T('test.start_one'), 'btn', () => startTest(open.length > 1 ? rest : [id]), open.length > 1 ? T('test.all_tip') : T('test.one_tip')));
         if (open.length > 1) out.push(btn(T('test.only'), 'btn plain', () => startTest([id]), T('test.one_tip')));
       } else {
-        out.push(btn(leftAlone(f) ? T('test.start_one') : T('test.again_long'), 'btn plain', () => startTest([id]), T('test.one_tip')));
-        if (['tach', 'silent'].includes(found)) out.push(btn(T('show.button'), 'btn plain', () => { expect({ now: T('strip.starting_show', { fan: fanSay(id) }), done: () => !!runNow().kind }); send('show', { fan: id, quiet: quietOn() && !control().running }, { fresh: true }); }, T('show.tip')));
+        if (showOnly) out.push(btn(T('show.button'), 'btn plain', () => { expect({ now: T('strip.starting_show', { fan: fanSay(id) }), done: () => !!runNow().kind }); send('show', { fan: id, quiet: false }, { fresh: true }); }, T('show.tip')));
+        else out.push(btn(leftAlone(f) ? T('test.start_one') : T('test.again_long'), 'btn plain', () => startTest([id]), T('test.one_tip')));
       }
       // answering the question writes no output: only the messenger away sets it back; a test or a show needs the way free.
       // Set back, never dead: a click says why.

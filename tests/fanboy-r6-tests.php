@@ -597,7 +597,7 @@ function testFanboyR7CardsKeepSize(): void
         str_contains($css, '.fb-panel-acts{display:flex; gap:8px; flex-wrap:wrap; align-items:center; min-height:34px}') && str_contains($js, "reason = T('panel.busy', { fan: run.id ? fanSay(run.id) : '' });"));
     // 2026-11-17: «show me» lives in the setup's panel only — the overview's rows change nothing
     check('fanboy r7 cards: «show me» only in the setup\'s panel — no button of it on the overview',
-        substr_count($js, "T('show.button')") === 1 && str_contains($js, "if (['tach', 'silent'].includes(found)) out.push(btn(T('show.button'), 'btn plain',")
+        substr_count($js, "T('show.button')") === 1 && str_contains($js, "if (showOnly) out.push(btn(T('show.button'), 'btn plain',")
         && !str_contains($js, 'function showButton(') && !str_contains($css, '.fb-show{'));
 }
 

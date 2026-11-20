@@ -55,6 +55,7 @@
 .fan-sticker{fill:var(--fan-tag); stroke:var(--fan-line); stroke-width:.5}
 .fan-sticker-text{fill:var(--fan-tag-ink); font-family:inherit; font-weight:600; letter-spacing:-.01em}
 /* the turning part: an element of its own, turned by a transform only (the browser's compositor does the work) */
+.fan-spin{position:absolute; inset:0; overflow:hidden; overflow:clip}    /* clips the turning square's corners (square: a rounded clip repaints every frame) */
 .fan-rotor{position:absolute; inset:2.5%; will-change:transform; transform-origin:50% 50%}
 .fan-rotor svg{display:block; width:100%; height:100%}
 .fan-blades path{fill:var(--fan-blade); stroke:var(--fan-edge); stroke-width:.7; stroke-linejoin:round}
@@ -79,7 +80,7 @@
 .fan-cap-left .fan-cap{align-items:flex-end; text-align:right}
 /* the air: fine streaks beside the wheel, on its outside (fan-art.js turns them with the wheel; never with reduced motion) */
 .fan-wheel{--fan-air:color-mix(in srgb, var(--ink) 55%, transparent)}
-.fan-air{position:absolute; pointer-events:none; --fan-len:calc(var(--fan-px) * .55)}
+.fan-air{position:absolute; pointer-events:none; overflow:hidden; overflow:clip; --fan-len:calc(var(--fan-px) * .55)}   /* its streaks never leave it */
 .fan-air-right{left:100%; top:14%; width:var(--fan-len); height:72%}
 .fan-air-left{right:100%; top:14%; width:var(--fan-len); height:72%}
 .fan-air-top{bottom:100%; left:14%; height:var(--fan-len); width:72%}

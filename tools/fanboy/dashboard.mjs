@@ -7,7 +7,10 @@
 // with a throwaway profile. The office's own tile was never pictured by a tool; this is the smallest harness that
 // shows a tile inside Unraid's Dashboard. Dev-only.
 //
-//   node tools/fanboy/dashboard.mjs [--out <folder>] [--only <name>,…] [-v] [--cost [seconds]]
+//   node tools/fanboy/dashboard.mjs [--out <folder>] [--only <name>,…] [-v] [--cost [seconds]] [--frames]
+// --frames: no pictures — the tile's turning symbols never change the Dashboard's size (tools/fanboy/frames.mjs's checks:
+// each turning part clipped by a box of its own, the page's scrollWidth, scrollHeight and scroll position steady over
+// the animation's moments and frames), at 1440 and 390 px, the tile as the last thing on the page.
 // --cost: no pictures — what the tile costs the browser's main thread while it stays open (Chrome's own counters over the
 // seconds given, 20 by default): without symbols, with the symbols turning, with reduced motion, scrolled out of view.
 // Pictures: <out>/<name>-<theme>-<lang>-<width>.png. Fails (exit 1) on a console error, a page error, a PHP word on
@@ -31,6 +34,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--only') opt.only = args[++i].split(',');
   else if (a === '-v') opt.v = true;
   else if (a === '--cost') opt.cost = /^\d+$/.test(args[i + 1] || '') ? Number(args[++i]) : 20;
+  else if (a === '--frames') opt.frames = true;
   else { console.log(`fanboy dashboard: unknown argument ${a}`); process.exit(2); }
 }
 try { execFileSync('php', ['-v'], { stdio: 'ignore' }); } catch (e) { console.log('fanboy dashboard: php not found - not run'); process.exit(3); }
@@ -272,6 +276,28 @@ const failed = [];
 let taken = 0;
 if (opt.cost) {
   try { await cost(browser, opt.cost); } finally { await browser.close(); fs.rmSync(tmp, { recursive: true, force: true }); }
+  process.exit(0);
+}
+if (opt.frames) {
+  const { sizeChecks, sizeVerdicts } = await import(path.join(HERE, 'frames.mjs'));
+  const bad = [];
+  try {
+    for (const width of [1440, 390]) {
+      const scene = SCENES.find((x) => x[0] === 'fans');
+      const file = path.join(tmp, `frames-${width}.html`);
+      fs.writeFileSync(file, page('black', tile('fans', scene[1], scene[2], 'de')));
+      const ctx = await browser.newContext({ viewport: { width, height: 700 }, hasTouch: width < 768 });
+      const p = await ctx.newPage();
+      await p.goto(pathToFileURL(file).href);
+      await p.waitForFunction(() => document.querySelectorAll('#db-sso-fanboy .sso-fb-sym .fan-wheel').length > 0);
+      await p.waitForTimeout(1200);
+      await p.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      for (const [what, ok, detail] of sizeVerdicts(`tile ${width}`, await sizeChecks(p))) if (!ok) bad.push(`${what} — ${detail}`); else if (opt.v) console.log(`ok  ${what}`);
+      await ctx.close();
+    }
+  } finally { await browser.close(); fs.rmSync(tmp, { recursive: true, force: true }); }
+  if (bad.length) { console.log(`fanboy dashboard frames: ${bad.length} failed`); bad.forEach((b) => console.log(`  ✗ ${b}`)); process.exit(1); }
+  console.log('fanboy dashboard frames: all checks passed');
   process.exit(0);
 }
 try {
