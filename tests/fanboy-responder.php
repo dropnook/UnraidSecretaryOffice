@@ -11,7 +11,8 @@ declare(strict_types=1);
  *   $spec = ['hwmon' => 'hwmon10',                         the chip's folder under <root>/sys/class/hwmon
  *            'fans'  => [tach => ['output' => n, 'max' => rpm at 255, 'stall' => 0–1 (below: stops),
  *                                 'start' => 0–1 (from standing: needs this), 'auto' => rpm in the chip's mode,
- *                                 'lag' => seconds, 'stuck' => true (never turns), 'inverted' => true (more is slower),
+ *                                 'lag' => seconds, 'lag_down' => seconds running down (a fan coasts: slower than it
+ *                                 spins up; default 'lag'), 'stuck' => true (never turns), 'inverted' => true (more is slower),
  *                                 'auto_dead' => true (the chip's mode does nothing: the value counts, it87 #56),
  *                                 'bios' => true (the BIOS runs it whatever is written: its «auto» rpm),
  *                                 'floor' => rpm (round 12: below its stall value it keeps this — a PWM fan that never stops),
@@ -92,7 +93,8 @@ function fanboyFakeRespond(string $root, array $spec, float $dt): void
             }
         }
         $want = fanboyFakeRpmTarget($f, $read("$dir/pwm$n"), is_file("$dir/pwm{$n}_enable") ? $read("$dir/pwm{$n}_enable") : 1, $now, is_file("$dir/fan{$tach}_stood"), $flakyOk);
-        $lag = max(0.01, (float) ($f['lag'] ?? 1.0));
+        // a fan running down coasts (nothing drives it down): 'lag_down' when given, else the same lag both ways
+        $lag = max(0.01, (float) ($want < $now && isset($f['lag_down']) ? $f['lag_down'] : ($f['lag'] ?? 1.0)));
         $next = $now + ($want - $now) * min(1.0, $dt / $lag);
         if (abs($want - $next) < 15) {
             $next = $want;

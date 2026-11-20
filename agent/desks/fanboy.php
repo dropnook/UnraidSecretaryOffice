@@ -48,6 +48,8 @@ desk('fanboy', [
     'tick'    => fn () => fanboyTick(),
     'checks'  => fn (): array => fanboyChecks(fanboyBoardRaw(), readJson(fanboyStatusFile())),
     'metrics' => fn (): array => fanboyMetrics(readJson(fanboyStatusFile()), fanboyControlPid() !== null),
+    // his guard's cron file, there only while he steers: the night watchman knows its line as the office's own
+    'cron'    => fn (): array => [basename(FANBOY_GUARD_CRON) => [fanboyGuardCronLine()]],
     'jobs'    => [
         'fanboy-control' => fn (array $a): int => fanboyControlMain(),
         'fanboy-step'    => fn (array $a): int => fanboyStepMain(),

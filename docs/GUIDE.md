@@ -290,7 +290,8 @@ When you hire him he learns what is normal. Then he walks his round every five m
 - Each entry names its MITRE ATT&CK technique. The important ones go to Unraid's notifications.
 - Where he can't see who did it, he names who likely did, always as a guess.
 - *I know, thanks* makes it the new normal.
-- *This was a real incident…* keeps it with your note. For 30 days the same from the same source is told at once.
+- *This was a real incident…* keeps it with your note. As long as it is on that list, the same from the same source is
+  told at once and as important; *Not serious after all…* there takes it back.
 - While the array is stopped, his night shift keeps watch from RAM and the flash.
 
 **The router** (UniFi, MikroTik with RouterOS 7) sends its log to Unraid's syslog server; the Consultant shows how.

