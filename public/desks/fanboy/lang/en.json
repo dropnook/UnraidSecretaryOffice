@@ -543,7 +543,7 @@
   "zones.add_fan": "Add a fan…",
   "zones.no_fan": "No fan in this zone yet.",
   "zones.sources": "Heat sources",
-  "zones.sources_sub": "Click to take one in or out. The warmest counts; a sleeping disk counts as asleep, never as cold. Depending on the drivers installed, some sensors may appear more than once.",
+  "zones.sources_sub": "Click to take one in or out. The warmest counts; a sleeping disk counts as asleep, never as cold. Depending on the drivers installed, some sensors may appear more than once or be missing.",
   "zones.src_in": "Take into this zone",
   "zones.src_out": "Take out of this zone",
   "zones.sources_first": "No heat source yet — choose at least one; until then the zone's curve does nothing.",
