@@ -65,9 +65,10 @@ function testFanboyLookDash(): void
             $looks[] = [$a['look']['frame'] ?? null, $a['look']['style'] ?? null, $a['look']['reverse'] ?? null];
         }
     }
-    same('fanboy look dash: no error; the tile draws the mirrored fan in its new colour, the new blade shape — the other fans as before (no reverse key)',
-        ['', true, true, true], ['' . ($o['err'] ?? 'x'), in_array(['green', 'swept-narrow', true], $looks, true), in_array(['brown', 'short-broad', null], $looks, true) || in_array(['beige', 'short-broad', null], $looks, true),
-            !array_filter($looks, fn ($l) => $l[2] === false)], json_encode($looks));
+    // the others as their model is (the catalogue says reverse false for a usual one)
+    same('fanboy look dash: no error; the tile draws the mirrored fan in its new colour, the new blade shape — the other fans not mirrored',
+        ['', true, true, 1], ['' . ($o['err'] ?? 'x'), in_array(['green', 'swept-narrow', true], $looks, true), (bool) array_filter($looks, fn ($l) => $l[1] === 'short-broad' && $l[2] !== true),
+            count(array_filter($looks, fn ($l) => $l[2] === true))], json_encode($looks));
 }
 
 /** The page, the tile and fan-art.js know the same colours and blade shapes; the picker has the tick and resets it with the model */
@@ -133,5 +134,13 @@ JS);
     check('fanboy look keys: the owner\'s example — NF-A8: 7 short broad blades, big hub, pads; NF-A14 PWM: 7 wide blades, small hub, corner pieces, struts; NF-A14x25 G2: 9 wide-tipped sickles',
         is_array($o) && $o['a8'][0] === 7 && $o['a8'][1] === 'short-broad' && $o['a8'][2] === 'pads' && $o['a14'][0] === 7 && $o['a14'][1] === 'swept-wide' && $o['a14'][2] === 'corner'
         && $o['a8'][3] > $o['a14'][3] + 0.1 && $o['a14'][4] > 0 && $o['g2'][0] === 9 && $o['g2'][1] === 'sickle-wide', json_encode($o));
+    $named = [];
+    foreach (json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fans-catalog.json'), true)['fans'] ?? [] as $f) {
+        if (stripos((string) ($f['model'] ?? ''), 'reverse blade') !== false) {
+            $named[] = $f['id'];
+        }
+    }
+    check('fanboy look keys: reverse by make exactly where the maker sells it so (a model named «Reverse Blade»), and at least one there',
+        is_array($o) && $named !== [] && $o['reverseByMake'] === $named, json_encode([$o['reverseByMake'] ?? null, $named]));
     hardeningRm($tmp);
 }

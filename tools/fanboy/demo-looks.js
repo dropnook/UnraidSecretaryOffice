@@ -57,6 +57,10 @@
         rrow.appendChild(FanArt.wheel(wheelOf(by(id), { px: 160, sub: W.usual })).el);
         rrow.appendChild(FanArt.wheel(wheelOf(by(id), { px: 160, reverse: true, sub: W.reverse })).el);
       }
+      const ll = part('Lian Li', de ? 'Die UNI-FAN-Modelle aus dem Katalog (Reverse-Blade-Modelle ab Werk gespiegelt).' : 'The UNI FAN models of the catalogue (reverse-blade models mirrored as made).', 'fl-lianli');
+      const lrow = el('div', 'fl-wheels');
+      ll.appendChild(lrow);
+      for (const f of fans.filter((x) => x.brand === 'Lian Li')) lrow.appendChild(FanArt.wheel(wheelOf(f)).el);
       const co = part(W.col, W.colNote, 'fl-colours');
       const crow = el('div', 'fl-wheels');
       co.appendChild(crow);
