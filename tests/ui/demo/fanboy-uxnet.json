@@ -2435,6 +2435,7 @@
    "up_hold": 600,
    "up_hold_quiet": 180,
    "measure_max": 1053,
+   "measure_usual": 233,
    "up_min": 8,
    "show_for": 60,
    "lease": 45,

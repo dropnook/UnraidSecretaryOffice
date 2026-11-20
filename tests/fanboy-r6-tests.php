@@ -2363,6 +2363,68 @@ function fanboyNetSettings(): array
 }
 
 /**
+ * 2026-11-20 (Q3): a fan that takes longer to start from standing than the kick (4 s) — its measuring kept the longest
+ * start that passed (start_secs) — is held at its start value that long + 2 s, and the «stands» clock waits for its
+ * kicks (max(15 s, 2 × its kick + 5 s)). Fake fans with a soft start of 6 s and 10 s: no false «stands»; a fan that
+ * truly never turns still alarms, at its own clock. Without start_secs: as before (4 s, 15 s).
+ */
+function testFanboyKickStartSecs(): void
+{
+    $t = fanboyT('kicksecs');
+    try {
+        fanboyR12CpuTemp($t, 40);
+        $run = function (?float $secs, array $fan4) use ($t): array {
+            $spec = fanboyR12Spec();
+            $spec['fans'][4] = $fan4 + ['start' => 0.3] + $spec['fans'][4];
+            $s = fanboyNetSettings();
+            if ($secs !== null) {
+                $s['fans'][fanboyTId(4)]['measured']['start_secs'] = $secs;
+            }
+            $s['zones'] = array_map(fn ($z) => ['react' => 'quick'] + $z, $s['zones']);      // the level at once: one start to watch
+            fanboyNetDisks($t, 35, 33);
+            fanboyTStore($s);
+            fanboyTSettle($t, $spec, 30);
+            fanboyBeat();
+            $c = fanboyControlNew($s, FANBOY_T_KEY, fanboyMe('control'));
+            $now = 1000.0;
+            fanboyTRounds($c, $now, $t, $spec, 10);         // the cage cool: its fans stand on purpose
+            $stood = $c['fans'][fanboyTId(4)]['rpm'];
+            fanboyNetDisks($t, 42, 33);                     // 24 % asked — under its start value (40 %): a kick
+            $zeroAt = $turnAt = $alarmAt = null;
+            for ($i = 0; $i < 30; $i++) {
+                fanboyTRounds($c, $now, $t, $spec, 1);
+                $f = $c['fans'][fanboyTId(4)];
+                $zeroAt ??= $f['zero_since'];
+                if ($turnAt === null && ($f['rpm'] ?? 0) > 0 && $zeroAt !== null) {
+                    $turnAt = $now - $zeroAt;
+                }
+                if ($alarmAt === null && ($c['alarm']['code'] ?? null) === 'stands' && $zeroAt !== null) {
+                    $alarmAt = $now - $zeroAt;
+                }
+            }
+            $f = $c['fans'][fanboyTId(4)];
+            fanboyLetGo($c, 'end');
+            return ['stood' => $stood, 'turn' => $turnAt, 'alarm' => $alarmAt, 'kick' => $f['kick_secs'], 'stand' => $f['stand_after']];
+        };
+        $r = $run(null, ['soft' => 6]);
+        same('fanboy kick secs: without start_secs as before — kick 4 s, clock 15 s; a fan needing 6 s never gets them: a false «stands» (it turns only from the alarm\'s 100 %)',
+            [0, 4.0, 15.0, true], [$r['stood'], $r['kick'], $r['stand'], $r['alarm'] !== null && ($r['turn'] === null || $r['turn'] > $r['alarm'])], json_encode($r));
+        $r = $run(6.0, ['soft' => 6]);
+        same('fanboy kick secs: start_secs 6 — kick 8 s, clock 21 s: it turns within its kick, no «stands»',
+            [8.0, 21.0, true, null], [$r['kick'], $r['stand'], $r['turn'] !== null && $r['turn'] <= 8.0, $r['alarm']], json_encode($r));
+        $r = $run(10.0, ['soft' => 10]);
+        same('fanboy kick secs: start_secs 10 — kick 12 s, clock 29 s: it turns within its kick, no «stands»',
+            [12.0, 29.0, true, null], [$r['kick'], $r['stand'], $r['turn'] !== null && $r['turn'] <= 12.0, $r['alarm']], json_encode($r));
+        $r = $run(10.0, ['stuck' => true]);
+        check('fanboy kick secs: start_secs 10 and truly stuck — still «stands», at its own clock: 29 s after it should have turned (+ a round) ('
+            . json_encode($r) . ')', $r['turn'] === null && $r['alarm'] !== null && $r['alarm'] >= 29.0 && $r['alarm'] <= 29.0 + 2 * FANBOY_ROUND);
+    } finally {
+        fanboyR12CpuTemp($t, 28);
+        fanboyTEnd();
+    }
+}
+
+/**
  * Round 12 fix (the owner's first night: «Hinten rechts folgt nicht mehr wie vermessen — 0 U/min, vermessen 300»): the
  * drift look never judges a fan standing on purpose, nor one starting or stopping (the settle time), nor at a value
  * outside its table — and still says a fan that really doesn't follow
@@ -3102,7 +3164,7 @@ function testFanboyTimes(): void
     $t = fanboyT('times');
     try {
         $s = fanboySetupState(fanboyDetect(), fanboyBoardRaw());
-        $want = ['clear_after' => FANBOY_CLEAR_AFTER, 'up_hold' => FANBOY_UP_HOLD, 'up_hold_quiet' => FANBOY_UP_HOLD_QUIET, 'measure_max' => fanboyMeasureMaxSecs(), 'up_min' => FANBOY_UP_MIN, 'show_for' => FANBOY_SHOW_FOR, 'lease' => FANBOY_STEP_LEASE,
+        $want = ['clear_after' => FANBOY_CLEAR_AFTER, 'up_hold' => FANBOY_UP_HOLD, 'up_hold_quiet' => FANBOY_UP_HOLD_QUIET, 'measure_max' => fanboyMeasureMaxSecs(), 'measure_usual' => fanboyMeasureUsualSecs(), 'up_min' => FANBOY_UP_MIN, 'show_for' => FANBOY_SHOW_FOR, 'lease' => FANBOY_STEP_LEASE,
             'tell_after' => FANBOY_TELL_AFTER, 'idle_warm_after' => FANBOY_IDLE_WARM_AFTER, 'stand_after' => FANBOY_STAND_AFTER, 'history_every' => FANBOY_HISTORY_EVERY,
             'history_periods' => FANBOY_HISTORY_PERIODS, 'poll_live' => FANBOY_POLL_LIVE, 'crash_pause' => FANBOY_CRASH_PAUSE, 'crash_window' => FANBOY_CRASH_WINDOW,
             'crash_max' => FANBOY_CRASH_MAX, 'net' => ['warm_pct' => FANBOY_NET_WARM_PCT, 'hot_pct' => FANBOY_NET_HOT_PCT, 'gap' => FANBOY_NET_GAP, 'clear' => FANBOY_NET_CLEAR]];
