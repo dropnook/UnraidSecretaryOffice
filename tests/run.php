@@ -46708,7 +46708,7 @@ function testReport(): void
     $unlabelled = [];
     foreach ($files as $f => $desk) {
         $src = (string) file_get_contents($f);
-        preg_match_all('/(?<![\w$>:])(?:logLine\(\s*(?:sprintf\(\s*)?|metricsNote\([^,()]+,\s*)(\'(?:\\\\.|[^\'\\\\])*\'|"(?:\\\\.|[^"\\\\])*"|[^\'")\s][^),]*)/', $src, $m);
+        preg_match_all('/(?<![\w$>:])(?:logLine\(\s*(?:sprintf\(\s*)?|metricsNote\([^,()]+,\s*(?:sprintf\(\s*)?)(\'(?:\\\\.|[^\'\\\\])*\'|"(?:\\\\.|[^"\\\\])*"|[^\'")\s][^),]*)/', $src, $m);
         foreach ($m[1] as $arg) {
             if (str_starts_with($arg, 'string $text') || array_filter($notLiteral, fn ($x) => str_starts_with($arg, $x))) {
                 continue;

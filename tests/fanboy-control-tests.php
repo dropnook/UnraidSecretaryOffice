@@ -1041,8 +1041,8 @@ function testFanboyState(): void
         same('fanboy state: checks — he steers, no alarm', [['fanboy_steers', true], ['fanboy_alarm', true]],
             array_map(fn ($f) => [$f['id'], $f['ok']], fanboyChecks($settings, readJson(fanboyStatusFile()))));
         $m = fanboyMetrics(readJson(fanboyStatusFile()), true);
-        same('fanboy state: metrics — steering, no alarm, each zone\'s level and warmest, each fan\'s rpm',
-            ['uso_fanboy_steering', 'uso_fanboy_alarm', 'uso_fanboy_zone_level_percent', 'uso_fanboy_zone_temperature_celsius', 'uso_fanboy_fan_rpm'], array_column($m, 'name'));
+        same('fanboy state: metrics — steering, no alarm, each zone\'s level and warmest, each curve of a zone with several, each fan\'s rpm',
+            ['uso_fanboy_steering', 'uso_fanboy_alarm', 'uso_fanboy_zone_level_percent', 'uso_fanboy_zone_temperature_celsius', 'uso_fanboy_curve_temperature_celsius', 'uso_fanboy_fan_rpm'], array_column($m, 'name'));
         same('fanboy state: no checks before he took over', [], fanboyChecks($s2, null));
         // the setup's state for the page: fans, zones, outputs, stored fans not there now, other boards
         $setup = fanboySetupState($scan, $settings);
