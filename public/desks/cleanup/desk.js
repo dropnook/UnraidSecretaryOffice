@@ -466,7 +466,8 @@ function bubbleText() {
   if (!state) return Office.agent.running ? T('bubble.loading') : T('bubble.no_data');
   const found = [];
   for (const [key, c] of roomCounts()) found.push(T('bubble.' + key, { n: c.length, size: sizeText(c) }));
-  let text = found.length ? T('bubble.found', { list: found.join(', ') }) : T('bubble.spotless');
+  // spotless only where she looks: places left out (Where's list) she never looked into
+  let text = found.length ? T('bubble.found', { list: found.join(', ') }) : T(Where.skipCount() ? 'bubble.spotless_skip' : 'bubble.spotless');
   if (state.docker.enabled && !state.docker.ok) text = T('bubble.docker_down') + ' ' + text;
   if (state.trash.runs.length && state.trash.bytes !== null) text += ' ' + T('bubble.trash', { size: fmt.size(state.trash.bytes) });
   if (state.jobs.busy) text += ' ' + T('bubble.busy');
@@ -2846,12 +2847,22 @@ function pick(id, search) {
   Office.reveal(headOf(id));
 }
 
-/** «I know every corner: …» — Docker not answering: its containers can't be counted, said instead of «0 containers» (O8) */
+/** A share she doesn't look into at all: on the user's list, or all of it on places left out (its row's chip «left out») */
+const shareLeftOut = (s) => !!(s.skip && (s.skip.whole || (s.skip.on.length && !(s.storage.pools.length + s.storage.disks.length))));
+
+/**
+ * «I know every corner: …» — Docker not answering: its containers can't be counted, said instead of «0 containers» (O8).
+ * Shares left out (skipplaces.php): «almost every corner», how many she leaves out said in the same breath; all of them:
+ * no corner claimed, no share counted as known. A share partly left out is still one she looks at (where it isn't).
+ */
 function whereSummary() {
   const dk = state.system && state.system.docker;
   const containers = dk && dk.up === false ? Office.t('common.docker_off') : dk && dk.silent ? Office.t('common.docker_silent')
     : nOf('containers', state.containers.length);
-  return T('where.bubble.summary', { shares: nOf('shares', state.shares.length), containers, scripts: nOf('user_scripts', state.scripts.length) });
+  const counts = { shares: nOf('shares', state.shares.length), containers, scripts: nOf('user_scripts', state.scripts.length) };
+  const left = state.shares.filter(shareLeftOut).length;
+  if (!left) return T('where.bubble.summary', counts);
+  return left === state.shares.length ? T('where.bubble.summary_none', counts) : T('where.bubble.summary_some', { ...counts, n: left });
 }
 
 /** Her part of the bubble: every corner she knows (summary), what she noticed (links) and her advice (more) — null before her first look */
@@ -5458,7 +5469,9 @@ return {
   /** the visit ends: the bar's words and its switch go (never kept) */
   unmount() { view = null; clearTimeout(sizeTimer); mapRelease(); if (bar) bar.reset(); },
   /** tests/run.php (testCleanupTiles): the switcher and what each tile says */
+  skipCount,
   test: { sw, faces: () => (state ? Object.fromEntries(TILES.map((id) => [id, tileFace(id)])) : null),
+    setState: (s) => { state = s; }, summary: () => whereSummary(),
     space: { squarify, mapItems, mapAge, mapMostKind, fullest: spaceFullest, totals: spaceTotals, shareBytes, shareKind, level: spaceLevel, set: (s) => { space = s; } } },
 };
 })();

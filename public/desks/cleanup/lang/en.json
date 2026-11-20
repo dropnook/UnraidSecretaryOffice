@@ -352,6 +352,7 @@
   "bubble.no_data": "I haven't been able to look around yet — is the messenger in?",
   "bubble.docker_down": "Docker doesn't answer — I'll wait before I touch anything.",
   "bubble.spotless": "Spotless! Nothing lying around that nobody needs.",
+  "bubble.spotless_skip": "Spotless where I look! Nothing lying around that nobody needs — what you left out I don't look into.",
   "bubble.found": "Look what's lying around here: {list}.",
   "bubble.templates": {
     "one": "1 template",
@@ -997,6 +998,8 @@
   "where.bubble.no_tour": "I haven't been round every corner yet — a tour takes a few seconds, then I'll know where everything lies.",
   "where.bubble.no_data": "I can't reach the server and have nothing to show yet.",
   "where.bubble.summary": "I know every corner: {shares}, {containers} and {scripts} — and the dust in each of them.",
+  "where.bubble.summary_some": {"one": "I know almost every corner: {shares} (1 of them I leave out, as you wished), {containers} and {scripts} — and the dust in each one I look at.", "other": "I know almost every corner: {shares} ({n} of them I leave out, as you wished), {containers} and {scripts} — and the dust in each one I look at."},
+  "where.bubble.summary_none": "The shares I leave out, as you wished. The rest I know: {containers} and {scripts} — and the dust in each of them.",
   "count.shares": {"one": "{n} share", "other": "{n} shares"},
   "count.folders": {"one": "{n} folder", "other": "{n} folders"},
   "count.files": {"one": "{n} file", "other": "{n} files"},
