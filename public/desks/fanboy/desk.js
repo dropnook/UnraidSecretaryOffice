@@ -2913,8 +2913,12 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
   function save(nextId) {
     const f0 = setupFan(id) || {};
     const role = draft.role ?? f0.role;
-    const body = { fan: id, role, name: (draft.name ?? f0.name ?? '').trim(), place: draft.place ?? f0.place ?? '', count: draft.count ?? f0.count ?? 1,
-      off_ok: !!f0.off_ok && ROLES_OURS.includes(role) };
+    // 2026-11-20 (the owner: a look changed later must never lose a setting): only what this draft changed beside fan and
+    // role — never a tick the panel doesn't show («darf stehen» lives in its own place; the agent keeps what isn't sent)
+    const body = { fan: id, role };
+    if (draft.name !== undefined) body.name = draft.name.trim();
+    if (draft.place !== undefined) body.place = draft.place;
+    if (draft.count !== undefined) body.count = draft.count;
     if (draft.alike !== undefined) body.alike = draft.alike;
     if (draft.look) body.look = draft.look;
     send('fan_save', body).then((j) => {
