@@ -64576,7 +64576,7 @@ function testRunDirLeftovers(): void
     $agent = (string) file_get_contents(OFFICE_DIR . '/agent/agent.php');
     check('run dir leftovers: the agent sweeps at its start (before the desks start), empties its private folder, and looks once a minute',
         str_contains($agent, 'if ($gone = runDirSweep([]))') && strpos($agent, 'runDirSweep([])') < strpos($agent, "if (\$desk['start'])")
-        && strpos($agent, 'officeTmpEnsure(true);') < strpos($agent, "if (\$desk['start'])") && str_contains($agent, "runDirLook();               // the RAM folder's size"));
+        && strpos($agent, 'officeTmpEnsure(true, null, officeTmpInUse());') < strpos($agent, "if (\$desk['start'])") && str_contains($agent, "runDirLook();               // the RAM folder's size"));
 
     // the private folder under /tmp: made 0700; someone else's or a link in its place put aside, never followed; emptied at the start
     $p = "$tmp/ptmp";
@@ -64591,6 +64591,29 @@ function testRunDirLeftovers(): void
     chmod($p, 0777);
     officeTmpEnsure(false, $p);
     same('run dir private: one others could write — aside, made anew', '0700', substr(sprintf('%o', fileperms($p)), -4));
+    // a drill through atd outlives the agent: an agent that starts while it runs never takes the dump it is about to play
+    $keepDrill = $GLOBALS['drill'] ?? null;
+    mkdir("$p/drill", 0700);
+    file_put_contents("$p/drill/20261120-030000-ab12-0-pg.sql.gz", 'dump');
+    mkdir("$p/cleanup-icons-check");
+    $GLOBALS['drill'] = ['job_file' => "$tmp/drill-job.json"] + ($keepDrill ?? []);
+    try {
+        file_put_contents("$tmp/drill-job.json", json_encode(['id' => '20261120-030000-ab12', 'result' => 'queued', 'created' => time()]));
+        $inUse = officeTmpInUse();
+        officeTmpEnsure(true, $p, $inUse);
+        same('run dir private: a drill going on (his rule: drillRunning()) — its folder kept at the agent\'s start, the rest gone', [['drill'], true, false],
+            [$inUse, is_file("$p/drill/20261120-030000-ab12-0-pg.sql.gz"), is_dir("$p/cleanup-icons-check")]);
+        file_put_contents("$tmp/drill-job.json", json_encode(['id' => '20261120-030000-ab12', 'result' => 'running', 'pid' => $dead, 'created' => time()]));
+        $inUse = officeTmpInUse();
+        officeTmpEnsure(true, $p, $inUse);
+        same('run dir private: the drill gone (its process too) — what it left goes', [[], false], [$inUse, is_dir("$p/drill")]);
+    } finally {
+        if ($keepDrill === null) {
+            unset($GLOBALS['drill']);
+        } else {
+            $GLOBALS['drill'] = $keepDrill;
+        }
+    }
     $cl = (string) file_get_contents(OFFICE_DIR . '/agent/desks/cleanup.php');
     check('run dir private: her pictures are checked there, the drill\'s dumps lie there — never in the RAM folder',
         str_contains($cl, "\$dir = officeTmpDir() . '/cleanup-icons-check';") && str_contains($cl, "\$dir = officeTmpDir() . '/cleanup-icons-' . getmypid();")

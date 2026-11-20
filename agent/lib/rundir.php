@@ -113,10 +113,13 @@ function officeTmpDir(): string
 
 /**
  * The private folder made sure: a real folder of ours (root) that no one else may read or write — anything else in its
- * place (a link, a file, someone else's folder) renamed aside, never followed. $clean: emptied (the agent's start: nothing
- * of an agent before is still used). The folder, or null when it can't be had.
+ * place (a link, a file, someone else's folder) renamed aside, never followed. $clean: emptied (the agent's start: what an
+ * agent before left) — but for $keep, the first-level names a job that outlives the agent still uses (officeTmpInUse()).
+ * The folder, or null when it can't be had.
+ *
+ * @param list<string> $keep
  */
-function officeTmpEnsure(bool $clean = false, ?string $dir = null): ?string
+function officeTmpEnsure(bool $clean = false, ?string $dir = null, array $keep = []): ?string
 {
     $dir ??= officeTmpDir();
     clearstatcache(true, $dir);
@@ -136,16 +139,33 @@ function officeTmpEnsure(bool $clean = false, ?string $dir = null): ?string
         }
     }
     if ($clean) {
-        officeTmpEmpty($dir);
+        officeTmpEmpty($dir, 0, array_flip($keep));
     }
     return $dir;
 }
 
-/** Everything in the private folder removed, depth first — links themselves only, never what they point to */
-function officeTmpEmpty(string $dir, int $depth = 0): void
+/**
+ * What in the private folder a job that outlives the agent still uses: Mr. Restori's drill (through atd) keeps the dump it
+ * fetched from Kopia in drill/ until it is played — kept while his own rule says a drill is going on (drillRunning(): its
+ * job file, its process alive); a drill that is gone leaves nothing kept
+ *
+ * @return list<string>
+ */
+function officeTmpInUse(): array
+{
+    return function_exists('drillRunning') && drillRunning() !== null ? ['drill'] : [];
+}
+
+/**
+ * Everything in the private folder removed, depth first — links themselves only, never what they point to; at the top
+ * not the names in $keep (name => true)
+ *
+ * @param array<string, int> $keep
+ */
+function officeTmpEmpty(string $dir, int $depth = 0, array $keep = []): void
 {
     foreach (@scandir($dir) ?: [] as $name) {
-        if ($name === '.' || $name === '..') {
+        if ($name === '.' || $name === '..' || ($depth === 0 && isset($keep[$name]))) {
             continue;
         }
         $path = "$dir/$name";

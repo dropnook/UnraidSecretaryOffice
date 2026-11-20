@@ -579,7 +579,8 @@ function setUp(): void
         logLine('Office: removed from the RAM folder what the agent before left: ' . implode(', ', array_slice($gone, 0, 10)) . (count($gone) > 10 ? ' …' : ''));
     }
     runDirLook(true);
-    officeTmpEnsure(true);      // the private folder under /tmp: whatever an agent before left there is gone (lib/rundir.php)
+    // the private folder under /tmp: whatever an agent before left there is gone — not what a running drill still plays
+    officeTmpEnsure(true, null, officeTmpInUse());
     metricsStart();         // its folder in /mnt/addons and a first write, before the caretaker's start tour looks
     foreach (desks() as $id => $desk) {
         if ($desk['start']) {
