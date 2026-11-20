@@ -785,8 +785,10 @@
 /* explanations on chips (core.js: initTips) */
 .chip[data-tip], .chip[title]{cursor:help}
 /* the wait (core.js busyPlace): a clear shield keeps clicks off, the wave slim where nothing lives - never at the middle;
-   with no free place a pill of its own in the bottom right corner (a status over the page, not a control) */
-.busy{display:none; position:fixed; inset:0; z-index:10060; cursor:wait;
+   with no free place a pill of its own in the bottom right corner (a status over the page, not a control).
+   The pointer stays the plain one: the system's wait cursor is a spinner of its own (macOS: a blue ball) - the wave
+   is the office's one sign that something runs (2026-11-20, the owner) */
+.busy{display:none; position:fixed; inset:0; z-index:10060; cursor:default;
   & span{position:absolute; top:0; left:0; width:26px; height:15px; background:var(--wave) center / contain no-repeat; pointer-events:none}
   & span.busy-corner{box-sizing:content-box; padding:7px 12px; border:1px solid var(--line2); border-radius:999px;
     background:var(--wave) center / 26px 15px no-repeat, var(--surface); box-shadow:var(--shadow)}}
