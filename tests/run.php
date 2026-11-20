@@ -39193,7 +39193,7 @@ function testPartnerStart(): void
     $rjs = (string) file_get_contents(OFFICE_DIR . '/public/desks/restore/desk.js');
     check('kept inside: the page — the tile counts apps and VMs, the rows and moments name them, each app of a share a row with «Start here…» for it alone, the dialog says when to do it here',
         str_contains($rjs, "T('tile.kept_line_inside', { n: held.length, inside })") && str_contains($rjs, "insideText(p, s.inside, s.unread)")
-        && str_contains($rjs, "only: [x.folder] }") && str_contains($rjs, "T('rd.start_when', { name: (plan.target && plan.target.partner) || '' })"));
+        && str_contains($rjs, "only: [x.folder], pkg: x.folder }") && str_contains($rjs, "T('rd.start_when', { name: (plan.target && plan.target.partner) || '' })"));
 
     // ---- the preflight of a VM: the copy on the same pool, mounted; the files into domains/<vm>; the definition from .uso-backup
     $stamp = $at(7200);
@@ -39490,6 +39490,72 @@ function testPartnerStart(): void
          file_exists("$u3/appdata/Taken"), file_exists("$u3/appdata/Unticked"), (bool) preg_grep('/Taken|Unticked/', $virsh())]);
     same('partner start into a share with data, the job: … each copy\'s undo puts its folder aside, never deletes it', [['aside'], ['aside']],
         array_map(fn ($x) => array_column($x['undo'] ?? [], 'do'), array_values(array_filter($jI['steps'] ?? [], fn ($x) => $x['do'] === 'copy'))));
+    // ---- 2026-11-20 (the owner: «I don't want to restore domains but the VM»): from a VM's or app's own row (`pkg`) that
+    // one is what comes back — its folder and its set-up; the share is only where it lands, its other content no topic
+    exec('rm -rf ' . escapeshellarg("$u3/appdata/NewVM") . ' ' . escapeshellarg("$u3/appdata/kochbuch") . ' && mkdir -p ' . escapeshellarg("$u3/appdata/kochbuch"));    // the job above made them
+    $stP = $at(7950);
+    $mntP = "$tmp/B/restored/homeserver-share-appdata-$stP";
+    $one = fn (string $pkg, string $more = '', string $root = '') => $as(($root !== '' ? str_replace(var_export($u3, true), var_export($root, true), $intoPre) : $intoPre) . $more
+        . ' return rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "only" => ["' . $pkg . '"], "pkg" => "' . $pkg . '", "stamp" => "' . $stP . '"]);');
+    $o1 = $one('NewVM');
+    same('partner start of one VM: the plain case — its folder and its definition, nothing blocks, no conflict, no word of the share or of the others',
+        [['pull_local', 'mount', 'copy', 'start_from'], [], null, ['folder' => 'NewVM', 'kind' => 'vm', 'name' => 'NewVM', 'to' => "$u3/appdata/NewVM", 'here' => 'comes', 'outside' => [], 'define' => true], [], [], 'NewVM'],
+        [array_column($o1['steps'] ?? [], 'do'), $o1['blockers'] ?? null, array_key_exists('conflict', $o1['options'] ?? []) ? $o1['options']['conflict'] : 'x', $o1['options']['package'] ?? null, $o1['options']['found'] ?? null,
+         array_values(array_intersect(array_column($o1['notes'] ?? [], 'key'), ['note.partner_start_into', 'note.partner_start_into_stays', 'note.partner_start_package', 'note.partner_start_copy_only'])),
+         $o1['target']['vm'] ?? null], json_encode($o1));
+    same('partner start of one VM: … the copy of its folder alone into its place, then its start; room for that folder only', ["$mntP/NewVM", "$u3/appdata/NewVM", 'vm', true, 10 + 2000, ['after.partner_start_vm', 'after.partner_start_keep']],
+        [$byDo($o1, 'copy')[0]['from'] ?? null, $byDo($o1, 'copy')[0]['to'] ?? null, $byDo($o1, 'start_from')[0]['kind'] ?? null, $byDo($o1, 'start_from')[0]['define'] ?? null, $o1['sizes']['need'] ?? null, array_column($o1['after'] ?? [], 'key')]);
+    $o2 = $one('Present');
+    $o3 = $as($intoPre . ' return rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "only" => ["Present"], "pkg" => "Present", "beside" => true, "stamp" => "' . $stP . '"]);');
+    same('partner start of one VM: its folder here with content — refused by name, the ways out: cancel or beside as <folder>.from-<partner>; beside: it comes there, defined',
+        ['restore_partner_one_exists', 'Present', "$u3/appdata/Present.from-homeserver", [], "$u3/appdata/Present.from-homeserver", 'beside', true],
+        [$o2['blockers'][0]['key'] ?? null, $o2['blockers'][0]['params']['name'] ?? null, $o2['options']['conflict']['beside_as'] ?? null,
+         $o3['blockers'] ?? null, $byDo($o3, 'copy')[0]['to'] ?? null, $o3['options']['package']['here'] ?? null, $byDo($o3, 'start_from')[0]['define'] ?? null]);
+    $o4 = $one('Taken');
+    same('partner start of one VM: a VM of that name defined here — refused by name, no beside (it would be a second one), nothing copied',
+        ['restore_partner_one_vm_defined', 'Taken', 'vm_defined', null, 0], [$o4['blockers'][0]['key'] ?? null, $o4['blockers'][0]['params']['name'] ?? null, $o4['options']['conflict']['why'] ?? null,
+         array_key_exists('beside_as', $o4['options']['conflict'] ?? []) ? $o4['options']['conflict']['beside_as'] : 'x', count($byDo($o4, 'copy'))]);
+    @mkdir("$tmp/U4/appdata", 0755, true);
+    $o5 = $one('NewVM', '', "$tmp/U4");
+    same('partner start of one VM: an empty share — still only that VM (not the whole share)', [['pull_local', 'mount', 'copy', 'start_from'], "$tmp/U4/appdata/NewVM", []],
+        [array_column($o5['steps'] ?? [], 'do'), $byDo($o5, 'copy')[0]['to'] ?? null, $o5['blockers'] ?? null]);
+    same('partner start of one VM: a folder the copy doesn\'t carry — refused', 'unknown_target',
+        $as($intoPre . ' try { rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "pkg" => "Nope", "stamp" => "' . $stP . '"]); return "planned"; } catch (Problem $p) { return $p->key; }'));
+    $iso = "$tmp/here.iso";
+    file_put_contents($iso, 'iso');
+    $o6 = $one('NewVM', ' $GLOBALS["rs"]["peek"] = fn ($s) => ["NewVM" => ["kind" => "vm", "name" => "NewVM", "dirs" => [], "needs" => [], "disks" => [["device" => "disk", "path" => "/mnt/user/domains/NewVM/vdisk1.img", "in" => true],'
+        . ' ["device" => "cdrom", "path" => ' . var_export($iso, true) . ', "in" => false], ["device" => "cdrom", "path" => "/mnt/user/isos/gone.iso", "in" => false], ["device" => "disk", "path" => "/mnt/user/vdisks/NewVM-data.img", "in" => false]]]];');
+    same('partner start of one VM: its disks outside its folder said by path — an ISO here (taken from here), one not (drive empty), a disk image (doesn\'t come: the VM not defined, said after)',
+        [[['disk', '/mnt/user/vdisks/NewVM-data.img', false]], [['cdrom', $iso, true], ['cdrom', '/mnt/user/isos/gone.iso', false], ['disk', '/mnt/user/vdisks/NewVM-data.img', false]], false, 'start_vm_disk_outside', 'after.partner_start_vm_disk_outside'],
+        [array_map(fn ($d) => [$d['device'], $d['path'], $d['here']], array_values(array_filter($o6['options']['package']['outside'] ?? [], fn ($d) => $d['device'] === 'disk'))),
+         array_map(fn ($d) => [$d['device'], $d['path'], $d['here']], $o6['options']['package']['outside'] ?? []),
+         $byDo($o6, 'start_from')[0]['define'] ?? null, $byDo($o6, 'start_from')[0]['define_why'] ?? null, $o6['after'][0]['key'] ?? null], json_encode($o6['options']['package'] ?? null));
+    @unlink($iso);
+    // what a package's XML names, read from the copy: in the VM's folder or not (plain files only)
+    $pd2 = "$tmp/peekdisks";
+    exec('rm -rf ' . escapeshellarg($pd2));
+    @mkdir("$pd2/VM1/" . RSP_INSIDE, 0755, true);
+    file_put_contents("$pd2/VM1/vdisk1.img", 'd');
+    symlink('/etc/passwd', "$pd2/VM1/linked.img");
+    file_put_contents("$pd2/VM1/" . RSP_INSIDE . '/VM1.xml', "<domain><name>VM1</name><devices><disk type='file' device='disk'><source file='/mnt/user/domains/VM1/vdisk1.img'/></disk>"
+        . "<disk type='file' device='disk'><source file='/mnt/user/domains/VM1/linked.img'/></disk><disk type='file' device='cdrom'><source file='/mnt/user/isos/x.iso'/></disk>"
+        . "<disk type='file' device='cdrom'></disk></devices></domain>");
+    same('partner start: a VM package\'s disks from its XML — in its folder (a plain file), a link (not in), an ISO elsewhere, an empty drive left out',
+        [['disk', '/mnt/user/domains/VM1/vdisk1.img', true], ['disk', '/mnt/user/domains/VM1/linked.img', false], ['cdrom', '/mnt/user/isos/x.iso', false]],
+        array_map(fn ($d) => [$d['device'], $d['path'], $d['in']], $as('return rspPeekDisks(' . var_export($pd2, true) . ', "VM1", "VM1/" . RSP_INSIDE, "VM1.xml");')));
+    exec('rm -rf ' . escapeshellarg($pd2));
+    // the job of one VM into a share with data: only its folder came and it is defined — nothing else of the share
+    exec('rm -rf ' . escapeshellarg("$u3/appdata/NewVM") . ' ' . escapeshellarg("$u3/appdata/kochbuch") . ' && mkdir -p ' . escapeshellarg("$u3/appdata/kochbuch"));
+    @unlink("$B[bin]/virsh.log");
+    $stO = $at(7900);
+    $mntO = "$tmp/B/restored/homeserver-share-appdata-$stO";
+    exec('cp -a ' . escapeshellarg($mntI) . ' ' . escapeshellarg($mntO));
+    $jO = $as($intoPre . ' $p = rsPlan(["kind" => "partner_start", "pair" => "' . $id . '", "unit" => "share:appdata", "snap" => "uso-backup-20261007-0200", "only" => ["NewVM"], "pkg" => "NewVM", "stamp" => "' . $stO . '"]);'
+        . ' $jid = rsLaunch($p, false); rsJob([$jid]); return rsJournal($jid);');
+    same('partner start of one VM, the job: its folder came, it is defined; nothing else of the share (no loose file, no other folder), what was here unchanged',
+        ['ok', 'disk of NewVM', true, false, false, 'mine', false],
+        [$jO['result'] ?? null, @file_get_contents("$u3/appdata/NewVM/vdisk1.img"), (bool) preg_grep('/^define .*NewVM\.xml$/', $virsh()), file_exists("$u3/appdata/loose.txt"),
+         file_exists("$u3/appdata/kochbuch/data.db"), @file_get_contents("$u3/appdata/notes.txt"), file_exists("$u3/appdata/Present/theirs.img")], json_encode($jO));
     exec('rm -rf ' . escapeshellarg($u3) . ' ' . escapeshellarg("$tmp/U4"));
     @unlink("$tpl/my-kochbuch.xml");
 
@@ -39508,7 +39574,8 @@ function testPartnerStart(): void
               'after.partner_start_vm', 'after.partner_start_vm_by_hand', 'after.partner_start_share', 'after.partner_start_copy_only', 'after.partner_start_keep',
               'errors.restore_partner_share_needed', 'errors.restore_partner_start_exists', 'sn.start_no_package', 'sn.start_vm', 'sn.start_vm_exists', 'sn.start_vm_service_off', 'sn.start_vm_in_copy', 'sn.start_app', 'sn.start_app_none',
               'jk.partner_start', 'j.start_putback_hint', 'aside.started', 'rd.found_into', 'rd.found_here.comes', 'rd.found_here.exists', 'rd.found_here.vm_defined', 'rd.found_here.odd',
-              'errors.restore_partner_start_none', 'note.partner_start_into', 'note.partner_start_into_stays', 'note.partner_start_into_unmeasured', 'after.partner_start_into', 'after.partner_start_into_stayed'] as $k) {
+              'errors.restore_partner_start_none', 'errors.restore_partner_one_exists', 'errors.restore_partner_one_vm_defined', 'errors.restore_partner_one_odd', 'rd.one_vm', 'rd.one_vm_files', 'rd.one_app',
+              'rd.one_beside', 'rd.one_beside_on', 'rd.one_media_here', 'rd.one_media_missing', 'rd.one_disk_outside', 'sn.start_vm_disk_outside', 'after.partner_start_vm_disk_outside', 'note.partner_start_into', 'note.partner_start_into_stays', 'note.partner_start_into_unmeasured', 'after.partner_start_into', 'after.partner_start_into_stayed'] as $k) {
         check("partner start: the string $k", isset($en[$k]), $k);
     }
     check('partner start: the texts never call it the partner\'s pool — it is the pool the copy lies on, on this server',

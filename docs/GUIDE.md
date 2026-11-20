@@ -113,11 +113,13 @@ How he works:
 *Download…* hands you the archive after a dialog that says what it holds (the licence key, password hashes).
 
 **Kept for <partner>** shows what this server keeps of a partner office, with a filter bar like every list (words, kind, «only with
-apps or VMs»). Each app or VM in it can be started here. *Start here…* first makes an independent copy on the same pool. Then:
-into a share that is missing nothing goes (you create it under Shares first); into an empty share the whole copy comes; into a
-share that already holds data only the ticked apps and VMs come, each into its own folder where there is none yet, and nothing
-else of the share. The dialog says per app or VM whether it comes, or stays out because its folder or a VM of that name is
-already here.
+apps or VMs»). *Start here…* first makes an independent copy on the same pool; the partner's copy stays as it is.
+On an app's or VM's own row it brings back that app or VM: its folder comes into its share (e.g. `domains/<VM>`) and it is set
+up there — whatever else the share holds stays untouched. It is refused, by name, only when its folder is already here with
+content (then *Set it up beside* as `<folder>.from-<partner>` is offered) or a VM of that name is already defined. A disk of the
+VM outside its folder doesn't come and is named; an ISO is taken from here when it is here.
+On a share's row it brings back the share: into an empty share all of it; into a share that already holds data only the ticked
+apps and VMs, each into its own folder where there is none yet, and nothing else of the share.
 
 <a name="restore-shares"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-shares-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/restore-shares-light.png" alt="Mr. Restori&#x27;s tiles — apps, VMs, shares, databases, the partner offices, the flash, offsite, the drill — and his shares: each with its local snapshots, its copy at a partner and the app that uses it"></picture></a>
 
