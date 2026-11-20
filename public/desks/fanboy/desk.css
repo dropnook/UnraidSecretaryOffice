@@ -122,6 +122,8 @@
   .fb-level-area{fill:var(--accent); opacity:.16; stroke:none}
   .fb-hist-chart{max-height:none; touch-action:pan-y; cursor:crosshair; border-radius:4px}
   .fb-hist-chart:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .fb-hist-chart{-webkit-tap-highlight-color:transparent}
+  .fb-hist-chart:focus:not(:focus-visible){outline:none}       /* 2026-11-20: a click marks a moment, never a frame — the keys keep theirs */
   .fb-mark-line{stroke:var(--ink); stroke-width:1.2; opacity:.75}
   .fb-mark-t{fill:var(--danger); stroke:var(--surface); stroke-width:1.5}
   .fb-mark-l{fill:var(--accent); stroke:var(--surface); stroke-width:1.5}

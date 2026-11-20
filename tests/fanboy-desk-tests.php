@@ -515,7 +515,7 @@ function testFanboyUx(): void
     check('fanboy ux r13: the goal is the kind\'s — a preset\'s points locked; a change is that kind\'s own curve; «Eigene Kurve» brings back his kept one (else the curve shown); a preset keeps it beside; saving writes every kind\'s choice; no «Wieder der Zone folgen»',
         str_contains($js, "const locked = !rpmUnit && choice !== 'own';") && str_contains($js, "wheel: false, locked,")
         && str_contains($js, "zs[i].curves = { ...(zs[i].curves || {}), [K]: { points: p.map((x) => [x.t, x.v]) } };")
-        && str_contains($js, "if (choose.value === 'own') cv[K] = { points: kept || now };") && str_contains($js, "else cv[K] = { preset: choose.value, ...(was === 'own' ? { own: now } : kept ? { own: kept } : {}) };")
+        && str_contains($js, "if (choose.value === 'own') cv[K] = { points: fourPoints(kept || now) };") && str_contains($js, "else cv[K] = { preset: choose.value, ...(was === 'own' ? { own: now } : kept ? { own: kept } : {}) };")
         && str_contains($js, "curves2[k] = { preset: choice, ...(kept ? { own: round(kept) } : {}) };") && !str_contains($js, "T('curve.kind_follow')"));
     check('fanboy ux r13: what each kind asks for and which one the fans follow comes from the control\'s state (by_kind, leader) — marked for the numbers check, never worked out on the page',
         str_contains($js, "const byKind = (cz && cz.by_kind) || {};") && str_contains($js, "const leadKind = cz && cz.leader && kinds.includes(cz.leader.kind) ? cz.leader.kind : null;")
@@ -2212,4 +2212,62 @@ function testFanboyKindGoal(): void
     } finally {
         fanboyTEnd();
     }
+}
+
+/**
+ * 2026-11-20 (the owner: «hier fehlen noch punkte, 2 sind zu wenig»): an own curve has four points — the page's
+ * fourPoints() puts the missing ones ON the line (whole degrees, a whole value where the line has one), so a curve of two
+ * or three keeps its value at every degree; four or more stay as they are. Run in node against the agent's own reading of
+ * a curve (fanboyCurveAt()).
+ */
+function testFanboyFourPoints(): void
+{
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
+    $fn = preg_match('~\nfunction fourPoints\(points\) \{\n.*?\n\}\n~s', $js, $m) ? $m[0] : '';
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($fn === '') {
+        check('fanboy four points: the page\'s fourPoints() is there', false);
+        return;
+    }
+    if ($node === '') {
+        skip('fanboy four points: the page\'s fourPoints() (needs node)');
+        return;
+    }
+    $cases = ['nvme' => [[50, 0], [58, 76]], 'three' => [[40, 25], [55, 60], [65, 100]], 'four' => [[30, 0], [40, 20], [50, 70], [60, 100]],
+        'five' => [[30, 0], [35, 10], [40, 20], [50, 70], [60, 100]], 'short' => [[50, 0], [51, 100]], 'odd' => [[40, 0], [47, 100]]];
+    foreach (array_keys(FANBOY_SOURCE_DEFAULTS) as $k) {
+        foreach (FANBOY_PRESETS as $p) {
+            $cases["$k:$p"] = fanboyKindPreset($p, $k);
+        }
+    }
+    $tmp = sys_get_temp_dir() . '/uso-fanboy-four-' . getmypid() . '.js';
+    file_put_contents($tmp, $fn . "\nconst c = " . json_encode($cases) . ";\nconst out = {};\nfor (const k of Object.keys(c)) out[k] = fourPoints(c[k]);\nconsole.log(JSON.stringify(out));\n");
+    $got = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg($tmp) . ' 2>&1'), true);
+    @unlink($tmp);
+    if (!is_array($got)) {
+        check('fanboy four points: node answered', false);
+        return;
+    }
+    same('fanboy four points: his NVMe curve (50 °C 0 %, 58 °C 76 %) — four points on its line, whole degrees and percents', [[50, 0], [52, 19], [56, 57], [58, 76]], $got['nvme']);
+    same('fanboy four points: the disk\'s «Normal» (40 → 50 °C) as an own curve — 43 °C 30 %, 47 °C 70 % between', [[40, 0], [43, 30], [47, 70], [50, 100]], $got['disk:normal']);
+    same('fanboy four points: four or five points — as they are', [$cases['four'], $cases['five']], [$got['four'], $got['five']]);
+    same('fanboy four points: a span with no whole degree inside (50 → 51 °C) — no point made up', $cases['short'], $got['short']);
+    $bad = [];
+    foreach ($cases as $k => $pts) {
+        if (in_array($k, ['four', 'five', 'short'], true)) {
+            continue;
+        }
+        $four = $got[$k] ?? [];
+        if (count($four) !== 4 || array_filter($four, fn ($p) => !is_int($p[0])) !== []) {
+            $bad[] = "$k: " . json_encode($four);
+            continue;
+        }
+        for ($t = 0; $t <= 120; $t++) {
+            if (abs(fanboyCurveAt($pts, (float) $t) - fanboyCurveAt(array_map(fn ($p) => [(float) $p[0], (float) $p[1]], $four), (float) $t)) > 0.05) {
+                $bad[] = "$k at $t °C";
+                break;
+            }
+        }
+    }
+    same('fanboy four points: every preset of every kind, three points, an odd span — four points at whole degrees, the same value at every degree (± 0.05 where the line has no whole value)', [], $bad);
 }
