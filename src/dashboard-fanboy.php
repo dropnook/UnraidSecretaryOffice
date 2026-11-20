@@ -32,6 +32,91 @@ const FANBOY_DASH_POINTS = 24;          // … in this many spans, every span it
 const FANBOY_DASH_CLEAR_AFTER = 120;   // seconds the zone stays at full after an alarm's reason ended — an agent without
                                         // the state's times.clear_after: this mirror (a test compares it with FANBOY_CLEAR_AFTER)
 const FANBOY_DASH_SPANS_WEB = [1, 3, 6, 12, 24, 72];   // 2026-11-16 (the owner: «durchklicken»): the spans a click goes through — fanboy-dash.php's
+// 2026-11-20 (the owner: «the fans I configured, with their symbol and speed»): in «speeds» each zone's fans under it, each
+// drawn as on his page (fan-art.js) — only once the user gave a fan of his a look or a name; a server without: as before
+const FANBOY_DASH_SYM_PX = 28;          // the symbol's size in the tile (his page: 46 px and more); the sticker shows only from 72
+const FANBOY_DASH_LOOK_COLOURS = ['black', 'charcoal', 'graphite', 'grey', 'silver', 'white', 'beige', 'brown', 'frost'];   // desk.js LOOK_COLOURS
+const FANBOY_DASH_LOOK_STYLES = ['swept-narrow', 'swept-wide', 'broad', 'straight', 'sickle'];                              // desk.js LOOK_STYLES
+const FANBOY_DASH_NEUTRAL_LOOK = ['frame' => 'charcoal', 'blades' => 'grey', 'hub' => 'graphite', 'pads' => null, 'style' => 'swept-wide',
+    'shape' => 'square', 'vanes' => 0, 'rim' => false, 'sticker' => null, 'sticker_colour' => 'black'];                   // desk.js NEUTRAL_LOOK
+const FANBOY_DASH_ROLES_BIOS = ['cpu', 'pump', 'unknown'];                                                                  // desk.js ROLES_BIOS
+
+/**
+ * The fans' catalogue (fans-catalog.json beside his page, shipped with the plugin) by model id — read only when a fan of
+ * the setup names a model; entries in their shape only
+ *
+ * @return array<string, array>
+ */
+function officeFanboyDashCatalog(array $fans): array
+{
+    $want = false;
+    foreach ($fans as $f) {
+        $want = $want || is_string($f['model']['id'] ?? null);
+    }
+    if (!$want) {
+        return [];
+    }
+    $out = [];
+    foreach (officeReadJson(OFFICE_PUBLIC . '/desks/fanboy/fans-catalog.json')['fans'] ?? [] as $c) {
+        if (is_array($c) && is_string($c['id'] ?? null)) {
+            $out[$c['id']] = $c;
+        }
+    }
+    return $out;
+}
+
+/** A measured fan's rpm at a percentage (its table [[pct, rpm] …]), else null — desk.js tableRpm() */
+function officeFanboyDashTableRpm(mixed $table, float $pct): ?float
+{
+    $pts = is_array($table) ? array_values(array_filter($table, static fn ($p) => is_array($p) && array_is_list($p) && count($p) === 2 && is_numeric($p[0]) && is_numeric($p[1]))) : [];
+    if (!$pts) {
+        return null;
+    }
+    usort($pts, static fn ($a, $b) => $a[0] <=> $b[0]);
+    if ($pct <= $pts[0][0]) {
+        return (float) $pts[0][1];
+    }
+    for ($i = 1; $i < count($pts); $i++) {
+        if ($pct <= $pts[$i][0]) {
+            [$p0, $r0] = $pts[$i - 1];
+            [$p1, $r1] = $pts[$i];
+            return $r0 + ($r1 - $r0) * ($pct - $p0) / (($p1 - $p0) ?: 1);
+        }
+    }
+    return (float) $pts[count($pts) - 1][1];
+}
+
+/**
+ * How a fan of his setup looks (desk.js fanLook()): size, blades, its range (what he measured before the catalogue), the
+ * model's look with what the user chose over it (frame, wheel, blades' kind; the one «colour» of before counts for frame
+ * and wheel) — and whether it is the user's own (`own`: a model, a colour, a style or a name given). Keys the wheel of
+ * fan-art.js takes, read with defaults: a setup of an older version draws the neutral wheel.
+ *
+ * @return array{mm:int, blades:?int, min:?float, max:?float, look:?array, own:bool}
+ */
+function officeFanboyDashLook(array $f, array $cat): array
+{
+    $num = static fn (mixed $v): ?float => is_int($v) || is_float($v) ? (float) $v : null;
+    $m = is_array($f['model'] ?? null) ? $f['model'] : [];
+    $c = is_string($m['id'] ?? null) ? ($cat[$m['id']] ?? null) : null;
+    $measured = ($f['measured'] ?? false) === true;
+    $max = $measured && $num($f['max_rpm'] ?? null) ? $num($f['max_rpm']) : ($c !== null && $num($c['rpm_max'] ?? null) ? $num($c['rpm_max']) : null);
+    $min = $measured && $num($f['min_pct'] ?? null) ? officeFanboyDashTableRpm($f['table'] ?? null, (float) $num($f['min_pct']))
+        : ($c !== null && $num($c['rpm_min'] ?? null) ? $num($c['rpm_min']) : null);
+    $colour = static fn (mixed $v): ?string => is_string($v) && in_array($v, FANBOY_DASH_LOOK_COLOURS, true) ? $v : null;
+    $base = $c !== null && is_array($c['look'] ?? null) ? $c['look'] : null;
+    $old = $colour($f['colour'] ?? null);
+    $frame = $colour($f['frame'] ?? null) ?? $old;
+    $wheel = $colour($f['wheel'] ?? null) ?? $old;
+    $style = is_string($f['style'] ?? null) && in_array($f['style'], FANBOY_DASH_LOOK_STYLES, true) ? $f['style'] : null;
+    $look = $frame !== null || $wheel !== null || $style !== null
+        ? array_merge($base ?? FANBOY_DASH_NEUTRAL_LOOK, $frame !== null ? ['frame' => $frame] : [], $wheel !== null ? ['blades' => $wheel, 'hub' => $wheel] : [], $style !== null ? ['style' => $style] : [])
+        : $base;
+    $blades = is_int($m['blades'] ?? null) ? $m['blades'] : ($c !== null && is_int($c['blades'] ?? null) ? $c['blades'] : ($look !== null ? null : 7));
+    $mm = $c !== null && is_int($c['mm'] ?? null) ? $c['mm'] : (is_int($m['mm'] ?? null) ? $m['mm'] : 120);
+    $named = is_string($f['name'] ?? null) && trim($f['name']) !== '';
+    return ['mm' => $mm, 'blades' => $blades, 'min' => $min, 'max' => $max, 'look' => $look, 'own' => $look !== null || $named];
+}
 
 /**
  * The span of «with history» as the office keeps it (dashboard.json `hours`; the data folder away: the mirror in RAM) —
@@ -280,8 +365,12 @@ function officeFanboyDashCurve(array $s, array $spans, string $lang, array $sour
  * the tests read it). $state: data/fanboy.json (null: not readable), $status: the control's status in RAM, $now: the
  * clock, $hist: «with history» — the zones' curves (officeFanboyDashHistory()), null: «speeds» only.
  *
+ * In «speeds» (2026-11-20), once a fan of the setup has a look or a name (`art`): each zone's `art` beside its `fans` (the
+ * symbol fan-art.js draws, his page's state), `watch_art` beside `watch` (a watched fan with a look and a name, else null).
+ *
  * @return array{who:string, tone:string, mood:string, banners:list<array{0:string,1:string}>, stale:?int, zones:list<array>,
- *               more:int, watch:list<array{0:string,1:string}>, before:?string, setup:bool, steers:bool, history:bool, no_curve:bool}
+ *               more:int, watch:list<array{0:string,1:string}>, watch_art:list<?array>, before:?string, setup:bool, steers:bool,
+ *               history:bool, no_curve:bool, art:bool}
  */
 function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $lang, int $now, ?array $hist = null): array
 {
@@ -295,8 +384,8 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
     $statusAt = $mine ? ($int($status['time'] ?? null) ?? 0) : 0;
     $runs = $mine && in_array($phase, ['start', 'run', 'hold', 'wait_chip'], true);
     $stateAt = $int($state['time'] ?? null) ?? 0;
-    $out = ['who' => '', 'tone' => '', 'mood' => '', 'banners' => [], 'stale' => null, 'zones' => [], 'more' => 0, 'watch' => [], 'before' => null,
-            'setup' => false, 'steers' => false, 'history' => $hist !== null, 'no_curve' => false];
+    $out = ['who' => '', 'tone' => '', 'mood' => '', 'banners' => [], 'stale' => null, 'zones' => [], 'more' => 0, 'watch' => [], 'watch_art' => [], 'before' => null,
+            'setup' => false, 'steers' => false, 'history' => $hist !== null, 'no_curve' => false, 'art' => false];
 
     // who steers and why, in one line
     $who = is_array($state['who'] ?? null) ? $state['who'] : ['who' => 'bios', 'why' => null];
@@ -376,6 +465,22 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
         }
     }
     $tach = officeFanboyDashTachs($state);
+    // 2026-11-20: each fan's symbol as his page draws it (desk.js wheelOf()) — in «speeds», once a fan has a look or a name
+    $cat = officeFanboyDashCatalog(array_values($named));
+    $looks = [];
+    foreach ($named as $fid => $f) {
+        $looks[$fid] = officeFanboyDashLook($f, $cat);
+        $out['art'] = $out['art'] || $looks[$fid]['own'];
+    }
+    $out['art'] = $out['art'] && $hist === null;
+    $art = static function (string $id, ?float $rpm, string $state, string $title) use ($looks): array {
+        $l = $looks[$id] ?? officeFanboyDashLook([], []);
+        // the wheel's key over refreshes: a short hash, never the output's internal name on the page
+        return ['id' => substr(md5($id), 0, 10), 'mm' => $l['mm'], 'blades' => $l['blades'], 'min' => $l['min'], 'max' => $l['max'], 'look' => $l['look'],
+            'rpm' => $rpm === null ? null : (int) round($rpm), 'state' => $state, 'title' => $title];
+    };
+    // a fan of the BIOS on his page: the CPU cooler and pumps (a CPU cooler given to him is his: round 4)
+    $biosRole = static fn (string $id): bool => in_array($named[$id]['role'] ?? null, FANBOY_DASH_ROLES_BIOS, true) && !is_int($named[$id]['cpu_own'] ?? null);
     $sources = [];
     foreach (is_array($setup['sources'] ?? null) ? $setup['sources'] : [] as $src) {
         if (is_array($src) && is_string($src['id'] ?? null)) {
@@ -396,6 +501,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
         $l = $live[$id] ?? null;
         $name = $str($z['name'] ?? null) ?: (isset($s["fanboy.zones.kind.$id"]) ? officeDashT($s, "fanboy.zones.kind.$id") : $id);
         $fans = [];
+        $arts = [];
         $rpms = [];
         if ($l !== null) {
             foreach (is_array($l['fans'] ?? null) ? $l['fans'] : [] as $f) {
@@ -405,11 +511,26 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
                 $rpm = $int($f['rpm'] ?? null);
                 $pct = $int($f['pct'] ?? null);
                 $rpms[] = $rpm;
+                $held = ($f['held'] ?? false) === true;
                 // one he holds and drives that reports 0 rpm stands: marked on its row (and said at the top)
-                $stands = $rpm === 0 && $pct !== null && $pct > 0 && ($f['held'] ?? false) === true;
+                $stands = $rpm === 0 && $pct !== null && $pct > 0 && $held;
+                // 2026-11-20: one that may stand and stands now says so (his page's words), never «0 rpm»
+                $restsAt = $held && !$stands && is_int($f['stand_since'] ?? null) ? ($f['starts_at'] ?? null) : false;
                 $fans[] = [$fanName($f['id'], $f), ($stands ? officeDashT($s, 'fanboy.pic.should_turn')
-                    : ($rpm === null ? officeDashT($s, 'fanboy.pic.no_tach') : officeDashT($s, 'fanboy.pic.rpm', ['rpm' => $rpm])))
-                    . ($pct !== null ? ' · ' . officeDashT($s, 'fanboy.dash.pct', ['pct' => $pct]) : ''), $stands];
+                    : ($restsAt !== false ? (is_int($restsAt) || is_float($restsAt) ? officeDashT($s, 'fanboy.pic.stands_until', ['c' => officeFanboyDashNum((float) $restsAt, $lang, floor((float) $restsAt) === (float) $restsAt ? 0 : 1)])
+                        : officeDashT($s, 'fanboy.pic.stands_ok'))
+                    : ($rpm === null ? officeDashT($s, 'fanboy.pic.no_tach') : officeDashT($s, 'fanboy.pic.rpm', ['rpm' => $rpm]))))
+                    . ($pct !== null && $restsAt === false ? ' · ' . officeDashT($s, 'fanboy.dash.pct', ['pct' => $pct]) : ''), $stands];
+                // the symbol: his page's state (desk.js wheelOf()) — a silent fan of his turns at the share he gives it
+                $silent = ($named[$f['id']]['found'] ?? null) === 'silent';
+                $bios = !$held || $biosRole($f['id']);
+                $st = $bios ? 'bios' : ($silent ? 'unknown' : 'run');
+                if ($held && !$silent && $rpm === 0 && ($pct === null || $pct > 0)) {
+                    $st = 'stopped';
+                }
+                $max = $looks[$f['id']]['max'] ?? null;
+                $arts[] = $art($f['id'], $silent && $held && $pct !== null ? ($max ?? 2000) * $pct / 100 : ($st === 'unknown' ? null : $rpm),
+                    $silent && $held ? 'run' : $st, officeDashT($s, $st === 'bios' ? ($biosRole($f['id']) ? 'fanboy.pic.watched_title' : 'fanboy.pic.bios_title') : 'fanboy.pic.his_title'));
                 if ($stands) {
                     $standing[] = $fanName($f['id'], $f);
                 }
@@ -426,6 +547,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
                 $rpm = $tach[$fid] ?? null;
                 $rpms[] = $rpm;
                 $fans[] = [$fanName($fid), $rpm === null ? officeDashT($s, 'fanboy.pic.no_tach') : officeDashT($s, 'fanboy.pic.rpm', ['rpm' => $rpm]), false];
+                $arts[] = $art($fid, $rpm, 'bios', officeDashT($s, $biosRole($fid) ? 'fanboy.pic.watched_title' : 'fanboy.pic.bios_title'));
             }
             $warm = null;
             foreach (is_array($z['sources'] ?? null) ? $z['sources'] : [] as $ref) {
@@ -449,6 +571,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             'speed'   => count($fans) ? officeFanboyDashSpeed($s, $rpms) : officeDashT($s, 'fanboy.zones.no_fan'),
             'stands'  => in_array(true, array_column($fans, 2), true),
             'fans'    => array_slice($fans, 0, FANBOY_DASH_FANS),
+            'art'     => array_slice($arts, 0, FANBOY_DASH_FANS),       // each fan's symbol, in the order of `fans`
             'fans_more' => max(0, count($fans) - FANBOY_DASH_FANS),
             'curve'   => $hist !== null && isset($hist[$id]) ? officeFanboyDashCurve($s, $hist[$id], $lang, is_array($setup['sources'] ?? null) ? $setup['sources'] : []) : null,
         ];
@@ -472,6 +595,10 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
         $rpm = $int($w['rpm'] ?? null);
         $name = $str($w['name'] ?? null) ?: officeDashT($s, 'fanboy.role.' . (($w['role'] ?? '') === 'pump' ? 'pump' : 'cpu'));
         $out['watch'][] = [$name, $rpm === null ? officeDashT($s, 'fanboy.pic.no_tach') : officeDashT($s, 'fanboy.pic.rpm', ['rpm' => $rpm])];
+        // its symbol only with a look and a name of the user's (else it stays in the one line as before)
+        $wid = $str($w['id'] ?? null);
+        $given = is_string($named[$wid]['name'] ?? null) && trim($named[$wid]['name']) !== '';
+        $out['watch_art'][] = $wid !== '' && $given && ($looks[$wid]['look'] ?? null) !== null ? $art($wid, $rpm, 'bios', officeDashT($s, 'fanboy.pic.watched_title')) : null;
         if ($rpm === 0) {
             $standing[] = $name;
         }
@@ -561,7 +688,27 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
         $out .= '<div class="sso-fb-stale">' . $h(officeDashT($s, 'fanboy.dash.stale', ['when' => officeDashSince($s, $m['stale'], $lang)])) . '</div>';
     }
     $dim = $m['stale'] !== null ? ' sso-fb-old' : '';
+    // a fan's row with its symbol: an empty box of the symbol's size (the tile's script draws the wheel of fan-art.js into it
+    // from data-fan — nothing moves before it is there), the name, the speed
+    $artRow = static fn (?array $a, string $name, string $text, bool $red): string => '<div class="sso-fb-fan sso-fb-fan-art' . ($red ? ' red-text' : '') . '">'
+        . '<span class="sso-fb-sym"' . ($a !== null ? ' data-fan="' . $h((string) json_encode($a, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . '" title="' . $h($a['title']) . '"' : '') . '></span>'
+        . '<span class="sso-fb-fname">' . $h($name) . '</span><span class="sso-fb-fval">' . $h($text) . '</span></div>';
+    // «+ n more fans» (a link to his page's «Now»), the same in both layouts
+    $fansMore = static fn (int $n): string => $n > 0 ? '<a class="sso-fb-more" href="' . $h($url . '/now') . '">' . $h(officeDashT($s, 'fanboy.dash.fans_more', ['n' => $n])) . '</a>' : '';
     foreach ($m['zones'] as $z) {
+        if ($m['art']) {
+            // «speeds» with the fans the user set up: the zone's line (name, warmest spot, level), its fans always under it,
+            // each with its symbol and its own speed — the zone's range of speeds only where it has no fan
+            $out .= '<div class="sso-fb-zone sso-fb-zone-art' . $dim . '" data-zone="' . $h($z['id']) . '">'
+                . '<span class="sso-fb-row"><span class="sso-fb-name">' . $h($z['name']) . '<small>' . $h($z['warmest']) . '</small></span>'
+                . '<span class="sso-fb-val"><b' . ($z['full'] ? ' class="red-text"' : '') . '>' . $h($z['level']) . '</b>'
+                . ($z['fans'] ? '' : '<small>' . $h($z['speed']) . '</small>') . '</span></span>';
+            foreach ($z['fans'] as $i => [$name, $text, $stands]) {
+                $out .= $artRow($z['art'][$i] ?? null, $name, $text, $stands);
+            }
+            $out .= $fansMore($z['fans_more']) . '</div>';
+            continue;
+        }
         $curve = '';
         if ($z['curve'] !== null) {
             // the span's label is a button: a click goes to the next span (1 · 3 · 6 · 12 · 24 · 72 h), the same for everyone
@@ -582,10 +729,7 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
         foreach ($z['fans'] as [$name, $text, $stands]) {
             $out .= '<div class="sso-fb-fan' . ($stands ? ' red-text' : '') . '"><span>' . $h($name) . '</span><span>' . $h($text) . '</span></div>';
         }
-        if ($z['fans_more'] > 0) {
-            $out .= '<a class="sso-fb-more" href="' . $h($url . '/now') . '">' . $h(officeDashT($s, 'fanboy.dash.fans_more', ['n' => $z['fans_more']])) . '</a>';
-        }
-        $out .= '</details>';
+        $out .= $fansMore($z['fans_more']) . '</details>';
     }
     if ($m['no_curve']) {
         $out .= '<div class="sso-fb-line sso-fb-nocurve' . $dim . '"><span>' . $h(officeDashT($s, 'fanboy.dash.curve_none')) . '</span></div>';
@@ -598,8 +742,18 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
             . ($m['setup'] ? '<a href="' . $h($url . '/setup') . '">' . $h(officeDashT($s, 'fanboy.dash.set_up')) . '</a>' : '') . '</div>';
     }
     if ($m['watch']) {
-        $out .= '<div class="sso-fb-line sso-fb-watch' . $dim . '"><span>' . $h(officeDashT($s, 'fanboy.dash.watched')) . '</span><span>'
-            . $h(implode(' · ', array_map(static fn ($w) => "$w[0] $w[1]", $m['watch']))) . '</span></div>';
+        // those with a look and a name of the user's on rows of their own with their symbol (only in «speeds» with symbols)
+        $own = $m['art'] ? array_filter($m['watch_art']) : [];
+        $line = array_values(array_diff_key($m['watch'], $own));
+        $out .= '<div class="sso-fb-line sso-fb-watch' . $dim . '"><span>' . $h(officeDashT($s, 'fanboy.dash.watched')) . '</span>'
+            . ($line ? '<span>' . $h(implode(' · ', array_map(static fn ($w) => "$w[0] $w[1]", $line))) . '</span>' : '') . '</div>';
+        if ($own) {
+            $out .= '<div class="sso-fb-watched' . $dim . '">';
+            foreach ($own as $i => $a) {
+                $out .= $artRow($a, $m['watch'][$i][0], $m['watch'][$i][1], $a['rpm'] === 0);
+            }
+            $out .= '</div>';
+        }
     }
     return $out;
 }
@@ -631,7 +785,9 @@ function officeFanboyDashTile(): string
         . '<span class="tile-header-right"><span class="tile-header-right-controls">'
         . '<a href="' . $h(officeMenuUrl(officeMenuPlace()) . '#/fanboy') . '" title="' . $h(officeDashT($s, 'fanboy.dash.open')) . '"><i class="fa fa-fw fa-external-link control"></i></a>'
         . '</span></span></span></td></tr>'
-        . '<tr><td><div id="sso-fb-dash" class="sso-fb-dash">' . $rows . '</div></td></tr>'
+        // #sso around the rows: fan-art.css (the symbols) is nested in #sso like every style of the office; the Dashboard has
+        // no other #sso (the office's own page is never on it)
+        . '<tr><td><div id="sso" class="sso-fb-host"><div id="sso-fb-dash" class="sso-fb-dash">' . $rows . '</div></div></td></tr>'
         . '</tbody>'
         . '<style>'
         // his tones on Unraid's themes (7.4 names the theme on <html>): Unraid's own red, green and link blue read below 4.5:1 on
@@ -670,7 +826,7 @@ function officeFanboyDashTile(): string
         . '#db-sso-fanboy .sso-fb-more{display:block;padding:4px 0 6px;font-size:.92em}'
         . '#db-sso-fanboy .sso-fb-line{display:flex;flex-wrap:wrap;gap:4px 10px;padding:6px 0;border-top:1px solid var(--table-border-color,rgba(128,128,128,.25))}'
         . '#db-sso-fanboy .sso-fb-line a{margin-left:auto}'
-        . '#db-sso-fanboy .sso-fb-watch span:last-child{margin-left:auto;text-align:right}'
+        . '#db-sso-fanboy .sso-fb-watch span+span{margin-left:auto;text-align:right}'
         // «with history»: the curve under the zone's row, the level shaded in the text's colour, the warmest °C as a line in
         // Unraid's orange (on the light themes a darker step: ≥ 3:1 for a line, and never mistaken for the alarm's red)
         . '#db-sso-fanboy .sso-fb-graph{display:flex;flex-direction:column;gap:2px;width:100%;min-width:0;margin-top:4px}'
@@ -688,6 +844,23 @@ function officeFanboyDashTile(): string
         . '#db-sso-fanboy .sso-fb-read{display:none;font-variant-numeric:tabular-nums}'
         . '#db-sso-fanboy .sso-fb-on small>*{display:none}'
         . '#db-sso-fanboy .sso-fb-on small>.sso-fb-read{display:inline}'
+        // the symbols (2026-11-20): fan-art.css asks for the office's tokens — the same as office.css makes them from Unraid's
+        // theme (its orange from Unraid's palette here: the Dashboard has no fallback colour of the office's)
+        . '#db-sso-fanboy #sso{--bg:var(--background-color);--surface:var(--mild-background-color);--surface2:color-mix(in srgb,var(--text-color) 7%,var(--mild-background-color));'
+        . '--ink:var(--text-color);--ink2:color-mix(in srgb,var(--text-color) 90%,var(--background-color));--muted:color-mix(in srgb,var(--text-color) 80%,var(--background-color));'
+        . '--line:color-mix(in srgb,var(--text-color) 13%,var(--background-color));--line2:color-mix(in srgb,var(--text-color) 24%,var(--background-color));'
+        . '--accent:color-mix(in srgb,var(--orange-500) 82%,var(--text-color));--accent-soft:color-mix(in srgb,var(--orange-500) 16%,var(--mild-background-color));'
+        . '--danger:color-mix(in srgb,var(--red-800) 78%,var(--text-color));--danger-ink:color-mix(in srgb,var(--red-800) 55%,var(--text-color))}'
+        . '#db-sso-fanboy .sso-fb-fan-art{align-items:center;padding:3px 0 3px 10px}'
+        . '#db-sso-fanboy .sso-fb-fan-art .sso-fb-sym{flex:none;display:block;width:' . FANBOY_DASH_SYM_PX . 'px;height:' . FANBOY_DASH_SYM_PX . 'px;overflow:visible}'
+        . '#db-sso-fanboy .sso-fb-fan-art .fan-wheel{display:block;--fan-px:' . FANBOY_DASH_SYM_PX . 'px}'
+        . '#db-sso-fanboy .sso-fb-fan-art .fan-cap{display:none}'
+        . '#db-sso-fanboy .sso-fb-fan-art .sso-fb-fname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+        . '#db-sso-fanboy .sso-fb-fan-art .sso-fb-fval{margin-left:auto;white-space:nowrap;opacity:.8}'
+        . '#db-sso-fanboy .sso-fb-fan-art.red-text .sso-fb-fval{opacity:1;font-weight:bold}'
+        . '#db-sso-fanboy .sso-fb-zone-art{padding:6px 0 4px}'
+        . '#db-sso-fanboy .sso-fb-zone-art>.sso-fb-row{padding-bottom:3px}'
+        . '#db-sso-fanboy .sso-fb-watched{padding:0 0 4px}'
         . '#db-sso-fanboy .sso-fb-key-lvl::before{content:"";display:inline-block;width:10px;height:8px;margin-right:5px;vertical-align:middle;background:currentColor;opacity:.3}'
         . '</style>'
         // the rows again as the office's tile does it (the language chosen in the office, else the browser's): every
@@ -700,13 +873,22 @@ function officeFanboyDashTile(): string
         . 'var u=' . json_encode($api) . '+encodeURIComponent(own||"en"),next=null;'
         . 'var pics=' . json_encode($pics, JSON_FORCE_OBJECT | JSON_UNESCAPED_SLASHES) . ';'
         . 'function box(){return document.getElementById("sso-fb-dash");}'
+        // the symbols: fan-art.js (his page's drawing) loaded once when a row asks for one; a wheel kept over every refresh by
+        // its fan (it glides to the new speed instead of starting again) — it turns by the browser's compositor, rests off
+        // screen, in a hidden tab, with reduced motion and while the fan stands (fan-art.js); no timer of its own
+        . 'var art=' . json_encode(officeDashAsset('desks/fanboy/fan-art.js'), JSON_UNESCAPED_SLASHES) . ',asked=false,wheels={};'
+        . 'function syms(){var b=box(),l=b?b.querySelectorAll(".sso-fb-sym[data-fan]"):[],old=wheels,seen={};if(!l.length&&!Object.keys(old).length)return;'
+        . 'if(!window.FanArt){if(!asked&&l.length){asked=true;var x=document.createElement("script");x.src=art;x.onload=syms;document.head.appendChild(x);}return;}'
+        . 'wheels={};[].forEach.call(l,function(n){var f;try{f=JSON.parse(n.getAttribute("data-fan"));}catch(e){return;}var k=f.id+"#"+(seen[f.id]=(seen[f.id]||0)+1);'
+        . 'f.px=' . FANBOY_DASH_SYM_PX . ';f.air=false;f.colour="auto";f.title="";var w=old[k];if(w){delete old[k];w.update(f);}else{w=window.FanArt.wheel(f);}n.appendChild(w.el);wheels[k]=w;});'
+        . 'for(var k in old)old[k].destroy();}'
         . 'function mood(){var w=box()&&box().querySelector(".sso-fb-who"),i=document.querySelector("#db-sso-fanboy img.sso-fb-logo"),m=w&&w.getAttribute("data-mood")==="alarm"&&pics.alarm?"alarm":"";'
         . 'if(i&&pics[m]&&i.getAttribute("src")!==pics[m])i.setAttribute("src",pics[m]);}'
         . 'function steers(){var w=box()&&box().querySelector(".sso-fb-who");return !!w&&w.getAttribute("data-steers")==="1";}'
         . 'function again(){clearTimeout(next);next=setTimeout(function(){if(!document.hidden)load();},steers()?20000:60000);}'
         . 'function load(){fetch(u,{cache:"no-store"}).then(function(r){return r.json();}).then(function(j){var b=box();if(b&&j&&j.ok){'
         . 'var open=[].map.call(b.querySelectorAll("details[open]"),function(d){return d.getAttribute("data-zone");});b.innerHTML=j.html;'
-        . '[].forEach.call(b.querySelectorAll("details"),function(d){if(open.indexOf(d.getAttribute("data-zone"))>=0)d.open=true;});mood();}again();})'
+        . '[].forEach.call(b.querySelectorAll("details"),function(d){if(open.indexOf(d.getAttribute("data-zone"))>=0)d.open=true;});mood();syms();}again();})'
         . '.catch(function(){again();});}'
         // a click on the span's label: the next span for the office (fanboy.dashboard {hours}), then the rows anew — never
         // unfolds or folds the zone it sits in
@@ -729,5 +911,5 @@ function officeFanboyDashTile(): string
         . 'var bx=box();if(bx){bx.addEventListener("pointermove",mark);bx.addEventListener("pointerdown",mark);'
         . 'bx.addEventListener("pointerleave",function(e){if(e.pointerType==="mouse")off();});'
         . 'bx.addEventListener("click",function(e){if(touch&&e.target.closest&&e.target.closest(".sso-fb-curve")){e.preventDefault();}touch=false;},true);}'
-        . 'again();document.addEventListener("visibilitychange",function(){if(!document.hidden)load();});})();</script>';
+        . 'syms();again();document.addEventListener("visibilitychange",function(){if(!document.hidden)load();});})();</script>';
 }

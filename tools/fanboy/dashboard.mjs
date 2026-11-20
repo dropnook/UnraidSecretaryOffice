@@ -7,7 +7,9 @@
 // with a throwaway profile. The office's own tile was never pictured by a tool; this is the smallest harness that
 // shows a tile inside Unraid's Dashboard. Dev-only.
 //
-//   node tools/fanboy/dashboard.mjs [--out <folder>] [--only <name>,…] [-v]
+//   node tools/fanboy/dashboard.mjs [--out <folder>] [--only <name>,…] [-v] [--cost [seconds]]
+// --cost: no pictures — what the tile costs the browser's main thread while it stays open (Chrome's own counters over the
+// seconds given, 20 by default): without symbols, with the symbols turning, with reduced motion, scrolled out of view.
 // Pictures: <out>/<name>-<theme>-<lang>-<width>.png. Fails (exit 1) on a console error, a page error, a PHP word on
 // stderr or a horizontal scroll. Exit 3: php, playwright-core or Chrome missing.
 import fs from 'node:fs';
@@ -28,6 +30,7 @@ for (let i = 0; i < args.length; i++) {
   if (a === '--out') opt.out = path.resolve(args[++i]);
   else if (a === '--only') opt.only = args[++i].split(',');
   else if (a === '-v') opt.v = true;
+  else if (a === '--cost') opt.cost = /^\d+$/.test(args[i + 1] || '') ? Number(args[++i]) : 20;
   else { console.log(`fanboy dashboard: unknown argument ${a}`); process.exit(2); }
 }
 try { execFileSync('php', ['-v'], { stdio: 'ignore' }); } catch (e) { console.log('fanboy dashboard: php not found - not run'); process.exit(3); }
@@ -95,11 +98,49 @@ function history(state, at) {
   const leads = Object.fromEntries(Object.keys(zones).filter((z) => days.zones[z] && days.leads && days.leads[z]).map((z) => [z, days.leads[z]]));
   return { v: 1, board: state.setup.board, every: 60, zones, src: days.src || [], leads };
 }
+/**
+ * 2026-11-20 (his fans on the tile): two zones, four fans of different looks — the disk cage's beige Noctua, the case's black
+ * be quiet!, a grey Phanteks on top that the user painted white, a frosted Corsair at the rear that may stand and stands now —
+ * and the CPU cooler the BIOS keeps (a Noctua in graphite), each with a name the user gave it ($lang: the names in English)
+ */
+const EN_NAMES = { Plattenkäfig: 'Disk cage', Gehäuse: 'Case', Vorn: 'Front', Deckel: 'Top', Hinten: 'Rear', 'CPU-Kühler': 'CPU cooler' };
+function fans(lang, { plain = false, stand = true } = {}) {
+  const s = lookedAt(demo('fanboy'), NOW - 4);
+  const id = (n) => `it8696_a0060607:it87.2608:pwm${n}`;
+  const name = (n) => (plain ? '' : lang === 'en' ? EN_NAMES[n] || n : n);
+  const set = (n, more) => { const f = s.setup.fans.find((x) => x.id === id(n)); Object.assign(f, more); return f; };
+  set(4, { model: { id: 'noctua-nf-a12x25-pwm', mm: null, blades: null }, colour: null, name: name('Plattenkäfig') });
+  set(5, { model: { id: 'be-quiet-silent-wings-4-140mm-pwm', mm: null, blades: null }, colour: null, name: name('Vorn') });
+  set(2, { model: { id: 'phanteks-t30-120', mm: null, blades: null }, colour: null, wheel: 'white', found: 'tach', tachs: [2], name: name('Deckel') });
+  set(6, { model: { id: 'corsair-icue-ml120-rgb-elite', mm: null, blades: null }, colour: null, found: 'tach', tachs: [3], role: 'case', place: 'rear', off_ok: true, measured: true, name: name('Hinten') });
+  set(1, { name: name('CPU-Kühler') });
+  for (const w of (s.control && s.control.watch) || []) if (w.id === id(1)) w.name = name('CPU-Kühler');
+  if (plain) for (const f of s.setup.fans) Object.assign(f, { model: null, colour: null, frame: null, wheel: null, style: null });
+  const zone = (zid) => s.setup.zones.find((z) => z.id === zid);
+  zone('disks').name = name('Plattenkäfig') || 'Plattenkäfig';
+  zone('case').name = (lang === 'en' ? 'Case' : 'Gehäuse');
+  zone('case').fans = [id(5), id(2), id(6)];
+  const cz = s.control.zones.find((z) => z.id === 'case');
+  cz.name = zone('case').name;
+  s.control.zones.find((z) => z.id === 'disks').name = zone('disks').name;
+  cz.fans = [{ ...cz.fans[0], name: name('Vorn') }, { ...cz.fans[1], name: name('Deckel'), rpm: 760 },
+    { id: id(6), name: name('Hinten'), output: 6, pct: stand ? 0 : 30, rpm: stand ? 0 : 640, held: true, foreign: false, may_stand: true, stand_since: stand ? NOW - 600 : null, starts_at: null }];
+  s.control.zones.find((z) => z.id === 'disks').fans[0].name = name('Plattenkäfig');
+  return s;
+}
 const ON = { 'office/staff.json': { hired: { fanboy: 1 } }, 'fanboy/dashboard.json': { v: 1, show: 'speeds' } };
 const WITH = { ...ON, 'fanboy/dashboard.json': { v: 1, show: 'history' } };
 const looked = (name, at) => lookedAt(demo(name), at);
 // name → [data folder files (null: none — the array stopped), RAM files, a zone to unfold, all combinations]
 const SCENES = [
+  // 2026-11-20: the fans the user set up, each with its symbol and speed (three widths: Unraid's three columns, two, a phone)
+  ['fans', (lang) => ({ ...ON, 'fanboy.json': fans(lang) }), {}, null, true, { widths: [1920, 1024, 390] }],
+  ['fans-plain', (lang) => ({ ...ON, 'fanboy.json': fans(lang, { plain: true }) }), {}, null, false, { widths: [1920, 1024, 390] }],
+  ['fans-history', (lang) => ({ ...WITH, 'fanboy.json': fans(lang) }), { 'fanboy/history.json': history(fans('de'), NOW - 30) }, null, false, { widths: [1920, 1024, 390] }],
+  // a VARIANT only, not what the tile does: «with history», a zone unfolded showing its fans with their symbols (the rows of
+  // «speeds» put into the folded list by this tool) — the curves keep their room, the symbols only on a click
+  ['fans-history-variant', (lang) => ({ ...WITH, 'fanboy.json': fans(lang) }), { 'fanboy/history.json': history(fans('de'), NOW - 30) }, null, false,
+    { widths: [1920, 1024, 390], variant: (lang) => tile('fans-history-variant-speeds', { ...ON, 'fanboy.json': fans(lang) }, {}, lang) }],
   ['steering', { ...ON, 'fanboy.json': lookedAt(demo('fanboy'), NOW - 4) }, {}, 'case', true],
   ['history', { ...WITH, 'fanboy.json': looked('fanboy', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy', NOW - 4), NOW - 30) }, null, true],
   // 2026-11-16: the span clicked through to 24 h (the label a button to the next span)
@@ -134,6 +175,7 @@ function tile(name, files, run, lang) {
     fs.mkdirSync(path.dirname(path.join(root, p)), { recursive: true });
     fs.writeFileSync(path.join(root, p), typeof c === 'string' ? c : JSON.stringify(c));
   });
+  if (typeof files === 'function') files = files(lang);
   write(path.join(dir, 'data'), files);
   fs.mkdirSync(path.join(dir, 'run', 'fanboy'), { recursive: true });
   write(path.join(dir, 'run'), run);
@@ -176,14 +218,54 @@ function page(theme, tileHtml) {
     + `<div class='tile' id='tile2'><table id='db_box2' class='dashboard'>${gap}${tileHtml}</table></div></div></div></body></html>`;
 }
 
+/**
+ * The cost of the tile left open: Chrome's counters (CDP Performance.getMetrics: the main thread's task, script, style and
+ * layout time) over $secs, after a settling second; plus the animations the page runs. The turning is the compositor's
+ * (transform only): what the main thread pays shows here, the GPU's share does not.
+ */
+async function cost(browser, secs) {
+  const runs = [['without symbols', 'fans-plain', {}], ['symbols turning', 'fans', {}], ['symbols, reduced motion', 'fans', { reducedMotion: 'reduce' }],
+    ['symbols scrolled out of view', 'fans', { away: true }], ['symbols, tab hidden', 'fans', { hidden: true }]];
+  const rows = [];
+  for (const [label, name, how] of runs) {
+    const scene = SCENES.find((x) => x[0] === name) || [name, name === 'fans' ? (l) => ({ ...ON, 'fanboy.json': fans(l) }) : (l) => ({ ...ON, 'fanboy.json': fans(l, { plain: true }) }), {}];
+    const file = path.join(tmp, `cost-${name}.html`);
+    fs.writeFileSync(file, page('black', tile(name, scene[1], scene[2], 'de')).replace('</body>', `<div style="height:${how.away ? 4000 : 0}px"></div></body>`));
+    const ctx = await browser.newContext({ viewport: { width: 1920, height: 1000 }, reducedMotion: how.reducedMotion || 'no-preference' });
+    const p = await ctx.newPage();
+    const cdp = await ctx.newCDPSession(p);
+    await cdp.send('Performance.enable');
+    await p.goto(pathToFileURL(file).href);
+    await p.waitForFunction(() => !document.querySelector('#db-sso-fanboy .sso-fb-sym[data-fan]') || !!document.querySelector('#db-sso-fanboy .fan-wheel'));
+    if (how.away) await p.evaluate(() => window.scrollTo(0, 3000));
+    if (how.hidden) await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: false }).then(() => p.evaluate(() => { Object.defineProperty(document, 'hidden', { get: () => true }); document.dispatchEvent(new Event('visibilitychange')); }));
+    await p.waitForTimeout(1500);
+    const m = async () => Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((x) => [x.name, x.value]));
+    const a = await m();
+    await p.waitForTimeout(secs * 1000);
+    const b = await m();
+    const anim = await p.evaluate(() => { const l = document.getAnimations(); return [l.filter((x) => x.playState === 'running').length, l.length]; });
+    const ms = (k) => Math.round((b[k] - a[k]) * 1000 / secs * 10) / 10;
+    rows.push(`${label.padEnd(30)} task ${String(ms('TaskDuration')).padStart(5)} ms/s · script ${String(ms('ScriptDuration')).padStart(4)} · style ${String(ms('RecalcStyleDuration')).padStart(4)} · layout ${String(ms('LayoutDuration')).padStart(4)} · animations running ${anim[0]} of ${anim[1]}`);
+    await ctx.close();
+  }
+  console.log(`fanboy dashboard: the tile's cost over ${secs} s (headless Chrome, 1920 px, black, de)\n  ${rows.join('\n  ')}`);
+}
+
 fs.mkdirSync(opt.out, { recursive: true });
 const browser = await pw.chromium.launch({ executablePath: chrome, headless: true, args: ['--no-first-run', '--allow-file-access-from-files'] });
 const failed = [];
 let taken = 0;
+if (opt.cost) {
+  try { await cost(browser, opt.cost); } finally { await browser.close(); fs.rmSync(tmp, { recursive: true, force: true }); }
+  process.exit(0);
+}
 try {
   for (const [name, files, run, open, every, how] of SCENES) {
     const tiles = { de: tile(name, files, run, 'de'), en: tile(name, files, run, 'en') };
-    for (const c of every === 'marker' ? [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'en', width: 390 }] : every ? ALL : SOME) {
+    const combos = every === 'marker' ? [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'en', width: 390 }] : every ? ALL : SOME;
+    const widths = how && how.widths;
+    for (const c of widths ? combos.filter((x) => x.width === 1440).flatMap((x) => widths.map((width) => ({ ...x, width }))) : combos) {
       const file = path.join(tmp, `${name}-${c.theme}-${c.lang}.html`);
       fs.writeFileSync(file, page(c.theme, tiles[c.lang]));
       const ctx = await browser.newContext({ viewport: { width: c.width, height: how && how.marker ? 1400 : 700 }, deviceScaleFactor: 2, locale: c.lang, hasTouch: c.width < 768 });
@@ -193,6 +275,24 @@ try {
       p.on('pageerror', (e) => errors.push(String(e)));
       await p.goto(pathToFileURL(file).href);
       await p.evaluate(() => document.fonts.ready);
+      if (how && how.variant) {
+        const speeds = how.variant(c.lang);
+        const zones = {};
+        for (const part of speeds.split('<div class="sso-fb-zone sso-fb-zone-art').slice(1).map((x) => x.split(/<div class="sso-fb-(?:line|watched)/)[0])) {
+          zones[(/data-zone="([^"]*)"/.exec(part) || [])[1]] = (part.match(/<div class="sso-fb-fan sso-fb-fan-art[^"]*">(?:(?!<\/div>).)*<\/div>/g) || []).join('');
+        }
+        await p.evaluate(async ({ zones, src }) => {
+          for (const d of document.querySelectorAll('#db-sso-fanboy details[data-zone]')) {
+            d.querySelectorAll('.sso-fb-fan').forEach((n) => n.remove());
+            d.querySelector('summary').insertAdjacentHTML('afterend', zones[d.getAttribute('data-zone')] || '');
+            d.open = true;
+          }
+          await new Promise((ok) => { const x = document.createElement('script'); x.src = src; x.onload = ok; document.head.appendChild(x); });
+          for (const n of document.querySelectorAll('#db-sso-fanboy .sso-fb-sym[data-fan]')) n.appendChild(window.FanArt.wheel({ ...JSON.parse(n.getAttribute('data-fan')), px: 28, air: false, colour: 'auto', title: '' }).el);
+        }, { zones, src: JSON.parse((/var art=("[^"]+")/.exec(speeds) || [])[1]) });
+      }
+      // the symbols drawn (fan-art.js loads after the tile)
+      await p.waitForFunction(() => !document.querySelector('#db-sso-fanboy .sso-fb-sym[data-fan]') || document.querySelectorAll('#db-sso-fanboy .sso-fb-sym[data-fan]').length === document.querySelectorAll('#db-sso-fanboy .sso-fb-sym .fan-wheel').length);
       if (open) await p.evaluate((z) => { const d = document.querySelector(`#db-sso-fanboy details[data-zone="${z}"]`); if (d) d.open = true; }, open);
       const wide = await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
       const box = await p.evaluate(() => { const r = document.querySelector('#db-sso-fanboy').getBoundingClientRect(); return { h: r.height, w: r.width }; });

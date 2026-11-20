@@ -610,7 +610,7 @@
   "dash.show.off": "Off",
   "dash.show.off_title": "No tile of his on the Dashboard",
   "dash.show.speeds": "Speeds",
-  "dash.show.speeds_title": "Who steers, and each zone's warmest spot, level and speed",
+  "dash.show.speeds_title": "Who steers; each zone's warmest spot and level, and its fans with their speed",
   "dash.show.history": "Speeds with history",
   "dash.show.history_title": "The speeds, and a small curve of the last hours for each zone",
   "curves.period": "Period",

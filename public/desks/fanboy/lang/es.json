@@ -610,7 +610,7 @@
   "dash.show.off": "No",
   "dash.show.off_title": "Ningún mosaico suyo en el Dashboard",
   "dash.show.speeds": "Velocidades",
-  "dash.show.speeds_title": "Quién regula, y por zona el punto más caliente, el nivel y la velocidad",
+  "dash.show.speeds_title": "Quién regula; por zona el punto más caliente y el nivel, y sus ventiladores con su velocidad",
   "dash.show.history": "Velocidades con evolución",
   "dash.show.history_title": "Las velocidades, y por zona una pequeña curva de las últimas horas",
   "curves.period": "Periodo",

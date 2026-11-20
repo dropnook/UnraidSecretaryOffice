@@ -610,7 +610,7 @@
   "dash.show.off": "No",
   "dash.show.off_title": "Nessuna sua tessera nella Dashboard",
   "dash.show.speeds": "Velocità",
-  "dash.show.speeds_title": "Chi regola, e per ogni zona il punto più caldo, il livello e la velocità",
+  "dash.show.speeds_title": "Chi regola; per ogni zona il punto più caldo e il livello, e le sue ventole con la loro velocità",
   "dash.show.history": "Velocità con andamento",
   "dash.show.history_title": "Le velocità, e per ogni zona una piccola curva delle ultime ore",
   "curves.period": "Periodo",
