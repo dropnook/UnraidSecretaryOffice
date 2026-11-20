@@ -203,7 +203,9 @@
 /* ------------------------------------------------------------------------------------------- the curve editor */
 .fan-curve{display:grid; grid-template-columns:minmax(0, 1fr) 150px; gap:14px; align-items:center; min-width:0}
 .fan-curve-chart{position:relative; min-width:0; padding:0 0 16px 16px}
-.fan-curve-svg{display:block; width:100%; height:auto; touch-action:none; user-select:none; overflow:visible}
+.fan-curve-svg{display:block; width:100%; height:auto; touch-action:none; user-select:none; -webkit-user-select:none; overflow:visible;
+  -webkit-tap-highlight-color:transparent; outline:none}      /* 2026-11-20: never a frame on a click or a tap — the fields are the keyboard way */
+.fan-curve-svg *{-webkit-tap-highlight-color:transparent; outline:none}
 .fan-curve-grid line{stroke:var(--line); stroke-width:1}
 .fan-curve-grid text, .fan-curve-marks text{fill:var(--muted); font-size:12px; font-family:var(--font)}
 .fan-curve-area{fill:var(--accent-soft); opacity:.75}

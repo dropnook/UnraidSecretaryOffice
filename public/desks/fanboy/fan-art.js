@@ -1137,7 +1137,6 @@
       whole();
       active = i;
       labelsPaint();
-      g.focus({ preventScroll: true });
       root.classList.add('fan-dragging');
       try { s.setPointerCapture(ev.pointerId); } catch (e) { /* a pointer already gone */ }
     });
