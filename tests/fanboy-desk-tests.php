@@ -399,8 +399,8 @@ function testFanboyUx(): void
     $art = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.js');
     // round 12, the look's four controls (the owner: «Farbe soll für Lüfter-Blätter und Lüfter-Gehäuse separat gewählt werden können,
     // ebenfalls Art und Anzahl der Blätter. Modellauswahl macht nur typischen Vorschlag»)
-    check('fanboy ux look: the fold is «Aussehen (fürs Bild)» with four controls of his own — frame colour, blades\' colour, blade shape, number of blades — beside the model',
-        str_contains($js, "rows.append(rowOf(T('look.frame'), frame.el), rowOf(T('look.wheel'), wheel.el), rowOf(T('look.style'), kinds), rowOf(T('look.blades'), count));")
+    check('fanboy ux look: the fold is «Aussehen (fürs Bild)» with four controls of his own — frame colour, blades\' colour, blade shape, number of blades — and the «Reverse-Blade» tick (2026-11-20), beside the model',
+        str_contains($js, "rows.append(rowOf(T('look.frame'), frame.el), rowOf(T('look.wheel'), wheel.el), rowOf(T('look.style'), kinds), rowOf(T('look.blades'), count), revRow);")
         && str_contains($js, "const frame = swatches('frame'), wheel = swatches('wheel');") && str_contains($js, "const countBtns = [5, 6, 7, 8, 9, 10, 11].map(")
         && ($l['de']['look.fold'] ?? '') === 'Aussehen (fürs Bild)' && !str_contains($js, "inputEl('select');\n      COLOURS"));
     check('fanboy ux look: colours are swatches painted with the wheel\'s own colour tokens (named in title and aria-label), blade shapes are buttons with a tiny drawn sample and a plain name',
@@ -424,22 +424,22 @@ function testFanboyUx(): void
         count(array_filter(array_merge($pageList('LOOK_COLOURS'), $pageList('LOOK_STYLES')), fn ($k) => !preg_match(FANBOY_LOOK_KEY_RE, $k))) === 0
         && FANBOY_BLADES_MIN === 5 && FANBOY_BLADES_MAX === 11);
     check('fanboy ux look: the model only proposes — its look is the base, his frame, blades\' colour, shape and number lie on top; the one colour of before counts for frame and blades',
-        str_contains($js, "const look = frame || wheel || style ? { ...(base || NEUTRAL_LOOK), ...(frame ? { frame } : {}), ...(wheel ? { blades: wheel, hub: wheel } : {}), ...(style ? { style } : {}) } : base;")
+        str_contains($js, "let look = frame || wheel || style ? { ...(base || NEUTRAL_LOOK), ...(frame ? { frame } : {}), ...(wheel ? { blades: wheel, hub: wheel } : {}), ...(style ? { style } : {}) } : base;")
         && str_contains($js, "const old = f && LOOK_COLOURS.includes(f.colour) ? f.colour : null;") && str_contains($js, "const blades = num(m.blades) ?? ((c && c.blades) || (look ? null : 7));"));
     check('fanboy ux look: each control goes into the output\'s draft and shows at once (2026-11-20: sent with «Speichern», never alone); the old one colour is carried over as frame and blades, never lost by another click',
         str_contains($js, "const body = { [key]: value };") && str_contains($js, "if (key !== 'frame' && !f0.frame) { body.frame = old; want.frame = old; }") && str_contains($js, "if (key !== 'wheel' && !f0.wheel) { body.wheel = old; want.wheel = old; }")
         && str_contains($js, "want[key] = value;\n      keep(body);") && str_contains($js, "const keep = (fields) => { draft.look = { ...(draft.look || {}), ...fields }; paint(); update(); };")
         && !str_contains($js, "send('fan_look'"));
     check('fanboy ux look: another model proposes anew (his four go, one click brings them and the model back); «Zurück zum Vorschlag» resets the four; the chip says which it is',
-        str_contains($js, "keep({ model: v.id, frame: '', wheel: '', style: '', blades: 0, colour: 'auto' });")
-        && str_contains($js, "keep({ model: (u.model && u.model.id) || '', frame: u.frame, wheel: u.wheel, style: u.style, blades: u.blades });")
-        && str_contains($js, "btn(T('look.reset'), 'btn plain', () => { undo = null; Object.assign(want, { frame: '', wheel: '', style: '', blades: 0 }); keep({ frame: '', wheel: '', style: '', blades: 0, colour: 'auto' }); }, T('look.reset_tip'))")
+        str_contains($js, "keep({ model: v.id, frame: '', wheel: '', style: '', blades: 0, reverse: null, colour: 'auto' });")
+        && str_contains($js, "keep({ model: (u.model && u.model.id) || '', frame: u.frame, wheel: u.wheel, style: u.style, blades: u.blades, reverse: u.reverse });")
+        && str_contains($js, "btn(T('look.reset'), 'btn plain', () => { undo = null; Object.assign(want, { frame: '', wheel: '', style: '', blades: 0, reverse: null }); keep({ frame: '', wheel: '', style: '', blades: 0, reverse: null, colour: 'auto' }); }, T('look.reset_tip'))")
         && str_contains($js, "chipOfText(mine ? 'accent' : 'quiet', mine ? T('look.changed') : T('look.proposal'),")
         && ($l['de']['look.proposal'] ?? '') === 'Vorschlag für dieses Modell' && ($l['de']['look.reset'] ?? '') === 'Zurück zum Vorschlag');
-    check('fanboy ux look: the picker shows the model\'s facts only (no wheel, no blades\' number of its own), the fold\'s one preview is the fan as it will be drawn; measured far from the data sheet is still said',
+    check('fanboy ux look: the picker shows the model\'s facts only (no wheel, no blades\' number of its own), the fold\'s one preview is the fan as it will be drawn; no data-sheet speeds any more (2026-11-20: Fanboy measures them)',
         str_contains($js, "preview: false, texts: pickerTexts(),") && str_contains($art, "if (o.preview === false) look.append(facts); else look.append(wh.el, facts);")
         && str_contains($art, "fBlades.hidden = !other || o.preview === false;")
-        && str_contains($js, "swap(note, [offBy ? f0.max_rpm : 0], () => (offBy ? para(T('roles.model_off', { measured: fmt.number(f0.max_rpm), sheet: fmt.number(c.rpm_max) }), 'callout') : []));"));
+        && !str_contains($js, 'roles.model_off') && !str_contains($js, 'pick.range') && !str_contains($js, 'num(c.rpm_max)'));
     // round 12 fix, the net: heat sources no zone covers — said in the zones step and at «Übernehmen», the net's state in the banner
     same('fanboy ux uncovered: while he changes zones the page uses the agent\'s rule on the draft — the kinds the net watches', FANBOY_NET_KINDS,
         preg_match("/const NET_KINDS = \\[([^\\]]+)\\];/", $js, $m) ? array_map(fn ($x) => trim($x, " '"), explode(',', $m[1])) : []);

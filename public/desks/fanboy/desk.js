@@ -71,9 +71,10 @@ const placesFor = (role, stored) => {
 };
 // a fan's look (2026-11-16, the owner: «Farbe soll für Lüfter-Blätter und Lüfter-Gehäuse separat gewählt werden können,
 // ebenfalls Art und Anzahl der Blätter. Modellauswahl macht nur typischen Vorschlag»): the page owns these lists, the
-// agent stores the keys (fan_look frame, wheel, style, blades) — fan-art.js knows how to draw each
-const LOOK_COLOURS = ['black', 'charcoal', 'graphite', 'grey', 'silver', 'white', 'beige', 'brown', 'frost'];
-const LOOK_STYLES = ['swept-narrow', 'swept-wide', 'broad', 'straight', 'sickle'];
+// agent stores the keys (fan_look frame, wheel, style, blades, reverse) — fan-art.js knows how to draw each.
+// 2026-11-20 (the owner): more colours (red, orange, yellow, green, blue, purple), two more blade shapes, «Reverse-Blade»
+const LOOK_COLOURS = ['black', 'charcoal', 'graphite', 'grey', 'silver', 'white', 'beige', 'brown', 'frost', 'red', 'orange', 'yellow', 'green', 'blue', 'purple'];
+const LOOK_STYLES = ['swept-narrow', 'swept-wide', 'broad', 'short-broad', 'straight', 'sickle', 'sickle-wide'];
 const NEUTRAL_LOOK = { frame: 'charcoal', blades: 'grey', hub: 'graphite', pads: null, style: 'swept-wide', shape: 'square', vanes: 0, rim: false, sticker: null, sticker_colour: 'black' };
 // round 8 (the owner): «Testen und zuordnen» — the test and the roles in ONE step (the old route …/setup/roles opens it)
 // 2026-11-16 (the owner): no dry-run step — five steps; what he would set now is a preview inside «take over»
@@ -237,8 +238,10 @@ function fanLook(f) {
   const m = (f && f.model) || {};
   const c = catFan(m.id);
   const measured = f && f.measured;
-  const max = measured && num(f.max_rpm) ? f.max_rpm : c && num(c.rpm_max) ? c.rpm_max : null;
-  const min = measured && num(f.min_pct) ? tableRpm(f.table, f.min_pct) : c && num(c.rpm_min) ? c.rpm_min : null;
+  // its speeds only from Fanboy's own measuring (2026-11-20, the owner: the catalogue is only about the picture); before
+  // that the picture turns on its default range
+  const max = measured && num(f.max_rpm) ? f.max_rpm : null;
+  const min = measured && num(f.min_pct) ? tableRpm(f.table, f.min_pct) : null;
   // the model proposes (its catalogue look); the frame's colour, the wheel's colour and the blades' kind are his where he
   // chose them. The one «colour» of before round 12 counts for frame and wheel. Nothing chosen and no model: the neutral wheel.
   const base = (c && c.look) || null;
@@ -246,11 +249,15 @@ function fanLook(f) {
   const frame = (f && LOOK_COLOURS.includes(f.frame) ? f.frame : null) || old;
   const wheel = (f && LOOK_COLOURS.includes(f.wheel) ? f.wheel : null) || old;
   const style = f && LOOK_STYLES.includes(f.style) ? f.style : null;
-  const look = frame || wheel || style ? { ...(base || NEUTRAL_LOOK), ...(frame ? { frame } : {}), ...(wheel ? { blades: wheel, hub: wheel } : {}), ...(style ? { style } : {}) } : base;
+  // 2026-11-20: «Reverse-Blade» — his tick over the model's (a model reverse by make carries it); fan-art.js mirrors the
+  // blades and turns them the other way in every picture of this fan. Alone (no model, no colour): the neutral wheel, mirrored.
+  const reverse = f && typeof f.reverse === 'boolean' ? f.reverse : null;
+  let look = frame || wheel || style ? { ...(base || NEUTRAL_LOOK), ...(frame ? { frame } : {}), ...(wheel ? { blades: wheel, hub: wheel } : {}), ...(style ? { style } : {}) } : base;
+  if (reverse !== null && (look || reverse)) look = { ...(look || {}), reverse };
   // the blades' number: his, else the model's (a model whose maker doesn't say gets its blade kind's own number in fan-art.js)
   const blades = num(m.blades) ?? ((c && c.blades) || (look ? null : 7));
   return { mm: (c && c.mm) || m.mm || 120, blades, min, max, colour: 'auto', look, base,
-    own: { frame: !!frame, wheel: !!wheel, style: !!style, blades: !!c && num(m.blades) !== null } };
+    own: { frame: !!frame, wheel: !!wheel, style: !!style, blades: !!c && num(m.blades) !== null, reverse: reverse !== null } };
 }
 /** A fan's name for the page: the one given, else «Output 4» */
 function fanName(id) {
@@ -2775,7 +2782,8 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
       const pick = (k) => (want[k] !== undefined ? want[k] || null : f0[k]);
       const m0 = f0.model || { id: null, mm: null, blades: null };
       const m = want.model ? { ...m0, id: want.model.id, mm: want.model.mm } : m0;
-      return { ...f0, frame: pick('frame'), wheel: pick('wheel'), style: pick('style'), model: { ...m, blades: want.blades !== undefined ? want.blades || null : m.blades ?? null } };
+      return { ...f0, frame: pick('frame'), wheel: pick('wheel'), style: pick('style'), reverse: want.reverse !== undefined ? want.reverse : f0.reverse ?? null,
+        model: { ...m, blades: want.blades !== undefined ? want.blades || null : m.blades ?? null } };
     };
     pk = A.picker({ catalog: cat, value: fNow().model ? (fNow().model.id ? { id: fNow().model.id } : { mm: fNow().model.mm, blades: fNow().model.blades }) : null, preview: false, texts: pickerTexts(),
       onChange: (v) => {
@@ -2784,10 +2792,10 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
         const L = fanLook(f);
         if (!v.id) { want.model = { id: null, mm: v.mm }; keep({ model: '', mm: v.mm }); return; }   // «another fan»: its size here, the rest below
         // a model proposes its typical look: the four controls take it (his own choices are kept for one click back)
-        const before = L.own.frame || L.own.wheel || L.own.style || L.own.blades ? { model: f.model || null, frame: f.frame || '', wheel: f.wheel || '', style: f.style || '', blades: (f.model && f.model.blades) || 0 } : null;
-        Object.assign(want, { model: { id: v.id, mm: null }, frame: '', wheel: '', style: '', blades: 0 });
+        const before = L.own.frame || L.own.wheel || L.own.style || L.own.blades || L.own.reverse ? { model: f.model || null, frame: f.frame || '', wheel: f.wheel || '', style: f.style || '', blades: (f.model && f.model.blades) || 0, reverse: L.own.reverse ? f.reverse : null } : null;
+        Object.assign(want, { model: { id: v.id, mm: null }, frame: '', wheel: '', style: '', blades: 0, reverse: null });
         undo = before;
-        keep({ model: v.id, frame: '', wheel: '', style: '', blades: 0, colour: 'auto' });
+        keep({ model: v.id, frame: '', wheel: '', style: '', blades: 0, reverse: null, colour: 'auto' });
       } });
     pickers.set(id, pk);
     pk.el.querySelectorAll('select').forEach((x) => { x.classList.add('input', 'small', 'fb-input'); });
@@ -2835,10 +2843,19 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     count.setAttribute('role', 'group');
     count.setAttribute('aria-label', T('look.blades'));
     const countBtns = [5, 6, 7, 8, 9, 10, 11].map((n) => { const b = btn(String(n), '', () => set('blades', n)); count.appendChild(b); return [n, b]; });
+    // «Reverse-Blade» (2026-11-20, the owner): the blades mirrored (the wheel turns as usual), in every picture of this fan
+    const rev = el('input');
+    rev.type = 'checkbox';
+    rev.onchange = () => set('reverse', rev.checked);
+    const revBox = el('label', 'fb-check');
+    revBox.title = T('look.reverse_tip');
+    revBox.append(rev, el('span', '', T('look.reverse')));
+    const revNote = el('span', 'fb-look-took');
+    const revRow = el('div', 'fb-look-rev');
+    revRow.append(revBox, revNote);
     const rows = el('div', 'fb-look-rows');
-    rows.append(rowOf(T('look.frame'), frame.el), rowOf(T('look.wheel'), wheel.el), rowOf(T('look.style'), kinds), rowOf(T('look.blades'), count));
-    const note = el('div', 'fb-look-note');
-    lookBody.append(el('p', 'fb-hint-text', T('look.text')), top, says, rows, note);
+    rows.append(rowOf(T('look.frame'), frame.el), rowOf(T('look.wheel'), wheel.el), rowOf(T('look.style'), kinds), rowOf(T('look.blades'), count), revRow);
+    lookBody.append(el('p', 'fb-hint-text', T('look.text')), top, says, rows);
     let off = false;
     function paint() {
       const f0 = fNow();
@@ -2856,26 +2873,28 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
         w.update({ mm: 120, blades: A.STYLE_BLADES[st] || 7, look: { ...shown, style: st, sticker: null, vanes: 0 }, rpm: 0, state: 'run', colour: 'auto' });
       });
       countBtns.forEach(([k, b]) => { b.setAttribute('aria-pressed', k === n ? 'true' : 'false'); b.disabled = off; });
-      const mine = L.own.frame || L.own.wheel || L.own.style || L.own.blades;
+      const byMake = !!(c && c.look && c.look.reverse);
+      rev.checked = !!(L.look && L.look.reverse);
+      rev.disabled = off;
+      setText(revNote, byMake && !L.own.reverse ? T('look.reverse_model') : '');
+      const mine = L.own.frame || L.own.wheel || L.own.style || L.own.blades || L.own.reverse;
       swap(says, [!!c, c && c.id, mine, !!undo, off], () => {
         const out = [];
         if (c) out.push(chipOfText(mine ? 'accent' : 'quiet', mine ? T('look.changed') : T('look.proposal'), mine ? T('look.changed_tip') : T('look.proposal_tip')));
-        if (c && mine) out.push(btn(T('look.reset'), 'btn plain', () => { undo = null; Object.assign(want, { frame: '', wheel: '', style: '', blades: 0 }); keep({ frame: '', wheel: '', style: '', blades: 0, colour: 'auto' }); }, T('look.reset_tip')));
+        if (c && mine) out.push(btn(T('look.reset'), 'btn plain', () => { undo = null; Object.assign(want, { frame: '', wheel: '', style: '', blades: 0, reverse: null }); keep({ frame: '', wheel: '', style: '', blades: 0, reverse: null, colour: 'auto' }); }, T('look.reset_tip')));
         if (undo) {
           out.push(el('span', 'fb-look-took', T('look.took', { model: modelText({ id: c && c.id }) })));
           const u = undo;
           out.push(btn(T('look.undo'), 'btn plain', () => {
             undo = null;
-            Object.assign(want, { model: u.model ? { id: u.model.id || null, mm: u.model.mm || null } : { id: null, mm: null }, frame: u.frame, wheel: u.wheel, style: u.style, blades: u.blades });
+            Object.assign(want, { model: u.model ? { id: u.model.id || null, mm: u.model.mm || null } : { id: null, mm: null }, frame: u.frame, wheel: u.wheel, style: u.style, blades: u.blades, reverse: u.reverse });
             pk.set(u.model ? (u.model.id ? { id: u.model.id } : { mm: u.model.mm, blades: u.model.blades }) : null);
-            keep({ model: (u.model && u.model.id) || '', frame: u.frame, wheel: u.wheel, style: u.style, blades: u.blades });
+            keep({ model: (u.model && u.model.id) || '', frame: u.frame, wheel: u.wheel, style: u.style, blades: u.blades, reverse: u.reverse });
           }, T('look.undo_tip')));
         }
         if (off) out.forEach((x) => { if (x.tagName === 'BUTTON') x.disabled = true; });
         return out;
       });
-      const offBy = c && f0.measured && num(f0.max_rpm) && num(c.rpm_max) && Math.abs(f0.max_rpm - c.rpm_max) > Math.max(250, 0.3 * c.rpm_max);
-      swap(note, [offBy ? f0.max_rpm : 0], () => (offBy ? para(T('roles.model_off', { measured: fmt.number(f0.max_rpm), sheet: fmt.number(c.rpm_max) }), 'callout') : []));
     }
     paint();
     return { update(f, away) { off = !!away; paint(); }, saved() { Object.keys(want).forEach((k) => delete want[k]); undo = null; paint(); },
@@ -3144,14 +3163,18 @@ function nameField(id, f, off, onType) {
 }
 function modelText(m) {
   const c = catFan(m && m.id);
-  return c ? `${c.brand} ${c.model}` : m && m.mm ? T('roles.other_fan', { mm: m.mm }) : '';
+  return c ? catName(c) : m && m.mm ? T('roles.other_fan', { mm: m.mm }) : '';
+}
+/** A catalogue entry's name: maker and model — a brand's typical look in a size (generic: no model) says so */
+function catName(c) {
+  return c.generic ? T('pick.generic', { brand: c.brand, mm: c.mm }) : `${c.brand} ${c.model}`;
 }
 function pickerTexts() {
   return {
     brand: T('pick.brand'), model: T('pick.model'), other: T('pick.other'), choose: T('pick.choose'), size: T('pick.size'), blades: T('pick.blades'),
-    mm: (n) => T('pick.mm', { n }), option: (f) => T('pick.option', { model: f.model, mm: f.mm }),
-    facts: (f) => [f.mm ? T('pick.mm', { n: f.mm }) : '', f.rpm_max ? (num(f.rpm_min) !== null ? T('pick.range', { min: fmt.number(f.rpm_min), max: fmt.number(f.rpm_max) }) : T('pick.upto', { max: fmt.number(f.rpm_max) })) : '',
-      f.blades ? T('pick.blades_n', { n: f.blades }) : '', f.connector || ''].filter(Boolean).join(' · ') + (f.id ? '' : ` · ${T('pick.measured_later')}`),
+    mm: (n) => T('pick.mm', { n }), option: (f) => (f.generic ? T('pick.generic_option', { mm: f.mm }) : T('pick.option', { model: f.model, mm: f.mm })),
+    // only what the picture is: its size and blades (2026-11-20: no data-sheet speeds or connector — Fanboy measures them)
+    facts: (f) => [f.mm ? T('pick.mm', { n: f.mm }) : '', f.blades ? T('pick.blades_n', { n: f.blades }) : '', T('pick.measured_later')].filter(Boolean).join(' · '),
   };
 }
 /** «Give back to»: the mainboard's automatic (where the chip has one) or this fixed value — open until chosen */

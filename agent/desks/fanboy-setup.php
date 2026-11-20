@@ -1771,7 +1771,7 @@ function fanboyRole(array $r): array
 /**
  * 2026-11-20 (the owner: «first test output 1, label it and so on, save at the end, not at every click; then on to output
  * two»): an output's details in ONE request — `role` (or `empty`: nothing attached), name, place, count, alike (several
- * fans: the same model?), off_ok, and `look` {model, mm, blades, frame, wheel, style, colour} when he chose one (optional).
+ * fans: the same model?), off_ok, and `look` {model, mm, blades, frame, wheel, style, colour, reverse} when he chose one (optional).
  * Each part checked and stored as its own action does it (fanboyAnswer(), fanboyFanLook(), fanboyRole()); the look and the
  * role are checked before the first write, so a refused field stores nothing. A tested output where no tach followed
  * (ask, unclear — or found empty, he changed his mind) given a role: «I heard it» first, as the page's role click did.
@@ -1805,7 +1805,7 @@ function fanboyFanSave(array $r): array
         fanboyAnswer(['fan' => $id, 'louder' => true]);
     }
     if (is_array($look)) {
-        fanboyFanLook(['fan' => $id] + array_intersect_key($look, array_flip(['model', 'mm', 'blades', 'frame', 'wheel', 'style', 'colour'])));
+        fanboyFanLook(['fan' => $id] + array_intersect_key($look, array_flip(['model', 'mm', 'blades', 'frame', 'wheel', 'style', 'colour', 'reverse'])));
     }
     $out = fanboyRole(['fan' => $id, 'role' => $role] + array_intersect_key($r, array_flip(['name', 'place', 'count', 'alike', 'off_ok'])));
     return $out + ['saved' => true];
@@ -2245,6 +2245,14 @@ function fanboyFanLook(array $r): array
             }
             $own[$k] = $v === '' ? null : $v;
         }
+    }
+    // 2026-11-20 (the owner): a reverse-blade fan — its blades mirrored, turning the other way in every picture. true or
+    // false is the user's own; null clears it (the model's says, none: not reverse). An older office ignores the key.
+    if (array_key_exists('reverse', $r)) {
+        if ($r['reverse'] !== null && !is_bool($r['reverse'])) {
+            throw new Problem('fanboy_bad_look', ['field' => 'reverse']);
+        }
+        $own['reverse'] = $r['reverse'];
     }
     $outputs = fanboyOutputs(fanboyDetect());
     $e = fanboyStoreUpdate(function (array $e) use ($id, $model, $mm, $blades, $colour, $r, $outputs, $own): array {

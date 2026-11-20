@@ -28,14 +28,95 @@
   FanArt.catalog().then((cat) => {
     const fans = cat.fans;
     const by = (id) => fans.find((f) => f.id === id);
-    const wheelOf = (f, more) => Object.assign({ label: f.model, sub: `${f.brand} · ${f.mm} mm`, mm: f.mm, blades: f.blades, min: f.rpm_min, max: f.rpm_max,
-      rpm: Math.round((f.rpm_max || 1500) * 0.55), look: f.look, px: 120, air: false, title: `${f.brand} ${f.model}` }, more || {});
+    const de = q.get('lang') === 'de';
+    const nameOf = (f) => f.model || (de ? `${f.mm} mm (typisch)` : `${f.mm} mm (typical)`);
+    const wheelOf = (f, more) => Object.assign({ label: nameOf(f), sub: `${f.brand} · ${f.mm} mm`, mm: f.mm, blades: f.blades,
+      rpm: 1100, look: f.look, px: 120, air: false, title: `${f.brand} ${nameOf(f)}`, cls: f.generic ? 'fl-generic' : '' }, more || {});
+
+    // ?only=looks&pair: the owner's example (2026-11-20) — the NF-A8 beside the NF-A14 at the picker's size and large, each
+    // also as a reverse-blade fan (blades mirrored, turning the other way); then the colours a user may choose
+    if (q.has('pair')) {
+      // the words of these parts in German with &lang=de (the owner's pictures), else English
+      const de = q.get('lang') === 'de';
+      const W = de ? { pair: 'NF-A8 PWM neben NF-A14 PWM und NF-A14x25 G2', pairNote: 'Derselbe Hersteller, 80 und 140 mm: jedes nach seinem Modell gezeichnet — Blätter, Nabe, Rahmen und Ecken, dahinter die Streben.',
+        rev: 'Reverse-Blade', revNote: 'Links der übliche Lüfter, rechts dasselbe Modell mit «Reverse-Blade»: die Blätter gespiegelt, er dreht gleich herum (der Hersteller: «they spin normally, but the blades are inverted»).', usual: 'üblich', reverse: 'Reverse-Blade',
+        col: 'Die Farben', colNote: 'Rahmen und Blätter in jeder wählbaren Farbe (dasselbe Modell, Arctic P12 PWM PST).' }
+        : { pair: 'NF-A8 PWM beside NF-A14 PWM and NF-A14x25 G2', pairNote: 'The same maker, 80 and 140 mm: drawn after each model — blades, hub, frame and corners, the struts behind.',
+          rev: 'Reverse blade', revNote: 'Left the usual fan, right the same model with «reverse blade» ticked: its blades mirrored, turning the same way (the maker: «they spin normally, but the blades are inverted»).', usual: 'usual', reverse: 'reverse blade',
+          col: 'The colours', colNote: 'Frame and blades in each colour a user may choose (the same model, Arctic P12 PWM PST).' };
+      const names = de ? { black: 'Schwarz', charcoal: 'Anthrazit', graphite: 'Graphit', grey: 'Grau', silver: 'Silber', white: 'Weiss', beige: 'Beige', brown: 'Braun', frost: 'Durchsichtig',
+        red: 'Rot', orange: 'Orange', yellow: 'Gelb', green: 'Grün', blue: 'Blau', purple: 'Violett' } : {};
+      const pr = part(W.pair, W.pairNote, 'fl-pair');
+      for (const px of [120, 220]) {
+        const row = el('div', 'fl-wheels');
+        pr.appendChild(row);
+        for (const id of ['noctua-nf-a8-pwm', 'noctua-nf-a14-pwm', 'noctua-nf-a14x25-g2-pwm']) row.appendChild(FanArt.wheel(wheelOf(by(id), { px })).el);
+      }
+      // the sizes the pages draw them at: the picker 120 px, the zone 46, a list row 40, the Dashboard tile 28
+      const sm = part(de ? 'In den Grössen der Seiten' : 'At the pages\' sizes', de ? 'Bildauswahl 120 px · Zone 46 px · Listenzeile 40 px · Dashboard 28 px' : 'picker 120 px · zone 46 px · list row 40 px · Dashboard 28 px', 'fl-small');
+      for (const px of [120, 46, 40, 28]) {
+        const row = el('div', 'fl-wheels');
+        sm.appendChild(row);
+        for (const id of ['noctua-nf-a8-pwm', 'noctua-nf-a14-pwm', 'noctua-nf-a14x25-g2-pwm', 'arctic-p12-pwm-pst', 'lian-li-uni-fan-sl-v2-120', 'thermalright-tl-c12c']) {
+          row.appendChild(FanArt.wheel(wheelOf(by(id), px < 120 ? { px, label: '', sub: '', title: '' } : { px })).el);
+        }
+      }
+      const rv = part(W.rev, W.revNote, 'fl-reverse');
+      const rrow = el('div', 'fl-wheels');
+      rv.appendChild(rrow);
+      for (const id of ['noctua-nf-a14x25-g2-pwm', 'arctic-p12-pwm-pst']) {
+        rrow.appendChild(FanArt.wheel(wheelOf(by(id), { px: 160, sub: W.usual })).el);
+        rrow.appendChild(FanArt.wheel(wheelOf(by(id), { px: 160, reverse: true, sub: W.reverse })).el);
+      }
+      const ll = part('Lian Li', de ? 'Die UNI-FAN-Modelle aus dem Katalog (Reverse-Blade-Modelle ab Werk gespiegelt).' : 'The UNI FAN models of the catalogue (reverse-blade models mirrored as made).', 'fl-lianli');
+      const lrow = el('div', 'fl-wheels');
+      ll.appendChild(lrow);
+      for (const f of fans.filter((x) => x.brand === 'Lian Li')) lrow.appendChild(FanArt.wheel(wheelOf(f)).el);
+      const co = part(W.col, W.colNote, 'fl-colours');
+      const crow = el('div', 'fl-wheels');
+      co.appendChild(crow);
+      const p12 = by('arctic-p12-pwm-pst');
+      for (const c of FanArt.LOOK_COLOURS) {
+        const look = Object.assign({}, p12.look, { frame: c, blades: c, hub: c, sticker_colour: c });
+        crow.appendChild(FanArt.wheel(wheelOf(p12, { look, label: names[c] || c, sub: '', px: 96 })).el);
+      }
+      // a proposal (not on any page yet): one zone with an 80, a 120 and a 140 mm fan — as today (all the same size) and by size
+      const sz = part(de ? 'Vorschlag: Grössen im Zonenbild' : 'Proposal: sizes in the zone picture',
+        de ? 'Oben wie heute (jeder Lüfter gleich gross), unten nach Grösse: 80 mm kleiner, 140 mm grösser.' : 'Above as today (every fan the same size), below by size: 80 mm smaller, 140 mm bigger.', 'fl-sizes');
+      const zfan = (id, more) => { const f = Object.assign(wheelOf(by(id)), more); delete f.px; delete f.air; return f; };      // as the page passes them: no size of their own
+      const zone = { id: 'case', name: de ? 'Gehäuse' : 'Case', note: '42 %', fans: [
+        zfan('noctua-nf-a8-pwm', { id: 'a', label: 'NF-A8', sub: '80 mm', place: 'front', rpm: 1300 }),
+        zfan('arctic-p12-pwm-pst', { id: 'b', label: 'P12', sub: '120 mm', place: 'front', rpm: 900 }),
+        zfan('noctua-nf-a14-pwm', { id: 'c', label: 'NF-A14', sub: '140 mm', place: 'rear', rpm: 800 })],
+      sources: [{ id: 'cpu', label: 'CPU', kind: 'cpu', temp: 52, limit: 85 }, { id: 'd1', label: de ? 'Disk 1' : 'Disk 1', kind: 'disk', temp: 37, limit: 45 }] };
+      const texts = { temp: (t) => `${t} °C`, asleep: 'asleep', warmest: 'warmest', none: '–' };
+      for (const sized of [false, true]) {
+        const z = FanArt.server({ zones: [Object.assign({}, zone, { id: sized ? 'sized' : 'today' })] }, { px: 46, sized, texts });
+        z.el.style.maxWidth = '640px';
+        z.el.style.marginBottom = '12px';
+        sz.appendChild(z.el);
+      }
+      document.documentElement.dataset.looks = String(fans.length);
+      return;
+    }
 
     // the sheet: all models, maker by maker
     const sheet = part(`The catalogue's ${fans.length} models`, 'Each drawn after its model: the frame, the blades\' colour and character, the pads, the name on the hub — plain text, no logo.', 'fl-sheet');
     const grid = el('div', 'fl-wheels fl-sheet');
     sheet.appendChild(grid);
     for (const f of fans) grid.appendChild(FanArt.wheel(wheelOf(f)).el);
+    // names covered (2026-11-20, the owner: «sonst macht es ja kaum Sinn wenn zwischen den Marken keine klar anderen Grafiken
+    // kommen»): a row per maker, no words, no name on the hubs — the makers named only below, in the rows' order
+    const brands = [...new Set(fans.map((f) => f.brand))];
+    const cov = part(de ? 'Namen verdeckt' : 'Names covered', de ? 'Eine Zeile je Hersteller, ohne Namen — welche Zeile ist welche Marke? (Auflösung unten)' : 'A row per maker, no names — which row is which maker? (answer below)', 'fl-covered');
+    for (const b of brands) {
+      const row = el('div', 'fl-wheels fl-covered-row');
+      cov.appendChild(row);
+      for (const f of fans.filter((x) => x.brand === b)) row.appendChild(FanArt.wheel(wheelOf(f, { label: '', sub: '', title: '', px: 72, look: Object.assign({}, f.look, { sticker: null }) })).el);
+    }
+    cov.appendChild(el('p', 'fl-note', brands.map((b, i) => `${i + 1}. ${b}`).join(' · ')));
+    // ?only=looks&sheet: the sheet alone — every model turning at 120 px (tools/fanboy/look.mjs measures its CPU)
+    if (q.has('sheet')) { document.documentElement.dataset.looks = String(fans.length); return; }
 
     // the states on a beige, a white and a black model, and the user's colour over a model's
     const st = part('States on a model\'s colours', 'Running, standing although it should run (red), no feedback (dashed), the BIOS\'s (dotted) — on a beige, a white and a black fan; last: a model with the colour «accent» chosen, and «other fan».', 'fl-states');

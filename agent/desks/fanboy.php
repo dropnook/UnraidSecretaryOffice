@@ -843,6 +843,8 @@ function fanboySetupState(array $scan, ?array $settings): array
             'frame' => is_string($f['frame'] ?? null) && preg_match(FANBOY_LOOK_KEY_RE, $f['frame']) ? $f['frame'] : null,
             'wheel' => is_string($f['wheel'] ?? null) && preg_match(FANBOY_LOOK_KEY_RE, $f['wheel']) ? $f['wheel'] : null,
             'style' => is_string($f['style'] ?? null) && preg_match(FANBOY_LOOK_KEY_RE, $f['style']) ? $f['style'] : null,
+            // 2026-11-20: a reverse-blade fan (the user's own tick; null: the model's says)
+            'reverse' => is_bool($f['reverse'] ?? null) ? $f['reverse'] : null,
             'back' => in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : null,
             // round 3: fans on this one connector (the user says; one speed for all of them) — none stored: one
             'count' => is_int($f['count'] ?? null) && $f['count'] >= 1 && $f['count'] <= FANBOY_COUNT_MAX ? $f['count'] : 1,
