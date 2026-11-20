@@ -3762,6 +3762,30 @@ function zoneSources(z, i) {
       } else line.appendChild(el('span', 'fb-src-curve-text', text));
     }
     block.appendChild(line);
+    // 2026-11-20 (the owner: «alle ein/aus funktion fehlt»): every source of this kind in or out of the zone at once — the
+    // draft only, like a chip (a source may be in other zones too); the count and the curve card follow on the redraw
+    if (list.length > 1) {
+      const bulk = el('div', 'fb-src-bulk');
+      const pick = (all2) => changeZones((all) => {
+        const ids = new Set(list.map((s) => s.id));
+        const rest = all[i].sources.filter((x) => !ids.has(x.id));
+        all[i].sources = all2 ? [...rest, ...list.map((s) => ({ id: s.id, kind: s.kind }))] : rest;
+      });
+      const every = el('button', 'btn plain fb-src-all', T('zones.src_pick_all'));
+      every.type = 'button';
+      every.dataset.own = '1';
+      every.title = T('zones.src_pick_all_tip', { n: list.length, kind: kindName(k) });
+      every.disabled = chosen.length === list.length;
+      every.onclick = () => pick(true);
+      const nothing = el('button', 'btn plain fb-src-nothing', T('zones.src_pick_none'));
+      nothing.type = 'button';
+      nothing.dataset.own = '1';
+      nothing.title = T('zones.src_pick_none_tip', { kind: kindName(k) });
+      nothing.disabled = !chosen.length;
+      nothing.onclick = () => pick(false);
+      bulk.append(every, nothing);
+      chips.appendChild(bulk);
+    }
     list.forEach((s) => {
       const on = inZone.has(s.id);
       const b2 = el('button', 'fb-src' + (on ? ' on' : ''), [label(s), srcReads(s)].filter(Boolean).join(' · '));
