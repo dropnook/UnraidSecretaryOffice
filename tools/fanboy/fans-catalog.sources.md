@@ -1,20 +1,16 @@
 # Fanboy's fan catalogue: where each value comes from
 
-`public/desks/fanboy/fans-catalog.json` (shipped) lists the usual PWM case fans; this file (dev-only, `tools/fanboy/`, never in
-the package) names for every entry the maker's own page its values were read from, on 2026-11-14. Only the maker's page
-counts — no retailer, review or wiki. A value the maker's page does not give is `null` in the catalogue, never a guess.
-Brand and model names are plain text; no logos, no product pictures. Each model's `look` (below) is our own drawing «after» the model —
-its colours, its blades' character, its frame and its name as plain text on the hub; nothing traced from a maker's artwork.
+`public/desks/fanboy/fans-catalog.json` (shipped) lists the usual PWM case fans **for the pictures only** (2026-11-20, the
+owner: «Drehzahlbereich messen wir ja selber, Anschluss auch unnötig, es geht ja echt nur um cool animierte Grafiken die
+möglichst nahe an das Modell herankommen sollen»): brand, model name and size — facts from the maker's own page, named here
+per entry (read 2026-11-14 and 2026-11-20; no retailer, review or wiki) — and the look, our own drawing «after» the model:
+its colours, blades, hub, frame, its name as plain text on the hub; nothing traced from a maker's artwork, no logos. The
+speed range and connector the catalogue had until 2026-11-20 are gone (Fanboy measures the speeds; the rows below still say
+how they were read then). A generic entry (`generic: true`, below) is a maker's typical look in a size, no product.
 
 How the fields were read:
-* `rpm_min`, `rpm_max`: the PWM speed range as the page writes it, tolerances (±10 %) left out. **Noctua**'s current
-  spec pages have no «Min. rotational speed» row any more: `rpm_min` is their «Rotational speed @ 20% PWM» (they also say
-  the fans stop at 0 % PWM) — except the NF-A20 PWM (its own range 350–800 rpm, it never stops). **be quiet!** and
-  **Thermalright** give only the top speed: `rpm_min` null. `0` = the page says the fan can stand still (zero rpm).
 * `blades`: where the page says how many (Noctua's G2/redux/NF-F12 texts, Fractal Design, Phanteks …), or — since
   2026-11-20 — counted on the maker's own front photo of the model (the «shape» rows below name the picture); else null.
-* `connector`: "4-pin" where the page says 4-pin or 4-pin PWM; Corsair pages that only say «PWM Control: Yes» and name
-  no connector: null.
 * Left out on purpose: slim and RGB-only variants, models whose page names only a maker's own daisy-chain connector
   (Fractal Momentum), and pages that were gone (Cooler Master SickleFlow 92, MasterFan MF120 Halo black).
 * **Lian Li** (added 2026-11-20, the owner: «diese Marke soll auch noch angeboten werden»): lian-li.com sells only UNI FAN
@@ -268,3 +264,40 @@ seven wide blades on Noctua's own photos.
 | lian-li-uni-fan-tl-140 | shape | 9 blades; sickle-wide, hub 0.35, struts 0, corner | blades: photo: https://lian-li.com/wp-content/uploads/2023/12/unfan_tl_b_14_001_c.jpg; Look: static front photo https://lian-li.com/wp-content/uploads/2023/12/unfan_tl_b_14_001_c.jpg; blades narrow at the hub widening to broad, strongly curved tips (could also read as swept-wide); 9 counted by ring sampling; page text names 9 blades for the TL without size; no struts visible through the blades; triangular corner covers are the 'anti-vibrate rubber pads' (frame colour). Connection: slide-in daisy chain with POGO extension cable, 'UNI FAN Controller Cable x 1 (P-7P)'; 'The controller is required to use the fans' and 'UNI FAN TL series fans without the controller will not be functional' (controller in triple pack or sold separately; needs PCIe power + 9-pin USB). Controller takes the board's PWM: '5V ARGB / 4 PIN PWM Cable - Required for motherboard sync function'. 0 rpm in the spec ('0, 200~1800 RPM'), lowest running speed 200. Frame 144x140x28 mm. Colours: black, white. Reverse blade: same page, own model name and SKUs (14RTL1B/1W). Spec page: https://lian-li.com/product/uni-fan-tl/ |
 | lian-li-uni-fan-tl-120-reverse-blade | shape | 9 blades; sickle-wide, hub 0.35, struts 0, corner, reverse | blades: photo: https://lian-li.com/wp-content/uploads/2023/12/unfan_tl_rb_12_001_c.jpg; Look: static front photo; blade gaps faint, spacing fits 9 blades (same count as the normal TL); no struts visible. Connection: slide-in daisy chain with POGO extension cable, 'UNI FAN Controller Cable x 1 (P-7P)'; 'The controller is required to use the fans' and 'UNI FAN TL series fans without the controller will not be functional' (controller in triple pack or sold separately; needs PCIe power + 9-pin USB). Controller takes the board's PWM: '5V ARGB / 4 PIN PWM Cable - Required for motherboard sync function'. Page: 'the fan speed of TL120 Reverse reaches the maximum ceiling at approximately 80%'. 0 rpm in spec, lowest running speed 200. 124x120x28 mm. Colours: black, white. Same page as TL, separate model name and SKUs 12RTL1B/1W, 12RTL3B/3W. Spec page: https://lian-li.com/product/uni-fan-tl/ |
 | lian-li-uni-fan-p28 | shape | 9 blades; sickle-wide, hub 0.4, struts 4, pads | blades: photo: https://lian-li.com/wp-content/uploads/2023/05/p28-01.jpg; Look: static front photo; 9 blades counted (ring sampling); blades narrow at hub widening to broad curved tips (could read as swept-wide); struts only glimpsed through blade gaps (about 1, 4, 7, 10 o'clock) - 4 is uncertain; corner pads per page 'RUBBER PADS' (frame colour). No ARGB (optional side ARGB strips sold separately). Connection: slide-in daisy chain, 'Only 1 cable is needed for a cluster of fans and can connect directly to the motherboard or fan speed controller'; spec lists only 'Adaptor Cable' - 4-pin PWM not stated in the text (only the tag 'PWM fan'). Triple pack has a magnetic button controller with modes L 300~1300 / M 300~2200 / H 300~2600 rpm; page does not say the controller takes the board's PWM. Speed '300 - 2600 RPM(+-50)', no 0-rpm. 120x120x28 mm, 6-year warranty. Colours: black, white. No reverse-blade version, no 140 mm. Spec page: https://lian-li.com/product/uni-fan-p28/ |
+
+## Signatures (2026-11-20)
+
+The owner: «sonst macht es ja kaum Sinn wenn zwischen den Marken keine klar anderen Grafiken kommen». Besides blades, hub,
+struts and frame (the «shape» rows), the hub's cover (`hub_kind`) as the makers' front photos show it: Arctic a badge with a
+light ring round it (`ring`); Lian Li's SL/SL INFINITY/TL and Phanteks' D30 a metal medallion (`metal`); Cooler Master's
+SickleFlow and Corsair's ML a lit, frosted centre (`glow`); Thermalright's TL-C12C/C14C a light square plate (`plate`);
+the others a flat badge. Further, from the photos: be quiet!'s Shadow Wings 2 has a round frame with lugs (`ring`), the
+Silent Wings 4 120 mm a very large hub (0.5); Fractal's Dynamic 3 pages are the RGB variants with frosted blades; Corsair's
+AF and RS frames have solid corner blocks; SilverStone's AP184i shows a rear grille of many ribs (20 thin struts). All of
+it a likeness for the picture, never a fact on the page.
+
+## Generic sizes (2026-11-20)
+
+The owner: «für jede Marke min. 1 80er 120er 140er 200er wäre nice, auch wenn Design zwischen Grösse geraten ist». Where a
+maker has no model of a common size in the catalogue, a generic entry (`generic: true`, `model` null) offers the maker's
+typical look in that size, carried over from its nearest real model (blades, their shape, hub, frame, colours); no name on
+its hub, nothing said about a product.
+
+| id | | generic | from |
+|---|---|---|---|
+| arctic-generic-200 | generic | Arctic · 200 mm: no such model of the maker in the catalogue — its look carried over from arctic-p14-pwm-pst (a likeness, no model, no name on the hub) |
+| be-quiet-generic-200 | generic | be quiet! · 200 mm: no such model of the maker in the catalogue — its look carried over from be-quiet-silent-wings-4-140mm-pwm (a likeness, no model, no name on the hub) |
+| corsair-generic-80 | generic | Corsair · 80 mm: no such model of the maker in the catalogue — its look carried over from corsair-af120-elite (a likeness, no model, no name on the hub) |
+| corsair-generic-200 | generic | Corsair · 200 mm: no such model of the maker in the catalogue — its look carried over from corsair-af140-elite (a likeness, no model, no name on the hub) |
+| fractal-design-generic-80 | generic | Fractal Design · 80 mm: no such model of the maker in the catalogue — its look carried over from fractal-design-dynamic-3-12 (a likeness, no model, no name on the hub) |
+| fractal-design-generic-200 | generic | Fractal Design · 200 mm: no such model of the maker in the catalogue — its look carried over from fractal-design-dynamic-3-14 (a likeness, no model, no name on the hub) |
+| phanteks-generic-80 | generic | Phanteks · 80 mm: no such model of the maker in the catalogue — its look carried over from phanteks-m25g2-120 (a likeness, no model, no name on the hub) |
+| phanteks-generic-200 | generic | Phanteks · 200 mm: no such model of the maker in the catalogue — its look carried over from phanteks-m25g2-140 (a likeness, no model, no name on the hub) |
+| thermalright-generic-200 | generic | Thermalright · 200 mm: no such model of the maker in the catalogue — its look carried over from thermalright-tl-c14c (a likeness, no model, no name on the hub) |
+| cooler-master-generic-80 | generic | Cooler Master · 80 mm: no such model of the maker in the catalogue — its look carried over from cooler-master-sickleflow-120 (a likeness, no model, no name on the hub) |
+| silverstone-generic-80 | generic | SilverStone · 80 mm: no such model of the maker in the catalogue — its look carried over from silverstone-air-penetrator-184i-pro (a likeness, no model, no name on the hub) |
+| silverstone-generic-120 | generic | SilverStone · 120 mm: no such model of the maker in the catalogue — its look carried over from silverstone-air-penetrator-184i-pro (a likeness, no model, no name on the hub) |
+| silverstone-generic-140 | generic | SilverStone · 140 mm: no such model of the maker in the catalogue — its look carried over from silverstone-air-penetrator-184i-pro (a likeness, no model, no name on the hub) |
+| silverstone-generic-200 | generic | SilverStone · 200 mm: no such model of the maker in the catalogue — its look carried over from silverstone-air-penetrator-184i-pro (a likeness, no model, no name on the hub) |
+| lian-li-generic-80 | generic | Lian Li · 80 mm: no such model of the maker in the catalogue — its look carried over from lian-li-uni-fan-tl-120 (a likeness, no model, no name on the hub) |
+| lian-li-generic-200 | generic | Lian Li · 200 mm: no such model of the maker in the catalogue — its look carried over from lian-li-uni-fan-tl-140 (a likeness, no model, no name on the hub) |

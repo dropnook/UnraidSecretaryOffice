@@ -436,10 +436,10 @@ function testFanboyUx(): void
         && str_contains($js, "btn(T('look.reset'), 'btn plain', () => { undo = null; Object.assign(want, { frame: '', wheel: '', style: '', blades: 0, reverse: null }); keep({ frame: '', wheel: '', style: '', blades: 0, reverse: null, colour: 'auto' }); }, T('look.reset_tip'))")
         && str_contains($js, "chipOfText(mine ? 'accent' : 'quiet', mine ? T('look.changed') : T('look.proposal'),")
         && ($l['de']['look.proposal'] ?? '') === 'Vorschlag für dieses Modell' && ($l['de']['look.reset'] ?? '') === 'Zurück zum Vorschlag');
-    check('fanboy ux look: the picker shows the model\'s facts only (no wheel, no blades\' number of its own), the fold\'s one preview is the fan as it will be drawn; measured far from the data sheet is still said',
+    check('fanboy ux look: the picker shows the model\'s facts only (no wheel, no blades\' number of its own), the fold\'s one preview is the fan as it will be drawn; no data-sheet speeds any more (2026-11-20: Fanboy measures them)',
         str_contains($js, "preview: false, texts: pickerTexts(),") && str_contains($art, "if (o.preview === false) look.append(facts); else look.append(wh.el, facts);")
         && str_contains($art, "fBlades.hidden = !other || o.preview === false;")
-        && str_contains($js, "swap(note, [offBy ? f0.max_rpm : 0], () => (offBy ? para(T('roles.model_off', { measured: fmt.number(f0.max_rpm), sheet: fmt.number(c.rpm_max) }), 'callout') : []));"));
+        && !str_contains($js, 'roles.model_off') && !str_contains($js, 'pick.range') && !str_contains($js, 'num(c.rpm_max)'));
     // round 12 fix, the net: heat sources no zone covers — said in the zones step and at «Übernehmen», the net's state in the banner
     same('fanboy ux uncovered: while he changes zones the page uses the agent\'s rule on the draft — the kinds the net watches', FANBOY_NET_KINDS,
         preg_match("/const NET_KINDS = \\[([^\\]]+)\\];/", $js, $m) ? array_map(fn ($x) => trim($x, " '"), explode(',', $m[1])) : []);

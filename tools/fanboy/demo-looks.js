@@ -28,8 +28,10 @@
   FanArt.catalog().then((cat) => {
     const fans = cat.fans;
     const by = (id) => fans.find((f) => f.id === id);
-    const wheelOf = (f, more) => Object.assign({ label: f.model, sub: `${f.brand} · ${f.mm} mm`, mm: f.mm, blades: f.blades, min: f.rpm_min, max: f.rpm_max,
-      rpm: Math.round((f.rpm_max || 1500) * 0.55), look: f.look, px: 120, air: false, title: `${f.brand} ${f.model}` }, more || {});
+    const de = q.get('lang') === 'de';
+    const nameOf = (f) => f.model || (de ? `${f.mm} mm (typisch)` : `${f.mm} mm (typical)`);
+    const wheelOf = (f, more) => Object.assign({ label: nameOf(f), sub: `${f.brand} · ${f.mm} mm`, mm: f.mm, blades: f.blades,
+      rpm: 1100, look: f.look, px: 120, air: false, title: `${f.brand} ${nameOf(f)}` }, more || {});
 
     // ?only=looks&pair: the owner's example (2026-11-20) — the NF-A8 beside the NF-A14 at the picker's size and large, each
     // also as a reverse-blade fan (blades mirrored, turning the other way); then the colours a user may choose
@@ -94,6 +96,16 @@
     const grid = el('div', 'fl-wheels fl-sheet');
     sheet.appendChild(grid);
     for (const f of fans) grid.appendChild(FanArt.wheel(wheelOf(f)).el);
+    // names covered (2026-11-20, the owner: «sonst macht es ja kaum Sinn wenn zwischen den Marken keine klar anderen Grafiken
+    // kommen»): a row per maker, no words, no name on the hubs — the makers named only below, in the rows' order
+    const brands = [...new Set(fans.map((f) => f.brand))];
+    const cov = part(de ? 'Namen verdeckt' : 'Names covered', de ? 'Eine Zeile je Hersteller, ohne Namen — welche Zeile ist welche Marke? (Auflösung unten)' : 'A row per maker, no names — which row is which maker? (answer below)', 'fl-covered');
+    for (const b of brands) {
+      const row = el('div', 'fl-wheels fl-covered-row');
+      cov.appendChild(row);
+      for (const f of fans.filter((x) => x.brand === b)) row.appendChild(FanArt.wheel(wheelOf(f, { label: '', sub: '', title: '', px: 72, look: Object.assign({}, f.look, { sticker: null }) })).el);
+    }
+    cov.appendChild(el('p', 'fl-note', brands.map((b, i) => `${i + 1}. ${b}`).join(' · ')));
     // ?only=looks&sheet: the sheet alone — every model turning at 120 px (tools/fanboy/look.mjs measures its CPU)
     if (q.has('sheet')) { document.documentElement.dataset.looks = String(fans.length); return; }
 

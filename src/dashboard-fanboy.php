@@ -103,9 +103,9 @@ function officeFanboyDashLook(array $f, array $cat): array
     $m = is_array($f['model'] ?? null) ? $f['model'] : [];
     $c = is_string($m['id'] ?? null) ? ($cat[$m['id']] ?? null) : null;
     $measured = ($f['measured'] ?? false) === true;
-    $max = $measured && $num($f['max_rpm'] ?? null) ? $num($f['max_rpm']) : ($c !== null && $num($c['rpm_max'] ?? null) ? $num($c['rpm_max']) : null);
-    $min = $measured && $num($f['min_pct'] ?? null) ? officeFanboyDashTableRpm($f['table'] ?? null, (float) $num($f['min_pct']))
-        : ($c !== null && $num($c['rpm_min'] ?? null) ? $num($c['rpm_min']) : null);
+    // its speeds only from his measuring (2026-11-20: the catalogue is about the picture alone)
+    $max = $measured && $num($f['max_rpm'] ?? null) ? $num($f['max_rpm']) : null;
+    $min = $measured && $num($f['min_pct'] ?? null) ? officeFanboyDashTableRpm($f['table'] ?? null, (float) $num($f['min_pct'])) : null;
     $colour = static fn (mixed $v): ?string => is_string($v) && in_array($v, FANBOY_DASH_LOOK_COLOURS, true) ? $v : null;
     $base = $c !== null && is_array($c['look'] ?? null) ? $c['look'] : null;
     $old = $colour($f['colour'] ?? null);

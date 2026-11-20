@@ -45,22 +45,47 @@
 /* a model's frame always has an outline in the text's colour: a black fan on the black theme, a white one on the white */
 .fan-look{--fan-line:color-mix(in srgb, var(--ink) 45%, transparent)}
 .fan-look-wheel{--fan-edge:color-mix(in srgb, var(--fan-blade) 60%, var(--ink)); --fan-hub2:color-mix(in srgb, var(--fan-hub) 85%, var(--ink))}
-/* through a model's gaps a shade of its frame (a black fan stays black on the white theme, its blades still apart) */
-.fan-look{--fan-well:color-mix(in srgb, var(--fan-frame) 50%, var(--bg))}
+/* between the blades nothing: the page shows through (2026-11-20, the owner: «dort ist nichts ausser Luft»); a black fan
+   on the black theme keeps its blades apart by their shading and edge */
 
 .fan-box{position:relative; width:var(--fan-px); height:var(--fan-px); flex:0 0 auto; border-radius:calc(var(--fan-px) * .11)}
 .fan-frame, .fan-arc{position:absolute; inset:0; width:100%; height:100%; overflow:visible}
 .fan-housing{fill:var(--fan-frame); stroke:var(--fan-line); stroke-width:1}
-.fan-well{fill:var(--fan-well)}
-.fan-screw{fill:var(--fan-well); stroke:var(--fan-line); stroke-width:.6}
+.fan-screw{fill:none; stroke:var(--fan-line); stroke-width:.6}
 .fan-pad{fill:var(--fan-pad); stroke:var(--fan-line); stroke-width:.6}
-/* behind the blades: the motor's struts and the opening's lip, in the frame's colour */
-.fan-struts line{stroke:var(--fan-frame); stroke-width:3.4; stroke-linecap:round}
-.fan-lip{fill:none; stroke:color-mix(in srgb, var(--fan-frame) 70%, var(--fan-line)); stroke-width:1.2}
+/* depth (2026-11-20, the owner: «3D-Effekt»): gradients each picture makes for itself, coloured here from its own tokens —
+   the frame bevelled (light from the upper left), the lip recessed, a soft shadow inside the opening */
+.fan-gf-0{stop-color:color-mix(in srgb, var(--fan-frame) 78%, var(--white))}
+.fan-gf-1{stop-color:var(--fan-frame)}
+.fan-gf-2{stop-color:color-mix(in srgb, var(--fan-frame) 72%, var(--black))}
+.fan-gs-0{stop-color:var(--black); stop-opacity:0}
+.fan-gs-1{stop-color:var(--black); stop-opacity:.32}
+.fan-lip{fill:none; stroke:var(--fan-frame); stroke-width:2.2}
+/* behind the blades: the motor's struts, thin, and its mount under the hub, in a darker shade of the frame */
+.fan-struts line{stroke:color-mix(in srgb, var(--fan-frame) 80%, var(--black)); stroke-width:1.5; stroke-linecap:round}
+.fan-struts.fan-grille line{stroke-width:.8}
+.fan-mount{fill:color-mix(in srgb, var(--fan-frame) 80%, var(--black))}
+/* the blades: light at the leading tip, darker toward the root and the trailing edge; the hub domed */
+.fan-gb-0{stop-color:color-mix(in srgb, var(--fan-blade) 70%, var(--white))}
+.fan-gb-1{stop-color:var(--fan-blade)}
+.fan-gb-2{stop-color:color-mix(in srgb, var(--fan-blade) 66%, var(--black))}
+.fan-gh-0{stop-color:color-mix(in srgb, var(--fan-hub) 72%, var(--white))}
+.fan-gh-1{stop-color:var(--fan-hub)}
+.fan-gh-2{stop-color:color-mix(in srgb, var(--fan-hub) 62%, var(--black))}
+/* the hub's cover (a maker's signature): a badge, a badge with a light ring, a metal medallion, a lit centre, a plate */
+.fan-badge-disc{fill:var(--fan-tag); stroke:var(--fan-line); stroke-width:.5}
+.fan-badge-ring{fill:none; stroke:var(--fan-k-silver); stroke-width:1.2}
+.fan-badge-line{fill:none; stroke:color-mix(in srgb, var(--gray-500) 60%, transparent); stroke-width:.5}
+.fan-gm-0{stop-color:var(--white)}
+.fan-gm-1{stop-color:var(--gray-200)}
+.fan-gm-2{stop-color:var(--gray-500)}
+.fan-gg-0{stop-color:var(--white)}
+.fan-gg-1{stop-color:color-mix(in srgb, var(--white) 75%, var(--fan-blade))}
+.fan-gg-2{stop-color:color-mix(in srgb, var(--white) 30%, var(--fan-blade))}
+.fan-shine{fill:var(--white); opacity:.16}
 /* what stands still in front of the blades: a model's guide vanes, the sticker with its name (plain text, no mark) */
 .fan-front{position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none}
 .fan-vanes path{fill:none; stroke:var(--fan-frame); stroke-width:1.7; stroke-linecap:round}
-.fan-sticker{fill:var(--fan-tag); stroke:var(--fan-line); stroke-width:.5}
 .fan-sticker-text{fill:var(--fan-tag-ink); font-family:inherit; font-weight:600; letter-spacing:-.01em}
 /* the turning part: an element of its own, turned by a transform only (the browser's compositor does the work) */
 .fan-spin{position:absolute; inset:0; overflow:hidden; overflow:clip}    /* clips the turning square's corners (square: a rounded clip repaints every frame) */
@@ -70,7 +95,6 @@
 .fan-rotor svg{display:block; width:100%; height:100%}
 .fan-blades path{fill:var(--fan-blade); stroke:var(--fan-edge); stroke-width:.7; stroke-linejoin:round}
 .fan-hub{fill:var(--fan-hub); stroke:var(--fan-edge); stroke-width:.7}
-.fan-hub2{fill:var(--fan-hub2)}
 .fan-rim{fill:none; stroke:var(--fan-blade); stroke-width:2.6}
 .fan-look .fan-housing{stroke-width:1.4}
 .fan-arc{display:none}

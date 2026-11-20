@@ -506,8 +506,8 @@ function testFanboyDashFans(): void
         [['beige', 'brown', 'swept-narrow', 120, 'run', 1018]], array_map($art, $m['zones'][0]['art'] ?? []));
     same('fanboy dash fans: … the case zone', [['black', 'charcoal', 'sickle', 140, 'run', 905], ['grey', 'white', 'swept-wide', 120, 'run', 760], ['black', 'frost', 'swept-wide', 120, 'run', 0]],
         array_map($art, $m['zones'][1]['art'] ?? []));
-    same('fanboy dash fans: the speed range of the picture — what he measured before the catalogue (1600 rpm, 25 % = 640 rpm), the catalogue else (Phanteks: 0 = may stand, so none)',
-        [[640.0, 1600.0], [null, 3000.0]], array_map(static fn (array $p): array => array_map(static fn ($v) => is_int($v) ? (float) $v : $v, $p),
+    same('fanboy dash fans: the speed range of the picture — what he measured (1600 rpm, 25 % = 640 rpm), else none: the picture\'s own range (2026-11-20: no data-sheet speeds)',
+        [[640.0, 1600.0], [null, null]], array_map(static fn (array $p): array => array_map(static fn ($v) => is_int($v) ? (float) $v : $v, $p),
             [[fanboyDashKey($m['zones'][0]['art'][0] ?? [], 'min'), fanboyDashKey($m['zones'][0]['art'][0] ?? [], 'max')], [fanboyDashKey($m['zones'][1]['art'][1] ?? [], 'min'), fanboyDashKey($m['zones'][1]['art'][1] ?? [], 'max')]]));
     $rows = (string) ($o['rows'] ?? '');
     check('fanboy dash fans: the rows — a zone line each (no folding, no speed range: each fan says its own), every fan with its symbol\'s box, name and speed',

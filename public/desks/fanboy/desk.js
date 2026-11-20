@@ -238,8 +238,10 @@ function fanLook(f) {
   const m = (f && f.model) || {};
   const c = catFan(m.id);
   const measured = f && f.measured;
-  const max = measured && num(f.max_rpm) ? f.max_rpm : c && num(c.rpm_max) ? c.rpm_max : null;
-  const min = measured && num(f.min_pct) ? tableRpm(f.table, f.min_pct) : c && num(c.rpm_min) ? c.rpm_min : null;
+  // its speeds only from Fanboy's own measuring (2026-11-20, the owner: the catalogue is only about the picture); before
+  // that the picture turns on its default range
+  const max = measured && num(f.max_rpm) ? f.max_rpm : null;
+  const min = measured && num(f.min_pct) ? tableRpm(f.table, f.min_pct) : null;
   // the model proposes (its catalogue look); the frame's colour, the wheel's colour and the blades' kind are his where he
   // chose them. The one «colour» of before round 12 counts for frame and wheel. Nothing chosen and no model: the neutral wheel.
   const base = (c && c.look) || null;
@@ -2863,8 +2865,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     revRow.append(revBox, revNote);
     const rows = el('div', 'fb-look-rows');
     rows.append(rowOf(T('look.frame'), frame.el), rowOf(T('look.wheel'), wheel.el), rowOf(T('look.style'), kinds), rowOf(T('look.blades'), count), revRow);
-    const note = el('div', 'fb-look-note');
-    lookBody.append(el('p', 'fb-hint-text', T('look.text')), top, says, rows, note);
+    lookBody.append(el('p', 'fb-hint-text', T('look.text')), top, says, rows);
     let off = false;
     function paint() {
       const f0 = fNow();
@@ -2904,8 +2905,6 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
         if (off) out.forEach((x) => { if (x.tagName === 'BUTTON') x.disabled = true; });
         return out;
       });
-      const offBy = c && f0.measured && num(f0.max_rpm) && num(c.rpm_max) && Math.abs(f0.max_rpm - c.rpm_max) > Math.max(250, 0.3 * c.rpm_max);
-      swap(note, [offBy ? f0.max_rpm : 0], () => (offBy ? para(T('roles.model_off', { measured: fmt.number(f0.max_rpm), sheet: fmt.number(c.rpm_max) }), 'callout') : []));
     }
     paint();
     return { update(f, away) { off = !!away; paint(); }, saved() { Object.keys(want).forEach((k) => delete want[k]); undo = null; paint(); },
@@ -3174,14 +3173,18 @@ function nameField(id, f, off, onType) {
 }
 function modelText(m) {
   const c = catFan(m && m.id);
-  return c ? `${c.brand} ${c.model}` : m && m.mm ? T('roles.other_fan', { mm: m.mm }) : '';
+  return c ? catName(c) : m && m.mm ? T('roles.other_fan', { mm: m.mm }) : '';
+}
+/** A catalogue entry's name: maker and model — a brand's typical look in a size (generic: no model) says so */
+function catName(c) {
+  return c.generic ? T('pick.generic', { brand: c.brand, mm: c.mm }) : `${c.brand} ${c.model}`;
 }
 function pickerTexts() {
   return {
     brand: T('pick.brand'), model: T('pick.model'), other: T('pick.other'), choose: T('pick.choose'), size: T('pick.size'), blades: T('pick.blades'),
-    mm: (n) => T('pick.mm', { n }), option: (f) => T('pick.option', { model: f.model, mm: f.mm }),
-    facts: (f) => [f.mm ? T('pick.mm', { n: f.mm }) : '', f.rpm_max ? (num(f.rpm_min) !== null ? T('pick.range', { min: fmt.number(f.rpm_min), max: fmt.number(f.rpm_max) }) : T('pick.upto', { max: fmt.number(f.rpm_max) })) : '',
-      f.blades ? T('pick.blades_n', { n: f.blades }) : '', f.connector || ''].filter(Boolean).join(' · ') + (f.id ? '' : ` · ${T('pick.measured_later')}`),
+    mm: (n) => T('pick.mm', { n }), option: (f) => (f.generic ? T('pick.generic_option', { mm: f.mm }) : T('pick.option', { model: f.model, mm: f.mm })),
+    // only what the picture is: its size and blades (2026-11-20: no data-sheet speeds or connector — Fanboy measures them)
+    facts: (f) => [f.mm ? T('pick.mm', { n: f.mm }) : '', f.blades ? T('pick.blades_n', { n: f.blades }) : '', T('pick.measured_later')].filter(Boolean).join(' · '),
   };
 }
 /** «Give back to»: the mainboard's automatic (where the chip has one) or this fixed value — open until chosen */
