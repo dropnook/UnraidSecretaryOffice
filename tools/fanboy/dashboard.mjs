@@ -128,6 +128,20 @@ function fans(lang, { plain = false, stand = true } = {}) {
   s.control.zones.find((z) => z.id === 'disks').fans[0].name = name('Plattenkäfig');
   return s;
 }
+/** The case zone with seven fans of the user's, the fifth («Seite 2») standing though it should turn (the tile shows four) */
+function fansMany(lang) {
+  const s = fans(lang, { stand: false });
+  const cz = s.control.zones.find((z) => z.id === 'case');
+  const models = ['arctic-p12-pwm-pst', 'noctua-nf-p12-redux-1700-pwm', 'phanteks-t30-120', 'corsair-af120-elite'];
+  for (let n = 7; n <= 10; n++) {
+    const id = `it8696_a0060607:it87.2608:pwm${n}`;
+    const name = (lang === 'en' ? 'Side ' : 'Seite ') + (n - 6);
+    s.setup.fans.push({ ...s.setup.fans[1], id, output: n, tachs: [n], found: 'tach', role: 'case', name, model: { id: models[n - 7], mm: null, blades: null }, colour: null, wheel: null });
+    s.setup.zones.find((z) => z.id === 'case').fans.push(id);
+    cz.fans.push({ id, name, output: n, pct: 35, rpm: n === 8 ? 0 : 640 + n * 20, held: true, foreign: false });
+  }
+  return s;
+}
 const ON = { 'office/staff.json': { hired: { fanboy: 1 } }, 'fanboy/dashboard.json': { v: 1, show: 'speeds' } };
 const WITH = { ...ON, 'fanboy/dashboard.json': { v: 1, show: 'history' } };
 const looked = (name, at) => lookedAt(demo(name), at);
@@ -137,10 +151,10 @@ const SCENES = [
   ['fans', (lang) => ({ ...ON, 'fanboy.json': fans(lang) }), {}, null, true, { widths: [1920, 1024, 390] }],
   ['fans-plain', (lang) => ({ ...ON, 'fanboy.json': fans(lang, { plain: true }) }), {}, null, false, { widths: [1920, 1024, 390] }],
   ['fans-history', (lang) => ({ ...WITH, 'fanboy.json': fans(lang) }), { 'fanboy/history.json': history(fans('de'), NOW - 30) }, null, false, { widths: [1920, 1024, 390] }],
-  // a VARIANT only, not what the tile does: «with history», a zone unfolded showing its fans with their symbols (the rows of
-  // «speeds» put into the folded list by this tool) — the curves keep their room, the symbols only on a click
-  ['fans-history-variant', (lang) => ({ ...WITH, 'fanboy.json': fans(lang) }), { 'fanboy/history.json': history(fans('de'), NOW - 30) }, null, false,
-    { widths: [1920, 1024, 390], variant: (lang) => tile('fans-history-variant-speeds', { ...ON, 'fanboy.json': fans(lang) }, {}, lang) }],
+  // the same with every zone unfolded: under each curve its fans with their symbols (2026-11-20, the owner: built)
+  ['fans-history-open', (lang) => ({ ...WITH, 'fanboy.json': fans(lang) }), { 'fanboy/history.json': history(fans('de'), NOW - 30) }, '*', false, { widths: [1920, 1024, 390], langs: ['de'] }],
+  // seven fans in the case, the fifth standing though it should turn: four shown — the alarm among them, in his page's order
+  ['fans-many', (lang) => ({ ...ON, 'fanboy.json': fansMany(lang) }), {}, null, false, { widths: [1920, 1024, 390], langs: ['de'] }],
   ['steering', { ...ON, 'fanboy.json': lookedAt(demo('fanboy'), NOW - 4) }, {}, 'case', true],
   ['history', { ...WITH, 'fanboy.json': looked('fanboy', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy', NOW - 4), NOW - 30) }, null, true],
   // 2026-11-16: the span clicked through to 24 h (the label a button to the next span)
@@ -263,9 +277,9 @@ if (opt.cost) {
 try {
   for (const [name, files, run, open, every, how] of SCENES) {
     const tiles = { de: tile(name, files, run, 'de'), en: tile(name, files, run, 'en') };
-    const combos = every === 'marker' ? [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'en', width: 390 }] : every ? ALL : SOME;
+    const combos = every === 'marker' ? [{ theme: 'black', lang: 'de', width: 1440 }, { theme: 'white', lang: 'en', width: 390 }] : every || (how && how.langs) ? ALL : SOME;
     const widths = how && how.widths;
-    for (const c of widths ? combos.filter((x) => x.width === 1440).flatMap((x) => widths.map((width) => ({ ...x, width }))) : combos) {
+    for (const c of (widths ? combos.filter((x) => x.width === 1440).flatMap((x) => widths.map((width) => ({ ...x, width }))) : combos).filter((x) => !(how && how.langs) || how.langs.includes(x.lang))) {
       const file = path.join(tmp, `${name}-${c.theme}-${c.lang}.html`);
       fs.writeFileSync(file, page(c.theme, tiles[c.lang]));
       const ctx = await browser.newContext({ viewport: { width: c.width, height: how && how.marker ? 1400 : 700 }, deviceScaleFactor: 2, locale: c.lang, hasTouch: c.width < 768 });
@@ -275,25 +289,10 @@ try {
       p.on('pageerror', (e) => errors.push(String(e)));
       await p.goto(pathToFileURL(file).href);
       await p.evaluate(() => document.fonts.ready);
-      if (how && how.variant) {
-        const speeds = how.variant(c.lang);
-        const zones = {};
-        for (const part of speeds.split('<div class="sso-fb-zone sso-fb-zone-art').slice(1).map((x) => x.split(/<div class="sso-fb-(?:line|watched)/)[0])) {
-          zones[(/data-zone="([^"]*)"/.exec(part) || [])[1]] = (part.match(/<div class="sso-fb-fan sso-fb-fan-art[^"]*">(?:(?!<\/div>).)*<\/div>/g) || []).join('');
-        }
-        await p.evaluate(async ({ zones, src }) => {
-          for (const d of document.querySelectorAll('#db-sso-fanboy details[data-zone]')) {
-            d.querySelectorAll('.sso-fb-fan').forEach((n) => n.remove());
-            d.querySelector('summary').insertAdjacentHTML('afterend', zones[d.getAttribute('data-zone')] || '');
-            d.open = true;
-          }
-          await new Promise((ok) => { const x = document.createElement('script'); x.src = src; x.onload = ok; document.head.appendChild(x); });
-          for (const n of document.querySelectorAll('#db-sso-fanboy .sso-fb-sym[data-fan]')) n.appendChild(window.FanArt.wheel({ ...JSON.parse(n.getAttribute('data-fan')), px: 28, air: false, colour: 'auto', title: '' }).el);
-        }, { zones, src: JSON.parse((/var art=("[^"]+")/.exec(speeds) || [])[1]) });
-      }
       // the symbols drawn (fan-art.js loads after the tile)
       await p.waitForFunction(() => !document.querySelector('#db-sso-fanboy .sso-fb-sym[data-fan]') || document.querySelectorAll('#db-sso-fanboy .sso-fb-sym[data-fan]').length === document.querySelectorAll('#db-sso-fanboy .sso-fb-sym .fan-wheel').length);
-      if (open) await p.evaluate((z) => { const d = document.querySelector(`#db-sso-fanboy details[data-zone="${z}"]`); if (d) d.open = true; }, open);
+      if (open) await p.evaluate((z) => { for (const d of document.querySelectorAll(z === '*' ? '#db-sso-fanboy details[data-zone]' : `#db-sso-fanboy details[data-zone="${z}"]`)) d.open = true; }, open);
+      if (open) await p.waitForTimeout(200);
       const wide = await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
       const box = await p.evaluate(() => { const r = document.querySelector('#db-sso-fanboy').getBoundingClientRect(); return { h: r.height, w: r.width }; });
       const out = path.join(opt.out, `${name}-${c.theme}-${c.lang}-${c.width}.png`);

@@ -35,6 +35,8 @@ const FANBOY_DASH_SPANS_WEB = [1, 3, 6, 12, 24, 72];   // 2026-11-16 (the owner:
 // 2026-11-20 (the owner: «the fans I configured, with their symbol and speed»): in «speeds» each zone's fans under it, each
 // drawn as on his page (fan-art.js) — only once the user gave a fan of his a look or a name; a server without: as before
 const FANBOY_DASH_SYM_PX = 28;          // the symbol's size in the tile (his page: 46 px and more); the sticker shows only from 72
+const FANBOY_DASH_ART_FANS = 4;         // fans of a zone with their symbols at most (the owner, 2026-11-20): one in alarm always
+                                        // among them, else his page's order; the rest «+ n more fans» (without symbols: FANBOY_DASH_FANS)
 const FANBOY_DASH_LOOK_COLOURS = ['black', 'charcoal', 'graphite', 'grey', 'silver', 'white', 'beige', 'brown', 'frost'];   // desk.js LOOK_COLOURS
 const FANBOY_DASH_LOOK_STYLES = ['swept-narrow', 'swept-wide', 'broad', 'straight', 'sickle'];                              // desk.js LOOK_STYLES
 const FANBOY_DASH_NEUTRAL_LOOK = ['frame' => 'charcoal', 'blades' => 'grey', 'hub' => 'graphite', 'pads' => null, 'style' => 'swept-wide',
@@ -361,12 +363,33 @@ function officeFanboyDashCurve(array $s, array $spans, string $lang, array $sour
 }
 
 /**
+ * Which fans of a zone the tile shows: with symbols FANBOY_DASH_ART_FANS (2026-11-20, the owner) — every fan that stands
+ * though it should turn first (an alarm is never behind «more»), then the others in his page's order, shown in that order;
+ * without symbols the first FANBOY_DASH_FANS as before
+ *
+ * @param list<array> $fans the zone's fans [name, text, stands] in his page's order
+ * @param list<array> $arts their symbols (state 'stopped': stands though it should turn)
+ * @return array<int, true> the indexes kept
+ */
+function officeFanboyDashPick(array $fans, array $arts, bool $art): array
+{
+    if (!$art) {
+        return array_fill_keys(array_keys(array_slice($fans, 0, FANBOY_DASH_FANS)), true);
+    }
+    $alarm = array_keys(array_filter($fans, static fn ($f, $i) => ($f[2] ?? false) === true || ($arts[$i]['state'] ?? '') === 'stopped', ARRAY_FILTER_USE_BOTH));
+    $keep = array_slice(array_values(array_unique([...$alarm, ...array_keys($fans)])), 0, FANBOY_DASH_ART_FANS);
+    sort($keep);
+    return array_fill_keys($keep, true);
+}
+
+/**
  * Who steers, the zones with their numbers, what must be said first — as plain data (the tile's HTML is drawn from it;
  * the tests read it). $state: data/fanboy.json (null: not readable), $status: the control's status in RAM, $now: the
  * clock, $hist: «with history» — the zones' curves (officeFanboyDashHistory()), null: «speeds» only.
  *
- * In «speeds» (2026-11-20), once a fan of the setup has a look or a name (`art`): each zone's `art` beside its `fans` (the
- * symbol fan-art.js draws, his page's state), `watch_art` beside `watch` (a watched fan with a look and a name, else null).
+ * Once a fan of the setup has a look or a name (2026-11-20, `art`): each zone's `art` beside its `fans` (the symbol fan-art.js
+ * draws, his page's state; at most FANBOY_DASH_ART_FANS, officeFanboyDashPick()), `watch_art` beside `watch` (a watched fan
+ * with a look and a name, else null). «Speeds» lays them out under each zone, «with history» in each zone's fold.
  *
  * @return array{who:string, tone:string, mood:string, banners:list<array{0:string,1:string}>, stale:?int, zones:list<array>,
  *               more:int, watch:list<array{0:string,1:string}>, watch_art:list<?array>, before:?string, setup:bool, steers:bool,
@@ -472,7 +495,6 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
         $looks[$fid] = officeFanboyDashLook($f, $cat);
         $out['art'] = $out['art'] || $looks[$fid]['own'];
     }
-    $out['art'] = $out['art'] && $hist === null;
     $art = static function (string $id, ?float $rpm, string $state, string $title) use ($looks): array {
         $l = $looks[$id] ?? officeFanboyDashLook([], []);
         // the wheel's key over refreshes: a short hash, never the output's internal name on the page
@@ -560,6 +582,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             $full = false;
         }
         $unit = $str($z['unit'] ?? $l['unit'] ?? null);
+        $keep = officeFanboyDashPick($fans, $arts, $out['art']);
         $out['zones'][] = [
             'id'      => $id,
             'name'    => $name,
@@ -570,9 +593,9 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             'full'    => $full,
             'speed'   => count($fans) ? officeFanboyDashSpeed($s, $rpms) : officeDashT($s, 'fanboy.zones.no_fan'),
             'stands'  => in_array(true, array_column($fans, 2), true),
-            'fans'    => array_slice($fans, 0, FANBOY_DASH_FANS),
-            'art'     => array_slice($arts, 0, FANBOY_DASH_FANS),       // each fan's symbol, in the order of `fans`
-            'fans_more' => max(0, count($fans) - FANBOY_DASH_FANS),
+            'fans'    => array_values(array_intersect_key($fans, $keep)),
+            'art'     => array_values(array_intersect_key($arts, $keep)),       // each fan's symbol, in the order of `fans`
+            'fans_more' => count($fans) - count($keep),
             'curve'   => $hist !== null && isset($hist[$id]) ? officeFanboyDashCurve($s, $hist[$id], $lang, is_array($setup['sources'] ?? null) ? $setup['sources'] : []) : null,
         ];
     }
@@ -696,7 +719,7 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
     // «+ n more fans» (a link to his page's «Now»), the same in both layouts
     $fansMore = static fn (int $n): string => $n > 0 ? '<a class="sso-fb-more" href="' . $h($url . '/now') . '">' . $h(officeDashT($s, 'fanboy.dash.fans_more', ['n' => $n])) . '</a>' : '';
     foreach ($m['zones'] as $z) {
-        if ($m['art']) {
+        if ($m['art'] && !$m['history']) {
             // «speeds» with the fans the user set up: the zone's line (name, warmest spot, level), its fans always under it,
             // each with its symbol and its own speed — the zone's range of speeds only where it has no fan
             $out .= '<div class="sso-fb-zone sso-fb-zone-art' . $dim . '" data-zone="' . $h($z['id']) . '">'
@@ -726,8 +749,10 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
             . '<span class="sso-fb-row"><span class="sso-fb-name">' . $h($z['name']) . '<small>' . $h($z['warmest']) . '</small></span>'
             . '<span class="sso-fb-val"><b' . ($z['full'] ? ' class="red-text"' : '') . '>' . $h($z['level']) . '</b><small' . ($z['stands'] ? ' class="red-text"' : '') . '>'
             . $h($z['speed']) . '</small></span></span>' . $curve . '</summary>';
-        foreach ($z['fans'] as [$name, $text, $stands]) {
-            $out .= '<div class="sso-fb-fan' . ($stands ? ' red-text' : '') . '"><span>' . $h($name) . '</span><span>' . $h($text) . '</span></div>';
+        foreach ($z['fans'] as $i => [$name, $text, $stands]) {
+            // «with history» and the fans the user set up (2026-11-20): the unfolded list with their symbols, as in «speeds»
+            $out .= $m['art'] ? $artRow($z['art'][$i] ?? null, $name, $text, $stands)
+                : '<div class="sso-fb-fan' . ($stands ? ' red-text' : '') . '"><span>' . $h($name) . '</span><span>' . $h($text) . '</span></div>';
         }
         $out .= $fansMore($z['fans_more']) . '</details>';
     }
@@ -743,7 +768,7 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
     }
     if ($m['watch']) {
         // those with a look and a name of the user's on rows of their own with their symbol (only in «speeds» with symbols)
-        $own = $m['art'] ? array_filter($m['watch_art']) : [];
+        $own = $m['art'] && !$m['history'] ? array_filter($m['watch_art']) : [];
         $line = array_values(array_diff_key($m['watch'], $own));
         $out .= '<div class="sso-fb-line sso-fb-watch' . $dim . '"><span>' . $h(officeDashT($s, 'fanboy.dash.watched')) . '</span>'
             . ($line ? '<span>' . $h(implode(' · ', array_map(static fn ($w) => "$w[0] $w[1]", $line))) . '</span>' : '') . '</div>';

@@ -220,10 +220,11 @@ function testFanboyDashTile(): void
     }
     $o = fanboyDashWeb(['fanboy.json' => $many] + fanboyDashFiles('fanboy'), [], $now);
     $rows = (string) ($o['rows'] ?? '');
-    same('fanboy dash: six zones, one with nine fans — four rows, «+ 2 more zones», six fans and «+ 3 more fans», the range',
-        [4, 2, 6, 3, '710–790 rpm'], [count($o['model']['zones'] ?? []), $o['model']['more'] ?? null, count($o['model']['zones'][0]['fans'] ?? []),
+    // (the demo's fans have names: symbols — four fans a zone since 2026-11-20; without: six, testFanboyDashFans)
+    same('fanboy dash: six zones, one with nine fans — four rows, «+ 2 more zones», four fans and «+ 5 more fans», the range',
+        [4, 2, 4, 5, '710–790 rpm'], [count($o['model']['zones'] ?? []), $o['model']['more'] ?? null, count($o['model']['zones'][0]['fans'] ?? []),
          $o['model']['zones'][0]['fans_more'] ?? null, $o['model']['zones'][0]['speed'] ?? null]);
-    check('fanboy dash: the links to his page, names escaped', str_contains($rows, '+ 2 more zones') && str_contains($rows, '+ 3 more fans') && str_contains($rows, 'Zone &lt;b&gt;1&lt;/b&gt;')
+    check('fanboy dash: the links to his page, names escaped', str_contains($rows, '+ 2 more zones') && str_contains($rows, '+ 5 more fans') && str_contains($rows, 'Zone &lt;b&gt;1&lt;/b&gt;')
         && !str_contains($rows, '<b>1</b>'), $rows);
 }
 
@@ -560,13 +561,14 @@ function testFanboyDashFans(): void
     }));
     same('fanboy dash fans: a name alone — symbols on, the neutral wheel (no look, 7 blades)', [true, null, 7], [$o['model']['art'] ?? null, fanboyDashKey($o['model']['zones'][0]['art'][0] ?? [], 'look'), $o['model']['zones'][0]['art'][0]['blades'] ?? null]);
 
-    // many fans: one rule — six a zone, four zones, the rest «+ n more»
-    $o = $web(fanboyDashFansState(static function (array $s): array {
+    // many fans (2026-11-20, the owner): four a zone with symbols — one that stands though it should turn always among them,
+    // else his page's order, shown in that order; four zones; the rest «+ n more»
+    $many = static fn (bool $alarm, bool $plain = false): array => $web(fanboyDashFansState(static function (array $s) use ($alarm, $plain): array {
         $fans = [];
         $live = [];
         for ($k = 1; $k <= 9; $k++) {
             $fans[] = "it8696_a0060607:it87.2608:pwm$k";
-            $live[] = ['id' => "it8696_a0060607:it87.2608:pwm$k", 'name' => "Käfig $k", 'output' => $k, 'pct' => 40, 'rpm' => 700 + $k, 'held' => true, 'foreign' => false];
+            $live[] = ['id' => "it8696_a0060607:it87.2608:pwm$k", 'name' => "Käfig $k", 'output' => $k, 'pct' => 40, 'rpm' => $alarm && $k === 7 ? 0 : 700 + $k, 'held' => true, 'foreign' => false];
         }
         $s['setup']['zones'] = [];
         $s['control']['zones'] = [];
@@ -574,13 +576,22 @@ function testFanboyDashFans(): void
             $s['setup']['zones'][] = ['id' => "z$i", 'name' => "Zone $i", 'fans' => $i === 0 ? $fans : [$fans[$i]], 'unit' => 'pct', 'sources' => []];
             $s['control']['zones'][] = ['id' => "z$i", 'name' => "Zone $i", 'unit' => 'pct', 'level' => 40, 'warmest' => null, 'fans' => $i === 0 ? $live : [$live[$i]]];
         }
-        return $s;
+        return $plain ? fanboyDashPlain($s) : $s;
     }));
+    $o = $many(false);
     $rows = (string) ($o['rows'] ?? '');
-    same('fanboy dash fans: many — six fans with their symbols, «+ 3 more fans», four zones, «+ 2 more zones»', [6, 6, 3, 4, 2],
-        [count($o['model']['zones'][0]['fans'] ?? []), count($o['model']['zones'][0]['art'] ?? []), $o['model']['zones'][0]['fans_more'] ?? null, count($o['model']['zones'] ?? []), $o['model']['more'] ?? null]);
-    check('fanboy dash fans: … the rows: 10 symbols (6 + one each in three zones + the watched CPU cooler), both «more» links', substr_count($rows, 'class="sso-fb-sym" data-fan="') === 10
-        && str_contains($rows, '+ 3 more fans') && str_contains($rows, '+ 2 more zones'), $rows);
+    same('fanboy dash fans: many — four fans with their symbols (the first four of his page), «+ 5 more fans», four zones, «+ 2 more zones»',
+        [['Käfig 1', 'Käfig 2', 'Käfig 3', 'Käfig 4'], 4, 5, 4, 2],
+        [array_column($o['model']['zones'][0]['fans'] ?? [], 0), count($o['model']['zones'][0]['art'] ?? []), $o['model']['zones'][0]['fans_more'] ?? null, count($o['model']['zones'] ?? []), $o['model']['more'] ?? null]);
+    check('fanboy dash fans: … the rows: 8 symbols (4 + one each in three zones + the watched CPU cooler), both «more» links', substr_count($rows, 'class="sso-fb-sym" data-fan="') === 8
+        && str_contains($rows, '+ 5 more fans') && str_contains($rows, '+ 2 more zones'), $rows);
+    $o = $many(true);
+    same('fanboy dash fans: many, the seventh stands though it should turn — among the four (in his page\'s order), red, its ring',
+        [['Käfig 1', 'Käfig 2', 'Käfig 3', 'Käfig 7'], [false, false, false, true], 'stopped', 5],
+        [array_column($o['model']['zones'][0]['fans'] ?? [], 0), array_column($o['model']['zones'][0]['fans'] ?? [], 2), $o['model']['zones'][0]['art'][3]['state'] ?? null, $o['model']['zones'][0]['fans_more'] ?? null]);
+    $o = $many(false, true);
+    same('fanboy dash fans: many without looks or names — the folded list as before: the first six, «+ 3 more fans»', [false, 6, 3],
+        [$o['model']['art'] ?? null, count($o['model']['zones'][0]['fans'] ?? []), $o['model']['zones'][0]['fans_more'] ?? null]);
 
     // an older state: fans without the look's keys, a control's fans without the standstill's — read with defaults
     $o = $web(fanboyDashFansState(static function (array $s): array {
@@ -607,10 +618,16 @@ function testFanboyDashFans(): void
     same('fanboy dash fans: a model the catalogue doesn\'t know — its size and blades from the setup, the neutral wheel', [null, 140, 9],
         [fanboyDashKey($o['model']['zones'][0]['art'][0] ?? [], 'look'), $o['model']['zones'][0]['art'][0]['mm'] ?? null, $o['model']['zones'][0]['art'][0]['blades'] ?? null]);
 
-    // «with history»: as before (the curves keep their room); the data folder away: as before
+    // «with history» (2026-11-20, the owner: the variant built): the zones fold as before, the curves keep their room; the
+    // unfolded list under each curve has the fans with their symbols (the same four); the watched in their line as before
     $o = $web(fanboyDashFansState(), 'history');
-    check('fanboy dash fans: «with history» — no symbols, the zones fold as before', ($o['model']['art'] ?? null) === false && !str_contains((string) ($o['rows'] ?? ''), 'sso-fb-sym')
-        && str_contains((string) ($o['rows'] ?? ''), '<details class="sso-fb-zone"'), (string) ($o['rows'] ?? ''));
+    $rows = (string) ($o['rows'] ?? '');
+    check('fanboy dash fans: «with history» — the zones fold, their fans with symbols in the fold, the watched in one line',
+        ($o['model']['art'] ?? null) === true && substr_count($rows, '<details class="sso-fb-zone"') === 2 && !str_contains($rows, 'sso-fb-zone-art')
+        && substr_count($rows, 'class="sso-fb-sym" data-fan="') === 4 && str_contains($rows, '</summary><div class="sso-fb-fan sso-fb-fan-art"><span class="sso-fb-sym"')
+        && str_contains($rows, '<span>With the BIOS, watched:</span><span>CPU-Kühler 1310 rpm</span></div>') && !str_contains($rows, 'sso-fb-watched'), $rows);
+    $o = $web(fanboyDashFansState($plain), 'history');
+    check('fanboy dash fans: «with history» without looks or names — as before', ($o['model']['art'] ?? null) === false && !str_contains((string) ($o['rows'] ?? ''), 'sso-fb-sym'), (string) ($o['rows'] ?? ''));
     $o = fanboyDashWeb(null, ['fanboy/dash.json' => ['v' => 1, 'show' => 'speeds'], 'fanboy/control.json' => ['phase' => 'ended', 'why' => 'array_stopped', 'who' => 'bios', 'time' => $now - 300, 'zones' => []]], $now);
     same('fanboy dash fans: the data folder away — no symbols, no error', [false, ''], [$o['model']['art'] ?? null, $o['err'] ?? null]);
 
