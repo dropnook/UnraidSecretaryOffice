@@ -278,19 +278,24 @@ function testFanboyControl(): void
         $st = fanboyStatus($c);
         same('fanboy control: his status — Fanboy steers, two zones, no alarm', ['fanboy', null, 2, null], [$st['who'], $st['why'], count($st['zones']), $st['alarm']]);
 
-        // up at once: disk2 at 44 °C → 73 % at the next look at disks.ini (every 10 s)
+        // Langsam (the default, 2026-11-20): disk2 at 44 °C asks 73 % — up 2 % a round from the next look at disks.ini (every 10 s)
         fanboyTDisks($t, 35, null, 44);
         fanboyTRounds($c, $now, $t, $spec, 6);
-        same('fanboy control: warmer — up at once (44 °C: 73 % = 186)', [186, 'disk2'], [fanboyTOut($t, 4)[0], $c['zones']['disks']['warmest']['id']]);
+        $slow = fanboyTOut($t, 4)[0];
+        check("fanboy control: warmer — Langsam: up 2 % a round, not at once (after 12 s: $slow, under 40 % = 102)", $slow >= 77 && $slow < 102 && $c['zones']['disks']['warmest']['id'] === 'disk2');
+        fanboyTRounds($c, $now, $t, $spec, 30);
+        same('fanboy control: … there within a minute (44 °C: 73 % = 186), not beyond', 186, fanboyTOut($t, 4)[0]);
         // 43 °C: still within the gap — stays
         fanboyTDisks($t, 35, null, 43);
         fanboyTRounds($c, $now, $t, $spec, 6);
-        same('fanboy control: a degree cooler, within the gap of 2 °C — stays (no hunting)', 186, fanboyTOut($t, 4)[0]);
-        // 35 °C: down — slowly, a percent a round
+        same('fanboy control: a degree cooler, within the gap of 3 °C — stays (no hunting)', 186, fanboyTOut($t, 4)[0]);
+        // 35 °C: down — after 30 s, a percent a round
         fanboyTDisks($t, 35, null, 35);
         fanboyTRounds($c, $now, $t, $spec, 6);
+        same('fanboy control: cooler by more than the gap — held at first (30 s)', 186, fanboyTOut($t, 4)[0]);
+        fanboyTRounds($c, $now, $t, $spec, 15);
         $after = fanboyTOut($t, 4)[0];
-        check("fanboy control: cooler by more than the gap — down slowly (after 12 s: $after, between 70 % and 63 %)", $after < 186 && $after >= 160);
+        check("fanboy control: … then down slowly, a percent a round (after 42 s: $after, between 73 % and 63 %)", $after < 186 && $after >= 160);
         fanboyTRounds($c, $now, $t, $spec, 60);
         same('fanboy control: … until it reaches the floor again (77), never below', 77, fanboyTOut($t, 4)[0]);
         // nothing warm to go by: every disk asleep → the curve's start (its quiet level), floor 30 %
@@ -386,15 +391,14 @@ function testFanboyAlarms(): void
         fanboyTRounds($c, $now, $t, $spec, 70);
         same('fanboy alarms: … over two minutes after it turns again', null, $c['alarm']);
 
-        // over a limit: full at once; at full for a minute and still over: alarm «hot»
-        fanboyTDisks($t, 56, null, 33);
-        fanboyTRounds($c, $now, $t, $spec, 6);
-        same('fanboy alarms: the parity over its limit (56 ≥ 55 °C, the disk\'s limit since 2026-11-20) — its zone full at once, no alarm yet', [255, null], [fanboyTOut($t, 4)[0], $c['alarm']]);
-        fanboyTRounds($c, $now, $t, $spec, 30);
-        same('fanboy alarms: … a minute at full and still over — alarm «hot», told (the parity disk named as the page names it, round 5)', ['hot', 'Parity'], [$c['alarm']['code'] ?? null, $c['alarm']['params']['source'] ?? null]);
+        // 2026-11-20 (the owner: no «Grenze» — the curve decides alone): the parity far over the disks' old limit (55 °C) on
+        // the zone's curve — the curve's value (100 % from 48 °C), and no alarm however long
+        fanboyTDisks($t, 58, null, 33);
+        fanboyTRounds($c, $now, $t, $spec, 50);
+        same('fanboy alarms: the parity at 58 °C (over the disks\' old limit of 55) — the curve\'s 100 %, reached by its way up, and no alarm after 100 s', [255, null], [fanboyTOut($t, 4)[0], $c['alarm']]);
         fanboyTDisks($t, 35, null, 33);
-        fanboyTRounds($c, $now, $t, $spec, 70);
-        same('fanboy alarms: … cool again: over, and the zone well on its way down (round 4 found it stayed at 100 % for good)', [null, true], [$c['alarm'], fanboyTOut($t, 4)[0] < 100]);
+        fanboyTRounds($c, $now, $t, $spec, 120);
+        same('fanboy alarms: … cool again: the zone back at its floor', [null, 77], [$c['alarm'], fanboyTOut($t, 4)[0]]);
 
         // a sensor that says nothing (the NVMe's file gone): 30 s, then alarm «sensor»
         $nv = glob("{$t['root']}/sys/devices/pci0000:00/0000:00:06.1/0000:03:00.0/nvme/*/hwmon/hwmon*/temp1_input")[0];

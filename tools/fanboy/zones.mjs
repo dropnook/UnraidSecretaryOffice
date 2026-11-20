@@ -10,6 +10,8 @@
 //     open stays open when the page draws itself anew (a chip clicked: the zone changes and the page redraws);
 //   - with several kinds the line's curve word brings that kind's card in front; a zone without any source is open,
 //     with the line that it needs one, and stays open while the first are chosen;
+//   - «All» / «None» per kind: the draft only, count and curve card follow, a source may be in several zones;
+//   - the curve card: a goal per kind, presets locked, his own curve kept; under 100 % where «Quiet» reaches it: a calm line;
 //   - no horizontal scroll at 375 px, no console or page error.
 // Dev-only.
 //
@@ -175,6 +177,45 @@ try {
       }
     }
   }
+  // ------------------------------------------- «All» / «None» per kind (2026-11-20, the owner: «alle ein/aus funktion fehlt»)
+  {
+    const c = { theme: 'black', lang: 'en', width: 1440 };
+    const { h, ctx, page, errors } = await open(c, 'zone3');
+    const disk = '#sso .fb-sources .fb-src-block[data-kind="disk"]';
+    const look = () => page.evaluate((sel) => {
+      const b = document.querySelector(sel);
+      return { on: b.querySelectorAll('.fb-src.on').length, all: b.querySelectorAll('.fb-src').length, sum: b.querySelector('.fb-src-sum').textContent,
+        allOff: b.querySelector('.fb-src-all').disabled, noneOff: b.querySelector('.fb-src-nothing').disabled,
+        card: [...document.querySelectorAll('#sso .fb-curve-part[data-zone="zone3"] .fb-row-fields label, #sso .fb-curve-part[data-zone="zone3"] .fb-row-fields .label')].map((x) => x.textContent).join('|') };
+    }, disk);
+    let k = await look();
+    const n = k.all;
+    check('all/none: «Zone 3» without sources — the disks\' «All» there, «None» greyed (nothing chosen)', !k.allOff && k.noneOff && k.on === 0 && n > 28, JSON.stringify(k));
+    await page.click(`${disk} .fb-src-all`);
+    await page.waitForTimeout(400);
+    k = await look();
+    check('all/none: «All» — every disk in the zone, the line counts them, «All» greyed now, the curve card for Disk there',
+      k.on === n && k.sum.startsWith(EN['zones.src_chosen'].other.replace('{n}', String(n))) && k.allOff && !k.noneOff
+      && !!(await page.$('#sso .fb-curve-part[data-zone="zone3"]')), JSON.stringify(k));
+    await page.click(`${disk} .fb-src-nothing`);
+    await page.waitForTimeout(400);
+    k = await look();
+    check('all/none: «None» — every disk out again, the zone back to «choose a source»', k.on === 0 && !k.allOff && k.noneOff && !!(await page.$('#sso .fb-src-first')), JSON.stringify(k));
+    await page.click(`${disk} .fb-src-all`);
+    await page.waitForTimeout(400);
+    await page.click(`#sso .fb-next .btn:not(.plain):has-text("${EN['zones.save']}")`);
+    await page.waitForTimeout(800);
+    const sent = h.posts.filter((x) => x.action === 'fanboy.zones_save').pop();
+    const ids = (zid) => ((sent && sent.data.zones.find((z) => z.id === zid)) || { sources: [] }).sources.filter((x) => /^disk|^parity/.test(x.id)).length;
+    check('all/none: «Save» — the disks in «Zone 3» and still in the disk cage (a source may be in several zones)', ids('zone3') === n && ids('disks') === 28, JSON.stringify([ids('zone3'), ids('disks')]));
+    await page.click('#sso .fb-zone-side .fb-item[data-row="disks"]');
+    await page.waitForTimeout(300);
+    const cage = await page.evaluate((sel) => { const b = document.querySelector(sel); const t = b.querySelector('.fb-src-toggle'); if (t.getAttribute('aria-expanded') !== 'true') t.click(); return [b.querySelectorAll('.fb-src.on').length, b.querySelector('.fb-src-all').disabled, b.querySelector('.fb-src-nothing').disabled]; }, disk);
+    check('all/none: the disk cage (28 of them chosen) — both there', JSON.stringify(cage) === '[28,false,false]', JSON.stringify(cage));
+    check('all/none: no error', !errors.length, errors.join(' | '));
+    await ctx.close();
+    if (h.close) await h.close();
+  }
   // ------------------------------------------- the curve card: a goal per kind (2026-11-20, the owner's A, B and his own curve)
   {
     const c = { theme: 'black', lang: 'en', width: 1440 };
@@ -185,7 +226,7 @@ try {
       const inputs = [...b.querySelectorAll('.fan-curve-field input')];
       return { goal: b.querySelector('.fb-row-fields select').value, pts: inputs.map((i) => Number(i.value)), ro: inputs.every((i) => i.readOnly),
         wheel: !!b.querySelector('.fan-curve .fan-wheel'), read: (b.querySelector('.fan-curve-read') || {}).textContent || '', hint: (b.querySelector('.fb-curve-hint') || {}).textContent || '',
-        width: inputs.length ? Math.round(inputs[0].getBoundingClientRect().width) : 0, off: (b.querySelector('.fb-never-off') || {}).textContent || '' };
+        width: inputs.length ? Math.round(inputs[0].getBoundingClientRect().width) : 0, off: (b.querySelector('.fb-never-off') || {}).textContent || '', under: (b.querySelector('.fb-curve-under') || {}).textContent || '' };
     }, part);
     const goal = async (v) => { await page.selectOption(`${part} .fb-row-fields select >> nth=0`, v); await page.waitForTimeout(300); };
     let k = await card();
@@ -219,6 +260,21 @@ try {
     await goal('own');
     k = await card();
     check('curve card: «Own curve» again — exactly his last own curve (47 °C)', JSON.stringify(k.pts) === '[47,0,55,100]', JSON.stringify(k));
+    check('curve card: … at 100 % where «Quiet» is (55 °C) — no hint', !k.under, k.under);
+    // 2026-11-20 (the owner): his own curve under 100 % where «Quiet» reaches it — one calm line with the numbers, gone again
+    const second = `${part} .fan-curve-field input[data-axis="t"] >> nth=1`;
+    await page.fill(second, '60');
+    await page.press(second, 'Tab');
+    await page.waitForTimeout(400);
+    k = await card();
+    const want = EN['curve.under_quiet'].replace('{c}', '55').replace('{pct}', '62');
+    check('curve card: … the second point at 60 °C — at 55 °C only 62 %: «Quiet would be at 100 % there», a calm line (no callout)', k.under === want
+      && !(await page.$(`${part} .fb-curve-under.callout`)), JSON.stringify([k.under, want]));
+    await page.fill(second, '55');
+    await page.press(second, 'Tab');
+    await page.waitForTimeout(400);
+    k = await card();
+    check('curve card: … back at 55 °C — the hint gone', !k.under && JSON.stringify(k.pts) === '[47,0,55,100]', JSON.stringify(k));
     await goal('normal');
     await page.click(`#sso .fb-next .btn:not(.plain):has-text("${EN['zones.save']}")`);
     await page.waitForTimeout(800);

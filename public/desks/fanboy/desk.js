@@ -759,8 +759,7 @@ function hottestWords() {
   const lead = hottestLead();
   if (!lead) return null;
   const over = lead.c >= lead.limit;
-  const how = over ? (lead.unraid ? T('hottest.over_unraid', { limit: fmt.number(lead.limit) }) : T('hottest.over_own', { limit: fmt.number(lead.limit) }))
-    : (lead.unraid ? T('hottest.near_unraid', { d: fmt.number(lead.limit - lead.c), limit: fmt.number(lead.limit) }) : T('hottest.near_own', { d: fmt.number(lead.limit - lead.c), limit: fmt.number(lead.limit) }));
+  const how = over ? T('hottest.over_unraid', { limit: fmt.number(lead.limit) }) : T('hottest.near_unraid', { d: fmt.number(lead.limit - lead.c), limit: fmt.number(lead.limit) });
   return { text: `${T('hottest.lead', { kind: T(`hk.${lead.kind}`), whose: lead.whose, c: fmt.number(lead.c) })} — ${how}`, over };
 }
 /** «Aktuell»: who steers; each zone's level and its leading source; the fans' speeds; a warm spot near its limit */
@@ -808,17 +807,12 @@ function hotWhose(x) {
 }
 const LEAD_NEAR = 5;            // °C under its limit from which a place leads the tile (over it: in colour)
 /**
- * Which place leads: the one nearest to (or over) its limit — Unraid's for disks (the agent's `near`), the user's own
- * limit for a heat source of a zone; places without a limit are shown, never judged. null: nothing near a limit.
+ * Which place leads: the disk nearest to (or over) Unraid's own warning (the agent's `near`); other places are shown,
+ * never judged (2026-11-20, the owner: no «Grenze» — the curve decides alone). null: no disk near its warning.
  */
 function hottestLead() {
   const cands = [];
   (S().hottest_kinds || []).forEach((k) => { if (k.near) cands.push({ kind: k.kind, c: k.near.c, limit: k.near.warn, crit: k.near.crit, whose: hotWhose(k.near), unraid: true }); });
-  const src = new Map((setup().sources || []).map((x) => [x.id, x]));
-  (setup().zones || []).forEach((z) => (z.sources || []).forEach((zs) => {
-    const x = src.get(zs.id);
-    if (x && num(zs.limit) !== null && num(x.c) !== null) cands.push({ kind: hotKind(x), c: x.c, limit: zs.limit, crit: null, whose: srcLabel(x), unraid: false });
-  }));
   let lead = null;
   cands.forEach((c) => { if (!lead || c.c - c.limit > lead.c - lead.limit) lead = c; });
   return lead && lead.c - lead.limit >= -LEAD_NEAR ? lead : null;
@@ -1132,15 +1126,11 @@ function rowKind(x) {
   if (x.kind === 'disk') return x.rot === false ? 'ssd' : 'hdd';
   return { nvme: 'ssd', cpu: 'cpu', board: 'board', ram: 'ram' }[x.kind] || 'other';
 }
-/** A sensor in alarm: over its limit (the zone's or its kind's), or the one the control's alarm names */
+/** A sensor to look at: a disk over Unraid's own warning, or the sensor the control's alarm names (no limit of Fanboy's) */
 function inAlarm(x) {
   const a = control().running && control().alarm ? control().alarm : null;
-  if (a && ['hot', 'sensor'].includes(a.code) && a.params && a.params.source && [x.name, x.label, x.disk].includes(a.params.source)) return true;
-  // a limit the user set for it in a zone, or Unraid's own for a disk — never one made up
-  const own = x.zones.map((z) => ((z.sources || []).find((y) => y.id === x.id) || {}).limit).find((l) => num(l) !== null);
-  const lim = num(own) ?? null;
-  if (num(x.c) !== null && num(x.warn) !== null && x.c >= x.warn) return true;        // a disk over Unraid's own warning
-  return num(x.c) !== null && num(lim) !== null && x.c >= lim;
+  if (a && a.code === 'sensor' && a.params && a.params.source && [x.name, x.label, x.disk].includes(a.params.source)) return true;
+  return num(x.c) !== null && num(x.warn) !== null && x.c >= x.warn;
 }
 function sensorRow(x, place) {
   const meta = el('div', 'row-meta');
@@ -2651,10 +2641,10 @@ function endedText(s) {
   // «did not start again — set to 100 %» is never claimed from a past run: while an output stands at 100 % the strip's first
   // line and its panel say so from `safety`; once it is back there is nothing to claim
   if (why === 'no_restart') return '';
-  // too warm while measuring: which source, how warm, its limit (round 4: by its own kind — an NVMe pool's 50 °C stops nothing)
+  // too warm while measuring: which source, how warm, Fanboy's threshold for it (by its own kind — an NVMe pool's 50 °C stops nothing)
   if (why === 'warm' && s.warm && s.warm.why === 'no_reading') return T('step.ended.no_cpu');
   if (why === 'warm' && s.warm && s.warm.source) {
-    return T('step.ended.warm_what', { where: srcLabel({ kind: s.warm.kind === 'disk' || s.warm.kind === 'ssd' ? s.warm.kind : 'other', id: s.warm.source, label: s.warm.source }), c: fmt.number(s.warm.c), limit: fmt.number(s.warm.limit) });
+    return T('step.ended.warm_what', { where: srcLabel({ kind: s.warm.kind === 'disk' || s.warm.kind === 'ssd' ? s.warm.kind : 'other', id: s.warm.source, label: s.warm.source }), c: fmt.number(s.warm.c), below: belowText(s.warm) });
   }
   if (why === 'quiet_warm' && s.quiet_stop) return T(`step.ended.${why}`, { what: s.quiet_stop.what || '', c: num(s.quiet_stop.c) === null ? '' : fmt.number(s.quiet_stop.c) });
   // 2026-11-20: nobody answered up to the ceiling — paused, everything back, the next output not started
@@ -3262,14 +3252,19 @@ function standLine(f) {
 }
 /**
  * 2026-11-20: the standstill part cut by the guard — the fan's result, in a true sentence: where its source began and
- * ended while the fan stood (or how warm against its own limit), or that the CPU said nothing; '' for a cut by «stop»
+ * ended while the fan stood (or how warm against Fanboy's threshold for measuring), or that the CPU said nothing; '' for a cut by «stop»
  */
 function cutLine(c) {
   if (!c || !['warm', 'no_reading'].includes(c.why)) return '';
   if (c.why === 'no_reading') return T('stand.cut_none');
   const where = srcLabel({ kind: c.kind === 'disk' || c.kind === 'ssd' ? c.kind : 'other', id: c.source || '', label: c.source || '' });
   if (num(c.from) !== null && num(c.c) !== null && c.c > c.from) return T('stand.cut_rise', { where, from: fmt.number(c.from), c: fmt.number(c.c) });
-  return T('stand.cut_at', { where, c: num(c.c) === null ? '–' : fmt.number(c.c), limit: num(c.limit) === null ? '–' : fmt.number(c.limit) });
+  return T('stand.cut_at', { where, c: num(c.c) === null ? '–' : fmt.number(c.c), below: belowText(c) });
+}
+/** Fanboy's threshold for measuring (the agent's `below`; an older agent's record: its limit less 5) — never called a limit */
+function belowText(w) {
+  const b = num(w.below) ?? (num(w.limit) === null ? null : w.limit - 5);
+  return b === null ? '–' : fmt.number(b);
 }
 function measurePanel(id, api) {
   const root = Office.place(`measure:${id}`, el('div', 'fb-panel'));
@@ -3767,6 +3762,30 @@ function zoneSources(z, i) {
       } else line.appendChild(el('span', 'fb-src-curve-text', text));
     }
     block.appendChild(line);
+    // 2026-11-20 (the owner: «alle ein/aus funktion fehlt»): every source of this kind in or out of the zone at once — the
+    // draft only, like a chip (a source may be in other zones too); the count and the curve card follow on the redraw
+    if (list.length > 1) {
+      const bulk = el('div', 'fb-src-bulk');
+      const pick = (all2) => changeZones((all) => {
+        const ids = new Set(list.map((s) => s.id));
+        const rest = all[i].sources.filter((x) => !ids.has(x.id));
+        all[i].sources = all2 ? [...rest, ...list.map((s) => ({ id: s.id, kind: s.kind }))] : rest;
+      });
+      const every = el('button', 'btn plain fb-src-all', T('zones.src_pick_all'));
+      every.type = 'button';
+      every.dataset.own = '1';
+      every.title = T('zones.src_pick_all_tip', { n: list.length, kind: kindName(k) });
+      every.disabled = chosen.length === list.length;
+      every.onclick = () => pick(true);
+      const nothing = el('button', 'btn plain fb-src-nothing', T('zones.src_pick_none'));
+      nothing.type = 'button';
+      nothing.dataset.own = '1';
+      nothing.title = T('zones.src_pick_none_tip', { kind: kindName(k) });
+      nothing.disabled = !chosen.length;
+      nothing.onclick = () => pick(false);
+      bulk.append(every, nothing);
+      chips.appendChild(bulk);
+    }
     list.forEach((s) => {
       const on = inZone.has(s.id);
       const b2 = el('button', 'fb-src' + (on ? ' on' : ''), [label(s), srcReads(s)].filter(Boolean).join(' · '));
@@ -3829,14 +3848,18 @@ function zoneKinds(z) {
   const order = ['disk', 'ssd', 'nvme', 'cpu', 'gpu', 'ram', 'board', 'other'];
   return [...new Set((z.sources || []).map((x) => srcKind(x.id)))].sort((a, b) => order.indexOf(a) - order.indexOf(b));
 }
-/** The way down in words for a kind: «up: at once · down: after 6 s, about 5 % every 2 s» */
+/** How a kind reacts, in words: «hoch: etwa 2 % alle 2 s · runter: 3 °C unter dem Höchsten, nach 30 s, etwa 1 % alle 2 s» */
 function downWords(kind, react) {
-  const p = (((setup().down || {})[kind] || (setup().down || {}).other || {})[react === 'quick' ? 'quick' : 'balanced']) || { gap: 2, hold: 0, step: 1 };
+  const p = (((setup().down || {})[kind] || (setup().down || {}).other || {})[react === 'quick' ? 'quick' : 'balanced']) || { up: null, gap: 2, hold: 0, step: 1 };
   const r = setup().round || 2;
-  return p.hold > 0 ? T('react.profile', { gap: fmt.number(p.gap, 1), hold: fmt.number(p.hold), step: fmt.number(p.step), s: r })
-    : T('react.profile_now', { gap: fmt.number(p.gap, 1), step: fmt.number(p.step), s: r });
+  const up = num(p.up) === null ? T('react.up_now') : T('react.up_step', { step: fmt.number(p.up), s: r });
+  return p.hold > 0 ? T('react.profile', { up, gap: fmt.number(p.gap, 1), hold: fmt.number(p.hold), step: fmt.number(p.step), s: r })
+    : T('react.profile_now', { up, gap: fmt.number(p.gap, 1), step: fmt.number(p.step), s: r });
 }
-/** How he reacts: «Ausgewogen reagieren» (default) or «Sofort reagieren» — and what that means per kind, in words */
+/**
+ * How he reacts (2026-11-20, the owner): «Langsam reagieren» (the default; stored `balanced` — the word older versions read)
+ * or «Schnell reagieren» (`quick`) — and what that means per kind, in words
+ */
 function reactPart(z, i) {
   const box = el('div', 'fb-react');
   box.appendChild(el('h4', 'fb-sub', T('react.title')));
@@ -3853,7 +3876,7 @@ function reactPart(z, i) {
     seg.appendChild(b);
   });
   box.appendChild(seg);
-  // one line per way down: kinds with the same profile share it («NVMe, RAM: …»)
+  // one line per way: kinds with the same profile share it («NVMe, RAM: …»)
   const ways = new Map();
   zoneKinds(z).forEach((k) => { const w = downWords(k, cur); ways.set(w, [...(ways.get(w) || []), T(`kind.${k}`)]); });
   ways.forEach((names, w) => box.appendChild(el('p', 'fb-hint-text', `${names.join(', ')}: ${w}`)));
@@ -3911,6 +3934,22 @@ function curveRule(pts) {
   const zeros = pts.filter((p, i) => p[1] < 0.5 && pts.slice(i + 1).some((q) => q[1] >= 0.5));
   const top = Math.max(...pts.map((p) => p[1]));
   return { start: zeros.length ? zeros[zeros.length - 1][0] : null, hard: (pts.find((p) => p[1] >= top) || [null])[0] };
+}
+/** A curve's value at t: linear between its points, flat beyond its ends (fanboyCurveAt() of the agent) */
+function curveValueAt(pts, t) {
+  const p = pts.slice().sort((x, y) => x[0] - y[0]);
+  if (!p.length) return 0;
+  if (t <= p[0][0]) return p[0][1];
+  for (let i = 1; i < p.length; i++) if (t <= p[i][0]) return p[i - 1][1] + (p[i][1] - p[i - 1][1]) * (t - p[i - 1][0]) / ((p[i][0] - p[i - 1][0]) || 1);
+  return p[p.length - 1][1];
+}
+/** His own curve under 100 % where the kind's «Leise» reaches 100 %: { c, pct } — or null (at 100 % there, or no preset to go by) */
+function underQuiet(pts, kind) {
+  const q = kcKindPreset('quiet', kind, setup().scales || {});
+  const full = q.find((p) => p[1] >= 100);
+  if (!full || !pts.length) return null;
+  const v = curveValueAt(pts, full[0]);
+  return v < 99.5 ? { c: full[0], pct: Math.round(v) } : null;
 }
 /** The CPU's curve of a zone as it stands on the page, in the CPU's own degrees (round 13: fanboyCpuCurve() — the CPU kind's own curve or the one derived from the zone's) */
 function zonePts(z) {
@@ -4135,6 +4174,10 @@ function curvePart(z, i) {
   box.appendChild(cv.c.el);
   // a preset is fixed — said where its fields are locked; his own curve: how to shape it
   box.appendChild(para(locked ? T(kindKept(z, K) ? 'curve.locked_kept' : 'curve.locked') : T('zones.curve_sub'), 'fb-hint-text fb-curve-hint'));
+  // 2026-11-20 (the owner: «macht jemand eine kurve hintenraus unter 100 % gemäss unserem leise vorschlag, könnte ein kleiner
+  // hinweis unten erscheinen»): his own curve still under 100 % where «Leise» reaches it — one calm line with the numbers
+  const under = !rpmUnit && choice === 'own' ? underQuiet(pts, K) : null;
+  if (under) box.appendChild(para(T('curve.under_quiet', { c: degrees(under.c), pct: under.pct }), 'fb-hint-text fb-curve-under'));
   // 2026-11-20 (the owner: «trotz 0 % nie aus»): where the curve says 0 %, which fans stand and which keep turning
   const zero = !rpmUnit && pts.length && pts[0][1] < 0.5;
   const standsF = (f) => !!f.off_ok && !standWhy(f) && !(f.role === 'cpu' && !!f.cpu_own && K !== 'cpu');
@@ -4156,9 +4199,11 @@ function curvePart(z, i) {
     box.appendChild(follows);
   }
   if (!rpmUnit) {
-    const says = para(curveWords(pts, floorPct, stands, isCpu, { multi: multi && !isCpu, cpuElse: cpuElse && !!lead.off_ok && !standWhy(lead),
+    const elseCpu = cpuElse && !!lead.off_ok && !standWhy(lead);
+    const says = para(curveWords(pts, floorPct, stands, isCpu, { multi: multi && !isCpu, cpuElse: elseCpu,
       neverKind: neverKind ? kindWord(neverKind) : '', skipFloor: offSaid }), 'fb-curve-says');
-    says.dataset.nums = JSON.stringify([{ v: floorPct, from: ['setup', 'fans', `=${lead.id}`], via: 'floor' }]);
+    // the floor among its numbers only where the sentence says it (the «trotz 0 % nie aus» callout says it instead)
+    says.dataset.nums = JSON.stringify(elseCpu || stands || !offSaid ? [{ v: floorPct, from: ['setup', 'fans', `=${lead.id}`], via: 'floor' }] : []);
     if (says.textContent) box.appendChild(says);
   }
   return box;

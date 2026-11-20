@@ -353,11 +353,14 @@ His fans' biggest fan: he steers the fans on the mainboard's fan connectors by w
 - **Setup in five steps:** he finds the outputs Linux can steer; *Test and assign* runs one fan at full for up to a
   minute (the others can stand meanwhile) so you hear it and give it a name and a role; he measures each fan, its
   standstill and start too; you put fans and heat sources into zones; *Take over* hands them to him.
-- **A curve per kind of heat source** in a zone: HDD, SSD/NVMe, CPU, board, RAM. Disks outside the array and pools
-  count too. A sleeping disk is never woken.
+- **A curve per kind of heat source** in a zone: HDD, SSD/NVMe, CPU, board, RAM — *Quiet*, *Normal*, *Cool* or your
+  own curve. The curve alone decides; there is no limit to set. Disks outside the array and pools count too. A sleeping
+  disk is never woken.
+- **How he reacts:** *React slowly* (up a little every 2 s, down only once it is 3 °C cooler and after 30 s) or *React
+  quickly* (up at once, down soon).
 - A fan may stand still only when the measuring saw it start again. The CPU cooler and pumps stay with the BIOS,
   unless you give him the cooler at your own risk.
-- **Alarms per zone:** a fan of his that stands, too warm at full, a sensor that says nothing: that zone goes to 100 %.
+- **Alarms per zone:** a fan of his that stands or a sensor that says nothing: that zone goes to 100 %.
   He also watches the fans he doesn't steer and tells you when one stands while something is warm.
 - *Hand back* gives every fan back at once, to the mainboard's automatic or to its value from before. So does his stop.
   A fan that turns clearly slower after he gave it back goes to 100 %, and he tells you.
@@ -474,7 +477,7 @@ What needs you while the office is closed goes to Unraid's notifications, as *Un
 - A drill that couldn't prove a restore, a schedule's problem.
 - A new point on the Team Lead's list after half an hour.
 - The Night Watchman's new entries, a parity check after an unclean stop.
-- Fanboy's alarms: a fan that stands, too warm, a silent sensor, the fan chip gone.
+- Fanboy's alarms: a fan that stands, a silent sensor, the fan chip gone.
 - The messenger silent for ten minutes.
 
 They come in the language you last used the office in.

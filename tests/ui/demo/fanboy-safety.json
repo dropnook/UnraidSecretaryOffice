@@ -1231,11 +1231,13 @@
   "down": {
    "disk": {
     "balanced": {
-     "gap": 2,
-     "hold": 0,
+     "up": 2,
+     "gap": 3,
+     "hold": 30,
      "step": 1
     },
     "quick": {
+     "up": null,
      "gap": 1,
      "hold": 0,
      "step": 3
@@ -1243,11 +1245,13 @@
    },
    "ssd": {
     "balanced": {
-     "gap": 2,
-     "hold": 4,
-     "step": 2
+     "up": 2,
+     "gap": 3,
+     "hold": 30,
+     "step": 1
     },
     "quick": {
+     "up": null,
      "gap": 1,
      "hold": 2,
      "step": 4
@@ -1255,11 +1259,13 @@
    },
    "nvme": {
     "balanced": {
-     "gap": 2,
-     "hold": 4,
-     "step": 2
+     "up": 2,
+     "gap": 3,
+     "hold": 30,
+     "step": 1
     },
     "quick": {
+     "up": null,
      "gap": 1,
      "hold": 2,
      "step": 4
@@ -1267,11 +1273,13 @@
    },
    "ram": {
     "balanced": {
-     "gap": 2,
-     "hold": 4,
-     "step": 2
+     "up": 2,
+     "gap": 3,
+     "hold": 30,
+     "step": 1
     },
     "quick": {
+     "up": null,
      "gap": 1,
      "hold": 2,
      "step": 4
@@ -1279,11 +1287,13 @@
    },
    "board": {
     "balanced": {
-     "gap": 2,
-     "hold": 4,
-     "step": 2
+     "up": 2,
+     "gap": 3,
+     "hold": 30,
+     "step": 1
     },
     "quick": {
+     "up": null,
      "gap": 1,
      "hold": 2,
      "step": 4
@@ -1291,11 +1301,13 @@
    },
    "cpu": {
     "balanced": {
-     "gap": 2.5,
-     "hold": 6,
-     "step": 5
+     "up": 4,
+     "gap": 3,
+     "hold": 30,
+     "step": 2
     },
     "quick": {
+     "up": null,
      "gap": 1.5,
      "hold": 3,
      "step": 8
@@ -1303,11 +1315,13 @@
    },
    "gpu": {
     "balanced": {
-     "gap": 2.5,
-     "hold": 6,
-     "step": 5
+     "up": 4,
+     "gap": 3,
+     "hold": 30,
+     "step": 2
     },
     "quick": {
+     "up": null,
      "gap": 1.5,
      "hold": 3,
      "step": 8
@@ -1315,11 +1329,13 @@
    },
    "other": {
     "balanced": {
-     "gap": 2,
-     "hold": 4,
-     "step": 2
+     "up": 2,
+     "gap": 3,
+     "hold": 30,
+     "step": 1
     },
     "quick": {
+     "up": null,
      "gap": 1,
      "hold": 2,
      "step": 4
