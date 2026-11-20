@@ -1942,6 +1942,31 @@ function fanboyZonesSave(array $r): array
     $scan = fanboyDetect();
     $settings = fanboyBoardRaw($scan['board']) ?? [];
     $zones = fanboyZonesCheck($r['zones'] ?? null, $scan, $settings);
+    // 2026-11-20 (the owner: «ein Am-Ende-Speichern-Button»): what the step said about its fans comes with the zones —
+    // [{fan, off_ok?, cpu_off_confirm?, alike?}], each a fan of his already set up; every entry checked before the first
+    // write, then each stored as its «role» action does it (its role as it is), then the zones
+    $fans = $r['fans'] ?? [];
+    if (!is_array($fans) || !array_is_list($fans) || count($fans) > 64) {
+        throw new Problem('bad_request');
+    }
+    $todo = [];
+    foreach ($fans as $x) {
+        $id = is_array($x) ? textField($x, 'fan') : '';
+        $f = $settings['fans'][$id] ?? null;
+        if (!is_array($f) || !is_string($f['role'] ?? null)) {
+            throw new Problem('fanboy_no_output', ['fan' => $id]);
+        }
+        $one = ['fan' => $id, 'role' => $f['role'], 'off_ok' => ($f['off_ok'] ?? false) === true];       // (not said here: as it is)
+        foreach (['off_ok', 'cpu_off_confirm', 'alike'] as $k) {
+            if (array_key_exists($k, $x)) {
+                $one[$k] = boolField($x, $k);
+            }
+        }
+        $todo[] = $one;
+    }
+    foreach ($todo as $one) {
+        fanboyRole($one);
+    }
     $e = fanboyStoreUpdate(function (array $e) use ($zones): array {
         $e['zones'] = $zones;
         return $e;

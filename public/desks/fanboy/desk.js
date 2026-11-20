@@ -94,6 +94,10 @@ let sensorBar = null;
 let cat = null;                 // the fan catalogue (fans-catalog.json), once
 let dry = null;                 // the last dry run's answer (the page's own: not kept)
 let zdraft = null;              // the zones as changed on the page, not saved yet (null: as saved)
+// 2026-11-20 (the owner: «der Haken geht rein und wieder raus — ein Am-Ende-Speichern wäre sinnvoller»): what the zones
+// step says about a fan — «darf stehen» (with the CPU cooler's confirmation), «Es sind gleiche Lüfter» — kept here too,
+// sent with «Speichern» in the same request as the zones: {fan id: {off_ok, cpu_off_confirm, alike}} (null: as saved)
+let zfans = null;
 const opened = new Set();       // rows unfolded (kept while the page lives)
 const folds = new Map();        // folds the user opened or closed
 const pickers = new Map();      // fan id → its catalogue picker (kept: a drawing never resets a choice being made)
@@ -458,7 +462,7 @@ const quiet = (v) => JSON.stringify(v, (k, x) => (VOLATILE.has(k) ? undefined : 
 function frameSig() {
   const su = setup();
   const active = setupSw ? setupSw.active() : '';
-  const rest = ['test', 'measure'].includes(active) ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft, S().dashboard, idle().on, S().tools, S().suggest, S().drivers, S().hints_open, S().chip];
+  const rest = ['test', 'measure'].includes(active) ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft, zfans, S().dashboard, idle().on, S().tools, S().suggest, S().drivers, S().hints_open, S().chip];
   return quiet([ready(), !!art(), !!cat, !!state, Office.agent.running, bubbleText(), plainNow(), situation(), control().running, su.armed, su.outputs, active, rest]);
 }
 /** What the step tiles say */
@@ -3373,6 +3377,23 @@ function tableEl(table, f) {
 }
 
 // 5 — zones: fans and heat sources moved between them, the curve to drag
+/** A fan as the zones step shows it: as saved, with his choices of this step on top (a look arriving never undoes them) */
+function zfanNow(f) {
+  const d = zfans && f ? zfans[f.id] : null;
+  if (!d) return f;
+  const out = { ...f };
+  if (d.off_ok !== undefined) out.off_ok = d.off_ok;
+  if (d.alike === true) { out.alike = true; if (f.hub) out.hub = { ...f.hub, mixed: false }; }      // said the same: no hub's margin any more
+  return out;
+}
+function changeFan(id, fields) {
+  zfans = { ...(zfans || {}), [id]: { ...((zfans || {})[id] || {}), ...fields } };
+  drawn = '';
+  redraw();
+}
+/** The fans' part of the draft as the agent takes it with zones_save */
+const zfansList = () => Object.entries(zfans || {}).map(([fan, d]) => ({ fan, ...(d.off_ok !== undefined ? { off_ok: d.off_ok } : {}),
+  ...(d.cpu_off_confirm ? { cpu_off_confirm: true } : {}), ...(d.alike === true ? { alike: true } : {}) }));
 function zonesNow() {
   if (zdraft) return zdraft;
   return (setup().zones || []).map((z) => JSON.parse(JSON.stringify(z)));
@@ -3446,10 +3467,10 @@ function zonesStep() {
   }
   const how = T('zones.how_often', { s: setup().round || 2 }) + (num(S().poll) !== null && S().poll > timesNow().poll_live ? ' ' + T('zones.poll', { min: Math.round(S().poll / 60) })
     + (num(S().disk_allow) > 0 ? ' ' + T('zones.poll_add', { add: S().disk_allow }) : '') : '');
-  if (zdraft) {
-    // changed here, not kept yet: «Save» is the one button of the moment
-    const save = button(T('zones.save'), T('zones.save_tip'), (b) => act('zones_save', { zones: zdraft.map(cleanZone) }, b, () => { zdraft = null; curves.clear(); dry = null; dryFor = ''; }), 'btn');
-    const undo = button(T('zones.undo'), T('zones.undo_tip'), () => { zdraft = null; curves.clear(); drawn = ''; redraw(); }, 'btn plain');
+  if (zdraft || zfans) {
+    // changed here, not kept yet: «Save» is the one button of the moment — the zones and what he said about fans, ONE request
+    const save = button(T('zones.save'), T('zones.save_tip'), (b) => act('zones_save', { zones: zonesNow().map(cleanZone), fans: zfansList() }, b, () => { zdraft = null; zfans = null; curves.clear(); dry = null; dryFor = ''; }), 'btn');
+    const undo = button(T('zones.undo'), T('zones.undo_tip'), () => { zdraft = null; zfans = null; curves.clear(); drawn = ''; redraw(); }, 'btn plain');
     const mark = el('span', 'fb-next-count');
     mark.appendChild(chipOfText('warn', T('zones.unsaved'), T('zones.save_tip')));
     box.append(para(how), nextBar([mark], [save, undo]));
@@ -3531,7 +3552,7 @@ function zoneCard(z, i, zones, ours) {
   card.appendChild(el('h4', 'fb-sub', T('zones.fans')));
   const fl = el('div', 'fb-zone-fans');
   (z.fans || []).forEach((id) => {
-    const f = setupFan(id) || { id };
+    const f = zfanNow(setupFan(id) || { id });
     const row = el('div', 'fb-zone-fan');
     const look = fanLook(f);
     row.appendChild(cardWheel({ rpm: rpmNow(id, f.tachs), mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour, look: look.look, px: 40, state: f.found === 'silent' ? 'unknown' : 'run' }));
@@ -3551,7 +3572,7 @@ function zoneCard(z, i, zones, ours) {
       // round 14, the way out right here: several fans on its connector and nobody said they are the same — say so, or
       // let Fanboy show them (the look for the eye in step 3, opened at this fan)
       if (f.hub && f.hub.mixed && !f.hub.ok && !f.hub.not_safe && no === T('zones.stand_hub')) {
-        row.appendChild(btn(T('zones.hub_same'), 'btn plain', () => act('role', { fan: id, role: f.role, alike: true, off_ok: !!f.off_ok }, null), T('zones.hub_same_tip')));
+        row.appendChild(btn(T('zones.hub_same'), 'btn plain', () => changeFan(id, { alike: true }), T('zones.hub_same_tip')));
         row.appendChild(btn(T('hub.look'), 'btn plain', () => { setupSwitcher().pick('measure'); drawn = ''; redraw(); if (mbench) mbench.select(id); }, T('zones.hub_look_tip')));
       }
     } else {
@@ -3559,15 +3580,14 @@ function zoneCard(z, i, zones, ours) {
       const c = el('input');
       c.type = 'checkbox';
       c.checked = !!f.off_ok;
-      const save = (extra) => act('role', { fan: id, role: f.role, name: f.name || '', place: f.place || '', off_ok: c.checked, ...(extra || {}) }, null);
       c.onchange = () => {
-        if (f.role !== 'cpu' || !c.checked) { save(); return; }
+        if (f.role !== 'cpu' || !c.checked) { changeFan(id, { off_ok: c.checked, cpu_off_confirm: undefined }); return; }
         // the CPU cooler on the owner's risk may stand only behind its own plain confirmation
         c.checked = false;
         Office.dialog({
           title: T('zones.cpu_stand_title'),
           body: cpuStandWords(f, z),
-          buttons: [{ text: t('common.cancel') }, { text: T('zones.cpu_stand_go'), kind: '', act: async () => { c.checked = true; await save({ cpu_off_confirm: true }); return true; } }],
+          buttons: [{ text: t('common.cancel') }, { text: T('zones.cpu_stand_go'), kind: '', act: async () => { changeFan(id, { off_ok: true, cpu_off_confirm: true }); return true; } }],
         });
       };
       l.append(c, el('span', '', T('zones.off_ok')));
@@ -3999,7 +4019,7 @@ function curvePart(z, i) {
   const box = el('div', 'fb-curve-part');
   box.dataset.zone = z.id;          // a kind's line among the heat sources finds its card here
   box.appendChild(el('h4', 'fb-sub', T('zones.curve')));
-  const fans = (z.fans || []).map(setupFan).filter(Boolean);
+  const fans = (z.fans || []).map(setupFan).filter(Boolean).map(zfanNow);
   const rpmOk = fans.length > 0 && fans.every((f) => f.found === 'tach' && f.measured);
   const tgt = z.target || { preset: 'normal' };
   const zoneOwn = Array.isArray(tgt.points);

@@ -364,7 +364,7 @@ function testFanboyUx(): void
         str_contains($js, "T('next.item', { fan: fanSay(id), why: T({ test: 'label.untested', ask: 'label.ask', role: 'label.what' }[w]) })")
         && str_contains($js, "return f.cpu_own ? ['warn', T('label.cpu_own'),") && $de['label.ask'] === 'Frage offen' && $de['label.what'] === 'Rolle fehlt' && $de['label.untested'] === 'nicht getestet');
     check('fanboy ux: «may stand still» is offered only where it can be — else the words why stand in its place; the CPU cooler on own risk only behind its own confirmation; a choice that can\'t be snaps back with its reason',
-        str_contains($js, 'const no = standWhy(f);') && str_contains($js, "row.appendChild(el('span', 'fb-stand-no', no));") && str_contains($js, 'await save({ cpu_off_confirm: true });')
+        str_contains($js, 'const no = standWhy(f);') && str_contains($js, "row.appendChild(el('span', 'fb-stand-no', no));") && str_contains($js, 'changeFan(id, { off_ok: true, cpu_off_confirm: true });')
         && str_contains($js, "if (f.role === 'pump' || (f.role === 'cpu' && !f.cpu_own)) return T('zones.stand_never');") && str_contains($js, "snapBack(unit, 'pct', T('zones.unit_off'))") && str_contains($js, "snapBack(choose, 'own', T('zones.preset_pct'))"));
     check('fanboy ux: set to full for safety — said on the output\'s panel and in the strip, each with the way back',
         str_contains($panel, "btn(T('safety.back'), 'btn', () => send('safety_back', { fan: id }), T('safety.back_tip', { pct: safetyPct(sf) }));") && str_contains($strip, "send('safety_back', { fan: run.safety[0].id, all: true })")
@@ -618,8 +618,8 @@ function testFanboyUx(): void
     check('fanboy ux r14: what the look found is the state\'s (hub.ok, hub.not_safe, hub.extra); «darf stehen» waits for it (zones: the reason; the agent\'s off_why mixed_hub / hub_not_safe in words)',
         str_contains($js, "out.push(para(hub.not_safe ? T('hub.not_safe') : hub.ok ? T('hub.ok') : T('hub.unchecked')));") && str_contains($js, "if (f.hub && f.hub.mixed && f.hub.not_safe) return T('zones.stand_hub_no');")
         && str_contains($js, "if (f.hub && f.hub.mixed && !f.hub.ok) return T('zones.stand_hub');") && isset($l['de']['off_why.mixed_hub'], $l['de']['off_why.hub_not_safe']));
-    check('fanboy ux r14: where the zones say a hub fan may not stand yet, the way out is right there — «Es sind gleiche Lüfter» (role {alike: true}) or «Mit den Augen prüfen» (step 3 opened at this fan, which the list also follows while the look runs)',
-        str_contains($js, "if (f.hub && f.hub.mixed && !f.hub.ok && !f.hub.not_safe && no === T('zones.stand_hub')) {") && str_contains($js, "act('role', { fan: id, role: f.role, alike: true, off_ok: !!f.off_ok }, null)")
+    check('fanboy ux r14: where the zones say a hub fan may not stand yet, the way out is right there — «Es sind gleiche Lüfter» (into the zones draft, saved with «Speichern») or «Mit den Augen prüfen» (step 3 opened at this fan, which the list also follows while the look runs)',
+        str_contains($js, "if (f.hub && f.hub.mixed && !f.hub.ok && !f.hub.not_safe && no === T('zones.stand_hub')) {") && str_contains($js, "() => changeFan(id, { alike: true }),")
         && str_contains($js, "setupSwitcher().pick('measure'); drawn = ''; redraw(); if (mbench) mbench.select(id);") && str_contains($js, "follow: (run) => (run.kind === 'measure' || run.kind === 'hub' ? run.id : ''),"));
     check('fanboy ux uncovered: a calm hint, not an alarm (never the warn look); an unassigned disk with a name like «dev1» says what it is outside its group («Nicht zugewiesen · dev1»)',
         str_contains($js, "const p = el('div', 'callout fb-callout fb-uncovered');") && !str_contains($js, "'callout warn fb-callout fb-uncovered'")
@@ -1971,4 +1971,47 @@ function testFanboyEmptyOutput(): void
         && str_contains($js, "state: empty ? 'empty' : 'bios', mm: 120 }")
         && str_contains($js, "what.hidden = never;\n    fields.hidden = look.hidden = never || cur === 'empty';")
         && str_contains($js, "if (cur === 'empty') hint = T('panel.empty_note');"));
+}
+
+/**
+ * 2026-11-20 (the owner: «bei Zonen dasselbe mit dem Haken klicken, Haken geht rein und wieder raus — ein Am-Ende-Speichern-
+ * Button»): what the zones step says about a fan («darf stehen», «Es sind gleiche Lüfter») is part of the step's draft and
+ * goes with «Speichern» in the SAME request as the zones (zones_save {zones, fans}); a bad entry refused before anything
+ * is written; what an entry doesn't say stays as it is
+ */
+function testFanboyZonesDraft(): void
+{
+    $t = fanboyT('zonesdraft');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR12Spec();
+        fanboyTSettle($t, $spec);
+        $m = ['table' => [[100, 1500], [50, 900], [10, 420]], 'min_pct' => 10, 'start_pct' => 10, 'max_rpm' => 1500, 'at' => 1,
+              'stops' => true, 'floor_rpm' => null, 'start_from_stop' => 35, 'kick_start' => null, 'stops_safe' => true];
+        fanboyR12Store([4 => $m, 5 => $m]);
+        $zones = array_map(fn ($z) => ['name' => 'Z ' . $z['id']] + $z, fanboyZonesPropose(fanboyDetect(), fanboyBoardRaw()));
+        fanboyZonesSave(['zones' => $zones, 'fans' => [['fan' => fanboyTId(4), 'off_ok' => true], ['fan' => fanboyTId(5), 'alike' => true]]]);
+        $f = fanboyBoardRaw()['fans'];
+        same('fanboy zones draft: one save — the zones and what the step said about its fans (4 may stand; 5 «the same fans»), 5\'s «may stand» as it was',
+            [true, true, true, false], [count(fanboyBoardRaw()['zones'] ?? []) > 0, $f[fanboyTId(4)]['off_ok'] ?? null, $f[fanboyTId(5)]['alike'] ?? null, $f[fanboyTId(5)]['off_ok'] ?? false]);
+        $before = fanboyBoardRaw();
+        foreach ([['fan' => 'nope:pwm9', 'off_ok' => true], ['fan' => fanboyTId(4), 'off_ok' => 'yes'], 'x'] as $bad) {
+            try {
+                fanboyZonesSave(['zones' => [], 'fans' => [['fan' => fanboyTId(5), 'off_ok' => true], $bad]]);
+                $key = 'kept';
+            } catch (Problem $p) {
+                $key = $p->key;
+            }
+            same('fanboy zones draft: a bad entry (' . json_encode($bad) . ') — refused, nothing written (zones and fans as before)', [true, $before], [$key !== 'kept', fanboyBoardRaw()]);
+        }
+    } finally {
+        fanboyTEnd();
+    }
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
+    check('fanboy zones draft: the page — «darf stehen» and «Es sind gleiche Lüfter» go into the draft (no «role» request from the step), the CPU cooler\'s confirmation kept with it; «Speichern» sends zones and fans together, «Verwerfen» drops both; the curve follows the draft',
+        str_contains($js, "if (f.role !== 'cpu' || !c.checked) { changeFan(id, { off_ok: c.checked, cpu_off_confirm: undefined }); return; }")
+        && str_contains($js, "act: async () => { changeFan(id, { off_ok: true, cpu_off_confirm: true }); return true; }")
+        && str_contains($js, "() => changeFan(id, { alike: true }),") && str_contains($js, "act('zones_save', { zones: zonesNow().map(cleanZone), fans: zfansList() }, b,")
+        && str_contains($js, "() => { zdraft = null; zfans = null; curves.clear(); drawn = ''; redraw(); }") && str_contains($js, 'const fans = (z.fans || []).map(setupFan).filter(Boolean).map(zfanNow);')
+        && !preg_match("/act\\('role', \\{ fan: id, role: f\\.role, (alike|name)/", $js));
 }

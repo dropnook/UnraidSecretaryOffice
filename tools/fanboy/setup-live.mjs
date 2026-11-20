@@ -262,6 +262,48 @@ try {
     await ctx.close();
     if (h.close) await h.close();
   }
+  // ------------------------------------------------ the zones step: «darf stehen» in the draft, ONE «Speichern» (2026-11-20)
+  for (const width of opt.widths) {
+    const h = await startHarness({ demo: true, alias: { fanboy: 'fanboy-uxstand' } });
+    const ctx = await browser.newContext({ viewport: { width, height: 900 }, isMobile: width < 768, hasTouch: width < 768, colorScheme: 'dark' });
+    await ctx.addInitScript(() => { try { localStorage.setItem('office.lang', 'en'); } catch (e) { /* none */ } });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(`${h.url}?theme=black#/fanboy/setup/zones`, { waitUntil: 'load' });
+    await page.waitForSelector('#sso .fb-zone-fan', { timeout: 15000 });
+    await page.waitForTimeout(800);
+    const api = await page.evaluate(() => document.querySelector('script[src*="assets/core.js"]').src.replace(/assets\/core\.js.*$/, 'api.php'));
+    const base = (await (await fetch(`${api}?a=state&desk=fanboy`)).json()).state;
+    const box = '#sso .fb-zone-fan .fb-check input[type=checkbox]';
+    const asked = () => h.posts.filter((x) => !['fanboy.step_alive', 'fanboy.dry_run'].includes(x.action)).map((x) => x.action);
+    const at0 = asked().length;
+    const was = await page.$eval(box, (c) => c.checked);
+    await page.click(box);
+    await page.waitForTimeout(400);
+    const after = await page.$eval(box, (c) => c.checked);
+    check(`${width} zones: «may stand» clicked — the tick changes, nothing sent`, after === !was && asked().length === at0, JSON.stringify(asked().slice(at0)));
+    // a look arrives (the same saved state, a new second): the tick stays as he set it
+    h.setState('fanboy', { ...base, time: base.time + 7 });
+    await page.waitForTimeout(5600);
+    check(`${width} zones: … a look arriving leaves his tick`, (await page.$eval(box, (c) => c.checked)) === after, '');
+    // «Discard»: as saved
+    await page.click(`#sso .fb-next .btn.plain:has-text("${EN['zones.undo']}")`);
+    await page.waitForTimeout(500);
+    check(`${width} zones: «Discard» brings the saved tick back, nothing sent`, (await page.$eval(box, (c) => c.checked)) === was && asked().length === at0, '');
+    // again, then «Save»: ONE request carrying the zones and the tick
+    await page.click(box);
+    await page.waitForTimeout(300);
+    await page.click(`#sso .fb-next .btn:not(.plain):has-text("${EN['zones.save']}")`);
+    await page.waitForTimeout(800);
+    const sent = h.posts.filter((x) => x.action === 'fanboy.zones_save');
+    const other = asked().slice(at0).filter((a) => a !== 'fanboy.zones_save');
+    check(`${width} zones: «Save» — one request with the zones and the tick`, sent.length === 1 && Array.isArray(sent[0].data.zones) && sent[0].data.fans.length === 1
+      && sent[0].data.fans[0].off_ok === !was && !other.includes('fanboy.role'), JSON.stringify(sent.map((x) => x.data.fans)) + JSON.stringify(other));
+    check(`${width} zones: no error`, !errors.length, errors.join(' | '));
+    await ctx.close();
+    if (h.close) await h.close();
+  }
   // ------------------------------------------------ the places and the look (2026-11-20, the owner's points 3 and 4)
   for (const width of opt.widths) {
     const h = await startHarness({ demo: true, alias: { fanboy: 'fanboy-uxfound' } });
