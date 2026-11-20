@@ -335,9 +335,9 @@ function testFanboyUx(): void
         && str_contains($panel, "else if (away) reason = T('strip.away');") && str_contains($panel, "swap(why, [reason, toRun], () => (toRun ? [reason, ' ', btn(T('panel.to_run', { fan: fanSay(toRun) }), 'fb-link', () => benchSelect(toRun), T('panel.to_run_tip'))] : [reason]));")
         && str_contains($js, "b.onclick = () => { Office.toast(reason, true); say(reason); };") && str_contains($panel, "if (no) offBtn(b, reason || T('strip.away'));")
         && !preg_match('/\b(place|count)\.disabled = [^;]*roleSet/', $js) && str_contains($js, 'if (why.length) offBtn(b, why[0]);'));
-    check('fanboy ux: where he sits and how many can be filled at any time — kept on the page and sent with the role once he picks it',
-        str_contains($panel, 'else { wantPlace = place.value; update(); }') && str_contains($panel, 'else { wantCount = Number(count.value); update(); }')
-        && str_contains($panel, "const extra = { ...(wantPlace !== null ? { place: wantPlace } : {}), ...(wantCount !== null ? { count: wantCount } : {}) };") && str_contains($panel, "hint = T('panel.kept');"));
+    check('fanboy ux: where he sits and how many can be filled at any time — kept in the output\'s draft, sent with «Speichern» in one request (2026-11-20)',
+        str_contains($panel, 'place.onchange = () => { draft.place = place.value; update(); };') && str_contains($panel, 'count.onchange = () => { draft.count = Number(count.value); update(); };')
+        && str_contains($panel, "const placeNow = draft.place ?? ((f && f.place) || '');") && !str_contains($panel, 'wantPlace'));
     check('fanboy ux: waiting is seen — the wave in the strip from the click until the state shows it (a test beginning, an output ending, everything stopping, a show beginning), a quicker look meanwhile',
         str_contains($js, "expect({ now: T('strip.starting'), done: () => !!runNow().kind });") && str_contains($js, "expect({ note: T('strip.stopping'), done: () => !runNow().kind });")
         && str_contains($js, "expect({ note: T('strip.ending'), ending: id, done: () => { const r = runNow(); return r.id !== id || !!r.pause || !r.kind; } });")
@@ -371,7 +371,7 @@ function testFanboyUx(): void
         && str_contains($js, "if (sx) return ['warn', T('safety.chip'),") && str_contains($panel, "waits ? el('p', 'fb-safety-wait', T('safety.wait')) : null"));
     $cpu = substr($js, (int) strpos($js, 'function cpuBlock('), 2600);
     check('fanboy ux: the CPU cooler\'s block stands right under «What is it?» (never behind a fold) — given to Fanboy: since when, and «Back to the BIOS» there',
-        str_contains($panel, 'root.append(head, safety, what, cpu, fields, alike, hubSays, note, look, back);') && str_contains($cpu, "box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));")
+        str_contains($panel, 'root.append(head, safety, what, cpu, fields, alike, hubSays, note, look, back, saveBar);') && str_contains($cpu, "box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));")
         && str_contains($cpu, "btn(T('cpu.back'), 'btn', () => send('role', { fan: f.id, role: 'cpu', name: f.name || '', place: f.place || '', cpu_own: false }),") && str_contains($cpu, "cpu_own: true, cpu_confirm: tick.checked }"));
     check('fanboy ux: selects and text fields in the office\'s field look (office.css .input — never the browser\'s white box)',
         str_contains($js, "const n = el(tag, 'input small fb-input');") && str_contains($js, "n = inputEl('input', 'text');") && str_contains($panel, "const place = inputEl('select');")
@@ -395,7 +395,7 @@ function testFanboyUx(): void
         && str_contains($js, "out.push(goButton('measure', !open.length && !run.kind));") && str_contains($js, "out.push(goButton('zones', !open.length && !run.kind));"));
     check('fanboy ux: a click answers within a blink — the clicked button carries the wave until the agent has answered (send() and act()), a picked role is pressed at once',
         str_contains($js, "b.onclick = () => { clicked = b; on(b); clicked = null; };") && str_contains($js, 'const done = working(clicked);') && str_contains($js, 'const worked = working(b);')
-        && str_contains($js, "roleBtns.forEach((b, r) => b.setAttribute('aria-pressed', r === k ? 'true' : 'false'));") && str_contains($js, "const cur = picked || (found === 'empty' ? 'empty' : (f && f.role) || '');"));
+        && str_contains($js, "draft.role = k;\n    update();") && str_contains($js, "const cur = draft.role ?? (found === 'empty' ? 'empty' : (f && f.role) || '');"));
     $art = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.js');
     // round 12, the look's four controls (the owner: «Farbe soll für Lüfter-Blätter und Lüfter-Gehäuse separat gewählt werden können,
     // ebenfalls Art und Anzahl der Blätter. Modellauswahl macht nur typischen Vorschlag»)
@@ -426,13 +426,14 @@ function testFanboyUx(): void
     check('fanboy ux look: the model only proposes — its look is the base, his frame, blades\' colour, shape and number lie on top; the one colour of before counts for frame and blades',
         str_contains($js, "const look = frame || wheel || style ? { ...(base || NEUTRAL_LOOK), ...(frame ? { frame } : {}), ...(wheel ? { blades: wheel, hub: wheel } : {}), ...(style ? { style } : {}) } : base;")
         && str_contains($js, "const old = f && LOOK_COLOURS.includes(f.colour) ? f.colour : null;") && str_contains($js, "const blades = num(m.blades) ?? ((c && c.blades) || (look ? null : 7));"));
-    check('fanboy ux look: each control saves alone and shows at once (before the agent answered); the old one colour is carried over as frame and blades, never lost by another click',
-        str_contains($js, "const body = { fan: id, [key]: value };") && str_contains($js, "if (key !== 'frame' && !f0.frame) body.frame = old;") && str_contains($js, "if (key !== 'wheel' && !f0.wheel) body.wheel = old;")
-        && str_contains($js, "want[key] = value;\n      paint();\n      send('fan_look', body, { quietly: true }).then(() => { delete want[key]; paint(); });"));
+    check('fanboy ux look: each control goes into the output\'s draft and shows at once (2026-11-20: sent with «Speichern», never alone); the old one colour is carried over as frame and blades, never lost by another click',
+        str_contains($js, "const body = { [key]: value };") && str_contains($js, "if (key !== 'frame' && !f0.frame) { body.frame = old; want.frame = old; }") && str_contains($js, "if (key !== 'wheel' && !f0.wheel) { body.wheel = old; want.wheel = old; }")
+        && str_contains($js, "want[key] = value;\n      keep(body);") && str_contains($js, "const keep = (fields) => { draft.look = { ...(draft.look || {}), ...fields }; paint(); update(); };")
+        && !str_contains($js, "send('fan_look'"));
     check('fanboy ux look: another model proposes anew (his four go, one click brings them and the model back); «Zurück zum Vorschlag» resets the four; the chip says which it is',
-        str_contains($js, "send('fan_look', { fan: id, model: v.id, frame: '', wheel: '', style: '', blades: 0, colour: 'auto' }, { quietly: true }).then((j) => { undo = j ? before : null; paint(); });")
-        && str_contains($js, "send('fan_look', { fan: id, model: (u.model && u.model.id) || '', frame: u.frame, wheel: u.wheel, style: u.style, blades: u.blades }, { quietly: true })")
-        && str_contains($js, "btn(T('look.reset'), 'btn plain', () => { undo = null; send('fan_look', { fan: id, frame: '', wheel: '', style: '', blades: 0, colour: 'auto' }, { quietly: true }); }, T('look.reset_tip'))")
+        str_contains($js, "keep({ model: v.id, frame: '', wheel: '', style: '', blades: 0, colour: 'auto' });")
+        && str_contains($js, "keep({ model: (u.model && u.model.id) || '', frame: u.frame, wheel: u.wheel, style: u.style, blades: u.blades });")
+        && str_contains($js, "btn(T('look.reset'), 'btn plain', () => { undo = null; Object.assign(want, { frame: '', wheel: '', style: '', blades: 0 }); keep({ frame: '', wheel: '', style: '', blades: 0, colour: 'auto' }); }, T('look.reset_tip'))")
         && str_contains($js, "chipOfText(mine ? 'accent' : 'quiet', mine ? T('look.changed') : T('look.proposal'),")
         && ($l['de']['look.proposal'] ?? '') === 'Vorschlag für dieses Modell' && ($l['de']['look.reset'] ?? '') === 'Zurück zum Vorschlag');
     check('fanboy ux look: the picker shows the model\'s facts only (no wheel, no blades\' number of its own), the fold\'s one preview is the fan as it will be drawn; measured far from the data sheet is still said',
@@ -589,7 +590,7 @@ function testFanboyUx(): void
         && count(array_filter($udSrc, fn ($x) => !preg_match('/^ud-[0-9a-f]{12}$/D', $x['id']))) === 0);
     // round 14 on the page: several fans on one connector
     check('fanboy ux r14: step 2 asks «Gleiche Lüfter an allen Steckern?» once a connector has several fans (the state\'s hub) — yes / no, different / don\'t know, saved alone with the role',
-        str_contains($js, "[['yes', true], ['no', false], ['unknown', null]].forEach(([k, v]) => {") && str_contains($js, "send('role', { fan: id, role: f.role, alike: v, off_ok: !!f.off_ok && ROLES_OURS.includes(f.role) }, { quietly: true });")
+        str_contains($js, "[['yes', true], ['no', false], ['unknown', null]].forEach(([k, v]) => {") && str_contains($js, "const b = btn(T(`hub.alike_\${k}`), 'fb-pick', () => { draft.alike = v; update(); }, T(`hub.alike_\${k}_tip`));")
         && str_contains($js, "const hub = roleSet && !never && f.hub ? f.hub : null;") && ($l['de']['hub.alike'] ?? '') === 'Gleiche Lüfter an allen Steckern?');
     check('fanboy ux r14: the margin for unlike fans is said in the agent\'s own numbers (hub.floor, hub.start — marked for the numbers check), whose table it is too',
         substr_count($js, "{ v: hub.floor, from: ['setup', 'fans', `=\${id}`, 'hub', 'floor'] }, { v: hub.start, from: ['setup', 'fans', `=\${id}`, 'hub', 'start'] }") === 2
@@ -823,7 +824,7 @@ function testFanboyCount(): void
         $l[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true);
     }
     check('fanboy count: the page — «How many fans on it?» sent with the role, as many wheels in the picture sharing one speed, the tile counting connectors',
-        str_contains($js, "count: Number(count.value)") && str_contains($js, 'fans: (z.fans || []).flatMap((id) => wheelsOf(id)),')
+        str_contains($js, "draft.count = Number(count.value)") && str_contains($js, "count: draft.count ?? f0.count ?? 1,") && str_contains($js, 'fans: (z.fans || []).flatMap((id) => wheelsOf(id)),')
         && str_contains($js, "if (Number(c.turning)) out.push(T('now.fans', { n: Number(c.turning),") && !str_contains($js, "'fans.turning'"));
     same('fanboy count: «connectors report a speed» in five languages as a plural; the hints say what a Y-cable or hub hides', [true, true, true, true, true],
         array_map(fn ($c) => is_array($l[$c]['fans.reporting'] ?? null) && isset($l[$c]['hints.hub.1'], $l[$c]['hints.hub.2']), array_keys($l)));
@@ -1757,7 +1758,7 @@ function testFanboySetupWaits(): void
             && str_contains($js, "if (to && to !== followed && ids.includes(to) && !typing && (!followed || !sel || sel === followed)) sel = to;")
             && str_contains($js, "panel: (id, api) => panelMake(id, api.now, api.update, api.select),")
             && str_contains($js, "if (why === 'unanswered') { const tm = timesNow(); return T('step.ended.unanswered', { n: Math.round((s.quiet ? tm.up_hold_quiet : tm.up_hold) / 60) }); }")
-            && str_contains($js, "if (rest.length) out.push(btn(T('test.resume'), 'btn', () => startTest(rest), T('test.resume_tip', { n: rest.length })));")
+            && str_contains($js, "if (rest.length) out.push(btn(T('test.resume'), 'btn', () => startTest([rest[0]]), T('test.one_tip')));")
             && str_contains($js, "if (view && a && a !== document.body && view.contains(a)) Office.keepInPlace(a, go); else go();")
             && str_contains($l['en']['panel.now'], 'until you answer') && is_file(OFFICE_DIR . '/tools/fanboy/setup-live.mjs'));
     } finally {
@@ -1812,7 +1813,7 @@ function testFanboySetupPlaces(): void
         str_contains($js, "cpu: ['cpu', 'top', 'front', 'rear', 'inside', 'bottom', 'side'],") && str_contains($js, "pump: ['inside', 'top', 'front', 'rear', 'bottom', 'side'],")
         && str_contains($js, "case: ['front', 'rear', 'top', 'bottom', 'side', 'inside'],") && str_contains($js, "disks: ['front', 'side', 'bottom', 'top', 'rear', 'inside'],")
         && str_contains($js, "return stored && PLACES.includes(stored) && !list.includes(stored) ? [...list, stored] : list;")
-        && str_contains($js, "if (document.activeElement === place) return;") && str_contains($js, "placeOptions(cur === 'empty' ? '' : cur, roleSet ? f.place : wantPlace);"));
+        && str_contains($js, "if (document.activeElement === place) return;") && str_contains($js, "placeOptions(cur === 'empty' ? '' : cur, placeNow);"));
     check('fanboy places: the picture — a fan on the CPU or inside among the heat sources (on no wall), its air toward the rear, not counted for the zone\'s way',
         str_contains($art, "const INSIDE = ['cpu', 'inside'];") && str_contains($art, "if (INSIDE.includes(place)) continue;")
         && str_contains($art, "const side = inside ? wall.rear : wall[place];") && str_contains($art, "(inside ? inner : sides[side]).appendChild(w.el);")
@@ -1849,4 +1850,88 @@ function testFanboyArtClipped(): void
     check('fanboy art clipped: the browser checks — every animated part clipped inside the picture, the page\'s size steady over every moment and frame; the Dashboard tile likewise',
         str_contains($frames, 'export async function sizeChecks(page, secs = 3)') && str_contains($frames, "if (!c || !c.closest(art)) bad.add(")
         && str_contains($dash, "const { sizeChecks, sizeVerdicts } = await import(path.join(HERE, 'frames.mjs'));"));
+}
+
+/**
+ * 2026-11-20 (the owner: «first test output 1, label it and so on, save at the end, not at every click; then on to output
+ * two … there is a switch for stopping the others; that is how it must be»): step 2 one output after the other — the
+ * switch on, every other output stands while one is tested, whatever its role (a CPU cooler and a pump too); off, none is
+ * touched; the test of one output ends with its answer (every fan back); the details are stored only by ONE save
+ * (fan_save) carrying every field — before it the output is «not yet set»; a refused save stores nothing; an output
+ * saved before is changed again with one save; «nothing attached» and «I heard something» in the same request.
+ */
+function testFanboySetupFlow(): void
+{
+    $t = fanboyT('flow');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR8Spec();
+        fanboyTSettle($t, $spec);
+        $before = array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]);
+        // outputs 4 and 5 already told: the CPU cooler and a pump
+        fanboyRole(['fan' => fanboyTId(4), 'role' => 'cpu']);
+        fanboyRole(['fan' => fanboyTId(5), 'role' => 'pump']);
+        $watch = function (array &$low) use ($t): callable {
+            return function () use ($t, &$low): void {
+                if (fanboyTOut($t, 1)[0] === 255) {
+                    foreach ([2, 3, 4, 5, 6] as $n) {
+                        $low[$n][] = fanboyTOut($t, $n)[0];
+                    }
+                }
+            };
+        };
+        $low = [];
+        [$step] = fanboyR8Run($t, $spec, [1], true, $watch($low));
+        same('fanboy flow: the switch on — while output 1 runs every other output stands (a fixed 0), the CPU cooler (4) and the pump (5) too; the test of one output done, every output back',
+            [[2, 3, 4, 5, 6], 'done', [fanboyTId(1)], $before, []],
+            [array_keys(array_filter($low, fn ($v) => in_array(0, $v, true))), $step['status'], $step['done'], array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
+        $low = [];
+        fanboyR8Run($t, $spec, [1], false, $watch($low));
+        same('fanboy flow: the switch off — no other output touched while output 1 runs', [], array_keys(array_filter($low, fn ($v) => array_unique($v) !== [128])));
+        // the test's verdict is the step's; what it is, its name … only with the save
+        $f = fanboyBoardRaw()['fans'][fanboyTId(1)] ?? [];
+        same('fanboy flow: after the test, before the save — found (the step\'s verdict), nothing of his yet: no role, no name, no place («not yet set»)',
+            ['tach', null, '', null], [$f['found'] ?? null, $f['role'] ?? null, $f['name'] ?? '', $f['place'] ?? null]);
+        // ONE save with every field
+        $r = fanboyFanSave(['fan' => fanboyTId(1), 'role' => 'case', 'name' => 'Vorn unten', 'place' => 'front', 'count' => 2,
+            'look' => ['model' => 'noctua-nf-a12x25-pwm', 'frame' => 'black', 'wheel' => 'graphite']]);
+        $f = fanboyBoardRaw()['fans'][fanboyTId(1)];
+        same('fanboy flow: one save carries everything — what it is, its name, where it sits, how many, its look',
+            [true, 'case', 'Vorn unten', 'front', 2, 'noctua-nf-a12x25-pwm', 'black', 'graphite'],
+            [$r['saved'] ?? null, $f['role'] ?? null, $f['name'] ?? null, $f['place'] ?? null, $f['count'] ?? null, $f['model']['id'] ?? null, $f['frame'] ?? null, $f['wheel'] ?? null]);
+        foreach ([['role' => 'boss'], ['role' => 'case', 'place' => 'middle'], ['role' => 'case', 'name' => str_repeat('x', 41)], ['role' => 'case', 'look' => 'black']] as $bad) {
+            try {
+                fanboyFanSave($bad + ['fan' => fanboyTId(1), 'name' => 'Neu']);
+                $key = 'kept';
+            } catch (Problem $p) {
+                $key = $p->key;
+            }
+            $f = fanboyBoardRaw()['fans'][fanboyTId(1)];
+            same('fanboy flow: a refused save (' . json_encode($bad) . ') stores nothing', [true, 'Vorn unten', 'case'], [$key !== 'kept', $f['name'] ?? null, $f['role'] ?? null]);
+        }
+        // reopened: changed again with one save; what it doesn't name (the look) stays
+        fanboyFanSave(['fan' => fanboyTId(1), 'role' => 'disks', 'name' => 'Käfig', 'place' => 'side', 'count' => 1]);
+        $f = fanboyBoardRaw()['fans'][fanboyTId(1)];
+        same('fanboy flow: an output saved before, opened again — one save changes it, its look stays', ['disks', 'Käfig', 'side', 1, 'noctua-nf-a12x25-pwm'],
+            [$f['role'] ?? null, $f['name'] ?? null, $f['place'] ?? null, $f['count'] ?? null, $f['model']['id'] ?? null]);
+        // no tach followed (outputs 2 and 3): «nothing attached» and «heard something» each in the save
+        fanboyR8Run($t, $spec, [2, 3], false);
+        fanboyFanSave(['fan' => fanboyTId(2), 'role' => 'empty']);
+        fanboyFanSave(['fan' => fanboyTId(3), 'role' => 'case', 'name' => 'Deckel']);
+        $fans = fanboyBoardRaw()['fans'];
+        same('fanboy flow: no tach followed — «nothing attached» saved as empty; a role saved means «I heard it» (a fan without feedback)',
+            ['empty', 'silent', 'case', 'Deckel'], [$fans[fanboyTId(2)]['found'] ?? null, $fans[fanboyTId(3)]['found'] ?? null, $fans[fanboyTId(3)]['role'] ?? null, $fans[fanboyTId(3)]['name'] ?? null]);
+        check('fanboy flow: the action is there', str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy.php'), "'fan_save'      => fn (array \$r) => fanboyFanSave(\$r),"));
+    } finally {
+        fanboyTEnd();
+    }
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
+    $panel = substr($js, $at = (int) strpos($js, 'function panelMake('), (int) strpos($js, 'function cpuBlock(') - $at);
+    $l = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/lang/de.json'), true);
+    check('fanboy flow: the page — the panel sends nothing while he fills it in (role, name, place, count, alike, look go into its draft); «Speichern und weiter» sends it once and starts the next output\'s test on that click; a test starts for one output only',
+        !str_contains($panel, "send('role'") && !str_contains($panel, "send('fan_look'") && !str_contains($js, ".fan_name`") && str_contains($panel, "send('fan_save', body).then((j) => {")
+        && str_contains($panel, "if (nextId) testNext(nextId);") && str_contains($js, "const ids = list.slice(0, 1);")
+        && str_contains($panel, "const b = btn(nextId ? T('save.next', { fan: fanSay(nextId) }) : T('save.only'), 'btn', () => save(nextId),")
+        && str_contains($panel, "return nextId ? [btn(T('save.empty_next', { fan: fanSay(nextId) }), 'btn', () => testNext(nextId),")
+        && $l['save.next'] === 'Speichern und weiter zu {fan}' && str_contains($l['quiet.hint_2'], 'auch der CPU-Kühler und eine Pumpe'));
 }

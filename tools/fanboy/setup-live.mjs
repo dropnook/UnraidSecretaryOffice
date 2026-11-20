@@ -176,6 +176,47 @@ try {
       if (h.close) await h.close();
     }
   }
+  // ------------------------------------------------ one output, one pass, one save (2026-11-20, the owner's flow)
+  for (const width of opt.widths) {
+    const { h, ctx, page, errors, base, P } = await open(width);
+    const panel = `#sso .fb-panel[data-fan="${P(3)}"]`;
+    const asked = () => h.posts.filter((x) => x.action !== 'fanboy.step_alive');
+    const at0 = asked().length;
+    // he heard it: «Gefunden» — the test of output 3 ends, every fan back (the step done)
+    await page.click(`${panel} .fb-panel-acts .btn:not(.plain)`);
+    await page.waitForTimeout(400);
+    const done = clone(base);
+    done.step = { ...done.step, status: 'done', current: null, progress: null, done: [P(1), P(2), P(3)], results: { ...done.step.results, [P(3)]: { found: 'tach', tachs: [3] } } };
+    done.setup.fans = done.setup.fans.map((f) => (f.id === P(3) ? { ...f, found: 'tach', tachs: [3], role: null, name: '', place: null } : f));
+    h.setState('fanboy', done);
+    await page.waitForTimeout(2600);
+    const afterAnswer = asked().slice(at0).map((x) => x.action);
+    // the form: what it is, its name, where it sits, how many, a colour — nothing sent meanwhile
+    await page.click(`${panel} .fb-what button:has-text("${EN['role.case']}")`);
+    await page.fill(`${panel} .fb-field-name input`, 'Front low');
+    await page.selectOption(`${panel} .fb-fields select >> nth=0`, 'front');
+    await page.selectOption(`${panel} .fb-fields select >> nth=1`, '2');
+    const sw = await page.$(`${panel} .fb-look-open .fb-swatch`);
+    if (sw) await sw.click();
+    await page.waitForTimeout(1500);
+    const duringForm = asked().slice(at0 + afterAnswer.length).map((x) => x.action);
+    const label = await page.evaluate((s) => (document.querySelector(s) || {}).textContent || '', `${panel} .fb-panel-save .btn`);
+    await page.click(`${panel} .fb-panel-save .btn`);
+    await page.waitForTimeout(1500);
+    const afterSave = asked().slice(at0 + afterAnswer.length + duringForm.length);
+    const save = afterSave.find((x) => x.action === 'fanboy.fan_save');
+    const next = afterSave.find((x) => x.action === 'fanboy.test_up');
+    check(`${width} flow: «found» sends the answer only`, JSON.stringify(afterAnswer) === JSON.stringify(['fanboy.step_next']), JSON.stringify(afterAnswer));
+    check(`${width} flow: filling in what it is, its name, place, count and look sends nothing`, !duringForm.length, JSON.stringify(duringForm));
+    check(`${width} flow: the one button says «Save and go on to» the next output`, label.startsWith(EN['save.next'].replace('{fan}', '').trim().slice(0, 10)), label);
+    check(`${width} flow: ONE save carries everything`, !!save && save.data.role === 'case' && save.data.name === 'Front low' && save.data.place === 'front' && save.data.count === 2 && !!save.data.look,
+      JSON.stringify(save && save.data));
+    check(`${width} flow: … then the next output's test (output 4 alone) on that click — three requests in the pass in all`, !!next && JSON.stringify(next.data.fans) === JSON.stringify([P(4)])
+      && afterAnswer.length + duringForm.length + afterSave.length === 3, JSON.stringify(afterSave.map((x) => x.action)));
+    check(`${width} flow: no error`, !errors.length, errors.join(' | '));
+    await ctx.close();
+    if (h.close) await h.close();
+  }
   // ------------------------------------------------ the places and the look (2026-11-20, the owner's points 3 and 4)
   for (const width of opt.widths) {
     const h = await startHarness({ demo: true, alias: { fanboy: 'fanboy-uxfound' } });

@@ -87,8 +87,8 @@ final class FanboyQuietWarm extends FanboyStepStop
  * state before in the journal), a fixed 0 written; X to full until the user answers (at most FANBOY_UP_HOLD_QUIET); then every one given
  * back exactly (value + mode, read back); then at least FANBOY_QUIET_PAUSE with everything as before, in which every tach
  * that turned before must turn again within FANBOY_QUIET_RESTART — one that doesn't: its output (or, its output unknown,
- * every output quieted on that chip) to full, an alert, the test stops. Never quieted: X, a CPU cooler or pump (by its
- * role, once known), an output found inverted, one whose driver takes no values, one without a mode file, one someone
+ * every output quieted on that chip) to full, an alert, the test stops. Quieted whatever its role (a CPU cooler and a
+ * pump too — the switch says so); never X, an output found inverted, one whose driver takes no values, one without a mode file, one someone
  * else holds. Guards: refused while anything is warm or the CPU at FANBOY_QUIET_CPU_START; during the quiet phase every
  * look (≤ 0.5 s): the CPU at FANBOY_QUIET_CPU_STOP or FANBOY_QUIET_CPU_RISE over its start, or any place at its «needs
  * all the air» → everything back at once, the test stops naming it. A holder that dies or hangs, the page gone (45 s):
@@ -150,8 +150,11 @@ function fanboyQuietWarm(?float $cpuStart = null): ?array
 }
 
 /**
- * The outputs to stop while $x is tested: every other offered output — not a CPU cooler or pump (their role), not one
- * found inverted, not one whose driver takes no values (the control's last word), not one without a mode file
+ * The outputs to stop while $x is tested: every other offered output, whatever its role (2026-11-20, the owner: «there is
+ * a switch for stopping the others; that is how it must be — whoever has a pump knows what he is doing»: a CPU cooler and
+ * a pump stand too) — only not one found inverted (0 runs it at full), not one whose driver takes no values (the
+ * control's last word), not one without a mode file. The guard (fanboyQuietWarm(), every look) and the restart check
+ * after it stay.
  */
 function fanboyQuietOthers(string $x, array $outputs, ?array $settings): array
 {
@@ -159,7 +162,7 @@ function fanboyQuietOthers(string $x, array $outputs, ?array $settings): array
     $out = [];
     foreach ($outputs as $id => $o) {
         $f = $settings['fans'][$id] ?? null;
-        if ($id === $x || in_array($f['role'] ?? null, ['cpu', 'pump'], true) || fanboyFound($f) === 'inverted'
+        if ($id === $x || fanboyFound($f) === 'inverted'
             || (is_array($refuses) && in_array($id, $refuses, true)) || (fanboyOutputNow($o['device'], $o['output'])['enable'] ?? null) === null) {
             continue;
         }
@@ -1700,6 +1703,47 @@ function fanboyRole(array $r): array
         return in_array($role, FANBOY_ROLES_BIOS, true) && !fanboyCpuOwn($f) ? fanboyZonesWithout($e, $id) : $e;
     });
     return ['ok' => true, 'fan' => $e['fans'][$id]];
+}
+
+/**
+ * 2026-11-20 (the owner: «first test output 1, label it and so on, save at the end, not at every click; then on to output
+ * two»): an output's details in ONE request — `role` (or `empty`: nothing attached), name, place, count, alike (several
+ * fans: the same model?), off_ok, and `look` {model, mm, blades, frame, wheel, style, colour} when he chose one (optional).
+ * Each part checked and stored as its own action does it (fanboyAnswer(), fanboyFanLook(), fanboyRole()); the look and the
+ * role are checked before the first write, so a refused field stores nothing. A tested output where no tach followed
+ * (ask, unclear) given a role: «I heard it» first, as the page's role click did.
+ */
+function fanboyFanSave(array $r): array
+{
+    $id = textField($r, 'fan');
+    $role = textField($r, 'role');
+    if ($role === 'empty') {
+        return fanboyAnswer(['fan' => $id, 'louder' => false]) + ['saved' => true];
+    }
+    if (!in_array($role, array_merge(FANBOY_ROLES_BIOS, FANBOY_ROLES_OURS), true)) {
+        throw new Problem('fanboy_bad_role');
+    }
+    $look = $r['look'] ?? null;
+    if ($look !== null && !is_array($look)) {
+        throw new Problem('bad_request');
+    }
+    $name = optText($r, 'name');
+    if (mb_strlen(trim($name)) > FANBOY_NAME_MAX) {
+        throw new Problem('fanboy_bad_name', ['max' => FANBOY_NAME_MAX]);
+    }
+    $place = optText($r, 'place');
+    if ($place !== '' && !in_array($place, FANBOY_PLACES, true)) {
+        throw new Problem('fanboy_bad_place');
+    }
+    $found = fanboyFound(fanboyBoardRaw()['fans'][$id] ?? null);
+    if (in_array($found, ['ask', 'unclear'], true)) {
+        fanboyAnswer(['fan' => $id, 'louder' => true]);
+    }
+    if (is_array($look)) {
+        fanboyFanLook(['fan' => $id] + array_intersect_key($look, array_flip(['model', 'mm', 'blades', 'frame', 'wheel', 'style', 'colour'])));
+    }
+    $out = fanboyRole(['fan' => $id, 'role' => $role] + array_intersect_key($r, array_flip(['name', 'place', 'count', 'alike', 'off_ok'])));
+    return $out + ['saved' => true];
 }
 
 function fanboyZonesWithout(array $e, string $id): array

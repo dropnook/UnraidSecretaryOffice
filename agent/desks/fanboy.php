@@ -75,6 +75,7 @@ desk('fanboy', [
         'answer'        => fn (array $r) => fanboyAnswer($r),
         'role'          => fn (array $r) => fanboyRole($r),
         'fan_name'      => fn (array $r) => fanboyFanName($r),         // round 8: «Wo sitzt er?» while testing
+        'fan_save'      => fn (array $r) => fanboyFanSave($r),         // 2026-11-20: an output's details in one request
         'zones_propose' => fn (array $r) => ['ok' => true, 'zones' => fanboyZonesPropose($scan = fanboyDetect(), fanboyBoardRaw($scan['board']) ?? [])],
         'zones_save'    => fn (array $r) => fanboyZonesSave($r),
         'dry_run'       => fn (array $r) => fanboyDryRun(),

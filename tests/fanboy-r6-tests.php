@@ -817,7 +817,8 @@ function testFanboyR8QuietGuards(): void
             ['stopped', 'quiet_warm', 'CPU', 65.0, $before, [], false], [$step['status'], $step['why'], $step['quiet_stop']['what'] ?? null, $step['quiet_stop']['c'] ?? null,
                 array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld(), isset($step['results'][fanboyTId(4)])]);
         fanboyR8Cpu($t, 40);
-        // a CPU cooler (its role, once known) is never stopped; an output that doesn't take 0 goes on
+        // 2026-11-20 (the owner: «there is a switch for stopping the others; that is how it must be»): a CPU cooler stands
+        // too — whatever its role; an output that doesn't take 0 goes on
         $settings = fanboyTSettings();
         $settings['armed'] = false;
         $settings['fans'][fanboyTId(4)]['role'] = 'cpu';
@@ -827,8 +828,8 @@ function testFanboyR8QuietGuards(): void
         [$step] = fanboyR8Run($t, $spec, [1], true, function () use ($t, &$low): void {
             $low[] = [fanboyTOut($t, 4)[0], fanboyTOut($t, 2)[0]];
         });
-        same('fanboy r8 guards: the CPU cooler (role) runs on as it is the whole time; the others stand; the test done', [true, true, 'done'],
-            [!in_array(0, array_column($low, 0), true), in_array(0, array_column($low, 1), true), $step['status']]);
+        same('fanboy r8 guards: the switch on — the CPU cooler (role) stands too, the others stand; the test done', [true, true, 'done'],
+            [in_array(0, array_column($low, 0), true), in_array(0, array_column($low, 1), true), $step['status']]);
     } finally {
         fanboyTEnd();
     }
@@ -959,8 +960,9 @@ function testFanboyR8Assign(): void
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
     // fanboy-ux (2026-11-15): the card is the output's panel now (panelMake + cpuBlock), its actions queued through send()
     $card = substr($js, $at = (int) strpos($js, 'function panelMake('), (int) strpos($js, 'function measurePanel(') - $at);   // the panel and its CPU block
-    $reach = ["send('role', { fan: id, role: k,", "send('answer', { fan: id, louder: false })", "send('role', { fan: id, role: f.role, count:", "send('role', { fan: id, role: f.role, place:",
-        "send('fan_look', { fan: id, model: v.id,", "send('fan_look', body,", 'backChoice(f, b)', 'cpuBlock(f, benchUpdate)', 'nameField(id, f,', "send('show', { fan: id,"];
+    // 2026-11-20: one output, one pass, one save — role, count, place, model, colour and name go into the draft, «Speichern» sends them (fan_save)
+    $reach = ['draft.role = k;', "send('fan_save', body)", 'draft.count = Number(count.value)', 'draft.place = place.value',
+        'keep({ model: v.id,', 'keep(body);', 'backChoice(f, b)', 'cpuBlock(f, benchUpdate)', 'nameField(id, f,', "send('show', { fan: id,"];
     same('fanboy r8 assign: every action of the old roles step reachable from the output\'s panel (role, nothing attached, count, place, model, colour, give back, CPU on own risk, name, show me)',
         [], array_values(array_filter($reach, fn ($x) => !str_contains($card, $x))));
     same('fanboy r8 assign: six steps — the old route …/setup/roles opens «Testen und zuordnen»; no roles step left', [true, false, false],
@@ -1002,7 +1004,7 @@ function testFanboyR8Assign(): void
         $f = fanboyBoardRaw()['fans'];
         same('fanboy r8 assign: saved while output 1 was under test — no output touched by the saves, the test went on (tach 1), name, role and count kept through its verdict',
             [true, 'tach', 'Hinten oben', 'case', 2], [$outsDuring, $step['results'][fanboyTId(1)]['found'], $f[fanboyTId(1)]['name'] ?? null, $f[fanboyTId(1)]['role'] ?? null, $f[fanboyTId(1)]['count'] ?? null]);
-        check('fanboy r8 assign: output 4 called the CPU cooler during the run — the next quiet phase (output 5) leaves it running', $low4 && !in_array(0, $low4, true));
+        check('fanboy r8 assign: output 4 called the CPU cooler during the run — the next quiet phase (output 5) holds it still too (the switch says so, 2026-11-20)', $low4 && in_array(0, $low4, true));
         $fans = array_column(fanboyScan()['setup']['fans'], null, 'id');
         same('fanboy r8 assign: the page\'s state shows what was saved on the cards (names, roles)', ['Hinten oben', 'Deckel hinten', 'case', 'cpu'],
             [$fans[fanboyTId(1)]['name'], $fans[fanboyTId(2)]['name'], $fans[fanboyTId(5)]['role'], $fans[fanboyTId(4)]['role']]);
@@ -1175,7 +1177,7 @@ function testFanboyR9CpuOwn(): void
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
     check('fanboy r9 cpu: the card says which — «regelt das BIOS» or «regelt Fanboy auf dein Risiko seit …»; a role click forgets a half-made choice',
         // (fanboy-ux: the panel's note says «regelt das BIOS», the CPU cooler's own block «von Fanboy geregelt … seit» with «Zurück ans BIOS»)
-        str_contains($js, "hint = f.cpu_own ? '' : T('assign.cpu_bios');") && str_contains($js, "box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));") && str_contains($js, 'cpuAsk.delete(id);'));
+        str_contains($js, "hint = f && f.cpu_own ? '' : T('assign.cpu_bios');") && str_contains($js, "box.appendChild(para(T('cpu.own_since', { date: Office.fmt.date(f.cpu_own) })));") && str_contains($js, 'cpuAsk.delete(id);'));
     $t = fanboyT('r9cpu');
     try {
         fanboyTStore(fanboyTSettings());
