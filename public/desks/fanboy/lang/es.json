@@ -475,6 +475,26 @@
   "zones.sources_sub": "Haz clic para añadir o quitar una. Cuenta la más caliente; un disco dormido cuenta como dormido, nunca como frío.",
   "zones.src_in": "Meter en esta zona",
   "zones.src_out": "Sacar de esta zona",
+  "zones.sources_first": "Todavía ninguna fuente de calor — elige al menos una; hasta entonces la curva de la zona no hace nada.",
+  "zones.src_none": {
+    "one": "ninguna elegida · {n} disponible",
+    "other": "ninguna elegida · {n} disponibles"
+  },
+  "zones.src_chosen": {
+    "one": "{n} elegida",
+    "other": "{n} elegidas"
+  },
+  "zones.src_some_asleep": {
+    "one": "{n} dormida",
+    "other": "{n} dormidas"
+  },
+  "zones.src_all_asleep": {
+    "one": "dormida",
+    "other": "las {n} dormidas"
+  },
+  "zones.src_no_temp": "ahora sin temperatura",
+  "zones.src_change": "Cambiar",
+  "zones.src_hide": "Plegar",
   "zones.curve": "Curva",
   "zones.curve_sub": "Arrastra un punto, selecciónalo y usa las flechas, o escribe sus valores abajo. La rueda gira como giraría el ventilador a esa temperatura.",
   "zones.target": "Objetivo",

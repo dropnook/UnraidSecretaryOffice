@@ -475,6 +475,26 @@
   "zones.sources_sub": "Click to take one in or out. The warmest counts; a sleeping disk counts as asleep, never as cold.",
   "zones.src_in": "Take into this zone",
   "zones.src_out": "Take out of this zone",
+  "zones.sources_first": "No heat source yet — choose at least one; until then the zone's curve does nothing.",
+  "zones.src_none": {
+    "one": "none chosen · {n} here",
+    "other": "none chosen · {n} here"
+  },
+  "zones.src_chosen": {
+    "one": "{n} chosen",
+    "other": "{n} chosen"
+  },
+  "zones.src_some_asleep": {
+    "one": "{n} asleep",
+    "other": "{n} asleep"
+  },
+  "zones.src_all_asleep": {
+    "one": "asleep",
+    "other": "all {n} asleep"
+  },
+  "zones.src_no_temp": "no temperature right now",
+  "zones.src_change": "Change",
+  "zones.src_hide": "Hide",
   "zones.curve": "Curve",
   "zones.curve_sub": "Drag a point, focus it and use the arrow keys, or type its values below. The wheel turns as the fan would at that temperature.",
   "zones.target": "Target",

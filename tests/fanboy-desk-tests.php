@@ -1613,3 +1613,65 @@ function testFanboyHistoryCurves(): void
         fanboyTEnd();
     }
 }
+
+/**
+ * The zone editor's heat sources (2026-11-20, the owner: about 70 on his server pushed the curve far down): a block per
+ * kind, folded to one line — how many, the warmest, how many sleep, the curve it follows —, unfolding in place; the
+ * behaviour in a browser: tools/fanboy/zones.mjs (the demo state fanboy-uxmany)
+ */
+function testFanboyZoneSources(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $start = (int) strpos($js, 'function zoneSources(z, i) {');
+    $fn = substr($js, $start, (int) strpos($js, "\n}\n", $start) - $start);
+    check('fanboy zone sources: one function, called between the fans and the curve', $start > 0
+        && str_contains($js, "card.appendChild(para(T('zones.sources_sub')));\n  card.appendChild(zoneSources(z, i));\n  card.appendChild(curvePart(z, i));"), '');
+    check('fanboy zone sources: a block per kind (the unassigned disks a group of their own), the line a button that unfolds its chips in place — aria-expanded, aria-controls, the page kept in place',
+        str_contains($fn, "[...kinds.slice(0, 2), 'unassigned', ...kinds.slice(2)].forEach((k) => {") && str_contains($fn, "tog.setAttribute('aria-controls', chips.id);")
+        && str_contains($fn, "tog.setAttribute('aria-expanded', open ? 'true' : 'false');") && str_contains($fn, 'tog.onclick = () => Office.keepInPlace(tog, () => {'), $fn);
+    check('fanboy zone sources: folded or open is the user\'s view of the page (the folds kept while the page lives) — never stored, never sent',
+        str_contains($fn, 'const key = `src:${z.id}:${k}`;') && str_contains($fn, 'folds.set(key, now);') && !str_contains($fn, 'Office.store') && !str_contains($fn, 'localStorage') && !str_contains($fn, 'Office.api'), $fn);
+    check('fanboy zone sources: a zone without any source — all open (kept open while the first are chosen), the line that it needs one',
+        str_contains($fn, 'if (none && !folds.has(key)) folds.set(key, true);') && str_contains($fn, "if (none) box.appendChild(para(T('zones.sources_first'),"), $fn);
+    check('fanboy zone sources: the summary — how many chosen, the warmest only among those with a temperature (a sleeping disk never), how many sleep; none chosen: how many there are',
+        str_contains($fn, "const warm = chosen.filter((s) => num(s.c) !== null).sort((a, b) => b.c - a.c)[0] || null;")
+        && str_contains($fn, "const asleep = chosen.filter((s) => num(s.c) === null && s.asleep).length;")
+        && str_contains($fn, "T('zones.src_none', { n: list.length })") && str_contains($fn, "T('zones.src_chosen', { n: chosen.length })")
+        && str_contains($fn, "warm ? T('zones.src_some_asleep', { n: asleep }) : T('zones.src_all_asleep', { n: asleep })"), $fn);
+    check('fanboy zone sources: the warmest\'s temperature marked for the number check (tools/fanboy/desk.mjs --nums)',
+        str_contains($fn, "sum.dataset.nums = JSON.stringify([{ v: warm.c, from: ['setup', 'sources', `=\${warm.id}`, 'c'] }]);"), $fn);
+    check('fanboy zone sources: the curve a kind follows in the curve cards\' words; several kinds: a button bringing that kind\'s card in front — no aria-expanded (it opens nothing)',
+        str_contains($fn, "T(z.curves && z.curves[c] ? 'curve.kind_own' : 'curve.kind_zone')") && str_contains($fn, 'kindSel.set(z.id, ck[0]);')
+        && str_contains($fn, ".fb-kindpick[data-kind=\"\${ck[0]}\"]") && str_contains($js, 'box.dataset.zone = z.id;') && substr_count($fn, 'aria-expanded') === 2 && !str_contains($fn, "go.setAttribute('aria-expanded'")
+        && str_contains($fn, "b.scrollIntoView({ block: 'center' });     /* reveal */"), $fn);
+    $en = langFile(OFFICE_WEB . '/desks/fanboy/lang/en.json');
+    $keys = ['zones.sources_first', 'zones.src_none', 'zones.src_chosen', 'zones.src_some_asleep', 'zones.src_all_asleep', 'zones.src_no_temp', 'zones.src_change', 'zones.src_hide'];
+    same('fanboy zone sources: its words (five languages: testStrings), the counts plurals', [true, true, true, true],
+        [array_diff($keys, array_keys($en)) === [], is_array($en['zones.src_none'] ?? null), is_array($en['zones.src_chosen'] ?? null), is_array($en['zones.src_all_asleep'] ?? null)]);
+    $demo = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy-uxmany.json'), true);
+    same('fanboy zone sources: the demo of a big server — about 70 heat sources, the disk cage 28 of them, a zone with nothing yet, RAM on a curve of its own',
+        [69, [28, 2, 0], ['points' => [[40, 25], [55, 60], [65, 100]]]],
+        [count($demo['setup']['sources'] ?? []), array_map(fn ($z) => count($z['sources']), $demo['setup']['zones'] ?? []), $demo['setup']['zones'][1]['curves']['ram'] ?? null]);
+}
+
+/**
+ * A CPU cooler given to him (round 4, `cpu_own`) is his on every picture of his page (2026-11-20, the owner: «the tile is
+ * right, his page is wrong»): drawn solid with «Fanboy runs this fan», never the BIOS's dotted frame or «The BIOS steers
+ * it»; the outputs' list never calls it «watched». The other CPU coolers and pumps stay the BIOS's.
+ */
+function testFanboyCpuOwnWheel(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $start = (int) strpos($js, 'function wheelOf(id, opts) {');
+    $fn = substr($js, $start, (int) strpos($js, "\n}\n", $start) - $start);
+    check('fanboy cpu own wheel: wheelOf() — a fan of the BIOS is one he doesn\'t hold or one of the BIOS\'s roles that isn\'t his (isOurs: a CPU cooler given to him is)',
+        str_contains($fn, 'const watched = ROLES_BIOS.includes(f.role) && !isOurs(f);') && str_contains($fn, 'const bios = !held || watched;')
+        && str_contains($fn, ": watched ? T('pic.watched_title') : T('pic.bios_title')) : T('pic.his_title'),") && !str_contains($fn, '!held || ROLES_BIOS.includes(f.role)'), $fn);
+    check('fanboy cpu own wheel: the outputs\' list — «watched» only for the BIOS\'s own', str_contains($js,
+        "if (f.role && ROLES_BIOS.includes(f.role) && !isOurs(f)) return chipOfText('quiet', T(`role.\${f.role}`) + ' · ' + T('out.watched'), T('out.watched_title'));"), '');
+    check('fanboy cpu own wheel: isOurs() — his roles, or a CPU cooler given to him', str_contains($js, "const isOurs = (f) => !!f && (ROLES_OURS.includes(f.role) || (f.role === 'cpu' && !!f.cpu_own));"), '');
+    $demo = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy-cpu.json'), true);
+    $cpu = array_values(array_filter($demo['setup']['fans'] ?? [], fn ($f) => ($f['role'] ?? null) === 'cpu'))[0] ?? [];
+    same('fanboy cpu own wheel: the demo that shows it (fanboy-cpu) — a CPU cooler given to him, held by his control', [true, true],
+        [is_int($cpu['cpu_own'] ?? null), (bool) array_filter(array_merge(...array_column($demo['control']['zones'] ?? [], 'fans')), fn ($f) => ($f['id'] ?? '') === ($cpu['id'] ?? '-') && ($f['held'] ?? false) === true)]);
+}
