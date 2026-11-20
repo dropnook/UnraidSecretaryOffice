@@ -331,7 +331,7 @@ function testFanboyUx(): void
         str_contains($panel, "send('step_next', { fan: id, heard });") && str_contains($panel, '() => next(true),') && str_contains($panel, '() => next(false),')
         && !str_contains($js, 'settleHeard') && str_contains($panel, "btn(T('ask.yes'), 'btn', () => send('answer', { fan: id, louder: true }),"));
     check('fanboy ux: a button that can\'t act is never dead — set back, and a click says why (toast and strip); the line under the buttons says it too (another output runs, the pause, another controller, he steers, the messenger away)',
-        str_contains($panel, "reason = T('panel.busy', { fan: run.id ? fanSay(run.id) : '' });") && str_contains($panel, "reason = T('panel.pause');") && str_contains($panel, 'else if (!run.kind && noTest) reason = noTest;')
+        str_contains($panel, "reason = T('panel.busy', { fan: run.id ? fanSay(run.id) : '' });") && str_contains($panel, "reason = T('panel.pause');") && str_contains($panel, 'else if (!run.kind && noTest && !showOnly) reason = noTest;')
         && str_contains($panel, "else if (away) reason = T('strip.away');") && str_contains($panel, "swap(why, [reason, toRun], () => (toRun ? [reason, ' ', btn(T('panel.to_run', { fan: fanSay(toRun) }), 'fb-link', () => benchSelect(toRun), T('panel.to_run_tip'))] : [reason]));")
         && str_contains($js, "b.onclick = () => { Office.toast(reason, true); say(reason); };") && str_contains($panel, "if (no) offBtn(b, reason || T('strip.away'));")
         && !preg_match('/\b(place|count)\.disabled = [^;]*roleSet/', $js) && str_contains($js, 'if (why.length) offBtn(b, why[0]);'));
