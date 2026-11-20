@@ -50,7 +50,7 @@ const FANBOY_PLACES = ['front', 'rear', 'top', 'bottom', 'side', 'cpu', 'inside'
 const FANBOY_NAME_MAX = 40;             // characters of a fan's name at most
 const FANBOY_COUNT_MAX = 8;             // fans on one connector at most (a hub): the page draws as many wheels
 const FANBOY_ZONES_MAX = 8;
-const FANBOY_SOURCES_MAX = 32;
+const FANBOY_SOURCES_MAX = 256;         // heat sources in one zone at most (2026-11-20: 32 refused the owner's zone of 36 — a board alone can show 68 sensors, and «Alle» takes a whole kind)
 const FANBOY_ID_RE = '/^[A-Za-z0-9_.:-]{1,80}:pwm\d{1,2}$/D';
 /*
  * «Give back» for an output Fanboy found on a FIXED value someone else set (pwmN_enable 1 — on the owner's server another

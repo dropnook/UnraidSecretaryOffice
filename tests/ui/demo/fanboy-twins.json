@@ -1560,7 +1560,7 @@
    "name_max": 40,
    "count_max": 8,
    "zones_max": 8,
-   "sources_max": 32
+   "sources_max": 256
   },
   "restarts": {
    "deaths": 0,
