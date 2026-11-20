@@ -1096,7 +1096,7 @@
   "tile.kept_asleep": "der Pool {pool} schläft",
   "kept.title": "Für {name} aufbewahrt",
   "kept.sub": "Was dieses Sekretariat von {name} aufbewahrt, pro Einheit mit Ständen und Grössen. Die Kopien liegen auf dem Pool {pool}, nie eingehängt, nie verändert – nur die Aufbewahrung der Tür dünnt sie aus.",
-  "kept.way": "Zwei Wege zurück für {name}: 1. Ein neuer Server holt die Kopien («Von der Kopie eines Partners starten…»). 2. «Hier starten…» stellt hier eine unabhängige Kopie auf. Die von {name} bleibt unverändert.",
+  "kept.way": "Mit «Hier starten…» stellst du Apps und VMs von {name} auf diesem Server wieder her — die Kopie von {name} bleibt dabei unverändert.",
   "kept.asleep": "Der Pool {pool} schläft — seine Stände zähle ich nicht auf (ich wecke nie einen Pool); was die Tür zuletzt notiert hat:",
   "kept.room": "{used} aufbewahrt von höchstens {quota} auf {pool}.",
   "kept.room_free": "{used} aufbewahrt auf {pool} (ohne Grenze).",
