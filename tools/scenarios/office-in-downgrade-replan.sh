@@ -2,7 +2,9 @@
 # Cell B41 of matrix.md (batch E), IN-DOWNGRADE: the release before the newest installed over today's data folder («an
 # older on a newer's», CLAUDE.md «Updates»). The older office starts and reads tolerantly: nothing of the data folder
 # goes (cell nothing-gone: its files by name), nothing saved changes (INV-SETTINGS), the marker says it was a downgrade
-# and keeps the newer one's steps (cell marker), and «Look at the server again» on the older office lists no change
+# and keeps as done exactly the steps the older office knows (cell marker: a step only the newer one has leaves the
+# list and runs again when it comes back — officeMigrate(), tests/run.php «migrate: back again»; 1.94.1 was the first
+# release with a new step since this cell exists), and «Look at the server again» on the older office lists no change
 # (INV-REPLAN). The undo puts the release back exactly. Pre-release (~5 min).
 . "$(dirname "$0")/lib.sh"
 scenario_begin office-in-downgrade-replan
@@ -22,7 +24,13 @@ gone=$(comm -23 "$KEEP/data-before.txt" "$KEEP/data-after.txt" | grep -v '^agent
 [[ -z $gone ]] && cell nothing-gone 1 "every file of the data folder still there" || cell nothing-gone 0 "gone after the downgrade: ${gone//$'\n'/ }"
 d=$(agent_log_since down | grep -m1 'downgrade')
 m1=$(jq -c '.done' "$D/office.json" 2>/dev/null)
-[[ -n $d && $m1 == "$m0" ]] && cell marker 1 "${d:0:200}" || cell marker 0 "the log: ${d:-no «downgrade» line}; steps done $m0 → $m1"
+# the steps the older office knows: its own table (the installed one's migrate.php), in the marker's order
+known=$(grep -o "\['id' => '[a-z0-9-]*'" "$P/agent/lib/migrate.php" 2>/dev/null | sed "s/.*=> '//; s/'$//" | jq -R . | jq -sc .)
+want=$(jq -c --argjson k "${known:-[]}" 'map(select(. as $i | $k | index($i) != null))' <<<"${m0:-[]}" 2>/dev/null)
+left=$(jq -r --argjson k "${known:-[]}" 'map(select(. as $i | $k | index($i) == null)) | join(" ")' <<<"${m0:-[]}" 2>/dev/null)
+[[ -n $d && -n $known && $known != '[]' && -n $want && $m1 == "$want" ]] \
+    && cell marker 1 "${d:0:200} — done: the $(jq length <<<"$m1") steps it knows${left:+, for the newer office again: $left}" \
+    || cell marker 0 "the log: ${d:-no «downgrade» line}; steps done $m0 → $m1, awaited $want (the older office knows ${known:-nothing read})"
 flow BK-REPLAN
 allow INV-AGENT "the downgrade installs the older office: its agent is another one by design (states-install.sh plugin_install)"
 check standard
