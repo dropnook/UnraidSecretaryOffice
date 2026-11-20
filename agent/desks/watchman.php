@@ -4752,9 +4752,25 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
     }
     $pst = isset($paths['plugins']) ? @stat($paths['plugins']) : false;
     $pm = $pst ? (int) $pst['mtime'] : null;
-    if (is_array($prev) && ($prev['m'] ?? null) === (int) $st['mtime'] && ($prev['pm'] ?? null) === $pm && ($prev['v'] ?? null) === 4
+    if (is_array($prev) && ($prev['m'] ?? null) === (int) $st['mtime'] && ($prev['pm'] ?? null) === $pm && ($prev['v'] ?? null) === 5
         && is_array($prev['jobs'] ?? null)) {
-        return $prev;
+        // a job in a plugin's shape and the file it runs can change without the folder: looked at again (a few small files) —
+        // the job's file another: all of the queue read again
+        $again = false;
+        foreach ($prev['jobs'] as $f => $j) {
+            if (!is_array($j) || !array_key_exists('ph', $j) || !is_string($f) || !preg_match('/^[a-zA-Z=][0-9a-f]{13}$/D', $f)) {
+                continue;
+            }
+            $text = watchmanPlain($paths['atjobs'] . "/$f") ? (string) @file_get_contents($paths['atjobs'] . "/$f", false, null, 0, 65536) : '';
+            if (watchmanHash($text) !== ($j['h'] ?? null)) {
+                $again = true;
+                break;
+            }
+            $prev['jobs'][$f]['ph'] = watchmanAtFileHash(watchmanAtPluginProgram($text, $paths));
+        }
+        if (!$again) {
+            return $prev;
+        }
     }
     $helper = watchmanUpdateHelper($paths);
     $users = null;
@@ -4776,7 +4792,14 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
             // a program under /mnt is looked at only while no rotating disk sleeps (a stat may wake one — review 1.81.0, N11)
             $progSt = $prog !== null && (!str_starts_with($prog, '/mnt/') || !watchmanDisksSleep($paths)) ? @stat($prog) : false;
             $jobs[$f] += ['q' => (int) $jst['mtime'], 'c' => (int) $jst['ctime'], 'user' => $users[$jobs[$f]['uid'] ?? -1] ?? null, 'prog' => $prog,
-                          'owner' => $progSt ? ($users[(int) $progSt['uid']] ?? (string) $progSt['uid']) : null];
+                          'owner' => $progSt ? ($users[(int) $progSt['uid']] ?? (string) $progSt['uid']) : null,
+                          // the job as it is (its whole file) and, in a plugin's shape, the file it runs (null: no such file) — a
+                          // plugin's own job stays known by them after its plugin is removed (watchmanAtLeft())
+                          'h' => watchmanHash($text)];
+            $own = watchmanAtPluginProgram($text, $paths);
+            if ($own !== null) {
+                $jobs[$f]['ph'] = watchmanAtFileHash($own);
+            }
         }
         if (!$ours && ($plugin = watchmanAtPlugin($text, $paths['plugins'] ?? null)) !== null) {
             $jobs[$f]['plugin'] = $plugin;
@@ -4790,7 +4813,31 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
     }
     ksort($jobs);
     // helper: the installed plugin whose copy the Plugin-Update-Helper is (an old entry of its job is closed: watchmanAtPluginClose())
-    return ['v' => 4, 'm' => (int) $st['mtime'], 'pm' => $pm, 'jobs' => $jobs, 'helper' => $helper];
+    return ['v' => 5, 'm' => (int) $st['mtime'], 'pm' => $pm, 'jobs' => $jobs, 'helper' => $helper];
+}
+
+/**
+ * The file a job in a plugin's shape runs, where it lies here: the Plugin-Update-Helper's (watchmanAtHelperJob()) or the
+ * plugin's own file (WATCH_AT_PLUGIN) — whether that plugin is installed or not; null: not in that shape
+ */
+function watchmanAtPluginProgram(string $text, array $paths): ?string
+{
+    if (watchmanAtHelperJob($text)) {
+        return $paths['update_helper'] ?? null;
+    }
+    $cmd = preg_match('/^# atrun uid=0 /m', $text) === 1 ? watchmanAtOnlyCommand($text) : null;
+    if ($cmd === null || !isset($paths['emhttp_plugins']) || !preg_match(WATCH_AT_PLUGIN, trim($cmd), $m) || in_array($m[1], ['.', '..'], true)
+        || preg_match('#(?:^|/)\.\.?(?:/|$)#', $m[2])) {
+        return null;
+    }
+    return $paths['emhttp_plugins'] . "/{$m[1]}/{$m[2]}";
+}
+
+/** A file's content as a short hash; null: not there (or not a plain file) */
+function watchmanAtFileHash(?string $file): ?string
+{
+    $h = $file !== null && watchmanPlain($file) ? @hash_file('sha256', $file) : false;
+    return is_string($h) ? substr($h, 0, 16) : null;
 }
 
 /** uid => user name from a passwd file (names in the shape Unraid allows only) */
@@ -5163,14 +5210,37 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
         watchmanAtOnce($book);
         watchmanAtUnraidClose($book, $now);
         watchmanAtPluginClose($book, $installed, $now, is_string($at['helper'] ?? null) ? $at['helper'] : null);
+        // the plugins' own jobs as he knew them (job number => watchmanAtPluginKnown()): one stays its plugin's when that is removed
+        $mine = is_array($known['at_plugin'] ?? null) ? $known['at_plugin'] : [];
+        $changed = [];
         foreach ($foreign as $f => $j) {
+            $num = watchmanAtNum((string) $f);
             if (is_string($j['us'] ?? null) && $j['us'] !== '') {
                 unset($foreign[$f]);
                 watchmanAtUserScriptNote($book, (string) $f, $j, $now);      // nothing to tell: a line in the book, noted
             } elseif (is_string($j['plugin'] ?? null) && $j['plugin'] !== '') {
                 unset($foreign[$f]);
                 watchmanAtPluginNote($book, (string) $f, $j, $now);          // a plugin's own job: likewise
+                $k = watchmanAtPluginKnown($j, watchmanAtKnownOk($mine[$num] ?? null) ? $mine[$num] : null);
+                if ($k !== null) {
+                    $mine[$num] = $k;
+                }
+            } elseif (watchmanAtKnownOk($mine[$num] ?? null)) {
+                $left = watchmanAtLeft($mine[$num], $j, $installed);
+                if ($left === true) {
+                    unset($foreign[$f]);
+                    $mine[$num]['left'] = is_int($mine[$num]['left'] ?? null) ? $mine[$num]['left'] : $now;
+                    watchmanAtLeftNote($book, (string) $f, $mine[$num], $j, $now);     // what its removed plugin left: likewise
+                } elseif ($left === false) {
+                    $changed[$num] = true;      // not as he knew it: news, whatever line he has about it
+                }
             }
+        }
+        // only while the job is in the queue (a reboot empties it)
+        $queue = array_flip(array_map(fn ($f) => watchmanAtNum((string) $f), array_keys((array) $at['jobs'])));
+        $known['at_plugin'] = array_intersect_key($mine, $queue);
+        if (!$known['at_plugin']) {
+            unset($known['at_plugin']);
         }
         if (!is_array($known['at'] ?? null)) {
             $known['at'] = array_fill_keys(array_keys($foreign), true);
@@ -5180,7 +5250,8 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
             $nums = array_flip(array_map(fn ($f) => watchmanAtNum((string) $f), array_keys($known['at'])));
             foreach ($foreign as $f => $j) {
                 if (!isset($nums[watchmanAtNum((string) $f)]) || watchmanAtBooked($book, (string) $f)) {
-                    $added[] = watchmanAtSet($book, (string) $f, $j, $now);     // new — or its open line brought up to date
+                    // new — or its open line brought up to date
+                    $added[] = watchmanAtSet($book, (string) $f, $j, $now, isset($changed[watchmanAtNum((string) $f)]));
                 }
             }
             $known['at'] = array_fill_keys(array_keys($foreign), true);
@@ -5278,7 +5349,7 @@ function watchmanAtBooked(array $book, string $job): bool
  * 1.81.0 S6: from 1.72.0 to 1.81.0 that was the only time it was told, so a job queued for now or minutes ahead, the usual
  * way to run something once as root, ran and left the queue untold); a closed line stays as it is. The kind when new.
  */
-function watchmanAtSet(array &$book, string $f, array $j, int $now): ?string
+function watchmanAtSet(array &$book, string $f, array $j, int $now, bool $changed = false): ?string
 {
     $run = $f[0] === '=';
     $p = ['job' => $f, 'when' => (int) $j['when'], 'cmd' => (string) $j['cmd'], 'uid' => $j['uid'] ?? null, 'user' => $j['user'] ?? null,
@@ -5287,7 +5358,8 @@ function watchmanAtSet(array &$book, string $f, array $j, int $now): ?string
     $late = !$run && $now - (int) $j['when'] >= WATCH_AT_LATE;
     $num = watchmanAtNum($f);
     foreach ($book as $i => $e) {
-        if (watchmanAtOf($e) !== $num) {
+        // a plugin's own job that changed ($changed: watchmanAtLeft()) is news, whatever line he has about it as the plugin's
+        if (watchmanAtOf($e) !== $num || ($changed && ($e['kind'] ?? '') !== 'at_job')) {
             continue;
         }
         if (($e['kind'] ?? '') === 'at_job' && watchmanOpen($e)) {
@@ -5312,17 +5384,20 @@ function watchmanAtSet(array &$book, string $f, array $j, int $now): ?string
 /**
  * Lines about the same at job joined into one (up to 1.76.0 a job closed by himself came back every round — 431 of 500
  * lines for ich777's Plugin-Update-Helper on the owner's server): the first stays, with the latest look, the first
- * notification and its state — open while any of them was
+ * notification and its state — open while any of them was. A plugin's lines likewise (each night shift noted a running
+ * plugin's job anew: its book has no closed lines), what each says kept.
  */
 function watchmanAtOnce(array &$book): void
 {
     $first = [];
     $drop = [];
     foreach ($book as $i => $e) {
-        $num = ($e['kind'] ?? '') === 'at_job' ? watchmanAtOf($e) : null;
+        $kind = (string) ($e['kind'] ?? '');
+        $num = in_array($kind, ['at_job', 'at_plugin'], true) ? watchmanAtOf($e) : null;
         if ($num === null) {
             continue;
         }
+        $num = "$kind:$num";
         if (!isset($first[$num])) {
             $first[$num] = $i;
             continue;
@@ -5332,7 +5407,7 @@ function watchmanAtOnce(array &$book): void
         $told = array_filter([$book[$k]['told'] ?? null, $e['told'] ?? null], 'is_int');
         $book[$k]['time'] = min((int) $book[$k]['time'], (int) $e['time']);
         $book[$k]['last'] = max((int) $book[$k]['last'], (int) $e['last']);
-        $book[$k]['p'] = (array) ($e['p'] ?? []);
+        $book[$k]['p'] = $kind === 'at_plugin' ? (array) ($e['p'] ?? []) + (array) ($book[$k]['p'] ?? []) : (array) ($e['p'] ?? []);
         $book[$k]['told'] = $told ? min($told) : null;
         $book[$k]['noted'] = $open ? null : ($e['noted'] ?? null);
         $book[$k]['by'] = $open ? null : ($e['by'] ?? null);
@@ -5384,6 +5459,58 @@ function watchmanAtPluginNote(array &$book, string $job, array $j, int $now): vo
                                               'uid' => $j['uid'] ?? null], 'plugin', $now);
 }
 
+/**
+ * A plugin's own job as he knows it (the baseline's sched.at_plugin, by job number): the job's file (its hash), whose, the
+ * plugin and its name, the file it runs (its hash: null, not there) — written while the plugin is installed and the job is
+ * its own (`left` dropped: it is again); kept while the job is in the queue. Null: nothing to know it by (an older look).
+ */
+function watchmanAtPluginKnown(array $j, ?array $old): ?array
+{
+    if (!is_string($j['h'] ?? null)) {
+        return $old;
+    }
+    return ['h' => $j['h'], 'uid' => is_int($j['uid'] ?? null) ? $j['uid'] : null, 'plugin' => watchmanClean((string) $j['plugin'], 100),
+            'name' => watchmanClean((string) ($j['pname'] ?? $j['plugin']), 60), 'file' => watchmanClean((string) ($j['file'] ?? ''), 200),
+            'ph' => is_string($j['ph'] ?? null) ? $j['ph'] : null] + array_diff_key($old ?? [], ['left' => 1]);
+}
+
+/** A record of watchmanAtPluginKnown() in exactly its shape (the baseline may be an older or a newer office's) */
+function watchmanAtKnownOk(mixed $k): bool
+{
+    return is_array($k) && is_string($k['h'] ?? null) && is_string($k['plugin'] ?? null) && $k['plugin'] !== '' && is_string($k['name'] ?? null)
+        && is_string($k['file'] ?? null) && (is_int($k['uid'] ?? null) || ($k['uid'] ?? null) === null)
+        && (is_string($k['ph'] ?? null) || ($k['ph'] ?? null) === null) && (is_int($k['left'] ?? null) || !isset($k['left']));
+}
+
+/**
+ * A job he knew as a plugin's own ($k), not its own now (2026-11-20, the owner's server: ich777's IT87 driver removed while
+ * its Plugin-Update-Helper ran — the night shift told it as a job he doesn't know): true — what the removed plugin left
+ * behind (the plugin not installed, the job's file and whose as he knew them, the file it runs gone or as it was); false —
+ * not as he knew it (another job file, another user, its file another): news; null — its plugin installed still: as before.
+ * The command alone never says it: only the same job (its number, its whole file).
+ */
+function watchmanAtLeft(array $k, array $j, array $installed): ?bool
+{
+    if (!is_string($j['h'] ?? null)) {
+        return null;
+    }
+    if ($j['h'] !== $k['h'] || ($j['uid'] ?? null) !== $k['uid']) {
+        return false;
+    }
+    if (isset($installed[$k['plugin']])) {
+        return null;
+    }
+    $ph = is_string($j['ph'] ?? null) ? $j['ph'] : null;
+    return $ph === null || $ph === $k['ph'];
+}
+
+/** What a removed plugin left in atd's queue: its job's line, naming the plugin by the name he kept, noted by himself (`by` plugin) — once */
+function watchmanAtLeftNote(array &$book, string $job, array $k, array $j, int $now): void
+{
+    watchmanAtNote($book, 'at_plugin', $job, ['job' => $job, 'plugin' => $k['plugin'], 'name' => $k['name'], 'file' => $k['file'],
+                                              'when' => (int) ($j['when'] ?? 0), 'uid' => $k['uid'], 'left' => (int) $k['left']], 'plugin', $now);
+}
+
 function watchmanAtUserScriptNote(array &$book, string $job, array $j, int $now): void
 {
     watchmanAtNote($book, 'at_userscript', $job, ['job' => $job, 'name' => watchmanClean((string) $j['us'], 100), 'when' => (int) ($j['when'] ?? 0),
@@ -5393,7 +5520,8 @@ function watchmanAtUserScriptNote(array &$book, string $job, array $j, int $now)
 /**
  * A known job's line, noted by himself ($by) — once per job (watchmanAtOf()): an older alarm about it (an at_job line from
  * before he knew it as such: the plugin not installed yet, an environment he didn't know) becomes this line, its first time
- * and what was told kept; noted by himself unless someone noted it already
+ * and what was told kept; noted by himself unless someone noted it already. A plugin's line learns once that its plugin was
+ * removed (`left`: watchmanAtLeftNote()) — and that it is installed again; else it stays as it is.
  */
 function watchmanAtNote(array &$book, string $kind, string $job, array $p, string $by, int $now): void
 {
@@ -5411,6 +5539,11 @@ function watchmanAtNote(array &$book, string $kind, string $job, array $p, strin
                 $book[$i]['noted'] = $now;
                 $book[$i]['by'] = $by;
             }
+        } elseif (($e['kind'] ?? '') === $kind && isset($p['left']) !== isset($e['p']['left'])) {
+            // its plugin removed — or installed again while the job still waits or runs
+            $book[$i]['p'] = isset($p['left']) ? ['job' => $p['job'], 'left' => $p['left']] + (array) ($e['p'] ?? [])
+                : array_diff_key((array) ($e['p'] ?? []), ['left' => 1]);
+            $book[$i]['last'] = $now;
         }
         return;
     }
@@ -9440,10 +9573,13 @@ function watchmanEntryKey(array $e): string
     return 'entry.' . (watchmanEntryVariant($e) ?? (string) ($e['kind'] ?? ''));
 }
 
-/** The shape an entry's words have now: a network entry's (watchnetEntryVariant(): an outage going on …), the data flow's
- * (watchmanFlowShape(): `<kind>_hour`, `<kind>_span`) — null: entry.<kind> */
+/** The shape an entry's words have now: a plugin's job its removed plugin left (`at_plugin_left`), a network entry's
+ * (watchnetEntryVariant(): an outage going on …), the data flow's (watchmanFlowShape(): `<kind>_hour`, `<kind>_span`) — null: entry.<kind> */
 function watchmanEntryVariant(array $e): ?string
 {
+    if (($e['kind'] ?? '') === 'at_plugin' && is_int($e['p']['left'] ?? null)) {
+        return 'at_plugin_left';        // what a removed plugin left in atd's queue (watchmanAtLeftNote())
+    }
     $shape = watchmanFlowShape($e);
     return watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
 }

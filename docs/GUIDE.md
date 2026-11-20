@@ -284,6 +284,8 @@ When you hire him he learns what is normal. Then he walks his round every five m
 - Far more pulled or written than usual, many files deleted at once, snapshots gone that the office didn't remove.
 - A job queued for atd that he doesn't know: one line for its lifetime.
   It goes to the notifications once, when it appears.
+  A plugin's own job he notes himself. Removed while its job still waits or runs, the plugin leaves that job behind:
+  he notes that too, as long as the job is unchanged. It ends with the next reboot.
 
 **How:**
 
