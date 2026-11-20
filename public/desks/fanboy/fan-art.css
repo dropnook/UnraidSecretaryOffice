@@ -104,6 +104,9 @@
 .fan-s-unknown .fan-box{outline:1.5px dashed var(--line2); outline-offset:2px}
 .fan-s-unknown .fan-rotor, .fan-s-unknown .fan-frame, .fan-s-unknown .fan-front{opacity:.5}
 .fan-s-bios .fan-box{outline:1.5px dotted var(--muted); outline-offset:2px}
+/* nothing attached: the dotted frame of the connector alone — no fan drawn, nothing turns */
+.fan-s-empty .fan-box{outline:1.5px dotted var(--muted); outline-offset:2px}
+.fan-s-empty .fan-frame, .fan-s-empty .fan-spin, .fan-s-empty .fan-front, .fan-s-empty .fan-arc{visibility:hidden}
 
 /* ------------------------------------------------------------------------------------------- the server picture */
 .fan-server{

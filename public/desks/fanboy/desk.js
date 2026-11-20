@@ -94,6 +94,10 @@ let sensorBar = null;
 let cat = null;                 // the fan catalogue (fans-catalog.json), once
 let dry = null;                 // the last dry run's answer (the page's own: not kept)
 let zdraft = null;              // the zones as changed on the page, not saved yet (null: as saved)
+// 2026-11-20 (the owner: «der Haken geht rein und wieder raus — ein Am-Ende-Speichern wäre sinnvoller»): what the zones
+// step says about a fan — «darf stehen» (with the CPU cooler's confirmation), «Es sind gleiche Lüfter» — kept here too,
+// sent with «Speichern» in the same request as the zones: {fan id: {off_ok, cpu_off_confirm, alike}} (null: as saved)
+let zfans = null;
 const opened = new Set();       // rows unfolded (kept while the page lives)
 const folds = new Map();        // folds the user opened or closed
 const pickers = new Map();      // fan id → its catalogue picker (kept: a drawing never resets a choice being made)
@@ -458,7 +462,7 @@ const quiet = (v) => JSON.stringify(v, (k, x) => (VOLATILE.has(k) ? undefined : 
 function frameSig() {
   const su = setup();
   const active = setupSw ? setupSw.active() : '';
-  const rest = ['test', 'measure'].includes(active) ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft, S().dashboard, idle().on, S().tools, S().suggest, S().drivers, S().hints_open, S().chip];
+  const rest = ['test', 'measure'].includes(active) ? null : [busy, su.fans, su.zones, su.curves, step(), showNow(), dry, zdraft, zfans, S().dashboard, idle().on, S().tools, S().suggest, S().drivers, S().hints_open, S().chip];
   return quiet([ready(), !!art(), !!cat, !!state, Office.agent.running, bubbleText(), plainNow(), situation(), control().running, su.armed, su.outputs, active, rest]);
 }
 /** What the step tiles say */
@@ -1960,7 +1964,8 @@ function detectStep() {
     const label = !o ? chipOfText('quiet', T('detect.gone'), T('detect.gone'))
       : chipOfText(mode === 'auto' ? 'ok' : mode === 'unknown' ? 'quiet' : 'warn', T(`mode.${mode}`), b.fixed ? T('detect.fixed', { pct: b.pct ?? '–' }) : T(`mode.${mode}_title`));
     const A = art();
-    const wheel = A ? A.wheel({ px: 40, air: false, rpm: o && num(o.pct) ? 2000 * o.pct / 100 : 0, max: 2000, state: 'bios', mm: 120 }).el : null;
+    const empty = (setupFan(id) || {}).found === 'empty';
+    const wheel = A ? A.wheel({ px: 40, air: false, rpm: o && num(o.pct) && !empty ? 2000 * o.pct / 100 : 0, max: 2000, state: empty ? 'empty' : 'bios', mm: 120 }).el : null;
     list.appendChild(Office.place(`detect:${id}`, readRow(wheel, T('out.name', { n: (idParts(id) || {}).output }), o ? T(`detect.mode.${mode}`, { pct: num(o.pct) ?? '–' }) : T('detect.gone'), label)));
   });
   box.appendChild(list);
@@ -2165,6 +2170,8 @@ function inputEl(tag, type) {
 /** A wheel for an output as it is right now: fast = at full, standing = stopped by Fanboy, else as its fan turns */
 function wheelNow(id, run) {
   const f = setupFan(id);
+  // 2026-11-20 (the owner: «nothing attached» showed a fan): an empty connector — its dotted frame, no fan
+  if (f && f.found === 'empty' && run.id !== id) return { state: 'empty', rpm: 0, badge: '' };
   const look = fanLook(f);
   const o = outputNow(id);
   const max = look.max || 2000;
@@ -2589,12 +2596,16 @@ function sawRun() {
 const freshEnd = (x) => !!x && ((!!x.id && ranHere.has(x.id)) || (num(S().time) !== null && num(x.at) !== null && S().time - x.at <= FRESH_S));
 /** How the last test or measuring ended, when it didn't simply finish: the page gone, stopped, too warm, a fan that didn't start again */
 function endedText(s) {
+  // 2026-11-20: a measuring that went on past a fan whose standstill part the guard cut — that fan's result, said once
+  const cut = s && s.kind === 'measure' && s.status === 'done' && !running(s) && freshEnd(s) ? (s.cuts || []).find((c) => cutLine(c)) : null;
+  if (cut) return T('step.ended.cut', { fan: fanSay(cut.fan), what: cutLine(cut) });
   if (!s || !['test_up', 'measure'].includes(s.kind) || running(s) || !['stopped', 'failed'].includes(s.status) || !freshEnd(s)) return '';
   const why = s.status === 'failed' ? 'error' : s.why || 'stopped';
   // «did not start again — set to 100 %» is never claimed from a past run: while an output stands at 100 % the strip's first
   // line and its panel say so from `safety`; once it is back there is nothing to claim
   if (why === 'no_restart') return '';
   // too warm while measuring: which source, how warm, its limit (round 4: by its own kind — an NVMe pool's 50 °C stops nothing)
+  if (why === 'warm' && s.warm && s.warm.why === 'no_reading') return T('step.ended.no_cpu');
   if (why === 'warm' && s.warm && s.warm.source) {
     return T('step.ended.warm_what', { where: srcLabel({ kind: s.warm.kind === 'disk' || s.warm.kind === 'ssd' ? s.warm.kind : 'other', id: s.warm.source, label: s.warm.source }), c: fmt.number(s.warm.c), limit: fmt.number(s.warm.limit) });
   }
@@ -2838,7 +2849,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
   function pickRole(k) {
     const f = setupFan(id);
     cpuAsk.delete(id);              // round 9 (H6): a role click never carries a half-made «Fanboy steers it» along
-    if (f && f.found === 'empty' && k !== 'empty') { Office.toast(T('panel.empty_note'), true); say(T('panel.empty_note')); return; }      // nothing attached by its test: said, not kept
+    // (an output found empty may be told a fan after all: «I heard it» — saved as a fan without feedback, fan_save)
     draft.role = k;
     update();
   }
@@ -2869,7 +2880,11 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     const never = ['ignored', 'inverted'].includes(found);
     const noTest = noTestWhy();
     const sf = safetyOf(id);
-    if (wh) wh.update(wheelNow(id, run));
+    // «Nichts angeschlossen» (stored, or chosen now for an output where no tach followed): the empty connector
+    const noFan = (draft.role ?? (found === 'empty' ? 'empty' : '')) === 'empty' && found !== 'tach';
+    // (found empty, a fan chosen now: one without feedback — what «Speichern» will make it)
+    const fanAfterAll = found === 'empty' && !!draft.role && draft.role !== 'empty';
+    if (wh) wh.update(noFan && !here ? { state: 'empty', rpm: 0, badge: '' } : fanAfterAll && !here ? { state: 'unknown', rpm: null, badge: '' } : wheelNow(id, run));
     root.classList.toggle('fb-live', here);
     // the name is the title once he gave one; the output stays under it (he needs it to find the connector)
     setText(title, fanName(id));
@@ -2959,7 +2974,9 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     swap(cpu, [isCpu, isCpu && f.cpu_own, isCpu && found, cpuAsk.has(id), (cpuAsk.get(id) || {}).tick, away, ((setup().before || {})[id] || {}).auto ?? null], () => (isCpu ? cpuBlock(f, benchUpdate) : []));
     // the fields
     // an output Fanboy never touches (it doesn't obey, or works the other way round): nothing to say about a fan there
-    what.hidden = fields.hidden = look.hidden = never;
+    // and nothing attached: nothing to say about a fan — «Was ist das?» stays (he may change his mind; what he typed stays)
+    what.hidden = never;
+    fields.hidden = look.hidden = never || cur === 'empty';
     nameField(id, f, away);
     const roleSet = !!(f && f.role);
     place.disabled = count.disabled = away;
@@ -2968,7 +2985,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     if (document.activeElement !== place) place.value = placeNow;
     if (document.activeElement !== count) count.value = String(draft.count ?? ((f && f.count) || 1));
     // several fans on the connector (the state's `hub`): the question, and what it means in the agent's own numbers
-    const hub = roleSet && !never && f.hub ? f.hub : null;
+    const hub = roleSet && !never && cur !== 'empty' && f.hub ? f.hub : null;
     alike.hidden = !hub;
     const alikeNow = draft.alike !== undefined ? draft.alike : f && f.alike;
     const said2 = hub ? (alikeNow === true ? 'yes' : alikeNow === false ? 'no' : 'unknown') : '';
@@ -2978,7 +2995,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     hubSays.hidden = !hubSays.textContent;
     hubSays.dataset.nums = JSON.stringify(hub && ours2 && hub.mixed ? [{ v: hub.floor, from: ['setup', 'fans', `=${id}`, 'hub', 'floor'] }, { v: hub.start, from: ['setup', 'fans', `=${id}`, 'hub', 'start'] }] : []);
     let hint = '';
-    if (found === 'empty') hint = T('panel.empty_note');
+    if (cur === 'empty') hint = T('panel.empty_note');
     else if (cur === 'cpu') hint = f && f.cpu_own ? '' : T('assign.cpu_bios');        // (given to Fanboy: its block above says since when)
     else if (cur === 'pump') hint = T('assign.never_stopped');
     else if (cur === 'unknown') hint = T('roles.bios_note.unknown');
@@ -3003,7 +3020,7 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     const nextId = nextToTest(id);
     swap(saveBar, [here, tested, found, role, dirty(), nextId, away, nextId ? fanSay(nextId) : ''], () => {
       if (here || never || !(tested || found === 'empty')) return [];
-      if (found === 'empty') return nextId ? [btn(T('save.empty_next', { fan: fanSay(nextId) }), 'btn', () => testNext(nextId), T('save.next_tip', { fan: fanSay(nextId) }))] : [];
+      if (found === 'empty' && cur === 'empty') return nextId ? [btn(T('save.empty_next', { fan: fanSay(nextId) }), 'btn', () => testNext(nextId), T('save.next_tip', { fan: fanSay(nextId) }))] : [];
       const b = btn(nextId ? T('save.next', { fan: fanSay(nextId) }) : T('save.only'), 'btn', () => save(nextId), nextId ? T('save.next_tip', { fan: fanSay(nextId) }) : T('save.tip'));
       if (!role && cur !== 'empty') offBtn(b, T('save.role_first'));
       else if (away) offBtn(b, T('strip.away'));
@@ -3187,12 +3204,23 @@ function measureMake() {
  */
 function standLine(f) {
   const st = f && f.stand;
-  if (!st) return '';
+  if (!st) return f && f.stand_cut ? cutLine(f.stand_cut) : '';
   if (st.stops === false) return T('stand.floor', { rpm: num(st.floor_rpm) === null ? '–' : fmt.number(st.floor_rpm) });
   if (st.stops_safe === false) return T('stand.unsafe');
   if (num(st.start_from_stop) !== null) return T('stand.starts', { pct: st.start_from_stop });
   if (num(st.kick_start) !== null) return T('stand.kick', { pct: st.kick_start });
   return T('stand.stops');
+}
+/**
+ * 2026-11-20: the standstill part cut by the guard — the fan's result, in a true sentence: where its source began and
+ * ended while the fan stood (or how warm against its own limit), or that the CPU said nothing; '' for a cut by «stop»
+ */
+function cutLine(c) {
+  if (!c || !['warm', 'no_reading'].includes(c.why)) return '';
+  if (c.why === 'no_reading') return T('stand.cut_none');
+  const where = srcLabel({ kind: c.kind === 'disk' || c.kind === 'ssd' ? c.kind : 'other', id: c.source || '', label: c.source || '' });
+  if (num(c.from) !== null && num(c.c) !== null && c.c > c.from) return T('stand.cut_rise', { where, from: fmt.number(c.from), c: fmt.number(c.c) });
+  return T('stand.cut_at', { where, c: num(c.c) === null ? '–' : fmt.number(c.c), limit: num(c.limit) === null ? '–' : fmt.number(c.limit) });
 }
 function measurePanel(id, api) {
   const root = Office.place(`measure:${id}`, el('div', 'fb-panel'));
@@ -3349,6 +3377,23 @@ function tableEl(table, f) {
 }
 
 // 5 — zones: fans and heat sources moved between them, the curve to drag
+/** A fan as the zones step shows it: as saved, with his choices of this step on top (a look arriving never undoes them) */
+function zfanNow(f) {
+  const d = zfans && f ? zfans[f.id] : null;
+  if (!d) return f;
+  const out = { ...f };
+  if (d.off_ok !== undefined) out.off_ok = d.off_ok;
+  if (d.alike === true) { out.alike = true; if (f.hub) out.hub = { ...f.hub, mixed: false }; }      // said the same: no hub's margin any more
+  return out;
+}
+function changeFan(id, fields) {
+  zfans = { ...(zfans || {}), [id]: { ...((zfans || {})[id] || {}), ...fields } };
+  drawn = '';
+  redraw();
+}
+/** The fans' part of the draft as the agent takes it with zones_save */
+const zfansList = () => Object.entries(zfans || {}).map(([fan, d]) => ({ fan, ...(d.off_ok !== undefined ? { off_ok: d.off_ok } : {}),
+  ...(d.cpu_off_confirm ? { cpu_off_confirm: true } : {}), ...(d.alike === true ? { alike: true } : {}) }));
 function zonesNow() {
   if (zdraft) return zdraft;
   return (setup().zones || []).map((z) => JSON.parse(JSON.stringify(z)));
@@ -3422,10 +3467,10 @@ function zonesStep() {
   }
   const how = T('zones.how_often', { s: setup().round || 2 }) + (num(S().poll) !== null && S().poll > timesNow().poll_live ? ' ' + T('zones.poll', { min: Math.round(S().poll / 60) })
     + (num(S().disk_allow) > 0 ? ' ' + T('zones.poll_add', { add: S().disk_allow }) : '') : '');
-  if (zdraft) {
-    // changed here, not kept yet: «Save» is the one button of the moment
-    const save = button(T('zones.save'), T('zones.save_tip'), (b) => act('zones_save', { zones: zdraft.map(cleanZone) }, b, () => { zdraft = null; curves.clear(); dry = null; dryFor = ''; }), 'btn');
-    const undo = button(T('zones.undo'), T('zones.undo_tip'), () => { zdraft = null; curves.clear(); drawn = ''; redraw(); }, 'btn plain');
+  if (zdraft || zfans) {
+    // changed here, not kept yet: «Save» is the one button of the moment — the zones and what he said about fans, ONE request
+    const save = button(T('zones.save'), T('zones.save_tip'), (b) => act('zones_save', { zones: zonesNow().map(cleanZone), fans: zfansList() }, b, () => { zdraft = null; zfans = null; curves.clear(); dry = null; dryFor = ''; }), 'btn');
+    const undo = button(T('zones.undo'), T('zones.undo_tip'), () => { zdraft = null; zfans = null; curves.clear(); drawn = ''; redraw(); }, 'btn plain');
     const mark = el('span', 'fb-next-count');
     mark.appendChild(chipOfText('warn', T('zones.unsaved'), T('zones.save_tip')));
     box.append(para(how), nextBar([mark], [save, undo]));
@@ -3507,7 +3552,7 @@ function zoneCard(z, i, zones, ours) {
   card.appendChild(el('h4', 'fb-sub', T('zones.fans')));
   const fl = el('div', 'fb-zone-fans');
   (z.fans || []).forEach((id) => {
-    const f = setupFan(id) || { id };
+    const f = zfanNow(setupFan(id) || { id });
     const row = el('div', 'fb-zone-fan');
     const look = fanLook(f);
     row.appendChild(cardWheel({ rpm: rpmNow(id, f.tachs), mm: look.mm, blades: look.blades, min: look.min, max: look.max, colour: look.colour, look: look.look, px: 40, state: f.found === 'silent' ? 'unknown' : 'run' }));
@@ -3527,7 +3572,7 @@ function zoneCard(z, i, zones, ours) {
       // round 14, the way out right here: several fans on its connector and nobody said they are the same — say so, or
       // let Fanboy show them (the look for the eye in step 3, opened at this fan)
       if (f.hub && f.hub.mixed && !f.hub.ok && !f.hub.not_safe && no === T('zones.stand_hub')) {
-        row.appendChild(btn(T('zones.hub_same'), 'btn plain', () => act('role', { fan: id, role: f.role, alike: true, off_ok: !!f.off_ok }, null), T('zones.hub_same_tip')));
+        row.appendChild(btn(T('zones.hub_same'), 'btn plain', () => changeFan(id, { alike: true }), T('zones.hub_same_tip')));
         row.appendChild(btn(T('hub.look'), 'btn plain', () => { setupSwitcher().pick('measure'); drawn = ''; redraw(); if (mbench) mbench.select(id); }, T('zones.hub_look_tip')));
       }
     } else {
@@ -3535,15 +3580,14 @@ function zoneCard(z, i, zones, ours) {
       const c = el('input');
       c.type = 'checkbox';
       c.checked = !!f.off_ok;
-      const save = (extra) => act('role', { fan: id, role: f.role, name: f.name || '', place: f.place || '', off_ok: c.checked, ...(extra || {}) }, null);
       c.onchange = () => {
-        if (f.role !== 'cpu' || !c.checked) { save(); return; }
+        if (f.role !== 'cpu' || !c.checked) { changeFan(id, { off_ok: c.checked, cpu_off_confirm: undefined }); return; }
         // the CPU cooler on the owner's risk may stand only behind its own plain confirmation
         c.checked = false;
         Office.dialog({
           title: T('zones.cpu_stand_title'),
           body: cpuStandWords(f, z),
-          buttons: [{ text: t('common.cancel') }, { text: T('zones.cpu_stand_go'), kind: '', act: async () => { c.checked = true; await save({ cpu_off_confirm: true }); return true; } }],
+          buttons: [{ text: t('common.cancel') }, { text: T('zones.cpu_stand_go'), kind: '', act: async () => { changeFan(id, { off_ok: true, cpu_off_confirm: true }); return true; } }],
         });
       };
       l.append(c, el('span', '', T('zones.off_ok')));
@@ -3975,7 +4019,7 @@ function curvePart(z, i) {
   const box = el('div', 'fb-curve-part');
   box.dataset.zone = z.id;          // a kind's line among the heat sources finds its card here
   box.appendChild(el('h4', 'fb-sub', T('zones.curve')));
-  const fans = (z.fans || []).map(setupFan).filter(Boolean);
+  const fans = (z.fans || []).map(setupFan).filter(Boolean).map(zfanNow);
   const rpmOk = fans.length > 0 && fans.every((f) => f.found === 'tach' && f.measured);
   const tgt = z.target || { preset: 'normal' };
   const zoneOwn = Array.isArray(tgt.points);

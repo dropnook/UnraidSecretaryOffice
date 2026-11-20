@@ -71,7 +71,7 @@ function uncovered(zones, all) {
   const inZones = new Set((zones || []).flatMap((z) => (z.sources || []).map((x) => x.id)));
   return all.filter((x) => ['disk', 'ssd', 'nvme'].includes(x.kind) && !inZones.has(x.id)).map((x) => ({ kind: x.kind, id: x.id, name: x.label, c: x.c, asleep: x.asleep }));
 }
-const DEFAULTS = { disk: [35, 45, 52], ssd: [40, 60, 70], nvme: [40, 65, 75], cpu: [45, 80, 92], ram: [40, 60, 75], gpu: [45, 80, 90], board: [35, 55, 70], other: [35, 55, 75] };
+const DEFAULTS = { disk: [35, 45, 52], ssd: [40, 60, 80], nvme: [40, 65, 80], cpu: [45, 80, 92], ram: [40, 60, 75], gpu: [45, 80, 90], board: [35, 55, 70], other: [35, 55, 75] };
 const SCALES = Object.fromEntries(Object.entries(DEFAULTS).map(([k, [low, high, limit]]) => [k, { low, high, limit }]));
 function preset(p, lo, hi) {
   const mid = (lo + hi) / 2;

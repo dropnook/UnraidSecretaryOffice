@@ -1125,10 +1125,15 @@ the last 60 history lines only for a source the file has none for. **The file
   its own program and only while its plugin is installed (`fanboyProgram()`). **Round 8:** the test holds full for
   `FANBOY_UP_FOR` even when a tach follows; round 5's «unpaired → ignored» judged only once every output of the chip has
   a verdict. **The one exception to «never down»** (the owner, 2026-11-15): the quiet test — with «stop the other fans
-  meanwhile» on, every other output (never a CPU cooler or pump by its role, never one found inverted) stands at a fixed 0
-  while one is tested (10 s) or shown (while he doesn't steer), under temperature guards (refused while anything is warm or
-  the CPU at 70 °C; back at once at 80 °C or 20 °C over its start, or a place at «full speed at»), then everything back
-  exactly and a 5-s pause in which every fan that turned must turn again — else its output to full and an alert.
+  meanwhile» on, every other output (whatever its role — a CPU cooler and a pump too, 2026-11-20; never one found inverted)
+  stands at a fixed 0 while one is tested (until the answer, at most `FANBOY_UP_HOLD_QUIET`), under temperature guards
+  (refused while anything is warm or the CPU at 70 °C; back at once at 80 °C or 20 °C over its start, or a place at «full
+  speed at»), then everything back exactly and a 5-s pause in which every fan that turned must turn again — else its output
+  to full and an alert. **Step 2 is one output at a time** (2026-11-20): test, answer, every fan back, the form filled in
+  without a request, ONE save (`fan_save`) that starts the next output's test. **The measuring's standstill part** has
+  the guard of every fan (`fanboyStepWarm()`: a source at its limit less 5 °C — the CPU's 92 → 87; a CPU cooler's own only
+  for no CPU reading); a cut is the fan's result (its table kept, `stops_safe` false, `stand_cut` with where its source
+  began and ended and how long it stood), and the measuring goes on with the next output.
   **Settings saved while he steers** (2026-11-20, `fanboyControlReload()`): never a hand-over to the mainboard for the
   fans that stay — they keep their values, kicks, standing and their check; only fans that leave are given back. «Doesn't
   follow as measured» only after a fan stayed off its table at one value for `FANBOY_DRIFT_FOR` (a fan running down from

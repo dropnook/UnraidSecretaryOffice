@@ -21,11 +21,12 @@
                                                  the look's style's own: STYLE_BLADES)
        rpm: number | null,                       measured speed; null = no feedback
        min, max: rpm range (catalogue or measured; unknown → 20 % … 100 % of 2000)
-       state: 'run' | 'stopped' | 'unknown' | 'bios'
+       state: 'run' | 'stopped' | 'unknown' | 'bios' | 'empty'
               run      turns as measured
               stopped  stands still although it should run: red frame
               unknown  no feedback (rpm null): stands, dashed frame
               bios     the BIOS controls it: turns as measured (when it reports), dotted frame, badge
+              empty    nothing attached: the dotted frame alone — no fan, no turning, no air
        colour: 'auto' | 'black' | 'graphite' | 'grey' | 'white' | 'slate' | 'accent'   the wheel's colour (blades and hub):
                                                  'auto' = the model's (look) or the neutral one; any other wins over the look —
                                                  and paints a model's frame too («my copy is black»); 'accent' the wheel alone
@@ -91,7 +92,7 @@
 
   const SVG = 'http://www.w3.org/2000/svg';
   const COLOURS = ['auto', 'black', 'graphite', 'grey', 'white', 'slate', 'accent'];
-  const STATES = ['run', 'stopped', 'unknown', 'bios'];
+  const STATES = ['run', 'stopped', 'unknown', 'bios', 'empty'];
   const PLACES = ['front', 'rear', 'top', 'bottom', 'side', 'cpu', 'inside'];
   const INSIDE = ['cpu', 'inside'];          // on no wall: drawn among the zone's heat sources, the air passing front to rear
   const KINDS = ['disk', 'nvme', 'cpu', 'ram', 'board', 'gpu', 'other'];
@@ -486,7 +487,7 @@
       }
       // the air: on the side given (default: right, or left for air coming in), none with air: false
       const flow = pick(f.flow, FLOWS, null);
-      const side = f.air === false ? null : pick(f.side, SIDES, flow === 'in' ? 'left' : 'right');
+      const side = f.air === false || state === 'empty' ? null : pick(f.side, SIDES, flow === 'in' ? 'left' : 'right');
       const airKey = `${side}/${flow}/${state === 'bios'}`;
       if (aired !== airKey) { aired = airKey; wheelAir(m, box, side, flow, state === 'bios'); }
       label.textContent = text(f.label);
@@ -497,7 +498,7 @@
       badge.hidden = !f.badge;
       if (f.title) root.title = f.title; else root.removeAttribute('title');
       if (f.id != null) root.dataset.id = f.id;
-      const rpm = state === 'stopped' || state === 'unknown' ? 0 : num(f.rpm, 0);
+      const rpm = state === 'stopped' || state === 'unknown' || state === 'empty' ? 0 : num(f.rpm, 0);
       const max = num(f.max, 0) > 0 ? f.max : 2000;
       const share = clamp(rpm / max, 0, 1);
       arc.lastChild.setAttribute('stroke-dasharray', `${(share * 100).toFixed(1)} 100`);
