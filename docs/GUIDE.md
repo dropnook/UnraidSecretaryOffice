@@ -353,22 +353,33 @@ She reads every log out loud: Unraid's, the office's, the plugins', every User S
 
 His fans' biggest fan: he steers the fans on the mainboard's fan connectors by what really gets warm.
 
-- **Setup in five steps:** he finds the outputs Linux can steer; *Test and assign* runs one fan at full for up to a
-  minute (the others can stand meanwhile) so you hear it and give it a name and a role; he measures each fan, its
-  standstill and start too; you put fans and heat sources into zones; *Take over* hands them to him.
-- **A curve per kind of heat source** in a zone: HDD, SSD/NVMe, CPU, board, RAM — *Quiet*, *Normal*, *Cool* or your
-  own curve. The curve alone decides; there is no limit to set. Disks outside the array and pools count too. A sleeping
-  disk is never woken.
+- **What the board has:** the outputs Linux can steer, the drivers and the hints. When Linux shows no fan connector,
+  *Your fan chip* asks the chip for its name on your click (never on a Gigabyte board) and says which driver or driver
+  plugin it needs.
+- **Test and assign, output by output:** the output runs at 100 % until you say whether you heard it, then every fan runs
+  as before and you enter what it is (a name, its role, where it sits) and save. *Stop the other fans meanwhile* lets
+  only that one be heard, the CPU cooler and a pump too.
+- **Measure:** each fan of his with speed feedback, from full down to its lowest steady speed, its start from standstill
+  and how long that takes. Usually about 4 minutes per fan, at most 18. A fan may stand still only when the measuring saw
+  it start again.
+- **Zones:** up to 8, each with its fans and its heat sources — disks, SSDs, NVMe, CPU, board, RAM, graphics card, other.
+  Every kind of heat source in a zone has its own curve: *Quiet*, *Normal*, *Cool* or your own (kept per kind). The zone
+  runs at what the most demanding curve asks; the curve alone decides. Disks outside the array and pools count too; a
+  sleeping disk is never woken.
 - **How he reacts:** *React slowly* (up a little every 2 s, down only once it is 3 °C cooler and after 30 s) or *React
   quickly* (up at once, down soon).
-- A fan may stand still only when the measuring saw it start again. The CPU cooler and pumps stay with the BIOS,
-  unless you give him the cooler at your own risk.
+- **Take over** hands the fans to him. The CPU cooler and pumps stay with the BIOS, unless you give him the cooler at
+  your own risk.
+- Too warm during a test or the measuring: everything goes back at once. *Start anyway* (a tick) runs the next step
+  past that guard; then you keep an eye on the temperatures yourself.
 - **Alarms per zone:** a fan of his that stands or a sensor that says nothing: that zone goes to 100 %.
   He also watches the fans he doesn't steer and tells you when one stands while something is warm.
 - *Hand back* gives every fan back at once, to the mainboard's automatic or to its value from before. So does his stop.
   A fan that turns clearly slower after he gave it back goes to 100 %, and he tells you.
-- His own Dashboard tile, off until you switch it on.
-- Boards that steer their fans over IPMI aren't supported yet: his page says so and sends a wish with his report.
+- **Your own fans:** for the picture, a fan takes the look of its model — models of ten makers in their sizes, with
+  colours, blade shape and reverse blade to change; *See all…* shows every one.
+- His own Dashboard tile (off until you switch it on) and a row in the office's Grafana dashboard.
+- Boards that steer their fans over IPMI aren't supported: his page says so and sends a wish with his report.
 
 ### The Consultant
 

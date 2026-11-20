@@ -43,10 +43,10 @@ new plugin, far more data pulled than usual, a new device on the LAN — and you
 
 ## Fanboy, the fan control
 
-He steers your fans by what really gets warm. You hear and name each fan, he measures it, and then runs zones with a
-curve per kind of heat source: disks, SSDs, CPU, board. A fan stands still only where he has seen it start again;
-the ones he doesn't steer, he watches. Stopped, he gives every fan back. Boards that steer their fans over IPMI aren't
-supported yet.
+He steers your fans by what really gets warm, in up to 8 zones. In a zone every kind of heat source — disks, SSDs, NVMe,
+CPU, board, RAM — has its own curve, and the most demanding one decides. You set him up output by output: you hear each
+fan in a real test, he measures it, and a fan stands still only where he saw it start again. The fans he doesn't steer,
+he watches; stopped, he gives every fan back. Boards that steer their fans over IPMI aren't supported.
 
 <a name="fanboy"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/fanboy-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/fanboy-light.png" alt="Fanboy: two zones, each fan with its speed, the warmest spot of each zone framed"></picture></a>
 
