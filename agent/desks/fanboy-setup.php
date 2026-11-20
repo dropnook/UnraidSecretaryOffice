@@ -784,8 +784,9 @@ function fanboyUpIgnored(array $fans, array $results, ?array $outputs = null): a
 
 /**
  * Too warm to go on measuring: a source at its limit less 5 °C — each by its OWN kind and limit (round 4: an NVMe pool
- * at 50 °C is ordinary; the hard disks' 52 °C held it to 47 and no fan could ever be measured): a zone's own limit for it
- * once set, else its kind's (hard disk, SSD/NVMe, CPU). Which source, its temperature and the limit — or null.
+ * at 50 °C is ordinary; the hard disks' 52 °C held it to 47 and no fan could ever be measured): its kind's limit
+ * (2026-11-20: a zone's or a source's own is not read any more — FANBOY_SOURCE_DEFAULTS). Which source, its temperature
+ * and the limit — or null.
  * $seen: every source it looked at (its name => °C), up to the one that was warm.
  *
  * @param-out array<string, float|null> $seen
@@ -794,20 +795,10 @@ function fanboyStepWarm(?array $settings = null, ?array &$seen = null): ?array
 {
     $seen = [];                 // every source it looked at: its name => °C (2026-11-20: where a standstill part began)
     $p = fanboyPaths(fanboySysRoot() ?: null);
-    $own = [];
-    foreach (is_array($settings['zones'] ?? null) ? $settings['zones'] : [] as $z) {
-        foreach (is_array($z['sources'] ?? null) ? $z['sources'] : [] as $src) {
-            // the source's own limit, or its zone's for its kind (the table «Temperaturen»), once set
-            $k = is_string($src['kind'] ?? null) && is_numeric($z['kinds'][$src['kind']]['limit'] ?? null) ? (float) $z['kinds'][$src['kind']]['limit'] : null;
-            $l = is_numeric($src['limit'] ?? null) ? (float) $src['limit'] : $k;
-            if (is_string($src['id'] ?? null) && $l !== null) {
-                $own[$src['id']] = min($l, $own[$src['id']] ?? INF);
-            }
-        }
-    }
-    $check = function (string $id, string $kind, string $label, ?float $c) use ($own, &$seen): ?array {
+    // (2026-11-20: no zone and no source has a limit of its own any more — each kind's own, FANBOY_SOURCE_DEFAULTS)
+    $check = function (string $id, string $kind, string $label, ?float $c) use (&$seen): ?array {
         $seen[$label] = $c;
-        $limit = $own[$id] ?? (float) (FANBOY_SOURCE_DEFAULTS[$kind] ?? FANBOY_SOURCE_DEFAULTS['other'])['limit'];
+        $limit = (float) (FANBOY_SOURCE_DEFAULTS[$kind] ?? FANBOY_SOURCE_DEFAULTS['other'])['limit'];
         return $c !== null && $c >= $limit - 5 ? ['source' => $label, 'kind' => $kind, 'c' => $c, 'limit' => $limit] : null;
     };
     foreach (fanboyChips($p['hwmon']) as $chip) {
@@ -1903,40 +1894,17 @@ function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
             if (!is_array($s) || !is_string($s['id'] ?? null) || !isset($known[$s['id']]) || isset($sources[$s['id']])) {
                 throw new Problem('fanboy_bad_zones', ['field' => 'source']);
             }
-            $low = fanboyNum($s, 'low', 0, 110);
-            $high = fanboyNum($s, 'high', 0, 120);
-            $limit = fanboyNum($s, 'limit', 20, 120);
-            if ($low !== null && $high !== null && $high <= $low) {
-                throw new Problem('fanboy_bad_zones', ['field' => 'high']);
-            }
-            $sources[$s['id']] = ['kind' => $known[$s['id']]['kind'], 'id' => $s['id'], 'low' => $low, 'high' => $high, 'limit' => $limit];
+            // 2026-11-20 (the owner: «Eine Quelle anders einstellen — auch weg»): a source has no values of its own any more —
+            // what an older page sends there is not kept (the shape stays: null)
+            $sources[$s['id']] = ['kind' => $known[$s['id']]['kind'], 'id' => $s['id'], 'low' => null, 'high' => null, 'limit' => null];
         }
         // round 4: a CPU cooler given to him only in a zone with a CPU temperature
         if (!in_array('cpu', array_column($sources, 'kind'), true)
             && array_filter($z['fans'], fn ($id) => fanboyCpuOwn($settings['fans'][$id]))) {
             throw new Problem('fanboy_cpu_zone_needs_cpu');
         }
-        // round 4: «Temperaturen» per kind — {kind: {low?, high?, limit?}}, only kinds the zone has, numbers within the
-        // kind's bounds, and with each source's own values: low < high < limit (the defaults filling the gaps)
-        $kinds = [];
-        $raw = $z['kinds'] ?? [];
-        if (!is_array($raw) || ($raw !== [] && array_is_list($raw))) {
-            throw new Problem('fanboy_bad_zones', ['field' => 'kinds']);
-        }
-        foreach ($raw as $kind => $v) {
-            if (!is_string($kind) || !isset(FANBOY_KIND_BOUNDS[$kind]) || !is_array($v) || !in_array($kind, array_column($sources, 'kind'), true)) {
-                throw new Problem('fanboy_bad_zones', ['field' => 'kinds']);
-            }
-            [$lo, $hi] = FANBOY_KIND_BOUNDS[$kind];
-            $kinds[$kind] = array_filter(['low' => fanboyNum($v, 'low', $lo, $hi), 'high' => fanboyNum($v, 'high', $lo, $hi), 'limit' => fanboyNum($v, 'limit', $lo, $hi)],
-                fn ($x) => $x !== null);
-        }
-        foreach ($sources as $src) {
-            $e = fanboySourceValues(['kinds' => $kinds], $src);
-            if (!($e['low'] < $e['high'] && $e['high'] < $e['limit'])) {
-                throw new Problem('fanboy_bad_temps', ['source' => $src['id'], 'low' => $e['low'], 'high' => $e['high'], 'limit' => $e['limit']]);
-            }
-        }
+        // round 4's «Temperaturen» per kind (and a zone's own low/high): gone with 2026-11-20 (the owner: «ganzer Bereich kann
+        // weg, weil man oben jede Wärmequelle einstellen kann und auch muss») — not read, not kept; the shape stays (empty)
         $target = fanboyTargetCheck($z['target'] ?? ['preset' => 'normal'], $unit, 'target');
         // round 13: a curve of its own per kind — only kinds the zone has, each checked as the zone's curve; a kind not
         // sent stays derived from the zone's curve
@@ -1957,8 +1925,8 @@ function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
             throw new Problem('fanboy_bad_zones', ['field' => 'react']);
         }
         $out[$z['id']] = ['id' => $z['id'], 'name' => $name, 'fans' => $z['fans'], 'sources' => array_values($sources),
-            'target' => $target, 'unit' => $unit, 'low' => fanboyNum($z, 'low', 0, 110), 'high' => fanboyNum($z, 'high', 0, 120), 'react' => $react,
-            'kinds' => $kinds ?: new stdClass(), 'curves' => $curves ?: new stdClass()];
+            'target' => $target, 'unit' => $unit, 'low' => null, 'high' => null, 'react' => $react,
+            'kinds' => new stdClass(), 'curves' => $curves ?: new stdClass()];
     }
     return array_values($out);
 }
@@ -1989,6 +1957,11 @@ function fanboyTargetCheck(mixed $t, string $unit, string $field): array
     }
     if (!in_array($t['preset'] ?? null, FANBOY_PRESETS, true) || $unit === 'rpm') {
         throw new Problem('fanboy_bad_zones', ['field' => $field === 'target' ? 'preset' : $field]);
+    }
+    // 2026-11-20 (the owner: «damit die eigene Einstellung immer dem letzten Stand entspricht»): a preset in use may keep
+    // his last own curve beside it (`own`) — it steers nothing (fanboyKindCurve() reads `points` or `preset` only)
+    if (isset($t['own'])) {
+        return ['preset' => $t['preset'], 'own' => fanboyTargetCheck(['points' => $t['own']], $unit, $field)['points']];
     }
     return ['preset' => $t['preset']];
 }

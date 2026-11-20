@@ -96,7 +96,7 @@ try {
     check('… the disk line: how many, the warmest as the state has it, how many sleep — no temperature for a sleeping one',
       disk && disk.sum.startsWith(`${chosen.length} chosen`) && disk.sum.includes(`Disk ${warm.id.replace('disk', '')} at ${warm.c} °C`) && disk.sum.endsWith(`${sleeping} asleep`)
       && JSON.parse(disk.nums)[0].v === warm.c, JSON.stringify(disk));
-    check('… one kind: its curve as a word, no link', disk && disk.curve === EN['curve.kind_zone'] && !disk.link, JSON.stringify(disk));
+    check('… one kind: its goal as a word (Normal), no link', disk && disk.curve === EN['preset.normal'] && !disk.link, JSON.stringify(disk));
     const cpu = b.find((x) => x.kind === 'cpu');
     const nCpu = STATE.setup.sources.filter((s) => s.kind === 'cpu').length;
     check('… a kind without a choice: quiet, how many there are, no curve word', cpu && !cpu.has && cpu.sum === `none chosen · ${nCpu} here` && cpu.curve === null, JSON.stringify(cpu));
@@ -128,7 +128,7 @@ try {
     const b = await blocks(page);
     const nvme = b.find((x) => x.kind === 'nvme');
     const ram = b.find((x) => x.kind === 'ram');
-    check('the case: NVMe «follows the zone», RAM «own curve» — links (several kinds)', nvme && ram && nvme.curve === EN['curve.kind_zone'] && ram.curve === EN['curve.kind_own'] && nvme.link && ram.link,
+    check('the case: each kind\'s goal in words (an earlier set-up\'s own zone curve: «Own curve» for both) — links (several kinds)', nvme && ram && nvme.curve === EN['curve.own'] && ram.curve === EN['curve.own'] && nvme.link && ram.link,
       JSON.stringify([nvme, ram]));
     await page.click('#sso .fb-src-block[data-kind="ram"] .fb-src-curve');
     await page.waitForTimeout(400);
@@ -174,6 +174,61 @@ try {
         if (h.close) await h.close();
       }
     }
+  }
+  // ------------------------------------------- the curve card: a goal per kind (2026-11-20, the owner's A, B and his own curve)
+  {
+    const c = { theme: 'black', lang: 'en', width: 1440 };
+    const { h, ctx, page, errors } = await open(c, 'disks');
+    const part = '#sso .fb-curve-part[data-zone="disks"]';
+    const card = () => page.evaluate((sel) => {
+      const b = document.querySelector(sel);
+      const inputs = [...b.querySelectorAll('.fan-curve-field input')];
+      return { goal: b.querySelector('.fb-row-fields select').value, pts: inputs.map((i) => Number(i.value)), ro: inputs.every((i) => i.readOnly),
+        wheel: !!b.querySelector('.fan-curve .fan-wheel'), read: (b.querySelector('.fan-curve-read') || {}).textContent || '', hint: (b.querySelector('.fb-curve-hint') || {}).textContent || '',
+        width: inputs.length ? Math.round(inputs[0].getBoundingClientRect().width) : 0, off: (b.querySelector('.fb-never-off') || {}).textContent || '' };
+    }, part);
+    const goal = async (v) => { await page.selectOption(`${part} .fb-row-fields select >> nth=0`, v); await page.waitForTimeout(300); };
+    let k = await card();
+    check('curve card: Normal — the disk\'s own (40 °C 0 %, 50 °C 100 %), its points locked and said so; no wheel, the reading a line; fields three digits wide',
+      k.goal === 'normal' && JSON.stringify(k.pts) === '[40,0,50,100]' && k.ro && !k.wheel && /°C/.test(k.read) && k.hint === EN['curve.locked'] && k.width < 80, JSON.stringify(k));
+    check('curve card: … a fan that may not stand — «never off despite 0 %» said at the curve', k.off.startsWith(EN['curve.never_off_one'].split(':')[0]), k.off);
+    // his sequence: Leise — a drag — Normal — Leise
+    await goal('quiet');
+    const before = (await card()).pts;
+    const dot = await page.$(`${part} .fan-curve-pt`);
+    const bb = dot && await dot.boundingBox();
+    if (bb) { await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2); await page.mouse.down(); await page.mouse.move(bb.x + 60, bb.y + 40, { steps: 5 }); await page.mouse.up(); }
+    await page.waitForTimeout(300);
+    k = await card();
+    check('curve card: Leise — 45 °C 0 %, 55 °C 100 %; a point dragged under it does not move (locked)', JSON.stringify(before) === '[45,0,55,100]' && JSON.stringify(k.pts) === JSON.stringify(before) && k.goal === 'quiet', JSON.stringify([before, k]));
+    await goal('normal');
+    await goal('quiet');
+    k = await card();
+    check('curve card: … Normal, then Leise again — exactly Leise\'s curve', k.goal === 'quiet' && JSON.stringify(k.pts) === '[45,0,55,100]', JSON.stringify(k));
+    // his own curve: from the curve shown, typed, kept through a preset, back as it was
+    await goal('own');
+    k = await card();
+    check('curve card: «Own curve» — starts from the curve shown (Leise), the points free', JSON.stringify(k.pts) === '[45,0,55,100]' && !k.ro && k.hint === EN['zones.curve_sub'], JSON.stringify(k));
+    const first = `${part} .fan-curve-field input[data-axis="t"] >> nth=0`;
+    await page.fill(first, '47');
+    await page.press(first, 'Tab');
+    await page.waitForTimeout(400);
+    await goal('cool');
+    k = await card();
+    check('curve card: Kühl — 35 °C 0 %, 45 °C 100 %, locked; the line says «Own curve» brings back his last one', JSON.stringify(k.pts) === '[35,0,45,100]' && k.ro && k.hint === EN['curve.locked_kept'], JSON.stringify(k));
+    await goal('own');
+    k = await card();
+    check('curve card: «Own curve» again — exactly his last own curve (47 °C)', JSON.stringify(k.pts) === '[47,0,55,100]', JSON.stringify(k));
+    await goal('normal');
+    await page.click(`#sso .fb-next .btn:not(.plain):has-text("${EN['zones.save']}")`);
+    await page.waitForTimeout(800);
+    const sent = h.posts.filter((x) => x.action === 'fanboy.zones_save').pop();
+    const disk = sent && sent.data.zones.find((z) => z.id === 'disks');
+    check('curve card: «Save» — the disk\'s goal Normal with his own curve kept beside it; no «Temperaturen», no source values',
+      !!disk && JSON.stringify(disk.curves.disk) === JSON.stringify({ preset: 'normal', own: [[47, 0], [55, 100]] }) && !disk.kinds && disk.sources.every((x) => Object.keys(x).join() === 'id'), JSON.stringify(disk));
+    check('curve card: no «Temperaturen» fold, no error', !(await page.$('#sso .fb-temps')) && !errors.length, errors.join(' | '));
+    await ctx.close();
+    if (h.close) await h.close();
   }
 } catch (e) {
   failed.push(String(e && e.stack || e));

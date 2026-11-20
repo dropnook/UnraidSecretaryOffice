@@ -206,7 +206,9 @@
   .input.small.fb-input{max-width:100%; flex:0 0 auto}
   .fb-fold .fan-pick select.fb-input, .fb-look-open .fan-pick select.fb-input{width:100%}
   /* (a point's typed degrees and value under the chart: room for «39.5» and the browser's little arrows) */
-  .input.small.fb-input.fan-curve-input{width:84px}
+  /* 2026-11-20 (the owner: «mehr als 3-stellig ist eh nie»): three digits and the spin buttons — rpm five */
+  .input.small.fb-input.fan-curve-input{width:calc(3ch + 36px)}
+  .fan-curve-rpm .input.small.fb-input.fan-curve-input[data-axis="v"]{width:calc(5ch + 36px)}
   select.fb-input{padding-right:22px}
   /* the strip: what runs now (line 1), the last refusal or how a run ended (line 2), «Stop everything» — two lines high
      from the start; it stays at the top of the window while something runs */
