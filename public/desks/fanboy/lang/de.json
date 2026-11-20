@@ -610,7 +610,7 @@
   "dash.show.off": "Aus",
   "dash.show.off_title": "Keine Kachel von ihm im Dashboard",
   "dash.show.speeds": "Drehzahlen",
-  "dash.show.speeds_title": "Wer regelt, und pro Zone die wärmste Stelle, Stufe und Drehzahl",
+  "dash.show.speeds_title": "Wer regelt; pro Zone die wärmste Stelle und die Stufe, und ihre Lüfter mit ihrer Drehzahl",
   "dash.show.history": "Drehzahlen mit Verlauf",
   "dash.show.history_title": "Die Drehzahlen und pro Zone eine kleine Kurve der letzten Stunden",
   "curves.period": "Zeitraum",

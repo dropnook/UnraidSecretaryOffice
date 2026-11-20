@@ -107,9 +107,11 @@ function testFanboyDashTile(): void
          array_map(fn ($z) => [$z['name'], $z['warmest'], $z['level'], $z['speed'], count($z['fans'])], $m['zones'] ?? []), $m['watch'] ?? null]);
     same('fanboy dash: steering — German: «U/min», the decimal comma', ['Fanboy · 2 Zonen', '1018 U/min', 'am wärmsten: Disk 2 mit 41 °C'],
         [$o['de']['who'] ?? null, $o['de']['zones'][0]['speed'] ?? null, $o['de']['zones'][0]['warmest'] ?? null]);
-    check('fanboy dash: the tile — Unraid\'s tile markup (a tbody titled by his English name, the header, the link to his page), each zone a fold, its own key on the page',
+    // (2026-11-20: the demo's fans have names and models — each zone's fans under it with their symbols; as before: testFanboyDashFans)
+    check('fanboy dash: the tile — Unraid\'s tile markup (a tbody titled by his English name, the header, the link to his page), each zone with its fans, its own key on the page',
         str_starts_with($tile, '<tbody id="db-sso-fanboy" title="Fanboy">') && str_contains($tile, 'class="tile-header-main">Fanboy</h3>')
-        && str_contains($tile, '#/fanboy"') && substr_count($tile, '<details class="sso-fb-zone') === 2 && str_contains($tile, '<div class="sso-fb-fan"><span>Deckel</span><span>no speed feedback · 40 %</span>'), $tile);
+        && str_contains($tile, '#/fanboy"') && substr_count($tile, '<div class="sso-fb-zone sso-fb-zone-art') === 2
+        && str_contains($tile, '<span class="sso-fb-fname">Deckel</span><span class="sso-fb-fval">no speed feedback · 40 %</span>'), $tile);
 
     same('fanboy dash: steering — his everyday picture, no alarm mood', ['', true, false],
         [$m['mood'] ?? null, str_contains($tile, '<img class="sso-fb-logo" src="/plugins/unraid-secretary-office/desks/fanboy/avatar.svg'), str_contains($tile, 'src="/plugins/unraid-secretary-office/desks/fanboy/avatar-alarm.svg')]);
@@ -119,12 +121,16 @@ function testFanboyDashTile(): void
     $m = $o['model'] ?? [];
     same('fanboy dash: alarm — red, first, the owner\'s words (round 4: the fan and the other fans of its zone at 100 %); no second «stands» line for the same fan',
         [[['red', 'Alarm: Vorn reports no speed although it should turn. Fanboy sets it and the other fans of its zone to 100 % until it turns again, and then for 2 more minutes.']], true],
-        [$m['banners'] ?? null, strpos((string) ($o['rows'] ?? ''), 'sso-fb-banner red-text') < strpos((string) ($o['rows'] ?? ''), '<details')]);
+        [$m['banners'] ?? null, strpos((string) ($o['rows'] ?? ''), 'sso-fb-banner red-text') < strpos((string) ($o['rows'] ?? ''), 'class="sso-fb-zone')]);
+    check('fanboy dash: alarm — the fan that stands red on its row, beside its symbol', str_contains((string) ($o['rows'] ?? ''),
+        '<div class="sso-fb-fan sso-fb-fan-art red-text"><span class="sso-fb-sym"') && str_contains((string) ($o['rows'] ?? ''), '<span class="sso-fb-fname">Vorn</span><span class="sso-fb-fval">0 rpm · should turn · 100 %</span>'), (string) ($o['rows'] ?? ''));
+    // the zones that fold (no fan with a look or a name): the alarm's zone open
+    $o = fanboyDashWeb(['fanboy.json' => fanboyDashPlain(json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy-alarm.json'), true))] + fanboyDashFiles('fanboy'), [], $now);
     $rows = (string) ($o['rows'] ?? '');
     same('fanboy dash: alarm — where it is: the case zone «alarm — at 100 %» in red and open, the disk cage steers on (57 %); the fan that stands marked on its row',
         [['57 %', 'alarm — at 100 %'], [false, true], true, true, true, false],
         [array_column($m['zones'] ?? [], 'level'), array_column($m['zones'] ?? [], 'full'), str_contains($rows, '<b class="red-text">alarm — at 100 %</b>'),
-         str_contains($rows, '<div class="sso-fb-fan red-text"><span>Vorn</span><span>0 rpm · should turn · 100 %</span>'), str_contains($rows, 'data-zone="case" open>'),
+         str_contains($rows, '<div class="sso-fb-fan red-text"><span>Output 5</span><span>0 rpm · should turn · 100 %</span>'), str_contains($rows, 'data-zone="case" open>'),
          str_contains($rows, 'data-zone="disks" open>')]);
     same('fanboy dash: alarm — his alarm picture (as on his page), swapped back by the refresh', ['alarm', true, true],
         [$m['mood'] ?? null, str_contains((string) ($o['tile'] ?? ''), 'desks/fanboy/avatar-alarm.svg') && str_contains((string) ($o['tile'] ?? ''), '<img class="sso-fb-logo" src="'),
@@ -187,7 +193,7 @@ function testFanboyDashTile(): void
     // stale: his last look old — said since when, the numbers dimmed; the control's fresh status counts over an old look
     $o = fanboyDashWeb(fanboyDashFiles('fanboy'), [], $t0 + 600);
     check('fanboy dash: stale — since when, the rows dimmed', ($o['model']['stale'] ?? null) === $t0 && str_contains((string) ($o['rows'] ?? ''), 'class="sso-fb-stale">As of ')
-        && str_contains((string) ($o['rows'] ?? ''), 'sso-fb-zone sso-fb-old'), json_encode($o['model'] ?? null) . ($o['rows'] ?? ''));
+        && str_contains((string) ($o['rows'] ?? ''), 'sso-fb-zone sso-fb-zone-art sso-fb-old'), json_encode($o['model'] ?? null) . ($o['rows'] ?? ''));
     $live = $state['control'];
     $live['zones'][0]['level'] = 55;
     $live['zones'][1]['fans'][0]['rpm'] = 1100;
@@ -230,8 +236,8 @@ function testFanboyDashSource(): void
     same('fanboy dash: no read but his files — no hwmon, no disk, no agent, no command (is_dir of the data folder, is_file of his picture)',
         ['is_dir', 'is_file'], array_values(array_unique($m[1])));
     preg_match_all('/officeReadJson\(([^;]+?)\)(?:;| \?\?|\[| :|,)/', $code, $r);
-    same('fanboy dash: the files it reads — the span (his setting, else the mirror), his setting, the mirror in RAM, his strings (the data folder away), his state, the control\'s status',
-        ["OFFICE_DATA . '/fanboy/dashboard.json'", "officeRunDir() . '/fanboy/dash.json'",
+    same('fanboy dash: the files it reads — the fans\' catalogue (shipped beside his page: a fan\'s look), the span (his setting, else the mirror), his setting, the mirror in RAM, his strings (the data folder away), his state, the control\'s status',
+        ["OFFICE_PUBLIC . '/desks/fanboy/fans-catalog.json'", "OFFICE_DATA . '/fanboy/dashboard.json'", "officeRunDir() . '/fanboy/dash.json'",
          "(\$data ?? OFFICE_DATA) . '/fanboy/dashboard.json'", "officeRunDir() . '/fanboy/dash.json'", 'OFFICE_PUBLIC . "/desks/fanboy/lang/$code.json"',
          '$f', "OFFICE_DATA . '/fanboy.json'", "officeRunDir() . '/fanboy/control.json'"],
         array_map('trim', $r[1]));
@@ -429,4 +435,191 @@ function testFanboyDashHistory(): void
     same('fanboy dash: … handed back to the BIOS — still in its zone (his setup), still not «watched»; the German count',
         [['CPU-Kühler · 2 fans on it', '740 rpm', false], [], 'CPU-Kühler · 2 Lüfter daran'],
         [$o['model']['zones'][2]['fans'][0] ?? null, $o['model']['watch'] ?? null, $o['de']['zones'][2]['fans'][0][0] ?? null]);
+}
+
+/** A state whose fans have neither a look nor a name (as before 2026-11-20: the tile without symbols) */
+function fanboyDashPlain(array $s): array
+{
+    foreach ($s['setup']['fans'] as &$f) {
+        $f = ['model' => null, 'colour' => null, 'frame' => null, 'wheel' => null, 'style' => null, 'name' => ''] + $f;
+    }
+    unset($f);
+    foreach ($s['control']['zones'] ?? [] as $i => $z) {
+        foreach ($z['fans'] ?? [] as $k => $f) {
+            $s['control']['zones'][$i]['fans'][$k]['name'] = '';
+        }
+    }
+    return $s;
+}
+
+/**
+ * A demo state for the fans on the tile (2026-11-20, the owner: «the fans I configured, with their symbol and speed»): the
+ * demo «fanboy» with four fans of different looks in two zones — the disk cage's Noctua (its own beige), the case's be
+ * quiet! and a Phanteks painted white on top, a Corsair at the rear that may stand — and the CPU cooler the BIOS keeps.
+ * $edit changes it further.
+ */
+function fanboyDashFansState(?callable $edit = null): array
+{
+    $s = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy.json'), true);
+    $id = static fn (int $n): string => "it8696_a0060607:it87.2608:pwm$n";
+    $set = static function (int $n, array $more) use (&$s, $id): void {
+        foreach ($s['setup']['fans'] as &$f) {
+            if ($f['id'] === $id($n)) {
+                $f = $more + $f;
+            }
+        }
+    };
+    $set(4, ['model' => ['id' => 'noctua-nf-a12x25-pwm', 'mm' => null, 'blades' => null], 'colour' => null]);
+    $set(5, ['model' => ['id' => 'be-quiet-silent-wings-4-140mm-pwm', 'mm' => null, 'blades' => null], 'colour' => null]);
+    $set(2, ['model' => ['id' => 'phanteks-t30-120', 'mm' => null, 'blades' => null], 'colour' => null, 'wheel' => 'white', 'found' => 'tach', 'tachs' => [2]]);
+    $set(6, ['model' => ['id' => 'corsair-icue-ml120-rgb-elite', 'mm' => null, 'blades' => null], 'found' => 'tach', 'tachs' => [3], 'role' => 'case', 'off_ok' => true, 'name' => 'Hinten']);
+    foreach ($s['setup']['zones'] as &$z) {
+        if ($z['id'] === 'case') {
+            $z['fans'] = [$id(5), $id(2), $id(6)];
+        }
+    }
+    unset($z);
+    foreach ($s['control']['zones'] as &$z) {
+        if ($z['id'] === 'case') {
+            $z['fans'][1]['rpm'] = 760;
+            $z['fans'][] = ['id' => $id(6), 'name' => 'Hinten', 'output' => 6, 'pct' => 0, 'rpm' => 0, 'held' => true, 'foreign' => false,
+                'may_stand' => true, 'stand_since' => 1763099400, 'starts_at' => null];
+        }
+    }
+    unset($z);
+    return $edit !== null ? $edit($s) : $s;
+}
+
+/** The fans on the tile in «speeds»: each with its symbol (the look his page draws), its name and its speed — once the user gave one a look or a name */
+function testFanboyDashFans(): void
+{
+    $now = 1763100000 + 20;
+    $web = static fn (array $state, string $show = 'speeds', array $run = []): array => fanboyDashWeb(['fanboy.json' => $state] + fanboyDashFiles('fanboy', $show), $run, $now);
+    $art = static fn (?array $a): ?array => $a === null ? null : [$a['look']['frame'] ?? null, $a['look']['blades'] ?? null, $a['look']['style'] ?? null, $a['mm'], $a['state'], $a['rpm']];
+
+    // fans with a look: the model's own, the user's colour over it; his page's state; the zone's line, each fan under it
+    $o = $web(fanboyDashFansState());
+    $m = $o['model'] ?? [];
+    same('fanboy dash fans: with a look — no error, symbols on', ['', true], [$o['err'] ?? null, $m['art'] ?? null]);
+    same('fanboy dash fans: each fan\'s symbol — the Noctua beige and brown, the be quiet! black, the Phanteks grey with the user\'s white wheel, the Corsair frosted and standing (still)',
+        [['beige', 'brown', 'swept-narrow', 120, 'run', 1018]], array_map($art, $m['zones'][0]['art'] ?? []));
+    same('fanboy dash fans: … the case zone', [['black', 'charcoal', 'sickle', 140, 'run', 905], ['grey', 'white', 'broad', 120, 'run', 760], ['black', 'frost', 'swept-wide', 120, 'run', 0]],
+        array_map($art, $m['zones'][1]['art'] ?? []));
+    same('fanboy dash fans: the speed range of the picture — what he measured before the catalogue (1600 rpm, 25 % = 640 rpm), the catalogue else (Phanteks: 0 = may stand, so none)',
+        [[640.0, 1600.0], [null, 3000.0]], [[fanboyDashKey($m['zones'][0]['art'][0] ?? [], 'min'), fanboyDashKey($m['zones'][0]['art'][0] ?? [], 'max')], [fanboyDashKey($m['zones'][1]['art'][1] ?? [], 'min'), fanboyDashKey($m['zones'][1]['art'][1] ?? [], 'max')]]);
+    $rows = (string) ($o['rows'] ?? '');
+    check('fanboy dash fans: the rows — a zone line each (no folding, no speed range: each fan says its own), every fan with its symbol\'s box, name and speed',
+        substr_count($rows, 'class="sso-fb-zone sso-fb-zone-art') === 2 && !str_contains($rows, '<details') && substr_count($rows, 'class="sso-fb-sym" data-fan="') === 5
+        && str_contains($rows, '<span class="sso-fb-fname">Vorn</span><span class="sso-fb-fval">905 rpm · 35 %</span>') && !str_contains($rows, '0–905 rpm'), $rows);
+    check('fanboy dash fans: the symbols\' data — no internal name of an output (a short key instead)', !preg_match('/hwmon|pwm\d|it87/', $rows)
+        && (bool) preg_match('/^[0-9a-f]{10}$/D', (string) ($m['zones'][0]['art'][0]['id'] ?? '')), $rows);
+    // standing on purpose: says so, never «0 rpm», no alarm
+    same('fanboy dash fans: one that may stand and stands — «stands — it may», no red, no banner', [['Hinten', 'stands — it may', false], [], 'steht — er darf'],
+        [$m['zones'][1]['fans'][2] ?? null, $m['banners'] ?? null, $o['de']['zones'][1]['fans'][2][1] ?? null]);
+    $o = $web(fanboyDashFansState(static function (array $s): array {
+        $s['control']['zones'][1]['fans'][2]['starts_at'] = 45;
+        return $s;
+    }));
+    same('fanboy dash fans: … a CPU cooler\'s kind: from when it runs again', 'stands (it may) · runs again from 45 °C', $o['model']['zones'][1]['fans'][2][1] ?? null);
+    // standing though it should turn: today's alarm words, the red ring
+    $o = $web(fanboyDashFansState(static function (array $s): array {
+        $s['control']['zones'][1]['fans'][0]['rpm'] = 0;
+        return $s;
+    }));
+    same('fanboy dash fans: one that should turn and stands — the alarm\'s words, red, its symbol the red ring, the banner',
+        [['Vorn', '0 rpm · should turn · 35 %', true], 'stopped', [['red', 'A fan stands: Vorn']]],
+        [$o['model']['zones'][1]['fans'][0] ?? null, $o['model']['zones'][1]['art'][0]['state'] ?? null, $o['model']['banners'] ?? null]);
+    check('fanboy dash fans: … its row red', str_contains((string) ($o['rows'] ?? ''), '<div class="sso-fb-fan sso-fb-fan-art red-text"><span class="sso-fb-sym"'), (string) ($o['rows'] ?? ''));
+
+    // the BIOS's own, watched: on a row of its own with its symbol only with a look and a name of the user's
+    $o = $web(fanboyDashFansState());
+    same('fanboy dash fans: the CPU cooler the BIOS keeps (a model, a name) — its symbol, the BIOS\'s dotted frame, its row under «watched»',
+        [['CPU-Kühler', '1310 rpm'], ['graphite', 'graphite', 'swept-narrow', 120, 'bios', 1310]], [$o['model']['watch'][0] ?? null, $art($o['model']['watch_art'][0] ?? null)]);
+    check('fanboy dash fans: … the line «watched» without it, its row below', str_contains((string) ($o['rows'] ?? ''), '<span>With the BIOS, watched:</span></div><div class="sso-fb-watched">'), (string) ($o['rows'] ?? ''));
+    foreach (['no name' => ['name' => ''], 'no look' => ['model' => null, 'colour' => null]] as $what => $more) {
+        $o = $web(fanboyDashFansState(static function (array $s) use ($more): array {
+            $s['setup']['fans'][0] = $more + $s['setup']['fans'][0];
+            return $s;
+        }));
+        check("fanboy dash fans: the CPU cooler with $what — in the one line as before", ($o['model']['watch_art'] ?? null) === [null]
+            && str_contains((string) ($o['rows'] ?? ''), '<span>With the BIOS, watched:</span><span>CPU-Kühler 1310 rpm</span></div>') && !str_contains((string) ($o['rows'] ?? ''), 'sso-fb-watched'), (string) ($o['rows'] ?? ''));
+    }
+
+    // no fan with a look or a name: as before — folding zones, the speed range, no symbol
+    $plain = 'fanboyDashPlain';
+    $o = $web(fanboyDashFansState($plain));
+    $rows = (string) ($o['rows'] ?? '');
+    check('fanboy dash fans: no fan with a look or a name — the tile as before (folding zones, the speed range, no symbol)', ($o['model']['art'] ?? null) === false
+        && substr_count($rows, '<details class="sso-fb-zone"') === 2 && str_contains($rows, '0–905 rpm') && !str_contains($rows, 'sso-fb-sym') && !str_contains($rows, 'sso-fb-watched'), $rows);
+    // a name alone counts: the neutral wheel, as his page draws «other fan»
+    $o = $web(fanboyDashFansState(static function (array $s) use ($plain): array {
+        $s = $plain($s);
+        $s['setup']['fans'][3]['name'] = 'Käfig';
+        return $s;
+    }));
+    same('fanboy dash fans: a name alone — symbols on, the neutral wheel (no look, 7 blades)', [true, null, 7], [$o['model']['art'] ?? null, fanboyDashKey($o['model']['zones'][0]['art'][0] ?? [], 'look'), $o['model']['zones'][0]['art'][0]['blades'] ?? null]);
+
+    // many fans: one rule — six a zone, four zones, the rest «+ n more»
+    $o = $web(fanboyDashFansState(static function (array $s): array {
+        $fans = [];
+        $live = [];
+        for ($k = 1; $k <= 9; $k++) {
+            $fans[] = "it8696_a0060607:it87.2608:pwm$k";
+            $live[] = ['id' => "it8696_a0060607:it87.2608:pwm$k", 'name' => "Käfig $k", 'output' => $k, 'pct' => 40, 'rpm' => 700 + $k, 'held' => true, 'foreign' => false];
+        }
+        $s['setup']['zones'] = [];
+        $s['control']['zones'] = [];
+        for ($i = 0; $i < 6; $i++) {
+            $s['setup']['zones'][] = ['id' => "z$i", 'name' => "Zone $i", 'fans' => $i === 0 ? $fans : [$fans[$i]], 'unit' => 'pct', 'sources' => []];
+            $s['control']['zones'][] = ['id' => "z$i", 'name' => "Zone $i", 'unit' => 'pct', 'level' => 40, 'warmest' => null, 'fans' => $i === 0 ? $live : [$live[$i]]];
+        }
+        return $s;
+    }));
+    $rows = (string) ($o['rows'] ?? '');
+    same('fanboy dash fans: many — six fans with their symbols, «+ 3 more fans», four zones, «+ 2 more zones»', [6, 6, 3, 4, 2],
+        [count($o['model']['zones'][0]['fans'] ?? []), count($o['model']['zones'][0]['art'] ?? []), $o['model']['zones'][0]['fans_more'] ?? null, count($o['model']['zones'] ?? []), $o['model']['more'] ?? null]);
+    check('fanboy dash fans: … the rows: 10 symbols (6 + one each in three zones + the watched CPU cooler), both «more» links', substr_count($rows, 'class="sso-fb-sym" data-fan="') === 10
+        && str_contains($rows, '+ 3 more fans') && str_contains($rows, '+ 2 more zones'), $rows);
+
+    // an older state: fans without the look's keys, a control's fans without the standstill's — read with defaults
+    $o = $web(fanboyDashFansState(static function (array $s): array {
+        foreach ($s['setup']['fans'] as &$f) {
+            $f = array_diff_key($f, ['model' => 1, 'colour' => 1, 'frame' => 1, 'wheel' => 1, 'style' => 1, 'measured' => 1, 'found' => 1, 'cpu_own' => 1, 'count' => 1]);
+        }
+        unset($f);
+        foreach ($s['control']['zones'] as &$z) {
+            foreach ($z['fans'] as &$f) {
+                $f = array_diff_key($f, ['stand_since' => 1, 'starts_at' => 1, 'may_stand' => 1]);
+            }
+        }
+        return $s;
+    }));
+    same('fanboy dash fans: an older state (no look\'s keys, no standstill\'s) — no error, names alone: the neutral wheels, a standing fan at 0 % plain',
+        ['', true, [null, 7, 120], ['Hinten', '0 rpm · 0 %', false]],
+        [$o['err'] ?? null, $o['model']['art'] ?? null, [fanboyDashKey($o['model']['zones'][0]['art'][0] ?? [], 'look'), $o['model']['zones'][0]['art'][0]['blades'] ?? null, $o['model']['zones'][0]['art'][0]['mm'] ?? null],
+         $o['model']['zones'][1]['fans'][2] ?? null]);
+    // a catalogue entry not known (a model of a later version): the user's colours over the neutral look, else the neutral wheel
+    $o = $web(fanboyDashFansState(static function (array $s): array {
+        $s['setup']['fans'][3]['model'] = ['id' => 'maker-later-fan', 'mm' => 140, 'blades' => 9];
+        return $s;
+    }));
+    same('fanboy dash fans: a model the catalogue doesn\'t know — its size and blades from the setup, the neutral wheel', [null, 140, 9],
+        [fanboyDashKey($o['model']['zones'][0]['art'][0] ?? [], 'look'), $o['model']['zones'][0]['art'][0]['mm'] ?? null, $o['model']['zones'][0]['art'][0]['blades'] ?? null]);
+
+    // «with history»: as before (the curves keep their room); the data folder away: as before
+    $o = $web(fanboyDashFansState(), 'history');
+    check('fanboy dash fans: «with history» — no symbols, the zones fold as before', ($o['model']['art'] ?? null) === false && !str_contains((string) ($o['rows'] ?? ''), 'sso-fb-sym')
+        && str_contains((string) ($o['rows'] ?? ''), '<details class="sso-fb-zone"'), (string) ($o['rows'] ?? ''));
+    $o = fanboyDashWeb(null, ['fanboy/dash.json' => ['v' => 1, 'show' => 'speeds'], 'fanboy/control.json' => ['phase' => 'ended', 'why' => 'array_stopped', 'who' => 'bios', 'time' => $now - 300, 'zones' => []]], $now);
+    same('fanboy dash fans: the data folder away — no symbols, no error', [false, ''], [$o['model']['art'] ?? null, $o['err'] ?? null]);
+
+    // the drawing: his page's fan-art.js, loaded only when a row asks for a symbol; no timer of its own; kept over refreshes
+    $src = (string) file_get_contents(OFFICE_DIR . '/src/dashboard-fanboy.php');
+    $js = substr($src, (int) strpos($src, '<script>'));
+    check('fanboy dash fans: the script — fan-art.js once and only for a symbol, FanArt.wheel() without air at the tile\'s size, each wheel kept by its fan (update) and let go (destroy), drawn again after every refresh, no timer of its own',
+        str_contains($js, "officeDashAsset('desks/fanboy/fan-art.js')") && str_contains($js, 'if(!asked&&l.length){asked=true;') && str_contains($js, 'f.air=false')
+        && str_contains($js, 'f.px=\' . FANBOY_DASH_SYM_PX . \'') && str_contains($js, 'w.update(f)') && str_contains($js, 'old[k].destroy()') && str_contains($js, 'mood();syms();')
+        && !str_contains($js, 'setInterval') && !str_contains($js, 'requestAnimationFrame'), $js);
+    check('fanboy dash fans: fan-art.js rests where nothing is seen — off screen, a hidden tab, reduced motion — and turns by transform only',
+        (bool) preg_match('/const go = m\.seen && !document\.hidden && !reduce\.matches;/', (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.js')), '');
 }

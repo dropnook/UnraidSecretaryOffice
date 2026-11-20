@@ -610,7 +610,7 @@
   "dash.show.off": "Non",
   "dash.show.off_title": "Aucune tuile de lui dans le Dashboard",
   "dash.show.speeds": "Vitesses",
-  "dash.show.speeds_title": "Qui règle, et pour chaque zone le point le plus chaud, le niveau et la vitesse",
+  "dash.show.speeds_title": "Qui règle ; pour chaque zone le point le plus chaud et le niveau, et ses ventilateurs avec leur vitesse",
   "dash.show.history": "Vitesses avec historique",
   "dash.show.history_title": "Les vitesses, et pour chaque zone une petite courbe des dernières heures",
   "curves.period": "Période",
