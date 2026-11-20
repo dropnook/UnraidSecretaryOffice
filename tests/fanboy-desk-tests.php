@@ -826,8 +826,8 @@ function testFanboyCount(): void
     foreach (['en', 'de', 'fr', 'it', 'es'] as $c) {
         $l[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true);
     }
-    check('fanboy count: the page — «How many fans on it?» sent with the role, as many wheels in the picture sharing one speed, the tile counting connectors',
-        str_contains($js, "draft.count = Number(count.value)") && str_contains($js, "count: draft.count ?? f0.count ?? 1,") && str_contains($js, 'fans: (z.fans || []).flatMap((id) => wheelsOf(id)),')
+    check('fanboy count: the page — «How many fans on it?» sent with the role when changed (2026-11-20: only what the draft changed), as many wheels in the picture sharing one speed, the tile counting connectors',
+        str_contains($js, "draft.count = Number(count.value)") && str_contains($js, "if (draft.count !== undefined) body.count = draft.count;") && str_contains($js, 'fans: (z.fans || []).flatMap((id) => wheelsOf(id)),')
         && str_contains($js, "if (Number(c.turning)) out.push(T('now.fans', { n: Number(c.turning),") && !str_contains($js, "'fans.turning'"));
     same('fanboy count: «connectors report a speed» in five languages as a plural; the hints say what a Y-cable or hub hides', [true, true, true, true, true],
         array_map(fn ($c) => is_array($l[$c]['fans.reporting'] ?? null) && isset($l[$c]['hints.hub.1'], $l[$c]['hints.hub.2']), array_keys($l)));
