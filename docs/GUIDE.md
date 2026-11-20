@@ -362,7 +362,8 @@ His fans' biggest fan: he steers the fans on the mainboard's fan connectors by w
 - **Measure:** each fan of his with speed feedback, from full down to its lowest steady speed, its start from standstill
   and how long that takes. Usually about 4 minutes per fan, at most 18. A fan may stand still only when the measuring saw
   it start again.
-- **Zones:** up to 8, each with its fans and its heat sources — disks, SSDs, NVMe, CPU, board, RAM, graphics card, other.
+- **Zones:** up to 8, each with its fans and its heat sources — disks, SSDs, NVMe, CPU, board, RAM, other, and a graphics
+  card whose Linux driver reports a temperature (NVIDIA's own driver doesn't).
   Every kind of heat source in a zone has its own curve: *Quiet*, *Normal*, *Cool* or your own (kept per kind). The zone
   runs at what the most demanding curve asks; the curve alone decides. Disks outside the array and pools count too; a
   sleeping disk is never woken.

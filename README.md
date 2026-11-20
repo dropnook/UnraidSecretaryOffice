@@ -48,7 +48,7 @@ CPU, board, RAM — has its own curve, and the most demanding one decides. You s
 fan in a real test, he measures it, and a fan stands still only where he saw it start again. The fans he doesn't steer,
 he watches; stopped, he gives every fan back. Boards that steer their fans over IPMI aren't supported.
 
-<a name="fanboy"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/fanboy-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/fanboy-light.png" alt="Fanboy: two zones, each fan with its speed, the warmest spot of each zone framed"></picture></a>
+<a name="fanboy"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/fanboy-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/fanboy-light.png" alt="Fanboy: his zones as pieces of the case, each fan drawn after its model and size and turning at its speed, the warmest spot of each zone framed"></picture></a>
 
 Also on the team: Ms. Snapshotini, Ms. Dustdevil, Ms. Protocolli and the Consultant. Five languages, Unraid's themes,
 search with ⌘K, on the phone too. **[The full guide](docs/GUIDE.md)** walks through every desk.
