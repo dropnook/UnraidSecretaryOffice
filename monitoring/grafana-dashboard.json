@@ -3685,6 +3685,128 @@
     },
     {
       "type": "timeseries",
+      "title": "${czone:text}: each curve, the leader marked",
+      "description": "A zone of two or more curves (one per kind of its sources: disks, NVMe, CPU …): each curve's warmest source, °C. The one asking the most leads the fans — the wide band lies on it. One panel per such zone.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "repeat": "czone",
+      "repeatDirection": "h",
+      "maxPerRow": 2,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "A",
+          "expr": "max by (zone, kind) (uso_fanboy_curve_temperature_celsius{instance=~\"$instance\",zone=~\"$czone\"})",
+          "legendFormat": "{{kind}}",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "refId": "B",
+          "expr": "max by (zone) (uso_fanboy_zone_temperature_celsius{instance=~\"$instance\",zone=~\"$czone\"}) and on (zone) count by (zone) (uso_fanboy_curve_temperature_celsius{instance=~\"$instance\",zone=~\"$czone\"})",
+          "legendFormat": "leads",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "rgba(204, 204, 220, 0.3)"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 10
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "solid"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 118
+      },
+      "id": 61
+    },
+    {
+      "type": "timeseries",
       "title": "Fan speeds",
       "description": "Each fan Fanboy steers, by its name, in revolutions per minute.",
       "datasource": {
@@ -3758,7 +3880,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 118
+        "y": 126
       },
       "id": 60
     },
@@ -3772,7 +3894,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 126
+        "y": 134
       }
     },
     {
@@ -3850,7 +3972,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 127
+        "y": 135
       },
       "id": 44
     },
@@ -3929,7 +4051,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 127
+        "y": 135
       },
       "id": 45
     },
@@ -4002,7 +4124,7 @@
         "h": 8,
         "w": 4,
         "x": 16,
-        "y": 127
+        "y": 135
       },
       "id": 46
     },
@@ -4075,7 +4197,7 @@
         "h": 8,
         "w": 4,
         "x": 20,
-        "y": 127
+        "y": 135
       },
       "id": 47
     },
@@ -4154,7 +4276,7 @@
         "h": 8,
         "w": 16,
         "x": 0,
-        "y": 135
+        "y": 143
       },
       "id": 48
     },
@@ -4218,7 +4340,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 135
+        "y": 143
       },
       "id": 49
     }
@@ -4279,6 +4401,31 @@
         "current": {},
         "options": [],
         "description": "Fanboy's zones (one panel each); empty where Fanboy doesn't work"
+      },
+      {
+        "name": "czone",
+        "label": "Zones with curves",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "query_result(max by (zone, name) (uso_fanboy_curve_temperature_celsius{instance=~\"$instance\",zone=~\"$zone\"}))",
+        "query": {
+          "query": "query_result(max by (zone, name) (uso_fanboy_curve_temperature_celsius{instance=~\"$instance\",zone=~\"$zone\"}))",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery",
+          "qryType": 3
+        },
+        "refresh": 2,
+        "regex": "/name=\"(?<text>[^\"]*)\".*zone=\"(?<value>[^\"]*)\"/",
+        "sort": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "hide": 2,
+        "current": {},
+        "options": [],
+        "description": "Fanboy's zones of two or more curves (one panel each), within the chosen fan zones"
       }
     ]
   },

@@ -26700,8 +26700,12 @@ function testFanboyMetrics(): void
 {
     $status = ['who' => 'fanboy', 'alarm' => null, 'zones' => [
         ['id' => 'z1', 'name' => 'Disk cage', 'unit' => 'pct', 'level' => 57.0, 'warmest' => ['c' => 41.0],
+         'curves' => ['disk' => [], 'nvme' => [], 'cpu' => []], 'leader' => ['source' => 'nvme0', 'kind' => 'nvme'],
+         'by_kind' => ['disk' => ['source' => 'disk2', 'c' => 38, 'value' => 40.5], 'nvme' => ['source' => 'nvme0', 'c' => 41, 'value' => 57.0],
+                       'odd kind' => ['c' => 99], 'gpu' => ['c' => 'warm']],            // cpu: all asleep, no reading
          'fans' => [['name' => 'Front', 'output' => 4, 'rpm' => 1018], ['name' => '', 'output' => 5, 'rpm' => 900]]],
-        ['id' => 'z2', 'name' => '', 'unit' => 'rpm', 'level' => 1200, 'warmest' => ['c' => 55.5], 'fans' => []],
+        ['id' => 'z2', 'name' => '', 'unit' => 'rpm', 'level' => 1200, 'warmest' => ['c' => 55.5], 'fans' => [],
+         'curves' => ['cpu' => []], 'by_kind' => ['cpu' => ['c' => 55.5]]],                    // one curve: the zone's line is it
     ]];
     $m = [];
     foreach (metricsClean(['fanboy' => fanboyMetrics($status, true)])['fanboy'] ?? [] as $f) {
@@ -26712,6 +26716,17 @@ function testFanboyMetrics(): void
         [$m['uso_fanboy_zone_temperature_celsius'] ?? null, $m['uso_fanboy_zone_level_percent'] ?? null]);
     same('fanboy metrics: fans by zone, output and name (the output where it has none)',
         [[['name' => 'Front', 'output' => 'pwm4', 'zone' => 'z1'], '1018'], [['name' => 'pwm5', 'output' => 'pwm5', 'zone' => 'z1'], '900']], $m['uso_fanboy_fan_rpm'] ?? null);
+    same('fanboy metrics: each curve of a zone of two or more, by kind (known kinds with a reading); a zone of one curve none',
+        [[['kind' => 'disk', 'name' => 'Disk cage', 'zone' => 'z1'], '38'], [['kind' => 'nvme', 'name' => 'Disk cage', 'zone' => 'z1'], '41']],
+        $m['uso_fanboy_curve_temperature_celsius'] ?? null);
+    same('fanboy metrics: the leader is the zone\'s warmest place — the leading curve\'s own value, no series of its own', '41',
+        $m['uso_fanboy_zone_temperature_celsius'][0][1] ?? null);
+    $worst = ['who' => 'fanboy', 'alarm' => null, 'zones' => array_map(fn ($i) => ['id' => "zone-$i", 'name' => str_repeat('ü', 40), 'unit' => 'pct', 'level' => 100.0,
+        'warmest' => ['c' => 109.5], 'curves' => array_fill_keys(array_keys(FANBOY_KIND_BOUNDS), []),
+        'by_kind' => array_fill_keys(array_keys(FANBOY_KIND_BOUNDS), ['c' => 109.5]), 'fans' => []], range(1, 8))];
+    $worstText = metricsRender(array_values(array_filter(metricsClean(['fanboy' => fanboyMetrics($worst, true)])['fanboy'] ?? [], fn ($f) => $f['name'] === 'uso_fanboy_curve_temperature_celsius')));
+    check('fanboy metrics: the worst case the setup allows (8 zones × 8 kinds, names of 40 two-byte letters) — 64 series, under 20 KB of the 48 KB',
+        substr_count($worstText, "\nuso_fanboy_curve_temperature_celsius{") === 64 && strlen($worstText) < 20480, (string) strlen($worstText));
     same('fanboy metrics: steering and the alarm, one series each', [[[[], '1']], [[[], '0']]], [$m['uso_fanboy_steering'] ?? null, $m['uso_fanboy_alarm'] ?? null]);
 
     $dash = json_decode((string) file_get_contents(OFFICE_DIR . '/monitoring/grafana-dashboard.json'), true) ?: [];
@@ -26743,6 +26758,14 @@ function testFanboyMetrics(): void
     $js = preg_replace(['#^/#', '#/$#', '/\(\?<(\w+)>/'], ['#', '#', '(?P<$1>'], $re);
     same('grafana fanboy: the zone variable reads id and name from query_result\'s line', ['z1', 'Disk cage'],
         preg_match((string) $js, $series, $g) ? [$g['value'], $g['text']] : $re);
+    $czone = array_values(array_filter((array) ($dash['templating']['list'] ?? []), fn ($v) => ($v['name'] ?? '') === 'czone'))[0] ?? [];
+    $curves = array_values(array_filter($mine, fn ($p) => ($p['repeat'] ?? null) === 'czone'))[0] ?? [];
+    $exprB = (string) ($curves['targets'][1]['expr'] ?? '');
+    same('grafana fanboy: one panel per zone of two or more curves (a hidden list within the chosen zones), each curve by kind, the leader as the zone\'s warmest place',
+        [2, true, '{{kind}}', true, true],
+        [$czone['hide'] ?? null, str_contains($czone['definition'] ?? '', 'zone=~"$zone"'), $curves['targets'][0]['legendFormat'] ?? null,
+         str_contains($exprB, 'uso_fanboy_zone_temperature_celsius') && str_contains($exprB, 'and on (zone) count by (zone) (uso_fanboy_curve_temperature_celsius'),
+         str_contains($curves['title'] ?? '', '${czone:text}')]);
     $units = [];
     foreach ($mine as $p) {
         $units[$p['id']] = $p['fieldConfig']['defaults']['unit'] ?? null;
