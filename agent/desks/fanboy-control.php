@@ -41,6 +41,7 @@ const FANBOY_DISK_SENSOR_AFTER = 120.0; // seconds an awake disk has no temperat
 const FANBOY_CLEAR_AFTER = 120.0;       // seconds without any alarm reason before the alarm is over
 const FANBOY_VERIFY_AFTER = 12.0;       // seconds after the start: the rpm read back against the table
 const FANBOY_DRIFT = 0.30;              // a measured fan off its table by more than this (and 250 rpm): said
+const FANBOY_DRIFT_FOR = 30.0;          // … for this long at one value (a fan running down from a faster speed is no drift)
 const FANBOY_LOOK_FAST = 5.0;           // the chip missing: a look every 5 s …
 const FANBOY_LOOK_FAST_FOR = 120.0;     // … for two minutes,
 const FANBOY_LOOK_SLOW = 60.0;          // then every minute
@@ -52,6 +53,8 @@ const FANBOY_HISTORY_FULL = 43200;      // round 3 (owner): the last 12 hours a 
 const FANBOY_HISTORY_THIN = 300;        // … older ones a point per 5 minutes (the span's warmest, highest level, highest rpm) …
 const FANBOY_HISTORY_SPAN = 259200;     // … up to 3 days; older ones go (a zone removed: its history with them)
 const FANBOY_HISTORY_PERIODS = [1, 3, 6, 12, 24, 72];      // hours the page may ask for
+const FANBOY_HISTORY_CURVE = 300;       // 2026-11-20: each curve's line (zones of two or more curves) a row per 5-minute span
+const FANBOY_HISTORY_CURVE_MAX = 865;   // … its rows at most: 3 days of spans (and the one going on)
 const FANBOY_HISTORY_KEEP = 600.0;      // the history into the data folder every 10 minutes (RAM every minute)
 const FANBOY_REFUSED_MAX = 3;           // round 5: writes refused in a row before «the driver takes no values»
 const FANBOY_RPM_TRIM_MAX = 15;         // percent an rpm zone's correction moves a fan at most
@@ -626,7 +629,7 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
     return [
         'key' => $boardKey, 'owner' => $owner, 'phase' => 'start', 'hold' => null, 'fans' => $fans, 'zones' => $zones, 'watch' => $watch,
         'chips' => [], 'sources' => [], 'alarm' => null, 'reasons' => [], 'clear_since' => null, 'told' => [], 'notes' => [], 'full_since' => [],
-        'missing' => null, 'started' => null, 'last_hist' => null, 'last_keep' => null, 'hist' => [], 'look_now' => false,
+        'missing' => null, 'started' => null, 'last_hist' => null, 'last_keep' => null, 'hist' => [], 'curves' => [], 'look_now' => false,
         'disks_at' => null, 'disks' => [], 'scan_at' => null, 'events' => [], 'poll' => null, 'allow' => 0,
         'loose' => [], 'net' => null,         // round 12 fix: the heat sources in none of his zones, and the net for them
     ];
@@ -874,6 +877,7 @@ function fanboyRound(array &$c, float $now): void
             fanboyLetGo($c, 'hold');
         }
         $c['phase'] = 'hold';
+        $c['started'] = null;
         return;
     }
     // 1. the outputs: found (again)?
@@ -898,10 +902,12 @@ function fanboyRound(array &$c, float $now): void
         }
         $c['missing'] = null;
         $c['phase'] = 'run';
-        $c['started'] = $now;
         $c['scan_at'] = null;
+        $c['started'] ??= $now;
         foreach ($c['fans'] as $id => $f) {
-            $c['fans'][$id]['verified'] = false;
+            if (!$f['taken']) {
+                $c['fans'][$id]['verified'] = false;        // a fan held across a settings reload keeps its check (fanboyControlReload())
+            }
         }
     }
     fanboyTakeAll($c);
@@ -998,11 +1004,22 @@ function fanboyRound(array &$c, float $now): void
                 || $f['value'] === 0 || ($f['stand_since'] ?? null) !== null
                 || isset($full[$f['zone']]) || ($f['changed'] !== null && $now - $f['changed'] < FANBOY_SETTLE_MAX)
                 || !fanboyTableCovers($f['table'], $f['value'] / 2.55)) {
+                $c['fans'][$id]['drift_since'] = null;
                 continue;
             }
-            $c['fans'][$id]['verified'] = true;
             $want = fanboyTableRpm($f['table'], $f['value'] / 2.55);
-            if ($want !== null && abs($f['rpm'] - $want) > max(250, $want * FANBOY_DRIFT)) {
+            if ($want === null || abs($f['rpm'] - $want) <= max(250, $want * FANBOY_DRIFT)) {
+                $c['fans'][$id]['verified'] = true;
+                $c['fans'][$id]['drift_since'] = null;
+                continue;
+            }
+            // 2026-11-17: off its table at one look is no proof — a fan the mainboard ran faster a moment before (a start,
+            // a hand-over) still runs down after the settle time. Said only when it stays off at the same value for
+            // FANBOY_DRIFT_FOR (every look of it off; any write, kick, stand or alarm between starts the clock again)
+            $c['fans'][$id]['drift_since'] ??= $now;
+            if ($now - $c['fans'][$id]['drift_since'] >= FANBOY_DRIFT_FOR) {
+                $c['fans'][$id]['verified'] = true;
+                $c['fans'][$id]['drift_since'] = null;
                 $label = fanboyFanLabel($f);
                 fanboyNote($c, 'drift', ['fan' => $label, 'rpm' => $f['rpm'], 'want' => (int) round($want)]);
                 fanboyTell($c, "drift:$id", 'drift', ['fan' => $label, 'rpm' => $f['rpm'], 'want' => (int) round($want)], 'warning');
@@ -1592,6 +1609,7 @@ function fanboyMissing(array &$c, float $now, ?string $why): void
     unset($c['stuck_carry']);
     $c['missing']['why'] = $why;
     $c['phase'] = 'wait_chip';
+    $c['started'] = null;
     $age = $now - $c['missing']['since'];
     $c['missing']['next'] = $now + ($age < FANBOY_LOOK_FAST_FOR ? FANBOY_LOOK_FAST : ($age < FANBOY_TELL_AFTER ? FANBOY_LOOK_SLOW : FANBOY_LOOK_QUIET));
     fanboyMissingTell($c, $now);
@@ -1633,6 +1651,51 @@ function fanboyHistory(array &$c, float $now, ?int $wall = null): void
         $c['hist'][$zid] = fanboyHistoryThin($pts, $wall);
         if (!$c['hist'][$zid] && !isset($c['zones'][$zid])) {
             unset($c['hist'][$zid]);
+        }
+    }
+    fanboyHistoryCurves($c, $wall);
+}
+
+/**
+ * 2026-11-20 (the owner: «how close was the second curve?»): a zone of two or more curves (kinds of its sources, round 13)
+ * records where each curve stood — its kind's warmest source as the zone's round found it (`by_kind`, whole °C) — beside
+ * the points: `$c['curves'][zone] = {kinds: [kind…], rows: [span start => [°C|null per kind]]}`, a row per
+ * FANBOY_HISTORY_CURVE span with each curve's highest value in it (a peak never disappears), 3 days at most. Coarser than
+ * the leader's line on purpose: the worst case the setup allows (8 zones × 8 kinds) stays well inside the fan desk's RAM
+ * line (testFanboyHistoryCurves measures it). A zone of one curve records nothing here — its line is the leader's.
+ */
+function fanboyHistoryCurves(array &$c, int $wall): void
+{
+    $span = intdiv($wall, FANBOY_HISTORY_CURVE) * FANBOY_HISTORY_CURVE;
+    $c['curves'] = is_array($c['curves'] ?? null) ? $c['curves'] : [];
+    foreach ($c['zones'] as $zid => $z) {
+        $kinds = array_keys(fanboyZoneKindCurves($z));
+        if (count($kinds) < 2) {
+            continue;
+        }
+        $h = $c['curves'][$zid] ?? ['kinds' => [], 'rows' => []];
+        foreach ($kinds as $k) {
+            if (!in_array($k, $h['kinds'], true)) {
+                $h['kinds'][] = $k;         // a kind added later: at the end (rows never reordered)
+            }
+        }
+        $row = $h['rows'][$span] ?? [];
+        foreach ($h['kinds'] as $i => $k) {
+            $v = $z['by_kind'][$k]['c'] ?? null;
+            $v = is_int($v) || is_float($v) ? (int) round($v) : null;
+            $row[$i] = fanboyMaxOf($row[$i] ?? null, $v);
+        }
+        $h['rows'][$span] = $row;
+        $c['curves'][$zid] = $h;
+    }
+    foreach ($c['curves'] as $zid => $h) {
+        $h['rows'] = array_filter($h['rows'], fn ($t) => $t > $wall - FANBOY_HISTORY_SPAN, ARRAY_FILTER_USE_KEY);
+        ksort($h['rows']);
+        $h['rows'] = array_slice($h['rows'], -FANBOY_HISTORY_CURVE_MAX, null, true);
+        if ($h['rows']) {
+            $c['curves'][$zid] = $h;
+        } else {
+            unset($c['curves'][$zid]);
         }
     }
 }
@@ -1766,7 +1829,7 @@ function fanboyStatusWrite(array $status): void
  *
  * @return array{zones: array<string, list<array>>|stdClass, src: list<string>, leads: array<string, list<?int>>|stdClass}
  */
-function fanboyHistoryPack(array $hist): array
+function fanboyHistoryPack(array $hist, array $curves = []): array
 {
     $zones = $leads = [];
     $src = [];
@@ -1781,7 +1844,56 @@ function fanboyHistoryPack(array $hist): array
             $leads[$zid] = $l;
         }
     }
-    return ['zones' => $zones ?: new stdClass(), 'src' => array_keys($src), 'leads' => $leads ?: new stdClass()];
+    // 2026-11-20: each curve's line beside them, only when a zone has one (a reader that doesn't know the key: as before) —
+    // per zone its kinds, the span, the first span's start (t0) and a row per span from there (null: nothing recorded then)
+    $cv = [];
+    foreach ($curves as $zid => $h) {
+        if (!$h['rows']) {
+            continue;
+        }
+        $from = (int) array_key_first($h['rows']);
+        $v = [];
+        for ($t = $from, $last = (int) array_key_last($h['rows']); $t <= $last; $t += FANBOY_HISTORY_CURVE) {
+            $v[] = isset($h['rows'][$t]) ? array_values($h['rows'][$t]) : null;
+        }
+        $cv[$zid] = ['kinds' => $h['kinds'], 'every' => FANBOY_HISTORY_CURVE, 't0' => $from, 'v' => $v];
+    }
+    return ['zones' => $zones ?: new stdClass(), 'src' => array_keys($src), 'leads' => $leads ?: new stdClass()] + ($cv ? ['curves' => $cv] : []);
+}
+
+/**
+ * Back from fanboyHistoryPack(): each curve's line — only zones in exactly its shape (known kinds, each once, at most one
+ * a kind; the span; a start on a span; rows of whole °C or null, no longer than the kinds; at most 3 days of rows) and
+ * only rows newer than 3 days. A file without the key (an older office's): none.
+ *
+ * @return array<string, array{kinds: list<string>, rows: array<int, list<?int>>}>
+ */
+function fanboyHistoryCurvesUnpack(array $j, int $wall): array
+{
+    $out = [];
+    foreach (is_array($j['curves'] ?? null) ? $j['curves'] : [] as $zid => $h) {
+        $kinds = $h['kinds'] ?? null;
+        if (!is_string($zid) || !is_array($h) || ($h['every'] ?? null) !== FANBOY_HISTORY_CURVE || !is_int($h['t0'] ?? null) || $h['t0'] % FANBOY_HISTORY_CURVE !== 0
+            || !is_array($kinds) || !array_is_list($kinds) || !$kinds || count($kinds) > count(FANBOY_KIND_BOUNDS) || count(array_unique($kinds)) !== count($kinds)
+            || array_diff($kinds, array_keys(FANBOY_KIND_BOUNDS)) || !is_array($h['v'] ?? null) || !array_is_list($h['v']) || count($h['v']) > FANBOY_HISTORY_CURVE_MAX) {
+            continue;
+        }
+        $rows = [];
+        foreach ($h['v'] as $i => $r) {
+            $t = $h['t0'] + $i * FANBOY_HISTORY_CURVE;
+            if ($r === null || $t <= $wall - FANBOY_HISTORY_SPAN) {
+                continue;
+            }
+            if (!is_array($r) || !array_is_list($r) || count($r) > count($kinds) || array_filter($r, fn ($x) => $x !== null && !is_int($x))) {
+                continue 2;             // not in exactly its shape: the zone's line left out
+            }
+            $rows[$t] = $r;
+        }
+        if ($rows) {
+            $out[$zid] = ['kinds' => $kinds, 'rows' => $rows];
+        }
+    }
+    return $out;
 }
 
 /** Back from fanboyHistoryPack(): a zone's points with their leaders — only where `leads` and `src` fit them exactly */
@@ -1806,7 +1918,7 @@ function fanboyHistoryUnpack(array $j): array
 /** The history kept: RAM every minute, the data folder every 10 minutes and at the end */
 function fanboyHistoryKeep(array $c, bool $toData): void
 {
-    $j = jsonEncode(['v' => 1, 'board' => $c['key'], 'every' => FANBOY_HISTORY_EVERY] + fanboyHistoryPack($c['hist']));
+    $j = jsonEncode(['v' => 1, 'board' => $c['key'], 'every' => FANBOY_HISTORY_EVERY] + fanboyHistoryPack($c['hist'], $c['curves'] ?? []));
     writeAtomic(fanboyRunDir() . '/history.json', $j, 0644, 0, 0);
     if ($toData && defined('FANBOY_DIR') && is_dir(FANBOY_DIR)) {
         writeAtomic(FANBOY_DIR . '/history.json', $j);
@@ -1816,12 +1928,16 @@ function fanboyHistoryKeep(array $c, bool $toData): void
 /**
  * The history at the start: the RAM one (this boot), else the data folder's — only this board's, only well-formed points,
  * thinned and bounded as it is kept (a file of an older shape — a day of minutes — read as it is). $wall: the tests' clock.
+ *
+ * @param-out array<string, array{kinds: list<string>, rows: array<int, list<?int>>}> $curves  each curve's line (fanboyHistoryCurvesUnpack())
  */
-function fanboyHistoryLoad(string $board, ?int $wall = null): array
+function fanboyHistoryLoad(string $board, ?int $wall = null, ?array &$curves = null): array
 {
+    $curves = [];
     foreach ([fanboyRunDir() . '/history.json', defined('FANBOY_DIR') ? FANBOY_DIR . '/history.json' : ''] as $f) {
         $j = $f === '' ? null : readJson($f);
         if (is_array($j) && ($j['board'] ?? null) === $board && is_array($j['zones'] ?? null)) {
+            $curves = fanboyHistoryCurvesUnpack($j, $wall ?? time());       // each curve's line (2026-11-20), when the file has it
             $out = [];
             foreach (fanboyHistoryUnpack($j) as $zid => $pts) {
                 if (($kept = fanboyHistoryThin($pts, $wall ?? time()))) {
@@ -1901,7 +2017,8 @@ function fanboyControlMain(): int
     $settings = fanboyBoardRaw($board);
     $why = fanboyHoldReason($settings);
     $c = fanboyControlNew($settings ?? [], $key, $owner);
-    $c['hist'] = fanboyHistoryLoad($key);
+    $c['hist'] = fanboyHistoryLoad($key, null, $curves);
+    $c['curves'] = $curves;
     fanboyStandCarry($c, readJson(fanboyStatusFile()), fanboyMono());
     $stamp = @filemtime(fanboyStoreFile());
     $lastHold = fanboyMono();
@@ -1920,10 +2037,7 @@ function fanboyControlMain(): int
                     $settings = fanboyBoardRaw($board);
                     $why = fanboyHoldReason($settings);
                     if ($why === null || $why === 'other') {
-                        fanboyLetGo($c, 'settings');
-                        $hist = $c['hist'];
-                        $c = fanboyControlNew($settings ?? [], $key, $owner);
-                        $c['hist'] = $hist;
+                        fanboyControlReload($c, $settings ?? [], $key, $owner);
                     }
                 } else {
                     $why = fanboyHoldReason($settings);
@@ -1967,6 +2081,61 @@ function fanboyControlMain(): int
         fclose($lock);
     }
     return 0;
+}
+
+/**
+ * The settings changed while the control runs (a zone, a curve, a role saved on the page): taken anew — WITHOUT handing
+ * the fans that stay over to the mainboard. 2026-11-17 (the owner, «Hinten links folgt nicht mehr wie vermessen» a minute
+ * after saving a curve): the reload used to give every output back and take it again a round later — between the two the
+ * mainboard ran the fans its own way for as long as the round's look at the hardware took, the round's clock was read
+ * before that look, and the check after a start («does each fan follow its table?», once, 12 s on) found a fan still
+ * running down from the mainboard's speed. A fan that stays (same output, same give-back) keeps what the control holds
+ * and wrote (value, its time, a kick, standing, its check already done unless its table changed); a zone that stays keeps
+ * its level and the way down from it; the alarm and what was told go on. Only fans that leave are given back.
+ */
+function fanboyControlReload(array &$c, array $settings, string $key, array $owner): void
+{
+    $new = fanboyControlNew($settings, $key, $owner);
+    $leave = [];
+    foreach ($c['fans'] as $id => $f) {
+        $n = $new['fans'][$id] ?? null;
+        if ($f['taken'] && ($n === null || $n['chip'] !== $f['chip'] || $n['address'] !== $f['address'] || $n['output'] !== $f['output'] || $n['back'] !== $f['back'])) {
+            $leave[] = $id;
+        }
+    }
+    if ($leave) {
+        fanboyLetGo($c, 'settings', $leave);
+    }
+    foreach ($new['fans'] as $id => $n) {
+        $f = $c['fans'][$id] ?? null;
+        if ($f === null || !$f['taken']) {
+            continue;               // not held now: taken by the next round as at a start
+        }
+        foreach (['device', 'address_now', 'hwmon', 'auto', 'taken', 'value', 'changed', 'pct', 'kick_until', 'kicks', 'rpm', 'rpms', 'zero_since',
+                  'standing', 'stand_since', 'cool_since', 'stand_at', 'refused', 'trim', 'drift_since', 'cpu_hist'] as $k) {
+            if (array_key_exists($k, $f)) {
+                $new['fans'][$id][$k] = $f[$k];
+            }
+        }
+        $new['fans'][$id]['verified'] = $f['verified'] && $n['table'] === $f['table'];     // measured anew: looked at again
+    }
+    foreach ($new['zones'] as $zid => $z) {
+        $o = $c['zones'][$zid] ?? null;
+        if ($o === null || $o['unit'] !== $z['unit']) {
+            continue;
+        }
+        foreach (['cur', 'hold_t', 'hold_src', 'hold_pos', 'below_since', 'hot_since', 'warmest', 'leader', 'by_kind', 'state'] as $k) {
+            if (array_key_exists($k, $o)) {
+                $new['zones'][$zid][$k] = $o[$k];
+            }
+        }
+    }
+    foreach (['hist', 'curves', 'alarm', 'reasons', 'clear_since', 'told', 'notes', 'full_since', 'started', 'last_hist', 'last_keep'] as $k) {
+        if (array_key_exists($k, $c)) {
+            $new[$k] = $c[$k];
+        }
+    }
+    $c = $new;
 }
 
 /**

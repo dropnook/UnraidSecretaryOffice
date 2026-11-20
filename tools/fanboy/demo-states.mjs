@@ -504,16 +504,27 @@ function thin(pts, wall) {
   return [...[...spans.keys()].sort((a, b) => a - b).map((k) => spans.get(k)), ...full].slice(-1460);
 }
 /** fanboyHistoryPack(): points of four, the leaders beside them (src once each, leads per zone a point) */
-function pack(zones) {
+function pack(zones, curves = {}) {
   const src = [], leads = {}, out = {};
   for (const [z, pts] of Object.entries(zones)) {
     out[z] = pts.map((p) => p.slice(0, 4));
     const l = pts.map((p) => (p.length > 4 ? (src.includes(p[4]) ? src.indexOf(p[4]) : src.push(p[4]) - 1) : null));
     if (l.some((x) => x !== null)) leads[z] = l;
   }
-  return { zones: out, src, leads };
+  // 2026-11-20: each curve's line of a zone of two or more curves — a row per 5-minute span from `t0`, each curve's highest whole °C
+  const cv = {};
+  for (const [z, c] of Object.entries(curves)) {
+    const ts = [...c.rows.keys()].sort((a, b) => a - b);
+    if (!ts.length) continue;
+    const v = [];
+    for (let t = ts[0]; t <= ts[ts.length - 1]; t += 300) v.push(c.rows.has(t) ? c.rows.get(t) : null);
+    cv[z] = { kinds: c.kinds, every: 300, t0: ts[0], v };
+  }
+  return { zones: out, src, leads, ...(Object.keys(cv).length ? { curves: cv } : {}) };
 }
 const raw = { disks: [], case: [], cpu: [] };
+// the case zone's two curves (NVMe, RAM): where each stood, the one leading at the zone's temperature
+const caseCurves = { kinds: ['nvme', 'ram'], rows: new Map() };
 for (let m = 72 * 60; m >= 0; m--) {
   const t = T0 - m * 60;
   const day = Math.sin(((t / 3600 + 1) % 24 - 9) / 24 * 2 * Math.PI);        // warmest mid-afternoon
@@ -525,12 +536,19 @@ for (let m = 72 * 60; m >= 0; m--) {
   const ul = Math.max(30, Math.min(100, Math.round(30 + (uc - 45) * 2.5)));
   const dLead = m > 48 * 60 ? [] : [dc >= 35 ? 'disk2' : 'parity'];
   raw.disks.push([t, dc, dl, Math.round(tableRpm(TABLE4, dl)), ...dLead]);
-  if (m <= 30 * 60) raw.case.push([t, cc, cl, Math.round(tableRpm(TABLE5, cl)), Math.sin(m / 50) > 0.6 ? RAM : NVME]);
+  if (m <= 30 * 60) {
+    const ramLeads = Math.sin(m / 50) > 0.6;
+    raw.case.push([t, cc, cl, Math.round(tableRpm(TABLE5, cl)), ramLeads ? RAM : NVME]);
+    const nv = Math.round(ramLeads ? cc - 4 - Math.sin(m / 13) : cc), ram = Math.round(ramLeads ? cc : cc - 6 + Math.sin(m / 11) * 2);
+    const k = Math.floor(t / 300) * 300, r = caseCurves.rows.get(k);
+    caseCurves.rows.set(k, r ? [Math.max(r[0], nv), Math.max(r[1], ram)] : [nv, ram]);
+  }
   raw.cpu.push([t, uc, ul, Math.round(740 + (ul - 40) * 9), CPU_SRC((m + 150) % 311 < 6 ? 'Core 4' : 'Package id 0')]);
 }
 const kept = { disks: thin(raw.disks, T0), case: thin(raw.case, T0), cpu: thin(raw.cpu, T0) };
 const window = (h) => Object.fromEntries(Object.entries(kept).map(([z, pts]) => [z, pts.filter((p) => p[0] >= T0 - h * 3600)]));
-const histOf = (h) => ({ v: 1, time: T0, now: T0, hours: h, every: 60, thin: 300, full: 43200, ...pack(window(h)) });
+const curvesIn = (h) => ({ case: { kinds: caseCurves.kinds, rows: new Map([...caseCurves.rows].filter(([k]) => k > T0 - h * 3600 - 600)) } });
+const histOf = (h) => ({ v: 1, time: T0, now: T0, hours: h, every: 60, thin: 300, full: 43200, ...pack(window(h), curvesIn(h)) });
 const hist = histOf(24);
 function tableRpm(table, pct) {
   const pts = table.slice().sort((a, b) => a[0] - b[0]);

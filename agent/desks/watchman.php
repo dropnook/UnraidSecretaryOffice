@@ -130,7 +130,10 @@ const WATCH_MAX_RUN      = 240;              // a round that takes longer is sto
 const WATCH_FAIL_BURST   = 5;                // failed logins from one address …
 const WATCH_FAIL_WINDOW  = 600;              // … within 10 minutes: a burst
 const WATCH_NOTIFY_QUIET = 3600;             // per kind at most one notification an hour
-const WATCH_SERIOUS_DAYS = 30;               // a serious incident: the same kind from the same source told louder this long
+// a serious incident: the same kind from the same source is louder for as long as it is on his list (2026-11-20, the owner:
+// no end — until «Not serious after all…»). `until` is still written for an office of 1.94 or older, which reads the list
+// only with it and keeps its own 30 days (its reader: is_int(until), louder while until > now); this office never reads it
+const WATCH_SERIOUS_OLD_DAYS = 30;
 const WATCH_INCIDENTS_MAX = 200;             // serious incidents kept in his history
 const WATCH_NOTE_MAX     = 200;              // the one-line note to a serious incident (characters)
 const WATCH_BOOK_MAX     = 500;              // entries in the watch book
@@ -2564,6 +2567,28 @@ function watchmanOfficeNoteSchedule(array &$book, string $file, int $now, array 
     $book[] = $e;
 }
 
+/**
+ * A line the office writes for itself into a cron file of its own (watchmanOwnCron()): ONE line in the book per file,
+ * noted by himself (`by` office_cron) — never open, never told; the file there again (a guard written at every «take
+ * over») only refreshes it. An entry already there about that file (open or noted, written by an older version) stays
+ * as it is: the book is history.
+ */
+function watchmanOfficeNoteOwnCron(array &$book, string $file, int $now, array $p): void
+{
+    foreach ($book as $i => $e) {
+        if (($e['key'] ?? '') === "cron_file:$file" && ($e['by'] ?? null) === 'office_cron') {
+            $book[$i]['p'] = $p;
+            $book[$i]['last'] = $now;
+            $book[$i]['count'] = (int) ($e['count'] ?? 1) + 1;
+            return;
+        }
+    }
+    $e = watchmanEntry('cron_file', "cron_file:$file", $now, $p);
+    $e['noted'] = $now;
+    $e['by'] = 'office_cron';
+    $book[] = $e;
+}
+
 /** The office's own doing: a line in the book, noted by himself (`by` office) — never open, never told */
 function watchmanOfficeNote(array &$book, string $kind, string $key, int $now, array $p): void
 {
@@ -4597,13 +4622,42 @@ function watchmanSyslogAround(string $syslog, int $t, int $now, string $pattern 
 /** The USO network's one cron line, exactly as scripts/usonet.sh writes it (CRON_LINE there; testUsoNetScript compares) */
 const WATCH_USONET_CRON = '* * * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/usonet.sh check > /dev/null 2>&1';
 
+/** The agent's watch from outside, exactly as scripts/agent.sh writes it into agent-watch.cron (WATCH_LINE there; testWatchmanOwnCron compares) */
+const WATCH_AGENT_CRON = '*/5 * * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh watch > /dev/null 2>&1';
+
+/**
+ * The cron files the office writes for itself in its flash folder beside its schedules' file — "<file>" => exactly its
+ * job lines (whitespace as watchmanCronJobs() leaves it): the USO network's look, the agent's watch, and what a desk
+ * says it writes (desk(…, ['cron' => …]), util.php) — he never needs to know which desk. A file name not in exactly
+ * a cron file's shape, the schedules' own file, or a line not in a job line's shape is left out (never «own» by mistake).
+ *
+ * @return array<string, list<string>>
+ */
+function watchmanOwnCron(): array
+{
+    $own = ['usonet.cron' => [WATCH_USONET_CRON], 'agent-watch.cron' => [WATCH_AGENT_CRON]];
+    foreach (desks() as $desk) {
+        $said = is_callable($desk['cron'] ?? null) ? ($desk['cron'])() : null;
+        foreach (is_array($said) ? $said : [] as $file => $lines) {
+            if (!is_string($file) || !preg_match('/^[a-z0-9][a-z0-9-]{0,60}\.cron$/D', $file) || $file === OFFICE_PLUGIN . '.cron' || isset($own[$file]) || !is_array($lines)) {
+                continue;
+            }
+            $own[$file] = array_values(array_filter(array_map(fn ($l) => is_string($l) ? trim((string) preg_replace('/\s+/', ' ', $l)) : '', $lines),
+                fn ($l) => $l !== '' && $l[0] !== '#' && preg_match(WATCH_CRON_LINE, $l) === 1));
+        }
+    }
+    return $own;
+}
+
 /** The plugins' cron files on the flash: "<plugin>/<file>" => size, time, fingerprint, its lines (hash => short) — the
- *  office's schedules and the USO network's line carry `own`: those lines, exactly as the office writes them */
-function watchmanCronFiles(array $paths, array $prev): ?array
+ *  office's schedules and its own other files (watchmanOwnCron()) carry `own`: those lines, exactly as the office writes
+ *  them; `kind` says which of the office's files it is (schedules | own) */
+function watchmanCronFiles(array $paths, array $prev, ?array $ownCron = null): ?array
 {
     if (!isset($paths['cron_files'])) {
         return null;
     }
+    $ownCron ??= watchmanOwnCron();
     $out = [];
     foreach (glob($paths['cron_files'] . '/*/*.cron') ?: [] as $file) {
         $name = basename(dirname($file)) . '/' . basename($file);
@@ -4612,9 +4666,11 @@ function watchmanCronFiles(array $paths, array $prev): ?array
             continue;
         }
         $p = $prev[$name] ?? null;
-        $usonet = $name === OFFICE_PLUGIN . '/usonet.cron';         // the USO network's look every minute (scripts/usonet.sh)
-        $office = $name === OFFICE_PLUGIN . '/' . OFFICE_PLUGIN . '.cron' || $usonet;
-        if (watchmanSameFile($p, $st) && is_array($p['lines'] ?? null) && (!$office || is_array($p['own'] ?? null))) {
+        $inOffice = basename(dirname($file)) === OFFICE_PLUGIN;
+        $sched = $inOffice && basename($file) === OFFICE_PLUGIN . '.cron';          // officeJobSetSchedule()'s file
+        $exact = $inOffice && !$sched ? ($ownCron[basename($file)] ?? null) : null;  // a file of its own: exactly these lines
+        $office = $sched ? 'schedules' : ($exact !== null ? 'own' : null);
+        if (watchmanSameFile($p, $st) && is_array($p['lines'] ?? null) && ($office === null || (is_array($p['own'] ?? null) && ($p['kind'] ?? null) === $office))) {
             $out[$name] = $p;
             continue;
         }
@@ -4622,12 +4678,12 @@ function watchmanCronFiles(array $paths, array $prev): ?array
         $lines = $own = [];
         foreach (array_slice(watchmanCronJobs($text), 0, WATCH_SCHED_MAX) as $l) {
             $lines[watchmanHash($l)] = watchmanCronShort($l);
-            if ($office && ($usonet ? trim($l) === WATCH_USONET_CRON : watchmanOfficeCronLine($l))) {
+            if ($office !== null && ($sched ? watchmanOfficeCronLine($l) : in_array(trim($l), $exact, true))) {
                 $own[] = watchmanHash($l);
             }
         }
         $out[$name] = ['m' => (int) $st['mtime'], 'c' => (int) $st['ctime'], 's' => (int) $st['size'], 'h' => watchmanHash($text), 'lines' => $lines]
-                    + ($office ? ['own' => $own] : []);
+                    + ($office !== null ? ['own' => $own, 'kind' => $office] : []);
     }
     ksort($out);
     return $out;
@@ -5040,15 +5096,24 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
                     continue;
                 }
                 $plugin = (string) strtok((string) $name, '/');
-                if ($plugin === OFFICE_PLUGIN && !array_diff_key($new, array_flip((array) ($f['own'] ?? [])))) {
-                    // the office's own schedule, exactly as it writes it (a time changed on a desk's page): noted by himself
+                $ours = $plugin === OFFICE_PLUGIN ? ($f['kind'] ?? (is_array($f['own'] ?? null) ? 'schedules' : null)) : null;     // a look of 1.94 has no kind
+                if ($ours !== null && !array_diff_key($new, array_flip((array) ($f['own'] ?? [])))) {
                     $known['files'][$name] = watchmanCronFileKnown($k, $f, $now);
-                    watchmanOfficeNoteSchedule($book, (string) $name, $now, ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null, 'office' => true] + watchmanJobs($new));
+                    if ($ours === 'own') {
+                        // a line the office writes for itself (the USO network's look, the agent's watch, a desk's guard):
+                        // one line in the book per file, noted by himself, never open, never told — again only refreshed
+                        watchmanOfficeNoteOwnCron($book, (string) $name, $now, ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null, 'office_file' => true] + watchmanJobs($new));
+                    } else {
+                        // the office's own schedule, exactly as it writes it (a time changed on a desk's page): noted by himself
+                        watchmanOfficeNoteSchedule($book, (string) $name, $now, ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null, 'office' => true] + watchmanJobs($new));
+                    }
                     continue;
                 }
                 $kind = $plugin === 'dynamix' || isset($installed[$plugin]) ? 'cron_file' : 'cron_file_foreign';
+                // which of the office's files (its schedules, one of its own) — another file in its folder is neither
                 $added[] = watchmanSet($book, $kind, "$kind:$name", $now,
-                    ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null, 'office' => $plugin === OFFICE_PLUGIN] + watchmanJobs($new) + ['_f' => $f['h']]);
+                    ['file' => (string) $name, 'plugin' => $plugin, 'new' => $k === null] + ($ours === 'schedules' ? ['office' => true] : ($ours === 'own' ? ['office_file' => true] : []))
+                    + watchmanJobs($new) + ['_f' => $f['h']]);
             }
             // a file gone is normal — known a while still (WATCH_FORGET), so one that comes back as it was is no news
             foreach ($known['files'] as $name => $k) {
@@ -5165,8 +5230,11 @@ function watchmanCronFileClose(array &$book, array $known, array $files, int $no
 {
     foreach ($book as $i => $e) {
         $name = (string) ($e['p']['file'] ?? '');
+        // an entry about a line the office writes itself (an older version's news before it knew the line: 1.95's first
+        // «Take over») stays as it was — the book is history, «as it was again» would be no truth about it
+        $ownLines = ($files[$name]['kind'] ?? null) === 'own' && ($h = (array) ($e['p']['_h'] ?? [])) && !array_diff($h, (array) ($files[$name]['own'] ?? []));
         if (in_array($e['kind'] ?? '', ['cron_file', 'cron_file_foreign'], true) && watchmanOpen($e) && isset($files[$name], $known[$name]['h'])
-            && empty($known[$name]['gone']) && $known[$name]['h'] === $files[$name]['h']) {
+            && empty($known[$name]['gone']) && $known[$name]['h'] === $files[$name]['h'] && !$ownLines) {
             $book[$i]['noted'] = $now;
             $book[$i]['by'] = 'back';
         }
@@ -9093,9 +9161,10 @@ function watchmanNoteByPage(array &$b, array &$book, int $i, array $seen, int $n
 /**
  * «This was a real incident…» (once «Acknowledge — this was serious»): the entry leaves what is open like «I know, thanks», but nothing of it becomes
  * normal (an attacker's address never a known one, a pull never the new normal — still there, it is told again) and it
- * goes into his history of serious incidents (incidents.json: the entry as it was, when, the note). For
- * WATCH_SERIOUS_DAYS the same kind from the same source (its key) is louder: told at once, even when its kind is quiet
- * or he would note it by himself, never put aside by the team lead (watchmanSeriousAgain()).
+ * goes into his history of serious incidents (incidents.json: the entry as it was, when, the note). As long as it is
+ * there, the same kind from the same source (its key) is louder: told at once and as important, even when its kind is
+ * quiet or he would note it by himself, never put aside by the team lead (watchmanSeriousAgain()). The list's entries he
+ * doesn't know (a newer office's) are kept as they are.
  */
 function watchmanSerious(string $id, string $note, ?string $dir = null, ?int $now = null, bool $page = true): array
 {
@@ -9118,11 +9187,13 @@ function watchmanSerious(string $id, string $note, ?string $dir = null, ?int $no
             $book[$i]['noted'] = $now;
             $book[$i]['by'] = 'page';
             $book[$i]['serious'] = $now;
-            $list = watchmanIncidents($dir);
+            $raw = readJson("$dir/incidents.json");
+            $raw = is_array($raw) ? $raw : [];
+            $list = array_values((array) ($raw['incidents'] ?? []));      // as on disk: entries of another shape kept
             $list[] = ['id' => $e['id'], 'kind' => $e['kind'], 'key' => (string) ($e['key'] ?? ''), 'time' => (int) $e['time'],
                        'last' => (int) $e['last'], 'count' => (int) ($e['count'] ?? 1), 'p' => (array) ($e['p'] ?? []),
-                       'at' => $now, 'until' => $now + WATCH_SERIOUS_DAYS * 86400, 'note' => $note];
-            writeAtomic("$dir/incidents.json", jsonEncode(['v' => 1, 'incidents' => array_slice($list, -WATCH_INCIDENTS_MAX)]));
+                       'at' => $now, 'until' => $now + WATCH_SERIOUS_OLD_DAYS * 86400, 'note' => $note];   // until: for 1.94 and older only
+            writeAtomic("$dir/incidents.json", jsonEncode(['incidents' => array_slice($list, -WATCH_INCIDENTS_MAX)] + $raw + ['v' => 1]));
             $st = $d['state'];
             $st['open'] = watchmanOpenCounts($book);
             watchmanSave($dir, $d, ['book' => $book, 'state' => $st]);
@@ -9133,7 +9204,7 @@ function watchmanSerious(string $id, string $note, ?string $dir = null, ?int $no
     if (!$page) {
         return ['ok' => true, 'kind' => $kind];
     }
-    logLine("Night watchman: a serious incident acknowledged ($kind) — the same from the same source is louder for " . WATCH_SERIOUS_DAYS . ' days');
+    logLine("Night watchman: a serious incident acknowledged ($kind) — the same from the same source is told at once and as important while it is on the list");
     watchmanMirrorKeep($dir);
     return ['ok' => true, 'state' => watchmanPageState()];
 }
@@ -9211,7 +9282,8 @@ function watchmanSeriousNote(string $note): string
 
 /**
  * His history of serious incidents, oldest first — only entries in exactly their shape (a file by hand, a newer
- * office's: what isn't is left out, never an error)
+ * office's: what isn't is left out, never an error). `until` (written up to 1.94 as the end of the louder time, still
+ * written for them) may be there or not; it means nothing here any more
  * @return list<array>
  */
 function watchmanIncidents(string $dir): array
@@ -9219,7 +9291,7 @@ function watchmanIncidents(string $dir): array
     $out = [];
     foreach ((array) (readJson("$dir/incidents.json")['incidents'] ?? []) as $x) {
         if (is_array($x) && is_string($x['id'] ?? null) && preg_match(WATCH_ID, $x['id']) && is_string($x['kind'] ?? null) && isset(WATCH_KINDS[$x['kind']])
-            && is_string($x['key'] ?? null) && is_int($x['at'] ?? null) && is_int($x['until'] ?? null) && is_int($x['time'] ?? null)
+            && is_string($x['key'] ?? null) && is_int($x['at'] ?? null) && (!array_key_exists('until', $x) || is_int($x['until'])) && is_int($x['time'] ?? null)
             && is_array($x['p'] ?? null) && is_string($x['note'] ?? '')) {
             $out[] = $x + ['last' => $x['time'], 'count' => 1, 'note' => ''];
         }
@@ -9229,16 +9301,15 @@ function watchmanIncidents(string $dir): array
 
 /**
  * Louder after a serious incident: an entry new in this round ($before: the ids the round began with) of a kind and
- * source acknowledged as serious within WATCH_SERIOUS_DAYS is important (told at once, joins chains) and stays open even
- * when he would note it by himself (`again`: the incident's id). An entry already noted by the page is left alone.
+ * source on his list of serious incidents is important (told at once, joins chains) and stays open even when he would
+ * note it by himself (`again`: the incident's id) — as long as the incident is on the list, those recorded before
+ * 2026-11-20 too (their 30 days over or not). An entry already noted by the page is left alone.
  */
 function watchmanSeriousAgain(array &$book, array $before, array $incidents, int $now): int
 {
     $hot = [];
     foreach ($incidents as $x) {
-        if ($x['until'] > $now) {
-            $hot[$x['kind'] . "\0" . $x['key']] = $x['id'];
-        }
+        $hot[$x['kind'] . "\0" . $x['key']] = $x['id'];
     }
     $n = 0;
     foreach ($book as $i => $e) {
@@ -9901,13 +9972,14 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
                    'noted' => $e['noted'] ?? null, 'by' => $e['by'] ?? null, 'told' => $e['told'] ?? null, 'muted' => $e['muted'] ?? null,
                    'night' => !empty($e['night']), 'serious' => isset($e['serious']), 'again' => isset($e['again'])];
     }
-    // his history of serious incidents, newest first: the entry as it was, the note, until when the same is louder
+    // his history of serious incidents, newest first: the entry as it was, the note; each makes the same louder while it is
+    // there (`louder` and `until` stay for a page of 1.94 still open after the update)
     $incidents = [];
     foreach (array_reverse(watchmanIncidents($dir)) as $x) {
         $incidents[] = ['id' => $x['id'], 'kind' => $x['kind'], 'group' => WATCH_KINDS[$x['kind']][0], 'attack' => WATCH_ATTACK[$x['kind']] ?? null,
                         'v' => watchmanEntryVariant($x), 'time' => $x['time'], 'last' => (int) $x['last'], 'count' => (int) $x['count'],
                         't' => watchmanText($x), 'p' => array_filter($x['p'], fn ($k) => !str_starts_with((string) $k, '_'), ARRAY_FILTER_USE_KEY),
-                        'at' => $x['at'], 'until' => $x['until'], 'louder' => $x['until'] > $now, 'note' => (string) $x['note'],
+                        'at' => $x['at'], 'until' => $x['until'] ?? null, 'louder' => true, 'note' => (string) $x['note'],
                         'again' => count(array_filter($d['book'], fn ($e) => ($e['again'] ?? null) === $x['id']))];
     }
     usort($book, fn ($x, $y) => [$y['last'], $y['time']] <=> [$x['last'], $x['time']]);
@@ -9949,7 +10021,7 @@ function watchmanPageState(?string $dir = null, ?int $now = null, bool $write = 
         // the last night shift (the array stopped, or from boot to the array's start): from, until, from which mirror
         'night'    => is_array($st['night'] ?? null) && isset($st['night']['until']) ? array_map(fn ($v) => is_int($v) ? $v : (string) $v, $st['night']) : null,
         'limits'   => ['every' => WATCH_EVERY, 'burst' => WATCH_FAIL_BURST, 'window' => WATCH_FAIL_WINDOW,
-                       'quiet' => WATCH_NOTIFY_QUIET, 'keep' => WATCH_BOOK_MAX, 'days' => WATCH_BOOK_DAYS, 'serious_days' => WATCH_SERIOUS_DAYS],
+                       'quiet' => WATCH_NOTIFY_QUIET, 'keep' => WATCH_BOOK_MAX, 'days' => WATCH_BOOK_DAYS],
     ];
     if ($write && is_dir(DATA_DIR)) {
         writeAtomic(deskFile('watchman'), jsonEncode($state));

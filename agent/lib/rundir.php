@@ -97,7 +97,7 @@ const RUNDIR_FILES = [
     'partner'                     => ['max' => 3 << 20, 'large' => 'the door\'s own log while the array is stopped (no data folder then): door.log 1 MB + .1; locks, records of a few fields', 'bound' => 'PARTNER_RECORD_MAX', 'gone' => 'at unpair; agent.sh at an array stop'],
     'partner/door-(\d+)\.json'     => ['max' => 4096, 'bound' => 'one record', 'gone' => 'the door at its end; runDirSweep() once it is gone', 'pid' => true],
     'usonet'                      => ['max' => 1 << 20, 'bound' => 'usonet.log and helper.log ≤ 256 KB each (usonet.sh trim_log every minute), status per tailnet peer', 'gone' => 'leave'],
-    'fan[b]oy'                    => ['max' => 1 << 20, 'bound' => 'the fan desk\'s journal and state (its own audit; the desk keeps its name out of core files)', 'gone' => 'the fan desk'],
+    'fan[b]oy'                    => ['max' => 2 << 20, 'large' => 'the fan desk\'s history of every zone and each of its curves: 531 KB at the most its setup allows (8 zones, each with 8 kinds of heat source, 3 days — measured by its history test), and twice that for the moment writeAtomic() holds the new copy beside the old one, once a minute; a server with two zones holds under 100 KB', 'bound' => 'the fan desk\'s journal and state (its own audit; the desk keeps its name out of core files): its history at most 1460 points and 864 curve rows a zone, 8 zones', 'gone' => 'the fan desk'],
 ];
 
 /*

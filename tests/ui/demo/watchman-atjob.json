@@ -1546,8 +1546,7 @@
   "window": 600,
   "quiet": 3600,
   "keep": 500,
-  "days": 90,
-  "serious_days": 30
+  "days": 90
  },
  "incidents": [
   {
@@ -1601,7 +1600,7 @@
    },
    "at": 1787329874,
    "until": 1789921874,
-   "louder": false,
+   "louder": true,
    "note": "Pulled by mistake from a forum post; removed",
    "again": 0
   }
