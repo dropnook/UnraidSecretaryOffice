@@ -581,6 +581,11 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
             if ($offOk && fanboyCurveNeverZero($z, $cpu)) {
                 [$offOk, $offWhy] = [false, 'curve_never_zero'];
             }
+            // 2026-11-20 (Q3): a fan whose measuring saw it take longer to start from standing (start_secs, the longest
+            // try that passed) is held at its start value that long + 2 s (never under FANBOY_KICK), and the stand clock
+            // waits for its kicks: max(FANBOY_STAND_AFTER, FANBOY_KICK_MAX × its kick + 5). Without start_secs: as before.
+            $startSecs = is_numeric($m['start_secs'] ?? null) && (float) $m['start_secs'] > 0 ? (float) $m['start_secs'] : null;
+            $kick = $startSecs === null ? FANBOY_KICK : max(FANBOY_KICK, $startSecs + 2);
             $fans[$id] = [
                 'id' => $id, 'zone' => $z['id'], 'chip' => $f['chip'], 'address' => $f['address'], 'output' => $f['output'],
                 'tachs' => array_values(array_filter(is_array($f['tachs'] ?? null) ? $f['tachs'] : [$f['tach']], 'is_int')),
@@ -588,7 +593,8 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 'table' => $m['table'] ?? null, 'floor' => $floor,
                 // round 9 (H1): a fan that needed a kick to start at its value before starts above it; round 12: from
                 // standstill as measured; round 14: a hub's margin (fanboyFanPlan())
-                'start' => $start,
+                'start' => $start, 'kick_secs' => $kick,
+                'stand_after' => $startSecs === null ? FANBOY_STAND_AFTER : max(FANBOY_STAND_AFTER, FANBOY_KICK_MAX * $kick + 5),
                 'off_ok' => $offOk, 'off_why' => $offWhy, 'cpu' => $cpu,
                 // «give back» (part 3): the owner's choice for a fan found on a fixed value — 'auto' gives the chip's mode
                 'back' => $cpu ? 'auto' : (in_array($f['back'] ?? null, FANBOY_BACKS, true) ? $f['back'] : FANBOY_BACK_DEFAULT), 'auto' => null,
@@ -1171,7 +1177,7 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
         if ($rpms && !in_array(0, $rpms, true) && !in_array(null, $rpms, true)) {
             $c['fans'][$id]['kicks'] = 0;
         }
-        if ($zero && $now - $c['fans'][$id]['zero_since'] >= FANBOY_STAND_AFTER) {
+        if ($zero && $now - $c['fans'][$id]['zero_since'] >= ($f['stand_after'] ?? FANBOY_STAND_AFTER)) {
             // round 4 (the owner): the alarm acts where it is — this fan and the other fans of ITS zone to 100 %
             $reasons['stands'] = ['fan' => fanboyFanLabel($f), 'zone' => $z['name'], 'zid' => $zid, 'alone' => count($z['fans']) === 1];
             $c['full_since'][$zid] = $now;
@@ -1466,7 +1472,7 @@ function fanboyCpuStand(array &$c, array $z, string $id, float $now, bool $alarm
     return $f['standing'];
 }
 
-/** Writes a fan's percentage when its value changed: from standing, its start value for FANBOY_KICK seconds first */
+/** Writes a fan's percentage when its value changed: from standing, its start value for its kick (FANBOY_KICK, or longer by its start_secs) first */
 function fanboyApply(array &$c, string $id, float $now): void
 {
     $f = $c['fans'][$id];
@@ -1476,7 +1482,7 @@ function fanboyApply(array &$c, string $id, float $now): void
     } elseif ($f['kick_until'] !== null) {
         $c['fans'][$id]['kick_until'] = null;
     } elseif ($pct > 0 && $pct < $f['start'] && ($f['value'] === 0 || ($f['rpm'] === 0 && $f['tachs'])) && ($f['kicks'] ?? 0) < FANBOY_KICK_MAX) {
-        $c['fans'][$id]['kick_until'] = $now + FANBOY_KICK;       // standing (off, or stalled): kicked at its start value
+        $c['fans'][$id]['kick_until'] = $now + ($f['kick_secs'] ?? FANBOY_KICK);       // standing (off, or stalled): kicked at its start value
         $c['fans'][$id]['kicks'] = ($f['kicks'] ?? 0) + 1;         // … a few times at most: then it stands, said by the alarm
         $pct = max($pct, $f['start']);
     }

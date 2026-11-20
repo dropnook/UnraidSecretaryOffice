@@ -264,11 +264,6 @@ parameters:
 			count: 1
 			path: agent/desks/restore-partner.php
 
-		-
-			message: '#^Offset ''do'' on array\{do\: ''mount'', dataset\: non\-falsy\-string, path\: string\}\|array\{do\: ''pull_local'', source\: non\-falsy\-string, dataset\: non\-falsy\-string, parent\: non\-falsy\-string\|null, mount\: string, pair\: non\-falsy\-string, partner\: mixed, unit\: non\-falsy\-string, \.\.\.\}\|array\{do\: ''start_from'', kind\: ''look'', to\: null, mount\: string, partner\: mixed, templates\: string, libvirt\: string\}\|array\{only\?\: list\<mixed\>, do\: ''start_from'', kind\: ''share'', to\: mixed, mount\: string, partner\: mixed, templates\: string, libvirt\: string\}\|array\{skip\?\: non\-empty\-list\<mixed\>, do\: ''copy'', from\: string, to\: mixed, into_empty\: true, replaces\: true, putback_to\: non\-falsy\-string, partner\: mixed\}\|array\{to\: mixed, do\: ''start_from'', kind\: ''app'', name\: string, partner\: mixed, mount\: string, libvirt\: string, templates\: string\}\|array\{to\: mixed, do\: ''start_from'', kind\: ''vm'', name\: string, define\: bool, define_why\: ''start_vm_exists''\|''start_vm_service_off''\|null, partner\: mixed, mount\: string, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: agent/desks/restore-partner.php
 
 		-
 			message: '#^Offset string on non\-empty\-array\<string, array\{kind\: ''dir''\|''file'', bases\: list\<string\>\}\> in isset\(\) always exists and is not nullable\.$#'

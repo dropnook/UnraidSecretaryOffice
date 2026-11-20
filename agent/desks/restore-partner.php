@@ -1245,7 +1245,8 @@ function rspPlaceSnaps(): array
  *      read-only under /mnt/addons/UnraidSecretaryOffice/restored/ like a pull - the partner's dataset and its snapshots
  *      stay exactly as they were; from there it is a moment «pulled from <partner>» for his files restores too;
  *   2. then his normal steps from that moment: a share → into the share, which the user made in Unraid first (he never
- *      creates a share: missing = said, with the way); a VM → the files into domains/<vm> (or beside, the user's
+ *      creates a share: missing = said, with the way) — empty: all of it; holding data already: only the ticked apps'
+ *      and VMs' own folders that aren't there, nothing else of it (rspPlanInto, 2026-11-20); a VM → the files into domains/<vm> (or beside, the user's
  *      choice when the folder is taken) and, when the copy carries its configuration (engine 2.43: .uso-backup inside),
  *      the definition from it - XML with the disk paths pointed at the new folder, UEFI variables and TPM state put in
  *      place where nothing is yet; a VM of that name here = the definition refused, said in the preflight; an app (a
@@ -1255,7 +1256,8 @@ function rspPlaceSnaps(): array
  *      definition, the files put (aside, never deleted), the copy - never the partner's dataset.
  *
  * The preflight (the dialog) names the target and every conflict before anything runs: a taken folder offers «Cancel -
- * I'll tidy up first» or «Beside as <name>.from-<partner>» (a share with data: only the copy, then «Restore…» per folder);
+ * I'll tidy up first» or «Beside as <name>.from-<partner>» (a share with data: each app's or VM's folder that is here
+ * stays and is named, the others come; only the copy, then «Restore…» per folder, stays the way out);
  * a missing share says to make it under ⟦Shares⟧ first. Everything here acts on this office's own pools only, never
  * through the door, never at the partner.
  */
@@ -1556,8 +1558,10 @@ function rspKeptPeek(): int
 /**
  * Kind `partner_start`: {pair, unit, snap, beside?} - the preflight. Steps: pull_local (the independent copy), mount,
  * then for a VM or a share whose folder is free: copy (the files into their place) and start_from (what the copy's
- * .uso-backup allows: the VM's definition, an app's template); a share holding data with `beside`: only the copy
- * (then «Restore…» per folder from that moment). Every conflict is a blocker the dialog turns into the two choices.
+ * .uso-backup allows: the VM's definition, an app's template); a share holding data: per ticked app or VM its own
+ * folder where nothing is (rspPlanInto), nothing else of the share — with `beside`: only the copy (then «Restore…»
+ * per folder from that moment). Every conflict is said; one that leaves nothing to do is a blocker the dialog turns
+ * into the two choices.
  */
 function rsPlanPartnerStart(array $r, string $stamp): array
 {
@@ -1582,7 +1586,7 @@ function rsPlanPartnerStart(array $r, string $stamp): array
     $kind = $unit === 'place' ? 'place' : (str_starts_with($unit, 'vm:') ? 'vm' : (str_starts_with($unit, 'app:') ? 'app' : 'share'));
     $plan['options'] = ['kind' => $kind, 'beside' => $beside, 'conflict' => null, 'found' => []];
     // 1.60.1: a share's copy - the apps and VMs it carries, to pick from (default: all); `only` the folders ticked
-    $only = is_array($r['only'] ?? null) ? array_values(array_filter($r['only'], fn ($x) => is_string($x) && preg_match(RS_NAME_PATTERN, $x))) : null;
+    $only = is_array($r['only'] ?? null) ? array_values(array_filter($r['only'], fn ($x) => is_string($x) && preg_match(RSP_FOLDER_RE, $x))) : null;
     if ($kept['asleep']) {
         $plan['blockers'][] = ['key' => 'restore_partner_pool', 'params' => ['pool' => $kept['pool']]];
         return $plan;
@@ -1653,6 +1657,7 @@ function rsPlanPartnerStart(array $r, string $stamp): array
     $user = rspUserRoot();
     $shares = rspSharesHere();
     $to = null;
+    $into = null;
     if ($kind === 'place') {
         // the backup place of the partner: only the copy - his packages can read it as a pulled place (rsPlacePulled)
         $plan['after'][] = ['key' => 'after.partner_place', 'params' => ['path' => $mnt, 'name' => $name]];
@@ -1664,15 +1669,14 @@ function rsPlanPartnerStart(array $r, string $stamp): array
             return $plan;
         }
         $state = rspFolderState("$user/$share");
-        if ($state === 'data') {
+        if ($state === 'data' && !$beside) {
+            // 2026-11-20: into the share as it is — only the ticked apps' and VMs' own folders that aren't here
+            $into = rspPlanInto($plan, $steps, ['user' => $user, 'share' => $share, 'mnt' => $mnt, 'partner' => $name, 'snapshot' => "{$u['dataset']}@$snap", 'bytes' => $bytes]);
+        } elseif ($state === 'data') {
             $plan['options']['conflict'] = ['path' => "$user/$share", 'kind' => 'share', 'beside_as' => null];
-            if (!$beside) {
-                $plan['blockers'][] = ['key' => 'restore_partner_start_exists', 'params' => ['path' => "$user/$share"]];
-            } else {
-                $plan['notes'][] = ['key' => 'note.partner_start_copy_only', 'params' => ['path' => "$user/$share", 'name' => $name]];
-                $steps[] = ['do' => 'start_from', 'kind' => 'look', 'to' => null, 'mount' => $mnt, 'partner' => $name, 'templates' => rspTemplates(), 'libvirt' => rspLibvirt()];
-                $plan['after'][] = ['key' => 'after.partner_start_copy_only', 'params' => ['path' => "$user/$share", 'name' => $name]];
-            }
+            $plan['notes'][] = ['key' => 'note.partner_start_copy_only', 'params' => ['path' => "$user/$share", 'name' => $name]];
+            $steps[] = ['do' => 'start_from', 'kind' => 'look', 'to' => null, 'mount' => $mnt, 'partner' => $name, 'templates' => rspTemplates(), 'libvirt' => rspLibvirt()];
+            $plan['after'][] = ['key' => 'after.partner_start_copy_only', 'params' => ['path' => "$user/$share", 'name' => $name]];
         } else {
             $to = "$user/$share";
             if ($state === 'empty') {
@@ -1807,12 +1811,171 @@ function rsPlanPartnerStart(array $r, string $stamp): array
     }
     $plan['after'][] = ['key' => 'after.partner_start_keep', 'params' => ['name' => $name]];
     $free = rspPoolFree($pool);
-    $plan['sizes'] = ['need' => $need, 'free' => $free, 'measuring' => false, 'compresses' => true];
-    if ($free !== null && $need > $free * 0.95) {
-        $plan['blockers'][] = ['key' => 'restore_no_space', 'params' => ['need' => $need, 'free' => $free]];
+    // into a share with data: what really comes (rspPlanInto) needs room where Unraid puts it — on the copy's pool the two together
+    $intoNeed = (int) ($into['need'] ?? 0);
+    $intoSpace = $intoNeed > 0 ? rspShareFree($label) : null;
+    $samePool = $intoSpace !== null && $intoSpace['pool'] === $pool;
+    $plan['sizes'] = ['need' => $need + $intoNeed, 'free' => $free, 'measuring' => false, 'compresses' => true];
+    if ($free !== null && $need + ($samePool ? $intoNeed : 0) > $free * 0.95) {
+        $plan['blockers'][] = ['key' => 'restore_no_space', 'params' => ['need' => $need + ($samePool ? $intoNeed : 0), 'free' => $free]];
+    }
+    if ($intoSpace !== null && !$samePool && $intoSpace['free'] !== null && $intoNeed > $intoSpace['free'] * 0.95) {
+        $plan['blockers'][] = ['key' => 'restore_no_space', 'params' => ['need' => $intoNeed, 'free' => $intoSpace['free']]];
     }
     $plan['downtime'] = 0;
     return $plan;
+}
+
+/** A folder name of a partner's share copy that may come into a share here (an app's or VM's own folder: Unraid's VM names may hold spaces) */
+const RSP_FOLDER_RE = '/^[A-Za-z0-9][A-Za-z0-9 _.@+-]{0,127}$/D';
+
+/**
+ * «Start here…» of a share's copy into a share that is here and holds data (2026-11-20, the owner: «the SAP VM straight
+ * into domains — domains is here, of course; the VM isn't»). Nothing of the share as such comes — no loose file of its
+ * root, no folder of an app or VM not ticked: per TICKED app or VM its own folder <share>/<folder>, only where nothing is
+ * (absent or empty), copied from the independent copy (`copy`, the same rsync, its undo puts it aside) and set up from it
+ * (`start_from` of that folder alone: the VM's definition, the app's template or stack — as into an empty share). Never
+ * over anything: a folder that is here stays as it is; a VM of the same name defined here is refused (its disks don't
+ * come either — no orphaned copy beside a VM that is there); a name that can't be a folder of his: left out. Each said
+ * by name; none can come = blocked, the ways out as before (cancel, only the copy). What comes is measured inside the
+ * read-only copy (rspPeekSizes); not measurable: the whole share counted, said. Returns ['need' => bytes].
+ *
+ * @param array{user:string, share:string, mnt:string, partner:string, snapshot:string, bytes:int} $a
+ */
+function rspPlanInto(array &$plan, array &$steps, array $a): array
+{
+    $to = "{$a['user']}/{$a['share']}";
+    $states = array_key_exists('vm_states', $GLOBALS['rs'] ?? []) ? $GLOBALS['rs']['vm_states'] : rsVmStates();
+    $plan['options']['into'] = $to;
+    $comes = $stays = [];
+    foreach ($plan['options']['found'] as $k => $f) {
+        if (!$f['on']) {
+            continue;
+        }
+        $folder = (string) $f['folder'];
+        $dest = "$to/$folder";
+        $why = !preg_match(RSP_FOLDER_RE, $folder) ? 'odd'
+            : (rspFolderState($dest) === 'data' ? 'exists'
+            : ($f['kind'] === 'vm' && is_array($states) && isset($states[$f['name']]) ? 'vm_defined' : null));
+        $plan['options']['found'][$k]['here'] = $why ?? 'comes';
+        $plan['options']['found'][$k]['to'] = $dest;
+        if ($why === null) {
+            $comes[] = $f + ['to' => $dest];
+        } else {
+            $stays[] = $f + ['why' => $why];
+        }
+    }
+    $plan['target']['came'] = array_column($comes, 'name');
+    $plan['target']['stayed'] = array_column($stays, 'name');
+    if (!$comes) {
+        // nothing can come: blocked as before — cancel, or only the copy (then «Restore…» per folder)
+        $plan['options']['conflict'] = ['path' => $to, 'kind' => 'share', 'beside_as' => null];
+        $plan['blockers'][] = $stays
+            ? ['key' => 'restore_partner_start_none', 'params' => ['path' => $to, 'names' => implode(', ', array_column($stays, 'name'))]]
+            : ['key' => 'restore_partner_start_exists', 'params' => ['path' => $to]];
+        return ['need' => 0];
+    }
+    if ($stays) {
+        $plan['options']['conflict'] = ['path' => $to, 'kind' => 'share', 'beside_as' => null];      // its ways out offered beside
+        $plan['notes'][] = ['key' => 'note.partner_start_into_stays', 'params' => ['path' => $to, 'names' => implode(', ', array_column($stays, 'name'))], 'warn' => true];
+    }
+    $plan['notes'][] = ['key' => 'note.partner_start_into', 'params' => ['path' => $to, 'names' => implode(', ', array_column($comes, 'name'))]];
+    $vmsOff = [];
+    foreach ($comes as $f) {
+        $steps[] = ['do' => 'copy', 'from' => "{$a['mnt']}/{$f['folder']}", 'to' => $f['to'], 'into_empty' => true, 'replaces' => true, 'putback_to' => "{$f['to']}.putback-{T}",
+                    'partner' => $a['partner'], 'tops' => [$a['mnt']], 'within' => $to];
+        $start = ['do' => 'start_from', 'kind' => $f['kind'], 'name' => $f['name'], 'to' => $f['to'], 'mount' => $a['mnt'], 'partner' => $a['partner'],
+                  'libvirt' => rspLibvirt(), 'templates' => rspTemplates()];
+        if ($f['kind'] === 'vm') {
+            $start += ['define' => is_array($states), 'define_why' => is_array($states) ? null : 'start_vm_service_off'];
+            if (!is_array($states)) {
+                $vmsOff[] = $f['name'];
+            }
+        }
+        $steps[] = $start;
+        $plan['aside'][] = ['what' => 'started', 'from' => "{$a['partner']}: {$f['name']}", 'to' => $f['to']];
+    }
+    if ($vmsOff) {
+        $plan['notes'][] = ['key' => 'note.partner_start_vm_service_off', 'params' => ['name' => implode(', ', $vmsOff)], 'warn' => true];
+    }
+    $plan['after'][] = ['key' => 'after.partner_start_into', 'params' => ['path' => $to, 'names' => implode(', ', array_column($comes, 'name'))]];
+    if ($stays) {
+        $plan['after'][] = ['key' => 'after.partner_start_into_stayed', 'params' => ['path' => $to, 'names' => implode(', ', array_column($stays, 'name'))]];
+    }
+    // what comes takes about what it holds in the copy, uncompressed (holes stay holes: rsync --sparse)
+    $sizes = rspPeekSizes($a['snapshot'], array_column($comes, 'folder'));
+    if ($sizes === null) {
+        $plan['notes'][] = ['key' => 'note.partner_start_into_unmeasured', 'params' => ['bytes' => $a['bytes']]];
+        return ['need' => $a['bytes']];
+    }
+    $ratio = rsSnapRatios([$a['snapshot']])[$a['snapshot']] ?? 1.0;
+    return ['need' => (int) ceil(array_sum($sizes) * $ratio)];
+}
+
+/**
+ * The room of a share here where Unraid puts something new (rsShareSpace: disks.ini, no disk touched): {pool, free};
+ * null when not known. $GLOBALS['rs']['share_free'] for the tests.
+ */
+function rspShareFree(string $share): ?array
+{
+    if (isset($GLOBALS['rs']['share_free'])) {
+        return ($GLOBALS['rs']['share_free'])($share);
+    }
+    $ctx = $GLOBALS['rs']['ctx'] ?? rsContext(backupReadSettings(rsUbData() . '/settings.ini'));
+    $sp = rsShareSpace($share, $ctx);
+    return ['pool' => (string) $sp['primary'], 'free' => $sp['free']];
+}
+
+/**
+ * How much the folders of a kept moment hold: its snapshot mounted read-only for a moment (RUN_DIR, as rspPeek()), `du`
+ * over exactly these folders (bytes on disk, no link followed, one file system), unmounted again. Bounded in time: a
+ * folder of very many files isn't waited for — null (not measured), as when anything fails. $GLOBALS['rs']['peek_sizes'].
+ *
+ * @return array<string,int>|null folder => bytes
+ */
+function rspPeekSizes(string $snapshot, array $folders): ?array
+{
+    $folders = array_values(array_filter($folders, fn ($f) => is_string($f) && preg_match(RSP_FOLDER_RE, $f)));
+    if (isset($GLOBALS['rs']['peek_sizes'])) {
+        return ($GLOBALS['rs']['peek_sizes'])($snapshot, $folders);
+    }
+    if (!$folders) {
+        return [];
+    }
+    $dir = rsPeekDir('k' . bin2hex(random_bytes(4)));
+    if (!@mkdir($dir, 0700)) {
+        return null;
+    }
+    $mounted = false;
+    try {
+        if (run([partnerBin('mount') ?? 'mount', '-t', 'zfs', '-o', RSP_MOUNT_OPTIONS, $snapshot, $dir], 60)[0] !== 0) {
+            return null;
+        }
+        $mounted = true;
+        $paths = [];
+        foreach ($folders as $f) {
+            if (is_link("$dir/$f") || !is_dir("$dir/$f")) {
+                return null;                      // a link in the partner's copy: never measured through (the copy refuses it too)
+            }
+            $paths[] = "$dir/$f";
+        }
+        [$exit, $out] = run(array_merge(['du', '-s', '-x', '-B1', '--'], $paths), 20);
+        if ($exit !== 0) {
+            return null;
+        }
+        $sizes = [];
+        foreach (explode("\n", trim($out)) as $line) {
+            if (preg_match('/^(\d+)\t(.+)$/D', $line, $m) && str_starts_with($m[2], "$dir/")) {
+                $sizes[substr($m[2], strlen($dir) + 1)] = (int) $m[1];
+            }
+        }
+        return count($sizes) === count($folders) ? $sizes : null;
+    } finally {
+        if ($mounted && run([partnerBin('umount') ?? 'umount', $dir], 60)[0] !== 0) {
+            run([partnerBin('umount') ?? 'umount', '-l', $dir], 60);
+        }
+        @rmdir($dir);
+    }
 }
 
 /**

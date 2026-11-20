@@ -973,7 +973,14 @@ the last 60 history lines only for a source the file has none for. **The file
   it is (no gzip, no copy), never through the mailbox; the dialog says first that it holds the licence key and the password
   hashes. Single files of the flash are never restored — download and copy by hand (`testFlashDownload`). «Kept for
   <partner>» names the apps and VMs inside each copy: read by his look job once per moment (`rspKeptPeek()`), never in a
-  tick, never on a pool asleep. Its share step (`sharefile`) brings one small file from the
+  tick, never on a pool asleep; its list has a filter bar of its own per partner (words, kind, «only with apps or VMs»).
+  «Start here…» of a share's copy into a share that holds data (`rspPlanInto()`, 2026-11-20): only the ticked apps' and
+  VMs' own folders that are absent or empty come — a `copy` each from the read-only copy (`within` the share, its undo
+  aside) and a `start_from` of that folder alone; nothing else of the share (no loose file of its root, no unticked
+  folder); a folder that is here stays, a VM of that name defined here is refused (its disks don't come either), each
+  named in the dialog (`options.found[].here`) and the record (`after`, `target.came`/`stayed`); none can come = blocked,
+  the ways out as before. The room is checked for what comes (measured in the copy, `rspPeekSizes()`; not measurable:
+  the whole share, said), where the share puts it (`rspShareFree()`). Its share step (`sharefile`) brings one small file from the
   newest backup snapshot into a fresh `<share>/.uso-drill-<id>` on an awake pool or disk, compares it, and puts that folder into
   Ms. Dustdevil's storeroom of the share through her helpers (`drillScratchAway()`; she finds it by `drillTrashRoots()`), with
   the verified copy's name, size and sha256 (journal `made[].files`, manifest `drill`) — so it empties itself after 7 days.
