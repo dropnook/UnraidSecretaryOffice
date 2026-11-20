@@ -3447,7 +3447,8 @@
         "defaults": {
           "unit": "none",
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "text"
           },
           "mappings": [],
           "thresholds": {
@@ -3468,8 +3469,8 @@
         "overrides": [
           {
             "matcher": {
-              "id": "byFrameRefID",
-              "options": "A"
+              "id": "byName",
+              "options": "who steers"
             },
             "properties": [
               {
@@ -3496,8 +3497,8 @@
           },
           {
             "matcher": {
-              "id": "byFrameRefID",
-              "options": "B"
+              "id": "byName",
+              "options": "alarm"
             },
             "properties": [
               {
@@ -3608,7 +3609,6 @@
             "pointSize": 4,
             "spanNulls": true,
             "axisPlacement": "auto",
-            "axisSoftMin": 0,
             "stacking": {
               "mode": "none",
               "group": "A"
@@ -3654,6 +3654,10 @@
                     10
                   ]
                 }
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": false
               }
             ]
           }
@@ -3720,7 +3724,7 @@
             "drawStyle": "line",
             "lineInterpolation": "stepAfter",
             "lineWidth": 1,
-            "fillOpacity": 10,
+            "fillOpacity": 0,
             "gradientMode": "none",
             "showPoints": "never",
             "pointSize": 4,
