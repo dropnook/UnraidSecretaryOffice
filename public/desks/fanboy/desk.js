@@ -2077,8 +2077,11 @@ function send(action, body, opts) {
       const text = Office.errorText(j.error, ID);
       Office.toast(text, true);
       said = { text: T('strip.refused', { why: text }), warn: true };
+      // a warmth guard refused it: the override tick is offered for the next start (2026-11-20)
+      if (j.error && j.error.key === 'fanboy_quiet_warm') warmRefused = { where: (j.error.params || {}).what || '', c: num((j.error.params || {}).c) };
       return null;
     }
+    if (STARTS.includes(action)) { warmTick = false; warmRefused = null; }        // the tick counted for this one start
     if (j.state) { state = j.state; stateAt = Date.now(); sawRun(); }
     if (o.done) await o.done(j);
     if (!j.state) await load(true);
@@ -2092,6 +2095,27 @@ function send(action, body, opts) {
   });
   sending = job;
   return job;
+}
+/**
+ * 2026-11-20 (the owner: «ein Haken zum Übersteuern mit Warnung?»): where a warmth guard refused a start or stopped a run
+ * on this visit, one tick lets the NEXT start run without the warmth guards (`warm_ok`, never stored) — a warm server
+ * (an NVMe at 76 °C, a CPU under load) can then still be tested and measured; the user watches it himself
+ */
+const STARTS = ['test_up', 'measure', 'hub_look'];
+let warmRefused = null;         // {where, c} — a start refused for warmth (fanboy_quiet_warm)
+let warmTick = false;
+const warmBody = () => (warmTick ? { warm_ok: true } : {});
+const warmWhere = (w) => srcLabel({ kind: w.kind === 'disk' || w.kind === 'ssd' ? w.kind : 'other', id: w.source || '', label: w.source || '' });
+/** What the guard said on this visit: {where, c} or {none} (no CPU reading) — or null (nothing: no tick offered) */
+function warmSpoke() {
+  if (warmRefused) return warmRefused;
+  const s = step();
+  if (!s || running(s) || !freshEnd(s)) return null;
+  if (s.status === 'stopped' && s.why === 'warm' && s.warm) return s.warm.why === 'no_reading' ? { none: true } : { where: warmWhere(s.warm), c: num(s.warm.c) };
+  if (s.status === 'stopped' && s.why === 'quiet_warm' && s.quiet_stop) return { where: s.quiet_stop.what || '', c: num(s.quiet_stop.c) };
+  const cut = (s.cuts || []).find((c) => ['warm', 'no_reading'].includes(c.why));
+  if (cut) return cut.why === 'no_reading' ? { none: true } : { where: warmWhere(cut), c: num(cut.c) };
+  return null;
 }
 /** «Alles stoppen»: whatever the setup holds goes back — a step, a show, the fans standing for a quiet test */
 function stopAll() {
@@ -2241,7 +2265,8 @@ function stripMake() {
   note.setAttribute('role', 'status');
   note.setAttribute('aria-live', 'polite');
   const words = el('div', 'fb-strip-text');
-  words.append(now, note);
+  const warmEl = el('div', 'fb-warm-ok');
+  words.append(now, note, warmEl);
   const main = el('div', 'fb-strip-main');
   main.append(wave(), words);
   const meterBar = el('span', 'fb-meter-bar');
@@ -2300,7 +2325,20 @@ function stripMake() {
     else if (sends > 0) line = T('busy_wait');
     else if (!run.kind && endedText(s)) { line = endedText(s); warn = true; }
     else if (!run.kind && showEndedText()) { line = showEndedText(); warn = true; }
+    else if (run.kind && s && s.warm_ok) line = T('strip.warm_off');
     else if (run.kind === 'test' || run.kind === 'measure') line = T('strip.keep_open');
+    // the override tick: only where a warmth guard has spoken on this visit, for the next start only
+    const ws = run.kind ? null : warmSpoke();
+    swap(warmEl, [ws, warmTick], () => {
+      if (!ws) return [];
+      const l = el('label', 'fb-check');
+      const c = el('input');
+      c.type = 'checkbox';
+      c.checked = warmTick;
+      c.onchange = () => { warmTick = c.checked; update(); };
+      l.append(c, el('span', '', ws.none ? T('warm.tick_none') : T('warm.tick', { where: ws.where, c: ws.c === null ? '–' : fmt.number(ws.c) })));
+      return [l, el('p', 'fb-warm-note', T(ws.none ? 'warm.note_none' : 'warm.note'))];
+    });
     setText(note, line);
     note.classList.toggle('fb-strip-warn', warn);
     root.classList.toggle('fb-strip-told', warn);
@@ -2580,7 +2618,7 @@ function startTest(list) {
   const ids = list.slice(0, 1);
   if (!ids.length) return null;
   expect({ now: T('strip.starting'), done: () => !!runNow().kind });
-  return send('test_up', { fans: ids, quiet: quietOn() }, { fresh: true });
+  return send('test_up', { fans: ids, quiet: quietOn(), ...warmBody() }, { fresh: true });
 }
 /**
  * A run's ending is said only while it is news (the owner's server, 2026-11-15: an hour-old «did not start again» greeted
@@ -3155,7 +3193,7 @@ const toMeasure = () => measured().filter((id) => { const f = setupFan(id); retu
 function startMeasure(ids) {
   if (!ids.length) return null;
   expect({ now: T('strip.starting_measure'), done: () => !!runNow().kind });
-  return send('measure', { fans: ids }, { fresh: true });
+  return send('measure', { fans: ids, ...warmBody() }, { fresh: true });
 }
 function measureMake() {
   const lp = listPanel({
@@ -3339,7 +3377,7 @@ function measurePanel(id, api) {
       // the look: for one of his with rpm feedback (the agent refuses any other)
       const his = ROLES_OURS.includes(f.role) || (f.role === 'cpu' && !!f.cpu_own);
       if (his && f.found === 'tach') {
-        const b = btn(T(hub.ok || hub.not_safe ? 'hub.look_again' : 'hub.look'), hub.ok || hub.not_safe ? 'btn plain' : 'btn', () => { expect({ now: T('hub.starting'), done: () => !!runNow().kind }); send('hub_look', { fan: id }); }, T('hub.look_tip'));
+        const b = btn(T(hub.ok || hub.not_safe ? 'hub.look_again' : 'hub.look'), hub.ok || hub.not_safe ? 'btn plain' : 'btn', () => { expect({ now: T('hub.starting'), done: () => !!runNow().kind }); send('hub_look', { fan: id, ...warmBody() }); }, T('hub.look_tip'));
         if (busy) offBtn(b, busy);
         out.push(bar(b));
       } else out.push(para(T(his ? 'hub.look_silent' : 'hub.look_bios')));

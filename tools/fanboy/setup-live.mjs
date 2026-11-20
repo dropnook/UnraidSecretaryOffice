@@ -304,6 +304,37 @@ try {
     await ctx.close();
     if (h.close) await h.close();
   }
+  // ------------------------------------------------ the override tick after a warmth stop (2026-11-20)
+  for (const width of opt.widths) {
+    const h = await startHarness({ demo: true, alias: { fanboy: 'fanboy-uxopen' } });
+    const ctx = await browser.newContext({ viewport: { width, height: 900 }, isMobile: width < 768, hasTouch: width < 768, colorScheme: 'dark' });
+    await ctx.addInitScript(() => { try { localStorage.setItem('office.lang', 'en'); } catch (e) { /* none */ } });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(`${h.url}?theme=black#/fanboy/setup/test`, { waitUntil: 'load' });
+    await page.waitForSelector('#sso .fb-panel', { timeout: 15000 });
+    const api = await page.evaluate(() => document.querySelector('script[src*="assets/core.js"]').src.replace(/assets\/core\.js.*$/, 'api.php'));
+    const base = (await (await fetch(`${api}?a=state&desk=fanboy`)).json()).state;
+    const tick = '#sso .fb-strip .fb-warm-ok input[type=checkbox]';
+    check(`${width} warm ok: no warmth guard has spoken — no tick`, !(await page.$(tick)), '');
+    const ids = base.setup.outputs;
+    h.setState('fanboy', { ...base, step: { id: 'w1', kind: 'measure', fans: [ids[3]], status: 'stopped', why: 'warm', warm: { source: 'Composite', kind: 'nvme', c: 76, limit: 80 },
+      current: null, done: [], results: {}, progress: null, at: base.time - 5, begun: base.time - 60 } });
+    await page.waitForTimeout(5600);
+    const text = await page.evaluate(() => (document.querySelector('#sso .fb-strip .fb-warm-ok') || {}).textContent || '');
+    check(`${width} warm ok: measuring stopped for warmth — the tick is offered, naming the source and its °C, with its note`, !!(await page.$(tick)) && text.includes('76') && text.includes(EN['warm.tick'].split('{')[0].trim()), text);
+    await page.click(tick);
+    await page.click(`#sso .fb-item[data-row="${ids[5]}"]`);
+    await page.click('#sso .fb-panel-slot .fb-panel-acts .btn:not(.plain)');
+    await page.waitForTimeout(800);
+    const start = h.posts.filter((x) => x.action === 'fanboy.test_up').pop();
+    check(`${width} warm ok: ticked, the next start carries warm_ok`, !!start && start.data.warm_ok === true, JSON.stringify(start && start.data));
+    check(`${width} warm ok: … and the tick is gone after that start (it counted for that one)`, !(await page.evaluate(() => { const c = document.querySelector('#sso .fb-strip .fb-warm-ok input'); return c && c.checked; })), '');
+    check(`${width} warm ok: no error`, !errors.length, errors.join(' | '));
+    await ctx.close();
+    if (h.close) await h.close();
+  }
   // ------------------------------------------------ the places and the look (2026-11-20, the owner's points 3 and 4)
   for (const width of opt.widths) {
     const h = await startHarness({ demo: true, alias: { fanboy: 'fanboy-uxfound' } });

@@ -306,6 +306,9 @@
   .fb-fold > summary{cursor:pointer; color:var(--accent-ink); font-size:13px; padding:2px 0}
   .fb-fold-body{display:flex; flex-direction:column; gap:8px; margin-top:8px}
   .fb-look-open{border-top:1px solid var(--line); padding-top:12px}
+  .fb-warm-ok:empty{display:none}
+  .fb-warm-ok{margin-top:8px}
+  .fb-warm-note{margin:4px 0 0; font-size:12.5px; line-height:1.45; color:var(--ink2)}
   .fb-panel-save{display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; border-top:1px solid var(--line); padding-top:12px; min-height:34px}
   .fb-panel-save:empty{display:none}
   .fb-save-dirty{font-size:12.5px; color:var(--ink2)}

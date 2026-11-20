@@ -454,6 +454,17 @@ function fanboyStepWrite(array $s): void
     writeAtomic(fanboyStepFile(), jsonEncode($s), 0644, 0, 0);
 }
 
+/**
+ * 2026-11-20 (the owner: «und wenn jemand deswegen die Lüfter nicht einstellen und nicht vermessen kann? ein Haken zum
+ * Übersteuern mit Warnung?»): a step started with the user's tick `warm_ok` — for that ONE run no warmth guard refuses
+ * or stops it (fanboyStepWarm(), the quiet test's CPU start/stop/rise, a CPU cooler's «no reading»); the page-gone lease,
+ * the ceiling, the restart check after a quiet phase and every give-back stay. Never stored in the settings.
+ */
+function fanboyWarmOff(array $io): bool
+{
+    return ($io['warm_ok'] ?? false) === true;
+}
+
 /** The page's sign of life while a step runs (step_alive, every start of a step) */
 function fanboyStepAliveTouch(): void
 {
@@ -551,7 +562,7 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool 
     $tachsBefore = [];
     $others = [];
     if ($quiet) {
-        if (($warm = fanboyQuietWarm()) !== null) {
+        if (!fanboyWarmOff($io) && ($warm = fanboyQuietWarm()) !== null) {
             throw new FanboyQuietWarm($warm);
         }
         $tachsBefore = fanboyAllTachs();
@@ -615,7 +626,7 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool 
                 throw new FanboyStepStop('unanswered');
             }
             // round 8 (G1): every look of the quiet phase — too warm: everything back at once (finally), the test stops
-            if ($quiet && ($warm = fanboyQuietWarm($cpuStart ?? -INF)) !== null) {
+            if ($quiet && !fanboyWarmOff($io) && ($warm = fanboyQuietWarm($cpuStart ?? -INF)) !== null) {
                 throw new FanboyQuietWarm($warm);
             }
             // round 5 (forum 3.2): about 2 s after the write, read it back — a value or mode changed back is the BIOS
@@ -857,7 +868,7 @@ function fanboyMeasure(array $o, array $tachs, array $owner, array $io, string $
         $steady = 100;
         $stalledAt = null;
         foreach (FANBOY_MEASURE_STEPS as $pct) {
-            if (($warm = fanboyStepWarm(fanboyBoardRaw())) !== null) {
+            if (!fanboyWarmOff($io) && ($warm = fanboyStepWarm(fanboyBoardRaw())) !== null) {
                 fanboySet($o['id'], FANBOY_FULL, $owner);
                 return ['result' => 'warm', 'warm' => $warm, 'table' => $table];
             }
@@ -949,7 +960,7 @@ function fanboyStandstill(array $o, array $tachs, array $owner, array $io, int $
     fanboyStepWarm(fanboyBoardRaw(), $seen);
     $t0 = ($io['now'])();
     $warm = function () use ($o, $owner, $cpuGuard, $seen, $io, &$t0): ?array {
-        $w = fanboyStepWarm(fanboyBoardRaw()) ?? ($cpuGuard !== null ? $cpuGuard() : null);
+        $w = fanboyWarmOff($io) ? null : (fanboyStepWarm(fanboyBoardRaw()) ?? ($cpuGuard !== null ? $cpuGuard() : null));
         if ($w !== null) {
             fanboySet($o['id'], FANBOY_FULL, $owner);
             $w += ['from' => $seen[$w['source']] ?? null, 'stood' => (int) round(($io['now'])() - $t0)];
@@ -1106,6 +1117,10 @@ function fanboyStepRun(array $step, array $io): array
     $step = ['status' => 'running', 'pid' => $owner['pid'], 'start' => $owner['start'], 'done' => [], 'results' => [], 'why' => null] + $step;
     @unlink(fanboyStepNextFile());          // round 11: nothing of an earlier step counts here
     $io['step_id'] = is_string($step['id'] ?? null) ? $step['id'] : null;
+    $io['warm_ok'] = ($step['warm_ok'] ?? false) === true;          // the user's tick: this run without the warmth guards
+    if ($io['warm_ok']) {
+        logLine("Fanboy: setup step {$step['kind']} runs with the warmth guard off (the user's tick, this run only)");
+    }
     fanboyStepWrite($step);
     try {
         foreach ($step['fans'] as $id) {
@@ -1234,7 +1249,7 @@ function fanboyStepRun(array $step, array $io): array
         @unlink(fanboyStepNextFile());                      // round 11: never left for the next run
         $step['current'] = null;
         fanboyStepWrite($step);
-        logLine("Fanboy: setup step {$step['kind']} {$step['status']}" . ($step['why'] ? " ({$step['why']})" : '') . ' — ' . count($step['done']) . ' of ' . count($step['fans'])
+        logLine("Fanboy: setup step {$step['kind']} {$step['status']}" . ($step['why'] ? " ({$step['why']})" : '') . (!empty($step['warm_ok']) ? ' [warmth guard off]' : '') . ' — ' . count($step['done']) . ' of ' . count($step['fans'])
             . ' outputs' . ($back ? ', ' . count($back) . ' given back at the end' : ''));
     }
     return $step;
@@ -1307,10 +1322,10 @@ function fanboyHubLook(array $o, array $f, array $owner, array $io, string $boar
     if (fanboyTake($o, $owner, $boardKey) === null) {
         return ['result' => 'busy'];
     }
-    // a CPU cooler under cpu_own: its own guard, smoothed (round 12 fix: fanboyCpuGuard())
+    // a CPU cooler under cpu_own: its own guard — no CPU reading (fanboyCpuGuard()); none of them with the user's tick
     $cpuGuard = fanboyCpuOwn($f) ? fanboyCpuGuard($io) : null;
-    $warm = function () use ($o, $owner, $cpuGuard): ?array {
-        $w = fanboyStepWarm(fanboyBoardRaw()) ?? ($cpuGuard !== null ? $cpuGuard() : null);
+    $warm = function () use ($o, $owner, $cpuGuard, $io): ?array {
+        $w = fanboyWarmOff($io) ? null : (fanboyStepWarm(fanboyBoardRaw()) ?? ($cpuGuard !== null ? $cpuGuard() : null));
         if ($w !== null) {
             fanboySet($o['id'], FANBOY_FULL, $owner);
         }
@@ -1374,7 +1389,7 @@ function fanboyHubLook(array $o, array $f, array $owner, array $io, string $boar
 /** Round 14: the action `hub_look {fan}` — the look for the eye as a setup step (the page answers with step_next {fan, heard}) */
 function fanboyHubLookStart(array $r): array
 {
-    return fanboyStepStart('hub_look', [textField($r, 'fan')]);
+    return fanboyStepStart('hub_look', [textField($r, 'fan')], false, optBool($r, 'warm_ok', false));
 }
 
 /** Round 14: what the look found, into the store — ok: hub_ok; floor_up: the floor a margin higher; not_safe: never stand */
@@ -1430,7 +1445,7 @@ function fanboyStepMain(): int
 // ===================================================================== the actions
 
 /** A step started: checked, written as «starting», its process launched */
-function fanboyStepStart(string $kind, array $ids, bool $quiet = false): array
+function fanboyStepStart(string $kind, array $ids, bool $quiet = false, bool $warmOk = false): array
 {
     if (fanboyStepRunning()) {
         throw new Problem('fanboy_step_running');
@@ -1439,7 +1454,7 @@ function fanboyStepStart(string $kind, array $ids, bool $quiet = false): array
         throw new Problem('fanboy_show_running');
     }
     // round 8 (G1): the quiet test never starts while anything is warm (the CPU at 70 °C, a place at its «full speed at»)
-    if ($kind === 'test_up' && $quiet && ($warm = fanboyQuietWarm()) !== null) {
+    if ($kind === 'test_up' && $quiet && !$warmOk && ($warm = fanboyQuietWarm()) !== null) {
         throw new Problem('fanboy_quiet_warm', ['what' => $warm['what'], 'c' => (int) round($warm['c'] ?? 0)]);
     }
     if (fanboyControlPid() !== null) {
@@ -1472,7 +1487,8 @@ function fanboyStepStart(string $kind, array $ids, bool $quiet = false): array
         }
     }
     $step = ['id' => bin2hex(random_bytes(6)), 'kind' => $kind, 'fans' => array_values($ids), 'status' => 'starting', 'pid' => null, 'start' => null,
-             'done' => [], 'results' => [], 'why' => null, 'begun' => time(), 'quiet' => $kind === 'test_up' && $quiet];
+             'done' => [], 'results' => [], 'why' => null, 'begun' => time(), 'quiet' => $kind === 'test_up' && $quiet]
+        + ($warmOk ? ['warm_ok' => true] : []);         // 2026-11-20: the user's tick, for this one run (never in the settings)
     fanboyStepAliveTouch();
     fanboyStepWrite($step);
     fanboyLaunch('fanboy-step');
