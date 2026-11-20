@@ -48,6 +48,17 @@ LOG=$RUN/usonet.log
 
 log() { mkdir -p "$RUN" && echo "$(date '+%F %T') $*" >>"$LOG"; }
 
+# trim_log <file> - a log in RAM (on /run, shared with Docker) kept to its last 64 KB once it is over 256 KB: in place, so
+# the helper, which keeps appending to it, goes on in the same file (2026-11-19: neither log had a bound while one helper lived)
+trim_log() {
+    local f=$1 size
+    [[ -f "$f" && ! -L "$f" ]] || return 0
+    size=$(stat -c %s -- "$f" 2>/dev/null) || return 0
+    (( size > 262144 )) || return 0
+    tail -c 65536 -- "$f" >"$f.trim" 2>/dev/null && cat -- "$f.trim" >"$f"
+    rm -f -- "$f.trim"
+}
+
 # KEY=value from the office's config (written by the agent at the join; values without quotes or spaces)
 conf() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}\$/\1/p" "$FLASH/usonet.cfg" 2>/dev/null | tail -n 1; }
 
@@ -182,6 +193,7 @@ check() {
     mkdir -p "$RUN" && chmod 700 "$RUN"
     exec 8>"$RUN/check.lock"
     flock -n 8 || return 0                  # one at a time (cron and the agent at once); what it starts never inherits fd 8
+    trim_log "$LOG"; trim_log "$RUN/helper.log"      # every minute (cron), whatever else fails below
     cron_on
     netns_up || { log "the namespace $NETNS could not be made"; return 1; }
     helper_up

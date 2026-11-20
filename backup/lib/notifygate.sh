@@ -184,6 +184,7 @@ ung_drop() {
     [[ "$2" == counted ]] && ung_line "$1" counted "$5" "$7" "$8"
     [[ -L "$dir" ]] && return 0
     [[ -d "$dir" ]] || ( umask 077; mkdir -p -- "$dir" ) 2>/dev/null || return 0
+    ung_drops_room "$1" || return 0         # in RAM until the agent folds them in: never more than NOTIFY_DROPS_MAX (the notification still goes)
     command -v jq >/dev/null 2>&1 || return 0
     us="$(date +%s%N)"; us="${us:0:16}"        # the name sorts by the microsecond it was decided in
     [[ "$us" =~ ^[0-9]{16}$ ]] || us="$(date +%s)000000"
@@ -192,7 +193,7 @@ ung_drop() {
     [[ "$id" =~ ^[0-9a-f]{12}$ ]] || id="$$$RANDOM"
     tmp="$dir/.$us-$id.tmp"
     if ( umask 077; jq -n --arg id "$id" --argjson time "$now" --arg fate "$2" --arg why "$3" --argjson due "${4:-0}" --arg desk "$5" \
-            --arg event "$6" --arg level "$7" --arg key "$8" --arg subject "$9" --arg description "${10}" --arg message "${11:0:4096}" \
+            --arg event "$6" --arg level "$7" --arg key "$8" --arg subject "$9" --arg description "${10:0:4096}" --arg message "${11:0:4096}" \
             --arg link "${12}" --argjson times "$times" '{v: 1, id: $id, time: $time, desk: $desk, event: $event, level: $level, fate: $fate, why: $why,
             due: $due, key: $key, subject: $subject, description: $description, message: $message, link: $link}
             + (if $times > 0 then {times: $times} else {} end)' >"$tmp" ) 2>/dev/null; then

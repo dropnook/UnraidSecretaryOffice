@@ -244,6 +244,9 @@ More (cron, VMs, Docker, Kopia, containers, data flow, logins, Add Container for
   `.plg` versions via `strcmp`. **Header button pages** run in every Unraid page's `<head>` — a line or two only.
 * **Cron:** root's crontab is rebuilt in RAM from `*.cron` files (`crontab -e` edits vanish at reboot).
 * **Kopia:** **never `maintenance run --full --safety=none` while anything can write, never drop deleted contents by hand.**
+* **/run is a 128 MB tmpfs shared with Docker:** the RAM folder there holds small state only (pids, locks, heartbeats,
+  bounded status) — each writer has its line and bound in `RUNDIR_FILES` (agent/lib/rundir.php, `testRunDirAudit`); what the
+  server's content sizes is read through a pipe with a cap or goes to `officeTmpDir()`; `run()` keeps ≤ 32 MB (cut: exit 125).
 * **7.3.2:** a container without icon makes the Dashboard/Docker page loop on `question.png` (/var/log full in minutes).
 * **Unraid's mover:** «Disabled» = `shareMoverSchedule=""`; its form sends only `shareMoverSchedule`, `shareMoverLogging`,
   `changeMover=Apply` (via emcmd).

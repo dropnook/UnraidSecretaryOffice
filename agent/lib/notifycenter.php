@@ -391,9 +391,15 @@ function officeNotifyDrop(string $home, array $item): void
     if (is_link($dir) || (!is_dir($dir) && !@mkdir($dir, 0700))) {
         return;
     }
+    // they lie in RAM (/run, shared with Docker) until the agent folds them in: never more than NOTIFY_DROPS_MAX — past it
+    // the notification still goes (officeNotifyGate() holds nothing then), only the history misses it (2026-11-19)
+    if (!officeNotifyDropsRoom($home)) {
+        return;
+    }
     [$us, $sec] = explode(' ', microtime());
     $item += ['v' => 1, 'id' => bin2hex(random_bytes(6)), 'time' => (int) $sec];
     $item['message'] = mb_strcut((string) ($item['message'] ?? ''), 0, 4096);
+    $item['description'] = mb_strcut((string) ($item['description'] ?? ''), 0, 4096);
     try {
         // the name sorts by the microsecond it was decided in (as notifygate.sh names them)
         writeAtomic(sprintf('%s/%d%06d-%s.json', $dir, (int) $sec, (int) round((float) $us * 1e6) % 1000000, $item['id']), jsonEncode($item), 0600, 0, 0);

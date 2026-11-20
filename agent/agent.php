@@ -85,6 +85,7 @@ require __DIR__ . '/lib/supporter.php';     // the key a tip made, asked of the 
 require __DIR__ . '/lib/jobs.php';          // what the office is doing right now, for the Dashboard tile (office.jobs)
 require __DIR__ . '/lib/firsthome.php';       // a fresh server without appdata: the welcome's look and its «create»
 require __DIR__ . '/lib/import.php';        // taking over an earlier install: the folder and file checks (Jack Emby, Ms. Moverelli)
+require __DIR__ . '/lib/rundir.php';        // the RAM folder: a real folder, nothing left behind, within its budget (/run is shared)
 foreach (glob(__DIR__ . '/desks/*.php') ?: [] as $deskFile) {
     require $deskFile;
 }
@@ -174,6 +175,7 @@ function nightShift(): int
 {
     chdir('/');
     umask(0077);
+    runDirEnsure();                 // never through a link elsewhere (lib/rundir.php); the agent says what it found
     @mkdir(WATCH_NIGHT_DIR, 0700, true);
     @chmod(WATCH_NIGHT_DIR, 0700);
     $lock = @fopen(WATCH_NIGHT_LOCK, 'c+');
@@ -277,6 +279,7 @@ function serve(): int
     chdir('/');     // keep nothing in the pool busy
     umask(0022);
 
+    $GLOBALS['runDirSaid'] = runDirEnsure();      // a link a user made, or something else there (lib/rundir.php) — logged in setUp()
     @mkdir(RUN_DIR, 0700, true);
     $lock = fopen(PID_FILE, 'c+');
     if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
@@ -355,6 +358,7 @@ function serve(): int
         }
         if ($now - $lastCleanup >= 60) {
             cleanUpMailbox();
+            runDirLook();               // the RAM folder's size and room, what gone processes left (lib/rundir.php)
             officeNotifyLangKeep();     // the office's language into RAM, for the night shift's notifications (lib/house.php)
             try {
                 officeNotifyTick();     // the Team Lead's notification centre: settings to the senders, queue, summaries (lib/notifycenter.php)
@@ -566,6 +570,17 @@ function setUp(): void
         logLine($pinGone);
     }
     logLine('Agent started (v' . AGENT_VERSION . ', PID ' . getmypid() . ', desks: ' . implode(', ', array_keys(desks())) . ')');
+    if (!empty($GLOBALS['runDirSaid'])) {
+        logLine('Office: ' . $GLOBALS['runDirSaid']);
+        $GLOBALS['runDirSaid'] = null;
+    }
+    // what an agent before this one left in RAM (a crash, a restart in place keeps the pid: no job of this one runs yet)
+    if ($gone = runDirSweep([])) {
+        logLine('Office: removed from the RAM folder what the agent before left: ' . implode(', ', array_slice($gone, 0, 10)) . (count($gone) > 10 ? ' …' : ''));
+    }
+    runDirLook(true);
+    // the private folder under /tmp: whatever an agent before left there is gone — not what a running drill still plays
+    officeTmpEnsure(true, null, officeTmpInUse());
     metricsStart();         // its folder in /mnt/addons and a first write, before the caretaker's start tour looks
     foreach (desks() as $id => $desk) {
         if ($desk['start']) {

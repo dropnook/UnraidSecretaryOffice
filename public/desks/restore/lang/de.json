@@ -879,6 +879,7 @@
   "drill.code.docker_off": "Docker läuft nicht — es ließ sich kein Wegwerf-Container anlegen",
   "drill.code.too_big_for_ram": "zu gross für das RAM, das ich nehmen darf ({need} nötig, {budget} erlaubt)",
   "drill.code.dump_no_room": "die Kopie liess sich nicht zurückspielen: die Wegwerf-Datenbank brauchte mehr Platz, als die Übung im RAM nehmen darf ({ram_mb} MB) — der Dump selbst ist heil (gelesen)",
+  "drill.code.dump_no_ram_folder": "die Kopie aus Kopia wurde nicht geholt: sie braucht mehr Platz, als der RAM-Ordner des Sekretariats noch hat ({room_mb} MB frei dafür auf Unraids /run, das auch Docker braucht) — nicht geprüft; das Backup selbst ist unberührt",
   "drill.code.budget": "keine Zeit mehr — beim nächsten Mal",
   "drill.code.throwaway_failed": "der Wegwerf-Container startete nicht",
   "drill.code.not_ready": "die Wegwerf-Datenbank antwortete nicht",

@@ -1465,6 +1465,14 @@ function reportDiagScrubJob(string $d, array $ctx = []): int
     } finally {
         @unlink($raw);
     }
+    if ($state['state'] === 'ok' && function_exists('runDirReportText')) {
+        // the office's own numbers of its RAM folder beside Unraid's (2026-11-20: a /run full of the office's files)
+        $zip = new ZipArchive();
+        if ($zip->open("$d/{$run['name']}.clean.zip") === true) {
+            $zip->addFromString('unraid-secretary-office/run-dir.txt', runDirReportText($ctx['now'] ?? null));
+            $zip->close();
+        }
+    }
     $state['seconds'] = round((hrtime(true) - $t0) / 1e9, 1);
     writeAtomic("$d/scrub.json", jsonEncode($state), 0600, 0, 0);
     return $state['state'] === 'ok' ? 0 : 1;
