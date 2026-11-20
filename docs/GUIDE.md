@@ -319,6 +319,9 @@ She knows where everything lies and keeps it in order. She never deletes at once
   Only images and the build cache, which can be downloaded again, go for good.
 - **Logos** for containers without a picture.
 - **Schedule:** her tour on its own, off until you set it. What sleeps is left out and named.
+- **Leave places out:** under the wake switch at the top. Tick shares, pools or the array and she leaves them alone:
+  no size measured, no scan, nothing suggested for clearing away, no disk woken for them. What Unraid and ZFS say
+  about them still shows, marked «left out (your choice)».
 
 <a name="cleanup-storeroom"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/storeroom-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/storeroom-light.png" alt="Ms. Dustdevil&#x27;s storeroom: nothing is thrown away at once"></picture></a>
 

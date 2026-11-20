@@ -73,6 +73,7 @@ define('AGENT_LOG', NIGHT_MODE ? RUN_DIR . '/nightshift/nightshift.log' : DATA_D
 
 require __DIR__ . '/lib/util.php';
 require __DIR__ . '/lib/mounts.php';
+require __DIR__ . '/lib/skipplaces.php';    // «leave these places out»: the user's list and its one rule (officeSkipWhy())
 require __DIR__ . '/lib/backupscript.php';
 require __DIR__ . '/lib/house.php';
 require __DIR__ . '/lib/notifycenter.php';     // the Team Lead's notification centre: the gate in front of officeNotify()

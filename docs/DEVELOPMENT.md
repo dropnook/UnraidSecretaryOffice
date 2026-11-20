@@ -91,7 +91,8 @@ data/
 ├── logs-mine.json, logs-filters.json   Ms. Protocolli's own rules and hide words, her saved filters
 ├── mailbox/               requests from the page, answers from the agent
 ├── office/                who is hired and in which order, the language for notifications, the notification centre
-│                          (notify.json settings, notify-held.json what waits for a summary, notify-log.json history)
+│                          (notify.json settings, notify-held.json what waits for a summary, notify-log.json history),
+│                          skip-places.json the places the user left out (agent/lib/skipplaces.php)
 ├── unraid-backup/         the backup engine: settings.ini, state/, logs/ (root only)
 ├── partner/               the Team Lead's pairs, tickets, the door's log (root only)
 ├── restore/, restore-drill/   Mr. Restori's journals, the drill's runs, certificates and its record of throwaways
@@ -897,6 +898,16 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   Other desks list storerooms as what they are; **only she writes there.** Her room «On the flash» (share .cfg files) also
   marks a cfg whose pool is gone (`pool_gone` against `/boot/config/pools/*.cfg`; writes fail with ENOMEDIUM) — checks
   `office_share_pool` (required) and `share_pool`; the cfg is never changed by her.
+  **Leave places out** (1.95.0, agent/lib/skipplaces.php): the user's one list of shares, pools and the array
+  (`data/office/skip-places.json`, read with defaults — none = the office as before; written only by her `skip_set`, unknown
+  keys kept; a name no longer there stays on it). `officeSkipWhy()` is the ONE rule, every reader asks it (or
+  `officeShareSkipped()`, `officeRootSkipped()`, `officeDiskSkipped()`): her du and map queues (also at their turn), the
+  folder lists, her rooms (`clSharePlaces()`: `skipped`), the stray search (left-out pools not walked, shares pruned), her
+  `measure:` finds, her snapshot hint, entries in a left-out place (`why` «skipped», never put away), waking (the tour's and
+  her rooms'; the parity disks go with the array) and the wake switch's count. A share partly on a left-out place
+  (`waShareSkip()`: `on`) is walked only on its one pool left (`measure` that path, «at least»), never through /mnt/user. Kept:
+  the share's line, ZFS's numbers, Unraid's fullness, a stat of each share's top folder on an awake disk, her storerooms
+  there (not measured). The Night Watchman reads counters only (no place walked) and doesn't ask it; nor do the other desks.
   A share whose folder on a ZFS pool is empty while its snapshots still hold ≥ 100 MB: hint `snap_only` (recommended,
   awake pools only, never the office's share, the partners' copies or a backup place), linked to Ms. Snapshotini's datasets.
   One Ms. Moverelli's run left standing because snapshots hold it (Smart Mover's status `kept`, `moverelliKept()`; she is hired):

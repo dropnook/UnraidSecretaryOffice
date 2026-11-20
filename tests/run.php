@@ -66042,13 +66042,254 @@ function testRunDirReport(): void
         "\$zip->addFromString('unraid-secretary-office/run-dir.txt', runDirReportText(\$ctx['now'] ?? null));"));
 }
 
+/**
+ * «Leave these places out» (1.95.0, agent/lib/skipplaces.php): the user's one list of shares, pools and the array; ONE rule
+ * (officeSkipWhy()) every reader asks; an empty or missing list is the office as before; names no longer there change
+ * nothing. Ms. Dustdevil is its reader: her du and map queues, her folder lists, her rooms, the stray search, her `measure`
+ * finds, her snapshot hint, waking for her tour, «Storage».
+ */
+function testSkipPlaces(): void
+{
+    $tmp = hardeningTmp('skip-places');
+    exec('rm -rf ' . escapeshellarg($tmp) . '/*');
+    $oldFile = $GLOBALS['officeSkipFile'] ?? null;
+    $GLOBALS['officeSkipFile'] = "$tmp/office/skip-places.json";
+    $restore = [];
+    foreach (['where', 'clFresh', 'clCtx', 'clJobs', 'whereMapJobs', 'waJobs', 'whereSizesFile'] as $k) {
+        $restore[$k] = $GLOBALS[$k] ?? null;
+    }
+    try {
+        // --- the list, read with defaults
+        $empty = ['shares' => [], 'pools' => [], 'array' => false];
+        same('skip places: no file — the empty list (the office as before)', [$empty, true], [officeSkipList(), officeSkipEmpty()]);
+        @mkdir("$tmp/office", 0700, true);
+        foreach (['not json', '[1,2]', '{"shares":"Media","pools":{"a":"fast"},"array":"yes"}', '{"shares":[1,"",".."," ok","a/b"],"array":1}'] as $bad) {
+            file_put_contents(officeSkipFile(), $bad);
+            $l = officeSkipList();
+            same("skip places: a list in another shape is read as far as it fits, never more: $bad",
+                [[], [], false], [array_values(array_filter($l['shares'], fn ($n) => $n !== ' ok')), $l['pools'], $l['array']]);
+        }
+        file_put_contents(officeSkipFile(), '{"v":1,"shares":["Media","media2","Media"],"pools":["fast"],"array":true,"later":{"x":1}}');
+        same('skip places: the list as written (each name once, sorted)', ['shares' => ['Media', 'media2'], 'pools' => ['fast'], 'array' => true], officeSkipList());
+
+        // --- the one rule
+        $L = ['shares' => ['Media'], 'pools' => ['fast'], 'array' => false];
+        $why = fn (string $p, ?array $l = null) => officeSkipWhy($p, $l ?? $L);
+        same('skip places: officeSkipWhy — a share through /mnt/user, /mnt/user0, on a pool, on a disk; the pool itself and inside it',
+            ['share', 'share', 'share', 'share', 'pool', 'pool', 'pool', null, null],
+            [$why('/mnt/user/Media'), $why('/mnt/user0/Media/x/y'), $why('/mnt/cache/Media/a'), $why('/mnt/disk3/Media'), $why('/mnt/fast'),
+             $why('/mnt/fast/appdata/plex'), $why('/mnt/fast/Media'), $why('/mnt/cache/appdata'), $why('/mnt/disk3/films')]);
+        same('skip places: … names are exact (no prefix: fast2, Media2, media), nothing outside /mnt, not Unassigned Devices or the office\'s mounts',
+            [null, null, null, null, null, null, null],
+            [$why('/mnt/fast2/x'), $why('/mnt/user/Media2'), $why('/mnt/user/media'), $why('/boot/config/shares/Media.cfg'), $why('/var/lib/docker/volumes/x'),
+             $why('/mnt/disks/Media'), $why('/mnt/addons/UnraidSecretaryOffice/x')]);
+        $A = ['shares' => [], 'pools' => [], 'array' => true];
+        same('skip places: the array — every array disk (disk1, disk10), never a pool, never a path through /mnt/user (that one may also be on a pool)',
+            ['array', 'array', null, null], [$why('/mnt/disk1/x', $A), $why('/mnt/disk10', $A), $why('/mnt/cache/x', $A), $why('/mnt/user/films', $A)]);
+        same('skip places: the askers say what the rule says — share, root (pool or array disk), a disks.ini name by its pool (cache2 of cache; a pool cache2 of its own)',
+            [true, false, true, false, true, true, false, true, true, false],
+            [officeShareSkipped('Media', $L), officeShareSkipped('appdata', $L), officeRootSkipped('fast', $L), officeRootSkipped('cache', $L),
+             officeRootSkipped('disk2', $A), officeDiskSkipped('fast2', ['cache', 'fast'], $L), officeDiskSkipped('fast2', ['cache', 'fast', 'fast2'], $L),
+             officeDiskSkipped('disk4', ['cache'], $A), officeDiskSkipped('fast', ['fast'], $L), officeDiskSkipped('cache', ['cache', 'fast'], $L)]);
+        same('skip places: … the parity disks go with the array (never woken for a tour that leaves the array out), not with a pool',
+            [true, true, false], [officeDiskSkipped('parity', [], $A), officeDiskSkipped('parity2', [], $A), officeDiskSkipped('parity', ['fast'], $L)]);
+
+        // --- the request and the save: every key of its type, unknown keys kept
+        $refused = function (array $r): string {
+            try {
+                officeSkipRequest($r);
+                return '';
+            } catch (Problem $e) {
+                return $e->key;
+            }
+        };
+        same('skip places: the request — a missing key or a wrong type is refused, never read as «nothing left out»',
+            ['bad_request', 'bad_request', 'bad_request', 'bad_request', 'bad_request', ''],
+            [$refused(['shares' => [], 'pools' => []]), $refused(['shares' => 'Media', 'pools' => [], 'array' => false]), $refused(['shares' => [], 'array' => false]),
+             $refused(['shares' => ['a/b'], 'pools' => [], 'array' => false]), $refused(['shares' => [], 'pools' => [], 'array' => 'no']),
+             $refused(['shares' => ['Media'], 'pools' => [], 'array' => false])]);
+        $saved = officeSkipSave(officeSkipRequest(['shares' => ['Gone share'], 'pools' => ['gonepool'], 'array' => false]));
+        $raw = readJson(officeSkipFile());
+        same('skip places: saved as asked; a newer office\'s key kept (tolerant writer)', [['Gone share'], ['gonepool'], false, ['x' => 1], 1],
+            [$saved['shares'], $saved['pools'], $saved['array'], $raw['later'] ?? null, $raw['v'] ?? null]);
+        officeSkipSave($empty);
+        same('skip places: saved empty — the empty list again', [true], [officeSkipEmpty()]);
+
+        // --- waShares: empty list = today; a share; a pool; the array; names no longer there
+        $cfgs = "$tmp/shares";
+        $mnt = "$tmp/mnt";
+        foreach (["$cfgs", "$mnt/cache/appdata", "$mnt/cache/Media", "$mnt/fast/Fotos", "$mnt/disk1/Media", "$mnt/disk1/films"] as $d) {
+            @mkdir($d, 0700, true);
+        }
+        file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
+        $ini = '';
+        foreach (['appdata' => ['only', 'cache', ''], 'Media' => ['yes', 'cache', ''], 'Fotos' => ['only', 'fast', ''], 'films' => ['no', '', '']] as $n => [$use, $pool, $p2]) {
+            $ini .= "[\"$n\"]\nname=\"$n\"\nuseCache=\"$use\"\ncachePool=\"$pool\"\nexclusive=\"no\"\n";
+            file_put_contents("$cfgs/$n.cfg", "shareUseCache=\"$use\"\nshareCachePool=\"$pool\"\n");
+        }
+        file_put_contents("$tmp/shares.ini", $ini);
+        $roots = ['cache' => ['kind' => 'pool', 'fs' => 'zfs'], 'fast' => ['kind' => 'pool', 'fs' => 'btrfs'], 'disk1' => ['kind' => 'disk', 'fs' => 'xfs']];
+        $datasets = ['cache/appdata' => ['used' => 5, 'refer' => 5, 'mount' => "$mnt/cache/appdata"], 'cache/Media' => ['used' => 7, 'refer' => 7, 'mount' => "$mnt/cache/Media"]];
+        $shares = fn (array $list, array $asleep = []) => array_column(waShares($roots, $asleep, $datasets, [], "$tmp/shares.ini", $cfgs, $mnt, "$tmp/var.ini", $list), null, 'name');
+        $today = $shares($empty);
+        $noSkip = array_column(waShares($roots, [], $datasets, [], "$tmp/shares.ini", $cfgs, $mnt, "$tmp/var.ini"), null, 'name');
+        same('skip places: an empty list — every share as before (no skip, measured through /mnt/user, found where its folders are)',
+            [[null, null, null, null], "/mnt/user/Media", ['cache'], ['disk1'], $noSkip],
+            [array_values(array_map(fn ($s) => $s['skip'], $today)), $today['Media']['measure'], $today['Media']['storage']['pools'], $today['Media']['storage']['disks'], $today]);
+        $gone = $shares(['shares' => ['Gone share'], 'pools' => ['gonepool'], 'array' => false]);
+        same('skip places: a list naming places no longer there — every share as with the empty list', $today, $gone);
+
+        $byShare = $shares(['shares' => ['Media'], 'pools' => [], 'array' => false]);
+        same('skip places: a share left out — whole, not looked for on any root, not measurable; ZFS\'s number kept (no look); the others untouched',
+            [['whole' => true, 'on' => [], 'measurable' => false], [], [], [], ['bytes' => 7, 'source' => 'zfs'], $today['films']],
+            [$byShare['Media']['skip'], $byShare['Media']['storage']['pools'], $byShare['Media']['storage']['disks'], $byShare['Media']['storage']['unknown'],
+             $byShare['Media']['size'], $byShare['films']]);
+        $byPool = $shares(['shares' => [], 'pools' => ['fast'], 'array' => false]);
+        same('skip places: a pool left out — the share living there is partly left out (that pool), nothing left to measure; other shares as before',
+            [['whole' => false, 'on' => ['fast'], 'measurable' => false], [], $today['Media'], $today['appdata']],
+            [$byPool['Fotos']['skip'], $byPool['Fotos']['storage']['pools'], $byPool['Media'], $byPool['appdata']]);
+        $byArray = $shares($A, ['disk1' => true]);
+        same('skip places: the array left out — a pool+array share partly (named «array»), measured on its pool alone; a sleeping array disk is no «unknown» then',
+            [['whole' => false, 'on' => ['array'], 'measurable' => true], "$mnt/cache/Media", [], ['cache']],
+            [$byArray['Media']['skip'], $byArray['Media']['measure'], $byArray['Media']['storage']['unknown'], $byArray['Media']['storage']['pools']]);
+        same('skip places: … an array-only share: partly, nothing to measure; a pool-only share: may hold leftovers there — measured on its pool, no chip',
+            [['whole' => false, 'on' => ['array'], 'measurable' => false], ['whole' => false, 'on' => [], 'measurable' => true], "$mnt/cache/appdata"],
+            [$byArray['films']['skip'], $byArray['appdata']['skip'], $byArray['appdata']['measure']]);
+
+        // --- the readers: du queue, map queue, folder lists, advice
+        $GLOBALS['where'] = ['shares' => array_values($byArray), 'folders' => []];
+        $allowed = whereMeasurable();
+        same('skip places: du — only what may be walked: the pool part of Media, appdata on its pool, never films (array) or a /mnt/user path crossing it',
+            [true, true, false, false], [isset($allowed["$mnt/cache/Media"]), isset($allowed["$mnt/cache/appdata"]), isset($allowed['/mnt/user/films']), isset($allowed['/mnt/user/Media'])]);
+        $asked = function (callable $f): string {
+            try {
+                $f();
+                return '';
+            } catch (Problem $e) {
+                return $e->key . ':' . ($e->params['place'] ?? $e->params['target'] ?? '');
+            }
+        };
+        $GLOBALS['whereSizesFile'] = "$tmp/sizes.json";
+        $GLOBALS['waJobs'] = ['queue' => [], 'running' => []];
+        same('skip places: du and map asked for a left-out share — refused, saying it is left out (not «unknown»); nothing queued',
+            ['place_skipped:films', 'place_skipped:films', 'unknown_target:/elsewhere', []],
+            [$asked(fn () => whereMeasure(['/mnt/user/films'])), $asked(fn () => whereMapAsk(['/mnt/user/films'])), $asked(fn () => whereMeasure(['/elsewhere'])),
+             $GLOBALS['waJobs']['queue']]);
+        same('skip places: the map\'s shares — never one left out (films); with the array left out each pool share walked on its pool',
+            ["$mnt/cache/appdata" => 'appdata', "$mnt/fast/Fotos" => 'Fotos', "$mnt/cache/Media" => 'Media'], whereMapShares());
+        // asked before it was left out: dropped when its turn comes, never walked
+        $GLOBALS['waJobs'] = ['queue' => ['/mnt/user/films'], 'running' => []];
+        whereJobsTick();
+        same('skip places: a du queued before the share was left out — dropped at its turn, nothing runs', [[], []], [$GLOBALS['waJobs']['queue'], $GLOBALS['waJobs']['running']]);
+        $withReal = $byPool;
+        $withReal['appdata']['storage']['real'] = "$mnt/cache/appdata";        // its folder in the fixture, never the host's /mnt
+        $withReal['Fotos']['storage']['real'] = "$mnt/fast/Fotos";
+        $folders = waFolders(array_values($withReal), $roots, [], $datasets, [], 'appdata');
+        same('skip places: folder lists — the share on a left-out pool is not listed, appdata is', ['appdata'], array_column($folders, 'share'));
+        $advised = fn (array $sh) => str_contains(json_encode(array_diff_key(waExclusive(array_values($sh), $roots, [], ['shareUserExclusive' => 'yes']),
+            ['permitted' => 1, 'asleep' => 1])), '"Fotos"');
+        same('skip places: advice (exclusive shares) — Fotos advised on as before, not once its pool is left out', [true, false], [$advised($today), $advised($byPool)]);
+
+        // --- Ms. Dustdevil's rooms, her searches, her finds
+        officeSkipSave(['shares' => ['appdata'], 'pools' => ['tpool'], 'array' => false]);
+        $GLOBALS['clFresh'] = ['share' => ['appdata' => ['shareUseCache' => 'only'], 'domains' => ['shareUseCache' => 'yes']]];
+        $cr = ['tpool' => ['kind' => 'pool', 'fs' => 'zfs'], 'upool' => ['kind' => 'pool', 'fs' => 'zfs'], 'disk91' => ['kind' => 'disk', 'fs' => 'xfs']];
+        $p = clSharePlaces('/mnt/user/appdata/', $cr, ['upool' => true]);
+        same('skip places: her room of a left-out share — no place, nothing asleep to wake, said as «share»', [[], [], 'share'], [$p['places'], $p['asleep'], $p['skipped']]);
+        $p = clSharePlaces('/mnt/user/domains/', $cr, ['tpool' => true, 'upool' => true]);
+        same('skip places: … a share on a left-out pool: that pool not looked at and never «asleep» (no wake for it); the other sleeping pool as before',
+            [['tpool'], ['upool'], []], [$p['skipped'], $p['asleep'], $p['places']]);
+        officeSkipSave($empty);
+        $p = clSharePlaces('/mnt/user/domains/', $cr, ['tpool' => true]);
+        same('skip places: … the empty list: as before (nothing skipped, the sleeping pool asleep)', [null, ['tpool']], [$p['skipped'], $p['asleep']]);
+        same('skip places: the stray search prunes left-out shares on every pool it walks, find\'s pattern characters escaped',
+            ['-o', '-path', '/mnt/cache/Media', '-o', '-path', '/mnt/cache/a\\*b\\[1]', '-o', '-path', '/mnt/fast/Media', '-o', '-path', '/mnt/fast/a\\*b\\[1]'],
+            clStrayPrune(['/mnt/cache', '/mnt/fast'], ['Media', 'a*b[1]']));
+        $e = ['id' => 'x', 'why' => null, 'path' => '/mnt/cache/Media/a.aside-1', 'parts' => []];
+        same('skip places: an entry of hers in a left-out place — shown with why «skipped» (never offered); a reason she had stays; elsewhere untouched',
+            ['skipped', 'asleep', null, 'skipped'],
+            [clSkippedEntry($e, $L)['why'], clSkippedEntry(['why' => 'asleep'] + $e, $L)['why'], clSkippedEntry(['path' => '/mnt/cache/appdata/x'] + $e, $L)['why'],
+             clSkippedEntry(['id' => 'p', 'why' => null, 'pool' => 'fast', 'path' => null], $L)['why']]);
+        $park = function (array $e): string {
+            try {
+                clParkCheck($e + ['kind' => 'leftover', 'name' => 'x', 'force' => false], false);
+                return '';
+            } catch (Problem $p) {
+                return $p->key;
+            }
+        };
+        same('skip places: putting away refuses it with its own words', 'cleanup_skipped', $park(['why' => 'skipped']));
+        officeSkipSave(['shares' => ['Media'], 'pools' => [], 'array' => false]);
+        @mkdir("$tmp/mnt2/Media/x", 0700, true);
+        $GLOBALS['clJobs'] = ['queue' => [], 'running' => []];
+        $GLOBALS['clCtx'] = ['roots' => [], 'asleep' => []];
+        clMeasureQueue('/mnt/cache/Media/x', 0);
+        same('skip places: her `measure` find never queued for a left-out place', [], array_keys($GLOBALS['clJobs']['queue']));
+        $zfs = fn (array $args): array => [0, implode("\n", ["cache/Media\t100000\t" . (900 << 20) . "\tno\t/mnt/cache/Media", "cache/Fotos\t100000\t" . (900 << 20) . "\tno\t/mnt/cache/Fotos"])];
+        $snap = clSnapOnlyShares(['pools' => [['cache'], []], 'zfs' => $zfs, 'shares' => ['Media', 'Fotos'], 'known' => true, 'kept' => [], 'skip' => $L]);
+        same('skip places: her hint «empty, but snapshots hold space» — not for a left-out share', ['Fotos'], array_column($snap['list'], 'share'));
+        officeSkipSave($empty);
+
+        // --- «Storage»: never 0, never «not measured» for a left-out share
+        $sp = fn (array $skip, ?array $size, array $pools = [], array $disks = []) => ['name' => 'S', 'measure' => '/mnt/user/S', 'size' => $size, 'skip' => $skip,
+            'storage' => ['use_cache' => 'yes', 'primary' => 'cache', 'secondary' => 'array', 'exclusive' => false, 'pools' => $pools, 'disks' => $disks, 'unknown' => [],
+                          'include' => [], 'exclude' => [], 'allocator' => 'highwater', 'dataset' => null, 'missing' => false]];
+        $raw = ['time' => time(), 'disks' => [], 'asleep' => [], 'health' => ['limits' => ['warning' => 70, 'critical' => 90], 'devices' => [], 'pools' => []],
+                'roots' => [], 'pool_cfg' => [], 'zpool_list' => '', 'zpool_status' => '', 'zfs_list' => '', 'btrfs' => [], 'share_cfg' => [], 'levels' => null,
+                'snapshots' => null, 'docker' => null, 'where' => ['folders' => [], 'vms' => [], 'appdata' => null],
+                'sizes' => ['/mnt/user/S' => ['bytes' => 99, 'at' => time()]]];
+        $one = fn (array $share) => spaceBuild(['shares' => [$share]] + $raw)['shares'][0];
+        $w = $one($sp(['whole' => true, 'on' => [], 'measurable' => false], null));
+        $wz = $one($sp(['whole' => true, 'on' => [], 'measurable' => false], ['bytes' => 7, 'source' => 'zfs']));
+        $pt = $one($sp(['whole' => false, 'on' => ['array'], 'measurable' => false], null));
+        same('skip places: Storage — a left-out share: «skipped» (null, never 0, an old du of it not used), ZFS\'s number when there; partly: not measured, never «empty»',
+            [[null, 'skipped'], [7, 'zfs'], [null, null]], [[$w['bytes'], $w['source']], [$wz['bytes'], $wz['source']], [$pt['bytes'], $pt['source']]]);
+
+        // --- every reader asks the one rule; no copy of it
+        $src = fn (string $f) => (string) file_get_contents(OFFICE_DIR . "/$f");
+        check('skip places: every reader goes through the helper — her du and map queues and their ticks, the folder lists, waking, the health count, her rooms, the stray search, her finds, the hint, «Storage»',
+            str_contains($src('agent/lib/where.php'), "if (!isset(\$allowed[\$path])) {\n            \$changed ??= [];")
+            && str_contains($src('agent/lib/wheremap.php'), 'if (!isset(whereMapShares()[$path])) {')
+            && str_contains($src('agent/lib/where.php'), '|| !empty($share[\'skip\']) || officeRootSkipped((string) $st[\'primary\'])')
+            && str_contains($src('agent/lib/where.php'), "if (officeDiskSkipped((string) (\$d['name'] ?? \$section), \$pools)) {")
+            && str_contains($src('agent/lib/where.php'), "'skipped'    => \$origin === 'array' && officeDiskSkipped(")
+            && str_contains($src('agent/desks/cleanup.php'), "fn (\$r) => !officeRootSkipped((string) \$r))")
+            && str_contains($src('agent/desks/cleanup.php'), "!clPoolAsleep(\$name, \$asleep) && !officeRootSkipped((string) \$name)")
+            && str_contains($src('agent/desks/cleanup.php'), 'if (officeSkipWhy($path) !== null || !clSafe($path) || !is_dir($path)) {')
+            && str_contains($src('agent/lib/space.php'), "\$skip = \$s['skip'] ?? null;"));
+        $copies = 0;
+        foreach (['agent/lib/where.php', 'agent/lib/wheremap.php', 'agent/lib/space.php', 'agent/desks/cleanup.php'] as $f) {
+            $copies += preg_match_all('/skip-places\.json|officeSkipList\(\)\[\'(pools|array)\'\]|\$skipList\[|\$list\[\'(shares|pools|array)\'\]/', $src($f));
+        }
+        same('skip places: no reader reads the list or its pools itself (only the stray prune takes the shares\' names)', 0, $copies);
+        check('skip places: the page — the line under the wake switch, its dialog, the left-out marks, the wake count without left-out disks',
+            str_contains($src('public/desks/cleanup/desk.js'), 'wakeBox.append(v.wakeLabel, wakeNote, v.skip);')
+            && str_contains($src('public/desks/cleanup/desk.js'), "Office.api.post(`\${ID}.skip_set`, { shares: pick('share'), pools: pick('pool'), array: pick('array').length > 0 })")
+            && str_contains($src('public/desks/cleanup/desk.js'), "&& !d.skipped).length")
+            && str_contains($src('public/desks/cleanup/desk.js'), "skipped: space.shares.filter(skipAll),"));
+    } finally {
+        foreach ($restore as $k => $v) {
+            if ($v === null) {
+                unset($GLOBALS[$k]);
+            } else {
+                $GLOBALS[$k] = $v;
+            }
+        }
+        if ($oldFile === null) {
+            unset($GLOBALS['officeSkipFile']);
+        } else {
+            $GLOBALS['officeSkipFile'] = $oldFile;
+        }
+    }
+}
+
 $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
           'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
           'fanboy' => ['testFanboyPublic', 'testCaretakerNewcomers', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',

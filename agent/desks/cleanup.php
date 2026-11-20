@@ -287,6 +287,8 @@ desk('cleanup', [
         'space_refresh' => fn (array $r) => ['ok' => true, 'state' => spaceFresh(CL_WHERE_DEBOUNCE)],
         // its «Map»: one share down to the files, a scan on the user's click (agent/lib/wheremap.php), read only
         'where_map'     => fn (array $r) => whereMapAsk(idList($r, 'paths')),
+        // «leave these places out» (agent/lib/skipplaces.php): the user's list, then every look of hers anew with it
+        'skip_set'      => fn (array $r) => clSkipSet(officeSkipRequest($r)),
     ],
 ]);
 
@@ -296,6 +298,21 @@ desk('cleanup', [
  *
  * @return array<string, callable(): void>
  */
+/**
+ * The user's list of places to leave out saved (officeSkipSave(): what a newer office wrote kept), then «Where is what»,
+ * «Storage» and her rooms looked at anew with it — without waking anything; what she queued before for a place now left
+ * out is dropped when its turn comes (whereJobsTick(), whereMapTick(), clMeasureQueue()).
+ */
+function clSkipSet(array $list): array
+{
+    $saved = officeSkipSave($list);
+    logLine(sprintf('Dustdevil leaves out: %s', officeSkipEmpty($saved) ? 'nothing'
+        : implode(', ', array_merge($saved['array'] ? ['the array'] : [], array_map(fn ($p) => "pool $p", $saved['pools']),
+                                    array_map(fn ($s) => "share $s", $saved['shares'])))));
+    $where = whereScan();
+    return ['ok' => true, 'skip' => $where['skip'], 'where' => $where, 'space' => spaceScan(), 'state' => clScan()];
+}
+
 function clTickParts(): array
 {
     return ['jobs' => 'clJobsTick', 'backup' => 'clBackupFlagTick', 'where' => 'whereJobsTick', 'drill' => 'clDrillCopiesTick',
@@ -513,7 +530,8 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
     clTrashMigrate(array_merge([CL_FLASH . '/' . CL_TRASH], $vms['ok'] ? [CL_LIBVIRT . '/' . CL_TRASH] : [], clAsideRoots($vms['ok'])));
     $leftovers = clLeftovers($vms['ok']);       // Mr. Restori's, from his journals
     $stores = clStoreroomLook(clCache()['storerooms'] ?? []);       // her share storerooms on sleeping pools and disks (C-M9)
-    $sleeping = array_values(array_unique(array_merge(array_merge(...array_column($places, 'asleep')), $leftovers['asleep'], $stores['asleep'])));
+    $sleeping = array_values(array_filter(array_unique(array_merge(array_merge(...array_column($places, 'asleep')), $leftovers['asleep'], $stores['asleep'])),
+        fn ($r) => !officeRootSkipped((string) $r)));         // a left-out place is never woken for her (skipplaces.php)
     if ($wake && $sleeping) {
         $woken = clWake($sleeping);
         $asleep = sleepingDisks();
@@ -575,16 +593,16 @@ function clScan(bool $wake = false, bool $jobs = true, bool $deep = false): arra
         // a media pool lists every episode); never the array, never a pool with a sleeping disk
         $pools = [];
         foreach ($roots as $name => $r) {
-            if ($r['kind'] === 'pool' && !clPoolAsleep($name, $asleep)) {
+            if ($r['kind'] === 'pool' && !clPoolAsleep($name, $asleep) && !officeRootSkipped((string) $name)) {
                 $pools[] = "/mnt/$name";
             }
         }
-        $find = fn (array $where, int $depth) => [array_merge(['nice', '-n', '10', 'find'], $where, ['-maxdepth', (string) $depth,
-            '(', '-name', '.*', '-o', '-name', CL_TRASH_OLD . '*', '-o', '-name', CL_LEGACY, '-o', '-name', '*.sparsebundle', ')', '-prune',
+        $find = fn (array $where, int $depth, array $prune = []) => [array_merge(['nice', '-n', '10', 'find'], $where, ['-maxdepth', (string) $depth,
+            '(', '-name', '.*', '-o', '-name', CL_TRASH_OLD . '*', '-o', '-name', CL_LEGACY, '-o', '-name', '*.sparsebundle', ...$prune, ')', '-prune',
             '-o', '-type', 'f', '-name', 'my-*.xml', '-print'])];
         clJobAdd('strays:flash', 'strays', $find(['/boot'], 6), 300);
         if ($pools) {
-            clJobAdd('strays:pools', 'strays', $find($pools, 3), 600);
+            clJobAdd('strays:pools', 'strays', $find($pools, 3, clStrayPrune($pools, officeSkipList()['shares'])), 600);
         }
     }
     if ($hired && $docker['ok'] && time() - (int) ($cache['build']['at'] ?? 0) > CL_CACHE_TTL) {
@@ -2337,8 +2355,16 @@ function clSharePlaces(string $path, array $roots, array $asleep): array
     $array = (clShareCfg($share)['shareUseCache'] ?? 'no') !== 'only';
     $places = [];
     $sleeping = [];
-    foreach ($roots as $name => $r) {
+    $skipped = [];
+    // «leave these places out» (skipplaces.php): the share on the list — not looked for at all; a left-out pool or the
+    // array — not looked into, never asleep for her (nothing to wake there), named in `skipped`
+    $whole = officeShareSkipped($share);
+    foreach ($whole ? [] : $roots as $name => $r) {
         if ($r['kind'] === 'disk' && !$array) {
+            continue;
+        }
+        if (officeRootSkipped((string) $name)) {
+            $skipped[] = $r['kind'] === 'disk' ? 'array' : (string) $name;
             continue;
         }
         if (clPoolAsleep($name, $asleep)) {
@@ -2349,7 +2375,8 @@ function clSharePlaces(string $path, array $roots, array $asleep): array
             $places[$name] = ['root' => $name, 'path' => "/mnt/$name/$share", 'fs' => $r['fs']];
         }
     }
-    return ['share' => $share, 'setting' => rtrim($path, '/'), 'places' => $places, 'asleep' => $sleeping];
+    return ['share' => $share, 'setting' => rtrim($path, '/'), 'places' => $places, 'asleep' => $sleeping,
+            'skipped' => $whole ? 'share' : ($skipped ? array_values(array_unique($skipped)) : null)];
 }
 
 /**
@@ -2986,8 +3013,9 @@ function clBuild(): array
     }
     usort($runs, fn ($a, $b) => $b['time'] <=> $a['time']);
 
-    // Mr. Restori's leftovers: sizes as measured in the background (files at once, datasets by ZFS)
-    $leftovers = clLeftoverSizes($raw['leftovers']['list'] ?? [], $cache, $pending, $space);
+    // Mr. Restori's leftovers: sizes as measured in the background (files at once, datasets by ZFS) — one in a place the
+    // user left out is shown, never offered (skipplaces.php)
+    $leftovers = array_map(fn (array $e) => clSkippedEntry($e), clLeftoverSizes($raw['leftovers']['list'] ?? [], $cache, $pending, $space));
 
     $keys = array_keys($jobs['running'] + $jobs['queue']);
     $state = [
@@ -3020,6 +3048,7 @@ function clBuild(): array
             'share'    => $ad['share'],
             'places'   => array_values($ad['places']),
             'asleep'   => $ad['asleep'],
+            'skipped'  => $ad['skipped'] ?? null,         // 'share', the left-out places it lies on, or null (skipplaces.php)
             'mounters' => $mounters,
             'complete' => $complete,
             'flash_at' => $flash['at'] ?? null,
@@ -3031,14 +3060,16 @@ function clBuild(): array
             'enabled'  => $vmf['enabled'],
             'ok'       => $vmf['ok'],
             'count'    => count($vmf['vms']),
-            'domains'  => ['share' => $raw['domains']['share'], 'places' => array_values($raw['domains']['places']), 'asleep' => $raw['domains']['asleep']],
-            'isos'     => ['share' => $raw['isos']['share'], 'places' => array_values($raw['isos']['places']), 'asleep' => $raw['isos']['asleep']],
+            'domains'  => ['share' => $raw['domains']['share'], 'places' => array_values($raw['domains']['places']), 'asleep' => $raw['domains']['asleep'],
+                           'skipped' => $raw['domains']['skipped'] ?? null],
+            'isos'     => ['share' => $raw['isos']['share'], 'places' => array_values($raw['isos']['places']), 'asleep' => $raw['isos']['asleep'],
+                           'skipped' => $raw['isos']['skipped'] ?? null],
             'complete' => $vmComplete,
             'flash_partial' => $searched && !($flash['ok'] ?? true),
             'list'     => $vmItems,
         ],
         'leftovers' => ['restores' => (int) ($raw['leftovers']['restores'] ?? 0), 'asleep' => $raw['leftovers']['asleep'] ?? [], 'list' => $leftovers],
-        'partners'  => ['asleep' => $raw['partners']['asleep'] ?? [], 'list' => $raw['partners']['list'] ?? []],
+        'partners'  => ['asleep' => $raw['partners']['asleep'] ?? [], 'list' => array_map(fn (array $e) => clSkippedEntry($e), $raw['partners']['list'] ?? [])],
         'trash'     => ['runs' => $runs, 'bytes' => $trashBytes, 'asleep' => array_values((array) ($raw['trash_asleep'] ?? []))],
         'icons'     => clIconState($raw['icons'] ?? [], $cache, $pending),
         'jobs'      => [
@@ -3050,6 +3081,40 @@ function clBuild(): array
     ];
     $GLOBALS['clState'] = $state;
     return $state;
+}
+
+/**
+ * An entry of hers that lies in a place the user left out (skipplaces.php: its path, a part's, its pool): shown with
+ * `why` «skipped» — never offered, never put away (clParkCheck()); a reason she already had stays first.
+ */
+function clSkippedEntry(array $e, ?array $list = null): array
+{
+    if ($e['why'] !== null) {
+        return $e;
+    }
+    $paths = array_merge([(string) ($e['path'] ?? '')], array_map(fn ($p) => (string) ($p['path'] ?? ''), $e['parts'] ?? []),
+                         isset($e['pool']) ? ['/mnt/' . $e['pool']] : []);
+    foreach ($paths as $path) {
+        if ($path !== '' && officeSkipWhy($path, $list) !== null) {
+            return ['why' => 'skipped'] + $e;
+        }
+    }
+    return $e;
+}
+
+/**
+ * The stray search on the pools (three levels deep): the shares the user left out pruned on every pool it walks —
+ * find's -path, its pattern characters escaped (a share's name is the user's). @return list<string> «-o -path X» pairs
+ */
+function clStrayPrune(array $pools, array $shares): array
+{
+    $out = [];
+    foreach ($pools as $pool) {
+        foreach ($shares as $share) {
+            array_push($out, '-o', '-path', $pool . '/' . addcslashes((string) $share, '\\*?['));
+        }
+    }
+    return $out;
 }
 
 /** Every path something names: [path, kind, name, weak] — containers, templates, stacks, compose files, VMs, the flash */
@@ -4486,6 +4551,7 @@ function clParkCheck(array $e, bool $force): void
             'backup_place'  => new Problem('cleanup_kept_backup_place', $p),
             'partner_held'  => new Problem('cleanup_kept_partner_held', $p),
             'pulled'        => new Problem('cleanup_pulled', $p),
+            'skipped'       => new Problem('cleanup_skipped', $p),
             default         => new Problem('cleanup_measure_first', $p),
         };
     }
@@ -6352,6 +6418,7 @@ function clSnapOnlyShares(?array $host = null): array
         [$refer, $snaps, $mounted, $mp] = [(int) $f[1], (int) $f[2], $f[3] === 'yes', $f[4]];
         $big = $snaps >= CL_SNAPONLY_MIN;
         if (!in_array($pool, $awake, true) || !isset($shares[$share]) || (!$big && !isset($kept[$f[0]])) || $refer > CL_SNAPONLY_REFER
+            || officeSkipWhy("/mnt/$pool/$share", $host['skip'] ?? null) !== null          // left out by the user: no hint about it
             || $share === BACKUP_OFFICE_SHARE || str_starts_with($share, BACKUP_OFFICE_SHARE) || $share === PARTNER_PARENT || stripos($share, 'backup') !== false) {
             continue;
         }
@@ -6529,8 +6596,8 @@ function clMeasureQueue(string $path, int $ttl): void
     if ($size && time() - (int) ($size['at'] ?? 0) < $ttl) {
         return;
     }
-    if (!clSafe($path) || !is_dir($path)) {
-        return;
+    if (officeSkipWhy($path) !== null || !clSafe($path) || !is_dir($path)) {
+        return;                         // a left-out place (skipplaces.php) is never walked: its size stays «not measured»
     }
     // files, bytes on disk (blocks: a sparse vdisk counts what it really takes) and newest change;
     // and the five newest files (by tab: time, 512-byte blocks, path)
