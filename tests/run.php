@@ -22168,6 +22168,17 @@ function testWatchmanAtUserScript(): void
     $row = array_values(array_filter($page['book'], fn ($e) => $e['kind'] === 'at_userscript'))[0] ?? [];
     same('at user script: on the page — the script, noted by itself', ['temporäre_rsyncs_4', false, 'auto', 'sched'],
         [$row['t']['name'] ?? null, $row['open'] ?? null, $row['by'] ?? null, $row['group'] ?? null]);
+    // the array stopped while it runs: the night shift's book has no closed lines, so it notes the job anew; after the
+    // handover the next round joins the two into one (each array stop added one more line before)
+    $count = fn () => count(array_filter(watchmanLoad($data)['book'], fn ($e) => $e['kind'] === 'at_userscript'));
+    watchmanMirrorWrite($data, "$tmp/ram.json", null, $now + 710, 'boot-1');
+    $n = watchmanNightRound($paths, "$tmp/night", $now + 720, false, $docker, "$tmp/ram.json", null, 'boot-1');
+    watchmanNightHandover($data, "$tmp/night", $now + 730, "$tmp/no-lock");
+    $two = $count();
+    $r3 = watchmanRound($paths, $data, 1000, $now + 740, $docker, false, $acks);
+    same('at user script: an array stop while it runs — noted anew by the night, nothing told; one line again the next round', [[], 2, [], 1],
+        [$n['added'], $two, $r3['added'], $count()]);
+    @unlink(watchmanLockFile("$tmp/night", 'book'));
     putenv($envBefore === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore");
     @unlink(watchmanLockFile($data, 'book'));
     exec('rm -rf ' . escapeshellarg($tmp));

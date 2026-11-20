@@ -5387,8 +5387,8 @@ function watchmanAtSet(array &$book, string $f, array $j, int $now, bool $change
 /**
  * Lines about the same at job joined into one (up to 1.76.0 a job closed by himself came back every round — 431 of 500
  * lines for ich777's Plugin-Update-Helper on the owner's server): the first stays, with the latest look, the first
- * notification and its state — open while any of them was. A plugin's lines likewise (each night shift noted a running
- * plugin's job anew: its book has no closed lines), what each says kept.
+ * notification and its state — open while any of them was. A plugin's and a User Script's lines likewise (each night
+ * shift noted a running job of theirs anew: its book has no closed lines), what each says kept.
  */
 function watchmanAtOnce(array &$book): void
 {
@@ -5396,7 +5396,7 @@ function watchmanAtOnce(array &$book): void
     $drop = [];
     foreach ($book as $i => $e) {
         $kind = (string) ($e['kind'] ?? '');
-        $num = in_array($kind, ['at_job', 'at_plugin'], true) ? watchmanAtOf($e) : null;
+        $num = in_array($kind, ['at_job', 'at_plugin', 'at_userscript'], true) ? watchmanAtOf($e) : null;
         if ($num === null) {
             continue;
         }
