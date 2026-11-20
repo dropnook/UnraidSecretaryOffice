@@ -66250,8 +66250,8 @@ function testRunDirAudit(): void
         }
     }
     same('run dir audit: every line says the most it holds, in bytes', [], $nobound);
-    same('run dir audit: over 1 MB only these, each with its reason (the report\'s pictures and diagnostics, the door\'s log while the array is stopped, waiting notifications, the support flag\'s shadow)',
-        ['notify-in', 'inbox', 'inbox/[0-9a-f]{32}\.image', 'report', 'jack-shadow', 'partner'], $large);
+    same('run dir audit: over 1 MB only these, each with its reason (the report\'s pictures and diagnostics, the door\'s log while the array is stopped, waiting notifications, the support flag\'s shadow, the fan desk\'s history at its most while it is written)',
+        ['notify-in', 'inbox', 'inbox/[0-9a-f]{32}\.image', 'report', 'jack-shadow', 'partner', 'fan[b]oy'], $large);
     $notes = [];
     foreach (RUNDIR_FILES as $k => $what) {
         if (str_starts_with($what['bound'], 'NOT bounded')) {
