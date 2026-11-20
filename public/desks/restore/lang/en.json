@@ -1096,7 +1096,7 @@
   "tile.kept_asleep": "the pool {pool} sleeps",
   "kept.title": "Kept for {name}",
   "kept.sub": "What this office keeps of {name}, per unit with moments and sizes. The copies lie on the pool {pool}, never mounted, never changed – only the door's retention thins them.",
-  "kept.way": "Two ways back for {name}: 1. A new server pulls the copies («Start from a partner's copy…»). 2. «Start here…» sets up an independent copy here. {name}'s copy stays unchanged.",
+  "kept.way": "With «Start here…» you bring {name}'s apps and VMs back on this server — {name}'s copy stays as it is.",
   "kept.asleep": "The pool {pool} sleeps — I don't list its moments (I never wake a pool); what the door noted last:",
   "kept.room": "{used} kept of at most {quota} on {pool}.",
   "kept.room_free": "{used} kept on {pool} (no limit).",

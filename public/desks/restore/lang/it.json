@@ -1096,7 +1096,7 @@
   "tile.kept_asleep": "il pool {pool} dorme",
   "kept.title": "Conservato per {name}",
   "kept.sub": "Cosa conserva questa segreteria di {name}, per unità con momenti e dimensioni. Le copie stanno sul pool {pool}, mai montate, mai modificate – solo la conservazione della porta le sfoltisce.",
-  "kept.way": "Due vie del ritorno per {name}: 1. Un nuovo server recupera le copie («Parti dalla copia di un partner…»). 2. «Parti da qui…» prepara qui una copia indipendente. Quella di {name} resta invariata.",
+  "kept.way": "Con «Parti da qui…» ripristini le app e le VM di {name} su questo server — la copia di {name} resta invariata.",
   "kept.asleep": "Il pool {pool} dorme — non elenco i suoi momenti (non sveglio mai un pool); ciò che la porta ha annotato per ultimo:",
   "kept.room": "{used} conservati di al massimo {quota} su {pool}.",
   "kept.room_free": "{used} conservati su {pool} (senza limite).",

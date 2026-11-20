@@ -1096,7 +1096,7 @@
   "tile.kept_asleep": "el pool {pool} duerme",
   "kept.title": "Guardado para {name}",
   "kept.sub": "Lo que esta secretaría guarda de {name}, por unidad con momentos y tamaños. Las copias están en el pool {pool}, nunca montadas, nunca cambiadas – solo la retención de la puerta las aclara.",
-  "kept.way": "Dos caminos de vuelta para {name}: 1. Un servidor nuevo trae las copias («Empezar desde la copia de un socio…»). 2. «Empezar aquí…» pone aquí una copia independiente. La de {name} queda sin cambios.",
+  "kept.way": "Con «Empezar aquí…» restableces las apps y las VM de {name} en este servidor — la copia de {name} queda sin cambios.",
   "kept.asleep": "El pool {pool} duerme — no listo sus momentos (nunca despierto un pool); lo que la puerta anotó por último:",
   "kept.room": "{used} guardados de como mucho {quota} en {pool}.",
   "kept.room_free": "{used} guardados en {pool} (sin límite).",
