@@ -352,6 +352,7 @@
   "bubble.no_data": "Je n'ai pas encore pu faire le tour — le coursier est-il là ?",
   "bubble.docker_down": "Docker ne répond pas — j'attends avant de toucher à quoi que ce soit.",
   "bubble.spotless": "Impeccable ! Rien ne traîne que personne n'utilise.",
+  "bubble.spotless_skip": "Impeccable, là où je regarde ! Rien ne traîne que personne n'utilise — ce que tu as laissé de côté, je n'y regarde pas.",
   "bubble.found": "Regarde tout ce qui traîne ici : {list}.",
   "bubble.templates": {
     "one": "{n} modèle",
@@ -997,6 +998,8 @@
   "where.bubble.no_tour": "Je ne suis pas encore passée dans chaque recoin — une tournée prend quelques secondes, après je saurai où tout se trouve.",
   "where.bubble.no_data": "Je n'arrive pas à joindre le serveur et je n'ai encore rien à montrer.",
   "where.bubble.summary": "Je connais chaque recoin : {shares}, {containers} et {scripts} — et la poussière dans chacun.",
+  "where.bubble.summary_some": {"one": "Je connais presque chaque recoin : {shares} (j'en laisse {n} de côté, comme tu l'as voulu), {containers} et {scripts} — et la poussière dans chacun de ceux que je regarde.", "other": "Je connais presque chaque recoin : {shares} (j'en laisse {n} de côté, comme tu l'as voulu), {containers} et {scripts} — et la poussière dans chacun de ceux que je regarde."},
+  "where.bubble.summary_none": "Les partages, je les laisse de côté, comme tu l'as voulu. Le reste, je le connais : {containers} et {scripts} — et la poussière dans chacun.",
   "count.shares": {"one": "{n} partage", "other": "{n} partages"},
   "count.folders": {"one": "{n} dossier", "other": "{n} dossiers"},
   "count.files": {"one": "{n} fichier", "other": "{n} fichiers"},

@@ -66792,6 +66792,122 @@ function testRunDirReport(): void
 }
 
 /**
+ * Ms. Dustdevil's greeting with places left out (2026-11-20, the owner: «I know every corner» with every share left out is
+ * not true): nothing left out — the sentence as before; some shares left out as a whole (on the list, or all of them on
+ * places left out — partly left out doesn't count) — «almost every corner», how many said in the same breath; all of them —
+ * no corner claimed, no share counted as known. Her rooms «spotless» only where she looks. Under node, her German strings.
+ */
+function testCleanupSkipGreeting(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    $de = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/cleanup/lang/de.json'), true);
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $l = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/cleanup/lang/$code.json"), true);
+        $some = $l['where.bubble.summary_some'] ?? [];
+        same("skip greeting $code: «some» names the shares and how many are left out; «all» names no share count and claims no corner",
+            [true, true, false, false], [str_contains($some['other'] ?? '', '{shares}') && str_contains($some['other'] ?? '', '{n}'),
+             str_contains($l['where.bubble.summary_none'] ?? '', '{containers}') && str_contains($l['where.bubble.summary_none'] ?? '', '{scripts}'),
+             str_contains($l['where.bubble.summary_none'] ?? '{shares}', '{shares}'), ($l['where.bubble.summary_none'] ?? '') === ($l['where.bubble.summary'] ?? '')]);
+    }
+    if ($node === '') {
+        check('skip greeting: node is missing here - the page not tried', true);
+        return;
+    }
+    $tmp = hardeningTmp('skip-greeting');
+    $strings = json_decode((string) file_get_contents(OFFICE_WEB . '/lang/de.json'), true);
+    foreach ($de as $k => $v) {
+        $strings["cleanup.$k"] = $v;
+    }
+    file_put_contents("$tmp/strings.json", json_encode($strings));
+    file_put_contents("$tmp/t.js", <<<'JS'
+// Ms. Dustdevil's greeting with places left out: core.js and her desk.js under node, a stand-in page
+const fs = require('fs');
+const [core, desk, stringsFile, roomsFile] = process.argv.slice(2);
+const mk = () => ({ style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [],
+  classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+  appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, remove() {}, prepend() {},
+  setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+  querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+  getBoundingClientRect: () => ({ top: 0, bottom: 40, left: 0, right: 1000 }), focus() {}, select() {} });
+const CONFIG = { desks: [{ id: 'cleanup', hired: true, order: 1 }], languages: [{ code: 'de' }], base: '', staff_order: [], stamp: 1, version: 'test' };
+globalThis.window = globalThis;
+globalThis.Node = function Node() {};
+globalThis.innerHeight = 800; globalThis.innerWidth = 1200; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.navigator = { languages: ['de'], platform: 'Linux' };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : mk()),
+  querySelector: () => mk(), querySelectorAll: () => [], createElement: () => mk(), createElementNS: () => mk(), addEventListener() {},
+  removeEventListener() {}, documentElement: { scrollHeight: 0 }, activeElement: null, hidden: false, body: mk() };
+globalThis.fetch = async (url) => ({ redirected: false, url, ok: true, status: 200, json: async () => ({ ok: false }), text: async () => '{}' });
+globalThis.OFFICE_DESK_TESTS = {};
+(0, eval)(fs.readFileSync(core, 'utf8'));
+(0, eval)(fs.readFileSync(desk, 'utf8'));
+const O = globalThis.Office;
+O.strings = JSON.parse(fs.readFileSync(stringsFile, 'utf8'));
+const ct = OFFICE_DESK_TESTS.cleanup;
+const w = ct.where;
+// a share: its skip as the agent writes it (waShareSkip()), its places still looked at (storage.pools/disks)
+const share = (name, skip, pools = ['cache'], disks = []) => ({ name, ...(skip === undefined ? {} : { skip }), storage: { pools, disks } });
+const none = { whole: false, on: [], measurable: true };
+const look = (shares, list) => ({ system: { docker: { up: true } }, containers: [{}, {}, {}], scripts: [{}], shares,
+  ...(list ? { skip: { shares: [], pools: [], array: false, pools_known: [], array_disks: 0, ...list } } : {}) });
+const out = {};
+const say = (s) => { w.setState(s); return w.summary(); };
+// an older agent's look (no skip at all), and the list empty: as before
+out.old = say(look([share('Media'), share('Fotos')]));
+out.empty = say(look([share('Media', null), share('Fotos', null)], {}));
+// some left out: Fotos on the list, Filme all on the array left out (nothing of it looked at), Media partly (its pool still) — 2 of 4
+out.some = say(look([share('Media', { whole: false, on: ['fast'], measurable: true }), share('Fotos', { whole: true, on: [], measurable: false }),
+  share('Filme', { whole: false, on: ['array'], measurable: false }, [], []), share('appdata', null)], { shares: ['Fotos'], pools: ['fast'], array: true }));
+out.one = say(look([share('Fotos', { whole: true, on: [], measurable: false }), share('appdata', null)], { shares: ['Fotos'] }));
+// all of them left out: no corner claimed, no share counted as known
+out.all = say(look([share('Fotos', { whole: true, on: [], measurable: false }), share('Filme', { whole: false, on: ['array'], measurable: false }, [], [])],
+  { shares: ['Fotos'], array: true }));
+// Docker not running: said as before
+const off = look([share('Fotos', { whole: true, on: [], measurable: false })], { shares: ['Fotos'] });
+off.system.docker = { up: false };
+out.docker_off = say(off);
+// her rooms with nothing lying around: «spotless» — only where she looks once something is left out
+const rooms = JSON.parse(fs.readFileSync(roomsFile, 'utf8'));
+for (const k of Object.keys(rooms)) if (rooms[k] && Array.isArray(rooms[k].list)) rooms[k].list = [];
+rooms.jobs = { busy: false };
+rooms.trash = { runs: [], bytes: 0 };
+ct.setState(rooms);
+w.setState(look([share('Media', null)], {}));
+out.spotless = ct.bubbleText();
+w.setState(look([share('Media', null)], { pools: ['fast'] }));
+out.spotless_skip = ct.bubbleText();
+w.setState(look([share('Media')]));
+out.spotless_old = ct.bubbleText();
+process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+JS);
+    $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", OFFICE_WEB . '/assets/core.js', OFFICE_WEB . '/desks/cleanup/desk.js',
+        "$tmp/strings.json", OFFICE_DIR . '/tests/ui/states/cleanup.json'])) . ' 2>&1');
+    $r = json_decode($raw, true);
+    if (!is_array($r)) {
+        check('skip greeting: ran under node', false, substr($raw, 0, 2000));
+        hardeningRm($tmp);
+        return;
+    }
+    // the stand-in page has no plural rules of the language (loadStrings() sets them): the counts read «1 User Scripts» here
+    $fill = fn (string $text, array $p) => strtr($text, array_combine(array_map(fn ($k) => '{' . $k . '}', array_keys($p)), array_values($p)));
+    $c = ['containers' => '3 Container', 'scripts' => '1 User Scripts'];
+    same('skip greeting: an older agent\'s look and the empty list — the sentence as before', array_fill(0, 2, $fill($de['where.bubble.summary'], ['shares' => '2 Shares'] + $c)),
+        [$r['old'] ?? null, $r['empty'] ?? null]);
+    same('skip greeting: some left out — on the list, or all of it on places left out (partly: still looked at) — said in the same breath',
+        [$fill($de['where.bubble.summary_some']['other'], ['shares' => '4 Shares', 'n' => '2'] + $c), $fill($de['where.bubble.summary_some']['other'], ['shares' => '2 Shares', 'n' => '1'] + $c)],
+        [$r['some'] ?? null, $r['one'] ?? null]);
+    same('skip greeting: all left out — no corner, no share counted; Docker not running said as before',
+        [$fill($de['where.bubble.summary_none'], $c), $fill($de['where.bubble.summary_none'], ['containers' => 'Docker läuft nicht', 'scripts' => '1 User Scripts'])],
+        [$r['all'] ?? null, $r['docker_off'] ?? null]);
+    same('skip greeting: her rooms «spotless» — only where she looks once something is left out; nothing left out or an older look: as before',
+        [$de['bubble.spotless'], $de['bubble.spotless_skip'], $de['bubble.spotless']], [$r['spotless'] ?? null, $r['spotless_skip'] ?? null, $r['spotless_old'] ?? null]);
+    hardeningRm($tmp);
+}
+
+/**
  * «Leave these places out» (1.95.0, agent/lib/skipplaces.php): the user's one list of shares, pools and the array; ONE rule
  * (officeSkipWhy()) every reader asks; an empty or missing list is the office as before; names no longer there change
  * nothing. Ms. Dustdevil is its reader: her du and map queues, her folder lists, her rooms, the stray search, her `measure`
@@ -67038,7 +67154,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
                       'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
-                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
+                      'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
           'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testCleanupPurgeEnds', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
           'strings' => ['testStrings', 'testUnraidWords', 'testNoNightWords'],
           'fanboy' => ['testFanboyPublic', 'testFanboyMetrics', 'testCaretakerNewcomers', 'testFanboyNoWrite', 'testFanboyDetect', 'testFanboySituations', 'testFanboyIdentity', 'testFanboyReport', 'testFanboyHints', 'testFanboyPage',

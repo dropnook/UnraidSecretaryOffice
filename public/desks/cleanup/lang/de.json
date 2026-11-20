@@ -352,6 +352,7 @@
   "bubble.no_data": "Ich konnte mich noch nicht umschauen — ist der Hausbote da?",
   "bubble.docker_down": "Docker antwortet nicht — ich warte, bevor ich etwas anfasse.",
   "bubble.spotless": "Blitzblank! Hier liegt nichts herum, das niemand braucht.",
+  "bubble.spotless_skip": "Blitzblank, wo ich hinschaue! Hier liegt nichts herum, das niemand braucht — was du ausgelassen hast, sehe ich nicht an.",
   "bubble.found": "Was hier alles herumliegt: {list}.",
   "bubble.templates": {
     "one": "1 Template",
@@ -997,6 +998,8 @@
   "where.bubble.no_tour": "Ich war noch nicht in jedem Winkel — ein Rundgang dauert ein paar Sekunden, dann weiss ich, wo alles liegt.",
   "where.bubble.no_data": "Ich komme nicht an den Server heran und habe noch nichts zu zeigen.",
   "where.bubble.summary": "Ich kenne jeden Winkel: {shares}, {containers} und {scripts} — und den Staub in jedem davon.",
+  "where.bubble.summary_some": {"one": "Ich kenne fast jeden Winkel: {shares} (1 davon lasse ich aus, wie du es wolltest), {containers} und {scripts} — und den Staub in jedem, den ich ansehe.", "other": "Ich kenne fast jeden Winkel: {shares} ({n} davon lasse ich aus, wie du es wolltest), {containers} und {scripts} — und den Staub in jedem, den ich ansehe."},
+  "where.bubble.summary_none": "Die Shares lasse ich aus, wie du es wolltest. Den Rest kenne ich: {containers} und {scripts} — und den Staub in jedem davon.",
   "count.shares": {"one": "{n} Share", "other": "{n} Shares"},
   "count.folders": {"one": "{n} Ordner", "other": "{n} Ordner"},
   "count.files": {"one": "{n} Datei", "other": "{n} Dateien"},

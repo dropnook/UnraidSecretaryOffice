@@ -352,6 +352,7 @@
   "bubble.no_data": "Non sono ancora riuscita a guardarmi intorno — il fattorino c'è?",
   "bubble.docker_down": "Docker non risponde — aspetto prima di toccare qualcosa.",
   "bubble.spotless": "Splendente! Qui non c'è niente in giro che non serva a nessuno.",
+  "bubble.spotless_skip": "Splendente, dove guardo! Qui non c'è niente in giro che non serva a nessuno — dentro ciò che hai escluso non guardo.",
   "bubble.found": "Guarda cosa c'è in giro qui: {list}.",
   "bubble.templates": {
     "one": "1 template",
@@ -997,6 +998,8 @@
   "where.bubble.no_tour": "Non sono ancora passata in ogni angolo — un giro dura pochi secondi, poi saprò dove sta tutto.",
   "where.bubble.no_data": "Non riesco a raggiungere il server e non ho ancora niente da mostrare.",
   "where.bubble.summary": "Conosco ogni angolo: {shares}, {containers} e {scripts} — e la polvere in ognuno.",
+  "where.bubble.summary_some": {"one": "Conosco quasi ogni angolo: {shares} (1 la escludo, come volevi), {containers} e {scripts} — e la polvere in ognuno di quelli che guardo.", "other": "Conosco quasi ogni angolo: {shares} ({n} le escludo, come volevi), {containers} e {scripts} — e la polvere in ognuno di quelli che guardo."},
+  "where.bubble.summary_none": "Le condivisioni le escludo, come volevi. Il resto lo conosco: {containers} e {scripts} — e la polvere in ognuno.",
   "count.shares": {"one": "{n} condivisione", "other": "{n} condivisioni"},
   "count.folders": {"one": "{n} cartella", "other": "{n} cartelle"},
   "count.files": {"one": "{n} file", "other": "{n} file"},

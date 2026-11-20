@@ -352,6 +352,7 @@
   "bubble.no_data": "Todavía no he podido echar un vistazo — ¿está aquí el mensajero?",
   "bubble.docker_down": "Docker no responde — espero antes de tocar nada.",
   "bubble.spotless": "¡Como los chorros del oro! No hay nada tirado que nadie necesite.",
+  "bubble.spotless_skip": "¡Como los chorros del oro, donde miro! No hay nada tirado que nadie necesite — dentro de lo que excluiste no miro.",
   "bubble.found": "Mira todo lo que hay por aquí tirado: {list}.",
   "bubble.templates": {
     "one": "1 plantilla",
@@ -997,6 +998,8 @@
   "where.bubble.no_tour": "Todavía no he pasado por cada rincón — una ronda tarda unos segundos y después sabré dónde está todo.",
   "where.bubble.no_data": "No llego al servidor y todavía no tengo nada que enseñar.",
   "where.bubble.summary": "Conozco cada rincón: {shares}, {containers} y {scripts} — y el polvo de cada uno.",
+  "where.bubble.summary_some": {"one": "Conozco casi cada rincón: {shares} (1 lo excluyo, como querías), {containers} y {scripts} — y el polvo de cada uno que miro.", "other": "Conozco casi cada rincón: {shares} ({n} los excluyo, como querías), {containers} y {scripts} — y el polvo de cada uno que miro."},
+  "where.bubble.summary_none": "Los recursos compartidos los excluyo, como querías. El resto lo conozco: {containers} y {scripts} — y el polvo de cada uno.",
   "count.shares": {"one": "{n} recurso compartido", "other": "{n} recursos compartidos"},
   "count.folders": {"one": "{n} carpeta", "other": "{n} carpetas"},
   "count.files": {"one": "{n} archivo", "other": "{n} archivos"},
