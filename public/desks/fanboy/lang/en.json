@@ -334,6 +334,7 @@
   "curves.history_none": "No history yet — it fills a point a minute while he steers.",
   "curves.key_temp": "the place that led (°C)",
   "curves.key_level": "speed (%)",
+  "curves.key_curve_tip": "{kind}: the warmest place of this curve, its highest value in each 5 minutes",
   "hints.st_other_fans": "steers other fans",
   "hints.st_other_fans_title": "It steers shelf and IPMI fans, not the board's outputs — Fanboy steers beside it",
   "hints.waz": "WAZ Cooling Control steers the fans of disk shelves and IPMI chassis, not the board's fan connectors: Fanboy steers beside it. Should it ever change one of his outputs, he notices, gives that output back as it was before him and leaves it alone.",
@@ -1145,6 +1146,8 @@
   "settings.watch_off": "watching other fans: off",
   "hist.lead": "{where} at {c} °C",
   "hist.lead_none": "warmest spot at {c} °C",
+  "hist.curve": "{kind} {c} °C",
+  "hist.curve_led": "{kind} {c} °C (led)",
   "hist.read_hint": "Point at a chart (or tap it) to read a moment — in every zone at once; arrow keys move the marker.",
   "hist.read_none": "{time}: nothing recorded"
 }

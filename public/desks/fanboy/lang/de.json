@@ -334,6 +334,7 @@
   "curves.history_none": "Noch kein Verlauf — er füllt sich mit einem Punkt pro Minute, solange er regelt.",
   "curves.key_temp": "Stelle, die führte (°C)",
   "curves.key_level": "Drehzahl (%)",
+  "curves.key_curve_tip": "{kind}: die wärmste Stelle dieser Kurve, ihr höchster Wert je 5 Minuten",
   "hints.st_other_fans": "regelt andere Lüfter",
   "hints.st_other_fans_title": "Es regelt Lüfter von Disk-Gehäusen und über IPMI, nicht die Ausgänge des Mainboards — Fanboy regelt daneben",
   "hints.waz": "WAZ Cooling Control regelt die Lüfter von Disk-Gehäusen und IPMI-Servern, nicht die Lüfter-Anschlüsse des Mainboards: Fanboy regelt daneben. Ändert es je einen seiner Ausgänge, merkt er das, gibt diesen Ausgang zurück, wie er vor Fanboy war, und lässt ihn in Ruhe.",
@@ -1145,6 +1146,8 @@
   "settings.watch_off": "andere Lüfter überwachen: aus",
   "hist.lead": "{where} mit {c} °C",
   "hist.lead_none": "wärmste Stelle mit {c} °C",
+  "hist.curve": "{kind} {c} °C",
+  "hist.curve_led": "{kind} {c} °C (führte)",
   "hist.read_hint": "Zeig auf eine Kurve (oder tippe darauf), um einen Moment abzulesen — in allen Zonen zugleich; die Pfeiltasten verschieben die Markierung.",
   "hist.read_none": "{time}: nichts aufgezeichnet"
 }

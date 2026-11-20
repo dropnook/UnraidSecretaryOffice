@@ -1210,6 +1210,36 @@ function histPoints(h, zid) {
   const leads = h && h.leads && Array.isArray(h.leads[zid]) && h.leads[zid].length === pts.length ? h.leads[zid] : null;
   return pts.map((p, i) => (Array.isArray(p) && p.length === 4 ? [...p, leads && Number.isInteger(leads[i]) && typeof src[leads[i]] === 'string' ? src[leads[i]] : null, i] : null)).filter(Boolean);
 }
+/**
+ * Each curve's line of a zone (2026-11-20; a zone of two or more curves — kinds of its sources): the part's `curves`
+ * {kinds, every, t0, v} as [{k, i, pts: [[t, °C] | null …]}] — a row per span (each curve's highest value in it), drawn
+ * at the span's middle, null where nothing was recorded. Not in exactly that shape, one curve, an older agent: none.
+ */
+function histCurves(h, zid) {
+  const c = h && h.curves && h.curves[zid];
+  if (!c || !Array.isArray(c.kinds) || c.kinds.length < 2 || !Array.isArray(c.v) || !Number.isInteger(c.t0) || !Number.isInteger(c.every) || c.every <= 0) return [];
+  return c.kinds.map((k, i) => ({ k: String(k), i, every: c.every, t0: c.t0,
+    pts: c.v.map((r, j) => (Array.isArray(r) && num(r[i]) !== null ? [c.t0 + j * c.every + c.every / 2, r[i]] : null)) }));
+}
+/** A heat source's kind by its id (the setup's), null when it isn't there any more */
+const kindOfSource = (id) => { const x = id ? (setup().sources || []).find((y) => y.id === id) : null; return x ? x.kind : null; };
+/** A curve's name as its card in the setup says it (NVMe, CPU …) */
+const curveName = (k) => T(`kind.${has(`kind.${k}`) ? k : 'other'}`);
+/**
+ * The curves at a moment: «NVMe 45 °C (led), CPU 61 °C» — each from the span the moment lies in ([its start, the next one's)); text '' when none.
+ * nums: what was said, from where ([kind, °C, the row's index] — tools/fanboy/desk.mjs compares them with the part)
+ */
+function curvesAt(curves, t, lead) {
+  const lk = kindOfSource(lead);
+  const said = [], nums = [];
+  curves.forEach((cv) => {
+    const j = Math.floor((t - cv.t0) / cv.every);         // the span the moment lies in: [start, start + every)
+    if (!cv.pts[j]) return;
+    said.push(T(cv.k === lk ? 'hist.curve_led' : 'hist.curve', { kind: curveName(cv.k), c: degrees(cv.pts[j][1]) }));
+    nums.push([cv.k, cv.pts[j][1], j, cv.k === lk]);
+  });
+  return { text: said.join(', '), nums };
+}
 /** The source that led, as the page names it (a source no longer in the setup, or none recorded: «the warmest spot») */
 function leadText(id, c) {
   const x = id ? (setup().sources || []).find((y) => y.id === id) : null;
@@ -1240,9 +1270,12 @@ function historyChart(zid) {
   if (shown.length < 2) return el('p', 'fb-hint-text', T('curves.history_none'));
   // less than the period: the chart shows what there is, the caption says since when
   const from = Math.max(want, shown[0][0] - 60);
+  // each curve's line (zones of two or more curves): only its spans within the chart
+  const curves = histCurves(h, zid).map((cv) => ({ ...cv, pts: cv.pts.map((p) => (p && p[0] >= from && p[0] <= now + cv.every ? p : null)) }))
+    .filter((cv) => cv.pts.some(Boolean));
   // one chart a row, all zones under each other (one moment marked lines up in all of them): wide on a desktop, narrow on a phone
   const W = window.matchMedia && window.matchMedia('(max-width:640px)').matches ? 400 : 1000, H = 190, L = 36, R = 40, Tp = 10, B = 22;
-  const temps = shown.map((p) => p[1]).filter((v) => num(v) !== null);
+  const temps = [...shown.map((p) => p[1]), ...curves.flatMap((cv) => cv.pts.filter(Boolean).map((p) => p[1]))].filter((v) => num(v) !== null);
   const tLo = Math.floor((Math.min(...temps, 30) - 2) / 5) * 5, tHi = Math.ceil((Math.max(...temps, 40) + 2) / 5) * 5;
   const x = (ts) => L + (ts - from) / ((now - from) || 1) * (W - L - R);
   const yT = (c) => Tp + (1 - (c - tLo) / (tHi - tLo)) * (H - Tp - B);
@@ -1280,6 +1313,19 @@ function historyChart(zid) {
   // the level shaded (an area), its edge a thin line; the temperature a line of its own on top
   s.appendChild(svg('path', { d: lvl.map((r) => `${line(r)}L${r[r.length - 1][0].toFixed(1)} ${yL(0).toFixed(1)}L${r[0][0].toFixed(1)} ${yL(0).toFixed(1)}Z`).join(''), class: 'fb-level-area' }));
   s.appendChild(svg('path', { d: lvl.map(line).join(''), class: 'fb-level-line' }));
+  // each curve thin (a gap where a span has nothing), under the line of the place that led — strong, where it led
+  curves.forEach((cv) => {
+    const parts = [];
+    let cur = [];
+    cv.pts.forEach((p) => {
+      if (!p) { if (cur.length) parts.push(cur); cur = []; return; }
+      cur.push([Math.min(W - R, x(p[0])), yT(p[1])]);
+    });
+    if (cur.length) parts.push(cur);
+    const path = svg('path', { d: parts.map(line).join(''), class: `fb-curve-line fb-curve-${cv.i % 8}` });
+    path.dataset.kind = cv.k;
+    s.appendChild(path);
+  });
   s.appendChild(svg('path', { d: runs((p) => (num(p[1]) === null ? null : yT(p[1]))).map(line).join(''), class: 'fb-temp-line' }));
   // the marker: a line at the moment, a dot on each curve (drawn only while a moment is marked)
   const mark = svg('g', { class: 'fb-mark' });
@@ -1321,7 +1367,10 @@ function historyChart(zid) {
       if (y !== null) { dot.setAttribute('cx', x(q[0]).toFixed(1)); dot.setAttribute('cy', y.toFixed(1)); }
     });
     read.classList.remove('fb-hist-read-off');
-    read.textContent = markWords(q);
+    const cw = curves.length ? curvesAt(curves, q[0], q[4]) : { text: '', nums: [] };
+    read.textContent = cw.text ? `${markWords(q)} · ${cw.text}` : markWords(q);
+    delete read.dataset.curves;
+    if (cw.nums.length) read.dataset.curves = JSON.stringify(cw.nums);
     // the numbers said, each from the history point under the marker (tools/fanboy/desk.mjs compares them with the part)
     read.dataset.at = String(q[0]);
     read.dataset.nums = JSON.stringify([[1, 'c'], [2, 'pct'], [3, 'rpm']].filter(([k]) => num(q[k]) !== null).map(([k]) => ({ v: q[k], from: ['@hist', 'zones', zid, q[5], k] })));
@@ -1410,6 +1459,16 @@ function historySection() {
     const b = el('figure', 'fb-fig');
     b.append(historyChart(z.id), el('figcaption', 'fb-legend', ''));
     b.lastChild.append(el('span', 'fb-key fb-key-t', T('curves.key_temp')), el('span', 'fb-key fb-key-l', T('curves.key_level')));
+    // a zone of two or more curves: each curve's line by its name, as on its card (2026-11-20)
+    const h = historyNow();
+    histCurves(h, z.id).forEach((cv) => {
+      const k = el('span', 'fb-key fb-key-c', '');
+      const sample = svg('svg', { viewBox: '0 0 18 6', class: 'fb-key-sample', 'aria-hidden': 'true' });
+      sample.appendChild(svg('line', { x1: 0, x2: 18, y1: 3, y2: 3, class: `fb-curve-line fb-curve-${cv.i % 8}` }));
+      k.append(sample, document.createTextNode(curveName(cv.k)));
+      k.title = T('curves.key_curve_tip', { kind: curveName(cv.k) });
+      b.lastChild.appendChild(k);
+    });
     card.appendChild(b);
     grid.appendChild(card);
   });

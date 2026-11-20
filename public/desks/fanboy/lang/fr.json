@@ -334,6 +334,7 @@
   "curves.history_none": "Pas encore d'historique — il se remplit d'un point par minute tant qu'il règle.",
   "curves.key_temp": "endroit qui menait (°C)",
   "curves.key_level": "vitesse (%)",
+  "curves.key_curve_tip": "{kind} : l’endroit le plus chaud de cette courbe, sa valeur la plus haute par tranche de 5 minutes",
   "hints.st_other_fans": "règle d'autres ventilateurs",
   "hints.st_other_fans_title": "Il règle des ventilateurs de baies de disques et IPMI, pas les sorties de la carte mère — Fanboy règle à côté",
   "hints.waz": "WAZ Cooling Control règle les ventilateurs des baies de disques et des châssis IPMI, pas les connecteurs de la carte mère : Fanboy règle à côté. S'il modifiait un jour une de ses sorties, Fanboy le remarquerait, rendrait cette sortie telle qu'elle était avant lui et la laisserait tranquille.",
@@ -1145,6 +1146,8 @@
   "settings.watch_off": "surveiller les autres ventilateurs : non",
   "hist.lead": "{where} à {c} °C",
   "hist.lead_none": "point le plus chaud à {c} °C",
+  "hist.curve": "{kind} {c} °C",
+  "hist.curve_led": "{kind} {c} °C (menait)",
   "hist.read_hint": "Pointe un graphique (ou touche-le) pour lire un moment — dans toutes les zones à la fois ; les flèches déplacent le repère.",
   "hist.read_none": "{time} : rien d'enregistré"
 }
