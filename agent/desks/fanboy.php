@@ -66,8 +66,8 @@ desk('fanboy', [
         'drivers_undo'  => fn (array $r) => fanboyDriversUndo() + ['state' => fanboyScan()],
         'chip_read'     => fn (array $r) => fanboyChipRead() + ['state' => fanboyScan()],      // 2026-11-20: the fan chip's id, on the click only
         'chip_report'   => fn (array $r) => ['ok' => true, 'report' => fanboyChipReportText(fanboyDetect())],      // read only: the chip's id and the board's name
-        'test_up'       => fn (array $r) => fanboyStepStart('test_up', idList($r, 'fans'), optBool($r, 'quiet', false)),     // round 8: quiet
-        'measure'       => fn (array $r) => fanboyStepStart('measure', idList($r, 'fans')),
+        'test_up'       => fn (array $r) => fanboyStepStart('test_up', idList($r, 'fans'), optBool($r, 'quiet', false), optBool($r, 'warm_ok', false)),     // round 8: quiet
+        'measure'       => fn (array $r) => fanboyStepStart('measure', idList($r, 'fans'), false, optBool($r, 'warm_ok', false)),       // 2026-11-20: warm_ok, the user's tick
         'step_alive'    => function (array $r): array { fanboyStepAliveTouch(); return ['ok' => true, 'step' => fanboyStepRead()]; },
         'step_stop'     => fn (array $r) => fanboyStepStopAction(),
         'step_next'     => fn (array $r) => fanboyStepNext($r),        // round 8: «Gefunden — weiter»

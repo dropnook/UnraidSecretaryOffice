@@ -596,7 +596,7 @@ function testFanboyUx(): void
         substr_count($js, "{ v: hub.floor, from: ['setup', 'fans', `=\${id}`, 'hub', 'floor'] }, { v: hub.start, from: ['setup', 'fans', `=\${id}`, 'hub', 'start'] }") === 2
         && str_contains((string) ($l['de']['hub.mixed'] ?? ''), 'Minimum {floor} %, Anlauf {start} %') && str_contains((string) ($l['de']['hub.table'] ?? ''), 'der seine Drehzahl meldet'));
     check('fanboy ux r14: «Mit den Augen prüfen» runs the agent\'s hub_look; its questions (do all turn, all stand, do all start again) are answered in the fan\'s panel with step_next {heard}; the strip and the bubble say the look, not a test',
-        str_contains($js, "send('hub_look', { fan: id });") && str_contains($js, "btn(T('hub.yes'), 'btn', () => send('step_next', { fan: id, heard: true }), T('hub.yes_tip'))")
+        str_contains($js, "send('hub_look', { fan: id, ...warmBody() });") && str_contains($js, "btn(T('hub.yes'), 'btn', () => send('step_next', { fan: id, heard: true }), T('hub.yes_tip'))")
         && str_contains($js, "btn(T('hub.no'), 'btn plain', () => send('step_next', { fan: id, heard: false }), T('hub.no_tip'))") && str_contains($js, "const answer = part && part.phase !== 'hub_stop';")
         && str_contains($js, "r.kind = s.kind === 'measure' ? 'measure' : s.kind === 'hub_look' ? 'hub' : 'test';") && str_contains($js, "T(`strip.h.\${run.part.phase}`,")
         && str_contains($js, "step().kind === 'hub_look' ? T('bubble.hub_look')"));
@@ -2014,4 +2014,87 @@ function testFanboyZonesDraft(): void
         && str_contains($js, "() => changeFan(id, { alike: true }),") && str_contains($js, "act('zones_save', { zones: zonesNow().map(cleanZone), fans: zfansList() }, b,")
         && str_contains($js, "() => { zdraft = null; zfans = null; curves.clear(); drawn = ''; redraw(); }") && str_contains($js, 'const fans = (z.fans || []).map(setupFan).filter(Boolean).map(zfanNow);')
         && !preg_match("/act\\('role', \\{ fan: id, role: f\\.role, (alike|name)/", $js));
+}
+
+/**
+ * 2026-11-20 (the owner: «und wenn jemand deswegen die Lüfter nicht einstellen und nicht vermessen kann? ein Haken zum
+ * Übersteuern mit Warnung?» — and «auch hier sollte anschliessend übersteuern möglich sein» for no CPU reading): a step
+ * started with the user's tick `warm_ok` runs without the warmth guards for that ONE run — not refused, not stopped, a CPU
+ * cooler's standstill not cut for a missing reading; the record says so, the settings never carry it; without the tick
+ * every guard acts as before
+ */
+function testFanboyWarmOverride(): void
+{
+    $t = fanboyT('warmok');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $spec = fanboyR12Spec();
+        fanboyTSettle($t, $spec);
+        $m = ['table' => [[100, 1500], [50, 900], [10, 420]], 'min_pct' => 10, 'start_pct' => 10, 'max_rpm' => 1500, 'at' => 1];
+        fanboyR12Store();
+        // a warm CPU: the quiet test refused — with the tick it starts, the record carries it, the settings don't
+        fanboyR12CpuTemp($t, 75);
+        try {
+            fanboyStepStart('test_up', [fanboyTId(1)], true);
+            $key = 'started';
+        } catch (Problem $p) {
+            $key = $p->key;
+        }
+        $r = fanboyStepStart('test_up', [fanboyTId(1)], true, true);
+        same('fanboy warm ok: the CPU at 75 °C — the quiet test refused without the tick; with it started, the step\'s record says so, the settings never',
+            ['fanboy_quiet_warm', true, true, false], [$key, $r['ok'] ?? null, fanboyStepRead()['warm_ok'] ?? null, str_contains(json_encode(fanboyBoardRaw()), 'warm_ok')]);
+        @unlink(fanboyStepFile());
+        fanboyR12CpuTemp($t, 28);
+        // a measuring run whose source gets warm in the middle (the CPU to 90 at the first look): stopped without the tick,
+        // through with it
+        $run = function (int $n, bool $ok, callable $each) use ($t, &$spec): array {
+            $clock = 0.0;
+            $io = fanboyTIo($t, $spec, $clock);
+            $sleep = $io['sleep'];
+            $io['sleep'] = function (float $s) use ($sleep, $each, &$clock): void {
+                $sleep($s);
+                $each($clock);
+            };
+            return fanboyStepRun(['id' => 'wo' . mt_rand(), 'kind' => 'measure', 'fans' => [fanboyTId($n)]] + ($ok ? ['warm_ok' => true] : []), $io);
+        };
+        $hot = function (?int $c, ?string $phase = null) use ($t): callable {
+            return function () use ($t, $c, $phase): void {
+                if ($phase === null || (fanboyStepRead()['progress']['phase'] ?? null) === $phase) {
+                    fanboyR12CpuTemp($t, $c);
+                }
+            };
+        };
+        $step = $run(4, false, $hot(90));
+        fanboyR12CpuTemp($t, 28);
+        same('fanboy warm ok: the CPU at 90 °C during the table, no tick — stopped «warm» as before', ['stopped', 'warm'], [$step['status'], $step['why']]);
+        fanboyR12Store();
+        $step = $run(4, true, $hot(90));
+        fanboyR12CpuTemp($t, 28);
+        same('fanboy warm ok: … with the tick — through: measured, the step done, the record says it ran with the guard off, every output back',
+            ['done', true, true, [128, 1], []], [$step['status'], is_array(fanboyBoardRaw()['fans'][fanboyTId(4)]['measured'] ?? null), $step['warm_ok'] ?? null, fanboyTOut($t, 4), fanboyHeld()]);
+        // the CPU cooler standing with no CPU reading: cut without the tick, not with it
+        fanboyR12Store();
+        $step = $run(2, false, $hot(null, 'stop_check'));
+        fanboyR12CpuTemp($t, 28);
+        same('fanboy warm ok: the CPU cooler standing, the CPU gives no reading, no tick — cut («no reading»), its table kept', ['done', 'no_reading'],
+            [$step['status'], $step['cuts'][0]['why'] ?? null]);
+        fanboyR12Store();
+        $step = $run(2, true, $hot(null, 'stop_check'));
+        fanboyR12CpuTemp($t, 28);
+        $mm = fanboyBoardRaw()['fans'][fanboyTId(2)]['measured'] ?? [];
+        same('fanboy warm ok: … with the tick — not cut: its standstill part runs through, the step done, the cooler back as before',
+            ['done', [], true, [128, 1]], [$step['status'], $step['cuts'] ?? [], array_key_exists('stops', $mm), fanboyTOut($t, 2)]);
+        unset($m);
+    } finally {
+        fanboyTEnd();
+    }
+    $js = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/desk.js');
+    $l = json_decode((string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/lang/de.json'), true);
+    $agent = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-setup.php');
+    check('fanboy warm ok: the page offers the tick only where a warmth guard spoke on this visit (a refusal, a stop, a cut), sends it with the next start only, then forgets it; the agent logs a run with the guard off',
+        str_contains($js, "if (j.error && j.error.key === 'fanboy_quiet_warm') warmRefused =") && str_contains($js, "if (STARTS.includes(action)) { warmTick = false; warmRefused = null; }")
+        && str_contains($js, "return send('test_up', { fans: ids, quiet: quietOn(), ...warmBody() }, { fresh: true });") && str_contains($js, "return send('measure', { fans: ids, ...warmBody() }, { fresh: true });")
+        && str_contains($js, 'const ws = run.kind ? null : warmSpoke();') && !str_contains($js, "Office.store('fanboy.warm")
+        && $l['warm.tick'] === 'Trotzdem starten — ich weiss, dass {where} schon {c} °C hat.' && $l['warm.tick_none'] === 'Trotzdem starten — ich weiss, dass Fanboy die CPU-Temperatur nicht lesen kann.'
+        && str_contains($agent, "runs with the warmth guard off (the user's tick, this run only)"));
 }
