@@ -61,8 +61,10 @@ const FANBOY_RPM_TRIM_MAX = 15;         // percent an rpm zone's correction move
 // a heat source's own scale by its kind: low = cool (the curve's start), high = needs all the air, limit = alarm
 const FANBOY_SOURCE_DEFAULTS = [
     'disk'  => ['low' => 35, 'high' => 45, 'limit' => 52],      // a hard disk (rotating)
-    'ssd'   => ['low' => 40, 'high' => 60, 'limit' => 70],      // an SSD or NVMe of Unraid's (disks.ini, not rotating) — round 4
-    'nvme'  => ['low' => 40, 'high' => 65, 'limit' => 75],
+    // an SSD or NVMe of Unraid's (disks.ini, not rotating) — round 4; their limits 80 °C since 2026-11-20 (the owner:
+    // «NVMe-SSD auch easy bis 80») — a set-up keeps the limits it stored
+    'ssd'   => ['low' => 40, 'high' => 60, 'limit' => 80],
+    'nvme'  => ['low' => 40, 'high' => 65, 'limit' => 80],
     'cpu'   => ['low' => 45, 'high' => 80, 'limit' => 92],
     'ram'   => ['low' => 40, 'high' => 60, 'limit' => 75],
     'gpu'   => ['low' => 45, 'high' => 80, 'limit' => 90],

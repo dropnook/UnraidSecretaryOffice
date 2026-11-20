@@ -1110,12 +1110,12 @@
    "ssd": {
     "low": 40,
     "high": 60,
-    "limit": 70
+    "limit": 80
    },
    "nvme": {
     "low": 40,
     "high": 65,
-    "limit": 75
+    "limit": 80
    },
    "cpu": {
     "low": 45,

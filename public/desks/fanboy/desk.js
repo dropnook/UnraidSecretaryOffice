@@ -2592,12 +2592,16 @@ function sawRun() {
 const freshEnd = (x) => !!x && ((!!x.id && ranHere.has(x.id)) || (num(S().time) !== null && num(x.at) !== null && S().time - x.at <= FRESH_S));
 /** How the last test or measuring ended, when it didn't simply finish: the page gone, stopped, too warm, a fan that didn't start again */
 function endedText(s) {
+  // 2026-11-20: a measuring that went on past a fan whose standstill part the guard cut — that fan's result, said once
+  const cut = s && s.kind === 'measure' && s.status === 'done' && !running(s) && freshEnd(s) ? (s.cuts || []).find((c) => cutLine(c)) : null;
+  if (cut) return T('step.ended.cut', { fan: fanSay(cut.fan), what: cutLine(cut) });
   if (!s || !['test_up', 'measure'].includes(s.kind) || running(s) || !['stopped', 'failed'].includes(s.status) || !freshEnd(s)) return '';
   const why = s.status === 'failed' ? 'error' : s.why || 'stopped';
   // «did not start again — set to 100 %» is never claimed from a past run: while an output stands at 100 % the strip's first
   // line and its panel say so from `safety`; once it is back there is nothing to claim
   if (why === 'no_restart') return '';
   // too warm while measuring: which source, how warm, its limit (round 4: by its own kind — an NVMe pool's 50 °C stops nothing)
+  if (why === 'warm' && s.warm && s.warm.why === 'no_reading') return T('step.ended.no_cpu');
   if (why === 'warm' && s.warm && s.warm.source) {
     return T('step.ended.warm_what', { where: srcLabel({ kind: s.warm.kind === 'disk' || s.warm.kind === 'ssd' ? s.warm.kind : 'other', id: s.warm.source, label: s.warm.source }), c: fmt.number(s.warm.c), limit: fmt.number(s.warm.limit) });
   }
@@ -3196,12 +3200,23 @@ function measureMake() {
  */
 function standLine(f) {
   const st = f && f.stand;
-  if (!st) return '';
+  if (!st) return f && f.stand_cut ? cutLine(f.stand_cut) : '';
   if (st.stops === false) return T('stand.floor', { rpm: num(st.floor_rpm) === null ? '–' : fmt.number(st.floor_rpm) });
   if (st.stops_safe === false) return T('stand.unsafe');
   if (num(st.start_from_stop) !== null) return T('stand.starts', { pct: st.start_from_stop });
   if (num(st.kick_start) !== null) return T('stand.kick', { pct: st.kick_start });
   return T('stand.stops');
+}
+/**
+ * 2026-11-20: the standstill part cut by the guard — the fan's result, in a true sentence: where its source began and
+ * ended while the fan stood (or how warm against its own limit), or that the CPU said nothing; '' for a cut by «stop»
+ */
+function cutLine(c) {
+  if (!c || !['warm', 'no_reading'].includes(c.why)) return '';
+  if (c.why === 'no_reading') return T('stand.cut_none');
+  const where = srcLabel({ kind: c.kind === 'disk' || c.kind === 'ssd' ? c.kind : 'other', id: c.source || '', label: c.source || '' });
+  if (num(c.from) !== null && num(c.c) !== null && c.c > c.from) return T('stand.cut_rise', { where, from: fmt.number(c.from), c: fmt.number(c.c) });
+  return T('stand.cut_at', { where, c: num(c.c) === null ? '–' : fmt.number(c.c), limit: num(c.limit) === null ? '–' : fmt.number(c.limit) });
 }
 function measurePanel(id, api) {
   const root = Office.place(`measure:${id}`, el('div', 'fb-panel'));

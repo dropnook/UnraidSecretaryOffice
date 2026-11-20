@@ -1013,8 +1013,8 @@ function testFanboyNvmeWarm(): void
         same('fanboy nvme warm: … the step stops «warm» and names it', ['stopped', 'warm', 'cache', 50.0, 52.0, [128, 1]],
             [$step['status'], $step['why'], $step['warm']['source'] ?? null, $step['warm']['c'] ?? null, $step['warm']['limit'] ?? null, fanboyTOut($t, 4)]);
         fanboyTStore($settings);
-        fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '35', '1'], ['cache', 'Cache', 'nvme0n1', '66', '0']]);
-        same('fanboy nvme warm: the pool at 66 °C — close to the SSD limit (70 − 5)', ['cache', 'ssd', 70.0], array_values(array_intersect_key(fanboyStepWarm($settings) ?? [], array_flip(['source', 'kind', 'limit']))));
+        fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '35', '1'], ['cache', 'Cache', 'nvme0n1', '76', '0']]);
+        same('fanboy nvme warm: the pool at 76 °C — close to the SSD limit (80 − 5, since 2026-11-20)', ['cache', 'ssd', 80.0], array_values(array_intersect_key(fanboyStepWarm($settings) ?? [], array_flip(['source', 'kind', 'limit']))));
         fanboyTDisksKinds($t, [['parity', 'Parity', 'sdb', '48', '1'], ['cache', 'Cache', 'nvme0n1', '50', '0']]);
         same('fanboy nvme warm: a hard disk at 48 °C — its own kind\'s limit (52 − 5)', ['parity', 'disk', 52.0], array_values(array_intersect_key(fanboyStepWarm($settings) ?? [], array_flip(['source', 'kind', 'limit']))));
     } finally {
