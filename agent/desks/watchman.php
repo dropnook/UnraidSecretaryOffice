@@ -4812,7 +4812,7 @@ function watchmanAtJobs(array $paths, ?array $prev): ?array
         }
     }
     ksort($jobs);
-    // helper: the installed plugin whose copy the Plugin-Update-Helper is (an old entry of its job is closed: watchmanAtPluginClose())
+    // helper: the installed plugin whose copy the Plugin-Update-Helper is
     return ['v' => 5, 'm' => (int) $st['mtime'], 'pm' => $pm, 'jobs' => $jobs, 'helper' => $helper];
 }
 
@@ -5209,7 +5209,6 @@ function watchmanSchedCompare(?array &$known, ?array $seen, array $installed, ar
         $foreign = array_filter((array) $at['jobs'], fn ($j) => empty($j['ours']) && empty($j['unraid']));
         watchmanAtOnce($book);
         watchmanAtUnraidClose($book, $now);
-        watchmanAtPluginClose($book, $installed, $now, is_string($at['helper'] ?? null) ? $at['helper'] : null);
         // the plugins' own jobs as he knew them (job number => watchmanAtPluginKnown()): one stays its plugin's when that is removed
         $mine = is_array($known['at_plugin'] ?? null) ? $known['at_plugin'] : [];
         $changed = [];
@@ -5356,6 +5355,9 @@ function watchmanAtSet(array &$book, string $f, array $j, int $now, bool $change
           'queued' => is_int($j['q'] ?? null) ? $j['q'] : null, 'run' => $run, 'since' => $run && is_int($j['c'] ?? null) ? $j['c'] : null,
           'prog' => $j['prog'] ?? null, 'owner' => $j['owner'] ?? null];
     $late = !$run && $now - (int) $j['when'] >= WATCH_AT_LATE;
+    if ($changed) {
+        $p['_changed'] = true;      // a plugin's job not as he knew it: never the plugin's quiet line later (watchmanAtNote())
+    }
     $num = watchmanAtNum($f);
     foreach ($book as $i => $e) {
         // a plugin's own job that changed ($changed: watchmanAtLeft()) is news, whatever line he has about it as the plugin's
@@ -5363,6 +5365,7 @@ function watchmanAtSet(array &$book, string $f, array $j, int $now, bool $change
             continue;
         }
         if (($e['kind'] ?? '') === 'at_job' && watchmanOpen($e)) {
+            $p += array_intersect_key((array) ($e['p'] ?? []), ['_changed' => 1]);
             if (($e['p'] ?? []) !== $p) {
                 $book[$i]['p'] = $p;
                 $book[$i]['last'] = $now;
@@ -5407,7 +5410,7 @@ function watchmanAtOnce(array &$book): void
         $told = array_filter([$book[$k]['told'] ?? null, $e['told'] ?? null], 'is_int');
         $book[$k]['time'] = min((int) $book[$k]['time'], (int) $e['time']);
         $book[$k]['last'] = max((int) $book[$k]['last'], (int) $e['last']);
-        $book[$k]['p'] = $kind === 'at_plugin' ? (array) ($e['p'] ?? []) + (array) ($book[$k]['p'] ?? []) : (array) ($e['p'] ?? []);
+        $book[$k]['p'] = $kind === 'at_job' ? (array) ($e['p'] ?? []) : (array) ($e['p'] ?? []) + (array) ($book[$k]['p'] ?? []);
         $book[$k]['told'] = $told ? min($told) : null;
         $book[$k]['noted'] = $open ? null : ($e['noted'] ?? null);
         $book[$k]['by'] = $open ? null : ($e['by'] ?? null);
@@ -5432,23 +5435,13 @@ function watchmanAtUnraidClose(array &$book, int $now): void
     }
 }
 
-/**
- * Open entries that were only a plugin's own job (Fix Common Problems' scan before 1.48; the Plugin-Update-Helper until
- * 2026-10-22): closed, noted by himself (`by` plugin) — the command as kept (watchmanAtCommand(), whole: no «…») a file of a
- * plugin installed now, as root; or the helper's, while it is an installed plugin's copy ($helper: watchmanUpdateHelper())
+/*
+ * Up to 1.94.1 open at_job lines were closed by their command alone (watchmanAtPluginClose(): the helper's path, or a file of
+ * an installed plugin — the first line of the job only), so «plugin_update_helper; curl … | sh» was told once and closed by
+ * himself the next round. Now only the proof closes one: the job in the queue, recognised as an installed plugin's own
+ * (watchmanAtPlugin(), watchmanAtHelperJob() with the helper an installed plugin's copy) — watchmanAtNote() turns its line
+ * into the plugin's. A line about a job no longer in the queue stays as it is: it was told; the user notes it.
  */
-function watchmanAtPluginClose(array &$book, array $plugins, int $now, ?string $helper = null): void
-{
-    foreach ($book as $i => $e) {
-        $cmd = (string) ($e['p']['cmd'] ?? '');
-        if (($e['kind'] ?? '') === 'at_job' && watchmanOpen($e) && ($e['p']['uid'] ?? null) === 0
-            && (($helper !== null && $cmd === WATCH_UPDATE_HELPER)
-                || (preg_match(WATCH_AT_PLUGIN, $cmd, $m) && isset($plugins[$m[1]]) && !preg_match('#(?:^|/)\.\.?(?:/|$)#', $m[2])))) {
-            $book[$i]['noted'] = $now;
-            $book[$i]['by'] = 'plugin';
-        }
-    }
-}
 
 /** A plugin's own at job: a line in the book naming the plugin, noted by himself (`by` plugin) — once per job */
 function watchmanAtPluginNote(array &$book, string $job, array $j, int $now): void
@@ -5520,8 +5513,9 @@ function watchmanAtUserScriptNote(array &$book, string $job, array $j, int $now)
 /**
  * A known job's line, noted by himself ($by) — once per job (watchmanAtOf()): an older alarm about it (an at_job line from
  * before he knew it as such: the plugin not installed yet, an environment he didn't know) becomes this line, its first time
- * and what was told kept; noted by himself unless someone noted it already. A plugin's line learns once that its plugin was
- * removed (`left`: watchmanAtLeftNote()) — and that it is installed again; else it stays as it is.
+ * and what was told kept; noted by himself unless someone noted it already — never one told because the plugin's job was
+ * no longer as he knew it (`_changed`: watchmanAtSet()), that stays until the user notes it. A plugin's line learns once that
+ * its plugin was removed (`left`: watchmanAtLeftNote()) — and that it is installed again; else it stays as it is.
  */
 function watchmanAtNote(array &$book, string $kind, string $job, array $p, string $by, int $now): void
 {
@@ -5530,7 +5524,7 @@ function watchmanAtNote(array &$book, string $kind, string $job, array $p, strin
         if (watchmanAtOf($e) !== $num) {
             continue;
         }
-        if (($e['kind'] ?? '') === 'at_job') {
+        if (($e['kind'] ?? '') === 'at_job' && empty($e['p']['_changed'])) {
             $book[$i]['kind'] = $kind;
             $book[$i]['key'] = "$kind:$num";
             $book[$i]['p'] = $p;
