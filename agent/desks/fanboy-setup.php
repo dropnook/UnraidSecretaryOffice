@@ -23,8 +23,14 @@ declare(strict_types=1);
 const FANBOY_STEP_LEASE = 45.0;         // seconds without the page's sign of life: the step stops, everything back
 const FANBOY_STEP_MAX = 900.0;          // a step's whole time at most (15 minutes)
 const FANBOY_UP_BASE = 2.0;             // test up: seconds of baseline
-const FANBOY_UP_FOR = 60.0;             // … seconds at full speed at most (round 8, the owner: up to a minute — the user finds the fan
-                                        // and ends it with «found — next»; only «inverted» ends it by itself)
+// … then the output stays at full until the user answers («found» / «heard nothing» — 2026-11-20, the owner: the test ran on
+// to the next output while he was still telling it about the first): no clock moves to the next output. Unanswered, the
+// step pauses at this ceiling — every output back, the next one not started; «inverted» still ends an output by itself
+const FANBOY_UP_HOLD = 600.0;           // seconds at full without an answer, the other outputs as they were (only noise)
+const FANBOY_UP_HOLD_QUIET = 180.0;     // … in the quiet test (the others at 0 meanwhile — a disk cage's fans among them, and
+                                        // Unraid's disk temperatures come only every few minutes: the warm guard can't see a
+                                        // disk warming that fast; round 8's flow held them at 0 about 7 of 7.5 minutes for six)
+const FANBOY_UP_STEP_EXTRA = 60.0;      // a test's whole time: per output its ceiling and this (baseline, calm-down, restart pause)
 const FANBOY_UP_MIN = 8.0;              // round 8: «found — next» before two looks agreed: full until they have, or this long
 const FANBOY_UP_SETTLE = 8.0;           // … seconds at most for the fans to calm down before the next output
 const FANBOY_READBACK_AFTER = 2.0;      // round 5: a write read back this long after — changed back: the BIOS keeps it
@@ -76,7 +82,7 @@ final class FanboyQuietWarm extends FanboyStepStop
 /*
  * Round 8 (G1, the owner, 2026-11-15 — the one exception to «never down»): the QUIET test. While one output X is tested
  * (or shown while he doesn't steer), every other output is stopped so that only X is heard: each taken like any take (its
- * state before in the journal), a fixed 0 written; X to full for up to FANBOY_UP_FOR (a minute; «found — next» ends it); then every one given
+ * state before in the journal), a fixed 0 written; X to full until the user answers (at most FANBOY_UP_HOLD_QUIET); then every one given
  * back exactly (value + mode, read back); then at least FANBOY_QUIET_PAUSE with everything as before, in which every tach
  * that turned before must turn again within FANBOY_QUIET_RESTART — one that doesn't: its output (or, its output unknown,
  * every output quieted on that chip) to full, an alert, the test stops. Never quieted: X, a CPU cooler or pump (by its
@@ -457,18 +463,35 @@ function fanboyStepAlive(?float $now = null): bool
     return ctype_digit($raw) && ($now ?? fanboyMono()) - (int) $raw / 1e9 <= FANBOY_STEP_LEASE;
 }
 
-/** The real clock, sleep and signs for a step (the tests hand their own: a clock of theirs, fans that answer) */
-function fanboyStepIo(array &$stop): array
+/**
+ * The real clock, sleep and signs for a step (the tests hand their own: a clock of theirs, fans that answer, a user who
+ * answers — `answer` (output, step id, seconds at full) → {heard} | null; the real one is the page's step_next)
+ */
+function fanboyStepIo(array &$stop, float $max = FANBOY_STEP_MAX): array
 {
     $started = fanboyMono();
     return [
-        'now'   => fn (): float => fanboyMono(),
-        'sleep' => function (float $s): void { usleep((int) round($s * 1e6)); fanboyBeat(); },
-        'ok'    => function () use (&$stop, $started): ?string {
-            return $stop['now'] ? 'stopped' : (!fanboyStepAlive() ? 'page_gone' : (fanboyMono() - $started > FANBOY_STEP_MAX ? 'too_long' : null));
+        'now'    => fn (): float => fanboyMono(),
+        'sleep'  => function (float $s): void { usleep((int) round($s * 1e6)); fanboyBeat(); },
+        'ok'     => function () use (&$stop, $started, $max): ?string {
+            return $stop['now'] ? 'stopped' : (!fanboyStepAlive() ? 'page_gone' : (fanboyMono() - $started > $max ? 'too_long' : null));
         },
-        'note'  => fn (array $p) => null,
+        'note'   => fn (array $p) => null,
+        'answer' => fn (string $id, ?string $stepId, float $held): ?array => fanboyStepNextAsked($id, $stepId),
     ];
+}
+
+/**
+ * A step's whole time at most: FANBOY_STEP_MAX; a test waits for the user at each output (2026-11-20), so its bound is
+ * per output its ceiling and FANBOY_UP_STEP_EXTRA — never less than FANBOY_STEP_MAX
+ */
+function fanboyStepMax(array $step): float
+{
+    if (($step['kind'] ?? null) !== 'test_up') {
+        return FANBOY_STEP_MAX;
+    }
+    $hold = ($step['quiet'] ?? false) === true ? FANBOY_UP_HOLD_QUIET : FANBOY_UP_HOLD;
+    return max(FANBOY_STEP_MAX, count(is_array($step['fans'] ?? null) ? $step['fans'] : []) * ($hold + FANBOY_UP_STEP_EXTRA));
 }
 
 // ===================================================================== what can be tested, measured
@@ -511,7 +534,8 @@ function fanboyStepWait(array $io, float $s): void
 }
 
 /**
- * Test one output UPWARD: a baseline of its chip's tach inputs, the output to full speed for up to FANBOY_UP_FOR s,
+ * Test one output UPWARD: a baseline of its chip's tach inputs, the output to full speed until the user answers (at most
+ * FANBOY_UP_HOLD / FANBOY_UP_HOLD_QUIET s — unanswered, the step stops with `unanswered`: everything back, nothing next),
  * which inputs follow (≥ 15 % + 100 rpm over their baseline, at least 300 rpm), then exactly its state before, and the
  * fans calmed down before the next one. Result: found tach (one or more inputs — a hub), ask (none followed: «did
  * something get louder?»), unclear (it ran at full speed already — up shows nothing), busy (someone holds it).
@@ -560,15 +584,18 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool 
             return ['found' => 'busy', 'tachs' => []];
         }
         // round 9 (H3): what runs now, for the page — this output at full (the others standing in a quiet test)
-        ($io['note'] ?? fn (array $p) => null)(['phase' => 'full', 'quiet' => $quiet, 'until' => time() + (int) FANBOY_UP_FOR]);
+        // 2026-11-20: `waits` — it stays at full until the user answers; `until` the ceiling (then the step pauses)
+        $hold = $quiet ? FANBOY_UP_HOLD_QUIET : FANBOY_UP_HOLD;
+        ($io['note'] ?? fn (array $p) => null)(['phase' => 'full', 'quiet' => $quiet, 'waits' => true, 'until' => time() + (int) $hold]);
+        $answer = $io['answer'] ?? fn (string $id, ?string $sid, float $held): ?array => fanboyStepNextAsked($id, $sid);
         $t0 = ($io['now'])();
         $seen = [];
         $fell = [];
         $checked = false;
-        while (($io['now'])() - $t0 < FANBOY_UP_FOR) {
+        while (true) {
             fanboyStepWait($io, 0.5);
             // round 8: «found — next»: the others back at once; this one once the looks agreed (or FANBOY_UP_MIN)
-            if (!$next && ($asked = fanboyStepNextAsked($o['id'], $stepId)) !== null) {
+            if (!$next && ($asked = $answer($o['id'], $stepId, ($io['now'])() - $t0)) !== null) {
                 $next = true;
                 $heard = $asked['heard'];
                 if ($quieted) {
@@ -578,6 +605,10 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool 
             }
             if ($next && ((($io['now'])() - $t0 >= FANBOY_UP_MIN) || ($seen && max($seen) >= 2))) {
                 break;
+            }
+            // 2026-11-20: nobody answered — the step pauses here (everything back below), it never goes on by itself
+            if (!$next && ($io['now'])() - $t0 >= $hold) {
+                throw new FanboyStepStop('unanswered');
             }
             // round 8 (G1): every look of the quiet phase — too warm: everything back at once (finally), the test stops
             if ($quiet && ($warm = fanboyQuietWarm($cpuStart ?? -INF)) !== null) {
@@ -606,7 +637,7 @@ function fanboyTestUp(array $o, array $owner, array $io, string $boardKey, bool 
                 }
             }
             // round 8 (G2, the owner's fans lag several seconds): a tach that follows no longer ends it early — the output
-            // stays at full for FANBOY_UP_FOR so the fan is up and heard; the looks go on meanwhile. Only a fan that FALLS
+            // stays at full until the user answers so the fan is up and heard; the looks go on meanwhile. Only a fan that FALLS
             // (the output works the other way round) ends it at once
             if (($io['now'])() - $t0 >= 4 && !$seen && $fell && min($fell) >= 2) {
                 break;
@@ -1381,7 +1412,7 @@ function fanboyStepMain(): int
         pcntl_signal($sig, function () use (&$stop) { $stop['now'] = true; });
     }
     fanboyBeat();
-    fanboyStepRun($step, fanboyStepIo($stop));
+    fanboyStepRun($step, fanboyStepIo($stop, fanboyStepMax($step)));
     @unlink(fanboyRunDir() . '/beat-' . getmypid());
     flock($lock, LOCK_UN);
     fclose($lock);

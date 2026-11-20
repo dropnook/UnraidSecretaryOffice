@@ -248,7 +248,7 @@ function state(o) {
       sources: sources(chips, disks), curves: curves(zones), before: offered.length ? clone(BEFORE) : {}, back_default: 'auto',
       scales: SCALES, down: DOWN, round: 2, presets_of: PRESETS_OF,
       // the numbers the page's sentences state, as the agent's setup state gives them (fanboyTimes(); testFanboyTimes ties both)
-      times: { clear_after: 120, up_for: 60, up_min: 8, show_for: 60, lease: 45, tell_after: 900, idle_warm_after: 120, stand_after: 15, history_every: 60,
+      times: { clear_after: 120, up_hold: 600, up_hold_quiet: 180, up_min: 8, show_for: 60, lease: 45, tell_after: 900, idle_warm_after: 120, stand_after: 15, history_every: 60,
         history_periods: [1, 3, 6, 12, 24, 72], poll_live: 300, crash_pause: 30, crash_window: 1800, crash_max: 3, net: { warm_pct: 60, hot_pct: 100, gap: 5, clear: 120 } },
       limits: { name_max: 40, count_max: 8, zones_max: 8, sources_max: 32 },
       restarts: { deaths: 0, max: 3, window: 1800, given_up: false },
@@ -455,7 +455,7 @@ files['fanboy-quiet'] = state({ ite: ite({ 1: [0, 1], 2: [0, 1], 3: [255, 0], 4:
   fans: [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler' }), fan(2, { found: 'ask', name: 'Deckel hinten' }), fan(3, { name: 'Vorn unten', role: 'case' })],
   who: { who: 'bios', why: 'not_set_up' },
   step: running('test_up', OUTPUTS, P(3), [P(1), P(2)], { [P(1)]: { found: 'tach', tachs: [1] }, [P(2)]: { found: 'ask', tachs: [] } },
-    { quiet: true, progress: { id: P(3), phase: 'full', quiet: true, until: T0 + 48 } }) });
+    { quiet: true, progress: { id: P(3), phase: 'full', quiet: true, waits: true, until: T0 + 168 } }) });
 // round 9 (H3): the pause after output 2 — everything back, the fans starting again
 files['fanboy-pause'] = state({ ite: ite({}, { ...RPM, 4: 380, 5: 0 }),
   fans: [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler' }), fan(2, { found: 'ask', name: 'Deckel hinten' })],
@@ -485,7 +485,7 @@ const UX_DONE = { [P(1)]: { found: 'tach', tachs: [1] }, [P(2)]: { found: 'empty
 files['fanboy-uxrun'] = state({ ite: ite({ 1: [128, 1], 2: [0, 1], 3: [255, 0], 4: [0, 1], 5: [0, 1], 6: [0, 1] }, { ...RPM, 4: 0, 5: 0, 6: 0 }),
   fans: [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler', place: 'rear' }), fan(2, { found: 'empty' }), fan(3, { name: 'Vorn unten', role: 'case' })],
   who: { who: 'bios', why: 'not_set_up' },
-  step: running('test_up', OUTPUTS, P(3), [P(1), P(2)], UX_DONE, { quiet: true, progress: { id: P(3), phase: 'full', quiet: true, until: T0 + 41 } }) });
+  step: running('test_up', OUTPUTS, P(3), [P(1), P(2)], UX_DONE, { quiet: true, progress: { id: P(3), phase: 'full', quiet: true, waits: true, until: T0 + 161 } }) });
 // the restart pause after output 3: everything back as it was, the fans starting again, output 4 next
 files['fanboy-uxpause'] = state({ ite: ite({}, { ...RPM, 4: 310, 5: 420, 6: 380 }),
   fans: [fan(1, { tachs: [1], found: 'tach', role: 'cpu', name: 'CPU-Kühler', place: 'rear' }), fan(2, { found: 'empty' }), fan(3, { found: 'silent', name: 'Vorn unten', role: 'case', place: 'front' })],

@@ -20,15 +20,16 @@
 const ID = 'fanboy';
 const T0 = Office.scope(ID);
 // The agent's own times in every sentence that names one (2026-11-16, the sentence audit; the state's `setup.times`):
-// how long an output stays at full at most (test, show), the page's lease, the minutes until he tells. An older agent
-// without them: the constants mirrored here (a test compares them with the agent's).
-const TIMES = { up_for: 60, show_for: 60, lease: 45, tell_after: 900, idle_warm_after: 120, poll_live: 300, clear_after: 120 };
+// how long an output stays at full at most (a test without an answer — 2026-11-20: it waits for the answer, up to its
+// ceiling, shorter in the quiet test —, a show), the page's lease, the minutes until he tells. An older agent without
+// them: the constants mirrored here (a test compares them with the agent's).
+const TIMES = { up_hold: 600, up_hold_quiet: 180, show_for: 60, lease: 45, tell_after: 900, idle_warm_after: 120, poll_live: 300, clear_after: 120 };
 function timesNow() {
   try { return { ...TIMES, ...(state.setup.times || {}) }; } catch (e) { return TIMES; }     // (before the first state: the mirror)
 }
 const T = (k, p) => {
   const tm = timesNow();
-  return T0(k, { up_s: tm.up_for, show_s: tm.show_for, lease_s: tm.lease, tell_min: Math.round(tm.tell_after / 60), idle_min: Math.round(tm.idle_warm_after / 60), ...(p || {}) });
+  return T0(k, { hold_min: Math.round(tm.up_hold / 60), hold_quiet_min: Math.round(tm.up_hold_quiet / 60), show_s: tm.show_for, lease_s: tm.lease, tell_min: Math.round(tm.tell_after / 60), idle_min: Math.round(tm.idle_warm_after / 60), ...(p || {}) });
 };
 const { el, fmt } = Office;
 const LOOK_MS = 5000;           // a new look while a page of his is shown (the agent's look is a few file reads)
@@ -1962,10 +1963,11 @@ function detectStep() {
  *   kind  test | show | measure | restore | null     id  the output at hand     quiet  the others stand meanwhile
  *   stopped [ids]   pause {left, kick, next} | null   queue [ids still to come]   safety [{id, why, before}]
  *   left  seconds it stays at full at most (the agent's `until`), else null — then `since` (the page's clock, ms)
+ *   waits the test's output stays at full until he answers (2026-11-20); `left` is then the time to the pause
  */
 function runNow() {
   const s = step(), x = showNow();
-  const r = { kind: null, id: null, quiet: false, stopped: [], pause: null, queue: [], safety: [], since: null, left: null, back: [], part: null };
+  const r = { kind: null, id: null, quiet: false, stopped: [], pause: null, queue: [], safety: [], since: null, left: null, back: [], part: null, waits: false };
   let phase = null, until = null;
   if (showRuns()) { r.kind = 'show'; r.id = x.fan; r.quiet = !!x.quiet; phase = x.phase || 'full'; until = x.until; }
   else if (running(s)) {
@@ -1974,7 +1976,7 @@ function runNow() {
     r.id = s.current || null;
     r.quiet = r.kind === 'test' && !!(p.quiet ?? s.quiet);
     r.queue = (s.fans || []).filter((id) => id !== s.current && !(s.done || []).includes(id));
-    if (r.kind === 'test') { phase = p.phase || (r.id ? 'full' : null); until = p.until; }
+    if (r.kind === 'test') { phase = p.phase || (r.id ? 'full' : null); until = p.until; r.waits = phase === 'full' && !!p.waits; }
     // round 12: the measuring's standstill part — the output at 0 (does it stop?), the start value looked for, the kick,
     // and the restart pause with its own kick (a kick without a percentage)
     if (r.kind === 'measure' && (p.phase === 'pause' || (p.phase === 'kick' && num(p.pct) === null))) { phase = p.phase; until = p.until; }
@@ -2000,8 +2002,18 @@ function runNow() {
   return r;
 }
 let fullKey = '', fullFrom = 0;
-/** Seconds an output stays at full at most: the state's times (the agent's FANBOY_UP_FOR for a test, FANBOY_SHOW_FOR for «show me») */
-const fullMax = (run) => (run && run.kind === 'show' ? timesNow().show_for : timesNow().up_for);
+/**
+ * Seconds an output stays at full at most: the state's times — «show me» FANBOY_SHOW_FOR; a test until the answer, at most
+ * FANBOY_UP_HOLD (FANBOY_UP_HOLD_QUIET in the quiet test); an older agent's test its own `up_for`
+ */
+const fullMax = (run) => {
+  const tm = timesNow();
+  if (run && run.kind === 'show') return tm.show_for;
+  if (run && !run.waits && tm.up_for) return tm.up_for;
+  return run && run.quiet ? tm.up_hold_quiet : tm.up_hold;
+};
+/** m:ss */
+const clockText = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 /** The percent an output had before Fanboy set it to full for safety (its tip and its words) */
 const safetyPct = (x) => (num((x.before || {}).value) === null ? '–' : Math.round(x.before.value / 2.55));
 /** What the page said last that must not get lost: a refusal, a click that came too early — until the next action */
@@ -2012,8 +2024,14 @@ function say(text, warn) {
 }
 /** Everything built once, patched in place: the strip and the list-and-panel of the steps shown */
 function patch() {
-  if (strip && strip.el.isConnected) strip.update();
-  [bench, mbench].forEach((b) => { if (b && b.el.isConnected) b.update(); });
+  const go = () => {
+    if (strip && strip.el.isConnected) strip.update();
+    [bench, mbench].forEach((b) => { if (b && b.el.isConnected) b.update(); });
+  };
+  // 2026-11-20 (the owner: «the whole page jumps»): what he is in — a field, a button — stays where it is on the screen,
+  // whatever a look changes above it (the parts keep their heights; this is the net under them)
+  const a = document.activeElement;
+  if (view && a && a !== document.body && view.contains(a)) Office.keepInPlace(a, go); else go();
 }
 /**
  * An action from the setup's list-and-panel: never dropped, never silent (the owner: a click «was swallowed»). Clicks
@@ -2261,8 +2279,11 @@ function stripMake() {
     setText(note, line);
     note.classList.toggle('fb-strip-warn', warn);
     root.classList.toggle('fb-strip-told', warn);
-    swap(acts, [run.kind, run.safety.map((y) => y.id), Office.agent.running], () => {
+    const rest = run.kind ? [] : resumeIds();
+    swap(acts, [run.kind, run.safety.map((y) => y.id), Office.agent.running, rest], () => {
       const out = [];
+      // paused for want of an answer: on with the outputs still open (each waits for the answer again)
+      if (rest.length) out.push(btn(T('test.resume'), 'btn', () => startTest(rest), T('test.resume_tip', { n: rest.length })));
       // set to full for safety: back to the value before, for all of them at once (each panel has its own button)
       if (run.safety.length && !run.kind) {
         out.push(btn(T(run.safety.length > 1 ? 'safety.back_all' : 'safety.back'), 'btn', () => send('safety_back', { fan: run.safety[0].id, all: true }),
@@ -2300,7 +2321,8 @@ function stripMake() {
     // how long it stays at full at most: the agent's word; without it, since when (the page's clock)
     const most = fullMax(run);
     const secs = run.left !== null ? most - Math.min(most, run.left) : Math.min(most, Math.max(0, Math.floor((Date.now() - run.since) / 1000)));
-    setText(since, run.left !== null ? T('strip.left', { s: run.left }) : T('strip.since', { s: secs, max: most }));
+    // a test waits for his answer (2026-11-20): the clock says when it pauses, never that a next output comes
+    setText(since, run.waits && run.left !== null ? T('strip.waits_left', { time: clockText(run.left) }) : run.left !== null ? T('strip.left', { s: run.left }) : T('strip.since', { s: secs, max: most }));
     meterBar.style.width = `${Math.round(100 * secs / most)}%`;
   }
   update();
@@ -2366,10 +2388,11 @@ function listPanel(o) {
     if (!state) return;
     run = runNow();
     const ids = o.ids();
-    // the panel follows a newly started run's row — never while he types in the panel's fields
+    // the panel follows a newly started run's row — never while he types in the panel's fields, and (2026-11-20, the
+    // owner: «I was still setting up the CPU») only while he is on the row the run had: a row he chose himself stays his
     const typing = slot.contains(document.activeElement) && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
     const to = o.follow ? o.follow(run) || '' : '';
-    if (to && to !== followed && ids.includes(to) && !typing) sel = to;
+    if (to && to !== followed && ids.includes(to) && !typing && (!followed || !sel || sel === followed)) sel = to;
     followed = to;
     if (!ids.includes(sel)) sel = [o.first ? o.first(run) : '', ids[0]].find((id) => id && ids.includes(id)) || '';
     if (list.children.length !== ids.length || ids.some((id, i) => list.children[i] !== item(id).el)) list.replaceChildren(...ids.map((id) => item(id).el));
@@ -2471,7 +2494,7 @@ function benchMake() {
       return { name: fanName(id), title: fanSay(id), sub: underName(id, rpm !== null ? T('pic.rpm', { rpm: fmt.number(rpm) }) : ''),
         label: rowLabel(id, run), wheel: wheelNow(id, run), live: run.id === id && !run.pause && (run.kind === 'test' || run.kind === 'show'), warn: !!safetyOf(id) };
     },
-    panel: (id, api) => panelMake(id, api.now, api.update),
+    panel: (id, api) => panelMake(id, api.now, api.update, api.select),
     next(api, run) {
       const open = outs().map((id) => [id, openWhy(id)]).filter(([, w]) => w);
       const toTest = open.filter(([, w]) => w === 'test').map(([id]) => id);
@@ -2535,7 +2558,15 @@ function endedText(s) {
     return T('step.ended.warm_what', { where: srcLabel({ kind: s.warm.kind === 'disk' || s.warm.kind === 'ssd' ? s.warm.kind : 'other', id: s.warm.source, label: s.warm.source }), c: fmt.number(s.warm.c), limit: fmt.number(s.warm.limit) });
   }
   if (why === 'quiet_warm' && s.quiet_stop) return T(`step.ended.${why}`, { what: s.quiet_stop.what || '', c: num(s.quiet_stop.c) === null ? '' : fmt.number(s.quiet_stop.c) });
+  // 2026-11-20: nobody answered up to the ceiling — paused, everything back, the next output not started
+  if (why === 'unanswered') { const tm = timesNow(); return T('step.ended.unanswered', { n: Math.round((s.quiet ? tm.up_hold_quiet : tm.up_hold) / 60) }); }
   return has(`step.ended.${why}`) ? T(`step.ended.${why}`) : T('step.ended.stopped');
+}
+/** After a pause for want of an answer: the outputs of that test still open (none started since) — «Go on testing» */
+function resumeIds() {
+  const s = step();
+  if (!s || s.kind !== 'test_up' || s.status !== 'stopped' || s.why !== 'unanswered' || running(s) || !freshEnd(s) || noTestWhy()) return [];
+  return (s.fans || []).filter((id) => openWhy(id) === 'test');
 }
 function showEndedText() {
   const sh = showNow();
@@ -2551,7 +2582,7 @@ function showEndedText() {
  * cooler's own block where it is one, and behind two folds named for what they hold: model and colour (for the
  * picture), «give back to» (only for an output found on a fixed value). Built once per output, patched in place.
  */
-function panelMake(id, benchRun, benchUpdate) {
+function panelMake(id, benchRun, benchUpdate, benchSelect) {
   const p = idParts(id);
   const root = Office.place(`test:${id}`, el('div', 'fb-panel'));
   root.dataset.fan = id;
@@ -2791,7 +2822,9 @@ function panelMake(id, benchRun, benchUpdate) {
     else if (!run.kind && noTest) reason = noTest;
     else if (!run.kind && never) reason = T(`test.${found}_hint`);
     else if (away) reason = T('strip.away');
-    setText(why, reason);
+    // the running output a click away (2026-11-20: the panel he chose stays his while the test goes on — its answer is there)
+    const toRun = !here && (run.kind === 'test' || run.kind === 'show') && run.id && run.id !== id && !run.pause && benchSelect ? run.id : '';
+    swap(why, [reason, toRun], () => (toRun ? [reason, ' ', btn(T('panel.to_run', { fan: fanSay(toRun) }), 'fb-link', () => benchSelect(toRun), T('panel.to_run_tip'))] : [reason]));
     const ex = expectNow();
     const ending = here && !!ex && ex.ending === id;       // «weiter» clicked: the agent is ending this output
     swap(acts, [here, run.kind, more, found, leftAlone(f), !!noTest, away, open.length, open[0] === id, !!sf, queued, reason, ending], () => {

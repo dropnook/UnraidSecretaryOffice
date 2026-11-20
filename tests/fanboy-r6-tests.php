@@ -603,7 +603,7 @@ function testFanboyR7CardsKeepSize(): void
 
 /**
  * F5: after F1, a full test of the six outputs on the it87 «full on» chip — an output where no tach follows stays at
- * full for FANBOY_UP_FOR (8 s: long enough to hear which fan it is), one with a tach at least 4 s; how long one output and
+ * full for FANBOY_T_ANSWER (8 s: long enough to hear which fan it is), one with a tach at least 4 s; how long one output and
  * all six take (on the tests' clock, the fake fans' lag 1 s) is said in the check's words
  */
 function testFanboyR7TestLongEnough(): void
@@ -630,11 +630,11 @@ function testFanboyR7TestLongEnough(): void
         $quiet = array_filter($found, fn ($f) => $f === 'ask');
         $loud = array_map(fn ($id) => $atFull[(int) substr($id, -1)] ?? 0, array_keys($quiet));
         check('fanboy r7 long enough: outputs where no tach follows (' . count($quiet) . ') each at full for ' . implode(', ', array_map(fn ($x) => round($x, 1) . ' s', $loud))
-            . ' — at least FANBOY_UP_FOR (' . FANBOY_UP_FOR . ' s) less a look', count($quiet) === 3 && min($loud) >= FANBOY_UP_FOR - 0.5, json_encode($loud));
+            . ' — at least FANBOY_T_ANSWER (' . FANBOY_T_ANSWER . ' s) less a look', count($quiet) === 3 && min($loud) >= FANBOY_T_ANSWER - 0.5, json_encode($loud));
         $tach = array_map(fn ($id) => $atFull[(int) substr($id, -1)] ?? 0, array_keys(array_filter($found, fn ($f) => $f === 'tach')));
         check('fanboy r7 long enough: outputs a tach follows (' . count($tach) . ') at full ' . implode(', ', array_map(fn ($x) => round($x, 1) . ' s', $tach))
-            . ' (≥ 8 s since round 8\'s G2); the six outputs took ' . round($clock) . ' s on the tests\' clock (one silent output ≈ ' . round(FANBOY_UP_BASE + FANBOY_UP_FOR) . ' s + its calm-down)',
-            count($tach) === 3 && min($tach) >= FANBOY_UP_FOR - 0.5 && $clock < 6 * (FANBOY_UP_BASE + FANBOY_UP_FOR + FANBOY_UP_SETTLE));
+            . ' (≥ 8 s since round 8\'s G2); the six outputs took ' . round($clock) . ' s on the tests\' clock (one silent output ≈ ' . round(FANBOY_UP_BASE + FANBOY_T_ANSWER) . ' s + its calm-down)',
+            count($tach) === 3 && min($tach) >= FANBOY_T_ANSWER - 0.5 && $clock < 6 * (FANBOY_UP_BASE + FANBOY_T_ANSWER + FANBOY_UP_SETTLE));
         same('fanboy r7 long enough: … every output given back as it was', [[128, 1], [128, 1], [128, 1], [128, 1], [128, 1], [128, 1]], array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]));
     } finally {
         fanboyTEnd();
@@ -694,7 +694,7 @@ function testFanboyR8IgnoredLate(): void
     }
 }
 
-/** G2: also with a tach following at once, the output stays at full for FANBOY_UP_FOR (a lagging fan is up and heard) */
+/** G2: also with a tach following at once, the output stays at full for FANBOY_T_ANSWER (a lagging fan is up and heard) */
 function testFanboyR8FullLongEnough(): void
 {
     $t = fanboyT('r8long');
@@ -713,8 +713,8 @@ function testFanboyR8FullLongEnough(): void
             $sleep($s);
         };
         $step = fanboyStepRun(['id' => 'r8long', 'kind' => 'test_up', 'fans' => [fanboyTId(1)]], $io);
-        same('fanboy r8 long: tach 1 follows — still at full the whole ' . FANBOY_UP_FOR . ' s (here ' . $full . ' s), found, given back', [true, 'tach', [128, 1]],
-            [$full >= FANBOY_UP_FOR - 0.5, $step['results'][fanboyTId(1)]['found'], fanboyTOut($t, 1)]);
+        same('fanboy r8 long: tach 1 follows — still at full the whole ' . FANBOY_T_ANSWER . ' s (here ' . $full . ' s), found, given back', [true, 'tach', [128, 1]],
+            [$full >= FANBOY_T_ANSWER - 0.5, $step['results'][fanboyTId(1)]['found'], fanboyTOut($t, 1)]);
     } finally {
         fanboyTEnd();
     }
@@ -763,7 +763,7 @@ function testFanboyR8Quiet(): void
         $quiet1 = array_values(array_filter($log, fn ($l) => $l[1][0] === 255 && $l[1][1] === 0));
         same('fanboy r8 quiet: no click — output 1 at full the whole minute while 2–6 stand (a fixed 0), found tach 1; then on by itself to output 4',
             ['done', 'tach', 'tach', true, true], [$step['status'], $step['results'][fanboyTId(1)]['found'], $step['results'][fanboyTId(4)]['found'],
-                count($quiet1) * 0.5 >= FANBOY_UP_FOR - 0.5, (bool) array_filter($log, fn ($l) => $l[1][3] === 255 && $l[1][0] === 0 && $l[1][4] === 0)]);
+                count($quiet1) * 0.5 >= FANBOY_T_ANSWER - 0.5, (bool) array_filter($log, fn ($l) => $l[1][3] === 255 && $l[1][0] === 0 && $l[1][4] === 0)]);
         same('fanboy r8 quiet: … afterwards every output exactly as before — value and mode (output 6 in its automatic again), nothing held',
             [$before, []], [array_map(fn ($n) => fanboyTOut($t, $n), [1, 2, 3, 4, 5, 6]), fanboyHeld()]);
         // the pause between the two: everything as before for at least 5 s
@@ -1453,7 +1453,7 @@ function testFanboyR11StaleNext(): void
             });
             $full = array_column(array_filter($log, fn ($l) => $l[1] === 255), 0);
             same("fanboy r11 stale: a left-over step.next ($what) — output 1 still the whole minute at full, found tach, the file gone",
-                [true, 'tach', false], [$full && max($full) - min($full) >= FANBOY_UP_FOR - 1.0, $step['results'][fanboyTId(1)]['found'] ?? null, is_file(fanboyStepNextFile())]);
+                [true, 'tach', false], [$full && max($full) - min($full) >= FANBOY_T_ANSWER - 1.0, $step['results'][fanboyTId(1)]['found'] ?? null, is_file(fanboyStepNextFile())]);
         }
         // a «weiter» for this step and output: the file carries the step's id
         fanboyR11Run($t, $spec, [2], 10.0, ['fan' => fanboyTId(2), 'heard' => true], null, function (float $clock): void {
@@ -3073,7 +3073,7 @@ function testFanboyTimes(): void
     $t = fanboyT('times');
     try {
         $s = fanboySetupState(fanboyDetect(), fanboyBoardRaw());
-        $want = ['clear_after' => FANBOY_CLEAR_AFTER, 'up_for' => FANBOY_UP_FOR, 'up_min' => FANBOY_UP_MIN, 'show_for' => FANBOY_SHOW_FOR, 'lease' => FANBOY_STEP_LEASE,
+        $want = ['clear_after' => FANBOY_CLEAR_AFTER, 'up_hold' => FANBOY_UP_HOLD, 'up_hold_quiet' => FANBOY_UP_HOLD_QUIET, 'up_min' => FANBOY_UP_MIN, 'show_for' => FANBOY_SHOW_FOR, 'lease' => FANBOY_STEP_LEASE,
             'tell_after' => FANBOY_TELL_AFTER, 'idle_warm_after' => FANBOY_IDLE_WARM_AFTER, 'stand_after' => FANBOY_STAND_AFTER, 'history_every' => FANBOY_HISTORY_EVERY,
             'history_periods' => FANBOY_HISTORY_PERIODS, 'poll_live' => FANBOY_POLL_LIVE, 'crash_pause' => FANBOY_CRASH_PAUSE, 'crash_window' => FANBOY_CRASH_WINDOW,
             'crash_max' => FANBOY_CRASH_MAX, 'net' => ['warm_pct' => FANBOY_NET_WARM_PCT, 'hot_pct' => FANBOY_NET_HOT_PCT, 'gap' => FANBOY_NET_GAP, 'clear' => FANBOY_NET_CLEAR]];
