@@ -398,7 +398,7 @@
   "help.plugins": "Plugins",
   "help.plugins_text": "Un plugin nuevo, o uno que ahora saca sus actualizaciones de otro sitio (el host; en GitHub y similares también el dueño).",
   "help.office": "Lo que hace la secretaría",
-  "help.office_text": "Lo que la secretaría preparó por sí misma es una simple línea, nunca un aviso: un plugin que instaló el consultor, un contenedor del formulario que él preparó y los contenedores desechables del simulacro del señor Restori. Todo lo demás se avisa.",
+  "help.office_text": "Lo que la secretaría preparó por sí misma es una simple línea, nunca un aviso: un plugin que instaló el consultor, un contenedor del formulario que él preparó, los contenedores desechables del simulacro del señor Restori y las líneas que la secretaría escribe en sus propios archivos .cron, para sí misma y para cada escritorio. Una tarea que un plugin quitado dejó en la cola de atd también es una simple línea, mientras no cambie; termina con el próximo reinicio. Todo lo demás se avisa.",
   "help.flash": "Flash",
   "help.flash_text": "/boot/config/go, /boot/extra, usuarios, contraseñas y llaves SSH. De go solo guarda las líneas nuevas, de las contraseñas solo una huella, nunca el texto.",
   "help.shares": "Recursos compartidos",

@@ -398,7 +398,7 @@
   "help.plugins": "Plugins",
   "help.plugins_text": "A new plugin, or one that takes its updates from another place now (the host; on GitHub and the like also the owner).",
   "help.office": "The office's own",
-  "help.office_text": "What the office set up itself is a plain line, never a report: a plugin the consultant installed, a container from the form he prepared, and the throwaway containers of Mr. Restori's drill. Anything else is reported.",
+  "help.office_text": "What the office set up itself is a plain line, never a report: a plugin the consultant installed, a container from the form he prepared, the throwaway containers of Mr. Restori's drill, and the lines the office writes into its own cron files, for itself and for each desk. A job a removed plugin left in atd's queue is a plain line too, as long as it is unchanged; it ends with the next reboot. Anything else is reported.",
   "help.flash": "Flash",
   "help.flash_text": "/boot/config/go, /boot/extra, users, passwords and SSH keys. Of go he keeps only new lines, of passwords only a fingerprint, never the text.",
   "help.shares": "Shares",

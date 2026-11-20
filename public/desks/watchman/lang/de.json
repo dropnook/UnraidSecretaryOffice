@@ -398,7 +398,7 @@
   "help.plugins": "Plugins",
   "help.plugins_text": "Ein neues Plugin, oder eines, das seine Updates jetzt an einem anderen Ort holt (der Host; bei GitHub und Ähnlichen auch der Besitzer).",
   "help.office": "Was das Sekretariat selbst tut",
-  "help.office_text": "Was das Sekretariat selbst eingerichtet hat, ist eine schlichte Zeile, nie eine Meldung: ein Plugin, das der Berater installiert hat, ein Container aus seinem vorbereiteten Formular und die Wegwerf-Container aus Herrn Restoris Übung. Alles andere wird gemeldet.",
+  "help.office_text": "Was das Sekretariat selbst eingerichtet hat, ist eine schlichte Zeile, nie eine Meldung: ein Plugin, das der Berater installiert hat, ein Container aus seinem vorbereiteten Formular, die Wegwerf-Container aus Herrn Restoris Übung und die Zeilen, die das Sekretariat in seine eigenen .cron-Dateien schreibt, für sich und für jeden Schreibtisch. Ein Job, den ein entferntes Plugin in der Warteschlange von atd gelassen hat, ist ebenfalls eine schlichte Zeile, solange er unverändert ist; er endet beim nächsten Neustart. Alles andere wird gemeldet.",
   "help.flash": "Flash",
   "help.flash_text": "/boot/config/go, /boot/extra, Benutzer, Passwörter und SSH-Schlüssel. Von go behält er nur neue Zeilen, von Passwörtern nur einen Fingerabdruck, nie den Text.",
   "help.shares": "Shares",

@@ -398,7 +398,7 @@
   "help.plugins": "Plugin",
   "help.plugins_text": "Un nuovo plugin, o uno che ora prende gli aggiornamenti da un altro posto (l'host; su GitHub e simili anche il proprietario).",
   "help.office": "Le cose della segreteria",
-  "help.office_text": "Ciò che la segreteria ha impostato da sé è una semplice riga, mai una segnalazione: un plugin installato dal consulente, un container dal modulo che ha preparato e i contenitori usa e getta dell'esercitazione del signor Restori. Tutto il resto viene segnalato.",
+  "help.office_text": "Ciò che la segreteria ha impostato da sé è una semplice riga, mai una segnalazione: un plugin installato dal consulente, un container dal modulo che ha preparato, i contenitori usa e getta dell'esercitazione del signor Restori e le righe che la segreteria scrive nei propri file .cron, per sé e per ogni scrivania. Anche un job che un plugin rimosso ha lasciato nella coda di atd è una semplice riga, finché resta invariato; finisce al prossimo riavvio. Tutto il resto viene segnalato.",
   "help.flash": "Flash",
   "help.flash_text": "/boot/config/go, /boot/extra, utenti, password e chiavi SSH. Di go tiene solo le righe nuove, delle password solo un'impronta, mai il testo.",
   "help.shares": "Condivisioni",
