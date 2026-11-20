@@ -40,7 +40,7 @@
   --fan-k-green:color-mix(in srgb, var(--green-500) 70%, var(--gray-800));
   --fan-k-blue:color-mix(in srgb, var(--blue-700) 55%, var(--blue-900));
   --fan-k-purple:color-mix(in srgb, var(--red-800) 45%, var(--blue-900));
-  --fan-pad:transparent; --fan-tag:var(--gray-800); --fan-tag-ink:var(--gray-100);
+  --fan-pad:transparent; --fan-tag:var(--gray-800); --fan-tag-ink:var(--gray-100); --fan-accent:var(--fan-k-silver);
 }
 /* a model's frame always has an outline in the text's colour: a black fan on the black theme, a white one on the white */
 .fan-look{--fan-line:color-mix(in srgb, var(--ink) 45%, transparent)}
@@ -63,7 +63,7 @@
 .fan-lip{fill:none; stroke:var(--fan-frame); stroke-width:2.2}
 /* behind the blades: the motor's struts, thin, and its mount under the hub, in a darker shade of the frame */
 .fan-struts line{stroke:color-mix(in srgb, var(--fan-frame) 80%, var(--black)); stroke-width:1.5; stroke-linecap:round}
-.fan-struts.fan-grille line{stroke-width:.8}
+.fan-struts.fan-grille line{stroke-width:1; stroke:color-mix(in srgb, var(--fan-frame) 55%, var(--ink))}     /* a grille shows: lighter on dark, darker on light */
 .fan-mount{fill:color-mix(in srgb, var(--fan-frame) 80%, var(--black))}
 /* the blades: light at the leading tip, darker toward the root and the trailing edge; the hub domed */
 .fan-gb-0{stop-color:color-mix(in srgb, var(--fan-blade) 70%, var(--white))}
@@ -74,7 +74,8 @@
 .fan-gh-2{stop-color:color-mix(in srgb, var(--fan-hub) 62%, var(--black))}
 /* the hub's cover (a maker's signature): a badge, a badge with a light ring, a metal medallion, a lit centre, a plate */
 .fan-badge-disc{fill:var(--fan-tag); stroke:var(--fan-line); stroke-width:.5}
-.fan-badge-ring{fill:none; stroke:var(--fan-k-silver); stroke-width:1.2}
+.fan-badge-ring{fill:none; stroke:var(--fan-accent); stroke-width:1.2}
+.fan-badge-dot{fill:var(--fan-accent)}
 .fan-badge-line{fill:none; stroke:color-mix(in srgb, var(--gray-500) 60%, transparent); stroke-width:.5}
 .fan-gm-0{stop-color:var(--white)}
 .fan-gm-1{stop-color:var(--gray-200)}
