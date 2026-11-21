@@ -35037,6 +35037,11 @@ JS);
     $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
     $css = (string) file_get_contents(OFFICE_DIR . '/public/assets/office.css');
     check('look page: the «as of» line of a desk head is its own tag …', str_contains($core, "const asof = el('div', 'role deskhead-asof');"));
+    // the reception: a colleague's picture and name lead to the desk like the card's button — never while arranging
+    check('reception: a card\'s head goes to its desk (a link by role, by click and Enter), not while the cards are arranged',
+        str_contains($core, "top.classList.add('desk-card-go');") && str_contains($core, "top.setAttribute('role', 'link');")
+        && str_contains($core, "if (grid.classList.contains('arranging')) return;") && str_contains($core, "if (e.key === 'Enter') visit(e);")
+        && str_contains($css, '.reception:not(.arranging) .desk-card-go{cursor:pointer'));
     check('look page: … out of the flow, on the bubble\'s edge: showing or hiding it moves nothing',
         preg_match('/\.deskhead-asof\{position:absolute;[^}]*top:100%;[^}]*white-space:nowrap\}/', $css) === 1
         && str_contains($css, '.deskhead-text:has(.deskhead-sign){position:relative}'));

@@ -3508,6 +3508,14 @@ async function reception(root) {
     const go = el('button', 'btn', Office.has(`${desk.id}.visit`) ? t(`${desk.id}.visit`) : t('office.visit', { name: t(`${desk.id}.name`) }));
     go.type = 'button';
     go.onclick = () => Office.go(`#/${desk.id}`);
+    // the colleague's picture and name go there too (2026-11-21, Benj) — not while the cards are being arranged
+    top.classList.add('desk-card-go');
+    top.setAttribute('role', 'link');
+    top.tabIndex = 0;
+    top.title = go.textContent;
+    const visit = (e) => { if (grid.classList.contains('arranging')) return; e.preventDefault(); Office.go(`#/${desk.id}`); };
+    top.addEventListener('click', visit);
+    top.addEventListener('keydown', (e) => { if (e.key === 'Enter') visit(e); });
     const foot = el('div', 'desk-card-foot');
     foot.appendChild(go);
     if (!desk.always) {          // the caretaker comes with the house; everyone else can be let go

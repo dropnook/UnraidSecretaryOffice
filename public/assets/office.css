@@ -581,6 +581,10 @@
 }
 .desk-card-head{display:flex; align-items:center; gap:14px}
 .desk-card-head h2{font-size:18px}
+/* the reception's card head is a way to the desk (core.js reception()); while arranging it is the card's handle only */
+.reception:not(.arranging) .desk-card-go{cursor:pointer; border-radius:8px}
+.reception:not(.arranging) .desk-card-go:hover h2{color:var(--accent)}
+.reception:not(.arranging) .desk-card-go:focus-visible{outline:2px solid var(--accent); outline-offset:4px}
 .desk-card .bubble{margin-top:2px; align-self:stretch; max-width:none}
 .facts{margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:5px; font-size:13px; color:var(--ink2)}
 .facts li{display:flex; gap:8px; align-items:baseline}
