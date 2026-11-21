@@ -41,7 +41,7 @@ const EXTERNALS = {
   },
   // optional (the agent says so): never counted as missing — and the desks it can get in the way of
   unbalanced: {
-    icon: '⚖️', open: '/Settings/unbalanced', install: '/Apps', desk: null, clash: ['backup', 'jack'],
+    icon: '⚖️', open: '/Settings/unbalanced', install: '/Apps', desk: null, clash: ['backup', 'moverelli', 'jack'],
     copy: { url: 'https://github.com/jbrodriguez/unbalance/releases/latest/download/unbalanced.plg' },
   },
   // monitoring (the agent's group, optional), in the order it is set up. In what
