@@ -734,6 +734,7 @@
   "dash.setting": "Mostra nella Dashboard",
   "dash.setting_sub": "Una tessera tutta sua nella Dashboard di Unraid — spostala o nascondila lì come ogni altra. Vale per chiunque apra la Dashboard.",
   "dash.setting_real": "Le ventole che girano e il numero nell'anello sono la velocità che le ventole riportano; la percentuale è ciò che imposta Fanboy.",
+  "dash.setting_bios": "Se le ventole impiegano molti secondi ad accelerare anche se la percentuale è già alta: alcune schede madri smussano la salita nel BIOS (tra le impostazioni delle ventole, spesso «Step Up Time» o «Smoothing») — un valore piccolo lì le rende più rapide.",
   "dash.show.off": "No",
   "dash.show.off_title": "Nessuna sua tessera nella Dashboard",
   "dash.show.speeds": "Velocità",

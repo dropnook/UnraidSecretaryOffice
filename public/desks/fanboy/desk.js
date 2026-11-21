@@ -947,7 +947,8 @@ function dashChoice() {
   const head = el('div', 'fb-dash-text');
   // what the tile's numbers are (2026-11-21, the owner): the turning wheels and the ring's number the fans' reported speed,
   // the percent his setting
-  head.append(el('h3', 'fb-head', T('dash.setting')), el('p', 'fb-hint-text', T('dash.setting_sub')), el('p', 'fb-hint-text', T('dash.setting_real')));
+  head.append(el('h3', 'fb-head', T('dash.setting')), el('p', 'fb-hint-text', T('dash.setting_sub')), el('p', 'fb-hint-text', T('dash.setting_real')),
+    el('p', 'fb-hint-text', T('dash.setting_bios')));      // measured on the owner's board: 100 % set at once, 18 s to full speed
   const seg = el('div', 'seg');
   seg.setAttribute('role', 'group');
   seg.setAttribute('aria-label', T('dash.setting'));
