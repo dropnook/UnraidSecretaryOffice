@@ -720,6 +720,13 @@
   "dash.connectors_none": "Aucun connecteur n'indique de vitesse",
   "dash.set_up": "Configurer",
   "dash.watched": "Chez le BIOS, surveillés :",
+  "dash.ring_fastest": {
+    "one": "{rpm} tr/min",
+    "other": "le plus rapide de {n} ventilateurs : {rpm} tr/min"
+  },
+  "dash.ring_by_speed": "règle selon la vitesse — ses ventilateurs jusqu’à {pct} %",
+  "dash.ring_bios": "Le BIOS règle ces ventilateurs — leur niveau n’est pas connu",
+  "dash.fan_title": "{name} : {text}",
   "dash.setting": "Afficher dans le Dashboard",
   "dash.setting_sub": "Une tuile à lui dans le Dashboard d'Unraid — déplace-la ou masque-la là-bas comme toute autre. Pour tous ceux qui ouvrent le Dashboard.",
   "dash.show.off": "Non",

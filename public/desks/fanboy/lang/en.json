@@ -720,6 +720,13 @@
   "dash.connectors_none": "No connector reports a speed",
   "dash.set_up": "Set up",
   "dash.watched": "With the BIOS, watched:",
+  "dash.ring_fastest": {
+    "one": "{rpm} rpm",
+    "other": "fastest of {n} fans: {rpm} rpm"
+  },
+  "dash.ring_by_speed": "steers by speed — its fans at up to {pct} %",
+  "dash.ring_bios": "The BIOS runs these fans — their level isn't known",
+  "dash.fan_title": "{name}: {text}",
   "dash.setting": "Show on the Dashboard",
   "dash.setting_sub": "A tile of his own on Unraid's Dashboard — move or hide it there like any other. For everyone who opens the Dashboard.",
   "dash.show.off": "Off",

@@ -720,6 +720,13 @@
   "dash.connectors_none": "Nessun connettore segnala una velocità",
   "dash.set_up": "Configura",
   "dash.watched": "Al BIOS, sorvegliate:",
+  "dash.ring_fastest": {
+    "one": "{rpm} giri/min",
+    "other": "la più veloce di {n} ventole: {rpm} giri/min"
+  },
+  "dash.ring_by_speed": "regola per velocità — le sue ventole fino al {pct} %",
+  "dash.ring_bios": "Il BIOS regola queste ventole — il loro livello non è noto",
+  "dash.fan_title": "{name}: {text}",
   "dash.setting": "Mostra nella Dashboard",
   "dash.setting_sub": "Una tessera tutta sua nella Dashboard di Unraid — spostala o nascondila lì come ogni altra. Vale per chiunque apra la Dashboard.",
   "dash.show.off": "No",

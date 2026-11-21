@@ -148,6 +148,61 @@ function fansMany(lang) {
   }
   return s;
 }
+/**
+ * 2026-11-21 (the owner picked the cards): the hard cases on the «fans» server — $kind:
+ *   warm    the disk cage at 82 % with a fan that stands though it should turn; a zone with a long name, a long sensor name
+ *           and a fan without speed feedback; the graphics card at a plain 100 % (no alarm)
+ *   full    a plain 100 % beside the emergency's 100 % (the alarm's, said by the state)
+ *   rpm     the case steering by speed (no percent of its own: the ring fills with its fans' highest)
+ *   one     one zone
+ *   bios    handed back: the BIOS runs every fan, no level known
+ */
+function cards(lang, kind) {
+  const s = fans(lang, { stand: kind !== 'warm' });
+  const id = (n) => `it8696_a0060607:it87.2608:pwm${n}`;
+  const en = lang === 'en';
+  const fan = (n, more) => { const f = s.setup.fans.find((x) => x.id === id(n)); Object.assign(f, more); return f; };
+  const zone = (zid) => s.control.zones.find((z) => z.id === zid);
+  const live = (n, name, pct, rpm, more = {}) => ({ id: id(n), name, output: n, pct, rpm, held: true, foreign: false, ...more });
+  if (kind === 'warm') {
+    fan(3, { name: en ? 'Cage rear' : 'Käfig hinten', model: { id: 'noctua-nf-a14-pwm', mm: null, blades: null }, colour: null, found: 'tach', tachs: [3], role: 'disks' });
+    fan(4, { model: { id: 'noctua-nf-a14-pwm', mm: null, blades: null }, name: en ? 'Cage front' : 'Käfig vorn' });
+    s.setup.zones.find((z) => z.id === 'disks').fans = [id(4), id(3)];
+    Object.assign(zone('disks'), { level: 82, warmest: { id: 'disk4', label: 'disk4', c: 47, kind: 'disk' },
+      fans: [live(4, en ? 'Cage front' : 'Käfig vorn', 82, 1480), live(3, en ? 'Cage rear' : 'Käfig hinten', 82, 0)] });
+    const long = en ? 'Case top, above the power supply and the drive cages' : 'Gehäuse oben, über dem Netzteil und den Laufwerkskäfigen';
+    s.setup.zones.find((z) => z.id === 'case').name = long;
+    fan(2, { name: en ? 'Top, far back on the left above the power supply' : 'Deckel ganz hinten links über dem Netzteil', model: { id: 'arctic-p12-pwm-pst', mm: null, blades: null }, wheel: null });
+    s.setup.zones.find((z) => z.id === 'case').fans = [id(2)];
+    Object.assign(zone('case'), { name: long, level: 62, warmest: { id: 'nct6798.temp3', label: en ? 'Board sensor 3 (nct6798 temp3 «AUXTIN1»)' : 'Board-Sensor 3 (nct6798 temp3 «AUXTIN1»)', c: 44, kind: 'board' },
+      fans: [live(2, '', 62, null)] });
+    fan(5, { model: { id: 'noctua-nf-p12-redux-1700-pwm', mm: null, blades: null }, name: en ? 'Side' : 'Seite' });
+    fan(6, { model: { id: 'corsair-af120-elite', mm: null, blades: null }, name: en ? 'Bottom' : 'Boden', off_ok: false });
+    s.setup.zones.push({ id: 'gpu', name: en ? 'Graphics card' : 'Grafikkarte', fans: [id(5), id(6)], unit: 'pct', sources: [] });
+    s.control.zones.push({ id: 'gpu', name: en ? 'Graphics card' : 'Grafikkarte', unit: 'pct', level: 100, full: false, warmest: { id: 'gpu', label: 'GPU', c: 71, kind: 'gpu' },
+      fans: [live(5, '', 100, 1720), live(6, '', 100, 1650)] });
+    s.who.zones = 3;
+  }
+  if (kind === 'full') {
+    Object.assign(zone('disks'), { level: 100, full: false, fans: [live(4, '', 100, 1590)] });
+    Object.assign(zone('case'), { level: 100, full: true, fans: [live(5, '', 100, 1480), live(2, '', 100, 1510), live(6, '', 100, 1560)] });
+    s.control.alarm = { code: 'sensor', params: { source: 'Disk 2', zone: zone('case').name }, since: s.control.time - 60 };
+  }
+  if (kind === 'rpm') {
+    s.setup.zones.find((z) => z.id === 'case').unit = 'rpm';
+    Object.assign(zone('case'), { unit: 'rpm', level: 1200, fans: [live(5, '', 48, 1190), live(2, '', 52, 1215), live(6, '', 44, 1170)] });
+  }
+  if (kind === 'one') {
+    s.setup.zones = s.setup.zones.filter((z) => z.id === 'disks');
+    s.control.zones = s.control.zones.filter((z) => z.id === 'disks');
+    s.who.zones = 1;
+  }
+  if (kind === 'bios') {
+    s.control.running = false;
+    s.who = { who: 'bios', why: 'hand_back' };
+  }
+  return s;
+}
 const ON = { 'office/staff.json': { hired: { fanboy: 1 } }, 'fanboy/dashboard.json': { v: 1, show: 'speeds' } };
 const WITH = { ...ON, 'fanboy/dashboard.json': { v: 1, show: 'history' } };
 const looked = (name, at) => lookedAt(demo(name), at);
@@ -161,6 +216,8 @@ const SCENES = [
   ['fans-history-open', (lang) => ({ ...WITH, 'fanboy.json': fans(lang) }), { 'fanboy/history.json': history(fans('de'), NOW - 30) }, '*', false, { widths: [1920, 1024, 390], langs: ['de'] }],
   // seven fans in the case, the fifth standing though it should turn: four shown — the alarm among them, in his page's order
   ['fans-many', (lang) => ({ ...ON, 'fanboy.json': fansMany(lang) }), {}, null, false, { widths: [1920, 1024, 390], langs: ['de'] }],
+  // 2026-11-21: the cards' hard cases (German, black and white, the three widths)
+  ...['warm', 'full', 'rpm', 'one', 'bios'].map((k) => [`cards-${k}`, (lang) => ({ ...ON, 'fanboy.json': cards(lang, k) }), {}, null, false, { widths: [1920, 1024, 390], langs: ['de'] }]),
   ['steering', { ...ON, 'fanboy.json': lookedAt(demo('fanboy'), NOW - 4) }, {}, 'case', true],
   ['history', { ...WITH, 'fanboy.json': looked('fanboy', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy', NOW - 4), NOW - 30) }, null, true],
   // 2026-11-16: the span clicked through to 24 h (the label a button to the next span)
@@ -173,7 +230,7 @@ const SCENES = [
   ['before-setup', { ...ON, 'fanboy.json': lookedAt(demo('fanboy-fresh'), NOW - 4) }, {}, null, false],
   ['array-stopped', null, { 'fanboy/dash.json': { v: 1, show: 'speeds' }, 'fanboy/control.json': { phase: 'ended', why: 'array_stopped', who: 'bios', time: NOW - 900, zones: [] } }, null, false],
   ['stale', { ...ON, 'fanboy.json': lookedAt(demo('fanboy-ready'), NOW - 8400) }, {}, null, false],
-  ['many', { ...ON, 'fanboy.json': many() }, {}, 'z0', false],
+  ['many', { ...ON, 'fanboy.json': many() }, {}, 'z0', false, { widths: [1920, 1024, 390], langs: ['de'] }],
   // 2026-11-17: the marker — the pointer on the CPU zone's curve (a phone: a tap), its line and its words in place of the caption
   ['history-marker', { ...WITH, 'fanboy.json': looked('fanboy-cpu', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy-cpu', NOW - 4), NOW - 30) }, null, 'marker', { marker: 0.6 }],
 ].filter((s) => !opt.only || opt.only.includes(s[0]));
@@ -382,9 +439,12 @@ try {
         const lum = ([r, g, b]) => [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
           .reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0);
         const bg = (el) => { for (let e = el; e; e = e.parentElement) { const c = rgb(getComputedStyle(e).backgroundColor); if (c.length === 3 || (c.length === 4 && c[3] > 0)) return c.slice(0, 3); } return [255, 255, 255]; };
-        return [...document.querySelectorAll('#db-sso-fanboy .sso-fb-temp')].slice(0, 1).map((e) => {
-          const [a, b] = [lum(rgb(getComputedStyle(e).stroke).slice(0, 3)), lum(bg(e.closest('details')))];
-          return ['sso-fb-temp (line)', getComputedStyle(e).stroke, Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100];
+        // the curve's line on its fold; the cards' rings (2026-11-21: each band and the alarm's dashed track) on their card
+        return [...[...document.querySelectorAll('#db-sso-fanboy .sso-fb-temp')].slice(0, 1).map((e) => ['sso-fb-temp (line)', e, e.closest('details')]),
+          ...[...document.querySelectorAll('#db-sso-fanboy .sso-fb-ring')].map((r) => [`sso-fb-ring ${[...r.classList].filter((c) => /^sso-fb-r(s)?-/.test(c)).join(' ')}`,
+            r.querySelector(r.classList.contains('sso-fb-rs-alarm') ? '.sso-fb-rtrack' : '.sso-fb-rfill'), r.closest('.sso-fb-card')]).filter((x) => x[1])].map(([what, e, on]) => {
+          const [a, b] = [lum(rgb(getComputedStyle(e).stroke).slice(0, 3)), lum(bg(on))];
+          return [what, getComputedStyle(e).stroke, Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100];
         });
       });
       for (const [cls, colour, ratio] of lines) {
