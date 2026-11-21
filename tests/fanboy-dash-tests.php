@@ -814,7 +814,7 @@ function testFanboyDashAsleep(): void
     same('fanboy dash asleep: steering — all three asleep: «all asleep — no temperature» (German «alle schlafen — keine Temperatur»)',
         ['all asleep — no temperature', 'alle schlafen — keine Temperatur'], $words($web($live(3))));
     same('fanboy dash asleep: steering — one asleep, the others without a reading; none asleep; an older status without the count: «nothing warm»',
-        array_fill(0, 3, 'nothing warm — its quiet level'), [$words($web($live(1)))[0], $words($web($live(0)))[0], $words($web($live(null)))[0]]);
+        array_fill(0, 3, 'no temperature — its quiet level'), [$words($web($live(1)))[0], $words($web($live(0)))[0], $words($web($live(null)))[0]]);
     same('fanboy dash asleep: steering — all asleep by the count, yet a warmest spot reported: the warmest spot', 'warmest: Disk 2 at 41 °C', $words($web($live(3, true)))[0]);
     // 2026-11-21 (the owner: «Schlafen nur einige und der Rest ist kühl → die Temperatur anzeigen … auch wenn sie 10 Grad ist»):
     // the control names a warmest spot for every awake source with a reading, also one far under its curve's start that asks
@@ -859,7 +859,7 @@ function testFanboyDashAsleep(): void
         return $s;
     });
     same('fanboy dash asleep: the BIOS steering — every source asleep: «all asleep»; one awake without a reading: «nothing warm»; one awake with 10 °C: it',
-        ['all asleep — no temperature', 'nothing warm — its quiet level', 'warmest: Parity at 10 °C'],
+        ['all asleep — no temperature', 'no temperature — its quiet level', 'warmest: Parity at 10 °C'],
         [$words($web($bios(['parity' => [true, null], 'disk1' => [true, null], 'disk2' => [true, null]])))[0],
          $words($web($bios(['parity' => [false, null], 'disk1' => [true, null], 'disk2' => [true, null]])))[0],
          $words($web($bios(['parity' => [false, 10], 'disk1' => [true, null], 'disk2' => [true, null]])))[0]]);

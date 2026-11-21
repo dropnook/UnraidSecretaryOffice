@@ -48,7 +48,11 @@
 /* between the blades nothing: the page shows through (2026-11-20, the owner: «dort ist nichts ausser Luft»); a black fan
    on the black theme keeps its blades apart by their shading and edge */
 
-.fan-box{position:relative; width:var(--fan-px); height:var(--fan-px); flex:0 0 auto; border-radius:calc(var(--fan-px) * .11)}
+/* the box is a layer of its own (will-change): the turning wheel is one anyway, and the browser puts a layer on whole
+   pixels — a frame drawn outside it, at the box's fractional place (a flex row on the Dashboard: 47.31 px at x 546.34),
+   then stands up to a pixel beside its wheel, which shows as soon as there is air round the blades (2026-11-21, the
+   owner: «der Lüfter ist nicht mittig im Lüftergehäuse»). In one layer both land on the same grid. */
+.fan-box{position:relative; width:var(--fan-px); height:var(--fan-px); flex:0 0 auto; border-radius:calc(var(--fan-px) * .11); will-change:transform}
 .fan-frame, .fan-arc{position:absolute; inset:0; width:100%; height:100%; overflow:visible}
 .fan-frame{overflow:hidden}          /* its fades stay in its own box (nothing of the frame reaches past it) */
 /* the air between the blades (2026-11-21, the owner: «Hell soll default sein immer … die Lüfter sollten ja nicht leuchten, es ist

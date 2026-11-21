@@ -365,7 +365,7 @@
   "pic.bios_zone_note": "Ventirad du CPU et pompes — Fanboy les surveille seulement",
   "pic.asks": "{where} à {c} °C demande {level}",
   "pic.warmest": "le plus chaud : {where} à {c} °C",
-  "pic.quiet": "rien de chaud — son niveau de repos",
+  "pic.quiet": "pas de température — son niveau de repos",
   "pic.asleep_all": "tous endormis — pas de température",
   "pic.bios_now": "le BIOS les règle en ce moment",
   "preset.quiet": "Silencieux",

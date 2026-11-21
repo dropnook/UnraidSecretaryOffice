@@ -365,7 +365,7 @@
   "pic.bios_zone_note": "Dissipatore della CPU e pompe — Fanboy li sorveglia soltanto",
   "pic.asks": "{where} a {c} °C chiede {level}",
   "pic.warmest": "il più caldo: {where} a {c} °C",
-  "pic.quiet": "niente di caldo — il suo livello di riposo",
+  "pic.quiet": "nessuna temperatura — il suo livello di riposo",
   "pic.asleep_all": "dormono tutti — nessuna temperatura",
   "pic.bios_now": "ora le regola il BIOS",
   "preset.quiet": "Silenziosa",
