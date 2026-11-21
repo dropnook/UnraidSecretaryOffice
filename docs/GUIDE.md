@@ -384,7 +384,8 @@ His fans' biggest fan: he steers the fans on the mainboard's fan connectors by w
   have a look or a name, each zone is a card: up to three of its fans turning (one that stands though it should turn is always
   among them; the card's tooltip names them all), a ring that fills with the zone's level — green up to 50 %, yellow up to 70 %,
   red above — with the speed in its middle, and the warmest source at its foot. 100 % is a level like any other; only the
-  alarm's full speed gets a warning sign and a red border.
+  alarm's full speed gets a warning sign and a red border. A zone whose heat sources all sleep says *all asleep — no
+  temperature* (here and on his page). A click on the tile marks nothing; the keyboard's focus shows in the office's accent.
 - Boards that steer their fans over IPMI aren't supported: his page says so and sends a wish with his report.
 
 ### The Consultant

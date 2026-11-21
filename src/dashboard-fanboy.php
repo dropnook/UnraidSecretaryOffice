@@ -611,6 +611,10 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
                 }
             }
             $warm = is_array($l['warmest'] ?? null) && is_numeric($l['warmest']['c'] ?? null) ? $l['warmest'] : null;
+            // 2026-11-21 (the owner): every source of the zone asleep — the control counts them (`asleep`), his setup has how
+            // many the zone has (an agent's status without the count, or a zone his setup doesn't list: never «all asleep»)
+            $refs = is_array($z['sources'] ?? null) ? count(array_filter($z['sources'], static fn ($r) => is_array($r) && is_string($r['id'] ?? null))) : 0;
+            $sleeps = $refs > 0 && is_int($l['asleep'] ?? null) && $l['asleep'] >= $refs;
             $level = is_numeric($l['level'] ?? null) ? (float) $l['level'] : null;
             $full = ($l['full'] ?? false) === true;         // round 4: an alarm in this zone — its fans at 100 %, the others steer on
         } else {
@@ -626,12 +630,15 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
                 $arts[] = $art($fid, $rpm, 'bios', officeDashT($s, $biosRole($fid) ? 'fanboy.pic.watched_title' : 'fanboy.pic.bios_title'));
             }
             $warm = null;
+            $asleep = [];
             foreach (is_array($z['sources'] ?? null) ? $z['sources'] : [] as $ref) {
                 $src = is_array($ref) && is_string($ref['id'] ?? null) ? ($sources[$ref['id']] ?? null) : null;
+                $asleep[] = ($src['asleep'] ?? false) === true;
                 if ($src !== null && is_numeric($src['c'] ?? null) && ($warm === null || (float) $src['c'] > (float) $warm['c'])) {
                     $warm = $src;
                 }
             }
+            $sleeps = $asleep !== [] && !in_array(false, $asleep, true);     // his last look: every source of the zone asleep
             $level = null;
             $full = false;
         }
@@ -649,7 +656,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             'id'      => $id,
             'name'    => $name,
             'warmest' => $warm !== null ? officeDashT($s, 'fanboy.pic.warmest', ['where' => officeFanboyDashSource($s, $warm), 'c' => officeFanboyDashNum((float) $warm['c'], $lang)])
-                : officeDashT($s, 'fanboy.pic.quiet'),
+                : officeDashT($s, $sleeps ? 'fanboy.pic.asleep_all' : 'fanboy.pic.quiet'),
             'level'   => $full ? officeDashT($s, 'fanboy.pic.full') : ($level === null ? officeDashT($s, 'fanboy.pic.bios')
                 : ($unit === 'rpm' ? officeDashT($s, 'fanboy.pic.rpm', ['rpm' => (int) round($level)]) : officeDashT($s, 'fanboy.dash.pct', ['pct' => (int) round($level)]))),
             'full'    => $full,
@@ -1041,6 +1048,14 @@ function officeFanboyDashTile(): string
         . '#db-sso-fanboy .sso-fb-cfoot i{opacity:.7}'
         . '#db-sso-fanboy .sso-fb-cfoot.red-text{font-weight:bold}'
         . '#db-sso-fanboy .sso-fb-cfoot.red-text i{opacity:1}'
+        // 2026-11-21 (the owner: «beim klicken soll nichts markiert werden (blauer ring)»): a click or a tap marks nothing — what a
+        // pointer focused carries data-sso-fb-ptr (the script) and never an outline, even when a key follows (a screenshot's
+        // shortcut turns on the browser's ring there); the keyboard's focus the office's accent, never the browser's blue
+        . '#db-sso-fanboy{--sso-fb-focus:color-mix(in srgb,var(--orange-500) 82%,var(--text-color))}'
+        . '#db-sso-fanboy a,#db-sso-fanboy summary,#db-sso-fanboy button{-webkit-tap-highlight-color:transparent}'
+        . '#db-sso-fanboy :focus:not(:focus-visible){outline:none}'
+        . '#db-sso-fanboy :focus-visible{outline:2px solid var(--sso-fb-focus);outline-offset:2px;border-radius:3px}'
+        . '#db-sso-fanboy [data-sso-fb-ptr],#db-sso-fanboy [data-sso-fb-ptr]:focus-visible{outline:none}'
         . '</style>'
         // the rows again as the office's tile does it (the language chosen in the office, else the browser's): every
         // minute, every 20 s while he steers (his status changes every 10 s), when the page comes back; unfolded zones stay
@@ -1093,5 +1108,8 @@ function officeFanboyDashTile(): string
         . 'var bx=box();if(bx){bx.addEventListener("pointermove",mark);bx.addEventListener("pointerdown",mark);'
         . 'bx.addEventListener("pointerleave",function(e){if(e.pointerType==="mouse")off();});'
         . 'bx.addEventListener("click",function(e){if(touch&&e.target.closest&&e.target.closest(".sso-fb-curve")){e.preventDefault();}touch=false;},true);}'
+        // a pointer's focus marked (no outline), the mark gone with the focus: the keyboard's next one shows
+        . 'var tl=document.getElementById("db-sso-fanboy");if(tl){tl.addEventListener("pointerdown",function(e){var f=e.target&&e.target.closest?e.target.closest("summary,button,a,[tabindex]"):null;'
+        . 'if(f)f.setAttribute("data-sso-fb-ptr","");},true);tl.addEventListener("focusout",function(e){if(e.target&&e.target.removeAttribute)e.target.removeAttribute("data-sso-fb-ptr");},true);}'
         . 'syms();again();document.addEventListener("visibilitychange",function(){if(!document.hidden)load();});})();</script>';
 }

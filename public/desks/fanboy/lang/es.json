@@ -366,6 +366,7 @@
   "pic.asks": "{where} a {c} °C pide {level}",
   "pic.warmest": "lo más caliente: {where} a {c} °C",
   "pic.quiet": "nada caliente — su nivel de reposo",
+  "pic.asleep_all": "todos dormidos — sin temperatura",
   "pic.bios_now": "ahora los regula la BIOS",
   "preset.quiet": "Silenciosa",
   "preset.normal": "Normal",

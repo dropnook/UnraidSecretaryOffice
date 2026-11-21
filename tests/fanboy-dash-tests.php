@@ -783,3 +783,78 @@ function testFanboyDashCards(): void
         && str_contains($src, "'#db-sso-fanboy .sso-fb-n3{--sso-fb-w:clamp(30px,calc((100cqi - 74px) / 3),' . FANBOY_DASH_CARD_PX . 'px)}'")
         && str_contains($src, '--fan-px:calc(var(--sso-fb-w) * var(--sso-fb-k,1)) !important') && str_contains($src, "'#db-sso-fanboy .sso-fb-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;padding:8px 0 6px;container-type:inline-size;'"), '');
 }
+
+/**
+ * 2026-11-21 (the owner, on his Dashboard): a zone without a warmest spot because every source sleeps says so — «all asleep —
+ * no temperature» —, never «nothing warm»; some asleep and the rest without a reading, or none asleep: «nothing warm» as
+ * before. The tile and his page by the same rule (the control's count of sleeping ones against the zone's sources in the
+ * setup; the BIOS steering: his last look's flags). A click marks nothing in the tile (no blue ring), the keyboard's focus
+ * shows the office's accent.
+ */
+function testFanboyDashAsleep(): void
+{
+    $now = 1763100000 + 20;
+    $web = static fn (array $state): array => fanboyDashWeb(['fanboy.json' => $state] + fanboyDashFiles('fanboy', 'speeds'), [], $now);
+    // the demo's disk cage has three sources (parity, disk1, disk2); its control's word as given
+    $live = static fn (?int $asleep, bool $warm = false): array => fanboyDashFansState(static function (array $s) use ($asleep, $warm): array {
+        foreach ($s['control']['zones'] as &$z) {
+            if ($z['id'] === 'disks') {
+                $z['warmest'] = $warm ? $z['warmest'] : null;
+                if ($asleep === null) {
+                    unset($z['asleep']);
+                } else {
+                    $z['asleep'] = $asleep;
+                }
+            }
+        }
+        unset($z);
+        return $s;
+    });
+    $words = static fn (array $o): array => [$o['model']['zones'][0]['warmest'] ?? null, $o['de']['zones'][0]['warmest'] ?? null];
+    same('fanboy dash asleep: steering — all three asleep: «all asleep — no temperature» (German «alle schlafen — keine Temperatur»)',
+        ['all asleep — no temperature', 'alle schlafen — keine Temperatur'], $words($web($live(3))));
+    same('fanboy dash asleep: steering — one asleep, the others without a reading; none asleep; an older status without the count: «nothing warm»',
+        array_fill(0, 3, 'nothing warm — its quiet level'), [$words($web($live(1)))[0], $words($web($live(0)))[0], $words($web($live(null)))[0]]);
+    same('fanboy dash asleep: steering — all asleep by the count, yet a warmest spot reported: the warmest spot', 'warmest: Disk 2 at 41 °C', $words($web($live(3, true)))[0]);
+    check('fanboy dash asleep: … at the card\'s foot', str_contains((string) ($web($live(3))['rows'] ?? ''), '<div class="sso-fb-cfoot" title="all asleep — no temperature">all asleep — no temperature</div>'), '');
+    // the BIOS steering (his control not running): his last look's flags
+    $bios = static fn (array $flags): array => fanboyDashFansState(static function (array $s) use ($flags): array {
+        $s['control']['running'] = false;
+        $s['who'] = ['who' => 'bios', 'why' => 'hand_back'];
+        foreach ($s['setup']['sources'] as &$src) {
+            if (isset($flags[$src['id']])) {
+                [$src['asleep'], $src['c']] = $flags[$src['id']];
+            }
+        }
+        unset($src);
+        return $s;
+    });
+    same('fanboy dash asleep: the BIOS steering — every source asleep: «all asleep»; one awake without a reading: «nothing warm»; one awake with 30 °C: it',
+        ['all asleep — no temperature', 'nothing warm — its quiet level', 'warmest: Parity at 30 °C'],
+        [$words($web($bios(['parity' => [true, null], 'disk1' => [true, null], 'disk2' => [true, null]])))[0],
+         $words($web($bios(['parity' => [false, null], 'disk1' => [true, null], 'disk2' => [true, null]])))[0],
+         $words($web($bios(['parity' => [false, 30], 'disk1' => [true, null], 'disk2' => [true, null]])))[0]]);
+    // his page: the same rule in both places that said «nothing warm»
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    check('fanboy dash asleep: his page — the zone\'s line and «Now» by the same rule (the control\'s count against the setup\'s sources), no «nothing warm» left of its own',
+        str_contains($js, "return T(n > 0 && Number.isInteger(cz && cz.asleep) && cz.asleep >= n ? 'pic.asleep_all' : 'pic.quiet');")
+        && str_contains($js, '} else parts.push(quietWords(cz, z));') && str_contains($js, ": quietWords(cz, (setup().zones || []).find((x) => x.id === cz.id));")
+        && substr_count($js, "T('pic.quiet')") === 0, '');
+
+    // a click marks nothing (2026-11-21, the owner: «beim klicken soll nichts markiert werden (blauer ring)»)
+    $src = (string) file_get_contents(OFFICE_DIR . '/src/dashboard-fanboy.php');
+    $style = substr($src, (int) strpos($src, "<style>'"), (int) strpos($src, "</style>'") - (int) strpos($src, "<style>'"));
+    preg_match_all('/([^{}\']+)\{[^{}]*?outline:(?!none|0)[^;}]*/', $style, $rules);
+    $loose = array_values(array_filter($rules[1], static fn (string $sel): bool => !str_contains($sel, ':focus-visible')));
+    check('fanboy dash focus: every outline the tile draws is the keyboard\'s (:focus-visible) — none on a click (' . count($rules[1]) . ')', $loose === [] && count($rules[1]) >= 1, json_encode($loose));
+    check('fanboy dash focus: the keyboard\'s outline in the office\'s accent; what a pointer focused never outlined, a key after it neither; no tap highlight',
+        str_contains($src, "'#db-sso-fanboy{--sso-fb-focus:color-mix(in srgb,var(--orange-500) 82%,var(--text-color))}'")
+        && str_contains($src, "'#db-sso-fanboy :focus-visible{outline:2px solid var(--sso-fb-focus);outline-offset:2px;border-radius:3px}'")
+        && str_contains($src, "'#db-sso-fanboy :focus:not(:focus-visible){outline:none}'")
+        && str_contains($src, "'#db-sso-fanboy [data-sso-fb-ptr],#db-sso-fanboy [data-sso-fb-ptr]:focus-visible{outline:none}'")
+        && str_contains($src, '-webkit-tap-highlight-color:transparent'), '');
+    $js = substr($src, (int) strpos($src, '<script>'));
+    check('fanboy dash focus: the script marks what a pointer focuses and lets go of the mark with the focus (the keyboard\'s next one shows)',
+        str_contains($js, 'tl.addEventListener("pointerdown",function(e){var f=e.target&&e.target.closest?e.target.closest("summary,button,a,[tabindex]"):null;')
+        && str_contains($js, 'if(f)f.setAttribute("data-sso-fb-ptr","");},true);') && str_contains($js, 'e.target.removeAttribute("data-sso-fb-ptr");'), $js);
+}

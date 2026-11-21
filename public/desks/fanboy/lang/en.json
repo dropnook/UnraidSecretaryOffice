@@ -366,6 +366,7 @@
   "pic.asks": "{where} at {c} °C asks for {level}",
   "pic.warmest": "warmest: {where} at {c} °C",
   "pic.quiet": "nothing warm — its quiet level",
+  "pic.asleep_all": "all asleep — no temperature",
   "pic.bios_now": "the BIOS runs them now",
   "preset.quiet": "Quiet",
   "preset.normal": "Normal",
