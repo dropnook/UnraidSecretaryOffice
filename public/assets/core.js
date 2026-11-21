@@ -3504,27 +3504,24 @@ async function reception(root) {
     top.append(Office.avatar(desk.id, true), name);
     const bubble = el('div', 'bubble', '…');
     const facts = el('ul', 'facts');
-    // a desk may say how to go there ("Zum Hauswart"), else the office's "Visit {name}"
-    const go = el('button', 'btn', Office.has(`${desk.id}.visit`) ? t(`${desk.id}.visit`) : t('office.visit', { name: t(`${desk.id}.name`) }));
-    go.type = 'button';
-    go.onclick = () => Office.go(`#/${desk.id}`);
-    // the colleague's picture and name go there too (2026-11-21, Benj) — not while the cards are being arranged
-    top.classList.add('desk-card-go');
-    top.setAttribute('role', 'link');
-    top.tabIndex = 0;
-    top.title = go.textContent;
-    const visit = (e) => { if (grid.classList.contains('arranging')) return; e.preventDefault(); Office.go(`#/${desk.id}`); };
-    top.addEventListener('click', visit);
-    top.addEventListener('keydown', (e) => { if (e.key === 'Enter') visit(e); });
-    const foot = el('div', 'desk-card-foot');
-    foot.appendChild(go);
-    if (!desk.always) {          // the caretaker comes with the house; everyone else can be let go
-      const fire = el('button', 'btn small plain', t('office.fire'));
-      fire.type = 'button';
-      fire.onclick = () => Office.fireDialog(desk.id, () => route());
-      foot.appendChild(fire);
-    }
-    card.append(top, bubble, facts, foot);
+    // the whole card leads to the desk (2026-11-21, Benj: no «Visit …» and no «Let go» button here any more — letting
+    // go is the Team Lead's, in his team tile, and each desk's ⋯ menu) — not while the cards are being arranged, not
+    // on something of its own inside the card (a link, a button, a fold), not while text is being selected
+    const where = Office.has(`${desk.id}.visit`) ? t(`${desk.id}.visit`) : t('office.visit', { name: t(`${desk.id}.name`) });
+    card.classList.add('desk-card-go');
+    card.setAttribute('role', 'link');
+    card.setAttribute('aria-label', where);
+    card.tabIndex = 0;
+    top.title = where;
+    const visit = (e) => {
+      if (grid.classList.contains('arranging') || e.target.closest('a, button, summary, input, select, textarea')) return;
+      if (e.type === 'click' && String(window.getSelection && window.getSelection()).length) return;
+      e.preventDefault();
+      Office.go(`#/${desk.id}`);
+    };
+    card.addEventListener('click', visit);
+    card.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target === card) visit(e); });
+    card.append(top, bubble, facts);
     grid.appendChild(card);
     if (desk.reception) {
       desk.reception().then((r) => {
@@ -3534,7 +3531,7 @@ async function reception(root) {
         if (r && r.bubble) bubble.append(r.bubble);
         else bubble.textContent = t('office.no_news');
         (r && r.facts || []).forEach((f) => facts.appendChild(el('li', '', f)));
-        if (r && r.note instanceof Element) card.insertBefore(r.note, foot);
+        if (r && r.note instanceof Element) card.appendChild(r.note);
         // the cards show what the desks kept (never a look just for the reception): an old one says when it was
         const asof = receptionAsOf(desk.id);
         if (asof) facts.appendChild(asof);
