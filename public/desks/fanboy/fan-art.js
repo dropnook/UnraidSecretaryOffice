@@ -81,7 +81,8 @@
 
    The curve editor (curve()):
      opts = { points: [{ t: °C, v: percent or rpm }, …] (≥ 2), unit: 'percent' | 'rpm',
-              tMin 20, tMax 80, vMin 0, vMax 100 (rpm: the fan's max), floor (lowest stable value, a dashed line),
+              tMin 20, tMax 80, vMin 0, vMax 100 (rpm: the fan's max), floor (lowest stable value, a dashed line;
+              floorFrom: the degrees it starts at — a fan that may stand stands left of it),
               now (the zone's temperature now, a mark), fan: a wheel's fan (mm, blades, min, max, colour, look),
               rpmAt(percent) → rpm (the fan's measured table; else percent of max, never under min),
               apply(v) → the value as the control applies it (the fan's floor, its standstill): drawn bold and filled,
@@ -1026,7 +1027,10 @@
         lb.textContent = tx.tickV(rpm ? Math.round(v / 10) * 10 : Math.round(v));
         grid.appendChild(lb);
       }
-      if (typeof o.floor === 'number') mark('fan-curve-floor', PL, y(o.floor), W - PR, y(o.floor), tx.floor, W - PR - 4, y(o.floor) - 5, 'end');
+      // the floor from where it counts (o.floorFrom: a fan that may stand stands left of it — 2026-11-21: the line «never under»
+      // across the whole width contradicted the curve standing at 0 there)
+      const fx = typeof o.floorFrom === 'number' ? x(clamp(o.floorFrom, tMin, tMax)) : PL;
+      if (typeof o.floor === 'number') mark('fan-curve-floor', fx, y(o.floor), W - PR, y(o.floor), tx.floor, W - PR - 4, y(o.floor) - 5, 'end');
       if (typeof o.now === 'number' && o.now >= tMin && o.now <= tMax) {
         const right = x(o.now) > W * 0.7;      // near the right edge its words go to the left of the mark
         mark('fan-curve-now', x(o.now), PT, x(o.now), H - PB, tx.now, x(o.now) + (right ? -5 : 5), PT + 12, right ? 'end' : 'start');

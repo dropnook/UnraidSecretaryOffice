@@ -524,8 +524,10 @@ function testFanboyUx(): void
     check('fanboy ux r13: a curve is shown exactly as it counts (a derived point at 39.5 °C stays 39.5) and becomes whole numbers only once he changes it',
         str_contains($art, ".map((p) => ({ t: clamp(p.t, tMin, tMax), v: clamp(p.v, vMin, vMax) }))") && str_contains($art, "function whole() {") && substr_count($art, 'whole();') >= 3
         && str_contains($js, "const degrees = (c) => fmt.number(c, Number.isInteger(c) ? 0 : 1);"));
-    check('fanboy ux r13: several kinds — a fan stands only while no kind asks (a kind whose curve never reaches 0 is named); the CPU cooler on own risk goes by the CPU\'s curve alone',
-        str_contains($js, "const neverKind = !isCpu && multi ? kinds.find((k) => curveRule(curveOf(k).points).start === null) : null;") && str_contains($js, "const cpuElse = isCpu && K !== 'cpu';")
+    // 2026-11-21 (the owner: «Zone CPU darf stehen …, die CPU-Kurve kann ich bis null ziehen, NVMe aber nicht???»): the CPU
+    // cooler on own risk stands only while no kind asks either (fanboyCpuStand()) — the same rule as every fan, no exception
+    check('fanboy ux r13: several kinds — a fan stands only while no kind asks (a kind whose curve never reaches 0 is named), the CPU cooler on own risk too',
+        str_contains($js, "const neverKind = multi ? kinds.find((k) => curveRule(curveOf(k).points).start === null) : null;") && !str_contains($js, 'cpuElse')
         && str_contains($js, "return kindCurveOf(zoneKinded(z), 'cpu', setup().scales || {}).points;"));
     check('fanboy ux: a fan\'s floor is the agent\'s own number where the state has it (the setup\'s plan: the hub\'s margin included), the mirrored rule only for an older agent',
         str_contains($js, "if (f && num(f.floor) !== null) return f.floor;"));
@@ -647,8 +649,8 @@ function testFanboyUx(): void
     preg_match('/const FANBOY_BLIND_FLOOR = (\d+);/', $control, $abf);
     same('fanboy ux: the page\'s floors are the control\'s (lowest steady value + margin, the blind floor)', [$afm[1] ?? null, $abf[1] ?? null], [$fm[1] ?? '', $bf[1] ?? '']);
     check('fanboy ux: the curve chart draws what the control applies for the zone\'s first fan — its floor, and standing only where it may and the curve asks for nothing — and says it in a sentence of those numbers',
-        str_contains($js, "apply: rpmUnit ? undefined : (v) => (stands && v < 0.5 ? 0 : Math.max(v, floorPct)),") && str_contains($js, "const stands = !!lead.off_ok && !standWhy(lead) && !cpuElse;")
-        && str_contains($js, "const says = para(curveWords(pts, floorPct, stands, isCpu, {") && str_contains($art, "const applied = (v) => (typeof o.apply === 'function' ? o.apply(v) : v);")
+        str_contains($js, "apply: rpmUnit ? undefined : (v) => (stands && v < 0.5 ? 0 : Math.max(v, floorPct)),") && str_contains($js, "const stands = !!lead.off_ok && !standWhy(lead);")
+        && str_contains($js, "const says = para(curveWords(pts, floorPct, stands, isCpu && K === 'cpu', {")      /* 2026-11-21: the CPU cooler's minute only on the CPU's curve */ && str_contains($art, "const applied = (v) => (typeof o.apply === 'function' ? o.apply(v) : v);")
         && str_contains($art, "line.setAttribute('class', 'fan-curve-line fan-curve-wish');"));
     check('fanboy ux: sentences that take numbers from the state are marked (data-nums) and the picture tool compares each with the demo state it shows',
         substr_count($js, '.dataset.nums = JSON.stringify(') >= 3 && str_contains($tool, "if (want !== x.v) faults.push(") && str_contains($tool, 'is not in its sentence'));
@@ -2363,4 +2365,51 @@ function testFanboyZonesWords(): void
     } finally {
         fanboyTEnd();
     }
+}
+
+/**
+ * The curve editor draws what the control applies, for every kind (2026-11-21, the owner: «warum nie unter 15 %? Zone CPU
+ * darf stehen habe ich geklickt, und die CPU-Kurve kann ich bis null ziehen, NVMe aber nicht???» and «RAM zeigt aktuelle
+ * Temp nicht im Kurven-Einstellungs-Diagramm»): a fan that may stand is at 0 below each kind's zero point and at its floor
+ * from there — the CPU cooler on own risk too; the floor's line starts there and says «while it turns»; every kind's
+ * current value lies inside the chart's scale; a kind without a reading is said
+ */
+function testFanboyCurveFloorKinds(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $art = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.js');
+    $ctl = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-control.php');
+    $de = langFile(OFFICE_WEB . '/desks/fanboy/lang/de.json');
+    // the control's side the page mirrors: every kind's curve as applied with «may stand» (status fans[].curves), and the
+    // CPU cooler kept running by any other source that asks on its kind's curve
+    check('fanboy curve floor: the control applies every kind\'s curve with the fan\'s «may stand» alike, and another source asking keeps a CPU cooler running',
+        str_contains($ctl, "array_map(fn (\$kc) => fanboyEffectiveCurve(\$kc['points'], (float) \$c['fans'][\$id]['floor'], (\$c['fans'][\$id]['off_ok'] ?? false) === true),")
+        && str_contains($ctl, "} elseif (\$ok && fanboySourceAsk(\$z, \$s, (float) \$r['c']) >= 0.5) {"));
+    $kinds = ['cpu' => [[59, 0], [60, 17], [65, 52], [74, 100]], 'nvme' => [[59, 0], [62, 33], [65, 63], [70, 100]], 'ram' => [[62, 0], [65, 27], [67, 52], [74, 100]]];
+    $got = [];
+    foreach ($kinds as $k => $pts) {
+        $e = fanboyEffectiveCurve($pts, 15.0, true);
+        $got[$k] = [fanboyCurveAt($e, $pts[0][0] - 5), fanboyCurveAt($e, $pts[0][0] + 0.2) >= 15.0];
+    }
+    same('fanboy curve floor: the owner\'s zone — with «darf stehen» each kind is 0 below its zero point and at least the floor (15 %) above it, NVMe and RAM as the CPU',
+        ['cpu' => [0.0, true], 'nvme' => [0.0, true], 'ram' => [0.0, true]], $got);
+    $off = fanboyEffectiveCurve($kinds['nvme'], 15.0, false);
+    same('fanboy curve floor: … and without «darf stehen» never under the floor', 15.0, fanboyCurveAt($off, 50.0));
+    check('fanboy curve floor: the page — one rule for every kind (no CPU exception), the floor\'s line from where the curve leaves 0 with «while it turns», the sentence\'s CPU minute only on the CPU\'s curve',
+        str_contains($js, "const stands = !!lead.off_ok && !standWhy(lead);") && !str_contains($js, 'cpuElse') && !isset($de['curve.says_cpu_else'])
+        && str_contains($js, "const leaves = stands && !rpmUnit ? curveRule(pts).start : null;") && str_contains($js, "floorFrom: leaves ?? undefined,")
+        && str_contains($js, "T(leaves !== null ? 'curve.floor_turning' : 'curve.floor_min', { pct: floorPct })")
+        && str_contains($js, "const standsF = (f) => !!f.off_ok && !standWhy(f);") && str_contains($js, "curveWords(pts, floorPct, stands, isCpu && K === 'cpu', { multi,")
+        && str_contains($art, "const fx = typeof o.floorFrom === 'number' ? x(clamp(o.floorFrom, tMin, tMax)) : PL;")
+        && ($de['curve.floor_turning'] ?? '') === 'mindestens {pct} %, wenn er dreht');
+    check('fanboy curve floor: every kind\'s current value inside the chart\'s scale (the next 5 °C beyond it) — RAM at 42 °C on curves from 62 °C is drawn',
+        str_contains($js, "const liveTs = kinds.map((k) => asks(k)).filter(Boolean).map((a) => a.c);")
+        && str_contains($js, "Math.min(Math.floor((Math.min(...temps) - 10) / 5) * 5, ...liveTs.map((c) => Math.floor((c - 2) / 5) * 5))")
+        && str_contains($js, "Math.max(Math.ceil((Math.max(...temps) + 10) / 5) * 5, ...liveTs.map((c) => Math.ceil((c + 2) / 5) * 5))"));
+    // the scale's arithmetic as the page does it, for the owner's numbers: RAM 42 → from 40; a value inside changes nothing
+    $min = fn (array $temps, array $live) => max(0, min((int) floor((min($temps) - 10) / 5) * 5, ...array_map(fn ($c) => (int) floor(($c - 2) / 5) * 5, $live ?: [999])));
+    same('fanboy curve floor: the scale for his zone starts at 40 °C with RAM at 42 °C, at 45 °C with every value inside', [40, 45], [$min([59, 74, 62, 70], [62, 53.9, 42]), $min([59, 74, 62, 70], [62, 53.9, 50])]);
+    check('fanboy curve floor: a kind without a reading says so — its sources asleep, or none',
+        str_contains($js, "T(srcs.length && srcs.every((x) => x.asleep) ? 'curve.now_asleep' : 'curve.now_none', { kind: kindWord(K) })")
+        && ($de['curve.now_asleep'] ?? '') !== '' && ($de['curve.now_none'] ?? '') !== '');
 }
