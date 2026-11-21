@@ -246,3 +246,47 @@ JS);
         [['dark', 'dark', 'dark', 'dark'], ['light', null, null, 'light'], ['light', null, false]], [$fresh['dark'] ?? null, $fresh['light'] ?? null, $fresh['odd'] ?? null], json_encode($fresh));
     hardeningRm($tmp);
 }
+
+/**
+ * The blades end short of the frame (2026-11-21, the owner: «wenn die Blätter nicht ganz bis zum Lüfter andocken sondern
+ * zwischen Lüfter und Aussengehäuse noch etwas Luft ist, erkennt man die Blätter extrem viel besser»): at every size the
+ * tips stay inside the frame's lip by a ring of air (6 % of the opening's radius), the hub keeps its size, a rim stands off
+ * with the blades
+ */
+function testFanboyLookTipAir(): void
+{
+    $art = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.js');
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.css');
+    check('fanboy tip air: the tips from tipOf(mm) — the lip\'s inner edge less TIP_AIR of the opening, in the rotor\'s units; the hub from the old 48.5 (its sticker and mount sit on it); the rim at the tips',
+        str_contains($art, 'const TIP_AIR = 0.06, ROTOR_SCALE = 0.95, LIP_IN = 2.1, TIP_HUB = 48.5;')
+        && str_contains($art, 'const tipOf = (mm) => (openOf(mm) - LIP_IN - openOf(mm) * TIP_AIR) / ROTOR_SCALE;')
+        && str_contains($art, 'const rt = tipOf(mm), rh = TIP_HUB * hubShare(mm, sticker, size);') && !str_contains($art, 'const rt = 48.5')
+        && str_contains($art, "if (rim) s.appendChild(svg('circle', { class: 'fan-rim', r: rt - 1.4 }));"));
+    // the numbers the geometry stands on: the rotor laid on 95 % of the box, the lip a 2.2 stroke at the opening less 1
+    check('fanboy tip air: what tipOf counts on — the rotor inset 2.5 % (95 %), the lip at the opening less 1 with a 2.2 stroke',
+        str_contains($css, '.fan-rotor{position:absolute; inset:2.5%;') && str_contains($css, '.fan-lip{fill:none; stroke:var(--fan-frame); stroke-width:2.2}')
+        && str_contains($art, "const lip = svg('circle', { class: 'fan-lip', cx: 50, cy: 50, r: (open - 1).toFixed(2) });"));
+    $node = trim((string) shell_exec('command -v node 2>/dev/null'));
+    if ($node === '') {
+        check('fanboy tip air: node is missing here - the radii skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('fanboy-tip-air');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+globalThis.window = globalThis;
+globalThis.document = { currentScript: null, addEventListener() {}, getElementById: () => null, hidden: false };
+new Function(fs.readFileSync(process.argv[2], 'utf8'))();
+const A = window.FanArt;
+// every size the catalogue knows and the picker offers: the tips' radius in the frame's units, the lip's inner edge, the ring
+console.log(JSON.stringify([40, 80, 92, 120, 140, 180, 200].map((mm) => {
+  const open = A.openOf(mm), tip = A.tipOf(mm) * 0.95, lipIn = open - 1 - 1.1;
+  return { mm, ring: +(lipIn - tip).toFixed(3), share: +((lipIn - tip) / open).toFixed(4), tipOld: 48.5 * 0.95 > lipIn };
+})));
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/fanboy/fan-art.js') . ' 2>&1'), true);
+    $bad = is_array($o) ? array_values(array_filter($o, fn ($r) => !is_array($r) || $r['ring'] < 2.5 || abs($r['share'] - 0.06) > 0.0005)) : ['no answer'];
+    same('fanboy tip air: at every size a ring of air of 6 % of the opening (2.5 units or more) between the tips and the lip — they never dock again', [], $bad, json_encode($o));
+    check('fanboy tip air: … where the tips docked before (the old 48.5 reached into the lip at every size)', is_array($o) && count(array_filter($o, fn ($r) => $r['tipOld'] === true)) === count($o));
+    hardeningRm($tmp);
+}

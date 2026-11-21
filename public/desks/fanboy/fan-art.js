@@ -11,6 +11,7 @@
      catalog(url?)             → Promise<{ v, fans: [...] }>           fans-catalog.json beside this file
      turns(rpm, min, max)      → turns per second the picture shows (0, or 0.12 … 1.1, eased)
      gap() / setGap(v)         → 'light' | 'dark': the air between the blades, one choice for every fan in this browser
+     openOf(mm), tipOf(mm)     → the frame's opening (frame units 0 … 100) and the blades' tips (the rotor's -50 … 50)
      COLOURS, STATES, PLACES, KINDS, FLOWS, SIDES,                     the keys the caller may pass
      LOOK_COLOURS, STYLES, SHAPES                                      … and a model's look may use
    }
@@ -259,6 +260,16 @@
     : Math.max(clamp(0.42 - mm * 0.0009, 0.24, 0.4), sticker ? 0.38 : 0));
   /** The opening's radius (viewBox 0 … 100): a small fan's frame is broader round its opening than a big one's */
   const openOf = (mm) => 47.5 - clamp((120 - mm) * 0.06, 0, 3);
+  /**
+   * Where the blades' tips end (2026-11-21, the owner: «wenn die Blätter nicht ganz bis zum Lüfter andocken sondern zwischen
+   * Lüfter und Aussengehäuse noch etwas Luft ist, erkennt man die Blätter extrem viel besser»): short of the frame, a ring of
+   * air all round between the wheel and the frame's lip — a real fan's tip clearance, drawn larger than life. In the rotor's
+   * units (viewBox -50 … 50, laid on 95 % of the box: fan-art.css .fan-rotor inset 2.5 %): the lip's inner edge (frameSvg:
+   * r open - 1, stroke 2.2 in fan-art.css) less TIP_AIR of the opening's radius. The hub keeps its size (TIP_HUB: frontSvg's
+   * sticker and the struts' mount sit on it).
+   */
+  const TIP_AIR = 0.06, ROTOR_SCALE = 0.95, LIP_IN = 2.1, TIP_HUB = 48.5;
+  const tipOf = (mm) => (openOf(mm) - LIP_IN - openOf(mm) * TIP_AIR) / ROTOR_SCALE;
   /** a gradient of its own, its stops coloured by the stylesheet (class per stop: the wheel's own colour tokens) */
   function grad(kind, id, attrs, stops) {
     const g = svg(kind, Object.assign({ id }, attrs));
@@ -278,7 +289,7 @@
     defs.append(grad('linearGradient', `${id}b`, { x1: 0, y1: 0, x2: 1, y2: 1 }, [[0, 'fan-gb-0'], [0.45, 'fan-gb-1'], [1, 'fan-gb-2']]),
       grad('radialGradient', `${id}h`, { r: 0.5 }, [[0, 'fan-gh-0'], [0.65, 'fan-gh-1'], [1, 'fan-gh-2']]));
     s.appendChild(defs);
-    const rt = 48.5, rh = rt * hubShare(mm, sticker, size);
+    const rt = tipOf(mm), rh = TIP_HUB * hubShare(mm, sticker, size);       // the tips short of the frame (tipOf), the hub as before
     // reverse blades: mirrored, inside the turning part — it keeps its direction (Corsair: «they spin normally, but the
     // blades are inverted»)
     const g = svg('g', reverse ? { class: 'fan-blades', transform: 'scale(-1 1)' } : { class: 'fan-blades' });
@@ -289,7 +300,7 @@
       g.appendChild(b);
     }
     s.appendChild(g);
-    if (rim) s.appendChild(svg('circle', { class: 'fan-rim', r: rt - 1.4 }));       // a closed wheel: the blades held by a ring
+    if (rim) s.appendChild(svg('circle', { class: 'fan-rim', r: rt - 1.4 }));       // a closed wheel: the blades held by a ring — it stands off the frame with them
     const hub = svg('circle', { class: 'fan-hub', r: (rh + 0.5).toFixed(2) });
     hub.style.fill = `url(#${id}h)`;
     s.appendChild(hub);
@@ -369,7 +380,7 @@
   /** What stands still in front of the blades: a model's guide vanes and the sticker with its name (viewBox 0 … 100) */
   function frontSvg(look, mm, px) {
     const s = svg('svg', { viewBox: '0 0 100 100', class: 'fan-front', 'aria-hidden': 'true', focusable: 'false' });
-    // the hub in these units: the rotor fills the opening (its viewBox's 48.5 of 50 are the blades' tips)
+    // the hub in these units: the rotor's hub (TIP_HUB 48.5 of its viewBox's 50 times the hub's share) — the blades' tips end short of it (tipOf)
     const rh = openOf(mm) * 0.97 * hubShare(mm, stickerShown(look, px), look && look.hub_size);
     if (look && look.vanes) {
       const g = svg('g', { class: 'fan-vanes' });
@@ -1399,5 +1410,6 @@
     return { el: root, set, value: () => cur, colour(c) { colour = pick(c, COLOURS, 'auto'); look2(); }, destroy() { wh.destroy(); } };
   }
 
-  window.FanArt = { wheel, server, curve, picker, catalog, turns, styles, lookOf, gap, setGap, COLOURS, STATES, PLACES, KINDS, FLOWS, SIDES, LOOK_COLOURS, STYLES, SHAPES, STYLE_BLADES, HUB_KINDS };
+  window.FanArt = { wheel, server, curve, picker, catalog, turns, styles, lookOf, gap, setGap, COLOURS, STATES, PLACES, KINDS, FLOWS, SIDES, LOOK_COLOURS, STYLES, SHAPES, STYLE_BLADES, HUB_KINDS,
+    openOf, tipOf };        // the opening's and the blades' tips' radius (the suite pins the air between them)
 })();
