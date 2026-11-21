@@ -98,7 +98,7 @@ function testCaretakerNewcomers(): void
         check('newcomers page: the card on his page and at the reception, gone when hired (from anywhere) — his bubble starts with the line',
             str_contains($js, "&& !Office.desks.get(x.id).hired && Office.has(`\${ID}.newcomer.\${x.id}`)") && str_contains($js, 'newcomers().forEach((x) => sw.el.insertBefore(newcomerCard(x), sw.body));')
             && str_contains($js, 'return { bubble: bubbleText(), facts, note };') && str_contains($js, 'return newcomerLine() + bubbleRest();')
-            && str_contains((string) file_get_contents(OFFICE_WEB . '/assets/core.js'), 'if (r && r.note instanceof Element) card.insertBefore(r.note, foot);'));
+            && str_contains((string) file_get_contents(OFFICE_WEB . '/assets/core.js'), 'if (r && r.note instanceof Element) card.appendChild(r.note);'));
         same('newcomers: the centre lists his notices', ['normal', 'warning'], (function () { $s = OFFICE_NOTIFY_SENDS['caretaker']; sort($s); return $s; })());
         // an office that began with the last release without him (a fresh install of 1.94.1, never 1.94.0) and updates: told too
         $fix = $folder('fix', [(string) $before], ['backup' => 1]);
