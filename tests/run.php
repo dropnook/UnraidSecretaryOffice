@@ -65761,8 +65761,8 @@ function testFanboyPage(): void
  * the catalogue in exactly its shape (every value from the maker's page or null, each entry's page named in the dev-only
  * tools/fanboy/fans-catalog.sources.md, on the maker's own site), the three files shipped and the demo kept out of the
  * package, the stylesheet nested in #sso with the office's tokens only, the components with no words of their own, and
- * the wheel's speed picture under node (0 stands, min … max 0.12 … 1.1 turns a second, eased, never more; round 2,
- * 2026-11-14: the owner wanted it to hint at the speed, slow pleasantly slow), and the air moving like the wheel.
+ * the wheel's speed picture under node (0 stands, min … 70 % of the range 0.12 … 0.91 turns a second, eased; then on to
+ * 2.2 at max, never more; round 2, 2026-11-14: slow pleasantly slow; 2026-11-21: the top runs), and the air moving like the wheel.
  */
 function testFanboyLook(): void
 {
@@ -65966,7 +65966,7 @@ const curve = [];
 for (let rpm = 0; rpm <= 3000; rpm += 50) curve.push(t(rpm, 300, 1500));
 console.log(JSON.stringify({
   zero: t(0, 300, 1500), none: t(null, 300, 1500), min: r(t(300, 300, 1500)), max: r(t(1500, 300, 1500)), over: t(9000, 300, 1500),
-  mid: r(t(900, 300, 1500)), eased: t(900, 300, 1500) - t(300, 300, 1500) > t(1500, 300, 1500) - t(900, 300, 1500), below: r(t(150, 300, 1500)), unknown: r(t(2000, null, null)), rising: curve.every((v, i) => !i || v >= curve[i - 1]),
+  mid: r(t(900, 300, 1500)), at70: r(t(1140, 300, 1500)), eased: t(900, 300, 1500) - t(300, 300, 1500) > t(1140, 300, 1500) - t(900, 300, 1500), runs: t(1500, 300, 1500) - t(1140, 300, 1500) > t(1140, 300, 1500) - t(300, 300, 1500), below: r(t(150, 300, 1500)), unknown: r(t(2000, null, null)), rising: curve.every((v, i) => !i || v >= curve[i - 1]),
   keys: [window.FanArt.COLOURS.length, window.FanArt.STATES.join(','), window.FanArt.KINDS.length, window.FanArt.FLOWS.join(',')],
   lookKeys: [window.FanArt.LOOK_COLOURS.join(','), window.FanArt.STYLES.join(','), window.FanArt.SHAPES.join(',')],
   look: [window.FanArt.lookOf(null), window.FanArt.lookOf({ frame: 'beige', blades: 'brown', pads: 'brown', style: 'sickle', shape: 'pads', vanes: 11, rim: true, sticker: 'NF-\nF12', sticker_colour: 'brown' }),
@@ -65975,10 +65975,10 @@ console.log(JSON.stringify({
 }));
 JS);
     $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg("$dir/fan-art.js") . ' 2>&1'), true);
-    same('fanboy look: the speed picture — 0 rpm and no feedback stand, min 0.12, max 1.1, above max still 1.1, half way eased (0.767), below min in proportion',
-        [0, 0, 0.12, 1.1, 1.1, 0.767, 0.06], [$o['zero'] ?? null, $o['none'] ?? null, $o['min'] ?? null, $o['max'] ?? null, $o['over'] ?? null, $o['mid'] ?? null, $o['below'] ?? null]);
-    same('fanboy look: … an unknown range is 20 % … 100 % of 2000 rpm, faster never turns slower, the slow half differs more than the fast one',
-        [1.1, true, true], [$o['unknown'] ?? null, $o['rising'] ?? null, $o['eased'] ?? null]);
+    same('fanboy look: the speed picture — 0 rpm and no feedback stand, min 0.12, half way eased (0.767), 70 % of the range 0.911, max 2.2, above max still 2.2, below min in proportion',
+        [0, 0, 0.12, 0.767, 0.911, 2.2, 2.2, 0.06], [$o['zero'] ?? null, $o['none'] ?? null, $o['min'] ?? null, $o['mid'] ?? null, $o['at70'] ?? null, $o['max'] ?? null, $o['over'] ?? null, $o['below'] ?? null]);
+    same('fanboy look: … an unknown range is 20 % … 100 % of 2000 rpm, faster never turns slower, up to 70 % eased (the slow half differs more), the last 30 % run away (more than all below)',
+        [2.2, true, true, true], [$o['unknown'] ?? null, $o['rising'] ?? null, $o['eased'] ?? null, $o['runs'] ?? null]);
     same('fanboy look: the keys a caller may pass (colours, states, kinds, flows)', [7, 'run,stopped,unknown,bios,empty', 7, 'in,out'], $o['keys'] ?? null);
     same('fanboy look: … and a look may use (the catalogue\'s own lists)', [implode(',', $lookColours), implode(',', $styles), 'square,ring,pads,corner,block'], $o['lookKeys'] ?? null);
     same('fanboy look: a look as the wheel takes it — none stays none (the neutral wheel), a model\'s kept (the hub in the blades\' colour when not given), unknown names and shapes dropped',

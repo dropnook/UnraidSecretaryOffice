@@ -188,12 +188,13 @@
   }
 
   /**
-   * The picture's speed: it hints at the real one, never 1:1. 0 rpm stands; the fan's min … max turns 0.12 … 1.1 times a
-   * second, eased (the share of the range to the power 0.6: more difference in the slow half than at the top), so slow
-   * looks pleasantly slow and the top stays readable (7 blades at 1.1 turns: 6.6° a frame at 60 Hz — no strobing, no
-   * disc). Below min down to 0 in proportion, above max stays 1.1. Unknown range: 20 % … 100 % of 2000 rpm.
+   * The picture's speed: it hints at the real one, never 1:1. 0 rpm stands; up to 70 % of the fan's min … max range it
+   * turns 0.12 … about 0.91 times a second, eased (the share to the power 0.6), so slow looks pleasantly slow; from there
+   * to max it runs away to 2.2 turns (2026-11-21, the owner: «ab 70 % bis 100 % noch schneller, man darf sehen, dass die
+   * Dinger rennen»). 11 blades at 2.2 turns: 13.2° a frame at 60 Hz, under half their spacing (16.4°) — no strobing
+   * backwards. Below min down to 0 in proportion, above max stays at the top. Unknown range: 20 % … 100 % of 2000 rpm.
    */
-  const SLOW = 0.12, FAST = 1.1, EASE = 0.6;
+  const SLOW = 0.12, FAST = 1.1, EASE = 0.6, RUN_FROM = 0.7, TOP = 2.2;
   // above this many turns a second the struts behind fade out (and back below FAST_OFF): a third of the way up
   const FAST_ON = 0.42, FAST_OFF = 0.32;
   function turns(rpm, min, max) {
@@ -201,7 +202,10 @@
     const hi = num(max, 0) > 0 ? max : 2000;
     const lo = num(min, 0) > 0 && min < hi ? min : hi * 0.2;
     if (rpm <= lo) return SLOW * rpm / lo;
-    return SLOW + (FAST - SLOW) * Math.pow(Math.min(1, (rpm - lo) / (hi - lo)), EASE);
+    const share = Math.min(1, (rpm - lo) / (hi - lo));
+    const eased = (x) => SLOW + (FAST - SLOW) * Math.pow(x, EASE);
+    if (share <= RUN_FROM) return eased(share);
+    return eased(RUN_FROM) + (TOP - eased(RUN_FROM)) * (share - RUN_FROM) / (1 - RUN_FROM);
   }
 
   // ------------------------------------------------------------------------------------------------ the wheel
