@@ -733,6 +733,7 @@
   "dash.fan_title": "{name}: {text}",
   "dash.setting": "Mostrar en el Dashboard",
   "dash.setting_sub": "Un mosaico propio en el Dashboard de Unraid — muévelo u ocúltalo allí como cualquier otro. Para todos los que abran el Dashboard.",
+  "dash.setting_real": "Los ventiladores que giran y el número del anillo son la velocidad que informan los ventiladores; el porcentaje es lo que ajusta Fanboy.",
   "dash.show.off": "No",
   "dash.show.off_title": "Ningún mosaico suyo en el Dashboard",
   "dash.show.speeds": "Velocidades",

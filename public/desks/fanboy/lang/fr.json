@@ -733,6 +733,7 @@
   "dash.fan_title": "{name} : {text}",
   "dash.setting": "Afficher dans le Dashboard",
   "dash.setting_sub": "Une tuile à lui dans le Dashboard d'Unraid — déplace-la ou masque-la là-bas comme toute autre. Pour tous ceux qui ouvrent le Dashboard.",
+  "dash.setting_real": "Les ventilateurs qui tournent et le nombre dans l'anneau sont la vitesse que les ventilateurs indiquent ; le pourcentage est ce que Fanboy règle.",
   "dash.show.off": "Non",
   "dash.show.off_title": "Aucune tuile de lui dans le Dashboard",
   "dash.show.speeds": "Vitesses",

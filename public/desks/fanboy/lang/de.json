@@ -733,6 +733,7 @@
   "dash.fan_title": "{name}: {text}",
   "dash.setting": "Im Dashboard zeigen",
   "dash.setting_sub": "Eine eigene Kachel in Unraids Dashboard — verschieb oder blende sie dort aus wie jede andere. Gilt für alle, die das Dashboard öffnen.",
+  "dash.setting_real": "Die drehenden Lüfter und die Zahl im Ring sind die Drehzahl, die die Lüfter melden; die Prozent sind, was Fanboy einstellt.",
   "dash.show.off": "Aus",
   "dash.show.off_title": "Keine Kachel von ihm im Dashboard",
   "dash.show.speeds": "Drehzahlen",

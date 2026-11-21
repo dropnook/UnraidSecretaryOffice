@@ -733,6 +733,7 @@
   "dash.fan_title": "{name}: {text}",
   "dash.setting": "Mostra nella Dashboard",
   "dash.setting_sub": "Una tessera tutta sua nella Dashboard di Unraid — spostala o nascondila lì come ogni altra. Vale per chiunque apra la Dashboard.",
+  "dash.setting_real": "Le ventole che girano e il numero nell'anello sono la velocità che le ventole riportano; la percentuale è ciò che imposta Fanboy.",
   "dash.show.off": "No",
   "dash.show.off_title": "Nessuna sua tessera nella Dashboard",
   "dash.show.speeds": "Velocità",

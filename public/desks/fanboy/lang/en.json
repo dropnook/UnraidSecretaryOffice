@@ -733,6 +733,7 @@
   "dash.fan_title": "{name}: {text}",
   "dash.setting": "Show on the Dashboard",
   "dash.setting_sub": "A tile of his own on Unraid's Dashboard — move or hide it there like any other. For everyone who opens the Dashboard.",
+  "dash.setting_real": "The turning fans and the number in the ring are the speed the fans report; the percent is what Fanboy sets.",
   "dash.show.off": "Off",
   "dash.show.off_title": "No tile of his on the Dashboard",
   "dash.show.speeds": "Speeds",
