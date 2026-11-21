@@ -2801,7 +2801,7 @@ function testFanboyR13Refused(): void
             return fanboyR6Refused(fn () => fanboyZonesCheck([$z], fanboyDetect(), $settings));
         };
         same('fanboy r13 refused: a kind the zone has no source of, one point, 130 °C, a value over 100 %, a preset in an rpm zone, a list instead of kinds',
-            array_fill(0, 6, 'fanboy_bad_zones'),
+            ['fanboy_bad_zones', 'fanboy_zone_curve', 'fanboy_zone_curve', 'fanboy_zone_curve', 'fanboy_zone_curve', 'fanboy_bad_zones'],
             [$check(['cpu' => ['points' => [[40, 0], [60, 100]]]]), $check(['disk' => ['points' => [[40, 0]]]]), $check(['disk' => ['points' => [[40, 0], [130, 100]]]]),
              $check(['disk' => ['points' => [[40, 0], [60, 101]]]]), $check(['disk' => ['preset' => 'quiet']], 'rpm'), $check([['points' => [[40, 0], [60, 100]]]])]);
         $ok = fanboyZonesCheck([['curves' => ['disk' => ['points' => [[35, 10], [45, 90]]]]] + $zone], fanboyDetect(), $settings)[0];
@@ -3353,7 +3353,11 @@ function testFanboyLookKeeps(): void
         $s['zones'][1]['curves'] = ['disk' => ['preset' => 'quiet', 'own' => [[47, 0], [55, 100]]]];
         $s['zones'][1]['react'] = 'quick';
         $s['zones'][0]['curves'] = ['cpu' => ['points' => [[30, 0], [62, 0], [81, 100]]]];
+        $s['zones'] = array_map(fn ($z) => $z + ['kinds' => new stdClass()], $s['zones']);       // as zones_save stores them (an object)
         fanboyTStore($s);
+        $file = fn () => (string) file_get_contents(fanboyStoreFile());
+        $shape = fn (string $j) => [preg_match_all('/"kinds":\s*\{\}/', $j), preg_match_all('/"kinds":\s*\[\]/', $j)];
+        $bytesBefore = $file();
         fanboyTSettle($t, $spec);
         fanboyBeat();
         $c = fanboyControlNew($s, FANBOY_T_KEY, fanboyMe('control'));
@@ -3376,6 +3380,8 @@ function testFanboyLookKeeps(): void
             fanboyFanSave(['fan' => $id, 'role' => $before['fans'][$id]['role'], 'look' => $l]);
         }
         $after = fanboyBoardRaw();
+        same('fanboy look keeps: … the file keeps every zone\'s «kinds» an object ({}, never [] — what an older office wrote and reads)',
+            [count($s['zones']), 0], $shape($file()), json_encode($shape($bytesBefore)));
         same('fanboy look keeps: the looks saved', [['example-92', 'white', true], ['example-140', 'grey', 'sickle', false]],
             [[$after['fans'][$cpu]['model']['id'] ?? null, $after['fans'][$cpu]['colour'] ?? null, $after['fans'][$cpu]['reverse'] ?? null],
              [$after['fans'][fanboyTId(4)]['model']['id'] ?? null, $after['fans'][fanboyTId(4)]['frame'] ?? null, $after['fans'][fanboyTId(4)]['style'] ?? null, $after['fans'][fanboyTId(4)]['reverse'] ?? null]]);

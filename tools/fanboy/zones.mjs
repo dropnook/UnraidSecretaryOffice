@@ -203,6 +203,20 @@ try {
     check('all/none: «None» — every disk out again, the zone back to «choose a source»', k.on === 0 && !k.allOff && k.noneOff && !!(await page.$('#sso .fb-src-first')), JSON.stringify(k));
     await page.click(`${disk} .fb-src-all`);
     await page.waitForTimeout(400);
+    // 2026-11-20: «Zone 3» has no fan yet — its row says so, «Save» waits and says for which zone (never the agent's refusal)
+    const held = await page.evaluate((save) => {
+      const btnS = [...document.querySelectorAll('#sso .fb-next .btn:not(.plain)')].find((b) => b.textContent.includes(save));
+      const row = document.querySelector('#sso .fb-zone-side .fb-item[data-row="zone3"] .fb-item-label span');
+      return [btnS ? btnS.disabled : null, (document.querySelector('#sso .fb-zones-held') || {}).textContent || '', row ? row.textContent : ''];
+    }, EN['zones.save']);
+    const wantHeld = EN['zones.save_held'].replace('{zone}', 'Zone 3').replace('{why}', EN['zones.hold_no_fan']);
+    check('zones held: «Zone 3» without a fan — its row says «no fan yet», «Save» waits and names the zone', JSON.stringify(held) === JSON.stringify([true, wantHeld, EN['zones.hold_no_fan']]), JSON.stringify(held));
+    // a fan for it: the case's second one moved over (its card's «move» list)
+    await page.click('#sso .fb-zone-side .fb-item[data-row="case"]');
+    await page.waitForTimeout(300);
+    await page.selectOption('#sso .fb-zone-fan:nth-child(2) select', '2');
+    await page.waitForTimeout(400);
+    check('zones held: … a fan moved in — «Save» free again, no line', await page.evaluate(() => !document.querySelector('#sso .fb-zones-held')), '');
     await page.click(`#sso .fb-next .btn:not(.plain):has-text("${EN['zones.save']}")`);
     await page.waitForTimeout(800);
     const sent = h.posts.filter((x) => x.action === 'fanboy.zones_save').pop();
@@ -261,6 +275,23 @@ try {
     const foc = await page.evaluate((sel) => { const a = document.activeElement; const c = document.querySelector(sel + ' .fan-curve'); const svg = c.querySelector('svg');
       return [!!(a && c.contains(a) && a.tagName !== 'INPUT'), getComputedStyle(svg).outlineStyle, svg.hasAttribute('tabindex'), [...c.querySelectorAll('.fan-curve-pt')].some((g) => g.hasAttribute('tabindex'))]; }, part);
     check('curve card: a click on the chart and on a point — nothing in the chart takes focus, no frame, no tabindex', JSON.stringify(foc) === '[false,"none",false,false]', JSON.stringify(foc));
+    // 2026-11-20 (the coordinator on his server: a typed 40 % shown as 30 without a word): a typed number the curve can't
+    // keep says why, under the fields, and goes with the next change
+    const typeIn = async (axis, nth, value) => { const f = `${part} .fan-curve-field input[data-axis="${axis}"] >> nth=${nth}`; await page.fill(f, String(value)); await page.press(f, 'Tab'); await page.waitForTimeout(400); };
+    const noteNow = () => page.evaluate((sel) => { const n = document.querySelector(sel + ' .fan-curve-note'); return n && !n.hidden ? n.textContent : ''; }, part);
+    const fieldsNow = () => page.evaluate((sel) => [...document.querySelectorAll(sel + ' .fan-curve-field input')].map((i) => Number(i.value)), part);
+    await typeIn('v', 0, 40);
+    const wantV = EN['curve.clamp_next_v'].replace('{i}', '1').replace('{j}', '2').replace('{limit}', EN.value.replace('{pct}', '30'));
+    const v40 = [await fieldsNow(), await noteNow()];
+    check('curve note: 40 % typed into point 1 (point 2 at 30 %) — 30 kept and said why, under the fields', v40[0][1] === 30 && v40[1] === wantV, JSON.stringify([v40, wantV]));
+    await typeIn('t', 1, 60);
+    const wantT = EN['curve.clamp_next_t'].replace('{i}', '2').replace('{j}', '3').replace('{limit}', EN.temp.replace('{c}', '51'));
+    const t60 = [await fieldsNow(), await noteNow()];
+    check('curve note: 60 °C typed into point 2 (point 3 at 52 °C) — 51 kept and said', t60[0][2] === 51 && t60[1] === wantT, JSON.stringify([t60, wantT]));
+    await typeIn('t', 1, 48);
+    await typeIn('v', 0, 0);
+    const back = [await fieldsNow(), await noteNow()];
+    check('curve note: … numbers that fit — the line gone, the curve as before', JSON.stringify(back) === JSON.stringify([[45, 0, 48, 30, 52, 70, 55, 100], '']), JSON.stringify(back));
     const first = `${part} .fan-curve-field input[data-axis="t"] >> nth=0`;
     await page.fill(first, '47');
     await page.press(first, 'Tab');
@@ -287,6 +318,11 @@ try {
     k = await card();
     check('curve card: … back at 55 °C — the hint gone', !k.under && JSON.stringify(k.pts) === '[47,0,48,30,52,70,55,100]', JSON.stringify(k));
     await goal('normal');
+    // (the demo's «Zone 3» has nothing yet and would hold «Save» — removed first, as he would)
+    await page.click('#sso .fb-zone-side .fb-item[data-row="zone3"]');
+    await page.waitForTimeout(300);
+    await page.click(`#sso .fb-zone-head .btn.plain:has-text("${EN['zones.remove']}")`);
+    await page.waitForTimeout(400);
     await page.click(`#sso .fb-next .btn:not(.plain):has-text("${EN['zones.save']}")`);
     await page.waitForTimeout(800);
     const sent = h.posts.filter((x) => x.action === 'fanboy.zones_save').pop();

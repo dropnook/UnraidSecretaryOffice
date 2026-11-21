@@ -406,6 +406,18 @@ function fanboyStoreUpdate(callable $fn, ?array $board = null): array
         $entry['fans'] = is_array($entry['fans'] ?? null) ? $entry['fans'] : [];
         $entry = $fn($entry);
         $raw['boards'][$key] = $entry;
+        // 2026-11-20 (the coordinator's look on the owner's server: after a look's save every zone's `"kinds": {}` came back
+        // as `[]`): a zone's maps keep their shape — read as PHP arrays, an empty one is written as an object again, so
+        // «unchanged» stays byte for byte and an older office reads what it wrote
+        foreach ($raw['boards'] as $bk => $b) {
+            foreach (is_array($b['zones'] ?? null) ? $b['zones'] : [] as $zi => $z) {
+                foreach (['kinds', 'curves'] as $m) {
+                    if (is_array($z) && ($z[$m] ?? null) === []) {
+                        $raw['boards'][$bk]['zones'][$zi][$m] = new stdClass();
+                    }
+                }
+            }
+        }
         @mkdir(dirname(fanboyStoreFile()), 0700, true);
         writeAtomic(fanboyStoreFile(), jsonEncode($raw), 0600);
         return $entry;
@@ -1853,6 +1865,16 @@ function fanboyZonesPropose(array $scan, array $settings): array
     if ($cpu && $cpuSources) {
         $zones[] = ['id' => 'cpu', 'kind' => 'cpu', 'name' => '', 'fans' => $cpu, 'unit' => 'pct', 'target' => ['preset' => 'normal'], 'sources' => $cpuSources];
     }
+    // 2026-11-20 (the owner's own proposal — 36 sources — refused by a save that took 32): never more in a zone than a save
+    // keeps; on a board with more, the most telling kinds first (disks, SSD/NVMe, RAM, then the board's sensors)
+    $order = ['disk' => 0, 'ssd' => 1, 'nvme' => 2, 'ram' => 3, 'cpu' => 4, 'board' => 5];
+    foreach ($zones as $i => $z) {
+        if (count($z['sources']) > FANBOY_SOURCES_MAX) {
+            $src = $z['sources'];
+            usort($src, fn ($a, $b) => ($order[$a['kind']] ?? 9) <=> ($order[$b['kind']] ?? 9));
+            $zones[$i]['sources'] = array_slice($src, 0, FANBOY_SOURCES_MAX);
+        }
+    }
     return $zones;
 }
 
@@ -1868,49 +1890,87 @@ function fanboyNum(array $a, string $k, float $min, float $max): ?float
     return (float) $a[$k];
 }
 
+/** A stored fan said in a refusal: the name he gave it, else its chip and output */
+function fanboyFanSay(array $f): string
+{
+    return is_string($f['name'] ?? null) && trim($f['name']) !== '' ? trim($f['name']) : ($f['chip'] ?? '?') . ' pwm' . ($f['output'] ?? '?');
+}
+
+/**
+ * A heat source said in a refusal (2026-11-20: the owner read «… (sources)»): a disk by its name, a sensor by its chip and
+ * number as its id holds them («nvme #1») — the page puts its own label in where it still knows the source
+ */
+function fanboySourceSay(string $id, array $known): string
+{
+    if (isset($known[$id])) {
+        return (string) ($known[$id]['label'] ?? $id);
+    }
+    return preg_match('/^([A-Za-z0-9_.-]+)@.*#(\d+)$/D', $id, $m) ? "{$m[1]} #{$m[2]}" : $id;
+}
+
 /**
  * The zones the page sends, checked against what is there now: ids, names, fans (his, each in one zone), sources (each
  * a source the server shows now), limits, the target (a preset or 2–8 points), the unit (rpm only when every fan is
- * measured with feedback). Anything in another shape: refused, nothing kept.
+ * measured with feedback). Anything in another shape: refused, nothing kept. 2026-11-20 (the owner: «Die Zonen passen
+ * nicht zu dem, was da ist (sources)»): what a page can send gets a refusal of its own naming the zone (and the fan, the
+ * source, the kind); only what no page sends — a broken request — stays fanboy_bad_zones («reload the page»).
  */
 function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
 {
-    if (!is_array($zones) || !array_is_list($zones) || count($zones) > FANBOY_ZONES_MAX) {
+    if (!is_array($zones) || !array_is_list($zones)) {
         throw new Problem('fanboy_bad_zones', ['field' => 'zones']);
+    }
+    if (count($zones) > FANBOY_ZONES_MAX) {
+        throw new Problem('fanboy_zones_max', ['max' => FANBOY_ZONES_MAX]);
     }
     $known = array_column(fanboySources($scan), null, 'id');
     $used = [];
     $out = [];
-    foreach ($zones as $z) {
+    foreach ($zones as $zi => $z) {
         if (!is_array($z) || !is_string($z['id'] ?? null) || !preg_match('/^[a-z0-9_-]{1,24}$/D', $z['id']) || isset($out[$z['id']])
             || !is_string($z['name'] ?? null) || !is_array($z['fans'] ?? null) || !array_is_list($z['fans']) || !is_array($z['sources'] ?? null) || !array_is_list($z['sources'])) {
             throw new Problem('fanboy_bad_zones', ['field' => 'zone']);
         }
         $name = trim((string) preg_replace('/[\x00-\x1f\x7f]+/u', ' ', $z['name']));
         if ($name === '' || mb_strlen($name) > 40) {
-            throw new Problem('fanboy_bad_zones', ['field' => 'name']);
+            throw new Problem('fanboy_zone_name', ['n' => $zi + 1, 'max' => 40]);
         }
         $unit = $z['unit'] ?? 'pct';
         if (!in_array($unit, ['pct', 'rpm'], true)) {
             throw new Problem('fanboy_bad_zones', ['field' => 'unit']);
         }
         foreach ($z['fans'] as $id) {
-            $f = is_string($id) ? ($settings['fans'][$id] ?? null) : null;
-            if (!is_array($f) || !fanboyFanOurs($f) || !in_array($f['found'] ?? null, ['tach', 'silent'], true) || isset($used[$id])) {
+            if (!is_string($id)) {
                 throw new Problem('fanboy_bad_zones', ['field' => 'fans']);
+            }
+            $f = $settings['fans'][$id] ?? null;
+            if (!is_array($f) || !fanboyFanOurs($f) || !in_array($f['found'] ?? null, ['tach', 'silent'], true)) {
+                throw new Problem('fanboy_zone_fan_gone', ['fan' => is_array($f) ? fanboyFanSay($f) : $id, 'zone' => $name]);
+            }
+            if (isset($used[$id])) {
+                throw new Problem('fanboy_zone_fan_twice', ['fan' => fanboyFanSay($f), 'zone' => $used[$id], 'other' => $name]);
             }
             if ($unit === 'rpm' && (($f['found'] ?? null) !== 'tach' || !is_array($f['measured'] ?? null))) {
                 throw new Problem('fanboy_rpm_needs_measure');
             }
-            $used[$id] = true;
+            $used[$id] = $name;
         }
-        if (!$z['fans'] || !$z['sources'] || count($z['sources']) > FANBOY_SOURCES_MAX) {
-            throw new Problem('fanboy_bad_zones', ['field' => 'sources']);
+        if (!$z['fans']) {
+            throw new Problem('fanboy_zone_no_fan', ['zone' => $name]);
+        }
+        if (!$z['sources']) {
+            throw new Problem('fanboy_zone_no_source', ['zone' => $name]);
+        }
+        if (count($z['sources']) > FANBOY_SOURCES_MAX) {
+            throw new Problem('fanboy_zone_sources_max', ['zone' => $name, 'n' => count($z['sources']), 'max' => FANBOY_SOURCES_MAX]);
         }
         $sources = [];
         foreach ($z['sources'] as $s) {
-            if (!is_array($s) || !is_string($s['id'] ?? null) || !isset($known[$s['id']]) || isset($sources[$s['id']])) {
+            if (!is_array($s) || !is_string($s['id'] ?? null) || isset($sources[$s['id']])) {
                 throw new Problem('fanboy_bad_zones', ['field' => 'source']);
+            }
+            if (!isset($known[$s['id']])) {
+                throw new Problem('fanboy_zone_source_gone', ['source' => fanboySourceSay($s['id'], $known), 'id' => $s['id'], 'zone' => $name]);
             }
             // 2026-11-20 (the owner: «Eine Quelle anders einstellen — auch weg»): a source has no values of its own any more —
             // what an older page sends there is not kept (the shape stays: null)
@@ -1935,7 +1995,12 @@ function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
             if (!is_string($kind) || !in_array($kind, array_column($sources, 'kind'), true)) {
                 throw new Problem('fanboy_bad_zones', ['field' => 'curves']);
             }
-            $curves[$kind] = fanboyTargetCheck($cv, $unit, 'curves');
+            try {
+                $curves[$kind] = fanboyTargetCheck($cv, $unit, 'curves');
+            } catch (Problem $p) {
+                // a curve the page can draw but not keep (more than 8 points, a point off the chart): which zone, which kind
+                throw new Problem('fanboy_zone_curve', ['zone' => $name, 'kind' => $kind, 'max' => $unit === 'pct' ? 100 : 10000]);
+            }
         }
         // round 4: how he reacts — «balanced» (the default) or «quick»; read strictly, absent = balanced
         $react = $z['react'] ?? 'balanced';

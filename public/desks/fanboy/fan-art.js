@@ -935,6 +935,11 @@
     // each point typed exactly (o.fields): a row per point under the chart — its degrees and its value as numbers
     const fieldsBox = o.fields ? el('div', 'fan-curve-fields') : null;
     if (fieldsBox) root.appendChild(fieldsBox);
+    // 2026-11-20 (a typed 40 % shown as 30 without a word): a typed number the curve can't keep as typed — each point lies
+    // between its neighbours, the curve only rises — says why in one line under the fields, gone with the next change
+    const note = fieldsBox ? el('p', 'fan-curve-note') : null;
+    if (note) { note.setAttribute('role', 'status'); note.hidden = true; root.appendChild(note); }
+    const noteSay = (text) => { if (note) { note.textContent = text || ''; note.hidden = !text; } };
     let active = -1;                // the point dragged, focused or under the pointer: its label always shows
 
     function mark(cls, x1, y1, x2, y2, label, lx, ly, anchor) {
@@ -1109,7 +1114,18 @@
               whole();
               const q = pts[k];
               const n = inp.value.trim() === '' ? NaN : Number(inp.value);
-              if (Number.isFinite(n)) pts[k] = which === 't' ? fit(k, n, q.v) : fit(k, q.t, n);
+              let said = '';
+              if (Number.isFinite(n)) {
+                pts[k] = which === 't' ? fit(k, n, q.v) : fit(k, q.t, n);
+                const want = which === 't' ? snapT(n) : snapV(n), got = which === 't' ? pts[k].t : pts[k].v;
+                if (want !== got && typeof tx.clamped === 'function') {
+                  // which neighbour (or the chart's end) held it: above → the next point or the top, below → the one before or the bottom
+                  const up = want > got, j = up ? k + 1 : k - 1;
+                  const by = pts[j] && (which === 't' ? got === pts[j].t + (up ? -1 : 1) : got === pts[j].v) ? (up ? 'next' : 'prev') : up ? 'max' : 'min';
+                  said = tx.clamped(k, which, by, by === 'next' || by === 'prev' ? j : null, got);
+                }
+              }
+              noteSay(said);
               inp.value = String(which === 't' ? pts[k].t : pts[k].v);       // as it counts: whole, between its neighbours
               shownT = pts[k].t;
               paint();
@@ -1142,6 +1158,7 @@
       const g = ev.target.closest && ev.target.closest('.fan-curve-pt');
       if (!g || locked) return;
       ev.preventDefault();
+      noteSay('');
       const i = +g.dataset.i;
       drag = { i, was: copy(), id: ev.pointerId };
       whole();

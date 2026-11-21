@@ -612,7 +612,7 @@ async function act(action, body, b, done) {
   busy = false;
   worked();
   if (b) b.disabled = false;
-  if (!j.ok) { Office.toast(Office.errorText(j.error, ID), true); drawn = ''; if (view) redraw(); return null; }
+  if (!j.ok) { Office.toast(Office.errorText(errorWords(j.error), ID), true); drawn = ''; if (view) redraw(); return null; }
   if (j.state) state = j.state;
   if (done) await done(j);
   drawn = '';
@@ -2061,6 +2061,20 @@ function patch() {
  */
 let sending = Promise.resolve();
 let sends = 0;
+/**
+ * A refusal's params in the page's words (2026-11-20): a zone's curve names its kind («Disk», not «disk»), a heat source no
+ * longer there its label where the page still knows it
+ */
+function errorWords(e) {
+  if (!e || !e.params) return e;
+  const p = { ...e.params };
+  if (e.key === 'fanboy_zone_curve' && typeof p.kind === 'string') p.kind = T(`kind.${has(`kind.${p.kind}`) ? p.kind : 'other'}`);
+  if (e.key === 'fanboy_zone_source_gone' && typeof p.id === 'string') {
+    const x = (setup().sources || []).find((y) => y.id === p.id);
+    if (x) p.source = srcLabel(x);
+  }
+  return { ...e, params: p };
+}
 function send(action, body, opts) {
   const o = opts || {};
   const done = working(clicked);
@@ -2072,7 +2086,7 @@ function send(action, body, opts) {
     if (o.fresh) await Office.freshState(ID);
     const j = await Office.api.post(`${ID}.${action}`, body || {});
     if (!j.ok) {
-      const text = Office.errorText(j.error, ID);
+      const text = Office.errorText(errorWords(j.error), ID);
       Office.toast(text, true);
       said = { text: T('strip.refused', { why: text }), warn: true };
       // a warmth guard refused it: the override tick is offered for the next start (2026-11-20)
@@ -3588,8 +3602,8 @@ function zonesStep() {
       txt.append(el('span', 'fb-item-name', z.name || z.id), el('span', 'fb-item-sub', T('zones.row', { fans: (z.fans || []).length, sources: (z.sources || []).length })));
       const lab = el('span', 'fb-item-label');
       const tgt = z.target || {};
-      const empty = !(z.fans || []).length || !(z.sources || []).length;
-      lab.appendChild(empty ? chipOfText('warn', T('zones.incomplete'), T('zones.incomplete_tip')) : chipOfText('quiet', tgt.points ? T('curve.own') : T(`preset.${has(`preset.${tgt.preset}`) ? tgt.preset : 'normal'}`), T('zones.curve')));
+      const hold = zoneHold(z);
+      lab.appendChild(hold ? chipOfText('warn', hold, T('zones.save_held', { zone: z.name || z.id, why: hold })) : chipOfText('quiet', tgt.points ? T('curve.own') : T(`preset.${has(`preset.${tgt.preset}`) ? tgt.preset : 'normal'}`), T('zones.curve')));
       b.append(txt, lab);
       b.title = T('list.row_tip', { name: z.name || z.id });
       b.onclick = () => { if (zsel !== z.id) { zsel = z.id; drawn = ''; redraw(); } };
@@ -3617,12 +3631,33 @@ function zonesStep() {
   if (zdraft || zfans) {
     // changed here, not kept yet: «Save» is the one button of the moment — the zones and what he said about fans, ONE request
     const save = button(T('zones.save'), T('zones.save_tip'), (b) => act('zones_save', { zones: zonesNow().map(cleanZone), fans: zfansList() }, b, () => { zdraft = null; zfans = null; curves.clear(); dry = null; dryFor = ''; }), 'btn');
+    // 2026-11-20 (the owner's save refused by a rule he couldn't see): what the agent would refuse and the page can see —
+    // «Save» waits, and says for which zone and why (the row's chip says it too)
+    const held = zones.map((z) => ({ z, why: zoneHold(z) })).find((x) => x.why);
+    if (held) {
+      save.disabled = true;
+      save.title = T('zones.save_held', { zone: held.z.name || held.z.id, why: held.why });
+    }
     const undo = button(T('zones.undo'), T('zones.undo_tip'), () => { zdraft = null; zfans = null; curves.clear(); drawn = ''; redraw(); }, 'btn plain');
     const mark = el('span', 'fb-next-count');
     mark.appendChild(chipOfText('warn', T('zones.unsaved'), T('zones.save_tip')));
     box.append(para(how), nextBar([mark], [save, undo]));
+    if (held) box.appendChild(para(T('zones.save_held', { zone: held.z.name || held.z.id, why: held.why }), 'fb-hint-text fb-zones-held'));
   } else box.append(para(how), nextBar([zones.length ? T('step.v.zones', { n: zones.length }) : ''], zones.length ? goButton('take', true) : null));
   return box;
+}
+/**
+ * What holds a zone up before «Save» (2026-11-20) — the agent's rules a page can see (fanboyZonesCheck(): a name, a fan, a
+ * heat source, at most setup.limits.sources_max sources), in words; '' when nothing does
+ */
+function zoneHold(z) {
+  const max = num((setup().limits || {}).sources_max) ?? 256;
+  const n = (z.sources || []).length;
+  if (!String(z.name || '').trim()) return T('zones.hold_name');
+  if (!(z.fans || []).length) return T('zones.hold_no_fan');
+  if (!n) return T('zones.hold_no_source');
+  if (n > max) return T('zones.hold_too_many', { n, max });
+  return '';
 }
 /**
  * The heat sources no zone has (round 12 fix, the agent's net): for the kept zones the agent's own list (setup.uncovered);
@@ -4284,6 +4319,9 @@ function curvePart(z, i) {
         label: (x, v) => (rpmUnit ? T('curve.label_rpm', { t: degrees(x), v: fmt.number(v) }) : T('curve.label_pct', { t: degrees(x), v: fmt.number(v, Number.isInteger(v) ? 0 : 1) })),
         field: (k) => T('curve.field', { i: k + 1 }), fieldT: (k) => T('curve.field_t', { i: k + 1 }), fieldV: (k) => T(rpmUnit ? 'curve.field_v_rpm' : 'curve.field_v_pct', { i: k + 1 }),
         unitT: T('curve.unit_c'), unitV: T(rpmUnit ? 'curve.unit_rpm' : 'curve.unit_pct'),
+        // a typed number held by its neighbour or the chart's end, said (2026-11-20): «Point 1 can't lie above point 2 (30 %).»
+        clamped: (k, axis, by, j, got) => T(`curve.clamp_${by}_${axis}`, { i: k + 1, j: j === null ? '' : j + 1,
+          limit: axis === 't' ? T('temp', { c: degrees(got) }) : rpmUnit ? T('pic.rpm', { rpm: fmt.number(got) }) : T('value', { pct: got }) }),
       },
       fields: true,
       onField: (inp) => { inp.classList.add('input', 'small', 'fb-input'); inp.dataset.fbKeep = '1'; },
