@@ -290,4 +290,8 @@ JS);
     same('fanboy tip air: at every size a ring of air of 6 % of the opening (2.5 units or more) between the tips and the lip — they never dock again', [], $bad, json_encode($o));
     check('fanboy tip air: … where the tips docked before (the old 48.5 reached into the lip at every size)', is_array($o) && count(array_filter($o, fn ($r) => $r['tipOld'] === true)) === count($o));
     hardeningRm($tmp);
+    // the shade of the opening darkens only the lip's own edge, never the ring of air between the tips and the frame
+    $artJs = (string) file_get_contents(OFFICE_DIR . '/public/desks/fanboy/fan-art.js');
+    check('fanboy tip air: the opening\'s shade starts at 0.97 of its radius — the air ring at the tips stays as light as between the blades',
+        str_contains($artJs, "[[0, 'fan-gs-0'], [0.97, 'fan-gs-0'], [1, 'fan-gs-1']]") && !str_contains($artJs, "[0.84, 'fan-gs-0']"));
 }

@@ -326,7 +326,9 @@
     const defs = svg('defs');
     defs.append(grad('linearGradient', `${id}f`, { x1: 0, y1: 0, x2: 1, y2: 1 }, bevel),
       grad('linearGradient', `${id}l`, { x1: 1, y1: 1, x2: 0, y2: 0 }, bevel),
-      grad('radialGradient', `${id}s`, { r: 0.5 }, [[0, 'fan-gs-0'], [0.84, 'fan-gs-0'], [1, 'fan-gs-1']]));
+      // the opening's shade only right at the lip: since the blades end short of the frame (tipOf) the air there shows, and
+      // a shade from 0.84 on greyed that ring (2026-11-21, the owner: «zwischen dem Blattrand und dem Lüftergehäuse grau»)
+      grad('radialGradient', `${id}s`, { r: 0.5 }, [[0, 'fan-gs-0'], [0.97, 'fan-gs-0'], [1, 'fan-gs-1']]));
     s.appendChild(defs);
     const ring = shape === 'ring';
     const open = openOf(mm);
