@@ -686,6 +686,7 @@
     "other": "{n} weitere Fühler"
   },
   "dash.open": "Fanboys Seite öffnen",
+  "dash.open_settings": "Fanboys Dashboard-Einstellungen öffnen",
   "dash.why.not_set_up": "noch nicht eingerichtet",
   "dash.why.not_armed": "eingerichtet, noch nicht übernommen",
   "dash.why.starting": "Fanboy übernimmt gleich",
@@ -884,7 +885,7 @@
   "help.chip": "Lüfter-Chip und Treiber",
   "help.chip_text": "Zeigt Linux keinen Lüfter-Anschluss, sagt «Dein Lüfter-Chip», welcher Chip auf dem Mainboard sitzt (auf deinen Klick gelesen, nie bei einem Gigabyte-Board), welchen Treiber oder welches Treiber-Plugin er braucht (etwa für ITE- oder Nuvoton-Chips) und mit welchen Worten du danach suchst.",
   "help.dash": "Lüfter im Unraid-Dashboard",
-  "help.dash_text": "Unter «Einstellungen», «Im Dashboard zeigen»: aus, die Drehzahlen oder die Drehzahlen mit Verlauf. Sobald deine Lüfter ein Aussehen oder einen Namen haben, zeigt die Kachel jeden mit seinem Symbol, seinem Namen und seiner Drehzahl; ein Lüfter, der absichtlich steht, sagt es.",
+  "help.dash_text": "Unter «Einstellungen», «Im Dashboard zeigen»: aus, die Drehzahlen oder die Drehzahlen mit Verlauf — die Drehzahlen, ab deinem ersten «Übernehmen», ausser du hast vorher gewählt. Sobald deine Lüfter ein Aussehen oder einen Namen haben, zeigt jede Zone ihre Lüfter drehend, ein Ring für ihre Stufe mit der Drehzahl darin und ihre wärmste Quelle.",
   "why.fixed": "Die Ausgänge stehen auf einem festen Wert, den jemand hinterlassen hat",
   "bubble.fixed": "Hier regelt gerade niemand: Die Lüfter stehen auf einem festen Wert, den jemand hinterlassen hat. Nach einem Neustart von Unraid regelt sie in der Regel wieder das BIOS — oder richte mich ein!",
   "situation.fixed": "Niemand regelt: {list} stehen auf einem festen Wert, den jemand hinterlassen hat (zum Beispiel ein deinstalliertes Lüfter-Plugin). Nach einem Neustart von Unraid regelt sie in der Regel wieder das BIOS — oder richte Fanboy ein.",

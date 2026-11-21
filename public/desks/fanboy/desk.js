@@ -915,8 +915,9 @@ function nowSection() {
 }
 
 /**
- * «Show on the Dashboard»: his own tile on Unraid's Dashboard (src/dashboard-fanboy.php) — off (the default), speeds,
- * speeds with history. Office-wide (the agent keeps it: fanboy.dashboard), never per browser.
+ * «Show on the Dashboard»: his own tile on Unraid's Dashboard (src/dashboard-fanboy.php) — off, speeds, speeds with
+ * history; off until his first «Take over» puts «speeds» where nobody chose (2026-11-21). Office-wide (the agent keeps it:
+ * fanboy.dashboard), never per browser.
  */
 const DASH_SHOWS = ['off', 'speeds', 'history'];
 function dashChoice() {

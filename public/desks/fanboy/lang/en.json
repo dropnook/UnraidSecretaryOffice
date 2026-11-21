@@ -686,6 +686,7 @@
     "other": "{n} more sensors"
   },
   "dash.open": "Open Fanboy's page",
+  "dash.open_settings": "Open Fanboy's Dashboard settings",
   "dash.why.not_set_up": "not set up yet",
   "dash.why.not_armed": "set up, not taken over yet",
   "dash.why.starting": "Fanboy is about to take over",
@@ -884,7 +885,7 @@
   "help.chip": "Fan chip and drivers",
   "help.chip_text": "When Linux shows no fan connector, «Your fan chip» says which chip sits on the mainboard (read on your click, never on a Gigabyte board), which driver or driver plugin it needs (for ITE or Nuvoton chips, say) and the words to search for.",
   "help.dash": "Fans on Unraid's Dashboard",
-  "help.dash_text": "Under «Settings», «Show on the Dashboard»: off, the speeds, or the speeds with their history. Once your fans have a look or a name, the tile shows each with its symbol, its name and its speed; a fan standing on purpose says so.",
+  "help.dash_text": "Under «Settings», «Show on the Dashboard»: off, the speeds, or the speeds with their history — the speeds from your first «Take over», unless you chose before. Once your fans have a look or a name, each zone shows its fans turning, a ring for its level with the speed inside, and its warmest source.",
   "why.fixed": "The outputs stand on a fixed value someone left",
   "bubble.fixed": "Nobody steers here right now: the fans stand on a fixed value someone left. After a restart of Unraid the BIOS usually steers them again — or set me up!",
   "situation.fixed": "Nobody steers: {list} stand on a fixed value someone left (an uninstalled fan plugin, for example). After a restart of Unraid the BIOS usually steers them again — or set Fanboy up.",

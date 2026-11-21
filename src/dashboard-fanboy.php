@@ -959,6 +959,9 @@ function officeFanboyDashTile(): string
         }
     }
     $mood = str_contains($rows, 'data-mood="alarm"') && isset($pics['alarm']) ? 'alarm' : '';
+    // the head's link (2026-11-21, the owner: «… springt an die falsche Stelle»): his settings, where the tile is chosen —
+    // before he is set up (the rows lead to his setup) his page as before
+    $open = str_contains($rows, '#/fanboy/setup"') ? ['#/fanboy', 'fanboy.dash.open'] : ['#/fanboy/setup/settings', 'fanboy.dash.open_settings'];
     $icon = isset($pics['']) ? '<img class="sso-fb-logo" src="' . $h($pics[$mood]) . '" alt="">' : '<span class="sso-fb-logo" aria-hidden="true">🌀</span>';
     $api = '/plugins/' . OFFICE_PLUGIN . '/api.php?a=dash&part=fanboy&lang=';
     // Unraid's content manager knows a tile by its title: the English name, the same whatever the language
@@ -966,7 +969,7 @@ function officeFanboyDashTile(): string
         . '<tr><td><span class="tile-header"><span class="tile-header-left">' . $icon
         . '<div class="section"><h3 class="tile-header-main">' . $h(officeDashT($s, 'fanboy.name')) . '</h3></div></span>'
         . '<span class="tile-header-right"><span class="tile-header-right-controls">'
-        . '<a href="' . $h(officeMenuUrl(officeMenuPlace()) . '#/fanboy') . '" title="' . $h(officeDashT($s, 'fanboy.dash.open')) . '"><i class="fa fa-fw fa-external-link control"></i></a>'
+        . '<a href="' . $h(officeMenuUrl(officeMenuPlace()) . $open[0]) . '" title="' . $h(officeDashT($s, $open[1])) . '"><i class="fa fa-fw fa-external-link control"></i></a>'
         . '</span></span></span></td></tr>'
         // #sso around the rows: fan-art.css (the symbols) is nested in #sso like every style of the office; the Dashboard has
         // no other #sso (the office's own page is never on it)

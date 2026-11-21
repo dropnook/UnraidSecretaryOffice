@@ -109,9 +109,9 @@ function testFanboyDashTile(): void
     same('fanboy dash: steering — German: «U/min», the decimal comma', ['Fanboy · 2 Zonen', '1018 U/min', 'am wärmsten: Disk 2 mit 41 °C'],
         [$o['de']['who'] ?? null, $o['de']['zones'][0]['speed'] ?? null, $o['de']['zones'][0]['warmest'] ?? null]);
     // (2026-11-20: the demo's fans have names and models — symbols; 2026-11-21: a card per zone and the watched CPU cooler's; testFanboyDashCards)
-    check('fanboy dash: the tile — Unraid\'s tile markup (a tbody titled by his English name, the header, the link to his page), a card per zone and the watched one\'s, each fan named in its title',
+    check('fanboy dash: the tile — Unraid\'s tile markup (a tbody titled by his English name, the header, the link to his Dashboard settings), a card per zone and the watched one\'s, each fan named in its title',
         str_starts_with($tile, '<tbody id="db-sso-fanboy" title="Fanboy">') && str_contains($tile, 'class="tile-header-main">Fanboy</h3>')
-        && str_contains($tile, '#/fanboy"') && preg_match_all('/<div class="sso-fb-card[ "]/', $tile) === 3
+        && str_contains($tile, '#/fanboy/setup/settings"') && preg_match_all('/<div class="sso-fb-card[ "]/', $tile) === 3
         && str_contains($tile, 'title="Deckel: no speed feedback · 40 %"'), $tile);
 
     same('fanboy dash: steering — his everyday picture, no alarm mood', ['', true, false],
@@ -949,4 +949,57 @@ function testFanboyDashSplitter(): void
         [$syms((string) ($o['rows'] ?? ''), 'disks'), $syms((string) ($o['rows'] ?? ''), 'watch0')]);
     $odd = $web($counts([4 => '2']));
     same('fanboy dash splitter: a count not a number — one wheel, never guessed', 1, $syms((string) ($odd['rows'] ?? ''), 'disks'));
+}
+
+/**
+ * 2026-11-21 (the owner): the tile's head link opens his Dashboard settings (before the setup his page, as before); the
+ * tile comes on with «speeds» at «Take over» where nobody ever chose — a file of any shape untouched, nothing written
+ * without the take over
+ */
+function testFanboyDashDefault(): void
+{
+    $now = 1763100000 + 20;
+    $head = static fn (array $o): string => preg_match('/<span class="tile-header-right-controls"><a href="([^"]*)" title="([^"]*)">/', (string) ($o['tile'] ?? ''), $m) ? "$m[1] | $m[2]" : '';
+    same('fanboy dash default: the head\'s link — his Dashboard settings (set up), his page before the setup',
+        ['/SecretaryOffice#/fanboy/setup/settings | Open Fanboy&#039;s Dashboard settings', '/SecretaryOffice#/fanboy | Open Fanboy&#039;s page'],
+        [$head(fanboyDashWeb(fanboyDashFiles('fanboy'), [], $now)), $head(fanboyDashWeb(fanboyDashFiles('fanboy-fresh'), [], $now))]);
+
+    $t = fanboyT('dashdefault');
+    try {
+        $log = static fn (): string => (string) @file_get_contents(AGENT_LOG);
+        @unlink(fanboyDashFile());
+        fanboyDashState(true);
+        same('fanboy dash default: no take over — no file written, the setting off', [false, 'off'], [is_file(fanboyDashFile()), fanboyDashRead()]);
+        $before = strlen($log());
+        $wrote = fanboyDashDefault();
+        same('fanboy dash default: take over with no file — «speeds» kept (0600), the mirror on, logged', [true, 'speeds', 0600, 'speeds', true],
+            [$wrote, fanboyDashRead(), fileperms(fanboyDashFile()) & 0777, json_decode((string) @file_get_contents(fanboyRunDir() . '/dash.json'), true)['show'] ?? null,
+             str_contains(substr($log(), $before), 'Fanboy: his Dashboard tile on with «Speeds» — the setup taken over, and nobody had chosen yet')]);
+        same('fanboy dash default: … a second take over — nothing written again', false, fanboyDashDefault());
+        $kept = [];
+        foreach (['{"v":1,"show":"off","at":1}', '{"v":1,"show":"history","hours":24}', '{"v":1,"sh', '[]'] as $raw) {
+            file_put_contents(fanboyDashFile(), $raw);
+            $kept[] = [fanboyDashDefault(), (string) file_get_contents(fanboyDashFile())];
+        }
+        same('fanboy dash default: a file the user had (off, history, broken, another shape) — never touched', [
+            [false, '{"v":1,"show":"off","at":1}'], [false, '{"v":1,"show":"history","hours":24}'], [false, '{"v":1,"sh'], [false, '[]']], $kept);
+        @unlink(fanboyDashFile());
+        @symlink('/nonexistent-fanboy-dash', fanboyDashFile());
+        same('fanboy dash default: a link there — not written through', [false, true], [fanboyDashDefault(), is_link(fanboyDashFile())]);
+        @unlink(fanboyDashFile());
+    } finally {
+        fanboyTEnd();
+    }
+    // the one caller: «Take over», after the control is launched — not hiring, not a migration, not a look
+    $calls = [];
+    foreach (array_merge(glob(OFFICE_DIR . '/agent/desks/*.php') ?: [], glob(OFFICE_DIR . '/agent/lib/*.php') ?: [], [OFFICE_DIR . '/agent/agent.php']) as $f) {
+        $code = (string) preg_replace(['~/\*.*?\*/|//[^\n]*~s', '/function fanboyDashDefault\(\)/'], '', (string) file_get_contents($f));
+        $n = preg_match_all('/fanboyDashDefault\(\)/', $code);
+        if ($n) {
+            $calls[basename($f)] = $n;
+        }
+    }
+    $setup = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-setup.php');
+    same('fanboy dash default: called once, in «Take over» after the control\'s launch', [['fanboy-setup.php' => 1], true],
+        [$calls, (bool) preg_match("/fanboyLaunch\\('fanboy-control'\\);\\n    logLine\\('Fanboy: taken over on the user\\\\'s click'\\);\\n.*\\n    return \\['ok' => true, 'dashboard' => fanboyDashDefault\\(\\)\\];/", $setup)]);
 }

@@ -686,6 +686,7 @@
     "other": "{n} altri sensori"
   },
   "dash.open": "Apri la pagina di Fanboy",
+  "dash.open_settings": "Apri le impostazioni Dashboard di Fanboy",
   "dash.why.not_set_up": "non ancora configurato",
   "dash.why.not_armed": "configurato, non ancora affidato a lui",
   "dash.why.starting": "Fanboy sta per prendere il controllo",
@@ -884,7 +885,7 @@
   "help.chip": "Chip delle ventole e driver",
   "help.chip_text": "Se Linux non mostra nessun connettore per ventole, «Il tuo chip delle ventole» dice quale chip c'è sulla scheda madre (letto al tuo clic, mai su una scheda Gigabyte), quale driver o plugin di driver serve (per chip ITE o Nuvoton, per esempio) e con quali parole cercarlo.",
   "help.dash": "Ventole nella Dashboard di Unraid",
-  "help.dash_text": "In «Impostazioni», «Mostra nella Dashboard»: spento, le velocità o le velocità con la cronologia. Quando le tue ventole hanno un aspetto o un nome, la tessera mostra ognuna con il suo simbolo, il nome e la velocità; una ventola ferma di proposito lo dice.",
+  "help.dash_text": "In «Impostazioni», «Mostra nella Dashboard»: spento, le velocità o le velocità con la cronologia — le velocità dalla prima volta che premi «Affida a lui», salvo una scelta precedente. Quando le tue ventole hanno un aspetto o un nome, ogni zona mostra le sue ventole che girano, un anello per il suo livello con la velocità dentro e la sua fonte più calda.",
   "why.fixed": "Le uscite restano su un valore fisso lasciato da qualcuno",
   "bubble.fixed": "Qui adesso non regola nessuno: le ventole restano su un valore fisso lasciato da qualcuno. Dopo un riavvio di Unraid di solito le regola di nuovo il BIOS, oppure configurami!",
   "situation.fixed": "Non regola nessuno: {list} restano su un valore fisso lasciato da qualcuno (per esempio un plugin per le ventole disinstallato). Dopo un riavvio di Unraid di solito le regola di nuovo il BIOS, oppure configura Fanboy.",
