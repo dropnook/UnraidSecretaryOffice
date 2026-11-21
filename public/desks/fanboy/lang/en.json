@@ -739,7 +739,7 @@
   "dash.setting": "Show on the Dashboard",
   "dash.setting_sub": "A tile of his own on Unraid's Dashboard — move or hide it there like any other. For everyone who opens the Dashboard.",
   "dash.setting_real": "The turning fans and the number in the ring are the speed the fans report; the percent is what Fanboy sets.",
-  "dash.setting_bios": "If the fans take many seconds to speed up although the percent is already high: some boards smooth the rise in their BIOS (with the fan settings, often called «Step Up Time» or «Smoothing») — a small value there makes them faster.",
+  "dash.setting_bios": "If the fans take many seconds to speed up although the percent is already high: some boards smooth the rise in their BIOS (with the fan settings, often called «Step Up Time» or «Smoothing») — a small value there lets them react faster.",
   "dash.show.off": "Off",
   "dash.show.off_title": "No tile of his on the Dashboard",
   "dash.show.speeds": "Speeds",

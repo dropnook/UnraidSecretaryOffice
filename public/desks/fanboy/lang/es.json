@@ -739,7 +739,7 @@
   "dash.setting": "Mostrar en el Dashboard",
   "dash.setting_sub": "Un mosaico propio en el Dashboard de Unraid — muévelo u ocúltalo allí como cualquier otro. Para todos los que abran el Dashboard.",
   "dash.setting_real": "Los ventiladores que giran y el número del anillo son la velocidad que informan los ventiladores; el porcentaje es lo que ajusta Fanboy.",
-  "dash.setting_bios": "Si los ventiladores tardan muchos segundos en acelerar aunque el porcentaje ya es alto: algunas placas suavizan la subida en su BIOS (en los ajustes de ventiladores, a menudo «Step Up Time» o «Smoothing») — un valor pequeño allí los hace más rápidos.",
+  "dash.setting_bios": "Si los ventiladores tardan muchos segundos en acelerar aunque el porcentaje ya es alto: algunas placas suavizan la subida en su BIOS (en los ajustes de ventiladores, a menudo «Step Up Time» o «Smoothing») — un valor pequeño allí los hace reaccionar más rápido.",
   "dash.show.off": "No",
   "dash.show.off_title": "Ningún mosaico suyo en el Dashboard",
   "dash.show.speeds": "Velocidades",
