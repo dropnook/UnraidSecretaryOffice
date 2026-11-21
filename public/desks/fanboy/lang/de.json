@@ -366,6 +366,7 @@
   "pic.asks": "{where} mit {c} °C will {level}",
   "pic.warmest": "am wärmsten: {where} mit {c} °C",
   "pic.quiet": "nichts warm — ihr Ruhewert",
+  "pic.asleep_all": "alle schlafen — keine Temperatur",
   "pic.bios_now": "das BIOS regelt sie gerade",
   "preset.quiet": "Leise",
   "preset.normal": "Normal",
@@ -720,6 +721,13 @@
   "dash.connectors_none": "Kein Anschluss meldet eine Drehzahl",
   "dash.set_up": "Einrichten",
   "dash.watched": "Beim BIOS, beobachtet:",
+  "dash.ring_fastest": {
+    "one": "{rpm} U/min",
+    "other": "schnellster von {n} Lüftern: {rpm} U/min"
+  },
+  "dash.ring_by_speed": "regelt nach Drehzahl — seine Lüfter auf bis zu {pct} %",
+  "dash.ring_bios": "Das BIOS regelt diese Lüfter — ihre Stufe ist nicht bekannt",
+  "dash.fan_title": "{name}: {text}",
   "dash.setting": "Im Dashboard zeigen",
   "dash.setting_sub": "Eine eigene Kachel in Unraids Dashboard — verschieb oder blende sie dort aus wie jede andere. Gilt für alle, die das Dashboard öffnen.",
   "dash.show.off": "Aus",

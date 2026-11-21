@@ -670,6 +670,14 @@ function wheelsOf(id, opts) {
   const first = { ...w, sub: `${w.sub} · ${T('pic.on_one', { n })}`, title: `${w.title} · ${T('pic.on_one_title', { n })}` };
   return [first, ...Array.from({ length: n - 1 }, (x, k) => ({ ...w, id: `${id}#${k + 2}`, label: '', sub: T('pic.same_connector'), badge: '', title: T('pic.on_one_title', { n }) }))];
 }
+/**
+ * No warmest spot in a zone the control steers: «all asleep — no temperature» when every source of the zone sleeps (the
+ * control's count of sleeping ones against the zone's sources in the setup — the Dashboard tile's rule), else «nothing warm»
+ */
+function quietWords(cz, z) {
+  const n = ((z && z.sources) || []).filter((r) => r && typeof r.id === 'string').length;
+  return T(n > 0 && Number.isInteger(cz && cz.asleep) && cz.asleep >= n ? 'pic.asleep_all' : 'pic.quiet');
+}
 /** A zone's line under its name: its curve, the warmest spot and what it asks for */
 function zoneNote(z, cz) {
   const parts = [];
@@ -681,7 +689,7 @@ function zoneNote(z, cz) {
     if (cz.warmest && num(cz.warmest.c) !== null) {
       const lvl = num(cz.level) === null ? null : cz.unit === 'rpm' ? T('pic.rpm', { rpm: fmt.number(Math.round(cz.level)) }) : T('value', { pct: Math.round(cz.level) });
       parts.push(lvl ? T('pic.asks', { where: srcLabel({ ...cz.warmest, id: cz.warmest.id }), c: fmt.number(cz.warmest.c), level: lvl }) : T('pic.warmest', { where: srcLabel(cz.warmest), c: fmt.number(cz.warmest.c) }));
-    } else parts.push(T('pic.quiet'));
+    } else parts.push(quietWords(cz, z));
   } else parts.push(T(nobody() ? 'pic.nobody_now' : 'pic.bios_now'));
   return parts.join(' · ');
 }
@@ -778,7 +786,7 @@ function nowTile(a) {
   if (state && steers() && control().running) {
     const names = new Map((setup().zones || []).map((z) => [z.id, z.name || z.id]));
     (control().zones || []).slice(0, 3).forEach((cz) => {
-      const lead = cz.warmest && num(cz.warmest.c) !== null ? T('now.lead', { where: srcLabel(cz.warmest), c: fmt.number(cz.warmest.c) }) : T('pic.quiet');
+      const lead = cz.warmest && num(cz.warmest.c) !== null ? T('now.lead', { where: srcLabel(cz.warmest), c: fmt.number(cz.warmest.c) }) : quietWords(cz, (setup().zones || []).find((x) => x.id === cz.id));
       sub.push(T('now.zone', { zone: names.get(cz.id) || cz.name || cz.id, level: cz.full ? T('pic.full') : levelText(cz), lead }));
     });
   } else if (state && myWhy(w.why)) sub.push(myWhy(w.why));

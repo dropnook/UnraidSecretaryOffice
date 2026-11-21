@@ -115,7 +115,8 @@ function testFanboyLookKeys(): void
     // sizes (2026-11-20, the owner: «ja einschalten»): the overview's picture by the fans' sizes; the tile's symbols too,
     // inside their box (140 mm and up fill it, smaller ones less) — the rows never move
     check('fanboy look keys: the overview draws each wheel by its fan\'s size; the Dashboard tile scales the symbol inside its fixed box',
-        str_contains($js, "PIC_PX_PHONE : PIC_PX, sized: true });") && str_contains($dash, "'f.px=Math.min(' . FANBOY_DASH_SYM_PX . ',Math.round(' . FANBOY_DASH_SYM_PX . '*(28+0.3*(+f.mm||120))/70));")
+        str_contains($js, "PIC_PX_PHONE : PIC_PX, sized: true });") && str_contains($dash, ":Math.min(' . FANBOY_DASH_SYM_PX . ',Math.round(' . FANBOY_DASH_SYM_PX . '*(28+0.3*(+f.mm||120))/70));")
+        && str_contains($dash, "\$k = number_format(min(1, (28 + 0.3 * (int) \$a['mm']) / 70), 2, '.', '');")      // a card's wheel (2026-11-21): the same share of its box
         && str_contains($dash, 'sso-fb-sym{flex:none;display:flex;align-items:center;justify-content:center;width:'));
     // 2026-11-20 (the owner: struts behind turning blades make one dizzy): turning more than slowly, the struts (and a
     // grille) fade out and the blades' shading calms; a step with a gap, so a speed near the line never flickers it

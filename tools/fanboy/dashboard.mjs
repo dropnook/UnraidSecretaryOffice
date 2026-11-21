@@ -7,10 +7,13 @@
 // with a throwaway profile. The office's own tile was never pictured by a tool; this is the smallest harness that
 // shows a tile inside Unraid's Dashboard. Dev-only.
 //
-//   node tools/fanboy/dashboard.mjs [--out <folder>] [--only <name>,…] [-v] [--cost [seconds]] [--frames] [--gap dark]
+//   node tools/fanboy/dashboard.mjs [--out <folder>] [--only <name>,…] [-v] [--cost [seconds]] [--frames] [--focus] [--gap dark]
 // --frames: no pictures — the tile's turning symbols never change the Dashboard's size (tools/fanboy/frames.mjs's checks:
 // each turning part clipped by a box of its own, the page's scrollWidth, scrollHeight and scroll position steady over
 // the animation's moments and frames), at 1440 and 390 px, the tile as the last thing on the page.
+// --focus: no pictures — a click or a tap on anything of the tile that can take focus (a zone's fold, the curve, its span,
+// the links, the cards) leaves no outline anywhere in the tile (2026-11-21, the owner: «beim klicken soll nichts markiert
+// werden (blauer ring)»); the keyboard still gets one, in the office's accent (never the browser's blue)
 // --cost: no pictures — what the tile costs the browser's main thread while it stays open (Chrome's own counters over the
 // seconds given, 20 by default): without symbols, with the symbols turning, with reduced motion, scrolled out of view.
 // Pictures: <out>/<name>-<theme>-<lang>-<width>.png. Fails (exit 1) on a console error, a page error, a PHP word on
@@ -35,6 +38,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '-v') opt.v = true;
   else if (a === '--cost') opt.cost = /^\d+$/.test(args[i + 1] || '') ? Number(args[++i]) : 20;
   else if (a === '--frames') opt.frames = true;
+  else if (a === '--focus') opt.focus = true;
   // --gap dark: Fanboy's dark air between the blades, as a browser that chose it keeps it (fan-art.js reads office.fanboy.gap)
   else if (a === '--gap') opt.gap = args[++i] === 'dark' ? 'dark' : 'light';
   else { console.log(`fanboy dashboard: unknown argument ${a}`); process.exit(2); }
@@ -148,6 +152,66 @@ function fansMany(lang) {
   }
   return s;
 }
+/**
+ * 2026-11-21 (the owner picked the cards): the hard cases on the «fans» server — $kind:
+ *   warm    the disk cage at 82 % with a fan that stands though it should turn; a zone with a long name, a long sensor name
+ *           and a fan without speed feedback; the graphics card at a plain 100 % (no alarm)
+ *   full    a plain 100 % beside the emergency's 100 % (the alarm's, said by the state)
+ *   rpm     the case steering by speed (no percent of its own: the ring fills with its fans' highest)
+ *   one     one zone
+ *   bios    handed back: the BIOS runs every fan, no level known
+ *   asleep  every disk of the cage asleep (no temperature at all: «alle schlafen — keine Temperatur»), its fan resting
+ */
+function cards(lang, kind) {
+  const s = fans(lang, { stand: kind !== 'warm' });
+  const id = (n) => `it8696_a0060607:it87.2608:pwm${n}`;
+  const en = lang === 'en';
+  const fan = (n, more) => { const f = s.setup.fans.find((x) => x.id === id(n)); Object.assign(f, more); return f; };
+  const zone = (zid) => s.control.zones.find((z) => z.id === zid);
+  const live = (n, name, pct, rpm, more = {}) => ({ id: id(n), name, output: n, pct, rpm, held: true, foreign: false, ...more });
+  if (kind === 'warm') {
+    fan(3, { name: en ? 'Cage rear' : 'Käfig hinten', model: { id: 'noctua-nf-a14-pwm', mm: null, blades: null }, colour: null, found: 'tach', tachs: [3], role: 'disks' });
+    fan(4, { model: { id: 'noctua-nf-a14-pwm', mm: null, blades: null }, name: en ? 'Cage front' : 'Käfig vorn' });
+    s.setup.zones.find((z) => z.id === 'disks').fans = [id(4), id(3)];
+    Object.assign(zone('disks'), { level: 82, warmest: { id: 'disk4', label: 'disk4', c: 47, kind: 'disk' },
+      fans: [live(4, en ? 'Cage front' : 'Käfig vorn', 82, 1480), live(3, en ? 'Cage rear' : 'Käfig hinten', 82, 0)] });
+    const long = en ? 'Case top, above the power supply and the drive cages' : 'Gehäuse oben, über dem Netzteil und den Laufwerkskäfigen';
+    s.setup.zones.find((z) => z.id === 'case').name = long;
+    fan(2, { name: en ? 'Top, far back on the left above the power supply' : 'Deckel ganz hinten links über dem Netzteil', model: { id: 'arctic-p12-pwm-pst', mm: null, blades: null }, wheel: null });
+    s.setup.zones.find((z) => z.id === 'case').fans = [id(2)];
+    Object.assign(zone('case'), { name: long, level: 62, warmest: { id: 'nct6798.temp3', label: en ? 'Board sensor 3 (nct6798 temp3 «AUXTIN1»)' : 'Board-Sensor 3 (nct6798 temp3 «AUXTIN1»)', c: 44, kind: 'board' },
+      fans: [live(2, '', 62, null)] });
+    fan(5, { model: { id: 'noctua-nf-p12-redux-1700-pwm', mm: null, blades: null }, name: en ? 'Side' : 'Seite' });
+    fan(6, { model: { id: 'corsair-af120-elite', mm: null, blades: null }, name: en ? 'Bottom' : 'Boden', off_ok: false });
+    s.setup.zones.push({ id: 'gpu', name: en ? 'Graphics card' : 'Grafikkarte', fans: [id(5), id(6)], unit: 'pct', sources: [] });
+    s.control.zones.push({ id: 'gpu', name: en ? 'Graphics card' : 'Grafikkarte', unit: 'pct', level: 100, full: false, warmest: { id: 'gpu', label: 'GPU', c: 71, kind: 'gpu' },
+      fans: [live(5, '', 100, 1720), live(6, '', 100, 1650)] });
+    s.who.zones = 3;
+  }
+  if (kind === 'full') {
+    Object.assign(zone('disks'), { level: 100, full: false, fans: [live(4, '', 100, 1590)] });
+    Object.assign(zone('case'), { level: 100, full: true, fans: [live(5, '', 100, 1480), live(2, '', 100, 1510), live(6, '', 100, 1560)] });
+    s.control.alarm = { code: 'sensor', params: { source: 'Disk 2', zone: zone('case').name }, since: s.control.time - 60 };
+  }
+  if (kind === 'rpm') {
+    s.setup.zones.find((z) => z.id === 'case').unit = 'rpm';
+    Object.assign(zone('case'), { unit: 'rpm', level: 1200, fans: [live(5, '', 48, 1190), live(2, '', 52, 1215), live(6, '', 44, 1170)] });
+  }
+  if (kind === 'one') {
+    s.setup.zones = s.setup.zones.filter((z) => z.id === 'disks');
+    s.control.zones = s.control.zones.filter((z) => z.id === 'disks');
+    s.who.zones = 1;
+  }
+  if (kind === 'asleep') {
+    fan(4, { off_ok: true });
+    Object.assign(zone('disks'), { level: 0, warmest: null, asleep: 3, fans: [live(4, '', 0, 0, { may_stand: true, stand_since: s.control.time - 900, starts_at: null })] });
+  }
+  if (kind === 'bios') {
+    s.control.running = false;
+    s.who = { who: 'bios', why: 'hand_back' };
+  }
+  return s;
+}
 const ON = { 'office/staff.json': { hired: { fanboy: 1 } }, 'fanboy/dashboard.json': { v: 1, show: 'speeds' } };
 const WITH = { ...ON, 'fanboy/dashboard.json': { v: 1, show: 'history' } };
 const looked = (name, at) => lookedAt(demo(name), at);
@@ -161,6 +225,8 @@ const SCENES = [
   ['fans-history-open', (lang) => ({ ...WITH, 'fanboy.json': fans(lang) }), { 'fanboy/history.json': history(fans('de'), NOW - 30) }, '*', false, { widths: [1920, 1024, 390], langs: ['de'] }],
   // seven fans in the case, the fifth standing though it should turn: four shown — the alarm among them, in his page's order
   ['fans-many', (lang) => ({ ...ON, 'fanboy.json': fansMany(lang) }), {}, null, false, { widths: [1920, 1024, 390], langs: ['de'] }],
+  // 2026-11-21: the cards' hard cases (German, black and white, the three widths)
+  ...['warm', 'full', 'rpm', 'one', 'bios', 'asleep'].map((k) => [`cards-${k}`, (lang) => ({ ...ON, 'fanboy.json': cards(lang, k) }), {}, null, false, { widths: [1920, 1024, 390], langs: ['de'] }]),
   ['steering', { ...ON, 'fanboy.json': lookedAt(demo('fanboy'), NOW - 4) }, {}, 'case', true],
   ['history', { ...WITH, 'fanboy.json': looked('fanboy', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy', NOW - 4), NOW - 30) }, null, true],
   // 2026-11-16: the span clicked through to 24 h (the label a button to the next span)
@@ -173,7 +239,7 @@ const SCENES = [
   ['before-setup', { ...ON, 'fanboy.json': lookedAt(demo('fanboy-fresh'), NOW - 4) }, {}, null, false],
   ['array-stopped', null, { 'fanboy/dash.json': { v: 1, show: 'speeds' }, 'fanboy/control.json': { phase: 'ended', why: 'array_stopped', who: 'bios', time: NOW - 900, zones: [] } }, null, false],
   ['stale', { ...ON, 'fanboy.json': lookedAt(demo('fanboy-ready'), NOW - 8400) }, {}, null, false],
-  ['many', { ...ON, 'fanboy.json': many() }, {}, 'z0', false],
+  ['many', { ...ON, 'fanboy.json': many() }, {}, 'z0', false, { widths: [1920, 1024, 390], langs: ['de'] }],
   // 2026-11-17: the marker — the pointer on the CPU zone's curve (a phone: a tap), its line and its words in place of the caption
   ['history-marker', { ...WITH, 'fanboy.json': looked('fanboy-cpu', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy-cpu', NOW - 4), NOW - 30) }, null, 'marker', { marker: 0.6 }],
 ].filter((s) => !opt.only || opt.only.includes(s[0]));
@@ -280,6 +346,75 @@ if (opt.cost) {
   try { await cost(browser, opt.cost); } finally { await browser.close(); fs.rmSync(tmp, { recursive: true, force: true }); }
   process.exit(0);
 }
+if (opt.focus) {
+  const bad = [];
+  const rows = [];
+  try {
+    for (const [name, width] of [['history', 1440], ['history', 390], ['fans', 1440], ['fans', 390], ['many', 1440], ['alarm', 1440], ['before-setup', 1440]]) {
+      const scene = SCENES.find((x) => x[0] === name);
+      const file = path.join(tmp, `focus-${name}-${width}.html`);
+      fs.writeFileSync(file, page('black', tile(name, scene[1], scene[2], 'de')).replace('</body>', '<p><a href="#" id="after">after</a></p></body>'));
+      const ctx = await browser.newContext({ viewport: { width, height: 900 }, hasTouch: width < 768, isMobile: width < 768 });
+      const p = await ctx.newPage();
+      await p.goto(pathToFileURL(file).href);
+      await p.waitForFunction(() => !document.querySelector('#db-sso-fanboy .sso-fb-sym[data-fan]') || !!document.querySelector('#db-sso-fanboy .fan-wheel'));
+      // links lead nowhere here; the span's click posts (refused on file://) — both harmless
+      await p.evaluate(() => document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('a')) e.preventDefault(); }, true));
+      const outlined = () => p.evaluate(() => [...document.querySelectorAll('#db-sso-fanboy, #db-sso-fanboy *')].filter((e) => {
+        const c = getComputedStyle(e);
+        return c.outlineStyle !== 'none' && parseFloat(c.outlineWidth) > 0 && !e.closest('.fan-box');     // a fan's own frame states (dashed, dotted) are drawn, not focus
+      }).map((e) => `${e.tagName.toLowerCase()}.${String(e.className && e.className.baseVal !== undefined ? e.className.baseVal : e.className).split(' ')[0]}`));
+      const targets = await p.evaluate(() => [...document.querySelectorAll('#db-sso-fanboy summary, #db-sso-fanboy button, #db-sso-fanboy a, #db-sso-fanboy .sso-fb-curve, #db-sso-fanboy .sso-fb-card, #db-sso-fanboy [tabindex]')]
+        .map((e, i) => { e.dataset.focusProbe = String(i); const r = e.getBoundingClientRect(); return { i, what: `${e.tagName.toLowerCase()}.${String(e.className && e.className.baseVal !== undefined ? e.className.baseVal : e.className).split(' ')[0]}`, w: r.width, h: r.height }; })
+        .filter((t) => t.w > 0 && t.h > 0));
+      for (const t of targets) {
+        const sel = `[data-focus-probe="${t.i}"]`;
+        await p.evaluate(() => document.activeElement && document.activeElement.blur && document.activeElement.blur());
+        const box = await p.locator(sel).first().boundingBox();
+        if (!box) continue;
+        const at = { x: box.x + Math.min(box.width / 2, 40), y: box.y + box.height / 2 };
+        if (width < 768) await p.touchscreen.tap(at.x, at.y); else await p.mouse.click(at.x, at.y);
+        // … and a key after it (a screenshot's shortcut, Shift): Chrome turns on :focus-visible for what has the focus
+        await p.keyboard.press('Shift');
+        await p.waitForTimeout(120);
+        const got = await outlined();
+        const fv = await p.evaluate(() => { const a = document.activeElement; return a && a !== document.body ? `${a.tagName.toLowerCase()} focus-visible:${a.matches(':focus-visible')}` : 'none'; });
+        rows.push(`${name} ${width} ${width < 768 ? 'tap' : 'click'} ${t.what}: focus ${fv}, outlined [${got.join(', ')}]`);
+        if (got.length) bad.push(`${name} ${width}: a ${width < 768 ? 'tap' : 'click'} on ${t.what} leaves an outline on ${got.join(', ')}`);
+        await p.evaluate(() => { for (const d of document.querySelectorAll('#db-sso-fanboy details[open]')) d.open = false; });
+      }
+      // the keyboard: Tab into the tile — the focused thing shows the office's accent, not the browser's ring
+      if (width >= 768) {
+        await p.evaluate(() => { document.activeElement && document.activeElement.blur && document.activeElement.blur(); window.scrollTo(0, 0); });
+        let seen = 0;
+        for (let k = 0; k < 40 && seen < 4; k++) {
+          await p.keyboard.press('Tab');
+          const f = await p.evaluate(() => {
+            const a = document.activeElement;
+            if (!a || !a.closest('#db-sso-fanboy')) return null;
+            const c = getComputedStyle(a);
+            const probe = document.createElement('i');
+            probe.style.color = 'var(--sso-fb-focus)';
+            a.closest('#db-sso-fanboy').appendChild(probe);
+            const want = getComputedStyle(probe).color;
+            probe.remove();
+            return { what: `${a.tagName.toLowerCase()}.${String(a.className).split(' ')[0]}`, fv: a.matches(':focus-visible'), style: c.outlineStyle, width: c.outlineWidth, colour: c.outlineColor, want };
+          });
+          if (!f) continue;
+          seen++;
+          rows.push(`${name} ${width} Tab ${f.what}: focus-visible ${f.fv}, outline ${f.style} ${f.width} ${f.colour} (accent ${f.want})`);
+          if (!f.fv || f.style !== 'solid' || f.colour !== f.want) bad.push(`${name} ${width}: Tab on ${f.what} — no accent outline (${f.style} ${f.width} ${f.colour}, want ${f.want})`);
+        }
+        if (!seen) bad.push(`${name} ${width}: Tab never reached the tile`);
+      }
+      await ctx.close();
+    }
+  } finally { await browser.close(); fs.rmSync(tmp, { recursive: true, force: true }); }
+  if (opt.v) rows.forEach((r) => console.log(`  ${r}`));
+  if (bad.length) { console.log(`fanboy dashboard focus: ${bad.length} failed`); bad.forEach((b) => console.log(`  ✗ ${b}`)); process.exit(1); }
+  console.log('fanboy dashboard focus: all checks passed');
+  process.exit(0);
+}
 if (opt.frames) {
   const { sizeChecks, sizeVerdicts } = await import(path.join(HERE, 'frames.mjs'));
   const bad = [];
@@ -382,9 +517,12 @@ try {
         const lum = ([r, g, b]) => [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
           .reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0);
         const bg = (el) => { for (let e = el; e; e = e.parentElement) { const c = rgb(getComputedStyle(e).backgroundColor); if (c.length === 3 || (c.length === 4 && c[3] > 0)) return c.slice(0, 3); } return [255, 255, 255]; };
-        return [...document.querySelectorAll('#db-sso-fanboy .sso-fb-temp')].slice(0, 1).map((e) => {
-          const [a, b] = [lum(rgb(getComputedStyle(e).stroke).slice(0, 3)), lum(bg(e.closest('details')))];
-          return ['sso-fb-temp (line)', getComputedStyle(e).stroke, Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100];
+        // the curve's line on its fold; the cards' rings (2026-11-21: each band and the alarm's dashed track) on their card
+        return [...[...document.querySelectorAll('#db-sso-fanboy .sso-fb-temp')].slice(0, 1).map((e) => ['sso-fb-temp (line)', e, e.closest('details')]),
+          ...[...document.querySelectorAll('#db-sso-fanboy .sso-fb-ring')].map((r) => [`sso-fb-ring ${[...r.classList].filter((c) => /^sso-fb-r(s)?-/.test(c)).join(' ')}`,
+            r.querySelector(r.classList.contains('sso-fb-rs-alarm') ? '.sso-fb-rtrack' : '.sso-fb-rfill'), r.closest('.sso-fb-card')]).filter((x) => x[1])].map(([what, e, on]) => {
+          const [a, b] = [lum(rgb(getComputedStyle(e).stroke).slice(0, 3)), lum(bg(on))];
+          return [what, getComputedStyle(e).stroke, Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100];
         });
       });
       for (const [cls, colour, ratio] of lines) {

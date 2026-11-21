@@ -366,6 +366,7 @@
   "pic.asks": "{where} a {c} °C chiede {level}",
   "pic.warmest": "il più caldo: {where} a {c} °C",
   "pic.quiet": "niente di caldo — il suo livello di riposo",
+  "pic.asleep_all": "dormono tutti — nessuna temperatura",
   "pic.bios_now": "ora le regola il BIOS",
   "preset.quiet": "Silenziosa",
   "preset.normal": "Normale",
@@ -720,6 +721,13 @@
   "dash.connectors_none": "Nessun connettore segnala una velocità",
   "dash.set_up": "Configura",
   "dash.watched": "Al BIOS, sorvegliate:",
+  "dash.ring_fastest": {
+    "one": "{rpm} giri/min",
+    "other": "la più veloce di {n} ventole: {rpm} giri/min"
+  },
+  "dash.ring_by_speed": "regola per velocità — le sue ventole fino al {pct} %",
+  "dash.ring_bios": "Il BIOS regola queste ventole — il loro livello non è noto",
+  "dash.fan_title": "{name}: {text}",
   "dash.setting": "Mostra nella Dashboard",
   "dash.setting_sub": "Una tessera tutta sua nella Dashboard di Unraid — spostala o nascondila lì come ogni altra. Vale per chiunque apra la Dashboard.",
   "dash.show.off": "No",

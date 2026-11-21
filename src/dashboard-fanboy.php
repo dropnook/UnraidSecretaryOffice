@@ -37,6 +37,14 @@ const FANBOY_DASH_SPANS_WEB = [1, 3, 6, 12, 24, 72];   // 2026-11-16 (the owner:
 const FANBOY_DASH_SYM_PX = 28;          // the symbol's size in the tile (his page: 46 px and more); the sticker shows only from 72
 const FANBOY_DASH_ART_FANS = 4;         // fans of a zone with their symbols at most (the owner, 2026-11-20): one in alarm always
                                         // among them, else his page's order; the rest «+ n more fans» (without symbols: FANBOY_DASH_FANS)
+// 2026-11-21 (the owner picked the cards): in «speeds» with symbols one card per zone — its fans (at most FANBOY_DASH_CARD_FANS,
+// one in alarm always among them, the rest not shown: the fans' row names them all in its title), a ring that fills with the
+// zone's level (green up to FANBOY_DASH_RING_MID %, yellow up to FANBOY_DASH_RING_HOT %, red above) with the speed in its middle,
+// the warmest source at its foot
+const FANBOY_DASH_CARD_FANS = 3;
+const FANBOY_DASH_CARD_PX = 52;         // a card's wheels at most (fan-art.js; its sticker only from 72) — smaller where three need the room
+const FANBOY_DASH_RING_MID = 50;
+const FANBOY_DASH_RING_HOT = 70;
 const FANBOY_DASH_LOOK_COLOURS = ['black', 'charcoal', 'graphite', 'grey', 'silver', 'white', 'beige', 'brown', 'frost',
     'red', 'orange', 'yellow', 'green', 'blue', 'purple'];                                                                  // desk.js LOOK_COLOURS
 const FANBOY_DASH_LOOK_STYLES = ['swept-narrow', 'swept-wide', 'broad', 'short-broad', 'straight', 'sickle', 'sickle-wide']; // desk.js LOOK_STYLES
@@ -374,17 +382,55 @@ function officeFanboyDashCurve(array $s, array $spans, string $lang, array $sour
  *
  * @param list<array> $fans the zone's fans [name, text, stands] in his page's order
  * @param list<array> $arts their symbols (state 'stopped': stands though it should turn)
+ * @param int $max how many at most (a card: FANBOY_DASH_CARD_FANS)
  * @return array<int, true> the indexes kept
  */
-function officeFanboyDashPick(array $fans, array $arts, bool $art): array
+function officeFanboyDashPick(array $fans, array $arts, bool $art, int $max = FANBOY_DASH_ART_FANS): array
 {
     if (!$art) {
         return array_fill_keys(array_keys(array_slice($fans, 0, FANBOY_DASH_FANS)), true);
     }
     $alarm = array_keys(array_filter($fans, static fn ($f, $i) => ($f[2] ?? false) === true || ($arts[$i]['state'] ?? '') === 'stopped', ARRAY_FILTER_USE_BOTH));
-    $keep = array_slice(array_values(array_unique([...$alarm, ...array_keys($fans)])), 0, FANBOY_DASH_ART_FANS);
+    $keep = array_slice(array_values(array_unique([...$alarm, ...array_keys($fans)])), 0, $max);
     sort($keep);
     return array_fill_keys($keep, true);
+}
+
+/** The ring's colour band for a level: green up to FANBOY_DASH_RING_MID %, yellow up to FANBOY_DASH_RING_HOT %, red above */
+function officeFanboyDashBand(int $fill): string
+{
+    return $fill > FANBOY_DASH_RING_HOT ? 'hot' : ($fill > FANBOY_DASH_RING_MID ? 'mid' : 'ok');
+}
+
+/**
+ * A zone's ring on its card (2026-11-21, the owner): it fills with the zone's level in percent — a zone steering by speed
+ * (`unit` rpm) with its fans' highest percent, the emergency's full speed (`full`: the alarm's 100 %, said by the state,
+ * never read from the number) full —, coloured by officeFanboyDashBand(); in its middle the speed as a bare number (the
+ * fastest fan that reports one: the one you hear; «–» when none does). Its state: `bios` (the BIOS runs the zone: its
+ * level isn't known — no fill, a dotted ring), `alarm` (a fan stands though it should turn: a red dashed track), `rest`
+ * (every fan stands, as it may: empty, «0»), else `run`. `title` says it in words (the ring is never the only carrier).
+ *
+ * @param list<array{rpm:?int, pct:?int, stands:bool, rests:bool}> $fans
+ * @return array{fill:int, band:string, st:string, num:string, title:string}
+ */
+function officeFanboyDashRing(array $s, ?float $level, string $unit, bool $full, bool $bios, array $fans): array
+{
+    $rpms = array_values(array_filter(array_column($fans, 'rpm'), 'is_int'));
+    $pcts = array_values(array_filter(array_column($fans, 'pct'), 'is_int'));
+    $rest = $fans !== [] && !in_array(false, array_column($fans, 'rests'), true);
+    $num = $rest ? '0' : ($rpms ? (string) max($rpms) : '–');
+    $speed = $rest ? officeDashT($s, 'fanboy.pic.stands_ok') : ($rpms ? officeDashT($s, 'fanboy.dash.ring_fastest', ['n' => count($rpms), 'rpm' => max($rpms)])
+        : officeDashT($s, 'fanboy.pic.no_tach'));
+    if ($bios) {
+        return ['fill' => 0, 'band' => 'ok', 'st' => 'bios', 'num' => $rpms ? (string) max($rpms) : '–',
+            'title' => officeDashT($s, 'fanboy.dash.ring_bios') . ' · ' . ($rpms ? officeDashT($s, 'fanboy.dash.ring_fastest', ['n' => count($rpms), 'rpm' => max($rpms)]) : officeDashT($s, 'fanboy.pic.no_tach'))];
+    }
+    $fill = $full ? 100 : (int) round($unit === 'rpm' || $level === null ? ($pcts ? max($pcts) : 0) : $level);
+    $fill = $rest ? 0 : max(0, min(100, $fill));
+    $what = $full ? officeDashT($s, 'fanboy.pic.full') : ($unit === 'rpm' ? officeDashT($s, 'fanboy.dash.ring_by_speed', ['pct' => $fill])
+        : officeDashT($s, 'fanboy.dash.curve_level_one', ['pct' => $fill]));
+    $alarm = in_array(true, array_column($fans, 'stands'), true);
+    return ['fill' => $fill, 'band' => officeFanboyDashBand($fill), 'st' => $alarm ? 'alarm' : ($rest ? 'rest' : 'run'), 'num' => $num, 'title' => $what . ' · ' . $speed];
 }
 
 /**
@@ -530,6 +576,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
         $fans = [];
         $arts = [];
         $rpms = [];
+        $nums = [];                     // each fan's numbers for the card's ring (officeFanboyDashRing())
         if ($l !== null) {
             foreach (is_array($l['fans'] ?? null) ? $l['fans'] : [] as $f) {
                 if (!is_array($f) || !is_string($f['id'] ?? null)) {
@@ -548,6 +595,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
                         : officeDashT($s, 'fanboy.pic.stands_ok'))
                     : ($rpm === null ? officeDashT($s, 'fanboy.pic.no_tach') : officeDashT($s, 'fanboy.pic.rpm', ['rpm' => $rpm]))))
                     . ($pct !== null && $restsAt === false ? ' · ' . officeDashT($s, 'fanboy.dash.pct', ['pct' => $pct]) : ''), $stands];
+                $nums[] = ['rpm' => $rpm, 'pct' => $pct, 'stands' => $stands, 'rests' => $restsAt !== false];
                 // the symbol: his page's state (desk.js wheelOf()) — a silent fan of his turns at the share he gives it
                 $silent = ($named[$f['id']]['found'] ?? null) === 'silent';
                 $bios = !$held || $biosRole($f['id']);
@@ -563,6 +611,10 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
                 }
             }
             $warm = is_array($l['warmest'] ?? null) && is_numeric($l['warmest']['c'] ?? null) ? $l['warmest'] : null;
+            // 2026-11-21 (the owner): every source of the zone asleep — the control counts them (`asleep`), his setup has how
+            // many the zone has (an agent's status without the count, or a zone his setup doesn't list: never «all asleep»)
+            $refs = is_array($z['sources'] ?? null) ? count(array_filter($z['sources'], static fn ($r) => is_array($r) && is_string($r['id'] ?? null))) : 0;
+            $sleeps = $refs > 0 && is_int($l['asleep'] ?? null) && $l['asleep'] >= $refs;
             $level = is_numeric($l['level'] ?? null) ? (float) $l['level'] : null;
             $full = ($l['full'] ?? false) === true;         // round 4: an alarm in this zone — its fans at 100 %, the others steer on
         } else {
@@ -574,25 +626,37 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
                 $rpm = $tach[$fid] ?? null;
                 $rpms[] = $rpm;
                 $fans[] = [$fanName($fid), $rpm === null ? officeDashT($s, 'fanboy.pic.no_tach') : officeDashT($s, 'fanboy.pic.rpm', ['rpm' => $rpm]), false];
+                $nums[] = ['rpm' => $rpm, 'pct' => null, 'stands' => false, 'rests' => false];
                 $arts[] = $art($fid, $rpm, 'bios', officeDashT($s, $biosRole($fid) ? 'fanboy.pic.watched_title' : 'fanboy.pic.bios_title'));
             }
             $warm = null;
+            $asleep = [];
             foreach (is_array($z['sources'] ?? null) ? $z['sources'] : [] as $ref) {
                 $src = is_array($ref) && is_string($ref['id'] ?? null) ? ($sources[$ref['id']] ?? null) : null;
+                $asleep[] = ($src['asleep'] ?? false) === true;
                 if ($src !== null && is_numeric($src['c'] ?? null) && ($warm === null || (float) $src['c'] > (float) $warm['c'])) {
                     $warm = $src;
                 }
             }
+            $sleeps = $asleep !== [] && !in_array(false, $asleep, true);     // his last look: every source of the zone asleep
             $level = null;
             $full = false;
         }
         $unit = $str($z['unit'] ?? $l['unit'] ?? null);
         $keep = officeFanboyDashPick($fans, $arts, $out['art']);
+        // the card (2026-11-21): at most three fans, one in alarm always among them; each wheel's tip and the row's (every fan
+        // of the zone, those not shown too) say name and speed
+        $tips = array_map(static fn (array $f): string => officeDashT($s, 'fanboy.dash.fan_title', ['name' => $f[0], 'text' => $f[1]]), $fans);
+        $onCard = officeFanboyDashPick($fans, $arts, true, FANBOY_DASH_CARD_FANS);
+        $cardArt = [];
+        foreach (array_keys($onCard) as $i) {
+            $cardArt[] = ['title' => $tips[$i]] + $arts[$i];
+        }
         $out['zones'][] = [
             'id'      => $id,
             'name'    => $name,
             'warmest' => $warm !== null ? officeDashT($s, 'fanboy.pic.warmest', ['where' => officeFanboyDashSource($s, $warm), 'c' => officeFanboyDashNum((float) $warm['c'], $lang)])
-                : officeDashT($s, 'fanboy.pic.quiet'),
+                : officeDashT($s, $sleeps ? 'fanboy.pic.asleep_all' : 'fanboy.pic.quiet'),
             'level'   => $full ? officeDashT($s, 'fanboy.pic.full') : ($level === null ? officeDashT($s, 'fanboy.pic.bios')
                 : ($unit === 'rpm' ? officeDashT($s, 'fanboy.pic.rpm', ['rpm' => (int) round($level)]) : officeDashT($s, 'fanboy.dash.pct', ['pct' => (int) round($level)]))),
             'full'    => $full,
@@ -602,6 +666,9 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             'art'     => array_values(array_intersect_key($arts, $keep)),       // each fan's symbol, in the order of `fans`
             'fans_more' => count($fans) - count($keep),
             'curve'   => $hist !== null && isset($hist[$id]) ? officeFanboyDashCurve($s, $hist[$id], $lang, is_array($setup['sources'] ?? null) ? $setup['sources'] : []) : null,
+            'ring'    => officeFanboyDashRing($s, $level, $unit, $full, $l === null, $nums),
+            'card'    => ['art' => $cardArt, 'title' => implode("\n", $tips), 'stands' => array_values(array_column(array_filter($fans, static fn ($f) => $f[2]), 0))],
+            'warm'    => $warm !== null ? ['c' => officeDashT($s, 'fanboy.temp', ['c' => officeFanboyDashNum((float) $warm['c'], $lang)]), 'where' => officeFanboyDashSource($s, $warm)] : null,
         ];
     }
     $out['more'] = max(0, count($out['zones']) - FANBOY_DASH_ZONES);
@@ -626,7 +693,8 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
         // its symbol only with a look and a name of the user's (else it stays in the one line as before)
         $wid = $str($w['id'] ?? null);
         $given = is_string($named[$wid]['name'] ?? null) && trim($named[$wid]['name']) !== '';
-        $out['watch_art'][] = $wid !== '' && $given && ($looks[$wid]['look'] ?? null) !== null ? $art($wid, $rpm, 'bios', officeDashT($s, 'fanboy.pic.watched_title')) : null;
+        $out['watch_art'][] = $wid !== '' && $given && ($looks[$wid]['look'] ?? null) !== null ? $art($wid, $rpm, 'bios', officeDashT($s, 'fanboy.pic.watched_title'))
+            + ['count' => is_int($named[$wid]['count'] ?? null) ? $named[$wid]['count'] : 1] : null;
         if ($rpm === 0) {
             $standing[] = $name;
         }
@@ -693,6 +761,54 @@ function officeFanboyDashTachs(?array $state): array
     return $out;
 }
 
+/**
+ * A zone's card (2026-11-21, the owner's pick): its name and level on top (the emergency's «alarm — at 100 %» with a sign and a
+ * red border; a level of 100 % is a level like any other), its fans left (each an empty box the tile's script draws the wheel
+ * of fan-art.js into — at most three, smaller where three need the room: the CSS), the ring right, at its foot the warmest
+ * source — or the fan that stands though it should turn. Every number and chip with its title.
+ */
+function officeFanboyDashCard(array $s, array $z, string $dim): string
+{
+    $h = static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES);
+    $r = $z['ring'];
+    $full = $z['full'] === true;
+    $warn = '<i class="fa fa-exclamation-triangle" aria-hidden="true"></i> ';
+    // the ring: a track, the fill (pathLength 100: the share is the dash), ticks at the two thresholds, the speed in its middle
+    $tick = static function (int $pct): string {
+        $a = $pct * 3.6 * M_PI / 180;
+        $p = static fn (float $rad, float $f): string => number_format(22 + $rad * $f, 2, '.', '');
+        return '<line class="sso-fb-rtick" x1="' . $p(16, cos($a)) . '" y1="' . $p(16, sin($a)) . '" x2="' . $p(20, cos($a)) . '" y2="' . $p(20, sin($a)) . '"/>';
+    };
+    $ring = '<span class="sso-fb-ring sso-fb-r-' . $r['band'] . ' sso-fb-rs-' . $r['st'] . '" title="' . $h($r['title']) . '">'
+        . '<svg viewBox="0 0 44 44" aria-hidden="true" focusable="false"><circle class="sso-fb-rtrack" cx="22" cy="22" r="18" pathLength="100"/>'
+        . ($r['fill'] > 0 ? '<circle class="sso-fb-rfill" cx="22" cy="22" r="18" pathLength="100" stroke-dasharray="' . $r['fill'] . ' 100"/>' : '')
+        . $tick(FANBOY_DASH_RING_MID) . $tick(FANBOY_DASH_RING_HOT) . '</svg><b class="sso-fb-rnum' . (strlen($r['num']) > 4 ? ' sso-fb-rlong' : '') . '">' . $h($r['num']) . '</b></span>';
+    $syms = '';
+    foreach ($z['card']['art'] as $a) {
+        // the box keeps the card's size, the wheel in it by the fan's size (fan-art.js's pxOf(): 140 mm and up fill it)
+        $k = number_format(min(1, (28 + 0.3 * (int) $a['mm']) / 70), 2, '.', '');
+        $syms .= '<span class="sso-fb-sym sso-fb-csym" style="--sso-fb-k:' . $k . '" data-fan="' . $h((string) json_encode($a, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
+            . '" title="' . $h($a['title']) . '"></span>';
+    }
+    $n = count($z['card']['art']);
+    $body = $n ? '<span class="sso-fb-cfans sso-fb-n' . $n . '"' . ($z['card']['title'] !== '' ? ' title="' . $h($z['card']['title']) . '"' : '') . '>' . $syms . '</span>' . $ring
+        : '<span class="sso-fb-cnone">' . $h($z['speed']) . '</span>';
+    if ($z['card']['stands']) {
+        $text = officeDashT($s, 'fanboy.dash.stands', ['fan' => implode(', ', $z['card']['stands'])]);
+        $foot = '<div class="sso-fb-cfoot red-text" title="' . $h($text) . '">' . $warn . $h($text) . '</div>';
+    } elseif (isset($z['foot'])) {
+        $foot = '<div class="sso-fb-cfoot" title="' . $h($z['foot']) . '">' . $h($z['foot']) . '</div>';
+    } elseif ($z['warm'] !== null) {
+        $foot = '<div class="sso-fb-cfoot" title="' . $h($z['warmest']) . '"><i class="fa fa-thermometer-half" aria-hidden="true"></i> <b>' . $h($z['warm']['c']) . '</b> ' . $h($z['warm']['where']) . '</div>';
+    } else {
+        $foot = '<div class="sso-fb-cfoot" title="' . $h($z['warmest']) . '">' . $h($z['warmest']) . '</div>';
+    }
+    return '<div class="sso-fb-card' . ($full ? ' sso-fb-card-alarm' : '') . $dim . '" data-zone="' . $h($z['id']) . '">'
+        . '<div class="sso-fb-chead"><span class="sso-fb-cname" title="' . $h($z['name']) . '">' . $h($z['name']) . '</span>'
+        . '<span class="sso-fb-clvl' . ($full ? ' red-text' : '') . '" title="' . $h($r['title']) . '">' . ($full ? $warn : '') . $h($z['level']) . '</span></div>'
+        . '<div class="sso-fb-cbody">' . $body . '</div>' . $foot . '</div>';
+}
+
 /** The tile's rows as HTML (escaped) — what the page shows and api.php?a=dash&part=fanboy sends again */
 function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = null): string
 {
@@ -721,20 +837,27 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
     $artRow = static fn (?array $a, string $name, string $text, bool $red): string => '<div class="sso-fb-fan sso-fb-fan-art' . ($red ? ' red-text' : '') . '">'
         . '<span class="sso-fb-sym"' . ($a !== null ? ' data-fan="' . $h((string) json_encode($a, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . '" title="' . $h($a['title']) . '"' : '') . '></span>'
         . '<span class="sso-fb-fname">' . $h($name) . '</span><span class="sso-fb-fval">' . $h($text) . '</span></div>';
-    // «+ n more fans» (a link to his page's «Now»), the same in both layouts
+    // «+ n more fans» (a link to his page's «Now») in the folds of «with history»
     $fansMore = static fn (int $n): string => $n > 0 ? '<a class="sso-fb-more" href="' . $h($url . '/now') . '">' . $h(officeDashT($s, 'fanboy.dash.fans_more', ['n' => $n])) . '</a>' : '';
+    // «speeds» with the fans the user set up (2026-11-21, the owner's pick): one card per zone, the watched fans with a look
+    // and a name as cards of their own after them
+    $cards = $m['art'] && !$m['history'];
+    if ($cards && ($m['zones'] || array_filter($m['watch_art']))) {
+        $out .= '<div class="sso-fb-cards">';
+        foreach ($m['zones'] as $z) {
+            $out .= officeFanboyDashCard($s, $z, $dim);
+        }
+        foreach (array_filter($m['watch_art']) as $i => $a) {
+            $out .= officeFanboyDashCard($s, ['id' => 'watch' . $i, 'name' => $m['watch'][$i][0], 'level' => officeDashT($s, 'fanboy.pic.bios'), 'full' => false,
+                'ring' => officeFanboyDashRing($s, null, 'pct', false, true, [['rpm' => $a['rpm'], 'pct' => null, 'stands' => false, 'rests' => false]]),
+                'card' => ['art' => [['title' => officeDashT($s, 'fanboy.dash.fan_title', ['name' => $m['watch'][$i][0], 'text' => $m['watch'][$i][1]])] + $a], 'title' => '', 'stands' => []],
+                'warm' => null, 'foot' => ($a['count'] > 1 ? officeDashT($s, 'fanboy.pic.on_one', ['n' => $a['count']]) . ' · ' : '') . officeDashT($s, 'fanboy.pic.watched_title'),
+                'speed' => ''], $dim);
+        }
+        $out .= '</div>';
+    }
     foreach ($m['zones'] as $z) {
-        if ($m['art'] && !$m['history']) {
-            // «speeds» with the fans the user set up: the zone's line (name, warmest spot, level), its fans always under it,
-            // each with its symbol and its own speed — the zone's range of speeds only where it has no fan
-            $out .= '<div class="sso-fb-zone sso-fb-zone-art' . $dim . '" data-zone="' . $h($z['id']) . '">'
-                . '<span class="sso-fb-row"><span class="sso-fb-name">' . $h($z['name']) . '<small>' . $h($z['warmest']) . '</small></span>'
-                . '<span class="sso-fb-val"><b' . ($z['full'] ? ' class="red-text"' : '') . '>' . $h($z['level']) . '</b>'
-                . ($z['fans'] ? '' : '<small>' . $h($z['speed']) . '</small>') . '</span></span>';
-            foreach ($z['fans'] as $i => [$name, $text, $stands]) {
-                $out .= $artRow($z['art'][$i] ?? null, $name, $text, $stands);
-            }
-            $out .= $fansMore($z['fans_more']) . '</div>';
+        if ($cards) {
             continue;
         }
         $curve = '';
@@ -772,17 +895,11 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
             . ($m['setup'] ? '<a href="' . $h($url . '/setup') . '">' . $h(officeDashT($s, 'fanboy.dash.set_up')) . '</a>' : '') . '</div>';
     }
     if ($m['watch']) {
-        // those with a look and a name of the user's on rows of their own with their symbol (only in «speeds» with symbols)
-        $own = $m['art'] && !$m['history'] ? array_filter($m['watch_art']) : [];
-        $line = array_values(array_diff_key($m['watch'], $own));
-        $out .= '<div class="sso-fb-line sso-fb-watch' . $dim . '"><span>' . $h(officeDashT($s, 'fanboy.dash.watched')) . '</span>'
-            . ($line ? '<span>' . $h(implode(' · ', array_map(static fn ($w) => "$w[0] $w[1]", $line))) . '</span>' : '') . '</div>';
-        if ($own) {
-            $out .= '<div class="sso-fb-watched' . $dim . '">';
-            foreach ($own as $i => $a) {
-                $out .= $artRow($a, $m['watch'][$i][0], $m['watch'][$i][1], $a['rpm'] === 0);
-            }
-            $out .= '</div>';
+        // those with a look and a name of the user's are cards of their own (only in «speeds» with symbols): the line for the others
+        $line = array_values(array_diff_key($m['watch'], $cards ? array_filter($m['watch_art']) : []));
+        if ($line) {
+            $out .= '<div class="sso-fb-line sso-fb-watch' . $dim . '"><span>' . $h(officeDashT($s, 'fanboy.dash.watched')) . '</span>'
+                . '<span>' . $h(implode(' · ', array_map(static fn ($w) => "$w[0] $w[1]", $line))) . '</span></div>';
         }
     }
     return $out;
@@ -892,6 +1009,53 @@ function officeFanboyDashTile(): string
         . '#db-sso-fanboy .sso-fb-zone-art>.sso-fb-row{padding-bottom:3px}'
         . '#db-sso-fanboy .sso-fb-watched{padding:0 0 4px}'
         . '#db-sso-fanboy .sso-fb-key-lvl::before{content:"";display:inline-block;width:10px;height:8px;margin-right:5px;vertical-align:middle;background:currentColor;opacity:.3}'
+        // the cards (2026-11-21): two beside each other from a tile of about 420 px, one a row on a phone; the ring's three bands
+        // from Unraid's palette (≥ 3:1 on the card in all four themes: tools/fanboy/dashboard.mjs), the alarm's red the tile's
+        . 'html.Theme--black #db-sso-fanboy,html.Theme--gray #db-sso-fanboy{--sso-fb-ok:var(--green-500);--sso-fb-mid:var(--yellow-500);--sso-fb-hot:var(--red-500)}'
+        . 'html.Theme--white #db-sso-fanboy,html.Theme--azure #db-sso-fanboy{--sso-fb-ok:var(--green-900);--sso-fb-mid:color-mix(in srgb,var(--yellow-500) 50%,var(--black));--sso-fb-hot:var(--red-700)}'
+        // the cards' width never asks the table for more (its cells keep one line): the grid sizes from the tile, not its texts
+        . '#db-sso-fanboy .sso-fb-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;padding:8px 0 6px;container-type:inline-size;'
+        . 'border-top:1px solid var(--table-border-color,rgba(128,128,128,.25))}'
+        . '#db-sso-fanboy .sso-fb-card{container-type:inline-size;display:flex;flex-direction:column;gap:6px;min-width:0;padding:8px 10px;border-radius:8px;background:var(--surface2);border:1px solid var(--line)}'
+        . '#db-sso-fanboy .sso-fb-card-alarm{border-color:var(--sso-fb-red,var(--red-600))}'
+        . '#db-sso-fanboy .sso-fb-chead{display:flex;gap:8px;align-items:baseline}'
+        . '#db-sso-fanboy .sso-fb-cname{font-weight:bold;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+        . '#db-sso-fanboy .sso-fb-clvl{margin-left:auto;white-space:nowrap;font-weight:bold}'
+        . '#db-sso-fanboy .sso-fb-cbody{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:58px}'
+        . '#db-sso-fanboy .sso-fb-cnone{opacity:.75;font-size:.92em}'
+        // the wheels: 52 px, smaller where two or three need the room beside the ring (the card's width, never below 30 px)
+        . '#db-sso-fanboy .sso-fb-cfans{display:flex;gap:4px;align-items:center;min-width:0;--sso-fb-w:' . FANBOY_DASH_CARD_PX . 'px}'
+        . '#db-sso-fanboy .sso-fb-n2{--sso-fb-w:clamp(34px,calc((100cqi - 70px) / 2),' . FANBOY_DASH_CARD_PX . 'px)}'
+        . '#db-sso-fanboy .sso-fb-n3{--sso-fb-w:clamp(30px,calc((100cqi - 74px) / 3),' . FANBOY_DASH_CARD_PX . 'px)}'
+        . '#db-sso-fanboy .sso-fb-csym{flex:none;display:flex;align-items:center;justify-content:center;width:var(--sso-fb-w);height:var(--sso-fb-w);overflow:visible}'
+        . '#db-sso-fanboy .sso-fb-csym .fan-wheel{display:block;--fan-px:calc(var(--sso-fb-w) * var(--sso-fb-k,1)) !important}'
+        . '#db-sso-fanboy .sso-fb-csym .fan-cap{display:none}'
+        . '#db-sso-fanboy .sso-fb-ring{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:58px;height:58px}'
+        . '#db-sso-fanboy .sso-fb-ring svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg);overflow:visible}'
+        . '#db-sso-fanboy .sso-fb-rtrack{fill:none;stroke:var(--line2);stroke-width:5}'
+        . '#db-sso-fanboy .sso-fb-rfill{fill:none;stroke-width:5;transition:stroke-dasharray .9s ease}'
+        . '#db-sso-fanboy .sso-fb-r-ok .sso-fb-rfill{stroke:var(--sso-fb-ok,var(--green-800))}'
+        . '#db-sso-fanboy .sso-fb-r-mid .sso-fb-rfill{stroke:var(--sso-fb-mid,var(--yellow-500))}'
+        . '#db-sso-fanboy .sso-fb-r-hot .sso-fb-rfill{stroke:var(--sso-fb-hot,var(--red-600))}'
+        . '#db-sso-fanboy .sso-fb-rtick{stroke:var(--ink);stroke-opacity:.45;stroke-width:1.2}'
+        . '#db-sso-fanboy .sso-fb-rs-bios .sso-fb-rtrack{stroke-dasharray:1.2 2.4;stroke-width:3}'
+        . '#db-sso-fanboy .sso-fb-rs-alarm .sso-fb-rtrack{stroke:var(--sso-fb-red,var(--red-600));stroke-dasharray:4 3}'
+        . '#db-sso-fanboy .sso-fb-rs-alarm .sso-fb-rnum{color:var(--sso-fb-red,var(--red-600))}'
+        . '#db-sso-fanboy .sso-fb-rs-rest .sso-fb-rnum{opacity:.6}'
+        . '#db-sso-fanboy .sso-fb-rnum{position:relative;font-size:13.5px;font-weight:bold;font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1}'
+        . '#db-sso-fanboy .sso-fb-rlong{font-size:11px}'
+        . '#db-sso-fanboy .sso-fb-cfoot{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.92em}'
+        . '#db-sso-fanboy .sso-fb-cfoot i{opacity:.7}'
+        . '#db-sso-fanboy .sso-fb-cfoot.red-text{font-weight:bold}'
+        . '#db-sso-fanboy .sso-fb-cfoot.red-text i{opacity:1}'
+        // 2026-11-21 (the owner: «beim klicken soll nichts markiert werden (blauer ring)»): a click or a tap marks nothing — what a
+        // pointer focused carries data-sso-fb-ptr (the script) and never an outline, even when a key follows (a screenshot's
+        // shortcut turns on the browser's ring there); the keyboard's focus the office's accent, never the browser's blue
+        . '#db-sso-fanboy{--sso-fb-focus:color-mix(in srgb,var(--orange-500) 82%,var(--text-color))}'
+        . '#db-sso-fanboy a,#db-sso-fanboy summary,#db-sso-fanboy button{-webkit-tap-highlight-color:transparent}'
+        . '#db-sso-fanboy :focus:not(:focus-visible){outline:none}'
+        . '#db-sso-fanboy :focus-visible{outline:2px solid var(--sso-fb-focus);outline-offset:2px;border-radius:3px}'
+        . '#db-sso-fanboy [data-sso-fb-ptr],#db-sso-fanboy [data-sso-fb-ptr]:focus-visible{outline:none}'
         . '</style>'
         // the rows again as the office's tile does it (the language chosen in the office, else the browser's): every
         // minute, every 20 s while he steers (his status changes every 10 s), when the page comes back; unfolded zones stay
@@ -912,7 +1076,8 @@ function officeFanboyDashTile(): string
         . 'wheels={};[].forEach.call(l,function(n){var f;try{f=JSON.parse(n.getAttribute("data-fan"));}catch(e){return;}var k=f.id+"#"+(seen[f.id]=(seen[f.id]||0)+1);'
         // by the fan's size (2026-11-20, the owner: «ja einschalten»): 140 mm and up fill the box, an 80 mm one is smaller
         // (fan-art.js's pxOf()) — the box keeps its size, the rows don't move
-        . 'f.px=Math.min(' . FANBOY_DASH_SYM_PX . ',Math.round(' . FANBOY_DASH_SYM_PX . '*(28+0.3*(+f.mm||120))/70));f.air=false;f.colour="auto";f.title="";var w=old[k];if(w){delete old[k];w.update(f);}else{w=window.FanArt.wheel(f);}n.appendChild(w.el);wheels[k]=w;});'
+        // a card's wheel: drawn at the card's most, the CSS sizes it to the card (2026-11-21)
+        . 'f.px=n.classList.contains("sso-fb-csym")?' . FANBOY_DASH_CARD_PX . ':Math.min(' . FANBOY_DASH_SYM_PX . ',Math.round(' . FANBOY_DASH_SYM_PX . '*(28+0.3*(+f.mm||120))/70));f.air=false;f.colour="auto";f.title="";var w=old[k];if(w){delete old[k];w.update(f);}else{w=window.FanArt.wheel(f);}n.appendChild(w.el);wheels[k]=w;});'
         . 'for(var k in old)old[k].destroy();}'
         . 'function mood(){var w=box()&&box().querySelector(".sso-fb-who"),i=document.querySelector("#db-sso-fanboy img.sso-fb-logo"),m=w&&w.getAttribute("data-mood")==="alarm"&&pics.alarm?"alarm":"";'
         . 'if(i&&pics[m]&&i.getAttribute("src")!==pics[m])i.setAttribute("src",pics[m]);}'
@@ -943,5 +1108,8 @@ function officeFanboyDashTile(): string
         . 'var bx=box();if(bx){bx.addEventListener("pointermove",mark);bx.addEventListener("pointerdown",mark);'
         . 'bx.addEventListener("pointerleave",function(e){if(e.pointerType==="mouse")off();});'
         . 'bx.addEventListener("click",function(e){if(touch&&e.target.closest&&e.target.closest(".sso-fb-curve")){e.preventDefault();}touch=false;},true);}'
+        // a pointer's focus marked (no outline), the mark gone with the focus: the keyboard's next one shows
+        . 'var tl=document.getElementById("db-sso-fanboy");if(tl){tl.addEventListener("pointerdown",function(e){var f=e.target&&e.target.closest?e.target.closest("summary,button,a,[tabindex]"):null;'
+        . 'if(f)f.setAttribute("data-sso-fb-ptr","");},true);tl.addEventListener("focusout",function(e){if(e.target&&e.target.removeAttribute)e.target.removeAttribute("data-sso-fb-ptr");},true);}'
         . 'syms();again();document.addEventListener("visibilitychange",function(){if(!document.hidden)load();});})();</script>';
 }
