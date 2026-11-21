@@ -239,6 +239,8 @@ text.fan-curve-now{stroke:none; fill:var(--ink2)}
 .fan-curve-fields{grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:8px 18px; min-width:0}
 .fan-curve-field{display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink2)}
 .fan-curve-field-name{color:var(--muted)}
+.fan-curve-note{grid-column:1 / -1; margin:0; font-size:12.5px; color:var(--warn-ink)}
+.fan-curve-note[hidden]{display:none}
 .fan-curve-input{width:calc(3ch + 30px); font-variant-numeric:tabular-nums}      /* three digits (°C, percent) — rpm five */
 .fan-curve-rpm .fan-curve-input[data-axis="v"]{width:calc(5ch + 30px)}
 .fan-curve-pt{cursor:grab; outline:none}

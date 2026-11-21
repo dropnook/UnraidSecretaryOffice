@@ -712,8 +712,9 @@ function testFanboyZones(): void
                 $why[$k] = $p->key;
             }
         }
-        same('fanboy zones: refused — a bad id, the CPU cooler, a fan twice, a source not there, drivetemp, a number as text, one point, rpm without measuring, a preset not known, no name',
-            array_merge(array_fill_keys(array_keys($bad), 'fanboy_bad_zones'), ['rpm' => 'fanboy_rpm_needs_measure']), $why);
+        same('fanboy zones: refused — a bad id, the CPU cooler, a fan twice, a source not there, drivetemp, a number as text, one point, rpm without measuring, a preset not known, no name (2026-11-20: what a page can send, each with its own sentence)',
+            array_merge(array_fill_keys(array_keys($bad), 'fanboy_bad_zones'), ['rpm' => 'fanboy_rpm_needs_measure', 'cpu fan' => 'fanboy_zone_fan_gone', 'twice' => 'fanboy_zone_fan_twice',
+                'source' => 'fanboy_zone_source_gone', 'drivetemp' => 'fanboy_zone_source_gone', 'no name' => 'fanboy_zone_name']), $why);
         fanboyZonesSave(['zones' => $good]);
         same('fanboy zones: saved', ['disks'], array_column(fanboyBoardRaw()['zones'], 'id'));
         // the dry run: what he would write — nothing written, nothing held

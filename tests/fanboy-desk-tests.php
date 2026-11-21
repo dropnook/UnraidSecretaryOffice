@@ -472,7 +472,7 @@ function testFanboyUx(): void
         str_contains($art, "const every = [1, 2, 5, 10, 20].find((n) => n * perDeg >= 42) || 20;") && str_contains($art, "class: 'fan-curve-minor'")
         && str_contains($art, "const t = clamp(Math.round(tAt(px)), tMin, tMax);"));
     check('fanboy ux curve: each point can be typed (degrees and value) — whole numbers, kept between its neighbours, shown as it counts; a field he is typing in is never overwritten and keeps the focus through the page\'s redraw',
-        str_contains($art, "if (Number.isFinite(n)) pts[k] = which === 't' ? fit(k, n, q.v) : fit(k, q.t, n);") && str_contains($art, "inp.value = String(which === 't' ? pts[k].t : pts[k].v);")
+        str_contains($art, "pts[k] = which === 't' ? fit(k, n, q.v) : fit(k, q.t, n);") && str_contains($art, "said = tx.clamped(k, which, by,") && str_contains($art, "inp.value = String(which === 't' ? pts[k].t : pts[k].v);")
         && str_contains($art, "if (document.activeElement !== inp && inp.value !== want) inp.value = want;") && str_contains($art, "setTimeout(() => emit(o.onChange), 0);")
         && str_contains($js, "fields: true,") && str_contains($js, "onField: (inp) => { inp.classList.add('input', 'small', 'fb-input'); inp.dataset.fbKeep = '1'; },")
         && str_contains($js, "curveFocus = a && a.dataset && a.dataset.axis && c.el.contains(a) ?"));
@@ -1225,7 +1225,7 @@ function testFanboyCpuOwn(): void
         } catch (Problem $p) {
             $code = $p->key . ':' . ($p->params['field'] ?? '');
         }
-        same('fanboy cpu own: without the confirmation the CPU cooler in a zone is refused', 'fanboy_bad_zones:fans', $code);
+        same('fanboy cpu own: without the confirmation the CPU cooler in a zone is refused (not his: named)', 'fanboy_zone_fan_gone:', $code);
         $hand = $settings;
         $hand['zones'][] = $cpuZone;
         fanboyBeat();
@@ -2193,7 +2193,7 @@ function testFanboyKindGoal(): void
         } catch (Problem $p) {
             $key = $p->key;
         }
-        same('fanboy kind goal: a kept curve of one point — refused as any curve', 'fanboy_bad_zones', $key);
+        same('fanboy kind goal: a kept curve of one point — refused as any curve (which zone, which kind)', 'fanboy_zone_curve', $key);
         // 2026-11-20 (the owner: «Wir brauchen also im Grunde keine Grenze»): a flat own curve, a disk far over the disks'
         // old limit (55 °C) — the curve's value, and no alarm
         $settings = fanboyTSettings();
@@ -2270,4 +2270,97 @@ function testFanboyFourPoints(): void
         }
     }
     same('fanboy four points: every preset of every kind, three points, an odd span — four points at whole degrees, the same value at every degree (± 0.05 where the line has no whole value)', [], $bad);
+}
+
+/**
+ * 2026-11-20 (the owner's «Speichern»: «Die Zonen passen nicht zu dem, was da ist (sources)» — Fanboy's own proposal held
+ * 36 sources, a save took 32): zones_propose never proposes what zones_save refuses — boards of 68 and of 300 heat sources,
+ * the proposal saved as the page sends it (each zone named); a zone never over FANBOY_SOURCES_MAX
+ */
+function testFanboyProposeSaves(): void
+{
+    foreach ([68, 300] as $want) {
+        $base = fanboyFakeBoard();
+        $t = fanboyT("propose$want");
+        try {
+            $have = count(fanboySources(fanboyDetect()));
+            fanboyTEnd();
+            $chips = array_map(function ($c) use ($want, $have) {
+                if ($c[1] !== 'gigabyte_wmi') {
+                    return $c;
+                }
+                $n = count($c['temps']) + $want - $have;
+                $c['temps'] = array_combine(range(1, $n), array_map(fn ($i) => [30000 + ($i % 20) * 500, ''], range(1, $n)));
+                return $c;
+            }, $base['chips']);
+            $t = fanboyT("propose$want", 10, FANBOY_T_ADDR, ['chips' => $chips]);
+            fanboyTDisks($t, 35, null, 33);
+            $settings = fanboyTSettings();
+            $settings['zones'] = [];
+            fanboyTStore($settings);
+            $scan = fanboyDetect();
+            $zones = fanboyZonesPropose($scan, fanboyBoardRaw());
+            $named = array_map(fn ($z) => ['name' => $z['name'] !== '' ? $z['name'] : ucfirst($z['kind'])] + $z, $zones);
+            try {
+                fanboyZonesSave(['zones' => $named]);
+                $key = 'saved';
+            } catch (Problem $p) {
+                $key = $p->key . ' ' . json_encode($p->params);
+            }
+            $sizes = array_map(fn ($z) => count($z['sources']), $zones);
+            same("fanboy propose saves: a board of $want heat sources — his proposal saved as it is, no zone over " . FANBOY_SOURCES_MAX . ' (' . json_encode($sizes) . ')',
+                [$want, 'saved', true, count($zones)], [count(fanboySources($scan)), $key, max($sizes) <= FANBOY_SOURCES_MAX, count(fanboyBoardRaw()['zones'] ?? [])]);
+        } finally {
+            fanboyTEnd();
+        }
+    }
+}
+
+/**
+ * 2026-11-20: a refusal a page can reach names the zone in a plain sentence — never a bare field name; only a broken
+ * request is the generic one («reload the page»), five languages
+ */
+function testFanboyZonesWords(): void
+{
+    $keys = ['fanboy_bad_zones' => [], 'fanboy_zones_max' => ['max'], 'fanboy_zone_name' => ['n', 'max'], 'fanboy_zone_fan_gone' => ['fan', 'zone'],
+        'fanboy_zone_fan_twice' => ['fan', 'zone', 'other'], 'fanboy_zone_no_fan' => ['zone'], 'fanboy_zone_no_source' => ['zone'],
+        'fanboy_zone_sources_max' => ['zone', 'n', 'max'], 'fanboy_zone_source_gone' => ['source', 'zone'], 'fanboy_zone_curve' => ['zone', 'kind']];
+    $bad = [];
+    foreach (['de', 'en', 'it', 'fr', 'es'] as $l) {
+        $j = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$l.json"), true);
+        foreach ($keys as $k => $ph) {
+            $text = (string) ($j["errors.$k"] ?? '');
+            preg_match_all('/\{(\w+)\}/', $text, $m);
+            if ($text === '' || array_diff($ph, $m[1]) || str_contains($text, '{field}') || preg_match('/\((sources?|fans|curves|zones?|name)\)/', $text)) {
+                $bad[] = "$l:$k";
+            }
+        }
+    }
+    same('fanboy zones words: each refusal a sentence of its own in five languages, naming what it needs (zone, fan, source, kind) — no «(sources)»', [], $bad);
+    $t = fanboyT('zoneswords');
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);
+        $z = $settings['zones'][0];
+        $refused = function (array $zones): array {
+            try {
+                fanboyZonesCheck($zones, fanboyDetect(), fanboyBoardRaw());
+                return ['kept'];
+            } catch (Problem $p) {
+                return [$p->key, $p->params];
+            }
+        };
+        $many = array_map(fn ($i) => ['id' => "x$i"], range(1, FANBOY_SOURCES_MAX + 1));
+        same('fanboy zones words: the refusals name the zone — too many sources (how many, the most), no fan, no source, a source gone (its name), a fan in two zones',
+            [['fanboy_zone_sources_max', ['zone' => 'Disks', 'n' => FANBOY_SOURCES_MAX + 1, 'max' => FANBOY_SOURCES_MAX]], ['fanboy_zone_no_fan', ['zone' => 'Disks']],
+             ['fanboy_zone_no_source', ['zone' => 'Disks']], ['fanboy_zone_source_gone', ['source' => 'disk9', 'id' => 'disk9', 'zone' => 'Disks']],
+             ['fanboy_zone_fan_twice', ['fan' => 'Cage', 'zone' => 'Disks', 'other' => 'Two']]],
+            [$refused([['sources' => $many] + $z]), $refused([['fans' => []] + $z]), $refused([['sources' => []] + $z]), $refused([['sources' => [['id' => 'disk9']]] + $z]),
+             $refused([$z, ['id' => 'two', 'name' => 'Two'] + $z])]);
+        same('fanboy zones words: a curve of nine points — which zone, which kind', ['fanboy_zone_curve', 'Disks', 'disk'],
+            (fn ($r) => [$r[0], $r[1]['zone'] ?? null, $r[1]['kind'] ?? null])($refused([['curves' => ['disk' => ['points' => array_map(fn ($i) => [30 + $i * 3, $i * 10], range(0, 8))]]] + $z])));
+    } finally {
+        fanboyTEnd();
+    }
 }
