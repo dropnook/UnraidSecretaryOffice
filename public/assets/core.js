@@ -3460,8 +3460,9 @@ Office.deskHead = function deskHead(desk, { bubble, actions, page, pageSub, page
     sign.append(Office.avatar(desk.id), el('h1', '', t(`${desk.id}.name`)));
     box.append(b, sign);
     text.appendChild(box);
-    // «As of …» while the page shows a state older than the desk looks after (paintAsOf())
-    const asof = el('div', 'role');
+    // «As of …» while the page shows a state older than the desk looks after (paintAsOf()): a tag on the bubble's
+    // lower edge, out of the flow — it comes and goes without moving the page under it (2026-11-21, Benj)
+    const asof = el('div', 'role deskhead-asof');
     asofNodes.set(desk.id, asof);
     paintAsOf(desk.id, asof);
     text.appendChild(asof);

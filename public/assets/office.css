@@ -917,6 +917,10 @@
   .deskhead-sign .avatar{width:30px; height:30px; font-size:15px}
   .deskhead-sign h1{font-size:15px; margin:0; color:var(--ink)}
   .deskhead:has(.deskhead-sign) + .page-help{margin-left:0}
+  /* «As of …» (core.js paintAsOf()): a tag on the bubble's lower edge, out of the flow, so its coming and going never
+     moves the page */
+  .deskhead-text:has(.deskhead-sign){position:relative}
+  .deskhead-asof{position:absolute; right:14px; top:100%; transform:translateY(-50%); padding:0 6px; background:var(--bg); font-size:12px; line-height:1.3; white-space:nowrap}
   @media (max-width:767px){
     .deskhead-sign h1{display:none}
   }

@@ -35032,6 +35032,14 @@ JS);
         [['a=state&desk=snapshot', 'a=state&desk=snapshot&wait=1'], [[700, true]]], [$r['heals']['calls'] ?? null, $r['heals']['healed'] ?? null]);
     same('look page: … the error reaches the caller once, nothing logged twice', [['old shape'], []], [$r['heals']['thrown'] ?? null, $r['heals']['errors'] ?? null]);
     hardeningRm($tmp);
+    // «As of …» under a desk's head comes and goes with every slow look: it is a tag out of the flow, so the page under
+    // the head never moves with it (2026-11-21: on Fanboy's page the line pushed everything down and back)
+    $core = (string) file_get_contents(OFFICE_DIR . '/public/assets/core.js');
+    $css = (string) file_get_contents(OFFICE_DIR . '/public/assets/office.css');
+    check('look page: the «as of» line of a desk head is its own tag …', str_contains($core, "const asof = el('div', 'role deskhead-asof');"));
+    check('look page: … out of the flow, on the bubble\'s edge: showing or hiding it moves nothing',
+        preg_match('/\.deskhead-asof\{position:absolute;[^}]*top:100%;[^}]*white-space:nowrap\}/', $css) === 1
+        && str_contains($css, '.deskhead-text:has(.deskhead-sign){position:relative}'));
 }
 
 /**
