@@ -50,8 +50,20 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Plugin version $version (last: ${last:-none})"
 
+      # this release's notes, then the seven releases before it (CA's change log shows the whole <CHANGES> with
+      # «Show more»; one release alone was all it had — 2026-11-21). An earlier one that can't be read is left out.
       - name: Changes from the release notes
-        run: gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/changes.md"
+        run: |
+          gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/changes.md"
+          n=0
+          while IFS=$'\t' read -r t name; do
+            [[ "$t" == "$TAG" || -z "$t" ]] && continue
+            body=$(gh release view "$t" --json body --jq .body 2>/dev/null) || continue
+            [[ -n "$body" ]] || continue
+            printf '\n### %s (%s)\n\n%s\n' "${t#v}" "$name" "$body" >> "$RUNNER_TEMP/changes.md"
+            n=$((n + 1)); (( n < 7 )) || break
+          done < <(gh release list --limit 20 --exclude-drafts --exclude-pre-releases --json tagName,name --jq '.[] | [.tagName, .name] | @tsv')
+          echo "changes: this release and $n before it"
 
       - name: Build
         run: bash plugin/build.sh "$TAG" "${{ steps.version.outputs.version }}" "$RUNNER_TEMP/changes.md"
