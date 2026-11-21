@@ -385,7 +385,8 @@ function officeDashRows(string $lang, ?array $jobs = null): string
         [$todo, $advice] = officeDashCareCounts($care, $hired);
         [$mood, $state, $tone] = $todo ? ['-todo', officeDashT($s, 'dash.todo', ['n' => $todo]), 'red']
             : ($advice ? ['-advice', officeDashT($s, 'dash.advice', ['n' => $advice]), 'orange'] : ['', officeDashT($s, 'dash.all_good'), 'green']);
-        $out .= $row('caretaker', officeDashAsset("desks/caretaker/avatar$mood.svg"), officeDashT($s, 'caretaker.name'), $state, $tone);
+        // what is open goes straight to his «Noch zu tun» tile (2026-11-21, the owner: the row leads to the right place)
+        $out .= $row($todo || $advice ? 'caretaker/todo' : 'caretaker', officeDashAsset("desks/caretaker/avatar$mood.svg"), officeDashT($s, 'caretaker.name'), $state, $tone);
     }
 
     // Mr. Backupsy: the last run and the next one

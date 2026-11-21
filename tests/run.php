@@ -31419,6 +31419,9 @@ function testNightUi(): void
 function testDashboardJobs(): void
 {
     $tmp = hardeningTmp('dashjobs');
+    // the Team Lead's row: something open → straight to his «Noch zu tun» tile; all good → his page (2026-11-21)
+    $dashSrc = (string) file_get_contents(OFFICE_DIR . '/src/dashboard.php');
+    check('dash rows: the Team Lead\'s row leads to his to-do tile while something is open', str_contains($dashSrc, "\$row(\$todo || \$advice ? 'caretaker/todo' : 'caretaker',"));
     // the agent's side: Mr. Backupsy — only a backup holds the lock as a run (never setup, a restore, the recovery)
     $holder = ['holder' => 'backup', 'mode' => 'backup', 'what' => '', 'run' => '', 'pid' => 4242, 'started' => 1000];
     $status = ['result' => 'running', 'mode' => 'backup', 'phase' => 'kopia', 'started' => 1100,
