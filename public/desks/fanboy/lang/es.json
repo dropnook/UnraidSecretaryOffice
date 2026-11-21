@@ -354,6 +354,7 @@
   "pic.pct_no_tach": "{pct} % · sin lectura de velocidad",
   "pic.no_value": "sin valor",
   "pic.should_turn": "0 rpm · debería girar",
+  "pic.starting": "arrancando · {pct} %",
   "pic.asleep": "dormido",
   "pic.asleep_title": "El disco duerme: mientras tanto no hay temperatura — Fanboy nunca lo despierta",
   "pic.warmest_mark": "el punto más caliente de esta zona",
@@ -727,6 +728,7 @@
     "other": "el más rápido de {n} ventiladores: {rpm} rpm"
   },
   "dash.ring_by_speed": "regula por velocidad — sus ventiladores hasta el {pct} %",
+  "dash.ring_ask": "la zona pide {pct} %",
   "dash.ring_bios": "La BIOS regula estos ventiladores — su nivel no se conoce",
   "dash.fan_title": "{name}: {text}",
   "dash.setting": "Mostrar en el Dashboard",

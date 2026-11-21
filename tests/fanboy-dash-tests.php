@@ -102,7 +102,7 @@ function testFanboyDashTile(): void
     same('fanboy dash: steering — the web side without a word', '', $o['err']);
     same('fanboy dash: steering — who, no banner, nothing stale, the two zones (warmest, level, speed), the CPU cooler watched',
         ['Fanboy · 2 zones', 'green', [], null,
-         [['Plattenkäfig', 'warmest: Disk 2 at 41 °C', '10 %', '1018 rpm', 1], ['Gehäuse', 'warmest: Composite at 28 °C', '25 %', '905 rpm', 2]],      // (the demo's levels follow its curves since round 13's demo data)
+         [['Plattenkäfig', 'warmest: Disk 2 at 41 °C', '30 %', '1018 rpm', 1], ['Gehäuse', 'warmest: Composite at 28 °C', '40 %', '905 rpm', 2]],      // (2026-11-21: what the fans get — the zones ask 10 and 25 %, their fans' floors give 30, 35 and 40)
          [['CPU-Kühler', '1310 rpm']]],
         [$m['who'] ?? null, $m['tone'] ?? null, $m['banners'] ?? null, fanboyDashKey($m, 'stale'),
          array_map(fn ($z) => [$z['name'], $z['warmest'], $z['level'], $z['speed'], count($z['fans'])], $m['zones'] ?? []), $m['watch'] ?? null]);
@@ -131,7 +131,7 @@ function testFanboyDashTile(): void
     $o = fanboyDashWeb(['fanboy.json' => fanboyDashPlain(json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy-alarm.json'), true))] + fanboyDashFiles('fanboy'), [], $now);
     $rows = (string) ($o['rows'] ?? '');
     same('fanboy dash: alarm — where it is: the case zone «alarm — at 100 %» in red and open, the disk cage steers on (10 %: Disk 2 at 41 °C on its Normal, 40→50 °C); the fan that stands marked on its row',
-        [['10 %', 'alarm — at 100 %'], [false, true], true, true, true, false],
+        [['30 %', 'alarm — at 100 %'], [false, true], true, true, true, false],
         [array_column($m['zones'] ?? [], 'level'), array_column($m['zones'] ?? [], 'full'), str_contains($rows, '<b class="red-text">alarm — at 100 %</b>'),
          str_contains($rows, '<div class="sso-fb-fan red-text"><span>Output 5</span><span>0 rpm · should turn · 100 %</span>'), str_contains($rows, 'data-zone="case" open>'),
          str_contains($rows, 'data-zone="disks" open>')]);
@@ -163,7 +163,13 @@ function testFanboyDashTile(): void
     $state = json_decode((string) file_get_contents(OFFICE_DIR . '/tests/ui/demo/fanboy.json'), true);
     $state['control']['zones'][1]['fans'][0]['rpm'] = 0;
     $o = fanboyDashWeb(['fanboy.json' => $state] + fanboyDashFiles('fanboy'), [], $now);
-    same('fanboy dash: a fan of his stands without an alarm yet — said plainly at the top', [['red', 'A fan stands: Vorn']], $o['model']['banners'] ?? null);
+    // 2026-11-21 (the owner: his CPU cooler turned red while it spun up): 0 rpm asked for 35 % is a start until the control says
+    // otherwise — no banner, «starting»
+    same('fanboy dash: a fan of his at 0 rpm, the control not saying it stands (it starts) — no banner, «starting · 35 %»', [[], 'starting · 35 %', false],
+        [$o['model']['banners'] ?? null, $o['model']['zones'][1]['fans'][0][1] ?? null, $o['model']['zones'][1]['fans'][0][2] ?? null]);
+    $state['control']['zones'][1]['fans'][0]['stands'] = true;
+    $o = fanboyDashWeb(['fanboy.json' => $state] + fanboyDashFiles('fanboy'), [], $now);
+    same('fanboy dash: … the control\'s verdict «stands» (its wait over), no alarm yet — said plainly at the top', [['red', 'A fan stands: Vorn']], $o['model']['banners'] ?? null);
 
     // the chip missing, another controller, before the setup, the array stopped
     $o = fanboyDashWeb(fanboyDashFiles('fanboy-missing'), ['fanboy/control.json' => ['board' => 'x', 'phase' => 'wait_chip', 'time' => $now - 5, 'who' => 'bios', 'why' => 'chip_missing',
@@ -199,6 +205,7 @@ function testFanboyDashTile(): void
         && str_contains((string) ($o['rows'] ?? ''), '<div class="sso-fb-card sso-fb-old"'), json_encode($o['model'] ?? null) . ($o['rows'] ?? ''));
     $live = $state['control'];
     $live['zones'][0]['level'] = 55;
+    $live['zones'][0]['fans'][0]['pct'] = 55;
     $live['zones'][1]['fans'][0]['rpm'] = 1100;
     $o = fanboyDashWeb(fanboyDashFiles('fanboy'), ['fanboy/control.json' => array_merge($live, ['board' => $state['setup']['board'], 'phase' => 'run', 'time' => $t0 + 595])], $t0 + 600);
     same('fanboy dash: the control writes (RAM) — its numbers, nothing stale though the look is old', [null, '55 %', '1100 rpm', 'Fanboy · 2 zones'],
@@ -530,6 +537,7 @@ function testFanboyDashFans(): void
     // standing though it should turn: today's alarm words, the red ring
     $o = $web(fanboyDashFansState(static function (array $s): array {
         $s['control']['zones'][1]['fans'][0]['rpm'] = 0;
+        $s['control']['zones'][1]['fans'][0]['stands'] = true;          // the control's verdict (2026-11-21)
         return $s;
     }));
     same('fanboy dash fans: one that should turn and stands — the alarm\'s words, red, its symbol the red ring, the banner',
@@ -575,7 +583,7 @@ function testFanboyDashFans(): void
         $live = [];
         for ($k = 1; $k <= 9; $k++) {
             $fans[] = "it8696_a0060607:it87.2608:pwm$k";
-            $live[] = ['id' => "it8696_a0060607:it87.2608:pwm$k", 'name' => "Käfig $k", 'output' => $k, 'pct' => 40, 'rpm' => $alarm && $k === 7 ? 0 : 700 + $k, 'held' => true, 'foreign' => false];
+            $live[] = ['id' => "it8696_a0060607:it87.2608:pwm$k", 'name' => "Käfig $k", 'output' => $k, 'pct' => 40, 'rpm' => $alarm && $k === 7 ? 0 : 700 + $k, 'held' => true, 'foreign' => false, 'stands' => $alarm && $k === 7];
         }
         $s['setup']['zones'] = [];
         $s['control']['zones'] = [];
@@ -692,14 +700,14 @@ function testFanboyDashCards(): void
         [[0, 'ok', 'bios', '1210'], [0, 'ok', 'bios', '–'], 'The BIOS runs these fans — their level isn\'t known · no speed feedback'],
         [$pick($r['bios'] ?? null), $pick($r['bios_none'] ?? null), $r['bios_none']['title'] ?? null]);
     same('fanboy dash cards: every fan stands as it may — empty, «0», «stands — it may»; one stands though it should turn — the alarm state, the turning one\'s speed; no speed feedback — «–»; one of two resting — the other\'s speed, the level\'s fill',
-        [[0, 'ok', 'rest', '0'], 'level 0 % · stands — it may', [82, 'hot', 'alarm', '1480'], [62, 'mid', 'run', '–'], 'level 62 % · no speed feedback', [20, 'ok', 'run', '640']],
+        [[0, 'ok', 'rest', '0'], 'stands — it may', [82, 'hot', 'alarm', '1480'], [62, 'mid', 'run', '–'], 'level 62 % · no speed feedback', [20, 'ok', 'run', '640']],
         [$pick($r['rest'] ?? null), $r['rest']['title'] ?? null, $pick($r['stands'] ?? null), $pick($r['no_tach'] ?? null), $r['no_tach']['title'] ?? null, $pick($r['some_rest'] ?? null)]);
     same('fanboy dash cards: German', 'Stufe 40 % · schnellster von 2 Lüftern: 905 U/min', $r['de'] ?? null);
 
     // the rows: the demo's two zones and the watched CPU cooler — name, level, the ring (two ticks), the warmest at the foot
     $rows = (string) ($o['rows'] ?? '');
     check('fanboy dash cards: a card — its name and level (titled), the fans\' row titled with every fan, the ring with its ticks at 50 and 70 and the bare speed, the warmest at the foot (titled with the words)',
-        str_contains($rows, '<div class="sso-fb-card" data-zone="disks"><div class="sso-fb-chead"><span class="sso-fb-cname" title="Plattenkäfig">Plattenkäfig</span><span class="sso-fb-clvl" title="level 10 % · 1018 rpm">10 %</span></div>')
+        str_contains($rows, '<div class="sso-fb-card" data-zone="disks"><div class="sso-fb-chead"><span class="sso-fb-cname" title="Plattenkäfig">Plattenkäfig</span><span class="sso-fb-clvl" title="level 30 % · 1018 rpm · the zone asks 10 %">30 %</span></div>')
         && str_contains($rows, '<span class="sso-fb-cfans sso-fb-n3" title="Vorn: 905 rpm · 35 %' . "\n" . 'Deckel: 760 rpm · 40 %' . "\n" . 'Hinten: stands — it may">')
         && substr_count($rows, 'class="sso-fb-rtick"') === 6 && str_contains($rows, '<b class="sso-fb-rnum">1018</b>')
         && str_contains($rows, '<div class="sso-fb-cfoot" title="warmest: Disk 2 at 41 °C"><i class="fa fa-thermometer-half" aria-hidden="true"></i> <b>41 °C</b> Disk 2</div>'), $rows);
@@ -709,6 +717,10 @@ function testFanboyDashCards(): void
         foreach ($s['control']['zones'] as &$z) {
             $z['level'] = 100;
             $z['full'] = $z['id'] === 'case';
+            foreach ($z['fans'] as &$f) {
+                $f['pct'] = 100;
+            }
+            unset($f);
         }
         unset($z);
         $s['control']['alarm'] = ['code' => 'sensor', 'params' => ['source' => 'Disk 2', 'zone' => 'Gehäuse'], 'since' => 1763099990];
@@ -739,7 +751,7 @@ function testFanboyDashCards(): void
         unset($z);
         foreach ($s['control']['zones'] as &$z) {
             if ($z['id'] === 'case') {
-                $z['fans'][] = ['id' => $id, 'name' => 'Seite', 'output' => 3, 'pct' => 35, 'rpm' => $alarm ? 0 : 880, 'held' => true, 'foreign' => false];
+                $z['fans'][] = ['id' => $id, 'name' => 'Seite', 'output' => 3, 'pct' => 35, 'rpm' => $alarm ? 0 : 880, 'held' => true, 'foreign' => false, 'stands' => $alarm];
             }
         }
         unset($z);
@@ -928,7 +940,7 @@ function testFanboyDashSplitter(): void
     $o = $web($counts([5 => 2, 2 => 2, 6 => 2], static function (array $s): array {
         foreach ($s['control']['zones'] as &$z) {
             if ($z['id'] === 'case') {
-                $z['fans'][2] = ['pct' => 30, 'rpm' => 0, 'stand_since' => null] + $z['fans'][2];
+                $z['fans'][2] = ['pct' => 30, 'rpm' => 0, 'stand_since' => null, 'stands' => true] + $z['fans'][2];
             }
         }
         unset($z);
@@ -1002,4 +1014,87 @@ function testFanboyDashDefault(): void
     $setup = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-setup.php');
     same('fanboy dash default: called once, in «Take over» after the control\'s launch', [['fanboy-setup.php' => 1], true],
         [$calls, (bool) preg_match("/fanboyLaunch\\('fanboy-control'\\);\\n    logLine\\('Fanboy: taken over on the user\\\\'s click'\\);\\n.*\\n    return \\['ok' => true, 'dashboard' => fanboyDashDefault\\(\\)\\];/", $setup)]);
+}
+
+/**
+ * 2026-11-21 (the owner's CPU zone: one output «CPU-Fans» with two fans, «darf stehen», his CPU curve): resting by its stop
+ * rule the card said «39 %» over an empty ring; told to start again (38 %, 0 rpm while it spins up) it turned red with the
+ * banner. Now: «stands though it should turn» only from the control's verdict (its `stands` per fan, after the fan's own
+ * wait; an older control: its own «stands» alarm for the zone); a zone whose fans all rest says so, its ask in the title;
+ * the head is what the fans get
+ */
+function testFanboyDashCpuRest(): void
+{
+    $now = 1763100000 + 20;
+    $web = static fn (array $state): array => fanboyDashWeb(['fanboy.json' => $state] + fanboyDashFiles('fanboy', 'speeds'), [], $now);
+    $cpu = static fn (array $fan, array $zone = [], ?array $alarm = null): array => fanboyDashFansState(static function (array $s) use ($fan, $zone, $alarm): array {
+        foreach ($s['setup']['fans'] as &$f) {
+            if ($f['id'] === 'it8696_a0060607:it87.2608:pwm4') {
+                $f = ['name' => 'CPU-Fans', 'count' => 2, 'off_ok' => true] + $f;
+            }
+        }
+        unset($f);
+        foreach ($s['control']['zones'] as &$z) {
+            if ($z['id'] === 'disks') {
+                $z = $zone + ['level' => 39] + $z;
+                $z['fans'][0] = $fan + ['name' => 'CPU-Fans', 'may_stand' => true] + $z['fans'][0];
+            }
+        }
+        unset($z);
+        $s['control']['alarm'] = $alarm;
+        return $s;
+    });
+    $look = static function (array $o): array {
+        $z = $o['model']['zones'][0] ?? [];
+        $rows = (string) ($o['rows'] ?? '');
+        return ['head' => $z['level'] ?? null, 'ring' => [$z['ring']['fill'] ?? null, $z['ring']['st'] ?? null, $z['ring']['num'] ?? null], 'text' => $z['fans'][0][1] ?? null,
+            'wheel' => $z['card']['art'][0]['state'] ?? null, 'banner' => $o['model']['banners'] ?? null, 'red' => str_contains($rows, 'sso-fb-cfoot red-text') || str_contains($rows, 'sso-fb-rs-alarm')];
+    };
+
+    // 1. resting by its stop rule, the zone asking 39 %
+    $o = $web($cpu(['pct' => 0, 'rpm' => 0, 'stand_since' => 1763099400, 'starts_at' => 59]));
+    same('fanboy cpu rest: the cooler rests by its rule, the zone asks 39 % — the head «stands — it may», the ring empty with «0», its title the zone\'s ask, nothing red',
+        ['head' => 'stands — it may', 'ring' => [0, 'rest', '0'], 'text' => 'stands (it may) · runs again from 59 °C', 'wheel' => 'run', 'banner' => [], 'red' => false],
+        $look($o));
+    same('fanboy cpu rest: … the ring\'s title — it rests, the zone asks 39 %', 'stands — it may · the zone asks 39 %', $o['model']['zones'][0]['ring']['title'] ?? null);
+    // 2. told to start again: 38 %, 0 rpm while it spins up, the control not saying it stands (its own verdict false)
+    $start = ['pct' => 38, 'rpm' => 0, 'stand_since' => null, 'starts_at' => 59, 'stands' => false];
+    same('fanboy cpu rest: started again, still at 0 rpm — «starting · 38 %», the head 38 %, nothing red, no banner, the wheels not «stopped»',
+        ['head' => '38 %', 'ring' => [38, 'run', '0'], 'text' => 'starting · 38 %', 'wheel' => 'run', 'banner' => [], 'red' => false], $look($web($cpu($start))));
+    // 3. the control's real «stands» (its wait over): the alarm as today
+    same('fanboy cpu rest: the control says it stands — «should turn», the red dashed ring, the wheel «stopped», the banner',
+        ['head' => '38 %', 'ring' => [38, 'alarm', '0'], 'text' => '0 rpm · should turn · 38 %', 'wheel' => 'stopped', 'banner' => [['red', 'A fan stands: CPU-Fans · 2 fans on it']], 'red' => true],
+        $look($web($cpu(['stands' => true] + $start))));
+    // 4. an older control (no verdict per fan): 0 rpm alone raises nothing; its own «stands» alarm for this zone does
+    $old = array_diff_key($start, ['stands' => 1]);
+    same('fanboy cpu rest: an older control without the verdict — 0 rpm alone: starting, no banner, nothing red', ['starting · 38 %', [], false],
+        array_values(array_intersect_key($look($web($cpu($old))), ['text' => 1, 'red' => 1, 'banner' => 1])));
+    $alarm = ['code' => 'stands', 'params' => ['fan' => 'CPU-Fans', 'zone' => 'Plattenkäfig', 'zid' => 'disks', 'alone' => true], 'since' => $now - 30];
+    same('fanboy cpu rest: … with its «stands» alarm for this zone — the fan stands, red (the banner is the alarm\'s own words)', ['0 rpm · should turn · 38 %', true, 'stopped', 1],
+        (static function (array $l): array { return [$l['text'], $l['red'], $l['wheel'], count($l['banner'])]; })($look($web($cpu($old, [], $alarm)))));
+    // fans of one zone getting different shares: the head the highest (the loudest), the ask in the title
+    $o = $web(fanboyDashFansState());
+    same('fanboy cpu rest: fans getting different shares (35 and 40 %, one resting) while the zone asks 25 % — the head 40 %, the ask in the ring\'s title',
+        ['40 %', 'level 40 % · fastest of 3 fans: 905 rpm · the zone asks 25 %'], [$o['model']['zones'][1]['level'] ?? null, $o['model']['zones'][1]['ring']['title'] ?? null]);
+    // a watched BIOS fan at 0 rpm: only by the control's verdict
+    $watch = static fn (array $w): array => fanboyDashFansState(static function (array $s) use ($w): array {
+        $s['control']['watch'][0] = $w + $s['control']['watch'][0];
+        return $s;
+    });
+    same('fanboy cpu rest: the watched CPU cooler at 0 rpm — no banner without the control\'s verdict, the banner with it',
+        [[], [['red', 'A fan stands: CPU-Kühler']]], [$web($watch(['rpm' => 0, 'stands' => false]))['model']['banners'] ?? null, $web($watch(['rpm' => 0, 'stands' => true]))['model']['banners'] ?? null]);
+
+    // the control: its verdict by its own clock, in its status per fan and per watched fan
+    same('fanboy cpu rest: the control\'s verdict — nothing since: no; 14.9 s of 15: no; 15 s: yes; a measured start\'s longer wait (32 s): not at 20',
+        [false, false, true, false], [fanboyStandsNow(null, 15.0, 100.0), fanboyStandsNow(85.1, 15.0, 100.0), fanboyStandsNow(85.0, 15.0, 100.0), fanboyStandsNow(80.0, 32.0, 100.0)]);
+    $ctl = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-control.php');
+    check('fanboy cpu rest: the status carries the verdict — each zone\'s fan (its own wait) and each watched fan',
+        str_contains($ctl, "'stands' => \$c['fans'][\$id]['taken'] && fanboyStandsNow(\$c['fans'][\$id]['zero_since'] ?? null, (float) (\$c['fans'][\$id]['stand_after'] ?? FANBOY_STAND_AFTER)),")
+        && str_contains($ctl, "'stands' => fanboyStandsNow(\$w['zero_since'] ?? null, FANBOY_STAND_AFTER)], \$c['watch'])),"), '');
+    // his page by the same rule: the wheel «stopped» only from the verdict, «starting» meanwhile, «Now» the fans' share
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    check('fanboy cpu rest: his page — the same verdict for the wheel, «starting» while it spins up, «Now» says what the fans get',
+        str_contains($js, "if (held && !silent && standsNow(id, cf, rpm, pct)) st = 'stopped';") && str_contains($js, "if (cf && typeof cf.stands === 'boolean') return cf.stands;")
+        && str_contains($js, ": starting ? T('pic.starting', { pct })") && str_contains($js, "level: cz.full ? T('pic.full') : zoneGets(cz), lead")
+        && str_contains($js, "if (fans.length && fans.every((f) => f.held && typeof f.stand_since === 'number' && f.stands !== true)) return T('pic.stands_ok');"), '');
 }

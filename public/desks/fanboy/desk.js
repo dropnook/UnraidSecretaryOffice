@@ -626,6 +626,24 @@ const wave = () => el('span', 'spin');
 const waiting = () => { const p = el('p', 'fb-wait'); p.append(wave(), el('span', '', T('pictures_loading'))); return p; };
 
 // ------------------------------------------------------------------ the picture of the server
+/** It stands though it should turn — the control's verdict (after the fan's own wait); an older control: its alarm for the zone */
+function standsNow(id, cf, rpm, pct) {
+  if (cf && typeof cf.stands === 'boolean') return cf.stands;
+  const a = control().alarm;
+  const zone = (control().zones || []).find((z) => (z.fans || []).some((f) => f.id === id));
+  return !!(a && a.code === 'stands' && zone && a.params && a.params.zid === zone.id && rpm === 0 && pct !== null && pct > 0);
+}
+/**
+ * What a zone's fans get (the Dashboard tile's head): «stands — it may» when every fan rests by its own rule, else the highest
+ * share he gives them; a zone by speed its target; none known: the zone's level
+ */
+function zoneGets(cz) {
+  if (cz.unit === 'rpm' || num(cz.level) === null) return levelText(cz);
+  const fans = cz.fans || [];
+  if (fans.length && fans.every((f) => f.held && typeof f.stand_since === 'number' && f.stands !== true)) return T('pic.stands_ok');
+  const pcts = fans.filter((f) => f.held && num(f.pct) !== null).map((f) => f.pct);
+  return pcts.length ? T('value', { pct: Math.max(...pcts) }) : levelText(cz);
+}
 /** A wheel's words and state for a fan of his or the BIOS's, as it is now */
 function wheelOf(id, opts) {
   const f = setupFan(id) || { id, found: null, tachs: [] };
@@ -643,8 +661,11 @@ function wheelOf(id, opts) {
   const pct = held && num(cf.pct) !== null ? cf.pct : null;
   let st = bios ? 'bios' : 'run';
   if (silent) st = bios ? 'bios' : 'unknown';
-  if (held && !silent && rpm === 0 && (pct === null || pct > 0)) st = 'stopped';
-  const sub = st === 'stopped' ? T('pic.should_turn')
+  // it stands though it should turn only when the control says so (2026-11-21: never for a fan spinning up) — the
+  // Dashboard tile's rule: its verdict per fan, an older control's own «stands» alarm for the fan's zone
+  if (held && !silent && standsNow(id, cf, rpm, pct)) st = 'stopped';
+  const starting = held && !silent && st !== 'stopped' && rpm === 0 && pct !== null && pct > 0;
+  const sub = st === 'stopped' ? T('pic.should_turn') : starting ? T('pic.starting', { pct })
     : silent ? (held && pct !== null ? T('pic.pct_no_tach', { pct }) : T('pic.no_tach'))
       : rpm === null ? T('pic.no_value')
         : held && pct !== null ? T('pic.rpm_pct', { rpm: fmt.number(rpm), pct }) : T('pic.rpm', { rpm: fmt.number(rpm) });
@@ -787,7 +808,7 @@ function nowTile(a) {
     const names = new Map((setup().zones || []).map((z) => [z.id, z.name || z.id]));
     (control().zones || []).slice(0, 3).forEach((cz) => {
       const lead = cz.warmest && num(cz.warmest.c) !== null ? T('now.lead', { where: srcLabel(cz.warmest), c: fmt.number(cz.warmest.c) }) : quietWords(cz, (setup().zones || []).find((x) => x.id === cz.id));
-      sub.push(T('now.zone', { zone: names.get(cz.id) || cz.name || cz.id, level: cz.full ? T('pic.full') : levelText(cz), lead }));
+      sub.push(T('now.zone', { zone: names.get(cz.id) || cz.name || cz.id, level: cz.full ? T('pic.full') : zoneGets(cz), lead }));
     });
   } else if (state && myWhy(w.why)) sub.push(myWhy(w.why));
   const fans = state ? fansLine() : { lines: [], stands: false };

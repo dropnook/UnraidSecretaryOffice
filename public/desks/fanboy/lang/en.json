@@ -354,6 +354,7 @@
   "pic.pct_no_tach": "{pct} % · no speed feedback",
   "pic.no_value": "no value",
   "pic.should_turn": "0 rpm · should turn",
+  "pic.starting": "starting · {pct} %",
   "pic.asleep": "asleep",
   "pic.asleep_title": "The disk sleeps: no temperature while it does — Fanboy never wakes it",
   "pic.warmest_mark": "the warmest spot of this zone",
@@ -727,6 +728,7 @@
     "other": "fastest of {n} fans: {rpm} rpm"
   },
   "dash.ring_by_speed": "steers by speed — its fans at up to {pct} %",
+  "dash.ring_ask": "the zone asks {pct} %",
   "dash.ring_bios": "The BIOS runs these fans — their level isn't known",
   "dash.fan_title": "{name}: {text}",
   "dash.setting": "Show on the Dashboard",

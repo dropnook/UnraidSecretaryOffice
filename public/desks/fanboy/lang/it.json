@@ -354,6 +354,7 @@
   "pic.pct_no_tach": "{pct} % · nessun ritorno di velocità",
   "pic.no_value": "nessun valore",
   "pic.should_turn": "0 giri/min · dovrebbe girare",
+  "pic.starting": "si avvia · {pct} %",
   "pic.asleep": "dorme",
   "pic.asleep_title": "Il disco dorme: finché dorme nessuna temperatura — Fanboy non lo sveglia mai",
   "pic.warmest_mark": "il punto più caldo di questa zona",
@@ -727,6 +728,7 @@
     "other": "la più veloce di {n} ventole: {rpm} giri/min"
   },
   "dash.ring_by_speed": "regola per velocità — le sue ventole fino al {pct} %",
+  "dash.ring_ask": "la zona chiede {pct} %",
   "dash.ring_bios": "Il BIOS regola queste ventole — il loro livello non è noto",
   "dash.fan_title": "{name}: {text}",
   "dash.setting": "Mostra nella Dashboard",
