@@ -66,6 +66,9 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--widths') opt.widths = list().map(Number);
   else if (a === '--shot') opt.shots.push(val());
   else if (a === '--out') { opt.out = path.resolve(val()); opt.outGiven = true; }
+  // --store key=value,…: a per-browser choice (core.js Office.store, 'office.' + key) set before the page loads — e.g.
+  // fanboy.gap=dark for Fanboy's dark air between the blades
+  else if (a === '--store') opt.store = Object.fromEntries(list().map((x) => [x.slice(0, x.indexOf('=')), x.slice(x.indexOf('=') + 1)]));
   else if (a === '--alias') opt.alias = Object.fromEntries(list().map((x) => x.split('=')));    // a desk's demo state from another file (moverelli=moverelli-alone)
   else if (a === '-v' || a === '--verbose') opt.verbose = true;
   // --old <seconds>: the shown desk's kept state that old, the agent's new look not back yet (core.js «show first, then look»)
@@ -76,7 +79,7 @@ for (let i = 0; i < args.length; i++) {
 }
 function usage(code = 2) {
   console.error('usage: node tools/ui-shots.mjs [--routes jack] [--themes black,white] [--langs de,en] [--widths 1440,390]');
-  console.error('                               [--shot full|until:<css>|clip:<css>]… [--old <seconds>] [--out <folder>] [-v]');
+  console.error('                               [--shot full|until:<css>|clip:<css>]… [--old <seconds>] [--store key=value] [--out <folder>] [-v]');
   console.error('       node tools/ui-shots.mjs --moments [1,3,…] [--themes black,white] [--langs de,en] [--out <folder>] [-v]');
   process.exit(code);
 }
@@ -140,7 +143,7 @@ async function shootPage(browser, harness, route, theme, lang, width) {
     locale: LOCALES[lang] || lang, colorScheme: theme === 'white' ? 'light' : 'dark',
   });
   // the office's language as if chosen (⋯ → Language), its theme switch on Automatic: Unraid's theme decides
-  await ctx.addInitScript((l) => { try { localStorage.setItem('office.lang', l); localStorage.removeItem('office.theme'); } catch (e) { /* none */ } }, lang);
+  await ctx.addInitScript(([l, st]) => { try { localStorage.setItem('office.lang', l); localStorage.removeItem('office.theme'); for (const [k, v] of Object.entries(st)) localStorage.setItem('office.' + k, v); } catch (e) { /* none */ } }, [lang, opt.store || {}]);
   const page = await ctx.newPage();
   const errors = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 200)); });
@@ -230,7 +233,7 @@ async function shootMoment(browser, m, lang, theme) {
   const width = m.width || MOMENT_WIDTH;
   const ctx = await browser.newContext({ viewport: { width, height: m.height || 900 }, deviceScaleFactor: SCALE,
     locale: LOCALES[lang] || lang, colorScheme: theme === 'white' ? 'light' : 'dark' });
-  await ctx.addInitScript((l) => { try { localStorage.setItem('office.lang', l); localStorage.removeItem('office.theme'); } catch (e) { /* none */ } }, lang);
+  await ctx.addInitScript(([l, st]) => { try { localStorage.setItem('office.lang', l); localStorage.removeItem('office.theme'); for (const [k, v] of Object.entries(st)) localStorage.setItem('office.' + k, v); } catch (e) { /* none */ } }, [lang, opt.store || {}]);
   // the same greetings every time (Office.greet() picks one at random): Math.random seeded per moment (mulberry32),
   // and for each desk's greeting seeded anew from the moment's seed and the desk's id - the desks' states arrive in any
   // order, so one stream for all would give a desk another greeting in the other theme or language

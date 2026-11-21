@@ -7,7 +7,7 @@
 // with a throwaway profile. The office's own tile was never pictured by a tool; this is the smallest harness that
 // shows a tile inside Unraid's Dashboard. Dev-only.
 //
-//   node tools/fanboy/dashboard.mjs [--out <folder>] [--only <name>,…] [-v] [--cost [seconds]] [--frames]
+//   node tools/fanboy/dashboard.mjs [--out <folder>] [--only <name>,…] [-v] [--cost [seconds]] [--frames] [--gap dark]
 // --frames: no pictures — the tile's turning symbols never change the Dashboard's size (tools/fanboy/frames.mjs's checks:
 // each turning part clipped by a box of its own, the page's scrollWidth, scrollHeight and scroll position steady over
 // the animation's moments and frames), at 1440 and 390 px, the tile as the last thing on the page.
@@ -35,6 +35,8 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '-v') opt.v = true;
   else if (a === '--cost') opt.cost = /^\d+$/.test(args[i + 1] || '') ? Number(args[++i]) : 20;
   else if (a === '--frames') opt.frames = true;
+  // --gap dark: Fanboy's dark air between the blades, as a browser that chose it keeps it (fan-art.js reads office.fanboy.gap)
+  else if (a === '--gap') opt.gap = args[++i] === 'dark' ? 'dark' : 'light';
   else { console.log(`fanboy dashboard: unknown argument ${a}`); process.exit(2); }
 }
 try { execFileSync('php', ['-v'], { stdio: 'ignore' }); } catch (e) { console.log('fanboy dashboard: php not found - not run'); process.exit(3); }
@@ -309,6 +311,7 @@ try {
       const file = path.join(tmp, `${name}-${c.theme}-${c.lang}.html`);
       fs.writeFileSync(file, page(c.theme, tiles[c.lang]));
       const ctx = await browser.newContext({ viewport: { width: c.width, height: how && how.marker ? 1400 : 700 }, deviceScaleFactor: 2, locale: c.lang, hasTouch: c.width < 768 });
+      if (opt.gap === 'dark') await ctx.addInitScript(() => { try { localStorage.setItem('office.fanboy.gap', 'dark'); } catch (e) { /* none */ } });
       const p = await ctx.newPage();
       const errors = [];
       p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });

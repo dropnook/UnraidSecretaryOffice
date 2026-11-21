@@ -10,6 +10,7 @@
      picker(opts)              → { el, set(value), destroy() }        a fan from the catalogue, or «other fan» by hand
      catalog(url?)             → Promise<{ v, fans: [...] }>           fans-catalog.json beside this file
      turns(rpm, min, max)      → turns per second the picture shows (0, or 0.12 … 1.1, eased)
+     gap() / setGap(v)         → 'light' | 'dark': the air between the blades, one choice for every fan in this browser
      COLOURS, STATES, PLACES, KINDS, FLOWS, SIDES,                     the keys the caller may pass
      LOOK_COLOURS, STYLES, SHAPES                                      … and a model's look may use
    }
@@ -141,6 +142,40 @@
     return n;
   }
 
+  /**
+   * The air between the blades (2026-11-21, the owner: «Hell soll dann default sein immer und wer will kann den Schalter für
+   * alle auf dunkle-luft stellen»): the frame's opening is filled from behind (frameSvg's .fan-gap) — light in every theme, or
+   * dark for every fan when chosen. Only the air: frame, blades and hub keep their colours. The choice is one per browser,
+   * kept under the office's own key (core.js Office.store: 'office.' + key) and read here, so Unraid's Dashboard tile, which
+   * loads this file without core.js, draws the same; shown as <html data-fan-gap="dark"> (fan-art.css), at once, and in
+   * another tab through the storage event.
+   */
+  const GAP_KEY = 'office.fanboy.gap';
+  const paged = () => !!(document.documentElement && document.documentElement.dataset);     // a real page (not the suite's node run)
+  function gap() {
+    let v = null;
+    if (paged()) try { v = window.localStorage.getItem(GAP_KEY); } catch (e) { /* blocked: the default */ }
+    return v === 'dark' ? 'dark' : 'light';
+  }
+  function gapShow(v) {
+    if (!paged()) return;
+    const r = document.documentElement;
+    if (v === 'dark') r.dataset.fanGap = 'dark';
+    else delete r.dataset.fanGap;
+    if (typeof document.dispatchEvent === 'function') document.dispatchEvent(new CustomEvent('fanart-gap', { detail: v }));     // the switch shows it
+  }
+  function setGap(v) {
+    const want = v === 'dark' ? 'dark' : 'light';
+    if (paged()) try {
+      if (want === 'dark') window.localStorage.setItem(GAP_KEY, want);
+      else window.localStorage.removeItem(GAP_KEY);    // light is the default: nothing kept
+    } catch (e) { /* not kept: this page shows it anyway */ }
+    gapShow(want);
+    return want;
+  }
+  gapShow(gap());
+  if (typeof window.addEventListener === 'function') window.addEventListener('storage', (e) => { if (e.key === GAP_KEY || e.key === null) gapShow(gap()); });
+
   /** fan-art.css beside this file, once (the desk loads only its desk.css by itself; src/page.php) */
   function styles() {
     if (!ME || document.getElementById('fan-art-css')) return;
@@ -264,7 +299,7 @@
   /**
    * The housing: a rounded square with the round opening and the four screw holes (square), the same with an L-shaped pad
    * in each corner (pads) or a triangular piece over each corner (corner), or only a ring round the opening (ring). Between
-   * the blades nothing — one sees through the fan (2026-11-20, the owner: «dort ist nichts ausser Luft») — but the
+   * the blades only air — light, or dark when chosen for all fans (.fan-gap, 2026-11-21; before: the page showed through) — but the
    * motor's thin struts and its mount under the hub. Depth: the frame bevelled (light from the upper left), the opening's
    * lip recessed, a soft shadow where the wheel sits in it. All of it stands still: drawn once.
    */
@@ -284,6 +319,8 @@
     s.appendChild(defs);
     const ring = shape === 'ring';
     const open = openOf(mm);
+    // the air between the blades: the opening filled from behind, under the struts and the shade (fan-art.css .fan-gap)
+    s.appendChild(svg('circle', { class: 'fan-gap', cx: 50, cy: 50, r: open }));
     if (struts > 0) {
       // the struts: thin straight bars from the motor to the frame, a little off the radius (as most makers build them);
       // many of them make a grille
@@ -1362,5 +1399,5 @@
     return { el: root, set, value: () => cur, colour(c) { colour = pick(c, COLOURS, 'auto'); look2(); }, destroy() { wh.destroy(); } };
   }
 
-  window.FanArt = { wheel, server, curve, picker, catalog, turns, styles, lookOf, COLOURS, STATES, PLACES, KINDS, FLOWS, SIDES, LOOK_COLOURS, STYLES, SHAPES, STYLE_BLADES, HUB_KINDS };
+  window.FanArt = { wheel, server, curve, picker, catalog, turns, styles, lookOf, gap, setGap, COLOURS, STATES, PLACES, KINDS, FLOWS, SIDES, LOOK_COLOURS, STYLES, SHAPES, STYLE_BLADES, HUB_KINDS };
 })();

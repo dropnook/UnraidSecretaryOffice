@@ -378,7 +378,8 @@ His fans' biggest fan: he steers the fans on the mainboard's fan connectors by w
 - *Hand back* gives every fan back at once, to the mainboard's automatic or to its value from before. So does his stop.
   A fan that turns clearly slower after he gave it back goes to 100 %, and he tells you.
 - **Your own fans:** for the picture, a fan takes the look of its model — models of ten makers in their sizes, with
-  colours, blade shape and reverse blade to change; *See all…* shows every one.
+  colours, blade shape and reverse blade to change; *See all…* shows every one. The air between the blades is light;
+  *Air between the blades: Dark* makes it dark for every fan picture in this browser, the Dashboard tile included.
 - His own Dashboard tile (off until you switch it on) and a row in the office's Grafana dashboard.
 - Boards that steer their fans over IPMI aren't supported: his page says so and sends a wish with his report.
 

@@ -168,3 +168,81 @@ JS);
         is_array($o) && $named !== [] && $o['reverseByMake'] === $named, json_encode([$o['reverseByMake'] ?? null, $named]));
     hardeningRm($tmp);
 }
+
+/**
+ * The air between the blades (2026-11-21, the owner: «Hell soll dann default sein immer und wer will kann den Schalter für
+ * alle auf dunkle-luft stellen … es ist ja nur die Luft zwischen den Blättern, nicht der ganze Lüfter»): the frame's opening
+ * filled from behind, light by default in every theme, dark for every fan when chosen; one switch in the look's rows, kept
+ * per browser under the office's own key and read by fan-art.js itself (the Dashboard tile loads it without core.js)
+ */
+function testFanboyLookGap(): void
+{
+    $art = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.js');
+    $css = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.css');
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    $dash = (string) file_get_contents(OFFICE_DIR . '/src/dashboard-fanboy.php');
+    check('fanboy gap: every frame fills its opening from behind (.fan-gap, the opening\'s radius), drawn first: under the struts and the shade',
+        str_contains($art, "s.appendChild(svg('circle', { class: 'fan-gap', cx: 50, cy: 50, r: open }));")
+        && strpos($art, "class: 'fan-gap'") < strpos($art, "class: 'fan-struts'") && strpos($art, "class: 'fan-gap'") < strpos($art, "class: 'fan-shade'"));
+    // colours as tokens of Unraid's palette, neither following the theme: light stays light in the black theme
+    check('fanboy gap: light by default, dark under <html data-fan-gap="dark"> — both from the palette, neither from the theme\'s tokens',
+        str_contains($css, '.fan-wheel{--fan-gap:var(--gray-150); --fan-gap-ink:var(--black)}')
+        && str_contains($css, ':root[data-fan-gap="dark"] & .fan-wheel{--fan-gap:var(--gray-800); --fan-gap-ink:var(--white)}')
+        && str_contains($css, '.fan-gap{fill:var(--fan-gap)}'));
+    check('fanboy gap: only the air changes — the struts, a grille and the blades\' edge lean toward what stands out on the air, the fills keep their colours',
+        str_contains($css, '.fan-struts line{stroke:color-mix(in srgb, var(--fan-frame) 72%, var(--fan-gap-ink));')
+        && str_contains($css, '.fan-struts.fan-grille line{stroke-width:1; stroke:color-mix(in srgb, var(--fan-frame) 55%, var(--fan-gap-ink))}')
+        && str_contains($css, '.fan-blades path{fill:var(--fan-blade); stroke:color-mix(in srgb, var(--fan-edge) 60%, var(--fan-gap-ink, var(--fan-edge)));')
+        && str_contains($css, '.fan-housing{fill:var(--fan-frame);'));
+    // one choice per browser under core.js's own prefix, read by fan-art.js (the Dashboard tile has no core.js)
+    check('fanboy gap: kept per browser as office.fanboy.gap — core.js\'s Office.store prefix — and read by fan-art.js itself, which the Dashboard tile loads',
+        str_contains($core, "const STORE  = 'office.';") && str_contains($art, "const GAP_KEY = 'office.fanboy.gap';")
+        && str_contains($dash, "officeDashAsset('desks/fanboy/fan-art.js')") && str_contains($art, 'window.FanArt = { wheel, server, curve, picker, catalog, turns, styles, lookOf, gap, setGap,'));
+    check('fanboy gap: one switch «Light · Dark» in the look\'s rows (for every fan, not this one), its state from FanArt.gap() and redrawn when the choice changes',
+        str_contains($js, "const gapBtns = ['light', 'dark'].map((v) => { const b = btn(T(`gap.\${v}`), '', () => A.setGap(v), T('gap.tip'));")
+        && str_contains($js, "document.addEventListener('fanart-gap', gapNow);") && str_contains($js, "rowOf(T('gap.label'), gapSeg));"));
+    $miss = [];
+    foreach (['de', 'en', 'es', 'fr', 'it'] as $l) {
+        $t = langFile(OFFICE_WEB . "/desks/fanboy/lang/$l.json");
+        foreach (['gap.label', 'gap.light', 'gap.dark', 'gap.tip'] as $k) {
+            if (!is_string($t[$k] ?? null) || trim($t[$k]) === '') {
+                $miss[] = "$l $k";
+            }
+        }
+    }
+    same('fanboy gap: the switch\'s words in all five languages', [], $miss);
+    $node = trim((string) shell_exec('command -v node 2>/dev/null'));
+    if ($node === '') {
+        check('fanboy gap: node is missing here - the switch\'s behaviour skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('fanboy-gap');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const kept = new Map(), events = [];
+globalThis.localStorage = { getItem: (k) => (kept.has(k) ? kept.get(k) : null), setItem: (k, v) => kept.set(k, String(v)), removeItem: (k) => kept.delete(k) };
+globalThis.window = globalThis;
+const root = { dataset: {} };
+globalThis.document = { currentScript: null, documentElement: root, addEventListener() {}, getElementById: () => null, hidden: false,
+  dispatchEvent: (e) => { events.push(e.detail); return true; } };
+const before = process.argv[3] === 'dark';
+if (before) kept.set('office.fanboy.gap', 'dark');
+new Function(fs.readFileSync(process.argv[2], 'utf8'))();
+const A = window.FanArt;
+const out = { start: A.gap(), startAttr: root.dataset.fanGap ?? null };
+out.dark = [A.setGap('dark'), root.dataset.fanGap ?? null, kept.get('office.fanboy.gap') ?? null, events[events.length - 1]];
+out.light = [A.setGap('light'), root.dataset.fanGap ?? null, kept.get('office.fanboy.gap') ?? null, events[events.length - 1]];
+out.odd = [A.setGap('purple'), root.dataset.fanGap ?? null, kept.has('office.fanboy.gap')];
+console.log(JSON.stringify(out));
+JS);
+    $run = fn (string $start) => json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' '
+        . escapeshellarg(OFFICE_WEB . '/desks/fanboy/fan-art.js') . ' ' . $start . ' 2>&1'), true);
+    $fresh = $run('none');
+    $kept = $run('dark');
+    same('fanboy gap: a browser that never chose — light, nothing on the page\'s root', ['light', null], [$fresh['start'] ?? '?', is_array($fresh) && array_key_exists('startAttr', $fresh) ? $fresh['startAttr'] : '?'], json_encode($fresh));
+    same('fanboy gap: a browser that chose dark — dark from the first drawing', ['dark', 'dark'], [$kept['start'] ?? '?', $kept['startAttr'] ?? '?'], json_encode($kept));
+    same('fanboy gap: «Dark» applies at once (the page\'s root, kept, told) and «Light» back (the key removed: light is the default); anything else is light',
+        [['dark', 'dark', 'dark', 'dark'], ['light', null, null, 'light'], ['light', null, false]], [$fresh['dark'] ?? null, $fresh['light'] ?? null, $fresh['odd'] ?? null], json_encode($fresh));
+    hardeningRm($tmp);
+}

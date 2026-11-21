@@ -2875,8 +2875,24 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     const revNote = el('span', 'fb-look-took');
     const revRow = el('div', 'fb-look-rev');
     revRow.append(revBox, revNote);
+    // the air between the blades (2026-11-21, the owner: light by default, one switch for all fans to dark): not this fan's —
+    // every fan picture in this browser (FanArt.setGap, kept per browser like the theme; the Dashboard tile reads it too)
+    const gapSeg = el('div', 'seg fb-gap');
+    gapSeg.setAttribute('role', 'group');
+    gapSeg.setAttribute('aria-label', T('gap.label'));
+    gapSeg.title = T('gap.tip');
+    const gapBtns = ['light', 'dark'].map((v) => { const b = btn(T(`gap.${v}`), '', () => A.setGap(v), T('gap.tip')); gapSeg.appendChild(b); return [v, b]; });
+    const gapNow = () => {
+      if (!gapSeg.isConnected && gapSeg.dataset.drawn) { document.removeEventListener('fanart-gap', gapNow); return; }
+      const v = A.gap();
+      gapBtns.forEach(([k, b]) => b.setAttribute('aria-pressed', k === v ? 'true' : 'false'));
+    };
+    gapNow();
+    gapSeg.dataset.drawn = '1';
+    document.addEventListener('fanart-gap', gapNow);
     const rows = el('div', 'fb-look-rows');
-    rows.append(rowOf(T('look.frame'), frame.el), rowOf(T('look.wheel'), wheel.el), rowOf(T('look.style'), kinds), rowOf(T('look.blades'), count), revRow);
+    rows.append(rowOf(T('look.frame'), frame.el), rowOf(T('look.wheel'), wheel.el), rowOf(T('look.style'), kinds), rowOf(T('look.blades'), count), revRow,
+      rowOf(T('gap.label'), gapSeg));
     lookBody.append(el('p', 'fb-hint-text', T('look.text')), top, says, rows);
     let off = false;
     function paint() {
