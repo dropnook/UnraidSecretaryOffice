@@ -816,6 +816,35 @@ function testFanboyDashAsleep(): void
     same('fanboy dash asleep: steering — one asleep, the others without a reading; none asleep; an older status without the count: «nothing warm»',
         array_fill(0, 3, 'nothing warm — its quiet level'), [$words($web($live(1)))[0], $words($web($live(0)))[0], $words($web($live(null)))[0]]);
     same('fanboy dash asleep: steering — all asleep by the count, yet a warmest spot reported: the warmest spot', 'warmest: Disk 2 at 41 °C', $words($web($live(3, true)))[0]);
+    // 2026-11-21 (the owner: «Schlafen nur einige und der Rest ist kühl → die Temperatur anzeigen … auch wenn sie 10 Grad ist»):
+    // the control names a warmest spot for every awake source with a reading, also one far under its curve's start that asks
+    // for nothing — the tile shows it as it is
+    $cool = fanboyDashFansState(static function (array $s): array {
+        foreach ($s['control']['zones'] as &$z) {
+            if ($z['id'] === 'disks') {
+                $z['warmest'] = ['id' => 'parity', 'label' => 'parity', 'c' => 10, 'mapped' => 0, 'kind' => 'disk', 'value' => 0];
+                $z['asleep'] = 2;
+                $z['level'] = 0;
+            }
+        }
+        unset($z);
+        return $s;
+    });
+    same('fanboy dash asleep: steering — two asleep, one awake at 10 °C (asks nothing): that one, «warmest: Parity at 10 °C»', ['warmest: Parity at 10 °C', 'am wärmsten: Parität mit 10 °C'], $words($web($cool)));
+    // … the control's round itself: a reading far under the curve still is its zone's warmest; no reading at all: none
+    $zone = fanboyR13Zone(['sources' => [['kind' => 'disk', 'id' => 'd1'], ['kind' => 'disk', 'id' => 'd2'], ['kind' => 'disk', 'id' => 'd3']]]);
+    $round = static function (array $temps) use ($zone): array {
+        $c = ['zones' => ['z' => $zone], 'sources' => [], 'fans' => [], 'full_since' => []];
+        foreach ($temps as $id => $t) {
+            $c['sources'][$id] = ['kind' => 'disk', 'label' => $id, 'c' => $t, 'asleep' => $t === null, 'quiet_since' => null, 'path' => '/x'];
+        }
+        $reasons = [];
+        fanboyZoneRound($c, 'z', 0.0, $reasons);
+        return [$c['zones']['z']['warmest']['id'] ?? null, $c['zones']['z']['warmest']['c'] ?? null, $c['zones']['z']['state']];
+    };
+    same('fanboy dash asleep: the control\'s round — d1, d2 asleep, d3 awake at 10 °C: d3 its warmest (10 °C); all asleep: none, each «asleep»',
+        [['d3', 10, ['d1' => 'asleep', 'd2' => 'asleep', 'd3' => 'ok']], [null, null, ['d1' => 'asleep', 'd2' => 'asleep', 'd3' => 'asleep']]],
+        [$round(['d1' => null, 'd2' => null, 'd3' => 10]), $round(['d1' => null, 'd2' => null, 'd3' => null])]);
     check('fanboy dash asleep: … at the card\'s foot', str_contains((string) ($web($live(3))['rows'] ?? ''), '<div class="sso-fb-cfoot" title="all asleep — no temperature">all asleep — no temperature</div>'), '');
     // the BIOS steering (his control not running): his last look's flags
     $bios = static fn (array $flags): array => fanboyDashFansState(static function (array $s) use ($flags): array {
@@ -829,11 +858,11 @@ function testFanboyDashAsleep(): void
         unset($src);
         return $s;
     });
-    same('fanboy dash asleep: the BIOS steering — every source asleep: «all asleep»; one awake without a reading: «nothing warm»; one awake with 30 °C: it',
-        ['all asleep — no temperature', 'nothing warm — its quiet level', 'warmest: Parity at 30 °C'],
+    same('fanboy dash asleep: the BIOS steering — every source asleep: «all asleep»; one awake without a reading: «nothing warm»; one awake with 10 °C: it',
+        ['all asleep — no temperature', 'nothing warm — its quiet level', 'warmest: Parity at 10 °C'],
         [$words($web($bios(['parity' => [true, null], 'disk1' => [true, null], 'disk2' => [true, null]])))[0],
          $words($web($bios(['parity' => [false, null], 'disk1' => [true, null], 'disk2' => [true, null]])))[0],
-         $words($web($bios(['parity' => [false, 30], 'disk1' => [true, null], 'disk2' => [true, null]])))[0]]);
+         $words($web($bios(['parity' => [false, 10], 'disk1' => [true, null], 'disk2' => [true, null]])))[0]]);
     // his page: the same rule in both places that said «nothing warm»
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
     check('fanboy dash asleep: his page — the zone\'s line and «Now» by the same rule (the control\'s count against the setup\'s sources), no «nothing warm» left of its own',
