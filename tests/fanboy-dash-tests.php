@@ -272,8 +272,8 @@ function testFanboyDashSource(): void
         'ipmi', 'no_output', 'not_armed', 'not_set_up', 'other', 'released', 'starting', 'stopped'], fanboyTSorted(array_map(fn ($key) => substr($key, 9), $whys)));
     // the refresh: never faster than his state changes (the control every 10 s), only while the page is in view
     $js = substr($src, (int) strpos($src, '<script>'));
-    check('fanboy dash: the refresh — 3 s while he steers, a minute else, not while the page is hidden, unfolded zones kept',
-        str_contains($js, 'steers()?3000:60000') && str_contains($js, 'if(!document.hidden)load();') && !str_contains($js, 'setInterval') && str_contains($js, 'details[open]'), $js);
+    check('fanboy dash: the refresh — 2 s while he steers (his round), a minute else, not while the page is hidden, unfolded zones kept',
+        str_contains($js, 'steers()?2000:60000') && str_contains($js, 'if(!document.hidden)load();') && !str_contains($js, 'setInterval') && str_contains($js, 'details[open]'), $js);
     check('fanboy dash: readable tones — on the dark themes the lighter steps of Unraid\'s palette, on the light ones the darker (text ≥ 4.5:1, the curve\'s line ≥ 3:1, measured by tools/fanboy/dashboard.mjs), Unraid\'s own elsewhere',
         str_contains($src, "html.Theme--black #db-sso-fanboy,html.Theme--gray #db-sso-fanboy{--sso-fb-red:var(--red-300);--sso-fb-green:var(--green-500);--sso-fb-orange:var(--orange-300);--sso-fb-link:var(--blue-700);--sso-fb-curve:var(--orange-300)}")
         && str_contains($src, "html.Theme--white #db-sso-fanboy,html.Theme--azure #db-sso-fanboy{--sso-fb-red:var(--red-900);--sso-fb-green:var(--green-900);")

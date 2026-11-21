@@ -20,7 +20,7 @@ declare(strict_types=1);
  * its peaks: a handful of numbers per zone go into the page, never the file.
  *
  * Its rows refresh as the office's do: a small script asks api.php?a=dash&part=fanboy (the same rows, the same files)
- * every minute, every 3 s while he steers (the control writes every round, 2 s: the speeds on the tile follow the fans —
+ * every minute, every 2 s while he steers (the control writes every round, 2 s — faster would show the same twice: the speeds follow the fans —
  * 2026-11-21, the owner saw 10–20 s old speeds), never while the page is hidden, and when the page comes back.
  */
 
@@ -1139,7 +1139,7 @@ function officeFanboyDashTile(): string
         . 'function mood(){var w=box()&&box().querySelector(".sso-fb-who"),i=document.querySelector("#db-sso-fanboy img.sso-fb-logo"),m=w&&w.getAttribute("data-mood")==="alarm"&&pics.alarm?"alarm":"";'
         . 'if(i&&pics[m]&&i.getAttribute("src")!==pics[m])i.setAttribute("src",pics[m]);}'
         . 'function steers(){var w=box()&&box().querySelector(".sso-fb-who");return !!w&&w.getAttribute("data-steers")==="1";}'
-        . 'function again(){clearTimeout(next);next=setTimeout(function(){if(!document.hidden)load();},steers()?3000:60000);}'
+        . 'function again(){clearTimeout(next);next=setTimeout(function(){if(!document.hidden)load();},steers()?2000:60000);}'
         . 'function load(){fetch(u,{cache:"no-store"}).then(function(r){return r.json();}).then(function(j){var b=box();if(b&&j&&j.ok){'
         . 'var open=[].map.call(b.querySelectorAll("details[open]"),function(d){return d.getAttribute("data-zone");});b.innerHTML=j.html;'
         . '[].forEach.call(b.querySelectorAll("details"),function(d){if(open.indexOf(d.getAttribute("data-zone"))>=0)d.open=true;});mood();syms();}again();})'
