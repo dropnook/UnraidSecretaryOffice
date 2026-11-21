@@ -16,8 +16,8 @@ Start with the Team Lead. He looks at your server and suggests whom to hire.
 
 ## Backups that come back
 
-- **Mr. Backupsy** takes consistent backups on your schedule: snapshots, database dumps and, encrypted with Kopia, offsite, or to one of your Unraid
-  partner servers on the LAN or over VPN / Tailscale — and shows
+- **Mr. Backupsy** takes consistent backups on your schedule: snapshots, database dumps and, encrypted with Kopia, offsite, for example
+  to an S3 service, or to one of your Unraid partner servers on the LAN or over VPN / Tailscale — and shows
   how each share, app and VM is really protected and how long each copy is kept.
 - **Mr. Restori** brings back apps, VMs, whole shares or single files from any copy, hands you the flash archive — and
   rehearses it on throwaway copies.
