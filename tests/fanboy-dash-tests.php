@@ -515,7 +515,7 @@ function testFanboyDashFans(): void
             [[fanboyDashKey($m['zones'][0]['art'][0] ?? [], 'min'), fanboyDashKey($m['zones'][0]['art'][0] ?? [], 'max')], [fanboyDashKey($m['zones'][1]['art'][1] ?? [], 'min'), fanboyDashKey($m['zones'][1]['art'][1] ?? [], 'max')]]));
     $rows = (string) ($o['rows'] ?? '');
     check('fanboy dash fans: the rows — a card each zone and the watched CPU cooler\'s (no folding, no speed range), every fan with its symbol\'s box, its name and speed in its title',
-        preg_match_all('/<div class="sso-fb-card[ "]/', $rows) === 3 && !str_contains($rows, '<details') && substr_count($rows, 'class="sso-fb-sym sso-fb-csym"') === 5
+        preg_match_all('/<div class="sso-fb-card[ "]/', $rows) === 3 && !str_contains($rows, '<details') && substr_count($rows, 'class="sso-fb-sym sso-fb-csym"') === 6       // (the CPU cooler: two fans on its output)
         && str_contains($rows, 'title="Vorn: 905 rpm · 35 %"') && !str_contains($rows, '0–905 rpm'), $rows);
     check('fanboy dash fans: the symbols\' data — no internal name of an output (a short key instead)', !preg_match('/hwmon|pwm\d|it87/', $rows)
         && (bool) preg_match('/^[0-9a-f]{10}$/D', (string) ($m['zones'][0]['art'][0]['id'] ?? '')), $rows);
@@ -590,7 +590,7 @@ function testFanboyDashFans(): void
     same('fanboy dash fans: many — the model\'s four fans with their symbols (the first four of his page; «with history»\'s folds), «+ 5 more fans», four zones, «+ 2 more zones»',
         [['Käfig 1 · 2 fans on it', 'Käfig 2', 'Käfig 3', 'Käfig 4'], 4, 5, 4, 2],        // (output 1 carries the demo's splitter)
         [array_column($o['model']['zones'][0]['fans'] ?? [], 0), count($o['model']['zones'][0]['art'] ?? []), $o['model']['zones'][0]['fans_more'] ?? null, count($o['model']['zones'] ?? []), $o['model']['more'] ?? null]);
-    check('fanboy dash fans: … the cards: 7 symbols (3 + one each in three zones + the watched CPU cooler), no «more fans», «+ 2 more zones»', substr_count($rows, 'class="sso-fb-sym sso-fb-csym"') === 7
+    check('fanboy dash fans: … the cards: 8 symbols (3 — output 1 carries two — + one each in three zones + the watched CPU cooler\'s two), no «more fans», «+ 2 more zones»', substr_count($rows, 'class="sso-fb-sym sso-fb-csym"') === 8
         && !str_contains($rows, 'more fans') && str_contains($rows, '+ 2 more zones'), $rows);
     $o = $many(true);
     same('fanboy dash fans: many, the seventh stands though it should turn — among the four (in his page\'s order), red, its ring',
@@ -886,4 +886,67 @@ function testFanboyDashAsleep(): void
     check('fanboy dash focus: the script marks what a pointer focuses and lets go of the mark with the focus (the keyboard\'s next one shows)',
         str_contains($js, 'tl.addEventListener("pointerdown",function(e){var f=e.target&&e.target.closest?e.target.closest("summary,button,a,[tabindex]"):null;')
         && str_contains($js, 'if(f)f.setAttribute("data-sso-fb-ptr","");},true);') && str_contains($js, 'e.target.removeAttribute("data-sso-fb-ptr");'), $js);
+}
+
+/**
+ * 2026-11-21 (the owner: «CPU hab ich doch zwei Lüfter, warum ist dann hier nur einer?»): an output that carries n fans (the
+ * setup's count, a splitter) is n wheels on its card, counted against the card's three; the row's title names each output
+ * with «n fans on it»; the watched CPU cooler the same; a state without the count draws one
+ */
+function testFanboyDashSplitter(): void
+{
+    $now = 1763100000 + 20;
+    $web = static fn (array $state): array => fanboyDashWeb(['fanboy.json' => $state] + fanboyDashFiles('fanboy', 'speeds'), [], $now);
+    $id = static fn (int $n): string => "it8696_a0060607:it87.2608:pwm$n";
+    $counts = static fn (array $c, ?callable $more = null): array => fanboyDashFansState(static function (array $s) use ($c, $id, $more): array {
+        foreach ($s['setup']['fans'] as &$f) {
+            foreach ($c as $n => $k) {
+                if ($f['id'] === $id($n)) {
+                    if ($k === null) {
+                        unset($f['count']);
+                    } else {
+                        $f['count'] = $k;
+                    }
+                }
+            }
+        }
+        unset($f);
+        return $more !== null ? $more($s) : $s;
+    });
+    $wheels = static fn (array $o, int $z): array => array_map(static fn ($a) => $a['title'] ?? null, $o['model']['zones'][$z]['card']['art'] ?? []);
+    $syms = static fn (string $rows, string $zone): int => preg_match('/data-zone="' . $zone . '">.*?<span class="sso-fb-cfans sso-fb-n(\d)"/s', $rows, $mm) ? (int) $mm[1] : -1;
+
+    $o = $web($counts([4 => 2]));
+    same('fanboy dash splitter: the disk cage\'s one output with two fans — two wheels of its look, its words «2 fans on it»',
+        [['Plattenkäfig · 2 fans on it: 1018 rpm · 30 %', 'Plattenkäfig · 2 fans on it: 1018 rpm · 30 %'], 2, true],
+        [$wheels($o, 0), $syms((string) ($o['rows'] ?? ''), 'disks'), ($o['model']['zones'][0]['card']['art'][0]['look'] ?? null) === ($o['model']['zones'][0]['card']['art'][1]['look'] ?? false)]);
+    $o = $web($counts([5 => 2, 2 => 2]));
+    same('fanboy dash splitter: the case — two outputs with two fans each and one alone: three wheels (Vorn twice, Deckel once), the row\'s title names all three outputs',
+        [['Vorn · 2 fans on it: 905 rpm · 35 %', 'Vorn · 2 fans on it: 905 rpm · 35 %', 'Deckel · 2 fans on it: 760 rpm · 40 %'], 3,
+         "Vorn · 2 fans on it: 905 rpm · 35 %\nDeckel · 2 fans on it: 760 rpm · 40 %\nHinten: stands — it may"],
+        [$wheels($o, 1), $syms((string) ($o['rows'] ?? ''), 'case'), $o['model']['zones'][1]['card']['title'] ?? null]);
+    $o = $web($counts([5 => 2, 2 => 2, 6 => 2], static function (array $s): array {
+        foreach ($s['control']['zones'] as &$z) {
+            if ($z['id'] === 'case') {
+                $z['fans'][2] = ['pct' => 30, 'rpm' => 0, 'stand_since' => null] + $z['fans'][2];
+            }
+        }
+        unset($z);
+        return $s;
+    }));
+    same('fanboy dash splitter: three outputs with two fans each, the third stands though it should turn — its two wheels first, Vorn\'s one in the room left (his page\'s order kept)',
+        [['Vorn · 2 fans on it: 905 rpm · 35 %', 'Hinten · 2 fans on it: 0 rpm · should turn · 30 %', 'Hinten · 2 fans on it: 0 rpm · should turn · 30 %'], ['stopped', 'stopped']],
+        [$wheels($o, 1), [$o['model']['zones'][1]['card']['art'][1]['state'] ?? null, $o['model']['zones'][1]['card']['art'][2]['state'] ?? null]]);
+    // the watched CPU cooler (the demo's: two fans on output 1) — two wheels, its row titled with them
+    $o = $web($counts([]));
+    $rows = (string) ($o['rows'] ?? '');
+    same('fanboy dash splitter: the CPU cooler the BIOS keeps with two fans — two wheels, the row «CPU-Kühler · 2 fans on it: 1310 rpm», the foot as before',
+        [2, true, true],
+        [$syms($rows, 'watch0'), str_contains($rows, '<span class="sso-fb-cfans sso-fb-n2" title="CPU-Kühler · 2 fans on it: 1310 rpm">'), str_contains($rows, '>2 fans on it · The BIOS steers it — Fanboy does not</div>')]);
+    // a state without the count (an older setup): one wheel each
+    $o = $web($counts([1 => null, 4 => null]));
+    same('fanboy dash splitter: no count in the setup — one wheel (the disk cage, the CPU cooler)', [1, 1],
+        [$syms((string) ($o['rows'] ?? ''), 'disks'), $syms((string) ($o['rows'] ?? ''), 'watch0')]);
+    $odd = $web($counts([4 => '2']));
+    same('fanboy dash splitter: a count not a number — one wheel, never guessed', 1, $syms((string) ($odd['rows'] ?? ''), 'disks'));
 }

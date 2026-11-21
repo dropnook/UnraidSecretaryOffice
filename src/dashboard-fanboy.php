@@ -396,6 +396,39 @@ function officeFanboyDashPick(array $fans, array $arts, bool $art, int $max = FA
     return array_fill_keys($keep, true);
 }
 
+/**
+ * A card's wheels (2026-11-21, the owner: «CPU hab ich doch zwei Lüfter, warum ist dann hier nur einer?»): each output drawn
+ * as many times as fans hang on it (the setup's count), at most $max in all — the outputs with a fan that stands though it
+ * should turn first, then his page's order; an output may lose some of its wheels to the limit; shown in his page's order
+ *
+ * @param list<array> $fans the zone's fans [name, text, stands] in his page's order
+ * @param list<array> $arts their symbols
+ * @param list<int> $counts the fans on each output
+ * @param list<string> $tips each output's words (name: speed) for its wheels' titles
+ * @return list<array> the wheels, each a symbol with its title
+ */
+function officeFanboyDashCardWheels(array $fans, array $arts, array $counts, array $tips, int $max = FANBOY_DASH_CARD_FANS): array
+{
+    $alarm = array_keys(array_filter($fans, static fn ($f, $i) => ($f[2] ?? false) === true || ($arts[$i]['state'] ?? '') === 'stopped', ARRAY_FILTER_USE_BOTH));
+    $take = [];
+    $left = $max;
+    foreach (array_values(array_unique([...$alarm, ...array_keys($fans)])) as $i) {
+        if ($left <= 0 || !isset($arts[$i])) {
+            continue;
+        }
+        $take[$i] = min(max(1, $counts[$i] ?? 1), $left);
+        $left -= $take[$i];
+    }
+    ksort($take);
+    $out = [];
+    foreach ($take as $i => $n) {
+        for ($k = 0; $k < $n; $k++) {
+            $out[] = ['title' => $tips[$i] ?? ''] + $arts[$i];
+        }
+    }
+    return $out;
+}
+
 /** The ring's colour band for a level: green up to FANBOY_DASH_RING_MID %, yellow up to FANBOY_DASH_RING_HOT %, red above */
 function officeFanboyDashBand(int $fill): string
 {
@@ -560,6 +593,8 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             $sources[$src['id']] = $src;
         }
     }
+    // how many fans hang on an output (a splitter, round 3): exactly the setup's count, else one (2026-11-21: a card draws each)
+    $countOf = static fn (string $id): int => is_int($named[$id]['count'] ?? null) ? max(1, min(8, $named[$id]['count'])) : 1;
     $fanName = static function (string $id, array $f = []) use ($s, $named, $str): string {
         $name = $str($f['name'] ?? null) ?: $str($named[$id]['name'] ?? null);
         if ($name === '') {
@@ -577,6 +612,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
         $arts = [];
         $rpms = [];
         $nums = [];                     // each fan's numbers for the card's ring (officeFanboyDashRing())
+        $counts = [];                   // the fans on each output (the card draws a wheel for each)
         if ($l !== null) {
             foreach (is_array($l['fans'] ?? null) ? $l['fans'] : [] as $f) {
                 if (!is_array($f) || !is_string($f['id'] ?? null)) {
@@ -590,6 +626,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
                 $stands = $rpm === 0 && $pct !== null && $pct > 0 && $held;
                 // 2026-11-20: one that may stand and stands now says so (his page's words), never «0 rpm»
                 $restsAt = $held && !$stands && is_int($f['stand_since'] ?? null) ? ($f['starts_at'] ?? null) : false;
+                $counts[] = $countOf($f['id']);
                 $fans[] = [$fanName($f['id'], $f), ($stands ? officeDashT($s, 'fanboy.pic.should_turn')
                     : ($restsAt !== false ? (is_int($restsAt) || is_float($restsAt) ? officeDashT($s, 'fanboy.pic.stands_until', ['c' => officeFanboyDashNum((float) $restsAt, $lang, floor((float) $restsAt) === (float) $restsAt ? 0 : 1)])
                         : officeDashT($s, 'fanboy.pic.stands_ok'))
@@ -625,6 +662,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
                 }
                 $rpm = $tach[$fid] ?? null;
                 $rpms[] = $rpm;
+                $counts[] = $countOf($fid);
                 $fans[] = [$fanName($fid), $rpm === null ? officeDashT($s, 'fanboy.pic.no_tach') : officeDashT($s, 'fanboy.pic.rpm', ['rpm' => $rpm]), false];
                 $nums[] = ['rpm' => $rpm, 'pct' => null, 'stands' => false, 'rests' => false];
                 $arts[] = $art($fid, $rpm, 'bios', officeDashT($s, $biosRole($fid) ? 'fanboy.pic.watched_title' : 'fanboy.pic.bios_title'));
@@ -644,14 +682,10 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
         }
         $unit = $str($z['unit'] ?? $l['unit'] ?? null);
         $keep = officeFanboyDashPick($fans, $arts, $out['art']);
-        // the card (2026-11-21): at most three fans, one in alarm always among them; each wheel's tip and the row's (every fan
-        // of the zone, those not shown too) say name and speed
+        // the card (2026-11-21): at most three fans — an output with a splitter a wheel for each of its fans —, one in alarm always
+        // among them; each wheel's tip and the row's (every fan of the zone, those not shown too) say name and speed
         $tips = array_map(static fn (array $f): string => officeDashT($s, 'fanboy.dash.fan_title', ['name' => $f[0], 'text' => $f[1]]), $fans);
-        $onCard = officeFanboyDashPick($fans, $arts, true, FANBOY_DASH_CARD_FANS);
-        $cardArt = [];
-        foreach (array_keys($onCard) as $i) {
-            $cardArt[] = ['title' => $tips[$i]] + $arts[$i];
-        }
+        $cardArt = officeFanboyDashCardWheels($fans, $arts, $counts, $tips);
         $out['zones'][] = [
             'id'      => $id,
             'name'    => $name,
@@ -694,7 +728,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
         $wid = $str($w['id'] ?? null);
         $given = is_string($named[$wid]['name'] ?? null) && trim($named[$wid]['name']) !== '';
         $out['watch_art'][] = $wid !== '' && $given && ($looks[$wid]['look'] ?? null) !== null ? $art($wid, $rpm, 'bios', officeDashT($s, 'fanboy.pic.watched_title'))
-            + ['count' => is_int($named[$wid]['count'] ?? null) ? $named[$wid]['count'] : 1] : null;
+            + ['count' => $countOf($wid)] : null;
         if ($rpm === 0) {
             $standing[] = $name;
         }
@@ -850,7 +884,9 @@ function officeFanboyDashRows(string $lang, ?int $now = null, ?string $show = nu
         foreach (array_filter($m['watch_art']) as $i => $a) {
             $out .= officeFanboyDashCard($s, ['id' => 'watch' . $i, 'name' => $m['watch'][$i][0], 'level' => officeDashT($s, 'fanboy.pic.bios'), 'full' => false,
                 'ring' => officeFanboyDashRing($s, null, 'pct', false, true, [['rpm' => $a['rpm'], 'pct' => null, 'stands' => false, 'rests' => false]]),
-                'card' => ['art' => [['title' => officeDashT($s, 'fanboy.dash.fan_title', ['name' => $m['watch'][$i][0], 'text' => $m['watch'][$i][1]])] + $a], 'title' => '', 'stands' => []],
+                'card' => ['art' => array_fill(0, min($a['count'], FANBOY_DASH_CARD_FANS), ['title' => officeDashT($s, 'fanboy.dash.fan_title', ['name' => $m['watch'][$i][0], 'text' => $m['watch'][$i][1]])] + $a),
+                    'title' => officeDashT($s, 'fanboy.dash.fan_title', ['name' => $m['watch'][$i][0] . ($a['count'] > 1 ? ' · ' . officeDashT($s, 'fanboy.pic.on_one', ['n' => $a['count']]) : ''), 'text' => $m['watch'][$i][1]]),
+                    'stands' => []],
                 'warm' => null, 'foot' => ($a['count'] > 1 ? officeDashT($s, 'fanboy.pic.on_one', ['n' => $a['count']]) . ' · ' : '') . officeDashT($s, 'fanboy.pic.watched_title'),
                 'speed' => ''], $dim);
         }

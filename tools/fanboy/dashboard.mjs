@@ -161,6 +161,8 @@ function fansMany(lang) {
  *   one     one zone
  *   bios    handed back: the BIOS runs every fan, no level known
  *   asleep  every disk of the cage asleep (no temperature at all: «alle schlafen — keine Temperatur»), its fan resting
+ *   split   splitters (the setup's count): the cage's one output with two fans (two wheels); the case's front and top two
+ *           each (three wheels in all, the row's title names every output); the watched CPU cooler's two as in the demo
  */
 function cards(lang, kind) {
   const s = fans(lang, { stand: kind !== 'warm' });
@@ -206,6 +208,11 @@ function cards(lang, kind) {
     fan(4, { off_ok: true });
     Object.assign(zone('disks'), { level: 0, warmest: null, asleep: 3, fans: [live(4, '', 0, 0, { may_stand: true, stand_since: s.control.time - 900, starts_at: null })] });
   }
+  if (kind === 'split') {
+    fan(4, { count: 2 });
+    fan(5, { count: 2 });
+    fan(2, { count: 2 });
+  }
   if (kind === 'bios') {
     s.control.running = false;
     s.who = { who: 'bios', why: 'hand_back' };
@@ -226,7 +233,7 @@ const SCENES = [
   // seven fans in the case, the fifth standing though it should turn: four shown — the alarm among them, in his page's order
   ['fans-many', (lang) => ({ ...ON, 'fanboy.json': fansMany(lang) }), {}, null, false, { widths: [1920, 1024, 390], langs: ['de'] }],
   // 2026-11-21: the cards' hard cases (German, black and white, the three widths)
-  ...['warm', 'full', 'rpm', 'one', 'bios', 'asleep'].map((k) => [`cards-${k}`, (lang) => ({ ...ON, 'fanboy.json': cards(lang, k) }), {}, null, false, { widths: [1920, 1024, 390], langs: ['de'] }]),
+  ...['warm', 'full', 'rpm', 'one', 'bios', 'asleep', 'split'].map((k) => [`cards-${k}`, (lang) => ({ ...ON, 'fanboy.json': cards(lang, k) }), {}, null, false, { widths: [1920, 1024, 390], langs: ['de'] }]),
   ['steering', { ...ON, 'fanboy.json': lookedAt(demo('fanboy'), NOW - 4) }, {}, 'case', true],
   ['history', { ...WITH, 'fanboy.json': looked('fanboy', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy', NOW - 4), NOW - 30) }, null, true],
   // 2026-11-16: the span clicked through to 24 h (the label a button to the next span)
