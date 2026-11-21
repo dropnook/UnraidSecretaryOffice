@@ -2891,8 +2891,8 @@ function panelMake(id, benchRun, benchUpdate, benchSelect) {
     gapSeg.dataset.drawn = '1';
     document.addEventListener('fanart-gap', gapNow);
     const rows = el('div', 'fb-look-rows');
-    rows.append(rowOf(T('look.frame'), frame.el), rowOf(T('look.wheel'), wheel.el), rowOf(T('look.style'), kinds), rowOf(T('look.blades'), count), revRow,
-      rowOf(T('gap.label'), gapSeg));
+    rows.append(rowOf(T('look.frame'), frame.el), rowOf(T('look.wheel'), wheel.el), rowOf(T('look.style'), kinds), rowOf(T('look.blades'), count), revRow);
+    rows.append(rowOf(T('gap.label'), gapSeg));        // the air: one switch for every fan picture, after this fan's own rows
     lookBody.append(el('p', 'fb-hint-text', T('look.text')), top, says, rows);
     let off = false;
     function paint() {

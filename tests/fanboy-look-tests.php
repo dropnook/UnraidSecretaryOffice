@@ -201,7 +201,7 @@ function testFanboyLookGap(): void
         && str_contains($dash, "officeDashAsset('desks/fanboy/fan-art.js')") && str_contains($art, 'window.FanArt = { wheel, server, curve, picker, catalog, turns, styles, lookOf, gap, setGap,'));
     check('fanboy gap: one switch «Light · Dark» in the look\'s rows (for every fan, not this one), its state from FanArt.gap() and redrawn when the choice changes',
         str_contains($js, "const gapBtns = ['light', 'dark'].map((v) => { const b = btn(T(`gap.\${v}`), '', () => A.setGap(v), T('gap.tip'));")
-        && str_contains($js, "document.addEventListener('fanart-gap', gapNow);") && str_contains($js, "rowOf(T('gap.label'), gapSeg));"));
+        && str_contains($js, "document.addEventListener('fanart-gap', gapNow);") && str_contains($js, "rows.append(rowOf(T('gap.label'), gapSeg));"));
     $miss = [];
     foreach (['de', 'en', 'es', 'fr', 'it'] as $l) {
         $t = langFile(OFFICE_WEB . "/desks/fanboy/lang/$l.json");
