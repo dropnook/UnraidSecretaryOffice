@@ -354,6 +354,7 @@
   "pic.pct_no_tach": "{pct} % · keine Drehzahl-Rückmeldung",
   "pic.no_value": "kein Wert",
   "pic.should_turn": "0 U/min · sollte drehen",
+  "pic.starting": "läuft an · {pct} %",
   "pic.asleep": "schläft",
   "pic.asleep_title": "Die Disk schläft: solange keine Temperatur — Fanboy weckt sie nie",
   "pic.warmest_mark": "die wärmste Stelle dieser Zone",
@@ -727,6 +728,7 @@
     "other": "schnellster von {n} Lüftern: {rpm} U/min"
   },
   "dash.ring_by_speed": "regelt nach Drehzahl — seine Lüfter auf bis zu {pct} %",
+  "dash.ring_ask": "die Zone verlangt {pct} %",
   "dash.ring_bios": "Das BIOS regelt diese Lüfter — ihre Stufe ist nicht bekannt",
   "dash.fan_title": "{name}: {text}",
   "dash.setting": "Im Dashboard zeigen",

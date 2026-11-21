@@ -673,6 +673,12 @@ function fanboyUntell(array &$c, string $prefix): void
 }
 
 /** A fan's or source's name for a text: the user's, else «output N» */
+/** Standing though it should turn by the control's clock: 0 rpm (asked for more) since $since, at least $after seconds */
+function fanboyStandsNow(mixed $since, float $after, ?float $now = null): bool
+{
+    return (is_int($since) || is_float($since)) && ($now ?? fanboyMono()) - (float) $since >= $after;
+}
+
 function fanboyFanLabel(array $f): string
 {
     return $f['name'] !== '' ? $f['name'] : $f['chip'] . ' pwm' . ($f['output'] ?? '?');
@@ -1775,6 +1781,9 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
             'fans' => array_map(fn ($id) => ['id' => $id, 'name' => $c['fans'][$id]['name'], 'output' => $c['fans'][$id]['output'],
                 'pct' => $c['fans'][$id]['taken'] ? $c['fans'][$id]['pct'] : null, 'rpm' => $c['fans'][$id]['rpm'] ?? null,
                 'held' => $c['fans'][$id]['taken'], 'foreign' => $c['fans'][$id]['foreign'],
+                // 2026-11-21: it stands though it should turn — the control's own verdict, after the fan's own wait (its kick,
+                // its measured start): the tile and the page say it only from here, never from a 0 rpm while it spins up
+                'stands' => $c['fans'][$id]['taken'] && fanboyStandsNow($c['fans'][$id]['zero_since'] ?? null, (float) ($c['fans'][$id]['stand_after'] ?? FANBOY_STAND_AFTER)),
                 // round 12: «darf stehen» chosen but not in effect — why (measure_again, never_stops, not_safe, not_measured,
                 // cpu_off_confirm); in effect: may_stand, standing since when, a CPU cooler's «starts again at» °C
                 'off_why' => $c['fans'][$id]['off_why'] ?? null, 'may_stand' => ($c['fans'][$id]['off_ok'] ?? false) === true,
@@ -1799,7 +1808,8 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
         'who' => $steering ? 'fanboy' : ($exitWhy === null && $c['phase'] === 'wait_chip' && !empty($c['missing']['stuck']) ? 'nobody' : 'bios'), 'why' => $why, 'phase' => $exitWhy !== null ? 'ended' : $c['phase'],
         'zones' => $zones, 'alarm' => $c['alarm'], 'reasons' => array_keys($c['reasons']),
         'missing' => $c['missing'] === null ? null : ['since' => $c['missing']['at'], 'why' => $c['missing']['why'], 'told' => isset($c['told']['missing'])],
-        'watch' => array_values(array_map(fn ($w) => ['id' => $w['id'], 'name' => $w['name'], 'role' => $w['role'], 'rpm' => $w['rpm']], $c['watch'])),
+        'watch' => array_values(array_map(fn ($w) => ['id' => $w['id'], 'name' => $w['name'], 'role' => $w['role'], 'rpm' => $w['rpm'],
+            'stands' => fanboyStandsNow($w['zero_since'] ?? null, FANBOY_STAND_AFTER)], $c['watch'])),
         'notes' => $c['notes'],
         // round 6: how old Unraid's disk values can be and what the zone logic adds to them (°C)
         'disk_allow' => ['poll' => $c['poll'] ?? null, 'add' => $c['allow'] ?? 0],

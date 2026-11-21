@@ -458,12 +458,16 @@ function officeFanboyDashRing(array $s, ?float $level, string $unit, bool $full,
         return ['fill' => 0, 'band' => 'ok', 'st' => 'bios', 'num' => $rpms ? (string) max($rpms) : '–',
             'title' => officeDashT($s, 'fanboy.dash.ring_bios') . ' · ' . ($rpms ? officeDashT($s, 'fanboy.dash.ring_fastest', ['n' => count($rpms), 'rpm' => max($rpms)]) : officeDashT($s, 'fanboy.pic.no_tach'))];
     }
-    $fill = $full ? 100 : (int) round($unit === 'rpm' || $level === null ? ($pcts ? max($pcts) : 0) : $level);
+    // what the fans get (2026-11-21): the highest share he gives them — a zone with no fan's share known its level
+    $fill = $full ? 100 : (int) round($pcts ? max($pcts) : ($unit === 'rpm' || $level === null ? 0 : $level));
     $fill = $rest ? 0 : max(0, min(100, $fill));
     $what = $full ? officeDashT($s, 'fanboy.pic.full') : ($unit === 'rpm' ? officeDashT($s, 'fanboy.dash.ring_by_speed', ['pct' => $fill])
         : officeDashT($s, 'fanboy.dash.curve_level_one', ['pct' => $fill]));
+    // the zone's own ask where its fans get something else (a floor, a fan resting by its own rule)
+    $ask = !$full && $unit !== 'rpm' && $level !== null && (int) round($level) !== $fill ? officeDashT($s, 'fanboy.dash.ring_ask', ['pct' => (int) round($level)]) : null;
     $alarm = in_array(true, array_column($fans, 'stands'), true);
-    return ['fill' => $fill, 'band' => officeFanboyDashBand($fill), 'st' => $alarm ? 'alarm' : ($rest ? 'rest' : 'run'), 'num' => $num, 'title' => $what . ' · ' . $speed];
+    return ['fill' => $fill, 'band' => officeFanboyDashBand($fill), 'st' => $alarm ? 'alarm' : ($rest ? 'rest' : 'run'), 'num' => $num,
+        'title' => implode(' · ', array_filter([$rest ? null : $what, $speed, $ask]))];
 }
 
 /**
@@ -622,22 +626,29 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
                 $pct = $int($f['pct'] ?? null);
                 $rpms[] = $rpm;
                 $held = ($f['held'] ?? false) === true;
-                // one he holds and drives that reports 0 rpm stands: marked on its row (and said at the top)
-                $stands = $rpm === 0 && $pct !== null && $pct > 0 && $held;
+                // it stands though it should turn — only when the control says so (2026-11-21, the owner: a CPU cooler just told
+                // to start turned red for its spin-up): its verdict per fan (`stands`, after its own wait: the kick, the
+                // measured start); a control without it: only its own «stands» alarm for this zone, at 0 rpm asked for more
+                $verdict = is_bool($f['stands'] ?? null) ? $f['stands']
+                    : ($alarm !== null && ($alarm['code'] ?? null) === 'stands' && ($alarm['params']['zid'] ?? null) === $id && $rpm === 0 && $pct !== null && $pct > 0);
+                $stands = $held && $verdict;
+                // told to turn, not turning yet, the control still waiting: it starts
+                $starting = $held && !$stands && $rpm === 0 && $pct !== null && $pct > 0;
                 // 2026-11-20: one that may stand and stands now says so (his page's words), never «0 rpm»
                 $restsAt = $held && !$stands && is_int($f['stand_since'] ?? null) ? ($f['starts_at'] ?? null) : false;
                 $counts[] = $countOf($f['id']);
                 $fans[] = [$fanName($f['id'], $f), ($stands ? officeDashT($s, 'fanboy.pic.should_turn')
                     : ($restsAt !== false ? (is_int($restsAt) || is_float($restsAt) ? officeDashT($s, 'fanboy.pic.stands_until', ['c' => officeFanboyDashNum((float) $restsAt, $lang, floor((float) $restsAt) === (float) $restsAt ? 0 : 1)])
                         : officeDashT($s, 'fanboy.pic.stands_ok'))
-                    : ($rpm === null ? officeDashT($s, 'fanboy.pic.no_tach') : officeDashT($s, 'fanboy.pic.rpm', ['rpm' => $rpm]))))
-                    . ($pct !== null && $restsAt === false ? ' · ' . officeDashT($s, 'fanboy.dash.pct', ['pct' => $pct]) : ''), $stands];
+                    : ($starting ? officeDashT($s, 'fanboy.pic.starting', ['pct' => $pct])
+                    : ($rpm === null ? officeDashT($s, 'fanboy.pic.no_tach') : officeDashT($s, 'fanboy.pic.rpm', ['rpm' => $rpm])))))
+                    . ($pct !== null && $restsAt === false && !$starting ? ' · ' . officeDashT($s, 'fanboy.dash.pct', ['pct' => $pct]) : ''), $stands];
                 $nums[] = ['rpm' => $rpm, 'pct' => $pct, 'stands' => $stands, 'rests' => $restsAt !== false];
                 // the symbol: his page's state (desk.js wheelOf()) — a silent fan of his turns at the share he gives it
                 $silent = ($named[$f['id']]['found'] ?? null) === 'silent';
                 $bios = !$held || $biosRole($f['id']);
                 $st = $bios ? 'bios' : ($silent ? 'unknown' : 'run');
-                if ($held && !$silent && $rpm === 0 && ($pct === null || $pct > 0)) {
+                if ($stands && !$silent) {
                     $st = 'stopped';
                 }
                 $max = $looks[$f['id']]['max'] ?? null;
@@ -686,13 +697,17 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
         // among them; each wheel's tip and the row's (every fan of the zone, those not shown too) say name and speed
         $tips = array_map(static fn (array $f): string => officeDashT($s, 'fanboy.dash.fan_title', ['name' => $f[0], 'text' => $f[1]]), $fans);
         $cardArt = officeFanboyDashCardWheels($fans, $arts, $counts, $tips);
+        $ring = officeFanboyDashRing($s, $level, $unit, $full, $l === null, $nums);
         $out['zones'][] = [
             'id'      => $id,
             'name'    => $name,
             'warmest' => $warm !== null ? officeDashT($s, 'fanboy.pic.warmest', ['where' => officeFanboyDashSource($s, $warm), 'c' => officeFanboyDashNum((float) $warm['c'], $lang)])
                 : officeDashT($s, $sleeps ? 'fanboy.pic.asleep_all' : 'fanboy.pic.quiet'),
+            // what the fans get (2026-11-21, the owner: «39 %» over a resting cooler): the highest share of its fans, «stands —
+            // it may» when every fan rests by its own rule; the zone's own ask goes to the ring's title; a zone by speed its target
             'level'   => $full ? officeDashT($s, 'fanboy.pic.full') : ($level === null ? officeDashT($s, 'fanboy.pic.bios')
-                : ($unit === 'rpm' ? officeDashT($s, 'fanboy.pic.rpm', ['rpm' => (int) round($level)]) : officeDashT($s, 'fanboy.dash.pct', ['pct' => (int) round($level)]))),
+                : ($unit === 'rpm' ? officeDashT($s, 'fanboy.pic.rpm', ['rpm' => (int) round($level)])
+                    : ($ring['st'] === 'rest' ? officeDashT($s, 'fanboy.pic.stands_ok') : officeDashT($s, 'fanboy.dash.pct', ['pct' => $ring['fill']])))),
             'full'    => $full,
             'speed'   => count($fans) ? officeFanboyDashSpeed($s, $rpms) : officeDashT($s, 'fanboy.zones.no_fan'),
             'stands'  => in_array(true, array_column($fans, 2), true),
@@ -700,7 +715,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             'art'     => array_values(array_intersect_key($arts, $keep)),       // each fan's symbol, in the order of `fans`
             'fans_more' => count($fans) - count($keep),
             'curve'   => $hist !== null && isset($hist[$id]) ? officeFanboyDashCurve($s, $hist[$id], $lang, is_array($setup['sources'] ?? null) ? $setup['sources'] : []) : null,
-            'ring'    => officeFanboyDashRing($s, $level, $unit, $full, $l === null, $nums),
+            'ring'    => $ring,
             'card'    => ['art' => $cardArt, 'title' => implode("\n", $tips), 'stands' => array_values(array_column(array_filter($fans, static fn ($f) => $f[2]), 0))],
             'warm'    => $warm !== null ? ['c' => officeDashT($s, 'fanboy.temp', ['c' => officeFanboyDashNum((float) $warm['c'], $lang)]), 'where' => officeFanboyDashSource($s, $warm)] : null,
         ];
@@ -729,7 +744,9 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
         $given = is_string($named[$wid]['name'] ?? null) && trim($named[$wid]['name']) !== '';
         $out['watch_art'][] = $wid !== '' && $given && ($looks[$wid]['look'] ?? null) !== null ? $art($wid, $rpm, 'bios', officeDashT($s, 'fanboy.pic.watched_title'))
             + ['count' => $countOf($wid)] : null;
-        if ($rpm === 0) {
+        // a watched fan stands: the control's verdict (after its wait), a control without it: its own alarm for it
+        $wStands = is_bool($w['stands'] ?? null) ? $w['stands'] : ($alarm !== null && ($alarm['code'] ?? null) === 'bios_stands' && ($alarm['params']['fan'] ?? null) === $name);
+        if ($wStands && $rpm === 0) {
             $standing[] = $name;
         }
     }

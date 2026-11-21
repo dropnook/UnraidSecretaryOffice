@@ -161,6 +161,9 @@ function fansMany(lang) {
  *   one     one zone
  *   bios    handed back: the BIOS runs every fan, no level known
  *   asleep  every disk of the cage asleep (no temperature at all: «alle schlafen — keine Temperatur»), its fan resting
+ *   cpu-rest, cpu-start, cpu-stands (2026-11-21, the owner's CPU zone): one output «CPU-Fans» with two fans that may stand,
+ *           the zone asking 39 %: resting by its rule; told to start again (38 %, still 0 rpm while it spins up, the control
+ *           not saying it stands); the control's verdict «stands» (its wait over) with its alarm, the zone at 100 % for it
  *   split   splitters (the setup's count): the cage's one output with two fans (two wheels); the case's front and top two
  *           each (three wheels in all, the row's title names every output); the watched CPU cooler's two as in the demo
  */
@@ -208,6 +211,18 @@ function cards(lang, kind) {
     fan(4, { off_ok: true });
     Object.assign(zone('disks'), { level: 0, warmest: null, asleep: 3, fans: [live(4, '', 0, 0, { may_stand: true, stand_since: s.control.time - 900, starts_at: null })] });
   }
+  if (kind.startsWith('cpu-')) {
+    const en2 = lang === 'en';
+    fan(4, { name: 'CPU-Fans', count: 2, role: 'cpu', cpu_own: 1, off_ok: true, model: { id: 'noctua-nf-a12x25-pwm', mm: null, blades: null }, colour: 'graphite' });
+    s.setup.zones.find((z) => z.id === 'disks').name = 'CPU';
+    const rest = kind === 'cpu-rest';
+    Object.assign(zone('disks'), { name: 'CPU', level: 39, warmest: { id: 'coretemp.1', label: en2 ? 'Package id 0' : 'Package id 0', c: rest ? 56 : 60, kind: 'cpu' },
+      fans: [live(4, 'CPU-Fans', rest ? 0 : kind === 'cpu-stands' ? 100 : 38, 0, { may_stand: true, stand_since: rest ? s.control.time - 120 : null, starts_at: 59, stands: kind === 'cpu-stands' })] });
+    if (kind === 'cpu-stands') {
+      zone('disks').full = true;
+      s.control.alarm = { code: 'stands', params: { fan: 'CPU-Fans', zone: 'CPU', zid: 'disks', alone: true }, since: s.control.time - 20 };
+    }
+  }
   if (kind === 'split') {
     fan(4, { count: 2 });
     fan(5, { count: 2 });
@@ -233,7 +248,7 @@ const SCENES = [
   // seven fans in the case, the fifth standing though it should turn: four shown — the alarm among them, in his page's order
   ['fans-many', (lang) => ({ ...ON, 'fanboy.json': fansMany(lang) }), {}, null, false, { widths: [1920, 1024, 390], langs: ['de'] }],
   // 2026-11-21: the cards' hard cases (German, black and white, the three widths)
-  ...['warm', 'full', 'rpm', 'one', 'bios', 'asleep', 'split'].map((k) => [`cards-${k}`, (lang) => ({ ...ON, 'fanboy.json': cards(lang, k) }), {}, null, false, { widths: [1920, 1024, 390], langs: ['de'] }]),
+  ...['warm', 'full', 'rpm', 'one', 'bios', 'asleep', 'split', 'cpu-rest', 'cpu-start', 'cpu-stands'].map((k) => [`cards-${k}`, (lang) => ({ ...ON, 'fanboy.json': cards(lang, k) }), {}, null, false, { widths: [1920, 1024, 390], langs: ['de'] }]),
   ['steering', { ...ON, 'fanboy.json': lookedAt(demo('fanboy'), NOW - 4) }, {}, 'case', true],
   ['history', { ...WITH, 'fanboy.json': looked('fanboy', NOW - 4) }, { 'fanboy/history.json': history(looked('fanboy', NOW - 4), NOW - 30) }, null, true],
   // 2026-11-16: the span clicked through to 24 h (the label a button to the next span)
