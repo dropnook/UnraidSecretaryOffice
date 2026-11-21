@@ -471,8 +471,10 @@ function testFanboyUx(): void
     check('fanboy ux curve: the degrees\' scale is as fine as its numbers have room (5 °C on a disk\'s scale), with a tick for every single degree; the pointer reads whole degrees',
         str_contains($art, "const every = [1, 2, 5, 10, 20].find((n) => n * perDeg >= 42) || 20;") && str_contains($art, "class: 'fan-curve-minor'")
         && str_contains($art, "const t = clamp(Math.round(tAt(px)), tMin, tMax);"));
-    check('fanboy ux curve: each point can be typed (degrees and value) — whole numbers, kept between its neighbours, shown as it counts; a field he is typing in is never overwritten and keeps the focus through the page\'s redraw',
-        str_contains($art, "pts[k] = which === 't' ? fit(k, n, q.v) : fit(k, q.t, n);") && str_contains($art, "said = tx.clamped(k, which, by,") && str_contains($art, "inp.value = String(which === 't' ? pts[k].t : pts[k].v);")
+    // 2026-11-21 (the owner: «wenn ich einen Punkt ziehe, dann will ich das auch!»): a typed number pushes the others along
+    // instead of being held by its neighbour; only the chart's end holds it (testFanboyCurvePush)
+    check('fanboy ux curve: each point can be typed (degrees and value) — whole numbers, the others pushed along, shown as it counts; a field he is typing in is never overwritten and keeps the focus through the page\'s redraw',
+        str_contains($art, "const moved = which === 't' ? push(k, n, q.v) : push(k, q.t, n);") && str_contains($art, "said = tx.clamped(k, which, want > got ? 'max' : 'min', null, got);") && str_contains($art, "inp.value = String(which === 't' ? pts[k].t : pts[k].v);")
         && str_contains($art, "if (document.activeElement !== inp && inp.value !== want) inp.value = want;") && str_contains($art, "setTimeout(() => emit(o.onChange), 0);")
         && str_contains($js, "fields: true,") && str_contains($js, "onField: (inp) => { inp.classList.add('input', 'small', 'fb-input'); inp.dataset.fbKeep = '1'; },")
         && str_contains($js, "curveFocus = a && a.dataset && a.dataset.axis && c.el.contains(a) ?"));
@@ -524,8 +526,10 @@ function testFanboyUx(): void
     check('fanboy ux r13: a curve is shown exactly as it counts (a derived point at 39.5 °C stays 39.5) and becomes whole numbers only once he changes it',
         str_contains($art, ".map((p) => ({ t: clamp(p.t, tMin, tMax), v: clamp(p.v, vMin, vMax) }))") && str_contains($art, "function whole() {") && substr_count($art, 'whole();') >= 3
         && str_contains($js, "const degrees = (c) => fmt.number(c, Number.isInteger(c) ? 0 : 1);"));
-    check('fanboy ux r13: several kinds — a fan stands only while no kind asks (a kind whose curve never reaches 0 is named); the CPU cooler on own risk goes by the CPU\'s curve alone',
-        str_contains($js, "const neverKind = !isCpu && multi ? kinds.find((k) => curveRule(curveOf(k).points).start === null) : null;") && str_contains($js, "const cpuElse = isCpu && K !== 'cpu';")
+    // 2026-11-21 (the owner: «Zone CPU darf stehen …, die CPU-Kurve kann ich bis null ziehen, NVMe aber nicht???»): the CPU
+    // cooler on own risk stands only while no kind asks either (fanboyCpuStand()) — the same rule as every fan, no exception
+    check('fanboy ux r13: several kinds — a fan stands only while no kind asks (a kind whose curve never reaches 0 is named), the CPU cooler on own risk too',
+        str_contains($js, "const neverKind = multi ? kinds.find((k) => curveRule(curveOf(k).points).start === null) : null;") && !str_contains($js, 'cpuElse')
         && str_contains($js, "return kindCurveOf(zoneKinded(z), 'cpu', setup().scales || {}).points;"));
     check('fanboy ux: a fan\'s floor is the agent\'s own number where the state has it (the setup\'s plan: the hub\'s margin included), the mirrored rule only for an older agent',
         str_contains($js, "if (f && num(f.floor) !== null) return f.floor;"));
@@ -647,8 +651,8 @@ function testFanboyUx(): void
     preg_match('/const FANBOY_BLIND_FLOOR = (\d+);/', $control, $abf);
     same('fanboy ux: the page\'s floors are the control\'s (lowest steady value + margin, the blind floor)', [$afm[1] ?? null, $abf[1] ?? null], [$fm[1] ?? '', $bf[1] ?? '']);
     check('fanboy ux: the curve chart draws what the control applies for the zone\'s first fan — its floor, and standing only where it may and the curve asks for nothing — and says it in a sentence of those numbers',
-        str_contains($js, "apply: rpmUnit ? undefined : (v) => (stands && v < 0.5 ? 0 : Math.max(v, floorPct)),") && str_contains($js, "const stands = !!lead.off_ok && !standWhy(lead) && !cpuElse;")
-        && str_contains($js, "const says = para(curveWords(pts, floorPct, stands, isCpu, {") && str_contains($art, "const applied = (v) => (typeof o.apply === 'function' ? o.apply(v) : v);")
+        str_contains($js, "apply: rpmUnit ? undefined : (v) => (stands && v < 0.5 ? 0 : Math.max(v, floorPct)),") && str_contains($js, "const stands = !!lead.off_ok && !standWhy(lead);")
+        && str_contains($js, "const says = para(curveWords(pts, floorPct, stands, isCpu && K === 'cpu', {")      /* 2026-11-21: the CPU cooler's minute only on the CPU's curve */ && str_contains($art, "const applied = (v) => (typeof o.apply === 'function' ? o.apply(v) : v);")
         && str_contains($art, "line.setAttribute('class', 'fan-curve-line fan-curve-wish');"));
     check('fanboy ux: sentences that take numbers from the state are marked (data-nums) and the picture tool compares each with the demo state it shows',
         substr_count($js, '.dataset.nums = JSON.stringify(') >= 3 && str_contains($tool, "if (want !== x.v) faults.push(") && str_contains($tool, 'is not in its sentence'));
@@ -2363,4 +2367,150 @@ function testFanboyZonesWords(): void
     } finally {
         fanboyTEnd();
     }
+}
+
+/**
+ * The curve editor draws what the control applies, for every kind (2026-11-21, the owner: «warum nie unter 15 %? Zone CPU
+ * darf stehen habe ich geklickt, und die CPU-Kurve kann ich bis null ziehen, NVMe aber nicht???» and «RAM zeigt aktuelle
+ * Temp nicht im Kurven-Einstellungs-Diagramm»): a fan that may stand is at 0 below each kind's zero point and at its floor
+ * from there — the CPU cooler on own risk too; the floor's line starts there and says «while it turns»; every kind's
+ * current value lies inside the chart's scale; a kind without a reading is said
+ */
+function testFanboyCurveFloorKinds(): void
+{
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $art = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/fan-art.js');
+    $ctl = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-control.php');
+    $de = langFile(OFFICE_WEB . '/desks/fanboy/lang/de.json');
+    // the control's side the page mirrors: every kind's curve as applied with «may stand» (status fans[].curves), and the
+    // CPU cooler kept running by any other source that asks on its kind's curve
+    check('fanboy curve floor: the control applies every kind\'s curve with the fan\'s «may stand» alike, and another source asking keeps a CPU cooler running',
+        str_contains($ctl, "array_map(fn (\$kc) => fanboyEffectiveCurve(\$kc['points'], (float) \$c['fans'][\$id]['floor'], (\$c['fans'][\$id]['off_ok'] ?? false) === true),")
+        && str_contains($ctl, "} elseif (\$ok && fanboySourceAsk(\$z, \$s, (float) \$r['c']) >= 0.5) {"));
+    $kinds = ['cpu' => [[59, 0], [60, 17], [65, 52], [74, 100]], 'nvme' => [[59, 0], [62, 33], [65, 63], [70, 100]], 'ram' => [[62, 0], [65, 27], [67, 52], [74, 100]]];
+    $got = [];
+    foreach ($kinds as $k => $pts) {
+        $e = fanboyEffectiveCurve($pts, 15.0, true);
+        $got[$k] = [fanboyCurveAt($e, $pts[0][0] - 5), fanboyCurveAt($e, $pts[0][0] + 0.2) >= 15.0];
+    }
+    same('fanboy curve floor: the owner\'s zone — with «darf stehen» each kind is 0 below its zero point and at least the floor (15 %) above it, NVMe and RAM as the CPU',
+        ['cpu' => [0.0, true], 'nvme' => [0.0, true], 'ram' => [0.0, true]], $got);
+    $off = fanboyEffectiveCurve($kinds['nvme'], 15.0, false);
+    same('fanboy curve floor: … and without «darf stehen» never under the floor', 15.0, fanboyCurveAt($off, 50.0));
+    check('fanboy curve floor: the page — one rule for every kind (no CPU exception), the floor\'s line from where the curve leaves 0 with «while it turns», the sentence\'s CPU minute only on the CPU\'s curve',
+        str_contains($js, "const stands = !!lead.off_ok && !standWhy(lead);") && !str_contains($js, 'cpuElse') && !isset($de['curve.says_cpu_else'])
+        && str_contains($js, "const leaves = stands && !rpmUnit ? curveRule(pts).start : null;") && str_contains($js, "floorFrom: leaves ?? undefined,")
+        && str_contains($js, "T(leaves !== null ? 'curve.floor_turning' : 'curve.floor_min', { pct: floorPct })")
+        && str_contains($js, "const standsF = (f) => !!f.off_ok && !standWhy(f);") && str_contains($js, "curveWords(pts, floorPct, stands, isCpu && K === 'cpu', { multi,")
+        && str_contains($art, "const fx = typeof o.floorFrom === 'number' ? x(clamp(o.floorFrom, tMin, tMax)) : PL;")
+        && ($de['curve.floor_turning'] ?? '') === 'mindestens {pct} %, wenn er dreht');
+    check('fanboy curve floor: every kind\'s current value inside the chart\'s scale (the next 5 °C beyond it) — RAM at 42 °C on curves from 62 °C is drawn',
+        str_contains($js, "const liveTs = kinds.map((k) => asks(k)).filter(Boolean).map((a) => a.c);")
+        && str_contains($js, "Math.min(Math.floor((Math.min(...temps) - 10) / 5) * 5, ...liveTs.map((c) => Math.floor((c - 2) / 5) * 5))")
+        && str_contains($js, "Math.max(Math.ceil((Math.max(...temps) + 10) / 5) * 5, ...liveTs.map((c) => Math.ceil((c + 2) / 5) * 5))"));
+    // the scale's arithmetic as the page does it, for the owner's numbers: RAM 42 → from 40; a value inside changes nothing
+    $min = fn (array $temps, array $live) => max(0, min((int) floor((min($temps) - 10) / 5) * 5, ...array_map(fn ($c) => (int) floor(($c - 2) / 5) * 5, $live ?: [999])));
+    same('fanboy curve floor: the scale for his zone starts at 40 °C with RAM at 42 °C, at 45 °C with every value inside', [40, 45], [$min([59, 74, 62, 70], [62, 53.9, 42]), $min([59, 74, 62, 70], [62, 53.9, 50])]);
+    check('fanboy curve floor: a kind without a reading says so — its sources asleep, or none',
+        str_contains($js, "T(srcs.length && srcs.every((x) => x.asleep) ? 'curve.now_asleep' : 'curve.now_none', { kind: kindWord(K) })")
+        && ($de['curve.now_asleep'] ?? '') !== '' && ($de['curve.now_none'] ?? '') !== '');
+}
+
+/**
+ * The curve editor's points (2026-11-21, the owner: «wenn ich einen Punkt ziehe, dann will ich das auch! … dann sollen halt
+ * alle anderen Punkte mitziehen!» and: add a point by a double click, take one away, at most 6): fan-art.js curve() run in
+ * node on a small stand-in DOM — a drag, a typed number, a double click and the «+»/«×» buttons as the page does them
+ */
+function testFanboyCurvePush(): void
+{
+    $setup = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-setup.php');
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $de = langFile(OFFICE_WEB . '/desks/fanboy/lang/de.json');
+    check('fanboy curve points: 2 to 6 points — the agent\'s FANBOY_CURVE_POINTS_MAX and the page\'s CURVE_POINTS_MAX the same, the agent checks it, the page passes it to the chart',
+        str_contains($setup, 'const FANBOY_CURVE_POINTS_MAX = 6;') && str_contains($setup, "count(\$t['points']) < 2 || count(\$t['points']) > FANBOY_CURVE_POINTS_MAX")
+        && str_contains($js, 'const CURVE_POINTS_MAX = 6;') && str_contains($js, 'minPoints: 2, maxPoints: CURVE_POINTS_MAX,')
+        && ($de['curve.howto'] ?? '') === 'Doppelklick auf die Kurve: Punkt dazu · auf einen Punkt: weg' && !isset($de['curve.clamp_next_t']) && !isset($de['curve.clamp_prev_v']));
+    check('fanboy curve points: the stored points as they are on the page (a point taken away stays away); «Eigene Kurve» starts with four on the preset\'s line',
+        str_contains($js, "const pts = front.points;") && str_contains($js, "if (choose.value === 'own') cv[K] = { points: fourPoints(kept || now) };"));
+    // the agent: 2..6 accepted, 1 and 7 refused (the saved shape stays a list of [t, v])
+    $ok = fn (int $n) => (function () use ($n) {
+        try {
+            fanboyTargetCheck(['points' => array_map(fn ($i) => [30 + 5 * $i, min(100, 20 * $i)], range(0, $n - 1))], 'pct', 'target');
+            return true;
+        } catch (Problem $e) {
+            return false;
+        }
+    })();
+    same('fanboy curve points: the agent takes 2 … 6 points, refuses 1 and 7', [false, true, true, true, false], [$ok(1), $ok(2), $ok(4), $ok(6), $ok(7)]);
+    same('fanboy curve points: … and keeps them as [t, v]', ['points' => [[40.0, 0.0], [50.0, 30.0], [60.0, 100.0]]],
+        fanboyTargetCheck(['points' => [[40, 0], [50, 30], [60, 100]]], 'pct', 'target'));
+    $node = trim((string) shell_exec('command -v node 2>/dev/null'));
+    if ($node === '') {
+        check('fanboy curve points: node is missing here - the chart\'s behaviour skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('fanboy-curve-push');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+// a stand-in DOM, just enough for curve(): elements with children, attributes, classes, listeners
+class N {
+  constructor(tag) { this.tagName = tag; this.children = []; this.attrs = {}; this.style = { setProperty() {} }; this.dataset = {}; this.listeners = {}; this.classList = { add() {}, remove() {}, toggle() {}, contains: () => false }; this.textContent = ''; this.parentNode = null; this.hidden = false; this.disabled = false; this.value = ''; }
+  get firstChild() { return this.children[0] || null; } get lastChild() { return this.children[this.children.length - 1] || null; }
+  get previousElementSibling() { const p = this.parentNode; if (!p) return null; const i = p.children.indexOf(this); return i > 0 ? p.children[i - 1] : null; }
+  appendChild(c) { c.parentNode = this; this.children.push(c); return c; }
+  append(...cs) { cs.forEach((c) => (typeof c === 'string' ? null : this.appendChild(c))); }
+  insertBefore(c, ref) { c.parentNode = this; const i = this.children.indexOf(ref); if (i < 0) this.children.push(c); else this.children.splice(i, 0, c); return c; }
+  remove() { if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1); this.parentNode = null; }
+  replaceChildren() { this.children = []; }
+  setAttribute(k, v) { this.attrs[k] = String(v); } getAttribute(k) { return this.attrs[k] ?? null; } removeAttribute(k) { delete this.attrs[k]; }
+  addEventListener(t, f) { (this.listeners[t] ||= []).push(f); } removeEventListener() {}
+  fire(t, ev) { (this.listeners[t] || []).forEach((f) => f(Object.assign({ target: this, preventDefault() {}, timeStamp: 0 }, ev))); }
+  querySelectorAll(sel) { const cls = sel.replace(/^\./, ''); const out = []; const walk = (n) => n.children.forEach((c) => { if ((c.className || '').split(' ').includes(cls)) out.push(c); walk(c); }); walk(this); return out; }
+  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
+  closest() { return null; } contains() { return false; } focus() {} select() {}
+  getBoundingClientRect() { return { left: 0, top: 0, width: 600, height: 300 }; }
+  setPointerCapture() {} getBBox() { return { x: 0, y: 0, width: 10, height: 10 }; } getComputedTextLength() { return 10; }
+}
+globalThis.window = globalThis;
+globalThis.document = { currentScript: null, documentElement: null, activeElement: null, hidden: false, addEventListener() {}, getElementById: () => null, createElement: (t) => new N(t), createElementNS: (ns, t) => new N(t), head: new N('head') };
+globalThis.ResizeObserver = undefined;
+globalThis.matchMedia = () => ({ matches: false, addEventListener() {} });
+globalThis.setTimeout = (f) => f();
+new Function(fs.readFileSync(process.argv[2], 'utf8'))();
+const say = [];
+const texts = { clamped: (k, a, by) => say.push(`clamp ${k} ${a} ${by}`) && '', pushed: (k, m) => say.push(`pushed ${k}: ${m.join(',')}`) && '', full: (m) => say.push(`full ${m}`) && '', few: (m) => say.push(`few ${m}`) && '', added: () => '', removed: () => '', howto: 'how', add: '+', remove: () => '×' };
+let got = null;
+const mk = (points) => window.FanArt.curve({ points: points.map(([t, v]) => ({ t, v })), tMin: 20, tMax: 80, fields: true, wheel: false, texts, minPoints: 2, maxPoints: 6, onChange: (p) => { got = p.map((q) => [q.t, q.v]); } });
+const four = [[40, 0], [50, 30], [60, 70], [70, 100]];
+const out = {};
+// typed numbers (the fields: the keyboard's way to the same rule as a drag)
+const type = (c, i, axis, n) => { const rows = c.el.querySelectorAll('.fan-curve-field'); const inp = rows[i].children.find((x) => x.dataset && x.dataset.axis === axis); inp.value = String(n); inp.fire('change'); return got; };
+let c = mk(four); out.rightT = type(c, 1, 't', 65); out.sayRight = say.splice(0);
+c = mk(four); out.leftT = type(c, 2, 't', 45); out.sayLeft = say.splice(0);
+c = mk(four); out.upV = type(c, 1, 'v', 90); out.downV = (c = mk(four), type(c, 2, 'v', 10));
+say.splice(0); c = mk(four); out.edgeT = type(c, 0, 't', 80); out.sayEdge = say.splice(0);
+c = mk(four); type(c, 1, 't', 75); out.stays = type(c, 1, 't', 45);          // pushed points stay where they were pushed
+// a point taken away and added: «×», «+», and their limits
+say.splice(0); got = null; c = mk([[40, 0], [70, 100]]); c.el.querySelectorAll('.fan-curve-del')[0].fire('click'); out.few = [got, say.splice(0)];
+c = mk(four); c.el.querySelector('.fan-curve-add').fire('click'); out.added = got;
+c = mk(four); c.el.querySelector('.fan-curve-add').fire('click'); c.el.querySelector('.fan-curve-add').fire('click'); out.six = got; out.addOff = c.el.querySelector('.fan-curve-add').disabled;
+c.el.querySelector('.fan-curve-add').fire('click'); out.full = say.splice(0);
+c = mk(four); c.el.querySelectorAll('.fan-curve-del')[1].fire('click'); out.removed = got;
+console.log(JSON.stringify(out));
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/fanboy/fan-art.js') . ' 2>&1'), true);
+    if (!is_array($o)) {
+        check('fanboy curve points: node ran the chart', false, (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/fanboy/fan-art.js') . ' 2>&1 | tail -5'));
+        hardeningRm($tmp);
+        return;
+    }
+    same('fanboy curve points: point 2 typed to 65 °C — point 3 pushed right (66 °C, not lower), point 4 already past it stays, said', [[[40, 0], [65, 30], [66, 70], [70, 100]], ['pushed 1: 2']], [$o['rightT'], $o['sayRight']]);
+    same('fanboy curve points: point 3 typed to 45 °C — point 2 pushed left (44 °C), point 1 stays', [[[40, 0], [44, 30], [45, 70], [70, 100]], ['pushed 2: 1']], [$o['leftT'], $o['sayLeft']]);
+    same('fanboy curve points: a value up pushes the ones after it up, a value down the ones before it down', [[[40, 0], [50, 90], [60, 90], [70, 100]], [[40, 0], [50, 10], [60, 10], [70, 100]]], [$o['upV'], $o['downV']]);
+    same('fanboy curve points: the chart\'s edge stops them all — point 1 to 80 °C ends at 77 °C, the others at 78, 79, 80; the edge said', [[[77, 0], [78, 30], [79, 70], [80, 100]], ['clamp 0 t max']], [$o['edgeT'], $o['sayEdge']]);
+    same('fanboy curve points: back again does not pull the others back — they stay where they were pushed', [[40, 0], [45, 30], [76, 70], [77, 100]], $o['stays']);
+    same('fanboy curve points: «×» never below two points (said); «+» adds one in the widest span; at six «+» is off and says the limit; «×» takes one away',
+        [null, ['few 2'], 5, 6, true, ['full 6'], [[40, 0], [60, 70], [70, 100]]],
+        [$o['few'][0] ?? null, $o['few'][1], count($o['added'] ?? []), count($o['six'] ?? []), $o['addOff'], $o['full'], $o['removed']]);
+    hardeningRm($tmp);
 }

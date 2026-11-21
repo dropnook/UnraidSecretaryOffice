@@ -3783,6 +3783,8 @@ function kindKept(z, k) {
  * three: in the middle of the widest span; each at a whole degree where the line has a whole value (the nearest such), else
  * the nearest whole degree with its value to a tenth. Four or more: as they are.
  */
+/** How many points a curve may have (2026-11-21, the owner: at most 6) — the agent's FANBOY_CURVE_POINTS_MAX */
+const CURVE_POINTS_MAX = 6;
 function fourPoints(points) {
   const p = (points || []).map((q) => [Number(q[0]), Number(q[1])]).sort((a, b) => a[0] - b[0]);
   const on = (a, b, t) => a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]);
@@ -4130,9 +4132,8 @@ function curveWords(pts, floor, stands, cpu, more) {
   const m = more || {};
   // several kinds in the zone (round 13; fanboyCurveNeverZero()): a fan that isn't the CPU cooler stands only while no
   // kind asks for anything — a kind whose curve never reaches 0 keeps it running while one of its sources is awake;
-  // the CPU cooler on his risk goes by the CPU's curve alone
-  if (m.cpuElse) out.push(T('curve.says_cpu_else', { floor }));
-  else if (stands && m.neverKind) out.push(T('curve.says_never_zero_kind', { kind: m.neverKind, floor }));
+  // the CPU cooler on his risk too (fanboyCpuStand(): another source asking keeps it running)
+  if (stands && m.neverKind) out.push(T('curve.says_never_zero_kind', { kind: m.neverKind, floor }));
   else if (stands && m.multi && r.start !== null) out.push(T('curve.says_stand_all', { t: r.start, floor }));
   else if (stands && r.start !== null) out.push(T('curve.says_stand', { t: r.start, floor }));
   else if (stands) out.push(T('curve.says_never_zero', { floor }));
@@ -4140,7 +4141,7 @@ function curveWords(pts, floor, stands, cpu, more) {
   const full = pts.find((p) => p[1] >= 100);
   if (full) out.push(T('curve.says_full', { t: full[0] }));
   // a CPU cooler that stands: when it may stop again and when one reading alone starts it (the control's rule)
-  if (cpu && stands && !m.cpuElse && r.start !== null) out.push(T('curve.says_cpu', { below: r.start - CPU_STAND_GAP, cool: CPU_STAND_AFTER, hard: r.hard }));
+  if (cpu && stands && r.start !== null) out.push(T('curve.says_cpu', { below: r.start - CPU_STAND_GAP, cool: CPU_STAND_AFTER, hard: r.hard }));
   return out.join(' ');
 }
 // the CPU cooler's standstill by its curve (agent/desks/fanboy-control.php: FANBOY_CPU_STAND_GAP, FANBOY_CPU_STAND_AFTER,
@@ -4295,8 +4296,9 @@ function curvePart(z, i) {
   if (!A || !kinds.length) { box.appendChild(kinds.length ? waiting() : para(T('zones.curve_no_source'))); return box; }
   const curveOf = (k) => kindCurveOf(zk, k, scales);
   const front = curveOf(K);
-  // his own curve shows four points at least (a kept one of two — an earlier evening's — gets the missing ones on its line)
-  const pts = rpmUnit || choice === 'own' ? fourPoints(front.points) : front.points;
+  // the points as stored (2026-11-21: he adds and takes away points himself, 2 to CURVE_POINTS_MAX — a point taken away
+  // stays away); a curve he makes his own starts with four on the preset's line (fourPoints(), when «Eigene Kurve» is chosen)
+  const pts = front.points;
   const asks = (k) => (byKind[k] && num(byKind[k].c) !== null && num(byKind[k].value) !== null ? byKind[k] : null);
   const valueSay = (v) => (rpmUnit ? T('pic.rpm', { rpm: fmt.number(Math.round(v)) }) : T('value', { pct: Math.round(v) }));
   if (multi) {
@@ -4329,16 +4331,24 @@ function curvePart(z, i) {
   // one chart, one scale of degrees for all of the zone's curves
   const all = kinds.map((k) => ({ k, pts: curveOf(k).points }));
   const temps = all.flatMap((x) => x.pts.map((p) => p[0]));
-  const tMin = Math.max(0, Math.floor((Math.min(...temps) - 10) / 5) * 5), tMax = Math.ceil((Math.max(...temps) + 10) / 5) * 5;
+  // 2026-11-21 (the owner: «RAM zeigt aktuelle Temp nicht im Kurven-Einstellungs-Diagramm»): every kind's current value
+  // inside the scale too — RAM at 42 °C on curves from 62 °C was drawn nowhere; the edge to the next 5 °C beyond it
+  const liveTs = kinds.map((k) => asks(k)).filter(Boolean).map((a) => a.c);
+  const tMin = Math.max(0, Math.min(Math.floor((Math.min(...temps) - 10) / 5) * 5, ...liveTs.map((c) => Math.floor((c - 2) / 5) * 5)));
+  const tMax = Math.max(Math.ceil((Math.max(...temps) + 10) / 5) * 5, ...liveTs.map((c) => Math.ceil((c + 2) / 5) * 5));
   // the chart shows what the control really applies for the zone's first fan (2026-11-15: a curve along 0 % under a line
   // «never under 40 %» contradicted itself): it stands only where it may and the curve asks for nothing, else it never
   // gets less than its floor — the same rule for a CPU cooler on the owner's risk (round 12 correction: the curve decides).
+  // Every kind alike (2026-11-21, the owner: «Zone CPU darf stehen habe ich geklickt, und die CPU-Kurve kann ich bis null
+  // ziehen, NVMe aber nicht???»): each kind's curve is 0 below its zero point for a fan that may stand — the control's own
+  // curves (status fans[].curves, fanboyEffectiveCurve()) — and the CPU cooler stands only while no kind asks either
+  // (fanboyCpuStand(): «another source asks for air on the curve»), plus the CPU's own minute under its start
   const isCpu = lead.role === 'cpu' && !!lead.cpu_own;
   const floorPct = fanFloor(lead);
-  // (the CPU cooler on his risk stands by the CPU's curve alone — on another kind's curve it never does)
-  const cpuElse = isCpu && K !== 'cpu';
-  const stands = !!lead.off_ok && !standWhy(lead) && !cpuElse;
-  const neverKind = !isCpu && multi ? kinds.find((k) => curveRule(curveOf(k).points).start === null) : null;
+  const stands = !!lead.off_ok && !standWhy(lead);
+  const neverKind = multi ? kinds.find((k) => curveRule(curveOf(k).points).start === null) : null;
+  // where this kind's curve leaves 0: from there the floor counts — left of it he may stand (the line says so)
+  const leaves = stands && !rpmUnit ? curveRule(pts).start : null;
   const floor = rpmUnit ? (lead.table ? tableRpm(lead.table, floorPct) : null) : floorPct;
   const others = all.filter((x) => x.k !== K).map((x) => ({ points: x.pts.map((p) => ({ t: p[0], v: p[1] })) }));
   // live (the control's state): the front kind's «now» line, a dot on every curve where its kind's source stands
@@ -4354,6 +4364,7 @@ function curvePart(z, i) {
     if (cv) cv.c.destroy();
     const c = A.curve({
       points: pts.map((p) => ({ t: p[0], v: p[1] })), unit: rpmUnit ? 'rpm' : 'percent', tMin, tMax, vMin: 0, vMax, floor: floor ?? undefined,
+      floorFrom: leaves ?? undefined,
       now: liveNow.now, others, marks, fan: { mm: look.mm, blades: look.blades, min: look.min, max: look.max || 2000, colour: look.colour, look: look.look },
       wheel: false, locked,
       rpmAt: lead.measured ? (v) => (v <= 0 ? 0 : tableRpm(lead.table, v)) : undefined,
@@ -4363,15 +4374,22 @@ function curvePart(z, i) {
         point: (k, n) => T('curve.point', { i: k + 1, n }), value: (x, v) => (rpmUnit ? T('curve.value_rpm', { t: degrees(x), v: fmt.number(v) }) : T('curve.value_pct', { t: degrees(x), v })),
         readout: (x, v, r) => T('curve.readout', { t: x, v: rpmUnit ? T('pic.rpm', { rpm: fmt.number(v) }) : T('value', { pct: Math.round(v) }), rpm: fmt.number(Math.round(r || 0)) }),
         // the live mark with the degrees as they are read (a tenth where the sensor gives one), never rounded away
-        floor: rpmUnit ? T('curve.floor') : T('curve.floor_min', { pct: floorPct }), now: liveNow.nowText,
+        floor: rpmUnit ? T('curve.floor') : T(leaves !== null ? 'curve.floor_turning' : 'curve.floor_min', { pct: floorPct }), now: liveNow.nowText,
         // exact degrees (2026-11-16, the owner): every point says its values beside it and can be typed below the chart
         label: (x, v) => (rpmUnit ? T('curve.label_rpm', { t: degrees(x), v: fmt.number(v) }) : T('curve.label_pct', { t: degrees(x), v: fmt.number(v, Number.isInteger(v) ? 0 : 1) })),
         field: (k) => T('curve.field', { i: k + 1 }), fieldT: (k) => T('curve.field_t', { i: k + 1 }), fieldV: (k) => T(rpmUnit ? 'curve.field_v_rpm' : 'curve.field_v_pct', { i: k + 1 }),
         unitT: T('curve.unit_c'), unitV: T(rpmUnit ? 'curve.unit_rpm' : 'curve.unit_pct'),
-        // a typed number held by its neighbour or the chart's end, said (2026-11-20): «Point 1 can't lie above point 2 (30 %).»
-        clamped: (k, axis, by, j, got) => T(`curve.clamp_${by}_${axis}`, { i: k + 1, j: j === null ? '' : j + 1,
+        // a typed number only the chart's end holds now, said; the points it pushed along, named (2026-11-21, the owner:
+        // «wenn ich einen Punkt ziehe, dann will ich das auch!» — the others move with it instead of holding it)
+        clamped: (k, axis, by, j, got) => T(`curve.clamp_${by}_${axis}`, { i: k + 1,
           limit: axis === 't' ? T('temp', { c: degrees(got) }) : rpmUnit ? T('pic.rpm', { rpm: fmt.number(got) }) : T('value', { pct: got }) }),
+        pushed: (k, moved) => T(moved.length === 1 ? 'curve.pushed_one' : 'curve.pushed_many', { i: k + 1, list: moved.map((j) => j + 1).join(', ') }),
+        // points added and taken away (2026-11-21): a double click on the curve or on a point; «+» and «×» for the keyboard
+        added: (k, n) => T('curve.added', { i: k + 1, n }), removed: (k, n) => T('curve.removed', { i: k + 1, n }),
+        full: (max) => T('curve.points_full', { max }), few: (min) => T('curve.points_few', { min }),
+        howto: T('curve.howto'), add: T('curve.add'), remove: (k) => T('curve.remove', { i: k + 1 }),
       },
+      minPoints: 2, maxPoints: CURVE_POINTS_MAX,
       fields: true,
       onField: (inp) => { inp.classList.add('input', 'small', 'fb-input'); inp.dataset.fbKeep = '1'; },
       // his own curve changed (a preset's points are locked): this kind's own — kept on the page until «Save»
@@ -4397,6 +4415,11 @@ function curvePart(z, i) {
   curveFocus = null;
   cv.c.el.classList.add('fb-curve-edit');
   box.appendChild(cv.c.el);
+  // this kind's sources give no reading right now (asleep, or none): said, instead of a chart without a «now»
+  if (!mine && multi) {
+    const srcs = (z.sources || []).filter((x) => srcKind(x.id) === K).map((x) => (setup().sources || []).find((y) => y.id === x.id)).filter(Boolean);
+    box.appendChild(para(T(srcs.length && srcs.every((x) => x.asleep) ? 'curve.now_asleep' : 'curve.now_none', { kind: kindWord(K) }), 'fb-hint-text fb-curve-nonow'));
+  }
   // a preset is fixed — said where its fields are locked; his own curve: how to shape it
   box.appendChild(para(locked ? T(kindKept(z, K) ? 'curve.locked_kept' : 'curve.locked') : T('zones.curve_sub'), 'fb-hint-text fb-curve-hint'));
   // 2026-11-20 (the owner: «macht jemand eine kurve hintenraus unter 100 % gemäss unserem leise vorschlag, könnte ein kleiner
@@ -4405,7 +4428,7 @@ function curvePart(z, i) {
   if (under) box.appendChild(para(T('curve.under_quiet', { c: degrees(under.c), pct: under.pct }), 'fb-hint-text fb-curve-under'));
   // 2026-11-20 (the owner: «trotz 0 % nie aus»): where the curve says 0 %, which fans stand and which keep turning
   const zero = !rpmUnit && pts.length && pts[0][1] < 0.5;
-  const standsF = (f) => !!f.off_ok && !standWhy(f) && !(f.role === 'cpu' && !!f.cpu_own && K !== 'cpu');
+  const standsF = (f) => !!f.off_ok && !standWhy(f);
   const keep = fans.filter((f) => !standsF(f));
   let offSaid = false;
   if (zero && keep.length) {
@@ -4424,11 +4447,11 @@ function curvePart(z, i) {
     box.appendChild(follows);
   }
   if (!rpmUnit) {
-    const elseCpu = cpuElse && !!lead.off_ok && !standWhy(lead);
-    const says = para(curveWords(pts, floorPct, stands, isCpu, { multi: multi && !isCpu, cpuElse: elseCpu,
+    // (the CPU cooler's own minute under its start: only on the CPU's curve, where it counts)
+    const says = para(curveWords(pts, floorPct, stands, isCpu && K === 'cpu', { multi,
       neverKind: neverKind ? kindWord(neverKind) : '', skipFloor: offSaid }), 'fb-curve-says');
     // the floor among its numbers only where the sentence says it (the «trotz 0 % nie aus» callout says it instead)
-    says.dataset.nums = JSON.stringify(elseCpu || stands || !offSaid ? [{ v: floorPct, from: ['setup', 'fans', `=${lead.id}`], via: 'floor' }] : []);
+    says.dataset.nums = JSON.stringify(stands || !offSaid ? [{ v: floorPct, from: ['setup', 'fans', `=${lead.id}`], via: 'floor' }] : []);
     if (says.textContent) box.appendChild(says);
   }
   return box;

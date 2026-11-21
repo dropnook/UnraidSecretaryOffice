@@ -2014,8 +2014,11 @@ function fanboyZonesCheck(mixed $zones, array $scan, array $settings): array
     return array_values($out);
 }
 
+/** How many points a curve may have (2026-11-21, the owner: at most 6; the page's CURVE_POINTS_MAX); the control reads any count */
+const FANBOY_CURVE_POINTS_MAX = 6;
+
 /**
- * A curve as the page sends it — the zone's (`target`) or one kind's (round 13, `curves.<kind>`): 2–8 points [°C 0–120,
+ * A curve as the page sends it — the zone's (`target`) or one kind's (round 13, `curves.<kind>`): 2–6 points [°C 0–120,
  * value 0–100 % or 0–10000 rpm], or a preset (percent zones only). $field: the refusal's field.
  */
 function fanboyTargetCheck(mixed $t, string $unit, string $field): array
@@ -2024,7 +2027,7 @@ function fanboyTargetCheck(mixed $t, string $unit, string $field): array
         throw new Problem('fanboy_bad_zones', ['field' => $field]);
     }
     if (isset($t['points'])) {
-        if (!is_array($t['points']) || !array_is_list($t['points']) || count($t['points']) < 2 || count($t['points']) > 8) {
+        if (!is_array($t['points']) || !array_is_list($t['points']) || count($t['points']) < 2 || count($t['points']) > FANBOY_CURVE_POINTS_MAX) {
             throw new Problem('fanboy_bad_zones', ['field' => $field === 'target' ? 'points' : $field]);
         }
         $pts = [];
