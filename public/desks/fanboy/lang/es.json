@@ -686,6 +686,7 @@
     "other": "{n} sensores más"
   },
   "dash.open": "Abrir la página de Fanboy",
+  "dash.open_settings": "Abrir los ajustes de Dashboard de Fanboy",
   "dash.why.not_set_up": "aún no configurado",
   "dash.why.not_armed": "configurado, aún sin darle el control",
   "dash.why.starting": "Fanboy está por tomar el control",
@@ -884,7 +885,7 @@
   "help.chip": "Chip de ventiladores y controladores",
   "help.chip_text": "Si Linux no muestra ningún conector de ventilador, «Tu chip de ventiladores» dice qué chip hay en la placa base (leído con tu clic, nunca en una placa Gigabyte), qué controlador o plugin de controlador necesita (para chips ITE o Nuvoton, por ejemplo) y con qué palabras buscarlo.",
   "help.dash": "Ventiladores en el Dashboard de Unraid",
-  "help.dash_text": "En «Ajustes», «Mostrar en el Dashboard»: desactivado, las velocidades o las velocidades con su historial. En cuanto tus ventiladores tienen un aspecto o un nombre, el mosaico muestra cada uno con su símbolo, su nombre y su velocidad; un ventilador parado a propósito lo dice.",
+  "help.dash_text": "En «Ajustes», «Mostrar en el Dashboard»: desactivado, las velocidades o las velocidades con su historial — las velocidades desde la primera vez que pulses «Darle el control», salvo que hayas elegido antes. En cuanto tus ventiladores tienen un aspecto o un nombre, cada zona muestra sus ventiladores girando, un anillo para su nivel con la velocidad dentro y su fuente más caliente.",
   "why.fixed": "Las salidas se quedan en un valor fijo que alguien dejó",
   "bubble.fixed": "Aquí ahora no regula nadie: los ventiladores se quedan en un valor fijo que alguien dejó. Tras reiniciar Unraid, normalmente vuelve a regularlos la BIOS, ¡o configúrame!",
   "situation.fixed": "No regula nadie: {list} se quedan en un valor fijo que alguien dejó (por ejemplo, un plugin de ventiladores desinstalado). Tras reiniciar Unraid, normalmente vuelve a regularlos la BIOS, o configura Fanboy.",

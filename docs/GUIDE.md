@@ -380,7 +380,8 @@ His fans' biggest fan: he steers the fans on the mainboard's fan connectors by w
 - **Your own fans:** for the picture, a fan takes the look of its model — models of ten makers in their sizes, with
   colours, blade shape and reverse blade to change; *See all…* shows every one. The air between the blades is light;
   *Air between the blades: Dark* makes it dark for every fan picture in this browser, the Dashboard tile included.
-- His own Dashboard tile (off until you switch it on) and a row in the office's Grafana dashboard. With *Speeds*, once your fans
+- His own Dashboard tile and a row in the office's Grafana dashboard. The tile comes on with *Speeds* at your first *Take
+  over*, unless you chose otherwise before; *Settings* switches it. Its link opens those settings. With *Speeds*, once your fans
   have a look or a name, each zone is a card: up to three of its fans turning (one that stands though it should turn is always
   among them; the card's tooltip names them all), a ring that fills with the zone's level — green up to 50 %, yellow up to 70 %,
   red above — with the speed in its middle, and the warmest source at its foot. 100 % is a level like any other; only the

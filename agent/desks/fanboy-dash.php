@@ -2,8 +2,10 @@
 declare(strict_types=1);
 
 /*
- * Fanboy's setting «Show on the Dashboard» (his own tile on Unraid's Dashboard, src/dashboard-fanboy.php): off (the
- * default), speeds, speeds with history. Office-wide, kept in his data folder beside his settings:
+ * Fanboy's setting «Show on the Dashboard» (his own tile on Unraid's Dashboard, src/dashboard-fanboy.php): off, speeds,
+ * speeds with history. No file: off — until his first «Take over» writes «speeds» where nobody ever chose
+ * (fanboyDashDefault(), 2026-11-21, the owner); a file, whatever it says, is never touched by that. Office-wide, kept in
+ * his data folder beside his settings:
  *   <data folder>/fanboy/dashboard.json   {"v": 1, "show": "off|speeds|history", "hours": 1|3|6|12|24|72, "at": <time>}
  * `hours` (2026-11-16, the owner: «durchklicken»): the span of «with history»'s curves, clicked through on the tile itself,
  * the same six as his page's history; none or another value: 6.
@@ -65,6 +67,25 @@ function fanboyDashSet(array $r): array
     writeAtomic(fanboyDashFile(), jsonEncode($raw), 0600);
     fanboyDashMirror(fanboyDashRead(), fanboyDashHours());
     return ['ok' => true, 'show' => fanboyDashRead(), 'hours' => fanboyDashHours(), 'state' => fanboyScan()];
+}
+
+/**
+ * The default for a new setup (2026-11-21, the owner: «eigentlich sollte genau diese Variante default eingeschaltet sein,
+ * wenn jemand Fanboy neu einstellt»): at «Take over», where no dashboard.json is there yet (nobody ever chose), the tile
+ * goes on with «speeds», the mirror with it, logged. A file of any shape (off, broken, a link) is the user's: untouched.
+ * True when it wrote.
+ */
+function fanboyDashDefault(): bool
+{
+    $file = fanboyDashFile();
+    if (file_exists($file) || is_link($file)) {
+        return false;
+    }
+    @mkdir(FANBOY_DIR, 0700, true);
+    writeAtomic($file, jsonEncode(['v' => 1, 'show' => 'speeds', 'at' => time()]), 0600);
+    fanboyDashState(true);              // the take over is his action: he is hired
+    logLine('Fanboy: his Dashboard tile on with «Speeds» — the setup taken over, and nobody had chosen yet');
+    return true;
 }
 
 /** For his state (every look): the setting, and the mirror in RAM kept with it — off while he isn't hired */

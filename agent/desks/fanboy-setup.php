@@ -2179,7 +2179,8 @@ function fanboyTakeOver(array $r = []): array
     $GLOBALS['fanboyCrashes'] = [];
     fanboyLaunch('fanboy-control');
     logLine('Fanboy: taken over on the user\'s click');
-    return ['ok' => true];
+    // 2026-11-21 (the owner): a new setup shows his Dashboard tile with «Speeds» — only where nobody ever chose
+    return ['ok' => true, 'dashboard' => fanboyDashDefault()];
 }
 
 /** «Hand back»: not armed — the control ends and gives every output back (read back), at once */

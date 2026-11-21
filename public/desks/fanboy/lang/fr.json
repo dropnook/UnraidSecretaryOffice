@@ -686,6 +686,7 @@
     "other": "{n} autres capteurs"
   },
   "dash.open": "Ouvrir la page de Fanboy",
+  "dash.open_settings": "Ouvrir les réglages Dashboard de Fanboy",
   "dash.why.not_set_up": "pas encore configuré",
   "dash.why.not_armed": "configuré, pas encore pris en main",
   "dash.why.starting": "Fanboy va prendre la main",
@@ -884,7 +885,7 @@
   "help.chip": "Puce des ventilateurs et pilotes",
   "help.chip_text": "Quand Linux ne montre aucun connecteur de ventilateur, « Ta puce de ventilateurs » dit quelle puce se trouve sur la carte mère (lue sur ton clic, jamais sur une carte Gigabyte), quel pilote ou quel plugin de pilote il lui faut (pour les puces ITE ou Nuvoton, par exemple) et avec quels mots le chercher.",
   "help.dash": "Ventilateurs dans le Dashboard d'Unraid",
-  "help.dash_text": "Dans « Réglages », « Afficher dans le Dashboard » : désactivé, les vitesses, ou les vitesses avec leur historique. Dès que tes ventilateurs ont un aspect ou un nom, la tuile montre chacun avec son symbole, son nom et sa vitesse ; un ventilateur arrêté exprès le dit.",
+  "help.dash_text": "Dans « Réglages », « Afficher dans le Dashboard » : désactivé, les vitesses, ou les vitesses avec leur historique — les vitesses dès ton premier « Prendre en main », sauf choix antérieur. Dès que tes ventilateurs ont un aspect ou un nom, chaque zone montre ses ventilateurs qui tournent, un anneau pour son niveau avec la vitesse au centre, et sa source la plus chaude.",
   "why.fixed": "Les sorties restent sur une valeur fixe laissée par quelqu'un",
   "bubble.fixed": "Personne ne pilote ici pour l'instant : les ventilateurs restent sur une valeur fixe laissée par quelqu'un. Après un redémarrage d'Unraid, c'est en général de nouveau le BIOS qui les pilote — ou configure-moi !",
   "situation.fixed": "Personne ne pilote : {list} restent sur une valeur fixe laissée par quelqu'un (un plugin de ventilateurs désinstallé, par exemple). Après un redémarrage d'Unraid, c'est en général de nouveau le BIOS qui les pilote — ou configure Fanboy.",
