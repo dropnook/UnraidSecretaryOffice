@@ -252,6 +252,15 @@ text.fan-curve-now{stroke:none; fill:var(--ink2)}
 .fan-curve-field-name{color:var(--muted)}
 .fan-curve-note{grid-column:1 / -1; margin:0; font-size:12.5px; color:var(--warn-ink)}
 .fan-curve-note[hidden]{display:none}
+/* points added and taken away without a pointer (2026-11-21): «×» beside a point's row, «+ Punkt» after the rows, the how-to beside it */
+.fan-curve-del, .fan-curve-add{font:inherit; font-size:12.5px; line-height:1; color:var(--ink2); background:var(--surface2);
+  border:1px solid var(--line2); border-radius:6px; padding:5px 8px; cursor:pointer}
+.fan-curve-del{padding:4px 7px}
+.fan-curve-del:hover:not(:disabled), .fan-curve-add:hover:not(:disabled){border-color:var(--accent); color:var(--ink)}
+.fan-curve-del:disabled, .fan-curve-add:disabled{opacity:.45; cursor:default}
+.fan-curve-del:focus-visible, .fan-curve-add:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+.fan-curve-addrow{display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; flex-basis:100%}
+.fan-curve-howto{font-size:12.5px; color:var(--muted)}
 .fan-curve-input{width:calc(3ch + 30px); font-variant-numeric:tabular-nums}      /* three digits (°C, percent) — rpm five */
 .fan-curve-rpm .fan-curve-input[data-axis="v"]{width:calc(5ch + 30px)}
 .fan-curve-pt{cursor:grab; outline:none}

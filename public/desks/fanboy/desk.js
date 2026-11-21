@@ -3759,6 +3759,8 @@ function kindKept(z, k) {
  * three: in the middle of the widest span; each at a whole degree where the line has a whole value (the nearest such), else
  * the nearest whole degree with its value to a tenth. Four or more: as they are.
  */
+/** How many points a curve may have (2026-11-21, the owner: at most 6) — the agent's FANBOY_CURVE_POINTS_MAX */
+const CURVE_POINTS_MAX = 6;
 function fourPoints(points) {
   const p = (points || []).map((q) => [Number(q[0]), Number(q[1])]).sort((a, b) => a[0] - b[0]);
   const on = (a, b, t) => a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]);
@@ -4270,8 +4272,9 @@ function curvePart(z, i) {
   if (!A || !kinds.length) { box.appendChild(kinds.length ? waiting() : para(T('zones.curve_no_source'))); return box; }
   const curveOf = (k) => kindCurveOf(zk, k, scales);
   const front = curveOf(K);
-  // his own curve shows four points at least (a kept one of two — an earlier evening's — gets the missing ones on its line)
-  const pts = rpmUnit || choice === 'own' ? fourPoints(front.points) : front.points;
+  // the points as stored (2026-11-21: he adds and takes away points himself, 2 to CURVE_POINTS_MAX — a point taken away
+  // stays away); a curve he makes his own starts with four on the preset's line (fourPoints(), when «Eigene Kurve» is chosen)
+  const pts = front.points;
   const asks = (k) => (byKind[k] && num(byKind[k].c) !== null && num(byKind[k].value) !== null ? byKind[k] : null);
   const valueSay = (v) => (rpmUnit ? T('pic.rpm', { rpm: fmt.number(Math.round(v)) }) : T('value', { pct: Math.round(v) }));
   if (multi) {
@@ -4352,10 +4355,17 @@ function curvePart(z, i) {
         label: (x, v) => (rpmUnit ? T('curve.label_rpm', { t: degrees(x), v: fmt.number(v) }) : T('curve.label_pct', { t: degrees(x), v: fmt.number(v, Number.isInteger(v) ? 0 : 1) })),
         field: (k) => T('curve.field', { i: k + 1 }), fieldT: (k) => T('curve.field_t', { i: k + 1 }), fieldV: (k) => T(rpmUnit ? 'curve.field_v_rpm' : 'curve.field_v_pct', { i: k + 1 }),
         unitT: T('curve.unit_c'), unitV: T(rpmUnit ? 'curve.unit_rpm' : 'curve.unit_pct'),
-        // a typed number held by its neighbour or the chart's end, said (2026-11-20): «Point 1 can't lie above point 2 (30 %).»
-        clamped: (k, axis, by, j, got) => T(`curve.clamp_${by}_${axis}`, { i: k + 1, j: j === null ? '' : j + 1,
+        // a typed number only the chart's end holds now, said; the points it pushed along, named (2026-11-21, the owner:
+        // «wenn ich einen Punkt ziehe, dann will ich das auch!» — the others move with it instead of holding it)
+        clamped: (k, axis, by, j, got) => T(`curve.clamp_${by}_${axis}`, { i: k + 1,
           limit: axis === 't' ? T('temp', { c: degrees(got) }) : rpmUnit ? T('pic.rpm', { rpm: fmt.number(got) }) : T('value', { pct: got }) }),
+        pushed: (k, moved) => T(moved.length === 1 ? 'curve.pushed_one' : 'curve.pushed_many', { i: k + 1, list: moved.map((j) => j + 1).join(', ') }),
+        // points added and taken away (2026-11-21): a double click on the curve or on a point; «+» and «×» for the keyboard
+        added: (k, n) => T('curve.added', { i: k + 1, n }), removed: (k, n) => T('curve.removed', { i: k + 1, n }),
+        full: (max) => T('curve.points_full', { max }), few: (min) => T('curve.points_few', { min }),
+        howto: T('curve.howto'), add: T('curve.add'), remove: (k) => T('curve.remove', { i: k + 1 }),
       },
+      minPoints: 2, maxPoints: CURVE_POINTS_MAX,
       fields: true,
       onField: (inp) => { inp.classList.add('input', 'small', 'fb-input'); inp.dataset.fbKeep = '1'; },
       // his own curve changed (a preset's points are locked): this kind's own — kept on the page until «Save»

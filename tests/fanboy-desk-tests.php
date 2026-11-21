@@ -471,8 +471,10 @@ function testFanboyUx(): void
     check('fanboy ux curve: the degrees\' scale is as fine as its numbers have room (5 °C on a disk\'s scale), with a tick for every single degree; the pointer reads whole degrees',
         str_contains($art, "const every = [1, 2, 5, 10, 20].find((n) => n * perDeg >= 42) || 20;") && str_contains($art, "class: 'fan-curve-minor'")
         && str_contains($art, "const t = clamp(Math.round(tAt(px)), tMin, tMax);"));
-    check('fanboy ux curve: each point can be typed (degrees and value) — whole numbers, kept between its neighbours, shown as it counts; a field he is typing in is never overwritten and keeps the focus through the page\'s redraw',
-        str_contains($art, "pts[k] = which === 't' ? fit(k, n, q.v) : fit(k, q.t, n);") && str_contains($art, "said = tx.clamped(k, which, by,") && str_contains($art, "inp.value = String(which === 't' ? pts[k].t : pts[k].v);")
+    // 2026-11-21 (the owner: «wenn ich einen Punkt ziehe, dann will ich das auch!»): a typed number pushes the others along
+    // instead of being held by its neighbour; only the chart's end holds it (testFanboyCurvePush)
+    check('fanboy ux curve: each point can be typed (degrees and value) — whole numbers, the others pushed along, shown as it counts; a field he is typing in is never overwritten and keeps the focus through the page\'s redraw',
+        str_contains($art, "const moved = which === 't' ? push(k, n, q.v) : push(k, q.t, n);") && str_contains($art, "said = tx.clamped(k, which, want > got ? 'max' : 'min', null, got);") && str_contains($art, "inp.value = String(which === 't' ? pts[k].t : pts[k].v);")
         && str_contains($art, "if (document.activeElement !== inp && inp.value !== want) inp.value = want;") && str_contains($art, "setTimeout(() => emit(o.onChange), 0);")
         && str_contains($js, "fields: true,") && str_contains($js, "onField: (inp) => { inp.classList.add('input', 'small', 'fb-input'); inp.dataset.fbKeep = '1'; },")
         && str_contains($js, "curveFocus = a && a.dataset && a.dataset.axis && c.el.contains(a) ?"));
@@ -2412,4 +2414,103 @@ function testFanboyCurveFloorKinds(): void
     check('fanboy curve floor: a kind without a reading says so — its sources asleep, or none',
         str_contains($js, "T(srcs.length && srcs.every((x) => x.asleep) ? 'curve.now_asleep' : 'curve.now_none', { kind: kindWord(K) })")
         && ($de['curve.now_asleep'] ?? '') !== '' && ($de['curve.now_none'] ?? '') !== '');
+}
+
+/**
+ * The curve editor's points (2026-11-21, the owner: «wenn ich einen Punkt ziehe, dann will ich das auch! … dann sollen halt
+ * alle anderen Punkte mitziehen!» and: add a point by a double click, take one away, at most 6): fan-art.js curve() run in
+ * node on a small stand-in DOM — a drag, a typed number, a double click and the «+»/«×» buttons as the page does them
+ */
+function testFanboyCurvePush(): void
+{
+    $setup = (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy-setup.php');
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    $de = langFile(OFFICE_WEB . '/desks/fanboy/lang/de.json');
+    check('fanboy curve points: 2 to 6 points — the agent\'s FANBOY_CURVE_POINTS_MAX and the page\'s CURVE_POINTS_MAX the same, the agent checks it, the page passes it to the chart',
+        str_contains($setup, 'const FANBOY_CURVE_POINTS_MAX = 6;') && str_contains($setup, "count(\$t['points']) < 2 || count(\$t['points']) > FANBOY_CURVE_POINTS_MAX")
+        && str_contains($js, 'const CURVE_POINTS_MAX = 6;') && str_contains($js, 'minPoints: 2, maxPoints: CURVE_POINTS_MAX,')
+        && ($de['curve.howto'] ?? '') === 'Doppelklick auf die Kurve: Punkt dazu · auf einen Punkt: weg' && !isset($de['curve.clamp_next_t']) && !isset($de['curve.clamp_prev_v']));
+    check('fanboy curve points: the stored points as they are on the page (a point taken away stays away); «Eigene Kurve» starts with four on the preset\'s line',
+        str_contains($js, "const pts = front.points;") && str_contains($js, "if (choose.value === 'own') cv[K] = { points: fourPoints(kept || now) };"));
+    // the agent: 2..6 accepted, 1 and 7 refused (the saved shape stays a list of [t, v])
+    $ok = fn (int $n) => (function () use ($n) {
+        try {
+            fanboyTargetCheck(['points' => array_map(fn ($i) => [30 + 5 * $i, min(100, 20 * $i)], range(0, $n - 1))], 'pct', 'target');
+            return true;
+        } catch (Problem $e) {
+            return false;
+        }
+    })();
+    same('fanboy curve points: the agent takes 2 … 6 points, refuses 1 and 7', [false, true, true, true, false], [$ok(1), $ok(2), $ok(4), $ok(6), $ok(7)]);
+    same('fanboy curve points: … and keeps them as [t, v]', ['points' => [[40.0, 0.0], [50.0, 30.0], [60.0, 100.0]]],
+        fanboyTargetCheck(['points' => [[40, 0], [50, 30], [60, 100]]], 'pct', 'target'));
+    $node = trim((string) shell_exec('command -v node 2>/dev/null'));
+    if ($node === '') {
+        check('fanboy curve points: node is missing here - the chart\'s behaviour skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('fanboy-curve-push');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+// a stand-in DOM, just enough for curve(): elements with children, attributes, classes, listeners
+class N {
+  constructor(tag) { this.tagName = tag; this.children = []; this.attrs = {}; this.style = { setProperty() {} }; this.dataset = {}; this.listeners = {}; this.classList = { add() {}, remove() {}, toggle() {}, contains: () => false }; this.textContent = ''; this.parentNode = null; this.hidden = false; this.disabled = false; this.value = ''; }
+  get firstChild() { return this.children[0] || null; } get lastChild() { return this.children[this.children.length - 1] || null; }
+  get previousElementSibling() { const p = this.parentNode; if (!p) return null; const i = p.children.indexOf(this); return i > 0 ? p.children[i - 1] : null; }
+  appendChild(c) { c.parentNode = this; this.children.push(c); return c; }
+  append(...cs) { cs.forEach((c) => (typeof c === 'string' ? null : this.appendChild(c))); }
+  insertBefore(c, ref) { c.parentNode = this; const i = this.children.indexOf(ref); if (i < 0) this.children.push(c); else this.children.splice(i, 0, c); return c; }
+  remove() { if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1); this.parentNode = null; }
+  replaceChildren() { this.children = []; }
+  setAttribute(k, v) { this.attrs[k] = String(v); } getAttribute(k) { return this.attrs[k] ?? null; } removeAttribute(k) { delete this.attrs[k]; }
+  addEventListener(t, f) { (this.listeners[t] ||= []).push(f); } removeEventListener() {}
+  fire(t, ev) { (this.listeners[t] || []).forEach((f) => f(Object.assign({ target: this, preventDefault() {}, timeStamp: 0 }, ev))); }
+  querySelectorAll(sel) { const cls = sel.replace(/^\./, ''); const out = []; const walk = (n) => n.children.forEach((c) => { if ((c.className || '').split(' ').includes(cls)) out.push(c); walk(c); }); walk(this); return out; }
+  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
+  closest() { return null; } contains() { return false; } focus() {} select() {}
+  getBoundingClientRect() { return { left: 0, top: 0, width: 600, height: 300 }; }
+  setPointerCapture() {} getBBox() { return { x: 0, y: 0, width: 10, height: 10 }; } getComputedTextLength() { return 10; }
+}
+globalThis.window = globalThis;
+globalThis.document = { currentScript: null, documentElement: null, activeElement: null, hidden: false, addEventListener() {}, getElementById: () => null, createElement: (t) => new N(t), createElementNS: (ns, t) => new N(t), head: new N('head') };
+globalThis.ResizeObserver = undefined;
+globalThis.matchMedia = () => ({ matches: false, addEventListener() {} });
+globalThis.setTimeout = (f) => f();
+new Function(fs.readFileSync(process.argv[2], 'utf8'))();
+const say = [];
+const texts = { clamped: (k, a, by) => say.push(`clamp ${k} ${a} ${by}`) && '', pushed: (k, m) => say.push(`pushed ${k}: ${m.join(',')}`) && '', full: (m) => say.push(`full ${m}`) && '', few: (m) => say.push(`few ${m}`) && '', added: () => '', removed: () => '', howto: 'how', add: '+', remove: () => '×' };
+let got = null;
+const mk = (points) => window.FanArt.curve({ points: points.map(([t, v]) => ({ t, v })), tMin: 20, tMax: 80, fields: true, wheel: false, texts, minPoints: 2, maxPoints: 6, onChange: (p) => { got = p.map((q) => [q.t, q.v]); } });
+const four = [[40, 0], [50, 30], [60, 70], [70, 100]];
+const out = {};
+// typed numbers (the fields: the keyboard's way to the same rule as a drag)
+const type = (c, i, axis, n) => { const rows = c.el.querySelectorAll('.fan-curve-field'); const inp = rows[i].children.find((x) => x.dataset && x.dataset.axis === axis); inp.value = String(n); inp.fire('change'); return got; };
+let c = mk(four); out.rightT = type(c, 1, 't', 65); out.sayRight = say.splice(0);
+c = mk(four); out.leftT = type(c, 2, 't', 45); out.sayLeft = say.splice(0);
+c = mk(four); out.upV = type(c, 1, 'v', 90); out.downV = (c = mk(four), type(c, 2, 'v', 10));
+say.splice(0); c = mk(four); out.edgeT = type(c, 0, 't', 80); out.sayEdge = say.splice(0);
+c = mk(four); type(c, 1, 't', 75); out.stays = type(c, 1, 't', 45);          // pushed points stay where they were pushed
+// a point taken away and added: «×», «+», and their limits
+say.splice(0); got = null; c = mk([[40, 0], [70, 100]]); c.el.querySelectorAll('.fan-curve-del')[0].fire('click'); out.few = [got, say.splice(0)];
+c = mk(four); c.el.querySelector('.fan-curve-add').fire('click'); out.added = got;
+c = mk(four); c.el.querySelector('.fan-curve-add').fire('click'); c.el.querySelector('.fan-curve-add').fire('click'); out.six = got; out.addOff = c.el.querySelector('.fan-curve-add').disabled;
+c.el.querySelector('.fan-curve-add').fire('click'); out.full = say.splice(0);
+c = mk(four); c.el.querySelectorAll('.fan-curve-del')[1].fire('click'); out.removed = got;
+console.log(JSON.stringify(out));
+JS);
+    $o = json_decode((string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/fanboy/fan-art.js') . ' 2>&1'), true);
+    if (!is_array($o)) {
+        check('fanboy curve points: node ran the chart', false, (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/desks/fanboy/fan-art.js') . ' 2>&1 | tail -5'));
+        hardeningRm($tmp);
+        return;
+    }
+    same('fanboy curve points: point 2 typed to 65 °C — point 3 pushed right (66 °C, not lower), point 4 already past it stays, said', [[[40, 0], [65, 30], [66, 70], [70, 100]], ['pushed 1: 2']], [$o['rightT'], $o['sayRight']]);
+    same('fanboy curve points: point 3 typed to 45 °C — point 2 pushed left (44 °C), point 1 stays', [[[40, 0], [44, 30], [45, 70], [70, 100]], ['pushed 2: 1']], [$o['leftT'], $o['sayLeft']]);
+    same('fanboy curve points: a value up pushes the ones after it up, a value down the ones before it down', [[[40, 0], [50, 90], [60, 90], [70, 100]], [[40, 0], [50, 10], [60, 10], [70, 100]]], [$o['upV'], $o['downV']]);
+    same('fanboy curve points: the chart\'s edge stops them all — point 1 to 80 °C ends at 77 °C, the others at 78, 79, 80; the edge said', [[[77, 0], [78, 30], [79, 70], [80, 100]], ['clamp 0 t max']], [$o['edgeT'], $o['sayEdge']]);
+    same('fanboy curve points: back again does not pull the others back — they stay where they were pushed', [[40, 0], [45, 30], [76, 70], [77, 100]], $o['stays']);
+    same('fanboy curve points: «×» never below two points (said); «+» adds one in the widest span; at six «+» is off and says the limit; «×» takes one away',
+        [null, ['few 2'], 5, 6, true, ['full 6'], [[40, 0], [60, 70], [70, 100]]],
+        [$o['few'][0] ?? null, $o['few'][1], count($o['added'] ?? []), count($o['six'] ?? []), $o['addOff'], $o['full'], $o['removed']]);
+    hardeningRm($tmp);
 }

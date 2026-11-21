@@ -91,10 +91,15 @@
                        readout(t, v, rpm) → the line beside the wheel, floor, now },
               onInput(points) while dragging, onChange(points) when a change is done,
               wheel: false — no wheel beside the chart: the readout is a line of text under it (2026-11-20, the owner),
-              locked: true — the points are shown, not moved: no drag, no point added, the typed fields read only }
-     A point is dragged, or typed in the fields under the chart (the keyboard's way). Double click on the chart adds a
-     point there. Points keep their order: the temperature between its neighbours, the value never below the point
-     before it nor above the one after it.
+              locked: true — the points are shown, not moved: no drag, no point added, the typed fields read only,
+              minPoints 2, maxPoints 6 — how few and how many points he may have }
+     A point is dragged, or typed in the fields under the chart (the keyboard's way): it goes where it is put, and the
+     points it would pass are pushed along (2026-11-21, the owner: «wenn ich einen Punkt ziehe, dann will ich das auch!»)
+     — the ones after it at least 1 °C further right and never lower, the ones before it at least 1 °C further left and
+     never higher; only the chart's edge stops them (and so the point). A pushed point stays where it was pushed.
+     Double click (a double tap) on the curve adds a point there, on a point removes it — between minPoints and
+     maxPoints; the fields have «+» and «×» for the same without a pointer. texts: added, removed, full(max), few(min),
+     pushed(i, list), howto, add, remove(i).
 
    The picker (picker()):
      opts = { catalog: { fans: [...] }, value: { id } | { mm, blades } (other fan), colour (the user's, 'auto'),
@@ -934,12 +939,46 @@
       const max = num(fan.max, 2000);
       return Math.max(num(fan.min, 0), max * v / 100);
     }
-    /** keep the order: a point's temperature between its neighbours', its value between theirs */
-    function fit(i, t, v) {
-      const a = pts[i - 1], b = pts[i + 1];
-      t = clamp(snapT(t), a ? a.t + 1 : tMin, b ? b.t - 1 : tMax);
-      v = clamp(snapV(v), a ? a.v : vMin, b ? b.v : vMax);
-      return { t, v };
+    const minPts = Math.max(2, num(o.minPoints, 2)), maxPts = Math.max(minPts, num(o.maxPoints, 6));
+    /**
+     * Point i to (t, v) as the hand puts it (2026-11-21, the owner): within the chart — its edges leave room for the points
+     * on either side, a degree each — and the points it would pass pushed along: after it at least 1 °C further right
+     * and never lower, before it at least 1 °C further left and never higher. Returns the points that moved with it.
+     */
+    function push(i, t, v) {
+      const n = pts.length;
+      t = clamp(snapT(t), tMin + i, tMax - (n - 1 - i));
+      v = snapV(v);
+      pts[i] = { t, v };
+      const moved = [];
+      for (let j = i + 1; j < n; j++) {
+        const q = { t: Math.max(pts[j].t, pts[j - 1].t + 1), v: Math.max(pts[j].v, pts[j - 1].v) };
+        if (q.t !== pts[j].t || q.v !== pts[j].v) { pts[j] = q; moved.push(j); }
+      }
+      for (let j = i - 1; j >= 0; j--) {
+        const q = { t: Math.min(pts[j].t, pts[j + 1].t - 1), v: Math.min(pts[j].v, pts[j + 1].v) };
+        if (q.t !== pts[j].t || q.v !== pts[j].v) { pts[j] = q; moved.push(j); }
+      }
+      return moved.sort((a, b) => a - b);
+    }
+    /** a point added at (t, v) — on the curve's place for it, the others pushed as needed; false: no room or too many */
+    function addAt(t, v) {
+      if (pts.length >= maxPts) { noteSay(typeof tx.full === 'function' ? tx.full(maxPts) : ''); return false; }
+      t = snapT(t);
+      if (pts.some((p) => p.t === t)) return false;
+      let i = pts.findIndex((p) => p.t > t);
+      if (i < 0) i = pts.length;
+      pts.splice(i, 0, { t, v: snapV(v) });
+      push(i, t, v);
+      noteSay(typeof tx.added === 'function' ? tx.added(i, pts.length) : '');
+      return true;
+    }
+    /** point i removed — never below minPts */
+    function removeAt(i) {
+      if (pts.length <= minPts) { noteSay(typeof tx.few === 'function' ? tx.few(minPts) : ''); return false; }
+      pts.splice(i, 1);
+      noteSay(typeof tx.removed === 'function' ? tx.removed(i, pts.length) : '');
+      return true;
     }
     const copy = () => pts.map((p) => ({ t: p.t, v: p.v }));
     /**
@@ -986,6 +1025,26 @@
     // each point typed exactly (o.fields): a row per point under the chart — its degrees and its value as numbers
     const fieldsBox = o.fields ? el('div', 'fan-curve-fields') : null;
     if (fieldsBox) root.appendChild(fieldsBox);
+    // «+ Punkt» (2026-11-21): a point in the middle of the widest span — the keyboard's way to what a double click does
+    const addRow = fieldsBox ? el('div', 'fan-curve-addrow') : null;
+    const addBtn = addRow && !locked ? el('button', 'fan-curve-add', tx.add || '+') : null;
+    if (addRow) {
+      fieldsBox.appendChild(addRow);
+      if (addBtn) {
+        addBtn.type = 'button';
+        addRow.appendChild(addBtn);
+        addBtn.addEventListener('click', () => {
+          whole();
+          let k = 0;
+          for (let i = 1; i < pts.length; i++) if (pts[i].t - pts[i - 1].t > pts[k + 1].t - pts[k].t) k = i - 1;
+          const a = pts[k], b = pts[k + 1];
+          if (b.t - a.t < 2) { noteSay(typeof tx.full === 'function' && pts.length >= maxPts ? tx.full(maxPts) : ''); return; }
+          const t = Math.round((a.t + b.t) / 2);
+          if (addAt(t, a.v + (b.v - a.v) * (t - a.t) / (b.t - a.t))) { paint(); setTimeout(() => emit(o.onChange), 0); }
+        });
+      }
+      if (tx.howto && !locked) addRow.appendChild(el('span', 'fan-curve-howto', tx.howto));
+    }
     // 2026-11-20 (a typed 40 % shown as 30 without a word): a typed number the curve can't keep as typed — each point lies
     // between its neighbours, the curve only rises — says why in one line under the fields, gone with the next change
     const note = fieldsBox ? el('p', 'fan-curve-note') : null;
@@ -1144,9 +1203,9 @@
     /** the points as numbers to type: built once per point, a field he is typing in is never overwritten */
     function fieldsPaint() {
       if (!fieldsBox) return;
-      while (fieldsBox.children.length > pts.length) fieldsBox.lastChild.remove();
+      while (fieldsBox.querySelectorAll('.fan-curve-field').length > pts.length) addRow.previousElementSibling.remove();
       pts.forEach((p, i) => {
-        let row = fieldsBox.children[i];
+        let row = fieldsBox.querySelectorAll('.fan-curve-field')[i];
         if (!row) {
           row = el('div', 'fan-curve-field');
           const mk = (which) => {
@@ -1170,14 +1229,11 @@
               const n = inp.value.trim() === '' ? NaN : Number(inp.value);
               let said = '';
               if (Number.isFinite(n)) {
-                pts[k] = which === 't' ? fit(k, n, q.v) : fit(k, q.t, n);
+                const moved = which === 't' ? push(k, n, q.v) : push(k, q.t, n);
                 const want = which === 't' ? snapT(n) : snapV(n), got = which === 't' ? pts[k].t : pts[k].v;
-                if (want !== got && typeof tx.clamped === 'function') {
-                  // which neighbour (or the chart's end) held it: above → the next point or the top, below → the one before or the bottom
-                  const up = want > got, j = up ? k + 1 : k - 1;
-                  const by = pts[j] && (which === 't' ? got === pts[j].t + (up ? -1 : 1) : got === pts[j].v) ? (up ? 'next' : 'prev') : up ? 'max' : 'min';
-                  said = tx.clamped(k, which, by, by === 'next' || by === 'prev' ? j : null, got);
-                }
+                // only the chart's edge holds a typed number now (the others are pushed along) — said; else who moved with it
+                if (want !== got && typeof tx.clamped === 'function') said = tx.clamped(k, which, want > got ? 'max' : 'min', null, got);
+                else if (moved.length && typeof tx.pushed === 'function') said = tx.pushed(k, moved);
               }
               noteSay(said);
               inp.value = String(which === 't' ? pts[k].t : pts[k].v);       // as it counts: whole, between its neighbours
@@ -1190,15 +1246,25 @@
             return inp;
           };
           row.append(el('span', 'fan-curve-field-name', ''), mk('t'), el('span', 'fan-curve-unit', tx.unitT), mk('v'), el('span', 'fan-curve-unit', tx.unitV));
-          fieldsBox.appendChild(row);
+          // without a pointer (2026-11-21): «×» takes this point away — a double click on it does the same
+          if (!locked) {
+            const del = el('button', 'fan-curve-del', '×');
+            del.type = 'button';
+            del.addEventListener('click', () => { whole(); if (removeAt(+row.dataset.i)) { paint(); setTimeout(() => emit(o.onChange), 0); } });
+            row.appendChild(del);
+          }
+          fieldsBox.insertBefore(row, addRow);
         }
         row.dataset.i = i;
         row.firstChild.textContent = tx.field(i, pts.length);
+        const del = row.querySelector('.fan-curve-del');
+        if (del) { del.disabled = pts.length <= minPts; del.title = typeof tx.remove === 'function' ? tx.remove(i) : ''; del.setAttribute('aria-label', del.title); }
         row.querySelectorAll('input').forEach((inp) => {
           const want = String(Math.round((inp.dataset.axis === 't' ? p.t : p.v) * 10) / 10);      // (a derived curve's point may lie between degrees)
           if (document.activeElement !== inp && inp.value !== want) inp.value = want;
         });
       });
+      if (addBtn) addBtn.disabled = pts.length >= maxPts;
     }
     const emit = (fn) => { if (typeof fn === 'function') fn(copy()); };
 
@@ -1225,7 +1291,8 @@
       const { px, py } = at(ev);
       const t = clamp(Math.round(tAt(px)), tMin, tMax);      // whole degrees: what the readout says is what the mark shows
       if (drag) {
-        pts[drag.i] = fit(drag.i, tAt(px), vAt(py));
+        push(drag.i, tAt(px), vAt(py));
+        drag.moved = true;
         shownT = pts[drag.i].t;
         paint();
         emit(o.onInput);
@@ -1239,13 +1306,19 @@
       cross.setAttribute('x2', x(shownT));
       cross.setAttribute('visibility', 'visible');
     });
+    // the point pressed and let go without moving: a double click or tap on it means that point (the drag captured the
+    // pointer, so the click itself names the whole chart)
+    let still = null;
     const end = (keep) => {
       if (!drag) return;
+      still = keep && !drag.moved ? { i: drag.i, at: performance.now() } : null;
+      const moved = !!drag.moved;
       if (!keep) pts = drag.was;
       drag = null;
       root.classList.remove('fan-dragging');
       paint();
-      emit(o.onChange);
+      // (pressed and let go without moving: nothing changed — no redraw of the page between the two clicks of a double click)
+      if (moved) emit(o.onChange);
     };
     s.addEventListener('pointerup', () => end(true));
     s.addEventListener('pointercancel', () => end(false));
@@ -1257,18 +1330,30 @@
       shownT = typeof o.now === 'number' ? o.now : null;
       paint();
     });
-    s.addEventListener('dblclick', (ev) => {
-      if (locked || (ev.target.closest && ev.target.closest('.fan-curve-pt'))) return;
-      const { px, py } = at(ev);
-      const t = snapT(tAt(px));
+    /** a double click or tap: on a point it goes, elsewhere on the chart a point comes there (on the curve's line) */
+    let twiceAt = -1e9;
+    function twice(target, px, when) {
+      // (a phone may send its own dblclick after a double tap: one of the two counts)
+      if (locked || when - twiceAt < 500) return;
+      twiceAt = when;
+      const g = target && target.closest && target.closest('.fan-curve-pt');
+      const on = g ? +g.dataset.i : still && performance.now() - still.at < 600 ? still.i : null;
+      still = null;
       whole();
-      if (pts.some((p) => p.t === t)) return;
-      let i = pts.findIndex((p) => p.t > t);
-      if (i < 0) i = pts.length;
-      pts.splice(i, 0, { t, v: snapV(vAt(py)) });
-      pts[i] = fit(i, pts[i].t, pts[i].v);
+      const done = on !== null ? removeAt(on) : addAt(tAt(px), valueAt(snapT(tAt(px))));
+      if (!done) return;
+      active = -1;
       paint();
       emit(o.onChange);
+    }
+    s.addEventListener('dblclick', (ev) => { ev.preventDefault(); twice(ev.target, at(ev).px, ev.timeStamp); });
+    // a double tap (touch, pen): two taps within 350 ms and a finger's width — a phone sends no dblclick for it
+    let tap = null;
+    s.addEventListener('pointerup', (ev) => {
+      if (ev.pointerType === 'mouse') return;
+      const { px, py } = at(ev), now = ev.timeStamp;
+      if (tap && now - tap.at < 350 && Math.hypot(px - tap.px, py - tap.py) < 24) { tap = null; twice(ev.target, px, now); return; }
+      tap = { at: now, px, py };
     });
     s.addEventListener('focusin', (ev) => {
       const g = ev.target.closest && ev.target.closest('.fan-curve-pt');
