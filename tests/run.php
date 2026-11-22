@@ -4358,12 +4358,13 @@ EMBY);
         'instances' => [['servername' => 'Test', 'url' => "http://127.0.0.1:$port", 'api_key' => 'k', 'path_mappings' => ['/media/movies' => "$py/user/Filme"]]]],
         JSON_UNESCAPED_SLASHES));
     $rsync = trim((string) shell_exec('command -v rsync'));
-    // macOS's openrsync starts its receiving half as «rsync --server …» through PATH: that is no copy of its own, so it notes nothing
+    // named by MEDIACACHE_RSYNC (PHP's proc_open on Linux never finds a stand-in first in PATH); macOS's openrsync starts its receiving half
+    // as «rsync --server …» through PATH — should that ever reach the stand-in, it is no copy of its own and notes nothing
     file_put_contents("$py/bin/rsync", "#!/bin/bash\n[ \"\$1\" = --server ] && exec " . escapeshellarg($rsync) . " \"\$@\"\n"
         . "r=n; [ -r \"\$MEDIACACHE_PROGRESS\" ] && r=y\nprintf '%s | progress=%s readable=%s uid=%s\\n' \"\$*\" \"\$MEDIACACHE_PROGRESS\" \"\$r\" \"\$(id -u)\" >> " . escapeshellarg("$py/calls.log") . "\n"
         . "cat \"\$MEDIACACHE_PROGRESS\" >> " . escapeshellarg("$py/seen.jsonl") . "\nexec " . escapeshellarg($rsync) . " \"\$@\"\n");
     chmod("$py/bin/rsync", 0755);
-    $env = ['env', "PATH=$py/bin:" . getenv('PATH'), "MEDIACACHE_DIR=$py/data", "MEDIACACHE_RESULT=$py/data/status.json", "MEDIACACHE_PROGRESS=$py/run/progress.json",
+    $env = ['env', "MEDIACACHE_RSYNC=$py/bin/rsync", "MEDIACACHE_DIR=$py/data", "MEDIACACHE_RESULT=$py/data/status.json", "MEDIACACHE_PROGRESS=$py/run/progress.json",
             'MEDIACACHE_FILL_TOOL=rsync', 'MEDIACACHE_CLEANUP_TOOL=rsync', PHP_BINARY, OFFICE_DIR . '/agent/desks/jack-run.php'];
     [$exit, $out, $err] = run($env, 120);
     same('progress, MediaCache dry run: no progress file (only real runs)', [0, false], [$exit, is_file("$py/run/progress.json")]);
@@ -4375,8 +4376,7 @@ EMBY);
     $calls = file("$py/calls.log", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
     same('progress, EmbyCache: the stand-in rsync ran for each copy (1 back, 3 fill), the progress file readable each time', [4, 4],
         [count($calls), count(array_filter($calls, fn ($l) => str_contains($l, ' readable=y ')))],
-        "calls: " . implode("\n", $calls) . "\nstand-in: " . (is_executable("$py/bin/rsync") ? 'executable' : 'NOT executable') . ", rsync=$rsync, PATH="
-        . getenv('PATH') . ', PHP ' . PHP_VERSION . "\n" . $out . $err);
+        "calls: " . implode("\n", $calls) . "\nstand-in: " . (is_executable("$py/bin/rsync") ? 'executable' : 'NOT executable') . ", then $rsync, PHP " . PHP_VERSION . "\n" . $out . $err);
     $seen = array_values(array_filter(array_map(fn ($l) => json_decode($l, true), file("$py/seen.jsonl", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [])));
     $at = array_map(fn ($s) => [$s['phase'] ?? null, $s['current']['rel'] ?? null, $s['current']['user'] ?? null, $s['current']['source'] ?? null,
         $s['current']['title'] ?? null, $s['current']['target'] ?? null], $seen);

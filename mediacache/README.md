@@ -12,7 +12,8 @@
 >
 > * **Safety (offered to helmi1987):** free space on ZFS is the whole pool (`pool_usage()`: the dataset from
 >   `/proc/mounts`, the pool's `used + avail` from `zfs list -Hp` as size, the dataset's `avail` as free; else `statvfs`;
->   `MEDIACACHE_ZFS` / `MEDIACACHE_MOUNTS` point it at stand-ins for the tests). The key/token goes only to the server's own
+>   `MEDIACACHE_ZFS` / `MEDIACACHE_MOUNTS` point it at stand-ins for the tests, as `MEDIACACHE_RSYNC` — an absolute path — does for
+  the copies' rsync; the office sets none of them). The key/token goes only to the server's own
 >   host: unredirected headers and `_SameHostRedirect` (all three types, Plex's plex.tv calls too). A path with `..` is never
 >   followed out of the share (`Locations.to_rel`). A path mapping with an empty host path means «deliberately not cached»
 >   (`Locations(…, skip)`), the longest mapping wins — never a shorter one; an empty line under a broader mapping wins
