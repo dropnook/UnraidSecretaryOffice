@@ -36,7 +36,8 @@ const WATCH_CATS = [
     'pull'      => ['kinds' => ['flow_client', 'flow_container'], 'tips' => []],
     'data'      => ['kinds' => ['flow_written', 'flow_gone'], 'tips' => []],
     'snap'      => ['kinds' => ['snap_gone', 'snap_hold_released', 'kopia_emptied'], 'tips' => []],
-    'host'      => ['kinds' => ['listen_new', 'proc_odd', 'log_cleared'], 'tips' => ['mitigations_off', 'vmscape', 'mitigations_on']],
+    'host'      => ['kinds' => ['listen_new', 'proc_odd', 'log_cleared', 'host_oom', 'host_crash', 'host_flood'],
+                    'tips' => ['mitigations_off', 'vmscape', 'mitigations_on']],
     'door'      => ['kinds' => ['door_new', 'api_key_new', 'api_key_changed'], 'tips' => ['telnet', 'upnp', 'ftp', 'api_admin', 'remote_access']],
     'partner'   => ['kinds' => ['partner_paired', 'door_changed', 'door_key_moved', 'door_refused'],
                     'tips' => ['partner_wide', 'partner_unknown', 'partner_public', 'partner_friend']],
@@ -45,7 +46,7 @@ const WATCH_CATS = [
     'lan'       => ['kinds' => ['net_new_device', 'net_spoof', 'net_ips_server', 'net_blocked_from_server'], 'tips' => []],
     'array'     => ['kinds' => ['array_stop', 'array_start', 'server_boot', 'parity_check'], 'tips' => []],
     'vuln'      => ['kinds' => [], 'tips' => []],          // «Known vulnerabilities» (concept 11 A): its kinds come with its step
-    'hw'        => ['kinds' => ['hw_hot'], 'tips' => []],          // «Hardware» (concept 11 B–E, H): hw_hot (D, watchman-heat.php); the rest with their steps
+    'hw'        => ['kinds' => ['hw_hot', 'hw_io'], 'tips' => []],   // «Hardware» (concept 11 B–E, H): hw_hot (D), hw_io (H); the rest with their steps
     'hold'      => ['kinds' => [], 'tips' => []],          // «What holds the array?» (agent/lib/arrayhold.php): no entries, its own look
     'wakes'     => ['kinds' => [], 'tips' => []],          // «Who woke my disks?» (watchman-diskwakes.php): no entries, his wake list
 ];

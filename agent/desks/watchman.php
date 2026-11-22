@@ -126,6 +126,8 @@ require_once __DIR__ . '/../lib/arrayhold.php';     // «What holds the array?»
 require_once __DIR__ . '/watchman-diskwakes.php';    // «Who woke my disks?» (data/watchman/wakes.json): the sampler in his tick
 require_once __DIR__ . '/watchman-cats.php';         // his areas (1.96): every kind and tip in one, the lights of his page (state.cats)
 require_once __DIR__ . '/watchman-heat.php';         // «too warm for hours» (1.96, concept 11.3 D): hw_hot
+require_once __DIR__ . '/../lib/logsigns.php';       // signs in the log: the shared patterns (1.96, concept 11.3 H)
+require_once __DIR__ . '/watchman-signs.php';        // … and what he books of them: host_oom, host_crash, hw_io, host_flood
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -239,6 +241,11 @@ const WATCH_KINDS = [
     'net_router_reboot'       => ['net', false],    // the router restarted: a plain line, noted by himself; without proper shutdown told (the entry's `important`), with the server's start a power loss
     // the hardware (1.96, concept 11.3): no ATT&CK technique — none of it is an attack
     'hw_hot'                  => ['hw', true],      // a sensor too warm for its kind for hours (watchman-heat.php): once a sensor and day
+    'hw_io'                   => ['hw', true],      // read or write errors of a disk in the log (watchman-signs.php): once a device and day
+    // signs in the log (watchman-signs.php): one entry a thing and day, counting up
+    'host_oom'                => ['host', false],   // the kernel ended a program because the memory was full
+    'host_crash'              => ['host', false],   // a service of the server crashed again and again (three times in an hour)
+    'host_flood'              => ['host', false],   // very many connection attempts on a port (SYN cookies), or the connection table full
 ];
 
 /**
@@ -246,7 +253,7 @@ const WATCH_KINDS = [
  * version reads only book.json and drops the kinds it doesn't know at its next write (watchmanLoad()); the second file it
  * never sees, so it never empties it. This version reads both as one book and writes each kind to its own file.
  */
-const WATCH_BOOK_MORE = ['hw_hot'];
+const WATCH_BOOK_MORE = ['hw_hot', 'hw_io', 'host_oom', 'host_crash', 'host_flood'];
 
 /**
  * Each kind's nearest MITRE ATT&CK technique (attack.mitre.org) — the words a security team searches for; the page
@@ -268,6 +275,8 @@ const WATCH_ATTACK = [
     // the offsite copy emptied: backups deleted so nothing comes back — Inhibit System Recovery, like snapshots that vanish
     'kopia_emptied' => 'T1490',
     'log_cleared' => 'T1070.002', 'user_ram' => 'T1136.001', 'listen_new' => 'T1133', 'proc_odd' => 'T1105', 'door_new' => 'T1133',
+    // signs in the log (1.96): denial of service, nearest — the memory exhausted, a service crashed, a SYN flood
+    'host_oom' => 'T1499', 'host_crash' => 'T1499.004', 'host_flood' => 'T1499.001',
     // an API key is a credential added to the server's API (or more rights given to one) to keep a way in: Account Manipulation
     // (its sub-technique .001 is for cloud accounts, so the parent is the nearest); T1078 Valid Accounts would be its use, which
     // he can't see — he never asks the API
@@ -438,6 +447,8 @@ function watchmanPaths(): array
         'cpu_vulns'  => '/sys/devices/system/cpu/vulnerabilities',
         // too warm for hours (watchman-heat.php): NVMe and CPU from hwmon, the disks' own temperatures from Unraid's disks.ini
         'hwmon'      => '/sys/class/hwmon',
+        // signs in the log (watchman-signs.php): this server's name — a syslog line of another host isn't his
+        'host_name'  => watchmanHostName(),
         'hot_disks'  => '/var/local/emhttp/disks.ini',
         'libvirt_sock' => '/var/run/libvirt/libvirt-sock',
         'virsh'      => 'virsh',
@@ -910,6 +921,14 @@ function watchmanNightPaths(): array
         'rsyslog_cfg', 'shares_ini', 'arp', 'parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg',
         'docker_autostart', 'compose_cfg', 'compose_projects', 'office_runs', 'jack_settings', 'gather_settings', 'mover_pid',
         'moverelli_status', 'jack_progress', 'hot_disks']));
+}
+
+/** This server's name as the syslog writes it (short, lower case; '' — not known: every line counts) */
+function watchmanHostName(): string
+{
+    $n = strtolower(trim(php_uname('n')));
+    $short = explode('.', $n)[0];
+    return preg_match('/^[a-z0-9][a-z0-9_-]{0,62}$/D', $short) ? $short : '';
 }
 
 /** This boot's id: the RAM mirror and a position in the syslog belong to one boot */
@@ -1511,13 +1530,16 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     $btime = $boot !== '' && isset($paths['stat']) ? watchmanBootTime((string) $paths['stat']) : null;
     // why a parity check runs (agent/lib/paritywhy.php) — the day's rounds only (the night shift has no parity paths)
     $parity = paritywhyLook($paths, is_array($snap['state']['parity'] ?? null) ? $snap['state']['parity'] : null, $boot, $btime, $now);
+    // signs in the log: this server's name (a line of another host is none of his), Unraid's disks (a device's name)
+    $signHost = isset($paths['host_name']) ? strtolower((string) $paths['host_name']) : '';
+    $signDisks = isset($paths['disks_ini']) && is_file((string) $paths['disks_ini']) ? readCfg((string) $paths['disks_ini'], true) : [];
     // too warm for hours (watchman-heat.php): the sensors now, the settings (rules.json set.hw)
     $hotLook = isset($paths['hwmon']) || isset($paths['hot_disks']) ? watchmanHotLook($paths) : null;
     $hotSet = watchmanHotSettings(watchmanHotSet($dir));
 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
                                                $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook, $netContainers, $automounts,
-                                               $hotLook, $hotSet): array {
+                                               $hotLook, $hotSet, $signHost, $signDisks): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -1617,6 +1639,10 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 }
             }
         }
+        // signs in the log: what this round read (taken over anew: the log's history, none of it booked)
+        if (!$fresh) {
+            $added = array_merge($added, watchmanSignsCompare($book, $st, (array) ($read['signs'] ?? []), $signHost, $signDisks, $now));
+        }
         // too warm for hours: the minutes over per sensor; taken over anew, only counted
         $added = array_merge($added, watchmanHotCompare($book, $st, $hotLook, $hotSet, $now, $fresh));
         // the logins of the last half hour (for the array's lines); an array stopped or started since the last round: a plain line
@@ -1659,6 +1685,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                         'read' => $read['read'], 'skipped' => $read['skipped'], 'rotated' => $read['rotated'], 'syslog_full' => $read['full'],
                         'docker' => $seen['containers'] !== null, 'shares' => $seen['shares'] !== null, 'flow' => $look !== null,
                         'snaps' => $snapRes !== null, 'added' => count($added),
+                        'signs' => count((array) ($read['signs'] ?? [])) + (int) ($read['signs_more'] ?? 0),       // signs in the log this round read
                         // snapshot automounts right now, on the host, inside the containers and in other processes' namespaces (the metric's numbers)
                         'automounts' => $automounts];
         if (is_array($st['night'] ?? null) && !isset($st['night']['until'])) {
@@ -1916,12 +1943,13 @@ function watchmanSyslogFull(array $paths): ?array
  * learning: from now on. At most WATCH_READ_MAX / WATCH_LEARN_MAX of a file
  * (its newest part); only whole lines — an unfinished one waits.
  *
- * @return array{0: list<array>, 1: ?array, 2: array{read: int, skipped: int, rotated: bool}}  events, new position, what was read
+ * @return array{0: list<array>, 1: ?array, 2: array{read: int, skipped: int, rotated: bool, signs: list<array>, signs_more: int}}  events, new
+ *         position, what was read (with the signs in the log: logsignsMatch() + time, host)
  */
 function watchmanReadLogins(string $syslog, ?array $pos, bool $learn, array $known, int $now): array
 {
     $events = [];
-    $info = ['read' => 0, 'skipped' => 0, 'rotated' => false];
+    $info = ['read' => 0, 'skipped' => 0, 'rotated' => false, 'signs' => [], 'signs_more' => 0];
     clearstatcache();
     $st = @stat($syslog);
     if (!$st) {
@@ -1984,6 +2012,15 @@ function watchmanReadFile(string $path, int $from, int $max, array $known, int $
             $ev = watchmanParseLine(rtrim($line, "\r\n"), $known, $now);
             if ($ev) {
                 $events[] = $ev;
+            }
+        }
+        // signs in the log (1.96, agent/lib/logsigns.php): one cheap test, then the patterns — at most WATCH_SIGN_MAX a round
+        $sign = logsignsMatch(rtrim($line, "\r\n"));
+        if ($sign !== null) {
+            if (count($info['signs']) < WATCH_SIGN_MAX) {
+                $info['signs'][] = $sign + ['time' => watchmanLineTime($line, $now), 'host' => logsignsHost($line)];
+            } else {
+                $info['signs_more']++;
             }
         }
     }
@@ -9604,6 +9641,7 @@ function watchmanText(array $e, ?string $lang = null): array
         'door_key_moved' => ['name' => (string) ($p['name'] ?? ''), 'ip' => (string) ($p['ip'] ?? '')],
         'door_refused'   => ['name' => (string) ($p['name'] ?? '')],
         'hw_hot'         => watchmanHotText($p),
+        'hw_io', 'host_oom', 'host_crash', 'host_flood' => watchmanSignText($e),
         'watch'          => isset($p['too_much']) ? watchnetText(['kind' => 'net_too_much', 'p' => $p])
                               : ($lang === null ? array_map('intval', $p) : watchmanCountWords($p, $lang)),     // the page words the numbers itself
         default          => watchnetText($e, $lang),     // the network (agent/lib/watchnet.php); [] for anything else
@@ -9624,7 +9662,7 @@ function watchmanEntryVariant(array $e): ?string
         return 'at_plugin_left';        // what a removed plugin left in atd's queue (watchmanAtLeftNote())
     }
     $shape = watchmanFlowShape($e);
-    return watchmanHotVariant($e) ?? watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
+    return watchmanHotVariant($e) ?? watchmanSignVariant($e) ?? watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
 }
 
 /** A way in, in words: in $lang (notifications, the team lead), or '' — the page writes it itself (door.<what>) */
