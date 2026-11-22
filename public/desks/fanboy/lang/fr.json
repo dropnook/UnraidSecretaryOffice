@@ -1356,5 +1356,11 @@
   "hist.curve": "{kind} {c} °C",
   "hist.curve_led": "{kind} {c} °C (menait)",
   "hist.read_hint": "Pointe un graphique (ou touche-le) pour lire un moment — dans toutes les zones à la fois ; les flèches déplacent le repère.",
-  "hist.read_none": "{time} : rien d'enregistré"
+  "hist.read_none": "{time} : rien d'enregistré",
+  "why.no_mirror": "Ses réglages manquent en mémoire — il ne régule rien",
+  "why.holds": "Sa régulation s’est arrêtée d’elle-même : elle ne doit jamais retenir l’arrêt de l’array — chaque ventilateur est rendu",
+  "dash.why.no_mirror": "ses réglages manquent en mémoire",
+  "dash.why.holds": "sa régulation s'est arrêtée d'elle-même",
+  "notify.holds_subject": "Fanboy : sa régulation s'est arrêtée d'elle-même",
+  "notify.holds": "La régulation de Fanboy a constaté qu'elle retenait quelque chose sur l'array ou un pool. Elle ne doit jamais retenir l'arrêt de l'array, elle s'est donc arrêtée. Chaque ventilateur qu'elle tenait est rendu comme prévu pour lui (son état avant lui ou l'automatique de la carte mère). Il ne la relance pas tout seul — seulement quand le coursier redémarre (au prochain démarrage de l'array, après une mise à jour) ou après « Rendre » puis « Prendre en main ». Le journal du secrétariat dit ce qu'elle retenait."
 }

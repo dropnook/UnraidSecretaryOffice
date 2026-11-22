@@ -704,7 +704,7 @@ function fanboyLocate(array &$c, array $scan): array
         foreach ($scan['chips'] as $chip) {
             if ($chip['name'] === $f['chip'] && $chip['address'] === $r['address']) {
                 $c['fans'][$id]['auto'] = ($f['back'] ?? null) === 'auto'
-                    ? fanboyAutoMode($chip, $f['output'], fanboyInitialRead()['boards'][$c['key']][$id] ?? null) : null;
+                    ? fanboyAutoMode($chip, $f['output'], fanboyInitialKept($c['key'], $id)) : null;
                 $c['fans'][$id]['device'] = $chip['device'];
                 $c['fans'][$id]['address_now'] = $chip['address'];
                 $c['fans'][$id]['hwmon'] = $chip['hwmon'];
@@ -1964,14 +1964,19 @@ function fanboyHistoryLoad(string $board, ?int $wall = null, ?array &$curves = n
 
 /**
  * Why the control may not steer now — the one place that decides (the process every 10 s, the agent's tick):
- *   array_stopped · not_hired · not_set_up · not_armed (exit) — other (stay, give back, look again)
+ *   array_stopped · no_mirror · not_hired · not_set_up · not_armed (exit) — other (stay, give back, look again)
  */
 function fanboyHoldReason(?array $settings): ?string
 {
     if (function_exists('arrayRunning') && !arrayRunning(fanboyVarIni())) {
         return 'array_stopped';
     }
-    if (!in_array('fanboy', staffHired(), true)) {
+    // without the data folder (a RAM job) everything he knows comes from his mirror: none in its shape for this board — the
+    // BIOS keeps the fans, never a guess
+    if (fanboyRamMode() && fanboyMirrorRead(fanboyBoardKey(fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']))) === null) {
+        return 'no_mirror';
+    }
+    if (!fanboyHiredNow()) {
         return 'not_hired';
     }
     if ($settings === null || !fanboyControlNew($settings, '', ['pid' => 0])['zones']) {
@@ -1996,10 +2001,83 @@ function fanboyVarIni(): string
 function fanboyBoardRaw(?array $board = null): ?array
 {
     $board ??= fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']);
+    if (fanboyRamMode()) {
+        return fanboyMirrorRead(fanboyBoardKey($board))['settings'] ?? null;        // the agent mirrored exactly this entry (fanboy-mirror.php)
+    }
     $raw = readJson(fanboyStoreFile());
     // round 5: a board DMI says nothing about was kept under « | » before — read there until written under its new key
     $b = $raw['boards'][fanboyBoardKey($board)] ?? (isset($board['chip']) ? ($raw['boards'][' | '] ?? null) : null);
     return is_array($b) ? $b : null;
+}
+
+// ===================================================================== without the data folder (2026-11-22, «always on» step S4c)
+
+const FANBOY_HOLD_CHECK_EVERY = 60.0;       // seconds between the control's looks at itself: does it hold anything on the array or a pool?
+
+/**
+ * Does this process run without the data folder — a RAM job (`php agent.php ramjob fanboy-control`, lib/ramjob.php)? Then
+ * everything he reads of the data folder comes from his mirror in RAM (fanboy-mirror.php), his log lines go to the job's
+ * log in RAM, and what he used to write there (the history's copy, the outputs' states before him) the agent carries over.
+ */
+function fanboyRamMode(): bool
+{
+    return $GLOBALS['fanboyRamMode'] ?? (defined('RAM_JOB') && RAM_JOB !== '');
+}
+
+/** Is he hired? The staff list — in a RAM job the mirror's word */
+function fanboyHiredNow(): bool
+{
+    if (fanboyRamMode()) {
+        return (fanboyMirrorRead()['hired'] ?? false) === true;
+    }
+    return in_array('fanboy', staffHired(), true);
+}
+
+/** An output's state before him as kept across boots (initial.json) — in a RAM job the mirror's copy of this board's */
+function fanboyInitialKept(string $key, string $id): ?array
+{
+    $x = fanboyRamMode() ? (fanboyMirrorRead($key)['initial'][$id] ?? null) : (fanboyInitialRead()['boards'][$key][$id] ?? null);
+    return is_array($x) ? $x : null;
+}
+
+/** What tells the running control its settings changed: the store's time — in a RAM job the mirror's file (written only when what it says changed) */
+function fanboyControlStamp(): string|int|false
+{
+    if (!fanboyRamMode()) {
+        return @filemtime(fanboyStoreFile());
+    }
+    $f = fanboyMirrorFile();
+    clearstatcache(true, $f);
+    $st = @lstat($f);
+    return $st === false ? 'none' : "{$st['ino']}.{$st['size']}.{$st['mtime']}";
+}
+
+function fanboyBrakeFile(): string
+{
+    return fanboyRunDir() . '/brake.json';
+}
+
+/** The control's look at itself (lib/holdsnothing.php): null — it holds nothing on the array or a pool — or what it found */
+function fanboyHoldCheck(): ?array
+{
+    return isset($GLOBALS['fanboyHoldCheck']) ? ($GLOBALS['fanboyHoldCheck'])() : officeHoldsNothing();
+}
+
+/**
+ * The emergency brake: the control found itself (or something it started) holding something on the array or a pool — or
+ * could not look. It must never keep the array from stopping, so it ends at once and gives every fan back (its usual way
+ * out); the mark in RAM keeps the agent from starting it again by itself (fanboyEnsureControl()) until the agent starts
+ * anew, «Take over» or «Look now». The worst case is what happened at every array stop before: the BIOS has the fans.
+ */
+function fanboyBrake(array &$c, array $found): void
+{
+    @mkdir(fanboyRunDir(), 0700, true);
+    writeAtomic(fanboyBrakeFile(), jsonEncode(['v' => 1, 'at' => time(), 'pid' => getmypid() ?: 0, 'why' => (string) ($found['why'] ?? ''),
+        'what' => mb_substr((string) ($found['what'] ?? ''), 0, 300), 'mount' => is_string($found['mount'] ?? null) ? $found['mount'] : null,
+        'holder' => is_int($found['pid'] ?? null) ? $found['pid'] : null]), 0600, 0, 0);
+    logLine('Fanboy: the control stops itself — it must never keep the array from stopping, and ' . officeHoldSay($found)
+        . ' — every fan goes back; not started again by itself until the agent starts anew, «Take over» or «Look now»');
+    fanboyTell($c, 'holds', 'holds', [], 'warning');
 }
 
 /**
@@ -2030,18 +2108,30 @@ function fanboyControlMain(): int
     $c['hist'] = fanboyHistoryLoad($key, null, $curves);
     $c['curves'] = $curves;
     fanboyStandCarry($c, readJson(fanboyStatusFile()), fanboyMono());
-    $stamp = @filemtime(fanboyStoreFile());
+    $stamp = fanboyControlStamp();
     $lastHold = fanboyMono();
+    $nextSelf = -INF;
     $exit = in_array($why, ['other', null], true) ? null : $why;
-    logLine('Fanboy: the control started (PID ' . $owner['pid'] . ', ' . count($c['zones']) . ' zones, ' . count($c['fans']) . ' fans)');
+    logLine('Fanboy: the control started (PID ' . $owner['pid'] . ', ' . count($c['zones']) . ' zones, ' . count($c['fans']) . ' fans'
+        . (fanboyRamMode() ? ', without the data folder: from his mirror in RAM' : '') . ')');
     try {
         while (!fanboyStopAsked() && $exit === null) {
             $now = fanboyMono();
             fanboyBeat();
+            // without the data folder he is to outlive the array's stop: before his first write and every minute, does this
+            // process (with what it started) hold anything on the array or a pool? Then the brake — never a held stop
+            if (fanboyRamMode() && $now >= $nextSelf) {
+                $nextSelf = $now + FANBOY_HOLD_CHECK_EVERY;
+                if (($found = fanboyHoldCheck()) !== null) {
+                    fanboyBrake($c, $found);
+                    $exit = 'holds';
+                    break;
+                }
+            }
             if ($now - $lastHold >= 10) {
                 $lastHold = $now;
                 clearstatcache();
-                $new = @filemtime(fanboyStoreFile());
+                $new = fanboyControlStamp();
                 if ($new !== $stamp) {          // the settings changed (zones, roles, a hand-back): taken anew
                     $stamp = $new;
                     $settings = fanboyBoardRaw($board);

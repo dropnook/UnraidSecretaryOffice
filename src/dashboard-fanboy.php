@@ -506,7 +506,7 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             : ['who' => 'bios', 'why' => $status['why'] ?? null];
     } elseif ($mine && $phase === 'ended' && $statusAt >= $stateAt && ($who['who'] ?? '') === 'fanboy') {
         $who = ['who' => 'bios', 'why' => $status['why'] ?? null];          // it ended after his last look: the BIOS again
-    } elseif ($mine && $phase === 'ended' && $statusAt >= $stateAt && in_array($status['why'] ?? null, ['array_stopped', 'crashed', 'released', 'hand_back', 'stopped'], true)) {
+    } elseif ($mine && $phase === 'ended' && $statusAt >= $stateAt && in_array($status['why'] ?? null, ['array_stopped', 'crashed', 'released', 'hand_back', 'stopped', 'holds', 'no_mirror'], true)) {
         $who = ['who' => 'bios', 'why' => $status['why']];
     }
     $whoId = $str($who['who'] ?? null);
@@ -523,7 +523,8 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             default => $str($who['name'] ?? null) !== '' ? $str($who['name']) : $whoId,
         };
         $out['who'] = $name . (isset($s["fanboy.dash.why.$why"]) ? ' · ' . officeDashT($s, "fanboy.dash.why.$why") : '');
-        $out['tone'] = in_array($why, ['crashed', 'chip_missing', 'array_stopped', 'fixed'], true) ? 'orange' : '';
+        // (holds, no_mirror: 2026-11-22 — a control without the data folder that stopped itself, or found no mirror of his settings)
+        $out['tone'] = in_array($why, ['crashed', 'chip_missing', 'array_stopped', 'fixed', 'holds', 'no_mirror'], true) ? 'orange' : '';
     }
 
     // the numbers: the control's while it runs (its status), else his last look's — and how old they are

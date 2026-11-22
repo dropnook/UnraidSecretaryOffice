@@ -57,6 +57,11 @@ desk('fanboy', [
         'fanboy-show'    => fn (array $a): int => fanboyShowMain(),        // round 6: «show me this fan»
         'fanboy-restore' => fn (array $a): int => fanboyRestoreMain(),     // round 9 (H2): a safety full undone, with a kick
     ],
+    // 2026-11-22 («always on»): the control without the data folder — `php agent.php ramjob fanboy-control` (lib/ramjob.php):
+    // everything from his mirror in RAM, nothing under /mnt, whatever the array does
+    'ram_jobs' => [
+        'fanboy-control' => fn (array $a): int => fanboyControlMain(),
+    ],
     'actions' => [
         'refresh' => fn (array $r) => ['ok' => true, 'state' => fanboyScan()],
         // the text for the wish form: shown to the user in the form before anything goes (read only, like refresh)
@@ -405,6 +410,7 @@ const FANBOY_CRASH_MAX = 3;
 /** At the agent's start: the drivers that helped on this board loaded again (before the control steers), holders gone given back */
 function fanboyStart(): void
 {
+    @unlink(fanboyBrakeFile());     // a control that stopped itself (fanboyBrake()) may be started again: the agent starts anew
     fanboyHistorySync(true);        // after a boot: the data folder's history into RAM, for the control and the page (fanboy-mirror.php)
     fanboyMirrorKeep(true);         // his mirror in RAM says what the data folder says (fanboy-mirror.php)
     fanboyDriversBoot();
@@ -616,7 +622,8 @@ function fanboyEnsureControl(float $now): void
     }
     $settings = fanboySettingsCached();
     if ($settings === null || ($settings['armed'] ?? false) !== true || !fanboyControlNew($settings, '', ['pid' => 0])['zones']
-        || !arrayRunning(fanboyVarIni()) || !in_array('fanboy', staffHired($GLOBALS['agentStaffFile'] ?? null), true) || fanboyStepRunning() || fanboyControlPid() !== null) {
+        || !arrayRunning(fanboyVarIni()) || !in_array('fanboy', staffHired($GLOBALS['agentStaffFile'] ?? null), true) || fanboyStepRunning() || fanboyControlPid() !== null
+        || is_file(fanboyBrakeFile())) {        // it stopped itself (fanboyBrake()): not again by itself
         return;
     }
     $status = readJson(fanboyStatusFile());
@@ -756,6 +763,7 @@ function fanboyLookNow(): array
 {
     @mkdir(fanboyRunDir(), 0700, true);
     writeAtomic(fanboyRunDir() . '/look-now', (string) time(), 0600, 0, 0);
+    @unlink(fanboyBrakeFile());                 // a control that stopped itself may try again on the user's click
     $GLOBALS['fanboyLaunchedAt'] = -INF;        // and the control started at the next tick when it should run
     return ['ok' => true, 'state' => fanboyScan()];
 }

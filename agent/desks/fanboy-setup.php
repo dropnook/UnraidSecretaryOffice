@@ -2187,6 +2187,7 @@ function fanboyTakeOver(array $r = []): array
     }, $scan['board']);
     fanboyGuardCron(true);
     $GLOBALS['fanboyCrashes'] = [];
+    @unlink(fanboyBrakeFile());         // a control that stopped itself (fanboyBrake()) may try again on the user's click
     fanboyLaunch('fanboy-control');
     logLine('Fanboy: taken over on the user\'s click');
     // 2026-11-21 (the owner): a new setup shows his Dashboard tile with «Speeds» — only where nobody ever chose

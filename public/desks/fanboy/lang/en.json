@@ -1356,5 +1356,11 @@
   "hist.curve": "{kind} {c} °C",
   "hist.curve_led": "{kind} {c} °C (led)",
   "hist.read_hint": "Point at a chart (or tap it) to read a moment — in every zone at once; arrow keys move the marker.",
-  "hist.read_none": "{time}: nothing recorded"
+  "hist.read_none": "{time}: nothing recorded",
+  "why.no_mirror": "His settings are missing in memory — he steers nothing",
+  "why.holds": "His control stopped itself: it must never hold up the array's stop — every fan is handed back",
+  "dash.why.no_mirror": "his settings are missing in memory",
+  "dash.why.holds": "his control stopped itself",
+  "notify.holds_subject": "Fanboy: his control stopped itself",
+  "notify.holds": "Fanboy's control found itself holding something on the array or a pool. It must never keep the array from stopping, so it ended. Every fan it held is given back as set for it (its state before him or the mainboard's automatic). He does not start it again by himself — only once the messenger starts anew (at the array's next start, after an update), or after «Hand back» and «Take over». The office's log says what it held."
 }

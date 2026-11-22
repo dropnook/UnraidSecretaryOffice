@@ -1356,5 +1356,11 @@
   "hist.curve": "{kind} {c} °C",
   "hist.curve_led": "{kind} {c} °C (guiaba)",
   "hist.read_hint": "Señala un gráfico (o tócalo) para leer un momento — en todas las zonas a la vez; las flechas mueven la marca.",
-  "hist.read_none": "{time}: nada registrado"
+  "hist.read_none": "{time}: nada registrado",
+  "why.no_mirror": "Sus ajustes faltan en memoria — no regula nada",
+  "why.holds": "Su regulación se detuvo sola: nunca debe retener la parada del array — cada ventilador está devuelto",
+  "dash.why.no_mirror": "sus ajustes faltan en memoria",
+  "dash.why.holds": "su regulación se detuvo sola",
+  "notify.holds_subject": "Fanboy: su regulación se detuvo sola",
+  "notify.holds": "La regulación de Fanboy notó que retenía algo en el array o en un pool. Nunca debe retener la parada del array, así que se detuvo. Cada ventilador que tenía está devuelto como está fijado para él (su estado antes de él o el automático de la placa base). Él no la reinicia solo — solo cuando el mensajero arranca de nuevo (en el próximo arranque del array, tras una actualización) o después de «Devolver» y «Darle el control». El registro de la secretaría dice qué retenía."
 }

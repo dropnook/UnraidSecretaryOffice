@@ -1004,12 +1004,13 @@ function officeNotifyLink(string $hash = ''): string
 /**
  * The language of the notifications: the one the office was last used in (the page keeps it in data/office/lang.json,
  * src/desks.php officeLangRemember()), else Unraid's (Settings → Display Settings) when the office speaks it, else
- * English. The night shift opens nothing under /mnt: it reads the copy in RAM the agent keeps (officeNotifyLangKeep()) —
- * none after a reboot, then Unraid's.
+ * English. The night shift opens nothing under /mnt, nor does a job without the data folder: they read the copy in RAM
+ * the agent keeps (officeNotifyLangKeep()) — none after a reboot, then Unraid's.
  */
 function officeNotifyLang(string $cfg = OFFICE_UNRAID_CFG, ?string $seen = null): string
 {
-    $lang = officeNotifyLangSeen($seen ?? (NIGHT_MODE ? OFFICE_NOTIFY_LANG_RAM : OFFICE_LANG_FILE));
+    // the night shift and a job without the data folder (lib/ramjob.php) read the copy in RAM
+    $lang = officeNotifyLangSeen($seen ?? (NIGHT_MODE || (defined('RAM_JOB') && RAM_JOB !== '') ? OFFICE_NOTIFY_LANG_RAM : OFFICE_LANG_FILE));
     if ($lang !== null) {
         return $lang;
     }

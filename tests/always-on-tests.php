@@ -821,3 +821,262 @@ function testAlwaysOnRamJob(): void
         && preg_match('#^(?:' . $p . ')$#D', 'ramjob-fanboy-control.log.1') === 1 && preg_match('#^(?:' . $p . ')$#D', 'ramjob-fold.json') === 1));
     hardeningRm($tmp);
 }
+
+// ===================================================================== step S4c: the control without the data folder
+
+/** A mirror as the agent would write it for the fake board, changed by $change (the sum made right again) */
+function alwaysOnTMirror(callable $change): void
+{
+    $m = $change(fanboyMirrorBuild());
+    unset($m['sum']);
+    $m['sum'] = fanboyMirrorSum($m);
+    @mkdir(fanboyRunDir(), 0700, true);
+    file_put_contents(fanboyMirrorFile(), json_encode($m + ['at' => time()]));
+}
+
+/**
+ * Step S4c: in a RAM job everything the control knows of the data folder comes from his mirror — the settings, hired or
+ * not, the outputs' states kept from before him — whatever the data folder says meanwhile; no mirror in its shape for
+ * this board: he steers nothing («no_mirror»). And the brake: a control that finds itself holding something on the array
+ * or a pool ends, says so once, and is not started again by itself.
+ */
+function testAlwaysOnControlRam(): void
+{
+    $t = fanboyT('ao-ram');
+    $keep = alwaysOnTHire($t, true);
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);
+        fanboyInitialKeep(FANBOY_T_KEY, fanboyTId(4), ['value' => 77, 'enable' => 2]);
+        same('always on S4c: the agent mirrors the board (hired, armed, two zones)', 'written', fanboyMirrorKeep(true));
+        // the data folder says something else now (and the agent has not looked yet): not armed, no zones, not hired, nothing kept
+        $other = ['armed' => false, 'zones' => []] + $settings;
+        file_put_contents(fanboyStoreFile(), json_encode(['v' => 1, 'boards' => [FANBOY_T_KEY => $other]], JSON_UNESCAPED_SLASHES));
+        file_put_contents("{$t['tmp']}/staff.json", json_encode(['hired' => new stdClass()]));
+        @unlink((string) fanboyInitialFile());
+        $look = fn () => [(fanboyBoardRaw()['armed'] ?? null), count(fanboyBoardRaw()['zones'] ?? []), fanboyHiredNow(), fanboyInitialKept(FANBOY_T_KEY, fanboyTId(4))['value'] ?? null, fanboyHoldReason(fanboyBoardRaw())];
+        $GLOBALS['fanboyRamMode'] = false;
+        same('always on S4c: with the data folder (as before) he reads it: not armed, no zones, not hired, nothing kept — he may not steer', [false, 0, false, null, 'not_hired'], $look());
+        $GLOBALS['fanboyRamMode'] = true;
+        same('always on S4c: without it (a RAM job) he reads only his mirror: armed, two zones, hired, the state kept from before him — he steers', [true, 2, true, 77, null], $look());
+        same('always on S4c: … the mode is the process\'s (a RAM job), never a setting: here the test names it', [false, 'fanboy-control'],
+            [defined('RAM_JOB') && RAM_JOB !== '', array_keys($GLOBALS['desks']['fanboy']['ram_jobs'] ?? ['fanboy-control' => 1])[0]]);
+        // the settings changed: the mirror's file tells the running control (written only when what it says changed)
+        $s0 = fanboyControlStamp();
+        $GLOBALS['fanboyRamMode'] = false;
+        $same = fanboyMirrorKeep(true);          // the agent's look: the data folder says «not armed» now — mirrored
+        $GLOBALS['fanboyRamMode'] = true;
+        $s1 = fanboyControlStamp();
+        same('always on S4c: the agent mirrors the change — the control\'s stamp changes, and now he may not steer (not hired: he ends, gives back)',
+            ['written', true, 'not_hired'], [$same, $s0 !== $s1, fanboyHoldReason(fanboyBoardRaw())]);
+        $GLOBALS['fanboyRamMode'] = false;
+        same('always on S4c: … nothing changed: the mirror is not written again, the stamp stays (no reload for nothing)', ['same', $s1],
+            [fanboyMirrorKeep(true), (function () { $GLOBALS['fanboyRamMode'] = true; return fanboyControlStamp(); })()]);
+        // no mirror, another board's, a broken one: he steers nothing and says why
+        alwaysOnTMirror(fn ($m) => ['hired' => true, 'settings' => fanboyTSettings()] + $m);
+        same('always on S4c: a mirror in its shape for this board — he steers', [null, true], [fanboyHoldReason(fanboyBoardRaw()), fanboyHiredNow()]);
+        alwaysOnTMirror(fn ($m) => ['board' => 'Other Boards Inc. | X1', 'hired' => true, 'settings' => fanboyTSettings()] + $m);
+        same('always on S4c: another board\'s mirror (a stick moved to another server) — no settings, «no_mirror»', [null, 'no_mirror'], [fanboyBoardRaw(), fanboyHoldReason(fanboyBoardRaw())]);
+        file_put_contents(fanboyMirrorFile(), substr((string) file_get_contents(fanboyMirrorFile()), 0, 200));
+        same('always on S4c: a cut mirror — «no_mirror», never half of one', [null, 'no_mirror', false], [fanboyBoardRaw(), fanboyHoldReason(null), fanboyHiredNow()]);
+        @unlink(fanboyMirrorFile());
+        same('always on S4c: no mirror at all — «no_mirror»; the stamp says «none»', ['no_mirror', 'none'], [fanboyHoldReason(null), fanboyControlStamp()]);
+        file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Stopped\"\n");
+        same('always on S4c: the array stopped — in this step he still ends there, as before', 'array_stopped', fanboyHoldReason(null));
+        file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Started\"\n");
+        unset($GLOBALS['fanboyRamMode']);
+
+        // the brake
+        fanboyTStore($settings);
+        alwaysOnTHire($t, true);
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        $n0 = count(fanboyTNotified($t));
+        $log0 = strlen((string) @file_get_contents(AGENT_LOG));
+        fanboyBrake($c, ['why' => 'file', 'what' => '/mnt/cache/appdata/x.log', 'mount' => '/mnt/cache', 'pid' => 4242]);
+        fanboyBrake($c, ['why' => 'file', 'what' => '/mnt/cache/appdata/x.log', 'mount' => '/mnt/cache', 'pid' => 4242]);
+        $b = readJson(fanboyBrakeFile()) ?? [];
+        same('always on S4c: the brake leaves its mark in RAM — what was held, on which mount, by which process', [1, 'file', '/mnt/cache/appdata/x.log', '/mnt/cache', 4242, 0600],
+            [$b['v'] ?? null, $b['why'] ?? null, $b['what'] ?? null, $b['mount'] ?? null, $b['holder'] ?? null, fileperms(fanboyBrakeFile()) & 0777]);
+        $told = array_slice(fanboyTNotified($t), $n0);
+        check('always on S4c: … told once (a warning naming what happened), and the log says what it held (' . ($told[0] ?? '') . ')', count($told) === 1 && str_contains($told[0], '-i warning')
+            && str_contains($told[0], 'his control stopped itself') && str_contains(substr((string) @file_get_contents(AGENT_LOG), $log0), 'an open file (PID 4242): /mnt/cache/appdata/x.log on /mnt/cache'));
+        // the agent never starts it again by itself while the mark stands; its start, «Take over» and «Look now» take the mark away
+        $GLOBALS['fanboyLaunched'] = [];
+        fanboyEnsureControl(100.0);
+        same('always on S4c: while the mark stands the agent\'s tick starts no control', [], $GLOBALS['fanboyLaunched']);
+        @unlink(fanboyBrakeFile());
+        fanboyEnsureControl(200.0);
+        same('always on S4c: … without it: started as ever', ['fanboy-control'], $GLOBALS['fanboyLaunched']);
+        $src = fn (string $f) => (string) file_get_contents(OFFICE_DIR . "/agent/desks/$f");
+        check('always on S4c: the agent\'s start, «Take over» and «Look now» take the mark away — nothing else does',
+            substr_count($src('fanboy.php') . $src('fanboy-setup.php') . $src('fanboy-control.php') . $src('fanboy-mirror.php'), '@unlink(fanboyBrakeFile());') === 3
+            && (bool) preg_match('/function fanboyStart\(\): void\n\{\n    @unlink\(fanboyBrakeFile\(\)\);/', $src('fanboy.php'))
+            && (bool) preg_match('/function fanboyLookNow\(\): array\n\{(?:(?!\n\}\n).)*@unlink\(fanboyBrakeFile\(\)\);/s', $src('fanboy.php'))
+            && (bool) preg_match('/function fanboyTakeOver\(array \$r = \[\]\): array\n\{(?:(?!\n\}\n).)*@unlink\(fanboyBrakeFile\(\)\);/s', $src('fanboy-setup.php')));
+        // the control looks at itself before its first write and every minute — only without the data folder
+        check('always on S4c: the control\'s loop — the look before anything is taken, every minute after, the brake ends it with «holds»',
+            (bool) preg_match('/fanboyBeat\(\);\n(?:\s*\/\/[^\n]*\n)*\s+if \(fanboyRamMode\(\) && \$now >= \$nextSelf\) \{\n\s+\$nextSelf = \$now \+ FANBOY_HOLD_CHECK_EVERY;\n\s+if \(\(\$found = fanboyHoldCheck\(\)\) !== null\) \{\n\s+fanboyBrake\(\$c, \$found\);\n\s+\$exit = \'holds\';\n\s+break;/', $src('fanboy-control.php'))
+            && FANBOY_HOLD_CHECK_EVERY === 60.0 && strpos($src('fanboy-control.php'), '$nextSelf = -INF;') < strpos($src('fanboy-control.php'), 'fanboyRound($c, $now);'));
+        // the words for the two new reasons, in all five languages (the page and the tile show a reason only when it has words)
+        foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
+            $j = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$lang.json"), true) ?: [];
+            check("always on S4c: $lang has the words for «no mirror» and «stopped itself» (page, tile, notification)",
+                isset($j['why.no_mirror'], $j['why.holds'], $j['dash.why.no_mirror'], $j['dash.why.holds'], $j['notify.holds_subject'], $j['notify.holds']));
+        }
+        $tile = (string) file_get_contents(OFFICE_DIR . '/src/dashboard-fanboy.php');
+        check('always on S4c: his Dashboard tile takes both reasons from the control\'s status and shows them as it shows a control that stopped (orange)',
+            str_contains($tile, "['array_stopped', 'crashed', 'released', 'hand_back', 'stopped', 'holds', 'no_mirror']") && str_contains($tile, "['crashed', 'chip_missing', 'array_stopped', 'fixed', 'holds', 'no_mirror']"));
+        // a job without the data folder speaks the office's last language from RAM (the data folder's lang.json is not there for it)
+        check('always on S4c: notifications of a job without the data folder take the language from RAM, as the night shift\'s do',
+            str_contains((string) file_get_contents(OFFICE_DIR . '/agent/lib/house.php'), "(NIGHT_MODE || (defined('RAM_JOB') && RAM_JOB !== '') ? OFFICE_NOTIFY_LANG_RAM : OFFICE_LANG_FILE)"));
+    } finally {
+        unset($GLOBALS['fanboyRamMode']);
+        alwaysOnTHireEnd($keep);
+        fanboyTEnd();
+    }
+}
+
+/** The control as a RAM job in a process of its own: the fake board, the tests' RAM folder, $data as the data folder that is THERE; $seam: PHP for the look at itself (null: the real one) */
+function alwaysOnTControl(array $t, string $data, ?string $seam = 'fn () => null')
+{
+    $php = 'define("AGENT_LIBRARY_ONLY", 1); define("AGENT_RAM_JOB", "fanboy-control"); define("OFFICE_WEB", ' . var_export(OFFICE_WEB, true) . ');'
+        . ' require ' . var_export(OFFICE_DIR . '/agent/agent.php', true) . '; date_default_timezone_set("UTC"); chdir("/");'
+        . ($seam !== null ? ' $GLOBALS["fanboyHoldCheck"] = ' . $seam . ';' : '') . ' exit(fanboyControlMain());';
+    return proc_open([PHP_BINARY, '-r', $php], [0 => ['file', '/dev/null', 'r'], 1 => ['file', "{$t['tmp']}/proc.out", 'a'], 2 => ['file', "{$t['tmp']}/proc.out", 'a']], $pipes, '/',
+        ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'OFFICE_FANBOY_ROOT' => $t['root'], 'OFFICE_NOTIFY_BIN' => "{$t['tmp']}/notify",
+         'OFFICE_NOTIFY_STAMP' => "{$t['tmp']}/notify.second", 'PATH' => (string) getenv('PATH'), 'TZ' => 'UTC']);
+}
+
+/** A process of the test's ended (TERM, then for good) and waited for; true when it ended by itself or on the TERM within $seconds */
+function alwaysOnTStop($p, float $seconds = 8.0, bool $term = true): bool
+{
+    if (!is_resource($p)) {
+        return false;
+    }
+    if ($term) {
+        proc_terminate($p, 15);
+    }
+    $gone = fanboyTWait(fn () => !proc_get_status($p)['running'], $seconds);
+    if (!$gone) {
+        proc_terminate($p, 9);
+    }
+    proc_close($p);
+    return $gone;
+}
+
+/**
+ * Step S4c, for real: the control as a RAM job in a process of its own. Its data folder is THERE and says the opposite of
+ * the mirror (not armed, not hired, no zones) — it steers by the mirror alone, and nothing in the data folder is made,
+ * written or touched: its log lines lie in RAM, its history in RAM. The look at itself finds something: it ends, every fan
+ * as before, the mark and one notification. No mirror: it takes nothing.
+ */
+function testAlwaysOnControlProc(): void
+{
+    $t = fanboyT('ao-proc');
+    $keep = alwaysOnTHire($t, true);
+    $procs = [];
+    try {
+        fanboyTDisks($t, 35, null, 33);
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);
+        fanboyMirrorKeep(true);
+        // the data folder the process could reach: there, and it says the opposite
+        $data = "{$t['tmp']}/data";
+        @mkdir("$data/fanboy", 0700, true);
+        @mkdir("$data/office", 0700, true);
+        file_put_contents("$data/fanboy/settings.json", json_encode(['v' => 1, 'boards' => [FANBOY_T_KEY => ['armed' => false, 'zones' => []] + $settings]], JSON_UNESCAPED_SLASHES));
+        file_put_contents("$data/office/staff.json", json_encode(['hired' => new stdClass()]));
+        file_put_contents("$data/agent.log", "2026-01-01 00:00:00  the agent's own line\n");
+        $before = alwaysOnTTree($data);
+        $ramLog = ramLogFile('fanboy-control', TESTS_RUN_DIR);
+        @unlink($ramLog);
+        $was = fanboyTOut($t, 4);
+
+        // 1. it steers by the mirror
+        $procs[] = $p = alwaysOnTControl($t, $data);
+        $steers = fanboyTWait(fn () => in_array(fanboyTId(4), fanboyHeld(), true) && fanboyTOut($t, 4) !== $was && (readJson(fanboyStatusFile())['who'] ?? '') === 'fanboy', 20);
+        $out = (string) @file_get_contents("{$t['tmp']}/proc.out");
+        check('always on S4c proc: the control without the data folder steers by his mirror — it holds the disk fan and wrote it, the status says Fanboy' . ($steers ? '' : " ($out)"), $steers);
+        $st = readJson(fanboyStatusFile()) ?? [];
+        same('always on S4c proc: … his two zones, as the mirror says (the data folder says none)', ['disks', 'case'], array_column($st['zones'] ?? [], 'id'));
+        same('always on S4c proc: … nothing in the data folder was made, written or touched while it steers (no log line, no history, no copy of the states before him)', $before, alwaysOnTTree($data));
+        check('always on S4c proc: … its start is in its own log in RAM, saying how it runs', (bool) preg_match('/Fanboy: the control started \(PID \d+, 2 zones, 3 fans, without the data folder: from his mirror in RAM\)/', (string) @file_get_contents($ramLog)));
+        // the settings change (the agent mirrors them): taken within its next look, the fans that stay never handed over in between
+        $changed = $settings;
+        $changed['zones'] = [$settings['zones'][0]];            // the case zone gone: its fans go back, the disk fan stays his
+        fanboyTStore($changed);
+        fanboyMirrorKeep(true);
+        $reloaded = fanboyTWait(fn () => array_column(readJson(fanboyStatusFile())['zones'] ?? [], 'id') === ['disks'] && fanboyHeld() === [fanboyTId(4)], 25);
+        check('always on S4c proc: the mirror changed (a zone removed) — taken anew within its next look: one zone, only the disk fan held', $reloaded, json_encode([array_column(readJson(fanboyStatusFile())['zones'] ?? [], 'id'), fanboyHeld()]));
+        // ended (TERM, as every stop does): every fan back as before, said in RAM, the data folder still untouched
+        $ended = alwaysOnTStop($p);
+        $st = readJson(fanboyStatusFile()) ?? [];
+        same('always on S4c proc: asked to end — it ends, the fan back as before, nothing held, the status: the BIOS', [true, $was, [], 'bios', 'ended'],
+            [$ended, fanboyTOut($t, 4), fanboyHeld(), $st['who'] ?? null, $st['phase'] ?? null]);
+        check('always on S4c proc: … its end is in its log in RAM, the history in RAM', str_contains((string) @file_get_contents($ramLog), 'Fanboy: the control ended (stop)') && is_file(fanboyRunDir() . '/history.json'));
+        same('always on S4c proc: … and still nothing in the data folder was made, written or touched', $before, alwaysOnTTree($data));
+        // the agent takes its lines into its own log
+        $taken = '';
+        ramLogFold(TESTS_RUN_DIR, function (string $l) use (&$taken): void { $taken .= $l; });
+        check('always on S4c proc: the agent takes its lines into its own log (start and end, with their own times)', str_contains($taken, 'Fanboy: the control started (PID') && str_contains($taken, 'Fanboy: the control ended (stop)'));
+
+        // 2. the look at itself finds something before the first write: nothing is taken, the mark, one warning
+        fanboyTStore($settings);
+        fanboyMirrorKeep(true);
+        @unlink(fanboyStatusFile());
+        $n0 = count(fanboyTNotified($t));
+        $procs[] = $p = alwaysOnTControl($t, $data, 'fn () => ["why" => "cwd", "what" => "/mnt/user/appdata", "mount" => "/mnt/user", "pid" => 77]');
+        $ended = alwaysOnTStop($p, 15, false);
+        $st = readJson(fanboyStatusFile()) ?? [];
+        $b = readJson(fanboyBrakeFile()) ?? [];
+        same('always on S4c proc: it finds itself holding the share — it ends by itself before taking anything: no fan written, nothing held, the status «holds», the mark with what it held',
+            [true, $was, [], 'bios', 'holds', 'cwd', '/mnt/user'], [$ended, fanboyTOut($t, 4), fanboyHeld(), $st['who'] ?? null, $st['why'] ?? null, $b['why'] ?? null, $b['mount'] ?? null]);
+        $told = array_slice(fanboyTNotified($t), $n0);
+        check('always on S4c proc: … one warning through the office\'s gate (' . ($told[0] ?? '') . '), and its log in RAM says what it held',
+            count($told) === 1 && str_contains($told[0], '-i warning') && str_contains($told[0], 'his control stopped itself')
+            && str_contains((string) @file_get_contents($ramLog), 'its working directory (PID 77) is /mnt/user/appdata on /mnt/user'));
+        same('always on S4c proc: … nothing in the data folder', $before, alwaysOnTTree($data));
+        @unlink(fanboyBrakeFile());
+
+        // 3. no mirror: it takes nothing and says why
+        @unlink(fanboyMirrorFile());
+        @unlink(fanboyStatusFile());
+        $procs[] = $p = alwaysOnTControl($t, $data);
+        $ended = alwaysOnTStop($p, 15, false);
+        $st = readJson(fanboyStatusFile()) ?? [];
+        same('always on S4c proc: no mirror — it ends by itself, takes nothing, the status says «no_mirror» (the data folder\'s settings are never read instead)',
+            [true, $was, [], 'no_mirror', $before], [$ended, fanboyTOut($t, 4), fanboyHeld(), $st['why'] ?? null, alwaysOnTTree($data)]);
+
+        // 4. the real look at itself. On a server the suite runs in a mount namespace of its own (the guard of the live RAM
+        // folder): a control started from here is exactly what the brake is for — it must end with «namespace». Without a
+        // /proc (never an Unraid) the look can't be made: «no_look», the brake too. In init's namespace: it may steer.
+        fanboyMirrorKeep(true);
+        @unlink(fanboyStatusFile());
+        $own = is_link('/proc/self/ns/mnt') && is_link('/proc/1/ns/mnt') ? (@readlink('/proc/self/ns/mnt') !== @readlink('/proc/1/ns/mnt') ? 'namespace' : null) : 'no_look';
+        $procs[] = $p = alwaysOnTControl($t, $data, null);
+        if ($own !== null) {
+            $ended = alwaysOnTStop($p, 15, false);
+            $b = readJson(fanboyBrakeFile()) ?? [];
+            same("always on S4c proc: the real look — here «{$own}»: the brake for real, nothing taken", [true, $own, $was, [], 'holds'],
+                [$ended, $b['why'] ?? null, fanboyTOut($t, 4), fanboyHeld(), readJson(fanboyStatusFile())['why'] ?? null]);
+        } else {
+            $steers = fanboyTWait(fn () => in_array(fanboyTId(4), fanboyHeld(), true) || is_file(fanboyBrakeFile()), 20);
+            $b = readJson(fanboyBrakeFile());
+            check('always on S4c proc: the real look in init\'s namespace — it steers, or names exactly what it holds (' . ($b === null ? 'steers' : json_encode($b)) . ')',
+                $steers && ($b === null || in_array($b['why'] ?? '', ['cwd', 'file', 'map'], true)));
+            alwaysOnTStop($p);
+        }
+        same('always on S4c proc: … and after all of it the data folder is exactly as it was', $before, alwaysOnTTree($data));
+    } finally {
+        foreach ($procs as $p) {
+            if (is_resource($p)) {
+                @proc_terminate($p, 9);
+                @proc_close($p);
+            }
+        }
+        @unlink(fanboyBrakeFile());
+        alwaysOnTHireEnd($keep);
+        fanboyTEnd();
+    }
+}
