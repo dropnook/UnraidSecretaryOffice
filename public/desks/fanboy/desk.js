@@ -528,15 +528,22 @@ async function sendReport(b) {
   const j = await Office.api.post(`${ID}.report`, {});
   b.disabled = false;
   if (!j.ok || typeof j.report !== 'string') { Office.toast(Office.errorText(j.error, ID), true); return; }
-  const was = Office.storeJson('report.draft') || {};
-  const mine = typeof was.text === 'string' && !was.text.includes('Fanboy detection report') ? was.text.trim() : '';
-  Office.storeJson('report.draft', {
-    kind: 'wish',
-    desk: ID,
-    title: typeof was.title === 'string' && was.title.trim() && mine ? was.title : T('report_title'),
-    text: `${mine || T('report_wish')}\n\n\n${j.report}`,
-  });
+  const own = ownDraft();
+  const given = `${own.text ? '' : T('report_wish')}\n\n\n${j.report}`;      // what Fanboy put in (core.js: «a word of your own?»)
+  Office.storeJson('report.draft', { kind: 'wish', desk: ID, ...own, text: `${own.text}${given}`, prefill: given });
   Office.reportDialog(ID);
+}
+/**
+ * What the user wrote in a kept draft about Fanboy (2026-11-22): their title (title_own — never one of ours) and their
+ * words without a report of Fanboy's under them; a draft about another desk is none of Fanboy's (core.js
+ * Office.reportDialog()). No title of ours: the user names the matter, the field shows Fanboy's example.
+ */
+function ownDraft() {
+  const was = Office.storeJson('report.draft') || {};
+  if (!was || typeof was !== 'object' || was.desk !== ID || was.mine !== true) return { text: '' };
+  const text = typeof was.text === 'string' && !was.text.includes('Fanboy detection report') && !was.text.includes('Fanboy fan chip report') ? was.text.trim() : '';
+  const title = was.title_own === true && typeof was.title === 'string' ? was.title.trim() : '';
+  return { text, ...(title ? { title, title_own: true } : {}) };
 }
 function reportButton(small) {
   const b = el('button', small ? 'btn small' : 'btn', T('report'));
@@ -1726,8 +1733,8 @@ async function sendChipReport(b) {
   const j = await Office.api.post(`${ID}.chip_report`, {});
   b.disabled = false;
   if (!j.ok || typeof j.report !== 'string') { Office.toast(Office.errorText(j.error, ID), true); return; }
-  Office.storeJson('report.draft', { kind: 'wish', desk: ID, title: T('chip.report_title'), text: `${T('chip.report_wish')}\n\n\n${j.report}` });
-  Office.reportDialog(ID);
+  Office.storeJson('report.draft', { kind: 'wish', desk: ID, ...ownDraft(), text: `${T('chip.report_wish')}\n\n\n${j.report}`, prefill: `${T('chip.report_wish')}\n\n\n${j.report}` });
+  Office.reportDialog(ID, { example: T('chip.report_example') });
 }
 function chipPart() {
   const c = chipNow();

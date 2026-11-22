@@ -20,6 +20,7 @@
 // opts.demo serves tests/ui/demo instead of tests/ui/states: invented family data for screenshots (tools/ui-shots.mjs),
 // its times moved to now (a state's `time` and every time field beside it keep their distance to it; a canned answer
 // in demo/post/ likewise when it has a `time`), the server called FamilienServer and «Report a problem» in the ⋯ menu.
+// opts.report: «Report a problem» there without the demo (tools/ui-clicks.mjs reportDesk()).
 // opts.alias {name: file}: a desk's (or part's) state from another file of the folder - one desk in several demo states
 // (tests/ui/demo/backup-run.json for a run going on, while backup.json is a quiet day).
 // opts.states <folder>: a desk's state from that folder instead (a server's real state files, copied - the scenarios'
@@ -154,7 +155,7 @@ export async function startHarness(opts = {}) {
     version: VERSION, host,
     desks: list.map((d) => ({ ...d, hired: true, avatar: fs.existsSync(path.join(PUBLIC, 'desks', d.id, 'avatar.svg')) ? `${BASE}desks/${d.id}/avatar.svg?v=${stamp}` : null })),
     staff_order: list.map((d) => d.id), languages: languages(), stamp,
-    tip_url: '', support_url: '', sponsor_url: '', report: !!opts.demo, report_images: ['png', 'jpeg'], issues_url: '', forum_url: '',
+    tip_url: '', support_url: '', sponsor_url: '', report: opts.report ?? !!opts.demo, report_images: ['png', 'jpeg'], issues_url: '', forum_url: '',
     supporter: null, base: BASE, reception_icon: `${BASE}assets/reception.svg?v=${stamp}`, agent: agent(),
     theme_switch: true, size_switch: true, csrf: 'harness', array: 'Started', menu_name: 'Sekretariat', menu_default: 'Sekretariat',
     menu_max: 24, menu_page: 'SecretaryOffice', menu_place: 'tasks', unraid_lang: '', unraid_words: {}, lang_seen: null,

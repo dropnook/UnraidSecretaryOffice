@@ -2766,11 +2766,23 @@ function reportError(error) {
   return Office.errorText(error);
 }
 
+/**
+ * The dialog about a desk: deskId, else the desk shown (the ⋯ menu, the search's item — the reception: the office as a
+ * whole); opts.example: the title's example instead of the desk's (`<desk>.report_example`, else the office's).
+ * 2026-11-22 (the owner: «Betrifft» said «Das Sekretariat als Ganzes» on Fanboy's page; uso-inbox #20 came with our
+ * title and our text only): no desk fills in a title — the user names the matter (an example in the field, «Send» says
+ * it's missing) — and «About» is the desk it was opened from, never a kept draft's. The one kept draft belongs to the
+ * desk it is about: shown only in a dialog about that desk, left as it is by a dialog about another one until the user
+ * writes there.
+ */
 Office.reportDialog = function reportDialog(deskId, opts) {
-  const draft = Office.storeJson('report.draft') || {};
   const desks = [['office', t('office.report_desk_office')]].concat(Office.staffInOrder().map((d) => [d.id, t(`${d.id}.name`)]));
-  const want = deskId || draft.desk || 'office';
+  const asked = deskId || (Office.current && Office.current.id) || 'office';
+  const want = desks.some(([id]) => id === asked) ? asked : 'office';
+  const kept = Office.storeJson('report.draft') || {};
+  const draft = kept && typeof kept === 'object' && (kept.desk || 'office') === want ? kept : {};
   const state = { kind: REPORT_KINDS.includes(draft.kind) ? draft.kind : 'bug', preview: null, sent: false, cap: null, closed: false, inbox: null, images: [], imagesOk: null,
+    keeps: Object.keys(draft).length > 0,          // a draft of its own to keep on closing: taken, or written in here
     // what was put into the text for the user (2026-11-22, uso-inbox #20: a wish with not one word of his own): a draft this
     // dialog didn't keep itself (a desk filled it in — a desk's «Send to the developers…») is pre-filled; kept with the draft
     prefill: typeof draft.prefill === 'string' ? draft.prefill : draft.mine === true || typeof draft.text !== 'string' ? '' : draft.text, askedOwn: false };
@@ -2826,12 +2838,18 @@ Office.reportDialog = function reportDialog(deskId, opts) {
     o.value = id;
     desk.appendChild(o);
   });
-  desk.value = desks.some(([id]) => id === want) ? want : 'office';
+  desk.value = want;
   field(t('office.report_desk'), desk);
   const title = el('input', 'input');
   title.maxLength = REPORT_TITLE_MAX;
   title.autocomplete = 'off';
-  title.value = typeof draft.title === 'string' ? draft.title : '';
+  title.required = true;
+  // only a title the user typed (title_own: kept by this dialog since 2026-11-22 — before, a desk's draft brought ours)
+  title.value = draft.title_own === true && typeof draft.title === 'string' ? draft.title : '';
+  /** The title's example: the opener's, else the desk's (`<desk>.report_example`), else the office's */
+  const example = () => (desk.value === want && opts && typeof opts.example === 'string' && opts.example ? opts.example
+    : typeof Office.strings[`${desk.value}.report_example`] === 'string' ? t(`${desk.value}.report_example`) : t('office.report_subject_example'));
+  title.placeholder = example();
   field(t('office.report_subject'), title);
   const text = el('textarea', 'input sso-report-text');
   text.rows = 6;
@@ -2894,7 +2912,11 @@ Office.reportDialog = function reportDialog(deskId, opts) {
   box.appendChild(yours);
 
   const words = () => ({ kind: state.kind, desk: desk.value, title: title.value.trim(), text: text.value.trim() });
-  const keep = () => { if (!state.sent) Office.storeJson('report.draft', { ...words(), mine: true, ...(state.prefill ? { prefill: state.prefill } : {}) }); };
+  const keep = () => {
+    if (state.sent || !state.keeps) return;          // nothing written here: another desk's draft stays as it was
+    const w = words();
+    Office.storeJson('report.draft', { ...w, mine: true, ...(w.title ? { title_own: true } : {}), ...(state.prefill ? { prefill: state.prefill } : {}) });
+  };
   /** Words of the user's own: a line of the text that isn't one of the pre-filled ones (spaces aside) — none in an empty text */
   const ownWords = () => {
     const lines = (s) => String(s || '').split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
@@ -2920,12 +2942,13 @@ Office.reportDialog = function reportDialog(deskId, opts) {
   const picsOk = () => !(state.boxes || []).some((b) => REPORT_IMAGE_PARTS.includes(b.dataset.part) && b.checked) || !!(state.imagesOk && state.imagesOk.checked);
   const diagBusy = () => !!(state.diag && state.diag.state === 'running');
   /** Why «Send» is off: the first reason that holds as [key, params, wave] — what stops any report first (the messenger
-      away, reports closed, the day's used up), then in the order the user meets them (the preview, Unraid's diagnostics,
-      the pictures' tick); null = «Send» is on. paintSend() sets «Send» by it and says it beside the buttons. */
+      away, reports closed, the day's used up), then in the order the user meets them (the title, the preview, Unraid's
+      diagnostics, the pictures' tick); null = «Send» is on. paintSend() sets «Send» by it and says it beside the buttons. */
   const sendWhy = () => {
     if (!Office.agent.running) return ['agent.away'];
     if (state.closed) return ['office.report_closed_note'];
     if (state.cap && state.cap.left <= 0) return ['office.report_none_left', { when: state.cap.next ? Office.fmt.date(state.cap.next) : '?' }];
+    if (!title.value.trim()) return ['office.report_why_title'];
     if (!state.preview) return ['office.report_why_preview'];
     if (diagBusy()) return ['office.report_why_diag', {}, true];
     if (!picsOk()) return ['office.report_why_pictures'];
@@ -2957,6 +2980,7 @@ Office.reportDialog = function reportDialog(deskId, opts) {
     if (p && p.diagnostics && !state.sent && Office.agent.running) Office.api.post('office.report_diag', { token: p.token, drop: true }).catch(() => {});
   }
   function changed() {
+    state.keeps = true;
     keep();
     if (ownWords()) ownAsk.hidden = true;
     counter();
@@ -2969,7 +2993,7 @@ Office.reportDialog = function reportDialog(deskId, opts) {
     paintSend();
   }
   [title, text].forEach((f) => { f.oninput = changed; });
-  desk.onchange = changed;
+  desk.onchange = () => { title.placeholder = example(); changed(); };
   diagCb.onchange = () => { if (!diagCb.checked) { wakeCb.checked = false; wakeLabel.hidden = true; } changed(); };
   wakeCb.onchange = changed;
   counter();
@@ -3239,7 +3263,11 @@ Office.reportDialog = function reportDialog(deskId, opts) {
 
   show.onclick = async () => {
     const w = words();
-    if (!w.title || w.text.length < REPORT_TEXT_MIN) { say(t('errors.report_incomplete', { min: REPORT_TEXT_MIN })); return; }
+    if (!w.title || w.text.length < REPORT_TEXT_MIN) {
+      say(t('errors.report_incomplete', { min: REPORT_TEXT_MIN }));
+      (w.title ? text : title).focus();
+      return;
+    }
     if (utf8Bytes(w.text) > REPORT_TEXT_MAX) { say(t('office.report_too_long', { max: REPORT_TEXT_MAX })); return; }
     say('');
     show.disabled = true;
