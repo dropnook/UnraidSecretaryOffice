@@ -52,6 +52,8 @@ back. Boards that steer their fans over IPMI aren't supported.
 
 <a name="fanboy"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/fanboy-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/fanboy-light.png" alt="Fanboy: his zones as pieces of the case, each fan drawn after its model and size and turning at its speed, the warmest spot of each zone framed"></picture></a>
 
+<a name="fanboy-models"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/fanboy-gallery-dark.webp"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/fanboy-gallery-light.webp" alt="Fanboy's fans to choose from: models of ten makers in their sizes, each drawn after the real fan, the air between the blades light" width="380"></picture></a>
+
 Also on the team: Ms. Snapshotini, Ms. Dustdevil, Ms. Protocolli and the Consultant. Five languages, Unraid's themes,
 search with ⌘K, on the phone too. **[The full guide](docs/GUIDE.md)** walks through every desk.
 
