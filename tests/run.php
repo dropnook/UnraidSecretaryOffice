@@ -48133,7 +48133,7 @@ JS);
     same('report dialog diagnostics: not ticked — the preview doesn\'t ask, no part', [[[null, null]], false], [$r['plain']['asked'], $r['plain']['row']]);
     same('report dialog diagnostics: ticked, disks asleep — refused, «wake» shows, no preview', [[[true, null]], true, false, true],
         [$r['asleep']['asked'], $r['asleep']['wakeShown'], $r['asleep']['row'], $r['asleep']['sendOff']]);
-    same('report dialog diagnostics: with «wake» — asked so; the wave, its part ticked but off, «Send» off; nothing of it in the draft', [[[true, true]], true, true, true, true, ['kind', 'desk', 'title', 'text']],
+    same('report dialog diagnostics: with «wake» — asked so; the wave, its part ticked but off, «Send» off; nothing of it in the draft', [[[true, true]], true, true, true, true, ['kind', 'desk', 'title', 'text', 'mine']],
         [$r['running']['asked'], $r['running']['sendOff'], $r['running']['wave'], $r['running']['rowDisabled'], $r['running']['rowTicked'], array_keys($r['running']['draft'])]);
     same('report dialog diagnostics: … beside the buttons: wait for Unraid\'s diagnostics, with the wave', ['office.report_why_diag', true], $r['running']['why']);
     same('report dialog diagnostics: ready — the line gone; the files open, nothing to click', [null, ['div', 0]], [$r['ready']['why'], $r['ready']['filesOpen']]);
@@ -48817,7 +48817,7 @@ JS);
         ['title' => 'Odd', 'chips' => [], 'links' => []]],
         array_map(fn ($row) => ['title' => $row['title'], 'chips' => $row['chips'], 'links' => $row['links']], $o['rows']));
     same('report dialog: … the row\'s kind · desk · day stays second', array_fill(0, 5, 'office.report_yours_row'), array_column($o['rows'], 'meta'));   // no strings loaded: the key
-    same('report dialog: the draft kept while typing', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.'], $r['draft']);
+    same('report dialog: the draft kept while typing (2026-11-22: marked as the user\'s own — testReportDialogOwnWords)', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.', 'mine' => true], $r['draft']);
     same('report dialog: the counter in bytes', 'office.report_count', $r['counter']);   // no strings loaded: the key
     $p = $r['preview'];
     same('report dialog: the preview asks with the words (no name: the field is gone), the languages and the desk\'s last error (plain params only)',
@@ -48866,6 +48866,137 @@ JS);
         && str_contains($core, "report.onclick = () => Office.reportDialog('office');") && !str_contains($ct, 'reportDialog'));
     $page = (string) file_get_contents(OFFICE_DIR . '/src/page.php');
     check('report dialog: the page learns whether there is an inbox, never its address', str_contains($page, "'report'    => officeFeedbackUrl() !== '',") && !str_contains($page, "=> officeFeedbackUrl(),"));
+    hardeningRm($tmp);
+}
+
+/**
+ * 2026-11-22 (uso-inbox #20: a wish with not one word of the user's own — the pre-filled line and Fanboy's report): when
+ * the text is empty or only what was filled in (spaces aside, a line removed counts as nothing new), «Send» asks once,
+ * inline under the text — «Would you say in one sentence what you wish for?» (what happened? for a problem) — with «To
+ * the text» and «Send anyway»; a sentence of the user's own goes at once; the pre-fill stays known when the dialog is
+ * closed and opened again; a draft the dialog kept itself is the user's own. The harness is testReportDialog()'s.
+ */
+function testReportDialogOwnWords(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('report dialog own words: node is missing here - skipped', true);
+        return;
+    }
+    $src = (string) file_get_contents(__FILE__);
+    $from = strpos($src, "const fs = require('fs');", (int) strpos($src, "\nfunction testReportDialog(): void"));
+    $to = strpos($src, "(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));", (int) $from);
+    if ($from === false || $to === false) {
+        check('report dialog own words: testReportDialog()\'s harness found', false);
+        return;
+    }
+    $tmp = hardeningTmp('reportdlgown');
+    file_put_contents("$tmp/t.js", substr($src, $from, $to - $from) . <<<'JS'
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const walk = (n, f, out = []) => { if (n && typeof n === 'object') { if (f(n)) out.push(n); (n.children || []).forEach((c) => walk(c, f, out)); } return out; };
+const text = (n) => (typeof n === 'string' ? n : [n.textContent || '', ...(n.children || []).map(text)].join(''));
+const visible = (n) => { for (let x = n; x; x = x.parentNode) if (x.hidden) return false; return true; };
+const body = () => byId['sso-dialog-body'];
+const one = (f) => walk(body(), f)[0];
+const button = (label) => one((n) => n.tag === 'button' && n.textContent === label);
+(async () => {
+  await sleep(30);
+  document.body.contains = () => true;
+  O.agent = { running: true };
+  O.desk({ id: 'snapshot' });
+  O.desk({ id: 'caretaker' });
+  answers = {
+    'office.reports': { ok: true, reports: [], n: 0, left: 25, cap: 25, next: null, closed: false },
+    'office.report_preview': { ok: true, token: 'p'.repeat(32), ttl: 600, ticked: ['versions'], id: '1234abcd', hints: [], hidden: {}, n: 0, left: 25, cap: 25, next: null, closed: false,
+      parts: { versions: { office: '1.44.0' }, unraid: '7.3.3', language: { lang: 'en', browser: 'de' }, team: ['caretaker'], log: '' } },
+    'office.report_send': { ok: true, number: 41, url: '', left: 24, n: 1, cap: 25, next: null },
+  };
+  const filled = 'What I wish for from Fanboy here:\n\n\nFanboy detection report\nBoard: Example X570\nChip: it8696';
+  const ask = () => one((n) => typeof n.className === 'string' && n.className.split(' ').includes('sso-report-own'));
+  const sends = () => posts.filter((p) => p.a === 'office.report_send').length;
+  const area = () => one((n) => n.tag === 'textarea');
+  // one run: a draft, then what the user does to the text, «Send» once
+  const run = async (draft, edit, kind) => {
+    if (draft) store['office.report.draft'] = JSON.stringify(draft); else delete store['office.report.draft'];
+    const dlg = O.reportDialog('snapshot');
+    await sleep(20);
+    if (edit !== null) { area().value = edit; area().oninput(); }
+    if (kind) { const k = button(`office.report_kind_${kind}`); if (k) k.onclick(); }
+    await button('office.report_preview').onclick();
+    posts.length = 0;
+    await dlg.buttons[1].onclick();
+    await sleep(10);
+    const a = ask();
+    return { dlg, sent: sends(), asked: !!a && visible(a), words: a ? text(a) : '', inField: !!a && a.parentNode === area().parentNode };
+  };
+  const out = {};
+  const fanboy = { kind: 'wish', desk: 'snapshot', title: 'Fanboy: a wish', text: filled };
+  let r = await run(fanboy, null);
+  out.prefill = { sent: r.sent, asked: r.asked, inField: r.inField, words: r.words };
+  // «Send anyway»: goes
+  posts.length = 0;
+  await button('office.report_own_send').onclick();
+  await sleep(10);
+  out.anyway = sends();
+  // only the pre-fill with the report block removed; the pre-fill and the user's sentence; an empty text (a problem)
+  r = await run(fanboy, 'What I wish for from Fanboy here:', null);
+  out.blockGone = { sent: r.sent, asked: r.asked };
+  // «To the text»: the note goes, nothing sent; a sentence typed and «Send»: goes without asking again
+  await button('office.report_own_back').onclick();
+  out.back = { hidden: !visible(ask()), sent: sends() };
+  area().value = 'What I wish for from Fanboy here:\nThe fan curve as a table too.'; area().oninput();
+  await button('office.report_preview').onclick();
+  posts.length = 0;
+  await r.dlg.buttons[1].onclick();
+  out.backThenSentence = sends();
+  r.dlg.close();
+  r = await run(fanboy, `What I wish for from Fanboy here:\nThe fan curve as a table too.\n\n\nFanboy detection report\nBoard: Example X570\nChip: it8696`, null);
+  out.ownSentence = { sent: r.sent, asked: r.asked };
+  // an empty text: the dialog's own minimum stops it before (no preview, nothing sent) — and a problem is asked «what happened?»
+  posts.length = 0;
+  r = await run({ kind: 'bug', desk: 'snapshot', title: 'x', text: '' }, '   ', null);
+  out.empty = { sent: r.sent, previews: posts.filter((p) => p.a === 'office.report_preview').length };
+  r.dlg.close();
+  r = await run({ kind: 'bug', desk: 'snapshot', title: 'It hangs', text: 'Fanboy detection report\nBoard: Example X570' }, null, null);
+  out.bug = { sent: r.sent, asked: r.asked, words: r.words };
+  r.dlg.close();
+  // closed with only the pre-fill, opened again: still known as pre-filled; the user's own kept draft: no question
+  delete store['office.report.draft'];
+  store['office.report.draft'] = JSON.stringify(fanboy);
+  let d = O.reportDialog('snapshot');
+  await sleep(20);
+  d.close();
+  await sleep(10);
+  const kept = JSON.parse(store['office.report.draft'] || '{}');
+  r = await run(null, null, null);
+  store['office.report.draft'] = JSON.stringify(kept);
+  r = await run(kept, null, null);
+  out.reopened = { mine: kept.mine, prefill: kept.prefill === filled, asked: r.asked, sent: r.sent };
+  r.dlg.close();
+  r = await run({ kind: 'wish', desk: 'snapshot', title: 'Mine', text: 'A darker theme for the logs.', mine: true }, null, null);
+  out.ownDraft = { sent: r.sent, asked: r.asked };
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write('ERR ' + e.stack + '\n', () => process.exit(1)); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    $o = json_decode(trim($raw), true) ?? [];
+    same('report dialog own words: only Fanboy\'s pre-fill and his report — «Send» asks once, inline in the text\'s field, nothing sent', [0, true, true, true],
+        [$o['prefill']['sent'] ?? null, $o['prefill']['asked'] ?? null, $o['prefill']['inField'] ?? null, str_contains((string) ($o['prefill']['words'] ?? ''), 'office.report_own_wish')], $raw);
+    same('report dialog own words: … «Send anyway» goes', 1, $o['anyway'] ?? null, $raw);
+    same('report dialog own words: the report block removed, nothing of his own — asked; the pre-fill with a sentence of his own — sent at once', [[0, true], [1, false]],
+        [[$o['blockGone']['sent'] ?? null, $o['blockGone']['asked'] ?? null], [$o['ownSentence']['sent'] ?? null, $o['ownSentence']['asked'] ?? null]], $raw);
+    same('report dialog own words: an empty text — stopped before by the dialog\'s own minimum (no preview, nothing sent); a problem with only a filled-in block — asked «what happened?»',
+        [0, 0, 0, true, true], [$o['empty']['sent'] ?? null, $o['empty']['previews'] ?? null, $o['bug']['sent'] ?? null, $o['bug']['asked'] ?? null,
+        str_contains((string) ($o['bug']['words'] ?? ''), 'office.report_own_bug')], $raw);
+    same('report dialog own words: «To the text» — the note gone, nothing sent; a sentence typed — sent', [[true, 0], 1], [[$o['back']['hidden'] ?? null, $o['back']['sent'] ?? null], $o['backThenSentence'] ?? null], $raw);
+    same('report dialog own words: closed with only the pre-fill and opened again — still known (kept with the draft), asked; the user\'s own kept draft — sent, no question',
+        [[true, true, true, 0], [1, false]], [[$o['reopened']['mine'] ?? null, $o['reopened']['prefill'] ?? null, $o['reopened']['asked'] ?? null, $o['reopened']['sent'] ?? null],
+        [$o['ownDraft']['sent'] ?? null, $o['ownDraft']['asked'] ?? null]], $raw);
+    $de = langFile(OFFICE_WEB . '/lang/de.json');
+    same('report dialog own words: the German words', ['Magst du in einem Satz sagen, was du dir wünschst?', 'Magst du in einem Satz sagen, was passiert ist?', 'Zum Text', 'Trotzdem senden'],
+        [$de['office.report_own_wish'] ?? null, $de['office.report_own_bug'] ?? null, $de['office.report_own_back'] ?? null, $de['office.report_own_send'] ?? null]);
     hardeningRm($tmp);
 }
 
@@ -67682,7 +67813,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
                       'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
           'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testCleanupPurgeEnds', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportWatch', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
