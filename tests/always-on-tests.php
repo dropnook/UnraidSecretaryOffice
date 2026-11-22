@@ -1575,3 +1575,125 @@ function testAlwaysOnHandBack(): void
         fanboyTEnd();
     }
 }
+
+// ===================================================================== step S5d: disks of unknown temperature (decision E4)
+
+/**
+ * Step S5d: while the array isn't started Unraid's disks.ini is not «now» (measured on 7.4: the stop spins every drive up,
+ * the file is rewritten for the last time within two minutes and keeps those values for hours) — and a file not
+ * rewritten for twice the poll, or missing, is not either. Such disks are UNKNOWN: not asleep (the fans would stand), no
+ * silent sensor (an alarm). A zone with one never lets a fan stand, keeps at least each fan's floor, and holds its last
+ * level — 30 minutes with the array stopped, as long as it lasts with the array running. Its live sources still count.
+ */
+function testAlwaysOnUnknown(): void
+{
+    $t = fanboyT('ao-unknown');
+    try {
+        $var = "{$t['root']}/var/local/emhttp/var.ini";
+        $ini = "{$t['root']}/var/local/emhttp/disks.ini";
+        $p = fanboyPaths($t['root']);
+        $state = fn (string $s, string $more = '') => file_put_contents($var, "fsState=\"$s\"\n$more");
+        // 1. when are the values «now»?
+        fanboyTDisks($t, 35, null, 44);
+        $w = (int) filemtime($ini);
+        same('always on S5d: the array runs, the file is fresh — known', [null, null, null], [fanboyDisksUnknown($p, 30, $w + 5), fanboyDisksUnknown($p, 1800, $w + 1800), fanboyDisksUnknown($p, null, $w + 3600)]);
+        same('always on S5d: … not rewritten for twice the poll (never under 10 minutes): stale; poll unknown: Unraid\'s own 30 minutes, twice',
+            [null, 'stale', null, 'stale', 'stale'], [fanboyDisksUnknown($p, 30, $w + 600), fanboyDisksUnknown($p, 30, $w + 601), fanboyDisksUnknown($p, 1800, $w + 3600), fanboyDisksUnknown($p, 1800, $w + 3601), fanboyDisksUnknown($p, null, $w + 3601)]);
+        same('always on S5d: … a file «from the future» (the clock set back) is taken as fresh — the next poll rewrites it', null, fanboyDisksUnknown($p, 30, $w - 7200));
+        $got = [];
+        foreach (['Stopping', 'Stopped', 'Starting', '', 'Formatting', 'Clearing', 'Started'] as $s) {
+            $state($s);
+            $got[$s] = fanboyDisksUnknown($p, 30, $w + 5);
+        }
+        same('always on S5d: the array not started (stopping, stopped, starting, nothing said) — unknown, however fresh the file; formatting and clearing are a running array',
+            ['Stopping' => 'stopped', 'Stopped' => 'stopped', 'Starting' => 'stopped', '' => 'stopped', 'Formatting' => null, 'Clearing' => null, 'Started' => null], $got);
+        rename($ini, "$ini.aside");
+        same('always on S5d: no disks.ini at all (emhttpd not up yet) — unknown', 'missing', fanboyDisksUnknown($p, 30, $w + 5));
+        rename("$ini.aside", $ini);
+
+        // 2. the control: a disk fan that may stand, its curve asking nothing under 40 °C
+        $settings = fanboyTSettings();
+        $settings['fans'][fanboyTId(4)]['off_ok'] = true;
+        $settings['fans'][fanboyTId(4)]['measured'] += ['stops' => true, 'floor_rpm' => null, 'start_from_stop' => 30, 'kick_start' => null, 'stops_safe' => true];
+        $settings['zones'][0]['target'] = ['points' => [[30, 0], [40, 0], [45, 60], [50, 100]]];
+        fanboyTStore($settings);
+        $spec = fanboyTSpec();
+        fanboyTSettle($t, $spec);
+        fanboyBeat();
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        $now = 1000.0;
+        fanboyTDisks($t, 35, null, 45);                 // disk2 45 °C: 60 % = 153
+        fanboyTRounds($c, $now, $t, $spec, 40);
+        same('always on S5d: (the array runs: disk2 at 45 °C — the disk fan at 60 %)', [153, null, 0], [fanboyTOut($t, 4)[0], $c['disks_unknown'], fanboyStatus($c)['zones'][0]['unknown']]);
+        // the array stops: the file keeps saying 45 °C … and then «cooler», which nobody knows
+        $state('Stopping');
+        fanboyTDisks($t, 30, null, 30);
+        fanboyTRounds($c, $now, $t, $spec, 8);
+        $z = $c['zones']['disks'];
+        $st = fanboyStatus($c);
+        same('always on S5d: the array stops — his disks are «unknown» (not asleep, not silent), the zone keeps its level, no alarm',
+            ['stopped', ['parity' => 'unknown', 'disk1' => 'unknown', 'disk2' => 'unknown'], 153, null, 'stopped', 3, 0],
+            [$c['disks_unknown'], $z['state'], fanboyTOut($t, 4)[0], $c['alarm'], $st['disks_unknown'], $st['zones'][0]['unknown'], $st['zones'][0]['asleep']]);
+        $state('Stopped');
+        fanboyTDisks($t, null, null, null);             // the file even says «all asleep» now: unknown all the same
+        $now += 300;
+        fanboyTRounds($c, $now, $t, $spec, 8);
+        same('always on S5d: stopped, five minutes on, the file says «asleep» — still the level it had (the file is not «now»)', [153, 'unknown'], [fanboyTOut($t, 4)[0], $c['zones']['disks']['state']['parity']]);
+        $now += 120.0;                                  // past the silent sensor's two minutes: no alarm
+        fanboyTRounds($c, $now, $t, $spec, 4);
+        same('always on S5d: … and never the silent sensor\'s alarm', [null, []], [$c['alarm'], array_keys($c['reasons'])]);
+        $now = 1000.0 + 80 + FANBOY_UNKNOWN_HOLD + 20;  // 30 minutes after the stop
+        fanboyTRounds($c, $now, $t, $spec, 120);
+        same('always on S5d: 30 minutes after the stop it comes down — to the fan\'s floor (30 % = 77), never to a stand, though he «may stand» and the curve asks nothing',
+            [77, null, null], [fanboyTOut($t, 4)[0], $c['fans'][fanboyTId(4)]['stand_since'], $c['alarm']]);
+        // the array starts again: fresh values count as ever — the fan may stand again
+        $state('Started');
+        fanboyTDisks($t, 35, null, 35);
+        fanboyTRounds($c, $now, $t, $spec, 8);
+        same('always on S5d: the array runs again, 35 °C: known, the fan stands as its curve says', [null, 'ok', 0], [$c['disks_unknown'], $c['zones']['disks']['state']['parity'], fanboyTOut($t, 4)[0]]);
+
+        // 3. the array runs but the file is old (emhttpd hangs): unknown too — and the level stays for as long as it lasts
+        fanboyTDisks($t, 35, null, 45);
+        fanboyTRounds($c, $now, $t, $spec, 45);
+        same('always on S5d: (running, disk2 at 45 °C: 60 % again)', 153, fanboyTOut($t, 4)[0]);
+        fanboyTDisks($t, 30, null, 30);
+        touch($ini, time() - 2 * FANBOY_POLL_DEFAULT - 60);
+        fanboyTRounds($c, $now, $t, $spec, 8);
+        $now += FANBOY_UNKNOWN_HOLD + 600;
+        fanboyTRounds($c, $now, $t, $spec, 8);
+        same('always on S5d: the array runs, disks.ini not rewritten for over an hour — unknown («stale»), and the level stays well past 30 minutes (the drives may be at work)',
+            ['stale', 153, null], [$c['disks_unknown'], fanboyTOut($t, 4)[0], $c['alarm']]);
+        touch($ini);
+        fanboyTRounds($c, $now, $t, $spec, 8);
+        same('always on S5d: … rewritten: known again (30 °C: within the gap\'s hold it starts down)', [null, 'ok'], [$c['disks_unknown'], $c['zones']['disks']['state']['disk2']]);
+
+        // 4. a control that starts while the array is stopped (a boot, a restart): no level to keep — the floor, never a stand
+        fanboyLetGo($c, 'test');
+        $state('Stopped');
+        fanboyTDisks($t, 35, null, 44);
+        $c = fanboyControlNew($settings, FANBOY_T_KEY, fanboyMe('control'));
+        fanboyTRounds($c, $now, $t, $spec, 8);
+        same('always on S5d: started with the array stopped — the disk fan at its floor (no level to keep, never a stand), the case zone by its live sensors as ever',
+            [77, 'unknown', [102, 1]], [fanboyTOut($t, 4)[0], $c['zones']['disks']['state']['disk2'], fanboyTOut($t, 5)]);
+        // a settings reload keeps the clock of the 30 minutes
+        $c['zones']['disks']['unknown_since'] = 123.0;
+        fanboyControlReload($c, $settings, FANBOY_T_KEY, $c['owner']);
+        same('always on S5d: a settings reload keeps since when the zone\'s disks are unknown', 123.0, $c['zones']['disks']['unknown_since']);
+        fanboyLetGo($c, 'test');
+        // 5. the net for sources in no zone takes an unknown disk for no value (never a frozen one)
+        $s2 = $settings;
+        $s2['zones'][0]['sources'] = [['kind' => 'disk', 'id' => 'parity']];
+        $state('Started');
+        fanboyTDisks($t, 35, null, 60);                 // disk2 in no zone, hot: the net lifts every fan
+        $c = fanboyControlNew($s2, FANBOY_T_KEY, fanboyMe('control'));
+        fanboyTRounds($c, $now, $t, $spec, 8);
+        $net = $c['net']['level'] ?? null;
+        $state('Stopped');
+        fanboyTRounds($c, $now, $t, $spec, 8);
+        check('always on S5d: a hot disk in no zone lifts every fan while the array runs (the net: ' . json_encode($net) . ') — stopped, its value is unknown: no value for the net',
+            $net !== null && $net > 0 && array_key_exists('disk2', $c['loose']) && $c['loose']['disk2']['c'] === null);
+        fanboyLetGo($c, 'test');
+    } finally {
+        fanboyTEnd();
+    }
+}

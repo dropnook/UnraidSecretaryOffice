@@ -502,6 +502,35 @@ const FANBOY_POLL_SPAN = 600;           // seconds: … per started 10 minutes �
 const FANBOY_POLL_ADD = 1;              // … 1 °C …
 const FANBOY_POLL_ADD_MAX = 3;          // … at most 3 °C
 
+const FANBOY_POLL_DEFAULT = 1800;       // Unraid's own poll_attributes when var.ini doesn't say (seconds)
+const FANBOY_DISKS_STALE_MIN = 600;     // disks.ini not rewritten for this long AND for twice the poll: its values are not «now»
+const FANBOY_UNKNOWN_HOLD = 1800.0;     // seconds a zone keeps its last level once the array isn't started and its disks' temperatures are unknown
+
+/**
+ * Are the disks' temperatures in Unraid's disks.ini (and devs.ini) «now»? null: yes. Else why they are UNKNOWN
+ * («always on», 2026-11-22 — he steers while the array is stopped too):
+ *   stopped   the array isn't started. Measured on Unraid 7.4 (2026-11-22): the stop spins every drive up, emhttpd
+ *             rewrites the file for the last time within two minutes and never again — the values of that moment stay
+ *             in it for hours, `spundown` too. They say nothing about now.
+ *   missing   there is no disks.ini (emhttpd not up yet after a boot).
+ *   stale     the array runs, but the file was not rewritten for twice poll_attributes (and FANBOY_DISKS_STALE_MIN):
+ *             emhttpd hangs. (Running, it rewrites the file at every poll at the latest.)
+ * Unknown is neither «asleep» (no demand: the fans may stand) nor a silent sensor (an alarm): a zone with an unknown disk
+ * never lets a fan stand, keeps at least each fan's floor and holds its last level (fanboyZoneRound()). $wall: the tests'.
+ */
+function fanboyDisksUnknown(array $p, ?int $poll, ?int $wall = null): ?string
+{
+    if (function_exists('arrayRunning') && !arrayRunning($p['var'])) {
+        return 'stopped';
+    }
+    clearstatcache(true, $p['disks']);
+    $m = @filemtime($p['disks']);
+    if ($m === false) {
+        return 'missing';
+    }
+    return ($wall ?? time()) - $m > max(FANBOY_DISKS_STALE_MIN, 2 * ($poll ?? FANBOY_POLL_DEFAULT)) ? 'stale' : null;
+}
+
 /** The °C a disks.ini value counts more by Unraid's poll_attributes (null: unknown — nothing added) */
 function fanboyPollAllowance(?int $poll): int
 {
@@ -618,7 +647,7 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
                 'kinds' => is_array($z['kinds'] ?? null) ? $z['kinds'] : [],      // round 4: «Temperaturen» per kind
                 'curves' => is_array($z['curves'] ?? null) ? $z['curves'] : [],   // round 13: a curve of its own per kind
                 'by_kind' => [], 'leader' => null,
-                'cur' => null, 'hold_t' => null, 'warmest' => null, 'level' => null, 'state' => [],
+                'cur' => null, 'hold_t' => null, 'warmest' => null, 'level' => null, 'state' => [], 'unknown_since' => null,
                 'react' => in_array($z['react'] ?? null, FANBOY_REACTS, true) ? $z['react'] : 'balanced', 'below_since' => null,
             ];
         }
@@ -636,7 +665,7 @@ function fanboyControlNew(array $settings, string $boardKey, array $owner): arra
         'key' => $boardKey, 'owner' => $owner, 'phase' => 'start', 'hold' => null, 'fans' => $fans, 'zones' => $zones, 'watch' => $watch,
         'chips' => [], 'sources' => [], 'alarm' => null, 'reasons' => [], 'clear_since' => null, 'told' => [], 'notes' => [], 'full_since' => [],
         'missing' => null, 'started' => null, 'last_hist' => null, 'last_keep' => null, 'hist' => [], 'curves' => [], 'look_now' => false,
-        'disks_at' => null, 'disks' => [], 'scan_at' => null, 'events' => [], 'poll' => null, 'allow' => 0,
+        'disks_at' => null, 'disks' => [], 'scan_at' => null, 'events' => [], 'poll' => null, 'allow' => 0, 'disks_unknown' => null,
         'loose' => [], 'net' => null,         // round 12 fix: the heat sources in none of his zones, and the net for them
     ];
 }
@@ -748,6 +777,7 @@ function fanboyReadSources(array &$c, float $now): void
         $c['disks_at'] = $now;
         $c['poll'] = fanboyPollAttributes($p);
         $c['allow'] = fanboyPollAllowance($c['poll']);         // round 6: an old disk value counts more (a lower bound)
+        $c['disks_unknown'] = fanboyDisksUnknown($p, $c['poll']);      // 2026-11-22: are those values «now» at all? (the array stopped, the file old)
         // a zone saved before round 4 calls an SSD pool member «disk»: on the SSD's scale and limit from now on
         foreach ($c['zones'] as $zid => $z) {
             foreach ($z['sources'] as $i => $s) {
@@ -815,7 +845,7 @@ function fanboyReadSources(array &$c, float $now): void
     // round 12 fix: their temperatures now — hwmon every round, Unraid's disks as disks.ini says (asleep: none)
     foreach ($c['loose'] as $id => $l) {
         if (in_array($l['kind'], FANBOY_DISK_KINDS, true)) {
-            $d = $c['disks'][$id] ?? null;
+            $d = ($c['disks_unknown'] ?? null) !== null ? null : ($c['disks'][$id] ?? null);      // unknown: no value for the net either
             $c['loose'][$id]['c'] = $d === null || $d['asleep'] || $d['temp'] === null ? null : $d['temp'] + ($c['allow'] ?? 0);
         } else {
             $c['loose'][$id]['c'] = $l['path'] === null ? null : fanboySaneTemp(fanboyReadInt($l['path']));
@@ -824,19 +854,23 @@ function fanboyReadSources(array &$c, float $now): void
     foreach ($c['sources'] as $id => $s) {
         if (in_array($s['kind'], FANBOY_DISK_KINDS, true)) {
             $d = $c['disks'][$id] ?? null;
-            $c['sources'][$id]['asleep'] = $d !== null && $d['asleep'];
-            $c['sources'][$id]['raw'] = $d['temp'] ?? null;
-            $c['sources'][$id]['c'] = ($d['temp'] ?? null) === null ? null : $d['temp'] + ($c['allow'] ?? 0);
+            // 2026-11-22: what the file says is not «now» (fanboyDisksUnknown()): no temperature, not asleep, no alarm
+            $unknown = ($c['disks_unknown'] ?? null) !== null;
+            $c['sources'][$id]['unknown'] = $unknown;
+            $c['sources'][$id]['asleep'] = !$unknown && $d !== null && $d['asleep'];
+            $c['sources'][$id]['raw'] = $unknown ? null : ($d['temp'] ?? null);
+            $c['sources'][$id]['c'] = $unknown || ($d['temp'] ?? null) === null ? null : $d['temp'] + ($c['allow'] ?? 0);
             $c['sources'][$id]['there'] = $d !== null;
-            $c['sources'][$id]['in_use'] = ($d['in_use'] ?? false) === true;       // round 13b: in use, no temperature
+            $c['sources'][$id]['in_use'] = !$unknown && ($d['in_use'] ?? false) === true;       // round 13b: in use, no temperature
         } else {
             $raw = $s['path'] === null ? null : fanboyReadInt($s['path']);
+            $c['sources'][$id]['unknown'] = false;
             $c['sources'][$id]['asleep'] = false;
             $c['sources'][$id]['c'] = fanboySaneTemp($raw);
             $c['sources'][$id]['there'] = $s['path'] !== null;
         }
-        // since when it says nothing (an asleep disk says nothing on purpose)
-        $quiet = $c['sources'][$id]['c'] === null && !$c['sources'][$id]['asleep'];
+        // since when it says nothing (an asleep disk says nothing on purpose; an unknown one can't say)
+        $quiet = $c['sources'][$id]['c'] === null && !$c['sources'][$id]['asleep'] && !$c['sources'][$id]['unknown'];
         $c['sources'][$id]['quiet_since'] = $quiet ? ($s['quiet_since'] ?? $now) : null;
     }
 }
@@ -1051,10 +1085,18 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
     $kindCurves = [];
     $byKind = [];
     $states = [];
+    $unknown = false;
     foreach ($z['sources'] as $s) {
         $s = fanboySourceValues($z, $s);        // its own values, else the zone's for its kind, else the kind's
         $r = $c['sources'][$s['id']] ?? null;
         if ($r === null) {
+            continue;
+        }
+        if (!empty($r['unknown'])) {
+            // 2026-11-22: a disk whose temperature nobody knows now (the array isn't started, disks.ini old or missing) —
+            // neither asleep nor a silent sensor: no demand of its own, no alarm, but the zone takes care (below)
+            $states[$s['id']] = 'unknown';
+            $unknown = true;
             continue;
         }
         if ($r['asleep']) {
@@ -1093,6 +1135,21 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
     if ($z['unit'] === 'pct') {
         $raw = max(0.0, min(100.0, $raw));
     }
+    // 2026-11-22 (decision E4): a zone with a disk of unknown temperature keeps the level it had — while the array isn't
+    // started for FANBOY_UNKNOWN_HOLD (the stop spun every drive up; idle, they cool from there), with the array running
+    // (disks.ini not rewritten: emhttpd hangs, the drives may be at work) for as long as it lasts. What its other sources
+    // ask for on top still counts at once. No fan of it stands meanwhile (below).
+    $kept = false;          // the level is kept for a disk of unknown temperature, not asked for by a source
+    if ($unknown) {
+        $z['unknown_since'] = $z['unknown_since'] ?? $now;
+        $keepLevel = ($c['disks_unknown'] ?? null) !== 'stopped' || $now - $z['unknown_since'] < FANBOY_UNKNOWN_HOLD;
+        if ($keepLevel && $z['cur'] !== null && $raw < $z['cur']) {
+            $raw = (float) $z['cur'];
+            $kept = true;
+        }
+    } else {
+        $z['unknown_since'] = null;
+    }
     $cur = $z['cur'];
     $t = $warmest['mapped'] ?? $lo;
     // round 13: with a curve of its own for some kind, the zone's common scale says nothing about who asks more — the way
@@ -1120,7 +1177,8 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
         $cur = $cur === null || $up === null ? $raw
             : min($raw, $cur + ($z['unit'] === 'pct' ? $up : $up * FANBOY_DOWN_STEP_RPM / FANBOY_DOWN_STEP));
         $higher = ($warmest['id'] ?? null) !== ($z['hold_src'] ?? null) || ($z['hold_t'] ?? null) === null || $t >= $z['hold_t'];
-        if ($up === null || $higher) {
+        // (a level only kept for an unknown disk moves no anchor: the way down later goes by what it went up at)
+        if (($up === null || $higher) && !$kept) {
             $hold();
         }
         $z['below_since'] = null;
@@ -1168,8 +1226,9 @@ function fanboyZoneRound(array &$c, string $zid, float $now, array &$reasons): v
         $pct = max(0.0, min(100.0, $pct));
         if ($f['off_ok'] && $f['cpu']) {
             // round 12: a CPU cooler that may stand — by the CPU itself, read every round, never by the curve's way down
-            $pct = fanboyCpuStand($c, $z, $id, $now, isset($c['full_since'][$zid])) ? 0.0 : max($pct, (float) $f['floor']);
-        } elseif ($pct < 0.5 && $f['off_ok']) {
+            // (2026-11-22: never while a disk of its zone is of unknown temperature — as every fan below)
+            $pct = !$unknown && fanboyCpuStand($c, $z, $id, $now, isset($c['full_since'][$zid])) ? 0.0 : max($pct, (float) $f['floor']);
+        } elseif ($pct < 0.5 && $f['off_ok'] && !$unknown) {
             $pct = 0.0;
         } else {
             $pct = max($pct, (float) $f['floor']);
@@ -1779,6 +1838,8 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
             'react' => $z['react'], 'down' => fanboyDownProfile($z['warmest']['kind'] ?? ($z['sources'][0]['kind'] ?? 'disk'), $z['react']),
             'warmest' => $z['warmest'], 'asleep' => count(array_filter($z['state'], fn ($s) => $s === 'asleep')),
             'in_use' => array_keys(array_filter($z['state'], fn ($s) => $s === 'in_use')),        // round 13b: in use, temperature unknown
+            // 2026-11-22: its disks whose temperature nobody knows now (how many), and until when it keeps its level for them (monotonic; null: as long as it lasts, or none)
+            'unknown' => count(array_filter($z['state'], fn ($s) => $s === 'unknown')),
             // round 13: every kind's curve as it counts now (own or derived), its warmest source and what it asks, who leads
             'curves' => fanboyZoneKindCurves($z), 'by_kind' => ($z['by_kind'] ?? []) ?: new stdClass(), 'leader' => $z['leader'] ?? null,
             'fans' => array_map(fn ($id) => ['id' => $id, 'name' => $c['fans'][$id]['name'], 'output' => $c['fans'][$id]['output'],
@@ -1816,6 +1877,8 @@ function fanboyStatus(array $c, ?string $exitWhy = null): array
         'notes' => $c['notes'],
         // round 6: how old Unraid's disk values can be and what the zone logic adds to them (°C)
         'disk_allow' => ['poll' => $c['poll'] ?? null, 'add' => $c['allow'] ?? 0],
+        // 2026-11-22: are Unraid's disk temperatures «now»? null: yes — else why not: stopped (the array isn't started) · missing · stale
+        'disks_unknown' => $c['disks_unknown'] ?? null,
         'refuses' => array_keys(array_filter($c['fans'], fn ($f) => !empty($f['refuses']))),     // round 5: the driver takes no values
         // round 12 fix: the net for the sources in no zone — {level %, since, source {id, label, kind, c, warm, limit}, below_since}|null
         'net' => $c['net'] === null ? null : array_diff_key($c['net'], ['below_since' => 1]) + ['clearing' => $c['net']['below_since'] !== null],
@@ -2233,7 +2296,7 @@ function fanboyControlReload(array &$c, array $settings, string $key, array $own
         if ($o === null || $o['unit'] !== $z['unit']) {
             continue;
         }
-        foreach (['cur', 'hold_t', 'hold_src', 'hold_pos', 'below_since', 'hot_since', 'warmest', 'leader', 'by_kind', 'state'] as $k) {
+        foreach (['cur', 'hold_t', 'hold_src', 'hold_pos', 'below_since', 'hot_since', 'warmest', 'leader', 'by_kind', 'state', 'unknown_since'] as $k) {
             if (array_key_exists($k, $o)) {
                 $new['zones'][$zid][$k] = $o[$k];
             }
