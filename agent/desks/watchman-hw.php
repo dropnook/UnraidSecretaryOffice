@@ -44,6 +44,8 @@ declare(strict_types=1);
  * can't drop them), in the area `hw`, with no ATT&CK technique (no attack — concept 11.4), and never in a chain
  * (watchmanChains(): a machine check is no step of an intrusion).
  *
+ * Also here: the known CPU faults (concept 11 C: the posture tips cpu_fault and old_microcode, below).
+ *
  * Functions and constants only, loaded with his desk (the desk glob, and watchman.php's require_once).
  */
 
@@ -478,6 +480,70 @@ function watchmanHwVariant(array $e): ?string
         'hw_kernel' => WATCH_HW_TAINT_VARIANT[array_values(array_intersect(array_keys(WATCH_HW_TAINT), (array) ($p['flags'] ?? [])))[0] ?? 'D'],
         default     => null,
     };
+}
+
+// ===================================================================== known CPU faults (concept 11 C, step 10)
+
+/*
+ * Two posture tips of the area `hw` (advice, never in the book, never told — watchmanPosture()):
+ *   cpu_fault      a CPU with a fault its maker documented and microcode older than the correction — WATCH_HW_CPU_FAULTS,
+ *                  shipped with the office (no network): today Intel's 13th/14th Gen desktop «Vmin Shift Instability»,
+ *                  microcode below 0x12B. Its words: update the BIOS (Intel: 0x12B «must be loaded via BIOS update»), a
+ *                  microcode doesn't heal a CPU already harmed, the warranty, the signs (and the machine checks he counted)
+ *   old_microcode  the kernel's own word: /sys/devices/system/cpu/vulnerabilities/old_microcode says «Vulnerable» when the
+ *                  CPU booted with microcode older than the kernel's list (kernels from 6.16; no file: nothing said)
+ */
+const WATCH_HW_CPU_FAULTS = __DIR__ . '/watchman-cpu-faults.json';
+
+/**
+ * The known fault this CPU has with its microcode ($cpu: watchmanCpu() — vendor id, family, model number, model name,
+ * microcode), or null. A table entry in exactly its shape only; the model name must hold one of its names as a whole
+ * word (i9-13900K is not i9-13900KF, i9-13900 not i9-13900T).
+ *
+ * @return array{id: string, tip: string, name: string, min: string}|null
+ */
+function watchmanHwCpuFault(?array $cpu, string $table = WATCH_HW_CPU_FAULTS): ?array
+{
+    if ($cpu === null || !is_int($cpu['family'] ?? null) || !is_int($cpu['model_no'] ?? null) || !is_int($cpu['microcode'] ?? null)) {
+        return null;
+    }
+    $t = readJson($table);
+    foreach (($t['v'] ?? null) === 1 ? (array) ($t['faults'] ?? []) : [] as $f) {
+        if (!is_array($f) || !is_string($f['id'] ?? null) || !is_string($f['tip'] ?? null) || !isset(WATCH_POSTURE[$f['tip']]) || !is_string($f['name'] ?? null)
+            || !is_string($f['vendor'] ?? null) || !is_int($f['family'] ?? null) || !is_array($f['models'] ?? null)
+            || !is_string($f['microcode_below'] ?? null) || !preg_match('/^0x[0-9a-f]{1,8}$/iD', $f['microcode_below'])) {
+            continue;
+        }
+        if (($cpu['vendor_id'] ?? null) !== $f['vendor'] || $cpu['family'] !== $f['family'] || !in_array($cpu['model_no'], $f['models'], true)) {
+            continue;
+        }
+        $names = is_array($f['names'] ?? null) ? array_filter($f['names'], 'is_string') : null;
+        if ($names !== null && !array_filter($names, fn (string $n): bool => preg_match('/(?<![\w-])' . preg_quote($n, '/') . '(?![\w-])/i', (string) ($cpu['model'] ?? '')) === 1)) {
+            continue;
+        }
+        if ($cpu['microcode'] < (int) hexdec(substr($f['microcode_below'], 2))) {
+            return ['id' => $f['id'], 'tip' => $f['tip'], 'name' => watchmanHwName($f['name'], 60), 'min' => strtoupper(substr($f['microcode_below'], 2))];
+        }
+    }
+    return null;
+}
+
+/** /proc/cpuinfo's facts a known fault needs: family, model number, the lowest microcode of its CPUs (null: not there) */
+function watchmanHwCpuInfo(string $info): array
+{
+    $codes = preg_match_all('/^microcode\s*:\s*0x([0-9a-f]{1,8})\s*$/mi', $info, $m) ? array_map('hexdec', $m[1]) : [];
+    return [
+        'vendor_id' => preg_match('/^vendor_id\s*:\s*(\S+)/m', $info, $v) ? $v[1] : null,
+        'family'    => preg_match('/^cpu family\s*:\s*(\d{1,4})\s*$/m', $info, $f) ? (int) $f[1] : null,
+        'model_no'  => preg_match('/^model\s*:\s*(\d{1,4})\s*$/m', $info, $n) ? (int) $n[1] : null,
+        'microcode' => $codes ? (int) min($codes) : null,
+    ];
+}
+
+/** The microcode as people read it (0x12F), or '?' */
+function watchmanHwMicrocode(?array $cpu): string
+{
+    return is_int($cpu['microcode'] ?? null) ? '0x' . strtoupper(dechex($cpu['microcode'])) : '?';
 }
 
 /** The page's part `hw` from his state (state.json hw) — null before his first look at the hardware */

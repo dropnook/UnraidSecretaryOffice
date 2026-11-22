@@ -1478,5 +1478,9 @@
   "check.hw_kernel": {"one": "The kernel stumbled since the server's start (its marks: {flags})", "other": "The kernel stumbled {n} times, the newest marks: {flags}"},
   "check.hw_kernel_how": "The kernel marks itself when something went wrong inside it; the marks stay until the next start: D a crash (an Oops or a BUG), B a bad memory page, M a machine check, L a CPU that hung, W a warning. A warning alone is often a driver's complaint; the others point at the hardware or a faulty driver. Look in the syslog for «Oops», «BUG», «soft lockup» or «WARNING» around that time; after a crash a restart is the safe way back.",
   "notify.hw_kernel": {"one": "Night watchman: the kernel stumbled", "other": "Night watchman: the kernel stumbled {n} times"},
-  "adopt.hw_kernel": "«I know, thanks»: these marks are known — a new one is told again."
+  "adopt.hw_kernel": "«I know, thanks»: these marks are known — a new one is told again.",
+  "posture.cpu_fault.title": "{cpu}: a known fault ({fault}) — its microcode {microcode} is older than the correction ({min})",
+  "posture.cpu_fault.why": "Intel's 13th and 14th Gen desktop CPUs can age under too high a voltage until they crash and hang. Intel's correction is microcode {min} or newer, and it comes with a BIOS update — Intel says it must be loaded that way, together with the BIOS's «Intel Default Settings». Update the board's BIOS to one that has it. A microcode doesn't heal a CPU already harmed: repeated crashes and hangs are the sign, and then the CPU goes back under its warranty, which Intel extended to up to five years. Machine checks since the server's start: {mce} — the area Hardware shows them and the kernel's crashes.",
+  "posture.old_microcode.title": "{cpu} started with old microcode ({microcode})",
+  "posture.old_microcode.why": "The kernel keeps a list of the microcode the makers released; this CPU started with older microcode than that (the kernel's own word: old_microcode «Vulnerable»). Newer microcode closes security holes or fixes faults of the CPU. It comes with a BIOS update of the board, or with an Unraid version that brings newer microcode — look for a BIOS update first."
 }

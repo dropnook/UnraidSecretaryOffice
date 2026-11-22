@@ -315,6 +315,8 @@ const WATCH_POSTURE = [
     'api_admin'       => 'advice',
     'mitigations_off' => 'advice',
     'vmscape'         => 'advice',
+    'cpu_fault'       => 'advice',     // a CPU with a known fault and microcode older than its maker's correction (watchman-hw.php, watchman-cpu-faults.json)
+    'old_microcode'   => 'advice',     // the kernel says the CPU booted with microcode older than its list (vulnerabilities/old_microcode)
     'partner_wide'    => 'advice',     // a partner's door line without restrict or from= (wider than the office made it)
     'partner_unknown' => 'advice',     // a uso-partner line for a pair the office doesn't know
     'partner_public'  => 'advice',     // a pair whose address faces the internet
@@ -1661,6 +1663,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
             $added = array_merge($added, $hwAdded);
         }
         // how secure it stands: from what he sees now (what Docker or emhttp didn't answer: as the last round saw it)
+        $facts['hw'] = $st['hw'] ?? null;        // the machine checks he counted: a known CPU fault's signs (watchman-hw.php)
         $st['posture'] = ['time' => $now, 'tips' => watchmanPosture($facts, $observed, (array) ($st['posture']['tips'] ?? []))];
         $old['posture'] = readJson("$dir/posture.json");
         $known = watchmanPostureKnown($old['posture'], $st['posture']['tips']);
@@ -4128,7 +4131,7 @@ function watchmanCpu(array $paths): ?array
         'off'     => preg_match('/(^|\s)mitigations=off(\s|$)/', $cmdline) === 1,
         'open'    => $open,
         'covered' => $covered,
-    ];
+    ] + watchmanHwCpuInfo($info);       // vendor_id, family, model_no, microcode: a known fault of this CPU (watchman-hw.php)
 }
 
 /** At most a few names, and how many more ("a, b, c +2") — the same in every language */
@@ -4227,6 +4230,17 @@ function watchmanPosture(array $f, array $seen, array $prev = []): array
         }
     } elseif ($cpu !== null && $cpu['covered']) {
         $add('mitigations_on', ['cpu' => $cpu['model'] ?? $cpu['vendor'] ?? 'CPU'], implode(',', $cpu['covered']), $boot);
+    }
+    // a known fault of this CPU with old microcode (watchman-hw.php, concept 11 C): a BIOS update, nothing in Unraid to click — with
+    // the machine checks he counted since the start (the signs); and the kernel's own word that the microcode is old
+    $fault = watchmanHwCpuFault($cpu);
+    if ($fault !== null) {
+        $mce = $f['hw']['mce']['mce'] ?? null;
+        $add($fault['tip'], ['cpu' => $cpu['model'] ?? $cpu['vendor'] ?? 'CPU', 'microcode' => watchmanHwMicrocode($cpu), 'min' => '0x' . $fault['min'],
+            'fault' => $fault['name'], 'mce' => is_int($mce) ? (string) $mce : '–'], $fault['id'] . '|' . watchmanHwMicrocode($cpu), null);
+    }
+    if ($cpu !== null && in_array('old_microcode', $cpu['open'], true)) {
+        $add('old_microcode', ['cpu' => $cpu['model'] ?? $cpu['vendor'] ?? 'CPU', 'microcode' => watchmanHwMicrocode($cpu)], watchmanHwMicrocode($cpu), null);
     }
     // privileged containers that run or start by themselves; one stopped and without autostart is only a quiet line in the tip
     $privileged = $quiet = [];

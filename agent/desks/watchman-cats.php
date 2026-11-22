@@ -46,7 +46,7 @@ const WATCH_CATS = [
     'lan'       => ['kinds' => ['net_new_device', 'net_spoof', 'net_ips_server', 'net_blocked_from_server'], 'tips' => []],
     'array'     => ['kinds' => ['array_stop', 'array_start', 'server_boot', 'parity_check'], 'tips' => []],
     'vuln'      => ['kinds' => [], 'tips' => []],          // «Known vulnerabilities» (concept 11 A): its kinds come with its step
-    'hw'        => ['kinds' => ['hw_mce', 'hw_ecc', 'hw_aer', 'hw_throttle', 'hw_kernel'], 'tips' => []],    // «Hardware» (watchman-hw.php; concept 11 B–E, H)
+    'hw'        => ['kinds' => ['hw_mce', 'hw_ecc', 'hw_aer', 'hw_throttle', 'hw_kernel'], 'tips' => ['cpu_fault', 'old_microcode']],    // «Hardware» (watchman-hw.php; concept 11 B–E, H)
     'hold'      => ['kinds' => [], 'tips' => []],          // «What holds the array?» (agent/lib/arrayhold.php): no entries, its own look
     'wakes'     => ['kinds' => [], 'tips' => []],          // «Who woke my disks?» (watchman-diskwakes.php): no entries, his wake list
 ];
