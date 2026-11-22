@@ -506,87 +506,6 @@ await Promise.all(Array.from({ length: Math.min(opt.jobs, jobs.length) }, async 
 // array, the wave in its cell, it opens when the scan ends and nothing else was clicked); «Scan all…» asks once and queues;
 // no horizontal scrolling and no jumping page at phone width either, by finger a tap shows and the next one goes in.
 /**
- * The plan in PHP beside Python (agent/desks/jack-shadow.php): no tile without its flag (no key in his state); with it the tile says the counts,
- * its section the differences from the part «shadow»; all the same: no list, the part never asked; no python3: «not compared: no Python»,
- * the footer names PHP. At 1440 and 375 px.
- */
-async function jackShadow(browser) {
-  const res = { route: 'jack shadow', theme: 'dark', width: 1440, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
-  const t0 = Date.now();
-  const fail = (what) => { if (res.fails.length < 40 && !res.fails.includes(what)) res.fails.push(what); };
-  const h = await startHarness({});
-  const file = (name) => JSON.parse(fs.readFileSync(path.join(REPO, 'tests', 'ui', 'states', `${name}.json`), 'utf8'));
-  const stub = file('jack');
-  const part = file('jack-shadow');
-  const idle = { ...stub, jobs: { embycache: { ...stub.jobs.embycache, running: false }, gather: stub.jobs.gather }, night: { ...stub.night, now: null } };
-  const tile = '#sso-desk [data-place="tile.shadow"], #sso-desk .stat:has-text("The plan in PHP")';
-  for (const width of [1440, 375]) {
-    const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
-    const page = await ctx.newPage();
-    const errors = [];
-    page.on('pageerror', (e) => errors.push(String(e.message).slice(0, 160)));
-    try {
-      h.setState('jack', idle);
-      h.setState('jack-shadow', part);
-      await page.goto(`${h.url}#/jack`, { waitUntil: 'load' });
-      await page.waitForSelector('#sso-desk .stats');
-      res.tested++;
-      if (await page.locator(tile).count()) fail(`${width}: a tile without the flag`);
-      // with the flag
-      h.setState('jack', { ...idle, shadow: part.summary });
-      await page.goto(`${h.url}#/jack/shadow`, { waitUntil: 'load' });
-      await page.reload({ waitUntil: 'load' });
-      await page.waitForSelector('#sso-desk .jo-structure');
-      await page.waitForFunction(() => document.querySelectorAll('#sso-desk .jo-structure .row').length > 0, null, { timeout: 8000 });
-      res.tested++;
-      const seen = await page.evaluate(() => {
-        const b = document.querySelector('#sso-desk .jo-structure');
-        return { text: b.textContent, rows: [...b.querySelectorAll('.row')].map((r) => [r.querySelector('.row-name').textContent, r.querySelector('.chip').textContent, r.querySelectorAll('.jo-structure-path').length]),
-          tile: [...document.querySelectorAll('#sso-desk .stat')].map((x) => x.textContent).find((t) => t.includes('The plan in PHP')) || '',
-          wide: document.documentElement.scrollWidth > window.innerWidth };
-      });
-      if (!seen.tile.includes('12 days the same, 1 with differences') || !seen.tile.includes('3 not compared') || !seen.tile.includes('1 where both sides failed') || !seen.tile.includes('1 with a difference seen only once')) fail(`${width}: the tile's counts: ${seen.tile}`);
-      if (!seen.text.includes('both sides failed, nothing compared') || !seen.text.includes(': different plans')) fail(`${width}: what each listed comparison came to`);
-      if (seen.rows.length !== 4 || seen.rows[3][1] !== 'How the plan ended' || seen.rows[0][1] !== 'Comes to the pool' || seen.rows[1][1] !== 'Goes back by rank' || seen.rows[0][2] !== 2) fail(`${width}: the rows: ${JSON.stringify(seen.rows)}`);
-      if (!seen.text.includes('2 more differences not listed')) fail(`${width}: what isn't listed`);
-      if (seen.wide) fail(`${width}: scrolls sideways`);
-      // all the same: no list
-      h.setState('jack', { ...idle, shadow: { same: 5, differ: 0, once: 0, error: 0, not: 0, last: part.summary.last } });
-      await page.reload({ waitUntil: 'load' });
-      await page.waitForSelector('#sso-desk .jo-structure');
-      res.tested++;
-      if (await page.locator('#sso-desk .jo-structure .row').count()) fail(`${width}: rows though all the same`);
-      // no python3 on the server (2026-11-12): PHP acts alone — the tile and its section say «not compared: no Python», no Python
-      // callout or bubble, the footer names PHP and no Python
-      h.setState('jack', { ...idle, python: null, php: '8.4.12', shadow: { same: 0, differ: 0, once: 0, error: 0, not: 2, last: part.summary.last, php: true, python: false } });
-      await page.reload({ waitUntil: 'load' });
-      await page.waitForSelector('#sso-desk .jo-structure');
-      res.tested++;
-      const nopy = await page.evaluate(() => ({
-        tile: [...document.querySelectorAll('#sso-desk .stat')].map((x) => x.textContent).find((t) => t.includes('The plan in PHP')) || '',
-        page: document.querySelector('#sso-desk').textContent,
-        foot: (document.querySelector('#sso-desk .jo-tools') || {}).textContent || '',
-        wide: document.documentElement.scrollWidth > window.innerWidth,
-      }));
-      if (!nopy.tile.includes('Not compared: no Python') || !nopy.tile.includes('2 not compared')) fail(`${width}: no Python — the tile: ${nopy.tile}`);
-      if (!nopy.page.includes('This server has no Python 3: PHP plans each real run')) fail(`${width}: no Python — the section doesn't say who moves`);
-      if (nopy.page.includes('last compared on')) fail(`${width}: no Python, never compared — still «last compared on»`);
-      if (nopy.page.includes('Python 3 is missing') || nopy.page.includes('I need Python 3')) fail(`${width}: no Python — still asked for`);
-      if (!nopy.foot.includes('PHP 8.4.12') || nopy.foot.includes('Python')) fail(`${width}: no Python — the footer: ${nopy.foot}`);
-      if (nopy.wide) fail(`${width}: no Python — scrolls sideways`);
-      for (const e of errors) fail(`${width}: ${e}`);
-    } catch (e) {
-      fail(`${width}: ${String(e.message).slice(0, 200)}`);
-    } finally {
-      await ctx.close();
-    }
-  }
-  await h.close();
-  res.ms = Date.now() - t0;
-  return res;
-}
-
-/**
  * Jack Streamer's «Check the structure…» (agent/desks/jack-structure.php): the list drawn, grouped by kind with kinds as labels;
  * who didn't answer; the clean sentence; a check at work (the wave, the button off) and its end coming by the one timer; the
  * click sends exactly one structure_start. At 1440 and 375 px.
@@ -1276,6 +1195,125 @@ async function dialogStack(browser, harness) {
   }
   for (const e of [...new Set(errors)]) fail(e);
   await ctx.close();
+  return res;
+}
+// ------------------------------------------------------------------ «About» in the report dialog (2026-11-22)
+// The owner on Fanboy's page saw «About: the office as a whole»; uso-inbox #20 came with our title and our text only.
+// On Fanboy's page, no draft yet, the search's item («Report a problem or a wish…», it names no desk) opens it about him.
+// His «Send to the makers…» opens the dialog about him: «About» Fanboy, the title empty with his example, «Send»'s line
+// asking for a title; «Show what will be sent…» without one says so and puts the cursor in it; a title typed: the line
+// asks for the preview. Closed, the ⋯ menu at the reception opens it about the office, empty — none of Fanboy's draft in
+// it, his left as it was; on his page again (⋯ menu, then the search's item) his draft is back with the title typed.
+// Both themes at 1440 and 375 px: nothing scrolls sideways, no page error.
+async function reportDesk(browser) {
+  const res = { route: 'report desk', theme: 'both', width: 0, tested: 0, skipped: 0, capped: 0, hidden: 0, sections: 0, fails: [], ms: 0 };
+  const t0 = Date.now();
+  const fail = (what) => res.fails.push(what);
+  const en = JSON.parse(fs.readFileSync(path.join(REPO, 'public', 'lang', 'en.json'), 'utf8'));
+  const fen = JSON.parse(fs.readFileSync(path.join(REPO, 'public', 'desks', 'fanboy', 'lang', 'en.json'), 'utf8'));
+  const h = await startHarness({ report: true });
+  h.setPost('fanboy.report', () => ({ report: 'Fanboy detection report v1\nBoard: Example X570' }));
+  h.setPost('office.reports', () => ({ reports: [], n: 0, left: 25, cap: 25, next: null, closed: false }));
+  h.setPost('office.report_inbox', () => ({ inbox: 'open' }));
+  const look = () => {
+    const d = document.querySelector('#sso-dialog');
+    const s = d && !document.querySelector('#sso-dialog-backdrop').hidden ? d.querySelector('select') : null;
+    if (!s) return null;
+    const title = d.querySelector('.sso-report-form input.input');
+    const why = d.querySelector('.sso-report-why');
+    const warn = [...d.querySelectorAll('.callout.warn')].find((x) => !x.hidden);
+    return { desk: s.value, title: title.value, example: title.placeholder, text: d.querySelector('textarea').value,
+      why: why && !why.hidden ? why.textContent.trim() : null, warn: warn ? warn.textContent.trim() : null,
+      focus: document.activeElement === title, wide: document.documentElement.scrollWidth > window.innerWidth + 1 };
+  };
+  // the search (the magnifier): «Report a problem or a wish» typed, its item clicked
+  const searchReport = async (page) => {
+    const words = en['office.report_menu'].replace('…', '');
+    await page.click('#sso-search');
+    await page.fill('#sso-palette input', words);
+    await page.locator('#sso-palette .palette-item', { hasText: words }).first().click({ timeout: 5000 });
+    await page.waitForSelector('#sso-dialog select', { timeout: 10000 });
+  };
+  try {
+    for (const theme of ['dark', 'light']) {
+      for (const width of [1440, 375]) {
+        const at = `${theme} ${width}`;
+        let v = null;
+        const ctx = await browser.newContext({ viewport: { width, height: 900 }, locale: 'en-US' });
+        const page = await ctx.newPage();
+        const errors = [];
+        page.on('pageerror', (e) => errors.push(`page error: ${String(e.message).slice(0, 160)}`));
+        await page.goto(`${h.url}?theme=${theme === 'dark' ? 'black' : 'white'}#/fanboy`, { waitUntil: 'load' });
+        const mine = page.locator('#sso-desk button', { hasText: fen.report }).first();
+        await mine.waitFor({ timeout: 15000 });
+        await page.waitForFunction(() => Office.agent && Office.agent.running, null, { timeout: 15000 });
+        // no draft yet: the search's item (it names no desk) — about the desk shown, not the office
+        await searchReport(page);
+        v = await page.evaluate(look);
+        res.tested++;
+        if (!v || v.desk !== 'fanboy' || v.title !== '' || v.text !== '') fail(`${at}: the search's item on Fanboy's page, no draft — about him (${JSON.stringify(v)})`);
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        await mine.click();
+        await page.waitForSelector('#sso-dialog select', { timeout: 10000 });
+        await page.waitForTimeout(200);
+        v = await page.evaluate(look);
+        res.tested++;
+        if (!v || v.desk !== 'fanboy' || v.title !== '' || v.example !== fen.report_example || v.why !== en['office.report_why_title']
+          || !v.text.includes('Fanboy detection report')) fail(`${at}: Fanboy's «${fen.report}» — about him, no title of ours, his example, «Send» asks for a title (${JSON.stringify(v)})`);
+        await page.click('#sso-dialog .sso-report-show .btn');
+        await page.waitForTimeout(200);
+        v = await page.evaluate(look);
+        res.tested++;
+        if (!v || v.warn !== en['errors.report_incomplete'].replace('{min}', '10') || !v.focus) fail(`${at}: the preview without a title — said, the cursor in the title (${JSON.stringify(v)})`);
+        await page.fill('#sso-dialog .sso-report-form input.input', 'CPU fan missing');
+        await page.waitForTimeout(100);
+        v = await page.evaluate(look);
+        res.tested++;
+        if (!v || v.why !== en['office.report_why_preview']) fail(`${at}: a title typed — the line asks for the preview (${JSON.stringify(v)})`);
+        if (v && v.wide) fail(`${at}: the dialog scrolls sideways`);
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        // the reception's ⋯ menu: about the office, none of Fanboy's draft
+        await page.goto(`${h.url}?theme=${theme === 'dark' ? 'black' : 'white'}#/`, { waitUntil: 'load' });
+        await page.waitForFunction(() => Office.agent && Office.agent.running && !Office.current, null, { timeout: 15000 });
+        await page.click('#sso-more');
+        await page.locator('#sso-menu button', { hasText: en['office.report_menu'] }).click();
+        await page.waitForSelector('#sso-dialog select', { timeout: 10000 });
+        v = await page.evaluate(look);
+        res.tested++;
+        if (!v || v.desk !== 'office' || v.title !== '' || v.text !== '' || v.example !== en['office.report_subject_example']) fail(`${at}: the reception's ⋯ menu — about the office, empty (${JSON.stringify(v)})`);
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        // Fanboy's page again: the ⋯ menu, then the search's item — his draft back, the title typed
+        await page.goto(`${h.url}?theme=${theme === 'dark' ? 'black' : 'white'}#/fanboy`, { waitUntil: 'load' });
+        await page.waitForFunction(() => Office.current && Office.current.id === 'fanboy' && Office.agent.running, null, { timeout: 15000 });
+        await page.click('#sso-more');
+        await page.locator('#sso-menu button', { hasText: en['office.report_menu'] }).click();
+        await page.waitForSelector('#sso-dialog select', { timeout: 10000 });
+        v = await page.evaluate(look);
+        res.tested++;
+        if (!v || v.desk !== 'fanboy' || v.title !== 'CPU fan missing' || !v.text.includes('Fanboy detection report') || v.example !== fen.report_example) {
+          fail(`${at}: Fanboy's ⋯ menu — about him, his draft and the title typed (${JSON.stringify(v)})`);
+        }
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        await searchReport(page);
+        v = await page.evaluate(look);
+        res.tested++;
+        if (!v || v.desk !== 'fanboy' || v.title !== 'CPU fan missing') fail(`${at}: the search's item on Fanboy's page — about him, his draft (${JSON.stringify(v)})`);
+        await page.keyboard.press('Escape');
+        const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+        if (wide) fail(`${at}: the page scrolls sideways`);
+        for (const e of [...new Set(errors)]) fail(`${at}: ${e}`);
+        await ctx.close();
+      }
+    }
+  } catch (e) {
+    fail(String(e.message || e).split('\n')[0].slice(0, 200));
+  }
+  await h.close();
+  res.ms = Date.now() - t0;
   return res;
 }
 // ------------------------------------------------------------------ a fresh server's first start (2026-10-16)
@@ -2103,12 +2141,12 @@ results.push(...await Promise.all(walks.map((d) => routeWalk(browser, harness, d
 if (!opt.states && (!opt.only || routes.includes('cleanup/where'))) results.push(await cleanupMap(browser));
 if (!opt.states && (!opt.only || routes.includes('jack/setup'))) results.push(await dialogStack(browser, harness));
 if (!opt.states && (!opt.only || routes.includes('jack'))) results.push(await jackStructure(browser));
-if (!opt.states && (!opt.only || routes.includes('jack'))) results.push(await jackShadow(browser));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await firstHome(browser));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await netBusy(browser));
 if (!opt.states && (!opt.only || routes.includes('caretaker'))) results.push(await pairAddress(browser));
 if (!opt.states && (!opt.only || routes.includes('backup'))) results.push(await partnerStreams(browser));
 if (!opt.states && (!opt.only || routes.includes('snapshot'))) results.push(await busyMark(browser));
+if (!opt.states && (!opt.only || routes.includes('fanboy'))) results.push(await reportDesk(browser));
 if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await staleJob(browser));
 if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await keptFilter(browser));
 if (!opt.states && (!opt.only || routes.includes('restore'))) results.push(await journalFilter(browser));
@@ -2118,8 +2156,8 @@ await harness.close();
 // ------------------------------------------------------------------ a forced red (tools/release.sh's retry, tested)
 // UC_FORCE_FAIL=<route>: one page of that route (the first in the table's order) gets a failure of its own - how
 // tools/release.sh shows its retry of a red page (USO_RELEASE_FLAKY there). Never set in a real run.
-const ONLY_OF = { 'cleanup map': 'cleanup/where', 'dialog stack': 'jack/setup', 'jack structure': 'jack', 'jack shadow': 'jack', 'first start': 'caretaker',
-  'USO network card': 'caretaker', 'pair address': 'caretaker', 'partner streams': 'backup', 'busy mark': 'snapshot' };
+const ONLY_OF = { 'cleanup map': 'cleanup/where', 'dialog stack': 'jack/setup', 'jack structure': 'jack', 'first start': 'caretaker',
+  'USO network card': 'caretaker', 'pair address': 'caretaker', 'partner streams': 'backup', 'busy mark': 'snapshot', 'report desk': 'fanboy' };
 // the --only route that runs a result's page again (a route walk, a special check: its desk's route)
 const onlyOf = (r) => ONLY_OF[r.route] || (r.route.endsWith(' routes') ? r.route.slice(0, -' routes'.length) : r.route);
 

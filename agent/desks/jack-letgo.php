@@ -34,7 +34,7 @@ const JACK_LETGO_JOBS  = ['embycache', 'gather'];
 /**
  * Where the let-go reads and writes, and what it asks — the tests put stand-ins into $GLOBALS['jackLetGoHost']: cron (the
  * office's cron file), apply (update_cron), dir (his data folder), settings, running, look
- * (who watches Emby), launch (hostLaunch()). No Python asked: without python3 PHP brings them back (jackPhpActs()).
+ * (who watches Emby), launch (hostLaunch()).
  */
 function jackLetGoHost(): array
 {

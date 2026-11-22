@@ -332,6 +332,7 @@ function render() {
     [T('help.night'), T('help.night_text')],
     [T('help.parity'), T('help.parity_text')],
     [T('help.hold'), T('help.hold_text')],
+    [T('help.wakes'), T('help.wakes_text')],
     [T('help.grafana'), T('help.grafana_text')],
     [T('help.notify'), T('help.notify_text')],
     [T('help.safe'), T('help.safe_text')],
@@ -345,8 +346,9 @@ function render() {
 // ------------------------------------------------------------------ the row: his four tiles
 /**
  * His page on core's switcher (CLAUDE.md «Tiles», Office.sections): the watch book — whole, or only what is not noted
- * yet (a filter tile: never kept) —, how secure it stands, what he keeps an eye on. «Watch book» to start; nothing
- * chosen shows all three in the row's order. Over the row stays the head of his last round.
+ * yet (a filter tile: never kept) —, how secure it stands, serious incidents, what he keeps an eye on, and the disks: what
+ * holds the array, who woke the disks. «Watch book» to start; nothing chosen shows them all in the row's order. Over the
+ * row stays the head of his last round.
  */
 const sw = Office.sections({
   id: ID,
@@ -359,6 +361,7 @@ const sw = Office.sections({
     { id: 'incidents', key: 'tile.incidents', place: 'tile.incidents', tile: (a) => incidentsTile(a), section: () => incidentsSection() },
     { id: 'watch', key: 'tile.watch', place: 'tile.watch', tile: (a) => watchTile(a), section: () => watchSection() },
     { id: 'hold', key: 'tile.hold', place: 'tile.hold', tile: (a) => holdTile(a), section: () => holdSection() },
+    { id: 'wakes', key: 'tile.wakes', place: 'tile.wakes', tile: (a) => wakesTile(a), section: () => wakesView() },
     roundSchedule(),
   ],
   sections: { book: () => bookSection() },
@@ -1821,6 +1824,308 @@ function itselfRow(x) {
   return r;
 }
 
+// ------------------------------------------------------------------ who woke my disks?
+/*
+ * «Who woke my disks?» (agent/desks/watchman-diskwakes.php; Ms. Protocolli's up to 1.95): every wake of a spinning disk he
+ * noticed in the last 7 days — per disk how often (a click shows only its wakes: a filter, never kept, said in the note
+ * line) and per wake who he caught waiting for it while it spun up, the surest first; «Not found out» when nobody was. Only
+ * rotating disks are watched; on a server without one (all flash: SSDs, NVMe) the tile and its section say so in one line —
+ * a hidden tile looked like a bug. Beside «What holds the array?»: both say who touches the disks.
+ */
+let wakeDisk = '';              // the disk chosen in «By disk»: a filter, never kept
+let shownWakes = [];            // the unfoldable rows of the wakes: {open(), set(open)}
+const unfoldedWakes = new Set(); // wakes unfolded on this visit
+const wakesOf = () => (state && state.wakes && Array.isArray(state.wakes.wakes) ? state.wakes.wakes : []);
+/** No rotating disk there (the state says so) and no wake kept from before: nothing to watch — an older messenger's
+    state says nothing (no `hdds`), the tile shows as it always did */
+const wakesNoHdd = () => !!(state && state.wakes && Array.isArray(state.wakes.hdds) && !state.wakes.hdds.length && !wakesOf().length);
+// the wakes' filter bar (core.js Office.filterBar, built once like the book's): its words and the disk chosen are never kept
+let wakesBar = null;
+function wakesBarGet() {
+  wakesBar ??= Office.filterBar({ key: 'watchman.wakes', label: T('wakes.filter_label'), onChange: () => { if (view) sw.render(); } });
+  return wakesBar;
+}
+/** Midnight of the state's day (the server looked just now; a kept state counts by its own day) */
+const startOfToday = () => { const d = new Date(((state && state.time) || Date.now() / 1000) * 1000); d.setHours(0, 0, 0, 0); return d.getTime() / 1000; };
+const wakeHead = (text) => { const h = el('div', 'wm-wake-subhead'); h.appendChild(el('span', 'wm-wake-subhead-name', text)); return h; };
+
+/** What woke it, in words: «Plex (container)», «SMB: laptop», «Scheduled task: …», «Mr. Backupsy (the office)» */
+function causeName(c) {
+  if (!c) return T('wakes.cause.none');
+  const name = c.name || '';
+  switch (c.kind) {
+    case 'container': return T('wakes.cause.container', { name: name || c.prog });
+    case 'vm': return T('wakes.cause.vm', { name: name || c.prog });
+    case 'smb': return name ? T('wakes.cause.smb', { name }) : T('wakes.cause.smb_anon');
+    case 'nfs': return T('wakes.cause.nfs');
+    case 'office': return c.desk && Office.desks.has(c.desk) ? T('wakes.cause.office', { name: Office.t(c.desk + '.name') }) : T('wakes.cause.office_anon');
+    case 'mover': return T('wakes.cause.mover');
+    case 'cron': return T('wakes.cause.cron', { name: name || c.prog });
+    default:
+      if (c.prog === 'shfs') return T('wakes.cause.shfs');
+      return c.by ? T('wakes.cause.program_by', { name: c.prog, by: starterName(c) }) : T('wakes.cause.program', { name: c.prog });
+  }
+}
+
+/** Who started a plain program: Unraid, its web page, a plugin, a user script, a terminal (agent/lib/procwho.php procwhoStarter()) */
+function starterName(c) {
+  switch (c.by) {
+    case 'plugin': return T('wakes.by.plugin', { name: c.byname || '?' });
+    case 'user_script': return T('wakes.by.user_script', { name: c.byname || '?' });
+    default: return T('wakes.by.' + c.by);
+  }
+}
+
+/** The tile (a number, like «What holds the array?»): the wakes in 7 days and today's — or why there is no number */
+function wakesTile(a) {
+  const all = wakesOf();
+  const w = state && state.wakes;
+  let value = '–';
+  let sub = [];
+  if (!w) sub = [state ? T('tile.wakes_not_yet') : Office.t('common.loading')];
+  else if (wakesNoHdd()) sub = [T('tile.wakes_no_hdd')];
+  else if (w.on === false) [value, sub] = [T('wakes.tile_off'), all.length ? [T('wakes.tile_week', { n: all.length })] : []];
+  else if (!all.length) [value, sub] = [T('tile.wakes_none'), [T('wakes.tile_since', { when: fmt.date(w.since) })]];
+  else {
+    const today = all.filter((x) => x.time >= startOfToday()).length;
+    [value, sub] = [T('tile.wakes_n', { n: all.length }), [T('tile.wakes_week'), today ? T('tile.wakes_today', { n: today }) : ''].filter(Boolean).join(' · ')];
+  }
+  return Office.stat({ label: T('wakes.title'), value, sub, cls: 'wm-wakes-tile', ...a });
+}
+
+/** His switch in the section's head: on unless switched off, kept on the server (never in the browser) */
+function wakesSwitch() {
+  const label = el('label', 'switch');
+  const cb = el('input');
+  cb.type = 'checkbox';
+  cb.checked = state.wakes.on !== false;
+  cb.disabled = !Office.agent.running;
+  label.append(cb, el('span', '', T('wakes.switch')));
+  label.title = T('wakes.switch_title');
+  cb.onchange = async () => {
+    cb.disabled = true;
+    const on = cb.checked;
+    const j = await Office.api.post(`${ID}.wakes_watch`, { on });
+    if (!j.ok) {
+      cb.checked = !on;
+      cb.disabled = false;
+      Office.toast(Office.errorText(j.error, ID), true);
+      return;
+    }
+    if (j.state) state = j.state;
+    Office.keepInPlace(label, () => sw.render());
+    Office.toast(T(on ? 'wakes.switched_on' : 'wakes.switched_off'));
+  };
+  return label;
+}
+
+/** Per disk: how often today and in 7 days, and what woke it most often */
+function wakesByDisk(all) {
+  const by = new Map();
+  for (const w of all) {
+    for (const d of w.disks) {
+      if (!by.has(d)) by.set(d, { today: 0, week: 0, causes: new Map() });
+      const x = by.get(d);
+      x.week += 1;
+      if (w.time >= startOfToday()) x.today += 1;
+      const who = trailLeads(w) ? T('wakes.trail_most', { dir: trailTop(trailDirs(w)[0]) }) : causeName(w.who[0]);
+      x.causes.set(who, (x.causes.get(who) || 0) + 1);
+    }
+  }
+  return [...by.entries()].sort((p, q) => q[1].week - p[1].week || p[0].localeCompare(q[0]));
+}
+
+function wakesView() {
+  const unfold = el('button', 'btn small plain');
+  unfold.type = 'button';
+  const label = () => { unfold.textContent = shownWakes.some((x) => !x.open()) ? T('unfold_all') : T('fold_all'); };
+  unfold.onclick = () => {
+    const open = shownWakes.some((x) => !x.open());
+    Office.keepInPlace(unfold, () => shownWakes.forEach((x) => x.set(open)));
+    label();
+  };
+  shownWakes = [];
+  const look = (state && state.wakes && state.wakes.look) || 4;
+  const box = Office.place('search.wakes', el('section', 'section wm-wakes'));      // the search's «disk wake-ups, spin-up»
+  const known = !!(state && state.wakes);
+  const noHdd = wakesNoHdd();
+  box.appendChild(Office.sectionHead(T('wakes.title'), T('wakes.sub', { s: look }), ...(known && !noHdd ? [wakesSwitch()] : []), unfold, { place: 'wakes.title' }));
+  unfold.hidden = true;
+  if (!known || noHdd) {
+    // before her first look: not yet / loading; no spinning disk: that one line — no switch, no filter bar, no empty list
+    box.appendChild(el('p', 'empty', noHdd ? T('wakes.no_hdd') : state ? T('wakes.not_yet') : Office.t('common.loading')));
+    return box;
+  }
+  if (state.wakes.on === false) box.appendChild(el('p', 'callout', T('wakes.off_note')));
+  const all = wakesOf().slice().sort((p, q) => q.time - p.time);
+  if (wakeDisk && !all.some((w) => w.disks.includes(wakeDisk))) wakeDisk = '';
+  // by disk: a row each, a click shows only its wakes
+  const disks = el('div', 'box wm-wake-disks');
+  disks.appendChild(wakeHead(T('wakes.by_disk')));
+  for (const [disk, x] of wakesByDisk(all)) {
+    const on = wakeDisk === disk;
+    const r = el('div', 'row nocheck wm-wake-disk' + (on ? ' wm-wake-on' : ''));
+    const main = el('div', 'row-main');
+    const name = el('div', 'row-name', disk);
+    name.title = on ? T('wakes.disk_all_title') : T('wakes.disk_only_title', { disk });
+    const meta = el('div', 'row-meta');
+    if (x.today) meta.appendChild(el('span', '', T('wakes.n_today', { n: x.today })));
+    meta.appendChild(el('span', '', T('wakes.n_week', { n: x.week })));
+    const [most, n] = [...x.causes.entries()].sort((p, q) => q[1] - p[1])[0];
+    meta.appendChild(el('span', 'wm-wake-most', T('wakes.most', { who: most, n })));
+    main.append(name, meta);
+    r.appendChild(main);
+    r.onclick = () => Office.keepInPlace(box, () => { wakeDisk = on ? '' : disk; sw.render(); });
+    disks.appendChild(r);
+  }
+  if (all.length) box.appendChild(disks);
+  // every wake, newest first: the bar's words over disks, causes, files, commands; the time by the wake's
+  const bar = wakesBarGet();
+  box.appendChild(bar.el);
+  const f = bar.read();
+  const fits = all.filter((w) => (!wakeDisk || w.disks.includes(wakeDisk))
+    && Office.fits(f.words, [w.disks.join(' '), ...w.who.map((c) => [causeName(c), T('wakes.sure.' + c.sure), c.prog, c.cmd, ...(c.files || [])].join(' ')), ...(w.cron || []), ...(w.started || []),
+      w.who.length ? '' : T('wakes.cause.none'), ...trailDirs(w).map((d) => trailName(w, d))]));
+  const list = el('div', 'box');
+  list.appendChild(wakeHead(T('wakes.every')));
+  for (const w of fits) list.appendChild(wakeRow(w, look));
+  if (!fits.length) list.appendChild(el('p', 'empty', all.length ? T('wakes.none_fit') : T('wakes.none')));
+  box.appendChild(list);
+  bar.done(fits.length, all.length, { tile: wakeDisk, clear: () => { wakeDisk = ''; } });
+  if (state.wakes.on !== false) box.appendChild(el('p', 'role wm-wake-note', T('wakes.note', { when: fmt.date(state.wakes.since), s: look })));
+  label();
+  unfold.hidden = shownWakes.length < 2;
+  return box;
+}
+
+/** A cron line due then: the office's own by the desk whose job it is (office:<job>), else its command */
+const JOB_DESK = { backup: 'backup', snapshots: 'snapshot', embycache: 'jack', gather: 'jack', moverelli: 'moverelli' };
+function cronName(x) {
+  const job = /^office:([a-z]+)$/.exec(x);
+  if (!job) return x;
+  const desk = JOB_DESK[job[1]];
+  return T('wakes.office_job', { name: desk && Office.desks.has(desk) ? Office.t(desk + '.name') : job[1] });
+}
+
+/** A time to the second (the trail's «17:56:18–17:56:23») */
+function secTime(seconds) {
+  const d = new Date(seconds * 1000);
+  try { return new Intl.DateTimeFormat(Office.locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(d); } catch (e) { return d.toLocaleTimeString(); }
+}
+
+/** The trail's folders (what was written on the woken disk then): their names, the disk said when there are several */
+const trailDirs = (w) => (w.trail && Array.isArray(w.trail.dirs) ? w.trail.dirs : []);
+/** The trail leads a wake when nobody surer than «maybe» was caught (everyone just waiting, no file of theirs there) */
+const trailLeads = (w) => trailDirs(w).length > 0 && (!w.who.length || w.who.every((c) => c.sure === 'maybe'));
+/** A trail folder's first two levels for counting by disk («Media/Music videos» of «Media/Music videos/Rock/Season 47») */
+const trailTop = (d) => (d.dir ? d.dir.split('/').slice(0, 2).join('/') : T('wakes.trail_top'));
+function trailName(w, d) {
+  const many = new Set(trailDirs(w).map((x) => x.disk)).size > 1;
+  return (many ? d.disk + ': ' : '') + (d.dir || T('wakes.trail_top'));
+}
+
+/** One folder of the trail: «Mediathek/Musik-Videos: 12 files (3.1 MB) written 17:56:18–17:56:23» */
+function trailLine(w, d) {
+  const p = { n: d.n, dir: trailName(w, d), size: fmt.size(d.bytes) };
+  if (!d.first) return T('wakes.trail_dir_untimed', p);
+  const when = d.last && d.last !== d.first ? `${secTime(d.first)}–${secTime(d.last)}` : secTime(d.first);
+  return T('wakes.trail_dir', { ...p, when });
+}
+
+/** The trail unfolded: a hint, not proof — its folders, the rest counted, how it was looked for */
+function trailBox(w) {
+  const box = el('div', 'wm-wake-cause wm-wake-trail');
+  const dirs = trailDirs(w);
+  if (!dirs.length) {
+    box.appendChild(el('p', 'role wm-wake-fact', T('wakes.trail_nothing')));
+    return box;
+  }
+  box.appendChild(el('div', 'wm-wake-cause-head', T('wakes.trail_head')));
+  const lines = dirs.map((d) => trailLine(w, d));
+  if (w.trail.more) lines.push(T('wakes.trail_more', { n: w.trail.more }));
+  box.appendChild(el('pre', 'code wm-wake-files', lines.join('\n')));
+  if (w.trail.how !== 'btrfs') box.appendChild(el('p', 'role wm-wake-fact', T('wakes.trail_walk')));
+  if (w.trail.cut) box.appendChild(el('p', 'role wm-wake-fact', T('wakes.trail_cut')));
+  return box;
+}
+
+/** A label: its words and its own tip */
+function sureChip(c) {
+  return chip(T('wakes.sure.' + c.sure), c.sure === 'sure' || c.sure === 'wrote' ? 'ok' : c.sure === 'maybe' ? 'quiet' : '', T('wakes.sure.' + c.sure + '_title'));
+}
+
+/**
+ * One wake: when, which disks, the likeliest cause; unfolded its files (its name stands in the head line already),
+ * every other cause with its name and files, what was due then, how timed, Unraid's own look said apart
+ */
+function wakeRow(w, look) {
+  const r = el('div', 'row nocheck unfolds wm-wake');
+  const main = el('div', 'row-main');
+  const name = el('div', 'row-name', `${fmt.date(w.time)} · ${w.disks.join(' + ')}`);
+  name.title = T('details');
+  const meta = el('div', 'row-meta');
+  const first = w.who[0];
+  if (first && trailLeads(w)) {
+    // only a «maybe» caught (waiting, no file of it on the disk): what was written then says more — it leads, the maybe follows
+    const v = el('span', 'wm-wake-trail-verdict', T('wakes.trail_verdict_maybe', { dir: trailName(w, trailDirs(w)[0]) }));
+    v.title = T('wakes.trail_verdict_maybe_title');
+    meta.append(v, chip(T('wakes.trail_also', { who: w.who.map(causeName).join(', ') }), 'quiet', T('wakes.trail_also_title')));
+  } else if (first) {
+    meta.appendChild(el('b', 'wm-wake-who', causeName(first)));
+    meta.appendChild(sureChip(first));
+    if (w.who.length > 1) meta.appendChild(chip(T('wakes.more', { n: w.who.length - 1 }), '', T('wakes.more_title')));
+  } else if (trailDirs(w).length) {
+    // nobody caught, but something was written on it just then: that folder, as a hint
+    const v = el('span', 'wm-wake-trail-verdict', T('wakes.trail_verdict', { dir: trailName(w, trailDirs(w)[0]) }));
+    v.title = T('wakes.trail_verdict_title');
+    meta.appendChild(v);
+  } else meta.appendChild(chip(T('wakes.cause.none'), 'quiet', T('wakes.cause.none_title')));
+  if (w.cut) meta.appendChild(chip(T('wakes.cut'), 'warn', T('wakes.cut_title')));
+  main.append(name, meta);
+  r.appendChild(main);
+  let box = null;
+  const set = (open) => {
+    if (!open && box) { box.remove(); box = null; unfoldedWakes.delete(w.id); r.classList.remove('open'); }
+    if (open && !box) {
+      box = el('div', 'row-detail wm-wake-detail');
+      const lead = trailLeads(w);       // the trail stands in the head line: it comes first, every cause with its name
+      if (lead) box.appendChild(trailBox(w));
+      w.who.forEach((c, i) => {
+        const one = el('div', 'wm-wake-cause');
+        const head = el('div', 'wm-wake-cause-head');
+        if (i > 0 || lead) head.append(el('b', '', causeName(c)), ' ', sureChip(c));
+        if (c.kind !== 'program' && c.prog) head.append(i > 0 ? ' ' : '', el('span', 'role', T('wakes.prog', { name: c.prog })));
+        if (head.childNodes.length) one.appendChild(head);
+        if (c.files && c.files.length) one.appendChild(el('pre', 'code wm-wake-files', c.files.join('\n')));
+        else if (c.cmd) one.appendChild(el('pre', 'code wm-wake-files', c.cmd));
+        box.appendChild(one);
+      });
+      if (!w.who.length) box.appendChild(el('p', 'role', T('wakes.cause.none_title')));
+      if (w.trail && !lead) box.appendChild(trailBox(w));
+      const facts = [];
+      if (w.unraid) facts.push(T('wakes.unraid'));
+      if (w.cron && w.cron.length) facts.push(T('wakes.cron_due', { list: w.cron.map(cronName).join(' · ') }));
+      if (w.started && w.started.length) facts.push(T('wakes.started', { list: w.started.join(', ') }));
+      facts.push(w.how === 'caught' ? T(w.who.length ? 'wakes.how.caught' : 'wakes.how.asked') : w.how === 'syslog' ? T('wakes.how.syslog')
+        : T('wakes.how.noticed', { from: fmt.date(w.from), to: fmt.date(w.time) }));
+      if (w.smart && w.how === 'caught') facts.push(T('wakes.smart', { when: fmt.date(w.smart) }));
+      if (!w.named) facts.push(T('wakes.naming'));
+      for (const x of facts) box.appendChild(el('p', 'role wm-wake-fact', x));
+      r.appendChild(box);
+      unfoldedWakes.add(w.id);
+      r.classList.add('open');
+    }
+  };
+  r.onclick = (e) => {
+    if (e.target.closest('button, a, input, .row-detail, [data-own]')) return;
+    if (String(window.getSelection && window.getSelection()).length) return;      // selecting text
+    Office.keepInPlace(r, () => set(!box));
+  };
+  shownWakes.push({ open: () => !!box, set });
+  if (unfoldedWakes.has(w.id)) set(true);
+  return r;
+}
+
 // ------------------------------------------------------------------ what he keeps an eye on
 /**
  * One thing he keeps an eye on: its name, its sub lines, its chips (flags()). Its hay for the list's filter (wmHay, built
@@ -2278,12 +2583,14 @@ Office.desk({
     bookBarGet().reset();          // a new visit: the whole book (the area is a choice and stays)
     watchBarGet().reset();         // … and the whole of what he keeps an eye on, folded as kept
     watchShut.clear();
+    wakesBarGet().reset();         // … and every wake, of every disk
+    wakeDisk = '';
     sw.mount(m ? 'book' : sub);    // a tile's sub-route picks it like a click (the address back to #/watchman)
     render();
     await load(false);
     holdAuto();
   },
-  unmount() { clearTimeout(timer); view = null; bookRows = []; watchGroups = []; wanted = null; },
+  unmount() { clearTimeout(timer); view = null; bookRows = []; watchGroups = []; shownWakes = []; wanted = null; },
   poll() { if (!running()) load(false); },
   started() { if (hired() && !state) load(false); },      // his picture shows the mark on every page
   greetOk: (key) => greetOk(key),
@@ -2316,11 +2623,14 @@ Office.places(ID, [
   { kind: 'section', key: 'watch.title', route: `#/${ID}/watch` },
   { kind: 'section', key: 'incidents.title', route: `#/${ID}/incidents` },
   { kind: 'section', key: 'hold.title', route: `#/${ID}/hold` },
+  { kind: 'section', key: 'wakes.title', route: `#/${ID}/wakes` },
+  // the same section by the words people search it with (disk wake-ups, spin-up), in every language — its page alone
+  { kind: 'section', key: 'search.wakes', route: `#/${ID}/wakes`, anchor: 'search.wakes', text: 'help.wakes_text' },
   ...sw.places(),             // his tiles: the book, «Not noted yet», how secure, what he keeps an eye on
   { kind: 'help', key: 'ack', text: 'help.ack_text' },
   { kind: 'help', key: 'round_now', text: 'help.round_text' },
   ...['posture', 'book', 'serious', 'normal', 'logins', 'containers', 'plugins', 'office', 'flash', 'shares', 'sched', 'flow', 'flow_gone', 'flow_not',
-    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'hold', 'grafana', 'notify', 'safe']
+    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'hold', 'wakes', 'grafana', 'notify', 'safe']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);
 
@@ -2355,6 +2665,6 @@ Office.placesFrom(ID, (s) => {
 
 if (globalThis.OFFICE_DESK_TESTS) {
   globalThis.OFFICE_DESK_TESTS.watchman = { setState: (s) => { state = s; }, greetOk, bookView, entryArea, foldKind, plainWords, entryHay, foldName,
-    groupFit, fitTally, groupOpen, watchSection, srcFrom, srcNone };
+    groupFit, fitTally, groupOpen, watchSection, srcFrom, srcNone, wakesTile, wakesView, causeName };
 }
 })();

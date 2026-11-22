@@ -39,7 +39,7 @@ const RUNDIR_TMP_NAME  = '/^\..+\.[0-9a-f]{12}\.tmp$/D';    // writeNewFile(): "
  * bytes, 'bound' what keeps it there, 'gone' who removes it. 'max' over RUNDIR_SMALL only with 'large' (why it is there
  * all the same — testRunDirAudit names these, so no new one comes without a word). runDirSweep(): 'pid' (the first group is
  * the pid of the process that made it: removed once no process has it), 'age' (removed once older than that many seconds),
- * 'legacy' (written by 1.94 or earlier, by nobody now: removed whenever found). 'own' => false: what the user brings for a
+ * 'legacy' (written by an earlier version, by nobody now: removed whenever found). 'own' => false: what the user brings for a
  * report — not counted against the office's budget.
  */
 const RUNDIR_SMALL = 1 << 20;
@@ -77,12 +77,14 @@ const RUNDIR_FILES = [
         => ['max' => 262144, 'bound' => '≤ 80 samples, the looks of one run, one size per Kopia source', 'gone' => 'rewritten per run'],
     'watchman-mirror\.json|watchman-hold\.json|watchman-flow-[0-9a-f]{8}\.json' => ['max' => 1 << 20, 'bound' => 'the mirror\'s caps; ≤ 5 per thing; ≤ WATCH_FLOW_CONNS 5000 connections', 'gone' => 'rewritten'],
     'watchman-round\.err|watchman-hold\.err|logs-tour\.err' => ['max' => 65536, 'bound' => 'one run\'s stderr: a fatal error\'s lines (a child of the agent; warnings never reach stderr on Unraid\'s php.ini)', 'gone' => 'truncated at the next run'],
-    'logs-flood\.json|logs-flood-catch\.json|logs-wakes\.json|logs-wake-names\.json' => ['max' => 1 << 20, 'bound' => '11 × 300 files; LOGS_WAKE_MAX 1000', 'gone' => 'rewritten / at its end'],
+    'logs-flood\.json|logs-flood-catch\.json' => ['max' => 1 << 20, 'bound' => '11 × 300 files', 'gone' => 'rewritten / at its end'],
+    'watchman-wakes\.json|watchman-wake-names\.json' => ['max' => 1 << 20, 'bound' => 'the disks\' sleep (a line each); names for WATCH_WAKE_MAX 1000 wakes', 'gone' => 'rewritten / at its end; the array\'s stop'],
     'templates'                   => ['max' => 1 << 20, 'bound' => 'the catalog\'s templates the Consultant prepared (a few KB each)', 'gone' => 'rewritten'],
     'advisor-plugin(?:\.(?:json|out|done))?' => ['max' => 262144, 'bound' => 'one plugin install\'s output (Unraid\'s installer: its lines, read back to the last 32 KB)', 'gone' => 'at the next install'],
     // what 1.94 and earlier wrote there and nobody writes now: removed whenever found (a server in 1.94's crash loop comes out of it by itself)
     'cleanup-\d+-[0-9a-f]{32}\.out' => ['max' => 0, 'bound' => 'none in 1.94 (the cause of 2026-11-19); no longer written: her jobs read through a pipe', 'gone' => 'runDirSweep() at once', 'legacy' => true],
     'cleanup-icons-(?:check|\d+)'  => ['max' => 0, 'bound' => 'no longer written: the pictures are checked in officeTmpDir()', 'gone' => 'runDirSweep() at once', 'legacy' => true],
+    'logs-wakes\.json|logs-wake-names\.json' => ['max' => 0, 'bound' => 'no longer written: «Who woke my disks?» is the Night Watchman\'s (watchman-wakes.json; the step wakes-watchman renames the memory before the first sweep)', 'gone' => 'runDirSweep() at once', 'legacy' => true],
     'drill'                       => ['max' => 0, 'bound' => 'no longer written: the drill\'s dumps lie in officeTmpDir()', 'gone' => 'runDirSweep() at once', 'legacy' => true],
     // Jack Streamer (jack*.php, mediacache/)
     'jack-headers\.(\d+)'          => ['max' => 4096, 'bound' => 'one request\'s headers (his API key)', 'gone' => 'right after curl; runDirSweep() once its process is gone', 'pid' => true],
@@ -90,8 +92,8 @@ const RUNDIR_FILES = [
     'jack-import-trial\.[0-9a-f]{8}' => ['max' => 65536, 'bound' => 'one settings file', 'gone' => 'at once; runDirSweep() after 10 min', 'age' => RUNDIR_TMP_AGE],
     'jack-progress\.json|jack-progress-speed\.json|jack-watching\.json|jack-live-status\.(?:json|tmp)|jack-structure-run\.json'
         => ['max' => 1 << 20, 'bound' => 'the queue (JACK_RUN_QUEUE_MAX), ≤ 200 samples, ≤ 20 sessions', 'gone' => 'jackProgressClear() at a run\'s start and end'],
-    'jack-progress\.json\.(\d+)\.tmp' => ['max' => 1 << 20, 'bound' => 'the progress', 'gone' => 'os.replace; runDirSweep() once Python is gone', 'pid' => true],
-    'jack-shadow'                 => ['max' => null, 'large' => 'NOT bounded by the office: the media servers\' answers for the library (only with the support flag) — open: to officeTmpDir() or the data folder', 'bound' => 'NOT bounded — open', 'gone' => 'at the end of the run'],
+    'jack-progress\.json\.(\d+)\.tmp' => ['max' => 1 << 20, 'bound' => 'the progress', 'gone' => 'written by the Python run of 1.95.5 or earlier (os.replace); runDirSweep() once its process is gone', 'pid' => true],
+    'jack-shadow'                 => ['max' => 0, 'bound' => 'no longer written: the comparison with Python is gone (1.95.6)', 'gone' => 'runDirSweep() at once', 'legacy' => true],
     // Mr. Restori (restore*.php)
     'restore-peek-[a-z0-9-]+|libvirt-restore-[0-9-]+' => ['max' => 0, 'bound' => 'a mount point (what it shows is a snapshot or an image on a pool: never walked)', 'gone' => 'after the look / the restore'],
     'restore-partner\.want|restore-partner-look\.pid|drill\.open|restore\.open|letgo\.open' => ['max' => 256, 'bound' => 'a line or nothing', 'gone' => 'at its end; agent.sh at an array stop'],

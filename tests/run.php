@@ -95,21 +95,6 @@ date_default_timezone_set('Europe/Zurich');
 $GLOBALS['results'] = ['pass' => 0, 'fail' => [], 'skip' => []];
 
 /**
- * A test that needs python3 (Jack's EmbyCache, the media cache's migration) starts with `if (!needsPython(__FUNCTION__))
- * return;` (only a part of it: `if (needsPython(__FUNCTION__, '<the part>')) { … }`): without python3 on the host (test4 has none, on purpose) it is skipped — counted in the summary line, never red,
- * never the end of the run (2026-10-21: an uncaught «env: 'python3': No such file or directory» ended it, exit 255, silent)
- */
-function needsPython(string $test, string $part = ''): bool
-{
-    static $have = null;
-    $have ??= run(['python3', '--version'], 10)[0] === 0;
-    if (!$have) {
-        $GLOBALS['results']['skip'][$test . ($part !== '' ? ": $part" : '')] = 'no python3';
-    }
-    return $have;
-}
-
-/**
  * The engine tests' clock (a suite red by the clock, 2026-10-08: «expected snapshot …-1815, got …-1816», a «third night
  * in a row» that wasn't). The engine reads the time only through `date` — backup.sh, setup.sh, lib/common.sh, and the
  * fixtures' stand-ins too — so testsClock() puts a `date` stand-in into the fixture's bin folder (first on PATH) that
@@ -1034,7 +1019,7 @@ function testJack(): void
 
 /**
  * The plan in PHP (agent/desks/jack-plan.php, 2026-11-07): what MediaCache's own tests and the office's say about the planner, on the same
- * fixtures, without Python and without a server: every answer from a tape. (tests/shadow/diff.php holds the plans of both side by side.)
+ * fixtures, without a server: every answer from a tape.
  */
 function jackPlanTestTape(string $file, array $answers, array $pool = [], float $now = 1800000000.0): JackPlanTape
 {
@@ -1165,7 +1150,7 @@ function testJackPlan(): void
         [['Filme/A/a.mkv', 'Filme/B/b.mkv', 'Serien/S/S01/e1.mkv', 'Serien/S/S01/e2.mkv'], [], []],
         [(function (array $r) { sort($r); return $r; })(array_column($plan['on_deck'] ?? [], 'rel')), $tape->missing, $tape->left()]);
 
-    // a file two persons want (mediacache tests/test_shared.py): its rank at each, copied once
+    // a file two persons want (as MediaCache's test_shared.py had it): its rank at each, copied once
     $mk = function (string $user, string $rel, int $size, int $ahead = 0, string $cat = 'movie'): JackPlanGroup {
         return new JackPlanGroup([new JackPlanFile($rel, $size, false, $user, 'resume', $rel, $ahead, "id|$rel")], $cat, "$cat:$rel", 'Weiterschauen', null, $rel);
     };
@@ -1191,7 +1176,7 @@ function testJackPlan(): void
     $p->budgetMode = false;
     check('plan not in budget: none outside the budget mode', $p->notInBudget() === null);
 
-    // what goes back first: furthest ahead, then whoever holds most, a started film last (Python's answer on Tower, tests/shadow/diff.php holds the same)
+    // what goes back first: furthest ahead, then whoever holds most, a started film last (as MediaCache's Python answered on Tower)
     $file = function (string $rel, int $size, array $ranks, ?string $item = null): JackPlanFile {
         $x = new JackPlanFile($rel, $size, true, (string) array_key_first($ranks), 'resume', $rel, 0, $item ?? "i|$rel");
         $x->ranks = $ranks;
@@ -1202,7 +1187,7 @@ function testJackPlan(): void
     same('plan give back: the furthest ahead first, at a rank from whoever holds most, an item together, what is started last',
         ['b/far.mkv', 'a/three.mkv', 'a/next.mkv', 'both/m.srt', 'both/m.mkv', 'b/next.mkv', 'a/started.mkv'], array_map(fn (JackPlanFile $x) => $x->rel, $order));
 
-    // an incomplete plan never reads as «nothing watched»: no cleanup, the old list protected (testJackUpstream, test_list.py)
+    // an incomplete plan never reads as «nothing watched»: no cleanup, the old list protected (testJackUpstream, as MediaCache's test_list.py had it)
     file_put_contents("$tmp/mediacache_exclude.txt", "$tmp/pool/Filme/Alt/alt.mkv\n# a comment\n\n");
     $write(['Filme/Alt/alt.mkv' => 7], 'pool');
     $settings = ['cache_path' => "$tmp/pool", 'array_path' => "$tmp/user0", 'user_path' => "$tmp/user", 'array_disks_glob' => "$tmp/disk[0-9]*", 'max_favorite_series' => 0, 'use_next_up' => false, 'number_episodes' => 2, 'cleanup_tool' => 'rsync', 'shares_cfg_dir' => "$tmp/none",
@@ -1251,7 +1236,7 @@ function testJackPlan(): void
         [['p:chef', 'p:freund'], ['Filme/Neu/n.mkv', 'Filme/Freund/f.mkv', 'Filme/Offen/x.mkv'], false, [], []],
         [array_column($r['persons'] ?? [], 'key'), array_column($r['on_deck'] ?? [], 'rel'), $r['incomplete'] ?? null, $tape->missing, $tape->left()], (string) ($r['detail'] ?? ''));
 
-    // theme.mp3 (test_themes.py): with `themes` it no longer travels with its film and goes back with nothing
+    // theme.mp3 (as MediaCache's test_themes.py had it): with `themes` it no longer travels with its film and goes back with nothing
     $write(['Filme/Thema/t.mkv' => 20, 'Filme/Thema/theme.mp3' => 5, 'Filme/Thema/Extras/theme.mp3' => 6], 'user0');
     $write(['Filme/Thema2/theme.mp3' => 4], 'pool');
     file_put_contents("$tmp/mediacache_exclude.txt", "$tmp/pool/Filme/Thema2/theme.mp3\n");
@@ -1277,7 +1262,7 @@ function testJackPlan(): void
     same('plan fill: what plays stays, the free space counted down, the rest waits', [['Filme/A/a.mkv'], ['Filme/B/b.mkv', 'Filme/Neu/n.mkv'], 11, 1, -100],
         [$r['fill']['rels'] ?? null, $r['fill']['dropped'] ?? null, $r['fill']['waiting_bytes'] ?? null, $r['fill']['waiting'] ?? null, $r['sim_delta'] ?? null], (string) ($r['detail'] ?? ''));
 
-    // the client: the key to the server itself, along a redirect to the same host, never to another (testJackKeyRedirect)
+    // the client: the key to the server itself, along a redirect to the same host, never to another (review 2026-10-15, R1)
     $router = "$tmp/router.php";
     file_put_contents($router, '<?php $u = $_SERVER["REQUEST_URI"]; file_put_contents(' . var_export("$tmp/seen", true) . ', json_encode([$_SERVER["HTTP_HOST"], $u, $_SERVER["HTTP_X_EMBY_TOKEN"] ?? $_SERVER["HTTP_AUTHORIZATION"] ?? $_SERVER["HTTP_X_PLEX_TOKEN"] ?? null]) . "\n", FILE_APPEND);
 if (str_starts_with($u, "/to-")) { http_response_code(302); header("Location: " . substr($u, 4)); exit; } echo "{}";');
@@ -1307,311 +1292,21 @@ if (str_starts_with($u, "/to-")) { http_response_code(302); header("Location: " 
 
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-plan.php');
     $code = (string) preg_replace('#/\*.*?\*/|//[^\n]*#s', '', $src);
-    $main = (string) strstr((string) strstr($code, 'function jackPlanMain('), "\nif (PHP_SAPI", true);
-    check('plan: its process writes only its own result (--out, a new file then rename), nothing else', substr_count($main, 'file_put_contents(') === 1 && substr_count($main, 'rename(') === 1
-        && str_contains($main, "@file_put_contents(\$tmp,") && str_contains($main, "\$tmp = \$opt['out'] . '.tmp';"));
-    $code = str_replace($main, '', $code);
+    check('plan: no process of its own any more (the comparison with Python, gone in 1.95.6, started it)', !str_contains($code, 'PHP_SAPI') && !str_contains($code, 'function jackPlanMain('));
     check('plan: this file moves nothing: no copy, rename, delete, write, chmod, mkdir or a command but `zfs list`',
         !preg_match('/\b(copy|rename|unlink|rmdir|mkdir|file_put_contents|fwrite|fputs|touch|chmod|chown|symlink|link|writeAtomic|writeNewFile|shell_exec|passthru|exec|system|popen|proc_open|hostLaunch|emcmd)\s*\(/', $code)
         && substr_count($code, 'run([') === 2 && substr_count($code, "'zfs', 'list'") === 2);
-    check('plan: names its source, its version and its licence at its head', str_contains($src, 'MediaCache by helmi1987') && str_contains($src, 'GPL-3.0-or-later') && str_contains($src, '7.4.0 (2026-10-15)')
-        && JACK_PLAN_SOURCE === explode('"', (string) preg_replace('/^.*__version__ = "/s', '"', (string) file_get_contents(JACK_APP . '/mediacache_lib.py')))[1]);
+    check('plan: names its source, its version and its licence at its head', str_contains($src, 'MediaCache by helmi1987') && str_contains($src, 'GPL-3.0-or-later') && str_contains($src, '7.4.0 (2026-10-15)'));
+    same('plan: the plan, the run and his footer name the same MediaCache', array_fill(0, 3, '7.4.0 (2026-10-15)'), [JACK_PLAN_SOURCE, JACK_RUN_SOURCE, jackVersions()['embycache']]);
     check('plan: the README says where this is and that fixes come over by hand', str_contains((string) file_get_contents(JACK_APP . '/README.md'), 'jack-plan.php'));
     hardeningRm($tmp);
 }
 
 /**
- * MediaCache's plan in PHP in the shadow of Python (agent/desks/jack-shadow.php, reworked 2026-11-08): asleep without its flag; right before a
- * real run, inside its job, with the run's environment; stand-ins for both sides: the same, a difference (seen twice: differ; once: kept as
- * once), both failing (error), not compared (a disk asleep, a stop asked, the array stopped, Python failed); nothing written after an array
- * stop or without his data folder; one file a date, 60 days, no key; his state's key.
- */
-function testJackShadow(): void
-{
-    $tmp = hardeningTmp('jack-shadow');
-    $GLOBALS['jackPythonHost'] = '3.11';        // a server with python3 (the no-Python case below on its own)
-    $dir = "$tmp/data";
-    @mkdir("$dir", 0777, true);
-    file_put_contents("$dir/python.json", "{}\n");     // support's way back: Python acts, PHP plans dry beside it (the comparison's first direction)
-    @mkdir("$tmp/pool", 0777, true);
-    @mkdir("$tmp/user0/Filme/A", 0777, true);
-    file_put_contents("$tmp/user0/Filme/A/a.mkv", 'xxxxx');
-    $key = 'abcdefgh12345678';
-    file_put_contents("$dir/mediacache_settings.json", json_encode(['cache_path' => "$tmp/pool", 'array_path' => "$tmp/user0", 'user_path' => "$tmp/user", 'max_favorite_series' => 0, 'use_next_up' => false, 'number_episodes' => 2, 'shares_cfg_dir' => "$tmp/none",
-        'instances' => [['servername' => 'Emby', 'type' => 'emby', 'url' => 'http://emby', 'api_key' => $key, 'path_mappings' => ['/m' => "$tmp/user"]]]]));
-    file_put_contents("$tmp/mounts", "/dev/x $tmp/pool xfs rw 0 0\n");
-    $answers = [['http://emby/Sessions', $key, []], ['http://emby/Users', $key, [['Id' => 'u', 'Name' => 'Anna']]],
-        ...jackPlanTestUser('http://emby', $key, 'u', [['Type' => 'Movie', 'Id' => 'a', 'Name' => 'A', 'Path' => '/m/Filme/A/a.mkv']], [])];
-    $env = ['MEDIACACHE_MOUNTS' => "$tmp/mounts", 'MEDIACACHE_ZFS' => '/nonexistent', 'MEDIACACHE_NO_FILL' => '1', 'MEDIACACHE_RESULT' => "$dir/status.json", 'MEDIACACHE_STOP' => "$dir/office-stop.json", 'MEDIACACHE_PROGRESS' => '/x'];
-    $clock = 1800000000;
-    /** @var int $calls */
-    $calls = 0;
-    $seenEnv = null;
-    /** @var callable|null $edit what the stand-in for Python's dry twin does to its plan */
-    $edit = null;
-    $array = true;
-    $stop = false;
-    /** @var array|callable $asleep */
-    $asleep = [];
-    $h = function (array $over = []) use ($tmp, $dir, $answers, &$clock, &$calls, &$edit, &$array, &$stop, &$asleep, &$seenEnv): array {
-        return $over + ['dir' => $dir, 'run' => "$tmp/run", 'array' => function () use (&$array) {
-            return $array;
-        }, 'stop' => function () use (&$stop) {
-            return $stop;
-        }, 'asleep' => function () use (&$asleep) {
-            return is_callable($asleep) ? $asleep() : $asleep;
-        }, 'now' => function () use (&$clock) {
-            return $clock;
-        }, 'version' => '9.9.9', 'plex_tv' => 'http://nowhere',
-        'python' => function (array $e, string $tape, string $plan, string $logs, string $mode, callable $go) use ($answers, &$calls, &$edit, &$seenEnv, $tmp): ?int {
-            $calls++;
-            $seenEnv = $e + ['mode' => $mode];
-            if (!$go()) {
-                return null;
-            }
-            $answers = $mode === 'release' ? [$answers[0]] : $answers;      // a release asks only what plays
-            jackPlanTestTape($tape, $answers, ["$tmp/pool" => [1000000, 900000]]);
-            $doc = json_decode((string) json_encode(jackPlanRun($e, jackPlanTestTape("$tape.py", $answers, ["$tmp/pool" => [1000000, 900000]]), 'http://nowhere', $mode)), true);
-            @unlink("$tape.py");
-            if ($edit !== null) {
-                $doc = $edit($doc, $calls);
-            }
-            file_put_contents($plan, json_encode($doc));
-            return 0;
-        },
-        'php' => function (array $e, ?string $tape, string $out, string $mode, callable $go, string $plexTv): ?int {
-            if (!$go()) {
-                return null;
-            }
-            $host = $tape === null ? null : JackPlanTape::read($tape);
-            $plan = $host === null ? ['outcome' => 'ok'] : jackPlanRun($e, $host, $plexTv, $mode);
-            file_put_contents($out, json_encode(['plan' => $plan, 'asked' => $host->asked ?? 3, 'failed' => 0, 'missing' => $host->missing ?? [], 'left' => $host?->left() ?? []]));
-            return 0;
-        }];
-    };
-    $file = function () use ($dir, &$clock): ?array {
-        return readJson("$dir/shadow/" . date('Y-m-d', $clock) . '.json');
-    };
-    $both = function (array $over = [], array $status = []) use ($h, $env): void {
-        jackShadowAfter(jackShadowBefore('run', $env, $h($over)), $status, $h($over));
-    };
-
-    // asleep: no flag, nothing at all
-    same('shadow asleep: without its file nothing runs, nothing shows', [null, 0, false, null, ['ok' => true, 'state' => null]],
-        [jackShadowBefore('run', $env, $h()), $calls, is_dir("$dir/shadow"), jackShadowSummary($dir), jackShadowList($dir)]);
-    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
-    check('shadow asleep: his state has the key only with the flag; asked only right before a real run of his, in its own job',
-        str_contains($src, "if ((\$shadow = jackShadowSummary()) !== null) {\n        \$state['shadow'] = \$shadow;")
-        && str_contains($src, "\$shadow = \$tool === 'embycache' && \$real && jackShadowOn() ? jackShadowBefore(\$mode, \$env) : null;\n    if (\$php && \$real && \$cmd !== null) {\n        \$cmd = array_merge(\$cmd, jackShadowHandoff(\$shadow));")
-        && str_contains($src, 'jackShadowAfter($shadow, $status);') && !str_contains($src, "'jack-shadow'"));
-    $shadow = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-shadow.php');
-    check('shadow: no check, no notification, no atd job, no lock of its own', !str_contains($shadow, 'officeNotify(') && !str_contains($shadow, 'finding(')
-        && !str_contains($shadow, 'hostLaunch(') && !str_contains($shadow, 'flock('));
-
-    // the flag: the same, with exactly the run's environment
-    file_put_contents("$dir/shadow.json", "{}\n");
-    $both([], ['cleanup' => ['planned' => 0], 'fill' => ['planned' => 0]]);
-    $n = $file();
-    same('shadow: the same plan: one file in its shape, counted once, one pair', [2, $clock, '9.9.9', 'run', 'same', 1, 1, ['same' => 1, 'differ' => 0, 'once' => 0, 'error' => 0, 'not' => 0, 'last' => $clock, 'php' => false, 'python' => true]],
-        [$n['v'] ?? null, $n['time'] ?? null, $n['version'] ?? null, $n['mode'] ?? null, $n['result'] ?? null, $n['counts']['on_deck'] ?? null, $calls, jackShadowSummary($dir)], json_encode($n));
-    same('shadow: the run\'s environment (no-fill step included), never its result, stop or progress files', ['1', false, false, false, $dir, 'run'],
-        [$seenEnv['MEDIACACHE_NO_FILL'] ?? null, isset($seenEnv['MEDIACACHE_RESULT']), isset($seenEnv['MEDIACACHE_STOP']), isset($seenEnv['MEDIACACHE_PROGRESS']), $seenEnv['MEDIACACHE_DIR'] ?? null, $seenEnv['mode'] ?? null]);
-    same('shadow: the live look and the run\'s own counts, said only', [['outcome' => 'ok', 'asked' => 3, 'failed' => 0], ['cleanup' => [0, 0], 'fill' => [0, 0]]], [$n['live'] ?? null, $n['real'] ?? null]);
-    check('shadow: no key in anything it leaves, nothing left in RAM', !str_contains((string) file_get_contents("$dir/shadow/" . date('Y-m-d', $clock) . '.json'), $key) && !is_dir("$tmp/run"));
-
-    // a difference seen twice: differ; only once: once (never thrown away)
-    $clock += 86400;
-    $calls = 0;
-    $edit = function (array $doc): array {
-        $doc['on_deck'][0]['size'] = 6;
-        return $doc;
-    };
-    $both();
-    $n = $file();
-    same('shadow: a difference shown twice: differ, by kind and path, what each planned', ['differ', 2, [['kind' => 'file', 'path' => 'Filme/A/a.mkv', 'python' => ['size' => 6], 'php' => ['size' => 5]]], false],
-        [$n['result'] ?? null, $calls, $n['differences'] ?? null, isset($n['once'])], json_encode($n));
-    $list = jackShadowList($dir)['state'];
-    same('shadow: the part: the date with differences, each side in words', [$clock, 'differ', 'file', '{"size":6}', '{"size":5}'],
-        [$list['nights'][0]['time'] ?? null, $list['nights'][0]['result'] ?? null, $list['nights'][0]['differences'][0]['kind'] ?? null, $list['nights'][0]['differences'][0]['python'] ?? null, $list['nights'][0]['differences'][0]['php'] ?? null]);
-    $clock += 86400;
-    $calls = 0;
-    $edit = fn (array $doc, int $c): array => $c === 1 ? ['errors' => 7] + $doc : $doc;      // a film arrived between the two looks: only the first differs
-    $both();
-    $n = $file();
-    same('shadow: what the second pair doesn\'t show again is kept as «once», never «the same»', ['once', 2, [['kind' => 'run', 'path' => 'errors', 'python' => 7, 'php' => 0]]],
-        [$n['result'] ?? null, $calls, $n['once'] ?? null], json_encode($n));
-    $clock += 86400;
-    $calls = 0;
-    $looks = [];
-    $asleep = function () use (&$looks): array {
-        $looks[] = 1;                           // the first look (before the first pair) awake, the second (before the second) not
-        return count($looks) > 1 ? ['disk3'] : [];
-    };
-    $both();
-    $n = $file();
-    same('shadow: a disk asleep before the second pair: the first difference kept, the second look «disk_asleep»', ['once', 'disk_asleep', 1, 'errors'],
-        [$n['result'] ?? null, $n['second'] ?? null, $calls, $n['once'][0]['path'] ?? null], json_encode($n));
-    $asleep = [];
-
-    // both sides failing is an error, never the same
-    $clock += 86400;
-    file_put_contents("$tmp/bad.json", '[1, 2]');
-    $edit = null;
-    jackShadowAfter(jackShadowBefore('run', ['MEDIACACHE_CONFIG' => "$tmp/bad.json"] + $env, $h()), [], $h());
-    $n = $file();
-    same('shadow: both sides crash: «error», with each side\'s outcome; the date counts apart', ['error', ['python' => 'crash', 'php' => 'crash'], 1],
-        [$n['result'] ?? null, $n['outcome'] ?? null, jackShadowSummary($dir)['error'] ?? null], json_encode($n));
-    $clock += 60;
-    jackShadowAfter(jackShadowBefore('run', ['MEDIACACHE_CACHE_BUDGET' => '12X'] + $env, $h()), [], $h());
-    same('shadow: both say «config»: «error» too; another comparison of the date kept beside it', ['error', ['python' => 'config', 'php' => 'config'], ['error']],
-        [$file()['result'] ?? null, $file()['outcome'] ?? null, array_map('jackShadowResult', $file()['earlier'] ?? [])]);
-    $edit = fn (array $doc): array => ['outcome' => 'crash'];
-    $clock += 60;
-    $both();
-    same('shadow: one side failing is a difference (the outcome)', ['differ', 'outcome'], [$file()['result'] ?? null, $file()['differences'][0]['kind'] ?? null]);
-    $edit = null;
-
-    // not compared: never a difference, never a wake
-    foreach ([['a disk asleep', function () use (&$asleep) {
-        $asleep = ['disk3'];
-    }, 'disk_asleep', 0], ['a stop asked', function () use (&$stop) {
-        $stop = true;
-    }, 'stopped', 1], ['the array stopping', function () use (&$array) {
-        $array = 'later';
-    }, 'stopped', 1], ['Python failed', function () use (&$edit) {
-        $edit = 'fail';
-    }, 'python_failed', 1]] as [$what, $set, $why, $expected]) {
-        $clock += 86400;
-        $calls = 0;
-        $set();
-        $over = $edit === 'fail' ? ['python' => function () use (&$calls) {
-            $calls++;
-            return 1;
-        }] : [];
-        if ($array === 'later') {
-            $array = true;
-            $ctx = jackShadowBefore('run', $env, $h(['array' => function () use (&$calls) {
-                return $calls === 0;
-            }] + $over));
-        } else {
-            $ctx = jackShadowBefore('run', $env, $h($over));
-        }
-        jackShadowAfter($ctx, [], $h($over));
-        $n = $file();
-        same("shadow not compared: $what — said, no difference, nothing asked beyond it", ['not', $why, $expected, false], [$n['result'] ?? null, $n['why'] ?? null, $calls, isset($n['differences'])], json_encode($n));
-        $asleep = [];
-        $stop = false;
-        $edit = null;
-    }
-
-    // no python3 on the server, the comparison's flag there (2026-11-12): PHP acts (python.json changes nothing without python3), the
-    // comparison is on and skipped — no child, no difference
-    $clock += 86400;
-    $calls = 0;
-    $live = 0;
-    $pre = jackShadowSummary($dir);
-    $GLOBALS['jackPythonHost'] = null;
-    $on = [jackPhpOn($dir), jackPhpActs($dir), jackShadowOn($dir)];
-    $noLive = ['php' => function () use (&$live): int {
-        $live++;
-        return 0;
-    }];
-    $ctx = jackShadowBefore('run', $env, $h($noLive));
-    $handoff = jackShadowHandoff($ctx, $h($noLive));
-    jackShadowAfter($ctx, ['cleanup' => ['planned' => 1], 'fill' => ['planned' => 2]], $h($noLive));
-    $n = $file();
-    same('shadow without python3: PHP acts (no php.json, python.json there), the comparison skipped and said — «not compared: no Python», PHP on its own plan',
-        [[false, true, true], 'not', 'no_python', 'php', 'own_uncompared', false, false, false], [$on, $n['result'] ?? null, $n['why'] ?? null, $n['engine'] ?? null, $n['acted'] ?? null,
-        isset($n['differences']), isset($n['live']), isset($n['executed'])], json_encode($n));
-    same('shadow without python3: no child started (no dry twin, no PHP plan, no live look), nothing handed to the run, nothing in RAM',
-        [0, 0, [], false], [$calls, $live, $handoff, is_dir("$tmp/run")]);
-    $sum = jackShadowSummary($dir);
-    same('shadow without python3: his state — PHP acts, no Python; the night counted once as not compared, never as an error or a difference',
-        [true, false, $pre['error'] ?? null, $pre['differ'] ?? null, ($pre['not'] ?? 0) + 1], [$sum['php'] ?? null, $sum['python'] ?? null, $sum['error'] ?? null, $sum['differ'] ?? null, $sum['not'] ?? null]);
-    $GLOBALS['jackPythonHost'] = '3.11';
-    @unlink("$dir/shadow.json");
-    same('shadow with python3 again, no flag, python.json: Python acts, the comparison asleep', [false, false], [jackPhpActs($dir), jackShadowOn($dir)]);
-    $GLOBALS['jackPythonHost'] = null;
-    same('shadow without python3, no flag (1.94.0): PHP acts, the comparison asleep — no key in his state, no tile, no «not compared»', [true, false, null],
-        [jackPhpActs($dir), jackShadowOn($dir), jackShadowSummary($dir)]);
-    $GLOBALS['jackPythonHost'] = '3.11';
-    file_put_contents("$dir/shadow.json", "{}\n");
-
-    // after an array stop nothing is written, no folder made (never into /mnt)
-    $clock += 86400;
-    $ctx = jackShadowBefore('run', $env, $h());
-    $array = false;
-    jackShadowAfter($ctx, [], $h());
-    $array = true;
-    check('shadow: the array stopped after the run: nothing written', $file() === null);
-    $gone = "$tmp/gone/mediacache";
-    $ctx = jackShadowBefore('run', $env, $h());
-    jackShadowAfter($ctx, [], $h(['dir' => $gone]));
-    check('shadow: his data folder not there: no folder made', !file_exists("$tmp/gone"));
-
-    // a process of the comparison ends at once when asked to
-    $t0 = hrtime(true);
-    $r = jackShadowChild(['sleep', '30'], ['PATH' => '/usr/bin:/bin'], '/dev/null', fn (): bool => false, '/');
-    check('shadow: a process ends at once when the array stops or a stop is asked: nothing waits for it', $r === null && hrtime(true) - $t0 < 3_000_000_000);
-
-    // --release: its own twin
-    $clock += 86400;
-    $calls = 0;
-    jackShadowAfter(jackShadowBefore('release', $env, $h()), [], $h());
-    same('shadow: before a release, the release\'s plan', ['release', 'same', 'release'], [$seenEnv['mode'] ?? null, $file()['result'] ?? null, $file()['mode'] ?? null], json_encode($file()));
-
-    // 60 days; an older file's shape still counted
-    $old = "$dir/shadow/" . date('Y-m-d', $clock - 70 * 86400) . '.json';
-    file_put_contents($old, '{"v":1}');
-    $young = "$dir/shadow/" . date('Y-m-d', $clock - 50 * 86400) . '.json';
-    file_put_contents($young, '{"v":1,"compared":true,"same":true,"time":1}');
-    $clock += 86400;
-    $before = jackShadowCount("$dir/shadow")['same'];
-    $both();
-    same('shadow: kept 60 days; a file of the first version counted by its own words', [false, true, $before + 1], [is_file($old), is_file($young), jackShadowSummary($dir)['same'] ?? null]);
-
-    // which disks a plan may need (also a mapping onto /mnt/user0 or the pool)
-    $settings = ['cache_path' => '/mnt/cache', 'user_path' => '/mnt/user', 'array_path' => '/mnt/user0', 'instances' => [['path_mappings' => ['/m' => '/mnt/user/media/Filme', '/o' => '/mnt/user/Alles', '/n' => '/mnt/user/Nur']]]];
-    $shares = ['media' => ['include' => 'disk1,disk2', 'exclude' => '', 'useCache' => 'yes'], 'Alles' => ['include' => '', 'exclude' => 'disk2', 'useCache' => 'yes'], 'Nur' => ['include' => 'disk4', 'useCache' => 'only'], 'Roh' => ['include' => 'disk10']];
-    $sleeping = ['disk1' => false, 'disk2' => true, 'disk3' => true, 'disk4' => true, 'disk10' => true, 'cache' => false, 'parity' => true];
-    same('shadow asleep: only the array disks his mapped shares may use, and his pool (a cache-only share none)', ['disk2', 'disk3', 'disk4', 'disk10'], jackShadowAsleep($settings, $sleeping, $shares));
-    same('shadow asleep: a mapping onto /mnt/user0 counts too; one onto the pool only the pool', ['disk10'],
-        jackShadowAsleep(['cache_path' => '/mnt/cache', 'instances' => [['path_mappings' => ['/r' => '/mnt/user0/Roh/x', '/p' => '/mnt/cache/media']]]], $sleeping, $shares));
-    same('shadow asleep: his pool asleep; every disk with array_source disk', ['disk3', 'cache'], jackShadowAsleep(['array_source' => 'disk', 'cache_path' => '/mnt/cache', 'instances' => []], ['disk1' => false, 'disk3' => true, 'cache2' => true], []));
-
-    // the comparison itself
-    $base = ['outcome' => 'ok', 'incomplete' => false, 'errors' => 0, 'sessions' => [], 'not_in_budget' => null, 'sim_delta' => 0, 'protected' => [], 'give_back_order' => ['a', 'b'],
-        'give_back' => ['paths' => [], 'files' => 0, 'bytes' => 0, 'held' => 0, 'keep' => null, 'items' => []], 'cleanup' => ['paths' => ['p'], 'bytes' => 1], 'fill' => ['rels' => ['x', 'y'], 'dropped' => [], 'bytes' => 2, 'waiting' => 0, 'waiting_bytes' => 0],
-        'on_deck' => [['rel' => 'x', 'size' => 1], ['rel' => 'y', 'size' => 1]], 'persons' => [['key' => 'p:a', 'budget' => '1.000', 'selected' => [['files' => ['x'], 'chain' => 'c', 'title' => 'T']], 'skipped' => []]]];
-    same('shadow diff: the same', [], jackShadowDiff($base, $base));
-    same('shadow diff: an outcome', [['kind' => 'outcome', 'path' => '', 'python' => 'ok', 'php' => 'crash']], jackShadowDiff($base, ['outcome' => 'crash']));
-    same('shadow diff: the order of the fill: its first place', [['kind' => 'fill.order', 'path' => 'x', 'python' => 0, 'php' => 1], ['kind' => 'on_deck.order', 'path' => 'x', 'python' => 0, 'php' => 1]],
-        jackShadowDiff($base, ['fill' => ['rels' => ['y', 'x']] + $base['fill'], 'on_deck' => array_reverse($base['on_deck'])] + $base));
-    same('shadow diff: the same entries, one twice: their count', [['kind' => 'fill.count', 'path' => '', 'python' => 2, 'php' => 3]], jackShadowDiff($base, ['fill' => ['rels' => ['x', 'y', 'y']] + $base['fill']] + $base));
-    same('shadow diff: a question one side asked', [['kind' => 'request', 'path' => 'http://a', 'python' => 2, 'php' => 0], ['kind' => 'request', 'path' => 'http://b', 'python' => 0, 'php' => 1]], jackShadowDiff($base, $base, ['http://b' => 1], ['http://a' => 2]));
-    same('shadow diff: a person\'s numbers; a group that differs inside', [['kind' => 'person', 'path' => 'p:a.budget', 'python' => '1.000', 'php' => '2.000'], ['kind' => 'selected.group', 'path' => 'x', 'python' => $base['persons'][0]['selected'][0], 'php' => ['title' => 'U'] + $base['persons'][0]['selected'][0]]],
-        jackShadowDiff($base, ['persons' => [['budget' => '2.000', 'selected' => [['title' => 'U'] + $base['persons'][0]['selected'][0]]] + $base['persons'][0]]] + $base));
-    unset($GLOBALS['jackPythonHost']);
-    hardeningRm($tmp);
-}
-
-/** The plans of both side by side on every stand-in case (tests/shadow/diff.php), where there is a Python; a test server's differential check */
-function testJackShadowPython(): void
-{
-    if (!needsPython(__FUNCTION__)) {
-        return;
-    }
-    [$exit, $out, $err] = run([PHP_BINARY, OFFICE_DIR . '/tests/shadow/diff.php'], 600);
-    $lines = array_values(array_filter(explode("\n", (string) $out), fn (string $l): bool => str_starts_with($l, 'DIFF') || str_starts_with($l, '  ') || str_starts_with($l, 'all ') || str_contains($l, ' DIFFER')));
-    same('shadow: Python and PHP plan the same on every stand-in case', [0, 1], [$exit, count(array_filter($lines, fn (string $l): bool => str_starts_with($l, 'all ')))], substr(implode("\n", $lines) . $err, 0, 2000));
-}
-
-/**
- * Jack Streamer without python3 (2026-11-12; Python 3 for Unraid loses its maintainer on 2026-11-30): his settings written and checked in
- * PHP (jackWriteSettings(): save_config()'s file, load_config()'s checks by jackPlanConfig(), the trial dance, MediaCache's words on a
- * refusal), MediaCache's DEFAULTS as a table, and no gate that asks for Python (page, Team Lead, let-go). Where python3 is there: the
- * same file as Python's own save_config() writes, the same words as its load_config() refuses with, Python reads PHP's file, the same
- * DEFAULTS. Who acts and the comparison without Python: testJackShadow, testJackRun.
+ * Jack Streamer without Python (2026-11-12; since 1.95.6 no Python at all): his settings written and checked in PHP (jackWriteSettings():
+ * save_config()'s file, load_config()'s checks by jackPlanConfig(), the trial dance, MediaCache's words on a refusal), MediaCache's
+ * DEFAULTS as a table; no python3 started anywhere, no .py shipped, the former flag files (python.json, shadow.json, php.json) read by
+ * nothing, no word of Python or the comparison on his page.
  */
 function testJackNoPython(): void
 {
@@ -1675,73 +1370,50 @@ function testJackNoPython(): void
     same('no python: MediaCache\'s DEFAULTS without asking Python — every key of it, the import reads them', [JACK_MEDIACACHE_DEFAULTS, 33, ['cache_path', 'themes']],
         [jackImportDefaults(), count(JACK_MEDIACACHE_DEFAULTS), [array_key_first(JACK_MEDIACACHE_DEFAULTS), array_key_last(JACK_MEDIACACHE_DEFAULTS)]]);
 
-    // no gate asks for Python
+    // no Python at all (1.95.6): no python3 started anywhere in the package, no .py shipped, no flag file of the former versions read,
+    // no word of Python or the comparison on his page
+    $pkg = ['agent', 'src', 'public', 'plugin', 'backup', 'gather', 'smartmover', 'mediacache', 'monitoring'];
+    $files = [];
+    foreach ($pkg as $top) {
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(OFFICE_DIR . "/$top", FilesystemIterator::SKIP_DOTS)) as $p) {
+            $files[] = (string) $p;
+        }
+    }
+    $py = array_values(array_filter($files, fn (string $p): bool => str_ends_with($p, '.py')));
+    same('no python: no .py in the package (mediacache/ keeps only its README and licence)', [[], ['LICENSE', 'README.md']],
+        [$py, array_values(array_diff(scandir(JACK_APP) ?: [], ['.', '..']))]);
+    $code = '';
+    foreach ($files as $p) {
+        if (preg_match('/\.(php|sh|js|page|plg|cron)$/D', $p) || str_starts_with(basename(dirname($p)), 'event') || str_starts_with(basename(dirname($p)), 'scripts')) {
+            $code .= "\n" . preg_replace('#/\*.*?\*/|(?<![:\'"])//[^\n]*|^\s*\#[^\n]*#ms', '', (string) file_get_contents($p));
+        }
+    }
+    // (the Night Watchman and «Where is what» still know python3 and mediacache_run.py as words in the user's own processes and crontabs)
+    check('no python: python3 is started nowhere (a command\'s first word, a shell line), no mediacache_*.py of the office\'s named',
+        !preg_match("/\\[\\s*['\"]python3['\"]|JACK_APP\\s*\\.\\s*'\\/mediacache_\\w+\\.py'|^\\s*(exec\\s+)?python3\\s/m", $code)
+        && str_contains($code, "'mediacache_run.py', 'embycache_run.py', 'jack-run.php'"));
+    check('no python: the former flag files (python.json, shadow.json, php.json) are read by nothing — left on the disk, ignored',
+        !preg_match("/'(python|shadow|php)\.json'|JACK_PYTHON_FLAG|JACK_RUN_FLAG|JACK_SHADOW_FLAG|jackShadow|jackPhpActs|jackPython/", $code));
     $jack = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
-    $letgo = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-letgo.php');
+    check('no python: the job starts MediaCache\'s run in PHP, always', str_contains($jack, "\$cmd = array_merge([PHP_BINARY, __DIR__ . '/jack-run.php'], JACK_MODES[\$mode]);")
+        && !str_contains($jack, "'python' "));
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
-    check('no python: python3 only as Python\'s run (jackJob(): python.json and python3) — no «python3 -c» left, no check for the Team Lead',
-        substr_count($jack, "'python3'") === 2 && str_contains($jack, "array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[\$mode])")
-        && str_contains($jack, "run(['python3', '--version'], 10)") && !str_contains($jack, "'python3', '-c'") && !str_contains($jack, "finding('python'"));
-    check('no python: the let-go brings the films back without Python (no gate)', !str_contains($letgo, 'jack_letgo_python') && !str_contains($letgo, 'jackPython'));
-    check('no python: the page — no «I need Python 3» bubble or callout; the footer names who works (PHP or Python, no Python line where none); the tile says «not compared: no Python»',
-        str_contains($js, "T('shadow.no_python')") && !str_contains($js, "'bubble.no_python'") && !str_contains($js, "'notice.no_python'")
-        && str_contains($js, "const php = state.engine ? state.engine === 'php' : !!(state.shadow && state.shadow.php);\n  if (php) line.appendChild(el('span', '', `PHP \${state.php || ''}`.trim()));\n  else if (state.python) line.appendChild(el('span', '', `Python \${state.python}`));")
-        && str_contains($js, "const shadowNoPython = (s) => s.python === false;"));
+    check('no python: the page — the footer names PHP, no tile or part of a comparison', str_contains($js, "  line.appendChild(el('span', '', `PHP \${state.php || ''}`.trim()));")
+        && !str_contains($js, 'shadow') && !str_contains($js, 'state.python') && !str_contains((string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.json'), 'shadow'));
     foreach (['en', 'de', 'it', 'fr', 'es'] as $l) {
         $lang = readJson(OFFICE_WEB . "/desks/jack/lang/$l.json") ?? [];
-        check("no python lang $l: the Python bubble, callout, check and let-go error gone; «not compared: no Python» there",
-            !isset($lang['bubble.no_python'], $lang['notice.no_python'], $lang['check.python'], $lang['check.python_how'], $lang['errors.jack_letgo_python'])
-            && !array_intersect(['bubble.no_python', 'notice.no_python', 'check.python', 'check.python_how', 'errors.jack_letgo_python'], array_keys($lang))
-            && is_string($lang['shadow.no_python'] ?? null) && is_string($lang['shadow.tip_no_python'] ?? null) && is_string($lang['shadow.sub_no_python'] ?? null));
+        check("no python lang $l: no key of the comparison, no word of Python", $lang !== []
+            && !array_filter(array_keys($lang), fn ($k): bool => str_starts_with((string) $k, 'shadow.') || str_starts_with((string) $k, 'count.shadow_'))
+            && !str_contains(strtolower((string) json_encode($lang)), 'python'));
     }
-    same('no python: the German words as the owner said them', 'Nicht verglichen: kein Python', (readJson(OFFICE_WEB . '/desks/jack/lang/de.json') ?? [])['shadow.no_python'] ?? null);
-
-    // where python3 is there: the same file as Python's own save_config(), the same words as its load_config(), Python reads PHP's file
-    if (!needsPython(__FUNCTION__, 'against Python')) {
-        hardeningRm($tmp);
-        return;
-    }
-    // the agent's former way (1.92.0): MediaCache's save_config() + load_config() through python3 -c, in a trial file
-    $pyWrite = function (array $cfg, string $d) use ($tmp): array {
-        @mkdir($d, 0700, true);
-        $req = "$tmp/run/req.json";
-        file_put_contents($req, json_encode(jackTools($cfg), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-        $trial = "$d/.trial.json";
-        @unlink($trial);
-        $py = 'import json, sys, pathlib; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; '
-            . 'c = json.load(open(sys.argv[2], encoding="utf-8")); l.save_config(c); '
-            . 'l.CONFIG_FILE = l.CONFIG_FILE if c.get("instances") else pathlib.Path(sys.argv[3]); '
-            . 'c.get("instances") or l.save_config(dict(c, instances=[{"servername": "check", "type": "emby", "url": "http://check", '
-            . '"api_key": "check", "path_mappings": {"/check": "/mnt/user/check"}}])); l.load_config()';
-        [$exit, , $err] = runEnv(['python3', '-c', $py, JACK_APP, $req, "$tmp/run/stand.json"], ['MEDIACACHE_DIR' => $d] + jackPyEnv() + ['MEDIACACHE_CONFIG' => $trial], 30);
-        @unlink($req);
-        @unlink("$tmp/run/stand.json");
-        $lines = array_filter(explode("\n", trim((string) $err)));
-        $out = $exit === 0 ? 'ok' : 'jack_config: ' . end($lines);
-        $file = is_file($trial) ? (string) file_get_contents($trial) : null;
-        @unlink($trial);
-        return [$out, $exit === 0 ? $file : null];
-    };
-    foreach (array_merge([['a full setting', []], ['no server', ['instances' => []]], ['other numbers', ['movie_share_percent' => 50, 'min_free_percent' => 12.25, 'number_episodes' => 0]]], array_map(fn (array $b): array => [$b[0], $b[1]], $bad)) as [$what, $over]) {
-        $d = "$tmp/cmp";
-        hardeningRm($d);
-        @mkdir($d, 0700, true);
-        $php = $refused(fn () => jackWriteSettings($over + $good, $d, "$tmp/run"));
-        same("no python against Python ($what): the same answer, the same file byte for byte", $pyWrite($over + $good, "$tmp/py"), [$php, $php === 'ok' ? $text($d) : null]);
-    }
-    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(); print(len(c["instances"]), c["cache_budget_bytes"], c["themes"])';
-    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $dir] + jackPyEnv(), 30);
-    same('no python against Python: MediaCache\'s own load_config() takes the file PHP wrote', [0, '2 1649267441664 True'], [$exit, trim((string) $out)], (string) $err);
-    [$exit, $out] = runEnv(['python3', '-c', 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; print(json.dumps(l.DEFAULTS))', JACK_APP], jackPyEnv(), 30);
-    same('no python against Python: the DEFAULTS table is mediacache_lib.py\'s DEFAULTS', [0, JACK_MEDIACACHE_DEFAULTS], [$exit, json_decode(trim((string) $out), true)]);
     hardeningRm($tmp);
 }
 
 /**
- * MediaCache's run in PHP (agent/desks/jack-run.php, behind JACK_DATA/php.json; 2026-11-09): every doing behaviour on a stand-in world
- * (no Python, no server: the plan from a tape, a stand-in move binary, rsync for real, a stand-in rsync where a failure is needed). The
- * end states against Python's real runs: tests/shadow/diff.php --run on a test server; the shapes of status.json and the progress file
- * against fixtures Python's real run wrote there (tests/fixtures/jack-run/).
+ * MediaCache's run in PHP (agent/desks/jack-run.php, 2026-11-09; the only one since 1.95.6): every doing behaviour on a stand-in world (no
+ * server: the plan from a tape, a stand-in move binary, rsync for real — GNU rsync, as on Unraid —, a stand-in rsync where a failure is
+ * needed). Until 1.95.6 its end states were compared with Python's real runs on a test server; the shapes of status.json and the progress
+ * file still against fixtures MediaCache's Python run wrote (tests/fixtures/jack-run/), the readers stay as they were.
  */
 function testJackRun(): void
 {
@@ -1822,7 +1494,7 @@ function testJackRun(): void
     // (1) the common run: the old entry back through the move binary, the plan to the pool in its order, the list, the files' place
     [$t, $env, $tape] = $world(['pool' => ['Filme/Old/old.mkv' => 500], 'list' => ['Filme/Old/old.mkv']]);
     @chmod("$t/user0/Serien/S", 0750);
-    $compared = jackPlanRun($env, jackPlanTestTape("$t/side/tape2.jsonl", $answers(), ["$t/pool" => [1000000, 900000], "$t/pool/Filme" => [1000000, 900000]]));     // the shadow's plan of the same answers
+    $compared = jackPlanRun($env, jackPlanTestTape("$t/side/tape2.jsonl", $answers(), ["$t/pool" => [1000000, 900000], "$t/pool/Filme" => [1000000, 900000]]));     // the dry plan of the same answers
     [$exit, $st, $pr, $list, $out, $pool, $array] = $run($t, $env, $tape);
     same('run: back through the move binary, the plan to the pool — every file where it belongs, the sources gone', [0, ['Filme/A/a.mkv' => 1000, 'Filme/A/a.srt' => 10, 'Filme/B/b.mkv' => 2000,
         'Serien/S/S01/e1.mkv' => 300, 'Serien/S/S01/e2.mkv' => 310, 'Serien/S/S01/e3.mkv' => 320], ['Filme/Old/old.mkv' => 500]], [$exit, $pool, $array], $out);
@@ -1841,10 +1513,10 @@ function testJackRun(): void
     check('run: the output in Python\'s line format, its words', (bool) preg_match('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \| INFO \| === MediaCache 7\.4\.0 \(2026-10-15\) \(PHP\) – Modus: RUN ===$/m', $out)
         && str_contains($out, '| INFO | Ergebnis Befüllen: 6 von 6 Dateien auf den Cache kopiert') && is_file("$t/data/logs/mediacache.log") && $st0 !== false);
     $plan = readJson("$t/side/plan.json");
-    same('run: the plan it acted on, in the plan\'s shape — the plan compared is the plan executed (the shadow\'s dry plan of the same answers, as decided before anything moved)',
-        ['ok', 6, ["$t/pool/Filme/Old/old.mkv"], ['result' => 'same'], $compared['fill']['rels'] ?? null],
-        [$plan['outcome'] ?? null, count($plan['fill']['rels'] ?? []), $plan['cleanup']['paths'] ?? null, jackShadowExecuted($compared, $plan), $plan['fill']['rels'] ?? null]);
-    // the shapes Python's real run writes (fixtures from tests/shadow/diff.php --run on Tower)
+    same('run: the plan it acted on (--plan-out), in the plan\'s shape — the dry plan of the same answers, as decided before anything moved',
+        ['ok', 6, ["$t/pool/Filme/Old/old.mkv"], $compared['cleanup']['paths'] ?? null, $compared['fill']['rels'] ?? null],
+        [$plan['outcome'] ?? null, count($plan['fill']['rels'] ?? []), $plan['cleanup']['paths'] ?? null, $plan['cleanup']['paths'] ?? null, $plan['fill']['rels'] ?? null]);
+    // the shapes MediaCache's Python run wrote (fixtures from Tower, 2026-11-09): the readers stay as they were
     $shape = function (mixed $v) use (&$shape): mixed {
         return match (true) {
             is_array($v) && $v !== [] && !array_is_list($v) => array_map($shape, array_diff_key($v, ['engine' => 1])),
@@ -2044,7 +1716,7 @@ function testJackRun(): void
     file_put_contents("$t/side/tape.jsonl", "not a tape\n");
     [$exit, $st, , , $out] = $run($t, $env + ['MEDIACACHE_DIR' => $env['MEDIACACHE_DIR']], new JackPlanLive([]));
     check('run: an unreadable tape — said, the servers asked live (here: none answers: an incomplete plan, nothing moves)',
-        $exit === 0 && str_contains($out, 'Die Antworten des Vergleichs (--tape) sind nicht lesbar') && ($st['incomplete'] ?? null) === true, $out);
+        $exit === 0 && str_contains($out, 'Die aufgezeichneten Antworten (--tape) sind nicht lesbar') && ($st['incomplete'] ?? null) === true, $out);
     [$t, $env, $tape] = $world(['pool' => ['Filme/Old/old.mkv' => 500], 'list' => ['Filme/Old/../Old/old.mkv']]);
     [$exit, , , $list, $out, $pool] = $run($t, $env, $tape);
     same('run: a list entry with «..» — it stays where it is (never handed to the move binary), said', [0, 500, true], [$exit, $pool['Filme/Old/old.mkv'] ?? null, str_contains($out, 'Exclude-Eintrag mit «..»')], $out);
@@ -2084,80 +1756,14 @@ function testJackRun(): void
     same('run: dry run and report — nothing moved, the list as it was; the plan said', [0, 0, 'dry', 6, 'report', true, true, $before],
         [$exit, $exitR, $st['mode'] ?? null, $st['fill']['planned'] ?? null, $stR['mode'] ?? null, str_contains($out, 'Dry-Run: 1 Dateien'), str_contains($outR, '=== Anna @ Emby ==='), [$pool, $array, $list]], $outR);
 
-    // (13) the code: no shell, nothing of the agent's at load time; the job: Python without the flag, PHP with it, the tape handed over
+    // (13) the code: no shell, nothing of the agent's at load time; the job: always PHP
     $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-run.php');
     $code = (string) preg_replace(['#/\*.*?\*/#s', '#(?<![:\'"])//[^\n]*#'], '', $src);      // without its comments
     check('run: jack-run.php starts its children only in array form (proc_open, run()), never a shell string', !preg_match('/\b(shell_exec|passthru|system|popen|exec)\s*\(|`/', $code)
         && !str_contains($code, "proc_open('") && !str_contains($code, 'proc_open("'));
     $job = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php');
-    check('run: the job — php jack-run.php on every server, python3 mediacache_run.py only with python.json and python3 (the same modes), the compared tape handed over',
-        str_contains($job, "\$php = \$tool === 'embycache' && jackPhpActs(\$dir);") && str_contains($job, "\$cmd = \$php ? array_merge([PHP_BINARY, __DIR__ . '/jack-run.php'], JACK_MODES[\$mode]) : array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[\$mode]);")
-        && str_contains($job, '$cmd = array_merge($cmd, jackShadowHandoff($shadow));'));
-    // who acts (1.94.0): PHP everywhere; support's python.json (a plain file) brings Python back where python3 exists; php.json still read
-    // (it wakes the comparison, as shadow.json does); python3 not even asked without python.json
-    @mkdir("$tmp/flag");
-    $asked = 0;
-    /** @var ?string $py python3's version on this stand-in server, null: none */
-    $py = '3.11';
-    $GLOBALS['jackPythonHost'] = function () use (&$asked, &$py): ?string {
-        $asked++;
-        return $py;
-    };
-    $f = "$tmp/flag";
-    $who = fn (): array => [jackPhpActs($f), jackShadowOn($f)];
-    $rows = ['none' => $who()];
-    $firstAsked = $asked;
-    file_put_contents("$f/python.json", '');
-    $rows['python.json'] = $who();
-    $py = null;
-    $rows['python.json, no python3'] = $who();
-    $py = '3.11';
-    unlink("$f/python.json");
-    file_put_contents("$tmp/flag-py", '{}');
-    symlink("$tmp/flag-py", "$f/python.json");
-    $rows['python.json a link'] = $who();
-    unlink("$f/python.json");
-    mkdir("$f/python.json");
-    $rows['python.json a folder'] = $who();
-    rmdir("$f/python.json");
-    touch("$f/php.json");
-    $rows['php.json'] = $who();
-    file_put_contents("$f/python.json", 'x');
-    $rows['php.json + python.json'] = $who();
-    unlink("$f/php.json");
-    unlink("$f/python.json");
-    touch("$f/shadow.json");
-    $rows['shadow.json'] = $who();
-    file_put_contents("$f/python.json", '');
-    $rows['shadow.json + python.json'] = $who();
-    unlink("$f/python.json");
-    unlink("$f/shadow.json");
-    same('run: who acts [PHP, comparison] — PHP by default, python.json Python (not without python3, never a link), php.json and shadow.json compare',
-        ['none' => [true, false], 'python.json' => [false, false], 'python.json, no python3' => [true, false], 'python.json a link' => [true, false],
-         'python.json a folder' => [true, false], 'php.json' => [true, true], 'php.json + python.json' => [false, true], 'shadow.json' => [true, true],
-         'shadow.json + python.json' => [false, true]], $rows);
-    same('run: no flag — python3 never asked', 0, $firstAsked);
-    // no flag: no comparison before the run — no Python child, nothing handed to the run
-    $child = 0;
-    $stub = function () use (&$child): int {
-        $child++;
-        return 0;
-    };
-    $sh = ['dir' => $f, 'run' => "$tmp/flag-shadow", 'array' => fn (): bool => true, 'stop' => fn (): bool => false, 'asleep' => fn (): array => [],
-        'python' => $stub, 'php' => $stub, 'now' => fn (): int => 1800000000];
-    $ctx = jackShadowBefore('run', [], $sh);
-    jackShadowAfter($ctx, [], $sh);
-    same('run: no flag — no comparison: no child (Python or PHP), nothing handed over, nothing written, no key in his state', [null, 0, [], false, false, null],
-        [$ctx, $child, jackShadowHandoff($ctx, $sh), is_dir("$tmp/flag-shadow"), is_dir("$f/shadow"), jackShadowSummary($f)]);
-    unset($GLOBALS['jackPythonHost']);
-    $run2 = "$tmp/flag-run";
-    @mkdir($run2);
-    file_put_contents("$run2/tape-run.jsonl", "{}\n");
-    same('run: the hand-over — the tape of the pair compared, where to write the plan acted on; nothing compared: no tape (it asks the servers itself)',
-        [['--tape', "$run2/tape-run.jsonl", '--plan-out', "$run2/executed.json"], ['--plan-out', "$run2/executed.json"]],
-        [jackShadowHandoff(['pass' => ['php' => []], 'once' => null], ['dir' => "$tmp/flag", 'run' => $run2]), jackShadowHandoff(['pass' => null, 'once' => null], ['dir' => "$tmp/flag", 'run' => $run2])]);
-    same('run: the plan acted on beside the plan compared — the fill\'s own numbers aside', [['result' => 'same'], 'differ', ['result' => 'none']],
-        [jackShadowExecuted($plan, ['fill' => ['rels' => []], 'sim_delta' => 1] + $plan), jackShadowExecuted($plan, ['cleanup' => ['paths' => [], 'bytes' => 0]] + $plan)['result'], jackShadowExecuted($plan, null)]);
+    check('run: the job — php jack-run.php, always (since 1.95.6 nothing else: no Python, no comparison, no tape handed over)',
+        str_contains($job, "\$cmd = array_merge([PHP_BINARY, __DIR__ . '/jack-run.php'], JACK_MODES[\$mode]);") && !str_contains($job, '--tape') && !str_contains($job, 'Shadow'));
     putenv("PATH=$pathBefore");
 }
 
@@ -3420,40 +3026,7 @@ function testJackLetGo(): void
     putenv($envBefore[0] === false ? 'OFFICE_NOTIFY_BIN' : "OFFICE_NOTIFY_BIN=$envBefore[0]");
     putenv($envBefore[1] === false ? 'OFFICE_NOTIFY_STAMP' : "OFFICE_NOTIFY_STAMP=$envBefore[1]");
 
-    // EmbyCache's own --release on a fixture tree: every file on the list back the cleanup's way (origin disk not mounted
-    // → cleanup_tool rsync to the array view), a duplicate already on the array stays on the pool and in the list
-    [$exit] = run(['python3', '--version'], 10);
-    if ($exit !== 0) {
-        check('release: python3 is missing here - skipped', true);
-    } else {
-        $py = "$tmp/py";
-        foreach (["$py/data", "$py/pool/Filme/A", "$py/pool/Filme/B", "$py/pool/Filme/C", "$py/user0/Filme/C", "$py/user/Filme", "$py/shares", "$py/disk1/Filme"] as $d) {
-            mkdir($d, 0700, true);
-        }
-        file_put_contents("$py/pool/Filme/A/a.mkv", str_repeat('a', 3000));
-        file_put_contents("$py/pool/Filme/B/b.srt", 'sub');
-        file_put_contents("$py/pool/Filme/C/c.mkv", 'dup');
-        file_put_contents("$py/user0/Filme/C/c.mkv", 'dup');
-        file_put_contents("$py/data/mediacache_exclude.txt", "$py/pool/Filme/A/a.mkv\n$py/pool/Filme/B/b.srt\n$py/pool/Filme/C/c.mkv\n$py/pool/Filme/gone.mkv\n");
-        file_put_contents("$py/data/mediacache_origin.json", json_encode(["$py/pool/Filme/A/a.mkv" => 'disk1', "$py/pool/Filme/C/c.mkv" => 'disk1']));
-        file_put_contents("$py/data/mediacache_settings.json", json_encode(['cache_path' => "$py/pool", 'array_path' => "$py/user0", 'user_path' => "$py/user",
-            'array_disks_glob' => "$py/disk[0-9]*", 'cleanup_tool' => 'rsync', 'return_to_origin' => true, 'shares_cfg_dir' => "$py/shares", 'api_timeout' => 2,
-            'instances' => [['servername' => 'Test', 'url' => 'http://127.0.0.1:9', 'api_key' => 'k', 'path_mappings' => ['/media/movies' => "$py/user/Filme"]]]]));
-        [$exit, $out, $err] = run(['env', "MEDIACACHE_DIR=$py/data", "MEDIACACHE_RESULT=$py/data/status.json", 'PYTHONDONTWRITEBYTECODE=1',
-                                   'python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--release'], 120);
-        $st = readJson("$py/data/status.json") ?? [];
-        same('EmbyCache --release: ok, mode release, 2 of 3 back (the duplicate stays), nothing filled, Emby unanswered noted',
-            [0, 'release', 'ok', 3, 2, 0, 1, true],
-            [$exit, $st['mode'] ?? null, $st['result'] ?? null, $st['cleanup']['planned'] ?? null, $st['cleanup']['done'] ?? null, $st['fill']['planned'] ?? null,
-             $st['protected'] ?? null, $st['incomplete'] ?? null]);
-        check('EmbyCache --release: the files are on the array view, gone from the pool; the duplicate stays on both',
-            is_file("$py/user0/Filme/A/a.mkv") && filesize("$py/user0/Filme/A/a.mkv") === 3000 && is_file("$py/user0/Filme/B/b.srt")
-            && !file_exists("$py/pool/Filme/A/a.mkv") && !file_exists("$py/pool/Filme/B/b.srt") && is_file("$py/pool/Filme/C/c.mkv"), $out . $err);
-        same('MediaCache --release: the list names only what is still on the pool; an old origin file stays untouched, unused',
-            [["$py/pool/Filme/C/c.mkv"], ["$py/pool/Filme/A/a.mkv" => 'disk1', "$py/pool/Filme/C/c.mkv" => 'disk1']],
-            [file("$py/data/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES), readJson("$py/data/mediacache_origin.json")]);
-        check('MediaCache --release: nothing went to a disk of its own choosing (the old origin)', !file_exists("$py/disk1/Filme/A"));
-    }
+    // MediaCache's --release itself (the rsync cleanup, a duplicate staying on the pool and in the list): testJackRun
 
     // his dialog part, the done dialog and the page's note under node
     $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
@@ -3858,7 +3431,7 @@ function testJackMover(): void
         file_put_contents("$tmp/proc/$pid/cmdline", $cmd !== '' ? $cmd : $comm);
     };
     $proc(100, 'php', 1, "php\0agent.php\0job\0embycache\0run");
-    $proc(150, 'python3', 100);
+    $proc(150, 'php', 100, "php\0/usr/local/emhttp/plugins/unraid-secretary-office/agent/desks/jack-run.php\0--run");
     $proc(200, 'bash', 1);
     same('mover at work: nothing', false, jackMoverRunning());
     file_put_contents("$tmp/mover.pid", "200\n");
@@ -4016,41 +3589,9 @@ function testJackMover(): void
         && $at('writeAtomic("$dir/office-run.json", jsonEncode($run), 0600, 0, 0);') < $at('jackMoversUnlock($movers);
     jackWaitEnd($wait, RUN_DIR, $tool);          // the run shows'));
 
-    // EmbyCache stops after the file it is on (--release on a fixture tree; an rsync stand-in «starts the mover» after its first file)
-    [$exit] = run(['python3', '--version'], 10);
-    if ($exit !== 0) {
-        check('mover stop: python3 is missing here - skipped', true);
-    } else {
-        $py = "$tmp/py";
-        foreach (["$py/data", "$py/pool/Filme/A", "$py/pool/Filme/B", "$py/pool/Filme/C", "$py/user0/Filme", "$py/user/Filme", "$py/shares", "$py/bin"] as $d) {
-            mkdir($d, 0700, true);
-        }
-        foreach (['A/a.mkv', 'B/b.mkv', 'C/c.mkv'] as $f) {
-            file_put_contents("$py/pool/Filme/$f", str_repeat('x', 1000));
-        }
-        file_put_contents("$py/data/mediacache_exclude.txt", "$py/pool/Filme/A/a.mkv\n$py/pool/Filme/B/b.mkv\n$py/pool/Filme/C/c.mkv\n");
-        file_put_contents("$py/data/mediacache_settings.json", json_encode(['cache_path' => "$py/pool", 'array_path' => "$py/user0", 'user_path' => "$py/user",
-            'array_disks_glob' => "$py/disk[0-9]*", 'cleanup_tool' => 'rsync', 'return_to_origin' => true, 'shares_cfg_dir' => "$py/shares", 'api_timeout' => 2,
-            'instances' => [['servername' => 'Test', 'url' => 'http://127.0.0.1:9', 'api_key' => 'k', 'path_mappings' => ['/media/movies' => "$py/user/Filme"]]]]));
-        $rsync = trim((string) shell_exec('command -v rsync'));
-        file_put_contents("$py/bin/rsync", "#!/bin/bash\n" . escapeshellarg($rsync) . " \"\$@\"; rc=\$?; touch " . escapeshellarg("$py/stop") . "; exit \$rc\n");
-        chmod("$py/bin/rsync", 0755);
-        [$exit, $out, $err] = run(['env', "PATH=$py/bin:" . getenv('PATH'), "MEDIACACHE_DIR=$py/data", "MEDIACACHE_RESULT=$py/data/status.json", "MEDIACACHE_STOP=$py/stop",
-                                   'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--release'], 120);
-        $st = readJson("$py/data/status.json") ?? [];
-        same('mover stop: EmbyCache stops after the first file — exit 3, result stopped, 1 of 3 back, 2 stay protected',
-            [3, 'stopped', 3, 1, 2], [$exit, $st['result'] ?? null, $st['cleanup']['planned'] ?? null, $st['cleanup']['done'] ?? null, $st['protected'] ?? null]);
-        same('mover stop: … the one moved is on the array, the other two still on the pool and on the list (never half a copy)',
-            [true, false, true, true, ["$py/pool/Filme/B/b.mkv", "$py/pool/Filme/C/c.mkv"]],
-            [is_file("$py/user0/Filme/A/a.mkv"), file_exists("$py/pool/Filme/A/a.mkv"), is_file("$py/pool/Filme/B/b.mkv"), is_file("$py/pool/Filme/C/c.mkv"),
-             file("$py/data/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES)]);
-        check('mover stop: … nothing half-copied on the array', !file_exists("$py/user0/Filme/B") && !file_exists("$py/user0/Filme/C"));
-        @unlink("$py/stop");
-        [$exit] = run(['env', "MEDIACACHE_DIR=$py/data", "MEDIACACHE_RESULT=$py/data/status.json", "MEDIACACHE_STOP=$py/stop", 'PYTHONDONTWRITEBYTECODE=1',
-                       'python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--release'], 120);
-        same('mover stop: without the stop file the next run goes on to the end', [0, 'ok', 0], [$exit, readJson("$py/data/status.json")['result'] ?? null,
-            count(file("$py/data/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES))]);
-
+    // MediaCache's run stops after the file it is on (the rsync cleanup: testJackRun «asked to stop», «a stop asked during parallel copies»)
+    $jackRun = [PHP_BINARY, OFFICE_DIR . '/agent/desks/jack-run.php'];
+    {
         // 2026-10-15 (the owner): the way back is MediaCache's own — Unraid's move binary. With the office's progress and stop
         // files it gets ONE file per call: the progress names the file in work and «stop after this file» holds exactly
         $m = "$tmp/mv";
@@ -4071,8 +3612,8 @@ function testJackMover(): void
             'instances' => [['servername' => 'Test', 'url' => 'http://127.0.0.1:9', 'api_key' => 'k', 'path_mappings' => ['/media/movies' => "$m/user/Filme"]]]];
         file_put_contents("$m/data/mediacache_settings.json", json_encode($set));
         $env = ['env', 'PATH=' . getenv('PATH'), "MEDIACACHE_DIR=$m/data", "MEDIACACHE_RESULT=$m/data/status.json", "MEDIACACHE_STOP=$m/stop",
-                "MEDIACACHE_PROGRESS=$m/progress.json", "MEDIACACHE_LIVE_STATUS=$m/live.json", 'PYTHONDONTWRITEBYTECODE=1'];
-        [$exit, $out, $err] = run(array_merge($env, ['python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--release']), 120);
+                "MEDIACACHE_PROGRESS=$m/progress.json", "MEDIACACHE_LIVE_STATUS=$m/live.json"];
+        [$exit, $out, $err] = run(array_merge($env, $jackRun, ['--release']), 120);
         $st = readJson("$m/data/status.json") ?? [];
         $pg = readJson("$m/progress.json") ?? [];
         same('move binary: one file per call, stops after the first — exit 3, 1 of 3 back (on disk1), 2 stay on the pool and the list',
@@ -4084,7 +3625,7 @@ function testJackMover(): void
         @unlink("$m/stop");
         @unlink("$m/calls");
         file_put_contents("$m/move", str_replace("touch ", ": ", (string) file_get_contents("$m/move")));
-        [$exit] = run(array_merge($env, ['python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--release']), 120);
+        [$exit] = run(array_merge($env, $jackRun, ['--release']), 120);
         same('move binary: the next run goes on — the other two, one call each, the list empty', [0, ['1', '1'], true, 0],
             [$exit, file("$m/calls", FILE_IGNORE_NEW_LINES), is_file("$m/disk1/Filme/C/c.mkv"), count(file("$m/data/mediacache_exclude.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES))]);
         // standalone (no progress, no stop file): one call for all, as helmi1987's MediaCache does
@@ -4096,7 +3637,7 @@ function testJackMover(): void
         @unlink("$m/disk1/Filme/B/b.mkv");
         file_put_contents("$m/data/mediacache_exclude.txt", "$m/pool/Filme/A/a.mkv\n$m/pool/Filme/B/b.mkv\n");
         @unlink("$m/calls");
-        [$exit, $out, $err] = run(['env', 'PATH=' . getenv('PATH'), "MEDIACACHE_DIR=$m/data", 'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--release'], 120);
+        [$exit, $out, $err] = run(array_merge(['env', 'PATH=' . getenv('PATH'), "MEDIACACHE_DIR=$m/data"], $jackRun, ['--release']), 120);
         same('move binary: standalone one call for all', [0, ['2']], [$exit, @file("$m/calls", FILE_IGNORE_NEW_LINES)], $out . $err);
     }
     unset($GLOBALS['jackMoverHost']);
@@ -4219,39 +3760,29 @@ JS);
  */
 function testJackTidyDisks(): void
 {
-    if (!needsPython(__FUNCTION__)) {
-        return;
-    }
     $tmp = hardeningTmp('jack-tidy');
-    file_put_contents("$tmp/t.py", <<<'PY'
-import sys, os, json, logging
-from pathlib import Path
-sys.path.insert(0, sys.argv[1]); base = sys.argv[2]
-import mediacache_lib as l
-for d in ("disk1/media/Serie/Season 01", "disk1/media/Film", "disk2/media/Serie/Season 01", "disk3/media/Serie/Season 01", "pool", "user0", "user"):
-    os.makedirs(f"{base}/{d}", exist_ok=True)
-for f in ("disk1/media/Film/f.mkv", "disk2/media/Serie/Season 01/e1.mkv"):
-    open(f"{base}/{f}", "w").close()
-loc = l.Locations({"cache_path": f"{base}/pool", "array_path": f"{base}/user0", "user_path": f"{base}/user",
-                   "array_disks_glob": f"{base}/disk[0-9]*"}, {})
-log = logging.getLogger("t")
-rel = Path("media/Serie/Season 01/e3.mkv")
-l.remove_empty_on_disk(loc, rel, "?", log)
-out = {"unknown": os.path.isdir(f"{base}/disk1/media/Serie/Season 01")}
-l.remove_empty_on_disk(loc, rel, "disk1", log)
-out["disk1"] = [os.path.isdir(f"{base}/disk1/media/Serie"), os.path.isdir(f"{base}/disk1/media"), os.path.isfile(f"{base}/disk1/media/Film/f.mkv")]
-out["others"] = [os.path.isfile(f"{base}/disk2/media/Serie/Season 01/e1.mkv"), os.path.isdir(f"{base}/disk3/media/Serie/Season 01")]
-l.remove_empty_on_disk(loc, rel, "disk2", log)
-out["disk2"] = os.path.isfile(f"{base}/disk2/media/Serie/Season 01/e1.mkv")
-print(json.dumps(out))
-PY);
-    [$exit, $out, $err] = runEnv(['python3', "$tmp/t.py", JACK_APP, $tmp], ['MEDIACACHE_DIR' => $tmp, 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
+    foreach (['disk1/media/Serie/Season 01', 'disk1/media/Film', 'disk2/media/Serie/Season 01', 'disk3/media/Serie/Season 01', 'pool', 'user0', 'user'] as $d) {
+        @mkdir("$tmp/$d", 0700, true);
+    }
+    foreach (['disk1/media/Film/f.mkv', 'disk2/media/Serie/Season 01/e1.mkv'] as $f) {
+        touch("$tmp/$f");
+    }
+    $cfg = ['cache_path' => "$tmp/pool", 'array_path' => "$tmp/user0", 'user_path' => "$tmp/user", 'array_disks_glob' => "$tmp/disk[0-9]*"];
+    $log = new JackRunLog("$tmp/log.txt", 'INFO', fopen('/dev/null', 'w'));
+    $rel = 'media/Serie/Season 01/e3.mkv';
+    jackRunRemoveEmptyOnDisk($cfg, $rel, '?', $log);
+    $out = ['unknown' => is_dir("$tmp/disk1/media/Serie/Season 01")];
+    jackRunRemoveEmptyOnDisk($cfg, $rel, 'disk1', $log);
+    $out['disk1'] = [is_dir("$tmp/disk1/media/Serie"), is_dir("$tmp/disk1/media"), is_file("$tmp/disk1/media/Film/f.mkv")];
+    $out['others'] = [is_file("$tmp/disk2/media/Serie/Season 01/e1.mkv"), is_dir("$tmp/disk3/media/Serie/Season 01")];
+    jackRunRemoveEmptyOnDisk($cfg, $rel, 'disk2', $log);
+    $out['disk2'] = is_file("$tmp/disk2/media/Serie/Season 01/e1.mkv");
     same('jack tidy: a disk not known — nothing done; disk1 — its emptied Season 01 and series folder go, the share\'s folder and a film stay; disk2 and disk3 not looked at; disk2\'s episode keeps its folder',
-        [0, ['unknown' => true, 'disk1' => [false, true, true], 'others' => [true, true], 'disk2' => true]], [$exit, json_decode(trim($out), true) ?? trim($err)]);
-    $src = (string) file_get_contents(JACK_APP . '/mediacache_run.py');
+        ['unknown' => true, 'disk1' => [false, true, true], 'others' => [true, true], 'disk2' => true], $out);
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-run.php');
     check('jack tidy: his fill (rsync, and the move binary\'s way) tidies the disk a file through /mnt/user0 lay on, before the /mnt/user0 view',
-        substr_count($src, 'remove_empty_on_disk(loc, f.rel, ') === 2
-        && str_contains($src, "if src == loc.on_array(f.rel):      # USO: über /mnt/user0 – auch auf der Disk, auf der sie lag\n                    remove_empty_on_disk(loc, f.rel, disk, log)\n                remove_empty_parents(src.parent"));
+        substr_count($src, 'jackRunRemoveEmptyOnDisk($this->cfg, $f->rel, ') === 2
+        && str_contains($src, "if (\$src === \$loc->onArray(\$f->rel)) {     // through /mnt/user0: on the disk it lay on too\n                    jackRunRemoveEmptyOnDisk(\$this->cfg, \$f->rel, \$c['disk'], \$this->log);\n                }\n                jackRunRemoveEmptyParents(jpPyParent(\$src)"));
     hardeningRm($tmp);
 }
 
@@ -4275,11 +3806,11 @@ function testJackRsync(): void
             'disk3' => ['type' => 'Data', 'status' => 'DISK_NP'], 'cache' => ['type' => 'Cache'], 'disk9' => ['name' => 'disk9', 'type' => 'Cache']];
     same('tools: the array\'s data disks — parity, an empty slot and a pool (whatever its name) left out; none known: 1', [2, 1], [jackArrayDisks($ini), jackArrayDisks([])]);
     same('tools: copies in all — on: one per disk, at most 8; off: one', [1, 2, 8, 1, 1], [jackParallelTotal(true, 1), jackParallelTotal(true, 2), jackParallelTotal(true, 12), jackParallelTotal(false, 3), jackParallelTotal(false, 1)]);
-    $env = jackPyEnv(['parallel_disks' => true], 3);
+    $env = jackRunEnv(['parallel_disks' => true], 3);
     same('tools: his runs — on, three disks: one per disk, three at once', ['1', '3'], [$env['MEDIACACHE_PARALLEL_PER_DISK'], $env['MEDIACACHE_PARALLEL_TOTAL']]);
-    $env = jackPyEnv(['parallel_disks' => false], 3);
+    $env = jackRunEnv(['parallel_disks' => false], 3);
     same('tools: his runs — off: one at a time', ['1', '1'], [$env['MEDIACACHE_PARALLEL_PER_DISK'], $env['MEDIACACHE_PARALLEL_TOTAL']]);
-    $env = jackPyEnv(['parallel_per_disk' => 3], 2);
+    $env = jackRunEnv(['parallel_per_disk' => 3], 2);
     same('tools: an older file with the field\'s number — on, never more than one per disk', ['1', '2'], [$env['MEDIACACHE_PARALLEL_PER_DISK'], $env['MEDIACACHE_PARALLEL_TOTAL']]);
     check('tools: the setup\'s switch is a setting of his (the page sends it), a boolean checked before it is taken; the old field gone',
         in_array('parallel_disks', JACK_SETTINGS, true) && !in_array('parallel_per_disk', JACK_SETTINGS, true) && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack.php'),
@@ -4308,15 +3839,11 @@ function testJackRsync(): void
     jackWriteSettings($cfg, "$tmp/emby", "$tmp/run");
     $saved = json_decode((string) file_get_contents("$tmp/emby/mediacache_settings.json"), true);
     same('tools: a save writes MediaCache\'s own, whatever the request carries', ['rsync', 'mover'], [$saved['fill_tool'] ?? null, $saved['cleanup_tool'] ?? null]);
-    $env = jackPyEnv();
+    $env = jackRunEnv();
     same('tools: no environment forces a tool (the settings say it)', [false, false], [isset($env['MEDIACACHE_FILL_TOOL']), isset($env['MEDIACACHE_CLEANUP_TOOL'])]);
-    $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(require_paths=False); print(c["fill_tool"] + "|" + c["cleanup_tool"] + "|" + str("return_to_origin" in l.DEFAULTS))';
-    if (needsPython(__FUNCTION__, 'MediaCache\'s own load_config()')) {
-        [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"] + $env, 30);
-        same('tools: MediaCache run with Jack\'s environment on his file — rsync in, the move binary back, no «origin» at all', [0, 'rsync|mover|False'], [$exit, trim($out) ?: trim($err)]);
-    }
     $php = jackPlanConfig("$tmp/emby/mediacache_settings.json", array_map('strval', $env), false);
-    same('tools: … and its PHP port says the same (no Python needed)', ['rsync', 'mover'], [$php['fill_tool'], $php['cleanup_tool']]);
+    same('tools: MediaCache\'s run with Jack\'s environment on his file — rsync in, the move binary back, no «origin» at all', ['rsync', 'mover', false],
+        [$php['fill_tool'], $php['cleanup_tool'], in_array('return_to_origin', array_keys((array) json_decode((string) json_encode(JACK_MEDIACACHE_DEFAULTS), true)), true)]);
     same('tools: only MediaCache\'s own way is a valid value', [true, false, true, false], [jackImportValueOk('cleanup_tool', 'mover', 'mover'),
         jackImportValueOk('cleanup_tool', 'rsync', 'mover'), jackImportValueOk('fill_tool', 'rsync', 'rsync'), jackImportValueOk('fill_tool', 'mover', 'rsync')]);
     same('tools: the import sets both itself', ['rsync', 'mover'], [JACK_IMPORT_FIXED['fill_tool'] ?? null, JACK_IMPORT_FIXED['cleanup_tool'] ?? null]);
@@ -4334,109 +3861,17 @@ function testJackRsync(): void
 }
 
 /**
- * helmi1987's 9d14374 taken over into our EmbyCache: a number setting that is no number is a ConfigError (not a
- * traceback), from the file or the environment; fixed per-user budgets found by the user's id also when the server's
- * name has a «:» (the key is «server:id»); the cleanup tool Jack hands it still rsync.
- */
-/**
- * Review 2026-10-15 (R1; HARDENING «Recommended» since 2026-10-06): EmbyCache's urllib followed a redirect and copied
- * X-Emby-Token to wherever it led. Now the key is an unredirected header, carried on only to the same host
- * (Emby's own http → https). Two little servers on 127.0.0.1: one redirects to itself, one to «localhost» (another
- * host name) — the key reaches the first, never the second.
- */
-function testJackKeyRedirect(): void
-{
-    if (!needsPython(__FUNCTION__)) {
-        return;
-    }
-    $py = 'import sys, json, threading, http.server
-sys.path.insert(0, sys.argv[1]); import mediacache_lib as l
-seen = {}
-class H(http.server.BaseHTTPRequestHandler):
-    def log_message(self, *a): pass
-    def do_GET(self):
-        seen[self.server.name + self.path] = self.headers.get("X-Emby-Token") or self.headers.get("Authorization") or self.headers.get("X-Plex-Token")
-        if self.path.startswith("/to-"):
-            self.send_response(302); self.send_header("Location", self.path[4:].replace("PORT_A", str(a.server_port)).replace("PORT_B", str(b.server_port))); self.end_headers(); return
-        self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(b"{}")
-a = http.server.HTTPServer(("127.0.0.1", 0), H); a.name = "a"
-b = http.server.HTTPServer(("127.0.0.1", 0), H); b.name = "b"
-for s in (a, b): threading.Thread(target=s.serve_forever, daemon=True).start()
-out = {}
-for kind in ("emby", "jellyfin", "plex"):
-    seen.clear()
-    api = l.MediaServerApi.for_instance({"url": "http://127.0.0.1:%d" % a.server_port, "api_key": "abcdefgh12345678", "type": kind}, 5)
-    for path in ("/to-http://127.0.0.1:PORT_A/same", "/to-http://localhost:PORT_B/other"):
-        try:
-            api.get(path)
-        except RuntimeError:
-            pass
-    out[kind] = dict(seen)
-print(json.dumps(out, sort_keys=True))';
-    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], jackPyEnv(), 30);
-    $want = fn (string $k) => ['a/same' => $k, 'a/to-http://127.0.0.1:PORT_A/same' => $k, 'a/to-http://localhost:PORT_B/other' => $k, 'b/other' => null];
-    same('server key: to the server itself, along a redirect to the same host - never to another host (Emby, Jellyfin, Plex)', [0, [
-        'emby' => $want('abcdefgh12345678'), 'jellyfin' => $want('MediaBrowser Token="abcdefgh12345678"'), 'plex' => $want('abcdefgh12345678')]],
-        [$exit, json_decode(trim($out), true) ?? trim($err)]);
-}
-
-/**
  * 1.65.0 (the owner): one person on several servers counts once — the same name ignoring case, spaces and accents across
  * Emby, Jellyfin and Plex is one person: one share of the budget, one budget of their own (kept under any of their ids, as
  * settings from before keep it per server id), their items from all servers together, an item two servers name once.
- * MediaCache's planner with two stand-in servers; Jack's page groups them the same way.
+ * The planner: testJackPlan; Jack's page groups them the same way.
  */
 function testJackPersons(): void
 {
-    if (!needsPython(__FUNCTION__)) {
-        return;
-    }
-    $tmp = hardeningTmp('jack-persons');
-    file_put_contents("$tmp/t.py", <<<'PY'
-import sys, os, json
-sys.path.insert(0, sys.argv[1]); base = sys.argv[2]
-for d in ("user0/Filme/A", "user0/Filme/B", "user0/Serien/S/S01", "pool", "user"):
-    os.makedirs(f"{base}/{d}", exist_ok=True)
-for f, n in (("Filme/A/a.mkv", 100), ("Filme/B/b.mkv", 200), ("Serien/S/S01/e1.mkv", 10), ("Serien/S/S01/e2.mkv", 10)):
-    open(f"{base}/user0/{f}", "wb").write(b"x" * n)
-os.environ["MEDIACACHE_DIR"] = base
-import mediacache_lib as l, mediacache_run as r
-A = {"Type": "Movie", "Id": "a", "Name": "A", "Path": "/m/Filme/A/a.mkv"}
-B = {"Type": "Movie", "Id": "b", "Name": "B", "Path": "/m/Filme/B/b.mkv"}
-E = lambda i: {"Type": "Episode", "Id": f"e{i}", "Name": f"E{i}", "SeriesId": "s", "SeriesName": "S", "ParentIndexNumber": 1, "IndexNumber": i, "Path": f"/m/Serien/S/S01/e{i}.mkv"}
-class Api:
-    def __init__(self, users, resume): self.u, self.r = users, resume
-    def users(self): return self.u
-    def resume_items(self, uid, IncludeItemTypes=None, **k): return [x for x in self.r.get(uid, []) if x["Type"] == IncludeItemTypes]
-    def next_up(self, uid, **k): return []
-    def user_items(self, uid, ParentId=None, **k): return [E(1), E(2)] if ParentId == "s" else []
-    def items(self, *a, **k): return []
-apis = {"Emby": Api([{"Id": "e-anna", "Name": "Anna"}, {"Id": "e-leo", "Name": "Leo"}], {"e-anna": [A, E(1)], "e-leo": [B]}),
-        "Jelly": Api([{"Id": "j-anna", "Name": " ánna"}], {"j-anna": [A]})}
-r.MediaServerApi.for_instance = classmethod(lambda cls, inst, t: apis[inst["servername"]])
-cfg = {"cache_path": f"{base}/pool", "array_path": f"{base}/user0", "user_path": f"{base}/user", "array_disks_glob": f"{base}/disk[0-9]*",
-       "api_timeout": 1, "movie_mode": "folder", "max_resume_movies": 10, "max_resume_series": 10, "max_favorite_series": 0, "use_next_up": False,
-       "number_episodes": 2, "max_episodes_per_series": 0, "movie_share_percent": 50, "cache_budget_bytes": 10000,
-       "valid_users": [], "user_budgets": {"j-anna": 5000},
-       "instances": [{"servername": n, "_mappings": {"/m": f"{base}/user"}, "_skip": []} for n in ("Emby", "Jelly")]}
-p = r.Planner(cfg)
-files = p.run()
-anna = p.users[r.person_key("Anna")]
-print(json.dumps({"people": sorted(u.name for u in p.users.values()), "anna_uids": anna.uids, "anna_servers": anna.servers,
-                  "anna_movies": [g.title for g in anna.movies], "files": sorted(str(f.rel) for f in files), "anna_budget": anna.budget,
-                  "keys": sorted(p.users)}))
-PY);
-    [$exit, $out, $err] = runEnv(['python3', '-I', "$tmp/t.py", OFFICE_DIR . '/mediacache', "$tmp/tree"], ['PYTHONDONTWRITEBYTECODE' => '1'], 60);
-    $r = json_decode((string) preg_replace('/^.*\n/s', '', trim($out)), true);
-    same('persons: «Anna» on Emby and « ánna» on Jellyfin are one person (both ids, both servers), Leo another',
-        [['Anna', 'Leo'], ['e-anna', 'j-anna'], ['Emby', 'Jelly'], ['p:anna', 'p:leo']], [$r['people'] ?? null, $r['anna_uids'] ?? null, $r['anna_servers'] ?? null, $r['keys'] ?? null], $out . $err);
-    same('persons: the film both servers name once in her plan, every file once; her own budget found under her Jellyfin id',
-        [['A'], ['Filme/A/a.mkv', 'Filme/B/b.mkv', 'Serien/S/S01/e1.mkv', 'Serien/S/S01/e2.mkv'], 5000],
-        [$r['anna_movies'] ?? null, $r['files'] ?? null, (int) ($r['anna_budget'] ?? 0)]);
+    // the planner's part (one person over several servers, one budget under any of their ids, an item two servers name once): testJackPlan
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.js');
     check('persons: his page groups people the same way (name ignoring case, spaces, accents) and sends the groups',
         str_contains($js, "function personKey(name)") && str_contains($js, "people: chosenPersons().map((p) => p.ids)"));
-    hardeningRm($tmp);
 }
 
 /**
@@ -4447,35 +3882,11 @@ PY);
  */
 function testJackNotInBudget(): void
 {
-    if (!needsPython(__FUNCTION__)) {
-        return;
-    }
     $tmp = hardeningTmp('jack-not-in-budget');
-    $py = 'import sys, json; sys.path.insert(0, sys.argv[1]); import mediacache_run as r
-from types import SimpleNamespace as N
-G = 2**30
-def g(cat, size, *rels): return N(category=cat, size=size * G, files=[N(rel=x) for x in rels])
-p = r.Planner({"cache_budget_bytes": 100 * G, "movie_share_percent": 50, "user_budgets": {}})
-big = g("movie", 25, "Filme/Big/big.mkv", "Filme/Big/big.srt")
-p.users = {"a": N(key="a", name="Anna", skipped=[big, g("series", 2, "S/e5.mkv"), g("series", 2, "S/e6.mkv"), g("movie", 4, "Filme/Taken/t.mkv")]),
-           "b": N(key="b", name="Ben", skipped=[g("movie", 25, "Filme/Big/big.srt", "Filme/Big/big.mkv")])}
-p.files = {"Filme/Taken/t.mkv": object()}
-q = r.Planner({"cache_budget_bytes": 0, "movie_share_percent": 50, "user_budgets": {}})
-print(json.dumps([p.not_in_budget(), q.not_in_budget()]))';
-    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $tmp, 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
-    $nib = json_decode((string) preg_replace('/^.*\n/s', '', trim($out)), true) ?? trim($err);
-    $persons = is_array($nib) ? ($nib[0]['persons'] ?? null) : null;
-    if (is_array($nib) && is_array($nib[0] ?? null)) {
-        unset($nib[0]['persons']);
-    }
-    same('not in budget (engine): the big film both want once, two episodes; the film another\'s budget takes not counted; no budget mode — none',
-        [0, [['items' => 3, 'films' => 1, 'episodes' => 2, 'bytes' => 29 * 2 ** 30], null]], [$exit, $nib]);
-    // 2026-10-29: per person — the big film both want at each of them
-    same('not in budget (engine): per person — the big film at Anna and at Ben, Anna\'s episodes hers alone',
-        [['name' => 'Anna', 'items' => 3, 'films' => 1, 'episodes' => 2, 'bytes' => 29 * 2 ** 30], ['name' => 'Ben', 'items' => 1, 'films' => 1, 'episodes' => 0, 'bytes' => 25 * 2 ** 30]], $persons);
-    $src = (string) file_get_contents(JACK_APP . '/mediacache_run.py');
-    check('not in budget (engine): written into the result file after the plan, marked USO, in the README\'s list',
-        str_contains($src, 'self.result["not_in_budget"] = nib') && str_contains((string) file_get_contents(JACK_APP . '/README.md'), '`not_in_budget`'));
+    // the planner's part (each entry once, per person, none another's budget takes, none outside the budget mode): testJackPlan
+    $src = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-run.php');
+    check('not in budget (engine): written into the result file after the plan, in the README\'s list',
+        str_contains($src, "\$this->result['not_in_budget'] = \$d['not_in_budget'];") && str_contains((string) file_get_contents(JACK_APP . '/README.md'), '`not_in_budget`'));
 
     $node = testsNode();
     if ($node === '') {
@@ -4518,92 +3929,45 @@ JS);
     hardeningRm($tmp);
 }
 
+/**
+ * helmi1987's 9d14374 in the office's MediaCache (now its PHP port, jack-plan.php): a number setting that is no number is a
+ * ConfigError naming both settings (never a crash), from the file or the environment; a fixed per-user budget found by the user's
+ * id also on a server whose name has a «:»; the way back MediaCache's own. The rest of the upstream fixes (an incomplete plan never
+ * «nothing watched», Plex's users, the films' share of a budget): testJackPlan.
+ */
 function testJackUpstream(): void
 {
-    if (!needsPython(__FUNCTION__)) {
-        return;
-    }
     $tmp = hardeningTmp('jackupstream');
     @mkdir("$tmp/emby", 0700, true);
     @mkdir("$tmp/pool", 0700, true);
     $inst = [['servername' => 'Emby: Home', 'url' => 'http://192.168.20.10:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media/Filme' => '/mnt/user/Filme']]];
     $cfg = fn (array $x) => json_encode(['cache_path' => "$tmp/pool", 'array_path' => $tmp, 'instances' => $inst] + $x, JSON_UNESCAPED_SLASHES);
-    $load = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l
-try:
-    c = l.load_config(require_paths=False); print("ok", repr(c["min_free_percent"]), repr(c["mover_debug_level"]), c["cleanup_tool"])
-except l.ConfigError as e:
-    print("config", e)';
-    $run = function (array $settings, array $env = []) use ($tmp, $cfg, $load): string {
+    $run = function (array $settings, array $env = []) use ($tmp, $cfg): string {
         file_put_contents("$tmp/emby/mediacache_settings.json", $cfg($settings));
-        [$exit, $out, $err] = runEnv(['python3', '-c', $load, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"] + jackPyEnv() + $env, 30);
-        return $exit . ' ' . (trim($out) ?: trim($err));
+        try {
+            $c = jackPlanConfig("$tmp/emby/mediacache_settings.json", array_map('strval', jackRunEnv() + $env), false);
+            return 'ok ' . var_export([$c['min_free_percent'], $c['mover_debug_level'], $c['cleanup_tool']], true);
+        } catch (JackPlanConfigError $e) {
+            return 'config ' . $e->getMessage();
+        } catch (Throwable $e) {
+            return 'crash ' . get_class($e) . ': ' . $e->getMessage();
+        }
     };
-    same('emby upstream 9d14374: numbers read as numbers, the way back MediaCache\'s own', '0 ok 20.0 0 mover', $run([]));
-    same('emby upstream 9d14374: … from the environment too', '0 ok 12.5 2 mover', $run([], ['MEDIACACHE_MIN_FREE_PERCENT' => '12.5', 'MEDIACACHE_MOVER_DEBUG' => '2']));
+    same('emby upstream 9d14374: numbers read as numbers, the way back MediaCache\'s own', 'ok ' . var_export([20.0, 0, 'mover'], true), $run([]));
+    same('emby upstream 9d14374: … from the environment too', 'ok ' . var_export([12.5, 2, 'mover'], true), $run([], ['MEDIACACHE_MIN_FREE_PERCENT' => '12.5', 'MEDIACACHE_MOVER_DEBUG' => '2']));
     $bad = [$run(['min_free_percent' => 'viel']), $run([], ['MEDIACACHE_MOVER_DEBUG' => 'x']), $run(['mover_debug_level' => null])];
-    check('emby upstream 9d14374: no number (file, environment, null) — a ConfigError naming both settings, no traceback',
-        count(array_filter($bad, fn ($o) => str_starts_with($o, '0 config min_free_percent muss eine Zahl') && !str_contains($o, 'Traceback'))) === 3, implode("\n", $bad));
-    // the budget: a server named «Emby: Home», user u1 with a fixed 5 GB of a 100 GB budget; before, «Home:u1» was looked up
-    $plan = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_run as r
-p = r.Planner({"cache_budget_bytes": 100 * 2**30, "movie_share_percent": 50, "user_budgets": {"u1": 5 * 2**30}})
-for key, uid in (("Emby: Home:u1", "u1"), ("Emby: Home:u2", "u2")):
-    u = r.UserPlan(key, uid, uid, "Emby: Home"); u.movies = ["x"]; p.users[key] = u
-def select(u, cap, share):
-    u.budget, u.bytes, u.exhausted = cap, 0, False
-p.select = select
-p.apply_budget()
-print(" ".join(str(int(p.users[k].budget // 2**30)) for k in ("Emby: Home:u1", "Emby: Home:u2")))';
-    [$exit, $out, $err] = runEnv(['python3', '-c', $plan, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"], 30);
-    same('emby upstream 9d14374: a fixed budget found by the user id on a server whose name has «:» (u1 5 GB, u2 the other 95)', [0, '5 95'], [$exit, preg_replace('/^.*\n/s', '', trim($out)) ?: trim($err)]);
-    // review #3/#6 (2026-10-15): plex.tv not reachable for a claimed Plex, or an answer without an item list — an incomplete
-    // plan (no cleanup), never «nothing watched»; an unclaimed Plex has only its admin (complete)
-    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l
-def run(state):
-    p = l.PlexApi("http://127.0.0.1:1", "tok")
-    def req(full, token, accept_json=True): raise RuntimeError("HTTP 401 bei /api/v2/user")
-    p._request = req
-    p.get = lambda path, token=None, **k: {"myPlexSigninState": state, "machineIdentifier": "m"}
-    return [u["Id"] for u in p.users()], p.users_incomplete
-e = l.MediaServerApi("http://127.0.0.1:1", "k")
-e.get = lambda path, **k: {"TotalRecordCount": 0}
-try:
-    e.items("/Users/u/Items/Resume"); bad = "no error"
-except RuntimeError as x:
-    bad = str(x)
-print(run("none"), run("ok"), bad)';
-    [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby", 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
-    // Tower 2026-10-16: only the friend chosen (valid_users) and plex.tv not reachable — the run had given back everything
-    $py2 = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l, mediacache_run as r
-class Fake:
-    users_incomplete = True
-    def users(self): return [{"Id": "admin", "Name": "Admin"}]
-r.MediaServerApi.for_instance = classmethod(lambda cls, inst, t: Fake())
-p = r.Planner({"cache_budget_bytes": 0, "valid_users": ["2902501"], "api_timeout": 1,
-               "instances": [{"servername": "Plex", "type": "plex", "_mappings": {}, "_skip": []}]})
-p.plan_instance = lambda inst, uids: None
-p.run()
-print(p.errors)';
-    [$exit2, $out2, $err2] = runEnv(['python3', '-c', $py2, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby", 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
-    same('upstream fixes: chosen people on a Plex whose shared users plex.tv didn\'t give — an incomplete plan (no cleanup), never «not here»',
-        [0, '1'], [$exit2, preg_replace('/^.*\n/s', '', trim($out2)) ?: trim($err2)]);
-    same('upstream fixes: Plex users — unclaimed complete, claimed without plex.tv incomplete; an answer without items an error',
-        [0, "(['admin'], False) (['admin'], True) Ungültige Antwort von /Users/u/Items/Resume"], [$exit, trim($out) ?: trim($err)]);
-    // nostromo 2026-10-16: budget 200 → 300 GB, a 25 GB started film came first and took a person's 30 GB — the films' share
-    // (20 %) holds while there are episodes; the rest of the budget afterwards as before (an empty kind gives its room)
-    $sel = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_run as r
-from types import SimpleNamespace as N
-G = 2**30
-def g(cat, size, chain, t): return N(category=cat, size=size * G, chain=chain, title=t)
-def run(movies, series, budget, share):
-    up = N(movies=movies, series=series)
-    r.Planner.select(up, budget * G, share)
-    return [round(up.movie_bytes / G), round(up.series_bytes / G), "Big" in [x.title for x in up.selected]]
-mv = [g("movie", 25, "m1", "Big"), g("movie", 3, "m2", "Small")]
-se = [g("series", 1, "s%d" % (i % 2), "E%d" % i) for i in range(30)]
-print(run(mv, se, 30, 0.2), run(mv, [], 30, 0.2), run([g("movie", 25, "m1", "Big")], se[:3], 30, 0.2))';
-    [$exitS, $outS, $errS] = runEnv(['python3', '-c', $sel, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby", 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
-    same('budget share: a big film first no longer takes the person\'s whole budget while episodes wait (films 3 GB, series 27 GB, the 25 GB film out); only films — they get the room; few episodes — the film gets the rest',
-        [0, '[3, 27, False] [28, 0, True] [25, 3, True]'], [$exitS, trim($outS) ?: trim($errS)]);
+    check('emby upstream 9d14374: no number (file, environment, null) — a ConfigError naming both settings, never a crash',
+        count(array_filter($bad, fn ($o) => str_starts_with($o, 'config min_free_percent muss eine Zahl'))) === 3, implode("\n", $bad));
+    // the budget: a server named «Emby: Home», user u1 with a fixed 5 GB of a 100 GB budget (before, «Home:u1» was looked up)
+    $p = new JackPlanner(['cache_budget_bytes' => 100 * 2 ** 30, 'movie_share_percent' => 50, 'user_budgets' => ['u1' => 5 * 2 ** 30]], jackPlanTestTape("$tmp/t.jsonl", []));
+    foreach (['u1', 'u2'] as $uid) {
+        $u = new JackPlanUser("Emby: Home:$uid", $uid, $uid, 'Emby: Home');
+        $u->movies = [new JackPlanGroup([new JackPlanFile("Filme/$uid.mkv", 200 * 2 ** 30, false, "Emby: Home:$uid", 'resume', $uid, 0, "i|$uid")], 'movie', "m$uid", 'Weiterschauen', null, $uid)];
+        $p->users["Emby: Home:$uid"] = $u;
+    }
+    $p->applyBudget();
+    same('emby upstream 9d14374: a fixed budget found by the user id on a server whose name has «:» (u1 5 GB, u2 the other 95)', [5, 95],
+        array_map(fn (string $k): int => (int) ((float) $p->users[$k]->budget / 2 ** 30), ['Emby: Home:u1', 'Emby: Home:u2']));
     check('upstream: the README names MediaCache\'s commit taken and the office\'s changes, GPL', str_contains($readme = (string) file_get_contents(JACK_APP . '/README.md'), '`2a91ef1`')
         && str_contains($readme, 'Changes against 2a91ef1') && str_contains($readme, 'GPL-3.0-or-later') && is_file(JACK_APP . '/LICENSE'));
     exec('rm -rf ' . escapeshellarg($tmp));
@@ -4952,16 +4316,10 @@ function testJackProgress(): void
     same('progress: his desk.json asks the part «progress» from the agent', ['refresh_after' => 5, 'action' => 'progress'],
         officeDeskParts(json_decode((string) file_get_contents(OFFICE_WEB . '/desks/jack/desk.json'), true)['parts'] ?? null)['progress'] ?? null);
 
-    // EmbyCache itself: a stand-in Emby (Benj resumes «Alien», Kids «Brazil»), one old file going back, a stand-in rsync
-    // that notes the progress file before each copy
-    [$exit] = run(['python3', '--version'], 10);
-    if ($exit !== 0) {
-        check('progress: python3 is missing here - skipped', true);
-        hardeningRm($tmp);
-        return;
-    }
+    // MediaCache's run itself (jack-run.php): a stand-in Emby (Benj resumes «Alien», Kids «Brazil»), one old file going back, a
+    // stand-in rsync that notes the progress file before each copy
     $py = "$tmp/py";
-    foreach (["$py/data", "$py/run", "$py/pool/Filme/Old", "$py/user0/Filme/Alien", "$py/user0/Filme/Brazil", "$py/user/Filme", "$py/shares", "$py/bin"] as $d) {
+    foreach (["$py/data", "$py/run", "$py/pool/Filme/Old", "$py/user0/Filme/Alien", "$py/user0/Filme/Brazil", "$py/user/Filme", "$py/shares", "$py/bin", "$py/www"] as $d) {
         @mkdir($d, 0700, true);
     }
     file_put_contents("$py/pool/Filme/Old/old.mkv", str_repeat('o', 1500));
@@ -4969,57 +4327,56 @@ function testJackProgress(): void
     file_put_contents("$py/user0/Filme/Alien/Alien.srt", str_repeat('s', 10));
     file_put_contents("$py/user0/Filme/Brazil/Brazil.mkv", str_repeat('b', 2000));
     file_put_contents("$py/data/mediacache_exclude.txt", "$py/pool/Filme/Old/old.mkv\n");
-    file_put_contents("$py/emby.py", <<<'PY'
-import http.server, json, sys, urllib.parse
-RESUME = {"u1": [{"Type": "Movie", "Id": "m1", "Name": "Alien", "Path": "/media/movies/Alien/Alien.mkv"}],
-          "u2": [{"Type": "Movie", "Id": "m2", "Name": "Brazil", "Path": "/media/movies/Brazil/Brazil.mkv"}]}
-class H(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        u = urllib.parse.urlparse(self.path)
-        q = urllib.parse.parse_qs(u.query)
-        if u.path == "/Users":
-            body = [{"Id": "u1", "Name": "Benj"}, {"Id": "u2", "Name": "Kids"}]
-        elif u.path == "/Sessions":
-            body = []
-        elif u.path.endswith("/Items/Resume"):
-            body = {"Items": RESUME.get(u.path.split("/")[2], []) if q.get("IncludeItemTypes") == ["Movie"] else []}
-        else:
-            body = {"Items": []}
-        b = json.dumps(body).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(b)))
-        self.end_headers()
-        self.wfile.write(b)
-    def log_message(self, *a):
-        pass
-s = http.server.HTTPServer(("127.0.0.1", 0), H)
-open(sys.argv[1] + ".tmp", "w").write(str(s.server_address[1]))
-import os; os.replace(sys.argv[1] + ".tmp", sys.argv[1])
-s.serve_forever()
-PY);
-    $emby = proc_open(['python3', "$py/emby.py", "$py/port"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', "$py/emby.err", 'w']], $pipes);
-    for ($i = 0; $i < 50 && !is_file("$py/port"); $i++) {
+    file_put_contents("$py/emby.php", <<<'EMBY'
+<?php
+$resume = ['u1' => [['Type' => 'Movie', 'Id' => 'm1', 'Name' => 'Alien', 'Path' => '/media/movies/Alien/Alien.mkv']],
+           'u2' => [['Type' => 'Movie', 'Id' => 'm2', 'Name' => 'Brazil', 'Path' => '/media/movies/Brazil/Brazil.mkv']]];
+$path = (string) parse_url((string) $_SERVER['REQUEST_URI'], PHP_URL_PATH);
+parse_str((string) parse_url((string) $_SERVER['REQUEST_URI'], PHP_URL_QUERY), $q);
+if ($path === '/Users') {
+    $body = [['Id' => 'u1', 'Name' => 'Benj'], ['Id' => 'u2', 'Name' => 'Kids']];
+} elseif ($path === '/Sessions') {
+    $body = [];
+} elseif (str_ends_with($path, '/Items/Resume')) {
+    $body = ['Items' => ($q['IncludeItemTypes'] ?? '') === 'Movie' ? ($resume[explode('/', $path)[2] ?? ''] ?? []) : []];
+} else {
+    $body = ['Items' => []];
+}
+header('Content-Type: application/json');
+echo json_encode($body);
+EMBY);
+    $sock = stream_socket_server('tcp://127.0.0.1:0');
+    $port = (int) substr((string) strrchr((string) stream_socket_get_name($sock, false), ':'), 1);
+    fclose($sock);
+    $emby = proc_open([PHP_BINARY, '-S', "127.0.0.1:$port", '-t', "$py/www", "$py/emby.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', "$py/emby.err", 'w']], $pipes);
+    for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
         usleep(100000);
     }
-    $port = (int) @file_get_contents("$py/port");
     file_put_contents("$py/data/mediacache_settings.json", json_encode(['cache_path' => "$py/pool", 'array_path' => "$py/user0", 'user_path' => "$py/user",
         'array_disks_glob' => "$py/disk[0-9]*", 'cleanup_tool' => 'rsync', 'fill_tool' => 'rsync', 'return_to_origin' => true, 'shares_cfg_dir' => "$py/shares",
         'api_timeout' => 3, 'min_free_percent' => 0, 'max_resume_movies' => 10, 'max_resume_series' => 0, 'max_favorite_series' => 0, 'use_next_up' => false,
         'instances' => [['servername' => 'Test', 'url' => "http://127.0.0.1:$port", 'api_key' => 'k', 'path_mappings' => ['/media/movies' => "$py/user/Filme"]]]],
         JSON_UNESCAPED_SLASHES));
     $rsync = trim((string) shell_exec('command -v rsync'));
-    file_put_contents("$py/bin/rsync", "#!/bin/bash\ncat \"\$MEDIACACHE_PROGRESS\" >> " . escapeshellarg("$py/seen.jsonl") . "\nexec " . escapeshellarg($rsync) . " \"\$@\"\n");
+    // named by MEDIACACHE_RSYNC (PHP's proc_open on Linux never finds a stand-in first in PATH); macOS's openrsync starts its receiving half
+    // as «rsync --server …» through PATH — should that ever reach the stand-in, it is no copy of its own and notes nothing
+    file_put_contents("$py/bin/rsync", "#!/bin/bash\n[ \"\$1\" = --server ] && exec " . escapeshellarg($rsync) . " \"\$@\"\n"
+        . "r=n; [ -r \"\$MEDIACACHE_PROGRESS\" ] && r=y\nprintf '%s | progress=%s readable=%s uid=%s\\n' \"\$*\" \"\$MEDIACACHE_PROGRESS\" \"\$r\" \"\$(id -u)\" >> " . escapeshellarg("$py/calls.log") . "\n"
+        . "cat \"\$MEDIACACHE_PROGRESS\" >> " . escapeshellarg("$py/seen.jsonl") . "\nexec " . escapeshellarg($rsync) . " \"\$@\"\n");
     chmod("$py/bin/rsync", 0755);
-    $env = ['env', "PATH=$py/bin:" . getenv('PATH'), "MEDIACACHE_DIR=$py/data", "MEDIACACHE_RESULT=$py/data/status.json", "MEDIACACHE_PROGRESS=$py/run/progress.json",
-            'MEDIACACHE_FILL_TOOL=rsync', 'MEDIACACHE_CLEANUP_TOOL=rsync', 'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/mediacache/mediacache_run.py'];
+    $env = ['env', "MEDIACACHE_RSYNC=$py/bin/rsync", "MEDIACACHE_DIR=$py/data", "MEDIACACHE_RESULT=$py/data/status.json", "MEDIACACHE_PROGRESS=$py/run/progress.json",
+            'MEDIACACHE_FILL_TOOL=rsync', 'MEDIACACHE_CLEANUP_TOOL=rsync', PHP_BINARY, OFFICE_DIR . '/agent/desks/jack-run.php'];
     [$exit, $out, $err] = run($env, 120);
-    same('progress, EmbyCache dry run: no progress file (only real runs)', [0, false], [$exit, is_file("$py/run/progress.json")]);
+    same('progress, MediaCache dry run: no progress file (only real runs)', [0, false], [$exit, is_file("$py/run/progress.json")]);
     [$exit, $out, $err] = run(array_merge($env, ['--run']), 120);
     proc_terminate($emby);
     proc_close($emby);
     $st = readJson("$py/data/status.json") ?? [];
-    same('progress, EmbyCache real run: ok, 1 back, 3 onto the pool', [0, 'ok', 1, 3], [$exit, $st['result'] ?? null, $st['cleanup']['done'] ?? null, $st['fill']['done'] ?? null]);
+    same('progress, EmbyCache real run: ok, 1 back, 3 onto the pool', [0, 'ok', 1, 3], [$exit, $st['result'] ?? null, $st['cleanup']['done'] ?? null, $st['fill']['done'] ?? null], $out . $err);
+    $calls = file("$py/calls.log", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    same('progress, EmbyCache: the stand-in rsync ran for each copy (1 back, 3 fill), the progress file readable each time', [4, 4],
+        [count($calls), count(array_filter($calls, fn ($l) => str_contains($l, ' readable=y ')))],
+        "calls: " . implode("\n", $calls) . "\nstand-in: " . (is_executable("$py/bin/rsync") ? 'executable' : 'NOT executable') . ", then $rsync, PHP " . PHP_VERSION . "\n" . $out . $err);
     $seen = array_values(array_filter(array_map(fn ($l) => json_decode($l, true), file("$py/seen.jsonl", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [])));
     $at = array_map(fn ($s) => [$s['phase'] ?? null, $s['current']['rel'] ?? null, $s['current']['user'] ?? null, $s['current']['source'] ?? null,
         $s['current']['title'] ?? null, $s['current']['target'] ?? null], $seen);
@@ -10383,15 +9740,12 @@ function testDataTrust(): void
     if ($ram !== null) {
         @unlink($ram);
     }
-    // EmbyCache: rsync's options the office's, whatever its settings file says
+    // MediaCache: rsync's options the office's, whatever its settings file says
     @mkdir("$tmp/emby", 0700);
     file_put_contents("$tmp/emby/mediacache_settings.json", json_encode(['cache_path' => $tmp, 'array_path' => $tmp, 'rsync_args' => ['-a', '--log-file=/boot/config/go'],
         'instances' => [['servername' => 'E', 'url' => 'http://192.0.2.1:8096', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media' => '/mnt/user/Media']]]]));
-    if (needsPython(__FUNCTION__, 'EmbyCache\'s rsync options')) {
-        [, $out] = runEnv(['python3', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; print(json.dumps(l.load_config(require_paths=False)["rsync_args"]))', JACK_APP],
-            ['MEDIACACHE_DIR' => "$tmp/emby"] + jackPyEnv(), 30);
-        same('data trust: EmbyCache\'s rsync options are the office\'s (a settings file can\'t add --log-file)', ['-aAX', '--numeric-ids'], json_decode(trim($out), true));
-    }
+    same('data trust: MediaCache\'s rsync options are the office\'s (a settings file can\'t add --log-file)', ['-aAX', '--numeric-ids'],
+        jackPlanConfig("$tmp/emby/mediacache_settings.json", array_map('strval', ['MEDIACACHE_DIR' => "$tmp/emby"] + jackRunEnv()), false)['rsync_args']);
     check('data trust: the .plg says «Jack Streamer», never «Jack Emby»', !str_contains($src('plugin/unraid-secretary-office.plg'), 'Jack Emby'));
     check('data trust: the guide says a partner\'s copy is trusted like your own backup', str_contains($src('docs/GUIDE.md'), "trusts that partner like your own backup"));
     exec('rm -rf ' . escapeshellarg($tmp));
@@ -25067,9 +24421,9 @@ function testHostShell(): void
     }
     ksort($sites);
     same('host shell: the sites on the host and their shapes (HARDENING.md «Commands»)', [
-        'advisor.php' => ['constant'], 'agent.php' => ['wrapper'], 'backup.php' => ['value $script'], 'logs-diskwakes.php' => ['wrapper'],
+        'advisor.php' => ['constant'], 'agent.php' => ['wrapper'], 'backup.php' => ['value $script'],
         'logs-flood.php' => ['wrapper'], 'logs.php' => ['wrapper'], 'report.php' => ['literal'], 'restore-dataset.php' => ['literal'],
-        'watchman.php' => ['wrapper', 'wrapper']], $sites);
+        'watchman-diskwakes.php' => ['wrapper'], 'watchman.php' => ['wrapper', 'wrapper']], $sites);
 
     // the one script built from values: every value through escapeshellarg (the wait is an int, the command's words are each escaped)
     $backup = (string) file_get_contents(OFFICE_DIR . '/agent/desks/backup.php');
@@ -29055,17 +28409,10 @@ function testJackPaths(): void
               ['/media/../x', '/mnt/user/Filme'], ['/media', '/mnt/cache/Filme'], ['/media', "/mnt/user/Filme\n"], ['/media', '/mnt/user/']] as [$from, $to]) {
         check('mapping refused: ' . json_encode([$from, $to]), !jackMappingOk($from, $to));
     }
-    [$exit] = run(['python3', '--version'], 10);
-    if ($exit !== 0) {
-        return;                                    // no Python on this server: EmbyCache can't run here either
-    }
-    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; '
-        . 'loc = l.Locations({"cache_path": "/mnt/cache", "array_path": "/mnt/user0", "user_path": "/mnt/user", "array_disks_glob": "/mnt/disk[0-9]*"}, '
-        . '{"/media/movies": "/mnt/user/Filme"}); '
-        . 'print(loc.rel_from_docker("/media/movies/A/a.mkv"), loc.rel_from_docker("/media/movies/../../../../boot/config/go"), '
-        . 'loc.rel_from_docker("/media/movies/A/../../Other/x"))';
-    [$exit, $out] = run(['env', 'MEDIACACHE_DIR=' . sys_get_temp_dir(), 'PYTHONDONTWRITEBYTECODE=1', 'python3', '-c', $py, OFFICE_DIR . '/mediacache'], 30);
-    same('EmbyCache: paths with ".." are skipped', 'Filme/A/a.mkv None None', trim($out));
+    $loc = new JackPlanLocations(['cache_path' => '/mnt/cache', 'array_path' => '/mnt/user0', 'user_path' => '/mnt/user', 'array_disks_glob' => '/mnt/disk[0-9]*'],
+        [['/media/movies', '/mnt/user/Filme']]);
+    same('MediaCache: paths with ".." are skipped', ['Filme/A/a.mkv', null, null],
+        [$loc->relFromDocker('/media/movies/A/a.mkv'), $loc->relFromDocker('/media/movies/../../../../boot/config/go'), $loc->relFromDocker('/media/movies/A/../../Other/x')]);
 }
 
 /** Validators end at the end of the string: "$" alone would let a trailing newline through into a name, a file or a command */
@@ -33519,12 +32866,10 @@ function testMigrateMediaCache(): void
     same('mediacache: Jack reads it as set up (one Emby server, budget mode)', [true, 'emby', 'tower-emby'],
         [jackConfigured($r = jackReadSettings($new)), $r['instances'][0]['type'] ?? null, $r['instances'][0]['servername'] ?? null]);
     // MediaCache itself takes the migrated file (load_config, the paths not asked)
-    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(require_paths=False); '
-        . 'i = c["instances"][0]; print(i["type"], sorted(i["_mappings"]), i["_skip"])';
-    if (needsPython(__FUNCTION__, 'MediaCache loads them')) {
-        [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $new, 'PYTHONDONTWRITEBYTECODE' => '1'], 30);
-        same('mediacache: MediaCache loads the migrated settings', [0, "emby ['/mnt/media/Familienfilme'] ['/mnt/media/Privat']"], [$exit, trim($out) ?: trim($err)]);
-    }
+    $c = jackPlanConfig("$new/mediacache_settings.json", ['MEDIACACHE_DIR' => $new], false);
+    $i = $c['instances'][0] ?? [];
+    same('mediacache: MediaCache loads the migrated settings', ['emby', ['/mnt/media/Familienfilme'], ['/mnt/media/Privat']],
+        [$i['type'] ?? null, array_column($i['_mappings'] ?? [], 0), $i['_skip'] ?? null]);
 
     // again (a downgrade and back): nothing more; a crash after the copy: the old one only put aside
     same('mediacache: done once — again nothing', 'nothing to change (Jack Streamer had no EmbyCache folder here)', officeMigrateMediaCache($d, '1.65.0'));
@@ -33582,6 +32927,89 @@ function testMigrateJackId(): void
     officeMigrateJackId($tmp, '1.63.0');
     same('jack id: never over a jack.json there — the old one only put aside', ['{"configured":true}', true], [@file_get_contents("$tmp/jack.json"), is_file("$tmp/emby.json.before-1.63.0-2") || count(glob("$tmp/emby.json.before-*")) === 2]);
     hardeningRm($tmp);
+}
+
+/**
+ * «Who woke my disks?» moved from Ms. Protocolli to the Night Watchman (2026-11-22): the step `wakes-watchman` takes her
+ * data/logs-wakes.json over as his data/watchman/wakes.json (and the sampler's memory in RAM), merges when both are
+ * there (a downgrade and back), keeps hers aside, never follows a link, a second run changes nothing; his reader reads
+ * what it made. And the desks stand alone: no desk file requires another desk's file, no shared library a desk's; her
+ * files carry no wake code, her strings only the one sentence that says where it went.
+ */
+function testMigrateWakes(): void
+{
+    check('wakes: a step of the agent\'s migrations, after cleanup-flash-cache',
+        ($ids = array_column(officeMigrateSteps(), 'id')) && array_search('wakes-watchman', $ids, true) > array_search('cleanup-flash-cache', $ids, true));
+    same('wakes: the step\'s names are his reader\'s', [WATCH_WAKE_FILE, WATCH_WAKE_MEM], [OFFICE_MIGRATE_WAKES[1], OFFICE_MIGRATE_WAKES_MEM_NEW]);
+    $tmp = hardeningTmp('wakes-migrate');
+    $d = "$tmp/data";
+    $r = "$tmp/run";
+    mkdir($d, 0700, true);
+    mkdir($r, 0700, true);
+    $w = fn (string $id, int $t, array $disks = ['disk1']): array => ['id' => $id, 'time' => $t, 'from' => $t - 8, 'disks' => $disks, 'how' => 'caught',
+        'who' => [['kind' => 'container', 'prog' => 'plex', 'sure' => 'sure', 'files' => ['/mnt/disk1/x']]], 'named' => true];
+    $old = ['v' => 1, 'since' => 1000, 'watch' => false, 'wakes' => [$w('aaaaaaaaaaaa', 2000), $w('bbbbbbbbbbbb', 3000, ['parity', 'disk2'])],
+            'totals' => ['disk1' => 5, 'disk2' => 1, 'parity' => 1], 'mine' => 'kept'];
+    file_put_contents("$d/logs-wakes.json", json_encode($old));
+    file_put_contents("$r/logs-wakes.json", '{"disks":{"disk1":{"dev":"sdb","asleep":true,"mount":"/mnt/disk1","since":1500}},"look":3500}');
+    $said = officeMigrateWakes($d, '1.95.6', $r);
+    same('wakes: her history is his now, as it was (unknown keys kept); hers put aside, never deleted', [$old, false, true],
+        [readJson("$d/watchman/wakes.json"), file_exists("$d/logs-wakes.json"), is_file("$d/logs-wakes.json.before-1.95.6")]);
+    same('wakes: the sampler\'s memory in RAM under his name (a wake across the update still counts)', [false, 'sdb'],
+        [file_exists("$r/logs-wakes.json"), readJson("$r/watchman-wakes.json")['disks']['disk1']['dev'] ?? null]);
+    check('wakes: said in the log', str_contains($said, 'logs-wakes.json → watchman/wakes.json (2 wakes') && str_contains($said, 'memory'), $said);
+    same('wakes: the second time changes nothing', 'nothing to change', officeMigrateWakes($d, '1.95.6', $r));
+    same('wakes: his reader reads it — the wakes, the counter, his switch as she had it', [2, ['disk1' => 5, 'disk2' => 1, 'parity' => 1], false, 1000],
+        [count(($k = watchmanWakesRead("$d/watchman/wakes.json"))['wakes']), $k['totals'], $k['watch'], $k['since']]);
+
+    // a downgrade and back: she counted again meanwhile, his file is there — merged, every wake once (his kept), the larger counter
+    $mine = ['v' => 1, 'since' => 1200, 'watch' => true, 'wakes' => [$w('aaaaaaaaaaaa', 2000, ['disk3']), $w('cccccccccccc', 4000)], 'totals' => ['disk1' => 3, 'disk3' => 2]];
+    file_put_contents("$d/watchman/wakes.json", json_encode($mine));
+    file_put_contents("$d/logs-wakes.json", json_encode($old));
+    $said = officeMigrateWakes($d, '1.95.6', $r);
+    $k = readJson("$d/watchman/wakes.json");
+    same('wakes: both there — merged by wake (his kept), counters the larger, the earlier since, his switch; hers aside again',
+        [['aaaaaaaaaaaa', 'bbbbbbbbbbbb', 'cccccccccccc'], ['disk3'], ['disk1' => 5, 'disk3' => 2, 'disk2' => 1, 'parity' => 1], 1000, true, true],
+        [array_column($k['wakes'], 'id'), $k['wakes'][0]['disks'], $k['totals'], $k['since'], $k['watch'], is_file("$d/logs-wakes.json.before-1.95.6-2")]);
+    check('wakes: … said as merged', str_contains($said, 'merged into'), $said);
+    $again = officeMigrateWakes($d, '1.95.6', $r);
+    same('wakes: … and nothing more the next time', 'nothing to change', $again);
+
+    // never through a link; no JSON left where it is
+    symlink("$tmp/elsewhere.json", "$d/logs-wakes.json");
+    file_put_contents("$tmp/elsewhere.json", json_encode($old));
+    same('wakes: a link stays a link, nothing read through it', [true, true], [str_contains(officeMigrateWakes($d, '1.95.6', $r), 'left alone (no plain file)'), is_link("$d/logs-wakes.json")]);
+    unlink("$d/logs-wakes.json");
+    file_put_contents("$d/logs-wakes.json", 'no json');
+    same('wakes: no JSON — left where it is, said', [true, 'no json'], [str_contains(officeMigrateWakes($d, '1.95.6', $r), 'left alone (no JSON)'), file_get_contents("$d/logs-wakes.json")]);
+    hardeningRm($tmp);
+
+    // each desk on its own (CLAUDE.md «The desks»: desks know each other only through shared libraries and links)
+    $cross = [];
+    foreach (glob(OFFICE_DIR . '/agent/desks/*.php') ?: [] as $f) {
+        $desk = strtok(basename($f, '.php'), '-');
+        preg_match_all("#require(?:_once)?\s+__DIR__\s*\.\s*'/([a-z]+)[-.][^']*'#", (string) file_get_contents($f), $m);
+        foreach ($m[1] as $other) {
+            if ($other !== $desk) {
+                $cross[] = basename($f) . " → $other";
+            }
+        }
+    }
+    foreach (glob(OFFICE_DIR . '/agent/lib/*.php') ?: [] as $f) {
+        if (preg_match("#require(?:_once)?\s+__DIR__\s*\.\s*'/\.\./desks/#", (string) file_get_contents($f))) {
+            $cross[] = basename($f) . ' → a desk';
+        }
+    }
+    same('wakes: no desk file requires another desk\'s, no shared library a desk\'s', [], $cross);
+    $logs = implode("\n", array_map('file_get_contents', [...(glob(OFFICE_DIR . '/agent/desks/logs*.php') ?: []), OFFICE_WEB . '/desks/logs/desk.js']));
+    same('wakes: Ms. Protocolli carries no wake code', [], array_values(array_unique(preg_match_all('/\b(?:watchmanWake\w*|procwho\w*|WATCH_WAKE_\w+|wakesView|wakesTile)\b/', $logs, $mm) ? $mm[0] : [])));
+    $keys = [];
+    foreach (['en', 'de', 'fr', 'it', 'es'] as $code) {
+        $keys[$code] = array_values(array_filter(array_keys(readJson(OFFICE_WEB . "/desks/logs/lang/$code.json") ?? []), fn ($k) => str_contains((string) $k, 'wakes')));
+    }
+    same('wakes: her strings — only the help line that says where it went, in every language', array_fill_keys(['en', 'de', 'fr', 'it', 'es'], ['help.wakes', 'help.wakes_moved']), $keys);
+    same('wakes: his switch is his action, the naming job his', [true, true, false, false], [isset(desks()['watchman']['actions']['wakes_watch']), isset(desks()['watchman']['jobs']['watchman-wake-name']),
+        isset(desks()['logs']['actions']['wakes_watch']), isset(desks()['logs']['jobs']['logs-wake-name'])]);
 }
 
 /**
@@ -35604,13 +35032,18 @@ const out = { registry: {}, marks: {} };
   O.current = null;
   out.unhired = O.search.find('jack').map((r) => [r.desk, r.hired]);
   out.full = O.search.find('partn').slice(0, 1);
+  // «Who woke my disks?» (the Night Watchman's since 1.95.6): every result for its words — desk, route, anchor
+  out.wakes = {};
+  for (const q of queries.wakes) out.wakes[q] = O.search.find(q).map((x) => [x.desk, x.route, x.anchor]);
   // written whole before the exit: to a pipe, process.exit() right after console.log() cuts the output at 64 KiB
   process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
 })().catch((e) => { process.stdout.write(JSON.stringify({ error: String(e && e.stack || e) }) + '\n', () => process.exit(1)); });
 JS);
     $queries = ['before' => ['Partn', 'Partnr', 'Pratner', 'Partner offices', 'Accueil', 'Empfang', 'xq'],
                 'after' => ['Partner offices', 'secretariats partenaires', 'Sécrétariats', 'Accueil', 'Empfang', 'Reception', 'recepcion', 'Recepción', 'größe', 'GRÖSSE', 'grosse', 'tem', 'Tean',
-                           'Orte auslassen', 'Leave places out', 'scanne']];
+                           'Orte auslassen', 'Leave places out', 'scanne'],
+                'wakes' => ['woke', 'Who woke my disks', 'spin up', 'disk wake-ups', 'geweckt', 'Disk-Weckungen', 'Wer hat meine Disks geweckt',
+                            'réveillé', 'réveils des disques', 'svegliato', 'risvegli dischi', 'despertó', 'despertares discos']];
     file_put_contents("$tmp/queries.json", json_encode($queries));
     $raw = (string) shell_exec(implode(' ', array_map('escapeshellarg', [$node, "$tmp/t.js", "$pub/assets/core.js", "$pub/desks", "$tmp/config.json",
         "$tmp/strings.json", "$tmp/words.json", "$tmp/queries.json"])) . ' 2>&1');
@@ -35633,8 +35066,7 @@ JS);
     $kinds = ['desk', 'section', 'tile', 'step', 'setting', 'help', 'guide'];
     // headed with T('…') but no place: the recovery sheet's own page (printed, not the office's); a partner office's tile
     // (from the state — a later phase of the search)
-    // jack: «The plan in PHP» only with its flag file (jack-shadow.php), never found by the search
-    $notPlaces = ['advisor' => ['sheet.repo', 'sheet.kopia'], 'restore' => ['pt.title'], 'jack' => ['shadow.title']];
+    $notPlaces = ['advisor' => ['sheet.repo', 'sheet.kopia'], 'restore' => ['pt.title']];
     $count = [];
     foreach (array_merge([''], $desks) as $d) {
         $list = $r['registry'][$d] ?? [];
@@ -35746,6 +35178,13 @@ JS);
     $u = $r['unhired'];
     check('search page: a desk not hired comes after the others, marked', $u !== [] && in_array(['jack', false], $u, true)
         && array_search(['jack', false], $u, true) >= count(array_filter($u, fn ($x) => $x[1])), json_encode($u));
+    // «Who woke my disks?» moved to the Night Watchman (2026-11-22): its words in all five languages lead to his tile's page
+    // first (#/watchman/wakes, its section), never to Ms. Protocolli any more
+    foreach ($r['wakes'] ?? [] as $q => $list) {
+        same("search page: «{$q}» opens the Night Watchman's «Who woke my disks?» first, nothing at Ms. Protocolli", [['watchman', '#/watchman/wakes'], []],
+            [array_slice($list[0] ?? [], 0, 2), array_values(array_filter($list, fn ($x) => ($x[0] ?? '') === 'logs'))]);
+    }
+    same('search page: every wake word was asked', 13, count($r['wakes'] ?? []));
     $f = $r['full'][0] ?? [];
     same('search page: a result says where (the desk, its page help), its kind, and goes there', ['caretaker', 'section', '#/caretaker/partner', 'partner.title', 'Partner-Sekretariate', true],
         [$f['desk'] ?? null, $f['kind'] ?? null, $f['route'] ?? null, $f['anchor'] ?? null, $f['label'] ?? null, $f['hired'] ?? null]);
@@ -35878,7 +35317,7 @@ function testSearchItems(): void
         'advisor' => ['time' => 1000, 'externals' => ['kopia' => ['there' => true, 'kind' => 'container', 'running' => true], 'fcp' => ['there' => false],
             'grafana' => ['there' => false, 'optional' => true, 'group' => 'monitoring'], 'syslogserver' => ['there' => false, 'kind' => 'setting', 'group' => 'network'],
             'bogus' => ['there' => true]]],
-        'jack' => ['time' => 1000, 'configured' => true, 'jack' => [[]], 'python' => '3.12', 'foreign' => [],
+        'jack' => ['time' => 1000, 'configured' => true, 'jack' => [[]], 'foreign' => [],
             'settings' => ['instances' => [['servername' => 'Wohnzimmer', 'url' => 'http://192.168.1.2:8096', 'api_key' => '0123456789abcdef0123456789abcdef']]],
             'shares' => [['share' => 'movies', 'fit' => 'ok']], 'history' => [['tool' => 'embycache', 'mode' => 'run', 'started' => 900, 'result' => 'ok', 'by' => 'schedule']]],
         'moverelli' => ['time' => 1000, 'configured' => true, 'shares' => [['share' => 'media', 'state' => 'moves', 'mode' => 'yes', 'from' => 'cache', 'to' => 'array']],
@@ -43272,7 +42711,7 @@ function testWatchmanHold(): void
             str_contains((string) file_get_contents(OFFICE_WEB . '/desks/watchman/desk.js'), "else if (x.kind === 'syslog') name = T('hold.syslog');"));
 
         // one process with more open files than a look reads: looked in part
-        for ($i = 0; $i <= LOGS_WAKE_FDS; $i++) {
+        for ($i = 0; $i <= PROCWHO_FDS; $i++) {
             symlink("/mnt/disk1/Fotos/f$i.jpg", "$tmp/proc-quiet/1/fd/" . ($i + 3));
         }
         $c = arrayholdLook($quiet, ['smb' => []]);
@@ -43323,14 +42762,41 @@ function testLogsFiltersPage(): void
         check('logs filters page: ran under node', false, $raw);
         return;
     }
-    check("logs filters page: her lists under node ({$r['pass']} checks)", $r['pass'] >= 61 && !$r['fail']);
+    check("logs filters page: her lists under node ({$r['pass']} checks)", $r['pass'] >= 54 && !$r['fail']);
     foreach ($r['fail'] as $f) {
         check('logs filters page: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
     }
 }
 
+/**
+ * The Night Watchman's «Who woke my disks?» on his page (tests/watchwakes.js under node — skipped where node is missing;
+ * it runs on the Mac as it is): his number tile, the section on a server without a spinning disk (one line, no switch,
+ * no bar), before his first look, a kept wake, an older messenger's state, the stub's wakes and a disk's row as a filter.
+ */
+function testWatchWakesPage(): void
+{
+    $node = testsNode();
+    if ($node === '') {
+        check('watchman wakes page: node is missing here - skipped', true);
+        return;
+    }
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg(OFFICE_DIR . '/tests/watchwakes.js') . ' '
+        . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' ' . escapeshellarg(OFFICE_WEB . '/desks/watchman/desk.js') . ' '
+        . escapeshellarg(OFFICE_DIR . '/tests/ui/states') . ' 2>&1');
+    $lines = array_values(array_filter(explode("\n", trim($raw))));
+    $r = json_decode((string) end($lines), true);
+    if (!is_array($r) || !isset($r['pass'], $r['fail'])) {
+        check('watchman wakes page: ran under node', false, $raw);
+        return;
+    }
+    check("watchman wakes page: his tile and section under node ({$r['pass']} checks)", $r['pass'] >= 11 && !$r['fail']);
+    foreach ($r['fail'] as $f) {
+        check('watchman wakes page: ' . ($f[0] ?? '?'), false, 'got ' . json_encode($f[1] ?? null) . ', want ' . json_encode($f[2] ?? null));
+    }
+}
+
 /*
- * «Who woke my disks?» (agent/desks/logs-diskwakes.php): only rotating disks of disks.ini (never the flash, an SSD or an
+ * «Who woke my disks?» (agent/desks/watchman-diskwakes.php): only rotating disks of disks.ini (never the flash, an SSD or an
  * NVMe; a pool's member by its pool), /proc/diskstats read; a fake /proc tree caught at a wake — a container's thread
  * waiting with a file on the disk (its own path taken back to the server's), smbd on a user share, a cron child, the
  * mover, the office's backup, a VM, a kernel thread left out — the surest first; the sampler over a disks.ini and
@@ -43338,20 +42804,20 @@ function testLogsFiltersPage(): void
  * a gap too long); the naming job (a container's name, Unraid's «read SMART» time, the cron lines due), the file's
  * tolerant reader and writer, the counter; and on a real /proc the capture's cost.
  */
-function testLogsWakes(): void
+function testWatchmanWakes(): void
 {
-    $tmp = hardeningTmp('logswakes');
+    $tmp = hardeningTmp('watchwakes');
     $keep = [$GLOBALS['disksIni'] ?? null, $GLOBALS['agentStaffFile'] ?? null];
-    $GLOBALS['logsWakesFile'] = "$tmp/logs-wakes.json";
-    $GLOBALS['logsWakeMemFile'] = "$tmp/mem.json";
-    $GLOBALS['logsWakeNamesFile'] = "$tmp/names.json";
-    $GLOBALS['logsWakeVarIni'] = "$tmp/var.ini";
-    $GLOBALS['logsWakeNoJob'] = true;
-    $GLOBALS['logsWakeSharesIni'] = "$tmp/shares.ini";          // none: a share's disks not known
-    $GLOBALS['logsWakeSys'] = "$tmp/sys";                        // none: no btrfs generation
+    $GLOBALS['watchmanWakesFile'] = "$tmp/logs-wakes.json";
+    $GLOBALS['watchmanWakeMemFile'] = "$tmp/mem.json";
+    $GLOBALS['watchmanWakeNamesFile'] = "$tmp/names.json";
+    $GLOBALS['watchmanWakeVarIni'] = "$tmp/var.ini";
+    $GLOBALS['watchmanWakeNoJob'] = true;
+    $GLOBALS['watchmanWakeSharesIni'] = "$tmp/shares.ini";          // none: a share's disks not known
+    $GLOBALS['watchmanWakeSys'] = "$tmp/sys";                        // none: no btrfs generation
     $GLOBALS['disksIni'] = "$tmp/disks.ini";
     $GLOBALS['agentStaffFile'] = "$tmp/staff.json";
-    file_put_contents("$tmp/staff.json", '{"hired":{"logs":{}}}');
+    file_put_contents("$tmp/staff.json", '{"hired":{"watchman":{}}}');
     file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
     $ini = function (array $sleep) use ($tmp): void {
         $d = fn (string $name, string $dev, string $type, string $rot, bool $asleep): string =>
@@ -43415,33 +42881,33 @@ function testLogsWakes(): void
     try {
         // the disks: rotating ones only, a pool's member by its pool, parity nowhere
         $ini(['disk1', 'disk2', 'cache2']);
-        same('logs wakes: the rotating disks of disks.ini — no SSD, NVMe, flash or empty slot; cache2 belongs to the pool cache', [
+        same('watchman wakes: the rotating disks of disks.ini — no SSD, NVMe, flash or empty slot; cache2 belongs to the pool cache', [
             'parity' => ['dev' => 'sdc', 'asleep' => false, 'mount' => null],
             'disk1'  => ['dev' => 'sdb', 'asleep' => true, 'mount' => '/mnt/disk1'],
             'cache'  => ['dev' => 'sdd', 'asleep' => false, 'mount' => '/mnt/cache'],
             'cache2' => ['dev' => 'sde', 'asleep' => true, 'mount' => '/mnt/cache'],
-        ], logsWakeDisks());
+        ], watchmanWakeDisks());
         file_put_contents("$proc/diskstats", "   8       0 sda 120 0 900 10 4 0 8 1 0 20 30 0 0 0 0\n   8      16 sdb 500 2 4000 90 70 0 560 40 1 300 130 0 0 0 0\n 259 0 nvme0n1 1 2 3 4 5 6 7 8 9 10 11\n");
-        same('logs wakes: /proc/diskstats — reads, writes, in flight per device', ['sda' => [120, 4, 0], 'sdb' => [500, 70, 1], 'nvme0n1' => [1, 5, 9]],
-            logsWakeDiskstats("$proc/diskstats"));
-        $GLOBALS['logsWakeProc'] = $proc;
+        same('watchman wakes: /proc/diskstats — reads, writes, in flight per device', ['sda' => [120, 4, 0], 'sdb' => [500, 70, 1], 'nvme0n1' => [1, 5, 9]],
+            watchmanWakeDiskstats("$proc/diskstats"));
+        $GLOBALS['watchmanWakeProc'] = $proc;
 
         // a capture: everybody waiting, the kernel's own threads left out
-        $c = logsWakeCapture($proc);
-        same('logs wakes: who waits in a capture (a thread is enough; kernel threads and sleepers left out)', [100, 200, 301, 500, 601, 700],
+        $c = watchmanWakeCapture($proc);
+        same('watchman wakes: who waits in a capture (a thread is enough; kernel threads and sleepers left out)', [100, 200, 301, 500, 601, 700],
             array_column($c['who'], 'pid'));
-        same('logs wakes: what each is — container (cgroup), smbd, cron (its command), VM (its guest name), mover, the office\'s backup', [
+        same('watchman wakes: what each is — container (cgroup), smbd, cron (its command), VM (its guest name), mover, the office\'s backup', [
             ['container', $plexId, ''], ['smb', '', ''], ['cron', '/usr/local/bin/fotos-sichern', ''], ['vm', 'Spielwiese', ''], ['mover', '', ''], ['office', '', 'backup']],
             array_map(fn (array $w): array => [$w['kind'], $w['id'] ?? $w['name'] ?? '', $w['desk'] ?? ''], $c['who']));
-        same('logs wakes: a container\'s own path taken back to the server\'s (its mountinfo, the same filesystem)',
+        same('watchman wakes: a container\'s own path taken back to the server\'s (its mountinfo, the same filesystem)',
             ['/mnt/disk1/Familie/Familienfilme/Sommer 2019.mkv', '/mnt/user/appdata/plex/Library/db.sqlite'], $c['who'][0]['files']);
-        $causes = logsWakeCauses([$c], ['/mnt/disk1']);
-        same('logs wakes: the surest first — a file on the woken disk (sure), in a user share (likely), none (maybe)', [
+        $causes = watchmanWakeCauses([$c], ['/mnt/disk1']);
+        same('watchman wakes: the surest first — a file on the woken disk (sure), in a user share (likely), none (maybe)', [
             ['container', 'sure'], ['cron', 'sure'], ['office', 'sure'], ['smb', 'likely'], ['vm', 'maybe']],
             array_map(fn (array $w): array => [$w['kind'], $w['sure']], $causes));
-        same('logs wakes: the pool cache woke — the mover is sure there, the rest maybe/likely', ['mover', 'sure'],
-            [logsWakeCauses([$c], ['/mnt/cache'])[0]['kind'], logsWakeCauses([$c], ['/mnt/cache'])[0]['sure']]);
-        same('logs wakes: a cause keeps its woken disk\'s files first, five at most', ['/mnt/disk1/Familie/Familienfilme/Sommer 2019.mkv', '/mnt/user/appdata/plex/Library/db.sqlite'],
+        same('watchman wakes: the pool cache woke — the mover is sure there, the rest maybe/likely', ['mover', 'sure'],
+            [watchmanWakeCauses([$c], ['/mnt/cache'])[0]['kind'], watchmanWakeCauses([$c], ['/mnt/cache'])[0]['sure']]);
+        same('watchman wakes: a cause keeps its woken disk\'s files first, five at most', ['/mnt/disk1/Familie/Familienfilme/Sommer 2019.mkv', '/mnt/user/appdata/plex/Library/db.sqlite'],
             $causes[0]['files']);
 
         // nobody waiting: whoever has a file open on a disk
@@ -43451,116 +42917,116 @@ function testLogsWakes(): void
         foreach ([1, 800] as $p) {
             exec('cp -a ' . escapeshellarg("$quiet/$p") . ' ' . escapeshellarg("$proc/$p"));
         }
-        $c2 = logsWakeCapture($proc);
-        same('logs wakes: nobody waiting — who holds a file open there (open), a cause only for its disk', [[], [800], [['program', 'open']], []],
-            [$c2['who'], array_column($c2['open'], 'pid'), array_map(fn (array $w): array => [$w['kind'], $w['sure']], logsWakeCauses([$c2], ['/mnt/disk1'])),
-             logsWakeCauses([$c2], ['/mnt/cache'])]);
+        $c2 = watchmanWakeCapture($proc);
+        same('watchman wakes: nobody waiting — who holds a file open there (open), a cause only for its disk', [[], [800], [['program', 'open']], []],
+            [$c2['who'], array_column($c2['open'], 'pid'), array_map(fn (array $w): array => [$w['kind'], $w['sure']], watchmanWakeCauses([$c2], ['/mnt/disk1'])),
+             watchmanWakeCauses([$c2], ['/mnt/cache'])]);
         exec('rm -rf ' . escapeshellarg($proc));
         rename($quiet, $proc);
 
         // the sampler over a sequence
         $mono = 1000.0;
-        $GLOBALS['logsWakeMonoNow'] = &$mono;
-        $tick = function (float $step = LOGS_WAKE_LOOK) use (&$mono): void {
+        $GLOBALS['watchmanWakeMonoNow'] = &$mono;
+        $tick = function (float $step = WATCH_WAKE_LOOK) use (&$mono): void {
             $mono += $step;
-            logsWakeTick();
+            watchmanWakeTick();
         };
         $stats = function (int $reads, int $flight) use ($proc): void {
             file_put_contents("$proc/diskstats", "   8      16 sdb $reads 0 4000 90 70 0 560 40 $flight 300 130 0 0 0 0\n   8      48 sdf 9 0 0 0 9 0 0 0 0 0 0\n");
         };
-        unset($GLOBALS['logsWake']);
+        unset($GLOBALS['watchmanWake']);
         @unlink("$tmp/mem.json");
         $ini(['disk1', 'disk2']);
         $stats(500, 0);
         $tick();                    // disks.ini and a first look (the counters' start)
         $tick();                    // nothing moved
-        same('logs wakes: a sleeping disk not asked for — no capture, no wake (her file only says since when she watches)', [[], [], true],
-            [logsWakeMem()['caught'], logsWakesRead()['wakes'], is_int(readJson("$tmp/logs-wakes.json")['since'] ?? null)]);
+        same('watchman wakes: a sleeping disk not asked for — no capture, no wake (his file only says since when he watches)', [[], [], true],
+            [watchmanWakeMem()['caught'], watchmanWakesRead()['wakes'], is_int(readJson("$tmp/logs-wakes.json")['since'] ?? null)]);
         $stats(501, 1);
         $tick();                    // asked for: caught at once
-        same('logs wakes: a sleeping disk asked for — caught (only it)', ['disk1'], array_keys(logsWakeMem()['caught']));
+        same('watchman wakes: a sleeping disk asked for — caught (only it)', ['disk1'], array_keys(watchmanWakeMem()['caught']));
         $ini(['disk2']);
         $stats(501, 0);
-        $tick(LOGS_WAKE_INI);       // disks.ini: disk1 awake → a wake
-        $all = logsWakesRead();
+        $tick(WATCH_WAKE_INI);       // disks.ini: disk1 awake → a wake
+        $all = watchmanWakesRead();
         $w = $all['wakes'][0] ?? [];
-        same('logs wakes: the wake — disk1, caught, Plex (container) first, counted', [1, ['disk1'], 'caught', 'container', ['disk1' => 1]],
+        same('watchman wakes: the wake — disk1, caught, Plex (container) first, counted', [1, ['disk1'], 'caught', 'container', ['disk1' => 1]],
             [count($all['wakes']), $w['disks'] ?? null, $w['how'] ?? null, $w['who'][0]['kind'] ?? null, $all['totals']]);
         // an SSD in standby flips too: never a wake
         $ini(['disk1', 'disk2']);
-        $tick(LOGS_WAKE_INI);
+        $tick(WATCH_WAKE_INI);
         $ini(['disk1']);
-        $tick(LOGS_WAKE_INI);
-        same('logs wakes: an SSD in standby never wakes for her', 1, count(logsWakesRead()['wakes']));
+        $tick(WATCH_WAKE_INI);
+        same('watchman wakes: an SSD in standby never wakes for him', 1, count(watchmanWakesRead()['wakes']));
         // awake again without anybody caught: noticed, «not found out»
         $tick();
         $ini([]);
-        $tick(LOGS_WAKE_INI);
-        $w = logsWakesRead()['wakes'][1] ?? [];
-        same('logs wakes: a wake nobody was caught at — noticed, no cause', ['noticed', []], [$w['how'] ?? null, $w['who'] ?? null]);
+        $tick(WATCH_WAKE_INI);
+        $w = watchmanWakesRead()['wakes'][1] ?? [];
+        same('watchman wakes: a wake nobody was caught at — noticed, no cause', ['noticed', []], [$w['how'] ?? null, $w['who'] ?? null]);
         // parity woke with disk1: one wake for both
         $ini(['disk1', 'parity']);
-        $tick(LOGS_WAKE_INI);
+        $tick(WATCH_WAKE_INI);
         $ini([]);
-        $tick(LOGS_WAKE_INI);
-        same('logs wakes: disks woken together — one wake', ['parity', 'disk1'], logsWakesRead()['wakes'][2]['disks'] ?? null);
+        $tick(WATCH_WAKE_INI);
+        same('watchman wakes: disks woken together — one wake', ['parity', 'disk1'], watchmanWakesRead()['wakes'][2]['disks'] ?? null);
         // the array stopped: forgotten; after the start a disk awake is no wake
         $ini(['disk1']);
-        $tick(LOGS_WAKE_INI);
+        $tick(WATCH_WAKE_INI);
         file_put_contents("$tmp/var.ini", "fsState=\"Stopped\"\n");
-        $tick(LOGS_WAKE_INI_NONE);
+        $tick(WATCH_WAKE_INI_NONE);
         file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
         $ini([]);
-        $tick(LOGS_WAKE_INI_NONE);
-        same('logs wakes: the array stopped — her memory goes, no wake across the stop', [3, false], [count(logsWakesRead()['wakes']), is_file("$tmp/mem.json") && !empty(readJson("$tmp/mem.json")['disks']['disk1']['asleep'])]);
+        $tick(WATCH_WAKE_INI_NONE);
+        same('watchman wakes: the array stopped — his memory goes, no wake across the stop', [3, false], [count(watchmanWakesRead()['wakes']), is_file("$tmp/mem.json") && !empty(readJson("$tmp/mem.json")['disks']['disk1']['asleep'])]);
         // not hired: nothing
         file_put_contents("$tmp/staff.json", '{"hired":{"backup":{}}}');
         $ini(['disk1']);
-        $tick(LOGS_WAKE_INI_NONE);
+        $tick(WATCH_WAKE_INI_NONE);
         $ini([]);
-        $tick(LOGS_WAKE_INI_NONE);
-        same('logs wakes: not hired — she doesn\'t watch', 3, count(logsWakesRead()['wakes']));
-        file_put_contents("$tmp/staff.json", '{"hired":{"logs":{}}}');
+        $tick(WATCH_WAKE_INI_NONE);
+        same('watchman wakes: not hired — he doesn\'t watch', 3, count(watchmanWakesRead()['wakes']));
+        file_put_contents("$tmp/staff.json", '{"hired":{"watchman":{}}}');
         // a restarted agent: what slept is in RAM — the flip is still a wake; after too long a gap, not
         $ini(['disk1']);
-        $tick(LOGS_WAKE_INI_NONE);
-        unset($GLOBALS['logsWake']);
+        $tick(WATCH_WAKE_INI_NONE);
+        unset($GLOBALS['watchmanWake']);
         $ini([]);
-        $tick(LOGS_WAKE_INI_NONE);
-        same('logs wakes: a restarted agent still sees the flip', 4, count(logsWakesRead()['wakes']));
-        file_put_contents("$tmp/mem.json", jsonEncode(['disks' => ['disk1' => ['dev' => 'sdb', 'asleep' => true, 'mount' => '/mnt/disk1']], 'look' => time() - LOGS_WAKE_LATE - 60]));
-        unset($GLOBALS['logsWake']);
-        $tick(LOGS_WAKE_INI_NONE);
-        same('logs wakes: a flip after a gap longer than LOGS_WAKE_LATE — when, nobody knows: not counted', 4, count(logsWakesRead()['wakes']));
-        same('logs wakes: the counter per disk (parity once, disk1 four times)', ['disk1' => 4, 'parity' => 1], logsWakesRead()['totals']);
-        $m = logsWakeMetrics("$tmp/logs-wakes.json");
-        same('logs wakes: her counter for Prometheus', ['uso_logs_disk_wakes_total', 'counter', [[['disk' => 'disk1'], 4], [['disk' => 'parity'], 1]]],
+        $tick(WATCH_WAKE_INI_NONE);
+        same('watchman wakes: a restarted agent still sees the flip', 4, count(watchmanWakesRead()['wakes']));
+        file_put_contents("$tmp/mem.json", jsonEncode(['disks' => ['disk1' => ['dev' => 'sdb', 'asleep' => true, 'mount' => '/mnt/disk1']], 'look' => time() - WATCH_WAKE_LATE - 60]));
+        unset($GLOBALS['watchmanWake']);
+        $tick(WATCH_WAKE_INI_NONE);
+        same('watchman wakes: a flip after a gap longer than WATCH_WAKE_LATE — when, nobody knows: not counted', 4, count(watchmanWakesRead()['wakes']));
+        same('watchman wakes: the counter per disk (parity once, disk1 four times)', ['disk1' => 4, 'parity' => 1], watchmanWakesRead()['totals']);
+        $m = watchmanWakeMetrics("$tmp/logs-wakes.json");
+        same('watchman wakes: his counter for Prometheus', ['uso_watchman_disk_wakes_total', 'counter', [[['disk' => 'disk1'], 4], [['disk' => 'parity'], 1]]],
             [$m[0]['name'] ?? null, $m[0]['type'] ?? null, $m[0]['samples'] ?? null]);
 
         // naming afterwards: Docker's name, Unraid's «read SMART», the cron lines due — the office's own by its job
-        $first = logsWakesRead()['wakes'][0];
+        $first = watchmanWakesRead()['wakes'][0];
         $at = (int) $first['time'];
         file_put_contents("$tmp/cron", '# a comment' . "\n" . date('i G', $at) . " * * * /usr/local/bin/fotos-sichern > /dev/null 2>&1\n"
             . "*/5 * * * * /usr/local/bin/every-five\n" . date('i G', $at - 60) . " * * * bash /usr/local/emhttp/plugins/unraid-secretary-office/scripts/job.sh backup > /dev/null 2>&1\n"
             . "@reboot /usr/local/bin/once\n");
-        $cronLines = logsWakeCronLines(["$tmp/cron"]);
-        same('logs wakes: cron lines read (no comment, no @reboot)', 3, count($cronLines));
-        same('logs wakes: the cron lines due then — not one due every five minutes, the office\'s by its job', ['/usr/local/bin/fotos-sichern', 'office:backup'],
-            logsWakeCronDue($cronLines, $at));
+        $cronLines = watchmanWakeCronLines(["$tmp/cron"]);
+        same('watchman wakes: cron lines read (no comment, no @reboot)', 3, count($cronLines));
+        same('watchman wakes: the cron lines due then — not one due every five minutes, the office\'s by its job', ['/usr/local/bin/fotos-sichern', 'office:backup'],
+            watchmanWakeCronDue($cronLines, $at));
         $syslog = [date('M j H:i:s', $at - 3600) . ' Tower emhttpd: read SMART /dev/sdb', date('M j H:i:s', $at - 20) . ' Tower emhttpd: read SMART /dev/sdb',
                    date('M j H:i:s', $at + 5) . ' Tower emhttpd: read SMART /dev/sdz'];
-        logsWakeNameRun(['docker' => ['names' => [$plexId => 'plex'], 'started' => [['nextcloud', $at - 30], ['old', $at - 4000]]],
+        watchmanWakeNameRun(['docker' => ['names' => [$plexId => 'plex'], 'started' => [['nextcloud', $at - 30], ['old', $at - 4000]]],
                          'smb' => ['200' => 'laptop-kueche'], 'cron' => $cronLines, 'syslog' => $syslog]);
-        logsWakeNameMerge();
-        $w = logsWakesRead()['wakes'][0];
-        same('logs wakes: named — the container\'s name, the containers started then, the cron lines, Unraid\'s «read SMART»', [
+        watchmanWakeNameMerge();
+        $w = watchmanWakesRead()['wakes'][0];
+        same('watchman wakes: named — the container\'s name, the containers started then, the cron lines, Unraid\'s «read SMART»', [
             'plex', ['nextcloud'], ['/usr/local/bin/fotos-sichern', 'office:backup'], $at - 20, true, 'caught'],
             [$w['who'][0]['name'] ?? null, $w['started'] ?? null, $w['cron'] ?? null, $w['smart'] ?? null, $w['named'] ?? null, $w['how']]);
-        $noticed = logsWakesRead()['wakes'][1];
-        same('logs wakes: a wake only noticed takes Unraid\'s «read SMART» time (the minute before her look at most)', ['syslog', $at - 20],
+        $noticed = watchmanWakesRead()['wakes'][1];
+        same('watchman wakes: a wake only noticed takes Unraid\'s «read SMART» time (the minute before his look at most)', ['syslog', $at - 20],
             [$noticed['how'], $noticed['time']]);
-        // her switch: off — no disks.ini, no diskstats, no capture, no wake; what she noticed stays; a bad request changes nothing
-        $act = fn (array $r) => desks()['logs']['actions']['wakes_watch']($r);
+        // his switch: off — no disks.ini, no diskstats, no capture, no wake; what he noticed stays; a bad request changes nothing
+        $act = fn (array $r) => desks()['watchman']['actions']['wakes_watch']($r);
         $refused = function (callable $f): string {
             try {
                 $f();
@@ -43569,50 +43035,50 @@ function testLogsWakes(): void
                 return $p->key;
             }
         };
-        same('logs wakes: the switch reads «on» as a boolean, never cast', ['bad_request', 'bad_request', true],
-            [$refused(fn () => $act(['on' => 'no'])), $refused(fn () => $act([])), logsWakesRead()['watch']]);
+        same('watchman wakes: the switch reads «on» as a boolean, never cast', ['bad_request', 'bad_request', true],
+            [$refused(fn () => $act(['on' => 'no'])), $refused(fn () => $act([])), watchmanWakesRead()['watch']]);
         $act(['on' => false]);
-        $before = count(logsWakesRead()['wakes']);
+        $before = count(watchmanWakesRead()['wakes']);
         $ini(['disk1']);
         $stats(900, 1);
-        $tick(LOGS_WAKE_INI_NONE);
-        $tick(LOGS_WAKE_INI);
+        $tick(WATCH_WAKE_INI_NONE);
+        $tick(WATCH_WAKE_INI);
         $ini([]);
-        $tick(LOGS_WAKE_INI);
-        $m = logsWakeMem();
-        same('logs wakes: switched off — nothing looked at (no disks, no counters, no capture, nothing in RAM), no wake, what she noticed stays',
-            [false, null, [], [], false, $before, false], [$m['on'], $m['disks'], $m['stats'], $m['caught'], is_file("$tmp/mem.json"), count(logsWakesRead()['wakes']),
-             logsWakesForPage()['on']]);
-        unset($GLOBALS['logsWake']);
-        $tick(LOGS_WAKE_INI);
-        same('logs wakes: switched off stays off for a restarted agent', [false, null], [logsWakeMem()['on'], logsWakeMem()['disks']]);
+        $tick(WATCH_WAKE_INI);
+        $m = watchmanWakeMem();
+        same('watchman wakes: switched off — nothing looked at (no disks, no counters, no capture, nothing in RAM), no wake, what he noticed stays',
+            [false, null, [], [], false, $before, false], [$m['on'], $m['disks'], $m['stats'], $m['caught'], is_file("$tmp/mem.json"), count(watchmanWakesRead()['wakes']),
+             watchmanWakesForPage()['on']]);
+        unset($GLOBALS['watchmanWake']);
+        $tick(WATCH_WAKE_INI);
+        same('watchman wakes: switched off stays off for a restarted agent', [false, null], [watchmanWakeMem()['on'], watchmanWakeMem()['disks']]);
         $ini(['disk1']);
         $act(['on' => true]);
-        $tick(LOGS_WAKE_INI);
+        $tick(WATCH_WAKE_INI);
         $ini([]);
-        $tick(LOGS_WAKE_INI);
-        same('logs wakes: on again — she starts anew and sees the next wake', [true, $before + 1], [logsWakesRead()['watch'], count(logsWakesRead()['wakes'])]);
+        $tick(WATCH_WAKE_INI);
+        same('watchman wakes: on again — he starts anew and sees the next wake', [true, $before + 1], [watchmanWakesRead()['watch'], count(watchmanWakesRead()['wakes'])]);
         $ini(['disk1']);
         $act(['on' => false]);
         $ini([]);
         $act(['on' => true]);
-        $tick(LOGS_WAKE_INI);
-        same('logs wakes: no wake across the time she didn\'t look', $before + 1, count(logsWakesRead()['wakes']));
+        $tick(WATCH_WAKE_INI);
+        same('watchman wakes: no wake across the time he didn\'t look', $before + 1, count(watchmanWakesRead()['wakes']));
         // the file: tolerant reader and writer
-        $all = logsWakesRead();
+        $all = watchmanWakesRead();
         $all['later'] = ['kept' => true];
         $all['wakes'][] = ['id' => 'x', 'time' => 'yesterday', 'something' => 1];
-        $all['wakes'][] = ['id' => 'old', 'time' => time() - LOGS_WAKE_KEEP - 10, 'disks' => ['disk1'], 'how' => 'noticed', 'who' => []];
-        logsWakesWrite($all);
-        $back = logsWakesRead();
-        same('logs wakes: a rewrite keeps what it doesn\'t know, lets old wakes go', [true, 6, false], [
+        $all['wakes'][] = ['id' => 'old', 'time' => time() - WATCH_WAKE_KEEP - 10, 'disks' => ['disk1'], 'how' => 'noticed', 'who' => []];
+        watchmanWakesWrite($all);
+        $back = watchmanWakesRead();
+        same('watchman wakes: a rewrite keeps what it doesn\'t know, lets old wakes go', [true, 6, false], [
             $back['later']['kept'] ?? null, count($back['wakes']), in_array('old', array_column($back['wakes'], 'id'), true)]);
-        $page = logsWakesForPage();
-        same('logs wakes: the page gets only wakes in exactly their shape, and the rotating disks', [5, ['parity', 'disk1', 'cache', 'cache2'], LOGS_WAKE_LOOK],
+        $page = watchmanWakesForPage();
+        same('watchman wakes: the page gets only wakes in exactly their shape, and the rotating disks', [5, ['parity', 'disk1', 'cache', 'cache2'], WATCH_WAKE_LOOK],
             [count($page['wakes']), $page['hdds'], $page['look']]);
 
         // 1.68.0 on a real server named only Unraid's own look right after a wake (smartctl -A, hdparm -C, started by
-        // emhttpd): never the cause now — said apart, and she looks further: writers, shfs's clients, who started a program
+        // emhttpd): never the cause now — said apart, and he looks further: writers, shfs's clients, who started a program
         $mk = function (string $root, int $pid, string $comm, string $state, int $ppid, string $cmd, array $o = []): void {
             $dir = "$root/$pid";
             foreach (['fd', 'fdinfo', 'ns'] as $d) {
@@ -43641,9 +43107,9 @@ function testLogsWakes(): void
         $mk($p2, 11, 'smartctl', 'D', 10, '/usr/sbin/smartctl -A /dev/sde');
         $mk($p2, 12, 'hdparm', 'D', 10, '/usr/sbin/hdparm -C /dev/sde');
         $mk($p2, 13, 'smartctl', 'D', 1, '/usr/sbin/smartctl -n standby -A /dev/sdt');
-        $c = logsWakeCapture($p2);
-        same('logs wakes 2: Unraid\'s own look after a wake (smartctl -A and hdparm -C by emhttpd, smartctl -n standby) is never a cause — kept apart',
-            [[], ['smartctl', 'hdparm'], []], [$c['who'], $c['unraid'] ?? null, logsWakeCauses([$c], ['/mnt/disk4'])]);
+        $c = watchmanWakeCapture($p2);
+        same('watchman wakes 2: Unraid\'s own look after a wake (smartctl -A and hdparm -C by emhttpd, smartctl -n standby) is never a cause — kept apart',
+            [[], ['smartctl', 'hdparm'], []], [$c['who'], $c['unraid'] ?? null, watchmanWakeCauses([$c], ['/mnt/disk4'])]);
         // the real records, as 1.68.0 kept them: shown without Unraid's look as the cause, which is said apart
         $real = [
             ['id' => 'r1', 'time' => 1792522284, 'disks' => ['disk4', 'disk5'], 'how' => 'caught', 'smart' => 1792522280,
@@ -43654,8 +43120,8 @@ function testLogsWakes(): void
             ['id' => 'r3', 'time' => 1792526592, 'disks' => ['disk2'], 'how' => 'caught',
              'who' => [['kind' => 'program', 'prog' => 'smartctl', 'cmd' => '/usr/sbin/smartctl -a /dev/sde', 'sure' => 'maybe', 'files' => []]]],
         ];
-        $shaped = array_map('logsWakeShaped', $real);
-        same('logs wakes 2: the real records of 1.68.0 — Unraid\'s SMART look and its power-state ask taken out and said apart; a smartctl without Unraid\'s «read SMART» then stays',
+        $shaped = array_map('watchmanWakeShaped', $real);
+        same('watchman wakes 2: the real records of 1.68.0 — Unraid\'s SMART look and its power-state ask taken out and said apart; a smartctl without Unraid\'s «read SMART» then stays',
             [[], true, ['container'], true, ['smartctl'], false],
             [$shaped[0]['who'], $shaped[0]['unraid'], array_column($shaped[1]['who'], 'kind'), $shaped[1]['unraid'], array_column($shaped[2]['who'], 'prog'), $shaped[2]['unraid']]);
 
@@ -43675,13 +43141,13 @@ function testLogsWakes(): void
         $mk($p2, 75, 'smartctl', 'D', 74, '/usr/sbin/smartctl -A /dev/sdt');
         $mk($p2, 80, 'containerd-shim', 'S', 1, '/usr/bin/containerd-shim-runc-v2 -namespace moby');
         $mk($p2, 81, 'rsync', 'D', 80, 'rsync -a /data /backup', ['cgroup' => '0::/docker/' . str_repeat('cd34', 16) . "\n"]);
-        $c = logsWakeCapture($p2);
-        same('logs wakes 2: a program named with who started it — Unraid\'s web page, a terminal, a plugin, a user script; a container by its cgroup; Unraid\'s monitor reading SMART is Unraid\'s own look',
+        $c = watchmanWakeCapture($p2);
+        same('watchman wakes 2: a program named with who started it — Unraid\'s web page, a terminal, a plugin, a user script; a container by its cgroup; Unraid\'s monitor reading SMART is Unraid\'s own look',
             [[41, 'program', 'web', ''], [52, 'program', 'session', ''], [61, 'program', 'plugin', 'disk.tidy'], [73, 'program', 'user_script', 'copy-photos'], [81, 'container', '', '']],
             $kinds($c['who']));
-        same('logs wakes 2: … and kept that way for the page', ['web', 'plugin', 'disk.tidy'],
+        same('watchman wakes 2: … and kept that way for the page', ['web', 'plugin', 'disk.tidy'],
             (function () use ($c): array {
-                $w = logsWakeShaped(['id' => 'x', 'time' => 1, 'disks' => ['disk4'], 'how' => 'caught', 'who' => logsWakeCauses([$c], ['/mnt/disk4'])]);
+                $w = watchmanWakeShaped(['id' => 'x', 'time' => 1, 'disks' => ['disk4'], 'how' => 'caught', 'who' => watchmanWakeCauses([$c], ['/mnt/disk4'])]);
                 $by = array_column($w['who'], null, 'prog');
                 return [$by['smartctl']['by'] ?? null, $by['find']['by'] ?? null, $by['find']['byname'] ?? null];
             })());
@@ -43693,14 +43159,14 @@ function testLogsWakes(): void
         $mk($p3, 21, 'soffice.bin', 'S', 1, '/usr/lib/libreoffice/program/soffice.bin', ['fds' => [['/mnt/user/Docs/Steuer.pdf', $R, 0]]]);
         $mk($p3, 22, 'smbd', 'S', 1, '/usr/sbin/smbd -D', ['fds' => [['/mnt/user/Media/Sommer.mkv', $R, 0]]]);
         $mk($p3, 23, 'vlc', 'S', 1, 'vlc', ['fds' => [['/mnt/user/Media2/Herbst.mkv', $R, 0]]]);
-        $c = logsWakeCapture($p3);
+        $c = watchmanWakeCapture($p3);
         $bases = ['Docs' => ['disk1', 'disk2'], 'Media' => ['disk2'], 'Media2' => ['disk1']];
-        $woke = logsWakeCauses([$c], ['/mnt/disk2'], $bases);
-        same('logs wakes 2: shfs waiting — its clients named: a user share\'s file by the disk shfs has it on, one in a share on that disk; not one in a share elsewhere, not shfs itself',
+        $woke = watchmanWakeCauses([$c], ['/mnt/disk2'], $bases);
+        same('watchman wakes 2: shfs waiting — its clients named: a user share\'s file by the disk shfs has it on, one in a share on that disk; not one in a share elsewhere, not shfs itself',
             [[21, 'program', 'open', ['/mnt/disk2/Docs/Steuer.pdf']], [22, 'smb', 'open', ['/mnt/user/Media/Sommer.mkv']]],
             array_map(fn (array $w): array => [$w['pid'], $w['kind'], $w['sure'], $w['files']], $woke));
-        same('logs wakes 2: … nobody else there: shfs stays, «something through a user share»', [['shfs', 'sure']],
-            array_map(fn (array $w): array => [$w['prog'], $w['sure']], logsWakeCauses([['who' => $c['who'], 'open' => []]], ['/mnt/disk2'], $bases)));
+        same('watchman wakes 2: … nobody else there: shfs stays, «something through a user share»', [['shfs', 'sure']],
+            array_map(fn (array $w): array => [$w['prog'], $w['sure']], watchmanWakeCauses([['who' => $c['who'], 'open' => []]], ['/mnt/disk2'], $bases)));
 
         // writers: a file open for writing on a sleeping disk, the process's write counter moving — named when its
         // writes wake the disk (the page cache took them; the kernel's flush woke it later, nobody waited)
@@ -43714,15 +43180,15 @@ function testLogsWakes(): void
         $mk($p4, 32, 'soffice.bin', 'S', 1, 'soffice.bin', ['fds' => [['/mnt/user/Docs/neu.odt', $RW, 10]], 'io' => 0]);
         $mk($p4, 33, 'cat', 'S', 1, 'cat /mnt/disk1/Media/film.mkv', ['fds' => [['/mnt/disk1/Media/film.mkv', $R, 0]], 'io' => 0]);
         $mk($p4, 34, 'sqlite3', 'S', 1, 'sqlite3', ['fds' => [['/mnt/cache/appdata/db', $W, 0]], 'io' => 70]);
-        $GLOBALS['logsWakeProc'] = $p4;
+        $GLOBALS['watchmanWakeProc'] = $p4;
         $diskstats = fn (int $writes, int $flight) => file_put_contents("$p4/diskstats", "   8      16 sdb 500 0 4000 90 $writes 0 560 40 $flight 300 130 0 0 0 0\n");
-        unset($GLOBALS['logsWake']);
+        unset($GLOBALS['watchmanWake']);
         @unlink("$tmp/mem.json");
         $ini(['disk1']);
         $diskstats(70, 0);
-        $tick(LOGS_WAKE_INI_NONE);
-        $hold = logsWakeMem()['hold'] ?? [];
-        same('logs wakes 2: the writers\' list while disk1 sleeps — files open for writing there (a user share\'s by shfs\'s disk); not a reader, not the cache, not shfs',
+        $tick(WATCH_WAKE_INI_NONE);
+        $hold = watchmanWakeMem()['hold'] ?? [];
+        same('watchman wakes 2: the writers\' list while disk1 sleeps — files open for writing there (a user share\'s by shfs\'s disk); not a reader, not the cache, not shfs',
             [[30, 31, 32], ['/mnt/disk1/Docs/neu.odt']], [array_keys($hold), $hold[32]['files'] ?? null]);
         $io($p4, 30, 9000);
         $fdAt($p4, 30, 3, $W, 5000);
@@ -43733,44 +43199,44 @@ function testLogsWakes(): void
         $diskstats(71, 1);
         $mk($p4, 11, 'smartctl', 'D', 10, '/usr/sbin/smartctl -A /dev/sdb');
         $tick();
-        same('logs wakes 2: disk1 asked for — nobody waiting but Unraid\'s look; the writers caught, no second look needed',
-            [[], [30, 32], ['smartctl'], null], [logsWakeMem()['caught']['disk1']['who'] ?? null, array_column(logsWakeMem()['caught']['disk1']['wrote'] ?? [], 'pid'),
-             logsWakeMem()['caught']['disk1']['unraid'] ?? null, logsWakeMem()['retry'] ?? null]);
+        same('watchman wakes 2: disk1 asked for — nobody waiting but Unraid\'s look; the writers caught, no second look needed',
+            [[], [30, 32], ['smartctl'], null], [watchmanWakeMem()['caught']['disk1']['who'] ?? null, array_column(watchmanWakeMem()['caught']['disk1']['wrote'] ?? [], 'pid'),
+             watchmanWakeMem()['caught']['disk1']['unraid'] ?? null, watchmanWakeMem()['retry'] ?? null]);
         $ini([]);
         $diskstats(71, 0);
-        $tick(LOGS_WAKE_INI);
-        $w = logsWakeShaped(array_slice(logsWakesRead()['wakes'], -1)[0]);
-        same('logs wakes 2: the wake — the container that wrote first, the share\'s writer by its disk, then who had files open there; Unraid\'s look said apart',
+        $tick(WATCH_WAKE_INI);
+        $w = watchmanWakeShaped(array_slice(watchmanWakesRead()['wakes'], -1)[0]);
+        same('watchman wakes 2: the wake — the container that wrote first, the share\'s writer by its disk, then who had files open there; Unraid\'s look said apart',
             [[['container', 'wrote', ['/mnt/disk1/Backup/x.tmp']], ['program', 'wrote', ['/mnt/disk1/Docs/neu.odt']], ['program', 'open', ['/mnt/disk1/Media/plex.log']],
               ['program', 'open', ['/mnt/disk1/Media/film.mkv']]], true],
             [array_map(fn (array $c): array => [$c['kind'], $c['sure'], $c['files']], $w['who']), $w['unraid']]);
         // asked for again, nobody there yet: a second look a second later catches the one who came
         $ini(['disk1']);
-        $tick(LOGS_WAKE_INI);
+        $tick(WATCH_WAKE_INI);
         $tick(120);
         $diskstats(80, 1);
         $tick();
-        $retry = logsWakeMem()['retry'] ?? null;
+        $retry = watchmanWakeMem()['retry'] ?? null;
         $mk($p4, 90, 'tar', 'D', 1, 'tar -cf /tmp/x.tar /mnt/disk1/Fotos', ['fds' => [['/mnt/disk1/Fotos/a.jpg', $R, 0]]]);
-        $tick(LOGS_WAKE_AGAIN_LOOK);
-        same('logs wakes 2: a capture that found nobody — a second look a second later, merged into it', [['disk1'], [90], 2, null],
-            [$retry['disks'] ?? null, array_column(logsWakeMem()['caught']['disk1']['who'] ?? [], 'pid'), logsWakeMem()['caught']['disk1']['looks'] ?? null, logsWakeMem()['retry']]);
+        $tick(WATCH_WAKE_AGAIN_LOOK);
+        same('watchman wakes 2: a capture that found nobody — a second look a second later, merged into it', [['disk1'], [90], 2, null],
+            [$retry['disks'] ?? null, array_column(watchmanWakeMem()['caught']['disk1']['who'] ?? [], 'pid'), watchmanWakeMem()['caught']['disk1']['looks'] ?? null, watchmanWakeMem()['retry']]);
         exec('rm -rf ' . escapeshellarg($p2) . ' ' . escapeshellarg($p3) . ' ' . escapeshellarg($p4));
-        $GLOBALS['logsWakeMonoNow'] = null;
-        unset($GLOBALS['logsWakeMonoNow']);
+        $GLOBALS['watchmanWakeMonoNow'] = null;
+        unset($GLOBALS['watchmanWakeMonoNow']);
 
         // the real /proc (on the server): what a capture costs
         if (is_dir('/proc/self/task')) {
-            $c = logsWakeCapture('/proc');
-            check("logs wakes: a capture over this server's /proc took {$c['ms']} ms (" . count($c['who']) . ' waiting)'
-                . ($c['cut'] ? ', cut short' : ''), $c['ms'] <= LOGS_WAKE_BUDGET_MS + 40);
-            $h = logsWakeHolders('/proc', array_values(array_filter(['disk1', 'disk2', 'disk3', 'cache'], fn (string $d): bool => is_dir("/mnt/$d"))));
-            check("logs wakes: the writers' list over this server's /proc took {$h['ms']} ms (" . count($h['hold']) . ' writing on a disk, '
-                . count($h['looked']) . ' processes looked at)' . ($h['cut'] ? ', cut short' : ''), $h['ms'] <= LOGS_WAKE_BUDGET_MS + 40);
+            $c = watchmanWakeCapture('/proc');
+            check("watchman wakes: a capture over this server's /proc took {$c['ms']} ms (" . count($c['who']) . ' waiting)'
+                . ($c['cut'] ? ', cut short' : ''), $c['ms'] <= WATCH_WAKE_BUDGET_MS + 40);
+            $h = watchmanWakeHolders('/proc', array_values(array_filter(['disk1', 'disk2', 'disk3', 'cache'], fn (string $d): bool => is_dir("/mnt/$d"))));
+            check("watchman wakes: the writers' list over this server's /proc took {$h['ms']} ms (" . count($h['hold']) . ' writing on a disk, '
+                . count($h['looked']) . ' processes looked at)' . ($h['cut'] ? ', cut short' : ''), $h['ms'] <= WATCH_WAKE_BUDGET_MS + 40);
         }
     } finally {
-        unset($GLOBALS['logsWakesFile'], $GLOBALS['logsWakeMemFile'], $GLOBALS['logsWakeNamesFile'], $GLOBALS['logsWakeVarIni'],
-            $GLOBALS['logsWakeNoJob'], $GLOBALS['logsWakeProc'], $GLOBALS['logsWake'], $GLOBALS['logsWakeSharesIni'], $GLOBALS['logsWakeSys']);
+        unset($GLOBALS['watchmanWakesFile'], $GLOBALS['watchmanWakeMemFile'], $GLOBALS['watchmanWakeNamesFile'], $GLOBALS['watchmanWakeVarIni'],
+            $GLOBALS['watchmanWakeNoJob'], $GLOBALS['watchmanWakeProc'], $GLOBALS['watchmanWake'], $GLOBALS['watchmanWakeSharesIni'], $GLOBALS['watchmanWakeSys']);
         [$GLOBALS['disksIni'], $GLOBALS['agentStaffFile']] = $keep;
         if ($keep[0] === null) {
             unset($GLOBALS['disksIni']);
@@ -43783,7 +43249,7 @@ function testLogsWakes(): void
 }
 
 /*
- * The trail of a wake (agent/desks/logs-diskwakes.php, 2026-11-08: a script wrote a clip through /mnt/user and left
+ * The trail of a wake (agent/desks/watchman-diskwakes.php, 2026-11-08: a script wrote a clip through /mnt/user and left
  * within seconds — nobody caught): the tick notes since when a disk sleeps and its btrfs generation (from /sys, RAM);
  * the naming job names what was written on the woken disk — btrfs by `find-new` after that generation (every writable
  * subvolume that changed, never a read-only snapshot or `.btrfs-snap`; names with spaces and quotes), XFS/ZFS by a
@@ -43791,9 +43257,9 @@ function testLogsWakes(): void
  * asleep again, a pool with a member asleep, parity or a wake too old; the office's data folder left out; cut said; the
  * page reads it only in exactly its shape, an old entry without it still reads.
  */
-function testLogsWakeTrail(): void
+function testWatchmanWakeTrail(): void
 {
-    $tmp = hardeningTmp('logswaketrail');
+    $tmp = hardeningTmp('watchwaketrail');
     $keep = [$GLOBALS['disksIni'] ?? null, $GLOBALS['agentStaffFile'] ?? null];
     try {
         $mnt = "$tmp/mnt";
@@ -43828,9 +43294,9 @@ function testLogsWakeTrail(): void
         mkdir("$sys/fs/btrfs/0aa1-fsid/devices", 0700, true);
         touch("$sys/fs/btrfs/0aa1-fsid/devices/md4p1");
         file_put_contents("$sys/fs/btrfs/0aa1-fsid/generation", "1234\n");
-        same('logs trail: a btrfs disk\'s generation from /sys by the device mounted there; XFS, ZFS, nothing there: none',
-            [1234, null, null, null, null], [logsWakeBtrfsGen("$mnt/disk4", $proc, $sys), logsWakeBtrfsGen("$mnt/disk1", $proc, $sys),
-             logsWakeBtrfsGen("$mnt/disk2", $proc, $sys), logsWakeBtrfsGen("$mnt/cache", $proc, $sys), logsWakeBtrfsGen("$mnt/disk9", $proc, $sys)]);
+        same('watchman trail: a btrfs disk\'s generation from /sys by the device mounted there; XFS, ZFS, nothing there: none',
+            [1234, null, null, null, null], [watchmanWakeBtrfsGen("$mnt/disk4", $proc, $sys), watchmanWakeBtrfsGen("$mnt/disk1", $proc, $sys),
+             watchmanWakeBtrfsGen("$mnt/disk2", $proc, $sys), watchmanWakeBtrfsGen("$mnt/cache", $proc, $sys), watchmanWakeBtrfsGen("$mnt/disk9", $proc, $sys)]);
 
         // btrfs: find-new after the sleep's generation — the fake btrfs answers as the real one does (btrfs-progs 6.x)
         $log = new stdClass();           // what the fake was asked
@@ -43877,48 +43343,48 @@ function testLogsWakeTrail(): void
         $o = ['run' => $runFake, 'now' => $now, 'proc' => $proc, 'exclude' => ['/mnt/user/appdata/UnraidSecretaryOffice/data']];
         $wake = ['id' => 'w1', 'time' => $now, 'from' => $now - 8, 'disks' => ['parity', 'disk4'], 'how' => 'noticed', 'who' => [],
                  'asleep' => ['disk4' => ['since' => $now - 3600, 'gen' => 1234], 'parity' => ['since' => $now - 3600, 'gen' => null]]];
-        $t = logsWakeTrail($wake, $disks, $o);
+        $t = watchmanWakeTrail($wake, $disks, $o);
         $askedList = array_map(fn (array $c): string => implode(' ', $c), $calls());
-        same('logs trail: btrfs — only find-new after the sleep\'s generation, in the disk\'s tree and its writable subvolume that changed since (no snapshot, no .btrfs-snap, no older one)',
+        same('watchman trail: btrfs — only find-new after the sleep\'s generation, in the disk\'s tree and its writable subvolume that changed since (no snapshot, no .btrfs-snap, no older one)',
             ["subvolume list $mnt/disk4", "subvolume list -r $mnt/disk4", "subvolume find-new $mnt/disk4 1235", "subvolume find-new $mnt/disk4/Mediathek/sub 1235"], $askedList);
         $dirs = array_map(fn (array $d): array => [$d['disk'], $d['dir'], $d['n'], $d['bytes'], is_int($d['first']), is_int($d['last'])], $t['dirs'] ?? []);
-        same('logs trail: btrfs — grouped by folder, names with spaces and quotes, bytes of the new data (at most the file\'s size), times by the files; the office\'s data folder left out, a path going up never',
+        same('watchman trail: btrfs — grouped by folder, names with spaces and quotes, bytes of the new data (at most the file\'s size), times by the files; the office\'s data folder left out, a path going up never',
             ['btrfs', false, [['disk4', 'Mediathek/Musik-Videos/Techno & Trance', 13, 12 * 5000 + 3, true, true], ['disk4', 'Mediathek/sub/Neu', 1, 1, true, true],
              ['disk4', 'Mediathek', 1, 9, false, false]], 0, 15], [$t['how'] ?? null, $t['cut'] ?? null, $dirs, $t['more'] ?? null, $t['files'] ?? null]);
         // without the generation (an older agent's memory): the last few transactions by find-new's marker
         $log->calls = [];
         $wake2 = ['asleep' => ['disk4' => ['since' => $now - 3600, 'gen' => null]]] + $wake;
-        logsWakeTrail($wake2, $disks, $o);
-        same('logs trail: btrfs without the generation from before the sleep — the marker minus a few transactions',
-            ["subvolume find-new $mnt/disk4 999999999999", "subvolume find-new $mnt/disk4 " . (1241 - LOGS_WAKE_TRAIL_GENS + 1)],
+        watchmanWakeTrail($wake2, $disks, $o);
+        same('watchman trail: btrfs without the generation from before the sleep — the marker minus a few transactions',
+            ["subvolume find-new $mnt/disk4 999999999999", "subvolume find-new $mnt/disk4 " . (1241 - WATCH_WAKE_TRAIL_GENS + 1)],
             array_values(array_filter(array_map(fn (array $c): string => implode(' ', $c), $calls()), fn (string $c): bool => str_contains($c, "find-new $mnt/disk4 "))));
         // never: a disk asleep again, a pool with a member asleep, parity alone, a wake too old
         $log->calls = [];
         $asleep = ['disk4' => ['asleep' => true] + $disks['disk4']] + $disks;
-        same('logs trail: never on a disk asleep again, a pool with a member asleep, parity, a wake too old — nothing asked',
-            [null, null, null, null, []], [logsWakeTrail($wake, $asleep, $o), logsWakeTrail(['disks' => ['cache']] + $wake, $disks, $o),
-             logsWakeTrail(['disks' => ['parity']] + $wake, $disks, $o), logsWakeTrail(['time' => $now - LOGS_WAKE_TRAIL_LATE - 1] + $wake, $disks, $o), $calls()]);
+        same('watchman trail: never on a disk asleep again, a pool with a member asleep, parity, a wake too old — nothing asked',
+            [null, null, null, null, []], [watchmanWakeTrail($wake, $asleep, $o), watchmanWakeTrail(['disks' => ['cache']] + $wake, $disks, $o),
+             watchmanWakeTrail(['disks' => ['parity']] + $wake, $disks, $o), watchmanWakeTrail(['time' => $now - WATCH_WAKE_TRAIL_LATE - 1] + $wake, $disks, $o), $calls()]);
         // a file written well after the wake is a later one
-        $t = logsWakeTrail(['time' => $now - LOGS_WAKE_TRAIL_AFTER - 60] + $wake, $disks, ['now' => $now - 60] + $o);
-        same('logs trail: files changed well after the wake are later ones — only what has no time stays', [['disk4', 'Mediathek', 1]],
+        $t = watchmanWakeTrail(['time' => $now - WATCH_WAKE_TRAIL_AFTER - 60] + $wake, $disks, ['now' => $now - 60] + $o);
+        same('watchman trail: files changed well after the wake are later ones — only what has no time stays', [['disk4', 'Mediathek', 1]],
             array_map(fn (array $d): array => [$d['disk'], $d['dir'], $d['n']], $t['dirs'] ?? []));
 
         // XFS: a walk of the folders changed since the sleep, then their files
         $log->calls = [];
         $w1 = ['disks' => ['disk1'], 'asleep' => ['disk1' => ['since' => $now - 3600, 'gen' => null]]] + $wake;
-        $t = logsWakeTrail($w1, $disks, $o);
-        same('logs trail: XFS — find over the disk alone (-xdev, .zfs and .btrfs-snap pruned) for folders changed since it slept',
+        $t = watchmanWakeTrail($w1, $disks, $o);
+        same('watchman trail: XFS — find over the disk alone (-xdev, .zfs and .btrfs-snap pruned) for folders changed since it slept',
             [['find', "$mnt/disk1", '-xdev', '(', '-name', '.zfs', '-o', '-name', '.btrfs-snap', ')', '-prune', '-o', '-type', 'd', '-newerct', '@' . ($now - 3600), '-print0']], $calls());
-        same('logs trail: XFS — their files changed since, by folder', ['walk', [['disk1', 'Fotos/2026', 2, 500]]],
+        same('watchman trail: XFS — their files changed since, by folder', ['walk', [['disk1', 'Fotos/2026', 2, 500]]],
             [$t['how'] ?? null, array_map(fn (array $d): array => [$d['disk'], $d['dir'], $d['n'], $d['bytes']], $t['dirs'] ?? [])]);
-        $t = logsWakeTrail(['asleep' => ['disk1' => ['since' => $now + 5, 'gen' => null]]] + $w1, $disks, $o);
-        same('logs trail: XFS — a file changed before the sleep is no trail', [], $t['dirs'] ?? null);
+        $t = watchmanWakeTrail(['asleep' => ['disk1' => ['since' => $now + 5, 'gen' => null]]] + $w1, $disks, $o);
+        same('watchman trail: XFS — a file changed before the sleep is no trail', [], $t['dirs'] ?? null);
         // ZFS: the disk's own datasets each, never a snapshot's mount or another filesystem below it
         $log->calls = [];
-        $t = logsWakeTrail(['disks' => ['disk2'], 'asleep' => ['disk2' => ['since' => $now - 3600, 'gen' => null]]] + $wake, $disks, $o);
-        same('logs trail: ZFS — the disk and its datasets (no snapshot mount, no other filesystem)', [["$mnt/disk2", "$mnt/disk2/media"], [['disk2', 'media/Filme', 1, 70]]],
+        $t = watchmanWakeTrail(['disks' => ['disk2'], 'asleep' => ['disk2' => ['since' => $now - 3600, 'gen' => null]]] + $wake, $disks, $o);
+        same('watchman trail: ZFS — the disk and its datasets (no snapshot mount, no other filesystem)', [["$mnt/disk2", "$mnt/disk2/media"], [['disk2', 'media/Filme', 1, 70]]],
             [array_column($calls(), 1), array_map(fn (array $d): array => [$d['disk'], $d['dir'], $d['n'], $d['bytes']], $t['dirs'] ?? [])]);
-        // cut short: said so; at most LOGS_WAKE_TRAIL_DIRS folders, the rest counted
+        // cut short: said so; at most WATCH_WAKE_TRAIL_DIRS folders, the rest counted
         $many = function (array $cmd, float $s, int $max) use ($mnt): array {
             if (($cmd[3] ?? '') === "$mnt/disk4" && ($cmd[2] ?? '') === 'find-new') {
                 $out = '';
@@ -43929,63 +43395,63 @@ function testLogsWakeTrail(): void
             }
             return [1, '', false];
         };
-        $t = logsWakeTrail($wake, $disks, ['run' => $many] + $o);
-        same('logs trail: cut short and said so; four folders kept, the rest counted', [true, LOGS_WAKE_TRAIL_DIRS, 3, 7],
+        $t = watchmanWakeTrail($wake, $disks, ['run' => $many] + $o);
+        same('watchman trail: cut short and said so; four folders kept, the rest counted', [true, WATCH_WAKE_TRAIL_DIRS, 3, 7],
             [$t['cut'] ?? null, count($t['dirs'] ?? []), $t['more'] ?? null, $t['files'] ?? null]);
 
         // the tick notes since when a disk sleeps and its generation (once — the first look that saw it asleep)
-        $GLOBALS['logsWakesFile'] = "$tmp/logs-wakes.json";
-        $GLOBALS['logsWakeMemFile'] = "$tmp/mem.json";
-        $GLOBALS['logsWakeNamesFile'] = "$tmp/names.json";
-        $GLOBALS['logsWakeVarIni'] = "$tmp/var.ini";
-        $GLOBALS['logsWakeNoJob'] = true;
-        $GLOBALS['logsWakeSharesIni'] = "$tmp/shares.ini";
-        $GLOBALS['logsWakeProc'] = $proc;
-        $GLOBALS['logsWakeSys'] = $sys;
+        $GLOBALS['watchmanWakesFile'] = "$tmp/logs-wakes.json";
+        $GLOBALS['watchmanWakeMemFile'] = "$tmp/mem.json";
+        $GLOBALS['watchmanWakeNamesFile'] = "$tmp/names.json";
+        $GLOBALS['watchmanWakeVarIni'] = "$tmp/var.ini";
+        $GLOBALS['watchmanWakeNoJob'] = true;
+        $GLOBALS['watchmanWakeSharesIni'] = "$tmp/shares.ini";
+        $GLOBALS['watchmanWakeProc'] = $proc;
+        $GLOBALS['watchmanWakeSys'] = $sys;
         $GLOBALS['disksIni'] = "$tmp/disks.ini";
         $GLOBALS['agentStaffFile'] = "$tmp/staff.json";
-        file_put_contents("$tmp/staff.json", '{"hired":{"logs":{}}}');
+        file_put_contents("$tmp/staff.json", '{"hired":{"watchman":{}}}');
         file_put_contents("$tmp/var.ini", "fsState=\"Started\"\n");
         $ini = fn (bool $asleep) => file_put_contents("$tmp/disks.ini", "[\"disk4\"]\nname=\"disk4\"\ndevice=\"sde\"\ntype=\"Data\"\nrotational=\"1\"\nspundown=\"" . ($asleep ? 1 : 0) . "\"\n");
-        $GLOBALS['logsWakeMonoNow'] = 1000.0;
+        $GLOBALS['watchmanWakeMonoNow'] = 1000.0;
         $tick = function (float $s): void {
-            $GLOBALS['logsWakeMonoNow'] += $s;
-            logsWakeTick();
+            $GLOBALS['watchmanWakeMonoNow'] += $s;
+            watchmanWakeTick();
         };
-        unset($GLOBALS['logsWake']);
+        unset($GLOBALS['watchmanWake']);
         $ini(false);
         $tick(0);
         $ini(true);
-        $tick(LOGS_WAKE_INI);
-        $first = logsWakeMem()['disks']['disk4'] ?? [];
+        $tick(WATCH_WAKE_INI);
+        $first = watchmanWakeMem()['disks']['disk4'] ?? [];
         file_put_contents("$sys/fs/btrfs/0aa1-fsid/generation", "1235\n");     // the writes that will wake it: a new transaction
-        $tick(LOGS_WAKE_INI);
+        $tick(WATCH_WAKE_INI);
         $ini(false);
-        $tick(LOGS_WAKE_INI);
-        $w = logsWakesRead()['wakes'][0] ?? [];
-        same('logs trail: the tick notes since when the disk sleeps and its generation then — kept from the first look, into the wake',
+        $tick(WATCH_WAKE_INI);
+        $w = watchmanWakesRead()['wakes'][0] ?? [];
+        same('watchman trail: the tick notes since when the disk sleeps and its generation then — kept from the first look, into the wake',
             [1234, 1234, true], [$first['gen'] ?? null, $w['asleep']['disk4']['gen'] ?? null, ($w['asleep']['disk4']['since'] ?? 0) === ($first['since'] ?? -1)]);
-        same('logs trail: awake, the memory keeps no sleep', [false, false], [isset(logsWakeMem()['disks']['disk4']['since']), isset(logsWakeMem()['disks']['disk4']['gen'])]);
+        same('watchman trail: awake, the memory keeps no sleep', [false, false], [isset(watchmanWakeMem()['disks']['disk4']['since']), isset(watchmanWakeMem()['disks']['disk4']['gen'])]);
 
-        // the naming job: the trail into her file; the page reads it only in its shape, an old entry without one still reads
+        // the naming job: the trail into his file; the page reads it only in its shape, an old entry without one still reads
         $mountinfo = (string) file_get_contents("$proc/1/mountinfo");
-        $all = logsWakesRead();
+        $all = watchmanWakesRead();
         $all['wakes'][0]['time'] = $now;
-        logsWakesWrite($all);
-        logsWakeNameRun(['docker' => ['names' => [], 'started' => []], 'cron' => [], 'syslog' => [], 'disks' => $disks,
+        watchmanWakesWrite($all);
+        watchmanWakeNameRun(['docker' => ['names' => [], 'started' => []], 'cron' => [], 'syslog' => [], 'disks' => $disks,
                          'trail' => ['run' => $runFake, 'now' => $now, 'proc' => $proc, 'exclude' => ['/mnt/user/appdata/UnraidSecretaryOffice/data']]]);
-        logsWakeNameMerge();
-        $page = logsWakesForPage($disks)['wakes'][0] ?? [];
-        same('logs trail: named — the trail kept in the wake and on her page (folders only, no machine or command)', ['btrfs', 'Mediathek/Musik-Videos/Techno & Trance', 13],
+        watchmanWakeNameMerge();
+        $page = watchmanWakesForPage($disks)['wakes'][0] ?? [];
+        same('watchman trail: named — the trail kept in the wake and on his page (folders only, no machine or command)', ['btrfs', 'Mediathek/Musik-Videos/Techno & Trance', 13],
             [$page['trail']['how'] ?? null, $page['trail']['dirs'][0]['dir'] ?? null, $page['trail']['dirs'][0]['n'] ?? null]);
-        same('logs trail: the agent\'s log never names a folder', false, str_contains((string) @file_get_contents(AGENT_LOG), 'Techno & Trance'));
-        same('logs trail: an entry without a trail (older agents) reads; one in another shape is none; a folder in another shape left out',
+        same('watchman trail: the agent\'s log never names a folder', false, str_contains((string) @file_get_contents(AGENT_LOG), 'Techno & Trance'));
+        same('watchman trail: an entry without a trail (older agents) reads; one in another shape is none; a folder in another shape left out',
             [null, null, [['disk4', 'x']]],
-            [logsWakeShaped(['id' => 'o', 'time' => 1, 'disks' => ['disk1'], 'how' => 'noticed', 'who' => []])['trail'],
-             logsWakeShaped(['id' => 'o', 'time' => 1, 'disks' => ['disk1'], 'how' => 'noticed', 'who' => [], 'trail' => ['how' => 'guess', 'dirs' => []]])['trail'],
-             array_map(fn (array $d): array => [$d['disk'], $d['dir']], logsWakeTrailShaped(['how' => 'walk', 'dirs' => [['disk' => 'disk4', 'dir' => 'x', 'n' => 1, 'bytes' => 1],
+            [watchmanWakeShaped(['id' => 'o', 'time' => 1, 'disks' => ['disk1'], 'how' => 'noticed', 'who' => []])['trail'],
+             watchmanWakeShaped(['id' => 'o', 'time' => 1, 'disks' => ['disk1'], 'how' => 'noticed', 'who' => [], 'trail' => ['how' => 'guess', 'dirs' => []]])['trail'],
+             array_map(fn (array $d): array => [$d['disk'], $d['dir']], watchmanWakeTrailShaped(['how' => 'walk', 'dirs' => [['disk' => 'disk4', 'dir' => 'x', 'n' => 1, 'bytes' => 1],
                  ['disk' => 'disk4', 'dir' => 5, 'n' => 1, 'bytes' => 1], 'junk']])['dirs'])]);
-        check('logs trail: mountinfo untouched by the tests\' own look', $mountinfo === file_get_contents("$proc/1/mountinfo"));
+        check('watchman trail: mountinfo untouched by the tests\' own look', $mountinfo === file_get_contents("$proc/1/mountinfo"));
 
         // `sensors` reaches a rotating disk only through drivetemp: without one it is Unraid's look, never a cause
         mkdir("$tmp/sys-plain/class/hwmon/hwmon0", 0700, true);
@@ -43995,23 +43461,23 @@ function testLogsWakeTrail(): void
         $sensors = ['kind' => 'program', 'prog' => 'sensors', 'cmd' => '/usr/bin/sensors -A', 'by' => 'unraid', 'byname' => '', 'pid' => 77, 'files' => []];
         $old = ['id' => 's1', 'time' => 1792522284, 'disks' => ['disk4'], 'how' => 'caught',
                 'who' => [['kind' => 'program', 'prog' => 'sensors', 'cmd' => 'sensors -A', 'sure' => 'maybe', 'files' => []]]];
-        $GLOBALS['logsWakeSys'] = "$tmp/sys-plain";
-        $plain = [logsWakeReaction($sensors), logsWakeCauses([['who' => [$sensors], 'wrote' => [], 'open' => []]], ['/mnt/disk4']),
-                  logsWakeShaped($old)['who'], logsWakeShaped($old)['unraid']];
-        $GLOBALS['logsWakeSys'] = "$tmp/sys-dt";
-        $dt = [logsWakeReaction($sensors), array_column(logsWakeShaped($old)['who'], 'prog'), logsWakeShaped($old)['unraid']];
-        same('logs trail: sensors without a drivetemp hwmon is Unraid\'s look (now and in an older agent\'s entry), with drivetemp a cause it can be',
+        $GLOBALS['watchmanWakeSys'] = "$tmp/sys-plain";
+        $plain = [watchmanWakeReaction($sensors), watchmanWakeCauses([['who' => [$sensors], 'wrote' => [], 'open' => []]], ['/mnt/disk4']),
+                  watchmanWakeShaped($old)['who'], watchmanWakeShaped($old)['unraid']];
+        $GLOBALS['watchmanWakeSys'] = "$tmp/sys-dt";
+        $dt = [watchmanWakeReaction($sensors), array_column(watchmanWakeShaped($old)['who'], 'prog'), watchmanWakeShaped($old)['unraid']];
+        same('watchman trail: sensors without a drivetemp hwmon is Unraid\'s look (now and in an older agent\'s entry), with drivetemp a cause it can be',
             [[true, [], [], true], [false, ['sensors'], false]], [$plain, $dt]);
-        $GLOBALS['logsWakeSys'] = $sys;
+        $GLOBALS['watchmanWakeSys'] = $sys;
 
         // the bounded reader: ended at its byte limit, said so
         if (is_executable('/usr/bin/yes') || is_executable('/bin/yes')) {
-            [$code, $out, $cut] = logsWakeRunCapped([is_executable('/usr/bin/yes') ? '/usr/bin/yes' : '/bin/yes'], 5, 100000);
-            same('logs trail: a long answer read only up to its limit and ended', [124, 100000, true], [$code, strlen($out), $cut]);
+            [$code, $out, $cut] = watchmanWakeRunCapped([is_executable('/usr/bin/yes') ? '/usr/bin/yes' : '/bin/yes'], 5, 100000);
+            same('watchman trail: a long answer read only up to its limit and ended', [124, 100000, true], [$code, strlen($out), $cut]);
         }
     } finally {
-        unset($GLOBALS['logsWakesFile'], $GLOBALS['logsWakeMemFile'], $GLOBALS['logsWakeNamesFile'], $GLOBALS['logsWakeVarIni'], $GLOBALS['logsWakeNoJob'],
-            $GLOBALS['logsWakeProc'], $GLOBALS['logsWakeSys'], $GLOBALS['logsWake'], $GLOBALS['logsWakeSharesIni'], $GLOBALS['logsWakeMonoNow']);
+        unset($GLOBALS['watchmanWakesFile'], $GLOBALS['watchmanWakeMemFile'], $GLOBALS['watchmanWakeNamesFile'], $GLOBALS['watchmanWakeVarIni'], $GLOBALS['watchmanWakeNoJob'],
+            $GLOBALS['watchmanWakeProc'], $GLOBALS['watchmanWakeSys'], $GLOBALS['watchmanWake'], $GLOBALS['watchmanWakeSharesIni'], $GLOBALS['watchmanWakeMonoNow']);
         [$GLOBALS['disksIni'], $GLOBALS['agentStaffFile']] = $keep;
         if ($keep[0] === null) {
             unset($GLOBALS['disksIni']);
@@ -48149,7 +47615,7 @@ JS);
     same('report dialog diagnostics: not ticked — the preview doesn\'t ask, no part', [[[null, null]], false], [$r['plain']['asked'], $r['plain']['row']]);
     same('report dialog diagnostics: ticked, disks asleep — refused, «wake» shows, no preview', [[[true, null]], true, false, true],
         [$r['asleep']['asked'], $r['asleep']['wakeShown'], $r['asleep']['row'], $r['asleep']['sendOff']]);
-    same('report dialog diagnostics: with «wake» — asked so; the wave, its part ticked but off, «Send» off; nothing of it in the draft', [[[true, true]], true, true, true, true, ['kind', 'desk', 'title', 'text', 'mine']],
+    same('report dialog diagnostics: with «wake» — asked so; the wave, its part ticked but off, «Send» off; nothing of it in the draft', [[[true, true]], true, true, true, true, ['kind', 'desk', 'title', 'text', 'mine', 'title_own']],
         [$r['running']['asked'], $r['running']['sendOff'], $r['running']['wave'], $r['running']['rowDisabled'], $r['running']['rowTicked'], array_keys($r['running']['draft'])]);
     same('report dialog diagnostics: … beside the buttons: wait for Unraid\'s diagnostics, with the wave', ['office.report_why_diag', true], $r['running']['why']);
     same('report dialog diagnostics: ready — the line gone; the files open, nothing to click', [null, ['div', 0]], [$r['ready']['why'], $r['ready']['filesOpen']]);
@@ -48725,8 +48191,10 @@ const why = () => { const w = walk(byId['sso-dialog-foot'], (n) => typeof n.clas
       links: walk(li, (n) => n.tag === 'a').map((a) => [a.href, text(a), a.target, a.rel]) })) };
   const [title] = walk(body(), (n) => n.tag === 'input' && n.className === 'input');
   const area = one((n) => n.tag === 'textarea');
-  title.value = 'Her plan ran twice'; title.oninput();
   area.value = 'It ran twice at 03:00, see the log.'; area.oninput();
+  out.noTitle = { why: why(), required: title.required, placeholder: title.placeholder };
+  title.value = 'Her plan ran twice'; title.oninput();
+  out.titled = why();
   out.draft = JSON.parse(store['office.report.draft'] || 'null');
   out.counter = text(one((n) => n.className.startsWith('sso-report-count')));
   posts.length = 0;
@@ -48823,7 +48291,9 @@ JS);
         [$o['title'], $o['desk'], $o['deskOptions'], $o['sendOff'], $o['asked'], str_contains($o['wide'], 'wide') && str_contains($o['wide'], 'sso-report-dialog')]);
     same('report dialog: … the GitHub issues for account holders (no forum yet), «Your reports» without the private inbox\'s numbers', [['https://github.com/dropnook/UnraidSecretaryOffice/issues'], true], [$o['issues'], $o['yours']]);
     same('report dialog: … «Your reports» open, nothing to click (2026-10-27): no <details> in the dialog', [['div', true, 'office.report_yours'], 0], [$o['yoursOpen'], $o['details']]);
-    same('report dialog: … beside the buttons, why «Send» is off: the preview first', [['office.report_why_preview', false]], [$o['why']]);
+    same('report dialog: … beside the buttons, why «Send» is off: a title first (2026-11-22: none filled in — the field empty, required, an example in it), then the preview',
+        [['office.report_why_title', false], ['office.report_why_title', false], true, 'office.report_subject_example', ['office.report_why_preview', false]],
+        [$o['why'], $r['noTitle']['why'], $r['noTitle']['required'], $r['noTitle']['placeholder'], $r['titled']]);
     $pub14 = 'https://github.com/dropnook/UnraidSecretaryOffice/issues/14';
     same('report dialog: «Your reports» — title, kind · desk · day, where it stands, the public issue (only the public repository\'s, a new tab)', [
         ['title' => 'Darker', 'chips' => [['chip accent', 'Looked at']], 'links' => [[$pub14, 'Issue #14', '_blank', 'noopener noreferrer']]],
@@ -48833,7 +48303,7 @@ JS);
         ['title' => 'Odd', 'chips' => [], 'links' => []]],
         array_map(fn ($row) => ['title' => $row['title'], 'chips' => $row['chips'], 'links' => $row['links']], $o['rows']));
     same('report dialog: … the row\'s kind · desk · day stays second', array_fill(0, 5, 'office.report_yours_row'), array_column($o['rows'], 'meta'));   // no strings loaded: the key
-    same('report dialog: the draft kept while typing (2026-11-22: marked as the user\'s own — testReportDialogOwnWords)', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.', 'mine' => true], $r['draft']);
+    same('report dialog: the draft kept while typing (2026-11-22: marked as the user\'s own — testReportDialogOwnWords)', ['kind' => 'bug', 'desk' => 'snapshot', 'title' => 'Her plan ran twice', 'text' => 'It ran twice at 03:00, see the log.', 'mine' => true, 'title_own' => true], $r['draft']);
     same('report dialog: the counter in bytes', 'office.report_count', $r['counter']);   // no strings loaded: the key
     $p = $r['preview'];
     same('report dialog: the preview asks with the words (no name: the field is gone), the languages and the desk\'s last error (plain params only)',
@@ -48938,6 +48408,9 @@ const button = (label) => one((n) => n.tag === 'button' && n.textContent === lab
     if (draft) store['office.report.draft'] = JSON.stringify(draft); else delete store['office.report.draft'];
     const dlg = O.reportDialog('snapshot');
     await sleep(20);
+    // no title comes from a desk any more (2026-11-22): the user gives one
+    const tf = walk(body(), (n) => n.tag === 'input' && n.className === 'input')[0];
+    if (!tf.value) { tf.value = 'In my words'; tf.oninput(); }
     if (edit !== null) { area().value = edit; area().oninput(); }
     if (kind) { const k = button(`office.report_kind_${kind}`); if (k) k.onclick(); }
     await button('office.report_preview').onclick();
@@ -49013,6 +48486,144 @@ JS);
     $de = langFile(OFFICE_WEB . '/lang/de.json');
     same('report dialog own words: the German words', ['Magst du in einem Satz sagen, was du dir wünschst?', 'Magst du in einem Satz sagen, was passiert ist?', 'Zum Text', 'Trotzdem senden'],
         [$de['office.report_own_wish'] ?? null, $de['office.report_own_bug'] ?? null, $de['office.report_own_back'] ?? null, $de['office.report_own_send'] ?? null]);
+    hardeningRm($tmp);
+}
+
+/**
+ * 2026-11-22 (the owner on Fanboy's page: «Betrifft» said «Das Sekretariat als Ganzes»; uso-inbox #20 came with our title
+ * and our text only): «About» is the desk the dialog was opened from — the ⋯ menu's and the search's item without a
+ * desk: the desk shown, the reception: the office —, never a kept draft's. The one kept draft belongs to the desk it is
+ * about: a dialog about another desk starts empty and leaves it as it is until the user writes there (then it is that
+ * desk's). No title is filled in: the field is empty, required («Send»'s line says so, the preview asks for it and
+ * puts the cursor there), with an example — the opener's, the desk's (<desk>.report_example), else the office's —
+ * that follows «About». A title in a draft counts only when the user typed it (title_own). The harness is
+ * testReportDialog()'s.
+ */
+function testReportDialogDesk(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('report dialog desk: node is missing here - skipped', true);
+        return;
+    }
+    $src = (string) file_get_contents(__FILE__);
+    $from = strpos($src, "const fs = require('fs');", (int) strpos($src, "\nfunction testReportDialog(): void"));
+    $to = strpos($src, "(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));", (int) $from);
+    if ($from === false || $to === false) {
+        check('report dialog desk: testReportDialog()\'s harness found', false);
+        return;
+    }
+    $tmp = hardeningTmp('reportdlgdesk');
+    file_put_contents("$tmp/t.js", substr($src, $from, $to - $from) . <<<'JS'
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const walk = (n, f, out = []) => { if (n && typeof n === 'object') { if (f(n)) out.push(n); (n.children || []).forEach((c) => walk(c, f, out)); } return out; };
+const text = (n) => (typeof n === 'string' ? n : [n.textContent || '', ...(n.children || []).map(text)].join(''));
+const body = () => byId['sso-dialog-body'];
+const one = (f) => walk(body(), f)[0];
+const button = (label) => one((n) => n.tag === 'button' && n.textContent === label);
+(async () => {
+  await sleep(30);
+  O.agent = { running: true };
+  O.desk({ id: 'snapshot' });
+  O.desk({ id: 'caretaker' });
+  O.desk({ id: 'fired' });                       // not in CONFIG: not hired, never in «About»
+  O.strings = { 'snapshot.report_example': 'e.g. Her plan ran twice', 'office.report_subject_example': 'e.g. The page stays empty' };
+  answers = { 'office.reports': { ok: true, reports: [], n: 0, left: 25, cap: 25, next: null, closed: false } };
+  const look = () => {
+    const title = walk(body(), (n) => n.tag === 'input' && n.className === 'input')[0];
+    const why = walk(byId['sso-dialog-foot'], (n) => typeof n.className === 'string' && n.className.split(' ').includes('sso-report-why'))[0];
+    return { desk: one((n) => n.tag === 'select').value, title: title.value, example: title.placeholder, text: one((n) => n.tag === 'textarea').value,
+      kind: (one((n) => n.tag === 'button' && n.attrs['aria-pressed'] === 'true') || {}).dataset.kind, why: why && !why.hidden ? text(why).trim() : null };
+  };
+  const open = async (...a) => { const d = O.reportDialog(...a); await sleep(10); return d; };
+  const draft = () => store['office.report.draft'] || null;
+  const out = {};
+  // the desk shown: the ⋯ menu's and the search's item give none
+  O.current = O.desks.get('snapshot');
+  let d = await open();
+  out.shown = look();
+  d.close();
+  O.current = null;
+  d = await open();
+  out.reception = look();
+  d.close();
+  d = await open('fired');
+  out.fired = look().desk;
+  d.close();
+  out.untouched = draft();                       // opened and closed, nothing written: nothing kept
+  // a desk's draft (as Fanboy writes it: kind, desk, its text; no title): its dialog takes it ...
+  const given = 'What I wish for here:\n\n\nSnapshot report v1';
+  store['office.report.draft'] = JSON.stringify({ kind: 'wish', desk: 'snapshot', text: given, prefill: given });
+  d = await open('snapshot', { example: 'e.g. A plan of mine' });
+  out.desk = look();
+  const sel = one((n) => n.tag === 'select');
+  sel.value = 'office'; sel.onchange();
+  out.otherAbout = look().example;
+  sel.value = 'snapshot'; sel.onchange();
+  out.backAbout = look().example;
+  // ... the preview without a title: asked for, the cursor in the field, nothing posted
+  posts.length = 0;
+  let focused = null;
+  walk(body(), (n) => n.tag === 'input' && n.className === 'input')[0].focus = () => { focused = 'title'; };
+  await button('office.report_preview').onclick();
+  out.noTitle = { posted: posts.filter((p) => p.a === 'office.report_preview').length, msg: text(one((n) => n.className === 'callout warn' && !n.hidden) || {}), focused };
+  d.close();
+  const keptSnap = draft();
+  // ... a dialog about another desk (the reception's ⋯) neither shows it nor changes it on closing
+  d = await open('office');
+  out.leak = look();
+  d.close();
+  out.leakKept = draft() === keptSnap;
+  // ... until the user writes there: then the draft is that desk's
+  d = await open('office');
+  one((n) => n.tag === 'textarea').value = 'The page stays empty after the update.'; one((n) => n.tag === 'textarea').oninput();
+  d.close();
+  out.replaced = JSON.parse(draft() || '{}').desk;
+  // a title typed comes back; an older draft's title (ours, before 2026-11-22: no title_own) doesn't — its text does
+  d = await open('office');
+  const tf = walk(body(), (n) => n.tag === 'input' && n.className === 'input')[0];
+  tf.value = 'Empty page'; tf.oninput();
+  d.close();
+  d = await open('office');
+  out.typed = [look().title, JSON.parse(draft() || '{}').title_own];
+  d.close();
+  store['office.report.draft'] = JSON.stringify({ kind: 'wish', desk: 'snapshot', title: 'Fanboy: what he finds on this board', text: 'Mine.', mine: true });
+  d = await open('snapshot');
+  out.oldTitle = [look().title, look().text];
+  d.close();
+  process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0));
+})().catch((e) => { process.stdout.write('ERR ' + e.stack + '\n', () => process.exit(1)); });
+JS);
+    $raw = (string) shell_exec(escapeshellarg($node) . ' ' . escapeshellarg("$tmp/t.js") . ' ' . escapeshellarg(OFFICE_WEB . '/assets/core.js') . ' 2>&1');
+    $o = json_decode(trim($raw), true) ?? [];
+    same('report dialog desk: no desk given — the desk shown (the ⋯ menu, the search), at the reception the office; a desk not working here: the office',
+        ['snapshot', 'office', 'office'], [$o['shown']['desk'] ?? null, $o['reception']['desk'] ?? null, $o['fired'] ?? null], $raw);
+    same('report dialog desk: no title filled in — empty, the desk\'s example (else the office\'s), «Send»\'s line asks for a title',
+        [['', 'e.g. Her plan ran twice', 'office.report_why_title'], ['', 'e.g. The page stays empty', 'office.report_why_title']],
+        [[$o['shown']['title'] ?? null, $o['shown']['example'] ?? null, $o['shown']['why'] ?? null], [$o['reception']['title'] ?? null, $o['reception']['example'] ?? null, $o['reception']['why'] ?? null]], $raw);
+    same('report dialog desk: opened and closed without a word — nothing kept', [true, null], [array_key_exists('untouched', $o), $o['untouched'] ?? null], $raw);
+    same('report dialog desk: a desk\'s draft in its own dialog — its kind and text, no title, the opener\'s example; it follows «About» and comes back',
+        ['snapshot', 'wish', "What I wish for here:\n\n\nSnapshot report v1", '', 'e.g. A plan of mine', 'e.g. The page stays empty', 'e.g. A plan of mine'],
+        [$o['desk']['desk'] ?? null, $o['desk']['kind'] ?? null, $o['desk']['text'] ?? null, $o['desk']['title'] ?? null, $o['desk']['example'] ?? null, $o['otherAbout'] ?? null, $o['backAbout'] ?? null], $raw);
+    same('report dialog desk: the preview without a title — nothing asked of the agent, said, the cursor in the title', [0, 'errors.report_incomplete', 'title'],
+        [$o['noTitle']['posted'] ?? null, $o['noTitle']['msg'] ?? null, $o['noTitle']['focused'] ?? null], $raw);
+    same('report dialog desk: a dialog about another desk — none of that draft in it (the office, a problem, empty), the draft left as it was',
+        [['office', 'bug', '', ''], true], [[$o['leak']['desk'] ?? null, $o['leak']['kind'] ?? null, $o['leak']['title'] ?? null, $o['leak']['text'] ?? null], $o['leakKept'] ?? null], $raw);
+    same('report dialog desk: … written there, the draft is that desk\'s; a title typed comes back (title_own); an older draft\'s title doesn\'t, its text does',
+        ['office', ['Empty page', true], ['', 'Mine.']], [$o['replaced'] ?? null, $o['typed'] ?? null, $o['oldTitle'] ?? null], $raw);
+    $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
+    check('report dialog desk: the search\'s item gives no desk (the dialog takes the one shown), the ⋯ menu the one shown',
+        str_contains($core, "{ kind: 'setting', key: 'office.report_menu', anchor: null, act: () => Office.reportDialog(), shown: () => !!CONFIG.report }")
+        && str_contains($core, "const asked = deskId || (Office.current && Office.current.id) || 'office';"));
+    foreach (['en', 'de', 'it', 'fr', 'es'] as $code) {
+        $lang = langFile(OFFICE_WEB . "/lang/$code.json");
+        $fan = langFile(OFFICE_WEB . "/desks/fanboy/lang/$code.json");
+        check("report dialog desk: $code — the title's line and examples (the office's, Fanboy's, his chip read's)",
+            ($lang['office.report_why_title'] ?? '') !== '' && ($lang['office.report_subject_example'] ?? '') !== '' && ($fan['report_example'] ?? '') !== '' && ($fan['chip.report_example'] ?? '') !== '');
+    }
+    same('report dialog desk: the German example on Fanboy\'s page', 'z. B. CPU-Lüfter wird nicht gefunden', langFile(OFFICE_WEB . '/desks/fanboy/lang/de.json')['report_example'] ?? null);
     hardeningRm($tmp);
 }
 
@@ -52818,16 +52429,13 @@ JS, [OFFICE_WEB . '/desks/jack/desk.js', OFFICE_DIR . '/tests/ui/demo/jack.json'
         ['ok', [], '300G', [], false], [$w, $saved['instances'] ?? null, $saved['cache_budget'] ?? null, array_values(array_diff(scandir("$tmp/run"), ['.', '..'])), is_file("$tmp/emby/.mediacache_settings.trial.json")]);
     same('remove server: … a wrong value still refused (checked with the stand-in)', 'jack_config',
         $refused(fn () => jackWriteSettings(['min_free_percent' => 'bad'] + $cfg, "$tmp/emby", "$tmp/run")));
-    if (!needsPython(__FUNCTION__, 'MediaCache refuses to run on it')) {
-        exec('rm -rf ' . escapeshellarg($tmp));
-        return;
+    try {
+        jackPlanConfig("$tmp/emby/mediacache_settings.json", array_map('strval', ['MEDIACACHE_DIR' => "$tmp/emby"] + jackRunEnv()), false);
+        $out = 'ran';
+    } catch (JackPlanConfigError) {
+        $out = 'refused';
     }
-    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l
-try:
-    l.load_config(require_paths=False); print("ran")
-except l.ConfigError: print("refused")';
-    [, $out] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => "$tmp/emby"] + jackPyEnv(), 30);
-    same('remove server: … MediaCache itself refuses to run on it (no run without a server, no cleanup)', 'refused', trim($out));
+    same('remove server: … MediaCache itself refuses to run on it (no run without a server, no cleanup)', 'refused', $out);
     exec('rm -rf ' . escapeshellarg($tmp));
 }
 
@@ -53464,9 +53072,10 @@ function testPoolLevel(): void
     file_put_contents("$tmp/ini", "[GLOBAL]\nmove_when_used_above=80\n");
     same('level jack: his launch hands it to EmbyCache (jackPoolEnv) — the same', $want, jackPoolEnv(['cache_path' => "$tmp/mnt/master"]));
     unset($GLOBALS['jackPool']);
-    $py = (string) file_get_contents(OFFICE_DIR . '/mediacache/mediacache_run.py');
-    check('level jack: EmbyCache with MEDIACACHE_WATCHED_ONLY never gives back by rank (MEDIACACHE_GIVE_BACK_FREE then off) and still writes its pool status',
-        str_contains($py, 'os.environ.get("MEDIACACHE_GIVE_BACK_FREE") == "1" and not WATCHED_ONLY') && str_contains($py, 'self.office_pool = self.give_back_free or WATCHED_ONLY'));
+    $run = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-run.php');
+    check('level jack: MediaCache with MEDIACACHE_WATCHED_ONLY never gives back by rank (MEDIACACHE_GIVE_BACK_FREE then off) and still writes its pool status',
+        str_contains($run, "\$giveBackFree = (\$env['MEDIACACHE_GIVE_BACK_FREE'] ?? '') === '1' && !\$watchedOnly") && str_contains($run, '$this->officePool = $giveBackFree || $watchedOnly;')
+        && str_contains((string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-plan.php'), "\$giveBackFree = (\$env['MEDIACACHE_GIVE_BACK_FREE'] ?? '') === '1' && !\$watchedOnly"));
 
     // her save: only X — an older page's Y and «Jack guaranteed» not read, never written
     $v = [];
@@ -53639,11 +53248,6 @@ JS);
  */
 function testJackYield(): void
 {
-    [$exit] = run(['python3', '--version'], 10);
-    if ($exit !== 0) {
-        check('emby yield: python3 is missing here - skipped', true);
-        return;
-    }
     $tmp = hardeningTmp('jack-zfs');
     // ZFS: the pool master 7000 + 3000, the share's dataset sees refer 500 + the pool's avail; a quota'd dataset 100 avail
     @mkdir("$tmp/z/pool/Filme", 0700, true);
@@ -53652,13 +53256,13 @@ function testJackYield(): void
     @mkdir("$tmp/z/pool/Quota", 0700, true);
     file_put_contents("$tmp/z/zfs", "#!/bin/bash\ncase \"\${@: -1}\" in master) echo '7000 3000';; master/Filme) echo '500 3000';; master/Quota) echo '50 100';; *) exit 1;; esac\n");
     chmod("$tmp/z/zfs", 0755);
-    $py = 'import sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; '
-        . 'print(round(l.free_percent_after(sys.argv[2] + "/pool/Filme", 0), 1), round(l.free_percent_after(sys.argv[2] + "/pool", 1000), 1), '
-        . 'round(l.free_percent_after(sys.argv[2] + "/pool/Quota", 0), 1), l.pool_usage(sys.argv[2] + "/plain")[0] > 0)';
-    [, $out, $err] = runEnv(['python3', '-c', $py, OFFICE_DIR . '/mediacache', "$tmp/z"], ['MEDIACACHE_ZFS' => "$tmp/z/zfs", 'MEDIACACHE_MOUNTS' => "$tmp/z/mounts",
-        'MEDIACACHE_DIR' => "$tmp/z", 'PYTHONDONTWRITEBYTECODE' => '1', 'PATH' => getenv('PATH')], 30);
+    $zenv = ['MEDIACACHE_ZFS' => "$tmp/z/zfs", 'MEDIACACHE_MOUNTS' => "$tmp/z/mounts"];
+    $freeAfter = function (string $path, int $size) use ($zenv): float {
+        [$total, $free] = jackPlanPoolUsage($path, $zenv);
+        return round($total === 0 ? 0.0 : max(0.0, ($free - $size) / $total * 100.0), 1);
+    };
     same('emby zfs: a share\'s dataset — the whole pool 30 % free (not refer+avail: 86 %); 1000 bytes more → 20 %; a quota\'d dataset 1 %; not ZFS — statvfs',
-        '30.0 20.0 1.0 True', trim((string) $out), $err);
+        [30.0, 20.0, 1.0, true], [$freeAfter("$tmp/z/pool/Filme", 0), $freeAfter("$tmp/z/pool", 1000), $freeAfter("$tmp/z/pool/Quota", 0), jackPlanPoolUsage("$tmp/z/plain", $zenv)[0] > 0]);
 
     hardeningRm($tmp);
 
@@ -53673,49 +53277,43 @@ function testJackYield(): void
     }
     file_put_contents("$p/user0/Filme/Brazil/Brazil.mkv", str_repeat('b', 1000));
     file_put_contents("$p/playing", '');
-    file_put_contents("$p/emby.py", <<<'PY'
-import http.server, json, sys, urllib.parse
-NAMES = ["Eins", "Zwei", "Drei", "Vier", "Fünf"]
-EPS = [{"Type": "Episode", "Id": f"e{i}", "Name": NAMES[i - 1], "SeriesId": "s1", "SeriesName": "Serie", "ParentIndexNumber": 1,
-        "IndexNumber": i, "Path": f"/media/tv/Serie/S01E0{i}.mkv"} for i in range(1, 6)]
-BRAZIL = {"Type": "Movie", "Id": "m2", "Name": "Brazil", "Path": "/media/movies/Brazil/Brazil.mkv"}
-class H(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        u = urllib.parse.urlparse(self.path)
-        q = urllib.parse.parse_qs(u.query)
-        kind = (q.get("IncludeItemTypes") or [""])[0]
-        if u.path == "/Users":
-            body = [{"Id": "u1", "Name": "Mutter"}, {"Id": "u2", "Name": "Vater"}, {"Id": "u3", "Name": "Kids"}]
-        elif u.path == "/Sessions":
-            playing = open(sys.argv[2]).read().strip()
-            body = [{"UserName": "Kids", "NowPlayingItem": {"Path": playing}}] if playing else []
-        elif u.path.endswith("/Items/Resume"):
-            uid = u.path.split("/")[2]
-            body = {"Items": ([EPS[0]] if uid == "u1" and kind == "Episode" else [BRAZIL] if uid == "u3" and kind == "Movie" else [])}
-        elif u.path == "/Shows/NextUp":
-            body = {"Items": [EPS[2]] if q.get("UserId") == ["u2"] else []}
-        elif q.get("ParentId") == ["s1"]:
-            body = {"Items": EPS}
-        else:
-            body = {"Items": []}
-        b = json.dumps(body).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(b)))
-        self.end_headers()
-        self.wfile.write(b)
-    def log_message(self, *a):
-        pass
-s = http.server.HTTPServer(("127.0.0.1", 0), H)
-open(sys.argv[1] + ".tmp", "w").write(str(s.server_address[1]))
-import os; os.replace(sys.argv[1] + ".tmp", sys.argv[1])
-s.serve_forever()
-PY);
-    $emby = proc_open(['python3', "$p/emby.py", "$p/port", "$p/playing"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', "$p/emby.err", 'w']], $pipes);
-    for ($i = 0; $i < 50 && !is_file("$p/port"); $i++) {
+    file_put_contents("$p/emby.php", '<?php $playing = ' . var_export("$p/playing", true) . ";\n" . <<<'EMBY'
+$names = ['Eins', 'Zwei', 'Drei', 'Vier', 'Fünf'];
+$eps = [];
+for ($i = 1; $i <= 5; $i++) {
+    $eps[] = ['Type' => 'Episode', 'Id' => "e$i", 'Name' => $names[$i - 1], 'SeriesId' => 's1', 'SeriesName' => 'Serie', 'ParentIndexNumber' => 1,
+              'IndexNumber' => $i, 'Path' => "/media/tv/Serie/S01E0$i.mkv"];
+}
+$brazil = ['Type' => 'Movie', 'Id' => 'm2', 'Name' => 'Brazil', 'Path' => '/media/movies/Brazil/Brazil.mkv'];
+$path = (string) parse_url((string) $_SERVER['REQUEST_URI'], PHP_URL_PATH);
+parse_str((string) parse_url((string) $_SERVER['REQUEST_URI'], PHP_URL_QUERY), $q);
+$kind = (string) ($q['IncludeItemTypes'] ?? '');
+if ($path === '/Users') {
+    $body = [['Id' => 'u1', 'Name' => 'Mutter'], ['Id' => 'u2', 'Name' => 'Vater'], ['Id' => 'u3', 'Name' => 'Kids']];
+} elseif ($path === '/Sessions') {
+    $now = trim((string) file_get_contents($playing));
+    $body = $now !== '' ? [['UserName' => 'Kids', 'NowPlayingItem' => ['Path' => $now]]] : [];
+} elseif (str_ends_with($path, '/Items/Resume')) {
+    $uid = explode('/', $path)[2] ?? '';
+    $body = ['Items' => $uid === 'u1' && $kind === 'Episode' ? [$eps[0]] : ($uid === 'u3' && $kind === 'Movie' ? [$brazil] : [])];
+} elseif ($path === '/Shows/NextUp') {
+    $body = ['Items' => ($q['UserId'] ?? '') === 'u2' ? [$eps[2]] : []];
+} elseif (($q['ParentId'] ?? '') === 's1') {
+    $body = ['Items' => $eps];
+} else {
+    $body = ['Items' => []];
+}
+header('Content-Type: application/json');
+echo json_encode($body);
+EMBY);
+    @mkdir("$p/www", 0700, true);
+    $sock = stream_socket_server('tcp://127.0.0.1:0');
+    $port = (int) substr((string) strrchr((string) stream_socket_get_name($sock, false), ':'), 1);
+    fclose($sock);
+    $emby = proc_open([PHP_BINARY, '-S', "127.0.0.1:$port", '-t', "$p/www", "$p/emby.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', "$p/emby.err", 'w']], $pipes);
+    for ($i = 0; $i < 50 && !@fsockopen('127.0.0.1', $port); $i++) {
         usleep(100000);
     }
-    $port = (int) @file_get_contents("$p/port");
     $settings = fn (int $minFree) => file_put_contents("$p/data/mediacache_settings.json", json_encode(['cache_path' => "$p/pool", 'array_path' => "$p/user0",
         'user_path' => "$p/user", 'array_disks_glob' => "$p/disk[0-9]*", 'cleanup_tool' => 'rsync', 'fill_tool' => 'rsync', 'return_to_origin' => true,
         'shares_cfg_dir' => "$p/shares", 'create_share_root' => true, 'api_timeout' => 3, 'min_free_percent' => $minFree, 'max_resume_movies' => 10,
@@ -53732,7 +53330,7 @@ PY);
         file_put_contents("$p/base", (string) $base);
         @unlink("$p/data/status.json");
         $cmd = ['env', 'PATH=' . getenv('PATH'), "MEDIACACHE_DIR=$p/data", "MEDIACACHE_RESULT=$p/data/status.json", 'MEDIACACHE_FILL_TOOL=rsync',
-                'MEDIACACHE_CLEANUP_TOOL=rsync', 'PYTHONDONTWRITEBYTECODE=1', "MEDIACACHE_PROGRESS=$p/data/progress.json", "MEDIACACHE_MOUNTS=$p/mounts", "MEDIACACHE_ZFS=$p/zfs"];
+                'MEDIACACHE_CLEANUP_TOOL=rsync', "MEDIACACHE_PROGRESS=$p/data/progress.json", "MEDIACACHE_MOUNTS=$p/mounts", "MEDIACACHE_ZFS=$p/zfs"];
         if ($office) {
             $cmd[] = 'MEDIACACHE_GIVE_BACK_FREE=1';
         }
@@ -53745,7 +53343,7 @@ PY);
         if ($watched) {
             $cmd[] = 'MEDIACACHE_WATCHED_ONLY=1';
         }
-        [$exit, $out, $err] = run(array_merge($cmd, ['python3', OFFICE_DIR . '/mediacache/mediacache_run.py', '--run']), 120);
+        [$exit, $out, $err] = run(array_merge($cmd, [PHP_BINARY, OFFICE_DIR . '/agent/desks/jack-run.php', '--run']), 120);
         $log = (string) @file_get_contents("$p/data/logs/mediacache.log");
         @unlink("$p/data/logs/mediacache.log");
         return [$exit, readJson("$p/data/status.json") ?? [], $out . $err . $log];
@@ -53812,12 +53410,12 @@ PY);
     [$exit, $st, $out] = $go(10, 2000);
     same('emby yield: Y 10 %, no floor — both started ones would go, Brazil plays and stays', [0, ['S01E01'], ['Brazil']], [$exit, $back($out), $on()], $out);
     check('emby yield: … the one playing said', str_contains($out, '[BLEIBT: läuft gerade] Filme/Brazil/Brazil.mkv'), $out);
-    [$exit, $out, $err] = run(['env', 'PATH=' . getenv('PATH'), "MEDIACACHE_DIR=$p/data", 'MEDIACACHE_KEEP_BYTES=12T', 'PYTHONDONTWRITEBYTECODE=1', 'python3', OFFICE_DIR . '/mediacache/mediacache_run.py'], 60);
+    [$exit, $out, $err] = run(['env', 'PATH=' . getenv('PATH'), "MEDIACACHE_DIR=$p/data", 'MEDIACACHE_KEEP_BYTES=12T', PHP_BINARY, OFFICE_DIR . '/agent/desks/jack-run.php'], 60);
     check('emby yield: a floor that is no number — refused, nothing done', $exit !== 0 && str_contains($out . $err, 'MEDIACACHE_KEEP_BYTES'), $out . $err);
     proc_terminate($emby);
     proc_close($emby);
 
-    same('emby yield: the office launches EmbyCache with the free-% give-back on', '1', jackPyEnv()['MEDIACACHE_GIVE_BACK_FREE'] ?? null);
+    same('emby yield: the office launches MediaCache with the free-% give-back on', '1', jackRunEnv()['MEDIACACHE_GIVE_BACK_FREE'] ?? null);
     // the live panel's file going back and his page's words — in their shape
     file_put_contents("$tmp/progress.json", json_encode(['v' => 1, 'phase' => 'back', 'started' => 1, 'updated' => 2, 'back' => ['files' => 1, 'bytes' => 9],
         'users' => [], 'current' => ['phase' => 'back', 'rel' => 'Serien/S/E10.mkv', 'size' => 9, 'target' => '/x', 'since' => 2,
@@ -55722,8 +55320,8 @@ function testMoverJackTruthRest(): void
     same('T31 (agent): her fill (its share among the done ones) — no counts of a share; her own step — its counts',
         [['share' => 'Serien', 'fill' => true], ['share' => 'Serien', 'done' => 1, 'files' => 3]], [$fill, $own]);
     // T39: a give-back step (MEDIACACHE_NO_FILL) plans no fill into its progress
-    $py = (string) file_get_contents(OFFICE_DIR . '/mediacache/mediacache_run.py');
-    check('T39: MediaCache plans the fill into its progress only when it fetches', (bool) preg_match('/if not NO_FILL:\n(\s*#.*\n)*\s*self\.progress\.plan_fill\(planner, files\)/', $py));
+    $run = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-run.php');
+    check('T39: MediaCache plans the fill into its progress only when it fetches', str_contains($run, "if (!\$noFill) {\n            \$this->progress->planFill(\$d['planner'], \$files);"));
 
     $node = testsNode();
     if ($node === '') {
@@ -57945,16 +57543,13 @@ JS);
 function testJackChaos(): void
 {
     $tmp = hardeningTmp('jack-chaos');
-    // (1) MediaCache: a vanished temporary file is copied once more, failed files counted per file (its own tests)
-    $run = (string) file_get_contents(OFFICE_DIR . '/mediacache/mediacache_run.py');
+    // (1) MediaCache: a vanished temporary file is copied once more, failed files counted per file (the run itself: testJackRun «vanished once/twice»)
+    $run = (string) file_get_contents(OFFICE_DIR . '/agent/desks/jack-run.php');
     check('jack chaos: MediaCache knows rsync\'s «rename … No such file or directory» (code 23) and copies such a file once more — the fill and the rsync give-back',
-        str_contains($run, 'VANISHED_RE = re.compile(') && substr_count($run, 'self.rsync_copy(cmd, dst,') === 2 && str_contains($run, 'self.result["failed"] = dict(self.failed_files'));
+        str_contains($run, 'const JACK_RUN_VANISHED_RE = ') && str_contains($run, "if (\$try === 0 && jackRunVanished(\$rc, \$out) && !file_exists(\$dst) && !\$this->halt()) {")
+        && str_contains($run, "if (\$c['try'] === 0 && jackRunVanished(\$rc, \$out) && !file_exists(\$c['dst']) && !\$this->halt()) {")
+        && str_contains($run, "\$this->result['failed'] = \$this->failedFiles + ['files' => \$this->failedList, 'retried' => \$this->retried];"));
     check('jack chaos: … listed among the office\'s changes in its README', str_contains((string) file_get_contents(OFFICE_DIR . '/mediacache/README.md'), '«vanished», 2026-10-22'));
-    if (needsPython(__FUNCTION__, 'MediaCache\'s vanished tests')) {
-        [$exit, $out, $err] = run(['python3', '-I', '-B', '-m', 'unittest', 'discover', '-s', OFFICE_DIR . '/mediacache/tests', '-p', 'test_vanished.py'], 120);
-        check('jack chaos: MediaCache\'s tests — vanished once: copied on the second try; twice, or another error: one failed file, no third try; a stop: none',
-            $exit === 0 && str_contains($out . $err, 'OK') && preg_match('/Ran ([6-9]|\d\d) tests/', $out . $err) === 1, $out . $err);
-    }
 
     // (2) the notification counts files, not log lines; an older status (no `failed`) as before; the gather unchanged
     same('jack chaos: jackFailedFiles — in its shape only (vanished optional)', [['fill' => 2, 'back' => 1, 'vanished' => 2], null, null, ['fill' => 0, 'back' => 0, 'vanished' => 0]],
@@ -58016,7 +57611,7 @@ const out = {};
 // his page while EmbyCache runs: a report, a dry run, a real run
 const real = { tool: 'embycache', mode: 'run', by: 'night', started: 100, finished: 200, result: 'ok',
   status: { mode: 'run', errors: 4, warnings: 0, cleanup: { done: 0, planned: 0 }, fill: { done: 368, planned: 370 }, failed: { fill: 2, back: 0, files: [], retried: 0 } } };
-const jstate = (mode) => ({ emby: [{}], python: true, configured: true, gather: {}, cache: { files: 1, bytes: 1 }, schedules: {}, night: {},
+const jstate = (mode) => ({ emby: [{}], configured: true, gather: {}, cache: { files: 1, bytes: 1 }, schedules: {}, night: {},
   jobs: { gather: { running: false }, embycache: mode ? { running: true, mode, started: 300 } : { running: false } }, history: [real] });
 out.bubble = {};
 out.look = {};
@@ -58494,18 +58089,46 @@ function testJackShareDataset(): void
         array_map('jackDatasetName', ['Filme', 'Home Videos', '../x', '.hidden', '-o', 'Fil/me']));
 
     // 1.65.0: ONE way the dataset is made — MediaCache's ensure_share_root() (create_share_root, Jack always writes it on),
-    // never Jack before the run as well (his jackMakeShareDatasets() went); MediaCache's own tests (mediacache/tests) cover it
+    // never Jack before the run as well (his jackMakeShareDatasets() went); MediaCache's run makes it (below)
     $php = (string) file_get_contents(dirname(__DIR__) . '/agent/desks/jack.php');
     same('share dataset: Jack\'s settings always say create_share_root (MediaCache makes it, like Unraid)', true,
         jackTools(['create_share_root' => false])['create_share_root']);
     check('share dataset: Jack makes no dataset himself any more — one way only', !str_contains($php, 'jackMakeShareDatasets(') && !str_contains($php, "'zfs', 'create'"));
-    $lib = (string) file_get_contents(OFFICE_DIR . '/mediacache/mediacache_lib.py');
-    check('share dataset: MediaCache\'s ensure_share_root() makes it with zfs create, only where the share may use the pool',
-        str_contains($lib, 'def ensure_share_root(') && str_contains($lib, '[ZFS_BIN, "create", name]') && str_contains($lib, 'SHARE_ROOT_OK_MODES'));
-    if (needsPython(__FUNCTION__, 'MediaCache\'s own tests')) {
-        [$exit, $out, $err] = run(['python3', '-I', '-B', '-m', 'unittest', 'discover', '-s', OFFICE_DIR . '/mediacache/tests'], 120);
-        check('share dataset: MediaCache\'s own tests pass (share root on ZFS/btrfs/XFS, dry run, cleanup tools)', $exit === 0 && str_contains($out . $err, 'OK'), $out . $err);
+    // MediaCache's ensure_share_root() (jack-run.php; until 1.95.6 MediaCache's own Python tests guarded it): on ZFS the dataset by zfs create,
+    // only where the share may use the pool, owner and mode as the array's; btrfs/XFS a folder; a dry run only says; once per share and run
+    $sr = "$tmp/share-root";
+    foreach (["$sr/cache", "$sr/xpool", "$sr/user0/Filme", "$sr/user0/Serien", "$sr/user0/Docs", "$sr/shares"] as $d) {
+        @mkdir($d, 0700, true);
     }
+    chmod("$sr/user0/Filme", 0750);
+    file_put_contents("$sr/shares/Filme.cfg", "shareUseCache=\"yes\"\nshareCachePool=\"cache\"\n");
+    file_put_contents("$sr/shares/Docs.cfg", "shareUseCache=\"only\"\nshareCachePool=\"cache\"\n");
+    file_put_contents("$sr/shares/Serien.cfg", "shareUseCache=\"no\"\n");
+    file_put_contents("$sr/mounts", "cache $sr/cache zfs rw 0 0\n/dev/x $sr/xpool xfs rw 0 0\n");
+    file_put_contents("$sr/zfs", "#!/bin/bash\ncd " . escapeshellarg($sr) . "\ncase \"\$1\" in\n  list) grep -qx \"\${@: -1}\" made 2>/dev/null && echo \"\${@: -1}\" && exit 0; exit 1;;\n"
+        . "  create) echo \"\$2\" >> made; echo \"\$2\" >> calls; mkdir -p \"cache/\${2#*/}\"; echo \"\$2 $sr/cache/\${2#*/} zfs rw 0 0\" >> mounts;;\nesac\n");
+    chmod("$sr/zfs", 0755);
+    $env = ['MEDIACACHE_MOUNTS' => "$sr/mounts", 'MEDIACACHE_ZFS' => "$sr/zfs"];
+    $log = new JackRunLog("$sr/log.txt", 'INFO', fopen('/dev/null', 'w'));
+    $cfgSr = ['create_share_root' => true, 'shares_cfg_dir' => "$sr/shares"];
+    $state = [];
+    $root = function (string $share, bool $run = true, string $pool = 'cache', array $over = []) use (&$state, $cfgSr, $sr, $log, $env): bool {
+        return jackRunShareRoot($over + $cfgSr, "$sr/$pool", "$sr/user0", $share, $run, $log, $state, $env);
+    };
+    $calls = fn (): array => file_exists("$sr/calls") ? file("$sr/calls", FILE_IGNORE_NEW_LINES) : [];
+    same('share root (ZFS): a share that may use the pool — its dataset made (zfs create), owner and mode as the array\'s',
+        [true, ['cache/Filme'], true, '750'], [$root('Filme'), $calls(), is_dir("$sr/cache/Filme"), sprintf('%o', fileperms("$sr/cache/Filme") & 0777)]);
+    same('share root (ZFS): … once per share and run — asked again, nothing more', [true, ['cache/Filme']], [$root('Filme'), $calls()]);
+    same('share root (ZFS): a share kept off the pool (shareUseCache no) — no dataset, its files skipped', [false, ['cache/Filme'], false], [$root('Serien'), $calls(), is_dir("$sr/cache/Serien")]);
+    same('share root (ZFS): a dry run only says (nothing made)', [true, ['cache/Filme'], false], [$root('Docs', false), $calls(), is_dir("$sr/cache/Docs")]);
+    $state = [];
+    same('share root: create_share_root off and no folder — its files skipped, nothing made', [false, ['cache/Filme']], [$root('Docs', true, 'cache', ['create_share_root' => false]), $calls()]);
+    $state = [];
+    same('share root (XFS): a folder like the array\'s, no zfs', [true, true, '750', ['cache/Filme']], [$root('Filme', true, 'xpool'), is_dir("$sr/xpool/Filme"), sprintf('%o', fileperms("$sr/xpool/Filme") & 0777), $calls()]);
+    @mkdir("$sr/cache/Docs", 0700);
+    $state = [];
+    same('share root (ZFS): a plain folder already there — used as it is (said), never rebuilt', [true, ['cache/Filme']], [$root('Docs'), $calls()]);
+    check('share root (ZFS): … said in the log', str_contains((string) file_get_contents("$sr/log.txt"), "Share-Wurzel $sr/cache/Docs ist auf dem ZFS-Pool ein normaler Ordner"));
 
     // his page and the Team Lead: «made at the next run» is no fault; a plain folder is a warning with the way to fix it by hand
     $js = (string) file_get_contents(dirname(__DIR__) . '/public/desks/jack/desk.js');
@@ -60021,7 +59644,7 @@ function testJackListLost(): void
     same('lost list: … and once only', null, jackListEnsure($set, $dir, $o));
 
     // his part of the joint run can't plan (the media server can't be asked): MediaCache «keeps the list as it was» —
-    // its entries that still exist (mediacache_run.py: protected.update(p for p in read_exclude() if Path(p).exists()))
+    // its entries that still exist (MediaCache's run: protected.update(p for p in read_exclude() if Path(p).exists()))
     $kept = array_values(array_filter(file($list, FILE_IGNORE_NEW_LINES), 'file_exists'));
     file_put_contents($list, implode("\n", $kept) . "\n");
     jackListNote($dir, [], false);
@@ -60137,7 +59760,7 @@ JS);
 
 /**
  * theme.mp3 stays on the pool (2026-10-29, the owner — Jack Streamer's setup switch `themes`, off by default; MediaCache's
- * collector: mediacache/tests/test_themes.py). The setting (only a real true; the page may send only true or false), his
+ * collector: testJackRun «themes»). The setting (only a real true; the page may send only true or false), his
  * list's two sections (read, written, kept by the rebuild from the pool, the import, counted apart on his page and in the
  * let-go), the state read with a default (a 1.78.0 data folder has none), the live panel's phase `themes`, the let-go's
  * MEDIACACHE_RELEASE_THEMES; on the page under node: the tile's line, the run summary, the panel's row, the setup's
@@ -60184,8 +59807,7 @@ function testJackThemes(): void
     same('themes list: no themes — no section, the list as before', "$a\n", file_get_contents($list));
     jackListWrite($list, [], []);
     same('themes list: nothing — an empty file', '', file_get_contents($list));
-    same('themes list: MediaCache\'s mark is the one Jack reads', true, str_contains((string) file_get_contents(JACK_APP . '/mediacache_lib.py'),
-        'THEMES_MARK = "' . JACK_THEMES_LINE . '"') && str_starts_with(JACK_THEMES_LINE, JACK_THEMES_MARK));
+    same('themes list: MediaCache\'s mark is the one Jack reads', [JACK_THEMES_LINE, JACK_THEMES_MARK], [JACK_RUN_THEMES_MARK, substr(JACK_THEMES_LINE, 0, strlen(JACK_THEMES_MARK))]);
 
     // his page's numbers: the themes counted apart — never a film group, never in the films' count
     jackListWrite($list, [$a], [$ta, $tb, $ts]);
@@ -60258,17 +59880,13 @@ function testJackThemes(): void
     same('themes panel: a run without the phase (switch off, an older MediaCache) — none', null, jackProgressView(jackProgressRead($paths['file']), [], 1010)['themes']);
 
     // MediaCache on a 1.78.0 settings file: off; a save of his writes it (MediaCache's own save_config)
-    if (needsPython(__FUNCTION__, 'MediaCache')) {
-        @mkdir("$t/run2", 0700, true);
-        $py = 'import json, sys; sys.path.insert(0, sys.argv[1]); import mediacache_lib as l; c = l.load_config(require_paths=False); print(json.dumps(c["themes"]))';
-        file_put_contents("$dir/mediacache_settings.json", json_encode(['cache_path' => $cache, 'array_path' => $t,
-            'instances' => [['servername' => 'Emby', 'url' => 'http://x', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media' => '/mnt/user/Filme']]]], JSON_UNESCAPED_SLASHES));
-        [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $dir] + jackPyEnv(), 30);
-        same('themes setting: MediaCache on a 1.78.0 settings file — off', [0, 'false'], [$exit, trim($out) ?: trim($err)]);
-        jackWriteSettings(['themes' => true] + jackReadSettings($dir), $dir, "$t/run2");
-        [$exit, $out, $err] = runEnv(['python3', '-c', $py, JACK_APP], ['MEDIACACHE_DIR' => $dir] + jackPyEnv(), 30);
-        same('themes setting: saved on — MediaCache reads it on', [0, 'true', true], [$exit, trim($out) ?: trim($err), readJson("$dir/mediacache_settings.json")['themes'] ?? null]);
-    }
+    @mkdir("$t/run2", 0700, true);
+    $themesOn = fn (): mixed => jackPlanConfig("$dir/mediacache_settings.json", array_map('strval', ['MEDIACACHE_DIR' => $dir] + jackRunEnv()), false)['themes'];
+    file_put_contents("$dir/mediacache_settings.json", json_encode(['cache_path' => $cache, 'array_path' => $t,
+        'instances' => [['servername' => 'Emby', 'url' => 'http://x', 'api_key' => 'abcdefgh12345678', 'path_mappings' => ['/media' => '/mnt/user/Filme']]]], JSON_UNESCAPED_SLASHES));
+    same('themes setting: MediaCache on a 1.78.0 settings file — off', false, $themesOn());
+    jackWriteSettings(['themes' => true] + jackReadSettings($dir), $dir, "$t/run2");
+    same('themes setting: saved on — MediaCache reads it on', [true, true], [$themesOn(), readJson("$dir/mediacache_settings.json")['themes'] ?? null]);
 
     // the page under node
     $node = testsNode();
@@ -66076,13 +65694,22 @@ function testFanboyReport(): void
     // the page: the button opens the office's report form as a wish of his desk, the report in the text — sent only by «Send»
     $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
     check('fanboy report page: fanboy.report, then the form\'s draft (kind wish, desk fanboy, the report under the user\'s words) and Office.reportDialog(ID)',
-        str_contains($js, "Office.api.post(`\${ID}.report`, {})") && str_contains($js, "kind: 'wish',") && str_contains($js, 'desk: ID,')
-        && str_contains($js, '`${mine || T(\'report_wish\')}\n\n\n${j.report}`') && str_contains($js, 'Office.reportDialog(ID);')
+        str_contains($js, "Office.api.post(`\${ID}.report`, {})") && str_contains($js, "kind: 'wish', desk: ID, ...own,")
+        && str_contains($js, '`${own.text ? \'\' : T(\'report_wish\')}\n\n\n${j.report}`') && str_contains($js, 'Office.reportDialog(ID);')
         && !str_contains($js, 'office.report_send'));
+    // 2026-11-22 (uso-inbox #20: our title, our text only): no title of ours — the user names the matter, the field shows
+    // Fanboy's example (core.js reads <desk>.report_example; the chip read's its own); only a title the user typed comes
+    // back from a kept draft about Fanboy (title_own), never one of another desk's draft
+    $fl = json_decode((string) file_get_contents(OFFICE_WEB . '/desks/fanboy/lang/en.json'), true);
+    check('fanboy report page: no title of ours (report_title, chip.report_title gone), an example for the field instead',
+        !str_contains($js, 'report_title') && !isset($fl['report_title']) && !isset($fl['chip.report_title'])
+        && is_string($fl['report_example'] ?? null) && is_string($fl['chip.report_example'] ?? null)
+        && str_contains($js, "Office.reportDialog(ID, { example: T('chip.report_example') });")
+        && str_contains($js, "was.desk !== ID || was.mine !== true") && str_contains($js, "was.title_own === true"));
     // the form takes it: a wish of his desk, the report's text within the form's limit
     $keepDesk = $GLOBALS['desks']['fanboy'] ?? null;
     $GLOBALS['desks']['fanboy'] ??= ['actions' => []];
-    $w = reportWords(['kind' => 'wish', 'desk' => 'fanboy', 'title' => 'Fanboy: what he finds on this board', 'text' => "What I'd like Fanboy to do here:\n\n\n" . $text]);
+    $w = reportWords(['kind' => 'wish', 'desk' => 'fanboy', 'title' => 'The CPU fan isn\'t found', 'text' => "What I'd like Fanboy to do here:\n\n\n" . $text]);
     if ($keepDesk === null) {
         unset($GLOBALS['desks']['fanboy']);
     }
@@ -66614,9 +66241,9 @@ SH);
     $g = $go(['USO_RELEASE_FLAKY' => 'jack:twice']);
     same('clicks retry: red twice - red, no flaky page, the summary names the page', ['1', 1, 2, ''], [$g['rc'], $g['exit'], count($g['calls']), $g['flaky']]);
     check('clicks retry: … red again alone: jack (dark 1440)', str_contains((string) $g['summary'], 'red again alone: jack (dark 1440)'), (string) $g['summary']);
-    $g = $go(['STUB_RED' => 'jack|jack shadow|dark|1440;cleanup/where|cleanup map|dark|1440;jack|jack|light|375']);
+    $g = $go(['STUB_RED' => 'jack|jack structure|dark|1440;cleanup/where|cleanup map|dark|1440;jack|jack|light|375']);
     same('clicks retry: three red pages of two routes - both routes once (sorted, once each), three flaky lines', ['0', ['call ', 'call --only cleanup/where,jack'],
-        "flaky: jack shadow (dark 1440)\nflaky: cleanup map (dark 1440)\nflaky: jack (light 375)"], [$g['rc'], $g['calls'], $g['flaky']]);
+        "flaky: jack structure (dark 1440)\nflaky: cleanup map (dark 1440)\nflaky: jack (light 375)"], [$g['rc'], $g['calls'], $g['flaky']]);
     $g = $go(['STUB_RED' => 'restore|restore|stale job|0', 'STUB_RED_AGAIN' => 'restore|restore|stale job|0']);
     same('clicks retry: a page whose theme has a space - red twice, said whole', ['1', 'ui clicks: 4 pages, 9 toggles clicked twice, 1 failed - 1 s; red again alone: restore (stale job)'], [$g['rc'], $g['summary']]);
     $g = $go(['STUB_RED' => 'caretaker|first start|both|0']);
@@ -66868,6 +66495,7 @@ function testRunDirLeftovers(): void
     $dir = "$tmp/run";
     mkdir("$dir/fanboy", 0700, true);
     mkdir("$dir/drill", 0700, true);
+    mkdir("$dir/jack-shadow", 0700, true);
     mkdir("$tmp/outside", 0700);
     $md5 = md5('flash');
     for ($dead = 4194001; is_dir("/proc/$dead") || is_dir('/proc/' . ($dead + 1)); $dead += 2) {
@@ -66880,6 +66508,8 @@ function testRunDirLeftovers(): void
     $files = [
         // 1.94's: nobody writes these now — whoever made them, gone at once
         "cleanup-$dead-$md5.out" => 'x', "cleanup-$me-$md5.out" => 'mine', "cleanup-$otherPid-$md5.out" => 'another agent\'s', 'drill/x-0-pg.sql.gz' => 'dump',
+        // 1.95.5's comparison with Python (its answers, left by a run that died): nobody writes it now
+        'jack-shadow/tape-run.jsonl' => '{}',
         // a pid in the name: gone once that process is
         "jack-headers.$dead" => 'X-Emby-Token: k', "jack-headers.$otherPid" => 'X-Emby-Token: k', "partner/door-$dead.json" => '{}',
         // the rest: kept, or by age
@@ -66911,8 +66541,8 @@ function testRunDirLeftovers(): void
         sort($a);
         return $a;
     };
-    same('run dir leftovers: 1.94\'s job output and pictures (any pid, this one\'s too), its drill folder; a gone process\'s headers and door record; old temporary files and an old claim — removed', $sorted([
-        "cleanup-$dead-$md5.out", "cleanup-$me-$md5.out", "cleanup-$otherPid-$md5.out", "cleanup-icons-$dead", 'cleanup-icons-check', 'drill',
+    same('run dir leftovers: 1.94\'s job output and pictures (any pid, this one\'s too), its drill folder, 1.95.5\'s comparison folder; a gone process\'s headers and door record; old temporary files and an old claim — removed', $sorted([
+        "cleanup-$dead-$md5.out", "cleanup-$me-$md5.out", "cleanup-$otherPid-$md5.out", "cleanup-icons-$dead", 'cleanup-icons-check', 'drill', 'jack-shadow',
         "jack-headers.$dead", "partner/door-$dead.json", '.agent.json.0123456789ab.tmp', 'fanboy/.state.json.0123456789ab.tmp', 'claim.0123456789ab.curl']), $sorted($gone));
     same('run dir leftovers: kept — a running process\'s headers, the heartbeat, a new temporary file, names not ours, links', $sorted([
         '.notify.second.ba9876543210.tmp', 'agent.json', 'cleanup-' . ($dead + 1) . "-$md5.out", "cleanup-icons-" . ($dead + 1), 'cleanup-12-zz.out', 'fanboy',
@@ -67331,15 +66961,15 @@ function testRunDirAudit(): void
         }
     }
     same('run dir audit: every line says the most it holds, in bytes', [], $nobound);
-    same('run dir audit: over 1 MB only these, each with its reason (the report\'s pictures and diagnostics, the door\'s log while the array is stopped, waiting notifications, the support flag\'s shadow, the fan desk\'s history at its most while it is written)',
-        ['notify-in', 'inbox', 'inbox/[0-9a-f]{32}\.image', 'report', 'jack-shadow', 'partner', 'fan[b]oy'], $large);
+    same('run dir audit: over 1 MB only these, each with its reason (the report\'s pictures and diagnostics, the door\'s log while the array is stopped, waiting notifications, the fan desk\'s history at its most while it is written)',
+        ['notify-in', 'inbox', 'inbox/[0-9a-f]{32}\.image', 'report', 'partner', 'fan[b]oy'], $large);
     $notes = [];
     foreach (RUNDIR_FILES as $k => $what) {
         if (str_starts_with($what['bound'], 'NOT bounded')) {
             $notes[] = $k;
         }
     }
-    same('run dir audit: what is not bounded yet is said so (and only that)', ['jack-shadow'], $notes);
+    same('run dir audit: what is not bounded yet is said so (and only that): nothing since the comparison with Python went (1.95.6)', [], $notes);
 }
 
 /**
@@ -67833,11 +67463,11 @@ function testSkipPlaces(): void
     }
 }
 
-$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackShadow', 'testJackShadowPython', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackKeyRedirect', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
+$parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlansTolerant', 'testSnapPlanIdNeverReused', 'testSleepingPools', 'testSnapshotNames', 'testJack', 'testJackPlan', 'testJackNoPython', 'testJackRun', 'testJackStructure', 'testJackWatch', 'testJackSizes', 'testJackShareDataset', 'testJackPool', 'testJackImport', 'testJackForeign', 'testOfficeCron', 'testCaretakerCronLook', 'testMenuName', 'testSetupListDiff', 'testNoScriptNames', 'testPhpVarNames', 'testDetailsKept', 'testSetupDiscard', 'testWhereArrayZfs', 'testEstimates', 'testBackupFirstUpload', 'testBackupRough', 'testNotify', 'testNotifyLayout', 'testNotifyCenter', 'testCaretakerAcks', 'testAckContent', 'testCaretakerAckDrift', 'testJackLetGo', 'testJackMover', 'testJackGatherCache', 'testJackRsync', 'testJackTidyDisks', 'testJackUpstream', 'testJackPersons', 'testJackNotInBudget', 'testJackProgress', 'testJackReadyShares',
                       'testLogsFlood',
                       'testMoverelliFit', 'testMoverelliIni', 'testMoverelliIniTolerant', 'testMoverelliMoveBin', 'testMoverelliRun', 'testMoverelliGates', 'testMoverelliForeign', 'testMoverelliPage', 'testRefusedRowWords', 'testMoverelliImport', 'testNightPlan', 'testNightRun', 'testJackChaos', 'testNightOrder', 'testNightHerPool', 'testNightPicture', 'testMoverelliRunPicture', 'testNightJackCard', 'testNightJackInHerCard', 'testNightSteps', 'testNightReserve', 'testNightSnaps', 'testPoolJackOutside', 'testPoolNonZfs', 'testMoverelliSharesGone', 'testMoverelliTiles', 'testMoverelliSuggestJack', 'testMoverelliUnraid', 'testMoverelliUnraidProgress', 'testMoverelliStop', 'testMoverelliArrayStop', 'testMoverelliPowerCut', 'testMoverelliNothingMoved', 'testMoverelliCardLag', 'testMoverelliCardFile', 'testMoverelliLeftWhy', 'testMoverelliSyncMoved', 'testMoverelliTwins', 'testMoverelliEta', 'testMoverelliPreferDisks', 'testMoverelliTidy', 'testMoverelliShareRoot', 'testMoverelliTrailingSpace', 'testMoverelliFuture', 'testMoverelliLeftCodesPage', 'testOfficeFmtSize', 'testMoverelliIdleRules', 'testMoverelliPageTruth', 'testMoverJackTruthRest', 'testGreetTruth', 'testMoverelliFill', 'testPoolLevel', 'testPoolBytes', 'testStreamerTab', 'testJackRemoveServer', 'testJackSaveReconnect', 'testJackConnectNoChange', 'testJackByWords', 'testStreamerBudget', 'testStreamerReset', 'testStreamerFix3', 'testDialogSeen', 'testStreamerShares', 'testJackYield',
-                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testLogsWakes', 'testLogsWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
-                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords',
+                      'testBackupPackages', 'testBackupKopiaItems', 'testBackupKopiaSplitTags', 'testBackupKopiaWord', 'testBackupNewLocal', 'testBackupNewLocalOffice', 'testBackupPlace', 'testSetupUnfold', 'testSetupFilter', 'testSetupTiles', 'testSetupFirstPlace', 'testBackupPlaceOffer', 'testSetupAsleepKept', 'testSetupGoneApp', 'testSetupStoppedKept', 'testSetupNoDocker', 'testSetupBom', 'testSetupDupKey', 'testSetupUntrusted', 'testSetupKopiaGone', 'testSetupDockerOffKeeps', 'testSetupOldUserScript', 'testSetupPoolGone', 'testBackupPresets', 'testBackupSkip', 'testBackupVmOrder', 'testBackupVmWarn', 'testBackupBtrfsBrake', 'testPartnerAtOnce', 'testBackupArrayStop', 'testBackupPruneOwn', 'testBackupKopiaAutostart', 'testBackupKopiaOrder', 'testAgentBackupHooks', 'testBackupRecoverNotes', 'testDataTrust', 'testBackupScheduledUnset', 'testBackupNotifyLang', 'testBackupNotifyItems', 'testNotifyPlain', 'testJackStreamerName', 'testRetentionPartner', 'testOfficeHome', 'testBackupEpipe', 'testBackupPartnerPhase', 'testBackupInside', 'testBackupPartnerOffice', 'testBackupReview172', 'testBackupFlashNever', 'testPartnerEnded', 'testBackupAnewChoice', 'testPartnerStaleName', 'testBackupAsleep', 'testBackupAsleepOffice', 'testIcons', 'testIconSquare', 'testRestore', 'testRestoreJobs', 'testRestoreRunCard', 'testJobStale', 'testJobSilentRuns', 'testNoWallWaits', 'testRestoreVmFit', 'testRestoreVmForeign', 'testRestoreStack', 'testSetupMakeDataset', 'testSetupMakeFolder', 'testRestoreShares', 'testRestoreSnapsHold', 'testRestorePaths', 'testRestoreBrowse', 'testRestoreNextcloud', 'testRestoreFindings', 'testRestoreDatabases', 'testRestoreDbStopped', 'testRestoreNames', 'testRestoreInUse', 'testRestoreSettled', 'testRestoreUnfinished', 'testRestoreArrayStopWhy', 'testRestoreMeasuring', 'testRestorePutbackDb', 'testRestoreConfigNoTemplate', 'testRestoreDrill', 'testDrillSqliteAppIndex', 'testDrillShareFile', 'testDrillImageData', 'testSnapRead', 'testDrillSnapRead', 'testRenameFree', 'testRestorePartner', 'testRestoreMoveGuide', 'testPartnerTicket', 'testPartnerDoorDocs', 'testPartnerRepair', 'testPartnerStart', 'testWatchmanTicket', 'testPartnerSendBack', 'testWatchmanPartner', 'testWatchmanNet', 'testWatchmanNetIpsFamilies', 'testWatchmanNetMikrotik', 'testSnapshotPartner', 'testSnapshotBusy', 'testVmOrphans', 'testCleanupPartner', 'testLogsPartner', 'testAdvisor', 'testAdvisorDockerOff', 'testAdvisorInstall', 'testAdvisorOldTemplate', 'testAdvisorRecord', 'testAdvisorObjectLock', 'testAdvisorPartnerGuide', 'testLogsTour', 'testTruthLogsWatch', 'testLogsRules', 'testLogsPlugins', 'testLogsMine', 'testLogsFilters', 'testLogsFiltersPage', 'testWatchWakesPage', 'testWatchmanWakes', 'testWatchmanWakeTrail', 'testMetrics', 'testWatchman', 'testWatchmanGone', 'testWatchmanSerious', 'testWatchmanTeamLeadOne', 'testWatchmanSeriousUndo', 'testWatchmanAtUserScript', 'testWatchmanSched', 'testWatchmanOffice', 'testWatchmanOwnCron', 'testWatchmanFlow', 'testWatchmanFlowPull', 'testWatchmanFlowGone', 'testWatchmanFlowFiles', 'testWatchmanPosture', 'testWatchmanPrivilegedStopped', 'testWatchmanSnaps', 'testWatchmanHost', 'testWatchmanNight', 'testWatchmanBoot', 'testNightUi', 'testJobGuard', 'testComposeBuilds', 'testUnraidPath', 'testExclusive', 'testWatchmanGoLines', 'testWatchmanFlowSources', 'testWatchmanNetMikrotikBook', 'testAdvisorMikrotikGuide', 'testDashboardJobs', 'testBackupKopiaOrphans', 'testBackupOldSourcesPage', 'testKopiaEmptied', 'testKopiaEmptiedCache', 'testBackupFutureFiles', 'testKopiaLockGuard', 'testBackup74Polish', 'testBackupAppShare', 'testSetupLeftUnsaved', 'testTipNeverKept', 'testSilentControlsMore', 'testBackupAsleepNoMust', 'testSetupUnknownKey', 'testBackupVolumeCache', 'testBackupGonePackage', 'testBackupMovedPackage', 'testSetupApplyHonest', 'testSetupViaShare', 'testSetupTravelPicture', 'testBackupTruthProtection', 'testBackupTruthShares', 'testBackupResults', 'testRestoreTruthChips', 'testSetupOwnDatasetApply', 'testBackupNcOpen', 'testBackupPausedStopped', 'testSetupSearch', 'testBackupPlaceVerdict', 'testWatchmanFlowGuess', 'testWatchmanGuessMore', 'testBackupLastRunEnded', 'testOffsiteReach', 'testDockerSilent', 'testKopiaHang', 'testKopiaWatch', 'testWatchmanHold', 'testBackupBatchH', 'testBackupRetention',
+                      'testWhereAfterWatchman', 'testWhereVmStop', 'testWhereVmMigratable', 'testWhereTunables', 'testBackupSparse', 'testWhereTakeOver', 'testWhereDesk', 'testWhereProtectionTruth', 'testWhereCronTruth', 'testWhereMoverAdvice', 'testSpace', 'testWhereMap', 'testCleanupSizesUnknown', 'testArrayStoppedDataDir', 'testWhereBuilding', 'testCleanupTick', 'testCleanupJobCap', 'testCleanupJobSameResult', 'testStaffMerged', 'testStaffOrder', 'testHireWith', 'testHireNeeds', 'testMovedDesk', 'testMigrateJackId', 'testMigrateMediaCache', 'testMigrateWakes', 'testSupporter', 'testLeftovers', 'testOfficeLanguage', 'testThemeSwitch', 'testSizeSwitch', 'testApiLook', 'testLookPage', 'testLookOldRun', 'testUpdateNotice', 'testReportDialog', 'testSearchPlaces', 'testSearchItems', 'testSearchGuides', 'testApiGzip', 'testFlashDownload', 'testWatchmanApiDoor', 'testCaretakerApi', 'testCaretakerNetworks', 'testSetupMessages', 'testDriftCodes', 'testIconStacks', 'testPartnerPairing', 'testPartnerUsonetSimple', 'testPartnerAddress', 'testPartnerWatch', 'testPartnerGone', 'testPartnerRelease', 'testPartnerUnits', 'testPartnerTolerant', 'testMigrate', 'testBackupReplan', 'testBackupPairsReplan', 'testUnraidTested', 'testCronBack', 'testPlgGuard', 'testCleanEnv', 'testPlgInstall', 'testWatchmanRoundWait', 'testPlgRemove', 'testBackupLetGo', 'testBackupAbortAsked', 'testJackSetupFresh', 'testApiGetOffline', 'testSupporterList', 'testReportDialogImages', 'testReportDialogDiagnostics', 'testReportDialogOwnWords', 'testReportDialogDesk',
                       'testRestoreReviewPaths', 'testRestoreSharesTick', 'testBackupSharesTick', 'testBackupRunEnded', 'testRestoreGapsPage', 'testRestoreGapsAgent', 'testRestoreGapsSwap', 'testRestoreShareUnlisted', 'testRestoreGapsLibvirt', 'testRestoreReviewJob', 'testRestoreReviewForeign', 'testRestoreReviewPeek',
                       'testFlockShfs', 'testBackupOneMinute', 'testStrictSettings', 'testRestoreClientEcho', 'testWatchBookView', 'testWatchFilter', 'testWatchBookNoteSome', 'testWatchmanAtPlugin', 'testWatchmanAtLeft', 'testWatchmanBootNoise', 'testWatchmanAtOnce', 'testWatchmanAtTold', 'testParityWhy', 'testCleanupVolumes', 'testHiddenStoreroom', 'testFilterWords', 'testFilterBar', 'testOfficeJobScheduleNext', 'testBackupTiles', 'testBackupPartnerEta', 'testJackLastRunDuringRun', 'testJackListLost', 'testJackPoolTileBudget', 'testJackThemes', 'testSnapPoolSplit', 'testTruthRestPages', 'testSnapArrayDisks', 'testTilesMediaPages', 'testCleanupInUseLocked', 'testCleanupOrphanDatasets', 'testPlaceReadersNoSettings', 'testCleanupSnapOnly', 'testCleanupSnapKept', 'testCleanupDrillCopies', 'testStaleShares', 'testSkipPlaces', 'testCleanupSkipGreeting', 'testCleanupTiles', 'testRestoreTiles', 'testTilesConvention', 'testSections', 'testDeskPages', 'testScheduleTile', 'testTourSchedules', 'testUsoNetPin', 'testUsoNetRule', 'testUsoNetStatus', 'testFanboyLook'],
           'hardening' => ['testRequestTypes', 'testRunDirLeftovers', 'testRunDirCrashLoop', 'testRunDirLink', 'testRunDirBudget', 'testRunDirAudit', 'testRunDirRunCap', 'testRunDirReport', 'testFirstHome', 'testSafeWrites', 'testAgentRestarted', 'testHeartbeat', 'testDoorbell', 'testAgentClock', 'testAgentZone', 'testAgentZoneChange', 'testHostAtRequeue', 'testHouseDockerSilent', 'testDockerBackLook', 'testDockerGeneration', 'testDockerOffSaid', 'testBackupTruthRest', 'testUncheckedIsNeither', 'testDoneOnlyWhenDone', 'testStaleSaid', 'testDockerGuard', 'testNotifyToldLately', 'testHostLaunchAtd', 'testCleanupStoreroomDisks', 'testCleanupPurgeEnds', 'testSnapshotRecord', 'testTrashManifest', 'testJackPaths', 'testAnchors', 'testUpdateClean', 'testAdvisorSecrets', 'testSupporterKeys', 'testPartnerDoor', 'testPartnerQuota', 'testPartnerAside', 'testReport', 'testReportImages', 'testReportDiagnostics', 'testReportSlots', 'testReportDiagScrub', 'testReportStatus', 'testReportWatch', 'testReportInbox', 'testRunnerNames', 'testSnapshotIds', 'testAgentHired', 'testSupporterClaim', 'testUsoNetKeys', 'testUsoNetScript', 'testUsoNetJoin', 'testHostShell', 'testOnlyOfficeCron'],
@@ -67847,7 +67477,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                        'testFanboyProcesses', 'testFanboyDrivers', 'testFanboyStopScripts', 'testFanboyState',
                        'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyUx', 'testFanboyOverview', 'testFanboyHistoryLeads', 'testFanboyHistoryCurves', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR7FullOnObeys', 'testFanboyR7ControlFullOn', 'testFanboyR7Fixed', 'testFanboyR7NotAController', 'testFanboyR7CardsKeepSize', 'testFanboyR7TestLongEnough', 'testFanboyR8IgnoredLate', 'testFanboyR8FullLongEnough', 'testFanboyR8Quiet', 'testFanboyR8QuietGuards', 'testFanboyR8QuietSafety', 'testFanboyR8FoundNext', 'testFanboyR8Assign', 'testFanboyR9Kick', 'testFanboyR9Safety', 'testFanboyR9Now', 'testFanboyR9CpuOwn', 'testFanboyR10Notify', 'testFanboyR11Heard', 'testFanboyR11StopVerdict', 'testFanboyR11StaleNext', 'testFanboyR11ProgressNext', 'testFanboyR12Standstill', 'testFanboyR12Warm', 'testFanboyR12Control', 'testFanboyR12CpuRole', 'testFanboyR12CpuMeasure', 'testFanboyR12CpuControl', 'testFanboyR12CpuGone', 'testFanboyR12FixSpikes', 'testFanboyR12FixControl', 'testFanboyR12FixConfirm', 'testFanboyNetDrift', 'testFanboyProposeSaves', 'testFanboyZonesWords', 'testFanboyFourPoints', 'testFanboyLookKeeps', 'testFanboyKickStartSecs', 'testFanboyReloadDrift', 'testFanboyNet', 'testFanboyNetTakeOver', 'testFanboyR12Curve', 'testFanboyR12CurveEffective', 'testFanboyR12AutoSeen', 'testFanboyR12Look', 'testFanboyR13Compat', 'testFanboyR13Curves', 'testFanboyR13Refused', 'testFanboyR13Devs', 'testFanboyR13DevsControl', 'testFanboyR14Plan', 'testFanboyR14Look', 'testFanboySetupFanPlan', 'testFanboyDashHours', 'testFanboyTimes', 'testFanboySsdSleeps', 'testFanboyCpuFloorCurve',
                        'testFanboyDashTile', 'testFanboyDashSource', 'testFanboyDashSetting', 'testFanboyDashHistory', 'testFanboyDashFans', 'testFanboyDashCards', 'testFanboyDashAsleep', 'testFanboyDashSplitter', 'testFanboyDashDefault', 'testFanboyDashCpuRest', 'testFanboyZoneSources', 'testFanboyCpuOwnWheel', 'testFanboySetupWaits', 'testFanboySetupPlaces', 'testFanboyArtClipped', 'testFanboySetupFlow', 'testFanboyEmptyOutput', 'testFanboyZonesDraft', 'testFanboyWarmOverride', 'testFanboyStartWait', 'testFanboyKindGoal',
-                       'testFanboyLookReverse', 'testFanboyLookDash', 'testFanboyLookKeys', 'testFanboyLookGap', 'testFanboyLookTipAir', 'testFanboyChipTable', 'testFanboyChipRead', 'testFanboyChipState', 'testFanboyChipReport', 'testFanboyChipRisk', 'testFanboyNoFanChip', 'testFanboyTempsMissing', 'testFanboyDoctor', 'testFanboyUsbStick', 'testFanboyCurveFloorKinds', 'testFanboyCurvePush'],
+                       'testFanboyLookReverse', 'testFanboyLookDash', 'testFanboyLookKeys', 'testFanboyLookGap', 'testFanboyLookTipAir', 'testFanboyZoneStacks', 'testFanboyChipTable', 'testFanboyChipRead', 'testFanboyChipState', 'testFanboyChipReport', 'testFanboyChipRisk', 'testFanboyNoFanChip', 'testFanboyTempsMissing', 'testFanboyDoctor', 'testFanboyUsbStick', 'testFanboyCurveFloorKinds', 'testFanboyCurvePush'],
           'alwayson' => ['testAlwaysOnStopWhy', 'testAlwaysOnBackCheck', 'testAlwaysOnMissedRuns', 'testAlwaysOnHoldBarred', 'testAlwaysOnHoldJudge', 'testAlwaysOnHoldLook', 'testAlwaysOnMirror', 'testAlwaysOnAgentKeeps', 'testAlwaysOnRamJob', 'testAlwaysOnControlRam', 'testAlwaysOnControlProc', 'testAlwaysOnLaunch'],
           'tools' => ['testReleaseHashes', 'testReleaseState', 'testReleaseClicksRetry', 'testScenarioToolsSafe']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
@@ -67913,7 +67543,7 @@ $left = testsTmpLeft();         // only this run's (its pid): another suite runn
 if ($left) {
     echo 'WARN  temp folders of this run left: ' . implode(', ', array_map(fn ($d) => basename($d) . (isset($GLOBALS['testsTmpLeft'][$d]) ? " ({$GLOBALS['testsTmpLeft'][$d]})" : ''), $left)) . "\n";
 }
-// skipped tests only on a host without python3 — tools/release.sh takes «N passed, 0 failed» alone, so never a release from one
+// a skipped test (none since 1.95.6: python3 was the one reason) — tools/release.sh takes «N passed, 0 failed» alone, so never a release from one
 printf("%d passed, %d failed%s\n", $GLOBALS['results']['pass'], count($fail),
     $skip ? ', ' . count($skip) . ' skipped (' . implode(', ', array_unique($skip)) . ')' : '');
 exit($fail ? 1 : 0);

@@ -56,12 +56,13 @@
   /* heat sources in no zone: the sentence, then (in the zones step) «add to «zone»:» and one button per source */
   .fb-uncovered > .fb-bar{align-items:center}
   .fb-uncovered .fb-what-label{color:inherit}
-  /* the server picture — the hero of the page (owner, round 2): his zones two by two across the page's width, the BIOS's
-     own group narrow beside them; bigger walls, chips and air than fan-art.css's defaults (only here) */
+  /* the server picture — the hero of the page (owner, round 2): his zones in two columns across the page's width (each
+     zone in the shorter one: fan-art.js opts.stacks, 2026-11-22), the BIOS's own group narrow beside them; bigger walls,
+     chips and air than fan-art.css's defaults (only here) */
   .fb-server.fan-server{margin-top:6px; gap:16px; grid-template-columns:repeat(var(--fb-cols, 2), minmax(0, 1fr));
     --fan-flow:color-mix(in srgb, var(--accent) 42%, transparent)}
   .fb-server.fb-with-bios{grid-template-columns:repeat(var(--fb-cols, 2), minmax(0, 1fr)) minmax(220px, .5fr)}
-  .fb-server .fan-zone[data-id="_bios"]{grid-column:-2; grid-row:1 / span var(--fb-rows, 1)}
+  .fb-server .fan-zone[data-id="_bios"]{grid-column:-2; grid-row:1}
   .fb-server .fan-zone{padding:12px 14px 14px}
   .fb-server .fan-zone-name{font-size:16px}
   .fb-server .fan-zone-note{font-size:13px}

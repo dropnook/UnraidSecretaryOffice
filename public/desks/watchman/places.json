@@ -30,18 +30,22 @@
     "help.shares",
     "help.siem",
     "help.snaps",
+    "help.wakes",
     "hold.title",
     "incidents.title",
     "posture.title",
     "round.title",
     "round_now",
+    "search.wakes",
     "stat.open",
     "tile.book",
     "tile.hold",
     "tile.incidents",
     "tile.posture",
     "tile.schedule",
+    "tile.wakes",
     "tile.watch",
+    "wakes.title",
     "watch.title"
   ],
   "texts": [
@@ -74,6 +78,7 @@
     "help.serious_text",
     "help.shares_text",
     "help.siem_text",
-    "help.snaps_text"
+    "help.snaps_text",
+    "help.wakes_text"
   ]
 }

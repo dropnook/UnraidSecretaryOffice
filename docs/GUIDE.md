@@ -17,9 +17,9 @@ Each desk is one person with one job. Hire only the ones your server needs.
 | 🚚 | **Ms. Moverelli** | Keeps the pool at one limit: moves the oldest files to the array, leaves alone what should stay. |
 | 👥 | **The Team Lead** | Suggests whom to hire, lists what is left to do, pairs partner offices. |
 | 📸 | **Ms. Snapshotini** | Every ZFS, btrfs and VM snapshot: create, delete, rename, hold, schedules with a retention. |
-| 🏮 | **The Night Watchman** | Says how securely the server stands and writes down what is different from normal. |
+| 🏮 | **The Night Watchman** | Says how securely the server stands, writes down what is different from normal, says who woke your disks. |
 | 🧹 | **Ms. Dustdevil** | Shows how full everything is and clears away what nobody uses, into a storeroom first. |
-| 📝 | **Ms. Protocolli** | Reads every log, counts errors and warnings, says who woke your disks. |
+| 📝 | **Ms. Protocolli** | Reads every log, counts errors and warnings, says what fills /var/log. |
 | 💼 | **The Consultant** | Installs the tools the office relies on with you, a preview first. |
 | 🌀 | **Fanboy** | Steers the fans in zones by what really gets warm, and gives them back when he stops. |
 
@@ -315,6 +315,10 @@ time-out to raise. He never starts, pauses or cancels a check.
 open files in a share, VMs and their guest agents, containers, mounted snapshots, a *Shutdown time-out* too short.
 Read only, no disk wakes up.
 
+**Who woke my disks?** Every wake of an array or pool HDD, and who was waiting for it: a container, a VM, a computer
+over SMB or NFS, the mover, a task. Per disk how often today and in 7 days. He never wakes a disk; on a server with
+only SSDs and NVMe the tile says there is nothing to watch.
+
 <a name="watchman-book"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-dark.png"><img src="https://raw.githubusercontent.com/dropnook/UnraidSecretaryOffice/main/docs/screenshots/watchman-light.png" alt="The Night Watchman&#x27;s watch book: what was different from normal"></picture></a>
 
 ### Ms. Dustdevil
@@ -344,8 +348,6 @@ She reads every log out loud: Unraid's, the office's, the plugins', every User S
 - **Syslog:** Unraid's syslog sorted by the rules from Enhanced Log (disks, network, array, logins …).
   Harmless noise counts neither as an error nor as a warning. *No rule* lists the lines no rule knows.
 - **Set up:** rules of your own and texts to hide. A filter can be saved under a name.
-- **Who woke my disks?** Every wake of an array or pool HDD, and who was waiting for it: a container, a VM, a computer
-  over SMB or NFS, the mover, a task. Per disk how often today and in 7 days. She never wakes a disk.
 - **/var/log:** from 80 % she says which file fills it and who writes it. At 90 % she sends one notification.
 - **Schedule:** her tour on its own, off until you set it.
 
@@ -422,7 +424,6 @@ You need Unraid **7.3.2 or a newer 7.x**. Nothing else to install.
 
 - Unraid 8 is not supported yet; the plugin refuses to install there.
 - Snapshots need ZFS or btrfs. Shares on XFS are backed up without one. Partner offices need ZFS.
-- Jack Streamer needs no Python 3.
 - Before you update Unraid, look for an office release that names the new version. Unraid switches off a plugin that
   doesn't, and the scheduled backups stop with it. The Team Lead reminds you.
 

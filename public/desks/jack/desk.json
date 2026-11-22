@@ -5,7 +5,6 @@
   "needs": "moverelli",
   "parts": {
     "progress": { "refresh_after": 5, "action": "progress" },
-    "structure": { "refresh_after": 60, "action": "structure_list" },
-    "shadow": { "refresh_after": 300, "action": "shadow_list" }
+    "structure": { "refresh_after": 60, "action": "structure_list" }
   }
 }

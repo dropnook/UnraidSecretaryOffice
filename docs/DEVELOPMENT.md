@@ -722,7 +722,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   incomplete plan keeps «the list as it was»); can't be read → nothing written, his runs refuse `jack_list_lost`, Smart
   Mover leaves the shares naming it; the Team Lead's `list_lost` / `list_rebuilt`.
   **«theme.mp3 stays on the pool»** (setup `themes`, a real boolean, off by default; 2026-10-29): MediaCache's collector
-  (`Themes` in mediacache_run.py) works only in a real run's fetch step (never a dry run, «What's next», `--release` or
+  (`Themes` in jack-run.php) works only in a real run's fetch step (never a dry run, «What's next», `--release` or
   the joint run's `--nofill` step, never after a stop, never when the list won't be written). It reads the media servers'
   databases (Emby/Jellyfin `/Items` Movie,Series in pages; Plex's sections, a series' folder only when needed) and, for
   every item due, the item's folder: the pool first (there: the array is never looked at), else the array (`/mnt/user0`);
@@ -743,53 +743,29 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   judged); `JACK_DATA/structure.json` (at most 500 findings, `found` says how many), the list by the part «structure», the
   Team Lead's hint `structure` only after a check that found something. Flat episodes make no Series item on Jellyfin and
   Emby and no folder on Plex, so the job reads the episodes' paths too.
-  **The plan in PHP beside Python** (agent/desks/jack-plan.php, jack-shadow.php; 2026-11-07, reworked 2026-11-08 after its review; Python 3 for
-  Unraid loses its maintainer's support on 2026-11-30): a port of MediaCache's planning only (settings, `MediaServerApi`/`PlexApi`, `Locations`,
-  `Planner`, the dry run's decisions for give-back, cleanup and fill, `MEDIACACHE_NO_FILL`, `--release`; helmi1987's, GPL-3, named at its head and in
-  mediacache/README.md; **fixes come over by hand**). It never copies, moves, deletes or writes (a test greps it). **Python keeps moving the files.**
-  Asleep without the flag file `JACK_DATA/shadow.json`: no button, no setting, no migration, no key in his state, no check, no notification, and a
-  real run goes as before. With it: **right before each real run** (`run`, also the joint run's `--nofill` step, and `release`), inside jackJob(), after
-  the run's gates and holding what the run holds, on the state the run then acts on and with **exactly the run's environment**
-  (`jackShadowBefore()`; only the run's result/stop/progress files left out). No lock and no job of its own: it refuses nothing the real run doesn't;
-  it only starts the run later, at most `JACK_SHADOW_SECONDS`, and not one moment once the array stops, a stop is asked or Unraid's mover starts.
-  Python's dry twin (`mediacache/mediacache_shadow.py`, nothing in `mediacache_lib.py`/`mediacache_run.py` changed for it) writes every API answer,
-  its clock and the pool's numbers on a tape (RAM, 0600, a token only as its hash, every plex.tv token form scrubbed); PHP plans from exactly that.
-  Each side is a process of its own, ended at once by the same signs: nothing of the share held open. A disk the plan may need asleep
-  (`jackShadowAsleep()`: mappings onto /mnt/user and /mnt/user0) = «not compared», never a wake. Results per comparison: `same`, `differ` (the pair
-  done twice, shown both times), `once` (the first pair's difference the second didn't show: kept), `error` (both sides failed: never «the same»),
-  `not` (why). After the run (`jackShadowAfter()`): PHP's own client against the live servers (`live`) and the run's own counts (`real`), said only.
-  `JACK_DATA/shadow/<date>.json` (60 days, paths and person keys, never a key; written only while the array runs and his data folder is there),
-  `summary.json`; a tile only with the flag, the differences by the part «shadow». Since 1.94.0 PHP acts (below): the flag turns it round.
-  **`php tests/shadow/diff.php`** (a test server with Python, stand-in servers `tests/shadow/stub.php`; `--real <settings.json>` against real servers,
-  `--names` every code point) holds both planners side by side on 185 cases, also each request and its key; `testJackPlan` needs no Python. The
-  Unicode tables (`jack-plan-names.txt`, `tests/shadow/gen-names.py`) are the Python's the comparison runs against (Tower 3.11, Unicode 14).
-  Known, harmless: a `NaN` in JSON and a lone surrogate (Python reads them, PHP doesn't), Python's Final_Sigma in a name's lower() (a tie-break only).
-  **The run in PHP** (agent/desks/jack-run.php; 2026-11-09, Benj: on his own server first): MediaCache's doing half ported (Runner, Progress,
-  Themes, Status, the lib's helpers that act; GPL-3, named at its head and in mediacache/README.md). **Since 1.94.0 it acts on every server**
-  (`jackPhpActs()`; 1.92.0–1.93.0 only with the flag file `JACK_DATA/php.json` or without python3; no migration): jackJob() starts
-  `php jack-run.php` instead of `python3 mediacache_run.py` — the same modes and flags, environment, output file and exit codes (0 ok,
-  3 stopped, 1 failed). python3 isn't even asked. **Support's way back:** the flag file `JACK_DATA/python.json` (any content, a plain file,
-  never a link) makes Python act again where python3 exists (as 1.93.0 without php.json; it wins over php.json); without python3 it changes
-  nothing. The footer names the engine at work (his state's `engine`). php.json is still read: it wakes the comparison as shadow.json does
-  (jackShadowOn()) — nowhere else a Python child or a word of a comparison. With a flag the comparison is turned round: Python's dry twin
-  plans, PHP plans from that tape and compares, and
-  **the plan compared is the plan executed**: the last pair's tape goes to the run (`--tape`, jackShadowHandoff()), which plans from it
-  (jackPlanDecide(), the shadow's own code) and acts; only the fill measures the pool again after the cleanup, as Python's real run does. It
-  writes the plan it acted on (`--plan-out`); the night file says `engine: php` and `executed` (same | differ | none against the plan
-  compared — the decisions only: the fill measures the pool live after the cleanup, so its order and what it left out are not set against
-  the plan compared) and `acted` (compared | own_differ | own_uncompared). A difference before a run never stops it (Benj decides that
-  later): then, and when nothing was compared (a disk asleep, Python failed), PHP acts on its own plan. Right before acting the run asks the
-  servers once more what plays (Python's moment; the tape may be up to JACK_SHADOW_SECONDS old) and only adds that to what stays. The same files in the same shapes (status.json, the progress file, the list and its themes section, the themes state,
-  the same flock on mediacache.lock, logs/mediacache.log in Python's line format — its warnings and errors are the result's counts):
-  python.json is the rollback, Python's next run goes on from what PHP left. Beyond Python: the array stopping (var.ini Stopping/Stopped, looked
-  at once a second) ends an rsync at once (SIGTERM: it removes its temporary file) and lets Unraid's move binary finish only the file in work
-  (it writes `<name>.partial` and renames it when whole; on SIGTERM it finishes that file and stops — tried on Tower; never SIGKILL mid-file
-  before JACK_RUN_MOVE_FINISH), result stopped, `stopped_by: array` (his run list: «the array is being stopped»); a file name that is no UTF-8 stays on the
-  array and out of the list; a run that ends in an error never writes an empty list. The shadow tile says who acts (`shadow.sub_php`,
-  `shadow.tip_php`); the Night Watchman names jack-run.php as Jack Streamer's run. **`php tests/shadow/diff.php --run`** (a test server with
-  Python): every stand-in case for real from the same tree, Python and PHP, the end states compared (where each file lies, size, content,
-  owner, mode, mtime; the list, the themes state, the status and the progress without times, the exit code); `testJackRun` needs no Python.
-  The gather stays bash. End of November 2026 (step 2): mediacache/*.py, python.json and the comparison go.
+  **MediaCache in PHP** (no Python since 1.95.6: Python 3 for Unraid loses its maintainer's support on 2026-11-30). **The plan**
+  (agent/desks/jack-plan.php; 2026-11-07): a port of MediaCache's planning (settings, `MediaServerApi`/`PlexApi`, `Locations`, `Planner`, the dry
+  run's decisions for give-back, cleanup and fill, `MEDIACACHE_NO_FILL`, `--release`; helmi1987's, GPL-3, named at its head and in
+  mediacache/README.md; **fixes come over by hand**). It never copies, moves, deletes or writes (a test greps it). The Unicode tables
+  (`jack-plan-names.txt`) are Python 3.11's (Unicode 14), kept as data so the same people stay one person. **The run**
+  (agent/desks/jack-run.php; 2026-11-09): MediaCache's doing half ported (Runner, Progress, Themes, Status, the lib's helpers that act; GPL-3,
+  named at its head and in mediacache/README.md). jackJob() starts `php jack-run.php` — MediaCache's modes and flags, environment, output file
+  and exit codes (0 ok, 3 stopped, 1 failed, 2 a bad call); it asks the servers itself and plans with jack-plan.php (jackPlanDecide()); only
+  the fill measures the pool again after the cleanup. The same files in the same shapes as MediaCache's Python had (status.json, the progress
+  file, the list and its themes section, the themes state, the flock on mediacache.lock, logs/mediacache.log in its line format — its
+  warnings and errors are the result's counts): a data folder a Python run left goes on as it was. Beyond the Python: the array stopping
+  (var.ini Stopping/Stopped, looked at once a second) ends an rsync at once (SIGTERM: it removes its temporary file) and lets Unraid's move
+  binary finish only the file in work (it writes `<name>.partial` and renames it when whole; on SIGTERM it finishes that file and stops —
+  tried on Tower; never SIGKILL mid-file before JACK_RUN_MOVE_FINISH), result stopped, `stopped_by: array` (his run list: «the array is being
+  stopped»); right before acting it asks the servers once more what plays and only adds that to what stays; a file name that is no UTF-8
+  stays on the array and out of the list; a run that ends in an error never writes an empty list. The footer names PHP; the Night Watchman
+  names jack-run.php as Jack Streamer's run. The tests feed both recorded answers (`--tape`, JackPlanTape) and read the plan acted on
+  (`--plan-out`): `testJackPlan`, `testJackRun` (rsync for real: GNU rsync, as on Unraid — macOS's openrsync lacks `-A`).
+  **Until 1.95.6** (1.92.0–1.95.5): the comparison planned each real run twice, Python dry beside PHP (jack-shadow.php, the flag files
+  `JACK_DATA/shadow.json` or `php.json`, results in `JACK_DATA/shadow/`, a tile «The plan in PHP»), and `JACK_DATA/python.json` let
+  Python act again. Users' servers may still hold these files: nothing reads them any more — left where they are (never deleted:
+  their data), ignored; the comparison's old RAM folder `RUN_DIR/jack-shadow` goes at the agent's sweep (rundir.php, `legacy`). The gather
+  stays bash.
 * **`moverelli` — Ms. Moverelli.** Smart Mover beside Unraid's mover (7.3.2+; her ini, every value checked). **Unraid's own
   mover goes off with her setup:** refused unless the page's consent `mover_off: true` comes along; the old schedule noted once,
   **her let-go puts it back** through the same form (only `MOVERELLI_UNRAID_CRON` shapes). **Never a hand-written cron line.**
@@ -856,26 +832,6 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   «Syslog», «Errors & warnings» and the reader sort newest / oldest first or by service (a syslog line's program,
   desk.js `SERVICE`) — a choice kept per browser (`logs.<list>.sort`), named in the note line only when not the list's own
   (core.js `bar.done({order})`); a click on a line's service filters to exactly it, and a saved filter keeps it (`svc`).
-  «Who woke my disks?» (agent/desks/logs-diskwakes.php, data/logs-wakes.json): in her tick, only while hired and
-  the array runs — disks.ini every `LOGS_WAKE_INI` s (a rotating disk asleep → awake is a wake), `/proc/diskstats` every
-  `LOGS_WAKE_LOOK` s only while an HDD sleeps (moved counters = asked for → a capture of /proc's state-D tasks, capped by
-  time and count; never a stat or walk under /mnt, no getfattr); names (docker ps, smbstatus), cron lines due and
-  Unraid's «read SMART» time come later from the job `logs-wake-name`, whose answer only her tick writes into the file;
-  the tile always — without a rotating disk it says there is none (all flash); machine names and paths on her page
-  only, never in the agent's log. **Unraid's own look after a wake** (emhttpd's smartctl/hdparm, `hdparm -C`,
-  smartctl in standby mode; `sensors` unless a `drivetemp` hwmon exists: `logsWakeReaction()`) is never a
-  cause, only said apart (`unraid`; 1.68.0's records read the same way). Writes don't wait (page cache, the kernel's
-  flush): a writers' list while a disk sleeps (files open for writing there, every `LOGS_WAKE_HOLD` s, budgeted; their
-  write counters every look) gives «wrote to it»; a user share's file by the disk shfs holds it on; a plain program by who
-  started it (`by`: Unraid, its web page, a plugin, a user script, a terminal); a capture that found nobody looks again
-  `LOGS_WAKE_AGAIN_LOOK` s later. **The trail** (`trail`, `logsWakeTrail()`, only in the job `logs-wake-name`, never the
-  tick): what was written on the woken disk itself around the wake, by folder (count, bytes, first/last time; at most
-  `LOGS_WAKE_TRAIL_DIRS`) — a hint, not a cause; only on a disk awake now (a pool: every member), for a wake of the last
-  `LOGS_WAKE_TRAIL_LATE` s. btrfs: the tick notes each disk's generation from `/sys/fs/btrfs/<fsid>/generation` when it
-  falls asleep (RAM), the job asks `btrfs subvolume find-new` after it (the mounted tree and every writable subvolume that
-  changed; read-only snapshots and `.btrfs-snap` left out); XFS/ZFS: `find -xdev` over the disk's own mounts for folders
-  changed since it slept (`.zfs` pruned), then their files — bounded (`LOGS_WAKE_TRAIL_*`), `cut` said. The office's data
-  folder is left out. Folders only on her page.
 * **`watchman` — The Night Watchman.** **The office's security department — no other desk gives security advice. Read only,
   never a command that changes anything.** Snapshot automounts he counts per place (`uso_watchman_snapshot_automounts{where}`
   host/container/process, «What holds the array?»: `arrayholdSnaps()`, /proc only, `snapshotMountsEverywhere()`). Posture tips (never in the book or notified) and the watch book (what differs from
@@ -889,6 +845,28 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
   slowly is told too; one going on for days is the normal), a pull that has ended does. An entry says what tripped (`watchmanFlowShape()`, `entry.<kind>`, `_hour`, `_span`): the pull in its
   minutes (up to 3 h, holding the hour), else the hour (`hour`), or so much in so long (`gap`); «I know, thanks» makes an
   hour normal (`peak`), never a pull's sum.
+  «Who woke my disks?» (agent/desks/watchman-diskwakes.php, data/watchman/wakes.json; Ms. Protocolli's up to 1.95 — the
+  step `wakes-watchman` moved her logs-wakes.json; who a process is: agent/lib/procwho.php, shared with «What holds the
+  array?»): in his tick, only while hired and
+  the array runs — disks.ini every `WATCH_WAKE_INI` s (a rotating disk asleep → awake is a wake), `/proc/diskstats` every
+  `WATCH_WAKE_LOOK` s only while an HDD sleeps (moved counters = asked for → a capture of /proc's state-D tasks, capped by
+  time and count; never a stat or walk under /mnt, no getfattr); names (docker ps, smbstatus), cron lines due and
+  Unraid's «read SMART» time come later from the job `watchman-wake-name`, whose answer only his tick writes into the file;
+  the tile always — without a rotating disk it says there is none (all flash); machine names and paths on his page
+  only, never in the agent's log. **Unraid's own look after a wake** (emhttpd's smartctl/hdparm, `hdparm -C`,
+  smartctl in standby mode; `sensors` unless a `drivetemp` hwmon exists: `watchmanWakeReaction()`) is never a
+  cause, only said apart (`unraid`; 1.68.0's records read the same way). Writes don't wait (page cache, the kernel's
+  flush): a writers' list while a disk sleeps (files open for writing there, every `WATCH_WAKE_HOLD` s, budgeted; their
+  write counters every look) gives «wrote to it»; a user share's file by the disk shfs holds it on; a plain program by who
+  started it (`by`: Unraid, its web page, a plugin, a user script, a terminal); a capture that found nobody looks again
+  `WATCH_WAKE_AGAIN_LOOK` s later. **The trail** (`trail`, `watchmanWakeTrail()`, only in the job `watchman-wake-name`, never the
+  tick): what was written on the woken disk itself around the wake, by folder (count, bytes, first/last time; at most
+  `WATCH_WAKE_TRAIL_DIRS`) — a hint, not a cause; only on a disk awake now (a pool: every member), for a wake of the last
+  `WATCH_WAKE_TRAIL_LATE` s. btrfs: the tick notes each disk's generation from `/sys/fs/btrfs/<fsid>/generation` when it
+  falls asleep (RAM), the job asks `btrfs subvolume find-new` after it (the mounted tree and every writable subvolume that
+  changed; read-only snapshots and `.btrfs-snap` left out); XFS/ZFS: `find -xdev` over the disk's own mounts for folders
+  changed since it slept (`.zfs` pruned), then their files — bounded (`WATCH_WAKE_TRAIL_*`), `cut` said. The office's data
+  folder is left out. Folders only on his page.
 * **`cleanup` — Ms. Dustdevil.** «Where is what» (operational advice, **never security**; read only) and «Tidying up» (what a
   drill or restore left: only what his journals name). **Her tour on schedule** (1.78, off by default): job `cleanup`
   (`job.sh cleanup` → `job cleanup-tour-due`, a mark in RAM); her tick (`clScheduledTick()`) tours as «Tour» does —

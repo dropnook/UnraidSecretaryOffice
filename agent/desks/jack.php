@@ -84,7 +84,7 @@ const JACK_KEY = '/^[A-Za-z0-9_-]{8,128}$/D';
 
 require_once dirname(__DIR__) . '/lib/poollevel.php';    // Ms. Moverelli's limit and his half of the pool (shared with her)
 
-define('JACK_APP', OFFICE_DIR . '/mediacache');
+define('JACK_APP', OFFICE_DIR . '/mediacache');        // MediaCache's README and licence (the code is PHP: jack-plan.php, jack-run.php)
 define('GATHER_APP', OFFICE_DIR . '/gather');
 define('JACK_DATA', DATA_DIR . '/mediacache');
 define('GATHER_DATA', DATA_DIR . '/gather');
@@ -142,8 +142,6 @@ desk('jack', [
         // «Check the structure…» (jack-structure.php): only ever on this click; the part «structure» (desk.json) reads its list
         'structure_start' => fn (array $r) => jackStructureAsk(),
         'structure_list'  => fn (array $r) => jackStructureList(),
-        // the plan in PHP beside Python (jack-shadow.php), only with its flag file: the part «shadow» reads the differences
-        'shadow_list'     => fn (array $r) => jackShadowList(),
     ],
     'jobs'    => [
         'embycache' => fn (array $args) => jackJob('embycache', $args),
@@ -343,10 +341,8 @@ function jackScan(): array
     $jobs = ['embycache' => jackJobInfo('embycache'), 'gather' => jackJobInfo('gather')];
     $state = [
         'time'       => time(),
-        // python3's version, asked only where Python may matter (python.json, the comparison's flag); null: not asked or none there
-        'python'     => jackPythonAsked() || jackShadowOn() ? jackPython() : null,
         'php'        => PHP_VERSION,
-        'engine'     => jackPhpActs() ? 'php' : 'python',     // who does MediaCache's work (jackPhpActs()): the footer names it
+        'engine'     => 'php',      // who does MediaCache's work: PHP (jack-run.php) since 1.94.0, alone since 1.95.6 — the footer names it
         'emby'       => jackContainers(),
         'docker'     => houseDockerState(),     // 'off' / 'silent': his media servers can't be seen — the page says so (T36)
         'versions'   => jackVersions(),
@@ -395,10 +391,6 @@ function jackScan(): array
         // «Check the structure…» (jack-structure.php): the counts of the last check, whether one goes; null: never asked
         'structure'  => jackStructureSummary(),
     ];
-    // the plan in PHP beside Python (jack-shadow.php): the key only with its flag file, php.json, or no python3
-    if (($shadow = jackShadowSummary()) !== null) {
-        $state['shadow'] = $shadow;
-    }
     $GLOBALS['jackDocker'] = $state['docker'];      // for his tick (jackDockerBackTick()): no file read every round
     writeAtomic(deskFile('jack'), jsonEncode($state));
     return $state;
@@ -442,42 +434,12 @@ function jackDockerBackLook(?string $file = null): ?array
     return $state;
 }
 
-/**
- * python3 on this server: its version, or null — none there (Python 3 for Unraid loses its maintainer on 2026-11-30): then PHP acts
- * (jackPhpActs()). Asked once a minute at most (his look, the checks, every job); $GLOBALS['jackPythonHost']: the tests' answer.
- */
-function jackPython(): ?string
-{
-    if (array_key_exists('jackPythonHost', $GLOBALS)) {
-        $h = $GLOBALS['jackPythonHost'];
-        return is_callable($h) ? $h() : (is_string($h) ? $h : null);
-    }
-    static $at = null, $version = null;
-    if ($at === null || hrtime(true) - $at > 60_000_000_000) {
-        [$exit, $out] = run(['python3', '--version'], 10);
-        $version = $exit === 0 ? trim(str_replace('Python', '', $out)) : null;
-        $at = hrtime(true);
-    }
-    return $version;
-}
-
-/**
- * Who does MediaCache's work (1.94.0): PHP (jack-run.php) on every server — python3 is not even asked. Only support's way back, the flag
- * file python.json (jackPythonAsked()), makes Python act again, and only where python3 exists (without it nothing would run: PHP acts).
- * python.json wins over 1.92.0's php.json: it is the later, deliberate word. Python 3 for Unraid loses its maintainer on 2026-11-30.
- */
-function jackPhpActs(?string $dir = null): bool
-{
-    return !jackPythonAsked($dir) || jackPython() === null;
-}
-
-/** The versions of the two tools that ship with the office */
+/** The versions of the two tools that ship with the office: MediaCache's is the one its PHP port follows (jack-plan.php) */
 function jackVersions(): array
 {
-    $lib = (string) @file_get_contents(JACK_APP . '/mediacache_lib.py', false, null, 0, 4096);
     $sh = (string) @file_get_contents(GATHER_APP . '/consolidate_master.sh', false, null, 0, 1024);
     return [
-        'embycache' => preg_match('/__version__\s*=\s*"([^"]+)"/', $lib, $m) ? $m[1] : null,
+        'embycache' => JACK_PLAN_SOURCE,
         'gather'    => preg_match('/\((V[\d.]+)\)/', $sh, $m) ? $m[1] : null,
     ];
 }
@@ -617,7 +579,7 @@ function jackReadSettings(string $dir = JACK_DATA): ?array
  * MediaCache's settings as Jack uses them: its own tools (JACK_TOOLS — an old forced rsync for the give-back reads as the
  * move binary; the next save writes it so). The share's ZFS dataset is MediaCache's (create_share_root, 1.65.0 — before, Jack made it himself before a real run),
  * one copy at a time in his file (MediaCache's own default, for a run outside the office) — his runs get one per disk
- * from every disk at once while his setup's switch is on (jackPyEnv()); the switch as a boolean.
+ * from every disk at once while his setup's switch is on (jackRunEnv()); the switch as a boolean.
  */
 function jackTools(array $s): array
 {
@@ -1699,11 +1661,11 @@ function jackReset(array $o = []): array
 
 /**
  * MediaCache's settings file in $dir, as its own save_config() writes it and checked as its load_config() checks it — in PHP
- * (2026-11-12, no python3 needed; jackPlanConfig() is load_config() ported, jack-plan.php). The trial dance as before: the file is
+ * (jackPlanConfig() is load_config() ported, jack-plan.php). The trial dance as before: the file is
  * written beside (0600, a new name), checked, and only once accepted put in place; a refusal leaves the old file as it was. No server
  * (every one removed): load_config() refuses that by design (so no run can go without one) — everything else is checked with a stand-in
- * server in RAM ($tmp, 0600, gone afterwards), the file written with none. A refusal says MediaCache's own words, as Python's last line
- * did (`mediacache_lib.ConfigError: …`).
+ * server in RAM ($tmp, 0600, gone afterwards), the file written with none. A refusal says MediaCache's own words, as its own error line
+ * reads (`mediacache_lib.ConfigError: …`).
  */
 function jackWriteSettings(array $cfg, string $dir = JACK_DATA, string $tmp = RUN_DIR): void
 {
@@ -1728,7 +1690,7 @@ function jackWriteSettings(array $cfg, string $dir = JACK_DATA, string $tmp = RU
             }
             $check = $stand;
         }
-        jackPlanConfig($check, array_map('strval', jackPyEnv() + array_filter(getenv(), 'is_string')));
+        jackPlanConfig($check, array_map('strval', jackRunEnv() + array_filter(getenv(), 'is_string')));
         $ok = true;
     } catch (JackPlanConfigError $e) {
         throw new Problem('jack_config', ['detail' => 'mediacache_lib.ConfigError: ' . $e->getMessage()]);
@@ -1750,7 +1712,7 @@ function jackWriteSettings(array $cfg, string $dir = JACK_DATA, string $tmp = RU
 
 /**
  * The file as MediaCache's save_config() writes it: the keys that start with «_» left out (and an instance's _mappings, _skip),
- * json.dumps(indent=4, ensure_ascii=False) and a line end — Python's own load_config() reads it, a later save by Python writes the same.
+ * json.dumps(indent=4, ensure_ascii=False) and a line end — MediaCache's own load_config() reads it, its own save writes the same.
  */
 function jackSettingsText(array $cfg): string
 {
@@ -1807,17 +1769,16 @@ function runEnv(array $command, array $env, int $timeout = 60): array
 }
 
 /**
- * What EmbyCache's Python always gets: its data folder, no bytecode next to the code, UTF-8 output — and rsync both ways (over
+ * What MediaCache's run (jack-run.php) always gets: its data folder — and rsync both ways (over
  * any settings file); in the office its minimum free space is a limit he gives back to, not only one he stops filling at
  * (EMBYCACHE_GIVE_BACK_FREE, jack-phase2 — standalone EmbyCache keeps the old behaviour); copies at once: one per disk,
  * from every array disk at once while his setup's switch is on, else one (2026-10-29 — his panel shows every file in
  * flight, «stop» ends after them; the give-back stays one at a time). $settings / $disks: the tests (read when null).
  */
-function jackPyEnv(?array $settings = null, ?int $disks = null): array
+function jackRunEnv(?array $settings = null, ?int $disks = null): array
 {
     $on = jackParallelDisks($settings ?? jackReadSettings());
-    return ['MEDIACACHE_DIR' => JACK_DATA, 'PYTHONDONTWRITEBYTECODE' => '1', 'PYTHONIOENCODING' => 'utf-8', 'PYTHONUNBUFFERED' => '1',
-            'MEDIACACHE_GIVE_BACK_FREE' => '1',
+    return ['MEDIACACHE_DIR' => JACK_DATA, 'MEDIACACHE_GIVE_BACK_FREE' => '1',
             'MEDIACACHE_RSYNC_ARGS' => JACK_RSYNC_ARGS,
             // MediaCache's own live status in RAM
             'MEDIACACHE_PARALLEL_PER_DISK' => '1', 'MEDIACACHE_PARALLEL_TOTAL' => (string) jackParallelTotal($on, $disks ?? jackArrayDisks()),
@@ -2062,9 +2023,8 @@ function jackImportRead(string $dir, string $name, int $cap): ?string
 }
 
 /**
- * MediaCache's own DEFAULTS (mediacache_lib.py, the version that ships with the office) as Python's json.dumps() gives them, read back
- * as PHP reads JSON ({} an empty array, None null). A table since 2026-11-12 (no python3 needed); testJackNoPython compares it with
- * mediacache_lib.py's wherever python3 is there — a later MediaCache with other defaults changes both.
+ * MediaCache's own DEFAULTS (mediacache_lib.py of JACK_PLAN_SOURCE, the version the PHP port follows) as its json.dumps() gives them, read
+ * back as PHP reads JSON ({} an empty array, None null). A later MediaCache with other defaults is carried over by hand (mediacache/README.md).
  */
 const JACK_MEDIACACHE_DEFAULTS = [
     'cache_path' => '/mnt/cache', 'array_path' => '/mnt/user0', 'user_path' => '/mnt/user', 'array_disks_glob' => '/mnt/disk[0-9]*', 'array_source' => 'user0',
@@ -3389,7 +3349,6 @@ function jackJob(string $tool, array $args): int
 
     // the shares' folders on a ZFS pool: MediaCache makes the dataset itself, as Unraid does (create_share_root, 1.65.0)
     $progress = null;                                        // a real EmbyCache run: its two RAM files for the live panel
-    $php = $tool === 'embycache' && jackPhpActs($dir);      // PHP unless python.json (and python3), asked once for this job: the command and the hand-over agree
     if ($tool === 'gather') {
         $text = $mode === 'measure' ? jackWriteMeasureIni(jackMeasureShares(), jackReadSettings() ?? [])
             : jackWriteGatherIni(jackGatherSettings() ?? [], jackReadSettings() ?? []);
@@ -3400,16 +3359,16 @@ function jackJob(string $tool, array $args): int
              + ($mode === 'run' ? ['CONSOLIDATE_STOP' => "$dir/office-stop.json"] : []);
         $cwd = '/';
     } else {
-        // PHP (jack-run.php, every server since 1.94.0): MediaCache's run, the same environment, output and exit codes; Python's run only with
-        // support's python.json; Python's dry twin only where the comparison's flag lies (jackShadowOn())
-        $cmd = $php ? array_merge([PHP_BINARY, __DIR__ . '/jack-run.php'], JACK_MODES[$mode]) : array_merge(['python3', JACK_APP . '/mediacache_run.py'], JACK_MODES[$mode]);
-        $env = jackPyEnv() + ['MEDIACACHE_RESULT' => "$dir/status.json"] + ($real ? ['MEDIACACHE_STOP' => "$dir/office-stop.json"] : [])
+        // MediaCache's run in PHP (jack-run.php; the only one since 1.95.6 — python.json, shadow.json and php.json a former version left in
+        // JACK_DATA are read by nothing any more: they stay, ignored)
+        $cmd = array_merge([PHP_BINARY, __DIR__ . '/jack-run.php'], JACK_MODES[$mode]);
+        $env = jackRunEnv() + ['MEDIACACHE_RESULT' => "$dir/status.json"] + ($real ? ['MEDIACACHE_STOP' => "$dir/office-stop.json"] : [])
              // Ms. Moverelli's limit and his half (a dry run sees what the real one would)
              + (in_array($mode, ['dry', 'run'], true) ? jackPoolEnv(jackReadSettings()) : [])
              + ($noFill ? ['MEDIACACHE_NO_FILL' => '1'] : [])
              // his let-go with «bring the films back»: the theme.mp3 kept for good go back too (jack-letgo.php)
              + ($mode === 'release' && $by === 'letgo' ? ['MEDIACACHE_RELEASE_THEMES' => '1'] : []);
-        $cwd = JACK_APP;
+        $cwd = '/';
         if ($real) {                     // the live panel on his page (jack-progress.php): EmbyCache's progress in RAM
             $progress = jackProgressPaths();
             jackProgressClear($progress);
@@ -3420,11 +3379,6 @@ function jackJob(string $tool, array $args): int
     $env = ['PATH' => '/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/usr/bin:/bin', 'HOME' => '/root', 'LANG' => 'C.UTF-8'] + $env;
     if ($cmd === null) {
         fwrite($out, "The gather's settings could not be put in RAM (" . RUN_DIR . ") - nothing done.\n");
-    }
-    // only with its flag file (shadow.json or php.json): the plans compared, right before this real run, on the state it acts on (jack-shadow.php)
-    $shadow = $tool === 'embycache' && $real && jackShadowOn() ? jackShadowBefore($mode, $env) : null;
-    if ($php && $real && $cmd !== null) {
-        $cmd = array_merge($cmd, jackShadowHandoff($shadow));     // PHP acts on the answers its plan was compared on
     }
     $proc = $cmd !== null ? proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => $out, 2 => $out], $pipes, $cwd, $env) : false;
     $stoppedFor = $stoppedWhy = null;
@@ -3492,7 +3446,6 @@ function jackJob(string $tool, array $args): int
     } catch (Throwable $e) {
         fwrite(STDERR, "$tool: notification failed: {$e->getMessage()}\n");
     }
-    jackShadowAfter($shadow, $status);        // only with its flag file: what the comparison before the run found (jack-shadow.php)
     return $exit;
 }
 

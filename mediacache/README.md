@@ -2,15 +2,18 @@
 > servers at once): taken from [helmi1987/mediacache-for-unraid](https://github.com/helmi1987/mediacache-for-unraid)
 > (main `2a91ef1`, 7.4.0, 2026-10-15), with the office's changes merged in from its earlier EmbyCache copy (embycache 7.3.0
 > of the office, itself from helmi1987's embycache 7.2.1). Jack Streamer sets it up, runs and schedules it; its data lives in
-> `data/mediacache` (`MEDIACACHE_DIR`). Every change is marked `USO` in the code. Shipped: `mediacache_lib.py`,
-> `mediacache_run.py` (+ his `tests/`, not in the package). Not shipped: `mediacache_setup.py` (Jack is the setup) and
+> `data/mediacache` (`MEDIACACHE_DIR`). **Since the office's 1.95.6 it runs in PHP only:** `agent/desks/jack-plan.php` (the plan) and
+> `agent/desks/jack-run.php` (the run) are the port of `mediacache_lib.py` and `mediacache_run.py` with the changes below; the Python
+> scripts, their tests and the comparison that ran them beside the port are gone (Python 3 for Unraid loses its maintainer's support on
+> 2026-11-30). This folder keeps the licence and this README. Never ported: `mediacache_setup.py` (Jack is the setup) and
 > `mediacache_cleaner.py` (on a share whose primary is the pool it would take every new film for an orphan).
 >
 > Changes against 2a91ef1:
 >
 > * **Safety (offered to helmi1987):** free space on ZFS is the whole pool (`pool_usage()`: the dataset from
 >   `/proc/mounts`, the pool's `used + avail` from `zfs list -Hp` as size, the dataset's `avail` as free; else `statvfs`;
->   `MEDIACACHE_ZFS` / `MEDIACACHE_MOUNTS` point it at stand-ins for the tests). The key/token goes only to the server's own
+>   `MEDIACACHE_ZFS` / `MEDIACACHE_MOUNTS` point it at stand-ins for the tests, as `MEDIACACHE_RSYNC` — an absolute path — does for
+  the copies' rsync; the office sets none of them). The key/token goes only to the server's own
 >   host: unredirected headers and `_SameHostRedirect` (all three types, Plex's plex.tv calls too). A path with `..` is never
 >   followed out of the share (`Locations.to_rel`). A path mapping with an empty host path means «deliberately not cached»
 >   (`Locations(…, skip)`), the longest mapping wins — never a shorter one; an empty line under a broader mapping wins
@@ -65,34 +68,29 @@
   `THEMES_MARK`, a `#` comment — every reader skips comments), never given back by the cleanup or `--release` and not in
   any budget (with `themes` the item's theme.mp3 no longer travels with its files); `MEDIACACHE_RELEASE_THEMES=1` (the
   office: Jack's let-go) or the switch off brings them back (the state reset). Dry run and report say in the result's
-  `themes` how many folders the next real run reads (`first`: every one). Tests: `tests/test_themes.py`.
+  `themes` how many folders the next real run reads (`first`: every one). Tests: testJackRun «themes», testJackPlan.
 * **With a progress or a stop file, Unraid's move binary gets one file per call** (the cleanup): so the progress names
 >   the file in work and «stop after this file» holds exactly. Standalone: one call for all, as before. (The target of a
 >   file the binary moves is unknown until it is done — the progress gives it empty, the panel shows no part inside it.)
 >
-> **The plan in PHP** (2026-11-07, because Python 3 for Unraid loses its maintainer's support on 2026-11-30): `agent/desks/jack-plan.php` is
-> a port of this planner (settings, API clients, `Locations`, `Planner`, the dry run's decisions, `MEDIACACHE_NO_FILL`, `--release`; never a copy,
-> a move, a list), from helmi1987's MediaCache with these changes, version 7.4.0 (2026-10-15), under the same licence, GPL-3.0-or-later. For now it
-> only runs in the shadow of Python (`agent/desks/jack-shadow.php`, asleep without the flag file `shadow.json`): right before each real run
-> `mediacache_shadow.py` does that run's dry twin (this code, nothing changed for it) that writes down the servers' answers, PHP plans from
-> exactly those, the office compares (tests/shadow/diff.php on a test server). `agent/desks/jack-plan-names.txt` is Python's own Unicode table
-> for `person_key()` and `names()`. **A fix here or upstream is carried over to `jack-plan.php` by hand**; while Python goes, the comparison
-> shows one forgotten.
+> **The plan in PHP** (2026-11-07): `agent/desks/jack-plan.php` is a port of this planner (settings, API clients, `Locations`, `Planner`,
+> the dry run's decisions, `MEDIACACHE_NO_FILL`, `--release`; never a copy, a move, a list), from helmi1987's MediaCache with these changes,
+> version 7.4.0 (2026-10-15), under the same licence, GPL-3.0-or-later. Until 1.95.6 it was compared with Python's planner before every
+> real run on the owner's and the test servers (the last comparison: the same plan every time). `agent/desks/jack-plan-names.txt` is
+> Python 3.11's Unicode table for `person_key()` and `names()`, kept as data. **A fix upstream is carried over to `jack-plan.php` by hand.**
 >
 > **The run in PHP** (2026-11-09): `agent/desks/jack-run.php` is a port of this tool's doing part — `Runner` (cleanup, the rsync cleanup,
 > give-back, fill, parallel copies, the vanished retry, the move binary both ways, `--release`, the report, the dry run), `Progress`, `Themes`,
 > `Status` and the lib's helpers that act (mkdir_like, remove_empty_*, ensure_share_root, run_mover, run_rsync, acquire_lock, the exclude
 > list and the themes state, write_progress, write_result) — from helmi1987's MediaCache with these changes, version 7.4.0 (2026-10-15), under
-> the same licence, GPL-3.0-or-later; the plan is jack-plan.php's. Since the office's 1.94.0 it acts on every server: the office runs
-> `php jack-run.php` with this tool's environment, flags, files and exit codes; this Python acts only with the flag file `python.json` in the
-> data folder (support's way back), and plans each real run dry beside PHP only with `shadow.json` or `php.json` there
-> (`mediacache_shadow.py`): PHP then plans from exactly the answers that comparison got. The same lock (`mediacache.lock`), the same
-> list, status, progress and themes files in the same shapes, the same log lines and levels — a run of either can follow a run of the other.
-> Where it is more careful than this script: the array stopping ends an rsync in flight at once and lets Unraid's move binary finish only
-> its file in work (result `stopped`); right before acting it asks the servers once more what plays, as this script's run does; a file name that is no
-> UTF-8 stays on the array and out of the list (here the run ends with an error, and a list with such a name couldn't be read back); a run
-> ending in an error never writes an empty list. `tests/shadow/diff.php --run` (a test server with Python) runs every stand-in case twice for
-> real from the same tree, this script and the port, and compares the end states; `tests/shadow/pyrun.py` is only that comparison's starter.
+> the same licence, GPL-3.0-or-later; the plan is jack-plan.php's. The office runs `php jack-run.php` (since 1.94.0 on every server, since
+> 1.95.6 nothing else) with this tool's environment, flags, files and exit codes: the same lock (`mediacache.lock`), the same list, status,
+> progress and themes files in the same shapes, the same log lines and levels — whatever a run of the Python left, the PHP run goes on from.
+> Where it is more careful than the Python was: the array stopping ends an rsync in flight at once and lets Unraid's move binary finish only
+> its file in work (result `stopped`); right before acting it asks the servers once more what plays; a file name that is no UTF-8 stays on
+> the array and out of the list (the Python run ended with an error there, and a list with such a name couldn't be read back); a run ending
+> in an error never writes an empty list. The flag files the comparison and the way back to Python read (`python.json`, `shadow.json`,
+> `php.json` in the data folder) are read by nothing any more: left where they are, ignored, as the comparison's results (`shadow/`).
 >
 > **How the office runs it — every deviation from MediaCache's defaults, and why** (the owner, 2026-10-15: MediaCache's own
 > ways wherever they don't collide with the office's logic):
@@ -116,6 +114,10 @@
 
 > **Licence:** helmi1987's original is under the GNU GPL v3 ([LICENSE](LICENSE), «Copyright (C) 2025–2026 helmi1987»,
 > SPDX `GPL-3.0-or-later`). This modified copy is likewise GPL-3.0-or-later, as part of the office.
+
+> **Below: helmi1987's own README of MediaCache 7.4.0** (German), kept as the reference for its settings and behaviour,
+> which the PHP port follows. Its installation, file list and commands are those of the standalone Python tool: its scripts are at
+> [helmi1987/mediacache-for-unraid](https://github.com/helmi1987/mediacache-for-unraid), not in this repository.
 
 # 🎬 MediaCache für Unraid
 

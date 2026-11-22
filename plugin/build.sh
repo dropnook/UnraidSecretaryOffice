@@ -45,7 +45,6 @@ mkdir -p "$pkg" dist
 
 cp -R public/. "$pkg/"
 cp -R src agent backup mediacache gather smartmover monitoring "$pkg/"
-rm -rf "$pkg/mediacache/tests"            # MediaCache's own unit tests: the repository's, not the package's
 cp -R plugin/scripts plugin/event plugin/images "$pkg/"
 cp plugin/*.page LICENSE "$pkg/"
 # Unraid shows the plugin's README.md in its list under Plugins: a short one of its own

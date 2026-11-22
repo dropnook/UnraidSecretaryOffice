@@ -17,7 +17,8 @@ declare(strict_types=1);
  * Tolerant (CLAUDE.md «Updates»): the reader takes only entries in exactly their shape, the writer keeps every entry and
  * key it doesn't know as it was.
  */
-const LOGS_FILTER_LISTS   = ['syslog', 'found', 'varlog', 'docker', 'read', 'wakes'];
+// «wakes» was hers up to 1.95 (the wakes went to the Night Watchman): a filter saved for it is kept as it is, never shown
+const LOGS_FILTER_LISTS   = ['syslog', 'found', 'varlog', 'docker', 'read'];
 const LOGS_FILTER_MAX     = 20;            // saved filters per list at most
 const LOGS_FILTER_NAME    = 60;            // characters of a name at most
 const LOGS_FILTER_WORDS   = 300;           // bytes of the filter words at most

@@ -22,7 +22,6 @@
 . "$(dirname "$0")/lib.sh"
 scenario_begin jack-jk-themes-collect-run
 needs test3 docker
-command -v python3 >/dev/null || { echo "needs python3" >"$KEEP/.skip"; _row state python3 red "no python3 on this server"; scenario_end; }
 S=uso-wip-jt-media
 FM=Familienfilme SR=Familienserien
 PORT=18097
@@ -64,44 +63,37 @@ movie() { jq -nc --arg id "$1" --arg n "$2" --arg dc "$3" '{Type: "Movie", Id: $
 jq -n --argjson a "$(movie m1 "$F1" "$old")" --argjson b "$(movie m2 "$F2" "$old")" --argjson c "$(movie m3 "$F3" "$old")" --arg se "$SE" --arg dc "$old" \
     '{users: [{Id: "u1", Name: "Oma Gerda"}], resume: {u1: [$a]},
       library: [$a, $b, $c, {Type: "Series", Id: "s1", Name: $se, Path: "/media/tv/\($se)", DateCreated: $dc, LocationType: "FileSystem"}]}' >"$LIB"
-cat >"$KEEP/standin.py" <<'PY'
-import http.server, json, sys, urllib.parse
-LIB, PORT = sys.argv[1], int(sys.argv[2])
-class H(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        u = urllib.parse.urlparse(self.path)
-        q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
-        lib = json.load(open(LIB, encoding="utf-8"))
-        parts = [p for p in u.path.split("/") if p]
-        if u.path == "/Users":
-            body = lib["users"]
-        elif u.path == "/Sessions":
-            body = []
-        elif u.path == "/System/Info":
-            body = {"ServerName": "Emby", "Version": "4.8.0.0", "Id": "standin"}
-        elif len(parts) == 4 and parts[0] == "Users" and parts[2:] == ["Items", "Resume"]:
-            body = {"Items": lib["resume"].get(parts[1], []) if q.get("IncludeItemTypes") == "Movie" else []}
-        elif u.path == "/Items" and q.get("IncludeItemTypes") == "Movie,Series":
-            start, limit = int(q.get("StartIndex", 0)), int(q.get("Limit", 1000))
-            body = {"Items": lib["library"][start:start + limit], "TotalRecordCount": len(lib["library"])}
-        else:
-            body = {"Items": []}
-        b = json.dumps(body).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(b)))
-        self.end_headers()
-        self.wfile.write(b)
-        with open(LIB + ".asked", "a") as f:
-            f.write(u.path + ("?" + u.query if u.query else "") + "\n")
-    def log_message(self, *a):
-        pass
-http.server.ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()
-PY
+cat >"$KEEP/standin.php" <<'PHP'
+<?php
+// the stand-in media server (php -S): Emby's answers from the library file STANDIN_LIB; every request noted in <file>.asked
+$lib = json_decode((string) file_get_contents((string) getenv('STANDIN_LIB')), true);
+$uri = (string) $_SERVER['REQUEST_URI'];
+$path = (string) parse_url($uri, PHP_URL_PATH);
+parse_str((string) parse_url($uri, PHP_URL_QUERY), $q);
+$parts = array_values(array_filter(explode('/', $path), 'strlen'));
+if ($path === '/Users') {
+    $body = $lib['users'];
+} elseif ($path === '/Sessions') {
+    $body = [];
+} elseif ($path === '/System/Info') {
+    $body = ['ServerName' => 'Emby', 'Version' => '4.8.0.0', 'Id' => 'standin'];
+} elseif (count($parts) === 4 && $parts[0] === 'Users' && array_slice($parts, 2) === ['Items', 'Resume']) {
+    $body = ['Items' => ($q['IncludeItemTypes'] ?? '') === 'Movie' ? ($lib['resume'][$parts[1]] ?? []) : []];
+} elseif ($path === '/Items' && ($q['IncludeItemTypes'] ?? '') === 'Movie,Series') {
+    $start = (int) ($q['StartIndex'] ?? 0);
+    $limit = (int) ($q['Limit'] ?? 1000);
+    $body = ['Items' => array_slice($lib['library'], $start, $limit), 'TotalRecordCount' => count($lib['library'])];
+} else {
+    $body = ['Items' => []];
+}
+header('Content-Type: application/json');
+echo json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+file_put_contents(getenv('STANDIN_LIB') . '.asked', $uri . "\n", FILE_APPEND);
+PHP
 # (stopped by its own command line: its pid is setsid's child's, never the shell's)
-jt_standin_stop() { pkill -f "[s]tandin.py $LIB $PORT"; _st_until 10 bash -c "! pgrep -f '[s]tandin.py $LIB $PORT'"; }
+jt_standin_stop() { pkill -f "[-]S 127.0.0.1:$PORT $KEEP/standin.php"; _st_until 10 bash -c "! pgrep -f '[-]S 127.0.0.1:$PORT $KEEP/standin.php'"; }
 undo_push jt_standin_stop
-(cd / && exec setsid python3 -I "$KEEP/standin.py" "$LIB" "$PORT" </dev/null >"$KEEP/standin.err" 2>&1) &
+(cd / && STANDIN_LIB=$LIB PHP_CLI_SERVER_WORKERS=4 exec setsid php -S "127.0.0.1:$PORT" "$KEEP/standin.php" </dev/null >"$KEEP/standin.err" 2>&1) &
 wait_for 20 "the stand-in media server" curl -sf "http://127.0.0.1:$PORT/Users" || { _row state standin red "the stand-in didn't answer: $(cat "$KEEP/standin.err")"; scenario_end; }
 
 # ----------------------------------------------------------------------- Ms. Moverelli set up, Jack Streamer hired on it
