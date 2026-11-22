@@ -101,12 +101,12 @@ function testFanboyDashTile(): void
     $m = $o['model'] ?? [];
     same('fanboy dash: steering — the web side without a word', '', $o['err']);
     same('fanboy dash: steering — who, no banner, nothing stale, the two zones (warmest, level, speed), the CPU cooler watched',
-        ['Fanboy · 2 zones', 'green', [], null,
+        ['Fanboy · 2 zones · 1 with the BIOS', 'green', [], null,
          [['Plattenkäfig', 'warmest: Disk 2 at 41 °C', '30 %', '1018 rpm', 1], ['Gehäuse', 'warmest: Composite at 28 °C', '40 %', '905 rpm', 2]],      // (2026-11-21: what the fans get — the zones ask 10 and 25 %, their fans' floors give 30, 35 and 40)
          [['CPU-Kühler', '1310 rpm']]],
         [$m['who'] ?? null, $m['tone'] ?? null, $m['banners'] ?? null, fanboyDashKey($m, 'stale'),
          array_map(fn ($z) => [$z['name'], $z['warmest'], $z['level'], $z['speed'], count($z['fans'])], $m['zones'] ?? []), $m['watch'] ?? null]);
-    same('fanboy dash: steering — German: «U/min», the decimal comma', ['Fanboy · 2 Zonen', '1018 U/min', 'am wärmsten: Disk 2 mit 41 °C'],
+    same('fanboy dash: steering — German: «U/min», the decimal comma', ['Fanboy · 2 Zonen · 1 beim BIOS', '1018 U/min', 'am wärmsten: Disk 2 mit 41 °C'],
         [$o['de']['who'] ?? null, $o['de']['zones'][0]['speed'] ?? null, $o['de']['zones'][0]['warmest'] ?? null]);
     // (2026-11-20: the demo's fans have names and models — symbols; 2026-11-21: a card per zone and the watched CPU cooler's; testFanboyDashCards)
     check('fanboy dash: the tile — Unraid\'s tile markup (a tbody titled by his English name, the header, the link to his Dashboard settings), a card per zone and the watched one\'s, each fan named in its title',
@@ -208,7 +208,7 @@ function testFanboyDashTile(): void
     $live['zones'][0]['fans'][0]['pct'] = 55;
     $live['zones'][1]['fans'][0]['rpm'] = 1100;
     $o = fanboyDashWeb(fanboyDashFiles('fanboy'), ['fanboy/control.json' => array_merge($live, ['board' => $state['setup']['board'], 'phase' => 'run', 'time' => $t0 + 595])], $t0 + 600);
-    same('fanboy dash: the control writes (RAM) — its numbers, nothing stale though the look is old', [null, '55 %', '1100 rpm', 'Fanboy · 2 zones'],
+    same('fanboy dash: the control writes (RAM) — its numbers, nothing stale though the look is old', [null, '55 %', '1100 rpm', 'Fanboy · 2 zones · 1 with the BIOS'],
         [fanboyDashKey($o['model'] ?? [], 'stale'), $o['model']['zones'][0]['level'] ?? null, $o['model']['zones'][1]['speed'] ?? null, $o['model']['who'] ?? null]);
     $o = fanboyDashWeb(fanboyDashFiles('fanboy'), ['fanboy/control.json' => array_merge($live, ['board' => $state['setup']['board'], 'phase' => 'run', 'time' => $t0 + 400])], $t0 + 600);
     same('fanboy dash: the control silent for minutes — stale since its last word', $t0 + 400, $o['model']['stale'] ?? null);

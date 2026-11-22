@@ -147,6 +147,7 @@
     "one": "Fanboy · {n} zona",
     "other": "Fanboy · {n} zone"
   },
+  "who.watch": "{n} al BIOS",
   "why.steers": "Regola secondo il punto più caldo di ogni zona",
   "why.alarm": "Allarme: una zona al 100 %",
   "why.chip_missing": "Il chip delle ventole manca — continua a cercarlo",

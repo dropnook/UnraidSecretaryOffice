@@ -751,6 +751,11 @@ function officeFanboyDashModel(array $s, ?array $state, ?array $status, string $
             $standing[] = $name;
         }
     }
+    // the head counts his zones only; the BIOS's cards beside them are said too, so «2 zones» over three cards adds up
+    // (2026-11-22, the owner: «hier sind 3 Zonen, nicht 2»)
+    if ($out['steers'] && $out['watch']) {
+        $out['who'] .= ' · ' . officeDashT($s, 'fanboy.who.watch', ['n' => count($out['watch'])]);
+    }
     // round 6: a fan he doesn't steer that stands — told by his watch (his last look's word, the data folder's state)
     $idle = is_array($state['idle'] ?? null) && ($state['idle']['on'] ?? true) !== false && is_array($state['idle']['tachs'] ?? null) ? $state['idle']['tachs'] : [];
     foreach ($idle as $x) {

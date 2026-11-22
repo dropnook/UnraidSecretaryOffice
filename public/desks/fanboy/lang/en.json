@@ -147,6 +147,7 @@
     "one": "Fanboy · {n} zone",
     "other": "Fanboy · {n} zones"
   },
+  "who.watch": "{n} with the BIOS",
   "why.steers": "He steers by the warmest spot of each zone",
   "why.alarm": "Alarm: a zone at 100 %",
   "why.chip_missing": "The fan chip isn't there — he keeps looking",
