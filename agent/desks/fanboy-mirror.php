@@ -153,3 +153,91 @@ function fanboyMirrorKeep(bool $force = false, ?float $now = null): string
         fclose($lock);
     }
 }
+
+// ===================================================================== what the control wrote into the data folder itself (step S4a)
+
+/*
+ * Until now the control wrote two things into the data folder itself: each output's state before him at its first take of
+ * a boot (initial.json, a copy of the journal's) and its history every ten minutes. A control without the data folder
+ * can't — so the agent, who has it, carries both over from RAM (his tick). While a control still writes them itself both
+ * are no-ops: the copy is there already, the data folder's history never ten minutes behind.
+ */
+
+const FANBOY_HISTORY_FILE_MAX = 2 << 20;        // bytes of a history file carried over at most (his RAM folder's own bound)
+const FANBOY_HISTORY_SYNC_EVERY = 60.0;         // seconds between looks at the two history files
+
+/**
+ * The journal's states before him into the data folder's copy (initial.json, per board): every output of this boot's
+ * journal that the copy doesn't have from this boot. Each output once per boot and agent (remembered), so a tick reads
+ * only the journal in RAM. Returns how many were kept now.
+ */
+function fanboyInitialSync(): int
+{
+    if (fanboyInitialFile() === null) {
+        return 0;
+    }
+    $j = fanboyJournal();
+    $done = &$GLOBALS['fanboyInitialDone'];
+    if (!is_array($done) || ($done['boot'] ?? null) !== $j['boot'] || ($done['dir'] ?? null) !== FANBOY_DIR . '|' . fanboySysRoot()) {
+        $done = ['boot' => $j['boot'], 'dir' => FANBOY_DIR . '|' . fanboySysRoot(), 'ids' => []];
+    }
+    $new = array_diff_key($j['outputs'], $done['ids']);
+    if (!$new) {
+        return 0;
+    }
+    $key = fanboyBoardKey(fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']));
+    $kept = fanboyInitialRead()['boards'][$key] ?? [];
+    $n = 0;
+    foreach ($new as $id => $o) {
+        if (is_array($o['initial'] ?? null) && (!is_array($kept[$id] ?? null) || ($kept[$id]['boot'] ?? null) !== $j['boot'])) {
+            fanboyInitialKeep($key, (string) $id, $o['initial']);
+            $n++;
+        }
+        $done['ids'][$id] = true;
+    }
+    return $n;
+}
+
+/**
+ * The history between RAM and the data folder, a look every FANBOY_HISTORY_SYNC_EVERY ($force: now):
+ *   seeded — none in RAM (a boot): the data folder's copy put there, for the control to start from and the page to show
+ *   kept   — RAM's is FANBOY_HISTORY_KEEP or more ahead of the data folder's copy (or there is none): copied there
+ * Only a plain file of a sane size that is JSON, byte for byte; never through a link. null: nothing to do.
+ */
+function fanboyHistorySync(bool $force = false, ?float $now = null): ?string
+{
+    $now ??= fanboyMono();
+    if (!$force && $now < ($GLOBALS['fanboyHistorySyncNext'] ?? -INF)) {
+        return null;
+    }
+    $GLOBALS['fanboyHistorySyncNext'] = $now + FANBOY_HISTORY_SYNC_EVERY;
+    if (!is_dir(FANBOY_DIR)) {
+        return null;
+    }
+    $ram = fanboyRunDir() . '/history.json';
+    $data = FANBOY_DIR . '/history.json';
+    $look = function (string $f) {
+        clearstatcache(true, $f);
+        return @lstat($f);
+    };
+    $plain = fn ($st): bool => $st !== false && ($st['mode'] & 0170000) === 0100000 && $st['size'] > 0 && $st['size'] <= FANBOY_HISTORY_FILE_MAX;
+    $read = function (string $f): ?string {
+        $raw = @file_get_contents($f, false, null, 0, FANBOY_HISTORY_FILE_MAX + 1);
+        return is_string($raw) && is_array(json_decode($raw, true)) ? $raw : null;
+    };
+    $r = $look($ram);
+    $d = $look($data);
+    if ($r === false) {
+        if (!$plain($d) || ($raw = $read($data)) === null) {
+            return null;
+        }
+        @mkdir(fanboyRunDir(), 0700, true);
+        writeAtomic($ram, $raw, 0644, 0, 0);
+        return 'seeded';
+    }
+    if (!$plain($r) || ($d !== false && (($d['mode'] & 0170000) !== 0100000 || $r['mtime'] - $d['mtime'] < FANBOY_HISTORY_KEEP)) || ($raw = $read($ram)) === null) {
+        return null;
+    }
+    writeAtomic($data, $raw);
+    return 'kept';
+}

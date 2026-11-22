@@ -598,3 +598,101 @@ function testAlwaysOnMirror(): void
         fanboyTEnd();
     }
 }
+
+/**
+ * Step S4a: what the control wrote into the data folder itself, carried over by the agent from RAM — each output's state
+ * before him (the journal's, into initial.json) and the history (seeded into RAM after a boot, kept to the data folder
+ * when its copy is ten minutes behind). While a control still writes them itself, both are no-ops.
+ */
+function testAlwaysOnAgentKeeps(): void
+{
+    $t = fanboyT('ao-keeps');
+    $sleepers = [];
+    try {
+        unset($GLOBALS['fanboyInitialDone'], $GLOBALS['fanboyHistorySyncNext']);
+        $file = (string) fanboyInitialFile();
+        $stat = function (string $f): ?string {
+            clearstatcache(true, $f);
+            $st = @lstat($f);
+            return $st === false ? null : "{$st['ino']}.{$st['size']}.{$st['mtime']}";
+        };
+        // a holder that took an output without keeping its state in the data folder (as a control without the data folder does)
+        file_put_contents("{$t['hw']}/pwm4", "30\n");
+        file_put_contents("{$t['hw']}/pwm4_enable", "2\n");
+        $sleeper = proc_open(['sleep', '60'], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+        $sleepers[] = $sleeper;
+        $spid = proc_get_status($sleeper)['pid'];
+        $holder = ['kind' => 'control', 'pid' => $spid, 'start' => fanboyProcStart($spid), 'since' => time()];
+        fanboyBeat($spid);
+        $fan = fn (int $n) => ['id' => fanboyTId($n), 'chip' => FANBOY_T_CHIP, 'address' => FANBOY_T_ADDR, 'device' => 'platform/' . FANBOY_T_ADDR, 'output' => $n];
+        fanboyTake($fan(4), $holder, '');
+        fanboySet(fanboyTId(4), 200, $holder);
+        same('always on S4a: taken without the data folder — the journal has its state before him (30, the chip\'s automatic), the data folder\'s copy nothing',
+            [['value' => 30, 'enable' => 2], false], [fanboyJournal()['outputs'][fanboyTId(4)]['initial'] ?? null, is_file($file)]);
+        same('always on S4a: the agent\'s tick carries it over — one output kept', 1, fanboyInitialSync());
+        $k = fanboyInitialRead()['boards'][FANBOY_T_KEY][fanboyTId(4)] ?? null;
+        same('always on S4a: … in the data folder\'s copy under this board: the value, the exact mode, this boot', [30, 2, FANBOY_T_BOOT], [$k['value'] ?? null, $k['enable'] ?? null, $k['boot'] ?? null]);
+        $was = $stat($file);
+        same('always on S4a: the next ticks keep nothing more and never touch the file again (the journal changes every round)', [0, 0, $was],
+            [fanboySet(fanboyTId(4), 210, $holder) === null ? -1 : fanboyInitialSync(), fanboyInitialSync(), $stat($file)]);
+        // another output taken later this boot: only that one
+        fanboyTake($fan(5), $holder, '');
+        same('always on S4a: another output taken later — only that one is kept now', [1, [fanboyTId(4), fanboyTId(5)]],
+            [fanboyInitialSync(), array_keys(fanboyInitialRead()['boards'][FANBOY_T_KEY] ?? [])]);
+        // a holder that keeps the copy itself (a control with the data folder, a setup step): nothing left to do
+        unset($GLOBALS['fanboyInitialDone']);
+        $was = $stat($file);
+        same('always on S4a: what a holder kept itself this boot is not written again (a control that still has the data folder)', [0, $was], [fanboyInitialSync(), $stat($file)]);
+        // the copy from an earlier boot is replaced by this boot's (as the first take of a boot always did)
+        $j = fanboyInitialRead();
+        $j['boards'][FANBOY_T_KEY][fanboyTId(4)] = ['value' => 99, 'enable' => 1, 'boot' => 'bbbbbbbb-0000-4000-8000-000000000002', 'at' => 5];
+        $j['boards']['Other Boards Inc. | X1'] = [fanboyTId(4) => ['value' => 1, 'enable' => 5, 'boot' => 'x', 'at' => 1]];
+        file_put_contents($file, json_encode($j));
+        unset($GLOBALS['fanboyInitialDone']);
+        $n = fanboyInitialSync();
+        $now = fanboyInitialRead()['boards'];
+        same('always on S4a: a copy from an earlier boot — replaced by this boot\'s state; another board\'s entry stays as it is',
+            [1, 30, FANBOY_T_BOOT, ['value' => 1, 'enable' => 5, 'boot' => 'x', 'at' => 1]],
+            [$n, $now[FANBOY_T_KEY][fanboyTId(4)]['value'] ?? null, $now[FANBOY_T_KEY][fanboyTId(4)]['boot'] ?? null, $now['Other Boards Inc. | X1'][fanboyTId(4)] ?? null]);
+        same('always on S4a: … and the mirror carries it at the same tick', 30, fanboyMirrorKeep(true) === 'written' ? (fanboyMirrorRead(FANBOY_T_KEY)['initial'][fanboyTId(4)]['value'] ?? null) : 'not written');
+
+        // the history: nothing in RAM (a boot), a copy in the data folder — seeded, byte for byte
+        $ram = fanboyRunDir() . '/history.json';
+        $data = FANBOY_DIR . '/history.json';
+        $hist = json_encode(['v' => 1, 'board' => FANBOY_T_KEY, 'every' => 60, 'zones' => ['disks' => [[time() - 120, 38.0, 40.0, 900]]], 'src' => [], 'leads' => new stdClass()]);
+        same('always on S4a: no history anywhere — nothing to do', null, fanboyHistorySync(true));
+        file_put_contents($data, $hist);
+        same('always on S4a: after a boot (none in RAM) the data folder\'s history is put into RAM, byte for byte — the control starts from it',
+            ['seeded', $hist, ['disks']], [fanboyHistorySync(true), @file_get_contents($ram), array_keys(fanboyHistoryLoad(FANBOY_T_KEY))]);
+        same('always on S4a: … both there, the same age: nothing', null, fanboyHistorySync(true));
+        // RAM ahead: kept once it is ten minutes ahead, not before (a control that writes the data folder itself is never that far ahead)
+        $newer = json_encode(['v' => 1, 'board' => FANBOY_T_KEY, 'every' => 60, 'zones' => ['disks' => [[time() - 120, 38.0, 40.0, 900], [time() - 60, 39.0, 45.0, 950]]], 'src' => [], 'leads' => new stdClass()]);
+        file_put_contents($ram, $newer);
+        touch($data, time() - (int) FANBOY_HISTORY_KEEP + 30);
+        same('always on S4a: RAM\'s history 9½ minutes ahead of the data folder\'s — not yet', [null, $hist], [fanboyHistorySync(true), file_get_contents($data)]);
+        touch($data, time() - (int) FANBOY_HISTORY_KEEP - 5);
+        same('always on S4a: ten minutes ahead — copied into the data folder, byte for byte', ['kept', $newer], [fanboyHistorySync(true), file_get_contents($data)]);
+        same('always on S4a: … and then nothing until RAM is ten minutes ahead again', null, fanboyHistorySync(true));
+        @unlink($data);
+        same('always on S4a: no copy in the data folder at all — made from RAM\'s', ['kept', $newer], [fanboyHistorySync(true), @file_get_contents($data)]);
+        // a look once a minute only; junk and links are never carried
+        $GLOBALS['fanboyHistorySyncNext'] = 1000.0;
+        @unlink($data);
+        same('always on S4a: a look a minute — within it nothing is read, after it the copy is made', [null, false, 'kept'], [fanboyHistorySync(false, 990.0), is_file($data), fanboyHistorySync(false, 1001.0)]);
+        file_put_contents($ram, 'not json');
+        @unlink($data);
+        same('always on S4a: a broken history in RAM is never copied', [null, false], [fanboyHistorySync(true), is_file($data)]);
+        @unlink($ram);
+        file_put_contents("{$t['tmp']}/else.json", $hist);
+        @symlink("{$t['tmp']}/else.json", $data);
+        same('always on S4a: a link in the data folder\'s place is never read into RAM', [null, false], [fanboyHistorySync(true), is_file($ram)]);
+        @unlink($data);
+        check('always on S4a: the agent does both in his tick before the mirror, and seeds the history at his start',
+            (bool) preg_match('/fanboyInitialSync\(\);[^\n]*\n\s+fanboyHistorySync\(false, \$now\);[^\n]*\n\s+fanboyMirrorKeep\(false, \$now\);/', (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy.php'))
+            && (bool) preg_match('/fanboyHistorySync\(true\);[^\n]*\n\s+fanboyMirrorKeep\(true\);/', (string) file_get_contents(OFFICE_DIR . '/agent/desks/fanboy.php')));
+    } finally {
+        array_map('alwaysOnTEnd', $sleepers);
+        unset($GLOBALS['fanboyInitialDone'], $GLOBALS['fanboyHistorySyncNext']);
+        fanboyTEnd();
+    }
+}

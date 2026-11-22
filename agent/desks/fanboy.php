@@ -405,6 +405,7 @@ const FANBOY_CRASH_MAX = 3;
 /** At the agent's start: the drivers that helped on this board loaded again (before the control steers), holders gone given back */
 function fanboyStart(): void
 {
+    fanboyHistorySync(true);        // after a boot: the data folder's history into RAM, for the control and the page (fanboy-mirror.php)
     fanboyMirrorKeep(true);         // his mirror in RAM says what the data folder says (fanboy-mirror.php)
     fanboyDriversBoot();
     fanboyWatch();
@@ -461,6 +462,8 @@ function fanboyTick(?float $now = null): void
     }
     $next = $now + FANBOY_TICK_EVERY;
     try {
+        fanboyInitialSync();                // the outputs' states before him from the journal into the data folder's copy …
+        fanboyHistorySync(false, $now);     // … and his history, every ten minutes (what a control without the data folder can't write itself)
         fanboyMirrorKeep(false, $now);      // the mirror follows the data folder, whoever changed it (fanboy-mirror.php)
     } catch (Throwable $e) {
         logLine('Fanboy: his mirror in RAM could not be kept: ' . $e->getMessage());
