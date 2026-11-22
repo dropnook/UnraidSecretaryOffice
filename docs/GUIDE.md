@@ -388,14 +388,14 @@ His fans' biggest fan: he steers the fans on the mainboard's fan connectors by w
   past that guard; then you keep an eye on the temperatures yourself.
 - **Alarms per zone:** a fan of his that stands or a sensor that says nothing: that zone goes to 100 %.
   He also watches the fans he doesn't steer and tells you when one stands while something is warm.
-- *Hand back* gives every fan back at once, to the mainboard's automatic or to its value from before. So does his stop.
+- *Hand back* gives every fan back at once, to the BIOS's automatic or to its value from before. So does his stop.
   A fan that turns clearly slower after he gave it back goes to 100 %, and he tells you.
 - **While the array is stopped** he keeps steering: through the stop, while it is stopped, and after a reboot as soon as
-  Unraid's management is up (on the same board, Unraid version and kernel — else the mainboard runs the fans until the
+  Unraid's management is up (on the same board, Unraid version and kernel — else the BIOS runs the fans until the
   array starts). He never holds up an array stop. Unraid doesn't update the disks' temperatures then, so he takes them
   as unknown: a zone that goes by disks keeps its level for 30 minutes, then its fans' lowest speed, and none of its
   fans stands; zones with live sensors (CPU, NVMe, board) steer as ever. His Dashboard tile shows it, and both the tile and
-  the office's «array stopped» notice have *Give the fans back to the mainboard…*; *Take over* on his page gives them
+  the office's «array stopped» notice have *Give the fans back to the BIOS…*; *Take over* on his page gives them
   to him again once the array runs. Stopping, updating
   or removing the office, and shutting the server down, give every fan back.
 - **Your own fans:** for the picture, a fan takes the look of its model — models of ten makers in their sizes, with

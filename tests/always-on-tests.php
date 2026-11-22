@@ -2253,7 +2253,7 @@ function testAlwaysOnStoppedView(): void
     check('always on S7: … the zone with only disks: «temperature not known while the array is stopped» — never «asleep», never «its quiet level»; its level and its fan\'s speed as ever',
         ($m['zones'][0]['warmest'] ?? null) === 'temperature not known while the array is stopped' && str_contains($rows, '900 rpm'), json_encode($m['zones'][0] ?? null));
     check('always on S7: … and the one thing to ask of him: the button, with the words the question is asked with',
-        (bool) preg_match('/<button type="button" class="sso-fb-back" data-title="Give the fans back to the mainboard\?" data-text="Every fan he steers goes back to the mainboard at once\.[^"]*" data-yes="Give back" data-no="Cancel">Give the fans back to the mainboard…<\/button>/', $rows), $rows);
+        (bool) preg_match('/<button type="button" class="sso-fb-back" data-title="Give the fans back to the BIOS\?" data-text="Every fan he steers goes back to the BIOS at once\.[^"]*" data-yes="Give back" data-no="Cancel">Give the fans back to the BIOS…<\/button>/', $rows), $rows);
     same('always on S7: … in German too', ['Temperatur unbekannt, solange das Array gestoppt ist'], [$o['de']['zones'][0]['warmest'] ?? null]);
     // the web side's look
     $w = $o['more'] ?? [];
