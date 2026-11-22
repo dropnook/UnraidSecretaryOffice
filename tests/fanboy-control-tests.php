@@ -770,9 +770,9 @@ function fanboyTWait(callable $ok, float $seconds): bool
 }
 
 /** The guard as agent.sh and the cron line run it */
-function fanboyTGuard(array $t, string $data, string $cmd): string
+function fanboyTGuard(array $t, string $data, string $cmd, string ...$more): string
 {
-    $p = proc_open([PHP_BINARY, OFFICE_DIR . '/agent/fanboy-guard.php', $cmd], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, '/',
+    $p = proc_open([PHP_BINARY, OFFICE_DIR . '/agent/fanboy-guard.php', $cmd, ...$more], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, '/',
         ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'OFFICE_FANBOY_ROOT' => $t['root'], 'PATH' => (string) getenv('PATH')]);
     $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
     proc_close($p);
@@ -840,6 +840,20 @@ function testFanboyProcesses(): void
         same('fanboy procs: released (stop, update, removal, the array stopping) — the control ends, every output back, read back',
             [true, [128, 1], [128, 1], [], 'bios', 'released'], [$gone, fanboyTOut($t, 4), fanboyTOut($t, 5), fanboyHeld(), readJson(fanboyStatusFile())['who'] ?? null, readJson(fanboyStatusFile())['why'] ?? null]);
         check("fanboy procs: … said for agent.sh's log: 3 outputs back ($out)", str_contains($out, 'released — 3 outputs back with the BIOS'));
+        // 4b. (2026-11-22) the array's stop names its reason: the same release, the status says «the array is stopped»
+        $pid = $start();
+        $out = fanboyTGuard($t, $data, 'release', 'array_stopping');
+        $gone = fanboyTWait(fn () => !is_dir("/proc/$pid") || str_contains((string) @file_get_contents("/proc/$pid/stat"), ') Z'), 5);
+        same('fanboy procs: released at the array\'s stop — the control ends, every output back, the status says the array is stopped; the log line as ever',
+            [true, [128, 1], [128, 1], [], 'bios', 'array_stopped', 'ended', true],
+            [$gone, fanboyTOut($t, 4), fanboyTOut($t, 5), fanboyHeld(), readJson(fanboyStatusFile())['who'] ?? null, readJson(fanboyStatusFile())['why'] ?? null,
+             readJson(fanboyStatusFile())['phase'] ?? null, str_contains($out, 'released — 3 outputs back with the BIOS')]);
+        // … any other word after «release» is no reason: released as ever (an older agent.sh passes none)
+        $pid = $start();
+        fanboyTGuard($t, $data, 'release', 'whatever');
+        fanboyTWait(fn () => !is_dir("/proc/$pid") || str_contains((string) @file_get_contents("/proc/$pid/stat"), ') Z'), 5);
+        same('fanboy procs: … an unknown word after «release»: released as ever', ['bios', 'released', []],
+            [readJson(fanboyStatusFile())['who'] ?? null, readJson(fanboyStatusFile())['why'] ?? null, fanboyHeld()]);
         // 5. the array stops: the control sees it (within 10 s) and ends, giving back
         $pid = $start();
         file_put_contents("{$t['root']}/var/local/emhttp/var.ini", "fsState=\"Stopped\"\n");
@@ -1018,6 +1032,19 @@ function testFanboyStopScripts(): void
             [$s['running'], fanboyTOut($t, 4), fanboyHeld(), str_contains((string) @file_get_contents("{$t['tmp']}/agent.sh.log"), 'released — 1 outputs back with the BIOS')]);
         proc_close($sleeper);
         same('fanboy stop: … and after it the cron line\'s grep finds nobody', 1, $grep());
+        // 2026-11-22: at the array's stop (array_event sets STOP_WHY) the guard hears why — the status says «the array is stopped»
+        fanboyStatusWrite(['v' => 1, 'pid' => 4242, 'who' => 'fanboy', 'why' => null, 'phase' => 'steering']);
+        $why = function (string $set) use ($t, $data): ?string {
+            $p = proc_open(['bash', '-c', 'source "$1"; DIR="$2"; RUN="$3"; FANBOY_JOURNAL="$3/fanboy/journal.json"; LOG="$4"; ' . $set . ' fanboy_release',
+                'x', OFFICE_DIR . '/plugin/scripts/agent.sh', OFFICE_DIR, TESTS_RUN_DIR, "{$t['tmp']}/agent.sh.log"], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']],
+                $pipes, '/', ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'OFFICE_FANBOY_ROOT' => $t['root'], 'PATH' => (string) getenv('PATH')]);
+            proc_close($p);
+            return readJson(fanboyStatusFile())['why'] ?? null;
+        };
+        same('fanboy stop: fanboy_release at the array\'s stop says «array_stopped»; a plain stop (update, restart) «released»',
+            ['array_stopped', 'released'], [$why('STOP_WHY=array_stopping;'), $why('')]);
+        check('fanboy stop: array_event names the reason for everything release() calls', str_contains($sh, "        local STOP_WHY=array_stopping   #")
+            && str_contains($sh, '[[ "${STOP_WHY:-}" == array_stopping ]] && why=(array_stopping)'));
     } finally {
         fanboyTEnd();
     }

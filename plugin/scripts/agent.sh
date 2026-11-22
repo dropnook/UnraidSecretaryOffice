@@ -196,10 +196,13 @@ stop() {
 # Fanboy's fans back to the state they had before him, read back (agent/fanboy-guard.php release): after the agent is
 # gone (it starts no control any more), whatever holds an output asked to end, then every output still held given back.
 # Every stop goes through here - stop, restart, the plugin's update (stop) and removal (release), the array stopping
-# (release). Nothing held: one look at a file in RAM.
+# (release). Nothing held: one look at a file in RAM. At the array's stop (STOP_WHY=array_stopping, set by array_event)
+# the guard hears why: his page and his Dashboard tile then say «the array is stopped», not «the office stopped».
 fanboy_release() {
+    local why=()
     [[ -f "$DIR/agent/fanboy-guard.php" && -s "$FANBOY_JOURNAL" ]] || return 0
-    timeout -k 1 15 php "$DIR/agent/fanboy-guard.php" release </dev/null >>"$LOG" 2>&1
+    [[ "${STOP_WHY:-}" == array_stopping ]] && why=(array_stopping)
+    timeout -k 1 15 php "$DIR/agent/fanboy-guard.php" release "${why[@]}" </dev/null >>"$LOG" 2>&1
     return 0
 }
 
@@ -568,7 +571,7 @@ array_event() {
     echo "$(date +%s) $what" >>"$ARRAY_EVENTS"
     tail -n 50 "$ARRAY_EVENTS" >"$ARRAY_EVENTS.tmp" 2>/dev/null && mv -f "$ARRAY_EVENTS.tmp" "$ARRAY_EVENTS"
     if [[ "$what" == stop ]]; then
-        local STOP_WHY=array_stopping   # drill_release tells Mr. Restori's jobs why they end
+        local STOP_WHY=array_stopping   # drill_release tells Mr. Restori's jobs why they end, fanboy_release his guard
         release             # everything the office holds on a pool
         night_start         # RAM and flash only
     else

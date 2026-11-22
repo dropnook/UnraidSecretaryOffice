@@ -10,6 +10,9 @@ declare(strict_types=1);
  *                                  array stopping): every holder asked to end (TERM — the control and a setup step give
  *                                  their outputs back themselves), at most 3 s, then EVERY output still held given back
  *                                  to exactly its state before Fanboy and read back. Prints one line for agent.sh's log.
+ *                                  `release array_stopping` (agent.sh at the array's stop, 2026-11-22): the same, and the
+ *                                  status the page and the Dashboard tile read says why — «the array is stopped», not
+ *                                  «the office stopped».
  *   php fanboy-guard.php watch     the cron line (agent-watch.cron, every minute — only when the journal names a holder):
  *                                  the outputs of a holder that is gone (killed hard) or hung (no beat for 30 s; ended
  *                                  for good first) given back. The agent's tick does the same every 5 s while it runs —
@@ -31,7 +34,7 @@ require __DIR__ . '/desks/fanboy-write.php';
 date_default_timezone_set(fanboyZone());        // the agent's zone (agent.php: agentZone()) — one zone in agent.log
 
 /** A line for the agent's log (only while its folder is there) and the guard's own note in RAM for the agent to pick up */
-function fanboyGuardSay(string $what, array $back): void
+function fanboyGuardSay(string $what, array $back, ?string $why = null): void
 {
     $bad = array_keys(array_filter($back, fn ($x) => !$x['ok'] && $x['why'] !== 'gone'));
     $line = "Fanboy: $what — " . count($back) . ' outputs back with the BIOS' . ($bad ? ', NOT read back as before: ' . implode(', ', $bad) : '');
@@ -48,7 +51,8 @@ function fanboyGuardSay(string $what, array $back): void
     $s = readJson(fanboyRunDir() . '/control.json');
     if (is_array($s)) {
         $s['who'] = 'bios';
-        $s['why'] = $what === 'released' ? 'released' : 'crashed';
+        // $why: the reason agent.sh named for a release (the array stopping) — else released, or crashed for a holder gone
+        $s['why'] = $what === 'released' ? ($why ?? 'released') : 'crashed';
         $s['phase'] = 'ended';
         $s['time'] = time();
         writeAtomic(fanboyRunDir() . '/control.json', jsonEncode($s), 0644, 0, 0);
@@ -58,7 +62,7 @@ function fanboyGuardSay(string $what, array $back): void
 const FANBOY_GUARD_LOOKS = 3;          // round 12: looks per cron run while an output stands at 0 (0, 20 and 40 s) …
 const FANBOY_GUARD_AGAIN = 20;         // … seconds apart
 
-function fanboyGuardMain(string $cmd): int
+function fanboyGuardMain(string $cmd, string $reason = ''): int
 {
     if (!is_file(fanboyRunDir() . '/journal.json')) {
         return 0;
@@ -106,11 +110,11 @@ function fanboyGuardMain(string $cmd): int
                 $back[$id] = ['ok' => (bool) ($o['given']['ok'] ?? false), 'why' => null, 'owner' => $j['outputs'][$id]['owner']];
             }
         }
-        fanboyGuardSay('released', $back);
+        fanboyGuardSay('released', $back, $reason === 'array_stopping' ? 'array_stopped' : null);
         return 0;
     }
-    fwrite(STDERR, "Usage: php fanboy-guard.php release|watch\n");
+    fwrite(STDERR, "Usage: php fanboy-guard.php release [array_stopping]|watch\n");
     return 2;
 }
 
-exit(fanboyGuardMain((string) ($argv[1] ?? '')));
+exit(fanboyGuardMain((string) ($argv[1] ?? ''), (string) ($argv[2] ?? '')));

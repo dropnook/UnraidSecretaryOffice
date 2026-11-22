@@ -647,7 +647,7 @@ Desks know each other only through shared libraries (`backupProtection()`, `find
 `nightorder.php`, `poollevel.php`) and links (`#/<desk>`) — each must work on its own. Entry tests: `testSnapshot*`, `testPlanGone`,
 `testSleepingPools`, `testBackup*`, `testSetup*`, `testJack*`, `testMoverelli*`, `testNight*`, `testPoolLevel`, `testHireNeeds`,
 `testLogs*`, `testWatchman*`, `testParityWhy`, `testCleanup*`, `testWhere*`, `testHiddenStoreroom`, `testAdvisor*`,
-`testRestore*`, `testCaretaker*`, `testAckContent`, `testPartner*`, `testFanboy*` (part `fanboy`).
+`testRestore*`, `testCaretaker*`, `testAckContent`, `testPartner*`, `testFanboy*` (part `fanboy`), `testAlwaysOn*` (part `alwayson`).
 
 * **`snapshot` — Ms. Snapshotini.** ZFS/btrfs/VM snapshots and plans (lib/snapshotplans.php, `uso-plan-<plan>-…`; retention
   touches only those, never the engine's; plans read only via `snapPlans()`; a gone target is no failure). Lists awake ZFS pools
