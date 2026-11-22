@@ -32,7 +32,7 @@ declare(strict_types=1);
  *   in the background (2026-11-22, reportWatchJob(): php agent.php job report-watch, started by the Team Lead's tick through
  *       atd — never in the tick itself) the same GET for the reports not done and not older than REPORT_WATCH_DAYS, ONE
  *       for the whole office at most every REPORT_WATCH_EVERY (reportWatchDue()), the same fields, nothing more. What
- *       changed — the makers answered, a public issue linked, the report done — the Team Lead tells, once each
+ *       changed — the makers' first answer, a public issue linked, the report done — the Team Lead tells, once each
  *       (reportStatusApply(): `told` per report, seeded silently for reports known before), through officeNotify() and its
  *       gate (event report_answer, normal). «Your reports» shows what it learnt; within REPORT_STATUS_EVERY no GET of its own.
  * Nothing user-written leaves the server without the user's click on «Send». What goes is shown before, in full.
@@ -1087,8 +1087,9 @@ const REPORT_TOLD_NOTHING = ['answered' => false, 'updated' => null, 'public' =>
 
 /**
  * The Worker's answers onto the reports asked ($ask: their indexes): each gets `checked`; one it answered its status, public
- * issue, answered and updated — and what changed since it was last told: the makers answered (answered became true, or a
- * new answer moved `updated` on), a public issue linked (appeared or another one), the report done. A report without a
+ * issue, answered and updated (kept, never a reason to tell: GitHub moves it for any edit) — and what changed since it was
+ * last told: the makers answered (answered became true: the first comment), a public issue linked (appeared or another
+ * one), the report done (the office's «done»: the inbox closed, or with a public issue that one closed). A report without a
  * `told` (known before 2026-11-22) is seeded with what is now, nothing told. `told` follows every look, also one that
  * tells nothing (a public issue gone and back is told again).
  *
@@ -1113,7 +1114,9 @@ function reportStatusApply(array &$j, array $ask, array $answer, int $now): arra
                 if ($is['public'] !== null && $is['public'] !== $was['public']) {
                     $kinds[] = 'public';
                 }
-                if ($is['answered'] && (!$was['answered'] || ($is['updated'] !== null && $is['updated'] !== $was['updated']))) {
+                // only the first answer: the Worker's `updated` is the inbox issue's updated_at, which GitHub moves for every
+                // label, title edit, close and the Worker's own edit (the diagnostics' link) — never a sign of a new answer
+                if ($is['answered'] && !$was['answered']) {
                     $kinds[] = 'answered';
                 }
                 if ($is['done'] && !$was['done']) {

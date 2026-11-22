@@ -48315,14 +48315,27 @@ ROUTER);
     $told = [];
     reportWatchJob(['now' => $t1 + 6 * 3600] + $ctx);
     same('report watch: the same answers again — nothing told twice', [3, []], [$count(), $told]);
-    // a new answer (updated moved on), a public issue linked, closed
+    // `updated` moved on alone (a label, the Worker's own edit for the diagnostics' link — GitHub's updated_at), a public
+    // issue linked, closed
     $answer(200, ['ok' => true, 'reports' => [
         ['number' => 4, 'state' => 'open', 'answered' => true, 'updated' => '2026-11-25T08:00:00Z', 'public' => null],
         ['number' => 3, 'state' => 'closed', 'answered' => true, 'updated' => '2026-11-20T10:00:00Z', 'public' => ['number' => 15, 'url' => "{$pub}15", 'state' => 'closed']],
         ['number' => 1, 'state' => 'closed', 'answered' => true, 'updated' => '2026-11-24T09:00:00Z', 'public' => null]]]);
     reportWatchJob(['now' => $t1 + 12 * 3600] + $ctx);
-    same('report watch: a new answer (updated moved on), another public issue that is closed (public + done in ONE notice), closed without one (done)',
-        [['Report 4', ['answered'], null], ['Report 3', ['public', 'done'], 15], ['Report 1', ['done'], null]], $told);
+    same('report watch: `updated` moved on alone (a label, an edit) — nothing told; another public issue that is closed (public + done in ONE notice), closed without one (done)',
+        [['Report 3', ['public', 'done'], 15], ['Report 1', ['done'], null]], $told);
+    // a further edit of an answered, open report (the diagnostics' link added, a title edit): still nothing
+    $told = [];
+    $answer(200, ['ok' => true, 'reports' => [['number' => 4, 'state' => 'open', 'answered' => true, 'updated' => '2026-11-26T09:30:00Z', 'public' => null]]]);
+    $rj = $kept();
+    $rj['watched'] = null;
+    file_put_contents("$tmp/office/reports.json", json_encode($rj));
+    reportWatchJob(['now' => $t1 + 12 * 3600 + 3601] + $ctx);
+    same('report watch: an answered report edited again (updated moved, no new comment counted) — nothing told, the new `updated` kept', [[], '2026-11-26T09:30:00Z'],
+        [$told, $byNumber(4)['updated'] ?? null]);
+    $rj = $kept();
+    $rj['watched'] = $t1 + 12 * 3600;          // the office's last background look as before this extra one (the steps below go on from it)
+    file_put_contents("$tmp/office/reports.json", json_encode($rj));
     // a report sent with this version: its first answer is news
     $told = [];
     $rj = $kept();
