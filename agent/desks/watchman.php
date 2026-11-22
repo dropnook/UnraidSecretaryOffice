@@ -125,6 +125,7 @@ require_once __DIR__ . '/../lib/paritywhy.php';
 require_once __DIR__ . '/../lib/arrayhold.php';     // «What holds the array?» (his page, on demand)
 require_once __DIR__ . '/watchman-diskwakes.php';    // «Who woke my disks?» (data/watchman/wakes.json): the sampler in his tick
 require_once __DIR__ . '/watchman-cats.php';         // his areas (1.96): every kind and tip in one, the lights of his page (state.cats)
+require_once __DIR__ . '/watchman-heat.php';         // «too warm for hours» (1.96, concept 11.3 D): hw_hot
 
 const WATCH_EVERY        = 300;              // a round every 5 minutes
 const WATCH_LOOK         = 20;               // the tick looks whether one is due this often (seconds)
@@ -236,7 +237,16 @@ const WATCH_KINDS = [
     'net_link_down'           => ['net', false],    // a port of the router lost its link: a line a day per port, closed by himself when it is back (important when flapping: the entry's `important`)
     'net_outage'              => ['net', false],    // the internet away (the WAN's DHCP lease or PPPoE lost): a short one noted by himself, a long one told (the entry's `important`)
     'net_router_reboot'       => ['net', false],    // the router restarted: a plain line, noted by himself; without proper shutdown told (the entry's `important`), with the server's start a power loss
+    // the hardware (1.96, concept 11.3): no ATT&CK technique — none of it is an attack
+    'hw_hot'                  => ['hw', true],      // a sensor too warm for its kind for hours (watchman-heat.php): once a sensor and day
 ];
+
+/**
+ * The kinds of 1.96's new abilities (concept 6): their entries live in book-more.json, in book.json's shape — an older
+ * version reads only book.json and drops the kinds it doesn't know at its next write (watchmanLoad()); the second file it
+ * never sees, so it never empties it. This version reads both as one book and writes each kind to its own file.
+ */
+const WATCH_BOOK_MORE = ['hw_hot'];
 
 /**
  * Each kind's nearest MITRE ATT&CK technique (attack.mitre.org) — the words a security team searches for; the page
@@ -328,7 +338,7 @@ const WATCH_INSPECT     = "{{json .Name}}\t{{json .Config.Image}}\t{{json .HostC
 // start (an encrypted array waits for its key), he keeps the RAM and flash parts of his watch — nothing under /mnt, no data folder
 const WATCH_NIGHT_DIR    = RUN_DIR . '/nightshift';             // the night's book, state and log (RAM, root only)
 const WATCH_NIGHT_LOCK   = RUN_DIR . '/nightshift.lock';        // held while the night shift is on: never two of them, never with the agent
-const WATCH_NIGHT_FILES  = ['baseline.json', 'book.json', 'state.json', 'seen.json', 'posture.json'];
+const WATCH_NIGHT_FILES  = ['baseline.json', 'book.json', 'book-more.json', 'state.json', 'seen.json', 'posture.json'];
 const WATCH_MIRROR_RAM   = RUN_DIR . '/watchman-mirror.json';   // what the night shift needs, after every round (RAM, for an array stop)
 const WATCH_MIRROR_FLASH = '/boot/config/plugins/' . OFFICE_PLUGIN . '/watchman-mirror.json';  // the same for a reboot, without secrets
 const WATCH_MIRROR_EVERY = 3600;                                // the flash mirror at most once an hour (the flash wears), only when it changed
@@ -426,6 +436,9 @@ function watchmanPaths(): array
         'cmdline'    => '/proc/cmdline',
         'cpuinfo'    => '/proc/cpuinfo',
         'cpu_vulns'  => '/sys/devices/system/cpu/vulnerabilities',
+        // too warm for hours (watchman-heat.php): NVMe and CPU from hwmon, the disks' own temperatures from Unraid's disks.ini
+        'hwmon'      => '/sys/class/hwmon',
+        'hot_disks'  => '/var/local/emhttp/disks.ini',
         'libvirt_sock' => '/var/run/libvirt/libvirt-sock',
         'virsh'      => 'virsh',
         // the host itself (watchmanHost())
@@ -498,12 +511,14 @@ function watchmanHiredSince(): ?int
 function watchmanLoad(?string $dir = null): array
 {
     $dir ??= watchmanDir();
-    $book = readJson("$dir/book.json");
     $entries = [];
-    foreach ((array) ($book['entries'] ?? []) as $e) {
-        if (is_array($e) && is_string($e['id'] ?? null) && is_string($e['kind'] ?? null) && (isset(WATCH_KINDS[$e['kind']]) || $e['kind'] === 'watch')
-            && !watchmanCronSignalEntry($e)) {
-            $entries[] = $e;
+    // book-more.json (1.96): only the kinds that belong there (WATCH_BOOK_MORE) — book.json may hold them too (a hand's copy)
+    foreach (['book.json' => null, 'book-more.json' => WATCH_BOOK_MORE] as $file => $only) {
+        foreach ((array) (readJson("$dir/$file")['entries'] ?? []) as $e) {
+            if (is_array($e) && is_string($e['id'] ?? null) && is_string($e['kind'] ?? null) && (isset(WATCH_KINDS[$e['kind']]) || $e['kind'] === 'watch')
+                && ($only === null || in_array($e['kind'], $only, true)) && !watchmanCronSignalEntry($e)) {
+                $entries[] = $e;
+            }
         }
     }
     return ['baseline' => readJson("$dir/baseline.json"), 'book' => $entries, 'state' => watchmanStateFix(readJson("$dir/state.json") ?? [])];
@@ -539,12 +554,26 @@ function watchmanSave(string $dir, array $old, array $new): void
         @lchown($dir, FILE_UID);
         @lchgrp($dir, FILE_GID);
     }
-    foreach (['baseline' => 'baseline.json', 'book' => 'book.json', 'state' => 'state.json', 'seen' => 'seen.json', 'flow' => 'flow.json',
-              'posture' => 'posture.json', 'snaps' => 'snaps.json', 'net' => 'net.json'] as $k => $file) {
+    // the book in two files (WATCH_BOOK_MORE): each written when its part changed
+    $split = function (array $x): array {
+        if (array_key_exists('book', $x) && is_array($x['book'])) {
+            $more = fn ($e) => in_array($e['kind'] ?? '', WATCH_BOOK_MORE, true);
+            $x['book_more'] = array_values(array_filter($x['book'], $more));
+            $x['book'] = array_values(array_filter($x['book'], fn ($e) => !$more($e)));
+        }
+        return $x;
+    };
+    $old = $split($old);
+    $new = $split($new);
+    foreach (['baseline' => 'baseline.json', 'book' => 'book.json', 'book_more' => 'book-more.json', 'state' => 'state.json', 'seen' => 'seen.json',
+              'flow' => 'flow.json', 'posture' => 'posture.json', 'snaps' => 'snaps.json', 'net' => 'net.json'] as $k => $file) {
         if (!array_key_exists($k, $new) || $new[$k] === null || ($old[$k] ?? null) === $new[$k]) {
             continue;
         }
-        writeAtomic("$dir/$file", jsonEncode($k === 'book' ? ['entries' => array_values($new[$k])] : $new[$k]));
+        if ($k === 'book_more' && $new[$k] === [] && !is_file("$dir/$file")) {
+            continue;                       // none of the new kinds yet: no file
+        }
+        writeAtomic("$dir/$file", jsonEncode($k === 'book' || $k === 'book_more' ? ['entries' => array_values($new[$k])] : $new[$k]));
     }
 }
 
@@ -880,7 +909,7 @@ function watchmanNightPaths(): array
         'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_tickets', 'partner_data',
         'rsyslog_cfg', 'shares_ini', 'arp', 'parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg',
         'docker_autostart', 'compose_cfg', 'compose_projects', 'office_runs', 'jack_settings', 'gather_settings', 'mover_pid',
-        'moverelli_status', 'jack_progress']));
+        'moverelli_status', 'jack_progress', 'hot_disks']));
 }
 
 /** This boot's id: the RAM mirror and a position in the syslog belong to one boot */
@@ -1482,9 +1511,13 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     $btime = $boot !== '' && isset($paths['stat']) ? watchmanBootTime((string) $paths['stat']) : null;
     // why a parity check runs (agent/lib/paritywhy.php) — the day's rounds only (the night shift has no parity paths)
     $parity = paritywhyLook($paths, is_array($snap['state']['parity'] ?? null) ? $snap['state']['parity'] : null, $boot, $btime, $now);
+    // too warm for hours (watchman-heat.php): the sensors now, the settings (rules.json set.hw)
+    $hotLook = isset($paths['hwmon']) || isset($paths['hot_disks']) ? watchmanHotLook($paths) : null;
+    $hotSet = watchmanHotSettings(watchmanHotSet($dir));
 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
-                                               $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook, $netContainers, $automounts): array {
+                                               $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook, $netContainers, $automounts,
+                                               $hotLook, $hotSet): array {
         $old = watchmanLoad($dir);
         $old['seen'] = readJson("$dir/seen.json");
         $old['flow'] = readJson("$dir/flow.json");
@@ -1584,6 +1617,8 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 }
             }
         }
+        // too warm for hours: the minutes over per sensor; taken over anew, only counted
+        $added = array_merge($added, watchmanHotCompare($book, $st, $hotLook, $hotSet, $now, $fresh));
         // the logins of the last half hour (for the array's lines); an array stopped or started since the last round: a plain line
         $st['logins'] = watchmanRecentLogins((array) ($st['logins'] ?? []), $events, $now);
         // the server started since the last round (a reboot leaves no array line: WATCH_ARRAY_EVENTS lies in RAM) — never at his first
@@ -9568,6 +9603,7 @@ function watchmanText(array $e, ?string $lang = null): array
                                  fn ($w) => officeNotifyText('watchman', WATCH_DOOR_WHAT[$w] ?? 'door_what.options', [], $lang), (array) ($p['what'] ?? [])))],
         'door_key_moved' => ['name' => (string) ($p['name'] ?? ''), 'ip' => (string) ($p['ip'] ?? '')],
         'door_refused'   => ['name' => (string) ($p['name'] ?? '')],
+        'hw_hot'         => watchmanHotText($p),
         'watch'          => isset($p['too_much']) ? watchnetText(['kind' => 'net_too_much', 'p' => $p])
                               : ($lang === null ? array_map('intval', $p) : watchmanCountWords($p, $lang)),     // the page words the numbers itself
         default          => watchnetText($e, $lang),     // the network (agent/lib/watchnet.php); [] for anything else
@@ -9588,7 +9624,7 @@ function watchmanEntryVariant(array $e): ?string
         return 'at_plugin_left';        // what a removed plugin left in atd's queue (watchmanAtLeftNote())
     }
     $shape = watchmanFlowShape($e);
-    return watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
+    return watchmanHotVariant($e) ?? watchnetEntryVariant($e) ?? ($shape === null ? null : $e['kind'] . '_' . $shape);
 }
 
 /** A way in, in words: in $lang (notifications, the team lead), or '' — the page writes it itself (door.<what>) */
@@ -10077,8 +10113,8 @@ function watchmanMetrics(?string $dir = null): array
         return [];
     }
     $st = readJson(($dir ?? watchmanDir()) . '/state.json') ?? [];
-    $booked = metricsCached(($dir ?? watchmanDir()) . '/book.json', fn (string $file): array =>
-        array_fill_keys(array_column(array_filter((array) (readJson($file)['entries'] ?? []), 'is_array'), 'kind'), true));
+    $kinds = fn (string $file): array => array_fill_keys(array_column(array_filter((array) (readJson($file)['entries'] ?? []), 'is_array'), 'kind'), true);
+    $booked = metricsCached(($dir ?? watchmanDir()) . '/book.json', $kinds) + metricsCached(($dir ?? watchmanDir()) . '/book-more.json', $kinds);
     $samples = [];
     foreach (array_keys(WATCH_KINDS) as $kind) {
         $n = (int) ($st['open'][$kind] ?? 0);
