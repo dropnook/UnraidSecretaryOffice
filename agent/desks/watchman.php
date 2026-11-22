@@ -239,6 +239,9 @@ const WATCH_KINDS = [
     'net_link_down'           => ['net', false],    // a port of the router lost its link: a line a day per port, closed by himself when it is back (important when flapping: the entry's `important`)
     'net_outage'              => ['net', false],    // the internet away (the WAN's DHCP lease or PPPoE lost): a short one noted by himself, a long one told (the entry's `important`)
     'net_router_reboot'       => ['net', false],    // the router restarted: a plain line, noted by himself; without proper shutdown told (the entry's `important`), with the server's start a power loss
+    // the server's own router and DNS, without any router log (agent/lib/watchnet.php, 1.96)
+    'net_gateway'             => ['net', true],     // the default gateway's address answers with another MAC, two rounds in a row: a new router, or someone posing as it
+    'net_dns'                 => ['net', false],    // the server asks other DNS servers (resolv.conf)
 ];
 
 /**
@@ -289,6 +292,9 @@ const WATCH_ATTACK = [
     // Additions, nearest); the internet away Network Denial of Service (nearest — mostly the provider); a restart System
     // Shutdown/Reboot like the server's
     'net_router_login_failures' => 'T1110', 'net_link_down' => 'T1200', 'net_outage' => 'T1498', 'net_router_reboot' => 'T1529',
+    // the router's address with another MAC: Adversary-in-the-Middle: ARP Cache Poisoning; other DNS servers: AiTM (nearest —
+    // whoever answers the names can send the server anywhere)
+    'net_gateway' => 'T1557.002', 'net_dns' => 'T1557',
 ];
 
 /**
@@ -477,6 +483,9 @@ function watchmanPaths(): array
         'shares_ini'    => '/var/local/emhttp/shares.ini',
         'net_class'     => '/sys/class/net',
         'arp'           => '/proc/net/arp',
+        // the server's own router and DNS (watchnetGateway()): RAM, the night shift too
+        'route'         => '/proc/net/route',
+        'resolv'        => '/etc/resolv.conf',
     ] + watchmanBootPaths();        // what runs at the start (watchman-boot.php)
 }
 
@@ -884,7 +893,7 @@ function watchmanNightPaths(): array
     // libvirt is left alone too (while the array stops it shuts the VMs down; his VM count for a posture tip keeps the day's word)
     return array_diff_key(watchmanPaths(), array_flip(['office_installs', 'drill_record', 'zfs', 'zpool', 'mnt', 'agent_log', 'snap_record', 'engine',
         'sec', 'sec_nfs', 'share_cfg', 'libvirt_sock', 'virsh', 'partner_pairs', 'partner_tickets', 'partner_data',
-        'rsyslog_cfg', 'shares_ini', 'arp', 'parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg',
+        'rsyslog_cfg', 'shares_ini', 'parity_log', 'parity_cron', 'pct_dir', 'boot_logs', 'domain_cfg', 'docker_cfg',
         'docker_autostart', 'compose_cfg', 'compose_projects', 'office_runs', 'jack_settings', 'gather_settings', 'mover_pid',
         'moverelli_status', 'jack_progress']));
 }
@@ -922,7 +931,7 @@ function watchmanMirror(array $d, string $boot, int $now, bool $flash): array
     $b = (array) ($d['baseline'] ?? []);
     $st = (array) ($d['state'] ?? []);
     $base = ['hired' => (int) ($b['hired'] ?? 0), 'time' => (int) ($b['time'] ?? 0)];
-    foreach (['ips', 'fail_ips', 'plugins', 'flash', 'sched', 'host', 'partner', 'net'] as $k) {
+    foreach (['ips', 'fail_ips', 'plugins', 'flash', 'sched', 'host', 'partner', 'net', 'lan'] as $k) {
         $base[$k] = is_array($b[$k] ?? null) ? $b[$k] : null;
     }
     $open = [];
@@ -1482,6 +1491,8 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     if ($bootLook !== null) {
         $seen['flash']['boot'] = $bootLook;
     }
+    // the server's own router and DNS (agent/lib/watchnet.php): no router log needed — the night shift too
+    $seen['lan'] = watchnetGateway($paths);
     $office = watchmanOfficeLook($paths, $now);
     $facts = watchmanPostureLook($paths);
     // snapshots that vanish: only rounds write snaps.json (one at a time), so it is read out here
@@ -1543,6 +1554,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                 watchmanPluginsCompare($b['plugins'], $seen['plugins'], $book, $now, $office),
                 watchmanFlashCompare($b['flash'], $seen['flash'], $book, $now, isset($paths['go']) ? (string) $paths['go'] : null),
                 watchmanBootCompare($b['flash']['boot'], $seen['flash']['boot'] ?? null, $book, $now),
+                watchnetGatewayCompare($b['lan'], $seen['lan'], $book, $now),
                 watchmanSharesCompare($b['shares'], $seen['shares'], $book, $now),
                 watchmanSchedCompare($b['sched'], $seen['sched'], $seen['plugins'], $book, $now, $office),
                 watchmanHostCompare($b['host'], $seen['host'], is_array($old['seen']) ? ($old['seen']['host'] ?? null) : null,
@@ -1636,6 +1648,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
                         'read' => $read['read'], 'skipped' => $read['skipped'], 'rotated' => $read['rotated'], 'syslog_full' => $read['full'],
                         'docker' => $seen['containers'] !== null, 'shares' => $seen['shares'] !== null, 'flow' => $look !== null,
                         'snaps' => $snapRes !== null, 'added' => count($added),
+                        'lan' => $seen['lan'] !== null,       // the server's own router and DNS looked at (watchnetGateway())
                         // snapshot automounts right now, on the host, inside the containers and in other processes' namespaces (the metric's numbers)
                         'automounts' => $automounts];
         if (is_array($st['night'] ?? null) && !isset($st['night']['until'])) {
@@ -1670,6 +1683,8 @@ function watchmanTakeOver(int $hired, array $events, array $seen, array $book, a
     if (isset($seen['flash']['boot'])) {
         watchmanBootCompare($b['flash']['boot'], $seen['flash']['boot'], $quiet, $now);      // what runs at the start: as it is, normal
     }
+    $b['lan'] = null;
+    watchnetGatewayCompare($b['lan'], $seen['lan'] ?? null, $quiet, $now);                   // the router and DNS: likewise
     $st['fails'] = [];
     $st['notified'] = [];
     $none = [];
@@ -9125,6 +9140,10 @@ function watchmanAdopt(array &$b, array $e, array $seen, int $now): void
         case 'flash_boot':
         case 'ld_preload':
             watchmanBootAdopt($b, $e, $seen);
+            break;
+        case 'net_gateway':
+        case 'net_dns':
+            watchnetGatewayAdopt($b, $e, $seen, $now);     // the server's own router and DNS (agent/lib/watchnet.php)
             break;
         case 'flash_ssh_key':
             $k = $seen['flash']['keys'][$p['user'] ?? ''][$p['fp'] ?? ''] ?? null;

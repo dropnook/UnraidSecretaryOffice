@@ -42,7 +42,7 @@ const WATCH_CATS = [
                     'tips' => ['partner_wide', 'partner_unknown', 'partner_public', 'partner_friend']],
     'router'    => ['kinds' => ['net_sender_new', 'net_router_login', 'net_router_login_failures', 'net_firewall_change', 'net_router_config',
                                 'net_vpn_login', 'net_log_silent', 'net_link_down', 'net_outage', 'net_router_reboot'], 'tips' => ['router_clock']],
-    'lan'       => ['kinds' => ['net_new_device', 'net_spoof', 'net_ips_server', 'net_blocked_from_server'], 'tips' => []],
+    'lan'       => ['kinds' => ['net_new_device', 'net_spoof', 'net_ips_server', 'net_blocked_from_server', 'net_gateway', 'net_dns'], 'tips' => []],
     'array'     => ['kinds' => ['array_stop', 'array_start', 'server_boot', 'parity_check'], 'tips' => []],
     'vuln'      => ['kinds' => [], 'tips' => []],          // «Known vulnerabilities» (concept 11 A): its kinds come with its step
     'hw'        => ['kinds' => [], 'tips' => []],          // «Hardware» (concept 11 B–E, H): likewise
@@ -216,7 +216,8 @@ function watchmanCats(array $s, ?array $parity = null): array
     $netState = is_array($net) ? (string) ($net['state'] ?? 'off') : 'off';
     foreach (['router', 'lan'] as $cat) {
         if ($netState === 'off' || !is_array($net) || !($net['senders'] ?? [])) {
-            $add($cat, 'none', 'no_router');
+            // the network still has the server's own router and DNS (no router log needed): only a part not looked at
+            $cat === 'lan' && !empty($r['lan']) ? $add($cat, 'note', 'no_router') : $add($cat, 'none', 'no_router');
         } elseif (in_array($netState, ['asleep', 'unreadable', 'unknown'], true)) {
             $add($cat, 'warn', 'router_' . $netState);
         }
