@@ -1364,6 +1364,7 @@
   "notify.holds_subject": "Fanboy: su regulación se detuvo sola",
   "notify.holds": "La regulación de Fanboy notó que retenía algo en el array o en un pool. Nunca debe retener la parada del array, así que se detuvo. Cada ventilador que tenía está devuelto como está fijado para él (su estado antes de él o el automático de la placa base). Él no la reinicia solo — solo cuando el mensajero arranca de nuevo (en el próximo arranque del array, tras una actualización) o después de «Devolver» y «Darle el control». El registro de la secretaría dice qué retenía.",
   "still": "Fanboy sigue regulando los ventiladores. Sus ajustes esperan al array.",
+  "still_back": "Fanboy ha devuelto los ventiladores a la placa base. Con «Darle el control» en su página los retoma, cuando el array esté en marcha.",
   "dash.stopped": "El array no está en marcha — él sigue regulando.",
   "dash.stopped_disks": "Mientras tanto nadie conoce las temperaturas de los discos: sus ventiladores mantienen una velocidad mínima, ninguno se para.",
   "pic.unknown_stopped": "temperatura desconocida mientras el array está detenido",

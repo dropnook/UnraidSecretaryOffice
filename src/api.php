@@ -112,7 +112,7 @@ function api_main(): void
             // (src/fanboy-stopped.php) — with the agent at work the click goes to the agent as every action
             require_once __DIR__ . '/fanboy-stopped.php';
             if (officeFanboyStopped() !== null) {
-                answer(officeFanboyStoppedHandBack());
+                answer(officeFanboyStoppedHandBack() + ['agent' => agentInfo()]);       // the messenger's info anew: the page's notice follows
             }
         }
         $office = in_array($action, OFFICE_AGENT_ACTIONS, true);      // the office's own, answered by the agent

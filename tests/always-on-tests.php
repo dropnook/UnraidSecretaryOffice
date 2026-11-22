@@ -1558,7 +1558,8 @@ function testAlwaysOnHandBack(): void
         $log = substr((string) @file_get_contents(AGENT_LOG), $log0);
         same('always on S5c: the agent\'s next start hands back in his store (not armed), mirrors it, and takes both marks away',
             [false, false, false, false], [fanboyBoardRaw()['armed'] ?? null, fanboyMirrorRead(FANBOY_T_KEY)['settings']['armed'] ?? null, fanboyHandBackAsked(), file_exists($flash)]);
-        check('always on S5c: … said in the log, with when it was asked', str_contains($log, 'the fans were given back to the mainboard while the array wasn\'t started (') && str_contains($log, 'handed back, until «Take over»'), $log);
+        check('always on S5c: … said in the log, with when it was asked — one line, never «on the user\'s click (0 outputs)» (the control gave them back when the mark was set)',
+            str_contains($log, 'the fans were given back to the mainboard while the array wasn\'t started (') && str_contains($log, 'handed back, until «Take over»') && !str_contains($log, 'on the user\'s click'), $log);
         $GLOBALS['fanboyLaunched'] = [];
         fanboyCrashKeep(['launched' => null]);
         fanboyEnsureControl(400.0);
@@ -2093,6 +2094,123 @@ function testAlwaysOnBoot(): void
 // ===================================================================== step S7: what the user sees while the array isn't started
 
 /**
+ * The page's «array stopped» notice in node (core.js with a small stand-in DOM, as testUpdateNotice does): the desk's line,
+ * its button, the question first, the request, and the notice anew from the answer. Skipped (said) where there is no node.
+ */
+function alwaysOnTStillNotice(): void
+{
+    $node = trim((string) shell_exec('command -v node 2>/dev/null')) ?: (is_executable('/usr/local/bin/node') ? '/usr/local/bin/node' : '');
+    if ($node === '') {
+        check('always on S7 notice: node is missing here - skipped', true);
+        return;
+    }
+    $tmp = hardeningTmp('ao-still');
+    file_put_contents("$tmp/t.js", <<<'JS'
+const fs = require('fs');
+const byId = {};
+const mk = (tag) => {
+  const n = { tag, id: '', className: '', style: {}, dataset: {}, hidden: true, textContent: '', offsetHeight: 0, children: [], onclick: null, type: '', disabled: false,
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    appendChild(c) { this.children.push(c); return c; }, append(...c) { this.children.push(...c); }, after() {},
+    remove() {}, prepend() {}, setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false, addEventListener() {},
+    querySelector: () => null, querySelectorAll: () => [], contains: () => false, closest: () => null, matches: () => false,
+    getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, width: 0, height: 0 }), focus() {}, select() {} };
+  Object.defineProperty(n, 'innerHTML', { get: () => '', set() { n.children = []; n.textContent = ''; } });
+  Object.defineProperty(n, 'childNodes', { get: () => n.children });
+  return n;
+};
+const find = (id) => (byId[id] = byId[id] || mk('div'));
+const store = {};
+const posts = [];
+let answer = { ok: false };
+globalThis.window = globalThis;
+globalThis.innerHeight = 800; globalThis.scrollY = 0; globalThis.scrollBy = () => {}; globalThis.scrollTo = () => {};
+globalThis.requestAnimationFrame = () => 0; globalThis.cancelAnimationFrame = () => {};
+globalThis.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+globalThis.navigator = { languages: ['en'] };
+globalThis.history = { replaceState() {} };
+globalThis.location = { hash: '', reload() {} };
+const CONFIG = { version: '1.0.0', desks: [], languages: [{ code: 'en' }], base: '', staff_order: [], csrf: 'token' };
+globalThis.document = { getElementById: (id) => (id === 'sso-config' ? { textContent: JSON.stringify(CONFIG) } : find(id)),
+  querySelector: (s) => (s[0] === '#' ? find(s.slice(1)) : mk('div')), querySelectorAll: () => [], createElement: (tag) => mk(tag), addEventListener() {}, removeEventListener() {},
+  documentElement: { scrollHeight: 0, clientWidth: 1200, clientHeight: 800 }, activeElement: null, hidden: false, body: mk('body') };
+globalThis.fetch = async (url, opt) => {
+  if (opt && opt.method === 'POST') { posts.push({ body: JSON.parse(opt.body), office: opt.headers['X-Office'], csrf: opt.headers['X-CSRF-Token'] }); }
+  const j = opt && opt.method === 'POST' ? answer : { ok: false };
+  return { redirected: false, url, ok: true, status: 200, json: async () => j, text: async () => JSON.stringify(j) };
+};
+(0, eval)(fs.readFileSync(process.argv[2], 'utf8'));
+const O = globalThis.Office;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const text = (n) => (typeof n === 'string' ? n : [n.textContent || '', ...(n.children || []).map(text)].join(''));
+const buttons = (n) => (typeof n === 'string' ? [] : [...(n.tag === 'button' ? [n] : []), ...(n.children || []).flatMap(buttons)]);
+const notice = () => ({ hidden: byId['sso-notice'].hidden, text: text(byId['sso-notice']), buttons: buttons(byId['sso-notice']).map((b) => b.textContent) });
+(async () => {
+  await sleep(50);
+  Object.assign(O.strings, { 'agent.array_stopped_title': 'The array is stopped.', 'agent.array_stopped_text': 'The office waits ({dir}).', 'common.cancel': 'Cancel',
+    'agent.night_text': 'Night shift since {since} ({facts}).', 'agent.night_nothing': 'nothing new',
+    'fans.still': 'He keeps steering.', 'fans.still_back': 'He has given the fans back.', 'fans.words': 'Give back…', 'fans.words_title': 'Give back?', 'fans.words_text': 'Every fan goes back.', 'fans.words_yes': 'Give back',
+    'other.still': 'Another desk works on.' });
+  const stopped = { running: false, no_data: { array: 'Stopped', dir: '/x' } };
+  const out = {};
+  O.setAgent({ ...stopped });
+  out.plain = notice();
+  O.setAgent({ ...stopped, still: [{ desk: 'fans', ask: { action: 'hand_back', words: 'words' } }, { desk: 'other' }, { desk: 'nostring' }, { desk: 'Bad Name' }, 7, null] });
+  out.asks = notice();
+  // a desk whose words are not all there gets its sentence, no button; an action that is no name: none either
+  O.setAgent({ ...stopped, still: [{ desk: 'other', ask: { action: 'hand_back', words: 'words' } }, { desk: 'fans', ask: { action: 'x.y', words: 'words' } }] });
+  out.noWords = notice();
+  // with the night watchman on night shift: the same line and button in his notice
+  O.setAgent({ running: false, no_data: { array: 'Stopped', dir: '/x' }, night: { since: 1, rounds: 0, new: 0 }, still: [{ desk: 'fans', ask: { action: 'hand_back', words: 'words' } }] });
+  out.night = notice();
+  // the click: asked first — nothing is sent before the answer
+  O.setAgent({ ...stopped, still: [{ desk: 'fans', ask: { action: 'hand_back', words: 'words' } }] });
+  buttons(byId['sso-notice'])[0].onclick();
+  out.dialog = { title: byId['sso-dialog-title'].textContent, body: text(byId['sso-dialog-body']), buttons: buttons(byId['sso-dialog-foot']).map((b) => b.textContent), sent: posts.length };
+  // «Cancel»: nothing sent
+  await buttons(byId['sso-dialog-foot'])[0].onclick();
+  out.cancelled = posts.length;
+  // «Give back»: the request, and the notice anew from the answer's messenger info
+  buttons(byId['sso-notice'])[0].onclick();
+  answer = { ok: true, handed_back: true, agent: { ...stopped, still: [{ desk: 'fans', state: 'back' }] } };
+  await buttons(byId['sso-dialog-foot'])[1].onclick();
+  out.posts = posts.slice();
+  out.after = notice();
+  // refused: said, the dialog stays (act() answered false), the notice as it was
+  O.setAgent({ ...stopped, still: [{ desk: 'fans', ask: { action: 'hand_back', words: 'words' } }] });
+  buttons(byId['sso-notice'])[0].onclick();
+  answer = { ok: false, error: { key: 'bad_request' } };
+  const toasts0 = byId['sso-toasts'] ? byId['sso-toasts'].children.length : 0;
+  await buttons(byId['sso-dialog-foot'])[1].onclick();
+  out.refused = { posts: posts.length, toasts: (byId['sso-toasts'] ? byId['sso-toasts'].children.length : 0) - toasts0, notice: notice().buttons };
+  // the array started without the data folder (another notice): no line of this kind
+  O.setAgent({ running: false, no_data: { array: 'Started', dir: '/x' }, still: [{ desk: 'fans' }] });
+  out.started = notice().text.includes('He keeps steering.');
+  console.log(JSON.stringify(out));
+  process.exit(0);
+})();
+JS);
+    [, $out, $err] = run([$node, "$tmp/t.js", OFFICE_WEB . '/assets/core.js'], 60);
+    $o = json_decode(trim((string) $out), true);
+    hardeningRm($tmp);
+    if (!is_array($o)) {
+        check('always on S7: the notice in node runs', false, substr($out . $err, 0, 600));
+        return;
+    }
+    same('always on S7 notice: the array stopped, nothing of a desk — the notice as before, no button', [false, [], false], [$o['plain']['hidden'], $o['plain']['buttons'], str_contains($o['plain']['text'], 'keeps steering')]);
+    same('always on S7 notice: a desk that keeps working gets its sentence, and its button where it may be asked something; a desk without the string, a name that is none, junk: nothing',
+        [true, true, ['Give back…'], false], [str_contains($o['asks']['text'], 'The array is stopped. The office waits (/x). He keeps steering.'), str_contains($o['asks']['text'], 'Another desk works on.'), $o['asks']['buttons'], str_contains($o['asks']['text'], 'nostring')]);
+    same('always on S7 notice: … words missing or an action that is no name: the sentence, no button', [[], true], [$o['noWords']['buttons'], str_contains($o['noWords']['text'], 'He keeps steering.')]);
+    same('always on S7 notice: … the same in the night watchman\'s notice', [['Give back…'], true], [$o['night']['buttons'], str_contains($o['night']['text'], 'He keeps steering.')]);
+    same('always on S7 notice: the click asks first — the desk\'s title and text, «Cancel» and its own yes; nothing sent yet, nothing on «Cancel»',
+        ['Give back?', 'Every fan goes back.', ['Cancel', 'Give back'], 0, 0], [$o['dialog']['title'], $o['dialog']['body'], $o['dialog']['buttons'], $o['dialog']['sent'], $o['cancelled']]);
+    same('always on S7 notice: the yes sends exactly the desk\'s action (X-Office, the csrf token), once', [['body' => ['a' => 'fans.hand_back'], 'office' => '1', 'csrf' => 'token']], $o['posts']);
+    same('always on S7 notice: … and the notice follows the answer: «given back», no button any more', [true, []], [str_contains($o['after']['text'], 'He has given the fans back.'), $o['after']['buttons']]);
+    same('always on S7 notice: a refusal is said and changes nothing', [2, 1, ['Give back…']], [$o['refused']['posts'], $o['refused']['toasts'], $o['refused']['notice']]);
+    same('always on S7 notice: only in the «array stopped» notice — the array started without the data folder says nothing of it', false, $o['started']);
+}
+
+/**
  * Step S7: with the array stopped there is no data folder, no agent, no page of his — his Dashboard tile is the view: it
  * shows the running control's numbers (as before), says plainly that the array isn't running and he steers on, that the
  * disks' temperatures are unknown meanwhile, and offers the one thing to ask of him then: «give the fans back to the
@@ -2122,6 +2240,7 @@ function testAlwaysOnStoppedView(): void
         . ' $out["asked"] = officeFanboyStoppedHandBack($stopped, $run); clearstatcache();'
         . ' $out["mark"] = [officeReadJson("$run/fanboy/handback.json"), fileperms("$run/fanboy/handback.json") & 0777, count(glob("$run/fanboy/.*.tmp") ?: [])];'
         . ' $out["again"] = officeFanboyStoppedHandBack($stopped, $run)["ok"]; $out["after"] = officeFanboyStopped($stopped, $run, ' . $now . ');'
+        . ' $out["info_after"] = agentInfo()["still"] ?? null;'
         . ' return $out; })()';
     $o = fanboyDashWeb(null, $dash + ['fanboy/control.json' => $status('stopped', [$zone(3, null)])], $now, $more);
     $m = $o['model'] ?? [];
@@ -2141,7 +2260,11 @@ function testAlwaysOnStoppedView(): void
     same('always on S7: the web side\'s look — nothing to say while the agent works, while the array runs, or with the data folder there', [true, null, null, null], [array_key_exists('with_data', $w), $w['running'], $w['started'], $w['with_data']]);
     same('always on S7: … the array stopped and his control running (its status a few seconds old): he steers', ['desk' => 'fanboy', 'runs' => true, 'steers' => true, 'handed_back' => false], $w['stopped'] ?? null);
     same('always on S7: … a status ten minutes old is no running control: nothing to say', [true, null], [array_key_exists('old', $w), $w['old']]);
-    same('always on S7: the office\'s notice gets his line while the array isn\'t started (here: ' . json_encode($w['array'] ?? null) . ')', ($w['array'] ?? '') === 'Started' ? null : [['desk' => 'fanboy']], $w['info'] ?? null);
+    // (on a server whose own array runs the messenger's info has nothing of this: the look goes by Unraid's real var.ini)
+    $real = ($w['array'] ?? '') !== 'Started';
+    same('always on S7: the office\'s notice gets his line while the array isn\'t started, with the one thing to ask of him — the tile\'s words (here: ' . json_encode($w['array'] ?? null) . ')',
+        $real ? [['desk' => 'fanboy', 'ask' => ['action' => 'hand_back', 'words' => 'dash.back']]] : null, $w['info'] ?? null);
+    same('always on S7: … once the mark stands the notice says «given back» and asks nothing more', $real ? [['desk' => 'fanboy', 'state' => 'back']] : null, $w['info_after'] ?? null);
     // the one write
     same('always on S7: «give back» is refused while the agent works or the array runs (then it is the agent\'s action), and into a folder that isn\'t root\'s alone — nothing written',
         [[false, false], false, false], [$w['refused'] ?? null, $w['before'] ?? null, $w['open_folder'] ?? null]);
@@ -2172,7 +2295,7 @@ function testAlwaysOnStoppedView(): void
     // the wiring
     $api = (string) file_get_contents(OFFICE_DIR . '/src/api.php');
     check('always on S7: the API hears fanboy.hand_back itself only while there is something of his to say with the array stopped — before «hired» is asked (the staff list lies in the data folder), else the agent\'s action as ever',
-        (bool) preg_match('/if \(\$action === \'fanboy\.hand_back\'\) \{\n(?:\s*\/\/[^\n]*\n)*\s+require_once __DIR__ \. \'\/fanboy-stopped\.php\';\n\s+if \(officeFanboyStopped\(\) !== null\) \{\n\s+answer\(officeFanboyStoppedHandBack\(\)\);/', $api)
+        (bool) preg_match('/if \(\$action === \'fanboy\.hand_back\'\) \{\n(?:\s*\/\/[^\n]*\n)*\s+require_once __DIR__ \. \'\/fanboy-stopped\.php\';\n\s+if \(officeFanboyStopped\(\) !== null\) \{\n\s+answer\(officeFanboyStoppedHandBack\(\) \+ \[\'agent\' => agentInfo\(\)\]\);/', $api)
         && strpos($api, "if (\$action === 'fanboy.hand_back') {") < strpos($api, "if (!\$office && !officeIsHired(\$desk)"));
     $tile = (string) file_get_contents(OFFICE_DIR . '/src/dashboard-fanboy.php');
     check('always on S7: the tile\'s script asks first (Unraid\'s dialog where the page has it, the browser\'s else), then sends the wish with the csrf token and loads the rows anew',
@@ -2182,11 +2305,12 @@ function testAlwaysOnStoppedView(): void
     check('always on S7: the web side writes exactly one thing there — the mark (a new file, renamed into place); it starts nothing, signals nobody, touches no fan',
         substr_count($web, 'fopen(') === 1 && substr_count($web, 'rename(') === 1 && !preg_match('/\b(exec|shell_exec|system|passthru|popen|proc_open|posix_kill|file_put_contents)\s*\(/', $web) && stripos($web, 'pwm') === false);
     $core = (string) file_get_contents(OFFICE_WEB . '/assets/core.js');
-    check('always on S7: the page\'s «array stopped» notice takes a line from each desk the messenger\'s info names (`still`) — the desk\'s own string, no desk named in core.js',
-        str_contains($core, "const key = k && typeof k.desk === 'string' ? `\${k.desk}.still` : '';") && substr_count($core, 'stillLines(') === 3);
+    check('always on S7: the page\'s «array stopped» notice takes a line from each desk the messenger\'s info names (`still`) — in both notices (with and without the night watchman), no desk named in core.js',
+        substr_count($core, 'stillLines(') === 3 && stripos($core, 'fanboy') === false);
+    alwaysOnTStillNotice();
     foreach (['en', 'de', 'it', 'fr', 'es'] as $lang) {
         $j = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$lang.json"), true) ?: [];
         check("always on S7: $lang has his line for the notice and the tile's words (the note, unknown temperatures, the button and its question)",
-            isset($j['still'], $j['dash.stopped'], $j['dash.stopped_disks'], $j['pic.unknown_stopped'], $j['pic.unknown_now'], $j['dash.back'], $j['dash.back_title'], $j['dash.back_text'], $j['dash.back_yes'], $j['dash.back_no']));
+            isset($j['still'], $j['still_back'], $j['dash.stopped'], $j['dash.stopped_disks'], $j['pic.unknown_stopped'], $j['pic.unknown_now'], $j['dash.back'], $j['dash.back_title'], $j['dash.back_text'], $j['dash.back_yes'], $j['dash.back_no']));
     }
 }

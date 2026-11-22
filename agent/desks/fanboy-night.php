@@ -164,7 +164,7 @@ function fanboyHandBackTake(): bool
     $at = readJson(fanboyHandBackFile())['at'] ?? readJson($flash)['at'] ?? null;
     $armed = (fanboyBoardRaw()['armed'] ?? false) === true;
     if ($armed) {
-        fanboyHandBack();
+        fanboyHandBack(false);          // (the control gave the outputs back when the mark was set: the line below says what happened)
     }
     logLine('Fanboy: the fans were given back to the mainboard while the array wasn\'t started' . (is_int($at) ? ' (' . date('Y-m-d H:i:s', $at) . ')' : '')
         . ($armed ? ' — kept so now: handed back, until «Take over»' : ' — he was not armed any more'));

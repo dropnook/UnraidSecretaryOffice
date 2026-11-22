@@ -1182,7 +1182,9 @@ the last 60 history lines only for a source the file has none for. **The file
   minutes stopped, as long as it lasts while running), never lets a fan stand, keeps each fan's floor; the status says
   `disks_unknown` and `zones[].unknown`. **The one wish heard without the agent:** «give the fans back to the mainboard» —
   the mark `RUN_DIR/fanboy/handback.json` (the web side's `src/fanboy-stopped.php` writes it for the button on his
-  Dashboard tile, only while the array isn't started and no agent runs): the control ends within a round, nobody starts
+  Dashboard tile and in the office's «array stopped» notice — `agentInfo()`'s `still: [{desk, state?, ask?}]`, drawn by
+  core.js `stillLines()` from the desk's own strings, no desk named there —, only while the array isn't started and no
+  agent runs): the control ends within a round, nobody starts
   it, the night shift copies the mark to the flash, the agent's next start makes it true in his store and takes both
   away. **After a boot** (`fanboy-mirror.php` «the copy on the flash»): while hired and armed the agent keeps
   `<flash>/fanboy-mirror.json` (what the control reads, the states before him, the modules he loaded, Unraid version and
