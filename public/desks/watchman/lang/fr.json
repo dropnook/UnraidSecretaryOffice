@@ -49,8 +49,6 @@
   "round.learned": "a appris ce qui est normal",
   "stat.never": "pas encore",
   "stat.running": "en ronde en ce moment",
-  "stat.open_none": "tout est noté",
-  "stat.open_kinds": {"one": "d'une sorte", "other": "de {n} sortes"},
   "round.first": "Sa première ronde enregistre ce qui est normal maintenant — rien n'est signalé pour cela.",
   "round.failed": "La dernière ronde a mal tourné — le journal du coursier dit pourquoi. Il réessaie à la prochaine.",
   "round.stopped": "La dernière ronde a duré trop longtemps et a été arrêtée — ce qu'elle aurait lu reste à venir. Il réessaie à la prochaine.",
@@ -1521,5 +1519,7 @@
   "help.lights": "Les zones et leurs feux",
   "help.lights_text": "Chaque zone est une tuile avec un feu : rouge — quelque chose attend ta réponse ; jaune — quelque chose à regarder, ou il n'a pas pu regarder ; vert avec «!» — bien, avec un conseil ou une partie non vérifiée ; vert — bien ; gris — rien à surveiller ici, ou désactivé. Chaque feu a aussi sa propre forme. Le filtre au-dessus de la rangée ne montre que les zones dont les mots correspondent, ou seulement celles avec une constatation. La souris sur une tuile en montre les premiers détails.",
   "cat.tips_title": "Conseils",
-  "cat.tips_known": {"one": "Et {n} que tu connais déjà — sous «Est-ce bien protégé ?».", "other": "Et {n} que tu connais déjà — sous «Est-ce bien protégé ?»."}
+  "cat.tips_known": {"one": "Et {n} que tu connais déjà — sous «Est-ce bien protégé ?».", "other": "Et {n} que tu connais déjà — sous «Est-ce bien protégé ?»."},
+  "cat.in_book": {"one": "{n} entrée dans le registre", "other": "{n} entrées dans le registre"},
+  "cat.in_book_go": "{what} →"
 }

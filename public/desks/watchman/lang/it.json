@@ -49,8 +49,6 @@
   "round.learned": "ha imparato cosa è normale",
   "stat.never": "non ancora",
   "stat.running": "sta facendo il giro",
-  "stat.open_none": "tutto preso atto",
-  "stat.open_kinds": {"one": "di un tipo", "other": "di {n} tipi"},
   "round.first": "Il suo primo giro registra ciò che è normale adesso — per questo non segnala nulla.",
   "round.failed": "L'ultimo giro è andato storto — il registro del fattorino dice perché. Ci riprova al prossimo.",
   "round.stopped": "L'ultimo giro è durato troppo ed è stato fermato — ciò che avrebbe letto deve ancora arrivare. Riprova al prossimo.",
@@ -1521,5 +1519,7 @@
   "help.lights": "Le aree e i loro semafori",
   "help.lights_text": "Ogni area è un riquadro con un semaforo: rosso — qualcosa aspetta la tua risposta; giallo — qualcosa da guardare, o non ha potuto guardare; verde con «!» — a posto, con un consiglio o una parte non controllata; verde — a posto; grigio — qui non c'è nulla da sorvegliare, o è spento. Ogni semaforo ha anche la sua forma. Il filtro sopra la fila mostra solo le aree le cui parole corrispondono, o solo quelle con un riscontro. Il mouse su un riquadro mostra i primi dettagli.",
   "cat.tips_title": "Consigli",
-  "cat.tips_known": {"one": "E {n} che conosci già — sotto «Quanto è al sicuro?».", "other": "E {n} che conosci già — sotto «Quanto è al sicuro?»."}
+  "cat.tips_known": {"one": "E {n} che conosci già — sotto «Quanto è al sicuro?».", "other": "E {n} che conosci già — sotto «Quanto è al sicuro?»."},
+  "cat.in_book": {"one": "{n} voce nel registro", "other": "{n} voci nel registro"},
+  "cat.in_book_go": "{what} →"
 }

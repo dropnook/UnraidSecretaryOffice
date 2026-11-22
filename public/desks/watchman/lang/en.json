@@ -49,8 +49,6 @@
   "round.learned": "has learned what is normal",
   "stat.never": "not yet",
   "stat.running": "on his round now",
-  "stat.open_none": "all noted",
-  "stat.open_kinds": {"one": "of one kind", "other": "of {n} kinds"},
   "round.first": "His first round records what is normal now — nothing is reported for it.",
   "round.failed": "The last round went wrong — the messenger's log says why. He tries again at the next one.",
   "round.stopped": "The last round took too long and was stopped — what it would have read is still to come. He tries again at the next one.",
@@ -1521,5 +1519,7 @@
   "help.lights": "The areas and their lights",
   "help.lights_text": "Each area is a tile with a light: red — something waits for your answer; yellow — something to look at, or he couldn't look; green with «!» — fine, with a tip or a part not checked; green — fine; grey — nothing to watch here, or switched off. Each light has its own shape, too. The filter above the row shows only the areas whose words fit, or only those with a finding. The mouse over a tile shows its first details.",
   "cat.tips_title": "Advice",
-  "cat.tips_known": {"one": "And {n} you know already — under «How secure does it stand?».", "other": "And {n} you know already — under «How secure does it stand?»."}
+  "cat.tips_known": {"one": "And {n} you know already — under «How secure does it stand?».", "other": "And {n} you know already — under «How secure does it stand?»."},
+  "cat.in_book": {"one": "{n} entry in the watch book", "other": "{n} entries in the watch book"},
+  "cat.in_book_go": "{what} →"
 }

@@ -999,6 +999,20 @@ function catSection(id) {
   (c.why || []).filter((w) => !CAT_SEEN.includes(w) && Office.has(`${ID}.cat.why.${w}`))
     .forEach((w) => s.appendChild(el('p', 'callout' + (CAT_CALLOUT_WARN.includes(w) ? ' warn' : ''), T('cat.why.' + w))));
   const all = catEntries(id);
+  if (sw.active() !== id) {
+    // the whole page (nothing chosen): no entries again under the book — how many, a click shows this area alone
+    if (all.length) {
+      const open = all.filter((e) => e.open).length;
+      const what = [T('cat.in_book', { n: all.length }), open ? T('cat.tip_open', { n: open }) : ''].filter(Boolean).join(', ');
+      const b = el('button', 'btn small plain wm-cat-more', T('cat.in_book_go', { what }));
+      b.type = 'button';
+      b.onclick = () => sw.pick(id, 'click');
+      s.appendChild(b);
+    } else s.appendChild(el('p', 'role', T('cat.empty')));
+    const advice = catAdvice(id);
+    if (advice) s.appendChild(advice);
+    return s;
+  }
   const bar = catBarGet(id);
   s.appendChild(bar.el);
   const f = bar.read();
@@ -1009,7 +1023,7 @@ function catSection(id) {
   const list = all.filter((e) => !f.pick || e.kind === f.pick);
   const box = el('div', 'box wm-book wm-cat-book');
   const v = bookView(list, { onlyOpen: f.only, area: '', words: f.words, hay: entryHay, day: fmt.dayKey, chains: [], shown: 1000, page: 1000, wanted: null });
-  v.items.forEach((x) => box.appendChild(x.members ? (x.members.length > 1 ? foldRow(x) : entryRow(x.members[0])) : dayHead(x.day)));
+  v.items.forEach((x) => box.appendChild(x.members ? (x.members.length > 1 ? foldRow(x, f.words.length > 0) : entryRow(x.members[0])) : dayHead(x.day)));
   if (!v.rows.length) box.appendChild(el('p', 'empty', all.length ? T('cat.empty_filter') : T('cat.empty')));
   s.appendChild(box);
   bar.done(v.rows.reduce((n, r) => n + r.members.length, 0), all.length, { onlyAvail: all.some((e) => e.open) || f.only });
@@ -1066,11 +1080,11 @@ function dayHead(day) {
  * members (open before noted), «All n: I know, thanks» for those still open; a click unfolds the entries, each as its
  * own row. While filter words are typed the rows unfold by themselves (only the entries the words meet are in them).
  */
-function foldRow(x) {
+function foldRow(x, typed) {
   const n = x.members.length;
   const first = x.members[0];
   const watch = first.kind === 'watch';
-  const words = !!(bookBar && bookBar.read().words.length);
+  const words = typed !== undefined ? !!typed : !!(bookBar && bookBar.read().words.length);      // an area's section hands its own bar's
   const wrap = el('div', 'wm-fold');
   const r = el('div', 'row nocheck wm-entry wm-fold-head unfolds' + (x.open ? ' wm-open' : ''));
   r.dataset.fold = x.key;

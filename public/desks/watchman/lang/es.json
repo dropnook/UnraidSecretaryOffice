@@ -49,8 +49,6 @@
   "round.learned": "ha aprendido lo que es normal",
   "stat.never": "todavía no",
   "stat.running": "de ronda ahora",
-  "stat.open_none": "todo anotado",
-  "stat.open_kinds": {"one": "de un tipo", "other": "de {n} tipos"},
   "round.first": "Su primera ronda registra lo que es normal ahora — no se avisa de nada por ello.",
   "round.failed": "La última ronda salió mal — el registro del mensajero dice por qué. Lo vuelve a intentar en la próxima.",
   "round.stopped": "La última ronda tardó demasiado y se detuvo — lo que habría leído aún está por llegar. Lo vuelve a intentar en la próxima.",
@@ -1521,5 +1519,7 @@
   "help.lights": "Las áreas y sus semáforos",
   "help.lights_text": "Cada área es un mosaico con un semáforo: rojo — algo espera tu respuesta; amarillo — algo que mirar, o no pudo mirar; verde con «!» — bien, con un consejo o una parte sin comprobar; verde — bien; gris — aquí no hay nada que vigilar, o está apagado. Cada semáforo tiene además su propia forma. El filtro sobre la fila muestra solo las áreas cuyas palabras coinciden, o solo las que tienen un hallazgo. El ratón sobre un mosaico muestra los primeros detalles.",
   "cat.tips_title": "Consejos",
-  "cat.tips_known": {"one": "Y {n} que ya conoces — en «¿Qué tan seguro está?».", "other": "Y {n} que ya conoces — en «¿Qué tan seguro está?»."}
+  "cat.tips_known": {"one": "Y {n} que ya conoces — en «¿Qué tan seguro está?».", "other": "Y {n} que ya conoces — en «¿Qué tan seguro está?»."},
+  "cat.in_book": {"one": "{n} entrada en el libro", "other": "{n} entradas en el libro"},
+  "cat.in_book_go": "{what} →"
 }
