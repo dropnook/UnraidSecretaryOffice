@@ -531,7 +531,7 @@
 .light-none .light-dot{border:2px solid var(--muted); border-radius:50%}
 .light-unknown .light-dot{color:var(--muted)}
 .light-none .light-name{color:var(--ink2)}
-.light-tile > .tile-mark{position:static; flex:none; margin:0 -4px 0 auto}
+.light-tile > .tile-mark{top:-8px; right:8px}         /* a badge on the top edge: the name keeps its line */
 /* the row's filter (Office.sections({filter})): close above its row */
 .sections > .sections-filter{margin-bottom:-12px}
 .card-icon{font-size:17px; line-height:1}

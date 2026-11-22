@@ -48,7 +48,8 @@
    "by": null,
    "told": 1791469874,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "login"
   },
   {
    "id": "w8825237f13",
@@ -106,7 +107,8 @@
    "by": null,
    "told": 1791545474,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "data"
   },
   {
    "id": "wfe162b7c9a",
@@ -139,7 +141,8 @@
    "by": null,
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "lan"
   },
   {
    "id": "we39e6da19f",
@@ -168,7 +171,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "wdc05fb1798",
@@ -197,7 +201,8 @@
    "by": null,
    "told": 1791466274,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "container"
   },
   {
    "id": "w41acb2239b",
@@ -228,7 +233,8 @@
    "told": 1791311474,
    "muted": null,
    "night": false,
-   "serious": true
+   "serious": true,
+   "cat": "login"
   },
   {
    "id": "wa92b5cedfc",
@@ -253,7 +259,8 @@
    "by": null,
    "told": 1791383474,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "plugin"
   },
   {
    "id": "w3bf6add5b4",
@@ -281,7 +288,8 @@
    "by": "office",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "partner"
   },
   {
    "id": "w1236963b43",
@@ -313,7 +321,8 @@
    "by": null,
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": null
   }
  ],
  "watch": {
@@ -1368,5 +1377,203 @@
    "note": "Pulled by mistake from a forum post; removed",
    "again": 0
   }
- ]
+ ],
+ "cats": {
+  "login": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 1,
+   "tell": 1,
+   "tips": 0,
+   "entries": 2,
+   "last": 1791556274
+  },
+  "container": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 1,
+   "tell": 1,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791466274
+  },
+  "plugin": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 1,
+   "tell": 1,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791383474
+  },
+  "flash": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "share": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "sched": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "pull": {
+   "level": "note",
+   "why": [
+    "learning"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "data": {
+   "level": "danger",
+   "why": [
+    "open_tell",
+    "learning"
+   ],
+   "open": 1,
+   "tell": 1,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791547874
+  },
+  "snap": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "host": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "door": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "partner": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791347474
+  },
+  "router": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "lan": {
+   "level": "warn",
+   "why": [
+    "open"
+   ],
+   "open": 1,
+   "tell": 0,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791531074
+  },
+  "array": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791491674
+  },
+  "vuln": {
+   "level": "none",
+   "why": [
+    "not_yet"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "hw": {
+   "level": "none",
+   "why": [
+    "not_yet"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "hold": {
+   "level": "none",
+   "why": [
+    "hold_never"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "wakes": {
+   "level": "none",
+   "why": [
+    "wakes_never"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  }
+ },
+ "cats_cross": {
+  "book": "danger",
+  "schedule": "ok"
+ }
 }

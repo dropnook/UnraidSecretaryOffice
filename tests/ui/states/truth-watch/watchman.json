@@ -16,7 +16,7 @@
   }
  },
  "on_watch": 1791306276,
- "open": {},
+ "open": [],
  "book": [
   {
    "id": "w1a2b3c4d5e",
@@ -62,7 +62,8 @@
    "by": "you",
    "told": 1791562574,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "data"
   },
   {
    "id": "w2b3c4d5e6f",
@@ -99,7 +100,8 @@
    "by": "you",
    "told": 1791562574,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "data"
   },
   {
    "id": "w54e6489316",
@@ -126,7 +128,8 @@
    "by": "you",
    "told": 1791480649,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router"
   },
   {
    "id": "wbb38aac28c",
@@ -153,7 +156,8 @@
    "by": "you",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router"
   },
   {
    "id": "wda4a752ea7",
@@ -180,7 +184,8 @@
    "by": "you",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router"
   },
   {
    "id": "wd3e4169d75",
@@ -207,7 +212,8 @@
    "by": "you",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router"
   },
   {
    "id": "we39e6da19f",
@@ -242,7 +248,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w3b41b7080b",
@@ -271,7 +278,8 @@
    "by": "you",
    "told": 1791437018,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "door"
   },
   {
    "id": "w2a19a76ee8",
@@ -296,7 +304,8 @@
    "by": "you",
    "told": 1791407111,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "plugin"
   },
   {
    "id": "wfd4fc19641",
@@ -322,7 +331,8 @@
    "by": "you",
    "told": 1791387527,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "plugin"
   },
   {
    "id": "w2dbba062ab",
@@ -347,7 +357,8 @@
    "by": "you",
    "told": 1791306576,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "plugin"
   },
   {
    "id": "wa92b5cedfc",
@@ -372,7 +383,8 @@
    "by": "you",
    "told": 1791306576,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "plugin"
   },
   {
    "id": "wb44b5c2f92",
@@ -401,7 +413,8 @@
    "by": "you",
    "told": 1791306576,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "sched"
   },
   {
    "id": "w60263f57e5",
@@ -430,7 +443,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "w043a3dc3dc",
@@ -469,7 +483,8 @@
    "by": "parity",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w10eeb60ac4",
@@ -504,7 +519,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w915f8925c3",
@@ -533,7 +549,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "w79d2e622c8",
@@ -574,7 +591,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w39b1706544",
@@ -603,7 +621,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "wb2dda43023",
@@ -638,7 +657,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w84677cd4de",
@@ -660,7 +680,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "wd5e04cb7da",
@@ -691,7 +712,8 @@
    "by": "you",
    "told": 1791323692,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "login"
   },
   {
    "id": "w3a580811c6",
@@ -726,7 +748,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w93a0d0d9ea",
@@ -748,7 +771,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "wfe162b7c9a",
@@ -781,7 +805,8 @@
    "by": "you",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "lan"
   },
   {
    "id": "w8023c95ba4",
@@ -816,7 +841,8 @@
    "by": "you",
    "told": 1791459316,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "lan"
   },
   {
    "id": "w8825237f13",
@@ -849,7 +875,8 @@
    "by": "you",
    "told": 1791457951,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "data"
   },
   {
    "id": "wf5ba8983a8",
@@ -884,7 +911,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w63008f09e2",
@@ -919,7 +947,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "w5668eda953",
@@ -954,7 +983,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "wc063e8ad2d",
@@ -980,7 +1010,8 @@
    "by": "plugin",
    "told": 1791457647,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "sched"
   },
   {
    "id": "w8e9e664fdb",
@@ -1015,7 +1046,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "wee17d287f0",
@@ -1050,7 +1082,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w86a678e52c",
@@ -1079,7 +1112,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "wd3eabf582d",
@@ -1122,7 +1156,8 @@
    "by": "you",
    "told": 1791437618,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "data"
   },
   {
    "id": "w3bf6add5b4",
@@ -1150,7 +1185,8 @@
    "by": "office",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "partner"
   },
   {
    "id": "w8b0797eaff",
@@ -1180,7 +1216,8 @@
    "by": "you",
    "told": 1791459316,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router"
   },
   {
    "id": "w5a3ee8d94c",
@@ -1213,7 +1250,8 @@
    "by": "router",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router"
   },
   {
    "id": "w07568b1abf",
@@ -1246,7 +1284,8 @@
    "by": "you",
    "told": 1791459316,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router"
   },
   {
    "id": "waac5d29ba8",
@@ -1281,7 +1320,8 @@
    "by": "you",
    "told": 1791459316,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "lan"
   },
   {
    "id": "w84833d7a59",
@@ -1316,7 +1356,8 @@
    "by": "you",
    "told": 1791459316,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "lan"
   },
   {
    "id": "w41acb2239b",
@@ -1348,7 +1389,8 @@
    "told": 1791361644,
    "muted": null,
    "night": false,
-   "serious": true
+   "serious": true,
+   "cat": "login"
   },
   {
    "id": "w57f8cbc78b",
@@ -1378,7 +1420,8 @@
    "by": "you",
    "told": 1791459316,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "router"
   },
   {
    "id": "w5083c20876",
@@ -1419,7 +1462,8 @@
    "by": "page",
    "told": 1791436254,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "snap"
   },
   {
    "id": "w4c7a66770e",
@@ -1454,7 +1498,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w4446c99b98",
@@ -1483,7 +1528,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "wcb41de23c5",
@@ -1518,7 +1564,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w31bf64e671",
@@ -1553,7 +1600,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "w967f303e44",
@@ -1582,7 +1630,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "wbddd76b648",
@@ -1611,7 +1660,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "wefd5a94556",
@@ -1643,7 +1693,8 @@
    "by": "schedule",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "sched"
   },
   {
    "id": "w0ff91622ed",
@@ -1672,7 +1723,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w2d6da8a8cd",
@@ -1701,7 +1753,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "w2dfd00c23e",
@@ -1736,7 +1789,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w7c215ef4b8",
@@ -1765,7 +1819,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "w734cd95f15",
@@ -1800,7 +1855,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w44d7b19c43",
@@ -1835,7 +1891,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "wdba5bdde33",
@@ -1864,7 +1921,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w68f3698957",
@@ -1892,7 +1950,8 @@
    "by": "you",
    "told": 1791363931,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "host"
   },
   {
    "id": "wcef47810c4",
@@ -1918,7 +1977,8 @@
    "by": "unraid",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "sched"
   },
   {
    "id": "w3935c23946",
@@ -1953,7 +2013,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "array"
   },
   {
    "id": "w4b839bcde0",
@@ -1981,7 +2042,8 @@
    "by": "you",
    "told": 1791360748,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "host"
   },
   {
    "id": "we2c751ce61",
@@ -2010,7 +2072,8 @@
    "by": "array",
    "told": null,
    "muted": null,
-   "night": true
+   "night": true,
+   "cat": "array"
   },
   {
    "id": "w10bd9b6781",
@@ -2036,7 +2099,8 @@
    "by": "unraid",
    "told": 1791358611,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "sched"
   },
   {
    "id": "wdc05fb1798",
@@ -2065,7 +2129,8 @@
    "by": "you",
    "told": 1791322792,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "container"
   },
   {
    "id": "w6477d0ca59",
@@ -2095,7 +2160,8 @@
    "by": "you",
    "told": 1791312892,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "login"
   },
   {
    "id": "w5c519c4a94",
@@ -2124,7 +2190,8 @@
    "by": "you",
    "told": 1791307476,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": "container"
   },
   {
    "id": "w1236963b43",
@@ -2156,7 +2223,8 @@
    "by": "you",
    "told": null,
    "muted": null,
-   "night": false
+   "night": false,
+   "cat": null
   }
  ],
  "watch": {
@@ -3914,5 +3982,213 @@
     "fits": false
    }
   }
+ },
+ "cats": {
+  "login": {
+   "level": "danger",
+   "why": [
+    "open_tell",
+    "syslog_full"
+   ],
+   "open": 2,
+   "tell": 2,
+   "tips": 0,
+   "entries": 3,
+   "last": 1791526251
+  },
+  "container": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 2,
+   "tell": 2,
+   "tips": 0,
+   "entries": 2,
+   "last": 1791322792
+  },
+  "plugin": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 4,
+   "tell": 4,
+   "tips": 0,
+   "entries": 4,
+   "last": 1791530689
+  },
+  "flash": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "share": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "sched": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 1,
+   "tell": 1,
+   "tips": 0,
+   "entries": 5,
+   "last": 1791530689
+  },
+  "pull": {
+   "level": "note",
+   "why": [
+    "learning"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "data": {
+   "level": "danger",
+   "why": [
+    "open_tell",
+    "learning"
+   ],
+   "open": 4,
+   "tell": 4,
+   "tips": 0,
+   "entries": 4,
+   "last": 1791562874
+  },
+  "snap": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791438876
+  },
+  "host": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 2,
+   "tell": 2,
+   "tips": 0,
+   "entries": 2,
+   "last": 1791363931
+  },
+  "door": {
+   "level": "danger",
+   "why": [
+    "open_tell"
+   ],
+   "open": 1,
+   "tell": 1,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791530689
+  },
+  "partner": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 1,
+   "last": 1791455162
+  },
+  "router": {
+   "level": "danger",
+   "why": [
+    "open_tell",
+    "router_asleep"
+   ],
+   "open": 7,
+   "tell": 4,
+   "tips": 0,
+   "entries": 8,
+   "last": 1791563474
+  },
+  "lan": {
+   "level": "danger",
+   "why": [
+    "open_tell",
+    "router_asleep"
+   ],
+   "open": 4,
+   "tell": 3,
+   "tips": 0,
+   "entries": 4,
+   "last": 1791459316
+  },
+  "array": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 32,
+   "last": 1791530711
+  },
+  "vuln": {
+   "level": "none",
+   "why": [
+    "not_yet"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "hw": {
+   "level": "none",
+   "why": [
+    "not_yet"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "hold": {
+   "level": "danger",
+   "why": [
+    "hold_short",
+    "hold_holds"
+   ],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  },
+  "wakes": {
+   "level": "ok",
+   "why": [],
+   "open": 0,
+   "tell": 0,
+   "tips": 0,
+   "entries": 0,
+   "last": null
+  }
+ },
+ "cats_cross": {
+  "book": "danger",
+  "schedule": "ok"
  }
 }

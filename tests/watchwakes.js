@@ -1,6 +1,7 @@
 /*
  * The Night Watchman's «Who woke my disks?» (public/desks/watchman/desk.js with core.js, under node, on a small stand-in
- * DOM; the agent stubbed with the click test's state tests/ui/states/watchman.json): his number tile and its section —
+ * DOM; the agent stubbed with the click test's state tests/ui/states/watchman.json): his tile (a light since 1.96, its
+ * words in its mouse-over text) and its section —
  * on a server without a spinning disk (all flash) the tile says so and the section is that one line (no switch, no
  * filter bar, no empty list); before his first look «not watching yet»; a spinning disk without a wake: «none», the
  * switch and the bar; a wake kept from before still counts; an older messenger's state (no `hdds`) reads as always; the
@@ -214,6 +215,16 @@ function sectionOf(root, place) {
 }
 const barIn = (s) => (s ? s.querySelector('.filterbar') : null);
 
+/**
+ * His tile is a light since 1.96 (core.js Office.light): what the number tile said is its mouse-over text — «Who woke my
+ * disks?: 17 wakes», then its lines. Read back as the number tile's value ('–' when the head has none) and lines.
+ */
+function tileWords(tile) {
+  const label = T('wakes.title');
+  const [head, ...lines] = String(tile.dataset.tip || '').split('\n');
+  return [head.startsWith(label + ': ') ? head.slice(label.length + 2) : '–', ...lines];
+}
+
 /** His page with this `wakes` in his state (undefined: none — before his first look), at this sub-route */
 async function visit(wakes, sub, then) {
   state = JSON.parse(JSON.stringify(base));
@@ -227,7 +238,7 @@ async function visit(wakes, sub, then) {
   const tile = r.all().find((n) => n.dataset && n.dataset.tile === 'wakes') || null;
   const sec = sectionOf(r, 'wakes.title');
   const res = {
-    tile: tile ? [tx(tile.querySelector('.stat-value')), ...tile.querySelectorAll('.stat-sub').map(tx)] : null,
+    tile: tile ? tileWords(tile) : null,
     section: sec ? sec.querySelectorAll('p').map(tx) : null,
     bar: !!barIn(sec),
     switch: !!(sec && sec.querySelector('.switch')),

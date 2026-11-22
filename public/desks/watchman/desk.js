@@ -305,6 +305,7 @@ function render() {
   root.appendChild(head);
   const lim = (state && state.limits) || {};
   root.appendChild(Office.pageHelp(ID, [
+    [T('help.lights'), T('help.lights_text')],
     [T('help.posture'), T('help.posture_text')],
     [T('help.book'), T('help.book_text', { keep: lim.keep || 500, days: lim.days || 90 })],
     [T('ack'), T('help.ack_text')],
@@ -338,34 +339,102 @@ function render() {
     [T('help.safe'), T('help.safe_text')],
   ]));
   if (!state) { root.appendChild(el('p', 'empty', Office.t('common.loading'))); return; }
-  if (sw.active() === 'open' && !bookHasOpen()) sw.pick('book', 'route');      // all noted meanwhile: the whole book
   root.append(roundHead(), sw.el);
   sw.render();
 }
 
-// ------------------------------------------------------------------ the row: his four tiles
+// ------------------------------------------------------------------ the row: his areas as lights (1.96)
 /**
- * His page on core's switcher (CLAUDE.md «Tiles», Office.sections): the watch book — whole, or only what is not noted
- * yet (a filter tile: never kept) —, how secure it stands, serious incidents, what he keeps an eye on, and the disks: what
- * holds the array, who woke the disks. «Watch book» to start; nothing chosen shows them all in the row's order. Over the
- * row stays the head of his last round.
+ * His page on core's switcher (CLAUDE.md «Tiles», Office.sections): every tile a light (core.js Office.light) — first
+ * the five that cut across (the watch book, how secure it stands, serious incidents, what he keeps an eye on, his
+ * schedule), then his areas (agent/desks/watchman-cats.php: state.cats — a light, its reasons, its entries), what holds
+ * the array and who woke the disks. The filter above the row (Office.sections({filter})): an area's words (its name,
+ * what it looks at, its open entries), «only with a finding». «Watch book» to start; nothing chosen shows every section
+ * of the row in its order. Over the row stays the head of his last round. #/watchman/<tile> picks one; the old
+ * #/watchman/open (the tile «Not noted yet», gone in 1.96) is the book with «only open» on.
  */
+// his areas with entries, in the order of state.cats (hold and wakes have sections of their own); vuln and hw only once
+// the messenger has them for real (their steps — `not_yet` until then)
+const CATS = ['login', 'container', 'plugin', 'flash', 'share', 'sched', 'pull', 'data', 'snap', 'host', 'door', 'partner', 'router', 'lan', 'array', 'vuln', 'hw'];
+const CAT_LATER = ['vuln', 'hw'];
+// an area's group in «What I keep an eye on» (the jump at the end of its section)
+const CAT_WATCH = { login: 'ips', container: 'containers', plugin: 'plugins', flash: 'flash', share: 'shares', sched: 'sched', pull: 'flow_clients',
+  data: 'flow_shares', snap: 'snaps', host: 'host', door: 'host', partner: 'partner', router: 'net', lan: 'net' };
+const CAT_SEEN = ['open', 'open_tell', 'tips'];        // reasons the light says by itself; the others stand in its section
+const FINDING = ['danger', 'warn', 'note'];
+const catOf = (id) => (state && state.cats && state.cats[id] && typeof state.cats[id] === 'object' ? state.cats[id] : null);
+const catLevel = (id) => { const c = catOf(id); return c ? String(c.level || '') : ''; };
+const catName = (id) => T('cat.' + id);
+const catShown = (id) => (catOf(id) ? !(catOf(id).why || []).includes('not_yet') : !CAT_LATER.includes(id));
+const crossLevel = (id, fallback) => (state && state.cats_cross && state.cats_cross[id]) || fallback;
+
 const sw = Office.sections({
   id: ID,
-  grid: 'stats wm-tiles',
+  grid: 'lights wm-tiles',
   default: 'book',
-  tiles: () => [               // a function: the filter's words in the language the page has now
-    { id: 'book', key: 'tile.book', place: 'tile.book', tile: (a) => bookTile(a), section: 'book' },
-    { id: 'open', key: 'stat.open', place: 'stat.open', tile: (a) => openTile(a), section: 'book', filters: T('stat.open') },
-    { id: 'posture', key: 'tile.posture', place: 'tile.posture', tile: (a) => postureTile(a), section: () => postureSection() },
-    { id: 'incidents', key: 'tile.incidents', place: 'tile.incidents', tile: (a) => incidentsTile(a), section: () => incidentsSection() },
-    { id: 'watch', key: 'tile.watch', place: 'tile.watch', tile: (a) => watchTile(a), section: () => watchSection() },
-    { id: 'hold', key: 'tile.hold', place: 'tile.hold', tile: (a) => holdTile(a), section: () => holdSection() },
-    { id: 'wakes', key: 'tile.wakes', place: 'tile.wakes', tile: (a) => wakesTile(a), section: () => wakesView() },
-    roundSchedule(),
+  tiles: () => [               // a function: the words in the language the page has now, the areas the state has
+    { id: 'book', key: 'tile.book', place: 'tile.book', tile: (a) => bookTile(a), section: 'book', words: () => [T('tile.book'), T('book.sub')],
+      level: () => crossLevel('book', openCount() ? 'warn' : state ? 'ok' : '') },
+    { id: 'posture', key: 'tile.posture', place: 'tile.posture', tile: (a) => postureTile(a), section: () => postureSection(), words: () => [T('tile.posture'), T('posture.sub')],
+      level: () => postureLevel() },
+    { id: 'incidents', key: 'tile.incidents', place: 'tile.incidents', tile: (a) => incidentsTile(a), section: () => incidentsSection(),
+      words: () => [T('tile.incidents'), T('incidents.sub')], level: () => incidentsLevel() },
+    { id: 'watch', key: 'tile.watch', place: 'tile.watch', tile: (a) => watchTile(a), section: () => watchSection(), words: () => [T('tile.watch'), T('watch.sub')],
+      level: () => '' },
+    { ...(roundSchedule()), words: () => [T('tile.schedule'), T('round.sub')], level: () => crossLevel('schedule', '') },
+    ...CATS.filter(catShown).map((id) => ({ id, key: `cat.${id}`, place: `tile.${id}`, tile: (a) => catTile(id, a), section: () => catSection(id),
+      words: () => catWords(id), level: () => catLevel(id) })),
+    { id: 'hold', key: 'tile.hold', place: 'tile.hold', tile: (a) => holdTile(a), section: () => holdSection(), words: () => [T('tile.hold'), T('hold.sub')],
+      level: () => catLevel('hold') },
+    { id: 'wakes', key: 'tile.wakes', place: 'tile.wakes', tile: (a) => wakesTile(a), section: () => wakesView(), words: () => [T('wakes.title'), T('tile.wakes')],
+      level: () => catLevel('wakes') },
   ],
   sections: { book: () => bookSection() },
+  filter: { label: () => T('cat.row_filter'), only: () => ({ text: T('cat.row_only'), hint: T('cat.row_only_hint') }),
+    words: (x) => (x.words ? x.words() : [x.id]), finding: (x) => FINDING.includes(x.level ? x.level() : '') },
 });
+
+/** A tile of his row as a light (core.js Office.light): what the number tile said becomes its mouse-over text */
+function lightTile(o) {
+  const subs = [].concat(o.sub ?? []).filter((x) => x !== '' && x !== null && x !== undefined);
+  const head = o.value !== undefined && o.value !== '' && o.value !== '–' ? `${o.label}: ${o.value}` : String(o.label);
+  const { value, sub, alert, ...rest } = o;
+  return Office.light({ ...rest, tip: [head, ...subs, ...(o.more || [])].join('\n') });
+}
+
+/** An area's light; its mouse-over text: how many open (how many important), the newest, what it couldn't see, when he looked */
+function catTile(id, a) {
+  return Office.light({ label: catName(id), level: catLevel(id), tip: catTip(id).join('\n'), ...a });
+}
+function catTip(id) {
+  const c = catOf(id);
+  if (!c) return [catName(id), T('cat.tip_unknown')];
+  const first = c.open ? [T('cat.tip_open', { n: c.open }), c.tell ? T('cat.tip_tell', { n: c.tell }) : ''].filter(Boolean).join(', ')
+    : Office.t('common.light.' + (Office.LIGHTS.includes(c.level) ? c.level : 'unknown'));
+  const lines = [`${catName(id)}: ${first}`];
+  const newest = catEntries(id).filter((e) => e.open).sort((x, y) => y.last - x.last)[0];
+  if (newest) lines.push(T('cat.tip_newest', { what: entryName(newest), when: fmt.relative(newest.last) }));
+  (c.why || []).filter((w) => !CAT_SEEN.includes(w) && Office.has(`${ID}.cat.why.${w}`)).slice(0, 2).forEach((w) => lines.push(T('cat.why.' + w)));
+  if (state && state.round && state.round.last) lines.push(T('cat.tip_checked', { when: fmt.relative(state.round.last) }));
+  return lines.slice(0, 4);
+}
+/** An area's entries in his book (each entry's `cat`, from the messenger) */
+const catEntries = (id) => ((state && state.book) || []).filter((e) => e && typeof e.id === 'string' && e.cat === id);
+/** The words the row's filter meets an area by: its name, what it looks at, its open entries' words */
+function catWords(id) {
+  return [catName(id), T(`cat.${id}_sub`), ...catEntries(id).filter((e) => e.open).slice(0, 50).map((e) => entryHay(e))];
+}
+
+/** «How secure does it stand?»: serious incidents red, advice not known yet green with «!» (a «good to know» tip never colours, W6) */
+function postureLevel() {
+  const p = state && state.posture;
+  if (!p) return '';
+  const tips = p.tips || [];
+  const advice = tips.some((x) => x.level) ? tips.filter((x) => x.level === 'advice' && !x.known).length : tips.filter((x) => !x.known).length;
+  return louderCount() ? 'danger' : advice ? 'note' : 'ok';
+}
+/** «Serious incidents»: grey while there are none, green with «!» while he keeps some (each one makes the same louder) */
+const incidentsLevel = () => (!state ? '' : ((state.incidents || []).length ? 'note' : 'none'));
 
 /**
  * «Schedule» on the office's schedule tile (Office.scheduleTile): his rounds go by themselves every five minutes — never
@@ -376,7 +445,14 @@ function roundSchedule() {
   const r = (state && state.round) || {};
   const broken = r.broken ? (r.broken.why === 'stopped' ? 'stopped' : 'failed') : '';
   const last = running() ? { at: r.last || Date.now() / 1000, how: 'running' } : r.last ? { at: r.last, how: r.failed ? 'failed' : broken || 'ok' } : null;
-  return Office.scheduleTile(ID, { every: T('schedule.every'), next: running() ? 0 : r.next || 0, last, section: () => roundScheduleSection() });
+  const entry = Office.scheduleTile(ID, { every: T('schedule.every'), next: running() ? 0 : r.next || 0, last, section: () => roundScheduleSection() });
+  // as a light: the schedule tile's own words (when next, how the last ended) become its mouse-over text
+  return { ...entry, tile: (a) => {
+    const n = entry.tile({});
+    const txt = (c) => (n && n.querySelectorAll ? [...n.querySelectorAll(c)].map((x) => x.textContent).filter(Boolean) : []);
+    return lightTile({ label: T('tile.schedule'), value: txt('.stat-value')[0] || '', sub: txt('.stat-sub'),
+      level: crossLevel('schedule', r.failed || broken ? 'danger' : r.last ? 'ok' : ''), ...a });
+  } };
 }
 function roundScheduleSection() {
   const s = el('section', 'section');
@@ -393,21 +469,9 @@ function bookTile(a) {
   const book = ((state && state.book) || []).filter((e) => e && typeof e.id === 'string');
   const open = book.filter((e) => e.open).length;
   const newest = Math.max(0, ...book.map((e) => Number(e.last) || 0));
-  return Office.stat({ label: T('tile.book'), value: T('tile.book_entries', { n: book.length }),
+  return lightTile({ label: T('tile.book'), value: T('tile.book_entries', { n: book.length }), level: crossLevel('book', open ? 'warn' : state ? 'ok' : ''),
     sub: book.length ? [T('tile.book_open', { n: open }), newest ? T('tile.book_newest', { when: fmt.relative(newest) }) : ''].filter(Boolean).join(' · ') : T('tile.book_empty'),
     ...a });
-}
-
-/**
- * «Not noted yet»: the book with only what is open (a filter tile — the bar's note line says it, a second click shows the
- * whole page again); with nothing open in the book there is nothing behind it (a div)
- */
-function openTile(a) {
-  const n = openCount();
-  const can = bookHasOpen();
-  return Office.stat({ label: T('stat.open'), value: fmt.number(n), alert: !!n,
-    sub: n ? T('stat.open_kinds', { n: Object.keys((state && state.open) || {}).length }) : T('stat.open_none'),
-    tip: can ? T('stat.open_tip') : '', ...a, ...(can ? {} : { on: null, pressed: null }) });
 }
 
 /** «How secure does it stand?»: his tips not known yet — or that you know them all — and how many you know */
@@ -419,7 +483,7 @@ function postureTile(a) {
   // red only for his advice not known yet — a «good to know» tip is no alarm (W6; an older state: every open tip)
   const advice = tips.some((x) => x.level) ? tips.filter((x) => x.level === 'advice' && !x.known).length : open;
   const louder = louderCount();      // serious incidents lately: part of how it stands
-  return Office.stat({ label: T('tile.posture'), alert: !!advice || !!louder,
+  return lightTile({ label: T('tile.posture'), level: postureLevel(),
     value: !p ? '–' : open ? T('tile.posture_tips', { n: open }) : known ? T('tile.posture_all_known') : T('tile.posture_none'),
     sub: [known ? T('tile.posture_known', { n: known }) : '', louder ? T('tile.posture_incidents', { n: louder }) : ''].filter(Boolean).join(' · '), ...a });
 }
@@ -428,7 +492,7 @@ function postureTile(a) {
 function incidentsTile(a) {
   const list = (state && state.incidents) || [];
   const louder = louderCount();
-  return Office.stat({ label: T('tile.incidents'), alert: !!louder,
+  return lightTile({ label: T('tile.incidents'), level: incidentsLevel(), sub: louder && louder !== list.length ? T('tile.posture_incidents', { n: louder }) : '',
     value: list.length ? T('tile.incidents_n', { n: list.length }) : T('tile.incidents_none'), ...a });
 }
 
@@ -490,7 +554,8 @@ function watchTile(a) {
   const c = w && w.containers;
   const sh = w && w.shares;
   // Docker not answering: never «8 containers» as if counted now — said instead (truth review W7)
-  return Office.stat({ label: T('tile.watch'), value: dockerOff() ? Office.t('common.docker_off') : c ? T('count.containers', { n: Number(c.count) || 0 }) : '–',
+  return lightTile({ label: T('tile.watch'), level: !state ? '' : state.on_watch ? 'ok' : 'none',
+    value: dockerOff() ? Office.t('common.docker_off') : c ? T('count.containers', { n: Number(c.count) || 0 }) : '–',
     sub: w ? [T('count.plugins', { n: (w.plugins || []).length }), sh ? T('count.shares', { n: Number(sh.count) || 0 }) : ''].filter(Boolean).join(' · ') : '',
     ...a });
 }
@@ -811,6 +876,7 @@ function bookBarGet() {
     key: 'watchman.book',
     label: T('book.filter_label'),
     select: { label: T('book.area_label'), all: T('book.area_all') },
+    only: { text: T('stat.open'), hint: T('stat.open_tip') },     // «Not noted yet» (the tile of that name up to 1.95; #/watchman/open)
     extra: [unfold],
     onChange: (f, what) => {
       if (what === 'words' || what === 'all') foldsShut.clear();
@@ -838,7 +904,7 @@ function bookSection() {
   s.appendChild(bar.el);
 
   const box = el('div', 'box wm-book');
-  const onlyOpen = sw.active() === 'open';         // the tile «Not noted yet»
+  const onlyOpen = bar.read().only;                // «Not noted yet»: the bar's switch (a tile up to 1.95)
   const look = (asked) => {
     const f = bar.read();
     return bookView(state.book, {
@@ -885,11 +951,66 @@ function bookSection() {
       box.appendChild(more);
     }
     bookLabel();
-    // while the tile «Not noted yet» filters, the note line names it (its × and «Show all»: the whole page again)
-    bar.done(v.rows.reduce((a, r) => a + r.members.length, 0), (state.book || []).length, sw.note('book'));
+    // «only open», the words and the area are named in the note line (its × and «Show all»: the whole book again)
+    bar.done(v.rows.reduce((a, r) => a + r.members.length, 0), (state.book || []).length, { onlyAvail: bookHasOpen() || onlyOpen });
   };
   fill();
   s.appendChild(box);
+  return s;
+}
+
+// ------------------------------------------------------------------ an area's section (1.96)
+/*
+ * One area of his (agent/desks/watchman-cats.php): what he looks at there, what he couldn't see in his last round (a
+ * callout each — state.cats[id].why), its entries of the book in the book's own rows (open first is the book's order by
+ * time; folded by day and kind, «I know, thanks» as there) under a bar of its own (words, «only open», the kind), and a
+ * jump to its group in «What I keep an eye on». An older messenger's state has no areas: one line says so.
+ */
+const catBars = {};             // each area's bar, built once and held across the renders (its words never kept)
+function catBarGet(id) {
+  catBars[id] ??= Office.filterBar({
+    label: T('cat.filter_label'),
+    only: { text: T('stat.open'), hint: T('stat.open_tip') },
+    select: { label: T('cat.kind_label'), all: T('cat.kind_all') },      // no key: the kind is never kept
+    onChange: () => { if (view) sw.render(); },
+  });
+  return catBars[id];
+}
+const CAT_CALLOUT_WARN = ['syslog_full', 'snaps_failed', 'snaps_capped', 'router_asleep', 'router_unreadable', 'router_unknown', 'parity_todo',
+  'parity_again', 'parity_errors'];
+function catSection(id) {
+  const c = catOf(id);
+  const s = el('section', 'section wm-cat');
+  const key = CAT_WATCH[id];
+  const extras = [];
+  if (key) {
+    const to = el('button', 'btn small plain', T('cat.to_watch'));
+    to.type = 'button';
+    to.onclick = () => { sw.pick('watch', 'click'); Office.reveal(`watch:${key}`); };
+    extras.push(to);
+  }
+  s.appendChild(Office.sectionHead(catName(id), T(`cat.${id}_sub`), ...extras));
+  if (!c) {
+    s.appendChild(el('p', 'role', T('cat.unknown')));
+    return s;
+  }
+  (c.why || []).filter((w) => !CAT_SEEN.includes(w) && Office.has(`${ID}.cat.why.${w}`))
+    .forEach((w) => s.appendChild(el('p', 'callout' + (CAT_CALLOUT_WARN.includes(w) ? ' warn' : ''), T('cat.why.' + w))));
+  const all = catEntries(id);
+  const bar = catBarGet(id);
+  s.appendChild(bar.el);
+  const f = bar.read();
+  // the kinds there are in this area's entries, for the bar's select (each by its book name: «3 new addresses»)
+  const kinds = new Map();
+  all.forEach((e) => kinds.set(e.kind, (kinds.get(e.kind) || 0) + 1));
+  bar.options([...kinds.entries()].map(([k, n]) => [k, Office.has(`${ID}.fold.${k}`) ? T('fold.' + k, { n }) : k]));
+  const list = all.filter((e) => !f.pick || e.kind === f.pick);
+  const box = el('div', 'box wm-book wm-cat-book');
+  const v = bookView(list, { onlyOpen: f.only, area: '', words: f.words, hay: entryHay, day: fmt.dayKey, chains: [], shown: 1000, page: 1000, wanted: null });
+  v.items.forEach((x) => box.appendChild(x.members ? (x.members.length > 1 ? foldRow(x) : entryRow(x.members[0])) : dayHead(x.day)));
+  if (!v.rows.length) box.appendChild(el('p', 'empty', all.length ? T('cat.empty_filter') : T('cat.empty')));
+  s.appendChild(box);
+  bar.done(v.rows.reduce((n, r) => n + r.members.length, 0), all.length, { onlyAvail: all.some((e) => e.open) || f.only });
   return s;
 }
 
@@ -1667,7 +1788,7 @@ function holdTile(a) {
   const n = l ? Number(l.count) || 0 : 0;
   const short = !!(l && l.started && l.times && l.times.fits === false);
   const value = holdRunning() && !l ? T('hold.running') : !l ? '–' : !l.started ? T('tile.hold_stopped') : n ? T('tile.hold_n', { n }) : T('tile.hold_none');
-  return Office.stat({ label: T('tile.hold'), value, alert: !!n || short,
+  return lightTile({ label: T('tile.hold'), value, level: catLevel('hold') || (n || short ? 'warn' : l ? 'ok' : ''),
     sub: !l ? T('tile.hold_never') : [short ? T('tile.hold_short') : '', T('tile.hold_when', { when: fmt.relative(l.time) })].filter(Boolean).join(' · '), ...a });
 }
 
@@ -1890,7 +2011,7 @@ function wakesTile(a) {
     const today = all.filter((x) => x.time >= startOfToday()).length;
     [value, sub] = [T('tile.wakes_n', { n: all.length }), [T('tile.wakes_week'), today ? T('tile.wakes_today', { n: today }) : ''].filter(Boolean).join(' · ')];
   }
-  return Office.stat({ label: T('wakes.title'), value, sub, cls: 'wm-wakes-tile', ...a });
+  return lightTile({ label: T('wakes.title'), value, sub, level: catLevel('wakes'), cls: 'wm-wakes-tile', ...a });
 }
 
 /** His switch in the section's head: on unless switched off, kept on the server (never in the browser) */
@@ -2585,7 +2706,9 @@ Office.desk({
     watchShut.clear();
     wakesBarGet().reset();         // … and every wake, of every disk
     wakeDisk = '';
-    sw.mount(m ? 'book' : sub);    // a tile's sub-route picks it like a click (the address back to #/watchman)
+    Object.values(catBars).forEach((b) => b.reset().set({ pick: '' }));      // … and every area's list whole
+    if (sub === 'open') bookBarGet().set({ only: true });     // the tile «Not noted yet» up to 1.95: the book, only open
+    sw.mount(m || sub === 'open' ? 'book' : sub);    // a tile's sub-route picks it like a click (the address back to #/watchman)
     render();
     await load(false);
     holdAuto();
@@ -2630,7 +2753,7 @@ Office.places(ID, [
   { kind: 'help', key: 'ack', text: 'help.ack_text' },
   { kind: 'help', key: 'round_now', text: 'help.round_text' },
   ...['posture', 'book', 'serious', 'normal', 'logins', 'containers', 'plugins', 'office', 'flash', 'shares', 'sched', 'flow', 'flow_gone', 'flow_not',
-    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'hold', 'wakes', 'grafana', 'notify', 'safe']
+    'snaps', 'host', 'host_not', 'net', 'net_not', 'attack', 'siem', 'chain', 'night', 'parity', 'hold', 'wakes', 'grafana', 'notify', 'safe', 'lights']
     .map((x) => ({ kind: 'help', key: `help.${x}`, text: `help.${x}_text` })),
 ]);
 

@@ -2072,7 +2072,8 @@ Office.tile = function tile(o) {
  *                                   //   anything is drawn
  *     wants: (sub) => bool,         // optional: a sub-route naming a tile the list may only have later (a partner's)
  *     filter: {                     // optional: a filter over the row (1.96, the Night Watchman's 24 tiles) — an
- *       label: T('…'),              //   Office.filterBar above the tiles: its words, and «only …» (only: {text, hint});
+ *       label: () => T('…'),        //   Office.filterBar above the tiles (built at its first use: label and only may be
+ *                                   //   functions, the strings come later): its words, and «only …» (only: {text, hint});
  *       only: { text, hint },       //   a tile stays in the row when its words fit (words(x): its name, what it holds)
  *       words: (x) => [ … ],        //   and, with «only …», it has a finding (finding(x)). The chosen tile always stays;
  *       finding: (x) => bool },     //   nothing chosen, the page shows the sections of the tiles in the row. Never kept:
@@ -2110,12 +2111,20 @@ Office.sections = function sections(opts) {
   const body = el('div', 'sections-body');
   body.id = o.bodyId || `${desk}-sections`;
   body.dataset.sectionsBody = '1';
+  box.append(grid, body);
   // the row's filter (o.filter): a bar above the tiles, shown whatever the row's length (min 0), its note line the one place
-  // that says the row is narrowed; its onChange runs inside keepInPlace already
+  // that says the row is narrowed; its onChange runs inside keepInPlace already. Built at its first use, not when the
+  // desk's script loads: its words (label, only — given as text or as a function) come from strings loaded later
   const fo = o.filter || null;
-  const fbar = fo ? Office.filterBar({ label: fo.label, only: fo.only, min: 0, onChange: () => draw() }) : null;
-  if (fbar) fbar.el.classList.add('sections-filter');
-  box.append(...(fbar ? [fbar.el] : []), grid, body);
+  let fbar = null;
+  const barGet = () => {
+    if (!fo || fbar) return fbar;
+    const v = (x) => (typeof x === 'function' ? x() : x);
+    fbar = Office.filterBar({ label: v(fo.label), only: v(fo.only), min: 0, onChange: () => draw() });
+    fbar.el.classList.add('sections-filter');
+    box.prepend(fbar.el);
+    return fbar;
+  };
   const ids = new Map();          // section name -> the id its element had when last drawn (data-filters points there)
   const nodes = new Map();        // tile id -> its node as last drawn
   let chosen = null;              // the choice; null: not read yet (the store, else the default)
@@ -2132,7 +2141,7 @@ Office.sections = function sections(opts) {
   /** The tiles the row shows: all, or those the filter lets through (the chosen one always) */
   const shownList = (cur = current()) => {
     const all = list();
-    if (!fbar) return all;
+    if (!barGet()) return all;
     const f = fbar.read();
     if (!f.words.length && !f.only) return all;
     return all.filter((x) => x.id === cur || ((!f.words.length || Office.fits(f.words, fo.words ? fo.words(x) : [x.id]))
@@ -2272,7 +2281,8 @@ Office.sections = function sections(opts) {
   }
 
   const sw = {
-    el: box, grid, body, bar: fbar,
+    el: box, grid, body,
+    get bar() { return barGet(); },
     render() { if (grid.isConnected) Office.keepInPlace(grid, draw); else draw(); return sw; },
     /** only the tiles anew, at once — for a switch inside a section whose tile line changes with it (CLAUDE.md «Tiles») */
     row() { if (grid.isConnected) Office.keepInPlace(grid, () => drawRow()); else drawRow(); return sw; },
@@ -2280,7 +2290,7 @@ Office.sections = function sections(opts) {
     active: () => current(),
     mount(sub) {
       chosen = null;                                        // a new visit: the stored choice (never a filter tile)
-      if (fbar) fbar.reset();                               // … and the whole row: the row's filter is never kept
+      if (barGet()) fbar.reset();                           // … and the whole row: the row's filter is never kept
       const s = String(sub || '');
       if (s && (tileOf(s) || (o.wants && o.wants(s)))) {
         chosen = s;

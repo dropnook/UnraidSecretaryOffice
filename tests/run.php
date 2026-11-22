@@ -20049,7 +20049,9 @@ function testTruthLogsWatch(): void
     $wjs = (string) file_get_contents(OFFICE_DIR . '/public/desks/watchman/desk.js');
     check('truth watch: the bubble never «all quiet» with /var/log full, the round says it', str_contains($wjs, "if (state.round && state.round.syslog_full) return T('bubble.syslog_full'")
         && str_contains($wjs, "T('round.syslog_full', {"));
-    check('truth watch: the posture tile red only for advice (W6)', str_contains($wjs, "alert: !!advice || !!louder"));
+    // 1.96: the tile is a light — serious incidents red, advice not known yet green with «!», a «good to know» tip never
+    check('truth watch: the posture tile coloured only by advice (W6)', str_contains($wjs, "tips.filter((x) => x.level === 'advice' && !x.known).length")
+        && str_contains($wjs, "return louderCount() ? 'danger' : advice ? 'note' : 'ok';"));
     check('truth watch: the network\'s head says its state while the files aren\'t read (W9)', str_contains($wjs, "senders.length && !stateText[n.state] ? T('watch.net_sum'"));
     exec('rm -rf ' . escapeshellarg($tmp));
 }
