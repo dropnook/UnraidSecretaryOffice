@@ -760,6 +760,9 @@ function picture() {
     .slice(0, 14).map(asSource);
   return { zones: [{ id: '_all', name: T('pic.all'), note: steers() ? '' : who().why === 'fixed' ? T('pic.all_note_fixed') : situation() === 'no_output' ? T('pic.all_note_none') : T('pic.all_note'), fans, sources }] };
 }
+let picMine = 0;
+/** The picture's columns: two (one for a single zone), one on a phone — desk.css's breakpoint */
+const picCols = () => (window.matchMedia && window.matchMedia('(max-width:760px)').matches ? 1 : Math.max(1, Math.min(2, picMine)));
 function pictureEl() {
   const A = art();
   if (!A) return waiting();
@@ -768,13 +771,20 @@ function pictureEl() {
   // the hero of the page: big wheels (their colour and blades seen), his zones filling the row two by two, the BIOS's
   // own group narrow beside them (desk.css .fb-server); a phone: one column, the wheels a little smaller
   // each wheel by its fan's size around px (2026-11-20, the owner: «ja einschalten»): an 80 mm one smaller, a 140 mm one bigger
-  if (!pic) pic = A.server(p, { texts, px: window.matchMedia && window.matchMedia('(max-width:640px)').matches ? PIC_PX_PHONE : PIC_PX, sized: true });
+  // his zones in two columns, each into the shorter one (2026-11-22, the owner: no empty space under a short zone beside a
+  // tall one) — placed when drawn, resized or when his zones change, never on the values' refresh; a phone: one column.
+  // The columns' frame first: a change of his zones is measured at their new width
+  picMine = p.zones.filter((z) => z.id !== '_bios').length;
+  const frame = (e) => {
+    e.classList.add('fb-server');
+    e.classList.toggle('fb-with-bios', p.zones.some((z) => z.id === '_bios'));
+    e.style.setProperty('--fb-cols', String(Math.max(1, Math.min(2, picMine))));
+  };
+  if (pic) frame(pic.el);
+  if (!pic) pic = A.server(p, { texts, px: window.matchMedia && window.matchMedia('(max-width:640px)').matches ? PIC_PX_PHONE : PIC_PX, sized: true,
+    stacks: picCols, aside: (z) => z.id === '_bios' });
   else pic.update(p);
-  const mine = p.zones.filter((z) => z.id !== '_bios').length;
-  pic.el.classList.add('fb-server');
-  pic.el.classList.toggle('fb-with-bios', p.zones.some((z) => z.id === '_bios'));
-  pic.el.style.setProperty('--fb-cols', String(Math.max(1, Math.min(2, mine))));
-  pic.el.style.setProperty('--fb-rows', String(Math.max(1, Math.ceil(mine / 2))));
+  frame(pic.el);
   return pic.el;
 }
 
