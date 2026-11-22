@@ -133,11 +133,12 @@ tests/ tools/          run.php, node tests, ui/ (harness, stubs, demo/); release
   for ssh options. Fixtures run on the tests' clock (checklist 3).
 
 ### Jack Streamer's tools
-`mediacache/` (MediaCache by helmi1987: Emby, Jellyfin, Plex; job id still `embycache`) and `gather/` ship with the office; our
-changes kept small and listed at the top of their README.md; their data apart (`MEDIACACHE_DIR`, `CONSOLIDATE_CONFIG`); they
-report through status files, never parsed log lines. **MediaCache MOVES files** — test with report and dry runs. Runs via
-`php agent.php job embycache|gather <mode>`; a real run holds the other tool's lock; the cleaner is left out on purpose. Smart
-Mover (`smartmover/`, helmi1987) likewise: hooks `CUSTOMMOVER_*` in its README.md, changes marked `USO`.
+MediaCache (helmi1987's: Emby, Jellyfin, Plex; job id still `embycache`) runs in PHP — `agent/desks/jack-plan.php` + `jack-run.php`,
+no Python since 1.95.6; its README (our changes at the top) and licence in `mediacache/` — and `gather/` ships with the office;
+their data apart (`MEDIACACHE_DIR`, `CONSOLIDATE_CONFIG`); they report through status files, never parsed log lines.
+**MediaCache MOVES files** — test with report and dry runs. Runs via `php agent.php job embycache|gather <mode>`; a real run
+holds the other tool's lock; the cleaner is left out on purpose. Smart Mover (`smartmover/`, helmi1987): hooks `CUSTOMMOVER_*`
+in its README.md, changes marked `USO`.
 
 ### Versions and releases
 `OFFICE_VERSION` (src/bootstrap.php) and `AGENT_VERSION` (agent/agent.php) move together; tag `v<version>`. The plugin's version

@@ -8,20 +8,17 @@ declare(strict_types=1);
  * execution, fill, copy_parallel, rsync_copy, fill_with_mover, track_mover, release, write_list, collect_themes, report, main),
  * Progress, Themes, Status and the lib's helpers that act (mkdir_like, remove_empty_*, ensure_share_root, run_mover, run_rsync,
  * acquire_lock, the exclude list, the themes state, write_progress, write_result). This file is GPL-3.0-or-later too; mediacache/README.md
- * says so. The plan itself is jack-plan.php's (jackPlanDecide()): one plan, the one the shadow compares. A later fix upstream or in the
- * Python copy is ported here by hand.
+ * says so. The plan itself is jack-plan.php's (jackPlanDecide()). A later fix upstream is ported here by hand.
  *
- * Why: Python 3 for Unraid loses its maintainer's support on 2026-11-30. Since 1.94.0 PHP acts on every server (jackPhpActs()); the
- * flag file JACK_DATA/python.json (support's way back, where python3 exists) makes Python act again. jackJob() starts THIS as the run's own
- * process (`php jack-run.php --run|--release|--show-on-deck --compact|<dry>`, the same environment, the same output file, the same exit
- * codes: 0 ok, 3 stopped, 1 failed/busy/config, 2 a bad call); only where the comparison's flag lies (shadow.json or php.json) Python plans
- * dry beside it (jack-shadow.php). Before a real run the job hands over the tape the comparison planned from (`--tape`): this run plans from
- * exactly those answers, so the plan compared is the plan executed, and writes that plan down (`--plan-out`, RAM) for the night file.
- * Without a tape (nothing was compared: a disk asleep, Python failed …) it asks the servers itself.
+ * The only MediaCache the office runs (since 1.94.0 on every server; since 1.95.6 the Python copy, its comparison and the way back to it
+ * are gone): jackJob() starts THIS as the run's own process (`php jack-run.php --run|--release|--show-on-deck --compact|<dry>`, exit
+ * codes: 0 ok, 3 stopped, 1 failed/busy/config, 2 a bad call). It asks the servers itself. The tests hand it recorded answers instead
+ * (`--tape`, JackPlanTape) and read the plan it acted on (`--plan-out`). The flag files a former version read in JACK_DATA (python.json:
+ * Python acts again; shadow.json, php.json: the comparison) are read by nothing any more — left where they are, ignored.
  *
- * The same files in the same shapes as Python: MEDIACACHE_RESULT (status.json), MEDIACACHE_PROGRESS, mediacache_exclude.txt (its two
- * sections), mediacache_themes.json, mediacache.lock (the SAME flock: a Python and a PHP run never overlap), logs/mediacache.log with
- * Python's line format (its warnings and errors are the result's counts). Never worse than Python on safety: a source is deleted only
+ * The same files in the same shapes as MediaCache's Python had: MEDIACACHE_RESULT (status.json), MEDIACACHE_PROGRESS,
+ * mediacache_exclude.txt (its two sections), mediacache_themes.json, mediacache.lock (one run at a time), logs/mediacache.log with
+ * MediaCache's line format (its warnings and errors are the result's counts). Never worse than Python on safety: a source is deleted only
  * after rsync ended 0 and the sizes match; MEDIACACHE_STOP after the file(s) in flight; an incomplete plan never gives anything back
  * and makes no list where there was none; and, beyond Python: the array stopping (Unraid's var.ini: Stopping/Stopped) ends the
  * copy or move in flight at once (rsync and Unraid's move binary keep the source until their copy is whole) — result `stopped`.
@@ -39,8 +36,6 @@ if (!interface_exists('JackPlanHost', false)) {        // on its own (the run's 
 }
 
 const JACK_RUN_SOURCE = '7.4.0 (2026-10-15)';   // the MediaCache this was ported from (its __version__)
-const JACK_RUN_FLAG = 'php.json';              // 1.92.0's flag: PHP acts — now the default; still read (it wakes the comparison, jackShadowOn())
-const JACK_PYTHON_FLAG = 'python.json';         // support's way back (1.94.0): Python acts again where python3 exists
 const JACK_RUN_THEME = 'theme.mp3';
 const JACK_RUN_THEMES_MARK = '# USO themes: theme.mp3 kept on the pool for good (Unraid Secretary Office, Jack Streamer)';
 const JACK_RUN_MOVERS = ['/usr/libexec/unraid/move', '/usr/local/sbin/move', '/usr/local/bin/move'];
@@ -59,19 +54,6 @@ const JACK_RUN_VANISHED_SAID = 'Ein anderes Programm hat die halb kopierte Datei
     . '– die Quelle ist unversehrt, der nächste Lauf versucht es wieder: ';
 const JACK_RUN_PROGRESS_RE = '/^\s*([\d,.\']+)\s+(\d+)%\s+(\S+\/s)\s+(\d+:\d+:\d+)/';
 const JACK_RUN_LEVELS = ['DEBUG' => 10, 'INFO' => 20, 'WARNING' => 30, 'ERROR' => 40];
-
-/** php.json: a file (1.92.0's switch to PHP; since 1.94.0 PHP acts anyway — the file still wakes the comparison) */
-function jackPhpOn(?string $dir = null): bool
-{
-    return is_file(($dir ?? JACK_DATA) . '/' . JACK_RUN_FLAG);
-}
-
-/** python.json: a plain file, never a link (any content) — support asks Python to act again (jackPhpActs()) */
-function jackPythonAsked(?string $dir = null): bool
-{
-    $f = ($dir ?? JACK_DATA) . '/' . JACK_PYTHON_FLAG;
-    return !is_link($f) && is_file($f);
-}
 
 /** vanished(): rsync's temporary file was deleted in the target before its rename (code 23) */
 function jackRunVanished(int $rc, string $out): bool
@@ -176,7 +158,7 @@ final class JackRunLog
 // ===================================================================== where the answers come from
 
 /**
- * The plan's answers: the tape the comparison planned from (or the live servers), its clock, and the pool's numbers as the plan saw them
+ * The plan's answers: the live servers (or the tests' recorded answers, --tape), its clock, and the pool's numbers as the plan saw them
  * (give-back). Once the plan stands ($live = true), the pool's numbers are read for real again: the fill measures what the cleanup freed.
  */
 final class JackRunHost implements JackPlanHost
@@ -1577,7 +1559,7 @@ final class JackRunner
     /** the live servers (the theme.mp3 collector, a run without a tape); the tests' stand-in */
     public ?JackPlanHost $live = null;
 
-    /** @param ?JackPlanHost $tape the comparison's tape (or null: the live servers) */
+    /** @param ?JackPlanHost $tape the tests' recorded answers (or null: the live servers) */
     public function __construct(public array $cfg, public string $mode, public array $env, public JackRunPaths $paths, public JackRunLog $log,
                                 ?JackPlanHost $tape = null, public ?array $userFilter = null, public bool $showFiles = true,
                                 public string $plexTv = JACK_PLAN_PLEX_TV, public string $varIni = JACK_RUN_VAR_INI, public string $moverPid = JACK_RUN_MOVER_PID)
@@ -2546,10 +2528,9 @@ final class JackRunner
     // ----------------------------------------------------------------- right before acting
 
     /**
-     * What plays right now. With the comparison's tape the plan saw the sessions of its moment (up to JACK_SHADOW_SECONDS ago): the
-     * servers are asked once more, as Python's run asks at its start — what plays now is added to what the plan protects, never taken
-     * from it (the plan compared stays the plan executed). A server not answering: the tape's sessions stand, said. Without a tape the
-     * plan asked just now. [playing(rel), the live rels or null]
+     * What plays right now. From recorded answers (--tape, the tests) the plan saw the sessions of their moment: the servers are asked
+     * once more — what plays now is added to what the plan protects, never taken from it. A server not answering: the tape's sessions
+     * stand, said. Without a tape the plan asked just now. [playing(rel), the live rels or null]
      */
     private function playingNow(Closure $planned, bool $plannedOk): array
     {
@@ -2558,7 +2539,7 @@ final class JackRunner
         }
         [$rels, $names, $ok] = jackPlanSessions($this->cfg, $this->liveHost(), $this->plexTv);
         if (!$ok && $plannedOk) {          // a server the plan already saw silent was said then (and its plan is incomplete)
-            $this->log->warning('Was gerade läuft, jetzt nicht von jedem Medienserver erfahren – es gilt zusätzlich, was der Vergleich vor dem Lauf sah');
+            $this->log->warning('Was gerade läuft, jetzt nicht von jedem Medienserver erfahren – es gilt zusätzlich, was die aufgezeichneten Antworten sahen');
         }
         $live = fn (string $rel): bool => isset($rels["r$rel"]) || isset($names[jpName($rel)]);
         return [fn (string $rel): bool => $planned($rel) || $live($rel), jpSorted(array_map('strval', array_values($rels)))];
@@ -2659,7 +2640,7 @@ final class JackRunner
             $this->resultEnd($protected, $incomplete);
             return 0;
         }
-        // what plays right now, asked at Python's moment (its run asks first): the compared plan stays, this only protects more
+        // what plays right now (from recorded answers the plan is older): the plan stays, this only protects more
         [$playing, $sessionsLive] = $this->playingNow($d['playing'], $d['sessions_ok']);
         $cleanup = $this->stillMayGoBack($loc, $d['cleanup'], $d['cleanup_sizes'], $protected, $playing);
         $decided['sessions_live'] = $sessionsLive;
@@ -2884,7 +2865,7 @@ function jackRunMain(array $argv, array $env, ?JackPlanHost $live = null, mixed 
     if (isset($opt['--tape'])) {
         $tape = JackPlanTape::read($opt['--tape']);
         if ($tape === null) {
-            $log->warning('Die Antworten des Vergleichs (--tape) sind nicht lesbar – der Lauf fragt die Medienserver selbst');
+            $log->warning('Die aufgezeichneten Antworten (--tape) sind nicht lesbar – der Lauf fragt die Medienserver selbst');
         }
     }
     jackPlanPython($tape !== null ? $tape->python : [3, 11]);
@@ -2926,7 +2907,7 @@ function jackRunMain(array $argv, array $env, ?JackPlanHost $live = null, mixed 
             try {
                 writeAtomic($opt['--plan-out'], jackRunJson($runner->planDoc), 0600, 0, 0);
             } catch (Throwable) {
-                // only the night file's word is missing then
+                // only the tests' look at the plan is missing then
             }
         }
     }

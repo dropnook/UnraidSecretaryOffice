@@ -424,7 +424,6 @@ You need Unraid **7.3.2 or a newer 7.x**. Nothing else to install.
 
 - Unraid 8 is not supported yet; the plugin refuses to install there.
 - Snapshots need ZFS or btrfs. Shares on XFS are backed up without one. Partner offices need ZFS.
-- Jack Streamer needs no Python 3.
 - Before you update Unraid, look for an office release that names the new version. Unraid switches off a plugin that
   doesn't, and the scheduled backups stop with it. The Team Lead reminds you.
 

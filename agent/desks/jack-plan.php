@@ -5,12 +5,12 @@ declare(strict_types=1);
  * Jack Streamer: MediaCache's PLAN in PHP (2026-11-07). A port of the planning part of MediaCache by helmi1987 (GNU GPL v3 or
  * later; https://github.com/helmi1987/mediacache-for-unraid), from the office's copy mediacache/mediacache_lib.py and
  * mediacache_run.py, version 7.4.0 (2026-10-15) with its `USO` changes as of the office's 1.89.0. This file is GPL-3.0-or-later
- * too; mediacache/README.md says so. A later fix upstream or in that copy is ported here by hand.
+ * too; mediacache/README.md says so. A later fix upstream is ported here by hand. Since 1.95.6 the Python copy is gone: this and
+ * jack-run.php are MediaCache in the office.
  *
- * Why: Python 3 for Unraid loses its maintainer's support on 2026-11-30. For now this runs only in the shadow of Python
- * (jack-shadow.php, behind a flag file): THIS FILE NEVER COPIES, MOVES OR DELETES A FILE, WRITES NO LIST AND NO SETTING. What is
- * here reads the settings and the list, asks the media servers, looks with stat, and returns a plan: an array in the same
- * stable shape as mediacache_shadow.py's (jackPlanDry()).
+ * THIS FILE NEVER COPIES, MOVES OR DELETES A FILE, WRITES NO LIST AND NO SETTING (jack-run.php acts on its plan). What is here reads
+ * the settings and the list, asks the media servers, looks with stat, and returns a plan: an array in one stable shape
+ * (jackPlanDry()).
  *
  * The port keeps Python's shape on purpose, function by function, so a later fix can be carried across and a difference
  * can be looked up. Where Python's data types decide what happens (an odd answer from a server), the helpers jp*() do what Python
@@ -21,11 +21,11 @@ declare(strict_types=1);
  * Paths are bytes here and str in Python. Order: UTF-8's byte order is the code points' order; a byte that is no UTF-8 is, as in
  * Python's surrogateescape, U+DC80+byte (jpCmp()). Such a byte is written as \xNN in the plan on both sides (jackPlanClean()). Names:
  * person_key() needs NFKD, casefold and lower(); PHP here has no intl, and mbstring's Unicode is newer than Python's: jack-plan-names.txt
- * holds the tables of the Python the comparison runs against (tests/shadow/gen-names.py; tools note at jpPersonKey()).
+ * holds the tables of the Python it was ported against (3.11, Unicode 14.0; note at jpPersonKey()).
  */
 
 const JACK_PLAN_SOURCE = '7.4.0 (2026-10-15)';      // the MediaCache this was ported from
-const JACK_PLAN_TAPE_V = 1;                         // mediacache_shadow.py's TAPE_V
+const JACK_PLAN_TAPE_V = 1;                         // the recorded answers' version (JackPlanTape)
 const JACK_PLAN_THEME  = 'theme.mp3';
 const JACK_PLAN_TYPES  = ['emby', 'jellyfin', 'plex'];
 const JACK_PLAN_FIELDS = 'Path,SeriesId,ParentIndexNumber,IndexNumber,LocationType';
@@ -487,9 +487,9 @@ function jpSortPaths(array $paths): array
  * person_key(): the same name ignoring case, spaces and accents. NFKD without intl: jack-plan-names.txt, made from Python's own
  * unicodedata (one line per character whose NFKD is another: «hex,hex hex …»; then `#combining`, ranges of hex with a
  * non-zero combining class; `#casefold` and `#lower`, the characters str.casefold()/str.lower() change). Hangul's syllables by their
- * rule. The table is that of the Python the comparison runs against (now Tower's 3.11, Unicode 14.0; its first line says which). WHEN
- * PYTHON IS GONE: keep the table (PHP then decides alone — the same people as before) or switch to mbstring's MB_CASE_FOLD and
- * mb_strtolower (a newer Unicode: about 30 rare letters fold otherwise); never regenerate it from another Python while both run.
+ * rule. The table is that of the Python the port was compared against until 1.95.6 (Tower's 3.11, Unicode 14.0; its first line says
+ * which), kept so the same people stay the same person. It is data now, made once; switching to mbstring's MB_CASE_FOLD and
+ * mb_strtolower (a newer Unicode) would fold about 30 rare letters otherwise.
  */
 function jpPersonKey(mixed $name): string
 {
@@ -835,7 +835,7 @@ function jackPlanTimeout(mixed $t): float
     return (float) $t;
 }
 
-/** The hash a token stands as on the tape (mediacache_shadow.py: token_id()); a `tape:<hash>` from an answer on the tape is that hash */
+/** The hash a token stands as on the tape (recorded answers); a `tape:<hash>` from an answer on the tape is that hash */
 function jackPlanTokenId(string $token): string
 {
     return str_starts_with($token, 'tape:') ? substr($token, 5) : substr(hash('sha256', $token), 0, 16);
@@ -1232,7 +1232,7 @@ final class JackPlanLive implements JackPlanHost
                 $lines[] = "$k: $v";
             }
             $ctx = stream_context_create(['http' => ['method' => 'GET', 'header' => $lines, 'timeout' => $timeout, 'ignore_errors' => true, 'follow_location' => 0, 'max_redirects' => 0,
-                                                     'user_agent' => 'Python-urllib/3 (MediaCache shadow)', 'protocol_version' => 1.1]]);
+                                                     'user_agent' => 'MediaCache/' . strtok(JACK_PLAN_SOURCE, ' ') . ' (Unraid Secretary Office)', 'protocol_version' => 1.1]]);
             $path = (string) parse_url($url, PHP_URL_PATH);
             $fh = @fopen($url, 'r', false, $ctx);
             if ($fh === false) {
@@ -1304,9 +1304,9 @@ function jackPlanUrlJoin(string $base, string $location): string
 }
 
 /**
- * The one set of answers (mediacache_shadow.py's --tape): each request is answered from what Python's dry run got for exactly that
- * URL and token, in the order it got them. What Python never asked is noted (`missing`), what it asked and this side didn't
- * remains (`left()`): a different question is a difference in the logic. A key is never on it, only a token's hash.
+ * Recorded answers (the tests' fixtures, jack-run.php --tape): each request is answered from what was recorded for exactly that
+ * URL and token, in the order recorded. What was never recorded is noted (`missing`), what was recorded and not asked remains
+ * (`left()`). A key is never on it, only a token's hash.
  */
 final class JackPlanTape implements JackPlanHost
 {
@@ -1321,7 +1321,7 @@ final class JackPlanTape implements JackPlanHost
 
     public int $asked = 0;
 
-    /** @var array{int, int} the Python that wrote it (its rules: jpStem()) */
+    /** @var array{int, int} the Python whose rules it was recorded under (jpStem()); 3.11 unless its header says otherwise */
     public array $python = [3, 11];
 
     public static function read(string $file): ?self
@@ -1376,7 +1376,7 @@ final class JackPlanTape implements JackPlanHost
         return isset($r['body64']) ? (string) base64_decode($r['body64'], true) : (string) $r['body'];
     }
 
-    /** @return array<string, int> what Python asked and this side didn't: URL => how often */
+    /** @return array<string, int> what was recorded and not asked: URL => how often */
     public function left(): array
     {
         $out = [];
@@ -1799,7 +1799,7 @@ final class JackPlanner
     private ?string $planning = null;
 
     /** The real run in PHP (jack-run.php): Python's log lines of the plan, at its places and levels (they count as its warnings and
-     *  errors); null: silent, as in the shadow. fn (string $level, string $message): void */
+     *  errors); null: silent (a plan only looked at). fn (string $level, string $message): void */
     public ?Closure $say = null;
 
     public function __construct(private array $cfg, private JackPlanHost $host, private string $plexTv = JACK_PLAN_PLEX_TV)
@@ -2621,7 +2621,7 @@ function jackPlanCleanup(array $cfg, JackPlanLocations $loc, array $list, array 
  * Everything a run decides before it moves anything, in Runner._execute()'s order: sessions, the plan, what goes back by rank
  * (give_back()), the cleanup's selection («incomplete»: no cleanup, the old list protected, never «nothing watched»). The dry plan
  * (jackPlanDry()) and the real run in PHP (jack-run.php) both act on exactly this; nothing here moves or writes. $say: Python's log
- * lines (the real run), null silent (the shadow).
+ * lines (the real run), null silent (a plan only looked at).
  *
  * @param array<string, string> $env what Python would find in its environment
  */
@@ -2818,7 +2818,7 @@ function jackPlanDryFill(array $d, JackPlanHost $host, ?Closure $say = null, ?Cl
         }
         $src = $loc->onArray($f->rel);
         $disks = [];
-        // Locations.on_disk(): the shadow looks at no disk unless the copy reads from one (array_source disk); the run's dry mode as Python's
+        // Locations.on_disk(): a silent plan looks at no disk unless the copy reads from one (array_source disk); the run's dry mode as MediaCache's
         foreach ($cfg['array_source'] === 'disk' || $say !== null ? glob(jpJoin(jpNorm($cfg['array_disks_glob']), $f->rel)) ?: [] : [] as $disk) {
             if (file_exists($disk)) {
                 $disks[] = $disk;
@@ -2872,7 +2872,7 @@ function jackPlanDiskName(string $path, array $cfg): string
 }
 
 /**
- * The plan in the stable shape of mediacache_shadow.py's (both sides of the comparison, and what the real run in PHP acted on): the
+ * The plan in one stable shape (the dry plan, and what the real run in PHP acted on, --plan-out): the
  * decisions ($d, jackPlanDecide()) and the fill ($fill, jackPlanDryFill() or the real run's).
  */
 function jackPlanDoc(array $d, array $fill): array
@@ -2911,7 +2911,7 @@ function jackPlanDoc(array $d, array $fill): array
 }
 
 /**
- * Runner's dry run, every decision of it, in the shape of mediacache_shadow.py's plan: nothing moves, nothing is written.
+ * Runner's dry run, every decision of it, in the plan's stable shape (jackPlanDoc()): nothing moves, nothing is written.
  *
  * @param array<string, string> $env what Python would find in its environment
  */
@@ -2978,47 +2978,4 @@ function jackPlanRun(array $env, JackPlanHost $host, string $plexTv = JACK_PLAN_
     } catch (Throwable $e) {
         return ['outcome' => 'crash', 'tape' => JACK_PLAN_TAPE_V, 'detail' => get_class($e) . ': ' . jackPlanCleanText($e->getMessage())];
     }
-}
-
-/**
- * The plan as a process of its own (jack-shadow.php starts it, and stops it at once when the array stops, a stop is asked or its time is
- * up: nothing of the share is held while it plans): `php jack-plan.php --env <json> --out <json> --mode run|release [--tape <file>]
- * [--plex-tv <url>]`. Without --tape it asks the servers itself (JackPlanLive). Writes {plan, asked, failed, missing, left}, 0600.
- */
-function jackPlanMain(array $argv): int
-{
-    $opt = [];
-    for ($i = 1; $i < count($argv) - 1; $i += 2) {
-        $opt[ltrim((string) $argv[$i], '-')] = (string) $argv[$i + 1];
-    }
-    $env = json_decode((string) @file_get_contents($opt['env'] ?? ''), true);
-    if (!is_array($env) || !isset($opt['out'])) {
-        fwrite(STDERR, "jack-plan: --env and --out\n");
-        return 2;
-    }
-    $host = isset($opt['tape']) ? JackPlanTape::read($opt['tape']) : new JackPlanLive($env);
-    if ($host === null) {
-        fwrite(STDERR, "jack-plan: no tape\n");
-        return 2;
-    }
-    $plan = jackPlanRun(array_map('strval', $env), $host, $opt['plex-tv'] ?? JACK_PLAN_PLEX_TV, ($opt['mode'] ?? 'run') === 'release' ? 'release' : 'run');
-    $out = ['plan' => $plan, 'asked' => $host->asked, 'failed' => $host instanceof JackPlanLive ? $host->failed : 0,
-            'missing' => $host instanceof JackPlanTape ? $host->missing : [], 'left' => $host instanceof JackPlanTape ? $host->left() : []];
-    $tmp = $opt['out'] . '.tmp';
-    umask(077);
-    if (@file_put_contents($tmp, (string) json_encode($out, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)) === false || !@rename($tmp, $opt['out'])) {
-        return 1;
-    }
-    return 0;
-}
-
-if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath((string) $argv[0]) === __FILE__) {
-    if (!function_exists('run')) {
-        if (!defined('FILE_UID')) {
-            define('FILE_UID', 0);
-            define('FILE_GID', 0);
-        }
-        require_once dirname(__DIR__) . '/lib/util.php';
-    }
-    exit(jackPlanMain($argv));
 }
