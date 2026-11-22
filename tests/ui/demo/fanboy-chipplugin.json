@@ -374,6 +374,8 @@
  "twins": [],
  "names": [],
  "hints_open": true,
+ "no_fan_chip": true,
+ "temps_missing": [],
  "counts": {
   "outputs": 0,
   "fans": 1,
@@ -1349,6 +1351,7 @@
   },
   "can": true,
   "blocked": "",
+  "risky": false,
   "loaded": [],
   "need": "plugin",
   "chip": {

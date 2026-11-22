@@ -262,12 +262,16 @@ function fanboyChipSkip(array $p): string
     return $named ? '' : 'no_maker';
 }
 
-/** Why a read can't be made now ('' = it can): maker (a Gigabyte board) · no_maker · no_port · locked · held (a driver loaded) */
-function fanboyChipBlocked(?array $p = null): string
+/**
+ * Why a read can't be made now ('' = it can): maker (a Gigabyte board) · no_maker · no_port · locked · held (a driver
+ * loaded). $risk (2026-11-21, the owner: «A+B, aber auch für Gigabyte»): the user confirmed the warning — a maker or
+ * no_maker board is read then too; the port, the lockdown and a driver holding the chip still refuse it.
+ */
+function fanboyChipBlocked(?array $p = null, bool $risk = false): string
 {
     $p ??= fanboyPaths();
     $skip = fanboyChipSkip($p);
-    if ($skip !== '') {
+    if ($skip !== '' && !$risk) {
         return $skip;
     }
     $port = fanboyPortPath();
@@ -284,11 +288,12 @@ function fanboyChipBlocked(?array $p = null): string
  * The action: on the user's click only. $io from the tests only (a fake chip); the agent opens /dev/port. Kept per
  * board, logged; returns what was kept.
  */
-function fanboyChipRead(?array $io = null): array
+function fanboyChipRead(?array $io = null, bool $risk = false): array
 {
     $p = fanboyPaths();
     $board = fanboyBoard($p['dmi']);
-    $blocked = fanboyChipBlocked($p);
+    $skip = fanboyChipSkip($p);
+    $blocked = fanboyChipBlocked($p, $risk);
     $ports = [];
     $result = $blocked;
     if ($blocked === '') {
@@ -315,7 +320,7 @@ function fanboyChipRead(?array $io = null): array
     $j['boards'][fanboyBoardKey($board)] = $kept;
     @mkdir(FANBOY_DIR, 0700, true);
     writeAtomic(FANBOY_DIR . '/' . FANBOY_CHIP_FILE, jsonEncode($j), 0600);
-    logLine('Fanboy: fan chip read on the user\'s click — ' . ($result === 'read'
+    logLine('Fanboy: fan chip read on the user\'s click' . ($risk && $skip !== '' ? " past the warning ($skip board: the user confirmed the risk)" : '') . ' — ' . ($result === 'read'
         ? implode(', ', array_map(fn ($x) => $x['port'] . ' ' . ($x['id'] ?? 'nothing') . ($x['via'] ? " ({$x['via']})" : ''), $kept['ports']))
         : $result . ($kept['modules'] ? ' (' . implode(', ', $kept['modules']) . ')' : '')));
     return ['ok' => true, 'chip' => $kept];
@@ -391,7 +396,9 @@ function fanboyChipState(array $scan): array
     $kept = fanboyChipKept($board);
     $loaded = fanboySioModulesLoaded();
     $blocked = fanboyChipBlocked();
-    $out = ['kept' => $kept, 'can' => $blocked === '', 'blocked' => $blocked, 'loaded' => $loaded, 'need' => 'not_read', 'chip' => null, 'plugin' => null,
+    // 2026-11-21: on a board never read by itself, whether a read past the warning could be made (port, lockdown, no driver)
+    $risky = in_array($blocked, ['maker', 'no_maker'], true) && fanboyChipBlocked(null, true) === '';
+    $out = ['kept' => $kept, 'can' => $blocked === '', 'blocked' => $blocked, 'risky' => $risky, 'loaded' => $loaded, 'need' => 'not_read', 'chip' => null, 'plugin' => null,
             'restart' => false, 'words' => []];
     $chip = null;
     if ($kept !== null && $kept['result'] === 'read') {

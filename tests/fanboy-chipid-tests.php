@@ -354,7 +354,7 @@ function testFanboyChipRead(): void
         $all .= (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', (string) file_get_contents($f));
     }
     check('fanboy chip read: fanboyChipRead() called only by the action chip_read, fanboySioScan() only by fanboyChipRead(); /dev/port opened in one place',
-        substr_count($all, 'fanboyChipRead(') === 2 && str_contains($all, "'chip_read'     => fn (array \$r) => fanboyChipRead() +")
+        substr_count($all, 'fanboyChipRead(') === 2 && str_contains($all, "'chip_read'     => fn (array \$r) => fanboyChipRead(null, isset(\$r['confirm_risk']) && boolField(\$r, 'confirm_risk')) +")
         && substr_count($all, 'fanboySioScan(') === 2 && substr_count($all, 'fanboyPortOpen(') === 2 && substr_count($src, 'fopen(') === 1
         && substr_count($src, 'fwrite(') === 1 && str_contains($src, 'stream_set_read_buffer($f, 0);') && str_contains($src, 'stream_set_write_buffer($f, 0);'));
 }
@@ -498,4 +498,236 @@ function testFanboyChipReport(): void
         'Fan chip: 0x2e 0xd800 winbond, 0x4e nothing is Nuvoton NCT6796D-S NCT6799D-R, needs unraid', explode("\n", fanboyChipReportText(fanboyDetect(fanboySysRoot())))[4]);
     fanboyTEnd();
     same('fanboy chip report: not read — said so', 'Fan chip: not read', fanboyChipReportLine(['kept' => null]));
+}
+
+/**
+ * 2026-11-21 (the owner: «A+B, aber auch für Gigabyte»): on a board never read by itself (Gigabyte, no maker named) the
+ * read only on the user's confirmed click — confirm_risk: true; without it refused as before; the port, the lockdown and
+ * a driver holding the chip still refuse it. Every port here is the tests' (a fake chip, or the tree's plain file).
+ */
+function testFanboyChipRisk(): void
+{
+    $boards = ['maker' => ['board' => ['Gigabyte Technology Co., Ltd.', 'EXAMPLE Z890']], 'no_maker' => ['board' => ['To be filled by O.E.M.', 'Default string']]];
+    $got = $want = [];
+    foreach ($boards as $code => $spec) {
+        $t = fanboyChipTree("risk-$code", $spec);
+        $port = "{$t['chiproot']}/dev/port";
+        $md5 = md5_file($port);
+        [$io, $emu] = fanboyChipEmu([['port' => 0x2e, 'family' => 'ite', 'id' => 0x8696]]);
+        $no = fanboyChipRead($io);
+        $untouched = $emu->log === [] && md5_file($port) === $md5;
+        $st = fanboyChipState(fanboyDetect(fanboySysRoot()));
+        $yes = fanboyChipRead($io, true);
+        $log = (string) @file_get_contents(AGENT_LOG);
+        $got[$code] = [$no['chip']['result'], $untouched, $st['can'], $st['blocked'], $st['risky'], $yes['chip']['result'], $yes['chip']['ports'][0]['id'], $emu->log !== [],
+            str_contains($log, "fan chip read on the user's click past the warning ($code board: the user confirmed the risk)")];
+        $want[$code] = [$code, true, false, $code, true, 'read', '0x8696', true, true];
+        fanboyTEnd();
+    }
+    same('fanboy chip risk: Gigabyte and no maker — without the confirm not one byte (as before); the state offers the read past the warning (risky); with it read (the fake chip found), logged with the reason',
+        $want, $got);
+
+    // past the warning the other refusals stay: no port, lockdown, a driver holding the chip — nothing written
+    $reasons = [
+        'no /dev/port' => [['drop' => ['dev/port']], 'no_port'],
+        'locked down' => [['files' => ['sys/kernel/security/lockdown' => "none [integrity] confidentiality\n"]], 'locked'],
+        'a driver loaded (it87)' => [['modules' => ['it87']], 'held'],
+    ];
+    $got = $want = [];
+    foreach ($reasons as $what => [$spec, $code]) {
+        $t = fanboyChipTree('riskwhy-' . md5($what), $spec + $boards['maker']);
+        $port = "{$t['chiproot']}/dev/port";
+        $md5 = is_file($port) ? md5_file($port) : null;
+        [$io, $emu] = fanboyChipEmu([['port' => 0x2e, 'family' => 'ite', 'id' => 0x8696]]);
+        $st = fanboyChipState(fanboyDetect(fanboySysRoot()));
+        $j = fanboyChipRead(null, true);
+        $got[$what] = [$st['risky'], $j['chip']['result'], is_file($port) ? md5_file($port) === $md5 : true];
+        $want[$what] = [false, $code, true];
+        fanboyTEnd();
+    }
+    same('fanboy chip risk: … the port missing, the lockdown, a driver holding the chip — not offered (risky false), refused past the warning too, the port file untouched', $want, $got);
+    $t = fanboyChipTree('risk-named');
+    same('fanboy chip risk: a board read by itself — nothing to confirm (risky false, can true)', [false, true], [($s = fanboyChipState(fanboyDetect(fanboySysRoot())))['risky'], $s['can']]);
+    fanboyTEnd();
+
+    // the action as the page calls it: confirm_risk missing, false or not a boolean — refused as today; true — read (the
+    // tests' tree: /dev/port a plain file, nothing found, only its four bytes written)
+    $t = fanboyChipTree('risk-action', $boards['maker']);
+    $port = "{$t['chiproot']}/dev/port";
+    $md5 = md5_file($port);
+    $act = desks()['fanboy']['actions']['chip_read'];
+    $plain = [$act([])['chip']['result'], $act(['confirm_risk' => false])['chip']['result'], md5_file($port) === $md5];
+    $bad = [];
+    foreach (['yes', 1, 'true'] as $v) {
+        try {
+            $act(['confirm_risk' => $v]);
+            $bad[] = 'taken';
+        } catch (Problem $e) {
+            $bad[] = $e->getMessage();
+        }
+    }
+    $plain[] = $act(['confirm_risk' => null])['chip']['result'];          // null: as missing
+    $plain[] = md5_file($port) === $md5;
+    $j = $act(['confirm_risk' => true]);
+    $after = (string) file_get_contents($port);
+    $changed = [];
+    for ($i = 0; $i < 0x100; $i++) {
+        if ($after[$i] !== "\xff") {
+            $changed[] = $i;
+        }
+    }
+    same('fanboy chip risk: the action — no confirm, false or null: «maker», the port file untouched; «yes», 1, "true": bad_request; true: read through the tree\'s file (0x2e, 0x2f, 0x4e, 0x4f only), the new state along',
+        [['maker', 'maker', true, 'maker', true], ['bad_request', 'bad_request', 'bad_request'], 'read', [0x2e, 0x2f, 0x4e, 0x4f], true],
+        [$plain, $bad, $j['chip']['result'], $changed, isset($j['state']['chip'])]);
+    fanboyTEnd();
+
+    // the page: the button only where risky, a warning first, the read only from the confirmed click; the words in five
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    check('fanboy chip risk page: «Read the fan chip anyway…» only where the state says risky; it opens the warning (Gigabyte or no maker named, then the risk); only its yes sends confirm_risk: true',
+        str_contains($js, 'if (c.risky) bar.appendChild(chipRiskyButton());') && substr_count($js, '{ confirm_risk: true }') === 1
+        && str_contains($js, "T(c.blocked === 'maker' ? 'chip.risk_maker' : 'chip.risk_no_maker')")
+        && (bool) preg_match("~Office\\.dialog\\(\\{\\s*title: T\\('chip\\.risk_title'\\),.*?buttons: \\[\\{ text: t\\('common\\.cancel'\\) \\}, \\{ text: T\\('chip\\.risk_go'\\), kind: '', act: async \\(\\) => \\{\\s*await act\\('chip_read', \\{ confirm_risk: true \\}~s", $js));
+    $l = [];
+    foreach (['en', 'de', 'fr', 'es', 'it'] as $c) {
+        $l[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true);
+    }
+    $keys = ['chip.read_risky', 'chip.read_risky_tip', 'chip.risk_title', 'chip.risk_maker', 'chip.risk_no_maker', 'chip.risk_text', 'chip.risk_go'];
+    same('fanboy chip risk words: in all five; the risk said plainly — two ITE chips, the LPC bus, Linux\'s own driver warns, a hang and a hard reset; «never by itself» where he never asks',
+        array_fill_keys(array_keys($l), [true, true, true]),
+        array_map(fn ($x) => [!array_diff($keys, array_keys(array_filter($x, fn ($v) => is_string($v) && trim($v) !== ''))),
+            str_contains($x['chip.risk_text'], 'ITE') && str_contains($x['chip.risk_text'], 'LPC') && str_contains($x['chip.risk_text'], 'Linux') && str_contains($x['chip.risk_text'], 'Gigabyte'),
+            !str_contains($x['help.chip_text'] ?? '', 'never on a Gigabyte')], $l));
+    check('fanboy chip risk words: the hang and the hard reset in English and German',
+        str_contains($l['en']['chip.risk_text'], 'hang') && str_contains($l['en']['chip.risk_text'], 'hard reset')
+        && str_contains($l['de']['chip.risk_text'], 'hängen') && str_contains($l['de']['chip.risk_text'], 'hart neu gestartet')
+        && str_contains($l['en']['chip.blocked.maker'], 'by himself') && str_contains($l['de']['chip.blocked.maker'], 'nie von selbst'));
+}
+
+/**
+ * 2026-11-21 (a user's report): no driver of a fan chip loaded at all — said plainly, with the way; another fan control set
+ * to an output that isn't there — named, read only. Both in the makers' report (file names only, no path).
+ */
+function testFanboyNoFanChip(): void
+{
+    $af = fn (string $hw) => ['dynamix.system.autofan.plg' => '<PLUGIN/>',
+        'dynamix.system.autofan/fan.cfg' => "service=\"1\"\ncontroller=\"/sys/class/hwmon/$hw/pwm1\"\nfan=\"/sys/class/hwmon/$hw/fan1_input\"\n"];
+    $look = function (array $spec, string $name): array {
+        $root = fanboyFakeTree(hardeningTmp("fanboy-nofan-$name"), $spec);
+        $scan = fanboyDetect($root);
+        return [$scan, fanboyReportText($scan)];
+    };
+    $board = fanboyFakeBoard(10);
+    $noIte = $board;
+    $noIte['chips'] = array_values(array_filter($board['chips'], fn ($c) => $c[1] !== 'it8696_a0060607'));
+    $gpu = $noIte;
+    $gpu['chips'][] = [11, 'amdgpu', 'pci0000:00/0000:00:03.0/0000:0a:00.0', 'amdgpu', 'pwm' => [1 => [100, 2, false]], 'fans' => [1 => 900]];
+    [$withIte] = $look($board, 'ite');
+    [$none, $noneText] = $look($noIte, 'none');
+    [$gpuScan] = $look($gpu, 'gpu');
+    same('fanboy no fan chip: the ITE chip there — false; none (only acpi_fan\'s word on a fan) — true and in the report; a graphics card\'s own fan aside — still true',
+        [false, true, true, true],
+        [$withIte['no_fan_chip'], $none['no_fan_chip'], str_contains($noneText, "\nFan chip driver: none loaded (no chip with a fan output or a fan input)"), $gpuScan['no_fan_chip']]);
+    check('fanboy no fan chip: … the report without it while a chip is there', !str_contains(fanboyReportText($withIte), 'Fan chip driver:'));
+
+    // Autofan set to hwmon4 (gigabyte_wmi: temperatures only) — both missing; set to the ITE chip — nothing missing
+    $gone = $noIte;
+    $gone['plugins'] = $board['plugins'] + $af('hwmon4');
+    $there = $board;
+    $there['plugins'] = $board['plugins'] + $af('hwmon10');
+    [$g, $gText] = $look($gone, 'gone');
+    [$h, $hText] = $look($there, 'there');
+    $ctl = fn ($scan) => array_map(fn ($c) => [$c['id'], $c['targets'], $c['missing']], $scan['controllers']);
+    same('fanboy no fan chip: Autofan set to an output of a temperature-only chip — both its paths named as missing; set to the ITE chip\'s — none missing',
+        [[['dynamix.system.autofan', ['/sys/class/hwmon/hwmon4/pwm1', '/sys/class/hwmon/hwmon4/fan1_input'], ['/sys/class/hwmon/hwmon4/pwm1', '/sys/class/hwmon/hwmon4/fan1_input']]],
+         [['dynamix.system.autofan', ['/sys/class/hwmon/hwmon10/pwm1', '/sys/class/hwmon/hwmon10/fan1_input'], []]]],
+        [$ctl($g), $ctl($h)]);
+    same('fanboy no fan chip: … the report names the missing outputs by their file name only (no path), and nothing where they are there',
+        [true, false, false],
+        [str_contains($gText, "\nOther controller: dynamix.system.autofan (settings on, loop not running), set to pwm1, fan1_input which is not there\n"),
+         str_contains($gText, '/sys'), str_contains($hText, 'which is not there')]);
+    // a value that isn't a /sys path (or climbs out) is never looked at
+    $odd = $board;
+    $odd['plugins'] = $board['plugins'] + ['dynamix.system.autofan.plg' => '<PLUGIN/>',
+        'dynamix.system.autofan/fan.cfg' => "service=\"1\"\ncontroller=\"/etc/passwd\"\nfan=\"/sys/class/hwmon/../../etc/x\"\n"];
+    [$o] = $look($odd, 'odd');
+    same('fanboy no fan chip: … a setting outside /sys or with «..» — not a target, nothing said', [[], []], [$o['controllers'][0]['targets'], $o['controllers'][0]['missing']]);
+    // read only: Autofan's settings file the same after the look
+    $root = fanboyFakeTree(hardeningTmp('fanboy-nofan-ro'), $gone);
+    $cfg = glob("$root/boot/config/plugins/dynamix.system.autofan/fan.cfg") ?: glob("$root/*/dynamix.system.autofan/fan.cfg") ?: [];
+    $before = $cfg ? md5_file($cfg[0]) : null;
+    fanboyDetect($root);
+    check('fanboy no fan chip: … Autofan\'s settings file untouched by the look (read only)', $cfg !== [] && md5_file($cfg[0]) === $before);
+
+    // the page: the plain sentence with the way (System Temp's Detect, the ITE plugin by name, the BIOS); the other
+    // control's missing output named; the bubble; in all five languages
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    check('fanboy no fan chip page: the banner says it (with the ITE plugin\'s name), each missing output of another control named, the bubble too',
+        str_contains($js, "S().no_fan_chip ? T('situation.no_fan_chip', { ite: toolName('it87-driver') })")
+        && str_contains($js, "(S().controllers || []).forEach((x) => (x.missing || []).forEach((path) => box('warn', T(/\\/pwm\\d+$/.test(path) ? 'situation.other_missing' : 'situation.other_missing_fan', { who: x.name, path })")
+        && str_contains($js, "if (s === 'no_output' && S().no_fan_chip) return T('bubble.no_fan_chip');"));
+    $l = [];
+    foreach (['en', 'de', 'fr', 'es', 'it'] as $c) {
+        $l[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true);
+    }
+    same('fanboy no fan chip words: in all five — Detect, Dynamix System Temp, the ITE plugin {ite}, the BIOS; the other control {who} and {path} (an output, a fan input), its settings not touched; the bubble',
+        array_fill_keys(array_keys($l), [true, true, true]),
+        array_map(fn ($x) => [
+            str_contains($x['situation.no_fan_chip'] ?? '', '«Detect»') && str_contains($x['situation.no_fan_chip'], 'Dynamix System Temp') && str_contains($x['situation.no_fan_chip'], '{ite}')
+                && str_contains($x['situation.no_fan_chip_bios'] ?? '', 'BIOS') && str_contains($x['situation.no_fan_chip'], 'ITE'),
+            !array_filter(['situation.other_missing', 'situation.other_missing_fan'], fn ($k) => !str_contains($x[$k] ?? '', '{who}') || !str_contains($x[$k], '{path}') || !str_contains($x[$k], 'Fanboy')),
+            trim((string) ($x['bubble.no_fan_chip'] ?? '')) !== ''], $l));
+}
+
+/**
+ * 2026-11-21 (the owner: «Hinweise helfen … Treiber sind immer mühsam, nicht nur für die Lüfter, auch für die Fühler»):
+ * the kinds of temperature a server usually has that no chip shows — said with the way, a hint; nothing when all is there.
+ * And the BIOS's part under the «no fan chip driver» hint.
+ */
+function testFanboyTempsMissing(): void
+{
+    $look = function (array $spec, string $name): array {
+        $root = fanboyFakeTree(hardeningTmp("fanboy-temps-$name"), $spec);
+        $scan = fanboyDetect($root);
+        return [$scan, fanboyReportText($scan)];
+    };
+    $board = fanboyFakeBoard(10);
+    // no board sensors, fans there: the fan chip without temperature inputs, no board WMI (acpitz stays: not a sensor chip)
+    $noBoard = $board;
+    $noBoard['chips'] = array_values(array_filter(array_map(fn ($c) => $c[1] === 'it8696_a0060607' ? ['temps' => []] + $c : $c, $board['chips']), fn ($c) => $c[1] !== 'gigabyte_wmi'));
+    $noCpu = $board;
+    $noCpu['chips'] = array_values(array_filter($board['chips'], fn ($c) => $c[1] !== 'coretemp'));
+    $amd = $noCpu;
+    $amd['chips'][] = [12, 'k10temp', 'pci0000:00/0000:00:18.3', 'k10temp', 'temps' => [1 => [41000, 'Tctl']]];
+    [$all, $allText] = $look($board, 'all');
+    [$nb, $nbText] = $look($noBoard, 'noboard');
+    [$nc, $ncText] = $look($noCpu, 'nocpu');
+    [$k10] = $look($amd, 'amd');
+    same('fanboy temps missing: everything there — nothing; no board sensors (fans there, acpitz aside) — board; no coretemp — cpu; k10temp instead — nothing',
+        [[], ['board'], true, ['cpu'], []],
+        [$all['temps_missing'], $nb['temps_missing'], count(array_filter($nb['chips'], fn ($c) => $c['fans'])) > 0, $nc['temps_missing'], $k10['temps_missing']]);
+    same('fanboy temps missing: the report — one line for what is missing, none when all is there',
+        [false, true, true],
+        [str_contains($allText, 'Temperatures not seen'), str_contains($nbText, "\nTemperatures not seen: board sensors\n"), str_contains($ncText, "\nTemperatures not seen: CPU\n")]);
+
+    // the page: the hint in step 1 (both ways) and under the zones' source list; never in a virtual machine; the BIOS
+    // paragraph under the «no driver» hint, the ITE IT8613E only where the chip read or the board points to ITE
+    $js = (string) file_get_contents(OFFICE_WEB . '/desks/fanboy/desk.js');
+    check('fanboy temps missing page: tempsHint() from the agent\'s temps_missing (board, cpu), nothing in a VM; in step 1 and the zones\' source list; the BIOS paragraph and the ITE sentence under the «no driver» hint',
+        str_contains($js, "const miss = (S().temps_missing || []).filter((k) => ['board', 'cpu'].includes(k));") && str_contains($js, 'if (!miss.length || S().vm) return null;')
+        && substr_count($js, 'const th = tempsHint();') === 3
+        && str_contains($js, "p.appendChild(el('p', 'fb-hint-text', T('situation.no_fan_chip_bios')));")
+        && str_contains($js, "if ((chipNow().chip || {}).maker === 'ITE' || S().board_hint === 'ite') p.appendChild(el('p', 'fb-hint-text', T('situation.no_fan_chip_ite', { ite: toolName('it87-driver') })));"));
+    $l = [];
+    foreach (['en', 'de', 'fr', 'es', 'it'] as $c) {
+        $l[$c] = json_decode((string) file_get_contents(OFFICE_WEB . "/desks/fanboy/lang/$c.json"), true);
+    }
+    same('fanboy temps missing words: in all five — Detect in System Temp, the same step as the fans, coretemp/k10temp, the embedded controller and a BIOS update; the BIOS paragraph: OS control, Manual, PWM, a BIOS update; the IT8613E with the plugin',
+        array_fill_keys(array_keys($l), [true, true, true, true]),
+        array_map(fn ($x) => [
+            !array_filter(['temps.missing_board', 'temps.missing_cpu'], fn ($k) => !str_contains($x[$k] ?? '', 'Fanboy')),
+            str_contains($x['temps.way_board'] ?? '', '«Detect»') && str_contains($x['temps.way_board'], 'Dynamix System Temp') && str_contains($x['temps.way_cpu'] ?? '', 'coretemp')
+                && str_contains($x['temps.way_cpu'], 'k10temp') && str_contains($x['temps.way_bios'] ?? '', 'BIOS'),
+            str_contains($x['situation.no_fan_chip_bios'] ?? '', '«OS control»') && str_contains($x['situation.no_fan_chip_bios'], '«Manual»') && str_contains($x['situation.no_fan_chip_bios'], 'PWM')
+                && str_contains($x['situation.no_fan_chip_bios'], 'BIOS'),
+            str_contains($x['situation.no_fan_chip_ite'] ?? '', 'IT8613E') && str_contains($x['situation.no_fan_chip_ite'], '{ite}')], $l));
 }

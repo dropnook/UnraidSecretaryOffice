@@ -64,7 +64,9 @@ desk('fanboy', [
         'look_now'      => fn (array $r) => fanboyLookNow(),
         'drivers_load'  => fn (array $r) => fanboyDriversLoad() + ['state' => fanboyScan()],
         'drivers_undo'  => fn (array $r) => fanboyDriversUndo() + ['state' => fanboyScan()],
-        'chip_read'     => fn (array $r) => fanboyChipRead() + ['state' => fanboyScan()],      // 2026-11-20: the fan chip's id, on the click only
+        // 2026-11-20: the fan chip's id, on the click only; 2026-11-21 (the owner: «A+B, aber auch für Gigabyte»): on a board
+        // never read by itself (maker, no_maker) only with confirm_risk: true after the page's warning
+        'chip_read'     => fn (array $r) => fanboyChipRead(null, isset($r['confirm_risk']) && boolField($r, 'confirm_risk')) + ['state' => fanboyScan()],
         'chip_report'   => fn (array $r) => ['ok' => true, 'report' => fanboyChipReportText(fanboyDetect())],      // read only: the chip's id and the board's name
         'test_up'       => fn (array $r) => fanboyStepStart('test_up', idList($r, 'fans'), optBool($r, 'quiet', false), optBool($r, 'warm_ok', false)),     // round 8: quiet
         'measure'       => fn (array $r) => fanboyStepStart('measure', idList($r, 'fans'), false, optBool($r, 'warm_ok', false)),       // 2026-11-20: warm_ok, the user's tick
@@ -335,7 +337,16 @@ function fanboyReportText(array $scan, array $ipmiFans = []): string
     $lines[] = 'Disks outside array and pools: ' . count($un) . ($un ? ' (' . count(array_filter($un, fn ($d) => $d['rotational'])) . ' rotating, '
         . count(array_filter($un, fn ($d) => $d['asleep'])) . ' asleep, ' . count(array_filter($un, fn ($d) => !empty($d['in_use']))) . ' in use without a temperature)' : '');
     foreach ($scan['controllers'] ?? [] as $x) {
-        $lines[] = 'Other controller: ' . $clean($x['id']) . ' (settings ' . ($x['settings'] ? 'on' : 'off') . ', loop ' . ($x['running'] ? 'running' : 'not running') . ')';
+        // 2026-11-21: the outputs its settings name that aren't there — by their file name only (no path in the report)
+        $gone = array_map(fn ($t) => $clean(basename((string) $t)), $x['missing'] ?? []);
+        $lines[] = 'Other controller: ' . $clean($x['id']) . ' (settings ' . ($x['settings'] ? 'on' : 'off') . ', loop ' . ($x['running'] ? 'running' : 'not running') . ')'
+            . ($gone ? ', set to ' . implode(', ', $gone) . ' which is not there' : '');
+    }
+    if (!empty($scan['no_fan_chip'])) {
+        $lines[] = 'Fan chip driver: none loaded (no chip with a fan output or a fan input)';
+    }
+    if (!empty($scan['temps_missing'])) {
+        $lines[] = 'Temperatures not seen: ' . implode(', ', array_map(fn ($k) => ['board' => 'board sensors', 'cpu' => 'CPU'][$k] ?? 'other', (array) $scan['temps_missing']));
     }
     $there = array_filter($scan['tools'] ?? [], fn ($t) => $t['installed'] || $t['active']);
     $lines[] = 'Plugins: ' . ($there ? implode(', ', array_map(fn ($t) => $clean($t['name']) . ' installed'
