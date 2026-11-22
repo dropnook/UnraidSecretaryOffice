@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * Fanboy's control service («Regel-Dienst»): ONE process for all zones (`php agent.php job fanboy-control`, started by
+ * Fanboy's control service («Regel-Dienst»): ONE process for all zones (`php agent.php ramjob fanboy-control` — without the data folder, 2026-11-22 —, started by
  * the agent's tick in a session of its own — an agent restarting itself in place never touches it, so the fans never
  * flap then). It runs only while the array is started, he is hired, not hidden, set up and «taken over» (armed), and no
  * other known controller runs; otherwise every output goes back to the BIOS and the status says why.
@@ -2081,9 +2081,11 @@ function fanboyBrake(array &$c, array $found): void
 }
 
 /**
- * The control process: `php agent.php job fanboy-control`. One at a time (a flock in RAM held for its life). Ends —
- * every output given back first, read back — on TERM/INT/HUP, when the array stops, he is hidden, fired, or not
- * armed any more; holds (everything with the BIOS) while another controller runs.
+ * The control process: `php agent.php ramjob fanboy-control` — without the data folder (2026-11-22; `job fanboy-control`
+ * before): his mirror in RAM is all it reads of it. One at a time (a flock in RAM held for its life). Ends — every output
+ * given back first, read back — on TERM/INT/HUP, when the array stops, he is fired or not armed any more, without a
+ * mirror, and when it finds itself holding something on the array or a pool (the brake); holds (everything with the BIOS)
+ * while another controller runs.
  */
 function fanboyControlMain(): int
 {

@@ -52,13 +52,13 @@ desk('fanboy', [
     // his guard's cron file, there only while he steers: the night watchman knows its line as the office's own
     'cron'    => fn (): array => [basename(FANBOY_GUARD_CRON) => [fanboyGuardCronLine()]],
     'jobs'    => [
-        'fanboy-control' => fn (array $a): int => fanboyControlMain(),
         'fanboy-step'    => fn (array $a): int => fanboyStepMain(),
         'fanboy-show'    => fn (array $a): int => fanboyShowMain(),        // round 6: «show me this fan»
         'fanboy-restore' => fn (array $a): int => fanboyRestoreMain(),     // round 9 (H2): a safety full undone, with a kick
     ],
-    // 2026-11-22 («always on»): the control without the data folder — `php agent.php ramjob fanboy-control` (lib/ramjob.php):
-    // everything from his mirror in RAM, nothing under /mnt, whatever the array does
+    // 2026-11-22 («always on»): the control runs without the data folder — `php agent.php ramjob fanboy-control`
+    // (lib/ramjob.php): everything from his mirror in RAM, nothing under /mnt, whatever the array does. The ONE way it
+    // runs: `job fanboy-control` is no more (fanboyLaunch())
     'ram_jobs' => [
         'fanboy-control' => fn (array $a): int => fanboyControlMain(),
     ],
@@ -648,6 +648,17 @@ function fanboyEnsureControl(float $now): void
         return;
     }
     $GLOBALS['fanboyLaunchedAt'] = $now;
+    // the control reads only his mirror in RAM (2026-11-22): made sure of right before a start (never more often than a
+    // start is tried) — none for this board (his settings too large to mirror): no control, and the page says why
+    // instead of «about to take over»
+    fanboyMirrorKeep(true);
+    if (fanboyMirrorRead(fanboyBoardKey(fanboyBoard(fanboyPaths(fanboySysRoot() ?: null)['dmi']))) === null) {
+        if ((readJson(fanboyStatusFile())['why'] ?? null) !== 'no_mirror') {
+            fanboyStatusWrite(['v' => 1, 'pid' => null, 'who' => 'bios', 'why' => 'no_mirror', 'phase' => 'ended', 'time' => time()]);
+            logLine('Fanboy: no mirror of his settings in RAM for this board — the control is not started');
+        }
+        return;
+    }
     fanboyLaunch('fanboy-control');
 }
 
@@ -715,11 +726,27 @@ function fanboyLaunch(string $job): void
         ($GLOBALS['fanboyLauncher'])($job);         // the tests' own
         return;
     }
-    $p = @proc_open(['setsid', '-f', PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', $job],
+    $p = @proc_open(fanboyLaunchCommand($job),
         [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, '/');
     if (is_resource($p)) {
         proc_close($p);
     }
+}
+
+/**
+ * The command a job of his starts with. A job that runs without the data folder (his desk's 'ram_jobs': the control,
+ * 2026-11-22) starts as a RAM job — and with nothing open that the agent has open at this moment: PHP's files are not
+ * close-on-exec, so a file of the data folder open right now would be the control's for its whole life and keep the pool
+ * busy at an array stop (the shell closes everything from 3 on, as at the agent's own restart: closeInheritedFds()).
+ *
+ * @return list<string>
+ */
+function fanboyLaunchCommand(string $job): array
+{
+    if (isset((desks()['fanboy'] ?? [])['ram_jobs'][$job])) {
+        return ['setsid', '-f', '/bin/sh', '-c', 'exec "$@"' . closeInheritedFds(), 'sh', PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'ramjob', $job];
+    }
+    return ['setsid', '-f', PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job', $job];
 }
 
 /** The control's pid when it runs (its pid file: pid and the process's start time — never another process later), else null */

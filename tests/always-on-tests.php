@@ -1080,3 +1080,83 @@ function testAlwaysOnControlProc(): void
         fanboyTEnd();
     }
 }
+
+/**
+ * Step S4d, the switch: the agent starts the control as a RAM job — `php agent.php ramjob fanboy-control`, with nothing
+ * open that the agent had open — and no other way is left (`job fanboy-control` is refused). His other jobs start as
+ * before. Before a start the mirror is made sure of; none for this board: no control, and the page says why.
+ */
+function testAlwaysOnLaunch(): void
+{
+    $t = fanboyT('ao-launch');
+    $keep = alwaysOnTHire($t, true);
+    try {
+        // (his real desk: the stand-in of alwaysOnTHire() has no jobs)
+        $cmd = fanboyLaunchCommand('fanboy-control');
+        $real = isset(desks()['fanboy']['ram_jobs']['fanboy-control']);
+        if ($real) {
+            same('always on S4d: the control starts as a RAM job, in a session of its own, through a shell that closes every file from 3 on',
+                [['setsid', '-f', '/bin/sh', '-c'], ['sh', PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'ramjob', 'fanboy-control'], true, true],
+                [array_slice($cmd, 0, 4), array_slice($cmd, 5), str_starts_with($cmd[4], 'exec "$@" 3>&- 4>&- 5>&-'), str_ends_with($cmd[4], ' 63>&-')]);
+            same('always on S4d: his other jobs (a setup step, «show me», «back to the value before») start as before, with the data folder',
+                array_fill(0, 3, ['setsid', '-f', PHP_BINARY, OFFICE_DIR . '/agent/agent.php', 'job']),
+                array_map(fn ($j) => array_slice(fanboyLaunchCommand($j), 0, 5), ['fanboy-step', 'fanboy-show', 'fanboy-restore']));
+            same('always on S4d: his desk — the control is a RAM job only (one way to run it), the others jobs with the data folder',
+                [['fanboy-control'], ['fanboy-step', 'fanboy-show', 'fanboy-restore']], [array_keys(desks()['fanboy']['ram_jobs']), array_keys(desks()['fanboy']['jobs'])]);
+        }
+        check('always on S4d: his real desk is there to ask (else the three checks above did not run)', $real);
+        // for real, the whole command line: with a data folder that is there and says «armed» but no mirror — it takes nothing («no_mirror»)
+        fanboyTDisks($t, 35, null, 33);
+        $data = "{$t['tmp']}/data";
+        @mkdir("$data/fanboy", 0700, true);
+        @mkdir("$data/office", 0700, true);
+        file_put_contents("$data/fanboy/settings.json", json_encode(['v' => 1, 'boards' => [FANBOY_T_KEY => fanboyTSettings()]], JSON_UNESCAPED_SLASHES));
+        file_put_contents("$data/office/staff.json", json_encode(['hired' => ['fanboy' => ['at' => 1]]]));
+        $before = alwaysOnTTree($data);
+        $was = fanboyTOut($t, 4);
+        $run = function (array $args) use ($t, $data): array {
+            $p = proc_open(array_merge([PHP_BINARY, OFFICE_DIR . '/agent/agent.php'], $args), [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, '/',
+                ['OFFICE_DATA_DIR' => $data, 'OFFICE_RUN_DIR' => TESTS_RUN_DIR, 'OFFICE_FANBOY_ROOT' => $t['root'], 'OFFICE_WEB' => OFFICE_WEB, 'OFFICE_NOTIFY_BIN' => "{$t['tmp']}/notify",
+                 'OFFICE_NOTIFY_STAMP' => "{$t['tmp']}/notify.second", 'PATH' => (string) getenv('PATH'), 'TZ' => 'UTC']);
+            stream_get_contents($pipes[1]);
+            $err = (string) stream_get_contents($pipes[2]);
+            return [proc_close($p), $err];
+        };
+        @unlink(fanboyStatusFile());
+        [$code] = $run(['ramjob', 'fanboy-control']);
+        same('always on S4d: `agent.php ramjob fanboy-control` for real, the data folder there and armed, no mirror — it ends at once, takes nothing, «no_mirror»; the data folder untouched',
+            [0, 'no_mirror', $was, [], $before], [$code, readJson(fanboyStatusFile())['why'] ?? null, fanboyTOut($t, 4), fanboyHeld(), alwaysOnTTree($data)]);
+        [$code, $err] = $run(['job', 'fanboy-control']);
+        same('always on S4d: `agent.php job fanboy-control` (the way before) is refused — one way to run it', [2, true], [$code, str_contains($err, 'Usage: php agent.php job')]);
+
+        // the agent's tick: the mirror made sure of right before a start
+        $settings = fanboyTSettings();
+        fanboyTStore($settings);                    // written past the agent: no mirror yet
+        @unlink(fanboyMirrorFile());
+        @unlink(fanboyStatusFile());
+        unset($GLOBALS['fanboyMirrorSeen']);
+        $GLOBALS['fanboyLaunched'] = [];
+        fanboyEnsureControl(10.0);
+        same('always on S4d: the tick makes sure of the mirror, then starts the control', [['fanboy-control'], true], [$GLOBALS['fanboyLaunched'], fanboyMirrorRead(FANBOY_T_KEY)['settings']['armed'] ?? null]);
+        // his settings too large to mirror: no control, the page's status says why (not «about to take over»), said once
+        $big = $settings;
+        $big['note'] = str_repeat('x', FANBOY_MIRROR_MAX);
+        fanboyTStore($big);
+        $GLOBALS['fanboyLaunched'] = [];
+        $GLOBALS['fanboyLaunchedAt'] = -INF;
+        $log0 = substr_count((string) @file_get_contents(AGENT_LOG), 'no mirror of his settings in RAM for this board');
+        fanboyEnsureControl(100.0);
+        fanboyEnsureControl(200.0);
+        $control = fanboyControlState($big);
+        same('always on S4d: no mirror for this board (his settings too large) — no control is started, the status says «no_mirror», the log once',
+            [[], 'bios', 'no_mirror', 1], [$GLOBALS['fanboyLaunched'], $control['who'], $control['why'], substr_count((string) @file_get_contents(AGENT_LOG), 'no mirror of his settings in RAM for this board') - $log0]);
+        same('always on S4d: … the page words it: who «the BIOS», why «no_mirror» (never «starting»)', ['bios', 'no_mirror'], array_values(array_intersect_key(fanboyWhoBase(['who' => ['who' => 'bios', 'why' => 'not_set_up']], $control, $big), ['who' => 1, 'why' => 1])));
+        fanboyTStore($settings);
+        $GLOBALS['fanboyLaunchedAt'] = -INF;
+        fanboyEnsureControl(300.0);
+        same('always on S4d: … small again: mirrored and started', ['fanboy-control'], $GLOBALS['fanboyLaunched']);
+    } finally {
+        alwaysOnTHireEnd($keep);
+        fanboyTEnd();
+    }
+}
