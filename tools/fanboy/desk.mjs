@@ -81,6 +81,11 @@ const PICTURES = [
   // … and kinds of temperature no chip shows (no board sensors, no CPU temperature): step 1, the zones' source list
   ['temps-missing-detect', 'fanboy-notemps', 'fanboy/setup/detect', null, false],
   ['temps-missing-zones', 'fanboy-notemps', 'fanboy/setup/zones', null, false],
+  // 2026-11-22, the driver doctor: its signs in step 1, the BMC's in the IPMI banner, DC mode after the test, AMD's Tctl/Tdie
+  ['doctor-detect', 'fanboy-doctor', 'fanboy/setup/detect', null, false],
+  ['doctor-readonly', 'fanboy-doctorro', 'fanboy/setup/detect', null, false],
+  ['doctor-dc', 'fanboy-doctordc', 'fanboy/setup/detect', null, false],
+  ['doctor-amd', 'fanboy-amd', 'fanboy/setup/zones', null, false],
   // 2026-11-20: the fan chip read in «no output» — a chip that needs a driver plugin, one Unraid's own driver should
   // steer, one nobody knows yet, one that couldn't be asked (every theme and language, 1440 and 375)
   ['chip-plugin', 'fanboy-chipplugin', 'fanboy', null, true, { widths: [1440, 375] }],

@@ -267,6 +267,9 @@ function state(o) {
     // 2026-11-20: the fan chip (fanboyChipState()) — the demo board's maker hint is ITE (as Gigabyte's): never read, the
     // ITE plugin by name
     chip: o.chip || MAKER_CHIP,
+    // 2026-11-22, the driver doctor (fanboyDoctor()): the signs a state names, a BMC's and AMD's Tctl/Tdie as the agent finds them
+    doctor: [...(o.doctor || []), ...(o.ipmi ? [{ code: 'bmc', seen: true }] : []),
+      ...(chips.some((c) => c.name === 'k10temp' && ['Tctl', 'Tdie'].every((l) => c.temps.some((t) => t.label === l))) ? [{ code: 'tctl' }] : [])],
     // round 6: the fans he doesn't steer, watched (fanboyIdleState()): on, nothing standing
     idle: o.idle || { on: true, warm: null, tachs: {}, time: T0 },
     show: o.show || null,                     // round 6: «show me this fan» (fanboyShowRead())
@@ -496,6 +499,18 @@ files['fanboy-ready'] = state({ ite: ite({}, RPM), fans: SET_UP, zones: ZONES, w
 // coretemp, no board WMI): step 1 and the zones' source list say what is missing and the way
 files['fanboy-notemps'] = state({ chips: base.chips.filter((c) => ![CHIP, 'gigabyte_wmi', 'coretemp'].includes(c.name)).concat([{ ...ite({}, RPM), temps: [] }]),
   fans: SET_UP, zones: ZONES, who: { who: 'bios', why: 'not_armed' } });
+// 2026-11-22, the driver doctor: a board where the BIOS reserves the ITE chip (ACPI), the built-in driver loaded without
+// a chip, DDR5's SPD write lock, NVMe behind Intel VMD, the kernel locked down — what step 1 says for each
+files['fanboy-doctor'] = state({ ...NOOUT, board_hint: 'ite', suggest: ['it87-driver'], doctor: [{ code: 'acpi_conflict', ite: true },
+  { code: 'not_bound', module: 'it87', plugin: 'it87-driver', installed: false }, { code: 'spd_wd' }, { code: 'vmd' }, { code: 'lockdown', mode: 'integrity' }] });
+// … an MSI-like board with the read-only nct6683; the outputs 3 and 6 in DC mode after a test that wasn't clean
+files['fanboy-doctorro'] = state({ ...NOOUT, board_hint: 'nuvoton', suggest: ['nct6687-driver'], chip: clone(files['fanboy-chipnoread'].chip), doctor: [{ code: 'read_only', module: 'nct6683', installed: false }] });
+files['fanboy-doctordc'] = state({ ite: ite({}, RPM), fans: [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'silent' }), fan(3, { found: 'ignored' }),
+  fan(4, { tachs: [4], found: 'tach' }), fan(5, { tachs: [5, 6], found: 'tach' }), fan(6, { tachs: [], found: 'inverted' })], doctor: [{ code: 'dc_mode', fans: [P(3), P(6)] }] });
+// … an AMD board: k10temp's Tctl beside Tdie in the zones' source list
+files['fanboy-amd'] = state({ chips: base.chips.filter((c) => ![CHIP, 'coretemp'].includes(c.name)).concat([ite({}, RPM),
+  { hwmon: 'hwmon11', name: 'k10temp', device: 'pci0000:00/0000:00:18.3', address: '0000:00:18.3', module: 'k10temp', kind: 'cpu', outputs: [], fans: [],
+    temps: [{ n: 1, label: 'Tctl', c: 52 }, { n: 2, label: 'Tdie', c: 42 }], twin: false }]), fans: SET_UP, zones: ZONES, who: { who: 'bios', why: 'not_armed' } });
 files['fanboy-gone'] = state({ ite: ite({}, RPM), fans: [fan(1, { tachs: [1], found: 'tach' }), fan(2, { found: 'ask' })],
   step: { id: 'a1b2c3d4e5f6', kind: 'test_up', fans: OUTPUTS, status: 'stopped', why: 'page_gone', pid: 4242, start: '123456', current: null, done: [P(1), P(2)], results: {}, progress: null, at: T0 - 20 } });
 

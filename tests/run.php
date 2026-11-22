@@ -65650,6 +65650,7 @@ require __DIR__ . '/fanboy-dash-tests.php';
 require __DIR__ . '/fanboy-r5-tests.php';
 require __DIR__ . '/fanboy-r6-tests.php';
 require __DIR__ . '/fanboy-chipid-tests.php';
+require __DIR__ . '/fanboy-doctor-tests.php';
 require __DIR__ . '/fanboy-look-tests.php';
 require __DIR__ . '/caretaker-newcomer-tests.php';
 
@@ -65746,7 +65747,8 @@ function testFanboyNoWrite(): void
         // 2026-11-20: the fan chip's id — /dev/port opened once, its one fwrite the configuration port's index/key byte
         // (fanboyPortOpen(); testFanboyChipRead holds which bytes), his chip.json in the data folder
         'fanboy-chipid.php'   => ['writeAtomic', 'fopen', 'fwrite'],
-        'fanboy-dash.php'     => ['writeAtomic'],                              // his Dashboard tile's setting and its mirror in RAM
+        'fanboy-dash.php'     => ['writeAtomic'],
+        'fanboy-doctor.php'   => ['run'],                                      // 2026-11-22: the kernel log read (dmesg), nothing written                              // his Dashboard tile's setting and its mirror in RAM
         'fanboy-watch.php'    => ['writeAtomic', 'unlink'],                    // round 6: the watch's setting, what it learned, its state in RAM
         'fanboy-show.php'     => ['writeAtomic', 'fopen', 'unlink'],           // round 6: «show me this fan» — its state in RAM, its lock (writes only through the helper)
         'fanboy-write.php'    => ['writeAtomic', 'fopen', 'fwrite', 'unlink'],
@@ -66177,7 +66179,7 @@ function testFanboyPage(): void
     $keys = fn (array $a) => array_keys($a);
     foreach (['tests/ui/states/fanboy.json', 'tests/ui/demo/fanboy.json'] as $f) {
         $st = json_decode((string) @file_get_contents(OFFICE_DIR . "/$f"), true);
-        same("fanboy page: $f has a look's keys (part 2's on top), its chips a chip's", [[...$keys($look), 'control', 'setup', 'step', 'drivers', 'chip', 'idle', 'show', 'safety', 'restore', 'disk_allow'], $keys($look['chips'][10])],
+        same("fanboy page: $f has a look's keys (part 2's on top), its chips a chip's", [[...$keys($look), 'control', 'setup', 'step', 'drivers', 'chip', 'doctor', 'idle', 'show', 'safety', 'restore', 'disk_allow'], $keys($look['chips'][10])],
             [is_array($st) ? $keys($st) : null, is_array($st['chips'][10] ?? null) ? $keys($st['chips'][10]) : null]);
     }
     // the docs: his entry under «The desks»
@@ -67823,7 +67825,7 @@ $parts = ['logic' => ['testCron', 'testRetention', 'testPlanGone', 'testSnapPlan
                        'testFanboyProcesses', 'testFanboyDrivers', 'testFanboyStopScripts', 'testFanboyState',
                        'testFanboyBack', 'testFanboyGuardCron', 'testFanboyWaz', 'testFanboyHistoryPart', 'testFanboyMeasureProgress', 'testFanboyFanLook', 'testFanboyDesk', 'testFanboyUx', 'testFanboyOverview', 'testFanboyHistoryLeads', 'testFanboyHistoryCurves', 'testFanboyDeskWords', 'testFanboyHistoryThin', 'testFanboyAvatar', 'testFanboyCount', 'testFanboyHottestKinds', 'testFanboyRound3Words', 'testFanboyStandsKick', 'testFanboyNvmeWarm', 'testFanboyProposeKinds', 'testFanboyReact', 'testFanboyTemps', 'testFanboyCpuOwn', 'testFanboyPresetsMirror', 'testFanboyR5Subjects', 'testFanboyR5GuardZone', 'testFanboyR5TrimHeld', 'testFanboyR5Names', 'testFanboyR5ChipGone', 'testFanboyR5Moved', 'testFanboyR5NoDriftAtFull', 'testFanboyR5Obeys', 'testFanboyR5GiveBackSafe', 'testFanboyR5Sane', 'testFanboyR5Refused', 'testFanboyR5Detect', 'testFanboyR5DisksAsleep', 'testFanboyR5TwoChips', 'testFanboyR6WatchLearn', 'testFanboyR6WatchRules', 'testFanboyR6WarmNow', 'testFanboyR6ShowStep', 'testFanboyR6ShowRefused', 'testFanboyR6ShowControl', 'testFanboyR6OldDisks', 'testFanboyR7FullOnObeys', 'testFanboyR7ControlFullOn', 'testFanboyR7Fixed', 'testFanboyR7NotAController', 'testFanboyR7CardsKeepSize', 'testFanboyR7TestLongEnough', 'testFanboyR8IgnoredLate', 'testFanboyR8FullLongEnough', 'testFanboyR8Quiet', 'testFanboyR8QuietGuards', 'testFanboyR8QuietSafety', 'testFanboyR8FoundNext', 'testFanboyR8Assign', 'testFanboyR9Kick', 'testFanboyR9Safety', 'testFanboyR9Now', 'testFanboyR9CpuOwn', 'testFanboyR10Notify', 'testFanboyR11Heard', 'testFanboyR11StopVerdict', 'testFanboyR11StaleNext', 'testFanboyR11ProgressNext', 'testFanboyR12Standstill', 'testFanboyR12Warm', 'testFanboyR12Control', 'testFanboyR12CpuRole', 'testFanboyR12CpuMeasure', 'testFanboyR12CpuControl', 'testFanboyR12CpuGone', 'testFanboyR12FixSpikes', 'testFanboyR12FixControl', 'testFanboyR12FixConfirm', 'testFanboyNetDrift', 'testFanboyProposeSaves', 'testFanboyZonesWords', 'testFanboyFourPoints', 'testFanboyLookKeeps', 'testFanboyKickStartSecs', 'testFanboyReloadDrift', 'testFanboyNet', 'testFanboyNetTakeOver', 'testFanboyR12Curve', 'testFanboyR12CurveEffective', 'testFanboyR12AutoSeen', 'testFanboyR12Look', 'testFanboyR13Compat', 'testFanboyR13Curves', 'testFanboyR13Refused', 'testFanboyR13Devs', 'testFanboyR13DevsControl', 'testFanboyR14Plan', 'testFanboyR14Look', 'testFanboySetupFanPlan', 'testFanboyDashHours', 'testFanboyTimes', 'testFanboySsdSleeps', 'testFanboyCpuFloorCurve',
                        'testFanboyDashTile', 'testFanboyDashSource', 'testFanboyDashSetting', 'testFanboyDashHistory', 'testFanboyDashFans', 'testFanboyDashCards', 'testFanboyDashAsleep', 'testFanboyDashSplitter', 'testFanboyDashDefault', 'testFanboyDashCpuRest', 'testFanboyZoneSources', 'testFanboyCpuOwnWheel', 'testFanboySetupWaits', 'testFanboySetupPlaces', 'testFanboyArtClipped', 'testFanboySetupFlow', 'testFanboyEmptyOutput', 'testFanboyZonesDraft', 'testFanboyWarmOverride', 'testFanboyStartWait', 'testFanboyKindGoal',
-                       'testFanboyLookReverse', 'testFanboyLookDash', 'testFanboyLookKeys', 'testFanboyLookGap', 'testFanboyLookTipAir', 'testFanboyChipTable', 'testFanboyChipRead', 'testFanboyChipState', 'testFanboyChipReport', 'testFanboyChipRisk', 'testFanboyNoFanChip', 'testFanboyTempsMissing', 'testFanboyCurveFloorKinds', 'testFanboyCurvePush'],
+                       'testFanboyLookReverse', 'testFanboyLookDash', 'testFanboyLookKeys', 'testFanboyLookGap', 'testFanboyLookTipAir', 'testFanboyChipTable', 'testFanboyChipRead', 'testFanboyChipState', 'testFanboyChipReport', 'testFanboyChipRisk', 'testFanboyNoFanChip', 'testFanboyTempsMissing', 'testFanboyDoctor', 'testFanboyUsbStick', 'testFanboyCurveFloorKinds', 'testFanboyCurvePush'],
           'tools' => ['testReleaseHashes', 'testReleaseState', 'testReleaseClicksRetry', 'testScenarioToolsSafe']];
 // php tests/run.php [<part>|<test> …] — no name: everything; else every named part and test, each once, in the order of
 // $parts (a part names its tests); one sum at the end. A name nobody knows: said, exit 2, nothing run.

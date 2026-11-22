@@ -361,6 +361,12 @@ His fans' biggest fan: he steers the fans on the mainboard's fan connectors by w
   handed to the system, the headers on PWM, a BIOS update where the fans hang on the embedded controller). Missing
   board sensors or a missing CPU temperature are said the same way, in the first step and the zones' heat sources.
   Another fan control set to an output that isn't there is named, its settings untouched.
+- **What he sees in the kernel and on the board:** only where he sees the sign (read only) — the BIOS reserving the fan
+  chip (the start option and its risk), a driver loaded without a chip (a newer one by plugin), the read-only nct6683,
+  a BMC (the IPMI Support plugin, its lower thresholds), DDR5's «SPD Write Disable», NVMe behind Intel VMD, the kernel
+  locked down (Secure Boot), a header in DC mode whose test wasn't clean; AMD's Tctl and Tdie told apart in the heat
+  sources. Each goes into the report too. The hints' *What belongs in the BIOS* holds a short checklist for every board.
+  A USB stick (removable, on USB) is never a heat source; a USB hard disk is.
 - **Test and assign, output by output:** the output runs at 100 % until you say whether you heard it, then every fan runs
   as before and you enter what it is (a name, its role, where it sits) and save. *Stop the other fans meanwhile* lets
   only that one be heard, the CPU cooler and a pump too.
