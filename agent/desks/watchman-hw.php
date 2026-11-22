@@ -44,10 +44,13 @@ declare(strict_types=1);
  * can't drop them), in the area `hw`, with no ATT&CK technique (no attack — concept 11.4), and never in a chain
  * (watchmanChains(): a machine check is no step of an intrusion).
  *
- * Also here: the known CPU faults (concept 11 C: the posture tips cpu_fault and old_microcode, below).
+ * Also here: the known CPU faults (concept 11 C: the posture tips cpu_fault and old_microcode) and the disks' wear with
+ * their SMART history (11 E: hw_wear, from Unraid's own SMART reading) — below.
  *
  * Functions and constants only, loaded with his desk (the desk glob, and watchman.php's require_once).
  */
+
+require_once __DIR__ . '/../lib/where.php';       // waSmart(): Unraid's own SMART reading (Ms. Dustdevil's «Where is what» reads it too)
 
 const WATCH_HW_RAM            = RUN_DIR . '/watchman-hw.json';     // this boot's counters as the last look saw them (RUNDIR_FILES)
 const WATCH_HW_ECC_DAY        = 10;          // corrected memory errors of one module in a day: told
@@ -56,7 +59,7 @@ const WATCH_HW_THROTTLE_HOUR  = 60000;       // ms the CPU slowed down for heat 
 const WATCH_HW_HOUR           = 3600;        // the window of those two
 const WATCH_HW_SAMPLES        = 16;          // samples kept for it (a round every WATCH_EVERY: 12 an hour)
 const WATCH_HW_BOOT_NEW       = 1800;        // the night shift this soon after the start counts from 0
-const WATCH_HW_MAX            = ['mc' => 16, 'dimm' => 64, 'pci' => 512, 'cpu' => 1024];       // what one look reads at most
+const WATCH_HW_MAX            = ['mc' => 16, 'dimm' => 64, 'pci' => 512, 'cpu' => 1024, 'disk' => 64];       // what one look reads at most
 // /proc/sys/kernel/tainted: the flags he looks at, the worst first (docs.kernel.org admin-guide/tainted-kernels) — told or quiet
 const WATCH_HW_TAINT          = ['D' => 128, 'B' => 32, 'M' => 16, 'L' => 16384, 'W' => 512];
 const WATCH_HW_TAINT_TOLD     = ['D', 'B', 'M', 'L'];
@@ -438,11 +441,18 @@ function watchmanHwRound(array $paths, array $look, string $boot, ?int $btime, b
     [$added, $state, $summary] = watchmanHwCompare($start === 'ram' ? $ram : null, $start, $look, $boot, $now, $book);
     @mkdir(dirname($ramFile), 0700, true);
     writeAtomic($ramFile, jsonEncode($state), 0600, 0, 0);
-    if ($poolFile !== null && ($pool['boot'] ?? null) !== $boot) {
+    // the disks' wear (the day's rounds: the history lies in hw.json) — taken over anew, what they say now is normal
+    $wear = null;
+    if ($poolFile !== null && is_array($look['wear'] ?? null)) {
+        [$more, $wear, $summary['wear']] = watchmanHwWearCompare($fresh ? null : (is_array($pool['wear'] ?? null) ? $pool['wear'] : null), $look['wear'], $now, $book);
+        $added = array_merge($added, $more);
+    }
+    $file = ['v' => 1, 'boot' => $boot] + ($wear !== null ? ['wear' => $wear] : []) + array_diff_key((array) $pool, ['v' => 1, 'boot' => 1]);
+    if ($poolFile !== null && $file !== $pool) {
         if (!is_dir(dirname($poolFile))) {
             @mkdir(dirname($poolFile), 0755, true);         // his very first round: before watchmanSave() makes his folder
         }
-        writeAtomic($poolFile, jsonEncode(['v' => 1, 'boot' => $boot] + array_diff_key((array) $pool, ['v' => 1, 'boot' => 1])));
+        writeAtomic($poolFile, jsonEncode($file));
     }
     return [$added, $summary + ['start' => $start]];
 }
@@ -463,6 +473,9 @@ function watchmanHwText(array $e): array
                           'fatal' => (int) ($p['fatal'] ?? 0), 'hour' => (int) ($p['hour'] ?? 0)],
         'hw_throttle' => ['minutes' => (int) ($p['minutes'] ?? 0), 'total' => (int) ($p['total'] ?? 0)],
         'hw_kernel'   => ['flags' => implode(', ', array_map('strval', (array) ($p['flags'] ?? [])))],
+        'hw_wear'     => ['name' => (string) ($p['name'] ?? ''), 'attr' => (int) ($p['attr'] ?? 0) . ' ' . (WATCH_HW_WEAR_NAMES[(int) ($p['attr'] ?? 0)] ?? ''),
+                          'raw' => (int) ($p['raw'] ?? 0), 'grew' => (int) ($p['grew'] ?? 0), 'cw' => (string) ($p['cw'] ?? ''),
+                          'media' => (int) ($p['media'] ?? 0), 'used' => (int) ($p['used'] ?? 0), 'unsafe' => (int) ($p['unsafe'] ?? 0)],
         default       => [],
     };
 }
@@ -477,6 +490,7 @@ function watchmanHwVariant(array $e): ?string
     return match ((string) ($e['kind'] ?? '')) {
         'hw_ecc'    => (int) ($p['ue'] ?? 0) > 0 ? 'hw_ecc_ue' : null,
         'hw_aer'    => (int) ($p['nonfatal'] ?? 0) + (int) ($p['fatal'] ?? 0) > 0 ? 'hw_aer_bad' : null,
+        'hw_wear'   => in_array($p['what'] ?? null, ['warning', 'media', 'used', 'unsafe', 'crc'], true) ? 'hw_wear_' . $p['what'] : null,
         'hw_kernel' => WATCH_HW_TAINT_VARIANT[array_values(array_intersect(array_keys(WATCH_HW_TAINT), (array) ($p['flags'] ?? [])))[0] ?? 'D'],
         default     => null,
     };
@@ -546,8 +560,147 @@ function watchmanHwMicrocode(?array $cpu): string
     return is_int($cpu['microcode'] ?? null) ? '0x' . strtoupper(dechex($cpu['microcode'])) : '?';
 }
 
+// ===================================================================== SSD wear and the SMART history (concept 11 E, step 11)
+
+/*
+ * hw_wear, from Unraid's own SMART state (/var/local/emhttp/smart/<disk>, read by waSmart() in agent/lib/where.php, the
+ * same Ms. Dustdevil shows) — never a smartctl of his own, so no disk wakes; a disk Unraid has no file for is «not read».
+ * The day's rounds only (his hw.json lies on the pool): per disk of disks.ini (not the flash) its last values and one point
+ * a day for WATCH_HW_WEAR_DAYS (by the disk's id: a disk moved to another slot keeps its history). Compared with the last
+ * reading (the first one is normal):
+ *   NVMe  a critical warning that appears or changes (spare below its threshold, temperature, reliability, read-only …):
+ *         told; media errors that grow: told; the life used reaching 90 % and 100 % (more than 100 is no defect, the
+ *         standard says): a quiet line; unsafe shutdowns that grow (power lost without a shutdown — the parity check's
+ *         reason too): a quiet line, once a day
+ *   SATA  the raw values of 5, 187, 188, 197, 198 that grow (Backblaze's five forerunners): told, with what they grew in
+ *         30 days; 199 that grows (CRC errors on the wire — mostly the cable): a quiet line, once a day
+ * His light (watchman-cats.php): a critical warning standing now red, 90 % used yellow, a disk without a reading «!».
+ */
+const WATCH_HW_WEAR_DAYS  = 90;             // a point a day per disk, this many days
+const WATCH_HW_WEAR_GREW  = 30;             // «+12 in 30 days»
+const WATCH_HW_WEAR_ATA   = [5 => true, 187 => true, 188 => true, 197 => true, 198 => true, 199 => false];     // grows: told / quiet (199)
+const WATCH_HW_WEAR_USED  = [90, 100];      // the life used reaching these: a quiet line
+const WATCH_HW_WEAR_QUIET = 86400;          // a quiet line of a disk once a day
+// the attributes' names as smartctl writes them (the same in every language)
+const WATCH_HW_WEAR_NAMES = [5 => 'Reallocated_Sector_Ct', 187 => 'Reported_Uncorrect', 188 => 'Command_Timeout', 197 => 'Current_Pending_Sector',
+                             198 => 'Offline_Uncorrectable', 199 => 'UDMA_CRC_Error_Count'];
+
+/**
+ * Unraid's SMART reading of each disk of disks.ini (not the flash), by its id: name, kind (ata, nvme or null), when Unraid
+ * read it, its values (null: no file — not read). Null without the places (the night shift).
+ *
+ * @return array<string, array{name: string, kind: ?string, read: ?int, v: ?array}>|null
+ */
+function watchmanHwWearLook(array $paths): ?array
+{
+    if (!isset($paths['smart'], $paths['disks_ini'])) {
+        return null;
+    }
+    $out = [];
+    foreach (readCfg((string) $paths['disks_ini'], true) as $section => $d) {
+        $name = (string) ($d['name'] ?? $section);
+        $id = watchmanHwName((string) ($d['id'] ?? ''), 80);
+        if (($d['device'] ?? '') === '' || ($d['type'] ?? '') === 'Flash' || $id === '' || isset($out[$id]) || !preg_match('/^[\w.-]{1,40}$/D', $name)) {
+            continue;
+        }
+        if (count($out) >= WATCH_HW_MAX['disk']) {
+            break;
+        }
+        $s = waSmart($paths['smart'] . '/' . $name, []);
+        $out[$id] = ['name' => $name, 'kind' => $s['kind'] ?? null, 'read' => is_int($s['read'] ?? null) ? $s['read'] : null,
+                     'v' => $s === null ? null : watchmanHwWearValues($s)];
+    }
+    return $out;
+}
+
+/** The values he follows of one reading: NVMe's health log, or the raw values of the six ATA attributes */
+function watchmanHwWearValues(array $s): array
+{
+    if (($s['kind'] ?? null) === 'nvme') {
+        $n = (array) $s['nvme'];
+        $cw = is_string($n['critical_warning'] ?? null) && preg_match('/^(?:0x)?([0-9a-f]{1,4})$/iD', trim($n['critical_warning']), $m) ? (int) hexdec($m[1]) : null;
+        return ['cw' => $cw, 'spare' => $n['spare'] ?? null, 'spare_thr' => $n['spare_threshold'] ?? null, 'used' => $n['used'] ?? null,
+                'media' => $n['media_errors'] ?? null, 'unsafe' => $n['unsafe_shutdowns'] ?? null];
+    }
+    $v = [];
+    foreach ((array) ($s['attributes'] ?? []) as $a) {
+        if (isset(WATCH_HW_WEAR_ATA[$a['id'] ?? 0]) && preg_match('/^\s*(\d{1,18})/', (string) ($a['raw'] ?? ''), $m)) {
+            $v['a' . $a['id']] = (int) $m[1];
+        }
+    }
+    return $v;
+}
+
+/**
+ * The look against what he knows (hw.json `wear`): new entries into $book, the history kept (a point a day, 90 days; a
+ * disk gone that long forgotten), the page's list.
+ *
+ * @return array{0: list<string>, 1: array, 2: list<array>}  kinds added, hw.json's `wear`, the page's disks
+ */
+function watchmanHwWearCompare(?array $known, array $look, int $now, array &$book): array
+{
+    $disks = is_array($known['disks'] ?? null) ? $known['disks'] : [];
+    $today = date('Y-m-d', $now);
+    $since = date('Y-m-d', $now - WATCH_HW_WEAR_DAYS * 86400);
+    $added = $page = [];
+    foreach ($look as $id => $l) {
+        $k = is_array($disks[$id] ?? null) ? $disks[$id] : null;
+        $v = $l['v'];
+        $row = ['id' => $id, 'name' => $l['name'], 'kind' => $l['kind'], 'read' => $l['read']] + ($v ?? []);
+        if ($v === null) {
+            $page[] = $row;
+            continue;
+        }
+        $last = is_array($k['last'] ?? null) ? $k['last'] : null;
+        $days = array_values(array_filter((array) ($k['days'] ?? []), fn ($p) => is_array($p) && is_string($p[0] ?? null) && is_array($p[1] ?? null) && $p[0] >= $since));
+        // what a value grew in the last 30 days: against the oldest point within them (none: the last reading)
+        $from = date('Y-m-d', $now - WATCH_HW_WEAR_GREW * 86400);
+        $old = array_values(array_filter($days, fn ($p) => $p[0] >= $from))[0][1] ?? $last ?? $v;
+        $grew30 = fn (string $f): int => max(0, (int) ($v[$f] ?? 0) - (int) ($old[$f] ?? 0));
+        $note = function (string $what, array $p, bool $important) use (&$book, &$added, $id, $l, $now): void {
+            $added[] = watchmanHwNote($book, 'hw_wear', "hw_wear:$id:$what", ['what' => $what, 'name' => $l['name'], 'id' => $id] + $p, $important, $now,
+                $important ? 0 : WATCH_HW_WEAR_QUIET);
+        };
+        if ($last !== null && ($l['kind'] === 'nvme')) {
+            if ((int) ($v['cw'] ?? 0) !== 0 && ($v['cw'] ?? null) !== ($last['cw'] ?? null)) {
+                $note('warning', ['cw' => sprintf('0x%02X', (int) $v['cw'])], true);
+            }
+            if ((int) ($v['media'] ?? 0) > (int) ($last['media'] ?? 0)) {
+                $note('media', ['media' => (int) $v['media'], 'grew' => (int) $v['media'] - (int) ($last['media'] ?? 0)], true);
+            }
+            foreach (WATCH_HW_WEAR_USED as $t) {
+                if ((int) ($v['used'] ?? 0) >= $t && (int) ($last['used'] ?? 0) < $t) {
+                    $note('used', ['used' => (int) $v['used']], false);
+                }
+            }
+            if ((int) ($v['unsafe'] ?? 0) > (int) ($last['unsafe'] ?? 0)) {
+                $note('unsafe', ['unsafe' => (int) $v['unsafe'], 'grew' => (int) $v['unsafe'] - (int) ($last['unsafe'] ?? 0)], false);
+            }
+        } elseif ($last !== null) {
+            foreach (WATCH_HW_WEAR_ATA as $a => $told) {
+                if (isset($v["a$a"]) && $v["a$a"] > (int) ($last["a$a"] ?? 0)) {
+                    $note($told ? "a$a" : 'crc', ['attr' => $a, 'raw' => $v["a$a"], 'grew' => $grew30("a$a")], $told);
+                }
+            }
+        }
+        if (($days[count($days) - 1][0] ?? null) !== $today) {
+            $days[] = [$today, $v];        // a day's point is its first reading: «+n in 30 days» counts the whole day's growth
+        }
+        $disks[$id] = ['name' => $l['name'], 'kind' => $l['kind'], 'last' => $v, 'days' => array_slice($days, -WATCH_HW_WEAR_DAYS)];
+        $counts = array_values(array_filter(array_keys($v), fn ($f) => preg_match('/^(a\d+|media|unsafe)$/D', (string) $f) === 1));
+        $page[] = $row + ['grew30' => array_filter(array_combine($counts, array_map($grew30, $counts)))];
+    }
+    // a disk not seen for the whole history: forgotten; at most WATCH_HW_MAX['disk']
+    $disks = array_filter($disks, function ($d, $id) use ($look, $since): bool {
+        $days = is_array($d) ? array_values((array) ($d['days'] ?? [])) : [];
+        return isset($look[$id]) || (string) ($days ? ($days[count($days) - 1][0] ?? '') : '') >= $since;
+    }, ARRAY_FILTER_USE_BOTH);
+    $disks = array_slice($disks, 0, WATCH_HW_MAX['disk'], true);
+    return [array_values(array_filter($added)), ['disks' => $disks], $page];
+}
+
 /** The page's part `hw` from his state (state.json hw) — null before his first look at the hardware */
 function watchmanHwPage(mixed $hw): ?array
 {
-    return is_array($hw) && is_int($hw['time'] ?? null) ? array_intersect_key($hw, array_flip(['time', 'mce', 'ecc', 'aer', 'throttle', 'kernel', 'start'])) : null;
+    return is_array($hw) && is_int($hw['time'] ?? null) ? array_intersect_key($hw, array_flip(['time', 'mce', 'ecc', 'aer', 'throttle', 'kernel', 'start', 'wear'])) : null;
 }

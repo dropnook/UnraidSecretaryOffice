@@ -1482,5 +1482,16 @@
   "posture.cpu_fault.title": "{cpu}: a known fault ({fault}) — its microcode {microcode} is older than the correction ({min})",
   "posture.cpu_fault.why": "Intel's 13th and 14th Gen desktop CPUs can age under too high a voltage until they crash and hang. Intel's correction is microcode {min} or newer, and it comes with a BIOS update — Intel says it must be loaded that way, together with the BIOS's «Intel Default Settings». Update the board's BIOS to one that has it. A microcode doesn't heal a CPU already harmed: repeated crashes and hangs are the sign, and then the CPU goes back under its warranty, which Intel extended to up to five years. Machine checks since the server's start: {mce} — the area Hardware shows them and the kernel's crashes.",
   "posture.old_microcode.title": "{cpu} started with old microcode ({microcode})",
-  "posture.old_microcode.why": "The kernel keeps a list of the microcode the makers released; this CPU started with older microcode than that (the kernel's own word: old_microcode «Vulnerable»). Newer microcode closes security holes or fixes faults of the CPU. It comes with a BIOS update of the board, or with an Unraid version that brings newer microcode — look for a BIOS update first."
+  "posture.old_microcode.why": "The kernel keeps a list of the microcode the makers released; this CPU started with older microcode than that (the kernel's own word: old_microcode «Vulnerable»). Newer microcode closes security holes or fixes faults of the CPU. It comes with a BIOS update of the board, or with an Unraid version that brings newer microcode — look for a BIOS update first.",
+  "fold.hw_wear": "{n} × a disk's wear or errors",
+  "entry.hw_wear": "{name}: {attr} grew to {raw} (+{grew} in 30 days) — a forerunner of a failing disk",
+  "entry.hw_wear_warning": "{name} (NVMe) reports a critical warning ({cw}) — spare, temperature, reliability or read-only",
+  "entry.hw_wear_media": "{name} (NVMe): {media} media errors (+{grew}) — data it could not read back correctly",
+  "entry.hw_wear_used": "{name} (NVMe) has used {used} % of its rated life",
+  "entry.hw_wear_unsafe": "{name} (NVMe): {unsafe} unsafe shutdowns (+{grew}) — power lost without a shutdown",
+  "entry.hw_wear_crc": "{name}: CRC errors on its cable grew to {raw} (+{grew} in 30 days) — mostly the cable",
+  "check.hw_wear": {"one": "{name} shows wear or errors in Unraid's SMART reading", "other": "{n} times a disk showed wear or errors, the newest: {name}"},
+  "check.hw_wear_how": "From Unraid's own SMART reading — no disk was woken for it. Reallocated, pending or uncorrectable sectors (5, 197, 198), reported uncorrectable errors (187) and command timeouts (188) that grow are the forerunners of a failing disk: make sure its data is in a backup and plan to replace it. An NVMe's critical warning or media errors mean the same for an SSD. CRC errors (199) are mostly the cable or the backplane; unsafe shutdowns are lost power (a parity check follows). More than 100 % of life used is no defect by itself — the drive estimates it.",
+  "notify.hw_wear": {"one": "Night watchman: {name} shows errors or wear", "other": "Night watchman: {n} disks show errors or wear"},
+  "adopt.hw_wear": "«I know, thanks»: this is known — it is noted again when it grows."
 }

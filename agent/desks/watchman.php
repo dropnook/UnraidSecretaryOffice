@@ -243,6 +243,7 @@ const WATCH_KINDS = [
     'hw_aer'                  => ['hw', false],     // PCIe errors: told when one couldn't be corrected (the entry's `important`), else many corrected in an hour
     'hw_throttle'             => ['hw', false],     // the CPU slowed down for heat more than a minute in an hour: a quiet line
     'hw_kernel'               => ['hw', false],     // the kernel stumbled (tainted): told when it died, met a bad page, a machine check or a stuck CPU (the entry's `important`)
+    'hw_wear'                 => ['hw', false],     // a disk's wear and errors from Unraid's SMART reading: told when they mean harm (the entry's `important`), else quiet
 ];
 
 /**
@@ -252,7 +253,7 @@ const WATCH_KINDS = [
  * (watchmanBookSplit()). Each new ability's step adds its kinds here.
  */
 const WATCH_KINDS_MORE = [
-    'hw_mce', 'hw_ecc', 'hw_aer', 'hw_throttle', 'hw_kernel',       // the hardware (watchman-hw.php, steps 9–11)
+    'hw_mce', 'hw_ecc', 'hw_aer', 'hw_throttle', 'hw_kernel', 'hw_wear',     // the hardware (watchman-hw.php, steps 9–11)
 ];
 
 /**
@@ -494,6 +495,7 @@ function watchmanPaths(): array
         // boot his last look was in — the night shift doesn't read it)
         'hw'            => watchmanHwPaths(),
         'hw_file'       => DATA_DIR . '/watchman/hw.json',
+        'smart'         => WA_SMART_DIR,                     // Unraid's own SMART reading per disk (RAM): the disks' wear, never a smartctl
     ];
 }
 
@@ -1533,7 +1535,7 @@ function watchmanRound(array $paths, string $dir, int $hired, ?int $now = null, 
     // why a parity check runs (agent/lib/paritywhy.php) — the day's rounds only (the night shift has no parity paths)
     $parity = paritywhyLook($paths, is_array($snap['state']['parity'] ?? null) ? $snap['state']['parity'] : null, $boot, $btime, $now);
     // the hardware's counters (watchman-hw.php: /proc and /sys, the day's rounds and the night shift's)
-    $hwLook = isset($paths['hw']) ? watchmanHwLook((array) $paths['hw']) : null;
+    $hwLook = isset($paths['hw']) ? watchmanHwLook((array) $paths['hw']) + ['wear' => isset($paths['hw_file']) ? watchmanHwWearLook($paths) : null] : null;
 
     return watchmanLocked($dir, function () use ($dir, $hired, $now, $fresh, $events, $pos, $read, $seen, $notify, $acks, $t0, $look, $facts, $snapKnown, $snapRes,
                                                $office, $paths, $boot, $btime, $netLook, $netServer, $parity, $kopiaLook, $netContainers, $automounts,
